@@ -14,13 +14,20 @@
 #include "UploadManager.h"
 #include "Math/vec.h"
 #include "Math/mat.h"
+#include "VulkanXRSession.h"
 
 class CachedTexture;
 
 class VulkanRenderDevice : public RenderDevice
 {
 public:
-	VulkanRenderDevice(Widget* viewport);
+	// xrOverrides is null for normal flatscreen play; when set (M2 step
+	// 4/10), its instanceExtensions/deviceExtensions are folded into the
+	// existing VulkanInstanceBuilder/VulkanDeviceBuilder RequireExtension
+	// calls, and physicalDevice (if non-null) forces device selection to
+	// that exact VkPhysicalDevice instead of VulkanDeviceBuilder's own
+	// scoring - see VulkanRenderDevice.cpp.
+	VulkanRenderDevice(Widget* viewport, const VulkanXRInitOverrides* xrOverrides = nullptr);
 	~VulkanRenderDevice();
 
 	void Flush(bool AllowPrecache) override;

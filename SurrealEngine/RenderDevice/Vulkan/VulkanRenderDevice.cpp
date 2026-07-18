@@ -4,23 +4,26 @@
 #include "CachedTexture.h"
 #include "Utils/Logger.h"
 #include <surrealgpu/vulkanbuilders.h>
+#include <surrealgpu/vulkancompatibledevice.h>
 #include <surrealgpu/vulkanswapchain.h>
 #include <surrealgpu/vulkansurface.h>
 #include <surrealwidgets/core/widget.h>
 #include <cmath>
 #include <stdexcept>
 
-VulkanRenderDevice::VulkanRenderDevice(Widget* InViewport)
+VulkanRenderDevice::VulkanRenderDevice(Widget* InViewport, const VulkanXRInitOverrides* xrOverrides)
 {
 	Viewport = InViewport;
 
 	try
 	{
-		std::shared_ptr<VulkanInstance> instance = VulkanInstanceBuilder()
+		auto instanceBuilder = VulkanInstanceBuilder()
 			.RequireExtensions(Viewport->GetVulkanInstanceExtensions())
 			.OptionalSwapchainColorspace()
-			.DebugLayer(UseDebugLayer)
-			.Create();
+			.DebugLayer(UseDebugLayer);
+		if (xrOverrides)
+			instanceBuilder.RequireExtensions(xrOverrides->instanceExtensions);
+		std::shared_ptr<VulkanInstance> instance = instanceBuilder.Create();
 
 		auto surface = std::make_shared<VulkanSurface>(instance, Viewport->CreateVulkanSurface(instance->Instance));
 		if (!surface)
@@ -32,7 +35,37 @@ VulkanRenderDevice::VulkanRenderDevice(Widget* InViewport)
 		deviceBuilder.Surface(surface);
 		deviceBuilder.RequireExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
 		deviceBuilder.RequireExtension(VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME);
-		deviceBuilder.SelectDevice(VkDeviceIndex);
+		if (xrOverrides)
+		{
+			for (const std::string& ext : xrOverrides->deviceExtensions)
+				deviceBuilder.RequireExtension(ext);
+		}
+
+		if (xrOverrides && xrOverrides->physicalDevice)
+		{
+			// The OpenXR runtime mandates this exact physical device (it backs
+			// the HMD compositor) - find it in the compatible-device list
+			// rather than letting VulkanDeviceBuilder's own scoring pick a
+			// different GPU on a multi-GPU system.
+			VkPhysicalDevice requiredDevice = (VkPhysicalDevice)xrOverrides->physicalDevice;
+			std::vector<VulkanCompatibleDevice> candidates = deviceBuilder.FindDevices(instance);
+			int matchedIndex = -1;
+			for (size_t i = 0; i < candidates.size(); i++)
+			{
+				if (candidates[i].Device->Device == requiredDevice)
+				{
+					matchedIndex = (int)i;
+					break;
+				}
+			}
+			if (matchedIndex < 0)
+				throw std::runtime_error("OpenXR-required Vulkan physical device is not in the compatible device list");
+			deviceBuilder.SelectDevice(matchedIndex);
+		}
+		else
+		{
+			deviceBuilder.SelectDevice(VkDeviceIndex);
+		}
 		Device = deviceBuilder.Create(surface->Instance);
 
 		bool supportsBindless =
