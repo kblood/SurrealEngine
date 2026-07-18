@@ -2,6 +2,14 @@ cmake_minimum_required(VERSION 3.15)
 
 project(SurrealEngine)
 
+include(FetchContent)
+FetchContent_Declare(
+	openxr
+	GIT_REPOSITORY https://github.com/KhronosGroup/OpenXR-SDK.git
+	GIT_TAG release-1.0.34
+)
+FetchContent_MakeAvailable(openxr)
+
 add_subdirectory(Thirdparty/openmpt)
 add_subdirectory(SurrealGPU)
 add_subdirectory(SurrealWidgets)
@@ -313,6 +321,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/RenderDevice/Vulkan/UploadManager.h
 	SurrealEngine/RenderDevice/Vulkan/VulkanRenderDevice.cpp
 	SurrealEngine/RenderDevice/Vulkan/VulkanRenderDevice.h
+	SurrealEngine/RenderDevice/Vulkan/VulkanXRSession.cpp
+	SurrealEngine/RenderDevice/Vulkan/VulkanXRSession.h
 	SurrealEngine/Package/Package.cpp
 	SurrealEngine/Package/Package.h
 	SurrealEngine/Package/PackageManager.cpp
@@ -666,7 +676,7 @@ source_group("Thirdparty\\dumb\\include" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOU
 source_group("Thirdparty\\dumb\\include\\internal" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/Thirdparty/dumb/include/internal/.+")
 source_group("Thirdparty\\miniz" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/Thirdparty/miniz/.+")
 
-include_directories(SurrealEngine SurrealWidgets/include Thirdparty SurrealGPU/include Thirdparty/openmpt Thirdparty/openal-soft/include Thirdparty/miniz)
+include_directories(SurrealEngine SurrealWidgets/include Thirdparty SurrealGPU/include Thirdparty/openmpt Thirdparty/openal-soft/include Thirdparty/miniz ${openxr_SOURCE_DIR}/include)
 
 if(NOT APPLE AND SDL2_FOUND)
 	include_directories(SurrealEngine ${SDL2_INCLUDE_DIRS})
@@ -714,6 +724,8 @@ set_target_properties(SurrealVideo PROPERTIES C_STANDARD 17)
 add_library(SurrealCommon STATIC ${SURREALCOMMON_SOURCES} ${THIRDPARTY_SOURCES})
 set_target_properties(SurrealCommon PROPERTIES CXX_STANDARD 20)
 target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Precomp.h>)
+
+target_link_libraries(SurrealCommon openxr_loader)
 
 add_executable(SurrealEngine WIN32 MACOSX_BUNDLE ${SURREALENGINE_SOURCES})
 target_link_libraries(SurrealEngine SurrealCommon ${SURREALCOMMON_LIBS})
