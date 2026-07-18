@@ -35,11 +35,18 @@ VulkanXRSession::VulkanXRSession()
 	}
 	LogMessage("OpenXR probe: runtime reports " + std::to_string(extCount) + " extensions, XR_KHR_vulkan_enable2=" + (hasVulkan2 ? "yes" : "no") + " XR_KHR_vulkan_enable=" + (hasVulkan ? "yes" : "no"));
 
+	// Prefer XR_KHR_vulkan_enable (legacy "enable1") over enable2: it fits
+	// SurrealGPU's existing VulkanInstanceBuilder/VulkanDeviceBuilder
+	// query-then-build pattern (xrGetVulkanInstanceExtensionsKHR /
+	// xrGetVulkanGraphicsDeviceKHR feed into our own vkCreateInstance/
+	// vkCreateDevice calls), whereas enable2 wants to take over instance/
+	// device creation itself via xrCreateVulkanInstanceKHR/
+	// xrCreateVulkanDeviceKHR. See VR_IMPLEMENTATION_PLAN.md M2 step 4.
 	std::vector<const char*> wantedExtensions;
-	if (hasVulkan2)
-		wantedExtensions.push_back(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
-	else if (hasVulkan)
+	if (hasVulkan)
 		wantedExtensions.push_back(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME);
+	else if (hasVulkan2)
+		wantedExtensions.push_back(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
 	else
 	{
 		lastError = "runtime does not advertise a Vulkan graphics binding extension";
