@@ -618,10 +618,10 @@ void VulkanRenderDevice::DrawTile(FSceneNode* Frame, FTextureInfo& Info, float X
 		uint32_t* iptr = alloc.iptr;
 		uint32_t vpos = alloc.vpos;
 
-		vptr[0] = { 0, vec3(RFX2 * Z * (X - Frame->FX2),      RFY2 * Z * (Y - Frame->FY2),      Z), vec2(u0, v0), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
-		vptr[1] = { 0, vec3(RFX2 * Z * (X + XL - Frame->FX2), RFY2 * Z * (Y - Frame->FY2),      Z), vec2(u1, v0), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
-		vptr[2] = { 0, vec3(RFX2 * Z * (X + XL - Frame->FX2), RFY2 * Z * (Y + YL - Frame->FY2), Z), vec2(u1, v1), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
-		vptr[3] = { 0, vec3(RFX2 * Z * (X - Frame->FX2),      RFY2 * Z * (Y + YL - Frame->FY2), Z), vec2(u0, v1), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
+		vptr[0] = { 0, vec3(RFX2 * Z * (X - ProjCenterX),      RFY2 * Z * (Y - ProjCenterY),      Z), vec2(u0, v0), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
+		vptr[1] = { 0, vec3(RFX2 * Z * (X + XL - ProjCenterX), RFY2 * Z * (Y - ProjCenterY),      Z), vec2(u1, v0), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
+		vptr[2] = { 0, vec3(RFX2 * Z * (X + XL - ProjCenterX), RFY2 * Z * (Y + YL - ProjCenterY), Z), vec2(u1, v1), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
+		vptr[3] = { 0, vec3(RFX2 * Z * (X - ProjCenterX),      RFY2 * Z * (Y + YL - ProjCenterY), Z), vec2(u0, v1), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec4(r, g, b, a), textureBinds };
 
 		iptr[0] = vpos;
 		iptr[1] = vpos + 1;
@@ -706,8 +706,8 @@ void VulkanRenderDevice::Draw2DLine(FSceneNode* Frame, vec4 Color, uint32_t Line
 		uint32_t* iptr = alloc.iptr;
 		uint32_t vpos = alloc.vpos;
 
-		vptr[0] = { 0, vec3(RFX2 * P1.z * (P1.x - Frame->FX2), RFY2 * P1.z * (P1.y - Frame->FY2), P1.z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
-		vptr[1] = { 0, vec3(RFX2 * P2.z * (P2.x - Frame->FX2), RFY2 * P2.z * (P2.y - Frame->FY2), P2.z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
+		vptr[0] = { 0, vec3(RFX2 * P1.z * (P1.x - ProjCenterX), RFY2 * P1.z * (P1.y - ProjCenterY), P1.z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
+		vptr[1] = { 0, vec3(RFX2 * P2.z * (P2.x - ProjCenterX), RFY2 * P2.z * (P2.y - ProjCenterY), P2.z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
 
 		iptr[0] = vpos;
 		iptr[1] = vpos + 1;
@@ -730,10 +730,10 @@ void VulkanRenderDevice::Draw2DPoint(FSceneNode* Frame, vec4 Color, uint32_t Lin
 		uint32_t* iptr = alloc.iptr;
 		uint32_t vpos = alloc.vpos;
 
-		vptr[0] = { 0, vec3(RFX2 * Z * (X1 - Frame->FX2 - 0.5f), RFY2 * Z * (Y1 - Frame->FY2 - 0.5f), Z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
-		vptr[1] = { 0, vec3(RFX2 * Z * (X2 - Frame->FX2 + 0.5f), RFY2 * Z * (Y1 - Frame->FY2 - 0.5f), Z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
-		vptr[2] = { 0, vec3(RFX2 * Z * (X2 - Frame->FX2 + 0.5f), RFY2 * Z * (Y2 - Frame->FY2 + 0.5f), Z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
-		vptr[3] = { 0, vec3(RFX2 * Z * (X1 - Frame->FX2 - 0.5f), RFY2 * Z * (Y2 - Frame->FY2 + 0.5f), Z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
+		vptr[0] = { 0, vec3(RFX2 * Z * (X1 - ProjCenterX - 0.5f), RFY2 * Z * (Y1 - ProjCenterY - 0.5f), Z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
+		vptr[1] = { 0, vec3(RFX2 * Z * (X2 - ProjCenterX + 0.5f), RFY2 * Z * (Y1 - ProjCenterY - 0.5f), Z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
+		vptr[2] = { 0, vec3(RFX2 * Z * (X2 - ProjCenterX + 0.5f), RFY2 * Z * (Y2 - ProjCenterY + 0.5f), Z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
+		vptr[3] = { 0, vec3(RFX2 * Z * (X1 - ProjCenterX - 0.5f), RFY2 * Z * (Y2 - ProjCenterY + 0.5f), Z), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color, textureBinds };
 
 		iptr[0] = vpos;
 		iptr[1] = vpos + 1;
@@ -977,8 +977,6 @@ void VulkanRenderDevice::SetSceneNode(FSceneNode* Frame)
 	CurrentFrame = Frame;
 	Aspect = Frame->FY / Frame->FX;
 	RProjZ = (float)std::tan(radians(Frame->FovAngle) * 0.5);
-	RFX2 = 2.0f * RProjZ / Frame->FX;
-	RFY2 = 2.0f * RProjZ * Aspect / Frame->FY;
 
 	viewportdesc = {};
 	viewportdesc.x = (float)Frame->XB;
@@ -991,6 +989,17 @@ void VulkanRenderDevice::SetSceneNode(FSceneNode* Frame)
 
 	mat4 objectToProjection = Frame->ProjectionOverride ? Frame->Projection :
 		mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
+
+	// Derive the screen->view scale/center used by DrawTile/Draw2DLine/
+	// Draw2DPoint directly from the resolved projection matrix rather than
+	// FovAngle alone, so they stay correct under an asymmetric
+	// ProjectionOverride too. Algebraically identical to the old
+	// RFX2=2*RProjZ/FX, ProjCenter=FX2 formulas for a symmetric frustum
+	// (see VR_IMPLEMENTATION_PLAN.md M2 step 6 follow-up for the derivation).
+	RFX2 = 2.0f / (objectToProjection[0 + 0 * 4] * Frame->FX);
+	RFY2 = 2.0f / (objectToProjection[1 + 1 * 4] * Frame->FY);
+	ProjCenterX = (objectToProjection[0 + 2 * 4] + 1.0f) * Frame->FX * 0.5f;
+	ProjCenterY = (objectToProjection[1 + 2 * 4] + 1.0f) * Frame->FY * 0.5f;
 
 	// TBD; do this or do like UE1 does and do the transform on the CPU?
 	// maybe optionally do one or the other? transform on CPU can be super slow --Xaleros

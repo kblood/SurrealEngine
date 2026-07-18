@@ -38,12 +38,19 @@ void VisibleFrame::Process(const vec3& location, const mat4& worldToView, const 
 
 void VisibleFrame::SetupSceneFrame(const mat4& worldToView, const ViewportOverride* viewportOverride)
 {
+	// Use the render device's actual target size (normally the window size,
+	// but can be pinned smaller/larger via RenderDevice::SetFixedRenderSize
+	// - see RenderDevice.h) rather than the viewport's window-tracking size
+	// directly, so the GPU viewport set in SetSceneNode always matches the
+	// real framebuffer size instead of cropping/underfilling it. These are
+	// normally identical since Engine::Run() keeps viewport->SetViewportRect
+	// synced to the window every frame.
 	Frame.XB = engine->viewport->ViewportX();
 	Frame.YB = engine->viewport->ViewportY();
-	Frame.X = engine->viewport->ViewportWidth();
-	Frame.Y = engine->viewport->ViewportHeight();
-	Frame.FX = (float)engine->viewport->ViewportWidth();
-	Frame.FY = (float)engine->viewport->ViewportHeight();
+	Frame.X = Device->GetRenderWidth();
+	Frame.Y = Device->GetRenderHeight();
+	Frame.FX = (float)Device->GetRenderWidth();
+	Frame.FY = (float)Device->GetRenderHeight();
 
 	if (viewportOverride)
 	{
@@ -372,6 +379,21 @@ void VisibleFrame::DrawTranslucent()
 
 void VisibleFrame::DrawPortals()
 {
+	// Sky/warp/mirror subframes must render into the same viewport rect and
+	// with the same projection as this frame - otherwise, under a stereo
+	// (or any non-full-window) ViewportOverride, they'd fall back to a
+	// full-window GPU viewport and a symmetric FovAngle-derived projection,
+	// spilling across the other eye's half of the framebuffer. Passing this
+	// frame's own (already-resolved, possibly asymmetric) Projection and
+	// rect through is behavior-preserving for the non-stereo case too,
+	// since that's exactly what SetupSceneFrame would have derived anyway.
+	ViewportOverride subViewport;
+	subViewport.XB = Frame.XB;
+	subViewport.YB = Frame.YB;
+	subViewport.X = Frame.X;
+	subViewport.Y = Frame.Y;
+	subViewport.Projection = &Frame.Projection;
+
 	for (VisiblePortal& portal : Portals)
 	{
 		// BspClipper requires the visible spans list to be sorted
@@ -386,7 +408,7 @@ void VisibleFrame::DrawPortals()
 				Coords::Location(portal.SkyZone->Location()).ToMatrix();
 
 			VisibleFrame skyframe;
-			skyframe.Process(portal.SkyZone->Location(), skyToView, ViewRotation * Coords::Rotation(portal.SkyZone->Rotation()), MirrorFlag, PortalDepth + 1, portal.Spans);
+			skyframe.Process(portal.SkyZone->Location(), skyToView, ViewRotation * Coords::Rotation(portal.SkyZone->Rotation()), MirrorFlag, PortalDepth + 1, portal.Spans, vec4(0.0f, 0.0f, 0.0f, 1.0f), &subViewport);
 			Device->SetSceneNode(&skyframe.Frame);
 			skyframe.Draw();
 			Device->ClearZ();
@@ -409,7 +431,7 @@ void VisibleFrame::DrawPortals()
 				portalPlane = -portalPlane;
 
 			VisibleFrame portalframe;
-			portalframe.Process(newLocation, worldToView, rotation, MirrorFlag, PortalDepth + 1, portal.Spans, portalPlane);
+			portalframe.Process(newLocation, worldToView, rotation, MirrorFlag, PortalDepth + 1, portal.Spans, portalPlane, &subViewport);
 			Device->SetSceneNode(&portalframe.Frame);
 			portalframe.Draw();
 			Device->ClearZ();
@@ -424,7 +446,7 @@ void VisibleFrame::DrawPortals()
 			mat4 mirrorToView = Frame.WorldToView * mat4::translate(v) * mirrorRotation * mat4::translate(-v);
 
 			VisibleFrame mirrorframe;
-			mirrorframe.Process(ViewLocation.xyz(), mirrorToView, ViewRotation * Coords::FromMatrix(mirrorRotation).Inverse(), !MirrorFlag, PortalDepth + 1, portal.Spans);
+			mirrorframe.Process(ViewLocation.xyz(), mirrorToView, ViewRotation * Coords::FromMatrix(mirrorRotation).Inverse(), !MirrorFlag, PortalDepth + 1, portal.Spans, vec4(0.0f, 0.0f, 0.0f, 1.0f), &subViewport);
 			Device->SetSceneNode(&mirrorframe.Frame);
 			mirrorframe.Draw();
 			Device->ClearZ();

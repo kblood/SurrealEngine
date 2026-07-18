@@ -134,6 +134,15 @@ private:
 	float RProjZ = 0.0f;
 	float RFX2 = 0.0f;
 	float RFY2 = 0.0f;
+	// Screen-space center used by the RFX2/RFY2 screen->view formulas in
+	// DrawTile/Draw2DLine/Draw2DPoint. Equal to Frame->FX2/FY2 for a
+	// symmetric (on-axis) projection, but shifts under an asymmetric
+	// ProjectionOverride (e.g. a real per-eye OpenXR frustum) - derived
+	// directly from Frame->Projection so tiles/coronas/lines stay aligned
+	// with the 3D geometry instead of being shifted by the eye offset.
+	// See VR_IMPLEMENTATION_PLAN.md M2 step 6 follow-up.
+	float ProjCenterX = 0.0f;
+	float ProjCenterY = 0.0f;
 
 	bool IsLocked = false;
 
