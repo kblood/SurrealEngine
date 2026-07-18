@@ -177,12 +177,18 @@ void VulkanRenderDevice::Lock(vec4 InFlashScale, vec4 InFlashFog, vec4 ScreenCle
 	pushconstants.hitIndex = 0;
 	ForceHitIndex = -1;
 
-	// If frame textures no longer match the window or user settings, recreate them along with the swap chain
-	if (!Textures->Scene || Textures->Scene->Width != Viewport->GetNativePixelWidth() || Textures->Scene->Height != Viewport->GetNativePixelHeight() ||Textures->Scene->Multisample != GetSettingsMultisample())
+	// If frame textures no longer match the target render size or user
+	// settings, recreate them along with the swap chain. Target render
+	// size is normally the window's client area, but can be pinned to a
+	// fixed size (e.g. the OpenXR swapchain resolution) via
+	// SetFixedRenderSize - see RenderDevice.h.
+	int targetWidth = GetRenderWidth();
+	int targetHeight = GetRenderHeight();
+	if (!Textures->Scene || Textures->Scene->Width != targetWidth || Textures->Scene->Height != targetHeight || Textures->Scene->Multisample != GetSettingsMultisample())
 	{
 		Framebuffers->DestroySceneFramebuffer();
 		Textures->Scene.reset();
-		Textures->Scene.reset(new SceneTextures(this, Viewport->GetNativePixelWidth(), Viewport->GetNativePixelHeight(), GetSettingsMultisample()));
+		Textures->Scene.reset(new SceneTextures(this, targetWidth, targetHeight, GetSettingsMultisample()));
 		RenderPasses->CreateRenderPass();
 		RenderPasses->CreatePipelines();
 		Framebuffers->CreateSceneFramebuffer();
@@ -857,8 +863,8 @@ void VulkanRenderDevice::ReadPixels(FColor* Pixels)
 	// Convert from rgba16f to bgra8 using the GPU:
 	auto srcimage = Textures->Scene->PPImage[GammaCorrectScreenshots ? 1 : 0].get();
 
-	int w = Viewport->GetNativePixelWidth();
-	int h = Viewport->GetNativePixelHeight();
+	int w = GetRenderWidth();
+	int h = GetRenderHeight();
 	void* data = Pixels;
 
 	auto dstimage = ImageBuilder()
@@ -983,11 +989,12 @@ void VulkanRenderDevice::SetSceneNode(FSceneNode* Frame)
 	viewportdesc.maxDepth = 1.0f;
 	commands->setViewport(0, 1, &viewportdesc);
 
-	pushconstants.objectToProjection = mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
+	mat4 objectToProjection = Frame->ProjectionOverride ? Frame->Projection :
+		mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
 
 	// TBD; do this or do like UE1 does and do the transform on the CPU?
 	// maybe optionally do one or the other? transform on CPU can be super slow --Xaleros
-	pushconstants.objectToProjection = pushconstants.objectToProjection * Frame->WorldToView * Frame->ObjectToWorld;
+	pushconstants.objectToProjection = objectToProjection * Frame->WorldToView * Frame->ObjectToWorld;
 
 	pushconstants.objectToView = Frame->WorldToView * Frame->ObjectToWorld;
 	pushconstants.nearClip = Frame->NearClip;

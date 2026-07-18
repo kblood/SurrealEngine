@@ -6,7 +6,7 @@
 #include "RenderDevice/RenderDevice.h"
 #include "UObject/UWindow.h"
 
-void VisibleFrame::Process(const vec3& location, const mat4& worldToView, const Coords& viewRotation, bool mirrorFlag, int portalDepth, const Array<PortalSpan>& portalSpans, const vec4& portalPlane)
+void VisibleFrame::Process(const vec3& location, const mat4& worldToView, const Coords& viewRotation, bool mirrorFlag, int portalDepth, const Array<PortalSpan>& portalSpans, const vec4& portalPlane, const ViewportOverride* viewportOverride)
 {
 	engine->render->Stats.Frames++;
 
@@ -15,7 +15,7 @@ void VisibleFrame::Process(const vec3& location, const mat4& worldToView, const 
 	MirrorFlag = mirrorFlag;
 	PortalDepth = portalDepth;
 
-	SetupSceneFrame(worldToView);
+	SetupSceneFrame(worldToView, viewportOverride);
 
 	Clipper.numDrawSpans = 0;
 	Clipper.numSurfs = 0;
@@ -36,7 +36,7 @@ void VisibleFrame::Process(const vec3& location, const mat4& worldToView, const 
 	ProcessNode(&engine->Level->Model->Nodes[0]);
 }
 
-void VisibleFrame::SetupSceneFrame(const mat4& worldToView)
+void VisibleFrame::SetupSceneFrame(const mat4& worldToView, const ViewportOverride* viewportOverride)
 {
 	Frame.XB = engine->viewport->ViewportX();
 	Frame.YB = engine->viewport->ViewportY();
@@ -45,7 +45,16 @@ void VisibleFrame::SetupSceneFrame(const mat4& worldToView)
 	Frame.FX = (float)engine->viewport->ViewportWidth();
 	Frame.FY = (float)engine->viewport->ViewportHeight();
 
-	if (engine->dxRootWindow && engine->dxRootWindow->RenderViewportSet)
+	if (viewportOverride)
+	{
+		Frame.XB = viewportOverride->XB;
+		Frame.YB = viewportOverride->YB;
+		Frame.X = viewportOverride->X;
+		Frame.Y = viewportOverride->Y;
+		Frame.FX = (float)viewportOverride->X;
+		Frame.FY = (float)viewportOverride->Y;
+	}
+	else if (engine->dxRootWindow && engine->dxRootWindow->RenderViewportSet)
 	{
 		// DeusEX expected a 4:3 monitor.
 		// The unrealscript code assumes that certain aspect ratio calculations would produce cinematic black bars.
@@ -67,11 +76,19 @@ void VisibleFrame::SetupSceneFrame(const mat4& worldToView)
 	Frame.ObjectToWorld = mat4::identity();
 	Frame.WorldToView = worldToView;
 	Frame.FovAngle = engine->CameraFovAngle;
-	float Aspect = Frame.FY / Frame.FX;
-	float RProjZ = (float)std::tan(radians(Frame.FovAngle) * 0.5f);
-	float RFX2 = 2.0f * RProjZ / Frame.FX;
-	float RFY2 = 2.0f * RProjZ * Aspect / Frame.FY;
-	Frame.Projection = mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
+
+	if (viewportOverride && viewportOverride->Projection)
+	{
+		Frame.Projection = *viewportOverride->Projection;
+		Frame.ProjectionOverride = true;
+	}
+	else
+	{
+		float Aspect = Frame.FY / Frame.FX;
+		float RProjZ = (float)std::tan(radians(Frame.FovAngle) * 0.5f);
+		Frame.Projection = mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
+		Frame.ProjectionOverride = false;
+	}
 }
 
 void VisibleFrame::ProcessNode(BspNode* node)

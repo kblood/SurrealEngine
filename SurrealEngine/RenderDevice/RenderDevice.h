@@ -27,6 +27,11 @@ struct FSceneNode
 	mat4 WorldToView;
 	mat4 Projection;
 
+	// When true, SetSceneNode uses Projection as-is (e.g. an asymmetric
+	// per-eye OpenXR projection) instead of deriving a symmetric frustum
+	// from FovAngle. See VR_IMPLEMENTATION_PLAN.md M2 step 6.
+	bool ProjectionOverride = false;
+
 	vec4 NearClip = vec4(0.0f, 0.0f, 1.0f, -1.0f);
 	float Zoom = 1.0f;
 };
@@ -127,6 +132,17 @@ public:
 	Widget* Viewport = nullptr;
 	bool PrecacheOnFlip = false;
 	float Brightness = 0.5f;
+
+	// When set (>0), the scene render target is pinned to this size instead
+	// of auto-resizing to the OS window's client area every Lock() call.
+	// Used by VR to size the scene buffer to the OpenXR swapchain
+	// resolution, which is independent of (and usually larger than) the
+	// desktop mirror window. See VR_IMPLEMENTATION_PLAN.md M2 step 8.
+	int FixedRenderWidth = 0;
+	int FixedRenderHeight = 0;
+	void SetFixedRenderSize(int width, int height) { FixedRenderWidth = width; FixedRenderHeight = height; }
+	int GetRenderWidth() const;
+	int GetRenderHeight() const;
 
 	// 2D rendering
 	bool IsOrtho = false;

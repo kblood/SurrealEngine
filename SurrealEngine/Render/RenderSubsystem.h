@@ -100,6 +100,12 @@ public:
 
 private:
 	void DrawScene();
+	// --debugstereo diagnostic: renders the scene twice (fake-IPD offset
+	// camera, left/right halves of the window) with no OpenXR session
+	// involved - proves the viewport-override + per-eye view-matrix path
+	// visually before real VR session/swapchain code exists.
+	// See VR_IMPLEMENTATION_PLAN.md M2 step 5.
+	void DrawSceneStereo();
 
 	std::unique_ptr<LightmapTexture> CreateLightmapTexture();
 

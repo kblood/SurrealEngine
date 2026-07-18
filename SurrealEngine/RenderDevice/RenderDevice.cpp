@@ -10,6 +10,16 @@
 #include <surrealwidgets/core/colorf.h>
 #include <surrealwidgets/core/widget.h>
 
+int RenderDevice::GetRenderWidth() const
+{
+	return FixedRenderWidth > 0 ? FixedRenderWidth : Viewport->GetNativePixelWidth();
+}
+
+int RenderDevice::GetRenderHeight() const
+{
+	return FixedRenderHeight > 0 ? FixedRenderHeight : Viewport->GetNativePixelHeight();
+}
+
 RenderDevice::RenderDevice()
 {
 	const auto& settings = LauncherSettings::Get();

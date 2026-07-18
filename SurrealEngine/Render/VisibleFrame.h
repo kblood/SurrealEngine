@@ -14,10 +14,25 @@
 #include "UObject/ULevel.h"
 #include "UObject/UClient.h"
 
+// Explicit viewport rect override for VisibleFrame::Process, used by the
+// --debugstereo diagnostic (and, later, real per-eye VR rendering) to
+// render into a sub-rect of the window instead of the full viewport
+// SetupSceneFrame would otherwise derive from engine->viewport. Optionally
+// also carries an explicit (possibly asymmetric) projection matrix - when
+// set, this is used verbatim instead of the symmetric FovAngle-derived
+// frustum, both for the CPU-side BSP clipper and (via
+// FSceneNode::ProjectionOverride) the render device. See
+// VR_IMPLEMENTATION_PLAN.md M2 step 6.
+struct ViewportOverride
+{
+	int XB, YB, X, Y;
+	const mat4* Projection = nullptr;
+};
+
 class VisibleFrame
 {
 public:
-	void Process(const vec3& location, const mat4& worldToView, const Coords& viewRotation, bool mirrorFlag = false, int portalDepth = 0, const Array<PortalSpan>& portalSpans = {}, const vec4& portalPlane = vec4(0.0f, 0.0f, 0.0f, 1.0f));
+	void Process(const vec3& location, const mat4& worldToView, const Coords& viewRotation, bool mirrorFlag = false, int portalDepth = 0, const Array<PortalSpan>& portalSpans = {}, const vec4& portalPlane = vec4(0.0f, 0.0f, 0.0f, 1.0f), const ViewportOverride* viewportOverride = nullptr);
 	void Draw();
 	void DrawCoronas();
 
@@ -40,7 +55,7 @@ public:
 	Array<VisiblePortal> Portals;
 
 private:
-	void SetupSceneFrame(const mat4& worldToView);
+	void SetupSceneFrame(const mat4& worldToView, const ViewportOverride* viewportOverride);
 	void ProcessNode(BspNode* node);
 	void ProcessNodeSurface(BspNode* node, bool front);
 	void SortTranslucent();

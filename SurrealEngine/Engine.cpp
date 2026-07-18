@@ -3,6 +3,7 @@
 #include "Engine.h"
 #include "Utils/File.h"
 #include "Utils/StrTools.h"
+#include "Utils/CommandLine.h"
 #include "Utils/SHA1Sum.h"
 #include "Render/RenderSubsystem.h"
 #include "Package/PackageManager.h"
@@ -96,6 +97,24 @@ void Engine::Run()
 
 	audiodev->InitDevice();
 	render = std::make_unique<RenderSubsystem>(window->GetRenderDevice());
+
+	if (commandline && commandline->HasArg("", "--debugfixedsize"))
+	{
+		// Non-interactive diagnostic: proves the scene render target can be
+		// pinned to a size independent of the OS window (needed for VR,
+		// where the OpenXR swapchain resolution has nothing to do with the
+		// desktop mirror window size), without needing a real OpenXR
+		// session. See VR_IMPLEMENTATION_PLAN.md M2 step 8.
+		std::string sizeArg = commandline->GetArg("", "--debugfixedsize");
+		size_t xpos = sizeArg.find('x');
+		if (xpos != std::string::npos)
+		{
+			int w = std::atoi(sizeArg.substr(0, xpos).c_str());
+			int h = std::atoi(sizeArg.substr(xpos + 1).c_str());
+			if (w > 0 && h > 0)
+				render->Device->SetFixedRenderSize(w, h);
+		}
+	}
 
 	if (engine->LaunchInfo.ue1Version > 219 && !client->StartupFullscreen)
 		viewport->bWindowsMouseAvailable() = true;

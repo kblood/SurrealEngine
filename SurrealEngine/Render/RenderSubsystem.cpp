@@ -6,6 +6,7 @@
 #include "UObject/USubsystem.h"
 #include "VM/ScriptCall.h"
 #include "Engine.h"
+#include "Utils/CommandLine.h"
 
 RenderSubsystem::RenderSubsystem(RenderDevice* renderdevice) : Device(renderdevice)
 {
@@ -40,7 +41,10 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed)
 
 	if (engine->LaunchInfo.ue1Version <= 219 || engine->console->bNoDrawWorld() == false)
 	{
-		DrawScene();
+		if (commandline && commandline->HasArg("", "--debugstereo"))
+			DrawSceneStereo();
+		else
+			DrawScene();
 		RenderOverlays();
 		if (engine->LaunchInfo.IsDeusEx())
 			PostRenderFlash();
