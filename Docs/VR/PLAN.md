@@ -506,3 +506,10 @@ fully-non-interactive verification strategy for each step, and the one step
   analogous latent V-orientation issue, invisible on symmetric wall
   textures) in `WEBXR_IMPLEMENTATION_PLAN.md`'s M2 status section. Next:
   M3 (bindless-texture-model redesign).
+- 2026-07-19 (continued): **Post-M2 audit + next-steps plan.** Verified repo
+  state (all branches synced with `fork`, native backends untouched),
+  re-scoped M3 (see `WEBXR_IMPLEMENTATION_PLAN.md` — the bindless problem was
+  already sidestepped by M2's fixed-slot model, so M3 is really "cache
+  per-draw bind groups" not "port a bindless design"), and confirmed the
+  `vr-m2` OpenXR blocker is still active. Full prioritized task list in
+  `Docs/VR/NEXT_STEPS_PLAN.md`.

@@ -332,7 +332,47 @@ post-quit `querySelector`-on-garbage-string console error from Emscripten's
 SDL2-port teardown path still fires; still doesn't affect tick-counter
 correctness, still not root-caused.
 
-Next: M3 (bindless-texture-model redesign) — retarget
-`DescriptorSetManager`'s existing overflow-safety-valve policy (flush-and-
-clear when the fixed-size array fills) from Vulkan descriptor-set updates to
-WebGPU bind-group recreation.
+## M3: re-scoped (2026-07-19 audit)
+
+The original M3 framing above — "retarget `DescriptorSetManager`'s
+overflow-safety-valve policy from Vulkan descriptor-set updates to WebGPU
+bind-group recreation" — turned out to not match what M2 actually built.
+**M2's `WebGPURenderDevice` never uses `DescriptorSetManager` at all**; it
+mirrors D3D11's fixed-4-texture-slot model from the start (see "Key
+architectural finding" in the M2 plan: WebGPU has no stable equivalent of
+Vulkan's 16,536-entry bindless descriptor array, so M2 was designed to
+sidestep it, not port it). That sidestep already happened, by construction,
+before M3 was ever started — so a "bindless redesign" milestone has nothing
+left to redesign.
+
+What actually remains in the code as of this audit:
+
+- **Per-draw bind-group creation**: `DrawEntry` (`WebGPURenderDevice.cpp:500-546`)
+  calls `wgpuDeviceCreateBindGroup` + `wgpuBindGroupRelease` on every draw
+  call, every frame — a deliberate M2 simplification (comment at line 513).
+  This is the real remaining work: cache bind groups keyed by the 4
+  `WebGPUCachedTexture*` + 3 sampler-mode ints already stored per
+  `WebGPUDrawBatchEntry` (`WebGPURenderDevice.h:15-28`), invalidating on
+  texture destruction/update (`WebGPUTextureManager::Flush`,
+  `UpdateTextureRect`).
+- **Batch fragmentation** on texture/sampler change (`SetDescriptorSet`,
+  lines 401-443) is inherent to the fixed-slot model, same as D3D11 —
+  acceptable unless measurement says otherwise.
+- **Geometry buffer sizing** (`VertexBufferCapacity = 16*1024`,
+  `IndexBufferCapacity = 32*1024`, `WebGPURenderDevice.h:96-97`) forces a
+  mid-frame submit/reopen when full on larger maps — cheap to raise, worth
+  measuring first.
+- **`binding_array<texture_2d<f32>>`** (the actual WGSL analogue of
+  bindless) was still an unshipped proposal as of the 2026-07 recon
+  (`WEBXR_PORT_PLAN.md`). Not building on it now — revisit only if the
+  fixed-slot model proves an actual bottleneck on Quest 3 hardware during
+  M4/M5 testing.
+
+Re-scoped M3 plan: (1) measure frame time + draw/buffer stats on a heavier
+map than `DM-Deck16][` in desktop Chrome; (2) implement the bind-group
+cache; (3) raise buffer sizes if step 1 shows multiple submits per frame.
+Full task breakdown in `Docs/VR/NEXT_STEPS_PLAN.md` (Task 5). Whether steps
+1-3 are *sufficient* for Quest 3 browser performance can't be answered until
+M4 runs on the headset — that's an M4/M5 finding, not an M3 blocker. If this
+re-scope holds, M3 is small (days, not weeks), and **M4 (WebXR stereo
+session) becomes the next substantial milestone.**
