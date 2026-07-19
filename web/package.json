@@ -1,0 +1,8 @@
+{
+  "name": "surrealengine-web-harness",
+  "private": true,
+  "description": "Dev/test-only npm deps for SurrealEngine's Emscripten/WebXR browser harness (web/). Not part of the C++ build.",
+  "devDependencies": {
+    "iwer": "^2.3.0"
+  }
+}
