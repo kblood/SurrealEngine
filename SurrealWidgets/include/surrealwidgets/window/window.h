@@ -272,7 +272,8 @@ enum class RenderAPI
 	OpenGL,
 	D3D11,
 	D3D12,
-	Metal
+	Metal,
+	WebGPU
 };
 
 enum class WidgetType

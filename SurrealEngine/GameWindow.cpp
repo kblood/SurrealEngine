@@ -3,12 +3,18 @@
 #include "GameWindow.h"
 #include "LauncherSettings.h"
 #include "RenderDevice/RenderDevice.h"
+#ifndef __EMSCRIPTEN__
 #include <surrealgpu/vulkansurface.h>
 #include <surrealgpu/vulkancompatibledevice.h>
 #include <surrealgpu/vulkanbuilders.h>
+#endif
 
 GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI) : Widget(nullptr, WidgetType::Window, renderAPI), windowHost(windowHost)
 {
+#ifndef __EMSCRIPTEN__
+	// No icon PNGs are preloaded for M1 (no SurrealEngine.pk3, no UI ever
+	// rendered) - skip rather than have Image::LoadResource throw on a file
+	// that doesn't exist. See WEBXR_IMPLEMENTATION_PLAN.md M1.
 	SetWindowIcon({
 		Image::LoadResource("surreal-engine-icon-16.png"),
 		Image::LoadResource("surreal-engine-icon-24.png"),
@@ -18,6 +24,7 @@ GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI) : Widget
 		Image::LoadResource("surreal-engine-icon-128.png"),
 		Image::LoadResource("surreal-engine-icon-256.png")
 		});
+#endif
 
 	device = RenderDevice::Create(this, renderAPI);
 	SetCanvas(std::make_unique<RenderDeviceCanvas>(device.get()));
@@ -161,6 +168,8 @@ std::unique_ptr<GameWindow> GameWindow::Create(GameWindowHost* windowHost)
 	case RenderDeviceType::Vulkan: api = RenderAPI::Vulkan; break;
 	case RenderDeviceType::D3D11: api = RenderAPI::D3D11; break;
 	case RenderDeviceType::D3D12: api = RenderAPI::D3D12; break;
+	case RenderDeviceType::Null: api = RenderAPI::Bitmap; break;
+	case RenderDeviceType::WebGPU: api = RenderAPI::WebGPU; break;
 	}
 	return std::make_unique<GameWindow>(windowHost, api);
 }

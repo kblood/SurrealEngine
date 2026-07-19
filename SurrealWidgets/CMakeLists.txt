@@ -12,7 +12,7 @@ else()
 	option(ENABLE_SDL2 "Enable SDL2 backend. Optional on all platforms" ON)
 endif()
 
-if (UNIX AND NOT APPLE)
+if (UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
 	include(FindPkgConfig)
 	pkg_check_modules(DBUS dbus-1)
 	if (!DBUS_FOUND)
@@ -33,7 +33,10 @@ endif()
 # SDL3 finding stuff
 # Optional on all platforms
 # If both SDL3 and SDL2 are available, only SDL3 support will be enabled.
-if(ENABLE_SDL3)
+# Skipped under Emscripten: there is no discoverable SDL2/SDL3 package in its
+# sysroot - the SDL2 port is enabled purely via the -sUSE_SDL=2 compile/link
+# flag, wired up in the EMSCRIPTEN branch below instead.
+if(ENABLE_SDL3 AND NOT EMSCRIPTEN)
 	find_package(SDL3 QUIET)
 	if(NOT ${SDL3_FOUND})
 		include(FindPkgConfig)
@@ -43,7 +46,7 @@ endif()
 
 # SDL2 finding stuff
 # Optional on all platforms
-if(ENABLE_SDL2)
+if(ENABLE_SDL2 AND NOT EMSCRIPTEN)
 	find_package(SDL2 QUIET)
 	if(NOT ${SDL2_FOUND})
 		include(FindPkgConfig)
@@ -179,6 +182,10 @@ set(SURREALWIDGETS_DBUS_SOURCES
 
 set(SURREALWIDGETS_UNIX_SOURCES
 	src/core/resourcedata_unix.cpp
+)
+
+set(SURREALWIDGETS_EMSCRIPTEN_SOURCES
+	src/core/resourcedata_emscripten.cpp
 )
 
 set(SURREALWIDGETS_COCOA_SOURCES
@@ -345,6 +352,11 @@ elseif(HAIKU)
 	set(SURREALWIDGETS_LIBS ${CMAKE_DL_LIBS})
 	set(SURREALWIDGETS_DEFINES -DUNIX -D_UNIX)
 	set(SURREALWIDGETS_LINK_OPTIONS -pthread)
+elseif(EMSCRIPTEN)
+	set(SURREALWIDGETS_SOURCES ${SURREALWIDGETS_SOURCES} ${SURREALWIDGETS_EMSCRIPTEN_SOURCES} ${SURREALWIDGETS_SDL2_SOURCES})
+	set(SURREALWIDGETS_DEFINES -DUNIX -D_UNIX -DUSE_SDL2)
+	set(SURREALWIDGETS_COMPILE_OPTIONS ${SURREALWIDGETS_COMPILE_OPTIONS} -pthread -sUSE_SDL=2)
+	set(SURREALWIDGETS_LINK_OPTIONS -pthread -sUSE_SDL=2)
 else()
 	set(SURREALWIDGETS_SOURCES ${SURREALWIDGETS_SOURCES} ${SURREALWIDGETS_UNIX_SOURCES})
 	set(SURREALWIDGETS_SOURCES ${SURREALWIDGETS_SOURCES} ${SURREALWIDGETS_X11_SOURCES})

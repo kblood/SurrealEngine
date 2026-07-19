@@ -22,8 +22,11 @@ SDL2DisplayWindow::SDL2DisplayWindow(DisplayWindowHost* windowHost, WidgetType t
 	if (type == WidgetType::Popup)
 		flags |= SDL_WINDOW_BORDERLESS;
 
-	if (renderAPI == RenderAPI::Vulkan || renderAPI == RenderAPI::OpenGL || renderAPI == RenderAPI::Metal)
+	if (renderAPI == RenderAPI::Vulkan || renderAPI == RenderAPI::OpenGL || renderAPI == RenderAPI::Metal || renderAPI == RenderAPI::WebGPU)
 	{
+		// WebGPU has no SDL_WINDOW_* flag of its own - SDL only owns the
+		// canvas/window for input and geometry here, WebGPURenderDevice
+		// creates its own surface against the same canvas element directly.
 		Handle.window = SDL_CreateWindow("", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 320, 200, flags);
 		if (!Handle.window)
 			throw std::runtime_error(std::string("Unable to create SDL window:") + SDL_GetError());

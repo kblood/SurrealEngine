@@ -54,6 +54,8 @@ class UnrealURL;
 class VideoPlayer;
 class UnrealMipmap;
 class UFloatProperty;
+class UObjectProperty;
+class UStructProperty;
 class UConversationMissionList;
 class UConversationList;
 struct FTextureInfo;
@@ -70,6 +72,9 @@ public:
 	~Engine();
 
 	void Run();
+	void Setup();
+	void RunOneFrame();
+	void Shutdown();
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -144,6 +149,12 @@ public:
 
 	UFloatProperty* floatprop = nullptr;
 
+	// PlayerCalcView call scratch properties - allocated once in Setup(),
+	// reused every RunOneFrame() call.
+	UObjectProperty* runLoopObjProp = nullptr;
+	UStructProperty* runLoopVecProp = nullptr;
+	UStructProperty* runLoopRotProp = nullptr;
+
 	ULevelInfo* EntryLevelInfo = nullptr;
 	ULevel* EntryLevel = nullptr;
 	UGameInfo* EntryGameInfo = nullptr;
@@ -195,6 +206,7 @@ public:
 	vec3 PlayerHitLocation = vec3(0.0f);
 
 	bool quit = false;
+	uint64_t tickCount = 0;
 
 	uint64_t lastTime = 0;
 

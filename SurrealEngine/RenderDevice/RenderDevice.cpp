@@ -2,9 +2,15 @@
 #include "Precomp.h"
 #include "RenderDevice.h"
 #include "LauncherSettings.h"
+#include "Null/NullRenderDevice.h"
+#ifndef __EMSCRIPTEN__
 #include "Vulkan/VulkanRenderDevice.h"
+#endif
 #ifdef WIN32
 #include "D3D11/D3D11RenderDevice.h"
+#endif
+#ifdef __EMSCRIPTEN__
+#include "WebGPU/WebGPURenderDevice.h"
 #endif
 #include "UObject/ULevel.h"
 #include <surrealwidgets/core/colorf.h>
@@ -37,14 +43,26 @@ RenderDevice::RenderDevice()
 
 std::unique_ptr<RenderDevice> RenderDevice::Create(Widget* viewport, RenderAPI renderAPI)
 {
-	if (renderAPI == RenderAPI::Vulkan)
+	if (renderAPI == RenderAPI::Bitmap)
+	{
+		return std::make_unique<NullRenderDevice>(viewport);
+	}
+#ifndef __EMSCRIPTEN__
+	else if (renderAPI == RenderAPI::Vulkan)
 	{
 		return std::make_unique<VulkanRenderDevice>(viewport);
 	}
+#endif
 #ifdef WIN32
 	else if (renderAPI == RenderAPI::D3D11)
 	{
 		return std::make_unique<D3D11RenderDevice>(viewport);
+	}
+#endif
+#ifdef __EMSCRIPTEN__
+	else if (renderAPI == RenderAPI::WebGPU)
+	{
+		return std::make_unique<WebGPURenderDevice>(viewport);
 	}
 #endif
 	else

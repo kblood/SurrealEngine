@@ -84,7 +84,61 @@ Engine::~Engine()
 	engine = nullptr;
 }
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
+static void EngineMainLoopCallback(void* arg)
+{
+	Engine* eng = static_cast<Engine*>(arg);
+	if (eng->quit)
+	{
+		emscripten_cancel_main_loop();
+		eng->Shutdown();
+		return;
+	}
+	eng->RunOneFrame();
+}
+
+// Headless smoke-test hooks (see WEBXR_IMPLEMENTATION_PLAN.md M1 "Definition
+// of M1 done") - let host JS observe the RAF-driven loop is genuinely live
+// and request a clean shutdown, without needing any real rendering.
+extern "C"
+{
+	// uint32_t, not uint64_t: ccall/cwrap don't legalize i64 return values to
+	// JS Number without -sWASM_BIGINT, and M1's smoke test only needs "is
+	// this advancing", not the full 64-bit range.
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetTickCount()
+	{
+		return engine ? static_cast<uint32_t>(engine->tickCount) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE void Surreal_RequestQuit()
+	{
+		if (engine)
+			engine->quit = true;
+	}
+}
+#endif
+
 void Engine::Run()
+{
+	Setup();
+#ifdef __EMSCRIPTEN__
+	// simulate_infinite_loop=0: matches QuakeQuest's main_web.c reference -
+	// this returns immediately after registering the RAF callback rather
+	// than unwinding the stack via a JS-level throw (simulate_infinite_loop=1
+	// relies on that unwind to keep stack-allocated locals like `this` alive,
+	// which isn't reliable here). GameApp.cpp gives the Engine static storage
+	// duration so it survives this function returning.
+	emscripten_set_main_loop_arg(EngineMainLoopCallback, this, 0, 0);
+#else
+	while (!quit)
+		RunOneFrame();
+	Shutdown();
+#endif
+}
+
+void Engine::Setup()
 {
 	LogMessage("Game: " + LaunchInfo.gameName + " (Version: " + LaunchInfo.gameVersionString + ")");
 	LoadEngineSettings();
@@ -136,12 +190,19 @@ void Engine::Run()
 
 	LoginPlayer();
 
-	auto objprop = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
-	auto vecprop = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
-	auto rotprop = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
+	runLoopObjProp = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
+	runLoopVecProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
+	runLoopRotProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
+}
 
-	bool firstCall = true;
-	while (!quit)
+void Engine::RunOneFrame()
+{
+	auto& objprop = runLoopObjProp;
+	auto& vecprop = runLoopVecProp;
+	auto& rotprop = runLoopRotProp;
+
+	tickCount++;
+
 	{
 		// Main game loop should consist of these 4 steps:
 		// Tick everything
@@ -273,7 +334,10 @@ void Engine::Run()
 			LoginPlayer();
 		}
 	}
+}
 
+void Engine::Shutdown()
+{
 	LogMessage("Shutting down...");
 	window->UnlockCursor();
 
