@@ -327,10 +327,27 @@ tried; a real Chrome/Edge install works with zero extra flags):**
   ship-corridor ceiling/wall/floor textures, correct perspective) plus
   correctly-oriented, readable HUD text after the `DrawTile` fix.
 
-**Known minor, non-blocking issue carried over from M1**: the same
-post-quit `querySelector`-on-garbage-string console error from Emscripten's
-SDL2-port teardown path still fires; still doesn't affect tick-counter
-correctness, still not root-caused.
+**Post-quit `querySelector` error (M1 issue) — root-caused and fixed
+(2026-07-19).** UT99's shipped ini defaults to `StartupFullscreen=True`,
+which called into Emscripten's bundled SDL2 port's Fullscreen API path at
+boot. That path (`Emscripten_SetWindowFullscreen()`) installs a
+document-level `fullscreenchange` listener (`registerRestoreOldStyle()` in
+`libhtml5.js`) that SDL's own `Emscripten_UnregisterEventHandlers()` never
+removes. If that listener fires after `SDL_DestroyWindow()` has already
+freed `window->driverdata`, it calls back into
+`Emscripten_HandleCanvasResize()` with the freed pointer, reads a garbage
+`canvas_id`, and passes it to `document.querySelector()` — throwing the
+observed uncaught `SyntaxError`. Localized via a `-sSAFE_HEAP=1 -g2` scratch
+build and a full stack trace (`findEventTarget` →
+`_emscripten_get_element_css_size` → `Emscripten_HandleCanvasResize` →
+`HTMLDocument.restoreOldStyle`). Fixed in `Engine::OpenWindow()`
+(`SurrealEngine/Engine.cpp`): under `__EMSCRIPTEN__`, never request browser
+fullscreen regardless of the ini setting — it was also always a no-op since
+`--autoplay` boot has no user gesture to satisfy the Fullscreen API. The bug
+itself lives in Emscripten's vendored SDL2 port, not this codebase, so the
+fix avoids triggering it rather than patching Emscripten. Re-verified:
+`web/smoke_test.py` passes clean, no uncaught JS errors (previously passed
+"with warnings").
 
 ## M3: re-scoped (2026-07-19 audit)
 
@@ -376,3 +393,43 @@ Full task breakdown in `Docs/VR/NEXT_STEPS_PLAN.md` (Task 5). Whether steps
 M4 runs on the headset — that's an M4/M5 finding, not an M3 blocker. If this
 re-scope holds, M3 is small (days, not weeks), and **M4 (WebXR stereo
 session) becomes the next substantial milestone.**
+
+## M4 pre-work (2026-07-19)
+
+Two findings ahead of the real M4 design, both empirically verified rather
+than assumed:
+
+**`XRGPUBinding` is not usable yet on any shipping browser.** Direct test in
+real Chrome 150.0.7871.125 (`navigator.gpu`/`navigator.xr` exist;
+`window.XRGPUBinding`, `XRGPUProjectionLayer`, `XRGPUSubImage` are all
+`undefined`). Chromestatus' own tracking entry (feature 5077077997649920)
+has it at "Prototype a solution" — the second of ~6 stages, no shipping
+estimate, Firefox/WebKit both "No signal," last updated 2024-08. It's
+reachable only in Chrome Canary behind two experiment flags (`WebXR
+Projection Layers` + `WebXR/WebGPU Bindings`), per a March-2025 Google WebXR
+engineer blog post — more pessimistic than this doc's prior "Editor's
+Draft" phrasing suggested. Separately, `emdawnwebgpu` has no XR-specific
+API surface at all (general `webgpu.h`-over-browser-WebGPU port only); the
+`Module.preinitializedWebGPUDevice` handoff this project's `WebGPUContext`
+already relies on is flagged in `emscripten-core/emscripten#24265` as a
+legacy `-sUSE_WEBGPU`-era mechanism with no committed lifespan (still
+functional today, not itself XR-aware). **Conclusion: the real M4 blocker
+is the browser platform, not this project's toolchain** — M4's design
+should assume XRGPUBinding is unavailable for the foreseeable future and
+either wait on it or find another approach (e.g. rendering to an
+`XRWebGLLayer` and copying, at a perf cost) once actual M4 work starts.
+
+**Harness groundwork landed anyway**, porting the sibling QuakeQuest
+project's WebXR session-lifecycle + IWER headless-test pattern: new
+`web/webxr_session.js` (session lifecycle), `web/index_webxr.html` (boots
+the real M2 engine build alongside an XR session request), and
+`web/smoke_test_webxr.py` (Playwright + IWER's Meta Quest 3 emulated
+device — confirms a stereo `immersive-vr` session requests, advances 2
+views/frame, and tears down cleanly, headless). Since IWER has no
+`XRGPUBinding` emulation either, the harness uses a throwaway offscreen
+WebGL2 `XRWebGLLayer` purely to satisfy IWER's render-state requirement —
+it never touches the real WebGPU canvas, and proves session
+lifecycle/plumbing only, not stereo rendering. `iwer` pinned as a
+`web/package.json` devDependency. This is the same "prove the plumbing
+before building the real thing" pattern M1 used for the WASM boot loop
+before M2 built real rendering on top of it.
