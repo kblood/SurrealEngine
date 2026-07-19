@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SurrealEngine WebXR M1 harness</title>
+</head>
+<body>
+<!-- Emscripten's SDL2 port expects a canvas to attach window/input events to,
+     even though NullRenderDevice never draws into it (RenderAPI::Bitmap, no
+     WebGL context requested). -->
+<canvas id="canvas" width="640" height="480"></canvas>
+<pre id="log" style="white-space:pre-wrap;font:12px monospace;"></pre>
+<script>
+	// M1 smoke-test harness: no rendering (NullRenderDevice), just proves the
+	// engine boots, loads a map, and ticks. See WEBXR_IMPLEMENTATION_PLAN.md.
+	window.surrealLog = [];
+	window.surrealBooted = false;
+	window.surrealCrashed = null;
+
+	const logEl = document.getElementById('log');
+	function appendLog(line) {
+		window.surrealLog.push(line);
+		logEl.textContent += line + "\n";
+	}
+
+	var Module = {
+		canvas: document.getElementById("canvas"),
+		locateFile: function (path) { return "../build-emscripten/" + path; },
+		print: appendLog,
+		printErr: appendLog,
+		onRuntimeInitialized: function () {
+			appendLog("[harness] runtime initialized, calling main");
+			window.surrealBooted = true;
+			try {
+				// Explicit --url matches the map used for native regression
+				// testing this session - avoids depending on LocalMap/entry
+				// map ini defaults resolving the same way under Emscripten.
+				Module.callMain(["--autoplay", "--url=DM-Deck16][", "/gamedata"]);
+			} catch (e) {
+				window.surrealCrashed = String(e);
+				appendLog("[harness] callMain threw: " + e);
+				if (e && e.stack) appendLog("[harness] stack: " + e.stack);
+			}
+		},
+	};
+
+	window.addEventListener("error", function (e) {
+		var detail = (e.error && e.error.stack) ? e.error.stack : e.message;
+		window.surrealCrashed = detail;
+		appendLog("[harness] window error: " + detail);
+	});
+	window.addEventListener("unhandledrejection", function (e) {
+		window.surrealCrashed = String(e.reason);
+		appendLog("[harness] unhandled rejection: " + e.reason);
+	});
+
+	window.surrealGetTickCount = function () {
+		return Module.ccall("Surreal_GetTickCount", "number", [], []);
+	};
+	window.surrealRequestQuit = function () {
+		return Module.ccall("Surreal_RequestQuit", null, [], []);
+	};
+</script>
+<script src="../build-emscripten/SurrealEngine.js"></script>
+</body>
+</html>
