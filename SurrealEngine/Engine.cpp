@@ -1532,7 +1532,29 @@ void Engine::OpenWindow()
 
 	int width = client->StartupFullscreen ? client->FullscreenViewportX : client->WindowedViewportX;
 	int height = client->StartupFullscreen ? client->FullscreenViewportY : client->WindowedViewportY;
+#ifdef __EMSCRIPTEN__
+	// Never request the browser Fullscreen API, even if StartupFullscreen=True
+	// in the ini (UT99's shipped default). Two reasons: (1) it requires a user
+	// gesture, which --autoplay boot never has, so the request itself is a
+	// no-op/rejected promise; (2) it's the trigger for a real dangling-pointer
+	// bug in Emscripten's bundled SDL2 port - Emscripten_SetWindowFullscreen()
+	// (SDL_emscriptenvideo.c) hands the SDL_WindowData* to libhtml5.js's
+	// registerRestoreOldStyle(), which installs a *document*-level
+	// 'fullscreenchange' listener (restoreOldStyle) that SDL's own
+	// Emscripten_UnregisterEventHandlers() doesn't know about and never
+	// removes. If that listener fires after SDL_DestroyWindow() has already
+	// freed window->driverdata, restoreOldStyle() calls back into
+	// Emscripten_HandleCanvasResize() with the freed pointer, which reads the
+	// now-garbage canvas_id field and passes it to
+	// emscripten_get_element_css_size() -> findEventTarget() ->
+	// document.querySelector() with a garbage string, throwing an uncaught
+	// SyntaxError. Confirmed via a -sSAFE_HEAP=1 -g2 scratch build; see
+	// WEBXR_IMPLEMENTATION_PLAN.md. Once WebXR session presentation (M4)
+	// exists, that's the real "fullscreen" equivalent for this build anyway.
+	bool fullscreen = false;
+#else
 	bool fullscreen = client->StartupFullscreen;
+#endif
 
 	std::string versionString = !LaunchInfo.gameVersionString.empty() ? " (v" + LaunchInfo.gameVersionString + ")" : "";
 
