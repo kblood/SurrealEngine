@@ -1,8 +1,14 @@
 /.vs
 /Build
 /build
+/build-emscripten
 *.user
 .vscode
 *.internal
 /.cppbuild
 /*.sln
+
+# Emscripten build output includes a --preload-file bundle of whatever local
+# gamedata path was passed to CMake at configure time. UT99/UE1 game data is
+# commercial and must never be committed - see Docs/VR/WEBXR_IMPLEMENTATION_PLAN.md.
+*.data
