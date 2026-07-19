@@ -40,6 +40,7 @@ void UObject::LoadNow()
 					s->BaseStruct->LoadNow();
 				s->Properties = s->BaseStruct->Properties;
 				s->StructSize = s->BaseStruct->StructSize;
+				s->StructAlignment = s->BaseStruct->StructAlignment;
 			}
 
 			if (auto c = UObject::TryCast<UClass>(this))

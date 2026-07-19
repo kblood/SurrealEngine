@@ -14,7 +14,10 @@ public:
 
 	int FindStatementIndex(uint16_t offset) const
 	{
-		return OffsetToExpression.find(offset)->second->StatementIndex;
+		auto it = OffsetToExpression.find(offset);
+		if (it == OffsetToExpression.end())
+			return 0;
+		return it->second->StatementIndex;
 	}
 
 	int FindLabelIndex(const NameString& label)

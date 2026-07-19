@@ -10,6 +10,7 @@
 #include "Package/PackageManager.h"
 #include "Utils/AlignedAlloc.h"
 #include "Commandlet/VM/DisassemblyCommandlet.h"
+#include <cstring>
 
 std::function<void()> Frame::RunDebugger;
 Array<Breakpoint> Frame::Breakpoints;
@@ -504,6 +505,7 @@ ExpressionEvalResult Frame::Run()
 		ExpressionEvalResult result = ExpressionEvaluator::Eval(statement, Object, Object, Variables->Data);
 		if (!Func)
 			return result;
+
 		switch (result.Result)
 		{
 		case StatementResult::Next:
@@ -637,6 +639,12 @@ LocalVariables::LocalVariables(UStruct* func) : Func(func)
 	if (func)
 	{
 		Data = AlignedAlloc(func->StructAlignment, func->StructSize);
+		// UnrealScript guarantees locals (and unset out-params) default to
+		// zero/false/None. AlignedAlloc returns uninitialized memory and
+		// ConstructElement is a no-op for POD types (bool/byte/int/float),
+		// so without this the value is whatever garbage this memory
+		// previously held - observed causing platform-dependent behavior.
+		memset(Data, 0, func->StructSize);
 
 		for (UProperty* prop : func->Properties)
 		{

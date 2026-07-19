@@ -47,6 +47,9 @@ void Logger::LogMessage(const std::string& message)
 			Log.push_back(std::move(line));
 			if (printLogDebugger)
 				printLogDebugger(Log.back());
+#ifdef __EMSCRIPTEN__
+			fprintf(stderr, "[%s] %s\n", name.c_str(), text.c_str());
+#endif
 		}
 	}
 	else
@@ -59,6 +62,9 @@ void Logger::LogMessage(const std::string& message)
 			Log.push_back(std::move(line));
 			if (printLogDebugger)
 				printLogDebugger(Log.back());
+#ifdef __EMSCRIPTEN__
+			fprintf(stderr, "%s\n", text.c_str());
+#endif
 		}
 	}
 }

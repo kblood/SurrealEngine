@@ -392,6 +392,11 @@ std::string OS::executable_path()
 	_wsplitpath_s(exe_filename, drive, _MAX_DRIVE, dir, _MAX_DIR, NULL, 0, NULL, 0);
 
 	return from_utf16(std::wstring(drive) + dir);
+#elif defined(__EMSCRIPTEN__)
+	// No SurrealEngine.pk3/widget resources are preloaded for M1 (headless,
+	// NullRenderDevice, no UI rendering) - WidgetResourceData's lookup of this
+	// path just needs to not throw. See WEBXR_IMPLEMENTATION_PLAN.md M1.
+	return "/";
 #elif defined(__APPLE__)
 	CFBundleRef mainBundle = CFBundleGetMainBundle();
 	if (mainBundle)

@@ -5,8 +5,10 @@
 #include "UTexture.h"
 #include "UConSys.h"
 #include "USubsystem.h"
-#include "VM/ScriptCall.h"
 #include "VM/Frame.h"
+#include "VM/ScriptCall.h"
+#include "UClass.h"
+#include "Utils/Random.h"
 #include "Package/PackageManager.h"
 #include "Package/IniProperty.h"
 #include "Engine.h"
@@ -180,8 +182,6 @@ std::pair<bool, vec3> UActor::CheckLocation(vec3 location, float radius, float h
 
 bool UActor::Destroy()
 {
-	//engine->LogMessage("UActor.Destroy(" + Class->FriendlyName.ToString() + ")");
-
 	if (bStatic() || bNoDelete())
 		return false;
 	if (bDeleteMe())

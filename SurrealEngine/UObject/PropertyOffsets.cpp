@@ -5,6 +5,7 @@
 #include "UClass.h"
 #include "UProperty.h"
 
+
 PropertyOffsets_Object PropOffsets_Object;
 
 static void InitPropertyOffsets_Object(PackageManager* packages)
