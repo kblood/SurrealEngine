@@ -99,10 +99,15 @@ public:
 	void Log(const std::string& text) { }
 };
 
+class VulkanXRSession;
+
 class RenderDevice
 {
 public:
-	static std::unique_ptr<RenderDevice> Create(Widget* viewport, RenderAPI renderAPI);
+	// xrSession is only used by the Vulkan backend (M2 step 4/8/9 -
+	// VulkanRenderDevice's constructor and DrawPresentTexture()); ignored for
+	// D3D11. Null for normal flatscreen play.
+	static std::unique_ptr<RenderDevice> Create(Widget* viewport, RenderAPI renderAPI, VulkanXRSession* xrSession = nullptr);
 
 	RenderDevice();
 	virtual ~RenderDevice() = default;

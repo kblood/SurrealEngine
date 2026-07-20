@@ -6,6 +6,7 @@
 
 class Engine;
 class RenderDevice;
+class VulkanXRSession;
 
 enum EInputKey
 {
@@ -107,9 +108,10 @@ public:
 class GameWindow : public Widget
 {
 public:
-	static std::unique_ptr<GameWindow> Create(GameWindowHost* windowHost);
+	// xrSession is null for normal flatscreen play (see RenderDevice::Create).
+	static std::unique_ptr<GameWindow> Create(GameWindowHost* windowHost, VulkanXRSession* xrSession = nullptr);
 
-	GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI);
+	GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI, VulkanXRSession* xrSession = nullptr);
 
 	static void ProcessEvents();
 	static void RunLoop();

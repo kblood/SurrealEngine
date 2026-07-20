@@ -35,11 +35,11 @@ RenderDevice::RenderDevice()
 	UseDebugLayer = settings.RenderDevice.UseDebugLayer;
 }
 
-std::unique_ptr<RenderDevice> RenderDevice::Create(Widget* viewport, RenderAPI renderAPI)
+std::unique_ptr<RenderDevice> RenderDevice::Create(Widget* viewport, RenderAPI renderAPI, VulkanXRSession* xrSession)
 {
 	if (renderAPI == RenderAPI::Vulkan)
 	{
-		return std::make_unique<VulkanRenderDevice>(viewport);
+		return std::make_unique<VulkanRenderDevice>(viewport, xrSession);
 	}
 #ifdef WIN32
 	else if (renderAPI == RenderAPI::D3D11)
