@@ -281,7 +281,7 @@ void Engine::Run()
 		// property in the same tick, the controller wins - VR play is the
 		// point once a session is active. No-op (early-returns) when no XR
 		// session is running.
-		UpdateVRControllerInput();
+		UpdateVRControllerInput(realTimeElapsed);
 
 		SetPause(!LevelInfo->Pauser().empty());
 
@@ -395,11 +395,24 @@ void Engine::Run()
 						vec3 upUE = XRVecToUE1(upXR.x, upXR.y, upXR.z);
 						vec3 posUE = XRVecToUE1(pose.posX, pose.posY, pose.posZ) * UUPerMeter;
 
-						if (!xrPoseRecentered && eye == 0)
+						if (eye == 0)
 						{
 							float rawYaw = std::atan2(-fwdUE.y, fwdUE.x);
-							xrYawOffsetUE = CameraRotation.YawRadians() - rawYaw;
-							xrPoseRecentered = true;
+							if (!xrPoseRecentered)
+							{
+								xrYawOffsetUE = CameraRotation.YawRadians() - rawYaw;
+								xrPoseRecentered = true;
+							}
+							// M3: current head yaw (recenter offset + live
+							// tracked yaw), UE1 radians. Consumed one frame
+							// later by UpdateVRControllerInput() to keep the
+							// pawn's body Rotation.Yaw following wherever the
+							// player is actually looking - see that function's
+							// doc comment for why this is necessary (movement
+							// direction and the weapon viewmodel are both
+							// driven off Pawn.Rotation, not off the render-only
+							// head pose composed below).
+							xrHeadYawUE = xrYawOffsetUE + rawYaw;
 						}
 
 						Coords recenter = Coords::YawRotation(xrYawOffsetUE);
@@ -1699,21 +1712,56 @@ void Engine::UpdateInput(float timeElapsed)
 // current controller state; only single-shot actions (jump, weapon
 // switch, menu, recenter) use edge detection against last frame's state.
 //
+// Two corrections found via real-headset testing, both load-bearing:
+//
+// 1. bFire/bAltFire/bDuck are BYTE properties on UPawn (see UActor.h's
+//    `uint8_t& bFire()` etc., confirmed against the actually-loaded
+//    package's property list, not guessed), not bool. UObject::SetBool()
+//    unconditionally static_casts the resolved UProperty to UBoolProperty*
+//    and treats the target memory as a 32-bit bitfield word - calling it
+//    on a byte property is a type-confusion bug that corrupts up to 3
+//    neighboring property bytes rather than setting the intended flag.
+//    Write through the native accessors instead, which read/write the
+//    correct single byte.
+//
+// 2. aBaseY/aStrafe/aUp's expected scale is NOT "UU/sec" - it's whatever a
+//    full digital key press produces going through InputCommand's Axis
+//    path: `activeInputAxes[name] = Speed * delta`, where a IST_Press
+//    delta is a fixed 20 (see InputEvent()) and a typical default bind is
+//    "Axis aBaseY Speed=350" - i.e. full-press feeds ~7000, not something
+//    UU/sec-scaled. MOVE_SCALE below matches that convention so a fully
+//    deflected stick feels like a fully held movement key.
+//
 // Mapping (Oculus Touch primary target - see VulkanXRSession.cpp's
 // CreateActions() for the full interaction-profile bindings):
-//   left stick Y/X   -> aBaseY / aStrafe (move forward, strafe)
-//   right stick X    -> aTurn (smooth turn - head pitch/yaw-within-body
-//                       still comes from real head tracking, see Run()'s
-//                       XR frame loop; this turns the body/recenter frame)
-//   right stick Y    -> aUp (swim/fly vertical thrust)
-//   right trigger    -> Fire
-//   left trigger     -> AltFire
-//   right grip       -> Duck (held)
-//   right A          -> Jump (edge)
-//   left X / left Y  -> PrevWeapon / NextWeapon (edge)
-//   left menu        -> ShowMenu (edge)
-//   right stick click -> recenter view (edge, resets xrPoseRecentered)
-void Engine::UpdateVRControllerInput()
+//   left stick Y/X    -> aBaseY / aStrafe (move forward, strafe - relative
+//                        to Pawn.Rotation, which this function keeps
+//                        synced to the live head yaw every frame, below)
+//   right stick X      -> incrementally rotates xrYawOffsetUE (comfort
+//                         turning - shifts where "physical forward" maps
+//                         to in-game forward, same knob the one-time
+//                         recenter uses, rather than fighting the
+//                         head-yaw sync below by also driving aTurn)
+//   right stick Y      -> aUp (swim/fly vertical thrust)
+//   right trigger      -> Fire
+//   left trigger       -> AltFire
+//   right grip         -> Duck (held)
+//   right A            -> Jump (edge)
+//   left X / left Y    -> PrevWeapon / NextWeapon (edge)
+//   left menu          -> ShowMenu (edge)
+//   right stick click  -> recenter view (edge, resets xrPoseRecentered)
+//
+// Also syncs Pawn.Rotation.Yaw to the live tracked head yaw
+// (xrHeadYawUE, computed one frame earlier in Run()'s XR frame loop) every
+// frame. Movement direction and the first-person weapon viewmodel are both
+// positioned relative to Pawn.Rotation, not the render-only camera pose -
+// without this sync the pawn keeps facing wherever it last faced
+// (spawn/last aTurn), so strafing/forward move independently of where the
+// player is actually looking with their head, and the weapon (drawn
+// relative to the stale facing) drifts out of view as soon as the player
+// turns their head away from it. Only Yaw is touched - Pitch/Roll are left
+// alone so looking up/down doesn't tilt the pawn's collision cylinder.
+void Engine::UpdateVRControllerInput(float timeElapsed)
 {
 	if (!xrSession || !xrSessionActive || !xrSession->IsSessionRunning())
 		return;
@@ -1725,22 +1773,34 @@ void Engine::UpdateVRControllerInput()
 	xrSession->GetControllerState(state);
 
 	UActor* pawn = viewport->Actor();
+	UPawn* vrPawn = UObject::TryCast<UPawn>(pawn);
 
 	const float deadzone = 0.15f;
 	auto applyDeadzone = [](float v, float dz) { return (std::fabs(v) < dz) ? 0.0f : v; };
 
-	const float moveSpeed = 320.0f; // UU/sec, matches a typical UT99 default axis Speed=
-	const float turnSpeed = 200.0f; // degrees/sec at full deflection
+	const float MOVE_SCALE = 7000.0f; // see doc comment above - matches InputCommand's Speed(350)*press-delta(20) convention, not raw UU/sec
+	const float turnRateRadiansPerSec = radians(120.0f); // comfort-turn rate for right stick X
 
-	pawn->SetFloat("aBaseY", applyDeadzone(state.leftStickY, deadzone) * moveSpeed);
-	pawn->SetFloat("aStrafe", applyDeadzone(state.leftStickX, deadzone) * moveSpeed);
-	pawn->SetFloat("aTurn", applyDeadzone(state.rightStickX, deadzone) * turnSpeed);
-	pawn->SetFloat("aUp", applyDeadzone(state.rightStickY, deadzone) * moveSpeed);
+	pawn->SetFloat("aBaseY", applyDeadzone(state.leftStickY, deadzone) * MOVE_SCALE);
+	pawn->SetFloat("aStrafe", applyDeadzone(state.leftStickX, deadzone) * MOVE_SCALE);
+	pawn->SetFloat("aUp", applyDeadzone(state.rightStickY, deadzone) * MOVE_SCALE);
+
+	if (timeElapsed > 0.0f)
+		xrYawOffsetUE += applyDeadzone(state.rightStickX, deadzone) * turnRateRadiansPerSec * timeElapsed;
+
+	if (xrPoseRecentered)
+	{
+		const float ue1RadiansToYaw = 32768.0f / 3.14159265359f;
+		pawn->Rotation().Yaw = (int)(xrHeadYawUE * ue1RadiansToYaw);
+	}
 
 	const float triggerThreshold = 0.5f;
-	pawn->SetBool("bFire", state.rightTrigger > triggerThreshold);
-	pawn->SetBool("bAltFire", state.leftTrigger > triggerThreshold);
-	pawn->SetBool("bDuck", state.rightGrip > triggerThreshold);
+	if (vrPawn)
+	{
+		vrPawn->bFire() = (state.rightTrigger > triggerThreshold) ? 1 : 0;
+		vrPawn->bAltFire() = (state.leftTrigger > triggerThreshold) ? 1 : 0;
+		vrPawn->bDuck() = (state.rightGrip > triggerThreshold) ? 1 : 0;
+	}
 
 	if (state.rightA && !prevVRRightA)
 		ExecCommand({ "Jump" });

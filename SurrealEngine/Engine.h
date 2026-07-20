@@ -93,7 +93,7 @@ public:
 	// XR session is actually running. See Engine.cpp's Run() for where
 	// this is called each frame, and VulkanXRSession.h's VRControllerState
 	// for what's available.
-	void UpdateVRControllerInput();
+	void UpdateVRControllerInput(float timeElapsed);
 
 	void LockCursor();
 	void UnlockCursor();
@@ -202,6 +202,7 @@ public:
 	// frame loop and VR_IMPLEMENTATION_PLAN.md's M3 section.
 	bool xrPoseRecentered = false;
 	float xrYawOffsetUE = 0.0f; // radians, in Coords::YawRotation's convention
+	float xrHeadYawUE = 0.0f; // radians; xrYawOffsetUE + live tracked yaw, updated once per XR frame - see UpdateVRControllerInput()
 
 	// M3: edge-detection state for controller buttons that should fire
 	// once per press rather than stay held (Jump, weapon switch, menu,
