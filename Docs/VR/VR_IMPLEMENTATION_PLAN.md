@@ -207,6 +207,40 @@ Everything else in M2-M3 should be buildable and verifiable solo.
    `RenderDevice/WebGPU/` diffs both empty. 4 commits on `vr-m2`
    (`3f3089d1`..`30d1ae72`), pushed.
 
+   **[VERIFIED ON REAL HARDWARE, 2026-07-20.]** With the user's Quest 3
+   connected via Virtual Desktop (registry ActiveRuntime and
+   steamvr.vrsettings reverted back off the null driver first - see
+   PLAN.md), ran `--autoplay --vr --url=DM-Deck16][` for 45s. Every call
+   that failed against the null driver succeeded against the real runtime
+   ("VirtualDesktopXR"): xrGetVulkanGraphicsDeviceKHR result=0,
+   xrCreateSession result=0, xrCreateReferenceSpace(LOCAL) result=0,
+   swapchains created both eyes at 2112x2304/eye. Session state walked
+   IDLE -> READY -> SYNCHRONIZED -> VISIBLE -> FOCUSED and stayed there
+   for the full run - confirmed via the flushed SE-Log-LastRun.txt (clean
+   WM_CLOSE-triggered shutdown, not a force-kill, so the log is genuine
+   for this run). Desktop-mirror PrintWindow screenshot shows the map
+   (DM-Deck16]['s pre-match lobby) rendering correctly, right-side up, no
+   corruption. Steps 8/9 are now fully runtime-verified, not just
+   compile-verified - this closes out the previous entry's open question.
+
+   User's in-headset report: game visible and audio audible, but (a)
+   noticeable double vision / misalignment between eyes, (b) no head
+   tracking (view doesn't respond to head movement), (c) fire button did
+   nothing from either mouse or Quest controllers. All three are expected
+   given documented, already-disclosed scope gaps, not new bugs: (a) is
+   the predicted visible symptom of feeding identical mono content through
+   two distinct real per-eye projection frustums (exactly the "not yet
+   folded into the view matrix" gap above, now empirically confirmed
+   rather than theoretical); (b) and (c) are M3 - VR input (6DoF, weapon
+   aim, locomotion) below, not started, confirmed via grep that zero
+   xrCreateAction/XrAction/controller-input code exists anywhere in this
+   codebase yet. The mouse-fire symptom specifically is most likely the
+   game window never receiving OS input focus (launched from a background
+   script, no explicit focus grab) rather than a VR regression -
+   flatscreen mouse input is unrelated to any of today's changes; worth a
+   quick re-check with manual focus before treating it as a real bug, but
+   not blocking.
+
 5. ~~**Debug stereo flatscreen mode first**~~ **[DONE, 2026-07-18.]** Added
    `--debugstereo`: renders the scene twice per frame (left half / right
    half of the window, two `SetSceneNode` + draw passes with two different

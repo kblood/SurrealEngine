@@ -557,3 +557,42 @@ fully-non-interactive verification strategy for each step, and the one step
   first). Either way, the next real piece of work is wiring true per-eye
   stereo pose into the view matrix (currently mono-duplicated, deliberately
   not guessed at — see `VR_IMPLEMENTATION_PLAN.md`).
+
+- 2026-07-20: **Verified on the real Quest 3 — session/swapchain/frame-loop
+  fully works end to end.** Registry `ActiveRuntime` and
+  `steamvr.vrsettings` reverted off the null driver back to Virtual
+  Desktop's runtime (both confirmed reverted); interface metrics on this
+  machine also fixed (Wi-Fi was ranked *lower* priority than the Hyper-V
+  Default Switch and VirtualBox host-only adapters for outbound routing,
+  which was making Virtual Desktop Streamer advertise an unreachable
+  virtual-adapter IP to the headset instead of the real Wi-Fi IP — fixed
+  by setting explicit `InterfaceMetric` values, Wi-Fi lowest/highest
+  priority, without disabling any adapter so WSL/Hyper-V/VirtualBox stay
+  unaffected).
+
+  With the Quest 3 connected via Virtual Desktop, ran `--autoplay --vr
+  --url=DM-Deck16][` for 45s. Every OpenXR call that failed against the
+  null driver succeeded against the real `"VirtualDesktopXR"` runtime:
+  `xrGetVulkanGraphicsDeviceKHR result=0`, `xrCreateSession result=0`,
+  swapchains created both eyes (2112x2304/eye). Session state walked
+  `IDLE → READY → SYNCHRONIZED → VISIBLE → FOCUSED` and held for the full
+  run. Clean `WM_CLOSE`-triggered shutdown (not a force-kill) confirmed
+  the flushed log is genuine for this run. Desktop mirror screenshot shows
+  the map rendering correctly, right-side up.
+
+  User's in-headset report — double vision, no head tracking, fire button
+  not working from mouse or controllers — matches expected, already-
+  disclosed gaps exactly: double vision is the predicted effect of mono
+  content submitted against two distinct real per-eye projection frustums
+  (now empirically confirmed, not just theoretical); no head tracking and
+  no controller fire are **M3 — VR input (6DoF, weapon aim, locomotion)**,
+  not yet started (confirmed zero OpenXR action/controller code exists in
+  this codebase). Mouse-fire not working is suspected to be an input-focus
+  artifact of launching the process from a background script rather than
+  a VR regression — flatscreen mouse input wasn't touched by any of this
+  work. Full detail in `VR_IMPLEMENTATION_PLAN.md`'s M2 step 4 entry.
+
+  **Next**: M3 (VR input) is now the natural next milestone — real 6DoF
+  head tracking (folding `xrLocateViews`' pose into the view matrix, which
+  will also fix the double-vision symptom as a side effect) and controller
+  action bindings for movement/fire/aim.
