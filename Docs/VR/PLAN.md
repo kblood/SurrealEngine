@@ -506,3 +506,54 @@ fully-non-interactive verification strategy for each step, and the one step
   analogous latent V-orientation issue, invisible on symmetric wall
   textures) in `WEBXR_IMPLEMENTATION_PLAN.md`'s M2 status section. Next:
   M3 (bindless-texture-model redesign).
+
+  **Note (2026-07-19, native VR track):** this file's copy on `vr-m2`
+  predates the above WebXR-track updates (audit, M3 re-scope, querySelector
+  fix, M4 pre-work, `DrawComplexSurface` fix, session handoff doc) — those
+  all happened on `webxr-m1` only and aren't relevant to this branch except
+  as a docs-sync note. `webxr-m1`'s `Docs/VR/*.md` copies are canonical for
+  the WebXR effort; this file continues to be canonical for the native VR
+  effort below.
+
+- 2026-07-19: **M2 step 4 unblocked, then a real limitation found.** With
+  the user's help (one elevated `Set-ItemProperty` registry command they ran
+  themselves), swapped `HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime` to
+  SteamVR's `steamxr_win64.json`, re-applied the `steamvr.vrsettings`
+  null-driver edit (`driver_null.enable: true`, `steamvr.requireHmd: false`,
+  `steamvr.forcedDriver: "null"` — original backed up to
+  `steamvr.vrsettings.bak-pre-nulldriver`), launched `vrserver.exe`, and
+  confirmed `--probexr: OpenXR instance + HMD system OK`.
+
+  Implemented the full step-4 design (instance/device reordering,
+  `xrCreateSession`, swapchains, frame loop, windowed mirror — see
+  `VR_IMPLEMENTATION_PLAN.md`'s updated M2 step 4 entry for exact detail).
+  **The null driver has a real limitation**: `xrGetVulkanGraphicsDeviceKHR`
+  returns `XR_ERROR_RUNTIME_FAILURE` (confirmed not a code bug — it has no
+  real compositor device to hand back), so `xrCreateSession` never actually
+  succeeds against it. Steps 8/9 (frame loop, windowed mirror) are fully
+  implemented and compile clean but have **never executed against a real
+  session** — this remains genuinely unverified until either a workaround
+  is found or the physical Quest 3 is used instead of the null driver.
+  Found and fixed a real bug along the way: the constructor used to `throw`
+  on this failure and take down the whole engine; now it logs and falls
+  back to ordinary flatscreen device selection.
+
+  Verified: `--autoplay --vr` runs ~55s against real UT99 data, no crash,
+  clean graceful fallback. `--autoplay` (no `--vr`) log has **zero**
+  OpenXR-related lines — flatscreen behavior confirmed byte-for-byte
+  unaffected. `RenderDevice/D3D11/` and `RenderDevice/WebGPU/` diffs both
+  empty. 4 commits (`3f3089d1`..`30d1ae72`), pushed to `fork`.
+
+  **Remember**: the OpenXR registry key and `steamvr.vrsettings` are still
+  pointed at the null driver on this machine as of this entry — revert both
+  before using the physical Quest 3 again (exact commands in
+  `Docs/VR/HANDOFF_2026-07-19.md` on the `webxr-m1` branch).
+
+  **Next**: either find a way around the null driver's
+  `xrGetVulkanGraphicsDeviceKHR` limitation (unclear if possible — may be a
+  hard limitation of SteamVR's null driver, not something fixable from this
+  side), or resume in-headset verification with the physical Quest 3
+  connected via Virtual Desktop (reverting the registry/vrsettings changes
+  first). Either way, the next real piece of work is wiring true per-eye
+  stereo pose into the view matrix (currently mono-duplicated, deliberately
+  not guessed at — see `VR_IMPLEMENTATION_PLAN.md`).

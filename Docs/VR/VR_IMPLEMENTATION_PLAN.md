@@ -177,6 +177,36 @@ Everything else in M2-M3 should be buildable and verifiable solo.
    each API call can be confirmed against real `XrResult` values as it's
    written, same iterative loop the rest of M2 used successfully.
 
+   **[IMPLEMENTED, 2026-07-19 — real limitation found, not fully verified.]**
+   Unblocked via SteamVR's null driver (fake headset-less HMD; see `PLAN.md`
+   2026-07-19 entries for exact registry/`steamvr.vrsettings` setup) instead
+   of the physical headset. The reordering itself works: with `--vr` passed,
+   `VulkanXRSession` now resolves `XrInstance`/`XrSystemId` before
+   `RenderSubsystem`/`VulkanRenderDevice` construction; `xrGetVulkan
+   GraphicsRequirementsKHR` and `xrGetVulkanInstanceExtensionsKHR` both
+   succeed (6 extensions returned) and are folded into
+   `VulkanInstanceBuilder` before `vkCreateInstance`. **But
+   `xrGetVulkanGraphicsDeviceKHR` returns `XR_ERROR_RUNTIME_FAILURE` (-2)
+   against the null driver** — confirmed not a calling-convention bug
+   (parameters match spec exactly); the null driver has no real compositor
+   device to report, so this is a genuine limitation of the workaround, not
+   a code bug. `xrCreateSession` (called with a substitute device)
+   consequently returns `XR_ERROR_VALIDATION_FAILURE` (-1). Both failures
+   are logged and handled gracefully now — fixed a real bug where the
+   constructor originally `throw`s on this failure and takes down the whole
+   engine; it now falls back to ordinary flatscreen device selection.
+   **Net effect: steps 8 (frame loop) and 9 (windowed mirror) are fully
+   implemented and spec-conformant, compile clean, but have never actually
+   executed against a real session** — they remain unverified at runtime
+   until either the null driver's limitation is worked around (unclear if
+   possible) or the physical Quest 3 is used instead. Verified: `--autoplay
+   --vr` runs ~55s with no crash and a clean graceful fallback to
+   flatscreen; `--autoplay` (no `--vr`) produces a log with **zero**
+   OpenXR-related lines, confirming flatscreen behavior is byte-for-byte
+   unaffected when the flag is absent. `RenderDevice/D3D11/` and
+   `RenderDevice/WebGPU/` diffs both empty. 4 commits on `vr-m2`
+   (`3f3089d1`..`30d1ae72`), pushed.
+
 5. ~~**Debug stereo flatscreen mode first**~~ **[DONE, 2026-07-18.]** Added
    `--debugstereo`: renders the scene twice per frame (left half / right
    half of the window, two `SetSceneNode` + draw passes with two different
