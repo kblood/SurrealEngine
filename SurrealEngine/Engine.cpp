@@ -25,6 +25,8 @@
 #include "Math/FrustumPlanes.h"
 #include "GameWindow.h"
 #include "RenderDevice/RenderDevice.h"
+#include "RenderDevice/Vulkan/VulkanXRSession.h"
+#include "RenderDevice/Vulkan/VulkanRenderDevice.h"
 #include "VM/Frame.h"
 #include "VM/ScriptCall.h"
 #include "Video/VideoPlayer.h"
@@ -93,10 +95,66 @@ void Engine::Run()
 	LogMessage("Loaded key bindings");
 	LogGamePackageSHA1Sums();
 
+	// M2 step 4: when --vr is passed, the XrInstance + XrSystemId must exist
+	// BEFORE the VkInstance/VkDevice are created (OpenWindow() below is what
+	// triggers VulkanRenderDevice's constructor), because the runtime
+	// mandates specific instance/device extensions and even a specific
+	// VkPhysicalDevice. If the probe fails (no runtime, no HMD system, etc.)
+	// we log why and fall back to completely normal flatscreen play - xrSession
+	// stays null, which every other new code path in this file treats
+	// identically to "not passed --vr" (see VulkanRenderDevice's constructor:
+	// `useXR = xrSession && xrSession->IsAvailable()`).
+	if (commandline && commandline->HasArg("", "--vr"))
+	{
+		xrSession = std::make_unique<VulkanXRSession>();
+		if (xrSession->IsAvailable())
+			LogMessage("--vr: OpenXR instance + HMD system OK");
+		else
+		{
+			LogMessage("--vr: OpenXR unavailable (" + xrSession->LastError() + ") - falling back to flatscreen");
+			xrSession.reset();
+		}
+	}
+
 	OpenWindow();
 
 	audiodev->InitDevice();
 	render = std::make_unique<RenderSubsystem>(window->GetRenderDevice());
+
+	// M2 step 2/8: now that the live VkInstance/VkPhysicalDevice/VkDevice
+	// exist (created above, folding in OpenXR's required extensions and
+	// physical device selection - see VulkanRenderDevice.cpp), create the
+	// XrSession bound to them, then the per-eye swapchains. Only the Vulkan
+	// backend is supported for VR (D3D11RenderDevice is never touched here).
+	if (xrSession)
+	{
+		VulkanRenderDevice* vulkanDevice = dynamic_cast<VulkanRenderDevice*>(render->Device);
+		if (vulkanDevice && vulkanDevice->Device)
+		{
+			bool ok = xrSession->CreateSession(
+				(void*)vulkanDevice->Device->Instance->Instance,
+				(void*)vulkanDevice->Device->PhysicalDevice.Device,
+				(void*)vulkanDevice->Device->device,
+				(uint32_t)vulkanDevice->Device->GraphicsFamily,
+				0);
+			if (ok)
+				ok = xrSession->CreateSwapchains();
+
+			if (ok)
+			{
+				xrSessionActive = true;
+				LogMessage("--vr: XR session + swapchains created (" + std::to_string(xrSession->GetSwapchainWidth()) + "x" + std::to_string(xrSession->GetSwapchainHeight()) + " per eye)");
+			}
+			else
+			{
+				LogMessage("--vr: session/swapchain creation failed (" + xrSession->LastError() + ") - continuing flatscreen-only (VkInstance/VkDevice were already created against the XR runtime's requirements, so this is not undone, but no XR frames will be submitted)");
+			}
+		}
+		else
+		{
+			LogMessage("--vr: render device is not Vulkan - VR requires the Vulkan backend - continuing flatscreen-only");
+		}
+	}
 
 	if (commandline && commandline->HasArg("", "--debugfixedsize"))
 	{
@@ -215,7 +273,91 @@ void Engine::Run()
 		UpdateAudio();
 
 		viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
-		render->DrawGame(levelElapsed);
+
+		// M2 step 8/9: real OpenXR frame loop. The desktop window keeps
+		// rendering/presenting every frame regardless (DrawGame() below is
+		// unconditional) so PrintWindow-based screenshots of the window stay
+		// meaningful while a VR session is active (step 9's "windowed
+		// mirror") - VulkanRenderDevice::DrawPresentTexture() additionally
+		// blits that same composited image into whichever eye swapchain
+		// images we acquired this tick, see VulkanRenderDevice.cpp.
+		//
+		// Per VR_IMPLEMENTATION_PLAN.md M2 step 8 status notes: xrLocateViews
+		// is called and its per-eye pose+fov is real, logged data - it is
+		// NOT yet folded into the rendered view matrix (both eyes currently
+		// receive the same mono image via the blit above). Composing a real
+		// OpenXR pose with Engine::CameraLocation/CameraRotation requires
+		// combining two independently-built Coords rotations, a code path
+		// Coords::operator*= has no existing verified usage for anywhere in
+		// this codebase (DrawScene/DrawSceneStereo only ever apply a single
+		// Coords::Rotation(CameraRotation)), and the null-driver OpenXR
+		// runtime reports a static identity pose, so there is nothing to
+		// verify a remapping against even if one were implemented. Rather
+		// than guess at an unverifiable axis/handedness conversion, this
+		// stops short of wiring the pose into the view matrix - see the
+		// final report for full disclosure of this scope reduction.
+		if (xrSession && xrSessionActive)
+		{
+			bool keepGoing = xrSession->PollEvents();
+			if (!keepGoing)
+			{
+				LogMessage("--vr: XR session exiting - destroying XR session/swapchains, continuing flatscreen-only");
+				xrSession->DestroySwapchains();
+				xrSession->DestroySession();
+				xrSessionActive = false;
+			}
+		}
+
+		bool xrFrameActive = false;
+		if (xrSession && xrSessionActive && xrSession->IsSessionRunning())
+		{
+			bool shouldRender = false;
+			bool waitBeginOk = xrSession->WaitAndBeginFrame(shouldRender);
+			if (waitBeginOk)
+			{
+				// xrBeginFrame succeeded, so per spec xrEndFrame MUST be
+				// called to balance the frame loop, whether or not
+				// shouldRender is true (in which case it's called with no
+				// layers below).
+				VREyePose eyes[2] = {};
+				void* leftImage = nullptr;
+				void* rightImage = nullptr;
+
+				if (shouldRender)
+				{
+					xrSession->LocateViews(eyes); // logged internally; see comment above for why it isn't applied to the view matrix yet
+
+					leftImage = xrSession->AcquireSwapchainImage(0);
+					rightImage = xrSession->AcquireSwapchainImage(1);
+					if (leftImage && rightImage)
+					{
+						VulkanRenderDevice* vulkanDevice = dynamic_cast<VulkanRenderDevice*>(render->Device);
+						if (vulkanDevice)
+							vulkanDevice->SetPendingXRTargets(leftImage, rightImage, xrSession->GetSwapchainWidth(), xrSession->GetSwapchainHeight());
+					}
+				}
+
+				render->DrawGame(levelElapsed);
+				xrFrameActive = true;
+
+				if (leftImage)
+					xrSession->ReleaseSwapchainImage(0);
+				if (rightImage)
+					xrSession->ReleaseSwapchainImage(1);
+
+				xrSession->EndFrame(shouldRender && leftImage && rightImage, eyes);
+			}
+			else
+			{
+				// Hard failure from xrWaitFrame/xrBeginFrame itself - do NOT
+				// call xrEndFrame (nothing to balance), just fall back to a
+				// normal flatscreen-only DrawGame() this tick.
+				LogMessage("--vr: WaitAndBeginFrame failed (" + xrSession->LastError() + ")");
+			}
+		}
+
+		if (!xrFrameActive)
+			render->DrawGame(levelElapsed);
 
 		// Save the game if there is a request for it
 		if (SaveGameInfo.SaveGameSlot != DONT_SAVE_GAME)
@@ -276,6 +418,13 @@ void Engine::Run()
 
 	LogMessage("Shutting down...");
 	window->UnlockCursor();
+
+	if (xrSessionActive)
+	{
+		xrSession->DestroySwapchains();
+		xrSession->DestroySession();
+		xrSessionActive = false;
+	}
 
 	LogMessage("Saving configurations...");
 	if (packages->MissingSESystemIni())
@@ -1464,7 +1613,7 @@ void Engine::UpdateInput(float timeElapsed)
 void Engine::OpenWindow()
 {
 	if (!window)
-		window = GameWindow::Create(this);
+		window = GameWindow::Create(this, xrSession.get());
 
 	int width = client->StartupFullscreen ? client->FullscreenViewportX : client->WindowedViewportX;
 	int height = client->StartupFullscreen ? client->FullscreenViewportY : client->WindowedViewportY;

@@ -177,6 +177,14 @@ public:
 	std::unique_ptr<GameWindow> window; // TODO: Move into UViewport
 	std::unique_ptr<RenderSubsystem> render;
 
+	// M2 step 4/8/9: only constructed when --vr is passed AND the OpenXR
+	// runtime probe succeeds; null otherwise (normal flatscreen play). See
+	// VulkanXRSession.h and the XR frame loop wrapped around DrawGame() in
+	// Run(). Forward-declared via GameWindow.h; full type only needed in
+	// Engine.cpp, which is also where it's constructed/destroyed.
+	std::unique_ptr<VulkanXRSession> xrSession;
+	bool xrSessionActive = false; // true once CreateSession()+CreateSwapchains() both succeeded
+
 	int MouseMoveX = 0;
 	int MouseMoveY = 0;
 
