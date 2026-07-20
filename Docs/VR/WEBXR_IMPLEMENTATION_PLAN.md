@@ -295,11 +295,27 @@ review or a clean C++ compile:**
    surface config, pipeline winding/cull, shader UV sampling — all
    byte-identical to D3D11). Fixed with a targeted `V`/`VL` swap isolated to
    `DrawTile`'s vertex generation; confirmed zero effect on 3D geometry.
-   **Follow-up flagged, not yet confirmed either way**: since
-   `DrawComplexSurface` builds its vertices independently of `DrawTile`, an
-   analogous V-orientation bug there can't be ruled out from a screenshot of
-   mostly-tileable/symmetric wall textures — worth a targeted check if an
-   asymmetric world texture (a decal, a numbered panel) ever looks wrong.
+   **Follow-up confirmed and fixed (2026-07-19).** `DrawComplexSurface`
+   *did* have the same bug class, invisible on M2's mostly-symmetric
+   `DM-Deck16][` walls. Isolated using `UT-Logo-Map`'s "UNREAL TOURNAMENT"
+   logo (built from 8 `DrawComplexSurface`-rendered BSP brushes, 0
+   `DrawGouraudPolygon` calls, confirmed via new diagnostic counters
+   `Surreal_GetWebGPUComplexSurfaces/GouraudPolygons/Tiles()`), which
+   rendered upside-down. `DrawTile`'s corner-swap trick doesn't apply here
+   (this function has no `[V,VL]` span); instead, `DrawComplexSurfaceFaces`
+   now computes each facet's local min/max `v` and mirrors the shared `v`
+   value every texture layer's coordinates derive from around that span —
+   keeps the lightmap (which reuses the same `v`) mathematically in
+   lockstep with the base texture, so relative alignment is unaffected.
+   Verified via native-vs-WebGPU `PrintWindow`/canvas screenshot comparison
+   of `UT-Logo-Map`: both now read "UNREAL TOURNAMENT" correctly (previously
+   the WebGPU render showed it upside-down). **`DrawGouraudPolygon` (actor/
+   weapon mesh rendering) orientation remains unconfirmed** — two comparison
+   screenshots were taken (`DM-Deck16][`, native vs WebGPU) but neither had
+   a weapon/actor mesh in frame (both spawns face a different random
+   direction with nothing nearby), so this is inconclusive, not verified
+   clean. Left as an open follow-up: re-check with a map/moment where a
+   weapon view model or pickup mesh is actually visible on screen.
 
 **Verification, all against real UT99 game data (`DM-Deck16][`) via
 `web/smoke_test_webgpu.py` (Playwright, headless `channel="chrome"` — the
