@@ -1536,9 +1536,16 @@ void VulkanRenderDevice::DrawPresentTexture(int width, int height)
 			.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT)
 			.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
+		// M3: DrawSceneVR() renders each eye into its own half of this same
+		// window-sized buffer (left half = eye 0, right half = eye 1, same
+		// split-viewport layout DrawSceneStereo already used for its debug
+		// preview) - blit each half into its matching eye swapchain image
+		// instead of stretching the full composited (both-eyes) image into
+		// both, which is what produced the double-vision/misalignment seen
+		// on real hardware before this.
+		int halfSrcW = srcW / 2;
+
 		VkImageBlit blit = {};
-		blit.srcOffsets[0] = { 0, 0, 0 };
-		blit.srcOffsets[1] = { srcW, srcH, 1 };
 		blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		blit.srcSubresource.mipLevel = 0;
 		blit.srcSubresource.baseArrayLayer = 0;
@@ -1554,6 +1561,9 @@ void VulkanRenderDevice::DrawPresentTexture(int width, int height)
 		{
 			if (!PendingXRImage[eye])
 				continue;
+
+			blit.srcOffsets[0] = { eye == 0 ? 0 : halfSrcW, 0, 0 };
+			blit.srcOffsets[1] = { eye == 0 ? halfSrcW : srcW, srcH, 1 };
 
 			PipelineBarrier()
 				.AddImage(PendingXRImage[eye], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT)

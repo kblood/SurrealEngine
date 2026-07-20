@@ -82,6 +82,60 @@ void RenderSubsystem::RenderOverlays()
 	}
 }
 
+void RenderSubsystem::RenderOverlaysVR()
+{
+	FSceneNode fullFrame = Canvas.Frame;
+	int fullWidth = fullFrame.X;
+	int halfWidth = fullWidth / 2;
+	int fullSizeX = engine->canvas->SizeX();
+	float fullClipX = engine->canvas->ClipX();
+
+	for (int eye = 0; eye < 2; eye++)
+	{
+		Canvas.Frame = fullFrame;
+		Canvas.Frame.XB = fullFrame.XB + (eye == 0 ? 0 : halfWidth);
+		Canvas.Frame.X = halfWidth;
+		Canvas.Frame.FX = (float)halfWidth;
+		Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
+
+		int halfSizeX = (int)(halfWidth / (float)Canvas.uiscale);
+		engine->canvas->CurX() = 0.0f;
+		engine->canvas->CurY() = 0.0f;
+		engine->canvas->ClipX() = (float)halfSizeX;
+		engine->canvas->SizeX() = halfSizeX;
+
+		// Restore this eye's world-pass scene node so Canvas.DrawActor()
+		// (e.g. the weapon viewmodel) picks up the matching camera pose
+		// instead of whichever eye MainFrame.Frame was last left at.
+		MainFrame.Frame = VREyeFrame[eye];
+		Device->SetSceneNode(&Canvas.Frame);
+		if (engine->viewport->Actor())
+		{
+			if (engine->LaunchInfo.ue1Version > 219)
+			{
+				CallEvent(engine->viewport->Actor(), EventName::RenderOverlays, { ExpressionValue::ObjectValue(engine->canvas) });
+			}
+			else
+			{
+				UWeapon* weapon = engine->viewport->Actor()->Weapon();
+				if (weapon)
+				{
+					CallEvent(weapon, "InvCalcView", {});
+					DrawActor(weapon, false, false);
+				}
+			}
+		}
+	}
+
+	// Restore full-window canvas state for PostRender() and the next frame's ResetCanvas().
+	Canvas.Frame = fullFrame;
+	engine->canvas->CurX() = 0.0f;
+	engine->canvas->CurY() = 0.0f;
+	engine->canvas->ClipX() = fullClipX;
+	engine->canvas->SizeX() = fullSizeX;
+	Device->SetSceneNode(&Canvas.Frame);
+}
+
 void RenderSubsystem::PostRender()
 {
 	Device->SetSceneNode(&Canvas.Frame);
@@ -89,7 +143,53 @@ void RenderSubsystem::PostRender()
 		CallEvent(engine->viewport->Actor(), EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
 	CallEvent(engine->console, EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
 	DrawTimedemoStats();
-	
+
+	if (ShowCollisionDebug)
+		DrawCollisionDebug();
+}
+
+void RenderSubsystem::PostRenderVR()
+{
+	// UT99's actual visible HUD (health/armor/ammo/message queue) is drawn
+	// from PlayerPawn.PostRender, not RenderOverlays - same per-eye split
+	// as RenderOverlaysVR(), for the same reason (Canvas.Frame otherwise
+	// spans the full window, landing HUD elements on the seam between the
+	// two eye halves).
+	FSceneNode fullFrame = Canvas.Frame;
+	int fullWidth = fullFrame.X;
+	int halfWidth = fullWidth / 2;
+	int fullSizeX = engine->canvas->SizeX();
+	float fullClipX = engine->canvas->ClipX();
+
+	for (int eye = 0; eye < 2; eye++)
+	{
+		Canvas.Frame = fullFrame;
+		Canvas.Frame.XB = fullFrame.XB + (eye == 0 ? 0 : halfWidth);
+		Canvas.Frame.X = halfWidth;
+		Canvas.Frame.FX = (float)halfWidth;
+		Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
+
+		int halfSizeX = (int)(halfWidth / (float)Canvas.uiscale);
+		engine->canvas->CurX() = 0.0f;
+		engine->canvas->CurY() = 0.0f;
+		engine->canvas->ClipX() = (float)halfSizeX;
+		engine->canvas->SizeX() = halfSizeX;
+
+		MainFrame.Frame = VREyeFrame[eye];
+		Device->SetSceneNode(&Canvas.Frame);
+		if (engine->viewport->Actor())
+			CallEvent(engine->viewport->Actor(), EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
+		CallEvent(engine->console, EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
+	}
+
+	Canvas.Frame = fullFrame;
+	engine->canvas->CurX() = 0.0f;
+	engine->canvas->CurY() = 0.0f;
+	engine->canvas->ClipX() = fullClipX;
+	engine->canvas->SizeX() = fullSizeX;
+	Device->SetSceneNode(&Canvas.Frame);
+
+	DrawTimedemoStats();
 	if (ShowCollisionDebug)
 		DrawCollisionDebug();
 }

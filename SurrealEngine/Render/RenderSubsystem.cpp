@@ -39,19 +39,36 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed)
 	ResetCanvas();
 	PreRender();
 
+	bool isVR = PendingVR;
+
 	if (engine->LaunchInfo.ue1Version <= 219 || engine->console->bNoDrawWorld() == false)
 	{
-		if (commandline && commandline->HasArg("", "--debugstereo"))
+		if (isVR)
+			DrawSceneVR();
+		else if (commandline && commandline->HasArg("", "--debugstereo"))
 			DrawSceneStereo();
 		else
 			DrawScene();
-		RenderOverlays();
+		if (isVR)
+			RenderOverlaysVR();
+		else
+			RenderOverlays();
 		if (engine->LaunchInfo.IsDeusEx())
 			PostRenderFlash();
 		Device->EndFlash();
 	}
+	else
+	{
+		// World wasn't drawn this frame (e.g. fullscreen console) - DrawSceneVR()
+		// never ran, so VREyeFrame is stale/unset. Fall back to the normal,
+		// unsplit PostRender() rather than risk PostRenderVR() using it.
+		isVR = false;
+	}
 
-	PostRender();
+	if (isVR)
+		PostRenderVR();
+	else
+		PostRender();
 
 	Device->Unlock(true);
 }

@@ -30,6 +30,14 @@ public:
 	void DrawGame(float levelTimeElapsed);
 	void OnMapLoaded();
 
+	// M3: real per-eye OpenXR pose/fov for this frame, set by Engine::Run()
+	// right before DrawGame() when a VR frame is being rendered. Consumed
+	// once by DrawSceneVR() inside that same DrawGame() call and cleared
+	// automatically - mirrors VulkanRenderDevice::SetPendingXRTargets's
+	// pending-state pattern. fov[eye] = {angleLeft, angleRight, angleUp,
+	// angleDown} in radians, straight from xrLocateViews.
+	void SetPendingVREyes(const vec3 loc[2], const Coords rot[2], const float fov[2][4]);
+
 	void DrawActor(UActor* actor, bool WireFrame, bool ClearZ);
 	void DrawClippedActor(UActor* actor, bool WireFrame, int X, int Y, int XB, int YB, bool ClearZ);
 	void DrawTile(UTexture* Tex, float x, float y, float XL, float YL, float U, float V, float UL, float VL, float Z, vec4 color, vec4 fog, uint32_t flags);
@@ -107,6 +115,24 @@ private:
 	// See VR_IMPLEMENTATION_PLAN.md M2 step 5.
 	void DrawSceneStereo();
 
+	// M3: real per-eye VR rendering - same split-viewport/asymmetric-
+	// projection machinery as DrawSceneStereo, but driven by the real
+	// pose/fov SetPendingVREyes() was given instead of a fake debug IPD.
+	void DrawSceneVR();
+	bool PendingVR = false;
+	vec3 VREyeLocation[2] = {};
+	Coords VREyeRotation[2] = { Coords::Identity(), Coords::Identity() };
+	float VREyeFov[2][4] = {};
+
+	// M3: snapshot of MainFrame.Frame as DrawSceneVR() left it after each
+	// eye's MainFrame.Process() call. Canvas.DrawActor() (used by e.g. the
+	// weapon viewmodel's RenderOverlays/PostRender script code) renders via
+	// the single shared MainFrame.Frame rather than Canvas.Frame - restoring
+	// the matching eye's snapshot before invoking overlay/postrender events
+	// in RenderOverlaysVR()/PostRenderVR() keeps that draw path from always
+	// silently reusing whichever eye was processed last (eye 1).
+	FSceneNode VREyeFrame[2];
+
 	std::unique_ptr<LightmapTexture> CreateLightmapTexture();
 
 	void UpdateFogmapTexture(uint32_t* texels, UModel* model, const Coords& mapCoords, int lightMap, UZoneInfo* zoneActor);
@@ -114,7 +140,22 @@ private:
 	void ResetCanvas();
 	void PreRender();
 	void RenderOverlays();
+	// M3: HUD/console overlay equivalent of DrawSceneVR - RenderOverlays()
+	// draws into Canvas.Frame's full window-wide rect with no per-eye split,
+	// so anything positioned relative to screen center lands right on the
+	// seam between the two eye halves and reads as smeared/doubled. This
+	// redraws the same overlay event into each eye's half in turn, using a
+	// half-width Canvas.Frame + matching canvas ClipX/SizeX so UnrealScript
+	// HUD layout math (which reads Canvas.ClipX/SizeX) sees the narrower
+	// width, then restores the full-window canvas state afterward.
+	void RenderOverlaysVR();
 	void PostRender();
+	// M3: same per-eye split as RenderOverlaysVR(), for PostRender() - UT99's
+	// actual visible HUD (health/ammo/messages) renders from PlayerPawn's
+	// PostRender event, not RenderOverlays, so this is the hook that was
+	// still producing the split-down-the-middle HUD text even after
+	// RenderOverlaysVR() was added.
+	void PostRenderVR();
 	void PostRenderFlash();
 	void DrawTimedemoStats();
 	void DrawCollisionDebug();

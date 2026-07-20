@@ -22,6 +22,7 @@
 #include "UObject/UFlag.h"
 #include "UObject/UConSys.h"
 #include "Math/quaternion.h"
+#include "Math/coords.h"
 #include "Math/FrustumPlanes.h"
 #include "GameWindow.h"
 #include "RenderDevice/RenderDevice.h"
@@ -84,6 +85,41 @@ Engine::~Engine()
 	Logger::Get()->SaveLogAsPlaintext((Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt").string());
 
 	engine = nullptr;
+}
+
+namespace
+{
+	// M3: OpenXR is right-handed, +X right, +Y up, -Z forward. UE1 is
+	// left-handed, +X forward, +Y right, +Z up. This is a direct component
+	// relabeling (not a matrix-conjugated basis change) applied consistently
+	// to every vector below, so it composes correctly even though the
+	// mapping itself is a reflection (det = -1).
+	vec3 XRVecToUE1(float x, float y, float z)
+	{
+		return vec3(-z, x, y);
+	}
+
+	// UE1 units per real-world meter. UT99's default Pawn.BaseEyeHeight is
+	// 64 - a normal standing eye height in inches - confirming the well
+	// established "1 Unreal unit ~= 1 inch" convention. (DrawSceneStereo's
+	// debug halfIPD comment assumed ~32 units/inch instead; that was an
+	// unverified guess for a fake, deliberately-exaggerated debug offset,
+	// not a real calibration, and reusing it here made real headset motion
+	// translate into ~32x too much in-game movement - the root cause of a
+	// "giant"/miniature-world scale illusion seen on first real-hardware
+	// test.)
+	constexpr float UUPerMeter = 1.0f / 0.0254f;
+
+	// Coords::operator*(Coords, vec3) transforms a world point into the
+	// Coords' local basis (world-to-local). Composing a headset pose onto
+	// the game world needs the opposite direction: turn a vector already
+	// expressed in `rot`'s local axes into world space. `rot`'s XAxis/
+	// YAxis/ZAxis are themselves a local-to-world rotation (same convention
+	// Coords::Rotation(Rotator) produces), so this is just their weighted sum.
+	vec3 RotateLocalToWorld(const Coords& rot, const vec3& v)
+	{
+		return rot.XAxis * v.x + rot.YAxis * v.y + rot.ZAxis * v.z;
+	}
 }
 
 void Engine::Run()
@@ -274,7 +310,7 @@ void Engine::Run()
 
 		viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
 
-		// M2 step 8/9: real OpenXR frame loop. The desktop window keeps
+		// M2 step 8/9 + M3: real OpenXR frame loop. The desktop window keeps
 		// rendering/presenting every frame regardless (DrawGame() below is
 		// unconditional) so PrintWindow-based screenshots of the window stay
 		// meaningful while a VR session is active (step 9's "windowed
@@ -282,20 +318,10 @@ void Engine::Run()
 		// blits that same composited image into whichever eye swapchain
 		// images we acquired this tick, see VulkanRenderDevice.cpp.
 		//
-		// Per VR_IMPLEMENTATION_PLAN.md M2 step 8 status notes: xrLocateViews
-		// is called and its per-eye pose+fov is real, logged data - it is
-		// NOT yet folded into the rendered view matrix (both eyes currently
-		// receive the same mono image via the blit above). Composing a real
-		// OpenXR pose with Engine::CameraLocation/CameraRotation requires
-		// combining two independently-built Coords rotations, a code path
-		// Coords::operator*= has no existing verified usage for anywhere in
-		// this codebase (DrawScene/DrawSceneStereo only ever apply a single
-		// Coords::Rotation(CameraRotation)), and the null-driver OpenXR
-		// runtime reports a static identity pose, so there is nothing to
-		// verify a remapping against even if one were implemented. Rather
-		// than guess at an unverifiable axis/handedness conversion, this
-		// stops short of wiring the pose into the view matrix - see the
-		// final report for full disclosure of this scope reduction.
+		// xrLocateViews's per-eye pose+fov is folded into the rendered view
+		// matrix below via RenderSubsystem::SetPendingVREyes/DrawSceneVR -
+		// see VR_IMPLEMENTATION_PLAN.md's M3 section for the axis/scale
+		// conversion and one-time yaw-recenter this composition applies.
 		if (xrSession && xrSessionActive)
 		{
 			bool keepGoing = xrSession->PollEvents();
@@ -325,7 +351,7 @@ void Engine::Run()
 
 				if (shouldRender)
 				{
-					xrSession->LocateViews(eyes); // logged internally; see comment above for why it isn't applied to the view matrix yet
+					xrSession->LocateViews(eyes); // logged internally
 
 					leftImage = xrSession->AcquireSwapchainImage(0);
 					rightImage = xrSession->AcquireSwapchainImage(1);
@@ -335,6 +361,47 @@ void Engine::Run()
 						if (vulkanDevice)
 							vulkanDevice->SetPendingXRTargets(leftImage, rightImage, xrSession->GetSwapchainWidth(), xrSession->GetSwapchainHeight());
 					}
+
+					// M3: compose the real per-eye OpenXR pose onto the game
+					// world, using CameraLocation as the play-space anchor
+					// (so keyboard/joystick locomotion still moves the VR
+					// view - only the recentered head offset rides on top).
+					vec3 eyeLocationUE[2];
+					Coords eyeRotationUE[2];
+					float eyeFovUE[2][4];
+					for (int eye = 0; eye < 2; eye++)
+					{
+						const VREyePose& pose = eyes[eye];
+
+						quaternion q(pose.qx, pose.qy, pose.qz, pose.qw);
+						vec3 fwdXR = q * vec3(0.0f, 0.0f, -1.0f);
+						vec3 rightXR = q * vec3(1.0f, 0.0f, 0.0f);
+						vec3 upXR = q * vec3(0.0f, 1.0f, 0.0f);
+						vec3 fwdUE = XRVecToUE1(fwdXR.x, fwdXR.y, fwdXR.z);
+						vec3 rightUE = XRVecToUE1(rightXR.x, rightXR.y, rightXR.z);
+						vec3 upUE = XRVecToUE1(upXR.x, upXR.y, upXR.z);
+						vec3 posUE = XRVecToUE1(pose.posX, pose.posY, pose.posZ) * UUPerMeter;
+
+						if (!xrPoseRecentered && eye == 0)
+						{
+							float rawYaw = std::atan2(-fwdUE.y, fwdUE.x);
+							xrYawOffsetUE = CameraRotation.YawRadians() - rawYaw;
+							xrPoseRecentered = true;
+						}
+
+						Coords recenter = Coords::YawRotation(xrYawOffsetUE);
+						eyeRotationUE[eye].Origin = vec3(0.0f);
+						eyeRotationUE[eye].XAxis = RotateLocalToWorld(recenter, fwdUE);
+						eyeRotationUE[eye].YAxis = RotateLocalToWorld(recenter, rightUE);
+						eyeRotationUE[eye].ZAxis = RotateLocalToWorld(recenter, upUE);
+						eyeLocationUE[eye] = CameraLocation + RotateLocalToWorld(recenter, posUE);
+
+						eyeFovUE[eye][0] = pose.angleLeft;
+						eyeFovUE[eye][1] = pose.angleRight;
+						eyeFovUE[eye][2] = pose.angleUp;
+						eyeFovUE[eye][3] = pose.angleDown;
+					}
+					render->SetPendingVREyes(eyeLocationUE, eyeRotationUE, eyeFovUE);
 				}
 
 				render->DrawGame(levelElapsed);

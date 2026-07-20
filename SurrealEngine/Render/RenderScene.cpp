@@ -95,3 +95,73 @@ void RenderSubsystem::DrawSceneStereo()
 		MainFrame.DrawCoronas();
 	}
 }
+
+void RenderSubsystem::SetPendingVREyes(const vec3 loc[2], const Coords rot[2], const float fov[2][4])
+{
+	PendingVR = true;
+	for (int eye = 0; eye < 2; eye++)
+	{
+		VREyeLocation[eye] = loc[eye];
+		VREyeRotation[eye] = rot[eye];
+		for (int i = 0; i < 4; i++)
+			VREyeFov[eye][i] = fov[eye][i];
+	}
+}
+
+// M3: real per-eye VR rendering. Structurally identical to DrawSceneStereo
+// (same split-viewport-of-one-buffer approach, same ViewportOverride +
+// asymmetric mat4::frustum plumbing proven there) but every per-eye value
+// is real, tracked OpenXR data computed in Engine::Run() instead of a fake
+// debug IPD - see the doc comment above Engine::Run()'s XR frame loop for
+// the OpenXR-to-UE1 axis/scale conversion this pose data went through.
+void RenderSubsystem::DrawSceneVR()
+{
+	PendingVR = false;
+
+	if (!engine->Level)
+		return;
+
+	Light.FogFrameCounter++;
+	TextureFrameCounter++;
+
+	for (UActor* actor : engine->Level->Actors)
+	{
+		if (actor)
+			actor->UpdateBspInfo();
+	}
+
+	int fullX = engine->viewport->ViewportX();
+	int fullY = engine->viewport->ViewportY();
+	int fullWidth = engine->viewport->ViewportWidth();
+	int fullHeight = engine->viewport->ViewportHeight();
+	int halfWidth = fullWidth / 2;
+
+	for (int eye = 0; eye < 2; eye++)
+	{
+		Coords rotation = VREyeRotation[eye];
+		Coords invRotation = rotation.Inverse();
+		mat4 worldToView = Coords::ViewToRenderDev().ToMatrix() * invRotation.ToMatrix() * Coords::Location(VREyeLocation[eye]).ToMatrix();
+
+		ViewportOverride vp;
+		vp.XB = fullX + (eye == 0 ? 0 : halfWidth);
+		vp.YB = fullY;
+		vp.X = halfWidth;
+		vp.Y = fullHeight;
+
+		// angleLeft/angleDown are negative per the OpenXR spec, so these
+		// are already the correct signed frustum bounds - near=1 matches
+		// DrawSceneStereo's convention so tan(angle) needs no extra
+		// near-plane scaling.
+		float l = std::tan(VREyeFov[eye][0]);
+		float r = std::tan(VREyeFov[eye][1]);
+		float u = std::tan(VREyeFov[eye][2]);
+		float d = std::tan(VREyeFov[eye][3]);
+		mat4 projection = mat4::frustum(l, r, d, u, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
+		vp.Projection = &projection;
+
+		MainFrame.Process(VREyeLocation[eye], worldToView, rotation, false, 0, {}, vec4(0.0f, 0.0f, 0.0f, 1.0f), &vp);
+		VREyeFrame[eye] = MainFrame.Frame;
+		MainFrame.Draw();
+		MainFrame.DrawCoronas();
+	}
+}

@@ -185,6 +185,15 @@ public:
 	std::unique_ptr<VulkanXRSession> xrSession;
 	bool xrSessionActive = false; // true once CreateSession()+CreateSwapchains() both succeeded
 
+	// M3: real head-pose composition. One-time recenter so the room's
+	// physical forward (wherever the headset faced when the LOCAL
+	// reference space was established) lines up with the game's own
+	// facing at that moment, captured from the first successful
+	// LocateViews() after the session starts rendering. See Run()'s XR
+	// frame loop and VR_IMPLEMENTATION_PLAN.md's M3 section.
+	bool xrPoseRecentered = false;
+	float xrYawOffsetUE = 0.0f; // radians, in Coords::YawRotation's convention
+
 	int MouseMoveX = 0;
 	int MouseMoveY = 0;
 
