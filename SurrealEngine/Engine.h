@@ -86,6 +86,15 @@ public:
 	void UpdateInput(float timeElapsed);
 	void InputCommand(const std::string& command, EInputKey key, int delta);
 
+	// M3: reads the current OpenXR controller state (via xrSession) and
+	// drives pawn input the same way UpdateInput() drives keyboard/mouse
+	// input - SetBool/SetFloat for held movement/fire, ExecCommand for
+	// edge-triggered actions (jump, weapon switch, menu). No-op unless an
+	// XR session is actually running. See Engine.cpp's Run() for where
+	// this is called each frame, and VulkanXRSession.h's VRControllerState
+	// for what's available.
+	void UpdateVRControllerInput();
+
 	void LockCursor();
 	void UnlockCursor();
 
@@ -193,6 +202,15 @@ public:
 	// frame loop and VR_IMPLEMENTATION_PLAN.md's M3 section.
 	bool xrPoseRecentered = false;
 	float xrYawOffsetUE = 0.0f; // radians, in Coords::YawRotation's convention
+
+	// M3: edge-detection state for controller buttons that should fire
+	// once per press rather than stay held (Jump, weapon switch, menu,
+	// recenter) - see UpdateVRControllerInput() in Engine.cpp.
+	bool prevVRRightA = false;
+	bool prevVRLeftX = false;
+	bool prevVRLeftY = false;
+	bool prevVRLeftMenu = false;
+	bool prevVRRightStickClick = false;
 
 	int MouseMoveX = 0;
 	int MouseMoveY = 0;

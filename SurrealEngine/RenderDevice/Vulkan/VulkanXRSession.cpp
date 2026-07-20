@@ -304,6 +304,20 @@ bool VulkanXRSession::CreateSession(void* vkInstance, void* vkPhysicalDevice, vo
 
 void VulkanXRSession::DestroySession()
 {
+	if (actionSet)
+	{
+		// Destroying the action set also destroys every XrAction created
+		// from it, per spec - no need to individually destroy each action.
+		xrDestroyActionSet((XrActionSet)actionSet);
+		actionSet = nullptr;
+	}
+	actionsReady = false;
+	leftStickAction = rightStickAction = nullptr;
+	leftTriggerAction = rightTriggerAction = nullptr;
+	leftGripAction = rightGripAction = nullptr;
+	leftXAction = leftYAction = rightAAction = rightBAction = nullptr;
+	leftMenuAction = leftStickClickAction = rightStickClickAction = nullptr;
+
 	if (appSpace)
 	{
 		xrDestroySpace((XrSpace)appSpace);
@@ -645,4 +659,213 @@ void VulkanXRSession::EndFrame(bool submitLayer, const VREyePose eyes[2])
 	XrResult result = xrEndFrame(xrSession, &endInfo);
 	if (XR_FAILED(result))
 		LogMessage("OpenXR: xrEndFrame failed (result=" + std::to_string((int)result) + ")");
+}
+
+bool VulkanXRSession::CreateActions()
+{
+	if (!available || !session)
+	{
+		lastError = "no OpenXR instance/session available";
+		return false;
+	}
+	XrInstance xrInstance = (XrInstance)instance;
+	XrSession xrSession = (XrSession)session;
+
+	XrActionSetCreateInfo setInfo = { XR_TYPE_ACTION_SET_CREATE_INFO };
+	strncpy_s(setInfo.actionSetName, "gameplay", XR_MAX_ACTION_SET_NAME_SIZE - 1);
+	strncpy_s(setInfo.localizedActionSetName, "Gameplay", XR_MAX_LOCALIZED_ACTION_SET_NAME_SIZE - 1);
+	setInfo.priority = 0;
+	XrActionSet xrActionSet = XR_NULL_HANDLE;
+	XrResult result = xrCreateActionSet(xrInstance, &setInfo, &xrActionSet);
+	LogMessage("OpenXR: xrCreateActionSet result=" + std::to_string((int)result));
+	if (XR_FAILED(result))
+	{
+		lastError = "xrCreateActionSet failed (result=" + std::to_string((int)result) + ")";
+		return false;
+	}
+	actionSet = (void*)xrActionSet;
+
+	auto makeAction = [&](XrActionType type, const char* name, const char* localized) -> XrAction
+	{
+		XrActionCreateInfo info = { XR_TYPE_ACTION_CREATE_INFO };
+		strncpy_s(info.actionName, name, XR_MAX_ACTION_NAME_SIZE - 1);
+		strncpy_s(info.localizedActionName, localized, XR_MAX_LOCALIZED_ACTION_NAME_SIZE - 1);
+		info.actionType = type;
+		XrAction action = XR_NULL_HANDLE;
+		XrResult r = xrCreateAction(xrActionSet, &info, &action);
+		if (XR_FAILED(r))
+			LogMessage(std::string("OpenXR: xrCreateAction(") + name + ") failed (result=" + std::to_string((int)r) + ")");
+		return action;
+	};
+
+	XrAction leftStick = makeAction(XR_ACTION_TYPE_VECTOR2F_INPUT, "left_stick", "Left Thumbstick");
+	XrAction rightStick = makeAction(XR_ACTION_TYPE_VECTOR2F_INPUT, "right_stick", "Right Thumbstick");
+	XrAction leftTrigger = makeAction(XR_ACTION_TYPE_FLOAT_INPUT, "left_trigger", "Left Trigger");
+	XrAction rightTrigger = makeAction(XR_ACTION_TYPE_FLOAT_INPUT, "right_trigger", "Right Trigger");
+	XrAction leftGrip = makeAction(XR_ACTION_TYPE_FLOAT_INPUT, "left_grip", "Left Grip");
+	XrAction rightGrip = makeAction(XR_ACTION_TYPE_FLOAT_INPUT, "right_grip", "Right Grip");
+	XrAction leftX = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "left_x", "X Button");
+	XrAction leftY = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "left_y", "Y Button");
+	XrAction rightA = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "right_a", "A Button");
+	XrAction rightB = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "right_b", "B Button");
+	XrAction leftMenu = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "left_menu", "Menu Button");
+	XrAction leftStickClick = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "left_stick_click", "Left Stick Click");
+	XrAction rightStickClick = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "right_stick_click", "Right Stick Click");
+
+	leftStickAction = (void*)leftStick;
+	rightStickAction = (void*)rightStick;
+	leftTriggerAction = (void*)leftTrigger;
+	rightTriggerAction = (void*)rightTrigger;
+	leftGripAction = (void*)leftGrip;
+	rightGripAction = (void*)rightGrip;
+	leftXAction = (void*)leftX;
+	leftYAction = (void*)leftY;
+	rightAAction = (void*)rightA;
+	rightBAction = (void*)rightB;
+	leftMenuAction = (void*)leftMenu;
+	leftStickClickAction = (void*)leftStickClick;
+	rightStickClickAction = (void*)rightStickClick;
+
+	auto suggest = [&](const char* profilePath, std::vector<std::pair<XrAction, const char*>> bindings)
+	{
+		XrPath profile = XR_NULL_PATH;
+		if (XR_FAILED(xrStringToPath(xrInstance, profilePath, &profile)))
+			return;
+		std::vector<XrActionSuggestedBinding> suggested;
+		suggested.reserve(bindings.size());
+		for (auto& b : bindings)
+		{
+			if (!b.first)
+				continue;
+			XrPath p = XR_NULL_PATH;
+			if (XR_SUCCEEDED(xrStringToPath(xrInstance, b.second, &p)))
+				suggested.push_back({ b.first, p });
+		}
+		XrInteractionProfileSuggestedBinding sb = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
+		sb.interactionProfile = profile;
+		sb.countSuggestedBindings = (uint32_t)suggested.size();
+		sb.suggestedBindings = suggested.data();
+		XrResult r = xrSuggestInteractionProfileBindings(xrInstance, &sb);
+		LogMessage(std::string("OpenXR: suggest bindings ") + profilePath + " result=" + std::to_string((int)r) + " (count=" + std::to_string(suggested.size()) + ")");
+	};
+
+	// Meta/Oculus Touch controllers (Quest 2/3/Pro) - the primary target.
+	// Touch has no physical trigger "click", only the analog /value used
+	// here (and /touch, unused) - "trigger pressed" is a threshold the
+	// caller applies to the float value.
+	suggest("/interaction_profiles/oculus/touch_controller", {
+		{ leftStick, "/user/hand/left/input/thumbstick" },
+		{ rightStick, "/user/hand/right/input/thumbstick" },
+		{ leftTrigger, "/user/hand/left/input/trigger/value" },
+		{ rightTrigger, "/user/hand/right/input/trigger/value" },
+		{ leftGrip, "/user/hand/left/input/squeeze/value" },
+		{ rightGrip, "/user/hand/right/input/squeeze/value" },
+		{ leftX, "/user/hand/left/input/x/click" },
+		{ leftY, "/user/hand/left/input/y/click" },
+		{ rightA, "/user/hand/right/input/a/click" },
+		{ rightB, "/user/hand/right/input/b/click" },
+		{ leftMenu, "/user/hand/left/input/menu/click" },
+		{ leftStickClick, "/user/hand/left/input/thumbstick/click" },
+		{ rightStickClick, "/user/hand/right/input/thumbstick/click" },
+	});
+
+	// khr/simple_controller fallback, for any runtime that doesn't
+	// advertise a Touch profile - only a single trigger + menu click per
+	// hand exist there, so every other action stays unbound (reads as its
+	// zero default via GetControllerState()).
+	suggest("/interaction_profiles/khr/simple_controller", {
+		{ leftTrigger, "/user/hand/left/input/select/click" },
+		{ rightTrigger, "/user/hand/right/input/select/click" },
+		{ leftMenu, "/user/hand/left/input/menu/click" },
+	});
+
+	XrSessionActionSetsAttachInfo attachInfo = { XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
+	attachInfo.countActionSets = 1;
+	attachInfo.actionSets = &xrActionSet;
+	result = xrAttachSessionActionSets(xrSession, &attachInfo);
+	LogMessage("OpenXR: xrAttachSessionActionSets result=" + std::to_string((int)result));
+	if (XR_FAILED(result))
+	{
+		lastError = "xrAttachSessionActionSets failed (result=" + std::to_string((int)result) + ")";
+		return false;
+	}
+
+	actionsReady = true;
+	return true;
+}
+
+void VulkanXRSession::SyncActions()
+{
+	if (!actionsReady || !session)
+		return;
+	XrSession xrSession = (XrSession)session;
+
+	XrActiveActionSet activeSet = {};
+	activeSet.actionSet = (XrActionSet)actionSet;
+	activeSet.subactionPath = XR_NULL_PATH;
+
+	XrActionsSyncInfo syncInfo = { XR_TYPE_ACTIONS_SYNC_INFO };
+	syncInfo.countActiveActionSets = 1;
+	syncInfo.activeActionSets = &activeSet;
+	xrSyncActions(xrSession, &syncInfo);
+}
+
+void VulkanXRSession::GetControllerState(VRControllerState& outState)
+{
+	outState = VRControllerState();
+	if (!actionsReady || !session)
+		return;
+	XrSession xrSession = (XrSession)session;
+
+	auto getFloat = [&](void* action) -> float
+	{
+		if (!action)
+			return 0.0f;
+		XrActionStateFloat state = { XR_TYPE_ACTION_STATE_FLOAT };
+		XrActionStateGetInfo info = { XR_TYPE_ACTION_STATE_GET_INFO };
+		info.action = (XrAction)action;
+		if (XR_SUCCEEDED(xrGetActionStateFloat(xrSession, &info, &state)) && state.isActive)
+			return state.currentState;
+		return 0.0f;
+	};
+	auto getBool = [&](void* action) -> bool
+	{
+		if (!action)
+			return false;
+		XrActionStateBoolean state = { XR_TYPE_ACTION_STATE_BOOLEAN };
+		XrActionStateGetInfo info = { XR_TYPE_ACTION_STATE_GET_INFO };
+		info.action = (XrAction)action;
+		if (XR_SUCCEEDED(xrGetActionStateBoolean(xrSession, &info, &state)) && state.isActive)
+			return state.currentState != XR_FALSE;
+		return false;
+	};
+	auto getVec2 = [&](void* action, float& x, float& y)
+	{
+		x = 0.0f;
+		y = 0.0f;
+		if (!action)
+			return;
+		XrActionStateVector2f state = { XR_TYPE_ACTION_STATE_VECTOR2F };
+		XrActionStateGetInfo info = { XR_TYPE_ACTION_STATE_GET_INFO };
+		info.action = (XrAction)action;
+		if (XR_SUCCEEDED(xrGetActionStateVector2f(xrSession, &info, &state)) && state.isActive)
+		{
+			x = state.currentState.x;
+			y = state.currentState.y;
+		}
+	};
+
+	getVec2(leftStickAction, outState.leftStickX, outState.leftStickY);
+	getVec2(rightStickAction, outState.rightStickX, outState.rightStickY);
+	outState.leftTrigger = getFloat(leftTriggerAction);
+	outState.rightTrigger = getFloat(rightTriggerAction);
+	outState.leftGrip = getFloat(leftGripAction);
+	outState.rightGrip = getFloat(rightGripAction);
+	outState.leftX = getBool(leftXAction);
+	outState.leftY = getBool(leftYAction);
+	outState.rightA = getBool(rightAAction);
+	outState.rightB = getBool(rightBAction);
+	outState.leftMenu = getBool(leftMenuAction);
+	outState.leftStickClick = getBool(leftStickClickAction);
+	outState.rightStickClick = getBool(rightStickClickAction);
 }

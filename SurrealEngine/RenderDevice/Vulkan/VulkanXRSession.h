@@ -25,6 +25,23 @@ struct VREyePose
 	float angleLeft = 0.0f, angleRight = 0.0f, angleUp = 0.0f, angleDown = 0.0f; // radians
 };
 
+// M3: controller input, read after SyncActions(). Trigger/grip are analog
+// [0,1] (Oculus Touch has no trigger "click" input, only /value and
+// /touch); everything else is a plain digital button. Unbound actions
+// (e.g. every field but leftTrigger/rightTrigger/leftMenu on a runtime that
+// only advertises khr/simple_controller) just read as their zero default.
+struct VRControllerState
+{
+	float leftStickX = 0.0f, leftStickY = 0.0f;
+	float rightStickX = 0.0f, rightStickY = 0.0f;
+	float leftTrigger = 0.0f, rightTrigger = 0.0f;
+	float leftGrip = 0.0f, rightGrip = 0.0f;
+	bool leftX = false, leftY = false;
+	bool rightA = false, rightB = false;
+	bool leftMenu = false;
+	bool leftStickClick = false, rightStickClick = false;
+};
+
 class VulkanXRSession
 {
 public:
@@ -105,6 +122,26 @@ public:
 	// loop balanced).
 	void EndFrame(bool submitLayer, const VREyePose eyes[2]);
 
+	// ---- M3: controller input ----
+
+	// Creates the action set/actions and suggests bindings for the Oculus
+	// Touch profile (primary target - Quest 2/3/Pro) plus a khr/simple_controller
+	// fallback, then attaches the action set to the session. Must be called
+	// after CreateSession() succeeds, before the first SyncActions()/
+	// GetControllerState() call. Returns false on failure (check LastError()).
+	bool CreateActions();
+
+	// xrSyncActions for our one action set. Call once per frame (only while
+	// IsSessionRunning()), before any GetControllerState() call that frame.
+	// Deliberately does not log anything - this runs every frame.
+	void SyncActions();
+
+	// Reads the current (post-SyncActions) state of every bound action into
+	// outState. Always succeeds - missing/unbound/inactive actions just
+	// read as their zero default. Deliberately does not log anything - this
+	// runs every frame.
+	void GetControllerState(VRControllerState& outState);
+
 private:
 	bool available = false;
 	std::string lastError;
@@ -124,4 +161,21 @@ private:
 
 	double lastPredictedDisplayTime = 0.0;
 	int64_t predictedDisplayPeriod = 0;
+
+	// M3: controller input action set/actions. All XrAction handles.
+	bool actionsReady = false;
+	void* actionSet = nullptr; // XrActionSet
+	void* leftStickAction = nullptr; // XrAction (Vector2f)
+	void* rightStickAction = nullptr; // XrAction (Vector2f)
+	void* leftTriggerAction = nullptr; // XrAction (Float)
+	void* rightTriggerAction = nullptr; // XrAction (Float)
+	void* leftGripAction = nullptr; // XrAction (Float)
+	void* rightGripAction = nullptr; // XrAction (Float)
+	void* leftXAction = nullptr; // XrAction (Boolean)
+	void* leftYAction = nullptr; // XrAction (Boolean)
+	void* rightAAction = nullptr; // XrAction (Boolean)
+	void* rightBAction = nullptr; // XrAction (Boolean)
+	void* leftMenuAction = nullptr; // XrAction (Boolean)
+	void* leftStickClickAction = nullptr; // XrAction (Boolean)
+	void* rightStickClickAction = nullptr; // XrAction (Boolean)
 };

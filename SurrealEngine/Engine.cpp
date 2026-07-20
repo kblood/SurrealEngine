@@ -180,6 +180,12 @@ void Engine::Run()
 			{
 				xrSessionActive = true;
 				LogMessage("--vr: XR session + swapchains created (" + std::to_string(xrSession->GetSwapchainWidth()) + "x" + std::to_string(xrSession->GetSwapchainHeight()) + " per eye)");
+
+				// M3: controller input. Non-fatal if it fails - the session
+				// still runs, just with no controller input (LastError()
+				// already logged the reason inside CreateActions()).
+				if (!xrSession->CreateActions())
+					LogMessage("--vr: controller action setup failed (" + xrSession->LastError() + ") - continuing without controller input");
 			}
 			else
 			{
@@ -269,6 +275,13 @@ void Engine::Run()
 		LevelInfo->Millisecond() = 0; // No timedesc equivalent for LevelInfo->Millisecond()
 
 		UpdateInput(realTimeElapsed);
+
+		// M3: controller input. Runs after UpdateInput() so, when both a
+		// keyboard/mouse binding and a VR controller drive the same pawn
+		// property in the same tick, the controller wins - VR play is the
+		// point once a session is active. No-op (early-returns) when no XR
+		// session is running.
+		UpdateVRControllerInput();
 
 		SetPause(!LevelInfo->Pauser().empty());
 
@@ -1675,6 +1688,76 @@ void Engine::UpdateInput(float timeElapsed)
 			viewport->Actor()->SetFloat(it.first, it.second.Value);
 		}
 	}
+}
+
+// M3: controller input. Bypasses the keybindings/activeInputButtons/
+// activeInputAxes machinery entirely (no User.ini ships in this repo to
+// bind gamepad/joystick keys in the first place, and continuous analog
+// stick/trigger values map more directly onto SetBool/SetFloat than onto
+// the discrete key-press model that machinery was built for). Held
+// movement/fire axes and buttons are re-applied every frame from the
+// current controller state; only single-shot actions (jump, weapon
+// switch, menu, recenter) use edge detection against last frame's state.
+//
+// Mapping (Oculus Touch primary target - see VulkanXRSession.cpp's
+// CreateActions() for the full interaction-profile bindings):
+//   left stick Y/X   -> aBaseY / aStrafe (move forward, strafe)
+//   right stick X    -> aTurn (smooth turn - head pitch/yaw-within-body
+//                       still comes from real head tracking, see Run()'s
+//                       XR frame loop; this turns the body/recenter frame)
+//   right stick Y    -> aUp (swim/fly vertical thrust)
+//   right trigger    -> Fire
+//   left trigger     -> AltFire
+//   right grip       -> Duck (held)
+//   right A          -> Jump (edge)
+//   left X / left Y  -> PrevWeapon / NextWeapon (edge)
+//   left menu        -> ShowMenu (edge)
+//   right stick click -> recenter view (edge, resets xrPoseRecentered)
+void Engine::UpdateVRControllerInput()
+{
+	if (!xrSession || !xrSessionActive || !xrSession->IsSessionRunning())
+		return;
+	if (!viewport->Actor())
+		return;
+
+	xrSession->SyncActions();
+	VRControllerState state;
+	xrSession->GetControllerState(state);
+
+	UActor* pawn = viewport->Actor();
+
+	const float deadzone = 0.15f;
+	auto applyDeadzone = [](float v, float dz) { return (std::fabs(v) < dz) ? 0.0f : v; };
+
+	const float moveSpeed = 320.0f; // UU/sec, matches a typical UT99 default axis Speed=
+	const float turnSpeed = 200.0f; // degrees/sec at full deflection
+
+	pawn->SetFloat("aBaseY", applyDeadzone(state.leftStickY, deadzone) * moveSpeed);
+	pawn->SetFloat("aStrafe", applyDeadzone(state.leftStickX, deadzone) * moveSpeed);
+	pawn->SetFloat("aTurn", applyDeadzone(state.rightStickX, deadzone) * turnSpeed);
+	pawn->SetFloat("aUp", applyDeadzone(state.rightStickY, deadzone) * moveSpeed);
+
+	const float triggerThreshold = 0.5f;
+	pawn->SetBool("bFire", state.rightTrigger > triggerThreshold);
+	pawn->SetBool("bAltFire", state.leftTrigger > triggerThreshold);
+	pawn->SetBool("bDuck", state.rightGrip > triggerThreshold);
+
+	if (state.rightA && !prevVRRightA)
+		ExecCommand({ "Jump" });
+	if (state.leftX && !prevVRLeftX)
+		ExecCommand({ "PrevWeapon" });
+	if (state.leftY && !prevVRLeftY)
+		ExecCommand({ "NextWeapon" });
+	if (state.leftMenu && !prevVRLeftMenu)
+		ExecCommand({ "ShowMenu" });
+	if (state.rightStickClick && !prevVRRightStickClick)
+		xrPoseRecentered = false; // re-captured on the next LocateViews() in Run()'s XR frame loop
+
+	prevVRRightA = state.rightA;
+	prevVRLeftX = state.leftX;
+	prevVRLeftY = state.leftY;
+	prevVRLeftMenu = state.leftMenu;
+	prevVRRightStickClick = state.rightStickClick;
 }
 
 void Engine::OpenWindow()
