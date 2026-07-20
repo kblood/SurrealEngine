@@ -372,6 +372,21 @@ fully-non-interactive verification strategy for each step, and the one step
   fails with `XR_ERROR_FORM_FACTOR_UNAVAILABLE`), then implement/test the
   real `xrCreateSession`/swapchain/frame-loop.
 
+- 2026-07-19: **M2 step 4 unblocked.** User ran the one-line elevated
+  `Set-ItemProperty` swapping `HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime`
+  to SteamVR's `steamxr_win64.json`. Re-applied the `steamvr.vrsettings`
+  null-driver edit (`driver_null.enable: true`, `steamvr.requireHmd: false`,
+  `steamvr.forcedDriver: "null"` — original file backed up to
+  `steamvr.vrsettings.bak-pre-nulldriver` alongside the live config),
+  launched `vrserver.exe` directly, and confirmed:
+  `--probexr: OpenXR instance + HMD system OK`. `xrGetSystem` now succeeds
+  headset-less. Proceeding to implement the real `xrCreateSession`/
+  swapchain/frame-loop in `VulkanXRSession` per `VR_IMPLEMENTATION_PLAN.md`
+  M2 step 4's already-written design. **Remember to revert both the
+  registry `ActiveRuntime` value and `steamvr.vrsettings` back to Virtual
+  Desktop when done testing against the null driver**, before using the
+  physical Quest 3 again.
+
   **Did the safe part now**: restructured `VulkanRenderDevice`'s
   constructor to optionally accept a `VulkanXRInitOverrides` (new struct in
   `VulkanXRSession.h`: `instanceExtensions`, `deviceExtensions`,
