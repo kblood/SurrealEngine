@@ -11,7 +11,7 @@
 #include <cmath>
 #include <stdexcept>
 
-VulkanRenderDevice::VulkanRenderDevice(Widget* InViewport, const VulkanXRInitOverrides* xrOverrides)
+VulkanRenderDevice::VulkanRenderDevice(Widget* InViewport, VulkanXRSession* xrSession)
 {
 	Viewport = InViewport;
 
@@ -21,8 +21,17 @@ VulkanRenderDevice::VulkanRenderDevice(Widget* InViewport, const VulkanXRInitOve
 			.RequireExtensions(Viewport->GetVulkanInstanceExtensions())
 			.OptionalSwapchainColorspace()
 			.DebugLayer(UseDebugLayer);
-		if (xrOverrides)
-			instanceBuilder.RequireExtensions(xrOverrides->instanceExtensions);
+
+		// M2 step 4: XR_KHR_vulkan_enable requires xrGetVulkanInstanceExtensionsKHR
+		// to run (and its extensions be required) BEFORE vkCreateInstance -
+		// see VR_IMPLEMENTATION_PLAN.md M2 step 4's architectural note. Only
+		// reached when --vr is passed and OpenXR init already succeeded
+		// (Engine::Run) - xrSession is null for ordinary flatscreen play, so
+		// this whole block is skipped and instance creation is byte-for-byte
+		// identical to before.
+		bool useXR = xrSession && xrSession->IsAvailable();
+		if (useXR)
+			instanceBuilder.RequireExtensions(xrSession->GetVulkanInstanceExtensions());
 		std::shared_ptr<VulkanInstance> instance = instanceBuilder.Create();
 
 		auto surface = std::make_shared<VulkanSurface>(instance, Viewport->CreateVulkanSurface(instance->Instance));
@@ -35,19 +44,48 @@ VulkanRenderDevice::VulkanRenderDevice(Widget* InViewport, const VulkanXRInitOve
 		deviceBuilder.Surface(surface);
 		deviceBuilder.RequireExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
 		deviceBuilder.RequireExtension(VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME);
-		if (xrOverrides)
+
+		// xrGetVulkanGraphicsDeviceKHR can only be resolved once a live
+		// VkInstance exists (spec requirement), so this half of the XR
+		// requirement resolution happens here, after instanceBuilder.Create()
+		// above, rather than before the constructor runs.
+		//
+		// If this fails, we do NOT throw and take down the whole engine:
+		// observed in practice against the SteamVR null-driver OpenXR
+		// runtime, xrGetVulkanGraphicsDeviceKHR can return
+		// XR_ERROR_RUNTIME_FAILURE (the null driver has no real compositor
+		// device to report) even though instance creation and the
+		// instance-extension/graphics-requirements queries above succeeded
+		// fine. Falling back to ordinary (non-XR-mandated) device selection
+		// keeps flatscreen play - and even the rest of the --vr code path's
+		// own "fall back to flatscreen" handling in Engine::Run() - working
+		// instead of crashing the whole process. useXR is downgraded to
+		// false for the remainder of this constructor so the device-select
+		// branch below takes the normal VkDeviceIndex path.
+		void* xrPhysicalDevice = nullptr;
+		if (useXR)
 		{
-			for (const std::string& ext : xrOverrides->deviceExtensions)
-				deviceBuilder.RequireExtension(ext);
+			std::vector<std::string> xrDeviceExtensions;
+			if (xrSession->ResolveVulkanDevice((void*)instance->Instance, &xrPhysicalDevice, xrDeviceExtensions))
+			{
+				for (const std::string& ext : xrDeviceExtensions)
+					deviceBuilder.RequireExtension(ext);
+			}
+			else
+			{
+				LogMessage("VR: OpenXR ResolveVulkanDevice failed (" + xrSession->LastError() + ") - continuing without an XR-bound Vulkan device; flatscreen rendering will proceed normally, no XR session will be created");
+				useXR = false;
+				xrPhysicalDevice = nullptr;
+			}
 		}
 
-		if (xrOverrides && xrOverrides->physicalDevice)
+		if (useXR && xrPhysicalDevice)
 		{
 			// The OpenXR runtime mandates this exact physical device (it backs
 			// the HMD compositor) - find it in the compatible-device list
 			// rather than letting VulkanDeviceBuilder's own scoring pick a
 			// different GPU on a multi-GPU system.
-			VkPhysicalDevice requiredDevice = (VkPhysicalDevice)xrOverrides->physicalDevice;
+			VkPhysicalDevice requiredDevice = (VkPhysicalDevice)xrPhysicalDevice;
 			std::vector<VulkanCompatibleDevice> candidates = deviceBuilder.FindDevices(instance);
 			int matchedIndex = -1;
 			for (size_t i = 0; i < candidates.size(); i++)
@@ -1481,7 +1519,74 @@ void VulkanRenderDevice::DrawPresentTexture(int width, int height)
 	cmdbuffer->draw(6, 1, 0, 0);
 	cmdbuffer->endRenderPass();
 
-	PipelineBarrier()
-		.AddImage(Commands->SwapChain->GetImage(Commands->PresentImageIndex), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0)
-		.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+	// M2 step 8/9: if a VR frame has pending eye swapchain images (set by
+	// Engine::Run's XR frame loop via SetPendingXRTargets before DrawGame),
+	// blit the image we just composited above into each one, on the same
+	// command buffer, before the window's own present transition. This is a
+	// pure addition - when nothing is pending (the overwhelmingly common
+	// case: no --vr, or --vr but this frame's XR image wasn't acquired), the
+	// else branch below is byte-for-byte the original code.
+	VkImage windowImage = Commands->SwapChain->GetImage(Commands->PresentImageIndex)->image;
+	if (HasPendingXRTargets())
+	{
+		int srcW = Commands->SwapChain->Width();
+		int srcH = Commands->SwapChain->Height();
+
+		PipelineBarrier()
+			.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+		VkImageBlit blit = {};
+		blit.srcOffsets[0] = { 0, 0, 0 };
+		blit.srcOffsets[1] = { srcW, srcH, 1 };
+		blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.srcSubresource.mipLevel = 0;
+		blit.srcSubresource.baseArrayLayer = 0;
+		blit.srcSubresource.layerCount = 1;
+		blit.dstOffsets[0] = { 0, 0, 0 };
+		blit.dstOffsets[1] = { PendingXRWidth, PendingXRHeight, 1 };
+		blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.dstSubresource.mipLevel = 0;
+		blit.dstSubresource.baseArrayLayer = 0;
+		blit.dstSubresource.layerCount = 1;
+
+		for (int eye = 0; eye < 2; eye++)
+		{
+			if (!PendingXRImage[eye])
+				continue;
+
+			PipelineBarrier()
+				.AddImage(PendingXRImage[eye], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT)
+				.Execute(cmdbuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+			cmdbuffer->blitImage(
+				windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				PendingXRImage[eye], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				1, &blit, VK_FILTER_LINEAR);
+
+			// Compositors commonly expect the image to be left in
+			// COLOR_ATTACHMENT_OPTIMAL at xrReleaseSwapchainImage time; the
+			// spec itself doesn't mandate a specific final layout, but this
+			// matches the layout the XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT
+			// usage flag was requested with.
+			PipelineBarrier()
+				.AddImage(PendingXRImage[eye], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+				.Execute(cmdbuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+		}
+
+		PipelineBarrier()
+			.AddImage(windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_TRANSFER_READ_BIT, 0)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+
+		// One-shot: the caller (Engine::Run's XR frame loop) sets this again
+		// every frame right before DrawGame(), only when an XR frame is
+		// actually being rendered this tick.
+		ClearPendingXRTargets();
+	}
+	else
+	{
+		PipelineBarrier()
+			.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+	}
 }

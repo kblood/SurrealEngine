@@ -21,13 +21,15 @@ class CachedTexture;
 class VulkanRenderDevice : public RenderDevice
 {
 public:
-	// xrOverrides is null for normal flatscreen play; when set (M2 step
-	// 4/10), its instanceExtensions/deviceExtensions are folded into the
-	// existing VulkanInstanceBuilder/VulkanDeviceBuilder RequireExtension
-	// calls, and physicalDevice (if non-null) forces device selection to
-	// that exact VkPhysicalDevice instead of VulkanDeviceBuilder's own
+	// xrSession is null for normal flatscreen play. When set and available
+	// (M2 step 4), the constructor calls xrSession->GetVulkanInstanceExtensions()
+	// before creating the VkInstance and xrSession->ResolveVulkanDevice()
+	// right after, folding the runtime's required instance/device extensions
+	// into the existing VulkanInstanceBuilder/VulkanDeviceBuilder
+	// RequireExtension calls, and forcing device selection to the exact
+	// VkPhysicalDevice OpenXR mandates instead of VulkanDeviceBuilder's own
 	// scoring - see VulkanRenderDevice.cpp.
-	VulkanRenderDevice(Widget* viewport, const VulkanXRInitOverrides* xrOverrides = nullptr);
+	VulkanRenderDevice(Widget* viewport, VulkanXRSession* xrSession = nullptr);
 	~VulkanRenderDevice();
 
 	void Flush(bool AllowPrecache) override;
@@ -75,6 +77,26 @@ public:
 
 	void DrawPresentTexture(int width, int height);
 	PresentPushConstants GetPresentPushConstants();
+
+	// M2 step 8/9: when a VR frame's eye images are pending (set by
+	// Engine::Run's XR frame loop via SetPendingXRTargets before calling
+	// DrawGame), DrawPresentTexture() additionally blits the just-composited
+	// window present image into each eye's OpenXR swapchain image, right
+	// after rendering it and before the window's own present transition -
+	// see VulkanRenderDevice.cpp. This reuses the normal flatscreen render
+	// path unchanged (both eyes currently get an identical mono image - see
+	// VR_IMPLEMENTATION_PLAN.md M2 step 8 status notes for why true per-eye
+	// stereo composition isn't wired in yet), so it adds no new render pass
+	// and cannot regress flatscreen when no target is pending.
+	void SetPendingXRTargets(void* leftEyeImage, void* rightEyeImage, int width, int height)
+	{
+		PendingXRImage[0] = (VkImage)leftEyeImage;
+		PendingXRImage[1] = (VkImage)rightEyeImage;
+		PendingXRWidth = width;
+		PendingXRHeight = height;
+	}
+	bool HasPendingXRTargets() const { return PendingXRImage[0] != VK_NULL_HANDLE || PendingXRImage[1] != VK_NULL_HANDLE; }
+	void ClearPendingXRTargets() { PendingXRImage[0] = VK_NULL_HANDLE; PendingXRImage[1] = VK_NULL_HANDLE; }
 
 	struct
 	{
@@ -132,6 +154,11 @@ private:
 	}
 
 	VkViewport viewportdesc = {};
+
+	// See SetPendingXRTargets()/HasPendingXRTargets() above.
+	VkImage PendingXRImage[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+	int PendingXRWidth = 0;
+	int PendingXRHeight = 0;
 
 	bool UsePrecache = true;
 	vec4 FlashScale;
