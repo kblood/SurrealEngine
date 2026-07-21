@@ -50,6 +50,7 @@ class FrustumPlanes;
 class AudioSubsystem;
 class Rotator;
 class ExpressionValue;
+class UFunction;
 class UnrealURL;
 class VideoPlayer;
 class UnrealMipmap;
@@ -243,6 +244,78 @@ public:
 	int mainHand = 1;
 	VRHandState& MainHand() { return xrHands[mainHand]; }
 	VRHandState& OffHand() { return xrHands[1 - mainHand]; }
+
+	// M-B: --debugvrhands - synthesizes two fake, slowly-orbiting hand
+	// poses with no XR session/headset required at all (see
+	// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-B section), so the
+	// RenderOverlays intercept below and its viewmodel/off-hand-marker
+	// rendering are exercisable on a machine with no HMD connected.
+	// Parsed once from the command line in Run(); UpdateDebugVRHands() is
+	// called every tick from Run()'s main loop independent of xrSession
+	// (works with or without --vr) and simply overwrites xrHands[] the
+	// same way the M-A OpenXR composition does, so every consumer
+	// (MainHand()/OffHand(), the intercept, the renderer) needs zero
+	// debug-specific branching - it only ever looks at `valid`.
+	bool debugVRHandsEnabled = false;
+	float debugVRHandsTime = 0.0f;
+	void UpdateDebugVRHands(float timeElapsed);
+
+	// M-B: VM interception seam consumer - see VM/Frame.h's
+	// Frame::InterceptCall doc comment and
+	// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-B section. Installed into
+	// Frame::InterceptCall from Run() only while VR (a real running
+	// session or --debugvrhands) is active - see the install site for why
+	// that keeps Frame::Call byte-identical otherwise. Handles
+	// `RenderOverlays` on the local player's current weapon (NOT
+	// `InvCalcView`, which the plan doc assumed - see the .cpp definition's
+	// doc comment for why: UT99 v436's viewmodel transform is actually
+	// computed inside the weapon's own `RenderOverlays` script function,
+	// confirmed via a one-time call-name diagnostic): writes
+	// Location()/Rotation() natively from the main hand's pose and skips
+	// the script body entirely. Returns false (falls through to normal
+	// script dispatch, zero side effects) for every other function or
+	// instance, and also whenever the main hand has no valid pose this
+	// frame - never leaves the gun frozen or half-updated (plan's open
+	// risk #6).
+	bool HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<ExpressionValue>& args, ExpressionValue& result);
+
+	// M-B: weaponAimRotator(hand) - the named extension point from the
+	// plan's "Aim-source model" section. M-B only ever calls this with
+	// MainHand() and only implements the one-handed case: the hand's own
+	// aim-pose forward, already composed into a world-space Rotator (see
+	// VRHandState::aimRotator's doc comment). M-D extends this exact
+	// function (no new seam needed) to switch to the two-handed
+	// between-hands-vector rotator while the off-hand foregrip is
+	// gripped; the TODO marks that seam.
+	Rotator WeaponAimRotator(const VRHandState& hand)
+	{
+		// TODO(M-D): while a two-handed grip is active, return the rotator
+		// of normalize(OffHand().gripPos - hand.gripPos) with roll from
+		// hand's up axis instead - see the plan's M-D section. M-B has no
+		// grip state machine yet, so this is unconditional.
+		return hand.aimRotator;
+	}
+
+	// M-B: per-weapon grip/aim tuning table (plan's M-B "Per-weapon grip
+	// table" section). Keyed by weapon UClass name; GetWeaponGripInfo()
+	// falls back to a computed default (this weapon's own authored
+	// Inventory.PlayerViewOffset/Weapon.FireOffset - UActor.h:901/951 - so
+	// an unlisted weapon's un-tuned VR anchor starts in the same ballpark
+	// as its flatscreen viewmodel position) for any class not explicitly
+	// listed. M-C/M-D/M-E add real per-weapon entries as headset tuning
+	// happens. Deliberately a plain hardcoded map, not a new ini schema:
+	// this codebase's ini mechanism (PackageManager::GetIniValue, a flat
+	// section/key -> single string value) doesn't fit a table of
+	// vec3/Rotator tuples without inventing a bespoke serialization for a
+	// single v1 entry, which the plan explicitly says not to over-engineer.
+	struct VRWeaponGripInfo
+	{
+		vec3 gripOffset = vec3(0.0f);            // weapon-local (X=fwd,Y=right,Z=up - GetAxes convention), added to mainHand.gripPos
+		Rotator rotationTrim = Rotator(0, 0, 0); // added on top of WeaponAimRotator(hand)
+		vec3 muzzleOffset = vec3(0.0f);          // weapon-local - M-C's fire-origin intercept
+		vec3 foregripPoint = vec3(0.0f);         // weapon-local - M-D's two-hand grab test
+	};
+	VRWeaponGripInfo GetWeaponGripInfo(UWeapon* weapon);
 
 	// M3: edge-detection state for controller buttons that should fire
 	// once per press rather than stay held (Jump, weapon switch, menu,

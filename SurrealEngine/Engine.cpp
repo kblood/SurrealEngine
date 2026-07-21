@@ -33,6 +33,7 @@
 #include "Video/VideoPlayer.h"
 #include <chrono>
 #include <set>
+#include <map>
 
 Engine* engine = nullptr;
 
@@ -268,6 +269,36 @@ void Engine::Run()
 		}
 	}
 
+	// M-B: --debugvrhands - synthesizes two fake, slowly-orbiting hand poses
+	// with NO XR session/headset required at all (see Engine.h's doc comment
+	// on debugVRHandsEnabled/UpdateDebugVRHands and
+	// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-B section). This is what
+	// makes M-B screenshot-verifiable on a machine with no HMD connected -
+	// works standalone or together with --vr (a real session's per-frame
+	// hand composition, when it runs, simply overwrites xrHands[] again
+	// afterward - see the XR frame block below).
+	if (commandline && commandline->HasArg("", "--debugvrhands"))
+	{
+		debugVRHandsEnabled = true;
+		LogMessage("--debugvrhands: synthesizing fake orbiting hand poses (no XR session required)");
+	}
+
+	// M-B: VM interception seam install - see VM/Frame.h's
+	// Frame::InterceptCall doc comment. Only installed while VR is actually
+	// active (a real running session OR --debugvrhands), so a plain
+	// flatscreen run (no --vr, no --debugvrhands) leaves Frame::InterceptCall
+	// null and Frame::Call byte-identical to its pre-M-B behavior - the
+	// no-regression requirement from Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's
+	// M-B section.
+	if (xrSessionActive || debugVRHandsEnabled)
+	{
+		Frame::InterceptCall = [this](UObject* instance, UFunction* func, Array<ExpressionValue>& args, ExpressionValue& result)
+		{
+			return HandleFrameCallIntercept(instance, func, args, result);
+		};
+		LogMessage("VR: weapon RenderOverlays interception hook installed (M-B)");
+	}
+
 	if (engine->LaunchInfo.ue1Version > 219 && !client->StartupFullscreen)
 		viewport->bWindowsMouseAvailable() = true;
 
@@ -370,6 +401,14 @@ void Engine::Run()
 				ExpressionValue::Variable(&CameraRotation, rotprop)
 				});
 		}
+
+		// M-B: fake orbiting hand poses for --debugvrhands - run right
+		// after CameraLocation/CameraRotation are refreshed above (this
+		// frame's anchor, same one the real XR hand composition below
+		// uses) and unconditionally of xrSession (a no-op when
+		// debugVRHandsEnabled is false) so it also works without --vr at
+		// all, per Engine.h's doc comment on UpdateDebugVRHands.
+		UpdateDebugVRHands(realTimeElapsed);
 
 		UpdateAudio();
 
@@ -2101,6 +2140,193 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 	prevVRLeftY = state.leftY;
 	prevVRLeftMenu = state.leftMenu;
 	prevVRRightStickClick = state.rightStickClick;
+}
+
+// M-B: --debugvrhands - see Engine.h's doc comment on debugVRHandsEnabled.
+// Deliberately independent of xrSession/xrSessionActive (early-returns only
+// on the flag itself) so this is exercisable with no OpenXR runtime and no
+// headset connected at all - the primary non-interactive verification path
+// for M-B (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-B section). Writes
+// straight into xrHands[] through the exact same fields
+// (valid/gripPos/gripCoords/aimRotator) the real M-A OpenXR composition
+// writes, so every consumer (MainHand()/OffHand(), the weapon RenderOverlays
+// intercept, the off-hand marker renderer) needs zero debug-specific
+// branching. Both position (orbiting a small circle) and orientation
+// (yaw/pitch oscillating) change continuously over time - not a one-time
+// static offset - so two screenshots taken a few seconds apart visibly
+// differ, which is the whole point of the DoD's "proves it's tracking a
+// moving pose" screenshot pair.
+void Engine::UpdateDebugVRHands(float timeElapsed)
+{
+	if (!debugVRHandsEnabled)
+		return;
+
+	debugVRHandsTime += timeElapsed;
+
+	const float angularSpeed = 0.6f;      // rad/s - slow enough to read clearly in a still screenshot
+	const float orbitRadiusUU = 3.0f;     // ~3in circle
+	const float forwardUU = 18.0f;        // ~18in in front of the head
+	const float downUU = -6.0f;           // ~6in below eye height
+	const float handSeparationUU = 7.0f;  // ~7in either side of center - keeps left/right hands visibly distinct
+	const float aimSwingDeg = 15.0f;      // +/- yaw/pitch swing amplitude, degrees
+	const float ue1RadiansToYaw = 32768.0f / 3.14159265359f;
+
+	// Anchor to the current camera pose (CameraLocation/CameraRotation, just
+	// refreshed by PlayerCalcView this same tick - see the call site in
+	// Run()) exactly like the real hand poses anchor to it via
+	// ComposeXRPoseToWorld's CameraLocation parameter, so the fake hands
+	// move together with the player instead of staying fixed in the level.
+	Coords headCoords = Coords::Rotation(CameraRotation); // XAxis=fwd, YAxis=right, ZAxis=up (GetAxes convention)
+
+	for (int hand = 0; hand < 2; hand++)
+	{
+		float side = (hand == mainHand) ? handSeparationUU : -handSeparationUU;
+		float phase = debugVRHandsTime * angularSpeed + (hand == mainHand ? 0.0f : 3.14159265359f);
+
+		vec3 center = CameraLocation
+			+ headCoords.XAxis * forwardUU
+			+ headCoords.ZAxis * downUU
+			+ headCoords.YAxis * side;
+		vec3 orbit = headCoords.YAxis * (orbitRadiusUU * std::cos(phase))
+			+ headCoords.ZAxis * (orbitRadiusUU * std::sin(phase));
+
+		VRHandState& handState = xrHands[hand];
+		handState.valid = true;
+		handState.gripPos = center + orbit;
+
+		float swingRad = radians(aimSwingDeg) * std::sin(phase * 0.5f);
+		Rotator handRotator = CameraRotation;
+		handRotator.Yaw += (int)(swingRad * ue1RadiansToYaw);
+		handRotator.Pitch += (int)(swingRad * 0.5f * ue1RadiansToYaw);
+
+		handState.gripCoords = Coords::Rotation(handRotator);
+		handState.aimRotator = handRotator;
+	}
+}
+
+// M-B: VM interception seam consumer - installed into Frame::InterceptCall
+// from Run() (see the install site's doc comment) only while VR is active.
+//
+// 2026-07-21 deviation from the plan doc: the plan's ground-truth section
+// named the intercepted function `InvCalcView`, based on
+// RenderCanvas.cpp's ue1Version<=219 fallback path
+// (`CallEvent(weapon, "InvCalcView", {})` at RenderCanvas.cpp:78/185). This
+// build's actual target game is UT99 v436 (ue1Version > 219), which takes
+// the OTHER branch instead - `CallEvent(..., EventName::RenderOverlays,
+// ...)` on the player pawn - and a one-time diagnostic (logging every
+// distinct function name Frame::Call saw invoked on the current weapon
+// instance, see the 2026-07-21 SE-Log-LastRun.txt capture) proved
+// `InvCalcView` is never called anywhere in that path. What actually
+// computes and applies the viewmodel transform is the weapon's OWN
+// `RenderOverlays` (defined on the `Weapon` base class, commonly overridden
+// per-weapon - e.g. `enforcer.RenderOverlays` calls `CalcDrawOffset`, some
+// vector/rotator math, then native `SetLocation`/`SetRotation` on itself),
+// invoked by `PlayerPawn.RenderOverlays` (a *different* UObject instance -
+// the pawn, not the weapon - so the instance filter below already
+// disambiguates the two same-named functions without any extra work).
+// Intercepting `RenderOverlays` on the weapon is the direct equivalent of
+// the plan's `InvCalcView` idea (skip the whole compute-and-set script
+// body, do it natively instead) - same seam, same mechanism, just the
+// correct function name for this engine version. Falls through (returns
+// false, zero side effects) for every other function or instance, and also
+// whenever the main hand has no valid pose this frame - degrading to stock
+// behavior rather than ever leaving the gun frozen or half-updated (the
+// plan's open risk #6).
+bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<ExpressionValue>& args, ExpressionValue& result)
+{
+	(void)args;
+
+	if (func->Name != "RenderOverlays")
+		return false;
+
+	UPlayerPawn* playerActor = viewport->Actor();
+	if (!playerActor)
+		return false;
+
+	UWeapon* weapon = playerActor->Weapon();
+	if (!weapon || instance != weapon)
+		return false;
+
+	VRHandState& hand = MainHand();
+	if (!hand.valid)
+		return false;
+
+	VRWeaponGripInfo grip = GetWeaponGripInfo(weapon);
+
+	vec3 worldGripOffset = hand.gripCoords.XAxis * grip.gripOffset.x
+		+ hand.gripCoords.YAxis * grip.gripOffset.y
+		+ hand.gripCoords.ZAxis * grip.gripOffset.z;
+	weapon->Location() = hand.gripPos + worldGripOffset;
+	weapon->Rotation() = WeaponAimRotator(hand) + grip.rotationTrim;
+
+	// 2026-07-21: skipping the script body entirely also skips its own
+	// internal `Canvas.DrawActor(Self, false, false)` call - for
+	// ue1Version>219 (this build), RenderCanvas.cpp's RenderOverlays()/
+	// RenderOverlaysVR() do NOT draw the weapon themselves (unlike the
+	// <=219 fallback, which calls DrawActor explicitly right after
+	// InvCalcView - see those functions), so that in-script draw call is
+	// the ONLY thing that puts the mesh on screen. Confirmed by a
+	// first-pass build that set Location/Rotation correctly (proven by the
+	// throttled log below and by the flatscreen viewmodel disappearing
+	// from its normal spot) but rendered no weapon anywhere on screen at
+	// all. Fix: issue the same native draw call here, using the
+	// Location/Rotation we just set, so the mesh still appears.
+	render->DrawActor(weapon, false, false);
+
+	// Throttled by call count (once every 200 calls) rather than every call -
+	// RenderOverlays runs once per eye per frame in the VR HUD split (up to
+	// ~180/s at 90fps), and this function has no timeElapsed parameter of
+	// its own to accumulate against. Proves the intercept is actually
+	// firing (M-B DoD) without flooding the log.
+	static int logCallCounter = 0;
+	if ((logCallCounter++ % 200) == 0)
+	{
+		LogMessage("VR RenderOverlays intercept: weapon=" + weapon->Class->Name.ToString() +
+			" loc=(" + std::to_string(weapon->Location().x) + "," + std::to_string(weapon->Location().y) + "," + std::to_string(weapon->Location().z) + ")" +
+			" rotYawDeg=" + std::to_string(weapon->Rotation().YawDegrees()) +
+			" rotPitchDeg=" + std::to_string(weapon->Rotation().PitchDegrees()));
+	}
+
+	result = ExpressionValue::NothingValue();
+	return true;
+}
+
+// M-B: per-weapon grip/aim tuning table - see Engine.h's doc comment on
+// VRWeaponGripInfo/GetWeaponGripInfo for why this is a plain hardcoded map
+// rather than a new ini schema. No headset-verified entries exist yet (M-B
+// has no headset access on this build machine); the Enforcer row below is a
+// placeholder proving the lookup path end-to-end, not a tuned value -
+// M-C/M-D/M-E populate real numbers as headset tuning happens.
+Engine::VRWeaponGripInfo Engine::GetWeaponGripInfo(UWeapon* weapon)
+{
+	static const std::map<NameString, VRWeaponGripInfo> table = []()
+	{
+		std::map<NameString, VRWeaponGripInfo> t;
+		VRWeaponGripInfo enforcer;
+		enforcer.gripOffset = vec3(4.0f, 0.0f, -2.0f);
+		t[NameString("Enforcer")] = enforcer;
+		return t;
+	}();
+
+	if (weapon)
+	{
+		auto it = table.find(weapon->Class->Name);
+		if (it != table.end())
+			return it->second;
+	}
+
+	// Default: derive a sane starting offset from this weapon's own
+	// authored flatscreen viewmodel numbers (PlayerViewOffset/FireOffset -
+	// UActor.h:901/951) so an unlisted weapon's un-tuned VR anchor starts in
+	// the same ballpark as its 2D viewmodel position instead of at the raw
+	// hand origin - see the plan's M-B "Per-weapon grip table" section.
+	VRWeaponGripInfo info;
+	if (weapon)
+	{
+		info.gripOffset = weapon->PlayerViewOffset();
+		info.muzzleOffset = weapon->FireOffset();
+	}
+	return info;
 }
 
 void Engine::OpenWindow()

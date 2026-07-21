@@ -165,6 +165,19 @@ private:
 	void PostRenderFlash();
 	void DrawTimedemoStats();
 	void DrawCollisionDebug();
+	// M-B: off-hand placeholder marker (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's
+	// M-B section, "Off-hand" item). UT99 viewmodels bake the main hand into
+	// the weapon mesh, so only the empty off-hand needs a placeholder so the
+	// player can see where it is (needed for M-D's later foregrip grab). No
+	// decorative-actor mesh ships with this repo (no UT99 game data is ever
+	// committed here), so this draws a small 3-axis wireframe cross directly
+	// via the existing Draw3DLine device call (same
+	// Device->Draw3DLine(&MainFrame.Frame, ...) pattern DrawCollisionDebug's
+	// navigation-path lines already use in VisibleMesh.cpp) rather than the
+	// plan's suggested DrawActor-on-a-spawned-actor option - no new asset
+	// needed and trivially screenshot-verifiable. No-op whenever the
+	// off-hand has no valid pose (flatscreen/no-VR runs).
+	void DrawVROffHandMarker();
 	void DrawTile(FTextureInfo& texinfo, const Rectf& dest, const Rectf& src, const Rectf& clipBox, float Z, vec4 color, vec4 fog, uint32_t flags);
 
 	static Array<std::string> FindTextBlocks(const std::string& text);

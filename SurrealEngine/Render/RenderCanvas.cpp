@@ -80,6 +80,14 @@ void RenderSubsystem::RenderOverlays()
 			}
 		}
 	}
+
+	// M-B: off-hand placeholder marker - see DrawVROffHandMarker()'s doc
+	// comment. Flatscreen path (this function runs whenever the VR stereo
+	// path isn't active, including a --debugvrhands run with no working XR
+	// session on this build machine) - MainFrame.Frame is the normal
+	// single-camera frame here (set by DrawScene()'s MainFrame.Process()
+	// just before RenderOverlays() runs), so this draws once, not per-eye.
+	DrawVROffHandMarker();
 }
 
 // M4 (2026-07-20): places this eye's HUD canvas at a fixed-size "virtual
@@ -187,6 +195,12 @@ void RenderSubsystem::RenderOverlaysVR()
 				}
 			}
 		}
+
+		// M-B: off-hand placeholder marker, drawn once per eye (this eye's
+		// MainFrame.Frame == VREyeFrame[eye], just restored above) so it
+		// appears correctly positioned in both stereo halves - see
+		// DrawVROffHandMarker()'s doc comment.
+		DrawVROffHandMarker();
 	}
 
 	// Restore full-window canvas state for PostRender() and the next frame's ResetCanvas().
@@ -653,6 +667,31 @@ void RenderSubsystem::Draw2DLine(vec4 Color, uint32_t LineFlags, vec3 P1, vec3 P
 void RenderSubsystem::Draw3DLine(vec4 Color, uint32_t LineFlags, vec3 P1, vec3 P2)
 {
 	Device->Draw3DLine(&Canvas.Frame, Color, LineFlags, P1, P2);
+}
+
+// M-B: off-hand placeholder - see the doc comment on the declaration in
+// RenderSubsystem.h. Deliberately calls Device->Draw3DLine(&MainFrame.Frame,
+// ...) directly rather than the public Draw3DLine() wrapper just above,
+// which hardcodes &Canvas.Frame - fine outside the VR HUD split, but wrong
+// here: RenderOverlaysVR() has already rewritten Canvas.Frame into a small
+// 2D HUD sub-rect (SetVRHudFrame()) by the time this runs, while
+// MainFrame.Frame still holds the correct per-eye 3D camera frame
+// (VREyeFrame[eye], restored right before the weapon draw above) - the same
+// frame DrawActor()/DrawCollisionDebug's nav-path lines use for exactly this
+// reason.
+void RenderSubsystem::DrawVROffHandMarker()
+{
+	const Engine::VRHandState& offHand = engine->OffHand();
+	if (!offHand.valid)
+		return;
+
+	const float armUU = 3.0f; // ~3in cross - small, but visible against typical viewmodel scale
+	const vec4 color(1.0f, 1.0f, 0.0f, 1.0f); // yellow - distinct from the weapon and world geometry
+	const vec3 center = offHand.gripPos;
+
+	Device->Draw3DLine(&MainFrame.Frame, color, 0, center - offHand.gripCoords.XAxis * armUU, center + offHand.gripCoords.XAxis * armUU);
+	Device->Draw3DLine(&MainFrame.Frame, color, 0, center - offHand.gripCoords.YAxis * armUU, center + offHand.gripCoords.YAxis * armUU);
+	Device->Draw3DLine(&MainFrame.Frame, color, 0, center - offHand.gripCoords.ZAxis * armUU, center + offHand.gripCoords.ZAxis * armUU);
 }
 
 void RenderSubsystem::DrawTile(FTextureInfo& Info, float X, float Y, float XL, float YL, float U, float V, float UL, float VL, float Z, vec4 Color, vec4 Fog, uint32_t PolyFlags)

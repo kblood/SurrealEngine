@@ -12,6 +12,7 @@
 #include "Commandlet/VM/DisassemblyCommandlet.h"
 
 std::function<void()> Frame::RunDebugger;
+Frame::FrameCallHook Frame::InterceptCall;
 Array<Breakpoint> Frame::Breakpoints;
 Array<Frame*> Frame::Callstack;
 FrameRunState Frame::RunState = FrameRunState::Running;
@@ -227,6 +228,16 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 			if (AllFlags(prop->PropFlags, PropertyFlags::Parm))
 				argindex++;
 		}
+	}
+
+	// M-B VM interception seam - see Frame::InterceptCall's doc comment in
+	// Frame.h. Null (the default whenever no VR session is active) means
+	// this is a no-op check and dispatch below proceeds exactly as before.
+	if (InterceptCall)
+	{
+		ExpressionValue interceptResult = ExpressionValue::NothingValue();
+		if (InterceptCall(instance, func, args, interceptResult))
+			return interceptResult;
 	}
 
 	if (AllFlags(func->FuncFlags, FunctionFlags::Native))
