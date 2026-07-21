@@ -25,6 +25,24 @@ struct VREyePose
 	float angleLeft = 0.0f, angleRight = 0.0f, angleUp = 0.0f, angleDown = 0.0f; // radians
 };
 
+// M-A: a single hand's tracked pose (grip or aim), as reported by
+// xrLocateSpace against the session's app space. Same opaque-POD /
+// meters / OpenXR-convention style as VREyePose (position in the
+// session's LOCAL reference space, +Y up, +X right, -Z forward - NOT
+// remapped into UE1 axes here, that happens in Engine.cpp same as for
+// eye poses). `valid` requires BOTH XR_SPACE_LOCATION_POSITION_VALID_BIT
+// and XR_SPACE_LOCATION_ORIENTATION_VALID_BIT to be set on the
+// xrLocateSpace result - false whenever this hand isn't currently
+// tracked (controller off/out of tracking volume, session not FOCUSED -
+// same focus caveat as VRControllerState::actionsActive below) or when
+// there's no session/action at all.
+struct VRHandPose
+{
+	bool valid = false;
+	float posX = 0.0f, posY = 0.0f, posZ = 0.0f;
+	float qx = 0.0f, qy = 0.0f, qz = 0.0f, qw = 1.0f;
+};
+
 // M3: controller input, read after SyncActions(). Trigger/grip are analog
 // [0,1] (Oculus Touch has no trigger "click" input, only /value and
 // /touch); everything else is a plain digital button. Unbound actions
@@ -164,6 +182,22 @@ public:
 	// runs every frame.
 	void GetControllerState(VRControllerState& outState);
 
+	// ---- M-A: per-hand grip/aim pose tracking ----
+
+	// xrLocateSpace for both hands' grip pose AND aim pose action spaces
+	// (outGrip/outAim index 0=left, 1=right, matching /user/hand/left,right),
+	// against the session's app space, at the SAME predicted display time
+	// LocateViews() uses this frame (lastPredictedDisplayTime) - so hand
+	// poses and eye poses agree on "when" within a frame. Each of the four
+	// output poses' `valid` is independent (e.g. one controller tracked,
+	// the other not, or grip tracked but aim not) - callers must check
+	// per-pose, not assume all-or-nothing. Call once per frame, after
+	// SyncActions() has run this frame (Engine::UpdateVRControllerInput()
+	// already calls SyncActions() earlier in the same tick - see Run()'s
+	// XR frame block for where this is called from). Returns false (every
+	// output pose left at its invalid default) if no session/actions exist.
+	bool LocateHandPoses(VRHandPose outGrip[2], VRHandPose outAim[2]);
+
 private:
 	bool available = false;
 	std::string lastError;
@@ -210,4 +244,18 @@ private:
 	void* leftMenuAction = nullptr; // XrAction (Boolean)
 	void* leftStickClickAction = nullptr; // XrAction (Boolean)
 	void* rightStickClickAction = nullptr; // XrAction (Boolean)
+
+	// M-A: pose actions + their action spaces. XrSpace handles are only
+	// valid once xrCreateActionSpace succeeds inside CreateActions() (after
+	// the action itself is created and the action set is attached) - a
+	// null space here means "couldn't create it" and LocateHandPoses()
+	// leaves the corresponding pose at its invalid default.
+	void* leftGripPoseAction = nullptr; // XrAction (Pose)
+	void* rightGripPoseAction = nullptr; // XrAction (Pose)
+	void* leftAimPoseAction = nullptr; // XrAction (Pose)
+	void* rightAimPoseAction = nullptr; // XrAction (Pose)
+	void* leftGripSpace = nullptr; // XrSpace
+	void* rightGripSpace = nullptr; // XrSpace
+	void* leftAimSpace = nullptr; // XrSpace
+	void* rightAimSpace = nullptr; // XrSpace
 };

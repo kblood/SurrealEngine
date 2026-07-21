@@ -212,6 +212,38 @@ public:
 	// ViewRotation-driven) follow the player looking up/down.
 	float xrHeadPitchUE = 0.0f;
 
+	// M-A: per-hand grip/aim world-space state
+	// (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-A section) - computed once
+	// per XR frame in Run()'s XR frame block, right after LocateViews()/
+	// LocateHandPoses(), through the exact same pose-composition math the
+	// eye poses use (axis remap via XRVecToUE1, UU scale via UUPerMeter,
+	// yaw recenter via xrYawOffsetUE, CameraLocation anchor - see
+	// Engine.cpp's anonymous-namespace ComposeXRPoseToWorld()). `valid` is
+	// false (gripPos/gripCoords/aimRotator left at their last-known value
+	// otherwise) whenever this hand's grip or aim pose isn't currently
+	// tracked this frame - every consumer (M-B onward) must check it
+	// before using a hand's pose, same "degrade gracefully" contract as
+	// every other VR input path in this file.
+	struct VRHandState
+	{
+		bool valid = false;
+		vec3 gripPos = vec3(0.0f); // world space, UE units - viewmodel anchor / two-hand-vector endpoint (M-B/M-D)
+		Coords gripCoords = Coords::Identity(); // world-space grip orientation (XAxis=forward, YAxis=right, ZAxis=up)
+		Rotator aimRotator = Rotator(0, 0, 0); // world-space aim-pose forward as a Rotator (Rotator::FromVector) - what weaponAimRotator(hand) reads from in M-C
+	};
+	VRHandState xrHands[2]; // index 0=left, 1=right (/user/hand/left,right order) - consume via MainHand()/OffHand(), don't index this directly
+
+	// M-A: which physical hand is the "main" (weapon) hand - 0=left,
+	// 1=right. Right-handed default per the plan; M-F's --vr-lefthand
+	// flips this one variable. Every later milestone (M-B viewmodel/fire,
+	// M-D two-hand aim, M-F handedness) is meant to consume hands ONLY
+	// through MainHand()/OffHand(), never xrHands[] directly, so the
+	// handedness swap stays a one-variable change - see the plan's M-F
+	// section for the explicit design intent.
+	int mainHand = 1;
+	VRHandState& MainHand() { return xrHands[mainHand]; }
+	VRHandState& OffHand() { return xrHands[1 - mainHand]; }
+
 	// M3: edge-detection state for controller buttons that should fire
 	// once per press rather than stay held (Jump, weapon switch, menu,
 	// recenter) - see UpdateVRControllerInput() in Engine.cpp.

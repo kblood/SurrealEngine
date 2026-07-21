@@ -120,6 +120,58 @@ namespace
 	{
 		return rot.XAxis * v.x + rot.YAxis * v.y + rot.ZAxis * v.z;
 	}
+
+	// M-A: the pure axis-remap step of turning a raw OpenXR pose (position
+	// in meters, orientation quaternion, both in OpenXR's convention) into
+	// UE1 world-axis vectors + a UU-scaled position - factored out of the
+	// per-eye composition below (VR_IMPLEMENTATION_PLAN.md / M3) so M-A's
+	// hand grip/aim poses can go through the identical math instead of a
+	// re-implementation. Does NOT apply the yaw recenter or the
+	// CameraLocation anchor - see ComposeXRPoseToWorld() for that.
+	struct UEPoseAxes
+	{
+		vec3 fwd, right, up, pos;
+	};
+
+	UEPoseAxes XRPoseAxesToUE(float posX, float posY, float posZ, float qx, float qy, float qz, float qw)
+	{
+		quaternion q(qx, qy, qz, qw);
+		vec3 fwdXR = q * vec3(0.0f, 0.0f, -1.0f);
+		vec3 rightXR = q * vec3(1.0f, 0.0f, 0.0f);
+		vec3 upXR = q * vec3(0.0f, 1.0f, 0.0f);
+		UEPoseAxes axes;
+		axes.fwd = XRVecToUE1(fwdXR.x, fwdXR.y, fwdXR.z);
+		axes.right = XRVecToUE1(rightXR.x, rightXR.y, rightXR.z);
+		axes.up = XRVecToUE1(upXR.x, upXR.y, upXR.z);
+		axes.pos = XRVecToUE1(posX, posY, posZ) * UUPerMeter;
+		return axes;
+	}
+
+	// M-A: applies the one-time yaw recenter (xrYawOffsetUE) and the
+	// CameraLocation play-space anchor on top of XRPoseAxesToUE's raw
+	// axes - the composition every rendered eye pose AND (M-A) every hand
+	// pose goes through, so both consumers agree on where "world space"
+	// is. This factors the math that used to be inlined per-eye below out
+	// into a shared helper; it does not change it (verified byte-identical
+	// against the pre-refactor inline eye-pose code - same operations,
+	// same order, same operands).
+	struct ComposedXRPose
+	{
+		vec3 location;
+		Coords rotation; // XAxis=forward, YAxis=right, ZAxis=up (local-to-world); Origin=0
+	};
+
+	ComposedXRPose ComposeXRPoseToWorld(const UEPoseAxes& axes, float yawOffsetUE, const vec3& cameraLocation)
+	{
+		Coords recenter = Coords::YawRotation(yawOffsetUE);
+		ComposedXRPose result;
+		result.rotation.Origin = vec3(0.0f);
+		result.rotation.XAxis = RotateLocalToWorld(recenter, axes.fwd);
+		result.rotation.YAxis = RotateLocalToWorld(recenter, axes.right);
+		result.rotation.ZAxis = RotateLocalToWorld(recenter, axes.up);
+		result.location = cameraLocation + RotateLocalToWorld(recenter, axes.pos);
+		return result;
+	}
 }
 
 void Engine::Run()
@@ -386,18 +438,17 @@ void Engine::Run()
 					{
 						const VREyePose& pose = eyes[eye];
 
-						quaternion q(pose.qx, pose.qy, pose.qz, pose.qw);
-						vec3 fwdXR = q * vec3(0.0f, 0.0f, -1.0f);
-						vec3 rightXR = q * vec3(1.0f, 0.0f, 0.0f);
-						vec3 upXR = q * vec3(0.0f, 1.0f, 0.0f);
-						vec3 fwdUE = XRVecToUE1(fwdXR.x, fwdXR.y, fwdXR.z);
-						vec3 rightUE = XRVecToUE1(rightXR.x, rightXR.y, rightXR.z);
-						vec3 upUE = XRVecToUE1(upXR.x, upXR.y, upXR.z);
-						vec3 posUE = XRVecToUE1(pose.posX, pose.posY, pose.posZ) * UUPerMeter;
+						// M-A refactor: this used to inline the quaternion ->
+						// UE-axis decomposition here; it's now
+						// XRPoseAxesToUE(), shared with the M-A hand pose
+						// composition below - same operations, same order, no
+						// behavior change (fwdUE/rightUE/upUE/posUE are now
+						// axes.fwd/right/up/pos).
+						UEPoseAxes axes = XRPoseAxesToUE(pose.posX, pose.posY, pose.posZ, pose.qx, pose.qy, pose.qz, pose.qw);
 
 						if (eye == 0)
 						{
-							float rawYaw = std::atan2(-fwdUE.y, fwdUE.x);
+							float rawYaw = std::atan2(-axes.fwd.y, axes.fwd.x);
 							if (!xrPoseRecentered)
 							{
 								// 2026-07-21: CameraRotation is a Rotator - UE1's native
@@ -430,16 +481,13 @@ void Engine::Run()
 							// comment in Engine.h) - no offset/recenter needed,
 							// consumed directly by UpdateVRControllerInput() to
 							// drive Pawn.ViewRotation.Pitch.
-							float horizLenUE = std::sqrt(fwdUE.x * fwdUE.x + fwdUE.y * fwdUE.y);
-							xrHeadPitchUE = std::atan2(fwdUE.z, horizLenUE);
+							float horizLenUE = std::sqrt(axes.fwd.x * axes.fwd.x + axes.fwd.y * axes.fwd.y);
+							xrHeadPitchUE = std::atan2(axes.fwd.z, horizLenUE);
 						}
 
-						Coords recenter = Coords::YawRotation(xrYawOffsetUE);
-						eyeRotationUE[eye].Origin = vec3(0.0f);
-						eyeRotationUE[eye].XAxis = RotateLocalToWorld(recenter, fwdUE);
-						eyeRotationUE[eye].YAxis = RotateLocalToWorld(recenter, rightUE);
-						eyeRotationUE[eye].ZAxis = RotateLocalToWorld(recenter, upUE);
-						eyeLocationUE[eye] = CameraLocation + RotateLocalToWorld(recenter, posUE);
+						ComposedXRPose composed = ComposeXRPoseToWorld(axes, xrYawOffsetUE, CameraLocation);
+						eyeRotationUE[eye] = composed.rotation;
+						eyeLocationUE[eye] = composed.location;
 
 						eyeFovUE[eye][0] = pose.angleLeft;
 						eyeFovUE[eye][1] = pose.angleRight;
@@ -447,6 +495,49 @@ void Engine::Run()
 						eyeFovUE[eye][3] = pose.angleDown;
 					}
 					render->SetPendingVREyes(eyeLocationUE, eyeRotationUE, eyeFovUE);
+
+					// M-A: per-hand grip/aim world-space pose - same
+					// predicted-display-time source and composition math as
+					// the eye poses just above, computed once per XR frame
+					// here and consumed via MainHand()/OffHand() everywhere
+					// else (M-B onward) so a later handedness swap (M-F)
+					// only touches the `mainHand` index, never this
+					// composition. A hand's `valid` (and its
+					// gripPos/gripCoords/aimRotator) is simply left at its
+					// last known value whenever the runtime doesn't report a
+					// tracked pose this tick (controller off/out of view/
+					// session unfocused, or pose actions failed to create) -
+					// see Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-A section.
+					VRHandPose gripPoses[2];
+					VRHandPose aimPoses[2];
+					bool gotHandPoses = xrSession->LocateHandPoses(gripPoses, aimPoses);
+					for (int hand = 0; hand < 2; hand++)
+					{
+						VRHandState& handState = xrHands[hand];
+						handState.valid = gotHandPoses && gripPoses[hand].valid && aimPoses[hand].valid;
+						if (!handState.valid)
+							continue;
+
+						const VRHandPose& grip = gripPoses[hand];
+						UEPoseAxes gripAxes = XRPoseAxesToUE(grip.posX, grip.posY, grip.posZ, grip.qx, grip.qy, grip.qz, grip.qw);
+						ComposedXRPose composedGrip = ComposeXRPoseToWorld(gripAxes, xrYawOffsetUE, CameraLocation);
+						handState.gripPos = composedGrip.location;
+						handState.gripCoords = composedGrip.rotation;
+
+						// handAimRotator: aim-pose forward converted to a
+						// Rotator via the engine's existing FromVector helper
+						// (Math/rotator.h) - algebraically the same sign
+						// convention already verified for the head
+						// (yaw = atan2(fwd.y, fwd.x), pitch =
+						// atan2(fwd.z, sqrt(fwd.x^2+fwd.y^2)), scaled by
+						// 32768/pi) once the composed forward is in WORLD
+						// space (post yaw-recenter) rather than the raw,
+						// pre-recenter axes the head math above works with.
+						const VRHandPose& aim = aimPoses[hand];
+						UEPoseAxes aimAxes = XRPoseAxesToUE(aim.posX, aim.posY, aim.posZ, aim.qx, aim.qy, aim.qz, aim.qw);
+						ComposedXRPose composedAim = ComposeXRPoseToWorld(aimAxes, xrYawOffsetUE, CameraLocation);
+						handState.aimRotator = Rotator::FromVector(composedAim.rotation.XAxis);
+					}
 				}
 
 				render->DrawGame(levelElapsed);
@@ -1853,6 +1944,23 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 			" velSpeed=" + std::to_string(velSpeed) +
 			" physics=" + std::to_string((int)pawn->Physics()) +
 			" lStickY(fwd)=" + std::to_string(state.leftStickY));
+
+		// M-A: both hands' world-space grip position + aim yaw/pitch, same
+		// throttle as the lines above - see
+		// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-A DoD ("per-hand diag
+		// lines"). xrHands[] is computed once per XR frame in Run()'s XR
+		// frame block (one frame before this read, same as xrHeadYawUE);
+		// `valid=false` means no tracked pose this frame - position/aim
+		// values are whatever was last composed (stale), not NaN/garbage.
+		LogMessage("VR hand diag: L.valid=" + std::to_string(xrHands[0].valid) +
+			" L.pos=(" + std::to_string(xrHands[0].gripPos.x) + "," + std::to_string(xrHands[0].gripPos.y) + "," + std::to_string(xrHands[0].gripPos.z) + ")" +
+			" L.aimYawDeg=" + std::to_string(xrHands[0].aimRotator.YawDegrees()) +
+			" L.aimPitchDeg=" + std::to_string(xrHands[0].aimRotator.PitchDegrees()) +
+			" R.valid=" + std::to_string(xrHands[1].valid) +
+			" R.pos=(" + std::to_string(xrHands[1].gripPos.x) + "," + std::to_string(xrHands[1].gripPos.y) + "," + std::to_string(xrHands[1].gripPos.z) + ")" +
+			" R.aimYawDeg=" + std::to_string(xrHands[1].aimRotator.YawDegrees()) +
+			" R.aimPitchDeg=" + std::to_string(xrHands[1].aimRotator.PitchDegrees()) +
+			" mainHand=" + std::to_string(mainHand));
 	}
 
 	const float deadzone = 0.15f;

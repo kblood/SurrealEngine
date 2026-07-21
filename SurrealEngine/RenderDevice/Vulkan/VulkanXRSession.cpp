@@ -305,6 +305,14 @@ bool VulkanXRSession::CreateSession(void* vkInstance, void* vkPhysicalDevice, vo
 
 void VulkanXRSession::DestroySession()
 {
+	// M-A: action spaces are independent objects (not owned by the action
+	// set), so they must be destroyed explicitly - unlike the actions
+	// themselves, which xrDestroyActionSet below takes care of.
+	if (leftGripSpace) { xrDestroySpace((XrSpace)leftGripSpace); leftGripSpace = nullptr; }
+	if (rightGripSpace) { xrDestroySpace((XrSpace)rightGripSpace); rightGripSpace = nullptr; }
+	if (leftAimSpace) { xrDestroySpace((XrSpace)leftAimSpace); leftAimSpace = nullptr; }
+	if (rightAimSpace) { xrDestroySpace((XrSpace)rightAimSpace); rightAimSpace = nullptr; }
+
 	if (actionSet)
 	{
 		// Destroying the action set also destroys every XrAction created
@@ -318,6 +326,7 @@ void VulkanXRSession::DestroySession()
 	leftGripAction = rightGripAction = nullptr;
 	leftXAction = leftYAction = rightAAction = rightBAction = nullptr;
 	leftMenuAction = leftStickClickAction = rightStickClickAction = nullptr;
+	leftGripPoseAction = rightGripPoseAction = leftAimPoseAction = rightAimPoseAction = nullptr;
 
 	if (appSpace)
 	{
@@ -740,6 +749,18 @@ bool VulkanXRSession::CreateActions()
 	XrAction leftStickClick = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "left_stick_click", "Left Stick Click");
 	XrAction rightStickClick = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "right_stick_click", "Right Stick Click");
 
+	// M-A: per-hand grip pose (fist orientation, for holding/viewmodel
+	// anchoring) and aim pose (pointing ray) - OpenXR defines these as two
+	// separate poses per hand, reported with different orientations by
+	// Touch controllers (see Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's
+	// "Muzzle vs grip offset" section). Must be created here, before
+	// xrAttachSessionActionSets below - attach is once-per-session, so
+	// pose actions can't be bolted on afterward.
+	XrAction leftGripPose = makeAction(XR_ACTION_TYPE_POSE_INPUT, "left_grip_pose", "Left Grip Pose");
+	XrAction rightGripPose = makeAction(XR_ACTION_TYPE_POSE_INPUT, "right_grip_pose", "Right Grip Pose");
+	XrAction leftAimPose = makeAction(XR_ACTION_TYPE_POSE_INPUT, "left_aim_pose", "Left Aim Pose");
+	XrAction rightAimPose = makeAction(XR_ACTION_TYPE_POSE_INPUT, "right_aim_pose", "Right Aim Pose");
+
 	leftStickAction = (void*)leftStick;
 	rightStickAction = (void*)rightStick;
 	leftTriggerAction = (void*)leftTrigger;
@@ -753,6 +774,10 @@ bool VulkanXRSession::CreateActions()
 	leftMenuAction = (void*)leftMenu;
 	leftStickClickAction = (void*)leftStickClick;
 	rightStickClickAction = (void*)rightStickClick;
+	leftGripPoseAction = (void*)leftGripPose;
+	rightGripPoseAction = (void*)rightGripPose;
+	leftAimPoseAction = (void*)leftAimPose;
+	rightAimPoseAction = (void*)rightAimPose;
 
 	auto suggest = [&](const char* profilePath, std::vector<std::pair<XrAction, const char*>> bindings)
 	{
@@ -795,16 +820,26 @@ bool VulkanXRSession::CreateActions()
 		{ leftMenu, "/user/hand/left/input/menu/click" },
 		{ leftStickClick, "/user/hand/left/input/thumbstick/click" },
 		{ rightStickClick, "/user/hand/right/input/thumbstick/click" },
+		{ leftGripPose, "/user/hand/left/input/grip/pose" },
+		{ rightGripPose, "/user/hand/right/input/grip/pose" },
+		{ leftAimPose, "/user/hand/left/input/aim/pose" },
+		{ rightAimPose, "/user/hand/right/input/aim/pose" },
 	});
 
 	// khr/simple_controller fallback, for any runtime that doesn't
 	// advertise a Touch profile - only a single trigger + menu click per
-	// hand exist there, so every other action stays unbound (reads as its
-	// zero default via GetControllerState()).
+	// hand exist there, so every other button action stays unbound (reads
+	// as its zero default via GetControllerState()). simple_controller
+	// DOES define grip/pose and aim/pose for both hands per spec, though,
+	// so the M-A pose actions still bind here.
 	suggest("/interaction_profiles/khr/simple_controller", {
 		{ leftTrigger, "/user/hand/left/input/select/click" },
 		{ rightTrigger, "/user/hand/right/input/select/click" },
 		{ leftMenu, "/user/hand/left/input/menu/click" },
+		{ leftGripPose, "/user/hand/left/input/grip/pose" },
+		{ rightGripPose, "/user/hand/right/input/grip/pose" },
+		{ leftAimPose, "/user/hand/left/input/aim/pose" },
+		{ rightAimPose, "/user/hand/right/input/aim/pose" },
 	});
 
 	XrSessionActionSetsAttachInfo attachInfo = { XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
@@ -819,6 +854,38 @@ bool VulkanXRSession::CreateActions()
 	}
 
 	actionsReady = true;
+
+	// M-A: action spaces for the four pose actions, created now that the
+	// action set is attached (xrCreateActionSpace requires an attached
+	// action). Identity pose-in-action-space (no offset) - xrLocateSpace
+	// against the app space below then reports exactly the grip/aim pose
+	// the runtime tracks. Non-fatal per pose if creation fails (logged,
+	// left null) - LocateHandPoses() just reports that specific pose as
+	// invalid rather than failing the whole session/action setup, matching
+	// this codebase's existing "degrade gracefully" pattern for controller
+	// input (see VRControllerState::actionsActive's doc comment).
+	auto makeActionSpace = [&](XrAction action, const char* label) -> void*
+	{
+		if (!action)
+			return nullptr;
+		XrActionSpaceCreateInfo spaceInfo = { XR_TYPE_ACTION_SPACE_CREATE_INFO };
+		spaceInfo.action = action;
+		spaceInfo.subactionPath = XR_NULL_PATH;
+		spaceInfo.poseInActionSpace.orientation = { 0.0f, 0.0f, 0.0f, 1.0f };
+		spaceInfo.poseInActionSpace.position = { 0.0f, 0.0f, 0.0f };
+		XrSpace space = XR_NULL_HANDLE;
+		XrResult r = xrCreateActionSpace(xrSession, &spaceInfo, &space);
+		LogMessage(std::string("OpenXR: xrCreateActionSpace(") + label + ") result=" + std::to_string((int)r));
+		if (XR_FAILED(r))
+			return nullptr;
+		return (void*)space;
+	};
+
+	leftGripSpace = makeActionSpace(leftGripPose, "left_grip_pose");
+	rightGripSpace = makeActionSpace(rightGripPose, "right_grip_pose");
+	leftAimSpace = makeActionSpace(leftAimPose, "left_aim_pose");
+	rightAimSpace = makeActionSpace(rightAimPose, "right_aim_pose");
+
 	return true;
 }
 
@@ -906,4 +973,48 @@ void VulkanXRSession::GetControllerState(VRControllerState& outState)
 	outState.leftStickClick = getBool(leftStickClickAction);
 	outState.rightStickClick = getBool(rightStickClickAction);
 	outState.actionsActive = anyActive;
+}
+
+bool VulkanXRSession::LocateHandPoses(VRHandPose outGrip[2], VRHandPose outAim[2])
+{
+	outGrip[0] = VRHandPose();
+	outGrip[1] = VRHandPose();
+	outAim[0] = VRHandPose();
+	outAim[1] = VRHandPose();
+	if (!actionsReady || !session || !appSpace)
+		return false;
+	XrSpace xrAppSpace = (XrSpace)appSpace;
+
+	// xrLocateSpace's locationFlags only carry POSITION_VALID/
+	// ORIENTATION_VALID when the action is currently active AND tracked
+	// (per spec, an inactive action's space is never located) - same
+	// "silently reads as not-tracked, no error" shape as every other
+	// action in GetControllerState() above, so `valid` is the only signal
+	// callers get and every caller must check it.
+	auto locate = [&](void* space, VRHandPose& out)
+	{
+		if (!space)
+			return;
+		XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+		XrResult r = xrLocateSpace((XrSpace)space, xrAppSpace, (XrTime)lastPredictedDisplayTime, &loc);
+		if (XR_FAILED(r))
+			return;
+		constexpr XrSpaceLocationFlags need = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+		if ((loc.locationFlags & need) != need)
+			return;
+		out.valid = true;
+		out.posX = loc.pose.position.x;
+		out.posY = loc.pose.position.y;
+		out.posZ = loc.pose.position.z;
+		out.qx = loc.pose.orientation.x;
+		out.qy = loc.pose.orientation.y;
+		out.qz = loc.pose.orientation.z;
+		out.qw = loc.pose.orientation.w;
+	};
+
+	locate(leftGripSpace, outGrip[0]);
+	locate(rightGripSpace, outGrip[1]);
+	locate(leftAimSpace, outAim[0]);
+	locate(rightAimSpace, outAim[1]);
+	return true;
 }
