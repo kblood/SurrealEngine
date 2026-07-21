@@ -203,6 +203,14 @@ public:
 	bool xrPoseRecentered = false;
 	float xrYawOffsetUE = 0.0f; // radians, in Coords::YawRotation's convention
 	float xrHeadYawUE = 0.0f; // radians; xrYawOffsetUE + live tracked yaw, updated once per XR frame - see UpdateVRControllerInput()
+	// 2026-07-21: live tracked head pitch, radians, in Rotator/game convention
+	// already (atan2(fwdUE.z, horizontalLen) - same formula as
+	// Rotator::FromVector's Pitch, see rotator.h - so unlike yaw this needs
+	// no sign flip and no recenter offset when written to ViewRotation.Pitch).
+	// Written into Pawn.ViewRotation.Pitch (never Pawn.Rotation.Pitch - see
+	// UpdateVRControllerInput()) so weapon aim and swim-direction (both
+	// ViewRotation-driven) follow the player looking up/down.
+	float xrHeadPitchUE = 0.0f;
 
 	// M3: edge-detection state for controller buttons that should fire
 	// once per press rather than stay held (Jump, weapon switch, menu,

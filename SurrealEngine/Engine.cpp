@@ -400,7 +400,18 @@ void Engine::Run()
 							float rawYaw = std::atan2(-fwdUE.y, fwdUE.x);
 							if (!xrPoseRecentered)
 							{
-								xrYawOffsetUE = CameraRotation.YawRadians() - rawYaw;
+								// 2026-07-21: CameraRotation is a Rotator - UE1's native
+							// GetAxes(rotator) (see Native/NObject.cpp GetAxes ->
+							// Coords::Rotation) composes with the OPPOSITE sign from
+							// Coords::YawRotation (verified: for a pure-yaw Rotator,
+							// Coords::Rotation's XAxis works out to (cos yaw, +sin yaw,
+							// 0), while Coords::YawRotation's is (cos yaw, -sin yaw,
+							// 0)). rawYaw/xrYawOffsetUE/xrHeadYawUE are all in the
+							// Coords::YawRotation (VR) convention, so converting a
+							// Rotator-space yaw into that convention requires negating
+							// it - without this the initial recenter anchors the view
+							// to the mirror of the pawn's actual spawn facing.
+							xrYawOffsetUE = -CameraRotation.YawRadians() - rawYaw;
 								xrPoseRecentered = true;
 							}
 							// M3: current head yaw (recenter offset + live
@@ -413,6 +424,14 @@ void Engine::Run()
 							// driven off Pawn.Rotation, not off the render-only
 							// head pose composed below).
 							xrHeadYawUE = xrYawOffsetUE + rawYaw;
+
+							// 2026-07-21: live head pitch, already in
+							// Rotator/game convention (see xrHeadPitchUE's doc
+							// comment in Engine.h) - no offset/recenter needed,
+							// consumed directly by UpdateVRControllerInput() to
+							// drive Pawn.ViewRotation.Pitch.
+							float horizLenUE = std::sqrt(fwdUE.x * fwdUE.x + fwdUE.y * fwdUE.y);
+							xrHeadPitchUE = std::atan2(fwdUE.z, horizLenUE);
 						}
 
 						Coords recenter = Coords::YawRotation(xrYawOffsetUE);
@@ -1717,12 +1736,16 @@ void Engine::UpdateInput(float timeElapsed)
 // 1. bFire/bAltFire/bDuck are BYTE properties on UPawn (see UActor.h's
 //    `uint8_t& bFire()` etc., confirmed against the actually-loaded
 //    package's property list, not guessed), not bool. UObject::SetBool()
-//    unconditionally static_casts the resolved UProperty to UBoolProperty*
-//    and treats the target memory as a 32-bit bitfield word - calling it
-//    on a byte property is a type-confusion bug that corrupts up to 3
-//    neighboring property bytes rather than setting the intended flag.
-//    Write through the native accessors instead, which read/write the
-//    correct single byte.
+//    used to unconditionally static_cast the resolved UProperty to
+//    UBoolProperty* and treat the target memory as a 32-bit bitfield word -
+//    calling it on a byte property was a type-confusion bug that corrupted
+//    up to 3 neighboring property bytes rather than setting the intended
+//    flag. Originally worked around here by writing through the native
+//    byte accessors directly; SetBool() itself was fixed 2026-07-20 (see
+//    its doc comment in UObject.cpp) to check the property's actual type,
+//    so this function now calls it directly like the keyboard/mouse path
+//    always has - see the doc comment above the bFire/bAltFire/bDuck
+//    writes below for why that's preferable to the accessor workaround.
 //
 // 2. aBaseY/aStrafe/aUp's expected scale is NOT "UU/sec" - it's whatever a
 //    full digital key press produces going through InputCommand's Axis
@@ -1759,8 +1782,10 @@ void Engine::UpdateInput(float timeElapsed)
 // (spawn/last aTurn), so strafing/forward move independently of where the
 // player is actually looking with their head, and the weapon (drawn
 // relative to the stale facing) drifts out of view as soon as the player
-// turns their head away from it. Only Yaw is touched - Pitch/Roll are left
-// alone so looking up/down doesn't tilt the pawn's collision cylinder.
+// turns their head away from it. Pawn.Rotation only ever gets Yaw written -
+// Pitch/Roll are left alone so looking up/down doesn't tilt the pawn's
+// collision cylinder. Pawn.ViewRotation gets both Yaw and Pitch (weapon aim
+// and swim direction are ViewRotation-driven, not collision-driven).
 void Engine::UpdateVRControllerInput(float timeElapsed)
 {
 	if (!xrSession || !xrSessionActive || !xrSession->IsSessionRunning())
@@ -1773,7 +1798,62 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 	xrSession->GetControllerState(state);
 
 	UActor* pawn = viewport->Actor();
-	UPawn* vrPawn = UObject::TryCast<UPawn>(pawn);
+
+	// 2026-07-20 diagnostic (throttled to ~once/2s, not every frame): a
+	// real-headset test reported fire not registering (couldn't even get
+	// past the "click fire to start" prompt) and movement direction being
+	// unclear relative to head turning. GetControllerState() now surfaces
+	// whether xrGetActionState*'s isActive came back true for anything
+	// this call (VRControllerState::actionsActive) - isActive silently
+	// goes false whenever the runtime isn't routing input to this
+	// session's action set (e.g. focus stolen by a system overlay/
+	// dashboard), which reads identically to "nothing pressed" with no
+	// error. This log turns "was it focus, or something else" into a
+	// one-line answer from the next headset run's SE-Log-LastRun.txt
+	// instead of another guess.
+	static float diagAccum = 0.0f;
+	diagAccum += timeElapsed;
+	bool logDiagThisTick = diagAccum >= 2.0f;
+	if (logDiagThisTick)
+	{
+		diagAccum = 0.0f;
+		LogMessage("VR input diag: actionsActive=" + std::to_string(state.actionsActive) +
+			" xrState=" + std::to_string(xrSession->GetLastSessionState()) +
+			" syncResult=" + std::to_string(xrSession->GetLastSyncResult()) +
+			" lStick=(" + std::to_string(state.leftStickX) + "," + std::to_string(state.leftStickY) + ")" +
+			" rStick=(" + std::to_string(state.rightStickX) + "," + std::to_string(state.rightStickY) + ")" +
+			" lTrig=" + std::to_string(state.leftTrigger) + " rTrig=" + std::to_string(state.rightTrigger) +
+			" lGrip=" + std::to_string(state.leftGrip) + " rGrip=" + std::to_string(state.rightGrip));
+
+		// 2026-07-21: user reports "walk left when I look right, walk right
+		// when I look left" - not simply "unaffected" anymore (the
+		// ViewRotation fix changed something), but possibly mirrored. Log
+		// everything needed to compare "which way is the head/pawn facing"
+		// against "which way is the pawn actually moving" in the SAME units
+		// and the SAME sign convention (degrees, atan2(-y,x) - see the
+		// rawYaw comment above in the eye-pose composition code), without
+		// needing to guess from in-headset feel:
+		//  - headYawDeg: live tracked head yaw this frame (pre-write)
+		//  - rotYawDeg/viewYawDeg: what's actually stored on the pawn RIGHT
+		//    NOW (i.e. last frame's write, read back - confirms the write
+		//    stuck and wasn't overwritten by something else before this
+		//    frame)
+		//  - velHeadingDeg/velSpeed: the pawn's ACTUAL resulting Velocity
+		//    from last frame's physics tick, decomposed with the same
+		//    atan2(-y,x) formula - this is ground truth for "which way did
+		//    the pawn really go," independent of any rotation bookkeeping
+		const float ue1YawToRadians = 3.14159265359f / 32768.0f;
+		vec3 vel = pawn->Velocity();
+		float velHeadingDeg = degrees(std::atan2(-vel.y, vel.x));
+		float velSpeed = length(vel);
+		LogMessage("VR movement diag: headYawDeg=" + std::to_string(degrees(xrHeadYawUE)) +
+			" rotYawDeg=" + std::to_string(degrees((float)(pawn->Rotation().Yaw & 0xffff) * ue1YawToRadians)) +
+			" viewYawDeg=" + std::to_string(UObject::TryCast<UPawn>(pawn) ? degrees((float)(UObject::TryCast<UPawn>(pawn)->ViewRotation().Yaw & 0xffff) * ue1YawToRadians) : -1.0f) +
+			" velHeadingDeg=" + std::to_string(velSpeed > 1.0f ? velHeadingDeg : 0.0f) +
+			" velSpeed=" + std::to_string(velSpeed) +
+			" physics=" + std::to_string((int)pawn->Physics()) +
+			" lStickY(fwd)=" + std::to_string(state.leftStickY));
+	}
 
 	const float deadzone = 0.15f;
 	auto applyDeadzone = [](float v, float dz) { return (std::fabs(v) < dz) ? 0.0f : v; };
@@ -1785,22 +1865,117 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 	pawn->SetFloat("aStrafe", applyDeadzone(state.leftStickX, deadzone) * MOVE_SCALE);
 	pawn->SetFloat("aUp", applyDeadzone(state.rightStickY, deadzone) * MOVE_SCALE);
 
+	// Sign: Coords::YawRotation(yaw) rotates local forward (1,0,0) toward
+	// (cos(yaw), -sin(yaw), 0) - i.e. toward -Y for positive yaw. UE1's +Y is
+	// "right" (see aStrafe below: positive = strafe right, the established
+	// UT99 keybind convention), so positive yaw in this codebase turns the
+	// view LEFT, not right. state.rightStickX is positive when the stick is
+	// pushed right (standard OpenXR convention) - pushing right must turn
+	// right, i.e. DEcrease yaw, so this subtracts rather than adds.
 	if (timeElapsed > 0.0f)
-		xrYawOffsetUE += applyDeadzone(state.rightStickX, deadzone) * turnRateRadiansPerSec * timeElapsed;
+		xrYawOffsetUE -= applyDeadzone(state.rightStickX, deadzone) * turnRateRadiansPerSec * timeElapsed;
 
 	if (xrPoseRecentered)
 	{
 		const float ue1RadiansToYaw = 32768.0f / 3.14159265359f;
-		pawn->Rotation().Yaw = (int)(xrHeadYawUE * ue1RadiansToYaw);
+		// 2026-07-21: real-headset report - movement now responds to head/
+		// stick direction (see ViewRotation doc comment below) but is
+		// MIRRORED (look left -> walk right). xrHeadYawUE is in the
+		// Coords::YawRotation convention (XAxis = (cos yaw, -sin yaw, 0)),
+		// but UT99's native GetAxes(Rotator) - what PlayerMove actually
+		// calls to turn ViewRotation into a movement direction, see
+		// Native/NObject.cpp GetAxes -> Coords::Rotation - composes with
+		// the OPPOSITE sign (XAxis = (cos yaw, +sin yaw, 0) for a pure-yaw
+		// Rotator, verified algebraically from Coords::operator* combined
+		// with Coords::YawRotation). Writing xrHeadYawUE straight into a
+		// Rotator's Yaw therefore mirrors it about the X axis once GetAxes
+		// decodes it. Negating here converts VR-space yaw into Rotator-space
+		// yaw correctly; confirmed against real headset log data (six
+		// full-speed samples fit velHeading = -rotYaw + stickOffset to <1
+		// degree - see SE-Log-LastRun.txt from the 2026-07-20 test and the
+		// VR movement diag line added below).
+		int yaw = (int)(-xrHeadYawUE * ue1RadiansToYaw);
+		pawn->Rotation().Yaw = yaw;
+
+		// UT99's own PlayerPawn.PlayerMove (UnrealScript, runs via
+		// CallEvent(PlayerTick) below in Level->Tick(), not something this
+		// engine reimplements natively - see aBaseY/aStrafe having no
+		// native C++ consumer anywhere in this codebase) computes its
+		// movement axes from ViewRotation, not Rotation - Rotation is the
+		// replicated body facing, ViewRotation is where the player is
+		// actually looking/moving relative to. For keyboard/mouse play,
+		// ViewRotation is what aTurn/aLookUp directly drive every tick; VR
+		// never touches aTurn/aLookUp (always 0), so script-side logic that
+		// re-derives ViewRotation from its own persisted state each tick
+		// (a no-op when aTurn=0) was simply leaving it wherever it last
+		// was (spawn-time), regardless of what we wrote to Rotation alone.
+		// Writing ViewRotation.Yaw here too - before Level->Tick() runs -
+		// means that no-op re-derivation now holds at OUR value instead of
+		// a stale one. ViewRotation is UPawn-specific (not on the base
+		// UActor `pawn` is typed as here), hence the cast.
+		UPawn* vrPawn = UObject::TryCast<UPawn>(pawn);
+		if (vrPawn)
+		{
+			vrPawn->ViewRotation().Yaw = yaw;
+
+			// 2026-07-21: real-headset report - weapon doesn't aim up/down
+			// with head look, and swimming is unplayable (PHYS_Swimming's
+			// script-side movement, like PlayerMove's walk axes, is driven
+			// off ViewRotation - looking up/down should swim up/down).
+			// xrHeadPitchUE is already in Rotator/game convention (see its
+			// doc comment in Engine.h) so, unlike yaw, no negation is
+			// needed here. Deliberately only ViewRotation.Pitch is written,
+			// never Rotation.Pitch - Rotation is the body/collision facing,
+			// and UE1 Pawns are upright collision cylinders that were never
+			// designed to pitch (see the function-level doc comment above).
+			vrPawn->ViewRotation().Pitch = (int)(xrHeadPitchUE * ue1RadiansToYaw);
+		}
 	}
 
 	const float triggerThreshold = 0.5f;
-	if (vrPawn)
+	bool fireHeld = state.rightTrigger > triggerThreshold;
+	bool altFireHeld = state.leftTrigger > triggerThreshold;
+	pawn->SetBool("bDuck", state.rightGrip > triggerThreshold);
+
+	// 2026-07-21: the previous approach here (this function directly calling
+	// `pawn->SetBool("bFire", fireHeld)` every tick, same as the doc comment
+	// this replaced explained) turned out to be verifiably NOT enough - a
+	// real-headset diagnostic (rising-edge log, since removed) proved the
+	// write really was happening (logged rTrig up to 1.0, actionsActive=1,
+	// syncResult=0 - a perfectly healthy read), yet nothing in-game
+	// responded. What broke the case open: the user then clicked the mouse
+	// to give the window OS focus, and THAT (a real IK_LeftMouse press,
+	// going through GameWindow::OnMouseDown -> InputEvent()) is what
+	// finally got them past the "click fire to start" prompt - proving the
+	// gate (and, it turns out, actual gameplay reactions in general) needs
+	// a real synthesized key event through Engine::InputEvent(), not just
+	// the bFire property being true. InputEvent() dispatches to
+	// CallEvent(console, KeyEvent) first (UI/HUD-level interception - e.g.
+	// a "waiting to start" prompt) before ever falling through to the
+	// InputCommand()->SetBool() property path keyboard/mouse ALSO ends up
+	// at - our old code only ever did the property-write half, silently
+	// skipping the KeyEvent dispatch this apparently depends on. Default
+	// UT99 bindings map Fire to LeftMouse and AltFire to RightMouse (this
+	// is a UI/game-loop key, unrelated to any physical mouse on this PC -
+	// nothing else uses these two EInputKey slots while a VR session is
+	// active), so trigger edges are synthesized as those two "keys" through
+	// the exact same InputEvent() call sites a real click/keypress uses.
+	static bool prevVRFireHeld = false;
+	static bool prevVRAltFireHeld = false;
+	if (fireHeld != prevVRFireHeld)
+		InputEvent(IK_LeftMouse, fireHeld ? EInputType::IST_Press : EInputType::IST_Release);
+	if (altFireHeld != prevVRAltFireHeld)
+		InputEvent(IK_RightMouse, altFireHeld ? EInputType::IST_Press : EInputType::IST_Release);
+	if (fireHeld && !prevVRFireHeld)
 	{
-		vrPawn->bFire() = (state.rightTrigger > triggerThreshold) ? 1 : 0;
-		vrPawn->bAltFire() = (state.leftTrigger > triggerThreshold) ? 1 : 0;
-		vrPawn->bDuck() = (state.rightGrip > triggerThreshold) ? 1 : 0;
+		LogMessage("VR fire diag: Fire rising edge (InputEvent IK_LeftMouse) - rTrig=" + std::to_string(state.rightTrigger) +
+			" actionsActive=" + std::to_string(state.actionsActive) +
+			" syncResult=" + std::to_string(xrSession->GetLastSyncResult()) +
+			" xrState=" + std::to_string(xrSession->GetLastSessionState()) +
+			" pawnClass=" + UObject::GetUClassFullName(pawn).ToString());
 	}
+	prevVRFireHeld = fireHeld;
+	prevVRAltFireHeld = altFireHeld;
 
 	if (state.rightA && !prevVRRightA)
 		ExecCommand({ "Jump" });

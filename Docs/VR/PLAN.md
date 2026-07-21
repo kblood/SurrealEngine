@@ -596,3 +596,286 @@ fully-non-interactive verification strategy for each step, and the one step
   head tracking (folding `xrLocateViews`' pose into the view matrix, which
   will also fix the double-vision symptom as a side effect) and controller
   action bindings for movement/fire/aim.
+
+- 2026-07-20 (continued): **M3 done and verified on real hardware; a
+  separate rendering bug found + fixed same day (not yet re-verified in
+  headset).** Session recap in `HANDOFF_2026-07-20.md`. After M3's
+  controller-input bugs were fixed (`87d3b5aa`), a second-opinion review
+  (Fable model, full findings in `FABLE_ANALYSIS_2026-07-20.md`) was run
+  against the still-open rendering problems (stereo HUD double vision, UI
+  outside the headset's FOV, world geometry warping as the head turns).
+  Independently re-derived and confirmed all of it against the actual code
+  (not taken on faith) before implementing:
+  - **Root-caused the geometry warp**: `DrawSceneVR()`
+    (`RenderScene.cpp`) fed the vertical half of the real per-eye OpenXR
+    FOV into `mat4::frustum()` upside down — renderdev eye space is
+    y-DOWN (`Coords::ViewToRenderDev()`) but `frustum()`'s bottom/top
+    follow GL convention (bottom → Vulkan framebuffer top row), so
+    `angleDown`'s extent was landing at the framebuffer top and
+    `angleUp`'s at the bottom, disagreeing with the FOV metadata submitted
+    to the compositor in `EndFrame()`. Invisible on every earlier
+    symmetric-FOV test (`DrawSceneStereo`'s "proof" never exercised
+    vertical asymmetry). One-line fix: `frustum(l, r, -u, -d, ...)`.
+  - Added one-shot diagnostic logging (`VulkanXRSession::LocateViews()`,
+    `VulkanRenderDevice::DrawPresentTexture()`) to validate the fix's
+    premise with real data before applying it, per "do not guess-fix
+    this" in the prior handoff. **Confirmed empirically on a real run
+    against the user's Virtual Desktop XR runtime**: `angleUp=44.0°`,
+    `angleDown=-55.0°` — an 11° asymmetry, exactly the kind of case that
+    triggers the bug; letterbox was a no-op (0,0 2560x1440, matches window
+    exactly); tracked IPD read back as 62.46mm, a realistic human value.
+  - **Implemented the HUD/UI fix** (`RenderSubsystem::SetVRHudFrame()`,
+    new, called from `RenderOverlaysVR()`/`PostRenderVR()` in
+    `RenderCanvas.cpp`): replaced the old "centered half-viewport per eye"
+    HUD split (which put each eye's "center" at a different real gaze
+    direction, since real per-eye FOV is asymmetric — the double-vision
+    cause) with a tan-space sub-rect reprojection: a fixed ~50°-wide 4:3
+    virtual screen placed at each eye's real forward direction, with a
+    small per-eye convergence shift (derived from the live tracked IPD,
+    read from `VREyeLocation`, never a constant) so the fused HUD sits at
+    a comfortable ~1.75m depth instead of infinity. Also fixes the
+    "UI outside the FOV" issue as a side effect (the virtual screen is
+    much narrower than the full ~90-100° per-eye FOV UI was previously
+    stretched across).
+  - **Two unrelated engine bugs found and fixed along the way**, both
+    exonerated as unused-by-anything-that-matters or fixed cheaply:
+    `UObject::SetBool()` (`UObject.cpp`) was blindly `static_cast`ing
+    every resolved property to `UBoolProperty*`, which is undefined
+    behavior for byte-typed "boolean-looking" properties like
+    `Pawn.bFire` (root cause of the VR trigger-not-firing bug from M3,
+    and a plausible suspect for any historical flaky keyboard/mouse fire
+    reports) — now checks `ValueType` and writes through a raw byte
+    pointer for `UByteProperty`. `quaternionT::operator*=`
+    (`Math/quaternion.h`) had a comma-operator bug (overwrote `x` before
+    using it to compute `y`/`z`/`w`) and the wrong Hamilton-product term
+    layout besides; confirmed unused anywhere in the engine, fixed in
+    terms of the already-correct non-member `operator*` rather than left
+    as a trap.
+  - Built clean (Release, MSVC/CMake). Ran two non-interactive flatscreen
+    regression passes (`--autoplay`, with and without `--vr`, WM_CLOSE
+    clean shutdown, log read back from `SE-Log-LastRun.txt`): both clean,
+    no crashes; the `--vr` pass is the one that produced the diagnostic
+    data above (Virtual Desktop XR runtime was available this session,
+    session reached `FOCUSED` and held for the full ~35s run).
+  - **Real-headset re-verification happened same session, mid-write-up**:
+    user tested live while this doc update was in progress. **Confirmed
+    fixed**: HUD text renders correctly and the geometry warp/distortion
+    is gone - both the frustum fix and the HUD reprojection worked on the
+    first real try. **Still broken**: could not fire (blocked at the
+    pre-round "click fire to start" prompt, so never got a live crosshair
+    to judge movement/aim against); movement direction relative to head
+    turning was inconclusive (test was too short to tell, not a confirmed
+    bug).
+  - Investigated the fire issue same session: `UpdateVRControllerInput()`
+    was gating the bFire/bAltFire/bDuck writes behind
+    `TryCast<UPawn>(pawn)` and writing through native byte accessors
+    (`vrPawn->bFire() = ...`) to sidestep the (now-fixed) `SetBool()` bug.
+    Simplified to call `pawn->SetBool("bFire", ...)` directly - safe now,
+    and matches the keyboard/mouse path's proven-everywhere mechanism
+    exactly (one less way for the VR path to diverge). Added
+    `VRControllerState::actionsActive` (true if `xrGetActionState*`'s
+    `isActive` came back true for anything that frame) plus a throttled
+    (~2s) diagnostic log of raw stick/trigger/grip values +
+    `actionsActive` + session state in `UpdateVRControllerInput()`, since
+    `isActive=false` (e.g. input focus not yet routed to this session)
+    silently reads as "nothing pressed" with zero signal to the caller
+    that anything's wrong.
+  - Rebuilt, ran another `--autoplay --vr` flatscreen pass (no human
+    interaction - just the real Quest 3 controllers connected via Virtual
+    Desktop, apparently sitting nearby). **The new diagnostic already
+    caught something concrete**: `actionsActive=0` (all inputs dead) for
+    the first ~2-4s after the session reaches `FOCUSED`, then flips to
+    `actionsActive=1` with genuine live analog trigger/stick values
+    (`lTrig=0.31 rTrig=0.42` at the 4.4s mark, clearly real hardware
+    noise from idle controllers, not synthetic). This means the action
+    pipeline itself is verified working end-to-end against the real
+    hardware/runtime - but there's a real ~2-4s dead window right after
+    `FOCUSED` where every controller input is silently swallowed. Given
+    the user described their fire-trigger test as short, this dead
+    window is a plausible (not yet certain) explanation for "fire didn't
+    register" - worth checking directly in the next headset session via
+    the new log line instead of guessing further.
+  - **Still not yet done**: real in-headset confirmation of whether the
+    settle-time window explains the fire issue, and a longer test to
+    actually judge movement-direction-vs-head-turning once fire works
+    and a live crosshair is available.
+  - Dispatched a research subagent (Fable) on Quest 3/Virtual Desktop
+    OpenXR quirks per user request. Findings: (1) `isActive=false` while
+    unfocused is spec-mandated, and Meta's own PC docs confirm apps
+    "automatically stop receiving input" without VR focus - not a VD bug,
+    a generic OpenXR behavior; (2) a known trap (cited: Godot issue
+    #107612) is that `xrSyncActions` can return the non-error
+    `XR_SESSION_NOT_FOCUSED` while callers only check per-action
+    `isActive` and never look at the sync result itself; (3) our trigger/
+    squeeze binding paths (`.../input/trigger/value`,
+    `.../input/squeeze/value`) are spec-correct for
+    oculus/touch_controller, confirmed against Unity's OpenXR plugin
+    docs - Touch has no squeeze/click, which we already don't bind; (4) a
+    common bug is querying `xrGetActionState*` with a subaction path that
+    doesn't match how the action was created - doesn't apply here, our
+    actions are created with zero subaction paths and queried with
+    `XR_NULL_PATH` throughout, which is spec-legal. Acted on (2): added
+    `VulkanXRSession::lastSyncResult`/`GetLastSyncResult()`, set from the
+    real `xrSyncActions` return value, and added it to the throttled
+    diagnostic log (`syncResult=` field) so a stuck `XR_SESSION_NOT_FOCUSED`
+    would now be directly visible instead of only inferable from
+    `actionsActive=false`.
+  - Rebuilt, ran a second `--autoplay --vr` flatscreen pass (~65s, still
+    no human interaction, real idle Quest 3 controllers via Virtual
+    Desktop). Result this time: `syncResult=0` (XR_SUCCESS) and
+    `actionsActive=1` from the very first sample at 2.2s onward - no dead
+    window this run (the first pass's 2-4s dead window did not
+    reproduce), with plentiful live stick noise but trigger/grip pinned
+    at exactly 0.0 the entire run (consistent with an idle controller -
+    nothing is physically touching the triggers). Net read: across both
+    automated passes the OpenXR action pipeline itself looks healthy
+    (focused session, successful sync, active + correctly-ranged reads
+    from real hardware) far more often than not, which is evidence
+    *against* a standing focus/binding bug and *for* re-testing live now
+    that richer diagnostics exist, rather than continuing to guess-fix
+    without a real trigger-pull data point. Also code-reviewed the
+    keyboard input path (`Engine::InputEvent`) for comparison: keyboard
+    Fire ultimately reaches the pawn via the exact same mechanism ours
+    does (`Actor::SetBool` on the bind's property name) after
+    `CallEvent(console, KeyEvent)` declines to swallow it - no separate
+    exec/event chain that our direct `pawn->SetBool("bFire", ...)` write
+    would be missing. No code bug found on a second pass; the fire issue
+    remains most plausibly explained by either the (intermittent, now
+    directly logged) post-FOCUSED settle window or simply needing a real
+    trigger-pull data point, not a further guess-fix.
+  - User's next live report (movement, not fire): "left and right are
+    turned around... hard to tell whether turning my head affects
+    forward." Found and fixed a real sign bug this time, not a diagnostic
+    dead end. Traced `Coords::YawRotation(yaw)` (Math/coords.h): XAxis =
+    (cos(yaw), -sin(yaw), 0), i.e. positive yaw rotates local forward
+    toward world -Y. Cross-checked against this codebase's own
+    established convention that +Y = "right" (the identity-orientation
+    `rightUE` mapping in the eye-pose composition, and the standard UT99
+    keybind convention that positive `aStrafe` = strafe right) - so
+    positive yaw = turn LEFT here, not right. `UpdateVRControllerInput()`
+    had `xrYawOffsetUE += rightStickX * turnRate * dt` for the
+    comfort-turn stick - since `rightStickX` is positive when the stick
+    is pushed right (standard OpenXR convention), this was adding
+    positive yaw for a rightward push, i.e. turning left when the user
+    turned right and vice versa. Changed to `-=`. Re-derived the
+    head-yaw-sync path (`rawYaw`/`xrHeadYawUE` -> `pawn->Rotation().Yaw`)
+    against the same convention and found it self-consistent - it's also
+    indirectly proven correct already, since it's the exact same
+    computation the render camera uses, and the user already confirmed
+    the rendered view tracks their head correctly. So the working theory
+    is the comfort-turn sign flip was solely (or mostly) responsible for
+    both symptoms - a wrongly-signed turn control would fight the
+    player's sense of "forward" and make head-relative movement hard to
+    judge, without there needing to be a second bug in the head-tracking
+    path itself. Rebuilt clean, ran a flatscreen smoke test (Virtual
+    Desktop reported no HMD present for this particular run - harmless,
+    falls back to flatscreen as designed) - 32s, no crash. **Not yet
+    re-verified in headset.**
+
+- **2026-07-20/21 session: comfort-turn confirmed, movement-direction and
+  fire fully fixed and confirmed, weapon/swim pitch aim fixed and
+  confirmed. Real headset (Quest 3, Virtual Desktop) used throughout.**
+  - Live headset test of the comfort-turn sign fix above: **confirmed
+    correct** ("Left and right are now left and right"). Same test also
+    reported forward/backward movement still completely unaffected by
+    either head turning or the stick, and fire still not registering from
+    either trigger.
+  - Root-caused the movement issue: UT99's own `PlayerPawn.PlayerMove`
+    (UnrealScript, not reimplemented natively - confirmed via grep that
+    `aBaseY`/`aStrafe` have zero native C++ consumers) computes its
+    movement axes from `Pawn.ViewRotation`, not `Pawn.Rotation`. VR code
+    only ever wrote `Rotation.Yaw`; `ViewRotation` was left wherever
+    UnrealScript's own `aTurn`-driven re-derivation last put it
+    (spawn-time), since VR never touches `aTurn`. Fixed by also writing
+    `ViewRotation.Yaw` to the same value every frame in
+    `UpdateVRControllerInput()`.
+  - Root-caused fire: extensive diagnostic work (OpenXR focus/isActive/
+    `xrSyncActions` result all read healthy on every real trigger pull -
+    `rTrig` up to 1.0, `actionsActive=1`, `syncResult=0`) proved
+    `pawn->SetBool("bFire", true)` was correctly reaching the property on
+    every pull, yet gameplay never responded. Breakthrough: the user's own
+    mouse click (real `IK_LeftMouse` via `GameWindow::OnMouseDown` ->
+    `Engine::InputEvent()`) is what got them past the "click fire to
+    start" prompt - proving the real gate is `InputEvent()`'s
+    `CallEvent(console, EventName::KeyEvent, ...)` dispatch, not just the
+    `bFire` property being true. Fixed by replacing the direct `SetBool`
+    calls with edge-triggered `InputEvent(IK_LeftMouse/IK_RightMouse,
+    IST_Press/IST_Release)` on trigger rising/falling edges - VR fire now
+    routes through the exact same code path a real mouse click uses.
+  - Added a throttled "VR movement diag" log line (headYawDeg/rotYawDeg/
+    viewYawDeg/velHeadingDeg/velSpeed/physics/lStickY) to
+    `UpdateVRControllerInput()`, in response to the user explicitly asking
+    for turn-vs-movement comparison data instead of further guess-fixes.
+  - Live headset re-test of both fixes: **fire fully confirmed working**
+    (clean `InputEvent` rising edges throughout, no more stuck-at-the-
+    start-prompt). Movement was now responsive (a real change from
+    "totally unaffected") but the user reported it felt mirrored ("walk
+    left when I look right"), and separately reported movement freezing
+    entirely after clicking the flatscreen window to focus it. Read the
+    full `SE-Log-LastRun.txt` from that session: confirmed the freeze
+    coincided with `actionsActive` intermittently dropping to 0 for
+    extended periods with all axes flat at zero for 3+ minutes, most
+    consistent with Virtual Desktop's input routing being disturbed by
+    the OS-level mouse click (no longer needed now that fire is
+    `InputEvent`-based) plus the user simply not touching the sticks
+    while typing feedback - not a code bug, no fix made for it.
+  - Dispatched a research subagent (Fable, model `claude-fable-5`) with
+    the full `SE-Log-LastRun.txt` and the relevant code to independently
+    diagnose the movement mirroring, per the user's explicit request
+    ("have Fable go over the logs"). Diagnosis, verified by hand
+    afterward against the real code (not just trusted): `xrHeadYawUE` is
+    computed and consumed in `Coords::YawRotation`'s convention (XAxis =
+    `(cos yaw, -sin yaw, 0)`), but UT99's native `GetAxes(Rotator)` -
+    which `PlayerMove` actually calls to turn `ViewRotation` into a
+    movement direction (`Native/NObject.cpp` `NObject::GetAxes` ->
+    `Coords::Rotation(rotator).GetAxes(...)`) - composes with the
+    *opposite* sign. Verified algebraically: `Coords::Rotation` for a
+    pure-yaw `Rotator` works out to XAxis = `(cos yaw, +sin yaw, 0)`,
+    because `Coords::operator*` computes `dot(a.axis, b.axis)` term by
+    term, which transposes whichever operand is `Identity` on the left
+    (both `RollRotation(0)` and `YawRotation(0)` collapse to `Identity`
+    for a pure-yaw rotator). Independently corroborated by
+    `Rotator::FromVector` (Math/rotator.h), which already computes
+    `Yaw = atan2(v.y, v.x)` with no negation - exactly the `+sin`
+    convention, and the trig identity `atan2(y,x) = -atan2(-y,x)` shows
+    this is precisely the negation of `rawYaw`'s own
+    `atan2(-fwdUE.y, fwdUE.x)` formula. Six real full-speed movement
+    samples from the log fit `velocityHeading = -rotationYaw +
+    stickOffset` to <1 degree. Fixed by negating at the write point:
+    `Engine.cpp`'s `int yaw = (int)(-xrHeadYawUE * ue1RadiansToYaw)`
+    (was missing the `-`), plus a matching fix to the one-time
+    view-recenter (`xrYawOffsetUE = -CameraRotation.YawRadians() -
+    rawYaw`, was missing the same negation) so recentering still anchors
+    to the pawn's true spawn facing instead of its mirror.
+  - Live headset re-test: **movement direction, turning, and aim (yaw)
+    all confirmed correct** ("Much much better"). Fire remained working.
+  - New report: weapon doesn't aim up/down when looking up/down, and
+    swimming is "impossible" (PHYS_Swimming's script-side movement, like
+    `PlayerMove`'s walk axes, is `ViewRotation`-driven, so a missing pitch
+    write would break both the same way). Root cause: `Rotation`/
+    `ViewRotation` code only ever wrote `Yaw` - by design, to avoid
+    tilting the pawn's upright collision cylinder via `Rotation.Pitch` -
+    but `ViewRotation.Pitch` (which does *not* affect collision) was never
+    written either, so it just sat at 0 (or spawn value) regardless of
+    head pitch. Added `xrHeadPitchUE` (Engine.h/Engine.cpp), computed each
+    frame from the same eye-pose forward vector already used for yaw:
+    `atan2(fwdUE.z, sqrt(fwdUE.x^2+fwdUE.y^2))`. This formula is already
+    in `Rotator`/game convention (matches `Rotator::FromVector`'s own
+    `Pitch` formula exactly, verified by inspection) so - unlike yaw - it
+    needs no sign flip and no recenter offset. Written into
+    `vrPawn->ViewRotation().Pitch` only, never `Rotation.Pitch`.
+  - Live headset re-test: **pitch aim confirmed working** ("I can aim up
+    and down"). Swimming not yet separately re-tested but shares the
+    exact same `ViewRotation.Pitch` dependency, so is expected fixed too -
+    worth a direct confirmation next time a water level is available.
+  - **User's follow-up feature request (not yet started, scoped as future
+    work, not a bug)**: aim the weapon(s) from the motion controllers
+    themselves rather than from head look - e.g. gun in one or both
+    hands, aiming each independently of where the player is looking, up
+    to dual-wielding with independent per-hand aim. This is a real,
+    fairly large feature: UT99 has no native concept of aim decoupled
+    from `ViewRotation` (the first-person viewmodel and hit-trace/firing
+    direction are both driven off it), so it would need new per-frame
+    logic to position the viewmodel at the controller pose and redirect
+    the fire trace, not just another `ViewRotation` write. Needs its own
+    design pass before starting.
