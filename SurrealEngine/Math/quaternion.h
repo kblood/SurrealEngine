@@ -30,13 +30,14 @@ struct quaternionT
 
 	quaternionT& operator +=(const quaternionT& b) { x += b.x; y += b.y; z += b.z; w += b.w; return *this; }
 	quaternionT& operator -=(const quaternionT& b) { x -= b.x; y -= b.y; z -= b.z; w -= b.w; return *this; }
-	quaternionT& operator *=(const quaternionT& b) {
-		x = x * b.x - y * b.y - z * b.z - w * b.w,
-		y = x * b.y + y * b.x + z * b.w - w * b.z,
-		z = x * b.z - y * b.w + z * b.x + w * b.y,
-		w = x * b.w + y * b.z - z * b.y + w * b.x;
-		return *this;
-	}
+	// Was previously buggy: overwrote x before using it to compute y/z/w
+	// (comma operator, not sequential statements) and used the wrong
+	// Hamilton-product term layout besides. Currently unused anywhere in
+	// the engine (confirmed via the 2026-07-20 VR rendering investigation,
+	// see Docs/VR/FABLE_ANALYSIS_2026-07-20.md) - fixed in terms of the
+	// verified-correct non-member operator* below rather than left as a
+	// trap for the next caller.
+	quaternionT& operator *=(const quaternionT& b) { *this = *this * b; return *this; }
 	quaternionT& operator *=(T b) { x *= b; y *= b; z *= b; w *= b; return *this; }
 	quaternionT& operator /=(T b) { x /= b; y /= b; z /= b; w /= b; return *this; }
 

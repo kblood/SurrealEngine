@@ -40,6 +40,19 @@ struct VRControllerState
 	bool rightA = false, rightB = false;
 	bool leftMenu = false;
 	bool leftStickClick = false, rightStickClick = false;
+
+	// 2026-07-20: true if xrGetActionState*'s isActive came back true for
+	// AT LEAST ONE bound action this call. isActive is false whenever the
+	// runtime isn't routing input to this session's action set (e.g. the
+	// XR session isn't XR_SESSION_STATE_FOCUSED - a system overlay/
+	// dashboard has focus instead) - every action then silently reads its
+	// zero default with no error, which looks identical to "nothing is
+	// pressed/tilted" to a caller with no visibility into isActive. Added
+	// after a real-headset report of fire + movement both being
+	// unresponsive, to tell "focus/binding problem" apart from "genuinely
+	// no input this frame" without guessing - see the throttled diagnostic
+	// log in Engine::UpdateVRControllerInput().
+	bool actionsActive = false;
 };
 
 class VulkanXRSession
@@ -133,8 +146,17 @@ public:
 
 	// xrSyncActions for our one action set. Call once per frame (only while
 	// IsSessionRunning()), before any GetControllerState() call that frame.
-	// Deliberately does not log anything - this runs every frame.
+	// Deliberately does not log anything every frame - see GetLastSyncResult().
 	void SyncActions();
+
+	// Raw XrResult of the most recent xrSyncActions call. XR_SESSION_NOT_FOCUSED
+	// (a *success* code, XR_FAILED() is false for it) means the runtime is not
+	// routing input to this session's action set at all right now - every
+	// isActive read this frame will be false regardless of what's physically
+	// happening to the controllers. Exposed so the caller's diagnostic log can
+	// tell "focus not held" apart from "focus held, genuinely no input" instead
+	// of only seeing the isActive=false symptom.
+	int GetLastSyncResult() const { return lastSyncResult; }
 
 	// Reads the current (post-SyncActions) state of every bound action into
 	// outState. Always succeeds - missing/unbound/inactive actions just
@@ -153,6 +175,8 @@ private:
 	bool sessionRunning = false;
 	int lastLoggedState = 0; // XR_SESSION_STATE_UNKNOWN
 
+	int lastSyncResult = 0; // XR_SUCCESS; see GetLastSyncResult()
+
 	int swapchainWidth = 0;
 	int swapchainHeight = 0;
 	void* swapchain[2] = { nullptr, nullptr }; // XrSwapchain, one per eye
@@ -161,6 +185,14 @@ private:
 
 	double lastPredictedDisplayTime = 0.0;
 	int64_t predictedDisplayPeriod = 0;
+
+	// Diagnostics for the 2026-07-20 rendering investigation (stereo HUD
+	// double vision + world-geometry warp) - logs the real per-eye FOV
+	// angles/pose/IPD once, the first time LocateViews() succeeds, so their
+	// magnitude (esp. whether angleUp == |angleDown|, which masks the
+	// DrawSceneVR() vertical-frustum bug) is visible in SE-Log-LastRun.txt
+	// without needing a debugger or an in-headset screenshot.
+	bool loggedFirstLocateViews = false;
 
 	// M3: controller input action set/actions. All XrAction handles.
 	bool actionsReady = false;

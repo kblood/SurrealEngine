@@ -148,15 +148,29 @@ void RenderSubsystem::DrawSceneVR()
 		vp.X = halfWidth;
 		vp.Y = fullHeight;
 
-		// angleLeft/angleDown are negative per the OpenXR spec, so these
-		// are already the correct signed frustum bounds - near=1 matches
-		// DrawSceneStereo's convention so tan(angle) needs no extra
-		// near-plane scaling.
+		// angleLeft/angleDown are negative per the OpenXR spec. Horizontal
+		// is a direct l/r pass-through (renderdev eye space is x-right, no
+		// flip). Vertical is NOT a direct pass-through: renderdev eye space
+		// is y-DOWN (Coords::ViewToRenderDev(), Math/coords.h) while
+		// mat4::frustum()'s bottom/top follow the GL convention (bottom ->
+		// NDC -1 -> Vulkan framebuffer TOP row). Passing (d, u) as
+		// (bottom, top) therefore puts angleDown's extent at the
+		// framebuffer top and angleUp's at the bottom - backwards whenever
+		// angleUp != |angleDown| (true on essentially every real HMD) - and
+		// disagrees with the FOV metadata EndFrame() submits to the
+		// compositor, which is what produced the "world geometry warps as
+		// you turn your head" bug. bottom/top must be (-u, -d) instead so
+		// the framebuffer top row gets angleUp's extent. Root-caused
+		// 2026-07-20, see Docs/VR/FABLE_ANALYSIS_2026-07-20.md section 3;
+		// gated on the one-shot FOV log in VulkanXRSession::LocateViews()
+		// confirming angleUp != |angleDown| on the actual runtime before
+		// this was applied. Fixed here without re-verifying in headset yet
+		// - do that before trusting this comment over a real test.
 		float l = std::tan(VREyeFov[eye][0]);
 		float r = std::tan(VREyeFov[eye][1]);
 		float u = std::tan(VREyeFov[eye][2]);
 		float d = std::tan(VREyeFov[eye][3]);
-		mat4 projection = mat4::frustum(l, r, d, u, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
+		mat4 projection = mat4::frustum(l, r, -u, -d, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
 		vp.Projection = &projection;
 
 		MainFrame.Process(VREyeLocation[eye], worldToView, rotation, false, 0, {}, vec4(0.0f, 0.0f, 0.0f, 1.0f), &vp);

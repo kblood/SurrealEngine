@@ -1532,6 +1532,27 @@ void VulkanRenderDevice::DrawPresentTexture(int width, int height)
 		int srcW = Commands->SwapChain->Width();
 		int srcH = Commands->SwapChain->Height();
 
+		// One-shot diagnostic (2026-07-20 rendering investigation): the eye
+		// blit below copies raw halves of the window swapchain image
+		// (srcW/srcH), NOT the letterboxed viewport rect drawn above
+		// (letterboxX/Y/Width/Height). If those differ - i.e. the window
+		// isn't exactly 2x the internal viewport aspect and black bars are
+		// actually being drawn - the bars get baked into both eye images
+		// and would corrupt the per-eye FOV mapping the same way the
+		// DrawSceneVR() vertical-frustum bug does. Confirm this is a no-op
+		// (letterbox == full size) before ruling it out. See
+		// Docs/VR/FABLE_ANALYSIS_2026-07-20.md.
+		static bool loggedLetterbox = false;
+		if (!loggedLetterbox)
+		{
+			loggedLetterbox = true;
+			LogMessage("VR diag: letterbox=(" + std::to_string(letterboxX) + "," + std::to_string(letterboxY) + " " +
+				std::to_string(letterboxWidth) + "x" + std::to_string(letterboxHeight) + ") vs window " +
+				std::to_string(width) + "x" + std::to_string(height) + ", swapchain(src)=" +
+				std::to_string(srcW) + "x" + std::to_string(srcH) + ", viewport(vp)=" +
+				std::to_string(vpWidth) + "x" + std::to_string(vpHeight));
+		}
+
 		PipelineBarrier()
 			.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT)
 			.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);

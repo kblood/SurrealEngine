@@ -82,27 +82,89 @@ void RenderSubsystem::RenderOverlays()
 	}
 }
 
+// M4 (2026-07-20): places this eye's HUD canvas at a fixed-size "virtual
+// screen" centered on the eye's real forward gaze direction, instead of the
+// old "centered half-viewport" split. The old approach drew both eyes'
+// HUD/crosshair centered in their raw half-viewport; that only fuses into
+// one image if "viewport center" maps to the same real-world gaze direction
+// in both eyes, which is false for a real OpenXR session (per-eye FOV is
+// asymmetric - angleLeft != angleRight etc.) - hence the reported double
+// vision, and separately, HUD elements pinned to the full ~90-100 deg
+// per-eye FOV landing outside the lens sweet spot. Fixes both by shrinking
+// and repositioning the canvas rect:
+//   - horizontal: pixel x = halfWidth * (t - tanL) / (tanR - tanL), so
+//     t=0 (straight ahead) lands at this eye's real forward pixel, not the
+//     viewport's geometric center.
+//   - vertical: pixel y = fullHeight * (tanU - t) / (tanU - tanD), the
+//     inverse of the corrected DrawSceneVR() vertical frustum mapping (see
+//     that function's doc comment) - MUST be applied after that fix, since
+//     this formula assumes framebuffer row 0 is angleUp's extent.
+//   - convergence: both eyes' centered-on-infinity copies would still only
+//     fuse at infinite depth, which is an uncomfortable vergence conflict
+//     against nearby world geometry - `shift` pulls each eye's copy toward
+//     the other by half the tracked IPD (converted to a tan-space offset at
+//     `hudDepthUU`), so the fused HUD sits at a finite, comfortable depth
+//     instead.
+// See Docs/VR/FABLE_ANALYSIS_2026-07-20.md sections 1-2 for the full
+// derivation. IPD is read live from VREyeLocation every call (never a
+// constant) since it varies per headset/runtime/IPD-slider setting.
+void RenderSubsystem::SetVRHudFrame(int eye, const FSceneNode& fullFrame)
+{
+	int fullWidth = fullFrame.X;
+	int fullHeight = fullFrame.Y;
+	int halfWidth = fullWidth / 2;
+
+	float tanL = std::tan(VREyeFov[eye][0]);
+	float tanR = std::tan(VREyeFov[eye][1]);
+	float tanU = std::tan(VREyeFov[eye][2]);
+	float tanD = std::tan(VREyeFov[eye][3]);
+
+	const float hudHalfTanX = std::tan(radians(25.0f)); // ~50 deg wide virtual screen
+	const float hudHalfTanY = hudHalfTanX * 0.75f;       // 4:3
+	const float hudDepthUU = 68.9f;                      // ~1.75m convergence depth (1 UU = 1 inch - see Engine.cpp's UUPerMeter)
+
+	float ipdUU = length(VREyeLocation[1] - VREyeLocation[0]);
+	float shift = (eye == 0 ? 1.0f : -1.0f) * (ipdUU * 0.5f) / hudDepthUU;
+
+	int x0 = (int)std::round(halfWidth * ((-hudHalfTanX + shift) - tanL) / (tanR - tanL));
+	int x1 = (int)std::round(halfWidth * ((hudHalfTanX + shift) - tanL) / (tanR - tanL));
+	int y0 = (int)std::round(fullHeight * (tanU - hudHalfTanY) / (tanU - tanD));
+	int y1 = (int)std::round(fullHeight * (tanU + hudHalfTanY) / (tanU - tanD));
+
+	int hudW = std::max(x1 - x0, 1);
+	int hudH = std::max(y1 - y0, 1);
+
+	Canvas.Frame = fullFrame;
+	Canvas.Frame.XB = fullFrame.XB + (eye == 0 ? 0 : halfWidth) + x0;
+	Canvas.Frame.YB = fullFrame.YB + y0;
+	Canvas.Frame.X = hudW;
+	Canvas.Frame.Y = hudH;
+	Canvas.Frame.FX = (float)hudW;
+	Canvas.Frame.FY = (float)hudH;
+	Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
+	Canvas.Frame.FY2 = Canvas.Frame.FY * 0.5f;
+
+	int hudSizeX = (int)(hudW / (float)Canvas.uiscale);
+	int hudSizeY = (int)(hudH / (float)Canvas.uiscale);
+	engine->canvas->CurX() = 0.0f;
+	engine->canvas->CurY() = 0.0f;
+	engine->canvas->ClipX() = (float)hudSizeX;
+	engine->canvas->ClipY() = (float)hudSizeY;
+	engine->canvas->SizeX() = hudSizeX;
+	engine->canvas->SizeY() = hudSizeY;
+}
+
 void RenderSubsystem::RenderOverlaysVR()
 {
 	FSceneNode fullFrame = Canvas.Frame;
-	int fullWidth = fullFrame.X;
-	int halfWidth = fullWidth / 2;
 	int fullSizeX = engine->canvas->SizeX();
+	int fullSizeY = engine->canvas->SizeY();
 	float fullClipX = engine->canvas->ClipX();
+	float fullClipY = engine->canvas->ClipY();
 
 	for (int eye = 0; eye < 2; eye++)
 	{
-		Canvas.Frame = fullFrame;
-		Canvas.Frame.XB = fullFrame.XB + (eye == 0 ? 0 : halfWidth);
-		Canvas.Frame.X = halfWidth;
-		Canvas.Frame.FX = (float)halfWidth;
-		Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
-
-		int halfSizeX = (int)(halfWidth / (float)Canvas.uiscale);
-		engine->canvas->CurX() = 0.0f;
-		engine->canvas->CurY() = 0.0f;
-		engine->canvas->ClipX() = (float)halfSizeX;
-		engine->canvas->SizeX() = halfSizeX;
+		SetVRHudFrame(eye, fullFrame);
 
 		// Restore this eye's world-pass scene node so Canvas.DrawActor()
 		// (e.g. the weapon viewmodel) picks up the matching camera pose
@@ -132,7 +194,9 @@ void RenderSubsystem::RenderOverlaysVR()
 	engine->canvas->CurX() = 0.0f;
 	engine->canvas->CurY() = 0.0f;
 	engine->canvas->ClipX() = fullClipX;
+	engine->canvas->ClipY() = fullClipY;
 	engine->canvas->SizeX() = fullSizeX;
+	engine->canvas->SizeY() = fullSizeY;
 	Device->SetSceneNode(&Canvas.Frame);
 }
 
@@ -156,24 +220,14 @@ void RenderSubsystem::PostRenderVR()
 	// spans the full window, landing HUD elements on the seam between the
 	// two eye halves).
 	FSceneNode fullFrame = Canvas.Frame;
-	int fullWidth = fullFrame.X;
-	int halfWidth = fullWidth / 2;
 	int fullSizeX = engine->canvas->SizeX();
+	int fullSizeY = engine->canvas->SizeY();
 	float fullClipX = engine->canvas->ClipX();
+	float fullClipY = engine->canvas->ClipY();
 
 	for (int eye = 0; eye < 2; eye++)
 	{
-		Canvas.Frame = fullFrame;
-		Canvas.Frame.XB = fullFrame.XB + (eye == 0 ? 0 : halfWidth);
-		Canvas.Frame.X = halfWidth;
-		Canvas.Frame.FX = (float)halfWidth;
-		Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
-
-		int halfSizeX = (int)(halfWidth / (float)Canvas.uiscale);
-		engine->canvas->CurX() = 0.0f;
-		engine->canvas->CurY() = 0.0f;
-		engine->canvas->ClipX() = (float)halfSizeX;
-		engine->canvas->SizeX() = halfSizeX;
+		SetVRHudFrame(eye, fullFrame);
 
 		MainFrame.Frame = VREyeFrame[eye];
 		Device->SetSceneNode(&Canvas.Frame);
@@ -186,7 +240,9 @@ void RenderSubsystem::PostRenderVR()
 	engine->canvas->CurX() = 0.0f;
 	engine->canvas->CurY() = 0.0f;
 	engine->canvas->ClipX() = fullClipX;
+	engine->canvas->ClipY() = fullClipY;
 	engine->canvas->SizeX() = fullSizeX;
+	engine->canvas->SizeY() = fullSizeY;
 	Device->SetSceneNode(&Canvas.Frame);
 
 	DrawTimedemoStats();

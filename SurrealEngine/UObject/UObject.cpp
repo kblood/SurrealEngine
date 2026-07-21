@@ -311,6 +311,20 @@ void UObject::SetInt(const NameString& name, uint32_t value)
 void UObject::SetBool(const NameString& name, bool value)
 {
 	UProperty* prop = GetMemberProperty(name);
+	if (prop->ValueType == ExpressionValueType::ValueByte)
+	{
+		// Some "boolean-looking" properties (e.g. Pawn.bFire/bAltFire/bDuck)
+		// are actually declared byte, not bool, in their UClass. The
+		// UBoolProperty path below does packed-bitfield math specific to
+		// bool's storage layout; blindly static_cast-ing a byte property to
+		// UBoolProperty* and calling it is undefined behavior - it reads/
+		// writes whichever bits UBoolProperty::SetBool happens to target,
+		// which may belong to a neighboring property. Root-caused
+		// 2026-07-20 while debugging VR controller fire input not
+		// registering - see Docs/VR/FABLE_ANALYSIS_2026-07-20.md section 4.
+		*static_cast<uint8_t*>(PropertyData.Ptr(prop)) = value ? 1 : 0;
+		return;
+	}
 	static_cast<UBoolProperty*>(prop)->SetBool(PropertyData.Ptr(prop), value);
 }
 

@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <sstream>
+#include <cmath>
 
 namespace
 {
@@ -567,6 +568,33 @@ bool VulkanXRSession::LocateViews(VREyePose outEyes[2])
 		outEyes[eye].angleUp = views[eye].fov.angleUp;
 		outEyes[eye].angleDown = views[eye].fov.angleDown;
 	}
+
+	// One-shot diagnostic (2026-07-20 rendering investigation): log the real
+	// per-eye FOV in degrees, eye positions, tracked IPD and swapchain size.
+	// This is what decides whether the DrawSceneVR() vertical-frustum flip
+	// (angleUp vs |angleDown|) is actually the world-geometry-warp bug, or
+	// masked on this runtime - see Docs/VR/FABLE_ANALYSIS_2026-07-20.md.
+	if (!loggedFirstLocateViews)
+	{
+		loggedFirstLocateViews = true;
+		auto deg = [](float rad) { return rad * (180.0f / 3.14159265359f); };
+		float dx = outEyes[1].posX - outEyes[0].posX;
+		float dy = outEyes[1].posY - outEyes[0].posY;
+		float dz = outEyes[1].posZ - outEyes[0].posZ;
+		float ipd = std::sqrt(dx * dx + dy * dy + dz * dz);
+		for (int eye = 0; eye < 2; eye++)
+		{
+			LogMessage("OpenXR diag: eye=" + std::to_string(eye) +
+				" angleL=" + std::to_string(deg(outEyes[eye].angleLeft)) +
+				" angleR=" + std::to_string(deg(outEyes[eye].angleRight)) +
+				" angleU=" + std::to_string(deg(outEyes[eye].angleUp)) +
+				" angleD=" + std::to_string(deg(outEyes[eye].angleDown)) +
+				" (|angleD|-angleU=" + std::to_string(std::fabs(deg(outEyes[eye].angleDown)) - deg(outEyes[eye].angleUp)) + " deg)" +
+				" pos=(" + std::to_string(outEyes[eye].posX) + "," + std::to_string(outEyes[eye].posY) + "," + std::to_string(outEyes[eye].posZ) + ")");
+		}
+		LogMessage("OpenXR diag: tracked IPD=" + std::to_string(ipd) + "m, swapchain=" + std::to_string(swapchainWidth) + "x" + std::to_string(swapchainHeight) + " per eye");
+	}
+
 	return true;
 }
 
@@ -807,7 +835,7 @@ void VulkanXRSession::SyncActions()
 	XrActionsSyncInfo syncInfo = { XR_TYPE_ACTIONS_SYNC_INFO };
 	syncInfo.countActiveActionSets = 1;
 	syncInfo.activeActionSets = &activeSet;
-	xrSyncActions(xrSession, &syncInfo);
+	lastSyncResult = (int)xrSyncActions(xrSession, &syncInfo);
 }
 
 void VulkanXRSession::GetControllerState(VRControllerState& outState)
@@ -817,6 +845,8 @@ void VulkanXRSession::GetControllerState(VRControllerState& outState)
 		return;
 	XrSession xrSession = (XrSession)session;
 
+	bool anyActive = false;
+
 	auto getFloat = [&](void* action) -> float
 	{
 		if (!action)
@@ -825,7 +855,10 @@ void VulkanXRSession::GetControllerState(VRControllerState& outState)
 		XrActionStateGetInfo info = { XR_TYPE_ACTION_STATE_GET_INFO };
 		info.action = (XrAction)action;
 		if (XR_SUCCEEDED(xrGetActionStateFloat(xrSession, &info, &state)) && state.isActive)
+		{
+			anyActive = true;
 			return state.currentState;
+		}
 		return 0.0f;
 	};
 	auto getBool = [&](void* action) -> bool
@@ -836,7 +869,10 @@ void VulkanXRSession::GetControllerState(VRControllerState& outState)
 		XrActionStateGetInfo info = { XR_TYPE_ACTION_STATE_GET_INFO };
 		info.action = (XrAction)action;
 		if (XR_SUCCEEDED(xrGetActionStateBoolean(xrSession, &info, &state)) && state.isActive)
+		{
+			anyActive = true;
 			return state.currentState != XR_FALSE;
+		}
 		return false;
 	};
 	auto getVec2 = [&](void* action, float& x, float& y)
@@ -850,6 +886,7 @@ void VulkanXRSession::GetControllerState(VRControllerState& outState)
 		info.action = (XrAction)action;
 		if (XR_SUCCEEDED(xrGetActionStateVector2f(xrSession, &info, &state)) && state.isActive)
 		{
+			anyActive = true;
 			x = state.currentState.x;
 			y = state.currentState.y;
 		}
@@ -868,4 +905,5 @@ void VulkanXRSession::GetControllerState(VRControllerState& outState)
 	outState.leftMenu = getBool(leftMenuAction);
 	outState.leftStickClick = getBool(leftStickClickAction);
 	outState.rightStickClick = getBool(rightStickClickAction);
+	outState.actionsActive = anyActive;
 }

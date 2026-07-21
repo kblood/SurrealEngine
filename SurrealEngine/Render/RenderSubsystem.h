@@ -149,6 +149,12 @@ private:
 	// HUD layout math (which reads Canvas.ClipX/SizeX) sees the narrower
 	// width, then restores the full-window canvas state afterward.
 	void RenderOverlaysVR();
+	// M4 (2026-07-20): computes and applies a per-eye HUD sub-rect for
+	// `eye` within `fullFrame`, replacing the old "centered half-viewport"
+	// split. Shared by RenderOverlaysVR()/PostRenderVR() - see the doc
+	// comment above its definition in RenderCanvas.cpp for the tan-space
+	// derivation and Docs/VR/FABLE_ANALYSIS_2026-07-20.md sections 1-2.
+	void SetVRHudFrame(int eye, const FSceneNode& fullFrame);
 	void PostRender();
 	// M3: same per-eye split as RenderOverlaysVR(), for PostRender() - UT99's
 	// actual visible HUD (health/ammo/messages) renders from PlayerPawn's
