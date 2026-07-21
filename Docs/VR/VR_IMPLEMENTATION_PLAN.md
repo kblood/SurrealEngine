@@ -366,6 +366,22 @@ Everything else in M2-M3 should be buildable and verifiable solo.
    gameplay mutators). Research via public UnrealScript modding docs
    (Unreal Wiki / BeyondUnreal) per `PLAN.md`'s clean-room policy — this is
    exactly the kind of gap that policy exists for.
+
+   **Status: DONE (2026-07-21).** Went with a third option neither (a) nor
+   (b) anticipated: a single interception seam at the VM's one call
+   choke-point (`Frame::Call`), letting native code swap `Pawn.ViewRotation`
+   for exactly the duration of a `TraceFire`/`ProjectileFire` script call
+   (and separately override `InvCalcView`/`RenderOverlays`'s viewmodel
+   transform and `CalcDrawOffset`'s fire origin) — no stock `.u` package
+   ever touched, no custom mutator package needed either. Full design,
+   research, and a 6-milestone implementation (per-hand pose tracking,
+   viewmodel-follows-hand, the fire-redirect seam itself, two-handed
+   between-hands-vector aim, left/right-handed mode + mirroring, and
+   dual-wielded Enforcers) written up and completed in
+   `Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md` — see that doc and
+   `HANDOFF_2026-07-21_CONTROLLER_AIM.md` for full detail. Commits
+   `b64a995f`..`673b89be` on `vr-m2`. Build/log/screenshot-verified only;
+   real in-headset feel/tuning still outstanding.
 4. **Locomotion**: joystick smooth-move mapped onto pawn input axes (same
    `activeInputAxes` mechanism as step 2); optional snap-turn as discrete
    `CameraRotation`/pawn-yaw increments. `cp2077-vr`'s OpenXR action-based

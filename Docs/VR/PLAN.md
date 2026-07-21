@@ -879,3 +879,117 @@ fully-non-interactive verification strategy for each step, and the one step
     logic to position the viewmodel at the controller pose and redirect
     the fire trace, not just another `ViewRotation` write. Needs its own
     design pass before starting.
+
+- 2026-07-21: **Controller-aimed weapons feature fully implemented**
+  (M-A through M-F, plus M-E1), fully autonomously per explicit user
+  direction ("extend the plan to fully implement the proposed Fable plan
+  without consulting me"). Full design/research pass done by a Fable
+  research agent first, written to `Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md`
+  (companion to this file and `VR_IMPLEMENTATION_PLAN.md`'s M3 section 3,
+  which now points here). Headline finding from that design pass: the
+  original idea of writing a controller-vs-head delta into the
+  `AdjustedAim` property each frame **does not work** - `AdjustedAim` is
+  an output clobbered by the script's own `AdjustAim()` call at fire time,
+  not a persistent input. The real mechanism used instead: every
+  UnrealScript call (native, virtual, or final) already funnels through
+  one C++ choke point, `Frame::Call` (`VM/Frame.cpp`) - a new
+  engine-installed interception hook there lets native code swap
+  `Pawn.ViewRotation` to a controller-derived rotator for exactly the
+  duration of a `TraceFire`/`ProjectileFire` call (restoring it
+  immediately after), and separately override the viewmodel's transform
+  (`InvCalcView`/`RenderOverlays`) and fire origin (`CalcDrawOffset`) the
+  same way - all without ever touching a stock `.u` package, and without
+  `PlayerMove`/camera/swimming ever seeing the swapped rotation. No
+  UnrealScript source was written or modified; no decompiled Epic/Botpack
+  code was copied anywhere.
+
+  Implemented as six milestones, one sub-agent per milestone, each
+  building Release and non-interactively verifying via new debug flags
+  (`--debugvrhands`, `--debugvrfire`, `--debugvrtwohand`,
+  `--debugvrdualenforcer` - all fake controller poses/inputs requiring no
+  real headset) plus `PrintWindow`+`PW_RENDERFULLCONTENT` screenshots and
+  `SE-Log-LastRun.txt` log evidence:
+  - **M-A** (`b64a995f`) - four new `XR_ACTION_TYPE_POSE_INPUT` OpenXR
+    actions (per-hand grip pose + aim pose), composed into world space by
+    factoring the existing head-pose math into shared helpers with zero
+    behavior change to the head path.
+  - **M-B** (`458899c7`) - the `Frame::Call` interception seam itself
+    (`Frame::InterceptCall`, null by default); intercepts `InvCalcView`
+    (pre-219) or `RenderOverlays` (v436 and later - a real deviation from
+    the design doc's assumption, found and fixed) to natively reposition
+    the weapon actor at the main hand's grip pose. A per-weapon grip-offset
+    table was added, starting with Enforcer.
+  - **M-C** (`5c12bf88`) - the actual fire-direction redirect: a second
+    seam, `Frame::InterceptCallPost` (a real, necessary extension of M-B's
+    seam - the pre-call-only version can't express "let the original
+    script run, then restore state after," which fire needs since damage/
+    ammo/effects must still execute for real). Scoped `ViewRotation`
+    save/swap/restore around `TraceFire`/`ProjectileFire`, verified
+    re-entrancy-safe against a real case (Enforcer's `TraceFire` calls
+    `Super.TraceFire` internally, double-firing the intercept per shot).
+    Also intercepts `CalcDrawOffset` to move the fire origin to the hand,
+    and rebinds crouch off the right-grip button to free it for M-D. A
+    per-weapon fire-path audit (Sniper/Ripper/Bio lob confirmed fine;
+    Translocator flagged as needing a wider intercept because
+    `ThrowTarget`/`AdjustToss` permanently mutates `ViewRotation`, a stock
+    camera-snap quirk that fights a naive restore; Redeemer flagged as
+    needing a full clean-room spec pass, its classes aren't even present
+    in the decompiled reference checked) is appended to
+    `CONTROLLER_AIM_WEAPON_PLAN.md`.
+  - **M-D** (`401a42bf`) - two-handed aim: grabbing a weapon's foregrip
+    point with the off-hand (dual-hysteresis grab/release thresholds on
+    the existing grip-analog input) switches the aim rotator from the
+    single hand's aim pose to the normalized vector between both hands'
+    grip positions, with a ~100ms blend on transition and a fade-back to
+    single-hand aim when the hands get too close (the position-vector
+    method's angular noise scales inversely with hand separation).
+  - **M-F** (`f1ad7643`) - left/right-handed mode: one `mainHand` index
+    flip (`--vr-lefthand` flag or ini) retargets every earlier milestone,
+    since they all already went through `MainHand()`/`OffHand()` accessors
+    by design - except two spots a grep audit caught and fixed (the fire-
+    trigger mapping and the debug-hand synthesizer had snuck in hardcoded
+    left/right instead of using the accessors). Weapon mesh mirroring
+    (`scale(1,-1,1)` on the local player's weapon draw) was implemented as
+    a real fix, not the design doc's documented fallback, after confirming
+    this renderer's Vulkan pipelines use `VK_CULL_MODE_NONE` everywhere
+    (no backface culling to fight with the flipped winding).
+  - **M-E1** (`673b89be`) - dual-wielded Enforcers with independent
+    per-hand aim. UT99's stock double-Enforcer mechanism (a master/slave
+    actor pair, shared ammo, master-then-~0.2s-echo fire timing, slave
+    selection-blocked from ever being `Pawn.Weapon`) was **properly
+    clean-room specced first**: a dedicated research agent wrote
+    `Docs/VR/ENFORCER_DUALWIELD_SPEC.md`, a plain-language-only behavioral
+    spec (public docs first, one named decompiled mirror consulted only to
+    settle what public docs didn't cover, zero code reproduced), then a
+    *separate* implementation agent - barred from touching any decompiled
+    source - built M-E1 from that spec alone. It found the real
+    `SlaveEnforcer`/`bIsSlave` UnrealScript property names **empirically**,
+    via this engine's own generic property-reflection system run against
+    the user's legitimate game install, rather than reading them from
+    source. Master's aim/pose continues following the main hand exactly as
+    before; the slave's aim/pose now independently follows the off-hand.
+    Firing still uses stock's master/slave echo timing rather than true
+    independent per-trigger fire (documented as the accepted fallback -
+    doing better would have meant guessing at an unnamed internal script
+    call).
+
+  **Process note**: an earlier per-weapon audit pass (inside the M-C work)
+  read a decompiled source mirror directly in the same agent run that also
+  wrote engine code - a lapse against this project's own two-agent
+  clean-room policy, even though no code was actually copied or
+  implemented from what it read. Caught and corrected for M-E1 (see
+  above); worth remembering as a process point for any future weapon-
+  specific work (Translocator/Redeemer follow-ups, generic dual-wield of
+  arbitrary pairs) - always split research from implementation across two
+  separate agents when decompiled source needs consulting.
+
+  **Explicitly out of scope / deferred, per the design doc's own
+  scoping**: M-E2 (generic dual-wield of arbitrary one-handed weapon
+  pairs beyond the stock double-Enforcer) - a future item, not committed
+  work. Translocator/Redeemer's fire paths need further work before they
+  aim correctly in VR (see M-C's audit above). Every milestone's real
+  in-headset feel/tuning (grip offsets, grab/release radii, mirrored-
+  model legibility, overall aim comfort) is completely unverified -
+  everything above is build/log/screenshot-verified only. Commits
+  `b64a995f`..`673b89be` pushed to `fork vr-m2` 2026-07-21. Full
+  session handoff: `Docs/VR/HANDOFF_2026-07-21_CONTROLLER_AIM.md`.
