@@ -316,6 +316,21 @@ public:
 	float debugVRTwoHandTime = 0.0f;
 	void UpdateDebugVRTwoHand(float timeElapsed);
 
+	// M-E1: --debugvrdualenforcer - the non-interactive way to acquire a
+	// REAL, stock-paired double-Enforcer for testing GetSlaveEnforcer()/
+	// ResolveVRWeaponHand() against the user's actual UT99 game data,
+	// without a headset or any interactive input, per
+	// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-E1 verification note ("a
+	// way to actually acquire a double-Enforcer non-interactively"). Test-
+	// only tooling; never active without this explicit flag, and touches
+	// nothing outside this one debug function. See
+	// UpdateDebugVRDualEnforcer()'s doc comment in Engine.cpp for exactly
+	// what it does and why every step is a generic, publicly-documented
+	// engine mechanism rather than anything Enforcer/Botpack-specific.
+	bool debugVRDualEnforcerEnabled = false;
+	float debugVRDualEnforcerTime = 0.0f;
+	void UpdateDebugVRDualEnforcer(float timeElapsed);
+
 	// M-D: foregrip grab state - see UpdateVRTwoHandGrip()'s doc comment in
 	// Engine.cpp for the full dual-hysteresis grab/release contract.
 	// `vrTwoHandGripActive` is the raw on/off state; `vrTwoHandBlendWeight`
@@ -405,6 +420,59 @@ public:
 	};
 	VRWeaponGripInfo GetWeaponGripInfo(UWeapon* weapon);
 
+	// M-E1: dual-wield via UT99's stock double-Enforcer master/slave pair
+	// (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-E section, phase E1;
+	// behavioral source: Docs/VR/ENFORCER_DUALWIELD_SPEC.md - no decompiled
+	// Enforcer/Botpack source was read for this milestone, see that spec's
+	// own sourcing notes). Per the spec's section 2, `Pawn.Weapon()` always
+	// points at the MASTER Enforcer; the slave is a second, independently-
+	// existing Enforcer actor the master holds a reference to. Botpack's
+	// Enforcer class has no native C++ mirror in this codebase (unlike
+	// Engine.u's base `Weapon` class - PropertyOffsets.cpp's generated
+	// PropOffsets_Weapon - the generated PropertyOffsets_* tables only cover
+	// "core engine" classes, not individual Botpack weapon subclasses), so
+	// rather than inventing a whole new generated UEnforcer/PropOffsets_
+	// Enforcer pair for one weapon, the slave-reference and slave-flag
+	// property offsets are resolved directly against the actual LOADED
+	// Enforcer UClass's real property list, via the exact same generic
+	// name->offset mechanism PropertyOffsets.cpp itself is built on
+	// (UObject::GetPropertyDataOffset / UObject::Value<T> / UObject::
+	// BoolValue - all already public on the base UObject class every weapon
+	// instance is-a). The two property names themselves ("SlaveEnforcer",
+	// an ObjectProperty; "bIsSlave", a BoolProperty) were found empirically,
+	// with zero decompiled source read: a one-time diagnostic
+	// (vrEnforcerPropDiagLogged, HandleFrameCallIntercept's RenderOverlays
+	// branch) dumped the real, already-loaded Enforcer class's full
+	// property list from a live --autoplay --debugvrhands run against the
+	// user's own legitimate UT99 GOTY install, and "SlaveEnforcer"/
+	// "bIsSlave" were the two whose names and types (an Enforcer-typed
+	// object reference; a bool flag) unambiguously matched the spec's
+	// description of the master-side reference and the slave-side marker.
+	bool vrEnforcerOffsetsResolved = false;
+	PropertyDataOffset vrEnforcerSlaveEnforcerOffset; // ObjectProperty - master's reference to its slave (None if not paired)
+	PropertyDataOffset vrEnforcerBIsSlaveOffset;      // BoolProperty - true on the slave instance itself
+
+	// M-E1: resolves (once, cached above) and returns the live slave
+	// Enforcer linked to `master`, or nullptr whenever `master` isn't an
+	// Enforcer, isn't currently paired (SlaveEnforcer is None), or the
+	// expected properties can't be found on this class at all (defensive -
+	// never throws/asserts, just degrades to "no slave" so a stock single
+	// Enforcer, or any other weapon entirely, is unaffected). See the .cpp
+	// definition for the full doc comment.
+	UWeapon* GetSlaveEnforcer(UWeapon* master);
+
+	// M-E1: given the local player's actual `Pawn.Weapon()` (always the
+	// dual-wield MASTER, per the spec's section 2) and the UObject a
+	// Frame::Call is currently invoking `func` on, decides which physical
+	// hand should drive that call: MainHand() when `instance` IS the
+	// master, OffHand() when `instance` is the master's linked slave
+	// (GetSlaveEnforcer(master)), or nullptr (hand left unset) for anything
+	// else - the exact same "falls through untouched" contract every VR
+	// intercept branch already had before M-E1, just resolved once instead
+	// of duplicated per branch. Returns the weapon actor to treat as the
+	// call's target (master or slave) alongside `*outHand`, or nullptr.
+	UWeapon* ResolveVRWeaponHand(UWeapon* master, UObject* instance, VRHandState** outHand);
+
 	// M-C: VM interception seam consumer, PRE side - see
 	// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-C section ("Single-hand fire
 	// redirect"). Extends HandleFrameCallIntercept (still the single
@@ -489,6 +557,22 @@ public:
 	bool vrCalcDrawOffsetConfirmedOwnerRelative = false; // only true once the diagnostic confirms the documented Owner-relative convention; arms the override
 	vec3 vrCalcDrawOffsetPendingCandidate = vec3(0.0f);  // candidate computed by the PRE hook, read back by the POST hook for the same call
 	bool vrCalcDrawOffsetPendingCandidateValid = false;  // guards against the POST hook reading a stale candidate from an unrelated call
+
+	// M-E1: one-time empirical property-discovery diagnostic - see
+	// HandleFrameCallIntercept's RenderOverlays branch in Engine.cpp for the
+	// full doc comment. Per the clean-room constraint on this milestone (no
+	// decompiled Enforcer/Botpack source may be consulted), the master/slave
+	// pair's actual property names were found by dumping the ALREADY-LOADED
+	// Enforcer UClass's real property list (weapon->Class->Properties) the
+	// first time the local player's current weapon's class name contains
+	// "Enforcer" - the same generic name-keyed property system
+	// PropertyOffsets.cpp already uses for every other native accessor in
+	// this codebase (UObject::GetPropertyDataOffset), just walked in full
+	// instead of looked up by an assumed name. Logged once per run,
+	// independent of hand-pose validity, so it fires even on a machine with
+	// no headset connected as long as --debugvrhands (or a real VR session)
+	// is active and the player is holding an Enforcer.
+	bool vrEnforcerPropDiagLogged = false;
 
 	// M3: edge-detection state for controller buttons that should fire
 	// once per press rather than stay held (Jump, weapon switch, menu,

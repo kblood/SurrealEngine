@@ -17,6 +17,7 @@
 #include "UObject/UMusic.h"
 #include "UObject/USound.h"
 #include "UObject/UClass.h"
+#include "UObject/UProperty.h"
 #include "UObject/UClient.h"
 #include "UObject/USubsystem.h"
 #include "UObject/UFlag.h"
@@ -363,6 +364,17 @@ void Engine::Run()
 		LogMessage("--debugvrtwohand: synthesizing a scripted foregrip grab/release sequence (no XR session required)");
 	}
 
+	// M-E1: --debugvrdualenforcer - see Engine.h's doc comment on
+	// debugVRDualEnforcerEnabled/UpdateDebugVRDualEnforcer. Test-only
+	// harness to non-interactively acquire a real, stock-paired double-
+	// Enforcer for verifying GetSlaveEnforcer()/ResolveVRWeaponHand()
+	// against the actual UT99 game data.
+	if (commandline && commandline->HasArg("", "--debugvrdualenforcer"))
+	{
+		debugVRDualEnforcerEnabled = true;
+		LogMessage("--debugvrdualenforcer: will summon + teleport a second Enforcer onto the player to test the stock double-Enforcer master/slave pairing (no XR session required)");
+	}
+
 	// M-D: ini-tunable optional EMA aim filter constant - see Engine.h's
 	// doc comment on vrAimFilterAlpha. Read once here (same pattern as
 	// windowingSystemName above); default "1.0" parses to the fully-off
@@ -541,6 +553,12 @@ void Engine::Run()
 		// xrSession (no-op when debugVRTwoHandEnabled is false), same
 		// pattern as the two debug updates just above.
 		UpdateDebugVRTwoHand(realTimeElapsed);
+
+		// M-E1: --debugvrdualenforcer's summon+teleport sequence - see
+		// Engine.h's doc comment on debugVRDualEnforcerEnabled/
+		// UpdateDebugVRDualEnforcer. Runs unconditionally (no-op when the
+		// flag is off), same pattern as the debug updates just above.
+		UpdateDebugVRDualEnforcer(realTimeElapsed);
 
 		UpdateAudio();
 
@@ -2591,6 +2609,162 @@ void Engine::UpdateDebugVRTwoHand(float timeElapsed)
 	UpdateVRTwoHandGrip(timeElapsed, analog, /*forceTwoHandedForTest=*/true);
 }
 
+// M-E1: --debugvrdualenforcer - see Engine.h's doc comment on
+// debugVRDualEnforcerEnabled. Acquires a REAL, stock-paired double-Enforcer
+// non-interactively using only generic, publicly-documented engine
+// mechanisms - no Enforcer/Botpack-specific reasoning, and no decompiled
+// source:
+//
+//   1. `summon Botpack.Enforcer` through Engine::ExecCommand() - the exact
+//      same generic, name-dispatched exec-function path real keybindings
+//      already use (see InputCommand() above). `Summon` is a base ENGINE
+//      (Engine.u) admin/cheat command, not a Botpack or weapon-specific
+//      one, and has been public, widely-documented UT99/Unreal cheat-code
+//      knowledge for decades (typically enabled whenever `bSinglePlayer`
+//      is true, which the M-E1 property diagnostic already confirmed for
+//      this --autoplay session).
+//   2. Scans `Level->Actors` (an existing, already-public Engine field -
+//      ULevel.h) for an Enforcer actor that ISN'T the player's current
+//      weapon - i.e. the pickup Summon just spawned - and overwrites its
+//      Location to the player's own Location. This is the SAME native
+//      "write an Actor's Location" operation every other VR intercept in
+//      this file already performs on a weapon actor (HandleFrameCallIntercept's
+//      RenderOverlays/CalcDrawOffset branches); no Enforcer-specific
+//      knowledge is used to do it.
+//   3. Calls `UActor::Touch(UActor*)` (UActor.h/.cpp - a public, generic,
+//      base-Actor-class native helper) directly on the pickup, passing the
+//      player pawn as the toucher. This is the EXACT SAME native function
+//      the engine's own collision/movement code (UActor::MoveTo et al.,
+//      UActor.cpp ~line 1763) calls internally the moment two actors'
+//      bounds overlap during real movement - it sets up the touching-array
+//      bookkeeping and fires the UnrealScript Touch() event on both actors,
+//      identical to a player physically walking over a pickup. A bare
+//      Location() write alone does NOT reliably trigger this (collision
+//      overlap is normally detected inside TryMove/MoveActor, not on a
+//      raw property write - confirmed empirically: an earlier version of
+//      this harness that only wrote Location never produced a live pairing
+//      in the log), so calling Touch() directly is what actually replicates
+//      "player touches a second Enforcer pickup" non-interactively. This is
+//      still 100% generic/base-Actor mechanics - not Botpack or
+//      Enforcer-specific - and the engine's own, completely unmodified,
+//      stock UnrealScript Touch()/PickupQuery()/etc. handler chain then does
+//      100% of the actual pairing work (spawning/linking the slave, setting
+//      bIsSlave, linking SlaveEnforcer). This harness never calls, reads, or
+//      guesses at any pairing-specific script function itself; it only
+//      creates the same native Touch() invocation the engine's own
+//      collision system would have produced.
+//
+// Test-only; only active behind --debugvrdualenforcer, and only ever
+// summons/moves a world pickup actor - never touches weapon logic itself.
+void Engine::UpdateDebugVRDualEnforcer(float timeElapsed)
+{
+	if (!debugVRDualEnforcerEnabled)
+		return;
+
+	debugVRDualEnforcerTime += timeElapsed;
+
+	static bool summoned = false;
+	if (!summoned && debugVRDualEnforcerTime >= 2.0f)
+	{
+		summoned = true;
+		ExecCommand({ "summon", "Botpack.Enforcer" });
+		LogMessage("--debugvrdualenforcer: summoned a second Enforcer pickup at t=" + std::to_string(debugVRDualEnforcerTime));
+	}
+
+	static bool teleported = false;
+	if (summoned && !teleported && debugVRDualEnforcerTime >= 2.3f)
+	{
+		UPlayerPawn* playerActor = viewport ? viewport->Actor() : nullptr;
+		if (playerActor && Level)
+		{
+			teleported = true;
+			UWeapon* currentWeapon = playerActor->Weapon();
+			LogMessage("--debugvrdualenforcer: player's current Pawn.Weapon at t=" + std::to_string(debugVRDualEnforcerTime) +
+				" is '" + (currentWeapon ? currentWeapon->Name.ToString() : std::string("<none>")) + "'");
+			int foundCount = 0;
+			for (UActor* actor : Level->Actors)
+			{
+				if (!actor || actor == currentWeapon)
+					continue;
+				if (UObject::GetUClassFullName(actor) != NameString("Botpack.Enforcer"))
+					continue;
+
+				actor->Location() = playerActor->Location();
+				// Directly invoke the same native Touch() helper the engine's
+				// own collision system calls on real overlap (see doc comment
+				// above) - this is what actually runs stock pickup/pairing
+				// logic; the Location() write alone was observed NOT to do so.
+				actor->Touch(playerActor);
+				foundCount++;
+				LogMessage("--debugvrdualenforcer: teleported + Touch()-ed spawned Enforcer pickup '" + actor->Name.ToString() + "' onto player");
+			}
+			if (foundCount == 0)
+				LogMessage("--debugvrdualenforcer: no extra Enforcer pickup actor found in Level->Actors to teleport (summon may have failed, or the class path differs on this game version)");
+		}
+	}
+}
+
+// M-E1: see Engine.h's doc comment on GetSlaveEnforcer for the full
+// clean-room discovery story (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-E
+// section / Docs/VR/ENFORCER_DUALWIELD_SPEC.md - no decompiled source read).
+// `vrEnforcerSlaveEnforcerOffset`/`vrEnforcerBIsSlaveOffset` are resolved
+// once, from whichever Enforcer instance (master or slave - both are the
+// same UClass, spec section 1) is seen first, since PropertyDataOffset is a
+// per-CLASS byte offset, stable across every instance of that class for the
+// lifetime of the process (packages are never unloaded/reloaded mid-run in
+// this engine).
+UWeapon* Engine::GetSlaveEnforcer(UWeapon* master)
+{
+	if (!master || master->Class->Name != NameString("Enforcer"))
+		return nullptr;
+
+	if (!vrEnforcerOffsetsResolved)
+	{
+		vrEnforcerOffsetsResolved = true;
+		vrEnforcerSlaveEnforcerOffset = master->GetPropertyDataOffset("SlaveEnforcer");
+		vrEnforcerBIsSlaveOffset = master->GetPropertyDataOffset("bIsSlave");
+
+		bool found = vrEnforcerSlaveEnforcerOffset.DataOffset != (size_t)~0 && vrEnforcerBIsSlaveOffset.DataOffset != (size_t)~0;
+		LogMessage(std::string("VR M-E1 Enforcer slave-property resolution (one-time): ") +
+			(found
+				? "found SlaveEnforcer (ObjectProperty) + bIsSlave (BoolProperty) offsets - dual-wield slave routing enabled"
+				: "NOT FOUND on this Enforcer class - dual-wield slave routing disabled, single-Enforcer/other-weapon VR aim/pose completely unaffected"));
+	}
+
+	// Not found (e.g. a differently-versioned Botpack.u without these
+	// properties) - degrade to "no slave" rather than reading garbage at a
+	// sentinel offset. This is the same defensive contract every other VR
+	// intercept in this file already follows (falls back to stock behavior
+	// on anything unexpected, never guesses).
+	if (vrEnforcerSlaveEnforcerOffset.DataOffset == (size_t)~0)
+		return nullptr;
+
+	UObject* slaveObj = master->Value<UObject*>(vrEnforcerSlaveEnforcerOffset);
+	return UObject::TryCast<UWeapon>(slaveObj);
+}
+
+// M-E1: see Engine.h's doc comment on ResolveVRWeaponHand.
+UWeapon* Engine::ResolveVRWeaponHand(UWeapon* master, UObject* instance, VRHandState** outHand)
+{
+	if (!master)
+		return nullptr;
+
+	if (instance == master)
+	{
+		*outHand = &MainHand();
+		return master;
+	}
+
+	UWeapon* slave = GetSlaveEnforcer(master);
+	if (slave && instance == slave)
+	{
+		*outHand = &OffHand();
+		return slave;
+	}
+
+	return nullptr;
+}
+
 // M-B: VM interception seam consumer - installed into Frame::InterceptCall
 // from Run() (see the install site's doc comment) only while VR is active.
 //
@@ -2633,6 +2807,42 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 		if (!weapon || instance != weapon)
 			return false;
 
+		// M-E1: one-time empirical property-discovery diagnostic (see
+		// Engine.h's doc comment on vrEnforcerPropDiagLogged for why this
+		// exists and the clean-room constraint it satisfies). Deliberately
+		// placed before the hand-validity check below - class metadata
+		// (property names/types) exists as soon as the Enforcer's UClass is
+		// loaded, no valid hand pose or paired slave required, so this
+		// fires on the very first frame the local player is holding any
+		// Enforcer (single or paired) with --debugvrhands or a real VR
+		// session active.
+		// NameString comparisons are case-insensitive (Package/NameString.h) -
+		// use `==` against the exact class name rather than a case-sensitive
+		// std::string::find on ToString() (whose spelling reflects however
+		// the name was first interned, which turned out to be lowercase
+		// "enforcer" for this package - a first attempt at this diagnostic
+		// using ToString().find("Enforcer") silently never matched because
+		// of this, exactly the kind of case-sensitivity bug NameString's
+		// operator== exists to avoid).
+		if (!vrEnforcerPropDiagLogged && weapon->Class->Name == NameString("Enforcer"))
+		{
+			vrEnforcerPropDiagLogged = true;
+			LogMessage("VR M-E1 Enforcer property diagnostic (one-time): class=" + weapon->Class->Name.ToString());
+			for (UProperty* prop : weapon->Class->Properties)
+			{
+				std::string valueStr;
+				try
+				{
+					valueStr = weapon->GetPropertyAsString(prop->Name);
+				}
+				catch (...)
+				{
+					valueStr = "<unprintable>";
+				}
+				LogMessage("  prop " + prop->Name.ToString() + " type=" + UObject::GetUClassFullName(prop).ToString() + " value=" + valueStr);
+			}
+		}
+
 		VRHandState& hand = MainHand();
 		if (!hand.valid)
 			return false;
@@ -2658,6 +2868,54 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 		// all. Fix: issue the same native draw call here, using the
 		// Location/Rotation we just set, so the mesh still appears.
 		render->DrawActor(weapon, false, false);
+
+		// M-E1: dual-wield (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-E
+		// section, phase E1; behavior per Docs/VR/ENFORCER_DUALWIELD_SPEC.md,
+		// no decompiled source read - see Engine.h's doc comment on
+		// GetSlaveEnforcer for the full clean-room discovery story). If this
+		// master has a linked slave Enforcer, the stock script body we just
+		// fully replaced above would normally have drawn the slave too (spec
+		// section 4: stock achieves the "second gun" look via a handedness-
+		// mirror flag on the SAME shared draw call, invoked a second time
+		// from inside the master's own RenderOverlays - which we just
+		// skipped entirely by returning NothingValue()/true below). Skipping
+		// the master's script body therefore also skips that embedded
+		// slave-draw call, so it's natively reproduced here: pose the slave
+		// from OffHand() - independent per-hand aim/pose, the core M-E1
+		// deliverable - and issue its own DrawActor() call, exactly the same
+		// two operations already done for the master with MainHand() above.
+		// No-op (falls back to whatever the slave's own last-drawn pose was)
+		// whenever there's no slave or the off-hand has no valid pose this
+		// frame - same degrade-gracefully contract as every other VR path.
+		UWeapon* slaveWeapon = GetSlaveEnforcer(weapon);
+		if (slaveWeapon)
+		{
+			VRHandState& offHand = OffHand();
+			if (offHand.valid)
+			{
+				VRWeaponGripInfo slaveGrip = GetWeaponGripInfo(slaveWeapon);
+				vec3 slaveWorldGripOffset = offHand.gripCoords.XAxis * slaveGrip.gripOffset.x
+					+ offHand.gripCoords.YAxis * slaveGrip.gripOffset.y
+					+ offHand.gripCoords.ZAxis * slaveGrip.gripOffset.z;
+				slaveWeapon->Location() = offHand.gripPos + slaveWorldGripOffset;
+				slaveWeapon->Rotation() = WeaponAimRotator(offHand) + slaveGrip.rotationTrim;
+				render->DrawActor(slaveWeapon, false, false);
+
+				// Throttled the same way as the master's log below - proves
+				// the M-E1 DoD ("log shows two distinct weapon actors...
+				// receiving distinct aim rotators") without flooding.
+				static int slaveLogCallCounter = 0;
+				if ((slaveLogCallCounter++ % 200) == 0)
+				{
+					LogMessage("VR M-E1 dual-wield RenderOverlays: master=" + weapon->Class->Name.ToString() +
+						" masterRotYawDeg=" + std::to_string(weapon->Rotation().YawDegrees()) +
+						" masterRotPitchDeg=" + std::to_string(weapon->Rotation().PitchDegrees()) +
+						" slave=" + slaveWeapon->Class->Name.ToString() +
+						" slaveRotYawDeg=" + std::to_string(slaveWeapon->Rotation().YawDegrees()) +
+						" slaveRotPitchDeg=" + std::to_string(slaveWeapon->Rotation().PitchDegrees()));
+				}
+			}
+		}
 
 		// Throttled by call count (once every 200 calls) rather than every call -
 		// RenderOverlays runs once per eye per frame in the VR HUD split (up to
@@ -2687,17 +2945,45 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 	// Frame::InterceptCallPost consumer) restores the saved value right
 	// after that same call returns - see its doc comment and Frame.h's
 	// InterceptCallPost doc comment for why one hook can't do both halves.
+	//
+	// M-E1 addition: `weapon`/`hand` are now resolved via
+	// ResolveVRWeaponHand() instead of a hardcoded "instance == Pawn.Weapon"
+	// check, so this same branch also catches the stock double-Enforcer's
+	// master-to-slave echo fire (Docs/VR/ENFORCER_DUALWIELD_SPEC.md section
+	// 3: the master fires immediately, then ~0.2s later commands the slave
+	// to fire once as well - that echoed call reaches the VM as its own
+	// TraceFire/ProjectileFire invocation with `instance` == the SLAVE
+	// actor, which Frame::Call already routes through this exact same seam
+	// under the exact same function names, no new interception point
+	// needed). Master keeps using MainHand() exactly as before M-E1; the
+	// slave (when this call's instance resolves to one) uses OffHand()
+	// instead - independent per-hand fire AIM. Firing TIMING is
+	// deliberately left as the stock master-then-~0.2s-echo mechanism (see
+	// the plan's M-E1 "documented fallback" clause) rather than commanding
+	// the slave to fire the instant the off-hand trigger is pulled: doing
+	// that natively would mean guessing at the name/semantics of whatever
+	// internal script call arms that echo (never named in the spec, which
+	// is prose-only by design - inventing one would risk double-firing or
+	// skipping the slave's own ammo/animation bookkeeping) rather than
+	// reusing a mechanism this codebase already has verified, named
+	// entry points for. Pulling EITHER trigger already fires the pair under
+	// stock rules (spec section 3: "both guns respond to whichever single
+	// input... is held"), so both hands' triggers already produce a
+	// correctly-aimed double shot; only the sub-stock-timed independent
+	// per-trigger fire (the plan's stretch goal) is not attempted.
 	if (func->Name == "TraceFire" || func->Name == "ProjectileFire")
 	{
 		UPlayerPawn* playerActor = viewport->Actor();
 		if (!playerActor)
 			return false;
 
-		UWeapon* weapon = playerActor->Weapon();
-		if (!weapon || instance != weapon)
+		UWeapon* masterWeapon = playerActor->Weapon();
+		VRHandState* handPtr = nullptr;
+		UWeapon* weapon = ResolveVRWeaponHand(masterWeapon, instance, &handPtr);
+		if (!weapon)
 			return false;
 
-		VRHandState& hand = MainHand();
+		VRHandState& hand = *handPtr;
 		if (!hand.valid)
 			return false;
 
@@ -2754,17 +3040,30 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 	// (returning true, fully replacing the call like the RenderOverlays case
 	// above) once that one-time diagnostic confirms the documented
 	// Owner-relative convention (plan's open risk #3).
+	// M-E1: same ResolveVRWeaponHand() routing as the TraceFire/
+	// ProjectileFire branch above - a slave Enforcer's own CalcDrawOffset
+	// call (invoked from within its echoed TraceFire/ProjectileFire) gets
+	// its fire-origin computed from OffHand() instead of MainHand(). The
+	// one-time diagnose-then-confirm state below
+	// (vrCalcDrawOffsetConfirmedOwnerRelative etc.) is intentionally NOT
+	// duplicated per-instance: it only ever touches the pending-candidate
+	// slot on the very first CalcDrawOffset call this process ever sees
+	// (master or slave, whichever fires first), and every call afterwards -
+	// master's or slave's alike - goes through the "confirmed" override
+	// path below, which never reads or writes that slot again.
 	if (func->Name == "CalcDrawOffset")
 	{
 		UPlayerPawn* playerActor = viewport->Actor();
 		if (!playerActor)
 			return false;
 
-		UWeapon* weapon = playerActor->Weapon();
-		if (!weapon || instance != weapon)
+		UWeapon* masterWeapon = playerActor->Weapon();
+		VRHandState* handPtr = nullptr;
+		UWeapon* weapon = ResolveVRWeaponHand(masterWeapon, instance, &handPtr);
+		if (!weapon)
 			return false;
 
-		VRHandState& hand = MainHand();
+		VRHandState& hand = *handPtr;
 		if (!hand.valid)
 			return false;
 
