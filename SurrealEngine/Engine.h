@@ -245,6 +245,21 @@ public:
 	VRHandState& MainHand() { return xrHands[mainHand]; }
 	VRHandState& OffHand() { return xrHands[1 - mainHand]; }
 
+	// M-F: left/right-handed mode (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's
+	// M-F section). Resolved once in Run() from `--vr-lefthand` OR the
+	// persisted `[Engine.VR] LeftHanded` ini entry (same
+	// packages->GetIniValue mechanism M-D's TwoHandAimFilterAlpha already
+	// uses, see its parse site) into `mainHand` (0 = left main hand). Kept
+	// as its own bool (rather than only inspecting `mainHand == 0`
+	// elsewhere) because the weapon-mesh mirroring intercept
+	// (Render/VisibleMesh.cpp) and the fire/alt-fire trigger swap
+	// (UpdateVRControllerInput) both need a readable "is left-handed mode
+	// on" flag distinct from "which physical index is main this frame" -
+	// same value, clearer call sites. Default false so the entire M-F
+	// feature is a no-op (byte-for-byte unchanged behavior) unless
+	// explicitly requested.
+	bool vrLeftHanded = false;
+
 	// M-B: --debugvrhands - synthesizes two fake, slowly-orbiting hand
 	// poses with no XR session/headset required at all (see
 	// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-B section), so the

@@ -19,6 +19,38 @@ bool VisibleMesh::DrawMesh(VisibleFrame* frame, UActor* actor, bool wireframe, b
 	DrawDebugInfo(frame, actor);
 
 	mat4 objectToWorld = mat4::translate(actor->Location() + actor->PrePivot()) * Coords::Rotation(actor->Rotation()).ToMatrix() * mat4::scale(actor->DrawScale());
+
+	// M-F: left-handed mesh mirroring (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's
+	// M-F section). UT99 viewmodels are authored right-handed (baked right
+	// arm/hand into the mesh); in left-handed mode, inject a weapon-local
+	// scale(1,-1,1) so the model reads as left-handed instead. Scoped to
+	// exactly the local player's own currently-held weapon actor (the same
+	// instance the M-B RenderOverlays intercept / VR viewmodel draw renders -
+	// see HandleFrameCallIntercept in Engine.cpp) so third-person views of
+	// OTHER pawns' weapons (the separate weapon-attachment path below, keyed
+	// off a different pawn's Weapon()) are never mirrored, and so a run with
+	// no VR session/--debugvrhands active is unaffected even if
+	// --vr-lefthand/the ini entry happens to be set.
+	//
+	// Open technical check (plan's M-F "negative determinant flips winding,
+	// verify whether the Vulkan path culls back faces") resolved by reading
+	// RenderDevice/Vulkan/RenderPassManager.cpp: every Scene/Line/Point
+	// pipeline variant CreatePipelines() builds is created with
+	// VK_CULL_MODE_NONE - the Vulkan mesh path never culls back faces for
+	// ANY actor, viewmodel or otherwise. A negative-determinant scale flips
+	// triangle winding, but with culling already off that flip has no visible
+	// consequence (no inside-out holes), so the full mesh-mirror path is safe
+	// here with no accompanying front-face/cull-mode flip needed. The plan's
+	// documented no-mirror, offset-only fallback is therefore NOT used - see
+	// the M-F milestone report for why the mesh-mirror path was chosen
+	// outright instead.
+	UPlayerPawn* localPlayer = engine->viewport->Actor();
+	UWeapon* localWeapon = localPlayer ? localPlayer->Weapon() : nullptr;
+	if (engine->vrLeftHanded && (engine->xrSessionActive || engine->debugVRHandsEnabled) && actor == localWeapon)
+	{
+		objectToWorld = objectToWorld * mat4::scale(vec3(1.0f, -1.0f, 1.0f));
+	}
+
 	mat4 meshToWorld = objectToWorld * mesh->meshToObject;
 	mat3 meshNormalToWorld = mat3::transpose(mat3(meshToWorld));
 

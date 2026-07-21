@@ -374,6 +374,24 @@ void Engine::Run()
 	else if (vrAimFilterAlpha <= 0.0f)
 		vrAimFilterAlpha = 1.0f; // a non-positive/unparseable value would otherwise freeze aim forever after the first sample - treat as "off" instead, same as the documented default
 
+	// M-F: left/right-handed mode - see Engine.h's doc comment on
+	// vrLeftHanded. `--vr-lefthand` OR a persisted `[Engine.VR]
+	// LeftHanded=true` ini entry (same GetIniValue mechanism as
+	// TwoHandAimFilterAlpha just above - no new ini-reading code needed)
+	// turns it on; either source is sufficient, matching how other VR CLI
+	// flags in this file layer on top of ini state rather than replacing
+	// it. Setting `mainHand` here (rather than scattering `vrLeftHanded ?
+	// 0 : 1` checks at every consumer) is the one-variable flip the plan's
+	// M-A accessor design was built for - every hand consumer already goes
+	// through MainHand()/OffHand(), confirmed by grep before this
+	// milestone touched anything.
+	bool vrLeftHandIni = packages->GetIniValue("user", "Engine.VR", "LeftHanded", "false") == "true";
+	bool vrLeftHandArg = commandline && commandline->HasArg("", "--vr-lefthand");
+	vrLeftHanded = vrLeftHandIni || vrLeftHandArg;
+	mainHand = vrLeftHanded ? 0 : 1;
+	if (vrLeftHanded)
+		LogMessage(std::string("VR left-handed mode ON (source: ") + (vrLeftHandArg ? "--vr-lefthand" : "[Engine.VR] LeftHanded ini") + "): main hand set to LEFT (mainHand=0)");
+
 	// M-B: VM interception seam install - see VM/Frame.h's
 	// Frame::InterceptCall doc comment. Only installed while VR is actually
 	// active (a real running session OR --debugvrhands), so a plain
@@ -2206,8 +2224,16 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 	}
 
 	const float triggerThreshold = 0.5f;
-	bool fireHeld = state.rightTrigger > triggerThreshold;
-	bool altFireHeld = state.leftTrigger > triggerThreshold;
+	// M-F: fire always follows the MAIN hand's trigger, alt-fire the OFF
+	// hand's - see Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-F section
+	// ("Trigger mapping swaps with it"). Right-handed default (mainHand=1)
+	// reads state.rightTrigger for fire, exactly the pre-M-F hardcoded
+	// mapping - --vr-lefthand flips mainHand to 0 and this follows
+	// automatically, same one-variable pattern as MainHand()/OffHand().
+	float mainHandTrigger = (mainHand == 1) ? state.rightTrigger : state.leftTrigger;
+	float offHandTrigger = (mainHand == 1) ? state.leftTrigger : state.rightTrigger;
+	bool fireHeld = mainHandTrigger > triggerThreshold;
+	bool altFireHeld = offHandTrigger > triggerThreshold;
 	// M-C: rebound off right-grip analog (was `state.rightGrip >
 	// triggerThreshold`) to left-stick-click - see
 	// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-C section and the "Ground
@@ -2251,7 +2277,11 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 		InputEvent(IK_RightMouse, altFireHeld ? EInputType::IST_Press : EInputType::IST_Release);
 	if (fireHeld && !prevVRFireHeld)
 	{
-		LogMessage("VR fire diag: Fire rising edge (InputEvent IK_LeftMouse) - rTrig=" + std::to_string(state.rightTrigger) +
+		// M-F: log the MAIN hand's trigger value (mainHandTrigger, above)
+		// rather than always state.rightTrigger, so this diagnostic stays
+		// accurate once --vr-lefthand moves fire to the left trigger.
+		LogMessage("VR fire diag: Fire rising edge (InputEvent IK_LeftMouse) - mainHandTrig=" + std::to_string(mainHandTrigger) +
+			" mainHand=" + std::to_string(mainHand) +
 			" actionsActive=" + std::to_string(state.actionsActive) +
 			" syncResult=" + std::to_string(xrSession->GetLastSyncResult()) +
 			" xrState=" + std::to_string(xrSession->GetLastSessionState()) +
@@ -2316,8 +2346,20 @@ void Engine::UpdateDebugVRHands(float timeElapsed)
 
 	for (int hand = 0; hand < 2; hand++)
 	{
-		float side = (hand == mainHand) ? handSeparationUU : -handSeparationUU;
-		float phase = debugVRHandsTime * angularSpeed + (hand == mainHand ? 0.0f : 3.14159265359f);
+		// M-F: keyed by PHYSICAL hand index (0=left, 1=right - see
+		// xrHands[]'s doc comment), NOT `mainHand`. Before M-F, mainHand was
+		// always 1 (right), so `hand == mainHand` and `hand == 1` produced
+		// identical results - a pure no-op for the right-handed default
+		// (M-F's byte-for-byte regression requirement). Keying by role
+		// instead of physical index would make each fake hand's screen
+		// position/phase follow the weapon around (since MainHand() would
+		// always resolve to the same "side"/"phase" regardless of which
+		// physical slot is main), which defeats the whole point of the
+		// --debugvrhands + --vr-lefthand screenshot check: it needs the
+		// weapon (always anchored to MainHand()) to visibly jump to the
+		// OTHER fixed physical position when handedness flips.
+		float side = (hand == 1) ? handSeparationUU : -handSeparationUU;
+		float phase = debugVRHandsTime * angularSpeed + (hand == 1 ? 0.0f : 3.14159265359f);
 
 		vec3 center = CameraLocation
 			+ headCoords.XAxis * forwardUU
