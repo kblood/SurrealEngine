@@ -287,22 +287,81 @@ public:
 	float debugVRFireTime = 0.0f;
 	void UpdateDebugVRFire(float timeElapsed);
 
+	// M-D: --debugvrtwohand - the non-interactive way to exercise the
+	// foregrip grab/release state machine (dual hysteresis, ~100ms blend,
+	// baseline-shrink stability) without a headset - see
+	// UpdateDebugVRTwoHand()'s doc comment in Engine.cpp for the scripted
+	// approach/hold/release timeline and
+	// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-D DoD. Layers on top of
+	// --debugvrhands (auto-enabled if not already passed - the grab test
+	// needs a valid, moving MAIN hand pose to measure the off-hand
+	// against); independent of xrSession/--vr, same pattern as
+	// --debugvrhands/--debugvrfire.
+	bool debugVRTwoHandEnabled = false;
+	float debugVRTwoHandTime = 0.0f;
+	void UpdateDebugVRTwoHand(float timeElapsed);
+
+	// M-D: foregrip grab state - see UpdateVRTwoHandGrip()'s doc comment in
+	// Engine.cpp for the full dual-hysteresis grab/release contract.
+	// `vrTwoHandGripActive` is the raw on/off state; `vrTwoHandBlendWeight`
+	// ramps toward it (0=one-handed, 1=two-handed) over ~100ms so
+	// WeaponAimRotator()'s output never jumps discontinuously at a grab/
+	// release transition (plan's M-D "stability" requirement).
+	bool vrTwoHandGripActive = false;
+	float vrTwoHandBlendWeight = 0.0f;
+
+	// M-D: optional EMA low-pass filter on WeaponAimRotator()'s final
+	// output (plan's M-D "stability" nice-to-have, H3VR-style "hand
+	// smoothing") - ini-tunable via a [Engine.VR] TwoHandAimFilterAlpha
+	// entry (0..1; 1.0 = fully off, the default - loaded once in Run(),
+	// see its parse site). Lower values smooth more (and add more lag).
+	// The plan explicitly asks this to default off or very light, never
+	// forced on - see ApplyAimFilter()'s doc comment for why alpha=1.0 is
+	// an exact passthrough, not just "very light" smoothing.
+	float vrAimFilterAlpha = 1.0f;
+	Rotator vrAimFilterState = Rotator(0, 0, 0);
+	bool vrAimFilterInitialized = false;
+	Rotator ApplyAimFilter(const Rotator& raw);
+
+	// M-D: foregrip grab detection + blend update - see its doc comment in
+	// Engine.cpp. Called once per tick from both the real controller path
+	// (UpdateVRControllerInput(), with the off-hand's real OpenXR grip
+	// analog) and the debug path (UpdateDebugVRTwoHand(), with a scripted
+	// analog), so there is exactly one place the grab/release/blend logic
+	// lives. `forceTwoHandedForTest` (default false, never set by the real
+	// path) lets --debugvrtwohand exercise the full grab-active state
+	// machine without depending on --autoplay actually picking up and
+	// switching to one of the (currently few) weapons flagged two-handed
+	// in GetWeaponGripInfo()'s table - see UpdateDebugVRTwoHand()'s doc
+	// comment for why. It does not change which weapon is held or bypass
+	// anything else about the real per-weapon table.
+	void UpdateVRTwoHandGrip(float timeElapsed, float offHandGripAnalog, bool forceTwoHandedForTest = false);
+
+	// M-D: transforms a weapon's authored, weapon-local foregrip point
+	// (VRWeaponGripInfo::foregripPoint) into world space, using the exact
+	// same viewmodel placement math the M-B RenderOverlays intercept uses -
+	// see its doc comment in Engine.cpp.
+	vec3 WorldForegripPoint(UWeapon* weapon);
+
 	// M-B: weaponAimRotator(hand) - the named extension point from the
-	// plan's "Aim-source model" section. M-B only ever calls this with
-	// MainHand() and only implements the one-handed case: the hand's own
+	// plan's "Aim-source model" section. One-handed: the hand's own
 	// aim-pose forward, already composed into a world-space Rotator (see
-	// VRHandState::aimRotator's doc comment). M-D extends this exact
-	// function (no new seam needed) to switch to the two-handed
-	// between-hands-vector rotator while the off-hand foregrip is
-	// gripped; the TODO marks that seam.
-	Rotator WeaponAimRotator(const VRHandState& hand)
-	{
-		// TODO(M-D): while a two-handed grip is active, return the rotator
-		// of normalize(OffHand().gripPos - hand.gripPos) with roll from
-		// hand's up axis instead - see the plan's M-D section. M-B has no
-		// grip state machine yet, so this is unconditional.
-		return hand.aimRotator;
-	}
+	// VRHandState::aimRotator's doc comment). M-D extension (see the .cpp
+	// definition): while the M-D foregrip grip's blend weight
+	// (vrTwoHandBlendWeight) is above zero AND the off-hand has a valid
+	// pose AND the hands aren't too close together (a further,
+	// baseline-length-based blend - see the plan's M-D "stability"
+	// paragraph), this blends toward the rotator of
+	// normalize(OffHand().gripPos - hand.gripPos), with roll solved to
+	// align with hand's up axis, instead of the one-handed aimRotator -
+	// blended (not hard-cut) via a shortest-arc-per-component lerp so the
+	// value this returns never jumps discontinuously at a grab/release/
+	// baseline transition. Now defined out-of-line in Engine.cpp (used to
+	// be a one-line inline before M-D) so it can share the file-local
+	// helpers (UUPerMeter, ShortestAngleDelta/LerpRotatorShortest,
+	// SolveRollForUpAxis) the rest of the VR pose composition code already
+	// uses there.
+	Rotator WeaponAimRotator(const VRHandState& hand);
 
 	// M-B: per-weapon grip/aim tuning table (plan's M-B "Per-weapon grip
 	// table" section). Keyed by weapon UClass name; GetWeaponGripInfo()
@@ -322,6 +381,12 @@ public:
 		Rotator rotationTrim = Rotator(0, 0, 0); // added on top of WeaponAimRotator(hand)
 		vec3 muzzleOffset = vec3(0.0f);          // weapon-local - M-C's fire-origin intercept
 		vec3 foregripPoint = vec3(0.0f);         // weapon-local - M-D's two-hand grab test
+		// M-D: only weapons flagged two-handed here ever participate in
+		// UpdateVRTwoHandGrip()'s grab detection / WeaponAimRotator()'s
+		// two-hand blend - default false (one-handed-only) for anything
+		// unlisted, per the plan's explicit "conservative default" call
+		// (rifles yes, Enforcer no).
+		bool twoHanded = false;
 	};
 	VRWeaponGripInfo GetWeaponGripInfo(UWeapon* weapon);
 

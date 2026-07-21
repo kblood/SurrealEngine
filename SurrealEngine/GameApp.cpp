@@ -33,7 +33,7 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--probexr] [--debugstereo] [--vr] [--debugvrhands] [--debugvrfire] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--probexr] [--debugstereo] [--vr] [--debugvrhands] [--debugvrfire] [--debugvrtwohand] [Path to game folder]\n";
 			return 0;
 		}
 

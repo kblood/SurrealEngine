@@ -173,6 +173,63 @@ namespace
 		result.location = cameraLocation + RotateLocalToWorld(recenter, axes.pos);
 		return result;
 	}
+
+	// M-D: shortest-arc angular delta between two Rotator components, in
+	// this codebase's 16-bit-per-component convention (0x10000 = one full
+	// turn) - the fractional (lerp-by-t) sibling of Rotator::TurnToShortest
+	// (Math/rotator.h), which already solves the same "shortest way around
+	// the circle" problem for a speed-capped stepper. Used below to blend
+	// between the one-handed and two-handed aim models (and for the
+	// optional EMA filter) without a discontinuous jump through the
+	// 0/65536 wraparound.
+	int ShortestAngleDelta(int from, int to)
+	{
+		int f = from & 0xffff;
+		int t = to & 0xffff;
+		int diff = (t - f) & 0xffff;
+		if (diff >= 0x8000)
+			diff -= 0x10000;
+		return diff;
+	}
+
+	Rotator LerpRotatorShortest(const Rotator& a, const Rotator& b, float t)
+	{
+		return Rotator(
+			a.Pitch + (int)(ShortestAngleDelta(a.Pitch, b.Pitch) * t),
+			a.Yaw + (int)(ShortestAngleDelta(a.Yaw, b.Yaw) * t),
+			a.Roll + (int)(ShortestAngleDelta(a.Roll, b.Roll) * t));
+	}
+
+	// M-D: solves the Roll component that best aligns
+	// Coords::Rotation(yawPitchOnlyRotator-with-that-roll)'s ZAxis (up)
+	// with a target up-axis, given Yaw/Pitch already fixed (Roll assumed 0
+	// on entry) - see the plan's M-D section ("roll from the main hand's
+	// up axis"). Derivation (verified algebraically from how
+	// Coords::Rotation composes: RollRotation(roll) * PitchRotation(pitch)
+	// * YawRotation(yaw), combined with how Coords::operator* is defined -
+	// Math/coords.h): for any fixed (pitch,yaw), the up axis as a function
+	// of roll works out to exactly
+	//   up(roll) = sin(roll)*baseRight + cos(roll)*baseUp
+	// where baseRight/baseUp are this same rotator's YAxis/ZAxis at
+	// roll=0 - i.e. varying roll rotates (right,up) in their own plane
+	// around the (roll-independent) forward axis, same as physically
+	// expected. So the roll that best matches a target up direction
+	// (implicitly projected onto the plane perpendicular to forward,
+	// since only its components along baseRight/baseUp matter) is just
+	// the atan2 of those two components. Uses Coords::Rotation() - the
+	// exact same Rotator->world-axes conversion every other consumer in
+	// this file already relies on (gripCoords, the engine's native
+	// GetAxes) - not a new convention.
+	int SolveRollForUpAxis(const Rotator& yawPitchOnlyRotator, const vec3& targetUp)
+	{
+		Coords baseCoords = Coords::Rotation(yawPitchOnlyRotator);
+		float a = dot(targetUp, baseCoords.YAxis);
+		float b = dot(targetUp, baseCoords.ZAxis);
+		if (a * a + b * b < 1e-8f)
+			return 0; // targetUp ~parallel to forward - no well-defined roll, leave at 0
+		float rollRad = std::atan2(a, b);
+		return (int)(rollRad * (32768.0f / 3.14159265359f));
+	}
 }
 
 void Engine::Run()
@@ -290,6 +347,33 @@ void Engine::Run()
 		LogMessage("--debugvrfire: synthesizing a timed fire press (no XR session required)");
 	}
 
+	// M-D: --debugvrtwohand - see Engine.h's doc comment on
+	// debugVRTwoHandEnabled/UpdateDebugVRTwoHand. Auto-enables
+	// --debugvrhands if not already passed: the grab/release test needs a
+	// valid, moving MAIN hand pose to measure the off-hand's scripted
+	// position against, not just the off-hand alone.
+	if (commandline && commandline->HasArg("", "--debugvrtwohand"))
+	{
+		debugVRTwoHandEnabled = true;
+		if (!debugVRHandsEnabled)
+		{
+			debugVRHandsEnabled = true;
+			LogMessage("--debugvrtwohand: auto-enabling --debugvrhands (the grab/release test needs a valid main-hand pose)");
+		}
+		LogMessage("--debugvrtwohand: synthesizing a scripted foregrip grab/release sequence (no XR session required)");
+	}
+
+	// M-D: ini-tunable optional EMA aim filter constant - see Engine.h's
+	// doc comment on vrAimFilterAlpha. Read once here (same pattern as
+	// windowingSystemName above); default "1.0" parses to the fully-off
+	// passthrough value if the key is absent, so no ini entry is required
+	// for the plan's "default off" requirement.
+	vrAimFilterAlpha = (float)std::atof(packages->GetIniValue("user", "Engine.VR", "TwoHandAimFilterAlpha", "1.0").c_str());
+	if (vrAimFilterAlpha > 1.0f)
+		vrAimFilterAlpha = 1.0f;
+	else if (vrAimFilterAlpha <= 0.0f)
+		vrAimFilterAlpha = 1.0f; // a non-positive/unparseable value would otherwise freeze aim forever after the first sample - treat as "off" instead, same as the documented default
+
 	// M-B: VM interception seam install - see VM/Frame.h's
 	// Frame::InterceptCall doc comment. Only installed while VR is actually
 	// active (a real running session OR --debugvrhands), so a plain
@@ -297,7 +381,7 @@ void Engine::Run()
 	// null and Frame::Call byte-identical to its pre-M-B behavior - the
 	// no-regression requirement from Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's
 	// M-B section.
-	if (xrSessionActive || debugVRHandsEnabled || debugVRFireEnabled)
+	if (xrSessionActive || debugVRHandsEnabled || debugVRFireEnabled || debugVRTwoHandEnabled)
 	{
 		Frame::InterceptCall = [this](UObject* instance, UFunction* func, Array<ExpressionValue>& args, ExpressionValue& result)
 		{
@@ -431,6 +515,14 @@ void Engine::Run()
 		// unconditionally of xrSession (no-op when debugVRFireEnabled is
 		// false), same pattern as UpdateDebugVRHands just above.
 		UpdateDebugVRFire(realTimeElapsed);
+
+		// M-D: --debugvrtwohand's scripted foregrip grab/release sequence -
+		// see Engine.h's doc comment on debugVRTwoHandEnabled/
+		// UpdateDebugVRTwoHand. Runs after UpdateDebugVRHands (needs this
+		// tick's fake MAIN hand pose already set) and unconditionally of
+		// xrSession (no-op when debugVRTwoHandEnabled is false), same
+		// pattern as the two debug updates just above.
+		UpdateDebugVRTwoHand(realTimeElapsed);
 
 		UpdateAudio();
 
@@ -2024,6 +2116,18 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 			" mainHand=" + std::to_string(mainHand));
 	}
 
+	// M-D: foregrip grab detection - see UpdateVRTwoHandGrip()'s doc
+	// comment. state.leftGrip/rightGrip are per-PHYSICAL-hand, while
+	// xrHands[]/MainHand()/OffHand() are per-ROLE (see Engine.h's mainHand
+	// doc comment) - indexing by OffHand()'s physical slot (rather than
+	// hardcoding a side) keeps M-F's future handedness swap a one-variable
+	// change here too.
+	{
+		int offHandIndex = 1 - mainHand;
+		float offHandGripAnalog = (offHandIndex == 0) ? state.leftGrip : state.rightGrip;
+		UpdateVRTwoHandGrip(timeElapsed, offHandGripAnalog);
+	}
+
 	const float deadzone = 0.15f;
 	auto applyDeadzone = [](float v, float dz) { return (std::fabs(v) < dz) ? 0.0f : v; };
 
@@ -2293,6 +2397,156 @@ void Engine::UpdateDebugVRFire(float timeElapsed)
 			" (InputEvent IK_LeftMouse) at t=" + std::to_string(debugVRFireTime));
 	}
 	prevDebugVRFireHeld = fireHeld;
+}
+
+// M-D: --debugvrtwohand - the non-interactive way to exercise the M-D
+// foregrip grab/release state machine (dual hysteresis, ~100ms blend,
+// baseline-shrink stability) without a headset, same rationale as
+// --debugvrhands/--debugvrfire above (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's
+// M-D DoD calls for "a scripted grab-release sequence"). Layers on top of
+// --debugvrhands's fake orbiting hand poses (auto-enabled if not already
+// passed - see the parse site in Run() - because this test needs a valid,
+// moving MAIN hand pose to measure the off-hand against, not just the
+// off-hand alone): each tick, this overwrites ONLY the off-hand's gripPos
+// (leaving whatever gripCoords/aimRotator --debugvrhands's own orbit
+// already set for it alone) with a position along a scripted
+// approach/hold/release timeline relative to the CURRENT weapon's foregrip
+// world point (WorldForegripPoint() - the exact same transform the real
+// grab test uses), and synthesizes a matching fake "off-hand grip analog"
+// value, then calls UpdateVRTwoHandGrip() with it - the same shared
+// state-machine entry point the real controller path uses, so there is no
+// separate debug-specific grab-detection code to drift out of sync with
+// the real path.
+//
+// Timeline (seconds since this function starts ticking, i.e. from whenever
+// --debugvrtwohand takes effect - not wall-clock/session start). Two
+// independent grab/release cycles, each isolating one half of the dual
+// hysteresis so both release paths get an unambiguous, separately-
+// verifiable log window:
+//   [0.0, 2.0)  APPROACH: distance 40cm -> 5cm, analog 0.0 -> 1.0 (linear)
+//               - crosses both grab thresholds (12cm / 0.6) partway
+//                 through, so a grab should engage before this phase ends.
+//   [2.0, 4.0)  HOLD: distance fixed 5cm, analog fixed 1.0 - steady
+//               two-handed grip, a clean window to sample the two-handed
+//               rotator with no transition in progress.
+//   [4.0, 5.0)  RELEASE_DISTANCE: distance 5cm -> 40cm while analog STAYS
+//               at 1.0 - isolates the distance-triggered release path
+//               (analog alone would keep it grabbed; only distance
+//               exceeding the 25cm release radius can release here).
+//   [5.0, 6.0)  SETTLE: stays far, analog still 1.0 - confirms the
+//               distance-triggered release sticks rather than immediately
+//               re-grabbing.
+//   [6.0, 6.5)  RE-APPROACH: distance 40cm -> 5cm (quick), analog 0.0 ->
+//               1.0 - re-establishes a grip for the second isolated test.
+//   [6.5, 7.5)  HOLD2: distance fixed 5cm, analog fixed 1.0.
+//   [7.5, 8.5)  RELEASE_ANALOG: distance STAYS fixed at 5cm (well inside
+//               the grab radius) while analog ramps 1.0 -> 0.0 - isolates
+//               the analog-triggered release path (distance alone would
+//               keep it grabbed; only analog dropping below 0.4 can
+//               release here).
+//   >= 8.5      SETTLE2: stays close, analog 0.0 - confirms the
+//               analog-triggered release sticks; holds here indefinitely.
+void Engine::UpdateDebugVRTwoHand(float timeElapsed)
+{
+	if (!debugVRTwoHandEnabled)
+		return;
+
+	debugVRTwoHandTime += timeElapsed;
+	float t = debugVRTwoHandTime;
+
+	const float farUU = 0.40f * UUPerMeter;   // ~40cm - well outside R_release (25cm)
+	const float closeUU = 0.05f * UUPerMeter; // ~5cm - well inside R_grab (12cm)
+	auto lerp = [](float a, float b, float f) { return a + (b - a) * f; };
+
+	float distanceUU;
+	float analog;
+	const char* phase;
+
+	if (t < 2.0f)
+	{
+		phase = "APPROACH";
+		float f = t / 2.0f;
+		distanceUU = lerp(farUU, closeUU, f);
+		analog = lerp(0.0f, 1.0f, f);
+	}
+	else if (t < 4.0f)
+	{
+		phase = "HOLD";
+		distanceUU = closeUU;
+		analog = 1.0f;
+	}
+	else if (t < 5.0f)
+	{
+		phase = "RELEASE_DISTANCE";
+		distanceUU = lerp(closeUU, farUU, t - 4.0f);
+		analog = 1.0f;
+	}
+	else if (t < 6.0f)
+	{
+		phase = "SETTLE";
+		distanceUU = farUU;
+		analog = 1.0f;
+	}
+	else if (t < 6.5f)
+	{
+		phase = "RE-APPROACH";
+		float f = (t - 6.0f) / 0.5f;
+		distanceUU = lerp(farUU, closeUU, f);
+		analog = lerp(0.0f, 1.0f, f);
+	}
+	else if (t < 7.5f)
+	{
+		phase = "HOLD2";
+		distanceUU = closeUU;
+		analog = 1.0f;
+	}
+	else if (t < 8.5f)
+	{
+		phase = "RELEASE_ANALOG";
+		distanceUU = closeUU;
+		analog = lerp(1.0f, 0.0f, t - 7.5f);
+	}
+	else
+	{
+		phase = "SETTLE2";
+		distanceUU = closeUU;
+		analog = 0.0f;
+	}
+
+	UPlayerPawn* playerActor = viewport->Actor();
+	UWeapon* weapon = playerActor ? playerActor->Weapon() : nullptr;
+	if (weapon && MainHand().valid)
+	{
+		vec3 foregripWorldPos = WorldForegripPoint(weapon);
+		// Move the off-hand out along the main hand's own right axis - an
+		// arbitrary but stable direction (only the DISTANCE matters for
+		// the grab/release math below; the direction just keeps the fake
+		// off-hand visibly distinct from the foregrip point rather than
+		// coincident with it in a screenshot).
+		vec3 dir = MainHand().gripCoords.YAxis;
+		int offHandIndex = 1 - mainHand;
+		VRHandState& off = xrHands[offHandIndex];
+		off.valid = true;
+		off.gripPos = foregripWorldPos + dir * distanceUU;
+	}
+
+	static int phaseLogCounter = 0;
+	if ((phaseLogCounter++ % 30) == 0)
+	{
+		LogMessage(std::string("--debugvrtwohand: phase=") + phase +
+			" t=" + std::to_string(t) +
+			" targetDistCm=" + std::to_string(distanceUU / UUPerMeter * 100.0f) +
+			" analog=" + std::to_string(analog));
+	}
+
+	// forceTwoHandedForTest=true - see UpdateVRTwoHandGrip()'s doc comment.
+	// --autoplay's default weapon (the Enforcer) is explicitly flagged
+	// one-handed in the real per-weapon table, so without this the grab
+	// could never actually engage during a non-interactive run unless the
+	// bot happened to be holding one of the few weapons flagged
+	// two-handed - this widens ONLY the eligibility check for this
+	// debug-only call site, nothing about the real table.
+	UpdateVRTwoHandGrip(timeElapsed, analog, /*forceTwoHandedForTest=*/true);
 }
 
 // M-B: VM interception seam consumer - installed into Frame::InterceptCall
@@ -2600,12 +2854,247 @@ void Engine::HandleFrameCallInterceptPost(UObject* instance, UFunction* func, Ex
 	}
 }
 
+// M-D: transforms a weapon's authored, weapon-local foregrip point
+// (VRWeaponGripInfo::foregripPoint) into world space, using the exact same
+// viewmodel placement math the M-B RenderOverlays intercept
+// (HandleFrameCallIntercept, above) uses to place the weapon itself - grip
+// origin = MainHand().gripPos + worldGripOffset, orientation =
+// WeaponAimRotator(MainHand())+rotationTrim - so the grab-distance test in
+// UpdateVRTwoHandGrip() checks against exactly where the foregrip visually
+// is, not a separately-derived approximation that could drift out of sync
+// with the rendered viewmodel.
+vec3 Engine::WorldForegripPoint(UWeapon* weapon)
+{
+	VRHandState& hand = MainHand();
+	VRWeaponGripInfo grip = GetWeaponGripInfo(weapon);
+
+	vec3 worldGripOffset = hand.gripCoords.XAxis * grip.gripOffset.x
+		+ hand.gripCoords.YAxis * grip.gripOffset.y
+		+ hand.gripCoords.ZAxis * grip.gripOffset.z;
+	vec3 weaponOrigin = hand.gripPos + worldGripOffset;
+
+	Coords weaponCoords = Coords::Rotation(WeaponAimRotator(hand) + grip.rotationTrim);
+	return weaponOrigin
+		+ weaponCoords.XAxis * grip.foregripPoint.x
+		+ weaponCoords.YAxis * grip.foregripPoint.y
+		+ weaponCoords.ZAxis * grip.foregripPoint.z;
+}
+
+// M-D: foregrip grab state machine - see
+// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-D section ("Foregrip grab state
+// machine"). Dual hysteresis (different thresholds for grab vs release, on
+// both the off-hand's grip analog AND its distance to the weapon's
+// authored foregrip point) so the grip state can't chatter right at a
+// boundary - a controller held almost-but-not-quite at the grab radius, or
+// a grip analog value hovering near a single threshold, would otherwise
+// flicker grabbed/ungrabbed every frame. Called once per tick from both
+// the real controller path (UpdateVRControllerInput(), with the off-hand's
+// real OpenXR grip analog) and the non-interactive debug path
+// (UpdateDebugVRTwoHand(), with a scripted analog) - see that function's
+// doc comment for why the debug path needs its own analog/position
+// synthesis rather than reusing this function's internals directly (it
+// doesn't - both call this same entry point, so there is exactly one place
+// the grab/release logic itself lives).
+//
+// Sets vrTwoHandGripActive (the raw on/off grip state) and ramps
+// vrTwoHandBlendWeight toward it over ~100ms rather than snapping - see
+// WeaponAimRotator()'s doc comment for how that blend feeds the aim model
+// switch, and the plan's M-D "stability" paragraph for why a hard cut would
+// be wrong (H3VR precedent: grab/release transitions get a short slerp so
+// aim doesn't visibly snap).
+//
+// `forceTwoHandedForTest` (default false; the real controller path never
+// passes true) exists solely so --debugvrtwohand can exercise the full
+// grab-active state machine (including the two-handed WeaponAimRotator
+// branch) without depending on --autoplay actually picking up and
+// wielding one of the few weapons currently flagged two-handed in
+// GetWeaponGripInfo()'s table - see UpdateDebugVRTwoHand()'s doc comment.
+// It only widens the `twoHanded` eligibility check below; it does not
+// change which weapon is held, its grip offsets, or anything else about
+// the per-weapon table, and it's a no-op unless a caller explicitly opts
+// in (the real path's default `false` keeps every other consumer of this
+// function byte-for-byte unaffected).
+void Engine::UpdateVRTwoHandGrip(float timeElapsed, float offHandGripAnalog, bool forceTwoHandedForTest)
+{
+	UPlayerPawn* playerActor = viewport->Actor();
+	UWeapon* weapon = playerActor ? playerActor->Weapon() : nullptr;
+	VRWeaponGripInfo grip = GetWeaponGripInfo(weapon);
+	bool twoHanded = grip.twoHanded || forceTwoHandedForTest;
+
+	bool eligible = weapon != nullptr && twoHanded && MainHand().valid && OffHand().valid;
+	float distUU = -1.0f;
+
+	if (!eligible)
+	{
+		// Weapon isn't two-handed-capable, or a hand's pose isn't tracked
+		// this frame - force release rather than ever leaving the grip
+		// "stuck" active against a now-ineligible weapon/pose (same
+		// degrade-gracefully contract as every other VR intercept in this
+		// file - plan's open risk #6).
+		vrTwoHandGripActive = false;
+	}
+	else
+	{
+		vec3 foregripWorldPos = WorldForegripPoint(weapon);
+		distUU = length(OffHand().gripPos - foregripWorldPos);
+
+		const float grabAnalogThreshold = 0.6f;
+		const float releaseAnalogThreshold = 0.4f;
+		const float grabRadiusUU = 0.12f * UUPerMeter;    // ~12cm
+		const float releaseRadiusUU = 0.25f * UUPerMeter; // ~25cm
+
+		if (!vrTwoHandGripActive)
+		{
+			if (offHandGripAnalog > grabAnalogThreshold && distUU < grabRadiusUU)
+				vrTwoHandGripActive = true;
+		}
+		else
+		{
+			if (offHandGripAnalog < releaseAnalogThreshold || distUU > releaseRadiusUU)
+				vrTwoHandGripActive = false;
+		}
+	}
+
+	// ~100ms ramp toward the new on/off state, not an instant snap - see
+	// this function's doc comment.
+	const float blendDurationSec = 0.1f;
+	float targetWeight = vrTwoHandGripActive ? 1.0f : 0.0f;
+	if (timeElapsed > 0.0f)
+	{
+		float step = timeElapsed / blendDurationSec;
+		if (vrTwoHandBlendWeight < targetWeight)
+			vrTwoHandBlendWeight = (vrTwoHandBlendWeight + step < targetWeight) ? vrTwoHandBlendWeight + step : targetWeight;
+		else if (vrTwoHandBlendWeight > targetWeight)
+			vrTwoHandBlendWeight = (vrTwoHandBlendWeight - step > targetWeight) ? vrTwoHandBlendWeight - step : targetWeight;
+	}
+
+	// Throttled (~every 3 ticks, not every frame) rather than every-tick, to
+	// avoid flooding the log over a long real session - but still fine
+	// enough (~every 50ms at a typical ~60Hz tick rate) to catch more than
+	// one sample inside the ~100ms blend window on either side of a grab/
+	// release transition, which a coarser throttle would mostly skip over
+	// (the blend completes between samples, hiding the ramp even though
+	// it's still happening every tick). Logs WeaponAimRotator(MainHand())'s
+	// actual output alongside the grip state (M-D DoD: "log shows the aim
+	// rotator switching models with hysteresis... no discontinuity greater
+	// than a few degrees at the transition" - this is what makes that
+	// checkable directly from consecutive log lines instead of just
+	// inferring it from blendWeight).
+	static int logCounter = 0;
+	if ((logCounter++ % 3) == 0)
+	{
+		std::string modelDesc = (vrTwoHandBlendWeight <= 0.0f) ? "one-handed"
+			: (vrTwoHandBlendWeight >= 1.0f) ? "two-handed"
+			: "blending";
+		Rotator aim = MainHand().valid ? WeaponAimRotator(MainHand()) : Rotator(0, 0, 0);
+		LogMessage("VR two-hand grip: eligible=" + std::to_string(eligible) +
+			" active=" + std::to_string(vrTwoHandGripActive) +
+			" blendWeight=" + std::to_string(vrTwoHandBlendWeight) +
+			" distUU=" + std::to_string(distUU) +
+			" analog=" + std::to_string(offHandGripAnalog) +
+			" model=" + modelDesc +
+			" aimYawDeg=" + std::to_string(aim.YawDegrees()) +
+			" aimPitchDeg=" + std::to_string(aim.PitchDegrees()) +
+			" aimRollDeg=" + std::to_string(aim.RollDegrees()));
+	}
+}
+
+// M-D: optional H3VR-style low-pass/EMA filter on WeaponAimRotator()'s
+// final output (plan's M-D "stability" nice-to-have) - ini-tunable via
+// vrAimFilterAlpha (see Engine.h's doc comment and its one-time load in
+// Run()), default 1.0 = fully off. At alpha=1.0, LerpRotatorShortest(state,
+// raw, 1.0) is an EXACT passthrough every call (t=1 reproduces `raw`
+// exactly, per ShortestAngleDelta's construction) - handled here as an
+// explicit early-out anyway, both for clarity and so vrAimFilterState never
+// needs to track a value nobody's smoothing. Lower alpha values smooth
+// more (and add more lag) - the plan explicitly asks this to default off or
+// very light, never forced on.
+Rotator Engine::ApplyAimFilter(const Rotator& raw)
+{
+	if (vrAimFilterAlpha >= 1.0f || !vrAimFilterInitialized)
+	{
+		vrAimFilterState = raw;
+		vrAimFilterInitialized = true;
+		return raw;
+	}
+	vrAimFilterState = LerpRotatorShortest(vrAimFilterState, raw, vrAimFilterAlpha);
+	return vrAimFilterState;
+}
+
+// M-B: named aim-source extension point (plan's "Aim-source model"
+// section) - see Engine.h's doc comment for the full contract. M-B/M-C only
+// ever used this in its one-handed form; M-D adds the two-handed
+// between-hands-vector branch below, active while vrTwoHandBlendWeight > 0
+// (the M-D foregrip grip state machine's ~100ms blend factor - see
+// UpdateVRTwoHandGrip()), with two further safeguards from the plan's
+// "stability" requirement:
+//  - a second, independent blend factor toward one-handed as the hand
+//    separation (baseline) shrinks below ~15cm - the position-vector
+//    method's angular noise scales inversely with baseline length (plan's
+//    M-D rationale, H3VR precedent), so a very short baseline is noisy;
+//  - blending (LerpRotatorShortest - shortest-arc per Yaw/Pitch/Roll
+//    component, not a naive per-component subtract/add that could take the
+//    long way around the 0/360 wraparound) rather than a hard cut, so the
+//    returned Rotator never jumps discontinuously across a grab/release/
+//    baseline transition - this is what both M-B's viewmodel intercept and
+//    M-C's fire intercept automatically inherit, with no changes needed on
+//    their end (per the plan's explicit "no new seams" call for M-D).
+// Falls through to the exact M-B/M-C one-handed behavior (hand.aimRotator)
+// whenever off-hand's pose isn't valid, the blend weight is zero (no grip,
+// or not yet ramped up), or the hands are coincident (degenerate baseline).
+// Now defined out-of-line (used to be a one-line inline in Engine.h before
+// M-D) so it can share the file-local helpers (UUPerMeter,
+// ShortestAngleDelta/LerpRotatorShortest, SolveRollForUpAxis) the rest of
+// the VR pose composition code in this file already uses.
+Rotator Engine::WeaponAimRotator(const VRHandState& hand)
+{
+	Rotator oneHanded = hand.aimRotator;
+
+	if (vrTwoHandBlendWeight <= 0.0f || !OffHand().valid)
+		return ApplyAimFilter(oneHanded);
+
+	vec3 delta = OffHand().gripPos - hand.gripPos;
+	float baselineUU = length(delta);
+	if (baselineUU < 1.0f) // degenerate - avoid normalize() blowup with near-coincident hands
+		return ApplyAimFilter(oneHanded);
+
+	// M-D stability: further blend toward one-handed as the baseline
+	// shrinks below ~15cm (UUPerMeter-scaled) - see this function's doc
+	// comment and the plan's "Stability" paragraph.
+	const float minBaselineUU = 0.15f * UUPerMeter; // ~15cm
+	float baselineWeight = (baselineUU < minBaselineUU) ? (baselineUU / minBaselineUU) : 1.0f;
+	float effectiveWeight = vrTwoHandBlendWeight * baselineWeight;
+
+	if (effectiveWeight <= 0.0f)
+		return ApplyAimFilter(oneHanded);
+
+	vec3 dir = normalize(delta);
+	Rotator twoHanded = Rotator::FromVector(dir); // exact same conversion M-A's handAimRotator uses (Math/rotator.h)
+	twoHanded.Roll = SolveRollForUpAxis(twoHanded, hand.gripCoords.ZAxis);
+
+	Rotator blended = (effectiveWeight >= 1.0f) ? twoHanded : LerpRotatorShortest(oneHanded, twoHanded, effectiveWeight);
+	return ApplyAimFilter(blended);
+}
+
 // M-B: per-weapon grip/aim tuning table - see Engine.h's doc comment on
 // VRWeaponGripInfo/GetWeaponGripInfo for why this is a plain hardcoded map
 // rather than a new ini schema. No headset-verified entries exist yet (M-B
 // has no headset access on this build machine); the Enforcer row below is a
 // placeholder proving the lookup path end-to-end, not a tuned value -
 // M-C/M-D/M-E populate real numbers as headset tuning happens.
+//
+// M-D: `twoHanded` gates participation in the foregrip grab/two-hand aim
+// model (UpdateVRTwoHandGrip()/WeaponAimRotator()) - default false
+// (VRWeaponGripInfo's own field default), so any class not explicitly
+// listed here, including this table's Enforcer entry, stays one-handed-
+// only, per the plan's explicit conservative-default call. SniperRifle is
+// the one entry flagged two-handed here ("rifles yes" - the plan's own
+// example category), using the real class name already verified against
+// the public decompile mirror in the M-C per-weapon audit
+// (Botpack/SniperRifle.uc). `foregripPoint` is a placeholder (a rough
+// weapon-local "somewhere along the barrel, ahead of the grip" guess, like
+// the Enforcer's gripOffset placeholder above) - exact position needs
+// headset tuning like every other per-weapon offset in this table.
 Engine::VRWeaponGripInfo Engine::GetWeaponGripInfo(UWeapon* weapon)
 {
 	static const std::map<NameString, VRWeaponGripInfo> table = []()
@@ -2613,7 +3102,13 @@ Engine::VRWeaponGripInfo Engine::GetWeaponGripInfo(UWeapon* weapon)
 		std::map<NameString, VRWeaponGripInfo> t;
 		VRWeaponGripInfo enforcer;
 		enforcer.gripOffset = vec3(4.0f, 0.0f, -2.0f);
+		enforcer.twoHanded = false; // plan: "Enforcer no" - explicit even though it's also the struct default
 		t[NameString("Enforcer")] = enforcer;
+
+		VRWeaponGripInfo sniperRifle;
+		sniperRifle.twoHanded = true; // plan: "rifles yes"
+		sniperRifle.foregripPoint = vec3(10.0f, 0.0f, -1.0f); // placeholder - weapon-local, ahead of the grip along the barrel
+		t[NameString("SniperRifle")] = sniperRifle;
 		return t;
 	}();
 
