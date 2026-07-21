@@ -13,6 +13,7 @@
 
 std::function<void()> Frame::RunDebugger;
 Frame::FrameCallHook Frame::InterceptCall;
+Frame::FrameCallPostHook Frame::InterceptCallPost;
 Array<Breakpoint> Frame::Breakpoints;
 Array<Frame*> Frame::Callstack;
 FrameRunState Frame::RunState = FrameRunState::Running;
@@ -240,14 +241,21 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 			return interceptResult;
 	}
 
-	if (AllFlags(func->FuncFlags, FunctionFlags::Native))
-	{
-		return CallNative(func, instance, std::move(args));
-	}
-	else
-	{
-		return CallScript(func, instance, std::move(args));
-	}
+	ExpressionValue result = AllFlags(func->FuncFlags, FunctionFlags::Native)
+		? CallNative(func, instance, std::move(args))
+		: CallScript(func, instance, std::move(args));
+
+	// M-C VM interception seam - see Frame::InterceptCallPost's doc comment
+	// in Frame.h. Consulted unconditionally (null = no-op, same zero-cost
+	// contract as InterceptCall above) right after the real dispatch above
+	// has produced `result` and before Call() returns it - this is what lets
+	// Engine run native code both before (InterceptCall, returning false to
+	// let dispatch proceed) and after the SAME call without skipping its
+	// script body, which InterceptCall alone cannot express.
+	if (InterceptCallPost)
+		InterceptCallPost(instance, func, result);
+
+	return result;
 }
 
 ExpressionValue Frame::CallScript(UFunction* func, UObject* instance, Array<ExpressionValue> args)

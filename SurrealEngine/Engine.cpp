@@ -283,6 +283,13 @@ void Engine::Run()
 		LogMessage("--debugvrhands: synthesizing fake orbiting hand poses (no XR session required)");
 	}
 
+	// M-C: --debugvrfire - see Engine.h's doc comment on debugVRFireEnabled.
+	if (commandline && commandline->HasArg("", "--debugvrfire"))
+	{
+		debugVRFireEnabled = true;
+		LogMessage("--debugvrfire: synthesizing a timed fire press (no XR session required)");
+	}
+
 	// M-B: VM interception seam install - see VM/Frame.h's
 	// Frame::InterceptCall doc comment. Only installed while VR is actually
 	// active (a real running session OR --debugvrhands), so a plain
@@ -290,13 +297,22 @@ void Engine::Run()
 	// null and Frame::Call byte-identical to its pre-M-B behavior - the
 	// no-regression requirement from Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's
 	// M-B section.
-	if (xrSessionActive || debugVRHandsEnabled)
+	if (xrSessionActive || debugVRHandsEnabled || debugVRFireEnabled)
 	{
 		Frame::InterceptCall = [this](UObject* instance, UFunction* func, Array<ExpressionValue>& args, ExpressionValue& result)
 		{
 			return HandleFrameCallIntercept(instance, func, args, result);
 		};
-		LogMessage("VR: weapon RenderOverlays interception hook installed (M-B)");
+		// M-C: pairs with HandleFrameCallIntercept above via the new
+		// Frame::InterceptCallPost seam (VM/Frame.h) - see
+		// HandleFrameCallInterceptPost's doc comment in Engine.h. Installed
+		// under the exact same condition as InterceptCall so a plain
+		// flatscreen run leaves both null and Frame::Call byte-identical.
+		Frame::InterceptCallPost = [this](UObject* instance, UFunction* func, ExpressionValue& result)
+		{
+			HandleFrameCallInterceptPost(instance, func, result);
+		};
+		LogMessage("VR: weapon RenderOverlays/TraceFire/CalcDrawOffset interception hooks installed (M-B/M-C)");
 	}
 
 	if (engine->LaunchInfo.ue1Version > 219 && !client->StartupFullscreen)
@@ -409,6 +425,12 @@ void Engine::Run()
 		// debugVRHandsEnabled is false) so it also works without --vr at
 		// all, per Engine.h's doc comment on UpdateDebugVRHands.
 		UpdateDebugVRHands(realTimeElapsed);
+
+		// M-C: --debugvrfire's synthesized trigger squeeze - see Engine.h's
+		// doc comment on debugVRFireEnabled/UpdateDebugVRFire. Runs
+		// unconditionally of xrSession (no-op when debugVRFireEnabled is
+		// false), same pattern as UpdateDebugVRHands just above.
+		UpdateDebugVRFire(realTimeElapsed);
 
 		UpdateAudio();
 
@@ -2082,7 +2104,17 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 	const float triggerThreshold = 0.5f;
 	bool fireHeld = state.rightTrigger > triggerThreshold;
 	bool altFireHeld = state.leftTrigger > triggerThreshold;
-	pawn->SetBool("bDuck", state.rightGrip > triggerThreshold);
+	// M-C: rebound off right-grip analog (was `state.rightGrip >
+	// triggerThreshold`) to left-stick-click - see
+	// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-C section and the "Ground
+	// truth" note that right grip needs to free up for M-D's foregrip-grab
+	// detection (the off-hand's grip analog is what M-D reads to detect a
+	// two-handed hold; leaving crouch on it would fight that). leftStickClick
+	// is an existing, already-bound-but-unused action (see
+	// VulkanXRSession.cpp's left_stick_click action/binding/state read) so
+	// this needed no new OpenXR action - just switching which state field
+	// bDuck reads.
+	pawn->SetBool("bDuck", state.leftStickClick);
 
 	// 2026-07-21: the previous approach here (this function directly calling
 	// `pawn->SetBool("bFire", fireHeld)` every tick, same as the doc comment
@@ -2204,6 +2236,65 @@ void Engine::UpdateDebugVRHands(float timeElapsed)
 	}
 }
 
+// M-C: --debugvrfire - see Engine.h's doc comment on debugVRFireEnabled.
+// Synthesizes one ~0.5s trigger squeeze (press then release) through the
+// exact same Engine::InputEvent(IK_LeftMouse, ...) call UpdateVRControllerInput
+// uses for a real trigger edge, a few seconds into the run so
+// --debugvrhands's fake hand poses (and this run's log) have settled first.
+// Held for half a second (not an instantaneous press+release in the same
+// tick) so Level->Tick()'s script processing - which runs after this
+// function each frame, see Run()'s loop - actually observes bFire=true for
+// at least one full tick, and so automatic weapons get a chance to re-fire
+// more than once from their own state code while "held", exercising the
+// M-C DoD's "automatic re-fire tracks a moving controller" case even
+// without a real headset (the fake hand keeps orbiting throughout the
+// hold).
+void Engine::UpdateDebugVRFire(float timeElapsed)
+{
+	if (!debugVRFireEnabled)
+		return;
+
+	debugVRFireTime += timeElapsed;
+
+	// 2026-07-21: a single ~0.5s pulse at t=3s (this function's first cut)
+	// produced zero TraceFire/ProjectileFire intercepts in an --autoplay run
+	// (RenderOverlays intercept lines were present throughout, proving a
+	// weapon was out and the VM seam was live, but no "VR fire intercept"
+	// line ever appeared). This matches the exact real-headset precedent
+	// already documented on UpdateVRControllerInput's fire path: UT99
+	// commonly consumes the FIRST Fire click as a UI-level "click to
+	// start"/focus dismissal (CallEvent(console, KeyEvent) returning
+	// handled=true) before any click reaches actual weapon fire logic - see
+	// that function's 2026-07-21 doc comment for the same phenomenon during
+	// real-headset testing. Rather than one pulse, fire several spaced
+	// pulses so at least one lands after any such one-time dismissal is
+	// consumed, without needing to special-case detecting that gate.
+	const float firstPressAtSeconds = 3.0f; // let the run/log settle first
+	const float holdSeconds = 0.4f;
+	const float periodSeconds = 1.0f;       // pulse start-to-start spacing
+	const int pulseCount = 5;
+
+	bool fireHeld = false;
+	for (int i = 0; i < pulseCount; i++)
+	{
+		float pressAt = firstPressAtSeconds + i * periodSeconds;
+		if (debugVRFireTime >= pressAt && debugVRFireTime < pressAt + holdSeconds)
+		{
+			fireHeld = true;
+			break;
+		}
+	}
+
+	static bool prevDebugVRFireHeld = false;
+	if (fireHeld != prevDebugVRFireHeld)
+	{
+		InputEvent(IK_LeftMouse, fireHeld ? EInputType::IST_Press : EInputType::IST_Release);
+		LogMessage(std::string("--debugvrfire: synthesized ") + (fireHeld ? "press" : "release") +
+			" (InputEvent IK_LeftMouse) at t=" + std::to_string(debugVRFireTime));
+	}
+	prevDebugVRFireHeld = fireHeld;
+}
+
 // M-B: VM interception seam consumer - installed into Frame::InterceptCall
 // from Run() (see the install site's doc comment) only while VR is active.
 //
@@ -2236,59 +2327,277 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 {
 	(void)args;
 
-	if (func->Name != "RenderOverlays")
-		return false;
-
-	UPlayerPawn* playerActor = viewport->Actor();
-	if (!playerActor)
-		return false;
-
-	UWeapon* weapon = playerActor->Weapon();
-	if (!weapon || instance != weapon)
-		return false;
-
-	VRHandState& hand = MainHand();
-	if (!hand.valid)
-		return false;
-
-	VRWeaponGripInfo grip = GetWeaponGripInfo(weapon);
-
-	vec3 worldGripOffset = hand.gripCoords.XAxis * grip.gripOffset.x
-		+ hand.gripCoords.YAxis * grip.gripOffset.y
-		+ hand.gripCoords.ZAxis * grip.gripOffset.z;
-	weapon->Location() = hand.gripPos + worldGripOffset;
-	weapon->Rotation() = WeaponAimRotator(hand) + grip.rotationTrim;
-
-	// 2026-07-21: skipping the script body entirely also skips its own
-	// internal `Canvas.DrawActor(Self, false, false)` call - for
-	// ue1Version>219 (this build), RenderCanvas.cpp's RenderOverlays()/
-	// RenderOverlaysVR() do NOT draw the weapon themselves (unlike the
-	// <=219 fallback, which calls DrawActor explicitly right after
-	// InvCalcView - see those functions), so that in-script draw call is
-	// the ONLY thing that puts the mesh on screen. Confirmed by a
-	// first-pass build that set Location/Rotation correctly (proven by the
-	// throttled log below and by the flatscreen viewmodel disappearing
-	// from its normal spot) but rendered no weapon anywhere on screen at
-	// all. Fix: issue the same native draw call here, using the
-	// Location/Rotation we just set, so the mesh still appears.
-	render->DrawActor(weapon, false, false);
-
-	// Throttled by call count (once every 200 calls) rather than every call -
-	// RenderOverlays runs once per eye per frame in the VR HUD split (up to
-	// ~180/s at 90fps), and this function has no timeElapsed parameter of
-	// its own to accumulate against. Proves the intercept is actually
-	// firing (M-B DoD) without flooding the log.
-	static int logCallCounter = 0;
-	if ((logCallCounter++ % 200) == 0)
+	if (func->Name == "RenderOverlays")
 	{
-		LogMessage("VR RenderOverlays intercept: weapon=" + weapon->Class->Name.ToString() +
-			" loc=(" + std::to_string(weapon->Location().x) + "," + std::to_string(weapon->Location().y) + "," + std::to_string(weapon->Location().z) + ")" +
-			" rotYawDeg=" + std::to_string(weapon->Rotation().YawDegrees()) +
-			" rotPitchDeg=" + std::to_string(weapon->Rotation().PitchDegrees()));
+		UPlayerPawn* playerActor = viewport->Actor();
+		if (!playerActor)
+			return false;
+
+		UWeapon* weapon = playerActor->Weapon();
+		if (!weapon || instance != weapon)
+			return false;
+
+		VRHandState& hand = MainHand();
+		if (!hand.valid)
+			return false;
+
+		VRWeaponGripInfo grip = GetWeaponGripInfo(weapon);
+
+		vec3 worldGripOffset = hand.gripCoords.XAxis * grip.gripOffset.x
+			+ hand.gripCoords.YAxis * grip.gripOffset.y
+			+ hand.gripCoords.ZAxis * grip.gripOffset.z;
+		weapon->Location() = hand.gripPos + worldGripOffset;
+		weapon->Rotation() = WeaponAimRotator(hand) + grip.rotationTrim;
+
+		// 2026-07-21: skipping the script body entirely also skips its own
+		// internal `Canvas.DrawActor(Self, false, false)` call - for
+		// ue1Version>219 (this build), RenderCanvas.cpp's RenderOverlays()/
+		// RenderOverlaysVR() do NOT draw the weapon themselves (unlike the
+		// <=219 fallback, which calls DrawActor explicitly right after
+		// InvCalcView - see those functions), so that in-script draw call is
+		// the ONLY thing that puts the mesh on screen. Confirmed by a
+		// first-pass build that set Location/Rotation correctly (proven by the
+		// throttled log below and by the flatscreen viewmodel disappearing
+		// from its normal spot) but rendered no weapon anywhere on screen at
+		// all. Fix: issue the same native draw call here, using the
+		// Location/Rotation we just set, so the mesh still appears.
+		render->DrawActor(weapon, false, false);
+
+		// Throttled by call count (once every 200 calls) rather than every call -
+		// RenderOverlays runs once per eye per frame in the VR HUD split (up to
+		// ~180/s at 90fps), and this function has no timeElapsed parameter of
+		// its own to accumulate against. Proves the intercept is actually
+		// firing (M-B DoD) without flooding the log.
+		static int logCallCounter = 0;
+		if ((logCallCounter++ % 200) == 0)
+		{
+			LogMessage("VR RenderOverlays intercept: weapon=" + weapon->Class->Name.ToString() +
+				" loc=(" + std::to_string(weapon->Location().x) + "," + std::to_string(weapon->Location().y) + "," + std::to_string(weapon->Location().z) + ")" +
+				" rotYawDeg=" + std::to_string(weapon->Rotation().YawDegrees()) +
+				" rotPitchDeg=" + std::to_string(weapon->Rotation().PitchDegrees()));
+		}
+
+		result = ExpressionValue::NothingValue();
+		return true;
 	}
 
-	result = ExpressionValue::NothingValue();
-	return true;
+	// M-C: fire-scoped ViewRotation swap (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's
+	// M-C section, "Single-hand fire redirect"). Unlike the RenderOverlays
+	// case above, this does NOT skip the original script call - TraceFire/
+	// ProjectileFire must actually run so their internal AdjustAim()/spread/
+	// spawn logic executes for real, just with a swapped ViewRotation it
+	// reads internally. Returns false so Frame::Call's normal dispatch below
+	// proceeds unmodified; HandleFrameCallInterceptPost (the new
+	// Frame::InterceptCallPost consumer) restores the saved value right
+	// after that same call returns - see its doc comment and Frame.h's
+	// InterceptCallPost doc comment for why one hook can't do both halves.
+	if (func->Name == "TraceFire" || func->Name == "ProjectileFire")
+	{
+		UPlayerPawn* playerActor = viewport->Actor();
+		if (!playerActor)
+			return false;
+
+		UWeapon* weapon = playerActor->Weapon();
+		if (!weapon || instance != weapon)
+			return false;
+
+		VRHandState& hand = MainHand();
+		if (!hand.valid)
+			return false;
+
+		VRFireViewRotationSave save;
+		save.pawn = playerActor; // UPlayerPawn IS-A UPawn (UActor.h:2094) - ViewRotation() lives on UPawn
+		save.saved = playerActor->ViewRotation();
+		vrFireViewRotationStack.push_back(save);
+
+		Rotator swapped = WeaponAimRotator(hand);
+		playerActor->ViewRotation() = swapped;
+
+		// Throttled (every 4th MATCHED call, not every call) - automatic
+		// weapons re-fire from state code every tick while held, so an
+		// unthrottled log here could flood during sustained minigun/pulse
+		// fire; still frequent enough that a single test shot always
+		// produces at least one line. Confirms the swap actually happened
+		// and with what value (M-C DoD: "log shows intercepted fires whose
+		// direction matches the fake hand rotator").
+		//
+		// 2026-07-21 finding (from an unthrottled diagnostic capture during
+		// this milestone's own verification, kept here as it turned out to
+		// matter for reading these logs): the Enforcer's own TraceFire
+		// override calls `Super.TraceFire(...)` internally - same
+		// func->Name, same `instance` (Self) - so this PRE hook legitimately
+		// fires TWICE per shot (outer override, then the nested Super call),
+		// and the POST hook twice to match. This is exactly the "nested fire
+		// calls" scenario the plan's save/restore STACK (rather than a
+		// single saved value) was built for, and it behaves correctly: the
+		// inner call's baseline is the outer's already-swapped value (it
+		// correctly restores back to that, not to the true pre-fire value),
+		// and only the OUTER call's restore reaches the true baseline - see
+		// HandleFrameCallInterceptPost's restore log, where the true
+		// baseline (logged there as "restoredYawDeg") is the value that
+		// stays constant across every shot in a run, proving no drift.
+		static int fireLogCounter = 0;
+		if ((fireLogCounter++ % 4) == 0)
+		{
+			LogMessage("VR fire intercept: #" + std::to_string(fireLogCounter) + " func=" + func->Name.ToString() +
+				" weapon=" + weapon->Class->Name.ToString() +
+				" baselineYawDeg=" + std::to_string(save.saved.YawDegrees()) +
+				" baselinePitchDeg=" + std::to_string(save.saved.PitchDegrees()) +
+				" swappedYawDeg=" + std::to_string(swapped.YawDegrees()) +
+				" swappedPitchDeg=" + std::to_string(swapped.PitchDegrees()));
+		}
+
+		return false;
+	}
+
+	// M-C phase 2: fire-origin fix via CalcDrawOffset (plan's "Fire origin
+	// (phase 2 of the same mechanism)" section). Two-phase: diagnose first
+	// (let the stock script run, compare its real return value against what
+	// the hand-based formula would produce - see
+	// HandleFrameCallInterceptPost), only start actually overriding
+	// (returning true, fully replacing the call like the RenderOverlays case
+	// above) once that one-time diagnostic confirms the documented
+	// Owner-relative convention (plan's open risk #3).
+	if (func->Name == "CalcDrawOffset")
+	{
+		UPlayerPawn* playerActor = viewport->Actor();
+		if (!playerActor)
+			return false;
+
+		UWeapon* weapon = playerActor->Weapon();
+		if (!weapon || instance != weapon)
+			return false;
+
+		VRHandState& hand = MainHand();
+		if (!hand.valid)
+			return false;
+
+		VRWeaponGripInfo grip = GetWeaponGripInfo(weapon);
+		vec3 worldMuzzleOffset = hand.gripCoords.XAxis * grip.muzzleOffset.x
+			+ hand.gripCoords.YAxis * grip.muzzleOffset.y
+			+ hand.gripCoords.ZAxis * grip.muzzleOffset.z;
+		vec3 worldMuzzlePos = hand.gripPos + worldMuzzleOffset;
+		UActor* owner = weapon->Owner();
+		vec3 candidate = owner ? (worldMuzzlePos - owner->Location()) : worldMuzzlePos;
+
+		if (!vrCalcDrawOffsetConfirmedOwnerRelative)
+		{
+			// Diagnostic phase: don't touch the call at all - let the stock
+			// script run and return its real value. Stash our candidate so
+			// HandleFrameCallInterceptPost (which sees the exact same
+			// instance/func for the SAME call, right after it returns) can
+			// log the side-by-side comparison and flip
+			// vrCalcDrawOffsetConfirmedOwnerRelative once.
+			vrCalcDrawOffsetPendingCandidate = candidate;
+			vrCalcDrawOffsetPendingCandidateValid = true;
+			return false;
+		}
+
+		// Confirmed - override for real: same skip-the-script,
+		// set-natively mechanism as RenderOverlays above, just returning a
+		// vector instead of Nothing.
+		result = ExpressionValue::VectorValue(candidate);
+		return true;
+	}
+
+	return false;
+}
+
+// M-C: Frame::InterceptCallPost consumer - see Engine.h's doc comment on
+// HandleFrameCallInterceptPost for the two responsibilities (TraceFire/
+// ProjectileFire ViewRotation restore, CalcDrawOffset one-time diagnostic +
+// override arming). Called unconditionally for EVERY Frame::Call while
+// installed (see the install site in Run()), so both branches below re-check
+// their own name/instance filter rather than assuming anything about why
+// they were called - this function is the sole place that decides whether a
+// given call is one HandleFrameCallIntercept (the PRE hook) cared about.
+void Engine::HandleFrameCallInterceptPost(UObject* instance, UFunction* func, ExpressionValue& result)
+{
+	if (func->Name == "TraceFire" || func->Name == "ProjectileFire")
+	{
+		// Only pop if the top of the stack is actually for this instance's
+		// pawn - guards against a mismatched pop if, e.g., the PRE hook
+		// bailed early (no valid hand pose, no weapon) for THIS call but a
+		// still-pending nested call from earlier is on top for a different
+		// reason. Nesting isn't just theoretical here: an unthrottled
+		// diagnostic capture during this milestone's verification showed the
+		// Enforcer's own TraceFire override calling `Super.TraceFire(...)`
+		// internally (same func->Name, same instance) - i.e. this PRE/POST
+		// pair legitimately fires twice per shot, and the stack correctly
+		// unwinds both (inner restores to the outer's already-swapped
+		// value, outer restores to the true pre-fire baseline) - see the
+		// #N-numbered "VR fire intercept"/"VR fire ViewRotation restore"
+		// log pairs for a worked example.
+		UPlayerPawn* playerActor = viewport->Actor();
+		if (playerActor && !vrFireViewRotationStack.empty() && vrFireViewRotationStack.back().pawn == playerActor)
+		{
+			Rotator restored = vrFireViewRotationStack.back().saved;
+			playerActor->ViewRotation() = restored;
+			vrFireViewRotationStack.pop_back();
+
+			// M-C DoD ("aim and movement are demonstrably decoupled in the
+			// same log capture"): on a dev machine with no HMD attached, a
+			// real xrSession never reaches FOCUSED (see the OpenXR probe
+			// line logged at startup), so UpdateVRControllerInput's own
+			// "VR movement diag"/"VR hand diag" lines - gated on
+			// xrSessionActive, pre-existing from M-A/M-B, unchanged here -
+			// never fire in a --debugvrhands-only capture (that gate is
+			// orthogonal to whether hand poses/intercepts are active, and
+			// is out of M-C's scope to loosen). This throttled line is the
+			// non-interactive substitute available in that situation: it
+			// proves ViewRotation is back to its pre-fire value (movement-
+			// relevant state untouched) the instant TraceFire/ProjectileFire
+			// returns, immediately below a "VR fire intercept" line showing
+			// what it was swapped TO during the call - the two lines
+			// together show the swap was real, scoped, and fully reverted,
+			// which is what "movement never sees it" means structurally.
+			static int restoreLogCounter = 0;
+			if ((restoreLogCounter++ % 4) == 0)
+			{
+				LogMessage("VR fire ViewRotation restore: #" + std::to_string(restoreLogCounter) + " func=" + func->Name.ToString() +
+					" restoredYawDeg=" + std::to_string(restored.YawDegrees()) +
+					" restoredPitchDeg=" + std::to_string(restored.PitchDegrees()));
+			}
+		}
+		return;
+	}
+
+	if (func->Name == "CalcDrawOffset" && vrCalcDrawOffsetPendingCandidateValid)
+	{
+		vrCalcDrawOffsetPendingCandidateValid = false;
+
+		if (!vrCalcDrawOffsetDiagLogged)
+		{
+			vrCalcDrawOffsetDiagLogged = true;
+
+			vec3 stockValue = result.ToVector();
+			vec3 candidate = vrCalcDrawOffsetPendingCandidate;
+
+			UPlayerPawn* playerActor = viewport->Actor();
+			UWeapon* weapon = playerActor ? playerActor->Weapon() : nullptr;
+			vec3 ownerLoc = weapon && weapon->Owner() ? weapon->Owner()->Location() : vec3(0.0f);
+
+			// Heuristic (plan's open risk #3, "verify empirically before
+			// trusting it"): a genuinely Owner-relative offset should be
+			// small - same ballpark as PlayerViewOffset/FireOffset, at most
+			// a few hundred UU - not comparable in magnitude to the actual
+			// world-space Owner location (typically thousands of UU on a
+			// real map). If the stock return value's length is already
+			// close to (or larger than) a sane "near the player" bound, the
+			// convention does NOT hold as documented and the override below
+			// must stay off until that's investigated further.
+			float stockLen = length(stockValue);
+			const float ownerRelativeSanityBoundUU = 500.0f;
+			vrCalcDrawOffsetConfirmedOwnerRelative = stockLen < ownerRelativeSanityBoundUU;
+
+			LogMessage("VR CalcDrawOffset diagnostic (one-time): stock=(" +
+				std::to_string(stockValue.x) + "," + std::to_string(stockValue.y) + "," + std::to_string(stockValue.z) + ")" +
+				" stockLen=" + std::to_string(stockLen) +
+				" candidate=(" + std::to_string(candidate.x) + "," + std::to_string(candidate.y) + "," + std::to_string(candidate.z) + ")" +
+				" ownerLoc=(" + std::to_string(ownerLoc.x) + "," + std::to_string(ownerLoc.y) + "," + std::to_string(ownerLoc.z) + ")" +
+				" confirmedOwnerRelative=" + std::to_string(vrCalcDrawOffsetConfirmedOwnerRelative));
+		}
+	}
 }
 
 // M-B: per-weapon grip/aim tuning table - see Engine.h's doc comment on

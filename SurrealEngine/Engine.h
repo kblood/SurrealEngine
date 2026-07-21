@@ -260,24 +260,32 @@ public:
 	float debugVRHandsTime = 0.0f;
 	void UpdateDebugVRHands(float timeElapsed);
 
-	// M-B: VM interception seam consumer - see VM/Frame.h's
-	// Frame::InterceptCall doc comment and
-	// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-B section. Installed into
-	// Frame::InterceptCall from Run() only while VR (a real running
-	// session or --debugvrhands) is active - see the install site for why
-	// that keeps Frame::Call byte-identical otherwise. Handles
-	// `RenderOverlays` on the local player's current weapon (NOT
-	// `InvCalcView`, which the plan doc assumed - see the .cpp definition's
-	// doc comment for why: UT99 v436's viewmodel transform is actually
-	// computed inside the weapon's own `RenderOverlays` script function,
-	// confirmed via a one-time call-name diagnostic): writes
-	// Location()/Rotation() natively from the main hand's pose and skips
-	// the script body entirely. Returns false (falls through to normal
-	// script dispatch, zero side effects) for every other function or
-	// instance, and also whenever the main hand has no valid pose this
-	// frame - never leaves the gun frozen or half-updated (plan's open
-	// risk #6).
-	bool HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<ExpressionValue>& args, ExpressionValue& result);
+	// M-C: --debugvrfire - the non-interactive way to exercise the
+	// TraceFire/ProjectileFire ViewRotation-swap intercept (and, once
+	// confirmed, the CalcDrawOffset fire-origin override) without a headset
+	// or any interactive input at all, same rationale as --debugvrhands
+	// above (see Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-C DoD, which
+	// calls for "a synthesized fire press... from a debug path or timed
+	// script" as the verification path). Synthesizes several ~0.4s trigger
+	// pulses (press then release through the exact same Engine::InputEvent
+	// IK_LeftMouse path real trigger edges use, see
+	// UpdateVRControllerInput's doc comment for why a real InputEvent -
+	// not just a property write - is required), a second or so apart,
+	// starting a few seconds into the run. Multiple pulses rather than one:
+	// a first-cut single pulse produced zero fire intercepts in testing -
+	// UT99 commonly consumes the FIRST Fire click as a UI-level "click to
+	// start"/focus-dismissal KeyEvent before any click reaches actual
+	// weapon fire logic (the exact phenomenon already documented on
+	// UpdateVRControllerInput's real-headset fire path), so later pulses
+	// are what actually reach TraceFire/ProjectileFire. Each pulse is also
+	// long enough for the VM's normal Level->Tick() cadence to observe
+	// bFire=true across at least one tick and for automatic weapons to
+	// re-fire from their own state code while "held". Independent of
+	// xrSession/--vr, same as --debugvrhands; intended to be paired with
+	// --debugvrhands (fake hand poses) rather than a real VR session.
+	bool debugVRFireEnabled = false;
+	float debugVRFireTime = 0.0f;
+	void UpdateDebugVRFire(float timeElapsed);
 
 	// M-B: weaponAimRotator(hand) - the named extension point from the
 	// plan's "Aim-source model" section. M-B only ever calls this with
@@ -316,6 +324,91 @@ public:
 		vec3 foregripPoint = vec3(0.0f);         // weapon-local - M-D's two-hand grab test
 	};
 	VRWeaponGripInfo GetWeaponGripInfo(UWeapon* weapon);
+
+	// M-C: VM interception seam consumer, PRE side - see
+	// Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-C section ("Single-hand fire
+	// redirect"). Extends HandleFrameCallIntercept (still the single
+	// Frame::InterceptCall installer, see its .cpp definition) with two more
+	// name/instance-filtered cases on top of M-B's RenderOverlays one:
+	//
+	// - `TraceFire`/`ProjectileFire` on the local player's current weapon:
+	//   saves Pawn.ViewRotation onto vrFireViewRotationStack, overwrites it
+	//   with WeaponAimRotator(MainHand()), and returns FALSE (unlike M-B's
+	//   RenderOverlays case) - the original script call must actually run
+	//   this time (see Frame::InterceptCallPost's doc comment for why a
+	//   single true/false hook can't do "run original, but wrap it", and
+	//   HandleFrameCallInterceptPost below for the matching restore).
+	// - `CalcDrawOffset` on the local player's current weapon: see
+	//   HandleFrameCallInterceptPost's doc comment for the full two-phase
+	//   (diagnose-then-override) story; this PRE side only ever returns TRUE
+	//   (fully replacing the call, M-B-InvCalcView-style) once
+	//   vrCalcDrawOffsetConfirmedOwnerRelative is true - before that it
+	//   returns false so the stock script runs unmodified and the POST hook
+	//   can observe its real return value for the one-time diagnostic.
+	//
+	// Falls through (false, zero side effects) for every other function/
+	// instance and whenever the main hand has no valid pose this frame, same
+	// degrade-gracefully contract as the RenderOverlays case.
+	bool HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<ExpressionValue>& args, ExpressionValue& result);
+
+	// M-C: VM interception seam consumer, POST side - installed into the new
+	// Frame::InterceptCallPost (see its doc comment in VM/Frame.h) from Run()
+	// alongside HandleFrameCallIntercept, same activation condition
+	// (xrSessionActive || debugVRHandsEnabled).
+	//
+	// Two responsibilities, both keyed on the same (instance, func) pair
+	// HandleFrameCallIntercept saw at entry to this same Frame::Call
+	// invocation:
+	//
+	// 1. `TraceFire`/`ProjectileFire` restore: pops vrFireViewRotationStack
+	//    and writes the saved Rotator back onto the SAME pawn the pre-hook
+	//    saved it from (not just "whatever the current pawn is now" - the
+	//    stack stores the pawn pointer alongside the saved value), restoring
+	//    Pawn.ViewRotation to what it was before the swap. A stack (not a
+	//    single saved value) makes this safe if a fire call somehow nests
+	//    inside another fire call (state-code re-fire calling a script
+	//    helper that itself calls TraceFire again, for instance) - push/pop
+	//    is strictly LIFO-ordered by construction, matching how the C++ call
+	//    stack itself nests pre/post pairs (see Frame::InterceptCallPost's
+	//    doc comment).
+	// 2. `CalcDrawOffset` one-time diagnostic + override arming: on the
+	//    FIRST call for the local player's weapon (vrCalcDrawOffsetDiagLogged
+	//    still false), logs the stock script's real, UNMODIFIED return value
+	//    (`result`) side by side with what the hand-based replacement formula
+	//    would have produced, then checks the plan's "documented as
+	//    Owner-relative, verify empirically" open risk #3 via a magnitude
+	//    heuristic: a small return value (same ballpark as
+	//    PlayerViewOffset/FireOffset, at most a few hundred UU) is consistent
+	//    with an Owner-relative offset about to be added to Owner.Location by
+	//    the caller; a return value with a magnitude near Owner->Location()'s
+	//    own (thousands of UU, i.e. already looks like an absolute world
+	//    position) would mean the convention does NOT hold. Sets
+	//    vrCalcDrawOffsetConfirmedOwnerRelative accordingly - only when true
+	//    does HandleFrameCallIntercept's PRE side ever start overriding
+	//    later calls. This is the best empirical test available without a
+	//    decompile of CalcDrawOffset's actual script body (none exists in
+	//    this repo - see the plan's ground-truth section).
+	void HandleFrameCallInterceptPost(UObject* instance, UFunction* func, ExpressionValue& result);
+
+	// M-C: save/restore stack for HandleFrameCallIntercept/
+	// HandleFrameCallInterceptPost's TraceFire/ProjectileFire ViewRotation
+	// swap - see those two functions' doc comments. Plain LIFO Array (this
+	// codebase's std::vector-alike, Utils/Array.h) rather than a single
+	// saved value, for re-entrancy safety against nested fire calls (plan's
+	// M-C section explicitly calls for "a simple vector/array push-pop").
+	struct VRFireViewRotationSave
+	{
+		UPawn* pawn = nullptr;
+		Rotator saved = Rotator(0, 0, 0);
+	};
+	Array<VRFireViewRotationSave> vrFireViewRotationStack;
+
+	// M-C: CalcDrawOffset diagnose-then-override state - see
+	// HandleFrameCallInterceptPost's doc comment for the full story.
+	bool vrCalcDrawOffsetDiagLogged = false;             // one-time diagnostic sample taken (stock vs. computed, logged once)
+	bool vrCalcDrawOffsetConfirmedOwnerRelative = false; // only true once the diagnostic confirms the documented Owner-relative convention; arms the override
+	vec3 vrCalcDrawOffsetPendingCandidate = vec3(0.0f);  // candidate computed by the PRE hook, read back by the POST hook for the same call
+	bool vrCalcDrawOffsetPendingCandidateValid = false;  // guards against the POST hook reading a stale candidate from an unrelated call
 
 	// M3: edge-detection state for controller buttons that should fire
 	// once per press rather than stay held (Jump, weapon switch, menu,
