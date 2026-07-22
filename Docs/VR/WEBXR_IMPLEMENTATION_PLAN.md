@@ -47,24 +47,24 @@ active work — same pattern the native VR plan follows.
 8. **M8: controllers/gameplay. IN PROGRESS.** ABI v2, body/head/dominant-hand
    locomotion references, turning, selectable dominant hand, controller
    recenter/menu actions, world full-basis hands, scoped weapon direction/
-   presentation, per-eye weapon draw, and fire haptics work; settings UI,
-   two-hand policy, fixtures, and hardware tuning remain.
+   presentation, per-eye weapon draw, confirmed outcome haptics, and a
+   persistent browser settings panel work; controller-relative weapon position,
+   two-hand policy, fixtures, safe-exit UX, and hardware tuning remain.
 9. **M9: UI/comfort. IN PROGRESS.** Essential HUD state is captured once and
-   replayed inside each active eye pass; the full experimental browser smoke
-   now proves one update/two stereo presentations. Enable, distance, FOV,
-   aspect, and safe-area settings plus the zero-work disabled lifecycle are
-   implemented; browser-persisted settings UI, menus/cursor, unsupported
+   replayed inside each active eye pass with console/menu output. A shared-plane
+   controller cursor and safely menu-gated trigger selection work. Enable,
+   distance, FOV, aspect, and safe-area settings plus browser persistence and
+   the zero-work disabled lifecycle are implemented; navigation, unsupported
    primitives, comfort/loading policy, and all headset gates remain.
 10. **M10: audio/data/network/deploy. IN PROGRESS.** Browser audio, a
     discontinuity-safe tracked-head listener, the schema-v1 local UT99 importer,
-    and a real audited no-preload artifact/clean-profile wait gate exist. A real
-    user-owned full-data import, physical audio qualification, non-game
-    persistence, full launcher UX/networking scope, and HTTPS/headset PWA
-    deployment/release audit remain; an allowlisted installable shell passes
-    deterministic deployment tests.
-11. **M11: performance/release. IN PROGRESS.** Lifecycle automation exists;
-    physical Quest profiling, compatibility, sleep/wake, soak, and release
-    artifact qualification remain.
+    allowlisted mutable persistence, offline-only networking scope, and a real
+    audited no-preload artifact exist. A real full-data import, physical audio/
+    storage qualification, fuller launcher UX, and HTTPS/headset PWA validation
+    remain; deterministic staging and deployment tests pass.
+11. **M11: performance/release. IN PROGRESS.** Lifecycle automation and the
+    reproducible software-artifact gate exist; physical Quest profiling,
+    compatibility, sleep/wake, soak, and final qualification remain.
 
 ## M1: Emscripten build harness — ground truth (recon results)
 
@@ -1468,3 +1468,75 @@ does cover session/stereo fixes and basic movement/fire/yaw/pitch, but not
 WebXR/WebGPU, Quest Browser profiles, full-basis weapon feel, two-hand tuning,
 calibration values, importer/storage, current HUD fusion, audio lifecycle, or
 release comfort/performance gates.
+
+## M8–M11 integration tranche — PASS IN AUTOMATION (2026-07-22)
+
+The following focused commits complete a browser-facing integration tranche:
+
+- `1737b6f9` emits haptics only for confirmed damage/pickup outcomes, retains
+  centralized fire policy, collapses nested script calls, and adds native
+  outcome/request/acceptance diagnostics;
+- `e5e7c9f6` safely routes a dominant primary trigger to UT's `LeftMouse` only
+  while a visible menu has an available cursor and the prior frame has a valid
+  HUD-plane pointer. Rejected menu clicks cannot fall through to weapon fire;
+  accepted clicks emit UI-confirm feedback. It also completes config saving and
+  browser getters for turn, haptic, console, and pointer state;
+- `ca262715` restores and flushes only an explicit mutable config/save/log
+  allowlist through staged OPFS snapshots or an atomic IndexedDB fallback,
+  without traversing imported commercial data;
+- `e21a338d` adds a strict schema-v1 WebXR settings panel with native range
+  validation, transactional application/rollback, and local browser
+  persistence after engine initialization;
+- `5add1e67` adds a non-mutating, fail-closed release auditor; and
+- `8b909457` adds a no-overwrite allowlist stager, deterministic SHA-256
+  manifest, and mandatory post-stage audit.
+
+The integrated native Debug build and both normal and no-data Emscripten builds
+pass. Browser validation passes settings 8/8, mutable persistence 9/9, importer
+13/13, PWA 27/27, staging 9/9, and audit 8/8. The full experimental WebXR smoke
+passes all lifecycle, visibility, repeat-session, device-loss, audio, packed
+stereo, input, haptics, settings, HUD, console, and menu-pointer checks. Its HUD
+sample records exactly one player and one console `PostRender`, one state
+capture, two eye presentations, 65 commands, and zero unsupported draws or
+clamped viewports. Packed stereo rendered 189 draws with 1,179 differing pixel
+samples and no reported WebGPU validation error.
+
+A fresh release-shape stage contains 15 files and passes 83 audit checks with
+zero errors and zero warnings. Its runtime pair is:
+
+- `SurrealEngine.js`: 583,952 bytes, SHA-256
+  `b3eaf7e914a7de73699e3727037d812f078272b2f74853442be624d1496559eb`;
+- `SurrealEngine.wasm`: 6,282,208 bytes, SHA-256
+  `8af3653f5d6483f42f072ce8b1608525fd558f654feb2e175cc3f103f1a9f4d5`.
+
+The remaining evidence boundary is unchanged: automation does not validate a
+native Quest `XRGPUBinding` compositor, physical weapon alignment, actuator
+latency, audio gesture/runtime behavior, full-size user-owned import/storage,
+thermal performance, comfort, sleep/wake, or soak. Outcome haptics also cannot
+observe mods that mutate health directly or bypass the audited pickup touch
+path. Mutable persistence cannot guarantee an uncheckpointed abrupt process
+kill and currently supports only the documented save names/paths.
+
+## Targeted sibling implementation audit — READ ONLY (2026-07-22)
+
+A subagent re-audited `SurrealEngine-vr-m2` without editing or cherry-picking.
+The active branch already supersedes most sibling pose, stereo, HUD, pointer,
+input, lifecycle, haptic, and browser-test work. The branches diverged at
+`bf8e76d5`, and the sibling's roughly 2,900-line current screen-quad/weapon-
+tuning diff remains dirty and explicitly unverified.
+
+The best immediate clean-room adaptation is its small stick/D-pad menu
+navigation state machine: arrow-key pulses with initial/repeat timing, A/Enter,
+B-or-Menu/Escape, and gameplay input suppression on menu entry. Next are a
+package-qualified controller-relative weapon grip model with a safe zero-offset
+fallback, narrowly proven muzzle-origin interception, deterministic fake-hand/
+fire/geometry fixtures, and then two-hand grab/release hysteresis plus shortest-
+arc blending. Live calibration, left-hand mesh mirroring, and dual Enforcers
+follow only after the single-weapon model passes WebGPU and headset tests.
+
+Do not port native OpenXR swapchain/composition-layer code, permanent head/body
+synchronization, hard-coded Touch action paths, the global call-intercept seam,
+the dirty quad experiment, `PlayerViewOffset` placement, the under-500-UU
+origin heuristic, placeholder grip rows, or blanket weapon scale. The detailed
+portability categories and resulting order are recorded in section 15.2 of the
+canonical complete plan.

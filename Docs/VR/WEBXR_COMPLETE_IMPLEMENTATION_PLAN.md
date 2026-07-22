@@ -74,10 +74,10 @@ XRSession.requestAnimationFrame
 | M5 — frame/view refactor | Complete (diagnostic projections) | One simulation tick now renders two independently selected texture-array layers; real `XRView` data starts M6 |
 | M6 — native WebGPU XR session | Implementation complete; headset validation gated | Packed ABI, preferred-format pipeline families, synchronous renderer, and hardened production session/RAF lifecycle are implemented; real `XRGPUBinding` compositor presentation still requires a supported runtime |
 | M7 — tracking/camera/world scale | Deterministic implementation complete; headset validation gated | 6DoF pose conversion, body/head composition, recentering, world scale, and exact per-eye projection are implemented; physical scale and scene correctness remain to validate |
-| M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, and fire haptics are implemented; controller-relative position/origin, non-fire feedback, settings UI, two-hand UX, fixtures, and headset validation remain |
-| M9 — UI/comfort/VR presentation | In progress | Essential UT99 HUD/crosshair plus console/menu 2D output is captured once in desktop order and replayed inside each active eye pass on a finite-depth projection-layer plane, including UI-only frames when `bNoDrawWorld` suppresses the scene. Dominant-hand aim now projects onto that exact plane to drive UT's absolute cursor. Strict plane settings and the zero-work disabled lifecycle pass automation; menu trigger/navigation policy, actor-style canvas draws, settings UI/browser persistence, recenter UX, comfort policies, complete loading/pause presentation, and headset readability remain |
-| M10 — audio/data/network/deploy | In progress | Real OpenAL/Web Audio output, gesture/lifecycle policy, tracked-head listener with discontinuity-safe velocity, redistributable no-data builds, audited no-preload/clean-profile waiting behavior, a local OPFS/IndexedDB UT99 importer, an allowlisted installable PWA shell with 27/27 deployment checks, and an explicit offline-only browser MVP scope are implemented/decided; real full-install import, physical audio/storage tests, non-game settings persistence, full launcher, HTTPS/Quest install validation, and release audit remain |
-| M11 — performance/robustness/release | In progress | Automated session-generation, visibility, setup-failure, shutdown, and device-loss coverage exists; Quest profiling, headset lifecycle, compatibility, and release gates remain |
+| M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, confirmed fire/damage/pickup/menu-confirm haptics, and browser-persisted VR controls are implemented; controller-relative position/origin, per-weapon tuning, two-hand UX, fixtures, safe-exit UX, and headset validation remain |
+| M9 — UI/comfort/VR presentation | In progress | HUD plus console/menu 2D output is captured once and replayed per eye on a finite-depth plane, including UI-only frames. Dominant-hand aim drives UT's absolute cursor, and a menu-gated trigger safely selects without firing behind the menu. Strict plane settings have a validated persistent browser panel; stick/D-pad navigation, actor-style canvas draws, pointer-loss UX, recenter UX, comfort policies, complete loading/pause presentation, and headset readability remain |
+| M10 — audio/data/network/deploy | In progress | Real Web Audio output, tracked-head listener, no-data builds, local OPFS/IndexedDB UT99 import, allowlisted mutable settings/save/log persistence, an installable PWA, an offline-only browser MVP scope, and fail-closed release staging/auditing are implemented; real full-install import, abrupt-termination/storage tests, fuller launcher UX, production HTTPS/Quest installation, and physical audio/storage validation remain |
+| M11 — performance/robustness/release | In progress | Automated session/lifecycle/device-loss coverage and a reproducible 83-check no-commercial-data release gate exist; Quest profiling, headset lifecycle, compatibility, soak, and physical release gates remain |
 
 ## 3. M0 — architecture and platform gate
 
@@ -695,11 +695,26 @@ the same shared VM scope as controller aiming; nested projectile paths coalesce
 under the browser rate policy. `[Engine.WebXR] HapticsEnabled` initializes the
 disable setting and deterministic bridge/setter tests pass.
 
-Still missing: confirmed-health-loss damage feedback, successful-pickup
-feedback, UI confirmation, user-setting persistence/UI, per-weapon effect
-tuning, rejection/latency observation on real Quest actuators, and physical
-confirmation that no stale pulse is replayed after focus loss, disconnect, or
-session re-entry.
+Commit `1737b6f9` adds outcome-based gameplay feedback instead of pulsing on
+attempts. Damage pulses both hands only after `TakeDamage` produces a net health
+loss. Pickup pulses the dominant hand only after `Inventory.Touch(Pawn)` causes
+a confirmed ownership, inventory, health, destruction, visibility, collision,
+or sleep-state transition. Re-entrant `Super` chains collapse to one decision.
+Commit `e5e7c9f6` routes an accepted menu primary-trigger press through
+`Console.KeyEvent` and emits the centralized UI-confirm pulse only when the
+console accepts the click. Current policy is fire `0.55/35 ms`, pickup
+`0.32/45 ms`, UI `0.25/30 ms`, and damage `0.35..0.80/45..110 ms`.
+
+Commit `e21a338d` exposes the haptics enable option in the strict browser
+settings profile, while `e5e7c9f6` fixes engine config saving for haptics and
+all implemented turn settings. The full experimental browser smoke validates
+the native outcome self-test and browser actuator policy in addition to the
+existing 38 fake-actuator checks.
+
+Still missing: per-weapon effect tuning, direct-health-mutation/custom-pickup
+hooks that bypass the audited calls, rejection/latency measurements on real
+Quest actuators, and physical confirmation that no stale pulse is replayed
+after focus loss, disconnect, or session re-entry.
 
 ### Exit criterion
 
@@ -812,14 +827,13 @@ to every active view. The deterministic HUD self-test now also requires this
 `0` weapon / `2` UI-eye plan. The native Debug build passes; Emscripten and
 browser results are recorded after the integration build below.
 
-This slice still excludes controller click/navigation input, `PreRender`, full
+This slice still excludes stick/D-pad navigation input, `PreRender`, full
 player `RenderOverlays`, timedemo/debug overlays, and DOM Overlay.
 `Canvas.DrawActor`, `DrawClippedActor`, and 3D-line calls cannot yet be recorded
 as view-independent 2D commands; capture suppresses and counts them instead of
-leaking them into whichever eye was selected. Browser persistence and a
-user-facing panel for the plane settings remain open, and headset work still
-owns distance/FOV/scale/readability, stereo fusion, safe-area tuning, occlusion
-policy, menu operability, and the 30-minute comfort gate.
+leaking them into whichever eye was selected. Headset work still owns
+distance/FOV/scale/readability, stereo fusion, safe-area tuning, occlusion
+policy, complete menu operability, and the 30-minute comfort gate.
 
 Commit `64c519fe` implements the geometry half of controller menu input. It
 factors the head-locked plane basis shared by stereo presentation, intersects
@@ -830,10 +844,26 @@ Parallel, behind-plane, untracked, disconnected, and outside-plane rays leave
 the cursor untouched. A deterministic center-hit/parallel-rejection check is
 part of the existing HUD self-test mask, and native Debug builds pass.
 
-This does not yet synthesize a mouse click: trigger-to-select must be gated to
-real menu/cursor state so primary fire is never stolen during gameplay. Stick
-or D-pad focus navigation, pointer-loss visuals, cursor hotspot calibration,
-and physical Quest ray/selection validation remain open.
+Commit `e5e7c9f6` completes the click half with a menu-gated trigger route. A
+dominant primary press becomes UT's `LeftMouse` only when the previous captured
+frame has a valid controller-plane hit and the console reports both a visible
+and available cursor. This bypasses gameplay binding fallback while the menu is
+eligible, so a rejected click cannot fire the weapon behind it. Release is
+forced on menu loss or a dominant-hand switch, and an accepted press emits the
+UI-confirm haptic. Outside that exact state, the existing gameplay trigger/fire
+route is unchanged. Pure deterministic routing/release tests are included in
+the locomotion self-test.
+
+Commit `e21a338d` adds a versioned, strict browser settings panel for turn mode,
+movement reference, dominant hand, recenter/menu actions, snap/smooth tuning,
+haptics, and all five HUD-plane controls. It loads after engine initialization,
+applies settings transactionally with native rollback on rejection, and stores
+only a complete schema-v1 profile in `localStorage`. Eight settings tests pass;
+the full browser smoke also validates the ready status and native defaults.
+
+Stick/D-pad focus navigation, pointer-loss visuals, cursor hotspot calibration,
+unsupported actor draws, and physical Quest ray/selection validation remain
+open.
 
 ### 12.2 First-person weapon
 
@@ -852,8 +882,8 @@ and physical Quest ray/selection validation remain open.
 - Head-relative or hand-relative smooth locomotion.
 - Optional movement/turn vignette if feasible in the WebGPU pipeline.
 - Seated/standing mode, height calibration, recenter, weapon-hand choice, and
-  comfort presets. HUD distance/FOV/aspect/safe-area configuration exists, but
-  still needs browser persistence, user-facing controls, and headset tuning.
+  comfort presets. HUD distance/FOV/aspect/safe-area configuration and browser
+  persistence exist, but still need headset tuning and higher-level presets.
 - No camera shake, forced roll, artificial head bob, or cutscene camera motion
   in the comfort preset; audit existing UE1 effects and gate them in VR.
 - Define pause/map-transition/loading presentation so the compositor never
@@ -929,10 +959,19 @@ Replace the 629 MB `--preload-file` development artifact:
   clear-data control, safe re-import by save-then-reload, and streamed
   materialization into `/gamedata` before `Module.callMain()` opens the boot
   gate.
-- Persist configs, key bindings, VR settings, saves, and logs; flush at safe
-  checkpoints and session/page shutdown.
-- **Implemented for imported game data only:** clear and re-import controls.
-  Config/keybinding/VR-setting/save/log persistence remains separate work.
+- **Implemented in commit `ca262715`:** restore and flush a separate mutable
+  overlay with the strict allowlist `SE-UnrealTournament.ini`, `SE-User.ini`,
+  `Save/Save<N>.usa`, `Settings.json`, and `SE-Log-LastRun.txt`. Immutable
+  imported commercial packages are never walked or copied by this subsystem.
+  OPFS uses staged snapshots plus a current pointer; IndexedDB is an atomic
+  fallback. Restore runs after imported-data materialization and before main.
+- **Implemented:** explicit flush/status/clear APIs plus periodic, hidden, and
+  `pagehide` checkpoints. Corrupt restore is nonfatal but pauses future flushes
+  until the user clears the mutable store. Clearing mutable records never
+  removes imported game data. Nine mutable-persistence tests pass.
+- **Implemented in commit `e21a338d`:** the browser WebXR profile persists a
+  separately validated schema-v1 UI representation and applies it
+  transactionally to native settings after engine initialization.
 
 Deterministic importer validation passes 13/13 checks: explicit schema;
 content-free layout validation; actionable missing-file errors; traversal and
@@ -952,11 +991,11 @@ cmake --build build-emscripten-nodata --target SurrealEngine -j 4
 
 The cache contains `SURREAL_GAMEDATA_DIR:PATH=`. The emitted link command has no
 `--preload-file`, `@/gamedata`, or commercial install path; no `.data` artifact
-exists; and generated JS has no `SurrealEngine.data`/package loader. The output
-was `SurrealEngine.js` 564,900 bytes, SHA-256
-`F30171ADF2F2D8C8D73830EEB40B8C2EAE316BC4D07082533E1A31CC2D940C6F`, and
-`SurrealEngine.wasm` 6,257,417 bytes, SHA-256
-`6DB92E545D57CFAD4A3C24F4DEC5F9A4E5F164580F3A9B13F8E54336D142D319`.
+exists; and generated JS has no `SurrealEngine.data`/package loader. The latest
+integrated no-data output was `SurrealEngine.js` 583,952 bytes, SHA-256
+`b3eaf7e914a7de73699e3727037d812f078272b2f74853442be624d1496559eb`, and
+`SurrealEngine.wasm` 6,282,208 bytes, SHA-256
+`8af3653f5d6483f42f072ce8b1608525fd558f654feb2e175cc3f103f1a9f4d5`.
 
 A brand-new Playwright Chrome process/profile loaded that exact build with no
 `.data` or `/gamedata/` request. It acquired WebGPU, initialized WASM, displayed
@@ -965,17 +1004,23 @@ error: null}` with `surrealBooted=false`, `surrealCrashed=null`, and no request/
 page errors. No real UT data was selected, so `Module.callMain()` correctly
 remained gated.
 
-The importer tests still use synthetic fake files. They and the no-data wait
+The importer and mutable-store tests still use synthetic fake files. They and the no-data wait
 gate do not prove a complete user-owned UT99 import, real Quest Browser folder
 permissions, full-size quota/copy/thermal behavior, storage survival after
-browser/OS restart or eviction, migration from a future schema, or clean-profile
-launch into a playable map. Those remain explicit M10 acceptance gates; no
-commercial content was imported, committed, embedded, or requested here.
+browser/OS restart or eviction, recovery from an abrupt process kill, custom
+save paths/names, migration from a future schema, or clean-profile launch into
+a playable map. Those remain explicit M10 acceptance gates; no commercial
+content was imported, committed, embedded, or requested here.
 
 ### 13.3 Launcher and loading UX
 
 - Replace the native modal launcher with browser UI for import, game selection,
   map/URL arguments, graphics/VR settings, diagnostics, and launch.
+- **Partial:** import/clear/progress/error UX, map query arguments, a complete
+  WebXR settings panel, runtime diagnostics, and the visible
+  multiplayer-unsupported decision exist. A browsable map/game selector,
+  richer crash report, safe-exit flow, and stable in-headset loading scene do
+  not.
 - Keep expensive package scanning/loading off critical XR presentation where
   possible; show a stable loading environment or leave XR during major loads.
 - Add crash/error reporting that contains engine/browser diagnostics but no
@@ -1035,11 +1080,12 @@ and must never describe controller-local aim as replicated or authoritative.
 
 ### 13.5 Hosting/PWA
 
-- **Implemented in commit `28070633`:** installable entry point
+- **Implemented in commits `28070633`, `ca262715`, and `e21a338d`:** installable entry point
   `web/index_webxr.html?pwa=1&build=build-emscripten-nodata`, standalone web
   manifest/project icons, offline guidance, registration/version/update/error
   diagnostics, deployment instructions, and versioned service worker
-  `2026.07.22-m10.1`.
+  `2026.07.22-m10.3`. The allowlist includes the mutable-persistence and
+  WebXR-settings modules without caching any user data.
 - **Implemented policy:** the worker precaches exactly the launcher,
   WebXR/importer/registration scripts, manifest, offline page, and project
   icons. It lazily cache-firsts only no-data/release `SurrealEngine.js` and
@@ -1056,14 +1102,26 @@ and must never describe controller-local aim as replicated or authoritative.
   blocking, cache version/cleanup isolation, manifest/MIME, COOP/COEP/CORP,
   worker revalidation, online update, offline launch/fallback, no-data runtime
   caching, development-preload refusal, and browser error absence.
+- **Implemented in commits `5add1e67` and `8b909457`:**
+  `web/stage_web_release.py` copies an exact redistribution allowlist into a
+  new empty directory, writes deterministic SHA-256 metadata, then invokes
+  `web/audit_web_release.py` fail-closed. The auditor rejects symlinks,
+  commercial extensions/paths, `.data`, local import databases, preload
+  markers, malformed runtime signatures, duplicate/incomplete runtimes, and
+  missing shell/MIME references. Unit coverage passes 9/9 staging and 8/8
+  audit cases.
+- **Complete for the current integrated artifact:** a fresh real stage scanned
+  15 files and passed 83 checks with zero errors and zero warnings. It contains
+  exactly the current no-data JS/Wasm pair whose hashes are recorded in
+  section 13.2.
 - **Still required:** serve the production artifact over real HTTPS with
   `Cross-Origin-Opener-Policy: same-origin`,
   `Cross-Origin-Embedder-Policy: require-corp`, and
   `Cross-Origin-Resource-Policy: same-origin`; validate Quest Browser
-  install/update/offline/eviction behavior; publish immutable hashes and bump
+  install/update/offline/eviction behavior; bump
   `APP_VERSION` for every shell/runtime compatibility change; test rollback;
-  audit the final artifact for proprietary content/database exports; and verify
-  all third-party assets and dependencies have compatible licenses.
+  independently review the final staged manifest and verify all third-party
+  assets and dependencies have compatible licenses.
 
 ### Exit criterion
 
@@ -1139,6 +1197,14 @@ map, frame rate, render scale, and error counters in every headset report.
 
 ### 14.4 Compatibility/release gate
 
+The reproducible software-artifact half is implemented. The stager accepts only
+an explicit source root, one no-data runtime directory, and a nonexistent or
+empty destination; it never overwrites or cleans a destination. It stages the
+closed shell/runtime allowlist, emits deterministic hashes, and immediately
+runs the independent auditor. The current integrated stage passed 83 checks
+over 15 files with no errors or warnings. This gate does not replace the
+physical compatibility, performance, legal-source, or soak gates below.
+
 Release candidates require:
 
 - target Quest browser exposes the required WebXR/WebGPU API under the declared
@@ -1163,16 +1229,16 @@ tests.
 |---|---|---|
 | M0/M6 platform | Native Quest `XRGPUBinding` session, projection layer, real subimages, compositor output, and five-minute stability | Supported Quest Browser/Chromium build, declared flag policy, physical headset |
 | M7 tracking | Physical eye order, scale, parallax, recursive-scene, tracking-jump, seated/standing, collision-independence, and ten-minute comfort gates | Marker map, representative maps, headset report with browser/runtime versions |
-| M8 locomotion | Browser-persisted settings/UI, dedicated safe-exit UX, controller-profile verification, and hardware tuning for implemented body/head/dominant-hand movement plus recenter/menu actions | M9 settings UI, M10 non-game persistence, real Quest input sources |
+| M8 locomotion | Dedicated safe-exit UX, controller-profile verification, and hardware tuning for implemented body/head/dominant-hand movement plus recenter/menu actions; the strict browser settings profile is implemented | Real Quest input sources and headset tuning |
 | M8 weapon | Controller-relative viewmodel position/scale/offsets, verified muzzle/fire origin, dominant-hand UI, two-hand policy, guided-warhead policy, automatic/special-weapon fixtures | Full-basis/roll presentation is implemented; remaining work needs package-qualified calibration data, loaded Botpack function table, deterministic firing fixtures, and headset/barrel alignment tests |
-| M8 haptics | Damage/pickup/UI events, per-weapon tuning, persisted settings UI, physical latency/source-loss tests | Gameplay outcome hooks and real actuator hardware |
+| M8 haptics | Per-weapon tuning, hooks for direct health/custom pickup paths that bypass audited calls, and physical latency/source-loss tests; confirmed fire/damage/pickup/UI outcomes and persisted enable UI are implemented | Representative mods/weapons and real actuator hardware |
 | M8 networking | **MVP decision complete:** offline/single-player/local-bot browser release; multiplayer and independent hand-aim replication are explicitly unsupported | Reopen only after a qualified native replication layer plus browser relay/protocol project; stock body/view rotation is insufficient |
-| M9 UI/comfort | Browser-validate the implemented capture-once console/menu, UI-only frame, and dominant-hand cursor-ray path; add menu-gated trigger/navigation and unsupported actor draws; expose and browser-persist the implemented plane settings; finish readable scale, weapon position, vignette/comfort policies, recenter, and loading/pause presentation | Menu selection/navigation contract, diagnostics for unsupported draws, settings UI/persistence, per-eye headset inspection, 30-minute comfort session |
+| M9 UI/comfort | Physically validate capture-once console/menu, UI-only frames, dominant-hand cursor ray, and safe menu-gated trigger; add stick/D-pad navigation, pointer-loss UX, and unsupported actor draws; finish readable scale, weapon position, vignette/comfort policies, recenter, and loading/pause presentation | Navigation contract, actor-draw strategy, per-eye headset inspection, 30-minute comfort session |
 | M10 audio | Physically validate the implemented tracked-head listener: gesture unlock, head-relative direction/roll, Doppler and reset policy, focus/session re-entry, music, effects, volume, map changes, underruns, and shutdown | Real Quest Browser audio lifecycle and representative maps/sounds |
-| M10 data | Import a complete user-owned install into the already-audited no-preload artifact; verify playable clean-profile boot, large-copy quota/progress, restart/eviction/corruption recovery, schema migration, and persist configs/VR settings/saves/logs | User-owned UT99 installation, clean desktop/Quest browser profiles, Quest storage/browser support matrix |
-| M10 product | Extend the tested installable shell into the full map/settings/diagnostics launcher and visibly surface the decided offline-only scope; validate HTTPS/COOP/COEP deployment, Quest install/update/offline behavior, rollback, final proprietary-content scan, and license audit | Production hosting target, Quest Browser, release artifacts/hashes |
+| M10 data | Import a complete user-owned install into the audited no-preload artifact; verify playable clean-profile boot, large-copy quota/progress, restart/eviction/corruption and abrupt-kill recovery, custom save-path policy, and schema migration. Strict config/VR/save/log persistence is implemented | User-owned UT99 installation, clean desktop/Quest browser profiles, Quest storage/browser support matrix |
+| M10 product | Extend the tested installable shell/settings UI into a full map/game/crash-diagnostics launcher; validate HTTPS/COOP/COEP deployment, Quest install/update/offline behavior, rollback, and license audit. Deterministic staging and the proprietary-content scan are implemented | Production hosting target, Quest Browser, independent manifest/license review |
 | M11 performance | 72 Hz minimum target qualification, CPU/GPU/memory/GC traces, render-scale/foveation decisions, pthread memory strategy | Quest hardware, acceptance/stress map set, repeatable profiling harness |
-| M11 release | Compatibility matrix, sleep/wake and failure recovery, three entry cycles, 60-minute soak, reproducible artifact audit | Release browser/runtime versions, physical test reports, clean profile/import path |
+| M11 release | Compatibility matrix, sleep/wake and failure recovery, three entry cycles, 60-minute soak, and independent final manifest/license review; reproducible staging/auditing is implemented | Release browser/runtime versions, physical test reports, clean profile/import path |
 
 ### 15.1 Read-only reuse audit of the native VR worktree
 
@@ -1284,6 +1350,49 @@ worktree were developed independently; the sibling still supplies no validation
 for them. Current WebXR lifecycle automation is already more relevant than its
 native OpenXR state machine.
 
+### 15.2 Targeted sibling follow-up audit (2026-07-22)
+
+A second read-only subagent pass compared the active implementation directly
+against the sibling's committed controller series and current dirty worktree.
+The branches diverged at `bf8e76d5`; no sibling edit or cherry-pick was made.
+The useful donor surface is narrower than the first audit suggested:
+
+- **Direct clean-room adaptation:** the small menu-navigation state machine in
+  sibling `Engine.cpp` (`IsVRScreenUIActive` and `UpdateVRMenuNavigation`) maps
+  stick directions to arrow-key pulses, A to Enter, B/Menu to Escape, applies
+  initial/repeat delays, and clears held gameplay movement/fire on menu entry.
+  Reimplement this on top of `UpdateWebXRInput` and the existing menu/pointer
+  predicates; do not copy its direct `ShowMenu` state manipulation.
+- **Conceptual adaptation:** `VRWeaponGripInfo`, `GetWeaponGripInfo`, and the
+  `RenderOverlays`/`CalcDrawOffset` experiments establish that controller-
+  relative position needs a package-qualified grip table, zero-offset untuned
+  fallback, and separate proof of visual placement and muzzle origin.
+  `PlayerViewOffset` is demonstrably unsafe, and the sibling's under-500-UU
+  origin heuristic is diagnostic only. Extend the active re-entrant
+  `Frame::CallScopeHook` seam narrowly; do not transplant its global pre/post
+  interception.
+- **Direct math, new integration:** `ShortestAngleDelta`,
+  `LerpRotatorShortest`, `SolveRollForUpAxis`, `WorldForegripPoint`, and
+  `UpdateVRTwoHandGrip` provide useful UE1-space two-hand math after WebXR pose
+  composition. Preserve grab/release hysteresis, coincident-hand rejection,
+  shortest-arc blending, primary-grip roll, and fade toward one-hand aim below
+  a 15 cm controller baseline.
+- **Fixture concepts:** adapt the sibling's fake-hand, repeated-fire,
+  scripted-foregrip, and all-weapon geometry modes into deterministic WebXR
+  packets/Playwright checks before accepting weapon offsets or origins.
+- **Later UT-specific work:** left-hand viewmodel mirroring needs independent
+  WebGPU winding/culling proof; dual-Enforcer ownership/hand resolution follows
+  only after the single-weapon position/origin contract is stable.
+
+The recommended implementation sequence is therefore: menu arrow/Enter/Escape
+navigation and suppression; safe controller-relative weapon position/table;
+narrow muzzle-origin seam; deterministic weapon fixtures; two-hand state and
+blend; live headset calibration/persistence; left-hand/stock-weapon validation;
+then dual Enforcers. Native-only `VulkanXRSession`, OpenXR action/swapchain/
+composition-layer code, permanent head/body synchronization, hard-coded Touch
+paths, the dirty quad experiment, placeholder grip values, and its blanket
+weapon scale remain incompatible or unverified.
+
 No desktop/IWER test can close a row that explicitly requires native compositor,
 controller, audio, storage, thermal, or comfort evidence. Those rows stay open
 until a dated headset report records the exact runtime, flags, map, render
@@ -1329,30 +1438,33 @@ scale, frame rate, and error counters.
    body/head/dominant-hand locomotion, snap/smooth turning, configurable
    dominant hand and conflict-safe recenter/menu actions, world full-basis hand
    composition, scoped weapon direction/presentation, per-eye weapon dispatch,
-   and fire haptics are complete. Next add controller-relative viewmodel
-   position/offsets, two-hand policy, verified muzzle origin, loaded-weapon
-   fixtures, damage/pickup/UI feedback, safe-exit UX, persisted settings UI,
-   hardware profile verification, and headset tuning.
+   confirmed fire/damage/pickup/menu haptics, and persistent browser controls
+   are complete. Next add controller-relative viewmodel position/offsets,
+   two-hand policy, verified muzzle origin, loaded-weapon fixtures, per-weapon
+   haptic tuning, safe-exit UX, hardware profile verification, and headset
+   tuning.
 8. **In progress:** essential HUD/crosshair state is captured once and replayed
    inside each active eye pass on an exact-projection finite-depth plane; the
    repaired full experimental smoke proves one state update/two eye
    presentations without layer clears. Enable/distance/FOV/aspect/safe-area
-   settings and a zero-work disabled lifecycle also pass automation. Next add
-   settings UI/browser persistence, unsupported actor-draw handling, and a
-   menu/controller cursor from one render-once surface contract, then finish
-   recenter UX, comfort/vignette, loading/pause, and physical tuning/readability/
-   fusion tests.
+   settings, persistent browser UI, a shared-plane controller cursor, safe
+   menu-gated trigger selection, and a zero-work disabled lifecycle also pass
+   automation. Next add stick/D-pad navigation, pointer-loss UX, unsupported
+   actor-draw handling, recenter UX, comfort/vignette, loading/pause, and
+   physical tuning/readability/fusion tests.
 9. **In progress:** the local schema-v1 OPFS/IndexedDB importer passes 13/13
    synthetic tests, and a real no-preload artifact in a clean profile reaches
    the OPFS `waiting-for-import` state without calling main or requesting game
    data. The tracked-head listener and velocity-reset policy also pass desktop
    automation. Next import a complete user-owned installation in clean desktop
    and Quest profiles, prove playable boot and full-size persistence/recovery,
-   physically qualify audio, and persist non-game settings/saves/logs. The
-   allowlisted no-data PWA/deployment shell passes 27/27 local checks; next
-   validate it on production HTTPS and Quest install/update/offline paths,
-   finish the full launcher and release/license audits, and surface the
-   explicit offline-only browser-MVP networking decision in release UI.
+   physically qualify audio, and validate the implemented allowlisted mutable
+   store against restart, eviction, corruption, and abrupt termination. The
+   no-data PWA passes 27/27 checks; settings pass 8/8, mutable persistence 9/9,
+   release staging 9/9, and auditing 8/8. A real 15-file stage passed 83 checks
+   with zero errors/warnings. Next validate production HTTPS and Quest
+   install/update/offline paths, finish the map/game/crash launcher, and perform
+   the independent license/manifest review.
 10. Finish M6/M7 headset gates and M11 profiling/soak/compatibility gates from
     physical Quest traces, then qualify a release.
 
