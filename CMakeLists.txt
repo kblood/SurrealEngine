@@ -29,6 +29,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/LauncherSettings.h
 	SurrealEngine/GameWindow.cpp
 	SurrealEngine/GameWindow.h
+	SurrealEngine/Input/InputComposition.cpp
+	SurrealEngine/Input/InputComposition.h
 	SurrealEngine/UE1GameDatabase.h
 	SurrealEngine/UE1GameDatabase.cpp
 	SurrealEngine/Utils/CommandLine.cpp
@@ -721,6 +723,17 @@ target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAK
 add_executable(SurrealEngine WIN32 MACOSX_BUNDLE ${SURREALENGINE_SOURCES})
 target_link_libraries(SurrealEngine SurrealCommon ${SURREALCOMMON_LIBS})
 set_target_properties(SurrealEngine PROPERTIES CXX_STANDARD 20)
+
+include(CTest)
+if(BUILD_TESTING AND NOT EMSCRIPTEN)
+	add_executable(InputCompositionTests
+		Tests/InputCompositionTests.cpp
+		SurrealEngine/Input/InputComposition.cpp
+	)
+	target_include_directories(InputCompositionTests PRIVATE SurrealEngine)
+	set_target_properties(InputCompositionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME InputComposition COMMAND InputCompositionTests)
+endif()
 
 add_executable(SurrealEditor WIN32 MACOSX_BUNDLE ${SURREALEDITOR_SOURCES})
 target_link_libraries(SurrealEditor SurrealCommon ${SURREALCOMMON_LIBS})

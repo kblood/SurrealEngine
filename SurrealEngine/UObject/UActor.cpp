@@ -4048,13 +4048,7 @@ float UPawn::GetSpeed()
 
 bool UPlayerPawn::IsPressing(uint8_t KeyNum)
 {
-	for (auto& activeButtons : engine->activeInputButtons)
-	{
-		if (activeButtons.second == KeyNum)
-			return true;
-	}
-
-	return false;
+	return engine->inputComposition.IsControlActive(KeyNum);
 }
 
 void UPlayerPawn::PausedInput(float elapsed)
