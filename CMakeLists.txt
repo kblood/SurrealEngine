@@ -407,8 +407,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/UDXGameDirectory.h
 	SurrealEngine/UObject/UDXSaveInfo.cpp
 	SurrealEngine/UObject/UDXSaveInfo.h
-	SurrealEngine/UObject/DXAIPerception.cpp
-	SurrealEngine/UObject/DXAIPerception.h
+	SurrealEngine/GameSupport/DeusEx/AIPerception.cpp
+	SurrealEngine/GameSupport/DeusEx/AIPerception.h
 	SurrealEngine/UObject/UDXTextParser.cpp
 	SurrealEngine/UObject/UDXTextParser.h
 	SurrealEngine/UObject/U227Emitter.cpp
@@ -887,7 +887,7 @@ endif()
 if(BUILD_TESTING)
 	add_executable(DXAIPerceptionTests
 		Tests/DXAIPerceptionTests.cpp
-		SurrealEngine/UObject/DXAIPerception.cpp
+		SurrealEngine/GameSupport/DeusEx/AIPerception.cpp
 	)
 	target_include_directories(DXAIPerceptionTests PRIVATE SurrealEngine)
 	set_target_properties(DXAIPerceptionTests PROPERTIES CXX_STANDARD 20)

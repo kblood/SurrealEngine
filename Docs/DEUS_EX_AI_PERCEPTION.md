@@ -6,8 +6,9 @@ Date: 2026-07-22
 
 Branch: `pr/deus-ex-ai-perception`
 
-This topic is based only on `pr/game-support-registry` at `2ccdb1d8`. The
-implementation commit is `437614cc`.
+This topic is based only on `pr/game-support-registry` at `2ccdb1d8`. The pure
+formula implementation is `437614cc`; the subsequent relocation commit places
+it behind the explicit `GameSupport/DeusEx` module boundary.
 
 The module contains only three pure scalar functions:
 
@@ -24,8 +25,8 @@ fixtures in this branch.
 Read-only evidence came from `deus-ex-surrealengine` commit `e7ff4b05`
 (`Implement Deus Ex AI perception basics`). This extraction retains only:
 
-- `SurrealEngine/UObject/DXAIPerception.h`
-- `SurrealEngine/UObject/DXAIPerception.cpp`
+- `SurrealEngine/GameSupport/DeusEx/AIPerception.h`
+- `SurrealEngine/GameSupport/DeusEx/AIPerception.cpp`
 - the focused synthetic perception test concept
 - CMake and `Configure.js` source registration
 
