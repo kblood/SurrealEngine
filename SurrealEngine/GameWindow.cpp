@@ -3,6 +3,8 @@
 #include "GameWindow.h"
 #include "LauncherSettings.h"
 #include "RenderDevice/RenderDevice.h"
+#include "RenderDevice/RenderDeviceSelection.h"
+#include "Utils/Exception.h"
 #ifndef __EMSCRIPTEN__
 #include <surrealgpu/vulkansurface.h>
 #include <surrealgpu/vulkancompatibledevice.h>
@@ -161,17 +163,12 @@ void GameWindow::OnLostFocus()
 
 std::unique_ptr<GameWindow> GameWindow::Create(GameWindowHost* windowHost, VulkanGraphicsBinding* vulkanBinding)
 {
-	RenderAPI api;
-	switch (LauncherSettings::Get().RenderDevice.Type)
-	{
-	default:
-	case RenderDeviceType::Vulkan: api = RenderAPI::Vulkan; break;
-	case RenderDeviceType::D3D11: api = RenderAPI::D3D11; break;
-	case RenderDeviceType::D3D12: api = RenderAPI::D3D12; break;
-	case RenderDeviceType::Null: api = RenderAPI::Bitmap; break;
-	case RenderDeviceType::WebGPU: api = RenderAPI::WebGPU; break;
-	}
-	return std::make_unique<GameWindow>(windowHost, api, api == RenderAPI::Vulkan ? vulkanBinding : nullptr);
+	const auto& selection = GetRenderDeviceSelection(LauncherSettings::Get().RenderDevice.Type);
+	if (!selection.Compiled)
+		Exception::Throw(std::string(selection.UnavailableReason));
+
+	return std::make_unique<GameWindow>(windowHost, selection.API,
+		selection.API == RenderAPI::Vulkan ? vulkanBinding : nullptr);
 }
 
 void GameWindow::ProcessEvents()

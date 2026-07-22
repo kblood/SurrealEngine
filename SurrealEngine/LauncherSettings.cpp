@@ -28,6 +28,12 @@ LauncherSettings::LauncherSettings()
 			RenderDevice.Type = RenderDeviceType::D3D11;
 		else if (rendevtype == "D3D12")
 			RenderDevice.Type = RenderDeviceType::D3D12;
+		else if (rendevtype == "OpenGL")
+			RenderDevice.Type = RenderDeviceType::OpenGL;
+		else if (rendevtype == "WebGPU")
+			RenderDevice.Type = RenderDeviceType::WebGPU;
+		else if (rendevtype == "Null")
+			RenderDevice.Type = RenderDeviceType::Null;
 
 		std::string rendevaa = settings["RenderDevice"]["Antialias"].to_string();
 		if (rendevaa == "Off")
@@ -80,6 +86,9 @@ void LauncherSettings::Save()
 	case RenderDeviceType::Vulkan: rendev["Type"] = JsonValue::string("Vulkan"); break;
 	case RenderDeviceType::D3D11: rendev["Type"] = JsonValue::string("D3D11"); break;
 	case RenderDeviceType::D3D12: rendev["Type"] = JsonValue::string("D3D12"); break;
+	case RenderDeviceType::OpenGL: rendev["Type"] = JsonValue::string("OpenGL"); break;
+	case RenderDeviceType::WebGPU: rendev["Type"] = JsonValue::string("WebGPU"); break;
+	case RenderDeviceType::Null: rendev["Type"] = JsonValue::string("Null"); break;
 	}
 
 	switch (RenderDevice.Antialias)

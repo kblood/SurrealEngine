@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.15)
 
 project(SurrealEngine)
 
+include(CTest)
+
 if(EMSCRIPTEN)
 	# Every TU in every subdirectory must be compiled with atomics/bulk-memory
 	# (implied by -pthread) since the final link uses --shared-memory - a single
@@ -363,6 +365,10 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Native/NWindow.h
 	SurrealEngine/RenderDevice/RenderDevice.cpp
 	SurrealEngine/RenderDevice/RenderDevice.h
+	SurrealEngine/RenderDevice/ClipSpaceConversion.cpp
+	SurrealEngine/RenderDevice/ClipSpaceConversion.h
+	SurrealEngine/RenderDevice/RenderDeviceSelection.cpp
+	SurrealEngine/RenderDevice/RenderDeviceSelection.h
 	SurrealEngine/RenderDevice/Vulkan/BufferManager.cpp
 	SurrealEngine/RenderDevice/Vulkan/BufferManager.h
 	SurrealEngine/RenderDevice/Vulkan/CachedTexture.h
@@ -936,6 +942,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRCommonTests PRIVATE SurrealEngine)
 	set_target_properties(XRCommonTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRCommon COMMAND XRCommonTests)
+
+	add_executable(RenderDeviceSelectionTests
+		Tests/RenderDeviceSelectionTests.cpp
+		SurrealEngine/RenderDevice/ClipSpaceConversion.cpp
+		SurrealEngine/RenderDevice/RenderDeviceSelection.cpp
+	)
+	target_include_directories(RenderDeviceSelectionTests PRIVATE SurrealEngine)
+	set_target_properties(RenderDeviceSelectionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME RenderDeviceSelectionTests COMMAND RenderDeviceSelectionTests)
 endif()
 
 if(NOT EMSCRIPTEN)

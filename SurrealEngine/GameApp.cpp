@@ -7,6 +7,7 @@
 #include "GameFolder.h"
 #include "Engine.h"
 #include "LauncherSettings.h"
+#include "RenderDevice/RenderDeviceSelection.h"
 #include "UI/WidgetResourceData.h"
 #include "UI/ErrorWindow/ErrorWindow.h"
 #include "UI/Launcher/LauncherWindow.h"
@@ -41,7 +42,7 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu] [--openxr] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu|webgl2|null] [--openxr] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [Path to game folder]\n";
 			return 0;
 		}
 		if (commandline->HasArg("", "--probexr"))
@@ -53,11 +54,16 @@ int GameApp::main(Array<std::string> args)
 		}
 
 #ifdef __EMSCRIPTEN__
-		if (commandline->GetArg("", "--render") == "webgpu")
+		const std::string rendererName = commandline->GetArg("", "--render");
+		if (!rendererName.empty())
 		{
-			// Opt into the visible WebGPU backend. Null remains useful for
-			// exercising the browser lifecycle without rendering.
-			LauncherSettings::Get().RenderDevice.Type = RenderDeviceType::WebGPU;
+			const auto* selection = FindRenderDeviceSelection(rendererName);
+			if (!selection)
+				Exception::Throw("Unknown render backend: " + rendererName);
+			if (!selection->Compiled)
+				Exception::Throw(std::string(selection->UnavailableReason));
+
+			LauncherSettings::Get().RenderDevice.Type = selection->Type;
 		}
 #endif
 
