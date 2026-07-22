@@ -54,9 +54,9 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFam
 			RenderOverlays();
 			if (engine->LaunchInfo.IsDeusEx())
 				PostRenderFlash();
-			Device->EndFlash();
 			EndPresentationLayer(viewFamily.Presentation, PresentationLayer::WeaponOverlay);
 		}
+		Device->EndFlash();
 	}
 
 	if (BeginPresentationLayer(viewFamily.Presentation, PresentationLayer::UserInterface))
