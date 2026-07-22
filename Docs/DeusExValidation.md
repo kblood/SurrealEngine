@@ -24,7 +24,8 @@ build/RelWithDebInfo/SurrealEngine.exe `
   open an operating-system output device. The log records `Audio disabled by
   --nosound`.
 - `--noactivate` creates and shows a window without activation, disables the
-  fullscreen path and cursor locking, and does not bring error UI to the front.
+  fullscreen path and cursor locking, applies `WS_EX_NOACTIVATE` on Windows,
+  and does not bring error UI to the front.
   The game still maintains its internal Extension `RootWindow` focus so menus
   and edit controls work.
 - `--logfile=<path>` gives each process a separate log, which avoids collisions
@@ -37,6 +38,14 @@ poll `GetForegroundWindow()` during the run, not only compare endpoints. The
 game window was never foreground during the final overwrite, reload, and
 thumbnail checks on 2026-07-22. Window captures use `PrintWindow`; desktop
 captures would record whichever unrelated project remains in front.
+
+An initial implementation applied `SW_SHOWNOACTIVATE` only when showing the
+window. A launch-from-zero check revealed that render-device initialization
+could make the process foreground before that call (54 of 189 samples in the
+reproducing run). `WS_EX_NOACTIVATE` is now applied immediately after native
+window creation, before render-device setup, and checked again when the window
+is shown. The final startup check recorded zero foreground samples out of 181,
+confirmed the style bit, kept the process responsive, and closed it cleanly.
 
 ## Crash collection without focus changes
 

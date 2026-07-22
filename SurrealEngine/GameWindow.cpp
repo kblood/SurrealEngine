@@ -13,6 +13,15 @@
 
 GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI, bool activate) : Widget(nullptr, WidgetType::Window, renderAPI), windowHost(windowHost)
 {
+#ifdef _WIN32
+	if (!activate)
+	{
+		auto handle = static_cast<Win32NativeHandle*>(GetNativeHandle());
+		LONG_PTR exstyle = ::GetWindowLongPtr(handle->hwnd, GWL_EXSTYLE);
+		::SetWindowLongPtr(handle->hwnd, GWL_EXSTYLE, exstyle | WS_EX_NOACTIVATE);
+	}
+#endif
+
 	SetWindowIcon({
 		Image::LoadResource("surreal-engine-icon-16.png"),
 		Image::LoadResource("surreal-engine-icon-24.png"),
@@ -47,6 +56,8 @@ void GameWindow::ShowNormalNoActivate()
 {
 #ifdef _WIN32
 	auto handle = static_cast<Win32NativeHandle*>(GetNativeHandle());
+	LONG_PTR exstyle = ::GetWindowLongPtr(handle->hwnd, GWL_EXSTYLE);
+	::SetWindowLongPtr(handle->hwnd, GWL_EXSTYLE, exstyle | WS_EX_NOACTIVATE);
 	::ShowWindow(handle->hwnd, SW_SHOWNOACTIVATE);
 #else
 	ShowNormal();

@@ -37,13 +37,19 @@ first door and triggered Jaime's opening message. The process was responsive,
 the null audio backend remained active, and the game window was foreground in
 zero of 56 samples.
 
+The first door also opens and the player can cross it. The initial attempt used
+the wrong action: Deus Ex's stock bindings use left-click (`ParseLeftClick`) for
+the item in hand and right-click (`ParseRightClick`) for the highlighted world
+object. A one-run diagnostic confirmed that the right-click press and release
+both targeted `DeusExMover16`; the stock `Frob` path opened the mover without a
+new native implementation. The diagnostic logging was then removed.
+
 ## Current boundary
 
-The first door is visibly reported as unlocked, but a targeted `ParseLeftClick`
-attempt has not yet produced a confirmed open-door capture. No new error or
-unimplemented-native entry was logged during that attempt. This is the next
-small boundary to isolate: distinguish input/range timing from missing mover,
-frob, mission-event, or conversation behavior before changing code.
+Continue through the first room and isolate the first actual exercise failure.
+The camera can currently be driven reliably with movement plus keyboard turn
+bindings; background raw-mouse look is intentionally unavailable because the
+window never takes focus.
 
 Startup also logs several known missing natives that are likely to matter later
 in Training:
@@ -66,7 +72,7 @@ to the native and its reference semantics have been established.
 - [x] Spawn the player and start the mission state machine.
 - [x] Render the starting room, HUD, and first mission message.
 - [x] Move on a single cardinal input axis.
-- [ ] Open and cross the first Training door.
+- [x] Open and cross the first Training door.
 - [ ] Exercise object frobbing, pickup, inventory, and DataCube text.
 - [ ] Complete movement, lockpick, multitool, stealth, weapon, and demolition
   exercises.
