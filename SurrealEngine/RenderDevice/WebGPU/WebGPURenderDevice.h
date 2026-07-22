@@ -10,6 +10,7 @@
 #include "WebGPUCachedTexture.h"
 #include "Math/mat.h"
 #include <memory>
+#include <map>
 #include <vector>
 
 struct WebGPUDrawBatchEntry
@@ -88,7 +89,7 @@ public:
 	bool IsExternalPresentationActive() const { return ExternalPresentationActive; }
 
 	std::unique_ptr<WebGPUContext> Context;
-	std::unique_ptr<WebGPUPipelineCache> Pipelines;
+	WebGPUPipelineCache* Pipelines = nullptr;
 	std::unique_ptr<WebGPUSamplerCache> Samplers;
 	std::unique_ptr<WebGPUTextureManager> Textures;
 	std::unique_ptr<WebGPUUploadManager> Uploads;
@@ -165,6 +166,9 @@ private:
 	WGPUBuffer IndexBuffer = nullptr;
 	WGPUBuffer UniformBuffer = nullptr;
 	WGPUBindGroup UniformsBindGroup = nullptr;
+	std::unique_ptr<WebGPUPipelineCache> CanvasPipelines;
+	std::map<WGPUTextureFormat, std::unique_ptr<WebGPUPipelineCache>> PresentationPipelines;
+	std::map<WGPUTextureFormat, WGPUBindGroup> UniformBindGroups;
 
 	WGPUTexture DepthTexture = nullptr;
 	WGPUTextureView DepthView = nullptr;
