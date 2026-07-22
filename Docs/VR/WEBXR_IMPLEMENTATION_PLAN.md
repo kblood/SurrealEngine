@@ -44,17 +44,24 @@ active work — same pattern the native VR plan follows.
    cleanup, visibility, and device-loss policy.
 7. **M7: tracked head/camera/world scale. DETERMINISTIC TESTS PASS; PHYSICAL
    SCALE/STEREO OPEN.**
-8. **M8: controllers/gameplay. IN PROGRESS.** ABI v2, locomotion/turning,
-   world full-basis hands, scoped weapon direction/presentation, per-eye weapon
-   draw, and fire haptics work; interaction UX, fixtures, and hardware tuning
-   remain.
+8. **M8: controllers/gameplay. IN PROGRESS.** ABI v2, body/head/dominant-hand
+   locomotion references, turning, selectable dominant hand, controller
+   recenter/menu actions, world full-basis hands, scoped weapon direction/
+   presentation, per-eye weapon draw, and fire haptics work; settings UI,
+   two-hand policy, fixtures, and hardware tuning remain.
 9. **M9: UI/comfort. IN PROGRESS.** Essential HUD state is captured once and
-   replayed per eye; menus/cursor, settings UX, unsupported primitives,
-   comfort/loading policy, and all headset gates remain.
-10. **M10: audio/data/network/deploy. IN PROGRESS.** Browser audio and the
-    schema-v1 local UT99 importer exist; tracked listener, no-preload/full-data
-    qualification, non-game persistence, launcher/deploy, and networking scope
-    remain.
+   replayed inside each active eye pass; the full experimental browser smoke
+   now proves one update/two stereo presentations. Enable, distance, FOV,
+   aspect, and safe-area settings plus the zero-work disabled lifecycle are
+   implemented; browser-persisted settings UI, menus/cursor, unsupported
+   primitives, comfort/loading policy, and all headset gates remain.
+10. **M10: audio/data/network/deploy. IN PROGRESS.** Browser audio, a
+    discontinuity-safe tracked-head listener, the schema-v1 local UT99 importer,
+    and a real audited no-preload artifact/clean-profile wait gate exist. A real
+    user-owned full-data import, physical audio qualification, non-game
+    persistence, full launcher UX/networking scope, and HTTPS/headset PWA
+    deployment/release audit remain; an allowlisted installable shell passes
+    deterministic deployment tests.
 11. **M11: performance/release. IN PROGRESS.** Lifecycle automation exists;
     physical Quest profiling, compatibility, sleep/wake, soak, and release
     artifact qualification remain.
@@ -779,9 +786,11 @@ M5 is complete at the diagnostic boundary. The next implementation work is M6:
 define the versioned packed JS/WASM XR frame ABI, feed native `XRView` matrices,
 viewports and array layers into this proven consumer path, then replace the
 IWER-only lifecycle with a real `XRGPUBinding` projection layer on a browser/
-headset that supplies a native session. M10 remains partial: tracked-head
-listener orientation, suspend/resume policy, music/effect headset testing,
-legal data import, persistence, deployment and networking scope are still open.
+headset that supplies a native session. At this M5 checkpoint, M10 still lacked
+tracked-head listener orientation, suspend/resume policy, legal data import,
+persistence, deployment, and networking scope. Later checkpoints below close
+the automated listener/lifecycle/importer/no-data seams; physical music/effect
+testing, real user-data import, persistence, deployment, and networking remain.
 
 ## M6 packed XR frame ABI checkpoint — PASS (2026-07-22)
 
@@ -1022,11 +1031,12 @@ Validation evidence:
 - ordinary WebGPU: 60.0 ticks/s, 95 draws, zero GPU errors, clean quit; and
 - native Windows Debug and Emscripten builds: pass.
 
-This is not M8 exit. Remaining work is a shipped/remappable Quest default
-layout, locomotion and turn behavior, controller-driven menu/recenter/exit,
-world-space hand composition, controller-aim firing/projectile/weapon hooks,
-haptics, optional input-profile labels/models, and physical headset tests for
-disconnect/reconnect, handedness changes, focus loss, and session re-entry.
+This checkpoint was not M8 exit. Later checkpoints below close the Quest
+defaults, locomotion/turning, world-space hand composition, scoped weapon aim,
+fire haptics, selectable movement reference/dominant hand, and controller
+recenter/menu seams. Input-profile labels/models, settings UI/persistence,
+safe-exit UX, two-hand policy, complete weapon fixtures, and physical headset
+tests for disconnect/reconnect, handedness, focus loss, and re-entry remain.
 
 ## M8 locomotion/default-binding checkpoint — PASS IN AUTOMATION (2026-07-22)
 
@@ -1045,9 +1055,11 @@ position, pitch, roll, collision, and physics are unchanged.
 Native and Emscripten builds passed. The direct WASM diagnostic returned
 `selfTest=1`, movement scale `7000`, default mode Snap, valid mode switching,
 and rejected invalid settings. The complete default Playwright/IWER suite also
-passed. Remaining locomotion work is head-/hand-relative movement, persisted
-settings/UI, recenter/menu/exit actions, real input-profile verification, and
-headset tuning.
+passed. At this checkpoint, head-/hand-relative movement, persisted settings/UI,
+recenter/menu/exit actions, real input-profile verification, and headset tuning
+remained. Commit `8cc2daf5`, recorded below, subsequently closes the engine-side
+movement-reference, dominant-hand, recenter, and menu actions; browser
+persistence/UI, safe exit, hardware verification, and tuning remain.
 
 ## M8 browser-haptics checkpoint — PASS IN AUTOMATION (2026-07-22)
 
@@ -1181,7 +1193,7 @@ them. Physical barrel alignment, position/scale, mirroring, tracking loss,
 muzzle origin, automatic/special weapon fixtures, and Quest presentation are
 still open.
 
-## M9 capture-once stereo HUD checkpoint — BUILDS PASS; BROWSER HUD GATE NOT REACHED (2026-07-22)
+## M9 initial capture-once stereo HUD checkpoint — BUILDS PASS; BROWSER GATE NOT REACHED IN THIS RUN (2026-07-22)
 
 Commit `e387ec3f` adds a renderer-local display-list seam for essential UT99
 HUD/crosshair output. With a local `myHUD`, `PlayerPawn.PostRender` runs once on
@@ -1199,10 +1211,12 @@ and unsupported draws. The self-test covers one update/two presentations,
 asymmetric projection, forced clamp, and absent HUD.
 
 Native and Emscripten builds plus diff checks pass. The experimental
-Playwright/IWER run passed ABI, copied-input, fake-haptics, immersive support,
-XR-compatible WebGPU and `XRGPUBinding` probes, then timed out waiting for the
-engine/Web Audio boot gate after importer integration. It never executed HUD
-presentation, so this checkpoint has no browser HUD pass or failure. Console,
+Playwright/IWER run at this checkpoint passed ABI, copied-input, fake-haptics,
+immersive support, XR-compatible WebGPU and `XRGPUBinding` probes, then timed
+out waiting for the engine/Web Audio boot gate after importer integration. It
+never executed HUD presentation, so that run was neither a browser HUD pass nor
+a HUD failure. A later full experimental pass and the layer-reselection
+correction are recorded below. Console,
 UWindow/menu/cursor, `PreRender`, full player overlays, actor/clipped-actor/3D
 canvas primitives, settings UI, and physical stereo/readability/comfort remain
 open; unsupported 3D-style capture calls are suppressed and counted.
@@ -1233,14 +1247,203 @@ Emscripten-FS streaming; developer-preload bypass; no-data wait gate; later
 saved-import boot; safe re-import; clear; and OPFS round-trip/missing-dataset
 behavior when available.
 
-All fixtures use fake data. Still required: configure and build with
-`SURREAL_GAMEDATA_DIR` empty, audit the distributable for proprietary/preload
-payloads, import a complete user-owned installation in clean desktop and Quest
-profiles, reach a playable map, measure full-size quota/copy/thermal behavior,
-and verify restart persistence, eviction/corruption recovery, and future schema
-migration. The latest experimental WebXR smoke retained the 629 MB developer
-package and failed its engine/Web Audio readiness gate, so it does not close
-the no-preload acceptance path.
+All importer fixtures use fake data. A subsequent real `SURREAL_GAMEDATA_DIR`-
+empty build and clean-profile wait-state audit closed the no-preload artifact
+gate, as recorded below. Still required: import a complete user-owned
+installation in clean desktop and Quest profiles, reach a playable map, measure
+full-size quota/copy/thermal behavior, and verify restart persistence,
+eviction/corruption recovery, and future schema migration. No test so far has
+imported or redistributed real UT99 data.
+
+## M8 configurable movement/action checkpoint — PASS IN AUTOMATION (2026-07-22)
+
+Commit `8cc2daf5` completes the engine-side movement-reference, dominant-hand,
+recenter, and menu slice. `[Engine.WebXR] MovementReference` accepts `Body`,
+`Head`, or `DominantHand`; the latter two project the same-frame tracked forward
+vector into the horizontal body-local plane and deterministically fall back to
+body-forward when tracking is absent, non-finite, or vertical. Only the
+left-stick axes are rotated: UE1's 7000 movement scale, pawn physics, collision,
+and the existing input binding path stay authoritative.
+
+`DominantHand` selects left or right for both movement and existing weapon/
+haptic roles. `RecenterButton` defaults to right-stick click and rebuilds the
+shared eye/head/hand recenter origin on its press edge. `MenuButton` defaults to
+disabled so the existing Joy6/Escape mapping keeps precedence; when explicitly
+assigned, its press/release edges synthesize Escape. Both actions reserve only
+an otherwise-unbound normalized Joy slot, and a collision disables the menu
+action so one edge cannot both recenter and toggle UI. The engine loads these
+settings with the turn/haptics settings and writes them on its normal config-save
+path. Browser-side persistence of that config remains M10 work.
+
+The deterministic locomotion self-test covers head- and hand-relative axis
+rotation, body fallback, non-finite/vertical rejection, action edges, binding
+precedence, button parsing, and invalid setter rejection. Native and Emscripten
+builds pass. The full experimental smoke reported:
+
+```text
+[harness] M8 world controller-pose diagnostics: {'selfTest': 1, 'dominantIndex': 1, 'aimBasis': [-0.026841429993510246, -0.9996397495269775, 0, 0, 0, 1, 0, 32488, 0], 'locomotionSelfTest': 1, 'movementReference': 0, 'dominantHand': 2, 'configuredRecenter': 10, 'effectiveRecenter': 0, 'configuredMenu': 0, 'effectiveMenu': 0}
+```
+
+Here `movementReference=0` is the configured body default and `dominantHand=2`
+is right. The developer data already binds Joy10, so `effectiveRecenter=0` is
+the intended do-not-steal-user-bindings behavior, not a failed action test.
+Settings UI, browser persistence, physical profile/index verification, and
+in-headset tuning remain open.
+
+## M10 tracked-head audio listener checkpoint — PASS IN AUTOMATION (2026-07-22)
+
+Commit `b6b74c00` adds the renderer-independent low-level listener contract.
+`AudioListenerPose` carries UE1-world position, full forward/up basis, and
+velocity. The OpenAL backend validates finite independent axes, normalizes and
+orthogonalizes them, applies the existing `(x, y, -z)` reflection to position,
+orientation, and velocity, and retains the normal `CameraActor` fallback for a
+missing or invalid explicit pose. Its startup math self-test covers identity,
+full yaw/pitch/roll, skew repair, reflection, and invalid vectors.
+
+Commit `f4728617` supplies that explicit pose from the recentered center-head
+sample after `PlayerCalcView`, recomposed against the exact camera anchor and
+body yaw used by the XR render frame. Velocity is a finite difference only for
+consecutive frame generations with an unchanged recenter count, finite elapsed
+time in `(0.0001, 0.25]` seconds, and displacement at or below `157.4804` UE1
+units. First samples, recenter, tracking loss/reacquisition, generation gaps,
+long stalls, teleports, and new sessions reset velocity to zero instead of
+creating a Doppler spike; missing tracking uses the ordinary camera listener.
+
+## M9 active-eye HUD correction and full smoke — PASS IN AUTOMATION (2026-07-22)
+
+Playwright exposed a WebGPU render-pass bug in the first HUD implementation:
+capturing once was correct, but replaying after both eyes by re-selecting each
+already-rendered array layer opened a clearing pass and erased the scene below
+the HUD. Commit `46b5149f` still captures state once before the eye loop, but
+replays each eye's immutable HUD commands while that eye's scene/weapon pass is
+already active. It never reselects a completed layer.
+
+The repaired full `--experimental-webgpu-xr` smoke passed the packed stereo,
+input, pose, format, lifecycle, and device-loss gates with zero WebGPU errors.
+Packed stereo rendered `189` draws: left `nonBlack=300434`, `distinct=865`;
+right `nonBlack=300606`, `distinct=903`; `differentSamples=1175`. Its exact
+combined presentation/audio diagnostic was:
+
+```text
+[harness] M8/M9/M10 presentation and audio diagnostics: {'aimSelfTest': 1, 'hapticsSelfTest': 1, 'disableAccepted': 1, 'enableAccepted': 1, 'expectedWeaponEyes': 2, 'weaponEyePasses': 2, 'weaponCalls': 0, 'hudSelfTest': 1, 'expectedHudEyes': 2, 'hudStateUpdates': 1, 'hudEyePresentations': 2, 'hudCapturedCommands': 65, 'hudUnsupportedDraws': 0, 'hudClampedViewports': 0, 'audioListenerActive': 1, 'audioListenerUpdates': 1, 'audioVelocityResets': 1, 'audioVelocity': [0, 0, 0]}
+```
+
+`weaponCalls=0` only means the sampled frame had no current weapon fixture; the
+two weapon-eye dispatches still occurred. The single listener update/reset and
+zero velocity are the expected safe first tracked sample. This desktop/IWER
+automation is not physical Quest proof of stereo fusion, HUD readability,
+tracked spatial audio, controller alignment, or browser audio gesture behavior.
+
+## M10 real no-data artifact gate — PASS; REAL IMPORT OPEN (2026-07-22)
+
+The real release-shape gate used a separate build directory and explicitly empty
+cache value:
+
+```powershell
+C:\Devstuff\emsdk\upstream\emscripten\emcmake.exe cmake -S . -B build-emscripten-nodata -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DSURREAL_GAMEDATA_DIR:PATH=
+cmake --build build-emscripten-nodata --target SurrealEngine -j 4
+```
+
+CMake emitted the expected no-game-data warning. The cache contains
+`SURREAL_GAMEDATA_DIR:PATH=`; the emitted link command contains neither
+`--preload-file`, `@/gamedata`, nor a commercial install path; there is no
+`.data` artifact; and generated JS contains no `SurrealEngine.data` or package
+loader. (`--preload-file` appears only in two stock Emscripten filesystem error
+help strings, not link/package metadata.) Artifacts were:
+
+- `SurrealEngine.js`: 564,900 bytes, SHA-256
+  `F30171ADF2F2D8C8D73830EEB40B8C2EAE316BC4D07082533E1A31CC2D940C6F`;
+- `SurrealEngine.wasm`: 6,257,417 bytes, SHA-256
+  `6DB92E545D57CFAD4A3C24F4DEC5F9A4E5F164580F3A9B13F8E54336D142D319`.
+
+A brand-new Playwright Chrome process/profile, launched headless with only
+`--enable-unsafe-webgpu`, loaded that exact build over the COOP/COEP test server.
+It was cross-origin isolated, acquired WebGPU, initialized WASM, made no `.data`
+or `/gamedata/` request, showed the importer, and resolved
+`{state: "waiting-for-import", backend: "opfs", error: null}` with
+`surrealBooted=false`, `surrealCrashed=null`, and no request/page errors. The log
+contained no `game data ready`, `calling main`, or `callMain threw`, proving main
+remained gated. No real UT data was selected. A real full-size user import,
+playable-map boot, restart/eviction/migration tests, and Quest storage behavior
+remain open.
+
+## M9 configurable HUD-plane checkpoint — PASS IN AUTOMATION (2026-07-22)
+
+Commit `49c60be1` makes the active-eye HUD seam configurable through
+`[Engine.WebXR]` and the Emscripten diagnostic/setter surface. `HudEnabled`,
+`HudDistanceUU`, `HudHorizontalFovDegrees`, `HudAspectRatio`, and
+`HudSafeAreaFraction` default respectively to `True`, `68.8976` UU (1.75 m at
+39.3701 UU/m), `50`, `4/3`, and `0.90`. Strict setters accept finite values only
+within distance `19.685..157.4804` UU, FOV `20..75` degrees, aspect
+`0.75..2.0`, and safe area `0.50..1.0`; rejected values leave the configured
+and effective renderer state unchanged. The existing config-save path writes
+all five settings. Separate configured/effective getters make propagation to
+the renderer directly observable.
+
+Disabled means zero HUD work, not an invisible state update: it skips
+`PlayerPawn.PostRender`, clears any stale captured display list, expects zero
+eye presentations, and performs zero HUD state updates/captures/replays while
+the world and weapon eye passes continue. The HUD self-test mask expands to
+`31`, adding the disabled lifecycle to update/presentation, asymmetric
+projection, viewport-clamp, and absent-HUD coverage; a separate range test
+covers endpoints plus non-finite and out-of-range rejection.
+
+The full experimental smoke rerun passed. HUD settings diagnostics returned
+`selfTest=1`, mask `31`, configured/effective enabled `1`, distance
+`68.8975983`, FOV `50`, aspect `1.3333330`, and safe area `0.89999998`. Its
+runtime disable/restore assertion reported exactly:
+
+```text
+[harness] M9 disabled-HUD lifecycle: {'original': 1, 'disabled': 1, 'invalidDistance': 0, 'effective': 0, 'expectedEyes': 0, 'stateUpdates': 0, 'eyePresentations': 0, 'weaponEyes': 2, 'rendered': 1, 'restored': 1, 'restoredEffective': 1}
+```
+
+This proves the disabled path preserves stereo world/weapon rendering in
+desktop/IWER automation. A user-facing settings panel, browser persistence of
+the INI, in-headset distance/FOV/safe-area tuning, readability, fusion, and
+comfort validation remain open.
+
+## M10 redistributable PWA/deployment shell — 27/27 CHECKS PASS (2026-07-22)
+
+Commit `28070633` adds the installable no-data entry point
+`web/index_webxr.html?pwa=1&build=build-emscripten-nodata`, manifest, offline
+guidance page, registration diagnostics, versioned service worker, deployment
+instructions, and local-server MIME/header support. Registration is enabled
+only for the known no-data build (or explicitly disabled); requesting PWA mode
+with the developer preload route returns `refused-development-preload` and
+registers no worker.
+
+Service-worker version `2026.07.22-m10.1` uses a closed allowlist. It precaches
+only the launcher, WebXR/importer/registration scripts, manifest, offline page,
+and existing project icons. Only no-data/release `SurrealEngine.js` and
+`SurrealEngine.wasm` may enter the lazy versioned runtime cache. `/gamedata`,
+local-import database paths, `.data`, and UE1 package/map/music/sound/texture
+extensions are rejected with policy `blocked-commercial-data` and HTTP 451;
+the development runtime and every other URL remain network-only. Imported data
+stays exclusively in OPFS/IndexedDB, outside Cache Storage.
+
+Installation fills the complete shell cache before activation. Activation
+refuses an incomplete shell, then removes only obsolete
+`surrealengine-webxr-*` caches and preserves unrelated origin caches. Launcher
+HTML is network-first and refreshes its canonical offline copy; versioned
+no-data JS/Wasm is cache-first; an uncached offline navigation receives the
+diagnostic offline page with status 503. Worker status/version, activation, and
+fetch failures are observable. `APP_VERSION` must change whenever shell/runtime
+compatibility changes.
+
+`python web/smoke_test_pwa.py` passed 27/27 Playwright checks covering
+registration/control, policy self-test, versioned caches, atomic old-cache
+cleanup, exact shell allowlist, manifest/MIME, COOP/COEP/CORP headers,
+service-worker revalidation, lazy no-data runtime caching, development-preload
+non-caching and registration refusal, explicit commercial-data rejection,
+network-first updates, cached offline launch, 503 offline guidance, and absence
+of unexpected page errors.
+
+Deployment still requires a real HTTPS host (localhost only satisfies
+development), validation of Quest Browser installation/update/offline behavior,
+immutable release hashes and version bump discipline, a complete artifact and
+third-party license audit, rollback testing, and proof that no commercial or
+local database export enters published files. This shell does not complete the
+full map/settings/diagnostics launcher UX or networking decision.
 
 ## Native sibling audit addendum — provenance and reuse boundary (2026-07-22)
 
