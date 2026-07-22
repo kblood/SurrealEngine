@@ -8,6 +8,11 @@ native VR effort. Written 2026-07-18, the day the user said "Go with option
 A, do the WebXR port" — superseding the earlier "native VR first, WebXR is
 M5/deferred" decision (see memory `ut99-vr-native-port.md`).
 
+The complete canonical milestone roadmap, including every remaining product
+area through headset release, is now in
+`WEBXR_COMPLETE_IMPLEMENTATION_PLAN.md`. This file remains the chronological
+engineering journal and detailed record of completed probes.
+
 Each milestone gets its detailed plan written here only once it becomes
 active work — same pattern the native VR plan follows.
 
@@ -24,12 +29,10 @@ active work — same pattern the native VR plan follows.
    `emdawnwebgpu` port. Get everything *except* the bindless texture path
    working first (a small fixed-texture-per-draw fallback or placeholder
    texture proves geometry/shaders/pipelines before tackling binding).
-3. **M3: Bindless-texture-model redesign.** `DescriptorSetManager`'s existing
-   overflow-safety-valve *policy* (flush-and-clear when the array fills,
-   `DescriptorSetManager.cpp`/`VulkanRenderDevice.h:206-213`) is already the
-   right shape for a fixed-size WebGPU budget — this milestone retargets the
-   *mechanism* (Vulkan descriptor-set update → WebGPU bind-group recreation),
-   not the policy.
+3. **M3: WebGPU binding/cache optimization. DONE (2026-07-22).** M2 already
+   avoided Vulkan's bindless model by using four fixed texture slots. M3
+   therefore cached those per-draw WebGPU bind groups, instrumented the hot
+   path, and measured geometry-buffer pressure on a larger map.
 4. **M4: WebXR session integration.** `XRGPUBinding` (Immersive Web Editor's
    Draft, see `WEBXR_PORT_PLAN.md`), stereo rendering reusing the
    asymmetric-frustum/coordinate-convention math already verified for native
@@ -365,7 +368,7 @@ fix avoids triggering it rather than patching Emscripten. Re-verified:
 `web/smoke_test.py` passes clean, no uncaught JS errors (previously passed
 "with warnings").
 
-## M3: re-scoped (2026-07-19 audit)
+## M3: WebGPU binding/cache optimization — DONE (2026-07-22)
 
 The original M3 framing above — "retarget `DescriptorSetManager`'s
 overflow-safety-valve policy from Vulkan descriptor-set updates to WebGPU
@@ -378,16 +381,11 @@ sidestep it, not port it). That sidestep already happened, by construction,
 before M3 was ever started — so a "bindless redesign" milestone has nothing
 left to redesign.
 
-What actually remains in the code as of this audit:
+The 2026-07-19 audit found the work that actually remained:
 
-- **Per-draw bind-group creation**: `DrawEntry` (`WebGPURenderDevice.cpp:500-546`)
-  calls `wgpuDeviceCreateBindGroup` + `wgpuBindGroupRelease` on every draw
-  call, every frame — a deliberate M2 simplification (comment at line 513).
-  This is the real remaining work: cache bind groups keyed by the 4
-  `WebGPUCachedTexture*` + 3 sampler-mode ints already stored per
-  `WebGPUDrawBatchEntry` (`WebGPURenderDevice.h:15-28`), invalidating on
-  texture destruction/update (`WebGPUTextureManager::Flush`,
-  `UpdateTextureRect`).
+- **Per-draw bind-group creation**: `DrawEntry` called
+  `wgpuDeviceCreateBindGroup` + `wgpuBindGroupRelease` for every draw call,
+  every frame — a deliberate M2 simplification.
 - **Batch fragmentation** on texture/sampler change (`SetDescriptorSet`,
   lines 401-443) is inherent to the fixed-slot model, same as D3D11 —
   acceptable unless measurement says otherwise.
@@ -401,14 +399,37 @@ What actually remains in the code as of this audit:
   fixed-slot model proves an actual bottleneck on Quest 3 hardware during
   M4/M5 testing.
 
-Re-scoped M3 plan: (1) measure frame time + draw/buffer stats on a heavier
-map than `DM-Deck16][` in desktop Chrome; (2) implement the bind-group
-cache; (3) raise buffer sizes if step 1 shows multiple submits per frame.
-Full task breakdown in `Docs/VR/NEXT_STEPS_PLAN.md` (Task 5). Whether steps
-1-3 are *sufficient* for Quest 3 browser performance can't be answered until
-M4 runs on the headset — that's an M4/M5 finding, not an M3 blocker. If this
-re-scope holds, M3 is small (days, not weeks), and **M4 (WebXR stereo
-session) becomes the next substantial milestone.**
+Implementation and measured result:
+
+- `WebGPURenderDevice` now owns a bind-group cache keyed by the four
+  `WebGPUCachedTexture*` values plus the three sampler-mode integers already
+  carried by `WebGPUDrawBatchEntry`. Cached groups are released before the
+  texture cache destroys its views; targeted invalidation also covers
+  realtime and rectangular texture updates.
+- Per-frame `BindGroupsCreated`, `BindGroupCacheHits`, and
+  `BufferRollovers` counters are exported to both browser harnesses.
+  `BufferRollovers` counts only actual vertex/index capacity exhaustion,
+  unlike the older `BuffersUsed` counter, which also includes intentional
+  render-pass boundaries.
+- `web/smoke_test_webgpu.py [map]` and the WebGPU/WebXR pages now accept a
+  map name, and the smoke test reports observed engine tick rate plus the
+  new counters.
+- Desktop Chrome, `DM-Deck16][`: approximately 59 ticks/s, 95 draws, 0 bind groups
+  created in the sampled warm frame, 95 cache hits, 0 geometry-buffer
+  rollovers, 0 WebGPU errors.
+- Desktop Chrome, larger `CTF-Darji16`: approximately 59 ticks/s, 224 draws, 1 bind
+  group created, 223 cache hits, 140 cached textures, 0 geometry-buffer
+  rollovers, 0 WebGPU errors. The screenshot/non-blank and clean-shutdown
+  checks also passed.
+- Because the heavier scene produced no capacity rollover, the existing
+  16K-vertex/32K-index buffers were deliberately left unchanged. Enlarging
+  them would add memory without addressing an observed bottleneck.
+- The IWER Meta Quest 3 lifecycle regression still passes after the change:
+  two views per frame, advancing XR frame count, and clean session teardown.
+
+This completes the re-scoped M3. Whether the fixed-slot model is sufficient
+on Quest 3 hardware remains an M4/M5 measurement; **M4 (real WebXR stereo
+render integration) is the next substantial milestone.**
 
 ## M4 pre-work (2026-07-19)
 
@@ -449,3 +470,238 @@ lifecycle/plumbing only, not stereo rendering. `iwer` pinned as a
 `web/package.json` devDependency. This is the same "prove the plumbing
 before building the real thing" pattern M1 used for the WASM boot loop
 before M2 built real rendering on top of it.
+
+## M4 presentation-path spike — IN PROGRESS (2026-07-22)
+
+This section is the live engineering journal for M4. Record failed probes as
+well as successful code so later work does not repeat browser/toolchain
+experiments.
+
+### Starting state and direct-path requirements
+
+- Test browser: desktop Google Chrome `150.0.7871.129` on Windows.
+- Ordinary launch: `navigator.xr` and `navigator.gpu` exist, an adapter
+  requested with `{xrCompatible:true}` succeeds, but `XRGPUBinding` is not
+  exposed.
+- The current WebXR/WebGPU Editor's Draft requires all of the following for
+  the direct path: request the adapter with `xrCompatible:true`; request the
+  immersive session with required feature `"webgpu"`; construct
+  `XRGPUBinding(session, device)`; create a projection layer; install it via
+  `session.updateRenderState({layers:[...]})`; then render each view to the
+  `XRGPUSubImage` returned during the session's animation frame. WebGPU
+  sessions cannot use `XRWebGLLayer`/`baseLayer`. Source:
+  <https://immersive-web.github.io/WebXR-WebGPU-Binding/>.
+- Chromium added an explicit `webxr-webgpu-binding` about:flags entry in
+  November 2024, separate from WebXR incubations, and current Chromium source
+  also lists `webxr-projection-layers`. Source:
+  <https://chromium.googlesource.com/chromium/src/+/1c22e8e0f1f14071f0eae28d3f7d48408c841398>.
+- `web/smoke_test_webxr.py --experimental-webgpu-xr` now launches installed
+  Chrome with `--enable-features=WebXRWebGPUBinding,WebXRLayers` and reports
+  whether that actually exposes `XRGPUBinding`. This remains an opt-in probe;
+  the default test continues to represent an ordinary browser launch.
+
+### Probe 1 — Chromium feature flags: PASS
+
+The opt-in launch exposes `window.XRGPUBinding` on Chrome 150; the default
+launch does not. Therefore the implementation is present in this browser and
+the direct WebGPU path is testable behind flags. It is not suitable as a
+zero-configuration shipping path yet.
+
+### Probe 2 — engine device compatibility: FIXED
+
+`index_webxr.html` previously performed a successful
+`requestAdapter({xrCompatible:true})` capability probe, destroyed that probe
+device, then acquired the device actually handed to Emscripten from a second
+plain `requestAdapter()` call. The successful probe did not make the engine's
+device XR-compatible. The WebXR page now acquires the engine device itself
+with `{xrCompatible:true}`, retains it as `window.surrealWebGPUDevice` for the
+session bridge, and still hands that same object to
+`Module.preinitializedWebGPUDevice`. The ordinary WebGPU-only page is
+unchanged.
+
+### Probe 3 — projection layer with IWER: EXPECTED HARNESS LIMIT FOUND
+
+Added `surrealXRProbeWebGPUProjection()` and a user-gesture-capable page button.
+The probe requests `requiredFeatures:["webgpu"]`, constructs the binding,
+queries the preferred color format, creates a projection layer, and installs
+it with `updateRenderState({layers:[layer]})`, recording progress at every
+stage. The experimental Playwright path advertises `webgpu` on IWER's emulated
+Quest device so the request can reach the native binding constructor.
+
+Observed result:
+
+```text
+XRGPUBinding exposed: true
+sessionCreated: true
+bindingCreated: false
+TypeError: Failed to construct 'XRGPUBinding': parameter 1 is not of type 'XRSession'.
+```
+
+This is the expected boundary between IWER and Blink: IWER implements
+`XRSession` as a JavaScript class, while Chromium's native `XRGPUBinding`
+requires a native Blink `XRSession` wrapper. IWER remains valid for lifecycle,
+two-view pose, and teardown tests, but cannot validate native WebGPU projection
+layers. The same run continued through the existing IWER lifecycle test (two
+views/frame, advancing frame counter, clean end) with no page errors.
+
+Next verification options, in priority order:
+
+1. Run the new projection button against a real headset/browser with both
+   Chromium flags enabled; no code change is required for the probe.
+2. Investigate Chromium's native WebXR Test API/mock runtime as an automated
+   source of real Blink `XRSession` objects. Its upstream harness depends on
+   Chromium layout-test Mojo bindings, so availability in an ordinary Chrome
+   Playwright launch must be proven rather than assumed.
+3. If neither is practical, keep IWER for lifecycle regression and treat
+   projection-layer creation/rendering as a headset-required integration test.
+
+### Probe 4 — JavaScript `GPUTexture` → C++ `WGPUTexture` interop: PASS
+
+The pinned Emdawnwebgpu port's generated runtime includes
+`WebGPU.importJsTexture(jsTexture, parentDevice)`. This allocates the C-side
+wrapper used by `webgpu.h` while retaining the existing JavaScript
+`GPUTexture` as its backing object. That is exactly the handoff needed for an
+`XRGPUSubImage.colorTexture`; it does not require copying through the canvas.
+
+Before a native XR session is available, validate the bridge with an ordinary
+render-attachment `GPUTexture` created from the same XR-compatible engine
+device. The test imports it, creates/releases a `WGPUTextureView` in C++,
+releases the imported wrapper, destroys the JavaScript texture, and reports a
+boolean result through the Playwright harness. This separates Emdawnwebgpu
+interop risk from XR session/runtime availability.
+
+Implemented as the exported `Surreal_TestWebGPUTextureImport()` diagnostic.
+The experimental Playwright run returned `1`: C++ received a valid imported
+texture, created and released an `rgba8unorm` 2D view, and released the wrapper;
+JavaScript then destroyed the underlying test texture. The subsequent WebXR
+lifecycle test completed normally. This proves there is no required canvas or
+CPU-copy hop between `XRGPUSubImage.colorTexture` and the C++ renderer.
+
+The relevant subimage layout is also simple enough to reproduce C-side: the
+WebXR/WebGPU draft specifies a 2D texture array, one layer per view, and
+`getViewDescriptor()` selects one slice using `baseArrayLayer` with
+`arrayLayerCount=1`. The XR viewport must still be applied separately.
+
+### Probe 5 — render/readback across the JS/C++ texture bridge: PASS
+
+Upgrade Probe 4 from object-lifetime validation to an observable GPU command:
+C++ clears the imported texture to a known RGBA value in a render pass and
+submits it on the engine queue. JavaScript copies the same browser-owned
+texture into a mapped readback buffer, verifies the first pixel, and only then
+destroys it. Also require the uncaptured WebGPU error count to remain zero.
+
+First attempt returned `[0,0,0,0]` because the diagnostic texture descriptor
+omitted `GPUTextureUsage.COPY_SRC` even though the verification step copied
+from it. That is a test construction error, not evidence about the import
+bridge. After adding `COPY_SRC`, the same test returned:
+
+```text
+import result: 1
+readback pixel: [64,127,191,255]
+expected pixel: [64,128,191,255] (one-byte rounding tolerance)
+uncaptured WebGPU errors: 0
+```
+
+The clear was encoded and submitted entirely through the C++ `webgpu.h`
+interface, while allocation and readback used the original JavaScript
+`GPUTexture`. This proves that the imported handle is not merely valid for
+object creation: commands submitted by the engine operate on the same GPU
+resource seen by browser JavaScript.
+
+### Probe 6 — complete UT frame into a browser-owned array layer: PASS
+
+The renderer now has a real external-target seam instead of relying only on
+Probe 5's isolated clear pass:
+
+- `WebGPURenderDevice::QueueExternalRenderTarget()` accepts ownership of an
+  imported `WGPUTexture` wrapper, target dimensions, and an array-layer index.
+- The next `Lock()` bypasses the canvas surface, creates a 2D view for the
+  requested array layer, sizes the engine-owned depth buffer to match, and
+  runs the ordinary UT scene/overlay pipeline.
+- `Unlock()` submits and releases the imported wrapper, records diagnostic
+  counters, restores the prior fixed render size, and leaves subsequent
+  frames on the canvas path.
+- The JavaScript `GPUTexture` remains browser-owned throughout. This matches
+  the ownership split required for an `XRGPUSubImage.colorTexture`.
+
+The Playwright test deliberately creates a two-layer `bgra8unorm` texture and
+queues **layer 1**, not layer 0, to exercise the same view-selection behavior
+needed for per-eye XR array layers. It waits for the external-frame counter,
+copies only layer 1 to a mapped buffer, and requires real draw calls plus
+non-black, varied output. Chrome 150 with the experimental WebXR/WebGPU flags
+produced:
+
+```text
+external target queued: 1
+external frames completed: +1
+draw calls in external frame: 95
+non-black pixels: 300885 / 307200
+distinct colors in the 1/257 sample: 878
+array layer read: 1
+uncaptured WebGPU errors: 0
+```
+
+The same run then completed the expected IWER lifecycle regression: two views
+per frame, frame counter `2 -> 182` over three seconds, and clean teardown.
+The native projection probe still stops at IWER's JavaScript/native
+`XRSession` type boundary documented in Probe 3.
+
+This establishes the zero-copy presentation half of M4: a browser-owned XR-
+shaped texture can be rendered by the complete C++ engine. It does **not** yet
+establish real headset presentation. A real `XRGPUSubImage` is valid in the
+native session frame where it is acquired, so production integration cannot
+queue it for a later ordinary window animation frame. The current WebGPU
+pipelines also target `bgra8unorm`, so the projection layer must be created
+with that compatible color format unless the pipeline cache is generalized
+first.
+
+### Probe 7 — XR frame-loop ownership handoff: PASS
+
+Added two small Emscripten engine exports for the timing half of the native XR
+integration:
+
+- `Surreal_SetXRFrameLoopActive(true)` pauses Emscripten's ordinary window
+  animation loop; passing `false` resumes it.
+- `Surreal_RunXRFrame()` executes exactly one normal `Engine::RunOneFrame()`
+  while XR owns scheduling. It uses the same quit/shutdown callback as the
+  window loop rather than introducing a second engine-frame implementation.
+
+This matters independently of frame rate: an `XRGPUSubImage` must be acquired
+and consumed in its native `XRSession.requestAnimationFrame` callback. The
+engine cannot leave its original RAF running and defer the imported target to
+another callback.
+
+Playwright validated the ownership transitions in the same experimental run:
+
+```text
+window RAF paused: tick 9 -> 9 over 250 ms
+three XR-driven calls: tick 9 -> 12
+window RAF resumed: tick 12 -> 16
+```
+
+The external-target test and lifecycle test still passed after the handoff.
+The exports are deliberately not connected to IWER's session loop: IWER
+cannot supply native WebGPU XR subimages, and treating its throwaway WebGL
+layer as the production path would hide that distinction.
+
+The next M4 slice is per-view rendering design: separate simulation from
+render submission so one simulation tick can feed both eyes, pass each
+`XRView` pose/projection and viewport into the renderer, and switch the color
+attachment array layer between eyes without presenting or ticking twice.
+
+### Regression matrix after Probes 1–7
+
+- Clean Emscripten build: PASS. Known warnings remain the existing
+  `-pthread`/memory-growth performance warning and the 629 MB preload-package
+  size warning.
+- Experimental Chrome + Playwright: PASS for XR-compatible device acquisition,
+  JS/C++ texture import and readback, full UT frame in array layer 1, XR frame-
+  loop ownership handoff, expected IWER/native-binding boundary detection, and
+  IWER stereo lifecycle/teardown. Final run advanced XR frames `2 -> 183`.
+- Ordinary Chrome + Playwright (no experimental flags): PASS. `XRGPUBinding`
+  correctly remains unavailable while the IWER two-view lifecycle advances and
+  ends cleanly.
+- Ordinary WebGPU game harness: PASS on `DM-Deck16][` at approximately 59.8
+  ticks/s, 95 draws/frame, 75 cached textures, 95 bind-group cache hits, zero
+  new warm-frame bind groups, zero buffer rollovers, zero WebGPU errors,
+  non-blank canvas, and clean quit.

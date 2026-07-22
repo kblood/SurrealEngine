@@ -1,0 +1,697 @@
+# SurrealEngine UT99 WebXR — Complete Implementation Plan
+
+**Canonical roadmap:** 2026-07-22  
+**Branch/worktree:** `webxr-m1` in `ut99-vr/SurrealEngine`  
+**Target:** Unreal Tournament 1999 running as the existing SurrealEngine C++
+game compiled to WebAssembly, rendered with WebGPU, and presented through
+WebXR on Quest-class headsets.
+
+This is the standalone execution plan. `WEBXR_IMPLEMENTATION_PLAN.md` remains
+the chronological engineering journal with the detailed M1–M4 investigation,
+failed probes, measurements, and implementation notes. `WEBXR_PORT_PLAN.md`
+records the earlier architecture decision that selected the Emscripten +
+WebGPU port over a ground-up Three.js rewrite.
+
+## 1. Product definition and non-negotiable constraints
+
+The finished product must:
+
+1. Boot the real SurrealEngine/UnrealScript runtime in a browser from legally
+   user-supplied UT99 data.
+2. Enter and leave an immersive WebXR session without reloading the game.
+3. Render two correct, head-tracked views from one game simulation tick.
+4. Support Quest-style tracked controllers for movement, aiming, firing,
+   interaction, menus, and recentering.
+5. Provide comfortable defaults, usable HUD/menu presentation, working audio,
+   persistent settings/saves, and an ordinary non-XR canvas fallback.
+6. Run from HTTPS with the isolation headers required by the pthread-enabled
+   WebAssembly build and without redistributing commercial UT99 assets.
+
+Constraints:
+
+- UT99 game data is commercial. It must never be committed, embedded in a
+  public build, uploaded to a project server, or placed in a service-worker
+  cache. The user imports their own local installation.
+- The direct presentation design depends on the unstable WebXR/WebGPU Binding
+  Module. In Chrome 150 it is available only behind
+  `WebXRWebGPUBinding,WebXRLayers`; it is not a default shipping API yet.
+- A WebGPU-compatible session uses `layers`, not `XRWebGLLayer`/`baseLayer`,
+  and its projection matrices use a `[0,1]` depth range.
+- The browser owns projection-layer textures. The engine may import their
+  JavaScript `GPUTexture` objects into Emdawnwebgpu, but must render while the
+  corresponding native XR animation frame is active.
+- The existing native/OpenXR work in the `SurrealEngine-vr-m2` worktree is a
+  separate branch. Reuse proven math and design findings deliberately; do not
+  mix worktrees or make commits on the other branch.
+
+## 2. Current architecture and status
+
+```text
+XRSession.requestAnimationFrame
+        │
+        ├─ XRFrame.getViewerPose(referenceSpace)
+        ├─ XRGPUBinding.getViewSubImage(layer, XRView)
+        │      ├─ browser-owned color texture array
+        │      ├─ array layer / view descriptor
+        │      └─ viewport
+        │
+        ├─ JS writes a compact per-frame/per-view state block to WASM
+        └─ synchronous C export
+               ├─ advance simulation once
+               ├─ render left eye
+               ├─ switch attachment layer
+               ├─ render right eye
+               └─ submit before returning to the browser
+```
+
+| Milestone | State | Result |
+|---|---|---|
+| M0 — architecture/platform gate | Complete, gate ongoing | Emscripten + WebGPU selected; direct WebXR/WebGPU path verified behind Chromium flags |
+| M1 — browser/WASM engine | Complete | Real engine boots, loads UT99 data, ticks, and quits under browser RAF |
+| M2 — WebGPU renderer | Complete | UT99 world/HUD renders through Emdawnwebgpu |
+| M3 — WebGPU hot path | Complete | Bind-group caching and buffer diagnostics measured on small and large maps |
+| M4 — presentation groundwork | Complete | XR-compatible device, texture import/readback, full UT frame in array layer 1, frame-loop ownership handoff |
+| M5 — frame/view refactor | Not started | Separate one simulation tick from two eye renders |
+| M6 — native WebGPU XR session | Not started; platform/headset gated | Real `XRGPUBinding`, projection layer, subimages, synchronous presentation |
+| M7 — tracking/camera/world scale | Not started | Correct 6DoF head pose and per-eye projection |
+| M8 — controller input/gameplay | Not started | Motion controllers, locomotion, weapon aim, haptics |
+| M9 — UI/comfort/VR presentation | Not started | HUD, menus, weapon model, recenter and comfort controls |
+| M10 — audio/data/network/deploy | Not started | Browser audio, legal data import, persistence, PWA and network scope |
+| M11 — performance/robustness/release | Not started | Quest profiling, lifecycle hardening, compatibility and release gates |
+
+## 3. M0 — architecture and platform gate
+
+### Completed
+
+- Chose the existing C++ engine compiled with Emscripten rather than replacing
+  the UnrealScript VM/gameplay with a new JavaScript engine.
+- Confirmed there is no practical automatic Vulkan-to-WebGPU translation.
+- Replaced the Vulkan bindless assumption with a working fixed-slot WebGPU
+  renderer.
+- Verified the current WebXR/WebGPU application sequence against the editor's
+  draft: XR-compatible adapter, session feature `webgpu`, `XRGPUBinding`,
+  projection layer, `layers` render state, and per-view subimages.
+- Added capability reporting for default and experimental Chrome launches.
+
+### Ongoing platform gate
+
+Before claiming general availability, verify all of the following on the
+actual target browser and headset:
+
+- `navigator.gpu.requestAdapter({xrCompatible:true})` returns an adapter.
+- `navigator.xr.isSessionSupported("immersive-vr")` succeeds.
+- `XRGPUBinding` is exposed without developer-only flags.
+- `requestSession(..., {requiredFeatures:["webgpu"]})` succeeds from a user
+  activation.
+- A projection layer can be created with the binding's preferred color format
+  and installed via `updateRenderState({layers:[layer]})`.
+- `getViewSubImage()` produces usable color textures for every view.
+
+If this remains unavailable in the shipping Quest browser, keep the 2D WebGPU
+build usable and label VR experimental. Do not silently substitute IWER's
+throwaway WebGL layer. A WebGL XR fallback would require a real renderer
+backend or a separately approved and measured copy architecture; it is not a
+small compatibility shim.
+
+### Exit criterion
+
+M0's engineering work is complete. The release gate remains open until the
+target browser exposes the direct API or the product explicitly accepts an
+experimental-browser requirement.
+
+## 4. M1 — Emscripten engine foundation
+
+### Completed
+
+- Emscripten CMake graph excludes native Vulkan/OpenXR/editor targets.
+- SDL2 browser window path and `emscripten_set_main_loop` drive the real engine.
+- Synchronous MEMFS package loading boots real UT99 content.
+- Null render/audio backends allow isolated boot tests.
+- Wasm-specific alignment/empty-struct bugs were fixed.
+- Playwright proves boot, tick progression, map load, quit, and no late crash.
+
+### Remaining maintenance
+
+- Keep a no-render M1 smoke test so later graphics/session failures can be
+  separated from VM/filesystem failures.
+- Preserve native build behavior whenever shared engine files change.
+- Replace the giant development preload before public deployment in M10.
+
+### Exit criterion
+
+Complete and regression protected.
+
+## 5. M2 — WebGPU renderer
+
+### Completed
+
+- Browser-created `GPUDevice` is passed to Emdawnwebgpu before `callMain`.
+- Canvas surface, WGSL shaders, pipelines, fixed texture slots, samplers,
+  uploads, depth, batching, and supported UE1 texture formats are implemented.
+- World geometry and 2D tile orientation are corrected and screenshot tested.
+- Rendering diagnostics expose draw calls, textures, errors, and buffer usage.
+
+### Known renderer gaps to retain in the backlog
+
+- Confirm `DrawGouraudPolygon` orientation with a deterministic visible actor
+  or first-person weapon; earlier native/WebGPU screenshots were inconclusive.
+- Browser `ReadPixels` remains asynchronous; keep screenshots/readback in the
+  JS harness unless the engine gains an async screenshot API.
+- HDR, bloom, MSAA, and advanced post-processing are intentionally absent.
+- Device-loss recovery and projection-layer format variation are M11 work.
+
+### Exit criterion
+
+Complete for the minimum XR renderer; visual parity gaps remain tracked.
+
+## 6. M3 — WebGPU resource hot path
+
+### Completed
+
+- Cached bind groups use the four texture identities plus sampler modes.
+- Cache entries are invalidated before dependent texture views are destroyed.
+- Warm-frame creation/hit counters and true geometry-buffer rollovers are
+  exported to both browser harnesses.
+- `DM-Deck16][` and `CTF-Darji16` measurements showed no need to enlarge the
+  existing vertex/index buffers.
+
+### Remaining performance decision
+
+Measure the fixed-slot model on Quest hardware before redesigning it. Only
+consider texture arrays, atlases, larger batches, or buffer growth when a
+headset trace demonstrates a real bottleneck.
+
+### Exit criterion
+
+Complete; Quest measurements move to M11.
+
+## 7. M4 — WebXR/WebGPU presentation groundwork
+
+### Completed
+
+- The engine's actual adapter is requested with `xrCompatible:true`.
+- Experimental Playwright launches installed Chrome with the two Chromium
+  WebXR/WebGPU feature flags.
+- `WebGPU.importJsTexture()` imports a browser-created `GPUTexture` into C++.
+- C++ GPU output is read back through the original JavaScript texture.
+- A complete 95-draw UT frame renders into layer 1 of a browser-owned
+  two-layer `bgra8unorm` texture with zero uncaptured WebGPU errors.
+- The renderer can bypass the canvas for an external target, select an array
+  layer, resize depth state, submit, release the imported wrapper, and restore
+  canvas rendering.
+- Emscripten's window RAF can pause, advance exactly one engine frame per
+  explicit XR-driven call, and resume.
+- IWER covers session request, two-view lifecycle, frame progression, and
+  teardown. It cannot construct a native Blink `XRSession`, so it cannot test
+  `XRGPUBinding` itself.
+
+### Exit criterion
+
+Complete as groundwork. It proves the renderer and scheduling seams, not
+headset presentation.
+
+## 8. M5 — split simulation from stereo view rendering
+
+This is the next implementation milestone and removes the largest engine-side
+architectural mismatch.
+
+### 8.1 Frame responsibilities
+
+Refactor `Engine::RunOneFrame()` into explicit phases without changing native
+behavior:
+
+1. `AdvanceGameFrame()` — elapsed time, input, UnrealScript/level tick,
+   `PlayerCalcView`, audio, travel/save decisions.
+2. `RenderGameFrame(RenderFrameState)` — render the already-advanced state.
+3. `FinishGameFrame()` — operations that must happen once after rendering.
+
+The native/window loop calls all phases once. The XR loop advances once and
+renders both eyes from the same immutable camera/game state. Never call the
+whole simulation loop once per eye.
+
+Audit code currently embedded in `RenderSubsystem::DrawGame()` and
+`DrawSceneStereo()`:
+
+- BSP actor `UpdateBspInfo`, light/texture frame counters, canvas reset,
+  `PreRender`, `PostRender`, flash, and overlays must be classified as once per
+  simulation frame, once per view, or once per submitted target.
+- Portal, mirror, sky, corona, fog, mesh, decal, and weapon rendering must
+  inherit the eye's viewport and projection override.
+- UI and flash effects must not be applied twice to game state.
+
+### 8.2 Renderer target lifecycle
+
+Replace the one-shot external-target diagnostic with a frame-scoped API:
+
+- `BeginExternalFrame(texture, format, width, height)` imports/retains one
+  browser texture wrapper.
+- `BeginExternalView(arrayLayer, viewport, clear/load)` creates the selected
+  2D view and an eye-sized depth attachment.
+- Draw one eye, end the pass, then select the next array layer.
+- `EndExternalFrame()` submits once where possible and releases every imported
+  wrapper before the synchronous JS call returns.
+- Keep the canvas `Lock`/`Unlock` path behaviorally unchanged.
+
+Initially use an engine-owned depth texture per eye and create the projection
+layer without compositor depth. Browser-owned depth can be added only after
+color presentation is correct.
+
+### 8.3 Per-frame bridge data
+
+Define a versioned POD structure shared by JS and C++:
+
+- frame timestamp and view count;
+- reference-space/reset generation;
+- per view: eye/index, position, orientation, 4x4 projection matrix, viewport,
+  texture base-array-layer, color dimensions;
+- optional controller state offsets reserved for M8.
+
+Write it into WASM memory in one operation per XR frame. Avoid dozens of
+`ccall`s and avoid retaining JavaScript XR objects beyond the callback. Keep
+the current color texture in a JS global only for the duration of the one
+synchronous import/render call, clear it in `finally`, and assert that C++ has
+released its wrapper.
+
+### 8.4 Tests
+
+- Unit-test phase ordering and prove one XR callback increments the simulation
+  counter once while incrementing an eye-render counter twice.
+- Extend the browser-owned two-layer test: render distinct deterministic
+  content from two projections and read back both layers.
+- Verify canvas rendering resumes after an XR-style frame sequence.
+- Run normal WebGPU, default IWER, experimental interop, and native build tests.
+
+### Exit criterion
+
+One simulation state renders into two independently selected array layers in a
+single synchronous call, with different projection matrices, no double tick,
+no canvas regression, and no GPU errors.
+
+## 9. M6 — real native WebGPU WebXR session and presentation
+
+### 9.1 Session creation
+
+Add a production path separate from the IWER lifecycle path:
+
+1. Require a user gesture from the Enter VR button.
+2. Request `immersive-vr` with `requiredFeatures:["webgpu"]` and optional
+   `local-floor`, `bounded-floor`, and later input/UI features.
+3. Construct `XRGPUBinding(session, engineDevice)`.
+4. Query `getPreferredColorFormat()`; do not assume it matches the canvas.
+5. Make pipeline color format configurable. Cache a second pipeline family if
+   XR format differs from `bgra8unorm` rather than lying in the view descriptor.
+6. Create a projection layer at `scaleFactor:1.0`, initially with color only.
+7. Install it with `session.updateRenderState({layers:[projectionLayer]})`.
+8. Acquire `local-floor` when available, otherwise `local`; expose the chosen
+   mode in diagnostics.
+
+### 9.2 XR animation frame
+
+For each native XR callback:
+
+- Schedule the next callback first.
+- Return without simulation/render when no viewer pose is available.
+- For each `XRView`, call `getViewSubImage`, use
+  `XRGPUSubImage.getViewDescriptor()` and its viewport, and collect the exact
+  browser-provided projection matrix.
+- Import the color texture once even if both views share the same array.
+- Run the M5 synchronous engine frame and submit before returning.
+- Record CPU frame time, GPU errors, view count, dimensions, format, and layer
+  indices in a compact diagnostic overlay/log.
+
+### 9.3 Lifecycle
+
+- On successful session start, transfer RAF ownership only after the layer and
+  reference space are ready.
+- On `end`, exception, device loss, or failed pose acquisition, release pending
+  imported handles, stop XR RAF, clear XR state, restore window RAF/canvas, and
+  restore mouse/keyboard behavior.
+- Handle `visibilitychange` (`visible`, `visible-blurred`, `hidden`) with an
+  explicit pause/audio policy.
+- Handle reference-space `reset`, input-source changes, browser back/escape,
+  repeated enter/exit, and page shutdown.
+- Prevent simultaneous enter requests and stale callbacks from an old session
+  using a session generation/token.
+
+### 9.4 Validation boundary
+
+IWER remains the lifecycle test. Investigate Chromium's WebXR Test API for a
+real native-session automation path, but do not make CI depend on private Mojo
+layout-test bindings. Projection creation and compositor presentation require
+a real supported browser/runtime if no public native mock is available.
+
+### Exit criterion
+
+On a real headset/browser, the user enters VR, sees distinct content in both
+eyes, receives continuous frames for five minutes, exits cleanly to the canvas,
+and can repeat the cycle three times with no device loss, leaked wrapper,
+uncaptured error, crash, or double-speed simulation.
+
+## 10. M7 — head tracking, per-eye camera, and world scale
+
+### 10.1 Coordinate conversion
+
+Document and test the conversion from WebXR's meters/right-handed convention
+(`+X` right, `+Y` up, `-Z` forward) to UE1/SurrealEngine coordinates. Do not
+reuse the debug-stereo IPD constant or assume its unit comment is calibrated.
+
+- Establish a configurable `worldUnitsPerMeter` from verified UT geometry and
+  player collision/eye height; validate in headset before fixing a default.
+- Define matrix storage/transposition explicitly.
+- Confirm WebGPU projection `[0,1]` depth matches the renderer and that near/far
+  handling does not rebuild an approximation unnecessarily.
+- Use each `XRView` transform directly; never synthesize IPD or toe-in cameras.
+
+### 10.2 Body, head, and recenter model
+
+- Keep UnrealScript `PlayerCalcView` as the body/base camera.
+- Compose the tracked viewer pose relative to an application recenter origin,
+  rotated by body/pawn yaw and scaled into world units.
+- Apply headset translation and pitch/roll to render cameras without directly
+  mutating pawn physics or network state.
+- Decide locomotion orientation independently: head-relative and hand-relative
+  options, with body yaw updated by turn controls.
+- Recenter captures current local pose/yaw and optionally standing height.
+- Define seated and standing modes and clamp/handle implausible tracking jumps.
+
+### 10.3 Rendering correctness
+
+- Feed exact per-eye world-to-view and projection matrices through the existing
+  `ViewportOverride`/`ProjectionOverride` path.
+- Verify recursive portals, mirrors, sky zones, coronas, fog, decals, actors,
+  particles, and first-person meshes in both eyes.
+- Ensure culling uses each eye or a conservative stereo frustum; do not let one
+  eye incorrectly remove geometry visible to the other.
+
+### Tests and exit criterion
+
+- Deterministic matrix tests for identity, yaw, pitch, translation, recenter,
+  left/right eye ordering, and handedness.
+- A known near/mid/far marker scene must show correct parallax and no vertical
+  disparity, world rotation inversion, swapped eyes, or head-translation sign
+  error.
+- Head translation must not move the gameplay collision capsule.
+- Ten-minute headset test with room movement and repeated recentering is stable
+  and comfortable.
+
+## 11. M8 — controllers, locomotion, weapon interaction, and haptics
+
+### 11.1 Browser input collection
+
+- Track `session.inputSources` and `inputsourceschange`; key sources by
+  handedness plus stable per-session identity.
+- Read aim pose from `targetRaySpace`, grip pose from `gripSpace`, and controller
+  buttons/axes from the source's live `gamepad` each XR frame.
+- Require/understand `xr-standard` mapping and use WebXR Input Profiles for
+  controller-specific labels/models and robust generic fallback.
+- Copy button/axis values each frame because WebXR gamepad objects update live
+  in place; edge detection cannot compare the same retained object.
+- Normalize dead zones, axis signs, trigger thresholds, and handedness in JS,
+  then send one POD input block with the view state.
+
+### 11.2 Engine input mapping
+
+Provide a remappable default Quest layout:
+
+- left stick: movement;
+- right stick: snap turn by default, optional smooth turn;
+- primary trigger: fire/select;
+- secondary trigger or grip: alternate fire/context action;
+- face buttons: jump, use, weapon next/previous, menu;
+- controller pose: dominant-hand weapon/aim, off-hand future interaction;
+- recenter and emergency menu/exit action without stealing the browser's
+  reserved system button.
+
+Synthesize existing `EInputKey`/axis events where semantics match, but add an
+explicit VR input state for tracked poses and analog trigger values. Do not
+force spatial data through integer keyboard events.
+
+### 11.3 Weapon aiming
+
+- Separate view/head orientation from weapon aim.
+- Audit firing traces, projectile spawn transforms, weapon mesh placement,
+  recoil, muzzle flashes, crosshair, and replication expectations.
+- Add the smallest clean engine hook that lets VR use controller aim while
+  flatscreen keeps pawn/view rotation unchanged.
+- Define two-handed weapons and physical reload as post-MVP features unless
+  specifically approved.
+
+### 11.4 Haptics and optional hands
+
+- Use available gamepad haptic actuators for fire, pickup, damage, and UI
+  confirmation with rate limiting and a disable option.
+- Articulated hand tracking is optional after controller MVP. Request it only
+  as an optional feature and keep controller/gamepad fallback complete.
+
+### Exit criterion
+
+The player can start a match, walk, turn, aim independently of the head, fire
+both modes, jump/use, change weapon, operate menus, recenter, and exit using
+Quest controllers. Inputs remain correct after source disconnect/reconnect and
+session re-entry.
+
+## 12. M9 — HUD, menus, first-person presentation, and comfort
+
+### 12.1 HUD and menu strategy
+
+Do not depend on WebGPU non-projection composition layers for MVP; the binding
+draft notes those layer types are still in development. Render UI inside the
+projection layer:
+
+- Convert the existing 2D canvas/HUD to a head-locked or world-locked virtual
+  plane at a comfortable configurable distance.
+- Render the plane separately for each eye with correct stereo depth and no
+  depth test where appropriate.
+- Scale text for headset readability and keep critical UI inside a conservative
+  field-of-view safe area.
+- Drive menu cursor/raycast from the dominant controller, with trigger select
+  and stick/D-pad navigation fallback.
+- Use DOM Overlay only as an optional diagnostics/import convenience when the
+  target runtime reports it enabled, never as the sole in-headset menu.
+
+### 12.2 First-person weapon
+
+- Place weapon meshes from the dominant grip/aim pose with configurable offsets.
+- Correct clipping, handedness, animation origin, muzzle flash, lighting, and
+  near plane.
+- Offer dominant-hand selection and a head-aim fallback for accessibility.
+
+### 12.3 Comfort options
+
+- Snap turn default with configurable angle and debounce.
+- Optional smooth turn with speed setting.
+- Head-relative or hand-relative smooth locomotion.
+- Optional movement/turn vignette if feasible in the WebGPU pipeline.
+- Seated/standing mode, height calibration, recenter, weapon-hand choice,
+  HUD distance/scale, and comfort presets.
+- No camera shake, forced roll, artificial head bob, or cutscene camera motion
+  in the comfort preset; audit existing UE1 effects and gate them in VR.
+- Define pause/map-transition/loading presentation so the compositor never
+  shows stale or violently moving frames.
+
+### Exit criterion
+
+All essential gameplay information and menus are legible and controller
+operable in-headset; the default profile passes a 30-minute comfort session
+without incorrect weapon scale, stereo UI disparity, forced camera motion, or
+unrecoverable menu state.
+
+## 13. M10 — audio, user data, networking scope, and deployment
+
+### 13.1 Browser audio
+
+The Emscripten build still uses `NullAudioDevice`.
+
+- Choose an Emscripten OpenAL/SDL/WebAudio output path that reuses the existing
+  mixer and decoded sources rather than rewriting game audio in JS.
+- Resume/unlock the browser `AudioContext` from the same user gesture used to
+  start or enter VR.
+- Update the listener from the tracked head pose, not only pawn/body rotation.
+- Suspend/mute correctly for hidden/blurred sessions and restore after focus.
+- Test music streaming, positional effects, volume settings, map changes,
+  session re-entry, underruns, and shutdown.
+
+### 13.2 Legal game-data import and persistence
+
+Replace the 629 MB `--preload-file` development artifact:
+
+- Build a first-run importer using the File System Access API where supported
+  and directory/file input fallback elsewhere.
+- Validate required UT99 directories/packages, show progress and actionable
+  missing-file errors, and never transmit file contents.
+- Store imported data in OPFS/IndexedDB/IDBFS with an explicit schema/version.
+- Request persistent storage where available; report quota before copying and
+  handle eviction/corruption gracefully.
+- Persist configs, key bindings, VR settings, saves, and logs; flush at safe
+  checkpoints and session/page shutdown.
+- Provide clear-data and re-import controls.
+
+### 13.3 Launcher and loading UX
+
+- Replace the native modal launcher with browser UI for import, game selection,
+  map/URL arguments, graphics/VR settings, diagnostics, and launch.
+- Keep expensive package scanning/loading off critical XR presentation where
+  possible; show a stable loading environment or leave XR during major loads.
+- Add crash/error reporting that contains engine/browser diagnostics but no
+  proprietary asset data.
+
+### 13.4 Networking scope
+
+Browser sandboxes do not provide UT99's raw UDP/TCP socket model. Make an
+explicit product decision:
+
+- MVP option: offline/single-player/local bot play only, with multiplayer
+  clearly labeled unsupported.
+- Full option: design and operate a WebSocket/WebTransport relay/proxy plus
+  protocol adaptation, authentication, server discovery, latency testing, and
+  abuse/security controls.
+
+Do not mark multiplayer complete merely because Emscripten socket code links.
+Inventory `UInternetLink`, `UTcpLink`, `UUdpLink`, master-server browsing, and
+game protocol traffic before estimating the relay.
+
+### 13.5 Hosting/PWA
+
+- Serve over HTTPS with `Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Embedder-Policy: require-corp` for pthread/shared memory.
+- Add correct MIME types, immutable hashes for application artifacts, and a
+  service worker that caches only redistributable app code/assets.
+- Add a web manifest, icons, install/update flow, version display, and safe
+  rollback when WASM and JS bridge versions differ.
+- Verify all third-party assets and dependencies have compatible licenses.
+
+### Exit criterion
+
+A clean browser profile can install/open the site, import a legitimate local
+UT99 installation, persist it and settings across reloads, start through a user
+gesture with audio, play the declared networking scope, update safely, and
+remove all stored data. No commercial game file appears in hosted artifacts or
+network requests.
+
+## 14. M11 — Quest performance, robustness, compatibility, and release
+
+### 14.1 Performance budgets
+
+Profile on the actual standalone Quest target, not desktop Chrome only:
+
+- Target the runtime's supported 72/80/90 Hz modes deliberately; first release
+  must sustain at least 72 Hz on the acceptance map set or document a smaller
+  supported content profile.
+- Measure JS, WASM simulation, culling, two-eye draw encoding, queue submission,
+  GPU time, texture uploads, memory, and garbage collection separately.
+- Move per-frame JS/WASM exchange to a single packed block and eliminate avoidable
+  allocations/import wrappers.
+- Reuse view-independent BSP/actor work across eyes while preserving conservative
+  visibility.
+- Measure bind-group cache behavior, geometry-buffer rollovers, texture memory,
+  upload spikes, and map-load peaks on headset.
+- Test projection-layer `scaleFactor`, fixed foveation when supported, LOD/detail
+  settings, and resolution presets. Prefer measured quality controls over hidden
+  dynamic changes.
+- Investigate the existing pthread + memory-growth warning; choose a bounded
+  initial/maximum memory strategy if growth causes unacceptable stalls.
+
+### 14.2 Robustness matrix
+
+Automate where possible and manually cover:
+
+- enter/exit VR repeatedly;
+- headset sleep/wake and browser tab background/foreground;
+- `visible`, `visible-blurred`, and `hidden` session states;
+- lost/reconnected controllers and changed handedness;
+- reference-space reset/recenter;
+- WebGPU validation error and device loss;
+- map travel, death/respawn, menu, pause, save/load, and long play;
+- permission denial, unsupported WebGPU XR, insufficient storage, missing data,
+  and stale service worker;
+- canvas fallback after every failed or ended XR session.
+
+No error path may leave Emscripten RAF paused, retain a browser-owned texture,
+double-submit a frame, tick twice, or require a page reload to recover unless
+the GPU device itself is irrecoverably lost and the UI says so.
+
+### 14.3 Test layers
+
+1. Native/unit: coordinate conversions, projections, phase ordering, input edge
+   detection, config migration.
+2. Browser 2D Playwright: M1 boot, WebGPU screenshots, maps, counters, quit.
+3. IWER Playwright: support checks, two-view pose/lifecycle, controllers where
+   emulation is representative, teardown.
+4. Experimental native-binding probe: Chrome flags, XR-compatible device,
+   external texture/readback, frame-loop ownership.
+5. Physical headset: projection creation, compositor presentation, tracking,
+   input, audio, comfort, performance, sleep/wake, and long-run stability.
+
+Keep the exact browser version, headset OS/runtime version, enabled flags,
+map, frame rate, render scale, and error counters in every headset report.
+
+### 14.4 Compatibility/release gate
+
+Release candidates require:
+
+- target Quest browser exposes the required WebXR/WebGPU API under the declared
+  support policy;
+- five representative maps plus a larger stress map are playable;
+- no uncaptured WebGPU errors or leaked imported textures;
+- correct stereo/pose/controller behavior and usable comfort/UI/audio;
+- legal first-run import and persistent-data workflow;
+- documented networking scope;
+- three clean enter/exit cycles and a 60-minute headset soak;
+- fallback 2D mode and actionable unsupported-browser messaging;
+- reproducible build and deployment instructions with no local absolute paths
+  or proprietary assets.
+
+## 15. Cross-cutting implementation rules
+
+- Feature-detect every unstable WebXR module. Never infer support from browser
+  version alone.
+- Keep JS responsible for browser/XR object lifetimes and C++ responsible for
+  engine simulation/rendering. Cross the boundary with compact data and explicit
+  ownership.
+- Never retain `XRFrame`, `XRView`, `XRGPUSubImage`, or its frame-scoped texture
+  beyond the active callback.
+- Advance gameplay exactly once per displayed XR frame regardless of view count.
+- Use browser-provided per-eye transforms, projection matrices, view descriptors,
+  and viewports; do not manufacture stereo values when real values exist.
+- Preserve the normal canvas and native build paths after every milestone.
+- Record failed probes as well as successful results in
+  `WEBXR_IMPLEMENTATION_PLAN.md` so future work does not repeat them.
+- Do not optimize from desktop-only numbers; measure on Quest before a renderer
+  redesign.
+- Keep experimental flags and IWER limitations visible in logs and UI.
+
+## 16. Immediate execution order
+
+1. Implement M5's simulation/render split with identical native and canvas
+   behavior.
+2. Upgrade the external-target API to render two independently projected array
+   layers in one synchronous frame and extend Playwright readback to both.
+3. Add the packed view-state ABI and matrix/unit tests.
+4. Run the real projection-layer probe on a supported physical headset/browser;
+   in parallel, determine whether the public Chromium WebXR Test API can provide
+   a native automated session.
+5. Implement M6 production session lifecycle and color presentation.
+6. Complete M7 head pose/world-scale correctness before controller gameplay.
+7. Implement M8 input and weapon aiming, then M9 HUD/comfort.
+8. Finish audio/data/deploy and the explicit networking decision in M10.
+9. Optimize and harden only from M11 headset traces, then run release gates.
+
+## 17. Authoritative browser references
+
+- WebXR/WebGPU Binding Module:
+  <https://immersive-web.github.io/WebXR-WebGPU-Binding/>
+- WebXR Device API:
+  <https://www.w3.org/TR/webxr/>
+- WebXR Layers API:
+  <https://immersive-web.github.io/layers/>
+- WebXR Gamepads Module:
+  <https://immersive-web.github.io/webxr-gamepads-module/>
+- WebXR Input Profiles:
+  <https://immersive-web.github.io/webxr-input-profiles/>
+- WebXR Hand Input Module:
+  <https://immersive-web.github.io/webxr-hand-input/>
+- WebXR DOM Overlays Module:
+  <https://immersive-web.github.io/dom-overlays/>
+
+These are evolving specifications. Recheck them at the start of M6, M8, and
+release qualification rather than treating this 2026-07-22 snapshot as frozen.
