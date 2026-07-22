@@ -23,6 +23,8 @@ var commonSources = [
 	"SurrealEngine/Engine.h",
 	"SurrealEngine/GameSupport.cpp",
 	"SurrealEngine/GameSupport.h",
+	"SurrealEngine/GameSupport/DeusEx/TextTokenizer.cpp",
+	"SurrealEngine/GameSupport/DeusEx/TextTokenizer.h",
 	"SurrealEngine/GameFolder.cpp",
 	"SurrealEngine/GameFolder.h",
 	"SurrealEngine/LauncherSettings.cpp",
