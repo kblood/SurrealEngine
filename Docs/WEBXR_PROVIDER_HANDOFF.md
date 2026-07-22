@@ -66,6 +66,9 @@ Adaptations made during extraction:
 - restored the flat canvas pipeline after every XR target unbind;
 - retained the browser-preferred XR projection format instead of assuming the
   canvas format; and
+- cached one WebGPU pipeline family per encountered color format so XR frame
+  bind/unbind does not rebuild pipelines, while still restoring the flat canvas
+  family after each frame; and
 - removed every controller, gameplay, UI, persistence, and PWA dependency.
 
 Provider C++ lives under `SurrealEngine/Platform/WebXR`. Browser ownership and
@@ -97,8 +100,8 @@ Completed locally:
 - synthetic Node lifecycle test covering capability, preferred RGBA format,
   duplicate-entry rejection, packed two-view frame, exit, and re-entry;
 - Emscripten compilation and final JavaScript/WASM link;
-- flat Chrome/WebGPU UT99 runtime after the provider changes: ticked from 57
-  to 600, 95 draw calls, 75 cached textures, zero WebGPU errors, 100% nonblank
+- flat Chrome/WebGPU UT99 runtime after the provider changes: ticked from 61
+  to 604, 95 draw calls, 75 cached textures, zero WebGPU errors, 100% nonblank
   screenshot pixels, and clean quit;
 - `git diff --check`.
 

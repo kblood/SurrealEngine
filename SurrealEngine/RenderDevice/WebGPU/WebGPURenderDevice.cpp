@@ -17,7 +17,8 @@ WebGPURenderDevice::WebGPURenderDevice(Widget* viewport)
 	CurrentDevice = this;
 	Viewport = viewport;
 	Context = std::make_unique<WebGPUContext>();
-	Pipelines = std::make_unique<WebGPUPipelineCache>(Context.get(), Context->SurfaceFormat, DepthFormat);
+	CanvasPipelines = std::make_unique<WebGPUPipelineCache>(Context.get(), Context->SurfaceFormat, DepthFormat);
+	Pipelines = CanvasPipelines.get();
 	PipelineColorFormat = Context->SurfaceFormat;
 	Samplers = std::make_unique<WebGPUSamplerCache>(Context.get());
 	Textures = std::make_unique<WebGPUTextureManager>(this);
@@ -46,10 +47,11 @@ WebGPURenderDevice::WebGPURenderDevice(Widget* viewport)
 
 void WebGPURenderDevice::CreateUniformBindGroup()
 {
-	if (UniformsBindGroup)
+	auto existing = UniformBindGroups.find(PipelineColorFormat);
+	if (existing != UniformBindGroups.end())
 	{
-		wgpuBindGroupRelease(UniformsBindGroup);
-		UniformsBindGroup = nullptr;
+		UniformsBindGroup = existing->second;
+		return;
 	}
 	WGPUBindGroupEntry uniformEntry = {};
 	uniformEntry.binding = 0;
@@ -62,6 +64,7 @@ void WebGPURenderDevice::CreateUniformBindGroup()
 	uniformsBindGroupDesc.entryCount = 1;
 	uniformsBindGroupDesc.entries = &uniformEntry;
 	UniformsBindGroup = wgpuDeviceCreateBindGroup(Context->Device, &uniformsBindGroupDesc);
+	UniformBindGroups[PipelineColorFormat] = UniformsBindGroup;
 }
 
 WebGPURenderDevice::~WebGPURenderDevice()
@@ -74,7 +77,10 @@ WebGPURenderDevice::~WebGPURenderDevice()
 	if (CurrentSurfaceView && !ExternalPresentationActive) { wgpuTextureViewRelease(CurrentSurfaceView); }
 	CurrentSurfaceView = nullptr;
 	if (CurrentSurfaceTexture) { wgpuTextureRelease(CurrentSurfaceTexture); CurrentSurfaceTexture = nullptr; }
-	if (UniformsBindGroup) wgpuBindGroupRelease(UniformsBindGroup);
+	for (auto& entry : UniformBindGroups)
+		wgpuBindGroupRelease(entry.second);
+	UniformBindGroups.clear();
+	UniformsBindGroup = nullptr;
 	if (UniformBuffer) wgpuBufferRelease(UniformBuffer);
 	if (IndexBuffer) wgpuBufferRelease(IndexBuffer);
 	if (VertexBuffer) wgpuBufferRelease(VertexBuffer);
@@ -220,7 +226,17 @@ bool WebGPURenderDevice::EnsurePipelineColorFormat(WGPUTextureFormat format)
 		format != WGPUTextureFormat_RGBA8Unorm && format != WGPUTextureFormat_RGBA16Float))
 		return false;
 
-	Pipelines = std::make_unique<WebGPUPipelineCache>(Context.get(), format, DepthFormat);
+	if (format == Context->SurfaceFormat)
+	{
+		Pipelines = CanvasPipelines.get();
+	}
+	else
+	{
+		auto& family = PresentationPipelines[format];
+		if (!family)
+			family = std::make_unique<WebGPUPipelineCache>(Context.get(), format, DepthFormat);
+		Pipelines = family.get();
+	}
 	PipelineColorFormat = format;
 	CreateUniformBindGroup();
 	return true;
