@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Input/InputComposition.h"
-#include "Platform/OpenXR/OpenXRProvider.h"
+#include "XR/XRCommon.h"
 
 #include <string>
 
@@ -61,7 +61,7 @@ class XRInputAdapter
 public:
 	explicit XRInputAdapter(XRInputBindings bindings = XRInputBindings::ConventionalUE1());
 
-	void Update(const OpenXRInputSnapshot& snapshot, XRInputTarget& target);
+	void Update(const XRSessionState& session, const XRControllerSnapshot& snapshot, XRInputTarget& target);
 	void Disconnect(XRInputTarget& target);
 
 private:
@@ -71,7 +71,7 @@ private:
 		bool Buttons[6] = {};
 	};
 
-	void UpdateHand(int hand, const OpenXRControllerSnapshot& snapshot, XRInputTarget& target);
+	void UpdateHand(int hand, bool active, const XRHandControllerState& snapshot, XRInputTarget& target);
 	void UpdateButton(InputSourceId source, XRInputControl control, const std::string& command, bool down, bool& previous, XRInputTarget& target);
 	static InputSourceId SourceForHand(int hand);
 

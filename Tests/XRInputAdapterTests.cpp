@@ -74,44 +74,43 @@ int main()
 	target.input.SetButton("Fire", desktopFire);
 	target.input.SetAxis("MoveX", desktopMove, 2.0f);
 
-	OpenXRInputSnapshot snapshot;
-	snapshot.Controllers[0].Connected = true;
-	snapshot.Controllers[0].ActionsActive = true;
-	snapshot.Controllers[0].StickX = 0.5f;
-	snapshot.Controllers[0].Trigger = 1.0f;
-	snapshot.Controllers[1].Connected = true;
-	snapshot.Controllers[1].ActionsActive = true;
-	snapshot.Controllers[1].Trigger = 1.0f;
-	adapter.Update(snapshot, target);
+	XRSessionState session{ XRSessionLifecycle::Running, XRSessionFocus::Focused };
+	XRControllerSnapshot snapshot;
+	snapshot.Hands[0].Connected = true;
+	snapshot.Hands[0].Thumbstick.X = 0.5f;
+	snapshot.Hands[0].Select.Value = 1.0f;
+	snapshot.Hands[1].Connected = true;
+	snapshot.Hands[1].Select.Value = 1.0f;
+	adapter.Update(session, snapshot, target);
 	Check(target.commandCounts["Button Fire"] == 2, "both hands must publish independent press edges");
 	Check(target.input.IsButtonActive("Fire"), "XR press did not compose with desktop input");
 	Check(Near(target.input.GetAxisValue("MoveX"), 2.5f), "XR and desktop axes did not compose");
 
-	adapter.Update(snapshot, target);
+	adapter.Update(session, snapshot, target);
 	Check(target.commandCounts["Button Fire"] == 2, "held buttons must not emit another press");
 
-	snapshot.Controllers[0].Trigger = 0.0f;
-	adapter.Update(snapshot, target);
+	snapshot.Hands[0].Select.Value = 0.0f;
+	adapter.Update(session, snapshot, target);
 	Check(target.controlReleases == 1 && target.input.IsButtonActive("Fire"), "one hand releasing must preserve other contributors");
-	snapshot.Controllers[1].Trigger = 0.0f;
-	adapter.Update(snapshot, target);
+	snapshot.Hands[1].Select.Value = 0.0f;
+	adapter.Update(session, snapshot, target);
 	Check(target.input.IsButtonActive("Fire"), "XR release removed the desktop button contributor");
 
-	snapshot.Controllers[0].StickX = 0.05f;
-	adapter.Update(snapshot, target);
+	snapshot.Hands[0].Thumbstick.X = 0.05f;
+	adapter.Update(session, snapshot, target);
 	Check(Near(target.input.GetAxisValue("MoveX"), 2.0f), "deadzone must publish an explicit zero axis contribution");
 
-	snapshot.Controllers[0].PrimaryButton = true;
-	adapter.Update(snapshot, target);
+	snapshot.Hands[0].Primary.Pressed = true;
+	adapter.Update(session, snapshot, target);
 	Check(target.input.IsButtonActive("Use"), "configured semantic button did not publish");
-	snapshot.Controllers[0].Connected = false;
-	adapter.Update(snapshot, target);
+	snapshot.Hands[0].Connected = false;
+	adapter.Update(session, snapshot, target);
 	Check(target.sourceReleases[InputSourceId::XRLeft] == 1, "left disconnect must release the complete XRLeft source");
 	Check(!target.input.IsButtonActive("Use"), "disconnect left a held control active");
 	Check(Near(target.input.GetAxisValue("MoveX"), 2.0f), "disconnect removed the desktop axis contributor");
 
-	snapshot.Controllers[1].Grip = 1.0f;
-	adapter.Update(snapshot, target);
+	snapshot.Hands[1].Squeeze.Value = 1.0f;
+	adapter.Update(session, snapshot, target);
 	Check(target.input.IsButtonActive("Duck"), "right-hand grip did not publish");
 	adapter.Disconnect(target);
 	Check(target.sourceReleases[InputSourceId::XRRight] == 1, "session stop must release XRRight");
@@ -119,8 +118,20 @@ int main()
 	Check(target.input.IsButtonActive("Fire"), "session stop removed simultaneous keyboard input");
 	Check(Near(target.input.GetAxisValue("MoveX"), 2.0f), "session stop removed simultaneous desktop axis input");
 
+	// Runtime focus is provider-neutral. Losing focus must neutralize XR controls
+	// while retaining simultaneous keyboard/mouse contributors.
+	snapshot.Hands[1].Connected = true;
+	snapshot.Hands[1].Select.Value = 1.0f;
+	adapter.Update(session, snapshot, target);
+	Check(target.commandCounts["Button Fire"] == 3, "focused session did not restore XR input");
+	session.Focus = XRSessionFocus::Visible;
+	adapter.Update(session, snapshot, target);
+	Check(target.input.IsButtonActive("Fire"), "focus loss removed the desktop button contributor");
+	Check(target.controlReleases == 4, "focus loss did not release active XR buttons");
+
 	adapter.Disconnect(target);
-	Check(target.sourceReleases[InputSourceId::XRLeft] == 1 && target.sourceReleases[InputSourceId::XRRight] == 1,
+	adapter.Disconnect(target);
+	Check(target.sourceReleases[InputSourceId::XRLeft] == 1 && target.sourceReleases[InputSourceId::XRRight] == 2,
 		"repeated session-stop cleanup must be idempotent");
 	return 0;
 }

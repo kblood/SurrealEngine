@@ -20,7 +20,9 @@ cmake -S . -B build-openxr -DSURREAL_ENABLE_OPENXR=ON
 
 ## Architecture
 
-- `OpenXRProvider` owns the OpenXR instance, system, session, local space, stereo swapchains, events, and balanced wait/begin/end frame calls.
+- `OpenXRProvider` owns the OpenXR instance, system, session, LOCAL and VIEW spaces, stereo swapchains, events, and balanced wait/begin/end frame calls.
+- Native runtime states are translated into provider-neutral `XRSessionState`; VIEW, aim, and grip samples are published as canonical `XRSpaceSamples` in metres. Renderer-specific eye data remains in `OpenXREyeView` until the separate renderer convergence work.
+- `OpenXRProvider` implements `IXRHapticSink`. It accepts validated `XRHapticRequest` values and maps the selected canonical hand to the runtime vibration-output action without choosing gameplay feedback policy.
 - `VulkanGraphicsBinding` lets an optional consumer contribute instance/device extensions and the runtime-required physical device before Vulkan creation. No OpenXR type crosses that interface.
 - `OpenXRViewTranslator` converts OpenXR axes, meters, quaternions, and asymmetric fields of view into two ordinary `ViewDescription` entries. It is SDK-free and covered by a fake-pose test.
 - `Engine::RunOneFrame` still advances once, renders once through a selected `ViewFamily`, and finishes once. XR wait/action sampling happens before simulation so controller contributions apply in that update; the begun frame remains balanced through rendering.
@@ -38,4 +40,4 @@ The presentation-provider extraction did not transplant later controller, weapon
 
 The SDK-enabled build and no-HMD probe can be tested without a headset, but runtime validation still requires a Vulkan-capable OpenXR runtime and physical headset. Before calling this release-ready, verify session start/stop, both eye poses and projections, swapchain image layout/format compatibility, HMD output orientation, mirror output, resize/fullscreen behavior, and clean runtime exit.
 
-This skeleton copies the final side-by-side desktop composition. It does not yet render directly into array layers or isolate UI/weapon/cinematic content into independently cleared targets. Consequently menu and HUD presentation policy remains the next presentation-layer task. Controller pose/actions are layered through the separate input-composition dependency described in `OpenXRInput.md`; haptics remain out of scope.
+This skeleton copies the final side-by-side desktop composition. It does not yet render directly into array layers or isolate UI/weapon/cinematic content into independently cleared targets. Consequently menu and HUD presentation policy remains a separate presentation-layer task. Controller pose/actions are layered through the input-composition dependency described in `OpenXRInput.md`. Haptic transport now exists, but no weapon, UI, or game-profile policy submits feedback yet.

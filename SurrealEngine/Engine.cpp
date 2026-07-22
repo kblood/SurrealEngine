@@ -247,6 +247,8 @@ void Engine::RunOneFrame()
 	bool shouldRenderXR = false;
 	bool submitXRLayer = false;
 	bool acquired[2] = { false, false };
+	XRSpaceSamples xrSpaces;
+	XRControllerSnapshot xrControllers;
 
 	if (openXR && openXR->IsSessionReady())
 	{
@@ -258,10 +260,9 @@ void Engine::RunOneFrame()
 		}
 		else if (openXR->IsSessionRunning())
 		{
-			xrFrameBegun = openXR->WaitBeginAndLocate(shouldRenderXR, eyes);
-			OpenXRInputSnapshot inputSnapshot;
-			if (xrFrameBegun && openXR->SyncInput(inputSnapshot))
-				openXRInput.Update(inputSnapshot, *this);
+			xrFrameBegun = openXR->WaitBeginAndLocate(shouldRenderXR, eyes, xrSpaces);
+			if (xrFrameBegun && openXR->SyncInput(xrSpaces, xrControllers))
+				openXRInput.Update(openXR->SessionState(), xrControllers, *this);
 			else
 				openXRInput.Disconnect(*this);
 		}

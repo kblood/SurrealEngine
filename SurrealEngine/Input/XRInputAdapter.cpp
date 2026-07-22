@@ -39,7 +39,7 @@ void XRInputAdapter::UpdateButton(InputSourceId source, XRInputControl control, 
 	previous = down;
 }
 
-void XRInputAdapter::UpdateHand(int hand, const OpenXRControllerSnapshot& snapshot, XRInputTarget& target)
+void XRInputAdapter::UpdateHand(int hand, bool active, const XRHandControllerState& snapshot, XRInputTarget& target)
 {
 	HandState& previous = state[hand];
 	InputSourceId source = SourceForHand(hand);
@@ -57,27 +57,26 @@ void XRInputAdapter::UpdateHand(int hand, const OpenXRControllerSnapshot& snapsh
 	{
 		return std::fabs(value) < bindings.StickDeadzone ? 0.0f : value;
 	};
-	// An attached controller whose actions are temporarily inactive (for
-	// example while an XR system overlay owns focus) publishes neutral state,
-	// preventing held gameplay controls from becoming stuck.
-	bool active = snapshot.ActionsActive;
 	if (!handBindings.StickX.empty())
-		target.InputCommand(handBindings.StickX, { source, static_cast<int32_t>(XRInputControl::StickX) }, active ? deadzone(snapshot.StickX) : 0.0f);
+		target.InputCommand(handBindings.StickX, { source, static_cast<int32_t>(XRInputControl::StickX) }, active ? deadzone(snapshot.Thumbstick.X) : 0.0f);
 	if (!handBindings.StickY.empty())
-		target.InputCommand(handBindings.StickY, { source, static_cast<int32_t>(XRInputControl::StickY) }, active ? deadzone(snapshot.StickY) : 0.0f);
+		target.InputCommand(handBindings.StickY, { source, static_cast<int32_t>(XRInputControl::StickY) }, active ? deadzone(snapshot.Thumbstick.Y) : 0.0f);
 
-	UpdateButton(source, XRInputControl::Trigger, handBindings.Trigger, active && snapshot.Trigger >= bindings.TriggerThreshold, previous.Buttons[0], target);
-	UpdateButton(source, XRInputControl::Grip, handBindings.Grip, active && snapshot.Grip >= bindings.GripThreshold, previous.Buttons[1], target);
-	UpdateButton(source, XRInputControl::PrimaryButton, handBindings.PrimaryButton, active && snapshot.PrimaryButton, previous.Buttons[2], target);
-	UpdateButton(source, XRInputControl::SecondaryButton, handBindings.SecondaryButton, active && snapshot.SecondaryButton, previous.Buttons[3], target);
-	UpdateButton(source, XRInputControl::MenuButton, handBindings.MenuButton, active && snapshot.MenuButton, previous.Buttons[4], target);
-	UpdateButton(source, XRInputControl::StickClick, handBindings.StickClick, active && snapshot.StickClick, previous.Buttons[5], target);
+	UpdateButton(source, XRInputControl::Trigger, handBindings.Trigger, active && snapshot.Select.Value >= bindings.TriggerThreshold, previous.Buttons[0], target);
+	UpdateButton(source, XRInputControl::Grip, handBindings.Grip, active && snapshot.Squeeze.Value >= bindings.GripThreshold, previous.Buttons[1], target);
+	UpdateButton(source, XRInputControl::PrimaryButton, handBindings.PrimaryButton, active && snapshot.Primary.Pressed, previous.Buttons[2], target);
+	UpdateButton(source, XRInputControl::SecondaryButton, handBindings.SecondaryButton, active && snapshot.Secondary.Pressed, previous.Buttons[3], target);
+	UpdateButton(source, XRInputControl::MenuButton, handBindings.MenuButton, active && snapshot.Menu.Pressed, previous.Buttons[4], target);
+	UpdateButton(source, XRInputControl::StickClick, handBindings.StickClick, active && snapshot.ThumbstickClick.Pressed, previous.Buttons[5], target);
 }
 
-void XRInputAdapter::Update(const OpenXRInputSnapshot& snapshot, XRInputTarget& target)
+void XRInputAdapter::Update(const XRSessionState& session, const XRControllerSnapshot& snapshot, XRInputTarget& target)
 {
-	for (int hand = 0; hand < 2; hand++)
-		UpdateHand(hand, snapshot.Controllers[hand], target);
+	// A visible but unfocused XR session publishes neutral controls so an XR
+	// system overlay cannot leave gameplay input held.
+	const bool active = session.AcceptsInput();
+	for (size_t hand = 0; hand < XRHandCount; hand++)
+		UpdateHand((int)hand, active, snapshot.Hands[hand], target);
 }
 
 void XRInputAdapter::Disconnect(XRInputTarget& target)

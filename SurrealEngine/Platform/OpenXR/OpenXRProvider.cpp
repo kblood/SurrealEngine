@@ -3,6 +3,7 @@
 #include "Utils/Logger.h"
 
 #include <sstream>
+#include <limits>
 
 #if defined(SURREAL_ENABLE_OPENXR)
 #include <surrealgpu/vulkaninstance.h>
@@ -22,8 +23,8 @@ struct OpenXRProvider::Impl
 {
 	bool available = false;
 	bool sessionReady = false;
-	bool sessionRunning = false;
 	bool frameBegun = false;
+	XRSessionState sessionState;
 	std::string lastError;
 	int width = 0;
 	int height = 0;
@@ -33,6 +34,7 @@ struct OpenXRProvider::Impl
 	XrSystemId system = XR_NULL_SYSTEM_ID;
 	XrSession session = XR_NULL_HANDLE;
 	XrSpace space = XR_NULL_HANDLE;
+	XrSpace viewSpace = XR_NULL_HANDLE;
 	XrSwapchain swapchains[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
 	std::vector<XrSwapchainImageVulkanKHR> images[2];
 	XrPath handPaths[2] = { XR_NULL_PATH, XR_NULL_PATH };
@@ -46,6 +48,7 @@ struct OpenXRProvider::Impl
 	XrAction stickClickAction = XR_NULL_HANDLE;
 	XrAction gripPoseAction = XR_NULL_HANDLE;
 	XrAction aimPoseAction = XR_NULL_HANDLE;
+	XrAction hapticAction = XR_NULL_HANDLE;
 	XrSpace gripSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
 	XrSpace aimSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
 	bool actionsReady = false;
@@ -79,6 +82,23 @@ namespace
 	std::string ResultMessage(const char* operation, XrResult result)
 	{
 		return std::string(operation) + " failed (result=" + std::to_string((int)result) + ")";
+	}
+
+	bool LocatePose(XrSpace inputSpace, XrSpace baseSpace, XrTime time, XRPose& output)
+	{
+		output = {};
+		if (!inputSpace || !baseSpace || !time)
+			return false;
+		XrSpaceLocation location{ XR_TYPE_SPACE_LOCATION };
+		if (XR_FAILED(xrLocateSpace(inputSpace, baseSpace, time, &location)))
+			return false;
+		constexpr XrSpaceLocationFlags required = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+		if ((location.locationFlags & required) != required)
+			return false;
+		output.Valid = true;
+		output.Position = { location.pose.position.x, location.pose.position.y, location.pose.position.z };
+		output.Orientation = { location.pose.orientation.x, location.pose.orientation.y, location.pose.orientation.z, location.pose.orientation.w };
+		return true;
 	}
 }
 #endif
@@ -153,6 +173,8 @@ OpenXRProvider::~OpenXRProvider()
 		if (impl->aimSpaces[eye])
 			xrDestroySpace(impl->aimSpaces[eye]);
 	}
+	if (impl->viewSpace)
+		xrDestroySpace(impl->viewSpace);
 	if (impl->space)
 		xrDestroySpace(impl->space);
 	if (impl->session)
@@ -166,7 +188,8 @@ OpenXRProvider::~OpenXRProvider()
 
 bool OpenXRProvider::IsAvailable() const { return impl->available; }
 bool OpenXRProvider::IsSessionReady() const { return impl->sessionReady; }
-bool OpenXRProvider::IsSessionRunning() const { return impl->sessionRunning; }
+bool OpenXRProvider::IsSessionRunning() const { return impl->sessionState.IsRunning(); }
+const XRSessionState& OpenXRProvider::SessionState() const { return impl->sessionState; }
 const std::string& OpenXRProvider::LastError() const { return impl->lastError; }
 int OpenXRProvider::SwapchainWidth() const { return impl->width; }
 int OpenXRProvider::SwapchainHeight() const { return impl->height; }
@@ -283,6 +306,13 @@ bool OpenXRProvider::OnVulkanDeviceCreated(void* instance, void* physicalDevice,
 		impl->lastError = ResultMessage("xrCreateReferenceSpace", result);
 		return false;
 	}
+	spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+	result = xrCreateReferenceSpace(impl->session, &spaceInfo, &impl->viewSpace);
+	if (XR_FAILED(result))
+	{
+		impl->lastError = ResultMessage("xrCreateReferenceSpace(VIEW)", result);
+		return false;
+	}
 
 	// One semantic action is shared by the left/right subaction paths. This
 	// keeps hand policy out of the provider and gives the adapter two fully
@@ -319,6 +349,7 @@ bool OpenXRProvider::OnVulkanDeviceCreated(void* instance, void* physicalDevice,
 		impl->stickClickAction = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "thumbstick_click", "Thumbstick Click");
 		impl->gripPoseAction = makeAction(XR_ACTION_TYPE_POSE_INPUT, "grip_pose", "Grip Pose");
 		impl->aimPoseAction = makeAction(XR_ACTION_TYPE_POSE_INPUT, "aim_pose", "Aim Pose");
+		impl->hapticAction = makeAction(XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic", "Haptic Output");
 
 		auto suggest = [&](const char* profileName, const std::vector<std::pair<XrAction, const char*>>& bindings)
 		{
@@ -359,6 +390,8 @@ bool OpenXRProvider::OnVulkanDeviceCreated(void* instance, void* physicalDevice,
 			{ impl->gripPoseAction, "/user/hand/right/input/grip/pose" },
 			{ impl->aimPoseAction, "/user/hand/left/input/aim/pose" },
 			{ impl->aimPoseAction, "/user/hand/right/input/aim/pose" },
+			{ impl->hapticAction, "/user/hand/left/output/haptic" },
+			{ impl->hapticAction, "/user/hand/right/output/haptic" },
 		});
 		suggest("/interaction_profiles/khr/simple_controller", {
 			{ impl->triggerAction, "/user/hand/left/input/select/click" },
@@ -369,6 +402,8 @@ bool OpenXRProvider::OnVulkanDeviceCreated(void* instance, void* physicalDevice,
 			{ impl->gripPoseAction, "/user/hand/right/input/grip/pose" },
 			{ impl->aimPoseAction, "/user/hand/left/input/aim/pose" },
 			{ impl->aimPoseAction, "/user/hand/right/input/aim/pose" },
+			{ impl->hapticAction, "/user/hand/left/output/haptic" },
+			{ impl->hapticAction, "/user/hand/right/output/haptic" },
 		});
 
 		XrSessionActionSetsAttachInfo attachInfo{ XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
@@ -496,34 +531,61 @@ bool OpenXRProvider::PollEvents()
 		if (XR_FAILED(result))
 		{
 			impl->lastError = ResultMessage("xrPollEvent", result);
+			impl->sessionState = { XRSessionLifecycle::Lost, XRSessionFocus::Unavailable };
 			return false;
 		}
 		if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED)
 		{
 			auto& state = *reinterpret_cast<XrEventDataSessionStateChanged*>(&event);
-			if (state.state == XR_SESSION_STATE_READY)
+			switch (state.state)
 			{
+			case XR_SESSION_STATE_IDLE:
+				impl->sessionState = { XRSessionLifecycle::Inactive, XRSessionFocus::Unavailable };
+				break;
+			case XR_SESSION_STATE_READY:
+			{
+				impl->sessionState = { XRSessionLifecycle::Starting, XRSessionFocus::Unavailable };
 				XrSessionBeginInfo beginInfo{ XR_TYPE_SESSION_BEGIN_INFO };
 				beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 				XrResult beginResult = xrBeginSession(impl->session, &beginInfo);
-				impl->sessionRunning = XR_SUCCEEDED(beginResult);
-				if (XR_FAILED(beginResult))
+				if (XR_SUCCEEDED(beginResult))
+					impl->sessionState = { XRSessionLifecycle::Running, XRSessionFocus::Unavailable };
+				else
+				{
 					impl->lastError = ResultMessage("xrBeginSession", beginResult);
+					impl->sessionState = { XRSessionLifecycle::Lost, XRSessionFocus::Unavailable };
+					return false;
+				}
+				break;
 			}
-			else if (state.state == XR_SESSION_STATE_STOPPING)
+			case XR_SESSION_STATE_SYNCHRONIZED:
+				impl->sessionState = { XRSessionLifecycle::Running, XRSessionFocus::Unavailable };
+				break;
+			case XR_SESSION_STATE_VISIBLE:
+				impl->sessionState = { XRSessionLifecycle::Running, XRSessionFocus::Visible };
+				break;
+			case XR_SESSION_STATE_FOCUSED:
+				impl->sessionState = { XRSessionLifecycle::Running, XRSessionFocus::Focused };
+				break;
+			case XR_SESSION_STATE_STOPPING:
 			{
-				xrEndSession(impl->session);
-				impl->sessionRunning = false;
+				impl->sessionState = { XRSessionLifecycle::Stopping, XRSessionFocus::Unavailable };
+				XrResult endResult = xrEndSession(impl->session);
+				if (XR_FAILED(endResult))
+					impl->lastError = ResultMessage("xrEndSession", endResult);
+				break;
 			}
-			else if (state.state == XR_SESSION_STATE_EXITING || state.state == XR_SESSION_STATE_LOSS_PENDING)
-			{
-				impl->sessionRunning = false;
+			case XR_SESSION_STATE_EXITING:
+			case XR_SESSION_STATE_LOSS_PENDING:
+				impl->sessionState = { XRSessionLifecycle::Lost, XRSessionFocus::Unavailable };
 				return false;
+			default:
+				break;
 			}
 		}
 		else if (event.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING)
 		{
-			impl->sessionRunning = false;
+			impl->sessionState = { XRSessionLifecycle::Lost, XRSessionFocus::Unavailable };
 			return false;
 		}
 	}
@@ -532,11 +594,12 @@ bool OpenXRProvider::PollEvents()
 #endif
 }
 
-bool OpenXRProvider::WaitBeginAndLocate(bool& shouldRender, OpenXREyeView eyes[2])
+bool OpenXRProvider::WaitBeginAndLocate(bool& shouldRender, OpenXREyeView eyes[2], XRSpaceSamples& spaces)
 {
 	shouldRender = false;
+	spaces = {};
 #if defined(SURREAL_ENABLE_OPENXR)
-	if (!impl->sessionRunning || impl->frameBegun)
+	if (!impl->sessionState.IsRunning() || impl->frameBegun)
 		return false;
 	XrFrameWaitInfo waitInfo{ XR_TYPE_FRAME_WAIT_INFO };
 	XrFrameState frameState{ XR_TYPE_FRAME_STATE };
@@ -556,6 +619,7 @@ bool OpenXRProvider::WaitBeginAndLocate(bool& shouldRender, OpenXREyeView eyes[2
 	impl->frameBegun = true;
 	impl->predictedDisplayTime = frameState.predictedDisplayTime;
 	shouldRender = frameState.shouldRender != XR_FALSE;
+	LocatePose(impl->viewSpace, impl->space, impl->predictedDisplayTime, spaces.Head);
 	if (!shouldRender)
 		return true;
 
@@ -591,11 +655,13 @@ bool OpenXRProvider::WaitBeginAndLocate(bool& shouldRender, OpenXREyeView eyes[2
 #endif
 }
 
-bool OpenXRProvider::SyncInput(OpenXRInputSnapshot& snapshot)
+bool OpenXRProvider::SyncInput(XRSpaceSamples& spaces, XRControllerSnapshot& controllers)
 {
-	snapshot = {};
+	controllers = {};
+	spaces.Aim = {};
+	spaces.Grip = {};
 #if defined(SURREAL_ENABLE_OPENXR)
-	if (!impl->sessionRunning || !impl->actionsReady)
+	if (!impl->sessionState.IsRunning() || !impl->actionsReady)
 		return false;
 
 	XrActiveActionSet activeSet{};
@@ -612,7 +678,9 @@ bool OpenXRProvider::SyncInput(OpenXRInputSnapshot& snapshot)
 
 	for (int hand = 0; hand < 2; hand++)
 	{
-		OpenXRControllerSnapshot& controller = snapshot.Controllers[hand];
+		const XRHand xrHand = hand == 0 ? XRHand::Left : XRHand::Right;
+		XRHandControllerState& controller = controllers.ForHand(xrHand);
+		bool anyActionActive = false;
 		XrInteractionProfileState profile{ XR_TYPE_INTERACTION_PROFILE_STATE };
 		if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(impl->session, impl->handPaths[hand], &profile)))
 			controller.Connected = profile.interactionProfile != XR_NULL_PATH;
@@ -632,7 +700,7 @@ bool OpenXRProvider::SyncInput(OpenXRInputSnapshot& snapshot)
 			XrActionStateGetInfo info = getInfo(action);
 			if (XR_SUCCEEDED(xrGetActionStateFloat(impl->session, &info, &state)) && state.isActive)
 			{
-				controller.ActionsActive = true;
+				anyActionActive = true;
 				return state.currentState;
 			}
 			return 0.0f;
@@ -645,7 +713,7 @@ bool OpenXRProvider::SyncInput(OpenXRInputSnapshot& snapshot)
 			XrActionStateGetInfo info = getInfo(action);
 			if (XR_SUCCEEDED(xrGetActionStateBoolean(impl->session, &info, &state)) && state.isActive)
 			{
-				controller.ActionsActive = true;
+				anyActionActive = true;
 				return state.currentState != XR_FALSE;
 			}
 			return false;
@@ -657,7 +725,7 @@ bool OpenXRProvider::SyncInput(OpenXRInputSnapshot& snapshot)
 			XrActionStatePose state{ XR_TYPE_ACTION_STATE_POSE };
 			XrActionStateGetInfo info = getInfo(action);
 			bool active = XR_SUCCEEDED(xrGetActionStatePose(impl->session, &info, &state)) && state.isActive;
-			controller.ActionsActive |= active;
+			anyActionActive |= active;
 			return active;
 		};
 
@@ -667,43 +735,65 @@ bool OpenXRProvider::SyncInput(OpenXRInputSnapshot& snapshot)
 			XrActionStateGetInfo info = getInfo(impl->stickAction);
 			if (XR_SUCCEEDED(xrGetActionStateVector2f(impl->session, &info, &state)) && state.isActive)
 			{
-				controller.ActionsActive = true;
-				controller.StickX = state.currentState.x;
-				controller.StickY = state.currentState.y;
+				anyActionActive = true;
+				controller.Thumbstick = { state.currentState.x, state.currentState.y };
 			}
 		}
-		controller.Trigger = getFloat(impl->triggerAction);
-		controller.Grip = getFloat(impl->gripAction);
-		controller.PrimaryButton = getButton(impl->primaryButtonAction);
-		controller.SecondaryButton = getButton(impl->secondaryButtonAction);
-		controller.MenuButton = getButton(impl->menuButtonAction);
-		controller.StickClick = getButton(impl->stickClickAction);
+		controller.Select.Value = getFloat(impl->triggerAction);
+		controller.Select.Pressed = controller.Select.Value > 0.0f;
+		controller.Squeeze.Value = getFloat(impl->gripAction);
+		controller.Squeeze.Pressed = controller.Squeeze.Value > 0.0f;
+		controller.Primary.Pressed = getButton(impl->primaryButtonAction);
+		controller.Primary.Value = controller.Primary.Pressed ? 1.0f : 0.0f;
+		controller.Secondary.Pressed = getButton(impl->secondaryButtonAction);
+		controller.Secondary.Value = controller.Secondary.Pressed ? 1.0f : 0.0f;
+		controller.Menu.Pressed = getButton(impl->menuButtonAction);
+		controller.Menu.Value = controller.Menu.Pressed ? 1.0f : 0.0f;
+		controller.ThumbstickClick.Pressed = getButton(impl->stickClickAction);
+		controller.ThumbstickClick.Value = controller.ThumbstickClick.Pressed ? 1.0f : 0.0f;
 		bool gripActive = poseActive(impl->gripPoseAction);
 		bool aimActive = poseActive(impl->aimPoseAction);
-		controller.Connected |= controller.ActionsActive;
+		controller.Connected |= anyActionActive;
 
-		auto locate = [&](XrSpace inputSpace, bool active, OpenXRPoseSnapshot& output)
-		{
-			if (!inputSpace || !active || !impl->predictedDisplayTime)
-				return;
-			XrSpaceLocation location{ XR_TYPE_SPACE_LOCATION };
-			if (XR_FAILED(xrLocateSpace(inputSpace, impl->space, impl->predictedDisplayTime, &location)))
-				return;
-			constexpr XrSpaceLocationFlags required = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
-			if ((location.locationFlags & required) != required)
-				return;
-			output.Valid = true;
-			output.PositionMeters = { location.pose.position.x, location.pose.position.y, location.pose.position.z };
-			output.OrientationX = location.pose.orientation.x;
-			output.OrientationY = location.pose.orientation.y;
-			output.OrientationZ = location.pose.orientation.z;
-			output.OrientationW = location.pose.orientation.w;
-		};
-		locate(impl->gripSpaces[hand], gripActive, controller.GripPose);
-		locate(impl->aimSpaces[hand], aimActive, controller.AimPose);
+		if (gripActive)
+			LocatePose(impl->gripSpaces[hand], impl->space, impl->predictedDisplayTime, spaces.GripFor(xrHand));
+		if (aimActive)
+			LocatePose(impl->aimSpaces[hand], impl->space, impl->predictedDisplayTime, spaces.AimFor(xrHand));
 	}
 	return true;
 #else
+	return false;
+#endif
+}
+
+bool OpenXRProvider::SubmitHaptic(const XRHapticRequest& request)
+{
+#if defined(SURREAL_ENABLE_OPENXR)
+	if (!IsValidXRHapticRequest(request) || !impl->sessionState.AcceptsInput() || !impl->hapticAction)
+		return false;
+
+	XrHapticActionInfo actionInfo{ XR_TYPE_HAPTIC_ACTION_INFO };
+	actionInfo.action = impl->hapticAction;
+	actionInfo.subactionPath = impl->handPaths[XRHandIndex(request.Hand)];
+
+	XrHapticVibration vibration{ XR_TYPE_HAPTIC_VIBRATION };
+	const double durationNanoseconds = std::max(1.0, std::min(
+		static_cast<double>(request.DurationSeconds) * 1000000000.0,
+		static_cast<double>(std::numeric_limits<XrDuration>::max())));
+	vibration.duration = static_cast<XrDuration>(durationNanoseconds);
+	vibration.frequency = request.FrequencyHz > 0.0f ? request.FrequencyHz : XR_FREQUENCY_UNSPECIFIED;
+	vibration.amplitude = request.Amplitude;
+
+	XrResult result = xrApplyHapticFeedback(impl->session, &actionInfo,
+		reinterpret_cast<const XrHapticBaseHeader*>(&vibration));
+	if (XR_FAILED(result))
+	{
+		impl->lastError = ResultMessage("xrApplyHapticFeedback", result);
+		return false;
+	}
+	return true;
+#else
+	(void)request;
 	return false;
 #endif
 }
