@@ -318,7 +318,7 @@ void BotBenchmark::EndDamage(UPawn* victim)
 
 void BotBenchmark::BeginKilled(UObject* game, UPawn* killer, UPawn* victim, const std::string& damageType)
 {
-	if (!Instance || Instance->Finalized || Instance->Config.Scenario != "skill-qualification" || !game || !victim)
+	if (!Instance || Instance->Finalized || !Instance->DeathOutcomeAccountingEnabled() || !game || !victim)
 		return;
 	const std::string victimIdentity = PawnIdentity(victim);
 	const std::string killerIdentity = PawnIdentity(killer);
@@ -326,7 +326,10 @@ void BotBenchmark::BeginKilled(UObject* game, UPawn* killer, UPawn* victim, cons
 		Instance->RequestedSkillByIdentity.count(killerIdentity) == 0)
 		return;
 	auto& observation = Instance->ActiveKilled[{ game, victim }];
-	if (observation.Depth++ == 0)
+	observation.Depth++;
+	observation.DispatchCount++;
+	observation.MaxDepth = std::max(observation.MaxDepth, static_cast<uint32_t>(observation.Depth));
+	if (observation.Depth == 1)
 	{
 		observation.Id = ++Instance->DeathSequence;
 		observation.Killer = killer;
@@ -372,6 +375,8 @@ void BotBenchmark::EndKilled(UObject* game, UPawn* victim)
 	const bool opponentDeath = participantVictim && participantKiller && !selfDeath;
 	const bool environmentalDeath = participantVictim && !observation.Killer;
 	const bool externalDeath = participantVictim && observation.Killer && !participantKiller;
+	const std::string classification = selfDeath ? "self" : (opponentDeath ? "participant_opponent" :
+		(environmentalDeath ? "environment_null" : "external_nonparticipant"));
 	if (!participantVictim && !participantKiller)
 		return;
 	auto telemetryForStableIdentity = [&](const std::string& identity, int rosterIndex, UPawn* pawn) -> BotTelemetry&
@@ -421,15 +426,17 @@ void BotBenchmark::EndKilled(UObject* game, UPawn* victim)
 	if (observation.Killer)
 		if (UPlayerReplicationInfo* killerPri = observation.Killer->PlayerReplicationInfo())
 			killerScoreAfter = killerPri->Score();
-	Instance->WriteEvent("death_adjudicated", {
+	std::map<std::string, std::string> deathFields = {
 		{ "death_id", ToString(observation.Id) },
 		{ "damage_id", ToString(observation.DamageId) },
+		{ "game_class", ClassName(game) },
+		{ "game_killed_dispatch_count", ToString(static_cast<uint64_t>(observation.DispatchCount)) },
+		{ "game_killed_max_depth", ToString(static_cast<uint64_t>(observation.MaxDepth)) },
 		{ "victim", victimIdentity },
 		{ "killer", killerIdentity.empty() ? "None" : killerIdentity },
 		{ "victim_roster_index", ToString(observation.VictimRosterIndex) },
 		{ "killer_roster_index", ToString(observation.KillerRosterIndex) },
-		{ "classification", selfDeath ? "self" : (opponentDeath ? "participant_opponent" :
-			(environmentalDeath ? "environment_null" : "external_nonparticipant")) },
+		{ "classification", classification },
 		{ "damage_mediated", observation.DamageMediated ? "true" : "false" },
 		{ "damage_type", observation.DamageType },
 		{ "victim_deaths_before", ToString(observation.VictimDeathsBefore) },
@@ -438,7 +445,22 @@ void BotBenchmark::EndKilled(UObject* game, UPawn* victim)
 		{ "victim_score_after", ToString(victimScoreAfter) },
 		{ "killer_score_before", ToString(observation.KillerScoreBefore) },
 		{ "killer_score_after", ToString(killerScoreAfter) }
-	});
+	};
+	if (Instance->Config.FixtureId == "controlled-death-outcomes-v1")
+	{
+		Instance->FixtureLastDeathId = observation.Id;
+		Instance->FixtureLastDeathDamageId = observation.DamageId;
+		Instance->FixtureLastDeathDispatchCount = observation.DispatchCount;
+		Instance->FixtureLastDeathMaxDepth = observation.MaxDepth;
+		Instance->FixtureLastDeathClassification = classification;
+		Instance->FixtureLastDeathDamageMediated = observation.DamageMediated;
+		Instance->FixtureDeathDispatches += observation.DispatchCount;
+		Instance->WriteFixtureProtocolEvent("death_adjudicated", deathFields);
+	}
+	else
+	{
+		Instance->WriteEvent("death_adjudicated", deathFields);
+	}
 }
 
 std::string BotBenchmark::WeaponMode(UWeapon* weapon)
@@ -661,6 +683,12 @@ BotBenchmark::BotBenchmark(BotBenchmarkConfig config) : Config(std::move(config)
 {
 }
 
+bool BotBenchmark::DeathOutcomeAccountingEnabled() const
+{
+	return Config.Scenario == "skill-qualification" ||
+		Config.FixtureId == "controlled-death-outcomes-v1";
+}
+
 void BotBenchmark::OpenOutput()
 {
 	std::filesystem::create_directories(Config.OutputDirectory);
@@ -730,9 +758,15 @@ void BotBenchmark::RunControlledFixture(Engine& engine)
 	};
 
 	if (Config.FixtureId != "controlled-reachability-blockall-v1" &&
-		Config.FixtureId != "controlled-hitwall-blockall-v1")
+		Config.FixtureId != "controlled-hitwall-blockall-v1" &&
+		Config.FixtureId != "controlled-death-outcomes-v1")
 	{
 		setupFailure("Unknown controlled fixture: " + Config.FixtureId);
+		return;
+	}
+	if (Config.FixtureId == "controlled-death-outcomes-v1")
+	{
+		SetupDeathOutcomeFixture(engine);
 		return;
 	}
 	if (Config.BotCount != 1)
@@ -922,6 +956,366 @@ void BotBenchmark::RunControlledFixture(Engine& engine)
 	}
 }
 
+void BotBenchmark::FreezeDeathFixtureBot(UPawn* bot)
+{
+	if (!bot || bot->bDeleteMe())
+		return;
+	bot->Enemy() = nullptr;
+	bot->bFire() = 0;
+	bot->bAltFire() = 0;
+	bot->Velocity() = vec3(0.0f);
+	bot->Acceleration() = vec3(0.0f);
+	bot->GotoState(NameString("GameEnded"), NameString());
+	bot->SetPhysics(PHYS_None);
+	bot->SetCollision(false, false, false);
+}
+
+void BotBenchmark::ActivateDeathFixtureBot(UPawn* bot)
+{
+	if (!bot || bot->bDeleteMe())
+		return;
+	bot->Enemy() = nullptr;
+	bot->bFire() = 0;
+	bot->bAltFire() = 0;
+	bot->Velocity() = vec3(0.0f);
+	bot->Acceleration() = vec3(0.0f);
+	bot->bHidden() = false;
+	bot->SetCollision(true, true, true);
+	bot->SetPhysics(PHYS_Walking);
+	bot->GotoState(NameString("Roaming"), NameString());
+}
+
+bool BotBenchmark::DeathFixtureBotRespawned(std::size_t rosterIndex) const
+{
+	if (rosterIndex >= FixtureDeathBots.size())
+		return false;
+	UPawn* bot = FixtureDeathBots[rosterIndex];
+	return bot && !bot->bDeleteMe() && bot->Health() > 0 && !bot->bHidden() &&
+		bot->GetStateName() != NameString("Dying") && bot->Weapon() != nullptr &&
+		PawnIdentity(bot) == FixtureDeathIdentities[rosterIndex];
+}
+
+void BotBenchmark::SetupDeathOutcomeFixture(Engine& engine)
+{
+	if (Config.BotCount != 2)
+	{
+		FixtureSetupFailure("controlled-death-outcomes-v1 requires exactly two bots");
+		return;
+	}
+	if (Config.BotNames != std::vector<std::string>{ "Loque", "Tamerlane" })
+	{
+		FixtureSetupFailure("controlled-death-outcomes-v1 requires Loque,Tamerlane profiles");
+		return;
+	}
+	if (!engine.GameInfo || ClassName(engine.GameInfo) != "Botpack.DeathMatchPlus")
+	{
+		FixtureSetupFailure("controlled-death-outcomes-v1 requires Botpack.DeathMatchPlus");
+		return;
+	}
+
+	FixtureDeathBots.assign(2, nullptr);
+	for (UActor* actor : engine.Level->Actors)
+	{
+		UPawn* bot = UObject::TryCast<UPawn>(actor);
+		if (!bot || !bot->IsA("Bot"))
+			continue;
+		const std::string identity = PawnIdentity(bot);
+		auto roster = RosterIndexByIdentity.find(identity);
+		if (roster == RosterIndexByIdentity.end() || roster->second < 0 || roster->second >= 2)
+			continue;
+		if (FixtureDeathBots[static_cast<std::size_t>(roster->second)])
+		{
+			FixtureSetupFailure("controlled-death-outcomes-v1 found a duplicate roster slot");
+			return;
+		}
+		FixtureDeathBots[static_cast<std::size_t>(roster->second)] = bot;
+	}
+	if (!FixtureDeathBots[0] || !FixtureDeathBots[1])
+	{
+		FixtureSetupFailure("controlled-death-outcomes-v1 could not bind both roster slots");
+		return;
+	}
+
+	FixtureDeathIdentities.clear();
+	FixtureDeathProfileIds.clear();
+	for (std::size_t index = 0; index < FixtureDeathBots.size(); index++)
+	{
+		UPawn* bot = FixtureDeathBots[index];
+		const std::string identity = PawnIdentity(bot);
+		if (bot->bDeleteMe() || bot->Health() <= 0 || !bot->PlayerReplicationInfo())
+		{
+			FixtureSetupFailure("controlled-death-outcomes-v1 requires two live roster bots with PRIs");
+			return;
+		}
+		FixtureDeathIdentities.push_back(identity);
+		auto profile = ProfileIdByIdentity.find(identity);
+		FixtureDeathProfileIds.push_back(profile == ProfileIdByIdentity.end() ? std::string() : profile->second);
+	}
+
+	for (UPawn* bot : FixtureDeathBots)
+		FreezeDeathFixtureBot(bot);
+
+	UPlayerReplicationInfo* pri0 = FixtureDeathBots[0]->PlayerReplicationInfo();
+	UPlayerReplicationInfo* pri1 = FixtureDeathBots[1]->PlayerReplicationInfo();
+	WriteFixtureProtocolEvent("fixture_setup", {
+		{ "fixture_id", Config.FixtureId },
+		{ "game_class", ClassName(engine.GameInfo) },
+		{ "expected_actions", "3" },
+		{ "respawn_timeout_ticks", "180" },
+		{ "bot0", ObjectName(FixtureDeathBots[0]) },
+		{ "bot0_identity", FixtureDeathIdentities[0] },
+		{ "bot0_roster_index", "0" },
+		{ "bot0_profile_id", FixtureDeathProfileIds[0] },
+		{ "bot0_initial_health", ToString(FixtureDeathBots[0]->Health()) },
+		{ "bot0_initial_score", ToString(pri0->Score()) },
+		{ "bot0_initial_deaths", ToString(pri0->Deaths()) },
+		{ "bot1", ObjectName(FixtureDeathBots[1]) },
+		{ "bot1_identity", FixtureDeathIdentities[1] },
+		{ "bot1_roster_index", "1" },
+		{ "bot1_profile_id", FixtureDeathProfileIds[1] },
+		{ "bot1_initial_health", ToString(FixtureDeathBots[1]->Health()) },
+		{ "bot1_initial_score", ToString(pri1->Score()) },
+		{ "bot1_initial_deaths", ToString(pri1->Deaths()) }
+	});
+	FixtureAssertion("fixture_two_profile_roster_bound", true,
+		FixtureDeathIdentities[0] != FixtureDeathIdentities[1] &&
+		!FixtureDeathProfileIds[0].empty() && !FixtureDeathProfileIds[1].empty());
+	FixtureAssertion("fixture_game_is_deathmatchplus", true, true);
+	FixturePhase = ControlledFixturePhase::DeathStep1;
+	FixturePhaseStartTick = Tick;
+}
+
+void BotBenchmark::RunDeathFixtureAction(int step)
+{
+	FixtureDeathActionStep = step;
+	FixtureActionDamageBefore = DamageSequence;
+	FixtureActionDeathBefore = DeathSequence;
+	FixtureLastDeathId = 0;
+	FixtureLastDeathDamageId = 0;
+	FixtureLastDeathDispatchCount = 0;
+	FixtureLastDeathMaxDepth = 0;
+	FixtureLastDeathClassification.clear();
+	FixtureLastDeathDamageMediated = false;
+
+	const std::size_t victimIndex = step == 1 ? 0 : 1;
+	const int killerIndex = step == 2 ? 0 : -1;
+	UPawn* victim = FixtureDeathBots[victimIndex];
+	UPawn* killer = killerIndex >= 0 ? FixtureDeathBots[static_cast<std::size_t>(killerIndex)] : nullptr;
+	const std::string mechanism = step == 1 ? "TakeDamage" : (step == 2 ? "gibbedBy" : "FellOutOfWorld");
+	const std::string expectedClassification = step == 2 ? "participant_opponent" : "environment_null";
+	const bool expectedMediated = step == 1;
+
+	ActivateDeathFixtureBot(victim);
+	WriteFixtureProtocolEvent("fixture_death_action", {
+		{ "fixture_id", Config.FixtureId },
+		{ "step", ToString(step) },
+		{ "mechanism", mechanism },
+		{ "expected_classification", expectedClassification },
+		{ "expected_damage_mediated", expectedMediated ? "true" : "false" },
+		{ "victim", FixtureDeathIdentities[victimIndex] },
+		{ "victim_roster_index", ToString(static_cast<int>(victimIndex)) },
+		{ "killer", killer ? FixtureDeathIdentities[static_cast<std::size_t>(killerIndex)] : "None" },
+		{ "killer_roster_index", ToString(killerIndex) },
+		{ "damage_id_before", ToString(FixtureActionDamageBefore) },
+		{ "death_id_before", ToString(FixtureActionDeathBefore) }
+	});
+
+	if (step == 1)
+	{
+		CallEvent(victim, NameString("TakeDamage"), {
+			ExpressionValue::IntValue(10000),
+			ExpressionValue::ObjectValue(nullptr),
+			ExpressionValue::VectorValue(victim->Location()),
+			ExpressionValue::VectorValue(vec3(0.0f)),
+			ExpressionValue::NameValue(NameString("Burned"))
+		});
+	}
+	else if (step == 2)
+	{
+		CallEvent(victim, NameString("gibbedBy"), { ExpressionValue::ObjectValue(killer) });
+	}
+	else
+	{
+		CallEvent(victim, EventName::FellOutOfWorld);
+	}
+
+	const uint64_t damageDelta = DamageSequence - FixtureActionDamageBefore;
+	const uint64_t deathDelta = DeathSequence - FixtureActionDeathBefore;
+	WriteFixtureProtocolEvent("fixture_death_action_result", {
+		{ "fixture_id", Config.FixtureId },
+		{ "step", ToString(step) },
+		{ "damage_id_after", ToString(DamageSequence) },
+		{ "death_id_after", ToString(DeathSequence) },
+		{ "damage_id_delta", ToString(damageDelta) },
+		{ "death_id_delta", ToString(deathDelta) },
+		{ "outcome_death_id", ToString(FixtureLastDeathId) },
+		{ "outcome_damage_id", ToString(FixtureLastDeathDamageId) },
+		{ "outcome_classification", FixtureLastDeathClassification },
+		{ "outcome_damage_mediated", FixtureLastDeathDamageMediated ? "true" : "false" },
+		{ "game_killed_dispatch_count", ToString(static_cast<uint64_t>(FixtureLastDeathDispatchCount)) },
+		{ "game_killed_max_depth", ToString(static_cast<uint64_t>(FixtureLastDeathMaxDepth)) },
+		{ "victim_health", ToString(victim->Health()) },
+		{ "victim_state", victim->GetStateName().ToString() },
+		{ "active_damage_entries", ToString(static_cast<int>(ActiveDamage.size())) },
+		{ "active_killed_entries", ToString(static_cast<int>(ActiveKilled.size())) }
+	});
+
+	const bool nestedDeduplicated = deathDelta == 1 && FixtureLastDeathDispatchCount == 2 &&
+		FixtureLastDeathMaxDepth == 2;
+	if (step == 1)
+	{
+		FixtureAssertion("environment_damage_one_fatal_call", true, damageDelta == 1 && victim->Health() <= 0);
+		FixtureAssertion("environment_damage_one_adjudicated_death", true,
+			deathDelta == 1 && FixtureLastDeathClassification == "environment_null");
+		FixtureAssertion("environment_damage_linked", true,
+			FixtureLastDeathDamageMediated && FixtureLastDeathDamageId == DamageSequence);
+		FixtureAssertion("environment_damage_nested_deduplicated", true, nestedDeduplicated);
+		FixturePhase = ControlledFixturePhase::AwaitDeathRespawn1;
+	}
+	else if (step == 2)
+	{
+		FixtureAssertion("direct_opponent_no_damage_call", true,
+			damageDelta == 0 && !FixtureLastDeathDamageMediated && FixtureLastDeathDamageId == 0);
+		FixtureAssertion("direct_opponent_one_adjudicated_death", true,
+			deathDelta == 1 && FixtureLastDeathClassification == "participant_opponent");
+		FixtureAssertion("direct_opponent_nested_deduplicated", true, nestedDeduplicated);
+		FixturePhase = ControlledFixturePhase::AwaitDeathRespawn2;
+	}
+	else
+	{
+		FixtureAssertion("direct_environment_no_damage_call", true,
+			damageDelta == 0 && !FixtureLastDeathDamageMediated && FixtureLastDeathDamageId == 0);
+		FixtureAssertion("direct_environment_one_adjudicated_death", true,
+			deathDelta == 1 && FixtureLastDeathClassification == "environment_null");
+		FixtureAssertion("direct_environment_nested_deduplicated", true, nestedDeduplicated);
+		FixturePhase = ControlledFixturePhase::AwaitDeathRespawn3;
+	}
+	FixturePhaseStartTick = Tick;
+}
+
+void BotBenchmark::CompleteDeathOutcomeFixture()
+{
+	FixtureStatus = FixtureAssertionsFailed == 0 ? "passed" : "failed";
+	FixturePhase = ControlledFixturePhase::Complete;
+	WriteFixtureProtocolEvent("fixture_complete", {
+		{ "fixture_id", Config.FixtureId },
+		{ "status", FixtureStatus },
+		{ "assertions_total", ToString(FixtureAssertionsTotal) },
+		{ "assertions_passed", ToString(FixtureAssertionsPassed) },
+		{ "assertions_failed", ToString(FixtureAssertionsFailed) },
+		{ "damage_events", ToString(DamageSequence) },
+		{ "death_events", ToString(DeathSequence) },
+		{ "game_killed_dispatches", ToString(FixtureDeathDispatches) },
+		{ "max_game_killed_depth", ToString(static_cast<uint64_t>(FixtureLastDeathMaxDepth)) }
+	});
+	if (FixtureAssertionsFailed != 0)
+	{
+		FailureReason = "Controlled death-outcome fixture assertions failed";
+		ExitCode = 5;
+	}
+	else
+	{
+		StopRequested = true;
+	}
+}
+
+void BotBenchmark::AdvanceDeathOutcomeFixture(Engine& engine)
+{
+	(void)engine;
+	if (FixturePhase == ControlledFixturePhase::DeathStep1)
+	{
+		RunDeathFixtureAction(1);
+		return;
+	}
+	if (FixturePhase == ControlledFixturePhase::DeathStep2)
+	{
+		RunDeathFixtureAction(2);
+		return;
+	}
+	if (FixturePhase == ControlledFixturePhase::DeathStep3)
+	{
+		RunDeathFixtureAction(3);
+		return;
+	}
+
+	const bool awaitingRespawn1 = FixturePhase == ControlledFixturePhase::AwaitDeathRespawn1;
+	const bool awaitingRespawn2 = FixturePhase == ControlledFixturePhase::AwaitDeathRespawn2;
+	const bool awaitingRespawn3 = FixturePhase == ControlledFixturePhase::AwaitDeathRespawn3;
+	if (awaitingRespawn1 || awaitingRespawn2 || awaitingRespawn3)
+	{
+		const int step = awaitingRespawn1 ? 1 : (awaitingRespawn2 ? 2 : 3);
+		const std::size_t victimIndex = step == 1 ? 0 : 1;
+		if (DeathFixtureBotRespawned(victimIndex))
+		{
+			UPawn* bot = FixtureDeathBots[victimIndex];
+			const uint64_t waitTicks = Tick - FixturePhaseStartTick;
+			WriteFixtureProtocolEvent("fixture_respawn", {
+				{ "fixture_id", Config.FixtureId },
+				{ "step", ToString(step) },
+				{ "wait_ticks", ToString(waitTicks) },
+				{ "identity", PawnIdentity(bot) },
+				{ "roster_index", ToString(static_cast<int>(victimIndex)) },
+				{ "profile_id", FixtureDeathProfileIds[victimIndex] },
+				{ "health", ToString(bot->Health()) },
+				{ "state", bot->GetStateName().ToString() },
+				{ "hidden", bot->bHidden() ? "true" : "false" },
+				{ "collides_actors", bot->bCollideActors() ? "true" : "false" },
+				{ "blocks_actors", bot->bBlockActors() ? "true" : "false" },
+				{ "blocks_players", bot->bBlockPlayers() ? "true" : "false" },
+				{ "weapon_present", bot->Weapon() ? "true" : "false" },
+				{ "identity_preserved", PawnIdentity(bot) == FixtureDeathIdentities[victimIndex] ? "true" : "false" }
+			});
+			FixtureAssertion("respawn_" + ToString(step) + "_live_same_identity", true, true);
+			FreezeDeathFixtureBot(bot);
+			if (step == 1)
+				FixturePhase = ControlledFixturePhase::DeathStep2;
+			else if (step == 2)
+				FixturePhase = ControlledFixturePhase::DeathStep3;
+			else
+			{
+				for (UPawn* fixtureBot : FixtureDeathBots)
+					ActivateDeathFixtureBot(fixtureBot);
+				const bool mapsEmpty = ActiveDamage.empty() && ActiveKilled.empty();
+				const bool botsRestored = DeathFixtureBotRespawned(0) && DeathFixtureBotRespawned(1);
+				WriteFixtureProtocolEvent("fixture_cleanup", {
+					{ "fixture_id", Config.FixtureId },
+					{ "bot0_identity", PawnIdentity(FixtureDeathBots[0]) },
+					{ "bot0_health", ToString(FixtureDeathBots[0]->Health()) },
+					{ "bot0_state", FixtureDeathBots[0]->GetStateName().ToString() },
+					{ "bot0_hidden", FixtureDeathBots[0]->bHidden() ? "true" : "false" },
+					{ "bot0_collides", FixtureDeathBots[0]->bCollideActors() ? "true" : "false" },
+					{ "bot0_weapon_present", FixtureDeathBots[0]->Weapon() ? "true" : "false" },
+					{ "bot1_identity", PawnIdentity(FixtureDeathBots[1]) },
+					{ "bot1_health", ToString(FixtureDeathBots[1]->Health()) },
+					{ "bot1_state", FixtureDeathBots[1]->GetStateName().ToString() },
+					{ "bot1_hidden", FixtureDeathBots[1]->bHidden() ? "true" : "false" },
+					{ "bot1_collides", FixtureDeathBots[1]->bCollideActors() ? "true" : "false" },
+					{ "bot1_weapon_present", FixtureDeathBots[1]->Weapon() ? "true" : "false" },
+					{ "active_damage_entries", ToString(static_cast<int>(ActiveDamage.size())) },
+					{ "active_killed_entries", ToString(static_cast<int>(ActiveKilled.size())) },
+					{ "damage_events", ToString(DamageSequence) },
+					{ "death_events", ToString(DeathSequence) }
+				});
+				FixtureAssertion("death_fixture_active_maps_empty", true, mapsEmpty);
+				FixtureAssertion("death_fixture_bots_restored", true, botsRestored);
+				FixturePhase = ControlledFixturePhase::AwaitDeathCleanupObservation;
+			}
+			FixturePhaseStartTick = Tick;
+		}
+		else if (Tick - FixturePhaseStartTick >= 180)
+		{
+			FixtureSetupFailure("controlled-death-outcomes-v1 bot respawn timed out");
+		}
+		return;
+	}
+
+	if (FixturePhase == ControlledFixturePhase::AwaitDeathCleanupObservation &&
+		Tick > FixturePhaseStartTick)
+	{
+		CompleteDeathOutcomeFixture();
+	}
+}
+
 void BotBenchmark::FixtureAssertion(const std::string& name, bool expected, bool actual)
 {
 	const bool passed = expected == actual;
@@ -944,6 +1338,12 @@ void BotBenchmark::FixtureAssertion(const std::string& name, bool expected, bool
 void BotBenchmark::FixtureSetupFailure(const std::string& reason)
 {
 	CleanupFixtureActors();
+	if (Config.FixtureId == "controlled-death-outcomes-v1")
+	{
+		for (UPawn* bot : FixtureDeathBots)
+			if (bot && !bot->bDeleteMe() && bot->Health() > 0)
+				ActivateDeathFixtureBot(bot);
+	}
 	FixtureStatus = "setup_error";
 	FixturePhase = ControlledFixturePhase::Complete;
 	FailureReason = reason;
@@ -1177,6 +1577,11 @@ void BotBenchmark::CompleteHitWallFixture()
 
 void BotBenchmark::AdvanceControlledFixture(Engine& engine)
 {
+	if (Config.FixtureId == "controlled-death-outcomes-v1")
+	{
+		AdvanceDeathOutcomeFixture(engine);
+		return;
+	}
 	if (Config.FixtureId != "controlled-hitwall-blockall-v1")
 		return;
 	if (FixturePhase == ControlledFixturePhase::AwaitWalking)
@@ -1780,7 +2185,7 @@ void BotBenchmark::RecordDamage(UPawn* victim, const DamageObservation& observat
 		{ "self_damage", selfDamage ? "true" : "false" },
 		{ "fatal", fatal ? "true" : "false" }
 	};
-	if (Config.Scenario == "skill-qualification")
+	if (DeathOutcomeAccountingEnabled())
 	{
 		damageFields["damage_id"] = ToString(observation.Id);
 		damageFields["victim_roster_index"] = ToString(observation.VictimRosterIndex);
@@ -1788,7 +2193,10 @@ void BotBenchmark::RecordDamage(UPawn* victim, const DamageObservation& observat
 		damageFields["damage_origin"] = selfDamage ? "self" : (opponentDamage ? "opponent" :
 			(environmentalDamage ? "environment_null" : "external_nonparticipant"));
 	}
-	WriteEvent("damage", damageFields);
+	if (Config.FixtureId == "controlled-death-outcomes-v1")
+		WriteFixtureProtocolEvent("damage", damageFields);
+	else
+		WriteEvent("damage", damageFields);
 }
 
 void BotBenchmark::UpdateTelemetry(const PawnSnapshot& snapshot, const PawnSnapshot* previous)
@@ -2016,6 +2424,23 @@ void BotBenchmark::Finalize(Engine& engine)
 		ExitCode = 5;
 		FixtureStatus = "failed";
 	}
+	if (FailureReason.empty() && Config.FixtureId == "controlled-death-outcomes-v1" &&
+		FixturePhase != ControlledFixturePhase::Complete)
+	{
+		for (UPawn* bot : FixtureDeathBots)
+			if (bot && !bot->bDeleteMe() && bot->Health() > 0)
+				ActivateDeathFixtureBot(bot);
+		FailureReason = "Controlled death-outcome fixture ended before completion";
+		ExitCode = 5;
+		FixtureStatus = "failed";
+	}
+	if (FailureReason.empty() && Config.FixtureId == "controlled-death-outcomes-v1" &&
+		(!ActiveDamage.empty() || !ActiveKilled.empty()))
+	{
+		FailureReason = "Controlled death-outcome fixture retained active hook state";
+		ExitCode = 5;
+		FixtureStatus = "failed";
+	}
 
 	if (FailureReason.empty() && MaximumObservedBots != Config.BotCount)
 	{
@@ -2098,6 +2523,16 @@ void BotBenchmark::WriteEvent(const std::string& type, const std::map<std::strin
 
 	const std::string line = event.to_json(false) + "\n";
 	EventsFile->write(line.data(), line.size());
+}
+
+void BotBenchmark::WriteFixtureProtocolEvent(const std::string& type,
+	const std::map<std::string, std::string>& fields)
+{
+	std::string canonical = "fixture_protocol_tick=" + std::to_string(Tick) + "|type=" + type;
+	for (const auto& field : fields)
+		canonical += "|" + field.first + "=" + field.second;
+	HashCanonical(canonical + "\n");
+	WriteEvent(type, fields);
 }
 
 void BotBenchmark::WriteSummary(Engine* engine, const std::string& status, const std::string& reason)

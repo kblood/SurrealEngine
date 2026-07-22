@@ -53,8 +53,14 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
     fixture_setup: dict[str, str] | None = None
     fixture_complete: dict[str, str] | None = None
     fixture_setup_tick: int | None = None
+    fixture_setup_seq: int | None = None
     fixture_complete_tick: int | None = None
+    fixture_complete_seq: int | None = None
     fixture_waits: list[tuple[int, int, dict[str, str]]] = []
+    fixture_death_actions: list[tuple[int, int, int, dict[str, str]]] = []
+    fixture_death_results: list[tuple[int, int, int, dict[str, str]]] = []
+    fixture_respawns: list[tuple[int, int, int, dict[str, str]]] = []
+    fixture_cleanup: tuple[int, int, int, dict[str, str]] | None = None
     pending_wall_hits: dict[int, tuple[str, str, int, int, dict[str, str]]] = {}
     matched_wall_hits: list[tuple[int, int, dict[str, str], int, int, dict[str, str]]] = []
     legacy_wall_hits: list[tuple[str, str]] = []
@@ -66,6 +72,7 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
     profile_configurations: list[tuple[int, dict[str, str]]] = []
     run_config_fields: dict[str, str] = {}
     run_end_fields: dict[str, str] = {}
+    run_end_seq: int | None = None
     last_damage_id = 0
     last_death_id = 0
     damage_records: dict[int, dict[str, Any]] = {}
@@ -129,11 +136,34 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
 
                 elif event_type == "run_end":
                     run_end_fields = fields
+                    run_end_seq = seq
 
                 elif event_type == "fixture_wait":
                     if not fixture_id or fields.get("fixture_id") != fixture_id:
                         errors.append(f"line {line_number}: fixture wait id mismatch")
                     fixture_waits.append((tick, seq, fields))
+
+                elif event_type == "fixture_death_action":
+                    if fields.get("fixture_id") != fixture_id:
+                        errors.append(f"line {line_number}: death fixture action id mismatch")
+                    fixture_death_actions.append((line_number, tick, seq, fields))
+
+                elif event_type == "fixture_death_action_result":
+                    if fields.get("fixture_id") != fixture_id:
+                        errors.append(f"line {line_number}: death fixture result id mismatch")
+                    fixture_death_results.append((line_number, tick, seq, fields))
+
+                elif event_type == "fixture_respawn":
+                    if fields.get("fixture_id") != fixture_id:
+                        errors.append(f"line {line_number}: death fixture respawn id mismatch")
+                    fixture_respawns.append((line_number, tick, seq, fields))
+
+                elif event_type == "fixture_cleanup":
+                    if fields.get("fixture_id") != fixture_id:
+                        errors.append(f"line {line_number}: death fixture cleanup id mismatch")
+                    if fixture_cleanup is not None:
+                        errors.append(f"line {line_number}: duplicate death fixture cleanup")
+                    fixture_cleanup = (line_number, tick, seq, fields)
 
                 elif event_type == "fixture_assert":
                     if not fixture_id:
@@ -169,6 +199,7 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
                         errors.append(f"line {line_number}: duplicate fixture completion")
                     fixture_complete = fields
                     fixture_complete_tick = tick
+                    fixture_complete_seq = seq
 
                 elif event_type in ("fixture_setup", "fixture_error"):
                     if not fixture_id:
@@ -182,6 +213,7 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
                             errors.append(f"line {line_number}: duplicate fixture setup")
                         fixture_setup = fields
                         fixture_setup_tick = tick
+                        fixture_setup_seq = seq
 
                 elif event_type == "walking_hit_wall":
                     if "hit_id" not in fields:
@@ -329,11 +361,12 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
                         errors.append(f"line {line_number}: fatal damage flag mismatch")
                     if self_damage != expected_self_damage:
                         errors.append(f"line {line_number}: self-damage flag mismatch")
-                    if qualification and origin is None:
+                    death_protocol = qualification or fixture_id == "controlled-death-outcomes-v1"
+                    if death_protocol and origin is None:
                         errors.append(f"line {line_number}: qualification damage event lacks damage_origin")
                     elif origin is not None and origin != expected_origin:
                         errors.append(f"line {line_number}: damage origin mismatch")
-                    if qualification:
+                    if death_protocol:
                         damage_id = as_int(fields, "damage_id")
                         if damage_id != last_damage_id + 1:
                             errors.append(f"line {line_number}: damage_id is not monotonic")
@@ -349,6 +382,8 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
                             errors.append(f"line {line_number}: duplicate damage_id {damage_id}")
                         damage_records[damage_id] = {
                             "line": line_number,
+                            "tick": tick,
+                            "seq": seq,
                             "victim": victim,
                             "instigator": instigator,
                             "fatal": fatal,
@@ -458,11 +493,22 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
                     if not damage_mediated and participant_victim:
                         exact[victim]["adjudicated_direct_deaths"] += 1
                     death_records.append((line_number, {
+                        "tick": tick,
+                        "seq": seq,
+                        "death_id": death_id,
                         "damage_id": damage_id,
                         "damage_mediated": damage_mediated,
                         "victim": victim,
                         "killer": killer,
                         "classification": expected_classification,
+                        "damage_type": fields.get("damage_type", ""),
+                        "victim_roster_index": victim_roster,
+                        "killer_roster_index": killer_roster,
+                        "game_class": fields.get("game_class", ""),
+                        "dispatch_count": as_int(fields, "game_killed_dispatch_count")
+                        if "game_killed_dispatch_count" in fields else None,
+                        "max_depth": as_int(fields, "game_killed_max_depth")
+                        if "game_killed_max_depth" in fields else None,
                     }))
 
                 elif event_type == "hitscan_shot":
@@ -498,7 +544,7 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
             except (KeyError, TypeError, ValueError) as exc:
                 errors.append(f"line {line_number}: {event_type} field error: {exc}")
 
-    if qualification:
+    if qualification or fixture_id == "controlled-death-outcomes-v1":
         participant_identities = {entry[1].get("identity", "") for entry in profile_configurations}
         death_links: Counter[int] = Counter()
         for line_number, death in death_records:
@@ -750,6 +796,233 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
                 missing = sorted(expected_assertions - fixture_assertion_names)
                 extra = sorted(fixture_assertion_names - expected_assertions)
                 errors.append(f"HitWall fixture assertion protocol mismatch; missing={missing}, extra={extra}")
+        if fixture_id == "controlled-death-outcomes-v1" and fixture_setup is not None:
+            expected_assertions = {
+                "fixture_two_profile_roster_bound", "fixture_game_is_deathmatchplus",
+                "environment_damage_one_fatal_call", "environment_damage_one_adjudicated_death",
+                "environment_damage_linked", "environment_damage_nested_deduplicated",
+                "respawn_1_live_same_identity", "direct_opponent_no_damage_call",
+                "direct_opponent_one_adjudicated_death", "direct_opponent_nested_deduplicated",
+                "respawn_2_live_same_identity", "direct_environment_no_damage_call",
+                "direct_environment_one_adjudicated_death", "direct_environment_nested_deduplicated",
+                "respawn_3_live_same_identity", "death_fixture_active_maps_empty",
+                "death_fixture_bots_restored",
+            }
+            if fixture_assertion_names != expected_assertions:
+                missing = sorted(expected_assertions - fixture_assertion_names)
+                extra = sorted(fixture_assertion_names - expected_assertions)
+                errors.append(
+                    f"death fixture assertion protocol mismatch; missing={missing}, extra={extra}"
+                )
+
+            if counts["damage"] != 1 or counts["death_adjudicated"] != 3:
+                errors.append(
+                    f"death fixture raw event totals are damage={counts['damage']}, "
+                    f"deaths={counts['death_adjudicated']}; expected 1/3"
+                )
+            if len(fixture_death_actions) != 3 or len(fixture_death_results) != 3:
+                errors.append("death fixture requires exactly three ordered action/result pairs")
+            if len(fixture_respawns) != 3:
+                errors.append("death fixture requires exactly three respawn records")
+            if fixture_cleanup is None:
+                errors.append("death fixture has no cleanup record")
+
+            roster_by_index = {
+                int(fields.get("roster_index", -1)): fields
+                for _, fields in profile_configurations
+            }
+            try:
+                if counts["run_config"] != 1 or counts["run_end"] != 1:
+                    errors.append("death fixture requires exactly one run_config and run_end event")
+                if run_config_fields.get("scenario") != "controlled-death-outcomes":
+                    errors.append("death fixture run_config scenario mismatch")
+                if as_int(run_config_fields, "ticks") != 720:
+                    errors.append("death fixture run_config tick ceiling mismatch")
+                if not math.isclose(
+                        as_float(run_config_fields, "fixed_delta"), 1.0 / 60.0, abs_tol=5e-7):
+                    errors.append("death fixture run_config fixed delta mismatch")
+                if as_int(run_config_fields, "bots") != 2:
+                    errors.append("death fixture run_config bot count mismatch")
+                if run_config_fields.get("seed") != "104729":
+                    errors.append("death fixture run_config seed mismatch")
+                if requested_bot_names != ["Loque", "Tamerlane"]:
+                    errors.append("death fixture profile names are not Loque,Tamerlane")
+                if requested_skills != [7, 6]:
+                    errors.append("death fixture skills are not exactly 7,6")
+                if run_config_fields.get("url") != "DM-Morbias][?Game=Botpack.DeathMatchPlus":
+                    errors.append("death fixture run_config URL/game mismatch")
+                if set(roster_by_index) != {0, 1}:
+                    errors.append("death fixture configured roster is not exactly slots 0 and 1")
+                if as_int(fixture_setup, "expected_actions") != 3 \
+                        or as_int(fixture_setup, "respawn_timeout_ticks") != 180:
+                    errors.append("death fixture setup action/timeout contract mismatch")
+                if fixture_setup.get("game_class") != "Botpack.DeathMatchPlus":
+                    errors.append("death fixture setup game class mismatch")
+                for index in (0, 1):
+                    configured = roster_by_index.get(index, {})
+                    if fixture_setup.get(f"bot{index}_identity") != configured.get("identity"):
+                        errors.append(f"death fixture setup slot {index} identity mismatch")
+                    if fixture_setup.get(f"bot{index}_profile_id") != configured.get("profile_id"):
+                        errors.append(f"death fixture setup slot {index} profile mismatch")
+                    if as_int(fixture_setup, f"bot{index}_roster_index") != index:
+                        errors.append(f"death fixture setup slot {index} roster mismatch")
+            except (KeyError, TypeError, ValueError) as exc:
+                errors.append(f"death fixture setup contract error: {exc}")
+
+            expected_steps = (
+                (1, "TakeDamage", "environment_null", True, 0, -1, "Burned"),
+                (2, "gibbedBy", "participant_opponent", False, 1, 0, "Gibbed"),
+                (3, "FellOutOfWorld", "environment_null", False, 1, -1, "Fell"),
+            )
+            if len(fixture_death_actions) == 3 and len(fixture_death_results) == 3 \
+                    and len(death_records) == 3:
+                for offset, expected in enumerate(expected_steps):
+                    step, mechanism, classification, mediated, victim_roster, killer_roster, damage_type = expected
+                    action_line, action_tick, action_seq, action = fixture_death_actions[offset]
+                    result_line, result_tick, result_seq, result = fixture_death_results[offset]
+                    death_line, death = death_records[offset]
+                    try:
+                        if as_int(action, "step") != step or as_int(result, "step") != step:
+                            errors.append(f"death fixture step {step} action/result number mismatch")
+                        expected_damage_before = 0 if step == 1 else 1
+                        expected_damage_after = 1
+                        expected_death_before = step - 1
+                        expected_death_after = step
+                        if as_int(action, "damage_id_before") != expected_damage_before \
+                                or as_int(action, "death_id_before") != expected_death_before:
+                            errors.append(f"death fixture step {step} action counter baseline mismatch")
+                        if action.get("mechanism") != mechanism \
+                                or action.get("expected_classification") != classification \
+                                or literal_bool(action, "expected_damage_mediated", action_line,
+                                                "death fixture action") != mediated:
+                            errors.append(f"death fixture step {step} declared contract mismatch")
+                        if as_int(action, "victim_roster_index") != victim_roster \
+                                or as_int(action, "killer_roster_index") != killer_roster:
+                            errors.append(f"death fixture step {step} declared roster mismatch")
+                        expected_victim = roster_by_index[victim_roster].get("identity")
+                        expected_killer = "None" if killer_roster < 0 else roster_by_index[killer_roster].get("identity")
+                        if action.get("victim") != expected_victim or action.get("killer") != expected_killer:
+                            errors.append(f"death fixture step {step} declared identity mismatch")
+                        if death["victim"] != expected_victim or death["killer"] != expected_killer \
+                                or death["victim_roster_index"] != victim_roster \
+                                or death["killer_roster_index"] != killer_roster:
+                            errors.append(f"death fixture step {step} outcome roster/identity mismatch")
+                        if death["classification"] != classification or death["damage_mediated"] != mediated \
+                                or death["damage_type"] != damage_type:
+                            errors.append(f"death fixture step {step} outcome mechanism mismatch")
+                        if death["game_class"] != "Botpack.DeathMatchPlus" \
+                                or death["dispatch_count"] != 2 or death["max_depth"] != 2:
+                            errors.append(f"death fixture step {step} nested dispatch/dedup proof failed")
+                        if not (action_seq < death["seq"] < result_seq) or action_tick > death["tick"] \
+                                or death["tick"] > result_tick:
+                            errors.append(f"death fixture step {step} outcome is outside its action/result interval")
+                        expected_damage_delta = 1 if mediated else 0
+                        if as_int(result, "damage_id_delta") != expected_damage_delta \
+                                or as_int(result, "death_id_delta") != 1:
+                            errors.append(f"death fixture step {step} result ID delta mismatch")
+                        if as_int(result, "damage_id_after") != expected_damage_after \
+                                or as_int(result, "death_id_after") != expected_death_after:
+                            errors.append(f"death fixture step {step} result counter endpoint mismatch")
+                        if as_int(result, "outcome_death_id") != death["death_id"] \
+                                or as_int(result, "outcome_damage_id") != death["damage_id"] \
+                                or result.get("outcome_classification") != classification \
+                                or literal_bool(result, "outcome_damage_mediated", result_line,
+                                                "death fixture result") != mediated:
+                            errors.append(f"death fixture step {step} result/outcome mismatch")
+                        if as_int(result, "game_killed_dispatch_count") != 2 \
+                                or as_int(result, "game_killed_max_depth") != 2:
+                            errors.append(f"death fixture step {step} result nesting mismatch")
+                        if as_int(result, "active_damage_entries") != 0 \
+                                or as_int(result, "active_killed_entries") != 0:
+                            errors.append(f"death fixture step {step} retained active hook state")
+                        if as_int(result, "victim_health") > 0 or result.get("victim_state") != "Dying":
+                            errors.append(f"death fixture step {step} did not synchronously enter Dying")
+                        if mediated:
+                            damage = damage_records.get(int(death["damage_id"]))
+                            if damage is None or not (action_seq < int(damage["seq"]) < result_seq):
+                                errors.append("death fixture mediated damage is outside step 1 interval")
+                        elif int(death["damage_id"]) != 0:
+                            errors.append(f"death fixture direct step {step} has a damage link")
+                    except (KeyError, TypeError, ValueError) as exc:
+                        errors.append(f"death fixture step {step} contract error: {exc}")
+
+            if len(fixture_respawns) == 3:
+                for offset, (line_number, _tick, _seq, respawn) in enumerate(fixture_respawns):
+                    step = offset + 1
+                    expected_roster = 0 if step == 1 else 1
+                    try:
+                        if as_int(respawn, "step") != step or as_int(respawn, "roster_index") != expected_roster:
+                            errors.append(f"death fixture respawn {step} step/roster mismatch")
+                        wait_ticks = as_int(respawn, "wait_ticks")
+                        result_tick = fixture_death_results[offset][1] \
+                            if len(fixture_death_results) == 3 else None
+                        if not 1 <= wait_ticks <= 180:
+                            errors.append(f"death fixture respawn {step} exceeded its wait contract")
+                        if result_tick is None or wait_ticks != _tick - result_tick:
+                            errors.append(f"death fixture respawn {step} wait_ticks does not match trace ticks")
+                        configured = roster_by_index[expected_roster]
+                        if respawn.get("identity") != configured.get("identity") \
+                                or respawn.get("profile_id") != configured.get("profile_id"):
+                            errors.append(f"death fixture respawn {step} identity/profile changed")
+                        if as_int(respawn, "health") <= 0 or respawn.get("state") in {"Dying", "GameEnded"}:
+                            errors.append(f"death fixture respawn {step} is not live")
+                        for field, expected_bool in (
+                            ("hidden", False), ("collides_actors", True), ("blocks_actors", True),
+                            ("blocks_players", True), ("weapon_present", True),
+                            ("identity_preserved", True),
+                        ):
+                            if literal_bool(respawn, field, line_number, "death fixture respawn") != expected_bool:
+                                errors.append(f"death fixture respawn {step} {field} mismatch")
+                    except (KeyError, TypeError, ValueError) as exc:
+                        errors.append(f"death fixture respawn {step} contract error: {exc}")
+
+            if fixture_cleanup is not None:
+                cleanup_line, _cleanup_tick, cleanup_seq, cleanup = fixture_cleanup
+                try:
+                    if as_int(cleanup, "active_damage_entries") != 0 \
+                            or as_int(cleanup, "active_killed_entries") != 0:
+                        errors.append("death fixture cleanup retained active hook state")
+                    if as_int(cleanup, "damage_events") != 1 or as_int(cleanup, "death_events") != 3:
+                        errors.append("death fixture cleanup raw totals mismatch")
+                    for index in (0, 1):
+                        if cleanup.get(f"bot{index}_identity") != roster_by_index.get(index, {}).get("identity"):
+                            errors.append(f"death fixture cleanup slot {index} identity mismatch")
+                        if as_int(cleanup, f"bot{index}_health") <= 0 \
+                                or cleanup.get(f"bot{index}_state") in {"Dying", "GameEnded"}:
+                            errors.append(f"death fixture cleanup slot {index} is not restored")
+                        for field in (f"bot{index}_collides", f"bot{index}_weapon_present"):
+                            if not literal_bool(cleanup, field, cleanup_line, "death fixture cleanup"):
+                                errors.append(f"death fixture cleanup {field} is false")
+                        if literal_bool(cleanup, f"bot{index}_hidden", cleanup_line, "death fixture cleanup"):
+                            errors.append(f"death fixture cleanup slot {index} remained hidden")
+                    if fixture_complete is not None and fixture_complete_tick is not None \
+                            and (fixture_complete_tick < _cleanup_tick):
+                        errors.append("death fixture completion precedes cleanup")
+                except (KeyError, TypeError, ValueError) as exc:
+                    errors.append(f"death fixture cleanup contract error: {exc}")
+
+            if (fixture_setup_seq is not None and len(fixture_death_actions) == 3
+                    and len(fixture_death_results) == 3 and len(fixture_respawns) == 3
+                    and len(death_records) == 3 and len(damage_records) == 1
+                    and fixture_cleanup is not None and fixture_complete_seq is not None):
+                damage_seq = int(next(iter(damage_records.values()))["seq"])
+                lifecycle = [
+                    fixture_setup_seq,
+                    fixture_death_actions[0][2], death_records[0][1]["seq"],
+                    fixture_death_results[0][2], fixture_respawns[0][2],
+                    fixture_death_actions[1][2], death_records[1][1]["seq"],
+                    fixture_death_results[1][2], fixture_respawns[1][2],
+                    fixture_death_actions[2][2], death_records[2][1]["seq"],
+                    fixture_death_results[2][2], fixture_respawns[2][2],
+                    fixture_cleanup[2], fixture_complete_seq,
+                ]
+                if any(int(lifecycle[index]) >= int(lifecycle[index + 1])
+                       for index in range(len(lifecycle) - 1)):
+                    errors.append(
+                        "death fixture lifecycle is not setup/action/death/damage/result/respawn/cleanup/complete ordered"
+                    )
+                if not fixture_death_actions[0][2] < damage_seq < fixture_death_results[0][2]:
+                    errors.append("death fixture damage event is outside step 1 action/result interval")
         if fixture_complete is None:
             errors.append("configured fixture has no completion event")
         else:
@@ -773,6 +1046,19 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
                         errors.append("HitWall fixture completion pair count does not match trace")
                 except (TypeError, ValueError):
                     errors.append("HitWall fixture completion has invalid walking_hit_wall_pairs")
+            if fixture_id == "controlled-death-outcomes-v1":
+                try:
+                    expected_completion = {
+                        "damage_events": 1,
+                        "death_events": 3,
+                        "game_killed_dispatches": 6,
+                        "max_game_killed_depth": 2,
+                    }
+                    for field, expected in expected_completion.items():
+                        if as_int(fixture_complete, field) != expected:
+                            errors.append(f"death fixture completion {field} mismatch")
+                except (KeyError, TypeError, ValueError) as exc:
+                    errors.append(f"death fixture completion contract error: {exc}")
 
     if summary_path is not None:
         summary_error_start = len(errors)
@@ -867,6 +1153,91 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
                 ):
                     if int(summary_fixture.get(field, -1)) != observed:
                         errors.append(f"summary fixture {field} does not match trace")
+                if fixture_id == "controlled-death-outcomes-v1" and fixture_setup is not None:
+                    if summary.get("scenario") != "controlled-death-outcomes":
+                        errors.append("death fixture summary scenario mismatch")
+                    if int(summary.get("ticks", -1)) != previous_tick \
+                            or int(run_end_fields.get("ticks", -2)) != previous_tick:
+                        errors.append("death fixture run_end/summary ticks do not match the final trace tick")
+                    if run_end_seq != expected_seq - 1:
+                        errors.append("death fixture run_end is not the final event")
+                    if run_end_fields.get("status") != "passed" or run_end_fields.get("reason") != "":
+                        errors.append("death fixture run_end did not report a clean pass")
+                    run_digest = run_end_fields.get("digest", "")
+                    if len(run_digest) != 16 \
+                            or any(character not in "0123456789abcdef" for character in run_digest) \
+                            or run_digest != summary.get("digest_fnv1a64"):
+                        errors.append("death fixture run_end digest does not match summary")
+                    if not math.isclose(
+                            float(summary.get("fixed_delta", float("nan"))),
+                            1.0 / 60.0, abs_tol=5e-7):
+                        errors.append("death fixture summary fixed delta mismatch")
+                    if str(summary.get("seed")) != "104729" \
+                            or int(summary.get("requested_bots", -1)) != 2:
+                        errors.append("death fixture summary seed/bot contract mismatch")
+                    summary_bots = {
+                        int(bot.get("roster_index", -1)): bot for bot in summary.get("bots", [])
+                    }
+                    summary_metrics_by_roster = {
+                        int(metric.get("roster_index", -1)): metric
+                        for metric in summary.get("bot_metrics", [])
+                    }
+                    if set(summary_bots) != {0, 1}:
+                        errors.append("death fixture final summary bots are not exact roster slots 0 and 1")
+                    if set(summary_metrics_by_roster) != {0, 1}:
+                        errors.append("death fixture final metrics are not exact roster slots 0 and 1")
+                    for index in (0, 1):
+                        bot = summary_bots.get(index, {})
+                        if int(bot.get("health", 0)) <= 0 or str(bot.get("state", "")) in {"Dying", "GameEnded"} \
+                                or int(bot.get("inventory_count", 0)) <= 0:
+                            errors.append(f"death fixture final summary bot {index} is not restored")
+                        if str(bot.get("profile_id", "")) != fixture_setup.get(f"bot{index}_profile_id"):
+                            errors.append(f"death fixture final summary bot {index} profile mismatch")
+                        expected_deaths_delta = 1 if index == 0 else 2
+                        expected_score_delta = 0.0 if index == 0 else -1.0
+                        if not math.isclose(float(bot.get("pri_deaths", float("nan"))),
+                                            as_float(fixture_setup, f"bot{index}_initial_deaths")
+                                            + expected_deaths_delta, abs_tol=1e-4):
+                            errors.append(f"death fixture final summary bot {index} deaths mismatch")
+                        if not math.isclose(float(bot.get("pri_score", float("nan"))),
+                                            as_float(fixture_setup, f"bot{index}_initial_score")
+                                            + expected_score_delta, abs_tol=1e-4):
+                            errors.append(f"death fixture final summary bot {index} score mismatch")
+
+                    expected_slot_metrics = {
+                        0: {
+                            "damage_events_taken_exact": 1,
+                            "fatal_damage_deaths_exact": 1,
+                            "environmental_fatal_damage_deaths_exact": 1,
+                            "adjudicated_deaths_exact": 1,
+                            "adjudicated_opponent_kills_exact": 1,
+                            "adjudicated_environmental_deaths_exact": 1,
+                            "adjudicated_direct_deaths_exact": 0,
+                        },
+                        1: {
+                            "damage_events_taken_exact": 0,
+                            "fatal_damage_deaths_exact": 0,
+                            "environmental_fatal_damage_deaths_exact": 0,
+                            "adjudicated_deaths_exact": 2,
+                            "adjudicated_opponent_kills_exact": 0,
+                            "adjudicated_environmental_deaths_exact": 1,
+                            "adjudicated_direct_deaths_exact": 2,
+                        },
+                    }
+                    for index, expected_fields in expected_slot_metrics.items():
+                        metric = summary_metrics_by_roster.get(index, {})
+                        for name, expected in expected_fields.items():
+                            if int(metric.get(name, -1)) != expected:
+                                errors.append(f"death fixture slot {index} {name} mismatch")
+                        for name in (
+                            "external_damage_taken_exact", "external_damage_dealt_exact",
+                            "external_fatal_damage_deaths_exact", "adjudicated_external_deaths_exact",
+                            "adjudicated_external_kills_exact",
+                        ):
+                            if int(metric.get(name, -1)) != 0:
+                                errors.append(f"death fixture slot {index} external contamination in {name}")
+                    if int(summary_metrics_by_roster.get(0, {}).get("environmental_damage_taken_exact", 0)) <= 0:
+                        errors.append("death fixture slot 0 has no exact environmental damage")
             else:
                 if summary.get("fixture_id") not in (None, ""):
                     errors.append("ordinary summary unexpectedly names a fixture")

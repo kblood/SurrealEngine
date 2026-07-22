@@ -41,7 +41,9 @@ param(
 
     [switch] $QualificationProtocol,
 
-	[switch] $QualificationPreflightOnly
+	[switch] $QualificationPreflightOnly,
+
+	[switch] $ControlledDeathProtocol
 )
 
 $ErrorActionPreference = 'Stop'
@@ -174,6 +176,9 @@ function Get-QualificationClosureFiles {
 
 $resolvedEnginePath = Resolve-ExistingPath -Path $EnginePath -Description 'SurrealEngine executable' -Leaf
 $resolvedGameRoot = Resolve-ExistingPath -Path $GameRoot -Description 'UE1 game root'
+	if ($QualificationProtocol -and $ControlledDeathProtocol) {
+		throw 'QualificationProtocol and ControlledDeathProtocol are mutually exclusive.'
+	}
 	if ($QualificationPreflightOnly -and -not $QualificationProtocol) {
 		throw 'QualificationPreflightOnly is valid only with QualificationProtocol.'
 	}
@@ -268,6 +273,8 @@ if ($normalizedFixtureId.Contains('"')) {
 $qualificationProtocolId = 'surreal-bot-skill-qualification-v1'
 $qualificationGameClass = 'Botpack.DeathMatchPlus'
 $qualificationScenario = 'skill-qualification'
+$controlledDeathProtocolId = 'surreal-bot-controlled-death-outcomes-v1'
+$controlledDeathScenario = 'controlled-death-outcomes'
 $qualificationMaps = @('DM-Morbias][', 'DM-Deck16][', 'DM-Phobos')
 $qualificationSeeds = @(
     '104729', '130363', '155921', '181081', '207073', '233021',
@@ -310,9 +317,36 @@ if ($QualificationProtocol) {
         throw 'QualificationProtocol requires exact stable profiles Loque and Tamerlane.'
     }
 }
+$provenanceProtocol = $QualificationProtocol -or $ControlledDeathProtocol
+$activeProtocolId = if ($QualificationProtocol) { $qualificationProtocolId } elseif ($ControlledDeathProtocol) { $controlledDeathProtocolId } else { $null }
+$activeScenario = if ($QualificationProtocol) { $qualificationScenario } elseif ($ControlledDeathProtocol) { $controlledDeathScenario } else { $null }
+if ($ControlledDeathProtocol) {
+	if ($Maps.Count -ne $normalizedMaps.Count -or $Seeds.Count -ne $normalizedSeeds.Count -or $Skills.Count -ne $normalizedSkills.Count) {
+		throw 'ControlledDeathProtocol rejects duplicate raw maps, seeds, or skills.'
+	}
+	if ($normalizedMaps.Count -ne 1 -or $normalizedMaps[0] -cne 'DM-Morbias][') {
+		throw 'ControlledDeathProtocol requires Maps=DM-Morbias][.'
+	}
+	if ($normalizedSeeds.Count -ne 1 -or $normalizedSeeds[0] -cne '104729') {
+		throw 'ControlledDeathProtocol requires Seeds=104729.'
+	}
+	if ($normalizedSkills.Count -ne 1 -or [int]$normalizedSkills[0] -ne 7 -or $OpponentSkill -ne 6) {
+		throw 'ControlledDeathProtocol requires Skills=7 and OpponentSkill=6.'
+	}
+	if ($Bots -ne 2) { throw 'ControlledDeathProtocol requires Bots=2.' }
+	if ($RunsPerCase -ne 2) { throw 'ControlledDeathProtocol requires RunsPerCase=2.' }
+	if ([Math]::Abs($Seconds - 12.0) -gt 1.0e-12) { throw 'ControlledDeathProtocol requires Seconds=12.' }
+	if ([Math]::Abs($FixedDelta - (1.0 / 60.0)) -gt 1.0e-12) { throw 'ControlledDeathProtocol requires FixedDelta=1/60.' }
+	if ($normalizedFixtureId -cne 'controlled-death-outcomes-v1') {
+		throw 'ControlledDeathProtocol requires FixtureId=controlled-death-outcomes-v1.'
+	}
+	if ($CandidateBotName -cne 'Loque' -or $OpponentBotName -cne 'Tamerlane') {
+		throw 'ControlledDeathProtocol requires exact stable profiles Loque and Tamerlane.'
+	}
+}
 $traceValidatorPath = Join-Path $PSScriptRoot 'Validate-BotTrace.py'
 $pythonExecutable = $null
-if ($normalizedFixtureId.Length -gt 0 -or $QualificationProtocol) {
+if ($normalizedFixtureId.Length -gt 0 -or $provenanceProtocol) {
     if (-not (Test-Path -LiteralPath $traceValidatorPath -PathType Leaf)) {
         throw "Controlled fixture trace validator was not found: $traceValidatorPath"
     }
@@ -340,7 +374,7 @@ $contentManifestPath = $null
 $contentManifestSha256 = $null
 $qualificationContentFiles = [ordered] @{}
 $qualificationClosureLogicalPaths = @()
-if ($QualificationProtocol) {
+if ($provenanceProtocol) {
     $engineBinarySha256 = Get-Sha256 $resolvedEnginePath
     $contentPackages = New-Object System.Collections.Generic.List[object]
     foreach ($logicalPath in $qualificationContentPaths) {
@@ -361,7 +395,7 @@ if ($QualificationProtocol) {
     $contentManifestPath = Join-Path $batchRoot 'content-manifest.json'
     [PSCustomObject] [ordered] @{
         schema = 1
-        protocol_id = $qualificationProtocolId
+		protocol_id = $activeProtocolId
 		scope = 'exact-ten-required-files plus standard UE1 loadable-package closure'
         packages = $contentPackages.ToArray()
 		content_closure = $contentClosure.ToArray()
@@ -377,7 +411,7 @@ if ($QualificationProtocol) {
 		}
 		$preflightPath = Join-Path $batchRoot 'qualification-preflight.json'
 		[PSCustomObject] [ordered] @{
-			schema = 1; passed = $preflightPassed; protocol_id = $qualificationProtocolId
+			schema = 1; passed = $preflightPassed; protocol_id = $activeProtocolId
 			engine_path = $resolvedEnginePath; engine_binary_sha256 = $engineBinarySha256
 			game_root = $resolvedGameRoot; content_manifest_path = $contentManifestPath
 			content_manifest_sha256 = $contentManifestSha256; closure_files = $qualificationContentFiles.Count
@@ -407,7 +441,7 @@ foreach ($map in $normalizedMaps) {
                 $runDirectory = Join-Path $batchRoot $runId
                 New-Item -ItemType Directory -Path $runDirectory | Out-Null
 
-                $scenario = if ($QualificationProtocol) { $qualificationScenario } else { "matrix-$caseId" }
+				$scenario = if ($provenanceProtocol) { $activeScenario } else { "matrix-$caseId" }
                 $url = "$map`?Game=$qualificationGameClass"
                 $argumentValues = @(
                     "--botbench=$scenario",
@@ -492,7 +526,7 @@ foreach ($map in $normalizedMaps) {
 
                 $traceValidationPassed = $null
                 $traceValidationPath = $null
-                if (($normalizedFixtureId.Length -gt 0 -or $QualificationProtocol) -and
+                if (($normalizedFixtureId.Length -gt 0 -or $provenanceProtocol) -and
                     (Test-Path -LiteralPath $summaryPath -PathType Leaf) -and
                     (Test-Path -LiteralPath $eventsPath -PathType Leaf)) {
                     $traceValidationPath = Join-Path $runDirectory 'trace-validation.json'
@@ -547,6 +581,21 @@ foreach ($map in $normalizedMaps) {
 									# Engine event string fields are formatted to six decimals (0.016667).
 									if ([Math]::Abs([double]$identity.fixed_delta - $FixedDelta) -gt 5.0e-7) { throw 'Qualification trace fixed-delta identity mismatch.' }
 								}
+								elseif ($ControlledDeathProtocol) {
+									if ($null -ne $traceValidation.protocol_id) { throw 'Controlled death trace unexpectedly declared a qualification protocol ID.' }
+									if ($traceValidation.summary_validated -ne $true) { throw 'Controlled death trace did not validate summary.json.' }
+									if ([string]$traceValidation.events_sha256 -cne $eventsSha256) { throw 'Controlled death trace events SHA-256 mismatch.' }
+									if ([string]$traceValidation.summary_sha256 -cne $summarySha256) { throw 'Controlled death trace summary SHA-256 mismatch.' }
+									$identity = $traceValidation.run_identity
+									if ([string]$identity.map -cne 'DM-Morbias][' -or [string]$identity.seed -cne '104729') { throw 'Controlled death trace map/seed identity mismatch.' }
+									if ((@($identity.requested_skills) -join ',') -cne '7,6') { throw 'Controlled death trace skill identity mismatch.' }
+									if ((@($identity.requested_bot_names) -join ',') -cne 'Loque,Tamerlane') { throw 'Controlled death trace profile identity mismatch.' }
+									if ([string]$identity.digest_fnv1a64 -cne [string]$summary.digest_fnv1a64) { throw 'Controlled death trace digest identity mismatch.' }
+									if ([string]$identity.scenario -cne $controlledDeathScenario -or [int]$identity.requested_bots -ne 2 -or [UInt64]$identity.ticks -ne 720) {
+										throw 'Controlled death trace scenario/bot/tick identity mismatch.'
+									}
+									if ([Math]::Abs([double]$identity.fixed_delta - $FixedDelta) -gt 5.0e-7) { throw 'Controlled death trace fixed-delta identity mismatch.' }
+								}
 							}
 							catch {
 								$traceValidationPassed = $false
@@ -559,9 +608,9 @@ foreach ($map in $normalizedMaps) {
                         Add-ValidationError $validationErrors "Controlled fixture trace validator could not run: $($_.Exception.Message)"
                     }
                 }
-				elseif ($QualificationProtocol) {
+				elseif ($provenanceProtocol) {
 					$traceValidationPassed = $false
-					Add-ValidationError $validationErrors 'Qualification trace validation evidence could not be produced.'
+					Add-ValidationError $validationErrors 'Protocol trace validation evidence could not be produced.'
 				}
 
 				$traceValidationSha256 = if ($traceValidationPath -and (Test-Path -LiteralPath $traceValidationPath -PathType Leaf)) { Get-Sha256 $traceValidationPath } else { $null }
@@ -702,8 +751,8 @@ foreach ($map in $normalizedMaps) {
 							if ([string]::IsNullOrWhiteSpace($candidateProfileId) -or [string]::IsNullOrWhiteSpace($opponentProfileId) -or $candidateProfileId -eq $opponentProfileId) { Add-ValidationError $validationErrors 'Mixed-skill profile IDs were missing or not unique.' }
 							$candidateScore = $candidateMetric.last_score
 							$opponentScore = $opponentMetric.last_score
-							$candidateDeaths = if ($QualificationProtocol) { $candidateMetric.adjudicated_deaths_exact } else { $candidateMetric.maximum_pri_deaths }
-							$opponentDeaths = if ($QualificationProtocol) { $opponentMetric.adjudicated_deaths_exact } else { $opponentMetric.maximum_pri_deaths }
+							$candidateDeaths = if ($provenanceProtocol) { $candidateMetric.adjudicated_deaths_exact } else { $candidateMetric.maximum_pri_deaths }
+							$opponentDeaths = if ($provenanceProtocol) { $opponentMetric.adjudicated_deaths_exact } else { $opponentMetric.maximum_pri_deaths }
 							$candidateFirstWeaponTick = $candidateMetric.first_nonstarter_weapon_tick
 							$opponentFirstWeaponTick = $opponentMetric.first_nonstarter_weapon_tick
 							$candidateScoreMargin = [int]$candidateScore - [int]$opponentScore
@@ -741,6 +790,9 @@ foreach ($map in $normalizedMaps) {
                         if ([UInt64] $summary.ticks -eq 0 -or [UInt64] $summary.ticks -gt $ticks) { Add-ValidationError $validationErrors "Fixture summary ticks '$($summary.ticks)' were outside 1..$ticks." }
                     }
                     elseif ([UInt64] $summary.ticks -ne $ticks) { Add-ValidationError $validationErrors "Summary ticks '$($summary.ticks)' did not match '$ticks'." }
+					if ($ControlledDeathProtocol -and [UInt64]$summary.ticks -ne 300) {
+						Add-ValidationError $validationErrors "Controlled death fixture stopped at tick '$($summary.ticks)', expected 300."
+					}
                     if ($digest -notmatch '^[0-9a-fA-F]{16}$') { Add-ValidationError $validationErrors "Digest is not a 64-bit hexadecimal value: '$digest'" }
                 }
 
@@ -759,11 +811,11 @@ foreach ($map in $normalizedMaps) {
                     fixture_assertions_total = if ($null -ne $summary) { $summary.fixture.assertions_total } else { $null }
                     fixture_assertions_failed = if ($null -ne $summary) { $summary.fixture.assertions_failed } else { $null }
                     fixed_delta = $FixedDelta
-					protocol_id = if ($QualificationProtocol) { $qualificationProtocolId } else { $null }
-					game_class = if ($QualificationProtocol) { $qualificationGameClass } else { $null }
+					protocol_id = if ($provenanceProtocol) { $activeProtocolId } else { $null }
+					game_class = if ($provenanceProtocol) { $qualificationGameClass } else { $null }
 					scenario = $scenario
-					engine_binary_sha256 = if ($QualificationProtocol) { $engineBinarySha256 } else { $null }
-					content_manifest_sha256 = if ($QualificationProtocol) { $contentManifestSha256 } else { $null }
+					engine_binary_sha256 = if ($provenanceProtocol) { $engineBinarySha256 } else { $null }
+					content_manifest_sha256 = if ($provenanceProtocol) { $contentManifestSha256 } else { $null }
                     process_result = $processResult
                     exit_code = $processExitCode
                     summary_status = $summaryStatus
@@ -828,14 +880,14 @@ foreach ($map in $normalizedMaps) {
                     wall_seconds = [Math]::Round($wallClock.Elapsed.TotalSeconds, 3)
                     validation_error = ($validationErrors -join ' ')
                     output_directory = $runDirectory
-					events_path = if ($QualificationProtocol) { "$runId/events.jsonl" } else { $eventsPath }
+					events_path = if ($provenanceProtocol) { "$runId/events.jsonl" } else { $eventsPath }
 					events_sha256 = $eventsSha256
-					summary_path = if ($QualificationProtocol) { "$runId/summary.json" } else { $summaryPath }
+					summary_path = if ($provenanceProtocol) { "$runId/summary.json" } else { $summaryPath }
 					summary_sha256 = $summarySha256
-					invocation_path = if ($QualificationProtocol) { "$runId/invocation.txt" } else { $invocationPath }
+					invocation_path = if ($provenanceProtocol) { "$runId/invocation.txt" } else { $invocationPath }
 					invocation_sha256 = $invocationSha256
 					trace_validation_passed = $traceValidationPassed
-					trace_validation_path = if ($QualificationProtocol) { "$runId/trace-validation.json" } else { $traceValidationPath }
+					trace_validation_path = if ($provenanceProtocol) { "$runId/trace-validation.json" } else { $traceValidationPath }
 					trace_validation_sha256 = $traceValidationSha256
                 })
             }
@@ -845,7 +897,7 @@ foreach ($map in $normalizedMaps) {
 
 $identityReverified = $null
 $engineBinarySha256After = $null
-if ($QualificationProtocol) {
+if ($provenanceProtocol) {
 	$identityReverified = $true
 	$engineBinarySha256After = Get-Sha256 $resolvedEnginePath
 	if ($engineBinarySha256After -cne $engineBinarySha256) { $identityReverified = $false }
@@ -862,7 +914,7 @@ if ($QualificationProtocol) {
 	if (-not $identityReverified) {
 		foreach ($run in $runRows) {
 			$run.valid = $false
-			$run.validation_error = ($run.validation_error + ' Qualification engine/content identity changed during capture.').Trim()
+			$run.validation_error = ($run.validation_error + ' Protocol engine/content identity changed during capture.').Trim()
 		}
 	}
 }
@@ -921,21 +973,21 @@ $result = [PSCustomObject] [ordered] @{
     schema = 1
     created_utc = [DateTime]::UtcNow.ToString('o', $invariant)
     passed = $overallPassed
-	batch_root = if ($QualificationProtocol) { '.' } else { $batchRoot }
+	batch_root = if ($provenanceProtocol) { '.' } else { $batchRoot }
     engine_path = $resolvedEnginePath
     game_root = $resolvedGameRoot
-	protocol_id = if ($QualificationProtocol) { $qualificationProtocolId } else { $null }
-	game_class = if ($QualificationProtocol) { $qualificationGameClass } else { $null }
-	scenario = if ($QualificationProtocol) { $qualificationScenario } else { $null }
-	engine_binary_sha256 = if ($QualificationProtocol) { $engineBinarySha256 } else { $null }
-	engine_binary_sha256_after = if ($QualificationProtocol) { $engineBinarySha256After } else { $null }
-	content_manifest_path = if ($QualificationProtocol) { 'content-manifest.json' } else { $null }
-	content_manifest_sha256 = if ($QualificationProtocol) { $contentManifestSha256 } else { $null }
-	immutable_identity_reverified = if ($QualificationProtocol) { $identityReverified } else { $null }
+	protocol_id = if ($provenanceProtocol) { $activeProtocolId } else { $null }
+	game_class = if ($provenanceProtocol) { $qualificationGameClass } else { $null }
+	scenario = if ($provenanceProtocol) { $activeScenario } else { $null }
+	engine_binary_sha256 = if ($provenanceProtocol) { $engineBinarySha256 } else { $null }
+	engine_binary_sha256_after = if ($provenanceProtocol) { $engineBinarySha256After } else { $null }
+	content_manifest_path = if ($provenanceProtocol) { 'content-manifest.json' } else { $null }
+	content_manifest_sha256 = if ($provenanceProtocol) { $contentManifestSha256 } else { $null }
+	immutable_identity_reverified = if ($provenanceProtocol) { $identityReverified } else { $null }
     configuration = [PSCustomObject] [ordered] @{
-		protocol_id = if ($QualificationProtocol) { $qualificationProtocolId } else { $null }
-		game_class = if ($QualificationProtocol) { $qualificationGameClass } else { $null }
-		scenario = if ($QualificationProtocol) { $qualificationScenario } else { $null }
+		protocol_id = if ($provenanceProtocol) { $activeProtocolId } else { $null }
+		game_class = if ($provenanceProtocol) { $qualificationGameClass } else { $null }
+		scenario = if ($provenanceProtocol) { $activeScenario } else { $null }
         maps = $normalizedMaps.ToArray()
         skills = @($normalizedSkills)
         seeds = $normalizedSeeds.ToArray()
@@ -952,8 +1004,8 @@ $result = [PSCustomObject] [ordered] @{
         candidate_profile_id = $matrixCandidateProfileId
         opponent_profile_id = $matrixOpponentProfileId
         fixture_id = $normalizedFixtureId
-		engine_binary_sha256 = if ($QualificationProtocol) { $engineBinarySha256 } else { $null }
-		content_manifest_sha256 = if ($QualificationProtocol) { $contentManifestSha256 } else { $null }
+		engine_binary_sha256 = if ($provenanceProtocol) { $engineBinarySha256 } else { $null }
+		content_manifest_sha256 = if ($provenanceProtocol) { $contentManifestSha256 } else { $null }
     }
     totals = [PSCustomObject] [ordered] @{
         cases = $caseRows.Count

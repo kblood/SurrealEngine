@@ -339,6 +339,65 @@ state, latent-action, destination, focus, move-timer, and `bFromWall` fields.
 Fixture runs may stop before their configured tick ceiling after successful
 cleanup; ordinary benchmark runs still require the exact requested tick count.
 
+`controlled-death-outcomes-v1` requires exactly two explicitly named profiles
+(`Loque,Tamerlane`), `Botpack.DeathMatchPlus`, and enough ceiling for three
+bounded stock respawns (12 simulated seconds is sufficient for the canonical
+Morbias seed). It freezes the inactive bot and executes real stock-script
+paths: lethal null-instigator `TakeDamage`, roster-opponent `gibbedBy`, and
+`FellOutOfWorld`. The trace validator independently requires one linked fatal
+environment damage event, three adjudicated deaths, two direct deaths, exact
+per-slot summary reconciliation, and two nested `GameInfo.Killed` dispatches
+collapsed into one outcome per action. It also validates the full ordered
+setup/action/result/respawn/cleanup lifecycle and final live-bot cleanup:
+
+```powershell
+& .\Tools\BotBenchmark\Run-BotBenchmarkMatrix.ps1 `
+  -GameRoot 'C:\Program Files (x86)\GOG Galaxy\Games\Unreal Tournament GOTY' `
+  -OutputRoot '.\botbench-controlled-death-outcomes-v1' `
+  -EnginePath '.\build\Release\SurrealEngine.exe' `
+  -Maps 'DM-Morbias][' -Skills 7 -OpponentSkill 6 -Seeds '104729' `
+  -Bots 2 -CandidateBotName 'Loque' -OpponentBotName 'Tamerlane' `
+  -RunsPerCase 2 -Seconds 12 -FixedDelta (1.0/60.0) `
+  -TimeoutSeconds 60 -FixtureId 'controlled-death-outcomes-v1'
+```
+
+This controlled fixture does not relax `-QualificationProtocol`: Q1 evidence
+continues to require an empty fixture ID.
+
+### Fail-closed controlled-death provenance capture
+
+Use `-ControlledDeathProtocol` when the controlled death fixture is intended as
+reproducible acceptance evidence rather than an ordinary fixture smoke. This
+mode is separate from skill qualification and accepts only the canonical
+contract: `DM-Morbias][`, seed `104729`, skill 7 versus 6, two runs, two bots,
+Loque/Tamerlane, 12 seconds at 1/60, and fixture
+`controlled-death-outcomes-v1`. The requested ceiling is 720 ticks; the fixture
+must complete and clean up at tick 300.
+
+```powershell
+& .\Tools\BotBenchmark\Run-BotBenchmarkMatrix.ps1 `
+  -GameRoot 'C:\Program Files (x86)\GOG Galaxy\Games\Unreal Tournament GOTY' `
+  -OutputRoot '.\botbench-controlled-death-provenance-v1' `
+  -EnginePath '.\build\Release\SurrealEngine.exe' `
+  -Maps 'DM-Morbias][' -Skills 7 -OpponentSkill 6 -Seeds '104729' `
+  -Bots 2 -CandidateBotName Loque -OpponentBotName Tamerlane `
+  -RunsPerCase 2 -Seconds 12 -FixedDelta (1.0/60.0) `
+  -TimeoutSeconds 60 -FixtureId 'controlled-death-outcomes-v1' `
+  -ControlledDeathProtocol
+```
+
+The matrix records protocol ID
+`surreal-bot-controlled-death-outcomes-v1`, scenario
+`controlled-death-outcomes`, engine SHA-256, the same exhaustive UE1 content
+closure used by qualification capture, and relative paths plus SHA-256 for the
+invocation, events, summary, and validator report of each repetition. It
+requires the validator's controlled-death report contract, exact raw run
+identity, deterministic duplicate digest, and pre/post engine/content identity
+reverification. Any parameter drift, missing evidence, tick mismatch, content
+change, validation failure, or nondeterminism fails the matrix. This protocol
+proves the controlled death-outcome telemetry contract only; it cannot be used
+as skill-separation or Godlike evidence.
+
 ## Retail UT436 reference oracle
 
 `Run-RetailBotOracle.ps1` runs an unattended stock-bot match with the installed

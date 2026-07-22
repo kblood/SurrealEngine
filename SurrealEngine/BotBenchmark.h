@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -225,6 +226,8 @@ private:
 	struct KilledObservation
 	{
 		int Depth = 0;
+		uint32_t DispatchCount = 0;
+		uint32_t MaxDepth = 0;
 		uint64_t Id = 0;
 		UPawn* Killer = nullptr;
 		UPawn* Victim = nullptr;
@@ -259,6 +262,14 @@ private:
 	void ConfigureBots(Engine& engine);
 	void RunControlledFixture(Engine& engine);
 	void AdvanceControlledFixture(Engine& engine);
+	void SetupDeathOutcomeFixture(Engine& engine);
+	void AdvanceDeathOutcomeFixture(Engine& engine);
+	void RunDeathFixtureAction(int step);
+	void FreezeDeathFixtureBot(UPawn* bot);
+	void ActivateDeathFixtureBot(UPawn* bot);
+	bool DeathFixtureBotRespawned(std::size_t rosterIndex) const;
+	void CompleteDeathOutcomeFixture();
+	bool DeathOutcomeAccountingEnabled() const;
 	void SetupHitWallFixture(Engine& engine);
 	void CompleteHitWallFixture();
 	void FixtureAssertion(const std::string& name, bool expected, bool actual);
@@ -272,6 +283,7 @@ private:
 	void RecordDamage(UPawn* victim, const DamageObservation& observation);
 	static std::string WeaponMode(UWeapon* weapon);
 	void WriteEvent(const std::string& type, const std::map<std::string, std::string>& fields);
+	void WriteFixtureProtocolEvent(const std::string& type, const std::map<std::string, std::string>& fields);
 	void WriteSummary(Engine* engine, const std::string& status, const std::string& reason);
 	PawnSnapshot Capture(UPawn* pawn) const;
 	void HashCanonical(const std::string& text);
@@ -315,6 +327,13 @@ private:
 		Inactive,
 		AwaitWalking,
 		Moving,
+		DeathStep1,
+		AwaitDeathRespawn1,
+		DeathStep2,
+		AwaitDeathRespawn2,
+		DeathStep3,
+		AwaitDeathRespawn3,
+		AwaitDeathCleanupObservation,
 		Complete
 	};
 	ControlledFixturePhase FixturePhase = ControlledFixturePhase::Inactive;
@@ -344,6 +363,19 @@ private:
 	bool FixtureFirstAdjustLabel = false;
 	bool FixtureFirstLatentContinue = false;
 	bool FixtureFirstMoveTimerNonnegative = false;
+	std::vector<UPawn*> FixtureDeathBots;
+	std::vector<std::string> FixtureDeathIdentities;
+	std::vector<std::string> FixtureDeathProfileIds;
+	uint64_t FixtureActionDamageBefore = 0;
+	uint64_t FixtureActionDeathBefore = 0;
+	uint64_t FixtureLastDeathId = 0;
+	uint64_t FixtureLastDeathDamageId = 0;
+	uint32_t FixtureLastDeathDispatchCount = 0;
+	uint32_t FixtureLastDeathMaxDepth = 0;
+	std::string FixtureLastDeathClassification;
+	bool FixtureLastDeathDamageMediated = false;
+	int FixtureDeathActionStep = 0;
+	uint64_t FixtureDeathDispatches = 0;
 	bool StopRequested = false;
 	bool Finalized = false;
 	std::string FailureReason;
