@@ -46,9 +46,31 @@ bool VisibleMesh::DrawMesh(VisibleFrame* frame, UActor* actor, bool wireframe, b
 	// outright instead.
 	UPlayerPawn* localPlayer = engine->viewport->Actor();
 	UWeapon* localWeapon = localPlayer ? localPlayer->Weapon() : nullptr;
-	if (engine->vrLeftHanded && (engine->xrSessionActive || engine->debugVRHandsEnabled) && actor == localWeapon)
+	bool vrActive = engine->xrSessionActive || engine->debugVRHandsEnabled;
+
+	if (engine->vrLeftHanded && vrActive && actor == localWeapon)
 	{
 		objectToWorld = objectToWorld * mat4::scale(vec3(1.0f, -1.0f, 1.0f));
+	}
+
+	// M-G: per-weapon VR viewmodel scale (Engine::VRWeaponGripInfo::scale,
+	// tuned live via --vrtune - see Engine.cpp's UpdateVRWeaponTuning doc
+	// comment). Applies to whichever VR-held weapon actor this is - the
+	// local player's own current weapon, or its M-E1 dual-wield slave -
+	// same scoping as the mirror above so third-person views of other
+	// pawns' weapons are unaffected. No-op (scale == 1.0f default) unless a
+	// weapon's been tuned this run, so byte-identical to before M-G until
+	// then.
+	if (vrActive)
+	{
+		UWeapon* localSlaveWeapon = localWeapon ? engine->GetSlaveEnforcer(localWeapon) : nullptr;
+		UWeapon* vrWeapon = (actor == localWeapon) ? localWeapon : ((actor == localSlaveWeapon) ? localSlaveWeapon : nullptr);
+		if (vrWeapon)
+		{
+			float scale = engine->GetWeaponGripInfo(vrWeapon).scale;
+			if (scale != 1.0f)
+				objectToWorld = objectToWorld * mat4::scale(vec3(scale));
+		}
 	}
 
 	mat4 meshToWorld = objectToWorld * mesh->meshToObject;

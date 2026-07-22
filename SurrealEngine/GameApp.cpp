@@ -16,6 +16,21 @@
 #include <surrealwidgets/window/window.h>
 #include <iostream>
 
+namespace
+{
+	void SaveDiagnosticLog()
+	{
+		fs::path logPath = Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt";
+		std::string requestedPath = commandline->GetArg("", "--logfile");
+		if (!requestedPath.empty())
+			logPath = fs::absolute(fs::path(requestedPath));
+		if (logPath.has_parent_path())
+			fs::create_directories(logPath.parent_path());
+		LogMessage("Diagnostic log: " + logPath.string());
+		Logger::Get()->SaveLogAsPlaintext(logPath.string());
+	}
+}
+
 int GameApp::main(Array<std::string> args)
 {
 	auto backend = DisplayBackend::TryCreateBackend();
@@ -33,7 +48,7 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--probexr] [--debugstereo] [--vr] [--vr-lefthand] [--debugvrhands] [--debugvrfire] [--debugvrtwohand] [--debugvrdualenforcer] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--probexr] [--debugstereo] [--vr] [--vr-startmenu] [--vr-quadmenu] [--vr-lefthand] [--vr-no-menu-laser] [--vr-no-menu-controllers] [--logfile=<path>] [--debugvrhands] [--debugvrfire] [--debugvrtwohand] [--debugvrdualenforcer] [Path to game folder]\n";
 			return 0;
 		}
 
@@ -48,7 +63,7 @@ int GameApp::main(Array<std::string> args)
 				std::cout << "--probexr: OpenXR instance + HMD system OK\n";
 			else
 				std::cout << "--probexr: unavailable - " << probe.LastError() << "\n";
-			Logger::Get()->SaveLogAsPlaintext((Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt").string());
+			SaveDiagnosticLog();
 			DeinitWidgetResources();
 			return 0;
 		}
@@ -61,6 +76,9 @@ int GameApp::main(Array<std::string> args)
 			if (!GameFolderSelection::Games.empty())
 			{
 				GameLaunchInfo info = GameFolderSelection::GetLaunchInfo(0);
+				LogMessage("Launch selection: game=" + info.gameName + " root=" + info.gameRootFolder +
+					" url=" + (info.url.empty() ? std::string("<default>") : info.url) +
+					" noEntryMap=" + std::to_string(info.noEntryMap));
 				Engine engine(info);
 				engine.Run();
 			}

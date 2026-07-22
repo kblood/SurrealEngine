@@ -61,9 +61,17 @@ public:
 	VulkanDescriptorSet* GetBloomPPImageSet() { return Bloom.PPImageSet.get(); }
 	VulkanDescriptorSet* GetBloomVTextureSet(int level) { return Bloom.VTextureSets[level].get(); }
 	VulkanDescriptorSet* GetBloomHTextureSet(int level) { return Bloom.HTextureSets[level].get(); }
+	// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): the Entry/menu
+	// offscreen quad target's own present-shader source set - Present.Set
+	// above is hardwired to the MAIN scene's PPImageView[0]
+	// (UpdateFrameDescriptors()), so it can't double as the quad's source
+	// too. Reuses Present.Layout (identical 2-binding shape) rather than a
+	// new descriptor set layout.
+	VulkanDescriptorSet* GetQuadPresentSet() { return QuadPresent.Set.get(); }
 
 	void UpdateBindlessSet();
 	void UpdateFrameDescriptors();
+	void UpdateQuadPresentSet(VulkanImageView* colorView);
 
 	static const int MaxBindlessTextures = 16536;
 
@@ -96,6 +104,18 @@ private:
 		std::unique_ptr<VulkanDescriptorPool> Pool;
 		std::unique_ptr<VulkanDescriptorSet> Set;
 	} Present;
+
+	// See UpdateQuadPresentSet()/GetQuadPresentSet() above. Allocated lazily
+	// (on first UpdateQuadPresentSet() call, from VulkanRenderDevice::
+	// EnsureQuadTarget()) rather than in the constructor alongside Present.Set
+	// - the quad target itself only ever exists once --vr is active and the
+	// Entry map/menu has actually been reached, unlike Present.Set which
+	// every render path needs immediately.
+	struct
+	{
+		std::unique_ptr<VulkanDescriptorPool> Pool;
+		std::unique_ptr<VulkanDescriptorSet> Set;
+	} QuadPresent;
 
 	struct
 	{

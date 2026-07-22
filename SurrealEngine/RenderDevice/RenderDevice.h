@@ -149,6 +149,23 @@ public:
 	int GetRenderWidth() const;
 	int GetRenderHeight() const;
 
+	// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): a standalone
+	// offscreen render target, independent of the main window/per-eye scene
+	// target, used to render the Entry-map flythrough and front-end/pause
+	// menu ONCE per frame, monoscopically (see RenderSubsystem::DrawGame()/
+	// DrawEntryQuad()/DrawMenuQuad()), for presentation as a real
+	// world-anchored OpenXR quad layer instead of a HUD-style sub-rect of the
+	// live per-eye target. Only meaningfully implemented by
+	// VulkanRenderDevice (VR is Vulkan-only in this codebase - see
+	// VulkanRenderDevice's constructor doc comment); harmless no-ops here so
+	// callers can go through this base RenderDevice pointer without a
+	// Vulkan-specific include/dynamic_cast, matching every other virtual on
+	// this class.
+	virtual void LockQuadTarget(vec4 ScreenClear) { }
+	virtual void UnlockQuadTarget() { }
+	virtual int GetQuadWidth() const { return 0; }
+	virtual int GetQuadHeight() const { return 0; }
+
 	// 2D rendering
 	bool IsOrtho = false;
 	bool IsOrthoLowDetail = false;

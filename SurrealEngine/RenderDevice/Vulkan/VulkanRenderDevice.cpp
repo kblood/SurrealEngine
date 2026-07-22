@@ -402,6 +402,164 @@ void VulkanRenderDevice::Unlock(bool Blit)
 	IsLocked = false;
 }
 
+void VulkanRenderDevice::EnsureQuadTarget()
+{
+	if (!QuadScene || QuadScene->Multisample != GetSettingsMultisample())
+	{
+		QuadFramebuffer.reset();
+		QuadPPImageFB.reset();
+		QuadScene.reset();
+		QuadScene.reset(new SceneTextures(this, QuadWidth, QuadHeight, GetSettingsMultisample()));
+
+		QuadFramebuffer = FramebufferBuilder()
+			.RenderPass(RenderPasses->Scene.RenderPass.get())
+			.Size(QuadScene->Width, QuadScene->Height)
+			.AddAttachment(QuadScene->ColorBufferView.get())
+			.AddAttachment(QuadScene->HitBufferView.get())
+			.AddAttachment(QuadScene->DepthBufferView.get())
+			.DebugName("QuadFramebuffer")
+			.Create(Device.get());
+
+		// Postprocess.RenderPass/single-attachment shape - same as
+		// FramebufferManager::CreateSceneFramebuffer()'s PPImageFB[i], reused
+		// here for the quad's own present-shader pass (see
+		// UnlockQuadTarget()) rather than duplicating a render pass object.
+		QuadPPImageFB = FramebufferBuilder()
+			.RenderPass(RenderPasses->Postprocess.RenderPass.get())
+			.Size(QuadScene->Width, QuadScene->Height)
+			.AddAttachment(QuadScene->PPImageView[1].get())
+			.DebugName("QuadPPImageFB")
+			.Create(Device.get());
+
+		DescriptorSets->UpdateQuadPresentSet(QuadScene->PPImageView[0].get());
+	}
+}
+
+void VulkanRenderDevice::LockQuadTarget(vec4 ScreenClear)
+{
+	EnsureQuadTarget();
+
+	auto cmdbuffer = Commands->GetDrawCommands();
+
+	VkAccessFlags srcColorAccess = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+	VkAccessFlags dstColorAccess = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+	VkAccessFlags srcDepthAccess = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	VkAccessFlags dstDepthAccess = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	VkPipelineStageFlags srcStages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	VkPipelineStageFlags dstStages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+
+	// UNDEFINED old-layout discards whatever this buffer held from last
+	// frame's UnlockQuadTarget()/BlitQuadSceneToPostprocess() (which leaves
+	// ColorBuffer in TRANSFER_SRC_OPTIMAL) - always legal ("don't care about
+	// existing contents") and the same convention Lock() above uses for
+	// Textures->Scene every frame regardless of what Unlock() left it in.
+	PipelineBarrier()
+		.AddImage(QuadScene->ColorBuffer.get(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, srcColorAccess, dstColorAccess)
+		.AddImage(QuadScene->HitBuffer.get(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, srcColorAccess, dstColorAccess)
+		.AddImage(QuadScene->DepthBuffer.get(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, srcDepthAccess, dstDepthAccess, VK_IMAGE_ASPECT_DEPTH_BIT)
+		.Execute(cmdbuffer, srcStages, dstStages);
+
+	RenderPassBegin()
+		.RenderPass(RenderPasses->Scene.RenderPass.get())
+		.Framebuffer(QuadFramebuffer.get())
+		.RenderArea(0, 0, QuadScene->Width, QuadScene->Height)
+		.AddClearColor(ScreenClear.x, ScreenClear.y, ScreenClear.z, ScreenClear.w)
+		.AddClearColor(0.0f, 0.0f, 0.0f, 0.0f)
+		.AddClearDepthStencil(1.0f, 0)
+		.Execute(cmdbuffer);
+
+	VkBuffer vertexBuffers[] = { Buffers->SceneVertexBuffer->buffer };
+	VkDeviceSize offsets[] = { 0 };
+	cmdbuffer->bindVertexBuffers(0, 1, vertexBuffers, offsets);
+	cmdbuffer->bindIndexBuffer(Buffers->SceneIndexBuffer->buffer, 0, VK_INDEX_TYPE_UINT32);
+
+	Batch.Pipeline = nullptr;
+	IsLocked = true;
+}
+
+void VulkanRenderDevice::UnlockQuadTarget()
+{
+	DrawBatch(Commands->GetDrawCommands());
+	Commands->GetDrawCommands()->endRenderPass();
+
+	BlitQuadSceneToPostprocess();
+
+	auto cmdbuffer = Commands->GetDrawCommands();
+
+	// Present-shader (gamma/contrast/brightness/dither) pass, QuadScene->
+	// PPImage[0] -> PPImage[1] - mirrors the second present-shader pass
+	// DrawPresentTexture() runs for the eye swapchains (see that function's
+	// 2026-07-22 comment) so the quad gets the same tone mapping the window
+	// and the eyes do, rather than a raw linear copy.
+	PresentPushConstants pc = GetPresentPushConstants();
+	int presentShader = 0;
+	if (GammaMode == 1) presentShader |= 2;
+	if (pc.Brightness != 0.0f || pc.Contrast != 1.0f || pc.Saturation != 1.0f) presentShader |= (clamp(GrayFormula, 0, 2) + 1) << 2;
+
+	PipelineBarrier()
+		.AddImage(QuadScene->PPImage[1].get(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT)
+		.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+	RenderPassBegin()
+		.RenderPass(RenderPasses->Postprocess.RenderPass.get())
+		.Framebuffer(QuadPPImageFB.get())
+		.RenderArea(0, 0, QuadScene->Width, QuadScene->Height)
+		.AddClearColor(0.0f, 0.0f, 0.0f, 1.0f)
+		.Execute(cmdbuffer);
+
+	VkViewport vp = {};
+	vp.width = (float)QuadScene->Width;
+	vp.height = (float)QuadScene->Height;
+	vp.maxDepth = 1.0f;
+	VkRect2D sc = {};
+	sc.extent.width = QuadScene->Width;
+	sc.extent.height = QuadScene->Height;
+	cmdbuffer->setViewport(0, 1, &vp);
+	cmdbuffer->setScissor(0, 1, &sc);
+	cmdbuffer->bindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, RenderPasses->Present.ScreenshotPipeline[presentShader].get());
+	cmdbuffer->bindDescriptorSet(VK_PIPELINE_BIND_POINT_GRAPHICS, RenderPasses->Present.PipelineLayout.get(), 0, DescriptorSets->GetQuadPresentSet());
+	cmdbuffer->pushConstants(RenderPasses->Present.PipelineLayout.get(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PresentPushConstants), &pc);
+	cmdbuffer->draw(6, 1, 0, 0);
+	cmdbuffer->endRenderPass();
+
+	PipelineBarrier()
+		.AddImage(QuadScene->PPImage[1].get(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT)
+		.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+	if (HasPendingQuadTarget())
+	{
+		PipelineBarrier()
+			.AddImage(PendingQuadImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+		VkImageBlit blit = {};
+		blit.srcOffsets[0] = { 0, 0, 0 };
+		blit.srcOffsets[1] = { QuadScene->Width, QuadScene->Height, 1 };
+		blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.srcSubresource.layerCount = 1;
+		blit.dstOffsets[0] = { 0, 0, 0 };
+		blit.dstOffsets[1] = { PendingQuadWidth, PendingQuadHeight, 1 };
+		blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.dstSubresource.layerCount = 1;
+		cmdbuffer->blitImage(QuadScene->PPImage[1]->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, PendingQuadImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+		PipelineBarrier()
+			.AddImage(PendingQuadImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+		ClearPendingQuadTarget();
+	}
+
+	// This target has no window presentation tied to it (present=false), so
+	// SubmitCommands() just submits/waits/resets DrawCommands - the next
+	// GetDrawCommands() call (next frame's Lock()) lazily starts a fresh
+	// command buffer, same as every other mid-frame SubmitAndWait(false,...)
+	// call in this file (Flush(), FlushDrawBatchAndWait()).
+	SubmitAndWait(false, 0, 0, false);
+
+	IsLocked = false;
+}
+
 bool VulkanRenderDevice::SupportsTextureFormat(TextureFormat Format)
 {
 	return Uploads->SupportsTextureFormat(Format);
@@ -1220,6 +1378,75 @@ void VulkanRenderDevice::BlitSceneToPostprocess()
 	}
 }
 
+// 2026-07-22: the quad target's own ColorBuffer -> PPImage[0] resolve/blit -
+// mirrors BlitSceneToPostprocess() above exactly, minus every HitData branch
+// (RenderSubsystem::DrawGame()'s Device->Lock() call always passes
+// HitData=nullptr, and LockQuadTarget()/UnlockQuadTarget() never receive hit
+// data at all, so those branches would never be taken here even if kept -
+// see the class's HitQuery/HitBuffer members, which stay untouched by this
+// whole quad-target path).
+void VulkanRenderDevice::BlitQuadSceneToPostprocess()
+{
+	auto buffers = QuadScene.get();
+	auto cmdbuffer = Commands->GetDrawCommands();
+
+	PipelineBarrier barrier0;
+	VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	barrier0.AddImage(
+		buffers->ColorBuffer.get(),
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_TRANSFER_READ_BIT);
+	barrier0.AddImage(
+		buffers->PPImage[0].get(),
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_ACCESS_TRANSFER_WRITE_BIT);
+	barrier0.Execute(cmdbuffer, srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+	if (buffers->SceneSamples != VK_SAMPLE_COUNT_1_BIT)
+	{
+		VkImageResolve resolve = {};
+		resolve.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		resolve.srcSubresource.layerCount = 1;
+		resolve.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		resolve.dstSubresource.layerCount = 1;
+		resolve.extent = { (uint32_t)buffers->ColorBuffer->width, (uint32_t)buffers->ColorBuffer->height, 1 };
+		cmdbuffer->resolveImage(
+			buffers->ColorBuffer->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			buffers->PPImage[0]->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1, &resolve);
+	}
+	else
+	{
+		auto colorBuffer = buffers->ColorBuffer.get();
+		VkImageBlit blit = {};
+		blit.srcOffsets[0] = { 0, 0, 0 };
+		blit.srcOffsets[1] = { colorBuffer->width, colorBuffer->height, 1 };
+		blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.srcSubresource.layerCount = 1;
+		blit.dstOffsets[0] = { 0, 0, 0 };
+		blit.dstOffsets[1] = { colorBuffer->width, colorBuffer->height, 1 };
+		blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.dstSubresource.layerCount = 1;
+		cmdbuffer->blitImage(
+			colorBuffer->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			buffers->PPImage[0]->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1, &blit, VK_FILTER_NEAREST);
+	}
+
+	PipelineBarrier barrier1;
+	barrier1.AddImage(
+		buffers->PPImage[0].get(),
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_ACCESS_TRANSFER_WRITE_BIT,
+		VK_ACCESS_SHADER_READ_BIT);
+	barrier1.Execute(cmdbuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+}
+
 void VulkanRenderDevice::RunBloomPass()
 {
 	float blurAmount = 0.6f + BloomAmount * (1.9f / 255.0f);
@@ -1521,49 +1748,105 @@ void VulkanRenderDevice::DrawPresentTexture(int width, int height)
 
 	// M2 step 8/9: if a VR frame has pending eye swapchain images (set by
 	// Engine::Run's XR frame loop via SetPendingXRTargets before DrawGame),
-	// blit the image we just composited above into each one, on the same
-	// command buffer, before the window's own present transition. This is a
-	// pure addition - when nothing is pending (the overwhelmingly common
-	// case: no --vr, or --vr but this frame's XR image wasn't acquired), the
-	// else branch below is byte-for-byte the original code.
+	// blit the composited scene into each one, on the same command buffer,
+	// before the window's own present transition. This is a pure addition -
+	// when nothing is pending (the overwhelmingly common case: no --vr, or
+	// --vr but this frame's XR image wasn't acquired), only the unconditional
+	// windowImage present-transition below runs, byte-for-byte the original
+	// code's else branch.
 	VkImage windowImage = Commands->SwapChain->GetImage(Commands->PresentImageIndex)->image;
 	if (HasPendingXRTargets())
 	{
-		int srcW = Commands->SwapChain->Width();
-		int srcH = Commands->SwapChain->Height();
+		// 2026-07-22 resolution fix: this used to blit raw halves of
+		// windowImage - the small desktop mirror window's own swapchain
+		// image, already downscaled (and letterboxed) by the present pass
+		// just above - up into the much larger OpenXR swapchain, i.e. an
+		// upscale of an already-downscaled image, independent of whatever
+		// resolution the scene actually rendered at. Now that Engine.cpp
+		// pins the scene render target to the real per-eye swapchain size
+		// (SetFixedRenderSize(), see the CreateSwapchains() call site) and
+		// DrawSceneVR()/ResetCanvas() size their viewports off
+		// Device->GetRenderWidth/Height() instead of the desktop window,
+		// Textures->Scene is already the full-resolution composited image -
+		// run the exact same gamma/brightness/contrast present shader used
+		// for the window above (RenderPasses->Present.Pipeline /
+		// GetPresentPushConstants()) a second time at that full resolution,
+		// into Textures->Scene->PPImage[1], then blit eye halves from that
+		// instead. PPImage[1] is the same full-res RGBA16F buffer
+		// ReadPixels()'s GammaCorrectScreenshots path already produces via
+		// this identical Postprocess.RenderPass/PPImageFB[1]/ScreenshotPipeline
+		// triple (see ReadPixels() above) - reused here rather than
+		// allocating a new target. windowImage itself is no longer read from
+		// for the eye blit, only presented normally below.
+		PresentPushConstants vrPushConstants = pushconstants;
 
-		// One-shot diagnostic (2026-07-20 rendering investigation): the eye
-		// blit below copies raw halves of the window swapchain image
-		// (srcW/srcH), NOT the letterboxed viewport rect drawn above
-		// (letterboxX/Y/Width/Height). If those differ - i.e. the window
-		// isn't exactly 2x the internal viewport aspect and black bars are
-		// actually being drawn - the bars get baked into both eye images
-		// and would corrupt the per-eye FOV mapping the same way the
-		// DrawSceneVR() vertical-frustum bug does. Confirm this is a no-op
-		// (letterbox == full size) before ruling it out. See
-		// Docs/VR/FABLE_ANALYSIS_2026-07-20.md.
-		static bool loggedLetterbox = false;
-		if (!loggedLetterbox)
-		{
-			loggedLetterbox = true;
-			LogMessage("VR diag: letterbox=(" + std::to_string(letterboxX) + "," + std::to_string(letterboxY) + " " +
-				std::to_string(letterboxWidth) + "x" + std::to_string(letterboxHeight) + ") vs window " +
-				std::to_string(width) + "x" + std::to_string(height) + ", swapchain(src)=" +
-				std::to_string(srcW) + "x" + std::to_string(srcH) + ", viewport(vp)=" +
-				std::to_string(vpWidth) + "x" + std::to_string(vpHeight));
-		}
+		// ReadPixels()'s screenshot path hardcodes ActiveHdr=false for the
+		// same reason: the destination here is a plain RGBA16F buffer, not
+		// the real swapchain, so the HDR output-encoding shader variant
+		// (tailored to Commands->SwapChain's actual color space) doesn't
+		// apply. Assumes the OpenXR swapchain format is a standard SDR
+		// format, same assumption ReadPixels() already makes for
+		// screenshots - not verified against a real runtime's swapchain
+		// format here.
+		int vrPresentShader = 0;
+		if (GammaMode == 1) vrPresentShader |= 2;
+		if (vrPushConstants.Brightness != 0.0f || vrPushConstants.Contrast != 1.0f || vrPushConstants.Saturation != 1.0f) vrPresentShader |= (clamp(GrayFormula, 0, 2) + 1) << 2;
+
+		VkViewport vrViewport = {};
+		vrViewport.width = (float)Textures->Scene->Width;
+		vrViewport.height = (float)Textures->Scene->Height;
+		vrViewport.maxDepth = 1.0f;
+
+		VkRect2D vrScissor = {};
+		vrScissor.extent.width = Textures->Scene->Width;
+		vrScissor.extent.height = Textures->Scene->Height;
 
 		PipelineBarrier()
-			.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT)
+			.AddImage(Textures->Scene->PPImage[1].get(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+		RenderPassBegin()
+			.RenderPass(RenderPasses->Postprocess.RenderPass.get())
+			.Framebuffer(Framebuffers->PPImageFB[1].get())
+			.RenderArea(0, 0, Textures->Scene->Width, Textures->Scene->Height)
+			.AddClearColor(0.0f, 0.0f, 0.0f, 1.0f)
+			.Execute(cmdbuffer);
+		cmdbuffer->setViewport(0, 1, &vrViewport);
+		cmdbuffer->setScissor(0, 1, &vrScissor);
+		cmdbuffer->bindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, RenderPasses->Present.ScreenshotPipeline[vrPresentShader].get());
+		cmdbuffer->bindDescriptorSet(VK_PIPELINE_BIND_POINT_GRAPHICS, RenderPasses->Present.PipelineLayout.get(), 0, DescriptorSets->GetPresentSet());
+		cmdbuffer->pushConstants(RenderPasses->Present.PipelineLayout.get(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PresentPushConstants), &vrPushConstants);
+		cmdbuffer->draw(6, 1, 0, 0);
+		cmdbuffer->endRenderPass();
+
+		PipelineBarrier()
+			.AddImage(Textures->Scene->PPImage[1].get(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT)
 			.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
+		VkImage vrSourceImage = Textures->Scene->PPImage[1]->image;
+		int srcW = Textures->Scene->Width;
+		int srcH = Textures->Scene->Height;
+
+		// One-shot diagnostic: confirms the eye blit source is now the
+		// full-res composited buffer, not the small mirror window swapchain
+		// (which the pre-fix version of this code used - see git history /
+		// Docs/VR/FABLE_ANALYSIS_2026-07-20.md for the bug this replaces).
+		static bool loggedSource = false;
+		if (!loggedSource)
+		{
+			loggedSource = true;
+			LogMessage("VR present: eye blit source " + std::to_string(srcW) + "x" + std::to_string(srcH) +
+				" (Textures->Scene->PPImage[1]) -> eye swapchain " + std::to_string(PendingXRWidth) + "x" + std::to_string(PendingXRHeight) +
+				", mirror window swapchain is " + std::to_string(Commands->SwapChain->Width()) + "x" + std::to_string(Commands->SwapChain->Height()));
+		}
+
 		// M3: DrawSceneVR() renders each eye into its own half of this same
-		// window-sized buffer (left half = eye 0, right half = eye 1, same
-		// split-viewport layout DrawSceneStereo already used for its debug
-		// preview) - blit each half into its matching eye swapchain image
-		// instead of stretching the full composited (both-eyes) image into
-		// both, which is what produced the double-vision/misalignment seen
-		// on real hardware before this.
+		// full-resolution buffer (left half = eye 0, right half = eye 1,
+		// same split-viewport layout DrawSceneStereo already used for its
+		// debug preview) - blit each half into its matching eye swapchain
+		// image instead of stretching the full composited (both-eyes) image
+		// into both, which is what produced the double-vision/misalignment
+		// seen on real hardware before this.
 		int halfSrcW = srcW / 2;
 
 		VkImageBlit blit = {};
@@ -1591,7 +1874,7 @@ void VulkanRenderDevice::DrawPresentTexture(int width, int height)
 				.Execute(cmdbuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
 			cmdbuffer->blitImage(
-				windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				vrSourceImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				PendingXRImage[eye], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				1, &blit, VK_FILTER_LINEAR);
 
@@ -1605,19 +1888,13 @@ void VulkanRenderDevice::DrawPresentTexture(int width, int height)
 				.Execute(cmdbuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 		}
 
-		PipelineBarrier()
-			.AddImage(windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_TRANSFER_READ_BIT, 0)
-			.Execute(cmdbuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
-
 		// One-shot: the caller (Engine::Run's XR frame loop) sets this again
 		// every frame right before DrawGame(), only when an XR frame is
 		// actually being rendered this tick.
 		ClearPendingXRTargets();
 	}
-	else
-	{
-		PipelineBarrier()
-			.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0)
-			.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
-	}
+
+	PipelineBarrier()
+		.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0)
+		.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
 }

@@ -138,6 +138,27 @@ void DescriptorSetManager::CreateBloomSets()
 	Bloom.PPImageSet = Bloom.Pool->allocate(Bloom.Layout.get());
 }
 
+void DescriptorSetManager::UpdateQuadPresentSet(VulkanImageView* colorView)
+{
+	if (!QuadPresent.Set)
+	{
+		QuadPresent.Pool = DescriptorPoolBuilder()
+			.AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2)
+			.MaxSets(1)
+			.DebugName("QuadPresentPool")
+			.Create(renderer->Device.get());
+		QuadPresent.Set = QuadPresent.Pool->allocate(Present.Layout.get());
+	}
+
+	auto samplers = renderer->Samplers.get();
+	auto textures = renderer->Textures.get();
+
+	WriteDescriptors write;
+	write.AddCombinedImageSampler(QuadPresent.Set.get(), 0, colorView, samplers->PPLinearClamp.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	write.AddCombinedImageSampler(QuadPresent.Set.get(), 1, textures->DitherImageView.get(), samplers->PPNearestRepeat.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	write.Execute(renderer->Device.get());
+}
+
 void DescriptorSetManager::UpdateFrameDescriptors()
 {
 	auto textures = renderer->Textures.get();

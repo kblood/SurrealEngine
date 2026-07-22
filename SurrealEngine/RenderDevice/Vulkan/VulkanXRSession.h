@@ -25,6 +25,21 @@ struct VREyePose
 	float angleLeft = 0.0f, angleRight = 0.0f, angleUp = 0.0f, angleDown = 0.0f; // radians
 };
 
+// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): a fixed world-anchor
+// pose for the Entry-map/menu quad layer. Computed ONCE (in Engine.cpp) when
+// inEntryMap/bShowMenu() first transitions true, then held fixed for as long
+// as that state stays active - NOT recomputed every frame like eye poses.
+// Same raw OpenXR appSpace convention as VREyePose (meters, +Y up, +X right,
+// -Z forward) rather than round-tripped through UE1 world coordinates, since
+// the only consumer (EndFrame's XrCompositionLayerQuad) wants it in exactly
+// this form.
+struct VRQuadPose
+{
+	float posX = 0.0f, posY = 0.0f, posZ = 0.0f;
+	float qx = 0.0f, qy = 0.0f, qz = 0.0f, qw = 1.0f;
+	float widthMeters = 1.0f, heightMeters = 0.75f;
+};
+
 // M-A: a single hand's tracked pose (grip or aim), as reported by
 // xrLocateSpace against the session's app space. Same opaque-POD /
 // meters / OpenXR-convention style as VREyePose (position in the
@@ -131,6 +146,24 @@ public:
 	int GetSwapchainWidth() const { return swapchainWidth; }
 	int GetSwapchainHeight() const { return swapchainHeight; }
 
+	// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): a third,
+	// independent swapchain for the Entry-map/menu quad layer - single view
+	// (not stereo), sized to the offscreen quad render target
+	// (VulkanRenderDevice::QuadWidth/QuadHeight), not the per-eye recommended
+	// extent. Created/destroyed independently of CreateSwapchains()/
+	// DestroySwapchains() since it's only needed once --vr AND Entry/menu are
+	// both active. DestroySwapchains() also tears this down defensively (see
+	// .cpp) so session teardown can't leak it if the caller forgets.
+	bool CreateQuadSwapchain(int width, int height);
+	void DestroyQuadSwapchain();
+	int GetQuadSwapchainWidth() const { return quadSwapchainWidth; }
+	int GetQuadSwapchainHeight() const { return quadSwapchainHeight; }
+
+	// xrAcquireSwapchainImage + xrWaitSwapchainImage for the quad swapchain.
+	// Returns the VkImage (cast to void*), or nullptr on failure/no swapchain.
+	void* AcquireQuadSwapchainImage();
+	void ReleaseQuadSwapchainImage();
+
 	// xrWaitFrame + xrBeginFrame. Returns false on a hard failure (caller
 	// should stop the XR loop). outShouldRender reflects XrFrameState's
 	// shouldRender - xrEndFrame must still be called (with no layers) even
@@ -150,8 +183,15 @@ public:
 
 	// xrEndFrame with a single projection layer covering both eyes (or no
 	// layers if submitLayer is false - still required to keep the frame
-	// loop balanced).
-	void EndFrame(bool submitLayer, const VREyePose eyes[2]);
+	// loop balanced). quadActive/quadPose are defaulted so the existing
+	// DrawVideoFrame() XR loop call site (VR_SCREEN_QUAD_PLAN_2026-07-22.md
+	// Phase 2 explicitly keeps this out of scope) keeps compiling unchanged;
+	// when quadActive is true an additional XrCompositionLayerQuad is
+	// submitted at quadPose, sourced from the quad swapchain image most
+	// recently released via ReleaseQuadSwapchainImage(). projectionAlphaBlend
+	// makes the projection a transparent overlay and orders it after the quad;
+	// used for real stereo controllers/laser over the opaque menu panel.
+	void EndFrame(bool submitLayer, const VREyePose eyes[2], bool quadActive = false, const VRQuadPose& quadPose = VRQuadPose(), bool projectionAlphaBlend = false);
 
 	// ---- M3: controller input ----
 
@@ -216,6 +256,14 @@ private:
 	void* swapchain[2] = { nullptr, nullptr }; // XrSwapchain, one per eye
 	std::vector<void*> swapchainImages[2]; // VkImage per swapchain image, one vector per eye
 	uint32_t acquiredIndex[2] = { 0, 0 };
+
+	// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): quad swapchain.
+	int quadSwapchainWidth = 0;
+	int quadSwapchainHeight = 0;
+	void* quadSwapchain = nullptr; // XrSwapchain
+	std::vector<void*> quadSwapchainImages; // VkImage per swapchain image
+	uint32_t quadAcquiredIndex = 0;
+	bool quadImageAcquired = false;
 
 	double lastPredictedDisplayTime = 0.0;
 	int64_t predictedDisplayPeriod = 0;

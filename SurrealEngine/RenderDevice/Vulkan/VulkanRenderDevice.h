@@ -98,6 +98,43 @@ public:
 	bool HasPendingXRTargets() const { return PendingXRImage[0] != VK_NULL_HANDLE || PendingXRImage[1] != VK_NULL_HANDLE; }
 	void ClearPendingXRTargets() { PendingXRImage[0] = VK_NULL_HANDLE; PendingXRImage[1] = VK_NULL_HANDLE; }
 
+	// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): the Entry-map/
+	// menu offscreen quad target - a second, independent SceneTextures
+	// instance (own ColorBuffer/PPImage, NOT Textures->Scene) at a fixed,
+	// shared "screen surface" resolution. Deliberately a fully separate
+	// Lock/Draw/Unlock-shaped cycle (LockQuadTarget()/UnlockQuadTarget(),
+	// called from RenderSubsystem::DrawGame() AFTER the main
+	// Device->Unlock(true) for this frame has already submitted) rather than
+	// threading a second target through the existing Lock()/Unlock()/
+	// BlitSceneToPostprocess() - avoids any risk of regressing the main VR
+	// eye path for a feature that only ever runs while the world is blanked
+	// (Entry-map/menu). Sized once, on first use, from GetQuadWidth()/
+	// GetQuadHeight() below; recreated whenever GetSettingsMultisample()
+	// changes, same recreate-check Lock() itself uses for Textures->Scene -
+	// this is what guarantees SceneTextures::SceneSamples (and therefore
+	// attachment format/sample-count) stays identical to the main scene, so
+	// RenderPasses->Scene.RenderPass/Scene.Pipeline[] can be reused verbatim
+	// for this target's framebuffer with no new render pass or pipeline
+	// objects (Vulkan render-pass-compatibility rules - same attachment
+	// formats/sample counts).
+	void LockQuadTarget(vec4 ScreenClear) override;
+	void UnlockQuadTarget() override;
+	int GetQuadWidth() const override { return QuadWidth; }
+	int GetQuadHeight() const override { return QuadHeight; }
+
+	// See SetPendingXRTargets()/HasPendingXRTargets() above - the quad
+	// target's analogous single-image pending state, set by Engine::Run's XR
+	// frame loop via AcquireQuadSwapchainImage() before DrawGame(), consumed
+	// by UnlockQuadTarget()'s final present-shader+blit step.
+	void SetPendingQuadTarget(void* image, int width, int height)
+	{
+		PendingQuadImage = (VkImage)image;
+		PendingQuadWidth = width;
+		PendingQuadHeight = height;
+	}
+	bool HasPendingQuadTarget() const { return PendingQuadImage != VK_NULL_HANDLE; }
+	void ClearPendingQuadTarget() { PendingQuadImage = VK_NULL_HANDLE; }
+
 	struct
 	{
 		int ComplexSurfaces = 0;
@@ -122,6 +159,7 @@ public:
 private:
 	void ClearTextureCache();
 	void BlitSceneToPostprocess();
+	void BlitQuadSceneToPostprocess();
 
 	struct VertexReserveInfo
 	{
@@ -159,6 +197,22 @@ private:
 	VkImage PendingXRImage[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
 	int PendingXRWidth = 0;
 	int PendingXRHeight = 0;
+
+	// See LockQuadTarget()/SetPendingQuadTarget() above. QuadWidth/Height are
+	// a fixed 4:3 "screen surface" size shared by both the Entry-map
+	// flythrough and the menu (Codex's P4 finding: reuse one contract rather
+	// than inventing two) - not derived from any window/swapchain size, so
+	// content composed for it always looks the same regardless of headset/
+	// display resolution.
+	static constexpr int QuadWidth = 1024;
+	static constexpr int QuadHeight = 768;
+	std::unique_ptr<SceneTextures> QuadScene;
+	std::unique_ptr<VulkanFramebuffer> QuadFramebuffer; // Scene.RenderPass, matches SceneFramebuffer's attachment set
+	std::unique_ptr<VulkanFramebuffer> QuadPPImageFB;   // Postprocess.RenderPass, single attachment (QuadScene->PPImageView[1]) - the present-shader pass's target
+	void EnsureQuadTarget();
+	VkImage PendingQuadImage = VK_NULL_HANDLE;
+	int PendingQuadWidth = 0;
+	int PendingQuadHeight = 0;
 
 	bool UsePrecache = true;
 	vec4 FlashScale;

@@ -722,6 +722,36 @@ set_target_properties(SurrealVideo PROPERTIES CXX_STANDARD 20)
 set_target_properties(SurrealVideo PROPERTIES C_STANDARD 17)
 
 add_library(SurrealCommon STATIC ${SURREALCOMMON_SOURCES} ${THIRDPARTY_SOURCES})
+
+# Stamp every executable that links SurrealCommon with the exact source tree
+# it came from. This is intentionally configure-time metadata: re-running
+# CMake after a commit or local edit updates the identity written to the log.
+execute_process(
+	COMMAND git rev-parse --short=12 HEAD
+	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+	OUTPUT_VARIABLE SURREAL_GIT_COMMIT
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+	ERROR_QUIET
+)
+execute_process(
+	COMMAND git status --porcelain
+	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+	OUTPUT_VARIABLE SURREAL_GIT_STATUS
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+	ERROR_QUIET
+)
+if (NOT SURREAL_GIT_COMMIT)
+	set(SURREAL_GIT_COMMIT "unknown")
+endif()
+if (SURREAL_GIT_STATUS)
+	set(SURREAL_GIT_DIRTY 1)
+else()
+	set(SURREAL_GIT_DIRTY 0)
+endif()
+target_compile_definitions(SurrealCommon PRIVATE
+	SURREAL_GIT_COMMIT="${SURREAL_GIT_COMMIT}"
+	SURREAL_GIT_DIRTY=${SURREAL_GIT_DIRTY}
+)
 set_target_properties(SurrealCommon PROPERTIES CXX_STANDARD 20)
 target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Precomp.h>)
 

@@ -511,6 +511,98 @@ void VulkanXRSession::DestroySwapchains()
 		}
 		swapchainImages[eye].clear();
 	}
+
+	// Defensive: the quad swapchain has its own explicit lifetime (created
+	// only once --vr AND Entry/menu are reached - see Engine.cpp), but if a
+	// caller tears the session down without calling DestroyQuadSwapchain()
+	// first, don't leak the XrSwapchain handle.
+	DestroyQuadSwapchain();
+}
+
+bool VulkanXRSession::CreateQuadSwapchain(int width, int height)
+{
+	if (!session)
+	{
+		lastError = "no session";
+		return false;
+	}
+	if (quadSwapchain)
+		return true; // already created - CreateQuadSwapchain() may be called defensively more than once
+	XrSession xrSession = (XrSession)session;
+
+	uint32_t formatCount = 0;
+	XrResult result = xrEnumerateSwapchainFormats(xrSession, 0, &formatCount, nullptr);
+	if (XR_FAILED(result) || formatCount == 0)
+	{
+		lastError = "xrEnumerateSwapchainFormats (quad) failed (result=" + std::to_string((int)result) + ")";
+		return false;
+	}
+	std::vector<int64_t> formats(formatCount);
+	xrEnumerateSwapchainFormats(xrSession, formatCount, &formatCount, formats.data());
+
+	static const VkFormat preferred[] = { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_R8G8B8A8_SRGB };
+	int64_t chosenFormat = formats[0];
+	for (VkFormat pref : preferred)
+	{
+		auto it = std::find(formats.begin(), formats.end(), (int64_t)pref);
+		if (it != formats.end())
+		{
+			chosenFormat = (int64_t)pref;
+			break;
+		}
+	}
+
+	quadSwapchainWidth = width;
+	quadSwapchainHeight = height;
+
+	XrSwapchainCreateInfo swapchainInfo = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+	swapchainInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+	swapchainInfo.format = chosenFormat;
+	swapchainInfo.sampleCount = 1;
+	swapchainInfo.width = (uint32_t)quadSwapchainWidth;
+	swapchainInfo.height = (uint32_t)quadSwapchainHeight;
+	swapchainInfo.faceCount = 1;
+	swapchainInfo.arraySize = 1;
+	swapchainInfo.mipCount = 1;
+
+	XrSwapchain sc = XR_NULL_HANDLE;
+	result = xrCreateSwapchain(xrSession, &swapchainInfo, &sc);
+	LogMessage("OpenXR: xrCreateSwapchain (quad) result=" + std::to_string((int)result));
+	if (XR_FAILED(result))
+	{
+		lastError = "xrCreateSwapchain (quad) failed (result=" + std::to_string((int)result) + ")";
+		return false;
+	}
+	quadSwapchain = (void*)sc;
+
+	uint32_t imageCount = 0;
+	xrEnumerateSwapchainImages(sc, 0, &imageCount, nullptr);
+	std::vector<XrSwapchainImageVulkanKHR> images(imageCount, XrSwapchainImageVulkanKHR{ XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR });
+	result = xrEnumerateSwapchainImages(sc, imageCount, &imageCount, (XrSwapchainImageBaseHeader*)images.data());
+	LogMessage("OpenXR: xrEnumerateSwapchainImages (quad) result=" + std::to_string((int)result) + " count=" + std::to_string(imageCount));
+	if (XR_FAILED(result))
+	{
+		lastError = "xrEnumerateSwapchainImages (quad) failed (result=" + std::to_string((int)result) + ")";
+		DestroyQuadSwapchain();
+		return false;
+	}
+	quadSwapchainImages.clear();
+	for (auto& img : images)
+		quadSwapchainImages.push_back((void*)img.image);
+
+	return true;
+}
+
+void VulkanXRSession::DestroyQuadSwapchain()
+{
+	if (quadSwapchain)
+	{
+		xrDestroySwapchain((XrSwapchain)quadSwapchain);
+		quadSwapchain = nullptr;
+	}
+	quadSwapchainImages.clear();
+	quadSwapchainWidth = 0;
+	quadSwapchainHeight = 0;
 }
 
 bool VulkanXRSession::WaitAndBeginFrame(bool& outShouldRender)
@@ -648,6 +740,54 @@ void VulkanXRSession::ReleaseSwapchainImage(int eye)
 		LogMessage("OpenXR: xrReleaseSwapchainImage eye=" + std::to_string(eye) + " failed (result=" + std::to_string((int)result) + ")");
 }
 
+void* VulkanXRSession::AcquireQuadSwapchainImage()
+{
+	if (!quadSwapchain)
+		return nullptr;
+	XrSwapchain sc = (XrSwapchain)quadSwapchain;
+
+	XrSwapchainImageAcquireInfo acquireInfo = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+	uint32_t index = 0;
+	XrResult result = xrAcquireSwapchainImage(sc, &acquireInfo, &index);
+	if (XR_FAILED(result))
+	{
+		LogMessage("OpenXR: xrAcquireSwapchainImage (quad) failed (result=" + std::to_string((int)result) + ")");
+		return nullptr;
+	}
+	quadAcquiredIndex = index;
+	quadImageAcquired = true;
+
+	XrSwapchainImageWaitInfo waitInfo = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+	waitInfo.timeout = XR_INFINITE_DURATION;
+	result = xrWaitSwapchainImage(sc, &waitInfo);
+	if (XR_FAILED(result))
+	{
+		LogMessage("OpenXR: xrWaitSwapchainImage (quad) failed (result=" + std::to_string((int)result) + ")");
+		ReleaseQuadSwapchainImage();
+		return nullptr;
+	}
+
+	if (index >= quadSwapchainImages.size())
+	{
+		LogMessage("OpenXR: acquired quad image index is outside the enumerated image list");
+		ReleaseQuadSwapchainImage();
+		return nullptr;
+	}
+	return quadSwapchainImages[index];
+}
+
+void VulkanXRSession::ReleaseQuadSwapchainImage()
+{
+	if (!quadSwapchain || !quadImageAcquired)
+		return;
+	XrSwapchain sc = (XrSwapchain)quadSwapchain;
+	XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+	XrResult result = xrReleaseSwapchainImage(sc, &releaseInfo);
+	quadImageAcquired = false;
+	if (XR_FAILED(result))
+		LogMessage("OpenXR: xrReleaseSwapchainImage (quad) failed (result=" + std::to_string((int)result) + ")");
+}
+
 // Composes the projection layer from the SAME poses/fovs xrLocateViews
 // reported this frame (per spec, the layer's per-view pose/fov should match
 // what was used to render - see LocateViews's doc comment in the header for
@@ -655,7 +795,7 @@ void VulkanXRSession::ReleaseSwapchainImage(int eye)
 // poses; the layer submission below is still spec-correct metadata either
 // way, since the compositor uses it to reproject/timewarp regardless of
 // what produced the pixels).
-void VulkanXRSession::EndFrame(bool submitLayer, const VREyePose eyes[2])
+void VulkanXRSession::EndFrame(bool submitLayer, const VREyePose eyes[2], bool quadActive, const VRQuadPose& quadPose, bool projectionAlphaBlend)
 {
 	if (!session)
 		return;
@@ -663,7 +803,8 @@ void VulkanXRSession::EndFrame(bool submitLayer, const VREyePose eyes[2])
 
 	XrCompositionLayerProjectionView projViews[2] = {};
 	XrCompositionLayerProjection layer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
-	const XrCompositionLayerBaseHeader* layers[1] = {};
+	XrCompositionLayerQuad quadLayer = { XR_TYPE_COMPOSITION_LAYER_QUAD };
+	const XrCompositionLayerBaseHeader* layers[2] = {};
 	uint32_t layerCount = 0;
 
 	if (submitLayer)
@@ -681,10 +822,50 @@ void VulkanXRSession::EndFrame(bool submitLayer, const VREyePose eyes[2])
 		}
 
 		layer.space = (XrSpace)appSpace;
+		if (projectionAlphaBlend)
+			layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
 		layer.viewCount = 2;
 		layer.views = projViews;
-		layers[0] = (const XrCompositionLayerBaseHeader*)&layer;
-		layerCount = 1;
+	}
+
+	// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): the Entry-map/
+	// menu quad. The caller normally submits this instead of the projection
+	// layer so a runtime cannot composite a stale/duplicate eye image over
+	// the 2D screen. If quad acquisition fails, it submits the projection
+	// layer normally as a safe fallback.
+	if (quadActive && quadSwapchain)
+	{
+		// layerFlags=0 (opaque): the present shader's alpha output isn't
+		// guaranteed to be 1 for every pixel, and an unintentionally
+		// transparent quad would be worse than a guaranteed-opaque one.
+		quadLayer.layerFlags = 0;
+		quadLayer.space = (XrSpace)appSpace;
+		quadLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+		quadLayer.subImage.swapchain = (XrSwapchain)quadSwapchain;
+		quadLayer.subImage.imageRect.offset = { 0, 0 };
+		quadLayer.subImage.imageRect.extent = { quadSwapchainWidth, quadSwapchainHeight };
+		quadLayer.subImage.imageArrayIndex = 0;
+		quadLayer.pose.position = { quadPose.posX, quadPose.posY, quadPose.posZ };
+		quadLayer.pose.orientation = { quadPose.qx, quadPose.qy, quadPose.qz, quadPose.qw };
+		quadLayer.size = { quadPose.widthMeters, quadPose.heightMeters };
+		layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&quadLayer;
+	}
+
+	// OpenXR uses painter's algorithm in array order (layer 0 first). The
+	// transparent hand/laser projection must therefore follow the opaque menu
+	// quad. A normal gameplay projection remains the only layer and is
+	// unaffected by this ordering.
+	if (submitLayer)
+		layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&layer;
+
+	if (quadActive && submitLayer && projectionAlphaBlend)
+	{
+		static bool loggedMenuOverlay = false;
+		if (!loggedMenuOverlay)
+		{
+			loggedMenuOverlay = true;
+			LogMessage("OpenXR: submitting menu quad followed by source-alpha stereo controller/laser projection overlay");
+		}
 	}
 
 	XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };

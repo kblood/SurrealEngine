@@ -105,6 +105,7 @@ public:
 	} Stats;
 
 	VisibleFrame MainFrame;
+	int GetCanvasUIScale() const { return Canvas.uiscale; }
 
 private:
 	void DrawScene();
@@ -119,6 +120,23 @@ private:
 	// projection machinery as DrawSceneStereo, but driven by the real
 	// pose/fov SetPendingVREyes() was given instead of a fake debug IPD.
 	void DrawSceneVR();
+	// Menu-only stereoscopic overlay: builds a real per-eye scene frame but
+	// draws only tracked controller proxies and the main-hand laser. Its eye
+	// images retain transparent backgrounds and are composited over the
+	// opaque menu quad by OpenXR.
+	void DrawVRMenuTrackedOverlay();
+
+	// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): render the
+	// Entry-map flythrough / pause-menu content ONCE per frame,
+	// monoscopically, into the standalone offscreen quad render target
+	// (Device->LockQuadTarget()/UnlockQuadTarget()), for presentation as a
+	// real world-anchored OpenXR quad layer - see RenderScene.cpp/
+	// RenderCanvas.cpp's doc comments on each. Called from DrawGame(), in
+	// their own separate Lock/Unlock cycle after the main per-eye
+	// Device->Unlock(true) has already completed.
+	void DrawEntryQuad();
+	void DrawMenuQuad();
+	void DrawVRMenuPointerOverlay();
 	bool PendingVR = false;
 	vec3 VREyeLocation[2] = {};
 	Coords VREyeRotation[2] = { Coords::Identity(), Coords::Identity() };
@@ -154,7 +172,12 @@ private:
 	// split. Shared by RenderOverlaysVR()/PostRenderVR() - see the doc
 	// comment above its definition in RenderCanvas.cpp for the tan-space
 	// derivation and Docs/VR/FABLE_ANALYSIS_2026-07-20.md sections 1-2.
-	void SetVRHudFrame(int eye, const FSceneNode& fullFrame);
+	// halfFovXDeg/aspectYtoX/depthUU default to the original compact HUD
+	// sizing (~50deg wide, 4:3, ~1.75m) - pass larger/farther values to place
+	// a bigger "virtual screen" for content that needs to be legible (e.g.
+	// the interactive menu or intro video), reusing the same per-eye
+	// convergence math instead of duplicating it.
+	void SetVRHudFrame(int eye, const FSceneNode& fullFrame, float halfFovXDeg = 25.0f, float aspectYtoX = 0.75f, float depthUU = 68.9f);
 	void PostRender();
 	// M3: same per-eye split as RenderOverlaysVR(), for PostRender() - UT99's
 	// actual visible HUD (health/ammo/messages) renders from PlayerPawn's
@@ -178,6 +201,19 @@ private:
 	// needed and trivially screenshot-verifiable. No-op whenever the
 	// off-hand has no valid pose (flatscreen/no-VR runs).
 	void DrawVROffHandMarker();
+	// 2026-07-21: main-hand marker for the grip-calibration flow (see
+	// Engine.cpp's UpdateVRWeaponTuning() doc comment on
+	// vrGripCalibrateActive). During calibration the weapon is parked at a
+	// fixed pose instead of tracking the main hand, so - unlike normal
+	// play, where the viewmodel itself marks the main hand's position -
+	// there is nothing showing where the real controller actually is.
+	// Only drawn while grip-capture is active (engine->vrGripCalibrateActive),
+	// not unconditionally like DrawVROffHandMarker(), since normal play
+	// already has the viewmodel doing that job. Asymmetric by design
+	// (unlike the off-hand's symmetric cross) - real-headset feedback
+	// asked for a way to see which way the controller is pointing, not
+	// just where it is.
+	void DrawVRMainHandMarker();
 	void DrawTile(FTextureInfo& texinfo, const Rectf& dest, const Rectf& src, const Rectf& clipBox, float Z, vec4 color, vec4 fog, uint32_t flags);
 
 	static Array<std::string> FindTextBlocks(const std::string& text);

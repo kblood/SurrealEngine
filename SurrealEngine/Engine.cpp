@@ -33,8 +33,17 @@
 #include "VM/ScriptCall.h"
 #include "Video/VideoPlayer.h"
 #include <chrono>
+#include <iostream>
 #include <set>
 #include <map>
+
+#ifndef SURREAL_GIT_COMMIT
+#define SURREAL_GIT_COMMIT "unknown"
+#endif
+
+#ifndef SURREAL_GIT_DIRTY
+#define SURREAL_GIT_DIRTY 0
+#endif
 
 Engine* engine = nullptr;
 
@@ -84,9 +93,42 @@ Engine::~Engine()
 	if (audiodev)
 		audiodev->ShutdownDevice();
 
-	Logger::Get()->SaveLogAsPlaintext((Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt").string());
+	SaveRunLog(true);
 
 	engine = nullptr;
+}
+
+void Engine::SaveRunLog(bool announcePath)
+{
+	try
+	{
+		fs::path logPath = Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt";
+		if (commandline)
+		{
+			std::string requestedPath = commandline->GetArg("", "--logfile");
+			if (!requestedPath.empty())
+				logPath = fs::absolute(fs::path(requestedPath));
+		}
+		if (logPath.has_parent_path())
+			fs::create_directories(logPath.parent_path());
+		if (announcePath)
+			LogMessage("Run log: " + logPath.string());
+		Logger::Get()->SaveLogAsPlaintext(logPath.string());
+	}
+	catch (const std::exception& e)
+	{
+		// Destructors must not throw. Keep this visible in debugger output even
+		// when the requested log destination itself is unavailable.
+		std::cerr << "Could not save SurrealEngine run log: " << e.what() << "\n";
+	}
+}
+
+bool Engine::IsVRScreenUIActive()
+{
+	UPlayerPawn* playerPawn = viewport ? viewport->Actor() : nullptr;
+	bool legacyMenu = playerPawn && playerPawn->bShowMenu();
+	bool uwindowMenu = console && console->GetStateName() == "UWindow";
+	return legacyMenu || uwindowMenu;
 }
 
 namespace
@@ -231,13 +273,47 @@ namespace
 		float rollRad = std::atan2(a, b);
 		return (int)(rollRad * (32768.0f / 3.14159265359f));
 	}
+
+	// 2026-07-21: see Engine.h's doc comment on vrMainHandPitchMinDeg/MaxDeg -
+	// Rotator::PitchDegrees() is a plain linear scale of a mod-65536 field, so
+	// a raw float can read like "351 degrees" for what's really "-9 degrees".
+	// Wraps into (-180,180] before min/max tracking so the seam at 0/360
+	// doesn't make a small real range look like the full circle.
+	float NormalizeDegrees180(float deg)
+	{
+		float wrapped = std::fmod(deg + 180.0f, 360.0f);
+		if (wrapped < 0.0f)
+			wrapped += 360.0f;
+		return wrapped - 180.0f;
+	}
 }
 
 void Engine::Run()
 {
+	LogMessage(std::string("Build identity: UT99 VR commit=") + SURREAL_GIT_COMMIT +
+		(SURREAL_GIT_DIRTY ? " dirty" : " clean") + " compiled=" __DATE__ " " __TIME__);
+	LogMessage("Executable directory: " + OS::executable_path());
 	LogMessage("Game: " + LaunchInfo.gameName + " (Version: " + LaunchInfo.gameVersionString + ")");
 	LoadEngineSettings();
 	LogMessage("Loaded Engine settings");
+
+	// 2026-07-21: --vr-testquiet - forces a small windowed viewport (instead
+	// of the exclusive-fullscreen default) and mutes sound/music. Purely a
+	// convenience for running the --debugvr* non-interactive test harnesses
+	// (--debugvrhands/--debugvrfire/--debugvrgeometry/etc.) repeatedly at a
+	// desk without the game taking over the whole display or playing audio
+	// each time. Overrides whatever LoadEngineSettings() just loaded from
+	// ini, only when explicitly requested; changes nothing else about how
+	// those harnesses behave.
+	if (commandline && commandline->HasArg("", "--vr-testquiet"))
+	{
+		client->StartupFullscreen = false;
+		client->WindowedViewportX = 640;
+		client->WindowedViewportY = 360;
+		audiodev->SoundVolume = 0;
+		audiodev->MusicVolume = 0;
+		LogMessage("--vr-testquiet: forcing a small windowed viewport and muting sound/music (test-only convenience)");
+	}
 	LoadKeybindings();
 	LogMessage("Loaded key bindings");
 	LogGamePackageSHA1Sums();
@@ -262,6 +338,12 @@ void Engine::Run()
 			xrSession.reset();
 		}
 	}
+
+	vrReleaseMenuOnly = commandline && commandline->HasArg("", "--vr-startmenu");
+	vrReleaseQuadMenu = commandline && commandline->HasArg("", "--vr-quadmenu");
+	if (vrReleaseMenuOnly)
+		LogMessage(std::string("--vr-startmenu: opening UT's compiled menu as the first VR screen; Entry quad disabled; menu presentation=") +
+			(vrReleaseQuadMenu ? "world-fixed OpenXR quad" : "head-locked stereo projection fallback"));
 
 	OpenWindow();
 
@@ -292,11 +374,33 @@ void Engine::Run()
 				xrSessionActive = true;
 				LogMessage("--vr: XR session + swapchains created (" + std::to_string(xrSession->GetSwapchainWidth()) + "x" + std::to_string(xrSession->GetSwapchainHeight()) + " per eye)");
 
+				// Pin the scene render target to the real per-eye swapchain
+				// resolution (doubled horizontally - DrawSceneVR() renders
+				// both eyes side-by-side into one shared buffer, same
+				// halfWidth = fullWidth / 2 convention used there) instead of
+				// leaving it at the desktop mirror window's size. Without
+				// this, the engine renders at the small window resolution and
+				// the eye blit upscales that into the (usually much larger)
+				// OpenXR swapchain images, producing blurry VR visuals - see
+				// the --debugfixedsize block below for how this same
+				// RenderDevice::SetFixedRenderSize() call is already
+				// exercised without a real XR session.
+				render->Device->SetFixedRenderSize(xrSession->GetSwapchainWidth() * 2, xrSession->GetSwapchainHeight());
+
 				// M3: controller input. Non-fatal if it fails - the session
 				// still runs, just with no controller input (LastError()
 				// already logged the reason inside CreateActions()).
 				if (!xrSession->CreateActions())
 					LogMessage("--vr: controller action setup failed (" + xrSession->LastError() + ") - continuing without controller input");
+
+				// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): the
+				// Entry-map/menu quad's own swapchain, sized to the offscreen
+				// quad render target rather than the per-eye swapchain
+				// extent. Non-fatal if it fails, matching CreateActions()
+				// above - Run()'s XR frame loop simply never marks the quad
+				// active if quadSwapchain is null.
+				if (!xrSession->CreateQuadSwapchain(render->Device->GetQuadWidth(), render->Device->GetQuadHeight()))
+					LogMessage("--vr: quad swapchain creation failed (" + xrSession->LastError() + ") - Entry-map/menu will render blank in VR");
 			}
 			else
 			{
@@ -375,6 +479,35 @@ void Engine::Run()
 		LogMessage("--debugvrdualenforcer: will summon + teleport a second Enforcer onto the player to test the stock double-Enforcer master/slave pairing (no XR session required)");
 	}
 
+	// 2026-07-21: --debugvrgeometry - see Engine.h's doc comment on
+	// debugVRGeometryEnabled/UpdateDebugVRGeometry. Auto-enables
+	// --debugvrhands, same pattern as --debugvrtwohand above (needs a
+	// valid main-hand pose to measure distances against).
+	if (commandline && commandline->HasArg("", "--debugvrgeometry"))
+	{
+		debugVRGeometryEnabled = true;
+		if (!debugVRHandsEnabled)
+		{
+			debugVRHandsEnabled = true;
+			LogMessage("--debugvrgeometry: auto-enabling --debugvrhands (needs a valid main-hand pose to measure against)");
+		}
+		LogMessage("--debugvrgeometry: will grant every stock weapon and cycle through them, logging hand/weapon/player distances and sizes (no XR session required)");
+	}
+
+	// 2026-07-21: --vrtune - gates whether Right B does anything at all
+	// (see UpdateVRWeaponTuning()'s doc comment). Previously the whole tool
+	// was unconditionally live the instant a VR session was running, no
+	// flag required - fine for dev testing, but a real player pressing
+	// Right B in a release build would suddenly find themselves unable to
+	// move (tuning mode suppresses movement) with no idea why. Off by
+	// default now; only this launch flag turns Right B into the tuning
+	// toggle at all.
+	if (commandline && commandline->HasArg("", "--vrtune"))
+	{
+		vrTuneEnabled = true;
+		LogMessage("--vrtune: Right B now toggles live weapon grip tuning mode");
+	}
+
 	// M-D: ini-tunable optional EMA aim filter constant - see Engine.h's
 	// doc comment on vrAimFilterAlpha. Read once here (same pattern as
 	// windowingSystemName above); default "1.0" parses to the fully-off
@@ -385,6 +518,22 @@ void Engine::Run()
 		vrAimFilterAlpha = 1.0f;
 	else if (vrAimFilterAlpha <= 0.0f)
 		vrAimFilterAlpha = 1.0f; // a non-positive/unparseable value would otherwise freeze aim forever after the first sample - treat as "off" instead, same as the documented default
+
+	// The compositor quad replaces the projection layer while a menu is
+	// visible, so pointer/controller feedback must be part of the quad image.
+	// Keep the presentation independently configurable without coupling it
+	// to interaction: disabling either visual never disables controller or
+	// physical-mouse menu input. Command-line switches are useful for quick
+	// headset comparisons without editing the ini file.
+	vrMenuLaserEnabled = packages->GetIniValue("user", "Engine.VR", "MenuLaser", "true") != "false";
+	vrMenuControllersEnabled = packages->GetIniValue("user", "Engine.VR", "MenuControllers", "true") != "false";
+	if (commandline && commandline->HasArg("", "--vr-no-menu-laser"))
+		vrMenuLaserEnabled = false;
+	if (commandline && commandline->HasArg("", "--vr-no-menu-controllers"))
+		vrMenuControllersEnabled = false;
+	LogMessage(std::string("VR menu feedback: laser=") + (vrMenuLaserEnabled ? "on" : "off") +
+		" controllers=" + (vrMenuControllersEnabled ? "on" : "off") +
+		" (laser hand follows LeftHanded)");
 
 	// M-F: left/right-handed mode - see Engine.h's doc comment on
 	// vrLeftHanded. `--vr-lefthand` OR a persisted `[Engine.VR]
@@ -447,7 +596,22 @@ void Engine::Run()
 	else
 		LoadMap(UnrealURL(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")), LaunchInfo.url));
 
+	// Only now (after the boot LocalMap load LoadMap() just cleared this on
+	// entry to) rather than inside LoadEntryMap() itself, since LoadEntryMap()
+	// doesn't own the Level that's actually rendered/ticked each frame - the
+	// LocalMap load right above does. A later LoadMap() call (real travel,
+	// e.g. starting a game) clears this the same way and nothing re-sets it.
+	inEntryMap = !LaunchInfo.noEntryMap && LaunchInfo.url.empty();
+
 	LoginPlayer();
+	if (vrReleaseMenuOnly)
+	{
+		// UT's first PostRender after loading a match owns the "press fire"
+		// gate. Opening the menu here sets bShowMenu but leaves that gate on
+		// top of it. The main loop below dismisses the gate first and opens the
+		// menu only after the VM is running and has processed another tick.
+		LogMessage("--vr-startmenu: startup sequence armed; waiting to dismiss UT's press-fire gate before ShowMenu");
+	}
 
 	auto objprop = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	auto vecprop = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
@@ -468,6 +632,12 @@ void Engine::Run()
 		float levelElapsed = realTimeElapsed * clamp(LevelInfo->TimeDilation(), 0.0025f, 25.0f);
 
 		TotalTime += realTimeElapsed;
+		runLogAutosaveTime += realTimeElapsed;
+		if (runLogAutosaveTime >= 2.0f)
+		{
+			runLogAutosaveTime = 0.0f;
+			SaveRunLog();
+		}
 
 		if (EntryLevel)
 			EntryLevelInfo->TimeSeconds() += entryLevelElapsed;
@@ -489,12 +659,86 @@ void Engine::Run()
 
 		UpdateInput(realTimeElapsed);
 
+		if (vrReleaseMenuOnly && !vrStartMenuOpened)
+		{
+			vrStartMenuSequenceTime += realTimeElapsed;
+			if (!vrStartGateDismissed && vrStartMenuSequenceTime >= 0.25f)
+			{
+				InputEvent(IK_LeftMouse, EInputType::IST_Press);
+				InputEvent(IK_LeftMouse, EInputType::IST_Release);
+				vrStartGateDismissed = true;
+				LogMessage("--vr-startmenu: press-fire gate dismissal dispatched");
+			}
+
+			if (vrStartGateDismissed && !vrStartMenuDispatched && vrStartMenuSequenceTime >= 1.0f)
+			{
+				lastVRMenuInputSource = "--vr-startmenu staged Escape";
+				InputEvent(IK_Escape, EInputType::IST_Press);
+				InputEvent(IK_Escape, EInputType::IST_Release);
+				vrStartMenuDispatched = true;
+				vrStartMenuOpened = IsVRScreenUIActive();
+				UPlayerPawn* startPawn = viewport->Actor();
+				LogMessage(std::string("--vr-startmenu: staged Escape dispatched; screenUIActive=") +
+					(vrStartMenuOpened ? "true" : "false") + " bShowMenu=" +
+					(startPawn && startPawn->bShowMenu() ? "true" : "false") +
+					" consoleState=" + console->GetStateName().ToString());
+			}
+		}
+
 		// M3: controller input. Runs after UpdateInput() so, when both a
 		// keyboard/mouse binding and a VR controller drive the same pawn
 		// property in the same tick, the controller wins - VR play is the
 		// point once a session is active. No-op (early-returns) when no XR
 		// session is running.
 		UpdateVRControllerInput(realTimeElapsed);
+
+		// 2026-07-22 diagnostic: settles whether Escape ever flips
+		// bShowMenu() at all, independent of the VR cursor/click fix above.
+		// Extended per VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 1 item 1 to
+		// also fire on inEntryMap edges and dump the rest of the state
+		// CODEX_ANALYSIS_2026-07-22.md found nothing was logging together on
+		// the same line: which input last asked for the menu
+		// (lastVRMenuInputSource - set by OnWindowKeyDown()'s physical Escape
+		// and UpdateVRControllerInput()'s synthetic Escape, Phase 1 item 3),
+		// console->bNoDrawWorld() (DrawGame() branches on this independently
+		// of bShowMenu() - see RenderSubsystem.cpp's own "VR menu diag" log),
+		// pause state, and CameraRotation next to the raw tracked head yaw/
+		// pitch (proves whether the scripted camera or the live head pose is
+		// actually driving the view at this instant).
+		{
+			static bool loggedFirstMenuDiagCheck = false;
+			static bool prevShowMenuDiag = false;
+			static bool prevInEntryMapDiag = inEntryMap;
+			static NameString prevConsoleStateDiag = console->GetStateName();
+			UPlayerPawn* menuDiagPawn = viewport->Actor();
+			if (!loggedFirstMenuDiagCheck)
+			{
+				loggedFirstMenuDiagCheck = true;
+				LogMessage("VR menu diag: viewport->Actor() at first check: " +
+					(menuDiagPawn ? ("non-null, class=" + menuDiagPawn->Class->Name.ToString()) : std::string("null")));
+			}
+			bool showMenuDiag = menuDiagPawn ? menuDiagPawn->bShowMenu() : false;
+			NameString consoleStateDiag = console->GetStateName();
+			if ((menuDiagPawn && showMenuDiag != prevShowMenuDiag) || inEntryMap != prevInEntryMapDiag || consoleStateDiag != prevConsoleStateDiag)
+			{
+				LogMessage("VR menu diag: bShowMenu=" + std::string(showMenuDiag ? "true" : "false") +
+					" screenUIActive=" + std::string(IsVRScreenUIActive() ? "true" : "false") +
+					" consoleState=" + consoleStateDiag.ToString() +
+					" inEntryMap=" + std::string(inEntryMap ? "true" : "false") +
+					" bNoDrawWorld=" + std::string(console->bNoDrawWorld() ? "true" : "false") +
+					" inputSource=" + (lastVRMenuInputSource.empty() ? std::string("none") : lastVRMenuInputSource) +
+					" pauser=" + LevelInfo->Pauser() +
+					" gamePaused=" + std::string(m_GamePaused ? "true" : "false") +
+					" camYawDeg=" + std::to_string(CameraRotation.YawDegrees()) +
+					" camPitchDeg=" + std::to_string(CameraRotation.PitchDegrees()) +
+					" xrHeadYawDeg=" + std::to_string(degrees(xrHeadYawUE)) +
+					" xrHeadPitchDeg=" + std::to_string(degrees(xrHeadPitchUE)));
+			}
+			if (menuDiagPawn)
+				prevShowMenuDiag = showMenuDiag;
+			prevInEntryMapDiag = inEntryMap;
+			prevConsoleStateDiag = consoleStateDiag;
+		}
 
 		SetPause(!LevelInfo->Pauser().empty());
 
@@ -559,6 +803,12 @@ void Engine::Run()
 		// UpdateDebugVRDualEnforcer. Runs unconditionally (no-op when the
 		// flag is off), same pattern as the debug updates just above.
 		UpdateDebugVRDualEnforcer(realTimeElapsed);
+
+		// 2026-07-21: --debugvrgeometry's grant-all/cycle/log sequence - see
+		// Engine.h's doc comment on debugVRGeometryEnabled/
+		// UpdateDebugVRGeometry. Runs unconditionally (no-op when the flag
+		// is off), same pattern as the debug updates just above.
+		UpdateDebugVRGeometry(realTimeElapsed);
 
 		UpdateAudio();
 
@@ -725,9 +975,156 @@ void Engine::Run()
 						const VRHandPose& aim = aimPoses[hand];
 						UEPoseAxes aimAxes = XRPoseAxesToUE(aim.posX, aim.posY, aim.posZ, aim.qx, aim.qy, aim.qz, aim.qw);
 						ComposedXRPose composedAim = ComposeXRPoseToWorld(aimAxes, xrYawOffsetUE, CameraLocation);
-						handState.aimRotator = Rotator::FromVector(composedAim.rotation.XAxis);
+						handState.aimPos = composedAim.location;
+
+						// 2026-07-21: real-headset report - rolling the
+						// controller on its own axis (turning the gun on its
+						// side) did nothing. Root cause: Rotator::FromVector()
+						// only derives yaw/pitch from a single forward vector -
+						// it CAN'T recover roll (rotation about that forward
+						// axis) from a direction alone, so it hardcodes
+						// Roll=0 (Math/rotator.h) - every one-handed aim
+						// pose was silently flattened to zero roll regardless
+						// of real wrist orientation. composedAim.rotation is a
+						// full Coords (has XAxis/YAxis/ZAxis, not just
+						// forward) - its ZAxis is the controller's actual
+						// world-space "up" this frame, so SolveRollForUpAxis()
+						// (already used identically for M-D's two-handed
+						// aim - see WeaponAimRotator()'s doc comment) recovers
+						// the missing roll from it instead of discarding it.
+						Rotator aimYawPitch = Rotator::FromVector(composedAim.rotation.XAxis);
+						aimYawPitch.Roll = SolveRollForUpAxis(aimYawPitch, composedAim.rotation.ZAxis);
+						handState.aimRotator = aimYawPitch;
 					}
 				}
+
+				// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2):
+				// Entry-map/menu quad - rendered once per frame into its own
+				// offscreen target (RenderSubsystem::DrawGame()) and
+				// submitted below as a world-anchored XrCompositionLayerQuad,
+				// instead of a HUD-style sub-rect of the live per-eye target.
+				// The anchor pose is computed ONCE, right here, on the
+				// false->true transition, then held fixed for as long as the
+				// state stays active - see vrQuadActive's doc comment in
+				// Engine.h.
+				UPlayerPawn* activePawn = viewport->Actor();
+				bool menuOpen = IsVRScreenUIActive();
+				bool showingMenu = menuOpen && (!vrReleaseMenuOnly || vrReleaseQuadMenu);
+				bool showingEntry = inEntryMap && !vrReleaseMenuOnly && !showingMenu;
+				bool quadWantActive = shouldRender && (showingMenu || showingEntry);
+				bool nextQuadContentIsMenu = showingMenu;
+				// 2026-07-22 (Codex review P1): re-anchor on request (recenter
+				// button) even while already active, not just on the
+				// false->true activation edge - see vrQuadReanchorRequested's
+				// doc comment in Engine.h.
+				if (quadWantActive && (!vrQuadActive || vrQuadReanchorRequested || vrQuadContentIsMenu != nextQuadContentIsMenu))
+				{
+					vrQuadReanchorRequested = false;
+					float depthUU = nextQuadContentIsMenu ? VRMenuDepthUU : VREntryFlythroughDepthUU;
+					float halfFovXDeg = nextQuadContentIsMenu ? VRMenuHalfFovXDeg : VREntryFlythroughHalfFovXDeg;
+					float aspectYtoX = nextQuadContentIsMenu ? VRMenuAspectYtoX : VREntryFlythroughAspectYtoX;
+
+					vrQuadHalfWidthUU = depthUU * std::tan(radians(halfFovXDeg));
+					vrQuadHalfHeightUU = vrQuadHalfWidthUU * aspectYtoX;
+
+					// Raw OpenXR appSpace anchor,
+					// for VulkanXRSession::EndFrame()'s XrCompositionLayerQuad
+					// - derived from eyes[0] (same predicted-display-time
+					// source the rendered eye poses use this frame).
+					quaternion eye0Quat(eyes[0].qx, eyes[0].qy, eyes[0].qz, eyes[0].qw);
+					vec3 fwdXR = eye0Quat * vec3(0.0f, 0.0f, -1.0f);
+					fwdXR.y = 0.0f; // flatten - ignore head pitch/roll so the quad is upright
+					fwdXR = normalize(fwdXR);
+					float anchorDistanceM = depthUU / UUPerMeter;
+					vrQuadPoseX = eyes[0].posX + fwdXR.x * anchorDistanceM;
+					vrQuadPoseY = eyes[0].posY; // flattened fwd has zero Y - quad sits level with the activating eye
+					vrQuadPoseZ = eyes[0].posZ + fwdXR.z * anchorDistanceM;
+
+					// 2026-07-22 CORRECTION (Codex review P0 - the definitive
+					// black-screen bug): the OpenXR spec defines a quad
+					// layer's VISIBLE face as the one its local +Z axis
+					// points toward (registry.khronos.org XrCompositionLayerQuad
+					// - the backface is not rendered), not local -Z as the
+					// original comment/derivation here assumed. The old
+					// formula pointed -Z at the player, which means +Z (the
+					// only face that actually draws anything) pointed AWAY
+					// from the player - a real quad existing in a real
+					// world-fixed pose, showing its unrendered backface to
+					// the only viewer who could ever see it. Fixed sign:
+					// theta solved so local +Z rotates to -fwdXR (back
+					// toward the player, since the quad sits at
+					// eyePos + fwdXR*distance). Same worked example as
+					// before (player facing -Z, quad further along -Z) now
+					// gives theta=0 (identity - quad's own +Z already points
+					// at +Z, i.e. back at the player), which is correct and
+					// matches intuition better than the old theta=pi answer.
+					float theta = std::atan2(-fwdXR.x, -fwdXR.z);
+					vrQuadPoseQX = 0.0f;
+					vrQuadPoseQY = std::sin(theta * 0.5f);
+					vrQuadPoseQZ = 0.0f;
+					vrQuadPoseQW = std::cos(theta * 0.5f);
+
+					// 2026-07-22 (Codex review P1 - cursor plane / compositor
+					// quad mismatch): the UE-space cursor plane used to be
+					// derived independently, from CameraLocation plus a pure
+					// yaw/pitch direction - which omits real tracked head
+					// TRANSLATION (leaning/stepping within the play space),
+					// something the OpenXR-space pose above (built from
+					// eyes[0].pos) does include. That divergence meant the
+					// controller ray's target plane and the quad's actual
+					// rendered position could disagree by however far the
+					// player's head was offset from the play-space origin -
+					// worse the more room-scale movement happened before/
+					// after activation. Fixed by deriving the UE-space
+					// anchor FROM this same OpenXR pose (single source of
+					// truth) via the identical XRPoseAxesToUE/
+					// ComposeXRPoseToWorld pipeline already used for hand
+					// poses (see the M-A hand-pose block above), instead of
+					// recomputing a separate approximation from scratch.
+					UEPoseAxes quadAxes = XRPoseAxesToUE(vrQuadPoseX, vrQuadPoseY, vrQuadPoseZ, vrQuadPoseQX, vrQuadPoseQY, vrQuadPoseQZ, vrQuadPoseQW);
+					ComposedXRPose composedQuad = ComposeXRPoseToWorld(quadAxes, xrYawOffsetUE, CameraLocation);
+					vrQuadOriginUE = composedQuad.location;
+					vrQuadForwardUE = composedQuad.rotation.XAxis;
+					vrQuadRightUE = composedQuad.rotation.YAxis;
+					vrQuadUpUE = composedQuad.rotation.ZAxis;
+
+					vrQuadWidthMeters = (2.0f * vrQuadHalfWidthUU) / UUPerMeter;
+					vrQuadHeightMeters = (2.0f * vrQuadHalfHeightUU) / UUPerMeter;
+
+					vrQuadContentIsMenu = nextQuadContentIsMenu;
+					vrQuadActive = true;
+				}
+				else if (!quadWantActive)
+				{
+					vrQuadActive = false;
+				}
+
+				void* quadImage = nullptr;
+				vrQuadFrameReady = false;
+				if (vrQuadActive)
+				{
+					quadImage = xrSession->AcquireQuadSwapchainImage();
+					if (quadImage)
+					{
+						VulkanRenderDevice* vulkanDevice = dynamic_cast<VulkanRenderDevice*>(render->Device);
+						if (vulkanDevice)
+						{
+							vulkanDevice->SetPendingQuadTarget(quadImage, xrSession->GetQuadSwapchainWidth(), xrSession->GetQuadSwapchainHeight());
+							vrQuadFrameReady = true;
+						}
+					}
+				}
+
+				// Pointer math must run AFTER this frame's LocateHandPoses() and
+				// after the quad anchor above is finalized. The old main-loop call
+				// ran before xrWaitFrame/LocateHandPoses, so the controller proxy
+				// used the current pose while the beam endpoint and UWindow cursor
+				// lagged one pose behind. It also runs after quad acquisition so a
+				// frame which cannot draw the menu cannot accept a delayed click.
+				// Action state was already SyncActions()'d by
+				// UpdateVRControllerInput(), so this performs no second OpenXR
+				// action sync.
+				UpdateVRMenuCursor(realTimeElapsed);
 
 				render->DrawGame(levelElapsed);
 				xrFrameActive = true;
@@ -736,8 +1133,18 @@ void Engine::Run()
 					xrSession->ReleaseSwapchainImage(0);
 				if (rightImage)
 					xrSession->ReleaseSwapchainImage(1);
+				if (quadImage)
+					xrSession->ReleaseQuadSwapchainImage();
 
-				xrSession->EndFrame(shouldRender && leftImage && rightImage, eyes);
+				VRQuadPose endFrameQuadPose;
+				endFrameQuadPose.posX = vrQuadPoseX; endFrameQuadPose.posY = vrQuadPoseY; endFrameQuadPose.posZ = vrQuadPoseZ;
+				endFrameQuadPose.qx = vrQuadPoseQX; endFrameQuadPose.qy = vrQuadPoseQY; endFrameQuadPose.qz = vrQuadPoseQZ; endFrameQuadPose.qw = vrQuadPoseQW;
+				endFrameQuadPose.widthMeters = vrQuadWidthMeters; endFrameQuadPose.heightMeters = vrQuadHeightMeters;
+				bool quadSubmitted = vrQuadFrameReady && quadImage != nullptr;
+				bool menuProjectionOverlay = quadSubmitted && vrQuadContentIsMenu && (vrMenuControllersEnabled || vrMenuLaserEnabled);
+				bool submitProjection = shouldRender && leftImage && rightImage && (!quadSubmitted || menuProjectionOverlay);
+				xrSession->EndFrame(submitProjection, eyes, quadSubmitted, endFrameQuadPose, menuProjectionOverlay);
+				vrQuadFrameReady = false;
 			}
 			else
 			{
@@ -1020,6 +1427,44 @@ UnrealMipmap* Engine::PlayVideo(VideoPlayer* video, UnrealMipmap* background)
 		audiodev->GetDevice()->Update();
 		GameWindow::ProcessEvents();
 
+		// M3 follow-up: UpdateVRControllerInput() (the normal per-frame
+		// controller poll) never runs during this call - it's part of
+		// Run()'s outer loop, which this blocking call fully preempts (see
+		// this function's doc comment in Engine.h). Poll directly here
+		// instead, same SyncActions()->GetControllerState() calling
+		// convention. Left Menu already maps to ShowMenu (opens the in-game
+		// menu) during normal play - the closest existing VR analog to
+		// keyboard Escape - so reusing it here for "skip" needs no new
+		// binding and can't collide with anything else, since nothing else
+		// reads controller state while a video is playing.
+		if (xrSession && xrSessionActive && xrSession->IsSessionRunning())
+		{
+			xrSession->SyncActions();
+			VRControllerState state;
+			xrSession->GetControllerState(state);
+			if (state.leftMenu)
+				skipAvi = true;
+		}
+
+		// M3 follow-up: session housekeeping mirrors Run()'s XR frame block
+		// exactly (PollEvents() unconditionally whenever a session exists,
+		// regardless of whether a frame is ready to draw this iteration) so
+		// a runtime-initiated session exit/loss during a long cutscene is
+		// noticed and torn down here instead of only after PlayVideo()
+		// returns.
+		bool xrFrameActive = false;
+		if (xrSession && xrSessionActive)
+		{
+			bool keepGoing = xrSession->PollEvents();
+			if (!keepGoing)
+			{
+				LogMessage("--vr: XR session exiting during video playback - destroying XR session/swapchains, continuing flatscreen-only");
+				xrSession->DestroySwapchains();
+				xrSession->DestroySession();
+				xrSessionActive = false;
+			}
+		}
+
 		if (frame)
 		{
 			texinfo[0].Mips = frame;
@@ -1027,7 +1472,83 @@ UnrealMipmap* Engine::PlayVideo(VideoPlayer* video, UnrealMipmap* background)
 			texinfo[0].VSize = frame->Height;
 
 			viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
-			render->DrawVideoFrame(&texinfo[0], background ? &texinfo[1] : nullptr);
+
+			// M3 follow-up: real per-frame XR Begin/LocateViews/Acquire/
+			// SetPendingXRTargets/.../Release/EndFrame cycle, relocated from
+			// Run()'s outer loop (which this call preempts - see above) so
+			// video frames actually reach the HMD swapchain instead of
+			// silently only updating the desktop window. Sequencing/
+			// argument shapes copied exactly from Run()'s XR frame block
+			// (Engine.cpp, ~line 657 at the time of writing) - same
+			// WaitAndBeginFrame->must-balance-with-EndFrame spec requirement
+			// applies here.
+			if (xrSession && xrSessionActive && xrSession->IsSessionRunning())
+			{
+				bool shouldRender = false;
+				bool waitBeginOk = xrSession->WaitAndBeginFrame(shouldRender);
+				if (waitBeginOk)
+				{
+					VREyePose eyes[2] = {};
+					void* leftImage = nullptr;
+					void* rightImage = nullptr;
+
+					if (shouldRender)
+					{
+						xrSession->LocateViews(eyes);
+
+						leftImage = xrSession->AcquireSwapchainImage(0);
+						rightImage = xrSession->AcquireSwapchainImage(1);
+						if (leftImage && rightImage)
+						{
+							VulkanRenderDevice* vulkanDevice = dynamic_cast<VulkanRenderDevice*>(render->Device);
+							if (vulkanDevice)
+								vulkanDevice->SetPendingXRTargets(leftImage, rightImage, xrSession->GetSwapchainWidth(), xrSession->GetSwapchainHeight());
+						}
+
+						// Video playback has no world camera to compose a
+						// pose onto - RenderSubsystem::SetVRHudFrame() (used
+						// by DrawVideoFrame() below for the per-eye virtual
+						// screen) only reads each eye's tracked FOV and its
+						// UU-scaled position (for the IPD-derived convergence
+						// shift), not a full world-space rotation, so this
+						// skips the yaw-recenter/CameraLocation composition
+						// Run()'s XR frame block applies and just reuses
+						// XRPoseAxesToUE()'s raw per-eye position/fov
+						// conversion directly.
+						vec3 eyeLocationUE[2];
+						Coords eyeRotationUE[2] = { Coords::Identity(), Coords::Identity() };
+						float eyeFovUE[2][4];
+						for (int eye = 0; eye < 2; eye++)
+						{
+							const VREyePose& pose = eyes[eye];
+							UEPoseAxes axes = XRPoseAxesToUE(pose.posX, pose.posY, pose.posZ, pose.qx, pose.qy, pose.qz, pose.qw);
+							eyeLocationUE[eye] = axes.pos;
+							eyeFovUE[eye][0] = pose.angleLeft;
+							eyeFovUE[eye][1] = pose.angleRight;
+							eyeFovUE[eye][2] = pose.angleUp;
+							eyeFovUE[eye][3] = pose.angleDown;
+						}
+						render->SetPendingVREyes(eyeLocationUE, eyeRotationUE, eyeFovUE);
+					}
+
+					render->DrawVideoFrame(&texinfo[0], background ? &texinfo[1] : nullptr);
+					xrFrameActive = true;
+
+					if (leftImage)
+						xrSession->ReleaseSwapchainImage(0);
+					if (rightImage)
+						xrSession->ReleaseSwapchainImage(1);
+
+					xrSession->EndFrame(shouldRender && leftImage && rightImage, eyes);
+				}
+				else
+				{
+					LogMessage("--vr: WaitAndBeginFrame failed during video playback (" + xrSession->LastError() + ")");
+				}
+			}
+
+			if (!xrFrameActive)
+				render->DrawVideoFrame(&texinfo[0], background ? &texinfo[1] : nullptr);
 		}
 	}
 
@@ -1159,6 +1680,12 @@ void Engine::UnloadMap()
 
 void Engine::LoadMap(const UnrealURL& url, const std::map<std::string, std::string>& travelInfo)
 {
+	// Any LoadMap() call means "loading something other than LoadEntryMap()'s
+	// own EntryLevel bookkeeping" - Run() re-sets inEntryMap right after the
+	// specific boot LocalMap load this clears here, so it only stays cleared
+	// once a later, real level load happens.
+	inEntryMap = false;
+
 	ClientTravelInfo.URL.Clear();
 
 	if (Level)
@@ -2078,6 +2605,45 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 	xrSession->GetControllerState(state);
 
 	UActor* pawn = viewport->Actor();
+	if (UpdateVRMenuNavigation(timeElapsed, state))
+		return;
+
+	// M-G: --vrtune live weapon tuning - see UpdateVRWeaponTuning()'s doc
+	// comment for the full control scheme. Checked early so the movement
+	// block and the weapon-switch/jump exec commands further down can both
+	// skip themselves while tuning is active (repurposing the same sticks/
+	// buttons for adjustment instead).
+	bool vrTuneModeActiveThisTick = false;
+	UpdateVRWeaponTuning(timeElapsed, state, vrTuneModeActiveThisTick);
+
+	// 2026-07-21: aim-extremes tracking - see Engine.h's doc comment on
+	// vrMainHandPitchMinDeg/MaxDeg. Deliberately unconditional (every tick,
+	// not gated by the ~2s throttle just below) so a quick aim-to-the-limit
+	// motion can't land between throttled samples and hide the true
+	// reachable range. Logs immediately (not just in the periodic summary)
+	// the instant the main hand's tracking drops or recovers, since a real
+	// tracking-loss event could be brief enough to fall between throttled
+	// samples too.
+	{
+		VRHandState& mh = MainHand();
+		static bool prevMainHandValid = true;
+		if (mh.valid)
+		{
+			float pitchDeg = NormalizeDegrees180(mh.aimRotator.PitchDegrees());
+			vrMainHandPitchMinDeg = std::min(vrMainHandPitchMinDeg, pitchDeg);
+			vrMainHandPitchMaxDeg = std::max(vrMainHandPitchMaxDeg, pitchDeg);
+			if (!prevMainHandValid)
+				LogMessage("VR aim-extremes: main hand tracking RECOVERED at pitchDeg=" + std::to_string(pitchDeg));
+		}
+		else
+		{
+			vrMainHandEverInvalid = true;
+			if (prevMainHandValid)
+				LogMessage("VR aim-extremes: main hand tracking LOST (last known pitchDeg range so far: " +
+					std::to_string(vrMainHandPitchMinDeg) + " to " + std::to_string(vrMainHandPitchMaxDeg) + ")");
+		}
+		prevMainHandValid = mh.valid;
+	}
 
 	// 2026-07-20 diagnostic (throttled to ~once/2s, not every frame): a
 	// real-headset test reported fire not registering (couldn't even get
@@ -2103,7 +2669,22 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 			" lStick=(" + std::to_string(state.leftStickX) + "," + std::to_string(state.leftStickY) + ")" +
 			" rStick=(" + std::to_string(state.rightStickX) + "," + std::to_string(state.rightStickY) + ")" +
 			" lTrig=" + std::to_string(state.leftTrigger) + " rTrig=" + std::to_string(state.rightTrigger) +
-			" lGrip=" + std::to_string(state.leftGrip) + " rGrip=" + std::to_string(state.rightGrip));
+			" lGrip=" + std::to_string(state.leftGrip) + " rGrip=" + std::to_string(state.rightGrip) +
+			// 2026-07-21: added while chasing a real-headset report that
+			// grip-capture (left stick click) never engaged - this is the
+			// only place that can prove whether the runtime is reporting the
+			// click at all, vs. it registering fine but something downstream
+			// (e.g. bDuck's since-fixed unconditional read) eating it first.
+			" lStickClick=" + std::to_string(state.leftStickClick) + " rStickClick=" + std::to_string(state.rightStickClick));
+
+		// 2026-07-21: see Engine.h's doc comment on vrMainHandPitchMinDeg/
+		// MaxDeg - the running furthest-reached pitch (normalized, not raw -
+		// see NormalizeDegrees180) and whether tracking ever dropped, folded
+		// into this same periodic line for easy side-by-side reading against
+		// the raw hand diag line right below.
+		LogMessage("VR aim-extremes: mainHandPitchDegMin=" + std::to_string(vrMainHandPitchMinDeg) +
+			" mainHandPitchDegMax=" + std::to_string(vrMainHandPitchMaxDeg) +
+			" everInvalid=" + std::to_string(vrMainHandEverInvalid));
 
 		// 2026-07-21: user reports "walk left when I look right, walk right
 		// when I look left" - not simply "unaffected" anymore (the
@@ -2170,21 +2751,36 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 	const float MOVE_SCALE = 7000.0f; // see doc comment above - matches InputCommand's Speed(350)*press-delta(20) convention, not raw UU/sec
 	const float turnRateRadiansPerSec = radians(120.0f); // comfort-turn rate for right stick X
 
-	pawn->SetFloat("aBaseY", applyDeadzone(state.leftStickY, deadzone) * MOVE_SCALE);
-	pawn->SetFloat("aStrafe", applyDeadzone(state.leftStickX, deadzone) * MOVE_SCALE);
-	pawn->SetFloat("aUp", applyDeadzone(state.rightStickY, deadzone) * MOVE_SCALE);
+	// M-G: both sticks drive weapon-offset/scale adjustment instead of
+	// movement/turn while --vrtune's tuning mode is active - see
+	// UpdateVRWeaponTuning()'s doc comment. Skipping these writes entirely
+	// (rather than zeroing them) leaves the pawn exactly where tuning
+	// started, so nothing drifts while you're mid-adjustment.
+	if (!vrTuneModeActiveThisTick)
+	{
+		pawn->SetFloat("aBaseY", applyDeadzone(state.leftStickY, deadzone) * MOVE_SCALE);
+		pawn->SetFloat("aStrafe", applyDeadzone(state.leftStickX, deadzone) * MOVE_SCALE);
+		pawn->SetFloat("aUp", applyDeadzone(state.rightStickY, deadzone) * MOVE_SCALE);
 
-	// Sign: Coords::YawRotation(yaw) rotates local forward (1,0,0) toward
-	// (cos(yaw), -sin(yaw), 0) - i.e. toward -Y for positive yaw. UE1's +Y is
-	// "right" (see aStrafe below: positive = strafe right, the established
-	// UT99 keybind convention), so positive yaw in this codebase turns the
-	// view LEFT, not right. state.rightStickX is positive when the stick is
-	// pushed right (standard OpenXR convention) - pushing right must turn
-	// right, i.e. DEcrease yaw, so this subtracts rather than adds.
-	if (timeElapsed > 0.0f)
-		xrYawOffsetUE -= applyDeadzone(state.rightStickX, deadzone) * turnRateRadiansPerSec * timeElapsed;
+		// Sign: Coords::YawRotation(yaw) rotates local forward (1,0,0) toward
+		// (cos(yaw), -sin(yaw), 0) - i.e. toward -Y for positive yaw. UE1's +Y is
+		// "right" (see aStrafe below: positive = strafe right, the established
+		// UT99 keybind convention), so positive yaw in this codebase turns the
+		// view LEFT, not right. state.rightStickX is positive when the stick is
+		// pushed right (standard OpenXR convention) - pushing right must turn
+		// right, i.e. DEcrease yaw, so this subtracts rather than adds.
+		if (timeElapsed > 0.0f)
+			xrYawOffsetUE -= applyDeadzone(state.rightStickX, deadzone) * turnRateRadiansPerSec * timeElapsed;
+	}
 
-	if (xrPoseRecentered)
+	// 2026-07-22: real-headset test confirmed the Entry map's scripted
+	// flythrough was still panning with the player's head - this write is
+	// why: it was unconditional on xrPoseRecentered alone, stomping the
+	// pawn's Rotation/ViewRotation with live head yaw/pitch every tick
+	// regardless of inEntryMap, even though nothing else here needs to run
+	// while the non-interactive flythrough (whose own scripted camera path
+	// should be left untouched) is active.
+	if (xrPoseRecentered && !inEntryMap)
 	{
 		const float ue1RadiansToYaw = 32768.0f / 3.14159265359f;
 		// 2026-07-21: real-headset report - movement now responds to head/
@@ -2262,7 +2858,14 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 	// VulkanXRSession.cpp's left_stick_click action/binding/state read) so
 	// this needed no new OpenXR action - just switching which state field
 	// bDuck reads.
-	pawn->SetBool("bDuck", state.leftStickClick);
+	//
+	// 2026-07-21: gated behind !vrTuneModeActiveThisTick (matching the
+	// Jump/PrevWeapon/NextWeapon block below) to free leftStickClick up as
+	// the grip-calibration sub-mode toggle while --vrtune's tuning mode is
+	// active - see UpdateVRWeaponTuning()'s doc comment. Crouch has no
+	// meaning while tuning is active anyway (movement is fully suppressed).
+	if (!vrTuneModeActiveThisTick)
+		pawn->SetBool("bDuck", state.leftStickClick);
 
 	// 2026-07-21: the previous approach here (this function directly calling
 	// `pawn->SetBool("bFire", fireHeld)` every tick, same as the doc comment
@@ -2291,8 +2894,35 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 	static bool prevVRAltFireHeld = false;
 	if (fireHeld != prevVRFireHeld)
 		InputEvent(IK_LeftMouse, fireHeld ? EInputType::IST_Press : EInputType::IST_Release);
-	if (altFireHeld != prevVRAltFireHeld)
+
+	// M-E2: independent per-hand fire (see Engine.h's doc comment on
+	// vrExpectingSlaveManualFire). When the current weapon is a paired
+	// Enforcer, the off-hand trigger no longer sends an AltFire keypress to
+	// the MASTER (that would trigger Enforcer's own "Gangsta" alt-fire mode
+	// on the master, not fire the SLAVE independently) - its rising edge
+	// instead directly calls Fire() on the slave via CallEvent (the same
+	// generic mechanism CallEvent(console, EventName::Tick) etc. already use
+	// throughout this file, not anything Enforcer-specific). Falls back to
+	// the pre-M-E2 AltFire behavior for every other weapon/single-Enforcer
+	// case - zero change there. Only the rising edge fires (once per pull,
+	// matching the Enforcer's real semi-auto behavior); release does
+	// nothing since there's no held InputEvent state on the slave to undo.
+	UWeapon* currentWeaponForAltFire = UObject::TryCast<UPlayerPawn>(pawn) ? UObject::TryCast<UPlayerPawn>(pawn)->Weapon() : nullptr;
+	UWeapon* slaveForAltFire = currentWeaponForAltFire ? GetSlaveEnforcer(currentWeaponForAltFire) : nullptr;
+	if (slaveForAltFire)
+	{
+		if (altFireHeld && !prevVRAltFireHeld)
+		{
+			vrExpectingSlaveManualFire = true;
+			CallEvent(slaveForAltFire, NameString("Fire"));
+			vrExpectingSlaveManualFire = false;
+		}
+	}
+	else if (altFireHeld != prevVRAltFireHeld)
+	{
 		InputEvent(IK_RightMouse, altFireHeld ? EInputType::IST_Press : EInputType::IST_Release);
+	}
+
 	if (fireHeld && !prevVRFireHeld)
 	{
 		// M-F: log the MAIN hand's trigger value (mainHandTrigger, above)
@@ -2308,22 +2938,587 @@ void Engine::UpdateVRControllerInput(float timeElapsed)
 	prevVRFireHeld = fireHeld;
 	prevVRAltFireHeld = altFireHeld;
 
-	if (state.rightA && !prevVRRightA)
-		ExecCommand({ "Jump" });
-	if (state.leftX && !prevVRLeftX)
-		ExecCommand({ "PrevWeapon" });
-	if (state.leftY && !prevVRLeftY)
-		ExecCommand({ "NextWeapon" });
+	// M-G: while --vrtune's tuning mode is active, these same buttons are
+	// repurposed by UpdateVRWeaponTuning() (rightA = save/print, leftX/leftY
+	// = axis cycle) - see its doc comment. Suppressing the normal
+	// Jump/PrevWeapon/NextWeapon exec here avoids also switching weapons or
+	// jumping every time you cycle an axis or print a value.
+	if (!vrTuneModeActiveThisTick)
+	{
+		if (state.rightA && !prevVRRightA)
+			ExecCommand({ "Jump" });
+		if (state.leftX && !prevVRLeftX)
+			ExecCommand({ "PrevWeapon" });
+		if (state.leftY && !prevVRLeftY)
+			ExecCommand({ "NextWeapon" });
+	}
 	if (state.leftMenu && !prevVRLeftMenu)
-		ExecCommand({ "ShowMenu" });
+	{
+		// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 1 item 3): this
+		// used to call ExecCommand({"ShowMenu"}) directly, which is a
+		// different route than physical Escape - ExecCommand() invokes the
+		// pawn/console exec function straight away, skipping the
+		// console.KeyEvent dispatch InputEvent()/OnWindowKeyDown() always go
+		// through first (CODEX_ANALYSIS_2026-07-22.md's P2). Synthesizing an
+		// Escape press/release through the same InputEvent() path instead
+		// makes the controller button functionally identical to a physical
+		// Escape press. There's no native code that ever sets bShowMenu()
+		// back to false (confirmed - only compiled UnrealScript does, via
+		// whatever ShowMenu/Escape toggles internally), and the ini binds
+		// Escape to the single toggle-bound ShowMenu command - so the SAME
+		// button press is used on both open and close here rather than only
+		// opening, giving the player a way back without guessing at the
+		// compiled menu's close contract.
+		lastVRMenuInputSource = "VR menu button";
+		InputEvent(IK_Escape, EInputType::IST_Press);
+		InputEvent(IK_Escape, EInputType::IST_Release);
+	}
 	if (state.rightStickClick && !prevVRRightStickClick)
+	{
 		xrPoseRecentered = false; // re-captured on the next LocateViews() in Run()'s XR frame loop
+		// 2026-07-22 (Codex review P1): also force the active quad (menu or
+		// Entry screen), if any, to re-anchor in front of wherever the player
+		// physically is now - see vrQuadReanchorRequested's doc comment.
+		vrQuadReanchorRequested = true;
+	}
 
 	prevVRRightA = state.rightA;
 	prevVRLeftX = state.leftX;
 	prevVRLeftY = state.leftY;
 	prevVRLeftMenu = state.leftMenu;
 	prevVRRightStickClick = state.rightStickClick;
+}
+
+// Keyboard-style menu control is the dependable release path. It feeds the
+// same KeyEvent route as a physical keyboard, while the pointing cursor below
+// remains available as an optional convenience. Returning true tells the
+// gameplay controller path not to move, fire, jump, or tune weapons while a
+// menu owns input.
+bool Engine::UpdateVRMenuNavigation(float timeElapsed, const VRControllerState& state)
+{
+	UPlayerPawn* playerPawn = viewport->Actor();
+	bool showingMenu = IsVRScreenUIActive();
+	if (!showingMenu)
+	{
+		vrMenuNavigationActive = false;
+		vrMenuNavVertical = 0;
+		vrMenuNavHorizontal = 0;
+		vrMenuNavVerticalRepeat = 0.0f;
+		vrMenuNavHorizontalRepeat = 0.0f;
+		prevVRMenuA = state.rightA;
+		prevVRMenuB = state.rightB;
+		return false;
+	}
+
+	auto pulseKey = [this](EInputKey key)
+	{
+		InputEvent(key, EInputType::IST_Press);
+		InputEvent(key, EInputType::IST_Release);
+	};
+
+	if (!vrMenuNavigationActive)
+	{
+		vrMenuNavigationActive = true;
+		// Clear any held gameplay state inherited from the frame that opened
+		// the menu. Menu input below is edge/repeat driven from here on.
+		InputEvent(IK_LeftMouse, EInputType::IST_Release);
+		InputEvent(IK_RightMouse, EInputType::IST_Release);
+		playerPawn->SetFloat("aBaseY", 0.0f);
+		playerPawn->SetFloat("aStrafe", 0.0f);
+		playerPawn->SetFloat("aUp", 0.0f);
+		playerPawn->SetBool("bDuck", false);
+		LogMessage("VR menu controls active: quad pointer=main trigger select; projection fallback=left stick/A; B/Menu=back; right-stick click=recenter");
+	}
+
+	constexpr float axisThreshold = 0.55f;
+	constexpr float initialRepeatDelay = 0.35f;
+	constexpr float repeatDelay = 0.12f;
+	auto updateAxis = [&](float value, int& previousDirection, float& repeatTimer, EInputKey negativeKey, EInputKey positiveKey)
+	{
+		int direction = value > axisThreshold ? 1 : (value < -axisThreshold ? -1 : 0);
+		if (direction == 0)
+		{
+			previousDirection = 0;
+			repeatTimer = 0.0f;
+			return;
+		}
+
+		if (direction != previousDirection)
+		{
+			pulseKey(direction < 0 ? negativeKey : positiveKey);
+			previousDirection = direction;
+			repeatTimer = initialRepeatDelay;
+		}
+		else
+		{
+			repeatTimer -= std::max(timeElapsed, 0.0f);
+			if (repeatTimer <= 0.0f)
+			{
+				pulseKey(direction < 0 ? negativeKey : positiveKey);
+				repeatTimer = repeatDelay;
+			}
+		}
+	};
+
+	// When the tracked quad pointer is available, only its main-hand trigger
+	// may activate the pointed widget. Keeping A->Enter live in parallel made
+	// a button press select the keyboard-focused item (which can differ from
+	// the ray-hovered item), experienced as an unexplained/incorrect click.
+	// Stick navigation is disabled for the same reason: it can move UWindow's
+	// keyboard focus independently of the ray hover. Both remain dependable
+	// fallbacks for projection menus or lost tracking.
+	bool rayPointerOwnsActivation = vrQuadActive && MainHand().valid;
+	if (rayPointerOwnsActivation)
+	{
+		vrMenuNavVertical = 0;
+		vrMenuNavHorizontal = 0;
+		vrMenuNavVerticalRepeat = 0.0f;
+		vrMenuNavHorizontalRepeat = 0.0f;
+	}
+	else
+	{
+		// OpenXR thumbstick Y is positive upward.
+		updateAxis(state.leftStickY, vrMenuNavVertical, vrMenuNavVerticalRepeat, IK_Down, IK_Up);
+		updateAxis(state.leftStickX, vrMenuNavHorizontal, vrMenuNavHorizontalRepeat, IK_Left, IK_Right);
+		if (state.rightA && !prevVRMenuA)
+			pulseKey(IK_Enter);
+	}
+	if (state.rightB && !prevVRMenuB)
+	{
+		lastVRMenuInputSource = "VR B button";
+		pulseKey(IK_Escape);
+	}
+	if (state.leftMenu && !prevVRLeftMenu)
+	{
+		lastVRMenuInputSource = "VR menu button";
+		pulseKey(IK_Escape);
+	}
+	if (state.rightStickClick && !prevVRRightStickClick)
+	{
+		xrPoseRecentered = false;
+		vrQuadReanchorRequested = true;
+	}
+
+	prevVRMenuA = state.rightA;
+	prevVRMenuB = state.rightB;
+	prevVRRightA = state.rightA;
+	prevVRLeftX = state.leftX;
+	prevVRLeftY = state.leftY;
+	prevVRLeftMenu = state.leftMenu;
+	prevVRRightStickClick = state.rightStickClick;
+	return true;
+}
+
+// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): VR controller
+// pointer for the pause/escape menu - see Engine.h's doc comment for the
+// "why". The menu is rendered into the standalone quad render target
+// (RenderCanvas.cpp's DrawMenuQuad()) and presented as a real world-anchored
+// OpenXR quad layer, not a HUD-style sub-rect of the live per-eye target -
+// so this can't be a mesh raycast either; it intersects the main hand's aim
+// ray with the SAME fixed plane the quad layer is actually placed at:
+// vrQuadOriginUE/vrQuadForwardUE/vrQuadRightUE/vrQuadUpUE/vrQuadHalfWidthUU/
+// vrQuadHalfHeightUU, captured once on activation by Run()'s XR frame loop
+// (see vrQuadActive's doc comment in Engine.h) - NOT recomputed from the
+// live head pose every call like the pre-Phase-2 version of this function
+// did, since the quad itself no longer moves with the head once placed and
+// the cursor plane has to agree with it or the pointer visually drifts off
+// the panel as the player's head moves after the menu opens.
+//
+// The ray begins at OpenXR's aim-pose origin, not the independently offset
+// grip pose used to draw the controller body. Its direction uses the same
+// WeaponAimRotator() path as weapon fire, so the visible menu laser agrees
+// with the user's configured/two-handed weapon aim.
+//
+// 2026-07-22 correction: the earlier version of this function drove
+// engine->dxRootWindow (URootWindow::SetRootCursorPos()/OnWindowMouseDown/Up).
+// That's the native C++ URootWindow/UWindow class pair, which is populated
+// solely by UPlayerPawnExt::InitRootWindow() (UActor.cpp) - and UDeusExPlayer
+// is UPlayerPawnExt's only C++ subclass, so dxRootWindow can never be
+// non-null for a UT99 pawn. UT99's actual front-end/pause menu is a
+// same-named but unrelated system: its own UnrealScript "UWindow" package,
+// which reads its cursor position from engine->viewport's WindowsMouseX/
+// WindowsMouseY properties whenever bWindowsMouseAvailable() is set (see
+// RenderSubsystem::ResetCanvas()'s commented-out block for the documented
+// contract), and otherwise falls back to IK_MouseX/IK_MouseY deltas. Once
+// resolved, u/v (0..1 across the plane) map directly into
+// engine->viewport->ViewportWidth/Height() pixel space - the same space
+// Engine::OnWindowMouseMove() already writes a real OS mouse move into - and
+// the trigger's rising/falling edge is injected through the same
+// InputEvent(IK_LeftMouse, ...) call OnWindowMouseDown/Up themselves fall
+// through to for every non-DeusEx pawn, rather than going through those
+// dxRootWindow-gated wrappers.
+void Engine::UpdateVRMenuCursor(float timeElapsed)
+{
+	vrPhysicalMouseOverrideTime = std::max(0.0f, vrPhysicalMouseOverrideTime - timeElapsed);
+	vrMenuRayVisible = false;
+	vrMenuRayHitsPanel = false;
+
+	UPlayerPawn* playerPawn = viewport->Actor();
+	if (!playerPawn || !IsVRScreenUIActive() || !xrSession || !xrSessionActive || !xrSession->IsSessionRunning() || !vrQuadActive)
+	{
+		vrMenuCursorVisible = false;
+		if (vrMenuTriggerDown)
+			InputEvent(IK_LeftMouse, IST_Release);
+		vrMenuTriggerDown = false;
+		vrMenuTriggerArmed = false;
+		vrMenuClickPressPending = false;
+		vrMenuClickReleasePending = false;
+		return;
+	}
+
+	VRHandState& hand = MainHand();
+	int quadWidth = render->Device->GetQuadWidth();
+	int quadHeight = render->Device->GetQuadHeight();
+
+	if (!hand.valid) // degrade gracefully, same contract as every other VRHandState consumer
+	{
+		if (vrMenuTriggerDown)
+			InputEvent(IK_LeftMouse, IST_Release);
+		vrMenuTriggerDown = false;
+		vrMenuTriggerArmed = false;
+		vrMenuClickPressPending = false;
+		vrMenuClickReleasePending = false;
+		return;
+	}
+
+	// bWindowsMouseAvailable() is otherwise only ever set once, at startup,
+	// and only when not starting fullscreen (see Run()'s init block) - force
+	// both here so UWindow trusts the absolute WindowsMouseX/Y position (and
+	// draws a cursor) for as long as the VR menu pointer is active.
+	viewport->bWindowsMouseAvailable() = true;
+	viewport->bShowWindowsMouse() = true;
+
+	// OpenXR exposes distinct grip and aim poses. The controller proxy belongs
+	// at the grip pose, but its pointer ray must originate at the aim pose;
+	// using gripPos here creates an obvious sideways/vertical offset between
+	// the visible controller and where the runtime says it is pointing.
+	vec3 rayOrigin = hand.aimPos;
+	vec3 rayDir = Coords::Rotation(WeaponAimRotator(hand)).XAxis;
+	vrMenuRayVisible = true;
+	vrMenuRayEndUE = rayOrigin + rayDir * (8.0f * UUPerMeter);
+
+	float denom = dot(rayDir, vrQuadForwardUE);
+	if (denom > 0.05f) // else pointing away from/near-parallel to the menu plane
+	{
+		float t = dot(vrQuadOriginUE - rayOrigin, vrQuadForwardUE) / denom;
+		if (t > 0.0f)
+		{
+			vec3 hit = rayOrigin + rayDir * t;
+			float dx = dot(hit - vrQuadOriginUE, vrQuadRightUE);
+			float dy = dot(hit - vrQuadOriginUE, vrQuadUpUE);
+
+			float rawU = (dx + vrQuadHalfWidthUU) / (2.0f * vrQuadHalfWidthUU);
+			float rawV = (vrQuadHalfHeightUU - dy) / (2.0f * vrQuadHalfHeightUU);
+			float u = clamp(rawU, 0.0f, 1.0f);
+			float v = clamp(rawV, 0.0f, 1.0f);
+			vrMenuRayHitsPanel = rawU >= 0.0f && rawU <= 1.0f && rawV >= 0.0f && rawV <= 1.0f;
+			vrMenuRayEndUE = hit;
+
+			// UWindow divides WindowsMouseX/Y by Root.GUIScale, then the engine's
+			// canvas wrapper multiplies every UWindow draw coordinate by its own
+			// Canvas.uiscale. Therefore WindowsMouseX/Y are CANVAS-LOGICAL pixels,
+			// not raw quad-target pixels: raw / Canvas.uiscale. Supplying raw
+			// 1024x768 coordinates here made the real hit-test position land
+			// Canvas.uiscale times farther down/right than the visible ray dot.
+			// A recently moved physical mouse temporarily owns this shared
+			// position. Controller tracking and its laser remain visible, but
+			// do not fight the user's desktop cursor on every engine tick.
+			if (vrMenuRayHitsPanel && vrPhysicalMouseOverrideTime <= 0.0f)
+			{
+				vrMenuCursorX = u * (float)quadWidth;
+				vrMenuCursorY = v * (float)quadHeight;
+				vrMenuCursorVisible = true;
+				vrMenuCursorFromController = true;
+				float canvasScale = (float)std::max(render->GetCanvasUIScale(), 1);
+				viewport->WindowsMouseX() = vrMenuCursorX / canvasScale;
+				viewport->WindowsMouseY() = vrMenuCursorY / canvasScale;
+			}
+		}
+	}
+
+	// Reuses this tick's already-synced action state (UpdateVRControllerInput
+	// just called SyncActions() above in Run()'s loop - GetControllerState()
+	// itself is documented safe to call more than once per tick, see
+	// VulkanXRSession.h) rather than syncing OpenXR actions a second time.
+	VRControllerState state;
+	xrSession->GetControllerState(state);
+	float mainHandTrigger = (mainHand == 1) ? state.rightTrigger : state.leftTrigger;
+	// Only accept trigger edges on a frame where the menu quad was actually
+	// acquired and will be rendered. This prevents a press queued during a
+	// transient acquisition failure from firing on a later, unrelated hover.
+	bool canClickCurrentHit = vrQuadFrameReady && vrMenuRayHitsPanel && vrPhysicalMouseOverrideTime <= 0.0f;
+	if (mainHandTrigger < 0.25f)
+	{
+		vrMenuTriggerArmed = true;
+		if (vrMenuTriggerDown)
+		{
+			vrMenuClickReleasePending = true;
+			vrMenuTriggerDown = false;
+		}
+	}
+	else if (vrMenuTriggerDown && (!canClickCurrentHit || mainHandTrigger < 0.35f))
+	{
+		vrMenuClickReleasePending = true;
+		vrMenuTriggerDown = false;
+	}
+	else if (!vrMenuTriggerDown && vrMenuTriggerArmed && canClickCurrentHit && mainHandTrigger > 0.65f)
+	{
+		vrMenuClickPressPending = true;
+		vrMenuTriggerDown = true;
+		vrMenuTriggerArmed = false; // a new press requires a full release first
+	}
+}
+
+// WindowConsole.RenderUWindow copies Viewport.WindowsMouseX/Y into its own
+// MouseX/Y and calls Root.MoveMouse during Console.PostRender. Trigger edges
+// must be dispatched only after that happens or a click targets the previous
+// frame's widget while the new ray dot is already visible elsewhere.
+void Engine::DispatchVRMenuClickAfterCursorUpdate()
+{
+	if (vrMenuClickReleasePending)
+	{
+		InputEvent(IK_LeftMouse, IST_Release);
+		vrMenuClickReleasePending = false;
+	}
+	if (vrMenuClickPressPending)
+	{
+		InputEvent(IK_LeftMouse, IST_Press);
+		vrMenuClickPressPending = false;
+	}
+}
+
+namespace
+{
+	const char* VRTuneAxisName(int axis)
+	{
+		switch (axis)
+		{
+		case 0: return "gripOffset.x (fwd/back along barrel)";
+		case 1: return "gripOffset.y (left/right)";
+		case 2: return "gripOffset.z (up/down)";
+		case 3: return "scale";
+		case 4: return "rotationTrim.Yaw";
+		default: return "rotationTrim.Pitch";
+		}
+	}
+}
+
+// M-G: --vrtune live in-headset weapon tuning - see Engine.h's doc comment
+// on vrTuneModeActive/vrTuneOverrides for why this exists (the per-weapon
+// grip table needs real numbers for every weapon, and a rebuild-per-
+// adjustment cycle is far too slow). Gated behind the --vrtune launch flag
+// (see its parse-site doc comment) - Right B is a complete no-op unless
+// that flag was passed, so a normal release-build player who's never heard
+// of this tool can never stumble into it. Toggled entirely from the
+// controller once the flag is set, so nothing needs relaunching to turn it
+// on/off during a dev session:
+//
+// - Right B button: toggle tuning mode on/off.
+// - While ON:
+//   - Left X / Left Y (normally PrevWeapon/NextWeapon - suppressed by
+//     UpdateVRControllerInput while tuning is active): cycle which value
+//     is being adjusted (position X/Y/Z, scale, yaw trim, pitch trim).
+//   - Right stick Y: raises/lowers the currently-selected value at a
+//     continuous rate (not a one-shot step), so small vs. large
+//     adjustments are just "how long you hold it".
+//   - Right A (normally Jump - also suppressed while tuning): logs the
+//     currently-held weapon's full tuned values as a ready-to-paste
+//     GetBaseWeaponGripInfo() table entry.
+// - Movement/turn (both sticks' other axes) is suppressed the whole time
+//   tuning is active (UpdateVRControllerInput checks the outMovementSuppressed
+//   out-param this function sets) - you're meant to stand still holding the
+//   weapon steady while adjusting it, not walk around.
+//
+// Adjustments are kept in vrTuneOverrides (keyed by weapon class, seeded
+// from GetBaseWeaponGripInfo() the first time that class is touched) and
+// immediately affect rendering/aim/fire-origin through GetWeaponGripInfo(),
+// but are NOT written back to source automatically - the save/print button
+// is how a value makes it from a headset session into the next commit.
+//
+// 2026-07-21: added a second way to set gripOffset/rotationTrim - physical
+// grip capture - requested as a faster/more intuitive alternative to
+// nudging one axis at a time, especially now that GiveAllVRWeapons()
+// (--debugvrgeometry) proved walking to find every weapon isn't an option
+// while tuning suppresses movement. Left stick CLICK (freed up from bDuck -
+// see UpdateVRControllerInput's doc comment on that SetBool call) toggles
+// this "calibrate" sub-mode on top of tuning mode:
+//
+// - While calibrate is ON, the current weapon is parked at a fixed
+//   "presentation" pose in front of the player - see the frozen-pose
+//   branch this feeds in HandleFrameCallIntercept's RenderOverlays case -
+//   instead of following the hand, at true mesh scale/rotation so its
+//   real size and shape are visible to line up against.
+// - Left X / Left Y (axis-cycle in normal tuning mode) instead call the
+//   real PrevWeapon/NextWeapon commands, and the presentation pose
+//   re-freezes automatically once the switch completes (detected by
+//   comparing the live weapon's class against vrGripCalibrateWeaponClass
+//   each tick, since UnrealScript's own weapon-switch takes a few frames -
+//   same reason --debugvrgeometry's harness waits after calling
+//   NextWeapon rather than assuming it's instant).
+// - The MAIN hand's own grip analog (state.leftGrip/rightGrip, whichever
+//   corresponds to MainHand() - previously unused; only the OFF hand's
+//   grip analog is read, by UpdateVRTwoHandGrip for M-D) is the "capture"
+//   button: squeezing it solves for gripOffset/rotationTrim from wherever
+//   the real controller physically is relative to the frozen weapon right
+//   now, and stores the result into vrTuneOverrides exactly like the
+//   existing right-A save path (same log line format), no manual
+//   stick-nudging required. The solve is just undoing the render formula
+//   (weapon->Location() = hand.gripPos + hand.gripCoords*offset,
+//   weapon->Rotation() = WeaponAimRotator(hand)+rotationTrim): since
+//   gripCoords' axes are orthonormal, three dot products recover offset,
+//   and a plain Rotator subtraction recovers rotationTrim.
+// - Right A's print/save and the underlying vrTuneOverrides map are
+//   shared with normal tuning mode - a capture can still be followed by
+//   manual nudging (calibrate back OFF) to fine-tune, or vice versa.
+void Engine::UpdateVRWeaponTuning(float timeElapsed, const VRControllerState& state, bool& outMovementSuppressed)
+{
+	outMovementSuppressed = false;
+
+	// 2026-07-21: --vrtune gate - see Engine.h's doc comment on
+	// vrTuneEnabled. Right B is a complete no-op below this point unless
+	// the flag was passed at launch, so a release-build player can never
+	// end up movement-locked by an unfamiliar button.
+	if (!vrTuneEnabled)
+		return;
+
+	static bool prevToggle = false;
+	if (state.rightB && !prevToggle)
+	{
+		vrTuneModeActive = !vrTuneModeActive;
+		if (!vrTuneModeActive)
+			vrGripCalibrateActive = false;
+		LogMessage(std::string("VR tune mode: ") + (vrTuneModeActive
+			? "ON - left X/Y cycles axis, right stick Y adjusts, right A prints/saves, left stick click enters grip-capture"
+			: "OFF"));
+	}
+	prevToggle = state.rightB;
+
+	if (!vrTuneModeActive)
+		return;
+
+	outMovementSuppressed = true;
+
+	UPlayerPawn* playerPawn = viewport->Actor();
+	UWeapon* weapon = playerPawn ? playerPawn->Weapon() : nullptr;
+	if (!weapon)
+		return;
+
+	auto freezeCalibrationPose = [this](UWeapon* w)
+	{
+		vrGripCalibrateWeaponClass = w->Class->Name;
+		Coords headCoords = Coords::Rotation(CameraRotation);
+		const float forwardMeters = 0.5f;
+		const float downMeters = 0.30f; // roughly eye-to-chest drop, so the weapon presents at a natural holding height
+		vrGripCalibrateFrozenPos = CameraLocation
+			+ headCoords.XAxis * (forwardMeters * UUPerMeter)
+			- vec3(0.0f, 0.0f, downMeters * UUPerMeter);
+		vrGripCalibrateFrozenRot = CameraRotation;
+	};
+
+	static bool prevCalibrateToggle = false;
+	if (state.leftStickClick && !prevCalibrateToggle)
+	{
+		vrGripCalibrateActive = !vrGripCalibrateActive;
+		LogMessage(std::string("VR tune grip-capture: ") + (vrGripCalibrateActive
+			? "ON - weapon parked in front of you at true size; left X/Y switches weapon, main-hand grip captures"
+			: "OFF - back to normal axis-nudge tuning"));
+	}
+	prevCalibrateToggle = state.leftStickClick;
+
+	if (vrGripCalibrateActive)
+	{
+		static bool prevCalSwitchPrev = false, prevCalSwitchNext = false;
+		if (state.leftX && !prevCalSwitchPrev)
+			ExecCommand({ "PrevWeapon" });
+		if (state.leftY && !prevCalSwitchNext)
+			ExecCommand({ "NextWeapon" });
+		prevCalSwitchPrev = state.leftX;
+		prevCalSwitchNext = state.leftY;
+
+		if (weapon->Class->Name != vrGripCalibrateWeaponClass)
+			freezeCalibrationPose(weapon);
+
+		VRHandState& hand = MainHand();
+		float mainHandGripAnalog = (mainHand == 1) ? state.rightGrip : state.leftGrip;
+		static bool prevCapture = false;
+		bool captureNow = mainHandGripAnalog > 0.6f;
+		if (captureNow && !prevCapture && hand.valid)
+		{
+			NameString className = weapon->Class->Name;
+			auto it = vrTuneOverrides.find(className);
+			VRWeaponGripInfo grip = (it != vrTuneOverrides.end()) ? it->second : GetBaseWeaponGripInfo(weapon);
+
+			vec3 toFrozen = vrGripCalibrateFrozenPos - hand.gripPos;
+			grip.gripOffset.x = dot(toFrozen, hand.gripCoords.XAxis);
+			grip.gripOffset.y = dot(toFrozen, hand.gripCoords.YAxis);
+			grip.gripOffset.z = dot(toFrozen, hand.gripCoords.ZAxis);
+			grip.rotationTrim = vrGripCalibrateFrozenRot - WeaponAimRotator(hand);
+
+			vrTuneOverrides[className] = grip;
+
+			LogMessage("VR tune SAVE (grip capture) " + className.ToString() + ": gripOffset=vec3(" +
+				std::to_string(grip.gripOffset.x) + "f, " + std::to_string(grip.gripOffset.y) + "f, " + std::to_string(grip.gripOffset.z) + "f)" +
+				" rotationTrim=Rotator(" + std::to_string(grip.rotationTrim.Pitch) + ", " + std::to_string(grip.rotationTrim.Yaw) + ", " + std::to_string(grip.rotationTrim.Roll) + ")" +
+				" scale=" + std::to_string(grip.scale) + "f");
+		}
+		prevCapture = captureNow;
+
+		return;
+	}
+
+	static bool prevAxisPrev = false, prevAxisNext = false, prevSave = false;
+	if (state.leftX && !prevAxisPrev)
+	{
+		vrTuneAxis = (vrTuneAxis + 5) % 6;
+		LogMessage(std::string("VR tune axis: ") + VRTuneAxisName(vrTuneAxis));
+	}
+	if (state.leftY && !prevAxisNext)
+	{
+		vrTuneAxis = (vrTuneAxis + 1) % 6;
+		LogMessage(std::string("VR tune axis: ") + VRTuneAxisName(vrTuneAxis));
+	}
+	prevAxisPrev = state.leftX;
+	prevAxisNext = state.leftY;
+
+	const float deadzone = 0.15f;
+	float stick = state.rightStickY;
+	if (std::fabs(stick) < deadzone)
+		stick = 0.0f;
+
+	if (stick != 0.0f)
+	{
+		NameString className = weapon->Class->Name;
+		auto it = vrTuneOverrides.find(className);
+		if (it == vrTuneOverrides.end())
+			it = vrTuneOverrides.emplace(className, GetBaseWeaponGripInfo(weapon)).first;
+		VRWeaponGripInfo& grip = it->second;
+
+		const float positionUnitsPerSec = 20.0f;
+		const float scalePerSec = 0.5f;
+		const float rotationUnitsPerSec = 8192.0f; // ~45 degrees/sec (65536 units/turn)
+
+		switch (vrTuneAxis)
+		{
+		case 0: grip.gripOffset.x += stick * positionUnitsPerSec * timeElapsed; break;
+		case 1: grip.gripOffset.y += stick * positionUnitsPerSec * timeElapsed; break;
+		case 2: grip.gripOffset.z += stick * positionUnitsPerSec * timeElapsed; break;
+		case 3: grip.scale = clamp(grip.scale + stick * scalePerSec * timeElapsed, 0.05f, 5.0f); break;
+		case 4: grip.rotationTrim.Yaw += (int)(stick * rotationUnitsPerSec * timeElapsed); break;
+		case 5: grip.rotationTrim.Pitch += (int)(stick * rotationUnitsPerSec * timeElapsed); break;
+		}
+	}
+
+	if (state.rightA && !prevSave)
+	{
+		NameString className = weapon->Class->Name;
+		auto it = vrTuneOverrides.find(className);
+		VRWeaponGripInfo grip = (it != vrTuneOverrides.end()) ? it->second : GetBaseWeaponGripInfo(weapon);
+		LogMessage("VR tune SAVE " + className.ToString() + ": gripOffset=vec3(" +
+			std::to_string(grip.gripOffset.x) + "f, " + std::to_string(grip.gripOffset.y) + "f, " + std::to_string(grip.gripOffset.z) + "f)" +
+			" rotationTrim=Rotator(" + std::to_string(grip.rotationTrim.Pitch) + ", " + std::to_string(grip.rotationTrim.Yaw) + ", " + std::to_string(grip.rotationTrim.Roll) + ")" +
+			" scale=" + std::to_string(grip.scale) + "f");
+	}
+	prevSave = state.rightA;
 }
 
 // M-B: --debugvrhands - see Engine.h's doc comment on debugVRHandsEnabled.
@@ -2396,6 +3591,7 @@ void Engine::UpdateDebugVRHands(float timeElapsed)
 		handRotator.Pitch += (int)(swingRad * 0.5f * ue1RadiansToYaw);
 
 		handState.gripCoords = Coords::Rotation(handRotator);
+		handState.aimPos = handState.gripPos;
 		handState.aimRotator = handRotator;
 	}
 }
@@ -2438,6 +3634,23 @@ void Engine::UpdateDebugVRFire(float timeElapsed)
 	const float periodSeconds = 1.0f;       // pulse start-to-start spacing
 	const int pulseCount = 5;
 
+	// 2026-07-21 (M-E2 verification): --debugvrdualenforcer pairing takes
+	// ~30-33s to converge (summon + Touch()-triggered pickup/pairing isn't
+	// instant), which is well after this function's original 5 early
+	// pulses (t=3-8s) finish. That left the M-E2 slave-echo-suppression
+	// fix (HandleFrameCallIntercept's TraceFire/ProjectileFire branch)
+	// completely unexercised by any non-interactive run: every synthesized
+	// press happened while only the unpaired master Enforcer existed, so
+	// no slave echo was ever generated to suppress. Add two late pulses
+	// well after the pairing window closes so a single --debugvrfire
+	// --debugvrdualenforcer run can show whether a master-only fire after
+	// pairing produces a suppressed-echo log line (or, if the fix were
+	// broken, a second unsuppressed slave TraceFire/RenderOverlays
+	// intercept) instead of relying solely on real-headset testing.
+	const float lateFirstPressAtSeconds = 36.0f;
+	const float latePeriodSeconds = 4.0f;
+	const int latePulseCount = 2;
+
 	bool fireHeld = false;
 	for (int i = 0; i < pulseCount; i++)
 	{
@@ -2446,6 +3659,18 @@ void Engine::UpdateDebugVRFire(float timeElapsed)
 		{
 			fireHeld = true;
 			break;
+		}
+	}
+	if (!fireHeld)
+	{
+		for (int i = 0; i < latePulseCount; i++)
+		{
+			float pressAt = lateFirstPressAtSeconds + i * latePeriodSeconds;
+			if (debugVRFireTime >= pressAt && debugVRFireTime < pressAt + holdSeconds)
+			{
+				fireHeld = true;
+				break;
+			}
 		}
 	}
 
@@ -2704,6 +3929,226 @@ void Engine::UpdateDebugVRDualEnforcer(float timeElapsed)
 	}
 }
 
+// 2026-07-21: --debugvrgeometry - grants the player every stock, non-
+// abstract Weapon subclass using only generic, publicly-documented engine
+// mechanisms, deliberately avoiding a hardcoded weapon class name list
+// (no risk of guessing e.g. Minigun vs Minigun2's exact registered name):
+//
+//   1. Resolves the native base class via `packages->FindClass("Engine.Weapon")`
+//      (PackageManager.h) - the same native class UWeapon's C++ type is
+//      registered against (see PackageManager::RegisterNativeClass<UWeapon>
+//      in Package/PackageManager.cpp), not anything Botpack-specific.
+//   2. Enumerates every class exported by the Botpack package via
+//      `Package::GetAllObjects<UClass>()` (Package/Package.h) - the exact
+//      same generic mechanism Commandlet/ExportCommandlet.cpp already uses
+//      to list classes for its own export tooling.
+//   3. Keeps only non-abstract classes (`UClass::ClsFlags & ClassFlags::Abstract`
+//      - UObject/UClass.h, the same check UActor::Spawn() itself performs)
+//      whose `UStruct::BaseStruct` chain reaches that Weapon class - the
+//      same base-class walk `UObject::IsA()` does for instances, just
+//      starting from the UClass itself (this is what UnrealScript's native
+//      `ClassIsChildOf()` does internally too).
+//   4. Spawns each qualifying class directly via `UActor::Spawn()` at the
+//      player's own location - this returns the new actor pointer directly,
+//      unlike the older --debugvrdualenforcer summon+scan-Level->Actors
+//      approach, because Spawn() is being called natively here rather than
+//      through the string-dispatched `summon` exec command - then calls
+//      `UActor::Touch(UActor*)` on it exactly like
+//      UpdateDebugVRDualEnforcer() already does. The stock, completely
+//      unmodified UnrealScript PickupQuery()/Touch() handler chain does
+//      100% of the actual "add to inventory" work; this harness only ever
+//      creates the same native Touch() invocation a real walk-over pickup
+//      would produce.
+//
+// Test-only; only active behind --debugvrgeometry.
+void Engine::GiveAllVRWeapons()
+{
+	UPlayerPawn* playerActor = viewport ? UObject::TryCast<UPlayerPawn>(viewport->Actor()) : nullptr;
+	if (!playerActor)
+	{
+		LogMessage("--debugvrgeometry: no player pawn yet, skipping give-all-weapons");
+		return;
+	}
+
+	UClass* weaponBaseClass = packages->FindClass(NameString("Engine.Weapon"));
+	if (!weaponBaseClass)
+	{
+		LogMessage("--debugvrgeometry: could not resolve base Weapon class - aborting give-all-weapons");
+		return;
+	}
+
+	Package* botpack = packages->GetPackage(NameString("Botpack"));
+	if (!botpack)
+	{
+		LogMessage("--debugvrgeometry: could not load Botpack package - aborting give-all-weapons");
+		return;
+	}
+
+	Array<UClass*> classes = botpack->GetAllObjects<UClass>();
+	int grantedCount = 0;
+	for (UClass* cls : classes)
+	{
+		if (!cls || cls == weaponBaseClass)
+			continue;
+		if (cls->ClsFlags & ClassFlags::Abstract)
+			continue;
+
+		bool isWeapon = false;
+		for (UStruct* base = cls->BaseStruct; base; base = base->BaseStruct)
+		{
+			if (base == weaponBaseClass)
+			{
+				isWeapon = true;
+				break;
+			}
+		}
+		if (!isWeapon)
+			continue;
+
+		UActor* pickup = playerActor->Spawn(cls, {}, {}, playerActor->Location(), playerActor->Rotation());
+		if (!pickup)
+		{
+			LogMessage("--debugvrgeometry: Spawn() failed for Botpack." + cls->Name.ToString());
+			continue;
+		}
+		pickup->Touch(playerActor);
+		grantedCount++;
+		LogMessage("--debugvrgeometry: granted Botpack." + cls->Name.ToString());
+	}
+
+	debugVRGeometryWeaponCount = grantedCount;
+	LogMessage("--debugvrgeometry: granted " + std::to_string(grantedCount) + " weapon classes total from Botpack");
+}
+
+// 2026-07-21: --debugvrgeometry - logs the currently-held weapon's position
+// and size relative to the main hand and the player, in raw UE1 units (1
+// UU = 1/64 inch per this file's other UU-to-metric conversions - see
+// UUPerMeter above). Reads state every other VR path already maintains
+// (MainHand().gripPos, weapon->Location() as set by the RenderOverlays
+// intercept, GetWeaponGripInfo()'s scale, UActor::CollisionRadius/Height,
+// UMesh::BoundingSphere) rather than computing anything new - this is a
+// read-only diagnostic snapshot, not a new placement path.
+void Engine::LogWeaponGeometrySnapshot()
+{
+	UPlayerPawn* playerActor = viewport ? UObject::TryCast<UPlayerPawn>(viewport->Actor()) : nullptr;
+	if (!playerActor)
+		return;
+	UWeapon* weapon = playerActor->Weapon();
+	if (!weapon)
+	{
+		LogMessage("VR debug geometry: no current weapon to log");
+		return;
+	}
+
+	VRHandState& hand = MainHand();
+	VRWeaponGripInfo grip = GetWeaponGripInfo(weapon);
+
+	vec3 playerLoc = playerActor->Location();
+	float playerHeightUU = playerActor->CollisionHeight() * 2.0f; // CollisionHeight is the half-height above/below the capsule's own Location
+	float playerRadiusUU = playerActor->CollisionRadius();
+
+	// 2026-07-21: weapon->Location() itself is unreliable to read here -
+	// empirically, a same-tick comparison against the RenderOverlays
+	// intercept's own throttled log showed weapon->Location() had already
+	// been reset back to playerActor->Location() by the time this function
+	// (called from a later point in the SAME frame's Update pass, before
+	// that frame's own render/RenderOverlays call) reads it - some native
+	// "carried inventory item follows its owner" tick evidently re-syncs
+	// Location() every frame, AFTER the intercept's write is consumed
+	// in-place by that same call's DrawActor(), which is why this never
+	// mattered for rendering (write-then-immediately-consume, same frame)
+	// but does matter for a diagnostic reading it later. Recompute the
+	// SAME anchor formula HandleFrameCallIntercept's RenderOverlays branch
+	// uses instead of trusting the property.
+	vec3 weaponWorldPos = hand.valid
+		? hand.gripPos + hand.gripCoords.XAxis * grip.gripOffset.x
+			+ hand.gripCoords.YAxis * grip.gripOffset.y
+			+ hand.gripCoords.ZAxis * grip.gripOffset.z
+		: weapon->Location();
+
+	float handToPlayerUU = hand.valid ? length(hand.gripPos - playerLoc) : -1.0f;
+	float weaponToHandUU = hand.valid ? length(weaponWorldPos - hand.gripPos) : -1.0f;
+	float weaponToPlayerUU = length(weaponWorldPos - playerLoc);
+
+	UMesh* mesh = weapon->Mesh();
+	if (!mesh)
+		mesh = weapon->PlayerViewMesh();
+	// BoundingSphere is stored in raw mesh-local vertex space, BEFORE the
+	// mesh's own internal meshToObject transform (Coords::Rotation(RotOrigin)
+	// * mat4::scale(Scale) * translate(-Origin) - UObject/UMesh.cpp:226) is
+	// applied - so it must be scaled by mesh->Scale (assumed uniform, as it
+	// always is for weapon viewmodels) to land in world-comparable units,
+	// same as VisibleMesh.cpp's own DrawMesh does by composing meshToObject
+	// into the render transform rather than using raw vertex coordinates.
+	float meshRadiusUU = mesh ? mesh->BoundingSphere.w * mesh->Scale.x : -1.0f;
+	float effectiveRadiusUU = (meshRadiusUU >= 0.0f) ? meshRadiusUU * grip.scale * weapon->DrawScale() : -1.0f;
+
+	LogMessage("VR debug geometry: weapon=" + weapon->Class->Name.ToString() +
+		" playerHeightUU=" + std::to_string(playerHeightUU) +
+		" playerRadiusUU=" + std::to_string(playerRadiusUU) +
+		" handToPlayerUU=" + std::to_string(handToPlayerUU) +
+		" weaponToHandUU=" + std::to_string(weaponToHandUU) +
+		" weaponToPlayerUU=" + std::to_string(weaponToPlayerUU) +
+		" meshRadiusUU=" + std::to_string(meshRadiusUU) +
+		" effectiveRadiusUU=" + std::to_string(effectiveRadiusUU) +
+		" gripInfoScale=" + std::to_string(grip.scale) +
+		" weaponDrawScale=" + std::to_string(weapon->DrawScale()) +
+		" gripOffset=(" + std::to_string(grip.gripOffset.x) + "," + std::to_string(grip.gripOffset.y) + "," + std::to_string(grip.gripOffset.z) + ")" +
+		" muzzleOffset=(" + std::to_string(grip.muzzleOffset.x) + "," + std::to_string(grip.muzzleOffset.y) + "," + std::to_string(grip.muzzleOffset.z) + ")" +
+		" muzzleOffsetLenUU=" + std::to_string(length(grip.muzzleOffset)));
+}
+
+// 2026-07-21: --debugvrgeometry state machine: wait for the level/player to
+// settle, grant every weapon (GiveAllVRWeapons(), see its doc comment),
+// then repeatedly cycle to the next weapon (the same generic "NextWeapon"
+// exec command the real leftY binding already sends - see
+// UpdateVRControllerInput()) and log a geometry snapshot a short delay
+// after each switch (long enough for that tick's RenderOverlays intercept
+// to re-anchor the newly-current weapon's Location() before it's read).
+// Stops after debugVRGeometryWeaponCount+1 switches - one full lap through
+// every granted weapon, plus one extra to confirm the cycle wrapped
+// correctly back to the first weapon.
+void Engine::UpdateDebugVRGeometry(float timeElapsed)
+{
+	if (!debugVRGeometryEnabled)
+		return;
+	debugVRGeometryTime += timeElapsed;
+
+	const float giveAllAtSeconds = 3.0f;
+	const float switchPeriodSeconds = 2.5f;
+	const float logDelaySeconds = 0.4f;
+
+	if (!debugVRGeometryGranted)
+	{
+		if (debugVRGeometryTime < giveAllAtSeconds)
+			return;
+		debugVRGeometryGranted = true;
+		GiveAllVRWeapons();
+		LogWeaponGeometrySnapshot();
+		debugVRGeometryNextSwitchAt = debugVRGeometryTime + switchPeriodSeconds;
+		return;
+	}
+
+	int maxSwitches = debugVRGeometryWeaponCount + 1;
+	if (debugVRGeometrySwitchesPerformed >= maxSwitches)
+		return;
+
+	if (debugVRGeometryTime >= debugVRGeometryNextSwitchAt)
+	{
+		ExecCommand({ "NextWeapon" });
+		debugVRGeometrySwitchesPerformed++;
+		debugVRGeometryNextSwitchAt = debugVRGeometryTime + switchPeriodSeconds;
+		debugVRGeometryLogAt = debugVRGeometryTime + logDelaySeconds;
+		return;
+	}
+
+	if (debugVRGeometryLogAt > 0.0f && debugVRGeometryTime >= debugVRGeometryLogAt)
+	{
+		debugVRGeometryLogAt = 0.0f;
+		LogWeaponGeometrySnapshot();
+	}
+}
+
 // M-E1: see Engine.h's doc comment on GetSlaveEnforcer for the full
 // clean-room discovery story (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's M-E
 // section / Docs/VR/ENFORCER_DUALWIELD_SPEC.md - no decompiled source read).
@@ -2844,6 +4289,26 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 		}
 
 		VRHandState& hand = MainHand();
+
+		// 2026-07-21: grip calibration display - see UpdateVRWeaponTuning()'s
+		// doc comment for the full capture flow. While active for THIS
+		// weapon class, the weapon is parked at a fixed world pose (set once
+		// when calibration was entered/switched to this weapon) instead of
+		// following the hand, so the player can physically bring their
+		// controller to wherever the grip should be on the mesh and press
+		// grip to capture it. Written every frame rather than left alone,
+		// because some native "carried inventory item follows its owner"
+		// tick resets Location() back to the player's own position
+		// otherwise - see LogWeaponGeometrySnapshot()'s doc comment on the
+		// --debugvrgeometry finding that first surfaced this.
+		if (vrGripCalibrateActive && weapon->Class->Name == vrGripCalibrateWeaponClass)
+		{
+			weapon->Location() = vrGripCalibrateFrozenPos;
+			weapon->Rotation() = vrGripCalibrateFrozenRot;
+			render->DrawActor(weapon, false, false);
+			return true;
+		}
+
 		if (!hand.valid)
 			return false;
 
@@ -2986,6 +4451,28 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 		VRHandState& hand = *handPtr;
 		if (!hand.valid)
 			return false;
+
+		// M-E2: suppress the stock master-to-slave echo unless THIS call is
+		// the one the off-hand trigger's rising edge just directly asked for
+		// (vrExpectingSlaveManualFire - see its doc comment in Engine.h and
+		// the matching CallEvent() call site in UpdateVRControllerInput).
+		// Fully replaces the call like the RenderOverlays case above (rather
+		// than letting it run and only fixing aim), so an un-requested echo
+		// deals no damage/ammo/effects - NothingValue() is safe for any
+		// return type here (ExpressionValue::To*() already treats Nothing as
+		// a graceful zero/None/false for every accessor, the exact mechanism
+		// RenderOverlays already relies on for its own void return).
+		if (weapon == GetSlaveEnforcer(masterWeapon) && !vrExpectingSlaveManualFire)
+		{
+			static int suppressedEchoLogCounter = 0;
+			if ((suppressedEchoLogCounter++ % 4) == 0)
+			{
+				LogMessage("VR M-E2 suppressed stock slave echo: func=" + func->Name.ToString() +
+					" (off-hand trigger wasn't the cause of this shot)");
+			}
+			result = ExpressionValue::NothingValue();
+			return true;
+		}
 
 		VRFireViewRotationSave save;
 		save.pawn = playerActor; // UPlayerPawn IS-A UPawn (UActor.h:2094) - ViewRotation() lives on UPawn
@@ -3436,7 +4923,7 @@ Rotator Engine::WeaponAimRotator(const VRHandState& hand)
 // weapon-local "somewhere along the barrel, ahead of the grip" guess, like
 // the Enforcer's gripOffset placeholder above) - exact position needs
 // headset tuning like every other per-weapon offset in this table.
-Engine::VRWeaponGripInfo Engine::GetWeaponGripInfo(UWeapon* weapon)
+Engine::VRWeaponGripInfo Engine::GetBaseWeaponGripInfo(UWeapon* weapon)
 {
 	static const std::map<NameString, VRWeaponGripInfo> table = []()
 	{
@@ -3460,18 +4947,45 @@ Engine::VRWeaponGripInfo Engine::GetWeaponGripInfo(UWeapon* weapon)
 			return it->second;
 	}
 
-	// Default: derive a sane starting offset from this weapon's own
-	// authored flatscreen viewmodel numbers (PlayerViewOffset/FireOffset -
-	// UActor.h:901/951) so an unlisted weapon's un-tuned VR anchor starts in
-	// the same ballpark as its 2D viewmodel position instead of at the raw
-	// hand origin - see the plan's M-B "Per-weapon grip table" section.
+	// 2026-07-21: gripOffset intentionally left at its struct default
+	// (vec3(0,0,0), i.e. exactly at the hand) rather than derived from
+	// weapon->PlayerViewOffset() as originally planned here. Confirmed via
+	// --debugvrgeometry (non-interactive geometry diagnostic) that
+	// PlayerViewOffset() is a flatscreen-only HUD placement value on a
+	// completely different scale than a small hand-relative VR offset - for
+	// example ImpactHammer's PlayerViewOffset() is (380,160,-180), which
+	// anchored the viewmodel ~450 UU (~11.4 meters) from the hand instead of
+	// in it. Every untabled weapon was affected identically (only Enforcer/
+	// SniperRifle above have real table entries). Zero is a far safer
+	// starting point - "in the hand, unrotated" - than a wildly-scaled
+	// flatscreen number; per-weapon real placement is expected to come from
+	// the in-VR grip calibration flow (see UpdateVRWeaponTuning()'s doc
+	// comment) rather than this fallback.
+	//
+	// muzzleOffset is NOT changed - FireOffset() was checked against the
+	// same diagnostic for Translocator/WarheadLauncher (~20 UU, a plausible
+	// barrel-tip distance) and is a sane small value, unlike PlayerViewOffset().
 	VRWeaponGripInfo info;
 	if (weapon)
 	{
-		info.gripOffset = weapon->PlayerViewOffset();
 		info.muzzleOffset = weapon->FireOffset();
 	}
 	return info;
+}
+
+// M-G: public entry point - see Engine.h's doc comment on vrTuneOverrides.
+// Every pre-existing call site (M-B/C/D/E1) keeps reading through this same
+// name, so a run with nothing ever tuned (vrTuneOverrides empty) behaves
+// byte-identically to before M-G, just via one extra map lookup.
+Engine::VRWeaponGripInfo Engine::GetWeaponGripInfo(UWeapon* weapon)
+{
+	if (weapon)
+	{
+		auto it = vrTuneOverrides.find(weapon->Class->Name);
+		if (it != vrTuneOverrides.end())
+			return it->second;
+	}
+	return GetBaseWeaponGripInfo(weapon);
 }
 
 void Engine::OpenWindow()
@@ -3544,6 +5058,36 @@ void Engine::OnWindowMouseMove(const Point& pos)
 
 	if (engine->LaunchInfo.ue1Version > 219)
 	{
+		// 2026-07-22 (Codex review - mouse/controller cursor coexistence):
+		// while a VR menu/Entry quad is active, UpdateVRMenuCursor() writes
+		// WindowsMouseX/Y in the quad canvas's LOGICAL pixel space (raw target
+		// pixels divided by Canvas.uiscale), NOT this window's client pixels
+		// (normally much larger - the VR render resolution). Writing raw
+		// desktop pixels here unconditionally put the physical mouse and
+		// the VR controller ray in two different coordinate spaces sharing
+		// the same variable, so whichever last wrote was usually wildly out
+		// of range for the other's convention. Normalize against the real
+		// window and express both inputs in the same logical canvas space.
+		if (xrSession && xrSessionActive && vrQuadActive && render && render->Device)
+		{
+			float windowW = (float)viewport->ViewportWidth();
+			float windowH = (float)viewport->ViewportHeight();
+			if (windowW > 0.0f && windowH > 0.0f)
+			{
+				float u = clamp((float)(pos.x * window->GetDpiScale()) / windowW, 0.0f, 1.0f);
+				float v = clamp((float)(pos.y * window->GetDpiScale()) / windowH, 0.0f, 1.0f);
+				vrMenuCursorX = u * (float)render->Device->GetQuadWidth();
+				vrMenuCursorY = v * (float)render->Device->GetQuadHeight();
+				float canvasScale = (float)std::max(render->GetCanvasUIScale(), 1);
+				viewport->WindowsMouseX() = vrMenuCursorX / canvasScale;
+				viewport->WindowsMouseY() = vrMenuCursorY / canvasScale;
+				vrMenuCursorVisible = true;
+				vrMenuCursorFromController = false;
+				vrPhysicalMouseOverrideTime = 1.5f;
+				return;
+			}
+		}
+
 		viewport->WindowsMouseX() = (float)(pos.x * window->GetDpiScale());
 		viewport->WindowsMouseY() = (float)(pos.y * window->GetDpiScale());
 	}
@@ -3623,6 +5167,13 @@ void Engine::OnWindowKeyDown(EInputKey key)
 
 	if (engine->dxRootWindow && engine->dxRootWindow->OnWindowKeyDown(key))
 		return;
+
+	// See lastVRMenuInputSource's doc comment (Engine.h) - tagged before
+	// InputEvent() so the "VR menu diag" log's bShowMenu()/inEntryMap edge
+	// check (Run(), further down this file) can attribute the resulting
+	// state change to physical Escape rather than the VR menu button.
+	if (key == EInputKey::IK_Escape)
+		lastVRMenuInputSource = "physical Escape";
 
 	InputEvent(key, IST_Press);
 }

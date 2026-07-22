@@ -259,11 +259,12 @@ std::string FileResource::readAllText(const std::string& filename)
 
 			void main()
 			{
-				vec3 color = gammaCorrect(colorCorrect(texture(texSampler, texCoord).rgb));
+				vec4 source = texture(texSampler, texCoord);
+				vec3 color = gammaCorrect(colorCorrect(source.rgb));
 			#if defined(HDR_MODE)
-				outColor = vec4(linearHdr(color), 1.0f);
+				outColor = vec4(linearHdr(color), source.a);
 			#else
-				outColor = vec4(dither(color), 1.0f);
+				outColor = vec4(dither(color), source.a);
 			#endif
 			}
 		)";

@@ -12,16 +12,24 @@ void RenderSubsystem::ResetCanvas()
 {
 	// Scale the UI so it matches what you saw on a 1024x768 CRT monitor for Unreal and other older games.
 	// Assume 1280x960 for UT and newer.
+	// Use the render device's actual target size, not the desktop viewport's
+	// - normally identical (Engine::Run() keeps viewport->SetViewportRect
+	// synced to the window every frame), but once VR is active the render
+	// target is pinned to the (usually much larger) OpenXR swapchain
+	// resolution via RenderDevice::SetFixedRenderSize() - see Engine.cpp -
+	// while engine->viewport keeps tracking the small desktop mirror window.
+	// Same Device->GetRenderWidth()/Height() convention
+	// VisibleFrame::SetupSceneFrame() and DrawSceneVR() already use.
 	int vertResolution = engine->LaunchInfo.ue1Version < 400 ? 768 : 960;
-	Canvas.uiscale = std::max((engine->viewport->ViewportHeight() + vertResolution / 2) / vertResolution, 1);
+	Canvas.uiscale = std::max((Device->GetRenderHeight() + vertResolution / 2) / vertResolution, 1);
 
 	FSceneNode frame;
 	Canvas.Frame.XB = 0;
 	Canvas.Frame.YB = 0;
-	Canvas.Frame.X = engine->viewport->ViewportWidth();
-	Canvas.Frame.Y = engine->viewport->ViewportHeight();
-	Canvas.Frame.FX = (float)engine->viewport->ViewportWidth();
-	Canvas.Frame.FY = (float)engine->viewport->ViewportHeight();
+	Canvas.Frame.X = Device->GetRenderWidth();
+	Canvas.Frame.Y = Device->GetRenderHeight();
+	Canvas.Frame.FX = (float)Device->GetRenderWidth();
+	Canvas.Frame.FY = (float)Device->GetRenderHeight();
 	Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
 	Canvas.Frame.FY2 = Canvas.Frame.FY * 0.5f;
 	Canvas.Frame.ObjectToWorld = mat4::identity();
@@ -33,8 +41,8 @@ void RenderSubsystem::ResetCanvas()
 	float RFY2 = 2.0f * RProjZ * Aspect / Canvas.Frame.FY;
 	Canvas.Frame.Projection = mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
 
-	int sizeX = (int)(engine->viewport->ViewportWidth() / (float)Canvas.uiscale);
-	int sizeY = (int)(engine->viewport->ViewportHeight() / (float)Canvas.uiscale);
+	int sizeX = (int)(Device->GetRenderWidth() / (float)Canvas.uiscale);
+	int sizeY = (int)(Device->GetRenderHeight() / (float)Canvas.uiscale);
 	engine->canvas->CurX() = 0.0f;
 	engine->canvas->CurY() = 0.0f;
 	if (engine->LaunchInfo.ue1Version > 219)
@@ -88,6 +96,11 @@ void RenderSubsystem::RenderOverlays()
 	// single-camera frame here (set by DrawScene()'s MainFrame.Process()
 	// just before RenderOverlays() runs), so this draws once, not per-eye.
 	DrawVROffHandMarker();
+
+	// 2026-07-21: main-hand marker, only while grip-capture is parking the
+	// weapon away from the hand - see DrawVRMainHandMarker()'s doc comment.
+	if (engine->vrGripCalibrateActive)
+		DrawVRMainHandMarker();
 }
 
 // M4 (2026-07-20): places this eye's HUD canvas at a fixed-size "virtual
@@ -116,7 +129,7 @@ void RenderSubsystem::RenderOverlays()
 // See Docs/VR/FABLE_ANALYSIS_2026-07-20.md sections 1-2 for the full
 // derivation. IPD is read live from VREyeLocation every call (never a
 // constant) since it varies per headset/runtime/IPD-slider setting.
-void RenderSubsystem::SetVRHudFrame(int eye, const FSceneNode& fullFrame)
+void RenderSubsystem::SetVRHudFrame(int eye, const FSceneNode& fullFrame, float halfFovXDeg, float aspectYtoX, float depthUU)
 {
 	int fullWidth = fullFrame.X;
 	int fullHeight = fullFrame.Y;
@@ -127,9 +140,9 @@ void RenderSubsystem::SetVRHudFrame(int eye, const FSceneNode& fullFrame)
 	float tanU = std::tan(VREyeFov[eye][2]);
 	float tanD = std::tan(VREyeFov[eye][3]);
 
-	const float hudHalfTanX = std::tan(radians(25.0f)); // ~50 deg wide virtual screen
-	const float hudHalfTanY = hudHalfTanX * 0.75f;       // 4:3
-	const float hudDepthUU = 68.9f;                      // ~1.75m convergence depth (1 UU = 1 inch - see Engine.cpp's UUPerMeter)
+	const float hudHalfTanX = std::tan(radians(halfFovXDeg));
+	const float hudHalfTanY = hudHalfTanX * aspectYtoX;
+	const float hudDepthUU = depthUU;                    // 1 UU = 1 inch - see Engine.cpp's UUPerMeter
 
 	float ipdUU = length(VREyeLocation[1] - VREyeLocation[0]);
 	float shift = (eye == 0 ? 1.0f : -1.0f) * (ipdUU * 0.5f) / hudDepthUU;
@@ -201,6 +214,13 @@ void RenderSubsystem::RenderOverlaysVR()
 		// appears correctly positioned in both stereo halves - see
 		// DrawVROffHandMarker()'s doc comment.
 		DrawVROffHandMarker();
+
+		// 2026-07-21: main-hand marker, only while grip-capture is parking
+		// the weapon away from the hand - see DrawVRMainHandMarker()'s doc
+		// comment. Same per-eye placement reasoning as the off-hand marker
+		// above.
+		if (engine->vrGripCalibrateActive)
+			DrawVRMainHandMarker();
 	}
 
 	// Restore full-window canvas state for PostRender() and the next frame's ResetCanvas().
@@ -239,14 +259,23 @@ void RenderSubsystem::PostRenderVR()
 	float fullClipX = engine->canvas->ClipX();
 	float fullClipY = engine->canvas->ClipY();
 
+	UPlayerPawn* playerPawn = engine->viewport->Actor();
+
 	for (int eye = 0; eye < 2; eye++)
 	{
+		// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): the menu
+		// is now rendered ONCE, monoscopically, by DrawMenuQuad() (called
+		// from RenderSubsystem::DrawGame(), in its own Lock/Unlock cycle
+		// after this function returns) and presented as a real
+		// world-anchored OpenXR quad layer - not duplicated per-eye here via
+		// SetVRHudFrame's sub-rect placement like every other VR HUD/HUD-ish
+		// content on this codebase. See DrawMenuQuad()'s doc comment.
 		SetVRHudFrame(eye, fullFrame);
 
 		MainFrame.Frame = VREyeFrame[eye];
 		Device->SetSceneNode(&Canvas.Frame);
-		if (engine->viewport->Actor())
-			CallEvent(engine->viewport->Actor(), EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
+		if (playerPawn)
+			CallEvent(playerPawn, EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
 		CallEvent(engine->console, EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
 	}
 
@@ -262,6 +291,115 @@ void RenderSubsystem::PostRenderVR()
 	DrawTimedemoStats();
 	if (ShowCollisionDebug)
 		DrawCollisionDebug();
+}
+
+// 2026-07-22 (VR_SCREEN_QUAD_PLAN_2026-07-22.md Phase 2): renders the
+// pause/escape menu ONCE per frame, monoscopically, into the standalone
+// offscreen quad render target, for presentation as a real world-anchored
+// OpenXR quad layer instead of the old PostRenderVR() showingMenu branch's
+// per-eye HUD sub-rect (see that function's doc comment on why its per-eye
+// loop now skips this case entirely). Called from
+// RenderSubsystem::DrawGame() in its own Lock/Unlock cycle, after
+// PostRenderVR() has already run this same frame.
+//
+// UT99's actual front-end/pause menu draws from UPlayerPawn.PostRender -
+// UT99's own UWindow-based UnrealScript system, engine->dxRootWindow's
+// same-named-but-unrelated native sibling is never populated for a UT99
+// pawn (see Engine::UpdateVRMenuCursor()'s doc comment for the fuller
+// explanation) - so a single CallEvent(playerPawn, PostRender, ...) call
+// against the quad's own canvas frame is what actually produces the menu's
+// pixels here, replacing the old per-eye-duplicated pair.
+void RenderSubsystem::DrawMenuQuad()
+{
+	UPlayerPawn* playerPawn = engine->viewport->Actor();
+
+	int quadWidth = Device->GetQuadWidth();
+	int quadHeight = Device->GetQuadHeight();
+
+	Device->LockQuadTarget(vec4(0.0f, 0.0f, 0.0f, 1.0f));
+
+	FSceneNode fullFrame = Canvas.Frame;
+	int fullSizeX = engine->canvas->SizeX();
+	int fullSizeY = engine->canvas->SizeY();
+	float fullClipX = engine->canvas->ClipX();
+	float fullClipY = engine->canvas->ClipY();
+	int fullViewportX = engine->viewport->ViewportX();
+	int fullViewportY = engine->viewport->ViewportY();
+	int fullViewportW = engine->viewport->ViewportWidth();
+	int fullViewportH = engine->viewport->ViewportHeight();
+
+	Canvas.Frame.XB = 0;
+	Canvas.Frame.YB = 0;
+	Canvas.Frame.X = quadWidth;
+	Canvas.Frame.Y = quadHeight;
+	Canvas.Frame.FX = (float)quadWidth;
+	Canvas.Frame.FY = (float)quadHeight;
+	Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
+	Canvas.Frame.FY2 = Canvas.Frame.FY * 0.5f;
+
+	int sizeX = (int)(quadWidth / (float)Canvas.uiscale);
+	int sizeY = (int)(quadHeight / (float)Canvas.uiscale);
+	engine->canvas->CurX() = 0.0f;
+	engine->canvas->CurY() = 0.0f;
+	engine->canvas->ClipX() = (float)sizeX;
+	engine->canvas->ClipY() = (float)sizeY;
+	engine->canvas->SizeX() = sizeX;
+	engine->canvas->SizeY() = sizeY;
+
+	// UT's UnrealScript UWindow lays itself out from Canvas.ClipX/ClipY and
+	// Root.GUIScale. The engine canvas later multiplies draw coordinates by
+	// Canvas.uiscale, so UpdateVRMenuCursor supplies WindowsMouseX/Y in this
+	// canvas's logical space (raw quad pixels / Canvas.uiscale). The viewport
+	// rect still points at the raw target for native viewport-dependent work.
+	engine->viewport->SetViewportRect(0, 0, quadWidth, quadHeight);
+
+	Device->SetSceneNode(&Canvas.Frame);
+	if (playerPawn)
+		CallEvent(playerPawn, EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
+	CallEvent(engine->console, EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
+	engine->DispatchVRMenuClickAfterCursorUpdate();
+	DrawVRMenuPointerOverlay();
+
+	engine->viewport->SetViewportRect(fullViewportX, fullViewportY, fullViewportW, fullViewportH);
+
+	Canvas.Frame = fullFrame;
+	engine->canvas->CurX() = 0.0f;
+	engine->canvas->CurY() = 0.0f;
+	engine->canvas->ClipX() = fullClipX;
+	engine->canvas->ClipY() = fullClipY;
+	engine->canvas->SizeX() = fullSizeX;
+	engine->canvas->SizeY() = fullSizeY;
+	Device->SetSceneNode(&Canvas.Frame);
+
+	Device->UnlockQuadTarget();
+}
+
+// The cursor belongs to the menu surface, so draw it directly into the quad
+// after UWindow. Tracked controllers and the ray are NOT drawn here: they are
+// genuine stereo/world-space geometry from DrawVRMenuTrackedOverlay(), in a
+// transparent projection layer composited over this quad.
+void RenderSubsystem::DrawVRMenuPointerOverlay()
+{
+	auto point = [&](vec4 color, float x1, float y1, float x2, float y2)
+	{
+		Device->Draw2DPoint(&Canvas.Frame, color, 0, x1, y1, x2, y2, 1.0f);
+	};
+
+	if (engine->vrMenuCursorVisible)
+	{
+		// Derive the marker from the exact WindowsMouse values UWindow consumes,
+		// transformed back through Canvas.uiscale into raw quad pixels. This
+		// makes the dot ground truth for the actual hit-test cursor rather than
+		// a separately cached visualization of the plane intersection.
+		float x = engine->viewport->WindowsMouseX() * (float)Canvas.uiscale;
+		float y = engine->viewport->WindowsMouseY() * (float)Canvas.uiscale;
+		vec4 cursorColor = engine->vrMenuCursorFromController ? vec4(0.15f, 1.0f, 0.4f, 1.0f) : vec4(1.0f, 1.0f, 1.0f, 1.0f);
+		// A compact dot is enough once the true 3D beam visibly terminates at
+		// this exact point; the old large cross looked like another floating
+		// controller sprite and obscured menu labels.
+		point(vec4(0.0f, 0.0f, 0.0f, 1.0f), x - 7.0f, y - 7.0f, x + 7.0f, y + 7.0f);
+		point(cursorColor, x - 4.0f, y - 4.0f, x + 4.0f, y + 4.0f);
+	}
 }
 
 void RenderSubsystem::PostRenderFlash()
@@ -692,6 +830,38 @@ void RenderSubsystem::DrawVROffHandMarker()
 	Device->Draw3DLine(&MainFrame.Frame, color, 0, center - offHand.gripCoords.XAxis * armUU, center + offHand.gripCoords.XAxis * armUU);
 	Device->Draw3DLine(&MainFrame.Frame, color, 0, center - offHand.gripCoords.YAxis * armUU, center + offHand.gripCoords.YAxis * armUU);
 	Device->Draw3DLine(&MainFrame.Frame, color, 0, center - offHand.gripCoords.ZAxis * armUU, center + offHand.gripCoords.ZAxis * armUU);
+}
+
+// 2026-07-21: main-hand marker for the grip-calibration flow - see the
+// doc comment on the declaration in RenderSubsystem.h. Same
+// Device->Draw3DLine(&MainFrame.Frame, ...) direct-call pattern as
+// DrawVROffHandMarker() and for the same reason (Canvas.Frame is a 2D HUD
+// sub-rect by the time this runs inside RenderOverlaysVR()'s per-eye loop).
+//
+// Asymmetric on purpose: the forward arm (gripCoords.XAxis, the direction
+// the controller aims) is longer and green; the backward stub is short
+// and red. A plain symmetric cross (fine for the off-hand, which has no
+// "which way is it pointing" question relevant to grabbing it) doesn't
+// tell you which end of the line is forward - real-headset feedback
+// specifically asked for that distinction here.
+void RenderSubsystem::DrawVRMainHandMarker()
+{
+	const Engine::VRHandState& mainHand = engine->MainHand();
+	if (!mainHand.valid)
+		return;
+
+	const float forwardUU = 5.0f;
+	const float backUU = 1.5f;
+	const float armUU = 2.5f;
+	const vec3 center = mainHand.gripPos;
+	const vec4 forwardColor(0.0f, 1.0f, 0.0f, 1.0f); // green - the direction the controller aims
+	const vec4 backColor(1.0f, 0.0f, 0.0f, 1.0f);    // red - the back of the controller, short so it can't be confused with forward
+	const vec4 sideColor(0.3f, 0.7f, 1.0f, 1.0f);    // light blue - left/right and up/down, no directional meaning
+
+	Device->Draw3DLine(&MainFrame.Frame, forwardColor, 0, center, center + mainHand.gripCoords.XAxis * forwardUU);
+	Device->Draw3DLine(&MainFrame.Frame, backColor, 0, center, center - mainHand.gripCoords.XAxis * backUU);
+	Device->Draw3DLine(&MainFrame.Frame, sideColor, 0, center - mainHand.gripCoords.YAxis * armUU, center + mainHand.gripCoords.YAxis * armUU);
+	Device->Draw3DLine(&MainFrame.Frame, sideColor, 0, center - mainHand.gripCoords.ZAxis * armUU, center + mainHand.gripCoords.ZAxis * armUU);
 }
 
 void RenderSubsystem::DrawTile(FTextureInfo& Info, float X, float Y, float XL, float YL, float U, float V, float UL, float VL, float Z, vec4 Color, vec4 Fog, uint32_t PolyFlags)
