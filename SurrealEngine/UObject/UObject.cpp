@@ -251,7 +251,20 @@ uint32_t UObject::GetInt(const NameString& name) const
 bool UObject::GetBool(const NameString& propName) const
 {
 	UProperty* prop = GetMemberProperty(propName);
-	return static_cast<UBoolProperty*>(prop)->GetBool(PropertyData.Ptr(prop));
+	const void* value = PropertyData.Ptr(prop);
+
+	switch (prop->ValueType)
+	{
+	case ExpressionValueType::ValueByte:
+		// Several input flags, including Pawn.bFire/bAltFire/bDuck, are byte
+		// properties despite their boolean names. Treat their byte value as a
+		// boolean without sending it through UBoolProperty's bitfield storage.
+		return *static_cast<const uint8_t*>(value) != 0;
+	case ExpressionValueType::ValueBool:
+		return static_cast<UBoolProperty*>(prop)->GetBool(value);
+	default:
+		Exception::Throw("Object Property '" + Name.ToString() + "." + propName.ToString() + "' is not a bool or byte");
+	}
 }
 
 float UObject::GetFloat(const NameString& name) const
@@ -312,7 +325,22 @@ void UObject::SetInt(const NameString& name, uint32_t value)
 void UObject::SetBool(const NameString& name, bool value)
 {
 	UProperty* prop = GetMemberProperty(name);
-	static_cast<UBoolProperty*>(prop)->SetBool(PropertyData.Ptr(prop), value);
+	void* propertyValue = PropertyData.Ptr(prop);
+
+	switch (prop->ValueType)
+	{
+	case ExpressionValueType::ValueByte:
+		// Pawn.bFire/bAltFire/bDuck and some other boolean-looking input
+		// properties are actually bytes. UBoolProperty uses packed uint32_t
+		// bitfields, so casting a byte property to it can modify adjacent data.
+		*static_cast<uint8_t*>(propertyValue) = value ? 1 : 0;
+		return;
+	case ExpressionValueType::ValueBool:
+		static_cast<UBoolProperty*>(prop)->SetBool(propertyValue, value);
+		return;
+	default:
+		Exception::Throw("Object Property '" + Name.ToString() + "." + name.ToString() + "' is not a bool or byte");
+	}
 }
 
 void UObject::SetFloat(const NameString& name, float value)
