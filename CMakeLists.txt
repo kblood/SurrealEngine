@@ -171,6 +171,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Platform/WebXR/WebXRProvider.cpp
 	SurrealEngine/Render/XRUISurfaces.h
 	SurrealEngine/Render/XRUISurfaces.cpp
+	SurrealEngine/Render/XRUISurfaceRuntimeAdapter.h
+	SurrealEngine/Render/XRUISurfaceRuntimeAdapter.cpp
 	SurrealEngine/Render/VisibleMesh.cpp
 	SurrealEngine/Render/VisibleMesh.h
 	SurrealEngine/Render/VisibleNode.cpp
@@ -1085,4 +1087,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRCommonTests PRIVATE SurrealEngine)
 	set_target_properties(XRCommonTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRCommon COMMAND XRCommonTests)
+
+	add_executable(XRUISurfaceRuntimeAdapterTests
+		Tests/XRUISurfaceRuntimeAdapterTests.cpp
+		SurrealEngine/Render/XRUISurfaces.cpp
+		SurrealEngine/Render/XRUISurfaceRuntimeAdapter.cpp
+	)
+	target_include_directories(XRUISurfaceRuntimeAdapterTests PRIVATE SurrealEngine)
+	set_target_properties(XRUISurfaceRuntimeAdapterTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRUISurfaceRuntimeAdapterTests COMMAND XRUISurfaceRuntimeAdapterTests)
 endif()
