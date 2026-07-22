@@ -1,8 +1,10 @@
 import "./ut99_importer.js";
 import "./mutable_persistence.js";
+await import("./browser_app.js");
 
 const api = globalThis.SurrealGameImporter;
 const mutable = globalThis.SurrealMutableData;
+const launcher = globalThis.SurrealBrowserApp;
 
 function assert(condition, message) {
 	if (!condition) throw new Error(message);
@@ -66,6 +68,14 @@ for (const distribution of distributions) {
 	};
 	const manifest = api.mapManifestFromMetadata(metadata, "ready");
 	assert(manifest.maps.includes(distribution.map), distribution.id + " map extension was not projected into the launcher");
+	const directArgs = launcher.buildNativeArguments({ game: definition,
+		map: distribution.map, renderer: "webgpu", skipIntro: true });
+	assert(directArgs.includes("--url=" + distribution.map),
+		distribution.id + " direct launch did not retain its selected map");
+	const introArgs = launcher.buildNativeArguments({ game: definition,
+		map: distribution.map, renderer: "webgpu", skipIntro: false });
+	assert(!introArgs.some(argument => argument.startsWith("--url=")),
+		distribution.id + " normal intro did not defer to its configured LocalMap");
 }
 
 // Existing retail/browser behavior remains distinct from the demo variants.

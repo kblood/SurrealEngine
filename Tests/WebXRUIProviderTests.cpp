@@ -30,6 +30,59 @@ namespace
 		int Releases = 0;
 		Pointf Cursor;
 	};
+
+	bool StartupHudHandsOffWithoutClicking(const std::array<XRUICanvasCaptureDescriptor, 4>& descriptors,
+		float worldUnitsPerMeter, const WebXR::RecenterState& recenter)
+	{
+		Host host;
+		XRUISurfaceEngineBinding binding(host);
+		binding.Configure(descriptors[0]);
+		binding.Configure(descriptors[3]);
+		binding.SetViewerPose({});
+		binding.SetHudActive(true);
+
+		WebXR::AdaptedInputSnapshot input;
+		input.Session.Lifecycle = XRSessionLifecycle::Running;
+		input.Session.Focus = XRSessionFocus::Focused;
+		input.Controllers.ForHand(XRHand::Right).Connected = true;
+		input.Controllers.ForHand(XRHand::Right).Select.Pressed = true;
+		input.Spaces.AimFor(XRHand::Right).Valid = true;
+		input.Spaces.AimFor(XRHand::Right).Orientation.W = 1.0f;
+		WebXR::UIInputConnector connector;
+		connector.Update(input, binding, vec3(0.0f), Coords::Identity(), worldUnitsPerMeter, recenter);
+
+		const XRUICanvasReplayFrame intro = binding.BuildReplayFrame();
+		const WebXR::UIVisualFrame introVisuals = WebXR::BuildUIVisualFrame(
+			connector.Feedback(), intro, worldUnitsPerMeter);
+		if (intro.Items.size() != 1 || intro.Items[0].Surface.Descriptor.Kind != XRUISurfaceKind::Hud ||
+			introVisuals.Hands.size() != 1 || introVisuals.Hands[0].Controller.empty() ||
+			introVisuals.Hands[0].Laser.empty() || !introVisuals.Hands[0].HitMarker.empty() || host.Presses != 0)
+			return false;
+
+		binding.SetHudActive(false);
+		binding.SetMenuActive(true);
+		connector.Update(input, binding, vec3(0.0f), Coords::Identity(), worldUnitsPerMeter, recenter);
+		binding.Replay(XRUICanvasReplayContext::Game);
+		const WebXR::PointerFeedback& held = connector.Feedback()[XRHandIndex(XRHand::Right)];
+		if (!held.Contact.Hit || held.Contact.Surface != XRUISurfaceKind::Menu || host.Presses != 0)
+			return false;
+
+		input.Controllers.ForHand(XRHand::Right).Select.Pressed = false;
+		connector.Update(input, binding, vec3(0.0f), Coords::Identity(), worldUnitsPerMeter, recenter);
+		binding.Replay(XRUICanvasReplayContext::Game);
+		if (host.Presses != 0 || host.Releases != 0)
+			return false;
+
+		input.Controllers.ForHand(XRHand::Right).Select.Pressed = true;
+		connector.Update(input, binding, vec3(0.0f), Coords::Identity(), worldUnitsPerMeter, recenter);
+		binding.Replay(XRUICanvasReplayContext::Game);
+		const XRUICanvasReplayFrame menu = binding.BuildReplayFrame();
+		const WebXR::UIVisualFrame menuVisuals = WebXR::BuildUIVisualFrame(
+			connector.Feedback(), menu, worldUnitsPerMeter);
+		return host.Presses == 1 && menu.Items.size() == 1 &&
+			menu.Items[0].Surface.Descriptor.Kind == XRUISurfaceKind::Menu &&
+			menuVisuals.Hands.size() == 1 && !menuVisuals.Hands[0].HitMarker.empty();
+	}
 }
 
 int main()
@@ -59,6 +112,8 @@ int main()
 
 	WebXR::RecenterState recenter;
 	recenter.Valid = true;
+	if (!StartupHudHandsOffWithoutClicking(descriptors, units, recenter))
+		return 19;
 	XRPose aim;
 	aim.Valid = true;
 	aim.Position = { 0.1f, 0.0f, -1.0f };
@@ -97,7 +152,7 @@ int main()
 	if (!selectingFeedback.Selecting)
 		return 6;
 
-	binding.Configure(descriptors[1]);
+	binding.Configure(descriptors[2]);
 	binding.SetSurfaceActive(XRUISurfaceKind::Loading, true);
 	const XRUICanvasReplayFrame replayFrame = binding.BuildReplayFrame();
 	if (replayFrame.Items.size() != 2 ||
