@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#20252d">
 <link rel="manifest" href="manifest.webmanifest">
-<title>SurrealEngine WebXR M4-groundwork harness</title>
+<title>SurrealEngine WebXR</title>
 <style>
 	#ut99-importer, #webxr-settings { max-width: 52rem; padding: 1rem; margin: .75rem 0; border: 1px solid #777; font: 14px system-ui, sans-serif; }
 	#ut99-importer h2 { margin: 0 0 .5rem; }
@@ -34,6 +34,14 @@
 	#webxr-headset-controls .exit-help { margin: 0 0 .55rem; }
 	#webxr-headset-controls .actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 	#webxr-headset-controls button { min-height: 2.5rem; padding: .4rem .8rem; }
+	#webxr-browser-launcher { max-width: 52rem; padding: 1rem; margin: .75rem 0; border: 2px solid #4c78a8; font: 14px system-ui, sans-serif; }
+	#webxr-browser-launcher h1 { margin: 0 0 .5rem; font-size: 1.35rem; }
+	#webxr-browser-launcher .launcher-grid { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(14rem, 1fr); gap: .6rem 1rem; }
+	#webxr-browser-launcher label { display: flex; flex-direction: column; gap: .25rem; }
+	#webxr-browser-launcher .actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .8rem; }
+	#webxr-browser-launcher [data-launcher-error], #webxr-browser-launcher [data-error=true] { color: #b00020; font-weight: 600; }
+	#webxr-browser-launcher .scope { font-weight: 700; }
+	@media (max-width: 42rem) { #webxr-browser-launcher .launcher-grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -41,6 +49,28 @@
      lifecycle harness by default. `?native-webgpu-xr=1` explicitly selects
      the production XRGPUBinding/projection-layer path; it does not fall back
      to IWER or report native WebGPU rendering when the browser lacks it. -->
+<section id="webxr-browser-launcher" hidden data-state="loading" aria-live="polite">
+	<h1>SurrealEngine WebXR launcher</h1>
+	<p class="scope">Offline and single-player/local bot play only. Multiplayer is unsupported in the browser MVP.</p>
+	<p data-launcher-status>Preparing the runtime and your local game data…</p>
+	<p data-launcher-error hidden role="alert"></p>
+	<div class="launcher-grid">
+		<label>Local map package
+			<input type="text" data-launcher-map value="DM-Deck16][" maxlength="72" autocomplete="off" spellcheck="false">
+		</label>
+		<label>Local game preset
+			<select data-launcher-preset></select>
+		</label>
+	</div>
+	<div class="actions">
+		<button type="button" data-launcher-start disabled>Start offline game</button>
+		<button type="button" data-launcher-restart hidden>Restart to launcher</button>
+		<button type="button" data-launcher-copy>Copy diagnostics</button>
+		<button type="button" data-launcher-download>Download diagnostics</button>
+	</div>
+	<p data-launcher-action-status role="status"></p>
+	<small>Diagnostics include browser/runtime state and sanitized launcher events only. They never read or attach game files, file contents, local paths, or commercial data.</small>
+</section>
 <canvas id="canvas" width="640" height="480"></canvas>
 <button id="entervr" disabled>Enter VR</button>
 <button id="probewebgpuxr" disabled>Probe WebGPU XR</button>
@@ -88,13 +118,15 @@
 <script src="ut99_importer.js"></script>
 <script src="mutable_persistence.js"></script>
 <script src="webxr_settings.js"></script>
+<script src="webxr_launcher.js"></script>
 <script src="pwa_register.js"></script>
 <script>
 	window.surrealLog = [];
 	window.surrealBooted = false;
 	window.surrealCrashed = null;
 	window.surrealXRSupported = null;
-	const surrealBuildDir = new URLSearchParams(location.search).get("build") || "build-emscripten";
+	const surrealPageParams = new URLSearchParams(location.search);
+	const surrealBuildDir = surrealPageParams.get("build") || "build-emscripten";
 
 	function refreshEnterVRButton() {
 		const button = document.getElementById("entervr");
@@ -135,9 +167,60 @@
 	refreshEnterVRButton();
 
 	const logEl = document.getElementById('log');
+	let surrealLauncherController = null;
 	function appendLog(line) {
 		window.surrealLog.push(line);
 		logEl.textContent += line + "\n";
+		if (surrealLauncherController) surrealLauncherController.recordLog(line);
+	}
+	function launcherDiagnosticNumber(name) {
+		if (!window.surrealBooted || typeof window[name] !== "function") return null;
+		try { return window[name](); } catch (_error) { return null; }
+	}
+	surrealLauncherController = window.SurrealWebXRLauncher.create({
+		root: document.getElementById("webxr-browser-launcher"),
+		query: surrealPageParams,
+		location: window.location,
+		onCrash: function (crash) {
+			if (!window.surrealCrashed) window.surrealCrashed = crash.phase + ": " + crash.message;
+		},
+		restart: async function (target) {
+			if (window.surrealBooted && typeof window.surrealRequestQuitAndFlush === "function") {
+				try { await window.surrealRequestQuitAndFlush(); } catch (_error) {}
+			}
+			window.location.assign(target);
+		},
+		diagnosticSources: function () {
+			return {
+				build: surrealBuildDir,
+				userAgent: navigator.userAgent,
+				language: navigator.language,
+				secureContext: globalThis.isSecureContext === true,
+				readiness: typeof window.surrealXRGetLaunchReadiness === "function" ?
+					window.surrealXRGetLaunchReadiness() : null,
+				lifecycle: window.surrealXRLifecycle,
+				interaction: typeof window.surrealXRGetInteractionStatus === "function" ?
+					window.surrealXRGetInteractionStatus() : null,
+				renderer: {
+					webGPUDeviceReady: !!window.surrealWebGPUDevice,
+					errorCount: launcherDiagnosticNumber("surrealGetWebGPUErrorCount"),
+					drawCalls: launcherDiagnosticNumber("surrealGetWebGPUDrawCalls"),
+					textureCount: launcherDiagnosticNumber("surrealGetWebGPUTextureCount"),
+					bindGroupsCreated: launcherDiagnosticNumber("surrealGetWebGPUBindGroupsCreated"),
+					bindGroupCacheHits: launcherDiagnosticNumber("surrealGetWebGPUBindGroupCacheHits"),
+					bufferRollovers: launcherDiagnosticNumber("surrealGetWebGPUBufferRollovers"),
+				},
+				importer: window.surrealUT99DataBootResult,
+				mutable: typeof window.surrealGetMutableDataStatus === "function" ?
+					window.surrealGetMutableDataStatus() : window.surrealMutableDataBootResult,
+			};
+		},
+	});
+	window.surrealLauncherController = surrealLauncherController;
+	window.surrealGetBrowserDiagnostics = () => surrealLauncherController.diagnostics();
+	function reportHarnessCrash(error, phase) {
+		window.surrealCrashed = error && error.stack ? error.stack : String(error);
+		surrealLauncherController.recordCrash(error, phase);
 	}
 	window.surrealWebXRSettingsController = window.SurrealWebXRSettings.create({
 		root: document.getElementById("webxr-settings"),
@@ -335,11 +418,13 @@
 				}
 			};
 			const launchEngine = function (dataMode) {
-				appendLog("[harness] game data ready (" + dataMode + "), calling main");
-				try {
-					const mapName = new URLSearchParams(location.search).get("map") || "DM-Deck16][";
-					Module.callMain(["--autoplay", "--url=" + mapName, "--render=webgpu", "/gamedata"]);
+				appendLog("[harness] game data ready (" + dataMode + "), launch gate reached");
+				return surrealLauncherController.dataReady(dataMode, function (selection) {
+					appendLog("[harness] launcher starting validated offline game");
+					try {
+					Module.callMain(["--autoplay", "--url=" + selection.engineURL, "--render=webgpu", "/gamedata"]);
 					window.surrealBooted = true;
+					surrealLauncherController.engineStarted();
 					try {
 						window.surrealWebXRSettingsController.onEngineReady(Module);
 					} catch (settingsError) {
@@ -349,10 +434,11 @@
 					}
 					refreshEnterVRButton();
 				} catch (e) {
-					window.surrealCrashed = String(e);
+					reportHarnessCrash(e, "engine-start");
 					appendLog("[harness] callMain threw: " + e);
 					if (e && e.stack) appendLog("[harness] stack: " + e.stack);
 				}
+				});
 			};
 			window.surrealDataBootPromise = window.SurrealUT99Importer.start(Module, {
 				uiRoot: document.getElementById("ut99-importer"),
@@ -364,7 +450,7 @@
 				window.surrealUT99DataBootResult = started.result;
 				return started.result;
 			}).catch(function (error) {
-				window.surrealCrashed = String(error);
+				reportHarnessCrash(error, "data-bootstrap");
 				appendLog("[harness] data bootstrap failed: " + error);
 				if (error && error.stack) appendLog("[harness] stack: " + error.stack);
 				throw error;
@@ -374,11 +460,11 @@
 
 	window.addEventListener("error", function (e) {
 		var detail = (e.error && e.error.stack) ? e.error.stack : e.message;
-		window.surrealCrashed = detail;
+		reportHarnessCrash(e.error || e.message, "window-error");
 		appendLog("[harness] window error: " + detail);
 	});
 	window.addEventListener("unhandledrejection", function (e) {
-		window.surrealCrashed = String(e.reason);
+		reportHarnessCrash(e.reason, "unhandled-rejection");
 		appendLog("[harness] unhandled rejection: " + e.reason);
 	});
 
@@ -641,7 +727,7 @@
 		refreshEnterVRButton();
 
 		if (!navigator.gpu) {
-			window.surrealCrashed = "navigator.gpu is undefined (no WebGPU support in this browser)";
+			reportHarnessCrash(new Error("navigator.gpu is undefined (no WebGPU support in this browser)"), "webgpu-capability");
 			appendLog("[harness] " + window.surrealCrashed);
 			return;
 		}
@@ -650,7 +736,7 @@
 		// not make a device from a normal adapter compatible with XRGPUBinding.
 		const adapter = await navigator.gpu.requestAdapter({ xrCompatible: true });
 		if (!adapter) {
-			window.surrealCrashed = "navigator.gpu.requestAdapter() resolved null";
+			reportHarnessCrash(new Error("navigator.gpu.requestAdapter() resolved null"), "webgpu-adapter");
 			appendLog("[harness] " + window.surrealCrashed);
 			return;
 		}
@@ -658,7 +744,10 @@
 		const device = await adapter.requestDevice({ requiredFeatures });
 		window.surrealWebGPUDevice = device;
 		refreshEnterVRButton();
-		device.lost.then(info => appendLog("[harness] WebGPU device lost: " + info.message));
+		device.lost.then(info => {
+			appendLog("[harness] WebGPU device lost: " + info.message);
+			reportHarnessCrash(new Error(info.message || "WebGPU device lost"), "webgpu-device-lost");
+		});
 		window.surrealWebGPUErrorCount = 0;
 		device.addEventListener("uncapturederror", function (event) {
 			window.surrealWebGPUErrorCount++;
@@ -670,12 +759,15 @@
 		const script = document.createElement("script");
 		script.src = "../" + surrealBuildDir + "/SurrealEngine.js";
 		script.onerror = function () {
-			window.surrealCrashed = "failed to load SurrealEngine.js";
+			reportHarnessCrash(new Error("failed to load SurrealEngine.js"), "runtime-script");
 			appendLog("[harness] " + window.surrealCrashed);
 		};
 		document.body.appendChild(script);
 	}
-	boot();
+	boot().catch(function (error) {
+		reportHarnessCrash(error, "browser-boot");
+		appendLog("[harness] browser boot failed: " + error);
+	});
 </script>
 </body>
 </html>
