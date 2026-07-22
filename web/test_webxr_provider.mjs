@@ -4,6 +4,7 @@ globalThis.window = globalThis;
 const loopTransitions = [];
 let renderedFrames = 0;
 let resetCalls = 0;
+const inputPackets = [];
 
 globalThis.Module = {
 	preinitializedWebGPUDevice: {},
@@ -21,6 +22,12 @@ globalThis.Module = {
 			renderedFrames++;
 			return 1;
 		}
+		if (name === "Surreal_SubmitWebXRInputSnapshot") {
+			inputPackets.push(Uint8Array.from(args[0]));
+			return 1;
+		}
+		if (name === "Surreal_GetWebXRInputLastError") return 0;
+		if (name === "Surreal_ClearWebXRInputSnapshot") return undefined;
 		if (name === "Surreal_GetWebXRFrameLastError") return 0;
 		throw new Error("unexpected native call: " + name);
 	}
@@ -30,6 +37,8 @@ class FakeSession {
 	constructor() {
 		this.listeners = new Map();
 		this.nextFrame = null;
+		this.visibilityState = "visible";
+		this.inputSources = makeInputSources();
 	}
 	addEventListener(name, callback) { this.listeners.set(name, callback); }
 	async updateRenderState() {}
@@ -40,6 +49,24 @@ class FakeSession {
 		if (callback) callback();
 	}
 }
+
+function button(value, pressed = false, touched = pressed) { return { value, pressed, touched }; }
+function makeInputSource(handedness, x) {
+	return {
+		handedness,
+		profiles: ["oculus-touch-v3"],
+		targetRaySpace: { kind: "aim", x },
+		gripSpace: { kind: "grip", x },
+		gamepad: {
+			mapping: "xr-standard",
+			buttons: [button(handedness === "right" ? 0.8 : 0.2, handedness === "right"), button(0.4),
+				button(0), button(1, true), button(1, handedness === "left"),
+				button(handedness === "right" ? 1 : 0.5, handedness === "right"), button(1, handedness === "right")],
+			axes: [0.1, -0.2, handedness === "left" ? -0.75 : 0.75, 0.25],
+		},
+	};
+}
+function makeInputSources() { return [makeInputSource("left", -0.25), makeInputSource("right", 0.25)]; }
 
 const sessions = [];
 Object.defineProperty(globalThis, "navigator", {
@@ -86,7 +113,13 @@ function makeView(eye, x) {
 	};
 }
 const frame = {
-	getViewerPose() { return { views: [makeView("left", -0.032), makeView("right", 0.032)] }; }
+	getViewerPose() { return { views: [makeView("left", -0.032), makeView("right", 0.032)] }; },
+	getPose(space) {
+		return { transform: {
+			position: { x: space.x, y: space.kind === "aim" ? 1.3 : 1.1, z: -0.4 },
+			orientation: { x: 0, y: 0, z: 0, w: 1 },
+		} };
+	}
 };
 
 await import("./webxr_provider.js");
@@ -100,6 +133,39 @@ assert.equal(globalThis.surrealXRGetState().projectionFormat, "rgba8unorm");
 sessions[0].nextFrame(16.0, frame);
 assert.equal(renderedFrames, 1);
 assert.equal(globalThis.surrealXRGetState().frames, 1);
+assert.equal(globalThis.surrealXRInputABI.version, 1);
+assert.equal(inputPackets.length, 2, "entry neutral plus first controller snapshot");
+const controllerPacket = new DataView(inputPackets[1].buffer);
+assert.equal(controllerPacket.getUint32(0, true), 1);
+assert.equal(controllerPacket.getUint32(8, true), 2);
+assert.equal(controllerPacket.getUint32(12, true), 1, "action focus");
+const leftBase = 24;
+const rightBase = 24 + 112;
+assert.equal(controllerPacket.getUint32(leftBase, true), 1);
+assert.equal(controllerPacket.getUint32(rightBase, true), 2);
+assert.equal(controllerPacket.getUint32(leftBase + 4, true), 7, "left aim and grip valid");
+assert.equal(controllerPacket.getUint32(rightBase + 8, true) & 1, 1, "right trigger pressed");
+assert.equal(controllerPacket.getUint32(rightBase + 8, true) & (1 << 3), 1 << 3, "right secondary pressed");
+assert.equal(controllerPacket.getUint32(rightBase + 8, true) & (1 << 4), 0, "UA-reserved menu must not be guessed");
+assert.equal(controllerPacket.getFloat32(leftBase + 40 + 8, true), -0.75);
+assert.equal(controllerPacket.getFloat32(rightBase + 56, true), 0.25);
+
+const unsafeSource = makeInputSource("left", 0);
+unsafeSource.gamepad.mapping = "";
+const defensive = globalThis.surrealXRPackInputSnapshot(17, { visibilityState: "visible", inputSources: [unsafeSource] }, frame, {});
+const defensiveView = new DataView(defensive.buffer);
+assert.equal(defensiveView.getUint32(24 + 8, true), 0, "non-standard mapping buttons must be neutral");
+assert.equal(defensiveView.getFloat32(24 + 40 + 8, true), 0, "non-standard mapping axes must be neutral");
+
+const blurred = globalThis.surrealXRPackInputSnapshot(17, { visibilityState: "visible-blurred", inputSources: [makeInputSource("right", 0.2)] }, frame, {});
+const blurredView = new DataView(blurred.buffer);
+assert.equal(blurredView.getUint32(12, true), 0, "blurred session must lose action focus");
+assert.equal(blurredView.getUint32(24 + 8, true), 0, "blurred session buttons must be neutral");
+assert.equal(blurredView.getFloat32(24 + 40 + 8, true), 0, "blurred session axes must be neutral");
+
+sessions[0].inputSources = [sessions[0].inputSources[1]];
+sessions[0].listeners.get("inputsourceschange")({ removed: [{}], added: [] });
+assert.equal(new DataView(inputPackets.at(-1).buffer).getUint32(8, true), 0, "disconnect must submit neutral replacement");
 assert.equal(globalThis.surrealXRExit(), true);
 await Promise.resolve();
 assert.equal(globalThis.surrealXRGetState().active, false);
@@ -111,4 +177,5 @@ await Promise.resolve();
 
 assert.deepEqual(loopTransitions, [1, 0, 1, 0]);
 assert.ok(resetCalls >= 4);
-console.log("WebXR lifecycle enter/frame/exit/re-enter test passed");
+assert.equal(new DataView(inputPackets.at(-1).buffer).getUint32(8, true), 0, "session end must leave neutral input");
+console.log("WebXR lifecycle and packed controller snapshot tests passed");
