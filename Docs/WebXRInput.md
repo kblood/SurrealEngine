@@ -4,7 +4,7 @@ Date: 2026-07-22
 
 ## Scope
 
-Branch: `pr/webxr-input-adapter`
+Branch: `pr/webxr-input-runtime`
 
 This layer samples browser-owned WebXR input, crosses the JavaScript/WASM
 boundary through a packed replacement snapshot, and converts the decoded data
@@ -44,9 +44,11 @@ wrong sizes/versions, duplicate hands, and malformed fields without updating
 the last accepted snapshot.
 
 Every accepted packet replaces both hands atomically. A zero-source packet is
-valid. Disconnect submits a zero-source active-session snapshot immediately;
-session end submits a zero-source inactive snapshot. This prevents stale held
-buttons even if no later animation frame arrives.
+valid. Disconnect immediately submits a replacement containing the hands still
+reported by the session; only the removed hand becomes disconnected. Blur
+keeps reported hands connected while action focus, buttons, and axes become
+neutral. Session end submits a zero-source inactive snapshot. These lifecycle
+packets are applied immediately, even when no later animation frame arrives.
 
 ## Browser mapping
 
@@ -81,9 +83,27 @@ ordinary multi-source `InputComposition`. Each update replaces only `XRLeft`
 and `XRRight`; keyboard/mouse and gamepad contributors survive XR disconnect,
 focus loss, and session end.
 
-No engine/game binding table is installed by this branch. A later shared input
-policy should provide action names once locomotion, weapon, and UI behavior are
-agreed across OpenXR and WebXR.
+## Runtime engine input
+
+Every accepted browser snapshot is stored, adapted, and then applied through
+the ordinary engine input entry points. Button transitions become press/release
+events and thumbstick axes are refreshed with each focused snapshot. The two
+hands have separate `XRLeft` and `XRRight` input sources, so disconnecting one
+hand releases only its contributors. Blur and session end release the XR
+sources that were active; keyboard, mouse, gamepad, and synthetic contributors
+are never cleared.
+
+The runtime presents hardware controls as bindable UE1 joystick keys:
+
+- left trigger, squeeze, primary, secondary, menu, and stick click are
+  `Joy1` through `Joy6`; its stick axes are `JoyX` and `JoyY`;
+- right equivalents are `Joy9` through `Joy14`; its stick axes are `JoyU` and
+  `JoyV`.
+
+This is a stable hardware layout, not a game binding table. Existing `.ini`
+key bindings still decide what those keys do. This branch does not choose
+locomotion, weapons, dominant hand, menu clicks, raycasts, or controller
+rendering.
 
 ## Validation
 
@@ -91,7 +111,7 @@ Native:
 
 ```text
 cmake -S . -B build-input-native -G "Visual Studio 17 2022" -A x64 "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
-cmake --build build-input-native --config Release --target WebXRInputBridgeTests WebXRInputAdapterTests InputCompositionTests XRCommonTests --parallel 4
+cmake --build build-input-native --config Release --target WebXRInputBridgeTests WebXRInputAdapterTests WebXRInputRuntimeTests InputCompositionTests XRCommonTests --parallel 4
 ctest --test-dir build-input-native -C Release --output-on-failure -R "WebXRInput|InputComposition|XRCommon"
 ```
 
@@ -103,8 +123,10 @@ node web/test_webxr_provider.mjs
 
 The synthetic tests cover two independent hands, aim/grip poses, axes and all
 semantic bit positions, action focus, profile-defensive mapping, duplicate and
-malformed packet rejection, disconnect/session-end neutralization, shared-type
-adaptation, and keyboard/XR composition. They contain no game data.
+malformed packet rejection, per-hand disconnect, blur/session-end
+neutralization, held-button edge handling, shared-type adaptation, and
+keyboard/gamepad/XR composition. They contain no game data. The runtime branch
+also completes a no-data Emscripten link to verify the browser-to-WASM export.
 
 ## Hardware gates
 
