@@ -18,12 +18,47 @@ platform. It provides:
   per-eye textures, using each `XRGPUSubImage`'s descriptor and viewport;
 - `bgra8unorm`, `rgba8unorm`, and `rgba16float` projection pipelines selected
   from `XRGPUBinding.getPreferredColorFormat()`; and
+- provider-owned menu, loading, and cinematic capture textures, replayed as
+  stable world-space quads into both projection eyes without scene depth; and
+- exact tracked-controller menu contact routing plus a packed laser/hit
+  feedback ABI; and
 - a separate `web/index_webxr.html` harness. The existing flat
   `web/index_webgpu.html` remains unchanged and does not require WebXR.
 
-The provider deliberately excludes controller input, locomotion, weapon
-behavior, haptics, HUD/menu/cinematic policy, PWA packaging, game-data import,
-data persistence, and game-specific VM hooks.
+The provider deliberately excludes locomotion, weapon behavior, dominant-hand
+policy, controller models, haptics, PWA packaging, game-data import, data
+persistence, and game-specific VM hooks.
+
+## Projection-eye UI connector
+
+The integration provider registers four non-zero WebGPU target slots for one
+XR frame: projection/world is slot 1, cinematic is slot 2, loading is slot 3,
+and menu is slot 4. The WebGPU backend can switch among registered targets
+inside one locked engine frame. UI replay therefore uses the existing
+`XRUISurfaceEngineBinding` and existing UE1 canvas callbacks; it does not add a
+second `PostRender` path. The ordinary flat WebGPU path still registers no
+external targets and retains its original slot-zero render flow.
+
+Menu, loading, and cinematic textures are composited after world rendering by
+opening a load pass on each projection-eye texture. The pass has no depth
+attachment and visits `BuildReplayFrame()` in its existing deterministic
+back-to-front order. Menu remains last and cannot be hidden behind a world or
+decorative quad. This intentionally does not use `createQuadLayer`; non-
+projection WebGPU composition-layer support is not mature enough to be the
+required path.
+
+The provider derives the viewer anchor from the same `ViewFamily` used to draw
+the eyes. Controller target-ray poses use the same canonical-WebXR-to-engine
+transform, recenter state, body yaw, and world scale. Both tracked hands are
+routed as independent pointer IDs and the semantic `select` button is the UI
+primary button. No locomotion, weapon, or preferred-hand decision is embedded
+in this connector.
+
+`Surreal_GetWebXRPointerFeedback` exposes the exact ray and the exact contact
+returned by `XRUISurfaceEngineBinding`, including surface, UV, pixel, distance,
+and world hit point. A later controller/laser renderer must consume this result
+instead of repeating hit testing. This change does not yet draw controller
+models or a laser.
 
 ## Dependency and commit order
 
@@ -131,6 +166,9 @@ Completed locally:
   slices, packed two-view metadata, callback cancellation, controlled frame
   failure, exit, and re-entry;
 - Emscripten compilation and final JavaScript/WASM link;
+- focused `WebXRUIProviderTests` coverage for shared pose conversion, stable
+  descriptor targets/scaling, center-pixel contact, and one-shot replay/click;
+- all eight WebXR/XR-UI focused native tests passing after the connector;
 - flat Chrome/WebGPU UT99 runtime after the provider changes: ticked from 61
   to 604, 95 draw calls, 75 cached textures, zero WebGPU errors, 100% nonblank
   screenshot pixels, and clean quit;
@@ -180,10 +218,19 @@ that can draw to the `XRWebGLLayer` framebuffer while reusing the same neutral
 sizable renderer project and must be an explicit product decision; it is not a
 small fallback inside this provider.
 
-The current skeleton renders the world layer only. Weapon, UI, menu, and
-cinematic layers are disabled intentionally until their shared presentation
-policies are defined. Browser audio remains the flat platform's null backend.
-Controller input and tracked-hand visuals are not part of this branch.
+The integration provider renders the world plus captured menu/loading/
+cinematic surfaces. Weapon rendering remains disabled and tracked-hand models
+and visible lasers remain follow-ups; the exact feedback data is available for
+them. Browser audio remains the flat platform's null backend.
+
+Emscripten currently builds `NullVideoDecoder`, so a real intro/cinematic frame
+cannot be validated in this build even though its capture target and projection
+composition path are connected. The legacy `PlayAVI` loop is also synchronous;
+if a browser video decoder is added, video stepping must be reconciled with
+`XRSession.requestAnimationFrame()` rather than allowed to own a blocking inner
+loop. Loading has a configured target but still needs an authoritative engine
+loading-visibility signal before it can be shown. These are exact content/
+lifecycle blockers, not quad-compositor blockers.
 
 ## Shared browser launcher composition
 

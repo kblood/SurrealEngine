@@ -115,3 +115,21 @@ The policy is complete and unit-tested, but visible runtime quads still require:
 
 No backend should infer visibility from texture contents. The surface policy is
 the authoritative per-frame visibility and ordering contract.
+
+## WebXR integration status
+
+The `integration/webxr-ui-provider` product branch supplies the first complete
+consumer of this contract. WebGPU accepts multiple non-zero target bindings in
+one frame, UE1 canvas replay captures menu/cinematic/loading content into
+provider-owned textures, and the provider composites visible items into each
+projection eye in `BuildReplayFrame()` order with no world-depth attachment.
+The desktop slot-zero path is unchanged.
+
+WebXR aim poses and eye poses share one coordinate/recenter transform. The
+provider routes both hands through `UpdateRayPointer()` and exports the exact
+ray/contact result for laser and hit-marker visualization. It deliberately does
+not choose a dominant hand or bind weapon/locomotion behavior. Menu activation
+comes from the existing engine menu state; cinematic activation comes from the
+existing video guard. Loading still needs an explicit engine visibility signal,
+and the Emscripten target currently has no video decoder for validating intro
+content.

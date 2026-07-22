@@ -125,6 +125,7 @@ private:
 	void ConfigureDepthBuffer(int width, int height);
 	bool EnsurePipelineColorFormat(WGPUTextureFormat format);
 	void CreateUniformBindGroup();
+	bool SelectExternalTarget(PresentationTarget target, size_t viewIndex);
 	bool SelectExternalView(size_t viewIndex);
 	void BeginFramePass(bool colorClear, vec4 clearColor, bool depthClear);
 	void EndAndSubmitFramePass();
@@ -182,6 +183,7 @@ private:
 	vec4 CurrentClearColor = vec4(0.0f);
 	PresentationTarget ExternalTarget;
 	std::vector<PresentationTargetImage> ExternalViews;
+	std::map<uint32_t, std::vector<PresentationTargetImage>> ExternalTargets;
 	size_t CurrentExternalView = 0;
 	WGPUTextureFormat PipelineColorFormat = WGPUTextureFormat_Undefined;
 	bool ExternalPresentationActive = false;

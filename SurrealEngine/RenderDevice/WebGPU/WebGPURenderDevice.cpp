@@ -175,12 +175,12 @@ bool WebGPURenderDevice::BeginPresentationLayer(const PresentationLayerDescripti
 	if (!layer.Enabled)
 		return false;
 	return layer.Target.IsDefault() ? !ExternalPresentationActive :
-		ExternalPresentationActive && layer.Target == ExternalTarget;
+		SelectExternalTarget(layer.Target, 0);
 }
 
 bool WebGPURenderDevice::BindPresentationTarget(const PresentationTargetBinding& binding)
 {
-	if (binding.Target.IsDefault() || ExternalPresentationActive || IsLocked ||
+	if (binding.Target.IsDefault() || IsLocked || ExternalTargets.contains(binding.Target.Slot) ||
 		binding.Images.empty() || binding.Images.size() > 2)
 		return false;
 
@@ -197,25 +197,45 @@ bool WebGPURenderDevice::BindPresentationTarget(const PresentationTargetBinding&
 		else if (format != handle->Format)
 			return false;
 	}
+	if (!ExternalTargets.empty() && format != PipelineColorFormat)
+		return false;
 	if (!EnsurePipelineColorFormat(format))
 		return false;
 
-	ExternalTarget = binding.Target;
-	ExternalViews.assign(binding.Images.begin(), binding.Images.end());
-	CurrentExternalView = 0;
+	ExternalTargets.emplace(binding.Target.Slot,
+		std::vector<PresentationTargetImage>(binding.Images.begin(), binding.Images.end()));
+	if (!ExternalPresentationActive)
+	{
+		ExternalTarget = binding.Target;
+		ExternalViews = ExternalTargets.at(binding.Target.Slot);
+		CurrentExternalView = 0;
+	}
 	ExternalPresentationActive = true;
 	return true;
 }
 
 void WebGPURenderDevice::UnbindPresentationTarget(PresentationTarget target)
 {
-	if (!ExternalPresentationActive || target != ExternalTarget || IsLocked)
+	if (!ExternalPresentationActive || target.IsDefault() || IsLocked)
 		return;
-	ExternalViews.clear();
-	ExternalTarget = {};
-	CurrentExternalView = 0;
-	ExternalPresentationActive = false;
-	EnsurePipelineColorFormat(Context->SurfaceFormat);
+	auto found = ExternalTargets.find(target.Slot);
+	if (found == ExternalTargets.end())
+		return;
+	ExternalTargets.erase(found);
+	if (ExternalTargets.empty())
+	{
+		ExternalViews.clear();
+		ExternalTarget = {};
+		CurrentExternalView = 0;
+		ExternalPresentationActive = false;
+		EnsurePipelineColorFormat(Context->SurfaceFormat);
+	}
+	else if (target == ExternalTarget)
+	{
+		ExternalTarget = { ExternalTargets.begin()->first };
+		ExternalViews = ExternalTargets.begin()->second;
+		CurrentExternalView = 0;
+	}
 }
 
 bool WebGPURenderDevice::EnsurePipelineColorFormat(WGPUTextureFormat format)
@@ -276,11 +296,51 @@ bool WebGPURenderDevice::SelectExternalView(size_t viewIndex)
 	return true;
 }
 
+bool WebGPURenderDevice::SelectExternalTarget(PresentationTarget target, size_t viewIndex)
+{
+	if (!ExternalPresentationActive || target.IsDefault())
+		return false;
+	auto found = ExternalTargets.find(target.Slot);
+	if (found == ExternalTargets.end() || viewIndex >= found->second.size())
+		return false;
+	if (target == ExternalTarget)
+		return SelectExternalView(viewIndex);
+
+	if (IsLocked && FramePass && FrameEncoder)
+	{
+		DrawBatches();
+		EndAndSubmitFramePass();
+	}
+	ExternalTarget = target;
+	ExternalViews = found->second;
+	CurrentExternalView = viewIndex;
+	if (!IsLocked)
+		return true;
+
+	const PresentationTargetImage& image = ExternalViews[viewIndex];
+	auto* handle = static_cast<WebGPUPresentationImageHandle*>(image.NativeHandle);
+	CurrentSurfaceView = handle->View;
+	CurrentSizeX = image.Width;
+	CurrentSizeY = image.Height;
+	ConfigureDepthBuffer(CurrentSizeX, CurrentSizeY);
+	HaveViewport = false;
+	BeginFramePass(/*colorClear=*/true, CurrentClearColor, /*depthClear=*/true);
+
+	SceneVertexPos = 0;
+	SceneIndexPos = 0;
+	UploadedVertexPos = 0;
+	UploadedIndexPos = 0;
+	Batch = WebGPUDrawBatchEntry();
+	QueuedBatches.clear();
+	Stats.BuffersUsed++;
+	return true;
+}
+
 bool WebGPURenderDevice::BeginPresentationView(PresentationTarget target, size_t viewIndex)
 {
 	if (target.IsDefault())
 		return !ExternalPresentationActive;
-	return target == ExternalTarget && SelectExternalView(viewIndex);
+	return SelectExternalTarget(target, viewIndex);
 }
 
 void WebGPURenderDevice::Lock(vec4 InFlashScale, vec4 InFlashFog, vec4 ScreenClear, uint8_t* InHitData, int* InHitSize)

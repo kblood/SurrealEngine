@@ -80,7 +80,18 @@ namespace WebXR
 		float YawOffset = 0.0f;
 	};
 
+	struct EngineTrackedPose
+	{
+		vec3 Position = vec3(0.0f);
+		vec3 Forward = vec3(1.0f, 0.0f, 0.0f);
+		vec3 Right = vec3(0.0f, 1.0f, 0.0f);
+		vec3 Up = vec3(0.0f, 0.0f, 1.0f);
+	};
+
 	bool DecodeFrame(const void* frameData, uint32_t bufferBytes, DecodedFrame& result, FrameError& error);
+	EngineTrackedPose TransformCanonicalPose(const vec3& positionMeters, const vec4& orientation,
+		const vec3& cameraLocation, const Coords& bodyRotation, float worldUnitsPerMeter,
+		const RecenterState& recenter);
 	ViewFamily BuildViewFamily(const DecodedFrame& frame, const vec3& cameraLocation,
 		const Coords& bodyRotation, float worldUnitsPerMeter, RecenterState& recenter);
 	void SetLastFrameError(FrameError error);

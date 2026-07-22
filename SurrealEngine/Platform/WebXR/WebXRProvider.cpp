@@ -1,11 +1,14 @@
 #include "Platform/WebXR/WebXRFrameBridge.h"
 #include "Platform/WebXR/WebXRInputAdapter.h"
 #include "Platform/WebXR/WebXRInputRuntime.h"
+#include "Platform/WebXR/WebXRUIProvider.h"
 
 #include "Engine.h"
 #include "Render/RenderSubsystem.h"
 
 #include <cmath>
+#include <cstring>
+#include <stdexcept>
 
 namespace
 {
@@ -13,6 +16,7 @@ namespace
 	float WorldUnitsPerMeter = DefaultWorldUnitsPerMeter;
 	WebXR::RecenterState Recenter;
 	WebXR::InputRuntime InputRuntime;
+	WebXR::UIInputConnector UIInput;
 
 	class EngineInputTarget final : public WebXR::RuntimeInputTarget
 	{
@@ -50,10 +54,32 @@ namespace
 		};
 		return bindings;
 	}
+
+	WebXR::PackedPointerFeedback PackPointerFeedback(const WebXR::PointerFeedback& source)
+	{
+		WebXR::PackedPointerFeedback result;
+		result.Active = source.Active ? 1u : 0u;
+		result.Hit = source.Contact.Hit ? 1u : 0u;
+		result.Surface = static_cast<uint32_t>(source.Contact.Surface);
+		result.Hand = source.Hand == XRHand::Left ? 0u : 1u;
+		for (size_t index = 0; index < 3; index++)
+		{
+			result.RayOrigin[index] = source.Ray.Origin[static_cast<int>(index)];
+			result.RayDirection[index] = source.Ray.Direction[static_cast<int>(index)];
+			result.HitPoint[index] = source.HitPoint[static_cast<int>(index)];
+		}
+		result.UV[0] = source.Contact.UV.x;
+		result.UV[1] = source.Contact.UV.y;
+		result.Pixel[0] = source.Contact.Pixel.x;
+		result.Pixel[1] = source.Contact.Pixel.y;
+		result.Distance = source.Contact.Distance;
+		return result;
+	}
 }
 
 #ifdef __EMSCRIPTEN__
 #include "RenderDevice/WebGPU/WebGPURenderDevice.h"
+#include "Platform/WebXR/WebXRUICompositor.h"
 #include <emscripten.h>
 
 EM_JS(uintptr_t, JS_ImportCurrentWebXRTexture, (uintptr_t parentDevice, uint32_t textureIndex), {
@@ -107,8 +133,26 @@ extern "C"
 		return 1;
 	}
 
-	void Surreal_ResetWebXRPose() { Recenter.Valid = false; }
+	void Surreal_ResetWebXRPose()
+	{
+		Recenter.Valid = false;
+		if (engine && engine->render)
+		{
+			UIInput.Cancel(engine->render->XRUISurfaces());
+			engine->render->XRUISurfaces().ClearViewerPose();
+		}
+	}
 	uint32_t Surreal_GetWebXRPoseRecenterCount() { return Recenter.RecenterCount; }
+	uint32_t Surreal_GetWebXRPointerFeedbackSize() { return sizeof(WebXR::PackedPointerFeedback); }
+
+	int Surreal_GetWebXRPointerFeedback(uint32_t hand, void* output, uint32_t outputBytes)
+	{
+		if (!output || outputBytes != sizeof(WebXR::PackedPointerFeedback) || hand >= XRHandCount)
+			return 0;
+		const WebXR::PackedPointerFeedback packed = PackPointerFeedback(UIInput.Feedback()[hand]);
+		std::memcpy(output, &packed, sizeof(packed));
+		return 1;
+	}
 
 	int Surreal_RenderWebXRFrame(const void* frameData, uint32_t bufferBytes)
 	{
@@ -166,6 +210,13 @@ extern "C"
 				return 0;
 			}
 			const WGPUTextureFormat textureFormat = wgpuTextureGetFormat(texture);
+			if (index > 0 && textureFormat != handles[0].Format)
+			{
+				ReleaseFrameResources(device, binding.Target, textures, frame.Header.TextureCount,
+					views, frame.Header.ViewCount, false);
+				WebXR::SetLastFrameError(WebXR::FrameError::PresentationRejected);
+				return 0;
+			}
 			WGPUTextureViewDescriptor description = {};
 			description.format = textureFormat;
 			description.dimension = WGPUTextureViewDimension_2D;
@@ -194,6 +245,13 @@ extern "C"
 			WebXR::SetLastFrameError(WebXR::FrameError::PresentationRejected);
 			return 0;
 		}
+		if (!WebXR::BindUISurfaceTargets(device, handles[0].Format))
+		{
+			ReleaseFrameResources(device, binding.Target, textures, frame.Header.TextureCount,
+				views, frame.Header.ViewCount, true);
+			WebXR::SetLastFrameError(WebXR::FrameError::PresentationRejected);
+			return 0;
+		}
 
 		try
 		{
@@ -202,17 +260,30 @@ extern "C"
 			const Coords bodyRotation = Coords::Rotation(Rotator(0, engine->CameraRotation.Yaw, 0));
 			ViewFamily family = WebXR::BuildViewFamily(frame, engine->CameraLocation,
 				bodyRotation, WorldUnitsPerMeter, Recenter);
+			XRUISurfaceEngineBinding& ui = engine->render->XRUISurfaces();
+			for (const XRUICanvasCaptureDescriptor& descriptor :
+				WebXR::BuildUICaptureDescriptors(WorldUnitsPerMeter))
+				ui.Configure(descriptor);
+			ui.SetViewerPose(WebXR::BuildUIViewerPose(family));
+			UIInput.Update(WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot()), ui,
+				engine->CameraLocation, bodyRotation, WorldUnitsPerMeter, Recenter);
 			engine->RenderGameFrame(levelElapsed, family);
+			const XRUICanvasReplayFrame replayFrame = ui.BuildReplayFrame();
+			if (!WebXR::CompositeUISurfaces(device, handles[0].Format, family, replayFrame,
+				views, frame.Header.ViewCount))
+				throw std::runtime_error("WebXR UI composition failed");
 			engine->FinishGameFrame(levelElapsed);
 		}
 		catch (...)
 		{
+			WebXR::UnbindUISurfaceTargets(device);
 			ReleaseFrameResources(device, binding.Target, textures, frame.Header.TextureCount,
 				views, frame.Header.ViewCount, true);
 			WebXR::SetLastFrameError(WebXR::FrameError::RenderFailed);
 			return 0;
 		}
 
+		WebXR::UnbindUISurfaceTargets(device);
 		ReleaseFrameResources(device, binding.Target, textures, frame.Header.TextureCount,
 			views, frame.Header.ViewCount, true);
 		WebXR::SetLastFrameError(WebXR::FrameError::None);

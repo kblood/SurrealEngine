@@ -64,6 +64,26 @@ namespace
 	}
 }
 
+WebXR::EngineTrackedPose WebXR::TransformCanonicalPose(const vec3& positionMeters,
+	const vec4& orientationValue, const vec3& cameraLocation, const Coords& bodyRotation,
+	float worldUnitsPerMeter, const RecenterState& recenter)
+{
+	quaternion orientation(orientationValue.x, orientationValue.y,
+		orientationValue.z, orientationValue.w);
+	orientation = normalize(orientation);
+	const Coords recenterRotation = Coords::YawRotation(recenter.YawOffset);
+	EngineTrackedPose result;
+	result.Position = cameraLocation + Rotate(bodyRotation, Rotate(recenterRotation,
+		(WebXRVectorToUE1(positionMeters) - recenter.OriginMeters) * worldUnitsPerMeter));
+	result.Forward = Rotate(bodyRotation, Rotate(recenterRotation,
+		WebXRVectorToUE1(orientation * vec3(0.0f, 0.0f, -1.0f))));
+	result.Right = Rotate(bodyRotation, Rotate(recenterRotation,
+		WebXRVectorToUE1(orientation * vec3(1.0f, 0.0f, 0.0f))));
+	result.Up = Rotate(bodyRotation, Rotate(recenterRotation,
+		WebXRVectorToUE1(orientation * vec3(0.0f, 1.0f, 0.0f))));
+	return result;
+}
+
 bool WebXR::DecodeFrame(const void* frameData, uint32_t bufferBytes, DecodedFrame& result, FrameError& error)
 {
 	result = {};
@@ -165,20 +185,21 @@ ViewFamily WebXR::BuildViewFamily(const DecodedFrame& frame, const vec3& cameraL
 		recenter.RecenterCount++;
 	}
 
-	const Coords recenterRotation = Coords::YawRotation(recenter.YawOffset);
 	ViewFamily family;
 	for (uint32_t index = 0; index < frame.Header.ViewCount; index++)
 	{
 		const PackedView& source = frame.Views[index];
-		const PoseAxes& pose = poses[index];
+		const EngineTrackedPose pose = TransformCanonicalPose(
+			vec3(source.Position[0], source.Position[1], source.Position[2]),
+			vec4(source.Orientation[0], source.Orientation[1], source.Orientation[2], source.Orientation[3]),
+			cameraLocation, bodyRotation, worldUnitsPerMeter, recenter);
 		ViewDescription view;
 		view.Viewport = { source.ViewportX, source.ViewportY, source.ViewportWidth, source.ViewportHeight };
-		view.Location = cameraLocation + Rotate(bodyRotation,
-			Rotate(recenterRotation, (pose.PositionMeters - recenter.OriginMeters) * worldUnitsPerMeter));
+		view.Location = pose.Position;
 		view.Rotation.Origin = vec3(0.0f);
-		view.Rotation.XAxis = Rotate(bodyRotation, Rotate(recenterRotation, pose.Forward));
-		view.Rotation.YAxis = Rotate(bodyRotation, Rotate(recenterRotation, pose.Right));
-		view.Rotation.ZAxis = Rotate(bodyRotation, Rotate(recenterRotation, pose.Up));
+		view.Rotation.XAxis = pose.Forward;
+		view.Rotation.YAxis = pose.Right;
+		view.Rotation.ZAxis = pose.Up;
 		view.WorldToView = Coords::ViewToRenderDev().ToMatrix() * view.Rotation.Inverse().ToMatrix() *
 			Coords::Location(view.Location).ToMatrix();
 		view.HasProjection = true;
