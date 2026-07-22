@@ -133,6 +133,8 @@ var commonSources = [
 	"SurrealEngine/Render/Lightmap/FogmapBuilder.h",
 	"SurrealEngine/VM/NativeFunc.cpp",
 	"SurrealEngine/VM/Frame.cpp",
+	"SurrealEngine/VM/CallHooks.cpp",
+	"SurrealEngine/VM/CallHooks.h",
 	"SurrealEngine/VM/ExpressionValue.h",
 	"SurrealEngine/VM/StructValue.h",
 	"SurrealEngine/VM/ArrayValue.h",
