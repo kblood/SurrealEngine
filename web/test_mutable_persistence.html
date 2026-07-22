@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SurrealEngine mutable persistence tests</title>
+</head>
+<body>
+<pre id="results">running</pre>
+<script src="ut99_importer.js"></script>
+<script src="mutable_persistence.js"></script>
+<script>
+"use strict";
+
+window.mutablePersistenceTestResults = [];
+window.mutablePersistenceTestDone = false;
+
+function record(name, passed, detail) {
+	window.mutablePersistenceTestResults.push({ name, passed: !!passed, detail: detail || "" });
+}
+
+function assert(condition, message) {
+	if (!condition) throw new Error(message || "assertion failed");
+}
+
+async function expectError(code, callback) {
+	try { await callback(); }
+	catch (error) {
+		assert(error && error.code === code, "expected " + code + ", got " + (error && error.code));
+		return error;
+	}
+	throw new Error("expected " + code + " to be thrown");
+}
+
+async function run(name, callback) {
+	try { await callback(); record(name, true); }
+	catch (error) { record(name, false, error && (error.stack || error.message) || String(error)); }
+}
+
+class FakeFS {
+	constructor(preloaded) {
+		this.directories = new Set(["/"]);
+		this.files = new Map();
+		if (preloaded) {
+			this.put("/gamedata/System/Core.u", "commercial-core");
+			this.put("/gamedata/System/Engine.u", "commercial-engine");
+			this.put("/gamedata/System/Botpack.u", "commercial-botpack");
+			this.put("/gamedata/System/UnrealTournament.exe", "commercial-executable");
+		}
+	}
+	parent(path) { return path.slice(0, path.lastIndexOf("/")) || "/"; }
+	mkdirTree(path) {
+		let current = "";
+		for (const part of path.split("/").filter(Boolean)) { current += "/" + part; this.directories.add(current); }
+	}
+	put(path, value) {
+		this.mkdirTree(this.parent(path));
+		this.files.set(path, typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value));
+	}
+	analyzePath(path) { return { exists: this.directories.has(path) || this.files.has(path) }; }
+	stat(path) {
+		if (this.files.has(path)) return { mode: 1, type: "file", size: this.files.get(path).byteLength };
+		if (this.directories.has(path)) return { mode: 2, type: "directory" };
+		throw new Error("ENOENT: " + path);
+	}
+	isFile(mode) { return mode === 1; }
+	readdir(path) {
+		if (!this.directories.has(path)) throw new Error("ENOENT: " + path);
+		const prefix = path === "/" ? "/" : path + "/";
+		const names = new Set([".", ".."]);
+		for (const candidate of [...this.directories, ...this.files.keys()]) {
+			if (candidate.startsWith(prefix)) {
+				const rest = candidate.slice(prefix.length);
+				if (rest && !rest.includes("/")) names.add(rest);
+			}
+		}
+		return Array.from(names);
+	}
+	readFile(path) {
+		if (!this.files.has(path)) throw new Error("ENOENT: " + path);
+		return new Uint8Array(this.files.get(path));
+	}
+	writeFile(path, bytes) { this.put(path, bytes); }
+	open(path) { return { path, bytes: new Uint8Array(0) }; }
+	write(handle, source, offset, length, position) {
+		const required = position + length;
+		if (handle.bytes.byteLength < required) {
+			const expanded = new Uint8Array(required);
+			expanded.set(handle.bytes);
+			handle.bytes = expanded;
+		}
+		handle.bytes.set(source.subarray(offset, offset + length), position);
+		return length;
+	}
+	close(handle) { this.put(handle.path, handle.bytes); }
+	text(path) { return new TextDecoder().decode(this.files.get(path)); }
+}
+
+function importerEntries() {
+	return [
+		["System/Core.u", "core"], ["System/Engine.u", "engine"], ["System/Botpack.u", "botpack"],
+		["System/UnrealTournament.ini", "[Core.System]"], ["System/UnrealTournament.exe", "exe"],
+		["Maps/DM-Test.unr", "map"], ["Textures/Test.utx", "texture"],
+		["Sounds/Test.uax", "sound"], ["Music/Test.umx", "music"],
+	].map(([path, text]) => {
+		const blob = new Blob([text]);
+		return { path, size: blob.size, getBlob: async () => blob };
+	});
+}
+
+function mutableFS() {
+	const fs = new FakeFS(true);
+	fs.put("/gamedata/System/UnrealTournament.ini", "original imported config");
+	fs.put("/gamedata/System/User.ini", "original imported user config");
+	fs.put("/gamedata/System/SE-UnrealTournament.ini", "mutable engine config");
+	fs.put("/gamedata/System/SE-User.ini", "mutable user settings");
+	fs.put("/gamedata/Maps/DM-Deck16][.unr", "commercial map");
+	fs.put("/gamedata/Save/Save0.usa", "mutable save");
+	fs.put("/gamedata/Save/Injected.u", "commercial package in save folder");
+	fs.put("/home/web_user/.config/SurrealEngine/Settings.json", "{\"local\":true}");
+	fs.put("/home/web_user/.config/SurrealEngine/SE-Log-LastRun.txt", "local log");
+	return fs;
+}
+
+function asLegacyMetadata(metadata) {
+	const legacy = Object.assign({}, metadata, { version: 1 });
+	delete legacy.format;
+	delete legacy.migration;
+	return legacy;
+}
+
+async function writeOPFSCurrent(root, directoryName, metadata) {
+	const appRoot = await root.getDirectoryHandle(directoryName);
+	const handle = await appRoot.getFileHandle("current.json");
+	const writable = await handle.createWritable();
+	await writable.write(JSON.stringify(metadata));
+	await writable.close();
+}
+
+async function readOPFSCurrent(root, directoryName) {
+	const appRoot = await root.getDirectoryHandle(directoryName);
+	return JSON.parse(await (await (await appRoot.getFileHandle("current.json")).getFile()).text());
+}
+
+function transactionDone(transaction) {
+	return new Promise((resolve, reject) => {
+		transaction.oncomplete = resolve;
+		transaction.onerror = () => reject(transaction.error || new Error("transaction failed"));
+		transaction.onabort = () => reject(transaction.error || new Error("transaction aborted"));
+	});
+}
+
+async function writeIDBCurrent(storage, metadata) {
+	const db = await storage._db();
+	const transaction = db.transaction("metadata", "readwrite");
+	transaction.objectStore("metadata").put(metadata, "current");
+	await transactionDone(transaction);
+}
+
+async function readIDBCurrent(storage) {
+	const db = await storage._db();
+	const transaction = db.transaction("metadata", "readonly");
+	const result = await new Promise((resolve, reject) => {
+		const request = transaction.objectStore("metadata").get("current");
+		request.onsuccess = () => resolve(request.result);
+		request.onerror = () => reject(request.error);
+	});
+	await transactionDone(transaction);
+	return result;
+}
+
+window.mutablePersistenceTestPromise = (async function () {
+	const api = window.SurrealMutableData;
+	const importer = window.SurrealUT99Importer;
+	const suffix = Date.now() + "-" + Math.random().toString(36).slice(2);
+
+	await run("schema and mutable path contract are explicit", async () => {
+		assert(api.SCHEMA_NAME === "surrealengine-mutable-data" && api.LEGACY_SCHEMA_VERSION === 1 && api.SCHEMA_VERSION === 2);
+		assert(api.STORAGE_FORMAT === "validated-copy-on-write");
+		assert(api.classifyMutablePath("/gamedata/System/SE-User.ini") === "user-settings");
+		assert(api.classifyMutablePath("/gamedata/Save/Save17.usa") === "ut99-save");
+		for (const path of [
+			"/gamedata/System/Core.u", "/gamedata/System/UnrealTournament.ini",
+			"/gamedata/Maps/DM-Test.unr", "/gamedata/Textures/Test.utx",
+			"/gamedata/Save/Injected.u", "/gamedata/Save/Custom.usa", "/gamedata/Save/../System/Core.u",
+		]) assert(api.classifyMutablePath(path) === null, "unexpectedly allowed " + path);
+	});
+
+	await run("IndexedDB migrates deployed v1 metadata transactionally and idempotently", async () => {
+		const name = "surrealengine-mutable-idb-migration-test-" + suffix;
+		const seedStorage = new api.IndexedDBStorage(name);
+		const snapshot = await api.snapshotFS(mutableFS());
+		const seeded = await seedStorage.save(snapshot.entries);
+		await writeIDBCurrent(seedStorage, asLegacyMetadata(seeded));
+		const storage = new api.IndexedDBStorage(name);
+		const migrated = await storage.load();
+		assert(migrated.metadata.version === 2 && migrated.metadata.datasetId !== seeded.datasetId);
+		assert(migrated.metadata.migration.fromVersion === 1 && migrated.metadata.migration.strategy === api.MIGRATION_STRATEGY);
+		assert(await (await migrated.getBlob("/gamedata/System/SE-User.ini")).text() === "mutable user settings");
+		assert(storage.migrationDiagnostics().state === "succeeded");
+		const second = new api.IndexedDBStorage(name);
+		const same = await second.load();
+		assert(same.metadata.datasetId === migrated.metadata.datasetId, "idempotent load republished the generation");
+		assert(second.migrationDiagnostics().state === "not-needed");
+		await second.clear();
+	});
+
+	await run("IndexedDB interrupted migration keeps v1 current and retries cleanly", async () => {
+		const name = "surrealengine-mutable-idb-migration-interrupt-" + suffix;
+		const seedStorage = new api.IndexedDBStorage(name);
+		const snapshot = await api.snapshotFS(mutableFS());
+		const seeded = await seedStorage.save(snapshot.entries);
+		await writeIDBCurrent(seedStorage, asLegacyMetadata(seeded));
+		const interrupted = new api.IndexedDBStorage(name, { migrationHook: async phase => {
+			if (phase === "before-publish") throw new Error("intentional migration interruption");
+		} });
+		try { await interrupted.load(); throw new Error("migration should have failed"); }
+		catch (error) { assert(error.message.includes("intentional migration interruption")); }
+		const current = await readIDBCurrent(seedStorage);
+		assert(current.version === 1 && current.datasetId === seeded.datasetId, "failed migration changed current");
+		assert(interrupted.migrationDiagnostics().state === "failed");
+		const retried = new api.IndexedDBStorage(name);
+		const migrated = await retried.load();
+		assert(migrated.metadata.version === 2 && migrated.metadata.migration.fromVersion === 1);
+		await retried.clear();
+	});
+
+	await run("future mutable schemas cannot be loaded or overwritten by save", async () => {
+		const snapshot = await api.snapshotFS(mutableFS());
+		const idb = new api.IndexedDBStorage("surrealengine-mutable-idb-future-" + suffix);
+		const idbMetadata = await idb.save(snapshot.entries);
+		await writeIDBCurrent(idb, Object.assign({}, idbMetadata, { version: api.SCHEMA_VERSION + 1 }));
+		await expectError("STORAGE_SCHEMA", async () => idb.load());
+		await expectError("STORAGE_SCHEMA", async () => idb.save(snapshot.entries));
+		assert((await readIDBCurrent(idb)).version === api.SCHEMA_VERSION + 1);
+		await idb.clear();
+
+		if (!navigator.storage || typeof navigator.storage.getDirectory !== "function") return;
+		const root = await navigator.storage.getDirectory();
+		const name = "surrealengine-mutable-opfs-future-" + suffix;
+		const opfs = new api.OPFSStorage(root, name);
+		try {
+			const opfsMetadata = await opfs.save(snapshot.entries);
+			await writeOPFSCurrent(root, name, Object.assign({}, opfsMetadata, { version: api.SCHEMA_VERSION + 1 }));
+			await expectError("STORAGE_SCHEMA", async () => opfs.load());
+			await expectError("STORAGE_SCHEMA", async () => opfs.save(snapshot.entries));
+			assert((await readOPFSCurrent(root, name)).version === api.SCHEMA_VERSION + 1);
+		} finally { await opfs.clear(); }
+	});
+
+	await run("filesystem snapshot enumerates only the mutable allowlist", async () => {
+		const snapshot = await api.snapshotFS(mutableFS());
+		const paths = snapshot.entries.map(entry => entry.path);
+		assert(snapshot.fileCount === 5, "unexpected snapshot: " + paths.join(","));
+		assert(paths.includes("/gamedata/Save/Save0.usa"));
+		assert(!paths.some(path => /\.(?:u|unr|utx|uax|umx)$/i.test(path)), "commercial package entered snapshot");
+		assert(!paths.includes("/gamedata/System/UnrealTournament.ini"), "original imported INI entered snapshot");
+	});
+
+	await run("metadata validation rejects commercial and traversal paths", async () => {
+		const blob = new Blob(["x"]);
+		await expectError("PATH_NOT_ALLOWED", async () => api.validateEntries([
+			{ path: "/gamedata/System/Core.u", size: blob.size, getBlob: async () => blob },
+		]));
+		await expectError("INVALID_PATH", async () => api.validateEntries([
+			{ path: "/gamedata/Save/../System/SE-User.ini", size: blob.size, getBlob: async () => blob },
+		]));
+	});
+
+	const idbStorage = new api.IndexedDBStorage("surrealengine-mutable-test-" + suffix);
+	await run("IndexedDB fallback flushes and restores mutable files", async () => {
+		await idbStorage.clear();
+		const source = mutableFS();
+		const first = new api.MutableDataController({ FS: source }, {
+			storage: idbStorage,
+			checkpointIntervalMs: 0,
+			logSnapshot: () => "browser diagnostic checkpoint\n",
+		});
+		await first.initialize();
+		const flushed = await first.flush("test-explicit");
+		assert(flushed.backend === "indexeddb" && flushed.fileCount === 5);
+		assert(flushed.lastCheckpointReason === "test-explicit" && flushed.lastFlushAt);
+		first.dispose();
+
+		const target = new FakeFS(true);
+		const second = new api.MutableDataController({ FS: target }, { storage: idbStorage, checkpointIntervalMs: 0 });
+		const restored = await second.initialize();
+		assert(restored.state === "ready" && restored.fileCount === 5);
+		assert(target.text("/gamedata/System/SE-User.ini") === "mutable user settings");
+		assert(target.text("/gamedata/Save/Save0.usa") === "mutable save");
+		assert(target.text("/home/web_user/.config/SurrealEngine/SE-Log-LastRun.txt") ===
+			"browser diagnostic checkpoint\n");
+		assert(target.text("/gamedata/System/Core.u") === "commercial-core", "restore changed imported package");
+		second.dispose();
+	});
+
+	await run("mutable restore is awaited after import materialization and before main", async () => {
+		const storage = new api.IndexedDBStorage("surrealengine-order-test-" + suffix);
+		const savedFS = mutableFS();
+		const snapshot = await api.snapshotFS(savedFS);
+		await storage.save(snapshot.entries);
+		const runtimeFS = new FakeFS(true);
+		runtimeFS.put("/gamedata/System/SE-User.ini", "imported baseline");
+		let mutableController = null;
+		let launchedValue = null;
+		const controller = new importer.ImportController({ FS: runtimeFS }, {
+			beforeLaunch: async () => {
+				mutableController = new api.MutableDataController({ FS: runtimeFS }, { storage, checkpointIntervalMs: 0 });
+				await mutableController.initialize();
+			},
+			launch: () => { launchedValue = runtimeFS.text("/gamedata/System/SE-User.ini"); },
+		});
+		const result = await controller.initialize();
+		assert(result.mode === "developer-preload");
+		assert(launchedValue === "mutable user settings", "main observed data before overlay restore");
+		mutableController.dispose();
+		await storage.clear();
+	});
+
+	await run("restore corruption is nonfatal and exposes actionable status", async () => {
+		const controller = new api.MutableDataController({ FS: mutableFS() }, {
+			storage: { backend: "broken-test", load: async () => { throw new api.MutableDataError("STORAGE_SCHEMA", "test schema mismatch"); }, save: async () => {}, clear: async () => {} },
+			checkpointIntervalMs: 0,
+		});
+		const status = await controller.initialize();
+		assert(status.state === "restore-failed" && status.error.includes("STORAGE_SCHEMA"));
+		assert(status.requiresClear && status.automaticCheckpoints === false);
+		await expectError("CLEAR_REQUIRED", async () => controller.flush("must-not-overwrite-newer-schema"));
+		controller.dispose();
+	});
+
+	await run("pagehide creates a serialized lifecycle checkpoint", async () => {
+		const storage = new api.IndexedDBStorage("surrealengine-lifecycle-test-" + suffix);
+		const fs = mutableFS();
+		const controller = new api.MutableDataController({ FS: fs }, { storage, checkpointIntervalMs: 0 });
+		await controller.initialize();
+		fs.put("/gamedata/System/SE-User.ini", "checkpoint after pagehide");
+		window.dispatchEvent(new PageTransitionEvent("pagehide"));
+		await controller.whenIdle();
+		const loaded = await storage.load();
+		assert(await (await loaded.getBlob("/gamedata/System/SE-User.ini")).text() === "checkpoint after pagehide");
+		assert(controller.status().lastCheckpointReason === "pagehide");
+		controller.dispose();
+		await storage.clear();
+	});
+
+	await run("clearing mutable data leaves live and imported game data untouched", async () => {
+		const gameStorage = new importer.IndexedDBStorage("surrealengine-game-separation-test-" + suffix);
+		const gameValidation = importer.validateEntries(importerEntries());
+		await gameStorage.save(gameValidation);
+		const fs = mutableFS();
+		const controller = new api.MutableDataController({ FS: fs }, { storage: idbStorage, checkpointIntervalMs: 0 });
+		await controller.initialize();
+		const status = await controller.clear();
+		assert(status.state === "cleared" && status.automaticCheckpoints === false);
+		assert(fs.text("/gamedata/System/Core.u") === "commercial-core", "clear changed live imported package");
+		assert(fs.text("/gamedata/System/SE-User.ini") === "mutable user settings", "clear changed live mutable file");
+		const savedGame = await gameStorage.load();
+		assert(savedGame && await (await savedGame.getBlob("System/Core.u")).text() === "core",
+			"mutable clear touched the separate game-data store");
+		assert(await idbStorage.load() === null, "mutable store was not cleared");
+		controller.dispose();
+		await gameStorage.clear();
+	});
+
+	await run("OPFS backend round-trips only allowlisted mutable files when available", async () => {
+		if (!navigator.storage || typeof navigator.storage.getDirectory !== "function") return;
+		const root = await navigator.storage.getDirectory();
+		const directoryName = "surrealengine-mutable-opfs-test-" + suffix;
+		const storage = new api.OPFSStorage(root, directoryName);
+		try {
+			const snapshot = await api.snapshotFS(mutableFS());
+			const metadata = await storage.save(snapshot.entries);
+			assert(metadata.backend === "opfs" && metadata.fileCount === 5);
+			const loaded = await storage.load();
+			assert(await (await loaded.getBlob("/gamedata/Save/Save0.usa")).text() === "mutable save");
+			await expectError("PATH_NOT_ALLOWED", async () => loaded.getBlob("/gamedata/System/Core.u"));
+		} finally { await storage.clear(); }
+	});
+
+	await run("OPFS interrupted v1 migration rolls back pointer and succeeds on retry", async () => {
+		if (!navigator.storage || typeof navigator.storage.getDirectory !== "function") return;
+		const root = await navigator.storage.getDirectory();
+		const directoryName = "surrealengine-mutable-opfs-migration-test-" + suffix;
+		const seedStorage = new api.OPFSStorage(root, directoryName);
+		try {
+			const snapshot = await api.snapshotFS(mutableFS());
+			const seeded = await seedStorage.save(snapshot.entries);
+			await writeOPFSCurrent(root, directoryName, asLegacyMetadata(seeded));
+			const interrupted = new api.OPFSStorage(root, directoryName, { migrationHook: async phase => {
+				if (phase === "before-publish") throw new Error("intentional migration interruption");
+			} });
+			try { await interrupted.load(); throw new Error("migration should have failed"); }
+			catch (error) { assert(error.message.includes("intentional migration interruption")); }
+			const current = await readOPFSCurrent(root, directoryName);
+			assert(current.version === 1 && current.datasetId === seeded.datasetId, "failed migration changed current");
+			const retried = new api.OPFSStorage(root, directoryName);
+			const migrated = await retried.load();
+			assert(migrated.metadata.version === 2 && migrated.metadata.datasetId !== seeded.datasetId);
+			assert(migrated.metadata.migration.fromVersion === 1);
+			assert(await (await migrated.getBlob("/gamedata/Save/Save0.usa")).text() === "mutable save");
+			const idempotent = await new api.OPFSStorage(root, directoryName).load();
+			assert(idempotent.metadata.datasetId === migrated.metadata.datasetId);
+		} finally { await seedStorage.clear(); }
+	});
+
+	await idbStorage.clear();
+	window.mutablePersistenceTestDone = true;
+	const failures = window.mutablePersistenceTestResults.filter(result => !result.passed);
+	document.getElementById("results").textContent = JSON.stringify(window.mutablePersistenceTestResults, null, 2);
+	if (failures.length) throw new Error(failures.length + " mutable persistence test(s) failed");
+	return window.mutablePersistenceTestResults;
+})();
+</script>
+</body>
+</html>
