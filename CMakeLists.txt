@@ -69,6 +69,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Input/InputComposition.h
 	SurrealEngine/Input/XRInputAdapter.cpp
 	SurrealEngine/Input/XRInputAdapter.h
+	SurrealEngine/XR/XRCommon.cpp
+	SurrealEngine/XR/XRCommon.h
 	SurrealEngine/UE1GameDatabase.h
 	SurrealEngine/UE1GameDatabase.cpp
 	SurrealEngine/Utils/CommandLine.cpp
@@ -909,6 +911,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRInputAdapterTests PRIVATE SurrealEngine)
 	set_target_properties(XRInputAdapterTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRInputAdapter COMMAND XRInputAdapterTests)
+
+	add_executable(XRCommonTests
+		Tests/XRCommonTests.cpp
+		SurrealEngine/XR/XRCommon.cpp
+	)
+	target_include_directories(XRCommonTests PRIVATE SurrealEngine)
+	set_target_properties(XRCommonTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRCommon COMMAND XRCommonTests)
 endif()
 
 if(NOT EMSCRIPTEN)
