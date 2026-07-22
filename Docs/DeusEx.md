@@ -61,6 +61,10 @@ Validation results on 2026-07-22:
 - `00_Training` and `01_NYC_UNATCOIsland` load directly. Liberty Island renders
   the world, HUD, inventory belt, player, and live actors and remains responsive
   during unattended checks.
+- The stock title-menu Training command travels to `00_Training`, starts the
+  mission state machine, and accepts cardinal movement input. The maintained
+  progression log and current first-door boundary are in
+  [`DeusExTraining.md`](DeusExTraining.md).
 - QuickSave (`-1`) and a menu-created numbered save (`Save0001`) both write a
   map package and `SaveInfo.dxs`. Direct startup through `?loadgame=-1` and
   `?loadgame=1` restores the Liberty Island world. Existing-slot overwrite and
@@ -203,6 +207,8 @@ the QuickSave and numbered-slot directory naming contract. Property-
 serialization coverage verifies that nested booleans emit their required
 zero/one payload bytes while tagged booleans do not. New-slot allocation,
 metadata round trips, and rejected indices still need focused coverage.
+Actor-movement coverage independently verifies stationary, cardinal,
+diagonal, and vertical-only predicates without loading game data.
 
 ## Next validation targets
 

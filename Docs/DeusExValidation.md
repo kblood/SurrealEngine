@@ -80,6 +80,11 @@ This process found two concrete Save Game screen defects:
     remains responsive after the directory disappears.
 11. Run a Release build and the focused tests again before committing.
 
+Training progression has its own behavior checklist in
+[`DeusExTraining.md`](DeusExTraining.md). Its normal-entry baseline must begin
+at `--url=DX`; direct `--url=00_Training` launches are suitable for iterating on
+an already isolated blocker.
+
 Generated screenshots, logs, minidumps, and proprietary save packages are test
 artifacts. Keep them under ignored build or local application-data directories;
 do not commit them.

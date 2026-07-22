@@ -20,13 +20,15 @@ new blockers.
   map overwrites.
 - Proprietary-data-free regression coverage for nested boolean serialization.
 - Headless symbolization of background validation crashes.
+- Normal title-menu entry into Training and mission-state-machine startup.
+- Cardinal-axis actor movement for walking, swimming, and flying.
 
 ## Current work
 
 1. Add missing generic array and save-metadata tests that do not require
    proprietary packages.
-2. Exercise Training from its normal menu entry and trace the first blocking AI,
-   navigation, animation, conversation, or mission-script native.
+2. Open and cross Training's first door, then trace each blocking interaction,
+   AI, navigation, animation, conversation, or mission-script native in order.
 3. Validate scripted travel from Training into the campaign and between early
    campaign maps, preserving inventory, flags, mission state, and save/load.
 

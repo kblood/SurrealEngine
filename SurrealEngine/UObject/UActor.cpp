@@ -5,6 +5,7 @@
 #include "UTexture.h"
 #include "UConSys.h"
 #include "USubsystem.h"
+#include "ActorMovement.h"
 #include "DXAIPerception.h"
 #include "VM/ScriptCall.h"
 #include "VM/Frame.h"
@@ -544,7 +545,7 @@ void UActor::TickWalking(float elapsed)
 	// "Step up and move" as long as we have time left and only hitting surfaces with low enough slope that it could be walked
 	float timeLeft = elapsed;
 	vec3 vel = Velocity() + zone->ZoneVelocity() * elapsed * 25.0f;
-	bool isMoving = (vel.x != 0.0f && vel.y != 0.0f);
+	bool isMoving = HasHorizontalMovement(vel.x, vel.y);
 	if (isMoving)
 	{
 		for (int iteration = 0; timeLeft > 0.0f && iteration < 5; iteration++)
@@ -832,7 +833,7 @@ void UActor::TickSwimming(float elapsed)
 
 	float timeLeft = elapsed;
 	vec3 vel = Velocity() + zone->ZoneVelocity() * elapsed * 25.0f;
-	bool isMoving = (vel.x != 0.0f && vel.y != 0.0f);
+	bool isMoving = HasSpatialMovement(vel.x, vel.y, vel.z);
 	if (isMoving)
 	{
 		for (int iteration = 0; timeLeft > 0.0f && iteration < 5; iteration++)
@@ -949,7 +950,7 @@ void UActor::TickFlying(float elapsed)
 
 	float timeLeft = elapsed;
 	vec3 vel = Velocity() + zone->ZoneVelocity() * elapsed * 25.0f;
-	bool isMoving = (vel.x != 0.0f && vel.y != 0.0f);
+	bool isMoving = HasSpatialMovement(vel.x, vel.y, vel.z);
 	if (isMoving)
 	{
 		for (int iteration = 0; timeLeft > 0.0f && iteration < 5; iteration++)

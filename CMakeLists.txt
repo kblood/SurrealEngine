@@ -354,6 +354,7 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/UMusic.cpp
 	SurrealEngine/UObject/UClient.cpp
 	SurrealEngine/UObject/UActor.cpp
+	SurrealEngine/UObject/ActorMovement.h
 	SurrealEngine/UObject/ULevel.h
 	SurrealEngine/UObject/UClass.cpp
 	SurrealEngine/UObject/UTexture.cpp
@@ -738,6 +739,13 @@ set_target_properties(SurrealDebugger PROPERTIES CXX_STANDARD 20)
 
 include(CTest)
 if (BUILD_TESTING)
+	add_executable(ActorMovementTests
+		Tests/ActorMovementTests.cpp
+	)
+	target_include_directories(ActorMovementTests PRIVATE SurrealEngine)
+	set_target_properties(ActorMovementTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ActorMovement COMMAND ActorMovementTests)
+
 	add_executable(DXTextTokenizerTests
 		Tests/DXTextTokenizerTests.cpp
 		SurrealEngine/UObject/DXTextTokenizer.cpp
