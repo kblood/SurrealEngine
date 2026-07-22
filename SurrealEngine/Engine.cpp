@@ -86,6 +86,8 @@ Engine::~Engine()
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 
+static bool XRFrameLoopActive = false;
+
 static void EngineMainLoopCallback(void* arg)
 {
 	Engine* eng = static_cast<Engine*>(arg);
@@ -95,6 +97,8 @@ static void EngineMainLoopCallback(void* arg)
 		eng->Shutdown();
 		return;
 	}
+	if (XRFrameLoopActive)
+		return;
 	eng->RunOneFrame();
 }
 
@@ -114,6 +118,14 @@ extern "C"
 	{
 		if (engine)
 			engine->quit = true;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetXRFrameLoopActive(int active)
+	{
+		if (!engine || engine->quit)
+			return 0;
+		XRFrameLoopActive = active != 0;
+		return 1;
 	}
 }
 #endif

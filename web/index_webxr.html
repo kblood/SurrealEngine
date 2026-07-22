@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SurrealEngine WebXR provider harness</title>
+</head>
+<body>
+<p>
+	<button id="enter-xr" disabled>Enter VR</button>
+	<button id="exit-xr" disabled>Exit VR</button>
+	<span id="xr-status">Checking WebXR…</span>
+</p>
+<canvas id="canvas" width="640" height="480"></canvas>
+<pre id="log" style="white-space:pre-wrap;font:12px monospace;"></pre>
+<script src="webxr_provider.js"></script>
+<script>
+	window.surrealLog = [];
+	window.surrealBooted = false;
+	window.surrealCrashed = null;
+	const logElement = document.getElementById("log");
+	const statusElement = document.getElementById("xr-status");
+	const enterButton = document.getElementById("enter-xr");
+	const exitButton = document.getElementById("exit-xr");
+
+	function appendLog(line) {
+		window.surrealLog.push(line);
+		logElement.textContent += line + "\n";
+	}
+	window.surrealXRLog = function (line) { appendLog("[webxr] " + line); };
+
+	var Module = {
+		canvas: document.getElementById("canvas"),
+		locateFile: function (path) { return "../build-emscripten/" + path; },
+		print: appendLog,
+		printErr: appendLog,
+		onRuntimeInitialized: function () {
+			appendLog("[harness] runtime initialized, calling main");
+			window.surrealBooted = true;
+			try {
+				Module.callMain(["--autoplay", "--url=DM-Deck16][", "--render=webgpu", "/gamedata"]);
+				refreshXRAvailability();
+			} catch (error) {
+				window.surrealCrashed = String(error);
+				appendLog("[harness] callMain threw: " + error);
+			}
+		},
+	};
+	window.Module = Module;
+
+	window.addEventListener("error", function (event) {
+		window.surrealCrashed = event.error && event.error.stack ? event.error.stack : event.message;
+		appendLog("[harness] window error: " + window.surrealCrashed);
+	});
+	window.addEventListener("unhandledrejection", function (event) {
+		window.surrealCrashed = String(event.reason);
+		appendLog("[harness] unhandled rejection: " + event.reason);
+	});
+
+	async function refreshXRAvailability() {
+		const supported = await window.surrealXRIsSupported();
+		const binding = typeof window.XRGPUBinding === "function";
+		enterButton.disabled = !(supported && binding && window.surrealBooted);
+		statusElement.textContent = supported ?
+			(binding ? "WebXR/WebGPU ready" : "WebXR found, but XRGPUBinding is unavailable") :
+			"Immersive WebXR is unavailable; flat WebGPU remains active";
+	}
+
+	enterButton.addEventListener("click", async function () {
+		enterButton.disabled = true;
+		const entered = await window.surrealXREnter();
+		exitButton.disabled = !entered;
+		statusElement.textContent = entered ? "WebXR session active" :
+			("WebXR entry failed: " + (window.surrealXRGetState().lastError || "unknown error"));
+		if (!entered) refreshXRAvailability();
+	});
+
+	exitButton.addEventListener("click", function () {
+		window.surrealXRExit();
+		exitButton.disabled = true;
+		setTimeout(refreshXRAvailability, 0);
+	});
+
+	async function boot() {
+		if (!navigator.gpu) {
+			window.surrealCrashed = "navigator.gpu is undefined";
+			appendLog("[harness] " + window.surrealCrashed);
+			return;
+		}
+		const adapter = await navigator.gpu.requestAdapter({ xrCompatible: true });
+		if (!adapter) {
+			window.surrealCrashed = "navigator.gpu.requestAdapter() resolved null";
+			appendLog("[harness] " + window.surrealCrashed);
+			return;
+		}
+		const requiredFeatures = ["texture-compression-bc", "float32-filterable"].filter(
+			function (feature) { return adapter.features.has(feature); });
+		const device = await adapter.requestDevice({ requiredFeatures: requiredFeatures });
+		window.surrealWebGPUDevice = device;
+		device.lost.then(function (info) { appendLog("[harness] WebGPU device lost: " + info.message); });
+		window.surrealWebGPUErrorCount = 0;
+		device.addEventListener("uncapturederror", function (event) {
+			window.surrealWebGPUErrorCount++;
+			appendLog("[harness] WebGPU uncaptured error: " + event.error.message);
+		});
+		Module.preinitializedWebGPUDevice = device;
+		appendLog("[harness] XR-compatible WebGPU device acquired, loading wasm module");
+		const script = document.createElement("script");
+		script.src = "../build-emscripten/SurrealEngine.js";
+		script.onerror = function () {
+			window.surrealCrashed = "failed to load SurrealEngine.js";
+			appendLog("[harness] " + window.surrealCrashed);
+		};
+		document.body.appendChild(script);
+		refreshXRAvailability();
+	}
+	boot();
+</script>
+</body>
+</html>
