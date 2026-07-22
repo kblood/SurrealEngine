@@ -1,6 +1,6 @@
 # Flat browser WebAssembly regression audit
 
-Date: 2026-07-22
+Date: 2026-07-23
 
 This audit starts at integration commit `9e7898db`. It checks that WebXR,
 cinematic/intro, demo-import, and corresponding-source work did not turn the
@@ -62,10 +62,31 @@ The native focused set is `InputComposition`, `WebXRInputAdapterTests`,
 `WebXRInputRuntimeTests`, `XRUISurfaceTests`,
 `XRUISurfaceRuntimeAdapterTests`, and `XRUISurfaceEngineBindingTests`.
 
+## Retail UT99 evidence
+
+The GOG Unreal Tournament GOTY installation used for owner-data validation has
+496 files and 659,817,346 bytes. Browser metadata validation sees all required
+`System`, `Maps`, `Textures`, `Sounds`, and `Music` subfolders and selects the
+retail `ut99` descriptor. A full run persists and materializes the dataset and
+reaches the map/presentation launcher, which rules out folder recursion,
+detection, storage, and the import gate as the current fault.
+
+After Play, both WebGPU and null-renderer runs remain inside synchronous native
+startup before `Module.callMain()` returns. Consequently the post-call canvas
+reveal, presentation activation, and `surrealBooted` signal do not run. The
+null-renderer result rules out WebGPU rendering as the cause. This is an open
+owner-data release blocker, not a successful gameplay claim.
+
+`smoke_test_owner_game.py` accepts `--profile-dir` so the private browser copy
+can be retained between diagnostic runs, and `--renderer=webgpu|null` so native
+startup can be separated from graphics. It records no game contents in Git.
+The duplicate-memory cost and the proven opt-in WasmFS/OPFS alternative are
+documented in `BrowserGameDataMount.md`.
+
 ## Owner-data and hardware gates
 
 Synthetic entries establish launcher, storage, argument, and UI behavior; they
-cannot establish real gameplay. Before publishing, an owner must still:
+cannot establish real gameplay. Before a stable release, an owner must still:
 
 1. Import complete user-owned UT99 and Unreal Gold installations separately,
    test direct-map and normal-intro launches, and verify intro skip, cinematic
