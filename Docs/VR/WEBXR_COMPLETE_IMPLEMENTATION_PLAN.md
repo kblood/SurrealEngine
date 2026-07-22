@@ -76,7 +76,7 @@ XRSession.requestAnimationFrame
 | M7 — tracking/camera/world scale | Deterministic implementation complete; headset validation gated | 6DoF pose conversion, body/head composition, recentering, world scale, and exact per-eye projection are implemented; physical scale and scene correctness remain to validate |
 | M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, and fire haptics are implemented; controller-relative position/origin, non-fire feedback, settings UI, two-hand UX, fixtures, and headset validation remain |
 | M9 — UI/comfort/VR presentation | In progress | Essential UT99 HUD/crosshair output is captured once and replayed inside each active eye pass on a finite-depth projection-layer plane; a full experimental browser smoke proves one update/two presentations after the layer-reselection fix. Strict enable/distance/FOV/aspect/safe-area settings and the zero-work disabled lifecycle pass automation; menus/cursor, actor-style canvas draws, settings UI/browser persistence, recenter UX, comfort policies, loading/pause presentation, and headset readability remain |
-| M10 — audio/data/network/deploy | In progress | Real OpenAL/Web Audio output, gesture/lifecycle policy, tracked-head listener with discontinuity-safe velocity, redistributable no-data builds, audited no-preload/clean-profile waiting behavior, a local OPFS/IndexedDB UT99 importer, and an allowlisted installable PWA shell with 27/27 deployment checks are implemented; real full-install import, physical audio/storage tests, non-game settings persistence, full launcher/networking scope, HTTPS/Quest install validation, and release audit remain |
+| M10 — audio/data/network/deploy | In progress | Real OpenAL/Web Audio output, gesture/lifecycle policy, tracked-head listener with discontinuity-safe velocity, redistributable no-data builds, audited no-preload/clean-profile waiting behavior, a local OPFS/IndexedDB UT99 importer, an allowlisted installable PWA shell with 27/27 deployment checks, and an explicit offline-only browser MVP scope are implemented/decided; real full-install import, physical audio/storage tests, non-game settings persistence, full launcher, HTTPS/Quest install validation, and release audit remain |
 | M11 — performance/robustness/release | In progress | Automated session-generation, visibility, setup-failure, shutdown, and device-loss coverage exists; Quest profiling, headset lifecycle, compatibility, and release gates remain |
 
 ## 3. M0 — architecture and platform gate
@@ -669,9 +669,10 @@ weapon fixtures, tracking loss, and physical Quest presentation remain open.
 
 Offline/standalone is the M8 target. Stock UT networking sends body/view
 rotation and cannot replicate independent hand aim without a protocol or
-replicated-state extension. M10 must either declare browser multiplayer out of
-scope or add that transport; M8 must not pretend restored local view rotation
-is remotely authoritative.
+replicated-state extension. M10 now explicitly declares browser multiplayer
+out of scope for the MVP; M8 must not pretend restored local view rotation is
+remotely authoritative. See `WEBXR_NETWORKING_SCOPE.md` for the source audit
+and requirements that must be met before that decision can be reopened.
 
 ### 11.4 Haptics and optional hands
 
@@ -968,6 +969,43 @@ Do not mark multiplayer complete merely because Emscripten socket code links.
 Inventory `UInternetLink`, `UTcpLink`, `UUdpLink`, master-server browsing, and
 game protocol traffic before estimating the relay.
 
+**Decision for the browser MVP (2026-07-22): offline/single-player/local-bot
+play only. Browser multiplayer is explicitly unsupported.** This is a scoped
+release decision, not a claim that networking is impossible and not a silent
+fallback to partially working sockets.
+
+The source audit found that the transport problem begins below WebXR and below
+the browser sandbox:
+
+- `UNetDriver` is an empty subsystem base and `USurrealNetworkDevice` only
+  persists/query-dispatches configuration properties; it does not implement a
+  connection, channel, bunch, package-map, actor replication, relevancy, or
+  prediction layer;
+- `UnrealURL` still marks fully qualified network URLs as TODO, while the map
+  load/client-travel path resolves local packages and logs in a local player;
+- `UTcpLink` creates a native socket, but bind, listen, open, close,
+  connection-state, read, and send operations are stubs;
+- `UUdpLink` can bind and send text on native platforms, but receive, binary
+  read/send, and event dispatch are absent; and
+- even a future browser socket shim would not carry independent head and hand
+  poses. Stock body/view rotation is insufficient for remote VR weapon aim.
+
+The full multiplayer option therefore requires two separately testable
+projects before it can re-enter WebXR release scope:
+
+1. complete and qualify SurrealEngine's native UE1 networking/replication
+   model against compatible servers, including travel, package compatibility,
+   master/server discovery, joins, disconnects, relevancy, prediction, and
+   abuse limits; and
+2. design a browser-safe WebSocket or WebTransport gateway and an explicit VR
+   pose/aim protocol extension, with authentication, origin policy, relay
+   operation, latency/loss tests, backwards compatibility, privacy, and
+   security review.
+
+Until both exist, the launcher and release notes must say **Multiplayer:
+unsupported in the browser MVP**, must not expose a nonfunctional join flow,
+and must never describe controller-local aim as replicated or authoritative.
+
 ### 13.5 Hosting/PWA
 
 - **Implemented in commit `28070633`:** installable entry point
@@ -1101,11 +1139,11 @@ tests.
 | M8 locomotion | Browser-persisted settings/UI, dedicated safe-exit UX, controller-profile verification, and hardware tuning for implemented body/head/dominant-hand movement plus recenter/menu actions | M9 settings UI, M10 non-game persistence, real Quest input sources |
 | M8 weapon | Controller-relative viewmodel position/scale/offsets, verified muzzle/fire origin, dominant-hand UI, two-hand policy, guided-warhead policy, automatic/special-weapon fixtures | Full-basis/roll presentation is implemented; remaining work needs package-qualified calibration data, loaded Botpack function table, deterministic firing fixtures, and headset/barrel alignment tests |
 | M8 haptics | Damage/pickup/UI events, per-weapon tuning, persisted settings UI, physical latency/source-loss tests | Gameplay outcome hooks and real actuator hardware |
-| M8 networking | Independent hand-aim replication or an explicit offline-only product decision | M10 networking scope; stock `ServerMove` is insufficient |
+| M8 networking | **MVP decision complete:** offline/single-player/local-bot browser release; multiplayer and independent hand-aim replication are explicitly unsupported | Reopen only after a qualified native replication layer plus browser relay/protocol project; stock body/view rotation is insufficient |
 | M9 UI/comfort | Extend the browser-proven capture-once/in-active-eye stereo HUD to menus/cursor and unsupported actor draws; expose and browser-persist the implemented plane settings; finish readable scale, weapon position, vignette/comfort policies, recenter, and loading/pause presentation | Stateful menu render-once surface and input contract, diagnostics for unsupported draws, settings UI/persistence, per-eye headset inspection, 30-minute comfort session |
 | M10 audio | Physically validate the implemented tracked-head listener: gesture unlock, head-relative direction/roll, Doppler and reset policy, focus/session re-entry, music, effects, volume, map changes, underruns, and shutdown | Real Quest Browser audio lifecycle and representative maps/sounds |
 | M10 data | Import a complete user-owned install into the already-audited no-preload artifact; verify playable clean-profile boot, large-copy quota/progress, restart/eviction/corruption recovery, schema migration, and persist configs/VR settings/saves/logs | User-owned UT99 installation, clean desktop/Quest browser profiles, Quest storage/browser support matrix |
-| M10 product | Extend the tested installable shell into the full map/settings/diagnostics launcher; make the networking declaration/relay decision; validate HTTPS/COOP/COEP deployment, Quest install/update/offline behavior, rollback, final proprietary-content scan, and license audit | Production hosting target, Quest Browser, release artifacts/hashes, and explicit multiplayer decision |
+| M10 product | Extend the tested installable shell into the full map/settings/diagnostics launcher and visibly surface the decided offline-only scope; validate HTTPS/COOP/COEP deployment, Quest install/update/offline behavior, rollback, final proprietary-content scan, and license audit | Production hosting target, Quest Browser, release artifacts/hashes |
 | M11 performance | 72 Hz minimum target qualification, CPU/GPU/memory/GC traces, render-scale/foveation decisions, pthread memory strategy | Quest hardware, acceptance/stress map set, repeatable profiling harness |
 | M11 release | Compatibility matrix, sleep/wake and failure recovery, three entry cycles, 60-minute soak, reproducible artifact audit | Release browser/runtime versions, physical test reports, clean profile/import path |
 
@@ -1286,8 +1324,8 @@ scale, frame rate, and error counters.
    physically qualify audio, and persist non-game settings/saves/logs. The
    allowlisted no-data PWA/deployment shell passes 27/27 local checks; next
    validate it on production HTTPS and Quest install/update/offline paths,
-   finish the full launcher and release/license audits, and make the explicit
-   networking decision.
+   finish the full launcher and release/license audits, and surface the
+   explicit offline-only browser-MVP networking decision in release UI.
 10. Finish M6/M7 headset gates and M11 profiling/soak/compatibility gates from
     physical Quest traces, then qualify a release.
 
