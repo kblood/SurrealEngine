@@ -91,6 +91,77 @@ provider calls exported render/input/frame functions from the browser XR frame
 callback. Those calls and WebGPU presentation ownership must be deliberately
 routed before the worker build can be considered correct.
 
+## Measured presentation ownership boundary
+
+The worker build has two separate presentation results. They must not be
+reported as one generic "browser rendering" result.
+
+### Null renderer: narrow worker-safe seam
+
+`LauncherSettings` selects `NullRenderDevice` by default on Emscripten. That
+device uses `RenderAPI::Bitmap` to create the game window, but immediately
+replaces the temporary `BitmapCanvas` with a no-op `RenderDeviceCanvas` and
+never presents bitmap pixels. SDL nevertheless used
+`SDL_CreateWindowAndRenderer`, which creates its internal GLES shaders. With
+`PROXY_TO_PTHREAD`, the browser main realm owned SDL's GL context table while
+the shader call ran in the proxied worker. The exact standalone reproduction
+failed in `_emscripten_glCreateShader` while reading an undefined context.
+
+`-sOFFSCREEN_FRAMEBUFFER` did not change that failure.
+`-sOFFSCREENCANVAS_SUPPORT -sOFFSCREEN_FRAMEBUFFER` stalled Chrome in the
+installed SDK/browser combination. Transferring the product canvas to that
+worker would also conflict with the current main-realm WebXR bridge, which
+creates the XR layer and drives exported frame calls from `requestAnimationFrame`.
+
+The opt-in `SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD` build therefore uses
+`SDL_CreateWindow` (window/input only) for the worker Null/Bitmap path. It does
+not create an SDL renderer or GL context. The default option is `OFF`, so
+desktop and current browser builds retain their existing bitmap presentation.
+The focused probe reports:
+
+```text
+PASS pthread-sdl-presentation worker=1 renderer=0 gl-context=0
+```
+
+The full opt-in engine compiles at 256 MiB and both flat and WebGPU product
+pages reach the legal no-data import gate. The shared launcher also retains
+its Unreal Gold selection and WebGPU native arguments. A full game startup
+still requires owner-supplied UE1 data; those gate checks are not substitutes
+for a rendered map test.
+
+### WebGPU: browser device does not cross into the worker
+
+The current launcher asynchronously creates a `GPUDevice` in the browser main
+realm, stores it as `Module.preinitializedWebGPUDevice`, and then calls native
+`main()`. The installed emdawnwebgpu port imports that JavaScript object from
+the calling realm's `Module` and keeps realm-local JavaScript object tables.
+The `PROXY_TO_PTHREAD` load message does not copy arbitrary `Module` objects to
+the pthread worker.
+
+`web/pthread_webgpu_device_probe.cpp` reproduces the product handoff without
+commercial game data. Chrome exposes `navigator.gpu` in the worker, but the
+main-realm preinitialized device is absent there:
+
+```text
+INFO pthread-webgpu-device worker-navigator-gpu=1
+FAIL browser-thread preinitialized WebGPU device is absent in the proxied main worker
+```
+
+Consequently, the experimental worker build is valid for headless and Null
+diagnostics, but it is not yet a flat WebGPU or WebXR rendering build. A full
+flat WebGPU owner-data smoke would encounter this ownership boundary before
+map rendering, so it was not mislabeled as a pass.
+
+The preferred next experiment is to keep the engine/presentation owner on the
+browser main thread and create/mount the WasmFS OPFS backend from a dedicated
+pthread, if the shared WasmFS mount remains visible to main-thread libc calls.
+That preserves the current WebGPU and WebXR ownership while moving only the
+synchronous OPFS operation to a legal worker. If that is not viable, the
+larger alternative is a worker-owned presentation architecture: acquire the
+device asynchronously inside the engine worker, deliberately route WebGPU and
+WebXR commands across the boundary, and define which realm owns the canvas.
+Neither route is an Emscripten flag-only change.
+
 An attempted `-pthread -sASYNCIFY` main-thread OPFS probe failed the installed
 SDK assertion in `ProxyWorker`: the pthread implementation still tries to
 create its synchronous OPFS proxy from the browser main thread. The SDK's

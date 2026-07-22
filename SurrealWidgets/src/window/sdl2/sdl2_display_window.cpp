@@ -22,7 +22,17 @@ SDL2DisplayWindow::SDL2DisplayWindow(DisplayWindowHost* windowHost, WidgetType t
 	if (type == WidgetType::Popup)
 		flags |= SDL_WINDOW_BORDERLESS;
 
-	if (renderAPI == RenderAPI::Vulkan || renderAPI == RenderAPI::OpenGL || renderAPI == RenderAPI::Metal || renderAPI == RenderAPI::WebGPU)
+	const bool externallyPresented = renderAPI == RenderAPI::Vulkan || renderAPI == RenderAPI::OpenGL ||
+		renderAPI == RenderAPI::Metal || renderAPI == RenderAPI::WebGPU;
+#if defined(__EMSCRIPTEN__) && defined(SURREAL_WEB_PROXY_TO_PTHREAD)
+	// NullRenderDevice replaces the temporary bitmap Canvas immediately and never
+	// presents it. Avoid SDL_CreateWindowAndRenderer here: SDL's GLES renderer is
+	// created on the browser thread, while its shader calls execute on the worker.
+	const bool windowOnly = externallyPresented || renderAPI == RenderAPI::Bitmap;
+#else
+	const bool windowOnly = externallyPresented;
+#endif
+	if (windowOnly)
 	{
 		// WebGPU has no SDL_WINDOW_* flag of its own - SDL only owns the
 		// canvas/window for input and geometry here, WebGPURenderDevice

@@ -8,6 +8,10 @@ option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS "Use the experimental on-demand Wasm
 if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS AND NOT EMSCRIPTEN)
 	message(FATAL_ERROR "SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS is available only for Emscripten builds")
 endif()
+option(SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD "Run the experimental Emscripten application main on a worker" OFF)
+if(SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD AND NOT EMSCRIPTEN)
+	message(FATAL_ERROR "SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD is available only for Emscripten builds")
+endif()
 
 if(EMSCRIPTEN)
 	# Every TU in every subdirectory must be compiled with atomics/bulk-memory
@@ -1078,6 +1082,9 @@ if(EMSCRIPTEN)
 		string(APPEND SURREAL_BROWSER_EXPORTED_FUNCTIONS ",_Surreal_GetBrowserOPFSMountABIVersion,_Surreal_GetBrowserWasmHeapSize,_Surreal_BeginBrowserOPFSMount,_Surreal_AddBrowserOPFSMountFile")
 		target_compile_definitions(SurrealCommon PRIVATE SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS=1)
 	endif()
+	if(SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD OR SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS)
+		target_compile_definitions(surrealwidgets PRIVATE SURREAL_WEB_PROXY_TO_PTHREAD=1)
+	endif()
 	set(SURREAL_GAMEDATA_DIR "" CACHE PATH "Local path to a UT99 game-data folder to preload into the wasm build (dev-machine-local only; never commit this path's contents — UT99 is commercial, non-redistributable data)")
 	if(NOT SURREAL_GAMEDATA_DIR)
 		message(WARNING "SURREAL_GAMEDATA_DIR is not set - the Emscripten build will have no game data preloaded. Pass -DSURREAL_GAMEDATA_DIR=<path-to-ut99-install>.")
@@ -1103,8 +1110,34 @@ if(EMSCRIPTEN)
 		target_link_options(SurrealEngine PRIVATE
 			-sWASMFS
 			-sFORCE_FILESYSTEM
-			-sPROXY_TO_PTHREAD
 		)
+	endif()
+	if(SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD OR SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS)
+		target_link_options(SurrealEngine PRIVATE -sPROXY_TO_PTHREAD)
+
+		add_executable(PthreadSDLPresentationProbe web/pthread_sdl_presentation_probe.cpp)
+		target_link_libraries(PthreadSDLPresentationProbe PRIVATE surrealwidgets)
+		target_link_options(PthreadSDLPresentationProbe PRIVATE
+			-pthread
+			-sPROXY_TO_PTHREAD
+			-sUSE_SDL=2
+			-sASSERTIONS=1
+			-sEXIT_RUNTIME=1
+		)
+		set_target_properties(PthreadSDLPresentationProbe PROPERTIES SUFFIX ".html")
+
+		add_executable(PthreadWebGPUDeviceProbe web/pthread_webgpu_device_probe.cpp)
+		target_link_options(PthreadWebGPUDeviceProbe PRIVATE
+			-pthread
+			-sPROXY_TO_PTHREAD
+			-sPTHREAD_POOL_SIZE=1
+			-sINVOKE_RUN=0
+			-sEXIT_RUNTIME=1
+			-sASSERTIONS=1
+			-sEXPORTED_RUNTIME_METHODS=callMain
+			--use-port=emdawnwebgpu
+		)
+		set_target_properties(PthreadWebGPUDeviceProbe PROPERTIES SUFFIX ".js")
 	endif()
 	if(SURREAL_GAMEDATA_DIR)
 		# Developer convenience only. Production/distributable builds deliberately

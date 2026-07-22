@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>pthread WebGPU device ownership probe</title></head>
+<body>
+<pre id="log"></pre>
+<script>
+"use strict";
+const logElement = document.getElementById("log");
+function log(line) {
+	logElement.textContent += String(line) + "\n";
+	console.log(line);
+}
+
+var Module = {
+	locateFile: path => "../build-pthread-presentation/" + path,
+	print: log,
+	printErr: log,
+	onRuntimeInitialized: () => Module.callMain([]),
+};
+
+(async () => {
+	try {
+		const adapter = await navigator.gpu.requestAdapter();
+		if (!adapter) throw new Error("navigator.gpu.requestAdapter returned no adapter");
+		Module.preinitializedWebGPUDevice = await adapter.requestDevice();
+		const script = document.createElement("script");
+		script.src = "../build-pthread-presentation/PthreadWebGPUDeviceProbe.js";
+		script.onerror = () => log("FAIL could not load PthreadWebGPUDeviceProbe.js");
+		document.body.appendChild(script);
+	}
+	catch (error)
+	{
+		log("FAIL WebGPU setup: " + (error.stack || error));
+	}
+})();
+</script>
+</body>
+</html>
