@@ -110,6 +110,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Render/ViewFamily.h
 	SurrealEngine/Render/ViewFamily.cpp
 	SurrealEngine/Render/Presentation.h
+	SurrealEngine/Render/XRUISurfaces.h
+	SurrealEngine/Render/XRUISurfaces.cpp
 	SurrealEngine/Render/VisibleMesh.cpp
 	SurrealEngine/Render/VisibleMesh.h
 	SurrealEngine/Render/VisibleNode.cpp
@@ -760,4 +762,12 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PresentationTests PRIVATE SurrealEngine)
 	set_target_properties(PresentationTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PresentationTests COMMAND PresentationTests)
+
+	add_executable(XRUISurfaceTests
+		Tests/XRUISurfaceTests.cpp
+		SurrealEngine/Render/XRUISurfaces.cpp
+	)
+	target_include_directories(XRUISurfaceTests PRIVATE SurrealEngine)
+	set_target_properties(XRUISurfaceTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRUISurfaceTests COMMAND XRUISurfaceTests)
 endif()
