@@ -7,6 +7,7 @@
 #include "VisibleActor.h"
 #include "VisiblePortal.h"
 #include "BspClipper.h"
+#include "ViewFamily.h"
 #include "RenderDevice/RenderDevice.h"
 #include "UObject/UActor.h"
 #include "UObject/UTexture.h"
@@ -17,7 +18,7 @@
 class VisibleFrame
 {
 public:
-	void Process(const vec3& location, const mat4& worldToView, const Coords& viewRotation, bool mirrorFlag = false, int portalDepth = 0, const Array<PortalSpan>& portalSpans = {}, const vec4& portalPlane = vec4(0.0f, 0.0f, 0.0f, 1.0f));
+	void Process(const vec3& location, const mat4& worldToView, const Coords& viewRotation, bool mirrorFlag = false, int portalDepth = 0, const Array<PortalSpan>& portalSpans = {}, const vec4& portalPlane = vec4(0.0f, 0.0f, 0.0f, 1.0f), const ViewDescription* view = nullptr);
 	void Draw();
 	void DrawCoronas();
 
@@ -40,7 +41,7 @@ public:
 	Array<VisiblePortal> Portals;
 
 private:
-	void SetupSceneFrame(const mat4& worldToView);
+	void SetupSceneFrame(const mat4& worldToView, const ViewDescription* view);
 	void ProcessNode(BspNode* node);
 	void ProcessNodeSurface(BspNode* node, bool front);
 	void SortTranslucent();
@@ -56,4 +57,6 @@ private:
 	vec3 WarpLocationToOtherSide(UWarpZoneInfo* warpZone, vec3 p);
 	vec3 WarpNormalToOtherSide(UWarpZoneInfo* warpZone, vec3 n);
 	Coords WarpRotationToOtherSide(UWarpZoneInfo* warpZone, Coords rotation);
+
+	const ViewDescription* Description = nullptr;
 };

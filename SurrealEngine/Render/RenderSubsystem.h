@@ -1,6 +1,7 @@
 #pragma once
 
 #include "VisibleFrame.h"
+#include "ViewFamily.h"
 #include "Lightmap/LightmapBuilder.h"
 
 class RenderDevice;
@@ -27,7 +28,7 @@ public:
 	void DrawEditorViewport();
 	void DrawVideoFrame(FTextureInfo* frame, FTextureInfo* background);
 
-	void DrawGame(float levelTimeElapsed);
+	void DrawGame(float levelTimeElapsed, const ViewFamily& viewFamily);
 	void OnMapLoaded();
 
 	void DrawActor(UActor* actor, bool WireFrame, bool ClearZ);
@@ -99,7 +100,10 @@ public:
 	VisibleFrame MainFrame;
 
 private:
+	bool PrepareSceneViews();
+	void DrawSceneView(const ViewDescription& view);
 	void DrawScene();
+	void DrawScene(const ViewFamily& viewFamily);
 
 	std::unique_ptr<LightmapTexture> CreateLightmapTexture();
 

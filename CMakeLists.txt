@@ -107,6 +107,7 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Render/VisibleDecal.h
 	SurrealEngine/Render/VisibleFrame.cpp
 	SurrealEngine/Render/VisibleFrame.h
+	SurrealEngine/Render/ViewFamily.h
 	SurrealEngine/Render/VisibleMesh.cpp
 	SurrealEngine/Render/VisibleMesh.h
 	SurrealEngine/Render/VisibleNode.cpp

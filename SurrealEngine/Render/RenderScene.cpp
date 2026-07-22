@@ -7,10 +7,10 @@
 #include "Engine.h"
 #include "VisibleFrame.h"
 
-void RenderSubsystem::DrawScene()
+bool RenderSubsystem::PrepareSceneViews()
 {
 	if (!engine->Level)
-		return;
+		return false;
 
 	Light.FogFrameCounter++;
 	TextureFrameCounter++;
@@ -21,9 +21,53 @@ void RenderSubsystem::DrawScene()
 		if (actor)
 			actor->UpdateBspInfo();
 	}
+	return true;
+}
 
-	mat4 worldToView = Coords::ViewToRenderDev().ToMatrix() * Coords::Rotation(engine->CameraRotation).Inverse().ToMatrix() * Coords::Location(engine->CameraLocation).ToMatrix();
-	MainFrame.Process(engine->CameraLocation, worldToView, Coords::Rotation(engine->CameraRotation));
+void RenderSubsystem::DrawSceneView(const ViewDescription& view)
+{
+	// A small amount of legacy rendering still consults the engine camera
+	// location directly (fog and corona occlusion). Keep it synchronized with
+	// the explicitly selected view for the duration of this pass.
+	struct CameraLocationScope
+	{
+		CameraLocationScope(vec3& location, const vec3& value) : Location(location), Saved(location) { Location = value; }
+		~CameraLocationScope() { Location = Saved; }
+		vec3& Location;
+		vec3 Saved;
+	} cameraLocationScope(engine->CameraLocation, view.Location);
+
+	MainFrame.Process(view.Location, view.WorldToView, view.Rotation, false, 0, {}, vec4(0.0f, 0.0f, 0.0f, 1.0f), &view);
 	MainFrame.Draw();
 	MainFrame.DrawCoronas();
+}
+
+void RenderSubsystem::DrawScene()
+{
+	if (!PrepareSceneViews())
+		return;
+
+	ViewDescription view;
+	view.Location = engine->CameraLocation;
+	view.Rotation = Coords::Rotation(engine->CameraRotation);
+	view.WorldToView = Coords::ViewToRenderDev().ToMatrix() * view.Rotation.Inverse().ToMatrix() * Coords::Location(view.Location).ToMatrix();
+	view.Viewport.X = engine->viewport->ViewportX();
+	view.Viewport.Y = engine->viewport->ViewportY();
+	view.Viewport.Width = engine->viewport->ViewportWidth();
+	view.Viewport.Height = engine->viewport->ViewportHeight();
+	view.FovAngle = engine->CameraFovAngle;
+	view.ApplyGameViewport = true;
+	DrawSceneView(view);
+}
+
+void RenderSubsystem::DrawScene(const ViewFamily& viewFamily)
+{
+	if (!PrepareSceneViews())
+		return;
+
+	for (const ViewDescription& view : viewFamily.Views)
+	{
+		if (view.Viewport.Width > 0 && view.Viewport.Height > 0)
+			DrawSceneView(view);
+	}
 }
