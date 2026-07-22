@@ -2,6 +2,7 @@
 
 #include "VisibleFrame.h"
 #include "ViewFamily.h"
+#include "XRUISurfaceEngineBinding.h"
 #include "Lightmap/LightmapBuilder.h"
 
 class RenderDevice;
@@ -14,10 +15,11 @@ struct LightmapTexture
 	UnrealMipmap Mip;
 };
 
-class RenderSubsystem
+class RenderSubsystem : private XRUISurfaceEngineHost
 {
 public:
 	RenderSubsystem(RenderDevice* renderdevice);
+	XRUISurfaceEngineBinding& XRUISurfaces() { return XRUIBinding; }
 
 	void PreRenderWindows(UCanvas* canvas);
 	void PostRenderWindows(UCanvas* canvas);
@@ -102,6 +104,17 @@ public:
 	VisibleFrame MainFrame;
 
 private:
+	bool BeginXRUICanvasCapture(const XRUICanvasReplayItem& item) override;
+	void ReplayXRUICanvas(const XRUICanvasReplayItem& item) override;
+	void EndXRUICanvasCapture(const XRUICanvasReplayItem& item) override;
+	void MoveXRUICursor(const XRUIPointerSource& source, XRUISurfaceKind surface, const Pointf& canvasPixel) override;
+	void PressXRUIPrimary(const XRUIPointerSource& source, XRUISurfaceKind surface, const Pointf& canvasPixel) override;
+	void ReleaseXRUIPrimary(const XRUIPointerSource& source, XRUISurfaceKind surface, const Pointf& canvasPixel, bool canceled) override;
+	void EndXRUIPointerSession() override;
+
+	bool IsXRUIMenuActive() const;
+	void DrawVideoContents(FTextureInfo* frame, FTextureInfo* background);
+
 	bool PrepareSceneViews();
 	void DrawSceneView(const ViewDescription& view);
 	void DrawScene();
@@ -150,4 +163,31 @@ private:
 
 	Array<vec3> VertexBuffer;
 	Array<GouraudVertex> GouraudVertexBuffer;
+
+	XRUISurfaceEngineBinding XRUIBinding;
+	FTextureInfo* XRUICinematicFrame = nullptr;
+	FTextureInfo* XRUICinematicBackground = nullptr;
+	PresentationLayerDescription XRUICaptureLayer;
+	struct
+	{
+		bool Active = false;
+		FSceneNode Frame;
+		int UIScale = 1;
+		float CurX = 0.0f;
+		float CurY = 0.0f;
+		float ClipX = 0.0f;
+		float ClipY = 0.0f;
+		int SizeX = 0;
+		int SizeY = 0;
+		float ConsoleFrameX = 0.0f;
+		float ConsoleFrameY = 0.0f;
+		bool HasConsoleFrame = false;
+		int ViewportX = 0;
+		int ViewportY = 0;
+		int ViewportWidth = 0;
+		int ViewportHeight = 0;
+	} XRUICanvasRestore;
+	bool XRUIMouseStateSaved = false;
+	bool XRUIPreviousMouseAvailable = false;
+	bool XRUIPreviousShowMouse = false;
 };

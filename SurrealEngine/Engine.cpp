@@ -530,6 +530,12 @@ void Engine::PlayAVI(const Array<std::string>& args)
 
 	playingAvi = true;
 	skipAvi = false;
+	render->XRUISurfaces().SetCinematicActive(true);
+	struct CinematicVisibilityGuard
+	{
+		XRUISurfaceEngineBinding& Binding;
+		~CinematicVisibilityGuard() { Binding.SetCinematicActive(false); }
+	} cinematicVisibilityGuard{ render->XRUISurfaces() };
 
 	try
 	{

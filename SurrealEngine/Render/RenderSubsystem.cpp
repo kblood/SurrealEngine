@@ -7,12 +7,13 @@
 #include "VM/ScriptCall.h"
 #include "Engine.h"
 
-RenderSubsystem::RenderSubsystem(RenderDevice* renderdevice) : Device(renderdevice)
+RenderSubsystem::RenderSubsystem(RenderDevice* renderdevice) : Device(renderdevice), XRUIBinding(*this)
 {
 }
 
 void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFamily)
 {
+	XRUIBinding.SetMenuActive(IsXRUIMenuActive());
 	LevelTimeElapsed = levelTimeElapsed;
 	AutoUV += levelTimeElapsed * 64.0f;
 	AmbientGlowTime = std::fmod(AmbientGlowTime + 0.8f * levelTimeElapsed, 1.0f);
@@ -65,6 +66,8 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFam
 		EndPresentationLayer(viewFamily.Presentation, PresentationLayer::UserInterface);
 	}
 
+	XRUIBinding.Replay(XRUICanvasReplayContext::Game);
+
 	Device->Unlock(true);
 }
 
@@ -86,16 +89,30 @@ void RenderSubsystem::DrawVideoFrame(FTextureInfo* frame, FTextureInfo* backgrou
 	Device->Brightness = 0.4f;// engine->client->Brightness;
 	Device->Lock(vec4(flashScale, 1.0f), vec4(flashFog, 1.0f), vec4(0.0f), nullptr, nullptr);
 	ResetCanvas();
-	if (!BeginPresentationLayer(presentation, PresentationLayer::Cinematic))
+	if (BeginPresentationLayer(presentation, PresentationLayer::Cinematic))
 	{
-		Device->Unlock(true);
-		return;
+		Device->SetSceneNode(&Canvas.Frame);
+		DrawVideoContents(frame, background);
+		Device->EndFlash();
+		EndPresentationLayer(presentation, PresentationLayer::Cinematic);
 	}
-	Device->SetSceneNode(&Canvas.Frame);
+	else
+	{
+		Device->EndFlash();
+	}
 
+	XRUICinematicFrame = frame;
+	XRUICinematicBackground = background;
+	XRUIBinding.Replay(XRUICanvasReplayContext::Cinematic);
+	XRUICinematicFrame = nullptr;
+	XRUICinematicBackground = nullptr;
+	Device->Unlock(true);
+}
+
+void RenderSubsystem::DrawVideoContents(FTextureInfo* frame, FTextureInfo* background)
+{
 	float sizeX = (float)(int)(engine->viewport->ViewportWidth() / (float)Canvas.uiscale);
 	float sizeY = (float)(int)(engine->viewport->ViewportHeight() / (float)Canvas.uiscale);
-
 	Rectf clipBox = Rectf::xywh(0.0f, 0.0f, sizeX, sizeY);
 	Rectf dest = clipBox;
 
@@ -110,10 +127,6 @@ void RenderSubsystem::DrawVideoFrame(FTextureInfo* frame, FTextureInfo* backgrou
 		Rectf src = Rectf::xywh(0.0f, 0.0f, (float)background->USize, (float)background->VSize);
 		DrawTile(*background, dest, src, clipBox, 1.0f, vec4(1.0f), vec4(0.0f), PF_TwoSided | PF_Highlighted);
 	}
-
-	Device->EndFlash();
-	EndPresentationLayer(presentation, PresentationLayer::Cinematic);
-	Device->Unlock(true);
 }
 
 bool RenderSubsystem::BeginPresentationLayer(const PresentationPlan& presentation, PresentationLayer layer)

@@ -173,6 +173,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Render/XRUISurfaces.cpp
 	SurrealEngine/Render/XRUISurfaceRuntimeAdapter.h
 	SurrealEngine/Render/XRUISurfaceRuntimeAdapter.cpp
+	SurrealEngine/Render/XRUISurfaceEngineBinding.h
+	SurrealEngine/Render/XRUISurfaceEngineBinding.cpp
 	SurrealEngine/Render/VisibleMesh.cpp
 	SurrealEngine/Render/VisibleMesh.h
 	SurrealEngine/Render/VisibleNode.cpp
@@ -183,6 +185,7 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Render/VisibleSprite.h
 	SurrealEngine/Render/VisibleTranslucent.h
 	SurrealEngine/Render/RenderSubsystem.cpp
+	SurrealEngine/Render/RenderXRUISurfaces.cpp
 	SurrealEngine/Render/RenderSubsystem.h
 	SurrealEngine/Render/RenderCanvas.cpp
 	SurrealEngine/Render/RenderScene.cpp
@@ -1088,4 +1091,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRUISurfaceRuntimeAdapterTests PRIVATE SurrealEngine)
 	set_target_properties(XRUISurfaceRuntimeAdapterTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRUISurfaceRuntimeAdapterTests COMMAND XRUISurfaceRuntimeAdapterTests)
+
+	add_executable(XRUISurfaceEngineBindingTests
+		Tests/XRUISurfaceEngineBindingTests.cpp
+		SurrealEngine/Render/XRUISurfaces.cpp
+		SurrealEngine/Render/XRUISurfaceRuntimeAdapter.cpp
+		SurrealEngine/Render/XRUISurfaceEngineBinding.cpp
+	)
+	target_include_directories(XRUISurfaceEngineBindingTests PRIVATE SurrealEngine)
+	set_target_properties(XRUISurfaceEngineBindingTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRUISurfaceEngineBindingTests COMMAND XRUISurfaceEngineBindingTests)
 endif()
