@@ -12,6 +12,7 @@
 </section>
 <pre id="results">running</pre>
 <script src="ut99_importer.js"></script><script src="browser_app.js"></script>
+<script src="webxr_browser_app_adapter.js"></script><script src="browser_release.js"></script>
 <script>
 "use strict";
 window.browserAppTestResults = []; window.browserAppTestDone = false;
@@ -92,6 +93,54 @@ window.browserAppTestPromise = (async () => {
 		events.push("callMain");
 		await api.activatePresentation(registry, selection, { marker: "runtime" });
 		assert(events.join(",") === "callMain,activate");
+	});
+	await run("WebGPU acquisition requests XR compatibility and falls back flat with diagnostics", async () => {
+		const originalGPU = navigator.gpu;
+		const requests = [];
+		const diagnostics = [];
+		const device = { lost: new Promise(() => {}) };
+		const adapter = { features: new Set(), async requestDevice() { return device; } };
+		Object.defineProperty(navigator, "gpu", { configurable: true, value: {
+			async requestAdapter(options) { requests.push(options || null); return requests.length === 1 ? null : adapter; },
+		} });
+		try {
+			const acquired = await api.acquireWebGPUDevice(() => {}, {
+				xrCompatible: true,
+				onXRCompatibility: (available, detail) => diagnostics.push({ available, detail }),
+			});
+			assert(acquired === device);
+			assert(requests.length === 2 && requests[0].xrCompatible === true && requests[1] === null);
+			assert(diagnostics.length === 1 && !diagnostics[0].available && diagnostics[0].detail.includes("XR-compatible"));
+		} finally {
+			Object.defineProperty(navigator, "gpu", { configurable: true, value: originalGPU });
+		}
+	});
+	await run("release capability checks keep flat mode independent from WebXR", async () => {
+		const platform = await SurrealBrowserRelease.detectPlatformCapabilities({
+			isSecureContext: true,
+			WebAssembly: {}, File, Blob, indexedDB: {}, showDirectoryPicker() {},
+			navigator: { gpu: {}, storage: { getDirectory() {}, async persisted() { return true; } } },
+		});
+		assert(SurrealBrowserRelease.canStart(platform));
+		const noGPU = await SurrealBrowserRelease.detectPlatformCapabilities({
+			isSecureContext: true, WebAssembly: {}, File, Blob, indexedDB: {},
+			navigator: { storage: { async persisted() { return false; } } },
+		});
+		assert(!SurrealBrowserRelease.canStart(noGPU) && !noGPU.webGPU.available);
+	});
+	await run("WebXR probe and failed entry report a flat fallback", async () => {
+		const environment = {
+			isSecureContext: true,
+			navigator: { xr: { async isSessionSupported(mode) { return mode === "immersive-vr"; } } },
+			XRGPUBinding() {},
+			async surrealXREnter() { return false; },
+			surrealXRGetState() { return { lastError: "headset declined" }; },
+		};
+		const capability = await SurrealWebXRBrowserProvider.probe(environment);
+		assert(capability.available && capability.code === "ready");
+		const activation = await SurrealWebXRBrowserProvider.createProvider(capability, environment)
+			.activate({ Module: { preinitializedWebGPUDevice: {} } });
+		assert(!activation.active && activation.fallback === "flat" && activation.message === "headset declined");
 	});
 	window.browserAppTestDone = true;
 	document.getElementById("results").textContent = JSON.stringify(browserAppTestResults, null, 2);

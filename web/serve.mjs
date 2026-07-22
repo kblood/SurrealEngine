@@ -7,11 +7,13 @@
 // Usage: node web/serve.mjs [port]     (default 8091)
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
+import { extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
+const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
 const port = Number(process.argv[2] ?? 8091);
+const requestedRoot = process.argv[3];
+const root = requestedRoot ? resolve(requestedRoot) : repositoryRoot;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -27,9 +29,10 @@ const MIME = {
 createServer(async (req, res) => {
   try {
     let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (path === '/') path = '/web/index.html';
+	if (path === '/') path = requestedRoot ? '/index.html' : '/web/index.html';
     const file = normalize(join(root, path));
-    if (!file.startsWith(root)) { res.writeHead(403); res.end(); return; }
+	const relativePath = relative(root, file);
+	if (isAbsolute(relativePath) || relativePath.startsWith('..')) { res.writeHead(403); res.end(); return; }
     const body = await readFile(file);
     res.writeHead(200, {
       'Content-Type': MIME[extname(file)] ?? 'application/octet-stream',

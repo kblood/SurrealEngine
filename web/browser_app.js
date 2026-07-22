@@ -26,6 +26,8 @@
 				id: provider.id,
 				label: provider.label,
 				isAvailable: typeof provider.isAvailable === "function" ? provider.isAvailable : () => provider.isAvailable !== false,
+				requiresXRCompatibleAdapter: provider.requiresXRCompatibleAdapter === true,
+				setXRCompatibleAdapter: typeof provider.setXRCompatibleAdapter === "function" ? provider.setXRCompatibleAdapter : () => {},
 				prepareLaunch: typeof provider.prepareLaunch === "function" ? provider.prepareLaunch : async () => {},
 				activate: typeof provider.activate === "function" ? provider.activate : async () => {},
 			});
@@ -270,9 +272,25 @@
 		}
 	}
 
-	async function acquireWebGPUDevice(log) {
+	async function acquireWebGPUDevice(log, options) {
+		const settings = options || {};
 		if (!global.navigator.gpu) throw new LauncherError("WEBGPU_UNAVAILABLE", "This browser does not provide WebGPU.");
-		const adapter = await global.navigator.gpu.requestAdapter();
+		let adapter = null;
+		let xrFailure = null;
+		if (settings.xrCompatible) {
+			try { adapter = await global.navigator.gpu.requestAdapter({ xrCompatible: true }); }
+			catch (error) { xrFailure = error; }
+			if (!adapter) {
+				const detail = xrFailure && xrFailure.message ? xrFailure.message : "no XR-compatible WebGPU adapter was returned";
+				log("[runtime] Immersive WebXR disabled: " + detail + "; retrying WebGPU for flat mode");
+				if (typeof settings.onXRCompatibility === "function") settings.onXRCompatibility(false, detail);
+				adapter = await global.navigator.gpu.requestAdapter();
+			} else if (typeof settings.onXRCompatibility === "function") {
+				settings.onXRCompatibility(true, null);
+			}
+		} else {
+			adapter = await global.navigator.gpu.requestAdapter();
+		}
 		if (!adapter) throw new LauncherError("WEBGPU_ADAPTER", "No compatible WebGPU adapter was found.");
 		const requiredFeatures = ["texture-compression-bc", "float32-filterable"].filter(feature => adapter.features.has(feature));
 		const device = await adapter.requestDevice({ requiredFeatures });
@@ -289,7 +307,13 @@
 		const launcher = options.launcher || new LauncherController(options.launcherRoot || null, registry, options.launcherOptions);
 		const library = options.library || new GameLibrary();
 		const libraryUI = options.libraryUI || new GameLibraryUI(options.libraryRoot || null, library);
-		const device = await acquireWebGPUDevice(log);
+		const xrProviders = registry.available().filter(provider => provider.requiresXRCompatibleAdapter);
+		const device = await acquireWebGPUDevice(log, {
+			xrCompatible: xrProviders.length > 0,
+			onXRCompatibility: (available, detail) => {
+				for (const provider of xrProviders) provider.setXRCompatibleAdapter(available, detail);
+			},
+		});
 		return new Promise((resolve, reject) => {
 			const Module = {
 				canvas: options.canvas,

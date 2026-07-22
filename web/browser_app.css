@@ -3,6 +3,10 @@ body { margin: 0; min-height: 100vh; display: grid; grid-template-rows: 1fr auto
 #game { width: 100%; height: 100%; min-height: 50vh; background: #05070a; }
 .panel { width: min(46rem, calc(100% - 2rem)); box-sizing: border-box; margin: 1rem auto; padding: 1.25rem; border: 1px solid #394759; border-radius: .65rem; background: #18202b; }
 .panel h1, .panel h2 { margin-top: 0; }
+.capability-panel { order: -1; }
+.capability-panel ul { display: grid; gap: .35rem; padding-left: 1.35rem; }
+.capability-panel li[data-available="true"]::marker { color: #68d391; }
+.capability-panel li[data-available="false"]::marker { color: #f6ad55; }
 .actions, .fields { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
 .fields label { display: grid; gap: .3rem; min-width: 12rem; flex: 1; }
 button, select, .file-button { box-sizing: border-box; min-height: 2.5rem; border: 1px solid #718096; border-radius: .35rem; padding: .45rem .7rem; color: inherit; background: #253244; }

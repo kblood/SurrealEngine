@@ -1,0 +1,25 @@
+{
+  "schema": "surrealengine-browser-release-config-v1",
+  "version": 1,
+  "intendedBasePath": "/webxr/Ports/SurrealEngine/",
+  "dependencies": [
+    {
+      "branch": "pr/web-desktop-launcher",
+      "sha": "6c614d56e66e6ea8882aada892b93bc6526e0a33"
+    },
+    {
+      "branch": "pr/webxr-input-runtime",
+      "sha": "d472068ad5894dc8cdddeefbb4f491bd118f2592"
+    }
+  ],
+  "webAssets": [
+    "browser_app.css",
+    "browser_app.js",
+    "browser_data_bootstrap.js",
+    "browser_release.js",
+    "mutable_persistence.js",
+    "ut99_importer.js",
+    "webxr_browser_app_adapter.js",
+    "webxr_provider.js"
+  ]
+}

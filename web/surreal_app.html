@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-engine-base="../build-emscripten/">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -9,6 +9,13 @@
 <body>
 <main>
 	<canvas id="game" width="1280" height="720"></canvas>
+	<section id="browser-status" class="panel capability-panel" aria-live="polite">
+		<h1>SurrealEngine Web</h1>
+		<p>Run your own Unreal Tournament or Unreal Gold installation in a flat WebGPU window, with optional immersive WebXR when the browser supports it.</p>
+		<ul data-capability-list><li>Checking browser capabilities…</li></ul>
+		<p data-app-phase>Preparing launcher…</p>
+		<p data-app-error hidden role="alert"></p>
+	</section>
 	<section id="game-library" class="panel" hidden>
 		<h1>Game library</h1>
 		<div class="actions">
@@ -47,37 +54,31 @@
 <script src="mutable_persistence.js"></script>
 <script src="browser_data_bootstrap.js"></script>
 <script src="browser_app.js"></script>
+<script src="webxr_provider.js"></script>
+<script src="webxr_browser_app_adapter.js"></script>
+<script src="browser_release.js"></script>
 <script>
 "use strict";
 const logLines = [];
 const logElement = document.getElementById("log");
 function log(line) { logLines.push(String(line)); logElement.textContent += line + "\n"; }
-function loadScript(path) {
-	return new Promise((resolve, reject) => {
-		const script = document.createElement("script");
-		script.src = path;
-		script.onload = resolve;
-		script.onerror = () => reject(new Error("Could not load " + path));
-		document.head.appendChild(script);
-	});
-}
-async function presentationProviders() {
-	if (new URLSearchParams(location.search).get("webxr") !== "1") return [];
-	await loadScript("webxr_provider.js");
-	await loadScript("webxr_browser_app_adapter.js");
-	return [SurrealWebXRBrowserProvider.createProvider()];
-}
-presentationProviders().then(providers => SurrealBrowserApp.start({
-	canvas: document.getElementById("game"),
-	importerRoot: document.getElementById("game-data-importer"),
-	launcherRoot: document.getElementById("game-launcher"),
-	libraryRoot: document.getElementById("game-library"),
-	hostBridge: window.SurrealHostBridge,
-	presentationProviders: providers,
-	log,
-	logSnapshot: () => logLines.join("\n") + "\n",
-	onLaunch: selection => { window.surrealBooted = true; window.surrealLaunchSelection = selection; },
-})).then(app => { window.surrealApp = app; }).catch(error => log("[launcher] " + (error.stack || error)));
+const engineBase = document.documentElement.dataset.engineBase;
+SurrealBrowserRelease.start({
+	statusRoot: document.getElementById("browser-status"),
+	appOptions: {
+		canvas: document.getElementById("game"),
+		importerRoot: document.getElementById("game-data-importer"),
+		launcherRoot: document.getElementById("game-launcher"),
+		libraryRoot: document.getElementById("game-library"),
+		hostBridge: window.SurrealHostBridge,
+		engineBase,
+		engineScript: engineBase + "SurrealEngine.js",
+		log,
+		logSnapshot: () => logLines.join("\n") + "\n",
+		onLaunch: selection => { window.surrealBooted = true; window.surrealLaunchSelection = selection; },
+	},
+}).then(release => { window.surrealRelease = release; window.surrealApp = release.app; })
+	.catch(error => log("[launcher] " + (error.stack || error)));
 </script>
 </body>
 </html>
