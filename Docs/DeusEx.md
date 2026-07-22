@@ -92,6 +92,24 @@ at end-of-input. After the change, the Release build completed and both
 `DX.dx` and `00_Training.dx` remained responsive during 15-second unattended
 smoke tests. Interactive email, book, and DataCube validation remains pending.
 
+### Original parser reference
+
+The stock 1112fm `DeusExText.dll` retains named exports for
+`DDeusExTextParser`, including `ParseTag`, `ParseColor`, `ParseEmail`,
+`ParseFile`, and `GotoLabel`. Its internal token table maps values 0 through 29
+to the same order used by `DeusExTextTags`:
+
+```text
+TEXT FILE EMAIL NOTE /NOTE GOAL /GOAL COMMENT /COMMENT
+PLAYERNAME PLAYERFIRSTNAME NP JC JL JR DC C /C P B /B U /U I /I
+G F L /< />
+```
+
+This independently confirms that `JC`, `JL`, and `JR` are the center, left,
+and right alignment tokens and that `EMAIL` is distinct from `FILE`. Future
+tokenizer changes should compare observable behavior with these exported
+reference functions and must not require or redistribute the proprietary DLL.
+
 ## Next validation targets
 
 1. Verify books, DataCubes, email terminals, and bulletin links interactively.
