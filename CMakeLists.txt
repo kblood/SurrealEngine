@@ -156,6 +156,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Platform/OpenXR/OpenXRProvider.h
 	SurrealEngine/Platform/OpenXR/OpenXRView.cpp
 	SurrealEngine/Platform/OpenXR/OpenXRView.h
+	SurrealEngine/Platform/WebXR/WebXRFrameBridge.cpp
+	SurrealEngine/Platform/WebXR/WebXRFrameBridge.h
 	SurrealEngine/Render/VisibleMesh.cpp
 	SurrealEngine/Render/VisibleMesh.h
 	SurrealEngine/Render/VisibleNode.cpp
@@ -954,7 +956,7 @@ if(EMSCRIPTEN)
 		-sINVOKE_RUN=0
 		-sEXIT_RUNTIME=0
 		-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall
-		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit
+		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_GetWebXRFrameLastError
 		-sASSERTIONS=1
 		-sNO_DISABLE_EXCEPTION_CATCHING
 		-pthread
@@ -1000,4 +1002,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(OpenXRViewTests PRIVATE SurrealEngine)
 	set_target_properties(OpenXRViewTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME OpenXRViewTests COMMAND OpenXRViewTests)
+
+	add_executable(WebXRFrameBridgeTests
+		Tests/WebXRFrameBridgeTests.cpp
+		SurrealEngine/Platform/WebXR/WebXRFrameBridge.cpp
+		SurrealEngine/Math/mat.cpp
+	)
+	target_include_directories(WebXRFrameBridgeTests PRIVATE SurrealEngine)
+	set_target_properties(WebXRFrameBridgeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME WebXRFrameBridgeTests COMMAND WebXRFrameBridgeTests)
 endif()
