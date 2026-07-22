@@ -47,6 +47,12 @@ fn vs_main(input: VertexInput) -> VertexOutput
 {
 	var output: VertexOutput;
 	output.pos = uniforms.objectToProjection * vec4<f32>(input.position, 1.0);
+	// SurrealEngine's projection matrices use the D3D/Vulkan screen-Y
+	// convention. WebGPU's clip-space Y maps to the canvas in the opposite
+	// direction, so correct the clip position once for every draw path. The
+	// old per-path texture-V mirrors made texture content readable but left
+	// world geometry and UI placement vertically inverted.
+	output.pos.y = -output.pos.y;
 	output.flags = input.flags;
 	output.texCoord = input.texCoord;
 	output.texCoord2 = input.texCoord2;

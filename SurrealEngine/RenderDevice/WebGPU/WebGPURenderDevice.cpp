@@ -904,38 +904,6 @@ void WebGPURenderDevice::DrawComplexSurfaceFaces(const ComplexSurfaceInfo& info)
 	uint32_t vcount = info.facet->VertexCount;
 	uint32_t icount = (vcount - 2) * 3;
 
-	// BSP surfaces rendered with their texture content (and lightmap, in
-	// lockstep) flipped top-to-bottom on this backend, despite byte-identical
-	// vertex/UV math to D3D11 - the same class of bug as DrawTile's V/VL swap
-	// (see the comment there) and NOT invisible-on-symmetric-textures as
-	// originally suspected: isolated visually via UT-Logo-Map, whose chrome
-	// "Unreal Tournament" logo turned out to be built from BSP brushes (8
-	// DrawComplexSurface calls, 0 DrawGouraudPolygon calls per-frame per the
-	// Surreal_GetWebGPU{GouraudPolygons,ComplexSurfaces}() diagnostic counters
-	// added alongside this fix) rather than an actor mesh as first assumed.
-	// DrawTile's fix swaps the V assigned to two quad corners, which is
-	// equivalent to mirroring V around the midpoint of its local [V,VL] span;
-	// this facet has no such span, so mirror the shared "v" dot-product
-	// (which every one of the four texture layers' V coordinates below is
-	// derived from - main tex, lightmap, macro, detail/fog) around the
-	// facet's own local min/max v instead, the direct generalization of the
-	// same trick. Mirroring the shared "v" input once (rather than patching
-	// each of the four TexCoord* lines separately) keeps the lightmap
-	// mathematically in lockstep with the base texture - every layer below
-	// still derives from the same corrected v via its own Pan/Mult, so their
-	// relative alignment is unchanged by this fix. Visually re-verified on
-	// DM-Deck16][ (the M2 smoke-test map) post-fix: shadow/light patches
-	// still track wall/floor geometry contours, no misalignment.
-	float vMin = std::numeric_limits<float>::infinity();
-	float vMax = -std::numeric_limits<float>::infinity();
-	for (uint32_t i = 0; i < vcount; i++)
-	{
-		float v = dot(yaxis, pts[i]);
-		vMin = std::min(vMin, v);
-		vMax = std::max(vMax, v);
-	}
-	float vMirror = vMin + vMax;
-
 	auto alloc = ReserveVertices(vcount, icount);
 	if (alloc.vptr)
 	{
@@ -947,7 +915,7 @@ void WebGPURenderDevice::DrawComplexSurfaceFaces(const ComplexSurfaceInfo& info)
 		{
 			vec3 point = pts[i];
 			float u = dot(xaxis, point);
-			float v = vMirror - dot(yaxis, point);
+			float v = dot(yaxis, point);
 
 			vptr->Flags = flags;
 			vptr->Position[0] = point.x;
@@ -1013,22 +981,8 @@ void WebGPURenderDevice::DrawGouraudPolygon(FSceneNode* Frame, FTextureInfo& Inf
 			vertex.Position[0] = P->Point.x;
 			vertex.Position[1] = P->Point.y;
 			vertex.Position[2] = P->Point.z;
-			// Same top-to-bottom V inversion as DrawTile (see its comment) and
-			// DrawComplexSurfaceFaces (see its comment above) - this is the
-			// third and last of the three draw paths that route texture
-			// content to this backend, and it turns out to be affected too
-			// (weapon/actor mesh skins rendered upside-down relative to
-			// native, confirmed via DM-Deck16][ first-person weapon view
-			// before/after this fix). Unlike DrawComplexSurfaceFaces's
-			// per-facet world-space "v", this function's v comes straight
-			// from the mesh's own baked UV (P->UV.y), already normalized to
-			// [0,1] texture space by VMult (1/(vscale*VSize) -
-			// WebGPUTextureManager.cpp), so mirroring around the normalized
-			// unit span (1.0 - v) is the direct equivalent of DrawTile's
-			// V/VL corner swap and DrawComplexSurfaceFaces's local vMin/vMax
-			// mirror, without needing any local-extent bookkeeping.
 			vertex.TexCoord[0] = P->UV.x * UMult;
-			vertex.TexCoord[1] = 1.0f - (P->UV.y * VMult);
+			vertex.TexCoord[1] = P->UV.y * VMult;
 			vertex.TexCoord2[0] = P->Fog.x;
 			vertex.TexCoord2[1] = P->Fog.y;
 			vertex.TexCoord3[0] = P->Fog.z;
@@ -1123,21 +1077,6 @@ void WebGPURenderDevice::DrawTile(FSceneNode* Frame, FTextureInfo& Info, float X
 		UL = U + UL * UMult;
 		V *= VMult;
 		VL = V + VL * VMult;
-
-		// DrawTile's vertex layout below is a verbatim port of D3D11RenderDevice::DrawTile
-		// (same rfx2z/rfy2z billboard trick, same vptr[0..3] position/UV corner pairing,
-		// same frustum() projection matrix and vs_main multiply order as the 3D scene
-		// pass). Despite that parity, 2D tiles (HUD text, console/menu glyphs, weapon
-		// icons - anything routed through this function) rendered with their texture
-		// content flipped top-to-bottom on this backend, while BSP surfaces drawn via
-		// DrawComplexSurface (which builds its own vertices, not through this function)
-		// were unaffected. Empirically isolated with an A/B smoke-test rebuild: swapping
-		// V/VL here - and only here - fixes it with no effect on 3D geometry, confirming
-		// the inversion is specific to this function's tile path rather than a global
-		// WebGPU texture-sampling or viewport convention difference from D3D11.
-		{
-			float tmp = V; V = VL; VL = tmp;
-		}
 
 		auto setVert = [&](WebGPUSceneVertex& v, float x, float y, float u, float vv)
 		{
