@@ -257,6 +257,11 @@ external-nonparticipant categories. They separately record TakeDamage fatal
 diagnostics and exact outermost `GameInfo.Killed` outcomes, including direct
 deaths that bypass TakeDamage. External contamination must be zero;
 environmental and self outcomes reconcile instead of being falsely rejected.
+Damage IDs represent callback-entry allocation order. Re-entrant `TakeDamage`
+calls for different victims may complete and emit in LIFO order, so validation
+requires the complete ID set to be positive, unique, and exactly contiguous
+from 1; it does not require JSONL emission order to be numeric. Fatal-death
+links and all per-participant summary totals are still replayed by ID.
 The analyzer reports evidence; it does not implement
 sequential stopping decisions.
 

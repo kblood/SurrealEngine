@@ -73,7 +73,6 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
     run_config_fields: dict[str, str] = {}
     run_end_fields: dict[str, str] = {}
     run_end_seq: int | None = None
-    last_damage_id = 0
     last_death_id = 0
     damage_records: dict[int, dict[str, Any]] = {}
     death_records: list[tuple[int, dict[str, Any]]] = []
@@ -368,9 +367,8 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
                         errors.append(f"line {line_number}: damage origin mismatch")
                     if death_protocol:
                         damage_id = as_int(fields, "damage_id")
-                        if damage_id != last_damage_id + 1:
-                            errors.append(f"line {line_number}: damage_id is not monotonic")
-                        last_damage_id = damage_id
+                        if damage_id <= 0:
+                            errors.append(f"line {line_number}: damage_id must be positive")
                         roster_by_identity = {
                             entry[1].get("identity", ""): int(entry[1].get("roster_index", -1))
                             for entry in profile_configurations
@@ -545,6 +543,13 @@ def validate(events_path: Path, summary_path: Path | None, *, qualification: boo
                 errors.append(f"line {line_number}: {event_type} field error: {exc}")
 
     if qualification or fixture_id == "controlled-death-outcomes-v1":
+        observed_damage_ids = set(damage_records)
+        expected_damage_ids = set(range(1, len(observed_damage_ids) + 1))
+        if observed_damage_ids != expected_damage_ids:
+            errors.append(
+                "damage_id set is not contiguous from 1: "
+                f"expected {sorted(expected_damage_ids)}, observed {sorted(observed_damage_ids)}"
+            )
         participant_identities = {entry[1].get("identity", "") for entry in profile_configurations}
         death_links: Counter[int] = Counter()
         for line_number, death in death_records:

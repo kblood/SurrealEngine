@@ -114,6 +114,39 @@ def valid_documents() -> tuple[list[dict], dict]:
     return events, summary
 
 
+def three_damage_documents(emission_ids: tuple[int, int, int]) -> tuple[list[dict], dict]:
+    """Build a reconciled trace whose middle emitted damage is the fatal linked record."""
+    events, summary = valid_documents()
+    assert emission_ids[1] == 1
+
+    def nonfatal_damage(seq: int, damage_id: int, before: int, after: int) -> dict:
+        return event(seq, "damage", {
+            "damage_id": str(damage_id), "victim": "pri:2", "instigator": "pri:1",
+            "victim_roster_index": "1", "instigator_roster_index": "0",
+            "health_before": str(before), "health_after": str(after),
+            "raw_health_delta": str(before - after),
+            "effective_health_damage": str(before - after),
+            "fatal": "false", "self_damage": "false", "damage_origin": "opponent",
+        }, tick=1)
+
+    fatal_damage = copy.deepcopy(events[7])
+    fatal_damage["seq"] = 8
+    fatal_damage["fields"]["damage_id"] = str(emission_ids[1])
+    run_end = copy.deepcopy(events[8])
+    run_end["seq"] = 10
+    events = events[:7] + [
+        nonfatal_damage(7, emission_ids[0], 100, 90),
+        fatal_damage,
+        nonfatal_damage(9, emission_ids[2], 90, 70),
+        run_end,
+    ]
+
+    loque, tamerlane = summary["bot_metrics"]
+    loque.update({"damage_events_dealt_exact": 2, "damage_dealt_exact": 30})
+    tamerlane.update({"damage_events_taken_exact": 2, "damage_taken_exact": 30})
+    return events, summary
+
+
 def write_documents(root: Path, events: list[dict], summary: dict | None) -> tuple[Path, Path | None]:
     events_path = root / "events.jsonl"
     events_path.write_text("".join(json.dumps(item) + "\n" for item in events), encoding="utf-8")
@@ -179,6 +212,28 @@ class QualificationTraceTests(unittest.TestCase):
         report, _, _ = self.validate_documents(events, summary)
         self.assertFalse(report["passed"])
         self.assertTrue(any("references nonfatal damage_id 1" in error for error in report["errors"]))
+
+    def test_nested_damage_completion_order_passes(self) -> None:
+        events, summary = three_damage_documents((2, 1, 3))
+        report, _, _ = self.validate_documents(events, summary)
+        self.assertTrue(report["passed"], report["errors"])
+
+    def test_damage_ids_remain_positive_unique_and_contiguous(self) -> None:
+        adversarial = (
+            ((2, 1, 2), "duplicate damage_id 2"),
+            ((2, 1, 4), "damage_id set is not contiguous from 1"),
+            ((0, 1, 2), "damage_id must be positive"),
+            ((-1, 1, 2), "damage_id must be positive"),
+        )
+        for emission_ids, expected_error in adversarial:
+            with self.subTest(emission_ids=emission_ids):
+                events, summary = three_damage_documents(emission_ids)
+                report, _, _ = self.validate_documents(events, summary)
+                self.assertFalse(report["passed"])
+                self.assertTrue(
+                    any(expected_error in error for error in report["errors"]),
+                    report["errors"],
+                )
 
     def test_invalid_pri_transition_fails(self) -> None:
         events, summary = valid_documents()

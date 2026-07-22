@@ -7,6 +7,8 @@
 /.cppbuild
 /*.sln
 /botbench-*/
+/q1-capture-*/
+/q1-analysis-*/
 /retail-oracle-script-smoke/
 /retail-touch-probe/
 **/__pycache__/
