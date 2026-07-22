@@ -26,11 +26,22 @@ namespace
 
 	bool BuildHeadRelativePose(const XRUIViewerPose& viewer, float distance, XRUISurfacePose& pose)
 	{
-		vec3 forward = normalize(viewer.Forward);
-		vec3 right = normalize(cross(forward, viewer.Up));
-		if (!IsFinite(viewer.Position) || length(forward) <= GeometryEpsilon || length(right) <= GeometryEpsilon || !std::isfinite(distance) || distance <= 0.0f)
+		if (!IsFinite(viewer.Position) || !IsFinite(viewer.Forward) || !IsFinite(viewer.Up) || !std::isfinite(distance) || distance <= 0.0f)
 			return false;
 
+		float forwardLength = length(viewer.Forward);
+		float upLength = length(viewer.Up);
+		if (!std::isfinite(forwardLength) || !std::isfinite(upLength) || forwardLength <= GeometryEpsilon || upLength <= GeometryEpsilon)
+			return false;
+
+		vec3 forward = viewer.Forward / forwardLength;
+		vec3 viewerUp = viewer.Up / upLength;
+		vec3 rightBasis = cross(forward, viewerUp);
+		float rightLength = length(rightBasis);
+		if (!IsFinite(rightBasis) || !std::isfinite(rightLength) || rightLength <= GeometryEpsilon)
+			return false;
+
+		vec3 right = rightBasis / rightLength;
 		vec3 up = normalize(cross(right, forward));
 		pose.Center = viewer.Position + forward * distance;
 		pose.Right = right;
@@ -83,11 +94,16 @@ void XRUISurfaceFramePolicy::Configure(const XRUISurfaceDescriptor& descriptor)
 {
 	if (SurfaceState* state = Find(descriptor.Kind))
 	{
+		bool anchorModeChanged = state->Descriptor.AnchorMode != descriptor.AnchorMode;
 		state->Descriptor = descriptor;
 		if (descriptor.AnchorMode == XRUISurfaceAnchorMode::WorldFixed)
 		{
 			state->Pose = descriptor.WorldPose;
 			state->Anchored = IsValidPose(state->Pose);
+		}
+		else if (anchorModeChanged)
+		{
+			state->Anchored = false;
 		}
 		return;
 	}

@@ -102,6 +102,8 @@ static void TestAnchorStabilityAndRecenter()
 	Check(policy.Show(XRUISurfaceKind::Menu, first), "head-relative menu failed to anchor");
 	XRUISurfacePose initial = policy.BuildFrame().Surfaces[0].Pose;
 	Check(Near(initial.Center, vec3(2.0f, 0.0f, 0.0f)), "head-relative menu used the wrong initial center");
+	policy.Configure(menu);
+	Check(Near(policy.BuildFrame().Surfaces[0].Pose.Center, initial.Center), "reconfiguring the same anchor mode discarded a valid anchor");
 
 	XRUIViewerPose moved;
 	moved.Position = vec3(10.0f, 20.0f, 30.0f);
@@ -124,6 +126,40 @@ static void TestAnchorStabilityAndRecenter()
 	Check(policy.Show(XRUISurfaceKind::Hud, moved), "world-fixed HUD failed to show");
 	XRUISurfaceFrame anchoredFrame = policy.BuildFrame();
 	Check(Near(anchoredFrame.Surfaces[0].Pose.Center, vec3(7.0f, 8.0f, 9.0f)), "world-fixed surface used the viewer pose");
+}
+
+static void TestInvalidViewerBasisAndAnchorModeChange()
+{
+	XRUISurfaceFramePolicy policy;
+	XRUISurfaceDescriptor menu = CreateXRUISurfaceDescriptor(XRUISurfaceKind::Menu, 1200, 600);
+	policy.Configure(menu);
+
+	XRUIViewerPose zeroForward;
+	zeroForward.Forward = vec3(0.0f);
+	Check(!policy.Show(XRUISurfaceKind::Menu, zeroForward), "zero viewer forward vector produced a head-relative anchor");
+	Check(policy.BuildFrame().Surfaces.empty(), "invalid zero-forward anchor entered the frame");
+
+	XRUIViewerPose parallelBasis;
+	parallelBasis.Forward = vec3(1.0f, 0.0f, 0.0f);
+	parallelBasis.Up = vec3(2.0f, 0.0f, 0.0f);
+	Check(!policy.Show(XRUISurfaceKind::Menu, parallelBasis), "parallel viewer forward and up vectors produced a head-relative anchor");
+	Check(policy.BuildFrame().Surfaces.empty(), "invalid parallel-basis anchor entered the frame");
+
+	XRUISurfaceDescriptor worldMenu = menu;
+	worldMenu.AnchorMode = XRUISurfaceAnchorMode::WorldFixed;
+	worldMenu.WorldPose.Center = vec3(7.0f, 8.0f, 9.0f);
+	policy.Configure(worldMenu);
+	Check(policy.Show(XRUISurfaceKind::Menu), "world-fixed menu failed to show before mode change");
+	Check(Near(policy.BuildFrame().Surfaces[0].Pose.Center, worldMenu.WorldPose.Center), "world-fixed menu used the wrong pose before mode change");
+
+	menu.HeadRelativeDistance = 2.0f;
+	policy.Configure(menu);
+	Check(policy.BuildFrame().Surfaces.empty(), "changing to head-relative mode retained the old world anchor");
+
+	XRUIViewerPose validViewer;
+	validViewer.Position = vec3(1.0f, 2.0f, 3.0f);
+	Check(policy.Show(XRUISurfaceKind::Menu, validViewer), "head-relative menu failed to re-anchor after mode change");
+	Check(Near(policy.BuildFrame().Surfaces[0].Pose.Center, vec3(3.0f, 2.0f, 3.0f)), "mode change reused the old world pose instead of the viewer pose");
 }
 
 static void TestAspectAndRayMapping()
@@ -220,6 +256,7 @@ int main()
 	TestDefaultDesktopContract();
 	TestVisibilityAndCompositionOrder();
 	TestAnchorStabilityAndRecenter();
+	TestInvalidViewerBasisAndAnchorModeChange();
 	TestAspectAndRayMapping();
 	TestTrackedPointerEdgesAndDisconnect();
 	TestMouseFallbackAndSourceIsolation();
