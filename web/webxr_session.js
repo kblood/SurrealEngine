@@ -409,7 +409,7 @@
 			if (capabilities.gpuBindingAvailable !== true) {
 				blockers.push(launchBlocker("xrgpu-binding-unavailable",
 					"XRGPUBinding is not exposed, so WebGPU game frames cannot be presented to the headset.",
-					"A Chromium experimental WebXR-WebGPU flag may expose the API, but does not guarantee compositor support."));
+					"For the tested Brave route, fully exit Brave and relaunch it with --enable-features=WebXRWebGPUBinding,WebXRLayers; API presence still does not guarantee compositor support."));
 			}
 			if (capabilities.gpuCompatible === null) {
 				blockers.push(launchBlocker("xr-gpu-check-pending",

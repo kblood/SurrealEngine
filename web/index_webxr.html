@@ -27,6 +27,7 @@
 	#webxr-launch-readiness[data-ready=false] { border-color: #b00020; }
 	#webxr-launch-readiness .mode { font-weight: 700; }
 	#webxr-launch-readiness ul { margin-bottom: 0; }
+	#open-native-webxr { display: inline-block; margin: .5rem 0; padding: .55rem .8rem; border: 2px solid #b00020; font: 700 14px system-ui, sans-serif; }
 	#webxr-headset-controls { max-width: 52rem; padding: .75rem 1rem; margin: .75rem 0; border: 2px solid #4c78a8; background: rgba(20, 25, 32, .94); color: #fff; font: 15px system-ui, sans-serif; }
 	#webxr-headset-controls[data-xr-active=true] { position: fixed; z-index: 2147483647; inset: .75rem auto auto .75rem; max-width: min(30rem, calc(100vw - 3rem)); }
 	#webxr-headset-controls[data-tracking=degraded], #webxr-headset-controls[data-tracking=lost] { border-color: #ffb347; }
@@ -74,6 +75,7 @@
 <canvas id="canvas" width="640" height="480"></canvas>
 <button id="entervr" disabled>Enter VR</button>
 <button id="probewebgpuxr" disabled>Probe WebGPU XR</button>
+<a id="open-native-webxr" hidden>Open Native VR mode</a>
 <section id="webxr-launch-readiness" data-ready="false" role="status" aria-live="polite">
 	<div class="mode">Checking WebXR launch readiness...</div>
 	<div class="summary"></div>
@@ -130,6 +132,7 @@
 
 	function refreshEnterVRButton() {
 		const button = document.getElementById("entervr");
+		const nativeLink = document.getElementById("open-native-webxr");
 		const panel = document.getElementById("webxr-launch-readiness");
 		const readiness = window.surrealXRGetLaunchReadiness();
 		const active = window.surrealXRSessionActive === true;
@@ -140,6 +143,7 @@
 			(interaction && interaction.exitPhase === "armed" ? "Confirm Exit VR" :
 				interaction && interaction.exitPhase === "ending" ? "Exiting VR..." : "Exit VR") : readiness.lifecycleOnly ?
 			"Start lifecycle-only XR test" : "Enter Native WebGPU VR";
+		nativeLink.hidden = !readiness.lifecycleOnly;
 		panel.dataset.ready = String(readiness.canAttempt || readiness.productionSessionReady);
 		panel.querySelector(".mode").textContent = readiness.lifecycleOnly ?
 			"Lifecycle-only WebXR harness (no game presentation)" :
@@ -159,6 +163,11 @@
 			item.dataset.code = blocker.code;
 			list.appendChild(item);
 		}
+	}
+	{
+		const nativeURL = new URL(location.href);
+		nativeURL.searchParams.set("native-webgpu-xr", "1");
+		document.getElementById("open-native-webxr").href = nativeURL.href;
 	}
 	window.surrealGetWebXRLaunchReadiness = window.surrealXRGetLaunchReadiness;
 	window.surrealRefreshWebXRLaunchReadiness = refreshEnterVRButton;
