@@ -121,13 +121,61 @@ function mutableFS() {
 	return fs;
 }
 
+function asLegacyMetadata(metadata) {
+	const legacy = Object.assign({}, metadata, { version: 1 });
+	delete legacy.format;
+	delete legacy.migration;
+	return legacy;
+}
+
+async function writeOPFSCurrent(root, directoryName, metadata) {
+	const appRoot = await root.getDirectoryHandle(directoryName);
+	const handle = await appRoot.getFileHandle("current.json");
+	const writable = await handle.createWritable();
+	await writable.write(JSON.stringify(metadata));
+	await writable.close();
+}
+
+async function readOPFSCurrent(root, directoryName) {
+	const appRoot = await root.getDirectoryHandle(directoryName);
+	return JSON.parse(await (await (await appRoot.getFileHandle("current.json")).getFile()).text());
+}
+
+function transactionDone(transaction) {
+	return new Promise((resolve, reject) => {
+		transaction.oncomplete = resolve;
+		transaction.onerror = () => reject(transaction.error || new Error("transaction failed"));
+		transaction.onabort = () => reject(transaction.error || new Error("transaction aborted"));
+	});
+}
+
+async function writeIDBCurrent(storage, metadata) {
+	const db = await storage._db();
+	const transaction = db.transaction("metadata", "readwrite");
+	transaction.objectStore("metadata").put(metadata, "current");
+	await transactionDone(transaction);
+}
+
+async function readIDBCurrent(storage) {
+	const db = await storage._db();
+	const transaction = db.transaction("metadata", "readonly");
+	const result = await new Promise((resolve, reject) => {
+		const request = transaction.objectStore("metadata").get("current");
+		request.onsuccess = () => resolve(request.result);
+		request.onerror = () => reject(request.error);
+	});
+	await transactionDone(transaction);
+	return result;
+}
+
 window.mutablePersistenceTestPromise = (async function () {
 	const api = window.SurrealMutableData;
 	const importer = window.SurrealUT99Importer;
 	const suffix = Date.now() + "-" + Math.random().toString(36).slice(2);
 
 	await run("schema and mutable path contract are explicit", async () => {
-		assert(api.SCHEMA_NAME === "surrealengine-mutable-data" && api.SCHEMA_VERSION === 1);
+		assert(api.SCHEMA_NAME === "surrealengine-mutable-data" && api.LEGACY_SCHEMA_VERSION === 1 && api.SCHEMA_VERSION === 2);
+		assert(api.STORAGE_FORMAT === "validated-copy-on-write");
 		assert(api.classifyMutablePath("/gamedata/System/SE-User.ini") === "user-keybindings-vr-settings");
 		assert(api.classifyMutablePath("/gamedata/Save/Save17.usa") === "ut99-save");
 		for (const path of [
@@ -135,6 +183,68 @@ window.mutablePersistenceTestPromise = (async function () {
 			"/gamedata/Maps/DM-Test.unr", "/gamedata/Textures/Test.utx",
 			"/gamedata/Save/Injected.u", "/gamedata/Save/Custom.usa", "/gamedata/Save/../System/Core.u",
 		]) assert(api.classifyMutablePath(path) === null, "unexpectedly allowed " + path);
+	});
+
+	await run("IndexedDB migrates deployed v1 metadata transactionally and idempotently", async () => {
+		const name = "surrealengine-mutable-idb-migration-test-" + suffix;
+		const seedStorage = new api.IndexedDBStorage(name);
+		const snapshot = await api.snapshotFS(mutableFS());
+		const seeded = await seedStorage.save(snapshot.entries);
+		await writeIDBCurrent(seedStorage, asLegacyMetadata(seeded));
+		const storage = new api.IndexedDBStorage(name);
+		const migrated = await storage.load();
+		assert(migrated.metadata.version === 2 && migrated.metadata.datasetId !== seeded.datasetId);
+		assert(migrated.metadata.migration.fromVersion === 1 && migrated.metadata.migration.strategy === api.MIGRATION_STRATEGY);
+		assert(await (await migrated.getBlob("/gamedata/System/SE-User.ini")).text() === "mutable bindings and xr settings");
+		assert(storage.migrationDiagnostics().state === "succeeded");
+		const second = new api.IndexedDBStorage(name);
+		const same = await second.load();
+		assert(same.metadata.datasetId === migrated.metadata.datasetId, "idempotent load republished the generation");
+		assert(second.migrationDiagnostics().state === "not-needed");
+		await second.clear();
+	});
+
+	await run("IndexedDB interrupted migration keeps v1 current and retries cleanly", async () => {
+		const name = "surrealengine-mutable-idb-migration-interrupt-" + suffix;
+		const seedStorage = new api.IndexedDBStorage(name);
+		const snapshot = await api.snapshotFS(mutableFS());
+		const seeded = await seedStorage.save(snapshot.entries);
+		await writeIDBCurrent(seedStorage, asLegacyMetadata(seeded));
+		const interrupted = new api.IndexedDBStorage(name, { migrationHook: async phase => {
+			if (phase === "before-publish") throw new Error("intentional migration interruption");
+		} });
+		try { await interrupted.load(); throw new Error("migration should have failed"); }
+		catch (error) { assert(error.message.includes("intentional migration interruption")); }
+		const current = await readIDBCurrent(seedStorage);
+		assert(current.version === 1 && current.datasetId === seeded.datasetId, "failed migration changed current");
+		assert(interrupted.migrationDiagnostics().state === "failed");
+		const retried = new api.IndexedDBStorage(name);
+		const migrated = await retried.load();
+		assert(migrated.metadata.version === 2 && migrated.metadata.migration.fromVersion === 1);
+		await retried.clear();
+	});
+
+	await run("future mutable schemas cannot be loaded or overwritten by save", async () => {
+		const snapshot = await api.snapshotFS(mutableFS());
+		const idb = new api.IndexedDBStorage("surrealengine-mutable-idb-future-" + suffix);
+		const idbMetadata = await idb.save(snapshot.entries);
+		await writeIDBCurrent(idb, Object.assign({}, idbMetadata, { version: api.SCHEMA_VERSION + 1 }));
+		await expectError("STORAGE_SCHEMA", async () => idb.load());
+		await expectError("STORAGE_SCHEMA", async () => idb.save(snapshot.entries));
+		assert((await readIDBCurrent(idb)).version === api.SCHEMA_VERSION + 1);
+		await idb.clear();
+
+		if (!navigator.storage || typeof navigator.storage.getDirectory !== "function") return;
+		const root = await navigator.storage.getDirectory();
+		const name = "surrealengine-mutable-opfs-future-" + suffix;
+		const opfs = new api.OPFSStorage(root, name);
+		try {
+			const opfsMetadata = await opfs.save(snapshot.entries);
+			await writeOPFSCurrent(root, name, Object.assign({}, opfsMetadata, { version: api.SCHEMA_VERSION + 1 }));
+			await expectError("STORAGE_SCHEMA", async () => opfs.load());
+			await expectError("STORAGE_SCHEMA", async () => opfs.save(snapshot.entries));
+			assert((await readOPFSCurrent(root, name)).version === api.SCHEMA_VERSION + 1);
+		} finally { await opfs.clear(); }
 	});
 
 	await run("filesystem snapshot enumerates only the mutable allowlist", async () => {
@@ -265,6 +375,32 @@ window.mutablePersistenceTestPromise = (async function () {
 			assert(await (await loaded.getBlob("/gamedata/Save/Save0.usa")).text() === "mutable save");
 			await expectError("PATH_NOT_ALLOWED", async () => loaded.getBlob("/gamedata/System/Core.u"));
 		} finally { await storage.clear(); }
+	});
+
+	await run("OPFS interrupted v1 migration rolls back pointer and succeeds on retry", async () => {
+		if (!navigator.storage || typeof navigator.storage.getDirectory !== "function") return;
+		const root = await navigator.storage.getDirectory();
+		const directoryName = "surrealengine-mutable-opfs-migration-test-" + suffix;
+		const seedStorage = new api.OPFSStorage(root, directoryName);
+		try {
+			const snapshot = await api.snapshotFS(mutableFS());
+			const seeded = await seedStorage.save(snapshot.entries);
+			await writeOPFSCurrent(root, directoryName, asLegacyMetadata(seeded));
+			const interrupted = new api.OPFSStorage(root, directoryName, { migrationHook: async phase => {
+				if (phase === "before-publish") throw new Error("intentional migration interruption");
+			} });
+			try { await interrupted.load(); throw new Error("migration should have failed"); }
+			catch (error) { assert(error.message.includes("intentional migration interruption")); }
+			const current = await readOPFSCurrent(root, directoryName);
+			assert(current.version === 1 && current.datasetId === seeded.datasetId, "failed migration changed current");
+			const retried = new api.OPFSStorage(root, directoryName);
+			const migrated = await retried.load();
+			assert(migrated.metadata.version === 2 && migrated.metadata.datasetId !== seeded.datasetId);
+			assert(migrated.metadata.migration.fromVersion === 1);
+			assert(await (await migrated.getBlob("/gamedata/Save/Save0.usa")).text() === "mutable save");
+			const idempotent = await new api.OPFSStorage(root, directoryName).load();
+			assert(idempotent.metadata.datasetId === migrated.metadata.datasetId);
+		} finally { await seedStorage.clear(); }
 	});
 
 	await idbStorage.clear();

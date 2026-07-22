@@ -29,9 +29,9 @@ from playwright.sync_api import sync_playwright
 
 
 REPORT_SCHEMA = "surrealengine-storage-robustness-report"
-REPORT_VERSION = 1
+REPORT_VERSION = 2
 PROBE_SCHEMA = "surrealengine-storage-robustness-probe"
-PROBE_VERSION = 1
+PROBE_VERSION = 2
 SYNTHETIC_MARKER = "SURREALENGINE_SYNTHETIC_STORAGE_TEST_ONLY"
 DRIVER_PATH = Path(__file__).resolve()
 FIXTURE_PATH = DRIVER_PATH.with_name("storage_robustness_fixture.html")
@@ -270,7 +270,7 @@ def run(args: argparse.Namespace) -> dict:
 			"No commercial UT99 file was read, copied, requested, or embedded; all stored bytes are synthetic.",
 			"The forced-kill result is desktop Chromium evidence, not a Quest OS/browser kill.",
 			"Origin clearing is a deterministic eviction simulation, not proof of storage-pressure eviction policy.",
-			"Future schema rejection proves fail-closed compatibility policy; no schema migration implementation exists yet.",
+			"Only the deployed mutable-data v1 to v2 migration is qualified; importer and future-schema migrations are not inferred.",
 			"This run does not qualify full-install size, quota pressure, thermal behavior, or physical Quest persistence.",
 		],
 	}
@@ -395,6 +395,78 @@ def run(args: argparse.Namespace) -> dict:
 					"The OPFS cut point is exact; the IndexedDB cut point is intentionally indeterminate, so either complete transaction is accepted.",
 				)
 
+				legacy = evaluate(
+					page,
+					"arg => SurrealStorageRobustnessProbe.seedLegacyMigration(arg.runId, arg.tag)",
+					run_id,
+					tag="legacy-v1",
+				)
+				assert_probe(legacy)
+				evaluate(
+					page,
+					"arg => SurrealStorageRobustnessProbe.beginInterruptedMigration(arg.runId)",
+					run_id,
+				)
+				page.wait_for_function(
+					"SurrealStorageRobustnessProbe.migrationInterruptionStatus().reachedBeforePublish === true",
+					timeout=30_000,
+				)
+				legacy_pointer = evaluate(
+					page,
+					"arg => SurrealStorageRobustnessProbe.inspectMigrationPointer(arg.runId)",
+					run_id,
+				)
+				if legacy_pointer != {"version": 1, "datasetId": legacy["legacyDatasetIds"]["opfs"]}:
+					raise AssertionError("interrupted OPFS migration changed the legacy current pointer before publication")
+				migration_kill = owned.force_kill()
+				time.sleep(0.5)
+
+				owned.launch()
+				page = owned.page(fixture_url)
+				migration = evaluate(
+					page,
+					"arg => SurrealStorageRobustnessProbe.retryAndInspectMigration(arg.runId)",
+					run_id,
+				)
+				assert_probe(migration)
+				assert_tag(migration["opfs"], "legacy-v1", "OPFS after interrupted migration retry")
+				assert_tag(migration["indexeddb"], "legacy-v1", "IndexedDB after v1 migration")
+				if migration["opfs"]["version"] != 2 or migration["indexeddb"]["version"] != 2:
+					raise AssertionError("v1 mutable data was not published as schema v2")
+				if migration["opfs"]["datasetId"] == legacy["legacyDatasetIds"]["opfs"]:
+					raise AssertionError("OPFS migration reused the legacy generation instead of copy-on-write")
+				if migration["indexeddb"]["datasetId"] == legacy["legacyDatasetIds"]["indexeddb"]:
+					raise AssertionError("IndexedDB migration reused the legacy generation instead of copy-on-write")
+				if migration["idempotentReloadDatasetIds"] != {
+					"opfs": migration["opfs"]["datasetId"],
+					"indexeddb": migration["indexeddb"]["datasetId"],
+				}:
+					raise AssertionError("loading schema v2 again republished a migration generation")
+				for backend in ["opfs", "indexeddb"]:
+					diagnostic = migration["diagnostics"][backend]
+					if diagnostic["state"] != "succeeded" or diagnostic["fromVersion"] != 1 or diagnostic["toVersion"] != 2:
+						raise AssertionError(f"{backend} did not report deterministic successful migration diagnostics")
+				if not migration["importer"] or migration["importer"]["datasetId"] != legacy["importerDatasetId"]:
+					raise AssertionError("mutable schema migration touched the independent importer dataset")
+				add_case(
+					report,
+					"mutable-v1-to-v2-migration-recovery",
+					"actual mutable OPFS and IndexedDB v1 metadata in unique synthetic namespaces",
+					{
+						"termination": migration_kill,
+						"preKillCurrentPointer": legacy_pointer,
+						"legacyDatasetIds": legacy["legacyDatasetIds"],
+						"migratedDatasetIds": {
+							"opfs": migration["opfs"]["datasetId"],
+							"indexeddb": migration["indexeddb"]["datasetId"],
+						},
+						"idempotentReloadDatasetIds": migration["idempotentReloadDatasetIds"],
+						"diagnostics": migration["diagnostics"],
+						"importerDatasetIdUnchanged": legacy["importerDatasetId"],
+					},
+					"The forced interruption is at the OPFS pre-publication hook; IndexedDB migration is qualified as one atomic successful transaction.",
+				)
+
 				corruption = evaluate(
 					page,
 					"arg => SurrealStorageRobustnessProbe.injectAndCheckCorruption(arg.runId)",
@@ -407,9 +479,9 @@ def run(args: argparse.Namespace) -> dict:
 				]:
 					if not corruption["results"][key]["failedClosed"]:
 						raise AssertionError(f"{key} did not fail closed")
-				if corruption["results"]["futureOPFS"]["pointerVersionAfterRefusal"] != 2:
+				if corruption["results"]["futureOPFS"]["pointerVersionAfterRefusal"] != 3:
 					raise AssertionError("OPFS future schema was overwritten")
-				if corruption["results"]["futureIDB"]["pointerVersionAfterRefusal"] != 2:
+				if corruption["results"]["futureIDB"]["pointerVersionAfterRefusal"] != 3:
 					raise AssertionError("IndexedDB future schema was overwritten")
 				if corruption["results"]["futureImporterOPFS"]["pointerVersionAfterRefusal"] != 2:
 					raise AssertionError("importer OPFS future schema was overwritten")
@@ -418,8 +490,11 @@ def run(args: argparse.Namespace) -> dict:
 					"corruption-and-schema-policy",
 					"synthetic future-schema and missing-data injection through both production backends",
 					corruption["results"],
-					"This proves exact-v1 acceptance and future-schema refusal, not a future migration implementation.",
+					"This proves mutable v3 and importer v2 refusal; it does not imply a migration path for future schemas.",
 				)
+				# Corrupt/future stores are intentionally not overwritten by save().
+				# Use the explicit scoped clear API before seeding the next case.
+				evaluate(page, "arg => SurrealStorageRobustnessProbe.cleanup(arg.runId)", run_id)
 
 				pre_eviction = evaluate(
 					page,
@@ -465,7 +540,9 @@ def run(args: argparse.Namespace) -> dict:
 		"indexedDBAtomicGenerationAfterKill": "proven",
 		"corruptMetadataAndMissingPayloadFailClosed": "proven",
 		"unsupportedFutureSchemaRefusedWithoutOverwrite": "proven",
-		"migrationExecution": "not-implemented-not-proven",
+		"mutableV1ToV2Migration": "proven-opfs-and-indexeddb",
+		"interruptedMutableMigrationRetry": "proven-opfs-pre-publication-process-kill",
+		"mutableMigrationImporterSeparation": "proven",
 		"deterministicWholeOriginClear": "proven-as-eviction-simulation",
 		"storagePressureEviction": "not-proven",
 		"questBrowserRestartOrOSKill": "not-proven",

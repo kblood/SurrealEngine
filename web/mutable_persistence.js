@@ -10,7 +10,10 @@
 	"use strict";
 
 	const SCHEMA_NAME = "surrealengine-mutable-data";
-	const SCHEMA_VERSION = 1;
+	const LEGACY_SCHEMA_VERSION = 1;
+	const SCHEMA_VERSION = 2;
+	const STORAGE_FORMAT = "validated-copy-on-write";
+	const MIGRATION_STRATEGY = "v1-to-v2-copy-on-write";
 	const DEFAULT_DATABASE_NAME = "surrealengine-mutable-data-v1";
 	const DEFAULT_OPFS_DIRECTORY = "surrealengine-mutable-data-v1";
 	const CHECKPOINT_INTERVAL_MS = 30000;
@@ -87,10 +90,11 @@
 		return { entries: normalized, fileCount: normalized.length, totalBytes };
 	}
 
-	function metadataFor(validation, backend, datasetId) {
-		return {
+	function metadataFor(validation, backend, datasetId, migration) {
+		const metadata = {
 			schema: SCHEMA_NAME,
 			version: SCHEMA_VERSION,
+			format: STORAGE_FORMAT,
 			datasetId,
 			createdAt: new Date().toISOString(),
 			backend,
@@ -98,12 +102,25 @@
 			totalBytes: validation.totalBytes,
 			files: validation.entries.map(entry => ({ path: entry.path, category: entry.category, size: entry.size })),
 		};
+		if (migration) metadata.migration = Object.freeze({
+			fromVersion: LEGACY_SCHEMA_VERSION,
+			strategy: MIGRATION_STRATEGY,
+		});
+		return metadata;
 	}
 
-	function validateMetadata(metadata) {
-		if (!metadata || metadata.schema !== SCHEMA_NAME || metadata.version !== SCHEMA_VERSION ||
+	function validateMetadataShape(metadata, expectedVersion) {
+		if (!metadata || metadata.schema !== SCHEMA_NAME || metadata.version !== expectedVersion ||
 			typeof metadata.datasetId !== "string" || !metadata.datasetId || !Array.isArray(metadata.files)) {
 			throw new MutableDataError("STORAGE_SCHEMA", "Saved mutable data uses an unsupported or corrupt schema. Clear mutable data and try again.");
+		}
+		if (expectedVersion === SCHEMA_VERSION && metadata.format !== STORAGE_FORMAT) {
+			throw new MutableDataError("STORAGE_SCHEMA", "Saved mutable data uses an unsupported or corrupt schema. Clear mutable data and try again.");
+		}
+		if (expectedVersion === SCHEMA_VERSION && metadata.migration !== undefined &&
+			(!metadata.migration || metadata.migration.fromVersion !== LEGACY_SCHEMA_VERSION ||
+			metadata.migration.strategy !== MIGRATION_STRATEGY)) {
+			throw new MutableDataError("STORAGE_SCHEMA", "Saved mutable data has corrupt migration metadata. Clear mutable data and try again.");
 		}
 		const validation = validateEntries(metadata.files.map(file => ({
 			path: file.path,
@@ -114,6 +131,37 @@
 			throw new MutableDataError("STORAGE_METADATA", "Saved mutable-data metadata is inconsistent. Clear mutable data and try again.");
 		}
 		return validation;
+	}
+
+	function validateMetadata(metadata) {
+		return validateMetadataShape(metadata, SCHEMA_VERSION);
+	}
+
+	function validateLegacyMetadata(metadata) {
+		return validateMetadataShape(metadata, LEGACY_SCHEMA_VERSION);
+	}
+
+	function metadataVersion(metadata) {
+		if (!metadata || metadata.schema !== SCHEMA_NAME || !Number.isSafeInteger(metadata.version)) {
+			throw new MutableDataError("STORAGE_SCHEMA", "Saved mutable data uses an unsupported or corrupt schema. Clear mutable data and try again.");
+		}
+		if (metadata.version !== LEGACY_SCHEMA_VERSION && metadata.version !== SCHEMA_VERSION) {
+			throw new MutableDataError("STORAGE_SCHEMA", "Saved mutable data uses an unsupported or corrupt schema. Clear mutable data and try again.");
+		}
+		return metadata.version;
+	}
+
+	function initialMigrationDiagnostics(backend) {
+		return {
+			state: "not-needed",
+			backend,
+			fromVersion: null,
+			toVersion: SCHEMA_VERSION,
+			strategy: MIGRATION_STRATEGY,
+			filesCopied: 0,
+			totalBytes: 0,
+			errorCode: null,
+		};
 	}
 
 	function datasetId() {
@@ -137,10 +185,83 @@
 	}
 
 	class OPFSStorage {
-		constructor(root, directoryName) {
+		constructor(root, directoryName, options) {
 			this.root = root;
 			this.directoryName = directoryName || DEFAULT_OPFS_DIRECTORY;
 			this.backend = "opfs";
+			this.options = options || {};
+			this._migration = initialMigrationDiagnostics(this.backend);
+		}
+
+		migrationDiagnostics() {
+			return Object.assign({}, this._migration);
+		}
+
+		async _migrationHook(phase, details) {
+			if (typeof this.options.migrationHook === "function") {
+				await this.options.migrationHook(phase, Object.assign({}, details));
+			}
+		}
+
+		async _snapshotDataset(appRoot, metadata, validation) {
+			let snapshotRoot;
+			try { snapshotRoot = await getOPFSDirectory(appRoot, ["snapshots", metadata.datasetId], false); }
+			catch (_) { throw new MutableDataError("STORAGE_MISSING_DATASET", "Saved mutable files are incomplete. Clear mutable data and try again."); }
+			return {
+				metadata,
+				getBlob: async path => {
+					if (!classifyMutablePath(path)) throw new MutableDataError("PATH_NOT_ALLOWED", "Refusing to read a path outside the mutable-data allowlist.");
+					const parts = storageParts(path);
+					try {
+						const parent = await getOPFSDirectory(snapshotRoot, parts.slice(0, -1), false);
+						const blob = await (await parent.getFileHandle(parts[parts.length - 1])).getFile();
+						const expected = validation.entries.find(entry => entry.path === canonicalMutablePath(path));
+						if (!expected || blob.size !== expected.size) throw new Error("size mismatch");
+						return blob;
+					} catch (_) { throw new MutableDataError("STORAGE_MISSING_FILE", "A saved mutable file is missing or incomplete. Clear mutable data and try again.", { path }); }
+				},
+			};
+		}
+
+		async _migrateV1(appRoot, legacyMetadata) {
+			const validation = validateLegacyMetadata(legacyMetadata);
+			const legacy = await this._snapshotDataset(appRoot, legacyMetadata, validation);
+			this._migration = Object.assign(initialMigrationDiagnostics(this.backend), {
+				state: "running", fromVersion: LEGACY_SCHEMA_VERSION,
+			});
+			const snapshots = await appRoot.getDirectoryHandle("snapshots", { create: true });
+			const id = datasetId();
+			const snapshotRoot = await snapshots.getDirectoryHandle(id, { create: true });
+			let published = false;
+			try {
+				for (const entry of validation.entries) {
+					const blob = await legacy.getBlob(entry.path);
+					const parts = storageParts(entry.path);
+					const parent = await getOPFSDirectory(snapshotRoot, parts.slice(0, -1), true);
+					await writeBlobToOPFS(await parent.getFileHandle(parts[parts.length - 1], { create: true }), blob);
+					this._migration.filesCopied++;
+					this._migration.totalBytes += blob.size;
+				}
+				await this._migrationHook("before-publish", {
+					backend: this.backend, fromVersion: LEGACY_SCHEMA_VERSION,
+					toVersion: SCHEMA_VERSION, filesCopied: validation.fileCount,
+					totalBytes: validation.totalBytes,
+				});
+				const metadata = metadataFor(validation, this.backend, id, true);
+				await writeBlobToOPFS(await appRoot.getFileHandle("current.json", { create: true }),
+					new Blob([JSON.stringify(metadata)], { type: "application/json" }));
+				published = true;
+				this._migration.state = "succeeded";
+				try { await snapshots.removeEntry(legacyMetadata.datasetId, { recursive: true }); } catch (_) { /* best effort */ }
+				return this._snapshotDataset(appRoot, metadata, validation);
+			} catch (error) {
+				if (!published) {
+					try { await snapshots.removeEntry(id, { recursive: true }); } catch (_) { /* best effort */ }
+				}
+				this._migration.state = "failed";
+				this._migration.errorCode = error && error.code ? error.code : "MIGRATION_FAILED";
+				throw error;
+			}
 		}
 
 		async load() {
@@ -156,26 +277,15 @@
 			let metadata;
 			try { metadata = JSON.parse(await (await metadataFile.getFile()).text()); }
 			catch (_) { throw new MutableDataError("STORAGE_SCHEMA", "Saved mutable-data metadata is corrupt. Clear mutable data and try again."); }
-			validateMetadata(metadata);
-			let snapshotRoot;
-			try { snapshotRoot = await getOPFSDirectory(appRoot, ["snapshots", metadata.datasetId], false); }
-			catch (_) { throw new MutableDataError("STORAGE_MISSING_DATASET", "Saved mutable files are incomplete. Clear mutable data and try again."); }
-			return {
-				metadata,
-				getBlob: async path => {
-					if (!classifyMutablePath(path)) throw new MutableDataError("PATH_NOT_ALLOWED", "Refusing to read a path outside the mutable-data allowlist.");
-					const parts = storageParts(path);
-					try {
-						const parent = await getOPFSDirectory(snapshotRoot, parts.slice(0, -1), false);
-						return await (await parent.getFileHandle(parts[parts.length - 1])).getFile();
-					} catch (_) { throw new MutableDataError("STORAGE_MISSING_FILE", "A saved mutable file is missing. Clear mutable data and try again.", { path }); }
-				},
-			};
+			const version = metadataVersion(metadata);
+			if (version === LEGACY_SCHEMA_VERSION) return this._migrateV1(appRoot, metadata);
+			const validation = validateMetadata(metadata);
+			return this._snapshotDataset(appRoot, metadata, validation);
 		}
 
 		async save(entries) {
 			const validation = validateEntries(entries);
-			const previous = await this.load().catch(() => null);
+			const previous = await this.load();
 			const appRoot = await this.root.getDirectoryHandle(this.directoryName, { create: true });
 			const snapshots = await appRoot.getDirectoryHandle("snapshots", { create: true });
 			const id = datasetId();
@@ -223,10 +333,22 @@
 	}
 
 	class IndexedDBStorage {
-		constructor(databaseName) {
+		constructor(databaseName, options) {
 			this.databaseName = databaseName || DEFAULT_DATABASE_NAME;
 			this.backend = "indexeddb";
 			this.databasePromise = null;
+			this.options = options || {};
+			this._migration = initialMigrationDiagnostics(this.backend);
+		}
+
+		migrationDiagnostics() {
+			return Object.assign({}, this._migration);
+		}
+
+		async _migrationHook(phase, details) {
+			if (typeof this.options.migrationHook === "function") {
+				await this.options.migrationHook(phase, Object.assign({}, details));
+			}
 		}
 
 		async _db() {
@@ -248,10 +370,12 @@
 		async load() {
 			const db = await this._db();
 			const transaction = db.transaction("metadata", "readonly");
-			const metadata = await requestPromise(transaction.objectStore("metadata").get("current"));
+			let metadata = await requestPromise(transaction.objectStore("metadata").get("current"));
 			await transactionPromise(transaction);
 			if (!metadata) return null;
-			validateMetadata(metadata);
+			const version = metadataVersion(metadata);
+			if (version === LEGACY_SCHEMA_VERSION) metadata = await this._migrateV1(db, metadata);
+			const validation = validateMetadata(metadata);
 			return {
 				metadata,
 				getBlob: async path => {
@@ -259,14 +383,70 @@
 					const read = db.transaction("files", "readonly");
 					const record = await requestPromise(read.objectStore("files").get(metadata.datasetId + "\0" + canonicalMutablePath(path)));
 					await transactionPromise(read);
-					if (!record || !(record.blob instanceof Blob)) throw new MutableDataError("STORAGE_MISSING_FILE", "A saved mutable file is missing.", { path });
+					const expected = validation.entries.find(entry => entry.path === canonicalMutablePath(path));
+					if (!record || !(record.blob instanceof Blob) || !expected || record.blob.size !== expected.size)
+						throw new MutableDataError("STORAGE_MISSING_FILE", "A saved mutable file is missing or incomplete.", { path });
 					return record.blob;
 				},
 			};
 		}
 
+		async _migrateV1(db, legacyMetadata) {
+			const validation = validateLegacyMetadata(legacyMetadata);
+			this._migration = Object.assign(initialMigrationDiagnostics(this.backend), {
+				state: "running", fromVersion: LEGACY_SCHEMA_VERSION,
+			});
+			try {
+				const blobs = [];
+				for (const entry of validation.entries) {
+					const read = db.transaction("files", "readonly");
+					const record = await requestPromise(read.objectStore("files").get(
+						legacyMetadata.datasetId + "\0" + entry.path));
+					await transactionPromise(read);
+					if (!record || !(record.blob instanceof Blob) || record.blob.size !== entry.size) {
+						throw new MutableDataError("STORAGE_MISSING_FILE", "A saved mutable file is missing or incomplete.", { path: entry.path });
+					}
+					blobs.push(record.blob);
+					this._migration.filesCopied++;
+					this._migration.totalBytes += record.blob.size;
+				}
+				await this._migrationHook("before-publish", {
+					backend: this.backend, fromVersion: LEGACY_SCHEMA_VERSION,
+					toVersion: SCHEMA_VERSION, filesCopied: validation.fileCount,
+					totalBytes: validation.totalBytes,
+				});
+				const id = datasetId();
+				const metadata = metadataFor(validation, this.backend, id, true);
+				const publish = db.transaction(["metadata", "files"], "readwrite");
+				const files = publish.objectStore("files");
+				for (let index = 0; index < validation.entries.length; index++) {
+					const entry = validation.entries[index];
+					files.put({ datasetId: id, path: entry.path, size: entry.size, blob: blobs[index] }, id + "\0" + entry.path);
+				}
+				publish.objectStore("metadata").put(metadata, "current");
+				await transactionPromise(publish);
+				this._migration.state = "succeeded";
+				// The pointer already names the complete v2 generation. Removing the
+				// legacy generation is deliberately a later best-effort transaction.
+				try {
+					const cleanup = db.transaction("files", "readwrite");
+					const store = cleanup.objectStore("files");
+					for (const entry of validation.entries) store.delete(legacyMetadata.datasetId + "\0" + entry.path);
+					await transactionPromise(cleanup);
+				} catch (_) { /* stale legacy records are harmless */ }
+				return metadata;
+			} catch (error) {
+				this._migration.state = "failed";
+				this._migration.errorCode = error && error.code ? error.code : "MIGRATION_FAILED";
+				throw error;
+			}
+		}
+
 		async save(entries) {
 			const validation = validateEntries(entries);
+			// Refuse to overwrite corrupt or future metadata. A v1 store is first
+			// migrated, then replaced by this ordinary v2 checkpoint.
+			await this.load();
 			const blobs = await Promise.all(validation.entries.map(entry => entry.getBlob()));
 			for (let index = 0; index < blobs.length; index++) {
 				if (!blobs[index] || blobs[index].size !== validation.entries[index].size) {
@@ -306,10 +486,10 @@
 			try {
 				const root = await global.navigator.storage.getDirectory();
 				await root.getDirectoryHandle(settings.opfsDirectory || DEFAULT_OPFS_DIRECTORY, { create: true });
-				return new OPFSStorage(root, settings.opfsDirectory);
+				return new OPFSStorage(root, settings.opfsDirectory, settings);
 			} catch (_) { /* IndexedDB is the compatibility fallback. */ }
 		}
-		return new IndexedDBStorage(settings.databaseName);
+		return new IndexedDBStorage(settings.databaseName, settings);
 	}
 
 	function fsExists(FS, path) {
@@ -403,6 +583,7 @@
 				schema: SCHEMA_NAME, version: SCHEMA_VERSION, backend: null, state: "created",
 				fileCount: 0, totalBytes: 0, lastRestoreAt: null, lastFlushAt: null,
 				lastCheckpointReason: null, error: null,
+				migration: initialMigrationDiagnostics(null),
 			};
 			this.onVisibilityChange = () => {
 				if (global.document && global.document.hidden) this.checkpoint("visibility-hidden");
@@ -416,6 +597,7 @@
 
 		status() {
 			return Object.assign({}, this.details, {
+				migration: Object.assign({}, this.details.migration),
 				automaticCheckpoints: !this.automaticPaused && !this.disposed,
 				requiresClear: this.requiresClear,
 				allowlist: Array.from(EXACT_MUTABLE_PATHS.keys()).concat(["/gamedata/Save/Save<N>.usa"]),
@@ -428,6 +610,9 @@
 			this.details.state = "restoring";
 			try {
 				const dataset = await this.storage.load();
+				if (typeof this.storage.migrationDiagnostics === "function") {
+					this.details.migration = this.storage.migrationDiagnostics();
+				}
 				const restored = await restoreDataset(this.Module.FS, dataset);
 				this.details.fileCount = restored.fileCount;
 				this.details.totalBytes = restored.totalBytes;
@@ -435,6 +620,9 @@
 				this.details.state = "ready";
 				this._log("restored " + restored.fileCount + " allowlisted file(s) from " + this.storage.backend);
 			} catch (error) {
+				if (this.storage && typeof this.storage.migrationDiagnostics === "function") {
+					this.details.migration = this.storage.migrationDiagnostics();
+				}
 				this.details.state = "restore-failed";
 				this.details.error = error && error.code ? error.code + ": " + error.message : String(error);
 				this.requiresClear = true;
@@ -535,7 +723,10 @@
 
 	global.SurrealMutableData = Object.freeze({
 		SCHEMA_NAME,
+		LEGACY_SCHEMA_VERSION,
 		SCHEMA_VERSION,
+		STORAGE_FORMAT,
+		MIGRATION_STRATEGY,
 		EXACT_MUTABLE_PATHS: Object.freeze(Array.from(EXACT_MUTABLE_PATHS.keys())),
 		MutableDataError,
 		OPFSStorage,
@@ -545,6 +736,7 @@
 		classifyMutablePath,
 		validateEntries,
 		validateMetadata,
+		validateLegacyMetadata,
 		createStorage,
 		snapshotFS,
 		restoreDataset,

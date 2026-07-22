@@ -15,7 +15,7 @@ namespace. Whole-origin clearing is performed only in that newly created
 profile.
 
 The emitted evidence schema is
-`surrealengine-storage-robustness-report`, version 1. Each result names its
+`surrealengine-storage-robustness-report`, version 2. Each result names its
 scope and limitation so an automated desktop result cannot be mistaken for a
 Quest hardware qualification.
 
@@ -54,7 +54,8 @@ to do either.
 | Mutable/importer separation | Clear both run-unique mutable stores and reload the run-unique importer store | The mutable clear path does not clear the separate importer namespace | Protection from whole-origin site-data clearing or eviction |
 | Renderer crash | Navigate the fixture renderer to `chrome://crash`, keep the browser alive, open a new renderer | Committed OPFS, IndexedDB, and importer generations survive a renderer-process crash | Browser-process kill or OS/device kill |
 | Forced browser-process-tree kill | Start mutable and importer replacement saves, reach known partial OPFS snapshot/dataset cut points, start an IndexedDB save, then force-kill the owned browser tree | Both OPFS `current.json` pointers retain their old committed generations; IndexedDB exposes one complete old-or-new transaction | Quest OS kill, battery loss, filesystem/controller failure, or every possible transaction cut point |
-| Corruption and schema policy | Inject future version metadata and missing committed payloads into mutable OPFS, mutable IndexedDB, and importer OPFS | Initialization fails closed, native main does not launch, mutable automatic checkpoints pause, explicit mutable flush returns `CLEAR_REQUIRED`, future metadata is not overwritten, and the synthetic immutable MEMFS sentinel is unchanged | Migration from a future format; the current implementation has no migration path |
+| Mutable v1-to-v2 migration recovery | Seed deployed-format v1 metadata, stage a complete OPFS v2 copy, stop at the pre-publication hook, force-kill the owned browser, then reopen and retry both backends | The pre-kill OPFS current pointer remains v1; restart publishes fresh, complete v2 OPFS and IndexedDB generations; content is preserved; diagnostics are deterministic; a second v2 load is idempotent; importer dataset ID is unchanged | Quest OS kill, every filesystem cut point, or migration from any version other than mutable v1 |
+| Corruption and schema policy | Inject mutable version 3, importer version 2, and missing committed payloads into mutable OPFS, mutable IndexedDB, and importer OPFS | Initialization fails closed, native main does not launch, mutable automatic checkpoints pause, explicit mutable flush returns `CLEAR_REQUIRED`, future metadata is not overwritten, and the synthetic immutable MEMFS sentinel is unchanged | Migration from a future format; only mutable v1 to v2 is supported |
 | Whole-origin eviction simulation | CDP `Storage.clearDataForOrigin(all)` after closing live handles | A deterministic site-data clear removes both mutable backends and importer data, and the next load reports no dataset | Browser storage-pressure heuristics, selective eviction ordering, or Quest behavior |
 
 Both OPFS abrupt cut points are deterministic. In each production save loop,
@@ -69,9 +70,17 @@ in one transaction. A valid outcome after termination is either the old complete
 generation or the new complete generation. Missing data or a mixture of tags is
 a failure.
 
+The mutable migration uses the same copy-on-write rule. Version-1 metadata and
+its allowlisted payload are validated first. OPFS writes a distinct version-2
+snapshot and does not replace `current.json` until it is complete. IndexedDB
+copies the old records and publishes the new metadata in one transaction.
+Neither path enumerates the independent importer namespace. Future or corrupt
+metadata is not treated as legacy, and ordinary save refuses to overwrite it;
+the existing explicit mutable-only clear is required.
+
 ## Evidence from 2026-07-22
 
-A localhost run on Windows 11 with headless Chrome 150.0.7871.181 passed all six
+A localhost run on Windows 11 with headless Chrome 150.0.7871.181 passed all seven
 browser cases. The forced process-tree termination occurred after a partial
 mutable OPFS snapshot, a partial importer OPFS dataset, and an initiated
 IndexedDB replacement. On restart, both OPFS pointers retained their old
@@ -80,25 +89,32 @@ corruption scenarios (future and missing-data states in mutable OPFS, mutable
 IndexedDB, and importer OPFS) failed closed. Explicit whole-origin clearing
 removed every test dataset.
 
+The migration case force-killed Chrome after a complete new OPFS snapshot
+reached the explicit pre-publication hook. The persisted pointer still named
+the synthetic v1 generation. The restart retried successfully, produced fresh
+v2 dataset IDs in OPFS and IndexedDB, reported `succeeded`, versions `1 -> 2`,
+strategy `v1-to-v2-copy-on-write`, two files, and 128 bytes for each backend,
+and retained the exact importer dataset ID.
+
 The report is intentionally written outside the repository and contains the
 exact browser product/revision, host, run id, dataset ids, termination method,
 observed generation, fixture hashes, case scopes, and remaining limitations.
 Generated reports are evidence artifacts, not redistributable runtime assets.
 
-The same six cases also passed in the installed Brave executable. Its DevTools
+The same seven cases also passed in the installed Brave executable. Its DevTools
 protocol identified the Chromium product as `Chrome/150.0.7871.128`; this is the
 engine version reported by the browser, not Brave's marketing/product version.
 The final Brave run again retained both old OPFS generations, exposed one
-complete new IndexedDB generation, failed closed for all six corrupt-store
-scenarios, and removed all synthetic data during explicit origin clearing. This
-is useful Windows Brave evidence, but it does not qualify VDXR, Quest Browser,
-or a headset OS interruption because the run was headless on the PC.
+complete new IndexedDB generation, completed the same interrupted v1-to-v2
+migration/retry case, failed closed for all six corrupt-store scenarios, and
+removed all synthetic data during explicit origin clearing. This is useful
+Windows Brave evidence, but it does not qualify VDXR, Quest Browser, or a
+headset OS interruption because the run was headless on the PC.
 
 ## Remaining M10 storage gates
 
 The following still require other implementation or physical qualification:
 
-- define and implement an actual schema migration before a migration can pass;
 - run the same evidence workflow against Brave and Quest Browser versions in
   the release compatibility matrix;
 - perform a real Quest Browser close/reopen, headset reboot, and OS/browser

@@ -23,9 +23,9 @@ def dataset(*values: str) -> dict:
 class StorageRobustnessContractTests(unittest.TestCase):
 	def test_report_and_probe_schemas_are_explicit(self) -> None:
 		self.assertEqual(harness.REPORT_SCHEMA, "surrealengine-storage-robustness-report")
-		self.assertEqual(harness.REPORT_VERSION, 1)
+		self.assertEqual(harness.REPORT_VERSION, 2)
 		self.assertEqual(harness.PROBE_SCHEMA, "surrealengine-storage-robustness-probe")
-		self.assertEqual(harness.PROBE_VERSION, 1)
+		self.assertEqual(harness.PROBE_VERSION, 2)
 
 	def test_generation_check_accepts_only_complete_synthetic_generation(self) -> None:
 		marker = harness.SYNTHETIC_MARKER
@@ -50,6 +50,16 @@ class StorageRobustnessContractTests(unittest.TestCase):
 		self.assertIn('src="mutable_persistence.js"', fixture)
 		self.assertIn('src="storage_robustness_probe.js"', fixture)
 		self.assertNotIn("index_webxr", fixture)
+
+	def test_migration_case_requires_real_interruption_and_namespace_separation(self) -> None:
+		probe = harness.PROBE_PATH.read_text(encoding="utf-8")
+		driver = harness.DRIVER_PATH.read_text(encoding="utf-8")
+		self.assertIn('migrationHook: phase =>', probe)
+		self.assertIn('reachedBeforePublish', probe)
+		self.assertIn('inspectMigrationPointer', probe)
+		self.assertIn('retryAndInspectMigration', probe)
+		self.assertIn('mutable-v1-to-v2-migration-recovery', driver)
+		self.assertIn('importerDatasetIdUnchanged', driver)
 
 
 if __name__ == "__main__":

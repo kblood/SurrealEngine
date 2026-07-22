@@ -9,7 +9,7 @@
 	"use strict";
 
 	const PROBE_SCHEMA = "surrealengine-storage-robustness-probe";
-	const PROBE_VERSION = 1;
+	const PROBE_VERSION = 2;
 	const SYNTHETIC_MARKER = "SURREALENGINE_SYNTHETIC_STORAGE_TEST_ONLY";
 	const MUTABLE_PATHS = Object.freeze([
 		"/gamedata/System/SE-User.ini",
@@ -123,6 +123,93 @@
 			mutableOPFS: await value.mutableOPFS.load(),
 			mutableIDB: await value.mutableIDB.load(),
 			importer: await readDataset(await value.importerOPFS.load(), ["System/Core.u"]),
+		};
+	}
+
+	function legacyMetadata(metadata) {
+		const result = Object.assign({}, metadata, { version: 1 });
+		delete result.format;
+		delete result.migration;
+		return result;
+	}
+
+	async function seedLegacyMigration(runId, tag) {
+		const value = await stores(runId);
+		await Promise.all([value.mutableOPFS.clear(), value.mutableIDB.clear()]);
+		const mutable = mutableEntries(tag);
+		const opfsMetadata = await value.mutableOPFS.save(mutable);
+		const idbMetadata = await value.mutableIDB.save(mutable);
+		const opfsRoot = await value.root.getDirectoryHandle(value.names.mutableOPFS);
+		const current = await opfsRoot.getFileHandle("current.json");
+		const writable = await current.createWritable();
+		await writable.write(JSON.stringify(legacyMetadata(opfsMetadata)));
+		await writable.close();
+		const db = await value.mutableIDB._db();
+		const transaction = db.transaction("metadata", "readwrite");
+		transaction.objectStore("metadata").put(legacyMetadata(idbMetadata), "current");
+		await transactionDone(transaction);
+		const importer = await readDataset(await value.importerOPFS.load(), ["System/Core.u"]);
+		return {
+			schema: PROBE_SCHEMA,
+			version: PROBE_VERSION,
+			tag,
+			legacyDatasetIds: { opfs: opfsMetadata.datasetId, indexeddb: idbMetadata.datasetId },
+			importerDatasetId: importer && importer.datasetId,
+		};
+	}
+
+	const migrationInterruption = {
+		reachedBeforePublish: false,
+		promise: null,
+	};
+
+	async function beginInterruptedMigration(runId) {
+		const value = await stores(runId);
+		const storage = new value.api.OPFSStorage(value.root, value.names.mutableOPFS, {
+			migrationHook: phase => {
+				if (phase !== "before-publish") return;
+				migrationInterruption.reachedBeforePublish = true;
+				return new Promise(() => {});
+			},
+		});
+		migrationInterruption.promise = storage.load();
+		migrationInterruption.promise.catch(() => {});
+		return { started: true };
+	}
+
+	function migrationInterruptionStatus() {
+		return { reachedBeforePublish: migrationInterruption.reachedBeforePublish };
+	}
+
+	async function inspectMigrationPointer(runId) {
+		const value = await stores(runId);
+		const opfsRoot = await value.root.getDirectoryHandle(value.names.mutableOPFS);
+		const current = await opfsRoot.getFileHandle("current.json");
+		const metadata = JSON.parse(await (await current.getFile()).text());
+		return { version: metadata.version, datasetId: metadata.datasetId };
+	}
+
+	async function retryAndInspectMigration(runId) {
+		const value = await stores(runId);
+		const opfs = await value.mutableOPFS.load();
+		const indexeddb = await value.mutableIDB.load();
+		const importer = await readDataset(await value.importerOPFS.load(), ["System/Core.u"]);
+		const secondOPFS = await new value.api.OPFSStorage(value.root, value.names.mutableOPFS).load();
+		const secondIDB = await new value.api.IndexedDBStorage(value.names.mutableIDB).load();
+		return {
+			schema: PROBE_SCHEMA,
+			version: PROBE_VERSION,
+			opfs: await readDataset(opfs, MUTABLE_PATHS),
+			indexeddb: await readDataset(indexeddb, MUTABLE_PATHS),
+			importer,
+			diagnostics: {
+				opfs: value.mutableOPFS.migrationDiagnostics(),
+				indexeddb: value.mutableIDB.migrationDiagnostics(),
+			},
+			idempotentReloadDatasetIds: {
+				opfs: secondOPFS && secondOPFS.metadata.datasetId,
+				indexeddb: secondIDB && secondIDB.metadata.datasetId,
+			},
 		};
 	}
 
@@ -285,7 +372,7 @@
 		const opfsRoot = await value.root.getDirectoryHandle(value.names.mutableOPFS);
 		const currentHandle = await opfsRoot.getFileHandle("current.json");
 		const currentMetadata = JSON.parse(await (await currentHandle.getFile()).text());
-		const futureMetadata = Object.assign({}, currentMetadata, { version: 2 });
+		const futureMetadata = Object.assign({}, currentMetadata, { version: value.api.SCHEMA_VERSION + 1 });
 		const writable = await currentHandle.createWritable();
 		await writable.write(JSON.stringify(futureMetadata));
 		await writable.close();
@@ -306,7 +393,7 @@
 		const idbMetadata = await value.mutableIDB.save(mutableEntries("corruption-idb-baseline"));
 		const db = await value.mutableIDB._db();
 		let transaction = db.transaction("metadata", "readwrite");
-		transaction.objectStore("metadata").put(Object.assign({}, idbMetadata, { version: 2 }), "current");
+		transaction.objectStore("metadata").put(Object.assign({}, idbMetadata, { version: value.api.SCHEMA_VERSION + 1 }), "current");
 		await transactionDone(transaction);
 		results.futureIDB = await expectControllerFailure(value.api, value.mutableIDB, "STORAGE_SCHEMA");
 		transaction = db.transaction("metadata", "readonly");
@@ -367,6 +454,11 @@
 		seed,
 		inspect,
 		clearMutableOnly,
+		seedLegacyMigration,
+		beginInterruptedMigration,
+		migrationInterruptionStatus,
+		inspectMigrationPointer,
+		retryAndInspectMigration,
 		beginAbruptWrites,
 		interruptionStatus,
 		injectAndCheckCorruption,

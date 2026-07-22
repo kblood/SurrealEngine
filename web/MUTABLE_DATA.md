@@ -32,15 +32,40 @@ are excluded and rejected again when stored metadata is loaded.
 
 ## Storage and APIs
 
-The independent `surrealengine-mutable-data` schema is version 1. OPFS is
-preferred; IndexedDB is the fallback. A staged OPFS snapshot is published by
-replacing `current.json` only after every file is written. IndexedDB publishes
-files and metadata in one transaction.
+The independent `surrealengine-mutable-data` schema is version 2. The deployed
+version-1 schema remains the one supported migration source. The physical
+OPFS directory and IndexedDB database retain their historical
+`surrealengine-mutable-data-v1` names so an existing browser profile can be
+found and upgraded in place; those names are namespace identifiers, not the
+current metadata version.
+
+OPFS is preferred; IndexedDB is the fallback. A staged OPFS snapshot is
+published by replacing `current.json` only after every file is written.
+IndexedDB publishes files and metadata in one transaction.
+
+On first load of version 1, the runtime validates the metadata allowlist and
+sizes, copies only those mutable files into a fresh version-2 generation, and
+publishes that generation with `format: "validated-copy-on-write"`. OPFS keeps
+the version-1 `current.json` pointer authoritative until the new snapshot is
+complete. IndexedDB copies the files and switches `current` in one read/write
+transaction. Cleanup of the old generation happens only after publication and
+is best effort. A crash before publication therefore leaves version 1 intact;
+the next load retries. A crash after publication sees a complete version-2
+generation. Loading version 2 again is idempotent and does not republish it.
+
+Migration diagnostics report backend, state, source/target versions, strategy,
+file count, byte count, and an error code. Future versions, malformed metadata,
+disallowed paths, missing snapshots, and incomplete files fail closed. Save
+does not silently replace a future or corrupt current pointer; the explicit
+mutable-only clear remains required. The migration never enumerates the UT99
+import store and never reads package, map, texture, sound, music, executable,
+or original imported INI content.
 
 After boot, the page exposes:
 
 - `surrealGetMutableDataStatus()` — backend, state, schema, counts, last
-  checkpoint, and any actionable restore/flush error.
+  checkpoint, deterministic migration diagnostics, and any actionable
+  restore/flush error.
 - `surrealFlushMutableData(reason)` — serialize an immediate checkpoint.
 - `surrealClearMutableData()` — clear only the mutable-data store. It neither
   deletes live MEMFS files nor calls the UT99 importer's clear operation, and
@@ -60,4 +85,8 @@ an older client from overwriting an incompatible newer snapshot. Imported game
 data remains separate.
 
 Run `python web/smoke_test_mutable_persistence.py` while `node web/serve.mjs`
-is serving the repository.
+is serving the repository. Its deterministic browser checks seed real v1 OPFS
+and IndexedDB metadata, prove success and idempotence, interrupt each backend
+before publication, verify that the old pointer remains current, and retry.
+The separate disposable-profile qualification is documented in
+`Docs/VR/WEBXR_STORAGE_ROBUSTNESS.md`.
