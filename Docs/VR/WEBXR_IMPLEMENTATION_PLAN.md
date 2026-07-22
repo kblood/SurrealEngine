@@ -1730,6 +1730,32 @@ The isolated Playwright suite passes 38 checks, and both default and full
 experimental WebXR smokes pass. Because shell/session behavior changed, the
 service-worker cache generation advances to `2026.07.22-m10.5`.
 
+## M10 browser-storage recovery qualification (2026-07-22)
+
+Commit `dd968728` adds the isolated, versioned
+`qualify_storage_robustness.py` workflow documented in
+`WEBXR_STORAGE_ROBUSTNESS.md`. It launches and exclusively owns a fresh
+disposable Chromium profile, uses run-unique synthetic namespaces, and drives
+the actual mutable OPFS/IndexedDB and importer OPFS implementations. It never
+opens production storage names or commercial game files.
+
+Chrome 150 and installed Brave 150 each passed all six cases: orderly full-
+browser restart; mutable/importer separation; renderer-process crash; forced
+owned browser process-tree kill after exact partial mutable/importer OPFS cut
+points and an initiated IndexedDB replacement; future-schema/missing-payload
+refusal across all three stores without overwrite or native launch; and
+explicit whole-origin clearing. After the kill, both OPFS current pointers
+retained the prior complete generation, IndexedDB exposed one complete
+transaction generation, and importer data stayed isolated. Four deterministic
+contracts and JavaScript/Python checks also pass.
+
+The evidence is deliberately narrower than physical qualification. Explicit
+site-data clearing is an eviction simulation, not browser storage-pressure
+eviction. There is no migration implementation: future schemas fail closed and
+require clear/re-import. Quest Browser/OS restart or reclamation, full user-
+owned install size/quota/copy/thermal behavior, custom save paths, storage
+exhaustion, and long-play checkpoints remain open.
+
 ## M11 repeatable performance harness (2026-07-22)
 
 Commit `df25fa36` adds `web/profile_webxr.py`, its pure report/validation module,
