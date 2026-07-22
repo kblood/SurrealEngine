@@ -13,6 +13,7 @@
 class UTexture;
 class UActor;
 class Widget;
+class VulkanGraphicsBinding;
 enum class RenderAPI;
 
 struct FSceneNode
@@ -98,7 +99,7 @@ public:
 class RenderDevice
 {
 public:
-	static std::unique_ptr<RenderDevice> Create(Widget* viewport, RenderAPI renderAPI);
+	static std::unique_ptr<RenderDevice> Create(Widget* viewport, RenderAPI renderAPI, VulkanGraphicsBinding* vulkanBinding = nullptr);
 
 	RenderDevice();
 	virtual ~RenderDevice() = default;

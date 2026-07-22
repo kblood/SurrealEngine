@@ -11,6 +11,7 @@
 #include "UI/ErrorWindow/ErrorWindow.h"
 #include "UI/Launcher/LauncherWindow.h"
 #include "Utils/File.h"
+#include "Platform/OpenXR/OpenXRProvider.h"
 #include <stdexcept>
 #include <surrealwidgets/core/theme.h>
 #include <surrealwidgets/window/window.h>
@@ -40,8 +41,15 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu] [--openxr] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [Path to game folder]\n";
 			return 0;
+		}
+		if (commandline->HasArg("", "--probexr"))
+		{
+			OpenXRProvider probe;
+			std::cout << (probe.IsAvailable() ? "OpenXR runtime and HMD are available\n" : "OpenXR unavailable: " + probe.LastError() + "\n");
+			DeinitWidgetResources();
+			return probe.IsAvailable() ? 0 : 1;
 		}
 
 #ifdef __EMSCRIPTEN__

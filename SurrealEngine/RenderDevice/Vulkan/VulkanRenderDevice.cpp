@@ -4,23 +4,27 @@
 #include "CachedTexture.h"
 #include "Utils/Logger.h"
 #include <surrealgpu/vulkanbuilders.h>
+#include <surrealgpu/vulkancompatibledevice.h>
 #include <surrealgpu/vulkanswapchain.h>
 #include <surrealgpu/vulkansurface.h>
 #include <surrealwidgets/core/widget.h>
 #include <cmath>
 #include <stdexcept>
 
-VulkanRenderDevice::VulkanRenderDevice(Widget* InViewport)
+VulkanRenderDevice::VulkanRenderDevice(Widget* InViewport, VulkanGraphicsBinding* graphicsBinding)
 {
 	Viewport = InViewport;
 
 	try
 	{
-		std::shared_ptr<VulkanInstance> instance = VulkanInstanceBuilder()
+		auto instanceBuilder = VulkanInstanceBuilder()
 			.RequireExtensions(Viewport->GetVulkanInstanceExtensions())
 			.OptionalSwapchainColorspace()
-			.DebugLayer(UseDebugLayer)
-			.Create();
+			.DebugLayer(UseDebugLayer);
+		bool useBinding = graphicsBinding != nullptr;
+		if (useBinding)
+			instanceBuilder.RequireExtensions(graphicsBinding->GetVulkanInstanceExtensions());
+		std::shared_ptr<VulkanInstance> instance = instanceBuilder.Create();
 
 		auto surface = std::make_shared<VulkanSurface>(instance, Viewport->CreateVulkanSurface(instance->Instance));
 		if (!surface)
@@ -32,8 +36,49 @@ VulkanRenderDevice::VulkanRenderDevice(Widget* InViewport)
 		deviceBuilder.Surface(surface);
 		deviceBuilder.RequireExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
 		deviceBuilder.RequireExtension(VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME);
-		deviceBuilder.SelectDevice(VkDeviceIndex);
+		void* requiredPhysicalDevice = nullptr;
+		if (useBinding)
+		{
+			std::vector<std::string> requiredExtensions;
+			if (graphicsBinding->ResolveVulkanDevice((void*)instance->Instance, &requiredPhysicalDevice, requiredExtensions))
+			{
+				for (const std::string& extension : requiredExtensions)
+					deviceBuilder.RequireExtension(extension);
+			}
+			else
+			{
+				LogMessage("Vulkan graphics binding could not resolve its required device; continuing with the ordinary Vulkan device");
+				useBinding = false;
+			}
+		}
+
+		if (useBinding && requiredPhysicalDevice)
+		{
+			auto candidates = deviceBuilder.FindDevices(instance);
+			int requiredIndex = -1;
+			for (size_t index = 0; index < candidates.size(); index++)
+			{
+				if (candidates[index].Device->Device == (VkPhysicalDevice)requiredPhysicalDevice)
+				{
+					requiredIndex = (int)index;
+					break;
+				}
+			}
+			if (requiredIndex < 0)
+				throw std::runtime_error("Required Vulkan physical device is not compatible with this renderer");
+			deviceBuilder.SelectDevice(requiredIndex);
+		}
+		else
+		{
+			deviceBuilder.SelectDevice(VkDeviceIndex);
+		}
 		Device = deviceBuilder.Create(surface->Instance);
+		if (useBinding && !graphicsBinding->OnVulkanDeviceCreated(
+			(void*)Device->Instance->Instance, (void*)Device->PhysicalDevice.Device,
+			(void*)Device->device, (uint32_t)Device->GraphicsFamily, 0))
+		{
+			LogMessage("Vulkan graphics binding did not create a session; continuing with flat presentation");
+		}
 
 		bool supportsBindless =
 			Device->EnabledFeatures.DescriptorIndexing.descriptorBindingPartiallyBound &&
@@ -95,6 +140,50 @@ VulkanRenderDevice::~VulkanRenderDevice()
 	Commands.reset();
 
 	Device.reset();
+}
+
+bool VulkanRenderDevice::BeginPresentationLayer(const PresentationLayerDescription& layer)
+{
+	if (!layer.Enabled)
+		return false;
+	if (layer.Target.IsDefault())
+		return true;
+	return layer.Target.Slot == ExternalStereoTargetSlot && PresentExternalStereo;
+}
+
+bool VulkanRenderDevice::BindPresentationTarget(const PresentationTargetBinding& binding)
+{
+	if (binding.Target.Slot != ExternalStereoTargetSlot || binding.Images.size() != 2)
+		return false;
+	if (!binding.Images[0].NativeHandle || !binding.Images[1].NativeHandle)
+		return false;
+	if (binding.Images[0].Width <= 0 || binding.Images[0].Height <= 0 ||
+		binding.Images[1].Width != binding.Images[0].Width || binding.Images[1].Height != binding.Images[0].Height)
+		return false;
+	PresentationImages[0] = (VkImage)binding.Images[0].NativeHandle;
+	PresentationImages[1] = (VkImage)binding.Images[1].NativeHandle;
+	PresentationWidth = binding.Images[0].Width;
+	PresentationHeight = binding.Images[0].Height;
+	PresentExternalStereo = true;
+	return true;
+}
+
+void VulkanRenderDevice::UnbindPresentationTarget(PresentationTarget target)
+{
+	if (target.Slot != ExternalStereoTargetSlot)
+		return;
+	PresentationImages[0] = VK_NULL_HANDLE;
+	PresentationImages[1] = VK_NULL_HANDLE;
+	PresentationWidth = 0;
+	PresentationHeight = 0;
+	PresentExternalStereo = false;
+}
+
+bool VulkanRenderDevice::BeginPresentationView(PresentationTarget target, size_t viewIndex)
+{
+	if (target.IsDefault())
+		return true;
+	return target.Slot == ExternalStereoTargetSlot && PresentExternalStereo && viewIndex < 2;
 }
 
 void VulkanPrintLog(const char* typestr, const std::string& msg)
@@ -1432,7 +1521,52 @@ void VulkanRenderDevice::DrawPresentTexture(int width, int height)
 	cmdbuffer->draw(6, 1, 0, 0);
 	cmdbuffer->endRenderPass();
 
+	VkImage windowImage = Commands->SwapChain->GetImage(Commands->PresentImageIndex)->image;
+	if (PresentExternalStereo)
+		BlitPresentationTarget(cmdbuffer, windowImage);
+	else
+	{
+		PipelineBarrier()
+			.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+	}
+}
+
+void VulkanRenderDevice::BlitPresentationTarget(VulkanCommandBuffer* cmdbuffer, VkImage windowImage)
+{
+	int sourceWidth = Commands->SwapChain->Width();
+	int sourceHeight = Commands->SwapChain->Height();
+	int leftWidth = sourceWidth / 2;
 	PipelineBarrier()
-		.AddImage(Commands->SwapChain->GetImage(Commands->PresentImageIndex), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0)
-		.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+		.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT)
+		.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+	for (int eye = 0; eye < 2; eye++)
+	{
+		PipelineBarrier()
+			.AddImage(PresentationImages[eye], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+		VkImageBlit blit = {};
+		blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.srcSubresource.layerCount = 1;
+		blit.srcOffsets[0] = { eye == 0 ? 0 : leftWidth, 0, 0 };
+		blit.srcOffsets[1] = { eye == 0 ? leftWidth : sourceWidth, sourceHeight, 1 };
+		blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.dstSubresource.layerCount = 1;
+		blit.dstOffsets[1] = { PresentationWidth, PresentationHeight, 1 };
+		cmdbuffer->blitImage(windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			PresentationImages[eye], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+		PipelineBarrier()
+			.AddImage(PresentationImages[eye], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+	}
+
+	PipelineBarrier()
+		.AddImage(windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_TRANSFER_READ_BIT, 0)
+		.Execute(cmdbuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+	UnbindPresentationTarget({ ExternalStereoTargetSlot });
 }

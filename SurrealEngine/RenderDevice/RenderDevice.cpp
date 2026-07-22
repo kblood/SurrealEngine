@@ -31,7 +31,7 @@ RenderDevice::RenderDevice()
 	UseDebugLayer = settings.RenderDevice.UseDebugLayer;
 }
 
-std::unique_ptr<RenderDevice> RenderDevice::Create(Widget* viewport, RenderAPI renderAPI)
+std::unique_ptr<RenderDevice> RenderDevice::Create(Widget* viewport, RenderAPI renderAPI, VulkanGraphicsBinding* vulkanBinding)
 {
 	if (renderAPI == RenderAPI::Bitmap)
 	{
@@ -40,7 +40,7 @@ std::unique_ptr<RenderDevice> RenderDevice::Create(Widget* viewport, RenderAPI r
 #ifndef __EMSCRIPTEN__
 	else if (renderAPI == RenderAPI::Vulkan)
 	{
-		return std::make_unique<VulkanRenderDevice>(viewport);
+		return std::make_unique<VulkanRenderDevice>(viewport, vulkanBinding);
 	}
 #endif
 #ifdef WIN32

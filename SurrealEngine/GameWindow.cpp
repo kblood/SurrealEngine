@@ -9,7 +9,7 @@
 #include <surrealgpu/vulkanbuilders.h>
 #endif
 
-GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI) : Widget(nullptr, WidgetType::Window, renderAPI), windowHost(windowHost)
+GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI, VulkanGraphicsBinding* vulkanBinding) : Widget(nullptr, WidgetType::Window, renderAPI), windowHost(windowHost)
 {
 #ifndef __EMSCRIPTEN__
 	// No icon PNGs are preloaded for M1 (no SurrealEngine.pk3, no UI ever
@@ -26,7 +26,7 @@ GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI) : Widget
 		});
 #endif
 
-	device = RenderDevice::Create(this, renderAPI);
+	device = RenderDevice::Create(this, renderAPI, vulkanBinding);
 	SetCanvas(std::make_unique<RenderDeviceCanvas>(device.get()));
 	SetFocus();
 }
@@ -159,7 +159,7 @@ void GameWindow::OnLostFocus()
 	windowHost->OnWindowDeactivated();
 }
 
-std::unique_ptr<GameWindow> GameWindow::Create(GameWindowHost* windowHost)
+std::unique_ptr<GameWindow> GameWindow::Create(GameWindowHost* windowHost, VulkanGraphicsBinding* vulkanBinding)
 {
 	RenderAPI api;
 	switch (LauncherSettings::Get().RenderDevice.Type)
@@ -171,7 +171,7 @@ std::unique_ptr<GameWindow> GameWindow::Create(GameWindowHost* windowHost)
 	case RenderDeviceType::Null: api = RenderAPI::Bitmap; break;
 	case RenderDeviceType::WebGPU: api = RenderAPI::WebGPU; break;
 	}
-	return std::make_unique<GameWindow>(windowHost, api);
+	return std::make_unique<GameWindow>(windowHost, api, api == RenderAPI::Vulkan ? vulkanBinding : nullptr);
 }
 
 void GameWindow::ProcessEvents()
