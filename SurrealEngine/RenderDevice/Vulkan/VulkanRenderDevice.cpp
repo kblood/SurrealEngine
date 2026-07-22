@@ -129,6 +129,8 @@ VulkanRenderDevice::~VulkanRenderDevice()
 	if (Device)
 		vkDeviceWaitIdle(Device->device);
 
+	SurfaceBindings.Clear();
+	SurfaceTargets.clear();
 	Framebuffers.reset();
 	RenderPasses.reset();
 	DescriptorSets.reset();
@@ -148,12 +150,22 @@ bool VulkanRenderDevice::BeginPresentationLayer(const PresentationLayerDescripti
 		return false;
 	if (layer.Target.IsDefault())
 		return true;
-	return layer.Target.Slot == ExternalStereoTargetSlot && PresentExternalStereo;
+	if (layer.Target.Slot == ExternalStereoTargetSlot)
+		return PresentExternalStereo;
+	return BeginSurfaceTarget(layer.Target);
+}
+
+void VulkanRenderDevice::EndPresentationLayer(const PresentationLayerDescription& layer)
+{
+	if (layer.Target.Slot > ExternalStereoTargetSlot)
+		EndSurfaceTarget(layer.Target);
 }
 
 bool VulkanRenderDevice::BindPresentationTarget(const PresentationTargetBinding& binding)
 {
-	if (binding.Target.Slot != ExternalStereoTargetSlot || binding.Images.size() != 2)
+	if (binding.Target.Slot != ExternalStereoTargetSlot)
+		return !IsLocked && SurfaceBindings.Bind(binding);
+	if (IsLocked || binding.Images.size() != 2)
 		return false;
 	if (!binding.Images[0].NativeHandle || !binding.Images[1].NativeHandle)
 		return false;
@@ -171,6 +183,12 @@ bool VulkanRenderDevice::BindPresentationTarget(const PresentationTargetBinding&
 void VulkanRenderDevice::UnbindPresentationTarget(PresentationTarget target)
 {
 	if (target.Slot != ExternalStereoTargetSlot)
+	{
+		if (!IsLocked)
+			SurfaceBindings.Unbind(target);
+		return;
+	}
+	if (IsLocked)
 		return;
 	PresentationImages[0] = VK_NULL_HANDLE;
 	PresentationImages[1] = VK_NULL_HANDLE;
@@ -184,6 +202,213 @@ bool VulkanRenderDevice::BeginPresentationView(PresentationTarget target, size_t
 	if (target.IsDefault())
 		return true;
 	return target.Slot == ExternalStereoTargetSlot && PresentExternalStereo && viewIndex < 2;
+}
+
+VulkanRenderDevice::SurfaceTarget& VulkanRenderDevice::EnsureSurfaceTarget(
+	PresentationTarget target, int width, int height)
+{
+	auto& surface = SurfaceTargets[target.Slot];
+	const int multisample = GetSettingsMultisample();
+	const VkSampleCountFlagBits samples = Textures->Scene->SceneSamples;
+	if (surface && surface->Width == width && surface->Height == height &&
+		surface->Multisample == multisample && surface->Samples == samples)
+		return *surface;
+
+	surface = std::make_unique<SurfaceTarget>();
+	surface->Width = width;
+	surface->Height = height;
+	surface->Multisample = multisample;
+	surface->Samples = samples;
+	surface->ColorBuffer = ImageBuilder()
+		.Size(width, height)
+		.Samples(samples)
+		.Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+		.Usage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+		.DebugName("PresentationSurfaceColor")
+		.Create(Device.get());
+	surface->ColorBufferView = ImageViewBuilder()
+		.Image(surface->ColorBuffer.get(), VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT)
+		.DebugName("PresentationSurfaceColorView")
+		.Create(Device.get());
+	surface->ResolveBuffer = ImageBuilder()
+		.Size(width, height)
+		.Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+		.Usage(VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+		.DebugName("PresentationSurfaceResolve")
+		.Create(Device.get());
+	surface->HitBuffer = ImageBuilder()
+		.Size(width, height)
+		.Samples(samples)
+		.Format(VK_FORMAT_R32_UINT)
+		.Usage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+		.DebugName("PresentationSurfaceHit")
+		.Create(Device.get());
+	surface->HitBufferView = ImageViewBuilder()
+		.Image(surface->HitBuffer.get(), VK_FORMAT_R32_UINT, VK_IMAGE_ASPECT_COLOR_BIT)
+		.DebugName("PresentationSurfaceHitView")
+		.Create(Device.get());
+	surface->DepthBuffer = ImageBuilder()
+		.Size(width, height)
+		.Samples(samples)
+		.Format(VK_FORMAT_D32_SFLOAT)
+		.Usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+		.DebugName("PresentationSurfaceDepth")
+		.Create(Device.get());
+	surface->DepthBufferView = ImageViewBuilder()
+		.Image(surface->DepthBuffer.get(), VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT)
+		.DebugName("PresentationSurfaceDepthView")
+		.Create(Device.get());
+	surface->Framebuffer = FramebufferBuilder()
+		.RenderPass(RenderPasses->Scene.RenderPass.get())
+		.Size(width, height)
+		.AddAttachment(surface->ColorBufferView.get())
+		.AddAttachment(surface->HitBufferView.get())
+		.AddAttachment(surface->DepthBufferView.get())
+		.DebugName("PresentationSurfaceFramebuffer")
+		.Create(Device.get());
+	return *surface;
+}
+
+void VulkanRenderDevice::BindSceneBuffers(VulkanCommandBuffer* cmdbuffer)
+{
+	VkBuffer vertexBuffers[] = { Buffers->SceneVertexBuffer->buffer };
+	VkDeviceSize offsets[] = { 0 };
+	cmdbuffer->bindVertexBuffers(0, 1, vertexBuffers, offsets);
+	cmdbuffer->bindIndexBuffer(Buffers->SceneIndexBuffer->buffer, 0, VK_INDEX_TYPE_UINT32);
+}
+
+bool VulkanRenderDevice::BeginSurfaceTarget(PresentationTarget target)
+{
+	const PresentationTargetImage* binding = SurfaceBindings.Find(target);
+	if (!IsLocked || ActiveSurfaceTarget || !binding)
+		return false;
+
+	SurfaceTarget& surface = EnsureSurfaceTarget(target, binding->Width, binding->Height);
+	auto cmdbuffer = Commands->GetDrawCommands();
+	DrawBatch(cmdbuffer);
+	cmdbuffer->endRenderPass();
+
+	PipelineBarrier()
+		.AddImage(surface.ColorBuffer.get(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			0, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+		.AddImage(surface.HitBuffer.get(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			0, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+		.AddImage(surface.DepthBuffer.get(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+			0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+			VK_IMAGE_ASPECT_DEPTH_BIT)
+		.Execute(cmdbuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
+
+	RenderPassBegin()
+		.RenderPass(RenderPasses->Scene.RenderPass.get())
+		.Framebuffer(surface.Framebuffer.get())
+		.RenderArea(0, 0, surface.Width, surface.Height)
+		.AddClearColor(0.0f, 0.0f, 0.0f, 0.0f)
+		.AddClearColor(0.0f, 0.0f, 0.0f, 0.0f)
+		.AddClearDepthStencil(1.0f, 0)
+		.Execute(cmdbuffer);
+	BindSceneBuffers(cmdbuffer);
+	ActiveSurfaceTarget = &surface;
+	ActivePresentationTarget = target;
+	return true;
+}
+
+void VulkanRenderDevice::EndSurfaceTarget(PresentationTarget target)
+{
+	if (!IsLocked || !ActiveSurfaceTarget || target != ActivePresentationTarget)
+		return;
+	const PresentationTargetImage* binding = SurfaceBindings.Find(target);
+	SurfaceTarget& surface = *ActiveSurfaceTarget;
+	auto cmdbuffer = Commands->GetDrawCommands();
+	DrawBatch(cmdbuffer);
+	cmdbuffer->endRenderPass();
+
+	PipelineBarrier()
+		.AddImage(surface.ColorBuffer.get(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT)
+		.AddImage(surface.ResolveBuffer.get(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			0, VK_ACCESS_TRANSFER_WRITE_BIT)
+		.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+	if (surface.Samples == VK_SAMPLE_COUNT_1_BIT)
+	{
+		VkImageBlit blit = {};
+		blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.srcSubresource.layerCount = 1;
+		blit.srcOffsets[1] = { surface.Width, surface.Height, 1 };
+		blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.dstSubresource.layerCount = 1;
+		blit.dstOffsets[1] = { surface.Width, surface.Height, 1 };
+		cmdbuffer->blitImage(surface.ColorBuffer->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			surface.ResolveBuffer->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+	}
+	else
+	{
+		VkImageResolve resolve = {};
+		resolve.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		resolve.srcSubresource.layerCount = 1;
+		resolve.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		resolve.dstSubresource.layerCount = 1;
+		resolve.extent = { static_cast<uint32_t>(surface.Width), static_cast<uint32_t>(surface.Height), 1 };
+		cmdbuffer->resolveImage(surface.ColorBuffer->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			surface.ResolveBuffer->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &resolve);
+	}
+
+	if (binding)
+	{
+		VkImage output = static_cast<VkImage>(binding->NativeHandle);
+		PipelineBarrier()
+			.AddImage(surface.ResolveBuffer.get(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT)
+			.AddImage(output, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				0, VK_ACCESS_TRANSFER_WRITE_BIT)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+		VkImageBlit blit = {};
+		blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.srcSubresource.layerCount = 1;
+		blit.srcOffsets[1] = { surface.Width, surface.Height, 1 };
+		blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blit.dstSubresource.layerCount = 1;
+		blit.dstOffsets[1] = { binding->Width, binding->Height, 1 };
+		cmdbuffer->blitImage(surface.ResolveBuffer->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			output, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+		PipelineBarrier()
+			.AddImage(output, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+	}
+
+	ActiveSurfaceTarget = nullptr;
+	ActivePresentationTarget = {};
+	BeginMainScenePass();
+}
+
+void VulkanRenderDevice::BeginMainScenePass()
+{
+	auto cmdbuffer = Commands->GetDrawCommands();
+	RenderPassBegin()
+		.RenderPass(RenderPasses->Scene.RenderPassContinue.get())
+		.Framebuffer(Framebuffers->SceneFramebuffer.get())
+		.RenderArea(0, 0, Textures->Scene->Width, Textures->Scene->Height)
+		.Execute(cmdbuffer);
+	BindSceneBuffers(cmdbuffer);
+	cmdbuffer->setViewport(0, 1, &viewportdesc);
+	VkRect2D scissor = {};
+	scissor.offset = { static_cast<int32_t>(viewportdesc.x), static_cast<int32_t>(viewportdesc.y) };
+	scissor.extent = { static_cast<uint32_t>(viewportdesc.width), static_cast<uint32_t>(viewportdesc.height) };
+	cmdbuffer->setScissor(0, 1, &scissor);
+}
+
+int VulkanRenderDevice::ActiveTargetWidth() const
+{
+	return ActiveSurfaceTarget ? ActiveSurfaceTarget->Width : Textures->Scene->Width;
+}
+
+int VulkanRenderDevice::ActiveTargetHeight() const
+{
+	return ActiveSurfaceTarget ? ActiveSurfaceTarget->Height : Textures->Scene->Height;
 }
 
 void VulkanPrintLog(const char* typestr, const std::string& msg)
@@ -326,23 +551,39 @@ void VulkanRenderDevice::FlushDrawBatchAndWait()
 	VkPipelineStageFlags srcStages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 	VkPipelineStageFlags dstStages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 
-	PipelineBarrier()
-		.AddImage(Textures->Scene->ColorBuffer.get(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, srcColorAccess, dstColorAccess)
-		.AddImage(Textures->Scene->HitBuffer.get(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, srcColorAccess, dstColorAccess)
-		.AddImage(Textures->Scene->DepthBuffer.get(), VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, srcDepthAccess, dstDepthAccess, VK_IMAGE_ASPECT_DEPTH_BIT)
-		.Execute(drawcommands, srcStages, dstStages);
+	if (ActiveSurfaceTarget)
+	{
+		PipelineBarrier()
+			.AddImage(ActiveSurfaceTarget->ColorBuffer.get(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, srcColorAccess, dstColorAccess)
+			.AddImage(ActiveSurfaceTarget->HitBuffer.get(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, srcColorAccess, dstColorAccess)
+			.AddImage(ActiveSurfaceTarget->DepthBuffer.get(), VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, srcDepthAccess, dstDepthAccess, VK_IMAGE_ASPECT_DEPTH_BIT)
+			.Execute(drawcommands, srcStages, dstStages);
+		RenderPassBegin()
+			.RenderPass(RenderPasses->Scene.RenderPassContinue.get())
+			.Framebuffer(ActiveSurfaceTarget->Framebuffer.get())
+			.RenderArea(0, 0, ActiveSurfaceTarget->Width, ActiveSurfaceTarget->Height)
+			.Execute(drawcommands);
+	}
+	else
+	{
+		PipelineBarrier()
+			.AddImage(Textures->Scene->ColorBuffer.get(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, srcColorAccess, dstColorAccess)
+			.AddImage(Textures->Scene->HitBuffer.get(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, srcColorAccess, dstColorAccess)
+			.AddImage(Textures->Scene->DepthBuffer.get(), VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, srcDepthAccess, dstDepthAccess, VK_IMAGE_ASPECT_DEPTH_BIT)
+			.Execute(drawcommands, srcStages, dstStages);
+		RenderPassBegin()
+			.RenderPass(RenderPasses->Scene.RenderPassContinue.get())
+			.Framebuffer(Framebuffers->SceneFramebuffer.get())
+			.RenderArea(0, 0, Textures->Scene->Width, Textures->Scene->Height)
+			.Execute(drawcommands);
+	}
 
-	RenderPassBegin()
-		.RenderPass(RenderPasses->Scene.RenderPassContinue.get())
-		.Framebuffer(Framebuffers->SceneFramebuffer.get())
-		.RenderArea(0, 0, Textures->Scene->Width, Textures->Scene->Height)
-		.Execute(drawcommands);
-
-	VkBuffer vertexBuffers[] = { Buffers->SceneVertexBuffer->buffer };
-	VkDeviceSize offsets[] = { 0 };
-	drawcommands->bindVertexBuffers(0, 1, vertexBuffers, offsets);
-	drawcommands->bindIndexBuffer(Buffers->SceneIndexBuffer->buffer, 0, VK_INDEX_TYPE_UINT32);
+	BindSceneBuffers(drawcommands);
 	drawcommands->setViewport(0, 1, &viewportdesc);
+	VkRect2D scissor = {};
+	scissor.offset = { static_cast<int32_t>(viewportdesc.x), static_cast<int32_t>(viewportdesc.y) };
+	scissor.extent = { static_cast<uint32_t>(viewportdesc.width), static_cast<uint32_t>(viewportdesc.height) };
+	drawcommands->setScissor(0, 1, &scissor);
 }
 
 void VulkanRenderDevice::Unlock(bool Blit)
@@ -838,8 +1079,8 @@ void VulkanRenderDevice::ClearZ()
 	attachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 	attachment.clearValue.depthStencil.depth = 1.0f;
 	rect.layerCount = 1;
-	rect.rect.extent.width = Textures->Scene->Width;
-	rect.rect.extent.height = Textures->Scene->Height;
+	rect.rect.extent.width = ActiveTargetWidth();
+	rect.rect.extent.height = ActiveTargetHeight();
 	Commands->GetDrawCommands()->clearAttachments(1, &attachment, 1, &rect);
 }
 
@@ -1071,6 +1312,10 @@ void VulkanRenderDevice::SetSceneNode(FSceneNode* Frame)
 	viewportdesc.minDepth = 0.1f;
 	viewportdesc.maxDepth = 1.0f;
 	commands->setViewport(0, 1, &viewportdesc);
+	VkRect2D scissor = {};
+	scissor.offset = { Frame->XB, Frame->YB };
+	scissor.extent = { static_cast<uint32_t>(Frame->X), static_cast<uint32_t>(Frame->Y) };
+	commands->setScissor(0, 1, &scissor);
 
 	pushconstants.objectToProjection = Frame->Projection;
 

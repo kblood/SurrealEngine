@@ -111,10 +111,12 @@ Native and browser UI policy converges through `XRUIRuntime`: both use the same
 surface descriptors, anchoring, menu-last ordering, exact pointer contact and
 click ownership, startup fire route, mouse coexistence, and lifecycle cleanup.
 Native OpenXR has an SDK-free allocation/composition seam and view-consistent
-ray translation. Its remaining gap is confined to Vulkan/OpenXR rendering: the
-Vulkan backend can only blit the final stereo desktop atlas into slot 1 and
-cannot yet produce or submit independent slots 2-5. This limitation remains
-explicit so it cannot masquerade as working native quad UI.
+ray translation. Vulkan can now render and retain independent single-image
+slots 2-5 without disturbing the world pass. The remaining native gap is the
+OpenXR owner that allocates/acquires those swapchains, binds them for replay,
+converts shared poses through the view recenter transform, and submits ordered
+no-depth quad layers. This limitation remains explicit so the backend primitive
+cannot masquerade as working native quad UI.
 
 The VM hook registry is a narrow attachment point for optional game and XR
 behavior. Hooks are ordered, scoped to a call, mutation-safe, and unwind in

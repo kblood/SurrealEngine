@@ -13,8 +13,11 @@
 #include "TextureManager.h"
 #include "UploadManager.h"
 #include "VulkanGraphicsBinding.h"
+#include "VulkanPresentationTargets.h"
 #include "Math/vec.h"
 #include "Math/mat.h"
+
+#include <map>
 
 class CachedTexture;
 
@@ -46,6 +49,7 @@ public:
 	bool SupportsTextureFormat(TextureFormat Format) override;
 	void UpdateTextureRect(FTextureInfo& Info, int U, int V, int UL, int VL) override;
 	bool BeginPresentationLayer(const PresentationLayerDescription& layer) override;
+	void EndPresentationLayer(const PresentationLayerDescription& layer) override;
 	bool BindPresentationTarget(const PresentationTargetBinding& binding) override;
 	void UnbindPresentationTarget(PresentationTarget target) override;
 	bool BeginPresentationView(PresentationTarget target, size_t viewIndex) override;
@@ -97,6 +101,28 @@ public:
 
 private:
 	static constexpr uint32_t ExternalStereoTargetSlot = 1;
+	struct SurfaceTarget
+	{
+		int Width = 0;
+		int Height = 0;
+		int Multisample = 0;
+		VkSampleCountFlagBits Samples = VK_SAMPLE_COUNT_1_BIT;
+		std::unique_ptr<VulkanImage> ColorBuffer;
+		std::unique_ptr<VulkanImageView> ColorBufferView;
+		std::unique_ptr<VulkanImage> ResolveBuffer;
+		std::unique_ptr<VulkanImage> HitBuffer;
+		std::unique_ptr<VulkanImageView> HitBufferView;
+		std::unique_ptr<VulkanImage> DepthBuffer;
+		std::unique_ptr<VulkanImageView> DepthBufferView;
+		std::unique_ptr<VulkanFramebuffer> Framebuffer;
+	};
+	SurfaceTarget& EnsureSurfaceTarget(PresentationTarget target, int width, int height);
+	bool BeginSurfaceTarget(PresentationTarget target);
+	void EndSurfaceTarget(PresentationTarget target);
+	void BeginMainScenePass();
+	void BindSceneBuffers(VulkanCommandBuffer* cmdbuffer);
+	int ActiveTargetWidth() const;
+	int ActiveTargetHeight() const;
 	void BlitPresentationTarget(VulkanCommandBuffer* cmdbuffer, VkImage windowImage);
 	void ClearTextureCache();
 	void BlitSceneToPostprocess();
@@ -136,6 +162,10 @@ private:
 	int PresentationWidth = 0;
 	int PresentationHeight = 0;
 	bool PresentExternalStereo = false;
+	VulkanPresentationTargets SurfaceBindings;
+	std::map<uint32_t, std::unique_ptr<SurfaceTarget>> SurfaceTargets;
+	SurfaceTarget* ActiveSurfaceTarget = nullptr;
+	PresentationTarget ActivePresentationTarget;
 
 	bool UsePrecache = true;
 	vec4 FlashScale;

@@ -405,6 +405,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/RenderDevice/Vulkan/VulkanRenderDevice.cpp
 	SurrealEngine/RenderDevice/Vulkan/VulkanRenderDevice.h
 	SurrealEngine/RenderDevice/Vulkan/VulkanGraphicsBinding.h
+	SurrealEngine/RenderDevice/Vulkan/VulkanPresentationTargets.cpp
+	SurrealEngine/RenderDevice/Vulkan/VulkanPresentationTargets.h
 	SurrealEngine/RenderDevice/Null/NullRenderDevice.cpp
 	SurrealEngine/RenderDevice/Null/NullRenderDevice.h
 	SurrealEngine/Audio/NullAudioDevice.cpp
@@ -1108,6 +1110,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PresentationTests PRIVATE SurrealEngine)
 	set_target_properties(PresentationTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PresentationTests COMMAND PresentationTests)
+
+	add_executable(VulkanPresentationTargetsTests
+		Tests/VulkanPresentationTargetsTests.cpp
+		SurrealEngine/RenderDevice/Vulkan/VulkanPresentationTargets.cpp
+	)
+	target_include_directories(VulkanPresentationTargetsTests PRIVATE SurrealEngine)
+	set_target_properties(VulkanPresentationTargetsTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME VulkanPresentationTargetsTests COMMAND VulkanPresentationTargetsTests)
 
 	add_executable(OpenXRViewTests
 		Tests/OpenXRViewTests.cpp

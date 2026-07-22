@@ -156,10 +156,17 @@ into a quad. See [`MapStartupIntro.md`](MapStartupIntro.md).
 ## Native OpenXR integration status
 
 Native OpenXR now consumes the same runtime policy and has deterministic
-coverage, but its current Vulkan backend cannot yet produce independent surface
-images. It only accepts stereo target slot 1 and blits the final side-by-side
-desktop image into the eye swapchains. Until Vulkan can render and preserve
-slots 2-5 and an OpenXR compositor can submit them after the world with the menu
-last, `OpenXRUIRuntime::Start` must only be called with a sink that successfully
-allocates all targets. There is intentionally no null/fake production sink and
-no invisible interactive fallback.
+coverage. Vulkan accepts independently bound single-image slots above the
+stereo slot, renders each canvas replay into a dedicated transparent
+color/depth attachment set, resolves it into the provider image, and reopens
+the untouched world pass. The backing attachments survive per-frame provider
+unbind/rebind, while acquired provider handles do not.
+
+The remaining native blocker is the OpenXR owner of those images. A production
+`OpenXRUICompositionSink` must create one swapchain per descriptor, acquire and
+bind the visible images before canvas replay, release them after Vulkan
+submission, convert the shared anchored poses back into OpenXR LOCAL space, and
+append ordered `XrCompositionLayerQuad` entries after the projection layer.
+Until that sink completes all operations, `OpenXRUIRuntime::Start` must not be
+called. There is intentionally no null/fake production sink and no invisible
+interactive fallback.
