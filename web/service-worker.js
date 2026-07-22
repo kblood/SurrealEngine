@@ -3,7 +3,7 @@
 // Bump this for every deploy that changes shell/runtime compatibility. Old
 // SurrealEngine caches are removed only after this version has installed all
 // required shell files successfully.
-const APP_VERSION = "2026.07.22-m10.5";
+const APP_VERSION = "2026.07.22-m10.6";
 const CACHE_PREFIX = "surrealengine-webxr-";
 const SHELL_CACHE = CACHE_PREFIX + APP_VERSION + "-shell";
 const RUNTIME_CACHE = CACHE_PREFIX + APP_VERSION + "-runtime";
@@ -16,6 +16,7 @@ const SHELL_URLS = [
 	"./ut99_importer.js",
 	"./mutable_persistence.js",
 	"./webxr_settings.js",
+	"./webxr_launcher.js",
 	"./webxr_session.js",
 	"../Assets/surreal-engine-icon.svg",
 	"../Resources/surreal-engine-icon-128.png",
@@ -145,6 +146,7 @@ function policySelfTest() {
 		indexNetworkFirst: classifyRequest(request("./index_webxr.html?update=1")) === "network-first-html",
 		mutableOverlayInShell: classifyRequest(request("./mutable_persistence.js")) === "cache-first-shell",
 		webXRSettingsInShell: classifyRequest(request("./webxr_settings.js")) === "cache-first-shell",
+		webXRLauncherInShell: classifyRequest(request("./webxr_launcher.js")) === "cache-first-shell",
 	};
 }
 

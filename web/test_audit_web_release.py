@@ -25,6 +25,9 @@ SHELL_REFERENCES = (
 	"./manifest.webmanifest",
 	"./pwa_register.js",
 	"./ut99_importer.js",
+	"./mutable_persistence.js",
+	"./webxr_settings.js",
+	"./webxr_launcher.js",
 	"./webxr_session.js",
 	"../Assets/surreal-engine-icon.svg",
 	"../Resources/surreal-engine-icon-128.png",
@@ -49,6 +52,9 @@ def build_valid_fixture(root: Path, runtime_directory: str = "build-emscripten-n
 <html><head><link rel="manifest" href="manifest.webmanifest"></head><body>
 <script src="webxr_session.js"></script>
 <script src="ut99_importer.js"></script>
+<script src="mutable_persistence.js"></script>
+<script src="webxr_settings.js"></script>
+<script src="webxr_launcher.js"></script>
 <script src="pwa_register.js"></script>
 </body></html>
 """)
@@ -70,6 +76,9 @@ def build_valid_fixture(root: Path, runtime_directory: str = "build-emscripten-n
 	write_text(root, "web/pwa_register.js",
 		'navigator.serviceWorker.register("service-worker.js", { scope: "./" });\n')
 	write_text(root, "web/ut99_importer.js", "globalThis.SyntheticImporter = {};\n")
+	write_text(root, "web/mutable_persistence.js", "globalThis.SyntheticMutable = {};\n")
+	write_text(root, "web/webxr_settings.js", "globalThis.SyntheticSettings = {};\n")
+	write_text(root, "web/webxr_launcher.js", "globalThis.SyntheticLauncher = {};\n")
 	write_text(root, "web/webxr_session.js", "globalThis.SyntheticXR = {};\n")
 	shell_json = ",\n\t".join(json.dumps(value) for value in SHELL_REFERENCES)
 	runtime_references = (

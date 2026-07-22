@@ -53,6 +53,7 @@ def build_valid_inputs(base: Path, runtime_name: str = "build-emscripten-nodata"
 		"ut99_importer.js",
 		"mutable_persistence.js",
 		"webxr_settings.js",
+		"webxr_launcher.js",
 		"pwa_register.js",
 	)
 	write_text(source, "web/index_webxr.html", "<!doctype html><html><head>\n" +
@@ -80,6 +81,7 @@ def build_valid_inputs(base: Path, runtime_name: str = "build-emscripten-nodata"
 		"web/ut99_importer.js",
 		"web/mutable_persistence.js",
 		"web/webxr_settings.js",
+		"web/webxr_launcher.js",
 		"web/webxr_session.js",
 	):
 		write_text(source, relative, f"// synthetic {relative}\n")

@@ -41,6 +41,7 @@ SHELL_ALLOWLIST = (
 	"web/ut99_importer.js",
 	"web/mutable_persistence.js",
 	"web/webxr_settings.js",
+	"web/webxr_launcher.js",
 	"web/webxr_session.js",
 	"web/service-worker.js",
 	"Assets/surreal-engine-icon.svg",
@@ -289,6 +290,7 @@ def _validate_shell_graph(sources: dict[str, Path]) -> None:
 		"ut99_importer.js",
 		"mutable_persistence.js",
 		"webxr_settings.js",
+		"webxr_launcher.js",
 		"pwa_register.js",
 	}
 	if not required_scripts.issubset(scripts):
