@@ -32,6 +32,17 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
     combat: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
     projectile_launches: dict[str, tuple[str, str]] = {}
     projectile_results: set[str] = set()
+    fixture_id = ""
+    fixture_assertions = Counter()
+    fixture_assertion_names: set[str] = set()
+    fixture_setup: dict[str, str] | None = None
+    fixture_complete: dict[str, str] | None = None
+
+    def fixture_bool(fields: dict[str, str], name: str, line_number: int) -> bool:
+        value = fields.get(name)
+        if value not in ("true", "false"):
+            raise ValueError(f"fixture {name} is not a literal boolean at line {line_number}")
+        return value == "true"
 
     with events_path.open("r", encoding="utf-8-sig") as handle:
         for line_number, line in enumerate(handle, 1):
@@ -54,7 +65,56 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
             previous_tick = tick
 
             try:
-                if event_type == "route_search":
+                if event_type == "run_config":
+                    fixture_id = str(fields.get("fixture_id", ""))
+
+                elif event_type == "fixture_assert":
+                    if not fixture_id:
+                        errors.append(f"line {line_number}: fixture assertion without configured fixture")
+                    if fields.get("fixture_id") != fixture_id:
+                        errors.append(f"line {line_number}: fixture assertion id mismatch")
+                    if fixture_setup is None:
+                        errors.append(f"line {line_number}: fixture assertion occurred before setup")
+                    if fixture_complete is not None:
+                        errors.append(f"line {line_number}: fixture assertion occurred after completion")
+                    assertion_name = fields.get("name", "")
+                    if not assertion_name:
+                        errors.append(f"line {line_number}: fixture assertion has no name")
+                    elif assertion_name in fixture_assertion_names:
+                        errors.append(f"line {line_number}: duplicate fixture assertion name {assertion_name!r}")
+                    fixture_assertion_names.add(assertion_name)
+                    passed = fixture_bool(fields, "passed", line_number)
+                    expected = fixture_bool(fields, "expected", line_number)
+                    actual = fixture_bool(fields, "actual", line_number)
+                    if passed != (expected == actual):
+                        errors.append(f"line {line_number}: fixture assertion result mismatch")
+                    fixture_assertions["total"] += 1
+                    fixture_assertions["passed" if passed else "failed"] += 1
+
+                elif event_type == "fixture_complete":
+                    if not fixture_id:
+                        errors.append(f"line {line_number}: fixture completion without configured fixture")
+                    if fields.get("fixture_id") != fixture_id:
+                        errors.append(f"line {line_number}: fixture completion id mismatch")
+                    if fixture_setup is None:
+                        errors.append(f"line {line_number}: fixture completion occurred before setup")
+                    if fixture_complete is not None:
+                        errors.append(f"line {line_number}: duplicate fixture completion")
+                    fixture_complete = fields
+
+                elif event_type in ("fixture_setup", "fixture_error"):
+                    if not fixture_id:
+                        errors.append(f"line {line_number}: {event_type} without configured fixture")
+                    if fields.get("fixture_id") != fixture_id:
+                        errors.append(f"line {line_number}: {event_type} id mismatch")
+                    if event_type == "fixture_setup":
+                        if fixture_assertions["total"] != 0 or fixture_complete is not None:
+                            errors.append(f"line {line_number}: fixture setup occurred after fixture results")
+                        if fixture_setup is not None:
+                            errors.append(f"line {line_number}: duplicate fixture setup")
+                        fixture_setup = fields
+
+                elif event_type == "route_search":
                     nodes = as_int(fields, "route_nodes")
                     travel = as_int(fields, "travel_distance")
                     weighted = as_int(fields, "weighted_cost")
@@ -184,6 +244,39 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
         warnings.append("trace contains no SeePlayer probe; it does not exercise visual acquisition")
     if counts["enemy_not_visible"] == 0:
         warnings.append("trace contains no EnemyNotVisible probe; it does not exercise visual loss")
+    if fixture_id:
+        if counts["fixture_setup"] != 1:
+            errors.append(f"configured fixture has {counts['fixture_setup']} setup events, expected 1")
+        if fixture_id == "controlled-reachability-blockall-v1" and fixture_setup is not None:
+            required_geometry = (
+                "source_x", "source_y", "source_z", "target_x", "target_y", "target_z",
+                "direction_x", "direction_y", "blocker_radius", "blocker_height",
+                "blocker_spacing", "blocker_offset_min", "blocker_offset_max",
+            )
+            try:
+                for field in required_geometry:
+                    as_float(fixture_setup, field)
+                if as_int(fixture_setup, "blocker_count") != 9:
+                    errors.append("reachability fixture setup did not contain nine blockers")
+            except (KeyError, TypeError, ValueError) as exc:
+                errors.append(f"reachability fixture setup geometry error: {exc}")
+        if fixture_complete is None:
+            errors.append("configured fixture has no completion event")
+        else:
+            if fixture_complete.get("fixture_id") != fixture_id:
+                errors.append("fixture completion id mismatch")
+            for field, observed in (
+                ("assertions_total", fixture_assertions["total"]),
+                ("assertions_passed", fixture_assertions["passed"]),
+                ("assertions_failed", fixture_assertions["failed"]),
+            ):
+                try:
+                    if int(fixture_complete.get(field, -1)) != observed:
+                        errors.append(f"fixture completion {field} does not match assertion events")
+                except (TypeError, ValueError):
+                    errors.append(f"fixture completion has invalid {field}")
+            if fixture_complete.get("status") != "passed" or fixture_assertions["failed"] != 0:
+                errors.append("fixture completion did not pass all assertions")
 
     if summary_path is not None:
         try:
@@ -198,6 +291,24 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                 errors.append("summary observed a bot targeting a non-bot pawn")
             if not summary.get("viewport_actor_is_spectator") or not summary.get("viewport_pri_is_spectator"):
                 errors.append("summary viewport spectator proof failed")
+            summary_fixture = summary.get("fixture", {})
+            if fixture_id:
+                if summary.get("fixture_id") != fixture_id or summary_fixture.get("id") != fixture_id:
+                    errors.append("summary fixture id does not match trace")
+                if summary_fixture.get("status") != "passed":
+                    errors.append("summary fixture status did not pass")
+                for field, observed in (
+                    ("assertions_total", fixture_assertions["total"]),
+                    ("assertions_passed", fixture_assertions["passed"]),
+                    ("assertions_failed", fixture_assertions["failed"]),
+                ):
+                    if int(summary_fixture.get(field, -1)) != observed:
+                        errors.append(f"summary fixture {field} does not match trace")
+            else:
+                if summary.get("fixture_id") not in (None, ""):
+                    errors.append("ordinary summary unexpectedly names a fixture")
+                if summary_fixture.get("status") != "inactive":
+                    errors.append("ordinary summary fixture status is not inactive")
             for metric in summary.get("bot_metrics", []):
                 identity = str(metric.get("identity", ""))
                 expected_fields = {

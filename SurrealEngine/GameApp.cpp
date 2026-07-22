@@ -43,7 +43,7 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--probexr] [--debugstereo] [--botbench[=scenario]] [--botbench-output=dir] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-skill=0..7] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--probexr] [--debugstereo] [--botbench[=scenario]] [--botbench-output=dir] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-skill=0..7] [--botbench-fixture=id] [Path to game folder]\n";
 			if (widgetResourcesInitialized)
 				DeinitWidgetResources();
 			return 0;

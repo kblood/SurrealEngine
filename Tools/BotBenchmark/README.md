@@ -104,6 +104,22 @@ consideration; it does not imply a route exists from the current navigation
 component. Missing sight-acquisition or loss events are reported as coverage
 warnings rather than invented successes.
 
+## Controlled fixtures
+
+Pass `-FixtureId controlled-reachability-blockall-v1` to the matrix runner (or
+`--botbench-fixture=controlled-reachability-blockall-v1` directly to the
+engine) to run the first short native contract fixture. JSON configs use
+`"fixture_id": "controlled-reachability-blockall-v1"`. This fixture requires
+one bot; it checks clear and dynamically blocked `ActorReachable`, documents
+the dynamic-actor behavior of `PointReachable`, and verifies that reachability
+dry runs preserve the pawn location.
+
+Fixture traces add `fixture_setup`, `fixture_assert`, and `fixture_complete`.
+The summary contains their ID/status/counts, and `Validate-BotTrace.py`
+reconciles the complete event/summary contract. Fixture runs retain roster and
+spectator isolation checks, but short fixtures do not pretend to cover normal
+match pickup or travel gates.
+
 ## Retail UT436 reference oracle
 
 `Run-RetailBotOracle.ps1` runs an unattended stock-bot match with the installed

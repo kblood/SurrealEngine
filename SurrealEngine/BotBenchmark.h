@@ -22,6 +22,7 @@ struct BotBenchmarkConfig
 	std::string OutputDirectory = "botbench-output";
 	std::string URL = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
 	std::string BotName = "Loque";
+	std::string FixtureId;
 	uint64_t Seed = 104729;
 	uint64_t MaxTicks = 600;
 	float FixedDelta = 1.0f / 60.0f;
@@ -210,6 +211,7 @@ private:
 	void OpenOutput();
 	bool ValidateViewportSpectator(Engine& engine);
 	void ConfigureBots(Engine& engine);
+	void RunControlledFixture(Engine& engine);
 	void ObserveBots(Engine& engine);
 	void UpdateTelemetry(const PawnSnapshot& snapshot, const PawnSnapshot* previous);
 	BotTelemetry& TelemetryForPawn(UPawn* pawn);
@@ -244,6 +246,10 @@ private:
 	int ExitCode = 0;
 	bool ObservedLiveBot = false;
 	bool ObservedBotMovement = false;
+	std::string FixtureStatus = "inactive";
+	int FixtureAssertionsTotal = 0;
+	int FixtureAssertionsPassed = 0;
+	int FixtureAssertionsFailed = 0;
 	bool Finalized = false;
 	std::string FailureReason;
 };

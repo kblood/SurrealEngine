@@ -31,7 +31,9 @@ param(
     [ValidateRange(1, 86400)]
     [int] $TimeoutSeconds = 120,
 
-    [string] $BotName = 'Loque'
+    [string] $BotName = 'Loque',
+
+    [string] $FixtureId = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -169,6 +171,11 @@ if ([string]::IsNullOrWhiteSpace($BotName) -or $BotName.Contains('"')) {
     throw 'BotName must not be empty or contain a double quote.'
 }
 
+$normalizedFixtureId = $FixtureId.Trim()
+if ($normalizedFixtureId.Contains('"')) {
+    throw 'FixtureId must not contain a double quote.'
+}
+
 $ticks = [UInt64] [Math]::Ceiling($Seconds / $FixedDelta)
 if ($ticks -lt 1 -or $ticks -gt 10000000) {
     throw "Seconds and FixedDelta produce $ticks ticks; the engine accepts [1, 10000000]."
@@ -215,6 +222,9 @@ foreach ($map in $normalizedMaps) {
                 )
                 if ($OpponentSkill -ge 0) {
                     $argumentValues += "--botbench-skills=$skill,$OpponentSkill"
+                }
+                if ($normalizedFixtureId.Length -gt 0) {
+                    $argumentValues += "--botbench-fixture=$normalizedFixtureId"
                 }
                 $argumentValues += "--botbench-bots=$Bots"
                 $argumentValues += $resolvedGameRoot
@@ -379,6 +389,15 @@ foreach ($map in $normalizedMaps) {
                     if ([string] $summary.map -ne $map) { Add-ValidationError $validationErrors "Summary map '$($summary.map)' did not match '$map'." }
                     if ([int] $summary.requested_difficulty -ne $skill) { Add-ValidationError $validationErrors 'Summary difficulty did not match.' }
                     if ([int] $summary.requested_bots -ne $Bots) { Add-ValidationError $validationErrors 'Summary bot count did not match.' }
+                    if ([string] $summary.fixture_id -ne $normalizedFixtureId) { Add-ValidationError $validationErrors "Summary fixture '$($summary.fixture_id)' did not match '$normalizedFixtureId'." }
+                    if ($normalizedFixtureId.Length -gt 0) {
+                        if ([string] $summary.fixture.id -ne $normalizedFixtureId) { Add-ValidationError $validationErrors 'Nested summary fixture ID did not match.' }
+                        if ([string] $summary.fixture.status -ne 'passed') { Add-ValidationError $validationErrors "Fixture status was '$($summary.fixture.status)'." }
+                        if ([int] $summary.fixture.assertions_failed -ne 0) { Add-ValidationError $validationErrors 'Fixture summary contained failed assertions.' }
+                    }
+                    elseif ([string] $summary.fixture.status -ne 'inactive') {
+                        Add-ValidationError $validationErrors "Ordinary run had fixture status '$($summary.fixture.status)'."
+                    }
                     $expectedSkills = if ($OpponentSkill -ge 0) { "$skill,$OpponentSkill" } else { (@(1..$Bots | ForEach-Object { $skill }) -join ',') }
                     $actualSkills = (@($summary.requested_skills) -join ',')
                     if ($actualSkills -ne $expectedSkills) { Add-ValidationError $validationErrors "Summary skills '$actualSkills' did not match '$expectedSkills'." }
@@ -396,6 +415,10 @@ foreach ($map in $normalizedMaps) {
                     repetition = $repetition
                     requested_bots = $Bots
                     requested_ticks = $ticks
+                    fixture_id = $normalizedFixtureId
+                    fixture_status = if ($null -ne $summary) { [string] $summary.fixture.status } else { '' }
+                    fixture_assertions_total = if ($null -ne $summary) { $summary.fixture.assertions_total } else { $null }
+                    fixture_assertions_failed = if ($null -ne $summary) { $summary.fixture.assertions_failed } else { $null }
                     fixed_delta = $fixedDeltaText
                     process_result = $processResult
                     exit_code = $processExitCode
@@ -468,6 +491,7 @@ foreach ($group in ($runRows | Group-Object case_id)) {
         map = $first.map
         skill = $first.skill
         opponent_skill = $first.opponent_skill
+        fixture_id = $first.fixture_id
         seed = $first.seed
         expected_runs = $RunsPerCase
         valid_runs = $validRuns.Count
@@ -506,6 +530,7 @@ $result = [PSCustomObject] [ordered] @{
         ticks = $ticks
         timeout_seconds = $TimeoutSeconds
         bot_name = $BotName
+        fixture_id = $normalizedFixtureId
     }
     totals = [PSCustomObject] [ordered] @{
         cases = $caseRows.Count

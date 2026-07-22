@@ -6,12 +6,14 @@
 #include "Utils/File.h"
 #include "Utils/JsonValue.h"
 #include "Utils/Random.h"
+#include "Package/PackageManager.h"
 #include "UObject/ULevel.h"
 #include "UObject/UActor.h"
 #include "VM/Frame.h"
 #include "UObject/UClient.h"
 #include "VM/ScriptCall.h"
 #include <cctype>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <iomanip>
@@ -349,6 +351,7 @@ BotBenchmarkConfig BotBenchmark::LoadConfig(const CommandLine& commandLine)
 		config.OutputDirectory = JsonString(root["output"], config.OutputDirectory);
 		config.URL = JsonString(root["url"], config.URL);
 		config.BotName = JsonString(root["bot_name"], config.BotName);
+		config.FixtureId = JsonString(root["fixture_id"], config.FixtureId);
 		config.Seed = JsonUInt64(root["seed"], config.Seed);
 		config.MaxTicks = JsonUInt64(root["ticks"], config.MaxTicks);
 		config.FixedDelta = JsonFloat(root["fixed_delta"], config.FixedDelta);
@@ -370,6 +373,8 @@ BotBenchmarkConfig BotBenchmark::LoadConfig(const CommandLine& commandLine)
 		config.URL = commandLine.GetArg("", "--botbench-url");
 	if (commandLine.HasArg("", "--botbench-bot-name"))
 		config.BotName = commandLine.GetArg("", "--botbench-bot-name");
+	if (commandLine.HasArg("", "--botbench-fixture"))
+		config.FixtureId = commandLine.GetArg("", "--botbench-fixture");
 	if (commandLine.HasArg("", "--botbench-seed"))
 		config.Seed = std::stoull(commandLine.GetArg("", "--botbench-seed"));
 	if (commandLine.HasArg("", "--botbench-ticks"))
@@ -436,6 +441,7 @@ void BotBenchmark::OpenOutput()
 		{ "requested_skills", JoinSkills(requestedSkills) },
 		{ "bots", ToString(Config.BotCount) },
 		{ "bot_name", Config.BotName },
+		{ "fixture_id", Config.FixtureId },
 		{ "url", Config.URL }
 	});
 }
@@ -453,6 +459,11 @@ void BotBenchmark::Initialize(Engine& engine)
 	if (!ValidateViewportSpectator(engine))
 		return;
 	ConfigureBots(engine);
+	if (ExitCode != 0)
+		return;
+	RunControlledFixture(engine);
+	if (ExitCode != 0)
+		return;
 	ObserveBots(engine);
 
 	WriteEvent("simulation_start", {
@@ -460,6 +471,216 @@ void BotBenchmark::Initialize(Engine& engine)
 		{ "version", engine.LaunchInfo.gameVersionString },
 		{ "map", engine.LevelInfo ? engine.LevelInfo->URL.Map : std::string() }
 	});
+}
+
+void BotBenchmark::RunControlledFixture(Engine& engine)
+{
+	if (Config.FixtureId.empty())
+		return;
+
+	FixtureStatus = "running";
+	auto setupFailure = [&](const std::string& reason)
+	{
+		FixtureStatus = "setup_error";
+		FailureReason = reason;
+		ExitCode = 2;
+		WriteEvent("fixture_error", { { "fixture_id", Config.FixtureId }, { "reason", reason } });
+	};
+	auto assertion = [&](const std::string& name, bool expected, bool actual)
+	{
+		const bool passed = expected == actual;
+		FixtureAssertionsTotal++;
+		if (passed)
+			FixtureAssertionsPassed++;
+		else
+			FixtureAssertionsFailed++;
+		WriteEvent("fixture_assert", {
+			{ "fixture_id", Config.FixtureId },
+			{ "name", name },
+			{ "expected", expected ? "true" : "false" },
+			{ "actual", actual ? "true" : "false" },
+			{ "passed", passed ? "true" : "false" }
+		});
+		HashCanonical("fixture_assert=" + Config.FixtureId + "|" + name + "|" +
+			(expected ? "true" : "false") + "|" + (actual ? "true" : "false") + "\n");
+	};
+
+	if (Config.FixtureId != "controlled-reachability-blockall-v1")
+	{
+		setupFailure("Unknown controlled fixture: " + Config.FixtureId);
+		return;
+	}
+	if (Config.BotCount != 1)
+	{
+		setupFailure("controlled-reachability-blockall-v1 requires exactly one bot");
+		return;
+	}
+
+	UPawn* bot = nullptr;
+	for (UActor* actor : engine.Level->Actors)
+	{
+		UPawn* candidate = UObject::TryCast<UPawn>(actor);
+		if (candidate && candidate->IsA("Bot") && RequestedSkillByIdentity.count(PawnIdentity(candidate)) != 0)
+		{
+			bot = candidate;
+			break;
+		}
+	}
+	if (!bot)
+	{
+		setupFailure("Controlled fixture could not find its configured bot");
+		return;
+	}
+
+	UClass* targetClass = engine.packages->FindClass("Engine.AmbientSound");
+	UClass* blockerClass = engine.packages->FindClass("Engine.BlockAll");
+	if (!targetClass || !blockerClass)
+	{
+		setupFailure("Controlled fixture requires Engine.AmbientSound and Engine.BlockAll");
+		return;
+	}
+
+	const vec3 originalLocation = bot->Location();
+	const vec3 originalVelocity = bot->Velocity();
+	const vec3 originalAcceleration = bot->Acceleration();
+	const uint8_t originalPhysics = bot->Physics();
+	bot->SetPhysics(PHYS_Walking);
+	bot->Velocity() = vec3(0.0f);
+	bot->Acceleration() = vec3(0.0f);
+
+	const std::array<vec2, 8> directions = {
+		vec2(1.0f, 0.0f), vec2(-1.0f, 0.0f), vec2(0.0f, 1.0f), vec2(0.0f, -1.0f),
+		normalize(vec2(1.0f, 1.0f)), normalize(vec2(1.0f, -1.0f)),
+		normalize(vec2(-1.0f, 1.0f)), normalize(vec2(-1.0f, -1.0f))
+	};
+
+	UActor* target = nullptr;
+	vec3 targetLocation;
+	vec2 direction;
+	auto prepareFixtureActor = [](UActor* actor)
+	{
+		if (actor)
+		{
+			// Keypoint-derived stock helpers are static/no-delete by default.
+			// These actors exist only for this runtime fixture and must be removable.
+			actor->bStatic() = false;
+			actor->bNoDelete() = false;
+		}
+		return actor;
+	};
+	auto destroyFixtureActor = [](UActor* actor)
+	{
+		return !actor || actor->Destroy();
+	};
+	for (const vec2& candidateDirection : directions)
+	{
+		const vec3 candidateLocation = originalLocation + vec3(candidateDirection * 256.0f, 0.0f);
+		UActor* candidate = prepareFixtureActor(bot->Spawn(targetClass, {}, {}, candidateLocation, {}));
+		if (candidate && bot->ActorReachable(candidate, false))
+		{
+			target = candidate;
+			targetLocation = candidate->Location();
+			direction = candidateDirection;
+			break;
+		}
+		if (!destroyFixtureActor(candidate))
+		{
+			bot->Velocity() = originalVelocity;
+			bot->Acceleration() = originalAcceleration;
+			bot->SetPhysics(originalPhysics);
+			setupFailure("Could not remove a rejected fixture target");
+			return;
+		}
+	}
+	if (!target)
+	{
+		bot->Velocity() = originalVelocity;
+		bot->Acceleration() = originalAcceleration;
+		bot->SetPhysics(originalPhysics);
+		setupFailure("No clear 256-unit reachability lane was found at the bot spawn");
+		return;
+	}
+
+	const bool clearActorReachable = bot->ActorReachable(target, false);
+
+	std::vector<UActor*> blockers;
+	const vec2 perpendicular(-direction.y, direction.x);
+	for (int offset = -256; offset <= 256; offset += 64)
+	{
+		const vec3 blockerLocation = originalLocation + vec3(direction * 128.0f + perpendicular * static_cast<float>(offset), 0.0f);
+		UActor* blocker = prepareFixtureActor(bot->Spawn(blockerClass, {}, {}, blockerLocation, {}));
+		if (!blocker)
+		{
+			for (UActor* spawnedBlocker : blockers)
+				destroyFixtureActor(spawnedBlocker);
+			destroyFixtureActor(target);
+			bot->Velocity() = originalVelocity;
+			bot->Acceleration() = originalAcceleration;
+			bot->SetPhysics(originalPhysics);
+			setupFailure("Could not spawn the complete BlockAll wall");
+			return;
+		}
+		blocker->SetCollisionSize(36.0f, 96.0f);
+		blocker->SetCollision(true, true, true);
+		blockers.push_back(blocker);
+	}
+
+	WriteEvent("fixture_setup", {
+		{ "fixture_id", Config.FixtureId },
+		{ "bot", ObjectName(bot) },
+		{ "target", ObjectName(target) },
+		{ "blocker_count", ToString(static_cast<int>(blockers.size())) },
+		{ "source_x", ToString(originalLocation.x) },
+		{ "source_y", ToString(originalLocation.y) },
+		{ "source_z", ToString(originalLocation.z) },
+		{ "target_x", ToString(targetLocation.x) },
+		{ "target_y", ToString(targetLocation.y) },
+		{ "target_z", ToString(targetLocation.z) },
+		{ "direction_x", ToString(direction.x) },
+		{ "direction_y", ToString(direction.y) },
+		{ "blocker_radius", ToString(36.0f) },
+		{ "blocker_height", ToString(96.0f) },
+		{ "blocker_spacing", ToString(64.0f) },
+		{ "blocker_offset_min", ToString(-256.0f) },
+		{ "blocker_offset_max", ToString(256.0f) },
+		{ "original_physics", ToString(static_cast<int>(originalPhysics)) },
+		{ "probe_physics", ToString(static_cast<int>(bot->Physics())) }
+	});
+	HashCanonical("fixture_setup=" + Config.FixtureId +
+		"|source=" + ToString(originalLocation.x) + "," + ToString(originalLocation.y) + "," + ToString(originalLocation.z) +
+		"|target=" + ToString(targetLocation.x) + "," + ToString(targetLocation.y) + "," + ToString(targetLocation.z) +
+		"|direction=" + ToString(direction.x) + "," + ToString(direction.y) +
+		"|blockers=" + std::to_string(blockers.size()) + "|36.000000|96.000000|64.000000|-256.000000|256.000000\n");
+
+	assertion("clear_actor_reachable", true, clearActorReachable);
+	const bool blockedActorReachable = bot->ActorReachable(target, false);
+	assertion("blockall_wall_actor_reachable", false, blockedActorReachable);
+	assertion("point_reachable_target_ignores_dynamic_actors", true, bot->PointReachable(targetLocation));
+	assertion("point_reachable_blocker_ignores_dynamic_actors", true, bot->PointReachable(blockers[blockers.size() / 2]->Location()));
+	assertion("reachability_dry_run_preserves_location", true, bot->Location() == originalLocation);
+
+	bool cleanupSucceeded = true;
+	for (UActor* blocker : blockers)
+		cleanupSucceeded = destroyFixtureActor(blocker) && cleanupSucceeded;
+	cleanupSucceeded = destroyFixtureActor(target) && cleanupSucceeded;
+	bot->Velocity() = originalVelocity;
+	bot->Acceleration() = originalAcceleration;
+	bot->SetPhysics(originalPhysics);
+	assertion("fixture_actors_destroyed", true, cleanupSucceeded);
+
+	FixtureStatus = FixtureAssertionsFailed == 0 ? "passed" : "failed";
+	WriteEvent("fixture_complete", {
+		{ "fixture_id", Config.FixtureId },
+		{ "status", FixtureStatus },
+		{ "assertions_total", ToString(FixtureAssertionsTotal) },
+		{ "assertions_passed", ToString(FixtureAssertionsPassed) },
+		{ "assertions_failed", ToString(FixtureAssertionsFailed) }
+	});
+	if (FixtureAssertionsFailed != 0)
+	{
+		FailureReason = "Controlled fixture assertions failed";
+		ExitCode = 5;
+	}
 }
 
 bool BotBenchmark::ValidateViewportSpectator(Engine& engine)
@@ -1179,17 +1400,17 @@ void BotBenchmark::Finalize(Engine& engine)
 		FailureReason = "A controlled bot targeted a non-bot pawn";
 		ExitCode = 2;
 	}
-	if (FailureReason.empty() && !ObservedLiveBot)
+	if (FailureReason.empty() && Config.FixtureId.empty() && !ObservedLiveBot)
 	{
 		FailureReason = "Controlled bot never entered a live state";
 		ExitCode = 2;
 	}
-	if (FailureReason.empty() && MaximumObservedInventory == 0)
+	if (FailureReason.empty() && Config.FixtureId.empty() && MaximumObservedInventory == 0)
 	{
 		FailureReason = "Controlled bot never acquired inventory";
 		ExitCode = 2;
 	}
-	if (FailureReason.empty() && !ObservedBotMovement)
+	if (FailureReason.empty() && Config.FixtureId.empty() && !ObservedBotMovement)
 	{
 		FailureReason = "Controlled bot never moved horizontally";
 		ExitCode = 2;
@@ -1254,6 +1475,7 @@ void BotBenchmark::WriteSummary(Engine* engine, const std::string& status, const
 	summary["status"].set_string(status);
 	summary["reason"].set_string(reason);
 	summary["scenario"].set_string(Config.Scenario);
+	summary["fixture_id"].set_string(Config.FixtureId);
 	summary["seed"].set_string(std::to_string(Config.Seed));
 	summary["fixed_delta"].set_number(Config.FixedDelta);
 	summary["ticks"].set_number(static_cast<double>(Tick));
@@ -1284,6 +1506,13 @@ void BotBenchmark::WriteSummary(Engine* engine, const std::string& status, const
 	summary["deaths"].set_number(static_cast<double>(Deaths));
 	summary["event_count"].set_number(static_cast<double>(EventSequence));
 	summary["digest_fnv1a64"].set_string(DigestHex());
+	JsonValue fixture = JsonValue::object();
+	fixture["id"].set_string(Config.FixtureId);
+	fixture["status"].set_string(FixtureStatus);
+	fixture["assertions_total"].set_number(FixtureAssertionsTotal);
+	fixture["assertions_passed"].set_number(FixtureAssertionsPassed);
+	fixture["assertions_failed"].set_number(FixtureAssertionsFailed);
+	summary["fixture"] = std::move(fixture);
 	summary["url"].set_string(Config.URL);
 	if (engine)
 	{
