@@ -22,19 +22,23 @@ their development branches into one unreviewable fork.
 | Topic branch | Commit | Purpose | Dependency |
 | --- | --- | --- | --- |
 | `pr/frame-pipeline` | `5dbcf833` | Advance simulation once, render, then finish deferred save/travel work | current upstream |
-| `pr/view-family` | `9a88d556` | Render an explicit family of camera views with optional asymmetric projections | `pr/frame-pipeline` |
-| `pr/input-composition` | `09bd2737` | Compose buttons and axes from independent input sources | current upstream |
-| `pr/vm-hook-registry` | `d076301e` | Ordered, scoped VM-call extension hooks with safe argument replacement | current upstream |
-| `pr/game-support-registry` | `ff175b0a` | Typed game identity, behavior capabilities, and per-game native registration | current upstream |
-| `pr/deus-ex-runtime-fix` | `cd6a58a7` | Fix generic cardinal-axis actor movement with regression coverage | current upstream |
-| `pr/deterministic-runtime` | `5c0d620b` | Add opt-in seeded/fixed-step runtime state for benchmarks | current upstream |
-| `pr/headless-benchmark-driver` | `883594fa` | Add a bounded, named, opt-in driver lifecycle | `pr/deterministic-runtime` |
+| `pr/view-family` | `c0e81509` | Render an explicit family of camera views with optional asymmetric projections | `pr/frame-pipeline` |
+| `pr/presentation-layers` | `9d96e62f` | Route world, overlay, UI, and cinematic layers to provider-owned target slots | `pr/view-family` |
+| `pr/input-composition` | `d5fa59ca` | Compose buttons and axes from independent input sources | current upstream |
+| `pr/vm-hook-registry` | `5d123dac` | Ordered, scoped VM-call extension hooks with safe argument replacement | current upstream |
+| `pr/game-support-registry` | `2ccdb1d8` | Typed game identity, behavior capabilities, and per-game native registration | current upstream |
+| `pr/deus-ex-runtime-fix` | `aada7f2a` | Fix generic cardinal-axis actor movement with regression coverage | current upstream |
+| `pr/deus-ex-text` | `efca318e` | Tested Deus Ex tokenizer/paging module and thin UObject adapters | `pr/game-support-registry` |
+| `pr/deterministic-runtime` | `234303bc` | Add opt-in seeded/fixed-step runtime state for benchmarks | current upstream |
+| `pr/headless-benchmark-driver` | `868239ad` | Add a bounded, named, opt-in driver lifecycle | `pr/deterministic-runtime` |
+| `pr/bot-benchmark-driver` | `8d568202` | Add controlled UT map/spectator/bot setup and exact run summaries | `pr/headless-benchmark-driver` |
 | `pr/property-serialization` | `1965a397` | Serialize aggregate boolean values symmetrically and test all aggregate paths | current upstream |
-| `pr/web-platform-foundation` | `634a6a65` | Flat Emscripten/WebGPU platform and browser smoke harness | `pr/frame-pipeline` |
+| `pr/web-platform-foundation` | `88980d62` | Flat Emscripten/WebGPU platform and browser smoke harness | `pr/frame-pipeline` |
 
-The integration branch contains equivalent cherry-picked commits at
-`0ba840c7`, `121428f5`, `f081ab56`, `91e77db4`, and `7e208406`.
-All ten topic branches and `integration/unified-engine` are preserved on the
+The integration branch contains the reviewed equivalents of every completed
+topic above, including the small build-system follow-ups needed when those
+topics coexist. All thirteen completed topic branches and
+`integration/unified-engine` are preserved on the
 `fork` remote. No pull requests have been opened yet, and the upstream
 `origin` has not been modified.
 
@@ -89,6 +93,9 @@ On Windows x64 Release, the combined foundation:
 - passes `DeterministicRuntimeTests`;
 - passes `HeadlessDriverTests`;
 - passes `PropertySerializationTests`;
+- passes `PresentationTests`;
+- passes `BotBenchmarkProtocolTests`;
+- passes `DeusExTextTokenizerTests`;
 - links `SurrealEngine.exe`; and
 - passes the `SurrealEngine.exe --help` smoke test.
 
@@ -107,12 +114,12 @@ the policy for per-eye weapons plus captured/replayed UI is not yet defined.
 - Web: the flat WASM/WebGPU platform is extracted and verified with no WebXR
   requirement; the next web topic is browser-side legal data import and
   persistence, while WebXR remains a later provider.
-- Deus Ex: the first generic actor-movement correction is extracted; next is
-  generic property serialization, followed by tokenizer/paging on top of the
-  game-support boundary.
-- Bots: deterministic runtime and the opt-in bounded headless lifecycle are
-  extracted; next is a concrete controlled bot driver, display-free process
-  bootstrap, and then evidence-backed behavior fixes.
+- Deus Ex: generic actor movement and property serialization plus the first
+  game-owned tokenizer/paging module are extracted; next are AI perception and
+  save/package slices.
+- Bots: deterministic runtime, bounded headless lifecycle, and the first
+  controlled bot driver are extracted; next are display-free bootstrap,
+  telemetry/fixtures, and then evidence-backed behavior fixes.
 - XR: after the view target/layer and UI policy are explicit, migrate the
   released native OpenXR behavior into XR-common plus an OpenXR provider, then
   attach WebXR to the same contracts.
