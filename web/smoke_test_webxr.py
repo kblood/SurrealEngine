@@ -1,3 +1,4 @@
+import math
 import sys
 import time
 from pathlib import Path
@@ -290,11 +291,30 @@ def main():
 
             controller_pose_diagnostics = page.evaluate("""() => ({
                 selfTest: Module.ccall('Surreal_RunWebXRControllerPoseSelfTest', 'number', [], []),
-                dominantIndex: Module.ccall('Surreal_GetWebXRDominantControllerIndex', 'number', [], [])
+                dominantIndex: Module.ccall('Surreal_GetWebXRDominantControllerIndex', 'number', [], []),
+                aimBasis: Array.from({length: 9}, (_, index) =>
+                    Module.ccall('Surreal_GetWebXRControllerWorldPoseValue', 'number',
+                        ['number', 'number', 'number'], [1, 1, index + 9])),
+                locomotionSelfTest: Module.ccall('Surreal_RunWebXRLocomotionSelfTest', 'number', [], []),
+                movementReference: Module.ccall('Surreal_GetWebXRMovementReference', 'number', [], []),
+                dominantHand: Module.ccall('Surreal_GetWebXRDominantHand', 'number', [], []),
+                configuredRecenter: Module.ccall('Surreal_GetWebXRRecenterButton', 'number', [], []),
+                effectiveRecenter: Module.ccall('Surreal_GetWebXREffectiveRecenterButton', 'number', [], []),
+                configuredMenu: Module.ccall('Surreal_GetWebXRMenuButton', 'number', [], []),
+                effectiveMenu: Module.ccall('Surreal_GetWebXREffectiveMenuButton', 'number', [], [])
             })""")
             print(f"[harness] M8 world controller-pose diagnostics: {controller_pose_diagnostics}")
+            aim_basis = controller_pose_diagnostics.get("aimBasis", [])
             if (controller_pose_diagnostics.get("selfTest") != 1 or
-                    controller_pose_diagnostics.get("dominantIndex") != 1):
+                    controller_pose_diagnostics.get("locomotionSelfTest") != 1 or
+                    controller_pose_diagnostics.get("dominantIndex") != 1 or
+                    controller_pose_diagnostics.get("movementReference") not in (0, 1, 2) or
+                    controller_pose_diagnostics.get("dominantHand") not in (1, 2) or
+                    controller_pose_diagnostics.get("configuredRecenter") not in range(13) or
+                    controller_pose_diagnostics.get("effectiveRecenter") not in range(13) or
+                    controller_pose_diagnostics.get("configuredMenu") not in range(13) or
+                    controller_pose_diagnostics.get("effectiveMenu") not in range(13) or
+                    len(aim_basis) != 9 or not all(math.isfinite(value) for value in aim_basis)):
                 print("FAIL: M8 controller poses were not composed or dominant hand was lost")
                 sys.exit(1)
 
@@ -305,15 +325,37 @@ def main():
                 enableAccepted: Module.ccall('Surreal_SetWebXRHapticsEnabled', 'number', ['number'], [1]),
                 expectedWeaponEyes: Module.ccall('Surreal_GetWebXRWeaponOverlayExpectedEyePasses', 'number', [], []),
                 weaponEyePasses: Module.ccall('Surreal_GetWebXRWeaponOverlayEyePasses', 'number', [], []),
-                weaponCalls: Module.ccall('Surreal_GetWebXRWeaponOverlayCalls', 'number', [], [])
+                weaponCalls: Module.ccall('Surreal_GetWebXRWeaponOverlayCalls', 'number', [], []),
+                hudSelfTest: Module.ccall('Surreal_RunWebXRHudSelfTest', 'number', [], []),
+                expectedHudEyes: Module.ccall('Surreal_GetWebXRHudExpectedEyePresentations', 'number', [], []),
+                hudStateUpdates: Module.ccall('Surreal_GetWebXRHudStateUpdates', 'number', [], []),
+                hudEyePresentations: Module.ccall('Surreal_GetWebXRHudEyePresentations', 'number', [], []),
+                hudCapturedCommands: Module.ccall('Surreal_GetWebXRHudCapturedCommands', 'number', [], []),
+                hudUnsupportedDraws: Module.ccall('Surreal_GetWebXRHudUnsupportedDraws', 'number', [], []),
+                hudClampedViewports: Module.ccall('Surreal_GetWebXRHudClampedViewports', 'number', [], []),
+                audioListenerActive: Module.ccall('Surreal_GetWebXRAudioListenerActive', 'number', [], []),
+                audioListenerUpdates: Module.ccall('Surreal_GetWebXRAudioListenerUpdateCount', 'number', [], []),
+                audioVelocityResets: Module.ccall('Surreal_GetWebXRAudioListenerVelocityResetCount', 'number', [], []),
+                audioVelocity: Array.from({length: 3}, (_, axis) =>
+                    Module.ccall('Surreal_GetWebXRAudioListenerVelocityValue', 'number', ['number'], [axis]))
             })""")
-            print(f"[harness] M8 weapon-aim/haptic bridge diagnostics: {weapon_bridge_diagnostics}")
+            print(f"[harness] M8/M9/M10 presentation and audio diagnostics: {weapon_bridge_diagnostics}")
             if any(weapon_bridge_diagnostics.get(name) != 1 for name in
-                   ("aimSelfTest", "hapticsSelfTest", "disableAccepted", "enableAccepted")) or \
+                   ("aimSelfTest", "hapticsSelfTest", "disableAccepted", "enableAccepted", "hudSelfTest")) or \
                     weapon_bridge_diagnostics.get("expectedWeaponEyes") != 2 or \
                     weapon_bridge_diagnostics.get("weaponEyePasses") != 2 or \
-                    not 0 <= weapon_bridge_diagnostics.get("weaponCalls", -1) <= 2:
-                print("FAIL: M8 weapon classifier/restoration or haptic bridge is invalid")
+                    not 0 <= weapon_bridge_diagnostics.get("weaponCalls", -1) <= 2 or \
+                    weapon_bridge_diagnostics.get("expectedHudEyes") not in (0, 2) or \
+                    weapon_bridge_diagnostics.get("hudStateUpdates") not in (0, 1) or \
+                    weapon_bridge_diagnostics.get("hudEyePresentations") != \
+                    weapon_bridge_diagnostics.get("expectedHudEyes") or \
+                    weapon_bridge_diagnostics.get("audioListenerActive") != 1 or \
+                    weapon_bridge_diagnostics.get("audioListenerUpdates", 0) < 1 or \
+                    weapon_bridge_diagnostics.get("audioVelocityResets", 0) < 1 or \
+                    len(weapon_bridge_diagnostics.get("audioVelocity", [])) != 3 or \
+                    not all(math.isfinite(value) for value in
+                            weapon_bridge_diagnostics.get("audioVelocity", [])):
+                print("FAIL: M8 weapon, M9 HUD, or M10 tracked-audio diagnostics are invalid")
                 sys.exit(1)
             page.evaluate("window.surrealResetWebXRPose()")
 

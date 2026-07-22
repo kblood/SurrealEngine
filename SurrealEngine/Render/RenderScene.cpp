@@ -244,6 +244,9 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 	WebXRHudStats.LastFrameCapturedCommands = 0;
 	WebXRHudStats.LastFrameUnsupportedDraws = 0;
 	WebXRHudStats.LastFrameClampedViewports = 0;
+	const bool capturedHud = CaptureWebXRHud();
+	if (capturedHud)
+		WebXRHudStats.LastFrameExpectedEyePresentations = viewCount;
 
 	for (uint32_t index = 0; index < viewCount; index++)
 	{
@@ -269,20 +272,19 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 			WebXRWeaponOverlayStats.WeaponCalls++;
 			WebXRWeaponOverlayStats.LastFrameWeaponCalls++;
 		}
-	}
 
-	if (CaptureWebXRHud())
-	{
-		WebXRHudStats.LastFrameExpectedEyePresentations = viewCount;
-		if (!PresentWebXRHud(views, viewCount))
+		// Replay while this eye's render pass is still selected. Re-selecting an
+		// already-rendered array layer opens a clearing pass in WebGPU and would
+		// erase the scene beneath the HUD.
+		if (capturedHud && !PresentWebXRHudEye(views, viewCount, index))
 			return false;
 	}
 	return true;
 }
 
-bool RenderSubsystem::PresentWebXRHud(const WebXRSceneView* views, uint32_t viewCount)
+bool RenderSubsystem::PresentWebXRHudEye(const WebXRSceneView* views, uint32_t viewCount, uint32_t eyeIndex)
 {
-	if (!views || viewCount == 0 || WebXRHudCommands.empty())
+	if (!views || viewCount == 0 || eyeIndex >= viewCount || WebXRHudCommands.empty())
 		return false;
 
 	struct ScopedHudPresentationRestore
@@ -318,61 +320,53 @@ bool RenderSubsystem::PresentWebXRHud(const WebXRSceneView* views, uint32_t view
 		float SavedCurX;
 		float SavedCurY;
 	} restore(Canvas.Frame, engine->canvas, Device);
-	bool success = true;
 
-	for (uint32_t index = 0; index < viewCount; index++)
+	const WebXRHudViewport viewport = CalculateWebXRHudViewport(
+		views, viewCount, eyeIndex, WebXRHudSettings);
+	if (!viewport.Valid)
+		return false;
+	if (viewport.Clamped)
 	{
-		const WebXRSceneView& view = views[index];
-		const WebXRHudViewport viewport = CalculateWebXRHudViewport(views, viewCount, index, WebXRHudSettings);
-		if (!viewport.Valid || !Device->SelectExternalRenderTargetView(view.ArrayLayer,
-			view.ViewportX, view.ViewportY, view.ViewportWidth, view.ViewportHeight))
-		{
-			success = false;
-			break;
-		}
-		if (viewport.Clamped)
-		{
-			WebXRHudStats.ClampedViewports++;
-			WebXRHudStats.LastFrameClampedViewports++;
-		}
-
-		Canvas.Frame = restore.SavedFrame;
-		Canvas.Frame.XB = viewport.X;
-		Canvas.Frame.YB = viewport.Y;
-		Canvas.Frame.X = viewport.Width;
-		Canvas.Frame.Y = viewport.Height;
-		Canvas.Frame.FX = (float)viewport.Width;
-		Canvas.Frame.FY = (float)viewport.Height;
-		Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
-		Canvas.Frame.FY2 = Canvas.Frame.FY * 0.5f;
-		Canvas.Frame.ObjectToWorld = mat4::identity();
-		Canvas.Frame.WorldToView = mat4::identity();
-		Canvas.Frame.ProjectionOverride = false;
-		Device->SetSceneNode(&Canvas.Frame);
-
-		const float scaleX = viewport.Width / (float)WebXRHudLayoutWidth;
-		const float scaleY = viewport.Height / (float)WebXRHudLayoutHeight;
-		for (const WebXRHudCommand& command : WebXRHudCommands)
-		{
-			if (command.Type == WebXRHudCommandType::Tile)
-			{
-				Device->DrawTile(&Canvas.Frame, command.Texture,
-					command.X * scaleX, command.Y * scaleY, command.Width * scaleX, command.Height * scaleY,
-					command.U, command.V, command.ULength, command.VLength, command.Z,
-					command.Color, command.Fog, command.Flags);
-			}
-			else
-			{
-				vec3 p1(command.P1.x * scaleX, command.P1.y * scaleY, command.P1.z);
-				vec3 p2(command.P2.x * scaleX, command.P2.y * scaleY, command.P2.z);
-				Device->Draw2DLine(&Canvas.Frame, command.Color, command.Flags, p1, p2);
-			}
-		}
-		WebXRHudStats.EyePresentations++;
-		WebXRHudStats.LastFrameEyePresentations++;
+		WebXRHudStats.ClampedViewports++;
+		WebXRHudStats.LastFrameClampedViewports++;
 	}
 
-	return success;
+	Canvas.Frame = restore.SavedFrame;
+	Canvas.Frame.XB = viewport.X;
+	Canvas.Frame.YB = viewport.Y;
+	Canvas.Frame.X = viewport.Width;
+	Canvas.Frame.Y = viewport.Height;
+	Canvas.Frame.FX = (float)viewport.Width;
+	Canvas.Frame.FY = (float)viewport.Height;
+	Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
+	Canvas.Frame.FY2 = Canvas.Frame.FY * 0.5f;
+	Canvas.Frame.ObjectToWorld = mat4::identity();
+	Canvas.Frame.WorldToView = mat4::identity();
+	Canvas.Frame.ProjectionOverride = false;
+	Device->SetSceneNode(&Canvas.Frame);
+
+	const float scaleX = viewport.Width / (float)WebXRHudLayoutWidth;
+	const float scaleY = viewport.Height / (float)WebXRHudLayoutHeight;
+	for (const WebXRHudCommand& command : WebXRHudCommands)
+	{
+		if (command.Type == WebXRHudCommandType::Tile)
+		{
+			Device->DrawTile(&Canvas.Frame, command.Texture,
+				command.X * scaleX, command.Y * scaleY, command.Width * scaleX, command.Height * scaleY,
+				command.U, command.V, command.ULength, command.VLength, command.Z,
+				command.Color, command.Fog, command.Flags);
+		}
+		else
+		{
+			vec3 p1(command.P1.x * scaleX, command.P1.y * scaleY, command.P1.z);
+			vec3 p2(command.P2.x * scaleX, command.P2.y * scaleY, command.P2.z);
+			Device->Draw2DLine(&Canvas.Frame, command.Color, command.Flags, p1, p2);
+		}
+	}
+	WebXRHudStats.EyePresentations++;
+	WebXRHudStats.LastFrameEyePresentations++;
+
+	return true;
 }
 
 uint32_t RenderSubsystem::RunWebXRHudSelfTest()

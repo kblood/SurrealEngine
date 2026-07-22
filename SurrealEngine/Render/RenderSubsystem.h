@@ -203,7 +203,7 @@ private:
 	void RenderOverlays();
 	bool RenderWebXRWeaponOverlay();
 	bool CaptureWebXRHud();
-	bool PresentWebXRHud(const WebXRSceneView* views, uint32_t viewCount);
+	bool PresentWebXRHudEye(const WebXRSceneView* views, uint32_t viewCount, uint32_t eyeIndex);
 	void SubmitCanvasTile(FTextureInfo& info, float x, float y, float width, float height,
 		float u, float v, float uLength, float vLength, float z, vec4 color, vec4 fog, uint32_t flags);
 	void SubmitCanvas2DLine(vec4 color, uint32_t flags, vec3 p1, vec3 p2);
