@@ -130,6 +130,8 @@ public:
 		uint32_t BallisticScopeCount = 0;
 		uint32_t TargetAcquisitionScopeCount = 0;
 		uint32_t RestoreCount = 0;
+		uint32_t HapticRequestCount = 0;
+		uint32_t HapticAcceptedCount = 0;
 	};
 
 	Engine(GameLaunchInfo launchinfo);

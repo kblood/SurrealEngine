@@ -297,6 +297,24 @@ def main():
                     controller_pose_diagnostics.get("dominantIndex") != 1):
                 print("FAIL: M8 controller poses were not composed or dominant hand was lost")
                 sys.exit(1)
+
+            weapon_bridge_diagnostics = page.evaluate("""() => ({
+                aimSelfTest: Module.ccall('Surreal_RunWebXRWeaponAimSelfTest', 'number', [], []),
+                hapticsSelfTest: Module.ccall('Surreal_RunWebXRHapticsBridgeSelfTest', 'number', [], []),
+                disableAccepted: Module.ccall('Surreal_SetWebXRHapticsEnabled', 'number', ['number'], [0]),
+                enableAccepted: Module.ccall('Surreal_SetWebXRHapticsEnabled', 'number', ['number'], [1]),
+                expectedWeaponEyes: Module.ccall('Surreal_GetWebXRWeaponOverlayExpectedEyePasses', 'number', [], []),
+                weaponEyePasses: Module.ccall('Surreal_GetWebXRWeaponOverlayEyePasses', 'number', [], []),
+                weaponCalls: Module.ccall('Surreal_GetWebXRWeaponOverlayCalls', 'number', [], [])
+            })""")
+            print(f"[harness] M8 weapon-aim/haptic bridge diagnostics: {weapon_bridge_diagnostics}")
+            if any(weapon_bridge_diagnostics.get(name) != 1 for name in
+                   ("aimSelfTest", "hapticsSelfTest", "disableAccepted", "enableAccepted")) or \
+                    weapon_bridge_diagnostics.get("expectedWeaponEyes") != 2 or \
+                    weapon_bridge_diagnostics.get("weaponEyePasses") != 2 or \
+                    not 0 <= weapon_bridge_diagnostics.get("weaponCalls", -1) <= 2:
+                print("FAIL: M8 weapon classifier/restoration or haptic bridge is invalid")
+                sys.exit(1)
             page.evaluate("window.surrealResetWebXRPose()")
 
             pose_diagnostics = page.evaluate("window.surrealGetWebXRPoseDiagnostics()")

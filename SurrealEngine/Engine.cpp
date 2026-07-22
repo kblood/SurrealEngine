@@ -33,6 +33,7 @@
 
 #ifdef __EMSCRIPTEN__
 #include "WebXR/WebXRInputState.h"
+#include "WebXR/WebXRHaptics.h"
 #include "Package/Package.h"
 #endif
 
@@ -475,7 +476,14 @@ std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject*
 	std::function<void()> restore = BeginWebXRRotationOverride(
 		pawn->ViewRotation(), dominant.AimPose.WorldRotation);
 	if (kind == WebXRWeaponAimScopeKind::Ballistic)
+	{
 		WebXRWeaponAim.BallisticScopeCount++;
+		WebXRWeaponAim.HapticRequestCount++;
+		const WebXRHapticHand hand = dominant.Handedness == 1 ?
+			WebXRHapticHand::Left : WebXRHapticHand::Right;
+		if (QueueWebXRHapticPulse(hand, 0.55f, 35))
+			WebXRWeaponAim.HapticAcceptedCount++;
+	}
 	else
 		WebXRWeaponAim.TargetAcquisitionScopeCount++;
 
@@ -712,6 +720,41 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimRestoreCount()
 	{
 		return engine ? engine->WebXRWeaponAim.RestoreCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimHapticRequestCount()
+	{
+		return engine ? engine->WebXRWeaponAim.HapticRequestCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimHapticAcceptedCount()
+	{
+		return engine ? engine->WebXRWeaponAim.HapticAcceptedCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponOverlayExpectedEyePasses()
+	{
+		return engine ? engine->render->GetWebXRWeaponOverlayDiagnostics().LastFrameExpectedEyePasses : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponOverlayEyePasses()
+	{
+		return engine ? engine->render->GetWebXRWeaponOverlayDiagnostics().LastFrameEyePasses : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponOverlayCalls()
+	{
+		return engine ? engine->render->GetWebXRWeaponOverlayDiagnostics().LastFrameWeaponCalls : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRHapticsEnabled(int enabled)
+	{
+		return SetWebXRHapticsEnabled(enabled != 0) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRHapticsBridgeSelfTest()
+	{
+		return RunWebXRHapticsBridgeSelfTest() ? 1 : 0;
 	}
 }
 #endif
@@ -2123,6 +2166,14 @@ void Engine::LoadWebXRInputSettings()
 	WebXRSnapTurnRearmThreshold = readFloat("SnapTurnRearmThreshold", 0.35f, 0.05f, 0.49f);
 	if (WebXRSnapTurnRearmThreshold >= WebXRSnapTurnThreshold)
 		WebXRSnapTurnRearmThreshold = 0.35f;
+
+	std::string hapticsEnabled = packages->GetIniValue(
+		"user", "Engine.WebXR", "HapticsEnabled", "True");
+	for (char& c : hapticsEnabled)
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	const bool enableHaptics = hapticsEnabled != "false" && hapticsEnabled != "0" &&
+		hapticsEnabled != "off" && hapticsEnabled != "no";
+	SetWebXRHapticsEnabled(enableHaptics);
 #endif
 }
 
