@@ -57,6 +57,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.h
 	SurrealEngine/GameSupport/DeusEx/TextTokenizer.cpp
 	SurrealEngine/GameSupport/DeusEx/TextTokenizer.h
+	SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.h
 	SurrealEngine/GameFolder.cpp
 	SurrealEngine/GameFolder.h
 	SurrealEngine/LauncherSettings.cpp
@@ -884,6 +886,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(BotBenchmarkProtocolTests PRIVATE SurrealEngine)
 	set_target_properties(BotBenchmarkProtocolTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkProtocol COMMAND BotBenchmarkProtocolTests)
+
+	add_executable(BotBenchmarkTelemetryTests
+		Tests/BotBenchmarkTelemetryTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
+	)
+	target_include_directories(BotBenchmarkTelemetryTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkTelemetryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkTelemetry COMMAND BotBenchmarkTelemetryTests)
 endif()
 
 if(NOT EMSCRIPTEN)
