@@ -1823,7 +1823,28 @@ translating each final projectile location preserves Pulse orbit, Flak cluster,
 Eightball ring/random, spread, autoaim, toss, and charge behavior. It never
 moves `Pawn.Location` or globally mutates `FireOffset`.
 
-No gameplay-origin implementation is enabled yet. Package/class-qualified
-muzzle calibration, wall obstruction clamping, the complete stock-path fixture
-matrix, guided Redeemer policy, and physical Quest alignment are prerequisites.
-The visual grip fallback remains deliberately non-authoritative.
+Commits `0decaf01` and `22c31e7a` now implement the fail-closed foundation and
+a real loaded firing fixture. The portable module covers XYZ/YZ/no-offset
+algebra, exact endpoint translation, the Enforcer 0.35 double-offset negative
+case, package collisions, invalid/local-owner/tracking rejection, transactional
+mutable arguments with out-reference identity, and observer isolation. Engine
+integration adds an exception-safe LIFO firing context, exact stock hitscan
+policies, `CalcDrawOffset` observation, and exact `Pawn.TraceShot` interception.
+
+The explicit browser diagnostic invokes loaded retail
+`Botpack.ShockRifle.TraceFire(0)` twice after publishing the tracked dominant
+grip. Each run proves one request, qualified context, restore, missing-
+calibration rejection, observed `CalcDrawOffset`, rejected post-sink cosmetic
+calculation, observed `TraceShot`, and mutable rejection, with production still
+disabled and applied delta exactly zero. It restores its directly controlled
+weapon/ammo/event/haptic state and retains the equipped weapon. Stock `FRand`
+still advances twice, and pathological live-actor/projectile intersections are
+documented diagnostic residuals; neither occurred in the clean smoke map.
+
+No gameplay-origin rewrite is enabled yet. The calibration table is empty and
+the production flag is false. Package-hash-qualified calibration, `Actor.Trace`,
+projectile and multi-projectile `Actor.Spawn`, wall obstruction clamping, the
+remaining stock fixture matrix, guided Redeemer policy, and physical Quest
+alignment remain prerequisites. The visual grip fallback remains deliberately
+non-authoritative. Native Debug, both Wasm builds, and the full experimental XR
+smoke pass.

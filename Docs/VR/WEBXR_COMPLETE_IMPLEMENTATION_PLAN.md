@@ -80,7 +80,7 @@ XRSession.requestAnimationFrame
 | M5 — frame/view refactor | Complete (diagnostic projections) | One simulation tick now renders two independently selected texture-array layers; real `XRView` data starts M6 |
 | M6 — native WebGPU XR session | Implementation complete; headset validation gated | Packed ABI, preferred-format pipeline families, synchronous renderer, and hardened production session/RAF lifecycle are implemented; real `XRGPUBinding` compositor presentation still requires a supported runtime |
 | M7 — tracking/camera/world scale | Deterministic implementation complete; headset validation gated | 6DoF pose conversion, body/head composition, recentering, world scale, and exact per-eye projection are implemented; physical scale and scene correctness remain to validate |
-| M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, narrowly scoped controller-relative visual position with safe zero-offset fallback, a real loaded Botpack ShockRifle fixture, deliberate safe-exit controls, confirmed fire/damage/pickup/menu-confirm haptics, and browser-persisted VR controls are implemented; qualified per-weapon offsets, muzzle origin, two-hand UX, automatic/special fixtures, and headset validation remain |
+| M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, narrowly scoped controller-relative visual position with safe zero-offset fallback, real loaded Botpack ShockRifle visual and fail-closed firing fixtures, deliberate safe-exit controls, confirmed fire/damage/pickup/menu-confirm haptics, and browser-persisted VR controls are implemented; calibrated authoritative origins, projectile/special paths, obstruction, two-hand UX, automatic/special fixtures, and headset validation remain |
 | M9 — UI/comfort/VR presentation | In progress | HUD plus console/menu 2D output is captured once and replayed per eye on a finite-depth plane, including UI-only frames. Dominant-hand aim drives UT's absolute cursor, a menu-gated trigger safely selects without firing behind the menu, and stick/D-pad focus navigation now routes through stock console key events while suppressing gameplay input. Tracking-loss/recovery feedback and an optional DOM-overlay safe-exit surface are implemented. Strict plane settings have a validated persistent browser panel; actor-style canvas draws, guaranteed in-headset loss feedback without DOM Overlay, recenter UX, comfort policies, complete loading/pause presentation, and headset readability remain |
 | M10 — audio/data/network/deploy | In progress | Real Web Audio output, tracked-head listener, no-data builds, local OPFS/IndexedDB UT99 import, allowlisted mutable settings/save/log persistence, disposable-profile restart/crash/forced-kill/corruption/origin-clear qualification, an installable PWA, strict trusted-HTTPS development serving, an offline-only browser MVP scope, and fail-closed release staging/auditing are implemented; real full-install import, storage-pressure/Quest recovery, fuller launcher UX, production HTTPS/Quest installation, and physical audio/storage validation remain |
 | M11 — performance/robustness/release | In progress | Automated session/lifecycle/device-loss coverage, a strict versioned desktop/IWER profiler, and a reproducible 83-check no-commercial-data release gate exist; physical Quest GPU/thermal profiling, headset lifecycle, compatibility, soak, and release gates remain |
@@ -766,6 +766,33 @@ repeat-entry, and device-loss gates also pass. Automatic/special weapons,
 muzzle flashes, nonzero calibrated rows, and physical headset placement remain
 separate gates.
 
+The authoritative firing-origin foundation is also implemented but remains
+deliberately fail-closed. Commit `0decaf01` adds portable origin/endpoint
+algebra, exact package/class/function hitscan policies, exception-safe LIFO
+contexts, a VM post-result observer, transactional mutable-argument replacement
+that preserves untouched out-reference identity, diagnostics, and rejection/
+rollback self-tests. The immutable calibration table has zero rows and
+`WebXRAuthoritativeFireProductionEnabled` is false, so no production trace is
+translated.
+
+Commit `22c31e7a` adds an explicit browser-only firing fixture. After packed
+input establishes a tracked dominant grip, it invokes the loaded retail
+`Botpack.ShockRifle.TraceFire(0)` path twice. Each rerun proves exactly one
+qualified context and restoration, one missing-calibration rejection, one
+`CalcDrawOffset` observation, one rejected later cosmetic calculation, one
+`Pawn.TraceShot` observation, and one mutable rejection; the production flag
+and translation counters stay unchanged and the applied delta stays zero. It
+restores directly controlled weapon/ammo/event/haptic state and retains the
+equipped weapon. Its documented test-only residuals are two stock `FRand`
+advances and pathological zero-damage/live-projectile hit behavior; neither
+occurred in the clean smoke fixture. Native Debug, both Wasm builds, and the
+full experimental smoke pass.
+
+The remaining authority work is package-hash-qualified calibration,
+`Actor.Trace`, single/multi-projectile `Actor.Spawn`, obstruction clamping, the
+full stock-path fixture matrix, and physical muzzle/flash/impact alignment.
+Nothing in these commits enables gameplay translation.
+
 Offline/standalone is the M8 target. Stock UT networking sends body/view
 rotation and cannot replicate independent hand aim without a protocol or
 replicated-state extension. M10 now explicitly declares browser multiplayer
@@ -1404,7 +1431,7 @@ tests.
 | M0/M6 platform | Native Quest `XRGPUBinding` session, projection layer, real subimages, compositor output, and five-minute stability | Supported Quest Browser/Chromium build, declared flag policy, physical headset |
 | M7 tracking | Physical eye order, scale, parallax, recursive-scene, tracking-jump, seated/standing, collision-independence, and ten-minute comfort gates | Marker map, representative maps, headset report with browser/runtime versions |
 | M8 locomotion | Controller-profile verification and hardware tuning for implemented body/head/dominant-hand movement plus recenter/menu actions; strict settings and a deliberate two-step/chord safe-exit UX are implemented | Real Quest input sources and headset tuning; runtimes without DOM Overlay use the tested chord but still need engine-rendered in-headset feedback |
-| M8 weapon | Hardware-qualified viewmodel offsets/scale, verified muzzle/fire origin, dominant-hand UI, two-hand implementation, guided-warhead policy, and automatic/special-weapon fixtures | The exact visual-only controller-position seam, immutable package/class schema, zero-offset fallback, and a deterministic loaded stock ShockRifle/DrawActor fixture are implemented. `WEBXR_MUZZLE_ORIGIN_PLAN.md` defines the audited result-aware trace/spawn design and `WEBXR_TWO_HAND_IMPLEMENTATION_PLAN.md` fixes the conservative two-hand state/basis/fixture contract; remaining work needs their code, calibrated data, obstruction policy, WebGPU mesh inspection, and headset alignment tests |
+| M8 weapon | Hardware-qualified viewmodel offsets/scale, verified muzzle/fire origin, dominant-hand UI, two-hand implementation, guided-warhead policy, and automatic/special-weapon fixtures | The exact visual-only controller-position seam, immutable package/class schema, zero-offset fallback, deterministic loaded stock ShockRifle/DrawActor fixture, fail-closed hitscan context/VM seams, and loaded ShockRifle `TraceFire` fixture are implemented. `WEBXR_MUZZLE_ORIGIN_PLAN.md` defines the audited remaining trace/spawn design and `WEBXR_TWO_HAND_IMPLEMENTATION_PLAN.md` fixes the conservative two-hand state/basis/fixture contract; remaining work needs calibrated/package-hash-qualified data, `Actor.Trace`/projectiles, obstruction policy, two-hand code, WebGPU mesh inspection, and headset alignment tests |
 | M8 haptics | Per-weapon tuning, hooks for direct health/custom pickup paths that bypass audited calls, and physical latency/source-loss tests; confirmed fire/damage/pickup/UI outcomes and persisted enable UI are implemented | Representative mods/weapons and real actuator hardware |
 | M8 networking | **MVP decision complete:** offline/single-player/local-bot browser release; multiplayer and independent hand-aim replication are explicitly unsupported | Reopen only after a qualified native replication layer plus browser relay/protocol project; stock body/view rotation is insufficient |
 | M9 UI/comfort | Physically validate capture-once console/menu, UI-only frames, dominant-hand cursor ray, safe menu-gated trigger, focus navigation, tracking feedback, and safe exit; add engine-rendered loss/exit feedback for runtimes without DOM Overlay and unsupported actor draws; finish readable scale, weapon placement tuning, vignette/comfort policies, recenter, and loading/pause presentation | Actor-draw strategy, per-eye headset inspection, 30-minute comfort session |
@@ -1614,9 +1641,11 @@ scale, frame rate, and error counters.
    composition, scoped weapon direction/presentation and visual-only grip
    position, per-eye weapon dispatch,
    confirmed fire/damage/pickup/menu haptics, and persistent browser controls
-   and a loaded stock ShockRifle visual fixture are complete. Next add
-   hardware-qualified viewmodel offsets/scale, the result-aware authoritative
-   firing seam in `WEBXR_MUZZLE_ORIGIN_PLAN.md`, two-hand policy,
+   a loaded stock ShockRifle visual fixture, a fail-closed result-aware
+   hitscan seam, and a real loaded ShockRifle firing fixture are complete. Next
+   add hardware-qualified viewmodel offsets/scale and authoritative calibration,
+   `Actor.Trace`/projectile/obstruction work from
+   `WEBXR_MUZZLE_ORIGIN_PLAN.md`, two-hand code,
    automatic/special weapon fixtures, per-weapon
    haptic tuning, hardware profile verification, and headset
    tuning.

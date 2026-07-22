@@ -13,6 +13,20 @@ The stock-path audit used the locally installed retail GOG `BotPack.u` with
 SHA-1 `B1365300C9B4111D30159F64E57628257FFFD172`. Mod packages and other package
 revisions must fail closed unless they are qualified independently.
 
+Implementation status on 2026-07-22:
+
+- commit `0decaf01` adds the portable origin algebra, exact stock hitscan
+  classifier, exception-safe LIFO firing context, VM post-result observer,
+  transactional mutable-argument hook, diagnostics, and pure self-tests;
+- commit `22c31e7a` invokes the real loaded retail
+  `Botpack.ShockRifle.TraceFire(0)` path twice from the packed-input browser
+  fixture and proves exact context/observer/sink/restoration counter deltas;
+- the immutable calibration table remains empty and
+  `WebXRAuthoritativeFireProductionEnabled` remains false, so production
+  endpoint translation is deliberately zero; and
+- `Actor.Trace`, projectile `Actor.Spawn`, obstruction clamping, package-hash
+  qualification, calibrated weapon rows, and physical alignment remain open.
+
 ## Rejected shortcuts
 
 Do not move `Pawn.Location`, globally rewrite `Weapon.FireOffset`, or replace
@@ -82,11 +96,14 @@ current-weapon fire context.
 
 ## Staged implementation
 
-1. Add pure origin-policy and endpoint-translation helpers with algebraic tests.
-2. Add the result observer and mutable-argument hook to `Frame`, retaining
+1. **Implemented, fail-closed:** add pure origin-policy and
+   endpoint-translation helpers with algebraic tests.
+2. **Implemented:** add the result observer and mutable-argument hook to `Frame`, retaining
    exception-safe LIFO cleanup.
-3. Add the exact local-current-weapon authoritative context and diagnostics.
-4. Implement hitscan paths first: Enforcer, Minigun2, SniperRifle, ShockRifle,
+3. **Implemented:** add the exact local-current-weapon authoritative context
+   and diagnostics.
+4. **Implemented at the exact `Pawn.TraceShot` seam, production disabled:**
+   classify Enforcer, Minigun2, SniperRifle, ShockRifle,
    SuperShockRifle, and Chainsaw.
 5. Add direct `Actor.Trace` support for ImpactHammer.
 6. Add single-projectile paths: Shock alt, Ripper, BioRifle, Translocator, and
@@ -100,6 +117,14 @@ current-weapon fire context.
 11. Design guided Redeemer steering/camera behavior as a separate milestone.
 12. Enable a production path only after automation and physical Quest/Virtual
     Desktop calibration pass for every enabled weapon policy.
+
+The loaded ShockRifle fixture suppresses/restores its directly controlled
+noise, flash, effect/spawn, damage, ammo, haptic, and weapon state and verifies
+that the equipped weapon and actor count survive. It intentionally calls stock
+script, so the diagnostic still advances global `FRand` twice. A pathological
+ray intersecting a live actor can receive `TakeDamage(0)`, and an intersected
+live `ShockProj` could run its special hit path; the clean Deck fixture hit
+neither case. This is a test-only call with no startup or production caller.
 
 ## Required fixtures and acceptance gates
 
