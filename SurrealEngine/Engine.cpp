@@ -27,6 +27,7 @@
 #include "RenderDevice/RenderDevice.h"
 #include "VM/Frame.h"
 #include "VM/ScriptCall.h"
+#include "WebXR/WebXRMuzzleOrigin.h"
 #include "Video/VideoPlayer.h"
 #include <chrono>
 #include <limits>
@@ -416,6 +417,43 @@ namespace
 	constexpr uint32_t WebXRWeaponVisualGripSchemaVersion = 1;
 	const std::array<WebXRWeaponVisualGripEntry, 0> WebXRWeaponVisualGripTable = {};
 
+	// Gameplay-origin calibration is intentionally a separate schema from the
+	// viewmodel grip table. A visual fallback is not an authoritative barrel
+	// measurement. The empty immutable table and the production gate below make
+	// every current request fail closed while the VM seams are exercised.
+	struct WebXRMuzzleCalibrationEntry
+	{
+		const char* PackageName;
+		const char* ClassName;
+		float ForwardUU;
+		float RightUU;
+		float UpUU;
+	};
+
+	struct WebXRMuzzleCalibrationLookup
+	{
+		vec3 Offset = vec3(0.0f);
+		bool Calibrated = false;
+	};
+
+	constexpr bool WebXRAuthoritativeFireProductionEnabled = false;
+	const std::array<WebXRMuzzleCalibrationEntry, 0> WebXRMuzzleCalibrationTable = {};
+
+	WebXRMuzzleCalibrationLookup FindWebXRMuzzleCalibration(UWeapon* weapon)
+	{
+		if (!weapon || !weapon->Class || !weapon->Class->package)
+			return {};
+		const std::string packageName = weapon->Class->package->GetPackageName().ToString();
+		const std::string className = weapon->Class->Name.ToString();
+		for (const WebXRMuzzleCalibrationEntry& entry : WebXRMuzzleCalibrationTable)
+		{
+			if (WebXRNameEquals(packageName, entry.PackageName) &&
+				WebXRNameEquals(className, entry.ClassName))
+				return { vec3(entry.ForwardUU, entry.RightUU, entry.UpUU), true };
+		}
+		return {};
+	}
+
 	struct WebXRWeaponVisualGripLookup
 	{
 		vec3 Offset = vec3(0.0f);
@@ -498,6 +536,38 @@ namespace
 		location = composed;
 		rotation = presentationRotation;
 		return true;
+	}
+
+	bool TryComposeWebXRMuzzlePosition(const Engine::VRTrackedPoseState& grip,
+		const vec3& localOffset, vec3& location)
+	{
+		if (!grip.Tracked || !IsFiniteWebXRVector(grip.WorldPosition) ||
+			!IsFiniteWebXRVector(grip.WorldForward) ||
+			!IsFiniteWebXRVector(grip.WorldRight) ||
+			!IsFiniteWebXRVector(grip.WorldUp) || !IsFiniteWebXRVector(localOffset))
+			return false;
+		location = grip.WorldPosition + grip.WorldForward * localOffset.x +
+			grip.WorldRight * localOffset.y + grip.WorldUp * localOffset.z;
+		return IsFiniteWebXRVector(location);
+	}
+
+	void RecordWebXRAuthoritativeFireRejection(
+		Engine::WebXRAuthoritativeFireDiagnostics& diagnostics,
+		WebXRMuzzleOrigin::RequestRejection rejection)
+	{
+		using Reject = WebXRMuzzleOrigin::RequestRejection;
+		switch (rejection)
+		{
+		case Reject::RemotePawn: diagnostics.RemotePawnRejectCount++; break;
+		case Reject::StaleCurrentWeapon: diagnostics.StaleWeaponRejectCount++; break;
+		case Reject::WrongOwner: diagnostics.WrongOwnerRejectCount++; break;
+		case Reject::UnqualifiedPath: diagnostics.UnqualifiedPathRejectCount++; break;
+		case Reject::UntrackedPose: diagnostics.UntrackedPoseRejectCount++; break;
+		case Reject::NonFinitePose: diagnostics.NonFinitePoseRejectCount++; break;
+		case Reject::MissingCalibration: diagnostics.MissingCalibrationRejectCount++; break;
+		case Reject::ProductionDisabled: diagnostics.ProductionDisabledRejectCount++; break;
+		default: break;
+		}
 	}
 
 	bool IsExactWebXRWeaponVisualDrawCall(const WebXRWeaponCallMetadata& call,
@@ -1225,6 +1295,11 @@ Engine* engine = nullptr;
 
 Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 {
+	if (!Frame::RunCallHookSelfTest())
+		Exception::Throw("VM call hook self-test failed");
+	if (!WebXRMuzzleOrigin::RunSelfTest())
+		Exception::Throw("WebXR muzzle-origin self-test failed");
+
 	engine = this;
 
 	packages = std::make_unique<PackageManager>(LaunchInfo);
@@ -1266,15 +1341,30 @@ Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 #ifdef __EMSCRIPTEN__
 	if (LaunchInfo.IsUnrealTournament())
 	{
+		WebXRAuthoritativeFire.ProductionRewriteEnabled =
+			WebXRAuthoritativeFireProductionEnabled;
 		Frame::SetCallScopeHook([this](UFunction* func, UObject* instance, const Array<ExpressionValue>& args)
 		{
 			return EnterWebXRCallScope(func, instance, args);
+		});
+		Frame::SetMutableCallArgumentsHook([this](UFunction* func, UObject* instance,
+			MutableCallArguments& args)
+		{
+			MutateWebXRAuthoritativeFireArguments(func, instance, args);
+		});
+		Frame::SetCallResultObserver([this](UFunction* func, UObject* instance,
+			const Array<ExpressionValue>& args, const ExpressionValue& result)
+		{
+			ObserveWebXRAuthoritativeFireResult(func, instance, args, result);
 		});
 		LogMessage(std::string("WebXR gameplay call hook installed; aim self-test=") +
 			(RunWebXRWeaponAimSelfTest() ? "pass" : "FAIL") +
 			" visual-position self-test=" +
 			(RunWebXRWeaponVisualPositionSelfTest() ? "pass" : "FAIL") +
-			" haptics self-test=" + (RunWebXRGameplayHapticsSelfTest() ? "pass" : "FAIL"));
+			" haptics self-test=" + (RunWebXRGameplayHapticsSelfTest() ? "pass" : "FAIL") +
+			" muzzle-origin self-test=" +
+			(WebXRMuzzleOrigin::RunSelfTest() ? "pass" : "FAIL") +
+			" production-origin-rewrite=disabled");
 	}
 #endif
 }
@@ -1285,6 +1375,8 @@ Engine::~Engine()
 	// The hook captures this Engine. Clear it before tearing down any member
 	// that a synchronous UnrealScript call could otherwise reach.
 	Frame::SetCallScopeHook({});
+	Frame::SetMutableCallArgumentsHook({});
+	Frame::SetCallResultObserver({});
 #endif
 
 	if (audiodev)
@@ -1299,26 +1391,266 @@ Engine::~Engine()
 std::function<void()> Engine::EnterWebXRCallScope(UFunction* func, UObject* instance,
 	const Array<ExpressionValue>& args)
 {
-	std::function<void()> weaponCleanup = EnterWebXRWeaponAimScope(func, instance);
-	std::function<void()> visualCleanup = EnterWebXRWeaponVisualScope(func, instance, args);
-	std::function<void()> outcomeCleanup = EnterWebXRGameplayOutcomeScope(func, instance, args);
-	if (!weaponCleanup && !visualCleanup)
-		return outcomeCleanup;
-	if (!weaponCleanup && !outcomeCleanup)
-		return visualCleanup;
-	if (!visualCleanup && !outcomeCleanup)
-		return weaponCleanup;
-	return [weaponCleanup = std::move(weaponCleanup),
-		visualCleanup = std::move(visualCleanup),
-		outcomeCleanup = std::move(outcomeCleanup)]() mutable
+	std::function<void()> weaponCleanup;
+	std::function<void()> authoritativeCleanup;
+	std::function<void()> visualCleanup;
+	std::function<void()> outcomeCleanup;
+	bool cleanupsTransferred = false;
+	struct PendingCleanupGuard
 	{
-		if (outcomeCleanup)
-			outcomeCleanup();
-		if (visualCleanup)
-			visualCleanup();
-		if (weaponCleanup)
-			weaponCleanup();
+		std::function<void()>* Weapon = nullptr;
+		std::function<void()>* Authoritative = nullptr;
+		std::function<void()>* Visual = nullptr;
+		std::function<void()>* Outcome = nullptr;
+		bool* Transferred = nullptr;
+		static void Run(std::function<void()>* cleanup) noexcept
+		{
+			if (!cleanup || !*cleanup)
+				return;
+			try { (*cleanup)(); } catch (...) { }
+			*cleanup = {};
+		}
+		~PendingCleanupGuard() noexcept
+		{
+			if (!Transferred || *Transferred)
+				return;
+			Run(Outcome);
+			Run(Visual);
+			Run(Authoritative);
+			Run(Weapon);
+		}
+	} pending{ &weaponCleanup, &authoritativeCleanup, &visualCleanup,
+		&outcomeCleanup, &cleanupsTransferred };
+
+	weaponCleanup = EnterWebXRWeaponAimScope(func, instance);
+	authoritativeCleanup = EnterWebXRAuthoritativeFireScope(func, instance);
+	visualCleanup = EnterWebXRWeaponVisualScope(func, instance, args);
+	outcomeCleanup = EnterWebXRGameplayOutcomeScope(func, instance, args);
+	if (!weaponCleanup && !authoritativeCleanup && !visualCleanup && !outcomeCleanup)
+	{
+		cleanupsTransferred = true;
+		return {};
+	}
+	// Copy the cleanup functions into the returned closure. If any allocation or
+	// copy throws, PendingCleanupGuard still owns the originals and unwinds all
+	// already-entered scopes in reverse order.
+	std::function<void()> result = [weaponCleanup, authoritativeCleanup,
+		visualCleanup, outcomeCleanup]() mutable
+	{
+		auto run = [](std::function<void()>& cleanup) noexcept
+		{
+			if (!cleanup)
+				return;
+			try { cleanup(); } catch (...) { }
+			cleanup = {};
+		};
+		run(outcomeCleanup);
+		run(visualCleanup);
+		run(authoritativeCleanup);
+		run(weaponCleanup);
 	};
+	cleanupsTransferred = true;
+	return result;
+}
+
+std::function<void()> Engine::EnterWebXRAuthoritativeFireScope(UFunction* func,
+	UObject* instance)
+{
+	if (!LaunchInfo.IsUnrealTournament() || !func || !instance || !viewport)
+		return {};
+	UPlayerPawn* pawn = viewport->Actor();
+	UWeapon* weapon = UObject::TryCast<UWeapon>(instance);
+	if (!pawn || !weapon || pawn->Weapon() != weapon || weapon->Owner() != pawn ||
+		!weapon->Class || !weapon->Class->package)
+		return {};
+
+	const WebXRWeaponCallMetadata call = GetWebXRWeaponCallMetadata(func, instance);
+	const std::string runtimePackage = weapon->Class->package->GetPackageName().ToString();
+	const std::string runtimeClass = weapon->Class->Name.ToString();
+	const WebXRMuzzleOrigin::StockHitscanPolicy policy =
+		WebXRMuzzleOrigin::ClassifyStockHitscanRequest(runtimePackage, runtimeClass,
+			call.PackageName, call.ClassName, call.DeclaringStateName, call.FunctionName);
+	if (policy == WebXRMuzzleOrigin::StockHitscanPolicy::None)
+		return {};
+
+	const size_t stackDepth = WebXRAuthoritativeFireStack.size();
+	const WebXRAuthoritativeFireDiagnostics diagnosticsBefore =
+		WebXRAuthoritativeFire;
+	try
+	{
+		WebXRAuthoritativeFire.RequestCount++;
+		WebXRAuthoritativeFire.QualifiedHitscanContextCount++;
+		const int controllerIndex = WebXRInput.DominantControllerIndex;
+		const VRControllerInputState* controller = controllerIndex >= 0 &&
+			controllerIndex < static_cast<int>(WebXRInput.Controllers.size()) ?
+			&WebXRInput.Controllers[controllerIndex] : nullptr;
+		const WebXRMuzzleCalibrationLookup calibration = FindWebXRMuzzleCalibration(weapon);
+		vec3 desiredMuzzle(0.0f);
+		const bool poseTracked = controller && controller->Connected &&
+			controller->GripPose.Tracked;
+		const bool poseFinite = poseTracked &&
+			IsFiniteWebXRVector(controller->GripPose.WorldPosition) &&
+			IsFiniteWebXRVector(controller->GripPose.WorldForward) &&
+			IsFiniteWebXRVector(controller->GripPose.WorldRight) &&
+			IsFiniteWebXRVector(controller->GripPose.WorldUp);
+		const bool desiredValid = calibration.Calibrated && poseFinite &&
+			TryComposeWebXRMuzzlePosition(controller->GripPose, calibration.Offset, desiredMuzzle);
+
+		WebXRMuzzleOrigin::RequestFacts facts;
+		facts.LocalPawn = viewport->Actor() == pawn;
+		facts.CurrentWeapon = pawn->Weapon() == weapon;
+		facts.WeaponOwnedByPawn = weapon->Owner() == pawn;
+		facts.QualifiedPath = true;
+		facts.PoseTracked = poseTracked;
+		facts.PoseFinite = poseFinite;
+		facts.Calibrated = calibration.Calibrated && desiredValid;
+		facts.ProductionEnabled = WebXRAuthoritativeFireProductionEnabled;
+		const WebXRMuzzleOrigin::RequestRejection rejection =
+			WebXRMuzzleOrigin::ValidateRequest(facts);
+		RecordWebXRAuthoritativeFireRejection(WebXRAuthoritativeFire, rejection);
+
+		WebXRAuthoritativeFireContext context;
+		context.Pawn = pawn;
+		context.Weapon = weapon;
+		context.Policy = static_cast<uint32_t>(policy);
+		context.Rejection = static_cast<uint32_t>(rejection);
+		context.InputGeneration = LastProcessedWebXRInputGeneration;
+		context.ControllerIndex = controllerIndex;
+		context.DesiredMuzzle = desiredMuzzle;
+		context.DesiredMuzzleValid = desiredValid;
+		WebXRAuthoritativeFireStack.push_back(context);
+		if (desiredValid)
+			WebXRAuthoritativeFire.LastDesiredMuzzle = desiredMuzzle;
+
+		std::function<void()> cleanup = [this, stackDepth]()
+		{
+			WebXRAuthoritativeFireStack.resize(stackDepth);
+			WebXRAuthoritativeFire.ContextRestoreCount++;
+		};
+		return cleanup;
+	}
+	catch (...)
+	{
+		// The call-scope enter contract requires no partial external state when
+		// construction fails, including allocation failure while materializing
+		// the returned cleanup closure.
+		WebXRAuthoritativeFireStack.resize(stackDepth);
+		WebXRAuthoritativeFire = diagnosticsBefore;
+		throw;
+	}
+}
+
+void Engine::MutateWebXRAuthoritativeFireArguments(UFunction* func, UObject* instance,
+	MutableCallArguments& mutableArgs)
+{
+	if (WebXRAuthoritativeFireStack.empty() || !func || !instance || !viewport)
+		return;
+	const Array<ExpressionValue>& args = mutableArgs.Values();
+	WebXRAuthoritativeFireContext& context = WebXRAuthoritativeFireStack.back();
+	const WebXRWeaponCallMetadata call = GetWebXRWeaponCallMetadata(func, instance);
+	if (!WebXRMuzzleOrigin::IsExactTraceShotSink(call.PackageName, call.ClassName,
+		call.DeclaringStateName, call.FunctionName))
+		return;
+
+	if (instance != context.Pawn || viewport->Actor() != context.Pawn)
+	{
+		WebXRAuthoritativeFire.RemotePawnRejectCount++;
+		WebXRAuthoritativeFire.MutableArgumentRejectCount++;
+		return;
+	}
+	if (!context.Pawn || !context.Weapon || context.Pawn->Weapon() != context.Weapon ||
+		context.InputGeneration != LastProcessedWebXRInputGeneration)
+	{
+		WebXRAuthoritativeFire.StaleWeaponRejectCount++;
+		WebXRAuthoritativeFire.MutableArgumentRejectCount++;
+		return;
+	}
+	if (context.Weapon->Owner() != context.Pawn)
+	{
+		WebXRAuthoritativeFire.WrongOwnerRejectCount++;
+		WebXRAuthoritativeFire.MutableArgumentRejectCount++;
+		return;
+	}
+	// HitLocation and HitNormal are out parameters at indices 0 and 1. Never
+	// replace them: their ExpressionValue variable identity must pass through to
+	// Pawn.TraceShot unchanged. Only the two by-value endpoints are candidates.
+	if (args.size() != 4 || args[0].GetType() != ExpressionValueType::ValueVector ||
+		args[1].GetType() != ExpressionValueType::ValueVector ||
+		args[2].GetType() != ExpressionValueType::ValueVector ||
+		args[3].GetType() != ExpressionValueType::ValueVector)
+	{
+		WebXRAuthoritativeFire.MutableArgumentRejectCount++;
+		return;
+	}
+
+	const vec3 stockEnd = args[2].ToVector();
+	const vec3 stockStart = args[3].ToVector();
+	if (!WebXRMuzzleOrigin::IsFiniteVector(stockStart) ||
+		!WebXRMuzzleOrigin::IsFiniteVector(stockEnd))
+	{
+		WebXRAuthoritativeFire.NonFinitePoseRejectCount++;
+		WebXRAuthoritativeFire.MutableArgumentRejectCount++;
+		return;
+	}
+	WebXRAuthoritativeFire.TraceShotObservationCount++;
+	WebXRAuthoritativeFire.LastStockTraceStart = stockStart;
+	WebXRAuthoritativeFire.LastStockTraceEnd = stockEnd;
+	context.TraceShotObserved = true;
+
+	const auto rejection = static_cast<WebXRMuzzleOrigin::RequestRejection>(context.Rejection);
+	if (rejection != WebXRMuzzleOrigin::RequestRejection::None ||
+		!context.DesiredMuzzleValid || !WebXRAuthoritativeFireProductionEnabled)
+	{
+		WebXRAuthoritativeFire.MutableArgumentRejectCount++;
+		return;
+	}
+
+	WebXRMuzzleOrigin::EndpointTranslation translated;
+	if (!WebXRMuzzleOrigin::TryTranslateEndpoints(stockStart, stockEnd,
+		context.DesiredMuzzle, translated))
+	{
+		WebXRAuthoritativeFire.NonFinitePoseRejectCount++;
+		WebXRAuthoritativeFire.MutableArgumentRejectCount++;
+		return;
+	}
+	if (!mutableArgs.Replace(2, ExpressionValue::VectorValue(translated.End)) ||
+		!mutableArgs.Replace(3, ExpressionValue::VectorValue(translated.Start)))
+		throw std::runtime_error("WebXR TraceShot argument transaction rejected");
+	WebXRAuthoritativeFire.LastAppliedDelta = translated.Delta;
+	WebXRAuthoritativeFire.EndpointTranslationCount++;
+}
+
+void Engine::ObserveWebXRAuthoritativeFireResult(UFunction* func, UObject* instance,
+	const Array<ExpressionValue>&, const ExpressionValue& result)
+{
+	if (WebXRAuthoritativeFireStack.empty() || !func || !instance || !viewport)
+		return;
+	const WebXRAuthoritativeFireContext& context = WebXRAuthoritativeFireStack.back();
+	const WebXRWeaponCallMetadata call = GetWebXRWeaponCallMetadata(func, instance);
+	if (!WebXRMuzzleOrigin::IsExactCalcDrawOffsetResult(call.PackageName,
+		call.ClassName, call.DeclaringStateName, call.FunctionName) ||
+		instance != context.Weapon || viewport->Actor() != context.Pawn ||
+		!context.Pawn || context.Pawn->Weapon() != context.Weapon ||
+		context.Weapon->Owner() != context.Pawn ||
+		context.InputGeneration != LastProcessedWebXRInputGeneration ||
+		result.GetType() != ExpressionValueType::ValueVector)
+		return;
+	// SuperShockRifle performs a second, cosmetic CalcDrawOffset while spawning
+	// its beam effect after TraceShot. It is not the fired-shot construction and
+	// must not overwrite the pre-sink observation.
+	if (context.TraceShotObserved)
+	{
+		WebXRAuthoritativeFire.PostSinkCalcRejectCount++;
+		return;
+	}
+	const vec3 offset = result.ToVector();
+	if (!WebXRMuzzleOrigin::IsFiniteVector(offset))
+	{
+		WebXRAuthoritativeFire.NonFinitePoseRejectCount++;
+		return;
+	}
+	WebXRAuthoritativeFire.LastObservedCalcDrawOffset = offset;
+	WebXRAuthoritativeFire.CalcDrawOffsetObservationCount++;
 }
 
 std::function<void()> Engine::EnterWebXRGameplayOutcomeScope(UFunction* func,
@@ -2012,6 +2344,64 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRWeaponVisualPositionSelfTest()
 	{
 		return RunWebXRWeaponVisualPositionSelfTest() ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRMuzzleOriginSelfTest()
+	{
+		return WebXRMuzzleOrigin::RunSelfTest() && Frame::RunCallHookSelfTest() ? 1 : 0;
+	}
+
+	// Stable diagnostic slots for the fail-closed authoritative-fire seam:
+	// 0 requests, 1 qualified contexts, 2 restores, 3 missing calibration,
+	// 4 production disabled, 5 remote, 6 stale, 7 wrong owner, 8 untracked,
+	// 9 non-finite, 10 unqualified, 11 Calc observations, 12 post-sink Calc
+	// rejections, 13 TraceShot observations, 14 translations, 15 mutable rejects,
+	// and 16 the production-enable flag.
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRAuthoritativeFireDiagnostic(uint32_t slot)
+	{
+		if (!engine)
+			return 0;
+		const auto& value = engine->WebXRAuthoritativeFire;
+		switch (slot)
+		{
+		case 0: return value.RequestCount;
+		case 1: return value.QualifiedHitscanContextCount;
+		case 2: return value.ContextRestoreCount;
+		case 3: return value.MissingCalibrationRejectCount;
+		case 4: return value.ProductionDisabledRejectCount;
+		case 5: return value.RemotePawnRejectCount;
+		case 6: return value.StaleWeaponRejectCount;
+		case 7: return value.WrongOwnerRejectCount;
+		case 8: return value.UntrackedPoseRejectCount;
+		case 9: return value.NonFinitePoseRejectCount;
+		case 10: return value.UnqualifiedPathRejectCount;
+		case 11: return value.CalcDrawOffsetObservationCount;
+		case 12: return value.PostSinkCalcRejectCount;
+		case 13: return value.TraceShotObservationCount;
+		case 14: return value.EndpointTranslationCount;
+		case 15: return value.MutableArgumentRejectCount;
+		case 16: return value.ProductionRewriteEnabled ? 1u : 0u;
+		default: return 0;
+		}
+	}
+
+	// Vector slots: 0 observed CalcDrawOffset, 1 stock start, 2 stock end,
+	// 3 desired muzzle, and 4 applied delta.
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRAuthoritativeFireVectorValue(
+		uint32_t vectorSlot, uint32_t axis)
+	{
+		if (!engine || axis >= 3)
+			return 0.0f;
+		const auto& value = engine->WebXRAuthoritativeFire;
+		switch (vectorSlot)
+		{
+		case 0: return value.LastObservedCalcDrawOffset[axis];
+		case 1: return value.LastStockTraceStart[axis];
+		case 2: return value.LastStockTraceEnd[axis];
+		case 3: return value.LastDesiredMuzzle[axis];
+		case 4: return value.LastAppliedDelta[axis];
+		default: return 0.0f;
+		}
 	}
 
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponVisualGripSchemaVersion()

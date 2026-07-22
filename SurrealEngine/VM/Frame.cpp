@@ -21,6 +21,35 @@ Expression* Frame::StepExpression = nullptr;
 std::string Frame::ExceptionText;
 std::unique_ptr<Iterator> Frame::CreatedIterator;
 Frame::CallScopeHook Frame::CurrentCallScopeHook;
+Frame::MutableCallArgumentsHook Frame::CurrentMutableCallArgumentsHook;
+Frame::CallResultObserver Frame::CurrentCallResultObserver;
+
+bool MutableCallArguments::Replace(size_t index, ExpressionValue value)
+{
+	if (index >= Arguments.size())
+		return false;
+	for (const Backup& backup : Backups)
+	{
+		if (backup.Index == index)
+		{
+			Arguments[index] = std::move(value);
+			return true;
+		}
+	}
+	Backups.push_back({ index, Arguments[index] });
+	Arguments[index] = std::move(value);
+	return true;
+}
+
+MutableCallArguments::~MutableCallArguments() noexcept
+{
+	if (Committed)
+		return;
+	for (auto it = Backups.rbegin(); it != Backups.rend(); ++it)
+	{
+		try { Arguments[it->Index] = std::move(it->Value); } catch (...) { }
+	}
+}
 
 Frame::Frame(UObject* instance, UStruct* func)
 {
@@ -232,20 +261,139 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 	}
 
 	ActiveCallScopeHook callScope(func, instance, args);
+	ApplyMutableCallArgumentsHook(func, instance, args);
 
+	ExpressionValue result;
 	if (AllFlags(func->FuncFlags, FunctionFlags::Native))
 	{
-		return CallNative(func, instance, std::move(args));
+		result = CallNative(func, instance, args);
 	}
 	else
 	{
-		return CallScript(func, instance, std::move(args));
+		result = CallScript(func, instance, args);
 	}
+	NotifyCallResultObserver(func, instance, args, result);
+	return result;
 }
 
 void Frame::SetCallScopeHook(CallScopeHook hook)
 {
 	CurrentCallScopeHook = std::move(hook);
+}
+
+void Frame::SetMutableCallArgumentsHook(MutableCallArgumentsHook hook)
+{
+	CurrentMutableCallArgumentsHook = std::move(hook);
+}
+
+void Frame::SetCallResultObserver(CallResultObserver observer)
+{
+	CurrentCallResultObserver = std::move(observer);
+}
+
+bool Frame::ApplyMutableCallArgumentsHook(UFunction* func, UObject* instance,
+	Array<ExpressionValue>& args) noexcept
+{
+	MutableCallArgumentsHook hook = CurrentMutableCallArgumentsHook;
+	if (!hook)
+		return true;
+	MutableCallArguments editor(args);
+	try
+	{
+		hook(func, instance, editor);
+		editor.Commit();
+		return true;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+void Frame::NotifyCallResultObserver(UFunction* func, UObject* instance,
+	const Array<ExpressionValue>& args, const ExpressionValue& result) noexcept
+{
+	CallResultObserver observer = CurrentCallResultObserver;
+	if (!observer)
+		return;
+	try
+	{
+		observer(func, instance, args, result);
+	}
+	catch (...)
+	{
+	}
+}
+
+bool Frame::RunCallHookSelfTest()
+{
+	CallScopeHook savedScope = CurrentCallScopeHook;
+	MutableCallArgumentsHook savedMutable = CurrentMutableCallArgumentsHook;
+	CallResultObserver savedObserver = CurrentCallResultObserver;
+	struct RestoreHooks
+	{
+		CallScopeHook Scope;
+		MutableCallArgumentsHook Mutable;
+		CallResultObserver Observer;
+		~RestoreHooks()
+		{
+			Frame::CurrentCallScopeHook = std::move(Scope);
+			Frame::CurrentMutableCallArgumentsHook = std::move(Mutable);
+			Frame::CurrentCallResultObserver = std::move(Observer);
+		}
+	} restore{ std::move(savedScope), std::move(savedMutable), std::move(savedObserver) };
+
+	Array<ExpressionValue> args = {
+		ExpressionValue::VectorValue(vec3(1.0f, 2.0f, 3.0f)),
+		ExpressionValue::VectorValue(vec3(4.0f, 5.0f, 6.0f)),
+		ExpressionValue::VectorValue(vec3(7.0f, 8.0f, 9.0f)),
+		ExpressionValue::VectorValue(vec3(10.0f, 11.0f, 12.0f))
+	};
+	const vec3* firstOutIdentity = &args[0].ToVector();
+	const vec3* secondOutIdentity = &args[1].ToVector();
+	CurrentMutableCallArgumentsHook = [](UFunction*, UObject*, MutableCallArguments& values)
+	{
+		values.Replace(2, ExpressionValue::VectorValue(vec3(13.0f, 14.0f, 15.0f)));
+		values.Replace(3, ExpressionValue::VectorValue(vec3(16.0f, 17.0f, 18.0f)));
+	};
+	if (!ApplyMutableCallArgumentsHook(nullptr, nullptr, args) ||
+		&args[0].ToVector() != firstOutIdentity ||
+		&args[1].ToVector() != secondOutIdentity ||
+		args[0].ToVector() != vec3(1.0f, 2.0f, 3.0f) ||
+		args[1].ToVector() != vec3(4.0f, 5.0f, 6.0f) ||
+		args[2].ToVector() != vec3(13.0f, 14.0f, 15.0f) ||
+		args[3].ToVector() != vec3(16.0f, 17.0f, 18.0f))
+		return false;
+
+	CurrentMutableCallArgumentsHook = [](UFunction*, UObject*, MutableCallArguments& values)
+	{
+		values.Replace(2, ExpressionValue::VectorValue(vec3(19.0f, 20.0f, 21.0f)));
+		throw std::runtime_error("intentional hook rollback test");
+	};
+	if (ApplyMutableCallArgumentsHook(nullptr, nullptr, args) ||
+		args[0].ToVector() != vec3(1.0f, 2.0f, 3.0f) ||
+		args[1].ToVector() != vec3(4.0f, 5.0f, 6.0f) ||
+		args[2].ToVector() != vec3(13.0f, 14.0f, 15.0f) ||
+		args[3].ToVector() != vec3(16.0f, 17.0f, 18.0f))
+		return false;
+
+	bool observed = false;
+	CurrentCallResultObserver = [&observed](UFunction*, UObject*,
+		const Array<ExpressionValue>& values, const ExpressionValue& result)
+	{
+		observed = values.size() == 4 && result.ToInt() == 42;
+	};
+	NotifyCallResultObserver(nullptr, nullptr, args, ExpressionValue::IntValue(42));
+	if (!observed)
+		return false;
+
+	CurrentCallResultObserver = [](UFunction*, UObject*, const Array<ExpressionValue>&,
+		const ExpressionValue&)
+	{
+		throw std::runtime_error("intentional observer isolation test");
+	};
+	NotifyCallResultObserver(nullptr, nullptr, args, ExpressionValue::IntValue(42));
+	return true;
 }
 
 Frame::ActiveCallScopeHook::ActiveCallScopeHook(UFunction* func, UObject* instance, const Array<ExpressionValue>& args)
@@ -274,7 +422,7 @@ Frame::ActiveCallScopeHook::~ActiveCallScopeHook() noexcept
 	}
 }
 
-ExpressionValue Frame::CallScript(UFunction* func, UObject* instance, Array<ExpressionValue> args)
+ExpressionValue Frame::CallScript(UFunction* func, UObject* instance, Array<ExpressionValue>& args)
 {
 	Frame frame(instance, func);
 
@@ -331,7 +479,7 @@ ExpressionValue Frame::CallScript(UFunction* func, UObject* instance, Array<Expr
 	return result;
 }
 
-ExpressionValue Frame::CallNative(UFunction* func, UObject* instance, Array<ExpressionValue> args)
+ExpressionValue Frame::CallNative(UFunction* func, UObject* instance, Array<ExpressionValue>& args)
 {
 	// Native functions expect the last parameter to be the return value
 	bool returnparmfound = false;
@@ -407,7 +555,11 @@ ExpressionValue Frame::CallNative(UFunction* func, UObject* instance, Array<Expr
 		}
 	}
 
-	return returnparmfound ? std::move(args.back()) : ExpressionValue::NothingValue();
+	if (!returnparmfound)
+		return ExpressionValue::NothingValue();
+	ExpressionValue result = std::move(args.back());
+	args.pop_back();
+	return result;
 }
 
 void Frame::TraceCall(UFunction* func, UObject* instance, const Array<ExpressionValue>& args)

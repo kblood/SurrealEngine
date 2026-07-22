@@ -10,6 +10,34 @@ class UFunction;
 class Expression;
 struct ExpressionEvalResult;
 
+// Transactional editor used by the pre-dispatch call hook. Reading arguments
+// is free; only explicitly replaced elements are copied for rollback. This
+// keeps the hook practical on the VM hot path while preserving untouched out-
+// parameter identity and exception-safe restoration.
+class MutableCallArguments
+{
+public:
+	const Array<ExpressionValue>& Values() const { return Arguments; }
+	size_t Size() const { return Arguments.size(); }
+	bool Replace(size_t index, ExpressionValue value);
+
+private:
+	friend class Frame;
+	struct Backup
+	{
+		size_t Index = 0;
+		ExpressionValue Value;
+	};
+
+	explicit MutableCallArguments(Array<ExpressionValue>& args) : Arguments(args) { }
+	~MutableCallArguments() noexcept;
+	void Commit() noexcept { Committed = true; }
+
+	Array<ExpressionValue>& Arguments;
+	Array<Backup> Backups;
+	bool Committed = false;
+};
+
 enum class FrameRunState
 {
 	Running,
@@ -67,9 +95,23 @@ public:
 	// state unchanged if it throws. Cleanup functions must not throw.
 	using CallScopeCleanup = std::function<void()>;
 	using CallScopeHook = std::function<CallScopeCleanup(UFunction* func, UObject* instance, const Array<ExpressionValue>& args)>;
+	// Called after optional arguments are materialized and immediately before
+	// dispatch. Hooks inspect the const Values() view and replace only selected
+	// elements through Replace(). Out-parameter elements retain their original
+	// identity unless the hook explicitly replaces them.
+	using MutableCallArgumentsHook = std::function<void(UFunction* func,
+		UObject* instance, MutableCallArguments& args)>;
+	// Called only after a dispatched call produced a result, while the matching
+	// call-scope cleanup is still active. Observer exceptions are swallowed so an
+	// auxiliary diagnostic can never replace a VM result or unwind the call.
+	using CallResultObserver = std::function<void(UFunction* func, UObject* instance,
+		const Array<ExpressionValue>& args, const ExpressionValue& result)>;
 
 	static ExpressionValue Call(UFunction* func, UObject* instance, Array<ExpressionValue> args);
 	static void SetCallScopeHook(CallScopeHook hook);
+	static void SetMutableCallArgumentsHook(MutableCallArgumentsHook hook);
+	static void SetCallResultObserver(CallResultObserver observer);
+	static bool RunCallHookSelfTest();
 	static std::string GetCallstack();
 	static std::string GetDisassembly(Expression* statement);
 
@@ -113,10 +155,16 @@ private:
 	ExpressionEvalResult Run();
 	void ProcessSwitch(const ExpressionValue& condition);
 
-	static ExpressionValue CallNative(UFunction* func, UObject* instance, Array<ExpressionValue> args);
-	static ExpressionValue CallScript(UFunction* func, UObject* instance, Array<ExpressionValue> args);
+	static ExpressionValue CallNative(UFunction* func, UObject* instance, Array<ExpressionValue>& args);
+	static ExpressionValue CallScript(UFunction* func, UObject* instance, Array<ExpressionValue>& args);
 	static void TraceCall(UFunction* func, UObject* instance, const Array<ExpressionValue>& args);
 	static CallScopeHook CurrentCallScopeHook;
+	static MutableCallArgumentsHook CurrentMutableCallArgumentsHook;
+	static CallResultObserver CurrentCallResultObserver;
+	static bool ApplyMutableCallArgumentsHook(UFunction* func, UObject* instance,
+		Array<ExpressionValue>& args) noexcept;
+	static void NotifyCallResultObserver(UFunction* func, UObject* instance,
+		const Array<ExpressionValue>& args, const ExpressionValue& result) noexcept;
 
 	struct ActiveCallScopeHook
 	{

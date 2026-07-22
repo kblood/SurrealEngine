@@ -51,6 +51,7 @@ class FrustumPlanes;
 class AudioSubsystem;
 class Rotator;
 class ExpressionValue;
+class MutableCallArguments;
 class UnrealURL;
 class VideoPlayer;
 class UnrealMipmap;
@@ -180,6 +181,34 @@ public:
 		uint32_t VisualRejectedTransformCount = 0;
 		vec3 LastVisualGripOffset = vec3(0.0f);
 		vec3 LastVisualPosition = vec3(0.0f);
+	};
+
+	struct WebXRAuthoritativeFireDiagnostics
+	{
+		uint32_t RequestCount = 0;
+		uint32_t QualifiedHitscanContextCount = 0;
+		uint32_t ContextRestoreCount = 0;
+		uint32_t MissingCalibrationRejectCount = 0;
+		uint32_t ProductionDisabledRejectCount = 0;
+		uint32_t RemotePawnRejectCount = 0;
+		uint32_t StaleWeaponRejectCount = 0;
+		uint32_t WrongOwnerRejectCount = 0;
+		uint32_t UntrackedPoseRejectCount = 0;
+		uint32_t NonFinitePoseRejectCount = 0;
+		uint32_t UnqualifiedPathRejectCount = 0;
+		uint32_t CalcDrawOffsetObservationCount = 0;
+		uint32_t PostSinkCalcRejectCount = 0;
+		uint32_t TraceShotObservationCount = 0;
+		uint32_t EndpointTranslationCount = 0;
+		uint32_t MutableArgumentRejectCount = 0;
+		vec3 LastObservedCalcDrawOffset = vec3(0.0f);
+		vec3 LastStockTraceStart = vec3(0.0f);
+		vec3 LastStockTraceEnd = vec3(0.0f);
+		vec3 LastDesiredMuzzle = vec3(0.0f);
+		vec3 LastAppliedDelta = vec3(0.0f);
+		// This remains false until immutable per-weapon calibration, obstruction
+		// policy, complete fixtures, and physical-headset gates are satisfied.
+		bool ProductionRewriteEnabled = false;
 	};
 
 	// Explicit browser-test fixture only. No normal engine path calls the
@@ -355,6 +384,7 @@ public:
 	WebXRMenuNavigationDiagnostics WebXRMenuNavigation;
 	WebXRAudioListenerDiagnostics WebXRAudioListener;
 	WebXRWeaponAimDiagnostics WebXRWeaponAim;
+	WebXRAuthoritativeFireDiagnostics WebXRAuthoritativeFire;
 	WebXRLoadedWeaponFixtureDiagnostics WebXRLoadedWeaponFixture;
 	WebXRHapticDiagnostics WebXRHaptics;
 	bool RunWebXRLoadedWeaponFixture();
@@ -428,11 +458,16 @@ private:
 	std::function<void()> EnterWebXRCallScope(UFunction* func, UObject* instance,
 		const Array<ExpressionValue>& args);
 	std::function<void()> EnterWebXRWeaponAimScope(UFunction* func, UObject* instance);
+	std::function<void()> EnterWebXRAuthoritativeFireScope(UFunction* func, UObject* instance);
 	std::function<void()> EnterWebXRWeaponVisualScope(UFunction* func, UObject* instance,
 		const Array<ExpressionValue>& args);
 	std::function<void()> EnterWebXRGameplayOutcomeScope(UFunction* func, UObject* instance,
 		const Array<ExpressionValue>& args);
 	void RecordWebXRHapticOutcome(uint32_t event, float magnitude);
+	void MutateWebXRAuthoritativeFireArguments(UFunction* func, UObject* instance,
+		MutableCallArguments& args);
+	void ObserveWebXRAuthoritativeFireResult(UFunction* func, UObject* instance,
+		const Array<ExpressionValue>& args, const ExpressionValue& result);
 	std::map<std::string, std::string> CreateTravelInfo(bool transferItems);
 
 	void LogGamePackageSHA1Sums() const;
@@ -490,6 +525,19 @@ private:
 		Rotator PresentationRotation = Rotator(0, 0, 0);
 	};
 	std::vector<WebXRWeaponPresentationContext> WebXRWeaponPresentationStack;
+	struct WebXRAuthoritativeFireContext
+	{
+		UPlayerPawn* Pawn = nullptr;
+		UWeapon* Weapon = nullptr;
+		uint32_t Policy = 0;
+		uint32_t Rejection = 0;
+		uint64_t InputGeneration = 0;
+		int32_t ControllerIndex = -1;
+		vec3 DesiredMuzzle = vec3(0.0f);
+		bool DesiredMuzzleValid = false;
+		bool TraceShotObserved = false;
+	};
+	std::vector<WebXRAuthoritativeFireContext> WebXRAuthoritativeFireStack;
 };
 
 extern Engine* engine;

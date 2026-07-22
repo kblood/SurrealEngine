@@ -59,6 +59,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/WebXR/WebXRInputState.h
 	SurrealEngine/WebXR/WebXRHaptics.cpp
 	SurrealEngine/WebXR/WebXRHaptics.h
+	SurrealEngine/WebXR/WebXRMuzzleOrigin.cpp
+	SurrealEngine/WebXR/WebXRMuzzleOrigin.h
 	SurrealEngine/UE1GameDatabase.h
 	SurrealEngine/UE1GameDatabase.cpp
 	SurrealEngine/Utils/CommandLine.cpp
