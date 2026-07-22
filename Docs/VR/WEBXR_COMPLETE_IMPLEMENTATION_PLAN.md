@@ -71,12 +71,12 @@ XRSession.requestAnimationFrame
 | M2 — WebGPU renderer | Complete | UT99 world/HUD renders through Emdawnwebgpu |
 | M3 — WebGPU hot path | Complete | Bind-group caching and buffer diagnostics measured on small and large maps |
 | M4 — presentation groundwork | Complete | XR-compatible device, texture import/readback, full UT frame in array layer 1, frame-loop ownership handoff |
-| M5 — frame/view refactor | Not started | Separate one simulation tick from two eye renders |
+| M5 — frame/view refactor | Complete (diagnostic projections) | One simulation tick now renders two independently selected texture-array layers; real `XRView` data starts M6 |
 | M6 — native WebGPU XR session | Not started; platform/headset gated | Real `XRGPUBinding`, projection layer, subimages, synchronous presentation |
 | M7 — tracking/camera/world scale | Not started | Correct 6DoF head pose and per-eye projection |
 | M8 — controller input/gameplay | Not started | Motion controllers, locomotion, weapon aim, haptics |
 | M9 — UI/comfort/VR presentation | Not started | HUD, menus, weapon model, recenter and comfort controls |
-| M10 — audio/data/network/deploy | Not started | Browser audio, legal data import, persistence, PWA and network scope |
+| M10 — audio/data/network/deploy | In progress | Real OpenAL/Web Audio output and gesture resume work; data import, persistence, deployment, networking scope, head-pose listener and lifecycle policy remain |
 | M11 — performance/robustness/release | Not started | Quest profiling, lifecycle hardening, compatibility and release gates |
 
 ## 3. M0 — architecture and platform gate
@@ -212,8 +212,9 @@ headset presentation.
 
 ## 8. M5 — split simulation from stereo view rendering
 
-This is the next implementation milestone and removes the largest engine-side
-architectural mismatch.
+Completed on 2026-07-22 for the engine/render seam and deterministic two-layer
+browser diagnostic. The seam uses fake diagnostic eye transforms until M6/M7
+provide native `XRView` data.
 
 ### 8.1 Frame responsibilities
 
@@ -221,16 +222,20 @@ Refactor `Engine::RunOneFrame()` into explicit phases without changing native
 behavior:
 
 1. `AdvanceGameFrame()` — elapsed time, input, UnrealScript/level tick,
-   `PlayerCalcView`, audio, travel/save decisions.
-2. `RenderGameFrame(RenderFrameState)` — render the already-advanced state.
-3. `FinishGameFrame()` — operations that must happen once after rendering.
+   `PlayerCalcView`, and audio.
+2. `RenderGameFrame(float)` — render the already-advanced state.
+3. `FinishGameFrame(float)` — save/travel operations that happen once after
+   rendering.
 
 The native/window loop calls all phases once. The XR loop advances once and
 renders both eyes from the same immutable camera/game state. Never call the
 whole simulation loop once per eye.
 
-Audit code currently embedded in `RenderSubsystem::DrawGame()` and
-`DrawSceneStereo()`:
+Implemented classification in `RenderSubsystem`: view-independent BSP actor
+updates and light/texture counters run once before the two views; scene
+geometry is submitted per eye. The M5 diagnostic deliberately defers HUD,
+menus, overlays, flash and `PreRender`/`PostRender` until M9 defines their VR
+presentation. Continue auditing the following as real view data is integrated:
 
 - BSP actor `UpdateBspInfo`, light/texture frame counters, canvas reset,
   `PreRender`, `PostRender`, flash, and overlays must be classified as once per
@@ -241,14 +246,16 @@ Audit code currently embedded in `RenderSubsystem::DrawGame()` and
 
 ### 8.2 Renderer target lifecycle
 
-Replace the one-shot external-target diagnostic with a frame-scoped API:
+The one-shot external-target diagnostic now has a frame-scoped API:
 
-- `BeginExternalFrame(texture, format, width, height)` imports/retains one
+- `BeginExternalRenderTargetFrame(texture, width, height, layer)`
+  imports/retains one
   browser texture wrapper.
-- `BeginExternalView(arrayLayer, viewport, clear/load)` creates the selected
-  2D view and an eye-sized depth attachment.
+- `SelectExternalRenderTargetView(arrayLayer, viewport)` creates/selects the
+  2D view. The current diagnostic uses a full-attachment depth buffer; eye-
+  sized/subimage depth policy remains part of production integration.
 - Draw one eye, end the pass, then select the next array layer.
-- `EndExternalFrame()` submits once where possible and releases every imported
+- `EndExternalRenderTargetFrame()` releases every imported
   wrapper before the synchronous JS call returns.
 - Keep the canvas `Lock`/`Unlock` path behaviorally unchanged.
 
@@ -258,7 +265,9 @@ color presentation is correct.
 
 ### 8.3 Per-frame bridge data
 
-Define a versioned POD structure shared by JS and C++:
+Define a versioned POD structure shared by JS and C++. This is the first
+remaining M6 implementation slice because M5 has proven the consumer-side
+phase and attachment interfaces:
 
 - frame timestamp and view count;
 - reference-space/reset generation;
@@ -274,18 +283,21 @@ released its wrapper.
 
 ### 8.4 Tests
 
-- Unit-test phase ordering and prove one XR callback increments the simulation
-  counter once while incrementing an eye-render counter twice.
-- Extend the browser-owned two-layer test: render distinct deterministic
-  content from two projections and read back both layers.
-- Verify canvas rendering resumes after an XR-style frame sequence.
-- Run normal WebGPU, default IWER, experimental interop, and native build tests.
+- Browser automation proves one synchronous stereo call increments the
+  simulation counter once and renders both eye layers.
+- Both layers are read back and required to contain nonblank, varied, distinct
+  UT scene output from two diagnostic projections.
+- Canvas RAF pause/manual-frame/resume is verified around the stereo call.
+- Normal WebGPU, default IWER, experimental interop, and native Debug build
+  tests pass.
 
 ### Exit criterion
 
-One simulation state renders into two independently selected array layers in a
-single synchronous call, with different projection matrices, no double tick,
-no canvas regression, and no GPU errors.
+Met on 2026-07-22: one simulation state rendered into two independently
+selected array layers in one synchronous call with different diagnostic
+projections, exactly one tick, 187 accumulated draw calls, distinct readback,
+canvas recovery, and zero uncaptured WebGPU errors. Real `XRView` matrices and
+subimages remain the M6/M7 production path, not an M5 claim.
 
 ## 9. M6 — real native WebGPU WebXR session and presentation
 
@@ -500,12 +512,15 @@ unrecoverable menu state.
 
 ### 13.1 Browser audio
 
-The Emscripten build still uses `NullAudioDevice`.
+The Emscripten build now uses the existing `AudioDevice.cpp` OpenAL backend,
+linked to Emscripten OpenAL/Web Audio. It no longer uses `NullAudioDevice`.
 
-- Choose an Emscripten OpenAL/SDL/WebAudio output path that reuses the existing
-  mixer and decoded sources rather than rewriting game audio in JS.
-- Resume/unlock the browser `AudioContext` from the same user gesture used to
-  start or enter VR.
+- **Complete:** reuse the existing decoded sources, music path and spatial
+  OpenAL calls through Emscripten's Web Audio implementation.
+- **Complete:** expose AudioContext state/resume diagnostics and invoke resume
+  directly from the trusted Enter VR/Enable Audio click.
+- **Complete:** avoid unsupported `AL_METERS_PER_UNIT`, unbounded Emscripten
+  source-count reporting, and context-destruction ordering hazards.
 - Update the listener from the tracked head pose, not only pawn/body rotation.
 - Suspend/mute correctly for hidden/blurred sessions and restore after focus.
 - Test music streaming, positional effects, volume settings, map changes,

@@ -705,3 +705,63 @@ attachment array layer between eyes without presenting or ticking twice.
   ticks/s, 95 draws/frame, 75 cached textures, 95 bind-group cache hits, zero
   new warm-frame bind groups, zero buffer rollovers, zero WebGPU errors,
   non-blank canvas, and clean quit.
+
+## M5 frame/view refactor and browser audio checkpoint — PASS (2026-07-22)
+
+The engine frame is now explicitly divided into `AdvanceGameFrame()`,
+`RenderGameFrame()` and `FinishGameFrame()`. `RunOneFrame()` calls those three
+phases in the original order, preserving the native and canvas behavior. The
+XR diagnostic advances once, renders both views from that state, then performs
+save/travel completion once.
+
+`RenderSubsystem` now separates view-independent scene preparation from the
+per-view geometry draw. Its M5 stereo-layer entry point updates BSP/light/
+texture frame state once, renders two diagnostic eye transforms, and switches
+the external attachment between array layers 0 and 1 without a second engine
+tick. HUD/menu/flash/overlay handling is intentionally excluded from this path
+until M9 chooses a world/quad-layer presentation.
+
+`WebGPURenderDevice` now retains a browser-owned imported texture for a whole
+external frame, supports layer/viewport selection both before and during a
+lock, submits the first eye before reopening the pass on the second layer, and
+releases the imported wrapper explicitly at frame end. The legacy one-frame
+queue remains as a compatibility diagnostic. A compact state bitmask export
+reports lock/external-frame ownership when browser automation fails.
+
+The Emscripten target now links its existing OpenAL device to Emscripten's Web
+Audio implementation. `BrowserAudioBridge` reports AudioContext lifecycle,
+resumes it directly in the trusted Enter VR/Enable Audio click, and counts
+completed resume promises. Browser-specific safeguards avoid the unsupported
+meters-per-unit enum and Emscripten's effectively unbounded reported source
+count.
+
+Enabling real audio exposed a pre-existing browser lifetime bug rather than an
+audio corruption: `commandline` pointed at a stack object after `callMain()`
+returned and the RAF later queried `--debugstereo`. A symbols-enabled WASM
+build traced the out-of-bounds access to `CommandLine::HasArg()` from
+`RenderSubsystem::DrawGameInternal()`. The Emscripten command-line object now
+has static lifetime, matching the already-static engine.
+
+Final validation:
+
+- Clean/incremental release Emscripten build: PASS; known pthread/memory-growth
+  and 629 MB development-preload warnings remain.
+- Experimental Chrome/IWER/WebGPU XR: PASS. Texture import/readback passed; a
+  full UT frame rendered in array layer 1; RAF ownership paused/resumed; one
+  stereo call advanced exactly one tick and produced 187 draw calls across two
+  nonblank, varied layers with 1,159 differing sampled pixels; zero WebGPU
+  errors; Web Audio was running; XR frames advanced `3 -> 182`; clean exit.
+- Default Chrome/IWER: PASS with `XRGPUBinding` correctly absent; Web Audio
+  running; XR frames advanced `5 -> 186`; clean exit.
+- Ordinary WebGPU: PASS at approximately 60.1 ticks/s, 95 draws/frame, 75
+  cached textures, 95 cache hits, zero WebGPU errors, nonblank canvas and clean
+  quit.
+- Native Windows Debug build: PASS for all shared engine/render/audio sources.
+
+M5 is complete at the diagnostic boundary. The next implementation work is M6:
+define the versioned packed JS/WASM XR frame ABI, feed native `XRView` matrices,
+viewports and array layers into this proven consumer path, then replace the
+IWER-only lifecycle with a real `XRGPUBinding` projection layer on a browser/
+headset that supplies a native session. M10 remains partial: tracked-head
+listener orientation, suspend/resume policy, music/effect headset testing,
+legal data import, persistence, deployment and networking scope are still open.
