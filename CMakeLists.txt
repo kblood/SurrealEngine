@@ -851,8 +851,15 @@ if(EMSCRIPTEN)
 		-sPTHREAD_POOL_SIZE=2
 		-sUSE_SDL=2
 		--use-port=emdawnwebgpu
-		--preload-file "${SURREAL_GAMEDATA_DIR}@/gamedata"
 	)
+	if(SURREAL_GAMEDATA_DIR)
+		# Developer convenience only. Production/distributable builds deliberately
+		# omit commercial UT99 content and populate /gamedata through the browser
+		# import/persistence flow described by WebXR milestone M10.
+		target_link_options(SurrealEngine PRIVATE
+			--preload-file "${SURREAL_GAMEDATA_DIR}@/gamedata"
+		)
+	endif()
 else()
 	install(TARGETS SurrealEngine RUNTIME DESTINATION bin BUNDLE DESTINATION app)
 	install(TARGETS SurrealEditor RUNTIME DESTINATION bin BUNDLE DESTINATION app)
