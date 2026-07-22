@@ -54,6 +54,8 @@ class UnrealURL;
 class VideoPlayer;
 class UnrealMipmap;
 class UFloatProperty;
+class UObjectProperty;
+class UStructProperty;
 class UConversationMissionList;
 class UConversationList;
 struct FTextureInfo;
@@ -70,6 +72,13 @@ public:
 	~Engine();
 
 	void Run();
+
+	// A frame advances simulation once, renders its resulting state, then handles
+	// deferred save and travel requests. RunOneFrame preserves the native ordering.
+	void RunOneFrame();
+	float AdvanceGameFrame();
+	void RenderGameFrame(float levelElapsed);
+	void FinishGameFrame(float levelElapsed);
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -223,6 +232,11 @@ public:
 	bool getDXWindowDebugMode() const { return m_DrawDebugDXWindowHierarchy; }
 
 private:
+	// Scratch properties used by PlayerCalcView during AdvanceGameFrame.
+	UObjectProperty* frameObjProp = nullptr;
+	UStructProperty* frameVecProp = nullptr;
+	UStructProperty* frameRotProp = nullptr;
+
 	std::map<std::string, std::string> CreateTravelInfo(bool transferItems);
 
 	void LogGamePackageSHA1Sums() const;
