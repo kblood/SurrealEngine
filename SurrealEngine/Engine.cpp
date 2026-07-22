@@ -3363,9 +3363,9 @@ namespace
 //   now, and stores the result into vrTuneOverrides exactly like the
 //   existing right-A save path (same log line format), no manual
 //   stick-nudging required. The solve is just undoing the render formula
-//   (weapon->Location() = hand.gripPos + hand.gripCoords*offset,
+//   (weapon->Location() = hand.aimPos + aimCoords*offset,
 //   weapon->Rotation() = WeaponAimRotator(hand)+rotationTrim): since
-//   gripCoords' axes are orthonormal, three dot products recover offset,
+//   aimCoords' axes are orthonormal, three dot products recover offset,
 //   and a plain Rotator subtraction recovers rotationTrim.
 // - Right A's print/save and the underlying vrTuneOverrides map are
 //   shared with normal tuning mode - a capture can still be followed by
@@ -3448,11 +3448,13 @@ void Engine::UpdateVRWeaponTuning(float timeElapsed, const VRControllerState& st
 			auto it = vrTuneOverrides.find(className);
 			VRWeaponGripInfo grip = (it != vrTuneOverrides.end()) ? it->second : GetBaseWeaponGripInfo(weapon);
 
-			vec3 toFrozen = vrGripCalibrateFrozenPos - hand.gripPos;
-			grip.gripOffset.x = dot(toFrozen, hand.gripCoords.XAxis);
-			grip.gripOffset.y = dot(toFrozen, hand.gripCoords.YAxis);
-			grip.gripOffset.z = dot(toFrozen, hand.gripCoords.ZAxis);
-			grip.rotationTrim = vrGripCalibrateFrozenRot - WeaponAimRotator(hand);
+			Rotator aimRotation = WeaponAimRotator(hand);
+			Coords aimCoords = Coords::Rotation(aimRotation);
+			vec3 toFrozen = vrGripCalibrateFrozenPos - hand.aimPos;
+			grip.gripOffset.x = dot(toFrozen, aimCoords.XAxis);
+			grip.gripOffset.y = dot(toFrozen, aimCoords.YAxis);
+			grip.gripOffset.z = dot(toFrozen, aimCoords.ZAxis);
+			grip.rotationTrim = vrGripCalibrateFrozenRot - aimRotation;
 
 			vrTuneOverrides[className] = grip;
 
@@ -4060,14 +4062,15 @@ void Engine::LogWeaponGeometrySnapshot()
 	// but does matter for a diagnostic reading it later. Recompute the
 	// SAME anchor formula HandleFrameCallIntercept's RenderOverlays branch
 	// uses instead of trusting the property.
+	Coords aimCoords = hand.valid ? Coords::Rotation(WeaponAimRotator(hand)) : Coords::Identity();
 	vec3 weaponWorldPos = hand.valid
-		? hand.gripPos + hand.gripCoords.XAxis * grip.gripOffset.x
-			+ hand.gripCoords.YAxis * grip.gripOffset.y
-			+ hand.gripCoords.ZAxis * grip.gripOffset.z
+		? hand.aimPos + aimCoords.XAxis * grip.gripOffset.x
+			+ aimCoords.YAxis * grip.gripOffset.y
+			+ aimCoords.ZAxis * grip.gripOffset.z
 		: weapon->Location();
 
 	float handToPlayerUU = hand.valid ? length(hand.gripPos - playerLoc) : -1.0f;
-	float weaponToHandUU = hand.valid ? length(weaponWorldPos - hand.gripPos) : -1.0f;
+	float weaponToHandUU = hand.valid ? length(weaponWorldPos - hand.aimPos) : -1.0f;
 	float weaponToPlayerUU = length(weaponWorldPos - playerLoc);
 
 	UMesh* mesh = weapon->Mesh();
@@ -4314,11 +4317,13 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 
 		VRWeaponGripInfo grip = GetWeaponGripInfo(weapon);
 
-		vec3 worldGripOffset = hand.gripCoords.XAxis * grip.gripOffset.x
-			+ hand.gripCoords.YAxis * grip.gripOffset.y
-			+ hand.gripCoords.ZAxis * grip.gripOffset.z;
-		weapon->Location() = hand.gripPos + worldGripOffset;
-		weapon->Rotation() = WeaponAimRotator(hand) + grip.rotationTrim;
+		Rotator aimRotation = WeaponAimRotator(hand);
+		Coords aimCoords = Coords::Rotation(aimRotation);
+		vec3 worldGripOffset = aimCoords.XAxis * grip.gripOffset.x
+			+ aimCoords.YAxis * grip.gripOffset.y
+			+ aimCoords.ZAxis * grip.gripOffset.z;
+		weapon->Location() = hand.aimPos + worldGripOffset;
+		weapon->Rotation() = aimRotation + grip.rotationTrim;
 
 		// 2026-07-21: skipping the script body entirely also skips its own
 		// internal `Canvas.DrawActor(Self, false, false)` call - for
@@ -4555,10 +4560,16 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 			return false;
 
 		VRWeaponGripInfo grip = GetWeaponGripInfo(weapon);
-		vec3 worldMuzzleOffset = hand.gripCoords.XAxis * grip.muzzleOffset.x
-			+ hand.gripCoords.YAxis * grip.muzzleOffset.y
-			+ hand.gripCoords.ZAxis * grip.muzzleOffset.z;
-		vec3 worldMuzzlePos = hand.gripPos + worldMuzzleOffset;
+		Rotator aimRotation = WeaponAimRotator(hand);
+		Coords aimCoords = Coords::Rotation(aimRotation);
+		vec3 worldGripOffset = aimCoords.XAxis * grip.gripOffset.x
+			+ aimCoords.YAxis * grip.gripOffset.y
+			+ aimCoords.ZAxis * grip.gripOffset.z;
+		Coords weaponCoords = Coords::Rotation(aimRotation + grip.rotationTrim);
+		vec3 worldMuzzleOffset = weaponCoords.XAxis * grip.muzzleOffset.x
+			+ weaponCoords.YAxis * grip.muzzleOffset.y
+			+ weaponCoords.ZAxis * grip.muzzleOffset.z;
+		vec3 worldMuzzlePos = hand.aimPos + worldGripOffset + worldMuzzleOffset;
 		UActor* owner = weapon->Owner();
 		vec3 candidate = owner ? (worldMuzzlePos - owner->Location()) : worldMuzzlePos;
 
@@ -4686,7 +4697,7 @@ void Engine::HandleFrameCallInterceptPost(UObject* instance, UFunction* func, Ex
 // (VRWeaponGripInfo::foregripPoint) into world space, using the exact same
 // viewmodel placement math the M-B RenderOverlays intercept
 // (HandleFrameCallIntercept, above) uses to place the weapon itself - grip
-// origin = MainHand().gripPos + worldGripOffset, orientation =
+// origin = MainHand().aimPos + worldGripOffset, orientation =
 // WeaponAimRotator(MainHand())+rotationTrim - so the grab-distance test in
 // UpdateVRTwoHandGrip() checks against exactly where the foregrip visually
 // is, not a separately-derived approximation that could drift out of sync
@@ -4696,12 +4707,14 @@ vec3 Engine::WorldForegripPoint(UWeapon* weapon)
 	VRHandState& hand = MainHand();
 	VRWeaponGripInfo grip = GetWeaponGripInfo(weapon);
 
-	vec3 worldGripOffset = hand.gripCoords.XAxis * grip.gripOffset.x
-		+ hand.gripCoords.YAxis * grip.gripOffset.y
-		+ hand.gripCoords.ZAxis * grip.gripOffset.z;
-	vec3 weaponOrigin = hand.gripPos + worldGripOffset;
+	Rotator aimRotation = WeaponAimRotator(hand);
+	Coords aimCoords = Coords::Rotation(aimRotation);
+	vec3 worldGripOffset = aimCoords.XAxis * grip.gripOffset.x
+		+ aimCoords.YAxis * grip.gripOffset.y
+		+ aimCoords.ZAxis * grip.gripOffset.z;
+	vec3 weaponOrigin = hand.aimPos + worldGripOffset;
 
-	Coords weaponCoords = Coords::Rotation(WeaponAimRotator(hand) + grip.rotationTrim);
+	Coords weaponCoords = Coords::Rotation(aimRotation + grip.rotationTrim);
 	return weaponOrigin
 		+ weaponCoords.XAxis * grip.foregripPoint.x
 		+ weaponCoords.YAxis * grip.foregripPoint.y
@@ -4906,33 +4919,26 @@ Rotator Engine::WeaponAimRotator(const VRHandState& hand)
 
 // M-B: per-weapon grip/aim tuning table - see Engine.h's doc comment on
 // VRWeaponGripInfo/GetWeaponGripInfo for why this is a plain hardcoded map
-// rather than a new ini schema. No headset-verified entries exist yet (M-B
-// has no headset access on this build machine); the Enforcer row below is a
-// placeholder proving the lookup path end-to-end, not a tuned value -
-// M-C/M-D/M-E populate real numbers as headset tuning happens.
+// rather than a new ini schema. The default placement now follows the
+// headset-tested Farantir baseline: zero offset at the OpenXR aim pose and
+// 500% scale. M-C/M-D/M-E can add weapon-specific numbers as tuning happens.
 //
 // M-D: `twoHanded` gates participation in the foregrip grab/two-hand aim
 // model (UpdateVRTwoHandGrip()/WeaponAimRotator()) - default false
 // (VRWeaponGripInfo's own field default), so any class not explicitly
-// listed here, including this table's Enforcer entry, stays one-handed-
-// only, per the plan's explicit conservative-default call. SniperRifle is
+// listed here, including Enforcer, stays one-handed-only, per the plan's
+// explicit conservative-default call. SniperRifle is
 // the one entry flagged two-handed here ("rifles yes" - the plan's own
 // example category), using the real class name already verified against
 // the public decompile mirror in the M-C per-weapon audit
 // (Botpack/SniperRifle.uc). `foregripPoint` is a placeholder (a rough
-// weapon-local "somewhere along the barrel, ahead of the grip" guess, like
-// the Enforcer's gripOffset placeholder above) - exact position needs
+// weapon-local "somewhere along the barrel, ahead of the grip" guess) - exact position needs
 // headset tuning like every other per-weapon offset in this table.
 Engine::VRWeaponGripInfo Engine::GetBaseWeaponGripInfo(UWeapon* weapon)
 {
 	static const std::map<NameString, VRWeaponGripInfo> table = []()
 	{
 		std::map<NameString, VRWeaponGripInfo> t;
-		VRWeaponGripInfo enforcer;
-		enforcer.gripOffset = vec3(4.0f, 0.0f, -2.0f);
-		enforcer.twoHanded = false; // plan: "Enforcer no" - explicit even though it's also the struct default
-		t[NameString("Enforcer")] = enforcer;
-
 		VRWeaponGripInfo sniperRifle;
 		sniperRifle.twoHanded = true; // plan: "rifles yes"
 		sniperRifle.foregripPoint = vec3(10.0f, 0.0f, -1.0f); // placeholder - weapon-local, ahead of the grip along the barrel

@@ -367,9 +367,9 @@ public:
 	struct VRHandState
 	{
 		bool valid = false;
-		vec3 gripPos = vec3(0.0f); // world space, UE units - viewmodel anchor / two-hand-vector endpoint (M-B/M-D)
+		vec3 gripPos = vec3(0.0f); // world space, UE units - physical hand/controller anchor and two-hand-vector endpoint (M-D)
 		Coords gripCoords = Coords::Identity(); // world-space grip orientation (XAxis=forward, YAxis=right, ZAxis=up)
-		vec3 aimPos = vec3(0.0f); // world-space OpenXR aim-pose origin; laser/pointer rays must start here, not at the differently-offset grip pose
+		vec3 aimPos = vec3(0.0f); // world-space OpenXR aim-pose origin; laser, pointer, and held viewmodel start here
 		Rotator aimRotator = Rotator(0, 0, 0); // world-space aim-pose forward as a Rotator (Rotator::FromVector) - what weaponAimRotator(hand) reads from in M-C
 	};
 	VRHandState xrHands[2]; // index 0=left, 1=right (/user/hand/left,right order) - consume via MainHand()/OffHand(), don't index this directly
@@ -565,20 +565,15 @@ public:
 	// single v1 entry, which the plan explicitly says not to over-engineer.
 	struct VRWeaponGripInfo
 	{
-		vec3 gripOffset = vec3(0.0f);            // weapon-local (X=fwd,Y=right,Z=up - GetAxes convention), added to mainHand.gripPos
+		vec3 gripOffset = vec3(0.0f);            // aim-pose-local (X=fwd,Y=right,Z=up), added to mainHand.aimPos
 		Rotator rotationTrim = Rotator(0, 0, 0); // added on top of WeaponAimRotator(hand)
 		vec3 muzzleOffset = vec3(0.0f);          // weapon-local - M-C's fire-origin intercept
 		vec3 foregripPoint = vec3(0.0f);         // weapon-local - M-D's two-hand grab test
-		// 2026-07-21: default bumped 1.0f -> 2.0f (real-headset report:
-		// weapons read as too small - plausibly because their non-VR size
-		// was tuned to look right filling the flatscreen viewmodel corner,
-		// which is a very different visual context than held at arm's
-		// length in stereo). Blanket stopgap until per-weapon grip-capture
-		// scale values are actually collected - VisibleMesh.cpp's DrawMesh
-		// applies this multiplicatively fresh each frame (mat4::scale on
-		// that frame's objectToWorld), so bumping the default here doesn't
-		// compound/drift like a repeated read-modify-write would.
-		float scale = 2.0f;                      // M-G: uniform viewmodel mesh scale - see Render/VisibleMesh.cpp's DrawMesh
+		// Match Farantir's headset-tested SurrealEngine-VR baseline: UE1
+		// first-person meshes are enlarged to 500% when moved from their
+		// camera-locked desktop placement out to the tracked aim pose.
+		// Per-weapon tuning can still override this value.
+		float scale = 5.0f;                      // M-G: uniform viewmodel mesh scale - see Render/VisibleMesh.cpp's DrawMesh
 		// M-D: only weapons flagged two-handed here ever participate in
 		// UpdateVRTwoHandGrip()'s grab detection / WeaponAimRotator()'s
 		// two-hand blend - default false (one-handed-only) for anything
@@ -599,7 +594,7 @@ public:
 
 	// M-G: --vrtune live in-headset weapon offset/scale tuning. Real
 	// per-weapon numbers are needed for every weapon (GetBaseWeaponGripInfo
-	// ships with exactly two placeholder entries), and manually editing
+	// currently only carries SniperRifle's two-hand placeholder), and manually editing
 	// C++, rebuilding, and relaunching per adjustment is far too slow to
 	// tune a whole weapon list - see UpdateVRWeaponTuning()'s doc comment
 	// in Engine.cpp for the full control scheme (toggle button, axis

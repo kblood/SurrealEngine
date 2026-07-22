@@ -58,9 +58,8 @@ bool VisibleMesh::DrawMesh(VisibleFrame* frame, UActor* actor, bool wireframe, b
 	// comment). Applies to whichever VR-held weapon actor this is - the
 	// local player's own current weapon, or its M-E1 dual-wield slave -
 	// same scoping as the mirror above so third-person views of other
-	// pawns' weapons are unaffected. No-op (scale == 1.0f default) unless a
-	// weapon's been tuned this run, so byte-identical to before M-G until
-	// then.
+	// pawns' weapons are unaffected. The Farantir-aligned default is 5.0;
+	// --vrtune may still provide a per-weapon override for this run.
 	if (vrActive)
 	{
 		UWeapon* localSlaveWeapon = localWeapon ? engine->GetSlaveEnforcer(localWeapon) : nullptr;

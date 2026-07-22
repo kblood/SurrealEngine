@@ -228,9 +228,11 @@ not a blanket requirement.
 Per hand, per frame (computed in `Engine`, next to the existing head-pose
 composition):
 
-- `handGripPos/Coords` — grip pose, world space (viewmodel anchor, two-hand
-  vector endpoints, foregrip grab tests).
-- `handAimRotator` — aim pose forward converted to a Rotator
+- `handGripPos/Coords` — grip pose, world space (physical controller/hand
+  anchor, two-hand vector endpoints, foregrip grab tests).
+- `handAimPos/Rotator` — aim-pose origin and orientation. The held viewmodel,
+  menu laser, and firing geometry share this origin; its orientation is
+  converted to a Rotator
   (`yaw = atan2(fwd.y, fwd.x)`, `pitch = atan2(fwd.z, √(fwd.x²+fwd.y²))`,
   scaled by `32768/π` — these are the already-verified sign conventions from
   `Engine.cpp:400-434`/`:1868-1897`).
@@ -239,6 +241,10 @@ composition):
   - two-handed grip active (M-D): rotator of
     `normalize(offHandGripPos − mainHandGripPos)` with roll from the main
     hand's up axis, blended/filtered as specified in M-D.
+
+The release baseline follows Farantir's headset-tested placement: zero local
+offset at the aim pose and 500% viewmodel scale. The existing per-weapon table
+and `--vrtune` flow remain available where individual meshes need correction.
 
 ## Milestones
 
