@@ -31,6 +31,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/GameWindow.h
 	SurrealEngine/Input/InputComposition.cpp
 	SurrealEngine/Input/InputComposition.h
+	SurrealEngine/XR/XRCommon.cpp
+	SurrealEngine/XR/XRCommon.h
 	SurrealEngine/UE1GameDatabase.h
 	SurrealEngine/UE1GameDatabase.cpp
 	SurrealEngine/Utils/CommandLine.cpp
@@ -733,6 +735,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(InputCompositionTests PRIVATE SurrealEngine)
 	set_target_properties(InputCompositionTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME InputComposition COMMAND InputCompositionTests)
+
+	add_executable(XRCommonTests
+		Tests/XRCommonTests.cpp
+		SurrealEngine/XR/XRCommon.cpp
+	)
+	target_include_directories(XRCommonTests PRIVATE SurrealEngine)
+	set_target_properties(XRCommonTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRCommon COMMAND XRCommonTests)
 endif()
 
 add_executable(SurrealEditor WIN32 MACOSX_BUNDLE ${SURREALEDITOR_SOURCES})
