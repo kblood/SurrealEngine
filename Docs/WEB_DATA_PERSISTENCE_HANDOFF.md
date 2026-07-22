@@ -47,6 +47,12 @@ Imported game data and engine-owned mutable data are separate stores.
   Emscripten filesystem in place.
 - Redistributable no-data builds wait at this gate. Developer-preloaded builds
   bypass the store without reading it.
+- Import failures are classified by the phase that failed (`storage-check`,
+  `storage-copy`, `runtime-copy`, or `startup`) and by a stable error code.
+  Quota, storage permission/interruption, unreadable-file, runtime-filesystem,
+  and browser-memory failures therefore remain actionable. Diagnostics retain
+  only the browser exception name; exception messages, selected paths, and file
+  contents are never copied into the UI or log.
 
 ### Mutable overlay
 
@@ -107,7 +113,7 @@ cmake --build build-native --config Release --target SurrealEngine --parallel
 build-native\Release\SurrealEngine.exe --help
 ```
 
-- Importer and safe-map checks: 15 passed.
+- Importer, safe-map, and privacy-safe failure-diagnostic checks: 21 passed.
 - Mutable allowlist, recovery, and migration checks: 13 passed.
 - Bootstrap ordering and nonfatal-storage checks: 2 passed.
 - Fresh redistributable Emscripten configure/build/link with no game-data path:

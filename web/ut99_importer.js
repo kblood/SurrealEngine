@@ -140,6 +140,69 @@
 		return "The browser could not import the selected data. Try again or clear the saved import.";
 	}
 
+	const IMPORT_PHASE_LABELS = Object.freeze({
+		"storage-load": "checking saved browser data",
+		"storage-check": "checking available browser storage",
+		"storage-copy": "copying files into private browser storage",
+		"runtime-copy": "preparing files for the game runtime",
+		startup: "starting the game runtime",
+		validation: "validating the selected folder",
+	});
+
+	function safeErrorName(error) {
+		const name = error && typeof error.name === "string" ? error.name : "Error";
+		return /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(name) ? name : "Error";
+	}
+
+	function looksLikeMemoryFailure(error) {
+		const name = safeErrorName(error);
+		const message = error && typeof error.message === "string" ? error.message : "";
+		return name === "RangeError" || /(?:out of memory|allocation failed|memory\.grow|wasm memory|oom)/i.test(message);
+	}
+
+	function normalizeImportFailure(error, phase) {
+		const safePhase = Object.prototype.hasOwnProperty.call(IMPORT_PHASE_LABELS, phase) ? phase : "validation";
+		const phaseLabel = IMPORT_PHASE_LABELS[safePhase];
+		if (error instanceof ImportError) {
+			const existingDetails = error.details && typeof error.details === "object" ? error.details : {};
+			if (existingDetails.phase && existingDetails.underlyingName) return error;
+			return new ImportError(error.code, error.message, Object.assign({}, existingDetails, {
+				phase: safePhase,
+				underlyingName: "ImportError",
+			}));
+		}
+		const underlyingName = safeErrorName(error);
+		const details = { phase: safePhase, underlyingName };
+
+		if (looksLikeMemoryFailure(error)) {
+			return new ImportError("OUT_OF_MEMORY",
+				"The browser ran out of memory while " + phaseLabel + ". Close other tabs, restart the browser, and try again.", details);
+		}
+		if (underlyingName === "QuotaExceededError") {
+			return new ImportError("QUOTA_RUNTIME",
+				"Browser storage became full while " + phaseLabel + ". Clear this site's saved import or free disk space, then try again.", details);
+		}
+		if (underlyingName === "NotAllowedError" || underlyingName === "SecurityError") {
+			return new ImportError("STORAGE_PERMISSION",
+				"The browser blocked access while " + phaseLabel + ". Allow this site to use local storage, select the folder again, and retry.", details);
+		}
+		if (underlyingName === "NotReadableError") {
+			return new ImportError("FILE_NOT_READABLE",
+				"The browser lost read access while " + phaseLabel + ". Select the folder again and keep the page open until the copy finishes.", details);
+		}
+		if (underlyingName === "AbortError" || underlyingName === "InvalidStateError" ||
+			underlyingName === "TransactionInactiveError" || underlyingName === "UnknownError") {
+			return new ImportError("STORAGE_INTERRUPTED",
+				"Browser storage stopped while " + phaseLabel + ". Clear the saved import, reload the page, and try again.", details);
+		}
+		if (underlyingName === "ErrnoError") {
+			return new ImportError("RUNTIME_FILESYSTEM",
+				"The game runtime could not finish " + phaseLabel + ". Reload the page and try again; if it repeats, clear the saved import first.", details);
+		}
+		return new ImportError("IMPORT_FAILED",
+			"The browser could not finish " + phaseLabel + " (diagnostic code IMPORT_FAILED). Reload and try again; if it repeats, clear the saved import first.", details);
+	}
+
 	function formatBytes(value) {
 		if (!Number.isFinite(value)) return "unknown";
 		const units = ["B", "KiB", "MiB", "GiB", "TiB"];
@@ -906,11 +969,13 @@
 
 			this.ui.show();
 			this.ui.setStatus("Checking for saved game data…");
+			let phase = "storage-load";
 			try {
 				const dataset = await this.storage.load();
 				if (dataset) {
 					this.ui.setBusy(true);
 					this.ui.setStatus("Restoring saved game data…");
+					phase = "runtime-copy";
 					await materializeDataset(this.Module.FS, dataset, progress => this.ui.setProgress(progress), this.options.rootPath);
 					this._setMapManifest(dataset.metadata, "ready");
 					this.ui.setStatus("Saved game data restored. Choose how to start SurrealEngine…");
@@ -919,10 +984,11 @@
 					return { state: "launched", mode: "persistent-import", backend: this.storage.backend, metadata: dataset.metadata };
 				}
 			} catch (error) {
+				const failure = normalizeImportFailure(error, phase);
 				this._setMapManifest(null, "error");
-				this.lastError = error;
-				this.ui.setError(safeMessage(error));
-				this._log("saved import is unavailable or corrupt; user action required");
+				this.lastError = failure;
+				this.ui.setError(safeMessage(failure));
+				this._log("saved import failed during " + failure.details.phase + " (" + failure.code + "; " + failure.details.underlyingName + "); user action required");
 			}
 			if (this._currentMapManifest.state !== "error") this._setMapManifest(null, "empty");
 			this.ui.setBusy(false);
@@ -982,15 +1048,18 @@
 			this.ui.show();
 			this.ui.setBusy(true);
 			this.ui.setError("");
+			let phase = "validation";
 			try {
 				this.ui.setStatus("Validating the selected game installation…");
 				const validation = validateEntries(entries);
+				phase = "storage-check";
 				const diagnostic = await storageDiagnostics(validation.totalBytes, true);
 				this.ui.setDiagnostics(diagnostic, this.storage.backend);
 				if (diagnostic.available !== null && diagnostic.available < validation.totalBytes) {
 					throw new ImportError("QUOTA", "Not enough browser storage is available. The import needs " + formatBytes(validation.totalBytes) + " but only about " + formatBytes(diagnostic.available) + " is free. Clear site data or free device storage, then try again.");
 				}
 				this.ui.setStatus("Copying game data into private browser storage… Keep this page open.");
+				phase = "storage-copy";
 				const metadata = await this.storage.save(validation, progress => this.ui.setProgress(progress));
 				if (this.launched) {
 					this.ui.setStatus("Replacement import saved. Reloading to use it…");
@@ -1009,17 +1078,21 @@
 					},
 				};
 				this.ui.setStatus("Preparing game data for SurrealEngine…");
+				phase = "runtime-copy";
 				await materializeDataset(this.Module.FS, sourceDataset, progress => this.ui.setProgress(progress), this.options.rootPath);
 				this._setMapManifest(metadata, "ready");
 				this.ui.setStatus("Import complete. Starting SurrealEngine…");
 				this._log("imported " + metadata.fileCount + " local files (" + formatBytes(metadata.totalBytes) + ") into " + this.storage.backend);
+				phase = "startup";
 				await this._launch("new-import");
 				return metadata;
 			} catch (error) {
-				this.lastError = error;
-				this.ui.setError(safeMessage(error));
+				const failure = normalizeImportFailure(error, phase);
+				this.lastError = failure;
+				this.ui.setError(safeMessage(failure));
 				this.ui.setStatus("Import did not finish. No game data was sent anywhere; fix the issue and try again.");
-				throw error;
+				this._log("import failed during " + failure.details.phase + " (" + failure.code + "; " + failure.details.underlyingName + ")");
+				throw failure;
 			} finally {
 				this.busy = false;
 				this.ui.setBusy(false);
@@ -1063,6 +1136,7 @@
 		OPFSStorage,
 		IndexedDBStorage,
 		ImportController,
+		normalizeImportFailure,
 		canonicalizeRelativePath,
 		entriesFromFileList,
 		entriesFromDirectoryHandle,

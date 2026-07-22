@@ -113,6 +113,20 @@ window.importerTestPromise = (async function () {
 		assert(api.SCHEMA_VERSION === 1);
 	});
 
+	await run("unexpected browser failures retain a safe phase and actionable code", async () => {
+		const secret = "C:\\private-game-folder\\System\\Core.u";
+		const quota = api.normalizeImportFailure(new DOMException(secret, "QuotaExceededError"), "storage-copy");
+		assert(quota.code === "QUOTA_RUNTIME");
+		assert(quota.details.phase === "storage-copy" && quota.details.underlyingName === "QuotaExceededError");
+		assert(!quota.message.includes(secret) && !JSON.stringify(quota.details).includes(secret), "private path leaked into diagnostics");
+		const memory = api.normalizeImportFailure(new RangeError("WebAssembly.Memory.grow(): Maximum memory size exceeded"), "runtime-copy");
+		assert(memory.code === "OUT_OF_MEMORY" && memory.message.includes("preparing files for the game runtime"));
+		const interrupted = api.normalizeImportFailure(new DOMException("transaction aborted", "AbortError"), "storage-copy");
+		assert(interrupted.code === "STORAGE_INTERRUPTED", "storage abort was mistaken for picker cancellation");
+		const expected = api.normalizeImportFailure(new api.ImportError("EXPECTED", "safe", { marker: true }), "validation");
+		assert(expected.code === "EXPECTED" && expected.details.marker && expected.details.phase === "validation");
+	});
+
 	await run("validates synthetic UT99 layout without reading contents", async () => {
 		let reads = 0;
 		const entries = syntheticEntries().map(entry => ({
@@ -257,6 +271,24 @@ window.importerTestPromise = (async function () {
 		assert(launches === 1);
 		assert(fs.files.has("/gamedata/Maps/DM-Synthetic.unr"));
 		await storage.clear();
+	});
+
+	await run("controller reports the failed import phase without logging browser exception text", async () => {
+		const secret = "C:\\private-game-folder\\System\\Core.u";
+		const logs = [];
+		const storage = {
+			backend: "test",
+			load: async () => null,
+			clear: async () => {},
+			save: async () => { throw new DOMException(secret, "QuotaExceededError"); },
+		};
+		const controller = new api.ImportController({ FS: new FakeFS(false) }, { storage, log: value => logs.push(value) });
+		await controller.initialize();
+		const failure = await expectError("QUOTA_RUNTIME", () => controller.importEntries(syntheticEntries()));
+		assert(failure.details.phase === "storage-copy");
+		assert(controller.lastError === failure);
+		assert(logs.some(line => line.includes("storage-copy (QUOTA_RUNTIME; QuotaExceededError)")));
+		assert(!logs.join("\n").includes(secret), "private path leaked into log");
 	});
 
 	await run("map manifest exposes only immutable safe direct map basenames", async () => {
