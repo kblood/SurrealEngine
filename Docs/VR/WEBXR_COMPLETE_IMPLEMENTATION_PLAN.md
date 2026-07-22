@@ -105,7 +105,10 @@ actual target browser and headset:
 - For the current PC Brave/Virtual Desktop route, follow
   `WEBXR_BRAVE_VDXR_TEST_MATRIX.md`. The machine's active OpenXR runtime and VDXR
   log prove the base Chromium/OpenXR/Quest route, while WebGPU projection-layer
-  acceptance remains the unproven compatibility gate.
+  acceptance remains the unproven compatibility gate. The headed
+  `web/run_brave_vdxr_probe.py` collector now records that physical gate; its
+  non-immersive preflight already passes in installed Brave 150 with a real
+  engine boot, `XRGPUBinding`, the active VDXR runtime, and no readiness blocker.
 - `navigator.gpu.requestAdapter({xrCompatible:true})` returns an adapter.
 - `navigator.xr.isSessionSupported("immersive-vr")` succeeds.
 - `XRGPUBinding` is exposed without developer-only flags.

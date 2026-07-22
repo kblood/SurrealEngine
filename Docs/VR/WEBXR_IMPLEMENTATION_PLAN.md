@@ -1696,6 +1696,15 @@ and successful game-frame submission. The matrix records the dedicated Brave
 launch command, exact native phase/blocker meanings, browser-console capture,
 and VDXR log/overlay evidence required for the next attempt.
 
+`web/run_brave_vdxr_probe.py` makes the matrix repeatable with a dedicated
+headed Brave profile, required experimental features, operator-gated trusted
+click, strict native running/frame/render acceptance, page/console diagnostics,
+active-runtime capture, and before/after VDXR log tails. Its safe
+`--preflight-only` run passed locally: the real data-backed engine booted,
+localhost was secure, `XRGPUBinding` was a function, the active runtime was
+VDXR, readiness had no blockers, and native phase remained honestly idle. The
+physical version of the same collector remains the compositor gate.
+
 ## M11 repeatable performance harness (2026-07-22)
 
 Commit `df25fa36` adds `web/profile_webxr.py`, its pure report/validation module,

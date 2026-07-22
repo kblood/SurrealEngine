@@ -49,6 +49,40 @@ The `native-webgpu-xr=1` parameter is mandatory for a production-presentation
 attempt. Without it the page deliberately starts only a throwaway WebGL
 lifecycle test and never displays SurrealEngine frames in the headset.
 
+### Repeatable Playwright collector
+
+The preferred physical run uses a headed, isolated Brave profile and writes a
+versioned evidence report containing launch readiness, probe/native/lifecycle
+state, frame counters, browser console/page errors, the active OpenXR runtime,
+and VDXR log tails:
+
+```powershell
+python -B -u web/run_brave_vdxr_probe.py `
+  --output C:\Devstuff\QuestGames\webxr-brave-vdxr-physical.json
+```
+
+The collector waits for the real data-backed engine to boot, prints readiness,
+then asks the operator to put on the Quest and press Enter before Playwright
+performs the headed browser click. It passes only when the native phase is
+`running`, at least ten frames have completed, and
+`lastRenderSucceeded === true`; it then ends the session cleanly. It refuses
+plain HTTP on non-loopback addresses.
+
+For a safe desktop-only check that never requests an immersive session:
+
+```powershell
+python -B -u web/run_brave_vdxr_probe.py --preflight-only `
+  --output C:\Devstuff\QuestGames\webxr-brave-vdxr-preflight.json
+```
+
+On 2026-07-22 that preflight passed against the data-backed build in the
+installed Brave 150: secure context true, `XRGPUBinding` exposed as a function,
+engine boot true, active VDXR runtime recorded, `canAttempt: true`, no blockers,
+and native phase still correctly `idle`. This is stronger reproducible
+preflight evidence, not compositor-presentation evidence. Six deterministic
+collector tests cover URL security, forced native routing, preflight mode, and
+strict native success criteria.
+
 ## Result interpretation
 
 | Observation | Interpretation / next action |
