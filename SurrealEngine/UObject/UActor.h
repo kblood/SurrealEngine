@@ -5,6 +5,8 @@
 #include "UObject.h"
 #include "UnrealURL.h"
 #include "Math/bbox.h"
+#include <cstdint>
+#include <unordered_set>
 
 class UTexture;
 class UPrimitive;
@@ -462,7 +464,7 @@ public:
 	void UnTouch(UActor* actor);
 
 	static const int TouchingArraySize = 4;
-	bool TouchEventSent[TouchingArraySize] = {};
+	std::unordered_set<UActor*> TouchEventsSent;
 
 	bool HasAnim(const NameString& sequence);
 	bool IsAnimating();
@@ -536,7 +538,6 @@ public:
 
 	int LastDrawFrame = -1;
 
-	float SleepTimeLeft = 0.0f;
 	vec3 gravityVector;
 
 	// Index in level Actors array
@@ -1877,13 +1878,14 @@ public:
 	float GetSpeed();
 
 	bool TickRotateTo(const vec3& target);
-	bool TickMoveTo(const vec3& target);
+	bool TickMoveTo(const vec3& target, float elapsed, UActor* targetActor = nullptr);
 
 	// Returns true if any of the several points of other is visible (origin, top, bottom)
 	// ignoreDistance is a Deus Ex only parameter, it is always false on Unreal.
 	bool LineOfSightTo(UActor* other, bool ignoreDistance);
 	// Similar to LineOfSightTo() but takes the Pawn's peripheral vision into account (SightRadius and PeripheralVision)
 	bool CanSee(UActor* other);
+	void TickSight(float elapsed);
 	bool CanHearNoise(UActor* source, float loudness);
 	bool ActorReachable(UActor* anActor, bool checkNavpoint = false);
 	bool PointReachable(vec3 aPoint);
@@ -1900,9 +1902,16 @@ public:
 	UActor* PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, const vec3& projStart);
 	bool CheckIfBestTarget(UActor* actor, float& bestAim, float& bestDist, const vec3& FireDir, const vec3& projStart);
 
+	struct PathSearchResult
+	{
+		Array<UNavigationPoint*> Path;
+		int64_t TravelDistance = 0;
+		int64_t WeightedCost = 0;
+	};
+
 	UActor* PathSpecialHandling(const Array<UNavigationPoint*>& points);
 	UNavigationPoint* SetRouteCache(const Array<UNavigationPoint*>& points);
-	std::pair<Array<UNavigationPoint*>, int32_t> FindPathToEndPoint(UNavigationPoint* start, int maxNodes);
+	PathSearchResult FindPathToEndPoint(UNavigationPoint* start, int maxNodes, const Array<UNavigationPoint*>& endPoints);
 
 	void ClearPaths();
 	UObject* FindRandomDest();
@@ -1910,7 +1919,7 @@ public:
 	UObject* FindPathToward(UObject* anActor, bool singlePath);
 	UObject* FindBestInventoryPath(bool predictRespawns, float& outBestWeight);
 	UNavigationPoint* FindClosestNavPoint(vec3 location);
-	bool MarkReachableNavEndPoints();
+	Array<UNavigationPoint*> FindReachableNavEndPoints(bool singlePath = false);
 
 	// Deus Ex AI functions
 	float AICanHear(UActor* other, std::optional<float> volume, std::optional<float> radius);

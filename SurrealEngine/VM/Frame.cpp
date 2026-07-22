@@ -5,7 +5,9 @@
 #include "ExpressionEvaluator.h"
 #include "NativeFunc.h"
 #include "UObject/UTextBuffer.h"
+#include "UObject/UActor.h"
 #include "UObject/USubsystem.h"
+#include "BotBenchmark.h"
 #include "Engine.h"
 #include "Package/PackageManager.h"
 #include "Utils/AlignedAlloc.h"
@@ -229,14 +231,36 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 		}
 	}
 
-	if (AllFlags(func->FuncFlags, FunctionFlags::Native))
+	UPawn* damageVictim = nullptr;
+	UWeapon* hitscanWeapon = nullptr;
+	if (BotBenchmark::IsActive() && func->Name == "TakeDamage")
 	{
-		return CallNative(func, instance, std::move(args));
+		damageVictim = UObject::TryCast<UPawn>(instance);
+		if (damageVictim && args.size() >= 2)
+		{
+			const int requestedDamage = args[0].ToInt();
+			UPawn* instigator = UObject::TryCast<UPawn>(args[1].ToObject());
+			UObject* source = Callstack.empty() ? nullptr : Callstack.back()->Object;
+			const std::string damageType = args.size() >= 5 && args[4].GetType() != ExpressionValueType::Nothing
+				? args[4].ToName().ToString() : std::string();
+			BotBenchmark::BeginDamage(damageVictim, requestedDamage, instigator, source, damageType);
+		}
 	}
-	else
+	else if (BotBenchmark::IsActive() && func->Name == "TraceFire")
 	{
-		return CallScript(func, instance, std::move(args));
+		hitscanWeapon = UObject::TryCast<UWeapon>(instance);
+		if (hitscanWeapon)
+			BotBenchmark::BeginHitscan(hitscanWeapon);
 	}
+
+	ExpressionValue result = AllFlags(func->FuncFlags, FunctionFlags::Native)
+		? CallNative(func, instance, std::move(args))
+		: CallScript(func, instance, std::move(args));
+	if (damageVictim)
+		BotBenchmark::EndDamage(damageVictim);
+	if (hitscanWeapon)
+		BotBenchmark::EndHitscan(hitscanWeapon);
+	return result;
 }
 
 ExpressionValue Frame::CallScript(UFunction* func, UObject* instance, Array<ExpressionValue> args)

@@ -31,6 +31,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/DebuggerApp.h
 	SurrealEngine/Engine.cpp
 	SurrealEngine/Engine.h
+	SurrealEngine/BotBenchmark.cpp
+	SurrealEngine/BotBenchmark.h
 	SurrealEngine/GameFolder.cpp
 	SurrealEngine/GameFolder.h
 	SurrealEngine/LauncherSettings.cpp

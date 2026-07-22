@@ -1,7 +1,9 @@
 
 #include "Precomp.h"
 #include "Engine.h"
+#include "BotBenchmark.h"
 #include "Utils/File.h"
+#include "Utils/Random.h"
 #include "Utils/StrTools.h"
 #include "Utils/CommandLine.h"
 #include "Utils/SHA1Sum.h"
@@ -36,10 +38,15 @@ Engine* engine = nullptr;
 Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 {
 	engine = this;
+	BotBenchmark::Emit("engine_construct", { { "stage", "begin" } });
 
 	packages = std::make_unique<PackageManager>(LaunchInfo);
+	BotBenchmark::Emit("engine_construct", { { "stage", "packages_ready" } });
 
-	std::srand((unsigned int)std::time(nullptr));
+	if (BotBenchmark::IsActive())
+		SetRandomSeed(BotBenchmark::Get().GetConfig().Seed);
+	else
+		std::srand((unsigned int)std::time(nullptr));
 
 	auto transientpkg = packages->GetTransientPackage();
 	auto enginepkg = packages->GetPackage("Engine");
@@ -72,6 +79,7 @@ Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 	console->Viewport() = viewport;
 	canvas->Viewport() = viewport;
 	viewport->Console() = console;
+	BotBenchmark::Emit("engine_construct", { { "stage", "complete" } });
 }
 
 Engine::~Engine()
@@ -87,11 +95,20 @@ Engine::~Engine()
 void Engine::Run()
 {
 	LogMessage("Game: " + LaunchInfo.gameName + " (Version: " + LaunchInfo.gameVersionString + ")");
+	BotBenchmark::Emit("engine_run", { { "stage", "begin" } });
 	LoadEngineSettings();
+	BotBenchmark::Emit("engine_run", { { "stage", "settings_loaded" } });
 	LogMessage("Loaded Engine settings");
 	LoadKeybindings();
 	LogMessage("Loaded key bindings");
 	LogGamePackageSHA1Sums();
+	BotBenchmark::Emit("engine_run", { { "stage", "packages_hashed" } });
+
+	if (BotBenchmark::IsActive())
+	{
+		RunBotBenchmark();
+		return;
+	}
 
 	OpenWindow();
 
@@ -290,6 +307,83 @@ void Engine::Run()
 
 	LogMessage("Closing window...");
 	CloseWindow();
+}
+
+void Engine::RunBotBenchmark()
+{
+	BotBenchmark& benchmark = BotBenchmark::Get();
+	const BotBenchmarkConfig& config = benchmark.GetConfig();
+
+	LogMessage("Bot benchmark: presentation disabled, fixed step " + std::to_string(config.FixedDelta));
+	LaunchInfo.noEntryMap = true;
+	LaunchInfo.url = config.URL;
+
+	BotBenchmark::Emit("benchmark_setup", { { "stage", "load_map_begin" } });
+	UnrealURL benchmarkURL(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")), LaunchInfo.url);
+	// DeathMatchPlus otherwise reads persistent InitialBots/MinPlayers while
+	// InitGame runs, before the benchmark can access its BotConfig object.
+	benchmarkURL.AddOrReplaceOption("Bots=0");
+	benchmarkURL.AddOrReplaceOption("MinPlayers=0");
+	benchmarkURL.AddOrReplaceOption("InitialBots=0");
+	// Keep the viewport actor out of the controlled match. UT's
+	// TournamentGameInfo.Login recognizes OverrideClass and replaces the normal
+	// player pawn with a CHSpectator, whose PRI is marked bIsSpectator by the
+	// stock Spectator script. This is benchmark-only and leaves normal login
+	// behavior untouched.
+	benchmarkURL.AddOrReplaceOption("OverrideClass=Botpack.CHSpectator");
+	LoadMap(benchmarkURL);
+	BotBenchmark::Emit("benchmark_setup", { { "stage", "load_map_complete" } });
+	// DeathMatchPlus copies InitialBots into RemainingBots during PostBeginPlay,
+	// then consumes RemainingBots from PostLogin. Clear the already-copied value
+	// before logging in the local player so persistent user settings cannot add
+	// an uncontrolled roster ahead of the benchmark's explicit AddBot commands.
+	if (GameInfo)
+	{
+		if (GameInfo->HasProperty("RemainingBots"))
+			GameInfo->SetInt("RemainingBots", 0);
+		if (GameInfo->HasProperty("InitialBots"))
+			GameInfo->SetInt("InitialBots", 0);
+		if (GameInfo->HasProperty("MinPlayers"))
+			GameInfo->SetInt("MinPlayers", 0);
+	}
+	LoginPlayer();
+	BotBenchmark::Emit("benchmark_setup", { { "stage", "login_complete" } });
+	benchmark.Initialize(*this);
+	BotBenchmark::Emit("benchmark_setup", { { "stage", "benchmark_initialized" } });
+
+	while (!benchmark.IsComplete())
+	{
+		const float realTimeElapsed = config.FixedDelta;
+		const float levelElapsed = realTimeElapsed * clamp(LevelInfo->TimeDilation(), 0.0025f, 25.0f);
+		TotalTime += realTimeElapsed;
+		LevelInfo->TimeSeconds() += levelElapsed;
+		Logger::Get()->SetTimeSeconds(LevelInfo->TimeSeconds());
+
+		// Wall-clock values are observable from UnrealScript. Freeze them in
+		// benchmark mode so a repeated seed cannot depend on host date/time.
+		LevelInfo->Year() = 2000;
+		LevelInfo->Month() = 0;
+		LevelInfo->Day() = 1;
+		LevelInfo->DayOfWeek() = 6;
+		LevelInfo->Hour() = 0;
+		LevelInfo->Minute() = 0;
+		LevelInfo->Second() = 0;
+		LevelInfo->Millisecond() = 0;
+
+		SetPause(false);
+		CallEvent(console, EventName::Tick, { ExpressionValue::FloatValue(levelElapsed) });
+		if (LaunchInfo.ue1Version >= 436)
+		{
+			LevelInfo->bDropDetail() = false;
+			LevelInfo->bAggressiveLOD() = false;
+		}
+		Level->Tick(levelElapsed, false);
+		benchmark.AfterTick(*this);
+	}
+
+	benchmark.Finalize(*this);
+	m_RunExitCode = benchmark.GetExitCode();
+	LogMessage("Bot benchmark complete with exit code " + std::to_string(m_RunExitCode));
 }
 
 void Engine::PlayAVI(const Array<std::string>& args)
@@ -923,7 +1017,10 @@ void Engine::LoginPlayer()
 	CallEvent(pawn, EventName::TravelPostAccept);
 	CallEvent(LevelInfo->Game(), EventName::PostLogin, { ExpressionValue::ObjectValue(pawn) });
 
-	render->OnMapLoaded();
+	// The deterministic bot benchmark intentionally has no presentation
+	// subsystem. Normal game/editor paths still create render before login.
+	if (render)
+		render->OnMapLoaded();
 }
 
 UZoneInfo* Engine::GetZoneActor(int zoneIndex)

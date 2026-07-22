@@ -5,6 +5,13 @@
 
 static std::default_random_engine s_Generator;
 
+void SetRandomSeed(uint64_t Seed)
+{
+	uint32_t seed32 = static_cast<uint32_t>(Seed) ^ static_cast<uint32_t>(Seed >> 32);
+	s_Generator.seed(seed32);
+	std::srand(seed32);
+}
+
 int RandInt(int Min, int Max)
 {
 	std::uniform_int_distribution<int> distribution(Min, Max);

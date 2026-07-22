@@ -6,6 +6,7 @@
 #include "GameApp.h"
 #include "GameFolder.h"
 #include "Engine.h"
+#include "BotBenchmark.h"
 #include "UI/WidgetResourceData.h"
 #include "UI/ErrorWindow/ErrorWindow.h"
 #include "UI/Launcher/LauncherWindow.h"
@@ -18,23 +19,53 @@
 
 int GameApp::main(Array<std::string> args)
 {
-	auto backend = DisplayBackend::TryCreateBackend();
-	DisplayBackend::Set(std::move(backend));
-	InitWidgetResources();
-	WidgetTheme::SetTheme(std::make_unique<DarkWidgetTheme>());
+	CommandLine cmd(args);
+	commandline = &cmd;
+	const bool benchmarkRequested = BotBenchmark::Requested(cmd);
+	bool widgetResourcesInitialized = false;
 
+	// Benchmark mode must be able to run on CI machines without a display.
+	// Parse it before creating a DisplayBackend or any widget resources.
+	if (!benchmarkRequested)
+	{
+		auto backend = DisplayBackend::TryCreateBackend();
+		DisplayBackend::Set(std::move(backend));
+		InitWidgetResources();
+		WidgetTheme::SetTheme(std::make_unique<DarkWidgetTheme>());
+		widgetResourcesInitialized = true;
+	}
+
+	int result = 0;
 	try
 	{
-		CommandLine cmd(args);
-		commandline = &cmd;
-
-		if (ErrorWindow::CheckCrashReporter())
+		if (!benchmarkRequested && ErrorWindow::CheckCrashReporter())
 			return 0;
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--probexr] [--debugstereo] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--probexr] [--debugstereo] [--botbench[=scenario]] [--botbench-output=dir] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-skill=0..7] [Path to game folder]\n";
+			if (widgetResourcesInitialized)
+				DeinitWidgetResources();
 			return 0;
+		}
+
+		if (benchmarkRequested)
+		{
+			BotBenchmark::Configure(cmd);
+			GameFolderSelection::UpdateList();
+			if (GameFolderSelection::Games.empty())
+			{
+				BotBenchmark::Get().Fail("No UE1 game found", 3);
+				return BotBenchmark::Get().GetExitCode();
+			}
+
+			GameLaunchInfo info = GameFolderSelection::GetLaunchInfo(0);
+			info.noEntryMap = true;
+			info.url = BotBenchmark::Get().GetConfig().URL;
+			BotBenchmark::Emit("launch_resolved", { { "game", info.gameName }, { "version", info.gameVersionString } });
+			Engine benchmarkEngine(info);
+			benchmarkEngine.Run();
+			return benchmarkEngine.GetRunExitCode();
 		}
 
 		if (commandline->HasArg("", "--probexr"))
@@ -82,9 +113,26 @@ int GameApp::main(Array<std::string> args)
 	}
 	catch (const std::exception& e)
 	{
-		ErrorWindow::ExecModal(e.what(), Logger::Get()->GetLog());
+		if (benchmarkRequested)
+		{
+			std::cerr << "Bot benchmark failed: " << e.what() << '\n';
+			if (BotBenchmark::IsActive())
+			{
+				BotBenchmark::Get().Fail(e.what(), 4);
+				result = BotBenchmark::Get().GetExitCode();
+			}
+			else
+			{
+				result = 4;
+			}
+		}
+		else
+		{
+			ErrorWindow::ExecModal(e.what(), Logger::Get()->GetLog());
+		}
 	}
 
-	DeinitWidgetResources();
-	return 0;
+	if (widgetResourcesInitialized)
+		DeinitWidgetResources();
+	return result;
 }

@@ -6,3 +6,7 @@
 *.internal
 /.cppbuild
 /*.sln
+/botbench-*/
+/retail-oracle-script-smoke/
+/retail-touch-probe/
+**/__pycache__/

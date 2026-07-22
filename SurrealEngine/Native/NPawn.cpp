@@ -240,7 +240,7 @@ void NPawn::RemovePawn(UObject* Self)
 void NPawn::StopWaiting(UObject* Self)
 {
 	UPawn* SelfPawn = UObject::Cast<UPawn>(Self);
-	SelfPawn->SleepTimeLeft = 0.0f;
+	SelfPawn->LatentFloat() = 0.0f;
 }
 
 void NPawn::StrafeFacing(UObject* Self, const vec3& NewDestination, UObject* NewTarget)

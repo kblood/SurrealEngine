@@ -60,7 +60,26 @@ CollisionHitList OverlapTester::TestOverlap(const vec3& location, float height, 
 
 	// Only include each actor once
 
-	std::stable_sort(hits.begin(), hits.end(), [](const auto& a, const auto& b) { return a.Actor < b.Actor; });
+	// Pointer order changes with ASLR and made simultaneous touch/pickup
+	// processing nondeterministic across otherwise identical benchmark
+	// processes. Unreal actor names are unique within the level package and are
+	// assigned in deterministic spawn order, so use them as the stable contact
+	// order. Keep world hits (null Actor) first, matching normal null-pointer
+	// ordering, and use class name only as a defensive tie breaker.
+	std::stable_sort(hits.begin(), hits.end(), [](const auto& a, const auto& b)
+	{
+		if (a.Actor == b.Actor)
+			return false;
+		if (!a.Actor)
+			return true;
+		if (!b.Actor)
+			return false;
+		const std::string& aName = a.Actor->Name.ToString();
+		const std::string& bName = b.Actor->Name.ToString();
+		if (aName != bName)
+			return aName < bName;
+		return UObject::GetUClassFullName(a.Actor).ToString() < UObject::GetUClassFullName(b.Actor).ToString();
+	});
 
 	UActor* prevActor = nullptr;
 	CollisionHitList uniqueHits;
@@ -232,9 +251,12 @@ Array<UActor*> OverlapTester::EncroachingActors(UActor* actor)
 				{
 					for (UActor* testActor : GetActors(x, y, z))
 					{
-						if (actor->Collision.CheckCounter != checkCounter)
+						if (testActor->Collision.CheckCounter != checkCounter)
 						{
-							actor->Collision.CheckCounter = checkCounter;
+							// Deduplicate each candidate actor across spatial buckets. Using
+							// the mover's counter here caused the first candidate to suppress
+							// every remaining encroachment candidate in the query.
+							testActor->Collision.CheckCounter = checkCounter;
 							if (testActor == actor || testActor->Brush())
 								continue;
 

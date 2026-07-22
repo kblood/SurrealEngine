@@ -621,7 +621,7 @@ void NActor::SetTimer(UObject* Self, float NewTimerRate, bool bLoop)
 void NActor::Sleep(UObject* Self, float Seconds)
 {
 	UActor* SelfActor = UObject::Cast<UActor>(Self);
-	SelfActor->SleepTimeLeft = Seconds;
+	SelfActor->LatentFloat() = Seconds;
 	if (Self->StateFrame)
 		Self->StateFrame->LatentState = LatentRunState::Sleep;
 }

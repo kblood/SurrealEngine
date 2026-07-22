@@ -10,8 +10,12 @@
 #include "Package/PackageManager.h"
 #include "Package/IniProperty.h"
 #include "Engine.h"
+#include "BotBenchmark.h"
 #include "Render/RenderSubsystem.h"
-#include <set>
+#include <limits>
+#include <queue>
+#include <sstream>
+#include <unordered_set>
 
 // TODO: Compare behavior more closely with original engine. Might differ depending on game.
 static constexpr float stepDownDeltaFactor = 1.3f;
@@ -109,6 +113,8 @@ UActor* UActor::Spawn(UClass* SpawnClass, std::optional<UActor*> SpawnOwner, std
 			}
 		}
 	}
+	if (UProjectile* projectile = UObject::TryCast<UProjectile>(actor))
+		BotBenchmark::ProjectileSpawned(projectile, this);
 
 	return actor;
 }
@@ -186,6 +192,8 @@ bool UActor::Destroy()
 		return false;
 	if (bDeleteMe())
 		return true;
+	if (UProjectile* projectile = UObject::TryCast<UProjectile>(this))
+		BotBenchmark::ProjectileDestroyed(projectile);
 
 	bDeleteMe() = true;
 
@@ -389,8 +397,8 @@ void UActor::Tick(float elapsed)
 	{
 		if (StateFrame->LatentState == LatentRunState::Sleep)
 		{
-			SleepTimeLeft = std::max(SleepTimeLeft - elapsed, 0.0f);
-			if (SleepTimeLeft == 0.0f)
+			LatentFloat() = std::max(LatentFloat() - elapsed, 0.0f);
+			if (LatentFloat() == 0.0f)
 				StateFrame->LatentState = LatentRunState::Continue;
 		}
 		else if (StateFrame->LatentState == LatentRunState::FinishInterpolation)
@@ -534,11 +542,54 @@ void UActor::TickWalking(float elapsed)
 	// "Step up and move" as long as we have time left and only hitting surfaces with low enough slope that it could be walked
 	float timeLeft = elapsed;
 	vec3 vel = Velocity() + zone->ZoneVelocity() * elapsed * 25.0f;
-	bool isMoving = (vel.x != 0.0f && vel.y != 0.0f);
+	// Axis-aligned movement is still movement. The old AND test discarded an
+	// exact X- or Y-cardinal velocity and left bots stationary in straight map
+	// corridors.
+	bool isMoving = dot(vel.xy(), vel.xy()) > 0.0001f;
 	if (isMoving)
 	{
+		auto dispatchHitWall = [&](const CollisionHit& wallHit)
+		{
+			UActor* blocker = wallHit.Actor ? wallHit.Actor : Level();
+			const bool eventEnabled = IsEventEnabled(EventName::HitWall);
+			const NameString stateBefore = GetStateName();
+			const int physicsBefore = Physics();
+			if (BotBenchmark::IsActive())
+			{
+				BotBenchmark::Emit("walking_hit_wall", {
+					{ "actor", Name.ToString() },
+					{ "blocker", blocker ? blocker->Name.ToString() : "None" },
+					{ "blocker_class", blocker ? UObject::GetUClassFullName(blocker).ToString() : "None" },
+					{ "blocker_is_mover", blocker && blocker->IsA("Mover") ? "true" : "false" },
+					{ "event_enabled", eventEnabled ? "true" : "false" },
+					{ "normal_x", std::to_string(wallHit.Normal.x) },
+					{ "normal_y", std::to_string(wallHit.Normal.y) },
+					{ "normal_z", std::to_string(wallHit.Normal.z) },
+					{ "physics_before", std::to_string(physicsBefore) },
+					{ "state_before", stateBefore.ToString() }
+				});
+			}
+
+			CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(wallHit.Normal), ExpressionValue::ObjectValue(blocker) });
+
+			if (BotBenchmark::IsActive())
+			{
+				BotBenchmark::Emit("walking_hit_wall_result", {
+					{ "actor", Name.ToString() },
+					{ "blocker", blocker ? blocker->Name.ToString() : "None" },
+					{ "event_enabled", eventEnabled ? "true" : "false" },
+					{ "physics_after", std::to_string(Physics()) },
+					{ "state_after", GetStateName().ToString() },
+					{ "state_changed", stateBefore != GetStateName() ? "true" : "false" }
+				});
+			}
+		};
+
 		for (int iteration = 0; timeLeft > 0.0f && iteration < 5; iteration++)
 		{
+			// This is the last position known to have walkable floor. MayFall is
+			// allowed to veto this iteration's ledge crossing by clearing bCanJump.
+			const vec3 groundedLocation = Location();
 			vec3 moveDelta = vel * timeLeft;
 
 			// step up first so we can get past stairs going up
@@ -569,19 +620,21 @@ void UActor::TickWalking(float elapsed)
 
 						bJustTeleported() = true;
 						vel = Velocity() = Velocity() * Mass() / (Mass() + hit.Actor->Mass());
-						CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
+						dispatchHitWall(hit);
 						timeLeft = 0.0f;
 					}
 					else if (hit.Actor->bCollideActors() && hit.Actor->CollisionHeight() > 0.0f && hit.Actor->CollisionRadius() > 0.0f)
 					{
-						// TODO: We hit a non-movable actor
-
+						// Player Pawns (including UT Bots) still need the script callback
+						// for actor blockers. Bot.HitWall coordinates movers through
+						// Mover.HandleDoor and falls back to stock wall adjustment.
+						dispatchHitWall(hit);
 					}
 				}
 				else if (hit.Normal.z < 0.2f && hit.Normal.z > -0.2f)
 				{
 					// We hit a wall
-					CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
+					dispatchHitWall(hit);
 
 					vec3 alignedDelta = (moveDelta - hit.Normal * dot(moveDelta, hit.Normal)) * (1.0f - hit.Fraction);
 					if (dot(moveDelta, alignedDelta) >= 0.0f) // Don't end up going backwards
@@ -590,7 +643,7 @@ void UActor::TickWalking(float elapsed)
 						timeLeft -= timeLeft * hit.Fraction;
 						if (hit.Fraction < 1.0f)
 						{
-							CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
+							dispatchHitWall(hit);
 						}
 					}
 					else
@@ -608,7 +661,47 @@ void UActor::TickWalking(float elapsed)
 			CollisionHit floorHit = TryMove(stepDownDelta, true);
 			if (floorHit.Fraction == 1.0f || floorHit.Normal.z < 0.7071f)
 			{
-				// No we couldn't. We are falling
+				// UE1 gives a walking Pawn that is otherwise allowed to jump one
+				// script callback immediately before it walks off a ledge. Stock bot
+				// states use MayFall to clear bCanJump when the drop is unsafe.
+				const bool requestedMayFall = pawn->bCanJump();
+				if (requestedMayFall)
+					CallEvent(pawn, EventName::MayFall);
+
+				// The event may destroy the Pawn or transition it to another physics
+				// mode/state. Do not apply stale walking decisions afterward.
+				if (pawn->bDeleteMe() || pawn->Physics() != PHYS_Walking)
+					return;
+
+				if (!pawn->bCanJump())
+				{
+					// Back out only this ungrounded movement iteration. The route to
+					// groundedLocation was just traversed, so this remains collision
+					// checked while avoiding a direct location teleport.
+					TryMove(groundedLocation - Location());
+					Velocity() = vec3(0.0f);
+					Acceleration() = vec3(0.0f);
+					if (BotBenchmark::IsActive())
+					{
+						BotBenchmark::Emit("ledge_fall_prevented", {
+							{ "actor", pawn->Name.ToString() },
+							{ "state", pawn->GetStateName().ToString() },
+							{ "may_fall_dispatched", requestedMayFall ? "true" : "false" }
+						});
+					}
+					return;
+				}
+
+				if (BotBenchmark::IsActive())
+				{
+					BotBenchmark::Emit("ledge_fall_allowed", {
+						{ "actor", pawn->Name.ToString() },
+						{ "state", pawn->GetStateName().ToString() },
+						{ "may_fall_dispatched", requestedMayFall ? "true" : "false" }
+					});
+				}
+
+				// No ground was found and script left the fall enabled.
 				SetPhysics(PHYS_Falling);
 				SetBase(nullptr, true);
 				return;
@@ -1766,6 +1859,29 @@ void UActor::Touch(UActor* actor)
 	if (bDeleteMe() || actor->bDeleteMe())
 		return;
 
+	// Retail UT436 clears a full Touching array before binding the next contact.
+	// This matters for clustered respawning pickups: sleeping pickups may retain
+	// their overlap, but they must not permanently prevent the next active pickup
+	// from receiving Touch. Keep the cleanup symmetric through UnTouch.
+	auto clearTouching = [this](UActor* owner)
+	{
+		Array<UActor*> contacts;
+		if (engine->LaunchInfo.IsUnrealTournament_469())
+		{
+			for (UActor* contact : owner->Touching_UT469())
+				if (contact)
+					contacts.push_back(contact);
+		}
+		else
+		{
+			for (UActor* contact : owner->Touching())
+				if (contact)
+					contacts.push_back(contact);
+		}
+		for (UActor* contact : contacts)
+			owner->UnTouch(contact);
+	};
+
 	if (engine->LaunchInfo.IsUnrealTournament_469())
 	{
 		auto TouchingArray = Touching_UT469();
@@ -1784,17 +1900,37 @@ void UActor::Touch(UActor* actor)
 		{
 			if (slot1 == -1 && TouchingArray[i] == nullptr)
 				slot1 = i;
+		}
+		for (int i = 0; i < TouchingArray2.size(); i++)
+		{
 			if (slot2 == -1 && TouchingArray2[i] == nullptr)
 				slot2 = i;
 		}
+		if (slot1 == -1)
+			clearTouching(this);
+		if (slot2 == -1)
+			clearTouching(actor);
 		if (slot1 == -1 || slot2 == -1)
-			return;
+		{
+			TouchingArray = Touching_UT469();
+			TouchingArray2 = actor->Touching_UT469();
+			slot1 = -1;
+			slot2 = -1;
+			for (int i = 0; i < TouchingArray.size(); i++)
+				if (slot1 == -1 && TouchingArray[i] == nullptr)
+					slot1 = i;
+			for (int i = 0; i < TouchingArray2.size(); i++)
+				if (slot2 == -1 && TouchingArray2[i] == nullptr)
+					slot2 = i;
+			if (slot1 == -1 || slot2 == -1 || bDeleteMe() || actor->bDeleteMe())
+				return;
+		}
 
 		// Setup links first so Destroy or recursive Touch calls always finds the touch binding
 		TouchingArray[slot1] = actor;
-		TouchEventSent[slot1] = true;
+		TouchEventsSent.insert(actor);
 		TouchingArray2[slot2] = this;
-		actor->TouchEventSent[slot2] = false;
+		actor->TouchEventsSent.erase(this);
 
 		// Notify unrealscript for first actor
 		CallEvent(this, EventName::Touch, { ExpressionValue::ObjectValue(actor) });
@@ -1802,11 +1938,11 @@ void UActor::Touch(UActor* actor)
 		// Notify unrealscript for second actor
 		if (!actor->bDeleteMe())
 		{
-			for (int i = 0; i < TouchingArray.size(); i++)
+			for (int i = 0; i < TouchingArray2.size(); i++)
 			{
-				if (TouchingArray2[i] == this && !actor->TouchEventSent[i])
+				if (TouchingArray2[i] == this && !actor->TouchEventsSent.contains(this))
 				{
-					actor->TouchEventSent[i] = true;
+					actor->TouchEventsSent.insert(this);
 					CallEvent(actor, EventName::Touch, { ExpressionValue::ObjectValue(this) });
 					break;
 				}
@@ -1834,14 +1970,32 @@ void UActor::Touch(UActor* actor)
 			if (slot2 == -1 && TouchingArray2[i] == nullptr)
 				slot2 = i;
 		}
+		if (slot1 == -1)
+			clearTouching(this);
+		if (slot2 == -1)
+			clearTouching(actor);
 		if (slot1 == -1 || slot2 == -1)
-			return;
+		{
+			TouchingArray = Touching();
+			TouchingArray2 = actor->Touching();
+			slot1 = -1;
+			slot2 = -1;
+			for (int i = 0; i < TouchingArraySize; i++)
+			{
+				if (slot1 == -1 && TouchingArray[i] == nullptr)
+					slot1 = i;
+				if (slot2 == -1 && TouchingArray2[i] == nullptr)
+					slot2 = i;
+			}
+			if (slot1 == -1 || slot2 == -1 || bDeleteMe() || actor->bDeleteMe())
+				return;
+		}
 
 		// Setup links first so Destroy or recursive Touch calls always finds the touch binding
 		TouchingArray[slot1] = actor;
-		TouchEventSent[slot1] = true;
+		TouchEventsSent.insert(actor);
 		TouchingArray2[slot2] = this;
-		actor->TouchEventSent[slot2] = false;
+		actor->TouchEventsSent.erase(this);
 
 		// Notify unrealscript for first actor
 		CallEvent(this, EventName::Touch, { ExpressionValue::ObjectValue(actor) });
@@ -1851,9 +2005,9 @@ void UActor::Touch(UActor* actor)
 		{
 			for (int i = 0; i < TouchingArraySize; i++)
 			{
-				if (TouchingArray2[i] == this && !actor->TouchEventSent[i])
+				if (TouchingArray2[i] == this && !actor->TouchEventsSent.contains(this))
 				{
-					actor->TouchEventSent[i] = true;
+					actor->TouchEventsSent.insert(this);
 					CallEvent(actor, EventName::Touch, { ExpressionValue::ObjectValue(this) });
 					break;
 				}
@@ -1864,36 +2018,60 @@ void UActor::Touch(UActor* actor)
 
 void UActor::UnTouch(UActor* actor)
 {
-	auto TouchingArray = Touching();
-	auto TouchingArray2 = actor->Touching();
-
-	if (!bDeleteMe())
+	if (engine->LaunchInfo.IsUnrealTournament_469())
 	{
-		for (int i = 0; i < TouchingArraySize; i++)
+		auto TouchingArray = Touching_UT469();
+		auto TouchingArray2 = actor->Touching_UT469();
+		if (!bDeleteMe())
 		{
-			if (TouchingArray[i] == actor)
+			for (int i = 0; i < TouchingArray.size(); i++)
 			{
-				TouchingArray[i] = nullptr;
-				if (TouchEventSent[i])
+				if (TouchingArray[i] == actor)
 				{
-					TouchEventSent[i] = false;
-					CallEvent(this, EventName::UnTouch, { ExpressionValue::ObjectValue(actor) });
+					TouchingArray[i] = nullptr;
+					if (TouchEventsSent.erase(actor) != 0)
+						CallEvent(this, EventName::UnTouch, { ExpressionValue::ObjectValue(actor) });
+				}
+			}
+		}
+		if (!actor->bDeleteMe())
+		{
+			for (int i = 0; i < TouchingArray2.size(); i++)
+			{
+				if (TouchingArray2[i] == this)
+				{
+					TouchingArray2[i] = nullptr;
+					if (actor->TouchEventsSent.erase(this) != 0)
+						CallEvent(actor, EventName::UnTouch, { ExpressionValue::ObjectValue(this) });
 				}
 			}
 		}
 	}
-
-	if (!actor->bDeleteMe())
+	else
 	{
-		for (int i = 0; i < TouchingArraySize; i++)
+		auto TouchingArray = Touching();
+		auto TouchingArray2 = actor->Touching();
+		if (!bDeleteMe())
 		{
-			if (TouchingArray2[i] == this)
+			for (int i = 0; i < TouchingArraySize; i++)
 			{
-				TouchingArray2[i] = nullptr;
-				if (actor->TouchEventSent[i])
+				if (TouchingArray[i] == actor)
 				{
-					actor->TouchEventSent[i] = false;
-					CallEvent(actor, EventName::UnTouch, { ExpressionValue::ObjectValue(this) });
+					TouchingArray[i] = nullptr;
+					if (TouchEventsSent.erase(actor) != 0)
+						CallEvent(this, EventName::UnTouch, { ExpressionValue::ObjectValue(actor) });
+				}
+			}
+		}
+		if (!actor->bDeleteMe())
+		{
+			for (int i = 0; i < TouchingArraySize; i++)
+			{
+				if (TouchingArray2[i] == this)
+				{
+					TouchingArray2[i] = nullptr;
+					if (actor->TouchEventsSent.erase(this) != 0)
+						CallEvent(actor, EventName::UnTouch, { ExpressionValue::ObjectValue(this) });
 				}
 			}
 		}
@@ -2668,6 +2846,14 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 		return false;
 
 	UPawn* aPawn = UObject::TryCast<UPawn>(anActor);
+	int allowedReachFlags = 0;
+	if (bCanWalk()) allowedReachFlags |= R_WALK;
+	if (bCanFly()) allowedReachFlags |= R_FLY;
+	if (bCanSwim()) allowedReachFlags |= R_SWIM;
+	if (bCanJump()) allowedReachFlags |= R_JUMP;
+	if (bCanOpenDoors()) allowedReachFlags |= R_DOOR;
+	if (bCanDoSpecial()) allowedReachFlags |= R_SPECIAL;
+	if (bIsPlayer()) allowedReachFlags |= R_PLAYERONLY;
 
 	// If actor is not a pawn we assume we can't reach if they are too far away
 	if (!aPawn)
@@ -2693,6 +2879,10 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 			bool couldBeReachable = false;
 			float radius = CollisionRadius();
 			float height = CollisionHeight();
+			int rejectedCollision = 0;
+			int rejectedPlayerOnly = 0;
+			int rejectedCapability = 0;
+			int rejectedPruned = 0;
 			for (UNavigationPoint* cur = Level()->NavigationPointList(); cur != nullptr; cur = cur->nextNavigationPoint())
 			{
 				const auto& specs = XLevel()->ReachSpecs;
@@ -2705,13 +2895,27 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 					if (reachSpec.endActor != navPoint)
 						continue; // Not a path to this nav point
 
-					if (reachSpec.collisionRadius < radius || reachSpec.collisionHeight < height || reachSpec.bPruned)
+					if (reachSpec.bPruned)
+					{
+						rejectedPruned++;
+						continue;
+					}
+					if (reachSpec.collisionRadius < radius || reachSpec.collisionHeight < height)
+					{
+						rejectedCollision++;
 						continue; // Skip nav node links that we can't pass through
+					}
 
-					if ((reachSpec.endActor->bPlayerOnly() && !bIsPlayer()) || (reachSpec.endActor->bPlayerOnly() && !bIsPlayer()))
+					if ((cur->bPlayerOnly() || reachSpec.endActor->bPlayerOnly()) && !bIsPlayer())
+					{
+						rejectedPlayerOnly++;
 						continue; // Skip nav nodes only for the player if we aren't one
-
-					// To do: check reachFlags
+					}
+					if ((reachSpec.reachFlags & ~allowedReachFlags) != 0)
+					{
+						rejectedCapability++;
+						continue;
+					}
 
 					couldBeReachable = true;
 					break;
@@ -2729,13 +2933,25 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 					if (reachSpec.endActor != navPoint)
 						continue; // Not a path to this nav point
 
-					if (reachSpec.collisionRadius < radius || reachSpec.collisionHeight < height || reachSpec.bPruned)
+					// PrunedPaths are valid reachability evidence: the edge was
+					// removed from ordinary path search because another authored path
+					// superseded it, not because the destination became unreachable.
+					if (reachSpec.collisionRadius < radius || reachSpec.collisionHeight < height)
+					{
+						rejectedCollision++;
 						continue; // Skip nav node links that we can't pass through
+					}
 
-					if ((reachSpec.endActor->bPlayerOnly() && !bIsPlayer()) || (reachSpec.endActor->bPlayerOnly() && !bIsPlayer()))
+					if ((cur->bPlayerOnly() || reachSpec.endActor->bPlayerOnly()) && !bIsPlayer())
+					{
+						rejectedPlayerOnly++;
 						continue; // Skip nav nodes only for the player if we aren't one
-
-					// To do: check reachFlags
+					}
+					if ((reachSpec.reachFlags & ~allowedReachFlags) != 0)
+					{
+						rejectedCapability++;
+						continue;
+					}
 
 					couldBeReachable = true;
 					break;
@@ -2746,7 +2962,20 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 			}
 
 			if (!couldBeReachable)
+			{
+				if (BotBenchmark::IsActive())
+				{
+					BotBenchmark::Emit("actor_reachable_nav_rejected", {
+						{ "seeker", Name.ToString() },
+						{ "target", navPoint->Name.ToString() },
+						{ "rejected_collision", std::to_string(rejectedCollision) },
+						{ "rejected_player_only", std::to_string(rejectedPlayerOnly) },
+						{ "rejected_capability", std::to_string(rejectedCapability) },
+						{ "rejected_pruned", std::to_string(rejectedPruned) }
+					});
+				}
 				return false;
+			}
 		}
 	}
 
@@ -2817,7 +3046,10 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 				if (dot(moveDelta, alignedDelta) >= 0.0f) // Don't end up going backwards
 				{
 					hit = TryMove(alignedDelta, true);
-					actuallyMoved = moveDelta * hit.Fraction;
+					// Advance the dry-run by the vector that was actually traced. Using
+					// the original blocked vector here could move the simulated pawn
+					// through geometry and make ActorReachable disagree with MoveToward.
+					actuallyMoved = alignedDelta * hit.Fraction;
 					Location() += actuallyMoved;
 				}
 				else
@@ -2882,7 +3114,7 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 				if (dot(moveDelta, alignedDelta) >= 0.0f) // Don't end up going backwards
 				{
 					hit = TryMove(alignedDelta, true);
-					actuallyMoved = moveDelta * hit.Fraction;
+					actuallyMoved = alignedDelta * hit.Fraction;
 					Location() += actuallyMoved;
 				}
 				else
@@ -2976,37 +3208,57 @@ bool UPawn::PickWallAdjust()
 vec3 UPawn::EAdjustJump()
 {
 	UZoneInfo* zone = FootRegion().Zone;
-	vec3 gravity = zone ? zone->ZoneGravity() : vec3(0.0f, 0.0f, -980.0f);
+	const float gravityZ = zone ? zone->ZoneGravity().z : -980.0f;
+	const float verticalSpeed = Velocity().z;
+	const vec3 delta = Destination() - Location();
 
-	const float dt = 0.05f;
-	const float jumpZ = JumpZ();
-	vec3 pos = Location();
-	vec3 vel = vec3(0.0f, 0.0f, jumpZ);
-	float time = 0.0f;
-	const float maxSimTime = 5.0f;
-	const float targetZ = Location().z;
-	while (time < maxSimTime && pos.z < targetZ)
+	// Solve Destination.Z = Location.Z + Vz*t + 0.5*g*t^2 and use the
+	// descending (later) positive root. Scripts set Velocity.Z immediately
+	// before EAdjustJump; using JumpZ or Focus here discards impact-jump boost
+	// and can steer a strafing bot toward its enemy instead of its jump goal.
+	float flightTime = 0.0f;
+	if (std::abs(gravityZ) > 0.001f)
 	{
-		vel.z += gravity.z * dt;
-		pos.z += vel.z * dt;
-		time += dt;
-		if (pos.z >= targetZ) break;
+		const float discriminant = verticalSpeed * verticalSpeed + 2.0f * gravityZ * delta.z;
+		if (discriminant >= 0.0f)
+		{
+			const float root = std::sqrt(discriminant);
+			const float timeA = (-verticalSpeed + root) / gravityZ;
+			const float timeB = (-verticalSpeed - root) / gravityZ;
+			if (timeA > 0.001f)
+				flightTime = timeA;
+			if (timeB > flightTime)
+				flightTime = timeB;
+		}
+	}
+	else if (std::abs(verticalSpeed) > 0.001f)
+	{
+		const float linearTime = delta.z / verticalSpeed;
+		if (linearTime > 0.001f)
+			flightTime = linearTime;
 	}
 
-	vec3 target = Focus();
-	if (dot(target - Location(), target - Location()) < 0.001f)
-		target = Destination();
-	vec3 horizontalDir = normalize(target - Location());
-	horizontalDir.z = 0.0f;
+	vec2 horizontalVelocity = Velocity().xy();
+	if (flightTime > 0.001f)
+		horizontalVelocity = delta.xy() * (1.0f / flightTime);
 
-	vec3 horizontalVel = horizontalDir * (length(target - Location()) / std::max(time, 0.001f));
+	const float horizontalSpeed = length(horizontalVelocity);
+	const float maxHorizontalSpeed = std::max(GroundSpeed(), 0.0f);
+	if (horizontalSpeed > maxHorizontalSpeed && maxHorizontalSpeed > 0.0f)
+		horizontalVelocity = horizontalVelocity * (maxHorizontalSpeed / horizontalSpeed);
 
-	float groundSpeed = GroundSpeed();
-	float horizSpeed = length(horizontalVel);
-	if (horizSpeed > groundSpeed)
-		horizontalVel = horizontalVel * (groundSpeed / horizSpeed);
+	if (BotBenchmark::IsActive())
+	{
+		BotBenchmark::Emit("jump_adjust", {
+			{ "actor", Name.ToString() },
+			{ "flight_time_seconds", std::to_string(flightTime) },
+			{ "horizontal_speed", std::to_string(length(horizontalVelocity)) },
+			{ "vertical_speed", std::to_string(verticalSpeed) },
+			{ "target", "Destination" }
+		});
+	}
 
-	return horizontalVel + vec3(0.0f, 0.0f, jumpZ);
+	return vec3(horizontalVelocity, verticalSpeed);
 }
 
 bool UPawn::LineOfSightTo(UActor* other, bool ignoreDistance)
@@ -3036,39 +3288,121 @@ bool UPawn::LineOfSightTo(UActor* other, bool ignoreDistance)
 
 bool UPawn::CanSee(UActor* other)
 {
-	if (!other)
+	if (!other || other->bDeleteMe())
 		return false;
-
-	// Two fields to keep in mind of:
-	// float SightRadius: Maximum seeing distance
-	// float PeripheralVision: Cosine of limits of peripheral vision
-
-	auto& origin = other->Location();
-	auto top = origin + vec3{ 0.f, 0.f, other->CollisionHeight() / 2 };
-	auto bottom = origin - vec3{ 0.f, 0.f, other->CollisionHeight() / 2 };
 
 	vec3 eye_pos = Location();
 	eye_pos.z += BaseEyeHeight();
+	vec3 delta = other->Location() - eye_pos;
+	float distanceSquared = dot(delta, delta);
 
-	// Cannot see if the actor is too far away from the sight radius
-	if (length(origin - eye_pos) > SightRadius())
+	// SeePlayer scales acquisition range by the target Pawn's Visibility. A
+	// normal Pawn has Visibility 128; zero is invisible to AI and 255 is almost
+	// twice as visible. Non-Pawn actors retain the observer's normal radius.
+	float visibilityScale = 1.0f;
+	if (UPawn* otherPawn = UObject::TryCast<UPawn>(other))
+	{
+		if (otherPawn->Visibility() == 0)
+			return false;
+		visibilityScale = static_cast<float>(otherPawn->Visibility()) / 128.0f;
+	}
+
+	float sightDistance = SightRadius() * visibilityScale;
+	if (distanceSquared > sightDistance * sightDistance)
 		return false;
 
-	// Cannot see if the actor is outside of the peripheral vision angles
-	vec3 orientation = Coords::Rotation(Rotation()).XAxis;
+	// PeripheralVision is the signed cosine threshold. In particular, Godlike
+	// UT bots use -0.2 to obtain a field wider than 180 degrees. Use the vector
+	// relative to this Pawn rather than the target's absolute world position.
+	if (distanceSquared > 0.0001f)
+	{
+		vec3 forward = Coords::Rotation(Rotation()).XAxis;
+		float cosine = dot(normalize(forward), delta * (1.0f / std::sqrt(distanceSquared)));
+		if (cosine < PeripheralVision())
+			return false;
+	}
 
-	// Calculate the cosine of the vectors
-	// which is basically A dot B / (|A| * |B|), or just the dot products of the normalized versions of A and B
-	float cosine = dot(normalize(orientation), normalize(origin));
-	// PeripheralVision field is set dynamically during a game session
-	// (for an example, see the function UnrealShare.Bots.PreSetMovement())
-	// This can be a negative value too, which is probably set to not take it into account
-	float peripheralVision = PeripheralVision();
+	// The visibility-scaled range was checked above. Use LineOfSightTo only for
+	// its origin/top/bottom occlusion tests so highly visible Pawns are not
+	// incorrectly clamped back to the unscaled SightRadius.
+	return LineOfSightTo(other, true);
+}
 
-	if (peripheralVision > 0.0f && std::abs(cosine) > peripheralVision)
-		return false;
+void UPawn::TickSight(float elapsed)
+{
+	if (Role() != ROLE_Authority || Health() <= 0 || bDeleteMe())
+		return;
 
-	return FastTrace(origin, eye_pos) || FastTrace(top, eye_pos) || FastTrace(bottom, eye_pos);
+	SightCounter() -= elapsed;
+	if (SightCounter() > 0.0f)
+		return;
+
+	// Provisional retail-compatible cadence. Pawn.PreBeginPlay initializes a
+	// random offset in [0, 0.2), which keeps these scans staggered. Never run a
+	// catch-up loop after a long frame: one potentially O(Pawns) pass per Tick.
+	static constexpr float sightInterval = 0.20f;
+	SightCounter() += sightInterval;
+	if (SightCounter() <= 0.0f)
+		SightCounter() = sightInterval;
+
+	if (!IsEventEnabled(EventName::SeePlayer) && !IsEventEnabled(EventName::EnemyNotVisible))
+		return;
+
+	// UnrealScript callbacks may Destroy a Pawn (and RemovePawn mutates this
+	// singly linked list), change Enemy/state, or Enable/Disable a probe. Take a
+	// stable pointer snapshot before the first callback and revalidate every
+	// pointer and probe before it is used.
+	Array<UPawn*> candidates;
+	for (UPawn* candidate = Level()->PawnList(); candidate; candidate = candidate->nextPawn())
+		candidates.push_back(candidate);
+
+	UPawn* trackedEnemy = Enemy();
+	if (trackedEnemy && IsEventEnabled(EventName::EnemyNotVisible))
+	{
+		bool enemyVisible = !trackedEnemy->bDeleteMe() && trackedEnemy->Health() > 0 && LineOfSightTo(trackedEnemy, true);
+		if (enemyVisible)
+		{
+			LastSeenPos() = trackedEnemy->Location();
+			LastSeeingPos() = Location();
+			LastSeenTime() = Level()->TimeSeconds();
+		}
+		else
+		{
+			if (BotBenchmark::IsActive())
+			{
+				BotBenchmark::Emit("enemy_not_visible", {
+					{ "observer", Name.ToString() },
+					{ "enemy", trackedEnemy->Name.ToString() },
+					{ "state", GetStateName().ToString() }
+				});
+			}
+			CallEvent(this, EventName::EnemyNotVisible);
+		}
+	}
+
+	for (UPawn* candidate : candidates)
+	{
+		if (bDeleteMe() || Health() <= 0 || Role() != ROLE_Authority)
+			return;
+		if (!IsEventEnabled(EventName::SeePlayer))
+			break;
+		if (!candidate || candidate == this || candidate->bDeleteMe() || candidate->Health() <= 0)
+			continue;
+		if (!candidate->bIsPlayer() || candidate->Visibility() == 0)
+			continue;
+		if (!CanSee(candidate))
+			continue;
+
+		if (BotBenchmark::IsActive())
+		{
+			BotBenchmark::Emit("see_player", {
+				{ "observer", Name.ToString() },
+				{ "seen", candidate->Name.ToString() },
+				{ "state", GetStateName().ToString() }
+			});
+		}
+		CallEvent(this, EventName::SeePlayer, { ExpressionValue::ObjectValue(candidate) });
+	}
 }
 
 bool UPawn::CanHearNoise(UActor* source, float loudness)
@@ -3134,7 +3468,7 @@ UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, 
 	for (UPawn* pawn = Level()->PawnList(); pawn != nullptr; pawn = pawn->nextPawn())
 	{
 		// Skip dead pawns or ourselves
-		if (pawn == this || pawn->Health() > 0)
+		if (pawn == this || pawn->Health() <= 0)
 			continue;
 
 		// Skip team mates
@@ -3187,6 +3521,22 @@ UNavigationPoint* UPawn::SetRouteCache(const Array<UNavigationPoint*>& points)
 		for (size_t i = 0; i < cache.size(); i++)
 			cache[i] = (i < points.size()) ? points[i] : nullptr;
 	}
+	if (BotBenchmark::IsActive())
+	{
+		std::ostringstream route;
+		for (size_t i = 0; i < points.size(); i++)
+		{
+			if (i != 0)
+				route << '>';
+			route << points[i]->Name.ToString();
+		}
+		BotBenchmark::Emit("route_cache", {
+			{ "seeker", Name.ToString() },
+			{ "next", points.empty() ? "None" : points.front()->Name.ToString() },
+			{ "route", route.str() },
+			{ "route_nodes", std::to_string(points.size()) }
+		});
+	}
 	return !points.empty() ? points.front() : nullptr;
 }
 
@@ -3204,8 +3554,11 @@ UActor* UPawn::PathSpecialHandling(const Array<UNavigationPoint*>& bestPath)
 	}
 
 	UActor* bestPoint = oldBestPoint;
+	const bool handlerEnabled = oldBestPoint->IsEventEnabled(EventName::SpecialHandling);
+	bool redirectDirectlyReachable = true;
+	bool redirectedThroughPath = false;
 
-	if (oldBestPoint->IsEventEnabled(EventName::SpecialHandling))
+	if (handlerEnabled)
 	{
 		bestPoint = UObject::Cast<UActor>(CallEvent(oldBestPoint, EventName::SpecialHandling, { ExpressionValue::ObjectValue(this) }).ToObject());
 		if (!bCanDoSpecial())
@@ -3214,8 +3567,10 @@ UActor* UPawn::PathSpecialHandling(const Array<UNavigationPoint*>& bestPath)
 
 		if (bestPoint && bestPoint != oldBestPoint)
 		{
-			if (!ActorReachable(bestPoint))
+			redirectDirectlyReachable = ActorReachable(bestPoint);
+			if (!redirectDirectlyReachable)
 			{
+				redirectedThroughPath = true;
 				bestPoint = UObject::Cast<UActor>(FindPathToward(bestPoint, false));
 			}
 		}
@@ -3225,6 +3580,22 @@ UActor* UPawn::PathSpecialHandling(const Array<UNavigationPoint*>& bestPath)
 		if (SpecialGoal() == oldBestPoint)
 			SpecialGoal() = nullptr;
 	}
+	if (BotBenchmark::IsActive())
+	{
+		auto describeActor = [](UActor* actor)
+		{
+			return actor ? UObject::GetUClassFullName(actor).ToString() + ":" + actor->Name.ToString() : std::string("None");
+		};
+		BotBenchmark::Emit("route_special_handling", {
+			{ "seeker", Name.ToString() },
+			{ "original", describeActor(oldBestPoint) },
+			{ "handler_enabled", handlerEnabled ? "true" : "false" },
+			{ "can_do_special", bCanDoSpecial() ? "true" : "false" },
+			{ "redirect_directly_reachable", redirectDirectlyReachable ? "true" : "false" },
+			{ "redirected_through_path", redirectedThroughPath ? "true" : "false" },
+			{ "result", describeActor(bestPoint) }
+		});
+	}
 
 	IsInPathSpecialHandling = false;
 	return bestPoint;
@@ -3232,111 +3603,229 @@ UActor* UPawn::PathSpecialHandling(const Array<UNavigationPoint*>& bestPath)
 }
 
 
-std::pair<Array<UNavigationPoint*>, int32_t> UPawn::FindPathToEndPoint(UNavigationPoint* start, int maxNodes)
+UPawn::PathSearchResult UPawn::FindPathToEndPoint(UNavigationPoint* start, int maxNodes, const Array<UNavigationPoint*>& endPoints)
 {
-	if ((start->bPlayerOnly() && !bIsPlayer()))
-		return { {}, 0 };
+	PathSearchResult result;
+	if (!start || maxNodes <= 0 || endPoints.empty() || (start->bPlayerOnly() && !bIsPlayer()))
+		return result;
+	const std::unordered_set<UNavigationPoint*> endPointSet(endPoints.begin(), endPoints.end());
 
-	// If we can already reach the end point, just go there directly
-	if (start->bEndPoint())
-		return { { start }, 0 };
-
-	struct Step
+	struct NodeState
 	{
-		UNavigationPoint* navpoint;
-		int prev;
-		int32_t distance;
+		int64_t WeightedCost = std::numeric_limits<int64_t>::max();
+		int64_t TravelDistance = std::numeric_limits<int64_t>::max();
+		UNavigationPoint* NextTowardGoal = nullptr;
+		bool Closed = false;
 	};
 
-	std::unordered_map<UNavigationPoint*, int32_t> shortestDistance;
-	std::set<int> visited;
-	Array<Step> steps;
-	Array<size_t> stepEnds;
-	const Array<LevelReachSpec>& reachSpecs = XLevel()->ReachSpecs;
-	
-	int radius = (int)CollisionRadius();
-	int height = (int)CollisionHeight();
-
-	// Search through the nav node links until we find an end point
-
-	int prevStep = -1;
-	UNavigationPoint* current = start;
-	while (steps.size() < (size_t)maxNodes)
+	struct QueueEntry
 	{
-		if (!current->bEndPoint())
+		int64_t WeightedCost;
+		int64_t TravelDistance;
+		size_t StableOrder;
+		UNavigationPoint* Point;
+	};
+
+	struct QueueGreater
+	{
+		bool operator()(const QueueEntry& a, const QueueEntry& b) const
 		{
-			for (int specIndex : current->upstreamPaths())
+			if (a.WeightedCost != b.WeightedCost)
+				return a.WeightedCost > b.WeightedCost;
+			if (a.TravelDistance != b.TravelDistance)
+				return a.TravelDistance > b.TravelDistance;
+			return a.StableOrder > b.StableOrder;
+		}
+	};
+
+	const Array<LevelReachSpec>& reachSpecs = XLevel()->ReachSpecs;
+	const int radius = (int)CollisionRadius();
+	const int height = (int)CollisionHeight();
+
+	int allowedReachFlags = 0;
+	if (bCanWalk()) allowedReachFlags |= R_WALK;
+	if (bCanFly()) allowedReachFlags |= R_FLY;
+	if (bCanSwim()) allowedReachFlags |= R_SWIM;
+	if (bCanJump()) allowedReachFlags |= R_JUMP;
+	if (bCanOpenDoors()) allowedReachFlags |= R_DOOR;
+	if (bCanDoSpecial()) allowedReachFlags |= R_SPECIAL;
+	if (bIsPlayer()) allowedReachFlags |= R_PLAYERONLY;
+
+	std::unordered_map<UNavigationPoint*, size_t> stableOrder;
+	size_t nextStableOrder = 0;
+	for (UNavigationPoint* point = Level()->NavigationPointList(); point; point = point->nextNavigationPoint())
+		stableOrder.emplace(point, nextStableOrder++);
+
+	auto getStableOrder = [&](UNavigationPoint* point)
+	{
+		auto it = stableOrder.find(point);
+		return it != stableOrder.end() ? it->second : std::numeric_limits<size_t>::max();
+	};
+
+	auto nodeCost = [](UNavigationPoint* point)
+	{
+		// UE1 navigation costs are non-negative penalties. Treat malformed
+		// negative map/mod values as zero so Dijkstra's invariant remains valid.
+		return std::max<int64_t>((int64_t)point->cost(), 0);
+	};
+
+	std::unordered_map<UNavigationPoint*, NodeState> states;
+	std::priority_queue<QueueEntry, std::vector<QueueEntry>, QueueGreater> open;
+	NodeState& goalState = states[start];
+	goalState.WeightedCost = 0;
+	goalState.TravelDistance = 0;
+	open.push({ 0, 0, getStableOrder(start), start });
+
+	UNavigationPoint* bestEndPoint = nullptr;
+	int64_t bestWeightedCost = std::numeric_limits<int64_t>::max();
+	int64_t bestTravelDistance = std::numeric_limits<int64_t>::max();
+	int expanded = 0;
+	int rejectedCollision = 0;
+	int rejectedCapability = 0;
+	int rejectedPruned = 0;
+	int rejectedPlayerOnly = 0;
+
+	while (!open.empty() && expanded < maxNodes)
+	{
+		QueueEntry entry = open.top();
+		open.pop();
+
+		auto stateIt = states.find(entry.Point);
+		if (stateIt == states.end())
+			continue;
+		NodeState& currentState = stateIt->second;
+		if (currentState.Closed || entry.WeightedCost != currentState.WeightedCost || entry.TravelDistance != currentState.TravelDistance)
+			continue;
+		if (bestEndPoint && entry.WeightedCost > bestWeightedCost)
+			break;
+
+		currentState.Closed = true;
+		expanded++;
+
+		if (endPointSet.find(entry.Point) != endPointSet.end())
+		{
+			int64_t entryDistance = (int64_t)std::llround(length(entry.Point->Location() - Location()));
+			int64_t candidateTravel = currentState.TravelDistance + entryDistance;
+			int64_t candidateWeight = currentState.WeightedCost + entryDistance + nodeCost(entry.Point);
+			if (!bestEndPoint || candidateWeight < bestWeightedCost ||
+				(candidateWeight == bestWeightedCost && candidateTravel < bestTravelDistance) ||
+				(candidateWeight == bestWeightedCost && candidateTravel == bestTravelDistance && getStableOrder(entry.Point) < getStableOrder(bestEndPoint)))
 			{
-				if (specIndex < 0 || (size_t)specIndex >= reachSpecs.size())
-					break;
-				const LevelReachSpec& reachSpec = reachSpecs[specIndex];
-
-				// Note: startActor instead of endActor because upstreamPaths is the reverse travel direction
-				UNavigationPoint* endActor = reachSpec.startActor;
-
-				if (reachSpec.collisionRadius < radius || reachSpec.collisionHeight < height || reachSpec.bPruned)
-					continue; // Skip nav node links that we can't pass through
-
-				if ((endActor->bPlayerOnly() && !bIsPlayer()) || (endActor->bPlayerOnly() && !bIsPlayer()))
-					continue; // Skip nav nodes only for the player if we aren't one
-
-				// To do: check reachFlags
-
-				// How far have we travelled so far?
-				int32_t distance = reachSpec.distance;
-				if (prevStep >= 0)
-					distance += steps[prevStep].distance;
-
-				// Is this distance shorter than last time we reached this point?
-				int32_t& pointDistance = shortestDistance[endActor];
-				if (pointDistance == 0 || distance < pointDistance)
-				{
-					// Yes. Track this path and reject any future paths going through here that are longer.
-					pointDistance = distance;
-					if (endActor->bEndPoint())
-						stepEnds.push_back(steps.size());
-					steps.push_back({ .navpoint = endActor, .prev = prevStep, .distance = distance });
-				}
+				bestEndPoint = entry.Point;
+				bestWeightedCost = candidateWeight;
+				bestTravelDistance = candidateTravel;
 			}
 		}
 
-		prevStep++;
-		if (prevStep == steps.size())
-			break;
+		for (int specIndex : entry.Point->upstreamPaths())
+		{
+			if (specIndex < 0)
+				break;
+			if ((size_t)specIndex >= reachSpecs.size())
+				continue;
 
-		current = steps[prevStep].navpoint;
+			const LevelReachSpec& reachSpec = reachSpecs[specIndex];
+			UNavigationPoint* predecessor = reachSpec.startActor;
+			if (!predecessor || reachSpec.endActor != entry.Point)
+				continue;
+			if (reachSpec.bPruned)
+			{
+				rejectedPruned++;
+				continue;
+			}
+			if (reachSpec.collisionRadius < radius || reachSpec.collisionHeight < height)
+			{
+				rejectedCollision++;
+				continue;
+			}
+			if (predecessor->bPlayerOnly() && !bIsPlayer())
+			{
+				rejectedPlayerOnly++;
+				continue;
+			}
+			if ((reachSpec.reachFlags & ~allowedReachFlags) != 0)
+			{
+				rejectedCapability++;
+				continue;
+			}
+
+			int64_t edgeDistance = std::max<int64_t>((int64_t)reachSpec.distance, 0);
+			int64_t candidateTravel = currentState.TravelDistance + edgeDistance;
+			int64_t candidateWeight = currentState.WeightedCost + edgeDistance + nodeCost(entry.Point);
+			NodeState& predecessorState = states[predecessor];
+			if (candidateWeight < predecessorState.WeightedCost ||
+				(candidateWeight == predecessorState.WeightedCost && candidateTravel < predecessorState.TravelDistance))
+			{
+				predecessorState.WeightedCost = candidateWeight;
+				predecessorState.TravelDistance = candidateTravel;
+				predecessorState.NextTowardGoal = entry.Point;
+				predecessorState.Closed = false;
+				open.push({ candidateWeight, candidateTravel, getStableOrder(predecessor), predecessor });
+			}
+		}
 	}
 
-	if (stepEnds.empty())
-		return { {}, 0 };
-
-	std::sort(stepEnds.begin(), stepEnds.end(), [&](size_t a, size_t b) { return steps[a].distance < steps[b].distance; });
-
-	// Extract the final path:
-	Array<UNavigationPoint*> path;
-	int currentStep = (int)stepEnds.front();
-	while (currentStep >= 0)
+	if (bestEndPoint)
 	{
-		const Step& step = steps[currentStep];
-
-		// Skip path parts we already are touching
-		float minDist = (float)radius;
-		vec3 d = step.navpoint->Location() - Location();
-		float heightDiff = step.navpoint->Location().z - Location().z;
-		if (dot(d, d) < minDist * minDist && std::abs(heightDiff) < (float)height)
+		UNavigationPoint* point = bestEndPoint;
+		for (int guard = 0; point && guard <= maxNodes; guard++)
 		{
-			path.clear();
+			result.Path.push_back(point);
+			if (point == start)
+				break;
+			auto it = states.find(point);
+			point = it != states.end() ? it->second.NextTowardGoal : nullptr;
+		}
+
+		if (result.Path.empty() || result.Path.back() != start)
+		{
+			result.Path.clear();
+			bestEndPoint = nullptr;
 		}
 		else
 		{
-			path.push_back(step.navpoint);
+			// Preserve the stock route-cache contract while skipping a directly
+			// reachable anchor the Pawn is already touching. Never remove the goal.
+			while (result.Path.size() > 1)
+			{
+				vec3 delta = result.Path.front()->Location() - Location();
+				float heightDiff = result.Path.front()->Location().z - Location().z;
+				if (dot(delta, delta) >= (float)radius * (float)radius || std::abs(heightDiff) >= (float)height)
+					break;
+				result.Path.erase(result.Path.begin());
+			}
+			result.TravelDistance = bestTravelDistance;
+			result.WeightedCost = bestWeightedCost;
 		}
-
-		currentStep = step.prev;
 	}
-	path.push_back(start);
 
-	return { path, steps[stepEnds.front()].distance };
+	if (BotBenchmark::IsActive())
+	{
+		std::ostringstream route;
+		for (size_t i = 0; i < result.Path.size(); i++)
+		{
+			if (i != 0)
+				route << '>';
+			route << result.Path[i]->Name.ToString();
+		}
+		BotBenchmark::Emit("route_search", {
+			{ "seeker", Name.ToString() },
+			{ "goal", start->Name.ToString() },
+			{ "status", result.Path.empty() ? "no_path" : "success" },
+			{ "route", route.str() },
+			{ "route_nodes", std::to_string(result.Path.size()) },
+			{ "travel_distance", std::to_string(result.TravelDistance) },
+			{ "weighted_cost", std::to_string(result.WeightedCost) },
+			{ "expanded", std::to_string(expanded) },
+			{ "endpoints", std::to_string(endPoints.size()) },
+			{ "rejected_collision", std::to_string(rejectedCollision) },
+			{ "rejected_capability", std::to_string(rejectedCapability) },
+			{ "rejected_pruned", std::to_string(rejectedPruned) },
+			{ "rejected_player_only", std::to_string(rejectedPlayerOnly) }
+		});
+	}
+
+	return result;
 }
 
 void UPawn::ClearPaths()
@@ -3356,35 +3845,25 @@ void UPawn::ClearPaths()
 
 UObject* UPawn::FindRandomDest()
 {
-	// Find initial navpoints reachable from our location
-	int maxActorReachableCalls = 8; // upper bound for how expensive this can get
-	vec3 eyePos = Location();
-	eyePos.z += BaseEyeHeight();
-	std::vector<UNavigationPoint*> reachablePoints;
-	for (UNavigationPoint* navPoint = Level()->NavigationPointList(); navPoint && reachablePoints.size() < maxActorReachableCalls; navPoint = navPoint->nextNavigationPoint())
-	{
-		if ((navPoint->bPlayerOnly() && !bIsPlayer()) || (navPoint->bPlayerOnly() && !bIsPlayer()))
-			continue; // Skip nav nodes only for the player if we aren't one
-
-		float maxDist = 1000.0;
-		vec3 d = navPoint->Location() - Location();
-		if (dot(d, d) > maxDist * maxDist)
-			continue; // Ignore things too far away
-
-		if (!ActorReachable(navPoint))
-			continue;
-
-		navPoint->bEndPoint() = true;
-		reachablePoints.push_back(navPoint);
-	}
+	Array<UNavigationPoint*> reachablePoints = FindReachableNavEndPoints(false);
 
 	if (reachablePoints.empty())
 		return nullptr;
 
-	// Add all navpoints reachable via reachspecs from what we can already reached
+	// Add every node reachable through a legal authored edge. Keep visited state
+	// query-local rather than borrowing NavigationPoint.bEndPoint.
 	const Array<LevelReachSpec>& reachSpecs = XLevel()->ReachSpecs;
-	int radius = (int)CollisionRadius();
-	int height = (int)CollisionHeight();
+	const int radius = (int)CollisionRadius();
+	const int height = (int)CollisionHeight();
+	int allowedReachFlags = 0;
+	if (bCanWalk()) allowedReachFlags |= R_WALK;
+	if (bCanFly()) allowedReachFlags |= R_FLY;
+	if (bCanSwim()) allowedReachFlags |= R_SWIM;
+	if (bCanJump()) allowedReachFlags |= R_JUMP;
+	if (bCanOpenDoors()) allowedReachFlags |= R_DOOR;
+	if (bCanDoSpecial()) allowedReachFlags |= R_SPECIAL;
+	if (bIsPlayer()) allowedReachFlags |= R_PLAYERONLY;
+	std::unordered_set<UNavigationPoint*> visited(reachablePoints.begin(), reachablePoints.end());
 	for (size_t i = 0; i < reachablePoints.size(); i++)
 	{
 		UNavigationPoint* navPoint = reachablePoints[i];
@@ -3395,25 +3874,35 @@ UObject* UPawn::FindRandomDest()
 				break;
 			const LevelReachSpec& reachSpec = reachSpecs[specIndex];
 
-			if (reachSpec.endActor->bEndPoint())
+			UNavigationPoint* next = reachSpec.endActor;
+			if (!next || visited.find(next) != visited.end())
 				continue; // Already processed
 
 			if (reachSpec.collisionRadius < radius || reachSpec.collisionHeight < height || reachSpec.bPruned)
 				continue; // Skip nav node links that we can't pass through
 
-			if ((reachSpec.endActor->bPlayerOnly() && !bIsPlayer()) || (reachSpec.endActor->bPlayerOnly() && !bIsPlayer()))
+			if (next->bPlayerOnly() && !bIsPlayer())
 				continue; // Skip nav nodes only for the player if we aren't one
+			if ((reachSpec.reachFlags & ~allowedReachFlags) != 0)
+				continue;
 
-			// To do: check reachFlags
-
-			reachSpec.endActor->bEndPoint() = true;
-			reachablePoints.push_back(reachSpec.endActor);
+			visited.insert(next);
+			reachablePoints.push_back(next);
 		}
 	}
 
-	// Pick a random point from our candidates
-	float randomValue = rand() / (float)RAND_MAX;
-	int index = (int)std::round(randomValue * (float)(reachablePoints.size() - 1));
+	// RAND_MAX + 1 keeps every candidate's interval the same width and avoids
+	// the endpoint bias introduced by round().
+	const double randomValue = std::rand() / (static_cast<double>(RAND_MAX) + 1.0);
+	const size_t index = std::min(static_cast<size_t>(randomValue * reachablePoints.size()), reachablePoints.size() - 1);
+	if (BotBenchmark::IsActive())
+	{
+		BotBenchmark::Emit("random_destination", {
+			{ "seeker", Name.ToString() },
+			{ "candidates", std::to_string(reachablePoints.size()) },
+			{ "selected", reachablePoints[index]->Name.ToString() }
+		});
+	}
 	return reachablePoints[index];
 }
 
@@ -3422,33 +3911,56 @@ UObject* UPawn::FindPathTo(const vec3& aPoint, bool bSinglePath)
 	return FindPathToward(FindClosestNavPoint(aPoint), bSinglePath);
 }
 
-bool UPawn::MarkReachableNavEndPoints()
+Array<UNavigationPoint*> UPawn::FindReachableNavEndPoints(bool singlePath)
 {
-	int maxActorReachableCalls = 8; // upper bound for how expensive this can get
-	int endPointsFound = 0;
+	struct Candidate
+	{
+		UNavigationPoint* Point = nullptr;
+		float DistanceSquared = 0.0f;
+		size_t StableOrder = 0;
+	};
+
+	Array<Candidate> candidates;
+	size_t stableOrder = 0;
 	for (UNavigationPoint* navPoint = Level()->NavigationPointList(); navPoint; navPoint = navPoint->nextNavigationPoint())
 	{
-		navPoint->bEndPoint() = false;
-
-		if (endPointsFound < maxActorReachableCalls)
-		{
-			if ((navPoint->bPlayerOnly() && !bIsPlayer()) || (navPoint->bPlayerOnly() && !bIsPlayer()))
-				continue; // Skip nav nodes only for the player if we aren't one
-
-			float maxDist = 1000.0;
-			vec3 d = navPoint->Location() - Location();
-			if (dot(d, d) > maxDist * maxDist)
-				continue; // Ignore things too far away
-
-			if (!ActorReachable(navPoint))
-				continue;
-
-			navPoint->bEndPoint() = true;
-			endPointsFound++;
-		}
+		if (navPoint->bPlayerOnly() && !bIsPlayer())
+			continue;
+		vec3 delta = navPoint->Location() - Location();
+		candidates.push_back({ navPoint, dot(delta, delta), stableOrder++ });
 	}
 
-	return endPointsFound > 0;
+	std::stable_sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b)
+	{
+		if (a.DistanceSquared != b.DistanceSquared)
+			return a.DistanceSquared < b.DistanceSquared;
+		return a.StableOrder < b.StableOrder;
+	});
+
+	Array<UNavigationPoint*> reachable;
+	for (const Candidate& candidate : candidates)
+	{
+		// ActorReachable performs the collision/step/fall simulation and retains
+		// UE1's 1000 UU direct-reach contract. Sorting before testing removes map
+		// linked-list order bias; retaining every reachable anchor removes the old
+		// arbitrary first-eight cap.
+		if (!ActorReachable(candidate.Point))
+			continue;
+		reachable.push_back(candidate.Point);
+		if (singlePath)
+			break;
+	}
+
+	if (BotBenchmark::IsActive())
+	{
+		BotBenchmark::Emit("route_anchors", {
+			{ "seeker", Name.ToString() },
+			{ "candidates", std::to_string(candidates.size()) },
+			{ "reachable", std::to_string(reachable.size()) },
+			{ "single_path", singlePath ? "true" : "false" }
+		});
+	}
+	return reachable;
 }
 
 float UPawn::AICanHear(UActor* other, std::optional<float> volume, std::optional<float> radius)
@@ -3473,11 +3985,16 @@ UObject* UPawn::FindPathToward(UObject* anActor, bool singlePath)
 {
 	if (auto aNavPoint = UObject::TryCast<UNavigationPoint>(anActor))
 	{
-		if (!MarkReachableNavEndPoints())
+		Array<UNavigationPoint*> endPoints = FindReachableNavEndPoints(singlePath);
+		if (endPoints.empty())
 			return SetRouteCache({});
+		PathSearchResult path = FindPathToEndPoint(aNavPoint, 1000, endPoints);
 		if (!IsInPathSpecialHandling)
-			return PathSpecialHandling(FindPathToEndPoint(aNavPoint, 1000).first);
-		return SetRouteCache({});
+			return PathSpecialHandling(path.Path);
+		// A SpecialHandling callback may redirect to an unreachable actor. Route
+		// that actor normally, but do not recursively invoke SpecialHandling on
+		// the redirected first node during the same query.
+		return SetRouteCache(path.Path);
 	}
 	else if (auto actor = UObject::TryCast<UActor>(anActor))
 	{
@@ -3495,24 +4012,17 @@ UNavigationPoint* UPawn::FindClosestNavPoint(vec3 location)
 	std::vector<std::pair<UNavigationPoint*, float>> navPoints;
 	for (UNavigationPoint* navPoint = Level()->NavigationPointList(); navPoint; navPoint = navPoint->nextNavigationPoint())
 	{
-		if ((navPoint->bPlayerOnly() && !bIsPlayer()) || (navPoint->bPlayerOnly() && !bIsPlayer()))
+		if (navPoint->bPlayerOnly() && !bIsPlayer())
 			continue; // Skip nav nodes only for the player if we aren't one
-
-		float maxDist = 500;
 		vec3 d = navPoint->Location() - location;
 		float distsqr = dot(d, d);
-		if (distsqr > maxDist * maxDist)
-			continue; // Ignore things too far away
-
 		navPoints.push_back({ navPoint, distsqr });
 	}
 
-	std::sort(navPoints.begin(), navPoints.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
+	std::stable_sort(navPoints.begin(), navPoints.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
 
-	size_t maxTraces = 4; // upper bound for how expensive this can get
-	navPoints.resize(std::min(navPoints.size(), maxTraces));
-
-	// Find the first reachable nav point
+	// Find the nearest visible navigation endpoint. The previous 500 UU/four
+	// trace caps made valid actor goals fail based solely on map list order.
 	for (auto& p : navPoints)
 	{
 		vec3 eyePos = p.first->Location();
@@ -3525,7 +4035,11 @@ UNavigationPoint* UPawn::FindClosestNavPoint(vec3 location)
 
 UObject* UPawn::FindBestInventoryPath(bool predictRespawns, float& outBestWeight)
 {
-	if (!MarkReachableNavEndPoints())
+	// FindBestInventoryPath has no bClearPaths argument in UE1. Refresh the
+	// per-pawn navigation penalties before scoring candidates.
+	ClearPaths();
+	Array<UNavigationPoint*> endPoints = FindReachableNavEndPoints(false);
+	if (endPoints.empty())
 	{
 		outBestWeight = 0.0f;
 		return SetRouteCache({});
@@ -3534,6 +4048,20 @@ UObject* UPawn::FindBestInventoryPath(bool predictRespawns, float& outBestWeight
 	float bestWeight = 0.0f;
 	UInventorySpot* bestSpot = nullptr;
 	Array<UNavigationPoint*> bestPath;
+	int64_t bestTravelDistance = 0;
+	int64_t bestWeightedCost = 0;
+	float bestDesire = 0.0f;
+	float bestRespawnRemaining = 0.0f;
+	float bestPhysicalETA = 0.0f;
+	std::string bestInventoryState;
+	std::string bestItemName;
+	std::string bestEligibilityReason;
+
+	// Use the fastest advertised movement mode so ETA is deliberately
+	// optimistic. That makes respawn prediction conservative: uncertain items
+	// are rejected rather than assuming that lifts, detours, or slower movement
+	// will buy the bot more time.
+	const float etaSpeed = std::max({ GroundSpeed(), AirSpeed(), WaterSpeed() });
 
 	for (UNavigationPoint* navPoint = Level()->NavigationPointList(); navPoint; navPoint = navPoint->nextNavigationPoint())
 	{
@@ -3544,38 +4072,134 @@ UObject* UPawn::FindBestInventoryPath(bool predictRespawns, float& outBestWeight
 		if (!inv)
 			continue;
 
-		if (inv->GetStateName() != "PickUp")
-			continue;
+		// Unreal names are case-insensitive. Keep eligibility checks in NameString
+		// space; ToString() may canonicalize PickUp as "Pickup" and a normal
+		// std::string comparison would incorrectly reject every available item.
+		const NameString inventoryStateName = inv->GetStateName();
+		const std::string inventoryState = inventoryStateName.ToString();
+		const bool isPickup = inventoryStateName == "PickUp";
+		const bool isSleeping = inventoryStateName == "Sleeping";
 
-		float desire = CallEvent(inv, "BotDesireability", { ExpressionValue::ObjectValue(this) }).ToFloat();
-		if (desire > 0.0f)
+		// Knowledge/provenance limitation: UE1 exposes no dedicated native
+		// respawn countdown here. Sleeping inventory is assumed to use Actor's
+		// script-visible LatentFloat as the remainder of Sleep(RespawnTime). This
+		// matches script latent behavior but has not been verified against the
+		// closed retail native implementation, so unsupported states stay rejected.
+		const float respawnRemaining = isSleeping ? std::max(inv->LatentFloat(), 0.0f) : 0.0f;
+		const bool needsPathForEligibility = isPickup || (isSleeping && predictRespawns);
+		PathSearchResult pathResult;
+		if (needsPathForEligibility)
+			pathResult = FindPathToEndPoint(invSpot, 1000, endPoints);
+
+		const bool pathFound = !pathResult.Path.empty();
+		const float physicalETA = pathFound && std::isfinite(etaSpeed) && etaSpeed > 0.0f
+			? (float)pathResult.TravelDistance / etaSpeed
+			: -1.0f;
+
+		bool eligible = isPickup;
+		std::string eligibilityReason = isPickup ? "pickup_available" : "unsupported_state";
+		if (isSleeping)
 		{
-			auto [path, pathDist] = FindPathToEndPoint(invSpot, 1000);
+			if (!predictRespawns)
+				eligibilityReason = "prediction_disabled";
+			else if (!pathFound)
+				eligibilityReason = "no_path";
+			else if (physicalETA < 0.0f)
+				eligibilityReason = "eta_speed_unavailable";
+			else if (respawnRemaining <= physicalETA)
+			{
+				eligible = true;
+				eligibilityReason = "respawns_by_eta";
+			}
+			else
+				eligibilityReason = "respawns_after_eta";
+		}
 
-			// To do: how to take path costs into account?
-			//int cost = 0;
-			//for (auto nav : path)
-			//	cost += nav->cost();
+		float desire = 0.0f;
+		float weight = 0.0f;
+		if (eligible && pathFound)
+		{
+			desire = CallEvent(inv, "BotDesireability", { ExpressionValue::ObjectValue(this) }).ToFloat();
+			float distance = std::max((float)pathResult.WeightedCost, 1.0f);
+			weight = desire > 0.0f ? desire / distance : 0.0f;
 
-			float distance = std::max((float)pathDist, 1.0f);
-			float weight = desire / distance;
-
-			if (!bestSpot || weight > bestWeight)
+			if (desire > 0.0f && (!bestSpot || weight > bestWeight))
 			{
 				bestSpot = invSpot;
 				bestWeight = weight;
-				bestPath = std::move(path);
+				bestPath = std::move(pathResult.Path);
+				bestTravelDistance = pathResult.TravelDistance;
+				bestWeightedCost = pathResult.WeightedCost;
+				bestDesire = desire;
+				bestRespawnRemaining = respawnRemaining;
+				bestPhysicalETA = physicalETA;
+				bestInventoryState = inventoryState;
+				bestItemName = inv->Name.ToString();
+				bestEligibilityReason = eligibilityReason;
 			}
+		}
+
+		if (BotBenchmark::IsActive())
+		{
+			BotBenchmark::Emit("inventory_path_candidate", {
+				{ "seeker", Name.ToString() },
+				{ "spot", invSpot->Name.ToString() },
+				{ "item", inv->Name.ToString() },
+				{ "inventory_state", inventoryState },
+				{ "respawn_remaining_seconds", std::to_string(respawnRemaining) },
+				{ "physical_eta_seconds", std::to_string(physicalETA) },
+				{ "eta_speed", std::to_string(etaSpeed) },
+				{ "travel_distance", std::to_string(pathResult.TravelDistance) },
+				{ "weighted_cost", std::to_string(pathResult.WeightedCost) },
+				{ "path_found", pathFound ? "true" : "false" },
+				{ "predict_respawns_requested", predictRespawns ? "true" : "false" },
+				{ "eligible", eligible ? "true" : "false" },
+				{ "eligibility_reason", eligibilityReason },
+				{ "desire", std::to_string(desire) },
+				{ "score", std::to_string(weight) },
+				{ "timer_source", isSleeping ? "actor_latent_float_unverified_retail" : "none" }
+			});
 		}
 	}
 
 	if (bestSpot)
 	{
+		if (BotBenchmark::IsActive())
+		{
+			BotBenchmark::Emit("inventory_path_choice", {
+				{ "seeker", Name.ToString() },
+				{ "spot", bestSpot->Name.ToString() },
+				{ "item", bestItemName },
+				{ "inventory_state", bestInventoryState },
+				{ "respawn_remaining_seconds", std::to_string(bestRespawnRemaining) },
+				{ "physical_eta_seconds", std::to_string(bestPhysicalETA) },
+				{ "eligible", "true" },
+				{ "eligibility_reason", bestEligibilityReason },
+				{ "desire", std::to_string(bestDesire) },
+				{ "travel_distance", std::to_string(bestTravelDistance) },
+				{ "weighted_cost", std::to_string(bestWeightedCost) },
+				{ "score", std::to_string(bestWeight) },
+				{ "weight", std::to_string(bestWeight) },
+				{ "timer_source", bestInventoryState == "Sleeping" ? "actor_latent_float_unverified_retail" : "none" },
+				{ "predict_respawns_requested", predictRespawns ? "true" : "false" }
+			});
+		}
 		outBestWeight = bestWeight;
 		return PathSpecialHandling(bestPath);
 	}
 	else
 	{
+		if (BotBenchmark::IsActive())
+		{
+			BotBenchmark::Emit("inventory_path_choice", {
+				{ "seeker", Name.ToString() },
+				{ "item", "None" },
+				{ "eligible", "false" },
+				{ "eligibility_reason", "no_scored_candidate" },
+				{ "score", "0.000000" },
+				{ "predict_respawns_requested", predictRespawns ? "true" : "false" }
+			});
+		}
 		outBestWeight = 0.0f;
 		return SetRouteCache({});
 	}
@@ -3641,7 +4265,7 @@ void UPawn::Tick(float elapsed)
 		if (StateFrame->LatentState == LatentRunState::MoveTo)
 		{
 			TickRotateTo(Focus());
-			if (TickMoveTo(Destination()))
+			if (TickMoveTo(Destination(), elapsed))
 				StateFrame->LatentState = LatentRunState::Continue;
 		}
 		else if (StateFrame->LatentState == LatentRunState::MoveToward)
@@ -3649,8 +4273,21 @@ void UPawn::Tick(float elapsed)
 			if (MoveTarget())
 			{
 				Focus() = MoveTarget()->Location();
+				Destination() = MoveTarget()->Location();
+				if (bAdvancedTactics())
+				{
+					// Stock Botpack.Bot implements AlterDestination to add a
+					// temporary lateral offset. Recompute it from the target each poll
+					// so UpdateTactics can vary the offset without it accumulating.
+					CallEvent(this, EventName::AlterDestination);
+					if (bDeleteMe() || !MoveTarget())
+					{
+						StateFrame->LatentState = LatentRunState::Continue;
+						return;
+					}
+				}
 				TickRotateTo(Focus());
-				if (TickMoveTo(MoveTarget()->Location()))
+				if (TickMoveTo(Destination(), elapsed, MoveTarget()))
 					StateFrame->LatentState = LatentRunState::Continue;
 			}
 			else
@@ -3661,16 +4298,20 @@ void UPawn::Tick(float elapsed)
 		else if (StateFrame->LatentState == LatentRunState::StrafeTo)
 		{
 			TickRotateTo(Focus());
-			if (TickMoveTo(Destination()))
+			if (TickMoveTo(Destination(), elapsed))
 				StateFrame->LatentState = LatentRunState::Continue;
 		}
 		else if (StateFrame->LatentState == LatentRunState::StrafeFacing)
 		{
 			if (engine->LaunchInfo.ue1Version > 219 && FaceTarget())
 			{
+				// StrafeFacing moves toward Destination while continuously facing
+				// the actor supplied by UnrealScript. Keep Focus synchronized with
+				// a moving target instead of rotating toward a stale focus vector.
+				Focus() = FaceTarget()->Location();
 				TickRotateTo(Focus());
 				vec3 oldDest = Destination();
-				if (TickMoveTo(Destination()))
+				if (TickMoveTo(Destination(), elapsed))
 					StateFrame->LatentState = LatentRunState::Continue;
 				Destination() = oldDest;
 			}
@@ -3727,6 +4368,10 @@ void UPawn::Tick(float elapsed)
 
 	if (Role() == ROLE_Authority)
 	{
+		TickSight(elapsed);
+		if (bDeleteMe())
+			return;
+
 		if (PainTime() > 0.0f)
 		{
 			PainTime() = std::max(PainTime() - elapsed, 0.0f);
@@ -3801,18 +4446,54 @@ bool UPawn::TickRotateTo(const vec3& target)
 	return (std::abs(DesiredRotation().Yaw - (Rotation().Yaw & 0xffff)) < doneAngle) || (std::abs(DesiredRotation().Yaw - (Rotation().Yaw & 0xffff)) > 0xffff - doneAngle);
 }
 
-bool UPawn::TickMoveTo(const vec3& target)
+bool UPawn::TickMoveTo(const vec3& target, float elapsed, UActor* targetActor)
 {
 	if (MoveTimer() < 0.0f)
+	{
+		Acceleration() = vec3(0.0f);
 		return true;
+	}
+
+	auto hasArrived = [&](float distanceSquared, float speedSquared, float acceptanceRadius)
+	{
+		// Complete only when already touching the goal or close enough to reach
+		// it during this physics step. The previous velocity^2 * 0.05 test could
+		// stop a 300 uu/s bot roughly 67 units early, causing empty arrivals and
+		// route oscillation.
+		const float stepDistance = std::sqrt(std::max(speedSquared, 0.0f)) * std::max(elapsed, 0.0f);
+		const float threshold = std::max(acceptanceRadius, stepDistance + 1.0f);
+		return distanceSquared <= threshold * threshold;
+	};
 
 	if (Physics() == PHYS_Walking)
 	{
 		vec2 delta = target.xy() - Location().xy();
 		float distSqr = dot(delta, delta);
-		float velocitySqr = dot(Velocity(), Velocity());
-		if (distSqr < 1.0f || distSqr < velocitySqr * 0.05f)
+		float velocitySqr = dot(Velocity().xy(), Velocity().xy());
+		float acceptanceRadius = 1.0f;
+		bool targetVerticallyReachable = true;
+		if (targetActor)
+		{
+			const float verticalSeparation = std::abs(targetActor->Location().z - Location().z);
+			// Non-colliding navigation actors are points to cross, not cylinders to
+			// touch. Keep their arrival envelope aligned with route-cache pruning;
+			// otherwise MoveToward can complete outside the radius at which the same
+			// node is consumed and UnrealScript will select it again every tick.
+			const bool canTouchTarget = targetActor->bCollideActors();
+			const float verticalReach = canTouchTarget
+				? CollisionHeight() + targetActor->CollisionHeight() + MaxStepHeight()
+				: CollisionHeight();
+			targetVerticallyReachable = verticalSeparation <= verticalReach;
+			if (targetVerticallyReachable)
+				acceptanceRadius = canTouchTarget
+					? std::max(CollisionRadius() + targetActor->CollisionRadius(), 1.0f)
+					: std::max(CollisionRadius(), 1.0f);
+		}
+		if (targetVerticallyReachable && hasArrived(distSqr, velocitySqr, acceptanceRadius))
+		{
+			Acceleration() = vec3(0.0f);
 			return true;
+		}
 
 		Acceleration() = vec3(normalize(delta) * AccelRate(), 0.0f);
 	}
@@ -3821,8 +4502,16 @@ bool UPawn::TickMoveTo(const vec3& target)
 		vec3 delta = target - Location();
 		float distSqr = dot(delta, delta);
 		float velocitySqr = dot(Velocity(), Velocity());
-		if (distSqr < 1.0f || distSqr < velocitySqr * 0.05f)
+		float acceptanceRadius = targetActor
+			? (targetActor->bCollideActors()
+				? std::max(CollisionRadius() + targetActor->CollisionRadius(), 1.0f)
+				: std::max(CollisionRadius(), 1.0f))
+			: 1.0f;
+		if (hasArrived(distSqr, velocitySqr, acceptanceRadius))
+		{
+			Acceleration() = vec3(0.0f);
 			return true;
+		}
 
 		Acceleration() = normalize(delta) * AccelRate();
 	}
@@ -3867,7 +4556,18 @@ void UPawn::StrafeFacing(const vec3& newDestination, UActor* newTarget)
 
 	Destination() = newDestination;
 	if (engine->LaunchInfo.ue1Version > 219)
+	{
 		FaceTarget() = newTarget;
+		Focus() = newTarget->Location();
+	}
+	if (BotBenchmark::IsActive())
+	{
+		BotBenchmark::Emit("strafe_facing_begin", {
+			{ "actor", Name.ToString() },
+			{ "target", newTarget->Name.ToString() },
+			{ "state", GetStateName().ToString() }
+		});
+	}
 	SetMoveDuration(newDestination - Location());
 	if (StateFrame)
 		StateFrame->LatentState = LatentRunState::StrafeFacing;
