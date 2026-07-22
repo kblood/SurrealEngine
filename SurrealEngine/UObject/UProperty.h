@@ -344,6 +344,8 @@ class UStructProperty : public UProperty
 {
 public:
 	UStructProperty(NameString name, UClass* base, ObjectFlags flags);
+	void SetStruct(UStruct* value, int packageVersion);
+	bool UsesLegacyDynamicStringStorage() const { return LegacyDynamicString; }
 
 	void Load(ObjectStream* stream) override;
 	void Save(PackageStreamWriter* stream) override;
@@ -367,8 +369,12 @@ public:
 	void GetExportText(std::string& buf, const std::string& whitespace, UObject* obj, UObject* defobj, int i) override;
 	std::string PrintValue(const void* data) override;
 	void SetValueFromString(void* data, const std::string& valueString) override;
+	bool IsDefaultValue(void* val) override;
 
 	UStruct* Struct = nullptr;
+
+private:
+	bool LegacyDynamicString = false;
 };
 
 class UIntProperty : public UPropertyT<int32_t>

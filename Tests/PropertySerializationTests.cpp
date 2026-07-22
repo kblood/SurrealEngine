@@ -26,6 +26,37 @@ int main()
 		return 1;
 	}
 
+	UStruct dynamicString("DynamicString", nullptr, ObjectFlags::NoFlags);
+	UStructProperty legacyString("LegacyString", nullptr, ObjectFlags::NoFlags);
+	legacyString.SetStruct(&dynamicString, 61);
+	UStructProperty modernStruct("ModernStruct", nullptr, ObjectFlags::NoFlags);
+	modernStruct.SetStruct(&dynamicString, 62);
+	if (!legacyString.UsesLegacyDynamicStringStorage() ||
+		legacyString.ValueType != ExpressionValueType::ValueString ||
+		legacyString.ElementSize() != sizeof(std::string) ||
+		legacyString.ElementAlignment() != alignof(std::string) ||
+		modernStruct.UsesLegacyDynamicStringStorage() ||
+		modernStruct.ValueType != ExpressionValueType::ValueStruct)
+	{
+		std::cerr << "FAILED: v61 DynamicString must use dynamic-string storage only before StrProperty\n";
+		return 1;
+	}
+
+	alignas(std::string) uint8_t legacyValue[sizeof(std::string)];
+	alignas(std::string) uint8_t legacyCopy[sizeof(std::string)];
+	legacyString.ConstructElement(legacyValue);
+	legacyString.SetValueFromString(legacyValue, "travel-data");
+	legacyString.CopyConstructElement(legacyCopy, legacyValue);
+	if (!legacyString.CompareElement(legacyValue, legacyCopy) || legacyString.PrintValue(legacyCopy) != "\"travel-data\"")
+	{
+		legacyString.DestructElement(legacyCopy);
+		legacyString.DestructElement(legacyValue);
+		std::cerr << "FAILED: v61 DynamicString must preserve dynamic-string values\n";
+		return 1;
+	}
+	legacyString.DestructElement(legacyCopy);
+	legacyString.DestructElement(legacyValue);
+
 	const auto uniquePart = std::chrono::steady_clock::now().time_since_epoch().count();
 	const fs::path path = fs::temp_directory_path() / ("surreal-property-" + std::to_string(uniquePart) + ".bin");
 

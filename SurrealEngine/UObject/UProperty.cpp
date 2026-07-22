@@ -1105,22 +1105,34 @@ UStructProperty::UStructProperty(NameString name, UClass* base, ObjectFlags flag
 	ValueType = ExpressionValueType::ValueStruct;
 }
 
+void UStructProperty::SetStruct(UStruct* value, int packageVersion)
+{
+	Struct = value;
+	// Before StrProperty, UE1 reflected dynamic strings as an intrinsic zero-field struct.
+	LegacyDynamicString = packageVersion <= 61 && Struct && Struct->Name == "DynamicString";
+	ValueType = LegacyDynamicString ? ExpressionValueType::ValueString : ExpressionValueType::ValueStruct;
+
+	if (Struct && !LegacyDynamicString)
+	{
+		if (Struct->Name == "Vector")
+			ValueType = ExpressionValueType::ValueVector;
+		else if (Struct->Name == "Rotator")
+			ValueType = ExpressionValueType::ValueRotator;
+		else if (Struct->Name == "Color")
+			ValueType = ExpressionValueType::ValueColor;
+		else if (Struct->Name == "Coords")
+			ValueType = ExpressionValueType::ValueCoords;
+		else if (Struct->Name == "Quat")
+			ValueType = ExpressionValueType::ValueQuat;
+	}
+}
+
 void UStructProperty::Load(ObjectStream* stream)
 {
 	UProperty::Load(stream);
-	Struct = stream->ReadObject<UStruct>();
-	Struct->LoadNow();
-
-	if (Struct->Name == "Vector")
-		ValueType = ExpressionValueType::ValueVector;
-	else if (Struct->Name == "Rotator")
-		ValueType = ExpressionValueType::ValueRotator;
-	else if (Struct->Name == "Color")
-		ValueType = ExpressionValueType::ValueColor;
-	else if (Struct->Name == "Coords")
-		ValueType = ExpressionValueType::ValueCoords;
-	else if (Struct->Name == "Quat")
-		ValueType = ExpressionValueType::ValueQuat;
+	UStruct* value = stream->ReadObject<UStruct>();
+	value->LoadNow();
+	SetStruct(value, stream->GetVersion());
 }
 
 void UStructProperty::Save(PackageStreamWriter* stream)
@@ -1141,6 +1153,12 @@ void UStructProperty::LoadValue(void* data, ObjectStream* stream, const Property
 
 void UStructProperty::LoadStructMemberValue(void* data, ObjectStream* stream)
 {
+	if (LegacyDynamicString)
+	{
+		*static_cast<std::string*>(data) = stream->ReadString();
+		return;
+	}
+
 	if (Struct->Properties.empty())
 		throw std::runtime_error("Struct has no properties");
 
@@ -1159,6 +1177,12 @@ void UStructProperty::SaveHeader(void* data, PropertyHeader& header)
 
 void UStructProperty::SaveValue(void* data, PackageStreamWriter* stream)
 {
+	if (LegacyDynamicString)
+	{
+		stream->WriteString(*static_cast<std::string*>(data));
+		return;
+	}
+
 	for (UProperty* fieldprop : Struct->Properties)
 	{
 		void* fielddata = (uint8_t*)data + fieldprop->DataOffset.DataOffset;
@@ -1168,16 +1192,26 @@ void UStructProperty::SaveValue(void* data, PackageStreamWriter* stream)
 
 size_t UStructProperty::ElementAlignment()
 {
+	if (LegacyDynamicString)
+		return alignof(std::string);
 	return Struct ? Struct->StructAlignment : 1;
 }
 
 size_t UStructProperty::ElementSize()
 {
+	if (LegacyDynamicString)
+		return sizeof(std::string);
 	return Struct ? Struct->StructSize : 0;
 }
 
 void UStructProperty::ConstructElement(void* data)
 {
+	if (LegacyDynamicString)
+	{
+		new (data) std::string();
+		return;
+	}
+
 	if (Struct)
 	{
 		for (UProperty* prop : Struct->Properties)
@@ -1189,6 +1223,12 @@ void UStructProperty::ConstructElement(void* data)
 
 void UStructProperty::CopyConstructElement(void* data, const void* src)
 {
+	if (LegacyDynamicString)
+	{
+		new (data) std::string(*static_cast<const std::string*>(src));
+		return;
+	}
+
 	if (Struct)
 	{
 		for (UProperty* prop : Struct->Properties)
@@ -1202,6 +1242,12 @@ void UStructProperty::CopyConstructElement(void* data, const void* src)
 
 void UStructProperty::CopyElement(void* data, const void* src)
 {
+	if (LegacyDynamicString)
+	{
+		*static_cast<std::string*>(data) = *static_cast<const std::string*>(src);
+		return;
+	}
+
 	if (Struct)
 	{
 		for (UProperty* prop : Struct->Properties)
@@ -1215,6 +1261,12 @@ void UStructProperty::CopyElement(void* data, const void* src)
 
 void UStructProperty::DestructElement(void* data)
 {
+	if (LegacyDynamicString)
+	{
+		static_cast<std::string*>(data)->~basic_string();
+		return;
+	}
+
 	if (Struct)
 	{
 		for (UProperty* prop : Struct->Properties)
@@ -1226,11 +1278,16 @@ void UStructProperty::DestructElement(void* data)
 
 bool UStructProperty::CompareElement(const void* v1, const void* v2)
 {
+	if (LegacyDynamicString)
+		return *static_cast<const std::string*>(v1) == *static_cast<const std::string*>(v2);
 	return Struct ? Struct->IsEqual(v1, v2) : true;
 }
 
 bool UStructProperty::CompareLessElement(const void* v1, const void* v2)
 {
+	if (LegacyDynamicString)
+		return *static_cast<const std::string*>(v1) < *static_cast<const std::string*>(v2);
+
 	if (Struct)
 	{
 		for (UProperty* prop : Struct->Properties)
@@ -1248,6 +1305,12 @@ bool UStructProperty::CompareLessElement(const void* v1, const void* v2)
 
 void UStructProperty::GetExportText(std::string& buf, const std::string& whitespace, UObject* obj, UObject* defobj, int i)
 {
+	if (LegacyDynamicString)
+	{
+		UProperty::GetExportText(buf, whitespace, obj, defobj, i);
+		return;
+	}
+
 	if (!Struct)
 	{
 		buf += whitespace + Name.ToString() + '=' + "null struct";
@@ -1303,6 +1366,9 @@ void UStructProperty::GetExportText(std::string& buf, const std::string& whitesp
 
 std::string UStructProperty::PrintValue(const void* data)
 {
+	if (LegacyDynamicString)
+		return '"' + *static_cast<const std::string*>(data) + '"';
+
 	if (Struct)
 	{
 		std::string print;
@@ -1329,6 +1395,12 @@ std::string UStructProperty::PrintValue(const void* data)
 
 void UStructProperty::SetValueFromString(void* data, const std::string& valueString)
 {
+	if (LegacyDynamicString)
+	{
+		*static_cast<std::string*>(data) = valueString;
+		return;
+	}
+
 	if (valueString.empty())
 		return;
 
@@ -1350,6 +1422,11 @@ void UStructProperty::SetValueFromString(void* data, const std::string& valueStr
 			}
 		}
 	}
+}
+
+bool UStructProperty::IsDefaultValue(void* val)
+{
+	return LegacyDynamicString && static_cast<std::string*>(val)->empty();
 }
 
 /////////////////////////////////////////////////////////////////////////////
