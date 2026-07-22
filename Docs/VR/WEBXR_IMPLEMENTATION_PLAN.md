@@ -1074,3 +1074,65 @@ different weapon `FireOffset` terms, so controller-origin firing requires
 verified per-path handling. Stock `ServerMove` cannot replicate independent
 body and hand rotations; multiplayer weapon aim remains an explicit M10
 protocol/product decision rather than an M8 completion claim.
+
+## M8 world-hand pose checkpoint — PASS IN AUTOMATION (2026-07-22)
+
+Commit `102a4d71` shares M7's viewer-center recenter origin, coordinate
+conversion, and world scale with grip/aim poses. Recenter capture now occurs
+before the input snapshot and `AdvanceGameFrame`. The snapshot carries
+recentered UE1-local position/forward, and `UpdateInput` composes both hands
+into world position/forward/rotator after comfort turning but before console,
+level, weapon, or state ticks. A first-frame actor-location fallback prevents
+use of an uninitialized scripted camera; login/map changes reset that guard.
+
+Right hand is the deterministic default dominant controller. Disconnect or an
+invalid right pose clears the index instead of retaining stale transforms;
+grip remains an explicit fallback when aim is absent. The experimental browser
+diagnostic returned controller-pose self-test `1` and dominant index `1` after
+the packed input frame. Native/Emscripten builds and the complete experimental
+suite pass. Full orientation basis/roll for controller-attached viewmodels and
+physical pose alignment remain open.
+
+## M8 scoped weapon-direction checkpoint — PASS IN AUTOMATION (2026-07-22)
+
+Commit `38e2ef47` adds a disabled-by-default, re-entrant RAII seam around
+enabled `Frame::Call` dispatch. Cleanup executes on direct return, nesting, and
+C++ exception unwinding. Commit `032a1a9f` installs one UT/WebXR Engine-owned
+hook and clears it before engine destruction.
+
+The hook requires the local pawn's exact current/owned weapon and a connected
+dominant tracked aim pose. It temporarily replaces `Pawn.ViewRotation` only
+for `TraceFire`, `ProjectileFire`, and the audited Botpack special paths (Flak,
+Eightball, Translocator, Chainsaw, and Impact Hammer), then restores the exact
+integer rotator. `CheckTarget` is counted separately. Generic `Fire`/`Tick`,
+`GuidedWarShell`, `RenderOverlays`, and `CalcDrawOffset` fail closed.
+
+Commit `616ad67e` restores only the current weapon's `RenderOverlays` once per
+WebXR eye, with RAII restoration for canvas/device state and current weapon
+location/rotation. HUD/menu/player overlays remain deferred. Automation proves
+two expected and two completed weapon-overlay eye passes; the acceptance map
+had no current weapon at the diagnostic instant (`weaponCalls=0`), so a visible
+weapon/muzzle-flash fixture and headset validation are still required.
+
+The classifier/restoration self-test returned `1`; native/Emscripten builds and
+the full experimental packed stereo/input/pose/format/lifecycle suite pass with
+zero WebGPU errors. Firing origin remains stock/head-relative, Translocator's
+stock camera snap is intentionally restored away in VR, guided-warhead steering
+has no controller policy, and multiplayer does not transport independent aim.
+
+## M8 engine haptics and sibling-fix checkpoint — PASS IN AUTOMATION (2026-07-22)
+
+Commit `ebbcdb19` adds a scalar-only Emscripten bridge to the browser haptic
+queue. Commit `e4260c0c` multiplexes dominant-hand recoil requests through the
+same classified firing scope, loads `[Engine.WebXR] HapticsEnabled`, exposes
+diagnostics/setter/self-tests, and keeps browser coalescing/rate limits
+authoritative. Experimental automation returned aim self-test `1`, haptic
+bridge self-test `1`, and accepted disable/re-enable operations. Pickup,
+confirmed damage, and UI feedback remain open, as does all physical tuning.
+
+The read-only native VR worktree audit also found two correctness bugs. Commit
+`fc85ed63` distinguishes byte-backed `bFire`/`bAltFire`/`bDuck` from packed
+boolean properties in `GetBool`/`SetBool`, preventing adjacent-property
+corruption. Commit `08afeb32` fixes in-place quaternion multiplication and adds
+compile-time Hamilton-product checks. Both native and Emscripten builds pass.
+The sibling's dirty screen-quad/tuning batch was not copied or cherry-picked.
