@@ -91,7 +91,7 @@ foundation topics are:
 | WebXR UI and controllers | Implemented, experimental | World-anchored surfaces, both procedural controller proxies, lasers, and exact-contact markers share one hit result in both presentation modes; scale, latency, convergence, and comfort remain hardware-unverified. |
 | UT99/Unreal startup map intro | Implemented, experimental | `URL.LocalMap`, prompt-HUD capture, menu handoff, intro-only trigger routing, and explicit launcher skip policy have automated coverage; actual UT99/Unreal scripts remain owner-data and Quest-unverified. |
 | KHG browser AVI playback | Implemented, experimental | The existing IV50 decoder advances asynchronously under the flat/WebXR frame owner; synthetic scheduling and no-data linking pass, while actual KHG media, browser audio, masks, and same-call-stack script assumptions remain unverified or incomplete. |
-| Local UE1 demo import | Implemented, experimental | UT demo 348 and Deus Ex demo 1002f reach bounded package scans; Unreal demo 205 advances past `TextBuffer.Parent`/`Outer` and stops at a distinct `TravelItems` layout issue. All remain local-import-only, gameplay-unverified, and redistribution-gated. |
+| Local UE1 demo import | Implemented, experimental | UT demo 348 and Deus Ex demo 1002f reach bounded package scans; Unreal demo 205 advances past both the legacy `Parent`/`Outer` and `DynamicString` layout boundaries, then stops at the absent `UPak` content dependency. All remain local-import-only, gameplay-unverified, and redistribution-gated. |
 | Static-WASM corresponding source | Implemented | Clean commit/tree provenance, matching source archive or exact HTTPS source URL, hashes, notices, and relink instructions are enforced by packaging tests. Human/legal review of the actual distribution is still required. |
 
 ## Contract boundaries
@@ -208,19 +208,21 @@ human-curated bugfix-first PR strategy. No upstream PR has been opened.
 2. Test normal and skipped `URL.LocalMap` startup for owned UT99 and Unreal Gold
    data. Keep this map/script path separate from owner-supplied KHG AVI tests;
    add authoritative loading visibility without double-running script UI.
-3. Rebuild the shared data-free browser artifact and matching corresponding
-   source from the final clean integration commit. Have the actual source offer,
-   hosting terms, notices, and redistribution model reviewed by a responsible
-   human/legal reviewer.
+3. Keep the deployed data-free browser artifact and matching corresponding
+   source reproducible from the exact clean release commit. Have the actual
+   source offer, hosting terms, notices, and redistribution model reviewed by a
+   responsible human/legal reviewer.
 4. Test real user-owned UT99 and Unreal Gold imports, persistence, save/quit,
    flat fallback, and XR enter/exit/re-entry at the final origin. Keep all demo
-   support local-import-only; separately resolve Unreal 205 `TravelItems` and
-   validate every demo before advertising compatibility.
+   support local-import-only; determine whether Unreal 205's missing `UPak`
+   dependency can come from a lawful original artifact, and validate every demo
+   before advertising compatibility.
 5. Run the headset matrix: stereo/FOV, head pose, both controller mappings,
    disconnect/blur, menu laser/contact, mouse fallback, intro/menu ordering,
    audio, and return to desktop mode.
-6. Publish under `/webxr/Ports/SurrealEngine/` only after those hardware and
-   legal-data gates pass. Electron remains an optional flat wrapper.
+6. Keep `/webxr/Ports/SurrealEngine/` visibly labeled as an experimental
+   preview until the hardware and legal-data gates pass. Electron remains an
+   optional flat wrapper.
 7. Run the native flat, native OpenXR, flat WebGPU, WebXR, Deus Ex, Unreal Gold,
    and deterministic-bot regression matrix before retiring any old worktree.
 8. Audit each possible upstream contribution independently against current

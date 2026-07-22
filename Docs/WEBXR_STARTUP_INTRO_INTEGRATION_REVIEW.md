@@ -104,6 +104,7 @@ physical Quest:
 - controller/laser/contact alignment, mouse fallback, exit, and re-entry; and
 - flat mode after leaving XR.
 
-The Unreal 205 demo remains blocked by its separately owned serialization
-investigation. Demo descriptors remain experimental and local-import-only
-unless their independent compatibility and distribution gates are satisfied.
+The Unreal 205 demo passes the two isolated legacy serialization boundaries but
+remains blocked by its absent `UPak` content dependency. Demo descriptors remain
+experimental and local-import-only unless their independent compatibility and
+distribution gates are satisfied.
