@@ -27,6 +27,7 @@ public:
 
 	void DrawEditorViewport();
 	void DrawVideoFrame(FTextureInfo* frame, FTextureInfo* background);
+	void DrawVideoFrame(FTextureInfo* frame, FTextureInfo* background, const PresentationPlan& presentation);
 
 	void DrawGame(float levelTimeElapsed, const ViewFamily& viewFamily);
 	void OnMapLoaded();
@@ -47,6 +48,7 @@ public:
 	bool ShowTimedemoStats = false;
 	bool ShowRenderStats = false;
 	bool ShowCollisionDebug = false;
+	bool ShowMultiViewDiagnostic = false;
 
 	int TextureFrameCounter = 0;
 	int FrameCounter = 0;
@@ -104,6 +106,8 @@ private:
 	void DrawSceneView(const ViewDescription& view);
 	void DrawScene();
 	void DrawScene(const ViewFamily& viewFamily);
+	bool BeginPresentationLayer(const PresentationPlan& presentation, PresentationLayer layer);
+	void EndPresentationLayer(const PresentationPlan& presentation, PresentationLayer layer);
 
 	std::unique_ptr<LightmapTexture> CreateLightmapTexture();
 

@@ -3,6 +3,7 @@
 #include "Math/vec.h"
 #include "Math/mat.h"
 #include "Math/coords.h"
+#include "Render/Presentation.h"
 
 #include "UObject/UTexture.h"
 
@@ -121,6 +122,13 @@ public:
 	virtual void PrecacheTexture(FTextureInfo& Info, uint32_t PolyFlags) = 0;
 	virtual bool SupportsTextureFormat(TextureFormat Format) = 0;
 	virtual void UpdateTextureRect(FTextureInfo& Info, int U, int V, int UL, int VL) = 0;
+
+	// Called around each logical presentation layer. The default implementation
+	// accepts only the window target, so all existing backends remain unchanged.
+	// Presentation-aware backends override these methods to bind registered
+	// non-zero target slots and restore their state at the end of the layer.
+	virtual bool BeginPresentationLayer(const PresentationLayerDescription& layer) { return layer.Enabled && layer.Target.IsDefault(); }
+	virtual void EndPresentationLayer(const PresentationLayerDescription&) { }
 
 	bool ParseCommand(std::string* cmd, const std::string& keyword) { return false; }
 

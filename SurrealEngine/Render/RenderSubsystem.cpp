@@ -36,18 +36,34 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFam
 	Device->Lock(vec4(flashScale, 1.0f), vec4(flashFog, 1.0f), vec4(0.0f), nullptr, nullptr);
 
 	ResetCanvas();
-	PreRender();
+	if (BeginPresentationLayer(viewFamily.Presentation, PresentationLayer::UserInterface))
+	{
+		PreRender();
+		EndPresentationLayer(viewFamily.Presentation, PresentationLayer::UserInterface);
+	}
 
 	if (engine->LaunchInfo.ue1Version <= 219 || engine->console->bNoDrawWorld() == false)
 	{
-		DrawScene(viewFamily);
-		RenderOverlays();
-		if (engine->LaunchInfo.IsDeusEx())
-			PostRenderFlash();
-		Device->EndFlash();
+		if (BeginPresentationLayer(viewFamily.Presentation, PresentationLayer::World))
+		{
+			DrawScene(viewFamily);
+			EndPresentationLayer(viewFamily.Presentation, PresentationLayer::World);
+		}
+		if (BeginPresentationLayer(viewFamily.Presentation, PresentationLayer::WeaponOverlay))
+		{
+			RenderOverlays();
+			if (engine->LaunchInfo.IsDeusEx())
+				PostRenderFlash();
+			Device->EndFlash();
+			EndPresentationLayer(viewFamily.Presentation, PresentationLayer::WeaponOverlay);
+		}
 	}
 
-	PostRender();
+	if (BeginPresentationLayer(viewFamily.Presentation, PresentationLayer::UserInterface))
+	{
+		PostRender();
+		EndPresentationLayer(viewFamily.Presentation, PresentationLayer::UserInterface);
+	}
 
 	Device->Unlock(true);
 }
@@ -60,11 +76,21 @@ void RenderSubsystem::DrawEditorViewport()
 
 void RenderSubsystem::DrawVideoFrame(FTextureInfo* frame, FTextureInfo* background)
 {
+	DrawVideoFrame(frame, background, {});
+}
+
+void RenderSubsystem::DrawVideoFrame(FTextureInfo* frame, FTextureInfo* background, const PresentationPlan& presentation)
+{
 	vec3 flashScale = 0.5f;
 	vec3 flashFog = vec3(0.0f, 0.0f, 0.0f);
 	Device->Brightness = 0.4f;// engine->client->Brightness;
 	Device->Lock(vec4(flashScale, 1.0f), vec4(flashFog, 1.0f), vec4(0.0f), nullptr, nullptr);
 	ResetCanvas();
+	if (!BeginPresentationLayer(presentation, PresentationLayer::Cinematic))
+	{
+		Device->Unlock(true);
+		return;
+	}
 	Device->SetSceneNode(&Canvas.Frame);
 
 	float sizeX = (float)(int)(engine->viewport->ViewportWidth() / (float)Canvas.uiscale);
@@ -86,7 +112,18 @@ void RenderSubsystem::DrawVideoFrame(FTextureInfo* frame, FTextureInfo* backgrou
 	}
 
 	Device->EndFlash();
+	EndPresentationLayer(presentation, PresentationLayer::Cinematic);
 	Device->Unlock(true);
+}
+
+bool RenderSubsystem::BeginPresentationLayer(const PresentationPlan& presentation, PresentationLayer layer)
+{
+	return Device->BeginPresentationLayer(presentation.GetLayer(layer));
+}
+
+void RenderSubsystem::EndPresentationLayer(const PresentationPlan& presentation, PresentationLayer layer)
+{
+	Device->EndPresentationLayer(presentation.GetLayer(layer));
 }
 
 void RenderSubsystem::UpdateTexture(UTexture* tex)

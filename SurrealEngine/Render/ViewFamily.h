@@ -3,6 +3,7 @@
 #include "Math/coords.h"
 #include "Math/mat.h"
 #include "Math/vec.h"
+#include "Render/Presentation.h"
 #include "Utils/Array.h"
 
 struct ViewRect
@@ -32,12 +33,17 @@ struct ViewDescription
 	bool ApplyGameViewport = false;
 };
 
-// All views in a family render the same simulation state into the render
-// device's currently selected target. Target selection and presentation remain
-// render-backend responsibilities and are intentionally not encoded here.
-// Existing PreRender, overlays, and PostRender still run once per family; a
-// later presentation layer can define how those results are repeated per view.
+// All views in a family render the same simulation state. Presentation maps
+// the family's logical layers to output slots without exposing OpenXR, WebXR,
+// or backend-native image types to engine code. PreRender, overlays, and
+// PostRender continue to run once per family.
 struct ViewFamily
 {
 	Array<ViewDescription> Views;
+	PresentationPlan Presentation;
 };
+
+// Creates a provider-free multi-view diagnostic. It splits the supplied
+// viewport horizontally and offsets the two cameras along the view's lateral
+// axis. Invalid or one-pixel viewports safely remain a single view.
+ViewFamily CreateSideBySideDiagnosticViewFamily(const ViewDescription& centerView, float eyeSeparation = 4.0f);
