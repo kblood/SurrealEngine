@@ -19,6 +19,12 @@ and branch preservation. Three subagents own isolated topic worktrees.
 6. When one agent finishes early, it receives the next task whose dependencies
    are already complete. It does not start speculative work from an unstable
    sibling branch.
+7. Agent completion means a topic is available for review, not ready for an
+   upstream PR. The user must understand every changed line and verify the
+   claimed behavior on current upstream.
+8. Upstream candidates contain one independently useful correction, a concise
+   reproduction, focused evidence, human-curated history, and no integration
+   plans or unrelated refactors.
 
 ## Wave 2: completed
 

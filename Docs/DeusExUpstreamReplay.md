@@ -13,10 +13,13 @@ ignored vertical-only motion. The new predicates accept movement on any axis
 that is meaningful to the physics mode, with focused regression coverage for
 stationary, cardinal-axis, diagonal, and vertical-only inputs.
 
-This slice is based directly on `origin/master` at
+This slice was reconstructed directly on `origin/master` at
 `891082d9f05a0f7b9ffcb4f65c9653f36fce5613`. It has no dependency on the game
 support registry or on Deus Ex-specific code. It can be reviewed and merged as
-an independent upstream PR. The integration branch may merge it alongside
+an independent topic. It is not automatically ready for an upstream PR: first
+rebase or reconstruct it on current `dpjudas/master`, confirm the bug remains,
+record a manual gameplay reproduction and before/after result, and inspect every
+changed line. The integration branch may merge it alongside
 `pr/game-support-registry` in either order.
 
 Validation on Windows x64 Release:
@@ -48,6 +51,10 @@ checkpoints. They should not be replayed as a single chain.
 | `e2807b67` | Unification handoff | Keep only on the preserved feature line. |
 
 ## Recommended next slices
+
+These are extraction candidates, not a PR backlog. Each must independently pass
+the current-upstream, reproduction, manual-understanding, narrow-diff, and
+focused-validation gates in `UpstreamCoordination.md`.
 
 1. Extract the generic property-serialization correction and
    `DXPropertySerializationTests` from `27644b50`, renaming the test to describe

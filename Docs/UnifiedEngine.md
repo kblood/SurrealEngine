@@ -8,6 +8,9 @@ their development branches into one unreviewable fork.
 
 - `pr/*` branches are small upstream-facing topics. They stay separate and are
   never created from the integration branch.
+- A topic is only an upstream candidate after it has been checked against
+  current `dpjudas/master`, manually understood line by line, reproduced, and
+  supported by focused evidence. Agent completion alone never makes a PR ready.
 - `integration/unified-engine` combines accepted topic commits and is used for
   cross-feature builds and runtime testing. It is not a pull-request source.
 - Release branches, especially the tagged UT99 VR release, remain independent
@@ -147,10 +150,12 @@ textures or existing UWindow input.
   integrated. Live WebXR input consumption, OpenXR-to-XRCommon adaptation, and
   existing menu/cinematic render/input adapters remain separate topics.
 
-The upstream repository is active. `Docs/UpstreamCoordination.md` records the
-public Discord contact route, the relationship to SurrealGPU/SurrealWidgets,
-and the human-curated bugfix-first PR strategy derived from upstream review of
-the rejected combined VR pull request. No upstream contact or PR has been made.
+The upstream repository is active. Contact in the public Discord on 2026-07-22
+confirmed that small bug fixes and improvements are welcome when maintainers can
+evaluate them and the contributor personally understands their effect. Large AI
+refactors and unowned agent output are not wanted. `Docs/UpstreamCoordination.md`
+records that policy, the relationship to SurrealGPU/SurrealWidgets, and the
+human-curated bugfix-first PR strategy. No upstream PR has been opened.
 
 ## Next integration gates
 
@@ -168,3 +173,6 @@ the rejected combined VR pull request. No upstream contact or PR has been made.
    legal-data gates pass. Electron remains an optional flat wrapper.
 5. Run the native flat, native OpenXR, flat WebGPU, WebXR, Deus Ex, Unreal Gold,
    and deterministic-bot regression matrix before retiring any old worktree.
+6. Audit each possible upstream contribution independently against current
+   upstream. Select the smallest manually reproducible Deus Ex or generic UE1
+   correctness fix first; do not submit the integration architecture.

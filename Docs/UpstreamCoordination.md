@@ -3,8 +3,10 @@
 Date: 2026-07-22
 
 This note records how the native XR, WebAssembly/WebGPU/WebXR, Deus Ex, and bot
-work should be presented to the original Surreal Engine maintainer. It is an
-outreach plan, not permission to post or open a pull request.
+work should be presented to the original Surreal Engine maintainer. Contact was
+made in the public project Discord on 2026-07-22. This document records the
+resulting contribution policy; it is not permission to post or open a pull
+request.
 
 ## Public project and contact evidence
 
@@ -16,11 +18,35 @@ does provide the project's public [Discord invitation](https://discord.gg/5AEry4
 The repository has GitHub Issues and Discussions disabled, while pull requests
 are active and regularly reviewed.
 
-Use the project's public Discord development channel for the broad architecture
-question, then use focused draft pull requests for concrete finished work. Do
-not hijack another contributor's pull request, scrape a commit email, seek
-non-public contact information, or send an unsolicited private message when a
-public project channel is available.
+Use the project's public Discord development channel only when further broad
+direction is genuinely needed, then use focused pull requests for concrete
+finished work. Do not hijack another contributor's pull request, scrape a
+commit email, seek non-public contact information, or send an unsolicited
+private message when a public project channel is available.
+
+## Maintainer response and governing policy
+
+Magnus responded that large AI refactoring is not where he wants to take
+Surreal Engine. He also clarified that the project has no formal task backlog,
+but bug fixes and improvements are welcome when each PR is small enough for the
+maintainers to evaluate and decide whether they trust it. His primary AI concern
+is contributors submitting changes they do not understand. He explicitly
+confirmed that AI-assisted contributions can be accepted when that is not the
+case.
+
+Treat this as a human-ownership requirement, not merely a diff-size limit. The
+contributor must personally understand every changed line, reproduce the
+problem on current upstream, explain the correction and its assumptions, and
+verify the claimed behavior. An agent may investigate, implement, and test, but
+its output is evidence to review, not an upstream-ready contribution by
+default.
+
+Maintain two separate tracks:
+
+1. `integration/unified-engine` is the experimental product branch where the
+   features can be exercised together. It is never an upstream PR source.
+2. Each upstream candidate starts from current `dpjudas/master` and contains
+   one independently useful, human-reviewed correction or improvement.
 
 ## Most relevant sibling repositories
 
@@ -88,37 +114,9 @@ speculative engine seams.
    game profiles separate. Game correctness and bot test work remain unrelated
    PR series.
 
-## Proposed Discord message
+## Upstream candidate gate
 
-Post this in the server's appropriate development channel and link the detailed
-roadmap only if requested:
-
-> Hi Magnus. I am maintaining a Surreal Engine fork that experiments with native
-> OpenXR, flat WASM/WebGPU, optional WebXR, Deus Ex support, and bot test work. I
-> read your review of PR #288 and agree that none of this should arrive as one
-> feature branch.
->
-> We have been reconstructing it as independent, provider-neutral topics with
-> desktop behavior left as the default: frame phases, view families,
-> presentation layers, input-source composition, and only then separate OpenXR
-> and WebXR providers. Platform handles do not enter the shared contracts. The
-> work has been AI-assisted, but I will own and manually review every submitted
-> diff and present human-curated PRs rather than raw agent output.
->
-> Before submitting architectural changes, I would value your direction on
-> three boundaries: should browser WebGPU initially remain a Surreal Engine
-> RenderDevice or target the newer SurrealGPU API; should generic Emscripten
-> window changes go through SurrealWidgets first; and does a frame/view/layer
-> seam fit the direction you want for the engine? I plan to begin GitHub work
-> with one small proven gameplay correctness fix, not XR.
-
-Keep the Discord conversation at the boundary/PR-order level. Do not paste the
-full roadmap or source dump. A first bug-fix PR should discuss only its own
-reproduction, root cause, fix, test, and non-goals.
-
-## Pre-contact gate
-
-Before contacting upstream:
+Before proposing any upstream PR:
 
 - rebase or replay the chosen first topic on current `origin/master`;
 - inspect every changed line manually;
@@ -126,6 +124,9 @@ Before contacting upstream:
 - state the observable behavior preserved or corrected;
 - provide the shortest reproducible build/test command;
 - verify that the topic contains no integration-only files or unrelated docs;
-- disclose AI assistance without asking the maintainer to audit raw agent work;
-- ask the repository owner for architectural direction rather than presenting a
-  completed multi-year roadmap as a fait accompli.
+- verify manually that the user understands every changed line and can answer
+  review questions about the mechanism and tradeoffs;
+- disclose AI assistance truthfully when relevant without asking the maintainer
+  to audit raw agent work;
+- keep experimental architecture on the fork unless a small independent seam
+  has clear upstream value and sufficient evidence.
