@@ -23,6 +23,8 @@ new blockers.
 - Normal title-menu entry into Training and mission-state-machine startup.
 - Cardinal-axis actor movement for walking, swimming, and flying.
 - Highlight and frob Training's first mover through the stock right-click path.
+- Training reception-room view control, decoration frobbing, nanokey pickup,
+  and stair traversal.
 
 ## Current work
 

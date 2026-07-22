@@ -44,11 +44,25 @@ object. A one-run diagnostic confirmed that the right-click press and release
 both targeted `DeusExMover16`; the stock `Frob` path opened the mover without a
 new native implementation. The diagnostic logging was then removed.
 
+Past the door, the stock keyboard turn, look-down, look-up, and center-view
+bindings make background navigation possible without raw mouse input. The
+reception desk's lamp highlights and responds to right-click, the level-1
+nanokey can be separately targeted and disappears through its stock pickup
+path, and walking climbs the stairs to the next door. This confirms decoration
+frobbing, a small-inventory pickup, view rotation, pitch, and stair stepping in
+the first room.
+
 ## Current boundary
 
-Continue through the first room and isolate the first actual exercise failure.
-The camera can currently be driven reliably with movement plus keyboard turn
-bindings; background raw-mouse look is intentionally unavailable because the
+Precisely reacquire and open the door at the top of the stairs, then continue to
+the first exercise. A manual run reached the door and rendered its `Unlocked`
+status, but the automated replay did not put that mover in `FrobTarget`; its
+only diagnostic entry was the already working first door. There is therefore
+not yet evidence of a mover/interpolation defect. The next run must separate
+camera alignment and nanokey state from door behavior before changing code.
+
+The camera can be driven reliably with movement plus keyboard turn/look
+bindings. Background raw-mouse look is intentionally unavailable because the
 window never takes focus.
 
 Startup also logs several known missing natives that are likely to matter later
@@ -73,7 +87,10 @@ to the native and its reference semantics have been established.
 - [x] Render the starting room, HUD, and first mission message.
 - [x] Move on a single cardinal input axis.
 - [x] Open and cross the first Training door.
-- [ ] Exercise object frobbing, pickup, inventory, and DataCube text.
+- [x] Frob a decoration and pick up the reception-desk nanokey.
+- [x] Climb the first stairway.
+- [ ] Open the door at the top of the stairs.
+- [ ] Exercise general inventory and DataCube text.
 - [ ] Complete movement, lockpick, multitool, stealth, weapon, and demolition
   exercises.
 - [ ] Complete Training and validate scripted travel back to the title/campaign
