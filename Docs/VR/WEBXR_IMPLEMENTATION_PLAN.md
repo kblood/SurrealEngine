@@ -64,9 +64,10 @@ active work — same pattern the native VR plan follows.
     audited no-preload artifact exist. A real full-data import, physical audio/
     storage qualification, fuller launcher UX, and HTTPS/headset PWA validation
     remain; deterministic staging and deployment tests pass.
-11. **M11: performance/release. IN PROGRESS.** Lifecycle automation and the
-    reproducible software-artifact gate exist; physical Quest profiling,
-    compatibility, sleep/wake, soak, and final qualification remain.
+11. **M11: performance/release. IN PROGRESS.** Lifecycle automation, a strict
+    versioned desktop/IWER profiling harness, and the reproducible software-
+    artifact gate exist; physical Quest GPU/thermal profiling, compatibility,
+    sleep/wake, soak, and final qualification remain.
 
 ## M1: Emscripten build harness — ground truth (recon results)
 
@@ -1684,3 +1685,57 @@ The shell change bumps the service-worker version to
 `2026.07.22-m10.4`. The WebXR smoke now deterministically tests lifecycle-only,
 native-preflight, insecure-context, and missing-binding readiness policy before
 running the existing full session/stereo/lifecycle suite.
+
+The exact user environment is now recorded in
+`WEBXR_BRAVE_VDXR_TEST_MATRIX.md`. Windows selects Virtual Desktop's OpenXR
+manifest, and the local VDXR log identifies VirtualDesktopOpenXR 1.0.10,
+Streamer 1.34.18, Quest 3, and a Chromium 150 OpenXR instance. That makes the
+ordinary immersive route credible. The remaining unknown is narrower:
+experimental `XRGPUBinding` session/device pairing, projection-layer creation,
+and successful game-frame submission. The matrix records the dedicated Brave
+launch command, exact native phase/blocker meanings, browser-console capture,
+and VDXR log/overlay evidence required for the next attempt.
+
+## M11 repeatable performance harness (2026-07-22)
+
+Commit `df25fa36` adds `web/profile_webxr.py`, its pure report/validation module,
+the browser timing probe, 11 deterministic tests, and
+`WEBXR_PERFORMANCE_HARNESS.md`. The Playwright/IWER run writes schema-v1 JSON and
+text reports containing desktop/IWER RAF interval percentiles and 72/80/90 Hz
+misses, engine/XR rates, WebGPU and HUD/weapon counters, Wasm/JS memory, long
+tasks/event-loop samples, lifecycle/errors, exact browser/build identity, and
+raw observations. Validation rejects missing/non-finite data, stalled counters,
+missing render activity, browser/WebGPU errors, invalid boot/session state, and
+reserved native-route query overrides.
+
+A real data-backed Deck16 harness validation used one second of warmup and
+three seconds of sampling. It passed with 13 samples, 59.89 engine ticks/s,
+59.89 IWER frames/s, 95 draws per sampled frame, a 256 MiB Wasm heap, no long
+tasks, and zero WebGPU errors. Approximately 60 Hz desktop/IWER scheduling
+missed the 72/80/90 Hz budgets, as expected. Every report is prominently scoped
+as desktop Chrome + IWER and not a Quest result: it contains no headset GPU,
+compositor, thermal, power, reprojection, motion-to-photon, or comfort evidence.
+
+## Stock authoritative muzzle-origin audit (2026-07-22)
+
+The complete design and fixture inventory are in
+`WEBXR_MUZZLE_ORIGIN_PLAN.md`. The audit covers the locally loaded retail GOG
+`BotPack.u` (`B1365300C9B4111D30159F64E57628257FFFD172`) and rejects the sibling
+worktree's generic `CalcDrawOffset` replacement: stock code adds rotated
+`FireOffset` afterward, yielding a double offset, while Sniper does not call
+`CalcDrawOffset` at all. Cosmetic/damage-time calls also make a global result
+replacement unsafe.
+
+The selected architecture retains the existing exact, re-entrant fire-path
+classifier and adds a scoped authoritative-fire context, a post-result observer
+for qualified `CalcDrawOffset` calls, and mutable-argument translation only at
+exact `Pawn.TraceShot`, `Actor.Trace`, and expected-projectile `Actor.Spawn`
+sinks. Translating both trace endpoints by the same delta preserves direction;
+translating each final projectile location preserves Pulse orbit, Flak cluster,
+Eightball ring/random, spread, autoaim, toss, and charge behavior. It never
+moves `Pawn.Location` or globally mutates `FireOffset`.
+
+No gameplay-origin implementation is enabled yet. Package/class-qualified
+muzzle calibration, wall obstruction clamping, the complete stock-path fixture
+matrix, guided Redeemer policy, and physical Quest alignment are prerequisites.
+The visual grip fallback remains deliberately non-authoritative.

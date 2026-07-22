@@ -10,7 +10,11 @@ This is the standalone execution plan. `WEBXR_IMPLEMENTATION_PLAN.md` remains
 the chronological engineering journal with the detailed M1–M4 investigation,
 failed probes, measurements, and implementation notes. `WEBXR_PORT_PLAN.md`
 records the earlier architecture decision that selected the Emscripten +
-WebGPU port over a ground-up Three.js rewrite.
+WebGPU port over a ground-up Three.js rewrite. The exact stock firing-origin
+design and its per-weapon fixture matrix are maintained in
+`WEBXR_MUZZLE_ORIGIN_PLAN.md`; the repeatable desktop/IWER profiling workflow
+is maintained in `WEBXR_PERFORMANCE_HARNESS.md`; and the exact physical PC
+Brave/Virtual Desktop route is maintained in `WEBXR_BRAVE_VDXR_TEST_MATRIX.md`.
 
 ## 1. Product definition and non-negotiable constraints
 
@@ -77,7 +81,7 @@ XRSession.requestAnimationFrame
 | M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, narrowly scoped controller-relative visual position with safe zero-offset fallback, a real loaded Botpack ShockRifle fixture, confirmed fire/damage/pickup/menu-confirm haptics, and browser-persisted VR controls are implemented; qualified per-weapon offsets, muzzle origin, two-hand UX, automatic/special fixtures, safe-exit UX, and headset validation remain |
 | M9 — UI/comfort/VR presentation | In progress | HUD plus console/menu 2D output is captured once and replayed per eye on a finite-depth plane, including UI-only frames. Dominant-hand aim drives UT's absolute cursor, a menu-gated trigger safely selects without firing behind the menu, and stick/D-pad focus navigation now routes through stock console key events while suppressing gameplay input. Strict plane settings have a validated persistent browser panel; actor-style canvas draws, pointer-loss UX, recenter UX, comfort policies, complete loading/pause presentation, and headset readability remain |
 | M10 — audio/data/network/deploy | In progress | Real Web Audio output, tracked-head listener, no-data builds, local OPFS/IndexedDB UT99 import, allowlisted mutable settings/save/log persistence, an installable PWA, an offline-only browser MVP scope, and fail-closed release staging/auditing are implemented; real full-install import, abrupt-termination/storage tests, fuller launcher UX, production HTTPS/Quest installation, and physical audio/storage validation remain |
-| M11 — performance/robustness/release | In progress | Automated session/lifecycle/device-loss coverage and a reproducible 83-check no-commercial-data release gate exist; Quest profiling, headset lifecycle, compatibility, soak, and physical release gates remain |
+| M11 — performance/robustness/release | In progress | Automated session/lifecycle/device-loss coverage, a strict versioned desktop/IWER profiler, and a reproducible 83-check no-commercial-data release gate exist; physical Quest GPU/thermal profiling, headset lifecycle, compatibility, soak, and release gates remain |
 
 ## 3. M0 — architecture and platform gate
 
@@ -98,6 +102,10 @@ XRSession.requestAnimationFrame
 Before claiming general availability, verify all of the following on the
 actual target browser and headset:
 
+- For the current PC Brave/Virtual Desktop route, follow
+  `WEBXR_BRAVE_VDXR_TEST_MATRIX.md`. The machine's active OpenXR runtime and VDXR
+  log prove the base Chromium/OpenXR/Quest route, while WebGPU projection-layer
+  acceptance remains the unproven compatibility gate.
 - `navigator.gpu.requestAdapter({xrCompatible:true})` returns an adapter.
 - `navigator.xr.isSessionSupported("immersive-vr")` succeeds.
 - `XRGPUBinding` is exposed without developer-only flags.
@@ -1278,6 +1286,23 @@ Profile on the actual standalone Quest target, not desktop Chrome only:
 - Investigate the existing pthread + memory-growth warning; choose a bounded
   initial/maximum memory strategy if growth causes unacceptable stalls.
 
+The repeatable development harness is implemented in `web/profile_webxr.py`
+(commit `df25fa36`) and documented in `WEBXR_PERFORMANCE_HARNESS.md`. It records
+desktop window and IWER XR RAF percentiles/missed 72/80/90 Hz budgets, engine
+ticks, WebGPU counters/errors, HUD/weapon counters, Wasm/JS heap, long tasks,
+event-loop delay, lifecycle state, browser/build identity, and raw samples in a
+versioned JSON report plus a text summary. Validation fails closed on stalled or
+missing/non-finite counters, absent WebGPU work, browser/GPU errors, lifecycle
+failure, or an invalid data-backed boot.
+
+A short Deck16 integration run passed with 13 samples, 59.89 engine ticks/s,
+59.89 IWER frames/s, 95 draws per sampled frame, a 256 MiB Wasm heap, no long
+tasks, and zero WebGPU errors. It scheduled at approximately 60 Hz and therefore
+missed the 72/80/90 Hz budgets. This proves the harness and report path only:
+IWER supplies no Quest GPU time, compositor timing, thermal, reprojection,
+motion-to-photon, power, or comfort evidence. Never treat this run as a headset
+performance result.
+
 ### 14.2 Robustness matrix
 
 Automated browser coverage now includes three clean session generations,
@@ -1354,14 +1379,14 @@ tests.
 | M0/M6 platform | Native Quest `XRGPUBinding` session, projection layer, real subimages, compositor output, and five-minute stability | Supported Quest Browser/Chromium build, declared flag policy, physical headset |
 | M7 tracking | Physical eye order, scale, parallax, recursive-scene, tracking-jump, seated/standing, collision-independence, and ten-minute comfort gates | Marker map, representative maps, headset report with browser/runtime versions |
 | M8 locomotion | Dedicated safe-exit UX, controller-profile verification, and hardware tuning for implemented body/head/dominant-hand movement plus recenter/menu actions; the strict browser settings profile is implemented | Real Quest input sources and headset tuning |
-| M8 weapon | Hardware-qualified viewmodel offsets/scale, verified muzzle/fire origin, dominant-hand UI, two-hand policy, guided-warhead policy, and automatic/special-weapon fixtures | The exact visual-only controller-position seam, immutable package/class schema, zero-offset fallback, and a deterministic loaded stock ShockRifle/DrawActor fixture are implemented; remaining work needs calibrated data, firing/muzzle fixtures, WebGPU mesh inspection, and headset/barrel alignment tests |
+| M8 weapon | Hardware-qualified viewmodel offsets/scale, verified muzzle/fire origin, dominant-hand UI, two-hand policy, guided-warhead policy, and automatic/special-weapon fixtures | The exact visual-only controller-position seam, immutable package/class schema, zero-offset fallback, and a deterministic loaded stock ShockRifle/DrawActor fixture are implemented. `WEBXR_MUZZLE_ORIGIN_PLAN.md` defines the audited result-aware trace/spawn design; remaining work needs calibrated authoritative data, its firing fixtures, obstruction policy, WebGPU mesh inspection, and headset/barrel alignment tests |
 | M8 haptics | Per-weapon tuning, hooks for direct health/custom pickup paths that bypass audited calls, and physical latency/source-loss tests; confirmed fire/damage/pickup/UI outcomes and persisted enable UI are implemented | Representative mods/weapons and real actuator hardware |
 | M8 networking | **MVP decision complete:** offline/single-player/local-bot browser release; multiplayer and independent hand-aim replication are explicitly unsupported | Reopen only after a qualified native replication layer plus browser relay/protocol project; stock body/view rotation is insufficient |
 | M9 UI/comfort | Physically validate capture-once console/menu, UI-only frames, dominant-hand cursor ray, safe menu-gated trigger, and focus navigation; add pointer-loss UX and unsupported actor draws; finish readable scale, weapon placement tuning, vignette/comfort policies, recenter, and loading/pause presentation | Actor-draw strategy, per-eye headset inspection, 30-minute comfort session |
 | M10 audio | Physically validate the implemented tracked-head listener: gesture unlock, head-relative direction/roll, Doppler and reset policy, focus/session re-entry, music, effects, volume, map changes, underruns, and shutdown | Real Quest Browser audio lifecycle and representative maps/sounds |
 | M10 data | Import a complete user-owned install into the audited no-preload artifact; verify playable clean-profile boot, large-copy quota/progress, restart/eviction/corruption and abrupt-kill recovery, custom save-path policy, and schema migration. Strict config/VR/save/log persistence is implemented | User-owned UT99 installation, clean desktop/Quest browser profiles, Quest storage/browser support matrix |
 | M10 product | Extend the tested installable shell/settings UI into a full map/game/crash-diagnostics launcher; validate HTTPS/COOP/COEP deployment, Quest install/update/offline behavior, rollback, and license audit. Deterministic staging and the proprietary-content scan are implemented | Production hosting target, Quest Browser, independent manifest/license review |
-| M11 performance | 72 Hz minimum target qualification, CPU/GPU/memory/GC traces, render-scale/foveation decisions, pthread memory strategy | Quest hardware, acceptance/stress map set, repeatable profiling harness |
+| M11 performance | 72 Hz minimum target qualification, Quest CPU/GPU/memory/GC traces, render-scale/foveation decisions, pthread memory strategy | The strict desktop/IWER profiler is implemented and validated; remaining evidence needs Quest hardware plus an acceptance/stress map set |
 | M11 release | Compatibility matrix, sleep/wake and failure recovery, three entry cycles, 60-minute soak, and independent final manifest/license review; reproducible staging/auditing is implemented | Release browser/runtime versions, physical test reports, clean profile/import path |
 
 ### 15.1 Read-only reuse audit of the native VR worktree
@@ -1564,8 +1589,10 @@ scale, frame rate, and error counters.
    composition, scoped weapon direction/presentation and visual-only grip
    position, per-eye weapon dispatch,
    confirmed fire/damage/pickup/menu haptics, and persistent browser controls
-   are complete. Next add hardware-qualified viewmodel offsets/scale,
-   two-hand policy, verified muzzle origin, automatic/special weapon fixtures, per-weapon
+   and a loaded stock ShockRifle visual fixture are complete. Next add
+   hardware-qualified viewmodel offsets/scale, the result-aware authoritative
+   firing seam in `WEBXR_MUZZLE_ORIGIN_PLAN.md`, two-hand policy,
+   automatic/special weapon fixtures, per-weapon
    haptic tuning, safe-exit UX, hardware profile verification, and headset
    tuning.
 8. **In progress:** essential HUD/crosshair state is captured once and replayed
@@ -1574,8 +1601,9 @@ scale, frame rate, and error counters.
    presentations without layer clears. Enable/distance/FOV/aspect/safe-area
    settings, persistent browser UI, a shared-plane controller cursor, safe
    menu-gated trigger selection, and a zero-work disabled lifecycle also pass
-   automation. Next add stick/D-pad navigation, pointer-loss UX, unsupported
-   actor-draw handling, recenter UX, comfort/vignette, loading/pause, and
+   automation. Stick/D-pad focus navigation also passes deterministic and live
+   browser coverage. Next add pointer-loss UX, unsupported actor-draw handling,
+   recenter UX, comfort/vignette, loading/pause, and
    physical tuning/readability/fusion tests.
 9. **In progress:** the local schema-v1 OPFS/IndexedDB importer passes 13/13
    synthetic tests, and a real no-preload artifact in a clean profile reaches
@@ -1590,8 +1618,10 @@ scale, frame rate, and error counters.
    with zero errors/warnings. Next validate production HTTPS and Quest
    install/update/offline paths, finish the map/game/crash launcher, and perform
    the independent license/manifest review.
-10. Finish M6/M7 headset gates and M11 profiling/soak/compatibility gates from
-    physical Quest traces, then qualify a release.
+10. **In progress:** use the committed strict M11 desktop/IWER profiler for
+    repeatable development comparisons, then finish M6/M7 headset gates and
+    M11 GPU/thermal/performance, soak, and compatibility gates from physical
+    Quest traces before qualifying a release.
 
 ## 18. Authoritative browser references
 
