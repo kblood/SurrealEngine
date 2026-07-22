@@ -1,7 +1,7 @@
 # Deus Ex text module extraction
 
 This branch is the first explicitly Deus Ex-owned implementation stacked on
-`pr/game-support-registry` at `ff175b0aa9da81d68331933f59140920146dc106`.
+`pr/game-support-registry` at `2ccdb1d8cc62d8f0f0766294651889c0faaf5782`.
 The registry already confines the Deus Ex text native registration to the
 `DeusEx` game descriptor; this slice adds no game-name conditionals to the
 engine loop, renderer, input system, or platform layer.
