@@ -74,7 +74,7 @@ XRSession.requestAnimationFrame
 | M5 — frame/view refactor | Complete (diagnostic projections) | One simulation tick now renders two independently selected texture-array layers; real `XRView` data starts M6 |
 | M6 — native WebGPU XR session | Implementation complete; headset validation gated | Packed ABI, preferred-format pipeline families, synchronous renderer, and hardened production session/RAF lifecycle are implemented; real `XRGPUBinding` compositor presentation still requires a supported runtime |
 | M7 — tracking/camera/world scale | Deterministic implementation complete; headset validation gated | 6DoF pose conversion, body/head composition, recentering, world scale, and exact per-eye projection are implemented; physical scale and scene correctness remain to validate |
-| M8 — controller input/gameplay | In progress | ABI v2 controller collection, tracked poses, analog state, edge-safe UE1 joystick mapping, and disconnect clearing are implemented; bindings, locomotion, weapon aim, haptics, and headset validation remain |
+| M8 — controller input/gameplay | In progress | ABI v2 input, remappable Quest defaults, full-scale locomotion, snap/smooth turn seams, and a safe browser haptics queue are implemented; world-composed hands, fire/weapon hooks, event-to-haptics wiring, menu/recenter actions, and headset validation remain |
 | M9 — UI/comfort/VR presentation | Not started | HUD, menus, weapon model, recenter and comfort controls |
 | M10 — audio/data/network/deploy | In progress | Real OpenAL/Web Audio output, gesture/lifecycle policy, and redistributable no-data builds work; importer, persistence, deployment, networking scope, and head-pose listener remain |
 | M11 — performance/robustness/release | In progress | Automated session-generation, visibility, setup-failure, shutdown, and device-loss coverage exists; Quest profiling, headset lifecycle, compatibility, and release gates remain |
@@ -558,12 +558,28 @@ Current implementation:
   `Joy7`–`Joy12`, and thumbsticks to `JoyX/Y/U/V` with correct edge/release
   behavior through the existing remappable keybinding layer; and
 - publishes an empty new generation on disconnect/session reset so no held
-  button or axis can stick.
+  button or axis can stick;
+- installs runtime-only Quest defaults only for blank `Joy*` bindings, copying
+  the user's existing mouse/keyboard commands where possible while preserving
+  every explicit Joy binding;
+- expands normalized left-stick input through `JoyX/JoyY` to UE1's expected
+  full-scale 7000 movement domain; and
+- defaults the right stick to a 30-degree snap turn with threshold/rearm
+  hysteresis, while exposing configurable Smooth, Binding, and Disabled modes.
+  Turning changes body/view yaw only before tracked head composition; it never
+  writes pitch, roll, position, physics, or collision.
 
-Still missing in this subsection: ship a documented default Quest binding,
-implement snap/smooth turn and head/hand-relative locomotion policy, connect
-menu/recenter/exit actions without using reserved system buttons, and validate
-source loss/reconnect and handedness changes on a headset.
+Native/Emscripten builds, the complete default Playwright suite, and a direct
+locomotion self-test pass. Remaining input/locomotion work is:
+
+- add head-relative and hand-relative movement choices instead of only the
+  current body-yaw-relative UE1 movement convention;
+- persist settings through M10 and expose them through M9 UI;
+- bind recenter, pause/menu, and safe exit without consuming a reserved system
+  button;
+- verify axis/button indices with real Quest input profiles and hardware; and
+- tune speed, snap angle, smooth-turn rate, dominant hand, and accessibility
+  fallbacks in-headset.
 
 ### 11.3 Weapon aiming
 
@@ -575,12 +591,54 @@ source loss/reconnect and handedness changes on a headset.
 - Define two-handed weapons and physical reload as post-MVP features unless
   specifically approved.
 
+The 2026-07-22 call-path audit establishes the implementation sequence:
+
+1. Refactor M7's WebXR-to-UE1 conversion, recenter origin, scale, and body-yaw
+   composition into a shared pose helper. Compose controller aim/grip poses
+   before simulation input and publish world position, forward vector, and
+   UE1 rotator for the dominant hand. Raw reference-space poses are not safe
+   for gameplay use.
+2. Add an XR-only, re-entrant RAII scope seam around `Frame::Call`. When a
+   valid dominant aim pose exists for the local player's current weapon, save
+   `Pawn.ViewRotation`, substitute hand aim only for classified weapon calls,
+   then restore the byte-identical value on every exit path.
+3. Classify more than `TraceFire` and `ProjectileFire`. UT99 special paths
+   include Flak `Fire`/`AltFire`, Eightball `FireRockets.BeginState` and
+   `CheckTarget`, Translocator `ThrowTarget`, Chainsaw `Slash`, and Impact
+   Hammer `TraceAltFire`/firing `Tick`. Guided-warhead steering needs a
+   separate explicit policy.
+4. Add a weapon-only `RenderOverlays` pass for each XR eye. Layered stereo
+   currently suppresses all overlays, so no first-person weapon is rendered;
+   the full HUD/menu overlay remains M9.
+5. Treat a controller-origin firing ray as a later verified hook. Stock
+   weapons add different `FireOffset` terms, so a generic `CalcDrawOffset`
+   override can double-apply offsets. Use per-path evidence before changing
+   origin; direction-only controller aim is the safe first cut.
+
+Offline/standalone is the M8 target. Stock UT networking sends body/view
+rotation and cannot replicate independent hand aim without a protocol or
+replicated-state extension. M10 must either declare browser multiplayer out of
+scope or add that transport; M8 must not pretend restored local view rotation
+is remotely authoritative.
+
 ### 11.4 Haptics and optional hands
 
 - Use available gamepad haptic actuators for fire, pickup, damage, and UI
   confirmation with rate limiting and a disable option.
 - Articulated hand tracking is optional after controller MVP. Request it only
   as an optional feature and keep controller/gamepad fallback complete.
+
+Implemented browser foundation (2026-07-22): per-hand scalar pulse queues,
+`pulse()`/`playEffect()` actuator support, intensity/duration clamps, 50 ms
+rate limiting and coalescing, a disable switch, generation-safe dispatch, and
+clean drops for hidden/inactive sessions, source loss, unsupported actuators,
+and stale generations. The deterministic fake-actuator policy test passes all
+38 checks in both default and experimental Playwright runs.
+
+Still missing: C++/gameplay event-to-browser requests for fire, pickup, damage,
+and UI confirmation; user-setting persistence/UI; effect tuning; rejection and
+latency observation on real Quest actuators; and physical confirmation that no
+stale pulse is replayed after focus loss, disconnect, or session re-entry.
 
 ### Exit criterion
 
@@ -797,7 +855,33 @@ Release candidates require:
 - reproducible build and deployment instructions with no local absolute paths
   or proprietary assets.
 
-## 15. Cross-cutting implementation rules
+## 15. Consolidated remaining-work and dependency register
+
+This register is the short answer to "what is still missing". The milestone
+sections above remain authoritative for implementation detail and acceptance
+tests.
+
+| Area | Missing deliverable or decision | Dependency / evidence needed |
+|---|---|---|
+| M0/M6 platform | Native Quest `XRGPUBinding` session, projection layer, real subimages, compositor output, and five-minute stability | Supported Quest Browser/Chromium build, declared flag policy, physical headset |
+| M7 tracking | Physical eye order, scale, parallax, recursive-scene, tracking-jump, seated/standing, collision-independence, and ten-minute comfort gates | Marker map, representative maps, headset report with browser/runtime versions |
+| M8 locomotion | Head-/hand-relative movement, settings persistence/UI, recenter/menu/exit mapping, hardware tuning | M9 settings UI, M10 persistence, real Quest input sources |
+| M8 weapon | Shared world hand composition, scoped VM fire hook, special-weapon classifier, per-eye weapon overlay, optional verified controller origin | Loaded Botpack function table, deterministic firing fixtures, headset/barrel alignment tests |
+| M8 haptics | Engine event bridge, effect mapping/tuning, persisted disable option, physical latency/source-loss tests | Gameplay event hooks and real actuator hardware |
+| M8 networking | Independent hand-aim replication or an explicit offline-only product decision | M10 networking scope; stock `ServerMove` is insufficient |
+| M9 UI/comfort | Stereo HUD/menu plane, controller cursor, readable scale, weapon placement, vignette/comfort policies, loading/pause presentation | UX choices, per-eye overlay work, headset comfort sessions |
+| M10 audio | Tracked-head listener and physical gesture/focus/music/map-change tests | Shared world pose and real browser audio lifecycle |
+| M10 data | Legal first-run importer, validation, quota/progress, OPFS/IndexedDB schema, persistence migration, clear/re-import | User-owned UT99 installation; storage/browser support matrix |
+| M10 product | Browser launcher, diagnostics, networking declaration/relay design, HTTPS/COOP/COEP hosting, PWA/update/rollback, license audit | Hosting target and explicit multiplayer decision |
+| M11 performance | 72 Hz minimum target qualification, CPU/GPU/memory/GC traces, render-scale/foveation decisions, pthread memory strategy | Quest hardware, acceptance/stress map set, repeatable profiling harness |
+| M11 release | Compatibility matrix, sleep/wake and failure recovery, three entry cycles, 60-minute soak, reproducible artifact audit | Release browser/runtime versions, physical test reports, clean profile/import path |
+
+No desktop/IWER test can close a row that explicitly requires native compositor,
+controller, audio, storage, thermal, or comfort evidence. Those rows stay open
+until a dated headset report records the exact runtime, flags, map, render
+scale, frame rate, and error counters.
+
+## 16. Cross-cutting implementation rules
 
 - Feature-detect every unstable WebXR module. Never infer support from browser
   version alone.
@@ -816,7 +900,7 @@ Release candidates require:
   redesign.
 - Keep experimental flags and IWER limitations visible in logs and UI.
 
-## 16. Immediate execution order
+## 17. Immediate execution order
 
 1. **Complete:** implement M5's simulation/render split with identical native
    and canvas behavior.
@@ -833,16 +917,18 @@ Release candidates require:
 6. Run the real projection-layer and tracked-pose path on a supported physical headset/browser;
    in parallel, determine whether the public Chromium WebXR Test API can provide
    a native automated session.
-7. **In progress:** ABI v2 controller records, copied input-source lifecycle,
-   tracked-pose/analog state, and remappable UE1 joystick mapping are complete.
-   Next add default bindings, locomotion/turn policy, weapon aiming, and haptics.
+7. **In progress:** ABI v2 input, remappable Quest defaults, full-scale
+   locomotion, snap/smooth turn seams, and the browser haptics foundation are
+   complete. Next share world pose composition with the hands, implement the
+   scoped firing/weapon-overlay hook, connect gameplay haptic events, and add
+   recenter/menu/exit actions.
 8. Implement M9 HUD/menus, weapon presentation, recenter UX, and comfort options.
 9. Finish M10 importer/persistence/launcher/deploy and make the explicit
    networking product decision; wire the listener to tracked head pose.
 10. Finish M6/M7 headset gates and M11 profiling/soak/compatibility gates from
     physical Quest traces, then qualify a release.
 
-## 17. Authoritative browser references
+## 18. Authoritative browser references
 
 - WebXR/WebGPU Binding Module:
   <https://immersive-web.github.io/webxr-webgpu-binding/>

@@ -1010,3 +1010,67 @@ layout, locomotion and turn behavior, controller-driven menu/recenter/exit,
 world-space hand composition, controller-aim firing/projectile/weapon hooks,
 haptics, optional input-profile labels/models, and physical headset tests for
 disconnect/reconnect, handedness changes, focus loss, and session re-entry.
+
+## M8 locomotion/default-binding checkpoint — PASS IN AUTOMATION (2026-07-22)
+
+Commit `c78b972f` installs Quest-style runtime defaults only where a `Joy*`
+binding is blank. It borrows the user's existing mouse/keyboard commands when
+available and never overwrites or persists an explicit Joy binding. Left-stick
+input remains in the ordinary remappable `JoyX/JoyY` path but expands to UE1's
+expected full-scale 7000 movement domain.
+
+Right-stick turning now defaults to a configurable 30-degree snap with 0.75
+activation, 0.35 rearm hysteresis, and one turn per deflection. Smooth,
+Binding, and Disabled modes are available through `[Engine.WebXR]`. Snap and
+smooth turns write only body/view yaw before M7 composes tracked head pose;
+position, pitch, roll, collision, and physics are unchanged.
+
+Native and Emscripten builds passed. The direct WASM diagnostic returned
+`selfTest=1`, movement scale `7000`, default mode Snap, valid mode switching,
+and rejected invalid settings. The complete default Playwright/IWER suite also
+passed. Remaining locomotion work is head-/hand-relative movement, persisted
+settings/UI, recenter/menu/exit actions, real input-profile verification, and
+headset tuning.
+
+## M8 browser-haptics checkpoint — PASS IN AUTOMATION (2026-07-22)
+
+Commit `ea10a97f` adds a scalar-only per-hand haptic queue to the WebXR session
+owner. It resolves live sources/actuators only at queue and dispatch time,
+supports `pulse()` and `playEffect()`, clamps intensity/duration, coalesces
+queued pulses, rate-limits each hand to 50 ms, and exposes a disable switch.
+Pending feedback is dropped on hidden/inactive sessions, source loss,
+unsupported actuators, disable, and stale session generations.
+
+The deterministic fake-actuator test passed 38/38 policy/routing checks. After
+a clean Emscripten rebuild, both the default and experimental full Playwright
+suites passed; the latter also retained the packed stereo/input/pose/format
+results with zero WebGPU validation errors. Native and Emscripten builds,
+JavaScript syntax, Python AST, and diff checks pass.
+
+This is browser plumbing, not gameplay-complete or physical haptics. Engine
+events for fire, pickup, damage, and UI confirmation still need to request
+pulses; the setting must be persisted/exposed; and real Quest actuator latency,
+focus loss, disconnect, and session re-entry must be tested.
+
+## M8 weapon-aim audit checkpoint — IMPLEMENTATION PLAN RECORDED (2026-07-22)
+
+The firing path is UnrealScript-driven. All relevant calls converge at
+`Frame::Call`, so the minimum clean seam is a re-entrant RAII scope that saves
+the local pawn's `ViewRotation`, substitutes a composed dominant-hand aim only
+for weapon calls, and restores it on every exit. Controller poses must first
+reuse M7's scale/recenter/body-yaw composition; the current raw reference-space
+poses cannot drive gameplay directly.
+
+`TraceFire` and `ProjectileFire` do not cover the full UT arsenal. The
+classifier also needs Flak `Fire`/`AltFire`, Eightball `FireRockets.BeginState`
+and `CheckTarget`, Translocator `ThrowTarget`, Chainsaw `Slash`, and Impact
+Hammer `TraceAltFire`/firing `Tick`; guided-warhead steering needs its own
+policy. Layered WebXR currently suppresses all overlays, so a weapon-only
+`RenderOverlays` pass is required per eye before M9 restores the HUD/menu.
+
+The first safe cut changes firing direction/rotation while leaving the stock
+head-relative origin. A generic `CalcDrawOffset` override can double-apply the
+different weapon `FireOffset` terms, so controller-origin firing requires
+verified per-path handling. Stock `ServerMove` cannot replicate independent
+body and hand rotations; multiplayer weapon aim remains an explicit M10
+protocol/product decision rather than an M8 completion claim.
