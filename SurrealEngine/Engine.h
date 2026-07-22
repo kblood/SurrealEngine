@@ -74,7 +74,7 @@ public:
 	~Engine();
 
 	void Run();
-
+	void Setup();
 	// A frame advances simulation once, renders its resulting state, then handles
 	// deferred save and travel requests. RunOneFrame preserves the native ordering.
 	void RunOneFrame();
@@ -82,6 +82,7 @@ public:
 	void RenderGameFrame(float levelElapsed);
 	void RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily);
 	void FinishGameFrame(float levelElapsed);
+	void Shutdown();
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -209,6 +210,7 @@ public:
 	vec3 PlayerHitLocation = vec3(0.0f);
 
 	bool quit = false;
+	uint64_t tickCount = 0;
 
 	uint64_t lastTime = 0;
 

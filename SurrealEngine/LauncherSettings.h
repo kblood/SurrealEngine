@@ -4,7 +4,9 @@ enum class RenderDeviceType
 {
 	Vulkan,
 	D3D11,
-	D3D12
+	D3D12,
+	Null,
+	WebGPU
 };
 
 enum class AntialiasMode
@@ -35,7 +37,11 @@ public:
 
 	struct
 	{
+#ifdef __EMSCRIPTEN__
+		RenderDeviceType Type = RenderDeviceType::Null;
+#else
 		RenderDeviceType Type = RenderDeviceType::Vulkan;
+#endif
 		bool UseVSync = true;
 		AntialiasMode Antialias = AntialiasMode::MSAA4x;
 		LightMode Light = LightMode::Normal;

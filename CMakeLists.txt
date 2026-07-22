@@ -2,8 +2,21 @@ cmake_minimum_required(VERSION 3.15)
 
 project(SurrealEngine)
 
+if(EMSCRIPTEN)
+	# Every TU in every subdirectory must be compiled with atomics/bulk-memory
+	# (implied by -pthread) since the final link uses --shared-memory - a single
+	# TU compiled without it fails the link, not just a warning. Likewise,
+	# exception catching (needed throughout - the engine uses try/catch
+	# pervasively, e.g. File::try_open_existing) must be enabled per-TU at
+	# compile time, not just as a link setting - a TU compiled without it
+	# lets exceptions thrown within it escape any local catch, matching the
+	# -pthread lesson above.
+	add_compile_options(-pthread -sNO_DISABLE_EXCEPTION_CATCHING)
+endif()
 add_subdirectory(Thirdparty/openmpt)
-add_subdirectory(SurrealGPU)
+if(NOT EMSCRIPTEN)
+	add_subdirectory(SurrealGPU)
+endif()
 add_subdirectory(SurrealWidgets)
 
 if (WIN32)
@@ -324,6 +337,10 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/RenderDevice/Vulkan/UploadManager.h
 	SurrealEngine/RenderDevice/Vulkan/VulkanRenderDevice.cpp
 	SurrealEngine/RenderDevice/Vulkan/VulkanRenderDevice.h
+	SurrealEngine/RenderDevice/Null/NullRenderDevice.cpp
+	SurrealEngine/RenderDevice/Null/NullRenderDevice.h
+	SurrealEngine/Audio/NullAudioDevice.cpp
+	SurrealEngine/Audio/NullAudioDevice.h
 	SurrealEngine/Package/Package.cpp
 	SurrealEngine/Package/Package.h
 	SurrealEngine/Package/PackageManager.cpp
@@ -521,6 +538,26 @@ set(SURREALCOMMON_WIN32_SOURCES
 	SurrealEngine/RenderDevice/D3D11/D3D11CachedTexture.h
 )
 
+set(SURREALCOMMON_WEBGPU_SOURCES
+	SurrealEngine/RenderDevice/WebGPU/WebGPUContext.cpp
+	SurrealEngine/RenderDevice/WebGPU/WebGPUContext.h
+	SurrealEngine/RenderDevice/WebGPU/WebGPURenderDevice.cpp
+	SurrealEngine/RenderDevice/WebGPU/WebGPURenderDevice.h
+	SurrealEngine/RenderDevice/WebGPU/WebGPUShaders.cpp
+	SurrealEngine/RenderDevice/WebGPU/WebGPUShaders.h
+	SurrealEngine/RenderDevice/WebGPU/WebGPUCachedTexture.h
+	SurrealEngine/RenderDevice/WebGPU/WebGPUTextureUploader.cpp
+	SurrealEngine/RenderDevice/WebGPU/WebGPUTextureUploader.h
+	SurrealEngine/RenderDevice/WebGPU/WebGPUUploadManager.cpp
+	SurrealEngine/RenderDevice/WebGPU/WebGPUUploadManager.h
+	SurrealEngine/RenderDevice/WebGPU/WebGPUTextureManager.cpp
+	SurrealEngine/RenderDevice/WebGPU/WebGPUTextureManager.h
+	SurrealEngine/RenderDevice/WebGPU/WebGPUSamplerCache.cpp
+	SurrealEngine/RenderDevice/WebGPU/WebGPUSamplerCache.h
+	SurrealEngine/RenderDevice/WebGPU/WebGPUPipelineCache.cpp
+	SurrealEngine/RenderDevice/WebGPU/WebGPUPipelineCache.h
+)
+
 set(THIRDPARTY_SOURCES
 	Thirdparty/dr_wav.h
 	Thirdparty/minimp3_ex.h
@@ -556,12 +593,19 @@ set(THIRDPARTY_WIN32_SOURCES
 set(THIRDPARTY_UNIX_SOURCES
 )
 
-set(SURREALCOMMON_LIBS
-	surrealgpu
-	surrealwidgets
-	SurrealVideo
-	openmpt
-)
+if(EMSCRIPTEN)
+	set(SURREALCOMMON_LIBS
+		surrealwidgets
+		openmpt
+	)
+else()
+	set(SURREALCOMMON_LIBS
+		surrealgpu
+		surrealwidgets
+		SurrealVideo
+		openmpt
+	)
+endif()
 
 set(SURREALCOMMON_WIN32_LIBS
 	OpenAL
@@ -637,6 +681,7 @@ source_group("SurrealEngine\\Package" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE
 source_group("SurrealEngine\\RenderDevice" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/RenderDevice/.+")
 source_group("SurrealEngine\\RenderDevice/Vulkan" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/RenderDevice/Vulkan/.+")
 source_group("SurrealEngine\\RenderDevice/D3D11" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/RenderDevice/D3D11/.+")
+source_group("SurrealEngine\\RenderDevice/WebGPU" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/RenderDevice/WebGPU/.+")
 source_group("SurrealEngine\\Render" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Render/.+")
 source_group("SurrealEngine\\Render\\Lightmap" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Render/Lightmap/.+")
 source_group("SurrealEngine\\UI" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/UI/.+")
@@ -679,7 +724,10 @@ source_group("Thirdparty\\dumb\\include" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOU
 source_group("Thirdparty\\dumb\\include\\internal" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/Thirdparty/dumb/include/internal/.+")
 source_group("Thirdparty\\miniz" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/Thirdparty/miniz/.+")
 
-include_directories(SurrealEngine SurrealWidgets/include Thirdparty SurrealGPU/include Thirdparty/openmpt Thirdparty/openal-soft/include Thirdparty/miniz)
+include_directories(SurrealEngine SurrealWidgets/include Thirdparty Thirdparty/openmpt Thirdparty/openal-soft/include Thirdparty/miniz)
+if(NOT EMSCRIPTEN)
+	include_directories(SurrealGPU/include)
+endif()
 
 if(NOT APPLE AND SDL2_FOUND)
 	include_directories(SurrealEngine ${SDL2_INCLUDE_DIRS})
@@ -702,6 +750,18 @@ elseif(APPLE)
 	set(SURREALCOMMON_LIBS ${SURREALCOMMON_LIBS} ${SURREALCOMMON_UNIX_LIBS} ${CMAKE_DL_LIBS})
 	add_definitions(-DUNIX -D_UNIX)
 	add_link_options(-pthread)
+elseif(EMSCRIPTEN)
+	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "RenderDevice/Vulkan/")
+	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "Audio/AudioDevice\\.cpp$")
+	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "UI/Editor/")
+	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "SurrealEngine/EditorApp\\.")
+	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "SurrealEngine/DebuggerApp\\.")
+	set(SURREALCOMMON_SOURCES ${SURREALCOMMON_SOURCES} SurrealEngine/Video/NullVideoDecoder.cpp)
+	set(SURREALCOMMON_SOURCES ${SURREALCOMMON_SOURCES} ${SURREALCOMMON_WEBGPU_SOURCES})
+	set(THIRDPARTY_SOURCES ${THIRDPARTY_SOURCES} ${THIRDPARTY_UNIX_SOURCES})
+	add_definitions(-DUNIX -D_UNIX)
+	add_compile_options(-pthread --use-port=emdawnwebgpu)
+	add_link_options(-pthread)
 else()
 	set(SURREALCOMMON_SOURCES ${SURREALCOMMON_SOURCES})
 	set(SURREALCOMMON_LIBS ${SURREALCOMMON_LIBS} ${SURREALCOMMON_UNIX_LIBS} ${CMAKE_DL_LIBS} -lasound)
@@ -719,10 +779,12 @@ if(MSVC)
 	set_source_files_properties(${SURREALVIDEO_SOURCES} PROPERTIES COMPILE_FLAGS "/wd4244 /wd4267 /wd4005 /wd4018 /wd4101 /wd4146 /wd4334 -D_CRT_SECURE_NO_WARNINGS /experimental:c11atomics")
 endif()
 
-add_library(SurrealVideo SHARED ${SURREALVIDEO_SOURCES})
-target_include_directories(SurrealVideo PRIVATE SurrealVideo)
-set_target_properties(SurrealVideo PROPERTIES CXX_STANDARD 20)
-set_target_properties(SurrealVideo PROPERTIES C_STANDARD 17)
+if(NOT EMSCRIPTEN)
+	add_library(SurrealVideo SHARED ${SURREALVIDEO_SOURCES})
+	target_include_directories(SurrealVideo PRIVATE SurrealVideo)
+	set_target_properties(SurrealVideo PROPERTIES CXX_STANDARD 20)
+	set_target_properties(SurrealVideo PROPERTIES C_STANDARD 17)
+endif()
 
 add_library(SurrealCommon STATIC ${SURREALCOMMON_SOURCES} ${THIRDPARTY_SOURCES})
 set_target_properties(SurrealCommon PROPERTIES CXX_STANDARD 20)
@@ -752,13 +814,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_test(NAME DeterministicRuntime COMMAND DeterministicRuntimeTests)
 endif()
 
-add_executable(SurrealEditor WIN32 MACOSX_BUNDLE ${SURREALEDITOR_SOURCES})
-target_link_libraries(SurrealEditor SurrealCommon ${SURREALCOMMON_LIBS})
-set_target_properties(SurrealEditor PROPERTIES CXX_STANDARD 20)
+if(NOT EMSCRIPTEN)
+	add_executable(SurrealEditor WIN32 MACOSX_BUNDLE ${SURREALEDITOR_SOURCES})
+	target_link_libraries(SurrealEditor SurrealCommon ${SURREALCOMMON_LIBS})
+	set_target_properties(SurrealEditor PROPERTIES CXX_STANDARD 20)
 
-add_executable(SurrealDebugger ${SURREALDEBUGGER_SOURCES})
-target_link_libraries(SurrealDebugger SurrealCommon ${SURREALCOMMON_LIBS})
-set_target_properties(SurrealDebugger PROPERTIES CXX_STANDARD 20)
+	add_executable(SurrealDebugger ${SURREALDEBUGGER_SOURCES})
+	target_link_libraries(SurrealDebugger SurrealCommon ${SURREALCOMMON_LIBS})
+	set_target_properties(SurrealDebugger PROPERTIES CXX_STANDARD 20)
+endif()
 
 include(CTest)
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
@@ -774,7 +838,9 @@ if(WIN32)
 	add_custom_command(TARGET SurrealEngine POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:OpenAL::OpenAL>" $<TARGET_FILE_DIR:SurrealEngine>)
 endif()
 
-add_custom_command(TARGET SurrealEngine POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine.pk3" $<TARGET_FILE_DIR:SurrealEngine>)
+if(NOT EMSCRIPTEN)
+	add_custom_command(TARGET SurrealEngine POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine.pk3" $<TARGET_FILE_DIR:SurrealEngine>)
+endif()
 
 if(MSVC)
 	# Create stripped PDBs for nightly builds
@@ -783,11 +849,40 @@ if(MSVC)
 	set_target_properties(SurrealDebugger PROPERTIES LINK_FLAGS_RELWITHDEBINFO /PDBSTRIPPED:${CMAKE_CURRENT_BINARY_DIR}/RelWithDebInfo/SurrealDebugger-stripped.pdb)
 endif()
 
-install(TARGETS SurrealEngine RUNTIME DESTINATION bin BUNDLE DESTINATION app)
-install(TARGETS SurrealEditor RUNTIME DESTINATION bin BUNDLE DESTINATION app)
-install(TARGETS SurrealDebugger RUNTIME DESTINATION bin)
+if(EMSCRIPTEN)
+	set(SURREAL_GAMEDATA_DIR "" CACHE PATH "Local path to a UT99 game-data folder to preload into the wasm build (dev-machine-local only; never commit this path's contents — UT99 is commercial, non-redistributable data)")
+	if(NOT SURREAL_GAMEDATA_DIR)
+		message(WARNING "SURREAL_GAMEDATA_DIR is not set - the Emscripten build will have no game data preloaded. Pass -DSURREAL_GAMEDATA_DIR=<path-to-ut99-install>.")
+	endif()
+	target_link_options(SurrealEngine PRIVATE
+		-sALLOW_MEMORY_GROWTH=1
+		-sSTACK_SIZE=8MB
+		-sINITIAL_MEMORY=256MB
+		-sINVOKE_RUN=0
+		-sEXIT_RUNTIME=0
+		-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall
+		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit
+		-sASSERTIONS=1
+		-sNO_DISABLE_EXCEPTION_CATCHING
+		-pthread
+		-sPTHREAD_POOL_SIZE=2
+		-sUSE_SDL=2
+		--use-port=emdawnwebgpu
+	)
+	if(SURREAL_GAMEDATA_DIR)
+		# Developer convenience only. Production/distributable builds deliberately
+		# omit commercial UT99 content and populate /gamedata through the browser
+		# import/persistence flow supplied by the browser application.
+		target_link_options(SurrealEngine PRIVATE
+			--preload-file "${SURREAL_GAMEDATA_DIR}@/gamedata"
+		)
+	endif()
+else()
+	install(TARGETS SurrealEngine RUNTIME DESTINATION bin BUNDLE DESTINATION app)
+	install(TARGETS SurrealEditor RUNTIME DESTINATION bin BUNDLE DESTINATION app)
+	install(TARGETS SurrealDebugger RUNTIME DESTINATION bin)
+endif()
 
-include(CTest)
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_executable(VMCallHookTests SurrealEngine/VM/CallHooksTests.cpp)
 	target_link_libraries(VMCallHookTests SurrealCommon ${SURREALCOMMON_LIBS})

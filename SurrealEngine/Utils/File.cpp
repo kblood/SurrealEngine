@@ -392,6 +392,9 @@ std::string OS::executable_path()
 	_wsplitpath_s(exe_filename, drive, _MAX_DRIVE, dir, _MAX_DIR, NULL, 0, NULL, 0);
 
 	return from_utf16(std::wstring(drive) + dir);
+#elif defined(__EMSCRIPTEN__)
+	// Browser builds use the virtual filesystem root as their executable path.
+	return "/";
 #elif defined(__APPLE__)
 	CFBundleRef mainBundle = CFBundleGetMainBundle();
 	if (mainBundle)
