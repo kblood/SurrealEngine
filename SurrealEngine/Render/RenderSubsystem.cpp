@@ -10,6 +10,19 @@
 
 RenderSubsystem::RenderSubsystem(RenderDevice* renderdevice) : Device(renderdevice)
 {
+	WebXRHudStats.SelfTestMask = RunWebXRHudSelfTest();
+	WebXRHudStats.SelfTestPassed = WebXRHudStats.SelfTestMask == WebXRHudSelfTestAll;
+}
+
+void RenderSubsystem::SetWebXRHudPlaneSettings(const WebXRHudPlaneSettings& settings)
+{
+	// Keep script- or UI-provided values finite and inside deliberately broad
+	// comfort bounds. Headset-specific policy belongs to the later settings UI;
+	// the renderer only guarantees a valid plane and safe viewport here.
+	WebXRHudSettings.DistanceUU = std::isfinite(settings.DistanceUU) ? std::clamp(settings.DistanceUU, 19.685f, 157.4804f) : 68.8976f;
+	WebXRHudSettings.HorizontalFovDegrees = std::isfinite(settings.HorizontalFovDegrees) ? std::clamp(settings.HorizontalFovDegrees, 20.0f, 75.0f) : 50.0f;
+	WebXRHudSettings.AspectRatio = std::isfinite(settings.AspectRatio) ? std::clamp(settings.AspectRatio, 0.75f, 2.0f) : 4.0f / 3.0f;
+	WebXRHudSettings.SafeAreaFraction = std::isfinite(settings.SafeAreaFraction) ? std::clamp(settings.SafeAreaFraction, 0.50f, 1.0f) : 0.90f;
 }
 
 void RenderSubsystem::DrawGame(float levelTimeElapsed)

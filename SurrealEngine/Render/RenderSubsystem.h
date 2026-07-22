@@ -45,6 +45,44 @@ struct WebXRWeaponOverlayDiagnostics
 	uint32_t LastFrameWeaponCalls = 0;
 };
 
+// Head-locked projection-layer HUD configuration. The renderer owns the
+// default for now; M9's settings UI can drive this narrow seam without
+// changing the HUD capture/presentation lifecycle.
+struct WebXRHudPlaneSettings
+{
+	float DistanceUU = 68.8976f;       // 1.75 m at the WebXR 39.3701 UU/m scale
+	float HorizontalFovDegrees = 50.0f;
+	float AspectRatio = 4.0f / 3.0f;
+	float SafeAreaFraction = 0.90f;
+};
+
+enum WebXRHudSelfTestBits : uint32_t
+{
+	WebXRHudSelfTestSingleUpdateStereoPresentation = 1u << 0,
+	WebXRHudSelfTestViewportClamping = 1u << 1,
+	WebXRHudSelfTestAsymmetricProjection = 1u << 2,
+	WebXRHudSelfTestAbsentHud = 1u << 3,
+	WebXRHudSelfTestAll = (1u << 4) - 1u
+};
+
+struct WebXRHudDiagnostics
+{
+	uint64_t Frames = 0;
+	uint64_t StateUpdates = 0;
+	uint64_t EyePresentations = 0;
+	uint64_t CapturedCommands = 0;
+	uint64_t UnsupportedDraws = 0;
+	uint64_t ClampedViewports = 0;
+	uint32_t LastFrameExpectedEyePresentations = 0;
+	uint32_t LastFrameStateUpdates = 0;
+	uint32_t LastFrameEyePresentations = 0;
+	uint32_t LastFrameCapturedCommands = 0;
+	uint32_t LastFrameUnsupportedDraws = 0;
+	uint32_t LastFrameClampedViewports = 0;
+	uint32_t SelfTestMask = 0;
+	bool SelfTestPassed = false;
+};
+
 class RenderSubsystem
 {
 public:
@@ -66,6 +104,9 @@ public:
 	void DrawGameStereoLayers(float levelTimeElapsed);
 	bool DrawGameWebXRViews(float levelTimeElapsed, const WebXRSceneView* views, uint32_t viewCount);
 	const WebXRWeaponOverlayDiagnostics& GetWebXRWeaponOverlayDiagnostics() const { return WebXRWeaponOverlayStats; }
+	const WebXRHudDiagnostics& GetWebXRHudDiagnostics() const { return WebXRHudStats; }
+	const WebXRHudPlaneSettings& GetWebXRHudPlaneSettings() const { return WebXRHudSettings; }
+	void SetWebXRHudPlaneSettings(const WebXRHudPlaneSettings& settings);
 	void OnMapLoaded();
 
 	void DrawActor(UActor* actor, bool WireFrame, bool ClearZ);
@@ -161,6 +202,12 @@ private:
 	void PreRender();
 	void RenderOverlays();
 	bool RenderWebXRWeaponOverlay();
+	bool CaptureWebXRHud();
+	bool PresentWebXRHud(const WebXRSceneView* views, uint32_t viewCount);
+	void SubmitCanvasTile(FTextureInfo& info, float x, float y, float width, float height,
+		float u, float v, float uLength, float vLength, float z, vec4 color, vec4 fog, uint32_t flags);
+	void SubmitCanvas2DLine(vec4 color, uint32_t flags, vec3 p1, vec3 p2);
+	uint32_t RunWebXRHudSelfTest();
 	void PostRender();
 	void PostRenderFlash();
 	void DrawTimedemoStats();
@@ -175,6 +222,35 @@ private:
 	float AmbientGlowTime = 0.0f;
 	float AmbientGlowAmount = 0.0f;
 	WebXRWeaponOverlayDiagnostics WebXRWeaponOverlayStats;
+	WebXRHudPlaneSettings WebXRHudSettings;
+	WebXRHudDiagnostics WebXRHudStats;
+
+	enum class WebXRHudCommandType : uint8_t { Tile, Line2D };
+	struct WebXRHudCommand
+	{
+		WebXRHudCommandType Type = WebXRHudCommandType::Tile;
+		// RenderDevice's texture-cache API accepts a mutable descriptor even
+		// though replay does not alter the command's layout or presentation data.
+		mutable FTextureInfo Texture;
+		float X = 0.0f;
+		float Y = 0.0f;
+		float Width = 0.0f;
+		float Height = 0.0f;
+		float U = 0.0f;
+		float V = 0.0f;
+		float ULength = 0.0f;
+		float VLength = 0.0f;
+		float Z = 1.0f;
+		vec4 Color = vec4(1.0f);
+		vec4 Fog = vec4(0.0f);
+		uint32_t Flags = 0;
+		vec3 P1;
+		vec3 P2;
+	};
+	Array<WebXRHudCommand> WebXRHudCommands;
+	bool WebXRHudCaptureActive = false;
+	int WebXRHudLayoutWidth = 1280;
+	int WebXRHudLayoutHeight = 960;
 
 	struct
 	{

@@ -171,6 +171,119 @@ bool RenderSubsystem::RenderWebXRWeaponOverlay()
 	return true;
 }
 
+bool RenderSubsystem::CaptureWebXRHud()
+{
+	WebXRHudCommands.clear();
+	UPlayerPawn* viewActor = engine->viewport->Actor();
+	if (!viewActor || !viewActor->myHUD())
+		return false;
+
+	// PlayerPawn.PostRender is UT99's owner-side HUD/crosshair entry point.
+	// Invoke it once against a stable 4:3 logical canvas and capture its
+	// view-independent primitive stream. Replaying that stream per eye avoids
+	// advancing message queues, mutators, animation, or other script state
+	// twice. Console/UWindow remain outside this deliberately narrow seam.
+	FSceneNode savedFrame = Canvas.Frame;
+	int savedUIScale = Canvas.uiscale;
+	int savedSizeX = engine->canvas->SizeX();
+	int savedSizeY = engine->canvas->SizeY();
+	float savedClipX = engine->canvas->ClipX();
+	float savedClipY = engine->canvas->ClipY();
+	float savedCurX = engine->canvas->CurX();
+	float savedCurY = engine->canvas->CurY();
+	auto restoreCaptureState = [&]()
+	{
+		WebXRHudCaptureActive = false;
+		Canvas.Frame = savedFrame;
+		Canvas.uiscale = savedUIScale;
+		engine->canvas->SizeX() = savedSizeX;
+		engine->canvas->SizeY() = savedSizeY;
+		engine->canvas->ClipX() = savedClipX;
+		engine->canvas->ClipY() = savedClipY;
+		engine->canvas->CurX() = savedCurX;
+		engine->canvas->CurY() = savedCurY;
+		Device->SetSceneNode(&Canvas.Frame);
+	};
+
+	Canvas.uiscale = 1;
+	Canvas.Frame.XB = 0;
+	Canvas.Frame.YB = 0;
+	Canvas.Frame.X = WebXRHudLayoutWidth;
+	Canvas.Frame.Y = WebXRHudLayoutHeight;
+	Canvas.Frame.FX = (float)WebXRHudLayoutWidth;
+	Canvas.Frame.FY = (float)WebXRHudLayoutHeight;
+	Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
+	Canvas.Frame.FY2 = Canvas.Frame.FY * 0.5f;
+	Canvas.Frame.ObjectToWorld = mat4::identity();
+	Canvas.Frame.WorldToView = mat4::identity();
+	Canvas.Frame.ProjectionOverride = false;
+	engine->canvas->SizeX() = WebXRHudLayoutWidth;
+	engine->canvas->SizeY() = WebXRHudLayoutHeight;
+	engine->canvas->ClipX() = (float)WebXRHudLayoutWidth;
+	engine->canvas->ClipY() = (float)WebXRHudLayoutHeight;
+	engine->canvas->CurX() = 0.0f;
+	engine->canvas->CurY() = 0.0f;
+	WebXRHudCaptureActive = true;
+	WebXRHudStats.StateUpdates++;
+	WebXRHudStats.LastFrameStateUpdates++;
+	try
+	{
+		CallEvent(viewActor, EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
+	}
+	catch (...)
+	{
+		restoreCaptureState();
+		throw;
+	}
+	restoreCaptureState();
+
+	WebXRHudStats.CapturedCommands += WebXRHudCommands.size();
+	WebXRHudStats.LastFrameCapturedCommands = (uint32_t)WebXRHudCommands.size();
+	return !WebXRHudCommands.empty();
+}
+
+void RenderSubsystem::SubmitCanvasTile(FTextureInfo& info, float x, float y, float width, float height,
+	float u, float v, float uLength, float vLength, float z, vec4 color, vec4 fog, uint32_t flags)
+{
+	if (WebXRHudCaptureActive)
+	{
+		WebXRHudCommand command;
+		command.Type = WebXRHudCommandType::Tile;
+		command.Texture = info;
+		command.X = x;
+		command.Y = y;
+		command.Width = width;
+		command.Height = height;
+		command.U = u;
+		command.V = v;
+		command.ULength = uLength;
+		command.VLength = vLength;
+		command.Z = z;
+		command.Color = color;
+		command.Fog = fog;
+		command.Flags = flags;
+		WebXRHudCommands.push_back(command);
+		return;
+	}
+	Device->DrawTile(&Canvas.Frame, info, x, y, width, height, u, v, uLength, vLength, z, color, fog, flags);
+}
+
+void RenderSubsystem::SubmitCanvas2DLine(vec4 color, uint32_t flags, vec3 p1, vec3 p2)
+{
+	if (WebXRHudCaptureActive)
+	{
+		WebXRHudCommand command;
+		command.Type = WebXRHudCommandType::Line2D;
+		command.Color = color;
+		command.Flags = flags;
+		command.P1 = p1;
+		command.P2 = p2;
+		WebXRHudCommands.push_back(command);
+		return;
+	}
+	Device->Draw2DLine(&Canvas.Frame, color, flags, p1, p2);
+}
+
 void RenderSubsystem::PostRender()
 {
 	Device->SetSceneNode(&Canvas.Frame);
@@ -192,6 +305,12 @@ void RenderSubsystem::PostRenderFlash()
 
 void RenderSubsystem::DrawActor(UActor* actor, bool WireFrame, bool ClearZ)
 {
+	if (WebXRHudCaptureActive)
+	{
+		WebXRHudStats.UnsupportedDraws++;
+		WebXRHudStats.LastFrameUnsupportedDraws++;
+		return;
+	}
 	Device->SetSceneNode(&MainFrame.Frame);
 	if (ClearZ)
 		Device->ClearZ();
@@ -207,6 +326,12 @@ void RenderSubsystem::DrawActor(UActor* actor, bool WireFrame, bool ClearZ)
 
 void RenderSubsystem::DrawClippedActor(UActor* actor, bool WireFrame, int X, int Y, int XB, int YB, bool ClearZ)
 {
+	if (WebXRHudCaptureActive)
+	{
+		WebXRHudStats.UnsupportedDraws++;
+		WebXRHudStats.LastFrameUnsupportedDraws++;
+		return;
+	}
 	FSceneNode frame;
 	frame.XB = XB * Canvas.uiscale;
 	frame.YB = YB * Canvas.uiscale;
@@ -260,7 +385,7 @@ void RenderSubsystem::DrawTile(UTexture* Tex, float x, float y, float XL, float 
 	if (Tex->bMasked())
 		flags |= PF_Masked;
 
-	Device->DrawTile(&Canvas.Frame, texinfo, x * Canvas.uiscale, y * Canvas.uiscale, XL * Canvas.uiscale, YL * Canvas.uiscale, U, V, UL, VL, Z, color, fog, flags);
+	SubmitCanvasTile(texinfo, x * Canvas.uiscale, y * Canvas.uiscale, XL * Canvas.uiscale, YL * Canvas.uiscale, U, V, UL, VL, Z, color, fog, flags);
 }
 
 void RenderSubsystem::DrawTileClipped(UTexture* Tex, float orgX, float orgY, float curX, float curY, float XL, float YL, float U, float V, float UL, float VL, float Z, vec4 color, vec4 fog, uint32_t flags, float clipX, float clipY)
@@ -348,7 +473,7 @@ void RenderSubsystem::DrawTextBlockRange(float x, float y, const Array<std::stri
 			float USize = (float)glyph.USize;
 			float VSize = (float)glyph.VSize;
 
-			Device->DrawTile(&Canvas.Frame, texinfo, x * Canvas.uiscale, y * Canvas.uiscale, (float)width * Canvas.uiscale, (float)height * Canvas.uiscale, StartU, StartV, USize, VSize, 1.0f, color, vec4(0.0f), polyflags);
+			SubmitCanvasTile(texinfo, x * Canvas.uiscale, y * Canvas.uiscale, (float)width * Canvas.uiscale, (float)height * Canvas.uiscale, StartU, StartV, USize, VSize, 1.0f, color, vec4(0.0f), polyflags);
 
 			x += width + spaceX;
 		}
@@ -541,7 +666,7 @@ void RenderSubsystem::DrawTile(FTextureInfo& texinfo, const Rectf& dest, const R
 
 	if (dest.left >= clipBox.left && dest.top >= clipBox.top && dest.right <= clipBox.right && dest.bottom <= clipBox.bottom)
 	{
-		Device->DrawTile(&Canvas.Frame, texinfo, dest.left * Canvas.uiscale, dest.top * Canvas.uiscale, (dest.right - dest.left) * Canvas.uiscale, (dest.bottom - dest.top) * Canvas.uiscale, src.left, src.top, src.right - src.left, src.bottom - src.top, Z, color, fog, flags);
+		SubmitCanvasTile(texinfo, dest.left * Canvas.uiscale, dest.top * Canvas.uiscale, (dest.right - dest.left) * Canvas.uiscale, (dest.bottom - dest.top) * Canvas.uiscale, src.left, src.top, src.right - src.left, src.bottom - src.top, Z, color, fog, flags);
 	}
 	else
 	{
@@ -573,24 +698,30 @@ void RenderSubsystem::DrawTile(FTextureInfo& texinfo, const Rectf& dest, const R
 		}
 
 		if (d.left < d.right && d.top < d.bottom)
-			Device->DrawTile(&Canvas.Frame, texinfo, d.left * Canvas.uiscale, d.top * Canvas.uiscale, (d.right - d.left) * Canvas.uiscale, (d.bottom - d.top) * Canvas.uiscale, s.left, s.top, s.right - s.left, s.bottom - s.top, Z, color, fog, flags);
+			SubmitCanvasTile(texinfo, d.left * Canvas.uiscale, d.top * Canvas.uiscale, (d.right - d.left) * Canvas.uiscale, (d.bottom - d.top) * Canvas.uiscale, s.left, s.top, s.right - s.left, s.bottom - s.top, Z, color, fog, flags);
 	}
 }
 
 void RenderSubsystem::Draw2DLine(vec4 Color, uint32_t LineFlags, vec3 P1, vec3 P2)
 {
 	auto uiscale = static_cast<float>(Canvas.uiscale);
-	Device->Draw2DLine(&Canvas.Frame, Color, LineFlags, vec3(P1.xy() * uiscale, P1.z), vec3(P2.xy() * uiscale, P2.z));
+	SubmitCanvas2DLine(Color, LineFlags, vec3(P1.xy() * uiscale, P1.z), vec3(P2.xy() * uiscale, P2.z));
 }
 
 void RenderSubsystem::Draw3DLine(vec4 Color, uint32_t LineFlags, vec3 P1, vec3 P2)
 {
+	if (WebXRHudCaptureActive)
+	{
+		WebXRHudStats.UnsupportedDraws++;
+		WebXRHudStats.LastFrameUnsupportedDraws++;
+		return;
+	}
 	Device->Draw3DLine(&Canvas.Frame, Color, LineFlags, P1, P2);
 }
 
 void RenderSubsystem::DrawTile(FTextureInfo& Info, float X, float Y, float XL, float YL, float U, float V, float UL, float VL, float Z, vec4 Color, vec4 Fog, uint32_t PolyFlags)
 {
-	Device->DrawTile(&Canvas.Frame, Info, X, Y, XL, YL, U, V, UL, VL, Z, Color, Fog, PolyFlags);
+	SubmitCanvasTile(Info, X, Y, XL, YL, U, V, UL, VL, Z, Color, Fog, PolyFlags);
 }
 
 vec2 RenderSubsystem::GetTextSize(UFont* font, const std::string& text, float spaceX, float spaceY)
