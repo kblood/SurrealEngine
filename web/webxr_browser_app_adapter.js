@@ -50,6 +50,41 @@
 	function createProvider(capability, environment) {
 		const host = environment || root;
 		const detected = capability || result(false, "not-probed", "WebXR has not been checked.");
+		let reservationState = "idle";
+		let reservationMessage = null;
+
+		function fallbackMessage() {
+			const state = typeof host.surrealXRGetState === "function" ? host.surrealXRGetState() : null;
+			return state && state.lastError || reservationMessage ||
+				"The immersive session was rejected. Continuing in the flat window.";
+		}
+
+		async function prepareLaunch() {
+			reservationState = "requesting";
+			reservationMessage = null;
+			try {
+				// This method is invoked directly by the Play submit event. Reserve the
+				// immersive session here, while user activation is still eligible, but do
+				// not create layers or transfer frame-loop ownership yet.
+				const reserved = typeof host.surrealXRRequestSession === "function" &&
+					await host.surrealXRRequestSession();
+				if (reserved) {
+					reservationState = "reserved";
+					publish(host, "reserved", "Immersive WebXR session reserved while the game starts.");
+					return Object.freeze({ reserved: true, fallback: null });
+				}
+				reservationState = "failed";
+				reservationMessage = fallbackMessage();
+				publish(host, "flat-fallback", reservationMessage);
+				return Object.freeze({ reserved: false, fallback: "flat", message: reservationMessage });
+			} catch (error) {
+				reservationState = "failed";
+				reservationMessage = (error && error.message ? error.message : String(error)) +
+					" Continuing in the flat window.";
+				publish(host, "flat-fallback", reservationMessage);
+				return Object.freeze({ reserved: false, fallback: "flat", message: reservationMessage });
+			}
+		}
 		return Object.freeze({
 			id: "webxr",
 			label: "Immersive WebXR",
@@ -59,13 +94,17 @@
 			setXRCompatibleAdapter: (available, detail) => {
 				publishAdapter(host, available === true, detail);
 			},
+			prepareLaunch,
 			activate: async ({ Module }) => {
 				host.surrealWebGPUDevice = Module && Module.preinitializedWebGPUDevice;
 				try {
-					const entered = typeof host.surrealXREnter === "function" && await host.surrealXREnter();
+					let entered = false;
+					if (reservationState === "reserved" && typeof host.surrealXRActivateReservedSession === "function")
+						entered = await host.surrealXRActivateReservedSession();
+					else if (typeof host.surrealXRRequestSession !== "function" && typeof host.surrealXREnter === "function")
+						entered = await host.surrealXREnter(); // Compatibility with older provider scripts.
 					if (!entered) {
-						const state = typeof host.surrealXRGetState === "function" ? host.surrealXRGetState() : null;
-						const message = state && state.lastError || "The immersive session was rejected. Continuing in the flat window.";
+						const message = fallbackMessage();
 						publish(host, "flat-fallback", message);
 						return Object.freeze({ active: false, fallback: "flat", message });
 					}

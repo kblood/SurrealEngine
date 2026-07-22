@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>SurrealEngine browser launcher tests</title></head>
 <body>
+<section id="startup-test-surface" hidden><canvas width="64" height="36"></canvas><span>Starting</span></section>
 <section id="launcher" hidden>
 	<span data-launcher-game></span>
 	<form data-launcher-form>
@@ -126,6 +127,48 @@ window.browserAppTestPromise = (async () => {
 		events.push("callMain");
 		await api.activatePresentation(registry, selection, { marker: "runtime" });
 		assert(events.join(",") === "callMain,activate");
+	});
+	await run("launch boundary paints loading state before synchronous native startup", async () => {
+		const events = [];
+		const surface = document.getElementById("startup-test-surface");
+		const registry = new api.PresentationRegistry();
+		registry.register({ id: "flat", label: "Desktop", activate: async () => events.push("activate") });
+		const Module = { callMain(args) {
+			assert(!surface.hidden && surface.getClientRects().length === 1, "loading surface was not visible at callMain");
+			events.push("callMain:" + args[1]);
+		} };
+		const status = await api.runLaunchBoundary({
+			Module, registry,
+			selection: { game: { id: "ut99" }, map: "DM-Test", renderer: "webgpu", presentationId: "flat" },
+			onStartupStage: snapshot => {
+				events.push("stage:" + snapshot.stage);
+				if (snapshot.stage === "native-startup") surface.hidden = false;
+			},
+			waitForPaint: async () => {
+				await api.waitForBrowserPaint(window);
+				events.push("paint");
+			},
+			onLaunch: () => events.push("onLaunch"),
+		});
+		assert(events.join(",") === "stage:native-startup,paint,callMain:--url=DM-Test,stage:native-ready,stage:presentation-activation,activate,stage:running,onLaunch");
+		assert(status.stage === "running" && status.nativeStartupMs !== null);
+		assert(Object.keys(status).sort().join(",") === "elapsedMs,nativeStartupMs,stage,stageElapsedMs",
+			"startup status exposed fields outside the privacy allowlist");
+		surface.hidden = true;
+	});
+	await run("native startup is not reported ready before callMain returns", async () => {
+		let clock = 10;
+		const stages = [];
+		const tracker = new api.LaunchStartupTracker({ clock: () => clock, onChange: value => stages.push(value.stage) });
+		const registry = new api.PresentationRegistry();
+		registry.register({ id: "flat", label: "Desktop" });
+		await api.runLaunchBoundary({
+			Module: { callMain() { assert(stages.join(",") === "native-startup"); clock = 75; } },
+			selection: { game: { id: "ut99" }, map: "DM-Test", renderer: "webgpu", presentationId: "flat" },
+			registry, startupTracker: tracker, waitForPaint: async () => { clock = 25; },
+		});
+		assert(stages.join(",") === "native-startup,native-ready,presentation-activation,running");
+		assert(tracker.status().nativeStartupMs === 50);
 	});
 	await run("WebGPU acquisition requests XR compatibility and falls back flat with diagnostics", async () => {
 		const originalGPU = navigator.gpu;

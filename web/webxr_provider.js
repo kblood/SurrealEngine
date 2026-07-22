@@ -12,6 +12,7 @@
 	let generationCounter = 0;
 	let activeGeneration = 0;
 	let enterPending = false;
+	let activationPending = false;
 	let session = null;
 	let referenceSpace = null;
 	let binding = null;
@@ -367,12 +368,14 @@
 
 	function finish(generation, phase, error) {
 		if (generation !== activeGeneration) return false;
-		submitNeutralInput(0, false);
+		const nativePresentationStarted = status.active || activationPending || engineLoopOwned || referenceSpace !== null;
+		if (nativePresentationStarted) submitNeutralInput(0, false);
 		const finishedSession = session;
 		const pendingFrame = animationFrameHandle;
 		const errorStage = error ? (error.stage || status.currentStage || status.phase) : null;
 		activeGeneration = 0;
 		enterPending = false;
+		activationPending = false;
 		animationFrameHandle = null;
 		if (finishedSession && pendingFrame !== null &&
 			typeof finishedSession.cancelAnimationFrame === "function") {
@@ -390,7 +393,7 @@
 			try { setEngineLoop(false); } catch (_) {}
 			engineLoopOwned = false;
 		}
-		resetNativePose();
+		if (nativePresentationStarted) resetNativePose();
 		status.phase = phase || "ended";
 		setStage(status.phase);
 		status.active = false;
@@ -495,7 +498,7 @@
 		return format === "bgra8unorm" || format === "rgba8unorm" || format === "rgba16float";
 	};
 
-	root.surrealXREnter = async function () {
+	root.surrealXRRequestSession = async function () {
 		if (session || enterPending) return false;
 		status.enterAttempts++;
 		setStage("preflight");
@@ -566,6 +569,22 @@
 			}
 			session = requestedSession;
 			session.addEventListener("end", function () { finish(generation, "ended", null); });
+			enterPending = false;
+			status.phase = "session-reserved";
+			setStage("session-reserved");
+			recordTransition("session-reserved", generation, status.currentStage);
+			return true;
+		} catch (error) {
+			fail(generation, error);
+			return false;
+		}
+	};
+
+	root.surrealXRActivateReservedSession = async function () {
+		if (!session || status.active || enterPending || activationPending) return false;
+		const generation = activeGeneration;
+		activationPending = true;
+		try {
 			session.addEventListener("inputsourceschange", function (event) {
 				if (generation === activeGeneration && event && event.removed && event.removed.length) submitCurrentInput(0);
 			});
@@ -632,7 +651,7 @@
 				throw providerError("engine-loop-rejected", "starting-frame-loop",
 					"engine rejected WebXR frame-loop ownership");
 			engineLoopOwned = true;
-			enterPending = false;
+			activationPending = false;
 			status.phase = "running";
 			setStage("running");
 			status.active = true;
@@ -648,6 +667,11 @@
 			fail(generation, error);
 			return false;
 		}
+	};
+
+	root.surrealXREnter = async function () {
+		if (!await root.surrealXRRequestSession()) return false;
+		return root.surrealXRActivateReservedSession();
 	};
 
 	root.surrealXRExit = function () {

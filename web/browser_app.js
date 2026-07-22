@@ -192,6 +192,86 @@
 		return provider.activate(Object.freeze({ Module, selection }));
 	}
 
+	const STARTUP_STAGES = Object.freeze(["idle", "native-startup", "native-ready",
+		"presentation-activation", "running", "failed"]);
+
+	class LaunchStartupTracker {
+		constructor(options) {
+			const settings = options || {};
+			this.clock = typeof settings.clock === "function" ? settings.clock : () => {
+				if (global.performance && typeof global.performance.now === "function") return global.performance.now();
+				return Date.now();
+			};
+			this.onChange = typeof settings.onChange === "function" ? settings.onChange : () => {};
+			this.startedAt = null;
+			this.nativeStartedAt = null;
+			this.nativeReturnedAt = null;
+			this.stageChangedAt = this.clock();
+			this.stage = "idle";
+		}
+
+		transition(stage) {
+			if (!STARTUP_STAGES.includes(stage)) throw new LauncherError("STARTUP_STAGE", "Unknown browser startup stage.");
+			const now = this.clock();
+			if (this.startedAt === null && stage !== "idle") this.startedAt = now;
+			this.stage = stage;
+			this.stageChangedAt = now;
+			const snapshot = this.status();
+			this.onChange(snapshot);
+			return snapshot;
+		}
+
+		markNativeStarted() { this.nativeStartedAt = this.clock(); }
+		markNativeReturned() { this.nativeReturnedAt = this.clock(); }
+
+		status() {
+			const now = this.clock();
+			return Object.freeze({
+				stage: this.stage,
+				elapsedMs: this.startedAt === null ? 0 : Math.max(0, now - this.startedAt),
+				stageElapsedMs: Math.max(0, now - this.stageChangedAt),
+				nativeStartupMs: this.nativeStartedAt === null || this.nativeReturnedAt === null ? null :
+					Math.max(0, this.nativeReturnedAt - this.nativeStartedAt),
+			});
+		}
+	}
+
+	function waitForBrowserPaint(environment) {
+		const host = environment || global;
+		return new Promise(resolve => {
+			if (typeof host.requestAnimationFrame !== "function") { resolve(); return; }
+			host.requestAnimationFrame(() => {
+				if (typeof host.setTimeout === "function") host.setTimeout(resolve, 0);
+				else resolve();
+			});
+		});
+	}
+
+	async function runLaunchBoundary(options) {
+		const settings = options || {};
+		const tracker = settings.startupTracker || new LaunchStartupTracker({ onChange: settings.onStartupStage });
+		try {
+			// Publish the native-startup state and yield through a rendering opportunity before
+			// entering callMain: some Emscripten builds remain there for a long time.
+			tracker.transition("native-startup");
+			await (settings.waitForPaint || waitForBrowserPaint)(settings.environment || global);
+			tracker.markNativeStarted();
+			settings.Module.callMain(buildNativeArguments(settings.selection));
+			tracker.markNativeReturned();
+			tracker.transition("native-ready");
+			if (settings.audioController && typeof settings.audioController.engineStarted === "function")
+				settings.audioController.engineStarted();
+			tracker.transition("presentation-activation");
+			await activatePresentation(settings.registry, settings.selection, settings.Module);
+			tracker.transition("running");
+			if (typeof settings.onLaunch === "function") settings.onLaunch(settings.selection);
+			return tracker.status();
+		} catch (error) {
+			tracker.transition("failed");
+			throw error;
+		}
+	}
+
 	class LauncherController {
 		constructor(root, registry, options) {
 			this.root = root || null;
@@ -354,12 +434,10 @@
 							importerOptions,
 							mutableOptionsForGame: gameId => library.mutableOptions(gameId),
 							selectLaunch: context => { if (context.metadata) { library.register(context.metadata); libraryUI.refresh(); } return launcher.selectLaunch(context); },
-							launch: async selection => {
-								Module.callMain(buildNativeArguments(selection));
-								if (options.audioController && typeof options.audioController.engineStarted === "function") options.audioController.engineStarted();
-								await activatePresentation(registry, selection, Module);
-								if (typeof options.onLaunch === "function") options.onLaunch(selection);
-							},
+							launch: selection => runLaunchBoundary({ Module, selection, registry,
+								audioController: options.audioController, onLaunch: options.onLaunch,
+								onStartupStage: options.onStartupStage, environment: options.environment || global,
+								waitForPaint: options.waitForPaint }),
 						});
 						resolve(Object.freeze({ Module, launcher, registry, library, libraryUI, dataController: started.controller, result: started.result }));
 					} catch (error) { reject(error); }
@@ -384,6 +462,9 @@
 		createHostPicker,
 		buildNativeArguments,
 		activatePresentation,
+		LaunchStartupTracker,
+		waitForBrowserPaint,
+		runLaunchBoundary,
 		acquireWebGPUDevice,
 		start,
 	});

@@ -92,6 +92,27 @@ and game-data import cannot depend on an XR session. WebXR should activate only
 after feature detection and user initiation, and exiting a session must return to
 the same flat application state.
 
+### User gesture and native startup boundary
+
+`Module.callMain()` is a potentially long synchronous boundary, not a completed
+launch notification. The shared launcher therefore publishes `native-startup`,
+reveals the ordinary canvas with an explicit loading status, and yields through a
+browser paint opportunity before entering it. Only after `callMain()` returns may
+the state advance to `native-ready`, presentation activation, and `running`.
+Exposed startup diagnostics are deliberately limited to fixed stage names and
+monotonic elapsed durations; they contain no selected title, local path, imported
+file, URL, or engine log data.
+
+WebXR uses a matching two-phase provider contract. `prepareLaunch()` runs inside
+the Play submit gesture and calls `surrealXRRequestSession()` immediately, which
+reserves the browser session but does not create projection layers, request XR
+frames, submit controller input, or transfer the engine frame loop. After native
+startup returns, `activate()` calls `surrealXRActivateReservedSession()` to create
+the presentation resources and begin XR frame ownership. A rejected or ended
+reservation keeps the same application running in its flat canvas with existing
+mouse and keyboard input. Legacy provider scripts may still use the one-step
+`surrealXREnter()` wrapper.
+
 ### Packaging comparison
 
 | Option | Reuse | Benefits | Costs and XR risk | Recommendation |

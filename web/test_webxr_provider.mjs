@@ -116,11 +116,13 @@ Object.defineProperty(globalThis, "navigator", {
 });
 
 let useSharedTexture = false;
+let bindingCreations = 0;
 const leftTexture = { width: 800, height: 600 };
 const rightTexture = { width: 1024, height: 768 };
 const sharedTexture = { width: 1200, height: 900 };
 
 globalThis.XRGPUBinding = class {
+	constructor() { bindingCreations++; }
 	getPreferredColorFormat() { return "rgba8unorm"; }
 	createProjectionLayer(options) {
 		assert.equal(options.colorFormat, "rgba8unorm");
@@ -177,8 +179,20 @@ assert.equal(await globalThis.surrealXRIsSupported(), true);
 assert.equal(globalThis.surrealXRIsColorFormatSupported("rgba8unorm"), true);
 assert.equal(globalThis.surrealXRIsColorFormatSupported("rgb10a2unorm"), false);
 
+// The Play gesture can reserve a session without creating layers, touching the
+// native frame loop, or scheduling XR frames before callMain returns.
+assert.equal(await globalThis.surrealXRRequestSession(), true);
+assert.equal(globalThis.surrealXRGetState().phase, "session-reserved");
+assert.equal(globalThis.surrealXRGetState().currentStage, "session-reserved");
+assert.equal(globalThis.surrealXRGetState().active, false);
+assert.equal(bindingCreations, 0);
+assert.equal(loopTransitions.length, 0);
+assert.equal(resetCalls, 0);
+assert.equal(inputPackets.length, 0);
+assert.equal(sessions[0].frames.size, 0);
+assert.equal(await globalThis.surrealXRActivateReservedSession(), true);
+
 // Distinct per-eye textures are legal and must remain distinct through native handoff.
-assert.equal(await globalThis.surrealXREnter(), true);
 assert.equal(await globalThis.surrealXREnter(), false);
 assert.equal(globalThis.surrealXRGetState().active, true);
 assert.equal(globalThis.surrealXRGetState().currentStage, "running");
@@ -306,6 +320,14 @@ assert.ok(resetCalls >= 6);
 assert.equal(appliedInputPackets, inputPackets.length, "every accepted stored input snapshot must reach the native runtime");
 assert.equal(new DataView(inputPackets.at(-1).buffer).getUint32(8, true), 0, "session end must leave neutral input");
 assert.equal(new DataView(inputPackets.at(-1).buffer).getUint32(12, true), 0, "session end must mark input inactive");
+
+// Ending a reservation while native startup is still pending must not touch the runtime.
+globalThis.XRGPUBinding.prototype.getPreferredColorFormat = function () { return "rgba8unorm"; };
+const beforeReservedExit = { loops: loopTransitions.length, packets: inputPackets.length, resets: resetCalls };
+assert.equal(await globalThis.surrealXRRequestSession(), true);
+assert.equal(globalThis.surrealXRExit(), true);
+await Promise.resolve();
+assert.deepEqual({ loops: loopTransitions.length, packets: inputPackets.length, resets: resetCalls }, beforeReservedExit);
 
 // Capability reporting distinguishes the obsolete binding spelling and a non-XR device.
 const currentBinding = globalThis.XRGPUBinding;

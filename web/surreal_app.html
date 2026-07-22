@@ -8,7 +8,14 @@
 </head>
 <body>
 <main>
-	<canvas id="game" width="1280" height="720" tabindex="0" aria-label="SurrealEngine game view" hidden></canvas>
+	<section id="browser-startup" class="startup-view" hidden aria-live="polite">
+		<canvas id="game" width="1280" height="720" tabindex="0" aria-label="SurrealEngine game view"></canvas>
+		<div class="startup-overlay" data-startup-overlay>
+			<h1>Starting SurrealEngine…</h1>
+			<p data-startup-stage>Preparing the native runtime.</p>
+			<p data-startup-timing>Startup timing will appear when the runtime is ready.</p>
+		</div>
+	</section>
 	<section id="browser-status" class="panel capability-panel" aria-live="polite">
 		<h1>SurrealEngine Web</h1>
 		<p>Run your own Unreal Tournament or Unreal Gold installation in a flat WebGPU window, with optional immersive WebXR when the browser supports it.</p>
@@ -115,11 +122,28 @@ SurrealBrowserRelease.start({
 		engineScript: engineBase + "SurrealEngine.js",
 		log,
 		logSnapshot: () => logLines.join("\n") + "\n",
+		onStartupStage: status => {
+			window.surrealBrowserStartup = status;
+			window.surrealBrowserStartupState = () => window.surrealBrowserStartup;
+			const startup = document.getElementById("browser-startup");
+			const overlay = startup.querySelector("[data-startup-overlay]");
+			const messages = {
+				"native-startup": "Starting the native game runtime. Large local installations can take a while.",
+				"native-ready": "Native runtime ready. Connecting presentation and input…",
+				"presentation-activation": "Connecting the selected presentation mode…",
+				"running": "Game ready.",
+				"failed": "Startup stopped. See the launcher log for details.",
+			};
+			startup.hidden = false;
+			startup.querySelector("[data-startup-stage]").textContent = messages[status.stage] || "Preparing the runtime.";
+			startup.querySelector("[data-startup-timing]").textContent = status.nativeStartupMs === null ?
+				"Native startup is in progress." : "Native startup completed in " + Math.round(status.nativeStartupMs) + " ms.";
+			overlay.hidden = status.stage === "running";
+		},
 		onLaunch: selection => {
 			window.surrealBooted = true;
 			window.surrealLaunchSelection = selection;
 			const canvas = document.getElementById("game");
-			canvas.hidden = false;
 			canvas.scrollIntoView({ behavior: "auto", block: "start" });
 			canvas.focus({ preventScroll: true });
 		},
