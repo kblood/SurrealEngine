@@ -750,7 +750,7 @@ install(TARGETS SurrealEditor RUNTIME DESTINATION bin BUNDLE DESTINATION app)
 install(TARGETS SurrealDebugger RUNTIME DESTINATION bin)
 
 include(CTest)
-if(BUILD_TESTING)
+if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_executable(VMCallHookTests SurrealEngine/VM/CallHooksTests.cpp)
 	target_link_libraries(VMCallHookTests SurrealCommon ${SURREALCOMMON_LIBS})
 	set_target_properties(VMCallHookTests PROPERTIES CXX_STANDARD 20)
