@@ -2,6 +2,7 @@
 #include "Precomp.h"
 #include "WebGPURenderDevice.h"
 #include <surrealwidgets/core/widget.h>
+#include "Utils/Exception.h"
 #include <cstring>
 #include <cmath>
 #include <algorithm>
@@ -12,6 +13,17 @@
 // below (Engine.cpp's Surreal_GetTickCount/Surreal_RequestQuit pattern) -
 // there is only ever one RenderDevice for the process's lifetime.
 static WebGPURenderDevice* CurrentDevice = nullptr;
+
+// These are the color formats WebXR/WebGPU projection layers are required to
+// accept. Keeping this boundary explicit prevents an arbitrary imported
+// texture from creating a large, unusable pipeline family or reaching a render
+// pass with pipelines compiled for a different attachment format.
+static bool IsSupportedExternalColorFormat(WGPUTextureFormat format)
+{
+	return format == WGPUTextureFormat_RGBA8Unorm ||
+		format == WGPUTextureFormat_BGRA8Unorm ||
+		format == WGPUTextureFormat_RGBA16Float;
+}
 
 WebGPURenderDevice::WebGPURenderDevice(Widget* viewport)
 {
@@ -87,9 +99,14 @@ bool WebGPURenderDevice::BeginExternalRenderTargetFrame(WGPUTexture texture, int
 	if (!texture || textureWidth <= 0 || textureHeight <= 0 || IsLocked || ExternalFrameActive)
 		return false;
 
+	const WGPUTextureFormat textureFormat = wgpuTextureGetFormat(texture);
+	if (!IsSupportedExternalColorFormat(textureFormat) || !Pipelines->EnsureColorFormat(textureFormat))
+		return false;
+
 	SavedFixedRenderWidth = FixedRenderWidth;
 	SavedFixedRenderHeight = FixedRenderHeight;
 	ExternalFrameTexture = texture;
+	ExternalColorFormat = textureFormat;
 	ExternalArrayLayer = initialArrayLayer;
 	ExternalTextureWidth = textureWidth;
 	ExternalTextureHeight = textureHeight;
@@ -136,6 +153,8 @@ bool WebGPURenderDevice::EndExternalRenderTargetFrame()
 	if (ExternalFrameTexture)
 		wgpuTextureRelease(ExternalFrameTexture);
 	ExternalFrameTexture = nullptr;
+	LastExternalColorFormat = ExternalColorFormat;
+	ExternalColorFormat = WGPUTextureFormat_Undefined;
 	ExternalFrameActive = false;
 	AutoEndExternalFrame = false;
 	ExternalTextureWidth = 0;
@@ -163,7 +182,7 @@ WGPUTextureView WebGPURenderDevice::CreateExternalRenderTargetView(uint32_t arra
 		return nullptr;
 
 	WGPUTextureViewDescriptor viewDesc = {};
-	viewDesc.format = Context->SurfaceFormat;
+	viewDesc.format = ExternalColorFormat;
 	viewDesc.dimension = WGPUTextureViewDimension_2D;
 	viewDesc.baseMipLevel = 0;
 	viewDesc.mipLevelCount = 1;
@@ -320,6 +339,9 @@ void WebGPURenderDevice::Lock(vec4 InFlashScale, vec4 InFlashFog, vec4 ScreenCle
 	Stats.BindGroupCacheHits = 0;
 
 	UsingExternalRenderTarget = ExternalFrameActive && ExternalFrameTexture != nullptr;
+	ActiveColorFormat = UsingExternalRenderTarget ? ExternalColorFormat : Context->SurfaceFormat;
+	if (!Pipelines->SelectColorFormat(ActiveColorFormat))
+		Exception::Throw("WebGPU render-target pipeline selection failed");
 	CurrentSizeX = UsingExternalRenderTarget ? ExternalViewportWidth : GetRenderWidth();
 	CurrentSizeY = UsingExternalRenderTarget ? ExternalViewportHeight : GetRenderHeight();
 
@@ -1165,7 +1187,7 @@ void WebGPURenderDevice::Draw3DLine(FSceneNode* Frame, vec4 Color, uint32_t Line
 	else
 	{
 		bool occlude = !!(LineFlags & LINE_DepthCued);
-		SetPipeline(&Pipelines->LinePipeline[occlude]);
+		SetPipeline(Pipelines->GetLinePipeline(occlude));
 		SetDescriptorSet(PF_Highlighted);
 		vec4 color = ApplyInverseGamma(vec4(Color.x, Color.y, Color.z, 1.0f));
 
@@ -1190,7 +1212,7 @@ void WebGPURenderDevice::Draw3DLine(FSceneNode* Frame, vec4 Color, uint32_t Line
 void WebGPURenderDevice::Draw2DLine(FSceneNode* Frame, vec4 Color, uint32_t LineFlags, vec3 P1, vec3 P2)
 {
 	bool occlude = !!(LineFlags & LINE_DepthCued);
-	SetPipeline(&Pipelines->LinePipeline[occlude]);
+	SetPipeline(Pipelines->GetLinePipeline(occlude));
 	SetDescriptorSet(PF_Highlighted);
 	vec4 color = ApplyInverseGamma(vec4(Color.x, Color.y, Color.z, 1.0f));
 
@@ -1214,7 +1236,7 @@ void WebGPURenderDevice::Draw2DLine(FSceneNode* Frame, vec4 Color, uint32_t Line
 void WebGPURenderDevice::Draw2DPoint(FSceneNode* Frame, vec4 Color, uint32_t LineFlags, float X1, float Y1, float X2, float Y2, float Z)
 {
 	bool occlude = !!(LineFlags & LINE_DepthCued);
-	SetPipeline(&Pipelines->PointPipeline[occlude]);
+	SetPipeline(Pipelines->GetPointPipeline(occlude));
 	SetDescriptorSet(PF_Highlighted);
 	vec4 color = ApplyInverseGamma(vec4(Color.x, Color.y, Color.z, 1.0f));
 
@@ -1270,18 +1292,50 @@ EM_JS(uintptr_t, JS_CreateAndImportTestWebGPUTexture, (uintptr_t parentDevice), 
 // this catches a view-descriptor implementation that accidentally always
 // renders layer 0.
 EM_JS(uintptr_t, JS_CreateAndImportExternalRenderTarget,
-	(uintptr_t parentDevice, int width, int height), {
+	(uintptr_t parentDevice, int width, int height, int formatCode), {
 	if (!window.surrealWebGPUDevice || typeof WebGPU === "undefined" || !WebGPU.importJsTexture)
+		return 0;
+	const formats = ["bgra8unorm", "rgba8unorm", "rgba16float"];
+	const format = formats[formatCode];
+	if (!format)
 		return 0;
 	const texture = window.surrealWebGPUDevice.createTexture({
 		size: { width: width, height: height, depthOrArrayLayers: 2 },
-		format: "bgra8unorm",
+		format: format,
 		usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
 			GPUTextureUsage.COPY_SRC,
 	});
 	window.surrealWebGPUExternalRenderTarget = texture;
 	return WebGPU.importJsTexture(texture, parentDevice);
 });
+
+static int TestExternalStereoFrame(int formatCode)
+{
+	if (!CurrentDevice || !CurrentDevice->Context || !CurrentDevice->Context->Device ||
+		!engine || !engine->render || engine->render->Device != CurrentDevice)
+		return 0;
+
+	const int width = 640;
+	const int height = 480;
+	WGPUTexture texture = reinterpret_cast<WGPUTexture>(
+		JS_CreateAndImportExternalRenderTarget(
+			reinterpret_cast<uintptr_t>(CurrentDevice->Context->Device), width, height, formatCode));
+	if (!texture)
+		return 0;
+
+	if (!CurrentDevice->BeginExternalRenderTargetFrame(texture, width, height, 0))
+	{
+		wgpuTextureRelease(texture);
+		return 0;
+	}
+
+	const uint64_t tickBefore = engine->tickCount;
+	const float levelElapsed = engine->AdvanceGameFrame();
+	engine->render->DrawGameStereoLayers(levelElapsed);
+	engine->FinishGameFrame(levelElapsed);
+	const bool ended = CurrentDevice->EndExternalRenderTargetFrame();
+	return ended && engine->tickCount == tickBefore + 1 ? 1 : 0;
+}
 
 // The pinned emdawnwebgpu API only offers uncaptured-error reporting via
 // WGPUDeviceDescriptor.uncapturedErrorCallbackInfo at device-creation time
@@ -1343,6 +1397,16 @@ extern "C"
 		return CurrentDevice ? CurrentDevice->GetExternalRenderTargetState() : -1;
 	}
 
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGPUPipelineColorFormatCount()
+	{
+		return CurrentDevice ? static_cast<int>(CurrentDevice->GetPipelineColorFormatCount()) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGPULastExternalRenderTargetFormat()
+	{
+		return CurrentDevice ? static_cast<int>(CurrentDevice->GetLastExternalRenderTargetFormat()) : 0;
+	}
+
 	EMSCRIPTEN_KEEPALIVE int Surreal_QueueWebGPUExternalRenderTarget()
 	{
 		if (!CurrentDevice || !CurrentDevice->Context || !CurrentDevice->Context->Device)
@@ -1352,7 +1416,7 @@ extern "C"
 		const int height = 480;
 		WGPUTexture texture = reinterpret_cast<WGPUTexture>(
 			JS_CreateAndImportExternalRenderTarget(
-				reinterpret_cast<uintptr_t>(CurrentDevice->Context->Device), width, height));
+				reinterpret_cast<uintptr_t>(CurrentDevice->Context->Device), width, height, 0));
 		if (!texture)
 			return 0;
 
@@ -1370,30 +1434,17 @@ extern "C"
 	// matrices while retaining this renderer and phase-ordering path.
 	EMSCRIPTEN_KEEPALIVE int Surreal_TestWebGPUExternalStereoFrame()
 	{
-		if (!CurrentDevice || !CurrentDevice->Context || !CurrentDevice->Context->Device ||
-			!engine || !engine->render || engine->render->Device != CurrentDevice)
-			return 0;
+		return TestExternalStereoFrame(0);
+	}
 
-		const int width = 640;
-		const int height = 480;
-		WGPUTexture texture = reinterpret_cast<WGPUTexture>(
-			JS_CreateAndImportExternalRenderTarget(
-				reinterpret_cast<uintptr_t>(CurrentDevice->Context->Device), width, height));
-		if (!texture)
-			return 0;
+	EMSCRIPTEN_KEEPALIVE int Surreal_TestWebGPUExternalRGBA8StereoFrame()
+	{
+		return TestExternalStereoFrame(1);
+	}
 
-		if (!CurrentDevice->BeginExternalRenderTargetFrame(texture, width, height, 0))
-		{
-			wgpuTextureRelease(texture);
-			return 0;
-		}
-
-		const uint64_t tickBefore = engine->tickCount;
-		const float levelElapsed = engine->AdvanceGameFrame();
-		engine->render->DrawGameStereoLayers(levelElapsed);
-		engine->FinishGameFrame(levelElapsed);
-		const bool ended = CurrentDevice->EndExternalRenderTargetFrame();
-		return ended && engine->tickCount == tickBefore + 1 ? 1 : 0;
+	EMSCRIPTEN_KEEPALIVE int Surreal_TestWebGPUExternalRGBA16FloatStereoFrame()
+	{
+		return TestExternalStereoFrame(2);
 	}
 
 	EMSCRIPTEN_KEEPALIVE int Surreal_TestWebGPUTextureImport()

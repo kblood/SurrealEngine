@@ -107,6 +107,9 @@ public:
 	bool QueueExternalRenderTarget(WGPUTexture texture, uint32_t arrayLayer, int width, int height);
 	int GetExternalRenderTargetFrames() const { return ExternalRenderTargetFrames; }
 	int GetLastExternalRenderTargetDrawCalls() const { return LastExternalRenderTargetDrawCalls; }
+	WGPUTextureFormat GetExternalRenderTargetFormat() const { return ExternalColorFormat; }
+	WGPUTextureFormat GetLastExternalRenderTargetFormat() const { return LastExternalColorFormat; }
+	size_t GetPipelineColorFormatCount() const { return Pipelines ? Pipelines->GetColorFormatCount() : 0; }
 	int GetExternalRenderTargetState() const
 	{
 		return (IsLocked ? 1 : 0) |
@@ -229,6 +232,9 @@ private:
 	vec4 CurrentClearColor = vec4(0.0f);
 
 	WGPUTexture ExternalFrameTexture = nullptr;
+	WGPUTextureFormat ExternalColorFormat = WGPUTextureFormat_Undefined;
+	WGPUTextureFormat LastExternalColorFormat = WGPUTextureFormat_Undefined;
+	WGPUTextureFormat ActiveColorFormat = WGPUTextureFormat_BGRA8Unorm;
 	uint32_t ExternalArrayLayer = 0;
 	int ExternalTextureWidth = 0;
 	int ExternalTextureHeight = 0;

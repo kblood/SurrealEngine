@@ -4,6 +4,7 @@
 #include "WebGPUContext.h"
 #include "WebGPUShaders.h"
 #include "UObject/ULevel.h"
+#include "Utils/Exception.h"
 #include <cstddef>
 
 static WGPUStringView ToStringView(const std::string& s) { return WGPUStringView{ s.data(), s.size() }; }
@@ -11,6 +12,9 @@ static WGPUStringView ToStringView(const char* s) { return WGPUStringView{ s, st
 
 WebGPUPipelineCache::WebGPUPipelineCache(WebGPUContext* context, WGPUTextureFormat colorFormat, WGPUTextureFormat depthFormat)
 {
+	Context = context;
+	DepthFormat = depthFormat;
+
 	// Group 0: the per-frame uniform buffer (vertex stage only).
 	WGPUBindGroupLayoutEntry uniformEntry = {};
 	uniformEntry.binding = 0;
@@ -58,6 +62,18 @@ WebGPUPipelineCache::WebGPUPipelineCache(WebGPUContext* context, WGPUTextureForm
 	shaderDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
 	ShaderModule = wgpuDeviceCreateShaderModule(context->Device, &shaderDesc);
 
+	if (!SelectColorFormat(colorFormat))
+		Exception::Throw("WebGPU pipeline family creation failed");
+}
+
+WebGPUPipelineCache::PipelineFamily* WebGPUPipelineCache::GetOrCreateFamily(WGPUTextureFormat colorFormat)
+{
+	const uint32_t key = static_cast<uint32_t>(colorFormat);
+	auto existing = ColorFormatFamilies.find(key);
+	if (existing != ColorFormatFamilies.end())
+		return existing->second.get();
+
+	auto family = std::make_unique<PipelineFamily>();
 	for (int i = 0; i < 33; i++)
 	{
 		int blendCase = (i < 32) ? (i & 3) : -1; // -1 = PF_SubpixelFont (index 32)
@@ -108,7 +124,7 @@ WebGPUPipelineCache::WebGPUPipelineCache(WebGPUContext* context, WGPUTextureForm
 		bool depthWrite = (i < 32) ? ((i & 8) != 0) : false; // PF_Occlude
 		bool alphaTest = (i < 32) ? ((i & 16) != 0) : true;  // PF_Masked, or always for PF_SubpixelFont
 
-		Pipelines[i].Pipeline = CreatePipeline(context, colorFormat, depthFormat, WGPUPrimitiveTopology_TriangleList, blend, colorWriteMask, depthWrite, alphaTest);
+		family->Pipelines[i].Pipeline = CreatePipeline(Context, colorFormat, DepthFormat, WGPUPrimitiveTopology_TriangleList, blend, colorWriteMask, depthWrite, alphaTest);
 	}
 
 	for (int i = 0; i < 2; i++)
@@ -121,17 +137,46 @@ WebGPUPipelineCache::WebGPUPipelineCache(WebGPUContext* context, WGPUTextureForm
 		blend.alpha.srcFactor = WGPUBlendFactor_One;
 		blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
 
-		LinePipeline[i].Pipeline = CreatePipeline(context, colorFormat, depthFormat, WGPUPrimitiveTopology_LineList, blend, WGPUColorWriteMask_All, true, false);
-		PointPipeline[i].Pipeline = CreatePipeline(context, colorFormat, depthFormat, WGPUPrimitiveTopology_TriangleList, blend, WGPUColorWriteMask_All, true, false);
+		family->LinePipeline[i].Pipeline = CreatePipeline(Context, colorFormat, DepthFormat, WGPUPrimitiveTopology_LineList, blend, WGPUColorWriteMask_All, true, false);
+		family->PointPipeline[i].Pipeline = CreatePipeline(Context, colorFormat, DepthFormat, WGPUPrimitiveTopology_TriangleList, blend, WGPUColorWriteMask_All, true, false);
 
 		if (i == 0)
 		{
-			LinePipeline[i].MinDepth = 0.0f;
-			LinePipeline[i].MaxDepth = 0.1f;
-			PointPipeline[i].MinDepth = 0.0f;
-			PointPipeline[i].MaxDepth = 0.1f;
+			family->LinePipeline[i].MinDepth = 0.0f;
+			family->LinePipeline[i].MaxDepth = 0.1f;
+			family->PointPipeline[i].MinDepth = 0.0f;
+			family->PointPipeline[i].MaxDepth = 0.1f;
 		}
 	}
+
+	for (const auto& pipeline : family->Pipelines)
+	{
+		if (!pipeline.Pipeline)
+		{
+			ReleaseFamily(*family);
+			return nullptr;
+		}
+	}
+	for (const auto& pipeline : family->LinePipeline)
+	{
+		if (!pipeline.Pipeline)
+		{
+			ReleaseFamily(*family);
+			return nullptr;
+		}
+	}
+	for (const auto& pipeline : family->PointPipeline)
+	{
+		if (!pipeline.Pipeline)
+		{
+			ReleaseFamily(*family);
+			return nullptr;
+		}
+	}
+
+	PipelineFamily* result = family.get();
+	ColorFormatFamilies.emplace(key, std::move(family));
+	return result;
 }
 
 WGPURenderPipeline WebGPUPipelineCache::CreatePipeline(WebGPUContext* context, WGPUTextureFormat colorFormat, WGPUTextureFormat depthFormat, WGPUPrimitiveTopology topology, WGPUBlendState blend, uint32_t colorWriteMask, bool depthWrite, bool alphaTest)
@@ -194,13 +239,36 @@ WGPURenderPipeline WebGPUPipelineCache::CreatePipeline(WebGPUContext* context, W
 
 WebGPUPipelineCache::~WebGPUPipelineCache()
 {
-	for (auto& p : Pipelines) if (p.Pipeline) wgpuRenderPipelineRelease(p.Pipeline);
-	for (auto& p : LinePipeline) if (p.Pipeline) wgpuRenderPipelineRelease(p.Pipeline);
-	for (auto& p : PointPipeline) if (p.Pipeline) wgpuRenderPipelineRelease(p.Pipeline);
+	for (auto& entry : ColorFormatFamilies)
+		ReleaseFamily(*entry.second);
+	ColorFormatFamilies.clear();
 	if (ShaderModule) wgpuShaderModuleRelease(ShaderModule);
 	if (PipelineLayout) wgpuPipelineLayoutRelease(PipelineLayout);
 	if (TexturesBindGroupLayout) wgpuBindGroupLayoutRelease(TexturesBindGroupLayout);
 	if (UniformsBindGroupLayout) wgpuBindGroupLayoutRelease(UniformsBindGroupLayout);
+}
+
+void WebGPUPipelineCache::ReleaseFamily(PipelineFamily& family)
+{
+	for (auto& pipeline : family.Pipelines) if (pipeline.Pipeline) wgpuRenderPipelineRelease(pipeline.Pipeline);
+	for (auto& pipeline : family.LinePipeline) if (pipeline.Pipeline) wgpuRenderPipelineRelease(pipeline.Pipeline);
+	for (auto& pipeline : family.PointPipeline) if (pipeline.Pipeline) wgpuRenderPipelineRelease(pipeline.Pipeline);
+}
+
+bool WebGPUPipelineCache::EnsureColorFormat(WGPUTextureFormat colorFormat)
+{
+	return colorFormat != WGPUTextureFormat_Undefined && GetOrCreateFamily(colorFormat) != nullptr;
+}
+
+bool WebGPUPipelineCache::SelectColorFormat(WGPUTextureFormat colorFormat)
+{
+	if (colorFormat == WGPUTextureFormat_Undefined)
+		return false;
+	PipelineFamily* family = GetOrCreateFamily(colorFormat);
+	if (!family)
+		return false;
+	ActiveFamily = family;
+	return true;
 }
 
 WebGPUScenePipelineState* WebGPUPipelineCache::GetPipeline(uint32_t PolyFlags)
@@ -225,5 +293,15 @@ WebGPUScenePipelineState* WebGPUPipelineCache::GetPipeline(uint32_t PolyFlags)
 	if (PolyFlags == PF_SubpixelFont)
 		index = 32;
 
-	return &Pipelines[index];
+	return ActiveFamily ? &ActiveFamily->Pipelines[index] : nullptr;
+}
+
+WebGPUScenePipelineState* WebGPUPipelineCache::GetLinePipeline(bool occlude)
+{
+	return ActiveFamily ? &ActiveFamily->LinePipeline[occlude ? 1 : 0] : nullptr;
+}
+
+WebGPUScenePipelineState* WebGPUPipelineCache::GetPointPipeline(bool occlude)
+{
+	return ActiveFamily ? &ActiveFamily->PointPipeline[occlude ? 1 : 0] : nullptr;
 }
