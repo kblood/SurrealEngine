@@ -233,6 +233,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Audio/AudioDevice.h
 	SurrealEngine/Video/VideoPlayer.cpp
 	SurrealEngine/Video/VideoPlayer.h
+	SurrealEngine/Video/VideoFrameScheduler.cpp
+	SurrealEngine/Video/VideoFrameScheduler.h
 	SurrealEngine/Video/AVIFileReader.h
 	SurrealEngine/Video/AVIHeaders.h
 	SurrealEngine/Native/NStatLog.h
@@ -818,7 +820,7 @@ elseif(EMSCRIPTEN)
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "UI/Editor/")
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "SurrealEngine/EditorApp\\.")
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "SurrealEngine/DebuggerApp\\.")
-	set(SURREALCOMMON_SOURCES ${SURREALCOMMON_SOURCES} SurrealEngine/Video/NullVideoDecoder.cpp)
+	set(SURREALCOMMON_SOURCES ${SURREALCOMMON_SOURCES} ${SURREALVIDEO_SOURCES})
 	set(SURREALCOMMON_SOURCES ${SURREALCOMMON_SOURCES} ${SURREALCOMMON_WEBGPU_SOURCES})
 	set(THIRDPARTY_SOURCES ${THIRDPARTY_SOURCES} ${THIRDPARTY_UNIX_SOURCES})
 	add_definitions(-DUNIX -D_UNIX)
@@ -850,9 +852,20 @@ endif()
 
 add_library(SurrealCommon STATIC ${SURREALCOMMON_SOURCES} ${THIRDPARTY_SOURCES})
 set_target_properties(SurrealCommon PROPERTIES CXX_STANDARD 20)
+if(EMSCRIPTEN)
+	target_include_directories(SurrealCommon PRIVATE SurrealVideo)
+endif()
 
 include(CTest)
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+	add_executable(VideoFrameSchedulerTests
+		Tests/VideoFrameSchedulerTests.cpp
+		SurrealEngine/Video/VideoFrameScheduler.cpp
+	)
+	target_include_directories(VideoFrameSchedulerTests PRIVATE SurrealEngine)
+	set_target_properties(VideoFrameSchedulerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME VideoFrameScheduler COMMAND VideoFrameSchedulerTests)
+
 	add_executable(PropertySerializationTests
 		Tests/PropertySerializationTests.cpp
 	)

@@ -31,10 +31,49 @@
 #include "VM/Frame.h"
 #include "VM/ScriptCall.h"
 #include "Video/VideoPlayer.h"
+#include "Video/VideoFrameScheduler.h"
 #include <chrono>
 #include <set>
 
 Engine* engine = nullptr;
+
+#ifdef __EMSCRIPTEN__
+class BrowserCinematicPlayback
+{
+public:
+	explicit BrowserCinematicPlayback(const std::string& filename)
+		: Player(VideoPlayer::Create(filename, false)), Scheduler(Player.get())
+	{
+		Texture.CacheID = 0xffffffff'ffffffffULL;
+		Texture.Format = TextureFormat::BGRA8;
+		Texture.NumMips = 1;
+	}
+
+	VideoFrameStep Advance(float elapsedSeconds)
+	{
+		const VideoFrameStep result = Scheduler.Advance(Started ? elapsedSeconds : 0.0f);
+		Started = true;
+		UnrealMipmap* frame = Scheduler.CurrentFrame();
+		if (frame)
+		{
+			Texture.Mips = frame;
+			Texture.USize = frame->Width;
+			Texture.VSize = frame->Height;
+			Texture.bRealtimeChanged = result == VideoFrameStep::FrameReady;
+		}
+		return result;
+	}
+
+	std::unique_ptr<AudioSource> TakeAudio() { return Player->GetAudio(); }
+	FTextureInfo* FrameTexture() { return Texture.Mips ? &Texture : nullptr; }
+
+private:
+	std::unique_ptr<VideoPlayer> Player;
+	VideoFrameScheduler Scheduler;
+	FTextureInfo Texture;
+	bool Started = false;
+};
+#endif
 
 Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 {
@@ -315,6 +354,13 @@ float Engine::AdvanceGameFrame()
 	// Tick everything once. Rendering is deliberately kept in a separate phase so
 	// alternate frame loops can schedule presentation independently.
 	float realTimeElapsed = CalcTimeElapsed();
+#ifdef __EMSCRIPTEN__
+	if (browserCinematic)
+	{
+		AdvanceBrowserCinematic(realTimeElapsed);
+		return 0.0f;
+	}
+#endif
 	float entryLevelElapsed = EntryLevel ? realTimeElapsed * clamp(EntryLevelInfo->TimeDilation(), 0.0025f, 25.0f) : 0.0f;
 	float levelElapsed = realTimeElapsed * clamp(LevelInfo->TimeDilation(), 0.0025f, 25.0f);
 
@@ -388,6 +434,15 @@ void Engine::RenderGameFrame(float levelElapsed)
 
 void Engine::RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily)
 {
+#ifdef __EMSCRIPTEN__
+	if (browserCinematic)
+	{
+		FTextureInfo* frame = browserCinematic->FrameTexture();
+		if (frame)
+			render->DrawVideoFrame(frame, nullptr, viewFamily.Presentation);
+		return;
+	}
+#endif
 	render->DrawGame(levelElapsed, viewFamily);
 }
 
@@ -528,6 +583,27 @@ void Engine::PlayAVI(const Array<std::string>& args)
 		video = args[1];
 	}
 
+#ifdef __EMSCRIPTEN__
+	try
+	{
+		FinishBrowserCinematic();
+		browserCinematic = std::make_unique<BrowserCinematicPlayback>(packages->GetVideoFilename(video));
+		playingAvi = true;
+		skipAvi = false;
+		render->XRUISurfaces().SetCinematicActive(true);
+		audiodev->SetViewport(nullptr);
+		audiodev->GetDevice()->PlayMusic(browserCinematic->TakeAudio());
+		if (!buildup.empty() || !breakdown.empty())
+			LogMessage("Browser cinematic playback omits Klingon Honor Guard buildup/breakdown transitions");
+	}
+	catch (const std::exception& e)
+	{
+		LogMessage("Error preparing " + video + ": " + e.what());
+		FinishBrowserCinematic();
+	}
+	return;
+#endif
+
 	playingAvi = true;
 	skipAvi = false;
 	render->XRUISurfaces().SetCinematicActive(true);
@@ -639,6 +715,47 @@ void Engine::PlayAVI(const Array<std::string>& args)
 	playingAvi = false;
 	CalcTimeElapsed(); // Reset so game isn't affected
 }
+
+#ifdef __EMSCRIPTEN__
+bool Engine::AdvanceBrowserCinematic(float elapsedSeconds)
+{
+	if (!browserCinematic)
+		return false;
+	if (quit || skipAvi)
+	{
+		FinishBrowserCinematic();
+		return false;
+	}
+
+	try
+	{
+		if (browserCinematic->Advance(elapsedSeconds) != VideoFrameStep::Finished)
+		{
+			audiodev->GetDevice()->Update();
+			return true;
+		}
+	}
+	catch (const std::exception& e)
+	{
+		LogMessage("Browser cinematic playback failed: " + std::string(e.what()));
+	}
+
+	FinishBrowserCinematic();
+	return false;
+}
+
+void Engine::FinishBrowserCinematic()
+{
+	if (audiodev && audiodev->GetDevice())
+		audiodev->GetDevice()->PlayMusic(nullptr);
+	if (render)
+		render->XRUISurfaces().SetCinematicActive(false);
+	browserCinematic.reset();
+	playingAvi = false;
+	skipAvi = false;
+	CalcTimeElapsed();
+}
+#endif
 
 UnrealMipmap* Engine::PlayVideo(VideoPlayer* video, UnrealMipmap* background)
 {

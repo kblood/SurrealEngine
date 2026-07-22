@@ -56,6 +56,7 @@ class Rotator;
 class ExpressionValue;
 class UnrealURL;
 class VideoPlayer;
+class BrowserCinematicPlayback;
 class OpenXRProvider;
 class UnrealMipmap;
 class UFloatProperty;
@@ -263,6 +264,11 @@ private:
 	bool khgSplashScreen = false;
 	bool playingAvi = false;
 	bool skipAvi = false;
+#ifdef __EMSCRIPTEN__
+	std::unique_ptr<BrowserCinematicPlayback> browserCinematic;
+	bool AdvanceBrowserCinematic(float elapsedSeconds);
+	void FinishBrowserCinematic();
+#endif
 };
 
 extern Engine* engine;

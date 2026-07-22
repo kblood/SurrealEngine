@@ -85,6 +85,9 @@ webxr/Ports/SurrealEngine/
   engine/
     SurrealEngine.js
     SurrealEngine.wasm
+  licenses/
+    SurrealVideo-LGPL-2.1.txt
+    SurrealVideo-README.md
   release-manifest.json
   HOSTING.txt
   _headers
@@ -102,6 +105,14 @@ The packager fails unless `CMakeCache.txt` records an empty
 fixed shell/runtime allowlist, and audits the output for UE1 game extensions.
 `release-manifest.json` records dependency SHAs plus each file's length,
 SHA-256, and expected MIME type. It never enumerates browser-private imports.
+
+When the Emscripten build statically includes SurrealVideo, the packager copies
+its LGPL 2.1 text and project notice into `licenses/` and `HOSTING.txt` warns the
+publisher about the corresponding-source/relink requirement. The notices alone
+are not the complete static-link compliance mechanism. Before redistribution,
+publish the exact corresponding decoder and engine source/object or other
+relinkable materials under a durable offer and have the final mechanism
+reviewed. See `WebCinematicPlayback.md`.
 
 ## Validation
 

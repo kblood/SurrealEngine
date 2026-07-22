@@ -30,10 +30,14 @@ try {
 	assert.ok(result.manifest.files.some(file => file.path === "webxr_provider.js"));
 	assert.ok(result.manifest.files.some(file => file.path === "webxr_webgl_bridge.js"));
 	assert.ok(result.manifest.files.some(file => file.path === "webxr_diagnostics.js"));
+	assert.ok(result.manifest.files.some(file => file.path === "licenses/SurrealVideo-LGPL-2.1.txt"));
+	assert.ok(result.manifest.files.some(file => file.path === "licenses/SurrealVideo-README.md"));
 	const index = await readFile(join(output, "index.html"), "utf8");
 	assert.match(index, /data-engine-base="\.\/engine\/"/);
 	assert.doesNotMatch(index, /\.\.\/build-emscripten\//);
 	assert.match(await readFile(join(output, "_headers"), "utf8"), /Cross-Origin-Embedder-Policy: require-corp/);
+	assert.match(await readFile(join(output, "HOSTING.txt"), "utf8"), /statically includes the SurrealVideo/);
+	assert.match(await readFile(join(output, "licenses", "SurrealVideo-LGPL-2.1.txt"), "utf8"), /GNU LESSER GENERAL PUBLIC LICENSE/);
 	await auditRelease(output);
 
 	await writeFile(join(output, "DM-Forbidden.unr"), "not game data");

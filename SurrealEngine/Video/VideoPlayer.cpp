@@ -56,7 +56,7 @@ public:
 class VideoPlayerImpl : public VideoPlayer
 {
 public:
-	VideoPlayerImpl(const std::string& filename)
+	VideoPlayerImpl(const std::string& filename, bool decodeAudio)
 	{
 		reader = std::make_unique<AVIFileReader>(File::read_all_bytes(filename));
 		ReadHeaders();
@@ -66,8 +66,11 @@ public:
 			throw std::runtime_error("AVI file has no audio stream");
 
 		VideoDecoder = std::shared_ptr<IVideoDecoder>(CreateVideoDecoder(), [](IVideoDecoder* decoder) { decoder->Release(); });
-		AudioDecoder = std::shared_ptr<IAudioDecoder>(CreateAudioDecoder(streamHeaders[Audio.StreamIndex].Audio.Channels, streamHeaders[Audio.StreamIndex].Audio.BlockAlign), [](IAudioDecoder* decoder) { decoder->Release(); });
-		DecodeAudio();
+		if (decodeAudio)
+		{
+			AudioDecoder = std::shared_ptr<IAudioDecoder>(CreateAudioDecoder(streamHeaders[Audio.StreamIndex].Audio.Channels, streamHeaders[Audio.StreamIndex].Audio.BlockAlign), [](IAudioDecoder* decoder) { decoder->Release(); });
+			DecodeAudio();
+		}
 	}
 
 	std::unique_ptr<AudioSource> GetAudio() override
@@ -383,7 +386,7 @@ public:
 	Array<uint8_t> packetData;
 };
 
-std::unique_ptr<VideoPlayer> VideoPlayer::Create(const std::string& filename)
+std::unique_ptr<VideoPlayer> VideoPlayer::Create(const std::string& filename, bool decodeAudio)
 {
-	return std::make_unique<VideoPlayerImpl>(filename);
+	return std::make_unique<VideoPlayerImpl>(filename, decodeAudio);
 }

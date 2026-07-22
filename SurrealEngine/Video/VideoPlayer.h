@@ -9,7 +9,7 @@ class AudioSource;
 class VideoPlayer
 {
 public:
-	static std::unique_ptr<VideoPlayer> Create(const std::string& filename);
+	static std::unique_ptr<VideoPlayer> Create(const std::string& filename, bool decodeAudio = true);
 
 	virtual ~VideoPlayer() = default;
 

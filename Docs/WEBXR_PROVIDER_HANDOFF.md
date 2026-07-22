@@ -259,14 +259,16 @@ proxies, exact-contact lasers/markers, and captured menu/loading/cinematic
 surfaces. Weapon rendering remains disabled; the proxy is intentionally not a
 game weapon model. Browser audio remains the flat platform's null backend.
 
-Emscripten currently builds `NullVideoDecoder`, so a real intro/cinematic frame
-cannot be validated in this build even though its capture target and projection
-composition path are connected. The legacy `PlayAVI` loop is also synchronous;
-if a browser video decoder is added, video stepping must be reconciled with
-`XRSession.requestAnimationFrame()` rather than allowed to own a blocking inner
-loop. Loading has a configured target but still needs an authoritative engine
-loading-visibility signal before it can be shown. These are exact content/
-lifecycle blockers, not quad-compositor blockers.
+The `integration/web-cinematic` topic replaces the Emscripten null decoder with
+the existing IV50 SurrealVideo implementation and advances it from the outer
+flat/WebXR frame owner instead of entering the legacy synchronous `PlayAVI`
+loop. It routes decoded frames through this provider-neutral cinematic capture
+path; see `WebCinematicPlayback.md` for tests and limitations. Owner-supplied
+KHG data and a physical headset are still required to validate actual media,
+and UT99/Unreal map intros remain a separate world/UI path. Loading has a
+configured target but still needs an authoritative engine loading-visibility
+signal before it can be shown. These are exact content/lifecycle blockers, not
+quad-compositor blockers.
 
 The procedural proxy uses target-ray orientation with a stable world-up roll;
 the current feedback contract does not carry grip-pose roll into the compositor.

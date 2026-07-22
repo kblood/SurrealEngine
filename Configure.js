@@ -202,6 +202,8 @@ var commonSources = [
 	"SurrealEngine/Audio/NullAudioDevice.h",
 	"SurrealEngine/Video/VideoPlayer.cpp",
 	"SurrealEngine/Video/VideoPlayer.h",
+	"SurrealEngine/Video/VideoFrameScheduler.cpp",
+	"SurrealEngine/Video/VideoFrameScheduler.h",
 	"SurrealEngine/Video/AVIFileReader.h",
 	"SurrealEngine/Video/AVIHeaders.h",
 	"SurrealEngine/Native/NStatLog.h",

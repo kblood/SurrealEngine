@@ -43,6 +43,12 @@ requires HTTPS (localhost is sufficient for development).
 No game data is included. Users select their own UT99 or Unreal Gold folder and
 the launcher copies validated files into origin-private OPFS/IndexedDB storage.
 Do not add .data files or UE1 packages to this directory.
+
+The WebAssembly binary statically includes the SurrealVideo Indeo 5 decoder,
+which is licensed under LGPL 2.1 or later. Its license and project notice are in
+licenses/. A release publisher must also make the exact corresponding source
+and relinkable build materials available under the LGPL; see the project
+documentation before redistribution.
 `;
 
 function mimeType(path) {
@@ -149,6 +155,9 @@ async function packageRelease(options) {
 		await writeFile(join(staging, "index.html"), index);
 		await cp(engine.javascript, join(staging, "engine", "SurrealEngine.js"));
 		await cp(engine.wasm, join(staging, "engine", "SurrealEngine.wasm"));
+		await mkdir(join(staging, "licenses"), { recursive: true });
+		await cp(join(sourceRoot, "SurrealVideo", "COPYING.LGPLv2.1"), join(staging, "licenses", "SurrealVideo-LGPL-2.1.txt"));
+		await cp(join(sourceRoot, "SurrealVideo", "README.md"), join(staging, "licenses", "SurrealVideo-README.md"));
 		await writeFile(join(staging, "_headers"), headers);
 		await writeFile(join(staging, ".htaccess"), htaccess);
 		await writeFile(join(staging, "HOSTING.txt"), hostingReadme);
