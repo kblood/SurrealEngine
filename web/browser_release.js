@@ -26,6 +26,8 @@
 				typeof host.WebAssembly === "object" ? "WebAssembly ready." : "WebAssembly is unavailable."),
 			webGPU: frozenCapability(!!navigator.gpu, "webgpu",
 				navigator.gpu ? "WebGPU ready." : "WebGPU is required by this build."),
+			webAudio: frozenCapability(!!(host.AudioContext || host.webkitAudioContext), "webaudio",
+				(host.AudioContext || host.webkitAudioContext) ? "Web Audio ready; playback unlocks from an explicit button." : "Web Audio is unavailable."),
 			storage: frozenCapability(!!storageBackend, storageBackend ? storageBackend.toLowerCase() : "storage-unavailable",
 				storageBackend ? storageBackend + (persisted === true ? " persistent storage granted." : " storage available; browser eviction may remain possible.") :
 					"OPFS and IndexedDB are unavailable; local game import cannot be saved."),
@@ -35,7 +37,7 @@
 	}
 
 	function canStart(capabilities) {
-		return !!(capabilities && capabilities.secureContext.available && capabilities.webAssembly.available && capabilities.webGPU.available &&
+		return !!(capabilities && capabilities.secureContext.available && capabilities.webAssembly.available && capabilities.webGPU.available && capabilities.webAudio.available &&
 			capabilities.storage.available && capabilities.folderImport.available);
 	}
 
@@ -52,7 +54,7 @@
 			this.list.textContent = "";
 			const rows = [
 				["Secure hosting", platform.secureContext],
-				["WebAssembly", platform.webAssembly], ["WebGPU", platform.webGPU],
+				["WebAssembly", platform.webAssembly], ["WebGPU", platform.webGPU], ["Web Audio", platform.webAudio],
 				["Game storage", platform.storage], ["Folder import", platform.folderImport],
 				["Immersive WebXR", webxr],
 			];

@@ -57,10 +57,10 @@ test uses a synthetic `VideoPlayer`; it contains no commercial media.
 
 ## Deliberate limitations
 
-- Browser audio is still silent because Emscripten uses `NullAudioDevice`.
-  Audio predecode and its decoder allocation are disabled for this path so
-  startup does not synchronously decode an unused track. Native audio behavior
-  is unchanged.
+- Emscripten now has a real OpenAL/WebAudio device for game SFX and music, but
+  cinematic audio decode remains deliberately disabled for this path. Enabling
+  it requires separate owner-media A/V sync, unlock, skip, and cleanup evidence;
+  see `Docs/BrowserAudio.md`. Native cinematic audio behavior is unchanged.
 - The KHG `buildup.avi`/`breakdn.avi` mask transitions remain native-only. The
   browser logs this and plays the requested main AVI. Preserving those
   transitions requires a small asynchronous playlist/background state machine.
@@ -115,8 +115,9 @@ provider-specific physical cinematic validation.
 
 Follow-up slices should stay separate:
 
-1. Add an asynchronous browser audio device and only then enable movie audio
-   decode; do not put WebAudio policy into `VideoFrameScheduler`.
+1. Validate the new browser audio device with owner media, then enable movie
+   audio decode as its own topic; do not put WebAudio policy into
+   `VideoFrameScheduler`.
 2. Add a generic asynchronous cinematic playlist/background state machine for
    KHG transitions, with synthetic players first.
 3. Test owner-supplied KHG `INTRO.AVI` in flat WASM, then on the WebXR cinematic

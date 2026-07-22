@@ -47,10 +47,3 @@ void NullAudioDevice::SetSoundVolume(float volume)
 void NullAudioDevice::Update()
 {
 }
-
-#ifdef __EMSCRIPTEN__
-std::unique_ptr<AudioDevice> AudioDevice::Create(int frequency, int numVoices, int musicBufferCount, int musicBufferSize)
-{
-	return std::make_unique<NullAudioDevice>();
-}
-#endif

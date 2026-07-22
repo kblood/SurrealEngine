@@ -129,6 +129,16 @@ Engine::~Engine()
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 
+extern "C"
+{
+	int surreal_browser_audio_resume_js();
+	int surreal_browser_audio_suspend_js();
+	int surreal_browser_audio_shutdown_js();
+	void surreal_browser_audio_set_output_js(float volume, int muted);
+	int surreal_browser_audio_state_js();
+	int surreal_browser_audio_current_time_ms_js();
+}
+
 static bool XRFrameLoopActive = false;
 
 static void EngineMainLoopCallback(void* arg)
@@ -159,9 +169,20 @@ extern "C"
 
 	EMSCRIPTEN_KEEPALIVE void Surreal_RequestQuit()
 	{
+		surreal_browser_audio_shutdown_js();
 		if (engine)
 			engine->quit = true;
 	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_ResumeBrowserAudio() { return surreal_browser_audio_resume_js(); }
+	EMSCRIPTEN_KEEPALIVE int Surreal_SuspendBrowserAudio() { return surreal_browser_audio_suspend_js(); }
+	EMSCRIPTEN_KEEPALIVE int Surreal_ShutdownBrowserAudio() { return surreal_browser_audio_shutdown_js(); }
+	EMSCRIPTEN_KEEPALIVE void Surreal_SetBrowserAudioOutput(float volume, int muted)
+	{
+		surreal_browser_audio_set_output_js(volume, muted);
+	}
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetBrowserAudioState() { return surreal_browser_audio_state_js(); }
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetBrowserAudioCurrentTimeMs() { return surreal_browser_audio_current_time_ms_js(); }
 
 	EMSCRIPTEN_KEEPALIVE int Surreal_SetXRFrameLoopActive(int active)
 	{

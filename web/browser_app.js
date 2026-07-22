@@ -356,6 +356,7 @@
 							selectLaunch: context => { if (context.metadata) { library.register(context.metadata); libraryUI.refresh(); } return launcher.selectLaunch(context); },
 							launch: async selection => {
 								Module.callMain(buildNativeArguments(selection));
+								if (options.audioController && typeof options.audioController.engineStarted === "function") options.audioController.engineStarted();
 								await activatePresentation(registry, selection, Module);
 								if (typeof options.onLaunch === "function") options.onLaunch(selection);
 							},
@@ -365,6 +366,7 @@
 				},
 			};
 			global.Module = Module;
+			if (options.audioController && typeof options.audioController.attachModule === "function") options.audioController.attachModule(Module);
 			const script = global.document.createElement("script");
 			script.src = options.engineScript || DEFAULT_ENGINE_SCRIPT;
 			script.onerror = () => reject(new LauncherError("ENGINE_SCRIPT", "The SurrealEngine browser module could not be loaded."));

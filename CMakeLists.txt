@@ -824,7 +824,6 @@ elseif(APPLE)
 	add_link_options(-pthread)
 elseif(EMSCRIPTEN)
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "RenderDevice/Vulkan/")
-	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "Audio/AudioDevice\\.cpp$")
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "UI/Editor/")
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "SurrealEngine/EditorApp\\.")
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "SurrealEngine/DebuggerApp\\.")
@@ -866,6 +865,11 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+	add_executable(AudioStreamBufferQueueTests Tests/AudioStreamBufferQueueTests.cpp)
+	target_include_directories(AudioStreamBufferQueueTests PRIVATE SurrealEngine)
+	set_target_properties(AudioStreamBufferQueueTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME AudioStreamBufferQueue COMMAND AudioStreamBufferQueueTests)
+
 	add_executable(VideoFrameSchedulerTests
 		Tests/VideoFrameSchedulerTests.cpp
 		SurrealEngine/Video/VideoFrameScheduler.cpp
@@ -897,6 +901,16 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_link_libraries(UE1GameDatabaseTests SurrealCommon ${SURREALCOMMON_LIBS})
 	set_target_properties(UE1GameDatabaseTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME UE1GameDatabase COMMAND UE1GameDatabaseTests)
+endif()
+
+if(BUILD_TESTING AND EMSCRIPTEN)
+	add_executable(BrowserAudioProbe Tests/BrowserAudioProbe.cpp)
+	set_target_properties(BrowserAudioProbe PROPERTIES CXX_STANDARD 20)
+	target_link_options(BrowserAudioProbe PRIVATE
+		-lopenal
+		--js-library ${CMAKE_CURRENT_SOURCE_DIR}/web/browser_audio_library.js
+		-sEXPORTED_RUNTIME_METHODS=ccall
+		-sEXPORTED_FUNCTIONS=_main,_Probe_Start,_Probe_PlayingSources,_Probe_QueuedMusicBuffers,_Surreal_ResumeBrowserAudio,_Surreal_SuspendBrowserAudio,_Surreal_ShutdownBrowserAudio,_Surreal_SetBrowserAudioOutput,_Surreal_GetBrowserAudioState,_Surreal_GetBrowserAudioCurrentTimeMs)
 endif()
 
 target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Precomp.h>)
@@ -1050,13 +1064,15 @@ if(EMSCRIPTEN)
 		message(WARNING "SURREAL_GAMEDATA_DIR is not set - the Emscripten build will have no game data preloaded. Pass -DSURREAL_GAMEDATA_DIR=<path-to-ut99-install>.")
 	endif()
 	target_link_options(SurrealEngine PRIVATE
+		-lopenal
+		--js-library ${CMAKE_CURRENT_SOURCE_DIR}/web/browser_audio_library.js
 		-sALLOW_MEMORY_GROWTH=1
 		-sSTACK_SIZE=8MB
 		-sINITIAL_MEMORY=256MB
 		-sINVOKE_RUN=0
 		-sEXIT_RUNTIME=0
 		-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall
-		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_SetXRFrameLoopActive,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_GetWebXRFrameLastError,_Surreal_RenderWebXRFrame,_Surreal_GetWebXRWorldUnitsPerMeter,_Surreal_SetWebXRWorldUnitsPerMeter,_Surreal_ResetWebXRPose,_Surreal_GetWebXRPoseRecenterCount,_Surreal_GetWebXRPointerFeedbackSize,_Surreal_GetWebXRPointerFeedback,_Surreal_GetWebXRInputABIVersion,_Surreal_GetWebXRInputHeaderSize,_Surreal_GetWebXRInputSourceSize,_Surreal_GetWebXRInputMaxSources,_Surreal_ValidateWebXRInputSnapshot,_Surreal_SubmitWebXRInputSnapshot,_Surreal_GetWebXRInputLastError,_Surreal_ClearWebXRInputSnapshot,_Surreal_ApplyWebXRInputSnapshot
+		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_SetXRFrameLoopActive,_Surreal_ResumeBrowserAudio,_Surreal_SuspendBrowserAudio,_Surreal_ShutdownBrowserAudio,_Surreal_SetBrowserAudioOutput,_Surreal_GetBrowserAudioState,_Surreal_GetBrowserAudioCurrentTimeMs,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_GetWebXRFrameLastError,_Surreal_RenderWebXRFrame,_Surreal_GetWebXRWorldUnitsPerMeter,_Surreal_SetWebXRWorldUnitsPerMeter,_Surreal_ResetWebXRPose,_Surreal_GetWebXRPoseRecenterCount,_Surreal_GetWebXRPointerFeedbackSize,_Surreal_GetWebXRPointerFeedback,_Surreal_GetWebXRInputABIVersion,_Surreal_GetWebXRInputHeaderSize,_Surreal_GetWebXRInputSourceSize,_Surreal_GetWebXRInputMaxSources,_Surreal_ValidateWebXRInputSnapshot,_Surreal_SubmitWebXRInputSnapshot,_Surreal_GetWebXRInputLastError,_Surreal_ClearWebXRInputSnapshot,_Surreal_ApplyWebXRInputSnapshot
 		-sASSERTIONS=1
 		-sNO_DISABLE_EXCEPTION_CATCHING
 		-pthread

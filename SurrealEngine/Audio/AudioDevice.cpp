@@ -2,6 +2,7 @@
 #include "Precomp.h"
 #include "AudioDevice.h"
 #include "AudioSource.h"
+#include "AudioStreamBufferQueue.h"
 #include "Engine.h"
 #include "Native/NObject.h"
 #include "UObject/UActor.h"
@@ -121,7 +122,9 @@ public:
 		if (bIs3d != bSpatial)
 		{
 			bIs3d = bSpatial;
+#ifdef AL_SOURCE_SPATIALIZE_SOFT
 			alSourcei(id, AL_SOURCE_SPATIALIZE_SOFT, bIs3d);
+#endif
 		}
 	}
 
@@ -227,7 +230,9 @@ public:
 		alListener3f(AL_POSITION, 0, 0, 0.0f);
 		alListener3f(AL_VELOCITY, 0, 0, 0);
 		alListenerfv(AL_ORIENTATION, listenerOri);
+#ifdef AL_METERS_PER_UNIT
 		alListenerf(AL_METERS_PER_UNIT, 1.f / UU_PER_METER);
+#endif
 
 		alDistanceModel(AL_LINEAR_DISTANCE_CLAMPED);
 		alSpeedOfSound(343.3f / (1.0f / UU_PER_METER));
@@ -241,21 +246,28 @@ public:
 
 		// init music source/buffer
 		alGenSources(1, &alMusicSource);
+#ifdef AL_SOURCE_SPATIALIZE_SOFT
 		alSourcei(alMusicSource, AL_SOURCE_SPATIALIZE_SOFT, AL_FALSE);
+#endif
 
 		alMusicBuffers.resize(musicBufferCount);
 		alGenBuffers(musicBufferCount, &alMusicBuffers[0]);
 
-		// init playback thread
+		// Emscripten's OpenAL implementation is a WebAudio JavaScript shim.
+		// Keep all its calls on the browser thread; native retains its decoder thread.
+#ifndef __EMSCRIPTEN__
 		musicThreadData.thread = std::thread([this]() { MusicThreadMain(); });
+#endif
 	}
 
 	~OpenALAudioDevice()
 	{
+#ifndef __EMSCRIPTEN__
 		std::unique_lock lock(musicThreadData.mutex);
 		musicThreadData.exitFlag = true;
 		lock.unlock();
 		musicThreadData.thread.join();
+#endif
 
 		alSourceStop(alMusicSource);
 		alDeleteSources(1, &alMusicSource);
@@ -319,9 +331,14 @@ public:
 
 	void PlayMusic(std::unique_ptr<AudioSource> source) override
 	{
+#ifdef __EMSCRIPTEN__
+		StopBrowserMusic();
+		browserMusic = std::move(source);
+#else
 		std::unique_lock lock(musicThreadData.mutex);
 		musicThreadData.music = std::move(source);
 		musicThreadData.musicUpdate = true;
+#endif
 	}
 
 	void PlaySound(int channel, USound* sound, vec3& location, float volume, float radius, float pitch) override
@@ -461,6 +478,9 @@ public:
 
 	void Update() override
 	{
+#ifdef __EMSCRIPTEN__
+		PumpBrowserMusic();
+#endif
 		UActor* listener = engine->CameraActor;
 		if (listener)
 		{
@@ -477,6 +497,43 @@ public:
 			alListenerfv(AL_ORIENTATION, listenerOri);
 		}
 	}
+
+#ifdef __EMSCRIPTEN__
+	void StopBrowserMusic()
+	{
+		alSourceStop(alMusicSource);
+		ALint queued = 0;
+		alGetSourcei(alMusicSource, AL_BUFFERS_QUEUED, &queued);
+		while (queued-- > 0)
+		{
+			ALuint buffer = 0;
+			alSourceUnqueueBuffers(alMusicSource, 1, &buffer);
+		}
+		musicQueue.Clear();
+		browserMusicPlaying = false;
+		browserMusic.reset();
+	}
+
+	void PumpBrowserMusic()
+	{
+		if (!browserMusic)
+			return;
+		while (musicQueue.Size() < static_cast<size_t>(musicBufferCount))
+		{
+			browserMusic->ReadSamples(musicQueue.GetNextFree(), musicBufferSize);
+			musicQueue.Push(musicQueue.GetNextFree());
+		}
+		if (!browserMusicPlaying)
+		{
+			PlayMusicBuffer(browserMusic.get());
+			browserMusicPlaying = true;
+		}
+		else if (musicQueue.Size() > 0)
+		{
+			UpdateMusicBuffer(browserMusic.get());
+		}
+	}
+#endif
 
 	void MusicThreadMain()
 	{
@@ -542,125 +599,6 @@ public:
 	ALint monoSources = 0;
 	ALint stereoSources = 0;
 
-	template<class T> class RingQueue
-	{
-	public:
-		RingQueue()
-		{
-			Data = nullptr;
-			Len = 0;
-			Num = 0;
-			Current = 0;
-		}
-
-		RingQueue(size_t n)
-		{
-			Data = static_cast<T*>(malloc(sizeof(T) * n));
-			Len = n;
-			Num = 0;
-			Current = 0;
-		}
-
-		RingQueue(size_t n, const T& Value)
-		{
-			Data = static_cast<T*>(malloc(sizeof(T) * n));
-			for (int i = 0; i < n; i++)
-				Data[i] = Value;
-
-			Len = n;
-			Num = 0;
-			Current = 0;
-		}
-
-		~RingQueue()
-		{
-			free(Data);
-		}
-
-		bool Empty()
-		{
-			return (Num == 0);
-		}
-
-		size_t Size()
-		{
-			return Num;
-		}
-
-		T& Front()
-		{
-			return Data[Current];
-		}
-
-		T& GetNextFree()
-		{
-			size_t Index = Current + Num;
-			if (Index >= Len)
-				Index -= Len;
-
-			return Data[Index];
-		}
-
-		bool Push(const T& Val)
-		{
-			if (Num == Len)
-				return false;
-
-			GetNextFree() = Val;
-			Num++;
-
-			return true;
-		}
-
-		bool Push(T& Val)
-		{
-			if (Num == Len)
-				return false;
-
-			GetNextFree() = Val;
-			Num++;
-
-			return true;
-		}
-
-		T& Pop()
-		{
-			T& Out = Data[Current];
-			if (Num > 0)
-			{
-				Current++;
-				if (Current >= Len)
-					Current = 0;
-
-				Num--;
-			}
-			return Out;
-		}
-
-		bool Resize(size_t NewSize)
-		{
-			T* NewData = static_cast<T*>(realloc(Data, sizeof(T) * NewSize));
-			if (NewData == NULL)
-				return false;
-
-			Data = NewData;
-			Len = NewSize;
-			return true;
-		}
-
-		void Clear()
-		{
-			Current = 0;
-			Num = 0;
-		}
-
-	private:
-		T* Data = nullptr;
-		size_t Len = 0;
-		size_t Current = 0;
-		size_t Num = 0;
-	};
-
 	int frequency = 48000;
 	Array<USound*> sounds;
 
@@ -674,7 +612,7 @@ public:
 		bool musicUpdate = false;
 	} musicThreadData;
 
-	RingQueue<float*> musicQueue;
+	AudioStreamBufferQueue<float*> musicQueue;
 	int musicBufferCount = 0;
 	int musicBufferSize = 0;
 	Array<float> musicBuffer;
@@ -682,6 +620,10 @@ public:
 	float targetMusicVolume = 0.0f;
 	float fadeRate = 0.0f;
 	float globalSoundVolume = 1.0f;
+#ifdef __EMSCRIPTEN__
+	std::unique_ptr<AudioSource> browserMusic;
+	bool browserMusicPlaying = false;
+#endif
 };
 
 std::unique_ptr<AudioDevice> AudioDevice::Create(int frequency, int numVoices, int musicBufferCount, int musicBufferSize)

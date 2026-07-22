@@ -1,0 +1,8 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Browser audio probe</title></head><body>
+<section id="audio"><button data-audio-unlock hidden>Enable audio</button><input data-audio-mute type="checkbox"><input data-audio-volume type="range" min="0" max="1" step="0.05" value="1"><span data-audio-state></span><span data-audio-error></span></section>
+<script src="browser_audio.js"></script><script>
+const controller = SurrealBrowserAudio.create(document.getElementById("audio"));
+var Module = { noInitialRun: false, onRuntimeInitialized() { controller.attachModule(Module); }, postRun: [function () { window.probeStartResult = Module.ccall("Probe_Start", "number"); controller.engineStarted(); window.probeReady = true; }] };
+window.audioController = controller;
+</script><script src="../build-browser-audio-em/BrowserAudioProbe.js"></script>
+</body></html>

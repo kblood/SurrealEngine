@@ -15,6 +15,7 @@
   "webAssets": [
     "browser_app.css",
     "browser_app.js",
+	"browser_audio.js",
     "browser_data_bootstrap.js",
     "browser_release.js",
     "mutable_persistence.js",
