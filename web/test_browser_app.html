@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>SurrealEngine browser launcher tests</title></head>
+<body>
+<section id="launcher" hidden>
+	<span data-launcher-game></span>
+	<form data-launcher-form>
+		<select data-launcher-map></select>
+		<select data-launcher-presentation></select>
+		<select data-launcher-renderer><option value="webgpu">WebGPU</option><option value="null">Null</option></select>
+		<button type="submit">Play</button><p data-launcher-error hidden></p>
+	</form>
+</section>
+<pre id="results">running</pre>
+<script src="ut99_importer.js"></script><script src="browser_app.js"></script>
+<script>
+"use strict";
+window.browserAppTestResults = []; window.browserAppTestDone = false;
+function assert(value, message) { if (!value) throw new Error(message || "assertion failed"); }
+async function expectError(code, callback) { try { await callback(); } catch (error) { assert(error.code === code, "expected " + code + ", got " + error.code); return; } throw new Error("expected " + code); }
+async function run(name, callback) { try { await callback(); browserAppTestResults.push({ name, passed: true, detail: "" }); } catch (error) { browserAppTestResults.push({ name, passed: false, detail: error.stack || String(error) }); } }
+window.browserAppTestPromise = (async () => {
+	const api = SurrealBrowserApp;
+	await run("presentation providers are isolated and checked", async () => {
+		const registry = new api.PresentationRegistry();
+		registry.register({ id: "flat", label: "Desktop" });
+		registry.register({ id: "optional", label: "Optional", isAvailable: false });
+		assert(registry.available().map(item => item.id).join(",") === "flat");
+		await expectError("PRESENTATION_DUPLICATE", () => registry.register({ id: "flat", label: "Again" }));
+	});
+	await run("native arguments are fixed and reject unsafe input", async () => {
+		const args = api.buildNativeArguments({ game: { id: "unreal-gold" }, map: "Vortex2", renderer: "webgpu" });
+		assert(args.join(" ") === "--autoplay --url=Vortex2 --render=webgpu /gamedata");
+		assert(Object.isFrozen(args));
+		await expectError("LAUNCH_MAP", () => api.buildNativeArguments({ game: { id: "unreal-gold" }, map: "../Entry", renderer: "webgpu" }));
+		await expectError("LAUNCH_RENDERER", () => api.buildNativeArguments({ game: { id: "ut99" }, map: "DM-Test", renderer: "native" }));
+	});
+	await run("desktop host records become importer entries without exposing native paths", async () => {
+		const picker = api.createHostPicker({ pickGameDirectory: async () => [{ path: "System/Core.u", blob: new Blob(["core"]) }] });
+		const entries = await picker();
+		assert(entries.length === 1 && entries[0].path === "System/Core.u" && entries[0].size === 4);
+		assert(await (await entries[0].getBlob()).text() === "core");
+		let reads = 0;
+		const lazy = api.createHostPicker({
+			pickGameDirectory: async () => [{ path: "System/Engine.u", size: 6, token: "opaque-1" }],
+			readGameFile: async token => { assert(token === "opaque-1"); reads++; return new TextEncoder().encode("engine"); },
+		});
+		const lazyEntries = await lazy();
+		assert(reads === 0, "desktop data was read eagerly");
+		assert(await (await lazyEntries[0].getBlob()).text() === "engine" && reads === 1);
+	});
+	await run("game library routes each title to an isolated persistent store", async () => {
+		const state = new Map();
+		const storage = { getItem: key => state.get(key) || null, setItem: (key, value) => state.set(key, value) };
+		const saves = [];
+		const library = new api.GameLibrary(storage, options => Promise.resolve({
+			load: async () => null,
+			save: async validation => { saves.push({ options, gameId: validation.gameId }); return { gameId: validation.gameId }; },
+			clear: async () => {},
+		}));
+		library.requestImport();
+		assert(library.status().importing);
+		await library.storageProxy().save({ gameId: "unreal-gold" });
+		assert(library.status().activeGameId === "unreal-gold" && !library.status().importing);
+		assert(library.status().installed.join(",") === "unreal-gold");
+		assert(saves[0].options.databaseName === "surrealengine-game-unreal-gold-v1");
+		assert(library.mutableOptions("unreal-gold").databaseName === "surrealengine-mutable-unreal-gold-v1");
+	});
+	await run("launcher waits for explicit play and invokes the selected provider", async () => {
+		localStorage.clear();
+		let prepared = 0;
+		const registry = new api.PresentationRegistry();
+		registry.register({ id: "flat", label: "Desktop", prepareLaunch: async value => { assert(value.selection.map === "DM-Two"); prepared++; } });
+		const controller = new api.LauncherController(document.getElementById("launcher"), registry);
+		const pending = controller.selectLaunch({
+			game: SurrealGameImporter.GAME_DEFINITIONS.ut99,
+			mapManifest: { state: "ready", maps: ["DM-One", "DM-Two"] },
+		});
+		document.querySelector("[data-launcher-map]").value = "DM-Two";
+		document.querySelector("[data-launcher-form]").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		const selection = await pending;
+		assert(selection.map === "DM-Two" && selection.presentationId === "flat" && prepared === 1);
+		assert(document.getElementById("launcher").hidden);
+	});
+	window.browserAppTestDone = true;
+	document.getElementById("results").textContent = JSON.stringify(browserAppTestResults, null, 2);
+	const failures = browserAppTestResults.filter(result => !result.passed);
+	if (failures.length) throw new Error(failures.length + " browser launcher test(s) failed");
+	return browserAppTestResults;
+})();
+</script></body></html>
