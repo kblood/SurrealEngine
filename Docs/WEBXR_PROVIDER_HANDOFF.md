@@ -159,10 +159,12 @@ packet packing live in `web/webxr_provider.js`.
 The release-package diagnostics layer may read the provider's copied status
 snapshot. That snapshot also exposes a bounded, sequence-numbered lifecycle
 transition list, the current setup stage, last failure stage, and cumulative
-entry/exit/re-entry counts. These fields are observational: they do not change
-session ownership, frame rendering, input submission, or error cleanup. The
-release reporter does not export provider error text because browser/native
-exceptions may contain environment-specific details.
+entry/exit/re-entry counts. It allowlists presentation mode, known layer/atlas
+dimensions, and bounded bridge timing summaries; raw timing samples do not leave
+the bridge. These fields are observational: they do not change session
+ownership, frame rendering, input submission, or error cleanup. The release
+reporter does not export provider error text because browser/native exceptions
+may contain environment-specific details.
 
 ## Frame ownership and failure behavior
 

@@ -16,6 +16,8 @@
 	<span data-xr-diagnostics-phase></span><span data-xr-diagnostics-error></span>
 	<span data-xr-diagnostics-frames></span><span data-xr-diagnostics-input></span>
 	<span data-xr-diagnostics-projection></span><span data-xr-diagnostics-reference></span>
+	<span data-xr-diagnostics-mode></span><span data-xr-diagnostics-dimensions></span>
+	<span data-xr-diagnostics-bridge></span>
 	<span data-xr-diagnostics-lifecycle></span>
 	<button data-xr-diagnostics-copy></button><button data-xr-diagnostics-download></button>
 </details>
@@ -202,10 +204,18 @@ window.browserAppTestPromise = (async () => {
 		window.surrealXRGetState = () => ({
 			phase: "running", currentStage: "running", lastError: "C:\\Private\\Game\\System\\Core.u",
 			lastErrorStage: "request-reference-space", frames: 23, skippedFrames: 2, inputPackets: 9,
-			projectionFormat: "rgba8unorm", referenceSpaceType: "local-floor", enterAttempts: 2,
+			projectionFormat: "rgba8unorm-webgl-bridge", referenceSpaceType: "local-floor",
+			presentationMode: "webgl-bridge", layerWidth: 1832, layerHeight: 1920,
+			atlasWidth: 1600, atlasHeight: 700,
+			bridgeDiagnostics: { frames: 23, errors: 0, samples: 120, medianMs: 0.51234,
+				p95Ms: 3.98765, p99Ms: 5.43219, blockingTiming: true,
+				privatePath: "C:\\Private\\Game", url: "https://private.invalid/game" },
+			enterAttempts: 2,
 			successfulEntries: 2, exitRequests: 1, endedSessions: 1, reentries: 1,
 			transitions: [{ type: "session-entered", generation: 1, stage: "running" },
 				{ type: "session-reentered", generation: 2, stage: "running" }],
+			url: "https://private.invalid/game", userAgent: "Private Browser 1", gameIdentity: "Owned UT99",
+			logs: ["private engine log"],
 		});
 		const panel = SurrealWebXRDiagnostics.create(document.getElementById("diagnostics"), {
 			copyText: value => { copied = value; }, downloadText: value => { downloaded = value; },
@@ -213,9 +223,22 @@ window.browserAppTestPromise = (async () => {
 		window.dispatchEvent(new CustomEvent("surrealwebxrcapability", { detail: { available: true, code: "ready" } }));
 		window.dispatchEvent(new CustomEvent("surrealwebxradapter", { detail: { available: true, state: "xr-compatible" } }));
 		const report = panel.report();
+		assert(report.includes("schema: surrealengine-webxr-headset-report-v2"));
 		assert(report.includes("capability_code: ready") && report.includes("frames: 23"));
 		assert(report.includes("reentries: 1") && report.includes("provider_error: present"));
+		assert(report.includes("presentation_mode: webgl-bridge"));
+		assert(report.includes("layer_width: 1832") && report.includes("atlas_width: 1600"));
+		assert(report.includes("bridge_samples: 120") && report.includes("bridge_median_ms: 0.512"));
+		assert(report.includes("bridge_p95_ms: 3.988") && report.includes("bridge_p99_ms: 5.432"));
+		assert(report.includes("bridge_errors: 0") && report.includes("bridge_blocking_timing: yes"));
+		assert(document.querySelector("[data-xr-diagnostics-mode]").textContent === "webgl-bridge");
 		assert(!report.includes("Private") && !report.includes("Core.u") && !report.includes("C:\\"));
+		assert(!report.includes("private.invalid") && !report.includes("Owned UT99") &&
+			!report.includes("engine log") && !report.includes("Browser 1"));
+		const direct = SurrealWebXRDiagnostics.formatReport({ presentationMode: "direct-webgpu",
+			layerWidth: 2048, layerHeight: 1024, privatePath: "D:\\Games\\Unreal" });
+		assert(direct.includes("presentation_mode: direct-webgpu") && direct.includes("layer_width: 2048"));
+		assert(direct.includes("bridge_p99_ms: unknown") && !direct.includes("Games") && !direct.includes("Unreal"));
 		await panel.copy();
 		panel.download();
 		assert(copied === report && downloaded === report);

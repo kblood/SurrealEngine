@@ -125,7 +125,7 @@ globalThis.XRGPUBinding = class {
 	createProjectionLayer(options) {
 		assert.equal(options.colorFormat, "rgba8unorm");
 		assert.equal(options.scaleFactor, 1);
-		return {};
+		return { textureWidth: 2048, textureHeight: 1024 };
 	}
 	getViewSubImage(layer, view) {
 		const layerIndex = view.eye === "left" ? 0 : 1;
@@ -185,6 +185,11 @@ assert.equal(globalThis.surrealXRGetState().currentStage, "running");
 assert.equal(globalThis.surrealXRGetState().enterAttempts, 1, "duplicate entry is not a new headset request");
 assert.equal(globalThis.surrealXRGetState().successfulEntries, 1);
 assert.equal(globalThis.surrealXRGetState().projectionFormat, "rgba8unorm");
+assert.equal(globalThis.surrealXRGetState().presentationMode, "direct-webgpu");
+assert.equal(globalThis.surrealXRGetState().layerWidth, 2048);
+assert.equal(globalThis.surrealXRGetState().layerHeight, 1024);
+assert.equal(globalThis.surrealXRGetState().atlasWidth, null);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics, null);
 sessions[0].fireFrame(16.0, stereoFrame);
 assert.equal(renderedPackets.length, 1);
 assert.equal(globalThis.surrealXRGetState().frames, 1);
@@ -246,6 +251,9 @@ assert.equal(sessions[0].frames.size, 0);
 assert.equal(sessions[0].cancelledFrames.length, 1);
 assert.equal(globalThis.surrealXRGetState().exitRequests, 1);
 assert.equal(globalThis.surrealXRGetState().endedSessions, 1);
+assert.equal(globalThis.surrealXRGetState().presentationMode, null);
+assert.equal(globalThis.surrealXRGetState().layerWidth, null);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics, null);
 
 // A shared texture array is deduplicated while preserving each eye's array layer and viewport.
 useSharedTexture = true;
@@ -263,6 +271,10 @@ assert.equal(data.getInt32(32 + 128 + 20, true), 8);
 assert.equal(data.getUint32(24, true), 1);
 assert.equal(globalThis.surrealXRGetState().generation, 2);
 assert.equal(globalThis.surrealXRGetState().reentries, 1);
+assert.equal(globalThis.surrealXRGetState().presentationMode, "direct-webgpu");
+assert.equal(globalThis.surrealXRGetState().layerWidth, 2048);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics, null,
+	"direct re-entry must not retain diagnostics from another presentation generation");
 assert.ok(globalThis.surrealXRGetState().transitions.some(item => item.type === "session-reentered"));
 assert.equal(globalThis.surrealXRExit(), true);
 await Promise.resolve();

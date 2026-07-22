@@ -33,7 +33,12 @@ second eye. Direct per-eye and texture-array paths keep their old behavior.
 
 `surrealXRGetCapabilities()` reports `directWebGPU`, `webGLBridge`, and
 `preferredMode`. `surrealXRGetState()` reports the active `presentationMode`
-and rolling bridge `medianMs`, `p95Ms`, frame count, and error count.
+and rolling bridge sample count, `medianMs`, `p95Ms`, `p99Ms`, frame count,
+error count, blocking-timing state, and known WebGL-layer/atlas dimensions.
+Percentiles use deterministic nearest ranks over at most the latest 120 valid
+nonnegative samples. The raw bounded window remains inside the bridge closure;
+only its numeric summaries are copied into provider state and the privacy-safe
+headset report.
 
 Normal timings measure CPU submission only. Set
 `window.surrealXRBridgeBlockingTiming = true` for a short QA run that includes
@@ -62,7 +67,11 @@ behavior. It cannot validate an opaque headset framebuffer.
 
 Test a production build on every supported Quest model/browser combination.
 Record headset model, OS/runtime, browser version, layer size, refresh rate,
-renderer mode, and build commit.
+renderer mode, and build commit. Download the v2 headset report while the mode
+under test is running; it records the actual mode, dimensions available from the
+runtime, lifecycle counters, and bridge summaries. Record device/browser/build
+identity separately because those values are deliberately excluded from the
+privacy-safe report.
 
 The compatibility mode may be called release-ready only when all of these pass:
 

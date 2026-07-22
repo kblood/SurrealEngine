@@ -1,6 +1,7 @@
 /* XRWebGLLayer presentation bridge for engines which render through WebGPU. */
 (function (root) {
 	"use strict";
+	const MAX_TIMING_SAMPLES = 120;
 
 	function convertProjectionDepth(matrix) {
 		const converted = Array.from(matrix);
@@ -26,7 +27,24 @@
 	function percentile(values, fraction) {
 		if (!values.length) return null;
 		const sorted = values.slice().sort((a, b) => a - b);
-		return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))];
+		return sorted[Math.max(0, Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1))];
+	}
+
+	function createTimingWindow(capacity) {
+		const limit = Number.isInteger(capacity) && capacity > 0 ?
+			Math.min(capacity, MAX_TIMING_SAMPLES) : MAX_TIMING_SAMPLES;
+		const values = [];
+		return Object.freeze({
+			add(value) {
+				if (!Number.isFinite(value) || value < 0) return;
+				values.push(value);
+				if (values.length > limit) values.shift();
+			},
+			summary() {
+				return Object.freeze({ samples: values.length, medianMs: percentile(values, 0.5),
+					p95Ms: percentile(values, 0.95), p99Ms: percentile(values, 0.99) });
+			},
+		});
 	}
 
 	function canCreateWebGL2(host) {
@@ -77,8 +95,12 @@
 		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
 
 		const originalSize = { width: sourceCanvas.width, height: sourceCanvas.height };
-		const samples = [];
+		const timings = createTimingWindow();
 		let allocatedWidth = 0, allocatedHeight = 0, errors = 0, frames = 0;
+		const layerWidth = Number.isInteger(layer.framebufferWidth) && layer.framebufferWidth > 0 ?
+			layer.framebufferWidth : 0;
+		const layerHeight = Number.isInteger(layer.framebufferHeight) && layer.framebufferHeight > 0 ?
+			layer.framebufferHeight : 0;
 
 		function beginFrame(pose) {
 			const views = Array.from(pose.views);
@@ -101,7 +123,7 @@
 		}
 
 		function present(frame) {
-			const started = host.performance && host.performance.now ? host.performance.now() : 0;
+			const started = host.performance && host.performance.now ? host.performance.now() : null;
 			try {
 				gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
 				gl.useProgram(program); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -125,17 +147,16 @@
 				frames++;
 			} catch (error) { errors++; throw error; }
 			finally {
-				if (started && host.performance && host.performance.now) {
-					samples.push(host.performance.now() - started);
-					if (samples.length > 120) samples.shift();
-				}
+				if (started !== null && host.performance && host.performance.now)
+					timings.add(host.performance.now() - started);
 			}
 		}
 
 		function diagnostics() {
-			return Object.freeze({ frames, errors, samples: samples.length,
-				medianMs: percentile(samples, 0.5), p95Ms: percentile(samples, 0.95),
-				blockingTiming: host.surrealXRBridgeBlockingTiming === true });
+			return Object.freeze(Object.assign({ frames, errors,
+				blockingTiming: host.surrealXRBridgeBlockingTiming === true,
+				layerWidth, layerHeight, atlasWidth: allocatedWidth, atlasHeight: allocatedHeight },
+				timings.summary()));
 		}
 
 		function destroy() {
@@ -146,5 +167,7 @@
 		return Object.freeze({ mode: "webgl-bridge", layer, beginFrame, present, diagnostics, destroy });
 	}
 
-	root.SurrealWebXRWebGLBridge = Object.freeze({ create, canCreateWebGL2, convertProjectionDepth });
+	root.SurrealWebXRWebGLBridge = Object.freeze({
+		create, canCreateWebGL2, convertProjectionDepth, createTimingWindow,
+	});
 })(typeof window !== "undefined" ? window : globalThis);

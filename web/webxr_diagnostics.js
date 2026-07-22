@@ -14,8 +14,29 @@
 		return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
 	}
 
+	function measurement(value) {
+		if (value === null || value === undefined || value === "") return UNKNOWN;
+		const parsed = Number(value);
+		return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 1000) / 1000 : UNKNOWN;
+	}
+
+	function dimension(value) {
+		const parsed = Number(value);
+		return Number.isInteger(parsed) && parsed > 0 ? parsed : UNKNOWN;
+	}
+
+	function knownPresentationMode(value) {
+		return value === "direct-webgpu" || value === "webgl-bridge" ? value : UNKNOWN;
+	}
+
+	function dimensions(width, height) {
+		return width === UNKNOWN || height === UNKNOWN ? UNKNOWN : width + "x" + height;
+	}
+
 	function normalized(snapshot) {
 		const source = snapshot || {};
+		const bridge = source.bridgeDiagnostics && typeof source.bridgeDiagnostics === "object" ?
+			source.bridgeDiagnostics : {};
 		return Object.freeze({
 			capabilityCode: token(source.capabilityCode),
 			capabilityAvailable: source.capabilityAvailable === true ? "yes" :
@@ -30,6 +51,19 @@
 			inputPackets: number(source.inputPackets),
 			projectionFormat: token(source.projectionFormat),
 			referenceSpaceType: token(source.referenceSpaceType),
+			presentationMode: knownPresentationMode(source.presentationMode),
+			layerWidth: dimension(source.layerWidth ?? bridge.layerWidth),
+			layerHeight: dimension(source.layerHeight ?? bridge.layerHeight),
+			atlasWidth: dimension(source.atlasWidth ?? bridge.atlasWidth),
+			atlasHeight: dimension(source.atlasHeight ?? bridge.atlasHeight),
+			bridgeFrames: number(bridge.frames),
+			bridgeErrors: number(bridge.errors),
+			bridgeSamples: number(bridge.samples),
+			bridgeMedianMs: measurement(bridge.medianMs),
+			bridgeP95Ms: measurement(bridge.p95Ms),
+			bridgeP99Ms: measurement(bridge.p99Ms),
+			bridgeBlockingTiming: bridge.blockingTiming === true ? "yes" :
+				bridge.blockingTiming === false ? "no" : UNKNOWN,
 			enterAttempts: number(source.enterAttempts),
 			successfulEntries: number(source.successfulEntries),
 			exitRequests: number(source.exitRequests),
@@ -44,7 +78,7 @@
 		const state = normalized(snapshot);
 		return [
 			"SurrealEngine WebXR headset report",
-			"schema: surrealengine-webxr-headset-report-v1",
+			"schema: surrealengine-webxr-headset-report-v2",
 			"capability_code: " + state.capabilityCode,
 			"capability_available: " + state.capabilityAvailable,
 			"xr_compatible_adapter: " + state.adapterState,
@@ -63,6 +97,18 @@
 			"ended_sessions: " + state.endedSessions,
 			"reentries: " + state.reentries,
 			"transitions: " + (state.transitions.join(",") || "none"),
+			"presentation_mode: " + state.presentationMode,
+			"layer_width: " + state.layerWidth,
+			"layer_height: " + state.layerHeight,
+			"atlas_width: " + state.atlasWidth,
+			"atlas_height: " + state.atlasHeight,
+			"bridge_frames: " + state.bridgeFrames,
+			"bridge_errors: " + state.bridgeErrors,
+			"bridge_samples: " + state.bridgeSamples,
+			"bridge_median_ms: " + state.bridgeMedianMs,
+			"bridge_p95_ms: " + state.bridgeP95Ms,
+			"bridge_p99_ms: " + state.bridgeP99Ms,
+			"bridge_blocking_timing: " + state.bridgeBlockingTiming,
 			"privacy: no-game-data,no-paths,no-logs",
 		].join("\n") + "\n";
 	}
@@ -134,6 +180,12 @@
 				input: String(state.inputPackets),
 				projection: state.projectionFormat,
 				reference: state.referenceSpaceType,
+				mode: state.presentationMode,
+				dimensions: dimensions(state.layerWidth, state.layerHeight) + " layer, " +
+					dimensions(state.atlasWidth, state.atlasHeight) + " atlas",
+				bridge: state.bridgeSamples + " samples, median " + state.bridgeMedianMs +
+					" ms, p95 " + state.bridgeP95Ms + " ms, p99 " + state.bridgeP99Ms +
+					" ms, " + state.bridgeErrors + " errors, blocking " + state.bridgeBlockingTiming,
 				lifecycle: state.enterAttempts + " enter, " + state.exitRequests + " exit, " + state.reentries + " re-entry",
 			};
 			Object.entries(values).forEach(([name, value]) => {

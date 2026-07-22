@@ -161,6 +161,7 @@ node --check web/package_corresponding_source.mjs
 node web/test_corresponding_source.mjs
 node web/test_release_package.mjs
 node web/test_ue1_demo_imports.mjs
+node web/test_webxr_diagnostics.mjs
 node web/test_webxr_provider.mjs
 node web/test_webxr_webgl_bridge.mjs
 node web/test_webxr_webgl_fallback_provider.mjs
@@ -205,11 +206,23 @@ It does not read or include game data, imported file names, private paths,
 launcher/engine logs, page URLs, or the browser user-agent string. Provider
 error text is represented only as `present` or `none`; the separate error-stage
 field identifies where the lifecycle failed without copying a potentially
-sensitive exception message.
+sensitive exception message. Report schema v2 retains every v1 field name and
+representation, then adds the selected presentation mode, known layer/atlas
+dimensions, and allowlisted bridge frame/error/sample counts, median, p95, p99,
+and blocking-timing state. Key-based v1 readers can ignore the appended fields;
+strict schema readers must explicitly accept
+`surrealengine-webxr-headset-report-v2`.
+
+Bridge percentiles come from the most recent 120 valid nonnegative timing
+samples. Raw samples remain private to the in-page timing window and are not
+placed in provider state or the report. Direct-mode layer dimensions come from
+the projection layer when the browser exposes them. Compatibility-mode layer
+and atlas dimensions appear once their respective objects are available;
+unavailable measurements are reported as `unknown` rather than inferred.
 
 Current results:
 
-- 11 shared launcher/capability/diagnostics/startup-policy checks passed;
+- 12 shared launcher/capability/diagnostics/startup-policy checks passed;
 - 19 UT99/Unreal Gold importer checks passed;
 - the three-demo descriptor/import suite passed without commercial data;
 - 13 mutable-persistence checks passed;
@@ -238,12 +251,12 @@ Before publishing:
    generated report, then test direct `XRGPUBinding` where exposed and automatic
    plus forced `XRWebGLLayer` compatibility selection. For the direct mode,
    verify an XR-compatible adapter; for the bridge, record its timing counters
-   against the thresholds in `WEBXR_WEBGL_BRIDGE_HANDOFF.md`. The v1 packaged
-   report omits `presentationMode` and `bridgeDiagnostics`; capture those fields
-   separately from `surrealXRGetState()` through the browser's remote debugging
-   tools or a dedicated QA harness.
+   against the thresholds in `WEBXR_WEBGL_BRIDGE_HANDOFF.md`. Save the v2 report
+   while each tested mode is running; it includes the mode, available dimensions,
+   and bounded bridge summaries without requiring remote debugging.
 4. Verify the generated report reaches provider phase/stage `running`, records
-   a supported projection format and `local-floor` or `local` reference space,
+   a supported projection format, the expected presentation mode, and
+   `local-floor` or `local` reference space,
    then compare rendered/skipped/input counters while checking stereo output,
    controller proxies, laser/exact-contact alignment, intro HUD, menu ordering,
    held-button disconnect, and blur. Confirm the expected presentation mode in

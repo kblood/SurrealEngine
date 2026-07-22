@@ -36,6 +36,10 @@
 		referenceSpaceType: null,
 		projectionFormat: null,
 		presentationMode: null,
+		layerWidth: null,
+		layerHeight: null,
+		atlasWidth: null,
+		atlasHeight: null,
 		bridgeDiagnostics: null,
 		capabilities: null,
 		enterAttempts: 0,
@@ -59,6 +63,40 @@
 
 	function setStage(stage) {
 		status.currentStage = stage;
+	}
+
+	function nonnegativeNumber(value) {
+		return Number.isFinite(value) && value >= 0 ? value : null;
+	}
+
+	function positiveDimension(value) {
+		return Number.isInteger(value) && value > 0 ? value : null;
+	}
+
+	function copyBridgeDiagnostics(source) {
+		if (!source || typeof source !== "object") return null;
+		return Object.freeze({
+			frames: nonnegativeNumber(source.frames),
+			errors: nonnegativeNumber(source.errors),
+			samples: nonnegativeNumber(source.samples),
+			medianMs: nonnegativeNumber(source.medianMs),
+			p95Ms: nonnegativeNumber(source.p95Ms),
+			p99Ms: nonnegativeNumber(source.p99Ms),
+			blockingTiming: source.blockingTiming === true,
+			layerWidth: positiveDimension(source.layerWidth),
+			layerHeight: positiveDimension(source.layerHeight),
+			atlasWidth: positiveDimension(source.atlasWidth),
+			atlasHeight: positiveDimension(source.atlasHeight),
+		});
+	}
+
+	function setBridgeDiagnostics(source) {
+		status.bridgeDiagnostics = copyBridgeDiagnostics(source);
+		if (!status.bridgeDiagnostics) return;
+		status.layerWidth = status.bridgeDiagnostics.layerWidth;
+		status.layerHeight = status.bridgeDiagnostics.layerHeight;
+		status.atlasWidth = status.bridgeDiagnostics.atlasWidth;
+		status.atlasHeight = status.bridgeDiagnostics.atlasHeight;
 	}
 
 	class WebXRProviderError extends Error {
@@ -319,7 +357,7 @@
 			}
 			if (bridgeFrame) {
 				webGLBridge.present(bridgeFrame);
-				status.bridgeDiagnostics = webGLBridge.diagnostics();
+				setBridgeDiagnostics(webGLBridge.diagnostics());
 			}
 			return true;
 		} finally {
@@ -357,6 +395,11 @@
 		setStage(status.phase);
 		status.active = false;
 		status.presentationMode = null;
+		status.layerWidth = null;
+		status.layerHeight = null;
+		status.atlasWidth = null;
+		status.atlasHeight = null;
+		status.bridgeDiagnostics = null;
 		status.lastError = error ? String(error.message || error) : null;
 		status.lastErrorCode = error ? (error.code || "webxr-provider-failed") : null;
 		status.lastErrorStage = errorStage;
@@ -502,6 +545,10 @@
 		status.referenceSpaceType = null;
 		status.projectionFormat = null;
 		status.presentationMode = presentationMode;
+		status.layerWidth = null;
+		status.layerHeight = null;
+		status.atlasWidth = null;
+		status.atlasHeight = null;
 		status.bridgeDiagnostics = null;
 		let requestedSession = null;
 		try {
@@ -541,6 +588,8 @@
 				setStage("create-projection-layer");
 				try {
 					projectionLayer = binding.createProjectionLayer({ colorFormat: projectionFormat, scaleFactor: 1 });
+					status.layerWidth = positiveDimension(projectionLayer.textureWidth);
+					status.layerHeight = positiveDimension(projectionLayer.textureHeight);
 					setStage("update-render-state");
 					session.updateRenderState({ layers: [projectionLayer] });
 				} catch (error) {
@@ -553,6 +602,7 @@
 					webGLBridge = await root.SurrealWebXRWebGLBridge.create({ root, session,
 						canvas: root.Module && root.Module.canvas });
 					status.projectionFormat = "rgba8unorm-webgl-bridge";
+					setBridgeDiagnostics(webGLBridge.diagnostics());
 				} catch (error) {
 					throw providerError("webgl-bridge-creation-failed", "creating-webgl-bridge",
 						error.message || String(error));
@@ -624,6 +674,7 @@
 			result.capabilities = Object.assign({}, status.capabilities,
 				{ reasons: status.capabilities.reasons.slice() });
 		result.transitions = status.transitions.slice();
+		result.bridgeDiagnostics = copyBridgeDiagnostics(status.bridgeDiagnostics);
 		return result;
 	};
 	root.surrealXRFrameABI = ABI;
