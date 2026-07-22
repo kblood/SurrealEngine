@@ -274,6 +274,29 @@ def main():
             projection_probe = page.evaluate("window.surrealXRProbeWebGPUProjection()")
             print(f"[harness] WebGPU projection-layer probe: {projection_probe}")
 
+            # IWER supplies a JavaScript XRSession, not Blink's native wrapper.
+            # Exercise the production entry point anyway and require an honest,
+            # recoverable failure at that boundary. This protects the native
+            # path's setup cleanup without pretending IWER proves presentation.
+            native_start_tick = page.evaluate("window.surrealGetTickCount()")
+            native_start = page.evaluate("window.surrealXREnterNativeWebGPU()")
+            native_diagnostics = page.evaluate("window.surrealXRNativeDiagnostics")
+            time.sleep(0.15)
+            native_recovery_tick = page.evaluate("window.surrealGetTickCount()")
+            print(f"[harness] native WebGPU XR entry under IWER: result={native_start}, "
+                  f"diagnostics={native_diagnostics}, tick {native_start_tick} -> {native_recovery_tick}")
+            if (native_start is not False or
+                    native_diagnostics.get("phase") != "error" or
+                    native_diagnostics.get("engineLoopOwned") is not False or
+                    not native_diagnostics.get("error") or
+                    page.evaluate("window.surrealXRSessionActive") is not False or
+                    native_recovery_tick <= native_start_tick):
+                print("FAIL: native WebGPU XR setup failure did not restore the canvas loop cleanly")
+                sys.exit(1)
+            # Phase 2 intentionally verifies the default IWER lifecycle after
+            # native cleanup, so do not let the expected boundary error poison it.
+            page.evaluate("window.surrealXRError = null; window.surrealXRNativeError = null")
+
         # --- Phase 2: request a session and drive its frame loop ----------
         print("[harness] requesting immersive-vr session...")
         # A real button click supplies the trusted gesture required by both

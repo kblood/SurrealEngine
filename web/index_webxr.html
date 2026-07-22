@@ -5,18 +5,18 @@
 <title>SurrealEngine WebXR M4-groundwork harness</title>
 </head>
 <body>
-<!-- M4 groundwork harness (NOT real M4 rendering — see webxr_session.js's
-     header comment and WEBXR_IMPLEMENTATION_PLAN.md's M4 milestone). Boots
-     the engine exactly like index_webgpu.html (real WebGPU device handed in
-     before callMain, same as M2), and separately proves a WebXR session can
-     be requested/driven from the same page via webxr_session.js. The two
-     are NOT wired together yet: the XR session's frame loop does not drive
-     SurrealEngine's renderer. This only proves the plumbing IWER-based
-     headless testing needs to exist for real M4 work to build on. -->
+<!-- Boots exactly like index_webgpu.html and retains the IWER-testable WebGL
+     lifecycle harness by default. `?native-webgpu-xr=1` explicitly selects
+     the production XRGPUBinding/projection-layer path; it does not fall back
+     to IWER or report native WebGPU rendering when the browser lacks it. -->
 <canvas id="canvas" width="640" height="480"></canvas>
 <button id="entervr" disabled>Enter VR</button>
 <button id="probewebgpuxr" disabled>Probe WebGPU XR</button>
 <pre id="log" style="white-space:pre-wrap;font:12px monospace;"></pre>
+<script>
+	window.surrealXRUseNativeWebGPU =
+		new URLSearchParams(location.search).get("native-webgpu-xr") === "1";
+</script>
 <script src="webxr_session.js"></script>
 <script>
 	window.surrealLog = [];
@@ -38,6 +38,10 @@
 	window.surrealXRFrameABIDiagnostic = window.surrealXRTestFrameABI();
 	appendLog("[harness] XR frame ABI v1 diagnostic: " +
 		JSON.stringify(window.surrealXRFrameABIDiagnostic));
+	if (window.surrealXRUseNativeWebGPU) {
+		document.getElementById("entervr").textContent = "Enter Native WebGPU VR";
+		appendLog("[harness] native WebGPU XR session path explicitly enabled");
+	}
 
 	// Copies a packed frame into Wasm and imports the browser-owned projection
 	// texture for exactly one synchronous native call. XR objects are never
@@ -366,6 +370,8 @@
 		}
 		if (window.surrealXRSessionActive) {
 			window.surrealXRExit();
+		} else if (window.surrealXRUseNativeWebGPU) {
+			window.surrealXREnterNativeWebGPU();
 		} else {
 			window.surrealXREnter();
 		}
