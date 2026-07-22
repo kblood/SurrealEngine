@@ -129,6 +129,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Render/VisibleFrame.cpp
 	SurrealEngine/Render/VisibleFrame.h
 	SurrealEngine/Render/ViewFamily.h
+	SurrealEngine/Render/ViewFamily.cpp
+	SurrealEngine/Render/Presentation.h
 	SurrealEngine/Render/VisibleMesh.cpp
 	SurrealEngine/Render/VisibleMesh.h
 	SurrealEngine/Render/VisibleNode.cpp
@@ -911,4 +913,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_link_libraries(VMCallHookTests SurrealCommon ${SURREALCOMMON_LIBS})
 	set_target_properties(VMCallHookTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME VMCallHookTests COMMAND VMCallHookTests)
+
+	add_executable(PresentationTests
+		Tests/PresentationTests.cpp
+		SurrealEngine/Render/ViewFamily.cpp
+		SurrealEngine/Math/mat.cpp
+	)
+	target_include_directories(PresentationTests PRIVATE SurrealEngine)
+	set_target_properties(PresentationTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PresentationTests COMMAND PresentationTests)
 endif()

@@ -312,7 +312,7 @@ ViewFamily Engine::CreateDesktopViewFamily() const
 
 	ViewFamily family;
 	family.Views.push_back(view);
-	return family;
+	return render->ShowMultiViewDiagnostic ? CreateSideBySideDiagnosticViewFamily(view) : family;
 }
 
 void Engine::FinishGameFrame(float levelElapsed)
@@ -1193,6 +1193,10 @@ std::string Engine::ConsoleCommand(UObject* context, const std::string& commandl
 	else if (command == "collisiondebug" && args.size() == 2)
 	{
 		render->ShowCollisionDebug = args[1] == "1";
+	}
+	else if (command == "multiviewdiagnostic" && args.size() == 2)
+	{
+		render->ShowMultiViewDiagnostic = args[1] == "1";
 	}
 	else if (command == "dxwindowdebug" && LaunchInfo.IsDeusEx())
 	{
