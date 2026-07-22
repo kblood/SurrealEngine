@@ -24,6 +24,7 @@ their development branches into one unreviewable fork.
 | `pr/frame-pipeline` | `5dbcf833` | Advance simulation once, render, then finish deferred save/travel work | current upstream |
 | `pr/view-family` | `c0e81509` | Render an explicit family of camera views with optional asymmetric projections | `pr/frame-pipeline` |
 | `pr/presentation-layers` | `9d96e62f` | Route world, overlay, UI, and cinematic layers to provider-owned target slots | `pr/view-family` |
+| `pr/presentation-target-binding` | `398dbfd8` | Bind opaque provider-owned images and select one image per rendered view | `pr/presentation-layers` |
 | `pr/input-composition` | `d5fa59ca` | Compose buttons and axes from independent input sources | current upstream |
 | `pr/vm-hook-registry` | `5d123dac` | Ordered, scoped VM-call extension hooks with safe argument replacement | current upstream |
 | `pr/game-support-registry` | `2ccdb1d8` | Typed game identity, behavior capabilities, and per-game native registration | current upstream |
@@ -34,10 +35,11 @@ their development branches into one unreviewable fork.
 | `pr/bot-benchmark-driver` | `8d568202` | Add controlled UT map/spectator/bot setup and exact run summaries | `pr/headless-benchmark-driver` |
 | `pr/property-serialization` | `1965a397` | Serialize aggregate boolean values symmetrically and test all aggregate paths | current upstream |
 | `pr/web-platform-foundation` | `88980d62` | Flat Emscripten/WebGPU platform and browser smoke harness | `pr/frame-pipeline` |
+| `pr/web-data-persistence` | `2dda89bd` | Legal local UT99 import, safe map selection, and crash-safe mutable browser data | `pr/web-platform-foundation` |
 
 The integration branch contains the reviewed equivalents of every completed
 topic above, including the small build-system follow-ups needed when those
-topics coexist. All thirteen completed topic branches and
+topics coexist. All fifteen completed topic branches and
 `integration/unified-engine` are preserved on the
 `fork` remote. No pull requests have been opened yet, and the upstream
 `origin` has not been modified.
@@ -103,7 +105,10 @@ The combined integration also configures, compiles, and links the full
 Emscripten `SurrealEngine` target without preloaded commercial game data. The
 standalone web topic additionally passed real-data browser lifecycle and WebGPU
 smokes: 0 WebGPU errors, 95 draw calls, 75 cached textures, nonblank output,
-and clean shutdown. Its XR symbol/path audit returned no matches.
+and clean shutdown. The browser-data topic passes 30 synthetic importer,
+persistence, migration, and bootstrap checks plus flat and WebGPU no-data
+import-gate smokes. Their XR symbol/path audits returned no implementation
+matches.
 
 Runtime multi-view rendering still needs a stereo diagnostic/provider. Render
 target/layer selection is intentionally deferred to a backend interface, and
@@ -111,28 +116,28 @@ the policy for per-eye weapons plus captured/replayed UI is not yet defined.
 
 ## Active extraction lanes
 
-- Web: the flat WASM/WebGPU platform is extracted and verified with no WebXR
-  requirement; the next web topic is browser-side legal data import and
-  persistence, while WebXR remains a later provider.
+- Web: flat WASM/WebGPU plus browser-side legal data import and mutable
+  persistence are extracted with no WebXR requirement. A separate WebXR
+  session/view provider is now being reconstructed on the shared contracts.
 - Deus Ex: generic actor movement and property serialization plus the first
   game-owned tokenizer/paging module are extracted; next are AI perception and
   save/package slices.
 - Bots: deterministic runtime, bounded headless lifecycle, and the first
   controlled bot driver are extracted; next are display-free bootstrap,
   telemetry/fixtures, and then evidence-backed behavior fixes.
-- XR: after the view target/layer and UI policy are explicit, migrate the
-  released native OpenXR behavior into XR-common plus an OpenXR provider, then
-  attach WebXR to the same contracts.
+- XR: presentation layers, opaque target binding, and per-view target selection
+  are explicit. Native OpenXR and WebXR provider skeletons are being extracted
+  in parallel; controller input and game/menu policy remain later topics.
 
 ## Next integration gates
 
-1. Add a render target/layer selection seam and a provider-neutral stereo
-   diagnostic.
-2. Define world, weapon, HUD, menu, intro/cinematic, and loading presentation
-   layers. Menu and cinematic surfaces must render after the world and remain
-   pointer-addressable.
-3. Add input-source lifecycle tests for disconnect, WebXR exit/re-entry, and
+1. Validate native OpenXR and WebXR providers against the same target-binding
+   and per-view selection seam while preserving desktop and flat WebGPU.
+2. Add input-source lifecycle tests for disconnect, WebXR exit/re-entry, and
    simultaneous mouse/controller use.
+3. Define captured/replayed UI behavior for HUD, menu, intro/cinematics, and
+   loading. Menu and cinematic surfaces must render after the world and remain
+   pointer-addressable.
 4. Integrate each extraction topic only after its standalone build and tests
    pass.
 5. Run the native flat, native OpenXR, flat WebGPU, WebXR, Deus Ex, Unreal Gold,
