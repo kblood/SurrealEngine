@@ -97,6 +97,130 @@ create its synchronous OPFS proxy from the browser main thread. The SDK's
 working Asyncify/JSPI OPFS tests are non-pthread builds. Therefore merely
 adding Asyncify to the present threaded engine is not an alternative.
 
+## Opt-in engine experiment
+
+The integration experiment is now available behind the default-off CMake
+option:
+
+```text
+SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS=ON
+```
+
+The option adds `-sWASMFS`, `-sFORCE_FILESYSTEM`, and
+`-sPROXY_TO_PTHREAD`. An ordinary build keeps its existing flags and MEMFS
+materialization path. The experimental browser importer detects the native
+mount ABI; an IndexedDB dataset, a custom game root, or a build without that
+ABI still takes the established materialization fallback.
+
+For an OPFS dataset, JavaScript registers only the published storage directory,
+dataset generation, canonical paths, and 64-bit sizes. It never requests the
+file blobs. `GameApp::main()` then runs on the application worker and:
+
+1. mounts the browser OPFS root at `/.surreal-opfs`;
+2. checks every published file and size before game discovery;
+3. creates memory-backed `/gamedata` directories and symlinks immutable files;
+4. marks OPFS targets and directories read-only; and
+5. keeps allowlisted engine configuration and `Save<N>.usa`/`Save<N>.dxs`
+   files memory-backed.
+
+The existing mutable controller restores before `callMain()`. A restored
+mutable file therefore wins over the imported baseline. If an imported
+dataset itself contains an allowlisted save or generated `SE-*.ini` file, the
+worker copies only that file into the memory backend rather than exposing a
+writable link into the immutable generation. Checkpoints and clear operations
+continue using the existing mutable-data allowlist and separate store.
+
+Build the variant with:
+
+```powershell
+emcmake cmake -S . -B build-wasmfs-opfs -DCMAKE_BUILD_TYPE=Release `
+  -DSURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS=ON -DBUILD_TESTING=OFF
+cmake --build build-wasmfs-opfs -j 12
+```
+
+This remains an experimental storage/loader variant. It is not a release
+build or WebXR activation.
+
+## Measured runtime evidence
+
+The synthetic engine bootstrap stores nine UE1-shaped files in real OPFS,
+registers the mount without reading a blob, enters the worker, and repeats the
+same path after a page reload. Both runs retain the configured 256 MiB Wasm
+heap. The standalone probe separately proves a persistent 32 MiB file across
+reload with synchronous `stat`, seek, and read, zero heap growth, and a denied
+write through the read-only `/gamedata` link.
+
+An owner-data validation used an existing local GOG UT99 installation in a
+fresh persistent browser profile outside Git. No path or commercial content is
+recorded in the repository. Observed results were:
+
+- 496 files and 659,817,346 bytes mounted from OPFS;
+- a 268,435,456-byte Wasm heap before and after the mount;
+- three persisted allowlisted files restored and two imported mutable
+  baselines kept memory-backed;
+- UT99 identified as version 436 and its packages read through the mount; and
+- the headless bot benchmark loaded `DM-Deck16][`, created a player and bot,
+  simulated two deterministic ticks, wrote a complete summary, and exited 0.
+
+This establishes that the former post-import memory block is removed for the
+loader and headless runtime. It does not establish working window or XR
+presentation.
+
+## PROXY_TO_PTHREAD presentation boundary
+
+The storage solution moves application `main()` to a worker because the
+installed pthread WasmFS OPFS backend cannot be created on the main browser
+thread. That changes ownership of every browser-backed presentation object.
+
+The measured owner-data window run reached package loading, then both the
+ordinary launch and an explicitly selected null render device failed in
+SurrealWidgets' GL shader creation. `DisplayBackend::TryCreateBackend()` runs
+before the command-line render-device selection, and the worker has no current
+entry in the main browser thread's GL context table. The failure is therefore
+after successful storage and package loading, at presentation ownership.
+
+`web/proxy_to_pthread_dispatch_probe.cpp` measures the call boundary directly:
+
+- an exported `Module.ccall()` executes on the main browser thread, not the
+  application worker;
+- 32 calls can be queued to the captured application pthread;
+- every completion can return to the browser with
+  `MAIN_THREAD_ASYNC_EM_ASM`;
+- all completions arrive asynchronously after the originating animation-frame
+  callback body; and
+- the application worker cannot see a marker stored on the Window global.
+
+Compile that standalone probe with:
+
+```powershell
+em++ web/proxy_to_pthread_dispatch_probe.cpp -O2 -pthread `
+  -sPROXY_TO_PTHREAD -sPTHREAD_POOL_SIZE=1 -sALLOW_MEMORY_GROWTH=1 `
+  '-sEXPORTED_RUNTIME_METHODS=ccall' `
+  '-sEXPORTED_FUNCTIONS=_main,_Probe_CallingThreadKind,_Probe_SubmitToEngineThread' `
+  -sASSERTIONS=1 -o build-proxy-thread-probe/index.html
+```
+
+The last result applies directly to the current
+`globalThis.surrealWebXRFrameTextures` handoff: the `EM_JS` import runs in the
+worker's JavaScript realm, while the XR callback stores textures on Window.
+Dispatching `Surreal_RenderWebXRFrame` would also change its synchronous return
+into an asynchronous completion. By then the originating XR animation-frame
+callback has returned; this experiment does not prove that its frame-scoped
+pose or compositor textures remain valid. Input packets that live entirely in
+shared memory may be queueable, but that does not solve render completion or
+texture ownership.
+
+Consequently the experimental WasmFS variant must not advertise WebGPU,
+desktop window, or WebXR presentation yet. A product solution needs one of:
+
+- presentation and its browser objects deliberately owned by the application
+  worker, with a browser-supported transfer model and frame-lifetime proof; or
+- a non-pthread WasmFS OPFS build using a proven Asyncify/JSPI execution model
+  so engine and WebXR frame work stay on the browser main thread.
+
+An asynchronous worker dispatch bridge alone is insufficient for the current
+WebXR render contract.
+
 ## Recommended persistent layout
 
 The lowest-memory persistent design is:
@@ -174,7 +298,8 @@ discarded.
 
 ## Integration order and gates
 
-1. Add an opt-in WasmFS build variant; keep the current release build intact.
+1. Keep the implemented opt-in WasmFS build variant separate from the current
+   release build.
 2. Establish one owner for browser execution. Either route WebXR/WebGPU calls
    to a worker-owned engine, or build a proven non-pthread browser variant that
    can use WasmFS's Asyncify/JSPI OPFS path.
@@ -185,6 +310,19 @@ discarded.
 5. Measure Wasm heap and browser process memory during UT99 and Unreal Gold
    startup, map travel, texture load, audio, flat WebGPU, and both WebXR paths.
 6. Run the physical Quest matrix before replacing the MEMFS release path.
+
+The focused local validation commands are:
+
+```powershell
+python web/smoke_test_ut99_importer.py --base-url=http://127.0.0.1:49011
+python web/smoke_test_wasmfs_opfs_mount.py --base-url=http://127.0.0.1:49011
+python web/smoke_test_wasmfs_opfs_engine_mount.py --base-url=http://127.0.0.1:49011
+python web/smoke_test_proxy_to_pthread_dispatch.py --base-url=http://127.0.0.1:49011
+```
+
+The two standalone probes must first be compiled into
+`build-wasmfs-probe/index.html` and
+`build-proxy-thread-probe/index.html` with the flags documented above.
 
 Do not raise `MAXIMUM_MEMORY` as the primary fix. That changes the failure
 ceiling but preserves the unnecessary full-data allocation and its headset
