@@ -32,6 +32,18 @@
 		}
 	}
 
+	function publishAdapter(host, available, detail) {
+		if (host && typeof host.dispatchEvent === "function" && typeof host.CustomEvent === "function") {
+			host.dispatchEvent(new host.CustomEvent("surrealwebxradapter", {
+				detail: Object.freeze({
+					available: available === true,
+					state: available === true ? "xr-compatible" : "flat-fallback",
+					detail: detail ? String(detail) : null,
+				}),
+			}));
+		}
+	}
+
 	function createProvider(capability, environment) {
 		const host = environment || root;
 		const detected = capability || result(false, "not-probed", "WebXR has not been checked.");
@@ -43,6 +55,7 @@
 			isAvailable: () => detected.available === true && adapterCompatible,
 			setXRCompatibleAdapter: (available, detail) => {
 				adapterCompatible = available === true;
+				publishAdapter(host, adapterCompatible, detail);
 				if (!adapterCompatible) {
 					const message = "Immersive WebXR is disabled because an XR-compatible WebGPU adapter was unavailable" +
 						(detail ? ": " + detail : ".");

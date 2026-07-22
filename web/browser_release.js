@@ -84,6 +84,9 @@
 		view.setPhase("Checking browser capabilities…");
 		const platform = await detectPlatformCapabilities(settings.environment || root);
 		let webxr = await root.SurrealWebXRBrowserProvider.probe(settings.environment || root);
+		if (typeof root.dispatchEvent === "function" && typeof root.CustomEvent === "function") {
+			root.dispatchEvent(new root.CustomEvent("surrealwebxrcapability", { detail: webxr }));
+		}
 		view.setCapabilities(platform, webxr);
 		if (!canStart(platform)) {
 			const message = "This browser cannot start the SurrealEngine WebGPU build. See the capability details above.";

@@ -21,6 +21,7 @@
 
 	const status = {
 		phase: "idle",
+		currentStage: "idle",
 		active: false,
 		generation: 0,
 		frames: 0,
@@ -32,7 +33,28 @@
 		referenceSpaceType: null,
 		projectionFormat: null,
 		capabilities: null,
+		enterAttempts: 0,
+		successfulEntries: 0,
+		exitRequests: 0,
+		endedSessions: 0,
+		reentries: 0,
+		transitions: [],
 	};
+	let transitionSequence = 0;
+
+	function recordTransition(type, generation, stage) {
+		status.transitions.push(Object.freeze({
+			sequence: ++transitionSequence,
+			type: String(type),
+			generation: Number(generation) || 0,
+			stage: String(stage || status.currentStage || "unknown"),
+		}));
+		if (status.transitions.length > 16) status.transitions.shift();
+	}
+
+	function setStage(stage) {
+		status.currentStage = stage;
+	}
 
 	class WebXRProviderError extends Error {
 		constructor(code, stage, message) {
@@ -279,7 +301,7 @@
 		submitNeutralInput(0, false);
 		const finishedSession = session;
 		const pendingFrame = animationFrameHandle;
-		const errorStage = error ? (error.stage || status.phase) : null;
+		const errorStage = error ? (error.stage || status.currentStage || status.phase) : null;
 		activeGeneration = 0;
 		enterPending = false;
 		animationFrameHandle = null;
@@ -298,10 +320,14 @@
 		}
 		resetNativePose();
 		status.phase = phase || "ended";
+		setStage(status.phase);
 		status.active = false;
 		status.lastError = error ? String(error.message || error) : null;
 		status.lastErrorCode = error ? (error.code || "webxr-provider-failed") : null;
 		status.lastErrorStage = errorStage;
+		status.endedSessions++;
+		recordTransition(error ? "entry-or-session-failed" : "session-ended", generation,
+			errorStage || status.phase);
 		if (error) log("WebXR session failed: " + error);
 		return true;
 	}
@@ -384,6 +410,9 @@
 
 	root.surrealXREnter = async function () {
 		if (session || enterPending) return false;
+		status.enterAttempts++;
+		setStage("preflight");
+		recordTransition("enter-requested", generationCounter + 1, status.currentStage);
 		let preflightError = null;
 		if (root.isSecureContext === false)
 			preflightError = providerError("secure-context-required", "preflight", "WebXR requires a secure context");
@@ -403,6 +432,7 @@
 			status.lastError = preflightError.message;
 			status.lastErrorCode = preflightError.code;
 			status.lastErrorStage = preflightError.stage;
+			recordTransition("entry-or-session-failed", generationCounter + 1, status.currentStage);
 			log(preflightError.message);
 			return false;
 		}
@@ -411,6 +441,7 @@
 		const generation = ++generationCounter;
 		activeGeneration = generation;
 		status.phase = "requesting-session";
+		setStage("request-session");
 		status.generation = generation;
 		status.frames = 0;
 		status.skippedFrames = 0;
@@ -442,6 +473,7 @@
 				if (generation === activeGeneration && !isActionFocused(session)) submitCurrentInput(0);
 			});
 			status.phase = "creating-binding";
+			setStage("create-binding");
 			try { binding = new root.XRGPUBinding(session, webGPUDevice()); }
 			catch (error) {
 				throw providerError("binding-creation-failed", "creating-binding", error.message || String(error));
@@ -452,13 +484,16 @@
 					"unsupported WebXR projection color format: " + projectionFormat);
 			status.projectionFormat = projectionFormat;
 			status.phase = "creating-projection-layer";
+			setStage("create-projection-layer");
 			try {
 				projectionLayer = binding.createProjectionLayer({ colorFormat: projectionFormat, scaleFactor: 1 });
+				setStage("update-render-state");
 				session.updateRenderState({ layers: [projectionLayer] });
 			} catch (error) {
 				throw providerError("projection-layer-failed", "creating-projection-layer", error.message || String(error));
 			}
 			status.phase = "requesting-reference-space";
+			setStage("request-reference-space");
 			let reference;
 			try { reference = await requestReference(session); }
 			catch (error) {
@@ -474,6 +509,7 @@
 				});
 			}
 			resetNativePose();
+			setStage("start-engine-loop");
 			submitNeutralInput(0, true);
 			status.phase = "starting-frame-loop";
 			if (!setEngineLoop(true))
@@ -482,7 +518,11 @@
 			engineLoopOwned = true;
 			enterPending = false;
 			status.phase = "running";
+			setStage("running");
 			status.active = true;
+			status.successfulEntries++;
+			status.reentries = Math.max(0, status.successfulEntries - 1);
+			recordTransition(status.reentries ? "session-reentered" : "session-entered", generation, status.currentStage);
 			animationFrameHandle = session.requestAnimationFrame(function (time, frame) {
 				animationFrameHandle = null;
 				onFrame(generation, time, frame);
@@ -497,6 +537,9 @@
 	root.surrealXRExit = function () {
 		if (!session) return false;
 		const generation = activeGeneration;
+		status.exitRequests++;
+		setStage("exit-requested");
+		recordTransition("exit-requested", generation, status.currentStage);
 		try {
 			const ending = session.end();
 			if (ending && typeof ending.catch === "function") {
@@ -514,6 +557,7 @@
 		if (status.capabilities)
 			result.capabilities = Object.assign({}, status.capabilities,
 				{ reasons: status.capabilities.reasons.slice() });
+		result.transitions = status.transitions.slice();
 		return result;
 	};
 	root.surrealXRFrameABI = ABI;

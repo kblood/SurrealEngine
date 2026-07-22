@@ -7,6 +7,12 @@ body { margin: 0; min-height: 100vh; display: grid; grid-template-rows: 1fr auto
 .capability-panel ul { display: grid; gap: .35rem; padding-left: 1.35rem; }
 .capability-panel li[data-available="true"]::marker { color: #68d391; }
 .capability-panel li[data-available="false"]::marker { color: #f6ad55; }
+.diagnostics-panel { padding-block: .8rem; }
+.diagnostics-panel summary { cursor: pointer; font-weight: 650; }
+.diagnostics-note { color: #b9c5d3; font-size: .9rem; }
+.diagnostics-grid { display: grid; grid-template-columns: minmax(9rem, auto) 1fr; gap: .25rem 1rem; margin-block: .75rem; }
+.diagnostics-grid dt { color: #b9c5d3; }
+.diagnostics-grid dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .actions, .fields { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
 .fields label { display: grid; gap: .3rem; min-width: 12rem; flex: 1; }
 button, select, .file-button { box-sizing: border-box; min-height: 2.5rem; border: 1px solid #718096; border-radius: .35rem; padding: .45rem .7rem; color: inherit; background: #253244; }

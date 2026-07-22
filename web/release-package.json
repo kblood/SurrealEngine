@@ -20,6 +20,7 @@
     "mutable_persistence.js",
     "ut99_importer.js",
     "webxr_browser_app_adapter.js",
+    "webxr_diagnostics.js",
     "webxr_provider.js"
   ]
 }

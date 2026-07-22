@@ -28,6 +28,7 @@ try {
 	assert.equal(result.manifest.dependencies[1].sha, "d472068ad5894dc8cdddeefbb4f491bd118f2592");
 	assert.ok(result.manifest.files.some(file => file.path === "engine/SurrealEngine.wasm" && file.expectedMime === "application/wasm"));
 	assert.ok(result.manifest.files.some(file => file.path === "webxr_provider.js"));
+	assert.ok(result.manifest.files.some(file => file.path === "webxr_diagnostics.js"));
 	const index = await readFile(join(output, "index.html"), "utf8");
 	assert.match(index, /data-engine-base="\.\/engine\/"/);
 	assert.doesNotMatch(index, /\.\.\/build-emscripten\//);

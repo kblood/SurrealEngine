@@ -10,9 +10,17 @@
 		<button type="submit">Play</button><p data-launcher-error hidden></p>
 	</form>
 </section>
+<details id="diagnostics"><summary>Diagnostics</summary>
+	<span data-xr-diagnostics-capability></span><span data-xr-diagnostics-adapter></span>
+	<span data-xr-diagnostics-phase></span><span data-xr-diagnostics-error></span>
+	<span data-xr-diagnostics-frames></span><span data-xr-diagnostics-input></span>
+	<span data-xr-diagnostics-projection></span><span data-xr-diagnostics-reference></span>
+	<span data-xr-diagnostics-lifecycle></span>
+	<button data-xr-diagnostics-copy></button><button data-xr-diagnostics-download></button>
+</details>
 <pre id="results">running</pre>
 <script src="ut99_importer.js"></script><script src="browser_app.js"></script>
-<script src="webxr_browser_app_adapter.js"></script><script src="browser_release.js"></script>
+<script src="webxr_browser_app_adapter.js"></script><script src="webxr_diagnostics.js"></script><script src="browser_release.js"></script>
 <script>
 "use strict";
 window.browserAppTestResults = []; window.browserAppTestDone = false;
@@ -147,6 +155,30 @@ window.browserAppTestPromise = (async () => {
 		const activation = await SurrealWebXRBrowserProvider.createProvider(capability, environment)
 			.activate({ Module: { preinitializedWebGPUDevice: {} } });
 		assert(!activation.active && activation.fallback === "flat" && activation.message === "headset declined");
+	});
+	await run("headset diagnostics are allowlisted, copyable, and data-free", async () => {
+		let copied = null;
+		let downloaded = null;
+		window.surrealXRGetState = () => ({
+			phase: "running", currentStage: "running", lastError: "C:\\Private\\Game\\System\\Core.u",
+			lastErrorStage: "request-reference-space", frames: 23, skippedFrames: 2, inputPackets: 9,
+			projectionFormat: "rgba8unorm", referenceSpaceType: "local-floor", enterAttempts: 2,
+			successfulEntries: 2, exitRequests: 1, endedSessions: 1, reentries: 1,
+			transitions: [{ type: "session-entered", generation: 1, stage: "running" },
+				{ type: "session-reentered", generation: 2, stage: "running" }],
+		});
+		const panel = SurrealWebXRDiagnostics.create(document.getElementById("diagnostics"), {
+			copyText: value => { copied = value; }, downloadText: value => { downloaded = value; },
+		});
+		window.dispatchEvent(new CustomEvent("surrealwebxrcapability", { detail: { available: true, code: "ready" } }));
+		window.dispatchEvent(new CustomEvent("surrealwebxradapter", { detail: { available: true, state: "xr-compatible" } }));
+		const report = panel.report();
+		assert(report.includes("capability_code: ready") && report.includes("frames: 23"));
+		assert(report.includes("reentries: 1") && report.includes("provider_error: present"));
+		assert(!report.includes("Private") && !report.includes("Core.u") && !report.includes("C:\\"));
+		await panel.copy();
+		panel.download();
+		assert(copied === report && downloaded === report);
 	});
 	window.browserAppTestDone = true;
 	document.getElementById("results").textContent = JSON.stringify(browserAppTestResults, null, 2);

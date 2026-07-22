@@ -181,6 +181,9 @@ assert.equal(globalThis.surrealXRIsColorFormatSupported("rgb10a2unorm"), false);
 assert.equal(await globalThis.surrealXREnter(), true);
 assert.equal(await globalThis.surrealXREnter(), false);
 assert.equal(globalThis.surrealXRGetState().active, true);
+assert.equal(globalThis.surrealXRGetState().currentStage, "running");
+assert.equal(globalThis.surrealXRGetState().enterAttempts, 1, "duplicate entry is not a new headset request");
+assert.equal(globalThis.surrealXRGetState().successfulEntries, 1);
 assert.equal(globalThis.surrealXRGetState().projectionFormat, "rgba8unorm");
 sessions[0].fireFrame(16.0, stereoFrame);
 assert.equal(renderedPackets.length, 1);
@@ -241,6 +244,8 @@ await Promise.resolve();
 assert.equal(globalThis.surrealXRGetState().active, false);
 assert.equal(sessions[0].frames.size, 0);
 assert.equal(sessions[0].cancelledFrames.length, 1);
+assert.equal(globalThis.surrealXRGetState().exitRequests, 1);
+assert.equal(globalThis.surrealXRGetState().endedSessions, 1);
 
 // A shared texture array is deduplicated while preserving each eye's array layer and viewport.
 useSharedTexture = true;
@@ -256,6 +261,9 @@ assert.equal(data.getUint32(32 + 8, true), 0);
 assert.equal(data.getUint32(32 + 128 + 8, true), 1);
 assert.equal(data.getInt32(32 + 128 + 20, true), 8);
 assert.equal(data.getUint32(24, true), 1);
+assert.equal(globalThis.surrealXRGetState().generation, 2);
+assert.equal(globalThis.surrealXRGetState().reentries, 1);
+assert.ok(globalThis.surrealXRGetState().transitions.some(item => item.type === "session-reentered"));
 assert.equal(globalThis.surrealXRExit(), true);
 await Promise.resolve();
 
@@ -271,6 +279,15 @@ assert.equal(failedState.phase, "error");
 assert.equal(failedState.lastErrorCode, "unsupported-view-configuration");
 assert.equal(failedState.lastErrorStage, "frame");
 assert.equal(sessions[2].frames.size, 0);
+
+// An entry failure before frame-loop ownership retains its stable provider code and diagnostic transition.
+globalThis.XRGPUBinding.prototype.getPreferredColorFormat = function () { return "unsupported-test-format"; };
+assert.equal(await globalThis.surrealXREnter(), false);
+const entryFailure = globalThis.surrealXRGetState();
+assert.equal(entryFailure.phase, "error");
+assert.equal(entryFailure.lastErrorCode, "unsupported-color-format");
+assert.equal(entryFailure.lastErrorStage, "creating-projection-layer");
+assert.ok(entryFailure.transitions.some(item => item.type === "entry-or-session-failed"));
 
 assert.deepEqual(loopTransitions, [1, 0, 1, 0, 1, 0]);
 assert.ok(resetCalls >= 6);

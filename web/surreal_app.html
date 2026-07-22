@@ -16,6 +16,25 @@
 		<p data-app-phase>Preparing launcher…</p>
 		<p data-app-error hidden role="alert"></p>
 	</section>
+	<details id="webxr-diagnostics" class="panel diagnostics-panel">
+		<summary>WebXR headset diagnostics</summary>
+		<p class="diagnostics-note">Optional test information only. Reports exclude game data, private paths, browser logs, and imported-file details.</p>
+		<dl class="diagnostics-grid">
+			<dt>Capability</dt><dd data-xr-diagnostics-capability>unknown</dd>
+			<dt>XR-compatible adapter</dt><dd data-xr-diagnostics-adapter>unknown</dd>
+			<dt>Provider phase / stage</dt><dd data-xr-diagnostics-phase>idle</dd>
+			<dt>Error stage</dt><dd data-xr-diagnostics-error>unknown</dd>
+			<dt>Frames</dt><dd data-xr-diagnostics-frames>0 rendered, 0 skipped</dd>
+			<dt>Input packets</dt><dd data-xr-diagnostics-input>0</dd>
+			<dt>Projection format</dt><dd data-xr-diagnostics-projection>unknown</dd>
+			<dt>Reference space</dt><dd data-xr-diagnostics-reference>unknown</dd>
+			<dt>Lifecycle</dt><dd data-xr-diagnostics-lifecycle>0 enter, 0 exit, 0 re-entry</dd>
+		</dl>
+		<div class="actions">
+			<button type="button" data-xr-diagnostics-copy>Copy test report</button>
+			<button type="button" data-xr-diagnostics-download>Download test report</button>
+		</div>
+	</details>
 	<section id="game-library" class="panel" hidden>
 		<h1>Game library</h1>
 		<div class="actions">
@@ -56,6 +75,7 @@
 <script src="browser_app.js"></script>
 <script src="webxr_provider.js"></script>
 <script src="webxr_browser_app_adapter.js"></script>
+<script src="webxr_diagnostics.js"></script>
 <script src="browser_release.js"></script>
 <script>
 "use strict";
@@ -63,6 +83,7 @@ const logLines = [];
 const logElement = document.getElementById("log");
 function log(line) { logLines.push(String(line)); logElement.textContent += line + "\n"; }
 const engineBase = document.documentElement.dataset.engineBase;
+window.surrealXRDiagnostics = SurrealWebXRDiagnostics.create(document.getElementById("webxr-diagnostics"));
 SurrealBrowserRelease.start({
 	statusRoot: document.getElementById("browser-status"),
 	appOptions: {

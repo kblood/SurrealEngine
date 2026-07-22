@@ -80,6 +80,7 @@ webxr/Ports/SurrealEngine/
   mutable_persistence.js
   ut99_importer.js
   webxr_browser_app_adapter.js
+  webxr_diagnostics.js
   webxr_provider.js
   engine/
     SurrealEngine.js
@@ -110,6 +111,7 @@ Synthetic tests contain no commercial data:
 node --check web/browser_app.js
 node --check web/browser_release.js
 node --check web/webxr_browser_app_adapter.js
+node --check web/webxr_diagnostics.js
 node --check web/package_browser_release.mjs
 node web/test_release_package.mjs
 python web/smoke_test_browser_app.py --base-url=http://localhost:8112
@@ -127,9 +129,26 @@ node web/serve.mjs 8113 C:\path\to\webxr\Ports\SurrealEngine
 python web/smoke_test_release_package.py --base-url=http://localhost:8113
 ```
 
+### Optional headset report
+
+The collapsed **WebXR headset diagnostics** panel is observational and does
+not start or stop presentation. Open it during a physical-headset test to see
+the presentation capability code, XR-compatible adapter result, provider
+phase and failure stage, rendered/skipped/input packet counters, projection
+format, reference space, and enter/exit/re-entry counts. It refreshes only
+while open; flat-mode users otherwise pay no polling cost.
+
+**Copy test report** and **Download test report** produce the same fixed-schema
+plain text. The formatter allowlists known scalar fields and transition tokens.
+It does not read or include game data, imported file names, private paths,
+launcher/engine logs, page URLs, or the browser user-agent string. Provider
+error text is represented only as `present` or `none`; the separate error-stage
+field identifies where the lifecycle failed without copying a potentially
+sensitive exception message.
+
 Current results:
 
-- 9 shared launcher/capability checks passed;
+- 10 shared launcher/capability/diagnostics checks passed;
 - 19 UT99/Unreal Gold importer checks passed;
 - 13 mutable-persistence checks passed;
 - 3 browser bootstrap ordering/isolation checks passed;
@@ -149,12 +168,20 @@ Before publishing:
    after a browser restart and package upgrade.
 2. Run flat UT99 and Unreal Gold with keyboard/mouse, fullscreen/resize, INI
    changes, saves, explicit quit-and-flush, and restore.
-3. On a physical Quest browser, record browser/runtime versions and verify the
-   XR-compatible adapter, WebGPU-backed immersive session, stereo output,
-   controllers, held-button disconnect, blur, exit, and re-entry.
-4. After successful, declined, and failed XR entry, confirm the same flat canvas
+3. On a physical Quest browser, record browser/runtime versions outside the
+   generated report, then open the diagnostics panel and verify capability
+   `ready` and adapter `xr-compatible` before entering immersive mode.
+4. Verify the report reaches provider phase/stage `running`, records a supported
+   projection format and `local-floor` or `local` reference space, then compare
+   rendered/skipped/input counters while checking stereo output, controllers,
+   held-button disconnect, and blur.
+5. Exit and re-enter once. Confirm the enter/exit/re-entry counters and bounded
+   transition list change as expected, then copy or download the report. Inspect
+   it before sharing and confirm it contains no game name/data, path, URL, log,
+   or user-agent details.
+6. After successful, declined, and failed XR entry, confirm the same flat canvas
    continues and keyboard/mouse still work.
-5. Verify production HTTPS, COOP/COEP/CORP headers, WASM MIME, quota/persistence
+7. Verify production HTTPS, COOP/COEP/CORP headers, WASM MIME, quota/persistence
    diagnostics, and storage survival at the final origin and path.
 
 Tracked controller models, UI/cinematic quad capture, pointer lasers, weapons,
