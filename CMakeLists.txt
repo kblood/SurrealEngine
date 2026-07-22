@@ -163,6 +163,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Platform/WebXR/WebXRFrameBridge.cpp
 	SurrealEngine/Platform/WebXR/WebXRFrameBridge.h
 	SurrealEngine/Platform/WebXR/WebXRProvider.cpp
+	SurrealEngine/Render/XRUISurfaces.h
+	SurrealEngine/Render/XRUISurfaces.cpp
 	SurrealEngine/Render/VisibleMesh.cpp
 	SurrealEngine/Render/VisibleMesh.h
 	SurrealEngine/Render/VisibleNode.cpp
@@ -1033,4 +1035,12 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(WebXRFrameBridgeTests PRIVATE SurrealEngine)
 	set_target_properties(WebXRFrameBridgeTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME WebXRFrameBridgeTests COMMAND WebXRFrameBridgeTests)
+
+	add_executable(XRUISurfaceTests
+		Tests/XRUISurfaceTests.cpp
+		SurrealEngine/Render/XRUISurfaces.cpp
+	)
+	target_include_directories(XRUISurfaceTests PRIVATE SurrealEngine)
+	set_target_properties(XRUISurfaceTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRUISurfaceTests COMMAND XRUISurfaceTests)
 endif()
