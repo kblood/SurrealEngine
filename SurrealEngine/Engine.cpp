@@ -6,6 +6,7 @@
 #include "Utils/SHA1Sum.h"
 #include "Utils/CommandLine.h"
 #include "Runtime/HeadlessDriver.h"
+#include "BotBenchmark/BotBenchmarkDriver.h"
 #include "Render/RenderSubsystem.h"
 #include "Package/PackageManager.h"
 #include "Package/ObjectStream.h"
@@ -97,6 +98,7 @@ void Engine::Run()
 	const std::string headlessDriverName = commandline ? commandline->GetArg("", "--headless-driver") : std::string();
 	if (!headlessDriverName.empty())
 	{
+		RegisterBotBenchmarkDriver(GetHeadlessDriverRegistry());
 		RunHeadlessDriver(headlessDriverName);
 		return;
 	}
@@ -304,10 +306,18 @@ void Engine::RunHeadlessDriver(const std::string& driverName)
 		return;
 	}
 
-	std::unique_ptr<HeadlessDriver> driver = resolution.Create(*this);
-	LogMessage("Running headless driver: " + driverName);
-	m_RunExitCode = HeadlessDriverRunner().Run(*driver);
-	LogMessage("Headless driver complete with exit code " + std::to_string(m_RunExitCode));
+	try
+	{
+		std::unique_ptr<HeadlessDriver> driver = resolution.Create(*this);
+		LogMessage("Running headless driver: " + driverName);
+		m_RunExitCode = HeadlessDriverRunner().Run(*driver);
+		LogMessage("Headless driver complete with exit code " + std::to_string(m_RunExitCode));
+	}
+	catch (const std::exception& e)
+	{
+		LogMessage("Headless driver failed: " + std::string(e.what()));
+		m_RunExitCode = 3;
+	}
 }
 
 void Engine::PlayAVI(const Array<std::string>& args)
