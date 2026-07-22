@@ -53,7 +53,8 @@ namespace
 	{
 		None,
 		Ballistic,
-		TargetAcquisition
+		TargetAcquisition,
+		Presentation
 	};
 
 	struct WebXRWeaponCallMetadata
@@ -81,10 +82,16 @@ namespace
 			WebXRNameEquals(call.FunctionName, "ProjectileFire"))
 			return WebXRWeaponAimScopeKind::Ballistic;
 
+		// Instance ownership is checked by EnterWebXRWeaponAimScope. Accept the
+		// exact global presentation function independent of its declaring package
+		// so Engine.Weapon and mod overrides/inheritance remain usable.
+		const bool globalFunction = call.DeclaringStateName.empty();
+		if (globalFunction && WebXRNameEquals(call.FunctionName, "RenderOverlays"))
+			return WebXRWeaponAimScopeKind::Presentation;
+
 		if (!WebXRNameEquals(call.PackageName, "Botpack"))
 			return WebXRWeaponAimScopeKind::None;
 
-		const bool globalFunction = call.DeclaringStateName.empty();
 		auto global = [&](const char* className, const char* functionName)
 		{
 			return globalFunction && WebXRNameEquals(call.ClassName, className) &&
@@ -148,6 +155,22 @@ namespace
 		return [targetPtr, saved]() { *targetPtr = saved; };
 	}
 
+	std::function<void()> BeginWebXRPresentationRotationOverride(Rotator& pawnRotation,
+		Rotator& weaponRotation, const Rotator& replacement)
+	{
+		Rotator* pawnPtr = &pawnRotation;
+		Rotator* weaponPtr = &weaponRotation;
+		const Rotator savedPawn = pawnRotation;
+		const Rotator savedWeapon = weaponRotation;
+		pawnRotation = replacement;
+		weaponRotation = replacement;
+		return [pawnPtr, weaponPtr, savedPawn, savedWeapon]()
+		{
+			*pawnPtr = savedPawn;
+			*weaponPtr = savedWeapon;
+		};
+	}
+
 	bool RunWebXRWeaponAimSelfTest()
 	{
 		using Kind = WebXRWeaponAimScopeKind;
@@ -173,7 +196,10 @@ namespace
 			!expect(global("Botpack", "Translocator", "ThrowTarget"), Kind::Ballistic) ||
 			!expect(global("Botpack", "ChainSaw", "Slash"), Kind::Ballistic) ||
 			!expect(global("Botpack", "ImpactHammer", "TraceAltFire"), Kind::Ballistic) ||
-			!expect(state("ImpactHammer", "Firing", "Firing", "Tick"), Kind::Ballistic))
+			!expect(state("ImpactHammer", "Firing", "Firing", "Tick"), Kind::Ballistic) ||
+			!expect(global("Botpack", "TournamentWeapon", "RenderOverlays"), Kind::Presentation) ||
+			!expect(global("Engine", "Weapon", "RenderOverlays"), Kind::Presentation) ||
+			!expect(global("CustomWeapons", "ModWeapon", "RenderOverlays"), Kind::Presentation))
 			return false;
 
 		const WebXRWeaponCallMetadata negatives[] = {
@@ -186,7 +212,7 @@ namespace
 			global("Botpack", "FlakCannon", "Fire"),
 			state("WrongClass", "FireRockets", "FireRockets", "BeginState"),
 			global("Botpack", "GuidedWarShell", "Tick"),
-			global("Botpack", "TournamentWeapon", "RenderOverlays"),
+			state("TournamentWeapon", "Firing", "Firing", "RenderOverlays"),
 			global("Engine", "Weapon", "CalcDrawOffset")
 		};
 		for (const auto& negative : negatives)
@@ -207,12 +233,57 @@ namespace
 		if (value != outerValue)
 			return false;
 		outer();
-		return value == baseline;
+		if (value.Pitch != baseline.Pitch || value.Yaw != baseline.Yaw || value.Roll != baseline.Roll)
+			return false;
+
+		// Presentation scopes replace both rotations and restore the exact integer
+		// fields in LIFO order, including values outside normalized 16-bit range.
+		Rotator pawnRotation(0x12345, -0x23456, 0x34567);
+		Rotator weaponRotation(-0x45678, 0x56789, -0x6789a);
+		const Rotator pawnBaseline = pawnRotation;
+		const Rotator weaponBaseline = weaponRotation;
+		auto presentationOuter = BeginWebXRPresentationRotationOverride(
+			pawnRotation, weaponRotation, Rotator(111, 222, 333));
+		auto presentationInner = BeginWebXRPresentationRotationOverride(
+			pawnRotation, weaponRotation, Rotator(444, 555, 666));
+		presentationInner();
+		if (pawnRotation.Pitch != 111 || pawnRotation.Yaw != 222 || pawnRotation.Roll != 333 ||
+			weaponRotation.Pitch != 111 || weaponRotation.Yaw != 222 || weaponRotation.Roll != 333)
+			return false;
+		presentationOuter();
+		return pawnRotation.Pitch == pawnBaseline.Pitch && pawnRotation.Yaw == pawnBaseline.Yaw &&
+			pawnRotation.Roll == pawnBaseline.Roll && weaponRotation.Pitch == weaponBaseline.Pitch &&
+			weaponRotation.Yaw == weaponBaseline.Yaw && weaponRotation.Roll == weaponBaseline.Roll;
 	}
 #endif
 
+	Rotator WebXRRotatorFromBasis(const vec3& forward, const vec3& right, const vec3& up)
+	{
+		constexpr float unitsPerRadian = 65536.0f / (2.0f * 3.14159265359f);
+		const float horizontal = std::sqrt(forward.x * forward.x + forward.y * forward.y);
+		float yaw = 0.0f;
+		float roll = 0.0f;
+		if (horizontal > 0.00001f)
+		{
+			yaw = std::atan2(forward.y, forward.x);
+			roll = std::atan2(-right.z, up.z);
+		}
+		else
+		{
+			// At the Euler singularity yaw and roll describe the same remaining
+			// degree of freedom. Choose zero roll and retain an equivalent basis.
+			yaw = std::atan2(-right.x, right.y);
+		}
+		const float pitch = std::atan2(forward.z, horizontal);
+		return normalize(Rotator(
+			static_cast<int>(std::lround(pitch * unitsPerRadian)),
+			static_cast<int>(std::lround(yaw * unitsPerRadian)),
+			static_cast<int>(std::lround(roll * unitsPerRadian))));
+	}
+
 	void ComposeWebXRWorldPoseValues(Engine::VRTrackedPoseState& target,
 		const vec3& localPosition, const vec3& localForward,
+		const vec3& localRight, const vec3& localUp,
 		const vec3& cameraAnchor, const Coords& bodyRotation)
 	{
 		if (!target.Tracked)
@@ -226,7 +297,25 @@ namespace
 			bodyRotation.XAxis * localForward.x +
 			bodyRotation.YAxis * localForward.y +
 			bodyRotation.ZAxis * localForward.z);
+		vec3 worldRight =
+			bodyRotation.XAxis * localRight.x +
+			bodyRotation.YAxis * localRight.y +
+			bodyRotation.ZAxis * localRight.z;
+		worldRight -= target.WorldForward * dot(target.WorldForward, worldRight);
+		target.WorldRight = normalize(worldRight);
+		target.WorldUp = normalize(cross(target.WorldForward, target.WorldRight));
+		const vec3 expectedUp = normalize(
+			bodyRotation.XAxis * localUp.x +
+			bodyRotation.YAxis * localUp.y +
+			bodyRotation.ZAxis * localUp.z);
+		if (dot(target.WorldUp, expectedUp) < 0.0f)
+		{
+			target.WorldRight = -target.WorldRight;
+			target.WorldUp = -target.WorldUp;
+		}
 		target.WorldRotation = normalize(Rotator::FromVector(target.WorldForward));
+		target.WorldPresentationRotation = WebXRRotatorFromBasis(
+			target.WorldForward, target.WorldRight, target.WorldUp);
 	}
 
 	bool RunWebXRControllerPoseSelfTest()
@@ -235,27 +324,50 @@ namespace
 		pose.Tracked = true;
 		const vec3 anchor(10.0f, 20.0f, 30.0f);
 		const Coords body = Coords::Rotation(Rotator(0, 16384, 0));
+		const Coords localBasis = Coords::Rotation(Rotator(3000, 5000, 9000));
 		ComposeWebXRWorldPoseValues(pose, vec3(2.0f, 3.0f, 4.0f),
-			vec3(1.0f, 0.0f, 0.0f), anchor, body);
+			localBasis.XAxis, localBasis.YAxis, localBasis.ZAxis, anchor, body);
 		const float epsilon = 0.0005f;
 		const vec3 expectedPosition = anchor +
 			body.XAxis * 2.0f + body.YAxis * 3.0f + body.ZAxis * 4.0f;
-		const vec3 expectedForward = normalize(body.XAxis);
+		const vec3 expectedForward = normalize(
+			body.XAxis * localBasis.XAxis.x + body.YAxis * localBasis.XAxis.y + body.ZAxis * localBasis.XAxis.z);
+		const vec3 expectedRight = normalize(
+			body.XAxis * localBasis.YAxis.x + body.YAxis * localBasis.YAxis.y + body.ZAxis * localBasis.YAxis.z);
+		const vec3 expectedUp = normalize(cross(expectedForward, expectedRight));
 		const Rotator expectedRotation = normalize(Rotator::FromVector(expectedForward));
+		const Coords presentationBasis = Coords::Rotation(pose.WorldPresentationRotation);
+		const Coords singularBasis = Coords::Rotation(Rotator(-16384, 4000, 7000));
+		const Coords singularRoundTrip = Coords::Rotation(WebXRRotatorFromBasis(
+			singularBasis.XAxis, singularBasis.YAxis, singularBasis.ZAxis));
 		if (length(pose.WorldPosition - expectedPosition) > epsilon ||
 			length(pose.WorldForward - expectedForward) > epsilon ||
-			std::fabs(dot(pose.WorldForward, vec3(1.0f, 0.0f, 0.0f))) > epsilon ||
-			pose.WorldRotation != expectedRotation || pose.WorldRotation.Roll != 0)
+			length(pose.WorldRight - expectedRight) > epsilon ||
+			length(pose.WorldUp - expectedUp) > epsilon ||
+			std::fabs(dot(pose.WorldForward, pose.WorldRight)) > epsilon ||
+			std::fabs(dot(pose.WorldForward, pose.WorldUp)) > epsilon ||
+			std::fabs(dot(pose.WorldRight, pose.WorldUp)) > epsilon ||
+			length(presentationBasis.XAxis - pose.WorldForward) > epsilon ||
+			length(presentationBasis.YAxis - pose.WorldRight) > epsilon ||
+			length(presentationBasis.ZAxis - pose.WorldUp) > epsilon ||
+			length(singularRoundTrip.XAxis - singularBasis.XAxis) > epsilon ||
+			length(singularRoundTrip.YAxis - singularBasis.YAxis) > epsilon ||
+			length(singularRoundTrip.ZAxis - singularBasis.ZAxis) > epsilon ||
+			pose.WorldRotation != expectedRotation || pose.WorldRotation.Roll != 0 ||
+			pose.WorldPresentationRotation.Roll == 0)
 			return false;
 
 		// An invalid/disconnected pose remains at its safe defaults even when
 		// nonzero local values are presented, preventing stale hand state.
 		Engine::VRTrackedPoseState invalid;
 		ComposeWebXRWorldPoseValues(invalid, vec3(99.0f), vec3(0.0f, 1.0f, 0.0f),
-			anchor, body);
+			vec3(1.0f, 0.0f, 0.0f), vec3(0.0f, 0.0f, 1.0f), anchor, body);
 		return invalid.WorldPosition == vec3(0.0f) &&
 			invalid.WorldForward == vec3(1.0f, 0.0f, 0.0f) &&
-			invalid.WorldRotation == Rotator(0, 0, 0);
+			invalid.WorldRight == vec3(0.0f, 1.0f, 0.0f) &&
+			invalid.WorldUp == vec3(0.0f, 0.0f, 1.0f) &&
+			invalid.WorldRotation == Rotator(0, 0, 0) &&
+			invalid.WorldPresentationRotation == Rotator(0, 0, 0);
 	}
 
 #ifdef __EMSCRIPTEN__
@@ -265,6 +377,8 @@ namespace
 		ComposeWebXRWorldPoseValues(target,
 			vec3(source.LocalPositionUU[0], source.LocalPositionUU[1], source.LocalPositionUU[2]),
 			vec3(source.LocalForward[0], source.LocalForward[1], source.LocalForward[2]),
+			vec3(source.LocalRight[0], source.LocalRight[1], source.LocalRight[2]),
+			vec3(source.LocalUp[0], source.LocalUp[1], source.LocalUp[2]),
 			cameraAnchor, bodyRotation);
 	}
 #endif
@@ -463,7 +577,7 @@ std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject*
 	if (dominantIndex < 0 || dominantIndex >= static_cast<int>(WebXRInput.Controllers.size()))
 		return {};
 	const VRControllerInputState& dominant = WebXRInput.Controllers[dominantIndex];
-	if (!dominant.Connected || !dominant.AimPose.Tracked)
+	if (!dominant.Connected)
 		return {};
 
 	const WebXRWeaponCallMetadata metadata = GetWebXRWeaponCallMetadata(func, instance);
@@ -471,10 +585,28 @@ std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject*
 	if (kind == WebXRWeaponAimScopeKind::None)
 		return {};
 
-	// Direction only: this milestone deliberately leaves CalcDrawOffset,
-	// projectile/trace origins, and first-person rendering untouched.
-	std::function<void()> restore = BeginWebXRRotationOverride(
-		pawn->ViewRotation(), dominant.AimPose.WorldRotation);
+	std::function<void()> restore;
+	if (kind == WebXRWeaponAimScopeKind::Presentation)
+	{
+		// Prefer target-ray orientation so the model and ballistic ray agree;
+		// grip is a deterministic presentation-only fallback when aim is absent.
+		const VRTrackedPoseState* presentationPose = dominant.AimPose.Tracked ?
+			&dominant.AimPose : (dominant.GripPose.Tracked ? &dominant.GripPose : nullptr);
+		if (!presentationPose)
+			return {};
+		restore = BeginWebXRPresentationRotationOverride(pawn->ViewRotation(),
+			weapon->Rotation(), presentationPose->WorldPresentationRotation);
+		WebXRWeaponAim.PresentationScopeCount++;
+	}
+	else
+	{
+		if (!dominant.AimPose.Tracked)
+			return {};
+		// Direction only: ballistic/target calls retain a zero-roll rotator and
+		// leave CalcDrawOffset, origins, and weapon presentation untouched.
+		restore = BeginWebXRRotationOverride(
+			pawn->ViewRotation(), dominant.AimPose.WorldRotation);
+	}
 	if (kind == WebXRWeaponAimScopeKind::Ballistic)
 	{
 		WebXRWeaponAim.BallisticScopeCount++;
@@ -484,15 +616,16 @@ std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject*
 		if (QueueWebXRHapticPulse(hand, 0.55f, 35))
 			WebXRWeaponAim.HapticAcceptedCount++;
 	}
-	else
+	else if (kind == WebXRWeaponAimScopeKind::TargetAcquisition)
 		WebXRWeaponAim.TargetAcquisitionScopeCount++;
 
 	const uint32_t totalScopes = WebXRWeaponAim.BallisticScopeCount +
-		WebXRWeaponAim.TargetAcquisitionScopeCount;
+		WebXRWeaponAim.TargetAcquisitionScopeCount + WebXRWeaponAim.PresentationScopeCount;
 	if (totalScopes == 1 || (totalScopes % 128u) == 0)
 	{
 		LogMessage("WebXR weapon aim scope: count=" + std::to_string(totalScopes) +
-			" kind=" + (kind == WebXRWeaponAimScopeKind::Ballistic ? "ballistic" : "target") +
+			" kind=" + (kind == WebXRWeaponAimScopeKind::Ballistic ? "ballistic" :
+				(kind == WebXRWeaponAimScopeKind::TargetAcquisition ? "target" : "presentation")) +
 			" call=" + metadata.PackageName + "." + metadata.ClassName +
 			(metadata.DeclaringStateName.empty() ? "." : "." + metadata.DeclaringStateName + ".") +
 			metadata.FunctionName);
@@ -615,12 +748,14 @@ extern "C"
 	}
 
 	// pose: 0=grip, 1=aim. value: position XYZ (0..2), forward XYZ
-	// (3..5), Rotator pitch/yaw/roll (6..8). Invalid requests return zero;
+	// (3..5), direction-only Rotator pitch/yaw/roll (6..8), right XYZ
+	// (9..11), up XYZ (12..14), full presentation Rotator (15..17).
+	// Invalid requests return zero;
 	// callers should gate reads with Surreal_GetWebXRInputPoseFlags.
 	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRControllerWorldPoseValue(
 		uint32_t controller, uint32_t pose, uint32_t value)
 	{
-		if (!engine || controller >= engine->WebXRInput.Controllers.size() || pose > 1 || value > 8)
+		if (!engine || controller >= engine->WebXRInput.Controllers.size() || pose > 1 || value > 17)
 			return 0.0f;
 		const auto& controllerState = engine->WebXRInput.Controllers[controller];
 		const auto& poseState = pose == 0 ? controllerState.GripPose : controllerState.AimPose;
@@ -634,7 +769,17 @@ extern "C"
 			return static_cast<float>(poseState.WorldRotation.Pitch);
 		if (value == 7)
 			return static_cast<float>(poseState.WorldRotation.Yaw);
-		return static_cast<float>(poseState.WorldRotation.Roll);
+		if (value == 8)
+			return static_cast<float>(poseState.WorldRotation.Roll);
+		if (value < 12)
+			return poseState.WorldRight[value - 9];
+		if (value < 15)
+			return poseState.WorldUp[value - 12];
+		if (value == 15)
+			return static_cast<float>(poseState.WorldPresentationRotation.Pitch);
+		if (value == 16)
+			return static_cast<float>(poseState.WorldPresentationRotation.Yaw);
+		return static_cast<float>(poseState.WorldPresentationRotation.Roll);
 	}
 
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRDominantControllerIndex()
@@ -715,6 +860,11 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimTargetScopeCount()
 	{
 		return engine ? engine->WebXRWeaponAim.TargetAcquisitionScopeCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimPresentationScopeCount()
+	{
+		return engine ? engine->WebXRWeaponAim.PresentationScopeCount : 0;
 	}
 
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimRestoreCount()

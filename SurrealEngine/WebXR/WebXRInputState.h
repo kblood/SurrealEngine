@@ -31,6 +31,11 @@ struct WebXRInputPose
 	// may be applied while consuming this snapshot.
 	float LocalPositionUU[3] = {};
 	float LocalForward[3] = { 1.0f, 0.0f, 0.0f };
+	// Full left-handed UE1 controller basis. Keeping right/up alongside forward
+	// preserves controller roll for presentation without changing the existing
+	// direction-only ballistic path.
+	float LocalRight[3] = { 0.0f, 1.0f, 0.0f };
+	float LocalUp[3] = { 0.0f, 0.0f, 1.0f };
 };
 
 struct WebXRControllerState

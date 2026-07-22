@@ -124,6 +124,15 @@ bool RunWebXRInputStateSelfTest()
 	inputs[0].Axes[1] = 0.25f;
 	inputs[0].ButtonValues[0] = 1.5f;
 	inputs[0].AimPose.Orientation[3] = 2.0f;
+	// A quarter roll about aim-forward: forward remains +X while right/up
+	// rotate into -Z/+Y. Snapshot normalization must preserve this composed
+	// UE1-local basis rather than reducing it to a direction vector.
+	inputs[0].AimPose.LocalRight[0] = 0.0f;
+	inputs[0].AimPose.LocalRight[1] = 0.0f;
+	inputs[0].AimPose.LocalRight[2] = -1.0f;
+	inputs[0].AimPose.LocalUp[0] = 0.0f;
+	inputs[0].AimPose.LocalUp[1] = 1.0f;
+	inputs[0].AimPose.LocalUp[2] = 0.0f;
 	inputs[1].SourceId = 9;
 	inputs[1].Handedness = WebXRHandLeft;
 	inputs[1].Flags = WebXRConnected | WebXRGripValid;
@@ -136,6 +145,8 @@ bool RunWebXRInputStateSelfTest()
 		snapshot.Controllers[1].ButtonsPressed != 1 || snapshot.Controllers[1].Axes[0] != -1.0f ||
 		snapshot.Controllers[1].Axes[1] != 0.25f || snapshot.Controllers[1].ButtonValues[0] != 1.0f ||
 		std::abs(snapshot.Controllers[1].AimPose.Orientation[3] - 1.0f) > 0.0001f ||
+		std::abs(snapshot.Controllers[1].AimPose.LocalRight[2] + 1.0f) > 0.0001f ||
+		std::abs(snapshot.Controllers[1].AimPose.LocalUp[1] - 1.0f) > 0.0001f ||
 		std::abs(snapshot.Controllers[0].GripPose.Orientation[1] - 0.6f) > 0.0001f ||
 		std::abs(snapshot.Controllers[0].GripPose.Orientation[3] - 0.8f) > 0.0001f)
 		return false;

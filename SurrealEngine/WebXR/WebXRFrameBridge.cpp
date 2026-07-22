@@ -265,12 +265,26 @@ namespace
 		const vec3 position = RotateLocalToWorld(recenterRotation,
 			(axes.PositionMeters - poseState.OriginMetersUE) * worldUnitsPerMeter);
 		const vec3 forward = normalize(RotateLocalToWorld(recenterRotation, axes.Forward));
+		vec3 right = normalize(RotateLocalToWorld(recenterRotation, axes.Right));
+		vec3 up = normalize(cross(forward, right));
+		const vec3 expectedUp = normalize(RotateLocalToWorld(recenterRotation, axes.Up));
+		if (dot(up, expectedUp) < 0.0f)
+		{
+			right = -right;
+			up = -up;
+		}
 		target.LocalPositionUU[0] = position.x;
 		target.LocalPositionUU[1] = position.y;
 		target.LocalPositionUU[2] = position.z;
 		target.LocalForward[0] = forward.x;
 		target.LocalForward[1] = forward.y;
 		target.LocalForward[2] = forward.z;
+		target.LocalRight[0] = right.x;
+		target.LocalRight[1] = right.y;
+		target.LocalRight[2] = right.z;
+		target.LocalUp[0] = up.x;
+		target.LocalUp[1] = up.y;
+		target.LocalUp[2] = up.z;
 	}
 
 	void BuildInputSnapshot(const WebXRFrameABI::FrameHeader& header,
@@ -421,8 +435,28 @@ namespace
 			!NearlyEqual(controllerStates[0].AimPose.LocalPositionUU[2], 0.0f) ||
 			!NearlyEqual(controllerStates[0].AimPose.LocalForward[0], 1.0f) ||
 			!NearlyEqual(controllerStates[0].AimPose.LocalForward[1], 0.0f) ||
+			!NearlyEqual(controllerStates[0].AimPose.LocalRight[1], 1.0f) ||
+			!NearlyEqual(controllerStates[0].AimPose.LocalUp[2], 1.0f) ||
 			!NearlyEqual(controllerStates[1].GripPose.LocalPositionUU[2], 0.0f))
 			return false;
+
+		// Full controller roll survives the WebXR->UE1 handedness conversion.
+		// A +90 degree roll around WebXR aim-forward (-Z) maps to UE1 right=-Z,
+		// up=+Y while forward remains +X.
+		const float controllerHalfQuarterTurn = 0.70710678118f;
+		packedControllers[0].aimOrientation[2] = -controllerHalfQuarterTurn;
+		packedControllers[0].aimOrientation[3] = controllerHalfQuarterTurn;
+		BuildInputSnapshot(header, packedControllers, DefaultWorldUnitsPerMeter, state,
+			controllerStates);
+		const WebXRInputPose& rolledAim = controllerStates[0].AimPose;
+		if (!NearlyEqual(rolledAim.LocalForward[0], 1.0f) ||
+			!NearlyEqual(rolledAim.LocalRight[2], -1.0f) ||
+			!NearlyEqual(rolledAim.LocalUp[1], 1.0f) ||
+			!NearlyEqual(dot(vec3(rolledAim.LocalForward[0], rolledAim.LocalForward[1], rolledAim.LocalForward[2]),
+				vec3(rolledAim.LocalRight[0], rolledAim.LocalRight[1], rolledAim.LocalRight[2])), 0.0f))
+			return false;
+		packedControllers[0].aimOrientation[2] = 0.0f;
+		packedControllers[0].aimOrientation[3] = 1.0f;
 		header.inputSourceCount = 0;
 
 		// Orientation is transported, not reduced to positional stereo. A

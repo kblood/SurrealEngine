@@ -76,10 +76,14 @@ public:
 		vec3 Position = vec3(0.0f); // Raw WebXR reference-space metres.
 		vec4 Orientation = vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		// Gameplay-ready pose in UE1 world coordinates. WorldRotation is derived
-		// from WorldForward and intentionally has zero roll for traces/projectiles.
+		// from WorldForward and intentionally has zero roll for traces/projectiles;
+		// WorldPresentationRotation retains the full basis for the viewmodel.
 		vec3 WorldPosition = vec3(0.0f);
 		vec3 WorldForward = vec3(1.0f, 0.0f, 0.0f);
+		vec3 WorldRight = vec3(0.0f, 1.0f, 0.0f);
+		vec3 WorldUp = vec3(0.0f, 0.0f, 1.0f);
 		Rotator WorldRotation = Rotator(0, 0, 0);
+		Rotator WorldPresentationRotation = Rotator(0, 0, 0);
 	};
 
 	struct VRControllerInputState
@@ -129,6 +133,7 @@ public:
 	{
 		uint32_t BallisticScopeCount = 0;
 		uint32_t TargetAcquisitionScopeCount = 0;
+		uint32_t PresentationScopeCount = 0;
 		uint32_t RestoreCount = 0;
 		uint32_t HapticRequestCount = 0;
 		uint32_t HapticAcceptedCount = 0;
