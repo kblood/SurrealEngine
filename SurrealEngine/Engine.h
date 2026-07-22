@@ -13,6 +13,7 @@
 #include "UObject/UDXSaveInfo.h"
 #include "UObject/UDeusExLevelInfo.h"
 #include "GameFolder.h"
+#include "Input/InputComposition.h"
 #include <set>
 #include <list>
 
@@ -97,7 +98,7 @@ public:
 	std::string ConsoleCommand(UObject* context, const std::string& command, BitfieldBool& found);
 
 	void UpdateInput(float timeElapsed);
-	void InputCommand(const std::string& command, EInputKey key, int delta);
+	void InputCommand(const std::string& command, InputControlId control, float delta);
 
 	void LockCursor();
 	void UnlockCursor();
@@ -118,7 +119,8 @@ public:
 	void TickWindow();
 
 	void Key(std::string key);
-	void InputEvent(EInputKey key, EInputType type, int delta = 0);
+	void InputEvent(EInputKey key, EInputType type, float delta = 0.0f, InputSourceId source = InputSourceId::KeyboardMouse);
+	void ReleaseInputSource(InputSourceId source);
 
 	void OnWindowPaint() override;
 	void OnWindowMouseMove(const Point& pos) override;
@@ -219,14 +221,7 @@ public:
 	std::map<std::string, std::string> inputAliases;
 	static const char* keynames[256];
 
-	struct ActiveInputAxis
-	{
-		float Value;
-		EInputKey Key;
-	};
-
-	std::map<std::string, EInputKey> activeInputButtons;
-	std::map<std::string, ActiveInputAxis> activeInputAxes;
+	InputComposition inputComposition;
 
 	std::function<void()> tickDebugger;
 

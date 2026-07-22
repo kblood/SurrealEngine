@@ -42,6 +42,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/LauncherSettings.h
 	SurrealEngine/GameWindow.cpp
 	SurrealEngine/GameWindow.h
+	SurrealEngine/Input/InputComposition.cpp
+	SurrealEngine/Input/InputComposition.h
 	SurrealEngine/UE1GameDatabase.h
 	SurrealEngine/UE1GameDatabase.cpp
 	SurrealEngine/Utils/CommandLine.cpp
@@ -853,6 +855,14 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+	add_executable(InputCompositionTests
+		Tests/InputCompositionTests.cpp
+		SurrealEngine/Input/InputComposition.cpp
+	)
+	target_include_directories(InputCompositionTests PRIVATE SurrealEngine)
+	set_target_properties(InputCompositionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME InputComposition COMMAND InputCompositionTests)
+
 	add_executable(PresentationTests
 		Tests/PresentationTests.cpp
 		SurrealEngine/Render/ViewFamily.cpp
