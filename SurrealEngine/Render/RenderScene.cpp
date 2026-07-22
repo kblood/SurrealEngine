@@ -19,6 +19,17 @@ namespace
 		bool Valid = false;
 	};
 
+	struct WebXRHudPlaneGeometry
+	{
+		vec3 Center = vec3(0.0f);
+		vec3 Forward = vec3(0.0f);
+		vec3 Right = vec3(0.0f);
+		vec3 Up = vec3(0.0f);
+		float HalfWidthUU = 0.0f;
+		float HalfHeightUU = 0.0f;
+		bool Valid = false;
+	};
+
 	bool ShouldCaptureWebXRHud(const WebXRHudPlaneSettings& settings)
 	{
 		return settings.Enabled;
@@ -32,6 +43,61 @@ namespace
 	uint32_t ExpectedWebXRWeaponEyePasses(bool drawWorld, uint32_t viewCount)
 	{
 		return drawWorld ? viewCount : 0;
+	}
+
+	WebXRHudPlaneGeometry CalculateWebXRHudPlane(const WebXRSceneView* views,
+		uint32_t viewCount, const WebXRHudPlaneSettings& settings)
+	{
+		WebXRHudPlaneGeometry result;
+		if (!views || viewCount == 0)
+			return result;
+
+		vec3 eyeCenter(0.0f);
+		for (uint32_t index = 0; index < viewCount; index++)
+		{
+			eyeCenter += views[index].Location;
+			result.Forward += views[index].ViewRotation.XAxis;
+			result.Right += views[index].ViewRotation.YAxis;
+			result.Up += views[index].ViewRotation.ZAxis;
+		}
+		eyeCenter *= 1.0f / viewCount;
+		if (length(result.Forward) < 0.0001f || length(result.Right) < 0.0001f ||
+			length(result.Up) < 0.0001f)
+			return result;
+		result.Forward = normalize(result.Forward);
+		result.Right = normalize(result.Right);
+		result.Up = normalize(result.Up);
+		result.HalfWidthUU = settings.DistanceUU *
+			std::tan(radians(settings.HorizontalFovDegrees) * 0.5f);
+		result.HalfHeightUU = result.HalfWidthUU / settings.AspectRatio;
+		result.Center = eyeCenter + result.Forward * settings.DistanceUU;
+		result.Valid = std::isfinite(result.HalfWidthUU) && std::isfinite(result.HalfHeightUU) &&
+			result.HalfWidthUU > 0.0001f && result.HalfHeightUU > 0.0001f;
+		return result;
+	}
+
+	bool IntersectWebXRHudPlane(const WebXRHudPlaneGeometry& plane, const vec3& origin,
+		const vec3& direction, float& logicalX, float& logicalY)
+	{
+		if (!plane.Valid || length(direction) < 0.0001f)
+			return false;
+		const vec3 rayDirection = normalize(direction);
+		const float denominator = dot(rayDirection, plane.Forward);
+		if (!std::isfinite(denominator) || std::abs(denominator) < 0.0001f)
+			return false;
+		const float distance = dot(plane.Center - origin, plane.Forward) / denominator;
+		if (!std::isfinite(distance) || distance <= 0.0f)
+			return false;
+
+		const vec3 relative = origin + rayDirection * distance - plane.Center;
+		const float u = 0.5f + dot(relative, plane.Right) / (2.0f * plane.HalfWidthUU);
+		const float v = 0.5f - dot(relative, plane.Up) / (2.0f * plane.HalfHeightUU);
+		if (!std::isfinite(u) || !std::isfinite(v) || u < 0.0f || u > 1.0f ||
+			v < 0.0f || v > 1.0f)
+			return false;
+		logicalX = u * 1280.0f;
+		logicalY = v * 960.0f;
+		return true;
 	}
 
 	bool ProjectWebXRHudPoint(const WebXRSceneView& view, const vec3& point, float& pixelX, float& pixelY)
@@ -53,30 +119,15 @@ namespace
 		if (!views || viewCount == 0 || eyeIndex >= viewCount || views[eyeIndex].ViewportWidth < 4 || views[eyeIndex].ViewportHeight < 4)
 			return result;
 
-		vec3 center(0.0f), forward(0.0f), right(0.0f), up(0.0f);
-		for (uint32_t index = 0; index < viewCount; index++)
-		{
-			center += views[index].Location;
-			forward += views[index].ViewRotation.XAxis;
-			right += views[index].ViewRotation.YAxis;
-			up += views[index].ViewRotation.ZAxis;
-		}
-		center *= 1.0f / viewCount;
-		if (length(forward) < 0.0001f || length(right) < 0.0001f || length(up) < 0.0001f)
+		const WebXRHudPlaneGeometry plane = CalculateWebXRHudPlane(views, viewCount, settings);
+		if (!plane.Valid)
 			return result;
-		forward = normalize(forward);
-		right = normalize(right);
-		up = normalize(up);
-
-		const float halfWidthUU = settings.DistanceUU * std::tan(radians(settings.HorizontalFovDegrees) * 0.5f);
-		const float halfHeightUU = halfWidthUU / settings.AspectRatio;
-		const vec3 planeCenter = center + forward * settings.DistanceUU;
 		const vec3 corners[4] =
 		{
-			planeCenter - right * halfWidthUU + up * halfHeightUU,
-			planeCenter + right * halfWidthUU + up * halfHeightUU,
-			planeCenter - right * halfWidthUU - up * halfHeightUU,
-			planeCenter + right * halfWidthUU - up * halfHeightUU
+			plane.Center - plane.Right * plane.HalfWidthUU + plane.Up * plane.HalfHeightUU,
+			plane.Center + plane.Right * plane.HalfWidthUU + plane.Up * plane.HalfHeightUU,
+			plane.Center - plane.Right * plane.HalfWidthUU - plane.Up * plane.HalfHeightUU,
+			plane.Center + plane.Right * plane.HalfWidthUU - plane.Up * plane.HalfHeightUU
 		};
 
 		float minimumX = std::numeric_limits<float>::max();
@@ -262,11 +313,16 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 	WebXRHudStats.LastFrameClampedViewports = 0;
 	WebXRHudStats.LastFramePlayerPostRenderCalls = 0;
 	WebXRHudStats.LastFrameConsolePostRenderCalls = 0;
+	WebXRHudStats.LastFrameMenuPointerValid = false;
+	WebXRHudStats.LastFrameMenuPointerX = 0.0f;
+	WebXRHudStats.LastFrameMenuPointerY = 0.0f;
 	// Disabling the HUD suppresses both the single script-state update and all
 	// per-eye replay. World and weapon rendering below remain unconditional.
 	const bool hudCaptureEnabled = ShouldCaptureWebXRHud(WebXRHudSettings);
 	if (!hudCaptureEnabled)
 		WebXRHudCommands.clear();
+	if (hudCaptureEnabled)
+		UpdateWebXRMenuPointer(views, viewCount);
 	const bool capturedHud = hudCaptureEnabled && CaptureWebXRHud();
 	WebXRHudStats.LastFrameExpectedEyePresentations = ExpectedWebXRHudEyePresentations(
 		hudCaptureEnabled, capturedHud, viewCount);
@@ -306,6 +362,30 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 			return false;
 	}
 	return true;
+}
+
+void RenderSubsystem::UpdateWebXRMenuPointer(const WebXRSceneView* views, uint32_t viewCount)
+{
+	const int32_t controllerIndex = engine->WebXRInput.DominantControllerIndex;
+	if (controllerIndex < 0 || controllerIndex >= (int32_t)engine->WebXRInput.Controllers.size())
+		return;
+	const Engine::VRControllerInputState& controller =
+		engine->WebXRInput.Controllers[(size_t)controllerIndex];
+	if (!controller.Connected || !controller.AimPose.Tracked)
+		return;
+
+	const WebXRHudPlaneGeometry plane = CalculateWebXRHudPlane(views, viewCount, WebXRHudSettings);
+	float x = 0.0f, y = 0.0f;
+	if (!IntersectWebXRHudPlane(plane, controller.AimPose.WorldPosition,
+		controller.AimPose.WorldForward, x, y))
+		return;
+
+	engine->viewport->WindowsMouseX() = x;
+	engine->viewport->WindowsMouseY() = y;
+	engine->viewport->bWindowsMouseAvailable() = true;
+	WebXRHudStats.LastFrameMenuPointerValid = true;
+	WebXRHudStats.LastFrameMenuPointerX = x;
+	WebXRHudStats.LastFrameMenuPointerY = y;
 }
 
 bool RenderSubsystem::PresentWebXRHudEye(const WebXRSceneView* views, uint32_t viewCount, uint32_t eyeIndex)
@@ -403,9 +483,6 @@ uint32_t RenderSubsystem::RunWebXRHudSelfTest()
 	const uint32_t presentEyes = 2;
 	const uint32_t menuOnlyWeaponEyes = ExpectedWebXRWeaponEyePasses(false, 2);
 	const uint32_t menuOnlyUiEyes = ExpectedWebXRHudEyePresentations(true, true, 2);
-	if (presentUpdates == 1 && presentEyes == 2 &&
-		menuOnlyWeaponEyes == 0 && menuOnlyUiEyes == 2)
-		mask |= WebXRHudSelfTestSingleUpdateStereoPresentation;
 	const uint32_t absentUpdates = 0;
 	const uint32_t absentEyes = 0;
 	if (absentUpdates == 0 && absentEyes == 0)
@@ -427,10 +504,24 @@ uint32_t RenderSubsystem::RunWebXRHudSelfTest()
 		testViews[index].ViewRotation = Coords::Identity();
 		testViews[index].WorldToView = Coords::ViewToRenderDev().ToMatrix() *
 			Coords::Location(testViews[index].Location).ToMatrix();
-		testViews[index].Projection = index == 0 ?
+			testViews[index].Projection = index == 0 ?
 			mat4::frustum(-0.8f, 1.2f, -1.0f, 1.0f, 1.0f, 1000.0f, handedness::left, clipzrange::zero_positive_w) :
 			mat4::frustum(-1.2f, 0.8f, -1.0f, 1.0f, 1.0f, 1000.0f, handedness::left, clipzrange::zero_positive_w);
 	}
+	const WebXRHudPlaneGeometry pointerPlane = CalculateWebXRHudPlane(testViews, 2,
+		WebXRHudPlaneSettings());
+	float pointerX = 0.0f, pointerY = 0.0f;
+	const bool centerPointer = IntersectWebXRHudPlane(pointerPlane,
+		pointerPlane.Center - pointerPlane.Forward * 10.0f, pointerPlane.Forward,
+		pointerX, pointerY);
+	float rejectedX = 0.0f, rejectedY = 0.0f;
+	const bool parallelPointer = IntersectWebXRHudPlane(pointerPlane,
+		pointerPlane.Center, pointerPlane.Right, rejectedX, rejectedY);
+	if (presentUpdates == 1 && presentEyes == 2 &&
+		menuOnlyWeaponEyes == 0 && menuOnlyUiEyes == 2 && centerPointer &&
+		std::abs(pointerX - 640.0f) < 0.01f && std::abs(pointerY - 480.0f) < 0.01f &&
+		!parallelPointer)
+		mask |= WebXRHudSelfTestSingleUpdateStereoPresentation;
 	WebXRHudPlaneSettings settings;
 	const WebXRHudViewport left = CalculateWebXRHudViewport(testViews, 2, 0, settings);
 	const WebXRHudViewport right = CalculateWebXRHudViewport(testViews, 2, 1, settings);

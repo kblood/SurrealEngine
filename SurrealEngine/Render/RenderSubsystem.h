@@ -98,6 +98,9 @@ struct WebXRHudDiagnostics
 	// resulting immutable primitive stream is then replayed for every eye.
 	uint32_t LastFramePlayerPostRenderCalls = 0;
 	uint32_t LastFrameConsolePostRenderCalls = 0;
+	bool LastFrameMenuPointerValid = false;
+	float LastFrameMenuPointerX = 0.0f;
+	float LastFrameMenuPointerY = 0.0f;
 	uint32_t SelfTestMask = 0;
 	bool SelfTestPassed = false;
 };
@@ -222,6 +225,7 @@ private:
 	void RenderOverlays();
 	bool RenderWebXRWeaponOverlay();
 	bool CaptureWebXRHud();
+	void UpdateWebXRMenuPointer(const WebXRSceneView* views, uint32_t viewCount);
 	bool PresentWebXRHudEye(const WebXRSceneView* views, uint32_t viewCount, uint32_t eyeIndex);
 	void SubmitCanvasTile(FTextureInfo& info, float x, float y, float width, float height,
 		float u, float v, float uLength, float vLength, float z, vec4 color, vec4 fog, uint32_t flags);
