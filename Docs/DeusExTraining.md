@@ -52,14 +52,39 @@ path, and walking climbs the stairs to the next door. This confirms decoration
 frobbing, a small-inventory pickup, view rotation, pitch, and stair stepping in
 the first room.
 
+The nanokey unlocks the door at the top of the stairs on the first frob, a
+second frob opens it, and the player can cross into the next room. The Liberty
+Island QuickSave that previously occupied the stock slot was first copied to
+`build/test-saves/QuickSave-liberty-before-training-20260722-1335`; hashes of
+all files in the ignored archive matched the source. `Save0001` was not
+modified. A new Training QuickSave was then created beyond the upper door.
+The stock `DeusExPlayer.QuickSave` refuses to save while a DataLink is active,
+so the validation waited for the queued Jaime messages to finish before using
+the stock GreyPlus binding.
+
+A fresh `?loadgame=-1` process restored the open mover, player position, HUD,
+and inventory at that checkpoint. The apparent inability to walk straight
+ahead was not a load or physics defect: the restored collision geometry showed
+that JC's cylinder still overlapped the exposed edge of the correctly open
+sliding door. A short strafe placed the cylinder in the narrow opening, after
+which normal forward movement reached the next door.
+
+Crossing that trigger after the first reload displayed `INFOLINK NOT FOUND!!
+Name = dl_start`. `Actor.ConListItems` is transient, and the save-load path did
+not repeat the `ConBindEvents` calls normally made by `DeusExPlayer`,
+`ScriptedPawn`, and `DeusExDecoration` during `PostPostBeginPlay`. Replaying
+the whole initialization event would risk changing restored state. The loader
+now rebuilds only those three class families' conversation lists after linking
+the saved actors. A clean Release reload rebuilt 56 actor bindings and rendered
+the intended Jaime Reyes transmission. The process remained responsive, audio
+was disabled, and the game was foreground in zero of 243 samples.
+
 ## Current boundary
 
-Precisely reacquire and open the door at the top of the stairs, then continue to
-the first exercise. A manual run reached the door and rendered its `Unlocked`
-status, but the automated replay did not put that mover in `FrobTarget`; its
-only diagnostic entry was the already working first door. There is therefore
-not yet evidence of a mover/interpolation defect. The next run must separate
-camera alignment and nanokey state from door behavior before changing code.
+Open the closed double door beyond the restored reception checkpoint and enter
+the first exercise. The reception sequence and its first post-load DataLink are
+now validated; the next run should establish whether the following door and
+exercise work through stock script before implementing another native.
 
 The camera can be driven reliably with movement plus keyboard turn/look
 bindings. Background raw-mouse look is intentionally unavailable because the
@@ -89,7 +114,9 @@ to the native and its reference semantics have been established.
 - [x] Open and cross the first Training door.
 - [x] Frob a decoration and pick up the reception-desk nanokey.
 - [x] Climb the first stairway.
-- [ ] Open the door at the top of the stairs.
+- [x] Unlock, open, and cross the door at the top of the stairs.
+- [x] QuickSave beyond that door and restore the checkpoint in a fresh process.
+- [x] Rebuild transient conversation bindings and play `dl_start` after load.
 - [ ] Exercise general inventory and DataCube text.
 - [ ] Complete movement, lockpick, multitool, stealth, weapon, and demolition
   exercises.

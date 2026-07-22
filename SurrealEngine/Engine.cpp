@@ -780,6 +780,8 @@ void Engine::LoadFromSaveFile(const UnrealURL& url)
 	GameInfo = UObject::Cast<UGameInfo>(LevelInfo->Game());
 	if (!GameInfo)
 		Exception::Throw("Save file has no GameInfo actor for " + LevelPackage->GetPackageName().ToString() + "!");
+
+	RebindDeusExConversationsAfterLoad();
 }
 
 void Engine::PossessSavedPlayer()
@@ -2088,6 +2090,31 @@ void Engine::LinkActorsToLevel()
 		if (actor)
 			actor->RelinkBasedActor();
 	}
+}
+
+void Engine::RebindDeusExConversationsAfterLoad()
+{
+	if (!LaunchInfo.IsDeusEx())
+		return;
+
+	// ConListItems is Transient, so a saved actor has no conversation lookup
+	// list after deserialization. Freshly spawned actors build it from
+	// PostPostBeginPlay, but replaying that event on every loaded actor would
+	// also repeat unrelated initialization. Reproduce only the three native
+	// ConBindEvents calls made by the stock Deus Ex classes.
+	int reboundActors = 0;
+	for (UActor* actor : Level->Actors)
+	{
+		bool bindsConversations = actor && (actor->IsA("DeusExPlayer") ||
+			actor->IsA("ScriptedPawn") || actor->IsA("DeusExDecoration"));
+		if (bindsConversations)
+		{
+			actor->DeusExConBindEvents();
+			reboundActors++;
+		}
+	}
+
+	LogMessage("Rebuilt Deus Ex conversation bindings for " + std::to_string(reboundActors) + " saved actors");
 }
 
 const char* Engine::keynames[256] =

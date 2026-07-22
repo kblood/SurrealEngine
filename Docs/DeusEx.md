@@ -62,8 +62,11 @@ Validation results on 2026-07-22:
   the world, HUD, inventory belt, player, and live actors and remains responsive
   during unattended checks.
 - The stock title-menu Training command travels to `00_Training`, starts the
-  mission state machine, and accepts cardinal movement input. The maintained
-  progression log and current first-door boundary are in
+  mission state machine, accepts cardinal movement input, and reaches a
+  reloadable checkpoint beyond the reception stair door. Save loading rebuilds
+  transient actor conversation lists, and the first post-checkpoint Jaime Reyes
+  transmission resolves correctly. The maintained progression log and current
+  boundary are in
   [`DeusExTraining.md`](DeusExTraining.md).
 - QuickSave (`-1`) and a menu-created numbered save (`Save0001`) both write a
   map package and `SaveInfo.dxs`. Direct startup through `?loadgame=-1` and

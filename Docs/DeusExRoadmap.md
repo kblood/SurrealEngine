@@ -25,6 +25,8 @@ new blockers.
 - Highlight and frob Training's first mover through the stock right-click path.
 - Training reception-room view control, decoration frobbing, nanokey pickup,
   and stair traversal.
+- Training upper-door unlock/open/cross, a fresh QuickSave reload at the
+  reception checkpoint, and reconstruction of transient conversation bindings.
 
 ## Current work
 

@@ -229,6 +229,7 @@ private:
 	void GetLevelInfoObject();
 	void GetLevelObject();
 	void LinkActorsToLevel();
+	void RebindDeusExConversationsAfterLoad();
 
 	bool m_EditorMode = false; // Set this to true to allow rendering of invisible polys.
 	bool m_GamePaused = false;

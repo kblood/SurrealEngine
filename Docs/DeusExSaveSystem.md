@@ -117,6 +117,23 @@ and fixed-array elements now use a separate member serializer; booleans emit a
 zero or one byte there. Object-stream EOF errors also include the package,
 object, position, size, and requested read size for future diagnosis.
 
+### Transient conversation lists were not rebuilt
+
+A Training QuickSave restored the world correctly, but crossing the next
+trigger displayed `INFOLINK NOT FOUND!! Name = dl_start`. The stock
+`Actor.ConListItems` property is transient, so omitting it from the saved
+package is correct. Fresh actors reconstruct it through the native
+`ConBindEvents` calls in the `PostPostBeginPlay` implementations for
+`DeusExPlayer`, `ScriptedPawn`, and `DeusExDecoration`; loaded actors do not run
+that initialization path.
+
+Save loading now invokes the common conversation-binding implementation for
+those three actor class families after the level and actors have been restored.
+It deliberately does not replay `PostPostBeginPlay`, which contains unrelated
+initialization with the potential to overwrite valid saved state. Runtime
+validation rebuilt 56 bindings and resolved `dl_start` to the intended Jaime
+Reyes transmission.
+
 ## Validated on 2026-07-22
 
 - QuickSave created an approximately 11 MB Liberty Island map package and a
@@ -136,6 +153,10 @@ object, position, size, and requested read size for future diagnosis.
 - the serialized 160-by-120 snapshot reopened in the Save Game preview with
   the expected orientation and colors. The metadata growth from 485 to 77,489
   bytes is consistent with the BGRA thumbnail plus package data.
+- the Liberty Island QuickSave was preserved in an ignored, hash-verified local
+  archive before the stock slot was reused for Training. A fresh Training
+  QuickLoad restored the open stair mover, player, inventory, HUD, and the
+  post-checkpoint conversation binding.
 - all final launches used `--nosound --noactivate`; audio was disabled and the
   game window was never observed as the foreground window.
 
