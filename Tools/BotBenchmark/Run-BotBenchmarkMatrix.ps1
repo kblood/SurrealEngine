@@ -37,7 +37,11 @@ param(
 
     [string] $OpponentBotName = 'Tamerlane',
 
-    [string] $FixtureId = ''
+    [string] $FixtureId = '',
+
+    [switch] $QualificationProtocol,
+
+	[switch] $QualificationPreflightOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -101,8 +105,78 @@ function Add-ValidationError {
     $Errors.Add($Message)
 }
 
+function Get-Sha256 {
+    param([Parameter(Mandatory = $true)] [string] $Path)
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+}
+
+function Resolve-ExactRelativeFile {
+    param(
+        [Parameter(Mandatory = $true)] [string] $Root,
+        [Parameter(Mandatory = $true)] [string] $LogicalPath
+    )
+
+    $current = Get-Item -LiteralPath $Root -ErrorAction Stop
+    foreach ($component in $LogicalPath.Split('/')) {
+        $matches = @(Get-ChildItem -LiteralPath $current.FullName -Force | Where-Object { $_.Name -ceq $component })
+        if ($matches.Count -ne 1) {
+            throw "Qualification content path is missing or has wrong physical casing: $LogicalPath"
+        }
+        $current = $matches[0]
+    }
+    if ($current.PSIsContainer) {
+        throw "Qualification content path must be a file: $LogicalPath"
+    }
+    return $current.FullName
+}
+
+function Get-QualificationClosureFiles {
+    param([Parameter(Mandatory = $true)] [string] $Root)
+
+    $files = New-Object System.Collections.Generic.List[object]
+    foreach ($spec in @(
+        [PSCustomObject]@{ Directory = 'System'; Extension = '.u' },
+        [PSCustomObject]@{ Directory = 'Textures'; Extension = '.utx' },
+        [PSCustomObject]@{ Directory = 'Sounds'; Extension = '.uax' },
+        [PSCustomObject]@{ Directory = 'Music'; Extension = '.umx' }
+    )) {
+		$casefoldMatches = @(Get-ChildItem -LiteralPath $Root -Directory -Force | Where-Object { $_.Name -ieq $spec.Directory })
+		$directoryMatches = @($casefoldMatches | Where-Object { $_.Name -ceq $spec.Directory })
+		if ($casefoldMatches.Count -ne 1 -or $directoryMatches.Count -ne 1) {
+			throw "Qualification content root is missing, ambiguous, or has wrong physical casing: $($spec.Directory)"
+		}
+		foreach ($file in (Get-ChildItem -LiteralPath $directoryMatches[0].FullName -File -Force |
+				Where-Object { $_.Extension -ieq $spec.Extension })) {
+                $files.Add([PSCustomObject]@{ LogicalPath = "$($spec.Directory)/$($file.Name)"; PhysicalPath = $file.FullName })
+        }
+    }
+    foreach ($logicalPath in @(
+        'System/SE-User.ini', 'System/SE-UnrealTournament.ini',
+        'Maps/DM-Morbias][.unr', 'Maps/DM-Deck16][.unr', 'Maps/DM-Phobos.unr'
+    )) {
+        $files.Add([PSCustomObject]@{
+            LogicalPath = $logicalPath
+            PhysicalPath = Resolve-ExactRelativeFile -Root $Root -LogicalPath $logicalPath
+        })
+    }
+	$array = [object[]]$files.ToArray()
+	[Array]::Sort($array, [System.Comparison[object]] {
+		param($left, $right)
+		return [System.StringComparer]::Ordinal.Compare([string]$left.LogicalPath, [string]$right.LogicalPath)
+	})
+	for ($index = 1; $index -lt $array.Count; $index++) {
+		if ($array[$index - 1].LogicalPath -ceq $array[$index].LogicalPath) {
+			throw "Duplicate qualification closure path: $($array[$index].LogicalPath)"
+		}
+	}
+	return $array
+}
+
 $resolvedEnginePath = Resolve-ExistingPath -Path $EnginePath -Description 'SurrealEngine executable' -Leaf
 $resolvedGameRoot = Resolve-ExistingPath -Path $GameRoot -Description 'UE1 game root'
+	if ($QualificationPreflightOnly -and -not $QualificationProtocol) {
+		throw 'QualificationPreflightOnly is valid only with QualificationProtocol.'
+	}
 
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     throw 'OutputRoot is mandatory and must not be empty.'
@@ -191,9 +265,54 @@ $normalizedFixtureId = $FixtureId.Trim()
 if ($normalizedFixtureId.Contains('"')) {
     throw 'FixtureId must not contain a double quote.'
 }
+$qualificationProtocolId = 'surreal-bot-skill-qualification-v1'
+$qualificationGameClass = 'Botpack.DeathMatchPlus'
+$qualificationScenario = 'skill-qualification'
+$qualificationMaps = @('DM-Morbias][', 'DM-Deck16][', 'DM-Phobos')
+$qualificationSeeds = @(
+    '104729', '130363', '155921', '181081', '207073', '233021',
+    '259033', '285007', '311041', '337069', '363073', '389029',
+    '415021', '441011', '467003', '493067', '519031', '545023',
+    '571021', '597031', '623011', '649069', '675067', '701009'
+)
+$qualificationContentPaths = @(
+    'System/Core.u',
+    'System/Engine.u',
+    'System/BotPack.u',
+    'System/UnrealShare.u',
+    'System/UnrealI.u',
+    'System/SE-User.ini',
+    'System/SE-UnrealTournament.ini',
+    'Maps/DM-Morbias][.unr',
+    'Maps/DM-Deck16][.unr',
+    'Maps/DM-Phobos.unr'
+)
+if ($QualificationProtocol) {
+	if ($Maps.Count -ne $normalizedMaps.Count -or $Seeds.Count -ne $normalizedSeeds.Count -or $Skills.Count -ne $normalizedSkills.Count) {
+		throw 'QualificationProtocol rejects duplicate raw maps, seeds, or skills.'
+	}
+    if (($normalizedMaps.ToArray() -join "`n") -cne ($qualificationMaps -join "`n")) {
+        throw 'QualificationProtocol requires the exact ordered canonical maps: DM-Morbias][, DM-Deck16][, DM-Phobos.'
+    }
+    if (($normalizedSeeds.ToArray() -join "`n") -cne ($qualificationSeeds -join "`n")) {
+        throw 'QualificationProtocol requires the exact ordered S1 set of 24 canonical seeds.'
+    }
+    if ($normalizedSkills.Count -ne 1) { throw 'QualificationProtocol requires exactly one candidate skill.' }
+    if ($OpponentSkill -lt 0 -or [Math]::Abs([int]$normalizedSkills[0] - $OpponentSkill) -ne 1) {
+        throw 'QualificationProtocol requires one adjacent OpponentSkill.'
+    }
+    if ($Bots -ne 2) { throw 'QualificationProtocol requires Bots=2.' }
+    if ($RunsPerCase -ne 1) { throw 'QualificationProtocol Q1 requires RunsPerCase=1.' }
+    if ([Math]::Abs($Seconds - 90.0) -gt 1.0e-12) { throw 'QualificationProtocol requires Seconds=90.' }
+    if ([Math]::Abs($FixedDelta - (1.0 / 60.0)) -gt 1.0e-12) { throw 'QualificationProtocol requires FixedDelta=1/60.' }
+    if ($normalizedFixtureId.Length -ne 0) { throw 'QualificationProtocol forbids fixtures.' }
+    if ($CandidateBotName -cne 'Loque' -or $OpponentBotName -cne 'Tamerlane') {
+        throw 'QualificationProtocol requires exact stable profiles Loque and Tamerlane.'
+    }
+}
 $traceValidatorPath = Join-Path $PSScriptRoot 'Validate-BotTrace.py'
 $pythonExecutable = $null
-if ($normalizedFixtureId.Length -gt 0) {
+if ($normalizedFixtureId.Length -gt 0 -or $QualificationProtocol) {
     if (-not (Test-Path -LiteralPath $traceValidatorPath -PathType Leaf)) {
         throw "Controlled fixture trace validator was not found: $traceValidatorPath"
     }
@@ -216,6 +335,61 @@ while (Test-Path -LiteralPath $batchRoot) {
 }
 New-Item -ItemType Directory -Path $batchRoot | Out-Null
 
+$engineBinarySha256 = $null
+$contentManifestPath = $null
+$contentManifestSha256 = $null
+$qualificationContentFiles = [ordered] @{}
+$qualificationClosureLogicalPaths = @()
+if ($QualificationProtocol) {
+    $engineBinarySha256 = Get-Sha256 $resolvedEnginePath
+    $contentPackages = New-Object System.Collections.Generic.List[object]
+    foreach ($logicalPath in $qualificationContentPaths) {
+        $physicalPath = Resolve-ExactRelativeFile -Root $resolvedGameRoot -LogicalPath $logicalPath
+        $sha256 = Get-Sha256 $physicalPath
+        $qualificationContentFiles[$logicalPath] = [PSCustomObject]@{ Path = $physicalPath; Sha256 = $sha256 }
+        $contentPackages.Add([PSCustomObject] [ordered] @{ path = $logicalPath; sha256 = $sha256 })
+    }
+	$contentClosure = New-Object System.Collections.Generic.List[object]
+	foreach ($entry in (Get-QualificationClosureFiles -Root $resolvedGameRoot)) {
+		$sha256 = Get-Sha256 $entry.PhysicalPath
+		$contentClosure.Add([PSCustomObject] [ordered] @{ path = $entry.LogicalPath; sha256 = $sha256 })
+		if (-not $qualificationContentFiles.Contains($entry.LogicalPath)) {
+			$qualificationContentFiles[$entry.LogicalPath] = [PSCustomObject]@{ Path = $entry.PhysicalPath; Sha256 = $sha256 }
+		}
+	}
+	$qualificationClosureLogicalPaths = @($contentClosure | ForEach-Object { $_.path })
+    $contentManifestPath = Join-Path $batchRoot 'content-manifest.json'
+    [PSCustomObject] [ordered] @{
+        schema = 1
+        protocol_id = $qualificationProtocolId
+		scope = 'exact-ten-required-files plus standard UE1 loadable-package closure'
+        packages = $contentPackages.ToArray()
+		content_closure = $contentClosure.ToArray()
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $contentManifestPath -Encoding UTF8
+    $contentManifestSha256 = Get-Sha256 $contentManifestPath
+}
+	if ($QualificationPreflightOnly) {
+		$preflightPassed = (Get-Sha256 $resolvedEnginePath) -ceq $engineBinarySha256
+		$currentClosure = @((Get-QualificationClosureFiles -Root $resolvedGameRoot) | ForEach-Object { $_.LogicalPath })
+		$preflightPassed = $preflightPassed -and (($currentClosure -join "`n") -ceq ($qualificationClosureLogicalPaths -join "`n"))
+		foreach ($entry in $qualificationContentFiles.GetEnumerator()) {
+			$preflightPassed = $preflightPassed -and ((Get-Sha256 $entry.Value.Path) -ceq $entry.Value.Sha256)
+		}
+		$preflightPath = Join-Path $batchRoot 'qualification-preflight.json'
+		[PSCustomObject] [ordered] @{
+			schema = 1; passed = $preflightPassed; protocol_id = $qualificationProtocolId
+			engine_path = $resolvedEnginePath; engine_binary_sha256 = $engineBinarySha256
+			game_root = $resolvedGameRoot; content_manifest_path = $contentManifestPath
+			content_manifest_sha256 = $contentManifestSha256; closure_files = $qualificationContentFiles.Count
+			maps = $normalizedMaps.ToArray(); seeds = $normalizedSeeds.ToArray(); skills = @($normalizedSkills)
+			opponent_skill = $OpponentSkill; bots = $Bots; ticks = $ticks; fixed_delta = $FixedDelta
+			candidate_profile_name = $CandidateBotName; opponent_profile_name = $OpponentBotName
+		} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $preflightPath -Encoding UTF8
+		Write-Host "Qualification preflight: $preflightPath"
+		if (-not $preflightPassed) { exit 1 }
+		exit 0
+	}
+
 $invariant = [Globalization.CultureInfo]::InvariantCulture
 $fixedDeltaText = $FixedDelta.ToString('R', $invariant)
 $runRows = New-Object System.Collections.Generic.List[object]
@@ -233,8 +407,8 @@ foreach ($map in $normalizedMaps) {
                 $runDirectory = Join-Path $batchRoot $runId
                 New-Item -ItemType Directory -Path $runDirectory | Out-Null
 
-                $scenario = "matrix-$caseId"
-                $url = "$map`?Game=Botpack.DeathMatchPlus"
+                $scenario = if ($QualificationProtocol) { $qualificationScenario } else { "matrix-$caseId" }
+                $url = "$map`?Game=$qualificationGameClass"
                 $argumentValues = @(
                     "--botbench=$scenario",
                     "--botbench-output=$runDirectory",
@@ -311,13 +485,23 @@ foreach ($map in $normalizedMaps) {
                     Add-ValidationError $validationErrors 'events.jsonl is missing or empty.'
                 }
 
-                if ($normalizedFixtureId.Length -gt 0 -and
+				$invocationPath = Join-Path $runDirectory 'invocation.txt'
+				$eventsSha256 = if (Test-Path -LiteralPath $eventsPath -PathType Leaf) { Get-Sha256 $eventsPath } else { $null }
+				$summarySha256 = if (Test-Path -LiteralPath $summaryPath -PathType Leaf) { Get-Sha256 $summaryPath } else { $null }
+				$invocationSha256 = if (Test-Path -LiteralPath $invocationPath -PathType Leaf) { Get-Sha256 $invocationPath } else { $null }
+
+                $traceValidationPassed = $null
+                $traceValidationPath = $null
+                if (($normalizedFixtureId.Length -gt 0 -or $QualificationProtocol) -and
                     (Test-Path -LiteralPath $summaryPath -PathType Leaf) -and
                     (Test-Path -LiteralPath $eventsPath -PathType Leaf)) {
                     $traceValidationPath = Join-Path $runDirectory 'trace-validation.json'
                     try {
-                        $validatorConsole = @(& $pythonExecutable $traceValidatorPath $runDirectory --output $traceValidationPath 2>&1)
+                        $validatorArguments = @($traceValidatorPath, $runDirectory, '--output', $traceValidationPath)
+                        if ($QualificationProtocol) { $validatorArguments += '--qualification' }
+                        $validatorConsole = @(& $pythonExecutable @validatorArguments 2>&1)
                         $validatorExitCode = $LASTEXITCODE
+						$traceValidationPassed = $validatorExitCode -eq 0
                         if ($validatorExitCode -ne 0) {
                             $validatorDetail = ($validatorConsole | ForEach-Object { $_.ToString() }) -join ' '
                             if (Test-Path -LiteralPath $traceValidationPath -PathType Leaf) {
@@ -333,11 +517,54 @@ foreach ($map in $normalizedMaps) {
                             }
                             Add-ValidationError $validationErrors "Controlled fixture trace validation failed: $validatorDetail"
                         }
+						elseif (-not (Test-Path -LiteralPath $traceValidationPath -PathType Leaf)) {
+							$traceValidationPassed = $false
+							Add-ValidationError $validationErrors 'Trace validator exited successfully but did not produce trace-validation.json.'
+						}
+						else {
+							try {
+								$traceValidation = Get-Content -LiteralPath $traceValidationPath -Raw | ConvertFrom-Json
+								if ($traceValidation.passed -ne $true) {
+									throw 'trace-validation.json did not contain passed=true.'
+								}
+								$expectedValidationMode = if ($QualificationProtocol) { 'qualification' } else { 'standard' }
+								if ([string]$traceValidation.validation_mode -cne $expectedValidationMode) {
+									throw "trace-validation.json validation_mode did not equal '$expectedValidationMode'."
+								}
+								if ($QualificationProtocol) {
+									if ([string]$traceValidation.protocol_id -cne $qualificationProtocolId) { throw 'Qualification trace protocol ID mismatch.' }
+									if ($traceValidation.summary_validated -ne $true) { throw 'Qualification trace did not validate summary.json.' }
+									if ([string]$traceValidation.events_sha256 -cne $eventsSha256) { throw 'Qualification trace events SHA-256 mismatch.' }
+									if ([string]$traceValidation.summary_sha256 -cne $summarySha256) { throw 'Qualification trace summary SHA-256 mismatch.' }
+									$identity = $traceValidation.run_identity
+									if ([string]$identity.map -cne $map -or [string]$identity.seed -cne $seed) { throw 'Qualification trace map/seed identity mismatch.' }
+									if ((@($identity.requested_skills) -join ',') -cne "$skill,$OpponentSkill") { throw 'Qualification trace skill identity mismatch.' }
+									if ((@($identity.requested_bot_names) -join ',') -cne 'Loque,Tamerlane') { throw 'Qualification trace profile identity mismatch.' }
+									if ([string]$identity.digest_fnv1a64 -cne [string]$summary.digest_fnv1a64) { throw 'Qualification trace digest identity mismatch.' }
+									if ([string]$identity.scenario -cne $qualificationScenario -or [int]$identity.requested_bots -ne 2 -or [UInt64]$identity.ticks -ne $ticks) {
+										throw 'Qualification trace scenario/bot/tick identity mismatch.'
+									}
+									# Engine event string fields are formatted to six decimals (0.016667).
+									if ([Math]::Abs([double]$identity.fixed_delta - $FixedDelta) -gt 5.0e-7) { throw 'Qualification trace fixed-delta identity mismatch.' }
+								}
+							}
+							catch {
+								$traceValidationPassed = $false
+								Add-ValidationError $validationErrors "Trace validation report contract failed: $($_.Exception.Message)"
+							}
+						}
                     }
                     catch {
+						$traceValidationPassed = $false
                         Add-ValidationError $validationErrors "Controlled fixture trace validator could not run: $($_.Exception.Message)"
                     }
                 }
+				elseif ($QualificationProtocol) {
+					$traceValidationPassed = $false
+					Add-ValidationError $validationErrors 'Qualification trace validation evidence could not be produced.'
+				}
+
+				$traceValidationSha256 = if ($traceValidationPath -and (Test-Path -LiteralPath $traceValidationPath -PathType Leaf)) { Get-Sha256 $traceValidationPath } else { $null }
 
                 $summaryStatus = ''
                 $digest = ''
@@ -356,8 +583,21 @@ foreach ($map in $normalizedMaps) {
 				$damageDealtExactTotal = $null
 				$damageTakenExactTotal = $null
 				$selfDamageExactTotal = $null
+				$environmentalDamageExactTotal = $null
+				$externalDamageTakenExactTotal = $null
+				$externalDamageDealtExactTotal = $null
 				$fatalDamageKillsExactTotal = $null
 				$fatalDamageDeathsExactTotal = $null
+				$selfFatalDeathsExactTotal = $null
+				$environmentalFatalDeathsExactTotal = $null
+				$externalFatalDamageDeathsExactTotal = $null
+				$adjudicatedDeathsExactTotal = $null
+				$adjudicatedOpponentKillsExactTotal = $null
+				$adjudicatedSelfDeathsExactTotal = $null
+				$adjudicatedEnvironmentalDeathsExactTotal = $null
+				$adjudicatedExternalDeathsExactTotal = $null
+				$adjudicatedExternalKillsExactTotal = $null
+				$adjudicatedDirectDeathsExactTotal = $null
 				$hitscanShotsTotal = $null
 				$hitscanHitsTotal = $null
 				$hitscanAccuracy = $null
@@ -406,8 +646,21 @@ foreach ($map in $normalizedMaps) {
 						$damageDealtExactTotal = ($metricRows | Measure-Object -Property damage_dealt_exact -Sum).Sum
 						$damageTakenExactTotal = ($metricRows | Measure-Object -Property damage_taken_exact -Sum).Sum
 						$selfDamageExactTotal = ($metricRows | Measure-Object -Property self_damage_exact -Sum).Sum
+						$environmentalDamageExactTotal = ($metricRows | Measure-Object -Property environmental_damage_taken_exact -Sum).Sum
+						$externalDamageTakenExactTotal = ($metricRows | Measure-Object -Property external_damage_taken_exact -Sum).Sum
+						$externalDamageDealtExactTotal = ($metricRows | Measure-Object -Property external_damage_dealt_exact -Sum).Sum
 						$fatalDamageKillsExactTotal = ($metricRows | Measure-Object -Property fatal_damage_kills_exact -Sum).Sum
 						$fatalDamageDeathsExactTotal = ($metricRows | Measure-Object -Property fatal_damage_deaths_exact -Sum).Sum
+						$selfFatalDeathsExactTotal = ($metricRows | Measure-Object -Property self_fatal_damage_deaths_exact -Sum).Sum
+						$environmentalFatalDeathsExactTotal = ($metricRows | Measure-Object -Property environmental_fatal_damage_deaths_exact -Sum).Sum
+						$externalFatalDamageDeathsExactTotal = ($metricRows | Measure-Object -Property external_fatal_damage_deaths_exact -Sum).Sum
+						$adjudicatedDeathsExactTotal = ($metricRows | Measure-Object -Property adjudicated_deaths_exact -Sum).Sum
+						$adjudicatedOpponentKillsExactTotal = ($metricRows | Measure-Object -Property adjudicated_opponent_kills_exact -Sum).Sum
+						$adjudicatedSelfDeathsExactTotal = ($metricRows | Measure-Object -Property adjudicated_self_deaths_exact -Sum).Sum
+						$adjudicatedEnvironmentalDeathsExactTotal = ($metricRows | Measure-Object -Property adjudicated_environmental_deaths_exact -Sum).Sum
+						$adjudicatedExternalDeathsExactTotal = ($metricRows | Measure-Object -Property adjudicated_external_deaths_exact -Sum).Sum
+						$adjudicatedExternalKillsExactTotal = ($metricRows | Measure-Object -Property adjudicated_external_kills_exact -Sum).Sum
+						$adjudicatedDirectDeathsExactTotal = ($metricRows | Measure-Object -Property adjudicated_direct_deaths_exact -Sum).Sum
 						$firingIntentSecondsTotal = ($metricRows | Measure-Object -Property firing_intent_seconds -Sum).Sum
 						$combatRows = @($metricRows | ForEach-Object { @($_.combat_by_weapon) })
 						$hitscanShotsTotal = 0
@@ -449,8 +702,8 @@ foreach ($map in $normalizedMaps) {
 							if ([string]::IsNullOrWhiteSpace($candidateProfileId) -or [string]::IsNullOrWhiteSpace($opponentProfileId) -or $candidateProfileId -eq $opponentProfileId) { Add-ValidationError $validationErrors 'Mixed-skill profile IDs were missing or not unique.' }
 							$candidateScore = $candidateMetric.last_score
 							$opponentScore = $opponentMetric.last_score
-							$candidateDeaths = $candidateMetric.maximum_pri_deaths
-							$opponentDeaths = $opponentMetric.maximum_pri_deaths
+							$candidateDeaths = if ($QualificationProtocol) { $candidateMetric.adjudicated_deaths_exact } else { $candidateMetric.maximum_pri_deaths }
+							$opponentDeaths = if ($QualificationProtocol) { $opponentMetric.adjudicated_deaths_exact } else { $opponentMetric.maximum_pri_deaths }
 							$candidateFirstWeaponTick = $candidateMetric.first_nonstarter_weapon_tick
 							$opponentFirstWeaponTick = $opponentMetric.first_nonstarter_weapon_tick
 							$candidateScoreMargin = [int]$candidateScore - [int]$opponentScore
@@ -506,6 +759,11 @@ foreach ($map in $normalizedMaps) {
                     fixture_assertions_total = if ($null -ne $summary) { $summary.fixture.assertions_total } else { $null }
                     fixture_assertions_failed = if ($null -ne $summary) { $summary.fixture.assertions_failed } else { $null }
                     fixed_delta = $FixedDelta
+					protocol_id = if ($QualificationProtocol) { $qualificationProtocolId } else { $null }
+					game_class = if ($QualificationProtocol) { $qualificationGameClass } else { $null }
+					scenario = $scenario
+					engine_binary_sha256 = if ($QualificationProtocol) { $engineBinarySha256 } else { $null }
+					content_manifest_sha256 = if ($QualificationProtocol) { $contentManifestSha256 } else { $null }
                     process_result = $processResult
                     exit_code = $processExitCode
                     summary_status = $summaryStatus
@@ -523,8 +781,21 @@ foreach ($map in $normalizedMaps) {
 					damage_dealt_exact_total = $damageDealtExactTotal
 					damage_taken_exact_total = $damageTakenExactTotal
 					self_damage_exact_total = $selfDamageExactTotal
+					environmental_damage_exact_total = $environmentalDamageExactTotal
+					external_damage_taken_exact_total = $externalDamageTakenExactTotal
+					external_damage_dealt_exact_total = $externalDamageDealtExactTotal
 					fatal_damage_kills_exact_total = if ($null -ne $fatalDamageKillsExactTotal) { [int]$fatalDamageKillsExactTotal } else { $null }
 					fatal_damage_deaths_exact_total = if ($null -ne $fatalDamageDeathsExactTotal) { [int]$fatalDamageDeathsExactTotal } else { $null }
+					self_fatal_damage_deaths_exact_total = if ($null -ne $selfFatalDeathsExactTotal) { [int]$selfFatalDeathsExactTotal } else { $null }
+					environmental_fatal_damage_deaths_exact_total = if ($null -ne $environmentalFatalDeathsExactTotal) { [int]$environmentalFatalDeathsExactTotal } else { $null }
+					external_fatal_damage_deaths_exact_total = if ($null -ne $externalFatalDamageDeathsExactTotal) { [int]$externalFatalDamageDeathsExactTotal } else { $null }
+					adjudicated_deaths_exact_total = if ($null -ne $adjudicatedDeathsExactTotal) { [int]$adjudicatedDeathsExactTotal } else { $null }
+					adjudicated_opponent_kills_exact_total = if ($null -ne $adjudicatedOpponentKillsExactTotal) { [int]$adjudicatedOpponentKillsExactTotal } else { $null }
+					adjudicated_self_deaths_exact_total = if ($null -ne $adjudicatedSelfDeathsExactTotal) { [int]$adjudicatedSelfDeathsExactTotal } else { $null }
+					adjudicated_environmental_deaths_exact_total = if ($null -ne $adjudicatedEnvironmentalDeathsExactTotal) { [int]$adjudicatedEnvironmentalDeathsExactTotal } else { $null }
+					adjudicated_external_deaths_exact_total = if ($null -ne $adjudicatedExternalDeathsExactTotal) { [int]$adjudicatedExternalDeathsExactTotal } else { $null }
+					adjudicated_external_kills_exact_total = if ($null -ne $adjudicatedExternalKillsExactTotal) { [int]$adjudicatedExternalKillsExactTotal } else { $null }
+					adjudicated_direct_deaths_exact_total = if ($null -ne $adjudicatedDirectDeathsExactTotal) { [int]$adjudicatedDirectDeathsExactTotal } else { $null }
 					hitscan_shots_total = if ($null -ne $hitscanShotsTotal) { [int]$hitscanShotsTotal } else { $null }
 					hitscan_hits_total = if ($null -ne $hitscanHitsTotal) { [int]$hitscanHitsTotal } else { $null }
 					hitscan_accuracy = $hitscanAccuracy
@@ -557,10 +828,43 @@ foreach ($map in $normalizedMaps) {
                     wall_seconds = [Math]::Round($wallClock.Elapsed.TotalSeconds, 3)
                     validation_error = ($validationErrors -join ' ')
                     output_directory = $runDirectory
+					events_path = if ($QualificationProtocol) { "$runId/events.jsonl" } else { $eventsPath }
+					events_sha256 = $eventsSha256
+					summary_path = if ($QualificationProtocol) { "$runId/summary.json" } else { $summaryPath }
+					summary_sha256 = $summarySha256
+					invocation_path = if ($QualificationProtocol) { "$runId/invocation.txt" } else { $invocationPath }
+					invocation_sha256 = $invocationSha256
+					trace_validation_passed = $traceValidationPassed
+					trace_validation_path = if ($QualificationProtocol) { "$runId/trace-validation.json" } else { $traceValidationPath }
+					trace_validation_sha256 = $traceValidationSha256
                 })
             }
         }
     }
+}
+
+$identityReverified = $null
+$engineBinarySha256After = $null
+if ($QualificationProtocol) {
+	$identityReverified = $true
+	$engineBinarySha256After = Get-Sha256 $resolvedEnginePath
+	if ($engineBinarySha256After -cne $engineBinarySha256) { $identityReverified = $false }
+	foreach ($entry in $qualificationContentFiles.GetEnumerator()) {
+		if ((Get-Sha256 $entry.Value.Path) -cne $entry.Value.Sha256) {
+			$identityReverified = $false
+			break
+		}
+	}
+	$currentClosureLogicalPaths = @((Get-QualificationClosureFiles -Root $resolvedGameRoot) | ForEach-Object { $_.LogicalPath })
+	if (($currentClosureLogicalPaths -join "`n") -cne ($qualificationClosureLogicalPaths -join "`n")) {
+		$identityReverified = $false
+	}
+	if (-not $identityReverified) {
+		foreach ($run in $runRows) {
+			$run.valid = $false
+			$run.validation_error = ($run.validation_error + ' Qualification engine/content identity changed during capture.').Trim()
+		}
+	}
 }
 
 $caseRows = New-Object System.Collections.Generic.List[object]
@@ -617,10 +921,21 @@ $result = [PSCustomObject] [ordered] @{
     schema = 1
     created_utc = [DateTime]::UtcNow.ToString('o', $invariant)
     passed = $overallPassed
-    batch_root = $batchRoot
+	batch_root = if ($QualificationProtocol) { '.' } else { $batchRoot }
     engine_path = $resolvedEnginePath
     game_root = $resolvedGameRoot
+	protocol_id = if ($QualificationProtocol) { $qualificationProtocolId } else { $null }
+	game_class = if ($QualificationProtocol) { $qualificationGameClass } else { $null }
+	scenario = if ($QualificationProtocol) { $qualificationScenario } else { $null }
+	engine_binary_sha256 = if ($QualificationProtocol) { $engineBinarySha256 } else { $null }
+	engine_binary_sha256_after = if ($QualificationProtocol) { $engineBinarySha256After } else { $null }
+	content_manifest_path = if ($QualificationProtocol) { 'content-manifest.json' } else { $null }
+	content_manifest_sha256 = if ($QualificationProtocol) { $contentManifestSha256 } else { $null }
+	immutable_identity_reverified = if ($QualificationProtocol) { $identityReverified } else { $null }
     configuration = [PSCustomObject] [ordered] @{
+		protocol_id = if ($QualificationProtocol) { $qualificationProtocolId } else { $null }
+		game_class = if ($QualificationProtocol) { $qualificationGameClass } else { $null }
+		scenario = if ($QualificationProtocol) { $qualificationScenario } else { $null }
         maps = $normalizedMaps.ToArray()
         skills = @($normalizedSkills)
         seeds = $normalizedSeeds.ToArray()
@@ -637,6 +952,8 @@ $result = [PSCustomObject] [ordered] @{
         candidate_profile_id = $matrixCandidateProfileId
         opponent_profile_id = $matrixOpponentProfileId
         fixture_id = $normalizedFixtureId
+		engine_binary_sha256 = if ($QualificationProtocol) { $engineBinarySha256 } else { $null }
+		content_manifest_sha256 = if ($QualificationProtocol) { $contentManifestSha256 } else { $null }
     }
     totals = [PSCustomObject] [ordered] @{
         cases = $caseRows.Count

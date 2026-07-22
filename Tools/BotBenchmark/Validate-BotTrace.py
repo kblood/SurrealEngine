@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from collections import Counter, defaultdict
@@ -22,7 +23,21 @@ def as_float(fields: dict[str, str], name: str) -> float:
     return value
 
 
-def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def validate(events_path: Path, summary_path: Path | None, *, qualification: bool = False) -> dict[str, Any]:
+    events_path = events_path.resolve()
+    canonical_summary_path = (summary_path if summary_path is not None else events_path.parent / "summary.json").resolve()
+    summary_present = canonical_summary_path.is_file()
+    events_sha256 = sha256_file(events_path)
+    summary_sha256 = sha256_file(canonical_summary_path) if summary_present else None
+    summary_path = canonical_summary_path if summary_present else None
     errors: list[str] = []
     warnings: list[str] = []
     counts: Counter[str] = Counter()
@@ -49,11 +64,35 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
     requested_bot_names: list[str] = []
     requested_skills: list[int] = []
     profile_configurations: list[tuple[int, dict[str, str]]] = []
+    run_config_fields: dict[str, str] = {}
+    run_end_fields: dict[str, str] = {}
+    last_damage_id = 0
+    last_death_id = 0
+    damage_records: dict[int, dict[str, Any]] = {}
+    death_records: list[tuple[int, dict[str, Any]]] = []
+    summary_validated = False
+    run_identity: dict[str, Any] = {
+        "map": None,
+        "seed": None,
+        "requested_skills": [],
+        "requested_bot_names": [],
+        "digest_fnv1a64": None,
+        "scenario": None,
+        "requested_bots": None,
+        "ticks": None,
+        "fixed_delta": None,
+    }
 
     def fixture_bool(fields: dict[str, str], name: str, line_number: int) -> bool:
         value = fields.get(name)
         if value not in ("true", "false"):
             raise ValueError(f"fixture {name} is not a literal boolean at line {line_number}")
+        return value == "true"
+
+    def literal_bool(fields: dict[str, str], name: str, line_number: int, context: str) -> bool:
+        value = fields.get(name)
+        if value not in ("true", "false"):
+            raise ValueError(f"{context} {name} is not a literal boolean at line {line_number}")
         return value == "true"
 
     with events_path.open("r", encoding="utf-8-sig") as handle:
@@ -78,6 +117,7 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
 
             try:
                 if event_type == "run_config":
+                    run_config_fields = fields
                     fixture_id = str(fields.get("fixture_id", ""))
                     names_text = str(fields.get("requested_bot_names", ""))
                     requested_bot_names = names_text.split(",") if names_text else []
@@ -85,8 +125,10 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                     requested_skills = [int(value) for value in skills_text.split(",")] if skills_text else []
 
                 elif event_type == "bot_skill_configured":
-                    if requested_bot_names:
-                        profile_configurations.append((line_number, fields))
+                    profile_configurations.append((line_number, fields))
+
+                elif event_type == "run_end":
+                    run_end_fields = fields
 
                 elif event_type == "fixture_wait":
                     if not fixture_id or fields.get("fixture_id") != fixture_id:
@@ -268,29 +310,160 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                     effective = as_int(fields, "effective_health_damage")
                     expected_raw = max(0, before - after)
                     expected_effective = max(0, before - max(after, 0)) if before > 0 else 0
-                    fatal = fields.get("fatal") == "true"
-                    self_damage = fields.get("self_damage") == "true"
+                    fatal = literal_bool(fields, "fatal", line_number, "damage")
+                    self_damage = literal_bool(fields, "self_damage", line_number, "damage")
                     victim = fields.get("victim", "")
                     instigator = fields.get("instigator", "")
+                    origin = fields.get("damage_origin")
+                    participant_identities = {entry[1].get("identity", "") for entry in profile_configurations}
+                    expected_self_damage = victim in participant_identities and instigator == victim
+                    expected_origin = "self" if expected_self_damage else (
+                        "opponent" if victim in participant_identities and instigator in participant_identities else (
+                            "environment_null" if victim in participant_identities and instigator == "None"
+                            else "external_nonparticipant"
+                        )
+                    )
                     if raw != expected_raw or effective != expected_effective:
                         errors.append(f"line {line_number}: damage health delta mismatch")
                     if fatal != (before > 0 and after <= 0):
                         errors.append(f"line {line_number}: fatal damage flag mismatch")
-                    if self_damage != (instigator == victim):
+                    if self_damage != expected_self_damage:
                         errors.append(f"line {line_number}: self-damage flag mismatch")
-                    if before > 0 and victim.startswith("pri:"):
+                    if qualification and origin is None:
+                        errors.append(f"line {line_number}: qualification damage event lacks damage_origin")
+                    elif origin is not None and origin != expected_origin:
+                        errors.append(f"line {line_number}: damage origin mismatch")
+                    if qualification:
+                        damage_id = as_int(fields, "damage_id")
+                        if damage_id != last_damage_id + 1:
+                            errors.append(f"line {line_number}: damage_id is not monotonic")
+                        last_damage_id = damage_id
+                        roster_by_identity = {
+                            entry[1].get("identity", ""): int(entry[1].get("roster_index", -1))
+                            for entry in profile_configurations
+                        }
+                        if as_int(fields, "victim_roster_index") != roster_by_identity.get(victim, -1) \
+                                or as_int(fields, "instigator_roster_index") != roster_by_identity.get(instigator, -1):
+                            errors.append(f"line {line_number}: damage roster index mismatch")
+                        if damage_id in damage_records:
+                            errors.append(f"line {line_number}: duplicate damage_id {damage_id}")
+                        damage_records[damage_id] = {
+                            "line": line_number,
+                            "victim": victim,
+                            "instigator": instigator,
+                            "fatal": fatal,
+                            "origin": expected_origin,
+                        }
+                    if before > 0 and victim in participant_identities:
                         exact[victim]["events_taken"] += 1
                         exact[victim]["damage_taken"] += effective
                         if fatal:
                             exact[victim]["deaths"] += 1
-                    if before > 0 and instigator.startswith("pri:"):
+                            if self_damage:
+                                exact[victim]["self_fatal_deaths"] += 1
+                            elif expected_origin == "environment_null":
+                                exact[victim]["environmental_fatal_deaths"] += 1
+                        if expected_origin == "environment_null":
+                            exact[victim]["environmental_damage"] += effective
+                        elif expected_origin == "external_nonparticipant":
+                            exact[victim]["external_damage_taken"] += effective
+                            if fatal:
+                                exact[victim]["external_fatal_damage_deaths"] += 1
+                    if before > 0 and instigator in participant_identities:
                         if self_damage:
                             exact[instigator]["self_damage"] += effective
-                        else:
+                        elif expected_origin == "opponent":
                             exact[instigator]["events_dealt"] += 1
                             exact[instigator]["damage_dealt"] += effective
                             if fatal:
                                 exact[instigator]["kills"] += 1
+                        elif instigator in participant_identities:
+                            exact[instigator]["external_damage_dealt"] += effective
+
+                elif event_type == "death_adjudicated":
+                    victim = fields.get("victim", "")
+                    killer = fields.get("killer", "")
+                    classification = fields.get("classification", "")
+                    death_id = as_int(fields, "death_id")
+                    damage_id = as_int(fields, "damage_id")
+                    damage_mediated = literal_bool(
+                        fields, "damage_mediated", line_number, "adjudicated death"
+                    )
+                    if death_id != last_death_id + 1:
+                        errors.append(f"line {line_number}: death_id is not monotonic")
+                    last_death_id = death_id
+                    victim_roster = as_int(fields, "victim_roster_index")
+                    killer_roster = as_int(fields, "killer_roster_index")
+                    roster_by_identity = {
+                        entry[1].get("identity", ""): int(entry[1].get("roster_index", -1))
+                        for entry in profile_configurations
+                    }
+                    expected_victim_roster = roster_by_identity.get(victim, -1)
+                    expected_killer_roster = roster_by_identity.get(killer, -1)
+                    if victim_roster != expected_victim_roster or killer_roster != expected_killer_roster:
+                        errors.append(f"line {line_number}: adjudicated death roster index mismatch")
+                    participant_victim = expected_victim_roster >= 0
+                    participant_killer = expected_killer_roster >= 0
+                    if not participant_victim and not participant_killer:
+                        errors.append(f"line {line_number}: adjudicated death has no configured participant")
+                    expected_classification = (
+                        "self" if participant_victim and killer == victim else
+                        "participant_opponent" if participant_victim and participant_killer else
+                        "environment_null" if participant_victim and killer == "None" else
+                        "external_nonparticipant"
+                    )
+                    if classification != expected_classification:
+                        errors.append(
+                            f"line {line_number}: adjudicated death classification mismatch; "
+                            f"expected {expected_classification!r}"
+                        )
+                    if damage_mediated != (damage_id > 0):
+                        errors.append(f"line {line_number}: adjudicated death damage link/boolean mismatch")
+
+                    victim_deaths_before = as_float(fields, "victim_deaths_before")
+                    victim_deaths_after = as_float(fields, "victim_deaths_after")
+                    victim_score_before = as_float(fields, "victim_score_before")
+                    victim_score_after = as_float(fields, "victim_score_after")
+                    killer_score_before = as_float(fields, "killer_score_before")
+                    killer_score_after = as_float(fields, "killer_score_after")
+                    if participant_victim and not math.isclose(
+                            victim_deaths_after, victim_deaths_before + 1.0, abs_tol=1e-4):
+                        errors.append(f"line {line_number}: participant victim death counter did not increase by one")
+                    expected_victim_score_delta = -1.0 if expected_classification in {
+                        "self", "environment_null"
+                    } else 0.0
+                    if participant_victim and not math.isclose(
+                            victim_score_after - victim_score_before, expected_victim_score_delta, abs_tol=1e-4):
+                        errors.append(f"line {line_number}: participant victim score transition mismatch")
+                    if expected_classification == "self":
+                        if not math.isclose(killer_score_before, victim_score_before, abs_tol=1e-4) \
+                                or not math.isclose(killer_score_after, victim_score_after, abs_tol=1e-4):
+                            errors.append(f"line {line_number}: self-death killer/victim score snapshots mismatch")
+                    elif participant_killer and not math.isclose(
+                            killer_score_after, killer_score_before + 1.0, abs_tol=1e-4):
+                        errors.append(f"line {line_number}: participant killer score did not increase by one")
+
+                    if participant_victim:
+                        exact[victim]["adjudicated_deaths"] += 1
+                    if expected_classification == "self":
+                        exact[victim]["adjudicated_self_deaths"] += 1
+                    elif expected_classification == "participant_opponent":
+                        exact[killer]["adjudicated_opponent_kills"] += 1
+                    elif expected_classification == "environment_null":
+                        exact[victim]["adjudicated_environmental_deaths"] += 1
+                    elif participant_victim:
+                        exact[victim]["adjudicated_external_deaths"] += 1
+                    elif participant_killer:
+                        exact[killer]["adjudicated_external_kills"] += 1
+                    if not damage_mediated and participant_victim:
+                        exact[victim]["adjudicated_direct_deaths"] += 1
+                    death_records.append((line_number, {
+                        "damage_id": damage_id,
+                        "damage_mediated": damage_mediated,
+                        "victim": victim,
+                        "killer": killer,
+                        "classification": expected_classification,
+                    }))
 
                 elif event_type == "hitscan_shot":
                     shooter = fields.get("shooter", "")
@@ -325,6 +498,43 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
             except (KeyError, TypeError, ValueError) as exc:
                 errors.append(f"line {line_number}: {event_type} field error: {exc}")
 
+    if qualification:
+        participant_identities = {entry[1].get("identity", "") for entry in profile_configurations}
+        death_links: Counter[int] = Counter()
+        for line_number, death in death_records:
+            if not death["damage_mediated"]:
+                continue
+            damage_id = int(death["damage_id"])
+            death_links[damage_id] += 1
+            damage = damage_records.get(damage_id)
+            if damage is None:
+                errors.append(f"line {line_number}: mediated death references missing damage_id {damage_id}")
+                continue
+            if not damage["fatal"]:
+                errors.append(f"line {line_number}: mediated death references nonfatal damage_id {damage_id}")
+            if damage["victim"] != death["victim"]:
+                errors.append(f"line {line_number}: mediated death victim does not match damage_id {damage_id}")
+            expected_death_classification = {
+                "self": "self",
+                "opponent": "participant_opponent",
+                "environment_null": "environment_null",
+                "external_nonparticipant": "external_nonparticipant",
+            }.get(str(damage["origin"]))
+            if death["classification"] != expected_death_classification:
+                errors.append(f"line {line_number}: mediated death classification does not match damage_id {damage_id}")
+            expected_killer = "None" if damage["origin"] == "environment_null" else damage["instigator"]
+            if death["killer"] != expected_killer:
+                errors.append(f"line {line_number}: mediated death killer does not match damage_id {damage_id}")
+        for damage_id, damage in damage_records.items():
+            involves_participant = damage["victim"] in participant_identities \
+                or damage["instigator"] in participant_identities
+            expected_links = 1 if damage["fatal"] and involves_participant else 0
+            if death_links[damage_id] != expected_links:
+                errors.append(
+                    f"damage_id {damage_id}: fatal/mediated death links={death_links[damage_id]}, "
+                    f"expected {expected_links}"
+                )
+
     required = ("run_config", "simulation_start", "benchmark_spectator", "bot_observed", "run_end")
     for event_type in required:
         if counts[event_type] == 0:
@@ -347,6 +557,7 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
             )
         seen_roster_indexes: set[int] = set()
         seen_profile_ids: set[str] = set()
+        seen_identities: set[str] = set()
         for line_number, fields in profile_configurations:
             try:
                 roster_index = as_int(fields, "roster_index")
@@ -356,6 +567,10 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                 if roster_index in seen_roster_indexes:
                     errors.append(f"line {line_number}: duplicate explicit profile roster index {roster_index}")
                 seen_roster_indexes.add(roster_index)
+                identity = fields.get("identity", "")
+                if not identity or identity in seen_identities:
+                    errors.append(f"line {line_number}: explicit profile identity is empty or duplicated")
+                seen_identities.add(identity)
                 requested_name = fields.get("requested_profile_name", "")
                 actual_name = fields.get("actual_profile_name", "")
                 profile_id = fields.get("profile_id", "")
@@ -560,8 +775,55 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                     errors.append("HitWall fixture completion has invalid walking_hit_wall_pairs")
 
     if summary_path is not None:
+        summary_error_start = len(errors)
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8-sig"))
+            run_identity = {
+                "map": run_config_fields.get("url", "").split("?", 1)[0],
+                "seed": run_config_fields.get("seed"),
+                "requested_skills": list(requested_skills),
+                "requested_bot_names": list(requested_bot_names),
+                "digest_fnv1a64": summary.get("digest_fnv1a64"),
+                "scenario": run_config_fields.get("scenario"),
+                "requested_bots": int(run_config_fields["bots"]) if "bots" in run_config_fields else None,
+                "ticks": int(run_config_fields["ticks"]) if "ticks" in run_config_fields else None,
+                "fixed_delta": float(run_config_fields["fixed_delta"])
+                if "fixed_delta" in run_config_fields else None,
+            }
+            if qualification:
+                if counts["run_config"] != 1 or counts["run_end"] != 1:
+                    errors.append("qualification requires exactly one run_config and run_end event")
+                if run_config_fields.get("scenario") != "skill-qualification":
+                    errors.append("qualification run_config scenario mismatch")
+                if int(run_config_fields.get("ticks", -1)) != 5400:
+                    errors.append("qualification run_config tick count mismatch")
+                if not math.isclose(float(run_config_fields.get("fixed_delta", "nan")), 1.0 / 60.0, abs_tol=5e-7):
+                    errors.append("qualification run_config fixed delta mismatch")
+                if int(run_config_fields.get("bots", -1)) != 2 or run_config_fields.get("fixture_id") != "":
+                    errors.append("qualification run_config bot/fixture contract mismatch")
+                if requested_bot_names != ["Loque", "Tamerlane"]:
+                    errors.append("qualification run_config profile names mismatch")
+                if len(requested_skills) != 2 or abs(requested_skills[0] - requested_skills[1]) != 1:
+                    errors.append("qualification run_config skills are not one adjacent pair")
+                url = run_config_fields.get("url", "")
+                if not url.endswith("?Game=Botpack.DeathMatchPlus") or url.split("?", 1)[0] not in {
+                    "DM-Morbias][", "DM-Deck16][", "DM-Phobos"
+                }:
+                    errors.append("qualification run_config URL/game class mismatch")
+                if summary.get("scenario") != "skill-qualification" or int(summary.get("ticks", -1)) != 5400:
+                    errors.append("qualification summary scenario/ticks mismatch")
+                if not math.isclose(float(summary.get("fixed_delta", float("nan"))), 1.0 / 60.0, abs_tol=5e-7):
+                    errors.append("qualification summary fixed delta mismatch")
+                if run_end_fields.get("status") != "passed" or int(run_end_fields.get("ticks", -1)) != 5400:
+                    errors.append("qualification run_end status/ticks mismatch")
+                run_digest = run_end_fields.get("digest", "")
+                if len(run_digest) != 16 or any(character not in "0123456789abcdef" for character in run_digest) \
+                        or run_digest != summary.get("digest_fnv1a64"):
+                    errors.append("qualification run_end digest does not match summary")
+                if str(summary.get("seed")) != run_config_fields.get("seed"):
+                    errors.append("qualification summary seed does not match run_config")
+                if int(summary.get("requested_bots", -1)) != int(run_config_fields.get("bots", -2)):
+                    errors.append("qualification summary bot count does not match run_config")
             if summary.get("status") != "passed":
                 errors.append(f"summary status is {summary.get('status')!r}: {summary.get('reason', '')}")
             if int(summary.get("maximum_observed_bots", -1)) != int(summary.get("requested_bots", -2)):
@@ -618,11 +880,26 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                     "damage_dealt_exact": exact[identity]["damage_dealt"],
                     "damage_taken_exact": exact[identity]["damage_taken"],
                     "self_damage_exact": exact[identity]["self_damage"],
+                    "environmental_damage_taken_exact": exact[identity]["environmental_damage"],
+                    "external_damage_taken_exact": exact[identity]["external_damage_taken"],
+                    "external_damage_dealt_exact": exact[identity]["external_damage_dealt"],
                     "fatal_damage_kills_exact": exact[identity]["kills"],
                     "fatal_damage_deaths_exact": exact[identity]["deaths"],
+                    "self_fatal_damage_deaths_exact": exact[identity]["self_fatal_deaths"],
+                    "environmental_fatal_damage_deaths_exact": exact[identity]["environmental_fatal_deaths"],
+                    "external_fatal_damage_deaths_exact": exact[identity]["external_fatal_damage_deaths"],
+                    "adjudicated_deaths_exact": exact[identity]["adjudicated_deaths"],
+                    "adjudicated_opponent_kills_exact": exact[identity]["adjudicated_opponent_kills"],
+                    "adjudicated_self_deaths_exact": exact[identity]["adjudicated_self_deaths"],
+                    "adjudicated_environmental_deaths_exact": exact[identity]["adjudicated_environmental_deaths"],
+                    "adjudicated_external_deaths_exact": exact[identity]["adjudicated_external_deaths"],
+                    "adjudicated_external_kills_exact": exact[identity]["adjudicated_external_kills"],
+                    "adjudicated_direct_deaths_exact": exact[identity]["adjudicated_direct_deaths"],
                 }
                 for name, expected in expected_fields.items():
-                    if name in metric and int(metric[name]) != expected:
+                    if qualification and name not in metric:
+                        errors.append(f"summary {identity} lacks required qualification field {name}")
+                    elif name in metric and int(metric[name]) != expected:
                         errors.append(f"summary {identity} {name}={metric[name]}, trace={expected}")
                 for weapon in metric.get("combat_by_weapon", []):
                     weapon_mode = str(weapon.get("weapon_mode", ""))
@@ -637,8 +914,11 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                     for name, expected in weapon_fields.items():
                         if int(weapon.get(name, -1)) != expected:
                             errors.append(f"summary {identity}/{weapon_mode} {name}={weapon.get(name)}, trace={expected}")
+            summary_validated = len(errors) == summary_error_start
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             errors.append(f"invalid summary: {exc}")
+    elif qualification:
+        errors.append("qualification requires summary.json")
 
     return {
         "schema": 1,
@@ -646,6 +926,15 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
         "last_tick": previous_tick,
         "event_counts": dict(sorted(counts.items())),
         "passed": not errors,
+        "validation_mode": "qualification" if qualification else "standard",
+        "protocol_id": "surreal-bot-skill-qualification-v1" if qualification else None,
+        "events_path": str(events_path),
+        "events_sha256": events_sha256,
+        "summary_path": str(canonical_summary_path),
+        "summary_sha256": summary_sha256,
+        "summary_present": summary_present,
+        "summary_validated": summary_validated,
+        "run_identity": run_identity,
         "errors": errors,
         "warnings": warnings,
     }
@@ -655,6 +944,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run", help="Benchmark run directory or events.jsonl")
     parser.add_argument("--output", help="Optional report JSON path")
+    parser.add_argument("--qualification", action="store_true", help="Require qualification telemetry fields")
     args = parser.parse_args()
     path = Path(args.run).resolve()
     run_directory = path if path.is_dir() else path.parent
@@ -663,7 +953,7 @@ def main() -> int:
     summary_path = candidate_summary if candidate_summary.is_file() else None
     if not events_path.is_file():
         raise FileNotFoundError(events_path)
-    report = validate(events_path, summary_path)
+    report = validate(events_path, summary_path, qualification=args.qualification)
     text = json.dumps(report, indent=2) + "\n"
     if args.output:
         output = Path(args.output).resolve()

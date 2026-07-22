@@ -133,8 +133,11 @@ must independently contain the same predeclared Cartesian grid: maps
 fixed 24-seed S1 list. This produces 72 cases per orientation, 1,008 independent
 orientation trials, and 504 role-swapped crossover units across the family.
 Stable candidate/opponent profile IDs are mandatory.
+Qualification Q1 uses exactly `RunsPerCase=1`; repeated same-seed processes are
+diagnostic and are not independent qualification evidence.
 
-Paths are relative to the manifest unless absolute. Qualification inputs cannot
+Paths are relative to the manifest unless absolute. Each qualification input
+also requires the lowercase SHA-256 of its matrix. Qualification inputs cannot
 be split into disjoint seed blocks. Run:
 
 ```powershell
@@ -150,7 +153,8 @@ protocol ID `surreal-bot-skill-qualification-v1`, game class
 seconds), exact integer configuration/count fields, and reconciled root totals,
 cases, and runs. It must also declare an existing engine binary and its matching
 lowercase SHA-256, an existing canonical `game_root`, and a hashed JSON content
-manifest. That content manifest has integer `schema: 1` and a `packages` array
+manifest. That content manifest has integer `schema: 1`, the exact protocol ID
+and versioned scope, and a `packages` array
 of `{path, sha256}` objects. It must contain exactly these case-sensitive
 root-relative logical paths, with no omissions or additions:
 
@@ -172,11 +176,37 @@ hashed. Absolute paths, traversal, separator aliases, duplicate logical or
 resolved targets, and symlinks escaping the root are rejected. All 14 inputs
 must resolve to the same canonical game root and carry the same content-manifest
 SHA-256. The same protocol and immutable identity hashes must be present in
-every run. The current general matrix runner
-does not yet emit all of this qualification provenance, so its output is
-intentionally rejected in `qualification` mode until that capture contract is
-implemented; it remains useful with `synthetic_test` for plumbing and analysis
-development.
+every run. `content_closure` additionally freezes every currently present file
+under `System/*.u`, `Textures/*.utx`, `Sounds/*.uax`, and `Music/*.umx`
+(extensions case-insensitive), plus the two active SE INIs and three canonical
+maps. The analyzer independently re-enumerates that closure.
+
+The matrix runner has an explicit fail-closed capture mode. It rejects any
+departure from the canonical maps, S1 seeds, adjacent skill pair, two bots,
+90-second duration, 1/60 delta, one run per case, no fixture, or exact
+Loque/Tamerlane profiles. A safe preflight hashes and rechecks the closure
+without launching benchmark processes:
+
+```powershell
+.\Tools\BotBenchmark\Run-BotBenchmarkMatrix.ps1 `
+  -QualificationProtocol -QualificationPreflightOnly `
+  -GameRoot 'C:\Path\To\Unreal Tournament GOTY' `
+  -OutputRoot .\qualification-preflight `
+  -Maps 'DM-Morbias][','DM-Deck16][','DM-Phobos' `
+  -Skills 7 -OpponentSkill 6 -Bots 2 -RunsPerCase 1 -Seconds 90 `
+  -Seeds 104729,130363,155921,181081,207073,233021,259033,285007,311041,337069,363073,389029,415021,441011,467003,493067,519031,545023,571021,597031,623011,649069,675067,701009
+```
+
+Real capture omits `-QualificationPreflightOnly`. Every row requires the exact
+`<run_id>/events.jsonl`, `summary.json`, `invocation.txt`, and
+`trace-validation.json` evidence layout and binds each file by SHA-256. The
+strict validator report must bind its event/summary hashes and raw map, seed,
+ordered skills/profiles, digest, scenario, bot count, tick count, and fixed
+delta back to that matrix row. Claim-driving score, adjudicated-death, damage,
+acquisition, skill, and profile fields must also match the bound validated
+summary; copied, shared, or self-consistently fabricated evidence fails closed. Engine
+and content identities are rechecked after capture, so mid-matrix mutation also
+fails the result.
 
 The output directory must be new. `qualification-analysis.json` contains SHA-256
 hashes for the manifest, every matrix, and this versioned tool; it also records
@@ -221,14 +251,13 @@ clusters from its binomial denominator, and Holm-adjusts only the tier pairs in
 that manifest. Score ties still contribute 0.5 to reported superiority. Current
 matrix rows expose participant score/death/damage and acquisition timing but
 only aggregate shot/projectile exposures, so the tool cannot attribute accuracy
-or self-damage to a tier. Explicit mixed-skill matrices now carry both stable
-profile IDs, but still lack the full qualification protocol/content provenance.
-The analyzer currently also assumes no environmental/unattributed/self-fatal residuals when
-reconciling damage and deaths. Qualification capture must add explicit
-environmental/unattributed damage and death plus self/environmental fatal-death
-fields, and the analyzer must reconcile `taken = opponent + self + environment`,
-before real Deck16/Phobos environmental cases can qualify without a possible
-false rejection. The analyzer reports evidence; it does not implement
+or self-damage to a tier. Qualification traces partition damage by configured
+roster into participant-opponent, self, `environment_null`, and
+external-nonparticipant categories. They separately record TakeDamage fatal
+diagnostics and exact outermost `GameInfo.Killed` outcomes, including direct
+deaths that bypass TakeDamage. External contamination must be zero;
+environmental and self outcomes reconcile instead of being falsely rejected.
+The analyzer reports evidence; it does not implement
 sequential stopping decisions.
 
 ### Stable named crossover profiles

@@ -46,6 +46,8 @@ public:
 	static void Emit(const std::string& type, const std::map<std::string, std::string>& fields = {});
 	static void BeginDamage(UPawn* victim, int requestedDamage, UPawn* instigator, UObject* source, const std::string& damageType);
 	static void EndDamage(UPawn* victim);
+	static void BeginKilled(UObject* game, UPawn* killer, UPawn* victim, const std::string& damageType);
+	static void EndKilled(UObject* game, UPawn* victim);
 	static void BeginHitscan(UWeapon* weapon);
 	static void EndHitscan(UWeapon* weapon);
 	static void ProjectileSpawned(UProjectile* projectile, UActor* spawner);
@@ -173,9 +175,22 @@ private:
 		uint64_t DamageEventsTaken = 0;
 		uint64_t FatalDamageKills = 0;
 		uint64_t FatalDamageDeaths = 0;
+		uint64_t SelfFatalDeaths = 0;
+		uint64_t EnvironmentalFatalDeaths = 0;
+		uint64_t ExternalFatalDamageDeaths = 0;
+		uint64_t AdjudicatedDeaths = 0;
+		uint64_t AdjudicatedOpponentKills = 0;
+		uint64_t AdjudicatedSelfDeaths = 0;
+		uint64_t AdjudicatedEnvironmentalDeaths = 0;
+		uint64_t AdjudicatedExternalDeaths = 0;
+		uint64_t AdjudicatedExternalKills = 0;
+		uint64_t AdjudicatedDirectDeaths = 0;
 		int ExactDamageDealt = 0;
 		int ExactDamageTaken = 0;
 		int ExactSelfDamage = 0;
+		int ExactEnvironmentalDamageTaken = 0;
+		int ExactExternalDamageTaken = 0;
+		int ExactExternalDamageDealt = 0;
 		std::map<std::string, WeaponCombat> WeaponCombatStats;
 		bool Initialized = false;
 		bool AwaitingRespawn = false;
@@ -185,11 +200,16 @@ private:
 	struct DamageObservation
 	{
 		int Depth = 0;
+		uint64_t Id = 0;
 		int HealthBefore = 0;
 		int RequestedDamage = 0;
 		UPawn* Instigator = nullptr;
 		UObject* Source = nullptr;
 		std::string DamageType;
+		std::string VictimIdentity;
+		std::string InstigatorIdentity;
+		int VictimRosterIndex = -1;
+		int InstigatorRosterIndex = -1;
 	};
 
 	struct HitscanObservation
@@ -200,6 +220,24 @@ private:
 		int OpponentHealthDamage = 0;
 		int SelfHealthDamage = 0;
 		uint64_t OpponentDamageEvents = 0;
+	};
+
+	struct KilledObservation
+	{
+		int Depth = 0;
+		uint64_t Id = 0;
+		UPawn* Killer = nullptr;
+		UPawn* Victim = nullptr;
+		std::string DamageType;
+		std::string KillerIdentity;
+		std::string VictimIdentity;
+		int KillerRosterIndex = -1;
+		int VictimRosterIndex = -1;
+		uint64_t DamageId = 0;
+		float VictimDeathsBefore = 0.0f;
+		float VictimScoreBefore = 0.0f;
+		float KillerScoreBefore = 0.0f;
+		bool DamageMediated = false;
 	};
 
 	struct ProjectileObservation
@@ -247,11 +285,14 @@ private:
 	std::map<std::string, int> RosterIndexByIdentity;
 	std::map<std::string, std::string> ProfileIdByIdentity;
 	std::map<UPawn*, DamageObservation> ActiveDamage;
+	std::map<std::pair<UObject*, UPawn*>, KilledObservation> ActiveKilled;
 	std::map<UWeapon*, HitscanObservation> ActiveHitscan;
 	std::map<UProjectile*, ProjectileObservation> Projectiles;
 	uint64_t Tick = 0;
 	uint64_t EventSequence = 0;
 	uint64_t WalkingHitWallSequence = 0;
+	uint64_t DamageSequence = 0;
+	uint64_t DeathSequence = 0;
 	uint64_t Digest = 1469598103934665603ULL;
 	uint64_t Deaths = 0;
 	int MaximumObservedBots = 0;

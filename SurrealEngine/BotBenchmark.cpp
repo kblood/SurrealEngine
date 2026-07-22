@@ -283,11 +283,20 @@ void BotBenchmark::BeginDamage(UPawn* victim, int requestedDamage, UPawn* instig
 	auto& observation = Instance->ActiveDamage[victim];
 	if (observation.Depth++ == 0)
 	{
+		observation.Id = ++Instance->DamageSequence;
 		observation.HealthBefore = victim->Health();
 		observation.RequestedDamage = requestedDamage;
 		observation.Instigator = instigator;
 		observation.Source = source;
 		observation.DamageType = damageType;
+		observation.VictimIdentity = PawnIdentity(victim);
+		observation.InstigatorIdentity = PawnIdentity(instigator);
+		auto victimRoster = Instance->RosterIndexByIdentity.find(observation.VictimIdentity);
+		if (victimRoster != Instance->RosterIndexByIdentity.end())
+			observation.VictimRosterIndex = victimRoster->second;
+		auto instigatorRoster = Instance->RosterIndexByIdentity.find(observation.InstigatorIdentity);
+		if (instigatorRoster != Instance->RosterIndexByIdentity.end())
+			observation.InstigatorRosterIndex = instigatorRoster->second;
 	}
 }
 
@@ -305,6 +314,131 @@ void BotBenchmark::EndDamage(UPawn* victim)
 		if (!Instance->Finalized)
 			Instance->RecordDamage(victim, observation);
 	}
+}
+
+void BotBenchmark::BeginKilled(UObject* game, UPawn* killer, UPawn* victim, const std::string& damageType)
+{
+	if (!Instance || Instance->Finalized || Instance->Config.Scenario != "skill-qualification" || !game || !victim)
+		return;
+	const std::string victimIdentity = PawnIdentity(victim);
+	const std::string killerIdentity = PawnIdentity(killer);
+	if (Instance->RequestedSkillByIdentity.count(victimIdentity) == 0 &&
+		Instance->RequestedSkillByIdentity.count(killerIdentity) == 0)
+		return;
+	auto& observation = Instance->ActiveKilled[{ game, victim }];
+	if (observation.Depth++ == 0)
+	{
+		observation.Id = ++Instance->DeathSequence;
+		observation.Killer = killer;
+		observation.Victim = victim;
+		observation.DamageType = damageType;
+		observation.KillerIdentity = killerIdentity;
+		observation.VictimIdentity = victimIdentity;
+		auto killerRoster = Instance->RosterIndexByIdentity.find(killerIdentity);
+		if (killerRoster != Instance->RosterIndexByIdentity.end())
+			observation.KillerRosterIndex = killerRoster->second;
+		auto victimRoster = Instance->RosterIndexByIdentity.find(victimIdentity);
+		if (victimRoster != Instance->RosterIndexByIdentity.end())
+			observation.VictimRosterIndex = victimRoster->second;
+		auto activeDamage = Instance->ActiveDamage.find(victim);
+		observation.DamageMediated = activeDamage != Instance->ActiveDamage.end();
+		if (observation.DamageMediated)
+			observation.DamageId = activeDamage->second.Id;
+		if (UPlayerReplicationInfo* victimPri = victim->PlayerReplicationInfo())
+		{
+			observation.VictimDeathsBefore = victimPri->Deaths();
+			observation.VictimScoreBefore = victimPri->Score();
+		}
+		if (killer)
+			if (UPlayerReplicationInfo* killerPri = killer->PlayerReplicationInfo())
+				observation.KillerScoreBefore = killerPri->Score();
+	}
+}
+
+void BotBenchmark::EndKilled(UObject* game, UPawn* victim)
+{
+	if (!Instance || !game || !victim)
+		return;
+	auto it = Instance->ActiveKilled.find({ game, victim });
+	if (it == Instance->ActiveKilled.end() || --it->second.Depth > 0)
+		return;
+	KilledObservation observation = it->second;
+	Instance->ActiveKilled.erase(it);
+	const std::string& victimIdentity = observation.VictimIdentity;
+	const std::string& killerIdentity = observation.KillerIdentity;
+	const bool participantVictim = observation.VictimRosterIndex >= 0;
+	const bool participantKiller = observation.KillerRosterIndex >= 0;
+	const bool selfDeath = participantVictim && observation.Killer == observation.Victim;
+	const bool opponentDeath = participantVictim && participantKiller && !selfDeath;
+	const bool environmentalDeath = participantVictim && !observation.Killer;
+	const bool externalDeath = participantVictim && observation.Killer && !participantKiller;
+	if (!participantVictim && !participantKiller)
+		return;
+	auto telemetryForStableIdentity = [&](const std::string& identity, int rosterIndex, UPawn* pawn) -> BotTelemetry&
+	{
+		auto& telemetry = Instance->Telemetry[identity];
+		telemetry.Identity = identity;
+		telemetry.RosterIndex = rosterIndex;
+		auto requested = Instance->RequestedSkillByIdentity.find(identity);
+		if (requested != Instance->RequestedSkillByIdentity.end())
+			telemetry.RequestedSkill = requested->second;
+		auto profile = Instance->ProfileIdByIdentity.find(identity);
+		if (profile != Instance->ProfileIdByIdentity.end())
+			telemetry.ProfileId = profile->second;
+		if (pawn)
+		{
+			telemetry.LastActor = pawn->Name.ToString();
+			if (UPlayerReplicationInfo* pri = pawn->PlayerReplicationInfo())
+				telemetry.PlayerName = pri->PlayerName();
+		}
+		return telemetry;
+	};
+	if (participantVictim)
+	{
+		auto& victimTelemetry = telemetryForStableIdentity(victimIdentity, observation.VictimRosterIndex, observation.Victim);
+		victimTelemetry.AdjudicatedDeaths++;
+		if (selfDeath)
+			victimTelemetry.AdjudicatedSelfDeaths++;
+		else if (environmentalDeath)
+			victimTelemetry.AdjudicatedEnvironmentalDeaths++;
+		else if (externalDeath)
+			victimTelemetry.AdjudicatedExternalDeaths++;
+		if (!observation.DamageMediated)
+			victimTelemetry.AdjudicatedDirectDeaths++;
+	}
+	if (opponentDeath)
+		telemetryForStableIdentity(killerIdentity, observation.KillerRosterIndex, observation.Killer).AdjudicatedOpponentKills++;
+	else if (!participantVictim && participantKiller)
+		telemetryForStableIdentity(killerIdentity, observation.KillerRosterIndex, observation.Killer).AdjudicatedExternalKills++;
+	float victimDeathsAfter = observation.VictimDeathsBefore;
+	float victimScoreAfter = observation.VictimScoreBefore;
+	float killerScoreAfter = observation.KillerScoreBefore;
+	if (UPlayerReplicationInfo* victimPri = observation.Victim->PlayerReplicationInfo())
+	{
+		victimDeathsAfter = victimPri->Deaths();
+		victimScoreAfter = victimPri->Score();
+	}
+	if (observation.Killer)
+		if (UPlayerReplicationInfo* killerPri = observation.Killer->PlayerReplicationInfo())
+			killerScoreAfter = killerPri->Score();
+	Instance->WriteEvent("death_adjudicated", {
+		{ "death_id", ToString(observation.Id) },
+		{ "damage_id", ToString(observation.DamageId) },
+		{ "victim", victimIdentity },
+		{ "killer", killerIdentity.empty() ? "None" : killerIdentity },
+		{ "victim_roster_index", ToString(observation.VictimRosterIndex) },
+		{ "killer_roster_index", ToString(observation.KillerRosterIndex) },
+		{ "classification", selfDeath ? "self" : (opponentDeath ? "participant_opponent" :
+			(environmentalDeath ? "environment_null" : "external_nonparticipant")) },
+		{ "damage_mediated", observation.DamageMediated ? "true" : "false" },
+		{ "damage_type", observation.DamageType },
+		{ "victim_deaths_before", ToString(observation.VictimDeathsBefore) },
+		{ "victim_deaths_after", ToString(victimDeathsAfter) },
+		{ "victim_score_before", ToString(observation.VictimScoreBefore) },
+		{ "victim_score_after", ToString(victimScoreAfter) },
+		{ "killer_score_before", ToString(observation.KillerScoreBefore) },
+		{ "killer_score_after", ToString(killerScoreAfter) }
+	});
 }
 
 std::string BotBenchmark::WeaponMode(UWeapon* weapon)
@@ -1537,32 +1671,71 @@ void BotBenchmark::RecordDamage(UPawn* victim, const DamageObservation& observat
 		? std::max(0, observation.HealthBefore - std::max(healthAfter, 0))
 		: 0;
 	const bool fatal = observation.HealthBefore > 0 && healthAfter <= 0;
-	const bool selfDamage = observation.Instigator == victim;
-	const bool opponentDamage = observation.Instigator && observation.Instigator != victim;
-	const std::string victimIdentity = PawnIdentity(victim);
-	const std::string instigatorIdentity = PawnIdentity(observation.Instigator);
+	const std::string& victimIdentity = observation.VictimIdentity;
+	const std::string& instigatorIdentity = observation.InstigatorIdentity;
+	const bool participantVictim = observation.VictimRosterIndex >= 0;
+	const bool participantInstigator = observation.InstigatorRosterIndex >= 0;
+	const bool selfDamage = participantVictim && observation.Instigator == victim;
+	const bool opponentDamage = participantVictim && participantInstigator && observation.Instigator != victim;
+	const bool environmentalDamage = participantVictim && !observation.Instigator;
+	const bool externalDamageTaken = participantVictim && observation.Instigator && !participantInstigator;
+	const bool externalDamageDealt = !participantVictim && participantInstigator;
 	const std::string sourceClass = ClassName(observation.Source);
-
-	if (victim->IsA("Bot") && observation.HealthBefore > 0)
+	auto telemetryForStableIdentity = [&](const std::string& identity, int rosterIndex, UPawn* pawn) -> BotTelemetry&
 	{
-		auto& victimTelemetry = TelemetryForPawn(victim);
+		auto& telemetry = Telemetry[identity];
+		telemetry.Identity = identity;
+		telemetry.RosterIndex = rosterIndex;
+		auto requested = RequestedSkillByIdentity.find(identity);
+		if (requested != RequestedSkillByIdentity.end())
+			telemetry.RequestedSkill = requested->second;
+		auto profile = ProfileIdByIdentity.find(identity);
+		if (profile != ProfileIdByIdentity.end())
+			telemetry.ProfileId = profile->second;
+		if (pawn)
+		{
+			telemetry.LastActor = pawn->Name.ToString();
+			if (UPlayerReplicationInfo* pri = pawn->PlayerReplicationInfo())
+				telemetry.PlayerName = pri->PlayerName();
+		}
+		return telemetry;
+	};
+
+	if (participantVictim && observation.HealthBefore > 0)
+	{
+		auto& victimTelemetry = telemetryForStableIdentity(victimIdentity, observation.VictimRosterIndex, victim);
 		victimTelemetry.DamageEventsTaken++;
 		victimTelemetry.ExactDamageTaken += effectiveHealthDamage;
+		if (environmentalDamage)
+			victimTelemetry.ExactEnvironmentalDamageTaken += effectiveHealthDamage;
+		else if (externalDamageTaken)
+			victimTelemetry.ExactExternalDamageTaken += effectiveHealthDamage;
 		if (fatal)
+		{
 			victimTelemetry.FatalDamageDeaths++;
+			if (selfDamage)
+				victimTelemetry.SelfFatalDeaths++;
+			else if (environmentalDamage)
+				victimTelemetry.EnvironmentalFatalDeaths++;
+			else if (externalDamageTaken)
+				victimTelemetry.ExternalFatalDamageDeaths++;
+		}
 	}
-	if (observation.Instigator && observation.Instigator->IsA("Bot") && observation.HealthBefore > 0)
+	if (participantInstigator && observation.HealthBefore > 0)
 	{
-		auto& instigatorTelemetry = TelemetryForPawn(observation.Instigator);
+		auto& instigatorTelemetry = telemetryForStableIdentity(
+			instigatorIdentity, observation.InstigatorRosterIndex, observation.Instigator);
 		if (selfDamage)
 			instigatorTelemetry.ExactSelfDamage += effectiveHealthDamage;
-		else
+		else if (opponentDamage)
 		{
 			instigatorTelemetry.DamageEventsDealt++;
 			instigatorTelemetry.ExactDamageDealt += effectiveHealthDamage;
 			if (fatal)
 				instigatorTelemetry.FatalDamageKills++;
 		}
+		else if (externalDamageDealt)
+			instigatorTelemetry.ExactExternalDamageDealt += effectiveHealthDamage;
 	}
 
 	if (opponentDamage && observation.HealthBefore > 0)
@@ -1592,7 +1765,7 @@ void BotBenchmark::RecordDamage(UPawn* victim, const DamageObservation& observat
 				hitscan.SelfHealthDamage += effectiveHealthDamage;
 	}
 
-	WriteEvent("damage", {
+	std::map<std::string, std::string> damageFields = {
 		{ "victim", victimIdentity },
 		{ "victim_actor", ObjectName(victim) },
 		{ "instigator", instigatorIdentity.empty() ? "None" : instigatorIdentity },
@@ -1606,7 +1779,16 @@ void BotBenchmark::RecordDamage(UPawn* victim, const DamageObservation& observat
 		{ "effective_health_damage", ToString(effectiveHealthDamage) },
 		{ "self_damage", selfDamage ? "true" : "false" },
 		{ "fatal", fatal ? "true" : "false" }
-	});
+	};
+	if (Config.Scenario == "skill-qualification")
+	{
+		damageFields["damage_id"] = ToString(observation.Id);
+		damageFields["victim_roster_index"] = ToString(observation.VictimRosterIndex);
+		damageFields["instigator_roster_index"] = ToString(observation.InstigatorRosterIndex);
+		damageFields["damage_origin"] = selfDamage ? "self" : (opponentDamage ? "opponent" :
+			(environmentalDamage ? "environment_null" : "external_nonparticipant"));
+	}
+	WriteEvent("damage", damageFields);
 }
 
 void BotBenchmark::UpdateTelemetry(const PawnSnapshot& snapshot, const PawnSnapshot* previous)
@@ -1621,6 +1803,8 @@ void BotBenchmark::UpdateTelemetry(const PawnSnapshot& snapshot, const PawnSnaps
 		telemetry.PlayerName = snapshot.PlayerName;
 		telemetry.LastActor = snapshot.Name;
 		telemetry.RequestedSkill = snapshot.RequestedSkill;
+		telemetry.RosterIndex = snapshot.RosterIndex;
+		telemetry.ProfileId = snapshot.ProfileId;
 		telemetry.FirstObservedTick = Tick;
 		telemetry.InitialWeaponCount = snapshot.WeaponCount;
 		telemetry.InitialWeaponClasses = snapshot.WeaponClasses;
@@ -1794,6 +1978,9 @@ void BotBenchmark::UpdateTelemetry(const PawnSnapshot& snapshot, const PawnSnaps
 
 	telemetry.PlayerName = snapshot.PlayerName;
 	telemetry.LastActor = snapshot.Name;
+	telemetry.RequestedSkill = snapshot.RequestedSkill;
+	telemetry.RosterIndex = snapshot.RosterIndex;
+	telemetry.ProfileId = snapshot.ProfileId;
 	telemetry.LastScore = snapshot.Score;
 	telemetry.MaximumWeaponCount = std::max(telemetry.MaximumWeaponCount, snapshot.WeaponCount);
 	telemetry.MaximumUsefulAmmo = std::max(telemetry.MaximumUsefulAmmo, snapshot.UsefulAmmoTotal);
@@ -2060,8 +2247,21 @@ void BotBenchmark::WriteSummary(Engine* engine, const std::string& status, const
 		item["damage_dealt_exact"].set_number(telemetry.ExactDamageDealt);
 		item["damage_taken_exact"].set_number(telemetry.ExactDamageTaken);
 		item["self_damage_exact"].set_number(telemetry.ExactSelfDamage);
+		item["environmental_damage_taken_exact"].set_number(telemetry.ExactEnvironmentalDamageTaken);
+		item["external_damage_taken_exact"].set_number(telemetry.ExactExternalDamageTaken);
+		item["external_damage_dealt_exact"].set_number(telemetry.ExactExternalDamageDealt);
 		item["fatal_damage_kills_exact"].set_number(static_cast<double>(telemetry.FatalDamageKills));
 		item["fatal_damage_deaths_exact"].set_number(static_cast<double>(telemetry.FatalDamageDeaths));
+		item["self_fatal_damage_deaths_exact"].set_number(static_cast<double>(telemetry.SelfFatalDeaths));
+		item["environmental_fatal_damage_deaths_exact"].set_number(static_cast<double>(telemetry.EnvironmentalFatalDeaths));
+		item["external_fatal_damage_deaths_exact"].set_number(static_cast<double>(telemetry.ExternalFatalDamageDeaths));
+		item["adjudicated_deaths_exact"].set_number(static_cast<double>(telemetry.AdjudicatedDeaths));
+		item["adjudicated_opponent_kills_exact"].set_number(static_cast<double>(telemetry.AdjudicatedOpponentKills));
+		item["adjudicated_self_deaths_exact"].set_number(static_cast<double>(telemetry.AdjudicatedSelfDeaths));
+		item["adjudicated_environmental_deaths_exact"].set_number(static_cast<double>(telemetry.AdjudicatedEnvironmentalDeaths));
+		item["adjudicated_external_deaths_exact"].set_number(static_cast<double>(telemetry.AdjudicatedExternalDeaths));
+		item["adjudicated_external_kills_exact"].set_number(static_cast<double>(telemetry.AdjudicatedExternalKills));
+		item["adjudicated_direct_deaths_exact"].set_number(static_cast<double>(telemetry.AdjudicatedDirectDeaths));
 		JsonValue combatByWeapon = JsonValue::array();
 		for (const auto& [weaponMode, combat] : telemetry.WeaponCombatStats)
 		{

@@ -35,6 +35,7 @@ def write_trace(root: Path, *, explicit: bool = True, bad_profile: bool = False)
             actual = "Kragoth" if bad_profile and index == 0 else name
             events.append(event(len(events), "bot_skill_configured", {
                 "roster_index": str(index), "requested_profile_name": name,
+                "identity": f"pri:{index + 1}",
                 "actual_profile_name": actual, "bot_config_class": "Botpack.ChallengeBotInfo",
                 "profile_id": f"Botpack.ChallengeBotInfo|name={actual}",
                 "requested_external_skill": str(skill), "mapping_valid": "true",

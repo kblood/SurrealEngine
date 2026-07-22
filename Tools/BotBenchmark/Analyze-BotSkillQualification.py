@@ -26,7 +26,7 @@ from typing import Any, Callable, Iterable
 
 ORIENTATIONS = {"higher_candidate", "lower_candidate"}
 DIGEST_RE = re.compile(r"^[0-9a-f]{16}$")
-TOOL_VERSION = 2
+TOOL_VERSION = 3
 ADJACENT_FAMILY = {(tier, tier - 1) for tier in range(1, 8)}
 QUALIFICATION_PROTOCOL_ID = "surreal-bot-skill-qualification-v1"
 QUALIFICATION_MAPS = ("DM-Morbias][", "DM-Deck16][", "DM-Phobos")
@@ -40,6 +40,7 @@ QUALIFICATION_TICKS = 5400
 QUALIFICATION_FIXED_DELTA = 1.0 / 60.0
 QUALIFICATION_SECONDS = 90.0
 QUALIFICATION_GAME_CLASS = "Botpack.DeathMatchPlus"
+QUALIFICATION_CONTENT_SCOPE = "exact-ten-required-files plus standard UE1 loadable-package closure"
 QUALIFICATION_CONTENT_PATHS = (
     "System/Core.u",
     "System/Engine.u",
@@ -63,8 +64,21 @@ CRITICAL_FIELDS = (
     "candidate_damage_dealt_exact",
     "opponent_damage_dealt_exact",
     "self_damage_exact_total",
+    "environmental_damage_exact_total",
+    "external_damage_taken_exact_total",
+    "external_damage_dealt_exact_total",
     "fatal_damage_kills_exact_total",
     "fatal_damage_deaths_exact_total",
+    "self_fatal_damage_deaths_exact_total",
+    "environmental_fatal_damage_deaths_exact_total",
+    "external_fatal_damage_deaths_exact_total",
+    "adjudicated_deaths_exact_total",
+    "adjudicated_opponent_kills_exact_total",
+    "adjudicated_self_deaths_exact_total",
+    "adjudicated_environmental_deaths_exact_total",
+    "adjudicated_external_deaths_exact_total",
+    "adjudicated_external_kills_exact_total",
+    "adjudicated_direct_deaths_exact_total",
     "hitscan_shots_total",
     "hitscan_hits_total",
     "projectile_launches_total",
@@ -80,6 +94,7 @@ REPETITION_EQUIVALENCE_FIELDS = CRITICAL_FIELDS + (
     "engine_binary_sha256", "content_manifest_sha256", "candidate_profile_id", "opponent_profile_id",
     "damage_dealt_exact_total", "damage_taken_exact_total", "pri_deaths_total", "final_score_total",
     "candidate_score_margin", "candidate_death_advantage", "hitscan_accuracy", "projectile_finalized_accuracy",
+    "events_sha256", "summary_sha256",
 )
 
 
@@ -102,6 +117,7 @@ class InputSpec:
     higher_tier: int
     lower_tier: int
     orientation: str
+    sha256: str | None = None
 
 
 def require_number(row: dict[str, Any], field: str, context: str) -> float:
@@ -214,6 +230,8 @@ def validate_content_manifest(path: Path, game_root: Path, context: str) -> int:
         raise QualificationError(f"{context}: content manifest must be readable JSON") from exc
     if not isinstance(manifest, dict) or type(manifest.get("schema")) is not int or manifest["schema"] != 1:
         raise QualificationError(f"{context}: content manifest must be an object with integer schema=1")
+    if manifest.get("protocol_id") != QUALIFICATION_PROTOCOL_ID or manifest.get("scope") != QUALIFICATION_CONTENT_SCOPE:
+        raise QualificationError(f"{context}: content manifest protocol/scope mismatch")
     packages = manifest.get("packages")
     if not isinstance(packages, list):
         raise QualificationError(f"{context}: content manifest packages must be an array")
@@ -249,7 +267,43 @@ def validate_content_manifest(path: Path, game_root: Path, context: str) -> int:
             f"{context}: content manifest must contain the exact protocol-required logical path set; "
             f"missing={missing}, extra={extra}"
         )
-    return len(packages)
+    closure = manifest.get("content_closure")
+    if not isinstance(closure, list):
+        raise QualificationError(f"{context}: content manifest content_closure must be an array")
+    expected_closure: set[str] = set()
+    for directory_name, extension in (
+        ("System", ".u"), ("Textures", ".utx"), ("Sounds", ".uax"), ("Music", ".umx")
+    ):
+        casefold_matches = [entry for entry in game_root.iterdir() if entry.name.casefold() == directory_name.casefold()]
+        exact_matches = [entry for entry in casefold_matches if entry.name == directory_name]
+        if len(casefold_matches) != 1 or len(exact_matches) != 1:
+            raise QualificationError(f"{context}: content directory is missing or has noncanonical casing: {directory_name}")
+        for entry in exact_matches[0].iterdir():
+            if entry.is_file() and entry.suffix.casefold() == extension:
+                expected_closure.add(f"{directory_name}/{entry.name}")
+    expected_closure.update((
+        "System/SE-User.ini", "System/SE-UnrealTournament.ini",
+        "Maps/DM-Morbias][.unr", "Maps/DM-Deck16][.unr", "Maps/DM-Phobos.unr",
+    ))
+    seen_closure: set[str] = set()
+    for index, package in enumerate(closure):
+        package_context = f"{context}/content_closure[{index}]"
+        if not isinstance(package, dict) or not isinstance(package.get("path"), str):
+            raise QualificationError(f"{package_context}: closure identity must contain a string path")
+        logical_path = package["path"]
+        if logical_path in seen_closure:
+            raise QualificationError(f"{package_context}: duplicate closure identity")
+        seen_closure.add(logical_path)
+        package_path = resolve_protocol_content_file(game_root, logical_path, package_context)
+        expected_sha = require_sha256(package.get("sha256"), "sha256", package_context)
+        if sha256_file(package_path) != expected_sha:
+            raise QualificationError(f"{package_context}: closure SHA-256 does not match the declared file")
+    if seen_closure != expected_closure:
+        raise QualificationError(
+            f"{context}: content closure differs from live standard UE1 package inventory; "
+            f"missing={sorted(expected_closure - seen_closure)}, extra={sorted(seen_closure - expected_closure)}"
+        )
+    return len(closure)
 
 
 def optional_number(value: Any) -> float | None:
@@ -335,7 +389,7 @@ def exact_binomial_upper_tail(wins: int, trials: int) -> float:
 
 def load_manifest(path: Path) -> tuple[list[InputSpec], dict[str, Any]]:
     root = json.loads(path.read_text(encoding="utf-8-sig"))
-    if not isinstance(root, dict) or root.get("schema") != 1:
+    if not isinstance(root, dict) or type(root.get("schema")) is not int or root["schema"] != 1:
         raise QualificationError("manifest must be an object with schema=1")
     mode = str(root.get("mode", "qualification"))
     if mode not in {"qualification", "synthetic_test"}:
@@ -368,7 +422,12 @@ def load_manifest(path: Path) -> tuple[list[InputSpec], dict[str, Any]]:
             matrix_path /= "matrix-results.json"
         if not matrix_path.is_file():
             raise QualificationError(f"{context} matrix does not exist: {matrix_path}")
-        specs.append(InputSpec(label, matrix_path, higher, lower, orientation))
+        declared_sha = item.get("sha256")
+        if mode == "qualification":
+            declared_sha = require_sha256(declared_sha, "sha256", context)
+        elif declared_sha is not None:
+            declared_sha = require_sha256(declared_sha, "sha256", context)
+        specs.append(InputSpec(label, matrix_path, higher, lower, orientation, declared_sha))
     if mode == "qualification":
         observed = [(spec.higher_tier, spec.lower_tier, spec.orientation) for spec in specs]
         expected = [(high, low, orientation) for high, low in sorted(ADJACENT_FAMILY)
@@ -441,13 +500,21 @@ def validate_row_semantics(row: dict[str, Any], context: str, *, qualification: 
         require_integer(row, field, context)
     for field in (
         "candidate_deaths", "opponent_deaths", "fatal_damage_kills_exact_total",
-        "fatal_damage_deaths_exact_total", "hitscan_shots_total", "hitscan_hits_total",
+        "fatal_damage_deaths_exact_total", "self_fatal_damage_deaths_exact_total",
+        "environmental_fatal_damage_deaths_exact_total", "external_fatal_damage_deaths_exact_total",
+        "adjudicated_external_deaths_exact_total", "adjudicated_external_kills_exact_total",
+        "hitscan_shots_total", "hitscan_hits_total",
+        "adjudicated_deaths_exact_total", "adjudicated_opponent_kills_exact_total",
+        "adjudicated_self_deaths_exact_total", "adjudicated_environmental_deaths_exact_total",
+        "adjudicated_direct_deaths_exact_total",
         "projectile_launches_total", "projectile_hits_finalized_total",
         "projectile_misses_finalized_total", "stuck_events_proxy_total",
     ):
         require_integer(row, field, context, 0)
     for field in (
         "candidate_damage_dealt_exact", "opponent_damage_dealt_exact", "self_damage_exact_total",
+        "environmental_damage_exact_total",
+        "external_damage_taken_exact_total", "external_damage_dealt_exact_total",
         "firing_intent_seconds_total", "no_progress_seconds_proxy_total",
     ):
         require_nonnegative_number(row, field, context)
@@ -484,27 +551,52 @@ def validate_row_semantics(row: dict[str, Any], context: str, *, qualification: 
     dealt = require_nonnegative_number(row, "damage_dealt_exact_total", context)
     taken = require_nonnegative_number(row, "damage_taken_exact_total", context)
     self_damage = require_nonnegative_number(row, "self_damage_exact_total", context)
+    environmental_damage = require_nonnegative_number(row, "environmental_damage_exact_total", context)
+    external_damage_taken = require_nonnegative_number(row, "external_damage_taken_exact_total", context)
+    external_damage_dealt = require_nonnegative_number(row, "external_damage_dealt_exact_total", context)
     participant_damage = require_number(row, "candidate_damage_dealt_exact", context) + require_number(
         row, "opponent_damage_dealt_exact", context
     )
     if not math.isclose(dealt, participant_damage, rel_tol=0, abs_tol=1e-9):
         raise QualificationError(f"{context}: participant damage does not reconcile with damage_dealt_exact_total")
-    if not math.isclose(taken, dealt + self_damage, rel_tol=0, abs_tol=1e-9):
-        raise QualificationError(f"{context}: damage taken does not reconcile with dealt plus self damage")
-    pri_deaths = require_integer(row, "pri_deaths_total", context, 0)
+    if external_damage_taken != 0 or external_damage_dealt != 0:
+        raise QualificationError(f"{context}: qualification forbids external/nonparticipant damage")
+    if not math.isclose(taken, dealt + self_damage + environmental_damage + external_damage_taken, rel_tol=0, abs_tol=1e-9):
+        raise QualificationError(
+            f"{context}: damage taken does not reconcile with dealt plus self and environmental damage"
+        )
+    require_integer(row, "pri_deaths_total", context, 0)
     participant_deaths = require_integer(row, "candidate_deaths", context, 0) + require_integer(
         row, "opponent_deaths", context, 0
     )
-    if pri_deaths != participant_deaths:
-        raise QualificationError(f"{context}: participant deaths do not reconcile with pri_deaths_total")
+    adjudicated_deaths = require_integer(row, "adjudicated_deaths_exact_total", context, 0)
+    if adjudicated_deaths != participant_deaths:
+        raise QualificationError(f"{context}: participant deaths do not reconcile with adjudicated deaths")
+    adjudicated_kills = require_integer(row, "adjudicated_opponent_kills_exact_total", context, 0)
+    adjudicated_self = require_integer(row, "adjudicated_self_deaths_exact_total", context, 0)
+    adjudicated_environment = require_integer(row, "adjudicated_environmental_deaths_exact_total", context, 0)
+    adjudicated_external = require_integer(row, "adjudicated_external_deaths_exact_total", context, 0)
+    adjudicated_external_kills = require_integer(row, "adjudicated_external_kills_exact_total", context, 0)
+    adjudicated_direct = require_integer(row, "adjudicated_direct_deaths_exact_total", context, 0)
+    if adjudicated_external != 0 or adjudicated_external_kills != 0:
+        raise QualificationError(f"{context}: qualification forbids external/nonparticipant death outcomes")
+    if adjudicated_deaths != adjudicated_kills + adjudicated_self + adjudicated_environment + adjudicated_external:
+        raise QualificationError(f"{context}: adjudicated death partition does not reconcile")
+    if adjudicated_direct > adjudicated_deaths:
+        raise QualificationError(f"{context}: direct adjudicated deaths exceed all adjudicated deaths")
     fatal_deaths = require_integer(row, "fatal_damage_deaths_exact_total", context, 0)
     fatal_kills = require_integer(row, "fatal_damage_kills_exact_total", context, 0)
-    if fatal_deaths != fatal_kills:
-        raise QualificationError(f"{context}: fatal damage kills and deaths do not reconcile")
-    if fatal_deaths > pri_deaths:
-        raise QualificationError(f"{context}: fatal damage deaths exceed PRI deaths")
-    if fatal_kills > pri_deaths:
-        raise QualificationError(f"{context}: fatal damage kills exceed PRI deaths")
+    self_fatal_deaths = require_integer(row, "self_fatal_damage_deaths_exact_total", context, 0)
+    environmental_fatal_deaths = require_integer(row, "environmental_fatal_damage_deaths_exact_total", context, 0)
+    external_fatal_deaths = require_integer(row, "external_fatal_damage_deaths_exact_total", context, 0)
+    if fatal_deaths != fatal_kills + self_fatal_deaths + environmental_fatal_deaths + external_fatal_deaths:
+        raise QualificationError(
+            f"{context}: fatal deaths do not reconcile with opponent kills plus self/environmental deaths"
+        )
+    if fatal_deaths + adjudicated_direct != adjudicated_deaths:
+        raise QualificationError(
+            f"{context}: damage-mediated fatal deaths plus direct deaths do not reconcile with adjudicated deaths"
+        )
     score_total = require_integer(row, "final_score_total", context)
     candidate_score = require_integer(row, "candidate_score", context)
     opponent_score = require_integer(row, "opponent_score", context)
@@ -541,12 +633,25 @@ def validate_qualification_root(spec: InputSpec, root: dict[str, Any]) -> dict[s
     runs = root.get("runs")
     if not isinstance(configuration, dict) or not isinstance(totals, dict) or not isinstance(cases, list) or not isinstance(runs, list):
         raise QualificationError(f"{context}: qualification requires configuration, totals, cases, and runs")
+    for field, expected in (
+        ("protocol_id", QUALIFICATION_PROTOCOL_ID), ("game_class", QUALIFICATION_GAME_CLASS),
+        ("scenario", "skill-qualification"),
+    ):
+        if root.get(field) != expected:
+            raise QualificationError(f"{context}: root {field} must equal {expected!r}")
 
     engine_path = resolve_declared_file(spec.path, root.get("engine_path"), "engine_path", context)
     engine_sha = require_sha256(root.get("engine_binary_sha256"), "engine_binary_sha256", context)
     if sha256_file(engine_path) != engine_sha:
         raise QualificationError(f"{context}: engine binary SHA-256 does not match the declared file")
+    if root.get("engine_binary_sha256_after") != engine_sha or root.get("immutable_identity_reverified") is not True:
+        raise QualificationError(f"{context}: engine/content identity was not reverified unchanged after capture")
     game_root = resolve_declared_directory(spec.path, root.get("game_root"), "game_root", context)
+    batch_root = resolve_declared_directory(spec.path, root.get("batch_root"), "batch_root", context)
+    if spec.path.resolve().parent != batch_root:
+        raise QualificationError(f"{context}: matrix-results.json must be directly inside its declared batch_root")
+    if root.get("content_manifest_path") != "content-manifest.json":
+        raise QualificationError(f"{context}: content_manifest_path must be matrix-relative content-manifest.json")
     content_path = resolve_declared_file(spec.path, root.get("content_manifest_path"), "content_manifest_path", context)
     content_sha = require_sha256(root.get("content_manifest_sha256"), "content_manifest_sha256", context)
     if sha256_file(content_path) != content_sha:
@@ -570,7 +675,19 @@ def validate_qualification_root(spec: InputSpec, root: dict[str, Any]) -> dict[s
             raise QualificationError(f"{context}: configuration.{field} must equal {expected}")
     require_exact_number(configuration, "seconds", QUALIFICATION_SECONDS, f"{context}/configuration")
     require_exact_number(configuration, "fixed_delta", QUALIFICATION_FIXED_DELTA, f"{context}/configuration")
+    if configuration.get("candidate_profile_name") != "Loque" or configuration.get("opponent_profile_name") != "Tamerlane":
+        raise QualificationError(f"{context}: qualification profiles must be exact Loque/Tamerlane")
+    for field, expected in (("engine_binary_sha256", engine_sha), ("content_manifest_sha256", content_sha)):
+        if configuration.get(field) != expected:
+            raise QualificationError(f"{context}: configuration.{field} must match the matrix root")
+    candidate_profile_id = configuration.get("candidate_profile_id")
+    opponent_profile_id = configuration.get("opponent_profile_id")
+    if not isinstance(candidate_profile_id, str) or not candidate_profile_id or not isinstance(opponent_profile_id, str) \
+            or not opponent_profile_id or candidate_profile_id == opponent_profile_id:
+        raise QualificationError(f"{context}: configuration requires distinct stable profile IDs")
     runs_per_case = require_integer(configuration, "runs_per_case", f"{context}/configuration", 1)
+    if runs_per_case != 1:
+        raise QualificationError(f"{context}: Q1 qualification requires runs_per_case=1")
     expected_keys = {(map_name, seed) for map_name in QUALIFICATION_MAPS for seed in QUALIFICATION_SEEDS}
 
     expected_case_count = len(expected_keys)
@@ -601,6 +718,12 @@ def validate_qualification_root(spec: InputSpec, root: dict[str, Any]) -> dict[s
             raise QualificationError(f"{case_context}: case skill metadata mismatch")
         if case.get("fixture_id") != "":
             raise QualificationError(f"{case_context}: fixtures are forbidden by the qualification protocol")
+        for field, expected in (
+            ("candidate_profile_name", "Loque"), ("opponent_profile_name", "Tamerlane"),
+            ("candidate_profile_id", candidate_profile_id), ("opponent_profile_id", opponent_profile_id),
+        ):
+            if case.get(field) != expected:
+                raise QualificationError(f"{case_context}: {field} does not match canonical matrix profile identity")
         case_id = case.get("case_id")
         if not isinstance(case_id, str) or not case_id or case_id in case_ids:
             raise QualificationError(f"{case_context}: case_id must be non-empty and unique")
@@ -644,10 +767,141 @@ def validate_qualification_root(spec: InputSpec, root: dict[str, Any]) -> dict[s
         validate_row_semantics(row, run_context, qualification=True)
         if row.get("engine_binary_sha256") != engine_sha or row.get("content_manifest_sha256") != content_sha:
             raise QualificationError(f"{run_context}: run immutable identity does not match matrix root")
+        for field, expected in (
+            ("candidate_profile_name", "Loque"), ("opponent_profile_name", "Tamerlane"),
+            ("candidate_profile_id", candidate_profile_id), ("opponent_profile_id", opponent_profile_id),
+        ):
+            if row.get(field) != expected:
+                raise QualificationError(f"{run_context}: {field} does not match canonical matrix profile identity")
+        expected_evidence_layout = {
+            "events_path": f"{run_id}/events.jsonl",
+            "summary_path": f"{run_id}/summary.json",
+            "invocation_path": f"{run_id}/invocation.txt",
+            "trace_validation_path": f"{run_id}/trace-validation.json",
+        }
+        resolved_evidence: dict[str, Path] = {}
+        evidence_hashes: dict[str, str] = {}
+        for path_field, sha_field in (
+            ("events_path", "events_sha256"), ("summary_path", "summary_sha256"),
+            ("invocation_path", "invocation_sha256"), ("trace_validation_path", "trace_validation_sha256"),
+        ):
+            declared_evidence = row.get(path_field)
+            if not isinstance(declared_evidence, str) or Path(declared_evidence).is_absolute() \
+                    or ".." in Path(declared_evidence).parts:
+                raise QualificationError(f"{run_context}: {path_field} must be a contained matrix-relative path")
+            if declared_evidence != expected_evidence_layout[path_field]:
+                raise QualificationError(
+                    f"{run_context}: {path_field} must use the exact per-run evidence layout "
+                    f"{expected_evidence_layout[path_field]!r}"
+                )
+            evidence_path = resolve_declared_file(spec.path, row.get(path_field), path_field, run_context)
+            try:
+                evidence_path.relative_to(batch_root)
+            except ValueError as exc:
+                raise QualificationError(f"{run_context}: {path_field} escapes the declared batch_root") from exc
+            expected_evidence_sha = require_sha256(row.get(sha_field), sha_field, run_context)
+            if sha256_file(evidence_path) != expected_evidence_sha:
+                raise QualificationError(f"{run_context}: {path_field} SHA-256 does not match the declared file")
+            resolved_evidence[path_field] = evidence_path
+            evidence_hashes[sha_field] = expected_evidence_sha
+        if row.get("trace_validation_passed") is not True:
+            raise QualificationError(f"{run_context}: strict qualification trace validation did not pass")
+        try:
+            trace_report = json.loads(resolved_evidence["trace_validation_path"].read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise QualificationError(f"{run_context}: trace validation report must be readable JSON") from exc
+        if not isinstance(trace_report, dict) or trace_report.get("passed") is not True \
+                or trace_report.get("validation_mode") != "qualification" \
+                or trace_report.get("protocol_id") != QUALIFICATION_PROTOCOL_ID \
+                or trace_report.get("summary_validated") is not True:
+            raise QualificationError(f"{run_context}: trace validation report is not a passing report")
+        for field in ("events_sha256", "summary_sha256"):
+            if require_sha256(trace_report.get(field), field, f"{run_context}/trace_validation") \
+                    != evidence_hashes[field]:
+                raise QualificationError(
+                    f"{run_context}: trace validation {field} does not bind the declared raw evidence"
+                )
+        identity = trace_report.get("run_identity")
+        if not isinstance(identity, dict):
+            raise QualificationError(f"{run_context}: trace validation report lacks a bound run_identity")
+        expected_identity = {
+            "map": row["map"],
+            "seed": row["seed"],
+            "requested_skills": [candidate_skill, opponent_skill],
+            "requested_bot_names": ["Loque", "Tamerlane"],
+            "digest_fnv1a64": row["digest_fnv1a64"],
+            "scenario": "skill-qualification",
+            "requested_bots": 2,
+            "ticks": QUALIFICATION_TICKS,
+        }
+        for field, expected in expected_identity.items():
+            if identity.get(field) != expected:
+                raise QualificationError(
+                    f"{run_context}: trace validation run_identity.{field} does not match the matrix row"
+                )
+        trace_fixed_delta = require_number(
+            identity, "fixed_delta", f"{run_context}/trace_validation/run_identity"
+        )
+        # Event string fields use the engine's six-decimal formatter, so the
+        # bound raw identity is 0.016667 even though the matrix retains 1/60.
+        if not math.isclose(trace_fixed_delta, QUALIFICATION_FIXED_DELTA, rel_tol=0, abs_tol=5e-7):
+            raise QualificationError(
+                f"{run_context}: trace validation run_identity.fixed_delta does not match the protocol"
+            )
+        try:
+            summary_document = json.loads(resolved_evidence["summary_path"].read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise QualificationError(f"{run_context}: bound summary must be readable JSON") from exc
+        if not isinstance(summary_document, dict):
+            raise QualificationError(f"{run_context}: bound summary must be a JSON object")
+        for field, expected in (
+            ("map", row["map"]), ("seed", row["seed"]),
+            ("digest_fnv1a64", row["digest_fnv1a64"]),
+        ):
+            if str(summary_document.get(field)) != str(expected):
+                raise QualificationError(f"{run_context}: bound summary {field} does not match the matrix row")
+        metrics = summary_document.get("bot_metrics")
+        if not isinstance(metrics, list) or len(metrics) != 2 or any(not isinstance(metric, dict) for metric in metrics):
+            raise QualificationError(f"{run_context}: bound summary must contain exactly two bot_metrics objects")
+        metrics_by_roster: dict[int, dict[str, Any]] = {}
+        for metric in metrics:
+            roster_index = require_integer(metric, "roster_index", f"{run_context}/summary/bot_metrics", 0, 1)
+            if roster_index in metrics_by_roster:
+                raise QualificationError(f"{run_context}: bound summary has a duplicate bot_metrics roster index")
+            metrics_by_roster[roster_index] = metric
+        if set(metrics_by_roster) != {0, 1}:
+            raise QualificationError(f"{run_context}: bound summary lacks canonical bot_metrics roster indexes")
+        for roster_index, prefix, skill, profile_name, profile_id in (
+            (0, "candidate", candidate_skill, "Loque", candidate_profile_id),
+            (1, "opponent", opponent_skill, "Tamerlane", opponent_profile_id),
+        ):
+            metric = metrics_by_roster[roster_index]
+            metric_context = f"{run_context}/summary/bot_metrics[{roster_index}]"
+            for field, expected in (
+                ("requested_external_skill", skill), ("last_score", row[f"{prefix}_score"]),
+                ("adjudicated_deaths_exact", row[f"{prefix}_deaths"]),
+            ):
+                if require_integer(metric, field, metric_context) != expected:
+                    raise QualificationError(
+                        f"{run_context}: bound summary {prefix} {field} does not match the matrix row"
+                    )
+            if metric.get("player_name") != profile_name or metric.get("profile_id") != profile_id:
+                raise QualificationError(f"{run_context}: bound summary {prefix} profile identity mismatch")
+            observed_weapon_tick = metric.get("first_nonstarter_weapon_tick")
+            if observed_weapon_tick is not None:
+                require_integer(metric, "first_nonstarter_weapon_tick", metric_context, 0, QUALIFICATION_TICKS)
+            if observed_weapon_tick != row[f"{prefix}_first_nonstarter_weapon_tick"]:
+                raise QualificationError(f"{run_context}: bound summary {prefix} acquisition tick mismatch")
+            observed_damage = require_json_number(metric, "damage_dealt_exact", metric_context)
+            if observed_damage < 0:
+                raise QualificationError(f"{metric_context}: field 'damage_dealt_exact' must be nonnegative")
+            if not math.isclose(observed_damage, require_number(row, f"{prefix}_damage_dealt_exact", run_context),
+                                rel_tol=0, abs_tol=1e-9):
+                raise QualificationError(f"{run_context}: bound summary {prefix} damage does not match the matrix row")
     expected_repetitions = set(range(1, runs_per_case + 1))
     if set(repetitions) != expected_keys or any(value != expected_repetitions for value in repetitions.values()):
         raise QualificationError(f"{context}: runs do not cover every canonical case/repetition exactly once")
-    return {"engine_path": str(engine_path), "game_root": str(game_root),
+    return {"engine_path": str(engine_path), "game_root": str(game_root), "batch_root": str(batch_root),
             "content_manifest_path": str(content_path),
             "content_package_count": content_package_count}
 
@@ -733,6 +987,8 @@ def load_input(spec: InputSpec, mode: str = "synthetic_test") -> tuple[list[dict
                          "higher_tier": spec.higher_tier, "lower_tier": spec.lower_tier,
                          "_provenance": row_provenance})
         collapsed += len(repetitions) - 1
+    if spec.sha256 is not None and sha256_file(spec.path) != spec.sha256:
+        raise QualificationError(f"{spec.label}: matrix SHA-256 does not match outer manifest declaration")
     return selected, {
         "label": spec.label,
         "path": str(spec.path),
@@ -881,7 +1137,15 @@ def join_crossovers(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         low_weapon = [value["low_first_weapon_seconds"] for value in role_values.values()
                       if value["low_first_weapon_seconds"] is not None]
         exposure_fields = (
-            "self_damage_exact_total", "fatal_damage_kills_exact_total", "fatal_damage_deaths_exact_total",
+            "self_damage_exact_total", "environmental_damage_exact_total",
+            "fatal_damage_kills_exact_total", "fatal_damage_deaths_exact_total",
+            "self_fatal_damage_deaths_exact_total", "environmental_fatal_damage_deaths_exact_total",
+            "external_fatal_damage_deaths_exact_total", "external_damage_taken_exact_total",
+            "external_damage_dealt_exact_total",
+            "adjudicated_deaths_exact_total", "adjudicated_opponent_kills_exact_total",
+            "adjudicated_self_deaths_exact_total", "adjudicated_environmental_deaths_exact_total",
+            "adjudicated_external_deaths_exact_total", "adjudicated_external_kills_exact_total",
+            "adjudicated_direct_deaths_exact_total",
             "hitscan_shots_total", "hitscan_hits_total", "projectile_launches_total",
             "projectile_hits_finalized_total", "projectile_misses_finalized_total",
             "firing_intent_seconds_total", "no_progress_seconds_proxy_total", "stuck_events_proxy_total",

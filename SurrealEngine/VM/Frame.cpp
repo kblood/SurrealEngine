@@ -233,6 +233,8 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 
 	UPawn* damageVictim = nullptr;
 	UWeapon* hitscanWeapon = nullptr;
+	UObject* killedGame = nullptr;
+	UPawn* killedVictim = nullptr;
 	if (BotBenchmark::IsActive() && func->Name == "TakeDamage")
 	{
 		damageVictim = UObject::TryCast<UPawn>(instance);
@@ -252,6 +254,16 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 		if (hitscanWeapon)
 			BotBenchmark::BeginHitscan(hitscanWeapon);
 	}
+	else if (BotBenchmark::IsActive() && func->Name == "Killed" && instance->IsA("GameInfo") && args.size() >= 2)
+	{
+		killedGame = instance;
+		UPawn* killer = UObject::TryCast<UPawn>(args[0].ToObject());
+		killedVictim = UObject::TryCast<UPawn>(args[1].ToObject());
+		const std::string damageType = args.size() >= 3 && args[2].GetType() != ExpressionValueType::Nothing
+			? args[2].ToName().ToString() : std::string();
+		if (killedVictim)
+			BotBenchmark::BeginKilled(killedGame, killer, killedVictim, damageType);
+	}
 
 	ExpressionValue result = AllFlags(func->FuncFlags, FunctionFlags::Native)
 		? CallNative(func, instance, std::move(args))
@@ -260,6 +272,8 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 		BotBenchmark::EndDamage(damageVictim);
 	if (hitscanWeapon)
 		BotBenchmark::EndHitscan(hitscanWeapon);
+	if (killedGame && killedVictim)
+		BotBenchmark::EndKilled(killedGame, killedVictim);
 	return result;
 }
 
