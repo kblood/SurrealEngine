@@ -123,13 +123,22 @@ extern "C"
 			return 0;
 		}
 
-		engine->tickCount++;
-		const float levelElapsed = engine->AdvanceGameFrame();
-		const Coords bodyRotation = Coords::Rotation(Rotator(0, engine->CameraRotation.Yaw, 0));
-		ViewFamily family = WebXR::BuildViewFamily(frame, engine->CameraLocation,
-			bodyRotation, WorldUnitsPerMeter, Recenter);
-		engine->RenderGameFrame(levelElapsed, family);
-		engine->FinishGameFrame(levelElapsed);
+		try
+		{
+			engine->tickCount++;
+			const float levelElapsed = engine->AdvanceGameFrame();
+			const Coords bodyRotation = Coords::Rotation(Rotator(0, engine->CameraRotation.Yaw, 0));
+			ViewFamily family = WebXR::BuildViewFamily(frame, engine->CameraLocation,
+				bodyRotation, WorldUnitsPerMeter, Recenter);
+			engine->RenderGameFrame(levelElapsed, family);
+			engine->FinishGameFrame(levelElapsed);
+		}
+		catch (...)
+		{
+			ReleaseFrameResources(device, binding.Target, texture, views, frame.Header.ViewCount, true);
+			WebXR::SetLastFrameError(WebXR::FrameError::RenderFailed);
+			return 0;
+		}
 
 		ReleaseFrameResources(device, binding.Target, texture, views, frame.Header.ViewCount, true);
 		WebXR::SetLastFrameError(WebXR::FrameError::None);
