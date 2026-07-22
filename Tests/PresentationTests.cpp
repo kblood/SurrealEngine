@@ -26,6 +26,12 @@ int main()
 	Check(plan.Layers.size() == 2, "updating a layer must not add a duplicate");
 	Check(plan.GetLayer(PresentationLayer::UserInterface).Target.Slot == 3, "layer target update was lost");
 	Check(!plan.GetLayer(PresentationLayer::World).Enabled, "disabled layer was re-enabled");
+	PresentationTargetBinding binding;
+	binding.Target = { 7 };
+	binding.Images.push_back({ reinterpret_cast<void*>(1), 1200, 1200 });
+	binding.Images.push_back({ reinterpret_cast<void*>(2), 1200, 1200 });
+	Check(binding.Target.Slot == 7 && binding.Images.size() == 2, "opaque presentation target binding was not retained");
+	Check(binding.Images[1].Width == 1200 && binding.Images[1].NativeHandle == reinterpret_cast<void*>(2), "presentation image metadata was not retained");
 
 	ViewDescription center;
 	center.Location = vec3(10.0f, 20.0f, 30.0f);

@@ -129,6 +129,10 @@ public:
 	// non-zero target slots and restore their state at the end of the layer.
 	virtual bool BeginPresentationLayer(const PresentationLayerDescription& layer) { return layer.Enabled && layer.Target.IsDefault(); }
 	virtual void EndPresentationLayer(const PresentationLayerDescription&) { }
+	virtual bool BindPresentationTarget(const PresentationTargetBinding&) { return false; }
+	virtual void UnbindPresentationTarget(PresentationTarget) { }
+	virtual bool BeginPresentationView(PresentationTarget target, size_t) { return target.IsDefault(); }
+	virtual void EndPresentationView(PresentationTarget, size_t) { }
 
 	bool ParseCommand(std::string* cmd, const std::string& keyword) { return false; }
 
