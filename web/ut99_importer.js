@@ -1,5 +1,5 @@
 /*
- * Legal, local-only UT99 data import for the redistributable Web build.
+ * Legal, local-only UE1 game-data import for the redistributable Web build.
  *
  * This module never uploads game data and never logs file contents. It stores
  * user-selected files in origin-private storage, then streams them into the
@@ -33,7 +33,24 @@
 		"ut-bin-amd64",
 		"ut-bin-x64",
 	];
-	const UT_EXECUTABLES = UT_EXECUTABLE_NAMES.map(name => name.toLowerCase());
+	const GAME_DEFINITIONS = Object.freeze({
+		ut99: Object.freeze({
+			id: "ut99",
+			name: "Unreal Tournament (1999)",
+			defaultMap: "DM-Deck16][",
+			executables: Object.freeze(UT_EXECUTABLE_NAMES.slice()),
+			requiredPackages: Object.freeze(["Core.u", "Engine.u", "Botpack.u"]),
+			ini: "UnrealTournament.ini",
+		}),
+		"unreal-gold": Object.freeze({
+			id: "unreal-gold",
+			name: "Unreal Gold",
+			defaultMap: "Vortex2",
+			executables: Object.freeze(["Unreal.exe"]),
+			requiredPackages: Object.freeze(["Core.u", "Engine.u", "UnrealShare.u", "UnrealI.u"]),
+			ini: "Unreal.ini",
+		}),
+	});
 
 	class ImportError extends Error {
 		constructor(code, message, details) {
@@ -112,7 +129,7 @@
 
 	async function entriesFromDirectoryHandle(rootHandle, onProgress) {
 		if (!rootHandle || rootHandle.kind !== "directory") {
-			throw new ImportError("INVALID_DIRECTORY", "Choose the Unreal Tournament installation folder.");
+			throw new ImportError("INVALID_DIRECTORY", "Choose a supported game installation folder.");
 		}
 		const entries = [];
 		let visited = 0;
@@ -137,7 +154,7 @@
 		return entries;
 	}
 
-	function validateEntries(entries) {
+	function normalizeEntries(entries) {
 		if (!Array.isArray(entries) || !entries.length) {
 			throw new ImportError("EMPTY_SELECTION", "The selected folder contains no files.");
 		}
@@ -157,7 +174,27 @@
 			normalized.push(entry);
 		}
 
-		const paths = new Set(byLowerPath.keys());
+		normalized.sort((a, b) => a.path.localeCompare(b.path));
+		return { normalized, paths: new Set(byLowerPath.keys()) };
+	}
+
+	function detectGame(paths, requestedGameId) {
+		if (requestedGameId) {
+			const requested = GAME_DEFINITIONS[requestedGameId];
+			if (!requested) throw new ImportError("UNSUPPORTED_GAME", "That game is not supported by this browser build.");
+			return requested;
+		}
+		const unreal = GAME_DEFINITIONS["unreal-gold"];
+		const unrealEvidence = paths.has("system/unreal.exe") || paths.has("system/unreal.ini") ||
+			paths.has("system/unreali.u") || paths.has("system/unrealshare.u");
+		return unrealEvidence ? unreal : GAME_DEFINITIONS.ut99;
+	}
+
+	function validateEntries(entries, requestedGameId) {
+		const normalizedResult = normalizeEntries(entries);
+		const normalized = normalizedResult.normalized;
+		const paths = normalizedResult.paths;
+		const game = detectGame(paths, requestedGameId);
 		const hasDirectory = name => Array.from(paths).some(path => path.startsWith(name.toLowerCase() + "/"));
 		const hasExtensionIn = (directory, extension) => Array.from(paths).some(path =>
 			path.startsWith(directory.toLowerCase() + "/") && path.endsWith(extension));
@@ -165,12 +202,13 @@
 		for (const directory of ["System", "Maps", "Textures", "Sounds", "Music"]) {
 			if (!hasDirectory(directory)) missing.push(directory + "/ directory");
 		}
-		for (const packageName of ["Core.u", "Engine.u", "Botpack.u"]) {
+		for (const packageName of game.requiredPackages) {
 			if (!paths.has("system/" + packageName.toLowerCase())) missing.push("System/" + packageName);
 		}
-		if (!paths.has("system/unrealtournament.ini")) missing.push("System/UnrealTournament.ini");
-		if (!UT_EXECUTABLES.some(name => paths.has("system/" + name) || paths.has("system64/" + name))) {
-			missing.push("a supported Unreal Tournament executable in System/ or System64/");
+		if (!paths.has("system/" + game.ini.toLowerCase())) missing.push("System/" + game.ini);
+		const executableNames = game.executables.map(name => name.toLowerCase());
+		if (!executableNames.some(name => paths.has("system/" + name) || paths.has("system64/" + name))) {
+			missing.push("a supported " + game.name + " executable in System/ or System64/");
 		}
 		if (!hasExtensionIn("Maps", ".unr")) missing.push("at least one Maps/*.unr map");
 		if (!hasExtensionIn("Textures", ".utx")) missing.push("at least one Textures/*.utx package");
@@ -178,14 +216,13 @@
 		if (!hasExtensionIn("Music", ".umx")) missing.push("at least one Music/*.umx package");
 		if (missing.length) {
 			throw new ImportError(
-				"MISSING_UT99_DATA",
-				"This does not look like a complete UT99 installation. Missing: " + missing.join(", ") + ". Select the folder that directly contains System, Maps, Textures, Sounds, and Music.",
+				game.id === "ut99" ? "MISSING_UT99_DATA" : "MISSING_GAME_DATA",
+				"This does not look like a complete " + game.name + " installation. Missing: " + missing.join(", ") + ". Select the folder that directly contains System, Maps, Textures, Sounds, and Music.",
 				{ missing: missing.slice() });
 		}
 
-		normalized.sort((a, b) => a.path.localeCompare(b.path));
 		const totalBytes = normalized.reduce((total, entry) => total + entry.size, 0);
-		return { entries: normalized, fileCount: normalized.length, totalBytes };
+		return { entries: normalized, fileCount: normalized.length, totalBytes, gameId: game.id, game };
 	}
 
 	function metadataFor(validation, backend, datasetId) {
@@ -195,6 +232,7 @@
 			datasetId,
 			createdAt: new Date().toISOString(),
 			backend,
+			gameId: validation.gameId || "ut99",
 			fileCount: validation.fileCount,
 			totalBytes: validation.totalBytes,
 			files: validation.entries.map(entry => ({ path: entry.path, size: entry.size })),
@@ -204,25 +242,27 @@
 	function validateMetadata(metadata) {
 		if (!metadata || metadata.schema !== SCHEMA_NAME || metadata.version !== SCHEMA_VERSION ||
 			typeof metadata.datasetId !== "string" || !Array.isArray(metadata.files)) {
-			throw new ImportError("STORAGE_SCHEMA", "Saved UT99 data uses an unsupported or corrupt storage schema. Clear it and import again.");
+			throw new ImportError("STORAGE_SCHEMA", "Saved game data uses an unsupported or corrupt storage schema. Clear it and import again.");
 		}
 		const entries = metadata.files.map(file => ({
 			path: canonicalizeRelativePath(file.path),
 			size: Number(file.size),
 			getBlob: async () => { throw new Error("loader not installed"); },
 		}));
-		const validation = validateEntries(entries);
+		const gameId = metadata.gameId || "ut99";
+		const validation = validateEntries(entries, gameId);
 		if (validation.fileCount !== metadata.fileCount || validation.totalBytes !== metadata.totalBytes) {
-			throw new ImportError("STORAGE_METADATA", "Saved UT99 data metadata is inconsistent. Clear it and import again.");
+			throw new ImportError("STORAGE_METADATA", "Saved game data metadata is inconsistent. Clear it and import again.");
 		}
 		return metadata;
 	}
 
-	function immutableMapManifest(state, maps, rejectedCount) {
+	function immutableMapManifest(state, maps, rejectedCount, gameId) {
 		return Object.freeze({
 			schema: MAP_MANIFEST_SCHEMA,
 			version: MAP_MANIFEST_VERSION,
 			state: state,
+			gameId: gameId || "ut99",
 			maps: Object.freeze(Array.from(maps || [])),
 			rejectedCount: Number.isSafeInteger(rejectedCount) && rejectedCount > 0 ? rejectedCount : 0,
 		});
@@ -233,9 +273,17 @@
 			/^(?:DM|CTF|DOM|AS)-[A-Za-z0-9][A-Za-z0-9_\-\[\]']{0,63}$/i.test(value);
 	}
 
+	function isSafeGameMapBasename(value, gameId) {
+		if (gameId === "unreal-gold") {
+			return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_\-\[\]']{0,63}$/.test(value);
+		}
+		return isSafeMapBasename(value);
+	}
+
 	function mapManifestFromMetadata(metadata, state) {
-		if (!metadata) return immutableMapManifest(state || "unavailable", [], 0);
+		if (!metadata) return immutableMapManifest(state || "unavailable", [], 0, "ut99");
 		validateMetadata(metadata);
+		const gameId = metadata.gameId || "ut99";
 		const candidates = [];
 		let rejectedCount = 0;
 		for (const file of metadata.files) {
@@ -250,7 +298,7 @@
 			// The public launcher manifest is narrower than valid UT package
 			// metadata: it contains only direct map basenames which can safely
 			// enter the launcher's fixed offline URL builder.
-			if (!isSafeMapBasename(basename)) {
+			if (!isSafeGameMapBasename(basename, gameId)) {
 				rejectedCount++;
 				continue;
 			}
@@ -273,7 +321,7 @@
 		}
 		const resolvedState = state === "ready" && !maps.length ? "empty" :
 			(state || (maps.length ? "ready" : "empty"));
-		return immutableMapManifest(resolvedState, maps, rejectedCount);
+		return immutableMapManifest(resolvedState, maps, rejectedCount, gameId);
 	}
 
 	function selectLaunchMap(manifest, preferredMap) {
@@ -282,8 +330,8 @@
 			throw new ImportError("MAP_MANIFEST", "The imported map list is unavailable or invalid.");
 		}
 		if (manifest.state === "unavailable") {
-			if (!isSafeMapBasename(preferredMap)) {
-				throw new ImportError("MAP_SELECTION", "Choose a safe direct Unreal Tournament map name.");
+			if (!isSafeGameMapBasename(preferredMap, manifest.gameId || "ut99")) {
+				throw new ImportError("MAP_SELECTION", "Choose a safe direct map name.");
 			}
 			return preferredMap;
 		}
@@ -292,7 +340,7 @@
 		}
 		const preferred = typeof preferredMap === "string" ? preferredMap.toLowerCase() : "";
 		const selected = manifest.maps.find(map => map.toLowerCase() === preferred) || manifest.maps[0];
-		if (!isSafeMapBasename(selected)) {
+		if (!isSafeGameMapBasename(selected, manifest.gameId || "ut99")) {
 			throw new ImportError("MAP_SELECTION", "The selected imported map name is unsafe.");
 		}
 		return selected;
@@ -644,30 +692,40 @@
 		}
 	}
 
-	function hasDeveloperPreload(FS, rootPath) {
+	function developerPreloadGame(FS, rootPath) {
 		const root = rootPath || GAME_ROOT;
 		// The original GOTY media spells BotPack.u with a capital P, while
 		// engine code and some patched distributions use Botpack.u. MEMFS is
 		// case-sensitive, so accept both known spellings at this boot seam.
-		const packages = fsPathExists(FS, root + "/System/Core.u") &&
-			fsPathExists(FS, root + "/System/Engine.u") &&
+		const commonPackages = fsPathExists(FS, root + "/System/Core.u") &&
+			fsPathExists(FS, root + "/System/Engine.u");
+		const utPackages = commonPackages &&
 			(fsPathExists(FS, root + "/System/Botpack.u") || fsPathExists(FS, root + "/System/BotPack.u"));
-		const executable = UT_EXECUTABLE_NAMES.some(name => fsPathExists(FS, root + "/System/" + name) || fsPathExists(FS, root + "/System64/" + name));
-		return packages && executable;
+		const utExecutable = UT_EXECUTABLE_NAMES.some(name => fsPathExists(FS, root + "/System/" + name) || fsPathExists(FS, root + "/System64/" + name));
+		if (utPackages && utExecutable) return "ut99";
+		const unrealPackages = commonPackages && fsPathExists(FS, root + "/System/UnrealShare.u") &&
+			fsPathExists(FS, root + "/System/UnrealI.u");
+		const unrealExecutable = fsPathExists(FS, root + "/System/Unreal.exe") || fsPathExists(FS, root + "/System64/Unreal.exe");
+		return unrealPackages && unrealExecutable ? "unreal-gold" : null;
+	}
+
+	function hasDeveloperPreload(FS, rootPath) {
+		return developerPreloadGame(FS, rootPath) !== null;
 	}
 
 	class ImporterUI {
 		constructor(root) {
 			this.root = root || null;
-			this.status = root && root.querySelector("[data-ut99-status]");
-			this.error = root && root.querySelector("[data-ut99-error]");
-			this.progress = root && root.querySelector("[data-ut99-progress]");
-			this.progressText = root && root.querySelector("[data-ut99-progress-text]");
-			this.diagnostics = root && root.querySelector("[data-ut99-storage]");
-			this.pickButton = root && root.querySelector("[data-ut99-pick]");
-			this.fileInput = root && root.querySelector("[data-ut99-files]");
-			this.fileLabel = root && root.querySelector("[data-ut99-file-label]");
-			this.clearButton = root && root.querySelector("[data-ut99-clear]");
+			const find = (name) => root && (root.querySelector("[data-game-" + name + "]") || root.querySelector("[data-ut99-" + name + "]"));
+			this.status = find("status");
+			this.error = find("error");
+			this.progress = find("progress");
+			this.progressText = find("progress-text");
+			this.diagnostics = find("storage");
+			this.pickButton = find("pick");
+			this.fileInput = find("files");
+			this.fileLabel = find("file-label");
+			this.clearButton = find("clear");
 		}
 
 		show() { if (this.root) this.root.hidden = false; }
@@ -712,6 +770,7 @@
 			this.launchPromise = null;
 			this.busy = false;
 			this.lastError = null;
+			this.currentMetadata = null;
 			this._currentMapManifest = immutableMapManifest("unavailable", [], 0);
 		}
 
@@ -719,11 +778,13 @@
 			return immutableMapManifest(
 				this._currentMapManifest.state,
 				this._currentMapManifest.maps,
-				this._currentMapManifest.rejectedCount);
+				this._currentMapManifest.rejectedCount,
+				this._currentMapManifest.gameId);
 		}
 
 		_setMapManifest(metadata, state) {
 			try {
+				this.currentMetadata = metadata || null;
 				this._currentMapManifest = mapManifestFromMetadata(metadata, state);
 			} catch (_error) {
 				// Browsing maps is optional product UX. Import validation and the
@@ -736,7 +797,7 @@
 
 		async clearSavedImport() {
 			if (!this.storage || typeof this.storage.clear !== "function") {
-				throw new ImportError("STORAGE_UNAVAILABLE", "Saved UT99 data storage is unavailable.");
+				throw new ImportError("STORAGE_UNAVAILABLE", "Saved game data storage is unavailable.");
 			}
 			await this.storage.clear();
 			return this._setMapManifest(null, "cleared");
@@ -747,8 +808,10 @@
 		}
 
 		async initialize() {
-			if (hasDeveloperPreload(this.Module.FS, this.options.rootPath)) {
-				this._setMapManifest(null, "unavailable");
+			const preloadedGameId = developerPreloadGame(this.Module.FS, this.options.rootPath);
+			if (preloadedGameId) {
+				this.currentMetadata = null;
+				this._currentMapManifest = immutableMapManifest("unavailable", [], 0, preloadedGameId);
 				this._log("developer-preloaded /gamedata detected; local importer bypassed");
 				this.ui.hide();
 				await this._launch("developer-preload");
@@ -760,15 +823,15 @@
 			this.ui.setDiagnostics(diagnostic, this.storage.backend);
 
 			this.ui.show();
-			this.ui.setStatus("Checking for saved UT99 data…");
+			this.ui.setStatus("Checking for saved game data…");
 			try {
 				const dataset = await this.storage.load();
 				if (dataset) {
 					this.ui.setBusy(true);
-					this.ui.setStatus("Restoring saved UT99 data…");
+					this.ui.setStatus("Restoring saved game data…");
 					await materializeDataset(this.Module.FS, dataset, progress => this.ui.setProgress(progress), this.options.rootPath);
 					this._setMapManifest(dataset.metadata, "ready");
-					this.ui.setStatus("Saved UT99 data restored. Starting SurrealEngine…");
+					this.ui.setStatus("Saved game data restored. Choose how to start SurrealEngine…");
 					this._log("restored " + dataset.metadata.fileCount + " local files (" + formatBytes(dataset.metadata.totalBytes) + ") from " + this.storage.backend);
 					await this._launch("persistent-import");
 					return { state: "launched", mode: "persistent-import", backend: this.storage.backend, metadata: dataset.metadata };
@@ -781,17 +844,19 @@
 			}
 			if (this._currentMapManifest.state !== "error") this._setMapManifest(null, "empty");
 			this.ui.setBusy(false);
-			this.ui.setStatus("Select the folder from your own Unreal Tournament installation. Data stays on this device.");
+			this.ui.setStatus("Select your own Unreal Tournament or Unreal Gold installation folder. Data stays on this device.");
 			return { state: "waiting-for-import", backend: this.storage.backend, error: this.lastError };
 		}
 
 		_bindControls() {
 			if (this.ui.pickButton) {
-				if (typeof global.showDirectoryPicker !== "function") this.ui.pickButton.hidden = true;
+				const hostPicker = this.options.pickDirectoryEntries;
+				if (typeof global.showDirectoryPicker !== "function" && typeof hostPicker !== "function") this.ui.pickButton.hidden = true;
 				this.ui.pickButton.addEventListener("click", async () => {
 					try {
-						const directory = await global.showDirectoryPicker({ mode: "read" });
-						const entries = await entriesFromDirectoryHandle(directory, progress => this.ui.setProgress(progress));
+						const entries = typeof hostPicker === "function" ?
+							await hostPicker(progress => this.ui.setProgress(progress)) :
+							await entriesFromDirectoryHandle(await global.showDirectoryPicker({ mode: "read" }), progress => this.ui.setProgress(progress));
 						await this.importEntries(entries);
 					} catch (error) { this._handleImportError(error); }
 				});
@@ -810,8 +875,8 @@
 					this.ui.setError("");
 					try {
 						await this.clearSavedImport();
-						this.ui.setStatus(this.launched ? "Saved import cleared. Reload to choose data again." : "Saved import cleared. Select your UT99 installation folder.");
-						this._log("saved local UT99 import cleared");
+						this.ui.setStatus(this.launched ? "Saved import cleared. Reload to choose data again." : "Saved import cleared. Select a supported game installation folder.");
+						this._log("saved local game import cleared");
 					} catch (_) {
 						this.ui.setError("The browser could not clear the saved import. Check site storage permissions.");
 					} finally {
@@ -836,18 +901,18 @@
 			this.ui.setBusy(true);
 			this.ui.setError("");
 			try {
-				this.ui.setStatus("Validating the selected UT99 installation…");
+				this.ui.setStatus("Validating the selected game installation…");
 				const validation = validateEntries(entries);
 				const diagnostic = await storageDiagnostics(validation.totalBytes, true);
 				this.ui.setDiagnostics(diagnostic, this.storage.backend);
 				if (diagnostic.available !== null && diagnostic.available < validation.totalBytes) {
 					throw new ImportError("QUOTA", "Not enough browser storage is available. The import needs " + formatBytes(validation.totalBytes) + " but only about " + formatBytes(diagnostic.available) + " is free. Clear site data or free device storage, then try again.");
 				}
-				this.ui.setStatus("Copying UT99 data into private browser storage… Keep this page open.");
+				this.ui.setStatus("Copying game data into private browser storage… Keep this page open.");
 				const metadata = await this.storage.save(validation, progress => this.ui.setProgress(progress));
 				if (this.launched) {
 					this.ui.setStatus("Replacement import saved. Reloading to use it…");
-					this._log("replacement UT99 import saved; reloading before changing the live game filesystem");
+					this._log("replacement game import saved; reloading before changing the live game filesystem");
 					if (typeof this.options.onReimportReady === "function") this.options.onReimportReady(metadata);
 					else if (global.location && typeof global.location.reload === "function") global.location.reload();
 					return metadata;
@@ -861,7 +926,7 @@
 						return entry.getBlob();
 					},
 				};
-				this.ui.setStatus("Preparing UT99 data for SurrealEngine…");
+				this.ui.setStatus("Preparing game data for SurrealEngine…");
 				await materializeDataset(this.Module.FS, sourceDataset, progress => this.ui.setProgress(progress), this.options.rootPath);
 				this._setMapManifest(metadata, "ready");
 				this.ui.setStatus("Import complete. Starting SurrealEngine…");
@@ -883,13 +948,14 @@
 			if (this.launched) return;
 			if (this.launchPromise) return this.launchPromise;
 			this.launchPromise = (async () => {
+				const context = Object.freeze({ mapManifest: this.mapManifest(), metadata: this.currentMetadata });
 				// Persistence overlays must run after /gamedata exists but before
 				// native startup reads configuration and enumerates save files.
-				if (typeof this.options.beforeLaunch === "function") await this.options.beforeLaunch(mode);
+				if (typeof this.options.beforeLaunch === "function") await this.options.beforeLaunch(mode, context);
 				this.launched = true;
 				this.ui.setBusy(false);
 				if (typeof this.options.launch === "function") {
-					await this.options.launch(mode, { mapManifest: this.mapManifest() });
+					await this.options.launch(mode, context);
 				}
 			})();
 			try { await this.launchPromise; }
@@ -910,6 +976,7 @@
 		MAP_MANIFEST_SCHEMA,
 		MAP_MANIFEST_VERSION,
 		GAME_ROOT,
+		GAME_DEFINITIONS,
 		ImportError,
 		OPFSStorage,
 		IndexedDBStorage,
@@ -920,6 +987,7 @@
 		validateEntries,
 		validateMetadata,
 		isSafeMapBasename,
+		isSafeGameMapBasename,
 		mapManifestFromMetadata,
 		selectLaunchMap,
 		createStorage,
@@ -928,8 +996,12 @@
 		writeBlobToFS,
 		fsPathExists,
 		materializeDataset,
+		developerPreloadGame,
 		hasDeveloperPreload,
 		formatBytes,
 		start,
 	});
+	// New code should use the game-neutral name. The original global remains the
+	// stable compatibility surface for persisted pages and downstream forks.
+	global.SurrealGameImporter = global.SurrealUT99Importer;
 })(typeof window !== "undefined" ? window : globalThis);
