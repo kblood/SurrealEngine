@@ -318,11 +318,32 @@ def main():
                 print("FAIL: M8 controller poses were not composed or dominant hand was lost")
                 sys.exit(1)
 
+            settings_status = page.evaluate("window.surrealGetWebXRSettingsStatus()")
+            print(f"[harness] M8/M9 browser settings status: {settings_status}")
+            settings_values = settings_status.get("values") or {}
+            if (not settings_status.get("ready") or settings_status.get("error") is not None or
+                    settings_values.get("turnMode") not in (0, 1, 2, 3) or
+                    settings_values.get("movementReference") not in (0, 1, 2) or
+                    settings_values.get("dominantHand") not in (1, 2) or
+                    not isinstance(settings_values.get("hapticsEnabled"), bool) or
+                    not isinstance(settings_values.get("hudEnabled"), bool) or
+                    not all(math.isfinite(settings_values.get(name, float("nan"))) for name in
+                            ("snapTurnDegrees", "smoothTurnRate", "hudDistanceUU",
+                             "hudFovDegrees", "hudAspectRatio", "hudSafeArea"))):
+                print("FAIL: browser WebXR settings did not initialize from the native engine")
+                sys.exit(1)
+
             weapon_bridge_diagnostics = page.evaluate("""() => ({
                 aimSelfTest: Module.ccall('Surreal_RunWebXRWeaponAimSelfTest', 'number', [], []),
                 hapticsSelfTest: Module.ccall('Surreal_RunWebXRHapticsBridgeSelfTest', 'number', [], []),
+                gameplayHapticsSelfTest: Module.ccall('Surreal_RunWebXRGameplayHapticsSelfTest', 'number', [], []),
                 disableAccepted: Module.ccall('Surreal_SetWebXRHapticsEnabled', 'number', ['number'], [0]),
                 enableAccepted: Module.ccall('Surreal_SetWebXRHapticsEnabled', 'number', ['number'], [1]),
+                hapticsEnabled: Module.ccall('Surreal_GetWebXRHapticsEnabled', 'number', [], []),
+                hapticOutcomes: Array.from({length: 4}, (_, event) =>
+                    Module.ccall('Surreal_GetWebXRHapticConfirmedOutcomeCount', 'number', ['number'], [event])),
+                hapticRequests: Array.from({length: 4}, (_, event) =>
+                    Module.ccall('Surreal_GetWebXRHapticRequestCount', 'number', ['number'], [event])),
                 expectedWeaponEyes: Module.ccall('Surreal_GetWebXRWeaponOverlayExpectedEyePasses', 'number', [], []),
                 weaponEyePasses: Module.ccall('Surreal_GetWebXRWeaponOverlayEyePasses', 'number', [], []),
                 weaponCalls: Module.ccall('Surreal_GetWebXRWeaponOverlayCalls', 'number', [], []),
@@ -333,6 +354,11 @@ def main():
                 hudCapturedCommands: Module.ccall('Surreal_GetWebXRHudCapturedCommands', 'number', [], []),
                 hudUnsupportedDraws: Module.ccall('Surreal_GetWebXRHudUnsupportedDraws', 'number', [], []),
                 hudClampedViewports: Module.ccall('Surreal_GetWebXRHudClampedViewports', 'number', [], []),
+                hudPlayerCalls: Module.ccall('Surreal_GetWebXRHudPlayerPostRenderCalls', 'number', [], []),
+                hudConsoleCalls: Module.ccall('Surreal_GetWebXRHudConsolePostRenderCalls', 'number', [], []),
+                menuPointerValid: Module.ccall('Surreal_GetWebXRMenuPointerValid', 'number', [], []),
+                menuPointer: [Module.ccall('Surreal_GetWebXRMenuPointerX', 'number', [], []),
+                    Module.ccall('Surreal_GetWebXRMenuPointerY', 'number', [], [])],
                 hudSelfTestMask: Module.ccall('Surreal_GetWebXRHudSelfTestMask', 'number', [], []),
                 hudEnabled: Module.ccall('Surreal_GetWebXRHudEnabled', 'number', [], []),
                 hudEffectiveEnabled: Module.ccall('Surreal_GetWebXRHudEffectiveEnabled', 'number', [], []),
@@ -348,7 +374,12 @@ def main():
             })""")
             print(f"[harness] M8/M9/M10 presentation and audio diagnostics: {weapon_bridge_diagnostics}")
             if any(weapon_bridge_diagnostics.get(name) != 1 for name in
-                   ("aimSelfTest", "hapticsSelfTest", "disableAccepted", "enableAccepted", "hudSelfTest")) or \
+                   ("aimSelfTest", "hapticsSelfTest", "gameplayHapticsSelfTest",
+                    "disableAccepted", "enableAccepted", "hapticsEnabled", "hudSelfTest")) or \
+                    len(weapon_bridge_diagnostics.get("hapticOutcomes", [])) != 4 or \
+                    len(weapon_bridge_diagnostics.get("hapticRequests", [])) != 4 or \
+                    not all(value >= 0 for value in weapon_bridge_diagnostics.get("hapticOutcomes", [])) or \
+                    not all(value >= 0 for value in weapon_bridge_diagnostics.get("hapticRequests", [])) or \
                     weapon_bridge_diagnostics.get("expectedWeaponEyes") != 2 or \
                     weapon_bridge_diagnostics.get("weaponEyePasses") != 2 or \
                     not 0 <= weapon_bridge_diagnostics.get("weaponCalls", -1) <= 2 or \
@@ -356,6 +387,11 @@ def main():
                     weapon_bridge_diagnostics.get("hudStateUpdates") not in (0, 1) or \
                     weapon_bridge_diagnostics.get("hudEyePresentations") != \
                     weapon_bridge_diagnostics.get("expectedHudEyes") or \
+                    weapon_bridge_diagnostics.get("hudPlayerCalls") != 1 or \
+                    weapon_bridge_diagnostics.get("hudConsoleCalls") != 1 or \
+                    weapon_bridge_diagnostics.get("menuPointerValid") not in (0, 1) or \
+                    len(weapon_bridge_diagnostics.get("menuPointer", [])) != 2 or \
+                    not all(math.isfinite(value) for value in weapon_bridge_diagnostics.get("menuPointer", [])) or \
                     weapon_bridge_diagnostics.get("hudSelfTestMask") != 31 or \
                     weapon_bridge_diagnostics.get("hudEnabled") not in (0, 1) or \
                     weapon_bridge_diagnostics.get("hudEffectiveEnabled") != \

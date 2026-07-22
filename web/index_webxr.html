@@ -7,7 +7,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <title>SurrealEngine WebXR M4-groundwork harness</title>
 <style>
-	#ut99-importer { max-width: 52rem; padding: 1rem; margin: .75rem 0; border: 1px solid #777; font: 14px system-ui, sans-serif; }
+	#ut99-importer, #webxr-settings { max-width: 52rem; padding: 1rem; margin: .75rem 0; border: 1px solid #777; font: 14px system-ui, sans-serif; }
 	#ut99-importer h2 { margin: 0 0 .5rem; }
 	#ut99-importer [data-ut99-error] { color: #b00020; font-weight: 600; }
 	#ut99-importer progress { width: 100%; }
@@ -16,6 +16,13 @@
 	#ut99-importer .file-button:has(input:disabled) { opacity: .55; cursor: default; }
 	#ut99-importer [data-ut99-files] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 	#ut99-importer [data-ut99-storage], #ut99-importer small { color: #555; }
+	#webxr-settings h2 { margin: 0 0 .5rem; }
+	#webxr-settings .scope { font-weight: 600; }
+	#webxr-settings .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .6rem 1rem; }
+	#webxr-settings label { display: flex; justify-content: space-between; gap: .5rem; align-items: center; }
+	#webxr-settings select, #webxr-settings input[type=number] { max-width: 9rem; }
+	#webxr-settings .actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+	#webxr-settings .status[data-error=true] { color: #b00020; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -44,6 +51,7 @@
 	<p data-ut99-storage></p>
 	<small>Expected folder layout: System, Maps, Textures, Sounds, and Music. Re-select a folder at any time to replace the saved import.</small>
 </section>
+<section id="webxr-settings" hidden></section>
 <pre id="log" style="white-space:pre-wrap;font:12px monospace;"></pre>
 <script>
 	window.surrealXRUseNativeWebGPU =
@@ -52,6 +60,7 @@
 <script src="webxr_session.js"></script>
 <script src="ut99_importer.js"></script>
 <script src="mutable_persistence.js"></script>
+<script src="webxr_settings.js"></script>
 <script src="pwa_register.js"></script>
 <script>
 	window.surrealLog = [];
@@ -70,6 +79,12 @@
 		window.surrealLog.push(line);
 		logEl.textContent += line + "\n";
 	}
+	window.surrealWebXRSettingsController = window.SurrealWebXRSettings.create({
+		root: document.getElementById("webxr-settings"),
+		log: appendLog,
+	});
+	window.surrealGetWebXRSettingsStatus = () =>
+		window.surrealWebXRSettingsController.statusSnapshot();
 	const surrealPWAParams = new URLSearchParams(location.search);
 	const surrealPWABuildIsRedistributable =
 		surrealBuildDir === "build-emscripten-nodata" || surrealBuildDir === "dist";
@@ -266,6 +281,13 @@
 					const mapName = new URLSearchParams(location.search).get("map") || "DM-Deck16][";
 					Module.callMain(["--autoplay", "--url=" + mapName, "--render=webgpu", "/gamedata"]);
 					window.surrealBooted = true;
+					try {
+						window.surrealWebXRSettingsController.onEngineReady(Module);
+					} catch (settingsError) {
+						// A corrupt or incompatible preference must not make a valid local
+						// game-data import unbootable. The panel retains the exact error.
+						appendLog("[harness] WebXR settings unavailable; continuing: " + settingsError);
+					}
 					refreshEnterVRButton();
 				} catch (e) {
 					window.surrealCrashed = String(e);

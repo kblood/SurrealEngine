@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>SurrealEngine WebXR settings tests</title></head>
+<body>
+<section id="fixture"></section>
+<pre id="results">running</pre>
+<script src="webxr_settings.js"></script>
+<script>
+"use strict";
+
+window.webXRSettingsTestResults = [];
+window.webXRSettingsTestDone = false;
+
+function record(name, passed, detail) {
+	window.webXRSettingsTestResults.push({ name, passed: !!passed, detail: detail || "" });
+}
+function assert(condition, message) { if (!condition) throw new Error(message || "assertion failed"); }
+function expectCode(code, callback) {
+	try { callback(); }
+	catch (error) { assert(error.code === code, "expected " + code + ", got " + error.code); return; }
+	throw new Error("expected " + code);
+}
+async function run(name, callback) {
+	try { await callback(); record(name, true); }
+	catch (error) { record(name, false, error && (error.stack || error.message) || String(error)); }
+}
+
+class MemoryStorage {
+	constructor() { this.values = new Map(); this.writes = 0; }
+	getItem(key) { return this.values.has(key) ? this.values.get(key) : null; }
+	setItem(key, value) { this.values.set(key, String(value)); this.writes++; }
+	removeItem(key) { this.values.delete(key); }
+}
+
+const defaults = {
+	turnMode: 0, movementReference: 0, dominantHand: 2,
+	recenterButton: 10, menuButton: 0, snapTurnDegrees: 30,
+	smoothTurnRate: 120, hapticsEnabled: true, hudEnabled: true,
+	hudDistanceUU: 68.8976, hudFovDegrees: 50,
+	hudAspectRatio: 4 / 3, hudSafeArea: 0.9,
+};
+
+class FakeModule {
+	constructor(values) {
+		this.values = Object.assign({}, defaults, values || {});
+		this.calls = [];
+		this.rejectSetter = null;
+		this.byGetter = new Map(SurrealWebXRSettings.DEFINITIONS.map(definition => [definition.getter, definition]));
+		this.bySetter = new Map(SurrealWebXRSettings.DEFINITIONS.map(definition => [definition.setter, definition]));
+	}
+	ccall(name, returnType, argumentTypes, args) {
+		this.calls.push({ name, args: (args || []).slice() });
+		if (this.byGetter.has(name)) {
+			const definition = this.byGetter.get(name);
+			return definition.type === "boolean" ? (this.values[definition.key] ? 1 : 0) : this.values[definition.key];
+		}
+		if (this.bySetter.has(name)) {
+			if (this.rejectSetter === name) return 0;
+			const definition = this.bySetter.get(name);
+			this.values[definition.key] = definition.type === "boolean" ? args[0] !== 0 : args[0];
+			return 1;
+		}
+		throw new Error("unknown ccall " + name);
+	}
+}
+
+function freshRoot() {
+	const old = document.getElementById("fixture");
+	const root = old.cloneNode(false);
+	old.replaceWith(root);
+	return root;
+}
+
+window.webXRSettingsTestPromise = (async function () {
+	const api = window.SurrealWebXRSettings;
+
+	await run("schema validation is strict and finite", () => {
+		const accepted = api.validateValues(defaults);
+		assert(accepted.hudFovDegrees === 50 && accepted.dominantHand === 2);
+		expectCode("invalid-profile", () => api.validateValues(Object.assign({}, defaults, { extra: 1 })));
+		expectCode("invalid-profile", () => {
+			const missing = Object.assign({}, defaults); delete missing.turnMode; api.validateValues(missing);
+		});
+		expectCode("invalid-value", () => api.validateValues(Object.assign({}, defaults, { hudDistanceUU: NaN })));
+		expectCode("invalid-value", () => api.validateValues(Object.assign({}, defaults, { recenterButton: 13 })));
+	});
+
+	await run("stored profiles round-trip with an explicit version", () => {
+		const text = api.serializeProfile(defaults);
+		const parsed = api.parseStoredProfile(text);
+		assert(parsed.snapTurnDegrees === 30 && JSON.parse(text).version === 1);
+		expectCode("unsupported-schema", () => api.parseStoredProfile(JSON.stringify({ schema: api.SCHEMA_NAME, version: 99, values: defaults })));
+		expectCode("invalid-json", () => api.parseStoredProfile("{"));
+	});
+
+	await run("mounted UI discloses offline scope and waits safely", () => {
+		const controller = api.create({ root: freshRoot(), storage: new MemoryStorage() });
+		assert(controller.root.textContent.includes("Multiplayer is unsupported"));
+		assert(controller.form.elements.namedItem("turnMode").disabled);
+		assert(controller.status.textContent.includes("Waiting"));
+	});
+
+	await run("engine readiness reads all current native settings", () => {
+		const module = new FakeModule({ turnMode: 1, hudFovDegrees: 55 });
+		const controller = api.create({ root: freshRoot(), storage: new MemoryStorage() });
+		const values = controller.onEngineReady(module);
+		assert(values.turnMode === 1 && values.hudFovDegrees === 55);
+		assert(!controller.form.elements.namedItem("turnMode").disabled);
+		assert(module.calls.filter(call => call.name.startsWith("Surreal_Get")).length === api.DEFINITIONS.length);
+	});
+
+	await run("saved browser preferences apply after engine boot", () => {
+		const storage = new MemoryStorage();
+		const saved = Object.assign({}, defaults, { dominantHand: 1, hudSafeArea: 0.8 });
+		storage.setItem(api.STORAGE_KEY, api.serializeProfile(saved));
+		const module = new FakeModule();
+		const controller = api.create({ root: freshRoot(), storage });
+		controller.onEngineReady(module);
+		assert(module.values.dominantHand === 1 && module.values.hudSafeArea === 0.8);
+		assert(module.calls.filter(call => call.name.startsWith("Surreal_Set")).length === api.DEFINITIONS.length);
+	});
+
+	await run("form apply validates, calls native setters, and persists", () => {
+		const storage = new MemoryStorage();
+		const module = new FakeModule();
+		const controller = api.create({ root: freshRoot(), storage });
+		controller.onEngineReady(module);
+		controller.form.elements.namedItem("movementReference").value = "2";
+		controller.form.elements.namedItem("hudDistanceUU").value = "80";
+		controller.form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		assert(module.values.movementReference === 2 && module.values.hudDistanceUU === 80);
+		assert(api.parseStoredProfile(storage.getItem(api.STORAGE_KEY)).hudDistanceUU === 80);
+		assert(controller.status.textContent.includes("applied"));
+	});
+
+	await run("a rejected native setter rolls back and never persists", () => {
+		const storage = new MemoryStorage();
+		const module = new FakeModule();
+		const controller = api.create({ root: freshRoot(), storage });
+		controller.onEngineReady(module);
+		const before = Object.assign({}, module.values);
+		module.rejectSetter = "Surreal_SetWebXRHudDistanceUU";
+		const changed = Object.assign({}, defaults, { turnMode: 1, hudDistanceUU: 90 });
+		expectCode("native-rejected", () => controller.apply(changed, true));
+		assert(JSON.stringify(module.values) === JSON.stringify(before), "native values did not roll back");
+		assert(storage.getItem(api.STORAGE_KEY) === null, "rejected profile was persisted");
+	});
+
+	await run("clearing preferences leaves live engine settings unchanged", () => {
+		const storage = new MemoryStorage();
+		storage.setItem(api.STORAGE_KEY, api.serializeProfile(defaults));
+		const module = new FakeModule({ turnMode: 2 });
+		const controller = api.create({ root: freshRoot(), storage });
+		controller.onEngineReady(module);
+		const live = Object.assign({}, module.values);
+		controller.clearSaved();
+		assert(storage.getItem(api.STORAGE_KEY) === null);
+		assert(JSON.stringify(module.values) === JSON.stringify(live));
+	});
+
+	document.getElementById("results").textContent = JSON.stringify(window.webXRSettingsTestResults, null, 2);
+	window.webXRSettingsTestDone = true;
+	if (window.webXRSettingsTestResults.some(result => !result.passed))
+		throw new Error("WebXR settings test(s) failed");
+})();
+</script>
+</body>
+</html>
