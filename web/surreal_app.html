@@ -8,7 +8,7 @@
 </head>
 <body>
 <main>
-	<canvas id="game" width="1280" height="720"></canvas>
+	<canvas id="game" width="1280" height="720" tabindex="0" aria-label="SurrealEngine game view" hidden></canvas>
 	<section id="browser-status" class="panel capability-panel" aria-live="polite">
 		<h1>SurrealEngine Web</h1>
 		<p>Run your own Unreal Tournament or Unreal Gold installation in a flat WebGPU window, with optional immersive WebXR when the browser supports it.</p>
@@ -102,7 +102,14 @@ SurrealBrowserRelease.start({
 		engineScript: engineBase + "SurrealEngine.js",
 		log,
 		logSnapshot: () => logLines.join("\n") + "\n",
-		onLaunch: selection => { window.surrealBooted = true; window.surrealLaunchSelection = selection; },
+		onLaunch: selection => {
+			window.surrealBooted = true;
+			window.surrealLaunchSelection = selection;
+			const canvas = document.getElementById("game");
+			canvas.hidden = false;
+			canvas.scrollIntoView({ behavior: "auto", block: "start" });
+			canvas.focus({ preventScroll: true });
+		},
 	},
 }).then(release => { window.surrealRelease = release; window.surrealApp = release.app; })
 	.catch(error => log("[launcher] " + (error.stack || error)));
