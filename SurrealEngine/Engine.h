@@ -12,6 +12,7 @@
 #include "UObject/UDXSaveInfo.h"
 #include "UObject/UDeusExLevelInfo.h"
 #include "GameFolder.h"
+#include "WebXR/WebXRTwoHandWeapon.h"
 #include <array>
 #include <set>
 #include <list>
@@ -98,6 +99,7 @@ public:
 		std::array<float, 4> Axes = {};
 		std::array<float, 8> ButtonValues = {};
 		float TriggerValue = 0.0f;
+		float GripValue = 0.0f; // Standard WebXR squeeze/grip analog, button slot 1.
 		VRTrackedPoseState GripPose;
 		VRTrackedPoseState AimPose;
 	};
@@ -406,6 +408,10 @@ public:
 	WebXRLoadedWeaponFixtureDiagnostics WebXRLoadedWeaponFixture;
 	WebXRLoadedWeaponFireFixtureDiagnostics WebXRLoadedWeaponFireFixture;
 	WebXRHapticDiagnostics WebXRHaptics;
+	WebXRTwoHandWeapon::State WebXRTwoHandState;
+	WebXRTwoHandWeapon::FrameOutput WebXRTwoHandOutput;
+	std::string WebXRTwoHandWeaponPackage;
+	std::string WebXRTwoHandWeaponClass;
 	bool RunWebXRLoadedWeaponFixture();
 	bool RunWebXRLoadedWeaponFireFixture();
 
@@ -422,6 +428,7 @@ public:
 	float GetWebXRSnapTurnDegrees() const { return WebXRSnapTurnDegrees; }
 	float GetWebXRSmoothTurnDegreesPerSecond() const { return WebXRSmoothTurnDegreesPerSecond; }
 	bool GetWebXRHapticsEnabled() const { return WebXRHapticsEnabled; }
+	bool GetWebXRTwoHandAimEnabled() const { return WebXRTwoHandAimEnabled; }
 	bool SetWebXRTurnMode(uint32_t mode);
 	bool SetWebXRMovementReference(uint32_t reference);
 	bool SetWebXRDominantHand(uint32_t handedness);
@@ -438,6 +445,7 @@ public:
 	bool SetWebXRSnapTurnDegrees(float degrees);
 	bool SetWebXRSmoothTurnDegreesPerSecond(float degreesPerSecond);
 	bool SetWebXRHapticsEnabledSetting(bool enabled);
+	bool SetWebXRTwoHandAimEnabled(bool enabled);
 
 	uint64_t lastTime = 0;
 
@@ -466,6 +474,7 @@ public:
 
 private:
 	void UpdateWebXRInput(float timeElapsed);
+	void UpdateWebXRTwoHandWeapon(float timeElapsed);
 	void InputAxisEvent(EInputKey key, float delta);
 	bool DispatchWebXRMenuPointerEvent(EInputType type);
 	bool DispatchWebXRMenuKeyEvent(EInputKey key, EInputType type);
@@ -526,6 +535,9 @@ private:
 	float WebXRHudAspectRatio = 4.0f / 3.0f;
 	float WebXRHudSafeAreaFraction = 0.90f;
 	bool WebXRHapticsEnabled = true;
+	bool WebXRTwoHandAimEnabled = false; // Explicit opt-in; metadata also fails closed.
+	bool WebXRTwoHandHadTrackedSession = false;
+	uint32_t WebXRTwoHandSessionGeneration = 0;
 	float WebXRSnapTurnDegrees = 30.0f;
 	float WebXRSmoothTurnDegreesPerSecond = 120.0f;
 	float WebXRSnapTurnThreshold = 0.75f;

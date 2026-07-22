@@ -372,6 +372,10 @@ def main():
                 sys.exit(1)
 
             input_diagnostics = page.evaluate("window.surrealGetWebXRInputDiagnostics()")
+            input_diagnostics["grips"] = page.evaluate("""() => [0, 1].map(index =>
+                Module.ccall('Surreal_GetWebXRInputGrip', 'number', ['number'], [index]))""")
+            input_diagnostics["profileSlots"] = page.evaluate("""() => [0, 1].map(index =>
+                Module.ccall('Surreal_GetWebXRInputProfileSlot', 'number', ['number'], [index]))""")
             print(f"[harness] M8 native input publish/map diagnostics: {input_diagnostics}")
             expected_axes = [0.25, 0.75, -0.5, 0.25]
             if (input_diagnostics.get("selfTest") != 1 or
@@ -384,6 +388,8 @@ def main():
                         zip(input_diagnostics.get("axes", []), expected_axes)) or
                     any(abs(actual - expected) > 0.0001 for actual, expected in
                         zip(input_diagnostics.get("triggers", []), [0.6, 0.9])) or
+					input_diagnostics.get("grips") != [0, 0] or
+					input_diagnostics.get("profileSlots") != [1, 1] or
                     input_diagnostics.get("poseFlags") != [4, 7]):
                 print("FAIL: M8 packed input was not published and mapped exactly once")
                 sys.exit(1)
@@ -503,8 +509,29 @@ def main():
 				visualRejectedTransforms: Module.ccall('Surreal_GetWebXRWeaponVisualRejectedTransformCount', 'number', [], []),
 				visualLastOffset: Array.from({length: 3}, (_, axis) =>
 					Module.ccall('Surreal_GetWebXRWeaponVisualLastGripOffsetValue', 'number', ['number'], [axis])),
-                visualLastPosition: Array.from({length: 3}, (_, axis) =>
+				visualLastPosition: Array.from({length: 3}, (_, axis) =>
 					Module.ccall('Surreal_GetWebXRWeaponVisualLastPositionValue', 'number', ['number'], [axis])),
+				twoHandSelfTest: Module.ccall('Surreal_RunWebXRTwoHandWeaponSelfTest', 'number', [], []),
+				twoHandSchema: Module.ccall('Surreal_GetWebXRTwoHandMetadataSchemaVersion', 'number', [], []),
+				twoHandProductionRows: Module.ccall('Surreal_GetWebXRTwoHandProductionMetadataRows', 'number', [], []),
+				twoHandPackage: Module.ccall('Surreal_GetWebXRTwoHandWeaponPackage', 'string', [], []),
+				twoHandClass: Module.ccall('Surreal_GetWebXRTwoHandWeaponClass', 'string', [], []),
+				twoHandDiagnostics: Array.from({length: 18}, (_, slot) =>
+					Module.ccall('Surreal_GetWebXRTwoHandDiagnostic', 'number', ['number'], [slot])),
+				twoHandFloats: Array.from({length: 35}, (_, slot) =>
+					Module.ccall('Surreal_GetWebXRTwoHandFloatDiagnostic', 'number', ['number'], [slot])),
+				twoHandDefaultEnabled: Module.ccall('Surreal_GetWebXRTwoHandDefaultEnabled', 'number', [], []),
+				twoHandSetting: (() => {
+					const original = Module.ccall('Surreal_GetWebXRTwoHandAimEnabled', 'number', [], []);
+					const disableAccepted = Module.ccall('Surreal_SetWebXRTwoHandAimEnabled', 'number', ['number'], [0]);
+					const disabled = Module.ccall('Surreal_GetWebXRTwoHandAimEnabled', 'number', [], []);
+					const enableAccepted = Module.ccall('Surreal_SetWebXRTwoHandAimEnabled', 'number', ['number'], [1]);
+					const enabled = Module.ccall('Surreal_GetWebXRTwoHandAimEnabled', 'number', [], []);
+					const restoreAccepted = Module.ccall('Surreal_SetWebXRTwoHandAimEnabled', 'number', ['number'], [original]);
+					const restored = Module.ccall('Surreal_GetWebXRTwoHandAimEnabled', 'number', [], []);
+					return { original, disableAccepted, disabled, enableAccepted, enabled,
+						restoreAccepted, restored };
+				})(),
 				fixtureEquipped: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureEquipped', 'number', [], []),
                 hapticsSelfTest: Module.ccall('Surreal_RunWebXRHapticsBridgeSelfTest', 'number', [], []),
                 gameplayHapticsSelfTest: Module.ccall('Surreal_RunWebXRGameplayHapticsSelfTest', 'number', [], []),
@@ -555,6 +582,7 @@ def main():
             print(f"[harness] M8/M9/M10 presentation and audio diagnostics: {weapon_bridge_diagnostics}")
             if any(weapon_bridge_diagnostics.get(name) != 1 for name in
 				   ("aimSelfTest", "visualPositionSelfTest", "visualGripSchema",
+					"twoHandSelfTest", "twoHandSchema",
 					"hapticsSelfTest", "gameplayHapticsSelfTest",
                     "disableAccepted", "enableAccepted", "hapticsEnabled", "hudSelfTest")) or \
 					weapon_bridge_diagnostics.get("fixtureEquipped") != 1 or \
@@ -567,6 +595,23 @@ def main():
 					weapon_bridge_diagnostics.get("visualDrawScopes", 0) - \
 					fixture_before.get("visualDrawScopes", 0) or \
 					weapon_bridge_diagnostics.get("visualCalibratedOffsets", -1) != 0 or \
+					weapon_bridge_diagnostics.get("twoHandProductionRows", -1) != 0 or \
+					weapon_bridge_diagnostics.get("twoHandDefaultEnabled", -1) != 0 or \
+					weapon_bridge_diagnostics.get("twoHandSetting", {}).get("disableAccepted") != 1 or \
+					weapon_bridge_diagnostics.get("twoHandSetting", {}).get("disabled") != 0 or \
+					weapon_bridge_diagnostics.get("twoHandSetting", {}).get("enableAccepted") != 1 or \
+					weapon_bridge_diagnostics.get("twoHandSetting", {}).get("enabled") != 1 or \
+					weapon_bridge_diagnostics.get("twoHandSetting", {}).get("restoreAccepted") != 1 or \
+					weapon_bridge_diagnostics.get("twoHandSetting", {}).get("restored") != \
+					weapon_bridge_diagnostics.get("twoHandSetting", {}).get("original") or \
+					weapon_bridge_diagnostics.get("twoHandPackage") != "Botpack" or \
+					weapon_bridge_diagnostics.get("twoHandClass") != "ShockRifle" or \
+					len(weapon_bridge_diagnostics.get("twoHandDiagnostics", [])) != 18 or \
+					weapon_bridge_diagnostics.get("twoHandDiagnostics", [0] * 18)[2:4] != [0, 0] or \
+					len(weapon_bridge_diagnostics.get("twoHandFloats", [])) != 35 or \
+					not all(math.isfinite(value) for value in
+							weapon_bridge_diagnostics.get("twoHandFloats", [])) or \
+					abs(weapon_bridge_diagnostics.get("twoHandFloats", [1] * 35)[5]) > 0.0001 or \
 					weapon_bridge_diagnostics.get("visualRejectedTransforms", -1) != \
 					fixture_before.get("visualRejectedTransforms", 0) or \
 					len(weapon_bridge_diagnostics.get("visualLastOffset", [])) != 3 or \

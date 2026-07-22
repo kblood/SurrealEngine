@@ -28,6 +28,7 @@
 #include "VM/Frame.h"
 #include "VM/ScriptCall.h"
 #include "WebXR/WebXRMuzzleOrigin.h"
+#include "WebXR/WebXRTwoHandWeapon.h"
 #include "Video/VideoPlayer.h"
 #include <chrono>
 #include <limits>
@@ -416,6 +417,27 @@ namespace
 
 	constexpr uint32_t WebXRWeaponVisualGripSchemaVersion = 1;
 	const std::array<WebXRWeaponVisualGripEntry, 0> WebXRWeaponVisualGripTable = {};
+
+	// Two-hand rows are a separate immutable, package/class/hash/profile-
+	// qualified schema. Production deliberately starts empty: no stock or mod
+	// weapon can opt itself in through a class-name collision or guessed offset.
+	const std::array<WebXRTwoHandWeapon::MetadataRow, 0> WebXRTwoHandMetadataTable = {};
+
+	WebXRTwoHandWeapon::Vec3 ToWebXRTwoHandVector(const vec3& value)
+	{
+		return { value.x, value.y, value.z };
+	}
+
+	vec3 FromWebXRTwoHandVector(const WebXRTwoHandWeapon::Vec3& value)
+	{
+		return vec3(value.X, value.Y, value.Z);
+	}
+
+	WebXRTwoHandWeapon::Basis ToWebXRTwoHandBasis(const Engine::VRTrackedPoseState& pose)
+	{
+		return { ToWebXRTwoHandVector(pose.WorldForward),
+			ToWebXRTwoHandVector(pose.WorldRight), ToWebXRTwoHandVector(pose.WorldUp) };
+	}
 
 	// Gameplay-origin calibration is intentionally a separate schema from the
 	// viewmodel grip table. A visual fallback is not an authoritative barrel
@@ -1299,6 +1321,8 @@ Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 		Exception::Throw("VM call hook self-test failed");
 	if (!WebXRMuzzleOrigin::RunSelfTest())
 		Exception::Throw("WebXR muzzle-origin self-test failed");
+	if (!WebXRTwoHandWeapon::RunSelfTest())
+		Exception::Throw("WebXR two-hand weapon self-test failed");
 
 	engine = this;
 
@@ -1364,6 +1388,8 @@ Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 			" haptics self-test=" + (RunWebXRGameplayHapticsSelfTest() ? "pass" : "FAIL") +
 			" muzzle-origin self-test=" +
 			(WebXRMuzzleOrigin::RunSelfTest() ? "pass" : "FAIL") +
+			" two-hand self-test=" +
+			(WebXRTwoHandWeapon::RunSelfTest() ? "pass" : "FAIL") +
 			" production-origin-rewrite=disabled");
 	}
 #endif
@@ -2051,10 +2077,20 @@ std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject*
 			&dominant.AimPose : (dominant.GripPose.Tracked ? &dominant.GripPose : nullptr);
 		if (!presentationPose)
 			return {};
+		Rotator presentationRotation = presentationPose->WorldPresentationRotation;
+		if (WebXRTwoHandOutput.Eligible && WebXRTwoHandOutput.EffectiveWeight > 0.0f &&
+			WebXRTwoHandState.WeaponIdentity == reinterpret_cast<uintptr_t>(weapon) &&
+			WebXRTwoHandState.PawnIdentity == reinterpret_cast<uintptr_t>(pawn))
+		{
+			presentationRotation = WebXRRotatorFromBasis(
+				FromWebXRTwoHandVector(WebXRTwoHandOutput.PresentationBasis.Forward),
+				FromWebXRTwoHandVector(WebXRTwoHandOutput.PresentationBasis.Right),
+				FromWebXRTwoHandVector(WebXRTwoHandOutput.PresentationBasis.Up));
+		}
 		restore = BeginWebXRPresentationRotationOverride(pawn->ViewRotation(),
-			weapon->Rotation(), presentationPose->WorldPresentationRotation);
+			weapon->Rotation(), presentationRotation);
 		WebXRWeaponPresentationStack.push_back(
-			{ weapon, dominantIndex, presentationPose->WorldPresentationRotation });
+			{ weapon, dominantIndex, presentationRotation });
 		WebXRWeaponAim.PresentationScopeCount++;
 	}
 	else
@@ -2063,8 +2099,16 @@ std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject*
 			return {};
 		// Direction only: ballistic/target calls retain a zero-roll rotator and
 		// leave CalcDrawOffset, origins, and weapon presentation untouched.
+		Rotator ballisticRotation = dominant.AimPose.WorldRotation;
+		if (WebXRTwoHandOutput.Eligible && WebXRTwoHandOutput.EffectiveWeight > 0.0f &&
+			WebXRTwoHandState.WeaponIdentity == reinterpret_cast<uintptr_t>(weapon) &&
+			WebXRTwoHandState.PawnIdentity == reinterpret_cast<uintptr_t>(pawn))
+		{
+			ballisticRotation = normalize(Rotator::FromVector(
+				FromWebXRTwoHandVector(WebXRTwoHandOutput.BallisticForward)));
+		}
 		restore = BeginWebXRRotationOverride(
-			pawn->ViewRotation(), dominant.AimPose.WorldRotation);
+			pawn->ViewRotation(), ballisticRotation);
 	}
 	if (kind == WebXRWeaponAimScopeKind::Ballistic)
 	{
@@ -2259,6 +2303,20 @@ extern "C"
 	{
 		return engine && controller < engine->WebXRInput.Controllers.size() ?
 			engine->WebXRInput.Controllers[controller].TriggerValue : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRInputGrip(uint32_t controller)
+	{
+		return engine && controller < engine->WebXRInput.Controllers.size() ?
+			engine->WebXRInput.Controllers[controller].GripValue : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRInputProfileSlot(uint32_t controller)
+	{
+		if (!engine || controller >= engine->WebXRInput.Controllers.size())
+			return 0;
+		const auto& state = engine->WebXRInput.Controllers[controller];
+		return state.Connected && (state.Flags & WebXRXRStandard) != 0 ? 1u : 0u;
 	}
 
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRInputPoseFlags(uint32_t controller)
@@ -2719,6 +2777,109 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRWeaponVisualLastPositionValue(uint32_t axis)
 	{
 		return engine && axis < 3 ? engine->WebXRWeaponAim.LastVisualPosition[axis] : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRTwoHandWeaponSelfTest()
+	{
+		return WebXRTwoHandWeapon::RunSelfTest() ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRTwoHandMetadataSchemaVersion()
+	{
+		return WebXRTwoHandWeapon::MetadataSchemaVersion;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRTwoHandProductionMetadataRows()
+	{
+		return static_cast<uint32_t>(WebXRTwoHandMetadataTable.size());
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRTwoHandAimEnabled()
+	{
+		return engine && engine->GetWebXRTwoHandAimEnabled() ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRTwoHandDefaultEnabled()
+	{
+		return 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRTwoHandAimEnabled(int enabled)
+	{
+		return engine && engine->SetWebXRTwoHandAimEnabled(enabled != 0) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE const char* Surreal_GetWebXRTwoHandWeaponPackage()
+	{
+		return engine ? engine->WebXRTwoHandWeaponPackage.c_str() : "";
+	}
+
+	EMSCRIPTEN_KEEPALIVE const char* Surreal_GetWebXRTwoHandWeaponClass()
+	{
+		return engine ? engine->WebXRTwoHandWeaponClass.c_str() : "";
+	}
+
+	// Integer diagnostics: 0 schema, 1 enabled, 2 eligible, 3 active,
+	// 4 fresh-condition latch, 5 resets, 6 rejections, 7 grabs, 8 releases,
+	// 9 last reset, 10 last rejection, 11 session generation,
+	// 12 reference-space generation, 13 dominant source, 14 off source,
+	// 15 dominant hand, 16 frame generation (low 32 bits), 17 basis fallbacks.
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRTwoHandDiagnostic(uint32_t slot)
+	{
+		if (!engine)
+			return 0;
+		const auto& value = engine->WebXRTwoHandState.Stats;
+		switch (slot)
+		{
+		case 0: return value.SchemaVersion;
+		case 1: return value.Enabled ? 1u : 0u;
+		case 2: return value.Eligible ? 1u : 0u;
+		case 3: return value.Active ? 1u : 0u;
+		case 4: return value.FreshConditionRequired ? 1u : 0u;
+		case 5: return value.ResetCount;
+		case 6: return value.RejectionCount;
+		case 7: return value.GrabCount;
+		case 8: return value.ReleaseCount;
+		case 9: return static_cast<uint32_t>(value.LastReset);
+		case 10: return static_cast<uint32_t>(value.LastRejection);
+		case 11: return value.SessionGeneration;
+		case 12: return value.ReferenceSpaceGeneration;
+		case 13: return value.DominantSourceId;
+		case 14: return value.OffSourceId;
+		case 15: return value.DominantHand;
+		case 16: return static_cast<uint32_t>(value.LastFrameGeneration);
+		case 17: return value.BasisFallbackCount;
+		default: return 0;
+		}
+	}
+
+	// Float diagnostics: 0 squeeze, 1 hand baseline metres, 2 foregrip error
+	// metres, 3 grab blend, 4 baseline weight, 5 effective weight, 6 filter
+	// latency, 7 orthonormal error, followed by one/two/blended basis XYZ in
+	// forward/right/up order at slots 8..34.
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRTwoHandFloatDiagnostic(uint32_t slot)
+	{
+		if (!engine)
+			return 0.0f;
+		const auto& value = engine->WebXRTwoHandState.Stats;
+		if (slot == 0) return value.OffGripSqueeze;
+		if (slot == 1) return value.GripDistanceMeters;
+		if (slot == 2) return value.ForegripDistanceMeters;
+		if (slot == 3) return value.GrabBlend;
+		if (slot == 4) return value.BaselineWeight;
+		if (slot == 5) return value.EffectiveWeight;
+		if (slot == 6) return value.FilterLatencySeconds;
+		if (slot == 7) return value.OrthonormalError;
+		if (slot > 34) return 0.0f;
+		const WebXRTwoHandWeapon::Basis* bases[] = {
+			&value.OneHandBasis, &value.TwoHandBasis, &value.BlendedBasis
+		};
+		const uint32_t basisIndex = (slot - 8) / 9;
+		const uint32_t component = (slot - 8) % 9;
+		const WebXRTwoHandWeapon::Vec3* axes[] = { &bases[basisIndex]->Forward,
+			&bases[basisIndex]->Right, &bases[basisIndex]->Up };
+		const WebXRTwoHandWeapon::Vec3& axis = *axes[component / 3];
+		return component % 3 == 0 ? axis.X : (component % 3 == 1 ? axis.Y : axis.Z);
 	}
 
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponOverlayExpectedEyePasses()
@@ -4364,6 +4525,9 @@ bool Engine::SetWebXRDominantHand(uint32_t handedness)
 		return false;
 	WebXRInput.DominantHandedness = handedness;
 	WebXRInput.DominantControllerIndex = -1;
+	WebXRTwoHandWeapon::Reset(WebXRTwoHandState,
+		WebXRTwoHandWeapon::ResetReason::DominantHandChanged);
+	WebXRTwoHandOutput = {};
 	return true;
 }
 
@@ -4470,6 +4634,19 @@ bool Engine::SetWebXRHapticsEnabledSetting(bool enabled)
 	return true;
 }
 
+bool Engine::SetWebXRTwoHandAimEnabled(bool enabled)
+{
+	WebXRTwoHandAimEnabled = enabled;
+	WebXRTwoHandState.Stats.Enabled = enabled;
+	if (!enabled)
+	{
+		WebXRTwoHandWeapon::Reset(WebXRTwoHandState,
+			WebXRTwoHandWeapon::ResetReason::Disabled);
+		WebXRTwoHandOutput = {};
+	}
+	return true;
+}
+
 void Engine::LoadWebXRInputSettings()
 {
 #ifdef __EMSCRIPTEN__
@@ -4549,6 +4726,12 @@ void Engine::LoadWebXRInputSettings()
 	const bool enableHaptics = hapticsEnabled != "false" && hapticsEnabled != "0" &&
 		hapticsEnabled != "off" && hapticsEnabled != "no";
 	SetWebXRHapticsEnabledSetting(enableHaptics);
+	std::string twoHandEnabled = packages->GetIniValue(
+		"user", "Engine.WebXR", "TwoHandAimEnabled", "False");
+	for (char& c : twoHandEnabled)
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	SetWebXRTwoHandAimEnabled(twoHandEnabled != "false" && twoHandEnabled != "0" &&
+		twoHandEnabled != "off" && twoHandEnabled != "no");
 	RefreshWebXRActionBindings();
 #endif
 }
@@ -4584,6 +4767,8 @@ void Engine::SaveWebXRInputSettings()
 		std::to_string(WebXRSmoothTurnDegreesPerSecond));
 	packages->SetIniValue("user", "Engine.WebXR", "HapticsEnabled",
 		WebXRHapticsEnabled ? "True" : "False");
+	packages->SetIniValue("user", "Engine.WebXR", "TwoHandAimEnabled",
+		WebXRTwoHandAimEnabled ? "True" : "False");
 	packages->SetIniValue("user", "Engine.WebXR", "HudEnabled",
 		WebXRHudEnabled ? "True" : "False");
 	packages->SetIniValue("user", "Engine.WebXR", "HudDistanceUU",
@@ -4667,7 +4852,18 @@ void Engine::UpdateInput(float timeElapsed)
 		tickDebugger();
 
 	if (!viewport->Actor())
+	{
+#ifdef __EMSCRIPTEN__
+		if (WebXRTwoHandState.HasIdentity || WebXRTwoHandState.Active ||
+			WebXRTwoHandState.GrabBlend != 0.0f)
+		{
+			WebXRTwoHandWeapon::Reset(WebXRTwoHandState,
+				WebXRTwoHandWeapon::ResetReason::PawnChanged);
+			WebXRTwoHandOutput = {};
+		}
+#endif
 		return;
+	}
 
 	UpdateWebXRInput(timeElapsed);
 
@@ -4684,6 +4880,118 @@ void Engine::UpdateInput(float timeElapsed)
 			viewport->Actor()->SetFloat(it.first, it.second.Value);
 		}
 	}
+}
+
+void Engine::UpdateWebXRTwoHandWeapon(float timeElapsed)
+{
+#ifdef __EMSCRIPTEN__
+	using namespace WebXRTwoHandWeapon;
+	FrameInput input;
+	input.Enabled = WebXRTwoHandAimEnabled;
+	input.FrameGeneration = WebXRInput.Generation;
+	input.ReferenceSpaceGeneration = Surreal_GetWebXRPoseResetGeneration();
+	if (WebXRInput.SourceCount > 0 && !WebXRTwoHandHadTrackedSession)
+	{
+		WebXRTwoHandSessionGeneration++;
+		WebXRTwoHandHadTrackedSession = true;
+	}
+	else if (WebXRInput.SourceCount == 0)
+	{
+		WebXRTwoHandHadTrackedSession = false;
+	}
+	input.SessionGeneration = WebXRTwoHandSessionGeneration;
+	input.DominantHand = WebXRInput.DominantHandedness;
+	input.DeltaSeconds = timeElapsed;
+	input.WorldUnitsPerMeter = Surreal_GetWebXRWorldUnitsPerMeter();
+	input.MenuOwned = WebXRMenuNavigationActive;
+
+	UPlayerPawn* pawn = viewport ? viewport->Actor() : nullptr;
+	UWeapon* weapon = pawn ? pawn->Weapon() : nullptr;
+	input.PawnIdentity = reinterpret_cast<uintptr_t>(pawn);
+	input.WeaponIdentity = reinterpret_cast<uintptr_t>(weapon);
+	input.LocalCurrentWeapon = pawn && weapon && pawn->Weapon() == weapon && weapon->Owner() == pawn;
+	if (pawn && weapon && weapon->Owner() != pawn)
+		input.OwnershipRejection = Rejection::WrongOwner;
+	input.PawnAlive = pawn && pawn->Health() > 0;
+	WebXRTwoHandWeaponPackage.clear();
+	WebXRTwoHandWeaponClass.clear();
+
+	const VRControllerInputState* dominant = nullptr;
+	const VRControllerInputState* offHand = nullptr;
+	if (WebXRInput.DominantControllerIndex >= 0 &&
+		WebXRInput.DominantControllerIndex < static_cast<int32_t>(WebXRInput.Controllers.size()))
+	{
+		dominant = &WebXRInput.Controllers[WebXRInput.DominantControllerIndex];
+		input.DominantSourceId = dominant->SourceId;
+		for (size_t index = 0; index < WebXRInput.Controllers.size(); index++)
+		{
+			if (static_cast<int32_t>(index) == WebXRInput.DominantControllerIndex)
+				continue;
+			const VRControllerInputState& candidate = WebXRInput.Controllers[index];
+			if (candidate.Connected)
+			{
+				offHand = &candidate;
+				break;
+			}
+		}
+	}
+	if (offHand)
+	{
+		input.OffSourceId = offHand->SourceId;
+		input.OffGripSqueeze = offHand->GripValue;
+		input.OffGripTracked = offHand->Connected && offHand->GripPose.Tracked;
+		input.OffGripPositionUU = ToWebXRTwoHandVector(offHand->GripPose.WorldPosition);
+	}
+	else
+	{
+		input.OffGripTracked = false;
+	}
+	if (dominant)
+	{
+		input.MainGripTracked = dominant->Connected && dominant->GripPose.Tracked;
+		input.MainGripPositionUU = ToWebXRTwoHandVector(dominant->GripPose.WorldPosition);
+		const VRTrackedPoseState* oneHandPose = dominant->AimPose.Tracked ?
+			&dominant->AimPose : (dominant->GripPose.Tracked ? &dominant->GripPose : nullptr);
+		if (oneHandPose)
+			input.OneHandBasis = ToWebXRTwoHandBasis(*oneHandPose);
+		if (dominant->GripPose.Tracked)
+			input.MainGripBasis = ToWebXRTwoHandBasis(dominant->GripPose);
+	}
+	else
+	{
+		input.MainGripTracked = false;
+	}
+
+	MetadataLookup lookup;
+	if (weapon && weapon->Class && weapon->Class->package)
+	{
+		WebXRTwoHandWeaponPackage = weapon->Class->package->GetPackageName().ToString();
+		WebXRTwoHandWeaponClass = weapon->Class->Name.ToString();
+		const char* controllerProfile = dominant && (dominant->Flags & WebXRXRStandard) != 0 ?
+			"xr-standard" : "generic";
+		const MetadataQuery query{ WebXRTwoHandWeaponPackage.c_str(),
+			WebXRTwoHandWeaponClass.c_str(), "", controllerProfile, "", "",
+			WebXRInput.DominantHandedness, input.WorldUnitsPerMeter };
+		lookup = FindQualifiedMetadata(WebXRTwoHandMetadataTable.data(),
+			WebXRTwoHandMetadataTable.size(), query);
+	}
+	input.Metadata = lookup.Row;
+	input.MetadataRejection = lookup.Why;
+	WebXRTwoHandState.Stats.ProductionMetadataRows =
+		static_cast<uint32_t>(WebXRTwoHandMetadataTable.size());
+	try
+	{
+		WebXRTwoHandOutput = Advance(WebXRTwoHandState, input);
+	}
+	catch (...)
+	{
+		Reset(WebXRTwoHandState, ResetReason::ExceptionUnwind);
+		WebXRTwoHandOutput = {};
+		throw;
+	}
+#else
+	(void)timeElapsed;
+#endif
 }
 
 void Engine::UpdateWebXRInput(float timeElapsed)
@@ -4713,6 +5021,7 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 		for (size_t button = 0; button < state.ButtonValues.size(); button++)
 			state.ButtonValues[button] = source.ButtonValues[button];
 		state.TriggerValue = source.ButtonValues[0];
+		state.GripValue = source.ButtonValues[1];
 		state.GripPose.Tracked = (source.Flags & WebXRGripValid) != 0;
 		state.GripPose.Position = vec3(source.GripPose.Position[0], source.GripPose.Position[1], source.GripPose.Position[2]);
 		state.GripPose.Orientation = vec4(source.GripPose.Orientation[0], source.GripPose.Orientation[1], source.GripPose.Orientation[2], source.GripPose.Orientation[3]);
@@ -5083,6 +5392,7 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 		ComposeWebXRWorldPose(controller.GripPose, source.GripPose, cameraAnchor, bodyRotation);
 		ComposeWebXRWorldPose(controller.AimPose, source.AimPose, cameraAnchor, bodyRotation);
 	}
+	UpdateWebXRTwoHandWeapon(timeElapsed);
 
 	const uint32_t releasedAxes = WebXRAxesActive & ~nextAxesActive;
 	for (uint32_t axis = 0; axis < 4; axis++)

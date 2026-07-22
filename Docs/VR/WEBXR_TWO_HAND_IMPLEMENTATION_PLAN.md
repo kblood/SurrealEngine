@@ -1,5 +1,80 @@
 # WebXR two-hand weapon implementation plan
 
+## Implementation status (2026-07-22)
+
+The fail-closed code foundation and conservative engine seam are implemented.
+`SurrealEngine/WebXR/WebXRTwoHandWeapon.{h,cpp}` is a portable deterministic
+module with no engine-object dependency. The Emscripten engine copies normalized
+squeeze from standard button-value slot 1, resolves dominant/off-hand sources by
+handedness, and updates two-hand state once per newly published input frame after
+both grips have been composed into UE1 world space.
+
+Implemented and verified:
+
+- Immutable metadata schema version 1 with exact package, class, package hash,
+  controller profile, dominant hand, world scale, headset, and runtime
+  qualification. Missing, duplicate, malformed, out-of-range, or mismatched
+  rows fail closed. The production table has zero rows.
+- Strict `> 0.60`/`< 0.40` analog and `< 0.12 m`/`> 0.25 m` spatial hysteresis,
+  including exact-boundary fixtures. Squeeze remains ordinary engine input and
+  is neither synthesized nor consumed by this feature.
+- A frame-rate-independent 100 ms grab/release blend for 60, 72, 80, and 90 Hz,
+  plus smooth short-baseline fade below 15 cm. Negative/zero deltas do not
+  advance the blend; non-finite input resets it.
+- A full-basis construction using the main grip's presentation up axis, with a
+  projected main-right fallback, explicit handedness, and quaternion
+  shortest-arc blending. Zero effective weight is an exact structural
+  passthrough of the pre-existing one-hand basis.
+- State binding to monotonic input frame, conservative session generation,
+  reference-space reset generation, dominant/off-hand source IDs, handedness,
+  pawn, exact current weapon, and metadata row. Session/reset/source/hand/pawn/
+  weapon/death/menu/tracking/non-finite/stale-frame/exception transitions clear
+  active state, blend, and cached identities. Recovery requires a neutral frame
+  followed by a fresh qualifying grip.
+- Conservative engine integration: a qualified nonzero blended basis can drive
+  the existing per-eye presentation rotation and its zero-roll forward can drive
+  only the already-scoped local-current-weapon aim override. Main-grip visual
+  position, pawn transform, movement, view state outside the scope, muzzle
+  origin, spread, autoaim, inventory, fire state, and remote actors are not
+  changed.
+- Persisted, default-off `Engine.WebXR.TwoHandAimEnabled` setting. Enabling is
+  an explicit opt-in; disabling synchronously resets state and makes the
+  existing one-hand paths authoritative.
+- Versioned native/Wasm diagnostics for settings/eligibility/activity, identity
+  generations and source IDs, reset/rejection/grab/release counts and reasons,
+  analog/distances/weights/filter latency, all one/two/blended basis components,
+  orthonormal error, package/class, metadata schema, and production row count.
+- Deterministic module tests cover package collisions and qualification,
+  ownership/death/menu failures, all hysteresis boundaries, four frame rates,
+  reset/fresh-grip behavior, coincident/non-finite/short-baseline cases,
+  full-roll handed bases, yaw-wrap shortest arc, exact one-hand passthrough, and
+  exception unwind. Browser smoke additionally proves grip/profile transport,
+  loaded `Botpack.ShockRifle` identity, zero production eligibility, exact
+  zero-weight fallback, two weapon eye passes, tracking loss, and setting reset.
+
+Verification evidence for this implementation pass:
+
+```text
+portable MinGW self-test driver: pass
+cmake --build build --config Debug -j 4: pass
+cmake --build build-emscripten --target SurrealEngine -j 2: pass
+cmake --build build-emscripten-nodata --target SurrealEngine -j 2: pass
+python -B -u web/smoke_test_webxr.py --experimental-webgpu-xr: pass
+packed frame: 201 draws, 1181 differing stereo samples, zero GPU errors
+```
+
+The implementation is intentionally not a physically usable two-hand grip yet.
+No browser/headset identity strings or package-content hash are transported into
+the engine qualification query, no calibration-candidate writer exists, and no
+weapon row has been measured or approved. Those facts keep the table empty and
+all real weapons one-handed. The remaining gates are the staged-delivery items
+6-8 below: add an explicit non-production calibration flow, carry exact runtime/
+headset/controller-profile and package-hash provenance, measure a rifle for both
+dominant hands, review the candidate into immutable code, and pass Quest 3/VDXR
+tracking-loss, occlusion, jitter, comfort, and 30-minute tests. Optional grab/
+release haptics and low-pass filtering also remain disabled; neither should be
+enabled before that physical tuning.
+
 ## Scope and default policy
 
 Two-hand aiming is an opt-in weapon interaction layered on the existing
