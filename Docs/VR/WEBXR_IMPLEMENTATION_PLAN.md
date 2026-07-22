@@ -1756,6 +1756,24 @@ require clear/re-import. Quest Browser/OS restart or reclamation, full user-
 owned install size/quota/copy/thermal behavior, custom save paths, storage
 exhaustion, and long-play checkpoints remain open.
 
+## M10 trusted-HTTPS development server (2026-07-22)
+
+Commit `d681ade1` hardens and extends `web/serve.mjs` while preserving
+`node web/serve.mjs 8091`. Strict `--host`, `--port`, and paired `--cert`/
+`--key` options enable opt-in LAN HTTPS; half-configured TLS, malformed ports,
+encoded traversal, bad methods, and canonical/symlink escapes fail closed.
+GET/HEAD responses retain the exact MIME, COOP, COEP, CORP, and cache policy,
+and `/_health` reveals transport state without filesystem paths.
+
+Seven tests pass, including backward-compatible HTTP and an ephemeral OpenSSL
+HTTPS server whose temporary key is removed. The transport client disables
+certificate verification, so this proves TLS/header/server behavior only.
+`WEBXR_TRUSTED_HTTPS.md` documents certificate SANs, local CA handling, Windows
+Brave/Virtual Desktop versus Quest Browser trust, LAN exposure, and production
+reverse-proxy requirements. A maintained production origin, target-trusted
+certificate, Quest secure-context check, renewal/rollback, and native
+presentation remain physical/deployment gates.
+
 ## M11 repeatable performance harness (2026-07-22)
 
 Commit `df25fa36` adds `web/profile_webxr.py`, its pure report/validation module,

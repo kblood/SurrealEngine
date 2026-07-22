@@ -1,5 +1,11 @@
 # WebXR deployment shell
 
+For LAN/headset development with explicit certificate/key serving, trust-store
+requirements, and secure-context verification, see
+`../Docs/VR/WEBXR_TRUSTED_HTTPS.md`. `web/serve.mjs` is a development server;
+production must serve only the audited staged artifact from a maintained HTTPS
+origin.
+
 The installable entry point is `web/index_webxr.html?pwa=1&build=build-emscripten-nodata`.
 The `pwa=1` registration seam is accepted automatically only with the known
 redistributable `build-emscripten-nodata` output. The development preload must

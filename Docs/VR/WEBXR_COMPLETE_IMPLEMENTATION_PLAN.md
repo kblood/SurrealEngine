@@ -82,7 +82,7 @@ XRSession.requestAnimationFrame
 | M7 — tracking/camera/world scale | Deterministic implementation complete; headset validation gated | 6DoF pose conversion, body/head composition, recentering, world scale, and exact per-eye projection are implemented; physical scale and scene correctness remain to validate |
 | M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, narrowly scoped controller-relative visual position with safe zero-offset fallback, a real loaded Botpack ShockRifle fixture, deliberate safe-exit controls, confirmed fire/damage/pickup/menu-confirm haptics, and browser-persisted VR controls are implemented; qualified per-weapon offsets, muzzle origin, two-hand UX, automatic/special fixtures, and headset validation remain |
 | M9 — UI/comfort/VR presentation | In progress | HUD plus console/menu 2D output is captured once and replayed per eye on a finite-depth plane, including UI-only frames. Dominant-hand aim drives UT's absolute cursor, a menu-gated trigger safely selects without firing behind the menu, and stick/D-pad focus navigation now routes through stock console key events while suppressing gameplay input. Tracking-loss/recovery feedback and an optional DOM-overlay safe-exit surface are implemented. Strict plane settings have a validated persistent browser panel; actor-style canvas draws, guaranteed in-headset loss feedback without DOM Overlay, recenter UX, comfort policies, complete loading/pause presentation, and headset readability remain |
-| M10 — audio/data/network/deploy | In progress | Real Web Audio output, tracked-head listener, no-data builds, local OPFS/IndexedDB UT99 import, allowlisted mutable settings/save/log persistence, disposable-profile restart/crash/forced-kill/corruption/origin-clear qualification, an installable PWA, an offline-only browser MVP scope, and fail-closed release staging/auditing are implemented; real full-install import, storage-pressure/Quest recovery, fuller launcher UX, production HTTPS/Quest installation, and physical audio/storage validation remain |
+| M10 — audio/data/network/deploy | In progress | Real Web Audio output, tracked-head listener, no-data builds, local OPFS/IndexedDB UT99 import, allowlisted mutable settings/save/log persistence, disposable-profile restart/crash/forced-kill/corruption/origin-clear qualification, an installable PWA, strict trusted-HTTPS development serving, an offline-only browser MVP scope, and fail-closed release staging/auditing are implemented; real full-install import, storage-pressure/Quest recovery, fuller launcher UX, production HTTPS/Quest installation, and physical audio/storage validation remain |
 | M11 — performance/robustness/release | In progress | Automated session/lifecycle/device-loss coverage, a strict versioned desktop/IWER profiler, and a reproducible 83-check no-commercial-data release gate exist; physical Quest GPU/thermal profiling, headset lifecycle, compatibility, soak, and release gates remain |
 
 ## 3. M0 — architecture and platform gate
@@ -1250,6 +1250,14 @@ and must never describe controller-local aim as replicated or authoritative.
   blocking, cache version/cleanup isolation, manifest/MIME, COOP/COEP/CORP,
   worker revalidation, online update, offline launch/fallback, no-data runtime
   caching, development-preload refusal, and browser error absence.
+- **Implemented in commit `d681ade1`:** `web/serve.mjs` preserves its legacy
+  loopback HTTP command and adds strict explicit host/port plus paired
+  certificate/key HTTPS. It accepts only GET/HEAD, rejects malformed/encoded
+  traversal and canonical/symlink escapes, preserves exact isolation/MIME/cache
+  headers, exposes a non-disclosing health response, and warns on opt-in LAN
+  binding. Seven server tests cover HTTP compatibility and ephemeral OpenSSL
+  HTTPS. `WEBXR_TRUSTED_HTTPS.md` documents CA/name/trust requirements; the
+  transport test deliberately does not claim Quest certificate trust.
 - **Implemented in commits `5add1e67` and `8b909457`:**
   `web/stage_web_release.py` copies an exact redistribution allowlist into a
   new empty directory, writes deterministic SHA-256 metadata, then invokes
@@ -1262,7 +1270,8 @@ and must never describe controller-local aim as replicated or authoritative.
   15 files and passed 83 checks with zero errors and zero warnings. It contains
   exactly the current no-data JS/Wasm pair whose hashes are recorded in
   section 13.2.
-- **Still required:** serve the production artifact over real HTTPS with
+- **Still required:** serve only the staged production artifact from a hardened
+  maintained HTTPS origin with a stable target-trusted certificate and
   `Cross-Origin-Opener-Policy: same-origin`,
   `Cross-Origin-Embedder-Policy: require-corp`, and
   `Cross-Origin-Resource-Policy: same-origin`; validate Quest Browser
@@ -1401,7 +1410,7 @@ tests.
 | M9 UI/comfort | Physically validate capture-once console/menu, UI-only frames, dominant-hand cursor ray, safe menu-gated trigger, focus navigation, tracking feedback, and safe exit; add engine-rendered loss/exit feedback for runtimes without DOM Overlay and unsupported actor draws; finish readable scale, weapon placement tuning, vignette/comfort policies, recenter, and loading/pause presentation | Actor-draw strategy, per-eye headset inspection, 30-minute comfort session |
 | M10 audio | Physically validate the implemented tracked-head listener: gesture unlock, head-relative direction/roll, Doppler and reset policy, focus/session re-entry, music, effects, volume, map changes, underruns, and shutdown | Real Quest Browser audio lifecycle and representative maps/sounds |
 | M10 data | Import a complete user-owned install into the audited no-preload artifact; verify playable clean-profile boot, large-copy quota/progress, Quest OS restart/kill, pressure eviction, custom save-path policy, and implement schema migration. Strict persistence plus disposable desktop restart/crash/forced-kill/corruption/origin-clear qualification are implemented | User-owned UT99 installation, clean Quest browser profile, Quest storage/browser support matrix, migration design |
-| M10 product | Extend the tested installable shell/settings UI into a full map/game/crash-diagnostics launcher; validate HTTPS/COOP/COEP deployment, Quest install/update/offline behavior, rollback, and license audit. Deterministic staging and the proprietary-content scan are implemented | Production hosting target, Quest Browser, independent manifest/license review |
+| M10 product | Extend the tested installable shell/settings UI into a full map/game/crash-diagnostics launcher; validate production HTTPS, Quest install/update/offline behavior, rollback, and license audit. Deterministic staging/proprietary-content scanning and a strict isolation-header HTTPS development server are implemented | Production hosting target and trusted certificate, Quest Browser, independent manifest/license review |
 | M11 performance | 72 Hz minimum target qualification, Quest CPU/GPU/memory/GC traces, render-scale/foveation decisions, pthread memory strategy | The strict desktop/IWER profiler is implemented and validated; remaining evidence needs Quest hardware plus an acceptance/stress map set |
 | M11 release | Compatibility matrix, sleep/wake and failure recovery, three entry cycles, 60-minute soak, and independent final manifest/license review; reproducible staging/auditing is implemented | Release browser/runtime versions, physical test reports, clean profile/import path |
 
