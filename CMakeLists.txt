@@ -49,6 +49,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Utils/StrTools.h
 	SurrealEngine/Utils/Random.cpp
 	SurrealEngine/Utils/Random.h
+	SurrealEngine/Runtime/DeterministicRuntime.cpp
+	SurrealEngine/Runtime/DeterministicRuntime.h
 	SurrealEngine/Utils/UTF16.cpp
 	SurrealEngine/Utils/UTF16.h
 	SurrealEngine/Utils/UTF8Reader.cpp
@@ -721,6 +723,18 @@ target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAK
 add_executable(SurrealEngine WIN32 MACOSX_BUNDLE ${SURREALENGINE_SOURCES})
 target_link_libraries(SurrealEngine SurrealCommon ${SURREALCOMMON_LIBS})
 set_target_properties(SurrealEngine PROPERTIES CXX_STANDARD 20)
+
+include(CTest)
+if(BUILD_TESTING AND NOT EMSCRIPTEN)
+	add_executable(DeterministicRuntimeTests
+		Tests/DeterministicRuntimeTests.cpp
+		SurrealEngine/Runtime/DeterministicRuntime.cpp
+		SurrealEngine/Utils/Random.cpp
+	)
+	target_include_directories(DeterministicRuntimeTests PRIVATE SurrealEngine)
+	set_target_properties(DeterministicRuntimeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME DeterministicRuntime COMMAND DeterministicRuntimeTests)
+endif()
 
 add_executable(SurrealEditor WIN32 MACOSX_BUNDLE ${SURREALEDITOR_SOURCES})
 target_link_libraries(SurrealEditor SurrealCommon ${SURREALCOMMON_LIBS})
