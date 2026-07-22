@@ -335,6 +335,17 @@ def main():
 
             weapon_bridge_diagnostics = page.evaluate("""() => ({
                 aimSelfTest: Module.ccall('Surreal_RunWebXRWeaponAimSelfTest', 'number', [], []),
+				visualPositionSelfTest: Module.ccall('Surreal_RunWebXRWeaponVisualPositionSelfTest', 'number', [], []),
+				visualGripSchema: Module.ccall('Surreal_GetWebXRWeaponVisualGripSchemaVersion', 'number', [], []),
+				visualDrawScopes: Module.ccall('Surreal_GetWebXRWeaponVisualDrawScopeCount', 'number', [], []),
+				visualDrawRestores: Module.ccall('Surreal_GetWebXRWeaponVisualDrawRestoreCount', 'number', [], []),
+				visualZeroFallbacks: Module.ccall('Surreal_GetWebXRWeaponVisualZeroFallbackCount', 'number', [], []),
+				visualCalibratedOffsets: Module.ccall('Surreal_GetWebXRWeaponVisualCalibratedOffsetCount', 'number', [], []),
+				visualRejectedTransforms: Module.ccall('Surreal_GetWebXRWeaponVisualRejectedTransformCount', 'number', [], []),
+				visualLastOffset: Array.from({length: 3}, (_, axis) =>
+					Module.ccall('Surreal_GetWebXRWeaponVisualLastGripOffsetValue', 'number', ['number'], [axis])),
+				visualLastPosition: Array.from({length: 3}, (_, axis) =>
+					Module.ccall('Surreal_GetWebXRWeaponVisualLastPositionValue', 'number', ['number'], [axis])),
                 hapticsSelfTest: Module.ccall('Surreal_RunWebXRHapticsBridgeSelfTest', 'number', [], []),
                 gameplayHapticsSelfTest: Module.ccall('Surreal_RunWebXRGameplayHapticsSelfTest', 'number', [], []),
                 disableAccepted: Module.ccall('Surreal_SetWebXRHapticsEnabled', 'number', ['number'], [0]),
@@ -383,8 +394,22 @@ def main():
             })""")
             print(f"[harness] M8/M9/M10 presentation and audio diagnostics: {weapon_bridge_diagnostics}")
             if any(weapon_bridge_diagnostics.get(name) != 1 for name in
-                   ("aimSelfTest", "hapticsSelfTest", "gameplayHapticsSelfTest",
+				   ("aimSelfTest", "visualPositionSelfTest", "visualGripSchema",
+					"hapticsSelfTest", "gameplayHapticsSelfTest",
                     "disableAccepted", "enableAccepted", "hapticsEnabled", "hudSelfTest")) or \
+					weapon_bridge_diagnostics.get("visualDrawScopes", -1) < 0 or \
+					weapon_bridge_diagnostics.get("visualDrawRestores") != \
+					weapon_bridge_diagnostics.get("visualDrawScopes") or \
+					weapon_bridge_diagnostics.get("visualZeroFallbacks", -1) + \
+					weapon_bridge_diagnostics.get("visualCalibratedOffsets", -1) != \
+					weapon_bridge_diagnostics.get("visualDrawScopes") or \
+					weapon_bridge_diagnostics.get("visualRejectedTransforms", -1) < 0 or \
+					len(weapon_bridge_diagnostics.get("visualLastOffset", [])) != 3 or \
+					len(weapon_bridge_diagnostics.get("visualLastPosition", [])) != 3 or \
+					not all(math.isfinite(value) for value in
+							weapon_bridge_diagnostics.get("visualLastOffset", [])) or \
+					not all(math.isfinite(value) for value in
+							weapon_bridge_diagnostics.get("visualLastPosition", [])) or \
                     len(weapon_bridge_diagnostics.get("hapticOutcomes", [])) != 4 or \
                     len(weapon_bridge_diagnostics.get("hapticRequests", [])) != 4 or \
                     not all(value >= 0 for value in weapon_bridge_diagnostics.get("hapticOutcomes", [])) or \

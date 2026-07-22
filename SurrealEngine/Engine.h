@@ -173,6 +173,13 @@ public:
 		uint32_t RestoreCount = 0;
 		uint32_t HapticRequestCount = 0;
 		uint32_t HapticAcceptedCount = 0;
+		uint32_t VisualDrawScopeCount = 0;
+		uint32_t VisualDrawRestoreCount = 0;
+		uint32_t VisualZeroFallbackCount = 0;
+		uint32_t VisualCalibratedOffsetCount = 0;
+		uint32_t VisualRejectedTransformCount = 0;
+		vec3 LastVisualGripOffset = vec3(0.0f);
+		vec3 LastVisualPosition = vec3(0.0f);
 	};
 
 	struct WebXRHapticEventDiagnostics
@@ -407,6 +414,8 @@ private:
 	std::function<void()> EnterWebXRCallScope(UFunction* func, UObject* instance,
 		const Array<ExpressionValue>& args);
 	std::function<void()> EnterWebXRWeaponAimScope(UFunction* func, UObject* instance);
+	std::function<void()> EnterWebXRWeaponVisualScope(UFunction* func, UObject* instance,
+		const Array<ExpressionValue>& args);
 	std::function<void()> EnterWebXRGameplayOutcomeScope(UFunction* func, UObject* instance,
 		const Array<ExpressionValue>& args);
 	void RecordWebXRHapticOutcome(uint32_t event, float magnitude);
@@ -460,6 +469,13 @@ private:
 	bool HasCalculatedCameraView = false;
 	uint32_t WebXRDamageScopeDepth = 0;
 	uint32_t WebXRPickupScopeDepth = 0;
+	struct WebXRWeaponPresentationContext
+	{
+		UWeapon* Weapon = nullptr;
+		int32_t ControllerIndex = -1;
+		Rotator PresentationRotation = Rotator(0, 0, 0);
+	};
+	std::vector<WebXRWeaponPresentationContext> WebXRWeaponPresentationStack;
 };
 
 extern Engine* engine;

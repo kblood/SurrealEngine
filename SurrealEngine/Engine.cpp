@@ -400,6 +400,110 @@ namespace
 		return result;
 	}
 
+	// Visual grip metadata is deliberately package-qualified: UT mods commonly
+	// reuse stock class names. Offsets are expressed in grip-local UE1 units in
+	// forward/right/up order. This schema is immutable at runtime; only offsets
+	// measured and qualified on hardware belong in the production table.
+	struct WebXRWeaponVisualGripEntry
+	{
+		const char* PackageName;
+		const char* ClassName;
+		float ForwardUU;
+		float RightUU;
+		float UpUU;
+	};
+
+	constexpr uint32_t WebXRWeaponVisualGripSchemaVersion = 1;
+	const std::array<WebXRWeaponVisualGripEntry, 0> WebXRWeaponVisualGripTable = {};
+
+	struct WebXRWeaponVisualGripLookup
+	{
+		vec3 Offset = vec3(0.0f);
+		bool Calibrated = false;
+	};
+
+	WebXRWeaponVisualGripLookup FindWebXRWeaponVisualGrip(
+		const WebXRWeaponVisualGripEntry* entries, size_t entryCount,
+		const std::string& packageName, const std::string& className)
+	{
+		for (size_t index = 0; index < entryCount; index++)
+		{
+			const WebXRWeaponVisualGripEntry& entry = entries[index];
+			if (WebXRNameEquals(packageName, entry.PackageName) &&
+				WebXRNameEquals(className, entry.ClassName))
+			{
+				return { vec3(entry.ForwardUU, entry.RightUU, entry.UpUU), true };
+			}
+		}
+		return {};
+	}
+
+	WebXRWeaponVisualGripLookup FindWebXRWeaponVisualGrip(UWeapon* weapon)
+	{
+		if (!weapon || !weapon->Class || !weapon->Class->package)
+			return {};
+		return FindWebXRWeaponVisualGrip(WebXRWeaponVisualGripTable.data(),
+			WebXRWeaponVisualGripTable.size(),
+			weapon->Class->package->GetPackageName().ToString(),
+			weapon->Class->Name.ToString());
+	}
+
+	bool IsFiniteWebXRVector(const vec3& value)
+	{
+		return std::isfinite(value.x) && std::isfinite(value.y) &&
+			std::isfinite(value.z);
+	}
+
+	bool TryComposeWebXRWeaponVisualTransform(const Engine::VRTrackedPoseState& grip,
+		const vec3& localOffset, const Rotator& presentationRotation,
+		vec3& location, Rotator& rotation)
+	{
+		if (!grip.Tracked || !IsFiniteWebXRVector(grip.WorldPosition) ||
+			!IsFiniteWebXRVector(grip.WorldForward) ||
+			!IsFiniteWebXRVector(grip.WorldRight) ||
+			!IsFiniteWebXRVector(grip.WorldUp) || !IsFiniteWebXRVector(localOffset))
+			return false;
+
+		const vec3 composed = grip.WorldPosition +
+			grip.WorldForward * localOffset.x +
+			grip.WorldRight * localOffset.y +
+			grip.WorldUp * localOffset.z;
+		if (!IsFiniteWebXRVector(composed))
+			return false;
+		location = composed;
+		rotation = presentationRotation;
+		return true;
+	}
+
+	bool IsExactWebXRWeaponVisualDrawCall(const WebXRWeaponCallMetadata& call,
+		bool functionIsNative, bool instanceIsEngineCanvas, size_t argumentCount,
+		bool firstArgumentIsPresentationWeapon, bool presentationContextActive)
+	{
+		return presentationContextActive && functionIsNative && instanceIsEngineCanvas &&
+			argumentCount == 3 && firstArgumentIsPresentationWeapon &&
+			call.DeclaringStateName.empty() &&
+			WebXRNameEquals(call.PackageName, "Engine") &&
+			WebXRNameEquals(call.ClassName, "Canvas") &&
+			WebXRNameEquals(call.FunctionName, "DrawActor");
+	}
+
+	std::function<void()> BeginWebXRActorTransformOverride(vec3& actorLocation,
+		Rotator& actorRotation, const vec3& replacementLocation,
+		const Rotator& replacementRotation)
+	{
+		vec3* locationPtr = &actorLocation;
+		Rotator* rotationPtr = &actorRotation;
+		const vec3 savedLocation = actorLocation;
+		const Rotator savedRotation = actorRotation;
+		actorLocation = replacementLocation;
+		actorRotation = replacementRotation;
+		return [locationPtr, rotationPtr, savedLocation, savedRotation]()
+		{
+			*locationPtr = savedLocation;
+			*rotationPtr = savedRotation;
+		};
+	}
+
 	struct WebXRInventoryEntrySnapshot
 	{
 		UInventory* Item = nullptr;
@@ -671,6 +775,99 @@ namespace
 		return pawnRotation.Pitch == pawnBaseline.Pitch && pawnRotation.Yaw == pawnBaseline.Yaw &&
 			pawnRotation.Roll == pawnBaseline.Roll && weaponRotation.Pitch == weaponBaseline.Pitch &&
 			weaponRotation.Yaw == weaponBaseline.Yaw && weaponRotation.Roll == weaponBaseline.Roll;
+	}
+
+	bool RunWebXRWeaponVisualPositionSelfTest()
+	{
+		const WebXRWeaponCallMetadata drawActor{ "Engine", "Canvas", {}, {}, "DrawActor" };
+		if (!IsExactWebXRWeaponVisualDrawCall(drawActor, true, true, 3, true, true))
+			return false;
+		const WebXRWeaponCallMetadata rejectedCalls[] = {
+			{ "Custom", "Canvas", {}, {}, "DrawActor" },
+			{ "Engine", "GC", {}, {}, "DrawActor" },
+			{ "Engine", "Canvas", "Menu", "Menu", "DrawActor" },
+			{ "Engine", "Canvas", {}, {}, "DrawClippedActor" }
+		};
+		for (const auto& rejected : rejectedCalls)
+		{
+			if (IsExactWebXRWeaponVisualDrawCall(rejected, true, true, 3, true, true))
+				return false;
+		}
+		if (IsExactWebXRWeaponVisualDrawCall(drawActor, false, true, 3, true, true) ||
+			IsExactWebXRWeaponVisualDrawCall(drawActor, true, false, 3, true, true) ||
+			IsExactWebXRWeaponVisualDrawCall(drawActor, true, true, 2, true, true) ||
+			IsExactWebXRWeaponVisualDrawCall(drawActor, true, true, 3, false, true) ||
+			IsExactWebXRWeaponVisualDrawCall(drawActor, true, true, 3, true, false))
+			return false;
+
+		// Same class name in different packages must never collide.
+		const std::array<WebXRWeaponVisualGripEntry, 2> collisionTable = {{
+			{ "Botpack", "SharedWeapon", 1.0f, 2.0f, 3.0f },
+			{ "ExampleMod", "SharedWeapon", 4.0f, 5.0f, 6.0f }
+		}};
+		const auto stock = FindWebXRWeaponVisualGrip(collisionTable.data(),
+			collisionTable.size(), "Botpack", "SharedWeapon");
+		const auto mod = FindWebXRWeaponVisualGrip(collisionTable.data(),
+			collisionTable.size(), "ExampleMod", "SharedWeapon");
+		const auto fallback = FindWebXRWeaponVisualGrip(WebXRWeaponVisualGripTable.data(),
+			WebXRWeaponVisualGripTable.size(), "Botpack", "UncalibratedWeapon");
+		if (!stock.Calibrated || stock.Offset != vec3(1.0f, 2.0f, 3.0f) ||
+			!mod.Calibrated || mod.Offset != vec3(4.0f, 5.0f, 6.0f) ||
+			fallback.Calibrated || fallback.Offset != vec3(0.0f))
+			return false;
+
+		Engine::VRTrackedPoseState grip;
+		grip.Tracked = true;
+		grip.WorldPosition = vec3(10.0f, 20.0f, 30.0f);
+		grip.WorldForward = vec3(0.0f, 1.0f, 0.0f);
+		grip.WorldRight = vec3(-1.0f, 0.0f, 0.0f);
+		grip.WorldUp = vec3(0.0f, 0.0f, 1.0f);
+		grip.WorldPresentationRotation = Rotator(101, 202, 303);
+		vec3 composedLocation;
+		Rotator composedRotation;
+		const Rotator aimPreferredRotation(404, 505, 606);
+		if (!TryComposeWebXRWeaponVisualTransform(grip, vec3(2.0f, 3.0f, 4.0f),
+				aimPreferredRotation,
+				composedLocation, composedRotation) ||
+			composedLocation != vec3(7.0f, 22.0f, 34.0f) ||
+			composedRotation.Pitch != 404 || composedRotation.Yaw != 505 ||
+			composedRotation.Roll != 606)
+			return false;
+		if (!TryComposeWebXRWeaponVisualTransform(grip, vec3(0.0f),
+				aimPreferredRotation, composedLocation, composedRotation) ||
+			composedLocation != grip.WorldPosition)
+			return false;
+
+		Engine::VRTrackedPoseState invalidGrip = grip;
+		invalidGrip.WorldPosition.x = std::numeric_limits<float>::quiet_NaN();
+		if (TryComposeWebXRWeaponVisualTransform(invalidGrip, vec3(0.0f),
+				aimPreferredRotation,
+				composedLocation, composedRotation) ||
+			TryComposeWebXRWeaponVisualTransform(grip,
+				vec3(std::numeric_limits<float>::infinity(), 0.0f, 0.0f),
+				aimPreferredRotation,
+				composedLocation, composedRotation))
+			return false;
+
+		// The same LIFO cleanup contract used by Frame::ActiveCallScopeHook must
+		// restore an outer visual transform before restoring the exact baseline.
+		vec3 location(91.0f, 92.0f, 93.0f);
+		Rotator rotation(0x12345, -0x23456, 0x34567);
+		const vec3 baselineLocation = location;
+		const Rotator baselineRotation = rotation;
+		auto outer = BeginWebXRActorTransformOverride(location, rotation,
+			vec3(1.0f, 2.0f, 3.0f), Rotator(11, 22, 33));
+		auto inner = BeginWebXRActorTransformOverride(location, rotation,
+			vec3(4.0f, 5.0f, 6.0f), Rotator(44, 55, 66));
+		inner();
+		if (location != vec3(1.0f, 2.0f, 3.0f) ||
+			rotation.Pitch != 11 || rotation.Yaw != 22 || rotation.Roll != 33)
+			return false;
+		outer();
+		return location == baselineLocation &&
+			rotation.Pitch == baselineRotation.Pitch &&
+			rotation.Yaw == baselineRotation.Yaw &&
+			rotation.Roll == baselineRotation.Roll;
 	}
 #endif
 
@@ -1050,6 +1247,8 @@ Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 		});
 		LogMessage(std::string("WebXR gameplay call hook installed; aim self-test=") +
 			(RunWebXRWeaponAimSelfTest() ? "pass" : "FAIL") +
+			" visual-position self-test=" +
+			(RunWebXRWeaponVisualPositionSelfTest() ? "pass" : "FAIL") +
 			" haptics self-test=" + (RunWebXRGameplayHapticsSelfTest() ? "pass" : "FAIL"));
 	}
 #endif
@@ -1076,16 +1275,24 @@ std::function<void()> Engine::EnterWebXRCallScope(UFunction* func, UObject* inst
 	const Array<ExpressionValue>& args)
 {
 	std::function<void()> weaponCleanup = EnterWebXRWeaponAimScope(func, instance);
+	std::function<void()> visualCleanup = EnterWebXRWeaponVisualScope(func, instance, args);
 	std::function<void()> outcomeCleanup = EnterWebXRGameplayOutcomeScope(func, instance, args);
-	if (!weaponCleanup)
+	if (!weaponCleanup && !visualCleanup)
 		return outcomeCleanup;
-	if (!outcomeCleanup)
+	if (!weaponCleanup && !outcomeCleanup)
+		return visualCleanup;
+	if (!visualCleanup && !outcomeCleanup)
 		return weaponCleanup;
 	return [weaponCleanup = std::move(weaponCleanup),
+		visualCleanup = std::move(visualCleanup),
 		outcomeCleanup = std::move(outcomeCleanup)]() mutable
 	{
-		outcomeCleanup();
-		weaponCleanup();
+		if (outcomeCleanup)
+			outcomeCleanup();
+		if (visualCleanup)
+			visualCleanup();
+		if (weaponCleanup)
+			weaponCleanup();
 	};
 }
 
@@ -1240,6 +1447,7 @@ std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject*
 		return {};
 
 	std::function<void()> restore;
+	size_t presentationStackDepth = WebXRWeaponPresentationStack.size();
 	if (kind == WebXRWeaponAimScopeKind::Presentation)
 	{
 		// Prefer target-ray orientation so the model and ballistic ray agree;
@@ -1250,6 +1458,8 @@ std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject*
 			return {};
 		restore = BeginWebXRPresentationRotationOverride(pawn->ViewRotation(),
 			weapon->Rotation(), presentationPose->WorldPresentationRotation);
+		WebXRWeaponPresentationStack.push_back(
+			{ weapon, dominantIndex, presentationPose->WorldPresentationRotation });
 		WebXRWeaponAim.PresentationScopeCount++;
 	}
 	else
@@ -1281,10 +1491,78 @@ std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject*
 			metadata.FunctionName);
 	}
 
+	return [this, restore = std::move(restore), presentationStackDepth,
+		kind]() mutable
+	{
+		restore();
+		if (kind == WebXRWeaponAimScopeKind::Presentation)
+			WebXRWeaponPresentationStack.resize(presentationStackDepth);
+		WebXRWeaponAim.RestoreCount++;
+	};
+}
+
+std::function<void()> Engine::EnterWebXRWeaponVisualScope(UFunction* func,
+	UObject* instance, const Array<ExpressionValue>& args)
+{
+	if (!LaunchInfo.IsUnrealTournament() || !func || !instance || !canvas ||
+		WebXRWeaponPresentationStack.empty())
+		return {};
+
+	const WebXRWeaponPresentationContext context = WebXRWeaponPresentationStack.back();
+	UWeapon* weapon = context.Weapon;
+	UObject* firstArgument = nullptr;
+	if (!args.empty() && args[0].GetType() == ExpressionValueType::ValueObject)
+		firstArgument = args[0].ToObject();
+	const WebXRWeaponCallMetadata metadata = GetWebXRWeaponCallMetadata(func, instance);
+	if (!IsExactWebXRWeaponVisualDrawCall(metadata,
+		AllFlags(func->FuncFlags, FunctionFlags::Native), instance == canvas, args.size(),
+		firstArgument == weapon, weapon != nullptr))
+		return {};
+
+	UPlayerPawn* pawn = viewport ? viewport->Actor() : nullptr;
+	if (!pawn || pawn->Weapon() != weapon || weapon->Owner() != pawn)
+	{
+		WebXRWeaponAim.VisualRejectedTransformCount++;
+		return {};
+	}
+	if (context.ControllerIndex < 0 ||
+		context.ControllerIndex >= static_cast<int>(WebXRInput.Controllers.size()))
+	{
+		WebXRWeaponAim.VisualRejectedTransformCount++;
+		return {};
+	}
+	const VRControllerInputState& dominant = WebXRInput.Controllers[context.ControllerIndex];
+	if (!dominant.Connected || !dominant.GripPose.Tracked)
+	{
+		WebXRWeaponAim.VisualRejectedTransformCount++;
+		return {};
+	}
+
+	const WebXRWeaponVisualGripLookup grip = FindWebXRWeaponVisualGrip(weapon);
+	vec3 visualLocation;
+	Rotator visualRotation;
+	if (!TryComposeWebXRWeaponVisualTransform(dominant.GripPose, grip.Offset,
+		context.PresentationRotation,
+		visualLocation, visualRotation))
+	{
+		WebXRWeaponAim.VisualRejectedTransformCount++;
+		return {};
+	}
+
+	std::function<void()> restore = BeginWebXRActorTransformOverride(
+		weapon->Location(), weapon->Rotation(), visualLocation, visualRotation);
+	WebXRWeaponAim.VisualDrawScopeCount++;
+	WebXRWeaponAim.LastVisualGripOffset = grip.Offset;
+	WebXRWeaponAim.LastVisualPosition = visualLocation;
+	if (grip.Calibrated)
+		WebXRWeaponAim.VisualCalibratedOffsetCount++;
+	else
+		WebXRWeaponAim.VisualZeroFallbackCount++;
+
 	return [this, restore = std::move(restore)]() mutable
 	{
 		restore();
-		WebXRWeaponAim.RestoreCount++;
+		WebXRWeaponAim.VisualDrawRestoreCount++;
 	};
 }
 #endif
@@ -1648,6 +1926,16 @@ extern "C"
 		return RunWebXRWeaponAimSelfTest() ? 1 : 0;
 	}
 
+	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRWeaponVisualPositionSelfTest()
+	{
+		return RunWebXRWeaponVisualPositionSelfTest() ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponVisualGripSchemaVersion()
+	{
+		return WebXRWeaponVisualGripSchemaVersion;
+	}
+
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimBallisticScopeCount()
 	{
 		return engine ? engine->WebXRWeaponAim.BallisticScopeCount : 0;
@@ -1676,6 +1964,41 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimHapticAcceptedCount()
 	{
 		return engine ? engine->WebXRWeaponAim.HapticAcceptedCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponVisualDrawScopeCount()
+	{
+		return engine ? engine->WebXRWeaponAim.VisualDrawScopeCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponVisualDrawRestoreCount()
+	{
+		return engine ? engine->WebXRWeaponAim.VisualDrawRestoreCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponVisualZeroFallbackCount()
+	{
+		return engine ? engine->WebXRWeaponAim.VisualZeroFallbackCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponVisualCalibratedOffsetCount()
+	{
+		return engine ? engine->WebXRWeaponAim.VisualCalibratedOffsetCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponVisualRejectedTransformCount()
+	{
+		return engine ? engine->WebXRWeaponAim.VisualRejectedTransformCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRWeaponVisualLastGripOffsetValue(uint32_t axis)
+	{
+		return engine && axis < 3 ? engine->WebXRWeaponAim.LastVisualGripOffset[axis] : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRWeaponVisualLastPositionValue(uint32_t axis)
+	{
+		return engine && axis < 3 ? engine->WebXRWeaponAim.LastVisualPosition[axis] : 0.0f;
 	}
 
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponOverlayExpectedEyePasses()

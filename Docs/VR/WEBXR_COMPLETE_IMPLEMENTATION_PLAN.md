@@ -74,7 +74,7 @@ XRSession.requestAnimationFrame
 | M5 — frame/view refactor | Complete (diagnostic projections) | One simulation tick now renders two independently selected texture-array layers; real `XRView` data starts M6 |
 | M6 — native WebGPU XR session | Implementation complete; headset validation gated | Packed ABI, preferred-format pipeline families, synchronous renderer, and hardened production session/RAF lifecycle are implemented; real `XRGPUBinding` compositor presentation still requires a supported runtime |
 | M7 — tracking/camera/world scale | Deterministic implementation complete; headset validation gated | 6DoF pose conversion, body/head composition, recentering, world scale, and exact per-eye projection are implemented; physical scale and scene correctness remain to validate |
-| M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, confirmed fire/damage/pickup/menu-confirm haptics, and browser-persisted VR controls are implemented; controller-relative position/origin, per-weapon tuning, two-hand UX, fixtures, safe-exit UX, and headset validation remain |
+| M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, narrowly scoped controller-relative visual position with safe zero-offset fallback, confirmed fire/damage/pickup/menu-confirm haptics, and browser-persisted VR controls are implemented; qualified per-weapon offsets, muzzle origin, two-hand UX, fixtures, safe-exit UX, and headset validation remain |
 | M9 — UI/comfort/VR presentation | In progress | HUD plus console/menu 2D output is captured once and replayed per eye on a finite-depth plane, including UI-only frames. Dominant-hand aim drives UT's absolute cursor, a menu-gated trigger safely selects without firing behind the menu, and stick/D-pad focus navigation now routes through stock console key events while suppressing gameplay input. Strict plane settings have a validated persistent browser panel; actor-style canvas draws, pointer-loss UX, recenter UX, comfort policies, complete loading/pause presentation, and headset readability remain |
 | M10 — audio/data/network/deploy | In progress | Real Web Audio output, tracked-head listener, no-data builds, local OPFS/IndexedDB UT99 import, allowlisted mutable settings/save/log persistence, an installable PWA, an offline-only browser MVP scope, and fail-closed release staging/auditing are implemented; real full-install import, abrupt-termination/storage tests, fuller launcher UX, production HTTPS/Quest installation, and physical audio/storage validation remain |
 | M11 — performance/robustness/release | In progress | Automated session/lifecycle/device-loss coverage and a reproducible 83-check no-commercial-data release gate exist; Quest profiling, headset lifecycle, compatibility, soak, and physical release gates remain |
@@ -666,6 +666,53 @@ The browser diagnostic surface exposes all 18 pose values and the presentation
 scope counter. This is automation evidence only: real barrel alignment,
 handedness/mirroring, weapon scale/position, muzzle origin, special/automatic
 weapon fixtures, tracking loss, and physical Quest presentation remain open.
+
+The next visual-only position tranche extends the existing re-entrant
+`Frame::CallScopeHook` without intercepting general actor rendering. During the
+current local weapon's exact global `RenderOverlays` scope, the engine freezes
+the selected controller index and the already selected aim-preferred (grip
+fallback) full-basis presentation rotation. Only the exact nested native
+`Engine.Canvas.DrawActor` call is eligible, and only when its receiver is the
+engine canvas, its three-argument signature is intact, its first argument is
+that same weapon, and local pawn/weapon/owner relationships still match.
+
+Immediately around that native draw, the weapon's visual location becomes the
+tracked dominant grip world position plus `forward * offset.x + right *
+offset.y + up * offset.z`; its rotation remains the frozen aim-preferred
+presentation rotation. Actor location and rotation are restored exactly in
+LIFO order before UnrealScript continues. Stock `RenderOverlays`, animation,
+mesh selection, and muzzle-flash script therefore still run unchanged. The
+implementation does not touch `CalcDrawOffset`, `FireOffset`, projectile or
+trace origins, collision, or simulation state.
+
+Grip metadata uses immutable schema v1 rows keyed by both package and class.
+The production table intentionally contains no guessed values: every weapon
+currently takes the explicit zero-offset fallback, placing its model origin at
+the grip position. Deterministic tests cover exact-call rejection, same-class
+package collisions, full-basis offset composition, zero-offset equality with
+the grip position, non-finite rejection, aim/grip rotation separation, and
+nested byte-exact restoration. Browser diagnostics expose schema version,
+scope/restore, calibrated/fallback/rejection counts, last offset, and last
+visual position.
+
+This closes only the safe placement seam. It does not claim that a stock mesh
+origin is a comfortable grip, that a barrel or muzzle flash aligns with the
+controller ray, or that left-handed mirroring, weapon scale, dual Enforcers,
+two-hand support, and special/automatic weapons are correct. Hardware-qualified
+package/class offsets, loaded-weapon fixtures, WebGPU culling inspection, and
+physical Quest alignment remain required before enabling nonzero production
+rows or changing any firing origin.
+
+Validation on 2026-07-22 passes the native Debug target, fresh no-data and
+data-backed Emscripten targets, Python smoke syntax, and the full
+`--experimental-webgpu-xr` Playwright suite. The browser reports visual
+self-test `1`, schema `1`, finite zeroed last-transform diagnostics, 189 packed
+stereo draws, and 1,175 differing eye samples while retaining all existing
+input, haptic, HUD/menu, audio, visibility, repeat-entry, and device-loss
+gates. That boot scene had no current weapon (`weaponCalls=0`), so live
+`Canvas.DrawActor` scope/restore/fallback counters correctly remained zero.
+The loaded-weapon fixture and physical headset tests are therefore still
+required evidence for the actual runtime call boundary and mesh placement.
 
 Offline/standalone is the M8 target. Stock UT networking sends body/view
 rotation and cannot replicate independent hand aim without a protocol or
@@ -1267,10 +1314,10 @@ tests.
 | M0/M6 platform | Native Quest `XRGPUBinding` session, projection layer, real subimages, compositor output, and five-minute stability | Supported Quest Browser/Chromium build, declared flag policy, physical headset |
 | M7 tracking | Physical eye order, scale, parallax, recursive-scene, tracking-jump, seated/standing, collision-independence, and ten-minute comfort gates | Marker map, representative maps, headset report with browser/runtime versions |
 | M8 locomotion | Dedicated safe-exit UX, controller-profile verification, and hardware tuning for implemented body/head/dominant-hand movement plus recenter/menu actions; the strict browser settings profile is implemented | Real Quest input sources and headset tuning |
-| M8 weapon | Controller-relative viewmodel position/scale/offsets, verified muzzle/fire origin, dominant-hand UI, two-hand policy, guided-warhead policy, automatic/special-weapon fixtures | Full-basis/roll presentation is implemented; remaining work needs package-qualified calibration data, loaded Botpack function table, deterministic firing fixtures, and headset/barrel alignment tests |
+| M8 weapon | Hardware-qualified viewmodel offsets/scale, verified muzzle/fire origin, dominant-hand UI, two-hand policy, guided-warhead policy, automatic/special-weapon fixtures | The exact visual-only controller-position seam, immutable package/class schema, and zero-offset fallback are implemented; remaining work needs calibrated data, loaded Botpack function tables, deterministic firing fixtures, WebGPU mesh inspection, and headset/barrel alignment tests |
 | M8 haptics | Per-weapon tuning, hooks for direct health/custom pickup paths that bypass audited calls, and physical latency/source-loss tests; confirmed fire/damage/pickup/UI outcomes and persisted enable UI are implemented | Representative mods/weapons and real actuator hardware |
 | M8 networking | **MVP decision complete:** offline/single-player/local-bot browser release; multiplayer and independent hand-aim replication are explicitly unsupported | Reopen only after a qualified native replication layer plus browser relay/protocol project; stock body/view rotation is insufficient |
-| M9 UI/comfort | Physically validate capture-once console/menu, UI-only frames, dominant-hand cursor ray, and safe menu-gated trigger; add stick/D-pad navigation, pointer-loss UX, and unsupported actor draws; finish readable scale, weapon position, vignette/comfort policies, recenter, and loading/pause presentation | Navigation contract, actor-draw strategy, per-eye headset inspection, 30-minute comfort session |
+| M9 UI/comfort | Physically validate capture-once console/menu, UI-only frames, dominant-hand cursor ray, safe menu-gated trigger, and focus navigation; add pointer-loss UX and unsupported actor draws; finish readable scale, weapon placement tuning, vignette/comfort policies, recenter, and loading/pause presentation | Actor-draw strategy, per-eye headset inspection, 30-minute comfort session |
 | M10 audio | Physically validate the implemented tracked-head listener: gesture unlock, head-relative direction/roll, Doppler and reset policy, focus/session re-entry, music, effects, volume, map changes, underruns, and shutdown | Real Quest Browser audio lifecycle and representative maps/sounds |
 | M10 data | Import a complete user-owned install into the audited no-preload artifact; verify playable clean-profile boot, large-copy quota/progress, restart/eviction/corruption and abrupt-kill recovery, custom save-path policy, and schema migration. Strict config/VR/save/log persistence is implemented | User-owned UT99 installation, clean desktop/Quest browser profiles, Quest storage/browser support matrix |
 | M10 product | Extend the tested installable shell/settings UI into a full map/game/crash-diagnostics launcher; validate HTTPS/COOP/COEP deployment, Quest install/update/offline behavior, rollback, and license audit. Deterministic staging and the proprietary-content scan are implemented | Production hosting target, Quest Browser, independent manifest/license review |
@@ -1474,9 +1521,10 @@ scale, frame rate, and error counters.
 7. **In progress:** ABI v2 input, remappable Quest defaults, full-scale
    body/head/dominant-hand locomotion, snap/smooth turning, configurable
    dominant hand and conflict-safe recenter/menu actions, world full-basis hand
-   composition, scoped weapon direction/presentation, per-eye weapon dispatch,
+   composition, scoped weapon direction/presentation and visual-only grip
+   position, per-eye weapon dispatch,
    confirmed fire/damage/pickup/menu haptics, and persistent browser controls
-   are complete. Next add controller-relative viewmodel position/offsets,
+   are complete. Next add hardware-qualified viewmodel offsets/scale,
    two-hand policy, verified muzzle origin, loaded-weapon fixtures, per-weapon
    haptic tuning, safe-exit UX, hardware profile verification, and headset
    tuning.

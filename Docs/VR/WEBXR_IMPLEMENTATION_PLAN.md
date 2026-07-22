@@ -47,15 +47,17 @@ active work — same pattern the native VR plan follows.
 8. **M8: controllers/gameplay. IN PROGRESS.** ABI v2, body/head/dominant-hand
    locomotion references, turning, selectable dominant hand, controller
    recenter/menu actions, world full-basis hands, scoped weapon direction/
-   presentation, per-eye weapon draw, confirmed outcome haptics, and a
-   persistent browser settings panel work; controller-relative weapon position,
-   two-hand policy, fixtures, safe-exit UX, and hardware tuning remain.
+   presentation, exact visual-only controller-relative weapon position with a
+   safe zero-offset fallback, per-eye weapon draw, confirmed outcome haptics,
+   and a persistent browser settings panel work; qualified offsets/muzzle
+   origin, two-hand policy, fixtures, safe-exit UX, and hardware tuning remain.
 9. **M9: UI/comfort. IN PROGRESS.** Essential HUD state is captured once and
    replayed inside each active eye pass with console/menu output. A shared-plane
    controller cursor and safely menu-gated trigger selection work. Enable,
    distance, FOV, aspect, and safe-area settings plus browser persistence and
-   the zero-work disabled lifecycle are implemented; navigation, unsupported
-   primitives, comfort/loading policy, and all headset gates remain.
+   the zero-work disabled lifecycle and focus navigation are implemented;
+   unsupported primitives, pointer-loss UX, comfort/loading policy, and all
+   headset gates remain.
 10. **M10: audio/data/network/deploy. IN PROGRESS.** Browser audio, a
     discontinuity-safe tracked-head listener, the schema-v1 local UT99 importer,
     allowlisted mutable persistence, offline-only networking scope, and a real
@@ -1582,3 +1584,59 @@ existing settings, HUD/menu, audio, lifecycle, and device-loss gates. The prior
 no-data attempt remained at the intentional importer gate and was not a valid
 engine-diagnostic run. Physical Quest verification must confirm controller
 profiles, active-menu counters/coverage, and repeat timing feel.
+
+## M8 visual-only controller-relative weapon position checkpoint (2026-07-22)
+
+The active WebXR branch now has the conservative weapon-position seam selected
+by the read-only sibling audit, implemented clean-room on the existing
+`Frame::CallScopeHook`. A local current weapon's exact global
+`RenderOverlays` entry freezes the presentation context: weapon identity,
+controller index, and the already selected aim-preferred (tracked-grip
+fallback) roll-preserving rotation. This preserves the established rule that
+the model and ballistic ray share aim orientation even when WebXR reports a
+different physical grip orientation.
+
+Only a nested native `Engine.Canvas.DrawActor` call may apply visual placement.
+The hook requires the engine canvas receiver, exactly three padded arguments,
+the context weapon as the first argument, and a still-valid local
+pawn/current-weapon/owner relationship. It uses the frozen controller index;
+a dominant-hand change cannot silently switch the active script context.
+Immediately around the native draw, location is:
+
+`gripWorldPosition + gripForward * offset.forward + gripRight * offset.right + gripUp * offset.up`
+
+Rotation is the frozen aim-preferred presentation rotation. Both actor fields
+restore exactly in LIFO order on normal or exceptional VM exits. All stock
+`RenderOverlays` script, animations, mesh decisions, and muzzle-flash work run
+before/around the original draw. No `CalcDrawOffset`, `FireOffset`, trace,
+projectile, collision, or simulation origin is modified.
+
+Immutable visual-grip schema v1 keys every row by package and class and stores
+forward/right/up offsets in UE1 units. The production table deliberately has
+no guessed or sibling-derived rows: uncalibrated weapons use a zero offset, so
+their mesh origin is placed at the tracked grip. The deterministic WASM
+self-test covers exact positive/negative call classification, same class
+names in different packages, basis offset math, zero-offset equality with grip
+position, non-finite inputs, aim/grip rotation separation, and nested exact
+restoration. Browser smoke coverage reads the self-test, schema, scope/restore,
+calibrated/fallback/rejected counters, last offset, and last visual position.
+
+This checkpoint proves a visual integration boundary, not calibrated weapon
+art. It does not establish a comfortable stock mesh origin, muzzle/barrel or
+muzzle-flash alignment, weapon scale, left-hand mirroring/culling, dual
+Enforcers, two-hand handling, guided-warhead behavior, or correctness across
+automatic/special weapons. Nonzero package-qualified rows remain blocked on
+loaded-weapon fixtures, WebGPU inspection, measured hardware calibration, and
+physical Quest alignment. Firing-origin work remains a separate later seam.
+
+Validation passes the native Debug `SurrealEngine` target, fresh no-data and
+data-backed Emscripten targets, smoke-script syntax, and the complete
+`--experimental-webgpu-xr` Playwright run. The rebuilt browser runtime reports
+visual-position self-test `1`, grip schema `1`, finite last-offset/position
+diagnostics, 189 packed-stereo draws, and 1,175 differing eye samples while all
+prior controller, haptic, HUD/menu, audio, lifecycle, repeat-entry, and
+device-loss gates pass. The booted test scene had no current weapon
+(`weaponCalls=0`), so live visual scope, restore, fallback, and rejection
+counters all correctly remained zero. This means the deterministic contract is
+proven, but an actual loaded `Canvas.DrawActor` weapon path is still an explicit
+fixture/headset gate rather than implied browser evidence.
