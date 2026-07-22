@@ -149,7 +149,13 @@
 			const error = moduleCall("Surreal_GetWebXRInputLastError", "number");
 			throw new Error("native WebXR input bridge rejected the snapshot (error=" + error + ")");
 		}
+		if (moduleCall("Surreal_ApplyWebXRInputSnapshot", "number") !== 1)
+			throw new Error("native WebXR input runtime rejected the stored snapshot");
 		status.inputPackets++;
+	}
+
+	function submitCurrentInput(time) {
+		submitInputPacket(packInputSnapshot(time, session, null, referenceSpace));
 	}
 
 	function submitNeutralInput(time, sessionActive) {
@@ -161,6 +167,7 @@
 		data.setFloat64(16, Number.isFinite(time) ? time : 0, true);
 		try { submitInputPacket(packet); } catch (_) {
 			try { moduleCall("Surreal_ClearWebXRInputSnapshot", null); } catch (_) {}
+			try { moduleCall("Surreal_ApplyWebXRInputSnapshot", "number"); } catch (_) {}
 		}
 	}
 
@@ -326,10 +333,10 @@
 			session = requestedSession;
 			session.addEventListener("end", function () { finish(generation, "ended", null); });
 			session.addEventListener("inputsourceschange", function (event) {
-				if (generation === activeGeneration && event && event.removed && event.removed.length) submitNeutralInput(0, true);
+				if (generation === activeGeneration && event && event.removed && event.removed.length) submitCurrentInput(0);
 			});
 			session.addEventListener("visibilitychange", function () {
-				if (generation === activeGeneration && !isActionFocused(session)) submitNeutralInput(0, true);
+				if (generation === activeGeneration && !isActionFocused(session)) submitCurrentInput(0);
 			});
 			binding = new root.XRGPUBinding(session, webGPUDevice());
 			const projectionFormat = binding.getPreferredColorFormat();

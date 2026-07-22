@@ -166,6 +166,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Platform/WebXR/WebXRInputBridge.h
 	SurrealEngine/Platform/WebXR/WebXRInputAdapter.cpp
 	SurrealEngine/Platform/WebXR/WebXRInputAdapter.h
+	SurrealEngine/Platform/WebXR/WebXRInputRuntime.cpp
+	SurrealEngine/Platform/WebXR/WebXRInputRuntime.h
 	SurrealEngine/Platform/WebXR/WebXRProvider.cpp
 	SurrealEngine/Render/XRUISurfaces.h
 	SurrealEngine/Render/XRUISurfaces.cpp
@@ -984,7 +986,7 @@ if(EMSCRIPTEN)
 		-sINVOKE_RUN=0
 		-sEXIT_RUNTIME=0
 		-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall
-		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_SetXRFrameLoopActive,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_GetWebXRFrameLastError,_Surreal_RenderWebXRFrame,_Surreal_GetWebXRWorldUnitsPerMeter,_Surreal_SetWebXRWorldUnitsPerMeter,_Surreal_ResetWebXRPose,_Surreal_GetWebXRPoseRecenterCount,_Surreal_GetWebXRInputABIVersion,_Surreal_GetWebXRInputHeaderSize,_Surreal_GetWebXRInputSourceSize,_Surreal_GetWebXRInputMaxSources,_Surreal_ValidateWebXRInputSnapshot,_Surreal_SubmitWebXRInputSnapshot,_Surreal_GetWebXRInputLastError,_Surreal_ClearWebXRInputSnapshot
+		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_SetXRFrameLoopActive,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_GetWebXRFrameLastError,_Surreal_RenderWebXRFrame,_Surreal_GetWebXRWorldUnitsPerMeter,_Surreal_SetWebXRWorldUnitsPerMeter,_Surreal_ResetWebXRPose,_Surreal_GetWebXRPoseRecenterCount,_Surreal_GetWebXRInputABIVersion,_Surreal_GetWebXRInputHeaderSize,_Surreal_GetWebXRInputSourceSize,_Surreal_GetWebXRInputMaxSources,_Surreal_ValidateWebXRInputSnapshot,_Surreal_SubmitWebXRInputSnapshot,_Surreal_GetWebXRInputLastError,_Surreal_ClearWebXRInputSnapshot,_Surreal_ApplyWebXRInputSnapshot
 		-sASSERTIONS=1
 		-sNO_DISABLE_EXCEPTION_CATCHING
 		-pthread
@@ -1064,4 +1066,23 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(WebXRInputAdapterTests PRIVATE SurrealEngine)
 	set_target_properties(WebXRInputAdapterTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME WebXRInputAdapterTests COMMAND WebXRInputAdapterTests)
+
+	add_executable(WebXRInputRuntimeTests
+		Tests/WebXRInputRuntimeTests.cpp
+		SurrealEngine/Platform/WebXR/WebXRInputRuntime.cpp
+		SurrealEngine/Platform/WebXR/WebXRInputAdapter.cpp
+		SurrealEngine/Platform/WebXR/WebXRInputBridge.cpp
+		SurrealEngine/Input/InputComposition.cpp
+	)
+	target_include_directories(WebXRInputRuntimeTests PRIVATE SurrealEngine)
+	set_target_properties(WebXRInputRuntimeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME WebXRInputRuntimeTests COMMAND WebXRInputRuntimeTests)
+
+	add_executable(XRCommonTests
+		Tests/XRCommonTests.cpp
+		SurrealEngine/XR/XRCommon.cpp
+	)
+	target_include_directories(XRCommonTests PRIVATE SurrealEngine)
+	set_target_properties(XRCommonTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRCommon COMMAND XRCommonTests)
 endif()

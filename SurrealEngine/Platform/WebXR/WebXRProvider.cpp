@@ -1,4 +1,6 @@
 #include "Platform/WebXR/WebXRFrameBridge.h"
+#include "Platform/WebXR/WebXRInputAdapter.h"
+#include "Platform/WebXR/WebXRInputRuntime.h"
 
 #include "Engine.h"
 #include "Render/RenderSubsystem.h"
@@ -10,6 +12,44 @@ namespace
 	constexpr float DefaultWorldUnitsPerMeter = 1.0f / 0.0254f;
 	float WorldUnitsPerMeter = DefaultWorldUnitsPerMeter;
 	WebXR::RecenterState Recenter;
+	WebXR::InputRuntime InputRuntime;
+
+	class EngineInputTarget final : public WebXR::RuntimeInputTarget
+	{
+	public:
+		explicit EngineInputTarget(Engine* instance) : instance(instance) {}
+
+		void SetButton(InputSourceId source, int32_t control, bool pressed) override
+		{
+			instance->InputEvent(static_cast<EInputKey>(control),
+				pressed ? EInputType::IST_Press : EInputType::IST_Release, 0.0f, source);
+		}
+
+		void SetAxis(InputSourceId source, int32_t control, float value) override
+		{
+			instance->InputEvent(static_cast<EInputKey>(control), EInputType::IST_Axis, value, source);
+		}
+
+		void ReleaseSource(InputSourceId source) override
+		{
+			instance->ReleaseInputSource(source);
+		}
+
+	private:
+		Engine* instance;
+	};
+
+	WebXR::RuntimeInputBindings EngineBindings()
+	{
+		WebXR::RuntimeInputBindings bindings;
+		bindings.Hands[static_cast<size_t>(XRHand::Left)] = {
+			{ IK_Joy1, IK_Joy2, IK_Joy3, IK_Joy4, IK_Joy5, IK_Joy6 }, IK_JoyX, IK_JoyY
+		};
+		bindings.Hands[static_cast<size_t>(XRHand::Right)] = {
+			{ IK_Joy9, IK_Joy10, IK_Joy11, IK_Joy12, IK_Joy13, IK_Joy14 }, IK_JoyU, IK_JoyV
+		};
+		return bindings;
+	}
 }
 
 #ifdef __EMSCRIPTEN__
@@ -43,6 +83,15 @@ namespace
 
 extern "C"
 {
+	int Surreal_ApplyWebXRInputSnapshot()
+	{
+		if (!engine)
+			return 0;
+		EngineInputTarget target(engine);
+		InputRuntime.Apply(WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot()), EngineBindings(), target);
+		return 1;
+	}
+
 	float Surreal_GetWebXRWorldUnitsPerMeter() { return WorldUnitsPerMeter; }
 
 	int Surreal_SetWebXRWorldUnitsPerMeter(float value)

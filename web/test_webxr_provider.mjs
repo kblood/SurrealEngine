@@ -4,6 +4,7 @@ globalThis.window = globalThis;
 const loopTransitions = [];
 let renderedFrames = 0;
 let resetCalls = 0;
+let appliedInputPackets = 0;
 const inputPackets = [];
 
 globalThis.Module = {
@@ -26,6 +27,7 @@ globalThis.Module = {
 			inputPackets.push(Uint8Array.from(args[0]));
 			return 1;
 		}
+		if (name === "Surreal_ApplyWebXRInputSnapshot") { appliedInputPackets++; return 1; }
 		if (name === "Surreal_GetWebXRInputLastError") return 0;
 		if (name === "Surreal_ClearWebXRInputSnapshot") return undefined;
 		if (name === "Surreal_GetWebXRFrameLastError") return 0;
@@ -165,7 +167,17 @@ assert.equal(blurredView.getFloat32(24 + 40 + 8, true), 0, "blurred session axes
 
 sessions[0].inputSources = [sessions[0].inputSources[1]];
 sessions[0].listeners.get("inputsourceschange")({ removed: [{}], added: [] });
-assert.equal(new DataView(inputPackets.at(-1).buffer).getUint32(8, true), 0, "disconnect must submit neutral replacement");
+const disconnected = new DataView(inputPackets.at(-1).buffer);
+assert.equal(disconnected.getUint32(8, true), 1, "disconnect must retain the remaining hand");
+assert.equal(disconnected.getUint32(24, true), 2, "disconnect replacement must identify the remaining right hand");
+assert.equal(disconnected.getUint32(24 + 4, true), 1, "remaining hand stays connected while frame poses are unavailable");
+
+sessions[0].visibilityState = "visible-blurred";
+sessions[0].listeners.get("visibilitychange")();
+const blurPacket = new DataView(inputPackets.at(-1).buffer);
+assert.equal(blurPacket.getUint32(8, true), 1, "blur must retain connected input sources");
+assert.equal(blurPacket.getUint32(12, true), 1, "blur replacement must remove action focus only");
+assert.equal(blurPacket.getUint32(24 + 8, true), 0, "blur replacement buttons must be neutral");
 assert.equal(globalThis.surrealXRExit(), true);
 await Promise.resolve();
 assert.equal(globalThis.surrealXRGetState().active, false);
@@ -177,6 +189,7 @@ await Promise.resolve();
 
 assert.deepEqual(loopTransitions, [1, 0, 1, 0]);
 assert.ok(resetCalls >= 4);
+assert.equal(appliedInputPackets, inputPackets.length, "every accepted stored input snapshot must reach the native runtime");
 assert.equal(new DataView(inputPackets.at(-1).buffer).getUint32(8, true), 0, "session end must leave neutral input");
 assert.equal(new DataView(inputPackets.at(-1).buffer).getUint32(12, true), 0, "session end must mark input inactive");
 console.log("WebXR lifecycle and packed controller snapshot tests passed");
