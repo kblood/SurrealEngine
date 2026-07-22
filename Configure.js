@@ -130,6 +130,7 @@ var commonSources = [
 	"SurrealEngine/Platform/OpenXR/OpenXRView.h",
 	"SurrealEngine/Platform/WebXR/WebXRFrameBridge.cpp",
 	"SurrealEngine/Platform/WebXR/WebXRFrameBridge.h",
+	"SurrealEngine/Platform/WebXR/WebXRProvider.cpp",
 	"SurrealEngine/Render/VisibleMesh.cpp",
 	"SurrealEngine/Render/VisibleMesh.h",
 	"SurrealEngine/Render/VisibleNode.cpp",
