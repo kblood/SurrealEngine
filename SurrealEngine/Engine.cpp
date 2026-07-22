@@ -33,6 +33,7 @@
 
 #ifdef __EMSCRIPTEN__
 #include "WebXR/WebXRInputState.h"
+#include "Package/Package.h"
 #endif
 
 namespace
@@ -45,6 +46,170 @@ namespace
 	constexpr float WebXRJoystickAxisScale = WebXRUE1MovementScale / 2.0f;
 	constexpr float WebXRYawUnitsPerDegree = 65536.0f / 360.0f;
 	constexpr float WebXRSmoothTurnDeadZone = 0.15f;
+
+#ifdef __EMSCRIPTEN__
+	enum class WebXRWeaponAimScopeKind
+	{
+		None,
+		Ballistic,
+		TargetAcquisition
+	};
+
+	struct WebXRWeaponCallMetadata
+	{
+		std::string PackageName;
+		std::string ClassName;
+		std::string DeclaringStateName;
+		std::string ActiveStateName;
+		std::string FunctionName;
+	};
+
+	bool WebXRNameEquals(const std::string& value, const char* expected)
+	{
+		return StrTools::equals_ignore_case(value, expected);
+	}
+
+	WebXRWeaponAimScopeKind ClassifyWebXRWeaponCall(const WebXRWeaponCallMetadata& call)
+	{
+		// Guided-warhead steering is a separate camera/control policy. Never
+		// widen this direction-only weapon hook to cover it implicitly.
+		if (WebXRNameEquals(call.ClassName, "GuidedWarShell"))
+			return WebXRWeaponAimScopeKind::None;
+
+		if (WebXRNameEquals(call.FunctionName, "TraceFire") ||
+			WebXRNameEquals(call.FunctionName, "ProjectileFire"))
+			return WebXRWeaponAimScopeKind::Ballistic;
+
+		if (!WebXRNameEquals(call.PackageName, "Botpack"))
+			return WebXRWeaponAimScopeKind::None;
+
+		const bool globalFunction = call.DeclaringStateName.empty();
+		auto global = [&](const char* className, const char* functionName)
+		{
+			return globalFunction && WebXRNameEquals(call.ClassName, className) &&
+				WebXRNameEquals(call.FunctionName, functionName);
+		};
+		auto state = [&](const char* className, const char* stateName, const char* functionName)
+		{
+			return WebXRNameEquals(call.ClassName, className) &&
+				WebXRNameEquals(call.DeclaringStateName, stateName) &&
+				WebXRNameEquals(call.ActiveStateName, stateName) &&
+				WebXRNameEquals(call.FunctionName, functionName);
+		};
+
+		if (global("UT_FlakCannon", "Fire") || global("UT_FlakCannon", "AltFire") ||
+			state("UT_Eightball", "FireRockets", "BeginState") ||
+			global("Translocator", "ThrowTarget") || global("ChainSaw", "Slash") ||
+			global("ImpactHammer", "TraceAltFire") || state("ImpactHammer", "Firing", "Tick"))
+			return WebXRWeaponAimScopeKind::Ballistic;
+
+		if (global("UT_Eightball", "CheckTarget"))
+			return WebXRWeaponAimScopeKind::TargetAcquisition;
+
+		return WebXRWeaponAimScopeKind::None;
+	}
+
+	WebXRWeaponCallMetadata GetWebXRWeaponCallMetadata(UFunction* func, UObject* instance)
+	{
+		WebXRWeaponCallMetadata result;
+		if (!func)
+			return result;
+
+		result.FunctionName = func->Name.ToString();
+		result.ActiveStateName = instance ? instance->GetStateName().ToString() : std::string();
+		UClass* declaringClass = nullptr;
+		for (UStruct* owner = func->StructParent; owner; owner = owner->StructParent)
+		{
+			// UClass derives from UState. Test UClass first or every global
+			// function will be mislabelled as a state function.
+			if (UClass* cls = UObject::TryCast<UClass>(owner))
+			{
+				declaringClass = cls;
+				result.ClassName = cls->Name.ToString();
+				break;
+			}
+			if (result.DeclaringStateName.empty())
+			{
+				if (UState* functionState = UObject::TryCast<UState>(owner))
+					result.DeclaringStateName = functionState->Name.ToString();
+			}
+		}
+		if (declaringClass && declaringClass->package)
+			result.PackageName = declaringClass->package->GetPackageName().ToString();
+		return result;
+	}
+
+	std::function<void()> BeginWebXRRotationOverride(Rotator& target, const Rotator& replacement)
+	{
+		Rotator* targetPtr = &target;
+		const Rotator saved = target;
+		target = replacement;
+		return [targetPtr, saved]() { *targetPtr = saved; };
+	}
+
+	bool RunWebXRWeaponAimSelfTest()
+	{
+		using Kind = WebXRWeaponAimScopeKind;
+		auto expect = [](const WebXRWeaponCallMetadata& call, Kind kind)
+		{
+			return ClassifyWebXRWeaponCall(call) == kind;
+		};
+		auto global = [](const char* packageName, const char* className, const char* functionName)
+		{
+			return WebXRWeaponCallMetadata{ packageName, className, {}, "Firing", functionName };
+		};
+		auto state = [](const char* className, const char* stateName, const char* activeState, const char* functionName)
+		{
+			return WebXRWeaponCallMetadata{ "Botpack", className, stateName, activeState, functionName };
+		};
+
+		if (!expect(global("Engine", "Weapon", "TraceFire"), Kind::Ballistic) ||
+			!expect(global("Engine", "Weapon", "ProjectileFire"), Kind::Ballistic) ||
+			!expect(global("Botpack", "UT_FlakCannon", "Fire"), Kind::Ballistic) ||
+			!expect(global("Botpack", "UT_FlakCannon", "AltFire"), Kind::Ballistic) ||
+			!expect(state("UT_Eightball", "FireRockets", "FireRockets", "BeginState"), Kind::Ballistic) ||
+			!expect(global("Botpack", "UT_Eightball", "CheckTarget"), Kind::TargetAcquisition) ||
+			!expect(global("Botpack", "Translocator", "ThrowTarget"), Kind::Ballistic) ||
+			!expect(global("Botpack", "ChainSaw", "Slash"), Kind::Ballistic) ||
+			!expect(global("Botpack", "ImpactHammer", "TraceAltFire"), Kind::Ballistic) ||
+			!expect(state("ImpactHammer", "Firing", "Firing", "Tick"), Kind::Ballistic))
+			return false;
+
+		const WebXRWeaponCallMetadata negatives[] = {
+			global("Botpack", "TournamentWeapon", "Fire"),
+			global("Engine", "Actor", "Tick"),
+			state("UT_Eightball", "NormalFire", "NormalFire", "Tick"),
+			state("ImpactHammer", "ClientFiring", "ClientFiring", "Tick"),
+			state("ImpactHammer", "Firing", "ClientFiring", "Tick"),
+			global("WrongPackage", "UT_FlakCannon", "Fire"),
+			global("Botpack", "FlakCannon", "Fire"),
+			state("WrongClass", "FireRockets", "FireRockets", "BeginState"),
+			global("Botpack", "GuidedWarShell", "Tick"),
+			global("Botpack", "TournamentWeapon", "RenderOverlays"),
+			global("Engine", "Weapon", "CalcDrawOffset")
+		};
+		for (const auto& negative : negatives)
+		{
+			if (!expect(negative, Kind::None))
+				return false;
+		}
+
+		// Model the exact nested LIFO behavior used by Frame::Call without
+		// loading any game package: inner cleanup restores the outer override,
+		// and outer cleanup restores the byte-identical baseline.
+		Rotator value(101, 202, 303);
+		const Rotator baseline = value;
+		auto outer = BeginWebXRRotationOverride(value, Rotator(1001, 2002, 0));
+		const Rotator outerValue = value;
+		auto inner = BeginWebXRRotationOverride(value, Rotator(3003, 4004, 0));
+		inner();
+		if (value != outerValue)
+			return false;
+		outer();
+		return value == baseline;
+	}
+#endif
+
 	void ComposeWebXRWorldPoseValues(Engine::VRTrackedPoseState& target,
 		const vec3& localPosition, const vec3& localForward,
 		const vec3& cameraAnchor, const Coords& bodyRotation)
@@ -250,10 +415,28 @@ Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 	console->Viewport() = viewport;
 	canvas->Viewport() = viewport;
 	viewport->Console() = console;
+
+#ifdef __EMSCRIPTEN__
+	if (LaunchInfo.IsUnrealTournament())
+	{
+		Frame::SetCallScopeHook([this](UFunction* func, UObject* instance, const Array<ExpressionValue>&)
+		{
+			return EnterWebXRWeaponAimScope(func, instance);
+		});
+		LogMessage(std::string("WebXR weapon aim hook installed; classifier/restoration self-test=") +
+			(RunWebXRWeaponAimSelfTest() ? "pass" : "FAIL"));
+	}
+#endif
 }
 
 Engine::~Engine()
 {
+#ifdef __EMSCRIPTEN__
+	// The hook captures this Engine. Clear it before tearing down any member
+	// that a synchronous UnrealScript call could otherwise reach.
+	Frame::SetCallScopeHook({});
+#endif
+
 	if (audiodev)
 		audiodev->ShutdownDevice();
 
@@ -261,6 +444,59 @@ Engine::~Engine()
 
 	engine = nullptr;
 }
+
+#ifdef __EMSCRIPTEN__
+std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject* instance)
+{
+	if (!LaunchInfo.IsUnrealTournament() || !func || !instance || !viewport)
+		return {};
+
+	UPlayerPawn* pawn = viewport->Actor();
+	if (!pawn)
+		return {};
+	UWeapon* weapon = UObject::TryCast<UWeapon>(instance);
+	if (!weapon || pawn->Weapon() != weapon || weapon->Owner() != pawn)
+		return {};
+
+	const int dominantIndex = WebXRInput.DominantControllerIndex;
+	if (dominantIndex < 0 || dominantIndex >= static_cast<int>(WebXRInput.Controllers.size()))
+		return {};
+	const VRControllerInputState& dominant = WebXRInput.Controllers[dominantIndex];
+	if (!dominant.Connected || !dominant.AimPose.Tracked)
+		return {};
+
+	const WebXRWeaponCallMetadata metadata = GetWebXRWeaponCallMetadata(func, instance);
+	const WebXRWeaponAimScopeKind kind = ClassifyWebXRWeaponCall(metadata);
+	if (kind == WebXRWeaponAimScopeKind::None)
+		return {};
+
+	// Direction only: this milestone deliberately leaves CalcDrawOffset,
+	// projectile/trace origins, and first-person rendering untouched.
+	std::function<void()> restore = BeginWebXRRotationOverride(
+		pawn->ViewRotation(), dominant.AimPose.WorldRotation);
+	if (kind == WebXRWeaponAimScopeKind::Ballistic)
+		WebXRWeaponAim.BallisticScopeCount++;
+	else
+		WebXRWeaponAim.TargetAcquisitionScopeCount++;
+
+	const uint32_t totalScopes = WebXRWeaponAim.BallisticScopeCount +
+		WebXRWeaponAim.TargetAcquisitionScopeCount;
+	if (totalScopes == 1 || (totalScopes % 128u) == 0)
+	{
+		LogMessage("WebXR weapon aim scope: count=" + std::to_string(totalScopes) +
+			" kind=" + (kind == WebXRWeaponAimScopeKind::Ballistic ? "ballistic" : "target") +
+			" call=" + metadata.PackageName + "." + metadata.ClassName +
+			(metadata.DeclaringStateName.empty() ? "." : "." + metadata.DeclaringStateName + ".") +
+			metadata.FunctionName);
+	}
+
+	return [this, restore = std::move(restore)]() mutable
+	{
+		restore();
+		WebXRWeaponAim.RestoreCount++;
+	};
+}
+#endif
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -456,6 +692,26 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRLocomotionSelfTest()
 	{
 		return RunWebXRLocomotionSelfTest() ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRWeaponAimSelfTest()
+	{
+		return RunWebXRWeaponAimSelfTest() ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimBallisticScopeCount()
+	{
+		return engine ? engine->WebXRWeaponAim.BallisticScopeCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimTargetScopeCount()
+	{
+		return engine ? engine->WebXRWeaponAim.TargetAcquisitionScopeCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimRestoreCount()
+	{
+		return engine ? engine->WebXRWeaponAim.RestoreCount : 0;
 	}
 }
 #endif

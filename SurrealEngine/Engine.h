@@ -55,6 +55,7 @@ class UnrealURL;
 class VideoPlayer;
 class UnrealMipmap;
 class UFloatProperty;
+class UFunction;
 class UObjectProperty;
 class UStructProperty;
 class UConversationMissionList;
@@ -122,6 +123,13 @@ public:
 		float LastMoveForward = 0.0f;
 		float LastMoveStrafe = 0.0f;
 		int LastTurnDelta = 0;
+	};
+
+	struct WebXRWeaponAimDiagnostics
+	{
+		uint32_t BallisticScopeCount = 0;
+		uint32_t TargetAcquisitionScopeCount = 0;
+		uint32_t RestoreCount = 0;
 	};
 
 	Engine(GameLaunchInfo launchinfo);
@@ -268,6 +276,7 @@ public:
 	uint64_t tickCount = 0;
 	VRInputState WebXRInput;
 	WebXRLocomotionDiagnostics WebXRLocomotion;
+	WebXRWeaponAimDiagnostics WebXRWeaponAim;
 
 	WebXRTurnMode GetWebXRTurnMode() const { return WebXRTurnModeSetting; }
 	float GetWebXRSnapTurnDegrees() const { return WebXRSnapTurnDegrees; }
@@ -306,6 +315,7 @@ private:
 	void InputAxisEvent(EInputKey key, float delta);
 	void LoadWebXRInputSettings();
 	void InstallWebXRDefaultBindings();
+	std::function<void()> EnterWebXRWeaponAimScope(UFunction* func, UObject* instance);
 	std::map<std::string, std::string> CreateTravelInfo(bool transferItems);
 
 	void LogGamePackageSHA1Sums() const;
