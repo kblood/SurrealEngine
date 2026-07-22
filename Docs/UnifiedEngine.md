@@ -36,10 +36,19 @@ their development branches into one unreviewable fork.
 | `pr/property-serialization` | `1965a397` | Serialize aggregate boolean values symmetrically and test all aggregate paths | current upstream |
 | `pr/web-platform-foundation` | `88980d62` | Flat Emscripten/WebGPU platform and browser smoke harness | `pr/frame-pipeline` |
 | `pr/web-data-persistence` | `2dda89bd` | Legal local UT99 import, safe map selection, and crash-safe mutable browser data | `pr/web-platform-foundation` |
+| `pr/deus-ex-ai-perception` | `0842bd86` | Pure Deus Ex sight, hearing, and motion-visibility formulas | `pr/game-support-registry` |
+| `pr/bot-benchmark-telemetry` | `a090cb6c` | Immutable manifests and bounded JSONL benchmark evidence | `pr/bot-benchmark-driver` |
+| `pr/openxr-provider` | `e6150bf2` | Optional native OpenXR lifecycle, views, swapchains, and target binding | frame/view/presentation stack |
+| `pr/webxr-provider` | `89608ca7` | Optional WebXR/WebGPU lifecycle, view packet, and projection target | web/frame/view/presentation stack |
+| `pr/web-desktop-launcher` | `6c614d56` | Shared UT99/Unreal Gold browser library and flat/XR launch seam | `pr/web-data-persistence` |
+| `pr/openxr-input-adapter` | `8b7a2153` | Semantic native controller snapshots composed by independent source | OpenXR provider and input composition |
+| `pr/xr-common-spaces` | `9666a488` | Provider-neutral lifecycle, head/aim/grip spaces, recentering, pointer hits, and haptics | `pr/input-composition` |
+| `pr/webxr-input-adapter` | `e69b7567` | Versioned browser controller packet and XR-common semantic adapter | WebXR provider, input composition, and XR common |
+| `pr/xr-ui-surfaces` | `0f879d9c` | Ordered world-anchored menu/HUD/cinematic/loading surfaces and multi-source pointer routing | `pr/presentation-layers` |
 
 The integration branch contains the reviewed equivalents of every completed
 topic above, including the small build-system follow-ups needed when those
-topics coexist. All fifteen completed topic branches and
+topics coexist. All twenty-four completed topic branches and
 `integration/unified-engine` are preserved on the
 `fork` remote. No pull requests have been opened yet, and the upstream
 `origin` has not been modified.
@@ -112,8 +121,12 @@ matches.
 
 Native OpenXR and browser WebXR providers now exercise the shared multi-view
 and presentation-target contracts. Their remaining release gates are physical
-headset validation and the policy for controller input, per-eye weapons, and
-captured/replayed UI.
+headset validation and runtime wiring for common controller input, per-eye
+weapons, and captured/replayed UI. WebXR now has a tested versioned controller
+packet and semantic adapter; XR-common defines provider-independent spaces,
+pointer hits, and haptics. The UI-surface policy fixes ordering, anchoring,
+aspect mapping, and source-isolated click behavior without yet owning backend
+textures or existing UWindow input.
 
 ## Active extraction lanes
 
@@ -129,18 +142,27 @@ captured/replayed UI.
   next are controlled fixtures and evidence-backed behavior fixes.
 - XR: presentation layers, opaque target binding, and per-view target selection
   are explicit. Native OpenXR and WebXR provider skeletons are integrated, and
-  OpenXR semantic controller input composes through independent sources.
-  WebXR input plus shared game/menu policy remain separate topics.
+  both provider controller lanes now have semantic snapshots. XR-common spaces,
+  pointer hits, haptic routing, and provider-neutral UI-surface policy are
+  integrated. Live WebXR input consumption, OpenXR-to-XRCommon adaptation, and
+  existing menu/cinematic render/input adapters remain separate topics.
+
+The upstream repository is active. `Docs/UpstreamCoordination.md` records the
+public Discord contact route, the relationship to SurrealGPU/SurrealWidgets,
+and the human-curated bugfix-first PR strategy derived from upstream review of
+the rejected combined VR pull request. No upstream contact or PR has been made.
 
 ## Next integration gates
 
 1. Validate the WebXR WebGPU projection layer on Quest hardware and the native
    OpenXR controller lifecycle on a physical headset.
-2. Add the WebXR input adapter, then converge both providers on common
-   head/aim/grip spaces without changing keyboard or mouse ownership.
-3. Define captured/replayed UI behavior for HUD, menu, intro/cinematics, and
-   loading. Menu and cinematic surfaces must render after the world and remain
-   pointer-addressable.
+2. Refactor native OpenXR snapshots onto XR-common types and connect the tested
+   WebXR snapshot/adapter to the real browser frame input path without changing
+   keyboard or mouse ownership.
+3. Connect the tested UI-surface policy to captured/replayed HUD, menu,
+   intro/cinematics, and loading targets plus existing UWindow mouse primitives.
+   Providers must submit the ordered quads and render the pointer laser from the
+   exact same ray used for hit testing.
 4. Package the same shared browser launcher for flat and WebXR deployments;
    publish it under `/webxr/Ports/SurrealEngine/` only after the runtime and
    legal-data gates pass. Electron remains an optional flat wrapper.

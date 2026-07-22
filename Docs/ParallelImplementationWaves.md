@@ -78,13 +78,29 @@ contracts rather than embedding either provider API.
 
 ## Wave 4: shared XR behavior and game profiles
 
+The provider-neutral foundation of this wave is complete on three preserved
+topics:
+
+- `pr/xr-common-spaces`: canonical session, head/aim/grip, transform/recenter,
+  pointer-hit, and haptic contracts;
+- `pr/webxr-input-adapter`: packed browser controller ABI, defensive
+  `xr-standard` mapping, lifecycle neutralization, and shared semantic adapter;
+- `pr/xr-ui-surfaces`: world-anchored menu/HUD/cinematic/loading policy,
+  topmost menu order, aspect-correct ray mapping, and independent mouse/tracked
+  pointer state.
+
+These are contracts and pure policy. They do not yet claim live menu/cinematic
+quad submission on either runtime.
+
 After both provider skeletons can present tracked views:
 
-1. Extract XR-common pose spaces, locomotion reference, haptic event routing,
-   tracked audio listener, pointer/raycast result, and session lifecycle state.
-2. Implement captured/replayed UI surfaces for menu, intro/cinematics, HUD, and
-   loading. UI is rendered after the world, is never depth-hidden by its own
-   backing quad, and accepts mouse plus either tracked controller.
+1. Adapt native OpenXR to `XRCommon` and consume WebXR controller snapshots in
+   the real browser frame path. Preserve keyboard/mouse contributors and clear
+   only the lost provider/hand on focus or disconnect.
+2. Connect captured/replayed UI surfaces for menu, intro/cinematics, HUD, and
+   loading to backend/provider-owned targets. UI is rendered after the world,
+   is never depth-hidden by its own backing quad, and accepts mouse plus either
+   tracked controller through existing UI primitives.
 3. Reconstruct the UT99 VR game profile: controller-relative weapon visuals,
    fire/projectile aiming hooks, two-hand grip, handedness, dual Enforcers, and
    outcome-based haptics.
