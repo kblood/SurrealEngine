@@ -15,6 +15,7 @@
 #include "UObject/UDeusExLevelInfo.h"
 #include "GameFolder.h"
 #include "Input/InputComposition.h"
+#include "Input/XRInputAdapter.h"
 #include <set>
 #include <list>
 
@@ -69,7 +70,7 @@ struct MeshFace;
 
 static constexpr int32_t DONT_SAVE_GAME = -2; // Since -1 might be used as the autosave slot in some UE1 games...
 
-class Engine : public GameWindowHost
+class Engine : public GameWindowHost, public XRInputTarget
 {
 public:
 	Engine(GameLaunchInfo launchinfo);
@@ -99,7 +100,8 @@ public:
 	std::string ConsoleCommand(UObject* context, const std::string& command, BitfieldBool& found);
 
 	void UpdateInput(float timeElapsed);
-	void InputCommand(const std::string& command, InputControlId control, float delta);
+	void InputCommand(const std::string& command, InputControlId control, float delta) override;
+	void ReleaseInputControl(InputControlId control) override;
 
 	void LockCursor();
 	void UnlockCursor();
@@ -121,7 +123,7 @@ public:
 
 	void Key(std::string key);
 	void InputEvent(EInputKey key, EInputType type, float delta = 0.0f, InputSourceId source = InputSourceId::KeyboardMouse);
-	void ReleaseInputSource(InputSourceId source);
+	void ReleaseInputSource(InputSourceId source) override;
 
 	void OnWindowPaint() override;
 	void OnWindowMouseMove(const Point& pos) override;
@@ -224,6 +226,7 @@ public:
 	static const char* keynames[256];
 
 	InputComposition inputComposition;
+	XRInputAdapter openXRInput;
 
 	std::function<void()> tickDebugger;
 

@@ -155,17 +155,16 @@ void Engine::Run()
 	packages->SaveAllIniFiles();
 
 	LogMessage("Closing window...");
+	openXRInput.Disconnect(*this);
 	openXR.reset();
 	CloseWindow();
 }
 
 void Engine::RunOneFrame()
 {
-	const float levelElapsed = AdvanceGameFrame();
-	viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
-	ViewFamily viewFamily = CreateDesktopViewFamily();
 	OpenXREyeView eyes[2];
 	bool xrFrameBegun = false;
+	bool shouldRenderXR = false;
 	bool submitXRLayer = false;
 	bool acquired[2] = { false, false };
 
@@ -174,31 +173,46 @@ void Engine::RunOneFrame()
 		if (!openXR->PollEvents())
 		{
 			LogMessage("OpenXR session stopped; continuing in desktop mode");
+			openXRInput.Disconnect(*this);
 			openXR.reset();
 		}
 		else if (openXR->IsSessionRunning())
 		{
-			bool shouldRender = false;
-			xrFrameBegun = openXR->WaitBeginAndLocate(shouldRender, eyes);
-			if (xrFrameBegun && shouldRender)
-			{
-				void* images[2] = { openXR->AcquireSwapchainImage(0), openXR->AcquireSwapchainImage(1) };
-				acquired[0] = images[0] != nullptr;
-				acquired[1] = images[1] != nullptr;
-				PresentationTarget target{ OpenXRProvider::ProjectionTargetSlot };
-				PresentationTargetBinding binding;
-				binding.Target = target;
-				for (void* image : images)
-					binding.Images.push_back({ image, openXR->SwapchainWidth(), openXR->SwapchainHeight() });
-				ViewRect output{ viewport->ViewportX(), viewport->ViewportY(), viewport->ViewportWidth(), viewport->ViewportHeight() };
-				ViewFamily xrViews = openXRViews.CreateViewFamily(eyes, CameraLocation, CameraRotation, output);
-				if (xrViews.Views.size() == 2 && render->Device->BindPresentationTarget(binding))
-				{
-					xrViews.Presentation.SetLayer(PresentationLayer::World, target);
-					viewFamily = std::move(xrViews);
-					submitXRLayer = true;
-				}
-			}
+			xrFrameBegun = openXR->WaitBeginAndLocate(shouldRenderXR, eyes);
+			OpenXRInputSnapshot inputSnapshot;
+			if (xrFrameBegun && openXR->SyncInput(inputSnapshot))
+				openXRInput.Update(inputSnapshot, *this);
+			else
+				openXRInput.Disconnect(*this);
+		}
+		else
+		{
+			openXRInput.Disconnect(*this);
+		}
+	}
+
+	// XR waits and samples controls before simulation so this snapshot is
+	// composed with keyboard/mouse during the same game update.
+	const float levelElapsed = AdvanceGameFrame();
+	viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
+	ViewFamily viewFamily = CreateDesktopViewFamily();
+	if (openXR && xrFrameBegun && shouldRenderXR)
+	{
+		void* images[2] = { openXR->AcquireSwapchainImage(0), openXR->AcquireSwapchainImage(1) };
+		acquired[0] = images[0] != nullptr;
+		acquired[1] = images[1] != nullptr;
+		PresentationTarget target{ OpenXRProvider::ProjectionTargetSlot };
+		PresentationTargetBinding binding;
+		binding.Target = target;
+		for (void* image : images)
+			binding.Images.push_back({ image, openXR->SwapchainWidth(), openXR->SwapchainHeight() });
+		ViewRect output{ viewport->ViewportX(), viewport->ViewportY(), viewport->ViewportWidth(), viewport->ViewportHeight() };
+		ViewFamily xrViews = openXRViews.CreateViewFamily(eyes, CameraLocation, CameraRotation, output);
+		if (xrViews.Views.size() == 2 && render->Device->BindPresentationTarget(binding))
+		{
+			xrViews.Presentation.SetLayer(PresentationLayer::World, target);
+			viewFamily = std::move(xrViews);
+			submitXRLayer = true;
 		}
 	}
 
@@ -1867,6 +1881,17 @@ void Engine::InputEvent(EInputKey key, EInputType type, float delta, InputSource
 void Engine::ReleaseInputSource(InputSourceId source)
 {
 	ReleasedInputActions released = inputComposition.ReleaseSource(source);
+	if (!viewport || !viewport->Actor())
+		return;
+	for (const std::string& action : released.Buttons)
+		viewport->Actor()->SetBool(action, false);
+	for (const std::string& action : released.Axes)
+		viewport->Actor()->SetFloat(action, 0.0f);
+}
+
+void Engine::ReleaseInputControl(InputControlId control)
+{
+	ReleasedInputActions released = inputComposition.ReleaseControl(control);
 	if (!viewport || !viewport->Actor())
 		return;
 	for (const std::string& action : released.Buttons)
