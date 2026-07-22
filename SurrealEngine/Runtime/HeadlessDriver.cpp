@@ -43,8 +43,28 @@ bool HeadlessDriverRegistry::Contains(const std::string& name) const
 
 std::unique_ptr<HeadlessDriver> HeadlessDriverRegistry::Create(const std::string& name, Engine& engine) const
 {
+	Resolution resolution = Resolve(name);
+	return resolution ? resolution.Create(engine) : nullptr;
+}
+
+HeadlessDriverRegistry::Resolution HeadlessDriverRegistry::Resolve(const std::string& name) const
+{
 	auto it = std::find_if(Entries.begin(), Entries.end(), [&](const Entry& entry) { return entry.Name == name; });
-	return it != Entries.end() ? it->Create(engine) : nullptr;
+	if (it != Entries.end())
+		return { it->Create, {}, 0 };
+
+	Resolution result;
+	result.ExitCode = UnknownDriverExitCode;
+	result.Error = "unknown headless driver: " + name;
+	const std::vector<std::string> names = Names();
+	if (!names.empty())
+	{
+		result.Error += " (available:";
+		for (const std::string& availableName : names)
+			result.Error += " " + availableName;
+		result.Error += ")";
+	}
+	return result;
 }
 
 std::vector<std::string> HeadlessDriverRegistry::Names() const
