@@ -1,6 +1,7 @@
 
 #include "Precomp.h"
 #include "UDXExtString.h"
+#include "GameSupport/DeusEx/TextTokenizer.h"
 #include "Utils/Logger.h"
 
 void UDXExtString::Load(ObjectStream* stream)
@@ -23,35 +24,14 @@ void UDXExtString::AppendText(const std::string& newText)
 
 int UDXExtString::GetFirstTextPart(std::string& outText)
 {
-	if (!Text().empty())
-	{
-		size_t len = Text().size();
-		size_t N = std::min(len - 1, (size_t)239);
-		outText = Text().substr(0, N);
-	}
-	else
-	{
-		outText = {};
-	}
-	SpeechPage() = 0; // seems it does that
-	return 0;
+	SpeechPage() = 0;
+	return ReadDeusExTextPage(Text(), SpeechPage(), outText);
 }
 
 int UDXExtString::GetNextTextPart(std::string& outText)
 {
-	/*
-	speechPage() += 1;
-	int len = Text().size();
-	int pages = (len + 238) / 239;
-	if (SpeechPage() > pages)
-		return 1;
-
-	int start = speechPage() * 239;
-	outText = Text().substr(start, 239);
-	*/
-	LogUnimplemented("ExtString.GetNextTextPart");
-	outText = "";
-	return 0;
+	SpeechPage()++;
+	return ReadDeusExTextPage(Text(), SpeechPage(), outText);
 }
 
 std::string& UDXExtString::GetText()
