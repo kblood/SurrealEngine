@@ -135,7 +135,9 @@ public:
 	void SetViewport(UViewport* InViewport);
 	UViewport* GetViewport() { return m_Viewport; }
 
-	void Update(const mat4& listener);
+	// explicitListenerPose is a one-update override in UE1 world coordinates.
+	// nullptr preserves the backend's CameraActor fallback.
+	void Update(const mat4& listener, const AudioListenerPose* explicitListenerPose = nullptr);
 
 	bool PlaySound(UActor* Actor, int Id, USound* Sound, vec3 Location, float Volume, float Radius, float Pitch);
 	void StopSound(UActor* Actor, int Id);

@@ -44,7 +44,7 @@ void NullAudioDevice::SetSoundVolume(float volume)
 {
 }
 
-void NullAudioDevice::Update()
+void NullAudioDevice::Update(const AudioListenerPose* listenerPose)
 {
 }
 

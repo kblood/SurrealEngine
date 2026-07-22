@@ -19,5 +19,5 @@ public:
 	void StopSound(int channel) override;
 	void SetMusicVolume(float volume) override;
 	void SetSoundVolume(float volume) override;
-	void Update() override;
+	void Update(const AudioListenerPose* listenerPose = nullptr) override;
 };

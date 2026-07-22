@@ -236,7 +236,7 @@ void USurrealAudioDevice::SetViewport(UViewport* InViewport)
 	}
 }
 
-void USurrealAudioDevice::Update(const mat4& listener)
+void USurrealAudioDevice::Update(const mat4& listener, const AudioListenerPose* explicitListenerPose)
 {
 	StartAmbience();
 	UpdateAmbience();
@@ -245,7 +245,7 @@ void USurrealAudioDevice::Update(const mat4& listener)
 
 	m_Device->SetMusicVolume(MusicVolume / 255.0f);
 	m_Device->SetSoundVolume(SoundVolume / 255.0f * 0.5f);
-	m_Device->Update();
+	m_Device->Update(explicitListenerPose);
 }
 
 void USurrealAudioDevice::StartAmbience()

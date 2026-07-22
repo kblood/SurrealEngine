@@ -13,11 +13,121 @@
 #include <queue>
 #include <thread>
 #include <chrono>
+#include <limits>
 #include <AL/al.h>
 #include <AL/alc.h>
 #include <AL/alext.h>
 
 #define UU_PER_METER 43
+
+namespace
+{
+	// Sanitized values in the coordinate system already used by OpenAL sound
+	// sources. Keep this backend detail out of the public listener API.
+	struct OpenALListenerPose
+	{
+		vec3 Position = vec3(0.0f);
+		vec3 Forward = vec3(1.0f, 0.0f, 0.0f);
+		vec3 Up = vec3(0.0f, 0.0f, -1.0f);
+		vec3 Velocity = vec3(0.0f);
+	};
+
+	constexpr float ListenerVectorEpsilon = 0.000001f;
+
+	bool IsFiniteAudioVector(const vec3& value)
+	{
+		return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+	}
+
+	bool IsNear(const vec3& value, const vec3& expected, float epsilon = 0.0001f)
+	{
+		return length(value - expected) <= epsilon;
+	}
+}
+
+static AudioListenerPose MakeAudioListenerPose(const vec3& position, const Rotator& rotation, const vec3& velocity)
+{
+	const Coords basis = Coords::Rotation(rotation);
+	AudioListenerPose result;
+	result.Position = position;
+	result.Forward = basis.XAxis;
+	result.Up = basis.ZAxis;
+	result.Velocity = velocity;
+	return result;
+}
+
+static vec3 ConvertUE1AudioVectorToOpenAL(const vec3& value)
+{
+	return vec3(value.x, value.y, -value.z);
+}
+
+static bool TryConvertUE1ListenerPoseToOpenAL(const AudioListenerPose& source, OpenALListenerPose& target)
+{
+	if (!IsFiniteAudioVector(source.Position) || !IsFiniteAudioVector(source.Forward) ||
+		!IsFiniteAudioVector(source.Up) || !IsFiniteAudioVector(source.Velocity))
+		return false;
+
+	const float forwardLength = length(source.Forward);
+	if (!std::isfinite(forwardLength) || forwardLength <= ListenerVectorEpsilon)
+		return false;
+	const vec3 forward = source.Forward / forwardLength;
+	const vec3 orthogonalUp = source.Up - forward * dot(source.Up, forward);
+	const float upLength = length(orthogonalUp);
+	if (!std::isfinite(upLength) || upLength <= ListenerVectorEpsilon)
+		return false;
+
+	target.Position = ConvertUE1AudioVectorToOpenAL(source.Position);
+	target.Forward = ConvertUE1AudioVectorToOpenAL(forward);
+	target.Up = ConvertUE1AudioVectorToOpenAL(orthogonalUp / upLength);
+	target.Velocity = ConvertUE1AudioVectorToOpenAL(source.Velocity);
+	return true;
+}
+
+static bool RunAudioListenerPoseMathSelfTest()
+{
+	OpenALListenerPose converted;
+	AudioListenerPose identity;
+	identity.Position = vec3(1.0f, -2.0f, 3.0f);
+	identity.Velocity = vec3(-4.0f, 5.0f, -6.0f);
+	if (!TryConvertUE1ListenerPoseToOpenAL(identity, converted) ||
+		!IsNear(converted.Position, vec3(1.0f, -2.0f, -3.0f)) ||
+		!IsNear(converted.Forward, vec3(1.0f, 0.0f, 0.0f)) ||
+		!IsNear(converted.Up, vec3(0.0f, 0.0f, -1.0f)) ||
+		!IsNear(converted.Velocity, vec3(-4.0f, 5.0f, 6.0f)))
+		return false;
+
+	// A full yaw/pitch/roll pose must retain an orthonormal forward/up pair;
+	// this specifically guards against reducing the listener to a zero-roll
+	// Rotator::FromVector representation.
+	const AudioListenerPose rotated = MakeAudioListenerPose(
+		vec3(11.0f, 22.0f, 33.0f), Rotator(5000, 12000, -7000), vec3(2.0f, 3.0f, 4.0f));
+	if (!TryConvertUE1ListenerPoseToOpenAL(rotated, converted) ||
+		std::fabs(length(converted.Forward) - 1.0f) > 0.0001f ||
+		std::fabs(length(converted.Up) - 1.0f) > 0.0001f ||
+		std::fabs(dot(converted.Forward, converted.Up)) > 0.0001f)
+		return false;
+
+	// Non-unit and slightly skew input is accepted and orthonormalized.
+	AudioListenerPose skewed;
+	skewed.Forward = vec3(4.0f, 0.0f, 0.0f);
+	skewed.Up = vec3(0.25f, 0.0f, 3.0f);
+	if (!TryConvertUE1ListenerPoseToOpenAL(skewed, converted) ||
+		!IsNear(converted.Forward, vec3(1.0f, 0.0f, 0.0f)) ||
+		!IsNear(converted.Up, vec3(0.0f, 0.0f, -1.0f)))
+		return false;
+
+	AudioListenerPose invalid = identity;
+	invalid.Forward = vec3(0.0f);
+	if (TryConvertUE1ListenerPoseToOpenAL(invalid, converted))
+		return false;
+	invalid = identity;
+	invalid.Up = invalid.Forward;
+	if (TryConvertUE1ListenerPoseToOpenAL(invalid, converted))
+		return false;
+	invalid = identity;
+	invalid.Position.x = std::numeric_limits<float>::quiet_NaN();
+	return !TryConvertUE1ListenerPoseToOpenAL(invalid, converted);
+}
 
 class ALSoundSource
 {
@@ -76,9 +186,7 @@ public:
 
 	void SetPosition(vec3& newPosition)
 	{
-		position.x = newPosition.x;
-		position.y = newPosition.y;
-		position.z = -newPosition.z;
+		position = ConvertUE1AudioVectorToOpenAL(newPosition);
 		alSourcefv(id, AL_POSITION, &position[0]);
 	}
 
@@ -94,9 +202,7 @@ public:
 
 	void SetVelocity(vec3& newVelocity)
 	{
-		velocity.x = newVelocity.x;
-		velocity.y = newVelocity.y;
-		velocity.z = -newVelocity.z;
+		velocity = ConvertUE1AudioVectorToOpenAL(newVelocity);
 		alSourcefv(id, AL_VELOCITY, &velocity[0]);
 	}
 
@@ -189,6 +295,9 @@ class OpenALAudioDevice : public AudioDevice
 public:
 	OpenALAudioDevice(int inFrequency, int numVoices, int inMusicBufferCount, int inMusicBufferSize)
 	{
+		if (!RunAudioListenerPoseMathSelfTest())
+			Exception::Throw("Audio listener pose conversion self-test failed");
+
 		frequency = inFrequency;
 		musicBufferCount = inMusicBufferCount;
 		musicBufferSize = inMusicBufferSize;
@@ -223,7 +332,8 @@ public:
 			Exception::Throw("Failed to make OpenAL context current");
 
 		// init listener state
-		ALfloat listenerOri[] = { 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, -1.0f };
+		// Identity UE1 listener basis after the shared (x, y, -z) reflection.
+		ALfloat listenerOri[] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f };
 		alListener3f(AL_POSITION, 0, 0, 0.0f);
 		alListener3f(AL_VELOCITY, 0, 0, 0);
 		alListenerfv(AL_ORIENTATION, listenerOri);
@@ -472,23 +582,28 @@ public:
 			soundSource.SetGlobalVolume(globalSoundVolume);
 	}
 
-	void Update() override
+	void Update(const AudioListenerPose* explicitListenerPose = nullptr) override
 	{
-		UActor* listener = engine->CameraActor;
-		if (listener)
+		AudioListenerPose fallbackPose;
+		const AudioListenerPose* listenerPose = explicitListenerPose;
+		OpenALListenerPose converted;
+		if (!listenerPose || !TryConvertUE1ListenerPoseToOpenAL(*listenerPose, converted))
 		{
-			// Update listener properties
-			vec3& location = listener->Location();
-			vec3& velocity = listener->Velocity();
-
-			vec3 at, left, up;
-			Coords::Rotation(listener->Rotation()).GetAxes(at, left, up);
-
-			ALfloat listenerOri[6] = { up.x, up.y, -up.z, -at.x, -at.y, at.z };
-			alListener3f(AL_POSITION, location.x, location.y, -location.z);
-			alListener3f(AL_VELOCITY, velocity.x, velocity.y, -velocity.z);
-			alListenerfv(AL_ORIENTATION, listenerOri);
+			UActor* listener = engine->CameraActor;
+			if (!listener)
+				return;
+			fallbackPose = MakeAudioListenerPose(listener->Location(), listener->Rotation(), listener->Velocity());
+			if (!TryConvertUE1ListenerPoseToOpenAL(fallbackPose, converted))
+				return;
 		}
+
+		const ALfloat listenerOri[6] = {
+			converted.Forward.x, converted.Forward.y, converted.Forward.z,
+			converted.Up.x, converted.Up.y, converted.Up.z
+		};
+		alListener3f(AL_POSITION, converted.Position.x, converted.Position.y, converted.Position.z);
+		alListener3f(AL_VELOCITY, converted.Velocity.x, converted.Velocity.y, converted.Velocity.z);
+		alListenerfv(AL_ORIENTATION, listenerOri);
 	}
 
 	void MusicThreadMain()
