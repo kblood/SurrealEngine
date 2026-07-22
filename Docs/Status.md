@@ -88,6 +88,8 @@ Anything beyond 469c currently won't boot.
 
 1112fm version of the game boots to title screen and the beginning sections of the training map can be played. Nothing much else has been tested, so expect crashes.
 
+See [DeusEx.md](DeusEx.md) for the tested game-data baseline, reproducible build and launch commands, and current compatibility findings.
+
 ### Known bugs:
 * Some native functions are still not implemented.
 * Conversation system is not fully implemented yet.
