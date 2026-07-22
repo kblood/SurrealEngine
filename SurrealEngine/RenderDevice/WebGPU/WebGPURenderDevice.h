@@ -27,6 +27,14 @@ struct WebGPUDrawBatchEntry
 	float BlendConstants[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 };
 
+// Opaque payload stored in PresentationTargetImage::NativeHandle by the
+// WebXR/WebGPU provider. Other render backends define their own payload.
+struct WebGPUPresentationImageHandle
+{
+	WGPUTextureView View = nullptr;
+	WGPUTextureFormat Format = WGPUTextureFormat_Undefined;
+};
+
 // WebGPU RenderDevice backend for the Emscripten browser platform. Mirrors
 // D3D11RenderDevice's traditional fixed-texture-slot draw model rather than
 // VulkanRenderDevice's bindless one - core WebGPU has no stable equivalent of
@@ -73,6 +81,11 @@ public:
 	void PrecacheTexture(FTextureInfo& Info, uint32_t PolyFlags) override;
 	bool SupportsTextureFormat(TextureFormat Format) override;
 	void UpdateTextureRect(FTextureInfo& Info, int U, int V, int UL, int VL) override;
+	bool BeginPresentationLayer(const PresentationLayerDescription& layer) override;
+	bool BindPresentationTarget(const PresentationTargetBinding& binding) override;
+	void UnbindPresentationTarget(PresentationTarget target) override;
+	bool BeginPresentationView(PresentationTarget target, size_t viewIndex) override;
+	bool IsExternalPresentationActive() const { return ExternalPresentationActive; }
 
 	std::unique_ptr<WebGPUContext> Context;
 	std::unique_ptr<WebGPUPipelineCache> Pipelines;
@@ -109,6 +122,9 @@ private:
 	void DrawComplexSurfaceFaces(const ComplexSurfaceInfo& info);
 
 	void ConfigureDepthBuffer(int width, int height);
+	bool EnsurePipelineColorFormat(WGPUTextureFormat format);
+	void CreateUniformBindGroup();
+	bool SelectExternalView(size_t viewIndex);
 	void BeginFramePass(bool colorClear, vec4 clearColor, bool depthClear);
 	void EndAndSubmitFramePass();
 
@@ -160,6 +176,11 @@ private:
 	WGPUTexture CurrentSurfaceTexture = nullptr;
 	WGPUTextureView CurrentSurfaceView = nullptr;
 	vec4 CurrentClearColor = vec4(0.0f);
+	PresentationTarget ExternalTarget;
+	std::vector<PresentationTargetImage> ExternalViews;
+	size_t CurrentExternalView = 0;
+	WGPUTextureFormat PipelineColorFormat = WGPUTextureFormat_Undefined;
+	bool ExternalPresentationActive = false;
 
 	bool HaveViewport = false;
 	float ViewportX = 0, ViewportY = 0, ViewportW = 0, ViewportH = 0, ViewportMinDepth = 0.1f, ViewportMaxDepth = 1.0f;

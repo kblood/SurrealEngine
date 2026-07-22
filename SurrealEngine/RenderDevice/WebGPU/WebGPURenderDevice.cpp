@@ -18,6 +18,7 @@ WebGPURenderDevice::WebGPURenderDevice(Widget* viewport)
 	Viewport = viewport;
 	Context = std::make_unique<WebGPUContext>();
 	Pipelines = std::make_unique<WebGPUPipelineCache>(Context.get(), Context->SurfaceFormat, DepthFormat);
+	PipelineColorFormat = Context->SurfaceFormat;
 	Samplers = std::make_unique<WebGPUSamplerCache>(Context.get());
 	Textures = std::make_unique<WebGPUTextureManager>(this);
 	Uploads = std::make_unique<WebGPUUploadManager>(this);
@@ -40,6 +41,16 @@ WebGPURenderDevice::WebGPURenderDevice(Widget* viewport)
 	ubDesc.size = sizeof(WebGPUSceneUniforms);
 	UniformBuffer = wgpuDeviceCreateBuffer(Context->Device, &ubDesc);
 
+	CreateUniformBindGroup();
+}
+
+void WebGPURenderDevice::CreateUniformBindGroup()
+{
+	if (UniformsBindGroup)
+	{
+		wgpuBindGroupRelease(UniformsBindGroup);
+		UniformsBindGroup = nullptr;
+	}
 	WGPUBindGroupEntry uniformEntry = {};
 	uniformEntry.binding = 0;
 	uniformEntry.buffer = UniformBuffer;
@@ -60,7 +71,8 @@ WebGPURenderDevice::~WebGPURenderDevice()
 
 	if (FramePass) { wgpuRenderPassEncoderRelease(FramePass); FramePass = nullptr; }
 	if (FrameEncoder) { wgpuCommandEncoderRelease(FrameEncoder); FrameEncoder = nullptr; }
-	if (CurrentSurfaceView) { wgpuTextureViewRelease(CurrentSurfaceView); CurrentSurfaceView = nullptr; }
+	if (CurrentSurfaceView && !ExternalPresentationActive) { wgpuTextureViewRelease(CurrentSurfaceView); }
+	CurrentSurfaceView = nullptr;
 	if (CurrentSurfaceTexture) { wgpuTextureRelease(CurrentSurfaceTexture); CurrentSurfaceTexture = nullptr; }
 	if (UniformsBindGroup) wgpuBindGroupRelease(UniformsBindGroup);
 	if (UniformBuffer) wgpuBufferRelease(UniformBuffer);
@@ -152,6 +164,109 @@ void WebGPURenderDevice::Flush(bool AllowPrecache)
 		PrecacheOnFlip = true;
 }
 
+bool WebGPURenderDevice::BeginPresentationLayer(const PresentationLayerDescription& layer)
+{
+	if (!layer.Enabled)
+		return false;
+	return layer.Target.IsDefault() ? !ExternalPresentationActive :
+		ExternalPresentationActive && layer.Target == ExternalTarget;
+}
+
+bool WebGPURenderDevice::BindPresentationTarget(const PresentationTargetBinding& binding)
+{
+	if (binding.Target.IsDefault() || ExternalPresentationActive || IsLocked ||
+		binding.Images.empty() || binding.Images.size() > 2)
+		return false;
+
+	WGPUTextureFormat format = WGPUTextureFormat_Undefined;
+	for (const PresentationTargetImage& image : binding.Images)
+	{
+		if (!image.NativeHandle || image.Width <= 0 || image.Height <= 0)
+			return false;
+		auto* handle = static_cast<WebGPUPresentationImageHandle*>(image.NativeHandle);
+		if (!handle->View || handle->Format == WGPUTextureFormat_Undefined)
+			return false;
+		if (format == WGPUTextureFormat_Undefined)
+			format = handle->Format;
+		else if (format != handle->Format)
+			return false;
+	}
+	if (!EnsurePipelineColorFormat(format))
+		return false;
+
+	ExternalTarget = binding.Target;
+	ExternalViews.assign(binding.Images.begin(), binding.Images.end());
+	CurrentExternalView = 0;
+	ExternalPresentationActive = true;
+	return true;
+}
+
+void WebGPURenderDevice::UnbindPresentationTarget(PresentationTarget target)
+{
+	if (!ExternalPresentationActive || target != ExternalTarget || IsLocked)
+		return;
+	ExternalViews.clear();
+	ExternalTarget = {};
+	CurrentExternalView = 0;
+	ExternalPresentationActive = false;
+	EnsurePipelineColorFormat(Context->SurfaceFormat);
+}
+
+bool WebGPURenderDevice::EnsurePipelineColorFormat(WGPUTextureFormat format)
+{
+	if (format == PipelineColorFormat)
+		return true;
+	if (IsLocked || (format != WGPUTextureFormat_BGRA8Unorm &&
+		format != WGPUTextureFormat_RGBA8Unorm && format != WGPUTextureFormat_RGBA16Float))
+		return false;
+
+	Pipelines = std::make_unique<WebGPUPipelineCache>(Context.get(), format, DepthFormat);
+	PipelineColorFormat = format;
+	CreateUniformBindGroup();
+	return true;
+}
+
+bool WebGPURenderDevice::SelectExternalView(size_t viewIndex)
+{
+	if (!ExternalPresentationActive || viewIndex >= ExternalViews.size())
+		return false;
+	if (viewIndex == CurrentExternalView)
+		return true;
+	if (!IsLocked || !FramePass || !FrameEncoder)
+	{
+		CurrentExternalView = viewIndex;
+		return true;
+	}
+
+	DrawBatches();
+	EndAndSubmitFramePass();
+	CurrentExternalView = viewIndex;
+	const PresentationTargetImage& image = ExternalViews[viewIndex];
+	auto* handle = static_cast<WebGPUPresentationImageHandle*>(image.NativeHandle);
+	CurrentSurfaceView = handle->View;
+	CurrentSizeX = image.Width;
+	CurrentSizeY = image.Height;
+	ConfigureDepthBuffer(CurrentSizeX, CurrentSizeY);
+	HaveViewport = false;
+	BeginFramePass(/*colorClear=*/true, CurrentClearColor, /*depthClear=*/true);
+
+	SceneVertexPos = 0;
+	SceneIndexPos = 0;
+	UploadedVertexPos = 0;
+	UploadedIndexPos = 0;
+	Batch = WebGPUDrawBatchEntry();
+	QueuedBatches.clear();
+	Stats.BuffersUsed++;
+	return true;
+}
+
+bool WebGPURenderDevice::BeginPresentationView(PresentationTarget target, size_t viewIndex)
+{
+	if (target.IsDefault())
+		return !ExternalPresentationActive;
+	return target == ExternalTarget && SelectExternalView(viewIndex);
+}
+
 void WebGPURenderDevice::Lock(vec4 InFlashScale, vec4 InFlashFog, vec4 ScreenClear, uint8_t* InHitData, int* InHitSize)
 {
 	if (InHitSize)
@@ -165,27 +280,35 @@ void WebGPURenderDevice::Lock(vec4 InFlashScale, vec4 InFlashFog, vec4 ScreenCle
 	Stats.RectUploads = 0;
 	Stats.BuffersUsed = 0;
 
-	CurrentSizeX = Viewport->GetNativePixelWidth();
-	CurrentSizeY = Viewport->GetNativePixelHeight();
+	CurrentSizeX = ExternalPresentationActive ? ExternalViews[0].Width : Viewport->GetNativePixelWidth();
+	CurrentSizeY = ExternalPresentationActive ? ExternalViews[0].Height : Viewport->GetNativePixelHeight();
 
 	nulltex = Textures->GetNullTexture();
 
-	Context->ConfigureSurface(CurrentSizeX, CurrentSizeY);
 	ConfigureDepthBuffer(CurrentSizeX, CurrentSizeY);
+	if (ExternalPresentationActive)
+	{
+		CurrentExternalView = 0;
+		CurrentSurfaceTexture = nullptr;
+		CurrentSurfaceView = static_cast<WebGPUPresentationImageHandle*>(ExternalViews[0].NativeHandle)->View;
+	}
+	else
+	{
+		Context->ConfigureSurface(CurrentSizeX, CurrentSizeY);
+		WGPUSurfaceTexture surfaceTexture = {};
+		wgpuSurfaceGetCurrentTexture(Context->Surface, &surfaceTexture);
+		CurrentSurfaceTexture = surfaceTexture.texture;
 
-	WGPUSurfaceTexture surfaceTexture = {};
-	wgpuSurfaceGetCurrentTexture(Context->Surface, &surfaceTexture);
-	CurrentSurfaceTexture = surfaceTexture.texture;
-
-	WGPUTextureViewDescriptor viewDesc = {};
-	viewDesc.format = Context->SurfaceFormat;
-	viewDesc.dimension = WGPUTextureViewDimension_2D;
-	viewDesc.baseMipLevel = 0;
-	viewDesc.mipLevelCount = 1;
-	viewDesc.baseArrayLayer = 0;
-	viewDesc.arrayLayerCount = 1;
-	viewDesc.aspect = WGPUTextureAspect_All;
-	CurrentSurfaceView = wgpuTextureCreateView(CurrentSurfaceTexture, &viewDesc);
+		WGPUTextureViewDescriptor viewDesc = {};
+		viewDesc.format = Context->SurfaceFormat;
+		viewDesc.dimension = WGPUTextureViewDimension_2D;
+		viewDesc.baseMipLevel = 0;
+		viewDesc.mipLevelCount = 1;
+		viewDesc.baseArrayLayer = 0;
+		viewDesc.arrayLayerCount = 1;
+		viewDesc.aspect = WGPUTextureAspect_All;
+		CurrentSurfaceView = wgpuTextureCreateView(CurrentSurfaceTexture, &viewDesc);
+	}
 
 	CurrentClearColor = ScreenClear;
 	HaveViewport = false;
@@ -219,9 +342,11 @@ void WebGPURenderDevice::Unlock(bool Blit)
 	// returns control to the browser. wgpuSurfacePresent() is hard-
 	// unimplemented in this port (always aborts) - confirmed via a
 	// standalone spike before writing this backend.
-	wgpuTextureViewRelease(CurrentSurfaceView);
+	if (!ExternalPresentationActive)
+		wgpuTextureViewRelease(CurrentSurfaceView);
 	CurrentSurfaceView = nullptr;
-	wgpuTextureRelease(CurrentSurfaceTexture);
+	if (CurrentSurfaceTexture)
+		wgpuTextureRelease(CurrentSurfaceTexture);
 	CurrentSurfaceTexture = nullptr;
 
 	Batch = WebGPUDrawBatchEntry();
@@ -335,9 +460,7 @@ void WebGPURenderDevice::SetSceneNode(FSceneNode* Frame)
 	HaveViewport = true;
 	wgpuRenderPassEncoderSetViewport(FramePass, ViewportX, ViewportY, ViewportW, ViewportH, ViewportMinDepth, ViewportMaxDepth);
 
-	mat4 objectToProjection = mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
-
-	UpdateSceneUniforms(objectToProjection * Frame->WorldToView * Frame->ObjectToWorld);
+	UpdateSceneUniforms(Frame->Projection * Frame->WorldToView * Frame->ObjectToWorld);
 }
 
 void WebGPURenderDevice::PrecacheTexture(FTextureInfo& Info, uint32_t PolyFlags)
