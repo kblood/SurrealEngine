@@ -35,6 +35,20 @@ struct OpenXRProvider::Impl
 	XrSpace space = XR_NULL_HANDLE;
 	XrSwapchain swapchains[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
 	std::vector<XrSwapchainImageVulkanKHR> images[2];
+	XrPath handPaths[2] = { XR_NULL_PATH, XR_NULL_PATH };
+	XrActionSet actionSet = XR_NULL_HANDLE;
+	XrAction stickAction = XR_NULL_HANDLE;
+	XrAction triggerAction = XR_NULL_HANDLE;
+	XrAction gripAction = XR_NULL_HANDLE;
+	XrAction primaryButtonAction = XR_NULL_HANDLE;
+	XrAction secondaryButtonAction = XR_NULL_HANDLE;
+	XrAction menuButtonAction = XR_NULL_HANDLE;
+	XrAction stickClickAction = XR_NULL_HANDLE;
+	XrAction gripPoseAction = XR_NULL_HANDLE;
+	XrAction aimPoseAction = XR_NULL_HANDLE;
+	XrSpace gripSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
+	XrSpace aimSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
+	bool actionsReady = false;
 	bool acquired[2] = { false, false };
 	uint32_t acquiredIndex[2] = { 0, 0 };
 	XrTime predictedDisplayTime = 0;
@@ -134,11 +148,17 @@ OpenXRProvider::~OpenXRProvider()
 	{
 		if (impl->swapchains[eye])
 			xrDestroySwapchain(impl->swapchains[eye]);
+		if (impl->gripSpaces[eye])
+			xrDestroySpace(impl->gripSpaces[eye]);
+		if (impl->aimSpaces[eye])
+			xrDestroySpace(impl->aimSpaces[eye]);
 	}
 	if (impl->space)
 		xrDestroySpace(impl->space);
 	if (impl->session)
 		xrDestroySession(impl->session);
+	if (impl->actionSet)
+		xrDestroyActionSet(impl->actionSet);
 	if (impl->instance)
 		xrDestroyInstance(impl->instance);
 #endif
@@ -262,6 +282,128 @@ bool OpenXRProvider::OnVulkanDeviceCreated(void* instance, void* physicalDevice,
 	{
 		impl->lastError = ResultMessage("xrCreateReferenceSpace", result);
 		return false;
+	}
+
+	// One semantic action is shared by the left/right subaction paths. This
+	// keeps hand policy out of the provider and gives the adapter two fully
+	// independent InputSourceId contributors.
+	xrStringToPath(impl->instance, "/user/hand/left", &impl->handPaths[0]);
+	xrStringToPath(impl->instance, "/user/hand/right", &impl->handPaths[1]);
+	XrActionSetCreateInfo actionSetInfo{ XR_TYPE_ACTION_SET_CREATE_INFO };
+	std::strncpy(actionSetInfo.actionSetName, "surreal_input", XR_MAX_ACTION_SET_NAME_SIZE - 1);
+	std::strncpy(actionSetInfo.localizedActionSetName, "Surreal Engine Input", XR_MAX_LOCALIZED_ACTION_SET_NAME_SIZE - 1);
+	result = xrCreateActionSet(impl->instance, &actionSetInfo, &impl->actionSet);
+	if (XR_SUCCEEDED(result))
+	{
+		auto makeAction = [&](XrActionType type, const char* name, const char* localized) -> XrAction
+		{
+			XrActionCreateInfo info{ XR_TYPE_ACTION_CREATE_INFO };
+			info.actionType = type;
+			std::strncpy(info.actionName, name, XR_MAX_ACTION_NAME_SIZE - 1);
+			std::strncpy(info.localizedActionName, localized, XR_MAX_LOCALIZED_ACTION_NAME_SIZE - 1);
+			info.countSubactionPaths = 2;
+			info.subactionPaths = impl->handPaths;
+			XrAction action = XR_NULL_HANDLE;
+			XrResult createResult = xrCreateAction(impl->actionSet, &info, &action);
+			if (XR_FAILED(createResult))
+				LogMessage(ResultMessage((std::string("xrCreateAction(") + name + ")").c_str(), createResult));
+			return action;
+		};
+
+		impl->stickAction = makeAction(XR_ACTION_TYPE_VECTOR2F_INPUT, "thumbstick", "Thumbstick");
+		impl->triggerAction = makeAction(XR_ACTION_TYPE_FLOAT_INPUT, "trigger", "Trigger");
+		impl->gripAction = makeAction(XR_ACTION_TYPE_FLOAT_INPUT, "squeeze", "Squeeze");
+		impl->primaryButtonAction = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "primary_button", "Primary Button");
+		impl->secondaryButtonAction = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "secondary_button", "Secondary Button");
+		impl->menuButtonAction = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "menu_button", "Menu Button");
+		impl->stickClickAction = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "thumbstick_click", "Thumbstick Click");
+		impl->gripPoseAction = makeAction(XR_ACTION_TYPE_POSE_INPUT, "grip_pose", "Grip Pose");
+		impl->aimPoseAction = makeAction(XR_ACTION_TYPE_POSE_INPUT, "aim_pose", "Aim Pose");
+
+		auto suggest = [&](const char* profileName, const std::vector<std::pair<XrAction, const char*>>& bindings)
+		{
+			XrPath profile = XR_NULL_PATH;
+			if (XR_FAILED(xrStringToPath(impl->instance, profileName, &profile)))
+				return;
+			std::vector<XrActionSuggestedBinding> suggested;
+			for (const auto& binding : bindings)
+			{
+				XrPath path = XR_NULL_PATH;
+				if (binding.first && XR_SUCCEEDED(xrStringToPath(impl->instance, binding.second, &path)))
+					suggested.push_back({ binding.first, path });
+			}
+			XrInteractionProfileSuggestedBinding info{ XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
+			info.interactionProfile = profile;
+			info.countSuggestedBindings = (uint32_t)suggested.size();
+			info.suggestedBindings = suggested.data();
+			XrResult suggestResult = xrSuggestInteractionProfileBindings(impl->instance, &info);
+			if (XR_FAILED(suggestResult))
+				LogMessage(ResultMessage("xrSuggestInteractionProfileBindings", suggestResult));
+		};
+
+		suggest("/interaction_profiles/oculus/touch_controller", {
+			{ impl->stickAction, "/user/hand/left/input/thumbstick" },
+			{ impl->stickAction, "/user/hand/right/input/thumbstick" },
+			{ impl->triggerAction, "/user/hand/left/input/trigger/value" },
+			{ impl->triggerAction, "/user/hand/right/input/trigger/value" },
+			{ impl->gripAction, "/user/hand/left/input/squeeze/value" },
+			{ impl->gripAction, "/user/hand/right/input/squeeze/value" },
+			{ impl->primaryButtonAction, "/user/hand/left/input/x/click" },
+			{ impl->primaryButtonAction, "/user/hand/right/input/a/click" },
+			{ impl->secondaryButtonAction, "/user/hand/left/input/y/click" },
+			{ impl->secondaryButtonAction, "/user/hand/right/input/b/click" },
+			{ impl->menuButtonAction, "/user/hand/left/input/menu/click" },
+			{ impl->stickClickAction, "/user/hand/left/input/thumbstick/click" },
+			{ impl->stickClickAction, "/user/hand/right/input/thumbstick/click" },
+			{ impl->gripPoseAction, "/user/hand/left/input/grip/pose" },
+			{ impl->gripPoseAction, "/user/hand/right/input/grip/pose" },
+			{ impl->aimPoseAction, "/user/hand/left/input/aim/pose" },
+			{ impl->aimPoseAction, "/user/hand/right/input/aim/pose" },
+		});
+		suggest("/interaction_profiles/khr/simple_controller", {
+			{ impl->triggerAction, "/user/hand/left/input/select/click" },
+			{ impl->triggerAction, "/user/hand/right/input/select/click" },
+			{ impl->menuButtonAction, "/user/hand/left/input/menu/click" },
+			{ impl->menuButtonAction, "/user/hand/right/input/menu/click" },
+			{ impl->gripPoseAction, "/user/hand/left/input/grip/pose" },
+			{ impl->gripPoseAction, "/user/hand/right/input/grip/pose" },
+			{ impl->aimPoseAction, "/user/hand/left/input/aim/pose" },
+			{ impl->aimPoseAction, "/user/hand/right/input/aim/pose" },
+		});
+
+		XrSessionActionSetsAttachInfo attachInfo{ XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
+		attachInfo.countActionSets = 1;
+		attachInfo.actionSets = &impl->actionSet;
+		result = xrAttachSessionActionSets(impl->session, &attachInfo);
+		if (XR_SUCCEEDED(result))
+		{
+			for (int hand = 0; hand < 2; hand++)
+			{
+					auto makeSpace = [&](XrAction action, XrSpace& output)
+					{
+						if (!action)
+							return;
+					XrActionSpaceCreateInfo info{ XR_TYPE_ACTION_SPACE_CREATE_INFO };
+						info.action = action;
+						info.subactionPath = impl->handPaths[hand];
+						info.poseInActionSpace.orientation.w = 1.0f;
+						XrResult spaceResult = xrCreateActionSpace(impl->session, &info, &output);
+						if (XR_FAILED(spaceResult))
+							LogMessage(ResultMessage("xrCreateActionSpace", spaceResult));
+					};
+				makeSpace(impl->gripPoseAction, impl->gripSpaces[hand]);
+				makeSpace(impl->aimPoseAction, impl->aimSpaces[hand]);
+			}
+			impl->actionsReady = true;
+		}
+		else
+		{
+			LogMessage(ResultMessage("xrAttachSessionActionSets", result) + "; continuing without XR controller input");
+		}
+	}
+	else
+	{
+		LogMessage(ResultMessage("xrCreateActionSet", result) + "; continuing without XR controller input");
 	}
 
 	uint32_t viewCount = 0;
@@ -442,6 +584,123 @@ bool OpenXRProvider::WaitBeginAndLocate(bool& shouldRender, OpenXREyeView eyes[2
 		eyes[eye].AngleRight = views[eye].fov.angleRight;
 		eyes[eye].AngleUp = views[eye].fov.angleUp;
 		eyes[eye].AngleDown = views[eye].fov.angleDown;
+	}
+	return true;
+#else
+	return false;
+#endif
+}
+
+bool OpenXRProvider::SyncInput(OpenXRInputSnapshot& snapshot)
+{
+	snapshot = {};
+#if defined(SURREAL_ENABLE_OPENXR)
+	if (!impl->sessionRunning || !impl->actionsReady)
+		return false;
+
+	XrActiveActionSet activeSet{};
+	activeSet.actionSet = impl->actionSet;
+	XrActionsSyncInfo syncInfo{ XR_TYPE_ACTIONS_SYNC_INFO };
+	syncInfo.countActiveActionSets = 1;
+	syncInfo.activeActionSets = &activeSet;
+	XrResult result = xrSyncActions(impl->session, &syncInfo);
+	if (XR_FAILED(result))
+	{
+		impl->lastError = ResultMessage("xrSyncActions", result);
+		return false;
+	}
+
+	for (int hand = 0; hand < 2; hand++)
+	{
+		OpenXRControllerSnapshot& controller = snapshot.Controllers[hand];
+		XrInteractionProfileState profile{ XR_TYPE_INTERACTION_PROFILE_STATE };
+		if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(impl->session, impl->handPaths[hand], &profile)))
+			controller.Connected = profile.interactionProfile != XR_NULL_PATH;
+
+		auto getInfo = [&](XrAction action)
+		{
+			XrActionStateGetInfo info{ XR_TYPE_ACTION_STATE_GET_INFO };
+			info.action = action;
+			info.subactionPath = impl->handPaths[hand];
+			return info;
+		};
+		auto getFloat = [&](XrAction action)
+		{
+			if (!action)
+				return 0.0f;
+			XrActionStateFloat state{ XR_TYPE_ACTION_STATE_FLOAT };
+			XrActionStateGetInfo info = getInfo(action);
+			if (XR_SUCCEEDED(xrGetActionStateFloat(impl->session, &info, &state)) && state.isActive)
+			{
+				controller.ActionsActive = true;
+				return state.currentState;
+			}
+			return 0.0f;
+		};
+		auto getButton = [&](XrAction action)
+		{
+			if (!action)
+				return false;
+			XrActionStateBoolean state{ XR_TYPE_ACTION_STATE_BOOLEAN };
+			XrActionStateGetInfo info = getInfo(action);
+			if (XR_SUCCEEDED(xrGetActionStateBoolean(impl->session, &info, &state)) && state.isActive)
+			{
+				controller.ActionsActive = true;
+				return state.currentState != XR_FALSE;
+			}
+			return false;
+		};
+		auto poseActive = [&](XrAction action)
+		{
+			if (!action)
+				return false;
+			XrActionStatePose state{ XR_TYPE_ACTION_STATE_POSE };
+			XrActionStateGetInfo info = getInfo(action);
+			bool active = XR_SUCCEEDED(xrGetActionStatePose(impl->session, &info, &state)) && state.isActive;
+			controller.ActionsActive |= active;
+			return active;
+		};
+
+		if (impl->stickAction)
+		{
+			XrActionStateVector2f state{ XR_TYPE_ACTION_STATE_VECTOR2F };
+			XrActionStateGetInfo info = getInfo(impl->stickAction);
+			if (XR_SUCCEEDED(xrGetActionStateVector2f(impl->session, &info, &state)) && state.isActive)
+			{
+				controller.ActionsActive = true;
+				controller.StickX = state.currentState.x;
+				controller.StickY = state.currentState.y;
+			}
+		}
+		controller.Trigger = getFloat(impl->triggerAction);
+		controller.Grip = getFloat(impl->gripAction);
+		controller.PrimaryButton = getButton(impl->primaryButtonAction);
+		controller.SecondaryButton = getButton(impl->secondaryButtonAction);
+		controller.MenuButton = getButton(impl->menuButtonAction);
+		controller.StickClick = getButton(impl->stickClickAction);
+		bool gripActive = poseActive(impl->gripPoseAction);
+		bool aimActive = poseActive(impl->aimPoseAction);
+		controller.Connected |= controller.ActionsActive;
+
+		auto locate = [&](XrSpace inputSpace, bool active, OpenXRPoseSnapshot& output)
+		{
+			if (!inputSpace || !active || !impl->predictedDisplayTime)
+				return;
+			XrSpaceLocation location{ XR_TYPE_SPACE_LOCATION };
+			if (XR_FAILED(xrLocateSpace(inputSpace, impl->space, impl->predictedDisplayTime, &location)))
+				return;
+			constexpr XrSpaceLocationFlags required = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+			if ((location.locationFlags & required) != required)
+				return;
+			output.Valid = true;
+			output.PositionMeters = { location.pose.position.x, location.pose.position.y, location.pose.position.z };
+			output.OrientationX = location.pose.orientation.x;
+			output.OrientationY = location.pose.orientation.y;
+			output.OrientationZ = location.pose.orientation.z;
+			output.OrientationW = location.pose.orientation.w;
+		};
+		locate(impl->gripSpaces[hand], gripActive, controller.GripPose);
+		locate(impl->aimSpaces[hand], aimActive, controller.AimPose);
 	}
 	return true;
 #else
