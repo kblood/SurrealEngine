@@ -3,13 +3,35 @@
 <head>
 <meta charset="utf-8">
 <title>SurrealEngine browser harness</title>
+<style>
+	#game-data-importer { max-width: 52rem; padding: 1rem; margin: .75rem 0; border: 1px solid #777; font: 14px system-ui, sans-serif; }
+	#game-data-importer .actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0; }
+	#game-data-importer [data-ut99-error] { color: #b00020; font-weight: 600; }
+	#game-data-importer progress { width: 100%; }
+	#game-data-importer [data-ut99-files] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+</style>
 </head>
 <body>
 <!-- Emscripten's SDL2 port expects a canvas to attach window/input events to,
      even though NullRenderDevice never draws into it (RenderAPI::Bitmap, no
      WebGL context requested). -->
 <canvas id="canvas" width="640" height="480"></canvas>
+<section id="game-data-importer" hidden aria-live="polite">
+	<h2>Import your Unreal Tournament data</h2>
+	<p>Choose your own UT99 installation folder. Files stay in private browser storage and are never uploaded.</p>
+	<p data-ut99-status></p><p data-ut99-error hidden role="alert"></p>
+	<div class="actions">
+		<button type="button" data-ut99-pick>Choose UT99 folder</button>
+		<label>Choose folder (compatibility mode)<input type="file" data-ut99-files webkitdirectory directory multiple></label>
+		<button type="button" data-ut99-clear>Clear saved data</button>
+	</div>
+	<progress data-ut99-progress max="1" value="0"></progress>
+	<div data-ut99-progress-text></div><p data-ut99-storage></p>
+</section>
 <pre id="log" style="white-space:pre-wrap;font:12px monospace;"></pre>
+<script src="ut99_importer.js"></script>
+<script src="mutable_persistence.js"></script>
+<script src="browser_data_bootstrap.js"></script>
 <script>
 	// M1 smoke-test harness: no rendering (NullRenderDevice), just proves the
 	// engine boots, loads a map, and ticks.
@@ -29,18 +51,24 @@
 		print: appendLog,
 		printErr: appendLog,
 		onRuntimeInitialized: function () {
-			appendLog("[harness] runtime initialized, calling main");
-			window.surrealBooted = true;
-			try {
-				// Explicit --url matches the map used for native regression
-				// testing this session - avoids depending on LocalMap/entry
-				// map ini defaults resolving the same way under Emscripten.
-				Module.callMain(["--autoplay", "--url=DM-Deck16][", "/gamedata"]);
-			} catch (e) {
+			appendLog("[harness] runtime initialized, preparing local game data");
+			window.surrealDataBootPromise = window.SurrealBrowserData.start(Module, {
+				uiRoot: document.getElementById("game-data-importer"),
+				log: appendLog,
+				logSnapshot: () => window.surrealLog.join("\n") + "\n",
+				launch: selection => {
+					Module.callMain(["--autoplay", "--url=" + selection.map, "/gamedata"]);
+					window.surrealBooted = true;
+				},
+			}).then(started => {
+				window.surrealBrowserDataController = started.controller;
+				window.surrealDataBootResult = started.result;
+				return started.result;
+			}).catch(e => {
 				window.surrealCrashed = String(e);
-				appendLog("[harness] callMain threw: " + e);
+				appendLog("[harness] data bootstrap failed: " + e);
 				if (e && e.stack) appendLog("[harness] stack: " + e.stack);
-			}
+			});
 		},
 	};
 
@@ -58,7 +86,16 @@
 		return Module.ccall("Surreal_GetTickCount", "number", [], []);
 	};
 	window.surrealRequestQuit = function () {
-		return Module.ccall("Surreal_RequestQuit", null, [], []);
+		const result = Module.ccall("Surreal_RequestQuit", null, [], []);
+		if (window.surrealBrowserDataController) {
+			window.surrealMutableQuitFlushPromise = new Promise(resolve => setTimeout(resolve, 150))
+				.then(() => window.surrealBrowserDataController.flush("engine-quit"));
+		}
+		return result;
+	};
+	window.surrealRequestQuitAndFlush = async function () {
+		window.surrealRequestQuit();
+		return window.surrealMutableQuitFlushPromise || null;
 	};
 </script>
 <script src="../build-emscripten/SurrealEngine.js"></script>
