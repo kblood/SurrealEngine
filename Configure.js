@@ -116,6 +116,7 @@ var commonSources = [
 	"SurrealEngine/Render/VisibleTranslucent.h",
 	"SurrealEngine/Render/RenderSubsystem.cpp",
 	"SurrealEngine/Render/RenderSubsystem.h",
+	"SurrealEngine/Render/ViewFamily.h",
 	"SurrealEngine/Render/RenderCanvas.cpp",
 	"SurrealEngine/Render/RenderScene.cpp",
 	"SurrealEngine/Render/RenderLight.cpp",
