@@ -3,6 +3,17 @@
 <head>
 <meta charset="utf-8">
 <title>SurrealEngine WebXR M4-groundwork harness</title>
+<style>
+	#ut99-importer { max-width: 52rem; padding: 1rem; margin: .75rem 0; border: 1px solid #777; font: 14px system-ui, sans-serif; }
+	#ut99-importer h2 { margin: 0 0 .5rem; }
+	#ut99-importer [data-ut99-error] { color: #b00020; font-weight: 600; }
+	#ut99-importer progress { width: 100%; }
+	#ut99-importer .actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0; }
+	#ut99-importer .file-button { border: 1px solid ButtonBorder; padding: .25rem .6rem; background: ButtonFace; color: ButtonText; cursor: pointer; }
+	#ut99-importer .file-button:has(input:disabled) { opacity: .55; cursor: default; }
+	#ut99-importer [data-ut99-files] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+	#ut99-importer [data-ut99-storage], #ut99-importer small { color: #555; }
+</style>
 </head>
 <body>
 <!-- Boots exactly like index_webgpu.html and retains the IWER-testable WebGL
@@ -12,12 +23,31 @@
 <canvas id="canvas" width="640" height="480"></canvas>
 <button id="entervr" disabled>Enter VR</button>
 <button id="probewebgpuxr" disabled>Probe WebGPU XR</button>
+<section id="ut99-importer" hidden aria-live="polite">
+	<h2>Import your Unreal Tournament data</h2>
+	<p>SurrealEngine does not include Epic's commercial game files. Choose your own UT99 installation folder; files stay in private storage in this browser and are never uploaded.</p>
+	<p data-ut99-status></p>
+	<p data-ut99-error hidden role="alert"></p>
+	<div class="actions">
+		<button type="button" data-ut99-pick>Choose UT99 folder</button>
+		<label class="file-button" data-ut99-file-label>
+			Choose folder (compatibility mode)
+			<input type="file" data-ut99-files webkitdirectory directory multiple>
+		</label>
+		<button type="button" data-ut99-clear>Clear saved data</button>
+	</div>
+	<progress data-ut99-progress max="1" value="0"></progress>
+	<div data-ut99-progress-text></div>
+	<p data-ut99-storage></p>
+	<small>Expected folder layout: System, Maps, Textures, Sounds, and Music. Re-select a folder at any time to replace the saved import.</small>
+</section>
 <pre id="log" style="white-space:pre-wrap;font:12px monospace;"></pre>
 <script>
 	window.surrealXRUseNativeWebGPU =
 		new URLSearchParams(location.search).get("native-webgpu-xr") === "1";
 </script>
 <script src="webxr_session.js"></script>
+<script src="ut99_importer.js"></script>
 <script>
 	window.surrealLog = [];
 	window.surrealBooted = false;
@@ -186,17 +216,34 @@
 		print: appendLog,
 		printErr: appendLog,
 		onRuntimeInitialized: function () {
-			appendLog("[harness] runtime initialized, calling main");
-			try {
-				const mapName = new URLSearchParams(location.search).get("map") || "DM-Deck16][";
-				Module.callMain(["--autoplay", "--url=" + mapName, "--render=webgpu", "/gamedata"]);
-				window.surrealBooted = true;
-				refreshEnterVRButton();
-			} catch (e) {
-				window.surrealCrashed = String(e);
-				appendLog("[harness] callMain threw: " + e);
-				if (e && e.stack) appendLog("[harness] stack: " + e.stack);
-			}
+			appendLog("[harness] runtime initialized, preparing local game data");
+			const launchEngine = function (dataMode) {
+				appendLog("[harness] game data ready (" + dataMode + "), calling main");
+				try {
+					const mapName = new URLSearchParams(location.search).get("map") || "DM-Deck16][";
+					Module.callMain(["--autoplay", "--url=" + mapName, "--render=webgpu", "/gamedata"]);
+					window.surrealBooted = true;
+					refreshEnterVRButton();
+				} catch (e) {
+					window.surrealCrashed = String(e);
+					appendLog("[harness] callMain threw: " + e);
+					if (e && e.stack) appendLog("[harness] stack: " + e.stack);
+				}
+			};
+			window.surrealDataBootPromise = window.SurrealUT99Importer.start(Module, {
+				uiRoot: document.getElementById("ut99-importer"),
+				log: appendLog,
+				launch: launchEngine,
+			}).then(function (started) {
+				window.surrealUT99ImporterController = started.controller;
+				window.surrealUT99DataBootResult = started.result;
+				return started.result;
+			}).catch(function (error) {
+				window.surrealCrashed = String(error);
+				appendLog("[harness] data bootstrap failed: " + error);
+				if (error && error.stack) appendLog("[harness] stack: " + error.stack);
+				throw error;
+			});
 		},
 	};
 
