@@ -275,6 +275,7 @@ void Engine::Shutdown()
 	packages->SaveAllIniFiles();
 
 	LogMessage("Closing window...");
+	UpdateOpenXRStartupIntro(nullptr);
 	openXRInput.Disconnect(*this);
 	openXR.reset();
 	CloseWindow();
@@ -296,6 +297,7 @@ void Engine::RunOneFrame()
 		if (!openXR->PollEvents())
 		{
 			LogMessage("OpenXR session stopped; continuing in desktop mode");
+			UpdateOpenXRStartupIntro(nullptr);
 			openXRInput.Disconnect(*this);
 			openXR.reset();
 		}
@@ -303,12 +305,19 @@ void Engine::RunOneFrame()
 		{
 			xrFrameBegun = openXR->WaitBeginAndLocate(shouldRenderXR, eyes, xrSpaces);
 			if (xrFrameBegun && openXR->SyncInput(xrSpaces, xrControllers))
+			{
+				UpdateOpenXRStartupIntro(&xrControllers);
 				openXRInput.Update(openXR->SessionState(), xrControllers, *this);
+			}
 			else
+			{
+				UpdateOpenXRStartupIntro(nullptr);
 				openXRInput.Disconnect(*this);
+			}
 		}
 		else
 		{
+			UpdateOpenXRStartupIntro(nullptr);
 			openXRInput.Disconnect(*this);
 		}
 	}
@@ -349,6 +358,26 @@ void Engine::RunOneFrame()
 		openXR->EndFrame(submitXRLayer, eyes);
 	}
 	FinishGameFrame(levelElapsed);
+}
+
+void Engine::UpdateOpenXRStartupIntro(const XRControllerSnapshot* controllers)
+{
+	const bool menuActive = render && render->IsXRUIMenuActive();
+	for (size_t handIndex = 0; handIndex < XRHandCount; handIndex++)
+	{
+		const InputSourceId source = handIndex == 0 ? InputSourceId::XRLeft : InputSourceId::XRRight;
+		XRStartupIntroFireEvent event = controllers ?
+			openXRStartupIntroTrigger.Update(source,
+				controllers->Hands[handIndex].Connected && controllers->Hands[handIndex].Select.Pressed,
+				IsStartupIntroActive(), menuActive) :
+			openXRStartupIntroTrigger.ReleaseSource(source);
+		if (!event)
+			continue;
+		const EInputKey key = event.Control == XRStartupIntroFireControl::Primary ?
+			IK_LeftMouse : IK_RightMouse;
+		InputEvent(key, event.Pressed ? EInputType::IST_Press : EInputType::IST_Release,
+			0.0f, source);
+	}
 }
 
 float Engine::AdvanceGameFrame()

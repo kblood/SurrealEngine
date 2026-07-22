@@ -107,6 +107,15 @@ controller or browser session removes only that source. Keyboard/mouse remains
 the default and can operate alongside native XR or WebXR instead of being
 replaced by them.
 
+Native and browser UI policy converges through `XRUIRuntime`: both use the same
+surface descriptors, anchoring, menu-last ordering, exact pointer contact and
+click ownership, startup fire route, mouse coexistence, and lifecycle cleanup.
+Native OpenXR has an SDK-free allocation/composition seam and view-consistent
+ray translation. Its remaining gap is confined to Vulkan/OpenXR rendering: the
+Vulkan backend can only blit the final stereo desktop atlas into slot 1 and
+cannot yet produce or submit independent slots 2-5. This limitation remains
+explicit so it cannot masquerade as working native quad UI.
+
 The VM hook registry is a narrow attachment point for optional game and XR
 behavior. Hooks are ordered, scoped to a call, mutation-safe, and unwind in
 reverse order. Game-specific behavior should still prefer explicit engine

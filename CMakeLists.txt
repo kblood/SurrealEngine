@@ -162,6 +162,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Platform/OpenXR/OpenXRProvider.h
 	SurrealEngine/Platform/OpenXR/OpenXRView.cpp
 	SurrealEngine/Platform/OpenXR/OpenXRView.h
+	SurrealEngine/Platform/OpenXR/OpenXRUIRuntime.cpp
+	SurrealEngine/Platform/OpenXR/OpenXRUIRuntime.h
 	SurrealEngine/Platform/WebXR/WebXRFrameBridge.cpp
 	SurrealEngine/Platform/WebXR/WebXRFrameBridge.h
 	SurrealEngine/Platform/WebXR/WebXRUIProvider.cpp
@@ -181,6 +183,10 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Render/XRUISurfaceRuntimeAdapter.cpp
 	SurrealEngine/Render/XRUISurfaceEngineBinding.h
 	SurrealEngine/Render/XRUISurfaceEngineBinding.cpp
+	SurrealEngine/XR/XRUIRuntime.cpp
+	SurrealEngine/XR/XRUIRuntime.h
+	SurrealEngine/XR/XRStartupIntroRoute.cpp
+	SurrealEngine/XR/XRStartupIntroRoute.h
 	SurrealEngine/Render/VisibleMesh.cpp
 	SurrealEngine/Render/VisibleMesh.h
 	SurrealEngine/Render/VisibleNode.cpp
@@ -1090,6 +1096,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_executable(OpenXRViewTests
 		Tests/OpenXRViewTests.cpp
 		SurrealEngine/Platform/OpenXR/OpenXRView.cpp
+		SurrealEngine/XR/XRCommon.cpp
 		SurrealEngine/Render/ViewFamily.cpp
 		SurrealEngine/Math/mat.cpp
 	)
@@ -1114,6 +1121,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		SurrealEngine/Render/XRUISurfaces.cpp
 		SurrealEngine/Render/XRUISurfaceRuntimeAdapter.cpp
 		SurrealEngine/Render/XRUISurfaceEngineBinding.cpp
+		SurrealEngine/XR/XRUIRuntime.cpp
 		SurrealEngine/Math/mat.cpp
 	)
 	target_include_directories(WebXRUIProviderTests PRIVATE SurrealEngine)
@@ -1151,6 +1159,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		SurrealEngine/Platform/WebXR/WebXRInputAdapter.cpp
 		SurrealEngine/Platform/WebXR/WebXRInputBridge.cpp
 		SurrealEngine/Input/InputComposition.cpp
+		SurrealEngine/XR/XRStartupIntroRoute.cpp
 	)
 	target_include_directories(WebXRInputRuntimeTests PRIVATE SurrealEngine)
 	set_target_properties(WebXRInputRuntimeTests PROPERTIES CXX_STANDARD 20)
@@ -1174,4 +1183,18 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRUISurfaceEngineBindingTests PRIVATE SurrealEngine)
 	set_target_properties(XRUISurfaceEngineBindingTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRUISurfaceEngineBindingTests COMMAND XRUISurfaceEngineBindingTests)
+
+	add_executable(OpenXRUIRuntimeTests
+		Tests/OpenXRUIRuntimeTests.cpp
+		SurrealEngine/Platform/OpenXR/OpenXRUIRuntime.cpp
+		SurrealEngine/XR/XRUIRuntime.cpp
+		SurrealEngine/XR/XRStartupIntroRoute.cpp
+		SurrealEngine/Render/XRUISurfaces.cpp
+		SurrealEngine/Render/XRUISurfaceRuntimeAdapter.cpp
+		SurrealEngine/Render/XRUISurfaceEngineBinding.cpp
+		SurrealEngine/Math/mat.cpp
+	)
+	target_include_directories(OpenXRUIRuntimeTests PRIVATE SurrealEngine)
+	set_target_properties(OpenXRUIRuntimeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME OpenXRUIRuntimeTests COMMAND OpenXRUIRuntimeTests)
 endif()

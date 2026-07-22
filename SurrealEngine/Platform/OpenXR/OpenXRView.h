@@ -2,6 +2,8 @@
 
 #include "Math/rotator.h"
 #include "Render/ViewFamily.h"
+#include "Render/XRUISurfaces.h"
+#include "XR/XRCommon.h"
 
 struct OpenXREyeView
 {
@@ -20,6 +22,7 @@ class OpenXRViewTranslator
 {
 public:
 	ViewFamily CreateViewFamily(const OpenXREyeView eyes[2], const vec3& anchorLocation, const Rotator& anchorRotation, const ViewRect& output);
+	XRUISurfaceRay CreatePointerRay(const XRPose& pose, const vec3& anchorLocation) const;
 	void ResetRecenter() { recentered = false; yawOffset = 0.0f; }
 
 private:

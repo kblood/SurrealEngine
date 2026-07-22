@@ -69,3 +69,21 @@ ViewFamily OpenXRViewTranslator::CreateViewFamily(const OpenXREyeView eyes[2], c
 	}
 	return family;
 }
+
+XRUISurfaceRay OpenXRViewTranslator::CreatePointerRay(const XRPose& pose,
+	const vec3& anchorLocation) const
+{
+	if (!recentered || !IsValidXRPose(pose))
+		return {};
+	quaternion orientation(pose.Orientation.X, pose.Orientation.Y,
+		pose.Orientation.Z, pose.Orientation.W);
+	const Coords recenter = Coords::YawRotation(yawOffset);
+	const vec3 positionMeters(pose.Position.X, pose.Position.Y, pose.Position.Z);
+	const vec3 forward = RotateLocalToWorld(recenter,
+		ToUnrealVector(orientation * vec3(0.0f, 0.0f, -1.0f)));
+	return {
+		anchorLocation + RotateLocalToWorld(recenter,
+			ToUnrealVector(positionMeters) * UnrealUnitsPerMeter),
+		normalize(forward)
+	};
+}

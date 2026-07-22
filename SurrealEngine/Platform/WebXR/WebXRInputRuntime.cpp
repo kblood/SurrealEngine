@@ -2,22 +2,6 @@
 
 namespace
 {
-	int XRSourceIndex(InputSourceId source)
-	{
-		if (source == InputSourceId::XRLeft)
-			return 0;
-		if (source == InputSourceId::XRRight)
-			return 1;
-		return -1;
-	}
-
-	WebXR::StartupIntroFireControl FireControlForSource(InputSourceId source)
-	{
-		return source == InputSourceId::XRRight ? WebXR::StartupIntroFireControl::Primary :
-			source == InputSourceId::XRLeft ? WebXR::StartupIntroFireControl::Alternate :
-			WebXR::StartupIntroFireControl::None;
-	}
-
 	InputSourceId SourceForHand(size_t handIndex)
 	{
 		return handIndex == static_cast<size_t>(XRHand::Left) ?
@@ -35,40 +19,6 @@ namespace
 			hand.ThumbstickClick.Pressed
 		};
 	}
-}
-
-WebXR::StartupIntroFireEvent WebXR::StartupIntroTriggerRoute::Update(InputSourceId source,
-	bool pressed, bool startupIntroActive, bool menuActive)
-{
-	const int sourceIndex = XRSourceIndex(source);
-	if (sourceIndex < 0)
-		return {};
-
-	if (mirrored[sourceIndex])
-	{
-		if (!pressed)
-		{
-			mirrored[sourceIndex] = false;
-			return { FireControlForSource(source), false };
-		}
-		return {};
-	}
-
-	if (pressed && startupIntroActive && !menuActive)
-	{
-		mirrored[sourceIndex] = true;
-		return { FireControlForSource(source), true };
-	}
-	return {};
-}
-
-WebXR::StartupIntroFireEvent WebXR::StartupIntroTriggerRoute::ReleaseSource(InputSourceId source)
-{
-	const int sourceIndex = XRSourceIndex(source);
-	if (sourceIndex < 0 || !mirrored[sourceIndex])
-		return {};
-	mirrored[sourceIndex] = false;
-	return { FireControlForSource(source), false };
 }
 
 void WebXR::InputRuntime::Apply(const AdaptedInputSnapshot& snapshot,

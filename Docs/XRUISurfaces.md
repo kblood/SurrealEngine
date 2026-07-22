@@ -97,6 +97,15 @@ router's semantic confirmation that press and release occurred on the same
 surface; adapters whose existing button-up path already activates a control
 must not activate it a second time from this notification.
 
+`XRUIRuntime` is the provider-neutral front door used by both browser and
+native XR. It supplies the standard four capture descriptors, averages an XR
+`ViewFamily` into the viewer pose used for show-time anchoring, and converts
+already-translated left/right aim rays plus `XRControllerSnapshot` state into
+independent pointer updates and exact-contact feedback. WebXR retains only
+browser pose translation and WebGPU composition. Native OpenXR retains only
+OpenXR pose translation and the `OpenXRUICompositionSink` target-allocation and
+composition boundary.
+
 ## Backend integration gates
 
 The policy is complete and unit-tested, but visible runtime quads still require:
@@ -143,3 +152,14 @@ map travel or menu transition, so its player/console prompt is world-anchored.
 The interactive menu then replaces it at the higher composition order. This is
 not the file-backed cinematic surface and does not turn general gameplay HUD
 into a quad. See [`MapStartupIntro.md`](MapStartupIntro.md).
+
+## Native OpenXR integration status
+
+Native OpenXR now consumes the same runtime policy and has deterministic
+coverage, but its current Vulkan backend cannot yet produce independent surface
+images. It only accepts stereo target slot 1 and blits the final side-by-side
+desktop image into the eye swapchains. Until Vulkan can render and preserve
+slots 2-5 and an OpenXR compositor can submit them after the world with the menu
+last, `OpenXRUIRuntime::Start` must only be called with a sink that successfully
+allocates all targets. There is intentionally no null/fake production sink and
+no invisible interactive fallback.

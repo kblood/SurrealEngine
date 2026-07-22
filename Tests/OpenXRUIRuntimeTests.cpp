@@ -1,0 +1,240 @@
+#include "Platform/OpenXR/OpenXRUIRuntime.h"
+#include "XR/XRStartupIntroRoute.h"
+
+#include <cstdlib>
+#include <iostream>
+
+namespace
+{
+	void Check(bool condition, const char* message)
+	{
+		if (!condition)
+		{
+			std::cerr << message << '\n';
+			std::exit(1);
+		}
+	}
+
+	class Host final : public XRUISurfaceEngineHost
+	{
+	public:
+		bool BeginXRUICanvasCapture(const XRUICanvasReplayItem&) override { return true; }
+		void ReplayXRUICanvas(const XRUICanvasReplayItem&) override {}
+		void EndXRUICanvasCapture(const XRUICanvasReplayItem&) override {}
+		void MoveXRUICursor(const XRUIPointerSource& source, XRUISurfaceKind,
+			const Pointf&) override { moved.push_back(source); }
+		void PressXRUIPrimary(const XRUIPointerSource& source, XRUISurfaceKind,
+			const Pointf&) override { pressed.push_back(source); }
+		void ReleaseXRUIPrimary(const XRUIPointerSource& source, XRUISurfaceKind,
+			const Pointf&, bool canceled) override
+		{
+			released.push_back(source);
+			lastReleaseCanceled = canceled;
+		}
+		void EndXRUIPointerSession() override { pointerSessionsEnded++; }
+
+		Array<XRUIPointerSource> moved;
+		Array<XRUIPointerSource> pressed;
+		Array<XRUIPointerSource> released;
+		int pointerSessionsEnded = 0;
+		bool lastReleaseCanceled = false;
+	};
+
+	class Sink final : public OpenXRUICompositionSink
+	{
+	public:
+		bool AllocateSurfaceTargets(
+			const std::array<XRUICanvasCaptureDescriptor, 4>& source) override
+		{
+			descriptors = source;
+			allocations++;
+			return allowAllocation;
+		}
+		bool ComposeSurfaceFrame(const XRUICanvasReplayFrame& source,
+			const std::array<XRUIPointerFeedback, XRHandCount>& sourceFeedback) override
+		{
+			frame = source;
+			feedback = sourceFeedback;
+			compositions++;
+			return true;
+		}
+		void ReleaseSurfaceTargets() override { releases++; }
+
+		bool allowAllocation = true;
+		int allocations = 0;
+		int compositions = 0;
+		int releases = 0;
+		std::array<XRUICanvasCaptureDescriptor, 4> descriptors;
+		XRUICanvasReplayFrame frame;
+		std::array<XRUIPointerFeedback, XRHandCount> feedback;
+	};
+
+	ViewFamily CenteredViews()
+	{
+		ViewDescription left;
+		left.Location = vec3(0.0f, -1.0f, 0.0f);
+		left.Rotation = Coords::Identity();
+		ViewDescription right = left;
+		right.Location.y = 1.0f;
+		ViewFamily family;
+		family.Views = { left, right };
+		return family;
+	}
+
+	struct Input
+	{
+		XRSessionState session{ XRSessionLifecycle::Running, XRSessionFocus::Focused };
+		XRControllerSnapshot controllers;
+		std::array<XRUISurfaceRay, XRHandCount> rays = {
+			XRUISurfaceRay{ vec3(0.0f), vec3(1.0f, 0.0f, 0.0f) },
+			XRUISurfaceRay{ vec3(0.0f), vec3(1.0f, 0.0f, 0.0f) }
+		};
+		std::array<bool, XRHandCount> valid = { true, true };
+
+		Input()
+		{
+			controllers.ForHand(XRHand::Left).Connected = true;
+			controllers.ForHand(XRHand::Right).Connected = true;
+		}
+	};
+
+	void Update(OpenXRUIRuntime& runtime, XRUISurfaceEngineBinding& binding,
+		const Input& input)
+	{
+		runtime.Update(binding, CenteredViews(), input.session, input.controllers,
+			input.rays, input.valid, 40.0f);
+	}
+
+	void TestAllocationAndTopmostMenu()
+	{
+		Host host;
+		Sink sink;
+		XRUISurfaceEngineBinding binding(host);
+		OpenXRUIRuntime runtime;
+		Check(runtime.Start(binding, sink, 40.0f), "native UI target allocation failed");
+		Check(sink.descriptors[0].Target == OpenXRUIRuntime::SurfaceTargets.Hud &&
+			sink.descriptors[1].Target == OpenXRUIRuntime::SurfaceTargets.Cinematic &&
+			sink.descriptors[2].Target == OpenXRUIRuntime::SurfaceTargets.Loading &&
+			sink.descriptors[3].Target == OpenXRUIRuntime::SurfaceTargets.Menu,
+			"native UI target roles diverged from the shared descriptors");
+		Update(runtime, binding, Input{});
+		binding.SetHudActive(true);
+		binding.SetCinematicActive(true);
+		binding.SetSurfaceActive(XRUISurfaceKind::Loading, true);
+		binding.SetMenuActive(true);
+		Check(runtime.Compose(binding, sink), "native UI composition sink rejected a frame");
+		Check(sink.frame.Items.size() == 4 &&
+			sink.frame.Items.back().Surface.Descriptor.Kind == XRUISurfaceKind::Menu,
+			"menu was not the topmost native UI surface");
+		runtime.Stop(binding, sink);
+	}
+
+	void TestBothControllersAndHeldTriggerHandoff()
+	{
+		Host host;
+		Sink sink;
+		XRUISurfaceEngineBinding binding(host);
+		OpenXRUIRuntime runtime;
+		Check(runtime.Start(binding, sink, 40.0f), "native UI runtime did not start");
+		binding.SetHudActive(true);
+		Input input;
+		input.controllers.ForHand(XRHand::Right).Select.Pressed = true;
+		Update(runtime, binding, input);
+		Check(runtime.Feedback()[0].Active && runtime.Feedback()[1].Active,
+			"native UI did not retain both tracked controllers");
+		Check(!runtime.Feedback()[0].Contact.Hit && !runtime.Feedback()[1].Contact.Hit,
+			"non-interactive startup HUD captured a controller");
+
+		binding.SetHudActive(false);
+		binding.SetMenuActive(true);
+		Update(runtime, binding, input);
+		binding.Replay(XRUICanvasReplayContext::Game);
+		Check(runtime.Feedback()[0].Contact.Hit && runtime.Feedback()[1].Contact.Hit,
+			"both native controller rays did not hit the menu");
+		Check(host.pressed.empty(), "held startup trigger clicked during menu handoff");
+
+		input.controllers.ForHand(XRHand::Right).Select.Pressed = false;
+		Update(runtime, binding, input);
+		binding.Replay(XRUICanvasReplayContext::Game);
+		Check(host.pressed.empty() && host.released.empty(),
+			"held-trigger handoff synthesized a release without a menu press");
+		input.controllers.ForHand(XRHand::Right).Select.Pressed = true;
+		Update(runtime, binding, input);
+		binding.Replay(XRUICanvasReplayContext::Game);
+		Check(host.pressed.size() == 1 && host.pressed[0] == XRUIPointerSource::Tracked(2),
+			"fresh right trigger edge did not click through exact shared contact");
+
+		input.controllers.ForHand(XRHand::Right).Select.Pressed = false;
+		Update(runtime, binding, input);
+		binding.Replay(XRUICanvasReplayContext::Game);
+		binding.UpdateMousePointer(Pointf(512.0f, 384.0f), false);
+		Check(!host.moved.empty() && host.moved.back() == XRUIPointerSource::Mouse(),
+			"native tracked input disabled the desktop mouse fallback");
+		runtime.Stop(binding, sink);
+	}
+
+	void TestExitAndReentryCleanup()
+	{
+		Host host;
+		Sink sink;
+		XRUISurfaceEngineBinding binding(host);
+		OpenXRUIRuntime runtime;
+		Input input;
+		Check(runtime.Start(binding, sink, 40.0f), "first native UI entry failed");
+		binding.SetMenuActive(true);
+		Update(runtime, binding, input);
+		input.controllers.ForHand(XRHand::Left).Select.Pressed = true;
+		Update(runtime, binding, input);
+		binding.Replay(XRUICanvasReplayContext::Game);
+		Check(host.pressed.size() == 1, "first native UI entry did not press");
+		runtime.Stop(binding, sink);
+		Check(sink.releases == 1 && host.released.size() == 1 && host.lastReleaseCanceled,
+			"native UI exit did not cancel capture and release targets");
+		Check(binding.BuildReplayFrame().Items.empty(), "native UI exit left surfaces visible");
+
+		input.controllers.ForHand(XRHand::Left).Select.Pressed = false;
+		Check(runtime.Start(binding, sink, 40.0f), "native UI re-entry failed");
+		Update(runtime, binding, input);
+		input.controllers.ForHand(XRHand::Left).Select.Pressed = true;
+		Update(runtime, binding, input);
+		binding.Replay(XRUICanvasReplayContext::Game);
+		Check(host.pressed.size() == 2, "native UI re-entry retained stale pointer state");
+		runtime.Stop(binding, sink);
+
+		Sink unavailable;
+		unavailable.allowAllocation = false;
+		Check(!runtime.Start(binding, unavailable, 40.0f) && !runtime.IsStarted(),
+			"runtime claimed UI support when the backend could not allocate targets");
+		Check(unavailable.releases == 0,
+			"failed allocation released targets it never owned");
+	}
+
+	void TestStartupFireHandoff()
+	{
+		XRStartupIntroTriggerRoute route;
+		XRStartupIntroFireEvent press = route.Update(
+			InputSourceId::XRRight, true, true, false);
+		Check(press && press.Pressed &&
+			press.Control == XRStartupIntroFireControl::Primary,
+			"native startup trigger did not mirror primary fire");
+		Check(!route.Update(InputSourceId::XRRight, true, false, true),
+			"held startup trigger emitted a second edge at menu handoff");
+		XRStartupIntroFireEvent release = route.Update(
+			InputSourceId::XRRight, false, false, true);
+		Check(release && !release.Pressed &&
+			release.Control == XRStartupIntroFireControl::Primary,
+			"native startup trigger was not balanced after menu handoff");
+		Check(!route.ReleaseSource(InputSourceId::XRRight),
+			"native startup cleanup emitted a duplicate release");
+	}
+}
+
+int main()
+{
+	TestAllocationAndTopmostMenu();
+	TestBothControllersAndHeldTriggerHandoff();
+	TestExitAndReentryCleanup();
+	TestStartupFireHandoff();
+	std::cout << "OpenXR UI runtime tests passed\n";
+	return 0;
+}

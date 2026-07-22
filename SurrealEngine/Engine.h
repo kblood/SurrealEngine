@@ -16,6 +16,7 @@
 #include "GameFolder.h"
 #include "Input/InputComposition.h"
 #include "Input/XRInputAdapter.h"
+#include "XR/XRStartupIntroRoute.h"
 #include <set>
 #include <list>
 
@@ -82,6 +83,7 @@ public:
 	// A frame advances simulation once, renders its resulting state, then handles
 	// deferred save and travel requests. RunOneFrame preserves the native ordering.
 	void RunOneFrame();
+	void UpdateOpenXRStartupIntro(const XRControllerSnapshot* controllers);
 	float AdvanceGameFrame();
 	void RenderGameFrame(float levelElapsed);
 	void RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily);
@@ -201,6 +203,7 @@ public:
 	std::unique_ptr<RenderSubsystem> render;
 	std::unique_ptr<OpenXRProvider> openXR;
 	OpenXRViewTranslator openXRViews;
+	XRStartupIntroTriggerRoute openXRStartupIntroTrigger;
 
 	int MouseMoveX = 0;
 	int MouseMoveY = 0;

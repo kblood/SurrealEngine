@@ -2,7 +2,7 @@
 
 #include "Platform/WebXR/WebXRFrameBridge.h"
 #include "Platform/WebXR/WebXRInputAdapter.h"
-#include "Render/XRUISurfaceEngineBinding.h"
+#include "XR/XRUIRuntime.h"
 
 #include <array>
 
@@ -15,15 +15,7 @@ namespace WebXR
 	constexpr int ControllerVisualCompositionOrder = 100;
 	constexpr int HitMarkerCompositionOrder = 600;
 
-	struct PointerFeedback
-	{
-		bool Active = false;
-		bool Selecting = false;
-		XRHand Hand = XRHand::Right;
-		XRUISurfaceRay Ray;
-		XRUISurfaceContact Contact;
-		vec3 HitPoint = vec3(0.0f);
-	};
+	using PointerFeedback = XRUIPointerFeedback;
 
 #pragma pack(push, 1)
 	struct PackedPointerFeedback
@@ -93,11 +85,10 @@ namespace WebXR
 			const vec3& cameraLocation, const Coords& bodyRotation, float worldUnitsPerMeter,
 			const RecenterState& recenter);
 		void Cancel(XRUISurfaceEngineBinding& binding);
-		const std::array<PointerFeedback, XRHandCount>& Feedback() const { return feedback; }
+		const std::array<PointerFeedback, XRHandCount>& Feedback() const { return connector.Feedback(); }
 
 	private:
-		std::array<bool, XRHandCount> active = {};
-		std::array<PointerFeedback, XRHandCount> feedback = {};
+		XRUIInputConnector connector;
 	};
 }
 
