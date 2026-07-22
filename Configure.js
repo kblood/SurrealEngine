@@ -21,6 +21,8 @@ var commonSources = [
 	"SurrealEngine/DebuggerApp.h",
 	"SurrealEngine/Engine.cpp",
 	"SurrealEngine/Engine.h",
+	"SurrealEngine/GameSupport.cpp",
+	"SurrealEngine/GameSupport.h",
 	"SurrealEngine/GameFolder.cpp",
 	"SurrealEngine/GameFolder.h",
 	"SurrealEngine/LauncherSettings.cpp",
