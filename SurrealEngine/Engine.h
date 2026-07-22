@@ -105,6 +105,7 @@ public:
 	{
 		uint64_t Generation = 0;
 		uint32_t SourceCount = 0;
+		VRTrackedPoseState HeadPose;
 		std::array<VRControllerInputState, 2> Controllers;
 		uint32_t DominantHandedness = 2; // WebXR right hand by default.
 		int32_t DominantControllerIndex = -1;
@@ -120,6 +121,13 @@ public:
 		Disabled = 3
 	};
 
+	enum class WebXRMovementReference : uint32_t
+	{
+		Body = 0,
+		Head = 1,
+		DominantHand = 2
+	};
+
 	struct WebXRLocomotionDiagnostics
 	{
 		uint32_t DefaultBindingMask = 0;
@@ -127,6 +135,12 @@ public:
 		float LastMoveForward = 0.0f;
 		float LastMoveStrafe = 0.0f;
 		int LastTurnDelta = 0;
+		WebXRMovementReference LastMovementReferenceUsed = WebXRMovementReference::Body;
+		uint32_t MovementFallbackCount = 0;
+		uint32_t RecenterActionCount = 0;
+		uint32_t MenuActionCount = 0;
+		uint32_t EffectiveRecenterButton = 0;
+		uint32_t EffectiveMenuButton = 0;
 	};
 
 	struct WebXRWeaponAimDiagnostics
@@ -286,9 +300,20 @@ public:
 	WebXRWeaponAimDiagnostics WebXRWeaponAim;
 
 	WebXRTurnMode GetWebXRTurnMode() const { return WebXRTurnModeSetting; }
+	WebXRMovementReference GetWebXRMovementReference() const { return WebXRMovementReferenceSetting; }
+	uint32_t GetWebXRDominantHand() const { return WebXRInput.DominantHandedness; }
+	uint32_t GetWebXRRecenterButton() const { return WebXRRecenterButtonSetting; }
+	uint32_t GetWebXRMenuButton() const { return WebXRMenuButtonSetting; }
 	float GetWebXRSnapTurnDegrees() const { return WebXRSnapTurnDegrees; }
 	float GetWebXRSmoothTurnDegreesPerSecond() const { return WebXRSmoothTurnDegreesPerSecond; }
 	bool SetWebXRTurnMode(uint32_t mode);
+	bool SetWebXRMovementReference(uint32_t reference);
+	bool SetWebXRDominantHand(uint32_t handedness);
+	// Action buttons use zero for disabled, otherwise one-based normalized
+	// slots: left buttons 1..6 and right buttons 7..12. WebXR system buttons
+	// are never present in this range.
+	bool SetWebXRRecenterButton(uint32_t button);
+	bool SetWebXRMenuButton(uint32_t button);
 	bool SetWebXRSnapTurnDegrees(float degrees);
 	bool SetWebXRSmoothTurnDegreesPerSecond(float degreesPerSecond);
 
@@ -321,6 +346,8 @@ private:
 	void UpdateWebXRInput(float timeElapsed);
 	void InputAxisEvent(EInputKey key, float delta);
 	void LoadWebXRInputSettings();
+	void SaveWebXRInputSettings();
+	void RefreshWebXRActionBindings();
 	void InstallWebXRDefaultBindings();
 	std::function<void()> EnterWebXRWeaponAimScope(UFunction* func, UObject* instance);
 	std::map<std::string, std::string> CreateTravelInfo(bool transferItems);
@@ -343,6 +370,9 @@ private:
 	uint32_t WebXRButtonsHeld = 0;
 	uint32_t WebXRAxesActive = 0;
 	WebXRTurnMode WebXRTurnModeSetting = WebXRTurnMode::Snap;
+	WebXRMovementReference WebXRMovementReferenceSetting = WebXRMovementReference::Body;
+	uint32_t WebXRRecenterButtonSetting = 10; // Right thumbstick click.
+	uint32_t WebXRMenuButtonSetting = 0; // Existing Joy6/Escape binding remains the default.
 	float WebXRSnapTurnDegrees = 30.0f;
 	float WebXRSmoothTurnDegreesPerSecond = 120.0f;
 	float WebXRSnapTurnThreshold = 0.75f;

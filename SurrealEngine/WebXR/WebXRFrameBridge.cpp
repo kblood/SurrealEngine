@@ -314,6 +314,56 @@ namespace
 		}
 	}
 
+	WebXRInputPose BuildLocalHeadPose(const WebXRFrameABI::FrameHeader& header,
+		const std::array<WebXRFrameABI::View, WebXRFrameABI::MaxViews>& packedViews,
+		float worldUnitsPerMeter, const PoseRecenterState& poseState)
+	{
+		vec3 centerMetersUE(0.0f);
+		vec3 averageForwardUE(0.0f);
+		vec3 averageRightUE(0.0f);
+		vec3 averageUpUE(0.0f);
+		for (uint32_t index = 0; index < header.viewCount; index++)
+		{
+			const UEPoseAxes axes = DecodePoseAxes(packedViews[index]);
+			centerMetersUE += axes.PositionMeters;
+			averageForwardUE += axes.Forward;
+			averageRightUE += axes.Right;
+			averageUpUE += axes.Up;
+		}
+		const float inverseViewCount = 1.0f / static_cast<float>(header.viewCount);
+		centerMetersUE *= inverseViewCount;
+		averageForwardUE = normalize(averageForwardUE);
+		averageRightUE = normalize(averageRightUE);
+		averageUpUE = normalize(averageUpUE);
+
+		const Coords recenterRotation = Coords::YawRotation(poseState.YawOffsetUE);
+		WebXRInputPose result;
+		const vec3 position = RotateLocalToWorld(recenterRotation,
+			(centerMetersUE - poseState.OriginMetersUE) * worldUnitsPerMeter);
+		const vec3 forward = normalize(RotateLocalToWorld(recenterRotation, averageForwardUE));
+		vec3 right = normalize(RotateLocalToWorld(recenterRotation, averageRightUE));
+		vec3 up = normalize(cross(forward, right));
+		const vec3 expectedUp = normalize(RotateLocalToWorld(recenterRotation, averageUpUE));
+		if (dot(up, expectedUp) < 0.0f)
+		{
+			right = -right;
+			up = -up;
+		}
+		result.LocalPositionUU[0] = position.x;
+		result.LocalPositionUU[1] = position.y;
+		result.LocalPositionUU[2] = position.z;
+		result.LocalForward[0] = forward.x;
+		result.LocalForward[1] = forward.y;
+		result.LocalForward[2] = forward.z;
+		result.LocalRight[0] = right.x;
+		result.LocalRight[1] = right.y;
+		result.LocalRight[2] = right.z;
+		result.LocalUp[0] = up.x;
+		result.LocalUp[1] = up.y;
+		result.LocalUp[2] = up.z;
+		return result;
+	}
+
 	void BuildSceneViews(const WebXRFrameABI::FrameHeader& header,
 		const std::array<WebXRFrameABI::View, WebXRFrameABI::MaxViews>& packedViews,
 		const vec3& cameraLocation, const Coords& bodyRotation, float worldUnitsPerMeter,
@@ -408,6 +458,15 @@ namespace
 			!NearlyEqual(output[1].Location.y, anchor.y + halfIPDUU) ||
 			!NearlyEqual(output[0].Location.z, anchor.z))
 			return false;
+		const WebXRInputPose identityHead = BuildLocalHeadPose(
+			header, views, DefaultWorldUnitsPerMeter, state);
+		if (!NearlyEqual(identityHead.LocalPositionUU[0], 0.0f) ||
+			!NearlyEqual(identityHead.LocalPositionUU[1], 0.0f) ||
+			!NearlyEqual(identityHead.LocalPositionUU[2], 0.0f) ||
+			!NearlyEqual(identityHead.LocalForward[0], 1.0f) ||
+			!NearlyEqual(identityHead.LocalRight[1], 1.0f) ||
+			!NearlyEqual(identityHead.LocalUp[2], 1.0f))
+			return false;
 
 		// Controller poses share that already-captured viewer origin. Identity
 		// aim points UE1-forward; WebXR (+X right, -Z forward) position maps to
@@ -468,9 +527,13 @@ namespace
 		views[1].orientation[1] = halfQuarterTurn;
 		views[1].orientation[3] = halfQuarterTurn;
 		BuildSceneViews(header, views, anchor, body, DefaultWorldUnitsPerMeter, state, output);
+		const WebXRInputPose turnedHead = BuildLocalHeadPose(
+			header, views, DefaultWorldUnitsPerMeter, state);
 		if (!NearlyEqual(std::abs(output[0].ViewRotation.XAxis.y), 1.0f) ||
 			!NearlyEqual(dot(output[0].ViewRotation.XAxis, output[0].ViewRotation.YAxis), 0.0f) ||
-			!NearlyEqual(dot(output[0].ViewRotation.XAxis, output[0].ViewRotation.XAxis), 1.0f))
+			!NearlyEqual(dot(output[0].ViewRotation.XAxis, output[0].ViewRotation.XAxis), 1.0f) ||
+			!NearlyEqual(std::abs(turnedHead.LocalForward[1]), 1.0f) ||
+			!NearlyEqual(turnedHead.LocalForward[2], 0.0f))
 			return false;
 		views[0].orientation[1] = 0.0f;
 		views[0].orientation[3] = 1.0f;
@@ -632,7 +695,9 @@ extern "C"
 		// generation and clears both slots, producing release edges this tick.
 		std::array<WebXRControllerState, WebXRFrameABI::MaxInputSources> controllers = {};
 		BuildInputSnapshot(header, packedControllers, WorldUnitsPerMeter, PoseState, controllers);
-		PublishWebXRInputSnapshot(controllers.data(), header.inputSourceCount);
+		const WebXRInputPose headPose = BuildLocalHeadPose(
+			header, packedViews, WorldUnitsPerMeter, PoseState);
+		PublishWebXRInputSnapshot(controllers.data(), header.inputSourceCount, &headPose);
 		const float levelElapsed = engine->AdvanceGameFrame();
 		std::array<WebXRSceneView, WebXRFrameABI::MaxViews> sceneViews = {};
 		// AdvanceGameFrame runs PlayerCalcView first. Its resulting camera is the

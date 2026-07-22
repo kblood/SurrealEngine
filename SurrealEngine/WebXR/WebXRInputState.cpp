@@ -68,10 +68,17 @@ namespace
 	}
 
 	WebXRInputSnapshot BuildSnapshot(uint64_t generation,
-		const WebXRControllerState* controllers, uint32_t controllerCount)
+		const WebXRControllerState* controllers, uint32_t controllerCount,
+		const WebXRInputPose* headPose = nullptr)
 	{
 		WebXRInputSnapshot result;
 		result.FrameGeneration = generation;
+		if (headPose)
+		{
+			result.HeadPoseValid = true;
+			result.HeadPose = *headPose;
+			NormalizePose(result.HeadPose);
+		}
 		bool occupied[WebXRMaxInputSources] = {};
 		const uint32_t count = std::min(controllerCount, WebXRMaxInputSources);
 		for (uint32_t index = 0; index < count; index++)
@@ -100,12 +107,13 @@ WebXRInputSnapshot GetLatestWebXRInputSnapshot()
 	return LatestSnapshot;
 }
 
-void PublishWebXRInputSnapshot(const WebXRControllerState* controllers, uint32_t controllerCount)
+void PublishWebXRInputSnapshot(const WebXRControllerState* controllers, uint32_t controllerCount,
+	const WebXRInputPose* headPose)
 {
 	const uint64_t nextGeneration = LatestSnapshot.FrameGeneration + 1;
 	if (!controllers)
 		controllerCount = 0;
-	LatestSnapshot = BuildSnapshot(nextGeneration, controllers, controllerCount);
+	LatestSnapshot = BuildSnapshot(nextGeneration, controllers, controllerCount, headPose);
 }
 
 void ResetWebXRInputState()
@@ -138,9 +146,14 @@ bool RunWebXRInputStateSelfTest()
 	inputs[1].Flags = WebXRConnected | WebXRGripValid;
 	inputs[1].GripPose.Orientation[1] = 3.0f;
 	inputs[1].GripPose.Orientation[3] = 4.0f;
+	WebXRInputPose headPose;
+	headPose.LocalForward[0] = 0.0f;
+	headPose.LocalForward[1] = 1.0f;
+	headPose.LocalForward[2] = 0.0f;
 
-	WebXRInputSnapshot snapshot = BuildSnapshot(41, inputs, 2);
+	WebXRInputSnapshot snapshot = BuildSnapshot(41, inputs, 2, &headPose);
 	if (snapshot.FrameGeneration != 41 || snapshot.SourceCount != 2 ||
+		!snapshot.HeadPoseValid || snapshot.HeadPose.LocalForward[1] != 1.0f ||
 		snapshot.Controllers[0].SourceId != 9 || snapshot.Controllers[1].SourceId != 17 ||
 		snapshot.Controllers[1].ButtonsPressed != 1 || snapshot.Controllers[1].Axes[0] != -1.0f ||
 		snapshot.Controllers[1].Axes[1] != 0.25f || snapshot.Controllers[1].ButtonValues[0] != 1.0f ||
@@ -154,5 +167,6 @@ bool RunWebXRInputStateSelfTest()
 	inputs[0].Flags = 0;
 	snapshot = BuildSnapshot(42, inputs, 1);
 	return snapshot.FrameGeneration == 42 && snapshot.SourceCount == 0 &&
+		!snapshot.HeadPoseValid &&
 		(snapshot.Controllers[0].Flags | snapshot.Controllers[1].Flags) == 0;
 }

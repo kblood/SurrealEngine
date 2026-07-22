@@ -29,9 +29,11 @@
 #include "VM/ScriptCall.h"
 #include "Video/VideoPlayer.h"
 #include <chrono>
+#include <limits>
 #include <set>
 
 #ifdef __EMSCRIPTEN__
+#include "WebXR/WebXRFrameBridge.h"
 #include "WebXR/WebXRInputState.h"
 #include "WebXR/WebXRHaptics.h"
 #include "Package/Package.h"
@@ -47,6 +49,120 @@ namespace
 	constexpr float WebXRJoystickAxisScale = WebXRUE1MovementScale / 2.0f;
 	constexpr float WebXRYawUnitsPerDegree = 65536.0f / 360.0f;
 	constexpr float WebXRSmoothTurnDeadZone = 0.15f;
+	constexpr uint32_t WebXRActionButtonCount = 12;
+
+	struct WebXRMovementAxes
+	{
+		float Strafe = 0.0f;
+		float Forward = 0.0f;
+	};
+
+	struct WebXRActionEdges
+	{
+		bool RecenterPressed = false;
+		bool MenuPressed = false;
+		bool MenuReleased = false;
+	};
+
+	bool TryWebXRHorizontalForward(const vec3& source, vec3& result)
+	{
+		if (!std::isfinite(source.x) || !std::isfinite(source.y))
+			return false;
+		const float lengthSquared = source.x * source.x + source.y * source.y;
+		if (!std::isfinite(lengthSquared) || lengthSquared < 0.000001f)
+			return false;
+		const float inverseLength = 1.0f / std::sqrt(lengthSquared);
+		result = vec3(source.x * inverseLength, source.y * inverseLength, 0.0f);
+		return true;
+	}
+
+	vec3 ResolveWebXRMovementForward(Engine::WebXRMovementReference requested,
+		bool headTracked, const vec3& headForward, bool handTracked, const vec3& handForward,
+		Engine::WebXRMovementReference& used, bool& fellBack)
+	{
+		used = Engine::WebXRMovementReference::Body;
+		fellBack = false;
+		if (requested == Engine::WebXRMovementReference::Body)
+			return vec3(1.0f, 0.0f, 0.0f);
+
+		vec3 horizontalForward;
+		const bool resolved = requested == Engine::WebXRMovementReference::Head ?
+			(headTracked && TryWebXRHorizontalForward(headForward, horizontalForward)) :
+			(handTracked && TryWebXRHorizontalForward(handForward, horizontalForward));
+		if (!resolved)
+		{
+			fellBack = true;
+			return vec3(1.0f, 0.0f, 0.0f);
+		}
+		used = requested;
+		return horizontalForward;
+	}
+
+	WebXRMovementAxes TransformWebXRMovementAxes(float strafe, float forward,
+		const vec3& referenceForward)
+	{
+		// Work entirely in the body-local horizontal plane. This changes only the
+		// movement axes supplied to UE1; tracking never enters pawn transforms.
+		const vec3 referenceRight(-referenceForward.y, referenceForward.x, 0.0f);
+		const vec3 movement = referenceForward * forward + referenceRight * strafe;
+		return { movement.y, movement.x };
+	}
+
+	uint32_t WebXRActionButtonMask(uint32_t button)
+	{
+		return button >= 1 && button <= WebXRActionButtonCount ? 1u << (button - 1u) : 0u;
+	}
+
+	WebXRActionEdges ComputeWebXRActionEdges(uint32_t previousButtons, uint32_t currentButtons,
+		uint32_t recenterButton, uint32_t menuButton)
+	{
+		const uint32_t pressed = ~previousButtons & currentButtons;
+		const uint32_t released = previousButtons & ~currentButtons;
+		const uint32_t recenterMask = WebXRActionButtonMask(recenterButton);
+		const uint32_t menuMask = WebXRActionButtonMask(menuButton);
+		return {
+			recenterMask != 0 && (pressed & recenterMask) != 0,
+			menuMask != 0 && (pressed & menuMask) != 0,
+			menuMask != 0 && (released & menuMask) != 0
+		};
+	}
+
+	const char* WebXRActionButtonName(uint32_t button)
+	{
+		static constexpr const char* Names[WebXRActionButtonCount + 1] = {
+			"None", "LeftTrigger", "LeftSqueeze", "LeftTouchpad", "LeftStick",
+			"LeftPrimary", "LeftSecondary", "RightTrigger", "RightSqueeze",
+			"RightTouchpad", "RightStick", "RightPrimary", "RightSecondary"
+		};
+		return button <= WebXRActionButtonCount ? Names[button] : Names[0];
+	}
+
+	uint32_t ParseWebXRActionButton(std::string value, uint32_t fallback)
+	{
+		for (char& c : value)
+			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		if (value == "none" || value == "disabled" || value == "off" || value == "0")
+			return 0;
+		for (uint32_t button = 1; button <= WebXRActionButtonCount; button++)
+		{
+			std::string name = WebXRActionButtonName(button);
+			for (char& c : name)
+				c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			if (value == name || value == std::to_string(button))
+				return button;
+		}
+		return fallback;
+	}
+
+	bool IsWebXRActionButtonUnbound(const std::map<std::string, std::string>& bindings,
+		uint32_t button)
+	{
+		if (button == 0)
+			return false;
+		const std::string key = "Joy" + std::to_string(button);
+		const auto it = bindings.find(key);
+		return it == bindings.end() || it->second.empty();
+	}
 
 #ifdef __EMSCRIPTEN__
 	enum class WebXRWeaponAimScopeKind
@@ -460,6 +576,51 @@ namespace
 		if (std::fabs(WebXRJoystickAxisScale * 2.0f - WebXRUE1MovementScale) > 0.001f)
 			return false;
 
+		Engine::WebXRMovementReference used = Engine::WebXRMovementReference::Body;
+		bool fellBack = false;
+		const vec3 headRight = ResolveWebXRMovementForward(
+			Engine::WebXRMovementReference::Head, true, vec3(0.0f, 2.0f, 7.0f),
+			false, vec3(0.0f), used, fellBack);
+		const WebXRMovementAxes headAxes = TransformWebXRMovementAxes(0.0f, 1.0f, headRight);
+		if (used != Engine::WebXRMovementReference::Head || fellBack ||
+			std::fabs(headAxes.Strafe - 1.0f) > 0.0001f ||
+			std::fabs(headAxes.Forward) > 0.0001f)
+			return false;
+
+		const vec3 handLeft = ResolveWebXRMovementForward(
+			Engine::WebXRMovementReference::DominantHand, false, vec3(0.0f),
+			true, vec3(0.0f, -4.0f, -9.0f), used, fellBack);
+		const WebXRMovementAxes handAxes = TransformWebXRMovementAxes(0.25f, 0.75f, handLeft);
+		if (used != Engine::WebXRMovementReference::DominantHand || fellBack ||
+			std::fabs(handAxes.Strafe + 0.75f) > 0.0001f ||
+			std::fabs(handAxes.Forward - 0.25f) > 0.0001f)
+			return false;
+
+		const float notFinite = std::numeric_limits<float>::quiet_NaN();
+		const vec3 bodyFallback = ResolveWebXRMovementForward(
+			Engine::WebXRMovementReference::Head, true, vec3(notFinite, 1.0f, 0.0f),
+			false, vec3(0.0f), used, fellBack);
+		if (used != Engine::WebXRMovementReference::Body || !fellBack ||
+			bodyFallback.x != 1.0f || bodyFallback.y != 0.0f ||
+			!IsWebXRActionButtonUnbound(bindings, 10) ||
+			IsWebXRActionButtonUnbound(bindings, 11))
+			return false;
+
+		const uint32_t recenterMask = WebXRActionButtonMask(10);
+		const uint32_t menuMask = WebXRActionButtonMask(9);
+		const WebXRActionEdges pressEdges = ComputeWebXRActionEdges(
+			0, recenterMask | menuMask, 10, 9);
+		const WebXRActionEdges heldEdges = ComputeWebXRActionEdges(
+			recenterMask | menuMask, recenterMask | menuMask, 10, 9);
+		const WebXRActionEdges releaseEdges = ComputeWebXRActionEdges(
+			recenterMask | menuMask, 0, 10, 9);
+		if (!pressEdges.RecenterPressed || !pressEdges.MenuPressed || pressEdges.MenuReleased ||
+			heldEdges.RecenterPressed || heldEdges.MenuPressed || heldEdges.MenuReleased ||
+			releaseEdges.RecenterPressed || releaseEdges.MenuPressed || !releaseEdges.MenuReleased ||
+			ParseWebXRActionButton("RightStick", 0) != 10 ||
+			ParseWebXRActionButton("system", 4) != 4 || WebXRActionButtonMask(13) != 0)
+			return false;
+
 		bool armed = true;
 		uint32_t snapCount = 0;
 		const int thirtyDegrees = static_cast<int>(std::lround(30.0f * WebXRYawUnitsPerDegree));
@@ -812,6 +973,46 @@ extern "C"
 		return engine && engine->SetWebXRTurnMode(mode) ? 1 : 0;
 	}
 
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMovementReference()
+	{
+		return engine ? static_cast<uint32_t>(engine->GetWebXRMovementReference()) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRMovementReference(uint32_t reference)
+	{
+		return engine && engine->SetWebXRMovementReference(reference) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRDominantHand()
+	{
+		return engine ? engine->GetWebXRDominantHand() : 2;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRDominantHand(uint32_t handedness)
+	{
+		return engine && engine->SetWebXRDominantHand(handedness) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRRecenterButton()
+	{
+		return engine ? engine->GetWebXRRecenterButton() : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRRecenterButton(uint32_t button)
+	{
+		return engine && engine->SetWebXRRecenterButton(button) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMenuButton()
+	{
+		return engine ? engine->GetWebXRMenuButton() : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRMenuButton(uint32_t button)
+	{
+		return engine && engine->SetWebXRMenuButton(button) ? 1 : 0;
+	}
+
 	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRSnapTurnDegrees(float degrees)
 	{
 		return engine && engine->SetWebXRSnapTurnDegrees(degrees) ? 1 : 0;
@@ -840,6 +1041,37 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRLastMoveStrafe()
 	{
 		return engine ? engine->WebXRLocomotion.LastMoveStrafe : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMovementReferenceUsed()
+	{
+		return engine ? static_cast<uint32_t>(
+			engine->WebXRLocomotion.LastMovementReferenceUsed) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMovementFallbackCount()
+	{
+		return engine ? engine->WebXRLocomotion.MovementFallbackCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXREffectiveRecenterButton()
+	{
+		return engine ? engine->WebXRLocomotion.EffectiveRecenterButton : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXREffectiveMenuButton()
+	{
+		return engine ? engine->WebXRLocomotion.EffectiveMenuButton : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRRecenterActionCount()
+	{
+		return engine ? engine->WebXRLocomotion.RecenterActionCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMenuActionCount()
+	{
+		return engine ? engine->WebXRLocomotion.MenuActionCount : 0;
 	}
 
 	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRLocomotionSelfTest()
@@ -1145,6 +1377,7 @@ void Engine::Shutdown()
 		audiodev->SaveConfig();
 		renderdev->SaveConfig();
 	}
+	SaveWebXRInputSettings();
 	packages->SetIniValue("System", "Engine.SurrealWindowSystem", "WindowSystem", windowingSystemName);
 	packages->SaveAllIniFiles();
 
@@ -2096,6 +2329,7 @@ std::string Engine::ConsoleCommand(UObject* context, const std::string& commandl
 		{
 			keybindings[propertyName.ToString()] = value;
 			packages->SetIniValue("user", "Engine.Input", propertyName, value);
+			RefreshWebXRActionBindings();
 			return {};
 		}
 
@@ -2273,6 +2507,41 @@ bool Engine::SetWebXRTurnMode(uint32_t mode)
 	return true;
 }
 
+bool Engine::SetWebXRMovementReference(uint32_t reference)
+{
+	if (reference > static_cast<uint32_t>(WebXRMovementReference::DominantHand))
+		return false;
+	WebXRMovementReferenceSetting = static_cast<WebXRMovementReference>(reference);
+	return true;
+}
+
+bool Engine::SetWebXRDominantHand(uint32_t handedness)
+{
+	if (handedness != 1 && handedness != 2)
+		return false;
+	WebXRInput.DominantHandedness = handedness;
+	WebXRInput.DominantControllerIndex = -1;
+	return true;
+}
+
+bool Engine::SetWebXRRecenterButton(uint32_t button)
+{
+	if (button > WebXRActionButtonCount)
+		return false;
+	WebXRRecenterButtonSetting = button;
+	RefreshWebXRActionBindings();
+	return true;
+}
+
+bool Engine::SetWebXRMenuButton(uint32_t button)
+{
+	if (button > WebXRActionButtonCount)
+		return false;
+	WebXRMenuButtonSetting = button;
+	RefreshWebXRActionBindings();
+	return true;
+}
+
 bool Engine::SetWebXRSnapTurnDegrees(float degrees)
 {
 	if (!std::isfinite(degrees) || degrees < 15.0f || degrees > 90.0f)
@@ -2292,6 +2561,29 @@ bool Engine::SetWebXRSmoothTurnDegreesPerSecond(float degreesPerSecond)
 void Engine::LoadWebXRInputSettings()
 {
 #ifdef __EMSCRIPTEN__
+	std::string movementReference = packages->GetIniValue(
+		"user", "Engine.WebXR", "MovementReference", "Body");
+	for (char& c : movementReference)
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	if (movementReference == "head" || movementReference == "headset")
+		WebXRMovementReferenceSetting = WebXRMovementReference::Head;
+	else if (movementReference == "dominanthand" || movementReference == "hand" ||
+		movementReference == "controller")
+		WebXRMovementReferenceSetting = WebXRMovementReference::DominantHand;
+	else
+		WebXRMovementReferenceSetting = WebXRMovementReference::Body;
+
+	std::string dominantHand = packages->GetIniValue(
+		"user", "Engine.WebXR", "DominantHand", "Right");
+	for (char& c : dominantHand)
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	WebXRInput.DominantHandedness = dominantHand == "left" || dominantHand == "1" ? 1 : 2;
+
+	WebXRRecenterButtonSetting = ParseWebXRActionButton(packages->GetIniValue(
+		"user", "Engine.WebXR", "RecenterButton", "RightStick"), 10);
+	WebXRMenuButtonSetting = ParseWebXRActionButton(packages->GetIniValue(
+		"user", "Engine.WebXR", "MenuButton", "None"), 0);
+
 	std::string turnMode = packages->GetIniValue("user", "Engine.WebXR", "TurnMode", "Snap");
 	for (char& c : turnMode)
 		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -2324,7 +2616,41 @@ void Engine::LoadWebXRInputSettings()
 	const bool enableHaptics = hapticsEnabled != "false" && hapticsEnabled != "0" &&
 		hapticsEnabled != "off" && hapticsEnabled != "no";
 	SetWebXRHapticsEnabled(enableHaptics);
+	RefreshWebXRActionBindings();
 #endif
+}
+
+void Engine::SaveWebXRInputSettings()
+{
+#ifdef __EMSCRIPTEN__
+	if (!packages)
+		return;
+	const char* movementReference = "Body";
+	if (WebXRMovementReferenceSetting == WebXRMovementReference::Head)
+		movementReference = "Head";
+	else if (WebXRMovementReferenceSetting == WebXRMovementReference::DominantHand)
+		movementReference = "DominantHand";
+	packages->SetIniValue("user", "Engine.WebXR", "MovementReference", movementReference);
+	packages->SetIniValue("user", "Engine.WebXR", "DominantHand",
+		WebXRInput.DominantHandedness == 1 ? "Left" : "Right");
+	packages->SetIniValue("user", "Engine.WebXR", "RecenterButton",
+		WebXRActionButtonName(WebXRRecenterButtonSetting));
+	packages->SetIniValue("user", "Engine.WebXR", "MenuButton",
+		WebXRActionButtonName(WebXRMenuButtonSetting));
+#endif
+}
+
+void Engine::RefreshWebXRActionBindings()
+{
+	WebXRLocomotion.EffectiveRecenterButton =
+		IsWebXRActionButtonUnbound(keybindings, WebXRRecenterButtonSetting) ?
+		WebXRRecenterButtonSetting : 0;
+	WebXRLocomotion.EffectiveMenuButton =
+		IsWebXRActionButtonUnbound(keybindings, WebXRMenuButtonSetting) ?
+		WebXRMenuButtonSetting : 0;
+	// One physical edge must never toggle the menu and recenter at once.
+	if (WebXRLocomotion.EffectiveMenuButton == WebXRLocomotion.EffectiveRecenterButton)
+		WebXRLocomotion.EffectiveMenuButton = 0;
 }
 
 void Engine::InstallWebXRDefaultBindings()
@@ -2438,6 +2764,23 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 		state.AimPose.Orientation = vec4(source.AimPose.Orientation[0], source.AimPose.Orientation[1], source.AimPose.Orientation[2], source.AimPose.Orientation[3]);
 		WebXRInput.Controllers[slot] = state;
 	}
+	WebXRInput.HeadPose = {};
+	WebXRInput.HeadPose.Tracked = snapshot.HeadPoseValid;
+
+	// Hand roles are resolved from handedness, not hard-coded slot use. Slot
+	// normalization normally places left/right at 0/1, while this loop keeps
+	// unhanded or future snapshot layouts from producing a stale dominant pose.
+	WebXRInput.DominantControllerIndex = -1;
+	for (size_t slot = 0; slot < WebXRInput.Controllers.size(); slot++)
+	{
+		const VRControllerInputState& controller = WebXRInput.Controllers[slot];
+		if (controller.Connected && controller.Handedness == WebXRInput.DominantHandedness &&
+			(controller.AimPose.Tracked || controller.GripPose.Tracked))
+		{
+			WebXRInput.DominantControllerIndex = static_cast<int32_t>(slot);
+			break;
+		}
+	}
 
 	// Stable controller-local generic slots preserve the legacy remapping
 	// layer: left buttons 0..5 become Joy1..Joy6, right buttons 0..5 become
@@ -2466,6 +2809,23 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 		if ((changedButtons & mask) != 0)
 			InputEvent(ButtonKeys[button], (nextButtonsHeld & mask) != 0 ? IST_Press : IST_Release);
 	}
+	const WebXRActionEdges actionEdges = ComputeWebXRActionEdges(
+		WebXRButtonsHeld, nextButtonsHeld,
+		WebXRLocomotion.EffectiveRecenterButton, WebXRLocomotion.EffectiveMenuButton);
+	if (actionEdges.RecenterPressed)
+	{
+		// Invalidate the bridge's single recenter origin. The next XR frame will
+		// rebuild eyes, head, and hands together from the shared origin.
+		Surreal_ResetWebXRPose();
+		WebXRLocomotion.RecenterActionCount++;
+	}
+	if (actionEdges.MenuPressed)
+	{
+		InputEvent(IK_Escape, IST_Press);
+		WebXRLocomotion.MenuActionCount++;
+	}
+	if (actionEdges.MenuReleased)
+		InputEvent(IK_Escape, IST_Release);
 	WebXRButtonsHeld = nextButtonsHeld;
 	WebXRInput.SynthesizedButtonsHeld = nextButtonsHeld;
 
@@ -2491,16 +2851,8 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 		WebXRInput.SynthesizedAxes[output] = controller.Axes[sourceAxis];
 		WebXRInput.SynthesizedAxes[output + 1] = controller.Axes[sourceAxis + 1];
 
-		// The left stick remains in the ordinary, remappable JoyX/JoyY path,
-		// but normalized WebXR values are expanded to UE1's joystick-domain
-		// convention. With the stock/default Speed=2 command, full deflection
-		// produces the same 7000 movement scale as a held movement key.
 		if (slot == 0)
-		{
 			nextAxesActive |= 3u << output;
-			InputAxisEvent(AxisKeys[output], WebXRInput.SynthesizedAxes[output] * WebXRJoystickAxisScale);
-			InputAxisEvent(AxisKeys[output + 1], WebXRInput.SynthesizedAxes[output + 1] * WebXRJoystickAxisScale);
-		}
 		else if (WebXRTurnModeSetting == WebXRTurnMode::Binding)
 		{
 			// Explicit legacy/binding mode releases comfort turning and routes
@@ -2511,8 +2863,46 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 		}
 	}
 
-	WebXRLocomotion.LastMoveStrafe = WebXRInput.SynthesizedAxes[0] * WebXRUE1MovementScale;
-	WebXRLocomotion.LastMoveForward = WebXRInput.SynthesizedAxes[1] * WebXRUE1MovementScale;
+	bool headTracked = snapshot.HeadPoseValid;
+	const vec3 headForward(snapshot.HeadPose.LocalForward[0],
+		snapshot.HeadPose.LocalForward[1], snapshot.HeadPose.LocalForward[2]);
+	bool handTracked = false;
+	vec3 handForward(1.0f, 0.0f, 0.0f);
+	if (WebXRInput.DominantControllerIndex >= 0)
+	{
+		const WebXRControllerState& controller =
+			snapshot.Controllers[WebXRInput.DominantControllerIndex];
+		const WebXRInputPose* pose = nullptr;
+		if (controller.Flags & WebXRAimValid)
+			pose = &controller.AimPose;
+		else if (controller.Flags & WebXRGripValid)
+			pose = &controller.GripPose;
+		if (pose)
+		{
+			handTracked = true;
+			handForward = vec3(
+				pose->LocalForward[0], pose->LocalForward[1], pose->LocalForward[2]);
+		}
+	}
+	bool movementFellBack = false;
+	const vec3 movementReferenceForward = ResolveWebXRMovementForward(
+		WebXRMovementReferenceSetting, headTracked, headForward, handTracked, handForward,
+		WebXRLocomotion.LastMovementReferenceUsed, movementFellBack);
+	if (movementFellBack)
+		WebXRLocomotion.MovementFallbackCount++;
+	const WebXRMovementAxes movementAxes = TransformWebXRMovementAxes(
+		WebXRInput.SynthesizedAxes[0], WebXRInput.SynthesizedAxes[1], movementReferenceForward);
+
+	// The left stick remains in the ordinary, remappable JoyX/JoyY path. Only
+	// its horizontal reference is changed; normalized values are still expanded
+	// for stock Speed=2 bindings to preserve the established 7000 scale.
+	if (WebXRInput.Controllers[0].Connected)
+	{
+		InputAxisEvent(IK_JoyX, movementAxes.Strafe * WebXRJoystickAxisScale);
+		InputAxisEvent(IK_JoyY, movementAxes.Forward * WebXRJoystickAxisScale);
+	}
+	WebXRLocomotion.LastMoveStrafe = movementAxes.Strafe * WebXRUE1MovementScale;
+	WebXRLocomotion.LastMoveForward = movementAxes.Forward * WebXRUE1MovementScale;
 	WebXRLocomotion.LastTurnDelta = 0;
 	const bool rightControllerConnected = WebXRInput.Controllers[1].Connected;
 	if (!rightControllerConnected)
@@ -2558,6 +2948,8 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 	vec3 cameraAnchor = CameraLocation;
 	if (!HasCalculatedCameraView && viewport && viewport->Actor())
 		cameraAnchor = viewport->Actor()->Location();
+	if (snapshot.HeadPoseValid)
+		ComposeWebXRWorldPose(WebXRInput.HeadPose, snapshot.HeadPose, cameraAnchor, bodyRotation);
 	for (size_t slot = 0; slot < WebXRInput.Controllers.size(); slot++)
 	{
 		VRControllerInputState& controller = WebXRInput.Controllers[slot];
@@ -2565,16 +2957,6 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 		ComposeWebXRWorldPose(controller.GripPose, source.GripPose, cameraAnchor, bodyRotation);
 		ComposeWebXRWorldPose(controller.AimPose, source.AimPose, cameraAnchor, bodyRotation);
 	}
-
-	// Right-handed play is the default and never silently changes hands. A
-	// disconnected controller or one with neither pose valid clears the index,
-	// preventing consumers from observing a stale transform. Consumers may use
-	// grip as an explicit fallback when aim is unavailable.
-	WebXRInput.DominantControllerIndex = -1;
-	const VRControllerInputState& dominant = WebXRInput.Controllers[1];
-	if (dominant.Connected && dominant.Handedness == WebXRInput.DominantHandedness &&
-		(dominant.AimPose.Tracked || dominant.GripPose.Tracked))
-		WebXRInput.DominantControllerIndex = 1;
 
 	const uint32_t releasedAxes = WebXRAxesActive & ~nextAxesActive;
 	for (uint32_t axis = 0; axis < 4; axis++)

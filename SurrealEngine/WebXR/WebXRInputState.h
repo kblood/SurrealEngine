@@ -58,6 +58,10 @@ struct WebXRInputSnapshot
 {
 	uint64_t FrameGeneration = 0;
 	uint32_t SourceCount = 0;
+	// Recentered center-eye pose from the same frame as Controllers. This is an
+	// internal gameplay snapshot field, not part of the packed browser ABI.
+	bool HeadPoseValid = false;
+	WebXRInputPose HeadPose;
 	// Stable normalized slots: left prefers 0, right prefers 1, unhanded
 	// sources fill an unused slot. Consumers must inspect Connected rather
 	// than assuming [0, SourceCount) are occupied.
@@ -67,6 +71,7 @@ struct WebXRInputSnapshot
 // Same-thread latest-state exchange. Publishing always replaces the complete
 // snapshot and advances FrameGeneration, including a zero-source frame.
 WebXRInputSnapshot GetLatestWebXRInputSnapshot();
-void PublishWebXRInputSnapshot(const WebXRControllerState* controllers, uint32_t controllerCount);
+void PublishWebXRInputSnapshot(const WebXRControllerState* controllers, uint32_t controllerCount,
+	const WebXRInputPose* headPose = nullptr);
 void ResetWebXRInputState();
 bool RunWebXRInputStateSelfTest();
