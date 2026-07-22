@@ -1,5 +1,7 @@
 #pragma once
 
+#include "GameSupport.h"
+
 struct GameLaunchInfo
 {
 	int ue1Version = 0;						// Epic UE1 engine version game was forked from. 500 means unknown version newer than UT but before UE2
@@ -12,13 +14,16 @@ struct GameLaunchInfo
 	std::string gameVersionString = "";		// Version (+ sub version) info as a string (e.g. "469d")
 	std::string url = "";					// The UnrealURL to launch upon startup
 
-	bool IsUnreal1() const { return gameExecutableName == "Unreal"; }
+	const GameSupport& Support() const { return GameSupportRegistry::Find(gameExecutableName); }
+	bool HasCapability(GameCapability capability) const { return Support().HasCapability(capability); }
+
+	bool IsUnreal1() const { return Support().Id() == GameId::Unreal; }
 	bool IsUnreal1_226() const { return IsUnreal1() && gameVersion == 226; }
 	bool IsUnreal1_227() const { return IsUnreal1() && gameVersion == 227; }
 	bool IsUnreal1_227k() const { return IsUnreal1_227() && gameSubVersion == 11; }
-	bool IsUnrealTournament() const { return gameExecutableName == "UnrealTournament"; }
+	bool IsUnrealTournament() const { return Support().Id() == GameId::UnrealTournament; }
 	bool IsUnrealTournament_469() const { return IsUnrealTournament() && gameVersion == 469; }
-	bool IsDeusEx() const { return gameExecutableName == "DeusEx"; }
+	bool IsDeusEx() const { return Support().Id() == GameId::DeusEx; }
 	bool IsCliveBarkersUndying() const { return gameExecutableName == "Undying"; }
 	bool IsKlingonHonorGuard() const { return gameExecutableName == "Klingons" || gameExecutableName == "Khg"; }
 	bool IsRune() const { return gameExecutableName == "Rune"; }
