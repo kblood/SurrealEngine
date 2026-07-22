@@ -20,6 +20,12 @@ namespace
 		vec2 UV;
 	};
 
+	struct SolidVertex
+	{
+		vec4 Clip;
+		vec4 Color;
+	};
+
 	struct SurfaceTexture
 	{
 		PresentationTarget Target;
@@ -41,8 +47,11 @@ namespace
 		};
 		WGPUBindGroupLayout TextureLayout = nullptr;
 		WGPUPipelineLayout PipelineLayout = nullptr;
+		WGPUPipelineLayout SolidPipelineLayout = nullptr;
 		WGPUShaderModule Shader = nullptr;
+		WGPUShaderModule SolidShader = nullptr;
 		WGPURenderPipeline Pipeline = nullptr;
+		WGPURenderPipeline SolidPipeline = nullptr;
 		WGPUSampler Sampler = nullptr;
 
 		SurfaceTexture* Find(PresentationTarget target)
@@ -64,13 +73,19 @@ namespace
 				surface.Handle = {};
 			}
 			if (Sampler) wgpuSamplerRelease(Sampler);
+			if (SolidPipeline) wgpuRenderPipelineRelease(SolidPipeline);
 			if (Pipeline) wgpuRenderPipelineRelease(Pipeline);
+			if (SolidShader) wgpuShaderModuleRelease(SolidShader);
 			if (Shader) wgpuShaderModuleRelease(Shader);
+			if (SolidPipelineLayout) wgpuPipelineLayoutRelease(SolidPipelineLayout);
 			if (PipelineLayout) wgpuPipelineLayoutRelease(PipelineLayout);
 			if (TextureLayout) wgpuBindGroupLayoutRelease(TextureLayout);
 			Sampler = nullptr;
+			SolidPipeline = nullptr;
 			Pipeline = nullptr;
+			SolidShader = nullptr;
 			Shader = nullptr;
+			SolidPipelineLayout = nullptr;
 			PipelineLayout = nullptr;
 			TextureLayout = nullptr;
 			Device = nullptr;
@@ -134,6 +149,8 @@ namespace
 			pipelineLayoutDescription.bindGroupLayoutCount = 1;
 			pipelineLayoutDescription.bindGroupLayouts = &TextureLayout;
 			PipelineLayout = wgpuDeviceCreatePipelineLayout(device, &pipelineLayoutDescription);
+			WGPUPipelineLayoutDescriptor solidPipelineLayoutDescription = {};
+			SolidPipelineLayout = wgpuDeviceCreatePipelineLayout(device, &solidPipelineLayoutDescription);
 
 			const char* shaderSource = R"(
 struct VertexInput {
@@ -202,6 +219,49 @@ struct VertexOutput {
 			pipelineDescription.fragment = &fragment;
 			Pipeline = wgpuDeviceCreateRenderPipeline(device, &pipelineDescription);
 
+			const char* solidShaderSource = R"(
+struct VertexInput {
+    @location(0) clip: vec4<f32>,
+    @location(1) color: vec4<f32>,
+};
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+@vertex fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = vec4<f32>(input.clip.x, -input.clip.y, input.clip.z, input.clip.w);
+    output.color = input.color;
+    return output;
+}
+@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    return input.color;
+}
+)";
+			WGPUShaderSourceWGSL solidWgsl = {};
+			solidWgsl.chain.sType = WGPUSType_ShaderSourceWGSL;
+			solidWgsl.code = ToStringView(solidShaderSource);
+			WGPUShaderModuleDescriptor solidShaderDescription = {};
+			solidShaderDescription.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&solidWgsl);
+			SolidShader = wgpuDeviceCreateShaderModule(device, &solidShaderDescription);
+			WGPUVertexAttribute solidAttributes[2] = {};
+			solidAttributes[0] = { nullptr, WGPUVertexFormat_Float32x4, offsetof(SolidVertex, Clip), 0 };
+			solidAttributes[1] = { nullptr, WGPUVertexFormat_Float32x4, offsetof(SolidVertex, Color), 1 };
+			WGPUVertexBufferLayout solidVertexLayout = {};
+			solidVertexLayout.arrayStride = sizeof(SolidVertex);
+			solidVertexLayout.stepMode = WGPUVertexStepMode_Vertex;
+			solidVertexLayout.attributeCount = 2;
+			solidVertexLayout.attributes = solidAttributes;
+			WGPURenderPipelineDescriptor solidPipelineDescription = pipelineDescription;
+			solidPipelineDescription.layout = SolidPipelineLayout;
+			solidPipelineDescription.vertex.module = SolidShader;
+			solidPipelineDescription.vertex.buffers = &solidVertexLayout;
+			solidPipelineDescription.fragment = &fragment;
+			WGPUFragmentState solidFragment = fragment;
+			solidFragment.module = SolidShader;
+			solidPipelineDescription.fragment = &solidFragment;
+			SolidPipeline = wgpuDeviceCreateRenderPipeline(device, &solidPipelineDescription);
+
 			WGPUSamplerDescriptor samplerDescription = {};
 			samplerDescription.addressModeU = WGPUAddressMode_ClampToEdge;
 			samplerDescription.addressModeV = WGPUAddressMode_ClampToEdge;
@@ -211,7 +271,8 @@ struct VertexOutput {
 			samplerDescription.mipmapFilter = WGPUMipmapFilterMode_Nearest;
 			samplerDescription.maxAnisotropy = 1;
 			Sampler = wgpuDeviceCreateSampler(device, &samplerDescription);
-			if (!TextureLayout || !PipelineLayout || !Shader || !Pipeline || !Sampler)
+			if (!TextureLayout || !PipelineLayout || !SolidPipelineLayout || !Shader ||
+				!SolidShader || !Pipeline || !SolidPipeline || !Sampler)
 			{
 				Release();
 				return false;
@@ -248,6 +309,39 @@ struct VertexOutput {
 		};
 		vertices.insert(vertices.end(), std::begin(quad), std::end(quad));
 	}
+
+	void AppendSolidVertices(const Array<WebXR::UIVisualVertex>& source,
+		const ViewDescription& view, std::vector<SolidVertex>& vertices)
+	{
+		for (size_t index = 0; index + 2 < source.size(); index += 3)
+		{
+			SolidVertex triangle[3];
+			bool visible = true;
+			for (size_t corner = 0; corner < 3; corner++)
+			{
+				triangle[corner].Clip = view.Projection * view.WorldToView *
+					vec4(source[index + corner].Position, 1.0f);
+				triangle[corner].Color = source[index + corner].Color;
+				visible = visible && triangle[corner].Clip.w > 0.0001f;
+			}
+			if (visible)
+				vertices.insert(vertices.end(), std::begin(triangle), std::end(triangle));
+		}
+	}
+
+	template<typename Vertex>
+	WGPUBuffer CreateVertexBuffer(WebGPURenderDevice* device, const std::vector<Vertex>& vertices)
+	{
+		if (vertices.empty())
+			return nullptr;
+		WGPUBufferDescriptor description = {};
+		description.size = vertices.size() * sizeof(Vertex);
+		description.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+		WGPUBuffer buffer = wgpuDeviceCreateBuffer(device->Context->Device, &description);
+		if (buffer)
+			wgpuQueueWriteBuffer(device->Context->Queue, buffer, 0, vertices.data(), description.size);
+		return buffer;
+	}
 }
 
 bool WebXR::BindUISurfaceTargets(WebGPURenderDevice* device, WGPUTextureFormat format)
@@ -278,6 +372,7 @@ void WebXR::UnbindUISurfaceTargets(WebGPURenderDevice* device)
 
 bool WebXR::CompositeUISurfaces(WebGPURenderDevice* device, WGPUTextureFormat format,
 	const ViewFamily& family, const XRUICanvasReplayFrame& replayFrame,
+	const UIVisualFrame& visualFrame,
 	const WGPUTextureView* projectionViews, uint32_t projectionViewCount)
 {
 	if (!device || !device->Context || family.Views.size() != projectionViewCount ||
@@ -288,6 +383,14 @@ bool WebXR::CompositeUISurfaces(WebGPURenderDevice* device, WGPUTextureFormat fo
 	{
 		std::vector<CompositeVertex> vertices;
 		std::vector<SurfaceTexture*> surfaces;
+		std::vector<SolidVertex> beforeUI;
+		std::vector<SolidVertex> afterUI;
+		for (const UIHandVisual& hand : visualFrame.Hands)
+		{
+			AppendSolidVertices(hand.Controller, family.Views[viewIndex], beforeUI);
+			AppendSolidVertices(hand.Laser, family.Views[viewIndex], beforeUI);
+			AppendSolidVertices(hand.HitMarker, family.Views[viewIndex], afterUI);
+		}
 		for (const XRUICanvasReplayItem& item : replayFrame.Items)
 		{
 			SurfaceTexture* surface = State.Find(item.Target);
@@ -298,16 +401,20 @@ bool WebXR::CompositeUISurfaces(WebGPURenderDevice* device, WGPUTextureFormat fo
 			if (vertices.size() != oldSize)
 				surfaces.push_back(surface);
 		}
-		if (vertices.empty())
+		if (vertices.empty() && beforeUI.empty() && afterUI.empty())
 			continue;
 
-		WGPUBufferDescriptor bufferDescription = {};
-		bufferDescription.size = vertices.size() * sizeof(CompositeVertex);
-		bufferDescription.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-		WGPUBuffer vertexBuffer = wgpuDeviceCreateBuffer(device->Context->Device, &bufferDescription);
-		if (!vertexBuffer)
+		WGPUBuffer vertexBuffer = CreateVertexBuffer(device, vertices);
+		WGPUBuffer beforeBuffer = CreateVertexBuffer(device, beforeUI);
+		WGPUBuffer afterBuffer = CreateVertexBuffer(device, afterUI);
+		if ((!vertices.empty() && !vertexBuffer) || (!beforeUI.empty() && !beforeBuffer) ||
+			(!afterUI.empty() && !afterBuffer))
+		{
+			if (vertexBuffer) wgpuBufferRelease(vertexBuffer);
+			if (beforeBuffer) wgpuBufferRelease(beforeBuffer);
+			if (afterBuffer) wgpuBufferRelease(afterBuffer);
 			return false;
-		wgpuQueueWriteBuffer(device->Context->Queue, vertexBuffer, 0, vertices.data(), bufferDescription.size);
+		}
 
 		WGPUCommandEncoderDescriptor encoderDescription = {};
 		WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device->Context->Device, &encoderDescription);
@@ -324,8 +431,19 @@ bool WebXR::CompositeUISurfaces(WebGPURenderDevice* device, WGPUTextureFormat fo
 		wgpuRenderPassEncoderSetViewport(pass, static_cast<float>(viewport.X),
 			static_cast<float>(viewport.Y), static_cast<float>(viewport.Width),
 			static_cast<float>(viewport.Height), 0.0f, 1.0f);
-		wgpuRenderPassEncoderSetPipeline(pass, State.Pipeline);
-		wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer, 0, bufferDescription.size);
+		if (beforeBuffer)
+		{
+			wgpuRenderPassEncoderSetPipeline(pass, State.SolidPipeline);
+			wgpuRenderPassEncoderSetVertexBuffer(pass, 0, beforeBuffer, 0,
+				beforeUI.size() * sizeof(SolidVertex));
+			wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(beforeUI.size()), 1, 0, 0);
+		}
+		if (vertexBuffer)
+		{
+			wgpuRenderPassEncoderSetPipeline(pass, State.Pipeline);
+			wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer, 0,
+				vertices.size() * sizeof(CompositeVertex));
+		}
 		for (size_t surfaceIndex = 0; surfaceIndex < surfaces.size(); surfaceIndex++)
 		{
 			WGPUBindGroupEntry bindEntries[2] = {};
@@ -342,6 +460,13 @@ bool WebXR::CompositeUISurfaces(WebGPURenderDevice* device, WGPUTextureFormat fo
 			wgpuRenderPassEncoderDraw(pass, 6, 1, static_cast<uint32_t>(surfaceIndex * 6), 0);
 			wgpuBindGroupRelease(bindGroup);
 		}
+		if (afterBuffer)
+		{
+			wgpuRenderPassEncoderSetPipeline(pass, State.SolidPipeline);
+			wgpuRenderPassEncoderSetVertexBuffer(pass, 0, afterBuffer, 0,
+				afterUI.size() * sizeof(SolidVertex));
+			wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(afterUI.size()), 1, 0, 0);
+		}
 		wgpuRenderPassEncoderEnd(pass);
 		wgpuRenderPassEncoderRelease(pass);
 		WGPUCommandBufferDescriptor commandDescription = {};
@@ -349,7 +474,9 @@ bool WebXR::CompositeUISurfaces(WebGPURenderDevice* device, WGPUTextureFormat fo
 		wgpuQueueSubmit(device->Context->Queue, 1, &commandBuffer);
 		wgpuCommandBufferRelease(commandBuffer);
 		wgpuCommandEncoderRelease(encoder);
-		wgpuBufferRelease(vertexBuffer);
+		if (vertexBuffer) wgpuBufferRelease(vertexBuffer);
+		if (beforeBuffer) wgpuBufferRelease(beforeBuffer);
+		if (afterBuffer) wgpuBufferRelease(afterBuffer);
 	}
 	return true;
 }

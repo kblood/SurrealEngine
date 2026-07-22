@@ -126,9 +126,12 @@ projection eye in `BuildReplayFrame()` order with no world-depth attachment.
 The desktop slot-zero path is unchanged.
 
 WebXR aim poses and eye poses share one coordinate/recenter transform. The
-provider routes both hands through `UpdateRayPointer()` and exports the exact
-ray/contact result for laser and hit-marker visualization. It deliberately does
-not choose a dominant hand or bind weapon/locomotion behavior. Menu activation
+provider routes both hands through `UpdateRayPointer()` and uses the exact
+ray/contact result for procedural controller, laser, and hit-marker geometry in
+both projection eyes. Controllers and beams render before captured UI; the
+opaque marker alone renders after it at the exact contact point. Selecting
+brightens and thickens only that hand's visuals, with no dominant-hand policy.
+It deliberately does not bind weapon/locomotion behavior. Menu activation
 comes from the existing engine menu state; cinematic activation comes from the
 existing video guard. Loading still needs an explicit engine visibility signal,
 and the Emscripten target currently has no video decoder for validating intro

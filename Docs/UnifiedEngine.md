@@ -131,11 +131,14 @@ commercial packages, and records SHA-256 hashes for every payload file.
 
 The direct WebGPU XR provider now owns actual left/right projection textures,
 viewports, asymmetric projection matrices, controller packets, and failure-safe
-frame-loop transfer. The engine binding captures actual menu, intro/video, and
-loading canvases, preserves topmost menu ordering, delays click edges until the
-new cursor position is consumed, and retains physical mouse fallback. The
-remaining renderer work is composing those captured surfaces into each XR eye
-and drawing pointer feedback from the exact same hit result.
+frame-loop transfer. The engine binding captures menu, intro/video, and loading
+canvases, preserves topmost menu ordering, delays click edges until the new
+cursor position is consumed, and retains physical mouse fallback. Captured
+surfaces are composited into both projection eyes. Procedural controller
+proxies, beams, and opaque markers consume the exact hit-test feedback with no
+dominant-hand or weapon-gameplay policy. Browser video decoding, synchronous
+intro lifecycle, and loading visibility remain content/lifecycle work rather
+than projection compositor work.
 
 Physical Quest presentation is still a hard gate. Current Meta Quest Browser
 reports do not show production `XRGPUBinding` support even though ordinary
@@ -159,9 +162,9 @@ fallback is represented as complete yet.
 - XR: presentation layers, opaque target binding, and per-view target selection
   are explicit. Native OpenXR and direct WebGPU WebXR providers, live controller
   input, XR-common spaces, pointer hits, haptic routing, provider-neutral
-  UI-surface policy, and actual engine canvas/input binding are integrated. The
-  projection-eye UI compositor and Quest-compatible WebGL presentation fallback
-  are active isolated lanes.
+  UI-surface policy, actual engine canvas/input binding, projection-eye UI
+  composition, and exact-contact controller visuals are integrated. The
+  Quest-compatible WebGL presentation fallback remains an active isolated lane.
 
 The upstream repository is active. Contact in the public Discord on 2026-07-22
 confirmed that small bug fixes and improvements are welcome when maintainers can
@@ -172,8 +175,9 @@ human-curated bugfix-first PR strategy. No upstream PR has been opened.
 
 ## Next integration gates
 
-1. Finish projection-eye composition of captured menu, intro/video, loading,
-   controller-ray, and exact-contact feedback without double-running script UI.
+1. Validate projection-eye menu/controller/laser/contact composition on Quest,
+   then connect browser video decoding and authoritative loading visibility
+   without double-running script UI.
 2. Complete the smallest viable `XRWebGLLayer` path for production Quest
    Browser, or document a verified target browser/runtime that exposes the
    direct `XRGPUBinding` path.

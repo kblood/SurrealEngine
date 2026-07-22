@@ -59,6 +59,7 @@ namespace
 	{
 		WebXR::PackedPointerFeedback result;
 		result.Active = source.Active ? 1u : 0u;
+		result.Selecting = source.Selecting ? 1u : 0u;
 		result.Hit = source.Contact.Hit ? 1u : 0u;
 		result.Surface = static_cast<uint32_t>(source.Contact.Surface);
 		result.Hand = source.Hand == XRHand::Left ? 0u : 1u;
@@ -269,8 +270,10 @@ extern "C"
 				engine->CameraLocation, bodyRotation, WorldUnitsPerMeter, Recenter);
 			engine->RenderGameFrame(levelElapsed, family);
 			const XRUICanvasReplayFrame replayFrame = ui.BuildReplayFrame();
+			const WebXR::UIVisualFrame visualFrame = WebXR::BuildUIVisualFrame(
+				UIInput.Feedback(), replayFrame, WorldUnitsPerMeter);
 			if (!WebXR::CompositeUISurfaces(device, handles[0].Format, family, replayFrame,
-				views, frame.Header.ViewCount))
+				visualFrame, views, frame.Header.ViewCount))
 				throw std::runtime_error("WebXR UI composition failed");
 			engine->FinishGameFrame(levelElapsed);
 		}

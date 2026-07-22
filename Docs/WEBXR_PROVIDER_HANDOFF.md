@@ -56,9 +56,41 @@ in this connector.
 
 `Surreal_GetWebXRPointerFeedback` exposes the exact ray and the exact contact
 returned by `XRUISurfaceEngineBinding`, including surface, UV, pixel, distance,
-and world hit point. A later controller/laser renderer must consume this result
-instead of repeating hit testing. This change does not yet draw controller
-models or a laser.
+world hit point, and current select-button state. The projection compositor
+consumes this result directly instead of repeating hit testing.
+
+While any XR UI surface is visible, both connected hands are represented by a
+small procedural pistol-like controller proxy and an eight-sided laser beam.
+Left and right use cyan/blue and orange colors respectively. A hand holding
+select becomes brighter and its beam becomes 1.6 times thicker; this is derived
+per hand and does not select a dominant controller. The solid draw order is:
+
+1. controller proxies and laser beams (`100`);
+2. captured HUD/cinematic/loading/menu surfaces (`200` through `500`); and
+3. opaque twelve-sided contact markers (`600`).
+
+The beam begins at the exact hit-test ray origin and ends at the feedback hit
+point. A contact marker is centred on that same point using the hit surface's
+right/up axes. It is the only feedback primitive drawn over the menu, so the
+menu remains topmost relative to controllers and beams while its active contact
+is still unambiguous.
+
+Default visual settings are intentionally centralized in `UIVisualSettings`:
+
+| Setting | Default |
+| --- | ---: |
+| Controller body length | 0.14 m |
+| Controller body width / height | 0.045 m / 0.04 m |
+| Grip length | 0.10 m |
+| Grip forward / up offset from aim origin | -0.075 m / -0.065 m |
+| Laser radius | 0.0025 m |
+| Selecting beam scale | 1.6x |
+| Hit marker radius | 0.014 m |
+
+These metre values are converted with the same `WorldUnitsPerMeter` used for
+eyes, controller rays, and UI surface placement. The proxy intentionally uses
+procedural geometry rather than a UT weapon mesh: it does not acquire game
+assets, alter weapon gameplay, or add provider handles to shared contracts.
 
 ## Dependency and commit order
 
@@ -159,7 +191,8 @@ rendering to the flat canvas.
 
 Completed locally:
 
-- native Windows Release compile/link of `SurrealEngine`;
+- native Windows RelWithDebInfo compile/link of the complete default target
+  set, including `SurrealEngine`, editor, debugger, and tests;
 - `PresentationTests` and `WebXRFrameBridgeTests`, both passing;
 - synthetic Node lifecycle test covering capability, preferred RGBA format,
   duplicate-entry rejection, distinct per-eye textures, shared texture-array
@@ -167,8 +200,11 @@ Completed locally:
   failure, exit, and re-entry;
 - Emscripten compilation and final JavaScript/WASM link;
 - focused `WebXRUIProviderTests` coverage for shared pose conversion, stable
-  descriptor targets/scaling, center-pixel contact, and one-shot replay/click;
-- all eight WebXR/XR-UI focused native tests passing after the connector;
+  descriptor targets/scaling, center-pixel contact, one-shot replay/click,
+  both-hand visual construction, exact beam endpoint/radius, marker alignment,
+  draw-order invariants, and held-select edge behavior;
+- all 23 registered native tests passing after the visual connector, including
+  all eight WebXR/XR-UI focused tests;
 - flat Chrome/WebGPU UT99 runtime after the provider changes: ticked from 61
   to 604, 95 draw calls, 75 cached textures, zero WebGPU errors, 100% nonblank
   screenshot pixels, and clean quit;
@@ -218,10 +254,10 @@ that can draw to the `XRWebGLLayer` framebuffer while reusing the same neutral
 sizable renderer project and must be an explicit product decision; it is not a
 small fallback inside this provider.
 
-The integration provider renders the world plus captured menu/loading/
-cinematic surfaces. Weapon rendering remains disabled and tracked-hand models
-and visible lasers remain follow-ups; the exact feedback data is available for
-them. Browser audio remains the flat platform's null backend.
+The integration provider renders the world, procedural tracked-controller
+proxies, exact-contact lasers/markers, and captured menu/loading/cinematic
+surfaces. Weapon rendering remains disabled; the proxy is intentionally not a
+game weapon model. Browser audio remains the flat platform's null backend.
 
 Emscripten currently builds `NullVideoDecoder`, so a real intro/cinematic frame
 cannot be validated in this build even though its capture target and projection
@@ -231,6 +267,13 @@ if a browser video decoder is added, video stepping must be reconciled with
 loop. Loading has a configured target but still needs an authoritative engine
 loading-visibility signal before it can be shown. These are exact content/
 lifecycle blockers, not quad-compositor blockers.
+
+The procedural proxy uses target-ray orientation with a stable world-up roll;
+the current feedback contract does not carry grip-pose roll into the compositor.
+A headset pass must validate perceived proxy size, near-field comfort, beam
+thickness, stereo marker convergence, controller disconnect, both-hands-held
+selection, and menu readability on Quest before these defaults are considered
+release tuned.
 
 ## Shared browser launcher composition
 

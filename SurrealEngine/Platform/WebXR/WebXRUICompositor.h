@@ -11,6 +11,7 @@ namespace WebXR
 	void UnbindUISurfaceTargets(WebGPURenderDevice* device);
 	bool CompositeUISurfaces(WebGPURenderDevice* device, WGPUTextureFormat format,
 		const ViewFamily& family, const XRUICanvasReplayFrame& replayFrame,
+		const UIVisualFrame& visualFrame,
 		const WGPUTextureView* projectionViews, uint32_t projectionViewCount);
 	void ResetUICompositor(WebGPURenderDevice* device);
 }

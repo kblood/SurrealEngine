@@ -21,12 +21,13 @@ namespace
 			Cursor = pixel;
 		}
 		void PressXRUIPrimary(const XRUIPointerSource&, XRUISurfaceKind, const Pointf&) override { Presses++; }
-		void ReleaseXRUIPrimary(const XRUIPointerSource&, XRUISurfaceKind, const Pointf&, bool) override {}
+		void ReleaseXRUIPrimary(const XRUIPointerSource&, XRUISurfaceKind, const Pointf&, bool) override { Releases++; }
 		void EndXRUIPointerSession() override {}
 
 		int Captures = 0;
 		int Replays = 0;
 		int Presses = 0;
+		int Releases = 0;
 		Pointf Cursor;
 	};
 }
@@ -89,6 +90,65 @@ int main()
 	binding.Replay(XRUICanvasReplayContext::Game);
 	if (host.Captures != 1 || host.Replays != 1 || host.Presses != 1)
 		return 5;
+	const WebXR::PointerFeedback& selectingFeedback =
+		connector.Feedback()[XRHandIndex(XRHand::Right)];
+	if (!selectingFeedback.Selecting)
+		return 6;
+
+	const XRUICanvasReplayFrame replayFrame = binding.BuildReplayFrame();
+	const WebXR::UIVisualFrame visuals = WebXR::BuildUIVisualFrame(
+		connector.Feedback(), replayFrame, units);
+	if (visuals.Hands.size() != 1 || visuals.Hands[0].Hand != XRHand::Right ||
+		!visuals.Hands[0].Selecting || visuals.Hands[0].Controller.size() != 72 ||
+		visuals.Hands[0].Laser.size() != 48 || visuals.Hands[0].HitMarker.size() != 36)
+		return 7;
+	if (!(WebXR::ControllerVisualCompositionOrder < replayFrame.Items[0].Surface.CompositionOrder &&
+		WebXR::HitMarkerCompositionOrder > replayFrame.Items[0].Surface.CompositionOrder))
+		return 8;
+	for (const WebXR::UIVisualVertex& vertex : visuals.Hands[0].Laser)
+	{
+		if (vertex.Position.x < -0.001f ||
+			vertex.Position.x > selectingFeedback.HitPoint.x + 0.001f ||
+			!NearlyEqual(std::sqrt(vertex.Position.y * vertex.Position.y +
+				vertex.Position.z * vertex.Position.z),
+				0.0025f * units * 1.6f, 0.001f))
+			return 9;
+	}
+	for (size_t index = 0; index < visuals.Hands[0].HitMarker.size(); index += 3)
+	{
+		const vec3& center = visuals.Hands[0].HitMarker[index].Position;
+		if (!NearlyEqual(center.x, selectingFeedback.HitPoint.x) ||
+			!NearlyEqual(center.y, selectingFeedback.HitPoint.y) ||
+			!NearlyEqual(center.z, selectingFeedback.HitPoint.z) ||
+			visuals.Hands[0].HitMarker[index].Color.a != 1.0f)
+			return 10;
+	}
+	auto bothHands = connector.Feedback();
+	bothHands[XRHandIndex(XRHand::Left)] = selectingFeedback;
+	bothHands[XRHandIndex(XRHand::Left)].Hand = XRHand::Left;
+	bothHands[XRHandIndex(XRHand::Left)].Selecting = false;
+	bothHands[XRHandIndex(XRHand::Left)].Ray.Origin.y -= 4.0f;
+	bothHands[XRHandIndex(XRHand::Left)].HitPoint.y -= 4.0f;
+	const WebXR::UIVisualFrame pairedVisuals = WebXR::BuildUIVisualFrame(bothHands, replayFrame, units);
+	if (pairedVisuals.Hands.size() != 2 || pairedVisuals.Hands[0].Hand != XRHand::Left ||
+		pairedVisuals.Hands[0].Selecting || pairedVisuals.Hands[1].Hand != XRHand::Right ||
+		!pairedVisuals.Hands[1].Selecting ||
+		pairedVisuals.Hands[0].Controller[0].Color == pairedVisuals.Hands[1].Controller[0].Color)
+		return 11;
+
+	// A held select remains visual state; it does not synthesize another edge.
+	connector.Update(input, binding, vec3(0.0f), Coords::Identity(), units, recenter);
+	binding.Replay(XRUICanvasReplayContext::Game);
+	if (host.Presses != 1)
+		return 12;
+	input.Controllers.ForHand(XRHand::Right).Select.Pressed = false;
+	connector.Update(input, binding, vec3(0.0f), Coords::Identity(), units, recenter);
+	binding.Replay(XRUICanvasReplayContext::Game);
+	if (host.Releases != 1)
+		return 13;
+
+	if (!WebXR::BuildUIVisualFrame(connector.Feedback(), {}, units).Hands.empty())
+		return 14;
 
 	std::cout << "WebXR UI provider tests passed\n";
 	return 0;
