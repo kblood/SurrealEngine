@@ -43,6 +43,11 @@ struct InitDbgHelp
 #include <cstdlib>
 #include <memory>
 
+#elif defined __EMSCRIPTEN__
+
+// No native stack unwinding here; CaptureStackFrames()'s generic
+// non-_WIN64 branch below already returns a no-op empty trace.
+
 #else
 
 #error "Exception.cpp: Unsupported Target"

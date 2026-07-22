@@ -83,7 +83,60 @@ Engine::~Engine()
 	engine = nullptr;
 }
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
+static void EngineMainLoopCallback(void* arg)
+{
+	Engine* eng = static_cast<Engine*>(arg);
+	if (eng->quit)
+	{
+		emscripten_cancel_main_loop();
+		eng->Shutdown();
+		return;
+	}
+	eng->RunOneFrame();
+}
+
+// Browser smoke-test hooks let host JS observe the RAF-driven loop is live
+// and request a clean shutdown, without needing any real rendering.
+extern "C"
+{
+	// uint32_t, not uint64_t: ccall/cwrap don't legalize i64 return values to
+	// JS Number without -sWASM_BIGINT, and M1's smoke test only needs "is
+	// this advancing", not the full 64-bit range.
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetTickCount()
+	{
+		return engine ? static_cast<uint32_t>(engine->tickCount) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE void Surreal_RequestQuit()
+	{
+		if (engine)
+			engine->quit = true;
+	}
+}
+#endif
+
 void Engine::Run()
+{
+	Setup();
+#ifdef __EMSCRIPTEN__
+	// simulate_infinite_loop=0: matches QuakeQuest's main_web.c reference -
+	// this returns immediately after registering the RAF callback rather
+	// than unwinding the stack via a JS-level throw (simulate_infinite_loop=1
+	// relies on that unwind to keep stack-allocated locals like `this` alive,
+	// which isn't reliable here). GameApp.cpp gives the Engine static storage
+	// duration so it survives this function returning.
+	emscripten_set_main_loop_arg(EngineMainLoopCallback, this, 0, 0);
+#else
+	while (!quit)
+		RunOneFrame();
+	Shutdown();
+#endif
+}
+
+void Engine::Setup()
 {
 	LogMessage("Game: " + LaunchInfo.gameName + " (Version: " + LaunchInfo.gameVersionString + ")");
 	LoadEngineSettings();
@@ -120,10 +173,10 @@ void Engine::Run()
 	frameObjProp = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	frameVecProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	frameRotProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
+}
 
-	while (!quit)
-		RunOneFrame();
-
+void Engine::Shutdown()
+{
 	LogMessage("Shutting down...");
 	window->UnlockCursor();
 
@@ -144,6 +197,7 @@ void Engine::Run()
 
 void Engine::RunOneFrame()
 {
+	tickCount++;
 	const float levelElapsed = AdvanceGameFrame();
 	RenderGameFrame(levelElapsed);
 	FinishGameFrame(levelElapsed);
@@ -1521,7 +1575,28 @@ void Engine::OpenWindow()
 
 	int width = client->StartupFullscreen ? client->FullscreenViewportX : client->WindowedViewportX;
 	int height = client->StartupFullscreen ? client->FullscreenViewportY : client->WindowedViewportY;
+#ifdef __EMSCRIPTEN__
+	// Never request the browser Fullscreen API, even if StartupFullscreen=True
+	// in the ini (UT99's shipped default). Two reasons: (1) it requires a user
+	// gesture, which --autoplay boot never has, so the request itself is a
+	// no-op/rejected promise; (2) it's the trigger for a real dangling-pointer
+	// bug in Emscripten's bundled SDL2 port - Emscripten_SetWindowFullscreen()
+	// (SDL_emscriptenvideo.c) hands the SDL_WindowData* to libhtml5.js's
+	// registerRestoreOldStyle(), which installs a *document*-level
+	// 'fullscreenchange' listener (restoreOldStyle) that SDL's own
+	// Emscripten_UnregisterEventHandlers() doesn't know about and never
+	// removes. If that listener fires after SDL_DestroyWindow() has already
+	// freed window->driverdata, restoreOldStyle() calls back into
+	// Emscripten_HandleCanvasResize() with the freed pointer, which reads the
+	// now-garbage canvas_id field and passes it to
+	// emscripten_get_element_css_size() -> findEventTarget() ->
+	// document.querySelector() with a garbage string, throwing an uncaught
+	// SyntaxError. Confirmed via a -sSAFE_HEAP=1 -g2 scratch build. A browser
+	// shell can request fullscreen later in response to a user gesture.
+	bool fullscreen = false;
+#else
 	bool fullscreen = client->StartupFullscreen;
+#endif
 
 	std::string versionString = !LaunchInfo.gameVersionString.empty() ? " (v" + LaunchInfo.gameVersionString + ")" : "";
 
