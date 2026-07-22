@@ -51,7 +51,7 @@ use a separate local-only store with a strict path allowlist. See
 exported into a release artifact.
 
 Bump `APP_VERSION` in `service-worker.js` whenever shell/runtime compatibility
-changes; the current integrated shell is `2026.07.22-m10.4`. Activation verifies the complete new shell cache before deleting older
+changes; the current integrated shell is `2026.07.22-m10.5`. Activation verifies the complete new shell cache before deleting older
 `surrealengine-webxr-*` caches. HTML is network-first, so an online reload sees
 updates; immutable no-data JS/Wasm is cache-first within that version.
 

@@ -3,7 +3,7 @@
 // Bump this for every deploy that changes shell/runtime compatibility. Old
 // SurrealEngine caches are removed only after this version has installed all
 // required shell files successfully.
-const APP_VERSION = "2026.07.22-m10.4";
+const APP_VERSION = "2026.07.22-m10.5";
 const CACHE_PREFIX = "surrealengine-webxr-";
 const SHELL_CACHE = CACHE_PREFIX + APP_VERSION + "-shell";
 const RUNTIME_CACHE = CACHE_PREFIX + APP_VERSION + "-runtime";

@@ -1705,6 +1705,31 @@ localhost was secure, `XRGPUBinding` was a function, the active runtime was
 VDXR, readiness had no blockers, and native phase remained honestly idle. The
 physical version of the same collector remains the compositor gate.
 
+## Safe exit and controller-tracking feedback (2026-07-22)
+
+Commit `14834afd` replaces immediate active-session exit with a deliberate
+interaction state machine. The same visible action must be selected twice
+between a 300 ms debounce and five-second expiry, with an explicit Keep Playing
+cancellation. A headset-safe fallback requires both controllers' standard grip
+and secondary-face controls continuously for 2.5 seconds. It never observes or
+reserves the runtime system/menu button, never masks the engine-facing
+controller snapshot, and routes `session.end()` through a single-flight
+generation/reason guard. An ordinary single B/Y press is an explicit negative
+fixture and remains available to gameplay/menu code.
+
+The normalized input-source snapshot also drives acquiring, healthy, degraded,
+lost, and recovered pointer/controller feedback with incident and recovery
+counters. The page requests DOM Overlay only as an optional feature so
+unsupported Brave/VDXR runtimes are not rejected. When granted, the same status
+and two-step exit surface is visible in-headset and prevents selection from
+firing behind its controls. Without DOM Overlay the tested two-hand chord still
+exits safely, but guaranteed in-headset text requires a later engine-rendered
+HUD/quad path.
+
+The isolated Playwright suite passes 38 checks, and both default and full
+experimental WebXR smokes pass. Because shell/session behavior changed, the
+service-worker cache generation advances to `2026.07.22-m10.5`.
+
 ## M11 repeatable performance harness (2026-07-22)
 
 Commit `df25fa36` adds `web/profile_webxr.py`, its pure report/validation module,
