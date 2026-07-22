@@ -74,6 +74,9 @@ public:
 	void Run();
 	void Setup();
 	void RunOneFrame();
+	float AdvanceGameFrame();
+	void RenderGameFrame(float levelElapsed);
+	void FinishGameFrame(float levelElapsed);
 	void Shutdown();
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);

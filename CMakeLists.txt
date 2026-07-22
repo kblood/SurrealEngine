@@ -178,6 +178,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Audio/AudioSource.cpp
 	SurrealEngine/Audio/AudioDevice.cpp
 	SurrealEngine/Audio/AudioDevice.h
+	SurrealEngine/Audio/BrowserAudioBridge.cpp
+	SurrealEngine/Audio/BrowserAudioBridge.h
 	SurrealEngine/Video/VideoPlayer.cpp
 	SurrealEngine/Video/VideoPlayer.h
 	SurrealEngine/Video/AVIFileReader.h
@@ -597,6 +599,7 @@ if(EMSCRIPTEN)
 	set(SURREALCOMMON_LIBS
 		surrealwidgets
 		openmpt
+		openal
 	)
 else()
 	set(SURREALCOMMON_LIBS
@@ -752,7 +755,11 @@ elseif(APPLE)
 	add_link_options(-pthread)
 elseif(EMSCRIPTEN)
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "RenderDevice/Vulkan/")
-	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "Audio/AudioDevice\\.cpp$")
+	# Emscripten's OpenAL implementation maps the existing engine backend onto
+	# Web Audio, retaining the native sound/music decoding and spatial updates.
+	# The no-op fallback defines the same AudioDevice::Create symbol, so omit it
+	# for browser builds now that a real output backend is available.
+	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "Audio/NullAudioDevice\\.cpp$")
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "UI/Editor/")
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "SurrealEngine/EditorApp\\.")
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "SurrealEngine/DebuggerApp\\.")
@@ -835,7 +842,7 @@ if(EMSCRIPTEN)
 		-sINVOKE_RUN=0
 		-sEXIT_RUNTIME=0
 		-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall
-		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit
+		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_GetWebAudioState,_Surreal_ResumeWebAudio,_Surreal_GetWebAudioResumeCount
 		-sASSERTIONS=1
 		-sNO_DISABLE_EXCEPTION_CATCHING
 		-pthread

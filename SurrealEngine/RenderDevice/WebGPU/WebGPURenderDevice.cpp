@@ -62,8 +62,9 @@ WebGPURenderDevice::~WebGPURenderDevice()
 	if (FramePass) { wgpuRenderPassEncoderRelease(FramePass); FramePass = nullptr; }
 	if (FrameEncoder) { wgpuCommandEncoderRelease(FrameEncoder); FrameEncoder = nullptr; }
 	if (CurrentSurfaceView) { wgpuTextureViewRelease(CurrentSurfaceView); CurrentSurfaceView = nullptr; }
-	if (CurrentSurfaceTexture) { wgpuTextureRelease(CurrentSurfaceTexture); CurrentSurfaceTexture = nullptr; }
-	if (PendingExternalTexture) { wgpuTextureRelease(PendingExternalTexture); PendingExternalTexture = nullptr; }
+	if (CurrentSurfaceTexture && !UsingExternalRenderTarget) { wgpuTextureRelease(CurrentSurfaceTexture); }
+	CurrentSurfaceTexture = nullptr;
+	if (ExternalFrameTexture) { wgpuTextureRelease(ExternalFrameTexture); ExternalFrameTexture = nullptr; }
 	ClearTextureBindGroupCache();
 	if (UniformsBindGroup) wgpuBindGroupRelease(UniformsBindGroup);
 	if (UniformBuffer) wgpuBufferRelease(UniformBuffer);
@@ -75,16 +76,148 @@ WebGPURenderDevice::~WebGPURenderDevice()
 
 bool WebGPURenderDevice::QueueExternalRenderTarget(WGPUTexture texture, uint32_t arrayLayer, int width, int height)
 {
-	if (!texture || width <= 0 || height <= 0 || IsLocked || PendingExternalTexture)
+	if (!BeginExternalRenderTargetFrame(texture, width, height, arrayLayer))
+		return false;
+	AutoEndExternalFrame = true;
+	return true;
+}
+
+bool WebGPURenderDevice::BeginExternalRenderTargetFrame(WGPUTexture texture, int textureWidth, int textureHeight, uint32_t initialArrayLayer)
+{
+	if (!texture || textureWidth <= 0 || textureHeight <= 0 || IsLocked || ExternalFrameActive)
 		return false;
 
 	SavedFixedRenderWidth = FixedRenderWidth;
 	SavedFixedRenderHeight = FixedRenderHeight;
-	PendingExternalTexture = texture;
-	PendingExternalArrayLayer = arrayLayer;
-	PendingExternalWidth = width;
-	PendingExternalHeight = height;
-	SetFixedRenderSize(width, height);
+	ExternalFrameTexture = texture;
+	ExternalArrayLayer = initialArrayLayer;
+	ExternalTextureWidth = textureWidth;
+	ExternalTextureHeight = textureHeight;
+	ExternalViewportX = 0;
+	ExternalViewportY = 0;
+	ExternalViewportWidth = textureWidth;
+	ExternalViewportHeight = textureHeight;
+	ExternalFrameDrawCalls = 0;
+	ExternalFrameLocks = 0;
+	ExternalFrameActive = true;
+	AutoEndExternalFrame = false;
+	SetFixedRenderSize(textureWidth, textureHeight);
+	return true;
+}
+
+bool WebGPURenderDevice::SelectExternalRenderTargetView(uint32_t arrayLayer, int viewportX, int viewportY, int viewportWidth, int viewportHeight)
+{
+	if (!ExternalFrameActive || !ExternalFrameTexture || viewportX < 0 || viewportY < 0 || viewportWidth <= 0 || viewportHeight <= 0 ||
+		viewportX > ExternalTextureWidth - viewportWidth || viewportY > ExternalTextureHeight - viewportHeight)
+		return false;
+
+	if (IsLocked)
+		return SwitchLockedExternalRenderTargetView(arrayLayer, viewportX, viewportY, viewportWidth, viewportHeight);
+
+	ExternalArrayLayer = arrayLayer;
+	ExternalViewportX = viewportX;
+	ExternalViewportY = viewportY;
+	ExternalViewportWidth = viewportWidth;
+	ExternalViewportHeight = viewportHeight;
+	SetFixedRenderSize(viewportWidth, viewportHeight);
+	return true;
+}
+
+bool WebGPURenderDevice::SelectExternalRenderTargetLayer(uint32_t arrayLayer)
+{
+	return SelectExternalRenderTargetView(arrayLayer, ExternalViewportX, ExternalViewportY, ExternalViewportWidth, ExternalViewportHeight);
+}
+
+bool WebGPURenderDevice::EndExternalRenderTargetFrame()
+{
+	if (IsLocked || !ExternalFrameActive)
+		return false;
+
+	if (ExternalFrameTexture)
+		wgpuTextureRelease(ExternalFrameTexture);
+	ExternalFrameTexture = nullptr;
+	ExternalFrameActive = false;
+	AutoEndExternalFrame = false;
+	ExternalTextureWidth = 0;
+	ExternalTextureHeight = 0;
+	ExternalViewportX = 0;
+	ExternalViewportY = 0;
+	ExternalViewportWidth = 0;
+	ExternalViewportHeight = 0;
+	ExternalArrayLayer = 0;
+	SetFixedRenderSize(SavedFixedRenderWidth, SavedFixedRenderHeight);
+
+	if (ExternalFrameLocks > 0)
+	{
+		ExternalRenderTargetFrames++;
+		LastExternalRenderTargetDrawCalls = ExternalFrameDrawCalls;
+	}
+	ExternalFrameDrawCalls = 0;
+	ExternalFrameLocks = 0;
+	return true;
+}
+
+WGPUTextureView WebGPURenderDevice::CreateExternalRenderTargetView(uint32_t arrayLayer) const
+{
+	if (!ExternalFrameTexture)
+		return nullptr;
+
+	WGPUTextureViewDescriptor viewDesc = {};
+	viewDesc.format = Context->SurfaceFormat;
+	viewDesc.dimension = WGPUTextureViewDimension_2D;
+	viewDesc.baseMipLevel = 0;
+	viewDesc.mipLevelCount = 1;
+	viewDesc.baseArrayLayer = arrayLayer;
+	viewDesc.arrayLayerCount = 1;
+	viewDesc.aspect = WGPUTextureAspect_All;
+	return wgpuTextureCreateView(ExternalFrameTexture, &viewDesc);
+}
+
+bool WebGPURenderDevice::SwitchLockedExternalRenderTargetView(uint32_t arrayLayer, int viewportX, int viewportY, int viewportWidth, int viewportHeight)
+{
+	if (!UsingExternalRenderTarget || !FramePass || !FrameEncoder || !CurrentSurfaceView)
+		return false;
+
+	// Create the new view before disturbing the current pass so a bad layer or
+	// incompatible imported texture cannot strand the renderer half-switched.
+	WGPUTextureView nextView = CreateExternalRenderTargetView(arrayLayer);
+	if (!nextView)
+		return false;
+
+	DrawBatches(/*submitBoundary=*/false);
+	EndAndSubmitFramePass();
+	wgpuTextureViewRelease(CurrentSurfaceView);
+	CurrentSurfaceView = nextView;
+
+	ExternalArrayLayer = arrayLayer;
+	ExternalViewportX = viewportX;
+	ExternalViewportY = viewportY;
+	ExternalViewportWidth = viewportWidth;
+	ExternalViewportHeight = viewportHeight;
+	CurrentSizeX = viewportWidth;
+	CurrentSizeY = viewportHeight;
+	SetFixedRenderSize(viewportWidth, viewportHeight);
+
+	// Color/depth attachments retain the full texture extent required by
+	// WebGPU render-pass validation. The eye's physical sub-rectangle is a
+	// viewport within those attachments and its logical size drives projection.
+	ConfigureDepthBuffer(ExternalTextureWidth, ExternalTextureHeight);
+	ViewportX = (float)viewportX;
+	ViewportY = (float)viewportY;
+	ViewportW = (float)viewportWidth;
+	ViewportH = (float)viewportHeight;
+	ViewportMinDepth = 0.1f;
+	ViewportMaxDepth = 1.0f;
+	HaveViewport = true;
+	BeginFramePass(/*colorClear=*/true, CurrentClearColor, /*depthClear=*/true);
+
+	SceneVertexPos = 0;
+	SceneIndexPos = 0;
+	UploadedVertexPos = 0;
+	UploadedIndexPos = 0;
+	Batch = WebGPUDrawBatchEntry();
+	QueuedBatches.clear();
+	Stats.BuffersUsed++;
 	return true;
 }
 
@@ -186,20 +319,21 @@ void WebGPURenderDevice::Lock(vec4 InFlashScale, vec4 InFlashFog, vec4 ScreenCle
 	Stats.BindGroupsCreated = 0;
 	Stats.BindGroupCacheHits = 0;
 
-	UsingExternalRenderTarget = PendingExternalTexture != nullptr;
-	CurrentSizeX = UsingExternalRenderTarget ? PendingExternalWidth : GetRenderWidth();
-	CurrentSizeY = UsingExternalRenderTarget ? PendingExternalHeight : GetRenderHeight();
+	UsingExternalRenderTarget = ExternalFrameActive && ExternalFrameTexture != nullptr;
+	CurrentSizeX = UsingExternalRenderTarget ? ExternalViewportWidth : GetRenderWidth();
+	CurrentSizeY = UsingExternalRenderTarget ? ExternalViewportHeight : GetRenderHeight();
 
 	nulltex = Textures->GetNullTexture();
 
-	ConfigureDepthBuffer(CurrentSizeX, CurrentSizeY);
+	ConfigureDepthBuffer(UsingExternalRenderTarget ? ExternalTextureWidth : CurrentSizeX,
+		UsingExternalRenderTarget ? ExternalTextureHeight : CurrentSizeY);
 
 	if (UsingExternalRenderTarget)
 	{
-		// Transfer the imported wrapper into the active frame. The underlying
-		// JavaScript GPUTexture remains owned by the browser/WebXR layer.
-		CurrentSurfaceTexture = PendingExternalTexture;
-		PendingExternalTexture = nullptr;
+		// ExternalFrameTexture is retained for the complete browser XR frame,
+		// allowing both eye layers to render under this Lock()/Unlock(). Do not
+		// release this alias from Unlock(); explicit End owns that transition.
+		CurrentSurfaceTexture = ExternalFrameTexture;
 	}
 	else
 	{
@@ -209,18 +343,38 @@ void WebGPURenderDevice::Lock(vec4 InFlashScale, vec4 InFlashFog, vec4 ScreenCle
 		CurrentSurfaceTexture = surfaceTexture.texture;
 	}
 
-	WGPUTextureViewDescriptor viewDesc = {};
-	viewDesc.format = Context->SurfaceFormat;
-	viewDesc.dimension = WGPUTextureViewDimension_2D;
-	viewDesc.baseMipLevel = 0;
-	viewDesc.mipLevelCount = 1;
-	viewDesc.baseArrayLayer = UsingExternalRenderTarget ? PendingExternalArrayLayer : 0;
-	viewDesc.arrayLayerCount = 1;
-	viewDesc.aspect = WGPUTextureAspect_All;
-	CurrentSurfaceView = wgpuTextureCreateView(CurrentSurfaceTexture, &viewDesc);
+	if (UsingExternalRenderTarget)
+	{
+		CurrentSurfaceView = CreateExternalRenderTargetView(ExternalArrayLayer);
+	}
+	else
+	{
+		WGPUTextureViewDescriptor viewDesc = {};
+		viewDesc.format = Context->SurfaceFormat;
+		viewDesc.dimension = WGPUTextureViewDimension_2D;
+		viewDesc.baseMipLevel = 0;
+		viewDesc.mipLevelCount = 1;
+		viewDesc.baseArrayLayer = 0;
+		viewDesc.arrayLayerCount = 1;
+		viewDesc.aspect = WGPUTextureAspect_All;
+		CurrentSurfaceView = wgpuTextureCreateView(CurrentSurfaceTexture, &viewDesc);
+	}
 
 	CurrentClearColor = ScreenClear;
-	HaveViewport = false;
+	if (UsingExternalRenderTarget)
+	{
+		ViewportX = (float)ExternalViewportX;
+		ViewportY = (float)ExternalViewportY;
+		ViewportW = (float)ExternalViewportWidth;
+		ViewportH = (float)ExternalViewportHeight;
+		ViewportMinDepth = 0.1f;
+		ViewportMaxDepth = 1.0f;
+		HaveViewport = true;
+	}
+	else
+	{
+		HaveViewport = false;
+	}
 	BeginFramePass(/*colorClear=*/true, ScreenClear, /*depthClear=*/true);
 
 	FlashScale = InFlashScale;
@@ -254,23 +408,23 @@ void WebGPURenderDevice::Unlock(bool Blit)
 	// WEBXR_IMPLEMENTATION_PLAN.md M2.
 	wgpuTextureViewRelease(CurrentSurfaceView);
 	CurrentSurfaceView = nullptr;
-	wgpuTextureRelease(CurrentSurfaceTexture);
+	if (!UsingExternalRenderTarget)
+		wgpuTextureRelease(CurrentSurfaceTexture);
 	CurrentSurfaceTexture = nullptr;
 
 	if (UsingExternalRenderTarget)
 	{
-		ExternalRenderTargetFrames++;
-		LastExternalRenderTargetDrawCalls = Stats.DrawCalls;
-		SetFixedRenderSize(SavedFixedRenderWidth, SavedFixedRenderHeight);
+		ExternalFrameDrawCalls += Stats.DrawCalls;
+		ExternalFrameLocks++;
 		UsingExternalRenderTarget = false;
-		PendingExternalArrayLayer = 0;
-		PendingExternalWidth = 0;
-		PendingExternalHeight = 0;
 	}
 
 	Batch = WebGPUDrawBatchEntry();
 	HaveViewport = false;
 	IsLocked = false;
+
+	if (AutoEndExternalFrame)
+		EndExternalRenderTargetFrame();
 }
 
 void WebGPURenderDevice::PushHit(const uint8_t* Data, int Count)
@@ -371,8 +525,13 @@ void WebGPURenderDevice::SetSceneNode(FSceneNode* Frame)
 	RFX2 = 2.0f * RProjZ / Frame->FX;
 	RFY2 = 2.0f * RProjZ * Aspect / Frame->FY;
 
-	ViewportX = (float)Frame->XB;
-	ViewportY = (float)(CurrentSizeY - Frame->YB - Frame->Y);
+	// XR sub-images may occupy a viewport inside a larger browser-owned
+	// attachment. FSceneNode coordinates remain local to the eye; offset them
+	// into the physical sub-image only at the render-pass boundary.
+	const int viewportBaseX = UsingExternalRenderTarget ? ExternalViewportX : 0;
+	const int viewportBaseY = UsingExternalRenderTarget ? ExternalViewportY : 0;
+	ViewportX = (float)(viewportBaseX + Frame->XB);
+	ViewportY = (float)(viewportBaseY + CurrentSizeY - Frame->YB - Frame->Y);
 	ViewportW = (float)Frame->X;
 	ViewportH = (float)Frame->Y;
 	ViewportMinDepth = 0.1f;
@@ -1085,6 +1244,8 @@ void WebGPURenderDevice::Draw2DPoint(FSceneNode* Frame, vec4 Color, uint32_t Lin
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #include <emscripten/em_js.h>
+#include "Engine.h"
+#include "Render/RenderSubsystem.h"
 
 // M4 interop spike: import a browser-owned GPUTexture into Emdawnwebgpu's
 // C handle table. XRGPUSubImage.colorTexture will use the same path once a
@@ -1177,6 +1338,11 @@ extern "C"
 		return CurrentDevice ? CurrentDevice->GetLastExternalRenderTargetDrawCalls() : 0;
 	}
 
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGPUExternalRenderTargetState()
+	{
+		return CurrentDevice ? CurrentDevice->GetExternalRenderTargetState() : -1;
+	}
+
 	EMSCRIPTEN_KEEPALIVE int Surreal_QueueWebGPUExternalRenderTarget()
 	{
 		if (!CurrentDevice || !CurrentDevice->Context || !CurrentDevice->Context->Device)
@@ -1196,6 +1362,38 @@ extern "C"
 			return 0;
 		}
 		return 1;
+	}
+
+	// M5 stereo diagnostic: advance simulation once, then render the same game
+	// state into both layers of a browser-owned texture. The fake eye transforms
+	// come from DrawSceneStereoLayers for now; M6/M7 replace them with XRView
+	// matrices while retaining this renderer and phase-ordering path.
+	EMSCRIPTEN_KEEPALIVE int Surreal_TestWebGPUExternalStereoFrame()
+	{
+		if (!CurrentDevice || !CurrentDevice->Context || !CurrentDevice->Context->Device ||
+			!engine || !engine->render || engine->render->Device != CurrentDevice)
+			return 0;
+
+		const int width = 640;
+		const int height = 480;
+		WGPUTexture texture = reinterpret_cast<WGPUTexture>(
+			JS_CreateAndImportExternalRenderTarget(
+				reinterpret_cast<uintptr_t>(CurrentDevice->Context->Device), width, height));
+		if (!texture)
+			return 0;
+
+		if (!CurrentDevice->BeginExternalRenderTargetFrame(texture, width, height, 0))
+		{
+			wgpuTextureRelease(texture);
+			return 0;
+		}
+
+		const uint64_t tickBefore = engine->tickCount;
+		const float levelElapsed = engine->AdvanceGameFrame();
+		engine->render->DrawGameStereoLayers(levelElapsed);
+		engine->FinishGameFrame(levelElapsed);
+		const bool ended = CurrentDevice->EndExternalRenderTargetFrame();
+		return ended && engine->tickCount == tickBefore + 1 ? 1 : 0;
 	}
 
 	EMSCRIPTEN_KEEPALIVE int Surreal_TestWebGPUTextureImport()

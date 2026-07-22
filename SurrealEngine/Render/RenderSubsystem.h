@@ -28,6 +28,10 @@ public:
 	void DrawVideoFrame(FTextureInfo* frame, FTextureInfo* background);
 
 	void DrawGame(float levelTimeElapsed);
+	// M5 diagnostic/bridge path: renders one already-advanced game state to
+	// two layers of the active external target. HUD/menu stereo presentation
+	// is deliberately deferred to M9; this proves the world-view split first.
+	void DrawGameStereoLayers(float levelTimeElapsed);
 	void OnMapLoaded();
 
 	void DrawActor(UActor* actor, bool WireFrame, bool ClearZ);
@@ -99,6 +103,11 @@ public:
 	VisibleFrame MainFrame;
 
 private:
+	// View-independent scene work must run once per game frame even when XR
+	// renders multiple views. DrawSceneView contains only the work that is
+	// intentionally repeated for each eye.
+	bool PrepareSceneViews();
+	void DrawSceneView(const vec3& location, const mat4& worldToView, const Coords& viewRotation, const ViewportOverride* viewportOverride = nullptr);
 	void DrawScene();
 	// --debugstereo diagnostic: renders the scene twice (fake-IPD offset
 	// camera, left/right halves of the window) with no OpenXR session
@@ -106,6 +115,8 @@ private:
 	// visually before real VR session/swapchain code exists.
 	// See VR_IMPLEMENTATION_PLAN.md M2 step 5.
 	void DrawSceneStereo();
+	void DrawSceneStereoLayers();
+	void DrawGameInternal(float levelTimeElapsed, bool layeredStereo);
 
 	std::unique_ptr<LightmapTexture> CreateLightmapTexture();
 

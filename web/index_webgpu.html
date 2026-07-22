@@ -6,6 +6,7 @@
 </head>
 <body>
 <canvas id="canvas" width="640" height="480"></canvas>
+<button id="enableaudio" disabled>Enable Audio</button>
 <pre id="log" style="white-space:pre-wrap;font:12px monospace;"></pre>
 <script>
 	// M2 WebGPU smoke-test harness. Unlike index.html (M1, NullRenderDevice),
@@ -15,6 +16,7 @@
 	window.surrealLog = [];
 	window.surrealBooted = false;
 	window.surrealCrashed = null;
+	const surrealBuildDir = new URLSearchParams(location.search).get("build") || "build-emscripten";
 
 	const logEl = document.getElementById('log');
 	function appendLog(line) {
@@ -24,15 +26,16 @@
 
 	var Module = {
 		canvas: document.getElementById("canvas"),
-		locateFile: function (path) { return "../build-emscripten/" + path; },
+		locateFile: function (path) { return "../" + surrealBuildDir + "/" + path; },
 		print: appendLog,
 		printErr: appendLog,
 		onRuntimeInitialized: function () {
 			appendLog("[harness] runtime initialized, calling main");
-			window.surrealBooted = true;
 			try {
 				const mapName = new URLSearchParams(location.search).get("map") || "DM-Deck16][";
 				Module.callMain(["--autoplay", "--url=" + mapName, "--render=webgpu", "/gamedata"]);
+				window.surrealBooted = true;
+				document.getElementById("enableaudio").disabled = false;
 			} catch (e) {
 				window.surrealCrashed = String(e);
 				appendLog("[harness] callMain threw: " + e);
@@ -75,6 +78,19 @@
 	window.surrealGetWebGPUBufferRollovers = function () {
 		return Module.ccall("Surreal_GetWebGPUBufferRollovers", "number", [], []);
 	};
+	window.surrealGetWebAudioState = function () {
+		return Module.ccall("Surreal_GetWebAudioState", "number", [], []);
+	};
+	window.surrealResumeWebAudio = function () {
+		return Module.ccall("Surreal_ResumeWebAudio", "number", [], []);
+	};
+	window.surrealGetWebAudioResumeCount = function () {
+		return Module.ccall("Surreal_GetWebAudioResumeCount", "number", [], []);
+	};
+	document.getElementById("enableaudio").addEventListener("click", function () {
+		// Keep the resume call directly inside the trusted user gesture.
+		window.surrealResumeWebAudio();
+	});
 
 	async function boot() {
 		if (!navigator.gpu) {
@@ -104,7 +120,7 @@
 		Module.preinitializedWebGPUDevice = device;
 		appendLog("[harness] WebGPU device acquired, loading wasm module");
 		const script = document.createElement("script");
-		script.src = "../build-emscripten/SurrealEngine.js";
+		script.src = "../" + surrealBuildDir + "/SurrealEngine.js";
 		script.onerror = function () {
 			window.surrealCrashed = "failed to load SurrealEngine.js";
 			appendLog("[harness] " + window.surrealCrashed);

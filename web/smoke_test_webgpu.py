@@ -6,8 +6,10 @@ from PIL import Image
 
 sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
 
-MAP_NAME = sys.argv[1] if len(sys.argv) > 1 else "DM-Deck16]["
-URL = "http://localhost:8091/web/index_webgpu.html?" + urlencode({"map": MAP_NAME})
+POSITIONAL_ARGS = [arg for arg in sys.argv[1:] if not arg.startswith("--")]
+MAP_NAME = POSITIONAL_ARGS[0] if POSITIONAL_ARGS else "DM-Deck16]["
+BUILD_DIR = next((arg.split("=", 1)[1] for arg in sys.argv[1:] if arg.startswith("--build=")), "build-emscripten")
+URL = "http://localhost:8091/web/index_webgpu.html?" + urlencode({"map": MAP_NAME, "build": BUILD_DIR})
 
 with sync_playwright() as p:
 	# Playwright's bundled Chromium cannot acquire a WebGPU adapter headlessly
@@ -47,6 +49,27 @@ with sync_playwright() as p:
 		print("TIMEOUT waiting for boot (onRuntimeInitialized never fired)")
 		print("\n".join(console_lines[-50:]))
 		sys.exit(1)
+
+	initial_audio_state = page.evaluate("window.surrealGetWebAudioState()")
+	print(f"[harness] Web Audio state before trusted click: {initial_audio_state}")
+	if initial_audio_state == 0 or initial_audio_state == 3:
+		print("FAIL: Emscripten OpenAL did not create a live browser AudioContext")
+		sys.exit(1)
+	# UT's canvas captures the pointer after boot. Release it before a normal
+	# Playwright mouse click so the button is the actual trusted-event target.
+	page.evaluate("document.exitPointerLock()")
+	page.click("#enableaudio")
+	deadline = time.time() + 5
+	while time.time() < deadline:
+		audio_state = page.evaluate("window.surrealGetWebAudioState()")
+		if audio_state == 2:
+			break
+		time.sleep(0.1)
+	else:
+		audio_error = page.evaluate("Module.surrealWebAudioLastError || ''")
+		print(f"FAIL: Web Audio did not reach running state after trusted click; state={audio_state}, error={audio_error}")
+		sys.exit(1)
+	print(f"[harness] Web Audio running after click; resume completions={page.evaluate('window.surrealGetWebAudioResumeCount()')}")
 
 	print(f"[harness] booted {MAP_NAME}, watching tick counter for 10s...")
 	samples = []

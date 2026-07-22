@@ -22,6 +22,13 @@
 	window.surrealLog = [];
 	window.surrealBooted = false;
 	window.surrealCrashed = null;
+	window.surrealXRSupported = null;
+	const surrealBuildDir = new URLSearchParams(location.search).get("build") || "build-emscripten";
+
+	function refreshEnterVRButton() {
+		document.getElementById("entervr").disabled =
+			!(window.surrealBooted && window.surrealXRSupported);
+	}
 
 	const logEl = document.getElementById('log');
 	function appendLog(line) {
@@ -31,15 +38,16 @@
 
 	var Module = {
 		canvas: document.getElementById("canvas"),
-		locateFile: function (path) { return "../build-emscripten/" + path; },
+		locateFile: function (path) { return "../" + surrealBuildDir + "/" + path; },
 		print: appendLog,
 		printErr: appendLog,
 		onRuntimeInitialized: function () {
 			appendLog("[harness] runtime initialized, calling main");
-			window.surrealBooted = true;
 			try {
 				const mapName = new URLSearchParams(location.search).get("map") || "DM-Deck16][";
 				Module.callMain(["--autoplay", "--url=" + mapName, "--render=webgpu", "/gamedata"]);
+				window.surrealBooted = true;
+				refreshEnterVRButton();
 			} catch (e) {
 				window.surrealCrashed = String(e);
 				appendLog("[harness] callMain threw: " + e);
@@ -94,8 +102,23 @@
 	window.surrealGetWebGPULastExternalRenderTargetDrawCalls = function () {
 		return Module.ccall("Surreal_GetWebGPULastExternalRenderTargetDrawCalls", "number", [], []);
 	};
+	window.surrealGetWebGPUExternalRenderTargetState = function () {
+		return Module.ccall("Surreal_GetWebGPUExternalRenderTargetState", "number", [], []);
+	};
 	window.surrealQueueWebGPUExternalRenderTarget = function () {
 		return Module.ccall("Surreal_QueueWebGPUExternalRenderTarget", "number", [], []);
+	};
+	window.surrealTestWebGPUExternalStereoFrame = function () {
+		return Module.ccall("Surreal_TestWebGPUExternalStereoFrame", "number", [], []);
+	};
+	window.surrealGetWebAudioState = function () {
+		return Module.ccall("Surreal_GetWebAudioState", "number", [], []);
+	};
+	window.surrealResumeWebAudio = function () {
+		return Module.ccall("Surreal_ResumeWebAudio", "number", [], []);
+	};
+	window.surrealGetWebAudioResumeCount = function () {
+		return Module.ccall("Surreal_GetWebAudioResumeCount", "number", [], []);
 	};
 	window.surrealTestWebGPUTextureImport = function () {
 		return Module.ccall("Surreal_TestWebGPUTextureImport", "number", [], []);
@@ -183,8 +206,81 @@
 			window.surrealWebGPUExternalRenderTarget = null;
 		}
 	};
+	window.surrealVerifyWebGPUExternalStereoTarget = async function () {
+		const texture = window.surrealWebGPUExternalRenderTarget;
+		if (!texture) return { rendered: false, error: "stereo render target is missing" };
+		let buffer = null;
+		try {
+			const width = 640;
+			const height = 480;
+			const bytesPerRow = width * 4;
+			const layerBytes = bytesPerRow * height;
+			buffer = window.surrealWebGPUDevice.createBuffer({
+				size: layerBytes * 2,
+				usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+			});
+			await window.surrealWebGPUDevice.queue.onSubmittedWorkDone();
+			const encoder = window.surrealWebGPUDevice.createCommandEncoder();
+			for (let layer = 0; layer < 2; layer++) {
+				encoder.copyTextureToBuffer(
+					{ texture: texture, origin: { x: 0, y: 0, z: layer } },
+					{ buffer: buffer, offset: layerBytes * layer, bytesPerRow: bytesPerRow, rowsPerImage: height },
+					{ width: width, height: height, depthOrArrayLayers: 1 });
+			}
+			window.surrealWebGPUDevice.queue.submit([encoder.finish()]);
+			await buffer.mapAsync(GPUMapMode.READ);
+
+			const pixels = new Uint8Array(buffer.getMappedRange());
+			function summarize(base) {
+				let nonBlackPixels = 0;
+				const sampledColors = new Set();
+				for (let pixelIndex = 0, offset = base; pixelIndex < width * height; pixelIndex++, offset += 4) {
+					if (pixels[offset] || pixels[offset + 1] || pixels[offset + 2]) nonBlackPixels++;
+					if (pixelIndex % 257 === 0) {
+						sampledColors.add(pixels[offset] + "," + pixels[offset + 1] + "," + pixels[offset + 2] + "," + pixels[offset + 3]);
+					}
+				}
+				return { nonBlackPixels: nonBlackPixels, distinctSampledColors: sampledColors.size };
+			}
+
+			let differentSamples = 0;
+			for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 257) {
+				const left = pixelIndex * 4;
+				const right = layerBytes + left;
+				if (pixels[left] !== pixels[right] || pixels[left + 1] !== pixels[right + 1] ||
+					pixels[left + 2] !== pixels[right + 2] || pixels[left + 3] !== pixels[right + 3]) {
+					differentSamples++;
+				}
+			}
+			const left = summarize(0);
+			const right = summarize(layerBytes);
+			const drawCalls = window.surrealGetWebGPULastExternalRenderTargetDrawCalls();
+			return {
+				rendered: drawCalls > 0 && left.nonBlackPixels > 100 && right.nonBlackPixels > 100 &&
+					left.distinctSampledColors > 1 && right.distinctSampledColors > 1 && differentSamples > 10,
+				drawCalls: drawCalls,
+				left: left,
+				right: right,
+				differentSamples: differentSamples,
+			};
+		} catch (e) {
+			return { rendered: false, error: e.name + ": " + e.message };
+		} finally {
+			if (buffer) {
+				if (buffer.mapState === "mapped") buffer.unmap();
+				buffer.destroy();
+			}
+			texture.destroy();
+			window.surrealWebGPUExternalRenderTarget = null;
+		}
+	};
 
 	document.getElementById("entervr").addEventListener("click", function () {
+		// Must remain directly inside the trusted gesture. Emscripten OpenAL's
+		// AudioContext cannot be resumed from a later promise/RAF callback.
+		if (window.surrealBooted && window.surrealResumeWebAudio) {
+			window.surrealResumeWebAudio();
+		}
 		if (window.surrealXRSessionActive) {
 			window.surrealXRExit();
 		} else {
@@ -201,7 +297,7 @@
 		// even if the engine itself fails to boot.
 		await window.surrealXRCheckSupport();
 		await window.surrealXRCheckGPUCompatible();
-		document.getElementById("entervr").disabled = !window.surrealXRSupported;
+		refreshEnterVRButton();
 
 		if (!navigator.gpu) {
 			window.surrealCrashed = "navigator.gpu is undefined (no WebGPU support in this browser)";
@@ -230,7 +326,7 @@
 		document.getElementById("probewebgpuxr").disabled = !window.surrealXRGPUBindingAvailable;
 		appendLog("[harness] WebGPU device acquired, loading wasm module");
 		const script = document.createElement("script");
-		script.src = "../build-emscripten/SurrealEngine.js";
+		script.src = "../" + surrealBuildDir + "/SurrealEngine.js";
 		script.onerror = function () {
 			window.surrealCrashed = "failed to load SurrealEngine.js";
 			appendLog("[harness] " + window.surrealCrashed);

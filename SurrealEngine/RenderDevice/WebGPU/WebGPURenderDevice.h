@@ -71,6 +71,7 @@ public:
 	void ReadPixels(FColor* Pixels) override;
 	void EndFlash() override;
 	void SetSceneNode(FSceneNode* Frame) override;
+	bool SelectExternalRenderTargetLayer(uint32_t arrayLayer) override;
 	void PrecacheTexture(FTextureInfo& Info, uint32_t PolyFlags) override;
 	bool SupportsTextureFormat(TextureFormat Format) override;
 	void UpdateTextureRect(FTextureInfo& Info, int U, int V, int UL, int VL) override;
@@ -82,15 +83,37 @@ public:
 	void ClearTextureBindGroupCache();
 	void InvalidateTextureBindGroups(WebGPUCachedTexture* texture);
 
-	// Queue a browser-owned texture for the next complete engine frame. The
-	// imported WGPUTexture wrapper is consumed by Lock()/Unlock(); ownership of
-	// that wrapper transfers to this device on success. This is the renderer
-	// seam needed by WebXR, whose XRGPUSubImage color texture is created by the
-	// browser rather than by the canvas surface. The JavaScript GPUTexture
-	// itself remains browser-owned.
+	// Begin a frame backed by a browser/runtime-owned texture. Ownership of the
+	// imported WGPUTexture wrapper transfers to this device on success and is
+	// retained until EndExternalRenderTargetFrame(); the JavaScript GPUTexture
+	// itself remains browser/WebXR-owned. textureWidth/textureHeight are the
+	// full attachment extent, not an individual eye viewport.
+	bool BeginExternalRenderTargetFrame(WGPUTexture texture, int textureWidth, int textureHeight, uint32_t initialArrayLayer = 0);
+
+	// Select an array layer and physical viewport for the next eye. This may be
+	// called before Lock(), or while locked between eye draws. A locked switch
+	// flushes/submits the old eye pass before reopening color/depth attachments
+	// for the new layer. The viewport must fit within the full texture extent.
+	bool SelectExternalRenderTargetView(uint32_t arrayLayer, int viewportX, int viewportY, int viewportWidth, int viewportHeight);
+
+	// Finish external-frame ownership. Must be called after Unlock(); releases
+	// the imported wrapper and restores the canvas render size. Returns false
+	// while locked or when no external frame is active.
+	bool EndExternalRenderTargetFrame();
+
+	// Compatibility one-shot used by the existing browser interop diagnostic.
+	// Equivalent to begin + full-size view selection and automatically ends the
+	// external frame from Unlock().
 	bool QueueExternalRenderTarget(WGPUTexture texture, uint32_t arrayLayer, int width, int height);
 	int GetExternalRenderTargetFrames() const { return ExternalRenderTargetFrames; }
 	int GetLastExternalRenderTargetDrawCalls() const { return LastExternalRenderTargetDrawCalls; }
+	int GetExternalRenderTargetState() const
+	{
+		return (IsLocked ? 1 : 0) |
+			(ExternalFrameActive ? 2 : 0) |
+			(ExternalFrameTexture ? 4 : 0) |
+			(UsingExternalRenderTarget ? 8 : 0);
+	}
 
 	std::unique_ptr<WebGPUContext> Context;
 	std::unique_ptr<WebGPUPipelineCache> Pipelines;
@@ -130,6 +153,8 @@ private:
 	void DrawComplexSurfaceFaces(const ComplexSurfaceInfo& info);
 
 	void ConfigureDepthBuffer(int width, int height);
+	WGPUTextureView CreateExternalRenderTargetView(uint32_t arrayLayer) const;
+	bool SwitchLockedExternalRenderTargetView(uint32_t arrayLayer, int viewportX, int viewportY, int viewportWidth, int viewportHeight);
 	void BeginFramePass(bool colorClear, vec4 clearColor, bool depthClear);
 	void EndAndSubmitFramePass();
 
@@ -203,12 +228,20 @@ private:
 	WGPUTextureView CurrentSurfaceView = nullptr;
 	vec4 CurrentClearColor = vec4(0.0f);
 
-	WGPUTexture PendingExternalTexture = nullptr;
-	uint32_t PendingExternalArrayLayer = 0;
-	int PendingExternalWidth = 0;
-	int PendingExternalHeight = 0;
+	WGPUTexture ExternalFrameTexture = nullptr;
+	uint32_t ExternalArrayLayer = 0;
+	int ExternalTextureWidth = 0;
+	int ExternalTextureHeight = 0;
+	int ExternalViewportX = 0;
+	int ExternalViewportY = 0;
+	int ExternalViewportWidth = 0;
+	int ExternalViewportHeight = 0;
 	int SavedFixedRenderWidth = 0;
 	int SavedFixedRenderHeight = 0;
+	int ExternalFrameDrawCalls = 0;
+	int ExternalFrameLocks = 0;
+	bool ExternalFrameActive = false;
+	bool AutoEndExternalFrame = false;
 	bool UsingExternalRenderTarget = false;
 	int ExternalRenderTargetFrames = 0;
 	int LastExternalRenderTargetDrawCalls = 0;

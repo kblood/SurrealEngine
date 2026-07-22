@@ -14,6 +14,16 @@ RenderSubsystem::RenderSubsystem(RenderDevice* renderdevice) : Device(renderdevi
 
 void RenderSubsystem::DrawGame(float levelTimeElapsed)
 {
+	DrawGameInternal(levelTimeElapsed, false);
+}
+
+void RenderSubsystem::DrawGameStereoLayers(float levelTimeElapsed)
+{
+	DrawGameInternal(levelTimeElapsed, true);
+}
+
+void RenderSubsystem::DrawGameInternal(float levelTimeElapsed, bool layeredStereo)
+{
 	LevelTimeElapsed = levelTimeElapsed;
 	AutoUV += levelTimeElapsed * 64.0f;
 	AmbientGlowTime = std::fmod(AmbientGlowTime + 0.8f * levelTimeElapsed, 1.0f);
@@ -37,21 +47,28 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed)
 	Device->Lock(vec4(flashScale, 1.0f), vec4(flashFog, 1.0f), vec4(0.0f), nullptr, nullptr);
 
 	ResetCanvas();
-	PreRender();
+	if (!layeredStereo)
+		PreRender();
 
 	if (engine->LaunchInfo.ue1Version <= 219 || engine->console->bNoDrawWorld() == false)
 	{
-		if (commandline && commandline->HasArg("", "--debugstereo"))
+		if (layeredStereo)
+			DrawSceneStereoLayers();
+		else if (commandline && commandline->HasArg("", "--debugstereo"))
 			DrawSceneStereo();
 		else
 			DrawScene();
-		RenderOverlays();
-		if (engine->LaunchInfo.IsDeusEx())
-			PostRenderFlash();
-		Device->EndFlash();
+		if (!layeredStereo)
+		{
+			RenderOverlays();
+			if (engine->LaunchInfo.IsDeusEx())
+				PostRenderFlash();
+			Device->EndFlash();
+		}
 	}
 
-	PostRender();
+	if (!layeredStereo)
+		PostRender();
 
 	Device->Unlock(true);
 }

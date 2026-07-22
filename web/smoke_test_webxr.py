@@ -5,7 +5,8 @@ from playwright.sync_api import sync_playwright
 
 sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
 
-URL = "http://localhost:8091/web/index_webxr.html"
+BUILD_DIR = next((arg.split("=", 1)[1] for arg in sys.argv[1:] if arg.startswith("--build=")), "build-emscripten")
+URL = "http://localhost:8091/web/index_webxr.html?build=" + BUILD_DIR
 EXPERIMENTAL_WEBGPU_XR = "--experimental-webgpu-xr" in sys.argv[1:]
 
 # M4-groundwork harness (see web/webxr_session.js's header comment and
@@ -104,6 +105,23 @@ def main():
             print("FAIL: IWER-emulated navigator.xr did not report immersive-vr support")
             sys.exit(1)
 
+        # Session entry also resumes Emscripten OpenAL from the same trusted
+        # click, so wait for callMain to finish creating the engine and its
+        # AudioContext in both the default and experimental test paths.
+        print("[harness] waiting for engine boot and Web Audio context...")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            if page.evaluate("window.surrealBooted === true && window.surrealGetWebAudioState() !== 0"):
+                break
+            crashed = page.evaluate("window.surrealCrashed")
+            if crashed:
+                print(f"FAIL: engine boot failed: {crashed}")
+                sys.exit(1)
+            time.sleep(0.5)
+        else:
+            print("FAIL: engine or Web Audio context did not become ready")
+            sys.exit(1)
+
         if EXPERIMENTAL_WEBGPU_XR and xr_gpu_binding:
             print("[harness] waiting for engine XR-compatible GPUDevice...")
             deadline = time.time() + 120
@@ -137,7 +155,8 @@ def main():
             # XRGPUSubImage color texture will use.
             external_frames_before = page.evaluate("window.surrealGetWebGPUExternalRenderTargetFrames()")
             queued = page.evaluate("window.surrealQueueWebGPUExternalRenderTarget()")
-            print(f"[harness] browser-owned full-frame target queued = {queued}")
+            external_state = page.evaluate("window.surrealGetWebGPUExternalRenderTargetState()")
+            print(f"[harness] browser-owned full-frame target queued = {queued} (state={external_state})")
             if queued != 1:
                 print("FAIL: engine rejected the browser-owned external render target")
                 sys.exit(1)
@@ -182,6 +201,26 @@ def main():
                 print("FAIL: XR-driven frame export did not advance exactly one tick per call")
                 sys.exit(1)
 
+            # While the window RAF remains paused, advance simulation exactly once
+            # and render two fake-eye projections into array layers 0 and 1. This is
+            # the M5 phase-ordering and attachment-switch proof; native XRView
+            # matrices replace the fake projections in M6/M7.
+            stereo_result = page.evaluate("window.surrealTestWebGPUExternalStereoFrame()")
+            stereo_tick = page.evaluate("window.surrealGetTickCount()")
+            print(f"[harness] one-tick/two-eye stereo frame: result={stereo_result}, tick {manual_tick} -> {stereo_tick}")
+            if stereo_result != 1 or stereo_tick != manual_tick + 1:
+                print("FAIL: stereo render did not use exactly one simulation tick")
+                sys.exit(1)
+            stereo_readback = page.evaluate("window.surrealVerifyWebGPUExternalStereoTarget()")
+            print(f"[harness] two browser-owned eye layers: {stereo_readback}")
+            if not stereo_readback.get("rendered"):
+                print("FAIL: layered stereo target did not contain two distinct rendered views")
+                sys.exit(1)
+            if page.evaluate("window.surrealGetWebGPUErrorCount()") != 0:
+                print("FAIL: WebGPU uncaptured error after layered stereo render")
+                sys.exit(1)
+            manual_tick = stereo_tick
+
             if page.evaluate("window.surrealSetXRFrameLoopActive(false)") != 0:
                 print("FAIL: normal Emscripten frame loop did not accept ownership back")
                 sys.exit(1)
@@ -201,7 +240,12 @@ def main():
 
         # --- Phase 2: request a session and drive its frame loop ----------
         print("[harness] requesting immersive-vr session...")
-        page.evaluate("window.surrealXREnter()")
+        # A real button click supplies the trusted gesture required by both
+        # requestSession() and the Emscripten OpenAL AudioContext resume.
+        # UT captures the pointer after boot. Release it before a normal
+        # Playwright mouse click so XR entry receives the trusted event.
+        page.evaluate("document.exitPointerLock()")
+        page.click("#entervr")
 
         deadline = time.time() + 20
         active = False
@@ -219,6 +263,13 @@ def main():
         if not active:
             print("FAIL: TIMEOUT waiting for surrealXRSessionActive after surrealXREnter()")
             print("\n".join(page.evaluate("window.surrealXRLog") or []))
+            sys.exit(1)
+
+        audio_state = page.evaluate("window.surrealGetWebAudioState()")
+        print(f"[harness] Web Audio state after Enter VR click = {audio_state}")
+        if audio_state != 2:
+            audio_error = page.evaluate("Module.surrealWebAudioLastError || ''")
+            print(f"FAIL: Web Audio did not resume from the XR entry gesture: {audio_error}")
             sys.exit(1)
 
         print("[harness] session active, watching XR frame counter for 3s...")

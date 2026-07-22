@@ -227,142 +227,147 @@ void Engine::Setup()
 
 void Engine::RunOneFrame()
 {
+	const float levelElapsed = AdvanceGameFrame();
+	RenderGameFrame(levelElapsed);
+	FinishGameFrame(levelElapsed);
+}
+
+float Engine::AdvanceGameFrame()
+{
 	auto& objprop = runLoopObjProp;
 	auto& vecprop = runLoopVecProp;
 	auto& rotprop = runLoopRotProp;
 
 	tickCount++;
 
+	float realTimeElapsed = CalcTimeElapsed();
+	float entryLevelElapsed = EntryLevel ? realTimeElapsed * clamp(EntryLevelInfo->TimeDilation(), 0.0025f, 25.0f) : 0.0f;
+	float levelElapsed = realTimeElapsed * clamp(LevelInfo->TimeDilation(), 0.0025f, 25.0f);
+
+	TotalTime += realTimeElapsed;
+
+	if (EntryLevel)
+		EntryLevelInfo->TimeSeconds() += entryLevelElapsed;
+	LevelInfo->TimeSeconds() += levelElapsed;
+	Logger::Get()->SetTimeSeconds(LevelInfo->TimeSeconds());
+
+	// Update the time fields
+	std::time_t now = std::time(nullptr);
+	std::tm* timedesc = std::localtime(&now);
+
+	LevelInfo->Year() = timedesc->tm_year;
+	LevelInfo->Month() = timedesc->tm_mon;
+	LevelInfo->Day() = timedesc->tm_mday;
+	LevelInfo->DayOfWeek() = timedesc->tm_wday;
+	LevelInfo->Hour() = timedesc->tm_hour;
+	LevelInfo->Minute() = timedesc->tm_min;
+	LevelInfo->Second() = timedesc->tm_sec;
+	LevelInfo->Millisecond() = 0; // No timedesc equivalent for LevelInfo->Millisecond()
+
+	UpdateInput(realTimeElapsed);
+
+	SetPause(!LevelInfo->Pauser().empty());
+
+	// Do NOT pause this Tick event otherwise some messages will stay on screen forever.
+	CallEvent(console, EventName::Tick, { ExpressionValue::FloatValue(levelElapsed) });
+
+	// To do: set these to true if the frame rate is too low
+	if (LaunchInfo.ue1Version >= 436)
 	{
-		// Main game loop should consist of these 4 steps:
-		// Tick everything
-		// Render the scene
-		// Check if there is a request to save the game: save the game if that's the case
-		// Check if there is a new map to load (next level, saved game etc.): load it if that's the case
+		LevelInfo->bDropDetail() = false;
+		LevelInfo->bAggressiveLOD() = false;
+	}
 
-		// Tick everything
-		float realTimeElapsed = CalcTimeElapsed();
-		float entryLevelElapsed = EntryLevel ? realTimeElapsed * clamp(EntryLevelInfo->TimeDilation(), 0.0025f, 25.0f) : 0.0f;
-		float levelElapsed = realTimeElapsed * clamp(LevelInfo->TimeDilation(), 0.0025f, 25.0f);
+	if (EntryLevel)
+		EntryLevel->Tick(entryLevelElapsed, m_GamePaused);
+	Level->Tick(levelElapsed, m_GamePaused);
 
-		TotalTime += realTimeElapsed;
+	if (dxRootWindow)
+		dxRootWindow->Tick(levelElapsed); // Should this maybe be realTimeElapsed?
 
-		if (EntryLevel)
-			EntryLevelInfo->TimeSeconds() += entryLevelElapsed;
-		LevelInfo->TimeSeconds() += levelElapsed;
-		Logger::Get()->SetTimeSeconds(LevelInfo->TimeSeconds());
+	// To do: improve CallEvent so parameter passing isn't this painful
+	UFunction* funcPlayerCalcView = viewport->Actor() ? FindEventFunction(viewport->Actor(), "PlayerCalcView") : nullptr;
+	if (funcPlayerCalcView)
+	{
+		vecprop->Struct = UObject::Cast<UStructProperty>(funcPlayerCalcView->Properties[1])->Struct;
+		rotprop->Struct = UObject::Cast<UStructProperty>(funcPlayerCalcView->Properties[2])->Struct;
+		CameraActor = viewport->Actor();
+		CameraLocation = viewport->Actor()->Location();
+		CameraRotation = viewport->Actor()->Rotation();
+		CameraFovAngle = viewport->Actor()->FovAngle();
+		CallEvent(viewport->Actor(), EventName::PlayerCalcView, {
+			ExpressionValue::Variable(&CameraActor, objprop),
+			ExpressionValue::Variable(&CameraLocation, vecprop),
+			ExpressionValue::Variable(&CameraRotation, rotprop)
+			});
+	}
 
-		// Update the time fields
-		std::time_t now = std::time(nullptr);
-		std::tm* timedesc = std::localtime(&now);
+	UpdateAudio();
+	return levelElapsed;
+}
 
-		LevelInfo->Year() = timedesc->tm_year;
-		LevelInfo->Month() = timedesc->tm_mon;
-		LevelInfo->Day() = timedesc->tm_mday;
-		LevelInfo->DayOfWeek() = timedesc->tm_wday;
-		LevelInfo->Hour() = timedesc->tm_hour;
-		LevelInfo->Minute() = timedesc->tm_min;
-		LevelInfo->Second() = timedesc->tm_sec;
-		LevelInfo->Millisecond() = 0; // No timedesc equivalent for LevelInfo->Millisecond()
+void Engine::RenderGameFrame(float levelElapsed)
+{
+	viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
+	render->DrawGame(levelElapsed);
+}
 
-		UpdateInput(realTimeElapsed);
+void Engine::FinishGameFrame(float levelElapsed)
+{
+	// Save the game if there is a request for it
+	if (SaveGameInfo.SaveGameSlot != DONT_SAVE_GAME)
+	{
+		SaveGameToSlot(SaveGameInfo.SaveGameSlot, SaveGameInfo.SaveGameDescription);
 
-		SetPause(!LevelInfo->Pauser().empty());
+		SaveGameInfo.SaveGameSlot = DONT_SAVE_GAME;
+		SaveGameInfo.SaveGameDescription.clear();
+	}
 
-		// Do NOT pause this Tick event otherwise some messages will stay on screen forever.
-		CallEvent(console, EventName::Tick, { ExpressionValue::FloatValue(levelElapsed) });
-
-		// To do: set these to true if the frame rate is too low
-		if (LaunchInfo.ue1Version >= 436)
+	// Check if there is a new map to load
+	if (!LevelInfo->NextURL().empty())
+	{
+		LevelInfo->NextSwitchCountdown() -= levelElapsed;
+		if (LevelInfo->NextSwitchCountdown() <= 0.0f)
 		{
-			LevelInfo->bDropDetail() = false;
-			LevelInfo->bAggressiveLOD() = false;
-		}
-
-		if (EntryLevel)
-			EntryLevel->Tick(entryLevelElapsed, m_GamePaused);
-		Level->Tick(levelElapsed, m_GamePaused);
-
-		if (dxRootWindow)
-			dxRootWindow->Tick(levelElapsed); // Should this maybe be realTimeElapsed?
-
-		// To do: improve CallEvent so parameter passing isn't this painful
-		UFunction* funcPlayerCalcView = viewport->Actor() ? FindEventFunction(viewport->Actor(), "PlayerCalcView") : nullptr;
-		if (funcPlayerCalcView)
-		{
-			vecprop->Struct = UObject::Cast<UStructProperty>(funcPlayerCalcView->Properties[1])->Struct;
-			rotprop->Struct = UObject::Cast<UStructProperty>(funcPlayerCalcView->Properties[2])->Struct;
-			CameraActor = viewport->Actor();
-			CameraLocation = viewport->Actor()->Location();
-			CameraRotation = viewport->Actor()->Rotation();
-			CameraFovAngle = viewport->Actor()->FovAngle();
-			CallEvent(viewport->Actor(), EventName::PlayerCalcView, {
-				ExpressionValue::Variable(&CameraActor, objprop),
-				ExpressionValue::Variable(&CameraLocation, vecprop),
-				ExpressionValue::Variable(&CameraRotation, rotprop)
-				});
-		}
-
-		UpdateAudio();
-
-		viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
-		render->DrawGame(levelElapsed);
-
-		// Save the game if there is a request for it
-		if (SaveGameInfo.SaveGameSlot != DONT_SAVE_GAME)
-		{
-			SaveGameToSlot(SaveGameInfo.SaveGameSlot, SaveGameInfo.SaveGameDescription);
-
-			SaveGameInfo.SaveGameSlot = DONT_SAVE_GAME;
-			SaveGameInfo.SaveGameDescription.clear();
-		}
-
-		// Check if there is a new map to load
-		if (!LevelInfo->NextURL().empty())
-		{
-			LevelInfo->NextSwitchCountdown() -= levelElapsed;
-			if (LevelInfo->NextSwitchCountdown() <= 0.0f)
+			if (UnrealURL(LevelInfo->NextURL()).HasOption("restart"))
 			{
-				if (UnrealURL(LevelInfo->NextURL()).HasOption("restart"))
-				{
-					LoadMap(LevelInfo->URL, Level->TravelInfo);
-					LoginPlayer();
-				}
-				else if (LevelInfo->bNextItems())
-				{
-					LoadMap(UnrealURL(LevelInfo->URL, LevelInfo->NextURL()), CreateTravelInfo(true));
-					LoginPlayer();
-				}
-				else
-				{
-					LoadMap(UnrealURL(LevelInfo->URL, LevelInfo->NextURL()), {});
-					LoginPlayer();
-				}
+				LoadMap(LevelInfo->URL, Level->TravelInfo);
+				LoginPlayer();
+			}
+			else if (LevelInfo->bNextItems())
+			{
+				LoadMap(UnrealURL(LevelInfo->URL, LevelInfo->NextURL()), CreateTravelInfo(true));
+				LoginPlayer();
+			}
+			else
+			{
+				LoadMap(UnrealURL(LevelInfo->URL, LevelInfo->NextURL()), {});
+				LoginPlayer();
 			}
 		}
+	}
 
-		if (ClientTravelInfo.URL.HasOption("restart"))
-		{
-			LoadMap(LevelInfo->URL, Level->TravelInfo);
-			LoginPlayer();
-		}
+	if (ClientTravelInfo.URL.HasOption("restart"))
+	{
+		LoadMap(LevelInfo->URL, Level->TravelInfo);
+		LoginPlayer();
+	}
 
-		if (ClientTravelInfo.URL.HasOption("load"))
-		{
-			UnrealURL url(ClientTravelInfo.URL);
-			LoadFromSaveFile(url);
-			LoginPlayer();
-		}
+	if (ClientTravelInfo.URL.HasOption("load"))
+	{
+		UnrealURL url(ClientTravelInfo.URL);
+		LoadFromSaveFile(url);
+		LoginPlayer();
+	}
 
-		if (!ClientTravelInfo.URL.Map.empty())
-		{
-			// To do: need to do something about that travel type and transfering of items
+	if (!ClientTravelInfo.URL.Map.empty())
+	{
+		// To do: need to do something about that travel type and transfering of items
 
-			UnrealURL url(ClientTravelInfo.URL);
-			LogMessage("Client travel to " + url.ToString());
-			LoadMap(url, CreateTravelInfo(ClientTravelInfo.TransferItems));
-			LoginPlayer();
-		}
+		UnrealURL url(ClientTravelInfo.URL);
+		LogMessage("Client travel to " + url.ToString());
+		LoadMap(url, CreateTravelInfo(ClientTravelInfo.TransferItems));
+		LoginPlayer();
 	}
 }
 

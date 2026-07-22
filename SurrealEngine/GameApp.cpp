@@ -34,7 +34,16 @@ int GameApp::main(Array<std::string> args)
 
 	try
 	{
+		// The browser main loop outlives GameApp::main(): callMain returns after
+		// emscripten_set_main_loop_arg registers its RAF callback. Keep the
+		// command-line storage alive for that callback just like the Emscripten
+		// Engine instance below; render/debug feature checks use the global pointer
+		// every frame.
+#ifdef __EMSCRIPTEN__
+		static CommandLine cmd(args);
+#else
 		CommandLine cmd(args);
+#endif
 		commandline = &cmd;
 
 		if (ErrorWindow::CheckCrashReporter())

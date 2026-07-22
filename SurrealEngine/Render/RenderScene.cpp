@@ -7,10 +7,10 @@
 #include "Engine.h"
 #include "VisibleFrame.h"
 
-void RenderSubsystem::DrawScene()
+bool RenderSubsystem::PrepareSceneViews()
 {
 	if (!engine->Level)
-		return;
+		return false;
 
 	Light.FogFrameCounter++;
 	TextureFrameCounter++;
@@ -21,26 +21,29 @@ void RenderSubsystem::DrawScene()
 		if (actor)
 			actor->UpdateBspInfo();
 	}
+	return true;
+}
 
-	mat4 worldToView = Coords::ViewToRenderDev().ToMatrix() * Coords::Rotation(engine->CameraRotation).Inverse().ToMatrix() * Coords::Location(engine->CameraLocation).ToMatrix();
-	MainFrame.Process(engine->CameraLocation, worldToView, Coords::Rotation(engine->CameraRotation));
+void RenderSubsystem::DrawSceneView(const vec3& location, const mat4& worldToView, const Coords& viewRotation, const ViewportOverride* viewportOverride)
+{
+	MainFrame.Process(location, worldToView, viewRotation, false, 0, {}, vec4(0.0f, 0.0f, 0.0f, 1.0f), viewportOverride);
 	MainFrame.Draw();
 	MainFrame.DrawCoronas();
 }
 
-void RenderSubsystem::DrawSceneStereo()
+void RenderSubsystem::DrawScene()
 {
-	if (!engine->Level)
+	if (!PrepareSceneViews())
 		return;
 
-	Light.FogFrameCounter++;
-	TextureFrameCounter++;
+	mat4 worldToView = Coords::ViewToRenderDev().ToMatrix() * Coords::Rotation(engine->CameraRotation).Inverse().ToMatrix() * Coords::Location(engine->CameraLocation).ToMatrix();
+	DrawSceneView(engine->CameraLocation, worldToView, Coords::Rotation(engine->CameraRotation));
+}
 
-	for (UActor* actor : engine->Level->Actors)
-	{
-		if (actor)
-			actor->UpdateBspInfo();
-	}
+void RenderSubsystem::DrawSceneStereo()
+{
+	if (!PrepareSceneViews())
+		return;
 
 	Coords rotation = Coords::Rotation(engine->CameraRotation);
 	Coords invRotation = rotation.Inverse();
@@ -90,8 +93,45 @@ void RenderSubsystem::DrawSceneStereo()
 		mat4 projection = mat4::frustum(-rProjZ + frustumShift, rProjZ + frustumShift, -aspect * rProjZ, aspect * rProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
 		vp.Projection = &projection;
 
-		MainFrame.Process(eyeLocation, worldToView, rotation, false, 0, {}, vec4(0.0f, 0.0f, 0.0f, 1.0f), &vp);
-		MainFrame.Draw();
-		MainFrame.DrawCoronas();
+		DrawSceneView(eyeLocation, worldToView, rotation, &vp);
+	}
+}
+
+void RenderSubsystem::DrawSceneStereoLayers()
+{
+	if (!PrepareSceneViews())
+		return;
+
+	Coords rotation = Coords::Rotation(engine->CameraRotation);
+	Coords invRotation = rotation.Inverse();
+	const float halfIPD = 32.0f;
+	const float convergence = 500.0f;
+	const int width = Device->GetRenderWidth();
+	const int height = Device->GetRenderHeight();
+
+	for (uint32_t eye = 0; eye < 2; eye++)
+	{
+		if (eye != 0 && !Device->SelectExternalRenderTargetLayer(eye))
+			return;
+
+		float sign = (eye == 0) ? -1.0f : 1.0f;
+		vec3 eyeLocation = engine->CameraLocation + rotation.YAxis * (halfIPD * sign);
+		mat4 worldToView = Coords::ViewToRenderDev().ToMatrix() * invRotation.ToMatrix() * Coords::Location(eyeLocation).ToMatrix();
+
+		ViewportOverride vp;
+		vp.XB = 0;
+		vp.YB = 0;
+		vp.X = width;
+		vp.Y = height;
+
+		float aspect = (float)height / (float)width;
+		float rProjZ = (float)std::tan(radians(engine->CameraFovAngle) * 0.5f);
+		float frustumShift = -sign * halfIPD * (1.0f / convergence);
+		mat4 projection = mat4::frustum(-rProjZ + frustumShift, rProjZ + frustumShift,
+			-aspect * rProjZ, aspect * rProjZ, 1.0f, 32768.0f,
+			handedness::left, clipzrange::zero_positive_w);
+		vp.Projection = &projection;
+
+		DrawSceneView(eyeLocation, worldToView, rotation, &vp);
 	}
 }

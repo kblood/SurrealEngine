@@ -127,6 +127,12 @@ public:
 	virtual bool SupportsTextureFormat(TextureFormat Format) = 0;
 	virtual void UpdateTextureRect(FTextureInfo& Info, int U, int V, int UL, int VL) = 0;
 
+	// XR projection textures commonly store one eye per array layer. Backends
+	// that support browser/runtime-owned layered targets override this to end
+	// the current eye pass and reopen it on another layer. Ordinary canvas and
+	// native swapchain backends leave the default unsupported result unchanged.
+	virtual bool SelectExternalRenderTargetLayer(uint32_t arrayLayer) { return false; }
+
 	bool ParseCommand(std::string* cmd, const std::string& keyword) { return false; }
 
 	Widget* Viewport = nullptr;

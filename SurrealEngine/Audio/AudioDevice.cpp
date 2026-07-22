@@ -227,7 +227,12 @@ public:
 		alListener3f(AL_POSITION, 0, 0, 0.0f);
 		alListener3f(AL_VELOCITY, 0, 0, 0);
 		alListenerfv(AL_ORIENTATION, listenerOri);
+#ifndef __EMSCRIPTEN__
+		// Emscripten's OpenAL/Web Audio shim does not implement this extension
+		// enum and leaves a sticky AL_INVALID_ENUM that poisons the next checked
+		// operation. Browser spatial values below already use Unreal units.
 		alListenerf(AL_METERS_PER_UNIT, 1.f / UU_PER_METER);
+#endif
 
 		alDistanceModel(AL_LINEAR_DISTANCE_CLAMPED);
 		alSpeedOfSound(343.3f / (1.0f / UU_PER_METER));
@@ -236,8 +241,15 @@ public:
 		alcGetIntegerv(alDevice, ALC_MONO_SOURCES, 1, &monoSources);
 		alcGetIntegerv(alDevice, ALC_STEREO_SOURCES, 1, &stereoSources);
 
+		// Emscripten reports ALC_MONO_SOURCES as INT_MAX because its Web Audio
+		// implementation has no fixed hardware source cap. Allocate the engine's
+		// configured voice count rather than attempting an enormous vector.
+#ifdef __EMSCRIPTEN__
+		sources.resize(numVoices);
+#else
 		// TODO: how do we prioritize mono vs stereo source count?
 		sources.resize(monoSources);
+#endif
 
 		// init music source/buffer
 		alGenSources(1, &alMusicSource);
@@ -269,6 +281,7 @@ public:
 			alDeleteBuffers(1, (ALuint*)&sound->handle);
 		}
 
+		alcMakeContextCurrent(nullptr);
 		alcDestroyContext(alContext);
 		alcCloseDevice(alDevice);
 	}
