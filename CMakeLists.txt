@@ -407,6 +407,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/UDXGameDirectory.h
 	SurrealEngine/UObject/UDXSaveInfo.cpp
 	SurrealEngine/UObject/UDXSaveInfo.h
+	SurrealEngine/UObject/DXAIPerception.cpp
+	SurrealEngine/UObject/DXAIPerception.h
 	SurrealEngine/UObject/UDXTextParser.cpp
 	SurrealEngine/UObject/UDXTextParser.h
 	SurrealEngine/UObject/U227Emitter.cpp
@@ -880,6 +882,16 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(ActorMovementTests PRIVATE SurrealEngine)
 	set_target_properties(ActorMovementTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME ActorMovement COMMAND ActorMovementTests)
+endif()
+
+if(BUILD_TESTING)
+	add_executable(DXAIPerceptionTests
+		Tests/DXAIPerceptionTests.cpp
+		SurrealEngine/UObject/DXAIPerception.cpp
+	)
+	target_include_directories(DXAIPerceptionTests PRIVATE SurrealEngine)
+	set_target_properties(DXAIPerceptionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME DXAIPerception COMMAND DXAIPerceptionTests)
 endif()
 
 if(WIN32)
