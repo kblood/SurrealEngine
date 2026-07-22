@@ -362,6 +362,7 @@ struct PropertyOffsets_Actor
 	PropertyDataOffset bCollideWorld;
 	PropertyDataOffset bCorona;
 	PropertyDataOffset bDeleteMe;
+	PropertyDataOffset bDetectable;
 	PropertyDataOffset bDemoRecording;
 	PropertyDataOffset bDifficulty0;
 	PropertyDataOffset bDifficulty1;

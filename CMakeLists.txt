@@ -370,6 +370,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/UDXGameDirectory.h
 	SurrealEngine/UObject/UDXSaveInfo.cpp
 	SurrealEngine/UObject/UDXSaveInfo.h
+	SurrealEngine/UObject/DXAIPerception.cpp
+	SurrealEngine/UObject/DXAIPerception.h
 	SurrealEngine/UObject/DXTextTokenizer.cpp
 	SurrealEngine/UObject/DXTextTokenizer.h
 	SurrealEngine/UObject/UDXTextParser.cpp
@@ -741,6 +743,14 @@ if (BUILD_TESTING)
 	target_include_directories(DXTextTokenizerTests PRIVATE SurrealEngine)
 	set_target_properties(DXTextTokenizerTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME DXTextTokenizer COMMAND DXTextTokenizerTests)
+
+	add_executable(DXAIPerceptionTests
+		Tests/DXAIPerceptionTests.cpp
+		SurrealEngine/UObject/DXAIPerception.cpp
+	)
+	target_include_directories(DXAIPerceptionTests PRIVATE SurrealEngine)
+	set_target_properties(DXAIPerceptionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME DXAIPerception COMMAND DXAIPerceptionTests)
 endif()
 
 if(WIN32)

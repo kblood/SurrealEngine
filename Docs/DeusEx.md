@@ -53,6 +53,9 @@ Validation results on 2026-07-22:
 - `DX.dx` and `00_Training.dx` remained running and responsive during repeated
   unattended smoke tests, including a 10-second check after the text paging
   implementation.
+- `00_Training.dx` and `01_NYC_UNATCOIsland.dx` remained running and responsive
+  for 20 seconds after enabling the AI perception natives used by
+  `ScriptedPawn`.
 - All 88 installed `.dx` maps remained running and responsive for a three-second
   direct-load check. The scan included representative early, middle, late, and
   ending maps before it was expanded to the complete installed map set.
@@ -138,10 +141,41 @@ derivation, `GetName`, `GetColor`, `GotoLabel`, and `ExtString` paging. The
 replacement code is an independent implementation and neither links to nor
 redistributes the original binaries.
 
-## Automated text coverage
+## AI perception findings
 
-The platform-independent tokenizer and paging code has a small CTest target so
-it can be validated without loading proprietary game packages:
+The public 1112fm SDK can export the stock UnrealScript and supplies the native
+headers used by that script. The SDK installer used for this investigation has
+MD5 `1d7560c513f945b607ee96cd2f9aec57`; its files and exported proprietary game
+scripts are reference material and are not part of this repository.
+
+`ScriptedPawn` calls `AICanSee` throughout target acquisition, alarm, tracking,
+and combat paths. Surreal Engine previously returned zero from `AICanSee`,
+`AICanHear`, and `AIVisibility`, which prevented those paths from detecting an
+actor. The 1112fm `Engine.dll` behavior establishes the following:
+
+- Actors without `bDetectable` are ignored.
+- Hearing uses linear distance attenuation, treats vertical separation as
+  twice horizontal separation, defaults a non-positive radius to 800 units,
+  subtracts `HearingThreshold`, and clamps the result to zero through one.
+- Sight factors in the target collision cylinder's apparent angular size,
+  view direction, visibility, `VisibilityThreshold`, and line of sight.
+- `AIVisibility` caches light visibility at quarter-second intervals and can
+  increase visibility by up to 50 percent based on velocity from 30 through
+  200 units per second.
+- `AICanSmell` always returns zero in the original 1112fm implementation.
+
+The current implementation restores those major stages and the exact hearing,
+motion, threshold, and smell behavior. Sight uses the original angular-size
+scale and native options, with Surreal Engine collision traces for the
+line-of-sight test. Two fidelity gaps remain: light-mesh sampling currently
+falls back to full light, and the original smooth falloff at the edges of the
+view cone is currently a pass/fail cone check. These need interactive stealth
+comparisons before the AI work is considered complete.
+
+## Automated compatibility coverage
+
+The platform-independent text and AI calculations have CTest targets so they
+can be validated without loading proprietary game packages:
 
 ```powershell
 ctest --test-dir build -C Release --output-on-failure
@@ -151,14 +185,17 @@ The tests cover text at exact end-of-input, every token-table entry, all three
 alignment modes, RGB parsing, case-insensitive tags, player substitutions,
 block consumption, escaped angle brackets, file metadata, the stock email
 record shapes, and 239-character paging boundaries. The Release test run passed
-on 2026-07-22.
+on 2026-07-22. AI tests cover horizontal and vertically weighted hearing,
+default radius and thresholds, apparent-size sight scoring, light visibility,
+minimum angular size, motion interpolation, and clamping.
 
 ## Next validation targets
 
 1. Verify books, DataCubes, email terminals, bulletin links, and multi-page
    speech text interactively.
-2. Capture the next failing native call in training and reduce it to a focused,
-   independently reviewable change.
+2. Compare guard detection in bright, dark, stationary, moving, peripheral,
+   and occluded cases against 1112fm, then implement light sampling and smooth
+   view-edge falloff.
 3. Exercise a fresh game and scripted map travel, then inventory the first
    missing or incorrect game-native behavior on that path.
 4. Audit save-slot creation, loading, and deletion against the original game.

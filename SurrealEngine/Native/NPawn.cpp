@@ -287,20 +287,20 @@ void NPawn::pointReachable(UObject* Self, const vec3& aPoint, BitfieldBool& Retu
 
 void NPawn::AICanHear(UObject* Self, UObject* Other, std::optional<float> Volume, std::optional<float> Radius, float& ReturnValue)
 {
-	LogUnimplemented("Pawn.AICanHear");
-	ReturnValue = 0.0f;
+	UPawn* selfPawn = UObject::Cast<UPawn>(Self);
+	ReturnValue = selfPawn->AICanHear(UObject::Cast<UActor>(Other), Volume, Radius);
 }
 
 void NPawn::AICanSee(UObject* Self, UObject* Other, std::optional<float> Visibility, std::optional<bool> bCheckVisibility, std::optional<bool> bCheckDir, std::optional<bool> bCheckCylinder, std::optional<bool> bCheckLOS, float& ReturnValue)
 {
-	LogUnimplemented("Pawn.AICanSee");
-	ReturnValue = 0.0f;
+	UPawn* selfPawn = UObject::Cast<UPawn>(Self);
+	ReturnValue = selfPawn->AICanSee(UObject::Cast<UActor>(Other), Visibility, bCheckVisibility, bCheckDir, bCheckCylinder, bCheckLOS);
 }
 
 void NPawn::AICanSmell(UObject* Self, UObject* Other, std::optional<float> Smell, float& ReturnValue)
 {
-	LogUnimplemented("Pawn.AICanSmell");
-	ReturnValue = 0.0f;
+	UPawn* selfPawn = UObject::Cast<UPawn>(Self);
+	ReturnValue = selfPawn->AICanSmell(UObject::Cast<UActor>(Other), Smell);
 }
 
 void NPawn::AIDirectionReachable(UObject* Self, const vec3& Focus, int Yaw, int Pitch, float minDist, float maxDist, vec3& bestDest, BitfieldBool& ReturnValue)

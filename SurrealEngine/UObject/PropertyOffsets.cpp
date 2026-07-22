@@ -407,6 +407,7 @@ static void InitPropertyOffsets_Actor(PackageManager* packages)
 	PropOffsets_Actor.bCollideWorld = cls->GetPropertyDataOffset("bCollideWorld");
 	PropOffsets_Actor.bCorona = cls->GetPropertyDataOffset("bCorona");
 	PropOffsets_Actor.bDeleteMe = cls->GetPropertyDataOffset("bDeleteMe");
+	PropOffsets_Actor.bDetectable = cls->GetPropertyDataOffset("bDetectable");
 	PropOffsets_Actor.bDemoRecording = cls->GetPropertyDataOffset("bDemoRecording");
 	PropOffsets_Actor.bDifficulty0 = cls->GetPropertyDataOffset("bDifficulty0");
 	PropOffsets_Actor.bDifficulty1 = cls->GetPropertyDataOffset("bDifficulty1");

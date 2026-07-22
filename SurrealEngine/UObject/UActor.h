@@ -456,6 +456,8 @@ public:
 	// Unreal 227's version of Actor.Trace()
 	UObject* Trace(vec3& hitLocation, vec3& hitNormal, const vec3& traceEnd, const vec3& traceStart, bool bTraceActors, const vec3& extent, bool bTraceBSP, uint8_t	BSPTraceFlags);
 	bool FastTrace(const vec3& traceEnd, const vec3& traceStart);
+	float AIGetLightLevel(const vec3& location);
+	float AIVisibility(bool includeVelocity = true);
 	// Unreal 227 - Trace against world and return the wanted information (location, normal, texture and/or polyflags)
 	bool TraceSurfHitInfo(vec3& Start, vec3& End, vec3* HitLocation, vec3* HitNormal, UTexture* HitTex, int* HitFlags);
 	// Unreal 227 - Perform a single line check with this actor
@@ -713,6 +715,7 @@ public:
 	BitfieldBool bCollideWorld() { return BoolValue(PropOffsets_Actor.bCollideWorld); }
 	BitfieldBool bCorona() { return BoolValue(PropOffsets_Actor.bCorona); }
 	BitfieldBool bDeleteMe() { return BoolValue(PropOffsets_Actor.bDeleteMe); }
+	BitfieldBool bDetectable() { return BoolValue(PropOffsets_Actor.bDetectable); }
 	BitfieldBool bDemoRecording() { return BoolValue(PropOffsets_Actor.bDemoRecording); }
 	BitfieldBool bDifficulty0() { return BoolValue(PropOffsets_Actor.bDifficulty0); }
 	BitfieldBool bDifficulty1() { return BoolValue(PropOffsets_Actor.bDifficulty1); }

@@ -5,6 +5,7 @@
 #include "UTexture.h"
 #include "UConSys.h"
 #include "USubsystem.h"
+#include "DXAIPerception.h"
 #include "VM/ScriptCall.h"
 #include "VM/Frame.h"
 #include "Package/PackageManager.h"
@@ -1504,6 +1505,44 @@ UObject* UActor::Trace(vec3& hitLocation, vec3& hitNormal, const vec3& traceEnd,
 bool UActor::FastTrace(const vec3& traceEnd, const vec3& traceStart)
 {
 	return !XLevel()->Collision.TraceAnyHit(traceStart, traceEnd, this, false, true, false);
+}
+
+float UActor::AIGetLightLevel(const vec3& location)
+{
+	// The original samples the level light mesh at this location. Surreal Engine
+	// does not expose that sample yet, so use full light while preserving the
+	// original visibility cache and motion contribution in AIVisibility().
+	return 1.0f;
+}
+
+float UActor::AIVisibility(bool includeVelocity)
+{
+	constexpr float updateInterval = 0.25f;
+	float currentTime = Level() ? Level()->TimeSeconds() : 0.0f;
+	float elapsed = currentTime - VisUpdateTime();
+	float lightVisibility;
+
+	if (elapsed > updateInterval * 2.0f)
+	{
+		VisUpdateTime() = currentTime;
+		lightVisibility = AIGetLightLevel(Location());
+		CurrentVisibility() = lightVisibility;
+		LastVisibility() = lightVisibility;
+	}
+	else if (elapsed >= updateInterval)
+	{
+		LastVisibility() = CurrentVisibility();
+		VisUpdateTime() = currentTime;
+		CurrentVisibility() = AIGetLightLevel(Location());
+		lightVisibility = LastVisibility();
+	}
+	else
+	{
+		float alpha = std::clamp(elapsed / updateInterval, 0.0f, 1.0f);
+		lightVisibility = LastVisibility() + (CurrentVisibility() - LastVisibility()) * alpha;
+	}
+
+	return ComputeDXAIMotionVisibility(lightVisibility, length(Velocity()), includeVelocity);
 }
 
 bool UActor::TraceSurfHitInfo(vec3& Start, vec3& End, vec3* HitLocation, vec3* HitNormal, UTexture* HitTex, int* HitFlags)
@@ -3562,19 +3601,73 @@ bool UPawn::MarkReachableNavEndPoints()
 
 float UPawn::AICanHear(UActor* other, std::optional<float> volume, std::optional<float> radius)
 {
-	LogUnimplemented("Pawn.AICanHear() [Deus Ex]");
-	return 0.0f;
+	if (!other || !other->bDetectable())
+		return 0.0f;
+	vec3 delta = other->Location() - Location();
+	return ComputeDXAIHearing(volume.value_or(1.0f), radius.value_or(-1.0f), HearingThreshold(), delta.x, delta.y, delta.z);
 }
 
 float UPawn::AICanSee(UActor* other, std::optional<float> visibility, std::optional<bool> bCheckVisibility, std::optional<bool> bCheckDir, std::optional<bool> bCheckCylinder, std::optional<bool> bCheckLOS)
 {
-	LogUnimplemented("Pawn.AICanSee() [Deus Ex]");
-	return 0.0f;
+	float suppliedVisibility = visibility.value_or(1.0f);
+	if (!other || !other->bDetectable() || suppliedVisibility <= 0.0f)
+		return 0.0f;
+
+	vec3 eyePosition = Location();
+	eyePosition.z += EyeHeight();
+	vec3 delta = other->Location() - eyePosition;
+	float distanceSquared = std::max(dot(delta, delta), 1.0f);
+
+	if (bCheckDir.value_or(true))
+	{
+		Rotator viewRotation = Rotation();
+		if (UPlayerPawn* player = UObject::TryCast<UPlayerPawn>(this))
+			viewRotation = player->ViewRotation();
+		viewRotation += AIAddViewRotation();
+		Coords view = Coords::Rotation(viewRotation);
+
+		float forward = dot(delta, view.XAxis);
+		float side = dot(delta, view.YAxis);
+		float up = dot(delta, view.ZAxis);
+		float horizontalAngle = std::atan2(std::abs(side), forward) * (180.0f / 3.14159265359f);
+		float verticalAngle = std::atan2(std::abs(up), std::sqrt(forward * forward + side * side)) * (180.0f / 3.14159265359f);
+		float angularRadius = std::atan2(std::sqrt(other->CollisionRadius() * other->CollisionRadius() + other->CollisionHeight() * other->CollisionHeight()), std::sqrt(distanceSquared)) * (180.0f / 3.14159265359f);
+		float horizontalFov = AIHorizontalFov();
+		float aspectRatio = AspectRatio() > 0.0f ? AspectRatio() : 1.0f;
+		if (horizontalFov > 0.0f &&
+			(horizontalAngle > horizontalFov * 0.5f + angularRadius || verticalAngle > horizontalFov * 0.5f / aspectRatio + angularRadius))
+		{
+			return 0.0f;
+		}
+	}
+
+	float lightVisibility = bCheckVisibility.value_or(true) ? other->AIVisibility(true) : 1.0f;
+	float result = ComputeDXAISight(suppliedVisibility, lightVisibility, other->CollisionRadius(), other->CollisionHeight(), distanceSquared, MinAngularSize(), VisibilityThreshold());
+	if (result <= 0.0f)
+		return 0.0f;
+
+	if (bCheckLOS.value_or(true))
+	{
+		vec3 target = other->Location();
+		if (UPawn* otherPawn = UObject::TryCast<UPawn>(other))
+			target.z += otherPawn->EyeHeight();
+		if (FastTrace(target, eyePosition))
+			return result;
+		if (!bCheckCylinder.value_or(false))
+			return 0.0f;
+
+		vec3 top = other->Location() + vec3(0.0f, 0.0f, other->CollisionHeight());
+		vec3 bottom = other->Location() - vec3(0.0f, 0.0f, other->CollisionHeight());
+		if (!FastTrace(top, eyePosition) && !FastTrace(bottom, eyePosition))
+			return 0.0f;
+	}
+
+	return result;
 }
 
 float UPawn::AICanSmell(UActor* other, std::optional<float> smell)
 {
-	LogUnimplemented("Pawn.AICanSmell() [Deus Ex]");
+	// The original 1112fm implementation is also a constant zero return.
 	return 0.0f;
 }
 

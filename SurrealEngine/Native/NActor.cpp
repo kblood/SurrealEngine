@@ -808,8 +808,7 @@ void NActor::AIEndEvent(UObject* Self, const NameString& eventName, uint8_t even
 
 void NActor::AIGetLightLevel(UObject* Self, const vec3& Location, float& ReturnValue)
 {
-	LogUnimplemented("Actor.AIGetLightLevel");
-	ReturnValue = 1.0f;
+	ReturnValue = UObject::Cast<UActor>(Self)->AIGetLightLevel(Location);
 }
 
 void NActor::AISendEvent(UObject* Self, const NameString& eventName, uint8_t eventType, std::optional<float> Value, std::optional<float> Radius)
@@ -829,8 +828,7 @@ void NActor::AIStartEvent(UObject* Self, const NameString& eventName, uint8_t ev
 
 void NActor::AIVisibility(UObject* Self, std::optional<bool> bIncludeVelocity, float& ReturnValue)
 {
-	LogUnimplemented("Actor.AIVisibility");
-	ReturnValue = 0.0f;
+	ReturnValue = UObject::Cast<UActor>(Self)->AIVisibility(bIncludeVelocity.value_or(true));
 }
 
 void NActor::TraceTexture(UObject* Self, UObject* BaseClass, UObject*& Actor, NameString& texName, NameString& texGroup, int& flags, vec3& HitLoc, vec3& HitNorm, const vec3& End, std::optional<vec3> Start, std::optional<vec3> Extent)
