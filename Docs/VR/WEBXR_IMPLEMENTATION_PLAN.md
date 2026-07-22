@@ -33,14 +33,31 @@ active work — same pattern the native VR plan follows.
    avoided Vulkan's bindless model by using four fixed texture slots. M3
    therefore cached those per-draw WebGPU bind groups, instrumented the hot
    path, and measured geometry-buffer pressure on a larger map.
-4. **M4: WebXR session integration.** `XRGPUBinding` (Immersive Web Editor's
-   Draft, see `WEBXR_PORT_PLAN.md`), stereo rendering reusing the
-   asymmetric-frustum/coordinate-convention math already verified for native
-   VR (`RenderScene.cpp`, this doc's — er, `VR_IMPLEMENTATION_PLAN.md`'s — M2
-   step 6 convergence-sign addendum).
-5. **M5: Input, comfort, deploy.** WebXR controller input, comfort options,
-   PWA/hosting pipeline — leaning directly on `webxr-port/`'s proven harness
-   (IDBFS persistence, headless verification, PWA packaging).
+4. **M4: WebXR presentation groundwork. DONE IN AUTOMATION; PHYSICAL RUNTIME
+   OPEN.** XR-compatible WebGPU device, JavaScript-texture import/readback,
+   external array-layer rendering, and RAF ownership handoff.
+5. **M5: simulation/view refactor. DONE.** Advance once, render independent
+   per-eye views, and submit synchronously while frame-scoped browser objects
+   remain valid.
+6. **M6: production WebGPU/WebXR session. IMPLEMENTED; PHYSICAL RUNTIME OPEN.**
+   Packed frame ABI, projection layer, preferred formats, lifecycle, failure
+   cleanup, visibility, and device-loss policy.
+7. **M7: tracked head/camera/world scale. DETERMINISTIC TESTS PASS; PHYSICAL
+   SCALE/STEREO OPEN.**
+8. **M8: controllers/gameplay. IN PROGRESS.** ABI v2, locomotion/turning,
+   world full-basis hands, scoped weapon direction/presentation, per-eye weapon
+   draw, and fire haptics work; interaction UX, fixtures, and hardware tuning
+   remain.
+9. **M9: UI/comfort. IN PROGRESS.** Essential HUD state is captured once and
+   replayed per eye; menus/cursor, settings UX, unsupported primitives,
+   comfort/loading policy, and all headset gates remain.
+10. **M10: audio/data/network/deploy. IN PROGRESS.** Browser audio and the
+    schema-v1 local UT99 importer exist; tracked listener, no-preload/full-data
+    qualification, non-game persistence, launcher/deploy, and networking scope
+    remain.
+11. **M11: performance/release. IN PROGRESS.** Lifecycle automation exists;
+    physical Quest profiling, compatibility, sleep/wake, soak, and release
+    artifact qualification remain.
 
 ## M1: Emscripten build harness — ground truth (recon results)
 
@@ -1136,3 +1153,115 @@ boolean properties in `GetBool`/`SetBool`, preventing adjacent-property
 corruption. Commit `08afeb32` fixes in-place quaternion multiplication and adds
 compile-time Hamilton-product checks. Both native and Emscripten builds pass.
 The sibling's dirty screen-quad/tuning batch was not copied or cherry-picked.
+
+## M8 full-basis weapon-presentation checkpoint — PASS IN DETERMINISTIC TESTS (2026-07-22)
+
+Commit `b5917f10` preserves controller roll without changing the safer
+direction-only ballistic policy. `WebXRFrameBridge` converts and recenters the
+complete aim/grip forward/right/up basis, repairs handedness against the
+expected up vector, and carries it into the engine. World composition
+orthonormalizes that basis after body yaw. `WorldRotation` remains a zero-roll
+direction for traces/projectiles; `WorldPresentationRotation` round-trips the
+full basis, including the pitch singularity, for the viewmodel.
+
+The weapon VM classifier accepts the exact global `RenderOverlays` function
+for the local current weapon across Engine, Botpack, inheritance, and mod
+packages. During that presentation call only, pawn and weapon rotation receive
+the dominant aim basis, or tracked grip as a presentation-only fallback, and a
+re-entrant cleanup restores both exact integer rotators. The already-existing
+weapon-only per-eye renderer dispatches this scope; it does not call the weapon
+again or restore player/HUD/menu overlays.
+
+Native and Emscripten builds pass. Deterministic self-tests cover nonzero roll,
+basis orthogonality/round-trip, singular orientation, package-independent
+classification, nested presentation scopes, and byte-exact restoration. The
+WASM diagnostic surface exposes right/up/full presentation values and the
+presentation counter, but this commit did not add a new browser assertion for
+them. Physical barrel alignment, position/scale, mirroring, tracking loss,
+muzzle origin, automatic/special weapon fixtures, and Quest presentation are
+still open.
+
+## M9 capture-once stereo HUD checkpoint — BUILDS PASS; BROWSER HUD GATE NOT REACHED (2026-07-22)
+
+Commit `e387ec3f` adds a renderer-local display-list seam for essential UT99
+HUD/crosshair output. With a local `myHUD`, `PlayerPawn.PostRender` runs once on
+a stable 1280x960 logical canvas while tile/text/clipped-tile/2D-line device
+submission is captured. The immutable commands are then replayed once per eye.
+This prevents message queues, mutators, animation, and other stateful
+UnrealScript work from advancing independently for left and right views.
+
+One common head-locked 4:3 plane is configured by distance, horizontal FOV,
+aspect, and safe-area fraction. Each eye's rectangle comes from projecting the
+plane corners with its exact `Projection * WorldToView`; rectangles are
+clamped and all canvas/device state restores through exception-safe scopes.
+Diagnostics count state updates, command capture, eye presentations, clamps,
+and unsupported draws. The self-test covers one update/two presentations,
+asymmetric projection, forced clamp, and absent HUD.
+
+Native and Emscripten builds plus diff checks pass. The experimental
+Playwright/IWER run passed ABI, copied-input, fake-haptics, immersive support,
+XR-compatible WebGPU and `XRGPUBinding` probes, then timed out waiting for the
+engine/Web Audio boot gate after importer integration. It never executed HUD
+presentation, so this checkpoint has no browser HUD pass or failure. Console,
+UWindow/menu/cursor, `PreRender`, full player overlays, actor/clipped-actor/3D
+canvas primitives, settings UI, and physical stereo/readability/comfort remain
+open; unsupported 3D-style capture calls are suppressed and counted.
+
+## M10 local UT99 importer checkpoint — 13/13 SYNTHETIC TESTS PASS (2026-07-22)
+
+Commit `87f8324f` holds `Module.callMain()` behind a legal local-data gate.
+Developer preloads bypass it; otherwise the user can select their own install
+with `showDirectoryPicker()` or a directory file-input fallback. Paths are
+canonicalized and traversal, absolute paths, NUL components, and case
+collisions are rejected. Validation checks required directories, packages,
+INI, executable, and representative asset extensions without reading or
+uploading contents.
+
+Schema `surrealengine-ut99-data` version 1 prefers OPFS and falls back to
+IndexedDB. A new dataset is staged completely before metadata publication;
+failure deletes staging, successful replacement retires the old dataset, and
+re-import reloads instead of mutating the live filesystem. Storage quota and
+persistence are reported, progress covers scan/store/restore, corruption and
+eviction produce actionable errors, and saved blobs stream into `/gamedata`
+before main starts. Clear-data is available. This persists imported game data,
+not yet configs, bindings, VR settings, saves, or logs.
+
+`python -u web/smoke_test_ut99_importer.py` passes all 13 deterministic cases:
+schema/version; content-free layout validation; missing-file diagnostics;
+path traversal/case collision; directory fallback; IndexedDB round-trip;
+Emscripten-FS streaming; developer-preload bypass; no-data wait gate; later
+saved-import boot; safe re-import; clear; and OPFS round-trip/missing-dataset
+behavior when available.
+
+All fixtures use fake data. Still required: configure and build with
+`SURREAL_GAMEDATA_DIR` empty, audit the distributable for proprietary/preload
+payloads, import a complete user-owned installation in clean desktop and Quest
+profiles, reach a playable map, measure full-size quota/copy/thermal behavior,
+and verify restart persistence, eviction/corruption recovery, and future schema
+migration. The latest experimental WebXR smoke retained the 629 MB developer
+package and failed its engine/Web Audio readiness gate, so it does not close
+the no-preload acceptance path.
+
+## Native sibling audit addendum — provenance and reuse boundary (2026-07-22)
+
+The read-only `SurrealEngine-vr-m2` audit separates committed evidence through
+`4c504c7d` from about 2,618 dirty additions across 15 tracked files plus
+untracked plans/tools. The committed controller series provides reusable
+designs for dominant-hand resolution, foregrip hysteresis/two-hand blending,
+left-hand mirroring, dual-Enforcer ownership, and synthetic
+`--debugvrhands`/`--debugvrfire`/`--debugvrtwohand`/
+`--debugvrdualenforcer`/`--debugvrgeometry` fixtures. The dirty `--vrtune`
+workflow suggests release-before-capture arming, separate grip/aim markers,
+raw one-hand calibration, gameplay suppression, package-qualified tables, and
+persistent metadata-rich output; it contains no finished verified weapon table.
+
+Do not copy the dirty `XrCompositionLayerQuad`/`vrQuad*` path, per-eye repeated
+`RenderOverlaysVR`/`PostRenderVR`, mixed viewport/menu cursor coordinates,
+direct `ShowMenu`/blind `bShowMenu` manipulation, generic `CalcDrawOffset`
+origin override, or `PlayerViewOffset` fallback. The latest native quad/menu
+test remained face-locked/unusable and its benchmark loaded inconsistent maps,
+so provenance and branch execution were not proven. Native Quest evidence
+does cover session/stereo fixes and basic movement/fire/yaw/pitch, but not
+WebXR/WebGPU, Quest Browser profiles, full-basis weapon feel, two-hand tuning,
+calibration values, importer/storage, current HUD fusion, audio lifecycle, or
+release comfort/performance gates.
