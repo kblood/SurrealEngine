@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 globalThis.window = globalThis;
 Object.defineProperty(globalThis, "navigator", {
 	configurable: true,
-	value: { xr: {} },
+	value: { xr: { isSessionSupported: async mode => mode === "immersive-vr" } },
 });
 globalThis.XRGPUBinding = function () {};
 const device = { label: "shared-device" };
@@ -15,7 +15,8 @@ globalThis.surrealXREnter = async () => {
 };
 
 await import("./webxr_browser_app_adapter.js");
-const provider = globalThis.SurrealWebXRBrowserProvider.createProvider();
+const capability = await globalThis.SurrealWebXRBrowserProvider.probe();
+const provider = globalThis.SurrealWebXRBrowserProvider.createProvider(capability);
 assert.equal(provider.id, "webxr");
 assert.equal(provider.isAvailable(), true);
 await provider.activate({ Module: { preinitializedWebGPUDevice: device }, selection: {} });
