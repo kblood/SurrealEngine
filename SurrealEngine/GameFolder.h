@@ -8,6 +8,8 @@ struct GameLaunchInfo
 	int gameVersion = 0;					// Engine version as named by the game (e.g. 226, 227, 436...)
 	int gameSubVersion = 0;				// Engine sub version displayed as a letter (Note: Isn't always consistent)
 	bool noEntryMap = false;
+	bool demo = false;
+	bool experimentalCompatibility = false;
 	std::string gameName = "";				// Name of the game (e.g. "Unreal Tournament")
 	std::string gameRootFolder = "";		// Path to the folder that contains all the subfolders and files
 	std::string gameExecutableName = "";	// Name of the game executable (e.g. "UnrealTournament")

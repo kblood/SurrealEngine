@@ -29,18 +29,24 @@ provenance of the download, not permission for this project to redistribute it.
 
 ## Detection and launch matrix
 
-| Distribution | Browser folder validation | Native `UE1GameDatabase` | Boots now | Missing support | Redistributable by this project |
+The following status is from the isolated `integration/ue1-demo-import` topic.
+All three definitions are deliberately labeled **experimental**. “Package scan”
+means construction of the engine and its package manager with the original
+audit folder; it is not a menu, map, gameplay, input, or save-system claim.
+
+| Distribution | Browser folder validation | Native detection | Package scan / boot | Remaining support | Redistributable by this project |
 |---|---|---|---|---|---|
-| UT99 demo 348 | Passes when explicitly selected as UT99. Automatic detection previously chose Unreal because the demo legitimately includes `UnrealShare.u`; this branch fixes that generic precedence bug. | No. `System/UnrealTournament.exe` SHA-1 is `4bb5e71f78cf4806d9240df01f72236134af4a31`, absent from the database. | No: native selection stops before engine startup. | Add a distinct 348-demo version/hash, verify old package/VM behavior, choose one of the included `*DEMO` maps, and perform real play/menu/input tests before advertising it. | **Unclear.** The archive has no game redistribution license, and no current authoritative Epic grant for mirroring this legacy binary was located. Use local user import unless written permission is obtained. |
-| Deus Ex demo 1002f | Rejected as UT99; the browser has no Deus Ex definition and only accepts `.unr` maps. | No. Demo executable SHA-1 is `4be582d4194400e87f64894c92b3f2119e012251`, while the database's 1002f hash is a different build. | No: native selection stops before engine startup. | Add a demo-specific native hash only after testing; add a browser Deus Ex descriptor, `.dx` maps, required packages/config, launch defaults, persistence namespace, release manifest entry, and gameplay tests. | **No for a hosted project copy.** The bundled Eidos license limits use to private/domestic use and describes transfer only as giving away the entire product while retaining no copy, which is incompatible with maintaining a public mirror. Obtain permission or require local import. |
-| Unreal Special Edition / OEM demo 205 | Rejected as Unreal Gold because it lacks `UnrealShare.u` and a generated `Unreal.ini`; raw media has `Default.ini`. | No. `System/Unreal.exe` SHA-1 is `b851dcc69c4f773252c0498bd12756d90bcb59c2`, absent from the database. | No: native selection stops before engine startup. | Add Unreal 205 as a distinct version; define its smaller package contract; safely seed mutable `Unreal.ini` from defaults; test maps through the known incomplete OEM ending; do not depend on the third-party no-CD/fix archive. | **Unclear.** “Shareware” is historical evidence, not an explicit license in this archive. No authoritative current publisher grant for this exact repack was located. Require local import unless permission and an authoritative original artifact are obtained. |
+| UT99 demo 348 | Passes requested and automatic synthetic import as `ut99-demo-348`. Its distinct `*DEMO.unr` evidence wins before full UT and Unreal definitions. | Passes exact SHA-1 `4bb5e71f78cf4806d9240df01f72236134af4a31` as `UT99_348_DEMO`, version `348demo`. | Package scan passes. Bounded headless setup reaches the driver seam and exits as expected for the deliberately unknown scan driver. Menu/map/gameplay remain untested. | Run `DM-TurbineDEMO` or another included demo map through flat and XR presentation; verify old package/VM behavior, menu, input, audio, and mutable saves before advertising it. | **Unclear.** The archive has no game redistribution license, and no current authoritative Epic grant for mirroring this legacy binary was located. Use local user import unless written permission is obtained. |
+| Deus Ex demo 1002f | Passes requested and automatic synthetic import as `deus-ex-demo-1002f`; `.dx` maps, `DeusEx.ini`, isolated storage, `SE-DeusEx.ini`, and `.dxs` saves are recognized. | Passes exact SHA-1 `4be582d4194400e87f64894c92b3f2119e012251` as `DEUS_EX_1002f_DEMO`, version `1002f_DEMO`, without changing the retail 1002f identity. | Package scan passes after treating a fresh install's absent `Save/` directory as an empty save list. Menu/map/gameplay remain untested. | Controlled boot of `00_Training`; verify demo-specific classes, conversations, UI, input, map travel, saves, and flat/XR presentation. | **No for a hosted project copy.** The bundled Eidos license limits use to private/domestic use and describes transfer only as giving away the entire product while retaining no copy, which is incompatible with maintaining a public mirror. Obtain permission or require local import. |
+| Unreal Special Edition / OEM demo 205 | Passes requested and automatic synthetic import as `unreal-demo-205`. Its real contract uses `UnrealI.u`, `UnrealIOrder.u`, and `Default.ini`; it does not pretend to be Unreal Gold. Mutable `SE-Unreal.ini` is allowed. | Passes exact SHA-1 `b851dcc69c4f773252c0498bd12756d90bcb59c2` as `UNREAL_205_DEMO`, version `205`. | Detection passes, but package construction stops at `Object Property 'TextBuffer.Outer' not found`. No menu or map boot was attempted. | Investigate the 205 Core class/property layout as a separate, narrowly reviewed compatibility change; then retry `Vortex2` and the known incomplete OEM progression. Do not use the third-party no-CD/fix archive. | **Unclear.** “Shareware” is historical evidence, not an explicit license in this archive. No authoritative current publisher grant for this exact repack was located. Require local import unless permission and an authoritative original artifact are obtained. |
 | S3TC map pack | Not a complete selectable folder. | Not applicable. | Not standalone. | If useful, design a separate optional add-on importer with collision/override policy and verify ownership of every package. | **Unclear.** The bundled note explains use but contains no redistribution grant. Do not package it. |
 | Unreal Demo Fixes | Not a complete selectable folder. | Patched executable/package are not in the database. | Not standalone. | None recommended for release. Any needed engine compatibility should be implemented in SurrealEngine without distributing patched proprietary files or a no-CD binary. | **No.** No license grant was found, and the archive contains modified proprietary executable/package content. |
 
-“Boots now” records the safe local result: all three full distributions fail the
-native hash gate, so no gameplay process was started. Browser validation was
-run against file names/sizes with dummy blob providers; it did not read or copy
-game contents. Passing browser validation alone is not an engine-support claim.
+Browser validation was run against file names/sizes with dummy blob providers;
+it did not copy game contents. Native detection and package scans read only the
+three local audit folders. No gameplay process or public demo download was
+started. Passing detection or browser validation alone is not an engine-support
+claim.
 
 ## Redistribution evidence and release rule
 
@@ -63,13 +69,26 @@ each user select a lawfully obtained local folder.
 
 ## Integration order
 
-1. Land the generic browser auto-detection precedence regression in this topic;
-   it improves full UT installations too and makes no demo support claim.
-2. Add native demo hashes/versions in a separate detection-only topic, with
-   synthetic hash-registry tests and explicit “experimental” capability state.
-3. Prove package listing and a controlled boot locally for each version before
-   adding it to browser `GAME_DEFINITIONS` or the public launcher.
-4. Add Deus Ex `.dx` and per-title package/config rules through the shared game
-   support registry, not demo-specific conditionals scattered through VR/WebXR.
+1. Keep the exact hash/version descriptors and browser distribution definitions
+   together in this reviewable topic; do not add game files or XR conditionals.
+2. Land the generic absent-save-directory guard independently if desired; it is
+   useful to fresh full-game installs as well as the Deus Ex demo.
+3. Treat UT99 348 and Deus Ex 1002f as experimental package-scan support until
+   real map/menu/gameplay tests pass on local user data.
+4. Isolate Unreal 205 property-layout work in a follow-up topic with a focused
+   regression test; do not weaken property lookup globally to force a boot.
 5. Keep website artifacts data-free. Permission to redistribute a demo must be
    documented per exact artifact/hash; availability on a mirror is insufficient.
+
+## Reproducible checks
+
+- `UE1GameDatabaseTests` checks the three exact executable SHA-1 values, version
+  metadata, experimental flags, and the unchanged retail Deus Ex 1002f hash.
+- Passing the three audit folder paths to that executable performs the bounded
+  engine/package scan used for the matrix above; the ordinary CTest has no
+  dependency on local commercial data.
+- `node web/test_ue1_demo_imports.mjs` validates synthetic requested/automatic
+  imports, `.unr`/`.dx` map manifests, full UT99/Unreal Gold non-regression, and
+  the mutable config/save allowlist.
+- The existing release-package and browser-launcher suites remain data-free and
+  pass. OPFS round-trip checks still require an HTTP origin rather than `file:`.

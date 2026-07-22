@@ -881,6 +881,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(DeusExTextTokenizerTests PRIVATE SurrealEngine)
 	set_target_properties(DeusExTextTokenizerTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME DeusExTextTokenizer COMMAND DeusExTextTokenizerTests)
+
+	add_executable(UE1GameDatabaseTests
+		Tests/UE1GameDatabaseTests.cpp
+	)
+	target_include_directories(UE1GameDatabaseTests PRIVATE SurrealEngine)
+	target_link_libraries(UE1GameDatabaseTests SurrealCommon ${SURREALCOMMON_LIBS})
+	set_target_properties(UE1GameDatabaseTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME UE1GameDatabase COMMAND UE1GameDatabaseTests)
 endif()
 
 target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Precomp.h>)

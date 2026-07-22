@@ -21,11 +21,14 @@
 	const MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 	const EXACT_MUTABLE_PATHS = new Map([
 		["/gamedata/System/SE-UnrealTournament.ini", "engine-config"],
+		["/gamedata/System/SE-Unreal.ini", "engine-config"],
+		["/gamedata/System/SE-DeusEx.ini", "engine-config"],
 		["/gamedata/System/SE-User.ini", "user-settings"],
 		["/home/web_user/.config/SurrealEngine/Settings.json", "launcher-settings"],
 		["/home/web_user/.config/SurrealEngine/SE-Log-LastRun.txt", "last-run-log"],
 	]);
 	const UT99_SAVE_PATTERN = /^\/gamedata\/Save\/Save[0-9]+\.usa$/;
+	const DEUS_EX_SAVE_PATTERN = /^\/gamedata\/Save\/Save[0-9]+\.dxs$/;
 
 	class MutableDataError extends Error {
 		constructor(code, message, details) {
@@ -58,6 +61,7 @@
 		catch (_) { return null; }
 		if (EXACT_MUTABLE_PATHS.has(path)) return EXACT_MUTABLE_PATHS.get(path);
 		if (UT99_SAVE_PATTERN.test(path)) return "ut99-save";
+		if (DEUS_EX_SAVE_PATTERN.test(path)) return "deus-ex-save";
 		return null;
 	}
 

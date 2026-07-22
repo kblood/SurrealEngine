@@ -70,8 +70,19 @@ GameLaunchInfo GameFolderSelection::ExamineFolder(const std::string& path)
 	{
 		info.gameRootFolder = path;
 		info.gameExecutableName = fs::path(ue1_game.second).stem().string();
+		const UE1GameCompatibilityDescriptor* compatibility = FindUE1GameCompatibilityDescriptor(ue1_game.first);
+		if (compatibility)
+		{
+			info.gameName = compatibility->gameName;
+			info.ue1Version = compatibility->ue1Version;
+			info.gameVersion = compatibility->gameVersion;
+			info.gameSubVersion = compatibility->gameSubVersion;
+			info.gameVersionString = compatibility->gameVersionString;
+			info.demo = compatibility->demo;
+			info.experimentalCompatibility = compatibility->experimental;
+		}
 
-		switch (ue1_game.first)
+		else switch (ue1_game.first)
 		{
 			case KnownUE1Games::UNREAL_200:
 			{

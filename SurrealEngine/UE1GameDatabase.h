@@ -41,7 +41,31 @@ enum class KnownUE1Games
 	WHEELOFTIME_333,
 	HARRYPOTTER1_433,
 	HARRYPOTTER2_433,
+	UNREAL_205_DEMO,
+	UT99_348_DEMO,
+	DEUS_EX_1002f_DEMO,
 };
+
+// Small, explicit compatibility descriptors for locally imported demo media.
+// These builds are detected by exact executable hash, but remain experimental
+// until controlled map boot and gameplay validation is complete.
+struct UE1GameCompatibilityDescriptor
+{
+	KnownUE1Games id;
+	const char* executableSHA1;
+	const char* executableName;
+	const char* gameName;
+	int ue1Version;
+	int gameVersion;
+	int gameSubVersion;
+	const char* gameVersionString;
+	bool demo;
+	bool experimental;
+};
+
+const UE1GameCompatibilityDescriptor* FindUE1GameCompatibilityDescriptor(KnownUE1Games id);
+const UE1GameCompatibilityDescriptor* FindUE1GameCompatibilityDescriptorBySHA1(const std::string& sha1);
+KnownUE1Games FindKnownUE1GameBySHA1(const std::string& sha1);
 
 static const std::map<std::string, KnownUE1Games> SHA1Database = {
 	// Unreal, 200

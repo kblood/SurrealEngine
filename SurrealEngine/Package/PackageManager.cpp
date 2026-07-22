@@ -290,6 +290,11 @@ void PackageManager::ScanPaths()
 
 void PackageManager::ScanSaveInfos()
 {
+	// Fresh installs and demos legitimately have no Save directory yet.
+	// Treat that as an empty save list; the first save can create it later.
+	if (gameSaveFolderPath.empty() || !fs::exists(gameSaveFolderPath) || !fs::is_directory(gameSaveFolderPath))
+		return;
+
 	for (const auto& entry : fs::directory_iterator{gameSaveFolderPath})
 	{
 		if (!entry.is_directory())

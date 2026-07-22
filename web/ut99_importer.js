@@ -41,6 +41,13 @@
 			executables: Object.freeze(UT_EXECUTABLE_NAMES.slice()),
 			requiredPackages: Object.freeze(["Core.u", "Engine.u", "Botpack.u"]),
 			ini: "UnrealTournament.ini",
+			iniCandidates: Object.freeze(["UnrealTournament.ini"]),
+			requiredDirectories: Object.freeze(["System", "Maps", "Textures", "Sounds", "Music"]),
+			mapExtension: ".unr",
+			mapNameKind: "tournament",
+			detectionPriority: 300,
+			detectionAll: Object.freeze(["system/unrealtournament.exe", "system/botpack.u"]),
+			detectionAny: Object.freeze([]),
 		}),
 		"unreal-gold": Object.freeze({
 			id: "unreal-gold",
@@ -49,6 +56,72 @@
 			executables: Object.freeze(["Unreal.exe"]),
 			requiredPackages: Object.freeze(["Core.u", "Engine.u", "UnrealShare.u", "UnrealI.u"]),
 			ini: "Unreal.ini",
+			iniCandidates: Object.freeze(["Unreal.ini"]),
+			requiredDirectories: Object.freeze(["System", "Maps", "Textures", "Sounds", "Music"]),
+			mapExtension: ".unr",
+			mapNameKind: "general",
+			detectionPriority: 200,
+			detectionAll: Object.freeze(["system/unreal.exe", "system/unrealshare.u"]),
+			detectionAny: Object.freeze([]),
+		}),
+		"ut99-demo-348": Object.freeze({
+			id: "ut99-demo-348",
+			name: "Unreal Tournament Demo 348 (experimental)",
+			defaultMap: "DM-TurbineDEMO",
+			executables: Object.freeze(["UnrealTournament.exe"]),
+			executableSHA1: "4bb5e71f78cf4806d9240df01f72236134af4a31",
+			version: "348demo",
+			demo: true,
+			experimental: true,
+			requiredPackages: Object.freeze(["Core.u", "Engine.u", "BotPack.u"]),
+			ini: "UnrealTournament.ini",
+			iniCandidates: Object.freeze(["UnrealTournament.ini"]),
+			requiredDirectories: Object.freeze(["System", "Maps", "Textures", "Sounds", "Music"]),
+			mapExtension: ".unr",
+			mapNameKind: "tournament",
+			detectionPriority: 400,
+			detectionAll: Object.freeze(["system/unrealtournament.exe", "system/botpack.u"]),
+			detectionAny: Object.freeze(["maps/dm-morpheusdemo.unr", "maps/ctf-coretdemo.unr", "maps/dom-sesmardemo.unr"]),
+			developerDetectionAny: Object.freeze(["Maps/DM-MorpheusDEMO.unr", "Maps/CTF-CoretDEMO.unr", "Maps/DOM-SesmarDEMO.unr"]),
+		}),
+		"unreal-demo-205": Object.freeze({
+			id: "unreal-demo-205",
+			name: "Unreal Special Edition / OEM 205 (experimental)",
+			defaultMap: "Vortex2",
+			executables: Object.freeze(["Unreal.exe"]),
+			executableSHA1: "b851dcc69c4f773252c0498bd12756d90bcb59c2",
+			version: "205",
+			demo: true,
+			experimental: true,
+			requiredPackages: Object.freeze(["Core.u", "Engine.u", "UnrealI.u", "UnrealIOrder.u"]),
+			ini: "Unreal.ini",
+			iniCandidates: Object.freeze(["Unreal.ini", "Default.ini"]),
+			requiredDirectories: Object.freeze(["System", "Maps", "Textures", "Sounds", "Music"]),
+			mapExtension: ".unr",
+			mapNameKind: "general",
+			detectionPriority: 350,
+			detectionAll: Object.freeze(["system/unreal.exe", "system/unrealiorder.u"]),
+			detectionAny: Object.freeze([]),
+		}),
+		"deus-ex-demo-1002f": Object.freeze({
+			id: "deus-ex-demo-1002f",
+			name: "Deus Ex Demo 1002f (experimental)",
+			defaultMap: "00_Training",
+			executables: Object.freeze(["DeusEx.exe"]),
+			executableSHA1: "4be582d4194400e87f64894c92b3f2119e012251",
+			version: "1002f_DEMO",
+			demo: true,
+			experimental: true,
+			requiredPackages: Object.freeze(["Core.u", "Engine.u", "DeusEx.u"]),
+			ini: "DeusEx.ini",
+			iniCandidates: Object.freeze(["DeusEx.ini"]),
+			requiredDirectories: Object.freeze(["System", "Maps", "Textures", "Sounds", "Music"]),
+			mapExtension: ".dx",
+			mapNameKind: "general",
+			detectionPriority: 375,
+			detectionAll: Object.freeze(["system/deusex.exe", "system/deusex.u"]),
+			detectionAny: Object.freeze(["maps/00_training.dx", "maps/01_nyc_unatcoisland.dx"]),
+			developerDetectionAny: Object.freeze(["Maps/00_Training.dx", "Maps/01_NYC_UNATCOIsland.dx"]),
 		}),
 	});
 
@@ -184,14 +257,15 @@
 			if (!requested) throw new ImportError("UNSUPPORTED_GAME", "That game is not supported by this browser build.");
 			return requested;
 		}
-		const ut = GAME_DEFINITIONS.ut99;
-		const utEvidence = paths.has("system/unrealtournament.exe") ||
-			paths.has("system/unrealtournament.ini") || paths.has("system/botpack.u");
-		if (utEvidence) return ut;
-		const unreal = GAME_DEFINITIONS["unreal-gold"];
-		const unrealEvidence = paths.has("system/unreal.exe") || paths.has("system/unreal.ini") ||
-			paths.has("system/unreali.u") || paths.has("system/unrealshare.u");
-		return unrealEvidence ? unreal : ut;
+		const definitions = Object.values(GAME_DEFINITIONS).slice().sort((a, b) => b.detectionPriority - a.detectionPriority);
+		for (const game of definitions) {
+			if (!game.detectionAll.every(path => paths.has(path))) continue;
+			if (game.detectionAny.length && !game.detectionAny.some(path => paths.has(path))) continue;
+			return game;
+		}
+		// Retain the historical fallback so old metadata without a game id keeps
+		// producing the same actionable UT99 validation error.
+		return GAME_DEFINITIONS.ut99;
 	}
 
 	function validateEntries(entries, requestedGameId) {
@@ -203,18 +277,20 @@
 		const hasExtensionIn = (directory, extension) => Array.from(paths).some(path =>
 			path.startsWith(directory.toLowerCase() + "/") && path.endsWith(extension));
 		const missing = [];
-		for (const directory of ["System", "Maps", "Textures", "Sounds", "Music"]) {
+		for (const directory of game.requiredDirectories) {
 			if (!hasDirectory(directory)) missing.push(directory + "/ directory");
 		}
 		for (const packageName of game.requiredPackages) {
 			if (!paths.has("system/" + packageName.toLowerCase())) missing.push("System/" + packageName);
 		}
-		if (!paths.has("system/" + game.ini.toLowerCase())) missing.push("System/" + game.ini);
+		if (!game.iniCandidates.some(name => paths.has("system/" + name.toLowerCase()))) {
+			missing.push(game.iniCandidates.map(name => "System/" + name).join(" or "));
+		}
 		const executableNames = game.executables.map(name => name.toLowerCase());
 		if (!executableNames.some(name => paths.has("system/" + name) || paths.has("system64/" + name))) {
 			missing.push("a supported " + game.name + " executable in System/ or System64/");
 		}
-		if (!hasExtensionIn("Maps", ".unr")) missing.push("at least one Maps/*.unr map");
+		if (!hasExtensionIn("Maps", game.mapExtension)) missing.push("at least one Maps/*" + game.mapExtension + " map");
 		if (!hasExtensionIn("Textures", ".utx")) missing.push("at least one Textures/*.utx package");
 		if (!hasExtensionIn("Sounds", ".uax")) missing.push("at least one Sounds/*.uax package");
 		if (!hasExtensionIn("Music", ".umx")) missing.push("at least one Music/*.umx package");
@@ -278,7 +354,8 @@
 	}
 
 	function isSafeGameMapBasename(value, gameId) {
-		if (gameId === "unreal-gold") {
+		const game = GAME_DEFINITIONS[gameId] || GAME_DEFINITIONS.ut99;
+		if (game.mapNameKind === "general") {
 			return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_\-\[\]']{0,63}$/.test(value);
 		}
 		return isSafeMapBasename(value);
@@ -288,12 +365,14 @@
 		if (!metadata) return immutableMapManifest(state || "unavailable", [], 0, "ut99");
 		validateMetadata(metadata);
 		const gameId = metadata.gameId || "ut99";
+		const game = GAME_DEFINITIONS[gameId] || GAME_DEFINITIONS.ut99;
 		const candidates = [];
 		let rejectedCount = 0;
 		for (const file of metadata.files) {
 			const path = canonicalizeRelativePath(file.path);
-			if (!/^Maps\//i.test(path) || !/\.unr$/i.test(path)) continue;
-			const match = /^Maps\/([^/]+)\.unr$/i.exec(path);
+			if (!/^Maps\//i.test(path) || !path.toLowerCase().endsWith(game.mapExtension)) continue;
+			const escapedExtension = game.mapExtension.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+			const match = new RegExp("^Maps/([^/]+)" + escapedExtension + "$", "i").exec(path);
 			if (!match) {
 				rejectedCount++;
 				continue;
@@ -698,19 +777,18 @@
 
 	function developerPreloadGame(FS, rootPath) {
 		const root = rootPath || GAME_ROOT;
-		// The original GOTY media spells BotPack.u with a capital P, while
-		// engine code and some patched distributions use Botpack.u. MEMFS is
-		// case-sensitive, so accept both known spellings at this boot seam.
-		const commonPackages = fsPathExists(FS, root + "/System/Core.u") &&
-			fsPathExists(FS, root + "/System/Engine.u");
-		const utPackages = commonPackages &&
-			(fsPathExists(FS, root + "/System/Botpack.u") || fsPathExists(FS, root + "/System/BotPack.u"));
-		const utExecutable = UT_EXECUTABLE_NAMES.some(name => fsPathExists(FS, root + "/System/" + name) || fsPathExists(FS, root + "/System64/" + name));
-		if (utPackages && utExecutable) return "ut99";
-		const unrealPackages = commonPackages && fsPathExists(FS, root + "/System/UnrealShare.u") &&
-			fsPathExists(FS, root + "/System/UnrealI.u");
-		const unrealExecutable = fsPathExists(FS, root + "/System/Unreal.exe") || fsPathExists(FS, root + "/System64/Unreal.exe");
-		return unrealPackages && unrealExecutable ? "unreal-gold" : null;
+		const exists = relativePath => fsPathExists(FS, root + "/" + relativePath);
+		const definitions = Object.values(GAME_DEFINITIONS).slice().sort((a, b) => b.detectionPriority - a.detectionPriority);
+		for (const game of definitions) {
+			const packagesPresent = game.requiredPackages.every(name =>
+				exists("System/" + name) || (name === "Botpack.u" && exists("System/BotPack.u")));
+			const executablePresent = game.executables.some(name => exists("System/" + name) || exists("System64/" + name));
+			const allMarkers = game.detectionAll.filter(path => !path.startsWith("system/")).every(path => exists(path));
+			const developerMarkers = game.developerDetectionAny || [];
+			const anyMarkers = !developerMarkers.length || developerMarkers.some(path => exists(path));
+			if (packagesPresent && executablePresent && allMarkers && anyMarkers) return game.id;
+		}
+		return null;
 	}
 
 	function hasDeveloperPreload(FS, rootPath) {
@@ -988,6 +1066,7 @@
 		canonicalizeRelativePath,
 		entriesFromFileList,
 		entriesFromDirectoryHandle,
+		detectGame,
 		validateEntries,
 		validateMetadata,
 		isSafeMapBasename,
