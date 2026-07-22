@@ -64,4 +64,10 @@ extern "C"
 	int Surreal_ValidateWebXRFrame(const void* frameData, uint32_t bufferBytes);
 	int Surreal_RenderWebXRFrame(const void* frameData, uint32_t bufferBytes);
 	int Surreal_GetWebXRFrameLastError();
+	float Surreal_GetWebXRWorldUnitsPerMeter();
+	int Surreal_SetWebXRWorldUnitsPerMeter(float worldUnitsPerMeter);
+	void Surreal_ResetWebXRPose();
+	uint32_t Surreal_GetWebXRPoseRecenterCount();
+	uint32_t Surreal_GetWebXRPoseResetGeneration();
+	int Surreal_RunWebXRPoseMathSelfTest();
 }

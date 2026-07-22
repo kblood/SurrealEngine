@@ -3,6 +3,7 @@
 
 #include "Engine.h"
 #include "Render/RenderSubsystem.h"
+#include "Math/quaternion.h"
 
 #include <array>
 #include <cmath>
@@ -22,6 +23,78 @@ namespace
 	};
 
 	int LastFrameError = FrameOK;
+
+	// UT99's default BaseEyeHeight is 64 UU, matching the original engine's
+	// roughly one-inch Unreal unit. Keep this mutable because headset testing,
+	// accessibility settings, or a differently-scaled game may need another
+	// value; all pose conversion goes through this single seam.
+	constexpr float DefaultWorldUnitsPerMeter = 1.0f / 0.0254f;
+	float WorldUnitsPerMeter = DefaultWorldUnitsPerMeter;
+
+	struct PoseRecenterState
+	{
+		bool Valid = false;
+		uint32_t ResetGeneration = 0;
+		uint32_t RecenterCount = 0;
+		vec3 OriginMetersUE = vec3(0.0f);
+		float YawOffsetUE = 0.0f;
+	};
+
+	PoseRecenterState PoseState;
+
+	struct UEPoseAxes
+	{
+		vec3 Forward;
+		vec3 Right;
+		vec3 Up;
+		vec3 PositionMeters;
+	};
+
+	// WebXR is right-handed (+X right, +Y up, -Z forward); UE1 is
+	// left-handed (+X forward, +Y right, +Z up). This direct relabeling is
+	// deliberately shared by positions and quaternion-derived basis vectors.
+	vec3 WebXRVectorToUE1(const vec3& value)
+	{
+		return vec3(-value.z, value.x, value.y);
+	}
+
+	vec3 RotateLocalToWorld(const Coords& rotation, const vec3& value)
+	{
+		return rotation.XAxis * value.x + rotation.YAxis * value.y + rotation.ZAxis * value.z;
+	}
+
+	UEPoseAxes DecodePoseAxes(const WebXRFrameABI::View& view)
+	{
+		quaternion orientation(view.orientation[0], view.orientation[1],
+			view.orientation[2], view.orientation[3]);
+		orientation = normalize(orientation);
+
+		UEPoseAxes result;
+		result.Forward = WebXRVectorToUE1(orientation * vec3(0.0f, 0.0f, -1.0f));
+		result.Right = WebXRVectorToUE1(orientation * vec3(1.0f, 0.0f, 0.0f));
+		result.Up = WebXRVectorToUE1(orientation * vec3(0.0f, 1.0f, 0.0f));
+		result.PositionMeters = WebXRVectorToUE1(vec3(
+			view.position[0], view.position[1], view.position[2]));
+		return result;
+	}
+
+	mat4 DecodeProjection(const WebXRFrameABI::View& view)
+	{
+		mat4 projection = mat4::from_values(const_cast<float*>(view.projection));
+		// WebXR matrices conventionally look down -Z (m[11] < 0), while the
+		// existing UE1 render path and its CPU-side view-space tests look down
+		// +Z. Reflect view Z at the projection boundary so the exact asymmetric
+		// runtime projection is retained. The deterministic M6 diagnostic uses
+		// a native left-handed matrix (m[11] > 0), so it needs no reflection.
+		if (view.projection[11] < 0.0f)
+			projection = projection * mat4::scale(1.0f, 1.0f, -1.0f);
+		return projection;
+	}
+
+	bool NearlyEqual(float a, float b, float epsilon = 0.0005f)
+	{
+		return std::abs(a - b) <= epsilon;
+	}
 
 	bool IsFiniteArray(const float* values, size_t count)
 	{
@@ -71,6 +144,15 @@ namespace
 				LastFrameError = FrameInvalidView;
 				return false;
 			}
+
+			const float orientationLengthSquared =
+				view.orientation[0] * view.orientation[0] + view.orientation[1] * view.orientation[1] +
+				view.orientation[2] * view.orientation[2] + view.orientation[3] * view.orientation[3];
+			if (!std::isfinite(orientationLengthSquared) || orientationLengthSquared < 0.000001f)
+			{
+				LastFrameError = FrameInvalidView;
+				return false;
+			}
 		}
 
 		LastFrameError = FrameOK;
@@ -79,11 +161,44 @@ namespace
 
 	void BuildSceneViews(const WebXRFrameABI::FrameHeader& header,
 		const std::array<WebXRFrameABI::View, WebXRFrameABI::MaxViews>& packedViews,
+		const vec3& cameraLocation, const Coords& bodyRotation, float worldUnitsPerMeter,
+		PoseRecenterState& poseState,
 		std::array<WebXRSceneView, WebXRFrameABI::MaxViews>& sceneViews)
 	{
-		const Coords bodyRotation = Coords::Rotation(engine->CameraRotation);
-		const mat4 worldToView = Coords::ViewToRenderDev().ToMatrix() *
-			bodyRotation.Inverse().ToMatrix() * Coords::Location(engine->CameraLocation).ToMatrix();
+		std::array<UEPoseAxes, WebXRFrameABI::MaxViews> axes = {};
+		vec3 centerMetersUE(0.0f);
+		vec3 averageForwardUE(0.0f);
+		for (uint32_t index = 0; index < header.viewCount; index++)
+		{
+			axes[index] = DecodePoseAxes(packedViews[index]);
+			centerMetersUE += axes[index].PositionMeters;
+			averageForwardUE += axes[index].Forward;
+		}
+		centerMetersUE /= static_cast<float>(header.viewCount);
+		averageForwardUE = normalize(averageForwardUE);
+
+		if (!poseState.Valid || poseState.ResetGeneration != header.resetGeneration)
+		{
+			// Recenter around the runtime-provided eye center, preserving the
+			// supplied per-eye separation. Only yaw is neutralized: headset pitch
+			// and roll remain real tracked motion, while local-floor standing height
+			// is removed by the position origin capture instead of doubling the
+			// engine camera's existing eye height.
+			// Eye transforms may differ by a tiny canted-display rotation. Average
+			// their normalized forward axes so recenter is viewer-centered instead
+			// of arbitrarily inheriting the left eye's yaw.
+			const float horizontalLength = std::sqrt(averageForwardUE.x * averageForwardUE.x +
+				averageForwardUE.y * averageForwardUE.y);
+			const float rawYaw = horizontalLength > 0.0001f ?
+				std::atan2(-averageForwardUE.y, averageForwardUE.x) : 0.0f;
+			poseState.OriginMetersUE = centerMetersUE;
+			poseState.YawOffsetUE = -rawYaw;
+			poseState.ResetGeneration = header.resetGeneration;
+			poseState.Valid = true;
+			poseState.RecenterCount++;
+		}
+
+		const Coords recenterRotation = Coords::YawRotation(poseState.YawOffsetUE);
 
 		for (uint32_t index = 0; index < header.viewCount; index++)
 		{
@@ -95,11 +210,139 @@ namespace
 			target.ViewportY = source.viewportY;
 			target.ViewportWidth = source.viewportWidth;
 			target.ViewportHeight = source.viewportHeight;
-			target.Location = engine->CameraLocation;
-			target.WorldToView = worldToView;
-			target.ViewRotation = bodyRotation;
-			target.Projection = mat4::from_values(const_cast<float*>(source.projection));
+
+			const vec3 recenteredPosition = RotateLocalToWorld(recenterRotation,
+				(axes[index].PositionMeters - poseState.OriginMetersUE) * worldUnitsPerMeter);
+			target.Location = cameraLocation + RotateLocalToWorld(bodyRotation, recenteredPosition);
+
+			target.ViewRotation.Origin = vec3(0.0f);
+			target.ViewRotation.XAxis = RotateLocalToWorld(bodyRotation,
+				RotateLocalToWorld(recenterRotation, axes[index].Forward));
+			target.ViewRotation.YAxis = RotateLocalToWorld(bodyRotation,
+				RotateLocalToWorld(recenterRotation, axes[index].Right));
+			target.ViewRotation.ZAxis = RotateLocalToWorld(bodyRotation,
+				RotateLocalToWorld(recenterRotation, axes[index].Up));
+			target.WorldToView = Coords::ViewToRenderDev().ToMatrix() *
+				target.ViewRotation.Inverse().ToMatrix() * Coords::Location(target.Location).ToMatrix();
+			target.Projection = DecodeProjection(source);
 		}
+	}
+
+	bool RunPoseMathSelfTest()
+	{
+		WebXRFrameABI::FrameHeader header = {};
+		header.version = WebXRFrameABI::Version;
+		header.viewCount = 2;
+		header.resetGeneration = 7;
+
+		std::array<WebXRFrameABI::View, WebXRFrameABI::MaxViews> views = {};
+		for (uint32_t index = 0; index < 2; index++)
+		{
+			views[index].eye = index + 1;
+			views[index].arrayLayer = index;
+			views[index].viewportWidth = 640;
+			views[index].viewportHeight = 480;
+			views[index].position[0] = index == 0 ? -0.032f : 0.032f;
+			views[index].orientation[3] = 1.0f;
+			views[index].projection[0] = 1.0f;
+			views[index].projection[5] = 1.0f;
+			views[index].projection[10] = 1.0f;
+			views[index].projection[15] = 1.0f;
+		}
+
+		const UEPoseAxes identityAxes = DecodePoseAxes(views[0]);
+		if (!NearlyEqual(identityAxes.Forward.x, 1.0f) || !NearlyEqual(identityAxes.Forward.y, 0.0f) ||
+			!NearlyEqual(identityAxes.Right.y, 1.0f) || !NearlyEqual(identityAxes.Up.z, 1.0f) ||
+			!NearlyEqual(WebXRVectorToUE1(vec3(1.0f, 2.0f, 3.0f)).x, -3.0f) ||
+			!NearlyEqual(WebXRVectorToUE1(vec3(1.0f, 2.0f, 3.0f)).y, 1.0f) ||
+			!NearlyEqual(WebXRVectorToUE1(vec3(1.0f, 2.0f, 3.0f)).z, 2.0f))
+			return false;
+
+		// The real WebXR right-handed projection is converted to the engine's
+		// +Z view convention exactly once; the M6 left-handed diagnostic is not.
+		views[0].projection[11] = -1.0f;
+		if (!NearlyEqual(DecodeProjection(views[0])[11], 1.0f))
+			return false;
+		views[0].projection[11] = 1.0f;
+		if (!NearlyEqual(DecodeProjection(views[0])[11], 1.0f))
+			return false;
+		views[0].projection[11] = 0.0f;
+
+		PoseRecenterState state;
+		std::array<WebXRSceneView, WebXRFrameABI::MaxViews> output = {};
+		const vec3 anchor(10.0f, 20.0f, 30.0f);
+		const Coords body = Coords::Identity();
+		BuildSceneViews(header, views, anchor, body, DefaultWorldUnitsPerMeter, state, output);
+		const float halfIPDUU = 0.032f * DefaultWorldUnitsPerMeter;
+		if (state.RecenterCount != 1 ||
+			!NearlyEqual(output[0].Location.x, anchor.x) ||
+			!NearlyEqual(output[0].Location.y, anchor.y - halfIPDUU) ||
+			!NearlyEqual(output[1].Location.y, anchor.y + halfIPDUU) ||
+			!NearlyEqual(output[0].Location.z, anchor.z))
+			return false;
+
+		// Orientation is transported, not reduced to positional stereo. A
+		// quarter-turn about WebXR +Y must rotate the UE forward basis by a
+		// quarter-turn while keeping all axes unit length and orthogonal.
+		const float halfQuarterTurn = 0.70710678118f;
+		views[0].orientation[1] = halfQuarterTurn;
+		views[0].orientation[3] = halfQuarterTurn;
+		views[1].orientation[1] = halfQuarterTurn;
+		views[1].orientation[3] = halfQuarterTurn;
+		BuildSceneViews(header, views, anchor, body, DefaultWorldUnitsPerMeter, state, output);
+		if (!NearlyEqual(std::abs(output[0].ViewRotation.XAxis.y), 1.0f) ||
+			!NearlyEqual(dot(output[0].ViewRotation.XAxis, output[0].ViewRotation.YAxis), 0.0f) ||
+			!NearlyEqual(dot(output[0].ViewRotation.XAxis, output[0].ViewRotation.XAxis), 1.0f))
+			return false;
+		views[0].orientation[1] = 0.0f;
+		views[0].orientation[3] = 1.0f;
+		views[1].orientation[1] = 0.0f;
+		views[1].orientation[3] = 1.0f;
+
+		// Pitch is carried by the headset rather than the body camera. Test the
+		// sign-independent cardinal result because handedness is already asserted
+		// explicitly by the vector-component checks above.
+		views[0].orientation[0] = halfQuarterTurn;
+		views[0].orientation[3] = halfQuarterTurn;
+		views[1].orientation[0] = halfQuarterTurn;
+		views[1].orientation[3] = halfQuarterTurn;
+		BuildSceneViews(header, views, anchor, body, DefaultWorldUnitsPerMeter, state, output);
+		if (!NearlyEqual(std::abs(output[0].ViewRotation.XAxis.z), 1.0f) ||
+			!NearlyEqual(output[0].ViewRotation.XAxis.x, 0.0f))
+			return false;
+		views[0].orientation[0] = 0.0f;
+		views[0].orientation[3] = 1.0f;
+		views[1].orientation[0] = 0.0f;
+		views[1].orientation[3] = 1.0f;
+
+		// Body yaw composes outside the recentered tracking transform. This
+		// keeps locomotion/script camera yaw authoritative without double-applying
+		// body pitch or roll.
+		PoseRecenterState bodyYawState;
+		const Coords quarterTurnBody = Coords::Rotation(Rotator(0, 16384, 0));
+		BuildSceneViews(header, views, anchor, quarterTurnBody,
+			DefaultWorldUnitsPerMeter, bodyYawState, output);
+		if (!NearlyEqual(std::abs(output[0].ViewRotation.XAxis.y), 1.0f) ||
+			!NearlyEqual(output[0].ViewRotation.XAxis.x, 0.0f))
+			return false;
+
+		// One metre upward after the initial recenter must produce exactly one
+		// configured world metre while preserving the runtime-provided IPD.
+		views[0].position[1] = 1.0f;
+		views[1].position[1] = 1.0f;
+		BuildSceneViews(header, views, anchor, body, DefaultWorldUnitsPerMeter, state, output);
+		if (state.RecenterCount != 1 ||
+			!NearlyEqual(output[0].Location.z, anchor.z + DefaultWorldUnitsPerMeter))
+			return false;
+
+		// A reference-space reset captures the new center without swallowing
+		// or synthesizing the actual per-eye separation.
+		header.resetGeneration++;
+		BuildSceneViews(header, views, anchor, body, DefaultWorldUnitsPerMeter, state, output);
+		return state.RecenterCount == 2 &&
+			NearlyEqual(output[0].Location.z, anchor.z) &&
+			NearlyEqual(output[0].Location.y, anchor.y - halfIPDUU) &&
+			NearlyEqual(output[1].Location.y, anchor.y + halfIPDUU);
 	}
 }
 
@@ -130,6 +373,20 @@ extern "C"
 	}
 
 	int Surreal_GetWebXRFrameLastError() { return LastFrameError; }
+	float Surreal_GetWebXRWorldUnitsPerMeter() { return WorldUnitsPerMeter; }
+
+	int Surreal_SetWebXRWorldUnitsPerMeter(float worldUnitsPerMeter)
+	{
+		if (!std::isfinite(worldUnitsPerMeter) || worldUnitsPerMeter < 1.0f || worldUnitsPerMeter > 10000.0f)
+			return 0;
+		WorldUnitsPerMeter = worldUnitsPerMeter;
+		return 1;
+	}
+
+	void Surreal_ResetWebXRPose() { PoseState.Valid = false; }
+	uint32_t Surreal_GetWebXRPoseRecenterCount() { return PoseState.RecenterCount; }
+	uint32_t Surreal_GetWebXRPoseResetGeneration() { return PoseState.ResetGeneration; }
+	int Surreal_RunWebXRPoseMathSelfTest() { return RunPoseMathSelfTest() ? 1 : 0; }
 
 	int Surreal_RenderWebXRFrame(const void* frameData, uint32_t bufferBytes)
 	{
@@ -176,10 +433,16 @@ extern "C"
 			return 0;
 		}
 
-		std::array<WebXRSceneView, WebXRFrameABI::MaxViews> sceneViews = {};
-		BuildSceneViews(header, packedViews, sceneViews);
 		const uint64_t tickBefore = engine->tickCount;
 		const float levelElapsed = engine->AdvanceGameFrame();
+		std::array<WebXRSceneView, WebXRFrameABI::MaxViews> sceneViews = {};
+		// AdvanceGameFrame runs PlayerCalcView first. Its resulting camera is the
+		// authoritative body/locomotion anchor for this same XR render. Only its
+		// yaw participates in tracked orientation; headset pose supplies
+		// pitch/roll and local translation without mutating pawn/network state.
+		const Coords bodyRotation = Coords::Rotation(Rotator(0, engine->CameraRotation.Yaw, 0));
+		BuildSceneViews(header, packedViews, engine->CameraLocation, bodyRotation,
+			WorldUnitsPerMeter, PoseState, sceneViews);
 		const bool rendered = engine->render->DrawGameWebXRViews(
 			levelElapsed, sceneViews.data(), header.viewCount);
 		engine->FinishGameFrame(levelElapsed);

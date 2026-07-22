@@ -80,6 +80,33 @@
 	window.surrealGetWebXRFrameLastError = function () {
 		return Module.ccall("Surreal_GetWebXRFrameLastError", "number", [], []);
 	};
+	window.surrealGetWebXRPoseDiagnostics = function () {
+		return {
+			worldUnitsPerMeter: Module.ccall("Surreal_GetWebXRWorldUnitsPerMeter", "number", [], []),
+			recenterCount: Module.ccall("Surreal_GetWebXRPoseRecenterCount", "number", [], []),
+			resetGeneration: Module.ccall("Surreal_GetWebXRPoseResetGeneration", "number", [], []),
+			selfTest: Module.ccall("Surreal_RunWebXRPoseMathSelfTest", "number", [], []),
+		};
+	};
+	window.surrealSetWebXRWorldUnitsPerMeter = function (value) {
+		return Module.ccall("Surreal_SetWebXRWorldUnitsPerMeter", "number", ["number"], [value]);
+	};
+	window.surrealResetWebXRPose = function () {
+		Module.ccall("Surreal_ResetWebXRPose", null, [], []);
+	};
+	window.surrealTestWebGPUExternalColorFormats = function () {
+		const before = Module.ccall("Surreal_GetWebGPUPipelineColorFormatCount", "number", [], []);
+		const bgra8 = Module.ccall("Surreal_TestWebGPUExternalStereoFrame", "number", [], []);
+		const afterBGRA8 = Module.ccall("Surreal_GetWebGPUPipelineColorFormatCount", "number", [], []);
+		const rgba8 = Module.ccall("Surreal_TestWebGPUExternalRGBA8StereoFrame", "number", [], []);
+		const afterRGBA8 = Module.ccall("Surreal_GetWebGPUPipelineColorFormatCount", "number", [], []);
+		const rgba16f = Module.ccall("Surreal_TestWebGPUExternalRGBA16FloatStereoFrame", "number", [], []);
+		const afterRGBA16F = Module.ccall("Surreal_GetWebGPUPipelineColorFormatCount", "number", [], []);
+		return {
+			before, bgra8, afterBGRA8, rgba8, afterRGBA8, rgba16f, afterRGBA16F,
+			lastFormat: Module.ccall("Surreal_GetWebGPULastExternalRenderTargetFormat", "number", [], []),
+		};
+	};
 	window.surrealTestPackedWebXRFrame = function () {
 		const width = 640;
 		const height = 480;
