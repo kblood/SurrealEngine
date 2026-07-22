@@ -94,6 +94,13 @@ def main():
             print("FAIL: WebXR input collector did not copy/normalize/change/clear sources")
             sys.exit(1)
 
+        haptics = page.evaluate("window.surrealXRTestHaptics()")
+        print(f"[harness] M8 fake-actuator haptic policy = {haptics}")
+        if (not haptics or not haptics.get("passed") or
+                haptics.get("fakeActuatorsOnly") is not True):
+            print("FAIL: WebXR haptic routing/policy fake-actuator diagnostic failed")
+            sys.exit(1)
+
         # --- Phase 1: capability checks (no engine boot dependency) -------
         deadline = time.time() + 30
         checked = False

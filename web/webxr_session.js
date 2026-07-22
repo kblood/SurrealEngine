@@ -388,6 +388,17 @@
 	let nextInputSourceId = 1;
 	let trackedInputSources = [];
 	let inputSourceGeneration = 0;
+	let pendingHapticPulses = new Map();
+	let lastHapticDispatchTimes = new Map();
+	let hapticGeneration = 0;
+	const HAPTIC_POLICY = Object.freeze({
+		minimumDurationMs: 1,
+		maximumDurationMs: 1000,
+		minimumIntervalMs: 50,
+	});
+	window.surrealXRHapticPolicy = HAPTIC_POLICY;
+	window.surrealXRHapticsEnabled = window.surrealXRHapticsEnabled !== false;
+	window.surrealXRHapticDiagnostics = null;
 	window.surrealXRInputDiagnostics = {
 		generation: 0,
 		changeEvents: 0,
@@ -395,6 +406,37 @@
 		lastSourceIds: [],
 		lastPressedMasks: [],
 	};
+
+	function newHapticDiagnostics(generation) {
+		return {
+			generation: generation || 0,
+			enabled: window.surrealXRHapticsEnabled,
+			pendingCount: 0,
+			queued: 0,
+			dispatched: 0,
+			coalesced: 0,
+			droppedDisabled: 0,
+			droppedInactive: 0,
+			droppedHidden: 0,
+			droppedDisconnected: 0,
+			droppedUnsupported: 0,
+			droppedStale: 0,
+			rejected: 0,
+			lastHandedness: null,
+			lastIntensity: null,
+			lastDurationMs: null,
+			lastActuator: null,
+		};
+	}
+
+	function resetHapticState(generation) {
+		pendingHapticPulses = new Map();
+		lastHapticDispatchTimes = new Map();
+		hapticGeneration = generation || 0;
+		window.surrealXRHapticDiagnostics = newHapticDiagnostics(hapticGeneration);
+	}
+
+	resetHapticState(0);
 
 	function resetInputSourceTracking(generation) {
 		inputSourceIds = new WeakMap();
@@ -408,6 +450,7 @@
 			lastSourceIds: [],
 			lastPressedMasks: [],
 		};
+		resetHapticState(inputSourceGeneration);
 	}
 
 	function sourceIdFor(source) {
@@ -437,6 +480,198 @@
 			syncInputSources(event.session.inputSources, generation, true);
 		});
 	}
+
+	function hapticActuatorForHand(handedness) {
+		let sawConnected = false;
+		for (const source of trackedInputSources) {
+			if (!source || source.handedness !== handedness) continue;
+			const gamepad = source.gamepad;
+			if (!gamepad || gamepad.connected === false) continue;
+			sawConnected = true;
+			try {
+				const actuators = Array.from(gamepad.hapticActuators || []);
+				if (gamepad.vibrationActuator && !actuators.includes(gamepad.vibrationActuator)) {
+					actuators.push(gamepad.vibrationActuator);
+				}
+				for (const actuator of actuators) {
+					if (!actuator) continue;
+					if (typeof actuator.pulse === "function") {
+						return { status: "supported", actuator: actuator, mode: "pulse" };
+					}
+					if (typeof actuator.playEffect === "function") {
+						return { status: "supported", actuator: actuator, mode: "playEffect" };
+					}
+				}
+			} catch (_) {
+				// Treat an accessor failure like an unsupported actuator. A source or
+				// actuator is never retained beyond this lookup.
+			}
+		}
+		return { status: sawConnected ? "unsupported" : "disconnected" };
+	}
+
+	function hapticsAreHidden() {
+		return (xrSession && xrSession.visibilityState === "hidden") ||
+			window.surrealXRLifecycle.xrVisibilityState === "hidden";
+	}
+
+	function updatePendingHapticCount() {
+		window.surrealXRHapticDiagnostics.pendingCount = pendingHapticPulses.size;
+	}
+
+	function dropPendingHaptics(field) {
+		const count = pendingHapticPulses.size;
+		if (count && field) window.surrealXRHapticDiagnostics[field] += count;
+		pendingHapticPulses.clear();
+		updatePendingHapticCount();
+	}
+
+	// Queue only copied scalar values plus the active generation. The XRInputSource,
+	// Gamepad and actuator are resolved again at dispatch, so none of the live
+	// browser-owned objects can leak into another session generation.
+	window.surrealXRQueueHapticPulse = function (handedness, intensity, durationMs) {
+		handedness = String(handedness || "").toLowerCase();
+		const diagnostics = window.surrealXRHapticDiagnostics;
+		if (handedness !== "left" && handedness !== "right") {
+			diagnostics.rejected++;
+			return false;
+		}
+		if (!window.surrealXRHapticsEnabled) {
+			diagnostics.droppedDisabled++;
+			return false;
+		}
+		if (!xrSession || !window.surrealXRSessionActive || !activeSessionGeneration ||
+			activeSessionGeneration !== hapticGeneration) {
+			diagnostics.droppedInactive++;
+			return false;
+		}
+		if (hapticsAreHidden()) {
+			diagnostics.droppedHidden++;
+			return false;
+		}
+		intensity = Number(intensity);
+		durationMs = Number(durationMs);
+		if (!Number.isFinite(intensity) || !Number.isFinite(durationMs)) {
+			diagnostics.rejected++;
+			return false;
+		}
+		intensity = Math.max(0, Math.min(1, intensity));
+		durationMs = Math.max(HAPTIC_POLICY.minimumDurationMs,
+			Math.min(HAPTIC_POLICY.maximumDurationMs, durationMs));
+		if (intensity === 0) {
+			diagnostics.rejected++;
+			return false;
+		}
+		const target = hapticActuatorForHand(handedness);
+		if (target.status !== "supported") {
+			diagnostics[target.status === "unsupported" ?
+				"droppedUnsupported" : "droppedDisconnected"]++;
+			return false;
+		}
+
+		const prior = pendingHapticPulses.get(handedness);
+		if (prior && prior.generation === activeSessionGeneration) {
+			prior.intensity = Math.max(prior.intensity, intensity);
+			prior.durationMs = Math.max(prior.durationMs, durationMs);
+			diagnostics.coalesced++;
+		} else {
+			pendingHapticPulses.set(handedness, {
+				handedness: handedness,
+				intensity: intensity,
+				durationMs: durationMs,
+				generation: activeSessionGeneration,
+			});
+			diagnostics.queued++;
+		}
+		updatePendingHapticCount();
+		return true;
+	};
+
+	window.surrealXRSetHapticsEnabled = function (enabled) {
+		window.surrealXRHapticsEnabled = !!enabled;
+		window.surrealXRHapticDiagnostics.enabled = window.surrealXRHapticsEnabled;
+		if (!window.surrealXRHapticsEnabled) dropPendingHaptics("droppedDisabled");
+		return window.surrealXRHapticsEnabled;
+	};
+
+	function noteHapticPromise(result, diagnostics) {
+		if (!result || typeof result.then !== "function") return;
+		result.then(function (accepted) {
+			if (accepted === false) diagnostics.rejected++;
+		}).catch(function () {
+			diagnostics.rejected++;
+		});
+	}
+
+	function flushHaptics(generation, timestamp) {
+		const diagnostics = window.surrealXRHapticDiagnostics;
+		if (!pendingHapticPulses.size) return 0;
+		if (!xrSession || !window.surrealXRSessionActive || generation !== activeSessionGeneration ||
+			generation !== hapticGeneration) {
+			dropPendingHaptics(generation !== activeSessionGeneration || generation !== hapticGeneration ?
+				"droppedStale" : "droppedInactive");
+			return 0;
+		}
+		if (!window.surrealXRHapticsEnabled) {
+			dropPendingHaptics("droppedDisabled");
+			return 0;
+		}
+		if (hapticsAreHidden()) {
+			dropPendingHaptics("droppedHidden");
+			return 0;
+		}
+		timestamp = Number(timestamp);
+		if (!Number.isFinite(timestamp)) timestamp = performance.now();
+		let dispatched = 0;
+		for (const [handedness, pulse] of Array.from(pendingHapticPulses.entries())) {
+			if (pulse.generation !== generation) {
+				pendingHapticPulses.delete(handedness);
+				diagnostics.droppedStale++;
+				continue;
+			}
+			const lastTime = lastHapticDispatchTimes.get(handedness);
+			if (lastTime !== undefined && timestamp - lastTime < HAPTIC_POLICY.minimumIntervalMs) {
+				continue;
+			}
+			const target = hapticActuatorForHand(handedness);
+			if (target.status !== "supported") {
+				pendingHapticPulses.delete(handedness);
+				diagnostics[target.status === "unsupported" ?
+					"droppedUnsupported" : "droppedDisconnected"]++;
+				continue;
+			}
+			pendingHapticPulses.delete(handedness);
+			lastHapticDispatchTimes.set(handedness, timestamp);
+			try {
+				let result;
+				if (target.mode === "pulse") {
+					result = target.actuator.pulse(pulse.intensity, pulse.durationMs);
+				} else {
+					result = target.actuator.playEffect("dual-rumble", {
+						duration: pulse.durationMs,
+						startDelay: 0,
+						strongMagnitude: pulse.intensity,
+						weakMagnitude: pulse.intensity,
+					});
+				}
+				noteHapticPromise(result, diagnostics);
+				diagnostics.dispatched++;
+				diagnostics.lastHandedness = handedness;
+				diagnostics.lastIntensity = pulse.intensity;
+				diagnostics.lastDurationMs = pulse.durationMs;
+				diagnostics.lastActuator = target.mode;
+				dispatched++;
+			} catch (_) {
+				diagnostics.rejected++;
+			}
+		}
+		updatePendingHapticCount();
+		return dispatched;
+	}
+
+	window.surrealXRFlushHaptics = function (timestamp) {
+		return flushHaptics(activeSessionGeneration, timestamp);
+	};
 
 	function clampFinite(value, minimum, maximum) {
 		value = Number(value);
@@ -634,6 +869,178 @@
 		}
 	};
 
+	// Deterministic fake-actuator coverage. This intentionally does not emulate
+	// physical haptic output; it verifies only routing, policy and API calls.
+	window.surrealXRTestHaptics = function () {
+		if (xrSession) return { passed: false, error: "haptics self-test requires no active session" };
+		const saved = {
+			xrSession: xrSession,
+			activeSessionGeneration: activeSessionGeneration,
+			activeSessionKind: activeSessionKind,
+			inputSourceIds: inputSourceIds,
+			nextInputSourceId: nextInputSourceId,
+			trackedInputSources: trackedInputSources,
+			inputSourceGeneration: inputSourceGeneration,
+			pendingHapticPulses: pendingHapticPulses,
+			lastHapticDispatchTimes: lastHapticDispatchTimes,
+			hapticGeneration: hapticGeneration,
+			sessionActive: window.surrealXRSessionActive,
+			hapticsEnabled: window.surrealXRHapticsEnabled,
+			hapticDiagnostics: window.surrealXRHapticDiagnostics,
+			inputDiagnostics: window.surrealXRInputDiagnostics,
+			xrVisibilityState: window.surrealXRLifecycle.xrVisibilityState,
+		};
+		const leftCalls = [];
+		const rightCalls = [];
+		const leftActuator = {
+			pulse: function (intensity, durationMs) {
+				leftCalls.push({ intensity: intensity, durationMs: durationMs });
+				return true;
+			},
+		};
+		const rightActuator = {
+			playEffect: function (type, options) {
+				rightCalls.push({ type: type, options: Object.assign({}, options) });
+				return true;
+			},
+		};
+		const left = {
+			handedness: "left",
+			gamepad: { connected: true, hapticActuators: [leftActuator] },
+		};
+		const right = {
+			handedness: "right",
+			gamepad: { connected: true, vibrationActuator: rightActuator },
+		};
+
+		function installFakeSession(generation, sources) {
+			xrSession = { visibilityState: "visible" };
+			activeSessionGeneration = generation;
+			activeSessionKind = "default";
+			window.surrealXRSessionActive = true;
+			window.surrealXRLifecycle.xrVisibilityState = "visible";
+			inputSourceIds = new WeakMap();
+			nextInputSourceId = 1;
+			trackedInputSources = Array.from(sources || []);
+			inputSourceGeneration = generation;
+			resetHapticState(generation);
+		}
+
+		try {
+			installFakeSession(701, [left, right]);
+			const queuedLeft = window.surrealXRQueueHapticPulse("left", 5, 5000);
+			const queuedRecord = pendingHapticPulses.get("left");
+			const retainedLiveSource = !!queuedRecord &&
+				Object.values(queuedRecord).some(value => value === left || value === leftActuator);
+			const queuedRight = window.surrealXRQueueHapticPulse("right", 2, 2000);
+			const initialDispatch = flushHaptics(701, 1000);
+
+			const queuedRateLimited = window.surrealXRQueueHapticPulse("left", 0.2, 100);
+			const tooSoonDispatch = flushHaptics(701, 1020);
+			const queuedCoalesced = window.surrealXRQueueHapticPulse("left", 0.8, 200);
+			const rateLimitedDispatch = flushHaptics(701, 1050);
+			const routingDiagnostics = Object.assign({}, window.surrealXRHapticDiagnostics);
+
+			const queuedBeforeDisable = window.surrealXRQueueHapticPulse("right", 0.4, 30);
+			window.surrealXRSetHapticsEnabled(false);
+			const disabledPendingCount = window.surrealXRHapticDiagnostics.pendingCount;
+			const disabledAccepted = window.surrealXRQueueHapticPulse("right", 0.5, 30);
+			const disabledDrops = window.surrealXRHapticDiagnostics.droppedDisabled;
+			window.surrealXRSetHapticsEnabled(true);
+
+			const queuedBeforeHidden = window.surrealXRQueueHapticPulse("left", 0.5, 30);
+			xrSession.visibilityState = "hidden";
+			const hiddenDispatch = flushHaptics(701, 1100);
+			const hiddenAccepted = window.surrealXRQueueHapticPulse("left", 0.5, 30);
+			const hiddenDrops = window.surrealXRHapticDiagnostics.droppedHidden;
+			xrSession.visibilityState = "visible";
+
+			window.surrealXRSessionActive = false;
+			const inactiveAccepted = window.surrealXRQueueHapticPulse("left", 0.5, 30);
+			const inactiveDrops = window.surrealXRHapticDiagnostics.droppedInactive;
+			window.surrealXRSessionActive = true;
+
+			installFakeSession(702, [left]);
+			const staleQueued = window.surrealXRQueueHapticPulse("left", 0.4, 40);
+			activeSessionGeneration = 703;
+			const staleDispatch = flushHaptics(703, 2000);
+			const staleDiagnostics = Object.assign({}, window.surrealXRHapticDiagnostics);
+
+			installFakeSession(704, [right]);
+			const disconnectQueued = window.surrealXRQueueHapticPulse("right", 0.6, 60);
+			right.gamepad.connected = false;
+			const disconnectDispatch = flushHaptics(704, 3000);
+			const disconnectDiagnostics = Object.assign({}, window.surrealXRHapticDiagnostics);
+			right.gamepad.connected = true;
+
+			const unsupported = {
+				handedness: "right",
+				gamepad: { connected: true, hapticActuators: [{}] },
+			};
+			installFakeSession(705, [unsupported]);
+			const unsupportedAccepted = window.surrealXRQueueHapticPulse("right", 0.5, 50);
+			const unsupportedDiagnostics = Object.assign({}, window.surrealXRHapticDiagnostics);
+
+			const leftClamped = leftCalls[0] || {};
+			const leftCoalesced = leftCalls[1] || {};
+			const rightClamped = rightCalls[0] || { options: {} };
+			const checks = [
+				queuedLeft, queuedRight, initialDispatch === 2,
+				leftClamped.intensity === 1, leftClamped.durationMs === 1000,
+				rightClamped.type === "dual-rumble",
+				rightClamped.options.strongMagnitude === 1,
+				rightClamped.options.weakMagnitude === 1,
+				rightClamped.options.duration === 1000,
+				!retainedLiveSource,
+				queuedRateLimited, tooSoonDispatch === 0, queuedCoalesced,
+				rateLimitedDispatch === 1, leftCalls.length === 2,
+				leftCoalesced.intensity === 0.8, leftCoalesced.durationMs === 200,
+				routingDiagnostics.coalesced === 1,
+				queuedBeforeDisable, disabledPendingCount === 0,
+				disabledAccepted === false, disabledDrops === 2,
+				queuedBeforeHidden, hiddenDispatch === 0,
+				hiddenAccepted === false, hiddenDrops === 2,
+				inactiveAccepted === false, inactiveDrops === 1,
+				staleQueued, staleDispatch === 0, staleDiagnostics.droppedStale === 1,
+				staleDiagnostics.pendingCount === 0,
+				disconnectQueued, disconnectDispatch === 0,
+				disconnectDiagnostics.droppedDisconnected === 1,
+				unsupportedAccepted === false,
+				unsupportedDiagnostics.droppedUnsupported === 1,
+				rightCalls.length === 1,
+			];
+			return {
+				passed: checks.every(Boolean),
+				checksPassed: checks.filter(Boolean).length,
+				checkCount: checks.length,
+				fakeActuatorsOnly: true,
+				leftCalls: leftCalls,
+				rightCalls: rightCalls,
+				routing: routingDiagnostics,
+				stale: staleDiagnostics,
+				disconnect: disconnectDiagnostics,
+				unsupported: unsupportedDiagnostics,
+			};
+		} finally {
+			right.gamepad.connected = true;
+			xrSession = saved.xrSession;
+			activeSessionGeneration = saved.activeSessionGeneration;
+			activeSessionKind = saved.activeSessionKind;
+			inputSourceIds = saved.inputSourceIds;
+			nextInputSourceId = saved.nextInputSourceId;
+			trackedInputSources = saved.trackedInputSources;
+			inputSourceGeneration = saved.inputSourceGeneration;
+			pendingHapticPulses = saved.pendingHapticPulses;
+			lastHapticDispatchTimes = saved.lastHapticDispatchTimes;
+			hapticGeneration = saved.hapticGeneration;
+			window.surrealXRSessionActive = saved.sessionActive;
+			window.surrealXRHapticsEnabled = saved.hapticsEnabled;
+			window.surrealXRHapticDiagnostics = saved.hapticDiagnostics;
+			window.surrealXRInputDiagnostics = saved.inputDiagnostics;
+			window.surrealXRLifecycle.xrVisibilityState = saved.xrVisibilityState;
+		}
+	};
+
 	function xrLog(line) {
 		window.surrealXRLog.push(line);
 		console.log("[webxr] " + line);
@@ -705,6 +1112,9 @@
 		const context = getWebAudioContext();
 
 		if (state === "hidden") {
+			// A hidden XR session does not receive animation frames. Drop any
+			// queued feedback now rather than replaying stale effects on resume.
+			dropPendingHaptics("droppedHidden");
 			if (context && context.state === "running") {
 				audioSuspendedByLifecycle = true;
 				window.surrealXRLifecycle.audioPolicy = "suspending-xr-hidden";
@@ -1047,6 +1457,7 @@
 				// phase ran in that case, so leave simulation untouched and try again.
 				window.surrealXRNativeDiagnostics.skippedFrames++;
 			}
+			flushHaptics(generation, time);
 		} catch (e) {
 			failNativeSession(generation, e);
 		}
@@ -1190,6 +1601,7 @@
 		if (pose && window.surrealXRFrameCount % 30 === 1) {
 			xrLog("frame " + window.surrealXRFrameCount + ": " + pose.views.length + " view(s)");
 		}
+		flushHaptics(generation, time);
 		xrSession.requestAnimationFrame(function (nextTime, nextFrame) {
 			onXRFrame(generation, nextTime, nextFrame);
 		});
