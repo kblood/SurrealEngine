@@ -15,10 +15,16 @@ enum class EulerOrder
 };
 
 template<typename T>
+struct quaternionT;
+
+template<typename T>
+constexpr quaternionT<T> operator *(const quaternionT<T>& a, const quaternionT<T>& b);
+
+template<typename T>
 struct quaternionT
 {
-	quaternionT() : x((T)0), y((T)0), z((T)0), w((T)1) { }
-	quaternionT(T x, T y, T z, T w) : x(x), y(y), z(z), w(w) { }
+	constexpr quaternionT() : x((T)0), y((T)0), z((T)0), w((T)1) { }
+	constexpr quaternionT(T x, T y, T z, T w) : x(x), y(y), z(z), w(w) { }
 	quaternionT(const vec4T<T> &v) : x(v.x), y(v.y), z(v.z), w(v.w) { }
 	quaternionT(T angle, const vec3T<T> &axis);
 
@@ -30,17 +36,11 @@ struct quaternionT
 
 	quaternionT& operator +=(const quaternionT& b) { x += b.x; y += b.y; z += b.z; w += b.w; return *this; }
 	quaternionT& operator -=(const quaternionT& b) { x -= b.x; y -= b.y; z -= b.z; w -= b.w; return *this; }
-	quaternionT& operator *=(const quaternionT& b) {
-		x = x * b.x - y * b.y - z * b.z - w * b.w,
-		y = x * b.y + y * b.x + z * b.w - w * b.z,
-		z = x * b.z - y * b.w + z * b.x + w * b.y,
-		w = x * b.w + y * b.z - z * b.y + w * b.x;
-		return *this;
-	}
+	constexpr quaternionT& operator *=(const quaternionT& b) { *this = *this * b; return *this; }
 	quaternionT& operator *=(T b) { x *= b; y *= b; z *= b; w *= b; return *this; }
 	quaternionT& operator /=(T b) { x /= b; y /= b; z /= b; w /= b; return *this; }
 
-	bool operator ==(const quaternionT& b) const { return x == b.x && y == b.y && z == b.z && w == b.w; }
+	constexpr bool operator ==(const quaternionT& b) const { return x == b.x && y == b.y && z == b.z && w == b.w; }
 
 	T x, y, z, w;
 };
@@ -267,7 +267,7 @@ quaternionT<T> quaternionT<T>::rotation_matrix(const mat4 &m)
 }
 
 template<typename T>
-quaternionT<T> operator*(const quaternionT<T> &quaternion_1, const quaternionT<T> &quaternion_2)
+constexpr quaternionT<T> operator*(const quaternionT<T> &quaternion_1, const quaternionT<T> &quaternion_2)
 {
 	quaternionT<T> quaternion_dest;
 	quaternion_dest.x = quaternion_1.w*quaternion_2.x + quaternion_1.x*quaternion_2.w + quaternion_1.y*quaternion_2.z - quaternion_1.z*quaternion_2.y;
@@ -276,6 +276,41 @@ quaternionT<T> operator*(const quaternionT<T> &quaternion_1, const quaternionT<T
 	quaternion_dest.w = quaternion_1.w*quaternion_2.w - quaternion_1.x*quaternion_2.x - quaternion_1.y*quaternion_2.y - quaternion_1.z*quaternion_2.z;
 	return quaternion_dest;
 }
+
+namespace quaternion_detail
+{
+	constexpr bool MultiplyAssignSelfTest()
+	{
+		using quat = quaternionT<int>;
+		const quat identity;
+		const quat a(1, 2, 3, 4);
+		const quat b(-2, 1, 4, 3);
+		const quat c(3, -1, 2, 2);
+
+		quat leftIdentity = identity;
+		leftIdentity *= a;
+		quat rightIdentity = a;
+		rightIdentity *= identity;
+
+		quat assignedAB = a;
+		assignedAB *= b;
+		const quat multipliedAB = a * b;
+		const quat multipliedBA = b * a;
+
+		quat assignedABC = a;
+		assignedABC *= b;
+		assignedABC *= c;
+
+		return leftIdentity == a &&
+			rightIdentity == a &&
+			assignedAB == multipliedAB &&
+			!(multipliedAB == multipliedBA) &&
+			assignedABC == a * (b * c);
+	}
+}
+
+static_assert(quaternion_detail::MultiplyAssignSelfTest(),
+	"quaternion multiplication assignment must match the Hamilton product");
 
 template<typename T>
 vec3T<T> operator*(const quaternionT<T> &q, const vec3T<T> &v)
