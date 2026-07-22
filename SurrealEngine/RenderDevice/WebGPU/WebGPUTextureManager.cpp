@@ -12,7 +12,10 @@ WebGPUTextureManager::WebGPUTextureManager(WebGPURenderDevice* renderer) : rende
 
 WebGPUTextureManager::~WebGPUTextureManager()
 {
-	ClearCache();
+	// The owning render device releases bind groups in its destructor body,
+	// before member destruction begins. The maps/unique_ptrs then release the
+	// textures naturally here; calling back into the owner's bind-group map
+	// from member destruction would be too late in that destruction order.
 }
 
 WebGPUCachedTexture* WebGPUTextureManager::GetFromCache(int masked, uint64_t cacheID)
@@ -31,6 +34,7 @@ void WebGPUTextureManager::UpdateTextureRect(FTextureInfo* info, int x, int y, i
 	WebGPUCachedTexture* tex = GetFromCache(0, info->CacheID);
 	if (tex)
 	{
+		renderer->InvalidateTextureBindGroups(tex);
 		renderer->Uploads->UploadTextureRect(tex, *info, x, y, w, h);
 		info->bRealtimeChanged = 0;
 	}
@@ -79,12 +83,16 @@ void WebGPUTextureManager::UploadTexture(FTextureInfo* info, bool masked, WebGPU
 	if (info->bRealtimeChanged)
 	{
 		info->bRealtimeChanged = 0;
+		renderer->InvalidateTextureBindGroups(tex);
 		renderer->Uploads->UploadTexture(tex, *info, masked);
 	}
 }
 
 void WebGPUTextureManager::ClearCache()
 {
+	// Bind groups retain their texture views. Release them first so clearing
+	// the unique_ptr maps below actually retires the GPU texture resources.
+	renderer->ClearTextureBindGroupCache();
 	for (auto& cache : TextureCache)
 	{
 		cache.clear();

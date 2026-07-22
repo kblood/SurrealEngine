@@ -15,6 +15,7 @@
      headless testing needs to exist for real M4 work to build on. -->
 <canvas id="canvas" width="640" height="480"></canvas>
 <button id="entervr" disabled>Enter VR</button>
+<button id="probewebgpuxr" disabled>Probe WebGPU XR</button>
 <pre id="log" style="white-space:pre-wrap;font:12px monospace;"></pre>
 <script src="webxr_session.js"></script>
 <script>
@@ -37,7 +38,8 @@
 			appendLog("[harness] runtime initialized, calling main");
 			window.surrealBooted = true;
 			try {
-				Module.callMain(["--autoplay", "--url=DM-Deck16][", "--render=webgpu", "/gamedata"]);
+				const mapName = new URLSearchParams(location.search).get("map") || "DM-Deck16][";
+				Module.callMain(["--autoplay", "--url=" + mapName, "--render=webgpu", "/gamedata"]);
 			} catch (e) {
 				window.surrealCrashed = String(e);
 				appendLog("[harness] callMain threw: " + e);
@@ -62,6 +64,12 @@
 	window.surrealRequestQuit = function () {
 		return Module.ccall("Surreal_RequestQuit", null, [], []);
 	};
+	window.surrealSetXRFrameLoopActive = function (active) {
+		return Module.ccall("Surreal_SetXRFrameLoopActive", "number", ["number"], [active ? 1 : 0]);
+	};
+	window.surrealRunXRFrame = function () {
+		return Module.ccall("Surreal_RunXRFrame", "number", [], []);
+	};
 	window.surrealGetWebGPUErrorCount = function () {
 		return Module.ccall("Surreal_GetWebGPUErrorCount", "number", [], []);
 	};
@@ -71,6 +79,110 @@
 	window.surrealGetWebGPUTextureCount = function () {
 		return Module.ccall("Surreal_GetWebGPUTextureCount", "number", [], []);
 	};
+	window.surrealGetWebGPUBindGroupsCreated = function () {
+		return Module.ccall("Surreal_GetWebGPUBindGroupsCreated", "number", [], []);
+	};
+	window.surrealGetWebGPUBindGroupCacheHits = function () {
+		return Module.ccall("Surreal_GetWebGPUBindGroupCacheHits", "number", [], []);
+	};
+	window.surrealGetWebGPUBufferRollovers = function () {
+		return Module.ccall("Surreal_GetWebGPUBufferRollovers", "number", [], []);
+	};
+	window.surrealGetWebGPUExternalRenderTargetFrames = function () {
+		return Module.ccall("Surreal_GetWebGPUExternalRenderTargetFrames", "number", [], []);
+	};
+	window.surrealGetWebGPULastExternalRenderTargetDrawCalls = function () {
+		return Module.ccall("Surreal_GetWebGPULastExternalRenderTargetDrawCalls", "number", [], []);
+	};
+	window.surrealQueueWebGPUExternalRenderTarget = function () {
+		return Module.ccall("Surreal_QueueWebGPUExternalRenderTarget", "number", [], []);
+	};
+	window.surrealTestWebGPUTextureImport = function () {
+		return Module.ccall("Surreal_TestWebGPUTextureImport", "number", [], []);
+	};
+	window.surrealVerifyWebGPUTextureImport = async function () {
+		const texture = window.surrealWebGPUInteropTestTexture;
+		if (!texture) return { matches: false, error: "test texture is missing" };
+		let buffer = null;
+		try {
+			const bytesPerRow = 256;
+			buffer = window.surrealWebGPUDevice.createBuffer({
+				size: bytesPerRow * 16,
+				usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+			});
+			const encoder = window.surrealWebGPUDevice.createCommandEncoder();
+			encoder.copyTextureToBuffer(
+				{ texture: texture },
+				{ buffer: buffer, bytesPerRow: bytesPerRow, rowsPerImage: 16 },
+				{ width: 16, height: 16, depthOrArrayLayers: 1 });
+			window.surrealWebGPUDevice.queue.submit([encoder.finish()]);
+			await buffer.mapAsync(GPUMapMode.READ);
+			const pixel = Array.from(new Uint8Array(buffer.getMappedRange(), 0, 4));
+			const expected = [64, 128, 191, 255];
+			const matches = pixel.every((value, i) => Math.abs(value - expected[i]) <= 1);
+			return { matches: matches, pixel: pixel, expected: expected };
+		} catch (e) {
+			return { matches: false, error: e.name + ": " + e.message };
+		} finally {
+			if (buffer) {
+				if (buffer.mapState === "mapped") buffer.unmap();
+				buffer.destroy();
+			}
+			texture.destroy();
+			window.surrealWebGPUInteropTestTexture = null;
+		}
+	};
+	window.surrealVerifyWebGPUExternalRenderTarget = async function () {
+		const texture = window.surrealWebGPUExternalRenderTarget;
+		if (!texture) return { rendered: false, error: "external render target is missing" };
+		let buffer = null;
+		try {
+			const width = 640;
+			const height = 480;
+			const bytesPerRow = width * 4;
+			buffer = window.surrealWebGPUDevice.createBuffer({
+				size: bytesPerRow * height,
+				usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+			});
+			await window.surrealWebGPUDevice.queue.onSubmittedWorkDone();
+			const encoder = window.surrealWebGPUDevice.createCommandEncoder();
+			encoder.copyTextureToBuffer(
+				{ texture: texture, origin: { x: 0, y: 0, z: 1 } },
+				{ buffer: buffer, bytesPerRow: bytesPerRow, rowsPerImage: height },
+				{ width: width, height: height, depthOrArrayLayers: 1 });
+			window.surrealWebGPUDevice.queue.submit([encoder.finish()]);
+			await buffer.mapAsync(GPUMapMode.READ);
+
+			const pixels = new Uint8Array(buffer.getMappedRange());
+			let nonBlackPixels = 0;
+			const sampledColors = new Set();
+			for (let offset = 0, pixelIndex = 0; offset < pixels.length; offset += 4, pixelIndex++) {
+				if (pixels[offset] || pixels[offset + 1] || pixels[offset + 2]) nonBlackPixels++;
+				if (pixelIndex % 257 === 0) {
+					sampledColors.add(
+						pixels[offset] + "," + pixels[offset + 1] + "," +
+						pixels[offset + 2] + "," + pixels[offset + 3]);
+				}
+			}
+			const drawCalls = window.surrealGetWebGPULastExternalRenderTargetDrawCalls();
+			return {
+				rendered: drawCalls > 0 && nonBlackPixels > 100 && sampledColors.size > 1,
+				drawCalls: drawCalls,
+				nonBlackPixels: nonBlackPixels,
+				distinctSampledColors: sampledColors.size,
+				arrayLayer: 1,
+			};
+		} catch (e) {
+			return { rendered: false, error: e.name + ": " + e.message };
+		} finally {
+			if (buffer) {
+				if (buffer.mapState === "mapped") buffer.unmap();
+				buffer.destroy();
+			}
+			texture.destroy();
+			window.surrealWebGPUExternalRenderTarget = null;
+		}
+	};
 
 	document.getElementById("entervr").addEventListener("click", function () {
 		if (window.surrealXRSessionActive) {
@@ -78,6 +190,9 @@
 		} else {
 			window.surrealXREnter();
 		}
+	});
+	document.getElementById("probewebgpuxr").addEventListener("click", function () {
+		window.surrealXRProbeWebGPUProjection();
 	});
 
 	async function boot() {
@@ -93,7 +208,10 @@
 			appendLog("[harness] " + window.surrealCrashed);
 			return;
 		}
-		const adapter = await navigator.gpu.requestAdapter();
+		// M4: the device actually handed to Emscripten must come from an
+		// XR-compatible adapter. A separate successful capability probe does
+		// not make a device from a normal adapter compatible with XRGPUBinding.
+		const adapter = await navigator.gpu.requestAdapter({ xrCompatible: true });
 		if (!adapter) {
 			window.surrealCrashed = "navigator.gpu.requestAdapter() resolved null";
 			appendLog("[harness] " + window.surrealCrashed);
@@ -101,6 +219,7 @@
 		}
 		const requiredFeatures = ["texture-compression-bc", "float32-filterable"].filter(f => adapter.features.has(f));
 		const device = await adapter.requestDevice({ requiredFeatures });
+		window.surrealWebGPUDevice = device;
 		device.lost.then(info => appendLog("[harness] WebGPU device lost: " + info.message));
 		window.surrealWebGPUErrorCount = 0;
 		device.addEventListener("uncapturederror", function (event) {
@@ -108,6 +227,7 @@
 			appendLog("[harness] WebGPU uncaptured error: " + event.error.message);
 		});
 		Module.preinitializedWebGPUDevice = device;
+		document.getElementById("probewebgpuxr").disabled = !window.surrealXRGPUBindingAvailable;
 		appendLog("[harness] WebGPU device acquired, loading wasm module");
 		const script = document.createElement("script");
 		script.src = "../build-emscripten/SurrealEngine.js";

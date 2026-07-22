@@ -31,7 +31,8 @@
 			appendLog("[harness] runtime initialized, calling main");
 			window.surrealBooted = true;
 			try {
-				Module.callMain(["--autoplay", "--url=DM-Deck16][", "--render=webgpu", "/gamedata"]);
+				const mapName = new URLSearchParams(location.search).get("map") || "DM-Deck16][";
+				Module.callMain(["--autoplay", "--url=" + mapName, "--render=webgpu", "/gamedata"]);
 			} catch (e) {
 				window.surrealCrashed = String(e);
 				appendLog("[harness] callMain threw: " + e);
@@ -64,6 +65,15 @@
 	};
 	window.surrealGetWebGPUTextureCount = function () {
 		return Module.ccall("Surreal_GetWebGPUTextureCount", "number", [], []);
+	};
+	window.surrealGetWebGPUBindGroupsCreated = function () {
+		return Module.ccall("Surreal_GetWebGPUBindGroupsCreated", "number", [], []);
+	};
+	window.surrealGetWebGPUBindGroupCacheHits = function () {
+		return Module.ccall("Surreal_GetWebGPUBindGroupCacheHits", "number", [], []);
+	};
+	window.surrealGetWebGPUBufferRollovers = function () {
+		return Module.ccall("Surreal_GetWebGPUBufferRollovers", "number", [], []);
 	};
 
 	async function boot() {

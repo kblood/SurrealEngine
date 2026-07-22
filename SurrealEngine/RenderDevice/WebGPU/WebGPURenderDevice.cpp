@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 
 // Single live instance, tracked for the Surreal_GetWebGPU*() stat exports
@@ -62,12 +63,29 @@ WebGPURenderDevice::~WebGPURenderDevice()
 	if (FrameEncoder) { wgpuCommandEncoderRelease(FrameEncoder); FrameEncoder = nullptr; }
 	if (CurrentSurfaceView) { wgpuTextureViewRelease(CurrentSurfaceView); CurrentSurfaceView = nullptr; }
 	if (CurrentSurfaceTexture) { wgpuTextureRelease(CurrentSurfaceTexture); CurrentSurfaceTexture = nullptr; }
+	if (PendingExternalTexture) { wgpuTextureRelease(PendingExternalTexture); PendingExternalTexture = nullptr; }
+	ClearTextureBindGroupCache();
 	if (UniformsBindGroup) wgpuBindGroupRelease(UniformsBindGroup);
 	if (UniformBuffer) wgpuBufferRelease(UniformBuffer);
 	if (IndexBuffer) wgpuBufferRelease(IndexBuffer);
 	if (VertexBuffer) wgpuBufferRelease(VertexBuffer);
 	if (DepthView) wgpuTextureViewRelease(DepthView);
 	if (DepthTexture) wgpuTextureRelease(DepthTexture);
+}
+
+bool WebGPURenderDevice::QueueExternalRenderTarget(WGPUTexture texture, uint32_t arrayLayer, int width, int height)
+{
+	if (!texture || width <= 0 || height <= 0 || IsLocked || PendingExternalTexture)
+		return false;
+
+	SavedFixedRenderWidth = FixedRenderWidth;
+	SavedFixedRenderHeight = FixedRenderHeight;
+	PendingExternalTexture = texture;
+	PendingExternalArrayLayer = arrayLayer;
+	PendingExternalWidth = width;
+	PendingExternalHeight = height;
+	SetFixedRenderSize(width, height);
+	return true;
 }
 
 void WebGPURenderDevice::ConfigureDepthBuffer(int width, int height)
@@ -164,25 +182,39 @@ void WebGPURenderDevice::Lock(vec4 InFlashScale, vec4 InFlashFog, vec4 ScreenCle
 	Stats.Uploads = 0;
 	Stats.RectUploads = 0;
 	Stats.BuffersUsed = 0;
+	Stats.BufferRollovers = 0;
+	Stats.BindGroupsCreated = 0;
+	Stats.BindGroupCacheHits = 0;
 
-	CurrentSizeX = GetRenderWidth();
-	CurrentSizeY = GetRenderHeight();
+	UsingExternalRenderTarget = PendingExternalTexture != nullptr;
+	CurrentSizeX = UsingExternalRenderTarget ? PendingExternalWidth : GetRenderWidth();
+	CurrentSizeY = UsingExternalRenderTarget ? PendingExternalHeight : GetRenderHeight();
 
 	nulltex = Textures->GetNullTexture();
 
-	Context->ConfigureSurface(CurrentSizeX, CurrentSizeY);
 	ConfigureDepthBuffer(CurrentSizeX, CurrentSizeY);
 
-	WGPUSurfaceTexture surfaceTexture = {};
-	wgpuSurfaceGetCurrentTexture(Context->Surface, &surfaceTexture);
-	CurrentSurfaceTexture = surfaceTexture.texture;
+	if (UsingExternalRenderTarget)
+	{
+		// Transfer the imported wrapper into the active frame. The underlying
+		// JavaScript GPUTexture remains owned by the browser/WebXR layer.
+		CurrentSurfaceTexture = PendingExternalTexture;
+		PendingExternalTexture = nullptr;
+	}
+	else
+	{
+		Context->ConfigureSurface(CurrentSizeX, CurrentSizeY);
+		WGPUSurfaceTexture surfaceTexture = {};
+		wgpuSurfaceGetCurrentTexture(Context->Surface, &surfaceTexture);
+		CurrentSurfaceTexture = surfaceTexture.texture;
+	}
 
 	WGPUTextureViewDescriptor viewDesc = {};
 	viewDesc.format = Context->SurfaceFormat;
 	viewDesc.dimension = WGPUTextureViewDimension_2D;
 	viewDesc.baseMipLevel = 0;
 	viewDesc.mipLevelCount = 1;
-	viewDesc.baseArrayLayer = 0;
+	viewDesc.baseArrayLayer = UsingExternalRenderTarget ? PendingExternalArrayLayer : 0;
 	viewDesc.arrayLayerCount = 1;
 	viewDesc.aspect = WGPUTextureAspect_All;
 	CurrentSurfaceView = wgpuTextureCreateView(CurrentSurfaceTexture, &viewDesc);
@@ -224,6 +256,17 @@ void WebGPURenderDevice::Unlock(bool Blit)
 	CurrentSurfaceView = nullptr;
 	wgpuTextureRelease(CurrentSurfaceTexture);
 	CurrentSurfaceTexture = nullptr;
+
+	if (UsingExternalRenderTarget)
+	{
+		ExternalRenderTargetFrames++;
+		LastExternalRenderTargetDrawCalls = Stats.DrawCalls;
+		SetFixedRenderSize(SavedFixedRenderWidth, SavedFixedRenderHeight);
+		UsingExternalRenderTarget = false;
+		PendingExternalArrayLayer = 0;
+		PendingExternalWidth = 0;
+		PendingExternalHeight = 0;
+	}
 
 	Batch = WebGPUDrawBatchEntry();
 	HaveViewport = false;
@@ -374,6 +417,7 @@ WebGPURenderDevice::VertexReserveInfo WebGPURenderDevice::ReserveVertices(size_t
 		if (vcount > VertexBufferCapacity || icount > IndexBufferCapacity)
 			return { nullptr, nullptr, 0 };
 
+		Stats.BufferRollovers++;
 		DrawBatches(true);
 	}
 
@@ -511,10 +555,59 @@ void WebGPURenderDevice::DrawEntry(const WebGPUDrawBatchEntry& entry)
 		wgpuRenderPassEncoderSetViewport(FramePass, ViewportX, ViewportY, ViewportW, ViewportH, ViewportMinDepth, ViewportMaxDepth);
 	}
 
-	// A fresh bind group is created per draw call rather than cached, for
-	// simplicity - see WEBXR_IMPLEMENTATION_PLAN.md M2. The implementation
-	// keeps its own internal reference for the command's lifetime, so it is
-	// safe to release immediately after the SetBindGroup call below.
+	WGPUBindGroup texturesBindGroup = GetTextureBindGroup(entry);
+
+	WGPUColor blendConstant = { entry.BlendConstants[0], entry.BlendConstants[1], entry.BlendConstants[2], entry.BlendConstants[3] };
+	wgpuRenderPassEncoderSetBlendConstant(FramePass, &blendConstant);
+
+	wgpuRenderPassEncoderSetPipeline(FramePass, entry.Pipeline->Pipeline);
+	wgpuRenderPassEncoderSetBindGroup(FramePass, 0, UniformsBindGroup, 0, nullptr);
+	wgpuRenderPassEncoderSetBindGroup(FramePass, 1, texturesBindGroup, 0, nullptr);
+	wgpuRenderPassEncoderSetVertexBuffer(FramePass, 0, VertexBuffer, 0, WGPU_WHOLE_SIZE);
+	wgpuRenderPassEncoderSetIndexBuffer(FramePass, IndexBuffer, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+	wgpuRenderPassEncoderDrawIndexed(FramePass, (uint32_t)icount, 1, (uint32_t)entry.SceneIndexStart, 0, 0);
+
+	Stats.DrawCalls++;
+}
+
+bool WebGPURenderDevice::TextureBindGroupKey::operator==(const TextureBindGroupKey& other) const
+{
+	return Tex == other.Tex && Lightmap == other.Lightmap && Detailtex == other.Detailtex && Macrotex == other.Macrotex &&
+		TexSamplerMode == other.TexSamplerMode && DetailtexSamplerMode == other.DetailtexSamplerMode && MacrotexSamplerMode == other.MacrotexSamplerMode;
+}
+
+size_t WebGPURenderDevice::TextureBindGroupKeyHash::operator()(const TextureBindGroupKey& key) const
+{
+	// boost::hash_combine's mixing step, kept local to avoid another
+	// dependency in the browser build.
+	size_t hash = 0;
+	auto combine = [&hash](size_t value)
+	{
+		hash ^= value + (size_t)0x9e3779b9 + (hash << 6) + (hash >> 2);
+	};
+	combine(reinterpret_cast<uintptr_t>(key.Tex));
+	combine(reinterpret_cast<uintptr_t>(key.Lightmap));
+	combine(reinterpret_cast<uintptr_t>(key.Detailtex));
+	combine(reinterpret_cast<uintptr_t>(key.Macrotex));
+	combine(key.TexSamplerMode);
+	combine(key.DetailtexSamplerMode);
+	combine(key.MacrotexSamplerMode);
+	return hash;
+}
+
+WGPUBindGroup WebGPURenderDevice::GetTextureBindGroup(const WebGPUDrawBatchEntry& entry)
+{
+	TextureBindGroupKey key = {
+		entry.Tex, entry.Lightmap, entry.Detailtex, entry.Macrotex,
+		entry.TexSamplerMode, entry.DetailtexSamplerMode, entry.MacrotexSamplerMode
+	};
+	auto cached = TextureBindGroups.find(key);
+	if (cached != TextureBindGroups.end())
+	{
+		Stats.BindGroupCacheHits++;
+		return cached->second;
+	}
+
 	WGPUBindGroupEntry textureEntries[8] = {};
 	textureEntries[0] = { nullptr, 0, nullptr, 0, 0, Samplers->Get(entry.TexSamplerMode), nullptr };
 	textureEntries[1] = { nullptr, 1, nullptr, 0, 0, Samplers->Get(0), nullptr };
@@ -530,20 +623,36 @@ void WebGPURenderDevice::DrawEntry(const WebGPUDrawBatchEntry& entry)
 	bindGroupDesc.entryCount = 8;
 	bindGroupDesc.entries = textureEntries;
 	WGPUBindGroup texturesBindGroup = wgpuDeviceCreateBindGroup(Context->Device, &bindGroupDesc);
+	TextureBindGroups.emplace(key, texturesBindGroup);
+	Stats.BindGroupsCreated++;
+	return texturesBindGroup;
+}
 
-	WGPUColor blendConstant = { entry.BlendConstants[0], entry.BlendConstants[1], entry.BlendConstants[2], entry.BlendConstants[3] };
-	wgpuRenderPassEncoderSetBlendConstant(FramePass, &blendConstant);
+void WebGPURenderDevice::ClearTextureBindGroupCache()
+{
+	for (auto& item : TextureBindGroups)
+		wgpuBindGroupRelease(item.second);
+	TextureBindGroups.clear();
+}
 
-	wgpuRenderPassEncoderSetPipeline(FramePass, entry.Pipeline->Pipeline);
-	wgpuRenderPassEncoderSetBindGroup(FramePass, 0, UniformsBindGroup, 0, nullptr);
-	wgpuRenderPassEncoderSetBindGroup(FramePass, 1, texturesBindGroup, 0, nullptr);
-	wgpuRenderPassEncoderSetVertexBuffer(FramePass, 0, VertexBuffer, 0, WGPU_WHOLE_SIZE);
-	wgpuRenderPassEncoderSetIndexBuffer(FramePass, IndexBuffer, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
-	wgpuRenderPassEncoderDrawIndexed(FramePass, (uint32_t)icount, 1, (uint32_t)entry.SceneIndexStart, 0, 0);
+void WebGPURenderDevice::InvalidateTextureBindGroups(WebGPUCachedTexture* texture)
+{
+	if (!texture)
+		return;
 
-	wgpuBindGroupRelease(texturesBindGroup);
-
-	Stats.DrawCalls++;
+	for (auto it = TextureBindGroups.begin(); it != TextureBindGroups.end();)
+	{
+		const TextureBindGroupKey& key = it->first;
+		if (key.Tex == texture || key.Lightmap == texture || key.Detailtex == texture || key.Macrotex == texture)
+		{
+			wgpuBindGroupRelease(it->second);
+			it = TextureBindGroups.erase(it);
+		}
+		else
+		{
+			++it;
+		}
+	}
 }
 
 void WebGPURenderDevice::DrawComplexSurface(FSceneNode* Frame, FSurfaceInfo& Surface, FSurfaceFacet& Facet)
@@ -977,6 +1086,42 @@ void WebGPURenderDevice::Draw2DPoint(FSceneNode* Frame, vec4 Color, uint32_t Lin
 #include <emscripten.h>
 #include <emscripten/em_js.h>
 
+// M4 interop spike: import a browser-owned GPUTexture into Emdawnwebgpu's
+// C handle table. XRGPUSubImage.colorTexture will use the same path once a
+// native WebGPU-compatible XRSession is available. The JS texture remains
+// owned here and is explicitly destroyed by JS after C releases its wrapper.
+EM_JS(uintptr_t, JS_CreateAndImportTestWebGPUTexture, (uintptr_t parentDevice), {
+	if (!window.surrealWebGPUDevice || typeof WebGPU === "undefined" || !WebGPU.importJsTexture)
+		return 0;
+	const texture = window.surrealWebGPUDevice.createTexture({
+		size: { width: 16, height: 16, depthOrArrayLayers: 1 },
+		format: "rgba8unorm",
+		usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.COPY_SRC,
+	});
+	window.surrealWebGPUInteropTestTexture = texture;
+	return WebGPU.importJsTexture(texture, parentDevice);
+});
+
+// Browser-owned 2D-array target used to exercise the complete engine render
+// path before a native XR runtime is available in automation. Layer 1 is
+// intentional: XRGPUSubImage color textures use one array layer per view, so
+// this catches a view-descriptor implementation that accidentally always
+// renders layer 0.
+EM_JS(uintptr_t, JS_CreateAndImportExternalRenderTarget,
+	(uintptr_t parentDevice, int width, int height), {
+	if (!window.surrealWebGPUDevice || typeof WebGPU === "undefined" || !WebGPU.importJsTexture)
+		return 0;
+	const texture = window.surrealWebGPUDevice.createTexture({
+		size: { width: width, height: height, depthOrArrayLayers: 2 },
+		format: "bgra8unorm",
+		usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.COPY_SRC,
+	});
+	window.surrealWebGPUExternalRenderTarget = texture;
+	return WebGPU.importJsTexture(texture, parentDevice);
+});
+
 // The pinned emdawnwebgpu API only offers uncaptured-error reporting via
 // WGPUDeviceDescriptor.uncapturedErrorCallbackInfo at device-creation time
 // (no post-hoc wgpuDeviceSetUncapturedErrorCallback in this version), but
@@ -1005,6 +1150,102 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGPUTextureCount()
 	{
 		return (CurrentDevice && CurrentDevice->Textures) ? CurrentDevice->Textures->GetTexturesInCache() : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGPUBindGroupsCreated()
+	{
+		return CurrentDevice ? CurrentDevice->Stats.BindGroupsCreated : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGPUBindGroupCacheHits()
+	{
+		return CurrentDevice ? CurrentDevice->Stats.BindGroupCacheHits : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGPUBufferRollovers()
+	{
+		return CurrentDevice ? CurrentDevice->Stats.BufferRollovers : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGPUExternalRenderTargetFrames()
+	{
+		return CurrentDevice ? CurrentDevice->GetExternalRenderTargetFrames() : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGPULastExternalRenderTargetDrawCalls()
+	{
+		return CurrentDevice ? CurrentDevice->GetLastExternalRenderTargetDrawCalls() : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_QueueWebGPUExternalRenderTarget()
+	{
+		if (!CurrentDevice || !CurrentDevice->Context || !CurrentDevice->Context->Device)
+			return 0;
+
+		const int width = 640;
+		const int height = 480;
+		WGPUTexture texture = reinterpret_cast<WGPUTexture>(
+			JS_CreateAndImportExternalRenderTarget(
+				reinterpret_cast<uintptr_t>(CurrentDevice->Context->Device), width, height));
+		if (!texture)
+			return 0;
+
+		if (!CurrentDevice->QueueExternalRenderTarget(texture, 1, width, height))
+		{
+			wgpuTextureRelease(texture);
+			return 0;
+		}
+		return 1;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_TestWebGPUTextureImport()
+	{
+		if (!CurrentDevice || !CurrentDevice->Context || !CurrentDevice->Context->Device)
+			return 0;
+
+		WGPUTexture texture = reinterpret_cast<WGPUTexture>(
+			JS_CreateAndImportTestWebGPUTexture(reinterpret_cast<uintptr_t>(CurrentDevice->Context->Device)));
+		if (!texture)
+			return 0;
+
+		WGPUTextureViewDescriptor viewDesc = {};
+		viewDesc.format = WGPUTextureFormat_RGBA8Unorm;
+		viewDesc.dimension = WGPUTextureViewDimension_2D;
+		viewDesc.baseMipLevel = 0;
+		viewDesc.mipLevelCount = 1;
+		viewDesc.baseArrayLayer = 0;
+		viewDesc.arrayLayerCount = 1;
+		viewDesc.aspect = WGPUTextureAspect_All;
+		WGPUTextureView view = wgpuTextureCreateView(texture, &viewDesc);
+
+		if (view)
+		{
+			WGPUCommandEncoderDescriptor encoderDesc = {};
+			WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(CurrentDevice->Context->Device, &encoderDesc);
+
+			WGPURenderPassColorAttachment colorAttachment = {};
+			colorAttachment.view = view;
+			colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+			colorAttachment.loadOp = WGPULoadOp_Clear;
+			colorAttachment.storeOp = WGPUStoreOp_Store;
+			colorAttachment.clearValue = { 0.25, 0.5, 0.75, 1.0 };
+
+			WGPURenderPassDescriptor passDesc = {};
+			passDesc.colorAttachmentCount = 1;
+			passDesc.colorAttachments = &colorAttachment;
+			WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
+			wgpuRenderPassEncoderEnd(pass);
+			wgpuRenderPassEncoderRelease(pass);
+
+			WGPUCommandBufferDescriptor commandDesc = {};
+			WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, &commandDesc);
+			wgpuQueueSubmit(CurrentDevice->Context->Queue, 1, &command);
+			wgpuCommandBufferRelease(command);
+			wgpuCommandEncoderRelease(encoder);
+			wgpuTextureViewRelease(view);
+		}
+		wgpuTextureRelease(texture);
+		return view ? 1 : 0;
 	}
 
 	// Temporary diagnostics for the DrawComplexSurface/DrawGouraudPolygon

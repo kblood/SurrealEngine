@@ -41,6 +41,8 @@
 	window.surrealXRLog = [];
 	window.surrealXRError = null;
 	window.surrealXRGPUCompatible = null; // tri-state: null/true/false
+	window.surrealXRGPUBindingAvailable = typeof globalThis.XRGPUBinding === "function";
+	window.surrealXRWebGPUProbe = null;
 
 	let xrSession = null;
 	let xrRefSpace = null;
@@ -50,6 +52,8 @@
 		window.surrealXRLog.push(line);
 		console.log("[webxr] " + line);
 	}
+
+	xrLog("XRGPUBinding available = " + window.surrealXRGPUBindingAvailable);
 
 	// --- Capability checks (no session side effects) ---------------------
 
@@ -103,6 +107,64 @@
 			xrLog("xrCompatible GPUDevice probe failed: " + e);
 			return false;
 		}
+	};
+
+	// Attempts the real WebGPU/WebXR setup sequence through projection-layer
+	// creation, but deliberately does not render. This is both an automation
+	// probe and a user-gesture-safe button action for testing on a real headset.
+	// Expected to reject when the JS-only IWER session cannot satisfy Blink's
+	// native XRSession type check; that result is recorded rather than promoted
+	// to surrealXRError because it identifies a harness limitation, not an
+	// engine crash.
+	window.surrealXRProbeWebGPUProjection = async function () {
+		const result = {
+			supported: window.surrealXRGPUBindingAvailable,
+			sessionCreated: false,
+			bindingCreated: false,
+			layerCreated: false,
+			colorFormat: null,
+			error: null,
+		};
+		window.surrealXRWebGPUProbe = result;
+
+		if (!result.supported) {
+			result.error = "XRGPUBinding is not exposed";
+			xrLog("WebGPU projection probe stopped: " + result.error);
+			return result;
+		}
+		const device = window.surrealWebGPUDevice;
+		if (!device) {
+			result.error = "engine XR-compatible GPUDevice is not ready";
+			xrLog("WebGPU projection probe stopped: " + result.error);
+			return result;
+		}
+
+		let probeSession = null;
+		try {
+			probeSession = await navigator.xr.requestSession("immersive-vr", {
+				requiredFeatures: ["webgpu"],
+			});
+			result.sessionCreated = true;
+			xrLog("WebGPU-compatible session requested");
+
+			const binding = new XRGPUBinding(probeSession, device);
+			result.bindingCreated = true;
+			result.colorFormat = binding.getPreferredColorFormat();
+			xrLog("XRGPUBinding created (preferred color format=" + result.colorFormat + ")");
+
+			const layer = binding.createProjectionLayer({ colorFormat: result.colorFormat });
+			await probeSession.updateRenderState({ layers: [layer] });
+			result.layerCreated = true;
+			xrLog("WebGPU XR projection layer created and installed");
+		} catch (e) {
+			result.error = e.name + ": " + e.message;
+			xrLog("WebGPU projection probe failed: " + result.error);
+		} finally {
+			if (probeSession) {
+				try { await probeSession.end(); } catch (_) {}
+			}
+		}
+		return result;
 	};
 
 	// --- Session lifecycle -------------------------------------------------

@@ -1,11 +1,13 @@
 import sys
 import time
+from urllib.parse import urlencode
 from playwright.sync_api import sync_playwright
 from PIL import Image
 
 sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
 
-URL = "http://localhost:8091/web/index_webgpu.html"
+MAP_NAME = sys.argv[1] if len(sys.argv) > 1 else "DM-Deck16]["
+URL = "http://localhost:8091/web/index_webgpu.html?" + urlencode({"map": MAP_NAME})
 
 with sync_playwright() as p:
 	# Playwright's bundled Chromium cannot acquire a WebGPU adapter headlessly
@@ -46,8 +48,10 @@ with sync_playwright() as p:
 		print("\n".join(console_lines[-50:]))
 		sys.exit(1)
 
-	print("[harness] booted, watching tick counter for 10s...")
+	print(f"[harness] booted {MAP_NAME}, watching tick counter for 10s...")
 	samples = []
+	initial_tick = page.evaluate("window.surrealGetTickCount ? window.surrealGetTickCount() : -1")
+	sample_start = time.perf_counter()
 	for _ in range(10):
 		time.sleep(1)
 		crashed = page.evaluate("window.surrealCrashed")
@@ -58,6 +62,9 @@ with sync_playwright() as p:
 		tick = page.evaluate("window.surrealGetTickCount ? window.surrealGetTickCount() : -1")
 		samples.append(tick)
 		print(f"  tick count: {tick}")
+	sample_seconds = time.perf_counter() - sample_start
+	ticks_per_second = (samples[-1] - initial_tick) / sample_seconds
+	print(f"[harness] observed engine tick rate: {ticks_per_second:.1f}/s")
 
 	print("\n".join(console_lines[-80:]))
 
@@ -75,9 +82,15 @@ with sync_playwright() as p:
 	error_count = page.evaluate("window.surrealGetWebGPUErrorCount()")
 	draw_calls = page.evaluate("window.surrealGetWebGPUDrawCalls()")
 	texture_count = page.evaluate("window.surrealGetWebGPUTextureCount()")
+	bind_groups_created = page.evaluate("window.surrealGetWebGPUBindGroupsCreated()")
+	bind_group_cache_hits = page.evaluate("window.surrealGetWebGPUBindGroupCacheHits()")
+	buffer_rollovers = page.evaluate("window.surrealGetWebGPUBufferRollovers()")
 	print(f"[harness] WebGPU error count: {error_count}")
 	print(f"[harness] WebGPU draw calls (last frame): {draw_calls}")
 	print(f"[harness] WebGPU textures cached: {texture_count}")
+	print(f"[harness] WebGPU bind groups created (last frame): {bind_groups_created}")
+	print(f"[harness] WebGPU bind-group cache hits (last frame): {bind_group_cache_hits}")
+	print(f"[harness] WebGPU geometry-buffer rollovers (last frame): {buffer_rollovers}")
 
 	if error_count != 0:
 		print(f"FAIL: {error_count} WebGPU uncaptured error(s) during the run")
@@ -87,6 +100,12 @@ with sync_playwright() as p:
 		sys.exit(1)
 	if texture_count < 5:
 		print(f"FAIL: only {texture_count} textures cached, expected several (real P8/BGRA8_LM conversion path)")
+		sys.exit(1)
+	if bind_group_cache_hits <= 0:
+		print("FAIL: bind-group cache had no hits in the last frame")
+		sys.exit(1)
+	if bind_groups_created >= draw_calls:
+		print(f"FAIL: created {bind_groups_created} bind groups for {draw_calls} draws; cache did not reduce per-draw allocation")
 		sys.exit(1)
 
 	screenshot_path = "web/webgpu_smoke_screenshot.png"

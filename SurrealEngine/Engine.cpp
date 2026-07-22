@@ -87,6 +87,12 @@ Engine::~Engine()
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 
+// The ordinary browser path is owned by Emscripten's window RAF. A native
+// immersive session must instead render synchronously inside XRSession's RAF
+// callback because XRGPUSubImage textures are frame-scoped. These exports
+// transfer loop ownership without changing the engine's per-frame behavior.
+static bool EngineUsesXRFrameLoop = false;
+
 static void EngineMainLoopCallback(void* arg)
 {
 	Engine* eng = static_cast<Engine*>(arg);
@@ -117,6 +123,29 @@ extern "C"
 		if (engine)
 			engine->quit = true;
 	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetXRFrameLoopActive(int active)
+	{
+		const bool requested = active != 0;
+		if (requested == EngineUsesXRFrameLoop)
+			return EngineUsesXRFrameLoop ? 1 : 0;
+
+		EngineUsesXRFrameLoop = requested;
+		if (EngineUsesXRFrameLoop)
+			emscripten_pause_main_loop();
+		else
+			emscripten_resume_main_loop();
+		return EngineUsesXRFrameLoop ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_RunXRFrame()
+	{
+		if (!EngineUsesXRFrameLoop || !engine)
+			return engine ? static_cast<uint32_t>(engine->tickCount) : 0;
+
+		EngineMainLoopCallback(engine);
+		return engine ? static_cast<uint32_t>(engine->tickCount) : 0;
+	}
 }
 #endif
 
@@ -124,6 +153,7 @@ void Engine::Run()
 {
 	Setup();
 #ifdef __EMSCRIPTEN__
+	EngineUsesXRFrameLoop = false;
 	// simulate_infinite_loop=0: matches QuakeQuest's main_web.c reference -
 	// this returns immediately after registering the RAF callback rather
 	// than unwinding the stack via a JS-level throw (simulate_infinite_loop=1

@@ -10,6 +10,7 @@
 #include "WebGPUCachedTexture.h"
 #include "Math/mat.h"
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 struct WebGPUDrawBatchEntry
@@ -74,6 +75,23 @@ public:
 	bool SupportsTextureFormat(TextureFormat Format) override;
 	void UpdateTextureRect(FTextureInfo& Info, int U, int V, int UL, int VL) override;
 
+	// Bind groups retain references to their texture views. Texture cache
+	// eviction must therefore release any dependent groups before destroying
+	// the views themselves. Content-only updates use the targeted form so a
+	// future upload path that replaces a view remains safe too.
+	void ClearTextureBindGroupCache();
+	void InvalidateTextureBindGroups(WebGPUCachedTexture* texture);
+
+	// Queue a browser-owned texture for the next complete engine frame. The
+	// imported WGPUTexture wrapper is consumed by Lock()/Unlock(); ownership of
+	// that wrapper transfers to this device on success. This is the renderer
+	// seam needed by WebXR, whose XRGPUSubImage color texture is created by the
+	// browser rather than by the canvas surface. The JavaScript GPUTexture
+	// itself remains browser-owned.
+	bool QueueExternalRenderTarget(WGPUTexture texture, uint32_t arrayLayer, int width, int height);
+	int GetExternalRenderTargetFrames() const { return ExternalRenderTargetFrames; }
+	int GetLastExternalRenderTargetDrawCalls() const { return LastExternalRenderTargetDrawCalls; }
+
 	std::unique_ptr<WebGPUContext> Context;
 	std::unique_ptr<WebGPUPipelineCache> Pipelines;
 	std::unique_ptr<WebGPUSamplerCache> Samplers;
@@ -89,6 +107,9 @@ public:
 		int Uploads = 0;
 		int RectUploads = 0;
 		int BuffersUsed = 0;
+		int BufferRollovers = 0;
+		int BindGroupsCreated = 0;
+		int BindGroupCacheHits = 0;
 	} Stats;
 
 private:
@@ -120,6 +141,7 @@ private:
 	void AddDrawBatch();
 	void DrawBatches(bool submitBoundary = false, bool clearDepthOnReopen = false);
 	void DrawEntry(const WebGPUDrawBatchEntry& entry);
+	WGPUBindGroup GetTextureBindGroup(const WebGPUDrawBatchEntry& entry);
 	void UploadPendingSceneData();
 	void UpdateSceneUniforms(const mat4& objectToProjection);
 
@@ -137,6 +159,26 @@ private:
 	WebGPUDrawBatchEntry Batch;
 	std::vector<WebGPUDrawBatchEntry> QueuedBatches;
 	WebGPUCachedTexture* nulltex = nullptr;
+
+	struct TextureBindGroupKey
+	{
+		WebGPUCachedTexture* Tex = nullptr;
+		WebGPUCachedTexture* Lightmap = nullptr;
+		WebGPUCachedTexture* Detailtex = nullptr;
+		WebGPUCachedTexture* Macrotex = nullptr;
+		uint32_t TexSamplerMode = 0;
+		uint32_t DetailtexSamplerMode = 0;
+		uint32_t MacrotexSamplerMode = 0;
+
+		bool operator==(const TextureBindGroupKey& other) const;
+	};
+
+	struct TextureBindGroupKeyHash
+	{
+		size_t operator()(const TextureBindGroupKey& key) const;
+	};
+
+	std::unordered_map<TextureBindGroupKey, WGPUBindGroup, TextureBindGroupKeyHash> TextureBindGroups;
 
 	std::vector<WebGPUSceneVertex> SceneVertices;
 	std::vector<uint32_t> SceneIndexes;
@@ -160,6 +202,16 @@ private:
 	WGPUTexture CurrentSurfaceTexture = nullptr;
 	WGPUTextureView CurrentSurfaceView = nullptr;
 	vec4 CurrentClearColor = vec4(0.0f);
+
+	WGPUTexture PendingExternalTexture = nullptr;
+	uint32_t PendingExternalArrayLayer = 0;
+	int PendingExternalWidth = 0;
+	int PendingExternalHeight = 0;
+	int SavedFixedRenderWidth = 0;
+	int SavedFixedRenderHeight = 0;
+	bool UsingExternalRenderTarget = false;
+	int ExternalRenderTargetFrames = 0;
+	int LastExternalRenderTargetDrawCalls = 0;
 
 	bool HaveViewport = false;
 	float ViewportX = 0, ViewportY = 0, ViewportW = 0, ViewportH = 0, ViewportMinDepth = 0.1f, ViewportMaxDepth = 1.0f;

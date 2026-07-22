@@ -6,6 +6,7 @@ from playwright.sync_api import sync_playwright
 sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
 
 URL = "http://localhost:8091/web/index_webxr.html"
+EXPERIMENTAL_WEBGPU_XR = "--experimental-webgpu-xr" in sys.argv[1:]
 
 # M4-groundwork harness (see web/webxr_session.js's header comment and
 # WEBXR_IMPLEMENTATION_PLAN.md's M4 milestone). Ported from the sibling
@@ -27,6 +28,9 @@ IWER_JS_PATH = Path(__file__).parent / "node_modules" / "iwer" / "build" / "iwer
 IWER_INIT_SCRIPT = """
 (function() {
   const dev = new IWER.XRDevice(IWER.metaQuest3);
+  if (%(experimental)s && !dev.supportedFeatures.includes('webgpu')) {
+    dev.supportedFeatures.push('webgpu');
+  }
   dev.installRuntime({ forceInstall: true });
   dev.stereoEnabled = true;
   window.__xrdevice = dev;
@@ -49,7 +53,13 @@ def main():
         # no special XR-related launch flags needed since IWER replaces the
         # navigator.xr object at the JS level rather than relying on any
         # underlying browser XR device support.
-        browser = p.chromium.launch(channel="chrome")
+        launch_args = []
+        if EXPERIMENTAL_WEBGPU_XR:
+            # Chromium exposes these as separate about:flags entries. Keep
+            # this opt-in: the production path must continue to describe
+            # what an ordinary shipping browser provides.
+            launch_args.append("--enable-features=WebXRWebGPUBinding,WebXRLayers")
+        browser = p.chromium.launch(channel="chrome", args=launch_args)
         page = browser.new_page()
 
         console_lines = []
@@ -62,7 +72,8 @@ def main():
         # project's m4-session-cycle-test.mjs - runs before any of the
         # page's own <script> tags, so window.navigator.xr is already
         # IWER's emulated device by the time webxr_session.js executes.
-        page.add_init_script(iwer_src + IWER_INIT_SCRIPT)
+        iwer_init = IWER_INIT_SCRIPT % {"experimental": "true" if EXPERIMENTAL_WEBGPU_XR else "false"}
+        page.add_init_script(iwer_src + iwer_init)
 
         page.goto(URL, wait_until="load")
 
@@ -82,13 +93,111 @@ def main():
 
         xr_supported = page.evaluate("window.surrealXRSupported")
         gpu_compatible = page.evaluate("window.surrealXRGPUCompatible")
+        xr_gpu_binding = page.evaluate("window.surrealXRGPUBindingAvailable")
         print(f"[harness] navigator.xr.isSessionSupported('immersive-vr') via IWER = {xr_supported}")
         print(f"[harness] navigator.gpu.requestAdapter({{xrCompatible:true}}) = {gpu_compatible}")
+        print(f"[harness] XRGPUBinding exposed by browser = {xr_gpu_binding}")
+        print(f"[harness] experimental WebGPU/XR flags requested = {EXPERIMENTAL_WEBGPU_XR}")
         print("\n".join(page.evaluate("window.surrealXRLog") or []))
 
         if not xr_supported:
             print("FAIL: IWER-emulated navigator.xr did not report immersive-vr support")
             sys.exit(1)
+
+        if EXPERIMENTAL_WEBGPU_XR and xr_gpu_binding:
+            print("[harness] waiting for engine XR-compatible GPUDevice...")
+            deadline = time.time() + 120
+            while time.time() < deadline:
+                if page.evaluate("!!window.surrealWebGPUDevice && window.surrealBooted === true"):
+                    break
+                time.sleep(0.5)
+            else:
+                print("FAIL: engine XR-compatible GPUDevice was not acquired")
+                sys.exit(1)
+
+            texture_import = page.evaluate("window.surrealTestWebGPUTextureImport()")
+            print(f"[harness] JS GPUTexture -> C++ WGPUTexture import = {texture_import}")
+            if texture_import != 1:
+                print("FAIL: Emdawnwebgpu could not import the browser-owned GPUTexture")
+                sys.exit(1)
+
+            texture_readback = page.evaluate("window.surrealVerifyWebGPUTextureImport()")
+            print(f"[harness] imported-texture C++ clear/readback: {texture_readback}")
+            if not texture_readback.get("matches"):
+                print("FAIL: C++ render pass output did not survive the JS/WGPU texture bridge")
+                sys.exit(1)
+            error_count = page.evaluate("window.surrealGetWebGPUErrorCount()")
+            if error_count != 0:
+                print(f"FAIL: {error_count} WebGPU uncaptured error(s) after interop test")
+                sys.exit(1)
+
+            # Queue one normal UT frame into layer 1 of a browser-owned 2D-array
+            # texture. This exercises WebGPURenderDevice::Lock/Unlock and the
+            # complete scene pipeline across the same ownership boundary that an
+            # XRGPUSubImage color texture will use.
+            external_frames_before = page.evaluate("window.surrealGetWebGPUExternalRenderTargetFrames()")
+            queued = page.evaluate("window.surrealQueueWebGPUExternalRenderTarget()")
+            print(f"[harness] browser-owned full-frame target queued = {queued}")
+            if queued != 1:
+                print("FAIL: engine rejected the browser-owned external render target")
+                sys.exit(1)
+
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                external_frames_after = page.evaluate("window.surrealGetWebGPUExternalRenderTargetFrames()")
+                if external_frames_after > external_frames_before:
+                    break
+                time.sleep(0.05)
+            else:
+                print("FAIL: queued external target was not consumed by an engine frame")
+                sys.exit(1)
+
+            external_readback = page.evaluate("window.surrealVerifyWebGPUExternalRenderTarget()")
+            print(f"[harness] full UT frame in browser-owned array texture: {external_readback}")
+            if not external_readback.get("rendered"):
+                print("FAIL: browser-owned array layer did not contain a rendered UT frame")
+                sys.exit(1)
+            if page.evaluate("window.surrealGetWebGPUErrorCount()") != 0:
+                print("FAIL: WebGPU uncaptured error after external full-frame render")
+                sys.exit(1)
+
+            # Prove frame-loop ownership can move from Emscripten's window
+            # RAF to a future native XRSession RAF and back. XR subimages are
+            # only valid during their XR callback, so this is a prerequisite
+            # for consuming them synchronously rather than on a later frame.
+            xr_loop_active = page.evaluate("window.surrealSetXRFrameLoopActive(true)")
+            time.sleep(0.15)  # allow any already-dispatched window RAF to finish
+            paused_tick = page.evaluate("window.surrealGetTickCount()")
+            time.sleep(0.25)
+            paused_tick_after = page.evaluate("window.surrealGetTickCount()")
+            print(f"[harness] XR loop pause tick stability: {paused_tick} -> {paused_tick_after}")
+            if xr_loop_active != 1 or paused_tick_after != paused_tick:
+                print("FAIL: normal Emscripten frame loop did not pause for XR ownership")
+                sys.exit(1)
+
+            for _ in range(3):
+                manual_tick = page.evaluate("window.surrealRunXRFrame()")
+            print(f"[harness] three XR-driven engine frames: {paused_tick_after} -> {manual_tick}")
+            if manual_tick != paused_tick_after + 3:
+                print("FAIL: XR-driven frame export did not advance exactly one tick per call")
+                sys.exit(1)
+
+            if page.evaluate("window.surrealSetXRFrameLoopActive(false)") != 0:
+                print("FAIL: normal Emscripten frame loop did not accept ownership back")
+                sys.exit(1)
+            deadline = time.time() + 2
+            while time.time() < deadline:
+                resumed_tick = page.evaluate("window.surrealGetTickCount()")
+                if resumed_tick > manual_tick:
+                    break
+                time.sleep(0.05)
+            else:
+                print("FAIL: normal Emscripten frame loop did not resume after XR handoff")
+                sys.exit(1)
+            print(f"[harness] window frame loop resumed: {manual_tick} -> {resumed_tick}")
+
+            projection_probe = page.evaluate("window.surrealXRProbeWebGPUProjection()")
+            print(f"[harness] WebGPU projection-layer probe: {projection_probe}")
 
         # --- Phase 2: request a session and drive its frame loop ----------
         print("[harness] requesting immersive-vr session...")
