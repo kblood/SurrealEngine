@@ -4405,6 +4405,36 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 		return true;
 	}
 
+	// Some stock weapons calculate their shot directly from the pawn instead of
+	// going through Weapon.TraceFire or Weapon.ProjectileFire. Wrap the shared
+	// pawn aim functions as well so those paths, including delayed releases,
+	// see the tracked hand for exactly the duration of the calculation.
+	if (func->Name == "AdjustAim" || func->Name == "AdjustToss")
+	{
+		UPlayerPawn* playerActor = viewport->Actor();
+		if (!playerActor || instance != playerActor || !playerActor->Weapon())
+			return false;
+
+		VRHandState& hand = MainHand();
+		if (!hand.valid)
+			return false;
+
+		vrFireViewRotationStack.push_back({ instance, func, playerActor, playerActor->ViewRotation() });
+		Rotator swapped = WeaponAimRotator(hand);
+		playerActor->ViewRotation() = swapped;
+
+		static std::set<std::string> loggedAimSources;
+		std::string source = playerActor->Weapon()->Class->Name.ToString() + "." + func->Name.ToString();
+		if (loggedAimSources.insert(source).second)
+		{
+			LogMessage("VR aim-source intercept: " + source +
+				" yawDeg=" + std::to_string(swapped.YawDegrees()) +
+				" pitchDeg=" + std::to_string(swapped.PitchDegrees()));
+		}
+
+		return false;
+	}
+
 	// M-C: fire-scoped ViewRotation swap (Docs/VR/CONTROLLER_AIM_WEAPON_PLAN.md's
 	// M-C section, "Single-hand fire redirect"). Unlike the RenderOverlays
 	// case above, this does NOT skip the original script call - TraceFire/
@@ -4480,6 +4510,8 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 		}
 
 		VRFireViewRotationSave save;
+		save.instance = instance;
+		save.func = func;
 		save.pawn = playerActor; // UPlayerPawn IS-A UPawn (UActor.h:2094) - ViewRotation() lives on UPawn
 		save.saved = playerActor->ViewRotation();
 		vrFireViewRotationStack.push_back(save);
@@ -4606,7 +4638,8 @@ bool Engine::HandleFrameCallIntercept(UObject* instance, UFunction* func, Array<
 // given call is one HandleFrameCallIntercept (the PRE hook) cared about.
 void Engine::HandleFrameCallInterceptPost(UObject* instance, UFunction* func, ExpressionValue& result)
 {
-	if (func->Name == "TraceFire" || func->Name == "ProjectileFire")
+	if (func->Name == "TraceFire" || func->Name == "ProjectileFire" ||
+		func->Name == "AdjustAim" || func->Name == "AdjustToss")
 	{
 		// Only pop if the top of the stack is actually for this instance's
 		// pawn - guards against a mismatched pop if, e.g., the PRE hook
@@ -4622,7 +4655,10 @@ void Engine::HandleFrameCallInterceptPost(UObject* instance, UFunction* func, Ex
 		// #N-numbered "VR fire intercept"/"VR fire ViewRotation restore"
 		// log pairs for a worked example.
 		UPlayerPawn* playerActor = viewport->Actor();
-		if (playerActor && !vrFireViewRotationStack.empty() && vrFireViewRotationStack.back().pawn == playerActor)
+		if (playerActor && !vrFireViewRotationStack.empty() &&
+			vrFireViewRotationStack.back().instance == instance &&
+			vrFireViewRotationStack.back().func == func &&
+			vrFireViewRotationStack.back().pawn == playerActor)
 		{
 			Rotator restored = vrFireViewRotationStack.back().saved;
 			playerActor->ViewRotation() = restored;

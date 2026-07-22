@@ -743,6 +743,9 @@ public:
 	//   this time (see Frame::InterceptCallPost's doc comment for why a
 	//   single true/false hook can't do "run original, but wrap it", and
 	//   HandleFrameCallInterceptPost below for the matching restore).
+	// - `AdjustAim`/`AdjustToss` on the local player: the same scoped swap at
+	//   the shared pawn aim source, covering weapons that bypass the two
+	//   Weapon helper names above and delayed/charged releases.
 	// - `CalcDrawOffset` on the local player's current weapon: see
 	//   HandleFrameCallInterceptPost's doc comment for the full two-phase
 	//   (diagnose-then-override) story; this PRE side only ever returns TRUE
@@ -765,7 +768,7 @@ public:
 	// HandleFrameCallIntercept saw at entry to this same Frame::Call
 	// invocation:
 	//
-	// 1. `TraceFire`/`ProjectileFire` restore: pops vrFireViewRotationStack
+	// 1. Fire/aim-source restore: pops vrFireViewRotationStack
 	//    and writes the saved Rotator back onto the SAME pawn the pre-hook
 	//    saved it from (not just "whatever the current pawn is now" - the
 	//    stack stores the pawn pointer alongside the saved value), restoring
@@ -796,13 +799,15 @@ public:
 	void HandleFrameCallInterceptPost(UObject* instance, UFunction* func, ExpressionValue& result);
 
 	// M-C: save/restore stack for HandleFrameCallIntercept/
-	// HandleFrameCallInterceptPost's TraceFire/ProjectileFire ViewRotation
+	// HandleFrameCallInterceptPost's fire/aim-source ViewRotation
 	// swap - see those two functions' doc comments. Plain LIFO Array (this
 	// codebase's std::vector-alike, Utils/Array.h) rather than a single
 	// saved value, for re-entrancy safety against nested fire calls (plan's
 	// M-C section explicitly calls for "a simple vector/array push-pop").
 	struct VRFireViewRotationSave
 	{
+		UObject* instance = nullptr;
+		UFunction* func = nullptr;
 		UPawn* pawn = nullptr;
 		Rotator saved = Rotator(0, 0, 0);
 	};
