@@ -13,6 +13,23 @@ struct LightmapTexture
 	UnrealMipmap Mip;
 };
 
+// Native, aligned rendering data decoded from the packed WebXR/WASM ABI.
+// Keeping this separate from the wire structs prevents packed/unaligned data
+// from leaking into the scene renderer.
+struct WebXRSceneView
+{
+	uint32_t Eye = 0;
+	uint32_t ArrayLayer = 0;
+	int ViewportX = 0;
+	int ViewportY = 0;
+	int ViewportWidth = 0;
+	int ViewportHeight = 0;
+	vec3 Location;
+	mat4 WorldToView;
+	Coords ViewRotation;
+	mat4 Projection;
+};
+
 class RenderSubsystem
 {
 public:
@@ -32,6 +49,7 @@ public:
 	// two layers of the active external target. HUD/menu stereo presentation
 	// is deliberately deferred to M9; this proves the world-view split first.
 	void DrawGameStereoLayers(float levelTimeElapsed);
+	bool DrawGameWebXRViews(float levelTimeElapsed, const WebXRSceneView* views, uint32_t viewCount);
 	void OnMapLoaded();
 
 	void DrawActor(UActor* actor, bool WireFrame, bool ClearZ);
@@ -116,7 +134,8 @@ private:
 	// See VR_IMPLEMENTATION_PLAN.md M2 step 5.
 	void DrawSceneStereo();
 	void DrawSceneStereoLayers();
-	void DrawGameInternal(float levelTimeElapsed, bool layeredStereo);
+	bool DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t viewCount);
+	bool DrawGameInternal(float levelTimeElapsed, bool layeredStereo, const WebXRSceneView* xrViews = nullptr, uint32_t xrViewCount = 0);
 
 	std::unique_ptr<LightmapTexture> CreateLightmapTexture();
 

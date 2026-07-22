@@ -131,6 +131,7 @@ public:
 	// that support browser/runtime-owned layered targets override this to end
 	// the current eye pass and reopen it on another layer. Ordinary canvas and
 	// native swapchain backends leave the default unsupported result unchanged.
+	virtual bool SelectExternalRenderTargetView(uint32_t arrayLayer, int viewportX, int viewportY, int viewportWidth, int viewportHeight) { return false; }
 	virtual bool SelectExternalRenderTargetLayer(uint32_t arrayLayer) { return false; }
 
 	bool ParseCommand(std::string* cmd, const std::string& keyword) { return false; }

@@ -135,3 +135,26 @@ void RenderSubsystem::DrawSceneStereoLayers()
 		DrawSceneView(eyeLocation, worldToView, rotation, &vp);
 	}
 }
+
+bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t viewCount)
+{
+	if (!views || viewCount == 0 || !PrepareSceneViews())
+		return false;
+
+	for (uint32_t index = 0; index < viewCount; index++)
+	{
+		const WebXRSceneView& view = views[index];
+		if (index != 0 && !Device->SelectExternalRenderTargetView(view.ArrayLayer,
+			view.ViewportX, view.ViewportY, view.ViewportWidth, view.ViewportHeight))
+			return false;
+
+		ViewportOverride viewport;
+		viewport.XB = 0;
+		viewport.YB = 0;
+		viewport.X = view.ViewportWidth;
+		viewport.Y = view.ViewportHeight;
+		viewport.Projection = &view.Projection;
+		DrawSceneView(view.Location, view.WorldToView, view.ViewRotation, &viewport);
+	}
+	return true;
+}

@@ -94,7 +94,7 @@ public:
 	// called before Lock(), or while locked between eye draws. A locked switch
 	// flushes/submits the old eye pass before reopening color/depth attachments
 	// for the new layer. The viewport must fit within the full texture extent.
-	bool SelectExternalRenderTargetView(uint32_t arrayLayer, int viewportX, int viewportY, int viewportWidth, int viewportHeight);
+	bool SelectExternalRenderTargetView(uint32_t arrayLayer, int viewportX, int viewportY, int viewportWidth, int viewportHeight) override;
 
 	// Finish external-frame ownership. Must be called after Unlock(); releases
 	// the imported wrapper and restores the canvas render size. Returns false

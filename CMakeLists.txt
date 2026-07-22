@@ -53,6 +53,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/LauncherSettings.h
 	SurrealEngine/GameWindow.cpp
 	SurrealEngine/GameWindow.h
+	SurrealEngine/WebXR/WebXRFrameBridge.cpp
+	SurrealEngine/WebXR/WebXRFrameBridge.h
 	SurrealEngine/UE1GameDatabase.h
 	SurrealEngine/UE1GameDatabase.cpp
 	SurrealEngine/Utils/CommandLine.cpp
@@ -842,7 +844,7 @@ if(EMSCRIPTEN)
 		-sINVOKE_RUN=0
 		-sEXIT_RUNTIME=0
 		-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall
-		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_GetWebAudioState,_Surreal_ResumeWebAudio,_Surreal_GetWebAudioResumeCount
+		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_GetWebAudioState,_Surreal_ResumeWebAudio,_Surreal_GetWebAudioResumeCount,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_RenderWebXRFrame,_Surreal_GetWebXRFrameLastError
 		-sASSERTIONS=1
 		-sNO_DISABLE_EXCEPTION_CATCHING
 		-pthread

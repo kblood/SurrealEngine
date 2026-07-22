@@ -78,6 +78,15 @@ def main():
 
         page.goto(URL, wait_until="load")
 
+        # Pure-JS M6 ABI coverage is independent of XRGPUBinding and therefore
+        # remains deterministic under IWER. It also catches JS/C++ layout drift
+        # before a real headset is needed.
+        frame_abi = page.evaluate("window.surrealXRFrameABIDiagnostic")
+        print(f"[harness] XR frame ABI v1 diagnostic = {frame_abi}")
+        if not frame_abi or not frame_abi.get("passed") or frame_abi.get("byteSize") != 268:
+            print("FAIL: packed XR frame ABI offsets/stride diagnostic failed")
+            sys.exit(1)
+
         # --- Phase 1: capability checks (no engine boot dependency) -------
         deadline = time.time() + 30
         checked = False
@@ -120,6 +129,12 @@ def main():
             time.sleep(0.5)
         else:
             print("FAIL: engine or Web Audio context did not become ready")
+            sys.exit(1)
+
+        native_frame_abi = page.evaluate("window.surrealGetNativeWebXRFrameABI()")
+        print(f"[harness] native XR frame ABI v1 = {native_frame_abi}")
+        if native_frame_abi != {"version": 1, "headerBytes": 36, "viewBytes": 116}:
+            print("FAIL: JS and native packed XR frame ABI definitions disagree")
             sys.exit(1)
 
         if EXPERIMENTAL_WEBGPU_XR and xr_gpu_binding:
@@ -220,6 +235,27 @@ def main():
                 print("FAIL: WebGPU uncaptured error after layered stereo render")
                 sys.exit(1)
             manual_tick = stereo_tick
+
+            # Exercise the production-shaped M6 ABI rather than only the M5
+            # fake-eye C++ diagnostic: JS packs two XR-shaped views, C++
+            # validates/copies them, imports the shared texture synchronously,
+            # advances once, and consumes each supplied layer/viewport/projection.
+            packed_result = page.evaluate("window.surrealTestPackedWebXRFrame()")
+            packed_tick = page.evaluate("window.surrealGetTickCount()")
+            packed_error = page.evaluate("window.surrealGetWebXRFrameLastError()")
+            print(f"[harness] packed M6 XR frame: result={packed_result}, error={packed_error}, tick {manual_tick} -> {packed_tick}")
+            if packed_result != 1 or packed_error != 0 or packed_tick != manual_tick + 1:
+                print("FAIL: packed WebXR frame bridge did not consume exactly one stereo simulation frame")
+                sys.exit(1)
+            packed_readback = page.evaluate("window.surrealVerifyWebGPUExternalStereoTarget()")
+            print(f"[harness] packed M6 eye layers: {packed_readback}")
+            if not packed_readback.get("rendered"):
+                print("FAIL: packed WebXR frame did not render distinct output into both supplied layers")
+                sys.exit(1)
+            if page.evaluate("window.surrealGetWebGPUErrorCount()") != 0:
+                print("FAIL: WebGPU uncaptured error after packed WebXR frame")
+                sys.exit(1)
+            manual_tick = packed_tick
 
             if page.evaluate("window.surrealSetXRFrameLoopActive(false)") != 0:
                 print("FAIL: normal Emscripten frame loop did not accept ownership back")

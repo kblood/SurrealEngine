@@ -22,7 +22,12 @@ void RenderSubsystem::DrawGameStereoLayers(float levelTimeElapsed)
 	DrawGameInternal(levelTimeElapsed, true);
 }
 
-void RenderSubsystem::DrawGameInternal(float levelTimeElapsed, bool layeredStereo)
+bool RenderSubsystem::DrawGameWebXRViews(float levelTimeElapsed, const WebXRSceneView* views, uint32_t viewCount)
+{
+	return DrawGameInternal(levelTimeElapsed, true, views, viewCount);
+}
+
+bool RenderSubsystem::DrawGameInternal(float levelTimeElapsed, bool layeredStereo, const WebXRSceneView* xrViews, uint32_t xrViewCount)
 {
 	LevelTimeElapsed = levelTimeElapsed;
 	AutoUV += levelTimeElapsed * 64.0f;
@@ -52,7 +57,10 @@ void RenderSubsystem::DrawGameInternal(float levelTimeElapsed, bool layeredStere
 
 	if (engine->LaunchInfo.ue1Version <= 219 || engine->console->bNoDrawWorld() == false)
 	{
-		if (layeredStereo)
+		bool viewsRendered = true;
+		if (xrViews)
+			viewsRendered = DrawSceneWebXRViews(xrViews, xrViewCount);
+		else if (layeredStereo)
 			DrawSceneStereoLayers();
 		else if (commandline && commandline->HasArg("", "--debugstereo"))
 			DrawSceneStereo();
@@ -65,12 +73,18 @@ void RenderSubsystem::DrawGameInternal(float levelTimeElapsed, bool layeredStere
 				PostRenderFlash();
 			Device->EndFlash();
 		}
+		if (!viewsRendered)
+		{
+			Device->Unlock(false);
+			return false;
+		}
 	}
 
 	if (!layeredStereo)
 		PostRender();
 
 	Device->Unlock(true);
+	return true;
 }
 
 void RenderSubsystem::DrawEditorViewport()
