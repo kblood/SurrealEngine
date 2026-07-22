@@ -223,6 +223,24 @@ public:
 		bool Succeeded = false;
 	};
 
+	// Explicit browser-test fixture only. It invokes the loaded retail
+	// Botpack.ShockRifle.TraceFire function once while suppressing cosmetic and
+	// feedback side effects, then restores all directly touched fixture state.
+	struct WebXRLoadedWeaponFireFixtureDiagnostics
+	{
+		uint32_t AttemptCount = 0;
+		uint32_t StockTraceFireCallCount = 0;
+		bool ExactStockPath = false;
+		bool CounterContractMatched = false;
+		bool AmmoPreserved = false;
+		bool WeaponStateRestored = false;
+		bool SuppressionStateRestored = false;
+		bool ActorCountPreserved = false;
+		bool HapticsSuppressed = false;
+		bool Equipped = false;
+		bool Succeeded = false;
+	};
+
 	struct WebXRHapticEventDiagnostics
 	{
 		uint32_t ConfirmedOutcomeCount = 0;
@@ -386,8 +404,10 @@ public:
 	WebXRWeaponAimDiagnostics WebXRWeaponAim;
 	WebXRAuthoritativeFireDiagnostics WebXRAuthoritativeFire;
 	WebXRLoadedWeaponFixtureDiagnostics WebXRLoadedWeaponFixture;
+	WebXRLoadedWeaponFireFixtureDiagnostics WebXRLoadedWeaponFireFixture;
 	WebXRHapticDiagnostics WebXRHaptics;
 	bool RunWebXRLoadedWeaponFixture();
+	bool RunWebXRLoadedWeaponFireFixture();
 
 	WebXRTurnMode GetWebXRTurnMode() const { return WebXRTurnModeSetting; }
 	WebXRMovementReference GetWebXRMovementReference() const { return WebXRMovementReferenceSetting; }
@@ -538,6 +558,7 @@ private:
 		bool TraceShotObserved = false;
 	};
 	std::vector<WebXRAuthoritativeFireContext> WebXRAuthoritativeFireStack;
+	bool WebXRLoadedWeaponFireFixtureActive = false;
 };
 
 extern Engine* engine;

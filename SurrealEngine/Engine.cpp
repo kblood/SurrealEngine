@@ -1837,6 +1837,186 @@ bool Engine::RunWebXRLoadedWeaponFixture()
 	return WebXRLoadedWeaponFixture.Succeeded;
 }
 
+bool Engine::RunWebXRLoadedWeaponFireFixture()
+{
+	WebXRLoadedWeaponFireFixture.AttemptCount++;
+	WebXRLoadedWeaponFireFixture.ExactStockPath = false;
+	WebXRLoadedWeaponFireFixture.CounterContractMatched = false;
+	WebXRLoadedWeaponFireFixture.AmmoPreserved = false;
+	WebXRLoadedWeaponFireFixture.WeaponStateRestored = false;
+	WebXRLoadedWeaponFireFixture.SuppressionStateRestored = false;
+	WebXRLoadedWeaponFireFixture.ActorCountPreserved = false;
+	WebXRLoadedWeaponFireFixture.HapticsSuppressed = false;
+	WebXRLoadedWeaponFireFixture.Equipped = false;
+	WebXRLoadedWeaponFireFixture.Succeeded = false;
+
+	// Keep this a synchronous, explicitly invoked diagnostic. The loaded-weapon
+	// fixture owns retail inventory setup and is itself safe to rerun.
+	if (WebXRLoadedWeaponFireFixtureActive || !RunWebXRLoadedWeaponFixture() ||
+		!viewport || !Level)
+		return false;
+	UPlayerPawn* pawn = viewport->Actor();
+	UWeapon* weapon = FindWebXRLoadedWeaponFixtureWeapon(pawn);
+	if (!pawn || !weapon || pawn->Weapon() != weapon || weapon->Owner() != pawn)
+		return false;
+
+	UFunction* traceFire = FindEventFunction(weapon, "TraceFire");
+	if (!traceFire)
+		return false;
+	const WebXRWeaponCallMetadata call = GetWebXRWeaponCallMetadata(traceFire, weapon);
+	const auto policy = WebXRMuzzleOrigin::ClassifyStockHitscanRequest(
+		weapon->Class->package->GetPackageName().ToString(), weapon->Class->Name.ToString(),
+		call.PackageName, call.ClassName, call.DeclaringStateName, call.FunctionName);
+	WebXRLoadedWeaponFireFixture.ExactStockPath =
+		policy == WebXRMuzzleOrigin::StockHitscanPolicy::ShockRifle;
+	if (!WebXRLoadedWeaponFireFixture.ExactStockPath)
+		return false;
+
+	const int dominantIndex = WebXRInput.DominantControllerIndex;
+	if (dominantIndex < 0 || dominantIndex >= static_cast<int>(WebXRInput.Controllers.size()) ||
+		!WebXRInput.Controllers[dominantIndex].Connected ||
+		!WebXRInput.Controllers[dominantIndex].GripPose.Tracked)
+		return false;
+
+	const WebXRAuthoritativeFireDiagnostics countersBefore = WebXRAuthoritativeFire;
+	const Rotator adjustedAimBefore = weapon->AdjustedAim();
+	UObject* const trackedBefore = weapon->GetUObject("Tracked");
+	const bool botSpecialMoveBefore = weapon->GetBool("bBotSpecialMove");
+	const uint32_t hitDamageBefore = weapon->GetInt("HitDamage");
+	UObject* const ammoObject = weapon->GetUObject("AmmoType");
+	UObject* const ammo = ammoObject && ammoObject->IsA("Ammo") ? ammoObject : nullptr;
+	const uint32_t ammoBefore = ammo ? ammo->GetInt("AmmoAmount") : 0;
+	const size_t actorCountBefore = Level->Actors.size();
+	const WebXRHapticDiagnostics hapticsBefore = WebXRHaptics;
+	const uint32_t fireHapticRequestsBefore = WebXRWeaponAim.HapticRequestCount;
+	const uint32_t fireHapticAcceptedBefore = WebXRWeaponAim.HapticAcceptedCount;
+
+	const NameString makeNoiseName("MakeNoise");
+	const NameString instantFlashName("ClientInstantFlash");
+	const NameString spawnEffectName("SpawnEffect");
+	const NameString spawnName("Spawn");
+	const bool makeNoiseEnabled = pawn->IsEventEnabled(makeNoiseName);
+	const bool instantFlashEnabled = pawn->IsEventEnabled(instantFlashName);
+	const bool spawnEffectEnabled = weapon->IsEventEnabled(spawnEffectName);
+	const bool spawnEnabled = weapon->IsEventEnabled(spawnName);
+
+	bool callCompleted = false;
+	auto restoreFixtureState = [&]() noexcept
+	{
+		WebXRLoadedWeaponFireFixtureActive = false;
+		weapon->AdjustedAim() = adjustedAimBefore;
+		weapon->SetObject("Tracked", trackedBefore);
+		weapon->SetBool("bBotSpecialMove", botSpecialMoveBefore);
+		weapon->SetInt("HitDamage", hitDamageBefore);
+		if (ammo)
+			ammo->SetInt("AmmoAmount", ammoBefore);
+		try
+		{
+			if (makeNoiseEnabled) pawn->EnableEvent(makeNoiseName);
+			if (instantFlashEnabled) pawn->EnableEvent(instantFlashName);
+			if (spawnEffectEnabled) weapon->EnableEvent(spawnEffectName);
+			if (spawnEnabled) weapon->EnableEvent(spawnName);
+		}
+		catch (...) { }
+	};
+
+	try
+	{
+		if (makeNoiseEnabled) pawn->DisableEvent(makeNoiseName);
+		if (instantFlashEnabled) pawn->DisableEvent(instantFlashName);
+		if (spawnEffectEnabled) weapon->DisableEvent(spawnEffectName);
+		if (spawnEnabled) weapon->DisableEvent(spawnName);
+		weapon->SetInt("HitDamage", 0);
+		WebXRLoadedWeaponFireFixtureActive = true;
+		WebXRLoadedWeaponFireFixture.StockTraceFireCallCount++;
+		CallEvent(weapon, traceFire->Name, { ExpressionValue::FloatValue(0.0f) });
+		callCompleted = true;
+	}
+	catch (...)
+	{
+		callCompleted = false;
+	}
+	restoreFixtureState();
+
+	auto hapticsEqual = [](const WebXRHapticDiagnostics& left,
+		const WebXRHapticDiagnostics& right)
+	{
+		for (size_t index = 0; index < left.Events.size(); index++)
+		{
+			if (left.Events[index].ConfirmedOutcomeCount !=
+					right.Events[index].ConfirmedOutcomeCount ||
+				left.Events[index].RequestCount != right.Events[index].RequestCount ||
+				left.Events[index].AcceptedCount != right.Events[index].AcceptedCount)
+				return false;
+		}
+		return true;
+	};
+
+	WebXRLoadedWeaponFireFixture.AmmoPreserved =
+		!ammo || ammo->GetInt("AmmoAmount") == ammoBefore;
+	WebXRLoadedWeaponFireFixture.WeaponStateRestored =
+		weapon->AdjustedAim() == adjustedAimBefore &&
+		weapon->GetUObject("Tracked") == trackedBefore &&
+		weapon->GetBool("bBotSpecialMove") == botSpecialMoveBefore &&
+		weapon->GetInt("HitDamage") == hitDamageBefore;
+	WebXRLoadedWeaponFireFixture.SuppressionStateRestored =
+		pawn->IsEventEnabled(makeNoiseName) == makeNoiseEnabled &&
+		pawn->IsEventEnabled(instantFlashName) == instantFlashEnabled &&
+		weapon->IsEventEnabled(spawnEffectName) == spawnEffectEnabled &&
+		weapon->IsEventEnabled(spawnName) == spawnEnabled;
+	WebXRLoadedWeaponFireFixture.ActorCountPreserved =
+		Level->Actors.size() == actorCountBefore;
+	WebXRLoadedWeaponFireFixture.HapticsSuppressed =
+		hapticsEqual(WebXRHaptics, hapticsBefore) &&
+		WebXRWeaponAim.HapticRequestCount == fireHapticRequestsBefore &&
+		WebXRWeaponAim.HapticAcceptedCount == fireHapticAcceptedBefore;
+	WebXRLoadedWeaponFireFixture.Equipped =
+		pawn->Weapon() == weapon && weapon->Owner() == pawn;
+
+	const WebXRAuthoritativeFireDiagnostics& after = WebXRAuthoritativeFire;
+	WebXRLoadedWeaponFireFixture.CounterContractMatched =
+		after.RequestCount == countersBefore.RequestCount + 1 &&
+		after.QualifiedHitscanContextCount ==
+			countersBefore.QualifiedHitscanContextCount + 1 &&
+		after.ContextRestoreCount == countersBefore.ContextRestoreCount + 1 &&
+		after.MissingCalibrationRejectCount ==
+			countersBefore.MissingCalibrationRejectCount + 1 &&
+		after.ProductionDisabledRejectCount ==
+			countersBefore.ProductionDisabledRejectCount &&
+		after.RemotePawnRejectCount == countersBefore.RemotePawnRejectCount &&
+		after.StaleWeaponRejectCount == countersBefore.StaleWeaponRejectCount &&
+		after.WrongOwnerRejectCount == countersBefore.WrongOwnerRejectCount &&
+		after.UntrackedPoseRejectCount == countersBefore.UntrackedPoseRejectCount &&
+		after.NonFinitePoseRejectCount == countersBefore.NonFinitePoseRejectCount &&
+		after.UnqualifiedPathRejectCount == countersBefore.UnqualifiedPathRejectCount &&
+		after.CalcDrawOffsetObservationCount ==
+			countersBefore.CalcDrawOffsetObservationCount + 1 &&
+		after.PostSinkCalcRejectCount == countersBefore.PostSinkCalcRejectCount + 1 &&
+		after.TraceShotObservationCount ==
+			countersBefore.TraceShotObservationCount + 1 &&
+		after.EndpointTranslationCount == countersBefore.EndpointTranslationCount &&
+		after.MutableArgumentRejectCount ==
+			countersBefore.MutableArgumentRejectCount + 1 &&
+		!after.ProductionRewriteEnabled &&
+		after.LastAppliedDelta == vec3(0.0f);
+
+	WebXRLoadedWeaponFireFixture.Succeeded = callCompleted &&
+		WebXRLoadedWeaponFireFixture.CounterContractMatched &&
+		WebXRLoadedWeaponFireFixture.AmmoPreserved &&
+		WebXRLoadedWeaponFireFixture.WeaponStateRestored &&
+		WebXRLoadedWeaponFireFixture.SuppressionStateRestored &&
+		WebXRLoadedWeaponFireFixture.ActorCountPreserved &&
+		WebXRLoadedWeaponFireFixture.HapticsSuppressed &&
+		WebXRLoadedWeaponFireFixture.Equipped;
+	LogMessage(std::string("WebXR loaded-weapon fire fixture: class=") +
+		WebXRLoadedWeaponFixtureQualifiedClass +
+		" exact=" + (WebXRLoadedWeaponFireFixture.ExactStockPath ? "yes" : "no") +
+		" counters=" + (WebXRLoadedWeaponFireFixture.CounterContractMatched ? "yes" : "no") +
+		" restored=" + (WebXRLoadedWeaponFireFixture.WeaponStateRestored ? "yes" : "no") +
+		" equipped=" + (WebXRLoadedWeaponFireFixture.Equipped ? "yes" : "no"));
+	return WebXRLoadedWeaponFireFixture.Succeeded;
+}
+
 std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject* instance)
 {
 	if (!LaunchInfo.IsUnrealTournament() || !func || !instance || !viewport)
@@ -1889,7 +2069,8 @@ std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject*
 	if (kind == WebXRWeaponAimScopeKind::Ballistic)
 	{
 		WebXRWeaponAim.BallisticScopeCount++;
-		RecordWebXRHapticOutcome(static_cast<uint32_t>(WebXRHapticEvent::Fire), 1.0f);
+		if (!WebXRLoadedWeaponFireFixtureActive)
+			RecordWebXRHapticOutcome(static_cast<uint32_t>(WebXRHapticEvent::Fire), 1.0f);
 	}
 	else if (kind == WebXRWeaponAimScopeKind::TargetAcquisition)
 		WebXRWeaponAim.TargetAcquisitionScopeCount++;
@@ -2442,6 +2623,37 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRLoadedWeaponFixtureSucceeded()
 	{
 		return engine && engine->WebXRLoadedWeaponFixture.Succeeded ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRLoadedWeaponFireFixture()
+	{
+		return engine && engine->RunWebXRLoadedWeaponFireFixture() ? 1 : 0;
+	}
+
+	// Fire-fixture slots: 0 attempts, 1 stock TraceFire calls, 2 exact stock
+	// path, 3 counter contract, 4 ammo, 5 weapon state, 6 suppression state,
+	// 7 actor count, 8 haptics, 9 equipped, and 10 overall success.
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRLoadedWeaponFireFixtureDiagnostic(
+		uint32_t slot)
+	{
+		if (!engine)
+			return 0;
+		const auto& value = engine->WebXRLoadedWeaponFireFixture;
+		switch (slot)
+		{
+		case 0: return value.AttemptCount;
+		case 1: return value.StockTraceFireCallCount;
+		case 2: return value.ExactStockPath ? 1u : 0u;
+		case 3: return value.CounterContractMatched ? 1u : 0u;
+		case 4: return value.AmmoPreserved ? 1u : 0u;
+		case 5: return value.WeaponStateRestored ? 1u : 0u;
+		case 6: return value.SuppressionStateRestored ? 1u : 0u;
+		case 7: return value.ActorCountPreserved ? 1u : 0u;
+		case 8: return value.HapticsSuppressed ? 1u : 0u;
+		case 9: return value.Equipped ? 1u : 0u;
+		case 10: return value.Succeeded ? 1u : 0u;
+		default: return 0;
+		}
 	}
 
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimBallisticScopeCount()

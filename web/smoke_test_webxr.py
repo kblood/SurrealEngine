@@ -388,6 +388,61 @@ def main():
                 print("FAIL: M8 packed input was not published and mapped exactly once")
                 sys.exit(1)
 
+            # Invoke the exact loaded retail ShockRifle.TraceFire path only after
+            # packed input has published a tracked dominant grip. Each invocation
+            # snapshots cumulative diagnostics, making this proof rerun-safe.
+            loaded_fire_runs = page.evaluate("""() => {
+                const getAuthoritative = () => Array.from({length: 16}, (_, slot) =>
+                    Module.ccall('Surreal_GetWebXRAuthoritativeFireDiagnostic',
+                        'number', ['number'], [slot]));
+                const getFixture = () => Array.from({length: 11}, (_, slot) =>
+                    Module.ccall('Surreal_GetWebXRLoadedWeaponFireFixtureDiagnostic',
+                        'number', ['number'], [slot]));
+                const run = () => {
+                    const authoritativeBefore = getAuthoritative();
+                    const fixtureBefore = getFixture();
+                    const runResult = Module.ccall(
+                        'Surreal_RunWebXRLoadedWeaponFireFixture', 'number', [], []);
+                    const authoritativeAfter = getAuthoritative();
+                    const fixtureAfter = getFixture();
+                    return {
+                        runResult,
+                        authoritativeDelta: authoritativeAfter.map(
+                            (value, index) => value - authoritativeBefore[index]),
+                        fixtureAttemptDelta: fixtureAfter[0] - fixtureBefore[0],
+                        fixtureTraceFireDelta: fixtureAfter[1] - fixtureBefore[1],
+                        fixtureFlags: fixtureAfter.slice(2),
+                        productionEnabled: Module.ccall(
+                            'Surreal_GetWebXRAuthoritativeFireDiagnostic',
+                            'number', ['number'], [16]),
+                        appliedDelta: Array.from({length: 3}, (_, axis) =>
+                            Module.ccall('Surreal_GetWebXRAuthoritativeFireVectorValue',
+                                'number', ['number', 'number'], [4, axis])),
+                        equipped: Module.ccall(
+                            'Surreal_GetWebXRLoadedWeaponFixtureEquipped',
+                            'number', [], [])
+                    };
+                };
+                return [run(), run()];
+            }""")
+            print(f"[harness] loaded ShockRifle authoritative-fire fixture: {loaded_fire_runs}")
+            expected_authoritative_delta = [
+                1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1
+            ]
+            if (len(loaded_fire_runs) != 2 or
+                    any(run.get("runResult") != 1 or
+                        run.get("authoritativeDelta") != expected_authoritative_delta or
+                        run.get("fixtureAttemptDelta") != 1 or
+                        run.get("fixtureTraceFireDelta") != 1 or
+                        run.get("fixtureFlags") != [1] * 9 or
+                        run.get("productionEnabled") != 0 or
+                        run.get("equipped") != 1 or
+                        len(run.get("appliedDelta", [])) != 3 or
+                        any(abs(value) > 0.0001 for value in run.get("appliedDelta", []))
+                        for run in loaded_fire_runs)):
+                print("FAIL: loaded ShockRifle did not exercise the fail-closed authoritative fire seam exactly")
+                sys.exit(1)
+
             controller_pose_diagnostics = page.evaluate("""() => ({
                 selfTest: Module.ccall('Surreal_RunWebXRControllerPoseSelfTest', 'number', [], []),
                 dominantIndex: Module.ccall('Surreal_GetWebXRDominantControllerIndex', 'number', [], []),
