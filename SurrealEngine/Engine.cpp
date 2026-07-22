@@ -45,6 +45,63 @@ namespace
 	constexpr float WebXRJoystickAxisScale = WebXRUE1MovementScale / 2.0f;
 	constexpr float WebXRYawUnitsPerDegree = 65536.0f / 360.0f;
 	constexpr float WebXRSmoothTurnDeadZone = 0.15f;
+	void ComposeWebXRWorldPoseValues(Engine::VRTrackedPoseState& target,
+		const vec3& localPosition, const vec3& localForward,
+		const vec3& cameraAnchor, const Coords& bodyRotation)
+	{
+		if (!target.Tracked)
+			return;
+
+		target.WorldPosition = cameraAnchor +
+			bodyRotation.XAxis * localPosition.x +
+			bodyRotation.YAxis * localPosition.y +
+			bodyRotation.ZAxis * localPosition.z;
+		target.WorldForward = normalize(
+			bodyRotation.XAxis * localForward.x +
+			bodyRotation.YAxis * localForward.y +
+			bodyRotation.ZAxis * localForward.z);
+		target.WorldRotation = normalize(Rotator::FromVector(target.WorldForward));
+	}
+
+	bool RunWebXRControllerPoseSelfTest()
+	{
+		Engine::VRTrackedPoseState pose;
+		pose.Tracked = true;
+		const vec3 anchor(10.0f, 20.0f, 30.0f);
+		const Coords body = Coords::Rotation(Rotator(0, 16384, 0));
+		ComposeWebXRWorldPoseValues(pose, vec3(2.0f, 3.0f, 4.0f),
+			vec3(1.0f, 0.0f, 0.0f), anchor, body);
+		const float epsilon = 0.0005f;
+		const vec3 expectedPosition = anchor +
+			body.XAxis * 2.0f + body.YAxis * 3.0f + body.ZAxis * 4.0f;
+		const vec3 expectedForward = normalize(body.XAxis);
+		const Rotator expectedRotation = normalize(Rotator::FromVector(expectedForward));
+		if (length(pose.WorldPosition - expectedPosition) > epsilon ||
+			length(pose.WorldForward - expectedForward) > epsilon ||
+			std::fabs(dot(pose.WorldForward, vec3(1.0f, 0.0f, 0.0f))) > epsilon ||
+			pose.WorldRotation != expectedRotation || pose.WorldRotation.Roll != 0)
+			return false;
+
+		// An invalid/disconnected pose remains at its safe defaults even when
+		// nonzero local values are presented, preventing stale hand state.
+		Engine::VRTrackedPoseState invalid;
+		ComposeWebXRWorldPoseValues(invalid, vec3(99.0f), vec3(0.0f, 1.0f, 0.0f),
+			anchor, body);
+		return invalid.WorldPosition == vec3(0.0f) &&
+			invalid.WorldForward == vec3(1.0f, 0.0f, 0.0f) &&
+			invalid.WorldRotation == Rotator(0, 0, 0);
+	}
+
+#ifdef __EMSCRIPTEN__
+	void ComposeWebXRWorldPose(Engine::VRTrackedPoseState& target,
+		const WebXRInputPose& source, const vec3& cameraAnchor, const Coords& bodyRotation)
+	{
+		ComposeWebXRWorldPoseValues(target,
+			vec3(source.LocalPositionUU[0], source.LocalPositionUU[1], source.LocalPositionUU[2]),
+			vec3(source.LocalForward[0], source.LocalForward[1], source.LocalForward[2]),
+			cameraAnchor, bodyRotation);
+	}
+#endif
 
 	uint32_t InstallWebXRDefaults(std::map<std::string, std::string>& bindings)
 	{
@@ -142,7 +199,8 @@ namespace
 		armed = true;
 		snapCount = 0;
 		const int sixtyDegrees = static_cast<int>(std::lround(60.0f * WebXRYawUnitsPerDegree));
-		return ComputeWebXRTurnDelta(1.0f, 0.5f, Engine::WebXRTurnMode::Smooth,
+		return RunWebXRControllerPoseSelfTest() &&
+			ComputeWebXRTurnDelta(1.0f, 0.5f, Engine::WebXRTurnMode::Smooth,
 			30.0f, 120.0f, 0.75f, 0.35f, armed, snapCount) == -sixtyDegrees &&
 			ComputeWebXRTurnDelta(0.1f, 1.0f, Engine::WebXRTurnMode::Smooth,
 				30.0f, 120.0f, 0.75f, 0.35f, armed, snapCount) == 0 &&
@@ -310,6 +368,39 @@ extern "C"
 		return (state.AimPose.Tracked ? 1u : 0u) |
 			(state.GripPose.Tracked ? 2u : 0u) |
 			(state.Connected ? 4u : 0u);
+	}
+
+	// pose: 0=grip, 1=aim. value: position XYZ (0..2), forward XYZ
+	// (3..5), Rotator pitch/yaw/roll (6..8). Invalid requests return zero;
+	// callers should gate reads with Surreal_GetWebXRInputPoseFlags.
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRControllerWorldPoseValue(
+		uint32_t controller, uint32_t pose, uint32_t value)
+	{
+		if (!engine || controller >= engine->WebXRInput.Controllers.size() || pose > 1 || value > 8)
+			return 0.0f;
+		const auto& controllerState = engine->WebXRInput.Controllers[controller];
+		const auto& poseState = pose == 0 ? controllerState.GripPose : controllerState.AimPose;
+		if (!poseState.Tracked)
+			return 0.0f;
+		if (value < 3)
+			return poseState.WorldPosition[value];
+		if (value < 6)
+			return poseState.WorldForward[value - 3];
+		if (value == 6)
+			return static_cast<float>(poseState.WorldRotation.Pitch);
+		if (value == 7)
+			return static_cast<float>(poseState.WorldRotation.Yaw);
+		return static_cast<float>(poseState.WorldRotation.Roll);
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRDominantControllerIndex()
+	{
+		return engine ? engine->WebXRInput.DominantControllerIndex : -1;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRControllerPoseSelfTest()
+	{
+		return RunWebXRControllerPoseSelfTest() ? 1 : 0;
 	}
 
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRDefaultBindingMask()
@@ -520,6 +611,7 @@ float Engine::AdvanceGameFrame()
 			ExpressionValue::Variable(&CameraLocation, vecprop),
 			ExpressionValue::Variable(&CameraRotation, rotprop)
 			});
+		HasCalculatedCameraView = true;
 	}
 
 	UpdateAudio();
@@ -1152,6 +1244,10 @@ std::map<std::string, std::string> Engine::CreateTravelInfo(bool transferItems)
 
 void Engine::LoginPlayer()
 {
+	// The next XR input frame must not anchor a newly logged-in player's hands
+	// to the prior pawn/map's scripted camera result.
+	HasCalculatedCameraView = false;
+
 	UnrealURL url = LevelInfo->URL;
 	std::map<std::string, std::string> travelInfo = Level->TravelInfo;
 
@@ -1985,6 +2081,43 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 				pawn->ViewRotation().Yaw = (pawn->ViewRotation().Yaw + turnDelta) & 0xffff;
 		}
 	}
+
+	// Compose gameplay-ready hand poses only after comfort turning has updated
+	// the pawn/body yaw, but still inside UpdateInput and therefore before any
+	// Tick/Fire script runs. The bridge prepared these local poses from the same
+	// recenter origin as this frame's eyes before AdvanceGameFrame began.
+	int bodyYaw = CameraRotation.Yaw;
+	if (viewport && viewport->Actor())
+	{
+		if (UPawn* pawn = UObject::TryCast<UPawn>(viewport->Actor()))
+			bodyYaw = pawn->ViewRotation().Yaw;
+		else
+			bodyYaw = viewport->Actor()->Rotation().Yaw;
+	}
+	const Coords bodyRotation = Coords::Rotation(Rotator(0, bodyYaw, 0));
+	// On the first XR-owned frame PlayerCalcView has not necessarily run yet.
+	// Anchor hands to the live actor instead of the zero-initialized camera in
+	// that case; subsequent frames use the authoritative scripted camera.
+	vec3 cameraAnchor = CameraLocation;
+	if (!HasCalculatedCameraView && viewport && viewport->Actor())
+		cameraAnchor = viewport->Actor()->Location();
+	for (size_t slot = 0; slot < WebXRInput.Controllers.size(); slot++)
+	{
+		VRControllerInputState& controller = WebXRInput.Controllers[slot];
+		const WebXRControllerState& source = snapshot.Controllers[slot];
+		ComposeWebXRWorldPose(controller.GripPose, source.GripPose, cameraAnchor, bodyRotation);
+		ComposeWebXRWorldPose(controller.AimPose, source.AimPose, cameraAnchor, bodyRotation);
+	}
+
+	// Right-handed play is the default and never silently changes hands. A
+	// disconnected controller or one with neither pose valid clears the index,
+	// preventing consumers from observing a stale transform. Consumers may use
+	// grip as an explicit fallback when aim is unavailable.
+	WebXRInput.DominantControllerIndex = -1;
+	const VRControllerInputState& dominant = WebXRInput.Controllers[1];
+	if (dominant.Connected && dominant.Handedness == WebXRInput.DominantHandedness &&
+		(dominant.AimPose.Tracked || dominant.GripPose.Tracked))
+		WebXRInput.DominantControllerIndex = 1;
 
 	const uint32_t releasedAxes = WebXRAxesActive & ~nextAxesActive;
 	for (uint32_t axis = 0; axis < 4; axis++)

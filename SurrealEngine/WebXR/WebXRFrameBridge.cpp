@@ -65,10 +65,10 @@ namespace
 		return rotation.XAxis * value.x + rotation.YAxis * value.y + rotation.ZAxis * value.z;
 	}
 
-	UEPoseAxes DecodePoseAxes(const WebXRFrameABI::View& view)
+	UEPoseAxes DecodePoseAxes(const float* position, const float* packedOrientation)
 	{
-		quaternion orientation(view.orientation[0], view.orientation[1],
-			view.orientation[2], view.orientation[3]);
+		quaternion orientation(packedOrientation[0], packedOrientation[1],
+			packedOrientation[2], packedOrientation[3]);
 		orientation = normalize(orientation);
 
 		UEPoseAxes result;
@@ -76,8 +76,13 @@ namespace
 		result.Right = WebXRVectorToUE1(orientation * vec3(1.0f, 0.0f, 0.0f));
 		result.Up = WebXRVectorToUE1(orientation * vec3(0.0f, 1.0f, 0.0f));
 		result.PositionMeters = WebXRVectorToUE1(vec3(
-			view.position[0], view.position[1], view.position[2]));
+			position[0], position[1], position[2]));
 		return result;
+	}
+
+	UEPoseAxes DecodePoseAxes(const WebXRFrameABI::View& view)
+	{
+		return DecodePoseAxes(view.position, view.orientation);
 	}
 
 	mat4 DecodeProjection(const WebXRFrameABI::View& view)
@@ -221,8 +226,56 @@ namespace
 		return true;
 	}
 
+	void PreparePoseRecenter(const WebXRFrameABI::FrameHeader& header,
+		const std::array<WebXRFrameABI::View, WebXRFrameABI::MaxViews>& packedViews,
+		PoseRecenterState& poseState)
+	{
+		if (poseState.Valid && poseState.ResetGeneration == header.resetGeneration)
+			return;
+
+		vec3 centerMetersUE(0.0f);
+		vec3 averageForwardUE(0.0f);
+		for (uint32_t index = 0; index < header.viewCount; index++)
+		{
+			const UEPoseAxes axes = DecodePoseAxes(packedViews[index]);
+			centerMetersUE += axes.PositionMeters;
+			averageForwardUE += axes.Forward;
+		}
+		centerMetersUE /= static_cast<float>(header.viewCount);
+		averageForwardUE = normalize(averageForwardUE);
+
+		// Recenter around the runtime-provided eye center, preserving per-eye
+		// separation. Only yaw is neutralized; pitch and roll remain tracking.
+		const float horizontalLength = std::sqrt(averageForwardUE.x * averageForwardUE.x +
+			averageForwardUE.y * averageForwardUE.y);
+		const float rawYaw = horizontalLength > 0.0001f ?
+			std::atan2(-averageForwardUE.y, averageForwardUE.x) : 0.0f;
+		poseState.OriginMetersUE = centerMetersUE;
+		poseState.YawOffsetUE = -rawYaw;
+		poseState.ResetGeneration = header.resetGeneration;
+		poseState.Valid = true;
+		poseState.RecenterCount++;
+	}
+
+	void ComposeLocalControllerPose(const WebXRInputPose& source, float worldUnitsPerMeter,
+		const PoseRecenterState& poseState, WebXRInputPose& target)
+	{
+		const UEPoseAxes axes = DecodePoseAxes(source.Position, source.Orientation);
+		const Coords recenterRotation = Coords::YawRotation(poseState.YawOffsetUE);
+		const vec3 position = RotateLocalToWorld(recenterRotation,
+			(axes.PositionMeters - poseState.OriginMetersUE) * worldUnitsPerMeter);
+		const vec3 forward = normalize(RotateLocalToWorld(recenterRotation, axes.Forward));
+		target.LocalPositionUU[0] = position.x;
+		target.LocalPositionUU[1] = position.y;
+		target.LocalPositionUU[2] = position.z;
+		target.LocalForward[0] = forward.x;
+		target.LocalForward[1] = forward.y;
+		target.LocalForward[2] = forward.z;
+	}
+
 	void BuildInputSnapshot(const WebXRFrameABI::FrameHeader& header,
 		const std::array<WebXRFrameABI::Controller, WebXRFrameABI::MaxInputSources>& packedControllers,
+		float worldUnitsPerMeter, const PoseRecenterState& poseState,
 		std::array<WebXRControllerState, WebXRFrameABI::MaxInputSources>& controllers)
 	{
 		for (uint32_t index = 0; index < header.inputSourceCount; index++)
@@ -240,6 +293,10 @@ namespace
 			std::memcpy(target.GripPose.Orientation, source.gripOrientation, sizeof(target.GripPose.Orientation));
 			std::memcpy(target.AimPose.Position, source.aimPosition, sizeof(target.AimPose.Position));
 			std::memcpy(target.AimPose.Orientation, source.aimOrientation, sizeof(target.AimPose.Orientation));
+			if ((target.Flags & WebXRConnected) && (target.Flags & WebXRGripValid))
+				ComposeLocalControllerPose(target.GripPose, worldUnitsPerMeter, poseState, target.GripPose);
+			if ((target.Flags & WebXRConnected) && (target.Flags & WebXRAimValid))
+				ComposeLocalControllerPose(target.AimPose, worldUnitsPerMeter, poseState, target.AimPose);
 		}
 	}
 
@@ -250,37 +307,10 @@ namespace
 		std::array<WebXRSceneView, WebXRFrameABI::MaxViews>& sceneViews)
 	{
 		std::array<UEPoseAxes, WebXRFrameABI::MaxViews> axes = {};
-		vec3 centerMetersUE(0.0f);
-		vec3 averageForwardUE(0.0f);
 		for (uint32_t index = 0; index < header.viewCount; index++)
-		{
 			axes[index] = DecodePoseAxes(packedViews[index]);
-			centerMetersUE += axes[index].PositionMeters;
-			averageForwardUE += axes[index].Forward;
-		}
-		centerMetersUE /= static_cast<float>(header.viewCount);
-		averageForwardUE = normalize(averageForwardUE);
 
-		if (!poseState.Valid || poseState.ResetGeneration != header.resetGeneration)
-		{
-			// Recenter around the runtime-provided eye center, preserving the
-			// supplied per-eye separation. Only yaw is neutralized: headset pitch
-			// and roll remain real tracked motion, while local-floor standing height
-			// is removed by the position origin capture instead of doubling the
-			// engine camera's existing eye height.
-			// Eye transforms may differ by a tiny canted-display rotation. Average
-			// their normalized forward axes so recenter is viewer-centered instead
-			// of arbitrarily inheriting the left eye's yaw.
-			const float horizontalLength = std::sqrt(averageForwardUE.x * averageForwardUE.x +
-				averageForwardUE.y * averageForwardUE.y);
-			const float rawYaw = horizontalLength > 0.0001f ?
-				std::atan2(-averageForwardUE.y, averageForwardUE.x) : 0.0f;
-			poseState.OriginMetersUE = centerMetersUE;
-			poseState.YawOffsetUE = -rawYaw;
-			poseState.ResetGeneration = header.resetGeneration;
-			poseState.Valid = true;
-			poseState.RecenterCount++;
-		}
+		PreparePoseRecenter(header, packedViews, poseState);
 
 		const Coords recenterRotation = Coords::YawRotation(poseState.YawOffsetUE);
 
@@ -364,6 +394,36 @@ namespace
 			!NearlyEqual(output[1].Location.y, anchor.y + halfIPDUU) ||
 			!NearlyEqual(output[0].Location.z, anchor.z))
 			return false;
+
+		// Controller poses share that already-captured viewer origin. Identity
+		// aim points UE1-forward; WebXR (+X right, -Z forward) position maps to
+		// UE1 (+X forward, +Y right), scaled exactly once into world units.
+		header.inputSourceCount = 2;
+		std::array<WebXRFrameABI::Controller, WebXRFrameABI::MaxInputSources> packedControllers = {};
+		packedControllers[0].sourceId = 11;
+		packedControllers[0].handedness = WebXRHandRight;
+		packedControllers[0].flags = WebXRConnected | WebXRAimValid;
+		packedControllers[0].aimPosition[0] = 0.25f;
+		packedControllers[0].aimPosition[2] = -0.5f;
+		packedControllers[0].aimOrientation[3] = 1.0f;
+		// A disconnected record carrying a validity bit must never receive a
+		// composed pose, which prevents stale disconnect data reaching gameplay.
+		packedControllers[1].flags = WebXRGripValid;
+		packedControllers[1].gripPosition[1] = 10.0f;
+		packedControllers[1].gripOrientation[3] = 1.0f;
+		std::array<WebXRControllerState, WebXRFrameABI::MaxInputSources> controllerStates = {};
+		BuildInputSnapshot(header, packedControllers, DefaultWorldUnitsPerMeter, state,
+			controllerStates);
+		if (!NearlyEqual(controllerStates[0].AimPose.LocalPositionUU[0],
+				0.5f * DefaultWorldUnitsPerMeter) ||
+			!NearlyEqual(controllerStates[0].AimPose.LocalPositionUU[1],
+				0.25f * DefaultWorldUnitsPerMeter) ||
+			!NearlyEqual(controllerStates[0].AimPose.LocalPositionUU[2], 0.0f) ||
+			!NearlyEqual(controllerStates[0].AimPose.LocalForward[0], 1.0f) ||
+			!NearlyEqual(controllerStates[0].AimPose.LocalForward[1], 0.0f) ||
+			!NearlyEqual(controllerStates[1].GripPose.LocalPositionUU[2], 0.0f))
+			return false;
+		header.inputSourceCount = 0;
 
 		// Orientation is transported, not reduced to positional stereo. A
 		// quarter-turn about WebXR +Y must rotate the UE forward basis by a
@@ -529,11 +589,15 @@ extern "C"
 		}
 
 		const uint64_t tickBefore = engine->tickCount;
+		// Capture/reset the viewer-centered origin before UpdateInput. Controller
+		// poses published below and stereo views built after PlayerCalcView must
+		// use the identical origin during this frame.
+		PreparePoseRecenter(header, packedViews, PoseState);
 		// Publish a complete replacement before UpdateInput runs inside
 		// AdvanceGameFrame. A valid zero-input packet still advances the input
 		// generation and clears both slots, producing release edges this tick.
 		std::array<WebXRControllerState, WebXRFrameABI::MaxInputSources> controllers = {};
-		BuildInputSnapshot(header, packedControllers, controllers);
+		BuildInputSnapshot(header, packedControllers, WorldUnitsPerMeter, PoseState, controllers);
 		PublishWebXRInputSnapshot(controllers.data(), header.inputSourceCount);
 		const float levelElapsed = engine->AdvanceGameFrame();
 		std::array<WebXRSceneView, WebXRFrameABI::MaxViews> sceneViews = {};

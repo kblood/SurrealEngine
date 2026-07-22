@@ -74,6 +74,11 @@ public:
 		bool Tracked = false;
 		vec3 Position = vec3(0.0f); // Raw WebXR reference-space metres.
 		vec4 Orientation = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+		// Gameplay-ready pose in UE1 world coordinates. WorldRotation is derived
+		// from WorldForward and intentionally has zero roll for traces/projectiles.
+		vec3 WorldPosition = vec3(0.0f);
+		vec3 WorldForward = vec3(1.0f, 0.0f, 0.0f);
+		Rotator WorldRotation = Rotator(0, 0, 0);
 	};
 
 	struct VRControllerInputState
@@ -96,6 +101,8 @@ public:
 		uint64_t Generation = 0;
 		uint32_t SourceCount = 0;
 		std::array<VRControllerInputState, 2> Controllers;
+		uint32_t DominantHandedness = 2; // WebXR right hand by default.
+		int32_t DominantControllerIndex = -1;
 		uint32_t SynthesizedButtonsHeld = 0;
 		std::array<float, 4> SynthesizedAxes = {};
 	};
@@ -324,6 +331,7 @@ private:
 	float WebXRSnapTurnThreshold = 0.75f;
 	float WebXRSnapTurnRearmThreshold = 0.35f;
 	bool WebXRSnapTurnArmed = true;
+	bool HasCalculatedCameraView = false;
 };
 
 extern Engine* engine;

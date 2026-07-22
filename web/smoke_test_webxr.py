@@ -287,6 +287,16 @@ def main():
                     input_diagnostics.get("poseFlags") != [4, 7]):
                 print("FAIL: M8 packed input was not published and mapped exactly once")
                 sys.exit(1)
+
+            controller_pose_diagnostics = page.evaluate("""() => ({
+                selfTest: Module.ccall('Surreal_RunWebXRControllerPoseSelfTest', 'number', [], []),
+                dominantIndex: Module.ccall('Surreal_GetWebXRDominantControllerIndex', 'number', [], [])
+            })""")
+            print(f"[harness] M8 world controller-pose diagnostics: {controller_pose_diagnostics}")
+            if (controller_pose_diagnostics.get("selfTest") != 1 or
+                    controller_pose_diagnostics.get("dominantIndex") != 1):
+                print("FAIL: M8 controller poses were not composed or dominant hand was lost")
+                sys.exit(1)
             page.evaluate("window.surrealResetWebXRPose()")
 
             pose_diagnostics = page.evaluate("window.surrealGetWebXRPoseDiagnostics()")

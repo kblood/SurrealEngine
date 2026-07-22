@@ -25,6 +25,12 @@ struct WebXRInputPose
 	// orientation. The validity bits live in WebXRControllerState::Flags.
 	float Position[3] = {};
 	float Orientation[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+	// Recentered UE1-local pose, prepared from the same eye-center origin as
+	// the stereo views before the simulation tick. Engine input composes this
+	// with the current camera anchor and body yaw, including a snap turn that
+	// may be applied while consuming this snapshot.
+	float LocalPositionUU[3] = {};
+	float LocalForward[3] = { 1.0f, 0.0f, 0.0f };
 };
 
 struct WebXRControllerState
