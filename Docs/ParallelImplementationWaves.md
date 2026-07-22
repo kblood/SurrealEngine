@@ -20,7 +20,7 @@ and branch preservation. Three subagents own isolated topic worktrees.
    are already complete. It does not start speculative work from an unstable
    sibling branch.
 
-## Wave 2: current
+## Wave 2: completed
 
 Three independent tasks run in parallel:
 
@@ -34,20 +34,47 @@ Acceptance requires standalone Release builds, focused tests or diagnostics,
 clean topic worktrees, combined native build/tests, and an Emscripten link when
 the changed engine surface is compiled for the web.
 
-## Wave 3: provider and deployment extraction
+## Wave 3: current provider and deployment extraction
 
 Start only after the presentation topic is reviewed:
 
 | Lane | Dependencies | Source evidence | Scope |
 | --- | --- | --- | --- |
-| Native OpenXR provider | frame, view, presentation, input | `vr-m2` through the real session/swapchain/frame-loop and per-eye pose commits | OpenXR session, swapchains, view/target translation, controller input adapter; exclude UT weapons and menu policy |
-| WebXR provider | web platform, frame, view, presentation, input | `webxr-m1` session, packed frame/controller bridge, lifecycle, pose and projection commits | browser session lifecycle and provider translation; retain flat WebGPU fallback |
+| Native OpenXR provider | frame, view, presentation | `vr-m2` through the real session/swapchain/frame-loop and per-eye pose commits | OpenXR session, swapchains, and view/target translation; exclude controller input, UT weapons, and menu policy |
+| WebXR provider | web platform, frame, view, presentation | `webxr-m1` session, packed frame/view bridge, lifecycle, pose and projection commits | browser session lifecycle and provider translation; exclude controller input and retain flat WebGPU fallback |
 | Browser data/persistence | web platform only | importer, mutable-data persistence, PWA and recovery commits in `webxr-m1` | legal local data import, IndexedDB/OPFS persistence, recovery and schema migration; no XR requirement |
 
 Provider branches may be staged on temporary composed bases for validation, but
 their own commits must remain limited to the declared provider. OpenXR and
-WebXR code must translate into `ViewFamily`, presentation output/layers, and
-`InputComposition` rather than introducing parallel gameplay paths.
+WebXR code must translate into `ViewFamily` and presentation output/layers
+rather than introducing parallel gameplay paths. Controller input follows in
+separate provider-adapter topics and must use `InputComposition`.
+
+## Ready queue and slot reuse
+
+The root keeps the next work dependency-ordered so the first available agent
+can start useful work immediately:
+
+1. `pr/deus-ex-ai-perception`: replay only the pure visibility, hearing, and
+   attitude calculations from source commit `e7ff4b05`, with synthetic tests;
+   keep native registration as a separate follow-up.
+2. `pr/bot-benchmark-telemetry`: add an immutable run manifest and bounded,
+   versioned telemetry records on top of `pr/bot-benchmark-driver`; do not
+   change bot behavior or copy captured commercial-game data.
+3. `pr/openxr-input-adapter`: after the native provider is reviewed, translate
+   OpenXR actions and poses into independently owned `InputComposition`
+   sources; no weapon or menu policy.
+4. `pr/webxr-input-adapter`: after the web provider is reviewed, translate the
+   browser controller snapshot into the same controls and pose contract while
+   retaining mouse/keyboard and flat mode.
+5. `pr/xr-common-spaces`: only after both providers are integrated, define the
+   shared head/aim/grip spaces, lifecycle state, pointer hit result, and haptic
+   event interface consumed by both adapters.
+
+Items 1 and 2 are independent of Wave 3 and therefore take the first two freed
+slots. Items 3 and 4 deliberately wait for provider review so their branches
+do not encode an unstable session API. Item 5 waits for evidence from both
+providers rather than favoring the shape of either implementation.
 
 ## Wave 4: shared XR behavior and game profiles
 
