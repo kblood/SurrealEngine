@@ -25,6 +25,8 @@ var commonSources = [
 	"SurrealEngine/BotBenchmark/BotBenchmarkDriver.h",
 	"SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp",
 	"SurrealEngine/BotBenchmark/BotBenchmarkProtocol.h",
+	"SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp",
+	"SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.h",
 	"SurrealEngine/GameFolder.cpp",
 	"SurrealEngine/GameFolder.h",
 	"SurrealEngine/LauncherSettings.cpp",
