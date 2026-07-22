@@ -44,8 +44,17 @@ window. A launch-from-zero check revealed that render-device initialization
 could make the process foreground before that call (54 of 189 samples in the
 reproducing run). `WS_EX_NOACTIVATE` is now applied immediately after native
 window creation, before render-device setup, and checked again when the window
-is shown. The final startup check recorded zero foreground samples out of 181,
-confirmed the style bit, kept the process responsive, and closed it cleanly.
+is shown.
+
+Extended Training replay later found that the style and non-activating show
+mode were not a sufficient lifetime guarantee: one otherwise normal run was
+foreground for 183 of 266 samples. The no-activate window now remembers the
+most recent non-game foreground window, updates that reference during normal
+ticks, and restores it immediately if Windows activates the game later. A
+no-activate focus notification is not forwarded into the game's active-input
+path. Four independent QuickSave reloads after the change recorded 982
+combined foreground samples with zero game-window hits and zero unresponsive
+samples.
 
 ## Crash collection without focus changes
 

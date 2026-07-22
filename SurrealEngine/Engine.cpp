@@ -1600,6 +1600,9 @@ void Engine::CloseWindow()
 
 void Engine::TickWindow()
 {
+	if (window && LaunchInfo.noActivate)
+		window->MaintainNoActivate();
+
 	if (window && engine->LaunchInfo.ue1Version > 219 && !LaunchInfo.noActivate)
 	{
 		if (viewport->bShowWindowsMouse() && viewport->bWindowsMouseAvailable())

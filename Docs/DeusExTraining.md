@@ -76,6 +76,15 @@ through the working tutorial door toward that starting boundary. Moving in the
 opposite direction returns through the open doorway toward the nanokey and
 crate-exercise route. No mover change is justified by the closed pair.
 
+A temporary position/heading trace and actor-layout dump clarified the next
+route without changing game state. The lower landing contains the locked
+`keydoor` mover pair at `(352,576)` and `(416,576)`. Its required `NanoKey0` is
+still present near `(415,1072)`, so repeatedly frobbing the locked door without
+first visiting that side of the landing is expected stock behavior. The trace
+also confirmed that the apparent dark boundaries reached during turn
+calibration were ordinary level geometry. The diagnostic logging was removed
+after recording these coordinates.
+
 Crossing that trigger after the first reload displayed `INFOLINK NOT FOUND!!
 Name = dl_start`. `Actor.ConListItems` is transient, and the save-load path did
 not repeat the `ConBindEvents` calls normally made by `DeusExPlayer`,
@@ -88,11 +97,11 @@ was disabled, and the game was foreground in zero of 243 samples.
 
 ## Current boundary
 
-Reorient away from the closed starting boundary, continue from the restored
-checkpoint into the crate/lockpick exercise, and validate its weapon pickup,
-breakable containers, lockpick, and next door. The reception sequence and its
-first post-load DataLink are validated; the next run should follow the map's
-forward route before implementing another native.
+Reorient away from the closed starting boundary, collect the second nanokey on
+the lower landing, then return to and open `keydoor` before entering the
+crate/lockpick exercise. Validate its weapon pickup, breakable containers,
+lockpick, and next door. The reception sequence and its first post-load DataLink
+are validated; no native change is justified at the current boundary.
 
 The camera can be driven reliably with movement plus keyboard turn/look
 bindings. Background raw-mouse look is intentionally unavailable because the

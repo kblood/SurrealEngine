@@ -11,7 +11,7 @@ new blockers.
 - First AI perception slice: hearing, sight, visibility, motion, thresholds,
   detectability, occlusion, and original no-op smell behavior.
 - Correct launcher/direct-map validation process.
-- Silent, non-activating, per-process-log validation profile.
+- Silent, continuously non-activating, per-process-log validation profile.
 - QuickSave and numbered save creation plus direct QuickLoad/LoadGame startup.
 - Save Game description input and existing-slot list population.
 - Existing-slot selection, menu-driven overwrite and deletion, and serialized

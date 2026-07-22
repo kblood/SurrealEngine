@@ -11,12 +11,13 @@
 #include <Windows.h>
 #endif
 
-GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI, bool activate) : Widget(nullptr, WidgetType::Window, renderAPI), windowHost(windowHost)
+GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI, bool activate) : Widget(nullptr, WidgetType::Window, renderAPI), windowHost(windowHost), activationAllowed(activate)
 {
 #ifdef _WIN32
 	if (!activate)
 	{
 		auto handle = static_cast<Win32NativeHandle*>(GetNativeHandle());
+		previousForegroundWindow = reinterpret_cast<intptr_t>(::GetForegroundWindow());
 		LONG_PTR exstyle = ::GetWindowLongPtr(handle->hwnd, GWL_EXSTYLE);
 		::SetWindowLongPtr(handle->hwnd, GWL_EXSTYLE, exstyle | WS_EX_NOACTIVATE);
 	}
@@ -56,11 +57,35 @@ void GameWindow::ShowNormalNoActivate()
 {
 #ifdef _WIN32
 	auto handle = static_cast<Win32NativeHandle*>(GetNativeHandle());
+	HWND foreground = ::GetForegroundWindow();
+	if (foreground != handle->hwnd)
+		previousForegroundWindow = reinterpret_cast<intptr_t>(foreground);
 	LONG_PTR exstyle = ::GetWindowLongPtr(handle->hwnd, GWL_EXSTYLE);
 	::SetWindowLongPtr(handle->hwnd, GWL_EXSTYLE, exstyle | WS_EX_NOACTIVATE);
 	::ShowWindow(handle->hwnd, SW_SHOWNOACTIVATE);
+	MaintainNoActivate();
 #else
 	ShowNormal();
+#endif
+}
+
+void GameWindow::MaintainNoActivate()
+{
+#ifdef _WIN32
+	if (activationAllowed)
+		return;
+
+	auto handle = static_cast<Win32NativeHandle*>(GetNativeHandle());
+	HWND foreground = ::GetForegroundWindow();
+	if (foreground && foreground != handle->hwnd)
+	{
+		previousForegroundWindow = reinterpret_cast<intptr_t>(foreground);
+		return;
+	}
+
+	HWND previous = reinterpret_cast<HWND>(previousForegroundWindow);
+	if (foreground == handle->hwnd && previous && previous != handle->hwnd && ::IsWindow(previous))
+		::SetForegroundWindow(previous);
 #endif
 }
 
@@ -169,6 +194,11 @@ void GameWindow::OnClose()
 
 void GameWindow::OnSetFocus()
 {
+	if (!activationAllowed)
+	{
+		MaintainNoActivate();
+		return;
+	}
 	windowHost->OnWindowActivated();
 }
 

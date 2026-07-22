@@ -3,6 +3,7 @@
 #include "Math/vec.h"
 #include <surrealwidgets/core/rect.h>
 #include <surrealwidgets/core/widget.h>
+#include <cstdint>
 
 class Engine;
 class RenderDevice;
@@ -124,6 +125,7 @@ public:
 	int GetPixelWidth();
 	int GetPixelHeight();
 	void ShowNormalNoActivate();
+	void MaintainNoActivate();
 
 	void ToggleWindowFullscreen(Size newResolution);
 
@@ -154,4 +156,6 @@ private:
 
 	GameWindowHost* windowHost = nullptr;
 	std::unique_ptr<RenderDevice> device;
+	bool activationAllowed = true;
+	intptr_t previousForegroundWindow = 0;
 };
