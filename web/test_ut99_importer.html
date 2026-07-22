@@ -1,0 +1,323 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SurrealEngine UT99 importer tests</title>
+</head>
+<body>
+<pre id="results">running</pre>
+<script src="ut99_importer.js"></script>
+<script>
+"use strict";
+
+window.importerTestResults = [];
+window.importerTestDone = false;
+
+function record(name, passed, detail) {
+	window.importerTestResults.push({ name: name, passed: !!passed, detail: detail || "" });
+}
+
+function assert(condition, message) {
+	if (!condition) throw new Error(message || "assertion failed");
+}
+
+async function expectError(code, callback) {
+	try {
+		await callback();
+	} catch (error) {
+		assert(error && error.code === code, "expected " + code + ", got " + (error && error.code));
+		return error;
+	}
+	throw new Error("expected " + code + " to be thrown");
+}
+
+function syntheticEntries() {
+	const files = [
+		["System/Core.u", "fake-core"],
+		["System/Engine.u", "fake-engine"],
+		["System/Botpack.u", "fake-botpack"],
+		["System/UnrealTournament.ini", "[fake-test-config]"],
+		["System/UnrealTournament.exe", "fake-executable-not-runnable"],
+		["Maps/DM-Synthetic.unr", "fake-map"],
+		["Textures/Synthetic.utx", "fake-texture"],
+		["Sounds/Synthetic.uax", "fake-sound"],
+		["Music/Synthetic.umx", "fake-music"],
+	];
+	return files.map(item => {
+		const blob = new Blob([item[1]], { type: "application/octet-stream" });
+		return { path: item[0], size: blob.size, getBlob: async () => blob };
+	});
+}
+
+class FakeFS {
+	constructor(preloaded) {
+		this.directories = new Set(["/"]);
+		this.files = new Map();
+		if (preloaded) {
+			for (const path of ["/gamedata/System/Core.u", "/gamedata/System/Engine.u", "/gamedata/System/Botpack.u", "/gamedata/System/UnrealTournament.exe"]) {
+				this.files.set(path, new Uint8Array([1]));
+			}
+		}
+	}
+	mkdirTree(path) { this.directories.add(path); }
+	analyzePath(path) { return { exists: this.directories.has(path) || this.files.has(path) }; }
+	open(path) { return { path: path, bytes: new Uint8Array(0) }; }
+	write(handle, source, offset, length, position) {
+		const required = position + length;
+		if (handle.bytes.byteLength < required) {
+			const expanded = new Uint8Array(required);
+			expanded.set(handle.bytes);
+			handle.bytes = expanded;
+		}
+		handle.bytes.set(source.subarray(offset, offset + length), position);
+		return length;
+	}
+	close(handle) { this.files.set(handle.path, handle.bytes); }
+}
+
+async function run(name, callback) {
+	try {
+		await callback();
+		record(name, true);
+	} catch (error) {
+		record(name, false, error && (error.stack || error.message) || String(error));
+	}
+}
+
+window.importerTestPromise = (async function () {
+	const api = window.SurrealUT99Importer;
+
+	await run("schema is explicit and versioned", async () => {
+		assert(api.SCHEMA_NAME === "surrealengine-ut99-data");
+		assert(api.SCHEMA_VERSION === 1);
+	});
+
+	await run("validates synthetic UT99 layout without reading contents", async () => {
+		let reads = 0;
+		const entries = syntheticEntries().map(entry => ({
+			path: entry.path,
+			size: entry.size,
+			getBlob: async () => { reads++; return entry.getBlob(); },
+		}));
+		const validation = api.validateEntries(entries);
+		assert(validation.fileCount === entries.length);
+		assert(validation.totalBytes > 0);
+		assert(reads === 0, "validation read file contents");
+	});
+
+	await run("reports actionable missing-file errors", async () => {
+		const error = await expectError("MISSING_UT99_DATA", async () => api.validateEntries([
+			{ path: "System/Core.u", size: 1, getBlob: async () => new Blob(["x"]) },
+		]));
+		assert(error.message.includes("System/Engine.u"));
+		assert(error.message.includes("Select the folder"));
+	});
+
+	await run("rejects traversal and case-colliding paths", async () => {
+		await expectError("INVALID_PATH", async () => api.canonicalizeRelativePath("../secret"));
+		const duplicate = syntheticEntries();
+		duplicate.push({ path: "system/core.u", size: 1, getBlob: async () => new Blob(["x"]) });
+		await expectError("DUPLICATE_PATH", async () => api.validateEntries(duplicate));
+	});
+
+	await run("directory-input fallback strips only the selected root", async () => {
+		const files = syntheticEntries().map(entry => {
+			const file = new File(["x"], entry.path.split("/").pop());
+			Object.defineProperty(file, "webkitRelativePath", { value: "UnrealTournament/" + entry.path });
+			return file;
+		});
+		const entries = api.entriesFromFileList(files);
+		assert(entries[0].path === "System/Core.u");
+		assert(api.validateEntries(entries).fileCount === files.length);
+	});
+
+	const databaseName = "surrealengine-importer-test-" + Date.now() + "-" + Math.random();
+	const idbStorage = new api.IndexedDBStorage(databaseName);
+	const validation = api.validateEntries(syntheticEntries());
+
+	await run("IndexedDB fallback saves and restores fake files", async () => {
+		await idbStorage.clear();
+		const progress = [];
+		const metadata = await idbStorage.save(validation, value => progress.push(value));
+		assert(metadata.backend === "indexeddb");
+		assert(progress.length > 0 && progress[progress.length - 1].filesDone === validation.fileCount);
+		const restored = await idbStorage.load();
+		assert(restored.metadata.fileCount === validation.fileCount);
+		const blob = await restored.getBlob("System/Core.u");
+		assert(await blob.text() === "fake-core");
+	});
+
+	await run("streams a restored dataset into the Emscripten FS gate", async () => {
+		const restored = await idbStorage.load();
+		const fs = new FakeFS(false);
+		const progress = [];
+		await api.materializeDataset(fs, restored, value => progress.push(value));
+		assert(new TextDecoder().decode(fs.files.get("/gamedata/System/Core.u")) === "fake-core");
+		assert(progress[progress.length - 1].bytesDone === validation.totalBytes);
+	});
+
+	await run("developer preload bypasses persistence and launches once", async () => {
+		let storageLoads = 0;
+		let launches = 0;
+		const order = [];
+		const storage = { backend: "test", load: async () => { storageLoads++; return null; }, clear: async () => {} };
+		const controller = new api.ImportController({ FS: new FakeFS(true) }, {
+			storage: storage,
+			beforeLaunch: async mode => { await Promise.resolve(); order.push("before:" + mode); },
+			launch: mode => { order.push("launch:" + mode); launches++; },
+		});
+		const result = await controller.initialize();
+		assert(result.mode === "developer-preload");
+		assert(storageLoads === 0, "preload path touched persistence");
+		assert(launches === 1);
+		assert(order.join(",") === "before:developer-preload,launch:developer-preload",
+			"beforeLaunch did not finish before launch: " + order.join(","));
+		const manifest = controller.mapManifest();
+		assert(manifest.schema === api.MAP_MANIFEST_SCHEMA && manifest.version === 1);
+		assert(manifest.state === "unavailable" && manifest.maps.length === 0);
+		assert(Object.isFrozen(manifest) && Object.isFrozen(manifest.maps));
+	});
+
+	await run("no-data build waits until a validated import is materialized", async () => {
+		let launches = 0;
+		const fs = new FakeFS(false);
+		const storage = new api.IndexedDBStorage(databaseName + "-gate");
+		const controller = new api.ImportController({ FS: fs }, { storage: storage, launch: () => launches++ });
+		const waiting = await controller.initialize();
+		assert(waiting.state === "waiting-for-import");
+		assert(launches === 0, "main gate opened before import");
+		await controller.importEntries(syntheticEntries());
+		assert(launches === 1);
+		assert(fs.files.has("/gamedata/Maps/DM-Synthetic.unr"));
+		await storage.clear();
+	});
+
+	await run("map manifest exposes only immutable safe direct map basenames", async () => {
+		const extras = [
+			["Maps/CTF-Face.unr", "ctf"],
+			["Maps/AS-HiSpeed.unr", "assault"],
+			["Maps/DOM-Cinder.unr", "domination"],
+			["Maps/DM-Upper.UNR", "uppercase-extension"],
+			["Maps/MH-Unsupported.unr", "unsupported-prefix"],
+			["Maps/DM-Bad?game=Evil.unr", "query-like"],
+			["Maps/Subdirectory/DM-Nested.unr", "nested"],
+		].map(item => {
+			const blob = new Blob([item[1]], { type: "application/octet-stream" });
+			return { path: item[0], size: blob.size, getBlob: async () => blob };
+		});
+		const storage = new api.IndexedDBStorage(databaseName + "-map-manifest");
+		await storage.clear();
+		const controller = new api.ImportController({ FS: new FakeFS(false) }, {
+			storage: storage,
+			launch: () => {},
+		});
+		const waiting = await controller.initialize();
+		assert(waiting.state === "waiting-for-import");
+		assert(controller.mapManifest().state === "empty");
+		await controller.importEntries(syntheticEntries().concat(extras));
+		const first = controller.mapManifest();
+		const second = controller.mapManifest();
+		assert(first !== second && first.maps !== second.maps, "manifest did not return a copy snapshot");
+		assert(Object.isFrozen(first) && Object.isFrozen(first.maps), "manifest snapshot is mutable");
+		assert(first.state === "ready");
+		assert(first.maps.join(",") === "AS-HiSpeed,CTF-Face,DM-Synthetic,DM-Upper,DOM-Cinder",
+			"unexpected safe map inventory: " + first.maps.join(","));
+		assert(first.rejectedCount === 3, "unsafe/nested map candidates were not rejected");
+		assert(!JSON.stringify(first).includes("Maps/") && !JSON.stringify(first).includes(".unr"),
+			"manifest exposed a relative path or extension");
+		const cleared = await controller.clearSavedImport();
+		assert(cleared.state === "cleared" && cleared.maps.length === 0);
+		assert(controller.mapManifest().state === "cleared");
+		assert(await storage.load() === null);
+	});
+
+	await run("safe map selection uses only manifest entries or a validated preload name", async () => {
+		const ready = api.mapManifestFromMetadata({
+			schema: api.SCHEMA_NAME,
+			version: api.SCHEMA_VERSION,
+			datasetId: "map-selection-test",
+			files: syntheticEntries().concat([
+				{ path: "Maps/CTF-Face.unr", size: 1, getBlob: async () => new Blob(["x"]) },
+			]).map(entry => ({ path: entry.path, size: entry.size })),
+			fileCount: syntheticEntries().length + 1,
+			totalBytes: syntheticEntries().reduce((total, entry) => total + entry.size, 0) + 1,
+		}, "ready");
+		assert(api.selectLaunchMap(ready, "ctf-face") === "CTF-Face");
+		assert(api.selectLaunchMap(ready, "DM-NotImported") === "CTF-Face");
+		const preload = Object.freeze({ schema: api.MAP_MANIFEST_SCHEMA, version: api.MAP_MANIFEST_VERSION,
+			state: "unavailable", maps: Object.freeze([]), rejectedCount: 0 });
+		assert(api.selectLaunchMap(preload, "DM-Deck16][") === "DM-Deck16][");
+		await expectError("MAP_SELECTION", () => api.selectLaunchMap(preload, "../DM-Deck16]["));
+	});
+
+	await run("saved import reopens the boot gate on a later load", async () => {
+		let launches = 0;
+		const fs = new FakeFS(false);
+		const controller = new api.ImportController({ FS: fs }, { storage: idbStorage, launch: mode => { assert(mode === "persistent-import"); launches++; } });
+		const result = await controller.initialize();
+		assert(result.mode === "persistent-import");
+		assert(launches === 1);
+		assert(fs.files.has("/gamedata/System/Botpack.u"));
+		assert(controller.mapManifest().maps.join(",") === "DM-Synthetic");
+	});
+
+	await run("re-import replaces persistence without mutating the live FS", async () => {
+		let replacements = 0;
+		const fs = new FakeFS(false);
+		const storage = {
+			backend: "test",
+			save: async value => ({
+				schema: api.SCHEMA_NAME,
+				version: api.SCHEMA_VERSION,
+				datasetId: "replacement",
+				createdAt: new Date().toISOString(),
+				backend: "test",
+				fileCount: value.fileCount,
+				totalBytes: value.totalBytes,
+				files: value.entries.map(entry => ({ path: entry.path, size: entry.size })),
+			}),
+		};
+		const controller = new api.ImportController({ FS: fs }, {
+			storage: storage,
+			onReimportReady: () => replacements++,
+		});
+		controller.storage = storage;
+		controller.launched = true;
+		await controller.importEntries(syntheticEntries());
+		assert(replacements === 1);
+		assert(fs.files.size === 0, "live Emscripten FS was overwritten during re-import");
+	});
+
+	await run("clear removes the saved dataset", async () => {
+		await idbStorage.clear();
+		assert(await idbStorage.load() === null);
+	});
+
+	await run("OPFS backend round-trips fake files when available", async () => {
+		if (!navigator.storage || typeof navigator.storage.getDirectory !== "function") return;
+		const root = await navigator.storage.getDirectory();
+		const directoryName = "surrealengine-importer-test-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+		const storage = new api.OPFSStorage(root, directoryName);
+		try {
+			const metadata = await storage.save(validation);
+			assert(metadata.backend === "opfs");
+			const loaded = await storage.load();
+			assert(await (await loaded.getBlob("Maps/DM-Synthetic.unr")).text() === "fake-map");
+			const appRoot = await root.getDirectoryHandle(directoryName);
+			const imports = await appRoot.getDirectoryHandle("imports");
+			await imports.removeEntry(metadata.datasetId, { recursive: true });
+			await expectError("STORAGE_MISSING_DATASET", async () => storage.load());
+		} finally {
+			await storage.clear();
+		}
+	});
+
+	window.importerTestDone = true;
+	const failures = window.importerTestResults.filter(result => !result.passed);
+	document.getElementById("results").textContent = JSON.stringify(window.importerTestResults, null, 2);
+	if (failures.length) throw new Error(failures.length + " importer test(s) failed");
+	return window.importerTestResults;
+})();
+</script>
+</body>
+</html>
