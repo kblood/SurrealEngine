@@ -162,6 +162,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Platform/OpenXR/OpenXRView.h
 	SurrealEngine/Platform/WebXR/WebXRFrameBridge.cpp
 	SurrealEngine/Platform/WebXR/WebXRFrameBridge.h
+	SurrealEngine/Platform/WebXR/WebXRInputBridge.cpp
+	SurrealEngine/Platform/WebXR/WebXRInputBridge.h
 	SurrealEngine/Platform/WebXR/WebXRProvider.cpp
 	SurrealEngine/Render/XRUISurfaces.h
 	SurrealEngine/Render/XRUISurfaces.cpp
@@ -980,7 +982,7 @@ if(EMSCRIPTEN)
 		-sINVOKE_RUN=0
 		-sEXIT_RUNTIME=0
 		-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall
-		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_SetXRFrameLoopActive,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_GetWebXRFrameLastError,_Surreal_RenderWebXRFrame,_Surreal_GetWebXRWorldUnitsPerMeter,_Surreal_SetWebXRWorldUnitsPerMeter,_Surreal_ResetWebXRPose,_Surreal_GetWebXRPoseRecenterCount
+		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_SetXRFrameLoopActive,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_GetWebXRFrameLastError,_Surreal_RenderWebXRFrame,_Surreal_GetWebXRWorldUnitsPerMeter,_Surreal_SetWebXRWorldUnitsPerMeter,_Surreal_ResetWebXRPose,_Surreal_GetWebXRPoseRecenterCount,_Surreal_GetWebXRInputABIVersion,_Surreal_GetWebXRInputHeaderSize,_Surreal_GetWebXRInputSourceSize,_Surreal_GetWebXRInputMaxSources,_Surreal_ValidateWebXRInputSnapshot,_Surreal_SubmitWebXRInputSnapshot,_Surreal_GetWebXRInputLastError,_Surreal_ClearWebXRInputSnapshot
 		-sASSERTIONS=1
 		-sNO_DISABLE_EXCEPTION_CATCHING
 		-pthread
@@ -1043,4 +1045,12 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRUISurfaceTests PRIVATE SurrealEngine)
 	set_target_properties(XRUISurfaceTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRUISurfaceTests COMMAND XRUISurfaceTests)
+
+	add_executable(WebXRInputBridgeTests
+		Tests/WebXRInputBridgeTests.cpp
+		SurrealEngine/Platform/WebXR/WebXRInputBridge.cpp
+	)
+	target_include_directories(WebXRInputBridgeTests PRIVATE SurrealEngine)
+	set_target_properties(WebXRInputBridgeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME WebXRInputBridgeTests COMMAND WebXRInputBridgeTests)
 endif()
