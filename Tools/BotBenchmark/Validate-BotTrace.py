@@ -46,6 +46,9 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
     last_wall_hit_id = 0
     wall_hit_pairs = 0
     warned_legacy_wall_hits = False
+    requested_bot_names: list[str] = []
+    requested_skills: list[int] = []
+    profile_configurations: list[tuple[int, dict[str, str]]] = []
 
     def fixture_bool(fields: dict[str, str], name: str, line_number: int) -> bool:
         value = fields.get(name)
@@ -76,6 +79,14 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
             try:
                 if event_type == "run_config":
                     fixture_id = str(fields.get("fixture_id", ""))
+                    names_text = str(fields.get("requested_bot_names", ""))
+                    requested_bot_names = names_text.split(",") if names_text else []
+                    skills_text = str(fields.get("requested_skills", ""))
+                    requested_skills = [int(value) for value in skills_text.split(",")] if skills_text else []
+
+                elif event_type == "bot_skill_configured":
+                    if requested_bot_names:
+                        profile_configurations.append((line_number, fields))
 
                 elif event_type == "fixture_wait":
                     if not fixture_id or fields.get("fixture_id") != fixture_id:
@@ -328,6 +339,42 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
         errors.append(f"trace ended with {len(legacy_wall_hits)} unpaired legacy walking HitWall events")
     if counts["walking_hit_wall"] != counts["walking_hit_wall_result"] or counts["walking_hit_wall"] != wall_hit_pairs:
         errors.append("walking HitWall before/result counts do not reconcile")
+    if requested_bot_names:
+        if len(profile_configurations) != len(requested_bot_names):
+            errors.append(
+                f"explicit profile trace has {len(profile_configurations)} configuration events, "
+                f"expected {len(requested_bot_names)}"
+            )
+        seen_roster_indexes: set[int] = set()
+        seen_profile_ids: set[str] = set()
+        for line_number, fields in profile_configurations:
+            try:
+                roster_index = as_int(fields, "roster_index")
+                if roster_index < 0 or roster_index >= len(requested_bot_names):
+                    errors.append(f"line {line_number}: explicit profile roster index is out of range")
+                    continue
+                if roster_index in seen_roster_indexes:
+                    errors.append(f"line {line_number}: duplicate explicit profile roster index {roster_index}")
+                seen_roster_indexes.add(roster_index)
+                requested_name = fields.get("requested_profile_name", "")
+                actual_name = fields.get("actual_profile_name", "")
+                profile_id = fields.get("profile_id", "")
+                bot_config_class = fields.get("bot_config_class", "")
+                if requested_name.casefold() != requested_bot_names[roster_index].casefold():
+                    errors.append(f"line {line_number}: requested profile name does not match run configuration")
+                if not actual_name or actual_name.casefold() != requested_name.casefold():
+                    errors.append(f"line {line_number}: actual profile name does not match requested name")
+                if not bot_config_class or profile_id != f"{bot_config_class}|name={actual_name}":
+                    errors.append(f"line {line_number}: profile ID is not derived from class and canonical name")
+                if not profile_id or profile_id in seen_profile_ids:
+                    errors.append(f"line {line_number}: profile ID is empty or duplicated")
+                seen_profile_ids.add(profile_id)
+                if fields.get("mapping_valid") != "true":
+                    errors.append(f"line {line_number}: explicit profile skill mapping was not valid")
+                if roster_index >= len(requested_skills) or as_int(fields, "requested_external_skill") != requested_skills[roster_index]:
+                    errors.append(f"line {line_number}: explicit profile requested skill mismatch")
+            except (KeyError, TypeError, ValueError) as exc:
+                errors.append(f"line {line_number}: explicit profile configuration error: {exc}")
     if fixture_id:
         if counts["fixture_setup"] != 1:
             errors.append(f"configured fixture has {counts['fixture_setup']} setup events, expected 1")
@@ -525,6 +572,26 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                 errors.append("summary observed a bot targeting a non-bot pawn")
             if not summary.get("viewport_actor_is_spectator") or not summary.get("viewport_pri_is_spectator"):
                 errors.append("summary viewport spectator proof failed")
+            if requested_bot_names:
+                summary_names = [str(name) for name in summary.get("requested_bot_names", [])]
+                if summary_names != requested_bot_names:
+                    errors.append("summary requested bot names do not match trace")
+                summary_metrics = summary.get("bot_metrics", [])
+                for roster_index, requested_name in enumerate(requested_bot_names):
+                    matching = [metric for metric in summary_metrics if int(metric.get("roster_index", -1)) == roster_index]
+                    if len(matching) != 1:
+                        errors.append(f"summary has {len(matching)} metrics for roster index {roster_index}, expected 1")
+                        continue
+                    metric = matching[0]
+                    if str(metric.get("player_name", "")).casefold() != requested_name.casefold():
+                        errors.append(f"summary roster index {roster_index} player name mismatch")
+                    profile_id = str(metric.get("profile_id", ""))
+                    event_profiles = [fields.get("profile_id", "") for _, fields in profile_configurations
+                                      if int(fields.get("roster_index", -1)) == roster_index]
+                    if len(event_profiles) != 1 or profile_id != event_profiles[0]:
+                        errors.append(f"summary roster index {roster_index} profile ID mismatch")
+                    if roster_index >= len(requested_skills) or int(metric.get("requested_external_skill", -1)) != requested_skills[roster_index]:
+                        errors.append(f"summary roster index {roster_index} requested skill mismatch")
             summary_fixture = summary.get("fixture", {})
             if fixture_id:
                 if summary.get("fixture_id") != fixture_id or summary_fixture.get("id") != fixture_id:

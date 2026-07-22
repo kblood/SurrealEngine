@@ -22,6 +22,7 @@ struct BotBenchmarkConfig
 	std::string OutputDirectory = "botbench-output";
 	std::string URL = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
 	std::string BotName = "Loque";
+	std::vector<std::string> BotNames;
 	std::string FixtureId;
 	uint64_t Seed = 104729;
 	uint64_t MaxTicks = 600;
@@ -109,6 +110,8 @@ private:
 		bool FireIntent = false;
 		bool AltFireIntent = false;
 		int RequestedSkill = -1;
+		int RosterIndex = -1;
+		std::string ProfileId;
 		bool Novice = false;
 		int64_t X = 0;
 		int64_t Y = 0;
@@ -130,6 +133,8 @@ private:
 		std::string PlayerName;
 		std::string LastActor;
 		int RequestedSkill = -1;
+		int RosterIndex = -1;
+		std::string ProfileId;
 		std::set<std::string> SelectedWeaponClasses;
 		std::set<std::string> InitialWeaponClasses;
 		uint64_t FirstObservedTick = 0;
@@ -239,6 +244,8 @@ private:
 	std::map<std::string, PawnSnapshot> PreviousPawns;
 	std::map<std::string, BotTelemetry> Telemetry;
 	std::map<std::string, int> RequestedSkillByIdentity;
+	std::map<std::string, int> RosterIndexByIdentity;
+	std::map<std::string, std::string> ProfileIdByIdentity;
 	std::map<UPawn*, DamageObservation> ActiveDamage;
 	std::map<UWeapon*, HitscanObservation> ActiveHitscan;
 	std::map<UProjectile*, ProjectileObservation> Projectiles;

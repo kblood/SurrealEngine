@@ -14,6 +14,7 @@
 #include "UObject/UClient.h"
 #include "VM/ScriptCall.h"
 #include <cctype>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <filesystem>
@@ -65,6 +66,50 @@ namespace
 		return skills;
 	}
 
+	std::vector<std::string> JsonNames(const JsonValue& value)
+	{
+		std::vector<std::string> names;
+		if (value.is_undefined())
+			return names;
+		if (!value.is_array())
+			throw std::runtime_error("Bot benchmark bot_names must be a JSON array");
+		for (const JsonValue& item : value.items())
+		{
+			if (item.type() != JsonType::string)
+				throw std::runtime_error("Bot benchmark bot_names must contain strings");
+			names.push_back(item.to_string());
+		}
+		return names;
+	}
+
+	std::string Trim(std::string text)
+	{
+		auto isSpace = [](unsigned char c) { return std::isspace(c) != 0; };
+		text.erase(text.begin(), std::find_if(text.begin(), text.end(), [&](unsigned char c) { return !isSpace(c); }));
+		text.erase(std::find_if(text.rbegin(), text.rend(), [&](unsigned char c) { return !isSpace(c); }).base(), text.end());
+		return text;
+	}
+
+	std::string Lower(std::string text)
+	{
+		std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		return text;
+	}
+
+	std::vector<std::string> ParseNames(const std::string& text)
+	{
+		std::vector<std::string> names;
+		std::stringstream input(text);
+		std::string token;
+		while (std::getline(input, token, ','))
+			names.push_back(token);
+		if (!text.empty() && text.back() == ',')
+			names.emplace_back();
+		if (names.empty())
+			throw std::runtime_error("--botbench-bot-names must not be empty");
+		return names;
+	}
+
 	std::vector<int> ParseSkills(const std::string& text)
 	{
 		std::vector<int> skills;
@@ -93,6 +138,18 @@ namespace
 			if (i != 0)
 				out << ',';
 			out << skills[i];
+		}
+		return out.str();
+	}
+
+	std::string JoinNames(const std::vector<std::string>& names)
+	{
+		std::ostringstream out;
+		for (size_t i = 0; i < names.size(); i++)
+		{
+			if (i != 0)
+				out << ',';
+			out << names[i];
 		}
 		return out.str();
 	}
@@ -379,6 +436,7 @@ BotBenchmarkConfig BotBenchmark::LoadConfig(const CommandLine& commandLine)
 		config.OutputDirectory = JsonString(root["output"], config.OutputDirectory);
 		config.URL = JsonString(root["url"], config.URL);
 		config.BotName = JsonString(root["bot_name"], config.BotName);
+		config.BotNames = JsonNames(root["bot_names"]);
 		config.FixtureId = JsonString(root["fixture_id"], config.FixtureId);
 		config.Seed = JsonUInt64(root["seed"], config.Seed);
 		config.MaxTicks = JsonUInt64(root["ticks"], config.MaxTicks);
@@ -401,6 +459,8 @@ BotBenchmarkConfig BotBenchmark::LoadConfig(const CommandLine& commandLine)
 		config.URL = commandLine.GetArg("", "--botbench-url");
 	if (commandLine.HasArg("", "--botbench-bot-name"))
 		config.BotName = commandLine.GetArg("", "--botbench-bot-name");
+	if (commandLine.HasArg("", "--botbench-bot-names"))
+		config.BotNames = ParseNames(commandLine.GetArg("", "--botbench-bot-names"));
 	if (commandLine.HasArg("", "--botbench-fixture"))
 		config.FixtureId = commandLine.GetArg("", "--botbench-fixture");
 	if (commandLine.HasArg("", "--botbench-seed"))
@@ -443,6 +503,22 @@ BotBenchmarkConfig BotBenchmark::LoadConfig(const CommandLine& commandLine)
 		if (skill < 0 || skill > 7)
 			throw std::runtime_error("--botbench-skills entries must be in [0, 7]");
 	}
+	if (!config.BotNames.empty())
+	{
+		if (config.BotNames.size() != static_cast<size_t>(config.BotCount))
+			throw std::runtime_error("--botbench-bot-names entry count must match the requested bot count");
+		std::set<std::string> normalizedNames;
+		for (std::string& name : config.BotNames)
+		{
+			name = Trim(name);
+			if (name.empty())
+				throw std::runtime_error("--botbench-bot-names contains an empty entry");
+			if (name.find(',') != std::string::npos || name.find('"') != std::string::npos)
+				throw std::runtime_error("--botbench-bot-names entries must not contain comma or double-quote characters");
+			if (!normalizedNames.insert(Lower(name)).second)
+				throw std::runtime_error("--botbench-bot-names entries must be unique case-insensitively");
+		}
+	}
 
 	return config;
 }
@@ -469,6 +545,7 @@ void BotBenchmark::OpenOutput()
 		{ "requested_skills", JoinSkills(requestedSkills) },
 		{ "bots", ToString(Config.BotCount) },
 		{ "bot_name", Config.BotName },
+		{ "requested_bot_names", JoinNames(Config.BotNames) },
 		{ "fixture_id", Config.FixtureId },
 		{ "url", Config.URL }
 	});
@@ -484,6 +561,8 @@ void BotBenchmark::Initialize(Engine& engine)
 		? std::vector<int>(static_cast<size_t>(Config.BotCount), Config.Difficulty)
 		: Config.BotSkills;
 	HashCanonical("requested_skills=" + JoinSkills(requestedSkills) + "\n");
+	if (!Config.BotNames.empty())
+		HashCanonical("requested_bot_names=" + JoinNames(Config.BotNames) + "\n");
 	if (!ValidateViewportSpectator(engine))
 		return;
 	ConfigureBots(engine);
@@ -1057,8 +1136,9 @@ void BotBenchmark::ConfigureBots(Engine& engine)
 	const std::vector<int> requestedSkills = Config.BotSkills.empty()
 		? std::vector<int>(static_cast<size_t>(Config.BotCount), Config.Difficulty)
 		: Config.BotSkills;
+	const std::string botConfigClass = UObject::GetUClassFullName(botConfig).ToString();
 	WriteEvent("bot_configured", {
-		{ "class", UObject::GetUClassFullName(botConfig).ToString() },
+		{ "class", botConfigClass },
 		{ "difficulty", ToString(Config.Difficulty) },
 		{ "requested_skills", JoinSkills(requestedSkills) },
 		{ "auto_adjust", "false" },
@@ -1077,10 +1157,8 @@ void BotBenchmark::ConfigureBots(Engine& engine)
 	{
 		const int requestedSkill = requestedSkills[index];
 		botConfig->SetInt("Difficulty", static_cast<uint32_t>(requestedSkill));
-
-		bool namedCommandAvailable = false;
-		if (index == 0 && !Config.BotName.empty())
-			namedCommandAvailable = engine.ExecCommand({ "AddBotNamed", Config.BotName });
+		const bool explicitProfile = !Config.BotNames.empty();
+		const std::string requestedProfileName = explicitProfile ? Config.BotNames[index] : std::string();
 
 		auto findNewBots = [&]()
 		{
@@ -1094,8 +1172,25 @@ void BotBenchmark::ConfigureBots(Engine& engine)
 			return result;
 		};
 
+		bool namedCommandAvailable = false;
+		bool forceAddBotReturned = false;
+		if (explicitProfile)
+		{
+			if (!botConfig->HasProperty("DesiredName"))
+			{
+				FailureReason = "BotConfig has no DesiredName property required for explicit bot profiles";
+				ExitCode = 2;
+				WriteEvent("setup_error", { { "reason", FailureReason } });
+				return;
+			}
+			botConfig->SetString("DesiredName", requestedProfileName);
+			forceAddBotReturned = CallEvent(engine.GameInfo, "ForceAddBot").ToBool();
+		}
+		else if (index == 0 && !Config.BotName.empty())
+			namedCommandAvailable = engine.ExecCommand({ "AddBotNamed", Config.BotName });
+
 		std::vector<UPawn*> newBots = findNewBots();
-		if (newBots.empty())
+		if (newBots.empty() && !explicitProfile)
 		{
 			if (index == 0 && !Config.BotName.empty() && !namedCommandAvailable)
 				WriteEvent("setup_warning", { { "reason", "AddBotNamed exec function was not found" } });
@@ -1122,12 +1217,33 @@ void BotBenchmark::ConfigureBots(Engine& engine)
 		}
 
 		UPawn* spawned = newBots.front();
+		std::string actualProfileName;
+		if (UPlayerReplicationInfo* pri = spawned->PlayerReplicationInfo())
+			actualProfileName = pri->PlayerName();
+		if (explicitProfile && Lower(actualProfileName) != Lower(requestedProfileName))
+		{
+			FailureReason = "Explicit bot profile did not spawn with the requested player name";
+			ExitCode = 2;
+			WriteEvent("setup_error", {
+				{ "reason", FailureReason },
+				{ "roster_index", ToString(static_cast<int>(index)) },
+				{ "requested_profile_name", requestedProfileName },
+				{ "actual_profile_name", actualProfileName },
+				{ "force_add_bot_returned", forceAddBotReturned ? "true" : "false" }
+			});
+			return;
+		}
+		const std::string profileId = explicitProfile
+			? botConfigClass + "|name=" + actualProfileName
+			: std::string();
 		// ChallengeBotInfo adds per-profile BotSkills while individualizing. Call
 		// the stock Bot.InitializeSkill function after spawn so a benchmark's
 		// requested external 0..7 tier is exact rather than profile-dependent.
 		CallEvent(spawned, "InitializeSkill", { ExpressionValue::FloatValue(static_cast<float>(requestedSkill)) });
 		const std::string identity = PawnIdentity(spawned);
 		RequestedSkillByIdentity[identity] = requestedSkill;
+		RosterIndexByIdentity[identity] = static_cast<int>(index);
+		ProfileIdByIdentity[identity] = profileId;
 		existingBots.insert(spawned);
 
 		const bool expectedNovice = requestedSkill < 4;
@@ -1137,8 +1253,14 @@ void BotBenchmark::ConfigureBots(Engine& engine)
 		const bool mappingValid = actualNovice == expectedNovice && std::abs(actualInternalSkill - expectedInternalSkill) < 0.001f;
 		WriteEvent("bot_skill_configured", {
 			{ "index", ToString(static_cast<int>(index)) },
+			{ "roster_index", ToString(static_cast<int>(index)) },
 			{ "identity", identity },
 			{ "actor", ObjectName(spawned) },
+			{ "requested_profile_name", requestedProfileName },
+			{ "actual_profile_name", actualProfileName },
+			{ "bot_config_class", botConfigClass },
+			{ "profile_id", profileId },
+			{ "force_add_bot_returned", forceAddBotReturned ? "true" : "false" },
 			{ "requested_external_skill", ToString(requestedSkill) },
 			{ "expected_novice", expectedNovice ? "true" : "false" },
 			{ "expected_internal_skill", ToString(expectedInternalSkill) },
@@ -1183,6 +1305,12 @@ BotBenchmark::PawnSnapshot BotBenchmark::Capture(UPawn* pawn) const
 	auto requestedSkill = RequestedSkillByIdentity.find(snapshot.Identity);
 	if (requestedSkill != RequestedSkillByIdentity.end())
 		snapshot.RequestedSkill = requestedSkill->second;
+	auto rosterIndex = RosterIndexByIdentity.find(snapshot.Identity);
+	if (rosterIndex != RosterIndexByIdentity.end())
+		snapshot.RosterIndex = rosterIndex->second;
+	auto profileId = ProfileIdByIdentity.find(snapshot.Identity);
+	if (profileId != ProfileIdByIdentity.end())
+		snapshot.ProfileId = profileId->second;
 	snapshot.ClassName = UObject::GetUClassFullName(pawn).ToString();
 	snapshot.State = pawn->GetStateName().ToString();
 	snapshot.LatentAction = pawn->StateFrame ? LatentActionName(pawn->StateFrame->LatentState) : "None";
@@ -1391,6 +1519,12 @@ BotBenchmark::BotTelemetry& BotBenchmark::TelemetryForPawn(UPawn* pawn)
 		auto requested = RequestedSkillByIdentity.find(identity);
 		if (requested != RequestedSkillByIdentity.end())
 			telemetry.RequestedSkill = requested->second;
+		auto rosterIndex = RosterIndexByIdentity.find(identity);
+		if (rosterIndex != RosterIndexByIdentity.end())
+			telemetry.RosterIndex = rosterIndex->second;
+		auto profileId = ProfileIdByIdentity.find(identity);
+		if (profileId != ProfileIdByIdentity.end())
+			telemetry.ProfileId = profileId->second;
 	}
 	return telemetry;
 }
@@ -1800,6 +1934,10 @@ void BotBenchmark::WriteSummary(Engine* engine, const std::string& status, const
 	for (int skill : requestedSkills)
 		requestedSkillValues.items().push_back(JsonValue::number(skill));
 	summary["requested_skills"] = std::move(requestedSkillValues);
+	JsonValue requestedBotNames = JsonValue::array();
+	for (const std::string& name : Config.BotNames)
+		requestedBotNames.items().push_back(JsonValue::string(name));
+	summary["requested_bot_names"] = std::move(requestedBotNames);
 	summary["skill_mode"].set_string(Config.BotSkills.empty() ? "uniform" : "per_bot");
 	summary["maximum_observed_bots"].set_number(MaximumObservedBots);
 	summary["maximum_observed_inventory"].set_number(MaximumObservedInventory);
@@ -1851,6 +1989,8 @@ void BotBenchmark::WriteSummary(Engine* engine, const std::string& status, const
 		item["pri_deaths"].set_number(pawn.PRIDeaths);
 		item["pawn_kill_count"].set_number(pawn.PawnKillCount);
 		item["requested_external_skill"].set_number(pawn.RequestedSkill);
+		item["roster_index"].set_number(pawn.RosterIndex);
+		item["profile_id"].set_string(pawn.ProfileId);
 		item["skill"].set_number(pawn.Skill);
 		item["novice"].set_boolean(pawn.Novice);
 		item["fire_intent"].set_boolean(pawn.FireIntent);
@@ -1870,6 +2010,8 @@ void BotBenchmark::WriteSummary(Engine* engine, const std::string& status, const
 		item["player_name"].set_string(telemetry.PlayerName);
 		item["last_actor"].set_string(telemetry.LastActor);
 		item["requested_external_skill"].set_number(telemetry.RequestedSkill);
+		item["roster_index"].set_number(telemetry.RosterIndex);
+		item["profile_id"].set_string(telemetry.ProfileId);
 		item["first_observed_tick"].set_number(static_cast<double>(telemetry.FirstObservedTick));
 		if (telemetry.FirstViableWeaponTick == UINT64_MAX)
 			item["first_viable_weapon_tick"].set_null();

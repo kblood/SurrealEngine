@@ -33,6 +33,10 @@ param(
 
     [string] $BotName = 'Loque',
 
+    [string] $CandidateBotName = '',
+
+    [string] $OpponentBotName = 'Tamerlane',
+
     [string] $FixtureId = ''
 )
 
@@ -168,8 +172,19 @@ if ($normalizedSeeds.Count -eq 0) {
     throw 'At least one seed is required.'
 }
 
-if ([string]::IsNullOrWhiteSpace($BotName) -or $BotName.Contains('"')) {
-    throw 'BotName must not be empty or contain a double quote.'
+if ([string]::IsNullOrWhiteSpace($CandidateBotName)) {
+    $CandidateBotName = $BotName
+}
+$CandidateBotName = $CandidateBotName.Trim()
+$OpponentBotName = $OpponentBotName.Trim()
+$profileNamesToValidate = if ($OpponentSkill -ge 0) { @($CandidateBotName, $OpponentBotName) } else { @($CandidateBotName) }
+foreach ($profileName in $profileNamesToValidate) {
+    if ([string]::IsNullOrWhiteSpace($profileName) -or $profileName.Contains('"') -or $profileName.Contains(',')) {
+        throw 'Bot profile names must not be empty or contain comma or double-quote characters.'
+    }
+}
+if ($OpponentSkill -ge 0 -and $CandidateBotName.Equals($OpponentBotName, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'CandidateBotName and OpponentBotName must be distinct case-insensitively.'
 }
 
 $normalizedFixtureId = $FixtureId.Trim()
@@ -224,7 +239,6 @@ foreach ($map in $normalizedMaps) {
                     "--botbench=$scenario",
                     "--botbench-output=$runDirectory",
                     "--botbench-url=$url",
-                    "--botbench-bot-name=$BotName",
                     "--botbench-seed=$seed",
                     "--botbench-ticks=$ticks",
                     "--botbench-fixed-delta=$fixedDeltaText",
@@ -232,6 +246,10 @@ foreach ($map in $normalizedMaps) {
                 )
                 if ($OpponentSkill -ge 0) {
                     $argumentValues += "--botbench-skills=$skill,$OpponentSkill"
+                    $argumentValues += "--botbench-bot-names=$CandidateBotName,$OpponentBotName"
+                }
+                else {
+                    $argumentValues += "--botbench-bot-name=$CandidateBotName"
                 }
                 if ($normalizedFixtureId.Length -gt 0) {
                     $argumentValues += "--botbench-fixture=$normalizedFixtureId"
@@ -362,6 +380,10 @@ foreach ($map in $normalizedMaps) {
 				$candidateDeathAdvantage = $null
 				$candidateDamageDealtExact = $null
 				$opponentDamageDealtExact = $null
+				$candidateProfileId = $null
+				$opponentProfileId = $null
+				$candidateProfileName = $null
+				$opponentProfileName = $null
 
                 if ($null -ne $summary) {
                     $summaryStatus = [string] $summary.status
@@ -407,17 +429,35 @@ foreach ($map in $normalizedMaps) {
 						$priDeathsTotal = ($metricRows | Measure-Object -Property maximum_pri_deaths -Sum).Sum
 						$noProgressSecondsTotal = ($metricRows | Measure-Object -Property no_progress_seconds_proxy -Sum).Sum
 						$stuckEventsTotal = ($metricRows | Measure-Object -Property stuck_events_proxy -Sum).Sum
-						if ($OpponentSkill -ge 0 -and $metricRows.Count -eq 2) {
-							$candidateScore = $metricRows[0].last_score
-							$opponentScore = $metricRows[1].last_score
-							$candidateDeaths = $metricRows[0].maximum_pri_deaths
-							$opponentDeaths = $metricRows[1].maximum_pri_deaths
-							$candidateFirstWeaponTick = $metricRows[0].first_nonstarter_weapon_tick
-							$opponentFirstWeaponTick = $metricRows[1].first_nonstarter_weapon_tick
-							$candidateScoreMargin = [double]$candidateScore - [double]$opponentScore
-							$candidateDeathAdvantage = [double]$opponentDeaths - [double]$candidateDeaths
-							$candidateDamageDealtExact = $metricRows[0].damage_dealt_exact
-							$opponentDamageDealtExact = $metricRows[1].damage_dealt_exact
+						if ($OpponentSkill -ge 0) {
+							$candidateRows = @($metricRows | Where-Object { [int]$_.roster_index -eq 0 })
+							$opponentRows = @($metricRows | Where-Object { [int]$_.roster_index -eq 1 })
+							if ($candidateRows.Count -ne 1 -or $opponentRows.Count -ne 1) {
+								Add-ValidationError $validationErrors "Mixed-skill metrics did not contain exactly one row for roster indexes 0 and 1."
+							}
+							else {
+							$candidateMetric = $candidateRows[0]
+							$opponentMetric = $opponentRows[0]
+							$candidateProfileId = [string]$candidateMetric.profile_id
+							$opponentProfileId = [string]$opponentMetric.profile_id
+							$candidateProfileName = [string]$candidateMetric.player_name
+							$opponentProfileName = [string]$opponentMetric.player_name
+							if ([int]$candidateMetric.requested_external_skill -ne $skill) { Add-ValidationError $validationErrors 'Candidate metric skill did not match.' }
+							if ([int]$opponentMetric.requested_external_skill -ne $OpponentSkill) { Add-ValidationError $validationErrors 'Opponent metric skill did not match.' }
+							if (-not $candidateProfileName.Equals($CandidateBotName, [StringComparison]::OrdinalIgnoreCase)) { Add-ValidationError $validationErrors "Candidate profile '$candidateProfileName' did not match '$CandidateBotName'." }
+							if (-not $opponentProfileName.Equals($OpponentBotName, [StringComparison]::OrdinalIgnoreCase)) { Add-ValidationError $validationErrors "Opponent profile '$opponentProfileName' did not match '$OpponentBotName'." }
+							if ([string]::IsNullOrWhiteSpace($candidateProfileId) -or [string]::IsNullOrWhiteSpace($opponentProfileId) -or $candidateProfileId -eq $opponentProfileId) { Add-ValidationError $validationErrors 'Mixed-skill profile IDs were missing or not unique.' }
+							$candidateScore = $candidateMetric.last_score
+							$opponentScore = $opponentMetric.last_score
+							$candidateDeaths = $candidateMetric.maximum_pri_deaths
+							$opponentDeaths = $opponentMetric.maximum_pri_deaths
+							$candidateFirstWeaponTick = $candidateMetric.first_nonstarter_weapon_tick
+							$opponentFirstWeaponTick = $opponentMetric.first_nonstarter_weapon_tick
+							$candidateScoreMargin = [int]$candidateScore - [int]$opponentScore
+							$candidateDeathAdvantage = [int]$opponentDeaths - [int]$candidateDeaths
+							$candidateDamageDealtExact = $candidateMetric.damage_dealt_exact
+							$opponentDamageDealtExact = $opponentMetric.damage_dealt_exact
+							}
 						}
 					}
 
@@ -439,6 +479,11 @@ foreach ($map in $normalizedMaps) {
                     $expectedSkills = if ($OpponentSkill -ge 0) { "$skill,$OpponentSkill" } else { (@(1..$Bots | ForEach-Object { $skill }) -join ',') }
                     $actualSkills = (@($summary.requested_skills) -join ',')
                     if ($actualSkills -ne $expectedSkills) { Add-ValidationError $validationErrors "Summary skills '$actualSkills' did not match '$expectedSkills'." }
+                    if ($OpponentSkill -ge 0) {
+                        $actualNames = (@($summary.requested_bot_names) -join ',')
+                        $expectedNames = "$CandidateBotName,$OpponentBotName"
+                        if ($actualNames -ne $expectedNames) { Add-ValidationError $validationErrors "Summary bot names '$actualNames' did not match '$expectedNames'." }
+                    }
                     if ($normalizedFixtureId.Length -gt 0) {
                         if ([UInt64] $summary.ticks -eq 0 -or [UInt64] $summary.ticks -gt $ticks) { Add-ValidationError $validationErrors "Fixture summary ticks '$($summary.ticks)' were outside 1..$ticks." }
                     }
@@ -460,7 +505,7 @@ foreach ($map in $normalizedMaps) {
                     fixture_status = if ($null -ne $summary) { [string] $summary.fixture.status } else { '' }
                     fixture_assertions_total = if ($null -ne $summary) { $summary.fixture.assertions_total } else { $null }
                     fixture_assertions_failed = if ($null -ne $summary) { $summary.fixture.assertions_failed } else { $null }
-                    fixed_delta = $fixedDeltaText
+                    fixed_delta = $FixedDelta
                     process_result = $processResult
                     exit_code = $processExitCode
                     summary_status = $summaryStatus
@@ -478,30 +523,34 @@ foreach ($map in $normalizedMaps) {
 					damage_dealt_exact_total = $damageDealtExactTotal
 					damage_taken_exact_total = $damageTakenExactTotal
 					self_damage_exact_total = $selfDamageExactTotal
-					fatal_damage_kills_exact_total = $fatalDamageKillsExactTotal
-					fatal_damage_deaths_exact_total = $fatalDamageDeathsExactTotal
-					hitscan_shots_total = $hitscanShotsTotal
-					hitscan_hits_total = $hitscanHitsTotal
+					fatal_damage_kills_exact_total = if ($null -ne $fatalDamageKillsExactTotal) { [int]$fatalDamageKillsExactTotal } else { $null }
+					fatal_damage_deaths_exact_total = if ($null -ne $fatalDamageDeathsExactTotal) { [int]$fatalDamageDeathsExactTotal } else { $null }
+					hitscan_shots_total = if ($null -ne $hitscanShotsTotal) { [int]$hitscanShotsTotal } else { $null }
+					hitscan_hits_total = if ($null -ne $hitscanHitsTotal) { [int]$hitscanHitsTotal } else { $null }
 					hitscan_accuracy = $hitscanAccuracy
-					projectile_launches_total = $projectileLaunchesTotal
-					projectile_hits_finalized_total = $projectileHitsFinalizedTotal
-					projectile_misses_finalized_total = $projectileMissesFinalizedTotal
+					projectile_launches_total = if ($null -ne $projectileLaunchesTotal) { [int]$projectileLaunchesTotal } else { $null }
+					projectile_hits_finalized_total = if ($null -ne $projectileHitsFinalizedTotal) { [int]$projectileHitsFinalizedTotal } else { $null }
+					projectile_misses_finalized_total = if ($null -ne $projectileMissesFinalizedTotal) { [int]$projectileMissesFinalizedTotal } else { $null }
 					projectile_finalized_accuracy = $projectileFinalizedAccuracy
 					firing_intent_seconds_total = $firingIntentSecondsTotal
-					final_score_total = $scoreTotal
-					pri_deaths_total = $priDeathsTotal
+					final_score_total = if ($null -ne $scoreTotal) { [int]$scoreTotal } else { $null }
+					pri_deaths_total = if ($null -ne $priDeathsTotal) { [int]$priDeathsTotal } else { $null }
 					no_progress_seconds_proxy_total = $noProgressSecondsTotal
-					stuck_events_proxy_total = $stuckEventsTotal
-					candidate_score = $candidateScore
-					opponent_score = $opponentScore
-					candidate_deaths = $candidateDeaths
-					opponent_deaths = $opponentDeaths
+					stuck_events_proxy_total = if ($null -ne $stuckEventsTotal) { [int]$stuckEventsTotal } else { $null }
+					candidate_score = if ($null -ne $candidateScore) { [int]$candidateScore } else { $null }
+					opponent_score = if ($null -ne $opponentScore) { [int]$opponentScore } else { $null }
+					candidate_deaths = if ($null -ne $candidateDeaths) { [int]$candidateDeaths } else { $null }
+					opponent_deaths = if ($null -ne $opponentDeaths) { [int]$opponentDeaths } else { $null }
 					candidate_first_nonstarter_weapon_tick = $candidateFirstWeaponTick
 					opponent_first_nonstarter_weapon_tick = $opponentFirstWeaponTick
 					candidate_score_margin = $candidateScoreMargin
 					candidate_death_advantage = $candidateDeathAdvantage
 					candidate_damage_dealt_exact = $candidateDamageDealtExact
 					opponent_damage_dealt_exact = $opponentDamageDealtExact
+					candidate_profile_id = $candidateProfileId
+					opponent_profile_id = $opponentProfileId
+					candidate_profile_name = $candidateProfileName
+					opponent_profile_name = $opponentProfileName
                     observed_bot_movement = $observedMovement
                     observed_live_bot = $observedLiveBot
                     final_bot_states = $finalStates
@@ -532,6 +581,10 @@ foreach ($group in ($runRows | Group-Object case_id)) {
         map = $first.map
         skill = $first.skill
         opponent_skill = $first.opponent_skill
+        candidate_profile_id = $first.candidate_profile_id
+        opponent_profile_id = $first.opponent_profile_id
+        candidate_profile_name = $first.candidate_profile_name
+        opponent_profile_name = $first.opponent_profile_name
         fixture_id = $first.fixture_id
         seed = $first.seed
         expected_runs = $RunsPerCase
@@ -545,6 +598,14 @@ foreach ($group in ($runRows | Group-Object case_id)) {
 $failedRuns = @($runRows | Where-Object { -not $_.valid }).Count
 $failedCases = @($caseRows | Where-Object { -not $_.deterministic }).Count
 $overallPassed = $failedRuns -eq 0 -and $failedCases -eq 0
+$candidateProfileIds = @($runRows | Where-Object { $_.candidate_profile_id } | Select-Object -ExpandProperty candidate_profile_id -Unique)
+$opponentProfileIds = @($runRows | Where-Object { $_.opponent_profile_id } | Select-Object -ExpandProperty opponent_profile_id -Unique)
+$candidateProfileNames = @($runRows | Where-Object { $_.candidate_profile_name } | Select-Object -ExpandProperty candidate_profile_name -Unique)
+$opponentProfileNames = @($runRows | Where-Object { $_.opponent_profile_name } | Select-Object -ExpandProperty opponent_profile_name -Unique)
+$matrixCandidateProfileId = if ($candidateProfileIds.Count -eq 1) { $candidateProfileIds[0] } else { $null }
+$matrixOpponentProfileId = if ($opponentProfileIds.Count -eq 1) { $opponentProfileIds[0] } else { $null }
+$matrixCandidateProfileName = if ($candidateProfileNames.Count -eq 1) { $candidateProfileNames[0] } else { $null }
+$matrixOpponentProfileName = if ($opponentProfileNames.Count -eq 1) { $opponentProfileNames[0] } else { $null }
 
 $runCsvPath = Join-Path $batchRoot 'matrix-runs.csv'
 $caseCsvPath = Join-Path $batchRoot 'matrix-cases.csv'
@@ -570,7 +631,11 @@ $result = [PSCustomObject] [ordered] @{
         fixed_delta = $FixedDelta
         ticks = $ticks
         timeout_seconds = $TimeoutSeconds
-        bot_name = $BotName
+        bot_name = $CandidateBotName
+        candidate_profile_name = $matrixCandidateProfileName
+        opponent_profile_name = $matrixOpponentProfileName
+        candidate_profile_id = $matrixCandidateProfileId
+        opponent_profile_id = $matrixOpponentProfileId
         fixture_id = $normalizedFixtureId
     }
     totals = [PSCustomObject] [ordered] @{

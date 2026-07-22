@@ -221,16 +221,41 @@ clusters from its binomial denominator, and Holm-adjusts only the tier pairs in
 that manifest. Score ties still contribute 0.5 to reported superiority. Current
 matrix rows expose participant score/death/damage and acquisition timing but
 only aggregate shot/projectile exposures, so the tool cannot attribute accuracy
-or self-damage to a tier. They also do not carry a stable second-bot personality
-identifier; role crossover balances candidate-slot bias but profile equality
-must be validated from traces or a later explicit-profile harness. The analyzer
-currently also assumes no environmental/unattributed/self-fatal residuals when
+or self-damage to a tier. Explicit mixed-skill matrices now carry both stable
+profile IDs, but still lack the full qualification protocol/content provenance.
+The analyzer currently also assumes no environmental/unattributed/self-fatal residuals when
 reconciling damage and deaths. Qualification capture must add explicit
 environmental/unattributed damage and death plus self/environmental fatal-death
 fields, and the analyzer must reconcile `taken = opponent + self + environment`,
 before real Deck16/Phobos environmental cases can qualify without a possible
 false rejection. The analyzer reports evidence; it does not implement
 sequential stopping decisions.
+
+### Stable named crossover profiles
+
+Mixed-skill matrices use fixed roster/profile roles. Candidate slot 0 is Loque
+and opponent slot 1 is Tamerlane by default; swap only their skill values
+between orientation runs. The matrix runner selects summary metrics by
+`roster_index`, validates the canonical player names/profile IDs, and writes
+`candidate_profile_id` and `opponent_profile_id` to every run, case, and matrix
+configuration:
+
+```powershell
+& .\Tools\BotBenchmark\Run-BotBenchmarkMatrix.ps1 `
+  -GameRoot 'C:\Program Files (x86)\GOG Galaxy\Games\Unreal Tournament GOTY' `
+  -OutputRoot '.\q1-7v6-higher-candidate' `
+  -EnginePath '.\build\Release\SurrealEngine.exe' `
+  -Maps 'DM-Morbias][' -Skills 7 -OpponentSkill 6 -Bots 2 `
+  -CandidateBotName Loque -OpponentBotName Tamerlane `
+  -Seeds '104729' -RunsPerCase 2 -Seconds 3 -FixedDelta (1.0/60.0)
+```
+
+Run the lower-candidate orientation with `-Skills 6 -OpponentSkill 7` while
+keeping both names in the same roster slots. Explicit names use the stock
+`BotConfig.DesiredName` + `ForceAddBot` path, must be distinct and match the bot
+count, and fail setup if the actual PRI name differs. No random-profile fallback
+is accepted. Legacy uniform and controlled-fixture runs retain the singular
+`-BotName` path for compatibility.
 
 `Validate-BotTrace.py <run-directory>` performs streaming structural checks on
 one JSONL trace. It verifies sequence/tick ordering, route cost and cache order,
