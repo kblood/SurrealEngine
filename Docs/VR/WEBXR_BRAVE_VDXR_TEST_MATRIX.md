@@ -86,13 +86,24 @@ python -B -u web/run_brave_vdxr_probe.py --preflight-only `
   --output C:\Devstuff\QuestGames\webxr-brave-vdxr-preflight.json
 ```
 
-On 2026-07-22 that preflight passed against the data-backed build in the
+An earlier 2026-07-22 preflight passed against the data-backed build in the
 installed Brave 150: secure context true, `XRGPUBinding` exposed as a function,
 engine boot true, active VDXR runtime recorded, `canAttempt: true`, no blockers,
 and native phase still correctly `idle`. This is stronger reproducible
 preflight evidence, not compositor-presentation evidence. Six deterministic
 collector tests cover URL security, forced native routing, preflight mode, and
 strict native success criteria.
+
+A later isolated-profile run at 15:09 local time deliberately recorded the
+opposite runtime state in
+`C:\Devstuff\QuestGames\webxr-brave-vdxr-preflight-20260722.json`. Brave still
+booted the engine, selected native mode, exposed `XRGPUBinding`, and used the
+configured Virtual Desktop runtime, but `isSessionSupported("immersive-vr")`
+returned false. The matching VDXR log reported
+`XR_ERROR_FORM_FACTOR_UNAVAILABLE`. This is a valid fail-closed result: no
+headset/form factor was exposed to that fresh Brave process at the time. It is
+not evidence of a native renderer failure, and it must not replace a headed run
+while the Quest is actively connected and VDXR is available.
 
 ## Result interpretation
 
