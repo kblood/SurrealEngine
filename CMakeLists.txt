@@ -53,6 +53,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Utils/StrTools.h
 	SurrealEngine/Utils/Random.cpp
 	SurrealEngine/Utils/Random.h
+	SurrealEngine/Runtime/DeterministicRuntime.cpp
+	SurrealEngine/Runtime/DeterministicRuntime.h
 	SurrealEngine/Utils/UTF16.cpp
 	SurrealEngine/Utils/UTF16.h
 	SurrealEngine/Utils/UTF8Reader.cpp
@@ -739,6 +741,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(InputCompositionTests PRIVATE SurrealEngine)
 	set_target_properties(InputCompositionTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME InputComposition COMMAND InputCompositionTests)
+
+	add_executable(DeterministicRuntimeTests
+		Tests/DeterministicRuntimeTests.cpp
+		SurrealEngine/Runtime/DeterministicRuntime.cpp
+		SurrealEngine/Utils/Random.cpp
+	)
+	target_include_directories(DeterministicRuntimeTests PRIVATE SurrealEngine)
+	set_target_properties(DeterministicRuntimeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME DeterministicRuntime COMMAND DeterministicRuntimeTests)
 endif()
 
 add_executable(SurrealEditor WIN32 MACOSX_BUNDLE ${SURREALEDITOR_SOURCES})
