@@ -400,6 +400,26 @@ context requirement. A Chromium/Brave WebXR-WebGPU experiment may expose
 accept a WebGPU projection layer. Record the readiness object and native phase
 on the next hardware attempt.
 
+The confirmed URL was the secure loopback route
+`index_webxr.html?build=build-emscripten`, but without the required
+`native-webgpu-xr=1` selector. It intentionally selected the lifecycle-only
+harness: desktop play was expected, while SurrealEngine game-frame headset
+presentation was impossible. Commit `b3f75229` adds a prominent
+query-preserving **Open Native VR mode** link and names Brave's tested
+`WebXRWebGPUBinding,WebXRLayers` features in the missing-binding action. This
+prevents the route mistake without weakening the physical pass criteria.
+
+Commit `36f3052b` also makes vertical orientation a per-projection contract
+instead of one unconditional shader correction. Engine/desktop projections
+carry an explicit `-1` WGSL Y sign; browser-owned `XRView` projections carry
+`+1`. World scenes, portals, weapon rendering, HUD/menu replay, CPU HUD
+projection, and flash draws all inherit the active convention. Native Debug,
+both Wasm builds, seven contract checks, an upright asymmetric Deck desktop
+oracle with zero GPU errors, and the full experimental stereo smoke pass.
+IWER cannot prove a compositor eye, so both Brave/VDXR eyes must still pass the
+marker/world/weapon/bottom-right-health/head-locked-HUD checks in
+`WEBXR_ORIENTATION_CONTRACT.md`.
+
 ### 9.1 Session creation
 
 The production path is separate from the IWER lifecycle path. Current status:

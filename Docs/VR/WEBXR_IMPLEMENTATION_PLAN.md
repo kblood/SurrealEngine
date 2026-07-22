@@ -1671,6 +1671,21 @@ lifecycle page and gives the missing-binding action the exact tested Brave
 feature names. The corrected URL still remains subject to the physical
 collector gate; changing the URL or flags alone is not a pass.
 
+Commit `36f3052b` closes the remaining source-level ambiguity between the
+upright desktop canvas and a browser-owned XR projection. Desktop/engine
+matrices carry an explicit `EngineProjection` convention and one `-1` WGSL Y
+sign. Decoded browser `XRView` matrices carry
+`NativeWebGPUProjectionLayer` and a `+1` sign, because they are already intended
+for direct WebGPU projection-layer submission. The convention propagates
+through world scenes, recursive portals, the weapon overlay, captured HUD/menu
+replay, CPU HUD projection, and full-screen flash; it is never inferred from
+matrix elements or browser brand. Native Debug, both Wasm builds, seven
+contract tests, the upright asymmetric Deck oracle (95 draws, zero GPU errors),
+and the full experimental packed-stereo smoke pass. This is deterministic
+wiring evidence, not compositor evidence: both Brave/VDXR eyes still need the
+asymmetric top/bottom and bottom-right-health physical check defined in
+`WEBXR_ORIENTATION_CONTRACT.md`.
+
 The launch page no longer presents the default route as playable VR. Its
 button reads **Start lifecycle-only XR test**, and the visible status explains
 that the throwaway WebGL layer exercises session/input/audio/teardown without
