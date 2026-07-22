@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#20252d">
+<title>SurrealEngine WebXR — offline</title>
+<style>
+	body { max-width: 44rem; margin: 3rem auto; padding: 0 1rem; color: #e8edf2; background: #101216; font: 16px/1.5 system-ui, sans-serif; }
+	code { color: #b8d9ff; }
+	button { padding: .5rem .8rem; }
+</style>
+</head>
+<body>
+	<h1>SurrealEngine WebXR is offline</h1>
+	<p>The redistributable launcher shell is available, but this address was not cached. Reconnect to update the application files, then try again.</p>
+	<p>Your imported UT99 files remain in this browser's private OPFS/IndexedDB storage. The service worker never reads or caches them.</p>
+	<p id="diagnostic"><code>offline-shell: network unavailable; requested page is outside the cached launcher allowlist</code></p>
+	<button type="button" onclick="location.href='./index_webxr.html?pwa=1&build=build-emscripten-nodata'">Open cached launcher</button>
+</body>
+</html>

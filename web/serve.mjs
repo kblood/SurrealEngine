@@ -20,7 +20,9 @@ const MIME = {
   '.wasm': 'application/wasm',
   '.data': 'application/octet-stream',
   '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.png':  'image/png',
+  '.svg':  'image/svg+xml; charset=utf-8',
   '.css':  'text/css; charset=utf-8',
 };
 
@@ -36,7 +38,7 @@ createServer(async (req, res) => {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
       'Cross-Origin-Resource-Policy': 'same-origin',
-      'Cache-Control': 'no-store',
+      'Cache-Control': path === '/web/service-worker.js' ? 'no-cache' : 'no-store',
     });
     res.end(body);
   } catch {

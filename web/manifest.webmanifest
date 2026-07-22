@@ -1,0 +1,33 @@
+{
+  "id": "./index_webxr.html",
+  "name": "SurrealEngine WebXR",
+  "short_name": "SurrealEngine XR",
+  "description": "A redistributable WebXR shell for running user-supplied Unreal Tournament data locally.",
+  "start_url": "./index_webxr.html?pwa=1&build=build-emscripten-nodata",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#101216",
+  "theme_color": "#20252d",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {
+      "src": "../Assets/surreal-engine-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "../Resources/surreal-engine-icon-128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "../Resources/surreal-engine-icon-256.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
