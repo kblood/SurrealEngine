@@ -5,6 +5,26 @@
 	const SCHEMA_VERSION = 1;
 	const DEFAULT_MAP = "DM-Deck16][";
 	const MAX_DIAGNOSTIC_LOGS = 40;
+	const LOADING_PHASES = Object.freeze({
+		"browser-preflight": "Checking browser WebXR and WebGPU support…",
+		"webgpu-device": "Acquiring the WebGPU device…",
+		"runtime-script": "Loading the SurrealEngine runtime…",
+		"runtime-initialized": "SurrealEngine runtime initialized.",
+		"import-data": "Waiting for validated local UT99 data…",
+		"mutable-data": "Restoring local settings, saves, and diagnostics…",
+		ready: "Local data and runtime are ready.",
+		"engine-start": "Starting the selected local game…",
+		running: "The local game is running.",
+		crashed: "Startup or runtime stopped with an error.",
+	});
+	const GAMEPAD_POLICY = Object.freeze({
+		activateButton: 0,
+		directionButtons: Object.freeze({ up: 12, down: 13, left: 14, right: 15 }),
+		axisThreshold: 0.65,
+		neutralThreshold: 0.35,
+		initialRepeatMs: 350,
+		repeatMs: 120,
+	});
 	const PRESETS = Object.freeze({
 		default: Object.freeze({
 			label: "Map default (offline)",
@@ -133,6 +153,16 @@
 		url.searchParams.set("launcher", "1");
 		url.searchParams.delete("map");
 		url.searchParams.delete("game");
+		return url.href;
+	}
+
+	function retryURL(value, mapValue) {
+		const url = new URL(value, global.location && global.location.href ? global.location.href : "http://localhost/");
+		url.searchParams.set("launcher", "1");
+		url.searchParams.delete("game");
+		const checked = validateMap(mapValue);
+		if (checked.ok) url.searchParams.set("map", checked.value);
+		else url.searchParams.delete("map");
 		return url.href;
 	}
 
@@ -281,6 +311,17 @@
 			this.selection = null;
 			this.crash = null;
 			this.launchAttempts = 0;
+			this.loadingPhase = "browser-preflight";
+			this.phaseHistory = ["browser-preflight"];
+			this.focusGeneration = 0;
+			this.inputGeneration = 0;
+			this.actionGeneration = 0;
+			this.actionPending = null;
+			this.gamepadNeutralObserved = false;
+			this.gamepadPreviousActivate = false;
+			this.gamepadPreviousDirection = null;
+			this.gamepadRepeatAt = 0;
+			this.gamepadFrameRequest = 0;
 			this.logs = [];
 			this.mapRefreshGeneration = 0;
 			this.mapPickerState = this.enabled ? "loading" : "inactive";
@@ -307,6 +348,7 @@
 			this.restartButton = this.root.querySelector("[data-launcher-restart]");
 			this.copyButton = this.root.querySelector("[data-launcher-copy]");
 			this.downloadButton = this.root.querySelector("[data-launcher-download]");
+			this.retryButton = this.root.querySelector("[data-launcher-retry]");
 			if (this.mapInput) this.mapInput.value = this.map;
 			if (this.presetInput) {
 				this.presetInput.replaceChildren();
@@ -318,6 +360,7 @@
 				}
 			}
 			if (this.startButton) this.startButton.addEventListener("click", () => this.start());
+			if (this.retryButton) this.retryButton.addEventListener("click", () => this.retry());
 			if (this.restartButton) this.restartButton.addEventListener("click", () => this.restart());
 			if (this.copyButton) this.copyButton.addEventListener("click", () => this.copyDiagnostics());
 			if (this.downloadButton) this.downloadButton.addEventListener("click", () => this.downloadDiagnostics());
@@ -333,7 +376,181 @@
 				this.initialMapError = null;
 				this.render();
 			});
+			if (this.mapInput) this.mapInput.addEventListener("keydown", event => {
+				if (event.key !== "Enter" || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
+					this.state !== "ready") return;
+				event.preventDefault();
+				this.start();
+			});
 			if (this.presetInput) this.presetInput.addEventListener("change", () => this.render());
+			if (this.enabled && typeof global.addEventListener === "function") {
+				this.onGamepadConnected = () => this._syncGamepadPolling();
+				global.addEventListener("gamepadconnected", this.onGamepadConnected);
+			}
+		}
+
+		setLoadingPhase(phase) {
+			if (!Object.prototype.hasOwnProperty.call(LOADING_PHASES, phase)) return false;
+			if (this.state === "running" || this.state === "crashed") return false;
+			this.loadingPhase = phase;
+			if (this.phaseHistory[this.phaseHistory.length - 1] !== phase) {
+				this.phaseHistory.push(phase);
+				if (this.phaseHistory.length > 16) this.phaseHistory.shift();
+			}
+			this.render();
+			return true;
+		}
+
+		_isInputInteractive() {
+			return this.enabled && !this.actionPending && (this.state === "ready" || this.state === "crashed") &&
+				this.root && !this.root.hidden;
+		}
+
+		_resetGamepadLatch() {
+			this.inputGeneration++;
+			this.gamepadNeutralObserved = false;
+			this.gamepadPreviousActivate = false;
+			this.gamepadPreviousDirection = null;
+			this.gamepadRepeatAt = 0;
+		}
+
+		_cancelGamepadPolling() {
+			if (this.gamepadFrameRequest && typeof global.cancelAnimationFrame === "function")
+				global.cancelAnimationFrame(this.gamepadFrameRequest);
+			this.gamepadFrameRequest = 0;
+		}
+
+		_syncGamepadPolling() {
+			if (!this._isInputInteractive()) {
+				this._cancelGamepadPolling();
+				return;
+			}
+			if (this.gamepadFrameRequest || typeof global.requestAnimationFrame !== "function") return;
+			const pads = safeCall(() => global.navigator && typeof global.navigator.getGamepads === "function" ?
+				Array.from(global.navigator.getGamepads() || []) : [], []);
+			if (!pads.some(pad => pad && pad.connected !== false && pad.mapping === "standard")) return;
+			const generation = this.inputGeneration;
+			const frame = timestamp => {
+				this.gamepadFrameRequest = 0;
+				if (generation !== this.inputGeneration || !this._isInputInteractive()) return;
+				const current = safeCall(() => global.navigator && typeof global.navigator.getGamepads === "function" ?
+					global.navigator.getGamepads() : [], []);
+				this.processGamepads(current, timestamp);
+				if (generation === this.inputGeneration && this._isInputInteractive())
+					this.gamepadFrameRequest = global.requestAnimationFrame(frame);
+			};
+			this.gamepadFrameRequest = global.requestAnimationFrame(frame);
+		}
+
+		_focusableControls() {
+			if (!this.root) return [];
+			return Array.from(this.root.querySelectorAll("input, select, button, [href]"))
+				.filter(control => !control.disabled && !control.hidden && !control.closest("[hidden]") &&
+					control.getAttribute("tabindex") !== "-1");
+		}
+
+		_scheduleFocus(control) {
+			if (!control || typeof control.focus !== "function") return;
+			const generation = ++this.focusGeneration;
+			Promise.resolve().then(() => {
+				if (generation === this.focusGeneration && this._isInputInteractive() &&
+					!control.disabled && !control.hidden) control.focus();
+			});
+		}
+
+		_transitionState(state, preferredFocus) {
+			this.state = state;
+			this.actionGeneration++;
+			this.actionPending = null;
+			this._resetGamepadLatch();
+			this._cancelGamepadPolling();
+			this.render();
+			if (preferredFocus) this._scheduleFocus(preferredFocus);
+			this._syncGamepadPolling();
+		}
+
+		_gamepadButton(gamepad, index) {
+			const button = gamepad && gamepad.buttons && gamepad.buttons[index];
+			return !!(button && (button.pressed || Number(button.value) >= 0.5));
+		}
+
+		_gamepadDirection(gamepad) {
+			const axes = gamepad && gamepad.axes ? gamepad.axes : [];
+			if (this._gamepadButton(gamepad, GAMEPAD_POLICY.directionButtons.up) || Number(axes[1]) <= -GAMEPAD_POLICY.axisThreshold) return "up";
+			if (this._gamepadButton(gamepad, GAMEPAD_POLICY.directionButtons.down) || Number(axes[1]) >= GAMEPAD_POLICY.axisThreshold) return "down";
+			if (this._gamepadButton(gamepad, GAMEPAD_POLICY.directionButtons.left) || Number(axes[0]) <= -GAMEPAD_POLICY.axisThreshold) return "left";
+			if (this._gamepadButton(gamepad, GAMEPAD_POLICY.directionButtons.right) || Number(axes[0]) >= GAMEPAD_POLICY.axisThreshold) return "right";
+			return null;
+		}
+
+		_gamepadIsNeutral(gamepad) {
+			const axes = gamepad && gamepad.axes ? gamepad.axes : [];
+			return !this._gamepadButton(gamepad, GAMEPAD_POLICY.activateButton) &&
+				!Object.values(GAMEPAD_POLICY.directionButtons).some(index => this._gamepadButton(gamepad, index)) &&
+				Math.abs(Number(axes[0]) || 0) < GAMEPAD_POLICY.neutralThreshold &&
+				Math.abs(Number(axes[1]) || 0) < GAMEPAD_POLICY.neutralThreshold;
+		}
+
+		_moveGamepadFocus(direction) {
+			const controls = this._focusableControls();
+			if (!controls.length) return false;
+			let index = controls.indexOf(this.root.ownerDocument.activeElement);
+			if (index < 0) index = direction === "up" ? 0 : -1;
+			index = (index + (direction === "up" ? -1 : 1) + controls.length) % controls.length;
+			controls[index].focus();
+			return true;
+		}
+
+		_adjustFocusedSelect(direction) {
+			const select = this.root && this.root.ownerDocument.activeElement;
+			if (!select || select.tagName !== "SELECT" || select.disabled) return false;
+			const options = Array.from(select.options).filter(option => !option.disabled);
+			if (!options.length) return false;
+			let index = options.indexOf(select.selectedOptions[0]);
+			if (index < 0) index = direction === "left" ? 0 : -1;
+			index = (index + (direction === "left" ? -1 : 1) + options.length) % options.length;
+			select.value = options[index].value;
+			select.dispatchEvent(new Event("input", { bubbles: true }));
+			select.dispatchEvent(new Event("change", { bubbles: true }));
+			return true;
+		}
+
+		_activateFocusedControl() {
+			const control = this.root && this.root.ownerDocument.activeElement;
+			if (!control || !this.root.contains(control) || control.disabled || control.tagName !== "BUTTON") return false;
+			control.click();
+			return true;
+		}
+
+		processGamepads(gamepads, timestamp) {
+			if (!this._isInputInteractive()) return { handled: false, reason: "inactive" };
+			const gamepad = Array.from(gamepads || []).find(candidate =>
+				candidate && candidate.connected !== false && candidate.mapping === "standard");
+			if (!gamepad) return { handled: false, reason: "no-standard-gamepad" };
+			if (!this.gamepadNeutralObserved) {
+				if (!this._gamepadIsNeutral(gamepad)) return { handled: false, reason: "awaiting-neutral" };
+				this.gamepadNeutralObserved = true;
+				return { handled: false, reason: "armed" };
+			}
+
+			const now = Number.isFinite(timestamp) ? timestamp : 0;
+			const direction = this._gamepadDirection(gamepad);
+			let handled = false;
+			if (direction && direction !== this.gamepadPreviousDirection) {
+				handled = direction === "up" || direction === "down" ?
+					this._moveGamepadFocus(direction) : this._adjustFocusedSelect(direction);
+				this.gamepadRepeatAt = now + GAMEPAD_POLICY.initialRepeatMs;
+			} else if (direction && now >= this.gamepadRepeatAt) {
+				handled = direction === "up" || direction === "down" ?
+					this._moveGamepadFocus(direction) : this._adjustFocusedSelect(direction);
+				this.gamepadRepeatAt = now + GAMEPAD_POLICY.repeatMs;
+			}
+			this.gamepadPreviousDirection = direction;
+
+			const activate = this._gamepadButton(gamepad, GAMEPAD_POLICY.activateButton);
+			if (activate && !this.gamepadPreviousActivate) handled = this._activateFocusedControl() || handled;
+			this.gamepadPreviousActivate = activate;
+			return { handled: handled, reason: handled ? "launcher-control" : "no-launcher-action" };
 		}
 
 		recordLog(line) {
@@ -373,8 +590,9 @@
 			this.dataMode = safeToken(dataMode, "ready");
 			this.pendingLaunch = launch;
 			if (this.enabled) {
-				this.state = "ready";
-				this.render();
+				this.loadingPhase = "ready";
+				if (this.phaseHistory[this.phaseHistory.length - 1] !== "ready") this.phaseHistory.push("ready");
+				this._transitionState("ready", this.mapInput);
 				this.refreshMaps();
 				return { waitingForUser: true };
 			}
@@ -403,35 +621,75 @@
 		_launch(selection) {
 			this.selection = selection;
 			this.initialMapError = null;
-			this.state = "booting";
+			this.loadingPhase = "engine-start";
+			if (this.phaseHistory[this.phaseHistory.length - 1] !== "engine-start") this.phaseHistory.push("engine-start");
 			this.launchAttempts++;
-			this.render();
+			this._transitionState("booting", null);
 			return this.pendingLaunch(selection);
 		}
 
 		engineStarted() {
-			this.state = "running";
-			this.render();
+			this.loadingPhase = "running";
+			if (this.phaseHistory[this.phaseHistory.length - 1] !== "running") this.phaseHistory.push("running");
+			this._transitionState("running", null);
 		}
 
 		recordCrash(error, phase) {
-			this.state = "crashed";
+			this.loadingPhase = "crashed";
+			if (this.phaseHistory[this.phaseHistory.length - 1] !== "crashed") this.phaseHistory.push("crashed");
 			this.crash = {
 				phase: safeToken(phase, "runtime"),
 				name: safeToken(error && error.name, "Error"),
 				message: sanitizeDiagnosticText(error && error.message ? error.message : error, 300),
 			};
 			if (typeof this.options.onCrash === "function") this.options.onCrash(Object.assign({}, this.crash));
+			this._transitionState("crashed", this.retryButton || this.restartButton);
+		}
+
+		async _navigationAction(kind, target) {
+			if (this.actionPending) return false;
+			const callback = this.options[kind];
+			if (typeof callback !== "function" && (!global.location || typeof global.location.assign !== "function"))
+				return false;
+			const generation = ++this.actionGeneration;
+			this.actionPending = kind;
+			this._resetGamepadLatch();
+			this._cancelGamepadPolling();
 			this.render();
+			try {
+				if (typeof callback === "function") await callback(target);
+				else global.location.assign(target);
+				if (generation === this.actionGeneration) {
+					this.actionPending = null;
+					this.render();
+					this._syncGamepadPolling();
+				}
+				return target;
+			} catch (_error) {
+				if (generation === this.actionGeneration) {
+					this.actionPending = null;
+					this._setActionStatus("Navigation was refused; diagnostics remain available.", true);
+					this.render();
+					this._syncGamepadPolling();
+				}
+				return false;
+			}
+		}
+
+		retry() {
+			if (this.state !== "crashed") return false;
+			const current = this.options.location && this.options.location.href ?
+				this.options.location.href : global.location.href;
+			const map = this.selection ? this.selection.map : (this.mapInput ? this.mapInput.value : this.map);
+			return this._navigationAction("retry", retryURL(current, map));
 		}
 
 		restart() {
+			if (this.state !== "running" && this.state !== "crashed") return false;
 			const current = this.options.location && this.options.location.href ?
 				this.options.location.href : global.location.href;
 			const target = restartURL(current);
-			if (typeof this.options.restart === "function") this.options.restart(target);
-			else global.location.assign(target);
-			return target;
+			return this._navigationAction("restart", target);
 		}
 
 		diagnostics() {
@@ -449,6 +707,8 @@
 					state: this.state,
 					dataMode: this.dataMode,
 					launchAttempts: this.launchAttempts,
+					loadingPhase: safeToken(this.loadingPhase, "unknown"),
+					actionPending: safeToken(this.actionPending, null),
 					map: map,
 					preset: this.selection ? this.selection.preset :
 						safeToken(this.presetInput ? this.presetInput.value : this.preset, "default"),
@@ -516,10 +776,14 @@
 			if (!this.root) return;
 			this.root.hidden = !this.enabled;
 			this.root.dataset.state = this.state;
+			this.root.setAttribute("aria-busy", String(this.state === "loading" || this.state === "booting"));
 			if (!this.enabled) return;
 			const status = this.root.querySelector("[data-launcher-status]");
 			const error = this.root.querySelector("[data-launcher-error]");
 			const mapStatus = this.root.querySelector("[data-launcher-map-status]");
+			const loading = this.root.querySelector("[data-launcher-loading]");
+			const loadingProgress = this.root.querySelector("[data-launcher-loading-progress]");
+			const loadingPhase = this.root.querySelector("[data-launcher-loading-phase]");
 			const messages = {
 				loading: "Preparing the runtime and your local game data…",
 				ready: "Local game data is ready. Choose a map and deliberately start the offline game.",
@@ -528,6 +792,10 @@
 				crashed: "The game stopped during startup or runtime. Export diagnostics before restarting.",
 			};
 			if (status) status.textContent = messages[this.state] || "Launcher is preparing.";
+			const busy = this.state === "loading" || this.state === "booting";
+			if (loading) loading.hidden = !busy;
+			if (loadingProgress) loadingProgress.hidden = !busy;
+			if (loadingPhase) loadingPhase.textContent = LOADING_PHASES[this.loadingPhase] || LOADING_PHASES["browser-preflight"];
 			const validation = this.initialMapError || validateMap(this.mapInput ? this.mapInput.value : this.map);
 			if (error) {
 				error.hidden = validation.ok !== false && this.state !== "crashed";
@@ -535,7 +803,7 @@
 					"Failure (" + this.crash.phase + "): " + this.crash.message :
 					(validation.ok === false ? validation.message : "");
 			}
-			if (this.startButton) this.startButton.disabled = this.state !== "ready" || validation.ok === false;
+			if (this.startButton) this.startButton.disabled = this.state !== "ready" || validation.ok === false || !!this.actionPending;
 			if (this.mapInput) this.mapInput.disabled = this.state !== "ready";
 			if (this.presetInput) this.presetInput.disabled = this.state !== "ready";
 			if (this.mapPicker) {
@@ -577,7 +845,18 @@
 				mapStatus.textContent = mapMessages[this.mapPickerState] || mapMessages.unavailable;
 				mapStatus.dataset.state = this.mapPickerState;
 			}
-			if (this.restartButton) this.restartButton.hidden = this.state !== "running" && this.state !== "crashed";
+			if (this.retryButton) {
+				this.retryButton.hidden = this.state !== "crashed";
+				this.retryButton.disabled = !!this.actionPending;
+				this.retryButton.textContent = this.actionPending === "retry" ? "Retrying…" : "Retry startup";
+			}
+			if (this.restartButton) {
+				this.restartButton.hidden = this.state !== "running" && this.state !== "crashed";
+				this.restartButton.disabled = !!this.actionPending;
+				this.restartButton.textContent = this.actionPending === "restart" ? "Restarting…" : "Restart to launcher";
+			}
+			if (this.copyButton) this.copyButton.disabled = !!this.actionPending;
+			if (this.downloadButton) this.downloadButton.disabled = !!this.actionPending;
 		}
 	}
 
@@ -594,6 +873,9 @@
 		buildLocalSelection,
 		normalizeMapManifest,
 		restartURL,
+		retryURL,
+		LOADING_PHASES,
+		GAMEPAD_POLICY,
 		sanitizeDiagnosticText,
 		sanitizedLogEvent,
 		create,

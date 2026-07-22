@@ -42,6 +42,10 @@
 	#webxr-browser-launcher .actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .8rem; }
 	#webxr-browser-launcher [data-launcher-error], #webxr-browser-launcher [data-error=true] { color: #b00020; font-weight: 600; }
 	#webxr-browser-launcher .scope { font-weight: 700; }
+	#webxr-browser-launcher [data-launcher-loading] { display: flex; align-items: center; gap: .65rem; margin: .6rem 0; }
+	#webxr-browser-launcher [data-launcher-loading] progress { width: min(18rem, 55vw); }
+	#webxr-browser-launcher :focus-visible { outline: 3px solid #0b66d4; outline-offset: 3px; }
+	#webxr-browser-launcher[data-state=crashed] { border-color: #b00020; }
 	@media (max-width: 42rem) { #webxr-browser-launcher .launcher-grid { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -53,27 +57,33 @@
 <section id="webxr-browser-launcher" hidden data-state="loading" aria-live="polite">
 	<h1>SurrealEngine WebXR launcher</h1>
 	<p class="scope">Offline and single-player/local bot play only. Multiplayer is unsupported in the browser MVP.</p>
-	<p data-launcher-status>Preparing the runtime and your local game data…</p>
-	<p data-launcher-error hidden role="alert"></p>
+	<p data-launcher-status role="status">Preparing the runtime and your local game data…</p>
+	<div data-launcher-loading role="status" aria-live="polite">
+		<progress data-launcher-loading-progress aria-label="Startup work in progress"></progress>
+		<span data-launcher-loading-phase>Checking browser WebXR and WebGPU support…</span>
+	</div>
+	<p data-launcher-error hidden role="alert" tabindex="-1"></p>
 	<div class="launcher-grid">
 		<label>Local map package
-			<input type="text" data-launcher-map value="DM-Deck16][" maxlength="72" autocomplete="off" spellcheck="false">
+			<input type="text" data-launcher-map value="DM-Deck16][" maxlength="72" autocomplete="off" spellcheck="false" aria-describedby="launcher-input-help">
 		</label>
 		<label>Browse compatible imported maps
-			<select data-launcher-map-picker disabled>
+			<select data-launcher-map-picker disabled aria-describedby="launcher-input-help">
 				<option value="">Map list is not ready</option>
 			</select>
 		</label>
 		<label>Local game preset
-			<select data-launcher-preset></select>
+			<select data-launcher-preset aria-describedby="launcher-input-help"></select>
 		</label>
 	</div>
 	<div class="actions">
 		<button type="button" data-launcher-map-refresh disabled>Refresh imported maps</button>
 	</div>
 	<p data-launcher-map-status role="status">Map list is waiting for validated import metadata.</p>
+	<p id="launcher-input-help"><small>Keyboard: use Tab, Shift+Tab, arrow keys, Enter, and Space. Standard gamepad before launch: D-pad or left stick moves focus, left/right changes a list, and A activates a button. B, Menu, View, and system buttons are not used.</small></p>
 	<div class="actions">
 		<button type="button" data-launcher-start disabled>Start offline game</button>
+		<button type="button" data-launcher-retry hidden>Retry startup</button>
 		<button type="button" data-launcher-restart hidden>Restart to launcher</button>
 		<button type="button" data-launcher-copy>Copy diagnostics</button>
 		<button type="button" data-launcher-download>Download diagnostics</button>
@@ -84,7 +94,8 @@
 <canvas id="canvas" width="640" height="480"></canvas>
 <button id="entervr" disabled>Enter VR</button>
 <button id="probewebgpuxr" disabled>Probe WebGPU XR</button>
-<a id="open-native-webxr" hidden>Open Native VR mode</a>
+<a id="open-native-webxr" hidden>Open Brave + Virtual Desktop/VDXR native VR test route</a>
+<p id="native-webxr-test-guidance"><small>Physical test target: Brave 150 on this PC, Virtual Desktop with Runtime set to VDXR, and Quest 3. This route selects the native WebGPU WebXR attempt with the orientation correction; it does not prove that the headset compositor presented a frame.</small></p>
 <section id="webxr-launch-readiness" data-ready="false" role="status" aria-live="polite">
 	<div class="mode">Checking WebXR launch readiness...</div>
 	<div class="summary"></div>
@@ -174,8 +185,10 @@
 		}
 	}
 	{
-		const nativeURL = new URL(location.href);
+		const nativeURL = new URL(location.pathname, location.origin);
+		nativeURL.searchParams.set("build", "build-emscripten");
 		nativeURL.searchParams.set("native-webgpu-xr", "1");
+		nativeURL.searchParams.set("orientation-fix", "1");
 		document.getElementById("open-native-webxr").href = nativeURL.href;
 	}
 	window.surrealGetWebXRLaunchReadiness = window.surrealXRGetLaunchReadiness;
@@ -201,6 +214,12 @@
 		location: window.location,
 		onCrash: function (crash) {
 			if (!window.surrealCrashed) window.surrealCrashed = crash.phase + ": " + crash.message;
+		},
+		retry: async function (target) {
+			if (window.surrealBooted && typeof window.surrealRequestQuitAndFlush === "function") {
+				try { await window.surrealRequestQuitAndFlush(); } catch (_error) {}
+			}
+			window.location.assign(target);
 		},
 		mapManifest: function () {
 			const controller = window.surrealUT99ImporterController;
@@ -415,8 +434,11 @@
 		print: appendLog,
 		printErr: appendLog,
 		onRuntimeInitialized: function () {
+			surrealLauncherController.setLoadingPhase("runtime-initialized");
 			appendLog("[harness] runtime initialized, preparing local game data");
+			surrealLauncherController.setLoadingPhase("import-data");
 			const prepareMutableData = async function () {
+				surrealLauncherController.setLoadingPhase("mutable-data");
 				try {
 					const started = await window.SurrealMutableData.start(Module, {
 						log: appendLog,
@@ -743,6 +765,7 @@
 	});
 
 	async function boot() {
+		surrealLauncherController.setLoadingPhase("browser-preflight");
 		// WebXR capability checks run independent of / before the WebGPU
 		// device request below - proves the session-lifecycle plumbing works
 		// even if the engine itself fails to boot.
@@ -755,6 +778,7 @@
 			appendLog("[harness] " + window.surrealCrashed);
 			return;
 		}
+		surrealLauncherController.setLoadingPhase("webgpu-device");
 		// M4: the device actually handed to Emscripten must come from an
 		// XR-compatible adapter. A separate successful capability probe does
 		// not make a device from a normal adapter compatible with XRGPUBinding.
@@ -780,6 +804,7 @@
 		Module.preinitializedWebGPUDevice = device;
 		document.getElementById("probewebgpuxr").disabled = !window.surrealXRGPUBindingAvailable;
 		appendLog("[harness] WebGPU device acquired, loading wasm module");
+		surrealLauncherController.setLoadingPhase("runtime-script");
 		const script = document.createElement("script");
 		script.src = "../" + surrealBuildDir + "/SurrealEngine.js";
 		script.onerror = function () {
