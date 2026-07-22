@@ -1661,6 +1661,16 @@ texture-V compensations. Deck and `UT-Logo-Map` before/after captures, the
 native Debug build, and the full packed-stereo WebXR smoke pass with zero
 WebGPU errors.
 
+The user later confirmed the exact browser and URL: Brave on the Windows PC,
+streamed through Virtual Desktop to Quest 3, at
+`index_webxr.html?build=build-emscripten`. That URL omitted the mandatory
+`native-webgpu-xr=1` production selector. It therefore explains the useful
+desktop aiming/firing result but cannot be counted as headset presentation.
+Commit `b3f75229` adds a prominent query-preserving native-mode link to the
+lifecycle page and gives the missing-binding action the exact tested Brave
+feature names. The corrected URL still remains subject to the physical
+collector gate; changing the URL or flags alone is not a pass.
+
 The launch page no longer presents the default route as playable VR. Its
 button reads **Start lifecycle-only XR test**, and the visible status explains
 that the throwaway WebGL layer exercises session/input/audio/teardown without

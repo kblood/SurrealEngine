@@ -49,6 +49,17 @@ The `native-webgpu-xr=1` parameter is mandatory for a production-presentation
 attempt. Without it the page deliberately starts only a throwaway WebGL
 lifecycle test and never displays SurrealEngine frames in the headset.
 
+The user's first reported URL was exactly
+`http://localhost:8091/web/index_webxr.html?build=build-emscripten`. Because it
+omitted that parameter, desktop play, aiming, and firing were valid engine
+evidence, but the attempt could not present those game frames in the Quest.
+Commit `b3f75229` makes this distinction harder to miss: lifecycle-only mode
+now exposes a prominent **Open Native VR mode** link that preserves all current
+query parameters, and the missing-binding blocker names Brave's tested
+`WebXRWebGPUBinding,WebXRLayers` launch features. This route correction is not
+recorded as a successful immersive session; the collector's strict running
+frame criteria still apply.
+
 ### Repeatable Playwright collector
 
 The preferred physical run uses a headed, isolated Brave profile and writes a
