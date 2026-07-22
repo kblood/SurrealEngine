@@ -1499,17 +1499,18 @@ void Engine::UpdateInput(float timeElapsed)
 	if (!viewport->Actor())
 		return;
 
-	for (auto& it : activeInputButtons)
-		viewport->Actor()->SetBool(it.first, true);
-	for (auto& it : activeInputAxes)
+	for (const auto& it : inputComposition.Buttons())
+		viewport->Actor()->SetBool(it.first, !it.second.empty());
+	for (const auto& it : inputComposition.Axes())
 	{
+		float value = inputComposition.GetAxisValue(it.first);
 		if (it.first == "aMouseX" || it.first == "aMouseY")
 		{
-			viewport->Actor()->SetFloat(it.first, it.second.Value / (timeElapsed * 150.0f));
+			viewport->Actor()->SetFloat(it.first, value / (timeElapsed * 150.0f));
 		}
 		else
 		{
-			viewport->Actor()->SetFloat(it.first, it.second.Value);
+			viewport->Actor()->SetFloat(it.first, value);
 		}
 	}
 }
@@ -1730,7 +1731,7 @@ void Engine::Key(std::string key)
 	}
 }
 
-void Engine::InputEvent(EInputKey key, EInputType type, int delta)
+void Engine::InputEvent(EInputKey key, EInputType type, float delta, InputSourceId source)
 {
 	if (Frame::RunState != FrameRunState::Running || playingAvi)
 		return;
@@ -1751,43 +1752,34 @@ void Engine::InputEvent(EInputKey key, EInputType type, int delta)
 				auto it = inputAliases.find(command);
 				if (it != inputAliases.end())
 				{
-					InputCommand(it->second, key, delta);
+					InputCommand(it->second, { source, static_cast<int32_t>(key) }, delta);
 				}
 				else
 				{
-					InputCommand(command, key, delta);
+					InputCommand(command, { source, static_cast<int32_t>(key) }, delta);
 				}
 			}
 		}
 		else if (type == EInputType::IST_Release)
 		{
-			for (auto it = activeInputButtons.begin(); it != activeInputButtons.end();)
-			{
-				if (it->second == key)
-				{
-					viewport->Actor()->SetBool(it->first, false);
-					it = activeInputButtons.erase(it);
-				}
-				else
-				{
-					++it;
-				}
-			}
-
-			for (auto it = activeInputAxes.begin(); it != activeInputAxes.end();)
-			{
-				if (it->second.Key == key)
-				{
-					viewport->Actor()->SetFloat(it->first, 0.0f);
-					it = activeInputAxes.erase(it);
-				}
-				else
-				{
-					++it;
-				}
-			}
+			ReleasedInputActions released = inputComposition.ReleaseControl({ source, static_cast<int32_t>(key) });
+			for (const std::string& action : released.Buttons)
+				viewport->Actor()->SetBool(action, false);
+			for (const std::string& action : released.Axes)
+				viewport->Actor()->SetFloat(action, 0.0f);
 		}
 	}
+}
+
+void Engine::ReleaseInputSource(InputSourceId source)
+{
+	ReleasedInputActions released = inputComposition.ReleaseSource(source);
+	if (!viewport || !viewport->Actor())
+		return;
+	for (const std::string& action : released.Buttons)
+		viewport->Actor()->SetBool(action, false);
+	for (const std::string& action : released.Axes)
+		viewport->Actor()->SetFloat(action, 0.0f);
 }
 
 bool Engine::ExecCommand(const Array<std::string>& args)
@@ -1858,7 +1850,7 @@ bool Engine::ExecCommand(const Array<std::string>& args)
 	return false;
 }
 
-void Engine::InputCommand(const std::string& commands, EInputKey key, int delta)
+void Engine::InputCommand(const std::string& commands, InputControlId control, float delta)
 {
 	for (const std::string& commandline : GetSubcommands(commands))
 	{
@@ -1870,14 +1862,14 @@ void Engine::InputCommand(const std::string& commands, EInputKey key, int delta)
 
 			if (command == "button" && args.size() == 2)
 			{
-				activeInputButtons[args[1]] = key;
+				inputComposition.SetButton(args[1], control);
 			}
 			else if (command == "axis" && args.size() == 3)
 			{
 				float speed = 1.0f;
 				if (args[2].size() > 6 && args[2].substr(0, 6) == "Speed=")
 					speed = (float)std::atof(args[2].substr(6).c_str());
-				activeInputAxes[args[1]] = { speed * delta, key };
+				inputComposition.SetAxis(args[1], control, speed * delta);
 			}
 			else
 			{
