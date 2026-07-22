@@ -152,6 +152,23 @@ window.browserAppTestPromise = (async () => {
 			Object.defineProperty(navigator, "gpu", { configurable: true, value: originalGPU });
 		}
 	});
+	await run("flat WebGPU acquisition never requests XR compatibility", async () => {
+		const originalGPU = navigator.gpu;
+		const requests = [];
+		const device = { lost: new Promise(() => {}) };
+		const adapter = { features: new Set(), async requestDevice() { return device; } };
+		Object.defineProperty(navigator, "gpu", { configurable: true, value: {
+			async requestAdapter(options) { requests.push(options); return adapter; },
+		} });
+		try {
+			assert(await api.acquireWebGPUDevice(() => {}, { xrCompatible: false }) === device);
+			assert(requests.length === 1 && requests[0] === undefined,
+				"flat mode requested an XR-compatible adapter");
+			assert(window.surrealWebGPUDeviceXRCompatible === false);
+		} finally {
+			Object.defineProperty(navigator, "gpu", { configurable: true, value: originalGPU });
+		}
+	});
 	await run("release capability checks keep flat mode independent from WebXR", async () => {
 		const platform = await SurrealBrowserRelease.detectPlatformCapabilities({
 			isSecureContext: true,

@@ -150,6 +150,12 @@ node web/serve.mjs 8113 C:\path\to\webxr\Ports\SurrealEngine
 python web/smoke_test_release_package.py --base-url=http://localhost:8113
 ```
 
+That Chrome smoke also forces every WebXR API absent, verifies a plain WebGPU
+adapter request, exercises flat canvas input/resize/fullscreen behavior, and
+retrieves the visible corresponding-source link with its recorded size and
+SHA-256. See `FLAT_BROWSER_WASM_AUDIT.md` for the evidence boundary and the
+remaining owner-data gates.
+
 ### Optional headset report
 
 The collapsed **WebXR headset diagnostics** panel is observational and does
