@@ -40,8 +40,10 @@ namespace
 
 		WebXRControllerState result = source;
 		result.Flags &= WebXRAimValid | WebXRGripValid | WebXRConnected | WebXRXRStandard;
-		result.ButtonsPressed &= 0xffu;
-		result.ButtonsTouched &= 0xffu;
+		// Preserve standard Gamepad D-pad indices 12..15 in the mask. The frame
+		// ABI's eight analog button-value slots are unchanged.
+		result.ButtonsPressed &= 0xffffu;
+		result.ButtonsTouched &= 0xffffu;
 		for (float& axis : result.Axes)
 			axis = Clamp(axis, -1.0f, 1.0f);
 		for (float& value : result.ButtonValues)
@@ -127,7 +129,7 @@ bool RunWebXRInputStateSelfTest()
 	inputs[0].SourceId = 17;
 	inputs[0].Handedness = WebXRHandRight;
 	inputs[0].Flags = WebXRConnected | WebXRXRStandard | WebXRAimValid;
-	inputs[0].ButtonsPressed = 0x101;
+	inputs[0].ButtonsPressed = 0x11001;
 	inputs[0].Axes[0] = -2.0f;
 	inputs[0].Axes[1] = 0.25f;
 	inputs[0].ButtonValues[0] = 1.5f;
@@ -155,7 +157,7 @@ bool RunWebXRInputStateSelfTest()
 	if (snapshot.FrameGeneration != 41 || snapshot.SourceCount != 2 ||
 		!snapshot.HeadPoseValid || snapshot.HeadPose.LocalForward[1] != 1.0f ||
 		snapshot.Controllers[0].SourceId != 9 || snapshot.Controllers[1].SourceId != 17 ||
-		snapshot.Controllers[1].ButtonsPressed != 1 || snapshot.Controllers[1].Axes[0] != -1.0f ||
+		snapshot.Controllers[1].ButtonsPressed != 0x1001 || snapshot.Controllers[1].Axes[0] != -1.0f ||
 		snapshot.Controllers[1].Axes[1] != 0.25f || snapshot.Controllers[1].ButtonValues[0] != 1.0f ||
 		std::abs(snapshot.Controllers[1].AimPose.Orientation[3] - 1.0f) > 0.0001f ||
 		std::abs(snapshot.Controllers[1].AimPose.LocalRight[2] + 1.0f) > 0.0001f ||

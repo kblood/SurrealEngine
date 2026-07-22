@@ -143,6 +143,20 @@ public:
 		uint32_t EffectiveMenuButton = 0;
 	};
 
+	struct WebXRMenuNavigationDiagnostics
+	{
+		bool Active = false;
+		uint32_t Direction = 0;
+		uint32_t DirectionPulseCount = 0;
+		uint32_t RepeatPulseCount = 0;
+		uint32_t ConfirmCount = 0;
+		uint32_t CancelCount = 0;
+		uint32_t SuppressedButtonEdgeCount = 0;
+		uint32_t GameplayReleaseCount = 0;
+		uint32_t SourceResetCount = 0;
+		uint32_t SourceId = 0;
+	};
+
 	struct WebXRAudioListenerDiagnostics
 	{
 		uint32_t UpdateCount = 0;
@@ -319,6 +333,7 @@ public:
 	uint64_t tickCount = 0;
 	VRInputState WebXRInput;
 	WebXRLocomotionDiagnostics WebXRLocomotion;
+	WebXRMenuNavigationDiagnostics WebXRMenuNavigation;
 	WebXRAudioListenerDiagnostics WebXRAudioListener;
 	WebXRWeaponAimDiagnostics WebXRWeaponAim;
 	WebXRHapticDiagnostics WebXRHaptics;
@@ -382,6 +397,8 @@ private:
 	void UpdateWebXRInput(float timeElapsed);
 	void InputAxisEvent(EInputKey key, float delta);
 	bool DispatchWebXRMenuPointerEvent(EInputType type);
+	bool DispatchWebXRMenuKeyEvent(EInputKey key, EInputType type);
+	void ReleaseWebXRMenuNavigationKeys();
 	void LoadWebXRInputSettings();
 	void SaveWebXRInputSettings();
 	void ApplyWebXRHudSettings();
@@ -412,6 +429,13 @@ private:
 	bool HasProcessedWebXRInput = false;
 	bool WebXRMenuPointerTriggerHeld = false;
 	int32_t WebXRMenuPointerTriggerButton = -1;
+	bool WebXRMenuNavigationActive = false;
+	bool WebXRMenuConfirmHeld = false;
+	bool WebXRMenuCancelHeld = false;
+	bool WebXRMenuActionEscapeHeld = false;
+	uint32_t WebXRMenuNavigationDirection = 0;
+	float WebXRMenuNavigationRepeatSeconds = 0.0f;
+	uint32_t WebXRMenuNavigationSourceId = 0;
 	uint32_t WebXRButtonsHeld = 0;
 	uint32_t WebXRAxesActive = 0;
 	WebXRTurnMode WebXRTurnModeSetting = WebXRTurnMode::Snap;

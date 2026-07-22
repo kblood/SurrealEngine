@@ -75,7 +75,7 @@ XRSession.requestAnimationFrame
 | M6 — native WebGPU XR session | Implementation complete; headset validation gated | Packed ABI, preferred-format pipeline families, synchronous renderer, and hardened production session/RAF lifecycle are implemented; real `XRGPUBinding` compositor presentation still requires a supported runtime |
 | M7 — tracking/camera/world scale | Deterministic implementation complete; headset validation gated | 6DoF pose conversion, body/head composition, recentering, world scale, and exact per-eye projection are implemented; physical scale and scene correctness remain to validate |
 | M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, confirmed fire/damage/pickup/menu-confirm haptics, and browser-persisted VR controls are implemented; controller-relative position/origin, per-weapon tuning, two-hand UX, fixtures, safe-exit UX, and headset validation remain |
-| M9 — UI/comfort/VR presentation | In progress | HUD plus console/menu 2D output is captured once and replayed per eye on a finite-depth plane, including UI-only frames. Dominant-hand aim drives UT's absolute cursor, and a menu-gated trigger safely selects without firing behind the menu. Strict plane settings have a validated persistent browser panel; stick/D-pad navigation, actor-style canvas draws, pointer-loss UX, recenter UX, comfort policies, complete loading/pause presentation, and headset readability remain |
+| M9 — UI/comfort/VR presentation | In progress | HUD plus console/menu 2D output is captured once and replayed per eye on a finite-depth plane, including UI-only frames. Dominant-hand aim drives UT's absolute cursor, a menu-gated trigger safely selects without firing behind the menu, and stick/D-pad focus navigation now routes through stock console key events while suppressing gameplay input. Strict plane settings have a validated persistent browser panel; actor-style canvas draws, pointer-loss UX, recenter UX, comfort policies, complete loading/pause presentation, and headset readability remain |
 | M10 — audio/data/network/deploy | In progress | Real Web Audio output, tracked-head listener, no-data builds, local OPFS/IndexedDB UT99 import, allowlisted mutable settings/save/log persistence, an installable PWA, an offline-only browser MVP scope, and fail-closed release staging/auditing are implemented; real full-install import, abrupt-termination/storage tests, fuller launcher UX, production HTTPS/Quest installation, and physical audio/storage validation remain |
 | M11 — performance/robustness/release | In progress | Automated session/lifecycle/device-loss coverage and a reproducible 83-check no-commercial-data release gate exist; Quest profiling, headset lifecycle, compatibility, soak, and physical release gates remain |
 
@@ -861,9 +861,46 @@ applies settings transactionally with native rollback on rejection, and stores
 only a complete schema-v1 profile in `localStorage`. Eight settings tests pass;
 the full browser smoke also validates the ready status and native defaults.
 
-Stick/D-pad focus navigation, pointer-loss visuals, cursor hotspot calibration,
-unsupported actor draws, and physical Quest ray/selection validation remain
-open.
+The next clean-room input slice adds controller focus navigation without
+changing `bShowMenu` or forcing console state. A read-only screen-UI predicate
+accepts either the local `PlayerPawn.bShowMenu` flag or the console's stock
+`UWindow` state; unlike ray clicks, it does not require a visible/available
+mouse cursor. The stricter cursor predicate remains exclusive to trigger-to-
+`LeftMouse` routing.
+
+While screen UI owns input, either stick produces digital arrow-key pulses
+through `Console.KeyEvent`: the first pulse is immediate, repeat starts after
+350 ms, and continues every 100 ms. The existing browser normalization turns
+Gamepad negative-Y/up into engine positive-Y/up before this classification.
+Standard Gamepad D-pad mask indices 12–15 are also retained end-to-end without
+changing the eight-value analog ABI or its record size. Dominant face-primary
+(A) maps to Enter; dominant face-secondary (B) and the configured unbound Menu
+action map to Escape. Dominant trigger remains the existing pointer `LeftMouse`
+route when the ray/cursor predicate is satisfied, so A/Enter cannot conflict
+with pointer selection.
+
+Menu entry releases held Joy button/axis and synthetic Escape bindings, then
+suppresses all ordinary XR Joy fallthrough, movement, turning, and fire while
+UI ownership remains active. Enter/Escape capture and repeat state are released
+on menu loss, dominant source/tracking changes, empty session snapshots, and
+session re-entry. Diagnostics expose active/direction state, initial/repeat
+pulses, accepted confirms/cancels, suppressed button edges, gameplay releases,
+and source resets. The locomotion self-test now covers screen-UI classification,
+engage/release hysteresis, Y sign, D-pad precedence/conflict, initial timing,
+repeat timing, and key mapping; the input-state test covers preservation of
+D-pad mask bits.
+
+The isolated native Debug, fresh no-data Emscripten, and rebuilt data-backed
+Emscripten targets pass. The ordinary IWER lifecycle smoke passes, including
+the updated 38/38 copied-input collector fixture. The full data-backed
+experimental smoke also passes packed stereo, settings, HUD/menu, audio,
+lifecycle, and device-loss checks with 189 draws, 1,178 differing eye samples,
+and all nine new navigation exports readable at their expected inactive zero
+state. A no-data experimental attempt correctly remained at its importer gate;
+it is not a valid engine-diagnostic fixture. Physical Quest menu operability,
+controller-profile confirmation, active-menu counter behavior, repeat-timing
+feel, pointer-loss visuals, cursor hotspot calibration, unsupported actor draws,
+and ray/selection validation remain open.
 
 ### 12.2 First-person weapon
 

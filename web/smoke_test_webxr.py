@@ -359,6 +359,15 @@ def main():
                 menuPointerValid: Module.ccall('Surreal_GetWebXRMenuPointerValid', 'number', [], []),
                 menuPointer: [Module.ccall('Surreal_GetWebXRMenuPointerX', 'number', [], []),
                     Module.ccall('Surreal_GetWebXRMenuPointerY', 'number', [], [])],
+				menuNavigationActive: Module.ccall('Surreal_GetWebXRMenuNavigationActive', 'number', [], []),
+				menuNavigationDirection: Module.ccall('Surreal_GetWebXRMenuNavigationDirection', 'number', [], []),
+				menuNavigationPulses: Module.ccall('Surreal_GetWebXRMenuNavigationPulseCount', 'number', [], []),
+				menuNavigationRepeats: Module.ccall('Surreal_GetWebXRMenuNavigationRepeatCount', 'number', [], []),
+				menuNavigationConfirms: Module.ccall('Surreal_GetWebXRMenuNavigationConfirmCount', 'number', [], []),
+				menuNavigationCancels: Module.ccall('Surreal_GetWebXRMenuNavigationCancelCount', 'number', [], []),
+				menuNavigationSuppressedEdges: Module.ccall('Surreal_GetWebXRMenuNavigationSuppressedEdgeCount', 'number', [], []),
+				menuNavigationGameplayReleases: Module.ccall('Surreal_GetWebXRMenuNavigationGameplayReleaseCount', 'number', [], []),
+				menuNavigationSourceResets: Module.ccall('Surreal_GetWebXRMenuNavigationSourceResetCount', 'number', [], []),
                 hudSelfTestMask: Module.ccall('Surreal_GetWebXRHudSelfTestMask', 'number', [], []),
                 hudEnabled: Module.ccall('Surreal_GetWebXRHudEnabled', 'number', [], []),
                 hudEffectiveEnabled: Module.ccall('Surreal_GetWebXRHudEffectiveEnabled', 'number', [], []),
@@ -392,6 +401,13 @@ def main():
                     weapon_bridge_diagnostics.get("menuPointerValid") not in (0, 1) or \
                     len(weapon_bridge_diagnostics.get("menuPointer", [])) != 2 or \
                     not all(math.isfinite(value) for value in weapon_bridge_diagnostics.get("menuPointer", [])) or \
+					weapon_bridge_diagnostics.get("menuNavigationActive") not in (0, 1) or \
+					weapon_bridge_diagnostics.get("menuNavigationDirection") not in range(5) or \
+					not all(weapon_bridge_diagnostics.get(name, -1) >= 0 for name in
+							("menuNavigationPulses", "menuNavigationRepeats",
+							 "menuNavigationConfirms", "menuNavigationCancels",
+							 "menuNavigationSuppressedEdges", "menuNavigationGameplayReleases",
+							 "menuNavigationSourceResets")) or \
                     weapon_bridge_diagnostics.get("hudSelfTestMask") != 31 or \
                     weapon_bridge_diagnostics.get("hudEnabled") not in (0, 1) or \
                     weapon_bridge_diagnostics.get("hudEffectiveEnabled") != \

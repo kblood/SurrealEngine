@@ -190,8 +190,8 @@ namespace
 			if (controller.handedness > WebXRHandRight ||
 				(controller.flags & ~WebXRFrameABI::KnownControllerFlags) != 0 ||
 				controller.reserved != 0 ||
-				(controller.buttonsPressed & ~0xffu) != 0 ||
-				(controller.buttonsTouched & ~0xffu) != 0 ||
+				(controller.buttonsPressed & ~0xffffu) != 0 ||
+				(controller.buttonsTouched & ~0xffffu) != 0 ||
 				!IsInRange(controller.axes, 4, -1.0f, 1.0f) ||
 				!IsInRange(controller.buttonValues, 8, 0.0f, 1.0f) ||
 				!IsFiniteArray(controller.gripPosition, 3) ||

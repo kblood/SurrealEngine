@@ -50,6 +50,27 @@ namespace
 	constexpr float WebXRYawUnitsPerDegree = 65536.0f / 360.0f;
 	constexpr float WebXRSmoothTurnDeadZone = 0.15f;
 	constexpr uint32_t WebXRActionButtonCount = 12;
+	constexpr float WebXRMenuNavigationEngageThreshold = 0.65f;
+	constexpr float WebXRMenuNavigationReleaseThreshold = 0.35f;
+	constexpr float WebXRMenuNavigationInitialRepeatSeconds = 0.35f;
+	constexpr float WebXRMenuNavigationRepeatIntervalSeconds = 0.10f;
+
+	enum WebXRMenuDirection : uint32_t
+	{
+		WebXRMenuDirectionNone = 0,
+		WebXRMenuDirectionUp = 1,
+		WebXRMenuDirectionDown = 2,
+		WebXRMenuDirectionLeft = 3,
+		WebXRMenuDirectionRight = 4
+	};
+
+	struct WebXRMenuRepeatResult
+	{
+		uint32_t Direction = WebXRMenuDirectionNone;
+		float SecondsUntilRepeat = 0.0f;
+		bool Pulse = false;
+		bool Repeated = false;
+	};
 
 	struct WebXRMovementAxes
 	{
@@ -135,9 +156,64 @@ namespace
 	}
 
 	bool ShouldReleaseWebXRMenuPointerCapture(bool pointerTriggerHeld, bool pointerActive,
-		int32_t capturedButton, int32_t dominantPrimaryButton)
+		int32_t capturedButton, int32_t dominantPrimaryButton, bool sourceChanged = false)
 	{
-		return pointerTriggerHeld && (!pointerActive || capturedButton != dominantPrimaryButton);
+		return pointerTriggerHeld && (sourceChanged || !pointerActive ||
+			capturedButton != dominantPrimaryButton);
+	}
+
+	bool IsWebXRScreenUIActive(bool legacyMenuVisible, bool consoleInUWindowState)
+	{
+		return legacyMenuVisible || consoleInUWindowState;
+	}
+
+	uint32_t ResolveWebXRMenuDirection(float x, float y, uint32_t dpadButtons,
+		uint32_t heldDirection)
+	{
+		const bool dpadUp = (dpadButtons & (1u << 12)) != 0;
+		const bool dpadDown = (dpadButtons & (1u << 13)) != 0;
+		const bool dpadLeft = (dpadButtons & (1u << 14)) != 0;
+		const bool dpadRight = (dpadButtons & (1u << 15)) != 0;
+		if (dpadUp != dpadDown)
+			return dpadUp ? WebXRMenuDirectionUp : WebXRMenuDirectionDown;
+		if (dpadLeft != dpadRight)
+			return dpadLeft ? WebXRMenuDirectionLeft : WebXRMenuDirectionRight;
+
+		const float threshold = heldDirection == WebXRMenuDirectionNone ?
+			WebXRMenuNavigationEngageThreshold : WebXRMenuNavigationReleaseThreshold;
+		const float absoluteX = std::fabs(x);
+		const float absoluteY = std::fabs(y);
+		if (absoluteX < threshold && absoluteY < threshold)
+			return WebXRMenuDirectionNone;
+		if (absoluteY >= absoluteX)
+			return y >= 0.0f ? WebXRMenuDirectionUp : WebXRMenuDirectionDown;
+		return x < 0.0f ? WebXRMenuDirectionLeft : WebXRMenuDirectionRight;
+	}
+
+	WebXRMenuRepeatResult AdvanceWebXRMenuRepeat(uint32_t heldDirection,
+		float secondsUntilRepeat, uint32_t direction, float timeElapsed)
+	{
+		if (direction == WebXRMenuDirectionNone)
+			return {};
+		if (direction != heldDirection)
+			return { direction, WebXRMenuNavigationInitialRepeatSeconds, true, false };
+
+		secondsUntilRepeat -= std::max(0.0f, timeElapsed);
+		if (secondsUntilRepeat > 0.0f)
+			return { direction, secondsUntilRepeat, false, false };
+		return { direction, WebXRMenuNavigationRepeatIntervalSeconds, true, true };
+	}
+
+	EInputKey WebXRMenuDirectionKey(uint32_t direction)
+	{
+		switch (direction)
+		{
+		case WebXRMenuDirectionUp: return IK_Up;
+		case WebXRMenuDirectionDown: return IK_Down;
+		case WebXRMenuDirectionLeft: return IK_Left;
+		case WebXRMenuDirectionRight: return IK_Right;
+		default: return IK_None;
+		}
 	}
 
 	const char* WebXRActionButtonName(uint32_t button)
@@ -851,8 +927,47 @@ namespace
 			ShouldRouteWebXRMenuPointerButton(6, -1, true, false) ||
 			!ShouldReleaseWebXRMenuPointerCapture(true, false, 6, 6) ||
 			!ShouldReleaseWebXRMenuPointerCapture(true, true, 6, 0) ||
+			!ShouldReleaseWebXRMenuPointerCapture(true, true, 6, 6, true) ||
 			ShouldReleaseWebXRMenuPointerCapture(true, true, 6, 6) ||
 			ShouldReleaseWebXRMenuPointerCapture(false, false, 6, 6))
+			return false;
+		if (IsWebXRScreenUIActive(false, false) ||
+			!IsWebXRScreenUIActive(true, false) ||
+			!IsWebXRScreenUIActive(false, true) ||
+			!IsWebXRScreenUIActive(true, true))
+			return false;
+
+		if (ResolveWebXRMenuDirection(0.0f, 0.64f, 0, WebXRMenuDirectionNone) !=
+				WebXRMenuDirectionNone ||
+			ResolveWebXRMenuDirection(0.0f, 0.65f, 0, WebXRMenuDirectionNone) !=
+				WebXRMenuDirectionUp ||
+			ResolveWebXRMenuDirection(0.0f, 0.36f, 0, WebXRMenuDirectionUp) !=
+				WebXRMenuDirectionUp ||
+			ResolveWebXRMenuDirection(0.0f, 0.34f, 0, WebXRMenuDirectionUp) !=
+				WebXRMenuDirectionNone ||
+			ResolveWebXRMenuDirection(1.0f, 0.9f, 0, WebXRMenuDirectionNone) !=
+				WebXRMenuDirectionRight ||
+			ResolveWebXRMenuDirection(0.0f, 0.0f, 1u << 14, WebXRMenuDirectionNone) !=
+				WebXRMenuDirectionLeft ||
+			ResolveWebXRMenuDirection(0.0f, 0.0f, (1u << 12) | (1u << 13),
+				WebXRMenuDirectionNone) != WebXRMenuDirectionNone)
+			return false;
+		WebXRMenuRepeatResult repeat = AdvanceWebXRMenuRepeat(
+			WebXRMenuDirectionNone, 0.0f, WebXRMenuDirectionDown, 0.016f);
+		if (!repeat.Pulse || repeat.Repeated ||
+			repeat.Direction != WebXRMenuDirectionDown ||
+			std::fabs(repeat.SecondsUntilRepeat - WebXRMenuNavigationInitialRepeatSeconds) > 0.0001f)
+			return false;
+		repeat = AdvanceWebXRMenuRepeat(repeat.Direction, repeat.SecondsUntilRepeat,
+			WebXRMenuDirectionDown, WebXRMenuNavigationInitialRepeatSeconds - 0.01f);
+		if (repeat.Pulse || repeat.Repeated || repeat.SecondsUntilRepeat <= 0.0f)
+			return false;
+		repeat = AdvanceWebXRMenuRepeat(repeat.Direction, repeat.SecondsUntilRepeat,
+			WebXRMenuDirectionDown, 0.02f);
+		if (!repeat.Pulse || !repeat.Repeated ||
+			std::fabs(repeat.SecondsUntilRepeat - WebXRMenuNavigationRepeatIntervalSeconds) > 0.0001f ||
+			WebXRMenuDirectionKey(WebXRMenuDirectionDown) != IK_Down ||
+			WebXRMenuDirectionKey(WebXRMenuDirectionNone) != IK_None)
 			return false;
 
 		bool armed = true;
@@ -1456,6 +1571,51 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMenuActionCount()
 	{
 		return engine ? engine->WebXRLocomotion.MenuActionCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRMenuNavigationActive()
+	{
+		return engine && engine->WebXRMenuNavigation.Active ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMenuNavigationDirection()
+	{
+		return engine ? engine->WebXRMenuNavigation.Direction : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMenuNavigationPulseCount()
+	{
+		return engine ? engine->WebXRMenuNavigation.DirectionPulseCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMenuNavigationRepeatCount()
+	{
+		return engine ? engine->WebXRMenuNavigation.RepeatPulseCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMenuNavigationConfirmCount()
+	{
+		return engine ? engine->WebXRMenuNavigation.ConfirmCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMenuNavigationCancelCount()
+	{
+		return engine ? engine->WebXRMenuNavigation.CancelCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMenuNavigationSuppressedEdgeCount()
+	{
+		return engine ? engine->WebXRMenuNavigation.SuppressedButtonEdgeCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMenuNavigationGameplayReleaseCount()
+	{
+		return engine ? engine->WebXRMenuNavigation.GameplayReleaseCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRMenuNavigationSourceResetCount()
+	{
+		return engine ? engine->WebXRMenuNavigation.SourceResetCount : 0;
 	}
 
 	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRLocomotionSelfTest()
@@ -3556,14 +3716,73 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 		}
 	}
 
+	static constexpr EInputKey AxisKeys[4] = { IK_JoyX, IK_JoyY, IK_JoyU, IK_JoyV };
 	const uint32_t changedButtons = WebXRButtonsHeld ^ nextButtonsHeld;
+	UPlayerPawn* menuPlayer = viewport ?
+		UObject::TryCast<UPlayerPawn>(viewport->Actor()) : nullptr;
+	const bool menuNavigationActive = console && IsWebXRScreenUIActive(
+		menuPlayer && menuPlayer->bShowMenu(), console->GetStateName() == "UWindow");
+	const uint32_t menuNavigationSourceId = WebXRInput.DominantControllerIndex >= 0 ?
+		WebXRInput.Controllers[WebXRInput.DominantControllerIndex].SourceId : 0;
+	const bool menuNavigationEntered = menuNavigationActive && !WebXRMenuNavigationActive;
+	const bool menuNavigationSourceChanged = menuNavigationActive &&
+		menuNavigationSourceId != WebXRMenuNavigationSourceId;
+	if (!menuNavigationActive || menuNavigationSourceChanged)
+	{
+		if (WebXRMenuConfirmHeld || WebXRMenuCancelHeld ||
+			WebXRMenuNavigationDirection != WebXRMenuDirectionNone)
+			WebXRMenuNavigation.SourceResetCount++;
+		ReleaseWebXRMenuNavigationKeys();
+	}
+	if (menuNavigationEntered)
+	{
+		// A menu can become visible while gameplay inputs are already held.
+		// Release their stock bindings once, then consume XR Joy traffic until
+		// menu ownership ends. Physical holds must return to neutral before a
+		// later gameplay edge can be generated.
+		for (uint32_t button = 0; button < 12; button++)
+		{
+			if ((WebXRButtonsHeld & (1u << button)) != 0)
+			{
+				InputEvent(ButtonKeys[button], IST_Release);
+				WebXRMenuNavigation.GameplayReleaseCount++;
+			}
+		}
+		for (uint32_t axis = 0; axis < 4; axis++)
+		{
+			if ((WebXRAxesActive & (1u << axis)) != 0)
+			{
+				InputEvent(AxisKeys[axis], IST_Release);
+				WebXRMenuNavigation.GameplayReleaseCount++;
+			}
+		}
+		WebXRAxesActive = 0;
+		if (WebXRMenuActionEscapeHeld)
+		{
+			InputEvent(IK_Escape, IST_Release);
+			WebXRMenuActionEscapeHeld = false;
+			WebXRMenuNavigation.GameplayReleaseCount++;
+		}
+	}
+	WebXRMenuNavigationActive = menuNavigationActive;
+	WebXRMenuNavigationSourceId = menuNavigationActive ? menuNavigationSourceId : 0;
+	WebXRMenuNavigation.Active = menuNavigationActive;
+	WebXRMenuNavigation.SourceId = WebXRMenuNavigationSourceId;
+
 	const bool menuPointerActive = render && viewport &&
 		render->GetWebXRHudDiagnostics().LastFrameMenuPointerValid &&
-		viewport->bShowWindowsMouse() && viewport->bWindowsMouseAvailable();
+		menuNavigationActive && viewport->bShowWindowsMouse() &&
+		viewport->bWindowsMouseAvailable();
 	const int32_t dominantPrimaryButton = WebXRInput.DominantControllerIndex >= 0 ?
 		WebXRInput.DominantControllerIndex * 6 : -1;
+	const int32_t dominantConfirmButton = WebXRInput.DominantControllerIndex >= 0 ?
+		WebXRInput.DominantControllerIndex * 6 + 4 : -1;
+	const int32_t dominantCancelButton = WebXRInput.DominantControllerIndex >= 0 ?
+		WebXRInput.DominantControllerIndex * 6 + 5 : -1;
+	const int32_t configuredMenuButton = WebXRLocomotion.EffectiveMenuButton > 0 ?
+		static_cast<int32_t>(WebXRLocomotion.EffectiveMenuButton - 1) : -1;
 	if (ShouldReleaseWebXRMenuPointerCapture(WebXRMenuPointerTriggerHeld, menuPointerActive,
-		WebXRMenuPointerTriggerButton, dominantPrimaryButton))
+		WebXRMenuPointerTriggerButton, dominantPrimaryButton, menuNavigationSourceChanged))
 	{
 		DispatchWebXRMenuPointerEvent(IST_Release);
 		WebXRMenuPointerTriggerHeld = false;
@@ -3586,6 +3805,45 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 				WebXRMenuPointerTriggerButton = pressed ? (int32_t)button : -1;
 				continue;
 			}
+			if (menuNavigationActive)
+			{
+				WebXRMenuNavigation.SuppressedButtonEdgeCount++;
+				if (static_cast<int32_t>(button) == dominantConfirmButton)
+				{
+					if (pressed)
+					{
+						const bool accepted = DispatchWebXRMenuKeyEvent(IK_Enter, IST_Press);
+						WebXRMenuConfirmHeld = accepted;
+						if (accepted)
+						{
+							WebXRMenuNavigation.ConfirmCount++;
+							RecordWebXRHapticOutcome(
+								static_cast<uint32_t>(WebXRHapticEvent::UIConfirm), 1.0f);
+						}
+					}
+					else if (WebXRMenuConfirmHeld)
+					{
+						DispatchWebXRMenuKeyEvent(IK_Enter, IST_Release);
+						WebXRMenuConfirmHeld = false;
+					}
+				}
+				else if (static_cast<int32_t>(button) == dominantCancelButton ||
+					static_cast<int32_t>(button) == configuredMenuButton)
+				{
+					if (pressed)
+					{
+						WebXRMenuCancelHeld = DispatchWebXRMenuKeyEvent(IK_Escape, IST_Press);
+						if (WebXRMenuCancelHeld)
+							WebXRMenuNavigation.CancelCount++;
+					}
+					else if (WebXRMenuCancelHeld)
+					{
+						DispatchWebXRMenuKeyEvent(IK_Escape, IST_Release);
+						WebXRMenuCancelHeld = false;
+					}
+				}
+				continue;
+			}
 			InputEvent(ButtonKeys[button], pressed ? IST_Press : IST_Release);
 		}
 	}
@@ -3599,17 +3857,20 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 		Surreal_ResetWebXRPose();
 		WebXRLocomotion.RecenterActionCount++;
 	}
-	if (actionEdges.MenuPressed)
+	if (actionEdges.MenuPressed && !menuNavigationActive)
 	{
 		InputEvent(IK_Escape, IST_Press);
+		WebXRMenuActionEscapeHeld = true;
 		WebXRLocomotion.MenuActionCount++;
 	}
-	if (actionEdges.MenuReleased)
+	if (actionEdges.MenuReleased && WebXRMenuActionEscapeHeld)
+	{
 		InputEvent(IK_Escape, IST_Release);
+		WebXRMenuActionEscapeHeld = false;
+	}
 	WebXRButtonsHeld = nextButtonsHeld;
 	WebXRInput.SynthesizedButtonsHeld = nextButtonsHeld;
 
-	static constexpr EInputKey AxisKeys[4] = { IK_JoyX, IK_JoyY, IK_JoyU, IK_JoyV };
 	uint32_t nextAxesActive = 0;
 	for (size_t slot = 0; slot < WebXRInput.Controllers.size(); slot++)
 	{
@@ -3631,15 +3892,56 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 		WebXRInput.SynthesizedAxes[output] = controller.Axes[sourceAxis];
 		WebXRInput.SynthesizedAxes[output + 1] = controller.Axes[sourceAxis + 1];
 
-		if (slot == 0)
+		if (!menuNavigationActive && slot == 0)
 			nextAxesActive |= 3u << output;
-		else if (WebXRTurnModeSetting == WebXRTurnMode::Binding)
+		else if (!menuNavigationActive && WebXRTurnModeSetting == WebXRTurnMode::Binding)
 		{
 			// Explicit legacy/binding mode releases comfort turning and routes
 			// the right stick through JoyU/JoyV exactly like the left stick.
 			nextAxesActive |= 3u << output;
 			InputAxisEvent(AxisKeys[output], WebXRInput.SynthesizedAxes[output] * WebXRJoystickAxisScale);
 			InputAxisEvent(AxisKeys[output + 1], WebXRInput.SynthesizedAxes[output + 1] * WebXRJoystickAxisScale);
+		}
+	}
+
+	if (menuNavigationActive)
+	{
+		uint32_t dpadButtons = 0;
+		float menuX = 0.0f;
+		float menuY = 0.0f;
+		float strongestMagnitudeSquared = 0.0f;
+		for (size_t slot = 0; slot < WebXRInput.Controllers.size(); slot++)
+		{
+			const VRControllerInputState& controller = WebXRInput.Controllers[slot];
+			if (!controller.Connected)
+				continue;
+			dpadButtons |= controller.ButtonsPressed;
+			const float x = WebXRInput.SynthesizedAxes[slot * 2];
+			const float y = WebXRInput.SynthesizedAxes[slot * 2 + 1];
+			const float magnitudeSquared = x * x + y * y;
+			if (magnitudeSquared > strongestMagnitudeSquared)
+			{
+				strongestMagnitudeSquared = magnitudeSquared;
+				menuX = x;
+				menuY = y;
+			}
+		}
+		const uint32_t direction = ResolveWebXRMenuDirection(menuX, menuY, dpadButtons,
+			WebXRMenuNavigationDirection);
+		const WebXRMenuRepeatResult repeat = AdvanceWebXRMenuRepeat(
+			WebXRMenuNavigationDirection, WebXRMenuNavigationRepeatSeconds,
+			direction, timeElapsed);
+		WebXRMenuNavigationDirection = repeat.Direction;
+		WebXRMenuNavigationRepeatSeconds = repeat.SecondsUntilRepeat;
+		WebXRMenuNavigation.Direction = repeat.Direction;
+		if (repeat.Pulse)
+		{
+			const EInputKey key = WebXRMenuDirectionKey(repeat.Direction);
+			DispatchWebXRMenuKeyEvent(key, IST_Press);
+			DispatchWebXRMenuKeyEvent(key, IST_Release);
+			WebXRMenuNavigation.DirectionPulseCount++;
+			if (repeat.Repeated)
+				WebXRMenuNavigation.RepeatPulseCount++;
 		}
 	}
 
@@ -3670,13 +3972,14 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 		WebXRLocomotion.LastMovementReferenceUsed, movementFellBack);
 	if (movementFellBack)
 		WebXRLocomotion.MovementFallbackCount++;
-	const WebXRMovementAxes movementAxes = TransformWebXRMovementAxes(
-		WebXRInput.SynthesizedAxes[0], WebXRInput.SynthesizedAxes[1], movementReferenceForward);
+	const WebXRMovementAxes movementAxes = menuNavigationActive ? WebXRMovementAxes{} :
+		TransformWebXRMovementAxes(WebXRInput.SynthesizedAxes[0],
+			WebXRInput.SynthesizedAxes[1], movementReferenceForward);
 
 	// The left stick remains in the ordinary, remappable JoyX/JoyY path. Only
 	// its horizontal reference is changed; normalized values are still expanded
 	// for stock Speed=2 bindings to preserve the established 7000 scale.
-	if (WebXRInput.Controllers[0].Connected)
+	if (!menuNavigationActive && WebXRInput.Controllers[0].Connected)
 	{
 		InputAxisEvent(IK_JoyX, movementAxes.Strafe * WebXRJoystickAxisScale);
 		InputAxisEvent(IK_JoyY, movementAxes.Forward * WebXRJoystickAxisScale);
@@ -3689,7 +3992,7 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 	{
 		WebXRSnapTurnArmed = true;
 	}
-	else if (WebXRTurnModeSetting != WebXRTurnMode::Binding)
+	else if (!menuNavigationActive && WebXRTurnModeSetting != WebXRTurnMode::Binding)
 	{
 		const int turnDelta = ComputeWebXRTurnDelta(WebXRInput.SynthesizedAxes[2], timeElapsed,
 			WebXRTurnModeSetting, WebXRSnapTurnDegrees, WebXRSmoothTurnDegreesPerSecond,
@@ -4090,6 +4393,41 @@ bool Engine::DispatchWebXRMenuPointerEvent(EInputType type)
 	(void)type;
 	return false;
 #endif
+}
+
+bool Engine::DispatchWebXRMenuKeyEvent(EInputKey key, EInputType type)
+{
+#ifdef __EMSCRIPTEN__
+	if (!console || key == IK_None)
+		return false;
+
+	// Keyboard-style menu navigation is intentionally console-only. A menu
+	// rejection must never fall through to the player's ordinary bindings.
+	return CallEvent(console, EventName::KeyEvent, {
+		ExpressionValue::ByteValue(key),
+		ExpressionValue::ByteValue(type),
+		ExpressionValue::FloatValue(0.0f)
+	}).ToBool();
+#else
+	(void)key;
+	(void)type;
+	return false;
+#endif
+}
+
+void Engine::ReleaseWebXRMenuNavigationKeys()
+{
+#ifdef __EMSCRIPTEN__
+	if (WebXRMenuConfirmHeld)
+		DispatchWebXRMenuKeyEvent(IK_Enter, IST_Release);
+	if (WebXRMenuCancelHeld)
+		DispatchWebXRMenuKeyEvent(IK_Escape, IST_Release);
+#endif
+	WebXRMenuConfirmHeld = false;
+	WebXRMenuCancelHeld = false;
+	WebXRMenuNavigationDirection = WebXRMenuDirectionNone;
+	WebXRMenuNavigationRepeatSeconds = 0.0f;
+	WebXRMenuNavigation.Direction = WebXRMenuDirectionNone;
 }
 
 bool Engine::ExecCommand(const Array<std::string>& args)

@@ -1540,3 +1540,45 @@ the dirty quad experiment, `PlayerViewOffset` placement, the under-500-UU
 origin heuristic, placeholder grip rows, or blanket weapon scale. The detailed
 portability categories and resulting order are recorded in section 15.2 of the
 canonical complete plan.
+
+## M9 menu focus-navigation checkpoint — NATIVE BUILD PASS (2026-07-22)
+
+A clean-room controller navigation state machine now operates only while stock
+screen UI is active: either the local player has `bShowMenu`, or the console is
+in its `UWindow` state. It reads those states but never changes them. Cursor
+visibility/availability remains a separate, stricter requirement for the
+existing controller-ray `LeftMouse` path, so keyboard-operable menus do not
+lose stick navigation merely because they hide the pointer.
+
+Either normalized stick maps to arrow-key press/release pulses with an immediate
+first pulse, a 350 ms initial delay, a 100 ms repeat interval, 0.65 engage and
+0.35 release thresholds. WebXR's collector already converts Gamepad negative-Y
+up to engine positive-Y up. Standard Gamepad D-pad buttons 12–15 are preserved
+in the existing 32-bit masks and use the same arrow route; the packed record
+and eight analog button values are unchanged. Dominant A maps to Enter, while
+dominant B and the configured unbound Menu action map to Escape. These are
+direct stock `Console.KeyEvent` calls, preventing rejected UI events from
+falling through to gameplay bindings. Dominant trigger retains the pointer
+click route only when its ray and cursor predicates pass.
+
+On menu entry, active WebXR Joy buttons/axes and a pending synthesized Escape
+are released. Ordinary controller button, movement, turn, and fire delivery is
+suppressed until UI ownership ends. Held Enter/Escape and repeat state are also
+cleared on menu loss, dominant source/tracking changes, empty session snapshots,
+and session reset/re-entry. New exported diagnostics report navigation state,
+pulses/repeats, accepted confirms/cancels, suppressed edges, gameplay releases,
+and source resets; the full browser smoke reads and validates their ranges.
+
+The deterministic locomotion self-test covers UI classification, stick
+hysteresis/sign, D-pad direction/conflict, repeat timing, and arrow mapping.
+The input-state and JavaScript collector fixtures cover D-pad-mask retention.
+An isolated native Debug `SurrealEngine` build and a fresh no-data Emscripten
+build pass. The ordinary IWER lifecycle smoke passes with the copied-input
+collector at 38/38. After rebuilding the data-backed development runtime, the
+full `--experimental-webgpu-xr` smoke also passes. It reads all nine new
+navigation exports at their expected inactive zero state while completing the
+packed stereo path with 189 draws and 1,178 differing eye samples, plus the
+existing settings, HUD/menu, audio, lifecycle, and device-loss gates. The prior
+no-data attempt remained at the intentional importer gate and was not a valid
+engine-diagnostic run. Physical Quest verification must confirm controller
+profiles, active-menu counters/coverage, and repeat timing feel.

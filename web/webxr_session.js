@@ -742,11 +742,12 @@
 			let touchedMask = 0;
 			const values = new Array(8).fill(0);
 			const buttons = gamepad && gamepad.buttons ? gamepad.buttons : [];
-			for (let buttonIndex = 0; buttonIndex < Math.min(8, buttons.length); buttonIndex++) {
+			for (let buttonIndex = 0; buttonIndex < Math.min(16, buttons.length); buttonIndex++) {
 				const button = buttons[buttonIndex] || {};
 				if (button.pressed) pressedMask |= 1 << buttonIndex;
 				if (button.touched) touchedMask |= 1 << buttonIndex;
-				values[buttonIndex] = clampFinite(button.value, 0, 1);
+				if (buttonIndex < values.length)
+					values[buttonIndex] = clampFinite(button.value, 0, 1);
 			}
 			snapshot.push({
 				sourceId: sourceIdFor(source),
@@ -781,6 +782,9 @@
 			{ value: 0.25, pressed: false, touched: true },
 			{ value: 1.5, pressed: true, touched: true },
 		];
+		// Standard Gamepad D-pad Up lives at button index 12. Masks retain it
+		// even though the stable ABI deliberately keeps only eight analog values.
+		leftButtons[12] = { value: 1, pressed: true, touched: false };
 		const leftAxes = [0.1, -0.1, 0.5, -0.5];
 		const left = {
 			handedness: "left", gripSpace: leftGrip, targetRaySpace: leftAim,
@@ -824,7 +828,7 @@
 			const checks = [
 				initial.length === 2, initial[0].sourceId === 1, initial[1].sourceId === 2,
 				initial[0].flags === 15, initial[1].flags === 5,
-				initial[0].pressedMask === 2, initial[0].touchedMask === 3,
+				initial[0].pressedMask === 4098, initial[0].touchedMask === 3,
 				near(initial[0].values[0], 0.25), initial[0].values[1] === 1,
 				initial[0].axes[0] === 0, initial[0].axes[1] === 0,
 				initial[0].axes[2] > 0.46 && initial[0].axes[2] < 0.47,
@@ -838,10 +842,11 @@
 				initialData.getUint32(36, true) === 2,
 				initialData.getUint32(40, true) === 44,
 				initialData.getUint32(44, true) === 1,
+				initialData.getUint32(56, true) === 4098,
 				near(initialData.getFloat32(84, true), 0.25),
 				// Copied-edge proof: changed live state is new while initial is immutable.
 				near(initial[0].values[0], 0.25), near(changed[0].values[0], 0.8),
-				initial[0].pressedMask === 2, changed[0].pressedMask === 1,
+				initial[0].pressedMask === 4098, changed[0].pressedMask === 4097,
 				initial[0].axes[2] > 0, changed[0].axes[2] === -1,
 				changed[0].sourceId === initial[0].sourceId,
 				disconnected.length === 1, disconnected[0].sourceId === rightId,
