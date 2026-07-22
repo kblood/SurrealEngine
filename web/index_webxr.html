@@ -51,6 +51,7 @@
 </script>
 <script src="webxr_session.js"></script>
 <script src="ut99_importer.js"></script>
+<script src="mutable_persistence.js"></script>
 <script src="pwa_register.js"></script>
 <script>
 	window.surrealLog = [];
@@ -235,6 +236,30 @@
 		printErr: appendLog,
 		onRuntimeInitialized: function () {
 			appendLog("[harness] runtime initialized, preparing local game data");
+			const prepareMutableData = async function () {
+				try {
+					const started = await window.SurrealMutableData.start(Module, {
+						log: appendLog,
+						logSnapshot: () => window.surrealLog.join("\n") + "\n",
+					});
+					window.surrealMutableDataController = started.controller;
+					window.surrealMutableDataBootResult = started.result;
+					window.surrealFlushMutableData = reason => started.controller.flush(reason || "explicit-api");
+					window.surrealGetMutableDataStatus = () => started.controller.status();
+					window.surrealClearMutableData = () => started.controller.clear();
+					appendLog("[harness] mutable-data overlay " + started.result.state +
+						" (" + started.result.backend + ")");
+				} catch (error) {
+					// Local preference/save persistence must not make an otherwise valid
+					// user-owned game import unbootable.
+					window.surrealMutableDataBootResult = {
+						state: "unavailable",
+						error: error && error.message ? error.message : String(error),
+					};
+					window.surrealGetMutableDataStatus = () => Object.assign({}, window.surrealMutableDataBootResult);
+					appendLog("[harness] mutable-data persistence unavailable; continuing: " + error);
+				}
+			};
 			const launchEngine = function (dataMode) {
 				appendLog("[harness] game data ready (" + dataMode + "), calling main");
 				try {
@@ -251,6 +276,7 @@
 			window.surrealDataBootPromise = window.SurrealUT99Importer.start(Module, {
 				uiRoot: document.getElementById("ut99-importer"),
 				log: appendLog,
+				beforeLaunch: prepareMutableData,
 				launch: launchEngine,
 			}).then(function (started) {
 				window.surrealUT99ImporterController = started.controller;
@@ -279,7 +305,22 @@
 		return Module.ccall("Surreal_GetTickCount", "number", [], []);
 	};
 	window.surrealRequestQuit = function () {
-		return Module.ccall("Surreal_RequestQuit", null, [], []);
+		const result = Module.ccall("Surreal_RequestQuit", null, [], []);
+		if (window.surrealMutableDataController) {
+			window.surrealMutableQuitFlushPromise = new Promise(resolve => setTimeout(resolve, 150))
+				.then(() => window.surrealMutableDataController.flush("engine-quit"))
+				.catch(error => {
+					appendLog("[harness] final mutable-data checkpoint failed: " + error);
+					return window.surrealMutableDataController.status();
+				});
+		}
+		return result;
+	};
+	window.surrealRequestQuitAndFlush = async function () {
+		window.surrealRequestQuit();
+		if (window.surrealMutableQuitFlushPromise) return window.surrealMutableQuitFlushPromise;
+		return typeof window.surrealGetMutableDataStatus === "function" ?
+			window.surrealGetMutableDataStatus() : { state: "not-ready" };
 	};
 	window.surrealSetXRFrameLoopActive = function (active) {
 		return Module.ccall("Surreal_SetXRFrameLoopActive", "number", ["number"], [active ? 1 : 0]);

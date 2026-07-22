@@ -1,11 +1,16 @@
 import json
+import os
 import sys
 import time
 
 from playwright.sync_api import sync_playwright
 
 
-URL = "http://localhost:8091/web/test_ut99_importer.html"
+BASE_URL = next(
+	(arg.split("=", 1)[1].rstrip("/") for arg in sys.argv[1:] if arg.startswith("--base-url=")),
+	os.environ.get("SURREAL_WEB_BASE_URL", "http://localhost:8091").rstrip("/"),
+)
+URL = BASE_URL + "/web/test_ut99_importer.html"
 
 
 with sync_playwright() as playwright:

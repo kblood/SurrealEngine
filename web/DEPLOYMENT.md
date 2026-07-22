@@ -27,6 +27,11 @@ UE1 package/map extensions, and `/gamedata`; all other URLs are network-only.
 Imported UT99 data remains solely in OPFS/IndexedDB and is outside the Cache
 Storage/service-worker path.
 
+Mutable configuration, keybindings, WebXR settings, saves, and last-run logs
+use a separate local-only store with a strict path allowlist. See
+`MUTABLE_DATA.md`; these records are also outside Cache Storage and must not be
+exported into a release artifact.
+
 Bump `APP_VERSION` in `service-worker.js` whenever shell/runtime compatibility
 changes. Activation verifies the complete new shell cache before deleting older
 `surrealengine-webxr-*` caches. HTML is network-first, so an online reload sees

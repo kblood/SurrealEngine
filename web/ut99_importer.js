@@ -627,6 +627,7 @@
 			this.ui = new ImporterUI(this.options.uiRoot || null);
 			this.storage = null;
 			this.launched = false;
+			this.launchPromise = null;
 			this.busy = false;
 			this.lastError = null;
 		}
@@ -639,7 +640,7 @@
 			if (hasDeveloperPreload(this.Module.FS, this.options.rootPath)) {
 				this._log("developer-preloaded /gamedata detected; local importer bypassed");
 				this.ui.hide();
-				this._launch("developer-preload");
+				await this._launch("developer-preload");
 				return { state: "launched", mode: "developer-preload", backend: "embedded" };
 			}
 			this.storage = await createStorage(this.options);
@@ -657,7 +658,7 @@
 					await materializeDataset(this.Module.FS, dataset, progress => this.ui.setProgress(progress), this.options.rootPath);
 					this.ui.setStatus("Saved UT99 data restored. Starting SurrealEngine…");
 					this._log("restored " + dataset.metadata.fileCount + " local files (" + formatBytes(dataset.metadata.totalBytes) + ") from " + this.storage.backend);
-					this._launch("persistent-import");
+					await this._launch("persistent-import");
 					return { state: "launched", mode: "persistent-import", backend: this.storage.backend, metadata: dataset.metadata };
 				}
 			} catch (error) {
@@ -750,7 +751,7 @@
 				await materializeDataset(this.Module.FS, sourceDataset, progress => this.ui.setProgress(progress), this.options.rootPath);
 				this.ui.setStatus("Import complete. Starting SurrealEngine…");
 				this._log("imported " + metadata.fileCount + " local files (" + formatBytes(metadata.totalBytes) + ") into " + this.storage.backend);
-				this._launch("new-import");
+				await this._launch("new-import");
 				return metadata;
 			} catch (error) {
 				this.lastError = error;
@@ -763,11 +764,19 @@
 			}
 		}
 
-		_launch(mode) {
+		async _launch(mode) {
 			if (this.launched) return;
-			this.launched = true;
-			this.ui.setBusy(false);
-			if (typeof this.options.launch === "function") this.options.launch(mode);
+			if (this.launchPromise) return this.launchPromise;
+			this.launchPromise = (async () => {
+				// Persistence overlays must run after /gamedata exists but before
+				// native startup reads configuration and enumerates save files.
+				if (typeof this.options.beforeLaunch === "function") await this.options.beforeLaunch(mode);
+				this.launched = true;
+				this.ui.setBusy(false);
+				if (typeof this.options.launch === "function") await this.options.launch(mode);
+			})();
+			try { await this.launchPromise; }
+			finally { if (!this.launched) this.launchPromise = null; }
 		}
 	}
 
@@ -793,6 +802,9 @@
 		validateMetadata,
 		createStorage,
 		storageDiagnostics,
+		ensureFSDirectory,
+		writeBlobToFS,
+		fsPathExists,
 		materializeDataset,
 		hasDeveloperPreload,
 		formatBytes,
