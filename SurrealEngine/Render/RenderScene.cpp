@@ -19,6 +19,16 @@ namespace
 		bool Valid = false;
 	};
 
+	bool ShouldCaptureWebXRHud(const WebXRHudPlaneSettings& settings)
+	{
+		return settings.Enabled;
+	}
+
+	uint32_t ExpectedWebXRHudEyePresentations(bool enabled, bool captured, uint32_t viewCount)
+	{
+		return enabled && captured ? viewCount : 0;
+	}
+
 	bool ProjectWebXRHudPoint(const WebXRSceneView& view, const vec3& point, float& pixelX, float& pixelY)
 	{
 		vec4 clip = view.Projection * (view.WorldToView * vec4(point, 1.0f));
@@ -244,9 +254,14 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 	WebXRHudStats.LastFrameCapturedCommands = 0;
 	WebXRHudStats.LastFrameUnsupportedDraws = 0;
 	WebXRHudStats.LastFrameClampedViewports = 0;
-	const bool capturedHud = CaptureWebXRHud();
-	if (capturedHud)
-		WebXRHudStats.LastFrameExpectedEyePresentations = viewCount;
+	// Disabling the HUD suppresses both the single script-state update and all
+	// per-eye replay. World and weapon rendering below remain unconditional.
+	const bool hudCaptureEnabled = ShouldCaptureWebXRHud(WebXRHudSettings);
+	if (!hudCaptureEnabled)
+		WebXRHudCommands.clear();
+	const bool capturedHud = hudCaptureEnabled && CaptureWebXRHud();
+	WebXRHudStats.LastFrameExpectedEyePresentations = ExpectedWebXRHudEyePresentations(
+		hudCaptureEnabled, capturedHud, viewCount);
 
 	for (uint32_t index = 0; index < viewCount; index++)
 	{
@@ -284,7 +299,8 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 
 bool RenderSubsystem::PresentWebXRHudEye(const WebXRSceneView* views, uint32_t viewCount, uint32_t eyeIndex)
 {
-	if (!views || viewCount == 0 || eyeIndex >= viewCount || WebXRHudCommands.empty())
+	if (!WebXRHudSettings.Enabled || !views || viewCount == 0 ||
+		eyeIndex >= viewCount || WebXRHudCommands.empty())
 		return false;
 
 	struct ScopedHudPresentationRestore
@@ -380,6 +396,13 @@ uint32_t RenderSubsystem::RunWebXRHudSelfTest()
 	const uint32_t absentEyes = 0;
 	if (absentUpdates == 0 && absentEyes == 0)
 		mask |= WebXRHudSelfTestAbsentHud;
+	WebXRHudPlaneSettings disabledSettings;
+	disabledSettings.Enabled = false;
+	const bool disabledCapture = ShouldCaptureWebXRHud(disabledSettings);
+	const uint32_t disabledExpectedEyes = ExpectedWebXRHudEyePresentations(
+		disabledSettings.Enabled, true, 2);
+	if (!disabledCapture && disabledExpectedEyes == 0)
+		mask |= WebXRHudSelfTestDisabledHud;
 
 	WebXRSceneView testViews[2] = {};
 	for (uint32_t index = 0; index < 2; index++)

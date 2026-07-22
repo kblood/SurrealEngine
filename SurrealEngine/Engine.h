@@ -313,6 +313,11 @@ public:
 	uint32_t GetWebXRDominantHand() const { return WebXRInput.DominantHandedness; }
 	uint32_t GetWebXRRecenterButton() const { return WebXRRecenterButtonSetting; }
 	uint32_t GetWebXRMenuButton() const { return WebXRMenuButtonSetting; }
+	bool GetWebXRHudEnabled() const { return WebXRHudEnabled; }
+	float GetWebXRHudDistanceUU() const { return WebXRHudDistanceUU; }
+	float GetWebXRHudHorizontalFovDegrees() const { return WebXRHudHorizontalFovDegrees; }
+	float GetWebXRHudAspectRatio() const { return WebXRHudAspectRatio; }
+	float GetWebXRHudSafeAreaFraction() const { return WebXRHudSafeAreaFraction; }
 	float GetWebXRSnapTurnDegrees() const { return WebXRSnapTurnDegrees; }
 	float GetWebXRSmoothTurnDegreesPerSecond() const { return WebXRSmoothTurnDegreesPerSecond; }
 	bool SetWebXRTurnMode(uint32_t mode);
@@ -323,6 +328,11 @@ public:
 	// are never present in this range.
 	bool SetWebXRRecenterButton(uint32_t button);
 	bool SetWebXRMenuButton(uint32_t button);
+	bool SetWebXRHudEnabled(bool enabled);
+	bool SetWebXRHudDistanceUU(float distanceUU);
+	bool SetWebXRHudHorizontalFovDegrees(float degrees);
+	bool SetWebXRHudAspectRatio(float aspectRatio);
+	bool SetWebXRHudSafeAreaFraction(float fraction);
 	bool SetWebXRSnapTurnDegrees(float degrees);
 	bool SetWebXRSmoothTurnDegreesPerSecond(float degreesPerSecond);
 
@@ -356,6 +366,7 @@ private:
 	void InputAxisEvent(EInputKey key, float delta);
 	void LoadWebXRInputSettings();
 	void SaveWebXRInputSettings();
+	void ApplyWebXRHudSettings();
 	void RefreshWebXRActionBindings();
 	void InstallWebXRDefaultBindings();
 	std::function<void()> EnterWebXRWeaponAimScope(UFunction* func, UObject* instance);
@@ -382,6 +393,11 @@ private:
 	WebXRMovementReference WebXRMovementReferenceSetting = WebXRMovementReference::Body;
 	uint32_t WebXRRecenterButtonSetting = 10; // Right thumbstick click.
 	uint32_t WebXRMenuButtonSetting = 0; // Existing Joy6/Escape binding remains the default.
+	bool WebXRHudEnabled = true;
+	float WebXRHudDistanceUU = 68.8976f;
+	float WebXRHudHorizontalFovDegrees = 50.0f;
+	float WebXRHudAspectRatio = 4.0f / 3.0f;
+	float WebXRHudSafeAreaFraction = 0.90f;
 	float WebXRSnapTurnDegrees = 30.0f;
 	float WebXRSmoothTurnDegreesPerSecond = 120.0f;
 	float WebXRSnapTurnThreshold = 0.75f;

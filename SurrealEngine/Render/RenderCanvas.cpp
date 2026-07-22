@@ -174,6 +174,8 @@ bool RenderSubsystem::RenderWebXRWeaponOverlay()
 bool RenderSubsystem::CaptureWebXRHud()
 {
 	WebXRHudCommands.clear();
+	if (!WebXRHudSettings.Enabled)
+		return false;
 	UPlayerPawn* viewActor = engine->viewport->Actor();
 	if (!viewActor || !viewActor->myHUD())
 		return false;

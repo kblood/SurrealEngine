@@ -10,6 +10,7 @@
 
 RenderSubsystem::RenderSubsystem(RenderDevice* renderdevice) : Device(renderdevice)
 {
+	SetWebXRHudPlaneSettings(WebXRHudSettings);
 	WebXRHudStats.SelfTestMask = RunWebXRHudSelfTest();
 	WebXRHudStats.SelfTestPassed = WebXRHudStats.SelfTestMask == WebXRHudSelfTestAll;
 }
@@ -19,10 +20,21 @@ void RenderSubsystem::SetWebXRHudPlaneSettings(const WebXRHudPlaneSettings& sett
 	// Keep script- or UI-provided values finite and inside deliberately broad
 	// comfort bounds. Headset-specific policy belongs to the later settings UI;
 	// the renderer only guarantees a valid plane and safe viewport here.
-	WebXRHudSettings.DistanceUU = std::isfinite(settings.DistanceUU) ? std::clamp(settings.DistanceUU, 19.685f, 157.4804f) : 68.8976f;
-	WebXRHudSettings.HorizontalFovDegrees = std::isfinite(settings.HorizontalFovDegrees) ? std::clamp(settings.HorizontalFovDegrees, 20.0f, 75.0f) : 50.0f;
-	WebXRHudSettings.AspectRatio = std::isfinite(settings.AspectRatio) ? std::clamp(settings.AspectRatio, 0.75f, 2.0f) : 4.0f / 3.0f;
-	WebXRHudSettings.SafeAreaFraction = std::isfinite(settings.SafeAreaFraction) ? std::clamp(settings.SafeAreaFraction, 0.50f, 1.0f) : 0.90f;
+	WebXRHudSettings.Enabled = settings.Enabled;
+	WebXRHudSettings.DistanceUU = std::isfinite(settings.DistanceUU) ? std::clamp(settings.DistanceUU,
+		WebXRHudPlaneSettings::MinimumDistanceUU, WebXRHudPlaneSettings::MaximumDistanceUU) :
+		WebXRHudPlaneSettings::DefaultDistanceUU;
+	WebXRHudSettings.HorizontalFovDegrees = std::isfinite(settings.HorizontalFovDegrees) ?
+		std::clamp(settings.HorizontalFovDegrees, WebXRHudPlaneSettings::MinimumHorizontalFovDegrees,
+			WebXRHudPlaneSettings::MaximumHorizontalFovDegrees) :
+		WebXRHudPlaneSettings::DefaultHorizontalFovDegrees;
+	WebXRHudSettings.AspectRatio = std::isfinite(settings.AspectRatio) ? std::clamp(settings.AspectRatio,
+		WebXRHudPlaneSettings::MinimumAspectRatio, WebXRHudPlaneSettings::MaximumAspectRatio) :
+		WebXRHudPlaneSettings::DefaultAspectRatio;
+	WebXRHudSettings.SafeAreaFraction = std::isfinite(settings.SafeAreaFraction) ?
+		std::clamp(settings.SafeAreaFraction, WebXRHudPlaneSettings::MinimumSafeAreaFraction,
+			WebXRHudPlaneSettings::MaximumSafeAreaFraction) :
+		WebXRHudPlaneSettings::DefaultSafeAreaFraction;
 }
 
 void RenderSubsystem::DrawGame(float levelTimeElapsed)

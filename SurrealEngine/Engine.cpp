@@ -164,6 +164,54 @@ namespace
 		return it == bindings.end() || it->second.empty();
 	}
 
+	bool IsValidWebXRHudSetting(float value, float minimum, float maximum)
+	{
+		return std::isfinite(value) && value >= minimum && value <= maximum;
+	}
+
+	bool TrySetWebXRHudSetting(float& target, float value, float minimum, float maximum)
+	{
+		if (!IsValidWebXRHudSetting(value, minimum, maximum))
+			return false;
+		target = value;
+		return true;
+	}
+
+	bool RunWebXRHudSettingsSelfTest()
+	{
+		const float notFinite = std::numeric_limits<float>::quiet_NaN();
+		auto expectSetting = [&](float defaultValue, float minimum, float maximum)
+		{
+			float value = defaultValue;
+			if (!TrySetWebXRHudSetting(value, minimum, minimum, maximum) || value != minimum ||
+				!TrySetWebXRHudSetting(value, maximum, minimum, maximum) || value != maximum)
+				return false;
+
+			value = defaultValue;
+			const float below = std::nextafter(minimum,
+				-std::numeric_limits<float>::infinity());
+			if (TrySetWebXRHudSetting(value, below, minimum, maximum) || value != defaultValue)
+				return false;
+			const float above = std::nextafter(maximum,
+				std::numeric_limits<float>::infinity());
+			if (TrySetWebXRHudSetting(value, above, minimum, maximum) || value != defaultValue)
+				return false;
+			return !TrySetWebXRHudSetting(value, notFinite, minimum, maximum) &&
+				value == defaultValue;
+		};
+
+		return expectSetting(WebXRHudPlaneSettings::DefaultDistanceUU,
+				WebXRHudPlaneSettings::MinimumDistanceUU, WebXRHudPlaneSettings::MaximumDistanceUU) &&
+			expectSetting(WebXRHudPlaneSettings::DefaultHorizontalFovDegrees,
+				WebXRHudPlaneSettings::MinimumHorizontalFovDegrees,
+				WebXRHudPlaneSettings::MaximumHorizontalFovDegrees) &&
+			expectSetting(WebXRHudPlaneSettings::DefaultAspectRatio,
+				WebXRHudPlaneSettings::MinimumAspectRatio, WebXRHudPlaneSettings::MaximumAspectRatio) &&
+			expectSetting(WebXRHudPlaneSettings::DefaultSafeAreaFraction,
+				WebXRHudPlaneSettings::MinimumSafeAreaFraction,
+				WebXRHudPlaneSettings::MaximumSafeAreaFraction);
+	}
+
 #ifdef __EMSCRIPTEN__
 	enum class WebXRWeaponAimScopeKind
 	{
@@ -1149,9 +1197,100 @@ extern "C"
 		return engine ? engine->render->GetWebXRWeaponOverlayDiagnostics().LastFrameWeaponCalls : 0;
 	}
 
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRHudEnabled()
+	{
+		return engine && engine->GetWebXRHudEnabled() ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRHudEnabled(int enabled)
+	{
+		return engine && engine->SetWebXRHudEnabled(enabled != 0) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRHudDistanceUU()
+	{
+		return engine ? engine->GetWebXRHudDistanceUU() : WebXRHudPlaneSettings::DefaultDistanceUU;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRHudDistanceUU(float distanceUU)
+	{
+		return engine && engine->SetWebXRHudDistanceUU(distanceUU) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRHudHorizontalFovDegrees()
+	{
+		return engine ? engine->GetWebXRHudHorizontalFovDegrees() :
+			WebXRHudPlaneSettings::DefaultHorizontalFovDegrees;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRHudHorizontalFovDegrees(float degrees)
+	{
+		return engine && engine->SetWebXRHudHorizontalFovDegrees(degrees) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRHudAspectRatio()
+	{
+		return engine ? engine->GetWebXRHudAspectRatio() : WebXRHudPlaneSettings::DefaultAspectRatio;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRHudAspectRatio(float aspectRatio)
+	{
+		return engine && engine->SetWebXRHudAspectRatio(aspectRatio) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRHudSafeAreaFraction()
+	{
+		return engine ? engine->GetWebXRHudSafeAreaFraction() :
+			WebXRHudPlaneSettings::DefaultSafeAreaFraction;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRHudSafeAreaFraction(float fraction)
+	{
+		return engine && engine->SetWebXRHudSafeAreaFraction(fraction) ? 1 : 0;
+	}
+
+	// Effective renderer values provide a post-validation diagnostic distinct
+	// from the Engine-owned persisted configuration above.
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRHudEffectiveEnabled()
+	{
+		return engine && engine->render &&
+			engine->render->GetWebXRHudPlaneSettings().Enabled ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRHudEffectiveDistanceUU()
+	{
+		return engine && engine->render ?
+			engine->render->GetWebXRHudPlaneSettings().DistanceUU : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRHudEffectiveHorizontalFovDegrees()
+	{
+		return engine && engine->render ?
+			engine->render->GetWebXRHudPlaneSettings().HorizontalFovDegrees : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRHudEffectiveAspectRatio()
+	{
+		return engine && engine->render ?
+			engine->render->GetWebXRHudPlaneSettings().AspectRatio : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRHudEffectiveSafeAreaFraction()
+	{
+		return engine && engine->render ?
+			engine->render->GetWebXRHudPlaneSettings().SafeAreaFraction : 0.0f;
+	}
+
 	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRHudSelfTest()
 	{
-		return engine && engine->render->GetWebXRHudDiagnostics().SelfTestPassed ? 1 : 0;
+		return RunWebXRHudSettingsSelfTest() && engine && engine->render &&
+			engine->render->GetWebXRHudDiagnostics().SelfTestPassed ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHudSelfTestMask()
+	{
+		return engine && engine->render ?
+			engine->render->GetWebXRHudDiagnostics().SelfTestMask : 0;
 	}
 
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHudExpectedEyePresentations()
@@ -1228,6 +1367,7 @@ void Engine::Setup()
 
 	audiodev->InitDevice();
 	render = std::make_unique<RenderSubsystem>(window->GetRenderDevice());
+	ApplyWebXRHudSettings();
 
 	if (commandline && commandline->HasArg("", "--debugfixedsize"))
 	{
@@ -2648,6 +2788,64 @@ bool Engine::SetWebXRMenuButton(uint32_t button)
 	return true;
 }
 
+bool Engine::SetWebXRHudEnabled(bool enabled)
+{
+	WebXRHudEnabled = enabled;
+	ApplyWebXRHudSettings();
+	return true;
+}
+
+bool Engine::SetWebXRHudDistanceUU(float distanceUU)
+{
+	if (!TrySetWebXRHudSetting(WebXRHudDistanceUU, distanceUU,
+		WebXRHudPlaneSettings::MinimumDistanceUU, WebXRHudPlaneSettings::MaximumDistanceUU))
+		return false;
+	ApplyWebXRHudSettings();
+	return true;
+}
+
+bool Engine::SetWebXRHudHorizontalFovDegrees(float degrees)
+{
+	if (!TrySetWebXRHudSetting(WebXRHudHorizontalFovDegrees, degrees,
+		WebXRHudPlaneSettings::MinimumHorizontalFovDegrees,
+		WebXRHudPlaneSettings::MaximumHorizontalFovDegrees))
+		return false;
+	ApplyWebXRHudSettings();
+	return true;
+}
+
+bool Engine::SetWebXRHudAspectRatio(float aspectRatio)
+{
+	if (!TrySetWebXRHudSetting(WebXRHudAspectRatio, aspectRatio,
+		WebXRHudPlaneSettings::MinimumAspectRatio, WebXRHudPlaneSettings::MaximumAspectRatio))
+		return false;
+	ApplyWebXRHudSettings();
+	return true;
+}
+
+bool Engine::SetWebXRHudSafeAreaFraction(float fraction)
+{
+	if (!TrySetWebXRHudSetting(WebXRHudSafeAreaFraction, fraction,
+		WebXRHudPlaneSettings::MinimumSafeAreaFraction,
+		WebXRHudPlaneSettings::MaximumSafeAreaFraction))
+		return false;
+	ApplyWebXRHudSettings();
+	return true;
+}
+
+void Engine::ApplyWebXRHudSettings()
+{
+	if (!render)
+		return;
+	WebXRHudPlaneSettings settings;
+	settings.Enabled = WebXRHudEnabled;
+	settings.DistanceUU = WebXRHudDistanceUU;
+	settings.HorizontalFovDegrees = WebXRHudHorizontalFovDegrees;
+	settings.AspectRatio = WebXRHudAspectRatio;
+	settings.SafeAreaFraction = WebXRHudSafeAreaFraction;
+	render->SetWebXRHudPlaneSettings(settings);
+}
+
 bool Engine::SetWebXRSnapTurnDegrees(float degrees)
 {
 	if (!std::isfinite(degrees) || degrees < 15.0f || degrees > 90.0f)
@@ -2715,6 +2913,27 @@ void Engine::LoadWebXRInputSettings()
 	if (WebXRSnapTurnRearmThreshold >= WebXRSnapTurnThreshold)
 		WebXRSnapTurnRearmThreshold = 0.35f;
 
+	std::string hudEnabled = packages->GetIniValue(
+		"user", "Engine.WebXR", "HudEnabled", "True");
+	for (char& c : hudEnabled)
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	WebXRHudEnabled = hudEnabled != "false" && hudEnabled != "0" &&
+		hudEnabled != "off" && hudEnabled != "no";
+	WebXRHudDistanceUU = readFloat("HudDistanceUU",
+		WebXRHudPlaneSettings::DefaultDistanceUU, WebXRHudPlaneSettings::MinimumDistanceUU,
+		WebXRHudPlaneSettings::MaximumDistanceUU);
+	WebXRHudHorizontalFovDegrees = readFloat("HudHorizontalFovDegrees",
+		WebXRHudPlaneSettings::DefaultHorizontalFovDegrees,
+		WebXRHudPlaneSettings::MinimumHorizontalFovDegrees,
+		WebXRHudPlaneSettings::MaximumHorizontalFovDegrees);
+	WebXRHudAspectRatio = readFloat("HudAspectRatio",
+		WebXRHudPlaneSettings::DefaultAspectRatio, WebXRHudPlaneSettings::MinimumAspectRatio,
+		WebXRHudPlaneSettings::MaximumAspectRatio);
+	WebXRHudSafeAreaFraction = readFloat("HudSafeAreaFraction",
+		WebXRHudPlaneSettings::DefaultSafeAreaFraction,
+		WebXRHudPlaneSettings::MinimumSafeAreaFraction,
+		WebXRHudPlaneSettings::MaximumSafeAreaFraction);
+
 	std::string hapticsEnabled = packages->GetIniValue(
 		"user", "Engine.WebXR", "HapticsEnabled", "True");
 	for (char& c : hapticsEnabled)
@@ -2743,6 +2962,16 @@ void Engine::SaveWebXRInputSettings()
 		WebXRActionButtonName(WebXRRecenterButtonSetting));
 	packages->SetIniValue("user", "Engine.WebXR", "MenuButton",
 		WebXRActionButtonName(WebXRMenuButtonSetting));
+	packages->SetIniValue("user", "Engine.WebXR", "HudEnabled",
+		WebXRHudEnabled ? "True" : "False");
+	packages->SetIniValue("user", "Engine.WebXR", "HudDistanceUU",
+		std::to_string(WebXRHudDistanceUU));
+	packages->SetIniValue("user", "Engine.WebXR", "HudHorizontalFovDegrees",
+		std::to_string(WebXRHudHorizontalFovDegrees));
+	packages->SetIniValue("user", "Engine.WebXR", "HudAspectRatio",
+		std::to_string(WebXRHudAspectRatio));
+	packages->SetIniValue("user", "Engine.WebXR", "HudSafeAreaFraction",
+		std::to_string(WebXRHudSafeAreaFraction));
 #endif
 }
 

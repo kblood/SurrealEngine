@@ -50,10 +50,24 @@ struct WebXRWeaponOverlayDiagnostics
 // changing the HUD capture/presentation lifecycle.
 struct WebXRHudPlaneSettings
 {
-	float DistanceUU = 68.8976f;       // 1.75 m at the WebXR 39.3701 UU/m scale
-	float HorizontalFovDegrees = 50.0f;
-	float AspectRatio = 4.0f / 3.0f;
-	float SafeAreaFraction = 0.90f;
+	static constexpr float DefaultDistanceUU = 68.8976f; // 1.75 m at 39.3701 UU/m
+	static constexpr float MinimumDistanceUU = 19.685f;
+	static constexpr float MaximumDistanceUU = 157.4804f;
+	static constexpr float DefaultHorizontalFovDegrees = 50.0f;
+	static constexpr float MinimumHorizontalFovDegrees = 20.0f;
+	static constexpr float MaximumHorizontalFovDegrees = 75.0f;
+	static constexpr float DefaultAspectRatio = 4.0f / 3.0f;
+	static constexpr float MinimumAspectRatio = 0.75f;
+	static constexpr float MaximumAspectRatio = 2.0f;
+	static constexpr float DefaultSafeAreaFraction = 0.90f;
+	static constexpr float MinimumSafeAreaFraction = 0.50f;
+	static constexpr float MaximumSafeAreaFraction = 1.0f;
+
+	bool Enabled = true;
+	float DistanceUU = DefaultDistanceUU;
+	float HorizontalFovDegrees = DefaultHorizontalFovDegrees;
+	float AspectRatio = DefaultAspectRatio;
+	float SafeAreaFraction = DefaultSafeAreaFraction;
 };
 
 enum WebXRHudSelfTestBits : uint32_t
@@ -62,7 +76,8 @@ enum WebXRHudSelfTestBits : uint32_t
 	WebXRHudSelfTestViewportClamping = 1u << 1,
 	WebXRHudSelfTestAsymmetricProjection = 1u << 2,
 	WebXRHudSelfTestAbsentHud = 1u << 3,
-	WebXRHudSelfTestAll = (1u << 4) - 1u
+	WebXRHudSelfTestDisabledHud = 1u << 4,
+	WebXRHudSelfTestAll = (1u << 5) - 1u
 };
 
 struct WebXRHudDiagnostics
