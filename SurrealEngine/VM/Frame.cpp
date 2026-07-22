@@ -229,17 +229,28 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 		}
 	}
 
+	auto callScope = CallHooks().BeginCall(func, instance, args);
+
+	ExpressionValue result;
 	if (AllFlags(func->FuncFlags, FunctionFlags::Native))
 	{
-		return CallNative(func, instance, std::move(args));
+		result = CallNative(func, instance, args);
 	}
 	else
 	{
-		return CallScript(func, instance, std::move(args));
+		result = CallScript(func, instance, args);
 	}
+	callScope.ObserveResult(result);
+	return result;
 }
 
-ExpressionValue Frame::CallScript(UFunction* func, UObject* instance, Array<ExpressionValue> args)
+VMCallHookRegistry& Frame::CallHooks()
+{
+	static VMCallHookRegistry registry;
+	return registry;
+}
+
+ExpressionValue Frame::CallScript(UFunction* func, UObject* instance, Array<ExpressionValue>& args)
 {
 	Frame frame(instance, func);
 
@@ -296,10 +307,11 @@ ExpressionValue Frame::CallScript(UFunction* func, UObject* instance, Array<Expr
 	return result;
 }
 
-ExpressionValue Frame::CallNative(UFunction* func, UObject* instance, Array<ExpressionValue> args)
+ExpressionValue Frame::CallNative(UFunction* func, UObject* instance, Array<ExpressionValue>& args)
 {
 	// Native functions expect the last parameter to be the return value
 	bool returnparmfound = false;
+	bool dispatchFailed = false;
 	int argindex = 0;
 	for (UField* field = func->Children; field != nullptr; field = field->Next)
 	{
@@ -331,12 +343,12 @@ ExpressionValue Frame::CallNative(UFunction* func, UObject* instance, Array<Expr
 			catch (const std::exception& e)
 			{
 				LogMessage(std::string("Script error: ") + e.what());
-				return ExpressionValue::NothingValue();
+				dispatchFailed = true;
 			}
 			catch (...)
 			{
 				LogMessage("Script error: Unknown error");
-				return ExpressionValue::NothingValue();
+				dispatchFailed = true;
 			}
 		}
 		else
@@ -358,12 +370,12 @@ ExpressionValue Frame::CallNative(UFunction* func, UObject* instance, Array<Expr
 			catch (const std::exception& e)
 			{
 				LogMessage(std::string("Script error: ") + e.what());
-				return ExpressionValue::NothingValue();
+				dispatchFailed = true;
 			}
 			catch (...)
 			{
 				LogMessage("Script error: Unknown error");
-				return ExpressionValue::NothingValue();
+				dispatchFailed = true;
 			}
 		}
 		else
@@ -372,7 +384,10 @@ ExpressionValue Frame::CallNative(UFunction* func, UObject* instance, Array<Expr
 		}
 	}
 
-	return returnparmfound ? std::move(args.back()) : ExpressionValue::NothingValue();
+	ExpressionValue result = returnparmfound && !dispatchFailed ? std::move(args.back()) : ExpressionValue::NothingValue();
+	if (returnparmfound)
+		args.pop_back();
+	return result;
 }
 
 void Frame::TraceCall(UFunction* func, UObject* instance, const Array<ExpressionValue>& args)
