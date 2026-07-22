@@ -798,7 +798,6 @@ endif()
 
 add_library(SurrealCommon STATIC ${SURREALCOMMON_SOURCES} ${THIRDPARTY_SOURCES})
 set_target_properties(SurrealCommon PROPERTIES CXX_STANDARD 20)
-target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Precomp.h>)
 
 include(CTest)
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
@@ -818,6 +817,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	set_target_properties(DeusExTextTokenizerTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME DeusExTextTokenizer COMMAND DeusExTextTokenizerTests)
 endif()
+
+target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Precomp.h>)
 
 add_executable(SurrealEngine WIN32 MACOSX_BUNDLE ${SURREALENGINE_SOURCES})
 target_link_libraries(SurrealEngine SurrealCommon ${SURREALCOMMON_LIBS})
