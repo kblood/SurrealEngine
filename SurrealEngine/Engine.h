@@ -335,6 +335,7 @@ public:
 	float GetWebXRHudSafeAreaFraction() const { return WebXRHudSafeAreaFraction; }
 	float GetWebXRSnapTurnDegrees() const { return WebXRSnapTurnDegrees; }
 	float GetWebXRSmoothTurnDegreesPerSecond() const { return WebXRSmoothTurnDegreesPerSecond; }
+	bool GetWebXRHapticsEnabled() const { return WebXRHapticsEnabled; }
 	bool SetWebXRTurnMode(uint32_t mode);
 	bool SetWebXRMovementReference(uint32_t reference);
 	bool SetWebXRDominantHand(uint32_t handedness);
@@ -350,6 +351,7 @@ public:
 	bool SetWebXRHudSafeAreaFraction(float fraction);
 	bool SetWebXRSnapTurnDegrees(float degrees);
 	bool SetWebXRSmoothTurnDegreesPerSecond(float degreesPerSecond);
+	bool SetWebXRHapticsEnabledSetting(bool enabled);
 
 	uint64_t lastTime = 0;
 
@@ -379,6 +381,7 @@ public:
 private:
 	void UpdateWebXRInput(float timeElapsed);
 	void InputAxisEvent(EInputKey key, float delta);
+	bool DispatchWebXRMenuPointerEvent(EInputType type);
 	void LoadWebXRInputSettings();
 	void SaveWebXRInputSettings();
 	void ApplyWebXRHudSettings();
@@ -407,6 +410,8 @@ private:
 	bool skipAvi = false;
 	uint64_t LastProcessedWebXRInputGeneration = 0;
 	bool HasProcessedWebXRInput = false;
+	bool WebXRMenuPointerTriggerHeld = false;
+	int32_t WebXRMenuPointerTriggerButton = -1;
 	uint32_t WebXRButtonsHeld = 0;
 	uint32_t WebXRAxesActive = 0;
 	WebXRTurnMode WebXRTurnModeSetting = WebXRTurnMode::Snap;
@@ -418,6 +423,7 @@ private:
 	float WebXRHudHorizontalFovDegrees = 50.0f;
 	float WebXRHudAspectRatio = 4.0f / 3.0f;
 	float WebXRHudSafeAreaFraction = 0.90f;
+	bool WebXRHapticsEnabled = true;
 	float WebXRSnapTurnDegrees = 30.0f;
 	float WebXRSmoothTurnDegreesPerSecond = 120.0f;
 	float WebXRSnapTurnThreshold = 0.75f;

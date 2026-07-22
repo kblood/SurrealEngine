@@ -127,6 +127,19 @@ namespace
 		};
 	}
 
+	bool ShouldRouteWebXRMenuPointerButton(int32_t button, int32_t dominantPrimaryButton,
+		bool pointerActive, bool pointerTriggerHeld)
+	{
+		return button >= 0 && button == dominantPrimaryButton &&
+			(pointerActive || pointerTriggerHeld);
+	}
+
+	bool ShouldReleaseWebXRMenuPointerCapture(bool pointerTriggerHeld, bool pointerActive,
+		int32_t capturedButton, int32_t dominantPrimaryButton)
+	{
+		return pointerTriggerHeld && (!pointerActive || capturedButton != dominantPrimaryButton);
+	}
+
 	const char* WebXRActionButtonName(uint32_t button)
 	{
 		static constexpr const char* Names[WebXRActionButtonCount + 1] = {
@@ -832,6 +845,15 @@ namespace
 			ParseWebXRActionButton("RightStick", 0) != 10 ||
 			ParseWebXRActionButton("system", 4) != 4 || WebXRActionButtonMask(13) != 0)
 			return false;
+		if (!ShouldRouteWebXRMenuPointerButton(6, 6, true, false) ||
+			!ShouldRouteWebXRMenuPointerButton(6, 6, false, true) ||
+			ShouldRouteWebXRMenuPointerButton(0, 6, true, false) ||
+			ShouldRouteWebXRMenuPointerButton(6, -1, true, false) ||
+			!ShouldReleaseWebXRMenuPointerCapture(true, false, 6, 6) ||
+			!ShouldReleaseWebXRMenuPointerCapture(true, true, 6, 0) ||
+			ShouldReleaseWebXRMenuPointerCapture(true, true, 6, 6) ||
+			ShouldReleaseWebXRMenuPointerCapture(false, false, 6, 6))
+			return false;
 
 		bool armed = true;
 		uint32_t snapCount = 0;
@@ -1370,9 +1392,19 @@ extern "C"
 		return engine && engine->SetWebXRSnapTurnDegrees(degrees) ? 1 : 0;
 	}
 
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRSnapTurnDegrees()
+	{
+		return engine ? engine->GetWebXRSnapTurnDegrees() : 30.0f;
+	}
+
 	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRSmoothTurnDegreesPerSecond(float degreesPerSecond)
 	{
 		return engine && engine->SetWebXRSmoothTurnDegreesPerSecond(degreesPerSecond) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRSmoothTurnDegreesPerSecond()
+	{
+		return engine ? engine->GetWebXRSmoothTurnDegreesPerSecond() : 120.0f;
 	}
 
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRSnapTurnCount()
@@ -1627,9 +1659,44 @@ extern "C"
 		return engine ? engine->render->GetWebXRHudDiagnostics().LastFrameClampedViewports : 0;
 	}
 
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHudPlayerPostRenderCalls()
+	{
+		return engine && engine->render ?
+			engine->render->GetWebXRHudDiagnostics().LastFramePlayerPostRenderCalls : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHudConsolePostRenderCalls()
+	{
+		return engine && engine->render ?
+			engine->render->GetWebXRHudDiagnostics().LastFrameConsolePostRenderCalls : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRMenuPointerValid()
+	{
+		return engine && engine->render &&
+			engine->render->GetWebXRHudDiagnostics().LastFrameMenuPointerValid ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRMenuPointerX()
+	{
+		return engine && engine->render ?
+			engine->render->GetWebXRHudDiagnostics().LastFrameMenuPointerX : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRMenuPointerY()
+	{
+		return engine && engine->render ?
+			engine->render->GetWebXRHudDiagnostics().LastFrameMenuPointerY : 0.0f;
+	}
+
 	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRHapticsEnabled(int enabled)
 	{
-		return SetWebXRHapticsEnabled(enabled != 0) ? 1 : 0;
+		return engine && engine->SetWebXRHapticsEnabledSetting(enabled != 0) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRHapticsEnabled()
+	{
+		return engine && engine->GetWebXRHapticsEnabled() ? 1 : 0;
 	}
 
 	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRHapticsBridgeSelfTest()
@@ -3189,6 +3256,17 @@ bool Engine::SetWebXRSmoothTurnDegreesPerSecond(float degreesPerSecond)
 	return true;
 }
 
+bool Engine::SetWebXRHapticsEnabledSetting(bool enabled)
+{
+	WebXRHapticsEnabled = enabled;
+#ifdef __EMSCRIPTEN__
+	// The browser owns live XRInputSource actuators. Persist the requested
+	// policy even when no session/controller is currently available.
+	SetWebXRHapticsEnabled(enabled);
+#endif
+	return true;
+}
+
 void Engine::LoadWebXRInputSettings()
 {
 #ifdef __EMSCRIPTEN__
@@ -3267,7 +3345,7 @@ void Engine::LoadWebXRInputSettings()
 		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 	const bool enableHaptics = hapticsEnabled != "false" && hapticsEnabled != "0" &&
 		hapticsEnabled != "off" && hapticsEnabled != "no";
-	SetWebXRHapticsEnabled(enableHaptics);
+	SetWebXRHapticsEnabledSetting(enableHaptics);
 	RefreshWebXRActionBindings();
 #endif
 }
@@ -3289,6 +3367,20 @@ void Engine::SaveWebXRInputSettings()
 		WebXRActionButtonName(WebXRRecenterButtonSetting));
 	packages->SetIniValue("user", "Engine.WebXR", "MenuButton",
 		WebXRActionButtonName(WebXRMenuButtonSetting));
+	const char* turnMode = "Snap";
+	if (WebXRTurnModeSetting == WebXRTurnMode::Smooth)
+		turnMode = "Smooth";
+	else if (WebXRTurnModeSetting == WebXRTurnMode::Binding)
+		turnMode = "Binding";
+	else if (WebXRTurnModeSetting == WebXRTurnMode::Disabled)
+		turnMode = "Disabled";
+	packages->SetIniValue("user", "Engine.WebXR", "TurnMode", turnMode);
+	packages->SetIniValue("user", "Engine.WebXR", "SnapTurnDegrees",
+		std::to_string(WebXRSnapTurnDegrees));
+	packages->SetIniValue("user", "Engine.WebXR", "SmoothTurnDegreesPerSecond",
+		std::to_string(WebXRSmoothTurnDegreesPerSecond));
+	packages->SetIniValue("user", "Engine.WebXR", "HapticsEnabled",
+		WebXRHapticsEnabled ? "True" : "False");
 	packages->SetIniValue("user", "Engine.WebXR", "HudEnabled",
 		WebXRHudEnabled ? "True" : "False");
 	packages->SetIniValue("user", "Engine.WebXR", "HudDistanceUU",
@@ -3465,11 +3557,37 @@ void Engine::UpdateWebXRInput(float timeElapsed)
 	}
 
 	const uint32_t changedButtons = WebXRButtonsHeld ^ nextButtonsHeld;
+	const bool menuPointerActive = render && viewport &&
+		render->GetWebXRHudDiagnostics().LastFrameMenuPointerValid &&
+		viewport->bShowWindowsMouse() && viewport->bWindowsMouseAvailable();
+	const int32_t dominantPrimaryButton = WebXRInput.DominantControllerIndex >= 0 ?
+		WebXRInput.DominantControllerIndex * 6 : -1;
+	if (ShouldReleaseWebXRMenuPointerCapture(WebXRMenuPointerTriggerHeld, menuPointerActive,
+		WebXRMenuPointerTriggerButton, dominantPrimaryButton))
+	{
+		DispatchWebXRMenuPointerEvent(IST_Release);
+		WebXRMenuPointerTriggerHeld = false;
+		WebXRMenuPointerTriggerButton = -1;
+	}
 	for (uint32_t button = 0; button < 12; button++)
 	{
 		const uint32_t mask = 1u << button;
 		if ((changedButtons & mask) != 0)
-			InputEvent(ButtonKeys[button], (nextButtonsHeld & mask) != 0 ? IST_Press : IST_Release);
+		{
+			const bool pressed = (nextButtonsHeld & mask) != 0;
+			if (ShouldRouteWebXRMenuPointerButton((int32_t)button, dominantPrimaryButton,
+				menuPointerActive, WebXRMenuPointerTriggerHeld))
+			{
+				const bool accepted = DispatchWebXRMenuPointerEvent(
+					pressed ? IST_Press : IST_Release);
+				if (pressed && accepted)
+					RecordWebXRHapticOutcome(static_cast<uint32_t>(WebXRHapticEvent::UIConfirm), 1.0f);
+				WebXRMenuPointerTriggerHeld = pressed;
+				WebXRMenuPointerTriggerButton = pressed ? (int32_t)button : -1;
+				continue;
+			}
+			InputEvent(ButtonKeys[button], pressed ? IST_Press : IST_Release);
+		}
 	}
 	const WebXRActionEdges actionEdges = ComputeWebXRActionEdges(
 		WebXRButtonsHeld, nextButtonsHeld,
@@ -3949,6 +4067,29 @@ void Engine::InputAxisEvent(EInputKey key, float delta)
 		else
 			InputCommand(command, key, delta);
 	}
+}
+
+bool Engine::DispatchWebXRMenuPointerEvent(EInputType type)
+{
+#ifdef __EMSCRIPTEN__
+	if (!console || !viewport || !render ||
+		(!render->GetWebXRHudDiagnostics().LastFrameMenuPointerValid &&
+			!(type == IST_Release && WebXRMenuPointerTriggerHeld)))
+		return false;
+
+	// This is deliberately console-only. Falling through the normal LeftMouse
+	// keybinding path could fire the weapon behind a menu whose click handler
+	// rejected the event. A haptic confirmation is emitted by the caller only
+	// when this XR-originated UI event returns handled.
+	return CallEvent(console, EventName::KeyEvent, {
+		ExpressionValue::ByteValue(IK_LeftMouse),
+		ExpressionValue::ByteValue(type),
+		ExpressionValue::FloatValue(0.0f)
+	}).ToBool();
+#else
+	(void)type;
+	return false;
+#endif
 }
 
 bool Engine::ExecCommand(const Array<std::string>& args)
