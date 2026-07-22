@@ -164,6 +164,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Platform/WebXR/WebXRFrameBridge.h
 	SurrealEngine/Platform/WebXR/WebXRInputBridge.cpp
 	SurrealEngine/Platform/WebXR/WebXRInputBridge.h
+	SurrealEngine/Platform/WebXR/WebXRInputAdapter.cpp
+	SurrealEngine/Platform/WebXR/WebXRInputAdapter.h
 	SurrealEngine/Platform/WebXR/WebXRProvider.cpp
 	SurrealEngine/Render/XRUISurfaces.h
 	SurrealEngine/Render/XRUISurfaces.cpp
@@ -1053,4 +1055,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(WebXRInputBridgeTests PRIVATE SurrealEngine)
 	set_target_properties(WebXRInputBridgeTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME WebXRInputBridgeTests COMMAND WebXRInputBridgeTests)
+	add_executable(WebXRInputAdapterTests
+		Tests/WebXRInputAdapterTests.cpp
+		SurrealEngine/Platform/WebXR/WebXRInputAdapter.cpp
+		SurrealEngine/Platform/WebXR/WebXRInputBridge.cpp
+		SurrealEngine/Input/InputComposition.cpp
+	)
+	target_include_directories(WebXRInputAdapterTests PRIVATE SurrealEngine)
+	set_target_properties(WebXRInputAdapterTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME WebXRInputAdapterTests COMMAND WebXRInputAdapterTests)
 endif()

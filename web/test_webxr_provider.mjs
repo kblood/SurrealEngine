@@ -138,7 +138,7 @@ assert.equal(inputPackets.length, 2, "entry neutral plus first controller snapsh
 const controllerPacket = new DataView(inputPackets[1].buffer);
 assert.equal(controllerPacket.getUint32(0, true), 1);
 assert.equal(controllerPacket.getUint32(8, true), 2);
-assert.equal(controllerPacket.getUint32(12, true), 1, "action focus");
+assert.equal(controllerPacket.getUint32(12, true), 3, "active session with action focus");
 const leftBase = 24;
 const rightBase = 24 + 112;
 assert.equal(controllerPacket.getUint32(leftBase, true), 1);
@@ -159,7 +159,7 @@ assert.equal(defensiveView.getFloat32(24 + 40 + 8, true), 0, "non-standard mappi
 
 const blurred = globalThis.surrealXRPackInputSnapshot(17, { visibilityState: "visible-blurred", inputSources: [makeInputSource("right", 0.2)] }, frame, {});
 const blurredView = new DataView(blurred.buffer);
-assert.equal(blurredView.getUint32(12, true), 0, "blurred session must lose action focus");
+assert.equal(blurredView.getUint32(12, true), 1, "blurred session remains active but loses action focus");
 assert.equal(blurredView.getUint32(24 + 8, true), 0, "blurred session buttons must be neutral");
 assert.equal(blurredView.getFloat32(24 + 40 + 8, true), 0, "blurred session axes must be neutral");
 
@@ -178,4 +178,5 @@ await Promise.resolve();
 assert.deepEqual(loopTransitions, [1, 0, 1, 0]);
 assert.ok(resetCalls >= 4);
 assert.equal(new DataView(inputPackets.at(-1).buffer).getUint32(8, true), 0, "session end must leave neutral input");
+assert.equal(new DataView(inputPackets.at(-1).buffer).getUint32(12, true), 0, "session end must mark input inactive");
 console.log("WebXR lifecycle and packed controller snapshot tests passed");

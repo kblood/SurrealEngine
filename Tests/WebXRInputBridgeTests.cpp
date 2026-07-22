@@ -14,7 +14,7 @@ namespace
 		header.Version = WebXR::InputABIVersion;
 		header.SourceCount = 2;
 		header.ByteSize = sizeof(header) + header.SourceCount * sizeof(WebXR::PackedInputSource);
-		header.Flags = focused ? WebXR::InputActionFocused : 0;
+		header.Flags = WebXR::InputSessionActive | (focused ? WebXR::InputActionFocused : 0);
 		header.Timestamp = 42.5;
 
 		WebXR::PackedInputSource sources[2] = {};
@@ -55,7 +55,7 @@ int main()
 	WebXR::InputError error;
 	if (!Expect(WebXR::DecodeInputSnapshot(bytes.data(), static_cast<uint32_t>(bytes.size()), decoded, error),
 		"valid two-controller packet rejected")) return 1;
-	if (!Expect(error == WebXR::InputError::None && decoded.ActionFocused && decoded.Timestamp == 42.5,
+	if (!Expect(error == WebXR::InputError::None && decoded.SessionActive && decoded.ActionFocused && decoded.Timestamp == 42.5,
 		"header state decoded incorrectly")) return 1;
 	const auto& left = decoded.Sources[0];
 	const auto& right = decoded.Sources[1];
@@ -78,7 +78,7 @@ int main()
 	if (!Expect(Surreal_SubmitWebXRInputSnapshot(&neutral, sizeof(neutral)) == 1,
 		"neutral replacement snapshot rejected")) return 1;
 	const auto cleared = WebXR::GetInputSnapshot();
-	if (!Expect(!cleared.ActionFocused && !cleared.Sources[0].Connected && !cleared.Sources[1].Connected,
+	if (!Expect(!cleared.SessionActive && !cleared.ActionFocused && !cleared.Sources[0].Connected && !cleared.Sources[1].Connected,
 		"neutral snapshot did not clear both hands")) return 1;
 
 	auto invalid = MakePacket();
