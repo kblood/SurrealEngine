@@ -47,6 +47,8 @@ var commonSources = [
 	"SurrealEngine/Utils/StrTools.h",
 	"SurrealEngine/Utils/Random.cpp",
 	"SurrealEngine/Utils/Random.h",
+	"SurrealEngine/Runtime/DeterministicRuntime.cpp",
+	"SurrealEngine/Runtime/DeterministicRuntime.h",
 	"SurrealEngine/Utils/UTF16.cpp",
 	"SurrealEngine/Utils/UTF16.h",
 	"SurrealEngine/Utils/UTF8Reader.cpp",
