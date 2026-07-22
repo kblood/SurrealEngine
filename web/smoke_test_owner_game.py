@@ -22,8 +22,10 @@ def parse_args():
 	parser.add_argument("--game-dir", required=True, type=Path)
 	parser.add_argument("--base-url", default="http://localhost:8091")
 	parser.add_argument("--expected-game", choices=("ut99", "unreal-gold"))
+	parser.add_argument("--renderer", choices=("webgpu", "null"), default="webgpu")
 	parser.add_argument("--timeout-minutes", type=float, default=15.0)
 	parser.add_argument("--headed", action="store_true")
+	parser.add_argument("--profile-dir", type=Path)
 	parser.add_argument("--screenshot", type=Path)
 	return parser.parse_args()
 
@@ -71,8 +73,15 @@ def main():
 	base_url = args.base_url.rstrip("/")
 	timeout_ms = int(args.timeout_minutes * 60_000)
 	with sync_playwright() as playwright:
-		browser = playwright.chromium.launch(channel="chrome", headless=not args.headed)
-		context = browser.new_context(service_workers="block", viewport={"width": 1280, "height": 800})
+		browser = None
+		if args.profile_dir:
+			args.profile_dir.mkdir(parents=True, exist_ok=True)
+			context = playwright.chromium.launch_persistent_context(
+				str(args.profile_dir.resolve()), channel="chrome", headless=not args.headed,
+				service_workers="block", viewport={"width": 1280, "height": 800})
+		else:
+			browser = playwright.chromium.launch(channel="chrome", headless=not args.headed)
+			context = browser.new_context(service_workers="block", viewport={"width": 1280, "height": 800})
 		page = context.new_page()
 		console_lines = []
 		page_errors = []
@@ -80,29 +89,35 @@ def main():
 		page.on("pageerror", lambda error: page_errors.append(str(error)))
 
 		page.goto(base_url + "/", wait_until="load", timeout=60_000)
-		page.wait_for_function("window.surrealApp !== undefined", timeout=60_000)
+		page.wait_for_function("""() => window.surrealApp !== undefined ||
+			!document.getElementById('game-launcher').hidden ||
+			(!document.querySelector('[data-game-error]').hidden && document.querySelector('[data-game-error]').textContent)""",
+			timeout=timeout_ms)
+		restored = page.locator("#game-launcher").is_visible()
 		initial = page.evaluate("""() => ({
 			crossOriginIsolated,
-			state: window.surrealApp.result.import.state,
+			state: window.surrealApp && window.surrealApp.result.import.state,
 			canvasHidden: document.getElementById('game').hidden,
 		})""")
-		if not initial["crossOriginIsolated"] or initial["state"] != "waiting-for-import" or not initial["canvasHidden"]:
+		if (not initial["crossOriginIsolated"] or
+			(not restored and initial["state"] != "waiting-for-import") or not initial["canvasHidden"]):
 			raise RuntimeError("unexpected pre-import state: " + json.dumps(initial))
 
-		page.locator("[data-game-files]").set_input_files(str(game_dir), timeout=60_000)
-		try:
-			page.wait_for_function("""() => {
-				const launcher = document.getElementById('game-launcher');
-				const error = document.querySelector('[data-game-error]');
-				return (launcher && !launcher.hidden) || (error && !error.hidden && error.textContent);
-			}""", timeout=timeout_ms)
-		except PlaywrightTimeoutError as error:
-			state = page.evaluate("""() => ({
-				status: document.querySelector('[data-game-status]').textContent,
-				error: document.querySelector('[data-game-error]').textContent,
-				log: document.getElementById('log').textContent,
-			})""")
-			raise RuntimeError("import did not reach the launcher: " + json.dumps(state)) from error
+		if not restored:
+			page.locator("[data-game-files]").set_input_files(str(game_dir), timeout=60_000)
+			try:
+				page.wait_for_function("""() => {
+					const launcher = document.getElementById('game-launcher');
+					const error = document.querySelector('[data-game-error]');
+					return (launcher && !launcher.hidden) || (error && !error.hidden && error.textContent);
+				}""", timeout=timeout_ms)
+			except PlaywrightTimeoutError as error:
+				state = page.evaluate("""() => ({
+					status: document.querySelector('[data-game-status]').textContent,
+					error: document.querySelector('[data-game-error]').textContent,
+					log: document.getElementById('log').textContent,
+				})""")
+				raise RuntimeError("import did not reach the launcher: " + json.dumps(state)) from error
 		failure = page.evaluate("""() => {
 			const visible = document.querySelector('[data-game-error]');
 			const controller = window.surrealApp && window.surrealApp.dataController.importController;
@@ -123,21 +138,34 @@ def main():
 			raise RuntimeError("browser import failed: " + json.dumps(failure))
 
 		imported = page.evaluate("""() => ({
-			gameId: window.surrealApp.library.status().activeGameId,
+			gameId: window.surrealApp && window.surrealApp.library.status().activeGameId,
 			gameName: document.querySelector('[data-launcher-game]').textContent,
 			map: document.querySelector('[data-launcher-map]').value,
 			status: document.querySelector('[data-game-status]').textContent,
 			log: document.getElementById('log').textContent,
 		})""")
-		if args.expected_game and imported["gameId"] != args.expected_game:
+		if args.expected_game and imported["gameId"] and imported["gameId"] != args.expected_game:
 			raise RuntimeError("detected %s instead of %s" % (imported["gameId"], args.expected_game))
 
 		page.select_option("[data-launcher-presentation]", "flat")
-		page.select_option("[data-launcher-renderer]", "webgpu")
+		page.select_option("[data-launcher-renderer]", args.renderer)
 		page.check("[data-launcher-skip-intro]")
 		page.locator("#game-launcher").scroll_into_view_if_needed()
 		page.click("#game-launcher button[type=submit]")
-		page.wait_for_function("window.surrealBooted === true", timeout=timeout_ms)
+		try:
+			page.wait_for_function("window.surrealBooted === true", timeout=timeout_ms)
+		except PlaywrightTimeoutError as error:
+			startup = page.evaluate("""() => ({
+				booted: window.surrealBooted === true,
+				crashed: window.surrealCrashed || null,
+				ticks: (() => { try { return Module.ccall('Surreal_GetTickCount', 'number', [], []); } catch (_) { return null; } })(),
+				selection: window.surrealLaunchSelection || null,
+				phase: document.querySelector('[data-app-phase]').textContent,
+				status: document.querySelector('[data-game-status]').textContent,
+				error: document.querySelector('[data-game-error]').textContent,
+				log: document.getElementById('log').textContent,
+			})""")
+			raise RuntimeError("native startup did not complete: " + json.dumps(startup)) from error
 		ticks = wait_for_advancing_ticks(page, min(timeout_ms, 120_000))
 		time.sleep(10)
 
@@ -165,6 +193,8 @@ def main():
 		result = {
 			"gameDirectory": str(game_dir),
 			"source": summary,
+			"renderer": args.renderer,
+			"restoredFromProfile": restored,
 			"detected": imported,
 			"ticks": ticks,
 			"layout": layout,
@@ -180,9 +210,10 @@ def main():
 			print("Recent browser console output:", file=sys.stderr)
 			print("\n".join(console_lines[-80:]), file=sys.stderr)
 			raise RuntimeError("browser errors occurred during owner-data launch")
-		print("PASS: owner-supplied game imported recursively and launched in flat WebGPU mode")
+		print("PASS: owner-supplied game imported recursively and launched in flat %s mode" % args.renderer)
 		context.close()
-		browser.close()
+		if browser:
+			browser.close()
 
 
 if __name__ == "__main__":
