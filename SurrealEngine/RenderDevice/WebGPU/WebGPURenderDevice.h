@@ -171,7 +171,8 @@ private:
 	void DrawEntry(const WebGPUDrawBatchEntry& entry);
 	WGPUBindGroup GetTextureBindGroup(const WebGPUDrawBatchEntry& entry);
 	void UploadPendingSceneData();
-	void UpdateSceneUniforms(const mat4& objectToProjection);
+	void UpdateSceneUniforms(const mat4& objectToProjection,
+		WebGPUClipSpaceYConvention clipSpaceYConvention);
 
 	vec4 ApplyInverseGamma(vec4 color);
 

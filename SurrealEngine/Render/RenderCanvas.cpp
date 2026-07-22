@@ -26,6 +26,7 @@ void RenderSubsystem::ResetCanvas()
 	Canvas.Frame.FY2 = Canvas.Frame.FY * 0.5f;
 	Canvas.Frame.ObjectToWorld = mat4::identity();
 	Canvas.Frame.WorldToView = mat4::identity();
+	Canvas.Frame.ClipSpaceYConvention = WebGPUClipSpaceYConvention::EngineProjection;
 	Canvas.Frame.FovAngle = engine->CameraFovAngle;
 	float Aspect = Canvas.Frame.FY / Canvas.Frame.FX;
 	float RProjZ = (float)std::tan(radians(Canvas.Frame.FovAngle) * 0.5f);
@@ -148,6 +149,7 @@ bool RenderSubsystem::RenderWebXRWeaponOverlay()
 	Canvas.Frame.FY = MainFrame.Frame.FY;
 	Canvas.Frame.FX2 = MainFrame.Frame.FX2;
 	Canvas.Frame.FY2 = MainFrame.Frame.FY2;
+	Canvas.Frame.ClipSpaceYConvention = MainFrame.Frame.ClipSpaceYConvention;
 	int eyeSizeX = std::max((int)(Canvas.Frame.FX / (float)Canvas.uiscale), 1);
 	int eyeSizeY = std::max((int)(Canvas.Frame.FY / (float)Canvas.uiscale), 1);
 	engine->canvas->CurX() = 0.0f;

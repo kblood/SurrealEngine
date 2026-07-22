@@ -108,7 +108,8 @@ namespace
 		float ndcX = clip.x / clip.w;
 		float ndcY = clip.y / clip.w;
 		pixelX = (ndcX + 1.0f) * 0.5f * view.ViewportWidth;
-		pixelY = (ndcY + 1.0f) * 0.5f * view.ViewportHeight;
+		pixelY = WebGPUFramebufferYFromNDC(view.ClipSpaceYConvention, ndcY) *
+			view.ViewportHeight;
 		return std::isfinite(pixelX) && std::isfinite(pixelY);
 	}
 
@@ -342,6 +343,7 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 			viewport.X = view.ViewportWidth;
 			viewport.Y = view.ViewportHeight;
 			viewport.Projection = &view.Projection;
+			viewport.ClipSpaceYConvention = view.ClipSpaceYConvention;
 			DrawSceneView(view.Location, view.WorldToView, view.ViewRotation, &viewport);
 
 			// Restore only the first-person weapon here. HUD/console/menu state was
@@ -393,6 +395,7 @@ bool RenderSubsystem::PresentWebXRHudEye(const WebXRSceneView* views, uint32_t v
 	if (!WebXRHudSettings.Enabled || !views || viewCount == 0 ||
 		eyeIndex >= viewCount || WebXRHudCommands.empty())
 		return false;
+	const WebXRSceneView& view = views[eyeIndex];
 
 	struct ScopedHudPresentationRestore
 	{
@@ -450,6 +453,7 @@ bool RenderSubsystem::PresentWebXRHudEye(const WebXRSceneView* views, uint32_t v
 	Canvas.Frame.ObjectToWorld = mat4::identity();
 	Canvas.Frame.WorldToView = mat4::identity();
 	Canvas.Frame.ProjectionOverride = false;
+	Canvas.Frame.ClipSpaceYConvention = view.ClipSpaceYConvention;
 	Device->SetSceneNode(&Canvas.Frame);
 
 	const float scaleX = viewport.Width / (float)WebXRHudLayoutWidth;

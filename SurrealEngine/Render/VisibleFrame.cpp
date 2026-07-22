@@ -88,6 +88,7 @@ void VisibleFrame::SetupSceneFrame(const mat4& worldToView, const ViewportOverri
 	{
 		Frame.Projection = *viewportOverride->Projection;
 		Frame.ProjectionOverride = true;
+		Frame.ClipSpaceYConvention = viewportOverride->ClipSpaceYConvention;
 	}
 	else
 	{
@@ -95,6 +96,7 @@ void VisibleFrame::SetupSceneFrame(const mat4& worldToView, const ViewportOverri
 		float RProjZ = (float)std::tan(radians(Frame.FovAngle) * 0.5f);
 		Frame.Projection = mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
 		Frame.ProjectionOverride = false;
+		Frame.ClipSpaceYConvention = WebGPUClipSpaceYConvention::EngineProjection;
 	}
 }
 
@@ -393,6 +395,7 @@ void VisibleFrame::DrawPortals()
 	subViewport.X = Frame.X;
 	subViewport.Y = Frame.Y;
 	subViewport.Projection = &Frame.Projection;
+	subViewport.ClipSpaceYConvention = Frame.ClipSpaceYConvention;
 
 	for (VisiblePortal& portal : Portals)
 	{

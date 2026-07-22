@@ -14,6 +14,29 @@ class UActor;
 class Widget;
 enum class RenderAPI;
 
+// The engine's historical projection/screen-space convention needs one Y
+// reflection when submitted to a WebGPU canvas. Browser-provided XRView
+// projections for a WebGPU-compatible session do not. Carry this explicitly;
+// neither the projection matrix nor the render-target shape identifies it.
+enum class WebGPUClipSpaceYConvention : uint8_t
+{
+	EngineProjection = 0,
+	NativeWebGPUProjectionLayer = 1
+};
+
+inline float WebGPUClipSpaceYSign(WebGPUClipSpaceYConvention convention)
+{
+	return convention == WebGPUClipSpaceYConvention::NativeWebGPUProjectionLayer ? 1.0f : -1.0f;
+}
+
+inline float WebGPUFramebufferYFromNDC(WebGPUClipSpaceYConvention convention, float ndcY)
+{
+	// Native WebGPU framebuffers have a top-left origin. EngineProjection is
+	// reflected later in WGSL, so CPU-side screen bounds mirror the same choice.
+	return convention == WebGPUClipSpaceYConvention::NativeWebGPUProjectionLayer ?
+		(1.0f - ndcY) * 0.5f : (ndcY + 1.0f) * 0.5f;
+}
+
 struct FSceneNode
 {
 	int XB, YB; // viewport top left
@@ -31,6 +54,7 @@ struct FSceneNode
 	// per-eye OpenXR projection) instead of deriving a symmetric frustum
 	// from FovAngle. See VR_IMPLEMENTATION_PLAN.md M2 step 6.
 	bool ProjectionOverride = false;
+	WebGPUClipSpaceYConvention ClipSpaceYConvention = WebGPUClipSpaceYConvention::EngineProjection;
 
 	vec4 NearClip = vec4(0.0f, 0.0f, 1.0f, -1.0f);
 	float Zoom = 1.0f;

@@ -27,6 +27,7 @@ struct ViewportOverride
 {
 	int XB, YB, X, Y;
 	const mat4* Projection = nullptr;
+	WebGPUClipSpaceYConvention ClipSpaceYConvention = WebGPUClipSpaceYConvention::EngineProjection;
 };
 
 class VisibleFrame

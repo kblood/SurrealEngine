@@ -22,7 +22,11 @@ struct WebGPUSceneVertex
 struct WebGPUSceneUniforms
 {
 	float ObjectToProjection[16];
+	float ClipSpaceYSign;
+	float Padding[3];
 };
+
+static_assert(sizeof(WebGPUSceneUniforms) == 80);
 
 struct WebGPUScenePipelineState
 {

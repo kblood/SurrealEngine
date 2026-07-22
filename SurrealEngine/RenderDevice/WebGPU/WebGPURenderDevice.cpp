@@ -483,10 +483,12 @@ vec4 WebGPURenderDevice::ApplyInverseGamma(vec4 color)
 	return vec4(pow(color.r, gammaRed), pow(color.g, gammaGreen), pow(color.b, gammaBlue), color.a);
 }
 
-void WebGPURenderDevice::UpdateSceneUniforms(const mat4& objectToProjection)
+void WebGPURenderDevice::UpdateSceneUniforms(const mat4& objectToProjection,
+	WebGPUClipSpaceYConvention clipSpaceYConvention)
 {
-	WebGPUSceneUniforms uniforms;
+	WebGPUSceneUniforms uniforms = {};
 	std::memcpy(uniforms.ObjectToProjection, objectToProjection.matrix, sizeof(float) * 16);
+	uniforms.ClipSpaceYSign = WebGPUClipSpaceYSign(clipSpaceYConvention);
 	wgpuQueueWriteBuffer(Context->Queue, UniformBuffer, 0, &uniforms, sizeof(uniforms));
 }
 
@@ -498,7 +500,8 @@ void WebGPURenderDevice::EndFlash()
 
 		vec4 color(FlashFog.x, FlashFog.y, FlashFog.z, 1.0f - std::min(FlashScale.x * 2.0f, 1.0f));
 
-		UpdateSceneUniforms(mat4::identity());
+		UpdateSceneUniforms(mat4::identity(), CurrentFrame ?
+			CurrentFrame->ClipSpaceYConvention : WebGPUClipSpaceYConvention::EngineProjection);
 
 		SetPipeline(PF_Highlighted);
 		SetDescriptorSet(0);
@@ -564,7 +567,8 @@ void WebGPURenderDevice::SetSceneNode(FSceneNode* Frame)
 	mat4 objectToProjection = Frame->ProjectionOverride ? Frame->Projection :
 		mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
 
-	UpdateSceneUniforms(objectToProjection * Frame->WorldToView * Frame->ObjectToWorld);
+	UpdateSceneUniforms(objectToProjection * Frame->WorldToView * Frame->ObjectToWorld,
+		Frame->ClipSpaceYConvention);
 }
 
 void WebGPURenderDevice::PrecacheTexture(FTextureInfo& Info, uint32_t PolyFlags)

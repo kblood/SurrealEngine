@@ -28,6 +28,8 @@ struct WebXRSceneView
 	mat4 WorldToView;
 	Coords ViewRotation;
 	mat4 Projection;
+	WebGPUClipSpaceYConvention ClipSpaceYConvention =
+		WebGPUClipSpaceYConvention::NativeWebGPUProjectionLayer;
 };
 
 // Renderer-local test seam for the deliberately narrow WebXR weapon-overlay

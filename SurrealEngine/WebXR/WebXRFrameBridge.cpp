@@ -403,6 +403,8 @@ namespace
 			target.WorldToView = Coords::ViewToRenderDev().ToMatrix() *
 				target.ViewRotation.Inverse().ToMatrix() * Coords::Location(target.Location).ToMatrix();
 			target.Projection = DecodeProjection(source);
+			target.ClipSpaceYConvention =
+				WebGPUClipSpaceYConvention::NativeWebGPUProjectionLayer;
 		}
 	}
 
@@ -453,6 +455,12 @@ namespace
 		BuildSceneViews(header, views, anchor, body, DefaultWorldUnitsPerMeter, state, output);
 		const float halfIPDUU = 0.032f * DefaultWorldUnitsPerMeter;
 		if (state.RecenterCount != 1 ||
+			output[0].ClipSpaceYConvention !=
+				WebGPUClipSpaceYConvention::NativeWebGPUProjectionLayer ||
+			!NearlyEqual(WebGPUClipSpaceYSign(output[0].ClipSpaceYConvention), 1.0f) ||
+			!NearlyEqual(WebGPUClipSpaceYSign(WebGPUClipSpaceYConvention::EngineProjection), -1.0f) ||
+			!NearlyEqual(WebGPUFramebufferYFromNDC(output[0].ClipSpaceYConvention, 1.0f), 0.0f) ||
+			!NearlyEqual(WebGPUFramebufferYFromNDC(output[0].ClipSpaceYConvention, -1.0f), 1.0f) ||
 			!NearlyEqual(output[0].Location.x, anchor.x) ||
 			!NearlyEqual(output[0].Location.y, anchor.y - halfIPDUU) ||
 			!NearlyEqual(output[1].Location.y, anchor.y + halfIPDUU) ||
