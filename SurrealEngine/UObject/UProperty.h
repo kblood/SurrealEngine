@@ -67,6 +67,7 @@ public:
 	virtual void LoadStructMemberValue(void* data, ObjectStream* stream);
 	virtual void SaveHeader(void* data, PropertyHeader& header);
 	virtual void SaveValue(void* data, PackageStreamWriter* stream);
+	virtual void SaveStructMemberValue(void* data, PackageStreamWriter* stream);
 
 	virtual size_t ElementAlignment() = 0;
 	virtual size_t ElementSize() = 0;
@@ -396,6 +397,7 @@ public:
 
 	void SaveHeader(void* data, PropertyHeader& header) override;
 	void SaveValue(void* data, PackageStreamWriter* stream) override;
+	void SaveStructMemberValue(void* data, PackageStreamWriter* stream) override;
 
 	size_t ElementAlignment() override;
 	size_t ElementSize() override;
