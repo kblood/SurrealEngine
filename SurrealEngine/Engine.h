@@ -100,6 +100,23 @@ public:
 		std::array<float, 4> SynthesizedAxes = {};
 	};
 
+	enum class WebXRTurnMode : uint32_t
+	{
+		Snap = 0,
+		Smooth = 1,
+		Binding = 2,
+		Disabled = 3
+	};
+
+	struct WebXRLocomotionDiagnostics
+	{
+		uint32_t DefaultBindingMask = 0;
+		uint32_t SnapTurnCount = 0;
+		float LastMoveForward = 0.0f;
+		float LastMoveStrafe = 0.0f;
+		int LastTurnDelta = 0;
+	};
+
 	Engine(GameLaunchInfo launchinfo);
 	~Engine();
 
@@ -243,6 +260,14 @@ public:
 	bool quit = false;
 	uint64_t tickCount = 0;
 	VRInputState WebXRInput;
+	WebXRLocomotionDiagnostics WebXRLocomotion;
+
+	WebXRTurnMode GetWebXRTurnMode() const { return WebXRTurnModeSetting; }
+	float GetWebXRSnapTurnDegrees() const { return WebXRSnapTurnDegrees; }
+	float GetWebXRSmoothTurnDegreesPerSecond() const { return WebXRSmoothTurnDegreesPerSecond; }
+	bool SetWebXRTurnMode(uint32_t mode);
+	bool SetWebXRSnapTurnDegrees(float degrees);
+	bool SetWebXRSmoothTurnDegreesPerSecond(float degreesPerSecond);
 
 	uint64_t lastTime = 0;
 
@@ -270,8 +295,10 @@ public:
 	bool getDXWindowDebugMode() const { return m_DrawDebugDXWindowHierarchy; }
 
 private:
-	void UpdateWebXRInput();
+	void UpdateWebXRInput(float timeElapsed);
 	void InputAxisEvent(EInputKey key, float delta);
+	void LoadWebXRInputSettings();
+	void InstallWebXRDefaultBindings();
 	std::map<std::string, std::string> CreateTravelInfo(bool transferItems);
 
 	void LogGamePackageSHA1Sums() const;
@@ -291,6 +318,12 @@ private:
 	bool HasProcessedWebXRInput = false;
 	uint32_t WebXRButtonsHeld = 0;
 	uint32_t WebXRAxesActive = 0;
+	WebXRTurnMode WebXRTurnModeSetting = WebXRTurnMode::Snap;
+	float WebXRSnapTurnDegrees = 30.0f;
+	float WebXRSmoothTurnDegreesPerSecond = 120.0f;
+	float WebXRSnapTurnThreshold = 0.75f;
+	float WebXRSnapTurnRearmThreshold = 0.35f;
+	bool WebXRSnapTurnArmed = true;
 };
 
 extern Engine* engine;

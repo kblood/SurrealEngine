@@ -35,6 +35,122 @@
 #include "WebXR/WebXRInputState.h"
 #endif
 
+namespace
+{
+	// UE1's input scripts expect movement-sized axis values, not normalized
+	// gamepad values. A held keyboard movement alias conventionally produces
+	// Speed=350 * press-delta=20 = 7000. The stock JoyX/JoyY convention uses
+	// Speed=2, so WebXR supplies 3500 axis units at full stick deflection.
+	constexpr float WebXRUE1MovementScale = 7000.0f;
+	constexpr float WebXRJoystickAxisScale = WebXRUE1MovementScale / 2.0f;
+	constexpr float WebXRYawUnitsPerDegree = 65536.0f / 360.0f;
+	constexpr float WebXRSmoothTurnDeadZone = 0.15f;
+
+	uint32_t InstallWebXRDefaults(std::map<std::string, std::string>& bindings)
+	{
+		uint32_t installedMask = 0;
+		auto install = [&](uint32_t bit, const char* destination, const char* source, const char* fallback)
+		{
+			if (!bindings[destination].empty())
+				return;
+			auto sourceIt = bindings.find(source);
+			bindings[destination] = sourceIt != bindings.end() && !sourceIt->second.empty() ?
+				sourceIt->second : fallback;
+			if (!bindings[destination].empty())
+				installedMask |= 1u << bit;
+		};
+
+		// xr-standard fixed slots, normalized by WebXRInputState:
+		//   left  Joy1 trigger, Joy2 grip, Joy4 stick, Joy5 X, Joy6 Y
+		//   right Joy7 trigger, Joy8 grip, Joy10 stick, Joy11 A, Joy12 B
+		// Existing Joy commands always win. Defaults borrow the user's ordinary
+		// keyboard/mouse command, retaining aliases and per-game customization.
+		install(0, "Joy1", "RightMouse", "AltFire");
+		install(1, "Joy2", "E", "Use");
+		install(3, "Joy4", "C", "Duck");
+		install(4, "Joy5", "MouseWheelUp", "PrevWeapon");
+		install(5, "Joy6", "Escape", "ShowMenu");
+		install(6, "Joy7", "LeftMouse", "Fire");
+		install(7, "Joy8", "RightMouse", "AltFire");
+		install(10, "Joy11", "Space", "Jump");
+		install(11, "Joy12", "MouseWheelDown", "NextWeapon");
+		install(12, "JoyX", "", "Axis aStrafe Speed=2.0");
+		install(13, "JoyY", "", "Axis aBaseY Speed=2.0");
+		return installedMask;
+	}
+
+	int ComputeWebXRTurnDelta(float axis, float timeElapsed, Engine::WebXRTurnMode mode,
+		float snapDegrees, float smoothDegreesPerSecond, float snapThreshold,
+		float rearmThreshold, bool& snapArmed, uint32_t& snapCount)
+	{
+		axis = clamp(axis, -1.0f, 1.0f);
+		if (mode == Engine::WebXRTurnMode::Snap)
+		{
+			if (std::fabs(axis) <= rearmThreshold)
+				snapArmed = true;
+			if (!snapArmed || std::fabs(axis) < snapThreshold)
+				return 0;
+
+			snapArmed = false;
+			snapCount++;
+			// UE1 positive yaw turns left; WebXR positive stick X means right.
+			return static_cast<int>(std::lround(-std::copysign(snapDegrees, axis) * WebXRYawUnitsPerDegree));
+		}
+
+		if (std::fabs(axis) <= rearmThreshold)
+			snapArmed = true;
+		if (mode != Engine::WebXRTurnMode::Smooth || timeElapsed <= 0.0f ||
+			std::fabs(axis) < WebXRSmoothTurnDeadZone)
+			return 0;
+		return static_cast<int>(std::lround(-axis * smoothDegreesPerSecond *
+			timeElapsed * WebXRYawUnitsPerDegree));
+	}
+
+	bool RunWebXRLocomotionSelfTest()
+	{
+		std::map<std::string, std::string> bindings = {
+			{ "LeftMouse", "Fire" }, { "RightMouse", "AltFire" },
+			{ "Space", "Jump" }, { "Escape", "ShowMenu" },
+			{ "MouseWheelUp", "PreviousFromUser" },
+			{ "MouseWheelDown", "NextFromUser" },
+			{ "Joy7", "ExplicitUserFire" }
+		};
+		const uint32_t defaults = InstallWebXRDefaults(bindings);
+		if (bindings["Joy7"] != "ExplicitUserFire" || (defaults & (1u << 6)) != 0 ||
+			bindings["Joy11"] != "Jump" || bindings["Joy5"] != "PreviousFromUser" ||
+			bindings["JoyX"] != "Axis aStrafe Speed=2.0")
+			return false;
+		if (std::fabs(WebXRJoystickAxisScale * 2.0f - WebXRUE1MovementScale) > 0.001f)
+			return false;
+
+		bool armed = true;
+		uint32_t snapCount = 0;
+		const int thirtyDegrees = static_cast<int>(std::lround(30.0f * WebXRYawUnitsPerDegree));
+		if (ComputeWebXRTurnDelta(0.8f, 1.0f, Engine::WebXRTurnMode::Snap,
+			30.0f, 120.0f, 0.75f, 0.35f, armed, snapCount) != -thirtyDegrees ||
+			ComputeWebXRTurnDelta(1.0f, 1.0f, Engine::WebXRTurnMode::Snap,
+			30.0f, 120.0f, 0.75f, 0.35f, armed, snapCount) != 0 ||
+			ComputeWebXRTurnDelta(0.5f, 1.0f, Engine::WebXRTurnMode::Snap,
+			30.0f, 120.0f, 0.75f, 0.35f, armed, snapCount) != 0 || armed)
+			return false;
+		ComputeWebXRTurnDelta(0.3f, 1.0f, Engine::WebXRTurnMode::Snap,
+			30.0f, 120.0f, 0.75f, 0.35f, armed, snapCount);
+		if (!armed || ComputeWebXRTurnDelta(-0.8f, 1.0f, Engine::WebXRTurnMode::Snap,
+			30.0f, 120.0f, 0.75f, 0.35f, armed, snapCount) != thirtyDegrees || snapCount != 2)
+			return false;
+
+		armed = true;
+		snapCount = 0;
+		const int sixtyDegrees = static_cast<int>(std::lround(60.0f * WebXRYawUnitsPerDegree));
+		return ComputeWebXRTurnDelta(1.0f, 0.5f, Engine::WebXRTurnMode::Smooth,
+			30.0f, 120.0f, 0.75f, 0.35f, armed, snapCount) == -sixtyDegrees &&
+			ComputeWebXRTurnDelta(0.1f, 1.0f, Engine::WebXRTurnMode::Smooth,
+				30.0f, 120.0f, 0.75f, 0.35f, armed, snapCount) == 0 &&
+			ComputeWebXRTurnDelta(1.0f, 1.0f, Engine::WebXRTurnMode::Disabled,
+				30.0f, 120.0f, 0.75f, 0.35f, armed, snapCount) == 0;
+	}
+}
+
 Engine* engine = nullptr;
 
 Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
@@ -194,6 +310,61 @@ extern "C"
 		return (state.AimPose.Tracked ? 1u : 0u) |
 			(state.GripPose.Tracked ? 2u : 0u) |
 			(state.Connected ? 4u : 0u);
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRDefaultBindingMask()
+	{
+		return engine ? engine->WebXRLocomotion.DefaultBindingMask : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRLocomotionScale()
+	{
+		return WebXRUE1MovementScale;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRTurnMode()
+	{
+		return engine ? static_cast<uint32_t>(engine->GetWebXRTurnMode()) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRTurnMode(uint32_t mode)
+	{
+		return engine && engine->SetWebXRTurnMode(mode) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRSnapTurnDegrees(float degrees)
+	{
+		return engine && engine->SetWebXRSnapTurnDegrees(degrees) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRSmoothTurnDegreesPerSecond(float degreesPerSecond)
+	{
+		return engine && engine->SetWebXRSmoothTurnDegreesPerSecond(degreesPerSecond) ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRSnapTurnCount()
+	{
+		return engine ? engine->WebXRLocomotion.SnapTurnCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRLastTurnDelta()
+	{
+		return engine ? engine->WebXRLocomotion.LastTurnDelta : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRLastMoveForward()
+	{
+		return engine ? engine->WebXRLocomotion.LastMoveForward : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRLastMoveStrafe()
+	{
+		return engine ? engine->WebXRLocomotion.LastMoveStrafe : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRLocomotionSelfTest()
+	{
+		return RunWebXRLocomotionSelfTest() ? 1 : 0;
 	}
 }
 #endif
@@ -1548,6 +1719,68 @@ void Engine::LoadEngineSettings()
 #endif
 }
 
+bool Engine::SetWebXRTurnMode(uint32_t mode)
+{
+	if (mode > static_cast<uint32_t>(WebXRTurnMode::Disabled))
+		return false;
+	WebXRTurnModeSetting = static_cast<WebXRTurnMode>(mode);
+	WebXRSnapTurnArmed = true;
+	return true;
+}
+
+bool Engine::SetWebXRSnapTurnDegrees(float degrees)
+{
+	if (!std::isfinite(degrees) || degrees < 15.0f || degrees > 90.0f)
+		return false;
+	WebXRSnapTurnDegrees = degrees;
+	return true;
+}
+
+bool Engine::SetWebXRSmoothTurnDegreesPerSecond(float degreesPerSecond)
+{
+	if (!std::isfinite(degreesPerSecond) || degreesPerSecond < 15.0f || degreesPerSecond > 360.0f)
+		return false;
+	WebXRSmoothTurnDegreesPerSecond = degreesPerSecond;
+	return true;
+}
+
+void Engine::LoadWebXRInputSettings()
+{
+#ifdef __EMSCRIPTEN__
+	std::string turnMode = packages->GetIniValue("user", "Engine.WebXR", "TurnMode", "Snap");
+	for (char& c : turnMode)
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	if (turnMode == "smooth")
+		WebXRTurnModeSetting = WebXRTurnMode::Smooth;
+	else if (turnMode == "binding" || turnMode == "legacy")
+		WebXRTurnModeSetting = WebXRTurnMode::Binding;
+	else if (turnMode == "disabled" || turnMode == "off")
+		WebXRTurnModeSetting = WebXRTurnMode::Disabled;
+	else
+		WebXRTurnModeSetting = WebXRTurnMode::Snap;
+
+	auto readFloat = [&](const char* key, float fallback, float minimum, float maximum)
+	{
+		const std::string text = packages->GetIniValue("user", "Engine.WebXR", key, std::to_string(fallback));
+		const float value = static_cast<float>(std::atof(text.c_str()));
+		return std::isfinite(value) && value >= minimum && value <= maximum ? value : fallback;
+	};
+	WebXRSnapTurnDegrees = readFloat("SnapTurnDegrees", 30.0f, 15.0f, 90.0f);
+	WebXRSmoothTurnDegreesPerSecond = readFloat("SmoothTurnDegreesPerSecond", 120.0f, 15.0f, 360.0f);
+	WebXRSnapTurnThreshold = readFloat("SnapTurnThreshold", 0.75f, 0.5f, 0.95f);
+	WebXRSnapTurnRearmThreshold = readFloat("SnapTurnRearmThreshold", 0.35f, 0.05f, 0.49f);
+	if (WebXRSnapTurnRearmThreshold >= WebXRSnapTurnThreshold)
+		WebXRSnapTurnRearmThreshold = 0.35f;
+#endif
+}
+
+void Engine::InstallWebXRDefaultBindings()
+{
+#ifdef __EMSCRIPTEN__
+	WebXRLocomotion.DefaultBindingMask = InstallWebXRDefaults(keybindings);
+#endif
+}
+
 void Engine::LoadKeybindings()
 {
 	for (int i = 0; i < 256; i++)
@@ -1580,6 +1813,12 @@ void Engine::LoadKeybindings()
 			}
 		}
 	}
+
+	// WebXR defaults are runtime fallbacks only: never overwrite or persist an
+	// existing Joy command. They remain remappable through the ordinary
+	// `set input JoyN ...` path and the user's Engine.Input section.
+	InstallWebXRDefaultBindings();
+	LoadWebXRInputSettings();
 }
 
 void Engine::UpdateInput(float timeElapsed)
@@ -1594,7 +1833,7 @@ void Engine::UpdateInput(float timeElapsed)
 	if (!viewport->Actor())
 		return;
 
-	UpdateWebXRInput();
+	UpdateWebXRInput(timeElapsed);
 
 	for (auto& it : activeInputButtons)
 		viewport->Actor()->SetBool(it.first, true);
@@ -1611,7 +1850,7 @@ void Engine::UpdateInput(float timeElapsed)
 	}
 }
 
-void Engine::UpdateWebXRInput()
+void Engine::UpdateWebXRInput(float timeElapsed)
 {
 #ifdef __EMSCRIPTEN__
 	const WebXRInputSnapshot snapshot = GetLatestWebXRInputSnapshot();
@@ -1698,9 +1937,53 @@ void Engine::UpdateWebXRInput()
 		const size_t sourceAxis = useGenericPair ? 0 : 2;
 		WebXRInput.SynthesizedAxes[output] = controller.Axes[sourceAxis];
 		WebXRInput.SynthesizedAxes[output + 1] = controller.Axes[sourceAxis + 1];
-		nextAxesActive |= 3u << output;
-		InputAxisEvent(AxisKeys[output], WebXRInput.SynthesizedAxes[output]);
-		InputAxisEvent(AxisKeys[output + 1], WebXRInput.SynthesizedAxes[output + 1]);
+
+		// The left stick remains in the ordinary, remappable JoyX/JoyY path,
+		// but normalized WebXR values are expanded to UE1's joystick-domain
+		// convention. With the stock/default Speed=2 command, full deflection
+		// produces the same 7000 movement scale as a held movement key.
+		if (slot == 0)
+		{
+			nextAxesActive |= 3u << output;
+			InputAxisEvent(AxisKeys[output], WebXRInput.SynthesizedAxes[output] * WebXRJoystickAxisScale);
+			InputAxisEvent(AxisKeys[output + 1], WebXRInput.SynthesizedAxes[output + 1] * WebXRJoystickAxisScale);
+		}
+		else if (WebXRTurnModeSetting == WebXRTurnMode::Binding)
+		{
+			// Explicit legacy/binding mode releases comfort turning and routes
+			// the right stick through JoyU/JoyV exactly like the left stick.
+			nextAxesActive |= 3u << output;
+			InputAxisEvent(AxisKeys[output], WebXRInput.SynthesizedAxes[output] * WebXRJoystickAxisScale);
+			InputAxisEvent(AxisKeys[output + 1], WebXRInput.SynthesizedAxes[output + 1] * WebXRJoystickAxisScale);
+		}
+	}
+
+	WebXRLocomotion.LastMoveStrafe = WebXRInput.SynthesizedAxes[0] * WebXRUE1MovementScale;
+	WebXRLocomotion.LastMoveForward = WebXRInput.SynthesizedAxes[1] * WebXRUE1MovementScale;
+	WebXRLocomotion.LastTurnDelta = 0;
+	const bool rightControllerConnected = WebXRInput.Controllers[1].Connected;
+	if (!rightControllerConnected)
+	{
+		WebXRSnapTurnArmed = true;
+	}
+	else if (WebXRTurnModeSetting != WebXRTurnMode::Binding)
+	{
+		const int turnDelta = ComputeWebXRTurnDelta(WebXRInput.SynthesizedAxes[2], timeElapsed,
+			WebXRTurnModeSetting, WebXRSnapTurnDegrees, WebXRSmoothTurnDegreesPerSecond,
+			WebXRSnapTurnThreshold, WebXRSnapTurnRearmThreshold,
+			WebXRSnapTurnArmed, WebXRLocomotion.SnapTurnCount);
+		WebXRLocomotion.LastTurnDelta = turnDelta;
+
+		// Turn only the body/view yaw before the simulation tick. Headset pose
+		// subsequently composes on that authoritative yaw in the WebXR bridge.
+		// Pitch, roll, location, physics, and collision state are untouched.
+		if (turnDelta != 0 && viewport && viewport->Actor())
+		{
+			UActor* body = viewport->Actor();
+			body->Rotation().Yaw = (body->Rotation().Yaw + turnDelta) & 0xffff;
+			if (UPawn* pawn = UObject::TryCast<UPawn>(body))
+				pawn->ViewRotation().Yaw = (pawn->ViewRotation().Yaw + turnDelta) & 0xffff;
+		}
 	}
 
 	const uint32_t releasedAxes = WebXRAxesActive & ~nextAxesActive;
