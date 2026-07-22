@@ -18,8 +18,7 @@ const headers = `/*
   Content-Type: application/wasm
 `;
 
-const htaccess = `Options -Indexes
-<IfModule mod_headers.c>
+const htaccess = `<IfModule mod_headers.c>
   Header always set Cross-Origin-Opener-Policy "same-origin"
   Header always set Cross-Origin-Embedder-Policy "require-corp"
   Header always set Cross-Origin-Resource-Policy "same-origin"
