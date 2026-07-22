@@ -42,6 +42,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.h
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.h
+	SurrealEngine/GameSupport/DeusEx/TextTokenizer.cpp
+	SurrealEngine/GameSupport/DeusEx/TextTokenizer.h
 	SurrealEngine/GameFolder.cpp
 	SurrealEngine/GameFolder.h
 	SurrealEngine/LauncherSettings.cpp
@@ -807,6 +809,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_link_libraries(PropertySerializationTests SurrealCommon ${SURREALCOMMON_LIBS})
 	set_target_properties(PropertySerializationTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PropertySerialization COMMAND PropertySerializationTests)
+
+	add_executable(DeusExTextTokenizerTests
+		Tests/DeusExTextTokenizerTests.cpp
+		SurrealEngine/GameSupport/DeusEx/TextTokenizer.cpp
+	)
+	target_include_directories(DeusExTextTokenizerTests PRIVATE SurrealEngine)
+	set_target_properties(DeusExTextTokenizerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME DeusExTextTokenizer COMMAND DeusExTextTokenizerTests)
 endif()
 
 add_executable(SurrealEngine WIN32 MACOSX_BUNDLE ${SURREALENGINE_SOURCES})
