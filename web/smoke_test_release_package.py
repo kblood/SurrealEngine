@@ -49,6 +49,8 @@ with sync_playwright() as playwright:
 		presentations: Array.from(document.querySelectorAll('[data-launcher-presentation] option')).map(option => option.value),
 		capabilities: Array.from(document.querySelectorAll('[data-capability-list] li')).map(item => item.textContent),
 		phase: document.querySelector('[data-app-phase]').textContent,
+		releaseNotice: document.querySelector('[data-release-notice]') &&
+			document.querySelector('[data-release-notice]').textContent,
 		sourceUI: (() => {
 			const footer = document.querySelector('[data-source-compliance]');
 			const link = footer && footer.querySelector('a');
@@ -66,6 +68,9 @@ with sync_playwright() as playwright:
 		not result["crossOriginIsolated"] or result["engineBase"] != "./engine/" or
 		not result["webXRAbsent"] or result["adapterRequests"] != [None] or
 		result["registeredPresentations"] != ["flat"] or not result["sourceUI"]["visible"] or
+		"experimental preview" not in (result["releaseNotice"] or "") or
+		"unverified on physical Quest hardware" not in (result["releaseNotice"] or "") or
+		"No game or demo data is bundled or downloaded" not in (result["releaseNotice"] or "") or
 		result["sourceUI"]["href"] != compliance.get("sourceUrl") or
 		compliance.get("archiveSha256") not in (result["sourceUI"]["text"] or "") or
 		result["manifestSchema"] != "surrealengine-browser-release-v1" or
