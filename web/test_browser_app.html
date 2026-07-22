@@ -7,6 +7,7 @@
 		<select data-launcher-map></select>
 		<select data-launcher-presentation></select>
 		<select data-launcher-renderer><option value="webgpu">WebGPU</option><option value="null">Null</option></select>
+		<input type="checkbox" data-launcher-skip-intro checked>
 		<button type="submit">Play</button><p data-launcher-error hidden></p>
 	</form>
 </section>
@@ -40,6 +41,8 @@ window.browserAppTestPromise = (async () => {
 		const args = api.buildNativeArguments({ game: { id: "unreal-gold" }, map: "Vortex2", renderer: "webgpu" });
 		assert(args.join(" ") === "--autoplay --url=Vortex2 --render=webgpu /gamedata");
 		assert(Object.isFrozen(args));
+		const introArgs = api.buildNativeArguments({ game: { id: "unreal-gold" }, skipIntro: false, renderer: "webgpu" });
+		assert(introArgs.join(" ") === "--autoplay --render=webgpu /gamedata");
 		await expectError("LAUNCH_MAP", () => api.buildNativeArguments({ game: { id: "unreal-gold" }, map: "../Entry", renderer: "webgpu" }));
 		await expectError("LAUNCH_RENDERER", () => api.buildNativeArguments({ game: { id: "ut99" }, map: "DM-Test", renderer: "native" }));
 	});
@@ -88,7 +91,27 @@ window.browserAppTestPromise = (async () => {
 		document.querySelector("[data-launcher-form]").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 		const selection = await pending;
 		assert(selection.map === "DM-Two" && selection.presentationId === "flat" && prepared === 1);
+		assert(selection.skipIntro === true);
 		assert(document.getElementById("launcher").hidden);
+	});
+	await run("launcher can intentionally use the configured LocalMap intro", async () => {
+		localStorage.clear();
+		const registry = new api.PresentationRegistry();
+		registry.register({ id: "flat", label: "Desktop" });
+		const root = document.getElementById("launcher");
+		const controller = new api.LauncherController(root, registry);
+		const pending = controller.selectLaunch({
+			game: SurrealGameImporter.GAME_DEFINITIONS["unreal-gold"],
+			mapManifest: { state: "ready", maps: ["Unreal", "Vortex2"] },
+		});
+		const skip = root.querySelector("[data-launcher-skip-intro]");
+		skip.checked = false;
+		skip.dispatchEvent(new Event("change", { bubbles: true }));
+		assert(root.querySelector("[data-launcher-map]").disabled, "normal intro left direct-map selection active");
+		root.querySelector("[data-launcher-form]").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		const selection = await pending;
+		assert(selection.skipIntro === false);
+		assert(api.buildNativeArguments(selection).join(" ") === "--autoplay --render=webgpu /gamedata");
 	});
 	await run("presentation activation runs after native startup", async () => {
 		const events = [];

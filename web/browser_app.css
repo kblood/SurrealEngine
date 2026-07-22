@@ -15,6 +15,8 @@ body { margin: 0; min-height: 100vh; display: grid; grid-template-rows: 1fr auto
 .diagnostics-grid dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .actions, .fields { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
 .fields label { display: grid; gap: .3rem; min-width: 12rem; flex: 1; }
+.fields .check-field { display: flex; flex-direction: row; align-items: center; align-self: center; }
+.check-field input { width: 1.2rem; height: 1.2rem; }
 button, select, .file-button { box-sizing: border-box; min-height: 2.5rem; border: 1px solid #718096; border-radius: .35rem; padding: .45rem .7rem; color: inherit; background: #253244; }
 button { cursor: pointer; background: #2367a5; border-color: #3182ce; font-weight: 650; }
 button:disabled { opacity: .55; cursor: wait; }

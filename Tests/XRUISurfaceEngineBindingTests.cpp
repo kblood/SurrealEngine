@@ -167,6 +167,31 @@ static void TestTopmostReplayContexts()
 	Check(host.Events.size() == 3 && host.Events[0] == "begin:cinematic" && host.Events[1] == "replay:cinematic" && host.Events[2] == "end:cinematic", "cinematic replay did not isolate the video canvas");
 }
 
+static void TestStartupHudHandsOffToMenu()
+{
+	EngineHost host;
+	XRUISurfaceEngineBinding binding(host);
+	binding.Configure(Capture(XRUISurfaceKind::Hud, 5));
+	binding.Configure(Capture(XRUISurfaceKind::Menu, 7));
+	binding.SetViewerPose({});
+	binding.SetHudActive(true);
+	binding.SetMenuActive(false);
+
+	XRUICanvasReplayFrame intro = binding.BuildReplayFrame();
+	Check(intro.Items.size() == 1 && intro.Items[0].Surface.Descriptor.Kind == XRUISurfaceKind::Hud,
+		"startup prompt did not use the non-menu HUD surface");
+	Check(!intro.Items[0].Surface.Descriptor.Interactive,
+		"startup prompt unexpectedly captured the menu pointer");
+
+	binding.SetHudActive(false);
+	binding.SetMenuActive(true);
+	XRUICanvasReplayFrame menu = binding.BuildReplayFrame();
+	Check(menu.Items.size() == 1 && menu.Items[0].Surface.Descriptor.Kind == XRUISurfaceKind::Menu,
+		"menu did not replace the startup prompt surface");
+	Check(menu.Items[0].Surface.Descriptor.Interactive,
+		"menu replacement did not accept tracked pointer input");
+}
+
 static void TestSourceIsolationAndMouseFallback()
 {
 	EngineHost host;
@@ -230,6 +255,7 @@ int main()
 	TestVisibilityTransitionsKeepAStableAnchor();
 	TestPointerDeliveryWaitsForMenuReplay();
 	TestTopmostReplayContexts();
+	TestStartupHudHandsOffToMenu();
 	TestSourceIsolationAndMouseFallback();
 	TestUnavailableCaptureDropsPressAndCancelsHeldInput();
 	return 0;

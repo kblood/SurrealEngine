@@ -40,7 +40,8 @@ namespace
 	{
 		WGPUDevice Device = nullptr;
 		WGPUTextureFormat Format = WGPUTextureFormat_Undefined;
-		SurfaceTexture Surfaces[3] = {
+		SurfaceTexture Surfaces[4] = {
+			{ WebXR::HudSurfaceTarget, 1024, 768 },
 			{ WebXR::CinematicSurfaceTarget, 1280, 720 },
 			{ WebXR::LoadingSurfaceTarget, 1024, 768 },
 			{ WebXR::MenuSurfaceTarget, 1024, 768 }

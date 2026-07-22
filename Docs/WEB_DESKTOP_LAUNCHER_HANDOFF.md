@@ -75,8 +75,11 @@ and before `Module.callMain()`. `activate` runs immediately after `callMain` in
 the same user-initiated launch flow, so WebXR can request a session only after
 the native engine exists without forking the launcher. Provider state never
 enters import metadata or mutable-data schemas. The native argument builder
-remains fixed to a validated direct map, `webgpu` or diagnostic `null`, and
-`/gamedata`.
+defaults to a validated direct map, `webgpu` or diagnostic `null`, and
+`/gamedata`. The explicit **Skip startup intro** option may be unchecked to
+omit `--url` and let the selected game's configured `URL.LocalMap` run.
+[`MapStartupIntro.md`](MapStartupIntro.md) records that lifecycle and its XR
+gates.
 
 ## Electron wrapper reuse
 
@@ -121,7 +124,8 @@ Current deterministic results:
 - importer and game detection: 19 passed;
 - mutable persistence and migration: 13 passed;
 - boot ordering and per-game mutable isolation: 3 passed;
-- launcher/library/provider/host bridge: 5 passed.
+- launcher/library/provider/host bridge: 11 passed, including explicit direct
+  map and configured-LocalMap argument paths.
 - a fresh no-data Emscripten build reached the product import gate, then a
   synthetic Unreal Gold import produced the exact validated launch argument
   vector without invoking the engine on fake data.

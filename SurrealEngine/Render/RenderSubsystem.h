@@ -20,6 +20,7 @@ class RenderSubsystem : private XRUISurfaceEngineHost
 public:
 	RenderSubsystem(RenderDevice* renderdevice);
 	XRUISurfaceEngineBinding& XRUISurfaces() { return XRUIBinding; }
+	bool IsXRUIMenuActive() const;
 
 	void PreRenderWindows(UCanvas* canvas);
 	void PostRenderWindows(UCanvas* canvas);
@@ -112,7 +113,6 @@ private:
 	void ReleaseXRUIPrimary(const XRUIPointerSource& source, XRUISurfaceKind surface, const Pointf& canvasPixel, bool canceled) override;
 	void EndXRUIPointerSession() override;
 
-	bool IsXRUIMenuActive() const;
 	void DrawVideoContents(FTextureInfo* frame, FTextureInfo* background);
 
 	bool PrepareSceneViews();

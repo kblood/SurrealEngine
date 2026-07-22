@@ -127,6 +127,8 @@ public:
 	void Key(std::string key);
 	void InputEvent(EInputKey key, EInputType type, float delta = 0.0f, InputSourceId source = InputSourceId::KeyboardMouse);
 	void ReleaseInputSource(InputSourceId source) override;
+	bool IsStartupIntroActive() const { return startupIntroActive; }
+	void CompleteStartupIntro() { startupIntroActive = false; }
 
 	void OnWindowPaint() override;
 	void OnWindowMouseMove(const Point& pos) override;
@@ -264,6 +266,7 @@ private:
 	bool khgSplashScreen = false;
 	bool playingAvi = false;
 	bool skipAvi = false;
+	bool startupIntroActive = false;
 #ifdef __EMSCRIPTEN__
 	std::unique_ptr<BrowserCinematicPlayback> browserCinematic;
 	bool AdvanceBrowserCinematic(float elapsedSeconds);

@@ -72,6 +72,27 @@ namespace
 
 int main()
 {
+	WebXR::StartupIntroTriggerRoute introRoute;
+	if (!Expect(!introRoute.Update(InputSourceId::XRRight, true, false, false),
+		"trigger was remapped outside the startup intro")) return 1;
+	WebXR::StartupIntroFireEvent introPress = introRoute.Update(InputSourceId::XRRight, true, true, false);
+	if (!Expect(introPress && introPress.Control == WebXR::StartupIntroFireControl::Primary && introPress.Pressed,
+		"right startup trigger did not emit primary fire")) return 1;
+	if (!Expect(!introRoute.Update(InputSourceId::XRRight, true, true, false),
+		"held startup trigger emitted a duplicate press")) return 1;
+	WebXR::StartupIntroFireEvent introRelease = introRoute.Update(InputSourceId::XRRight, false, false, true);
+	if (!Expect(introRelease && introRelease.Control == WebXR::StartupIntroFireControl::Primary && !introRelease.Pressed,
+		"startup trigger did not release after the menu transition")) return 1;
+	if (!Expect(!introRoute.Update(InputSourceId::XRRight, true, true, true),
+		"menu trigger was stolen by the startup intro route")) return 1;
+	WebXR::StartupIntroFireEvent alternatePress = introRoute.Update(InputSourceId::XRLeft, true, true, false);
+	if (!Expect(alternatePress && alternatePress.Control == WebXR::StartupIntroFireControl::Alternate,
+		"left startup trigger did not emit alternate fire")) return 1;
+	WebXR::StartupIntroFireEvent disconnectRelease = introRoute.ReleaseSource(InputSourceId::XRLeft);
+	if (!Expect(disconnectRelease && !disconnectRelease.Pressed &&
+		disconnectRelease.Control == WebXR::StartupIntroFireControl::Alternate,
+		"controller disconnect did not release mirrored startup fire")) return 1;
+
 	WebXR::RuntimeInputBindings bindings;
 	bindings.Hands[0].Buttons[WebXR::InputTrigger] = 10;
 	bindings.Hands[0].ThumbstickX = 11;

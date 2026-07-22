@@ -16,7 +16,13 @@ namespace
 	float WorldUnitsPerMeter = DefaultWorldUnitsPerMeter;
 	WebXR::RecenterState Recenter;
 	WebXR::InputRuntime InputRuntime;
+	WebXR::StartupIntroTriggerRoute StartupIntroTrigger;
 	WebXR::UIInputConnector UIInput;
+
+	EInputKey IntroFireKey(WebXR::StartupIntroFireControl control)
+	{
+		return control == WebXR::StartupIntroFireControl::Primary ? IK_LeftMouse : IK_RightMouse;
+	}
 
 	class EngineInputTarget final : public WebXR::RuntimeInputTarget
 	{
@@ -25,6 +31,22 @@ namespace
 
 		void SetButton(InputSourceId source, int32_t control, bool pressed) override
 		{
+			const bool sourceTrigger =
+				(source == InputSourceId::XRLeft && control == IK_Joy1) ||
+				(source == InputSourceId::XRRight && control == IK_Joy9);
+			if (sourceTrigger)
+			{
+				const bool menuActive = instance->render && instance->render->IsXRUIMenuActive();
+				WebXR::StartupIntroFireEvent introEvent = StartupIntroTrigger.Update(source,
+					pressed, instance->IsStartupIntroActive(), menuActive);
+				if (introEvent)
+				{
+					instance->InputEvent(IntroFireKey(introEvent.Control),
+						introEvent.Pressed ? EInputType::IST_Press : EInputType::IST_Release,
+						0.0f, source);
+					return;
+				}
+			}
 			instance->InputEvent(static_cast<EInputKey>(control),
 				pressed ? EInputType::IST_Press : EInputType::IST_Release, 0.0f, source);
 		}
@@ -36,6 +58,9 @@ namespace
 
 		void ReleaseSource(InputSourceId source) override
 		{
+			WebXR::StartupIntroFireEvent introEvent = StartupIntroTrigger.ReleaseSource(source);
+			if (introEvent)
+				instance->InputEvent(IntroFireKey(introEvent.Control), EInputType::IST_Release, 0.0f, source);
 			instance->ReleaseInputSource(source);
 		}
 

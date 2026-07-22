@@ -11,6 +11,7 @@ namespace WebXR
 	constexpr PresentationTarget CinematicSurfaceTarget = { 2 };
 	constexpr PresentationTarget LoadingSurfaceTarget = { 3 };
 	constexpr PresentationTarget MenuSurfaceTarget = { 4 };
+	constexpr PresentationTarget HudSurfaceTarget = { 5 };
 	constexpr int ControllerVisualCompositionOrder = 100;
 	constexpr int HitMarkerCompositionOrder = 600;
 
@@ -80,7 +81,7 @@ namespace WebXR
 	XRUIViewerPose BuildUIViewerPose(const ViewFamily& family);
 	XRUISurfaceRay BuildUIRay(const XRPose& pose, const vec3& cameraLocation,
 		const Coords& bodyRotation, float worldUnitsPerMeter, const RecenterState& recenter);
-	std::array<XRUICanvasCaptureDescriptor, 3> BuildUICaptureDescriptors(float worldUnitsPerMeter);
+	std::array<XRUICanvasCaptureDescriptor, 4> BuildUICaptureDescriptors(float worldUnitsPerMeter);
 	UIVisualFrame BuildUIVisualFrame(const std::array<PointerFeedback, XRHandCount>& feedback,
 		const XRUICanvasReplayFrame& replayFrame, float worldUnitsPerMeter,
 		const UIVisualSettings& settings = {});

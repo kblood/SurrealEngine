@@ -34,6 +34,7 @@ public:
 	void SetViewerPose(const XRUIViewerPose& viewerPose);
 	void ClearViewerPose();
 	void SetSurfaceActive(XRUISurfaceKind kind, bool active);
+	void SetHudActive(bool active) { SetSurfaceActive(XRUISurfaceKind::Hud, active); }
 	void SetMenuActive(bool active) { SetSurfaceActive(XRUISurfaceKind::Menu, active); }
 	void SetCinematicActive(bool active) { SetSurfaceActive(XRUISurfaceKind::Cinematic, active); }
 	bool IsSurfaceVisible(XRUISurfaceKind kind) const;

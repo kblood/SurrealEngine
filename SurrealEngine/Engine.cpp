@@ -248,6 +248,8 @@ void Engine::Setup()
 		LoadMap(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")));
 	else
 		LoadMap(UnrealURL(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")), LaunchInfo.url));
+	startupIntroActive = LaunchInfo.url.empty() &&
+		(LaunchInfo.IsUnrealTournament() || LaunchInfo.IsUnreal1());
 
 	LoginPlayer();
 
@@ -953,6 +955,7 @@ void Engine::UnloadMap()
 
 void Engine::LoadMap(const UnrealURL& url, const std::map<std::string, std::string>& travelInfo)
 {
+	startupIntroActive = false;
 	ClientTravelInfo.URL.Clear();
 
 	if (Level)
@@ -1061,6 +1064,7 @@ void Engine::LoadMap(const UnrealURL& url, const std::map<std::string, std::stri
 
 void Engine::LoadFromSaveFile(const UnrealURL& url)
 {
+	startupIntroActive = false;
 	ClientTravelInfo.URL.Clear();
 
 	if (Level)

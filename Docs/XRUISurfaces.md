@@ -120,7 +120,7 @@ the authoritative per-frame visibility and ordering contract.
 
 The `integration/webxr-ui-provider` product branch supplies the first complete
 consumer of this contract. WebGPU accepts multiple non-zero target bindings in
-one frame, UE1 canvas replay captures menu/cinematic/loading content into
+one frame, UE1 canvas replay captures HUD/menu/cinematic/loading content into
 provider-owned textures, and the provider composites visible items into each
 projection eye in `BuildReplayFrame()` order with no world-depth attachment.
 The desktop slot-zero path is unchanged.
@@ -133,6 +133,13 @@ opaque marker alone renders after it at the exact contact point. Selecting
 brightens and thickens only that hand's visuals, with no dominant-hand policy.
 It deliberately does not bind weapon/locomotion behavior. Menu activation
 comes from the existing engine menu state; cinematic activation comes from the
-existing video guard. Loading still needs an explicit engine visibility signal,
-and the Emscripten target currently has no video decoder for validating intro
-content.
+existing video guard. Loading still needs an explicit engine visibility signal.
+File-backed browser video playback and its owner-data gates are documented in
+[`WebCinematicPlayback.md`](WebCinematicPlayback.md).
+
+The map-driven UT99/Unreal startup path additionally configures a noninteractive
+HUD capture. It is active only between the no-URL `LocalMap` load and the first
+map travel or menu transition, so its player/console prompt is world-anchored.
+The interactive menu then replaces it at the higher composition order. This is
+not the file-backed cinematic surface and does not turn general gameplay HUD
+into a quad. See [`MapStartupIntro.md`](MapStartupIntro.md).

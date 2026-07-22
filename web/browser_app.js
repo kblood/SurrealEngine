@@ -169,14 +169,19 @@
 	}
 
 	function buildNativeArguments(selection) {
-		if (!selection || !selection.map) throw new LauncherError("LAUNCH_SELECTION", "Choose a map before starting.");
+		if (!selection) throw new LauncherError("LAUNCH_SELECTION", "Choose how to start before continuing.");
+		const skipIntro = selection.skipIntro !== false;
 		const gameId = selection.game && selection.game.id || "ut99";
-		if (!global.SurrealGameImporter.isSafeGameMapBasename(selection.map, gameId)) {
+		if (skipIntro && !selection.map) throw new LauncherError("LAUNCH_SELECTION", "Choose a map before starting.");
+		if (skipIntro && !global.SurrealGameImporter.isSafeGameMapBasename(selection.map, gameId)) {
 			throw new LauncherError("LAUNCH_MAP", "The selected map name is unsafe.");
 		}
 		const renderer = selection.renderer || "webgpu";
 		if (renderer !== "webgpu" && renderer !== "null") throw new LauncherError("LAUNCH_RENDERER", "That renderer is not available in this browser build.");
-		return Object.freeze(["--autoplay", "--url=" + selection.map, "--render=" + renderer, "/gamedata"]);
+		const args = ["--autoplay"];
+		if (skipIntro) args.push("--url=" + selection.map);
+		args.push("--render=" + renderer, "/gamedata");
+		return Object.freeze(args);
 	}
 
 	async function activatePresentation(registry, selection, Module) {
@@ -197,10 +202,12 @@
 			this.map = root && root.querySelector("[data-launcher-map]");
 			this.presentation = root && root.querySelector("[data-launcher-presentation]");
 			this.renderer = root && root.querySelector("[data-launcher-renderer]");
+			this.skipIntro = root && root.querySelector("[data-launcher-skip-intro]");
 			this.game = root && root.querySelector("[data-launcher-game]");
 			this.error = root && root.querySelector("[data-launcher-error]");
 			this.form = root && root.querySelector("[data-launcher-form]");
 			if (this.form) this.form.addEventListener("submit", event => this._submit(event));
+			if (this.skipIntro) this.skipIntro.addEventListener("change", () => this._updateMapAvailability());
 		}
 
 		_preferences() {
@@ -213,7 +220,12 @@
 				mapByGame: Object.assign({}, this._preferences().mapByGame || {}, { [selection.game.id]: selection.map }),
 				presentationId: selection.presentationId,
 				renderer: selection.renderer,
+				skipIntro: selection.skipIntro,
 			})); } catch (_) { /* Preferences are optional. */ }
+		}
+
+		_updateMapAvailability() {
+			if (this.map) this.map.disabled = !!this.skipIntro && !this.skipIntro.checked;
 		}
 
 		_option(select, value, label) {
@@ -244,6 +256,8 @@
 				}
 			}
 			if (this.renderer && preferences.renderer) this.renderer.value = preferences.renderer;
+			if (this.skipIntro) this.skipIntro.checked = preferences.skipIntro !== false;
+			this._updateMapAvailability();
 			if (this.root) this.root.hidden = false;
 			return new Promise((resolve, reject) => { this.pending = { resolve, reject }; });
 		}
@@ -259,6 +273,7 @@
 					map: this.map && this.map.value || this.context.game.defaultMap,
 					presentationId: provider.id,
 					renderer: this.renderer && this.renderer.value || "webgpu",
+					skipIntro: !this.skipIntro || this.skipIntro.checked,
 				});
 				buildNativeArguments(selection);
 				await provider.prepareLaunch(Object.freeze({ context: this.context, selection }));

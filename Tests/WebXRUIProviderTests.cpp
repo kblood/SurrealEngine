@@ -48,11 +48,13 @@ int main()
 
 	const float units = 40.0f;
 	const auto descriptors = WebXR::BuildUICaptureDescriptors(units);
-	if (descriptors[0].Target != WebXR::CinematicSurfaceTarget ||
-		descriptors[1].Target != WebXR::LoadingSurfaceTarget ||
-		descriptors[2].Target != WebXR::MenuSurfaceTarget ||
-		!NearlyEqual(descriptors[2].Surface.PhysicalWidth, 56.0f) ||
-		!descriptors[2].Surface.Interactive)
+	if (descriptors[0].Target != WebXR::HudSurfaceTarget ||
+		descriptors[1].Target != WebXR::CinematicSurfaceTarget ||
+		descriptors[2].Target != WebXR::LoadingSurfaceTarget ||
+		descriptors[3].Target != WebXR::MenuSurfaceTarget ||
+		descriptors[0].Surface.Interactive ||
+		!NearlyEqual(descriptors[3].Surface.PhysicalWidth, 56.0f) ||
+		!descriptors[3].Surface.Interactive)
 		return 2;
 
 	WebXR::RecenterState recenter;
@@ -68,7 +70,7 @@ int main()
 
 	Host host;
 	XRUISurfaceEngineBinding binding(host);
-	binding.Configure(descriptors[2]);
+	binding.Configure(descriptors[3]);
 	binding.SetViewerPose({});
 	binding.SetMenuActive(true);
 	WebXR::AdaptedInputSnapshot input;

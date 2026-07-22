@@ -123,6 +123,7 @@ Follow-up slices should stay separate:
 3. Test owner-supplied KHG `INTRO.AVI` in flat WASM, then on the WebXR cinematic
    quad, including skip and return to gameplay.
 4. Diagnose UT99 and Unreal/Gold map intros through normal world/UI presentation
-   and script input, independently of AVI playback.
+   and script input, independently of AVI playback. The first isolated result is
+   documented in [`MapStartupIntro.md`](MapStartupIntro.md).
 5. Decide and document the exact LGPL corresponding-source/relink release
    mechanism before distributing the statically linked WASM artifact.

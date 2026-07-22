@@ -134,20 +134,22 @@ XRUISurfaceRay WebXR::BuildUIRay(const XRPose& pose, const vec3& cameraLocation,
 	return { enginePose.Position, normalize(enginePose.Forward) };
 }
 
-std::array<XRUICanvasCaptureDescriptor, 3> WebXR::BuildUICaptureDescriptors(float worldUnitsPerMeter)
+std::array<XRUICanvasCaptureDescriptor, 4> WebXR::BuildUICaptureDescriptors(float worldUnitsPerMeter)
 {
+	auto hud = CreateXRUICanvasCaptureDescriptor(XRUISurfaceKind::Hud,
+		1024, 768, 1, HudSurfaceTarget);
 	auto cinematic = CreateXRUICanvasCaptureDescriptor(XRUISurfaceKind::Cinematic,
 		1280, 720, 1, CinematicSurfaceTarget);
 	auto loading = CreateXRUICanvasCaptureDescriptor(XRUISurfaceKind::Loading,
 		1024, 768, 1, LoadingSurfaceTarget);
 	auto menu = CreateXRUICanvasCaptureDescriptor(XRUISurfaceKind::Menu,
 		1024, 768, 1, MenuSurfaceTarget);
-	for (XRUICanvasCaptureDescriptor* descriptor : { &cinematic, &loading, &menu })
+	for (XRUICanvasCaptureDescriptor* descriptor : { &hud, &cinematic, &loading, &menu })
 	{
 		descriptor->Surface.PhysicalWidth *= worldUnitsPerMeter;
 		descriptor->Surface.HeadRelativeDistance *= worldUnitsPerMeter;
 	}
-	return { cinematic, loading, menu };
+	return { hud, cinematic, loading, menu };
 }
 
 WebXR::UIVisualFrame WebXR::BuildUIVisualFrame(

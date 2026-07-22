@@ -13,7 +13,11 @@ RenderSubsystem::RenderSubsystem(RenderDevice* renderdevice) : Device(renderdevi
 
 void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFamily)
 {
-	XRUIBinding.SetMenuActive(IsXRUIMenuActive());
+	const bool menuActive = IsXRUIMenuActive();
+	XRUIBinding.SetHudActive(engine->IsStartupIntroActive() && !menuActive);
+	XRUIBinding.SetMenuActive(menuActive);
+	if (menuActive)
+		engine->CompleteStartupIntro();
 	LevelTimeElapsed = levelTimeElapsed;
 	AutoUV += levelTimeElapsed * 64.0f;
 	AmbientGlowTime = std::fmod(AmbientGlowTime + 0.8f * levelTimeElapsed, 1.0f);
