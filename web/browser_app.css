@@ -27,3 +27,6 @@ progress { width: 100%; margin-top: .8rem; }
 [data-game-files] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 [role="alert"] { color: #ffb4b4; font-weight: 600; }
 #log { max-height: 10rem; overflow: auto; margin: 0; padding: .75rem; background: #0a0d12; font: 12px/1.4 ui-monospace, monospace; }
+footer[data-source-compliance] { position: static; grid-column: 1; padding: .7rem 1rem; color: #aeb8c5; background: #0a0d12; font-size: .8rem; }
+footer[data-source-compliance] summary { width: fit-content; cursor: pointer; }
+footer[data-source-compliance] p { margin: .6rem 0 0; overflow-wrap: anywhere; }

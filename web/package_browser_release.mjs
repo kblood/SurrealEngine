@@ -287,9 +287,12 @@ async function packageRelease(options) {
 			`Source commit: ${compliance.sourceCommit}\nSource tree: ${compliance.sourceTree}\n\n` +
 			`See licenses/SurrealVideo-Relinking.md and source-compliance.json.\n`;
 		await writeFile(join(staging, "SOURCE-OFFER.txt"), offer);
-		index = index.replace("</body>", `<footer data-source-compliance><p>This build uses FFmpeg-derived SurrealVideo under LGPL 2.1 or later. ` +
-			`<a href="${sourceUrl}">Corresponding source and relinking materials</a> ` +
-			`(SHA-256: <code>${compliance.archiveSha256}</code>).</p></footer>\n</body>`);
+		index = index.replace("</body>", `<footer data-source-compliance><details>` +
+			`<summary>Open-source licenses and corresponding source</summary>` +
+			`<p>This build uses FFmpeg-derived SurrealVideo under LGPL 2.1 or later. ` +
+			`<a href="${sourceUrl}">Download corresponding source and relinking materials</a> ` +
+			`(SHA-256: <code>${compliance.archiveSha256}</code>).</p>` +
+			`</details></footer>\n</body>`);
 		await writeFile(join(staging, "index.html"), index);
 		await writeFile(join(staging, "_headers"), headers);
 		await writeFile(join(staging, ".htaccess"), htaccess);

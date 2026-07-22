@@ -77,6 +77,7 @@ try {
 	assert.match(index, /data-engine-base="\.\/engine\/"/);
 	assert.doesNotMatch(index, /\.\.\/build-emscripten\//);
 	assert.match(index, /data-source-compliance/);
+	assert.match(index, /<details><summary>Open-source licenses and corresponding source<\/summary>/);
 	assert.match(index, /source\/SurrealEngine-corresponding-source\.tar\.gz/);
 	assert.match(index, /browser may call folder selection an .upload./i);
 	assert.doesNotMatch(index, /Folder upload fallback/);
