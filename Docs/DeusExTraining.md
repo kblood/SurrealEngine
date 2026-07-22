@@ -69,6 +69,13 @@ that JC's cylinder still overlapped the exposed edge of the correctly open
 sliding door. A short strafe placed the cylinder in the narrow opening, after
 which normal forward movement reached the next door.
 
+That apparent next door was also a false boundary. A fresh-map/save comparison
+identified it as the non-highlighted, non-frobbable mover pair behind the
+initial spawn, not the next exercise entrance. The checkpoint camera faces back
+through the working tutorial door toward that starting boundary. Moving in the
+opposite direction returns through the open doorway toward the nanokey and
+crate-exercise route. No mover change is justified by the closed pair.
+
 Crossing that trigger after the first reload displayed `INFOLINK NOT FOUND!!
 Name = dl_start`. `Actor.ConListItems` is transient, and the save-load path did
 not repeat the `ConBindEvents` calls normally made by `DeusExPlayer`,
@@ -81,10 +88,11 @@ was disabled, and the game was foreground in zero of 243 samples.
 
 ## Current boundary
 
-Open the closed double door beyond the restored reception checkpoint and enter
-the first exercise. The reception sequence and its first post-load DataLink are
-now validated; the next run should establish whether the following door and
-exercise work through stock script before implementing another native.
+Reorient away from the closed starting boundary, continue from the restored
+checkpoint into the crate/lockpick exercise, and validate its weapon pickup,
+breakable containers, lockpick, and next door. The reception sequence and its
+first post-load DataLink are validated; the next run should follow the map's
+forward route before implementing another native.
 
 The camera can be driven reliably with movement plus keyboard turn/look
 bindings. Background raw-mouse look is intentionally unavailable because the
