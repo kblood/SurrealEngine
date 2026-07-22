@@ -27,6 +27,13 @@
 	#webxr-launch-readiness[data-ready=false] { border-color: #b00020; }
 	#webxr-launch-readiness .mode { font-weight: 700; }
 	#webxr-launch-readiness ul { margin-bottom: 0; }
+	#webxr-headset-controls { max-width: 52rem; padding: .75rem 1rem; margin: .75rem 0; border: 2px solid #4c78a8; background: rgba(20, 25, 32, .94); color: #fff; font: 15px system-ui, sans-serif; }
+	#webxr-headset-controls[data-xr-active=true] { position: fixed; z-index: 2147483647; inset: .75rem auto auto .75rem; max-width: min(30rem, calc(100vw - 3rem)); }
+	#webxr-headset-controls[data-tracking=degraded], #webxr-headset-controls[data-tracking=lost] { border-color: #ffb347; }
+	#webxr-headset-controls .tracking { margin: 0 0 .45rem; font-weight: 700; }
+	#webxr-headset-controls .exit-help { margin: 0 0 .55rem; }
+	#webxr-headset-controls .actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+	#webxr-headset-controls button { min-height: 2.5rem; padding: .4rem .8rem; }
 </style>
 </head>
 <body>
@@ -41,6 +48,17 @@
 	<div class="mode">Checking WebXR launch readiness...</div>
 	<div class="summary"></div>
 	<ul class="blockers"></ul>
+</section>
+<!-- When the runtime grants the optional WebXR DOM Overlay feature this exact
+     root is composited into the headset. The controller chord documented here
+     remains available when the compositor does not support DOM Overlay. -->
+<section id="webxr-headset-controls" hidden data-xr-active="false" data-tracking="inactive">
+	<p class="tracking" data-xr-tracking role="status" aria-live="assertive">XR controls inactive.</p>
+	<p class="exit-help" data-xr-exit-help>To leave VR without a system-button binding, select Exit VR twice, or hold both grips and both B/Y buttons for 2.5 seconds.</p>
+	<div class="actions">
+		<button type="button" data-xr-safe-exit>Exit VR</button>
+		<button type="button" data-xr-cancel-exit hidden>Keep Playing</button>
+	</div>
 </section>
 <section id="ut99-importer" hidden aria-live="polite">
 	<h2>Import your Unreal Tournament data</h2>
@@ -83,8 +101,12 @@
 		const panel = document.getElementById("webxr-launch-readiness");
 		const readiness = window.surrealXRGetLaunchReadiness();
 		const active = window.surrealXRSessionActive === true;
-		button.disabled = !active && !readiness.canAttempt;
-		button.textContent = active ? "Exit VR" : readiness.lifecycleOnly ?
+		const interaction = typeof window.surrealXRGetInteractionStatus === "function" ?
+			window.surrealXRGetInteractionStatus() : null;
+		button.disabled = active ? interaction && interaction.exitPhase === "ending" : !readiness.canAttempt;
+		button.textContent = active ?
+			(interaction && interaction.exitPhase === "armed" ? "Confirm Exit VR" :
+				interaction && interaction.exitPhase === "ending" ? "Exiting VR..." : "Exit VR") : readiness.lifecycleOnly ?
 			"Start lifecycle-only XR test" : "Enter Native WebGPU VR";
 		panel.dataset.ready = String(readiness.canAttempt || readiness.productionSessionReady);
 		panel.querySelector(".mode").textContent = readiness.lifecycleOnly ?
@@ -109,6 +131,7 @@
 	window.surrealGetWebXRLaunchReadiness = window.surrealXRGetLaunchReadiness;
 	window.surrealRefreshWebXRLaunchReadiness = refreshEnterVRButton;
 	window.addEventListener("surreal-webxr-readinesschange", refreshEnterVRButton);
+	window.addEventListener("surreal-webxr-interactionchange", refreshEnterVRButton);
 	refreshEnterVRButton();
 
 	const logEl = document.getElementById('log');
@@ -590,7 +613,7 @@
 			window.surrealResumeWebAudio();
 		}
 		if (window.surrealXRSessionActive) {
-			window.surrealXRExit();
+			window.surrealXRRequestSafeExit("desktop-button");
 		} else if (window.surrealXRUseNativeWebGPU) {
 			const readiness = window.surrealXRGetLaunchReadiness();
 			if (!readiness.canAttempt) {

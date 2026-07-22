@@ -354,6 +354,19 @@
 		inputSourceCount: 0,
 		error: null,
 	};
+	const XR_INTERACTION_SCHEMA = "surrealengine-webxr-interaction";
+	const XR_INTERACTION_POLICY = Object.freeze({
+		confirmDelayMs: 300,
+		confirmWindowMs: 5000,
+		trackingGraceMs: 1000,
+		controllerChordHoldMs: 2500,
+		// WebXR's xr-standard mapping exposes grip at 1 and secondary face at
+		// 5. The runtime-reserved system/menu control is neither requested nor
+		// intercepted. We observe this two-hand chord without masking game input.
+		gripButtonMask: 1 << 1,
+		secondaryFaceButtonMask: 1 << 5,
+	});
+	window.surrealXRInteractionPolicy = XR_INTERACTION_POLICY;
 	const XR_LAUNCH_READINESS_SCHEMA = "surrealengine-webxr-launch-readiness";
 
 	function launchBlocker(code, message, action) {
@@ -477,6 +490,16 @@
 	let nativeResetGeneration = 0;
 	let nativeOwnsEngineLoop = false;
 	let activeSessionKind = null;
+	let requestedExitGeneration = 0;
+	let requestedExitReason = null;
+	let exitEndPendingGeneration = 0;
+	let interactionArmTimer = 0;
+	let interactionTrackingStartedAt = null;
+	let interactionTrackingIncident = false;
+	let interactionHadHealthyTracking = false;
+	let interactionSeenHands = new Set();
+	let interactionChordStartedAt = null;
+	let interactionChordProgressStep = -1;
 	let audioSuspendedByLifecycle = false;
 	let pageShuttingDown = false;
 	let xrDeviceLost = false;
@@ -502,6 +525,352 @@
 		connectedCount: 0,
 		lastSourceIds: [],
 		lastPressedMasks: [],
+	};
+	const interactionStatus = {
+		schema: XR_INTERACTION_SCHEMA,
+		version: 1,
+		active: false,
+		generation: 0,
+		domOverlayType: null,
+		exitPhase: "idle",
+		exitSource: null,
+		confirmReadyAt: null,
+		confirmExpiresAt: null,
+		exitRequests: 0,
+		exitConfirmations: 0,
+		exitCancellations: 0,
+		exitRejections: 0,
+		chordPhase: "idle",
+		chordProgress: 0,
+		trackingPhase: "inactive",
+		trackingMessage: "XR controls inactive.",
+		connectedControllers: 0,
+		pointerControllers: 0,
+		expectedControllers: 0,
+		trackingLosses: 0,
+		trackingRecoveries: 0,
+		lastExitReason: null,
+	};
+
+	function interactionNow(value) {
+		value = Number(value);
+		return Number.isFinite(value) ? value : performance.now();
+	}
+
+	function copyInteractionStatus() {
+		return Object.assign({}, interactionStatus);
+	}
+
+	function notifyInteractionChanged() {
+		window.dispatchEvent(new CustomEvent("surreal-webxr-interactionchange", {
+			detail: copyInteractionStatus(),
+		}));
+	}
+
+	window.surrealXRGetInteractionStatus = copyInteractionStatus;
+
+	function clearInteractionArmTimer() {
+		if (interactionArmTimer) clearTimeout(interactionArmTimer);
+		interactionArmTimer = 0;
+	}
+
+	function resetSafeExitIntent(notify) {
+		clearInteractionArmTimer();
+		interactionStatus.exitPhase = "idle";
+		interactionStatus.exitSource = null;
+		interactionStatus.confirmReadyAt = null;
+		interactionStatus.confirmExpiresAt = null;
+		if (notify) notifyInteractionChanged();
+	}
+
+	function beginInteractionSession(generation, session) {
+		clearInteractionArmTimer();
+		interactionTrackingStartedAt = null;
+		interactionTrackingIncident = false;
+		interactionHadHealthyTracking = false;
+		interactionSeenHands = new Set();
+		interactionChordStartedAt = null;
+		interactionChordProgressStep = -1;
+		interactionStatus.active = true;
+		interactionStatus.generation = generation;
+		interactionStatus.domOverlayType = session && session.domOverlayState ?
+			String(session.domOverlayState.type || "available") : null;
+		interactionStatus.exitPhase = "idle";
+		interactionStatus.exitSource = null;
+		interactionStatus.confirmReadyAt = null;
+		interactionStatus.confirmExpiresAt = null;
+		interactionStatus.chordPhase = "idle";
+		interactionStatus.chordProgress = 0;
+		interactionStatus.trackingPhase = "acquiring";
+		interactionStatus.trackingMessage = "Acquiring controller pointers...";
+		interactionStatus.connectedControllers = 0;
+		interactionStatus.pointerControllers = 0;
+		interactionStatus.expectedControllers = 0;
+		interactionStatus.lastExitReason = null;
+		notifyInteractionChanged();
+	}
+
+	function finishInteractionSession(generation, reason) {
+		if (interactionStatus.generation !== generation) return;
+		clearInteractionArmTimer();
+		interactionTrackingStartedAt = null;
+		interactionTrackingIncident = false;
+		interactionHadHealthyTracking = false;
+		interactionSeenHands = new Set();
+		interactionChordStartedAt = null;
+		interactionChordProgressStep = -1;
+		interactionStatus.active = false;
+		interactionStatus.generation = 0;
+		interactionStatus.domOverlayType = null;
+		interactionStatus.exitPhase = "idle";
+		interactionStatus.exitSource = null;
+		interactionStatus.confirmReadyAt = null;
+		interactionStatus.confirmExpiresAt = null;
+		interactionStatus.chordPhase = "idle";
+		interactionStatus.chordProgress = 0;
+		interactionStatus.trackingPhase = "inactive";
+		interactionStatus.trackingMessage = "XR controls inactive.";
+		interactionStatus.connectedControllers = 0;
+		interactionStatus.pointerControllers = 0;
+		interactionStatus.expectedControllers = 0;
+		interactionStatus.lastExitReason = reason || "ended";
+		notifyInteractionChanged();
+	}
+
+	function setInteractionTracking(phase, message, connected, pointers, expected) {
+		const changed = interactionStatus.trackingPhase !== phase ||
+			interactionStatus.trackingMessage !== message ||
+			interactionStatus.connectedControllers !== connected ||
+			interactionStatus.pointerControllers !== pointers ||
+			interactionStatus.expectedControllers !== expected;
+		const impaired = phase === "degraded" || phase === "lost";
+		if (impaired && !interactionTrackingIncident) {
+			interactionTrackingIncident = true;
+			interactionStatus.trackingLosses++;
+		} else if (phase === "healthy" && interactionTrackingIncident) {
+			interactionTrackingIncident = false;
+			interactionStatus.trackingRecoveries++;
+		}
+		interactionStatus.trackingPhase = phase;
+		interactionStatus.trackingMessage = message;
+		interactionStatus.connectedControllers = connected;
+		interactionStatus.pointerControllers = pointers;
+		interactionStatus.expectedControllers = expected;
+		if (phase === "healthy") interactionHadHealthyTracking = true;
+		if (changed) notifyInteractionChanged();
+	}
+
+	function finishSafeExitFromChord(generation) {
+		if (generation !== activeSessionGeneration || !interactionStatus.active ||
+			interactionStatus.exitPhase === "ending") return false;
+		clearInteractionArmTimer();
+		interactionStatus.exitRequests++;
+		interactionStatus.exitConfirmations++;
+		interactionStatus.exitPhase = "ending";
+		interactionStatus.exitSource = "controller-chord";
+		interactionStatus.confirmReadyAt = null;
+		interactionStatus.confirmExpiresAt = null;
+		interactionStatus.chordPhase = "confirmed";
+		interactionStatus.chordProgress = 1;
+		notifyInteractionChanged();
+		return window.surrealXRExit("safe-exit-controller-chord");
+	}
+
+	function updateControllerExitChord(snapshot, generation, timestamp) {
+		const requiredMask = XR_INTERACTION_POLICY.gripButtonMask |
+			XR_INTERACTION_POLICY.secondaryFaceButtonMask;
+		let leftHeld = false;
+		let rightHeld = false;
+		for (const input of snapshot) {
+			if (!input || (input.flags & XR_FRAME_ABI.inputFlags.connected) === 0) continue;
+			const held = ((input.pressedMask || 0) & requiredMask) === requiredMask;
+			if (input.handedness === "left") leftHeld = held;
+			if (input.handedness === "right") rightHeld = held;
+		}
+		if (!leftHeld || !rightHeld) {
+			if (interactionStatus.chordPhase === "holding") {
+				interactionStatus.chordPhase = "idle";
+				interactionStatus.chordProgress = 0;
+				interactionChordStartedAt = null;
+				interactionChordProgressStep = -1;
+				notifyInteractionChanged();
+			}
+			return;
+		}
+		if (interactionChordStartedAt === null) {
+			interactionChordStartedAt = timestamp;
+			interactionChordProgressStep = 0;
+			interactionStatus.chordPhase = "holding";
+			interactionStatus.chordProgress = 0;
+			notifyInteractionChanged();
+			return;
+		}
+		const progress = Math.max(0, Math.min(1,
+			(timestamp - interactionChordStartedAt) / XR_INTERACTION_POLICY.controllerChordHoldMs));
+		const step = Math.floor(progress * 10);
+		interactionStatus.chordProgress = progress;
+		if (step !== interactionChordProgressStep) {
+			interactionChordProgressStep = step;
+			notifyInteractionChanged();
+		}
+		if (progress >= 1) finishSafeExitFromChord(generation);
+	}
+
+	function updateInteractionSnapshot(generation, snapshot, timestamp) {
+		if (generation !== activeSessionGeneration || generation !== interactionStatus.generation ||
+			!interactionStatus.active) return false;
+		timestamp = interactionNow(timestamp);
+		if (interactionTrackingStartedAt === null) interactionTrackingStartedAt = timestamp;
+		snapshot = Array.isArray(snapshot) ? snapshot : [];
+		const connected = snapshot.filter(input => input &&
+			(input.flags & XR_FRAME_ABI.inputFlags.connected) !== 0);
+		for (const input of connected) {
+			if (input.handedness === "left" || input.handedness === "right")
+				interactionSeenHands.add(input.handedness);
+		}
+		const pointers = connected.filter(input => input.aim !== null && input.aim !== undefined);
+		const expected = Math.max(connected.length, interactionSeenHands.size);
+		const graceActive = !interactionHadHealthyTracking && timestamp - interactionTrackingStartedAt <
+			XR_INTERACTION_POLICY.trackingGraceMs;
+		if (connected.length > 0 && connected.length === expected &&
+			pointers.length === connected.length) {
+			setInteractionTracking("healthy", connected.length === 1 ?
+				"Controller pointer tracked." : "Controller pointers tracked.",
+				connected.length, pointers.length, expected);
+		} else if (pointers.length > 0) {
+			const message = connected.length < expected ?
+				"Controller tracking reduced (" + connected.length + " of " + expected +
+				" connected). Wake or reconnect it; recovery is automatic." :
+				"Controller pointer tracking reduced (" + pointers.length + " of " + connected.length +
+				"). Keep controllers in view; recovery is automatic.";
+			setInteractionTracking("degraded", message,
+				connected.length, pointers.length, expected);
+		} else if (graceActive) {
+			setInteractionTracking("acquiring", "Acquiring controller pointers...",
+				connected.length, 0, expected);
+		} else if (connected.length > 0) {
+			setInteractionTracking("lost",
+				"Controller pointer tracking lost. Keep controllers in view; recovery is automatic.",
+				connected.length, 0, expected);
+		} else {
+			setInteractionTracking("lost",
+				"Controllers unavailable. Wake or reconnect them; recovery is automatic.", 0, 0, expected);
+		}
+		updateControllerExitChord(snapshot, generation, timestamp);
+		return true;
+	}
+
+	// Exported for diagnostics and deterministic harnesses. The values are
+	// already copied scalars from collectInputSnapshot(); no XR-owned objects
+	// cross this boundary.
+	window.surrealXRUpdateInteractionState = function (snapshot, timestamp) {
+		return updateInteractionSnapshot(activeSessionGeneration, snapshot, timestamp);
+	};
+
+	window.surrealXRRequestSafeExit = function (source, timestamp) {
+		source = String(source || "visible-button");
+		const now = interactionNow(timestamp);
+		if (!interactionStatus.active || !xrSession || !activeSessionGeneration) {
+			interactionStatus.exitRejections++;
+			return { accepted: false, action: "inactive", status: copyInteractionStatus() };
+		}
+		if (interactionStatus.exitPhase === "ending") {
+			interactionStatus.exitRejections++;
+			return { accepted: false, action: "already-ending", status: copyInteractionStatus() };
+		}
+		if (interactionStatus.exitPhase === "armed" &&
+			interactionStatus.confirmExpiresAt !== null && now > interactionStatus.confirmExpiresAt) {
+			resetSafeExitIntent(false);
+		}
+		if (interactionStatus.exitPhase === "armed") {
+			if (source !== interactionStatus.exitSource) {
+				interactionStatus.exitRejections++;
+				return { accepted: false, action: "different-control", status: copyInteractionStatus() };
+			}
+			if (now < interactionStatus.confirmReadyAt) {
+				interactionStatus.exitRejections++;
+				return { accepted: false, action: "confirmation-too-fast", status: copyInteractionStatus() };
+			}
+			clearInteractionArmTimer();
+			interactionStatus.exitConfirmations++;
+			interactionStatus.exitPhase = "ending";
+			interactionStatus.confirmReadyAt = null;
+			interactionStatus.confirmExpiresAt = null;
+			notifyInteractionChanged();
+			const ended = window.surrealXRExit("safe-exit-" + source);
+			return { accepted: ended, action: ended ? "confirmed" : "end-rejected",
+				status: copyInteractionStatus() };
+		}
+		interactionStatus.exitRequests++;
+		interactionStatus.exitPhase = "armed";
+		interactionStatus.exitSource = source;
+		interactionStatus.confirmReadyAt = now + XR_INTERACTION_POLICY.confirmDelayMs;
+		interactionStatus.confirmExpiresAt = now + XR_INTERACTION_POLICY.confirmWindowMs;
+		const generation = activeSessionGeneration;
+		interactionArmTimer = setTimeout(function () {
+			interactionArmTimer = 0;
+			if (generation === activeSessionGeneration && interactionStatus.exitPhase === "armed") {
+				resetSafeExitIntent(true);
+			}
+		}, XR_INTERACTION_POLICY.confirmWindowMs + 1);
+		notifyInteractionChanged();
+		return { accepted: true, action: "armed", status: copyInteractionStatus() };
+	};
+
+	window.surrealXRCancelSafeExit = function () {
+		if (interactionStatus.exitPhase !== "armed") return false;
+		interactionStatus.exitCancellations++;
+		resetSafeExitIntent(true);
+		return true;
+	};
+
+	window.surrealXRBindInteractionUI = function (root) {
+		root = root || document.getElementById("webxr-headset-controls");
+		if (!root) return false;
+		const exitButton = root.querySelector("[data-xr-safe-exit]");
+		const cancelButton = root.querySelector("[data-xr-cancel-exit]");
+		const tracking = root.querySelector("[data-xr-tracking]");
+		const help = root.querySelector("[data-xr-exit-help]");
+		function render() {
+			const status = copyInteractionStatus();
+			root.hidden = !status.active;
+			root.dataset.xrActive = String(status.active);
+			root.dataset.tracking = status.trackingPhase;
+			if (tracking) {
+				tracking.textContent = status.chordPhase === "holding" ?
+					"Keep holding the exit chord: " + Math.round(status.chordProgress * 100) + "%" :
+					status.trackingMessage;
+			}
+			if (help) {
+				help.textContent = status.domOverlayType ?
+					"Headset exit overlay active. Select Exit VR twice, or hold both grips and both B/Y buttons for 2.5 seconds." :
+					"This runtime did not grant a headset DOM overlay. Hold both grips and both B/Y buttons for 2.5 seconds; the desktop exit button also requires confirmation.";
+			}
+			if (exitButton) {
+				exitButton.disabled = !status.active || status.exitPhase === "ending";
+				exitButton.textContent = status.exitPhase === "armed" ? "Confirm Exit VR" :
+					status.exitPhase === "ending" ? "Exiting VR..." : "Exit VR";
+			}
+			if (cancelButton) cancelButton.hidden = status.exitPhase !== "armed";
+		}
+		if (root.dataset.xrInteractionBound !== "true") {
+			root.dataset.xrInteractionBound = "true";
+			// DOM Overlay select suppression applies only while pointing at these
+			// controls; it avoids firing the weapon behind the UI. No system/menu
+			// button is observed, cancelled, or remapped.
+			root.addEventListener("beforexrselect", function (event) {
+				event.preventDefault();
+			});
+			if (exitButton) exitButton.addEventListener("click", function () {
+				window.surrealXRRequestSafeExit("headset-overlay-button");
+			});
+			if (cancelButton) cancelButton.addEventListener("click", function () {
+				window.surrealXRCancelSafeExit();
+			});
+			window.addEventListener("surreal-webxr-interactionchange", render);
+		}
+		render();
+		return true;
 	};
 
 	function newHapticDiagnostics(generation) {
@@ -1431,9 +1800,23 @@
 		}
 	}
 
+	function finalizedExitReason(generation, fallback) {
+		const normalEnd = fallback === "ended" || fallback === "session-end" ||
+			fallback === "explicit-exit";
+		const reason = requestedExitGeneration === generation && normalEnd ?
+			(requestedExitReason || fallback) : fallback;
+		if (requestedExitGeneration === generation) {
+			requestedExitGeneration = 0;
+			requestedExitReason = null;
+		}
+		if (exitEndPendingGeneration === generation) exitEndPendingGeneration = 0;
+		return reason || "ended";
+	}
+
 	function finishNativeSession(generation, phase, error) {
 		if (generation !== activeSessionGeneration) return;
 		const wasActive = window.surrealXRSessionActive;
+		const endReason = finalizedExitReason(generation, error ? "native-error" : (phase || "ended"));
 		restoreCanvasFrameLoop(generation);
 		activeSessionGeneration = 0; // invalidates every queued callback
 		activeSessionKind = null;
@@ -1446,7 +1829,8 @@
 		resetNativePoseState();
 		xrEnterPending = false;
 		window.surrealXRSessionActive = false;
-		if (wasActive) noteSessionEnded(error ? "native-error" : (phase || "ended"));
+		finishInteractionSession(generation, endReason);
+		if (wasActive) noteSessionEnded(endReason);
 		if (error) {
 			const message = error instanceof Error ? error.name + ": " + error.message : String(error);
 			window.surrealXRNativeError = message;
@@ -1462,6 +1846,7 @@
 	function finishDefaultSession(generation, reason, error) {
 		if (generation !== activeSessionGeneration || activeSessionKind !== "default") return;
 		const wasActive = window.surrealXRSessionActive;
+		const endReason = finalizedExitReason(generation, error ? (reason || "error") : (reason || "ended"));
 		activeSessionGeneration = 0;
 		activeSessionKind = null;
 		xrSession = null;
@@ -1470,12 +1855,13 @@
 		xrEnterPending = false;
 		window.surrealXRSessionActive = false;
 		removeXRCanvas();
+		finishInteractionSession(generation, endReason);
 		if (error) {
 			window.surrealXRError = String(error);
 			xrLog("XR session failed: " + error);
 		}
-		if (wasActive) noteSessionEnded(reason || "ended");
-		xrLog("session ended (reason=" + (reason || "ended") + ")");
+		if (wasActive) noteSessionEnded(endReason);
+		xrLog("session ended (reason=" + endReason + ")");
 		notifyLaunchReadinessChanged();
 	}
 
@@ -1552,6 +1938,8 @@
 			window.surrealXRFrameCount++;
 			window.surrealXRNativeDiagnostics.frameCount++;
 			const inputs = collectInputSnapshot(frame, xrRefSpace);
+			updateInteractionSnapshot(generation, inputs, time);
+			if (generation !== activeSessionGeneration || !xrSession) return;
 			window.surrealXRNativeDiagnostics.inputSourceCount = inputs.length;
 			const rendered = window.surrealXRRenderWebGPUFrame(
 				time, frame, xrRefSpace, nativeBinding, nativeProjectionLayer,
@@ -1581,6 +1969,18 @@
 			xrLog("local-floor unavailable, falling back to local: " + floorError);
 			return { space: await session.requestReferenceSpace("local"), type: "local" };
 		}
+	}
+
+	function makeSessionInit(requiredFeatures, optionalFeatures) {
+		const required = Array.from(requiredFeatures || []);
+		const optional = Array.from(optionalFeatures || []);
+		const root = document.getElementById("webxr-headset-controls");
+		const init = { requiredFeatures: required, optionalFeatures: optional };
+		if (root) {
+			if (!optional.includes("dom-overlay")) optional.push("dom-overlay");
+			init.domOverlay = { root: root };
+		}
+		return init;
 	}
 
 	// Explicitly opt-in production path. Unlike the default IWER lifecycle
@@ -1651,10 +2051,8 @@
 			poseReset: null, inputSourceCount: 0,
 		});
 		try {
-			const session = await navigator.xr.requestSession("immersive-vr", {
-				requiredFeatures: ["webgpu"],
-				optionalFeatures: ["local-floor"],
-			});
+			const session = await navigator.xr.requestSession("immersive-vr",
+				makeSessionInit(["webgpu"], ["local-floor"]));
 			if (generation !== activeSessionGeneration) {
 				await session.end();
 				return false;
@@ -1704,6 +2102,7 @@
 			window.surrealXRLifecycle.sessionsStarted++;
 			window.surrealXRFrameCount = 0;
 			xrEnterPending = false;
+			beginInteractionSession(generation, session);
 			nativeDiagnostic("running", {
 				referenceSpaceType: reference.type,
 				projectionFormat: projectionFormat,
@@ -1726,6 +2125,9 @@
 	function onXRFrame(generation, time, frame) {
 		if (generation !== activeSessionGeneration || activeSessionKind !== "default" || !xrSession) return;
 		window.surrealXRFrameCount++;
+		const inputs = collectInputSnapshot(frame, xrRefSpace);
+		updateInteractionSnapshot(generation, inputs, time);
+		if (generation !== activeSessionGeneration || !xrSession) return;
 		const pose = frame.getViewerPose(xrRefSpace);
 		if (pose && window.surrealXRFrameCount % 30 === 1) {
 			xrLog("frame " + window.surrealXRFrameCount + ": " + pose.views.length + " view(s)");
@@ -1766,9 +2168,8 @@
 		activeSessionKind = "default";
 		resetInputSourceTracking(generation);
 		try {
-			const session = await navigator.xr.requestSession(mode, {
-				optionalFeatures: ["local-floor", "bounded-floor"],
-			});
+			const session = await navigator.xr.requestSession(mode,
+				makeSessionInit([], ["local-floor", "bounded-floor"]));
 			if (generation !== activeSessionGeneration || pageShuttingDown || xrDeviceLost) {
 				try { await session.end(); } catch (_) {}
 				return false;
@@ -1803,6 +2204,7 @@
 			window.surrealXRSessionActive = true;
 			window.surrealXRLifecycle.sessionsStarted++;
 			window.surrealXRFrameCount = 0;
+			beginInteractionSession(generation, session);
 			xrLog("session started (mode=" + mode + ")");
 			applySessionVisibilityPolicy(generation, session.visibilityState || "visible",
 				"xr-session-start");
@@ -1822,10 +2224,19 @@
 		}
 	};
 
-	window.surrealXRExit = function () {
-		if (!xrSession) return false;
+	window.surrealXRExit = function (reason) {
+		if (!xrSession || !activeSessionGeneration) return false;
 		const generation = activeSessionGeneration;
-		window.surrealXRLifecycle.lastExitReason = "explicit-exit";
+		if (exitEndPendingGeneration === generation) return true;
+		exitEndPendingGeneration = generation;
+		requestedExitGeneration = generation;
+		requestedExitReason = String(reason || "explicit-exit");
+		window.surrealXRLifecycle.lastExitReason = requestedExitReason;
+		if (interactionStatus.generation === generation) {
+			interactionStatus.exitPhase = "ending";
+			if (!interactionStatus.exitSource) interactionStatus.exitSource = "direct-api";
+			notifyInteractionChanged();
+		}
 		try {
 			const ending = xrSession.end();
 			if (ending && typeof ending.catch === "function") {
@@ -1841,6 +2252,8 @@
 			return false;
 		}
 	};
+
+	window.surrealXRBindInteractionUI();
 
 	document.addEventListener("visibilitychange", function () {
 		applyVisibilityPolicy(document.hidden, "visibilitychange");
