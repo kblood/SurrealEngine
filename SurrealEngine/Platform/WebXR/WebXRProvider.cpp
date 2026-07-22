@@ -101,7 +101,10 @@ namespace
 			device->UnbindPresentationTarget(target);
 		for (uint32_t index = 0; index < viewCount; index++)
 		{
-			if (views[index])
+			bool duplicate = false;
+			for (uint32_t prior = 0; prior < index; prior++)
+				duplicate |= views[index] && views[index] == views[prior];
+			if (views[index] && !duplicate)
 				wgpuTextureViewRelease(views[index]);
 		}
 		for (uint32_t index = 0; index < textureCount; index++)
@@ -218,15 +221,22 @@ extern "C"
 				WebXR::SetLastFrameError(WebXR::FrameError::PresentationRejected);
 				return 0;
 			}
-			WGPUTextureViewDescriptor description = {};
-			description.format = textureFormat;
-			description.dimension = WGPUTextureViewDimension_2D;
-			description.baseMipLevel = 0;
-			description.mipLevelCount = 1;
-			description.baseArrayLayer = source.ArrayLayer;
-			description.arrayLayerCount = 1;
-			description.aspect = WGPUTextureAspect_All;
-			views[index] = wgpuTextureCreateView(texture, &description);
+			const bool sharedAtlasView = index > 0 &&
+				(frame.Header.Flags & WebXR::FrameSharedStereoAtlas) != 0;
+			if (sharedAtlasView)
+				views[index] = views[0];
+			else
+			{
+				WGPUTextureViewDescriptor description = {};
+				description.format = textureFormat;
+				description.dimension = WGPUTextureViewDimension_2D;
+				description.baseMipLevel = 0;
+				description.mipLevelCount = 1;
+				description.baseArrayLayer = source.ArrayLayer;
+				description.arrayLayerCount = 1;
+				description.aspect = WGPUTextureAspect_All;
+				views[index] = wgpuTextureCreateView(texture, &description);
+			}
 			if (!views[index])
 			{
 				ReleaseFrameResources(device, binding.Target, textures, frame.Header.TextureCount,
@@ -235,7 +245,7 @@ extern "C"
 				return 0;
 			}
 			handles[index] = { views[index], textureFormat };
-			binding.Images.push_back({ &handles[index], static_cast<int>(source.TextureWidth),
+			binding.Images.push_back({ sharedAtlasView ? &handles[0] : &handles[index], static_cast<int>(source.TextureWidth),
 				static_cast<int>(source.TextureHeight) });
 		}
 

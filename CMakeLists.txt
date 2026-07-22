@@ -1060,6 +1060,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_executable(WebXRFrameBridgeTests
 		Tests/WebXRFrameBridgeTests.cpp
 		SurrealEngine/Platform/WebXR/WebXRFrameBridge.cpp
+		SurrealEngine/RenderDevice/ClipSpaceConversion.cpp
 		SurrealEngine/Math/mat.cpp
 	)
 	target_include_directories(WebXRFrameBridgeTests PRIVATE SurrealEngine)

@@ -27,6 +27,7 @@
 				label: provider.label,
 				isAvailable: typeof provider.isAvailable === "function" ? provider.isAvailable : () => provider.isAvailable !== false,
 				requiresXRCompatibleAdapter: provider.requiresXRCompatibleAdapter === true,
+				prefersXRCompatibleAdapter: provider.prefersXRCompatibleAdapter === true,
 				setXRCompatibleAdapter: typeof provider.setXRCompatibleAdapter === "function" ? provider.setXRCompatibleAdapter : () => {},
 				prepareLaunch: typeof provider.prepareLaunch === "function" ? provider.prepareLaunch : async () => {},
 				activate: typeof provider.activate === "function" ? provider.activate : async () => {},
@@ -310,7 +311,8 @@
 		const launcher = options.launcher || new LauncherController(options.launcherRoot || null, registry, options.launcherOptions);
 		const library = options.library || new GameLibrary();
 		const libraryUI = options.libraryUI || new GameLibraryUI(options.libraryRoot || null, library);
-		const xrProviders = registry.available().filter(provider => provider.requiresXRCompatibleAdapter);
+		const xrProviders = registry.available().filter(provider =>
+			provider.requiresXRCompatibleAdapter || provider.prefersXRCompatibleAdapter);
 		const device = await acquireWebGPUDevice(log, {
 			xrCompatible: xrProviders.length > 0,
 			onXRCompatibility: (available, detail) => {

@@ -11,6 +11,9 @@ namespace WebXR
 {
 	constexpr uint32_t FrameABIVersion = 2;
 	constexpr uint32_t MaxViews = 2;
+	constexpr uint32_t FrameProjectionDepthZeroToOne = 1u << 0;
+	constexpr uint32_t FrameSharedStereoAtlas = 1u << 1;
+	constexpr uint32_t FrameKnownFlags = FrameProjectionDepthZeroToOne | FrameSharedStereoAtlas;
 
 	enum class FrameError : int
 	{

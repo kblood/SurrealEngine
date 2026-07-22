@@ -1,4 +1,5 @@
 #include "Platform/WebXR/WebXRFrameBridge.h"
+#include "RenderDevice/ClipSpaceConversion.h"
 
 #include <cmath>
 #include <cstring>
@@ -103,6 +104,32 @@ int main()
 	if (WebXR::DecodeFrame(invalid.data(), static_cast<uint32_t>(invalid.size()), decoded, error) ||
 		error != WebXR::FrameError::InvalidView)
 		return 10;
+
+	invalid = bytes;
+	(reinterpret_cast<WebXR::PackedFrameHeader*>(invalid.data()))->Flags = 0x80000000u;
+	if (WebXR::DecodeFrame(invalid.data(), static_cast<uint32_t>(invalid.size()), decoded, error) ||
+		error != WebXR::FrameError::InvalidHeader)
+		return 11;
+
+	std::array<float, 16> webGLProjection = {
+		2, 0, 0, 0, 0, 3, 0, 0, 0.2f, -0.3f, -1, -1, 0, 0, -0.2f, 0
+	};
+	const auto webGPUProjection = ConvertProjectionDepthMinusOneToOneToZeroToOne(webGLProjection);
+	if (!NearlyEqual(webGPUProjection[10], -1.0f) || !NearlyEqual(webGPUProjection[11], -1.0f) ||
+		!NearlyEqual(webGPUProjection[14], -0.1f) || !NearlyEqual(webGPUProjection[8], 0.2f))
+		return 12;
+
+	invalid = bytes;
+	auto* atlasHeader = reinterpret_cast<WebXR::PackedFrameHeader*>(invalid.data());
+	auto* atlasViews = reinterpret_cast<WebXR::PackedView*>(invalid.data() + sizeof(*atlasHeader));
+	atlasHeader->Flags = WebXR::FrameProjectionDepthZeroToOne | WebXR::FrameSharedStereoAtlas;
+	atlasHeader->TextureCount = 1;
+	atlasViews[0].TextureIndex = atlasViews[1].TextureIndex = 0;
+	atlasViews[0].TextureWidth = atlasViews[1].TextureWidth = 2048;
+	atlasViews[0].ViewportWidth = atlasViews[1].ViewportWidth = 1024;
+	atlasViews[1].ViewportX = 1024;
+	if (!WebXR::DecodeFrame(invalid.data(), static_cast<uint32_t>(invalid.size()), decoded, error))
+		return 13;
 
 	std::cout << "WebXR packed frame and view-family tests passed\n";
 	return 0;

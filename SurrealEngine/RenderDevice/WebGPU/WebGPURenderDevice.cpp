@@ -275,6 +275,8 @@ bool WebGPURenderDevice::SelectExternalView(size_t viewIndex)
 	}
 
 	DrawBatches();
+	const bool preserveColor = ExternalViews[CurrentExternalView].NativeHandle ==
+		ExternalViews[viewIndex].NativeHandle;
 	EndAndSubmitFramePass();
 	CurrentExternalView = viewIndex;
 	const PresentationTargetImage& image = ExternalViews[viewIndex];
@@ -284,7 +286,7 @@ bool WebGPURenderDevice::SelectExternalView(size_t viewIndex)
 	CurrentSizeY = image.Height;
 	ConfigureDepthBuffer(CurrentSizeX, CurrentSizeY);
 	HaveViewport = false;
-	BeginFramePass(/*colorClear=*/true, CurrentClearColor, /*depthClear=*/true);
+	BeginFramePass(/*colorClear=*/!preserveColor, CurrentClearColor, /*depthClear=*/true);
 
 	SceneVertexPos = 0;
 	SceneIndexPos = 0;

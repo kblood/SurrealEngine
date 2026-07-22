@@ -8,6 +8,7 @@
 <canvas id="webgpu-source" width="512" height="256"></canvas>
 <canvas id="webgl-destination" width="512" height="256"></canvas>
 <pre id="result">running</pre>
+<script src="../webxr_webgl_bridge.js"></script>
 <script type="module">
 const source = document.getElementById("webgpu-source");
 const destination = document.getElementById("webgl-destination");
@@ -139,6 +140,11 @@ async function runProbe() {
     left: Array.from(left),
     right: Array.from(right),
     glError: error,
+    projectionConversionValid: (() => {
+      const value = SurrealWebXRWebGLBridge.convertProjectionDepth(
+        [2,0,0,0, 0,3,0,0, .2,-.3,-1,-1, 0,0,-.2,0]);
+      return Math.abs(value[14] + .1) < 1e-7 && value[8] === .2 && value[9] === -.3;
+    })(),
     caveat: "HTMLCanvasElement upload is specified; zero-copy is not. Each timing starts after WebGPU submission and includes synchronization, texSubImage2D, one quad, and gl.finish."
   };
 }

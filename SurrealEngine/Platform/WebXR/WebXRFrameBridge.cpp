@@ -95,7 +95,7 @@ bool WebXR::DecodeFrame(const void* frameData, uint32_t bufferBytes, DecodedFram
 
 	std::memcpy(&result.Header, frameData, sizeof(PackedFrameHeader));
 	const PackedFrameHeader& header = result.Header;
-	if (header.Version != FrameABIVersion || header.Flags != 0 ||
+	if (header.Version != FrameABIVersion || (header.Flags & ~FrameKnownFlags) != 0 ||
 		header.ViewCount != MaxViews || header.TextureCount == 0 ||
 		header.TextureCount > header.ViewCount ||
 		header.ByteSize != bufferBytes ||
@@ -133,6 +133,16 @@ bool WebXR::DecodeFrame(const void* frameData, uint32_t bufferBytes, DecodedFram
 		}
 		eyesUsed[view.Eye] = true;
 		texturesUsed[view.TextureIndex] = true;
+	}
+	if ((header.Flags & FrameSharedStereoAtlas) != 0 &&
+		(header.TextureCount != 1 || result.Views[0].TextureIndex != 0 ||
+		 result.Views[1].TextureIndex != 0 || result.Views[0].ArrayLayer != 0 ||
+		 result.Views[1].ArrayLayer != 0 ||
+		 result.Views[0].TextureWidth != result.Views[1].TextureWidth ||
+		 result.Views[0].TextureHeight != result.Views[1].TextureHeight))
+	{
+		error = FrameError::InvalidView;
+		return false;
 	}
 	for (uint32_t index = 0; index < header.TextureCount; index++)
 	{

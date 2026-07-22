@@ -2,11 +2,12 @@
 
 Date: 2026-07-22
 
-This branch does **not** contain a WebGL renderer and does not claim WebGL or
-`XRWebGLLayer` support. It adds an honest renderer-selection seam, a tested
-WebGL-to-WebGPU projection conversion, and a browser probe for the smaller
-WebGPU-canvas-to-WebGL compositor approach. None of these advertise production
-Quest support.
+The investigation branch did **not** contain a WebGL renderer. The product
+integration branch now implements the narrower WebGPU-canvas-to-WebGL
+`XRWebGLLayer` bridge described below; see
+`docs/WEBXR_WEBGL_BRIDGE_HANDOFF.md`. This still does not claim production Quest
+support until its physical timing and correctness gates pass, and it is not a
+full WebGL engine renderer.
 
 ## Current recommendation
 
