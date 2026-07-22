@@ -87,6 +87,13 @@ int main()
 	if (!registry.Contains("alpha") || registry.Contains("missing") ||
 		registry.Names() != std::vector<std::string>({ "alpha", "zeta" }))
 		return Fail("driver registry lookup or ordering was incorrect");
+	HeadlessDriverRegistry::Resolution known = registry.Resolve("alpha");
+	if (!known || known.ExitCode != 0 || !known.Error.empty())
+		return Fail("known driver did not resolve successfully");
+	HeadlessDriverRegistry::Resolution missing = registry.Resolve("missing");
+	if (missing || missing.ExitCode == 0 ||
+		missing.Error != "unknown headless driver: missing (available: alpha zeta)")
+		return Fail("unknown driver did not resolve to a clear nonzero result");
 
 	bool rejectedDuplicate = false;
 	try

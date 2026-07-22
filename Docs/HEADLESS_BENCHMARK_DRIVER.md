@@ -7,7 +7,9 @@ telemetry, fixtures, rendering changes, or VR ancestry.
 An engine extension registers a named factory in `HeadlessDriverRegistry`.
 Selecting it with `--headless-driver=<name>` makes `Engine::Run()` execute the
 driver before window, audio, and renderer creation. With no option, the normal
-interactive path is unchanged. Unknown driver names fail explicitly.
+interactive path is unchanged. Unknown driver names are logged with the sorted
+available names and return exit code 2 without changing interactive exception
+handling.
 
 The runner applies the driver's deterministic seed once, advances
 `DeterministicRuntime` for every tick, stops when the driver completes or its

@@ -48,9 +48,20 @@ class HeadlessDriverRegistry
 {
 public:
 	using Factory = std::function<std::unique_ptr<HeadlessDriver>(Engine&)>;
+	static constexpr int UnknownDriverExitCode = 2;
+
+	struct Resolution
+	{
+		Factory Create;
+		std::string Error;
+		int ExitCode = 0;
+
+		explicit operator bool() const { return static_cast<bool>(Create); }
+	};
 
 	void Register(std::string name, Factory factory);
 	bool Contains(const std::string& name) const;
+	Resolution Resolve(const std::string& name) const;
 	std::unique_ptr<HeadlessDriver> Create(const std::string& name, Engine& engine) const;
 	std::vector<std::string> Names() const;
 

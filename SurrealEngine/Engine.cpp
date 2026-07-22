@@ -388,21 +388,15 @@ void Engine::FinishGameFrame(float levelElapsed)
 
 void Engine::RunHeadlessDriver(const std::string& driverName)
 {
-	std::unique_ptr<HeadlessDriver> driver = GetHeadlessDriverRegistry().Create(driverName, *this);
-	if (!driver)
+	HeadlessDriverRegistry::Resolution resolution = GetHeadlessDriverRegistry().Resolve(driverName);
+	if (!resolution)
 	{
-		std::string message = "unknown headless driver: " + driverName;
-		const std::vector<std::string> names = GetHeadlessDriverRegistry().Names();
-		if (!names.empty())
-		{
-			message += " (available:";
-			for (const std::string& name : names)
-				message += " " + name;
-			message += ")";
-		}
-		throw std::invalid_argument(message);
+		LogMessage(resolution.Error);
+		m_RunExitCode = resolution.ExitCode;
+		return;
 	}
 
+	std::unique_ptr<HeadlessDriver> driver = resolution.Create(*this);
 	LogMessage("Running headless driver: " + driverName);
 	m_RunExitCode = HeadlessDriverRunner().Run(*driver);
 	LogMessage("Headless driver complete with exit code " + std::to_string(m_RunExitCode));
