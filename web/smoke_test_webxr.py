@@ -333,6 +333,13 @@ def main():
                 hudCapturedCommands: Module.ccall('Surreal_GetWebXRHudCapturedCommands', 'number', [], []),
                 hudUnsupportedDraws: Module.ccall('Surreal_GetWebXRHudUnsupportedDraws', 'number', [], []),
                 hudClampedViewports: Module.ccall('Surreal_GetWebXRHudClampedViewports', 'number', [], []),
+                hudSelfTestMask: Module.ccall('Surreal_GetWebXRHudSelfTestMask', 'number', [], []),
+                hudEnabled: Module.ccall('Surreal_GetWebXRHudEnabled', 'number', [], []),
+                hudEffectiveEnabled: Module.ccall('Surreal_GetWebXRHudEffectiveEnabled', 'number', [], []),
+                hudDistanceUU: Module.ccall('Surreal_GetWebXRHudEffectiveDistanceUU', 'number', [], []),
+                hudHorizontalFov: Module.ccall('Surreal_GetWebXRHudEffectiveHorizontalFovDegrees', 'number', [], []),
+                hudAspect: Module.ccall('Surreal_GetWebXRHudEffectiveAspectRatio', 'number', [], []),
+                hudSafeArea: Module.ccall('Surreal_GetWebXRHudEffectiveSafeAreaFraction', 'number', [], []),
                 audioListenerActive: Module.ccall('Surreal_GetWebXRAudioListenerActive', 'number', [], []),
                 audioListenerUpdates: Module.ccall('Surreal_GetWebXRAudioListenerUpdateCount', 'number', [], []),
                 audioVelocityResets: Module.ccall('Surreal_GetWebXRAudioListenerVelocityResetCount', 'number', [], []),
@@ -349,6 +356,12 @@ def main():
                     weapon_bridge_diagnostics.get("hudStateUpdates") not in (0, 1) or \
                     weapon_bridge_diagnostics.get("hudEyePresentations") != \
                     weapon_bridge_diagnostics.get("expectedHudEyes") or \
+                    weapon_bridge_diagnostics.get("hudSelfTestMask") != 31 or \
+                    weapon_bridge_diagnostics.get("hudEnabled") not in (0, 1) or \
+                    weapon_bridge_diagnostics.get("hudEffectiveEnabled") != \
+                    weapon_bridge_diagnostics.get("hudEnabled") or \
+                    not all(math.isfinite(weapon_bridge_diagnostics.get(name, float("nan"))) for name in
+                            ("hudDistanceUU", "hudHorizontalFov", "hudAspect", "hudSafeArea")) or \
                     weapon_bridge_diagnostics.get("audioListenerActive") != 1 or \
                     weapon_bridge_diagnostics.get("audioListenerUpdates", 0) < 1 or \
                     weapon_bridge_diagnostics.get("audioVelocityResets", 0) < 1 or \
@@ -356,6 +369,43 @@ def main():
                     not all(math.isfinite(value) for value in
                             weapon_bridge_diagnostics.get("audioVelocity", [])):
                 print("FAIL: M8 weapon, M9 HUD, or M10 tracked-audio diagnostics are invalid")
+                sys.exit(1)
+
+            hud_disabled = page.evaluate("""async () => {
+                const original = Module.ccall('Surreal_GetWebXRHudEnabled', 'number', [], []);
+                const disabled = Module.ccall('Surreal_SetWebXRHudEnabled', 'number', ['number'], [0]);
+                const invalidDistance = Module.ccall('Surreal_SetWebXRHudDistanceUU',
+                    'number', ['number'], [Number.NaN]);
+                const rendered = await window.surrealTestPackedWebXRFrame();
+                const result = {
+                    original,
+                    disabled,
+                    invalidDistance,
+                    effective: Module.ccall('Surreal_GetWebXRHudEffectiveEnabled', 'number', [], []),
+                    expectedEyes: Module.ccall('Surreal_GetWebXRHudExpectedEyePresentations', 'number', [], []),
+                    stateUpdates: Module.ccall('Surreal_GetWebXRHudStateUpdates', 'number', [], []),
+                    eyePresentations: Module.ccall('Surreal_GetWebXRHudEyePresentations', 'number', [], []),
+                    weaponEyes: Module.ccall('Surreal_GetWebXRWeaponOverlayEyePasses', 'number', [], []),
+                    rendered,
+                };
+                result.restored = Module.ccall('Surreal_SetWebXRHudEnabled',
+                    'number', ['number'], [original]);
+                result.restoredEffective = Module.ccall(
+                    'Surreal_GetWebXRHudEffectiveEnabled', 'number', [], []);
+                return result;
+            }""")
+            print(f"[harness] M9 disabled-HUD lifecycle: {hud_disabled}")
+            if (hud_disabled.get("disabled") != 1 or
+                    hud_disabled.get("invalidDistance") != 0 or
+                    hud_disabled.get("effective") != 0 or
+                    hud_disabled.get("expectedEyes") != 0 or
+                    hud_disabled.get("stateUpdates") != 0 or
+                    hud_disabled.get("eyePresentations") != 0 or
+                    hud_disabled.get("weaponEyes") != 2 or
+                    hud_disabled.get("rendered") != 1 or
+                    hud_disabled.get("restored") != 1 or
+                    hud_disabled.get("restoredEffective") != hud_disabled.get("original")):
+                print("FAIL: disabled WebXR HUD advanced script state, hid world/weapon rendering, or failed restore")
                 sys.exit(1)
             page.evaluate("window.surrealResetWebXRPose()")
 
