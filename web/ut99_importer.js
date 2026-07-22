@@ -2,9 +2,11 @@
  * Legal, local-only UE1 game-data import for the redistributable Web build.
  *
  * This module never uploads game data and never logs file contents. It stores
- * user-selected files in origin-private storage, then streams them into the
- * Emscripten filesystem before main() is called. Developer builds that embed
- * /gamedata keep their existing direct boot path.
+ * user-selected files in origin-private storage. The default build streams
+ * them into the Emscripten filesystem before main() is called. The opt-in
+ * WasmFS build instead registers the published OPFS generation for an
+ * engine-worker mount. Developer builds that embed /gamedata keep their
+ * existing direct boot path.
  */
 (function (global) {
 	"use strict";
@@ -535,6 +537,11 @@
 				const datasetRoot = await getOPFSDirectory(appRoot, ["imports", metadata.datasetId], false);
 				return {
 					metadata,
+					mount: Object.freeze({
+						type: "wasmfs-opfs-v1",
+						storageDirectory: this.directoryName,
+						datasetId: metadata.datasetId,
+					}),
 					getBlob: async path => {
 						try {
 							const parts = canonicalizeRelativePath(path).split("/");
@@ -827,6 +834,56 @@
 		}
 	}
 
+	function supportsOPFSMount(Module) {
+		if (!Module || typeof Module.ccall !== "function") return false;
+		try {
+			return Module.ccall("Surreal_GetBrowserOPFSMountABIVersion", "number", [], []) === 1;
+		} catch (_) {
+			return false;
+		}
+	}
+
+	async function prepareRuntimeDataset(Module, dataset, onProgress, rootPath) {
+		if (!dataset || !dataset.metadata) {
+			throw new ImportError("STORAGE_METADATA", "Saved game data metadata is unavailable. Clear it and import again.");
+		}
+		validateMetadata(dataset.metadata);
+		const root = rootPath || GAME_ROOT;
+		const mount = dataset.mount;
+		if (!supportsOPFSMount(Module) || root !== GAME_ROOT || !mount ||
+			mount.type !== "wasmfs-opfs-v1") {
+			await materializeDataset(Module.FS, dataset, onProgress, root);
+			return Object.freeze({ mode: "materialized", backend: dataset.metadata.backend || "unknown" });
+		}
+		if (mount.datasetId !== dataset.metadata.datasetId ||
+			typeof mount.storageDirectory !== "string" || !mount.storageDirectory) {
+			throw new ImportError("STORAGE_MOUNT", "Saved game data has inconsistent OPFS mount metadata. Clear it and import again.");
+		}
+		const begin = Module.ccall("Surreal_BeginBrowserOPFSMount", "number",
+			["string", "string", "number"],
+			[mount.storageDirectory, mount.datasetId, dataset.metadata.fileCount]);
+		if (begin !== 1) {
+			throw new ImportError("STORAGE_MOUNT", "The experimental runtime rejected the OPFS game-data mount.");
+		}
+		let bytesDone = 0;
+		for (let index = 0; index < dataset.metadata.files.length; index++) {
+			const file = dataset.metadata.files[index];
+			const path = canonicalizeRelativePath(file.path);
+			const size = Number(file.size);
+			const low = size >>> 0;
+			const high = Math.floor(size / 0x100000000) >>> 0;
+			const added = Module.ccall("Surreal_AddBrowserOPFSMountFile", "number",
+				["string", "number", "number"], [path, low, high]);
+			if (added !== 1) {
+				throw new ImportError("STORAGE_MOUNT", "The experimental runtime rejected an OPFS game-data entry.", { path });
+			}
+			bytesDone += size;
+			if (onProgress) onProgress({ phase: "mount-manifest", filesDone: index + 1,
+				filesTotal: dataset.metadata.fileCount, bytesDone, bytesTotal: dataset.metadata.totalBytes });
+		}
+		return Object.freeze({ mode: "opfs-mount", backend: "opfs" });
+	}
+
 	function fsPathExists(FS, path) {
 		try {
 			if (typeof FS.analyzePath === "function") return !!FS.analyzePath(path).exists;
@@ -974,11 +1031,12 @@
 				if (dataset) {
 					this.ui.setBusy(true);
 					this.ui.setStatus("Restoring saved game data…");
-					phase = "runtime-copy";
-					await materializeDataset(this.Module.FS, dataset, progress => this.ui.setProgress(progress), this.options.rootPath);
+					phase = "runtime-prepare";
+					const prepared = await prepareRuntimeDataset(this.Module, dataset,
+						progress => this.ui.setProgress(progress), this.options.rootPath);
 					this._setMapManifest(dataset.metadata, "ready");
 					this.ui.setStatus("Saved game data restored. Choose how to start SurrealEngine…");
-					this._log("restored " + dataset.metadata.fileCount + " local files (" + formatBytes(dataset.metadata.totalBytes) + ") from " + this.storage.backend);
+					this._log("prepared " + dataset.metadata.fileCount + " local files (" + formatBytes(dataset.metadata.totalBytes) + ") via " + prepared.mode + " from " + this.storage.backend);
 					await this._launch("persistent-import");
 					return { state: "launched", mode: "persistent-import", backend: this.storage.backend, metadata: dataset.metadata };
 				}
@@ -1076,12 +1134,18 @@
 						return entry.getBlob();
 					},
 				};
+				let runtimeDataset = sourceDataset;
+				if (supportsOPFSMount(this.Module)) {
+					const persisted = await this.storage.load();
+					if (persisted && persisted.mount) runtimeDataset = persisted;
+				}
 				this.ui.setStatus("Preparing game data for SurrealEngine…");
-				phase = "runtime-copy";
-				await materializeDataset(this.Module.FS, sourceDataset, progress => this.ui.setProgress(progress), this.options.rootPath);
+				phase = "runtime-prepare";
+				const prepared = await prepareRuntimeDataset(this.Module, runtimeDataset,
+					progress => this.ui.setProgress(progress), this.options.rootPath);
 				this._setMapManifest(metadata, "ready");
 				this.ui.setStatus("Import complete. Starting SurrealEngine…");
-				this._log("imported " + metadata.fileCount + " local files (" + formatBytes(metadata.totalBytes) + ") into " + this.storage.backend);
+				this._log("imported " + metadata.fileCount + " local files (" + formatBytes(metadata.totalBytes) + ") into " + this.storage.backend + "; runtime=" + prepared.mode);
 				phase = "startup";
 				await this._launch("new-import");
 				return metadata;
@@ -1103,7 +1167,7 @@
 			if (this.launchPromise) return this.launchPromise;
 			this.launchPromise = (async () => {
 				const context = Object.freeze({ mapManifest: this.mapManifest(), metadata: this.currentMetadata });
-				// Persistence overlays must run after /gamedata exists but before
+				// Persistence overlays run after immutable-data preparation and before
 				// native startup reads configuration and enumerates save files.
 				if (typeof this.options.beforeLaunch === "function") await this.options.beforeLaunch(mode, context);
 				this.launched = true;
@@ -1152,6 +1216,8 @@
 		writeBlobToFS,
 		fsPathExists,
 		materializeDataset,
+		supportsOPFSMount,
+		prepareRuntimeDataset,
 		developerPreloadGame,
 		hasDeveloperPreload,
 		formatBytes,

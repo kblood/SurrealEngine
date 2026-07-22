@@ -1,9 +1,11 @@
 # Web mutable-data persistence
 
-The Emscripten runtime uses MEMFS, so writes disappear when the tab closes.
-`mutable_persistence.js` snapshots only files the current UT99 Web build is
-known to mutate and restores them after `/gamedata` is materialized but before
-`Module.callMain()` reads configuration or enumerates saves.
+The default Emscripten runtime uses MEMFS, so writes disappear when the tab
+closes. `mutable_persistence.js` snapshots only files the current UT99 Web build
+is known to mutate and restores them after immutable game data is prepared but
+before `Module.callMain()` reads configuration or enumerates saves. Ordinary
+builds materialize `/gamedata`; the experimental WasmFS variant registers an
+OPFS mount that native startup creates after the overlay has been restored.
 
 ## Audited write paths
 

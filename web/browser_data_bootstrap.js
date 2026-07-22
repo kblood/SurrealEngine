@@ -1,9 +1,11 @@
 /*
  * Provider-neutral coordination for legal game-data import and mutable data.
  *
- * The immutable imported dataset is materialized first. The mutable overlay is
- * then restored before native main() observes configuration or save files.
- * Rendering and presentation providers are deliberately outside this module.
+ * The immutable imported dataset is prepared first: ordinary builds
+ * materialize it, while the experimental WasmFS build registers its OPFS
+ * generation. The mutable overlay is restored before native main() observes
+ * configuration or save files. Rendering and presentation providers are
+ * deliberately outside this module.
  */
 (function (global) {
 	"use strict";

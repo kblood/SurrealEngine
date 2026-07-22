@@ -225,6 +225,33 @@ window.importerTestPromise = (async function () {
 		assert(progress[progress.length - 1].bytesDone === validation.totalBytes);
 	});
 
+	await run("experimental OPFS runtime registers metadata without reading blobs", async () => {
+		const restored = await idbStorage.load();
+		let blobReads = 0;
+		const calls = [];
+		const Module = {
+			FS: new FakeFS(false),
+			ccall(name, returnType, argumentTypes, args) {
+				calls.push({ name, args: (args || []).slice() });
+				return 1;
+			},
+		};
+		const dataset = {
+			metadata: restored.metadata,
+			mount: { type: "wasmfs-opfs-v1", storageDirectory: "synthetic-opfs", datasetId: restored.metadata.datasetId },
+			getBlob: async path => { blobReads++; return restored.getBlob(path); },
+		};
+		const prepared = await api.prepareRuntimeDataset(Module, dataset);
+		assert(prepared.mode === "opfs-mount");
+		assert(blobReads === 0, "OPFS mount preparation read file contents");
+		assert(calls[0].name === "Surreal_GetBrowserOPFSMountABIVersion");
+		assert(calls[1].name === "Surreal_BeginBrowserOPFSMount" && calls[1].args[2] === restored.metadata.fileCount);
+		const additions = calls.filter(call => call.name === "Surreal_AddBrowserOPFSMountFile");
+		assert(additions.length === restored.metadata.fileCount);
+		assert(additions.some(call => call.args[0] === "System/Core.u"));
+		assert(Module.FS.files.size === 0, "mount preparation materialized data in MEMFS");
+	});
+
 	await run("developer preload bypasses persistence and launches once", async () => {
 		let storageLoads = 0;
 		let launches = 0;
@@ -401,6 +428,8 @@ window.importerTestPromise = (async function () {
 			const metadata = await storage.save(validation);
 			assert(metadata.backend === "opfs");
 			const loaded = await storage.load();
+			assert(loaded.mount.type === "wasmfs-opfs-v1" && loaded.mount.storageDirectory === directoryName);
+			assert(loaded.mount.datasetId === metadata.datasetId);
 			assert(await (await loaded.getBlob("Maps/DM-Synthetic.unr")).text() === "fake-map");
 			const appRoot = await root.getDirectoryHandle(directoryName);
 			const imports = await appRoot.getDirectoryHandle("imports");

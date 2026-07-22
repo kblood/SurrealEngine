@@ -293,7 +293,7 @@ window.mutablePersistenceTestPromise = (async function () {
 		second.dispose();
 	});
 
-	await run("mutable restore is awaited after import materialization and before main", async () => {
+	await run("mutable restore is awaited after import preparation and before main", async () => {
 		const storage = new api.IndexedDBStorage("surrealengine-order-test-" + suffix);
 		const savedFS = mutableFS();
 		const snapshot = await api.snapshotFS(savedFS);

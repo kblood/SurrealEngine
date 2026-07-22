@@ -2,6 +2,7 @@
 #include <emscripten/wasmfs.h>
 
 #include <cassert>
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -21,22 +22,28 @@ int main()
 	unlink("/gamedata/System/Core.u");
 	rmdir("/gamedata/System");
 	rmdir("/gamedata");
-	unlink("/opfs/surreal-probe/System/Core.u");
-	rmdir("/opfs/surreal-probe/System");
-	rmdir("/opfs/surreal-probe");
-	assert(mkdir("/opfs/surreal-probe", 0777) == 0);
-	assert(mkdir("/opfs/surreal-probe/System", 0777) == 0);
+	struct stat persisted = {};
+	const bool existing = stat("/opfs/surreal-probe/System/Core.u", &persisted) == 0;
+	if (!existing) {
+		assert(mkdir("/opfs/surreal-probe", 0777) == 0);
+		assert(mkdir("/opfs/surreal-probe/System", 0777) == 0);
 
-	int output = open("/opfs/surreal-probe/System/Core.u", O_CREAT | O_TRUNC | O_WRONLY, 0666);
-	assert(output >= 0);
-	uint8_t* chunk = static_cast<uint8_t*>(malloc(chunkSize));
-	assert(chunk);
-	for (size_t index = 0; index < chunkSize; index++) chunk[index] = static_cast<uint8_t>(index);
-	for (size_t offset = 0; offset < fileSize; offset += chunkSize) {
-		assert(write(output, chunk, chunkSize) == static_cast<ssize_t>(chunkSize));
+		int output = open("/opfs/surreal-probe/System/Core.u", O_CREAT | O_TRUNC | O_WRONLY, 0666);
+		assert(output >= 0);
+		uint8_t* chunk = static_cast<uint8_t*>(malloc(chunkSize));
+		assert(chunk);
+		for (size_t index = 0; index < chunkSize; index++) chunk[index] = static_cast<uint8_t>(index);
+		for (size_t offset = 0; offset < fileSize; offset += chunkSize) {
+			assert(write(output, chunk, chunkSize) == static_cast<ssize_t>(chunkSize));
+		}
+		assert(close(output) == 0);
+		free(chunk);
+	} else {
+		assert(static_cast<size_t>(persisted.st_size) == fileSize);
 	}
-	assert(close(output) == 0);
-	free(chunk);
+	assert(chmod("/opfs/surreal-probe/System/Core.u", 0444) == 0);
+	assert(chmod("/opfs/surreal-probe/System", 0555) == 0);
+	assert(chmod("/opfs/surreal-probe", 0555) == 0);
 
 	assert(mkdir("/gamedata", 0777) == 0);
 	assert(mkdir("/gamedata/System", 0777) == 0);
@@ -54,16 +61,16 @@ int main()
 	for (size_t index = 0; index < sizeof(sample); index++) {
 		assert(sample[index] == static_cast<uint8_t>(index));
 	}
+	errno = 0;
+	const int forbiddenWrite = open("/gamedata/System/Core.u", O_WRONLY);
+	assert(forbiddenWrite < 0 && (errno == EACCES || errno == EROFS));
 
 	const size_t heapAfter = emscripten_get_heap_size();
-	printf("PASS wasmfs-opfs-symlink file=%zu heap-before=%zu heap-after=%zu heap-growth=%zu\n",
-		fileSize, heapBefore, heapAfter, heapAfter - heapBefore);
+	printf("PASS wasmfs-opfs-symlink existing=%d file=%zu heap-before=%zu heap-after=%zu heap-growth=%zu write-denied=1\n",
+		existing ? 1 : 0, fileSize, heapBefore, heapAfter, heapAfter - heapBefore);
 
 	assert(unlink("/gamedata/System/Core.u") == 0);
 	assert(rmdir("/gamedata/System") == 0);
 	assert(rmdir("/gamedata") == 0);
-	assert(unlink("/opfs/surreal-probe/System/Core.u") == 0);
-	assert(rmdir("/opfs/surreal-probe/System") == 0);
-	assert(rmdir("/opfs/surreal-probe") == 0);
 	return 0;
 }

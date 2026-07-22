@@ -4,6 +4,11 @@ project(SurrealEngine)
 
 include(CTest)
 
+option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS "Use the experimental on-demand WasmFS OPFS game-data mount" OFF)
+if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS AND NOT EMSCRIPTEN)
+	message(FATAL_ERROR "SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS is available only for Emscripten builds")
+endif()
+
 if(EMSCRIPTEN)
 	# Every TU in every subdirectory must be compiled with atomics/bulk-memory
 	# (implied by -pthread) since the final link uses --shared-memory - a single
@@ -695,6 +700,13 @@ set(SURREALENGINE_SOURCES
 	SurrealEngine/MainGame.cpp
 )
 
+if(EMSCRIPTEN AND SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS)
+	list(APPEND SURREALCOMMON_SOURCES
+		SurrealEngine/Platform/BrowserGameDataMount.cpp
+		SurrealEngine/Platform/BrowserGameDataMount.h
+	)
+endif()
+
 set(SURREALEDITOR_SOURCES
 	SurrealEngine/MainEditor.cpp
 )
@@ -1061,6 +1073,11 @@ if(MSVC)
 endif()
 
 if(EMSCRIPTEN)
+	set(SURREAL_BROWSER_EXPORTED_FUNCTIONS "_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_SetXRFrameLoopActive,_Surreal_ResumeBrowserAudio,_Surreal_SuspendBrowserAudio,_Surreal_ShutdownBrowserAudio,_Surreal_SetBrowserAudioOutput,_Surreal_GetBrowserAudioState,_Surreal_GetBrowserAudioCurrentTimeMs,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_GetWebXRFrameLastError,_Surreal_RenderWebXRFrame,_Surreal_GetWebXRWorldUnitsPerMeter,_Surreal_SetWebXRWorldUnitsPerMeter,_Surreal_ResetWebXRPose,_Surreal_GetWebXRPoseRecenterCount,_Surreal_GetWebXRPointerFeedbackSize,_Surreal_GetWebXRPointerFeedback,_Surreal_GetWebXRInputABIVersion,_Surreal_GetWebXRInputHeaderSize,_Surreal_GetWebXRInputSourceSize,_Surreal_GetWebXRInputMaxSources,_Surreal_ValidateWebXRInputSnapshot,_Surreal_SubmitWebXRInputSnapshot,_Surreal_GetWebXRInputLastError,_Surreal_ClearWebXRInputSnapshot,_Surreal_ApplyWebXRInputSnapshot")
+	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS)
+		string(APPEND SURREAL_BROWSER_EXPORTED_FUNCTIONS ",_Surreal_GetBrowserOPFSMountABIVersion,_Surreal_GetBrowserWasmHeapSize,_Surreal_BeginBrowserOPFSMount,_Surreal_AddBrowserOPFSMountFile")
+		target_compile_definitions(SurrealCommon PRIVATE SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS=1)
+	endif()
 	set(SURREAL_GAMEDATA_DIR "" CACHE PATH "Local path to a UT99 game-data folder to preload into the wasm build (dev-machine-local only; never commit this path's contents — UT99 is commercial, non-redistributable data)")
 	if(NOT SURREAL_GAMEDATA_DIR)
 		message(WARNING "SURREAL_GAMEDATA_DIR is not set - the Emscripten build will have no game data preloaded. Pass -DSURREAL_GAMEDATA_DIR=<path-to-ut99-install>.")
@@ -1074,7 +1091,7 @@ if(EMSCRIPTEN)
 		-sINVOKE_RUN=0
 		-sEXIT_RUNTIME=0
 		-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall
-		-sEXPORTED_FUNCTIONS=_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_SetXRFrameLoopActive,_Surreal_ResumeBrowserAudio,_Surreal_SuspendBrowserAudio,_Surreal_ShutdownBrowserAudio,_Surreal_SetBrowserAudioOutput,_Surreal_GetBrowserAudioState,_Surreal_GetBrowserAudioCurrentTimeMs,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_GetWebXRFrameLastError,_Surreal_RenderWebXRFrame,_Surreal_GetWebXRWorldUnitsPerMeter,_Surreal_SetWebXRWorldUnitsPerMeter,_Surreal_ResetWebXRPose,_Surreal_GetWebXRPoseRecenterCount,_Surreal_GetWebXRPointerFeedbackSize,_Surreal_GetWebXRPointerFeedback,_Surreal_GetWebXRInputABIVersion,_Surreal_GetWebXRInputHeaderSize,_Surreal_GetWebXRInputSourceSize,_Surreal_GetWebXRInputMaxSources,_Surreal_ValidateWebXRInputSnapshot,_Surreal_SubmitWebXRInputSnapshot,_Surreal_GetWebXRInputLastError,_Surreal_ClearWebXRInputSnapshot,_Surreal_ApplyWebXRInputSnapshot
+		-sEXPORTED_FUNCTIONS=${SURREAL_BROWSER_EXPORTED_FUNCTIONS}
 		-sASSERTIONS=1
 		-sNO_DISABLE_EXCEPTION_CATCHING
 		-pthread
@@ -1082,6 +1099,13 @@ if(EMSCRIPTEN)
 		-sUSE_SDL=2
 		--use-port=emdawnwebgpu
 	)
+	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS)
+		target_link_options(SurrealEngine PRIVATE
+			-sWASMFS
+			-sFORCE_FILESYSTEM
+			-sPROXY_TO_PTHREAD
+		)
+	endif()
 	if(SURREAL_GAMEDATA_DIR)
 		# Developer convenience only. Production/distributable builds deliberately
 		# omit commercial UT99 content and populate /gamedata through the browser

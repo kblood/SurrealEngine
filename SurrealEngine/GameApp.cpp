@@ -13,6 +13,9 @@
 #include "UI/Launcher/LauncherWindow.h"
 #include "Utils/File.h"
 #include "Platform/OpenXR/OpenXRProvider.h"
+#ifdef SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS
+#include "Platform/BrowserGameDataMount.h"
+#endif
 #include <stdexcept>
 #include <surrealwidgets/core/theme.h>
 #include <surrealwidgets/window/window.h>
@@ -36,6 +39,11 @@ int GameApp::main(Array<std::string> args)
 	{
 		CommandLine cmd(args);
 		commandline = &cmd;
+
+#ifdef SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS
+		if (!BrowserGameDataMount::MountConfigured())
+			throw std::runtime_error("Browser game-data mount failed: " + BrowserGameDataMount::LastError());
+#endif
 
 		if (ErrorWindow::CheckCrashReporter())
 			return 0;
