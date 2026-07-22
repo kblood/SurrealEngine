@@ -26,6 +26,8 @@ their development branches into one unreviewable fork.
 | `pr/input-composition` | `09bd2737` | Compose buttons and axes from independent input sources | current upstream |
 | `pr/vm-hook-registry` | `d0faef6d` | Ordered, scoped VM-call extension hooks with safe argument replacement | current upstream |
 | `pr/game-support-registry` | `ff175b0a` | Typed game identity, behavior capabilities, and per-game native registration | current upstream |
+| `pr/deus-ex-runtime-fix` | `cd6a58a7` | Fix generic cardinal-axis actor movement with regression coverage | current upstream |
+| `pr/deterministic-runtime` | `5c0d620b` | Add opt-in seeded/fixed-step runtime state for benchmarks | current upstream |
 
 The integration branch contains equivalent cherry-picked commits at
 `0ba840c7`, `121428f5`, `f081ab56`, `91e77db4`, and `7e208406`.
@@ -80,6 +82,8 @@ On Windows x64 Release, the combined foundation:
 - compiles both D3D11 and Vulkan view-family paths;
 - passes `InputCompositionTests`;
 - passes `VMCallHookTests`;
+- passes `ActorMovementTests`;
+- passes `DeterministicRuntimeTests`;
 - links `SurrealEngine.exe`; and
 - passes the `SurrealEngine.exe --help` smoke test.
 
@@ -91,10 +95,12 @@ the policy for per-eye weapons plus captured/replayed UI is not yet defined.
 
 - Web: reconstruct a flat WASM/WebGPU platform topic from the checkpointed
   WebXR branch, with no WebXR requirement.
-- Deus Ex: replay the clean compatibility work as a sequence of generic and
-  game-specific PR topics on top of the game-support boundary where needed.
-- Bots: extract deterministic clock/random and opt-in benchmark infrastructure
-  before reconstructing behavior fixes backed by captured evidence.
+- Deus Ex: the first generic actor-movement correction is extracted; next is
+  generic property serialization, followed by tokenizer/paging on top of the
+  game-support boundary.
+- Bots: the deterministic seed/fixed-step foundation is extracted; next is an
+  opt-in headless lifecycle and benchmark driver, followed by evidence-backed
+  behavior fixes.
 - XR: after the view target/layer and UI policy are explicit, migrate the
   released native OpenXR behavior into XR-common plus an OpenXR provider, then
   attach WebXR to the same contracts.
