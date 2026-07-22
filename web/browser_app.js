@@ -277,6 +277,7 @@
 		if (!global.navigator.gpu) throw new LauncherError("WEBGPU_UNAVAILABLE", "This browser does not provide WebGPU.");
 		let adapter = null;
 		let xrFailure = null;
+		let xrCompatibleAdapter = false;
 		if (settings.xrCompatible) {
 			try { adapter = await global.navigator.gpu.requestAdapter({ xrCompatible: true }); }
 			catch (error) { xrFailure = error; }
@@ -285,8 +286,9 @@
 				log("[runtime] Immersive WebXR disabled: " + detail + "; retrying WebGPU for flat mode");
 				if (typeof settings.onXRCompatibility === "function") settings.onXRCompatibility(false, detail);
 				adapter = await global.navigator.gpu.requestAdapter();
-			} else if (typeof settings.onXRCompatibility === "function") {
-				settings.onXRCompatibility(true, null);
+			} else {
+				xrCompatibleAdapter = true;
+				if (typeof settings.onXRCompatibility === "function") settings.onXRCompatibility(true, null);
 			}
 		} else {
 			adapter = await global.navigator.gpu.requestAdapter();
@@ -294,6 +296,7 @@
 		if (!adapter) throw new LauncherError("WEBGPU_ADAPTER", "No compatible WebGPU adapter was found.");
 		const requiredFeatures = ["texture-compression-bc", "float32-filterable"].filter(feature => adapter.features.has(feature));
 		const device = await adapter.requestDevice({ requiredFeatures });
+		global.surrealWebGPUDeviceXRCompatible = xrCompatibleAdapter;
 		device.lost.then(info => log("[runtime] WebGPU device lost: " + info.message));
 		return device;
 	}

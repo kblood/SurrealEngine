@@ -111,6 +111,12 @@ window.browserAppTestPromise = (async () => {
 			assert(acquired === device);
 			assert(requests.length === 2 && requests[0].xrCompatible === true && requests[1] === null);
 			assert(diagnostics.length === 1 && !diagnostics[0].available && diagnostics[0].detail.includes("XR-compatible"));
+			assert(window.surrealWebGPUDeviceXRCompatible === false);
+			Object.defineProperty(navigator, "gpu", { configurable: true, value: {
+				async requestAdapter(options) { requests.push(options || null); return adapter; },
+			} });
+			await api.acquireWebGPUDevice(() => {}, { xrCompatible: true });
+			assert(window.surrealWebGPUDeviceXRCompatible === true);
 		} finally {
 			Object.defineProperty(navigator, "gpu", { configurable: true, value: originalGPU });
 		}
