@@ -1079,6 +1079,26 @@ extern "C"
 		return RunWebXRLocomotionSelfTest() ? 1 : 0;
 	}
 
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRAudioListenerActive()
+	{
+		return engine && engine->WebXRAudioListener.Active ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRAudioListenerUpdateCount()
+	{
+		return engine ? engine->WebXRAudioListener.UpdateCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRAudioListenerVelocityResetCount()
+	{
+		return engine ? engine->WebXRAudioListener.VelocityResetCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRAudioListenerVelocityValue(uint32_t axis)
+	{
+		return engine && axis < 3 ? engine->WebXRAudioListener.LastVelocity[axis] : 0.0f;
+	}
+
 	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRWeaponAimSelfTest()
 	{
 		return RunWebXRWeaponAimSelfTest() ? 1 : 0;
@@ -1127,6 +1147,41 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponOverlayCalls()
 	{
 		return engine ? engine->render->GetWebXRWeaponOverlayDiagnostics().LastFrameWeaponCalls : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRHudSelfTest()
+	{
+		return engine && engine->render->GetWebXRHudDiagnostics().SelfTestPassed ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHudExpectedEyePresentations()
+	{
+		return engine ? engine->render->GetWebXRHudDiagnostics().LastFrameExpectedEyePresentations : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHudStateUpdates()
+	{
+		return engine ? engine->render->GetWebXRHudDiagnostics().LastFrameStateUpdates : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHudEyePresentations()
+	{
+		return engine ? engine->render->GetWebXRHudDiagnostics().LastFrameEyePresentations : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHudCapturedCommands()
+	{
+		return engine ? engine->render->GetWebXRHudDiagnostics().LastFrameCapturedCommands : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHudUnsupportedDraws()
+	{
+		return engine ? engine->render->GetWebXRHudDiagnostics().LastFrameUnsupportedDraws : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHudClampedViewports()
+	{
+		return engine ? engine->render->GetWebXRHudDiagnostics().LastFrameClampedViewports : 0;
 	}
 
 	EMSCRIPTEN_KEEPALIVE int Surreal_SetWebXRHapticsEnabled(int enabled)
@@ -1295,7 +1350,7 @@ float Engine::AdvanceGameFrame()
 		HasCalculatedCameraView = true;
 	}
 
-	UpdateAudio();
+	UpdateAudio(realTimeElapsed);
 	return levelElapsed;
 }
 
@@ -1608,13 +1663,64 @@ UConversationList* Engine::GetDeusExMission()
 	return nullptr;
 }
 
-void Engine::UpdateAudio()
+void Engine::UpdateAudio(float realTimeElapsed)
 {
 	mat4 translate = mat4::translate(vec3(0.0f) - CameraLocation);
 	mat4 listener = Coords::ViewToAudioDev().ToMatrix() * Coords::Rotation(CameraRotation).ToMatrix() * translate;
 
 	audiodev->SetViewport(viewport);
+
+#ifdef __EMSCRIPTEN__
+	AudioListenerPose trackedListener;
+	const AudioListenerPose* explicitListener = nullptr;
+	const WebXRInputSnapshot snapshot = GetLatestWebXRInputSnapshot();
+	if (snapshot.HeadPoseValid && snapshot.FrameGeneration == WebXRInput.Generation)
+	{
+		// Gameplay consumes its composed head pose before Tick. Audio runs after
+		// PlayerCalcView, so recompose the same local center-head pose against the
+		// exact camera anchor and body yaw that this XR frame will render.
+		VRTrackedPoseState headPose;
+		headPose.Tracked = true;
+		const Coords bodyRotation = Coords::Rotation(Rotator(0, CameraRotation.Yaw, 0));
+		ComposeWebXRWorldPose(headPose, snapshot.HeadPose, CameraLocation, bodyRotation);
+
+		trackedListener.Position = headPose.WorldPosition;
+		trackedListener.Forward = headPose.WorldForward;
+		trackedListener.Up = headPose.WorldUp;
+		trackedListener.Velocity = vec3(0.0f);
+
+		const uint32_t recenterCount = Surreal_GetWebXRPoseRecenterCount();
+		const bool continuousSample = HasWebXRAudioListenerSample &&
+			snapshot.FrameGeneration == LastWebXRAudioListenerGeneration + 1 &&
+			recenterCount == LastWebXRAudioRecenterCount &&
+			std::isfinite(realTimeElapsed) && realTimeElapsed > 0.0001f && realTimeElapsed <= 0.25f;
+		const vec3 displacement = trackedListener.Position - LastWebXRAudioListenerPosition;
+		// Avoid a Doppler spike across recenter, tracking loss, a long stall,
+		// teleport, or a new XR session generation.
+		if (continuousSample && length(displacement) <= 157.4804f)
+			trackedListener.Velocity = displacement / realTimeElapsed;
+		else
+			WebXRAudioListener.VelocityResetCount++;
+
+		LastWebXRAudioListenerPosition = trackedListener.Position;
+		LastWebXRAudioListenerGeneration = snapshot.FrameGeneration;
+		LastWebXRAudioRecenterCount = recenterCount;
+		HasWebXRAudioListenerSample = true;
+		WebXRAudioListener.Active = true;
+		WebXRAudioListener.UpdateCount++;
+		WebXRAudioListener.LastVelocity = trackedListener.Velocity;
+		explicitListener = &trackedListener;
+	}
+	else
+	{
+		HasWebXRAudioListenerSample = false;
+		WebXRAudioListener.Active = false;
+		WebXRAudioListener.LastVelocity = vec3(0.0f);
+	}
+	audiodev->Update(listener, explicitListener);
+#else
 	audiodev->Update(listener);
+#endif
 }
 
 void Engine::ClientTravel(const std::string& newURL, ETravelType travelType, bool transferItems)

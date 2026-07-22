@@ -143,6 +143,14 @@ public:
 		uint32_t EffectiveMenuButton = 0;
 	};
 
+	struct WebXRAudioListenerDiagnostics
+	{
+		uint32_t UpdateCount = 0;
+		uint32_t VelocityResetCount = 0;
+		vec3 LastVelocity = vec3(0.0f);
+		bool Active = false;
+	};
+
 	struct WebXRWeaponAimDiagnostics
 	{
 		uint32_t BallisticScopeCount = 0;
@@ -191,7 +199,7 @@ public:
 
 	UConversationList* GetDeusExMission();
 
-	void UpdateAudio();
+	void UpdateAudio(float realTimeElapsed);
 
 	void OpenWindow();
 	void CloseWindow();
@@ -297,6 +305,7 @@ public:
 	uint64_t tickCount = 0;
 	VRInputState WebXRInput;
 	WebXRLocomotionDiagnostics WebXRLocomotion;
+	WebXRAudioListenerDiagnostics WebXRAudioListener;
 	WebXRWeaponAimDiagnostics WebXRWeaponAim;
 
 	WebXRTurnMode GetWebXRTurnMode() const { return WebXRTurnModeSetting; }
@@ -378,6 +387,10 @@ private:
 	float WebXRSnapTurnThreshold = 0.75f;
 	float WebXRSnapTurnRearmThreshold = 0.35f;
 	bool WebXRSnapTurnArmed = true;
+	vec3 LastWebXRAudioListenerPosition = vec3(0.0f);
+	uint64_t LastWebXRAudioListenerGeneration = 0;
+	uint32_t LastWebXRAudioRecenterCount = 0;
+	bool HasWebXRAudioListenerSample = false;
 	bool HasCalculatedCameraView = false;
 };
 
