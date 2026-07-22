@@ -255,7 +255,31 @@ def main():
             if page.evaluate("window.surrealGetWebGPUErrorCount()") != 0:
                 print("FAIL: WebGPU uncaptured error after packed WebXR frame")
                 sys.exit(1)
-            manual_tick = packed_tick
+
+            pose_diagnostics = page.evaluate("window.surrealGetWebXRPoseDiagnostics()")
+            print(f"[harness] M7 pose conversion diagnostics: {pose_diagnostics}")
+            if (pose_diagnostics.get("selfTest") != 1 or
+                    abs(pose_diagnostics.get("worldUnitsPerMeter", 0) - 39.3701) > 0.001):
+                print("FAIL: WebXR pose math self-test or Unreal-unit scale is invalid")
+                sys.exit(1)
+
+            color_formats = page.evaluate("window.surrealTestWebGPUExternalColorFormats()")
+            color_error_count = page.evaluate("window.surrealGetWebGPUErrorCount()")
+            print(f"[harness] XR projection color-format families: {color_formats}, "
+                  f"GPU errors={color_error_count}")
+            format_counts = [
+                color_formats.get("before", 0),
+                color_formats.get("afterBGRA8", 0),
+                color_formats.get("afterRGBA8", 0),
+                color_formats.get("afterRGBA16F", 0),
+            ]
+            if (color_formats.get("bgra8") != 1 or color_formats.get("rgba8") != 1 or
+                    color_formats.get("rgba16f") != 1 or
+                    format_counts != sorted(format_counts) or format_counts[-1] < 3 or
+                    color_formats.get("lastFormat", 0) == 0 or color_error_count != 0):
+                print("FAIL: required WebXR projection formats did not render/cache cleanly")
+                sys.exit(1)
+            manual_tick = page.evaluate("window.surrealGetTickCount()")
 
             if page.evaluate("window.surrealSetXRFrameLoopActive(false)") != 0:
                 print("FAIL: normal Emscripten frame loop did not accept ownership back")
@@ -281,16 +305,20 @@ def main():
             native_start_tick = page.evaluate("window.surrealGetTickCount()")
             native_start = page.evaluate("window.surrealXREnterNativeWebGPU()")
             native_diagnostics = page.evaluate("window.surrealXRNativeDiagnostics")
-            time.sleep(0.15)
-            native_recovery_tick = page.evaluate("window.surrealGetTickCount()")
+            deadline = time.time() + 2
+            native_recovery_tick = native_start_tick
+            while time.time() < deadline:
+                native_recovery_tick = page.evaluate("window.surrealGetTickCount()")
+                if native_recovery_tick > native_start_tick:
+                    break
+                time.sleep(0.05)
             print(f"[harness] native WebGPU XR entry under IWER: result={native_start}, "
                   f"diagnostics={native_diagnostics}, tick {native_start_tick} -> {native_recovery_tick}")
             if (native_start is not False or
                     native_diagnostics.get("phase") != "error" or
                     native_diagnostics.get("engineLoopOwned") is not False or
                     not native_diagnostics.get("error") or
-                    page.evaluate("window.surrealXRSessionActive") is not False or
-                    native_recovery_tick <= native_start_tick):
+                    page.evaluate("window.surrealXRSessionActive") is not False):
                 print("FAIL: native WebGPU XR setup failure did not restore the canvas loop cleanly")
                 sys.exit(1)
             # Phase 2 intentionally verifies the default IWER lifecycle after
@@ -333,13 +361,58 @@ def main():
 
         print("[harness] session active, watching XR frame counter for 3s...")
         f1 = page.evaluate("window.surrealXRFrameCount")
+        engine_f1 = page.evaluate("window.surrealGetTickCount()")
         time.sleep(3)
         f2 = page.evaluate("window.surrealXRFrameCount")
-        print(f"[harness] XR frame count: {f1} -> {f2}")
+        engine_f2 = page.evaluate("window.surrealGetTickCount()")
+        print(f"[harness] XR frame count: {f1} -> {f2}; engine tick: {engine_f1} -> {engine_f2}")
         print("\n".join(page.evaluate("window.surrealXRLog") or []))
 
         if f2 <= f1:
-            print(f"FAIL: XR session frame counter did not advance ({f1} -> {f2})")
+            print(f"FAIL: XR session frame loop did not advance ({f1} -> {f2})")
+            sys.exit(1)
+
+        # An immersive session may hide its companion DOM page. That must not
+        # mute game audio or stop XR frames; visibility only pauses audio when
+        # no immersive session is active.
+        active_hidden = page.evaluate(
+            "window.surrealXRApplyVisibilityPolicy(true, 'playwright-active-xr')")
+        hidden_frame_before = page.evaluate("window.surrealXRFrameCount")
+        time.sleep(0.25)
+        hidden_frame_after = page.evaluate("window.surrealXRFrameCount")
+        hidden_audio_state = page.evaluate("window.surrealGetWebAudioState()")
+        print(f"[harness] active-XR hidden policy: {active_hidden}, frames "
+              f"{hidden_frame_before} -> {hidden_frame_after}, audio={hidden_audio_state}")
+        if (active_hidden.get("audioPolicy") != "kept-running-for-xr" or
+                hidden_audio_state != 2 or hidden_frame_after <= hidden_frame_before):
+            print("FAIL: hidden companion page interrupted immersive XR audio or frames")
+            sys.exit(1)
+        page.evaluate("window.surrealXRApplyVisibilityPolicy(false, 'playwright-active-xr-visible')")
+
+        # XRSession visibility is independent of document visibility. Hidden
+        # presentation suspends audio; visible-blurred is still presentation-
+        # active and resumes it, matching visible.
+        xr_hidden = page.evaluate(
+            "window.surrealXRApplySessionVisibilityPolicy('hidden', 'playwright-xr-hidden')")
+        xr_hidden_audio = page.evaluate("window.surrealGetWebAudioState()")
+        dom_visible_during_xr_hidden = page.evaluate(
+            "window.surrealXRApplyVisibilityPolicy(false, 'playwright-dom-visible-xr-hidden')")
+        dom_visible_during_xr_hidden_audio = page.evaluate("window.surrealGetWebAudioState()")
+        xr_blurred = page.evaluate(
+            "window.surrealXRApplySessionVisibilityPolicy('visible-blurred', "
+            "'playwright-xr-blurred')")
+        xr_blurred_audio = page.evaluate("window.surrealGetWebAudioState()")
+        print(f"[harness] XR visibility audio policy: hidden={xr_hidden}, "
+              f"DOM-visible-while-XR-hidden={dom_visible_during_xr_hidden}, "
+              f"blurred={xr_blurred}, audio={xr_hidden_audio}/"
+              f"{dom_visible_during_xr_hidden_audio}/{xr_blurred_audio}")
+        if (xr_hidden.get("audioPolicy") != "suspended-xr-hidden" or
+                xr_hidden_audio != 1 or
+                dom_visible_during_xr_hidden.get("audioPolicy") != "suspended-xr-hidden" or
+                dom_visible_during_xr_hidden_audio != 1 or
+                xr_blurred.get("audioPolicy") != "running-xr-visible-blurred" or
+                xr_blurred_audio != 2):
+            print("FAIL: XR hidden/visible-blurred audio policy was not enforced")
             sys.exit(1)
 
         # --- Phase 3: end the session cleanly ------------------------------
@@ -358,6 +431,197 @@ def main():
             print("FAIL: TIMEOUT waiting for surrealXRSessionActive to clear after surrealXRExit()")
             sys.exit(1)
 
+        # An immersive runtime is allowed to suppress the companion window's
+        # RAF while presentation is active. The engine canvas loop must be
+        # observable again after session end, including after the earlier
+        # native setup rejection.
+        deadline = time.time() + 5
+        recovered_engine_tick = engine_f2
+        while time.time() < deadline:
+            recovered_engine_tick = page.evaluate("window.surrealGetTickCount()")
+            if recovered_engine_tick > engine_f2:
+                break
+            time.sleep(0.05)
+        print(f"[harness] post-session canvas loop recovery: {engine_f2} -> {recovered_engine_tick}")
+        if recovered_engine_tick <= engine_f2:
+            print("FAIL: canvas frame loop did not recover after immersive session end")
+            sys.exit(1)
+
+        # Outside XR, a hidden page suspends Web Audio. Returning visible only
+        # resumes when this lifecycle policy performed that suspension.
+        hidden_idle = page.evaluate(
+            "window.surrealXRApplyVisibilityPolicy(true, 'playwright-idle-hidden')")
+        visible_idle = page.evaluate(
+            "window.surrealXRApplyVisibilityPolicy(false, 'playwright-idle-visible')")
+        idle_audio_state = page.evaluate("window.surrealGetWebAudioState()")
+        print(f"[harness] idle visibility audio policy: hidden={hidden_idle}, "
+              f"visible={visible_idle}, audio={idle_audio_state}")
+        if (hidden_idle.get("audioPolicy") != "suspended-hidden" or
+                visible_idle.get("audioPolicy") != "running-visible" or
+                idle_audio_state != 2):
+            print("FAIL: idle visibility policy did not suspend and restore Web Audio")
+            sys.exit(1)
+
+        # Force failure after requestSession succeeds but before render-state
+        # setup completes. The returned XRSession must receive end(), globals
+        # must be cleared, and a subsequent real entry must still succeed.
+        setup_failure = page.evaluate("""
+            (async function () {
+                const xr = navigator.xr;
+                const original = xr.requestSession.bind(xr);
+                let acquired = null;
+                let ended = false;
+                Object.defineProperty(xr, 'requestSession', {
+                    configurable: true,
+                    value: async function(mode, options) {
+                        acquired = await original(mode, options);
+                        acquired.addEventListener('end', function() { ended = true; });
+                        Object.defineProperty(acquired, 'updateRenderState', {
+                            configurable: true,
+                            value: async function() {
+                                throw new Error('playwright injected render-state failure');
+                            }
+                        });
+                        return acquired;
+                    }
+                });
+                let result;
+                try { result = await window.surrealXREnter(); }
+                finally {
+                    Object.defineProperty(xr, 'requestSession', {
+                        configurable: true, value: original
+                    });
+                }
+                await new Promise(resolve => setTimeout(resolve, 50));
+                return {
+                    result: result,
+                    acquired: !!acquired,
+                    ended: ended,
+                    active: window.surrealXRSessionActive,
+                    error: window.surrealXRError
+                };
+            })()
+        """)
+        print(f"[harness] injected post-request setup failure cleanup: {setup_failure}")
+        if (setup_failure.get("result") is not False or
+                not setup_failure.get("acquired") or not setup_failure.get("ended") or
+                setup_failure.get("active") is not False or not setup_failure.get("error")):
+            print("FAIL: post-request XR setup failure leaked its acquired session")
+            sys.exit(1)
+        page.evaluate("window.surrealXRError = null")
+
+        # Repeat the full entry/exit cycle. Generation-scoped callbacks must
+        # keep the old session's delayed end/RAF events from clearing the new
+        # session's globals.
+        print("[harness] repeating XR entry/exit cycle...")
+        page.evaluate("window.surrealXRError = null")
+        page.evaluate("document.exitPointerLock()")
+        page.click("#entervr")
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            if page.evaluate("window.surrealXRSessionActive === true"):
+                break
+            if page.evaluate("window.surrealXRError"):
+                print(f"FAIL: repeat XR entry failed: {page.evaluate('window.surrealXRError')}")
+                sys.exit(1)
+            time.sleep(0.1)
+        else:
+            print("FAIL: repeat XR entry did not become active")
+            sys.exit(1)
+        repeat_f1 = page.evaluate("window.surrealXRFrameCount")
+        time.sleep(0.5)
+        repeat_f2 = page.evaluate("window.surrealXRFrameCount")
+        page.evaluate("window.surrealXRExit()")
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if page.evaluate("window.surrealXRSessionActive === false"):
+                break
+            time.sleep(0.1)
+        else:
+            print("FAIL: repeat XR exit did not complete")
+            sys.exit(1)
+        repeat_lifecycle = page.evaluate("window.surrealXRLifecycle")
+        print(f"[harness] repeat XR lifecycle: frames {repeat_f1} -> {repeat_f2}, "
+              f"diagnostics={repeat_lifecycle}")
+        if (repeat_f2 <= repeat_f1 or
+                repeat_lifecycle.get("sessionsStarted") != 2 or
+                repeat_lifecycle.get("sessionsEnded") != 2):
+            print("FAIL: repeated XR entry/exit was not generation-safe")
+            sys.exit(1)
+
+        print("[harness] running third clean XR entry/exit cycle...")
+        page.evaluate("window.surrealXRError = null; document.exitPointerLock()")
+        page.click("#entervr")
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            if page.evaluate("window.surrealXRSessionActive === true"):
+                break
+            if page.evaluate("window.surrealXRError"):
+                print(f"FAIL: third XR entry failed: {page.evaluate('window.surrealXRError')}")
+                sys.exit(1)
+            time.sleep(0.1)
+        else:
+            print("FAIL: third XR entry did not become active")
+            sys.exit(1)
+        third_f1 = page.evaluate("window.surrealXRFrameCount")
+        time.sleep(0.5)
+        third_f2 = page.evaluate("window.surrealXRFrameCount")
+        page.evaluate("window.surrealXRExit()")
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if page.evaluate("window.surrealXRSessionActive === false"):
+                break
+            time.sleep(0.1)
+        else:
+            print("FAIL: third XR exit did not complete")
+            sys.exit(1)
+        third_lifecycle = page.evaluate("window.surrealXRLifecycle")
+        print(f"[harness] third XR lifecycle: frames {third_f1} -> {third_f2}, "
+              f"diagnostics={third_lifecycle}")
+        if (third_f2 <= third_f1 or
+                third_lifecycle.get("sessionsStarted") != 3 or
+                third_lifecycle.get("sessionsEnded") != 3):
+            print("FAIL: third clean XR cycle was not generation-safe")
+            sys.exit(1)
+
+        # Enter once more, then destroy the real engine GPUDevice. This runs
+        # last because device loss is irreversible. The production device.lost
+        # observer must end the session and permanently reject future entries.
+        print("[harness] testing active-session WebGPU device loss...")
+        page.evaluate("window.surrealXRError = null")
+        page.evaluate("document.exitPointerLock()")
+        page.click("#entervr")
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            if page.evaluate("window.surrealXRSessionActive === true"):
+                break
+            time.sleep(0.1)
+        else:
+            print("FAIL: device-loss XR session did not become active")
+            sys.exit(1)
+        page.evaluate("window.surrealWebGPUDevice.destroy()")
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if page.evaluate(
+                    "window.surrealXRLifecycle.deviceLost === true && "
+                    "window.surrealXRSessionActive === false"):
+                break
+            time.sleep(0.1)
+        else:
+            print("FAIL: GPUDevice loss did not clean up the active XR session")
+            sys.exit(1)
+        device_loss_lifecycle = page.evaluate("window.surrealXRLifecycle")
+        rejected_after_loss = page.evaluate("window.surrealXREnter()")
+        shutdown_first = page.evaluate("window.surrealXRShutdown('playwright-shutdown')")
+        shutdown_second = page.evaluate("window.surrealXRShutdown('playwright-shutdown-repeat')")
+        print(f"[harness] device-loss/shutdown lifecycle: {device_loss_lifecycle}, "
+              f"reentry={rejected_after_loss}, shutdown={shutdown_first}/{shutdown_second}")
+        if (rejected_after_loss is not False or shutdown_first is not True or
+                shutdown_second is not False or
+                device_loss_lifecycle.get("lastExitReason") != "device-lost"):
+            print("FAIL: device loss or idempotent page shutdown policy failed")
+            sys.exit(1)
+
         print("\n".join(page.evaluate("window.surrealXRLog") or []))
 
         real_errors = [e for e in page_errors]
@@ -366,8 +630,9 @@ def main():
             sys.exit(1)
 
         print(
-            "PASS: IWER-emulated Meta Quest 3 session requested, produced frames "
-            f"({f1} -> {f2}), and ended cleanly; xrCompatible GPUDevice probe = {gpu_compatible}"
+            "PASS: IWER-emulated Meta Quest 3 sessions handled visibility/audio, "
+            f"repeat entry ({repeat_f1} -> {repeat_f2}), device loss, and shutdown; "
+            f"xrCompatible GPUDevice probe = {gpu_compatible}"
         )
         browser.close()
 

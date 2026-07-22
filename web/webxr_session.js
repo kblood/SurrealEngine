@@ -271,7 +271,22 @@
 		referenceSpaceType: null,
 		projectionFormat: null,
 		engineLoopOwned: false,
+		poseReset: null,
 		error: null,
+	};
+	window.surrealXRLifecycle = {
+		visibilityHidden: document.hidden,
+		visibilitySource: "initial",
+		xrVisibilityState: null,
+		audioPolicy: "unchanged",
+		audioState: null,
+		shutdown: false,
+		deviceLost: false,
+		deviceLostReason: null,
+		lastExitReason: null,
+		entryAttempts: 0,
+		sessionsStarted: 0,
+		sessionsEnded: 0,
 	};
 
 	let xrSession = null;
@@ -284,11 +299,119 @@
 	let nativeProjectionLayer = null;
 	let nativeResetGeneration = 0;
 	let nativeOwnsEngineLoop = false;
+	let activeSessionKind = null;
+	let audioSuspendedByLifecycle = false;
+	let pageShuttingDown = false;
+	let xrDeviceLost = false;
+	let watchedGPUDevice = null;
 
 	function xrLog(line) {
 		window.surrealXRLog.push(line);
 		console.log("[webxr] " + line);
 	}
+
+	function getWebAudioContext() {
+		if (typeof AL === "undefined" || !AL.currentCtx) return null;
+		return AL.currentCtx.audioCtx || null;
+	}
+
+	// Immersive presentation can cause the companion DOM page to become
+	// hidden. Keep audio alive while XR is active; outside XR, suspend it to
+	// avoid a background tab continuing to play. Resume only when this policy
+	// performed the suspension, preserving intentional user/browser suspension.
+	async function applyVisibilityPolicy(hidden, source) {
+		window.surrealXRLifecycle.visibilityHidden = !!hidden;
+		window.surrealXRLifecycle.visibilitySource = source || "unknown";
+		const context = getWebAudioContext();
+		window.surrealXRLifecycle.audioState = context ? context.state : "unavailable";
+		// XRSession visibility is authoritative during immersive presentation.
+		// A companion DOM visibility event must not resume a hidden XR session
+		// or relabel its deliberately suspended audio state.
+		if (window.surrealXRSessionActive &&
+			window.surrealXRLifecycle.xrVisibilityState === "hidden") {
+			window.surrealXRLifecycle.audioPolicy = audioSuspendedByLifecycle ?
+				"suspended-xr-hidden" : "unchanged-xr-hidden";
+			return window.surrealXRLifecycle;
+		}
+
+		if (hidden) {
+			if (window.surrealXRSessionActive) {
+				window.surrealXRLifecycle.audioPolicy = "kept-running-for-xr";
+				return window.surrealXRLifecycle;
+			}
+			if (context && context.state === "running") {
+				audioSuspendedByLifecycle = true;
+				window.surrealXRLifecycle.audioPolicy = "suspending-hidden";
+				try { await context.suspend(); }
+				catch (e) { xrLog("Web Audio suspend failed: " + e); }
+			}
+			window.surrealXRLifecycle.audioState = context ? context.state : "unavailable";
+			window.surrealXRLifecycle.audioPolicy = audioSuspendedByLifecycle ?
+				"suspended-hidden" : "unchanged-hidden";
+			return window.surrealXRLifecycle;
+		}
+
+		if (audioSuspendedByLifecycle && context && context.state !== "closed") {
+			window.surrealXRLifecycle.audioPolicy = "resuming-visible";
+			try {
+				await context.resume();
+				audioSuspendedByLifecycle = false;
+			} catch (e) {
+				xrLog("Web Audio visibility resume failed: " + e);
+			}
+		}
+		window.surrealXRLifecycle.audioState = context ? context.state : "unavailable";
+		window.surrealXRLifecycle.audioPolicy = audioSuspendedByLifecycle ?
+			"resume-blocked" : "running-visible";
+		return window.surrealXRLifecycle;
+	}
+
+	async function applySessionVisibilityPolicy(generation, state, source) {
+		if (generation !== activeSessionGeneration || !xrSession) {
+			return window.surrealXRLifecycle;
+		}
+		state = state || "visible";
+		window.surrealXRLifecycle.xrVisibilityState = state;
+		window.surrealXRLifecycle.visibilitySource = source || "xr-visibilitychange";
+		const context = getWebAudioContext();
+
+		if (state === "hidden") {
+			if (context && context.state === "running") {
+				audioSuspendedByLifecycle = true;
+				window.surrealXRLifecycle.audioPolicy = "suspending-xr-hidden";
+				try { await context.suspend(); }
+				catch (e) { xrLog("Web Audio XR-hidden suspend failed: " + e); }
+			}
+			window.surrealXRLifecycle.audioState = context ? context.state : "unavailable";
+			window.surrealXRLifecycle.audioPolicy = audioSuspendedByLifecycle ?
+				"suspended-xr-hidden" : "unchanged-xr-hidden";
+			return window.surrealXRLifecycle;
+		}
+
+		// visible-blurred still represents active immersive presentation. Keep
+		// audio continuous just as for visible, while input handling can remain
+		// independently constrained by the browser/runtime.
+		if (audioSuspendedByLifecycle && context && context.state !== "closed") {
+			window.surrealXRLifecycle.audioPolicy = "resuming-xr-" + state;
+			try {
+				await context.resume();
+				audioSuspendedByLifecycle = false;
+			} catch (e) {
+				xrLog("Web Audio XR visibility resume failed: " + e);
+			}
+		}
+		window.surrealXRLifecycle.audioState = context ? context.state : "unavailable";
+		window.surrealXRLifecycle.audioPolicy = audioSuspendedByLifecycle ?
+			"resume-blocked-xr-" + state : "running-xr-" + state;
+		return window.surrealXRLifecycle;
+	}
+
+	window.surrealXRApplyVisibilityPolicy = function (hidden, source) {
+		return applyVisibilityPolicy(!!hidden, source || "explicit");
+	};
+	window.surrealXRApplySessionVisibilityPolicy = function (state, source) {
+		return applySessionVisibilityPolicy(activeSessionGeneration, state, source || "explicit-xr");
+	};
 
 	xrLog("XRGPUBinding available = " + window.surrealXRGPUBindingAvailable);
 
@@ -411,8 +534,24 @@
 		window.surrealXRNativeDiagnostics.phase = phase;
 	}
 
+	function resetNativePoseState() {
+		try {
+			if (typeof window.surrealResetWebXRPose === "function") {
+				window.surrealResetWebXRPose();
+				return true;
+			}
+			if (typeof Module !== "undefined" && typeof Module.ccall === "function") {
+				Module.ccall("Surreal_ResetWebXRPose", null, [], []);
+				return true;
+			}
+		} catch (e) {
+			xrLog("native WebXR pose reset unavailable: " + e);
+		}
+		return false;
+	}
+
 	function restoreCanvasFrameLoop(generation) {
-		if (!nativeOwnsEngineLoop || generation !== activeSessionGeneration) return;
+		if (generation !== activeSessionGeneration) return;
 		nativeOwnsEngineLoop = false;
 		window.surrealXRNativeDiagnostics.engineLoopOwned = false;
 		try {
@@ -424,17 +563,40 @@
 		}
 	}
 
+	function removeXRCanvas() {
+		if (xrCanvas) {
+			xrCanvas.remove();
+			xrCanvas = null;
+		}
+	}
+
+	function noteSessionEnded(reason) {
+		window.surrealXRLifecycle.lastExitReason = reason || "ended";
+		window.surrealXRLifecycle.xrVisibilityState = null;
+		window.surrealXRLifecycle.sessionsEnded++;
+		if (pageShuttingDown) return;
+		if (window.surrealXRLifecycle.visibilityHidden) {
+			applyVisibilityPolicy(true, "session-ended");
+		} else {
+			applyVisibilityPolicy(false, "session-ended");
+		}
+	}
+
 	function finishNativeSession(generation, phase, error) {
 		if (generation !== activeSessionGeneration) return;
+		const wasActive = window.surrealXRSessionActive;
 		restoreCanvasFrameLoop(generation);
 		activeSessionGeneration = 0; // invalidates every queued callback
+		activeSessionKind = null;
 		xrSession = null;
 		xrRefSpace = null;
 		nativeBinding = null;
 		nativeProjectionLayer = null;
 		nativeResetGeneration = 0;
+		resetNativePoseState();
 		xrEnterPending = false;
 		window.surrealXRSessionActive = false;
+		if (wasActive) noteSessionEnded(error ? "native-error" : (phase || "ended"));
 		if (error) {
 			const message = error instanceof Error ? error.name + ": " + error.message : String(error);
 			window.surrealXRNativeError = message;
@@ -446,6 +608,75 @@
 			xrLog("native WebGPU session ended");
 		}
 	}
+
+	function finishDefaultSession(generation, reason, error) {
+		if (generation !== activeSessionGeneration || activeSessionKind !== "default") return;
+		const wasActive = window.surrealXRSessionActive;
+		activeSessionGeneration = 0;
+		activeSessionKind = null;
+		xrSession = null;
+		xrRefSpace = null;
+		xrEnterPending = false;
+		window.surrealXRSessionActive = false;
+		removeXRCanvas();
+		if (error) {
+			window.surrealXRError = String(error);
+			xrLog("XR session failed: " + error);
+		}
+		if (wasActive) noteSessionEnded(reason || "ended");
+		xrLog("session ended (reason=" + (reason || "ended") + ")");
+	}
+
+	function abortActiveSession(reason, error) {
+		const generation = activeSessionGeneration;
+		const session = xrSession;
+		if (!generation) return false;
+		if (activeSessionKind === "native") {
+			finishNativeSession(generation, reason || "ended", error || null);
+		} else {
+			finishDefaultSession(generation, reason || "ended", error || null);
+		}
+		if (session) {
+			try {
+				const ending = session.end();
+				if (ending && typeof ending.catch === "function") ending.catch(function () {});
+			} catch (_) {}
+		}
+		return true;
+	}
+
+	function watchGPUDeviceLoss() {
+		const device = window.surrealWebGPUDevice;
+		if (!device || device === watchedGPUDevice || !device.lost) return;
+		watchedGPUDevice = device;
+		device.lost.then(function (info) {
+			window.surrealXRHandleDeviceLoss(info || {});
+		}).catch(function (error) {
+			window.surrealXRHandleDeviceLoss({ reason: "unknown", message: String(error) });
+		});
+	}
+
+	window.surrealXRHandleDeviceLoss = function (info) {
+		if (xrDeviceLost) return false;
+		xrDeviceLost = true;
+		const reason = info && info.reason ? String(info.reason) : "unknown";
+		const message = info && info.message ? String(info.message) : "WebGPU device lost";
+		window.surrealXRLifecycle.deviceLost = true;
+		window.surrealXRLifecycle.deviceLostReason = reason + ": " + message;
+		xrLog("WebGPU device lost (" + reason + "): " + message);
+		abortActiveSession("device-lost", new Error("WebGPU device lost: " + message));
+		return true;
+	};
+
+	window.surrealXRShutdown = function (reason) {
+		if (pageShuttingDown) return false;
+		pageShuttingDown = true;
+		window.surrealXRLifecycle.shutdown = true;
+		window.surrealXRLifecycle.lastExitReason = reason || "page-shutdown";
+		abortActiveSession(reason || "page-shutdown", null);
+		applyVisibilityPolicy(true, reason || "page-shutdown");
+		return true;
+	};
 
 	function failNativeSession(generation, error) {
 		const session = generation === activeSessionGeneration ? xrSession : null;
@@ -505,6 +736,15 @@
 			xrLog("XR session entry already active/pending; ignoring duplicate request");
 			return false;
 		}
+		if (pageShuttingDown || xrDeviceLost) {
+			window.surrealXRNativeError = pageShuttingDown ?
+				"page shutdown has begun" : "WebGPU device has been lost";
+			nativeDiagnostic("error", { error: window.surrealXRNativeError });
+			xrLog("native WebGPU XR entry rejected: " + window.surrealXRNativeError);
+			return false;
+		}
+		window.surrealXRLifecycle.entryAttempts++;
+		watchGPUDeviceLoss();
 		window.surrealXRNativeError = null;
 		window.surrealXRError = null;
 		if (!navigator.xr) {
@@ -529,10 +769,12 @@
 		xrEnterPending = true;
 		const generation = ++sessionGeneration;
 		activeSessionGeneration = generation;
+		activeSessionKind = "native";
 		nativeDiagnostic("requesting-session", {
 			generation: generation, frameCount: 0, skippedFrames: 0,
 			lastRenderSucceeded: null, referenceSpaceType: null,
 			projectionFormat: null, engineLoopOwned: false, error: null,
+			poseReset: null,
 		});
 		try {
 			const session = await navigator.xr.requestSession("immersive-vr", {
@@ -547,11 +789,20 @@
 			session.addEventListener("end", function () {
 				finishNativeSession(generation, "ended", null);
 			});
+			session.addEventListener("visibilitychange", function () {
+				applySessionVisibilityPolicy(generation, session.visibilityState,
+					"xr-visibilitychange");
+			});
 
 			nativeDiagnostic("creating-binding");
 			nativeBinding = new XRGPUBinding(session, window.surrealWebGPUDevice);
+			const projectionFormat = nativeBinding.getPreferredColorFormat();
+			if (projectionFormat !== "rgba8unorm" && projectionFormat !== "bgra8unorm" &&
+				projectionFormat !== "rgba16float") {
+				throw new Error("unsupported XR projection color format: " + projectionFormat);
+			}
 			nativeProjectionLayer = nativeBinding.createProjectionLayer({
-				colorFormat: "bgra8unorm",
+				colorFormat: projectionFormat,
 				scaleFactor: 1,
 			});
 			await session.updateRenderState({ layers: [nativeProjectionLayer] });
@@ -568,20 +819,25 @@
 
 			// Ownership transfers only after the session, layer and reference space
 			// are all ready. A rejection before here leaves the canvas RAF untouched.
+			const poseReset = resetNativePoseState();
+			nativeDiagnostic("transferring-frame-loop", { poseReset: poseReset });
 			if (window.surrealSetXRFrameLoopActive(true) !== 1) {
 				throw new Error("engine rejected XR frame-loop ownership");
 			}
 			nativeOwnsEngineLoop = true;
 			window.surrealXRSessionActive = true;
+			window.surrealXRLifecycle.sessionsStarted++;
 			window.surrealXRFrameCount = 0;
 			xrEnterPending = false;
 			nativeDiagnostic("running", {
 				referenceSpaceType: reference.type,
-				projectionFormat: "bgra8unorm",
+				projectionFormat: projectionFormat,
 				engineLoopOwned: true,
 			});
 			xrLog("native WebGPU XR session running (generation=" + generation +
 				", referenceSpace=" + reference.type + ")");
+			applySessionVisibilityPolicy(generation, session.visibilityState || "visible",
+				"xr-session-start");
 			session.requestAnimationFrame(function (time, frame) {
 				onNativeWebGPUFrame(generation, time, frame);
 			});
@@ -592,14 +848,16 @@
 		}
 	};
 
-	function onXRFrame(time, frame) {
-		if (!xrSession) return;
+	function onXRFrame(generation, time, frame) {
+		if (generation !== activeSessionGeneration || activeSessionKind !== "default" || !xrSession) return;
 		window.surrealXRFrameCount++;
 		const pose = frame.getViewerPose(xrRefSpace);
 		if (pose && window.surrealXRFrameCount % 30 === 1) {
 			xrLog("frame " + window.surrealXRFrameCount + ": " + pose.views.length + " view(s)");
 		}
-		xrSession.requestAnimationFrame(onXRFrame);
+		xrSession.requestAnimationFrame(function (nextTime, nextFrame) {
+			onXRFrame(generation, nextTime, nextFrame);
+		});
 	}
 
 	window.surrealXREnter = async function (mode) {
@@ -608,35 +866,48 @@
 			xrLog("already in a session, ignoring surrealXREnter()");
 			return;
 		}
+		if (pageShuttingDown || xrDeviceLost) {
+			window.surrealXRError = pageShuttingDown ?
+				"page shutdown has begun" : "WebGPU device has been lost";
+			xrLog("XR entry rejected: " + window.surrealXRError);
+			return false;
+		}
 		if (!navigator.xr) {
 			window.surrealXRError = "no navigator.xr";
 			xrLog(window.surrealXRError);
 			return;
 		}
+		window.surrealXRLifecycle.entryAttempts++;
+		watchGPUDeviceLoss();
 		xrEnterPending = true;
+		const generation = ++sessionGeneration;
+		activeSessionGeneration = generation;
+		activeSessionKind = "default";
 		try {
 			const session = await navigator.xr.requestSession(mode, {
 				optionalFeatures: ["local-floor", "bounded-floor"],
 			});
+			if (generation !== activeSessionGeneration || pageShuttingDown || xrDeviceLost) {
+				try { await session.end(); } catch (_) {}
+				return false;
+			}
 			xrSession = session;
-			window.surrealXRSessionActive = true;
-			window.surrealXRFrameCount = 0;
-			xrLog("session started (mode=" + mode + ")");
 
 			session.addEventListener("end", function () {
-				xrLog("session ended");
-				xrSession = null;
-				xrRefSpace = null;
-				window.surrealXRSessionActive = false;
-				if (xrCanvas) { xrCanvas.remove(); xrCanvas = null; }
+				finishDefaultSession(generation, "session-end", null);
+			});
+			session.addEventListener("visibilitychange", function () {
+				applySessionVisibilityPolicy(generation, session.visibilityState,
+					"xr-visibilitychange");
 			});
 
 			// Throwaway offscreen WebGL2 layer purely to satisfy
 			// updateRenderState()/frame production — see file header. Not the
 			// engine's WebGPU canvas; never rendered into beyond the GL clear
 			// implied by context creation.
-			xrCanvas = document.createElement("canvas");
-			const gl = xrCanvas.getContext("webgl2", { xrCompatible: true });
+			const sessionCanvas = document.createElement("canvas");
+			xrCanvas = sessionCanvas;
+			const gl = sessionCanvas.getContext("webgl2", { xrCompatible: true });
 			if (gl.makeXRCompatible) {
 				await gl.makeXRCompatible();
 			}
@@ -645,16 +916,56 @@
 			xrLog("baseLayer attached (" + baseLayer.framebufferWidth + "x" + baseLayer.framebufferHeight + ")");
 
 			xrRefSpace = await session.requestReferenceSpace("local");
-			session.requestAnimationFrame(onXRFrame);
+			if (generation !== activeSessionGeneration) return false;
+			window.surrealXRSessionActive = true;
+			window.surrealXRLifecycle.sessionsStarted++;
+			window.surrealXRFrameCount = 0;
+			xrLog("session started (mode=" + mode + ")");
+			applySessionVisibilityPolicy(generation, session.visibilityState || "visible",
+				"xr-session-start");
+			session.requestAnimationFrame(function (time, frame) {
+				onXRFrame(generation, time, frame);
+			});
+			return true;
 		} catch (e) {
-			window.surrealXRError = String(e);
-			xrLog("requestSession failed: " + e);
+			if (generation === activeSessionGeneration) {
+				abortActiveSession("entry-error", e);
+			}
+			return false;
 		} finally {
-			xrEnterPending = false;
+			if (generation === activeSessionGeneration || !activeSessionGeneration) {
+				xrEnterPending = false;
+			}
 		}
 	};
 
 	window.surrealXRExit = function () {
-		if (xrSession) xrSession.end();
+		if (!xrSession) return false;
+		const generation = activeSessionGeneration;
+		window.surrealXRLifecycle.lastExitReason = "explicit-exit";
+		try {
+			const ending = xrSession.end();
+			if (ending && typeof ending.catch === "function") {
+				ending.catch(function (error) {
+					if (generation === activeSessionGeneration) {
+						abortActiveSession("exit-error", error);
+					}
+				});
+			}
+			return true;
+		} catch (e) {
+			abortActiveSession("exit-error", e);
+			return false;
+		}
 	};
+
+	document.addEventListener("visibilitychange", function () {
+		applyVisibilityPolicy(document.hidden, "visibilitychange");
+	});
+	window.addEventListener("pagehide", function () {
+		window.surrealXRShutdown("pagehide");
+	});
+	window.addEventListener("beforeunload", function () {
+		window.surrealXRShutdown("beforeunload");
+	});
 })();

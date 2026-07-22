@@ -128,7 +128,15 @@ extern "C"
 	{
 		const bool requested = active != 0;
 		if (requested == EngineUsesXRFrameLoop)
+		{
+			// `false` is also an ensure-running operation. Immersive session
+			// teardown can suppress the browser RAF independently of our logical
+			// ownership flag, and Emscripten's resume() safely invalidates the old
+			// scheduler generation before installing a new one.
+			if (!requested)
+				emscripten_resume_main_loop();
 			return EngineUsesXRFrameLoop ? 1 : 0;
+		}
 
 		EngineUsesXRFrameLoop = requested;
 		if (EngineUsesXRFrameLoop)
