@@ -354,6 +354,103 @@
 		inputSourceCount: 0,
 		error: null,
 	};
+	const XR_LAUNCH_READINESS_SCHEMA = "surrealengine-webxr-launch-readiness";
+
+	function launchBlocker(code, message, action) {
+		return { code: code, message: message, action: action };
+	}
+
+	// Pure evaluator kept separate from the live browser snapshot so automation
+	// can cover both launch modes without pretending that IWER is a native
+	// WebGPU compositor. `canAttempt` means a trusted click may request the
+	// session; only `productionSessionReady` proves that native presentation is
+	// actually running.
+	window.surrealXREvaluateLaunchReadiness = function (capabilities) {
+		capabilities = capabilities || {};
+		const nativeRequested = capabilities.nativeRequested === true;
+		const blockers = [];
+		if (capabilities.secureContext !== true) {
+			blockers.push(launchBlocker("insecure-context",
+				"WebXR requires a secure context; a Quest cannot use the PC's plain HTTP LAN address.",
+				"Serve this page over trusted HTTPS, or use an explicitly trusted localhost development route."));
+		}
+		if (capabilities.xrSystemAvailable !== true) {
+			blockers.push(launchBlocker("webxr-unavailable",
+				"navigator.xr is unavailable in this browser context.",
+				"Open the page in a WebXR-capable headset browser after fixing secure delivery."));
+		} else if (capabilities.immersiveSupported === null) {
+			blockers.push(launchBlocker("immersive-check-pending",
+				"The immersive-vr capability check has not finished.",
+				"Wait for the browser capability check to complete."));
+		} else if (capabilities.immersiveSupported !== true) {
+			blockers.push(launchBlocker("immersive-vr-unsupported",
+				"This browser/device did not report immersive-vr support.",
+				"Use a WebXR-capable headset browser and confirm headset access is allowed."));
+		}
+		if (capabilities.engineBooted !== true) {
+			blockers.push(launchBlocker("engine-not-ready",
+				"The engine and imported game data are not ready yet.",
+				"Finish importing UT99 data and wait for the game to boot."));
+		}
+		if (nativeRequested) {
+			if (capabilities.gpuBindingAvailable !== true) {
+				blockers.push(launchBlocker("xrgpu-binding-unavailable",
+					"XRGPUBinding is not exposed, so WebGPU game frames cannot be presented to the headset.",
+					"A Chromium experimental WebXR-WebGPU flag may expose the API, but does not guarantee compositor support."));
+			}
+			if (capabilities.gpuCompatible === null) {
+				blockers.push(launchBlocker("xr-gpu-check-pending",
+					"The XR-compatible WebGPU device check has not finished.",
+					"Wait for the WebGPU capability check to complete."));
+			} else if (capabilities.gpuCompatible !== true) {
+				blockers.push(launchBlocker("xr-gpu-unavailable",
+					"An XR-compatible WebGPU device could not be created.",
+					"Enable WebGPU and any browser WebXR-WebGPU experiment, then reload."));
+			}
+			if (capabilities.gpuDeviceReady !== true) {
+				blockers.push(launchBlocker("engine-gpu-not-ready",
+					"The engine's XR-compatible WebGPU device/frame bridge is not ready.",
+					"Wait for engine initialization; reload if this does not clear."));
+			}
+		}
+		const productionSessionReady = nativeRequested && capabilities.sessionActive === true &&
+			capabilities.nativePhase === "running";
+		return {
+			schema: XR_LAUNCH_READINESS_SCHEMA,
+			version: 1,
+			mode: nativeRequested ? "native-webgpu" : "lifecycle-only",
+			lifecycleOnly: !nativeRequested,
+			productionPathRequested: nativeRequested,
+			productionPresentation: productionSessionReady,
+			canAttempt: blockers.length === 0,
+			productionSessionReady: productionSessionReady,
+			nativePhase: capabilities.nativePhase || "idle",
+			blockers: blockers,
+		};
+	};
+
+	window.surrealXRGetLaunchReadiness = function () {
+		return window.surrealXREvaluateLaunchReadiness({
+			nativeRequested: window.surrealXRUseNativeWebGPU === true,
+			secureContext: globalThis.isSecureContext === true,
+			xrSystemAvailable: !!navigator.xr,
+			immersiveSupported: window.surrealXRSupported,
+			engineBooted: window.surrealBooted === true,
+			gpuBindingAvailable: typeof globalThis.XRGPUBinding === "function",
+			gpuCompatible: window.surrealXRGPUCompatible,
+			gpuDeviceReady: !!window.surrealWebGPUDevice &&
+				typeof window.surrealXRRenderWebGPUFrame === "function" &&
+				typeof window.surrealSetXRFrameLoopActive === "function",
+			sessionActive: window.surrealXRSessionActive === true,
+			nativePhase: window.surrealXRNativeDiagnostics.phase,
+		});
+	};
+
+	function notifyLaunchReadinessChanged() {
+		window.dispatchEvent(new CustomEvent("surreal-webxr-readinesschange", {
+			detail: window.surrealXRGetLaunchReadiness(),
+		}));
+	}
 	window.surrealXRLifecycle = {
 		visibilityHidden: document.hidden,
 		visibilitySource: "initial",
@@ -1165,16 +1262,19 @@
 		if (!navigator.xr) {
 			window.surrealXRSupported = false;
 			xrLog("navigator.xr is undefined (no WebXR support in this browser)");
+			notifyLaunchReadinessChanged();
 			return false;
 		}
 		try {
 			const ok = await navigator.xr.isSessionSupported("immersive-vr");
 			window.surrealXRSupported = ok;
 			xrLog("isSessionSupported('immersive-vr') = " + ok);
+			notifyLaunchReadinessChanged();
 			return ok;
 		} catch (e) {
 			window.surrealXRError = String(e);
 			xrLog("isSessionSupported threw: " + e);
+			notifyLaunchReadinessChanged();
 			return false;
 		}
 	};
@@ -1190,6 +1290,7 @@
 		if (!navigator.gpu) {
 			window.surrealXRGPUCompatible = false;
 			xrLog("navigator.gpu is undefined, cannot probe xrCompatible adapter");
+			notifyLaunchReadinessChanged();
 			return false;
 		}
 		try {
@@ -1197,6 +1298,7 @@
 			if (!adapter) {
 				window.surrealXRGPUCompatible = false;
 				xrLog("requestAdapter({xrCompatible:true}) resolved null");
+				notifyLaunchReadinessChanged();
 				return false;
 			}
 			const device = await adapter.requestDevice();
@@ -1204,11 +1306,13 @@
 			xrLog("xrCompatible GPUAdapter/GPUDevice acquired OK (adapter info: " +
 				JSON.stringify(adapter.info || {}) + ")");
 			device.destroy();
+			notifyLaunchReadinessChanged();
 			return true;
 		} catch (e) {
 			window.surrealXRGPUCompatible = false;
 			window.surrealXRError = String(e);
 			xrLog("xrCompatible GPUDevice probe failed: " + e);
+			notifyLaunchReadinessChanged();
 			return false;
 		}
 	};
@@ -1276,6 +1380,7 @@
 	function nativeDiagnostic(phase, values) {
 		Object.assign(window.surrealXRNativeDiagnostics, values || {});
 		window.surrealXRNativeDiagnostics.phase = phase;
+		notifyLaunchReadinessChanged();
 	}
 
 	function resetNativePoseState() {
@@ -1371,6 +1476,7 @@
 		}
 		if (wasActive) noteSessionEnded(reason || "ended");
 		xrLog("session ended (reason=" + (reason || "ended") + ")");
+		notifyLaunchReadinessChanged();
 	}
 
 	function abortActiveSession(reason, error) {
@@ -1496,9 +1602,21 @@
 		watchGPUDeviceLoss();
 		window.surrealXRNativeError = null;
 		window.surrealXRError = null;
+		if (globalThis.isSecureContext !== true) {
+			window.surrealXRNativeError = "WebXR requires trusted HTTPS (a plain HTTP LAN address is not a secure context)";
+			nativeDiagnostic("error", { error: window.surrealXRNativeError });
+			xrLog(window.surrealXRNativeError);
+			return false;
+		}
 		if (!navigator.xr) {
 			window.surrealXRNativeError = "navigator.xr is unavailable";
 			nativeDiagnostic("error", { error: window.surrealXRNativeError });
+			return false;
+		}
+		if (window.surrealXRSupported !== true) {
+			window.surrealXRNativeError = "immersive-vr is unavailable or its capability check has not completed";
+			nativeDiagnostic("error", { error: window.surrealXRNativeError });
+			xrLog(window.surrealXRNativeError);
 			return false;
 		}
 		if (typeof globalThis.XRGPUBinding !== "function") {
@@ -1510,6 +1628,12 @@
 		if (!window.surrealWebGPUDevice || typeof window.surrealXRRenderWebGPUFrame !== "function" ||
 			typeof window.surrealSetXRFrameLoopActive !== "function") {
 			window.surrealXRNativeError = "engine WebGPU device/frame bridge is not ready";
+			nativeDiagnostic("error", { error: window.surrealXRNativeError });
+			xrLog(window.surrealXRNativeError);
+			return false;
+		}
+		if (window.surrealXRGPUCompatible !== true) {
+			window.surrealXRNativeError = "an XR-compatible WebGPU device is unavailable or its capability check has not completed";
 			nativeDiagnostic("error", { error: window.surrealXRNativeError });
 			xrLog(window.surrealXRNativeError);
 			return false;
@@ -1622,6 +1746,11 @@
 			window.surrealXRError = pageShuttingDown ?
 				"page shutdown has begun" : "WebGPU device has been lost";
 			xrLog("XR entry rejected: " + window.surrealXRError);
+			return false;
+		}
+		if (globalThis.isSecureContext !== true) {
+			window.surrealXRError = "WebXR requires trusted HTTPS (a plain HTTP LAN address is not a secure context)";
+			xrLog(window.surrealXRError);
 			return false;
 		}
 		if (!navigator.xr) {

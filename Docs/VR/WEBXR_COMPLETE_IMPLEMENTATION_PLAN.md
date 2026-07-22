@@ -148,13 +148,14 @@ Complete and regression protected.
 - Browser-created `GPUDevice` is passed to Emdawnwebgpu before `callMain`.
 - Canvas surface, WGSL shaders, pipelines, fixed texture slots, samplers,
   uploads, depth, batching, and supported UE1 texture formats are implemented.
-- World geometry and 2D tile orientation are corrected and screenshot tested.
+- Commit `f067223b` corrects WebGPU clip-space Y once in WGSL and removes the
+  three older per-draw texture-V compensations. Deck world geometry, UI
+  placement, BSP textures, actor/weapon textures, and glyphs now share one
+  orientation convention and are screenshot tested.
 - Rendering diagnostics expose draw calls, textures, errors, and buffer usage.
 
 ### Known renderer gaps to retain in the backlog
 
-- Confirm `DrawGouraudPolygon` orientation with a deterministic visible actor
-  or first-person weapon; earlier native/WebGPU screenshots were inconclusive.
 - Browser `ReadPixels` remains asynchronous; keep screenshots/readback in the
   JS harness unless the engine gains an async screenshot API.
 - HDR, bloom, MSAA, and advanced post-processing are intentionally absent.
@@ -347,6 +348,17 @@ subimages remain the M6/M7 production path, not an M5 claim.
 - The native bridge error code distinguishes a legitimate no-pose skip from a
   renderer rejection; the latter ends the session instead of silently losing
   frames.
+- The page now labels the default route as a **lifecycle-only WebXR harness
+  with no game presentation**. Structured launch diagnostics use schema
+  `surrealengine-webxr-launch-readiness` v1 and distinguish a requested native
+  path, a preflight-ready attempt, and a production session that is actually
+  running.
+- Native entry is refused with an actionable reason when the page is not a
+  secure context, generic `immersive-vr` is unavailable, `XRGPUBinding` is
+  absent, the XR-compatible WebGPU probe failed, the engine/game data are not
+  ready, or the engine GPU frame bridge is not ready. The query parameter
+  `?native-webgpu-xr=1` selects the production attempt; it is not itself a
+  success claim.
 - Playwright now invokes the production entry point under experimental IWER,
   observes the expected Blink type-check rejection, verifies error diagnostics
   and RAF recovery, then starts and ends a fresh default IWER session. Both the
@@ -362,6 +374,18 @@ three formats required by the current draft (`bgra8unorm`, `rgba8unorm`, and
 cleanup, WebXR/DOM visibility policy, post-acquisition setup failure, repeated
 entry/exit, page shutdown, and device loss are automated. The remaining M6
 exit work is physical compositor validation and the five-minute headset gate.
+
+The first real-user Brave/Virtual Desktop attempt on 2026-07-22 loaded and
+rendered the data-backed page but did not establish a confirmed native XR
+session. The user also exposed the global vertical-orientation defect fixed by
+`f067223b`. This is valuable negative test evidence, not proof of a Quest/VD
+presentation path: the test did not capture a running native-session
+diagnostic, and a plain HTTP PC LAN URL would independently fail WebXR's secure
+context requirement. A Chromium/Brave WebXR-WebGPU experiment may expose
+`XRGPUBinding` (the automation uses feature names `WebXRWebGPUBinding` and
+`WebXRLayers`), but flags do not prove that the browser/runtime compositor can
+accept a WebGPU projection layer. Record the readiness object and native phase
+on the next hardware attempt.
 
 ### 9.1 Session creation
 
@@ -1167,8 +1191,9 @@ and must never describe controller-local aim as replicated or authoritative.
 - **Implemented in commits `28070633`, `ca262715`, and `e21a338d`:** installable entry point
   `web/index_webxr.html?pwa=1&build=build-emscripten-nodata`, standalone web
   manifest/project icons, offline guidance, registration/version/update/error
-  diagnostics, deployment instructions, and versioned service worker
-  `2026.07.22-m10.3`. The allowlist includes the mutable-persistence and
+  diagnostics, launch-readiness UI, deployment instructions, and versioned
+  service worker `2026.07.22-m10.4`. The allowlist includes the
+  mutable-persistence and
   WebXR-settings modules without caching any user data.
 - **Implemented policy:** the worker precaches exactly the launcher,
   WebXR/importer/registration scripts, manifest, offline page, and project

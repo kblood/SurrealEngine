@@ -89,6 +89,40 @@ def main():
             print("FAIL: packed XR frame ABI offsets/stride diagnostic failed")
             sys.exit(1)
 
+
+        launch_readiness_test = page.evaluate("""() => {
+            const base = {
+                secureContext: true, xrSystemAvailable: true,
+                immersiveSupported: true, engineBooted: true,
+                gpuBindingAvailable: true, gpuCompatible: true,
+                gpuDeviceReady: true, sessionActive: false, nativePhase: 'idle'
+            };
+            const lifecycle = window.surrealXREvaluateLaunchReadiness(
+                Object.assign({}, base, { nativeRequested: false }));
+            const nativeReady = window.surrealXREvaluateLaunchReadiness(
+                Object.assign({}, base, { nativeRequested: true }));
+            const nativeMissing = window.surrealXREvaluateLaunchReadiness(
+                Object.assign({}, base, {
+                    nativeRequested: true, secureContext: false,
+                    gpuBindingAvailable: false
+                }));
+            return { lifecycle, nativeReady, nativeMissing };
+        }""")
+        print(f"[harness] WebXR launch-readiness evaluator = {launch_readiness_test}")
+        lifecycle_readiness = launch_readiness_test["lifecycle"]
+        native_readiness = launch_readiness_test["nativeReady"]
+        missing_codes = {item["code"] for item in launch_readiness_test["nativeMissing"]["blockers"]}
+        if (lifecycle_readiness["mode"] != "lifecycle-only" or
+                lifecycle_readiness["productionPresentation"] or
+                not lifecycle_readiness["canAttempt"] or
+                native_readiness["mode"] != "native-webgpu" or
+                not native_readiness["productionPathRequested"] or
+                native_readiness["productionPresentation"] or
+                not native_readiness["canAttempt"] or
+                {"insecure-context", "xrgpu-binding-unavailable"} - missing_codes):
+            print("FAIL: default/native WebXR launch-readiness policy regressed")
+            sys.exit(1)
+
         input_collector = page.evaluate("window.surrealXRTestInputCollector()")
         print(f"[harness] M8 copied input-source collector = {input_collector}")
         if not input_collector or not input_collector.get("passed"):
@@ -144,6 +178,15 @@ def main():
             time.sleep(0.5)
         else:
             print("FAIL: engine or Web Audio context did not become ready")
+            sys.exit(1)
+
+
+        live_readiness = page.evaluate("window.surrealGetWebXRLaunchReadiness()")
+        print(f"[harness] live WebXR launch readiness = {live_readiness}")
+        if (live_readiness["mode"] != "lifecycle-only" or
+                live_readiness["productionPresentation"] or
+                not live_readiness["canAttempt"]):
+            print("FAIL: default page was not honestly exposed as a ready lifecycle-only harness")
             sys.exit(1)
 
         native_frame_abi = page.evaluate("window.surrealGetNativeWebXRFrameABI()")

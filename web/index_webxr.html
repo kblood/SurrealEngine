@@ -23,6 +23,10 @@
 	#webxr-settings select, #webxr-settings input[type=number] { max-width: 9rem; }
 	#webxr-settings .actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
 	#webxr-settings .status[data-error=true] { color: #b00020; font-weight: 600; }
+	#webxr-launch-readiness { max-width: 52rem; padding: .75rem 1rem; margin: .75rem 0; border: 1px solid #777; font: 14px system-ui, sans-serif; }
+	#webxr-launch-readiness[data-ready=false] { border-color: #b00020; }
+	#webxr-launch-readiness .mode { font-weight: 700; }
+	#webxr-launch-readiness ul { margin-bottom: 0; }
 </style>
 </head>
 <body>
@@ -33,6 +37,11 @@
 <canvas id="canvas" width="640" height="480"></canvas>
 <button id="entervr" disabled>Enter VR</button>
 <button id="probewebgpuxr" disabled>Probe WebGPU XR</button>
+<section id="webxr-launch-readiness" data-ready="false" role="status" aria-live="polite">
+	<div class="mode">Checking WebXR launch readiness...</div>
+	<div class="summary"></div>
+	<ul class="blockers"></ul>
+</section>
 <section id="ut99-importer" hidden aria-live="polite">
 	<h2>Import your Unreal Tournament data</h2>
 	<p>SurrealEngine does not include Epic's commercial game files. Choose your own UT99 installation folder; files stay in private storage in this browser and are never uploaded.</p>
@@ -70,9 +79,37 @@
 	const surrealBuildDir = new URLSearchParams(location.search).get("build") || "build-emscripten";
 
 	function refreshEnterVRButton() {
-		document.getElementById("entervr").disabled =
-			!(window.surrealBooted && window.surrealXRSupported);
+		const button = document.getElementById("entervr");
+		const panel = document.getElementById("webxr-launch-readiness");
+		const readiness = window.surrealXRGetLaunchReadiness();
+		const active = window.surrealXRSessionActive === true;
+		button.disabled = !active && !readiness.canAttempt;
+		button.textContent = active ? "Exit VR" : readiness.lifecycleOnly ?
+			"Start lifecycle-only XR test" : "Enter Native WebGPU VR";
+		panel.dataset.ready = String(readiness.canAttempt || readiness.productionSessionReady);
+		panel.querySelector(".mode").textContent = readiness.lifecycleOnly ?
+			"Lifecycle-only WebXR harness (no game presentation)" :
+			"Native WebGPU WebXR presentation";
+		panel.querySelector(".summary").textContent = readiness.lifecycleOnly ?
+			"This mode can exercise session entry, input, audio, and teardown, but its throwaway WebGL layer never presents SurrealEngine's WebGPU game frames to the headset." :
+			readiness.productionSessionReady ?
+				"A native WebGPU XR session is running and presenting engine frames." :
+				readiness.canAttempt ?
+					"Preflight is ready. The click will request the browser's production WebGPU XR session; success is not proven until the session and projection layer are running." :
+					"Native presentation cannot be attempted until the items below are resolved.";
+		const list = panel.querySelector(".blockers");
+		list.replaceChildren();
+		for (const blocker of readiness.blockers) {
+			const item = document.createElement("li");
+			item.textContent = blocker.message + " " + blocker.action;
+			item.dataset.code = blocker.code;
+			list.appendChild(item);
+		}
 	}
+	window.surrealGetWebXRLaunchReadiness = window.surrealXRGetLaunchReadiness;
+	window.surrealRefreshWebXRLaunchReadiness = refreshEnterVRButton;
+	window.addEventListener("surreal-webxr-readinesschange", refreshEnterVRButton);
+	refreshEnterVRButton();
 
 	const logEl = document.getElementById('log');
 	function appendLog(line) {
@@ -103,7 +140,6 @@
 	appendLog("[harness] XR frame ABI v2 diagnostic: " +
 		JSON.stringify(window.surrealXRFrameABIDiagnostic));
 	if (window.surrealXRUseNativeWebGPU) {
-		document.getElementById("entervr").textContent = "Enter Native WebGPU VR";
 		appendLog("[harness] native WebGPU XR session path explicitly enabled");
 	}
 
@@ -547,7 +583,7 @@
 		}
 	};
 
-	document.getElementById("entervr").addEventListener("click", function () {
+	document.getElementById("entervr").addEventListener("click", async function () {
 		// Must remain directly inside the trusted gesture. Emscripten OpenAL's
 		// AudioContext cannot be resumed from a later promise/RAF callback.
 		if (window.surrealBooted && window.surrealResumeWebAudio) {
@@ -556,10 +592,18 @@
 		if (window.surrealXRSessionActive) {
 			window.surrealXRExit();
 		} else if (window.surrealXRUseNativeWebGPU) {
-			window.surrealXREnterNativeWebGPU();
+			const readiness = window.surrealXRGetLaunchReadiness();
+			if (!readiness.canAttempt) {
+				appendLog("[harness] native WebGPU XR entry refused: " +
+					readiness.blockers.map(item => item.code).join(", "));
+				refreshEnterVRButton();
+				return;
+			}
+			await window.surrealXREnterNativeWebGPU();
 		} else {
-			window.surrealXREnter();
+			await window.surrealXREnter();
 		}
+		refreshEnterVRButton();
 	});
 	document.getElementById("probewebgpuxr").addEventListener("click", function () {
 		window.surrealXRProbeWebGPUProjection();
@@ -590,6 +634,7 @@
 		const requiredFeatures = ["texture-compression-bc", "float32-filterable"].filter(f => adapter.features.has(f));
 		const device = await adapter.requestDevice({ requiredFeatures });
 		window.surrealWebGPUDevice = device;
+		refreshEnterVRButton();
 		device.lost.then(info => appendLog("[harness] WebGPU device lost: " + info.message));
 		window.surrealWebGPUErrorCount = 0;
 		device.addEventListener("uncapturederror", function (event) {

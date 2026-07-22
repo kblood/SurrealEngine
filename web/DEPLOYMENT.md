@@ -19,6 +19,24 @@ Serve over HTTPS (localhost is allowed for development). Serve `.wasm` as
 `application/manifest+json`. Do not transform or append content to the Wasm or
 generated JavaScript after release hashing.
 
+The playable presentation attempt is
+`web/index_webxr.html?native-webgpu-xr=1&build=build-emscripten-nodata` (add
+`pwa=1` only for the staged no-data shell). Without `native-webgpu-xr=1`, the
+button intentionally starts a lifecycle-only WebXR test whose throwaway WebGL
+layer does not present the WebGPU game. The page exposes
+`window.surrealGetWebXRLaunchReadiness()`; archive that object and
+`window.surrealXRNativeDiagnostics` with every headset result.
+
+Do not open `http://<pc-lan-address>:<port>` on Quest and expect immersive XR:
+plain LAN HTTP is not a secure context. Use trusted HTTPS or an explicitly
+trusted localhost development route. Native presentation additionally needs
+generic `immersive-vr`, an XR-compatible WebGPU device, `XRGPUBinding`, the
+`webgpu` XR session feature, and a compositor that accepts the projection
+layer. Brave/Chromium experiments (the automation uses
+`WebXRWebGPUBinding,WebXRLayers`) may expose draft APIs, but enabling them does
+not establish runtime/compositor support and must never be reported as a
+successful headset session.
+
 `service-worker.js` uses an explicit allowlist. It precaches only the launcher,
 bridge/importer scripts, manifest, offline page, and existing SurrealEngine
 icons. It lazily caches only `SurrealEngine.js` and `SurrealEngine.wasm` from
@@ -33,7 +51,7 @@ use a separate local-only store with a strict path allowlist. See
 exported into a release artifact.
 
 Bump `APP_VERSION` in `service-worker.js` whenever shell/runtime compatibility
-changes; the current integrated shell is `2026.07.22-m10.3`. Activation verifies the complete new shell cache before deleting older
+changes; the current integrated shell is `2026.07.22-m10.4`. Activation verifies the complete new shell cache before deleting older
 `surrealengine-webxr-*` caches. HTML is network-first, so an online reload sees
 updates; immutable no-data JS/Wasm is cache-first within that version.
 

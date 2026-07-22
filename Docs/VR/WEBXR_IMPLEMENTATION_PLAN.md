@@ -314,37 +314,22 @@ review or a clean C++ compile:**
    control flow. Fixed by switching those three call sites to
    `textureSampleLevel(..., 0.0)` (explicit LOD 0, unrestricted) — visually
    indistinguishable for these low-frequency auxiliary textures.
-2. **`WebGPURenderDevice::DrawTile()`'s 2D content (HUD text, console/menu
-   glyphs, weapon icons) rendered vertically flipped and mirrored**, even
-   though its vertex/UV generation is a byte-for-byte port of
-   `D3D11RenderDevice::DrawTile`, and 3D world geometry (via
-   `DrawComplexSurface`) was correctly oriented. Root-caused by a background
-   investigation agent via an instrumented A/B rebuild after exhaustively
-   ruling out every static candidate (texture uploader row/pitch math,
-   surface config, pipeline winding/cull, shader UV sampling — all
-   byte-identical to D3D11). Fixed with a targeted `V`/`VL` swap isolated to
-   `DrawTile`'s vertex generation; confirmed zero effect on 3D geometry.
-   **Follow-up confirmed and fixed (2026-07-19).** `DrawComplexSurface`
-   *did* have the same bug class, invisible on M2's mostly-symmetric
-   `DM-Deck16][` walls. Isolated using `UT-Logo-Map`'s "UNREAL TOURNAMENT"
-   logo (built from 8 `DrawComplexSurface`-rendered BSP brushes, 0
-   `DrawGouraudPolygon` calls, confirmed via new diagnostic counters
-   `Surreal_GetWebGPUComplexSurfaces/GouraudPolygons/Tiles()`), which
-   rendered upside-down. `DrawTile`'s corner-swap trick doesn't apply here
-   (this function has no `[V,VL]` span); instead, `DrawComplexSurfaceFaces`
-   now computes each facet's local min/max `v` and mirrors the shared `v`
-   value every texture layer's coordinates derive from around that span —
-   keeps the lightmap (which reuses the same `v`) mathematically in
-   lockstep with the base texture, so relative alignment is unaffected.
-   Verified via native-vs-WebGPU `PrintWindow`/canvas screenshot comparison
-   of `UT-Logo-Map`: both now read "UNREAL TOURNAMENT" correctly (previously
-   the WebGPU render showed it upside-down). **`DrawGouraudPolygon` (actor/
-   weapon mesh rendering) orientation remains unconfirmed** — two comparison
-   screenshots were taken (`DM-Deck16][`, native vs WebGPU) but neither had
-   a weapon/actor mesh in frame (both spawns face a different random
-   direction with nothing nearby), so this is inconclusive, not verified
-   clean. Left as an open follow-up: re-check with a map/moment where a
-   weapon view model or pickup mesh is actually visible on screen.
+2. **Vertical orientation required one global clip-space correction.** The
+   earlier M2/M2-follow-up diagnosis was incomplete: per-path V mirrors in
+   `DrawTile`, `DrawComplexSurfaceFaces`, and `DrawGouraudPolygon` made glyphs
+   and texture content readable, but left world geometry and UI placement
+   vertically mirrored. A real-user report exposed the mismatch because the
+   Deck world and some UI layout were upside down while individual HUD content
+   remained readable in its corner. Commit `f067223b` moves the correction to
+   the WGSL vertex shader (`output.pos.y = -output.pos.y`) and restores the
+   ordinary texture-V math in all three paths. A controlled before/after Deck
+   capture changed the match-message order from `Press / 30 frags /
+   Tournament` to `Tournament / 30 frags / Press` and made the world upright;
+   `UT-Logo-Map` remained upright. Counts were unchanged at 95 draws, 75
+   textures, 468 Gouraud polygons, 103 complex surfaces, and 65 tiles, with
+   zero WebGPU errors. The full packed-stereo/lifecycle smoke and native Debug
+   build also passed. This supersedes the older local-compensation account and
+   closes the prior `DrawGouraudPolygon` orientation question.
 
 **Verification, all against real UT99 game data (`DM-Deck16][`) via
 `web/smoke_test_webgpu.py` (Playwright, headless `channel="chrome"` — the
@@ -1640,3 +1625,39 @@ device-loss gates pass. The booted test scene had no current weapon
 counters all correctly remained zero. This means the deterministic contract is
 proven, but an actual loaded `Canvas.DrawActor` weapon path is still an explicit
 fixture/headset gate rather than implied browser evidence.
+
+## WebXR launch-readiness and real-user orientation follow-up (2026-07-22)
+
+The first Brave/Virtual Desktop user attempt loaded the real data-backed game,
+but did not produce a confirmed native XR session. It also revealed that the
+desktop world and part of the UI were vertically inverted while readable HUD
+content still appeared in its expected corner. The rendering half is fixed in
+commit `f067223b`: one WGSL clip-space Y correction replaces the three older
+texture-V compensations. Deck and `UT-Logo-Map` before/after captures, the
+native Debug build, and the full packed-stereo WebXR smoke pass with zero
+WebGPU errors.
+
+The launch page no longer presents the default route as playable VR. Its
+button reads **Start lifecycle-only XR test**, and the visible status explains
+that the throwaway WebGL layer exercises session/input/audio/teardown without
+presenting WebGPU game frames. `?native-webgpu-xr=1` selects the production
+attempt. The structured `window.surrealGetWebXRLaunchReadiness()` result uses
+schema `surrealengine-webxr-launch-readiness` v1 and separately reports
+`productionPathRequested`, `canAttempt`, and `productionSessionReady`/
+`productionPresentation`; selecting the URL never counts as presentation.
+
+Native entry now refuses insecure context, missing generic immersive support,
+missing `XRGPUBinding`, failed/pending XR-compatible WebGPU, incomplete engine
+boot, or an unavailable engine GPU bridge with exact blocker codes/actions.
+This matters for physical testing: `http://<PC-LAN-IP>` on Quest is not a
+secure context. Trusted HTTPS (or an explicitly trusted localhost development
+route) is required. Brave/Chromium experimental WebXR-WebGPU features may
+expose the draft binding—the automation enables `WebXRWebGPUBinding` and
+`WebXRLayers`—but flags do not prove that Virtual Desktop, the browser, and its
+compositor accept the projection layer. The user attempt is therefore recorded
+as a failed/unconfirmed presentation test, not a Quest/VD success claim.
+
+The shell change bumps the service-worker version to
+`2026.07.22-m10.4`. The WebXR smoke now deterministically tests lifecycle-only,
+native-preflight, insecure-context, and missing-binding readiness policy before
+running the existing full session/stereo/lifecycle suite.
