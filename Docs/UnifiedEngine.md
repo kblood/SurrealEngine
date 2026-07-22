@@ -23,7 +23,7 @@ their development branches into one unreviewable fork.
 | --- | --- | --- | --- |
 | `pr/frame-pipeline` | `5dbcf833` | Advance simulation once, render, then finish deferred save/travel work | current upstream |
 | `pr/view-family` | `9a88d556` | Render an explicit family of camera views with optional asymmetric projections | `pr/frame-pipeline` |
-| `pr/input-composition` | `4d7574ce` | Compose buttons and axes from independent input sources | current upstream |
+| `pr/input-composition` | `09bd2737` | Compose buttons and axes from independent input sources | current upstream |
 | `pr/vm-hook-registry` | `d0faef6d` | Ordered, scoped VM-call extension hooks with safe argument replacement | current upstream |
 | `pr/game-support-registry` | `ff175b0a` | Typed game identity, behavior capabilities, and per-game native registration | current upstream |
 

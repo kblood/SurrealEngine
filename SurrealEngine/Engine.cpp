@@ -1588,9 +1588,9 @@ void Engine::TickWindow()
 
 		// Send to input subsystem.
 		if (dx)
-			InputEvent(IK_MouseX, IST_Axis, dx);
+			InputEvent(IK_MouseX, IST_Axis, static_cast<float>(dx));
 		if (dy)
-			InputEvent(IK_MouseY, IST_Axis, -dy);
+			InputEvent(IK_MouseY, IST_Axis, static_cast<float>(-dy));
 	}
 }
 
