@@ -72,12 +72,12 @@ XRSession.requestAnimationFrame
 | M3 — WebGPU hot path | Complete | Bind-group caching and buffer diagnostics measured on small and large maps |
 | M4 — presentation groundwork | Complete | XR-compatible device, texture import/readback, full UT frame in array layer 1, frame-loop ownership handoff |
 | M5 — frame/view refactor | Complete (diagnostic projections) | One simulation tick now renders two independently selected texture-array layers; real `XRView` data starts M6 |
-| M6 — native WebGPU XR session | In progress; headset validation gated | Packed ABI, synchronous renderer, and opt-in production session/RAF lifecycle are implemented; real `XRGPUBinding` compositor presentation still requires a supported runtime |
-| M7 — tracking/camera/world scale | Not started | Correct 6DoF head pose and per-eye projection |
+| M6 — native WebGPU XR session | Implementation complete; headset validation gated | Packed ABI, preferred-format pipeline families, synchronous renderer, and hardened production session/RAF lifecycle are implemented; real `XRGPUBinding` compositor presentation still requires a supported runtime |
+| M7 — tracking/camera/world scale | Deterministic implementation complete; headset validation gated | 6DoF pose conversion, body/head composition, recentering, world scale, and exact per-eye projection are implemented; physical scale and scene correctness remain to validate |
 | M8 — controller input/gameplay | Not started | Motion controllers, locomotion, weapon aim, haptics |
 | M9 — UI/comfort/VR presentation | Not started | HUD, menus, weapon model, recenter and comfort controls |
-| M10 — audio/data/network/deploy | In progress | Real OpenAL/Web Audio output and gesture resume work; data import, persistence, deployment, networking scope, head-pose listener and lifecycle policy remain |
-| M11 — performance/robustness/release | Not started | Quest profiling, lifecycle hardening, compatibility and release gates |
+| M10 — audio/data/network/deploy | In progress | Real OpenAL/Web Audio output, gesture/lifecycle policy, and redistributable no-data builds work; importer, persistence, deployment, networking scope, and head-pose listener remain |
+| M11 — performance/robustness/release | In progress | Automated session-generation, visibility, setup-failure, shutdown, and device-loss coverage exists; Quest profiling, headset lifecycle, compatibility, and release gates remain |
 
 ## 3. M0 — architecture and platform gate
 
@@ -158,7 +158,9 @@ Complete and regression protected.
 - Browser `ReadPixels` remains asynchronous; keep screenshots/readback in the
   JS harness unless the engine gains an async screenshot API.
 - HDR, bloom, MSAA, and advanced post-processing are intentionally absent.
-- Device-loss recovery and projection-layer format variation are M11 work.
+- Device-loss recovery after an irrecoverable `GPUDevice` loss remains M11
+  work. Projection-layer format variation is implemented for `bgra8unorm`,
+  `rgba8unorm`, and `rgba16float`.
 
 ### Exit criterion
 
@@ -347,16 +349,16 @@ subimages remain the M6/M7 production path, not an M5 claim.
   and RAF recovery, then starts and ends a fresh default IWER session. Both the
   default and experimental suites pass.
 
-M6 is not complete: the production lifecycle exists, but IWER's JavaScript
-session still cannot satisfy Blink's native `XRSession` type check. Projection-
-layer creation, the actual XR callback/subimage route and compositor
-presentation must therefore be validated on a supported real runtime/headset.
-The projection format is currently fixed to `bgra8unorm`; format negotiation
-and an alternate pipeline family remain before M6 exit. Visibility/device-loss
-policy, repeated entry/exit and the five-minute stability gate are also open.
-M7 still owns position/orientation composition, recentering and calibrated
-world scale; the M6 bridge applies exact per-view projections but retains the
-body camera transform.
+M6 is complete at the implementation and automated-test boundary. IWER's
+JavaScript session still cannot satisfy Blink's native `XRSession` type check,
+so projection-layer creation, the actual XR callback/subimage route and
+compositor presentation must be validated on a supported real runtime/headset.
+The code now negotiates the binding's preferred color format, accepts the
+three formats required by the current draft (`bgra8unorm`, `rgba8unorm`, and
+`rgba16float`), and lazily caches matching pipeline families. Generation-safe
+cleanup, WebXR/DOM visibility policy, post-acquisition setup failure, repeated
+entry/exit, page shutdown, and device loss are automated. The remaining M6
+exit work is physical compositor validation and the five-minute headset gate.
 
 ### 9.1 Session creation
 
@@ -369,13 +371,14 @@ The production path is separate from the IWER lifecycle path. Current status:
    them.
 3. **Implemented, headset-unvalidated:** construct
    `XRGPUBinding(session, engineDevice)`.
-4. **Missing:** query the runtime's preferred color format instead of assuming
-   it matches the canvas.
-5. **Missing:** make pipeline color format configurable. Cache a second
-   pipeline family if XR format differs from `bgra8unorm` rather than lying in
-   the view descriptor.
+4. **Implemented, headset-unvalidated:** query
+   `XRGPUBinding.getPreferredColorFormat()` and reject formats outside the
+   draft's supported set.
+5. **Implemented:** select the imported texture's actual format and lazily
+   create a matching pipeline family. Deterministic browser tests render
+   `bgra8unorm`, `rgba8unorm`, and `rgba16float` with zero GPU errors.
 6. **Implemented, headset-unvalidated:** create a color-only projection layer
-   at `scaleFactor:1.0`, currently using `bgra8unorm`.
+   at `scaleFactor:1.0` using the binding's preferred format.
 7. **Implemented, headset-unvalidated:** install it with
    `session.updateRenderState({layers:[projectionLayer]})`.
 8. **Implemented:** acquire `local-floor` when available, otherwise `local`,
@@ -405,16 +408,17 @@ For each native XR callback:
 
 - **Implemented:** on successful session start, transfer RAF ownership only
   after the layer and reference space are ready.
-- **Partial:** on `end`, setup/render exception, or explicit exit, invalidate XR
-  RAF, clear state and restore window RAF/canvas. Imported handles are already
-  frame-scoped and synchronously released. Device-loss and full mouse/keyboard
-  restoration still need explicit coverage; a missing pose skips one frame
-  without ending the session.
-- **Missing:** handle `visibilitychange` (`visible`, `visible-blurred`,
-  `hidden`) with an explicit pause/audio policy.
-- **Partial:** count reference-space `reset` generations. Still handle input-
-  source changes, browser back/escape,
-  repeated enter/exit, and page shutdown.
+- **Implemented:** on `end`, setup/render exception, explicit exit, or device
+  loss, invalidate XR RAF, clear state and restore window RAF/canvas when the
+  device remains usable. Imported handles are frame-scoped and synchronously
+  released; a missing pose skips one frame without ending the session.
+- **Implemented:** handle WebXR `visibilitychange` (`visible`,
+  `visible-blurred`, `hidden`) separately from DOM visibility, with an explicit
+  Web Audio suspend/resume policy.
+- **Partial:** count reference-space `reset` generations and reset native pose
+  state. Repeated entry/exit, setup failure after session acquisition, browser
+  back/escape through session end, and page shutdown are covered. Input-source
+  changes and full mouse/keyboard restoration move with M8.
 - **Implemented:** prevent simultaneous enter requests and stale callbacks
   from an old session using a session generation/token.
 
@@ -427,12 +431,19 @@ a real supported browser/runtime if no public native mock is available.
 
 ### Exit criterion
 
-On a real headset/browser, the user enters VR, sees distinct content in both
+Implementation is complete at the automation boundary. On a real
+headset/browser, the user enters VR, sees distinct content in both
 eyes, receives continuous frames for five minutes, exits cleanly to the canvas,
 and can repeat the cycle three times with no device loss, leaked wrapper,
 uncaptured error, crash, or double-speed simulation.
 
 ## 10. M7 — head tracking, per-eye camera, and world scale
+
+The deterministic M7 implementation landed on 2026-07-22. The packed pose is
+validated (including nonzero finite quaternions), converted once at the engine
+boundary, and composed after `PlayerCalcView`. Physical headset validation is
+still required before declaring scale, comfort, and all scene rendering
+correct.
 
 ### 10.1 Coordinate conversion
 
@@ -440,28 +451,35 @@ Document and test the conversion from WebXR's meters/right-handed convention
 (`+X` right, `+Y` up, `-Z` forward) to UE1/SurrealEngine coordinates. Do not
 reuse the debug-stereo IPD constant or assume its unit comment is calibrated.
 
-- Establish a configurable `worldUnitsPerMeter` from verified UT geometry and
-  player collision/eye height; validate in headset before fixing a default.
-- Define matrix storage/transposition explicitly.
-- Confirm WebGPU projection `[0,1]` depth matches the renderer and that near/far
-  handling does not rebuild an approximation unnecessarily.
-- Use each `XRView` transform directly; never synthesize IPD or toe-in cameras.
+- **Implemented:** configurable `worldUnitsPerMeter`, defaulting to 39.3701
+  UU/m from UE1's approximate one-inch unit. Validate that default against
+  known UT geometry and player eye height in-headset before freezing it.
+- **Implemented:** explicit packed matrix storage and engine-boundary
+  conversion from WebXR right-handed axes to UE1 left-handed axes.
+- **Implemented:** preserve the runtime's exact asymmetric WebGPU `[0,1]`
+  projection and reflect view Z exactly once when required by engine convention.
+- **Implemented:** use each `XRView` transform directly; runtime IPD is
+  preserved and no toe-in or synthetic eye offset is introduced.
 
 ### 10.2 Body, head, and recenter model
 
-- Keep UnrealScript `PlayerCalcView` as the body/base camera.
-- Compose the tracked viewer pose relative to an application recenter origin,
+- **Implemented:** keep UnrealScript `PlayerCalcView` as the body/base camera.
+- **Implemented:** compose the tracked viewer pose relative to a viewer-center
+  application recenter origin,
   rotated by body/pawn yaw and scaled into world units.
-- Apply headset translation and pitch/roll to render cameras without directly
+- **Implemented:** apply headset translation and pitch/roll to render cameras without directly
   mutating pawn physics or network state.
 - Decide locomotion orientation independently: head-relative and hand-relative
   options, with body yaw updated by turn controls.
-- Recenter captures current local pose/yaw and optionally standing height.
+- **Implemented:** recenter captures current viewer-center position/yaw;
+  reference-space reset generations force a fresh capture while preserving IPD.
+- Decide whether seated/standing modes should optionally retain or neutralize
+  tracked standing height; the current recenter neutralizes the initial height.
 - Define seated and standing modes and clamp/handle implausible tracking jumps.
 
 ### 10.3 Rendering correctness
 
-- Feed exact per-eye world-to-view and projection matrices through the existing
+- **Implemented:** feed exact per-eye world-to-view and projection matrices through the existing
   `ViewportOverride`/`ProjectionOverride` path.
 - Verify recursive portals, mirrors, sky zones, coronas, fog, decals, actors,
   particles, and first-person meshes in both eyes.
@@ -470,7 +488,8 @@ reuse the debug-stereo IPD constant or assume its unit comment is calibrated.
 
 ### Tests and exit criterion
 
-- Deterministic matrix tests for identity, yaw, pitch, translation, recenter,
+- **Passed:** deterministic matrix tests for identity, yaw, pitch, one-metre
+  translation, 64 mm IPD, body yaw, recenter/reset, projection reflection,
   left/right eye ordering, and handedness.
 - A known near/mid/far marker scene must show correct parallax and no vertical
   disparity, world rotation inversion, swapped eyes, or head-translation sign
@@ -478,6 +497,10 @@ reuse the debug-stereo IPD constant or assume its unit comment is calibrated.
 - Head translation must not move the gameplay collision capsule.
 - Ten-minute headset test with room movement and repeated recentering is stable
   and comfortable.
+
+The remaining M7 exit criteria are physical: verify world scale and eye order,
+the near/mid/far marker scene, collision independence, recursive scene features,
+tracking jumps, and ten-minute comfort on the target headset.
 
 ## 11. M8 — controllers, locomotion, weapon interaction, and haptics
 
@@ -595,13 +618,20 @@ linked to Emscripten OpenAL/Web Audio. It no longer uses `NullAudioDevice`.
 - **Complete:** avoid unsupported `AL_METERS_PER_UNIT`, unbounded Emscripten
   source-count reporting, and context-destruction ordering hazards.
 - Update the listener from the tracked head pose, not only pawn/body rotation.
-- Suspend/mute correctly for hidden/blurred sessions and restore after focus.
+- **Complete in automation:** keep audio active when only the companion DOM is
+  hidden, suspend while XR reports `hidden`, and resume for `visible` or
+  `visible-blurred`. Confirm browser gesture and headset-runtime behavior
+  physically.
 - Test music streaming, positional effects, volume settings, map changes,
   session re-entry, underruns, and shutdown.
 
 ### 13.2 Legal game-data import and persistence
 
 Replace the 629 MB `--preload-file` development artifact:
+
+- **Complete build seam:** an empty `SURREAL_GAMEDATA_DIR` now emits no
+  `--preload-file`, producing a redistributable engine build with no commercial
+  data. The configured developer build may still preload a local data tree.
 
 - Build a first-run importer using the File System Access API where supported
   and directory/file input fallback elsewhere.
@@ -681,6 +711,13 @@ Profile on the actual standalone Quest target, not desktop Chrome only:
 
 ### 14.2 Robustness matrix
 
+Automated browser coverage now includes three clean session generations,
+post-request setup failure cleanup, independent DOM/XR visibility and audio
+policy, native-route rejection recovery, page-shutdown idempotence, and active-
+session `GPUDevice.destroy()` teardown with permanent re-entry rejection.
+Physical-runtime coverage remains required for sleep/wake, controller loss,
+compositor behavior, and long play.
+
 Automate where possible and manually cover:
 
 - enter/exit VR repeatedly;
@@ -756,17 +793,22 @@ Release candidates require:
    projected array layers in one synchronous frame and read back both.
 3. **Complete:** add and validate the packed view-state ABI. Matrix storage is
    proven end-to-end; coordinate/unit correctness remains M7 headset work.
-4. **Implemented, real-runtime validation pending:** add the opt-in production
-   session/layer/RAF lifecycle with strict cleanup and no IWER fallback.
-5. Run the real projection-layer path on a supported physical headset/browser;
+4. **Complete in automation, real-runtime validation pending:** implement the
+   production session/layer/RAF lifecycle, preferred color formats, strict
+   generation-safe cleanup, visibility/audio policy, and no IWER fallback.
+5. **Complete in deterministic tests, headset validation pending:** compose
+   tracked head pose after `PlayerCalcView`, preserve runtime IPD, expose world
+   scale/recenter controls, and test handedness/projection conversion.
+6. Run the real projection-layer and tracked-pose path on a supported physical headset/browser;
    in parallel, determine whether the public Chromium WebXR Test API can provide
    a native automated session.
-6. Finish M6 color-format negotiation, lifecycle policy, diagnostics and
-   stability gates using that runtime.
-7. Complete M7 head pose/world-scale correctness before controller gameplay.
-8. Implement M8 input and weapon aiming, then M9 HUD/comfort.
-9. Finish audio/data/deploy and the explicit networking decision in M10.
-10. Optimize and harden only from M11 headset traces, then run release gates.
+7. Implement M8's versioned packed controller block and input-source lifecycle,
+   then engine mappings, locomotion, weapon aiming, and haptics.
+8. Implement M9 HUD/menus, weapon presentation, recenter UX, and comfort options.
+9. Finish M10 importer/persistence/launcher/deploy and make the explicit
+   networking product decision; wire the listener to tracked head pose.
+10. Finish M6/M7 headset gates and M11 profiling/soak/compatibility gates from
+    physical Quest traces, then qualify a release.
 
 ## 17. Authoritative browser references
 

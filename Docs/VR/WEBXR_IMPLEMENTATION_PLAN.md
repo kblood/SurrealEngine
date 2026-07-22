@@ -866,3 +866,94 @@ hardcodes `bgra8unorm`; preferred-format negotiation and alternate render
 pipelines, visibility/device-loss/audio policy, repeated entry/exit, diagnostic
 timings, and five-minute headset stability are missing. Position/orientation
 composition remains deliberately assigned to M7.
+
+## M10 redistributable no-data build checkpoint — PASS (2026-07-22)
+
+Commit `194696bd` removes the unconditional commercial-data dependency from
+the Emscripten link. When `SURREAL_GAMEDATA_DIR` is empty, CMake now omits
+`--preload-file` entirely; a developer can still configure a local data tree
+for the existing full-content smoke tests.
+
+A clean temporary Emscripten configure with no game-data path produced link
+commands containing no `--preload-file`. This is only the build seam: the
+first-run browser importer, validation, quota reporting, OPFS/IndexedDB
+persistence, config/save flushing, clear-data controls, launcher, and hosted
+artifact audit remain M10 work. No commercial UT99 data was added or moved.
+
+## M6 projection-format implementation checkpoint — PASS WITH HEADSET GATE (2026-07-22)
+
+Commit `14451d9f` removes the `bgra8unorm` assumption. The production session
+queries `XRGPUBinding.getPreferredColorFormat()` and accepts the current
+draft's three supported color formats: `bgra8unorm`, `rgba8unorm`, and
+`rgba16float`. `WebGPURenderDevice` reads the imported texture's actual format,
+rejects unsupported formats, and selects a lazily-created pipeline family
+compiled for that attachment. Pipeline families share the existing shader and
+layouts; the family is selected once per render lock, leaving draw lookup O(1).
+
+Direct browser diagnostics rendered a full external stereo frame in all three
+formats. Each returned success, accumulated 187 draws, left external-target
+state clear, and reported zero uncaptured WebGPU errors. The cache grew only as
+new formats were exercised (`1 -> 2 -> 3`). The ordinary WebGPU smoke test also
+passed at 95 draws with clean shutdown. Real projection-layer negotiation and
+compositor acceptance remain headset-gated because IWER cannot supply the
+native Blink `XRSession` required by `XRGPUBinding`.
+
+## M7 tracked-pose implementation checkpoint — PASS WITH HEADSET GATE (2026-07-22)
+
+Commit `b4b02dab` composes WebXR tracking into the UE1 render camera after the
+same frame's `AdvanceGameFrame()`/`PlayerCalcView()` result. The conversion is
+centralized as WebXR `(x,y,z) -> UE1 (-z,x,y)`. Body yaw remains authoritative;
+tracked translation, yaw, pitch, and roll affect only per-eye render cameras
+and do not mutate pawn physics or network state.
+
+The bridge now:
+
+- preserves the runtime's per-eye transforms and IPD;
+- captures a viewer-center position/yaw recenter origin;
+- responds to reference-space reset generations;
+- exposes a configurable scale, defaulting to 39.3701 UU/m;
+- rejects degenerate zero-length quaternions; and
+- reflects the right-handed WebXR projection at the engine boundary exactly
+  once while retaining the runtime's asymmetric projection.
+
+The deterministic native self-test covers handedness, a 64 mm IPD, one metre
+of translation, head yaw and pitch, body yaw, reset/recenter behavior, and
+projection reflection. Browser automation returned self-test `1` and world
+scale `39.370079`; native and Emscripten builds passed. Remaining M7 gates are
+physical world-scale/eye-order validation, marker-scene parallax, collision
+independence, recursive scene correctness, tracking-jump policy, seated versus
+standing behavior, and a ten-minute comfort/recenter run.
+
+## M6/M11 lifecycle-hardening checkpoint — PASS IN AUTOMATION (2026-07-22)
+
+Commit `8f29634d` hardens both the default IWER lifecycle and the opt-in native
+route. Monotonic session generations make stale RAF/end callbacks inert.
+Cleanup now covers failure after `requestSession()` succeeds, explicit exit,
+session end, render/setup exceptions, page shutdown, and WebGPU device loss.
+Canvas RAF restoration is an idempotent ensure-running operation.
+
+WebXR session visibility is handled independently from DOM visibility. A
+hidden companion page does not silence an active immersive session; XR
+`hidden` suspends lifecycle-owned audio, while `visible` and
+`visible-blurred` resume it. `pagehide`/`beforeunload` share idempotent cleanup.
+The engine device's `lost` promise ends an active session and permanently
+rejects re-entry because this implementation does not recreate the renderer.
+
+Extended Playwright/IWER validation passed in default and experimental Chrome:
+
+- default session: XR frames `4 -> 185`, engine ticks `8 -> 189`, and canvas
+  recovery `189 -> 211` after exit;
+- experimental packed M6 render: result `1`, error `0`, 187 draws, zero GPU
+  errors; pose and all three format diagnostics passed;
+- expected native/IWER rejection restored the canvas tick (`21 -> 22`);
+- three clean entry/exit generations completed with no stale callback damage;
+- an injected failure after session acquisition called `end()` and cleared
+  globals before a successful subsequent entry;
+- DOM and XR visibility/audio policies passed independently; and
+- destroying the real active `GPUDevice` tore down the session, rejected
+  re-entry, and left repeated shutdown idempotent.
+
+JavaScript syntax, Python parse, Emscripten build, native build, and diff checks
+all passed. Physical headset work still owns compositor presentation, real
+visibility transitions, sleep/wake, five-minute M6 stability, and the 60-minute
+M11 soak.
