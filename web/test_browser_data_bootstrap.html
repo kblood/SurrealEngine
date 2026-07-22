@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SurrealEngine browser data bootstrap tests</title>
+</head>
+<body>
+<pre id="results">running</pre>
+<script src="ut99_importer.js"></script>
+<script src="mutable_persistence.js"></script>
+<script src="browser_data_bootstrap.js"></script>
+<script>
+"use strict";
+
+window.browserDataTestResults = [];
+window.browserDataTestDone = false;
+
+function assert(condition, message) { if (!condition) throw new Error(message || "assertion failed"); }
+async function run(name, callback) {
+	try { await callback(); window.browserDataTestResults.push({ name, passed: true, detail: "" }); }
+	catch (error) { window.browserDataTestResults.push({ name, passed: false, detail: error && (error.stack || error.message) || String(error) }); }
+}
+
+window.browserDataTestPromise = (async function () {
+	const realImporter = window.SurrealUT99Importer;
+	const readyManifest = Object.freeze({
+		schema: realImporter.MAP_MANIFEST_SCHEMA,
+		version: realImporter.MAP_MANIFEST_VERSION,
+		state: "ready",
+		maps: Object.freeze(["CTF-Face", "DM-Synthetic"]),
+		rejectedCount: 0,
+	});
+
+	await run("restores mutable overlay before launching a safe imported map", async () => {
+		const order = [];
+		window.SurrealUT99Importer = Object.freeze(Object.assign({}, realImporter, {
+			start: async (_Module, options) => {
+				order.push("import-materialized");
+				await options.beforeLaunch("persistent-import");
+				await options.launch("persistent-import", { mapManifest: readyManifest });
+				return { controller: { mapManifest: () => readyManifest, clearSavedImport: async () => "import-cleared" }, result: { state: "launched" } };
+			},
+		}));
+		window.SurrealMutableData = Object.freeze({
+			start: async () => {
+				order.push("mutable-restored");
+				return { controller: { status: () => ({ state: "ready" }), flush: async () => "flushed", clear: async () => "mutable-cleared" }, result: { state: "ready", backend: "synthetic" } };
+			},
+		});
+		const started = await window.SurrealBrowserData.start({ FS: {} }, {
+			preferredMap: "dm-synthetic",
+			launch: selection => { order.push("launch:" + selection.map); },
+		});
+		assert(order.join(",") === "import-materialized,mutable-restored,launch:DM-Synthetic", order.join(","));
+		assert(started.result.selectedMap === "DM-Synthetic");
+		assert(await started.controller.flush("test") === "flushed");
+		assert(await started.controller.clearMutableData() === "mutable-cleared");
+		assert(await started.controller.clearImportedData() === "import-cleared");
+	});
+
+	await run("mutable storage failure is nonfatal by default", async () => {
+		let launched = false;
+		window.SurrealUT99Importer = Object.freeze(Object.assign({}, realImporter, {
+			start: async (_Module, options) => {
+				await options.beforeLaunch("new-import");
+				await options.launch("new-import", { mapManifest: readyManifest });
+				return { controller: { mapManifest: () => readyManifest }, result: { state: "launched" } };
+			},
+		}));
+		window.SurrealMutableData = Object.freeze({ start: async () => { throw new Error("synthetic storage denial"); } });
+		const started = await window.SurrealBrowserData.start({ FS: {} }, { launch: () => { launched = true; } });
+		assert(launched, "engine launch was blocked");
+		assert(started.result.mutable.state === "unavailable");
+	});
+
+	window.SurrealUT99Importer = realImporter;
+	window.browserDataTestDone = true;
+	document.getElementById("results").textContent = JSON.stringify(window.browserDataTestResults, null, 2);
+	const failures = window.browserDataTestResults.filter(result => !result.passed);
+	if (failures.length) throw new Error(failures.length + " browser data bootstrap test(s) failed");
+	return window.browserDataTestResults;
+})();
+</script>
+</body>
+</html>
