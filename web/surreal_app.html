@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SurrealEngine</title>
+<link rel="stylesheet" href="browser_app.css">
+</head>
+<body>
+<main>
+	<canvas id="game" width="1280" height="720"></canvas>
+	<section id="game-library" class="panel" hidden>
+		<h1>Game library</h1>
+		<div class="actions">
+			<select data-library-game aria-label="Installed game"></select>
+			<button type="button" data-library-switch>Switch game</button>
+			<button type="button" data-library-add>Add or replace a game</button>
+		</div>
+	</section>
+	<section id="game-data-importer" class="panel" hidden aria-live="polite">
+		<h1>Add a game</h1>
+		<p>Choose your own Unreal Tournament or Unreal Gold installation. Files remain in private storage on this device and are never uploaded.</p>
+		<p data-game-status></p><p data-game-error hidden role="alert"></p>
+		<div class="actions">
+			<button type="button" data-game-pick>Choose game folder</button>
+			<label class="file-button" data-game-file-label>Folder upload fallback<input type="file" data-game-files webkitdirectory directory multiple></label>
+			<button type="button" data-game-clear>Clear saved game</button>
+		</div>
+		<progress data-game-progress max="1" value="0"></progress>
+		<div data-game-progress-text></div><p data-game-storage></p>
+	</section>
+	<section id="game-launcher" class="panel" hidden>
+		<h2>Start <span data-launcher-game></span></h2>
+		<form data-launcher-form>
+			<div class="fields">
+				<label>Map<select data-launcher-map></select></label>
+				<label>Presentation<select data-launcher-presentation></select></label>
+				<label>Renderer<select data-launcher-renderer><option value="webgpu">WebGPU</option><option value="null">No graphics (diagnostics)</option></select></label>
+				<button type="submit">Play</button>
+			</div>
+			<p data-launcher-error hidden role="alert"></p>
+		</form>
+	</section>
+</main>
+<pre id="log" aria-label="Engine log"></pre>
+<script src="ut99_importer.js"></script>
+<script src="mutable_persistence.js"></script>
+<script src="browser_data_bootstrap.js"></script>
+<script src="browser_app.js"></script>
+<script>
+"use strict";
+const logLines = [];
+const logElement = document.getElementById("log");
+function log(line) { logLines.push(String(line)); logElement.textContent += line + "\n"; }
+SurrealBrowserApp.start({
+	canvas: document.getElementById("game"),
+	importerRoot: document.getElementById("game-data-importer"),
+	launcherRoot: document.getElementById("game-launcher"),
+	libraryRoot: document.getElementById("game-library"),
+	hostBridge: window.SurrealHostBridge,
+	log,
+	logSnapshot: () => logLines.join("\n") + "\n",
+	onLaunch: selection => { window.surrealBooted = true; window.surrealLaunchSelection = selection; },
+}).then(app => { window.surrealApp = app; }).catch(error => log("[launcher] " + (error.stack || error)));
+</script>
+</body>
+</html>
