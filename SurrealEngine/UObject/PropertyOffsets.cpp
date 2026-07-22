@@ -1,6 +1,7 @@
 
 #include "Precomp.h"
 #include "PropertyOffsets.h"
+#include "UObjectVersion.h"
 #include "Package/PackageManager.h"
 #include "UClass.h"
 #include "UProperty.h"
@@ -9,7 +10,8 @@ PropertyOffsets_Object PropOffsets_Object;
 
 static void InitPropertyOffsets_Object(PackageManager* packages)
 {
-	UClass* cls = UObject::TryCast<UClass>(packages->GetPackage("Core")->GetUObject("Class", "Object"));
+	Package* corePackage = packages->GetPackage("Core");
+	UClass* cls = UObject::TryCast<UClass>(corePackage->GetUObject("Class", "Object"));
 	if (!cls)
 	{
 		memset(&PropOffsets_Object, 0xff, sizeof(PropOffsets_Object));
@@ -20,7 +22,7 @@ static void InitPropertyOffsets_Object(PackageManager* packages)
 	PropOffsets_Object.ObjectFlags = cls->GetPropertyDataOffset("ObjectFlags");
 	if (!packages->IsUnreal1_227k())
 		PropOffsets_Object.ObjectInternal = cls->GetPropertyDataOffset("ObjectInternal");
-	PropOffsets_Object.Outer = cls->GetPropertyDataOffset("Outer");
+	PropOffsets_Object.Outer = cls->GetPropertyDataOffset(GetUObjectOuterPropertyName(cls, corePackage->GetVersion()));
 
 	if (packages->IsUnreal1_227k()) // These got added on 227k (or maybe j?)
 	{

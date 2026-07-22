@@ -1,6 +1,7 @@
 #include "Precomp.h"
 #include "Package/PackageStream.h"
 #include "UObject/UProperty.h"
+#include "UObject/UObjectVersion.h"
 #include "Utils/File.h"
 
 #include <chrono>
@@ -9,6 +10,22 @@
 
 int main()
 {
+	UClass oldObjectClass("OldObject", nullptr, ObjectFlags::NoFlags);
+	UObjectProperty parentProperty("Parent", nullptr, ObjectFlags::NoFlags);
+	oldObjectClass.Properties.push_back(&parentProperty);
+
+	UClass modernObjectClass("ModernObject", nullptr, ObjectFlags::NoFlags);
+	UObjectProperty outerProperty("Outer", nullptr, ObjectFlags::NoFlags);
+	modernObjectClass.Properties.push_back(&outerProperty);
+
+	if (std::string(GetUObjectOuterPropertyName(&oldObjectClass, 61)) != "Parent" ||
+		std::string(GetUObjectOuterPropertyName(&modernObjectClass, 62)) != "Outer" ||
+		std::string(GetUObjectOuterPropertyName(&modernObjectClass, 61)) != "Outer")
+	{
+		std::cerr << "FAILED: UObject container-property name must follow the reflected UE1 layout\n";
+		return 1;
+	}
+
 	const auto uniquePart = std::chrono::steady_clock::now().time_since_epoch().count();
 	const fs::path path = fs::temp_directory_path() / ("surreal-property-" + std::to_string(uniquePart) + ".bin");
 

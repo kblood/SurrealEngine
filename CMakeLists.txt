@@ -477,6 +477,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/UTextBuffer.cpp
 	SurrealEngine/UObject/UClass.h
 	SurrealEngine/UObject/UObject.cpp
+	SurrealEngine/UObject/UObjectVersion.cpp
+	SurrealEngine/UObject/UObjectVersion.h
 	SurrealEngine/UObject/UTextBuffer.h
 	SurrealEngine/UObject/UInternetLink.cpp
 	SurrealEngine/UObject/UInternetLink.h
