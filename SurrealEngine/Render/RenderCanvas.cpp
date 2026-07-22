@@ -177,14 +177,17 @@ bool RenderSubsystem::CaptureWebXRHud()
 	if (!WebXRHudSettings.Enabled)
 		return false;
 	UPlayerPawn* viewActor = engine->viewport->Actor();
-	if (!viewActor || !viewActor->myHUD())
+	const bool capturePlayerHud = viewActor && viewActor->myHUD();
+	const bool captureConsoleUi = engine->console != nullptr;
+	if (!capturePlayerHud && !captureConsoleUi)
 		return false;
 
-	// PlayerPawn.PostRender is UT99's owner-side HUD/crosshair entry point.
-	// Invoke it once against a stable 4:3 logical canvas and capture its
-	// view-independent primitive stream. Replaying that stream per eye avoids
-	// advancing message queues, mutators, animation, or other script state
-	// twice. Console/UWindow remain outside this deliberately narrow seam.
+	// Match the desktop PostRender order exactly: the local player owns the
+	// HUD/crosshair, then Console owns the console, loading messages and UT99
+	// menu/UWindow presentation. Invoke each eligible script entry point once
+	// against a stable 4:3 logical canvas and capture its view-independent
+	// primitive stream. Per-eye work remains replay-only, so menu focus,
+	// animations, message queues and other script state never advance twice.
 	FSceneNode savedFrame = Canvas.Frame;
 	int savedUIScale = Canvas.uiscale;
 	int savedSizeX = engine->canvas->SizeX();
@@ -230,7 +233,17 @@ bool RenderSubsystem::CaptureWebXRHud()
 	WebXRHudStats.LastFrameStateUpdates++;
 	try
 	{
-		CallEvent(viewActor, EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
+		if (capturePlayerHud)
+		{
+			CallEvent(viewActor, EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
+			WebXRHudStats.LastFramePlayerPostRenderCalls++;
+		}
+		if (captureConsoleUi)
+		{
+			CallEvent(engine->console, EventName::PostRender,
+				{ ExpressionValue::ObjectValue(engine->canvas) });
+			WebXRHudStats.LastFrameConsolePostRenderCalls++;
+		}
 	}
 	catch (...)
 	{

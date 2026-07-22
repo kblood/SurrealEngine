@@ -80,12 +80,21 @@ bool RenderSubsystem::DrawGameInternal(float levelTimeElapsed, bool layeredStere
 	if (!layeredStereo)
 		PreRender();
 
-	if (engine->LaunchInfo.ue1Version <= 219 || engine->console->bNoDrawWorld() == false)
+	const bool drawWorld = engine->LaunchInfo.ue1Version <= 219 || engine->console->bNoDrawWorld() == false;
+	// WebXR still needs a projection-layer frame when a full-screen console or
+	// menu suppresses the 3D world. Its player/console PostRender state is
+	// captured once and replayed to both eyes by DrawSceneWebXRViews.
+	if (xrViews)
 	{
-		bool viewsRendered = true;
-		if (xrViews)
-			viewsRendered = DrawSceneWebXRViews(xrViews, xrViewCount);
-		else if (layeredStereo)
+		if (!DrawSceneWebXRViews(xrViews, xrViewCount, drawWorld))
+		{
+			Device->Unlock(false);
+			return false;
+		}
+	}
+	else if (drawWorld)
+	{
+		if (layeredStereo)
 			DrawSceneStereoLayers();
 		else if (commandline && commandline->HasArg("", "--debugstereo"))
 			DrawSceneStereo();
@@ -97,11 +106,6 @@ bool RenderSubsystem::DrawGameInternal(float levelTimeElapsed, bool layeredStere
 			if (engine->LaunchInfo.IsDeusEx())
 				PostRenderFlash();
 			Device->EndFlash();
-		}
-		if (!viewsRendered)
-		{
-			Device->Unlock(false);
-			return false;
 		}
 	}
 

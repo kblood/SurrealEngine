@@ -94,6 +94,10 @@ struct WebXRHudDiagnostics
 	uint32_t LastFrameCapturedCommands = 0;
 	uint32_t LastFrameUnsupportedDraws = 0;
 	uint32_t LastFrameClampedViewports = 0;
+	// Player/HUD and console/menu state are each evaluated at most once. The
+	// resulting immutable primitive stream is then replayed for every eye.
+	uint32_t LastFramePlayerPostRenderCalls = 0;
+	uint32_t LastFrameConsolePostRenderCalls = 0;
 	uint32_t SelfTestMask = 0;
 	bool SelfTestPassed = false;
 };
@@ -206,7 +210,7 @@ private:
 	// See VR_IMPLEMENTATION_PLAN.md M2 step 5.
 	void DrawSceneStereo();
 	void DrawSceneStereoLayers();
-	bool DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t viewCount);
+	bool DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t viewCount, bool drawWorld);
 	bool DrawGameInternal(float levelTimeElapsed, bool layeredStereo, const WebXRSceneView* xrViews = nullptr, uint32_t xrViewCount = 0);
 
 	std::unique_ptr<LightmapTexture> CreateLightmapTexture();

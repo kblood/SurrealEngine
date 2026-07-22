@@ -29,6 +29,11 @@ namespace
 		return enabled && captured ? viewCount : 0;
 	}
 
+	uint32_t ExpectedWebXRWeaponEyePasses(bool drawWorld, uint32_t viewCount)
+	{
+		return drawWorld ? viewCount : 0;
+	}
+
 	bool ProjectWebXRHudPoint(const WebXRSceneView& view, const vec3& point, float& pixelX, float& pixelY)
 	{
 		vec4 clip = view.Projection * (view.WorldToView * vec4(point, 1.0f));
@@ -238,13 +243,14 @@ void RenderSubsystem::DrawSceneStereoLayers()
 	}
 }
 
-bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t viewCount)
+bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t viewCount, bool drawWorld)
 {
-	if (!views || viewCount == 0 || !PrepareSceneViews())
+	if (!views || viewCount == 0 || (drawWorld && !PrepareSceneViews()))
 		return false;
 
 	WebXRWeaponOverlayStats.Frames++;
-	WebXRWeaponOverlayStats.LastFrameExpectedEyePasses = viewCount;
+	WebXRWeaponOverlayStats.LastFrameExpectedEyePasses =
+		ExpectedWebXRWeaponEyePasses(drawWorld, viewCount);
 	WebXRWeaponOverlayStats.LastFrameEyePasses = 0;
 	WebXRWeaponOverlayStats.LastFrameWeaponCalls = 0;
 	WebXRHudStats.Frames++;
@@ -254,6 +260,8 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 	WebXRHudStats.LastFrameCapturedCommands = 0;
 	WebXRHudStats.LastFrameUnsupportedDraws = 0;
 	WebXRHudStats.LastFrameClampedViewports = 0;
+	WebXRHudStats.LastFramePlayerPostRenderCalls = 0;
+	WebXRHudStats.LastFrameConsolePostRenderCalls = 0;
 	// Disabling the HUD suppresses both the single script-state update and all
 	// per-eye replay. World and weapon rendering below remain unconditional.
 	const bool hudCaptureEnabled = ShouldCaptureWebXRHud(WebXRHudSettings);
@@ -270,22 +278,25 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 			view.ViewportX, view.ViewportY, view.ViewportWidth, view.ViewportHeight))
 			return false;
 
-		ViewportOverride viewport;
-		viewport.XB = 0;
-		viewport.YB = 0;
-		viewport.X = view.ViewportWidth;
-		viewport.Y = view.ViewportHeight;
-		viewport.Projection = &view.Projection;
-		DrawSceneView(view.Location, view.WorldToView, view.ViewRotation, &viewport);
-
-		// Restore only the first-person weapon here. The full player/HUD/menu
-		// overlay lifecycle remains a single, separate M9 concern.
-		WebXRWeaponOverlayStats.EyePasses++;
-		WebXRWeaponOverlayStats.LastFrameEyePasses++;
-		if (RenderWebXRWeaponOverlay())
+		if (drawWorld)
 		{
-			WebXRWeaponOverlayStats.WeaponCalls++;
-			WebXRWeaponOverlayStats.LastFrameWeaponCalls++;
+			ViewportOverride viewport;
+			viewport.XB = 0;
+			viewport.YB = 0;
+			viewport.X = view.ViewportWidth;
+			viewport.Y = view.ViewportHeight;
+			viewport.Projection = &view.Projection;
+			DrawSceneView(view.Location, view.WorldToView, view.ViewRotation, &viewport);
+
+			// Restore only the first-person weapon here. HUD/console/menu state was
+			// captured once above and remains replay-only for this eye.
+			WebXRWeaponOverlayStats.EyePasses++;
+			WebXRWeaponOverlayStats.LastFrameEyePasses++;
+			if (RenderWebXRWeaponOverlay())
+			{
+				WebXRWeaponOverlayStats.WeaponCalls++;
+				WebXRWeaponOverlayStats.LastFrameWeaponCalls++;
+			}
 		}
 
 		// Replay while this eye's render pass is still selected. Re-selecting an
@@ -390,7 +401,10 @@ uint32_t RenderSubsystem::RunWebXRHudSelfTest()
 	uint32_t mask = 0;
 	const uint32_t presentUpdates = 1;
 	const uint32_t presentEyes = 2;
-	if (presentUpdates == 1 && presentEyes == 2)
+	const uint32_t menuOnlyWeaponEyes = ExpectedWebXRWeaponEyePasses(false, 2);
+	const uint32_t menuOnlyUiEyes = ExpectedWebXRHudEyePresentations(true, true, 2);
+	if (presentUpdates == 1 && presentEyes == 2 &&
+		menuOnlyWeaponEyes == 0 && menuOnlyUiEyes == 2)
 		mask |= WebXRHudSelfTestSingleUpdateStereoPresentation;
 	const uint32_t absentUpdates = 0;
 	const uint32_t absentEyes = 0;
