@@ -15,6 +15,8 @@ design and its per-weapon fixture matrix are maintained in
 `WEBXR_MUZZLE_ORIGIN_PLAN.md`; the repeatable desktop/IWER profiling workflow
 is maintained in `WEBXR_PERFORMANCE_HARNESS.md`; and the exact physical PC
 Brave/Virtual Desktop route is maintained in `WEBXR_BRAVE_VDXR_TEST_MATRIX.md`.
+The conservative package-qualified two-hand state/orientation design is in
+`WEBXR_TWO_HAND_IMPLEMENTATION_PLAN.md`.
 
 ## 1. Product definition and non-negotiable constraints
 
@@ -1382,7 +1384,7 @@ tests.
 | M0/M6 platform | Native Quest `XRGPUBinding` session, projection layer, real subimages, compositor output, and five-minute stability | Supported Quest Browser/Chromium build, declared flag policy, physical headset |
 | M7 tracking | Physical eye order, scale, parallax, recursive-scene, tracking-jump, seated/standing, collision-independence, and ten-minute comfort gates | Marker map, representative maps, headset report with browser/runtime versions |
 | M8 locomotion | Dedicated safe-exit UX, controller-profile verification, and hardware tuning for implemented body/head/dominant-hand movement plus recenter/menu actions; the strict browser settings profile is implemented | Real Quest input sources and headset tuning |
-| M8 weapon | Hardware-qualified viewmodel offsets/scale, verified muzzle/fire origin, dominant-hand UI, two-hand policy, guided-warhead policy, and automatic/special-weapon fixtures | The exact visual-only controller-position seam, immutable package/class schema, zero-offset fallback, and a deterministic loaded stock ShockRifle/DrawActor fixture are implemented. `WEBXR_MUZZLE_ORIGIN_PLAN.md` defines the audited result-aware trace/spawn design; remaining work needs calibrated authoritative data, its firing fixtures, obstruction policy, WebGPU mesh inspection, and headset/barrel alignment tests |
+| M8 weapon | Hardware-qualified viewmodel offsets/scale, verified muzzle/fire origin, dominant-hand UI, two-hand implementation, guided-warhead policy, and automatic/special-weapon fixtures | The exact visual-only controller-position seam, immutable package/class schema, zero-offset fallback, and a deterministic loaded stock ShockRifle/DrawActor fixture are implemented. `WEBXR_MUZZLE_ORIGIN_PLAN.md` defines the audited result-aware trace/spawn design and `WEBXR_TWO_HAND_IMPLEMENTATION_PLAN.md` fixes the conservative two-hand state/basis/fixture contract; remaining work needs their code, calibrated data, obstruction policy, WebGPU mesh inspection, and headset alignment tests |
 | M8 haptics | Per-weapon tuning, hooks for direct health/custom pickup paths that bypass audited calls, and physical latency/source-loss tests; confirmed fire/damage/pickup/UI outcomes and persisted enable UI are implemented | Representative mods/weapons and real actuator hardware |
 | M8 networking | **MVP decision complete:** offline/single-player/local-bot browser release; multiplayer and independent hand-aim replication are explicitly unsupported | Reopen only after a qualified native replication layer plus browser relay/protocol project; stock body/view rotation is insufficient |
 | M9 UI/comfort | Physically validate capture-once console/menu, UI-only frames, dominant-hand cursor ray, safe menu-gated trigger, and focus navigation; add pointer-loss UX and unsupported actor draws; finish readable scale, weapon placement tuning, vignette/comfort policies, recenter, and loading/pause presentation | Actor-draw strategy, per-eye headset inspection, 30-minute comfort session |
