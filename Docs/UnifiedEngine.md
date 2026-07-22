@@ -110,35 +110,39 @@ persistence, migration, and bootstrap checks plus flat and WebGPU no-data
 import-gate smokes. Their XR symbol/path audits returned no implementation
 matches.
 
-Runtime multi-view rendering still needs a stereo diagnostic/provider. Render
-target/layer selection is intentionally deferred to a backend interface, and
-the policy for per-eye weapons plus captured/replayed UI is not yet defined.
+Native OpenXR and browser WebXR providers now exercise the shared multi-view
+and presentation-target contracts. Their remaining release gates are physical
+headset validation and the policy for controller input, per-eye weapons, and
+captured/replayed UI.
 
 ## Active extraction lanes
 
-- Web: flat WASM/WebGPU plus browser-side legal data import and mutable
-  persistence are extracted with no WebXR requirement. A separate WebXR
-  session/view provider is now being reconstructed on the shared contracts.
+- Web: flat WASM/WebGPU, legal local data import, per-game persistence, and a
+  UT99/Unreal Gold game-library launcher are extracted with no WebXR
+  requirement. The WebXR provider composes with that launcher only on the
+  integration target.
 - Deus Ex: generic actor movement and property serialization plus the first
-  game-owned tokenizer/paging module are extracted; next are AI perception and
-  save/package slices.
+  game-owned tokenizer/paging and pure AI-perception modules are extracted;
+  next are save/package slices and native behavior registration.
 - Bots: deterministic runtime, bounded headless lifecycle, and the first
-  controlled bot driver are extracted; next are display-free bootstrap,
-  telemetry/fixtures, and then evidence-backed behavior fixes.
+  controlled bot driver plus bounded deterministic telemetry are extracted;
+  next are controlled fixtures and evidence-backed behavior fixes.
 - XR: presentation layers, opaque target binding, and per-view target selection
-  are explicit. Native OpenXR and WebXR provider skeletons are being extracted
-  in parallel; controller input and game/menu policy remain later topics.
+  are explicit. Native OpenXR and WebXR provider skeletons are integrated, and
+  OpenXR semantic controller input composes through independent sources.
+  WebXR input plus shared game/menu policy remain separate topics.
 
 ## Next integration gates
 
-1. Validate native OpenXR and WebXR providers against the same target-binding
-   and per-view selection seam while preserving desktop and flat WebGPU.
-2. Add input-source lifecycle tests for disconnect, WebXR exit/re-entry, and
-   simultaneous mouse/controller use.
+1. Validate the WebXR WebGPU projection layer on Quest hardware and the native
+   OpenXR controller lifecycle on a physical headset.
+2. Add the WebXR input adapter, then converge both providers on common
+   head/aim/grip spaces without changing keyboard or mouse ownership.
 3. Define captured/replayed UI behavior for HUD, menu, intro/cinematics, and
    loading. Menu and cinematic surfaces must render after the world and remain
    pointer-addressable.
-4. Integrate each extraction topic only after its standalone build and tests
-   pass.
+4. Package the same shared browser launcher for flat and WebXR deployments;
+   publish it under `/webxr/Ports/SurrealEngine/` only after the runtime and
+   legal-data gates pass. Electron remains an optional flat wrapper.
 5. Run the native flat, native OpenXR, flat WebGPU, WebXR, Deus Ex, Unreal Gold,
    and deterministic-bot regression matrix before retiring any old worktree.

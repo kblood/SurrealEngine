@@ -32,6 +32,11 @@
 		return root.Module.ccall(name, returnType, argumentTypes || [], args || []);
 	}
 
+	function webGPUDevice() {
+		return root.surrealWebGPUDevice ||
+			(root.Module && root.Module.preinitializedWebGPUDevice) || null;
+	}
+
 	function setEngineLoop(active) {
 		return moduleCall("Surreal_SetXRFrameLoopActive", "number", ["number"], [active ? 1 : 0]) === 1;
 	}
@@ -176,7 +181,7 @@
 		let preflightError = null;
 		if (!root.navigator || !root.navigator.xr) preflightError = "WebXR is unavailable";
 		else if (typeof root.XRGPUBinding !== "function") preflightError = "XRGPUBinding is unavailable";
-		else if (!root.surrealWebGPUDevice) preflightError = "SurrealEngine WebGPU device is not ready";
+		else if (!webGPUDevice()) preflightError = "SurrealEngine WebGPU device is not ready";
 		if (preflightError) {
 			status.phase = "error";
 			status.lastError = preflightError;
@@ -203,7 +208,7 @@
 			}
 			session = requestedSession;
 			session.addEventListener("end", function () { finish(generation, "ended", null); });
-			binding = new root.XRGPUBinding(session, root.surrealWebGPUDevice);
+			binding = new root.XRGPUBinding(session, webGPUDevice());
 			const projectionFormat = binding.getPreferredColorFormat();
 			if (!root.surrealXRIsColorFormatSupported(projectionFormat))
 				throw new Error("unsupported WebXR projection color format: " + projectionFormat);

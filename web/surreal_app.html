@@ -52,16 +52,32 @@
 const logLines = [];
 const logElement = document.getElementById("log");
 function log(line) { logLines.push(String(line)); logElement.textContent += line + "\n"; }
-SurrealBrowserApp.start({
+function loadScript(path) {
+	return new Promise((resolve, reject) => {
+		const script = document.createElement("script");
+		script.src = path;
+		script.onload = resolve;
+		script.onerror = () => reject(new Error("Could not load " + path));
+		document.head.appendChild(script);
+	});
+}
+async function presentationProviders() {
+	if (new URLSearchParams(location.search).get("webxr") !== "1") return [];
+	await loadScript("webxr_provider.js");
+	await loadScript("webxr_browser_app_adapter.js");
+	return [SurrealWebXRBrowserProvider.createProvider()];
+}
+presentationProviders().then(providers => SurrealBrowserApp.start({
 	canvas: document.getElementById("game"),
 	importerRoot: document.getElementById("game-data-importer"),
 	launcherRoot: document.getElementById("game-launcher"),
 	libraryRoot: document.getElementById("game-library"),
 	hostBridge: window.SurrealHostBridge,
+	presentationProviders: providers,
 	log,
 	logSnapshot: () => logLines.join("\n") + "\n",
 	onLaunch: selection => { window.surrealBooted = true; window.surrealLaunchSelection = selection; },
-}).then(app => { window.surrealApp = app; }).catch(error => log("[launcher] " + (error.stack || error)));
+})).then(app => { window.surrealApp = app; }).catch(error => log("[launcher] " + (error.stack || error)));
 </script>
 </body>
 </html>

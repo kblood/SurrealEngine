@@ -133,3 +133,13 @@ The current skeleton renders the world layer only. Weapon, UI, menu, and
 cinematic layers are disabled intentionally until their shared presentation
 policies are defined. Browser audio remains the flat platform's null backend.
 Controller input and tracked-hand visuals are not part of this branch.
+
+## Shared browser launcher composition
+
+The integration branch composes this provider with the XR-neutral browser app
+through `web/webxr_browser_app_adapter.js`. `web/surreal_app.html` is the shared
+game library for both targets: the flat target uses it directly, while the
+WebXR target opens `surreal_app.html?webxr=1`. The adapter activates WebXR only
+after the shared launcher has validated local game data, selected a safe map,
+and started the native engine. Exiting or failing the session leaves that same
+flat application running.

@@ -34,7 +34,7 @@ Acceptance requires standalone Release builds, focused tests or diagnostics,
 clean topic worktrees, combined native build/tests, and an Emscripten link when
 the changed engine surface is compiled for the web.
 
-## Wave 3: current provider and deployment extraction
+## Wave 3: completed provider, launcher, and deployment extraction
 
 Start only after the presentation topic is reviewed:
 
@@ -43,6 +43,9 @@ Start only after the presentation topic is reviewed:
 | Native OpenXR provider | frame, view, presentation | `vr-m2` through the real session/swapchain/frame-loop and per-eye pose commits | OpenXR session, swapchains, and view/target translation; exclude controller input, UT weapons, and menu policy |
 | WebXR provider | web platform, frame, view, presentation | `webxr-m1` session, packed frame/view bridge, lifecycle, pose and projection commits | browser session lifecycle and provider translation; exclude controller input and retain flat WebGPU fallback |
 | Browser data/persistence | web platform only | importer, mutable-data persistence, PWA and recovery commits in `webxr-m1` | legal local data import, IndexedDB/OPFS persistence, recovery and schema migration; no XR requirement |
+| Shared browser launcher | browser data/persistence | clean-room launcher and release-shell evidence | UT99/Unreal Gold library, safe map/renderer/presentation selection, browser/Electron host boundary; no XR requirement |
+| OpenXR input adapter | OpenXR provider, input composition | native action/pose subset from `vr-m2` | independent left/right semantic sources; no weapon, locomotion, or menu policy |
+| Bot telemetry | bot benchmark driver | deterministic benchmark output requirements | immutable manifest and bounded JSONL evidence without behavior changes |
 
 Provider branches may be staged on temporary composed bases for validation, but
 their own commits must remain limited to the declared provider. OpenXR and
@@ -55,26 +58,23 @@ separate provider-adapter topics and must use `InputComposition`.
 The root keeps the next work dependency-ordered so the first available agent
 can start useful work immediately:
 
-1. `pr/deus-ex-ai-perception`: replay only the pure visibility, hearing, and
-   attitude calculations from source commit `e7ff4b05`, with synthetic tests;
-   keep native registration as a separate follow-up.
-2. `pr/bot-benchmark-telemetry`: add an immutable run manifest and bounded,
-   versioned telemetry records on top of `pr/bot-benchmark-driver`; do not
-   change bot behavior or copy captured commercial-game data.
-3. `pr/openxr-input-adapter`: after the native provider is reviewed, translate
-   OpenXR actions and poses into independently owned `InputComposition`
-   sources; no weapon or menu policy.
-4. `pr/webxr-input-adapter`: after the web provider is reviewed, translate the
+1. `pr/webxr-input-adapter`: translate the
    browser controller snapshot into the same controls and pose contract while
    retaining mouse/keyboard and flat mode.
-5. `pr/xr-common-spaces`: only after both providers are integrated, define the
+2. `pr/xr-common-spaces`: define the
    shared head/aim/grip spaces, lifecycle state, pointer hit result, and haptic
    event interface consumed by both adapters.
+3. `pr/xr-ui-surfaces`: capture and replay menu, HUD, intro/cinematics, and
+   loading after the world, with mouse plus tracked-pointer input.
+4. `pr/deus-ex-save-package`: continue save/game-directory and package/source
+   preservation without depending on XR.
+5. `pr/bot-controlled-fixtures`: use the new manifest/telemetry protocol to
+   produce bounded synthetic reachability, collision, damage, and death tests
+   before proposing behavior changes.
 
-Items 1 and 2 are independent of Wave 3 and therefore take the first two freed
-slots. Items 3 and 4 deliberately wait for provider review so their branches
-do not encode an unstable session API. Item 5 waits for evidence from both
-providers rather than favoring the shape of either implementation.
+Items 1, 4, and 5 can run independently. Item 2 follows evidence from both
+provider adapters, and item 3 consumes the resulting shared pointer and layer
+contracts rather than embedding either provider API.
 
 ## Wave 4: shared XR behavior and game profiles
 
