@@ -1,6 +1,7 @@
 /.vs
 /Build
 /build
+/build-*/
 *.user
 .vscode
 *.internal

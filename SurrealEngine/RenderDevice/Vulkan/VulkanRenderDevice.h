@@ -12,6 +12,7 @@
 #include "ShaderManager.h"
 #include "TextureManager.h"
 #include "UploadManager.h"
+#include "VulkanGraphicsBinding.h"
 #include "Math/vec.h"
 #include "Math/mat.h"
 
@@ -20,7 +21,7 @@ class CachedTexture;
 class VulkanRenderDevice : public RenderDevice
 {
 public:
-	VulkanRenderDevice(Widget* viewport);
+	VulkanRenderDevice(Widget* viewport, VulkanGraphicsBinding* graphicsBinding = nullptr);
 	~VulkanRenderDevice();
 
 	void Flush(bool AllowPrecache) override;
@@ -44,6 +45,10 @@ public:
 
 	bool SupportsTextureFormat(TextureFormat Format) override;
 	void UpdateTextureRect(FTextureInfo& Info, int U, int V, int UL, int VL) override;
+	bool BeginPresentationLayer(const PresentationLayerDescription& layer) override;
+	bool BindPresentationTarget(const PresentationTargetBinding& binding) override;
+	void UnbindPresentationTarget(PresentationTarget target) override;
+	bool BeginPresentationView(PresentationTarget target, size_t viewIndex) override;
 
 	std::shared_ptr<VulkanDevice> Device;
 
@@ -91,6 +96,8 @@ public:
 	}
 
 private:
+	static constexpr uint32_t ExternalStereoTargetSlot = 1;
+	void BlitPresentationTarget(VulkanCommandBuffer* cmdbuffer, VkImage windowImage);
 	void ClearTextureCache();
 	void BlitSceneToPostprocess();
 
@@ -125,6 +132,10 @@ private:
 	}
 
 	VkViewport viewportdesc = {};
+	VkImage PresentationImages[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+	int PresentationWidth = 0;
+	int PresentationHeight = 0;
+	bool PresentExternalStereo = false;
 
 	bool UsePrecache = true;
 	vec4 FlashScale;

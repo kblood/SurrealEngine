@@ -2,6 +2,19 @@ cmake_minimum_required(VERSION 3.15)
 
 project(SurrealEngine)
 
+option(SURREAL_ENABLE_OPENXR "Build the optional native OpenXR Vulkan provider" OFF)
+if(SURREAL_ENABLE_OPENXR)
+	include(FetchContent)
+	set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+	set(BUILD_API_LAYERS OFF CACHE BOOL "" FORCE)
+	set(BUILD_CONFORMANCE_TESTS OFF CACHE BOOL "" FORCE)
+	FetchContent_Declare(openxr
+		GIT_REPOSITORY https://github.com/KhronosGroup/OpenXR-SDK.git
+		GIT_TAG release-1.0.34
+	)
+	FetchContent_MakeAvailable(openxr)
+endif()
+
 add_subdirectory(Thirdparty/openmpt)
 add_subdirectory(SurrealGPU)
 add_subdirectory(SurrealWidgets)
@@ -110,6 +123,10 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Render/ViewFamily.h
 	SurrealEngine/Render/ViewFamily.cpp
 	SurrealEngine/Render/Presentation.h
+	SurrealEngine/Platform/OpenXR/OpenXRProvider.cpp
+	SurrealEngine/Platform/OpenXR/OpenXRProvider.h
+	SurrealEngine/Platform/OpenXR/OpenXRView.cpp
+	SurrealEngine/Platform/OpenXR/OpenXRView.h
 	SurrealEngine/Render/VisibleMesh.cpp
 	SurrealEngine/Render/VisibleMesh.h
 	SurrealEngine/Render/VisibleNode.cpp
@@ -318,6 +335,7 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/RenderDevice/Vulkan/UploadManager.h
 	SurrealEngine/RenderDevice/Vulkan/VulkanRenderDevice.cpp
 	SurrealEngine/RenderDevice/Vulkan/VulkanRenderDevice.h
+	SurrealEngine/RenderDevice/Vulkan/VulkanGraphicsBinding.h
 	SurrealEngine/Package/Package.cpp
 	SurrealEngine/Package/Package.h
 	SurrealEngine/Package/PackageManager.cpp
@@ -720,6 +738,10 @@ set_target_properties(SurrealVideo PROPERTIES C_STANDARD 17)
 add_library(SurrealCommon STATIC ${SURREALCOMMON_SOURCES} ${THIRDPARTY_SOURCES})
 set_target_properties(SurrealCommon PROPERTIES CXX_STANDARD 20)
 target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Precomp.h>)
+if(SURREAL_ENABLE_OPENXR)
+	target_compile_definitions(SurrealCommon PRIVATE SURREAL_ENABLE_OPENXR)
+	target_link_libraries(SurrealCommon openxr_loader)
+endif()
 
 add_executable(SurrealEngine WIN32 MACOSX_BUNDLE ${SURREALENGINE_SOURCES})
 target_link_libraries(SurrealEngine SurrealCommon ${SURREALCOMMON_LIBS})
@@ -760,4 +782,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PresentationTests PRIVATE SurrealEngine)
 	set_target_properties(PresentationTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PresentationTests COMMAND PresentationTests)
+
+	add_executable(OpenXRViewTests
+		Tests/OpenXRViewTests.cpp
+		SurrealEngine/Platform/OpenXR/OpenXRView.cpp
+		SurrealEngine/Render/ViewFamily.cpp
+		SurrealEngine/Math/mat.cpp
+	)
+	target_include_directories(OpenXRViewTests PRIVATE SurrealEngine)
+	set_target_properties(OpenXRViewTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME OpenXRViewTests COMMAND OpenXRViewTests)
 endif()

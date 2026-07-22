@@ -6,6 +6,7 @@
 #include "Math/floating.h"
 #include "RenderDevice/RenderDevice.h"
 #include "Render/ViewFamily.h"
+#include "Platform/OpenXR/OpenXRView.h"
 #include "GameWindow.h"
 #include "UObject/UActor.h"
 #include "UObject/UnrealURL.h"
@@ -53,6 +54,7 @@ class Rotator;
 class ExpressionValue;
 class UnrealURL;
 class VideoPlayer;
+class OpenXRProvider;
 class UnrealMipmap;
 class UFloatProperty;
 class UObjectProperty;
@@ -188,6 +190,8 @@ public:
 	std::unique_ptr<PackageManager> packages;
 	std::unique_ptr<GameWindow> window; // TODO: Move into UViewport
 	std::unique_ptr<RenderSubsystem> render;
+	std::unique_ptr<OpenXRProvider> openXR;
+	OpenXRViewTranslator openXRViews;
 
 	int MouseMoveX = 0;
 	int MouseMoveY = 0;

@@ -4,6 +4,8 @@
 #include "Utils/File.h"
 #include "Utils/StrTools.h"
 #include "Utils/SHA1Sum.h"
+#include "Utils/CommandLine.h"
+#include "Platform/OpenXR/OpenXRProvider.h"
 #include "Render/RenderSubsystem.h"
 #include "Package/PackageManager.h"
 #include "Package/ObjectStream.h"
@@ -91,11 +93,25 @@ void Engine::Run()
 	LoadKeybindings();
 	LogMessage("Loaded key bindings");
 	LogGamePackageSHA1Sums();
+	if (commandline && commandline->HasArg("", "--openxr"))
+	{
+		openXR = std::make_unique<OpenXRProvider>();
+		if (!openXR->IsAvailable())
+		{
+			LogMessage("OpenXR is unavailable: " + openXR->LastError() + "; continuing in desktop mode");
+			openXR.reset();
+		}
+	}
 
 	OpenWindow();
 
 	audiodev->InitDevice();
 	render = std::make_unique<RenderSubsystem>(window->GetRenderDevice());
+	if (openXR && !openXR->IsSessionReady())
+	{
+		LogMessage("OpenXR did not bind to the selected renderer; continuing in desktop mode");
+		openXR.reset();
+	}
 
 	if (engine->LaunchInfo.ue1Version > 219 && !client->StartupFullscreen)
 		viewport->bWindowsMouseAvailable() = true;
@@ -139,13 +155,63 @@ void Engine::Run()
 	packages->SaveAllIniFiles();
 
 	LogMessage("Closing window...");
+	openXR.reset();
 	CloseWindow();
 }
 
 void Engine::RunOneFrame()
 {
 	const float levelElapsed = AdvanceGameFrame();
-	RenderGameFrame(levelElapsed);
+	viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
+	ViewFamily viewFamily = CreateDesktopViewFamily();
+	OpenXREyeView eyes[2];
+	bool xrFrameBegun = false;
+	bool submitXRLayer = false;
+	bool acquired[2] = { false, false };
+
+	if (openXR && openXR->IsSessionReady())
+	{
+		if (!openXR->PollEvents())
+		{
+			LogMessage("OpenXR session stopped; continuing in desktop mode");
+			openXR.reset();
+		}
+		else if (openXR->IsSessionRunning())
+		{
+			bool shouldRender = false;
+			xrFrameBegun = openXR->WaitBeginAndLocate(shouldRender, eyes);
+			if (xrFrameBegun && shouldRender)
+			{
+				void* images[2] = { openXR->AcquireSwapchainImage(0), openXR->AcquireSwapchainImage(1) };
+				acquired[0] = images[0] != nullptr;
+				acquired[1] = images[1] != nullptr;
+				PresentationTarget target{ OpenXRProvider::ProjectionTargetSlot };
+				PresentationTargetBinding binding;
+				binding.Target = target;
+				for (void* image : images)
+					binding.Images.push_back({ image, openXR->SwapchainWidth(), openXR->SwapchainHeight() });
+				ViewRect output{ viewport->ViewportX(), viewport->ViewportY(), viewport->ViewportWidth(), viewport->ViewportHeight() };
+				ViewFamily xrViews = openXRViews.CreateViewFamily(eyes, CameraLocation, CameraRotation, output);
+				if (xrViews.Views.size() == 2 && render->Device->BindPresentationTarget(binding))
+				{
+					xrViews.Presentation.SetLayer(PresentationLayer::World, target);
+					viewFamily = std::move(xrViews);
+					submitXRLayer = true;
+				}
+			}
+		}
+	}
+
+	RenderGameFrame(levelElapsed, viewFamily);
+	if (xrFrameBegun)
+	{
+		for (int eye = 0; eye < 2; eye++)
+		{
+			if (acquired[eye])
+				openXR->ReleaseSwapchainImage(eye);
+		}
+		openXR->EndFrame(submitXRLayer, eyes);
+	}
 	FinishGameFrame(levelElapsed);
 }
 
@@ -1544,7 +1610,7 @@ void Engine::UpdateInput(float timeElapsed)
 void Engine::OpenWindow()
 {
 	if (!window)
-		window = GameWindow::Create(this);
+		window = GameWindow::Create(this, openXR.get());
 
 	int width = client->StartupFullscreen ? client->FullscreenViewportX : client->WindowedViewportX;
 	int height = client->StartupFullscreen ? client->FullscreenViewportY : client->WindowedViewportY;

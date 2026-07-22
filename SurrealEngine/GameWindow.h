@@ -6,6 +6,7 @@
 
 class Engine;
 class RenderDevice;
+class VulkanGraphicsBinding;
 
 enum EInputKey
 {
@@ -107,9 +108,9 @@ public:
 class GameWindow : public Widget
 {
 public:
-	static std::unique_ptr<GameWindow> Create(GameWindowHost* windowHost);
+	static std::unique_ptr<GameWindow> Create(GameWindowHost* windowHost, VulkanGraphicsBinding* vulkanBinding = nullptr);
 
-	GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI);
+	GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI, VulkanGraphicsBinding* vulkanBinding = nullptr);
 
 	static void ProcessEvents();
 	static void RunLoop();
