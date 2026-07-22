@@ -1,5 +1,6 @@
 #include "Precomp.h"
 #include "WebXRFrameBridge.h"
+#include "WebXRInputState.h"
 
 #include "Engine.h"
 #include "Render/RenderSubsystem.h"
@@ -19,7 +20,8 @@ namespace
 		FrameTextureUnavailable = 3,
 		FrameRenderDeviceUnavailable = 4,
 		FrameExternalTargetRejected = 5,
-		FrameRenderFailed = 6
+		FrameRenderFailed = 6,
+		FrameInvalidInput = 7
 	};
 
 	int LastFrameError = FrameOK;
@@ -106,8 +108,27 @@ namespace
 		return true;
 	}
 
+	bool IsValidQuaternion(const float* orientation)
+	{
+		const float lengthSquared =
+			orientation[0] * orientation[0] + orientation[1] * orientation[1] +
+			orientation[2] * orientation[2] + orientation[3] * orientation[3];
+		return std::isfinite(lengthSquared) && lengthSquared >= 0.000001f;
+	}
+
+	bool IsInRange(const float* values, size_t count, float minimum, float maximum)
+	{
+		for (size_t index = 0; index < count; index++)
+		{
+			if (!std::isfinite(values[index]) || values[index] < minimum || values[index] > maximum)
+				return false;
+		}
+		return true;
+	}
+
 	bool DecodeFrame(const void* frameData, uint32_t bufferBytes, WebXRFrameABI::FrameHeader& header,
-		std::array<WebXRFrameABI::View, WebXRFrameABI::MaxViews>& views)
+		std::array<WebXRFrameABI::View, WebXRFrameABI::MaxViews>& views,
+		std::array<WebXRFrameABI::Controller, WebXRFrameABI::MaxInputSources>& controllers)
 	{
 		if (!frameData || bufferBytes < sizeof(WebXRFrameABI::FrameHeader))
 		{
@@ -118,8 +139,11 @@ namespace
 		std::memcpy(&header, frameData, sizeof(header));
 		if (header.version != WebXRFrameABI::Version || header.flags != WebXRFrameABI::KnownFlags ||
 			header.viewCount == 0 || header.viewCount > WebXRFrameABI::MaxViews ||
+			header.inputSourceCount > WebXRFrameABI::MaxInputSources ||
 			header.byteSize != bufferBytes ||
-			header.byteSize != sizeof(header) + header.viewCount * sizeof(WebXRFrameABI::View) ||
+			header.inputOffset != sizeof(header) + header.viewCount * sizeof(WebXRFrameABI::View) ||
+			header.byteSize != header.inputOffset + header.inputSourceCount * sizeof(WebXRFrameABI::Controller) ||
+			header.byteSize > WebXRFrameABI::MaxPacketBytes ||
 			header.textureWidth == 0 || header.textureHeight == 0 || !std::isfinite(header.timestamp))
 		{
 			LastFrameError = FrameInvalidHeader;
@@ -145,18 +169,78 @@ namespace
 				return false;
 			}
 
-			const float orientationLengthSquared =
-				view.orientation[0] * view.orientation[0] + view.orientation[1] * view.orientation[1] +
-				view.orientation[2] * view.orientation[2] + view.orientation[3] * view.orientation[3];
-			if (!std::isfinite(orientationLengthSquared) || orientationLengthSquared < 0.000001f)
+			if (!IsValidQuaternion(view.orientation))
 			{
 				LastFrameError = FrameInvalidView;
 				return false;
 			}
 		}
 
+		const uint8_t* inputBytes = static_cast<const uint8_t*>(frameData) + header.inputOffset;
+		for (uint32_t index = 0; index < header.inputSourceCount; index++)
+		{
+			WebXRFrameABI::Controller& controller = controllers[index];
+			std::memcpy(&controller, inputBytes + index * sizeof(controller), sizeof(controller));
+			const bool connected = (controller.flags & WebXRConnected) != 0;
+			if (controller.handedness > WebXRHandRight ||
+				(controller.flags & ~WebXRFrameABI::KnownControllerFlags) != 0 ||
+				controller.reserved != 0 ||
+				(controller.buttonsPressed & ~0xffu) != 0 ||
+				(controller.buttonsTouched & ~0xffu) != 0 ||
+				!IsInRange(controller.axes, 4, -1.0f, 1.0f) ||
+				!IsInRange(controller.buttonValues, 8, 0.0f, 1.0f) ||
+				!IsFiniteArray(controller.gripPosition, 3) ||
+				!IsFiniteArray(controller.gripOrientation, 4) ||
+				!IsFiniteArray(controller.aimPosition, 3) ||
+				!IsFiniteArray(controller.aimOrientation, 4) ||
+				((controller.flags & WebXRGripValid) && !IsValidQuaternion(controller.gripOrientation)) ||
+				((controller.flags & WebXRAimValid) && !IsValidQuaternion(controller.aimOrientation)))
+			{
+				LastFrameError = FrameInvalidInput;
+				return false;
+			}
+
+			// A disconnected record is accepted so the producer can explicitly
+			// retire a source; publishing normalizes it to a completely empty slot.
+			// Connected source IDs must remain unambiguous within the frame.
+			if (connected)
+			{
+				for (uint32_t previous = 0; previous < index; previous++)
+				{
+					if ((controllers[previous].flags & WebXRConnected) &&
+						controllers[previous].sourceId == controller.sourceId)
+					{
+						LastFrameError = FrameInvalidInput;
+						return false;
+					}
+				}
+			}
+		}
+
 		LastFrameError = FrameOK;
 		return true;
+	}
+
+	void BuildInputSnapshot(const WebXRFrameABI::FrameHeader& header,
+		const std::array<WebXRFrameABI::Controller, WebXRFrameABI::MaxInputSources>& packedControllers,
+		std::array<WebXRControllerState, WebXRFrameABI::MaxInputSources>& controllers)
+	{
+		for (uint32_t index = 0; index < header.inputSourceCount; index++)
+		{
+			const WebXRFrameABI::Controller& source = packedControllers[index];
+			WebXRControllerState& target = controllers[index];
+			target.SourceId = source.sourceId;
+			target.Handedness = source.handedness;
+			target.Flags = source.flags;
+			target.ButtonsPressed = source.buttonsPressed;
+			target.ButtonsTouched = source.buttonsTouched;
+			std::memcpy(target.Axes, source.axes, sizeof(target.Axes));
+			std::memcpy(target.ButtonValues, source.buttonValues, sizeof(target.ButtonValues));
+			std::memcpy(target.GripPose.Position, source.gripPosition, sizeof(target.GripPose.Position));
+			std::memcpy(target.GripPose.Orientation, source.gripOrientation, sizeof(target.GripPose.Orientation));
+			std::memcpy(target.AimPose.Position, source.aimPosition, sizeof(target.AimPose.Position));
+			std::memcpy(target.AimPose.Orientation, source.aimOrientation, sizeof(target.AimPose.Orientation));
+		}
 	}
 
 	void BuildSceneViews(const WebXRFrameABI::FrameHeader& header,
@@ -364,12 +448,15 @@ extern "C"
 	uint32_t Surreal_GetWebXRFrameHeaderSize() { return sizeof(WebXRFrameABI::FrameHeader); }
 	uint32_t Surreal_GetWebXRViewSize() { return sizeof(WebXRFrameABI::View); }
 	uint32_t Surreal_GetWebXRFrameMaxViews() { return WebXRFrameABI::MaxViews; }
+	uint32_t Surreal_GetWebXRInputRecordSize() { return sizeof(WebXRFrameABI::Controller); }
+	uint32_t Surreal_GetWebXRFrameMaxInputs() { return WebXRFrameABI::MaxInputSources; }
 
 	int Surreal_ValidateWebXRFrame(const void* frameData, uint32_t bufferBytes)
 	{
 		WebXRFrameABI::FrameHeader header = {};
 		std::array<WebXRFrameABI::View, WebXRFrameABI::MaxViews> views = {};
-		return DecodeFrame(frameData, bufferBytes, header, views) ? 1 : 0;
+		std::array<WebXRFrameABI::Controller, WebXRFrameABI::MaxInputSources> controllers = {};
+		return DecodeFrame(frameData, bufferBytes, header, views, controllers) ? 1 : 0;
 	}
 
 	int Surreal_GetWebXRFrameLastError() { return LastFrameError; }
@@ -383,16 +470,24 @@ extern "C"
 		return 1;
 	}
 
-	void Surreal_ResetWebXRPose() { PoseState.Valid = false; }
+	void Surreal_ResetWebXRPose()
+	{
+		PoseState.Valid = false;
+		ResetWebXRInputState();
+	}
 	uint32_t Surreal_GetWebXRPoseRecenterCount() { return PoseState.RecenterCount; }
 	uint32_t Surreal_GetWebXRPoseResetGeneration() { return PoseState.ResetGeneration; }
 	int Surreal_RunWebXRPoseMathSelfTest() { return RunPoseMathSelfTest() ? 1 : 0; }
+	uint32_t Surreal_GetWebXRInputFrameGeneration() { return static_cast<uint32_t>(GetLatestWebXRInputSnapshot().FrameGeneration); }
+	uint32_t Surreal_GetWebXRPublishedInputSourceCount() { return GetLatestWebXRInputSnapshot().SourceCount; }
+	int Surreal_RunWebXRInputStateSelfTest() { return RunWebXRInputStateSelfTest() ? 1 : 0; }
 
 	int Surreal_RenderWebXRFrame(const void* frameData, uint32_t bufferBytes)
 	{
 		WebXRFrameABI::FrameHeader header = {};
 		std::array<WebXRFrameABI::View, WebXRFrameABI::MaxViews> packedViews = {};
-		if (!DecodeFrame(frameData, bufferBytes, header, packedViews))
+		std::array<WebXRFrameABI::Controller, WebXRFrameABI::MaxInputSources> packedControllers = {};
+		if (!DecodeFrame(frameData, bufferBytes, header, packedViews, packedControllers))
 			return 0;
 
 #ifdef __EMSCRIPTEN__
@@ -434,6 +529,12 @@ extern "C"
 		}
 
 		const uint64_t tickBefore = engine->tickCount;
+		// Publish a complete replacement before UpdateInput runs inside
+		// AdvanceGameFrame. A valid zero-input packet still advances the input
+		// generation and clears both slots, producing release edges this tick.
+		std::array<WebXRControllerState, WebXRFrameABI::MaxInputSources> controllers = {};
+		BuildInputSnapshot(header, packedControllers, controllers);
+		PublishWebXRInputSnapshot(controllers.data(), header.inputSourceCount);
 		const float levelElapsed = engine->AdvanceGameFrame();
 		std::array<WebXRSceneView, WebXRFrameABI::MaxViews> sceneViews = {};
 		// AdvanceGameFrame runs PlayerCalcView first. Its resulting camera is the
