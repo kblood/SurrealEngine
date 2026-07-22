@@ -155,9 +155,8 @@
 	}
 
 	function looksLikeMemoryFailure(error) {
-		const name = safeErrorName(error);
 		const message = error && typeof error.message === "string" ? error.message : "";
-		return name === "RangeError" || /(?:out of memory|allocation failed|memory\.grow|wasm memory|oom)/i.test(message);
+		return /(?:out of memory|allocation failed|array buffer allocation|memory\.grow|wasm memory|\boom\b)/i.test(message);
 	}
 
 	function normalizeImportFailure(error, phase) {
