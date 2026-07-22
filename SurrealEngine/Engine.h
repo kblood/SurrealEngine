@@ -182,6 +182,18 @@ public:
 		vec3 LastVisualPosition = vec3(0.0f);
 	};
 
+	// Explicit browser-test fixture only. No normal engine path calls the
+	// fixture; the exported diagnostic entry point below is its sole trigger.
+	struct WebXRLoadedWeaponFixtureDiagnostics
+	{
+		uint32_t AttemptCount = 0;
+		uint32_t StockGiveWeaponCallCount = 0;
+		uint32_t StockChangedWeaponCallCount = 0;
+		bool InventoryFound = false;
+		bool Equipped = false;
+		bool Succeeded = false;
+	};
+
 	struct WebXRHapticEventDiagnostics
 	{
 		uint32_t ConfirmedOutcomeCount = 0;
@@ -343,7 +355,9 @@ public:
 	WebXRMenuNavigationDiagnostics WebXRMenuNavigation;
 	WebXRAudioListenerDiagnostics WebXRAudioListener;
 	WebXRWeaponAimDiagnostics WebXRWeaponAim;
+	WebXRLoadedWeaponFixtureDiagnostics WebXRLoadedWeaponFixture;
 	WebXRHapticDiagnostics WebXRHaptics;
+	bool RunWebXRLoadedWeaponFixture();
 
 	WebXRTurnMode GetWebXRTurnMode() const { return WebXRTurnModeSetting; }
 	WebXRMovementReference GetWebXRMovementReference() const { return WebXRMovementReferenceSetting; }

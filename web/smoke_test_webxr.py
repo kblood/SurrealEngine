@@ -299,6 +299,62 @@ def main():
             # fake-eye C++ diagnostic: JS packs two XR-shaped views, C++
             # validates/copies them, imports the shared texture synchronously,
             # advances once, and consumes each supplied layer/viewport/projection.
+            fixture_before = page.evaluate("""() => ({
+                attempts: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureAttemptCount', 'number', [], []),
+                giveWeaponCalls: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureGiveWeaponCallCount', 'number', [], []),
+                changedWeaponCalls: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureChangedWeaponCallCount', 'number', [], []),
+                visualDrawScopes: Module.ccall('Surreal_GetWebXRWeaponVisualDrawScopeCount', 'number', [], []),
+                visualDrawRestores: Module.ccall('Surreal_GetWebXRWeaponVisualDrawRestoreCount', 'number', [], []),
+                visualZeroFallbacks: Module.ccall('Surreal_GetWebXRWeaponVisualZeroFallbackCount', 'number', [], []),
+                visualRejectedTransforms: Module.ccall('Surreal_GetWebXRWeaponVisualRejectedTransformCount', 'number', [], [])
+            })""")
+            fixture_after = page.evaluate("""() => ({
+                runResult: Module.ccall('Surreal_RunWebXRLoadedWeaponFixture', 'number', [], []),
+                attempts: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureAttemptCount', 'number', [], []),
+                giveWeaponCalls: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureGiveWeaponCallCount', 'number', [], []),
+                changedWeaponCalls: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureChangedWeaponCallCount', 'number', [], []),
+                inventoryFound: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureInventoryFound', 'number', [], []),
+                equipped: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureEquipped', 'number', [], []),
+                succeeded: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureSucceeded', 'number', [], [])
+            })""")
+            print(f"[harness] M8 stock loaded-weapon fixture: before={fixture_before}, after={fixture_after}")
+            give_delta = fixture_after.get("giveWeaponCalls", -1) - fixture_before.get("giveWeaponCalls", 0)
+            changed_delta = fixture_after.get("changedWeaponCalls", -1) - fixture_before.get("changedWeaponCalls", 0)
+            if (fixture_after.get("runResult") != 1 or
+                    fixture_after.get("attempts", -1) - fixture_before.get("attempts", 0) != 1 or
+                    give_delta not in (0, 1) or changed_delta != 1 or
+                    fixture_after.get("inventoryFound") != 1 or
+                    fixture_after.get("equipped") != 1 or
+                    fixture_after.get("succeeded") != 1):
+                print("FAIL: stock Botpack.ShockRifle fixture did not enter inventory and equip through package functions")
+                sys.exit(1)
+
+            fixture_repeat = page.evaluate("""() => {
+                const before = {
+                    attempts: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureAttemptCount', 'number', [], []),
+                    giveWeaponCalls: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureGiveWeaponCallCount', 'number', [], []),
+                    changedWeaponCalls: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureChangedWeaponCallCount', 'number', [], [])
+                };
+                const runResult = Module.ccall('Surreal_RunWebXRLoadedWeaponFixture', 'number', [], []);
+                return {
+                    runResult,
+                    attemptDelta: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureAttemptCount', 'number', [], []) - before.attempts,
+                    giveWeaponDelta: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureGiveWeaponCallCount', 'number', [], []) - before.giveWeaponCalls,
+                    changedWeaponDelta: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureChangedWeaponCallCount', 'number', [], []) - before.changedWeaponCalls,
+                    equipped: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureEquipped', 'number', [], []),
+                    succeeded: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureSucceeded', 'number', [], [])
+                };
+            }""")
+            print(f"[harness] M8 repeat loaded-weapon fixture: {fixture_repeat}")
+            if (fixture_repeat.get("runResult") != 1 or
+                    fixture_repeat.get("attemptDelta") != 1 or
+                    fixture_repeat.get("giveWeaponDelta") != 0 or
+                    fixture_repeat.get("changedWeaponDelta") != 1 or
+                    fixture_repeat.get("equipped") != 1 or
+                    fixture_repeat.get("succeeded") != 1):
+                print("FAIL: repeated loaded-weapon fixture did not reuse inventory deterministically")
+                sys.exit(1)
+
             packed_result = page.evaluate("window.surrealTestPackedWebXRFrame()")
             packed_tick = page.evaluate("window.surrealGetTickCount()")
             packed_error = page.evaluate("window.surrealGetWebXRFrameLastError()")
@@ -338,6 +394,9 @@ def main():
                 aimBasis: Array.from({length: 9}, (_, index) =>
                     Module.ccall('Surreal_GetWebXRControllerWorldPoseValue', 'number',
                         ['number', 'number', 'number'], [1, 1, index + 9])),
+                gripPosition: Array.from({length: 3}, (_, index) =>
+                    Module.ccall('Surreal_GetWebXRControllerWorldPoseValue', 'number',
+                        ['number', 'number', 'number'], [1, 0, index])),
                 locomotionSelfTest: Module.ccall('Surreal_RunWebXRLocomotionSelfTest', 'number', [], []),
                 movementReference: Module.ccall('Surreal_GetWebXRMovementReference', 'number', [], []),
                 dominantHand: Module.ccall('Surreal_GetWebXRDominantHand', 'number', [], []),
@@ -348,6 +407,7 @@ def main():
             })""")
             print(f"[harness] M8 world controller-pose diagnostics: {controller_pose_diagnostics}")
             aim_basis = controller_pose_diagnostics.get("aimBasis", [])
+            grip_position = controller_pose_diagnostics.get("gripPosition", [])
             if (controller_pose_diagnostics.get("selfTest") != 1 or
                     controller_pose_diagnostics.get("locomotionSelfTest") != 1 or
                     controller_pose_diagnostics.get("dominantIndex") != 1 or
@@ -357,7 +417,8 @@ def main():
                     controller_pose_diagnostics.get("effectiveRecenter") not in range(13) or
                     controller_pose_diagnostics.get("configuredMenu") not in range(13) or
                     controller_pose_diagnostics.get("effectiveMenu") not in range(13) or
-                    len(aim_basis) != 9 or not all(math.isfinite(value) for value in aim_basis)):
+                    len(aim_basis) != 9 or not all(math.isfinite(value) for value in aim_basis) or
+                    len(grip_position) != 3 or not all(math.isfinite(value) for value in grip_position)):
                 print("FAIL: M8 controller poses were not composed or dominant hand was lost")
                 sys.exit(1)
 
@@ -387,8 +448,9 @@ def main():
 				visualRejectedTransforms: Module.ccall('Surreal_GetWebXRWeaponVisualRejectedTransformCount', 'number', [], []),
 				visualLastOffset: Array.from({length: 3}, (_, axis) =>
 					Module.ccall('Surreal_GetWebXRWeaponVisualLastGripOffsetValue', 'number', ['number'], [axis])),
-				visualLastPosition: Array.from({length: 3}, (_, axis) =>
+                visualLastPosition: Array.from({length: 3}, (_, axis) =>
 					Module.ccall('Surreal_GetWebXRWeaponVisualLastPositionValue', 'number', ['number'], [axis])),
+				fixtureEquipped: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureEquipped', 'number', [], []),
                 hapticsSelfTest: Module.ccall('Surreal_RunWebXRHapticsBridgeSelfTest', 'number', [], []),
                 gameplayHapticsSelfTest: Module.ccall('Surreal_RunWebXRGameplayHapticsSelfTest', 'number', [], []),
                 disableAccepted: Module.ccall('Surreal_SetWebXRHapticsEnabled', 'number', ['number'], [0]),
@@ -440,26 +502,33 @@ def main():
 				   ("aimSelfTest", "visualPositionSelfTest", "visualGripSchema",
 					"hapticsSelfTest", "gameplayHapticsSelfTest",
                     "disableAccepted", "enableAccepted", "hapticsEnabled", "hudSelfTest")) or \
-					weapon_bridge_diagnostics.get("visualDrawScopes", -1) < 0 or \
+					weapon_bridge_diagnostics.get("fixtureEquipped") != 1 or \
+					weapon_bridge_diagnostics.get("visualDrawScopes", 0) <= \
+					fixture_before.get("visualDrawScopes", 0) or \
 					weapon_bridge_diagnostics.get("visualDrawRestores") != \
 					weapon_bridge_diagnostics.get("visualDrawScopes") or \
-					weapon_bridge_diagnostics.get("visualZeroFallbacks", -1) + \
-					weapon_bridge_diagnostics.get("visualCalibratedOffsets", -1) != \
-					weapon_bridge_diagnostics.get("visualDrawScopes") or \
-					weapon_bridge_diagnostics.get("visualRejectedTransforms", -1) < 0 or \
+					weapon_bridge_diagnostics.get("visualZeroFallbacks", -1) - \
+					fixture_before.get("visualZeroFallbacks", 0) != \
+					weapon_bridge_diagnostics.get("visualDrawScopes", 0) - \
+					fixture_before.get("visualDrawScopes", 0) or \
+					weapon_bridge_diagnostics.get("visualCalibratedOffsets", -1) != 0 or \
+					weapon_bridge_diagnostics.get("visualRejectedTransforms", -1) != \
+					fixture_before.get("visualRejectedTransforms", 0) or \
 					len(weapon_bridge_diagnostics.get("visualLastOffset", [])) != 3 or \
 					len(weapon_bridge_diagnostics.get("visualLastPosition", [])) != 3 or \
 					not all(math.isfinite(value) for value in
 							weapon_bridge_diagnostics.get("visualLastOffset", [])) or \
 					not all(math.isfinite(value) for value in
 							weapon_bridge_diagnostics.get("visualLastPosition", [])) or \
+					any(abs(actual - expected) > 0.001 for actual, expected in
+							zip(weapon_bridge_diagnostics.get("visualLastPosition", []), grip_position)) or \
                     len(weapon_bridge_diagnostics.get("hapticOutcomes", [])) != 4 or \
                     len(weapon_bridge_diagnostics.get("hapticRequests", [])) != 4 or \
                     not all(value >= 0 for value in weapon_bridge_diagnostics.get("hapticOutcomes", [])) or \
                     not all(value >= 0 for value in weapon_bridge_diagnostics.get("hapticRequests", [])) or \
                     weapon_bridge_diagnostics.get("expectedWeaponEyes") != 2 or \
                     weapon_bridge_diagnostics.get("weaponEyePasses") != 2 or \
-                    not 0 <= weapon_bridge_diagnostics.get("weaponCalls", -1) <= 2 or \
+					weapon_bridge_diagnostics.get("weaponCalls") != 2 or \
                     weapon_bridge_diagnostics.get("expectedHudEyes") not in (0, 2) or \
                     weapon_bridge_diagnostics.get("hudStateUpdates") not in (0, 1) or \
                     weapon_bridge_diagnostics.get("hudEyePresentations") != \
@@ -489,6 +558,32 @@ def main():
                     not all(math.isfinite(value) for value in
                             weapon_bridge_diagnostics.get("audioVelocity", [])):
                 print("FAIL: M8 weapon, M9 HUD, or M10 tracked-audio diagnostics are invalid")
+                sys.exit(1)
+
+            tracking_loss = page.evaluate("""() => {
+                const beforeScopes = Module.ccall(
+                    'Surreal_GetWebXRWeaponVisualDrawScopeCount', 'number', [], []);
+                const beforeRejected = Module.ccall(
+                    'Surreal_GetWebXRWeaponVisualRejectedTransformCount', 'number', [], []);
+                window.surrealResetWebXRPose();
+                window.surrealRunXRFrame();
+                return {
+                    sourceCount: Module.ccall('Surreal_GetWebXRInputSourceCount', 'number', [], []),
+                    dominantIndex: Module.ccall('Surreal_GetWebXRDominantControllerIndex', 'number', [], []),
+                    visualDrawScopes: Module.ccall('Surreal_GetWebXRWeaponVisualDrawScopeCount', 'number', [], []),
+                    visualRejectedTransforms: Module.ccall('Surreal_GetWebXRWeaponVisualRejectedTransformCount', 'number', [], []),
+                    beforeScopes,
+                    beforeRejected,
+                    fixtureEquipped: Module.ccall('Surreal_GetWebXRLoadedWeaponFixtureEquipped', 'number', [], [])
+                };
+            }""")
+            print(f"[harness] M8 loaded-weapon tracking-loss cleanup: {tracking_loss}")
+            if (tracking_loss.get("sourceCount") != 0 or
+                    tracking_loss.get("dominantIndex") != -1 or
+                    tracking_loss.get("visualDrawScopes") != tracking_loss.get("beforeScopes") or
+                    tracking_loss.get("visualRejectedTransforms") != tracking_loss.get("beforeRejected") or
+                    tracking_loss.get("fixtureEquipped") != 1):
+                print("FAIL: tracking loss did not clear the controller visual seam without mutating the fixture weapon")
                 sys.exit(1)
 
             hud_disabled = page.evaluate("""async () => {

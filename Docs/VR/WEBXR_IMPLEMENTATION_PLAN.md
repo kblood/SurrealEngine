@@ -1611,20 +1611,43 @@ art. It does not establish a comfortable stock mesh origin, muzzle/barrel or
 muzzle-flash alignment, weapon scale, left-hand mirroring/culling, dual
 Enforcers, two-hand handling, guided-warhead behavior, or correctness across
 automatic/special weapons. Nonzero package-qualified rows remain blocked on
-loaded-weapon fixtures, WebGPU inspection, measured hardware calibration, and
-physical Quest alignment. Firing-origin work remains a separate later seam.
+WebGPU inspection, measured hardware calibration, and physical Quest
+alignment. Firing-origin work remains a separate later seam.
 
-Validation passes the native Debug `SurrealEngine` target, fresh no-data and
-data-backed Emscripten targets, smoke-script syntax, and the complete
-`--experimental-webgpu-xr` Playwright run. The rebuilt browser runtime reports
-visual-position self-test `1`, grip schema `1`, finite last-offset/position
-diagnostics, 189 packed-stereo draws, and 1,175 differing eye samples while all
-prior controller, haptic, HUD/menu, audio, lifecycle, repeat-entry, and
-device-loss gates pass. The booted test scene had no current weapon
-(`weaponCalls=0`), so live visual scope, restore, fallback, and rejection
-counters all correctly remained zero. This means the deterministic contract is
-proven, but an actual loaded `Canvas.DrawActor` weapon path is still an explicit
-fixture/headset gate rather than implied browser evidence.
+### Loaded stock-weapon runtime fixture (2026-07-22)
+
+The live runtime boundary is now covered by an explicit Emscripten diagnostic,
+`Surreal_RunWebXRLoadedWeaponFixture`. No startup, map-load, or normal gameplay
+path invokes it. On demand it asks the loaded retail game package to run
+`GameInfo.GiveWeapon(Pawn, "Botpack.ShockRifle")` when the exact package/class
+is absent, finds that weapon through the real inventory chain, assigns it as
+`PendingWeapon`, and invokes the pawn's stock `ChangedWeapon` function. It does
+not directly construct an object or assign `Pawn.Weapon`. Repeated calls reuse
+an existing ShockRifle and still exercise the benign stock selection seam;
+attempt/give/select/inventory/equipped/succeeded diagnostics make both cases
+observable. The smoke invokes it a second time and proves an attempt delta of
+one, no second `GiveWeapon`, one benign `ChangedWeapon`, and retained success.
+
+The full data-backed `--experimental-webgpu-xr` Playwright run now invokes this
+fixture immediately before a packed stereo frame. The retail
+`ShockRifle.RenderOverlays` path produced `weaponCalls=2`, two exact nested
+native `Engine.Canvas.DrawActor` visual scopes, two exact restores, two
+zero-offset fallbacks, zero calibrated rows, and zero rejected transforms.
+The finite last visual position
+`[2343.1387, -7.3820, -433.5940]` matched the tracked dominant grip position
+component-for-component within `0.001` UU. Outer presentation remained two
+expected/two completed weapon eye passes, and the packed target contained 201
+draws with distinct left/right output. Resetting the shared pose/input bridge
+then advancing a frame cleared the source count to zero and dominant index to
+`-1` without adding a visual scope/rejection or unequipping the fixture weapon.
+
+Validation passes Python compilation/tab checking, native Windows Debug, both
+data-backed and no-data Emscripten targets, and the complete experimental smoke
+including all prior controller, haptic, HUD/menu, audio, visibility,
+repeat-entry, failure-cleanup, and device-loss gates. This closes the missing
+loaded single-weapon call-boundary fixture. Physical mesh placement,
+automatic/special weapons, muzzle-flash behavior, and headset calibration are
+still open and must not be inferred from the zero-offset desktop fixture.
 
 ## WebXR launch-readiness and real-user orientation follow-up (2026-07-22)
 

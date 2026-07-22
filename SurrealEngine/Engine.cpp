@@ -448,6 +448,31 @@ namespace
 			weapon->Class->Name.ToString());
 	}
 
+	constexpr const char* WebXRLoadedWeaponFixturePackage = "Botpack";
+	constexpr const char* WebXRLoadedWeaponFixtureClass = "ShockRifle";
+	constexpr const char* WebXRLoadedWeaponFixtureQualifiedClass = "Botpack.ShockRifle";
+
+	bool IsWebXRLoadedWeaponFixtureWeapon(UWeapon* weapon)
+	{
+		return weapon && weapon->Class && weapon->Class->package &&
+			WebXRNameEquals(weapon->Class->package->GetPackageName().ToString(),
+				WebXRLoadedWeaponFixturePackage) &&
+			WebXRNameEquals(weapon->Class->Name.ToString(), WebXRLoadedWeaponFixtureClass);
+	}
+
+	UWeapon* FindWebXRLoadedWeaponFixtureWeapon(UPlayerPawn* pawn)
+	{
+		std::set<UInventory*> visited;
+		for (UInventory* item = pawn ? pawn->Inventory() : nullptr;
+			item && visited.insert(item).second; item = item->Inventory())
+		{
+			UWeapon* weapon = UObject::TryCast<UWeapon>(item);
+			if (IsWebXRLoadedWeaponFixtureWeapon(weapon))
+				return weapon;
+		}
+		return nullptr;
+	}
+
 	bool IsFiniteWebXRVector(const vec3& value)
 	{
 		return std::isfinite(value.x) && std::isfinite(value.y) &&
@@ -1422,6 +1447,64 @@ void Engine::RecordWebXRHapticOutcome(uint32_t eventValue, float magnitude)
 		queueHand(selected->Handedness == 1 ? WebXRHapticHand::Left : WebXRHapticHand::Right);
 }
 
+bool Engine::RunWebXRLoadedWeaponFixture()
+{
+	WebXRLoadedWeaponFixture.AttemptCount++;
+	WebXRLoadedWeaponFixture.InventoryFound = false;
+	WebXRLoadedWeaponFixture.Equipped = false;
+	WebXRLoadedWeaponFixture.Succeeded = false;
+
+	// This is deliberately an explicit diagnostic rather than startup policy.
+	// Exercise the retail package's own GiveWeapon and ChangedWeapon functions;
+	// do not manufacture an inventory object or assign Pawn.Weapon directly.
+	if (!LaunchInfo.IsUnrealTournament() || !viewport || !LevelInfo ||
+		!LevelInfo->Game())
+		return false;
+	UPlayerPawn* pawn = viewport->Actor();
+	if (!pawn)
+		return false;
+
+	UWeapon* weapon = FindWebXRLoadedWeaponFixtureWeapon(pawn);
+	if (!weapon)
+	{
+		UFunction* giveWeapon = FindEventFunction(LevelInfo->Game(), "GiveWeapon");
+		if (!giveWeapon)
+			return false;
+		WebXRLoadedWeaponFixture.StockGiveWeaponCallCount++;
+		CallEvent(LevelInfo->Game(), giveWeapon->Name, {
+			ExpressionValue::ObjectValue(pawn),
+			ExpressionValue::StringValue(WebXRLoadedWeaponFixtureQualifiedClass)
+		});
+		weapon = FindWebXRLoadedWeaponFixtureWeapon(pawn);
+	}
+
+	WebXRLoadedWeaponFixture.InventoryFound = weapon != nullptr && weapon->Owner() == pawn;
+	if (!WebXRLoadedWeaponFixture.InventoryFound)
+		return false;
+
+	UFunction* changedWeapon = FindEventFunction(pawn, "ChangedWeapon");
+	if (!changedWeapon)
+		return false;
+	// Run this stock selection seam on every explicit invocation. Besides
+	// keeping repeat diagnostics deterministic, the retail implementation's
+	// Weapon == PendingWeapon early-out makes an already-equipped rerun benign.
+	pawn->PendingWeapon() = weapon;
+	WebXRLoadedWeaponFixture.StockChangedWeaponCallCount++;
+	CallEvent(pawn, changedWeapon->Name);
+
+	WebXRLoadedWeaponFixture.Equipped = pawn->Weapon() == weapon && weapon->Owner() == pawn;
+	WebXRLoadedWeaponFixture.Succeeded = WebXRLoadedWeaponFixture.Equipped;
+	LogMessage(std::string("WebXR loaded-weapon fixture: class=") +
+		WebXRLoadedWeaponFixtureQualifiedClass +
+		" inventory=" + (WebXRLoadedWeaponFixture.InventoryFound ? "yes" : "no") +
+		" equipped=" + (WebXRLoadedWeaponFixture.Equipped ? "yes" : "no") +
+		" giveWeaponCalls=" +
+		std::to_string(WebXRLoadedWeaponFixture.StockGiveWeaponCallCount) +
+		" changedWeaponCalls=" +
+		std::to_string(WebXRLoadedWeaponFixture.StockChangedWeaponCallCount));
+	return WebXRLoadedWeaponFixture.Succeeded;
+}
+
 std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject* instance)
 {
 	if (!LaunchInfo.IsUnrealTournament() || !func || !instance || !viewport)
@@ -1934,6 +2017,41 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponVisualGripSchemaVersion()
 	{
 		return WebXRWeaponVisualGripSchemaVersion;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRLoadedWeaponFixture()
+	{
+		return engine && engine->RunWebXRLoadedWeaponFixture() ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRLoadedWeaponFixtureAttemptCount()
+	{
+		return engine ? engine->WebXRLoadedWeaponFixture.AttemptCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRLoadedWeaponFixtureGiveWeaponCallCount()
+	{
+		return engine ? engine->WebXRLoadedWeaponFixture.StockGiveWeaponCallCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRLoadedWeaponFixtureChangedWeaponCallCount()
+	{
+		return engine ? engine->WebXRLoadedWeaponFixture.StockChangedWeaponCallCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRLoadedWeaponFixtureInventoryFound()
+	{
+		return engine && engine->WebXRLoadedWeaponFixture.InventoryFound ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRLoadedWeaponFixtureEquipped()
+	{
+		return engine && engine->WebXRLoadedWeaponFixture.Equipped ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebXRLoadedWeaponFixtureSucceeded()
+	{
+		return engine && engine->WebXRLoadedWeaponFixture.Succeeded ? 1 : 0;
 	}
 
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRWeaponAimBallisticScopeCount()
