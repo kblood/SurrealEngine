@@ -91,7 +91,11 @@ def main():
 
 		page.locator("[data-game-files]").set_input_files(str(game_dir), timeout=60_000)
 		try:
-			page.wait_for_selector("#game-launcher:not([hidden])", timeout=timeout_ms)
+			page.wait_for_function("""() => {
+				const launcher = document.getElementById('game-launcher');
+				const error = document.querySelector('[data-game-error]');
+				return (launcher && !launcher.hidden) || (error && !error.hidden && error.textContent);
+			}""", timeout=timeout_ms)
 		except PlaywrightTimeoutError as error:
 			state = page.evaluate("""() => ({
 				status: document.querySelector('[data-game-status]').textContent,
@@ -99,6 +103,24 @@ def main():
 				log: document.getElementById('log').textContent,
 			})""")
 			raise RuntimeError("import did not reach the launcher: " + json.dumps(state)) from error
+		failure = page.evaluate("""() => {
+			const visible = document.querySelector('[data-game-error]');
+			const controller = window.surrealApp && window.surrealApp.dataController.importController;
+			const error = controller && controller.lastError;
+			return visible && !visible.hidden && visible.textContent ? {
+				visible: visible.textContent,
+				status: document.querySelector('[data-game-status]').textContent,
+				name: error && error.name,
+				code: error && error.code,
+				message: error && error.message,
+				stack: error && error.stack,
+				progress: document.querySelector('[data-game-progress-text]').textContent,
+				storage: document.querySelector('[data-game-storage]').textContent,
+				log: document.getElementById('log').textContent,
+			} : null;
+		}""")
+		if failure:
+			raise RuntimeError("browser import failed: " + json.dumps(failure))
 
 		imported = page.evaluate("""() => ({
 			gameId: window.surrealApp.library.status().activeGameId,
