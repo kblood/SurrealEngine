@@ -153,3 +153,61 @@ counter samples, 59.89 engine ticks/s, 59.89 IWER XR frames/s, 95 WebGPU draws
 per sampled frame, 256 MiB Wasm heap, no long tasks, and zero WebGPU errors. Its
 ~60 Hz IWER scheduling missed the higher 72/80/90 Hz budgets as expected. This
 is a harness validation result only, not a Quest performance baseline.
+
+## Multi-map acceptance-set automation
+
+`web/profile_webxr_matrix.py` runs the same fail-closed child profiler across a
+declared acceptance set and writes a small schema-v1 aggregate plus the complete
+per-map JSON/text reports. Its default local GOTY set is:
+
+| Role | Map | Coverage intent |
+|---|---|---|
+| representative | `DM-Deck16][` | established indoor baseline |
+| representative | `CTF-Face` | outdoor/sky and long sight lines |
+| representative | `DOM-Sesmar` | domination zones and indoor complexity |
+| representative | `AS-Overlord` | scripted Assault path |
+| representative | `DM-Morpheus` | zero-gravity and sky presentation |
+| stress candidate | `CTF-Darji16` | largest `.unr` in the qualified local GOTY install |
+
+The stress label is a declared coverage role, not proof that this is the most
+expensive map on Quest. Replace or extend it only from measured physical data.
+At least five unique representative maps and one stress map are mandatory;
+paths, extensions, URL options, unsupported prefixes, and case-fold duplicates
+are rejected.
+
+Run the default set with comparable settings:
+
+```powershell
+python -B -u web/profile_webxr_matrix.py `
+  --build build-emscripten `
+  --warmup 10 `
+  --duration 60 `
+  --sample-interval 0.25 `
+  --output C:\profiles\ut99-webxr-matrix.json
+```
+
+Use repeatable `--map` and `--stress-map` arguments to supply a different full
+set. The runner refuses existing aggregate, summary, or report-directory
+targets. Each child receives explicit map/build/timing/browser/query options.
+One failed child makes the aggregate fail while retaining its child evidence.
+Successful aggregation also requires byte-identical build metadata and the
+same Git, browser, headless, and machine identity across every child. Report
+paths and SHA-256 hashes bind each compact summary row to its full evidence.
+
+The aggregate schema is `surrealengine-webxr-performance-matrix` version 1. It
+extracts engine/IWER rates, draw-call mean/maximum, resident-texture maximum,
+Wasm-heap maximum, XR RAF p95, long-task count, and WebGPU error maximum per
+map. It repeats the desktop/IWER limitation in the environment, claims, text
+summary, and limitations. It cannot satisfy the physical 72 Hz, GPU, thermal,
+power, compositor, reprojection, motion-to-photon, or comfort gates.
+
+Deterministic coverage:
+
+```powershell
+python -B -u web/test_webxr_performance_matrix.py
+```
+
+The tests cover acceptance-set cardinality, local-name validation, duplicate
+rejection, stable output slugs, schema/claim boundaries, metric extraction,
+report hashes, map/result mismatch, nonfinite metrics, child-count mismatch,
+and cross-profile build/browser/machine comparability.
