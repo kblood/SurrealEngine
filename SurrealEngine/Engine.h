@@ -12,6 +12,7 @@
 #include "UObject/UDXSaveInfo.h"
 #include "UObject/UDeusExLevelInfo.h"
 #include "GameFolder.h"
+#include <array>
 #include <set>
 #include <list>
 
@@ -68,6 +69,37 @@ static constexpr int32_t DONT_SAVE_GAME = -2; // Since -1 might be used as the a
 class Engine : public GameWindowHost
 {
 public:
+	struct VRTrackedPoseState
+	{
+		bool Tracked = false;
+		vec3 Position = vec3(0.0f); // Raw WebXR reference-space metres.
+		vec4 Orientation = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+	};
+
+	struct VRControllerInputState
+	{
+		bool Connected = false;
+		uint32_t SourceId = 0;
+		uint32_t Handedness = 0;
+		uint32_t Flags = 0;
+		uint32_t ButtonsPressed = 0;
+		uint32_t ButtonsTouched = 0;
+		std::array<float, 4> Axes = {};
+		std::array<float, 8> ButtonValues = {};
+		float TriggerValue = 0.0f;
+		VRTrackedPoseState GripPose;
+		VRTrackedPoseState AimPose;
+	};
+
+	struct VRInputState
+	{
+		uint64_t Generation = 0;
+		uint32_t SourceCount = 0;
+		std::array<VRControllerInputState, 2> Controllers;
+		uint32_t SynthesizedButtonsHeld = 0;
+		std::array<float, 4> SynthesizedAxes = {};
+	};
+
 	Engine(GameLaunchInfo launchinfo);
 	~Engine();
 
@@ -92,7 +124,7 @@ public:
 	std::string ConsoleCommand(UObject* context, const std::string& command, BitfieldBool& found);
 
 	void UpdateInput(float timeElapsed);
-	void InputCommand(const std::string& command, EInputKey key, int delta);
+	void InputCommand(const std::string& command, EInputKey key, float delta);
 
 	void LockCursor();
 	void UnlockCursor();
@@ -210,6 +242,7 @@ public:
 
 	bool quit = false;
 	uint64_t tickCount = 0;
+	VRInputState WebXRInput;
 
 	uint64_t lastTime = 0;
 
@@ -237,6 +270,8 @@ public:
 	bool getDXWindowDebugMode() const { return m_DrawDebugDXWindowHierarchy; }
 
 private:
+	void UpdateWebXRInput();
+	void InputAxisEvent(EInputKey key, float delta);
 	std::map<std::string, std::string> CreateTravelInfo(bool transferItems);
 
 	void LogGamePackageSHA1Sums() const;
@@ -252,6 +287,10 @@ private:
 	bool khgSplashScreen = false;
 	bool playingAvi = false;
 	bool skipAvi = false;
+	uint64_t LastProcessedWebXRInputGeneration = 0;
+	bool HasProcessedWebXRInput = false;
+	uint32_t WebXRButtonsHeld = 0;
+	uint32_t WebXRAxesActive = 0;
 };
 
 extern Engine* engine;

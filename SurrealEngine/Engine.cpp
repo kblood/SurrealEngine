@@ -31,6 +31,10 @@
 #include <chrono>
 #include <set>
 
+#ifdef __EMSCRIPTEN__
+#include "WebXR/WebXRInputState.h"
+#endif
+
 Engine* engine = nullptr;
 
 Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
@@ -153,6 +157,43 @@ extern "C"
 
 		EngineMainLoopCallback(engine);
 		return engine ? static_cast<uint32_t>(engine->tickCount) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRInputProcessedGeneration()
+	{
+		return engine ? static_cast<uint32_t>(engine->WebXRInput.Generation) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRInputSourceCount()
+	{
+		return engine ? engine->WebXRInput.SourceCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRInputButtonsHeld()
+	{
+		return engine ? engine->WebXRInput.SynthesizedButtonsHeld : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRInputAxis(uint32_t axis)
+	{
+		return engine && axis < engine->WebXRInput.SynthesizedAxes.size() ?
+			engine->WebXRInput.SynthesizedAxes[axis] : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE float Surreal_GetWebXRInputTrigger(uint32_t controller)
+	{
+		return engine && controller < engine->WebXRInput.Controllers.size() ?
+			engine->WebXRInput.Controllers[controller].TriggerValue : 0.0f;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRInputPoseFlags(uint32_t controller)
+	{
+		if (!engine || controller >= engine->WebXRInput.Controllers.size())
+			return 0;
+		const auto& state = engine->WebXRInput.Controllers[controller];
+		return (state.AimPose.Tracked ? 1u : 0u) |
+			(state.GripPose.Tracked ? 2u : 0u) |
+			(state.Connected ? 4u : 0u);
 	}
 }
 #endif
@@ -1553,6 +1594,8 @@ void Engine::UpdateInput(float timeElapsed)
 	if (!viewport->Actor())
 		return;
 
+	UpdateWebXRInput();
+
 	for (auto& it : activeInputButtons)
 		viewport->Actor()->SetBool(it.first, true);
 	for (auto& it : activeInputAxes)
@@ -1566,6 +1609,108 @@ void Engine::UpdateInput(float timeElapsed)
 			viewport->Actor()->SetFloat(it.first, it.second.Value);
 		}
 	}
+}
+
+void Engine::UpdateWebXRInput()
+{
+#ifdef __EMSCRIPTEN__
+	const WebXRInputSnapshot snapshot = GetLatestWebXRInputSnapshot();
+	if (HasProcessedWebXRInput && snapshot.FrameGeneration == LastProcessedWebXRInputGeneration)
+		return;
+
+	HasProcessedWebXRInput = true;
+	LastProcessedWebXRInputGeneration = snapshot.FrameGeneration;
+	WebXRInput.Generation = snapshot.FrameGeneration;
+	WebXRInput.SourceCount = snapshot.SourceCount;
+
+	for (size_t slot = 0; slot < WebXRInput.Controllers.size(); slot++)
+	{
+		const WebXRControllerState& source = snapshot.Controllers[slot];
+		VRControllerInputState state;
+		state.Connected = (source.Flags & WebXRConnected) != 0;
+		state.SourceId = source.SourceId;
+		state.Handedness = source.Handedness;
+		state.Flags = source.Flags;
+		state.ButtonsPressed = source.ButtonsPressed;
+		state.ButtonsTouched = source.ButtonsTouched;
+		for (size_t axis = 0; axis < state.Axes.size(); axis++)
+			state.Axes[axis] = source.Axes[axis];
+		for (size_t button = 0; button < state.ButtonValues.size(); button++)
+			state.ButtonValues[button] = source.ButtonValues[button];
+		state.TriggerValue = source.ButtonValues[0];
+		state.GripPose.Tracked = (source.Flags & WebXRGripValid) != 0;
+		state.GripPose.Position = vec3(source.GripPose.Position[0], source.GripPose.Position[1], source.GripPose.Position[2]);
+		state.GripPose.Orientation = vec4(source.GripPose.Orientation[0], source.GripPose.Orientation[1], source.GripPose.Orientation[2], source.GripPose.Orientation[3]);
+		state.AimPose.Tracked = (source.Flags & WebXRAimValid) != 0;
+		state.AimPose.Position = vec3(source.AimPose.Position[0], source.AimPose.Position[1], source.AimPose.Position[2]);
+		state.AimPose.Orientation = vec4(source.AimPose.Orientation[0], source.AimPose.Orientation[1], source.AimPose.Orientation[2], source.AimPose.Orientation[3]);
+		WebXRInput.Controllers[slot] = state;
+	}
+
+	// Stable controller-local generic slots preserve the legacy remapping
+	// layer: left buttons 0..5 become Joy1..Joy6, right buttons 0..5 become
+	// Joy7..Joy12. Higher WebXR buttons remain available in WebXRInput.
+	static constexpr EInputKey ButtonKeys[12] = {
+		IK_Joy1, IK_Joy2, IK_Joy3, IK_Joy4, IK_Joy5, IK_Joy6,
+		IK_Joy7, IK_Joy8, IK_Joy9, IK_Joy10, IK_Joy11, IK_Joy12
+	};
+	uint32_t nextButtonsHeld = 0;
+	for (size_t slot = 0; slot < WebXRInput.Controllers.size(); slot++)
+	{
+		const VRControllerInputState& controller = WebXRInput.Controllers[slot];
+		if (!controller.Connected)
+			continue;
+		for (uint32_t button = 0; button < 6; button++)
+		{
+			if ((controller.ButtonsPressed & (1u << button)) != 0)
+				nextButtonsHeld |= 1u << (static_cast<uint32_t>(slot) * 6u + button);
+		}
+	}
+
+	const uint32_t changedButtons = WebXRButtonsHeld ^ nextButtonsHeld;
+	for (uint32_t button = 0; button < 12; button++)
+	{
+		const uint32_t mask = 1u << button;
+		if ((changedButtons & mask) != 0)
+			InputEvent(ButtonKeys[button], (nextButtonsHeld & mask) != 0 ? IST_Press : IST_Release);
+	}
+	WebXRButtonsHeld = nextButtonsHeld;
+	WebXRInput.SynthesizedButtonsHeld = nextButtonsHeld;
+
+	static constexpr EInputKey AxisKeys[4] = { IK_JoyX, IK_JoyY, IK_JoyU, IK_JoyV };
+	uint32_t nextAxesActive = 0;
+	for (size_t slot = 0; slot < WebXRInput.Controllers.size(); slot++)
+	{
+		const VRControllerInputState& controller = WebXRInput.Controllers[slot];
+		const size_t output = slot * 2;
+		if (!controller.Connected)
+		{
+			WebXRInput.SynthesizedAxes[output] = 0.0f;
+			WebXRInput.SynthesizedAxes[output + 1] = 0.0f;
+			continue;
+		}
+
+		// xr-standard Quest thumbsticks occupy axes 2/3. A non-XR-standard
+		// generic source that only drives 0/1 gets a deterministic fallback.
+		const bool useGenericPair = (controller.Flags & WebXRXRStandard) == 0 &&
+			controller.Axes[2] == 0.0f && controller.Axes[3] == 0.0f &&
+			(controller.Axes[0] != 0.0f || controller.Axes[1] != 0.0f);
+		const size_t sourceAxis = useGenericPair ? 0 : 2;
+		WebXRInput.SynthesizedAxes[output] = controller.Axes[sourceAxis];
+		WebXRInput.SynthesizedAxes[output + 1] = controller.Axes[sourceAxis + 1];
+		nextAxesActive |= 3u << output;
+		InputAxisEvent(AxisKeys[output], WebXRInput.SynthesizedAxes[output]);
+		InputAxisEvent(AxisKeys[output + 1], WebXRInput.SynthesizedAxes[output + 1]);
+	}
+
+	const uint32_t releasedAxes = WebXRAxesActive & ~nextAxesActive;
+	for (uint32_t axis = 0; axis < 4; axis++)
+	{
+		if ((releasedAxes & (1u << axis)) != 0)
+			InputEvent(AxisKeys[axis], IST_Release);
+	}
+	WebXRAxesActive = nextAxesActive;
+#endif
 }
 
 void Engine::OpenWindow()
@@ -1866,6 +2011,29 @@ void Engine::InputEvent(EInputKey key, EInputType type, int delta)
 	}
 }
 
+void Engine::InputAxisEvent(EInputKey key, float delta)
+{
+	if (Frame::RunState != FrameRunState::Running || playingAvi)
+		return;
+
+	bool handled = CallEvent(console, EventName::KeyEvent, {
+		ExpressionValue::ByteValue(key),
+		ExpressionValue::ByteValue(EInputType::IST_Axis),
+		ExpressionValue::FloatValue(delta)
+	}).ToBool();
+	if (handled || key < 0 || key >= 256)
+		return;
+
+	for (const std::string& command : GetSubcommands(keybindings[keynames[key]]))
+	{
+		auto it = inputAliases.find(command);
+		if (it != inputAliases.end())
+			InputCommand(it->second, key, delta);
+		else
+			InputCommand(command, key, delta);
+	}
+}
+
 bool Engine::ExecCommand(const Array<std::string>& args)
 {
 	for (UObject* target : { static_cast<UObject*>(viewport->Actor()), static_cast<UObject*>(console) })
@@ -1934,7 +2102,7 @@ bool Engine::ExecCommand(const Array<std::string>& args)
 	return false;
 }
 
-void Engine::InputCommand(const std::string& commands, EInputKey key, int delta)
+void Engine::InputCommand(const std::string& commands, EInputKey key, float delta)
 {
 	for (const std::string& commandline : GetSubcommands(commands))
 	{

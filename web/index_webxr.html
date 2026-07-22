@@ -36,7 +36,7 @@
 		logEl.textContent += line + "\n";
 	}
 	window.surrealXRFrameABIDiagnostic = window.surrealXRTestFrameABI();
-	appendLog("[harness] XR frame ABI v1 diagnostic: " +
+	appendLog("[harness] XR frame ABI v2 diagnostic: " +
 		JSON.stringify(window.surrealXRFrameABIDiagnostic));
 	if (window.surrealXRUseNativeWebGPU) {
 		document.getElementById("entervr").textContent = "Enter Native WebGPU VR";
@@ -51,13 +51,17 @@
 			version: Module.ccall("Surreal_GetWebXRFrameABIVersion", "number", [], []),
 			headerBytes: Module.ccall("Surreal_GetWebXRFrameHeaderSize", "number", [], []),
 			viewBytes: Module.ccall("Surreal_GetWebXRViewSize", "number", [], []),
+			inputBytes: Module.ccall("Surreal_GetWebXRInputRecordSize", "number", [], []),
+			maxInputs: Module.ccall("Surreal_GetWebXRFrameMaxInputs", "number", [], []),
 		};
 	};
 	window.surrealXRRenderPackedWebXRFrame = function (packet, colorTexture) {
 		const nativeABI = window.surrealGetNativeWebXRFrameABI();
 		if (nativeABI.version !== window.surrealXRFrameABI.version ||
 			nativeABI.headerBytes !== window.surrealXRFrameABI.headerBytes ||
-			nativeABI.viewBytes !== window.surrealXRFrameABI.viewBytes) {
+			nativeABI.viewBytes !== window.surrealXRFrameABI.viewBytes ||
+			nativeABI.inputBytes !== window.surrealXRFrameABI.inputBytes ||
+			nativeABI.maxInputs !== window.surrealXRFrameABI.maxInputSources) {
 			throw new Error("WebXR frame ABI mismatch: JS=" +
 				JSON.stringify(window.surrealXRFrameABI) + " C++=" + JSON.stringify(nativeABI));
 		}
@@ -93,6 +97,22 @@
 	};
 	window.surrealResetWebXRPose = function () {
 		Module.ccall("Surreal_ResetWebXRPose", null, [], []);
+	};
+	window.surrealGetWebXRInputDiagnostics = function () {
+		return {
+			publishedGeneration: Module.ccall("Surreal_GetWebXRInputFrameGeneration", "number", [], []),
+			publishedSources: Module.ccall("Surreal_GetWebXRPublishedInputSourceCount", "number", [], []),
+			processedGeneration: Module.ccall("Surreal_GetWebXRInputProcessedGeneration", "number", [], []),
+			processedSources: Module.ccall("Surreal_GetWebXRInputSourceCount", "number", [], []),
+			buttonsHeld: Module.ccall("Surreal_GetWebXRInputButtonsHeld", "number", [], []),
+			axes: [0, 1, 2, 3].map(index =>
+				Module.ccall("Surreal_GetWebXRInputAxis", "number", ["number"], [index])),
+			triggers: [0, 1].map(index =>
+				Module.ccall("Surreal_GetWebXRInputTrigger", "number", ["number"], [index])),
+			poseFlags: [0, 1].map(index =>
+				Module.ccall("Surreal_GetWebXRInputPoseFlags", "number", ["number"], [index])),
+			selfTest: Module.ccall("Surreal_RunWebXRInputStateSelfTest", "number", [], []),
+		};
 	};
 	window.surrealTestWebGPUExternalColorFormats = function () {
 		const before = Module.ccall("Surreal_GetWebGPUPipelineColorFormatCount", "number", [], []);
@@ -138,6 +158,16 @@
 				{ eye: "right", arrayLayer: 1, viewport: { x: 0, y: 0, width, height },
 					position: { x: 0.032, y: 0, z: 0 },
 					orientation: { x: 0, y: 0, z: 0, w: 1 }, projectionMatrix: projection(0.064) },
+			],
+			inputs: [
+				{ sourceId: 101, handedness: "left", flags: 12, pressedMask: 1,
+					axes: [0, 0, 0.25, 0.75], values: [0.6] },
+				{ sourceId: 202, handedness: "right", flags: 15, pressedMask: 2,
+					axes: [0, 0, -0.5, 0.25], values: [0.9],
+					grip: { position: { x: 0.2, y: 1.1, z: -0.3 },
+						orientation: { x: 0, y: 0, z: 0, w: 1 } },
+					aim: { position: { x: 0.2, y: 1.2, z: -0.4 },
+						orientation: { x: 0, y: 0, z: 0, w: 1 } } },
 			],
 		});
 		if (window.surrealXRValidatePackedWebXRFrame(packet) !== 1) return 0;

@@ -78,13 +78,20 @@ def main():
 
         page.goto(URL, wait_until="load")
 
-        # Pure-JS M6 ABI coverage is independent of XRGPUBinding and therefore
+        # Pure-JS M8 ABI/input coverage is independent of XRGPUBinding and therefore
         # remains deterministic under IWER. It also catches JS/C++ layout drift
         # before a real headset is needed.
         frame_abi = page.evaluate("window.surrealXRFrameABIDiagnostic")
-        print(f"[harness] XR frame ABI v1 diagnostic = {frame_abi}")
-        if not frame_abi or not frame_abi.get("passed") or frame_abi.get("byteSize") != 268:
+        print(f"[harness] XR frame ABI v2 diagnostic = {frame_abi}")
+        if (not frame_abi or not frame_abi.get("passed") or
+                frame_abi.get("byteSize") != 532 or frame_abi.get("inputBytes") != 128):
             print("FAIL: packed XR frame ABI offsets/stride diagnostic failed")
+            sys.exit(1)
+
+        input_collector = page.evaluate("window.surrealXRTestInputCollector()")
+        print(f"[harness] M8 copied input-source collector = {input_collector}")
+        if not input_collector or not input_collector.get("passed"):
+            print("FAIL: WebXR input collector did not copy/normalize/change/clear sources")
             sys.exit(1)
 
         # --- Phase 1: capability checks (no engine boot dependency) -------
@@ -132,8 +139,9 @@ def main():
             sys.exit(1)
 
         native_frame_abi = page.evaluate("window.surrealGetNativeWebXRFrameABI()")
-        print(f"[harness] native XR frame ABI v1 = {native_frame_abi}")
-        if native_frame_abi != {"version": 1, "headerBytes": 36, "viewBytes": 116}:
+        print(f"[harness] native XR frame ABI v2 = {native_frame_abi}")
+        if native_frame_abi != {"version": 2, "headerBytes": 44, "viewBytes": 116,
+                               "inputBytes": 128, "maxInputs": 2}:
             print("FAIL: JS and native packed XR frame ABI definitions disagree")
             sys.exit(1)
 
@@ -255,6 +263,24 @@ def main():
             if page.evaluate("window.surrealGetWebGPUErrorCount()") != 0:
                 print("FAIL: WebGPU uncaptured error after packed WebXR frame")
                 sys.exit(1)
+
+            input_diagnostics = page.evaluate("window.surrealGetWebXRInputDiagnostics()")
+            print(f"[harness] M8 native input publish/map diagnostics: {input_diagnostics}")
+            expected_axes = [0.25, 0.75, -0.5, 0.25]
+            if (input_diagnostics.get("selfTest") != 1 or
+                    input_diagnostics.get("publishedSources") != 2 or
+                    input_diagnostics.get("processedSources") != 2 or
+                    input_diagnostics.get("publishedGeneration") !=
+                    input_diagnostics.get("processedGeneration") or
+                    input_diagnostics.get("buttonsHeld") != 129 or
+                    any(abs(actual - expected) > 0.0001 for actual, expected in
+                        zip(input_diagnostics.get("axes", []), expected_axes)) or
+                    any(abs(actual - expected) > 0.0001 for actual, expected in
+                        zip(input_diagnostics.get("triggers", []), [0.6, 0.9])) or
+                    input_diagnostics.get("poseFlags") != [4, 7]):
+                print("FAIL: M8 packed input was not published and mapped exactly once")
+                sys.exit(1)
+            page.evaluate("window.surrealResetWebXRPose()")
 
             pose_diagnostics = page.evaluate("window.surrealGetWebXRPoseDiagnostics()")
             print(f"[harness] M7 pose conversion diagnostics: {pose_diagnostics}")
