@@ -75,7 +75,7 @@ XRSession.requestAnimationFrame
 | M6 — native WebGPU XR session | Implementation complete; headset validation gated | Packed ABI, preferred-format pipeline families, synchronous renderer, and hardened production session/RAF lifecycle are implemented; real `XRGPUBinding` compositor presentation still requires a supported runtime |
 | M7 — tracking/camera/world scale | Deterministic implementation complete; headset validation gated | 6DoF pose conversion, body/head composition, recentering, world scale, and exact per-eye projection are implemented; physical scale and scene correctness remain to validate |
 | M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, and fire haptics are implemented; controller-relative position/origin, non-fire feedback, settings UI, two-hand UX, fixtures, and headset validation remain |
-| M9 — UI/comfort/VR presentation | In progress | Essential UT99 HUD/crosshair plus console/menu 2D output is captured once in desktop order and replayed inside each active eye pass on a finite-depth projection-layer plane, including UI-only frames when `bNoDrawWorld` suppresses the scene. Strict enable/distance/FOV/aspect/safe-area settings and the zero-work disabled lifecycle pass automation; controller cursor/raycast, actor-style canvas draws, settings UI/browser persistence, recenter UX, comfort policies, complete loading/pause presentation, and headset readability remain |
+| M9 — UI/comfort/VR presentation | In progress | Essential UT99 HUD/crosshair plus console/menu 2D output is captured once in desktop order and replayed inside each active eye pass on a finite-depth projection-layer plane, including UI-only frames when `bNoDrawWorld` suppresses the scene. Dominant-hand aim now projects onto that exact plane to drive UT's absolute cursor. Strict plane settings and the zero-work disabled lifecycle pass automation; menu trigger/navigation policy, actor-style canvas draws, settings UI/browser persistence, recenter UX, comfort policies, complete loading/pause presentation, and headset readability remain |
 | M10 — audio/data/network/deploy | In progress | Real OpenAL/Web Audio output, gesture/lifecycle policy, tracked-head listener with discontinuity-safe velocity, redistributable no-data builds, audited no-preload/clean-profile waiting behavior, a local OPFS/IndexedDB UT99 importer, an allowlisted installable PWA shell with 27/27 deployment checks, and an explicit offline-only browser MVP scope are implemented/decided; real full-install import, physical audio/storage tests, non-game settings persistence, full launcher, HTTPS/Quest install validation, and release audit remain |
 | M11 — performance/robustness/release | In progress | Automated session-generation, visibility, setup-failure, shutdown, and device-loss coverage exists; Quest profiling, headset lifecycle, compatibility, and release gates remain |
 
@@ -812,7 +812,7 @@ to every active view. The deterministic HUD self-test now also requires this
 `0` weapon / `2` UI-eye plan. The native Debug build passes; Emscripten and
 browser results are recorded after the integration build below.
 
-This slice still excludes controller cursor/raycast input, `PreRender`, full
+This slice still excludes controller click/navigation input, `PreRender`, full
 player `RenderOverlays`, timedemo/debug overlays, and DOM Overlay.
 `Canvas.DrawActor`, `DrawClippedActor`, and 3D-line calls cannot yet be recorded
 as view-independent 2D commands; capture suppresses and counts them instead of
@@ -820,6 +820,20 @@ leaking them into whichever eye was selected. Browser persistence and a
 user-facing panel for the plane settings remain open, and headset work still
 owns distance/FOV/scale/readability, stereo fusion, safe-area tuning, occlusion
 policy, menu operability, and the 30-minute comfort gate.
+
+Commit `64c519fe` implements the geometry half of controller menu input. It
+factors the head-locked plane basis shared by stereo presentation, intersects
+the dominant controller's world-composed aim ray against the finite plane, and
+writes a successful in-bounds hit to UT's existing absolute
+`WindowsMouseX/Y` cursor state on the same frame before console capture.
+Parallel, behind-plane, untracked, disconnected, and outside-plane rays leave
+the cursor untouched. A deterministic center-hit/parallel-rejection check is
+part of the existing HUD self-test mask, and native Debug builds pass.
+
+This does not yet synthesize a mouse click: trigger-to-select must be gated to
+real menu/cursor state so primary fire is never stolen during gameplay. Stick
+or D-pad focus navigation, pointer-loss visuals, cursor hotspot calibration,
+and physical Quest ray/selection validation remain open.
 
 ### 12.2 First-person weapon
 
@@ -1153,7 +1167,7 @@ tests.
 | M8 weapon | Controller-relative viewmodel position/scale/offsets, verified muzzle/fire origin, dominant-hand UI, two-hand policy, guided-warhead policy, automatic/special-weapon fixtures | Full-basis/roll presentation is implemented; remaining work needs package-qualified calibration data, loaded Botpack function table, deterministic firing fixtures, and headset/barrel alignment tests |
 | M8 haptics | Damage/pickup/UI events, per-weapon tuning, persisted settings UI, physical latency/source-loss tests | Gameplay outcome hooks and real actuator hardware |
 | M8 networking | **MVP decision complete:** offline/single-player/local-bot browser release; multiplayer and independent hand-aim replication are explicitly unsupported | Reopen only after a qualified native replication layer plus browser relay/protocol project; stock body/view rotation is insufficient |
-| M9 UI/comfort | Browser-validate the implemented capture-once console/menu and UI-only frame path; add controller cursor/raycast and unsupported actor draws; expose and browser-persist the implemented plane settings; finish readable scale, weapon position, vignette/comfort policies, recenter, and loading/pause presentation | Menu input/raycast contract, diagnostics for unsupported draws, settings UI/persistence, per-eye headset inspection, 30-minute comfort session |
+| M9 UI/comfort | Browser-validate the implemented capture-once console/menu, UI-only frame, and dominant-hand cursor-ray path; add menu-gated trigger/navigation and unsupported actor draws; expose and browser-persist the implemented plane settings; finish readable scale, weapon position, vignette/comfort policies, recenter, and loading/pause presentation | Menu selection/navigation contract, diagnostics for unsupported draws, settings UI/persistence, per-eye headset inspection, 30-minute comfort session |
 | M10 audio | Physically validate the implemented tracked-head listener: gesture unlock, head-relative direction/roll, Doppler and reset policy, focus/session re-entry, music, effects, volume, map changes, underruns, and shutdown | Real Quest Browser audio lifecycle and representative maps/sounds |
 | M10 data | Import a complete user-owned install into the already-audited no-preload artifact; verify playable clean-profile boot, large-copy quota/progress, restart/eviction/corruption recovery, schema migration, and persist configs/VR settings/saves/logs | User-owned UT99 installation, clean desktop/Quest browser profiles, Quest storage/browser support matrix |
 | M10 product | Extend the tested installable shell into the full map/settings/diagnostics launcher and visibly surface the decided offline-only scope; validate HTTPS/COOP/COEP deployment, Quest install/update/offline behavior, rollback, final proprietary-content scan, and license audit | Production hosting target, Quest Browser, release artifacts/hashes |
