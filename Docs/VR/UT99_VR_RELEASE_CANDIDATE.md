@@ -90,6 +90,14 @@ world-space laser originating at OpenXR's separate aim pose and terminating at
 the real menu-plane intersection. A compact dot on the menu marks the clickable
 pixel. The main hand follows `LeftHanded=true` / `-LeftHanded`.
 
+Commit `fc569423` aligned the beam presentation with Farantir's native VR
+implementation without changing the proven menu hit test. The visual beam now
+starts 4 cm in front of the aim-pose origin, uses one translucent depth-cued 3D
+line instead of five opaque parallel lines, and keeps the exact-contact marker
+opaque. Vulkan and D3D11 line vertices now preserve premultiplied alpha. The ray
+direction, menu-plane endpoint, logical-canvas mapping, trigger hysteresis, and
+physical-mouse fallback are unchanged.
+
 This uses two compositor layers in painter's order: the opaque menu quad first,
 then a source-alpha stereo projection containing only controller and laser
 geometry. The world, HUD, and black background remain transparent in the second
@@ -127,6 +135,31 @@ those settings.
 
 Gameplay input is suppressed while the menu is open. A failed quad acquisition
 falls back to the regular stereo path rather than submitting black.
+
+## Controller-aimed weapon coverage
+
+Commit `9b78f2e6` closes a gap in the original weapon fire interception. That
+implementation wrapped only script calls named `TraceFire` and
+`ProjectileFire`; captured runs contained many `UT_Eightball` and
+`UT_FlakCannon` render records but no matching old fire-intercept records, which
+agrees with the headset report that those shots still followed head aim.
+
+The engine now also wraps the local player's shared pawn aim sources,
+`AdjustAim` and `AdjustToss`. It substitutes `WeaponAimRotator(MainHand())` only
+while that exact script call runs and restores the previous `ViewRotation`
+immediately afterward. The save stack records the exact UObject and UFunction,
+so nested or unrelated calls cannot consume another call's restore. This covers
+primary, alternate, automatic, held, and charged-release paths whenever they
+ask the pawn to calculate aim, without making movement permanently follow the
+controller. A once-per-weapon/function log line beginning
+`VR aim-source intercept:` records which shared source a headset test reached.
+
+The Release build and `--help` smoke test pass. The fake-hand runtime harness
+confirmed real `AdjustAim` interception and nested save/restore behavior.
+Rocket Launcher and Flak Cannon still require the final
+in-headset shot-direction check before publishing; guided Redeemer steering and
+any weapon that directly consumes raw `ViewRotation` without calling a shared
+aim function remain separate follow-up cases.
 
 ## Headset release validation
 
@@ -169,6 +202,9 @@ license into a clean folder, then test that exact folder:
    had completed normally, but an archive should not be released until exit is
    rechecked without that hook.
 3. Repeat startup, menu pointer, one match, pause menu, and normal-exit checks.
-4. Inspect the fresh LocalAppData log for OpenXR/quad errors and retain it with
+4. Fire Rocket Launcher and Flak Cannon primary and alternate modes while head
+   and controller point in visibly different directions. Include a held/release
+   Rocket shot, and confirm `VR aim-source intercept:` names both weapons.
+5. Inspect the fresh LocalAppData log for OpenXR/quad errors and retain it with
    the test notes. The archive itself must contain no commercial UT99 assets,
    user configuration, or logs.

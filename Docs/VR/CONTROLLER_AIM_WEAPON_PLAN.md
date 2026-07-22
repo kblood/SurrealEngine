@@ -602,3 +602,39 @@ the permanent `ViewRotation` write. 1 of 5 (Redeemer) needs a clean-room
 decompile-spec pass — both because the guided-steering phase is
 architecturally outside this intercept's reach and because source for
 that weapon wasn't available in the decompile used for this audit.
+
+## 2026-07-22 shared aim-source follow-up
+
+The initial name-based coverage proved too narrow in a headset test: Rocket
+Launcher and Flak Cannon still followed head aim. Existing run logs reinforced
+the report: they contain many `UT_Eightball` and `UT_FlakCannon`
+`RenderOverlays` records, but zero `VR fire intercept` records for either
+class. Other stock weapons do appear in those old `TraceFire`/
+`ProjectileFire` logs, so this was a fire-path coverage gap rather than a bad
+controller pose.
+
+Commit `9b78f2e6` adds a smaller shared seam rather than accumulating
+weapon-specific function names. Calls to the local `UPlayerPawn`'s
+`AdjustAim` and `AdjustToss` now receive the same scoped
+`WeaponAimRotator(MainHand())` substitution as the old weapon helpers. The
+previous `ViewRotation` is restored as soon as the exact `(instance, function)`
+call returns. Recording both identities on the LIFO save stack also hardens the
+old path: an unmatched nested call can no longer pop another fire call's saved
+rotation.
+
+This shared source is evaluated at the moment the weapon asks for aim, so it
+covers ordinary primary/alternate fire, automatic refire, and held/charged
+release code without depending on the controller button edge. It resolves the
+Translocator's aim-source half more cleanly by seeding `AdjustToss` from the
+hand. Its caller's later permanent assignment of the returned toss rotation to
+`ViewRotation` remains a separate tracked-camera behavior decision. Redeemer
+guided-flight steering and any unusual path that reads raw `ViewRotation`
+without calling `AdjustAim`/`AdjustToss` are also outside this guarantee.
+
+Verification used the existing fake-hand/fire runtime against installed UT99
+data. The new `VR aim-source intercept:` log appeared for real `AdjustAim`
+calls, including calls nested inside the older fire wrapper, and the Release
+build plus command-line smoke test passed. Because the automatic weapon-cycle
+harness cannot reliably keep Rocket/Flak selected while it is also firing, the
+release checklist requires a final headset test of both modes and a charged
+Rocket release with head and controller deliberately separated.
