@@ -821,3 +821,48 @@ native `XRGPUBinding` constructor rejects. The production helper is ready, but
 real projection-layer creation, compositor presentation, repeated entry/exit
 and five-minute stability must run on a browser/headset with a native WebGPU-
 compatible XR session. After that, M7 composes the transported pose.
+
+## M6 opt-in native session lifecycle checkpoint — PASS WITH HEADSET GATE (2026-07-22)
+
+Commit `1e6cc90e` wires the packed bridge into a production-shaped session
+lifecycle without changing the default IWER route. Loading
+`index_webxr.html?native-webgpu-xr=1` selects the native route explicitly; the
+ordinary page still uses the emulated WebGL base layer and cannot be mistaken
+for WebGPU compositor presentation.
+
+The native Enter VR gesture now:
+
+1. prevents duplicate pending/active entry;
+2. requests `immersive-vr` with required `webgpu` and optional `local-floor`;
+3. constructs `XRGPUBinding` from SurrealEngine's XR-compatible `GPUDevice`;
+4. creates a color-only `bgra8unorm` projection layer and installs `layers`;
+5. selects `local-floor`, falling back to `local`;
+6. transfers engine RAF ownership only after all setup succeeds; and
+7. drives the synchronous packed render bridge from the native XR RAF.
+
+Every session has a monotonically increasing generation token. The next XR RAF
+is queued before rendering, while callbacks from an ended generation are inert.
+Setup rejection, native render failure and the session `end` event clear the
+binding/layer/reference-space state and restore the normal canvas RAF. A null
+viewer pose is instead a counted frame skip: simulation does not advance and
+the session remains alive. Reference-space reset events increment the packet's
+reset generation for M7.
+
+Playwright validation:
+
+- default IWER run: ABI 18/18, Web Audio resumed from the Enter VR click,
+  frames `3 -> 173`, clean session end;
+- experimental run: full external/packed stereo checks passed with zero WebGPU
+  errors; the production entry point then reached the known Blink boundary,
+  returned false with the native type-check error, never retained RAF
+  ownership, and the canvas tick advanced `17 -> 27` after cleanup;
+- after that expected failure, a fresh default IWER session advanced frames
+  `3 -> 176` and ended cleanly.
+
+This does not close M6. The test cannot construct a native Blink `XRSession`,
+so the `XRGPUBinding` constructor, projection-layer creation, real subimages,
+compositor output and headset timing remain unvalidated. The route also still
+hardcodes `bgra8unorm`; preferred-format negotiation and alternate render
+pipelines, visibility/device-loss/audio policy, repeated entry/exit, diagnostic
+timings, and five-minute headset stability are missing. Position/orientation
+composition remains deliberately assigned to M7.

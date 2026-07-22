@@ -72,7 +72,7 @@ XRSession.requestAnimationFrame
 | M3 — WebGPU hot path | Complete | Bind-group caching and buffer diagnostics measured on small and large maps |
 | M4 — presentation groundwork | Complete | XR-compatible device, texture import/readback, full UT frame in array layer 1, frame-loop ownership handoff |
 | M5 — frame/view refactor | Complete (diagnostic projections) | One simulation tick now renders two independently selected texture-array layers; real `XRView` data starts M6 |
-| M6 — native WebGPU XR session | In progress; native session/headset gated | Packed JS/WASM view ABI and synchronous subimage-shaped renderer pass; real `XRGPUBinding` session/presentation still requires a native supported runtime |
+| M6 — native WebGPU XR session | In progress; headset validation gated | Packed ABI, synchronous renderer, and opt-in production session/RAF lifecycle are implemented; real `XRGPUBinding` compositor presentation still requires a supported runtime |
 | M7 — tracking/camera/world scale | Not started | Correct 6DoF head pose and per-eye projection |
 | M8 — controller input/gameplay | Not started | Motion controllers, locomotion, weapon aim, haptics |
 | M9 — UI/comfort/VR presentation | Not started | HUD, menus, weapon model, recenter and comfort controls |
@@ -325,56 +325,98 @@ subimages remain the M6/M7 production path, not an M5 claim.
   sampled pixels, canvas RAF recovery and zero uncaptured WebGPU errors.
 - Native Windows Debug and Emscripten release builds pass.
 
-M6 is not complete: IWER's JavaScript session still cannot satisfy Blink's
-native `XRSession` type check, so projection-layer creation/compositor
-presentation must be validated on a supported real runtime/headset. M7 still
-owns position/orientation composition, recentering and calibrated world scale;
-the M6 bridge currently applies exact per-view projections but retains the
+### Completed production-session scaffold (2026-07-22)
+
+- Added an explicitly selected `?native-webgpu-xr=1` route. The default page
+  continues to use the IWER-compatible WebGL lifecycle harness and cannot
+  accidentally claim native WebGPU presentation.
+- The Enter VR gesture now requests `immersive-vr` with required `webgpu`,
+  constructs `XRGPUBinding`, creates and installs a color-only projection
+  layer, and requests `local-floor` with a `local` fallback.
+- Canvas RAF ownership transfers only after the session, binding, layer, render
+  state and reference space are ready. Each native XR RAF schedules its
+  successor first and synchronously packs/renders the frame before returning.
+- Session generations make stale callbacks inert. Setup rejection, render
+  failure, the session `end` event and explicit exit all clear native state and
+  restore the normal Emscripten canvas loop.
+- The native bridge error code distinguishes a legitimate no-pose skip from a
+  renderer rejection; the latter ends the session instead of silently losing
+  frames.
+- Playwright now invokes the production entry point under experimental IWER,
+  observes the expected Blink type-check rejection, verifies error diagnostics
+  and RAF recovery, then starts and ends a fresh default IWER session. Both the
+  default and experimental suites pass.
+
+M6 is not complete: the production lifecycle exists, but IWER's JavaScript
+session still cannot satisfy Blink's native `XRSession` type check. Projection-
+layer creation, the actual XR callback/subimage route and compositor
+presentation must therefore be validated on a supported real runtime/headset.
+The projection format is currently fixed to `bgra8unorm`; format negotiation
+and an alternate pipeline family remain before M6 exit. Visibility/device-loss
+policy, repeated entry/exit and the five-minute stability gate are also open.
+M7 still owns position/orientation composition, recentering and calibrated
+world scale; the M6 bridge applies exact per-view projections but retains the
 body camera transform.
 
 ### 9.1 Session creation
 
-Add a production path separate from the IWER lifecycle path:
+The production path is separate from the IWER lifecycle path. Current status:
 
-1. Require a user gesture from the Enter VR button.
-2. Request `immersive-vr` with `requiredFeatures:["webgpu"]` and optional
-   `local-floor`, `bounded-floor`, and later input/UI features.
-3. Construct `XRGPUBinding(session, engineDevice)`.
-4. Query `getPreferredColorFormat()`; do not assume it matches the canvas.
-5. Make pipeline color format configurable. Cache a second pipeline family if
-   XR format differs from `bgra8unorm` rather than lying in the view descriptor.
-6. Create a projection layer at `scaleFactor:1.0`, initially with color only.
-7. Install it with `session.updateRenderState({layers:[projectionLayer]})`.
-8. Acquire `local-floor` when available, otherwise `local`; expose the chosen
-   mode in diagnostics.
+1. **Implemented:** require a user gesture from the Enter VR button.
+2. **Implemented:** request `immersive-vr` with
+   `requiredFeatures:["webgpu"]` and optional `local-floor`. Add
+   `bounded-floor` and later input/UI features only when their milestone needs
+   them.
+3. **Implemented, headset-unvalidated:** construct
+   `XRGPUBinding(session, engineDevice)`.
+4. **Missing:** query the runtime's preferred color format instead of assuming
+   it matches the canvas.
+5. **Missing:** make pipeline color format configurable. Cache a second
+   pipeline family if XR format differs from `bgra8unorm` rather than lying in
+   the view descriptor.
+6. **Implemented, headset-unvalidated:** create a color-only projection layer
+   at `scaleFactor:1.0`, currently using `bgra8unorm`.
+7. **Implemented, headset-unvalidated:** install it with
+   `session.updateRenderState({layers:[projectionLayer]})`.
+8. **Implemented:** acquire `local-floor` when available, otherwise `local`,
+   and expose the chosen mode in diagnostics.
 
 ### 9.2 XR animation frame
 
 For each native XR callback:
 
-- Schedule the next callback first.
-- Return without simulation/render when no viewer pose is available.
-- For each `XRView`, call `getViewSubImage`, use
+- **Implemented:** schedule the next callback first.
+- **Implemented:** return without simulation/render when no viewer pose is
+  available, while counting the skipped frame.
+- **Implemented, headset-unvalidated:** for each `XRView`, call
+  `getViewSubImage`, use
   `XRGPUSubImage.getViewDescriptor()` and its viewport, and collect the exact
   browser-provided projection matrix.
-- Import the color texture once even if both views share the same array.
-- Run the M5 synchronous engine frame and submit before returning.
-- Record CPU frame time, GPU errors, view count, dimensions, format, and layer
+- **Implemented, headset-unvalidated:** import the color texture once even if
+  both views share the same array.
+- **Implemented, headset-unvalidated:** run the M5 synchronous engine frame
+  and submit before returning.
+- **Partial:** record frame count, skipped frames, last render result,
+  reference-space choice, configured format, lifecycle phase and errors.
+  Still record CPU/GPU frame time, GPU errors, view count, dimensions and layer
   indices in a compact diagnostic overlay/log.
 
 ### 9.3 Lifecycle
 
-- On successful session start, transfer RAF ownership only after the layer and
-  reference space are ready.
-- On `end`, exception, device loss, or failed pose acquisition, release pending
-  imported handles, stop XR RAF, clear XR state, restore window RAF/canvas, and
-  restore mouse/keyboard behavior.
-- Handle `visibilitychange` (`visible`, `visible-blurred`, `hidden`) with an
-  explicit pause/audio policy.
-- Handle reference-space `reset`, input-source changes, browser back/escape,
+- **Implemented:** on successful session start, transfer RAF ownership only
+  after the layer and reference space are ready.
+- **Partial:** on `end`, setup/render exception, or explicit exit, invalidate XR
+  RAF, clear state and restore window RAF/canvas. Imported handles are already
+  frame-scoped and synchronously released. Device-loss and full mouse/keyboard
+  restoration still need explicit coverage; a missing pose skips one frame
+  without ending the session.
+- **Missing:** handle `visibilitychange` (`visible`, `visible-blurred`,
+  `hidden`) with an explicit pause/audio policy.
+- **Partial:** count reference-space `reset` generations. Still handle input-
+  source changes, browser back/escape,
   repeated enter/exit, and page shutdown.
-- Prevent simultaneous enter requests and stale callbacks from an old session
-  using a session generation/token.
+- **Implemented:** prevent simultaneous enter requests and stale callbacks
+  from an old session using a session generation/token.
 
 ### 9.4 Validation boundary
 
@@ -714,14 +756,17 @@ Release candidates require:
    projected array layers in one synchronous frame and read back both.
 3. **Complete:** add and validate the packed view-state ABI. Matrix storage is
    proven end-to-end; coordinate/unit correctness remains M7 headset work.
-4. Run the real projection-layer probe on a supported physical headset/browser;
+4. **Implemented, real-runtime validation pending:** add the opt-in production
+   session/layer/RAF lifecycle with strict cleanup and no IWER fallback.
+5. Run the real projection-layer path on a supported physical headset/browser;
    in parallel, determine whether the public Chromium WebXR Test API can provide
    a native automated session.
-5. Implement M6 production session lifecycle and color presentation.
-6. Complete M7 head pose/world-scale correctness before controller gameplay.
-7. Implement M8 input and weapon aiming, then M9 HUD/comfort.
-8. Finish audio/data/deploy and the explicit networking decision in M10.
-9. Optimize and harden only from M11 headset traces, then run release gates.
+6. Finish M6 color-format negotiation, lifecycle policy, diagnostics and
+   stability gates using that runtime.
+7. Complete M7 head pose/world-scale correctness before controller gameplay.
+8. Implement M8 input and weapon aiming, then M9 HUD/comfort.
+9. Finish audio/data/deploy and the explicit networking decision in M10.
+10. Optimize and harden only from M11 headset traces, then run release gates.
 
 ## 17. Authoritative browser references
 
