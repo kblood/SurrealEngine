@@ -42,11 +42,19 @@ namespace
 				SetupMapAndPlayer();
 				if (!Complete)
 					SetupBot();
-				WriteTelemetry("run_start", ExitCode == 0 ? "running" : "failed", FailureReason, 0, 0.0);
 			}
 			catch (const std::exception& e)
 			{
 				Fail(e.what());
+			}
+
+			try
+			{
+				WriteTelemetry("run_start", ExitCode == 0 ? "running" : "failed", FailureReason, 0, 0.0);
+			}
+			catch (const std::exception& e)
+			{
+				Fail(std::string("telemetry start failed: ") + e.what());
 			}
 		}
 
