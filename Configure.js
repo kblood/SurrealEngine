@@ -39,6 +39,8 @@ var commonSources = [
 	"SurrealEngine/GameWindow.h",
 	"SurrealEngine/Input/InputComposition.cpp",
 	"SurrealEngine/Input/InputComposition.h",
+	"SurrealEngine/Input/XRInputAdapter.cpp",
+	"SurrealEngine/Input/XRInputAdapter.h",
 	"SurrealEngine/UE1GameDatabase.h",
 	"SurrealEngine/UE1GameDatabase.cpp",
 	"SurrealEngine/Utils/CommandLine.cpp",
