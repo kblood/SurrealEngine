@@ -46,11 +46,11 @@
 	</section>
 	<section id="game-data-importer" class="panel" hidden aria-live="polite">
 		<h1>Add a game</h1>
-		<p>Choose your own Unreal Tournament or Unreal Gold installation. Files remain in private storage on this device and are never uploaded.</p>
+		<p>Choose your own Unreal Tournament or Unreal Gold installation. The engine makes a browser-private copy on this device so it can reopen the game later; nothing is sent to this website or any server. Your browser may call folder selection an “upload,” but here that only grants this page local read access.</p>
 		<p data-game-status></p><p data-game-error hidden role="alert"></p>
 		<div class="actions">
 			<button type="button" data-game-pick>Choose game folder</button>
-			<label class="file-button" data-game-file-label>Folder upload fallback<input type="file" data-game-files webkitdirectory directory multiple></label>
+			<label class="file-button" data-game-file-label>Choose folder (browser fallback)<input type="file" data-game-files webkitdirectory directory multiple></label>
 			<button type="button" data-game-clear>Clear saved game</button>
 		</div>
 		<progress data-game-progress max="1" value="0"></progress>

@@ -78,6 +78,8 @@ try {
 	assert.doesNotMatch(index, /\.\.\/build-emscripten\//);
 	assert.match(index, /data-source-compliance/);
 	assert.match(index, /source\/SurrealEngine-corresponding-source\.tar\.gz/);
+	assert.match(index, /browser may call folder selection an .upload./i);
+	assert.doesNotMatch(index, /Folder upload fallback/);
 	assert.match(await readFile(join(output, "_headers"), "utf8"), /Cross-Origin-Embedder-Policy: require-corp/);
 	assert.match(await readFile(join(output, "HOSTING.txt"), "utf8"), /Source archive SHA-256/);
 	assert.match(await readFile(join(output, "licenses", "SurrealVideo-LGPL-2.1.txt"), "utf8"), /GNU LESSER GENERAL PUBLIC LICENSE/);
