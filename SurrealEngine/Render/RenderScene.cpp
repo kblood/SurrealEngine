@@ -372,25 +372,18 @@ void RenderSubsystem::DrawVRMenuTrackedOverlay()
 		const Engine::VRHandState& mainHand = engine->MainHand();
 		if (engine->vrMenuLaserEnabled && mainHand.valid && engine->vrMenuRayVisible)
 		{
-			vec3 start = mainHand.aimPos;
+			const float laserStartOffsetUU = 0.04f / 0.0254f;
+			vec3 rayDirection = Coords::Rotation(engine->WeaponAimRotator(mainHand)).XAxis;
+			vec3 start = mainHand.aimPos + rayDirection * laserStartOffsetUU;
 			vec3 end = engine->vrMenuRayEndUE;
-			vec3 direction = normalize(end - start);
-			vec3 side = cross(direction, vec3(0.0f, 0.0f, 1.0f));
-			if (dot(side, side) < 0.0001f)
-				side = cross(direction, vec3(0.0f, 1.0f, 0.0f));
-			side = normalize(side) * 0.10f;
-			vec3 up = normalize(cross(side, direction)) * 0.10f;
-			vec4 beamColor = engine->vrMenuRayHitsPanel ? vec4(0.08f, 1.0f, 0.22f, 1.0f) : vec4(1.0f, 0.22f, 0.05f, 1.0f);
-			drawLine(&MainFrame.Frame, beamColor, start, end);
-			drawLine(&MainFrame.Frame, beamColor, start + side, end + side);
-			drawLine(&MainFrame.Frame, beamColor, start - side, end - side);
-			drawLine(&MainFrame.Frame, beamColor, start + up, end + up);
-			drawLine(&MainFrame.Frame, beamColor, start - up, end - up);
+			vec4 beamColor = engine->vrMenuRayHitsPanel ? vec4(0.08f, 1.0f, 0.22f, 0.35f) : vec4(1.0f, 0.22f, 0.05f, 0.35f);
+			Device->Draw3DLine(&MainFrame.Frame, beamColor, LINE_DepthCued, start, end);
 
 			// A small 3D hit marker lies on the actual quad plane endpoint.
 			float arm = 0.65f;
-			drawLine(&MainFrame.Frame, beamColor, end - engine->vrQuadRightUE * arm, end + engine->vrQuadRightUE * arm);
-			drawLine(&MainFrame.Frame, beamColor, end - engine->vrQuadUpUE * arm, end + engine->vrQuadUpUE * arm);
+			vec4 hitColor(beamColor.xyz(), 1.0f);
+			drawLine(&MainFrame.Frame, hitColor, end - engine->vrQuadRightUE * arm, end + engine->vrQuadRightUE * arm);
+			drawLine(&MainFrame.Frame, hitColor, end - engine->vrQuadUpUE * arm, end + engine->vrQuadUpUE * arm);
 		}
 	}
 }
