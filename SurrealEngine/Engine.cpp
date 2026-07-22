@@ -715,7 +715,7 @@ void Engine::LoadMap(const UnrealURL& url, const std::map<std::string, std::stri
 		for (size_t i = 0; i < loadActorCount; i++) { if (Level->Actors[i]) CallEvent(Level->Actors[i], EventName::PostBeginPlay); }
 		for (size_t i = 0; i < loadActorCount; i++) { if (Level->Actors[i]) CallEvent(Level->Actors[i], EventName::SetInitialState); }
 
-		if (engine->LaunchInfo.IsDeusEx())
+		if (engine->LaunchInfo.HasCapability(GameCapability::PostPostBeginPlayEvent))
 		{
 			for (size_t i = 0; i < loadActorCount; i++) { if (Level->Actors[i]) CallEvent(Level->Actors[i], "PostPostBeginPlay"); }
 		}

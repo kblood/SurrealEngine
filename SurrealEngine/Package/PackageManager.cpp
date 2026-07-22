@@ -5,6 +5,7 @@
 #include "PackageStream.h"
 #include "IniFile.h"
 #include "PackageWriter.h"
+#include "GameSupport.h"
 #include "Utils/File.h"
 #include "Utils/StrTools.h"
 #include "UObject/UObject.h"
@@ -34,8 +35,6 @@
 #include "UObject/URMusicPlayer.h"
 #include "VM/NativeFunc.h"
 #include "Native/NActor.h"
-#include "Native/N227Emitter.h"
-#include "Native/N227Projector.h"
 #include "Native/NCanvas.h"
 #include "Native/NCommandlet.h"
 #include "Native/NConsole.h"
@@ -54,49 +53,7 @@
 #include "Native/NInternetLink.h"
 #include "Native/NTcpLink.h"
 #include "Native/NUdpLink.h"
-#include "Native/NDebugInfo.h"
-#include "Native/NDeusExDecoration.h"
-#include "Native/NDeusExPlayer.h"
-#include "Native/NDeusExSaveInfo.h"
-#include "Native/NDumpLocation.h"
-#include "Native/NGameDirectory.h"
-#include "Native/NParticleIterator.h"
-#include "Native/NScriptedPawn.h"
-#include "Native/NPlayerPawnExt.h"
-#include "Native/NUPakPathNodeIterator.h"
-#include "Native/NUPakPawnPathNodeIterator.h"
-#include "Native/NBorderWindow.h"
-#include "Native/NButtonWindow.h"
-#include "Native/NCheckboxWindow.h"
-#include "Native/NClipWindow.h"
-#include "Native/NComputerWindow.h"
-#include "Native/NConEvent.h"
-#include "Native/NConEventRandomLabel.h"
-#include "Native/NConversation.h"
-#include "Native/NDeusExTextParser.h"
-#include "Native/NEditWindow.h"
-#include "Native/NExtensionObject.h"
-#include "Native/NExtString.h"
-#include "Native/NFlagBase.h"
-#include "Native/NGC.h"
-#include "Native/NLargeTextWindow.h"
-#include "Native/NListWindow.h"
-#include "Native/NModalWindow.h"
-#include "Native/NRadioBoxWindow.h"
 #include "Native/NRMusicPlayer.h"
-#include "Native/NRootWindow.h"
-#include "Native/NScaleManagerWindow.h"
-#include "Native/NScaleWindow.h"
-#include "Native/NScrollAreaWindow.h"
-#include "Native/NTextLogWindow.h"
-#include "Native/NTextWindow.h"
-#include "Native/NTileWindow.h"
-#include "Native/NTimeDemo.h"
-#include "Native/NToggleWindow.h"
-#include "Native/NViewportWindow.h"
-#include "Native/NWebRequest.h"
-#include "Native/NWebResponse.h"
-#include "Native/NWindow.h"
 
 PackageManager::PackageManager(const GameLaunchInfo& launchInfo) : launchInfo(launchInfo)
 {
@@ -113,7 +70,7 @@ PackageManager::PackageManager(const GameLaunchInfo& launchInfo) : launchInfo(la
 	ScanPaths();
 	ScanForMaps();
 
-	if (launchInfo.IsDeusEx())
+	if (launchInfo.HasCapability(GameCapability::SaveInfoPackages))
 		ScanSaveInfos();
 
 	InitPropertyOffsets(this);
@@ -843,60 +800,7 @@ void PackageManager::RegisterFunctions()
 	NInternetLink::RegisterFunctions();
 	NTcpLink::RegisterFunctions();
 	NUdpLink::RegisterFunctions();
-	if (IsUnreal1())
-	{
-		NUPakPathNodeIterator::RegisterFunctions();
-		NUPakPawnPathNodeIterator::RegisterFunctions();
-	}
-	if (IsUnreal1_227())
-	{
-		NXParticleEmitter::RegisterFunctions();
-		NXEmitter::RegisterFunctions();
-		N227Projector::RegisterFunctions();
-	}
-	if (IsDeusEx())
-	{
-		NDebugInfo::RegisterFunctions();
-		NDeusExDecoration::RegisterFunctions();
-		NDeusExPlayer::RegisterFunctions();
-		NDeusExSaveInfo::RegisterFunctions();
-		NDumpLocation::RegisterFunctions();
-		NGameDirectory::RegisterFunctions();
-		NParticleIterator::RegisterFunctions();
-		NScriptedPawn::RegisterFunctions();
-		NPlayerPawnExt::RegisterFunctions();
-		NBorderWindow::RegisterFunctions();
-		NButtonWindow::RegisterFunctions();
-		NCheckboxWindow::RegisterFunctions();
-		NClipWindow::RegisterFunctions();
-		NComputerWindow::RegisterFunctions();
-		NConEvent::RegisterFunctions();
-		NConEventRandomLabel::RegisterFunctions();
-		NConversation::RegisterFunctions();
-		NDeusExTextParser::RegisterFunctions();
-		NEditWindow::RegisterFunctions();
-		NExtensionObject::RegisterFunctions();
-		NExtString::RegisterFunctions();
-		NFlagBase::RegisterFunctions();
-		NGC::RegisterFunctions();
-		NLargeTextWindow::RegisterFunctions();
-		NListWindow::RegisterFunctions();
-		NModalWindow::RegisterFunctions();
-		NRadioBoxWindow::RegisterFunctions();
-		NRootWindow::RegisterFunctions();
-		NScaleManagerWindow::RegisterFunctions();
-		NScaleWindow::RegisterFunctions();
-		NScrollAreaWindow::RegisterFunctions();
-		NTextLogWindow::RegisterFunctions();
-		NTextWindow::RegisterFunctions();
-		NTileWindow::RegisterFunctions();
-		NTimeDemo::RegisterFunctions();
-		NToggleWindow::RegisterFunctions();
-		NViewportWindow::RegisterFunctions();
-		NWebRequest::RegisterFunctions();
-		NWebResponse::RegisterFunctions();
-		NWindow::RegisterFunctions();
-	}
+	launchInfo.Support().RegisterNativeFunctions(launchInfo);
 
 	if (fs::exists(gameSystemFolderPath / "RMusicPlayer.u"))
 	{
