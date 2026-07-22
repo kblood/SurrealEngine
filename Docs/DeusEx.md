@@ -48,13 +48,20 @@ build/Release/SurrealEngine.exe --url=DX.dx "C:\Games\Deus Ex GOTY"
 build/Release/SurrealEngine.exe --url=00_Training.dx "C:\Games\Deus Ex GOTY"
 ```
 
-Baseline results on 2026-07-22:
+Validation results on 2026-07-22:
 
-- `DX.dx` remained running for a 30-second unattended smoke test.
-- `00_Training.dx` remained running and responsive for a 20-second unattended
-  smoke test.
+- `DX.dx` and `00_Training.dx` remained running and responsive during repeated
+  unattended smoke tests, including a 10-second check after the text paging
+  implementation.
+- All 88 installed `.dx` maps remained running and responsive for a three-second
+  direct-load check. The scan included representative early, middle, late, and
+  ending maps before it was expanded to the complete installed map set.
 - No output was written to stdout or stderr during either test. Behavioral
   validation therefore still requires an interactive run.
+
+The all-map scan checks package loading and early map initialization. It does
+not demonstrate that missions can be completed, that scripted map travel works,
+or that save games remain compatible.
 
 ## Text package findings
 
@@ -75,7 +82,7 @@ not a replacement for parsing the package objects.
 | `PLAYERNAME` | 12 | Player name substitution |
 | `PLAYERFIRSTNAME` | 10 | Player first-name substitution |
 
-Initial tokenizer audit findings:
+The original tokenizer audit found these concrete defects:
 
 - `EMAIL` is incorrectly returned as the `File` tag, so callers of
   `GetEmailInfo` receive empty metadata.
@@ -85,12 +92,27 @@ Initial tokenizer audit findings:
 - A token ending exactly at end-of-input is rejected by the low-level matching
   helpers.
 
-The first compatibility slice addresses those four findings. It emits distinct
-email metadata, preserves center/left/right alignment, copies validated color
-channels into the parsed color, and accepts text or delimiters that end exactly
-at end-of-input. After the change, the Release build completed and both
-`DX.dx` and `00_Training.dx` remained responsive during 15-second unattended
-smoke tests. Interactive email, book, and DataCube validation remains pending.
+The text implementation now handles the complete original 30-value token table,
+including player-name substitutions, formatting, escaped angle brackets,
+graphic and font names, and comment, note, and goal blocks. Metadata parsing is
+deliberately forgiving because the stock package is not uniform: its 137
+`EMAIL` tags include 15 records without a CC field, one empty record, and one
+record with an extra trailing field. `FILE` and `EMAIL` fields are trimmed, and
+missing fields remain empty.
+
+The wrapper behavior also matches the reference DLL where it differs from the
+old implementation:
+
+- `SetPlayerName` derives the first name at the first space.
+- `GetName` only exposes names for note, graphic, font, and label tokens.
+- `GetColor` exposes parsed colors for `DC` and `C`, the configured default for
+  `/C`, and a zero color for other tokens.
+- `GotoLabel` remains a no-op because that is the behavior of the original
+  implementation.
+- `ExtString.GetFirstTextPart` and `GetNextTextPart` return the number of
+  characters copied and split speech text into consecutive 239-character
+  pages. The previous implementation omitted the final character of the first
+  page and did not implement subsequent pages.
 
 ### Original parser reference
 
@@ -110,12 +132,35 @@ and right alignment tokens and that `EMAIL` is distinct from `FILE`. Future
 tokenizer changes should compare observable behavior with these exported
 reference functions and must not require or redistribute the proprietary DLL.
 
+Disassembly was also used to establish narrowly scoped observable behavior for
+block consumption, metadata field handling, color values, player first-name
+derivation, `GetName`, `GetColor`, `GotoLabel`, and `ExtString` paging. The
+replacement code is an independent implementation and neither links to nor
+redistributes the original binaries.
+
+## Automated text coverage
+
+The platform-independent tokenizer and paging code has a small CTest target so
+it can be validated without loading proprietary game packages:
+
+```powershell
+ctest --test-dir build -C Release --output-on-failure
+```
+
+The tests cover text at exact end-of-input, every token-table entry, all three
+alignment modes, RGB parsing, case-insensitive tags, player substitutions,
+block consumption, escaped angle brackets, file metadata, the stock email
+record shapes, and 239-character paging boundaries. The Release test run passed
+on 2026-07-22.
+
 ## Next validation targets
 
-1. Verify books, DataCubes, email terminals, and bulletin links interactively.
-2. Add support for the remaining text tags encountered through package-object
-   parsing rather than raw byte scanning.
-3. Capture the next failing native call in training and reduce it to a focused,
+1. Verify books, DataCubes, email terminals, bulletin links, and multi-page
+   speech text interactively.
+2. Capture the next failing native call in training and reduce it to a focused,
    independently reviewable change.
-4. Re-test title, training, a fresh game, map travel, save, and load before
+3. Exercise a fresh game and scripted map travel, then inventory the first
+   missing or incorrect game-native behavior on that path.
+4. Audit save-slot creation, loading, and deletion against the original game.
+5. Re-test title, training, a fresh game, map travel, save, and load before
    proposing an upstream pull request.

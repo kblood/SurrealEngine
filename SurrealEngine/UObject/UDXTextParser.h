@@ -1,43 +1,9 @@
 #pragma once
 
 #include "UObject.h"
+#include "DXTextTokenizer.h"
 
 class UDXExtString;
-
-enum class DeusExTextTags : uint8_t
-{
-	TT_Text,
-	TT_File,
-	TT_Email,
-	TT_Note,
-	TT_EndNote,
-	TT_Goal,
-	TT_EndGoal,
-	TT_Comment,
-	TT_EndComment,
-	TT_PlayerName,
-	TT_PlayerFirstName,
-	TT_NewPage,
-	TT_CenterText,
-	TT_LeftJustify,
-	TT_RightJustify,
-	TT_DefaultColor,
-	TT_TextColor,
-	TT_RevertColor,
-	TT_NewParagraph,
-	TT_Bold,
-	TT_EndBold,
-	TT_Underline,
-	TT_EndUnderline,
-	TT_Italics,
-	TT_EndItalics,
-	TT_Graphic,
-	TT_Font,
-	TT_Label,
-	TT_OpenBracket,
-	TT_CloseBracket,
-	TT_None
-};
 
 class UDXTextParser : public UObject
 {
@@ -80,14 +46,4 @@ public:
 
 private:
 	UDXExtString* textObject = nullptr;
-
-	static void EatWhitespace(const std::string& text, size_t& pos);
-	static bool ReadChars(const std::string& text, size_t& pos, const std::string& chars);
-	static bool ReadTagName(const std::string& text, size_t& pos, std::string& tagname);
-	static bool ReadTagColor(const std::string& text, size_t& pos, Color& color);
-	static bool ReadInteger(const std::string& text, size_t& pos, uint8_t& value);
-	static bool ReadTextUntil(const std::string& text, size_t& pos, std::string& value, char endChar);
-	static bool ReadText(const std::string& text, size_t& pos, std::string& value);
-	static bool ReadTagFile(const std::string& text, size_t& pos, std::string& filename, std::string& filedescription);
-	static bool ReadTagEmail(const std::string& text, size_t& pos, std::string& emailName, std::string& emailSubject, std::string& emailFrom, std::string& emailTo, std::string& emailCC);
 };

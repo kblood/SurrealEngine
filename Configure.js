@@ -368,6 +368,8 @@ var commonSources = [
 	"SurrealEngine/UObject/UDXGameDirectory.h",
 	"SurrealEngine/UObject/UDXSaveInfo.cpp",
 	"SurrealEngine/UObject/UDXSaveInfo.h",
+	"SurrealEngine/UObject/DXTextTokenizer.cpp",
+	"SurrealEngine/UObject/DXTextTokenizer.h",
 	"SurrealEngine/UObject/UDXTextParser.cpp",
 	"SurrealEngine/UObject/UDXTextParser.h",
 	"SurrealEngine/UObject/U227Emitter.cpp",
