@@ -180,9 +180,13 @@ Controller input and tracked-hand visuals are not part of this branch.
 ## Shared browser launcher composition
 
 The integration branch composes this provider with the XR-neutral browser app
-through `web/webxr_browser_app_adapter.js`. `web/surreal_app.html` is the shared
-game library for both targets: the flat target uses it directly, while the
-WebXR target opens `surreal_app.html?webxr=1`. The adapter activates WebXR only
-after the shared launcher has validated local game data, selected a safe map,
-and started the native engine. Exiting or failing the session leaves that same
-flat application running.
+through `web/webxr_browser_app_adapter.js`. `web/surreal_app.html` is one shared
+game library for both targets. The release shell probes WebXR independently,
+requests an XR-compatible WebGPU adapter only when the provider can otherwise
+run, and retries an ordinary adapter when XR compatibility is unavailable. The
+adapter activates WebXR only after the launcher has validated local game data,
+selected a safe map, and started the native engine. Exiting, declining, or
+failing the session leaves that same flat application running. The shared
+launcher also propagates whether the actual device came from an adapter
+requested with `xrCompatible: true`, so provider entry cannot mistake an
+ordinary flat WebGPU device for an XR-compatible one.
