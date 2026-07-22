@@ -730,6 +730,17 @@ add_executable(SurrealDebugger ${SURREALDEBUGGER_SOURCES})
 target_link_libraries(SurrealDebugger SurrealCommon ${SURREALCOMMON_LIBS})
 set_target_properties(SurrealDebugger PROPERTIES CXX_STANDARD 20)
 
+include(CTest)
+if(BUILD_TESTING AND NOT EMSCRIPTEN)
+	add_executable(PropertySerializationTests
+		Tests/PropertySerializationTests.cpp
+	)
+	target_include_directories(PropertySerializationTests PRIVATE SurrealEngine)
+	target_link_libraries(PropertySerializationTests SurrealCommon ${SURREALCOMMON_LIBS})
+	set_target_properties(PropertySerializationTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PropertySerialization COMMAND PropertySerializationTests)
+endif()
+
 if(WIN32)
 	add_custom_command(TARGET SurrealEngine POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:OpenAL::OpenAL>" $<TARGET_FILE_DIR:SurrealEngine>)
 endif()

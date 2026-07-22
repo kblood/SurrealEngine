@@ -52,6 +52,11 @@ void UProperty::SaveValue(void* data, PackageStreamWriter* stream)
 {
 }
 
+void UProperty::SaveStructMemberValue(void* data, PackageStreamWriter* stream)
+{
+	SaveValue(data, stream);
+}
+
 void UProperty::ThrowIfTypeMismatch(const PropertyHeader& header, UnrealPropertyType type)
 {
 	if (header.type != type)
@@ -440,6 +445,11 @@ void UBoolProperty::SaveValue(void* data, PackageStreamWriter* stream)
 {
 }
 
+void UBoolProperty::SaveStructMemberValue(void* data, PackageStreamWriter* stream)
+{
+	stream->WriteUInt8(GetBool(data) ? 1 : 0);
+}
+
 size_t UBoolProperty::ElementAlignment()
 {
 	return alignof(uint32_t);
@@ -781,7 +791,7 @@ void UFixedArrayProperty::SaveValue(void* data, PackageStreamWriter* stream)
 	{
 		for (int arrayIndex = 0; arrayIndex < Inner->ArrayDimension; arrayIndex++)
 		{
-			Inner->SaveValue(p, stream);
+			Inner->SaveStructMemberValue(p, stream);
 			p += Inner->ElementPitch();
 		}
 	}
@@ -903,7 +913,7 @@ void UArrayProperty::SaveValue(void* data, PackageStreamWriter* stream)
 	stream->WriteIndex((int)vec.GetSize());
 	for (size_t i = 0, count = vec.GetSize(); i < count; i++)
 	{
-		Inner->SaveValue(vec.GetItem(i), stream);
+		Inner->SaveStructMemberValue(vec.GetItem(i), stream);
 	}
 }
 
@@ -1152,7 +1162,7 @@ void UStructProperty::SaveValue(void* data, PackageStreamWriter* stream)
 	for (UProperty* fieldprop : Struct->Properties)
 	{
 		void* fielddata = (uint8_t*)data + fieldprop->DataOffset.DataOffset;
-		fieldprop->SaveValue(fielddata, stream);
+		fieldprop->SaveStructMemberValue(fielddata, stream);
 	}
 }
 
