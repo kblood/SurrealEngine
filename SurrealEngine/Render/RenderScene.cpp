@@ -311,6 +311,25 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 	WebXRHudStats.LastFrameEyePresentations = 0;
 	WebXRHudStats.LastFrameCapturedCommands = 0;
 	WebXRHudStats.LastFrameUnsupportedDraws = 0;
+	WebXRHudStats.ActorWorld.LastFrameAttempts = 0;
+	WebXRHudStats.ActorWorld.LastFrameAcceptedCommands = 0;
+	WebXRHudStats.ActorWorld.LastFrameEyePresentations = 0;
+	WebXRHudStats.ActorClipped.LastFrameAttempts = 0;
+	WebXRHudStats.ActorClipped.LastFrameAcceptedCommands = 0;
+	WebXRHudStats.ActorClipped.LastFrameEyePresentations = 0;
+	WebXRHudStats.Line3D.LastFrameAttempts = 0;
+	WebXRHudStats.Line3D.LastFrameAcceptedCommands = 0;
+	WebXRHudStats.Line3D.LastFrameEyePresentations = 0;
+	WebXRHudStats.LastFrameActorRejections = {};
+	WebXRHudStats.LastFrameLine3DRejections = {};
+	WebXRHudStats.LastFrameTotalCommandLimitRejects = 0;
+	WebXRHudStats.LastFrameReplaySkipsAfterCapture = 0;
+	WebXRHudStats.LastFrameStateRestoreChecks = 0;
+	WebXRHudStats.LastFrameRenderExceptions = 0;
+	WebXRHudStats.LastFrameDepthClears = 0;
+	WebXRHudStats.LastFrameExpectedActorPresentations = 0;
+	WebXRHudStats.LastFrameCompletedActorPresentations = 0;
+	WebXRHudStats.LastFrameCommandTypeOrderDigest = 0;
 	WebXRHudStats.LastFrameClampedViewports = 0;
 	WebXRHudStats.LastFramePlayerPostRenderCalls = 0;
 	WebXRHudStats.LastFrameConsolePostRenderCalls = 0;
@@ -460,18 +479,30 @@ bool RenderSubsystem::PresentWebXRHudEye(const WebXRSceneView* views, uint32_t v
 	const float scaleY = viewport.Height / (float)WebXRHudLayoutHeight;
 	for (const WebXRHudCommand& command : WebXRHudCommands)
 	{
-		if (command.Type == WebXRHudCommandType::Tile)
+		switch (command.Type)
 		{
+		case WebXRHudCommandType::Tile:
 			Device->DrawTile(&Canvas.Frame, command.Texture,
 				command.X * scaleX, command.Y * scaleY, command.Width * scaleX, command.Height * scaleY,
 				command.U, command.V, command.ULength, command.VLength, command.Z,
 				command.Color, command.Fog, command.Flags);
-		}
-		else
+			break;
+		case WebXRHudCommandType::Line2D:
 		{
 			vec3 p1(command.P1.x * scaleX, command.P1.y * scaleY, command.P1.z);
 			vec3 p2(command.P2.x * scaleX, command.P2.y * scaleY, command.P2.z);
 			Device->Draw2DLine(&Canvas.Frame, command.Color, command.Flags, p1, p2);
+			break;
+		}
+		case WebXRHudCommandType::ActorWorld:
+		case WebXRHudCommandType::ActorClipped:
+		case WebXRHudCommandType::Line3D:
+			// AH1 never appends these variants. If corrupted/future state reaches
+			// this dispatcher, fail closed without selecting a scene node, clearing
+			// depth, or dereferencing a UObject.
+			WebXRHudStats.ReplaySkipsAfterCapture++;
+			WebXRHudStats.LastFrameReplaySkipsAfterCapture++;
+			break;
 		}
 	}
 	WebXRHudStats.EyePresentations++;
@@ -540,5 +571,70 @@ uint32_t RenderSubsystem::RunWebXRHudSelfTest()
 	if (clamped.Valid && clamped.Clamped && clamped.X >= 250 && clamped.Y >= 250 &&
 		clamped.X + clamped.Width <= 750 && clamped.Y + clamped.Height <= 750)
 		mask |= WebXRHudSelfTestViewportClamping;
+	WebXRHudStats.ActorCaptureSelfTestMask = RunWebXRHudActorCaptureSelfTest();
+	WebXRHudStats.ActorCaptureSelfTestPassed =
+		WebXRHudStats.ActorCaptureSelfTestMask == WebXRHudActorCaptureSelfTestAll;
+	return mask;
+}
+
+uint32_t RenderSubsystem::RunWebXRHudActorCaptureSelfTest()
+{
+	uint32_t mask = 0;
+	if ((uint8_t)WebXRHudCommandType::Tile != (uint8_t)WebXRHudCommandType::ActorWorld &&
+		(uint8_t)WebXRHudCommandType::ActorWorld != (uint8_t)WebXRHudCommandType::Line2D &&
+		(uint8_t)WebXRHudCommandType::Line2D != (uint8_t)WebXRHudCommandType::ActorClipped &&
+		(uint8_t)WebXRHudCommandType::ActorClipped != (uint8_t)WebXRHudCommandType::Line3D)
+		mask |= WebXRHudActorCaptureSelfTestDistinctTypes;
+
+	WebXRHudActorClassificationInput input;
+	input.ActorPresent = false;
+	const bool nullTyped = ClassifyWebXRHudActor(input) == WebXRHudActorRejectionReason::NullActor;
+	input = {};
+	input.RectangleValid = false;
+	const bool rectangleTyped = ClassifyWebXRHudActor(input) ==
+		WebXRHudActorRejectionReason::InvalidRectangle;
+	input = {};
+	input.FiniteState = false;
+	const bool finiteTyped = ClassifyWebXRHudActor(input) ==
+		WebXRHudActorRejectionReason::NonFiniteState;
+	input = {};
+	const bool eligibleFailsClosed = ClassifyWebXRHudActor(input) ==
+		WebXRHudActorRejectionReason::SnapshotUnavailable;
+	if (nullTyped && rectangleTyped && finiteTyped && eligibleFailsClosed)
+		mask |= WebXRHudActorCaptureSelfTestTypedRejections;
+
+	input = {};
+	input.CommandLimitReached = true;
+	if (ClassifyWebXRHudActor(input) == WebXRHudActorRejectionReason::CommandLimit &&
+		WebXRHudDiagnostics::MaximumActorCommandsPerFrame == 64 &&
+		WebXRHudDiagnostics::MaximumTotalCommandsPerFrame == 4096)
+		mask |= WebXRHudActorCaptureSelfTestCommandLimits;
+
+	const WebXRHudCommandType sequence[] = {
+		WebXRHudCommandType::Tile,
+		WebXRHudCommandType::ActorWorld,
+		WebXRHudCommandType::Line2D,
+		WebXRHudCommandType::ActorClipped,
+		WebXRHudCommandType::Tile
+	};
+	uint64_t ordered = 0;
+	for (WebXRHudCommandType type : sequence)
+		ordered = HashWebXRHudCommandType(ordered, type);
+	uint64_t reordered = 0;
+	for (size_t index : { size_t(0), size_t(3), size_t(2), size_t(1), size_t(4) })
+		reordered = HashWebXRHudCommandType(reordered, sequence[index]);
+	if (ordered != 0 && reordered != 0 && ordered != reordered)
+		mask |= WebXRHudActorCaptureSelfTestOrderedDigest;
+
+	// The command payload has no UActor field in AH1. Clearing it therefore
+	// proves that no stale actor root/pointer can survive a frame boundary, and
+	// the three future variants remain non-presentable in production.
+	Array<WebXRHudCommand> lifetime;
+	WebXRHudCommand command;
+	command.Type = WebXRHudCommandType::Tile;
+	lifetime.push_back(command);
+	lifetime.clear();
+	if (lifetime.empty() && eligibleFailsClosed)
+		mask |= WebXRHudActorCaptureSelfTestFailClosedLifetime;
 	return mask;
 }

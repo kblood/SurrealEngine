@@ -8,6 +8,26 @@
 #include "VM/ScriptCall.h"
 #include "Engine.h"
 
+namespace
+{
+	bool IsFiniteWebXRHudVector(const vec3& value)
+	{
+		return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+	}
+
+	bool IsValidWebXRHudActorRectangle(int width, int height, int x, int y,
+		int layoutWidth, int layoutHeight)
+	{
+		if (width <= 0 || height <= 0 || layoutWidth <= 0 || layoutHeight <= 0)
+			return false;
+		const int64_t farX = (int64_t)x + width;
+		const int64_t farY = (int64_t)y + height;
+		const int64_t coordinateLimit = (int64_t)std::max(layoutWidth, layoutHeight) * 16;
+		return std::abs((int64_t)x) <= coordinateLimit && std::abs((int64_t)y) <= coordinateLimit &&
+			std::abs(farX) <= coordinateLimit && std::abs(farY) <= coordinateLimit;
+	}
+}
+
 void RenderSubsystem::ResetCanvas()
 {
 	// Scale the UI so it matches what you saw on a 1024x768 CRT monitor for Unreal and other older games.
@@ -176,6 +196,7 @@ bool RenderSubsystem::RenderWebXRWeaponOverlay()
 bool RenderSubsystem::CaptureWebXRHud()
 {
 	WebXRHudCommands.clear();
+	WebXRHudStats.LastFrameCommandTypeOrderDigest = 0;
 	if (!WebXRHudSettings.Enabled)
 		return false;
 	UPlayerPawn* viewActor = engine->viewport->Actor();
@@ -249,6 +270,11 @@ bool RenderSubsystem::CaptureWebXRHud()
 	}
 	catch (...)
 	{
+		// Never replay a partially captured primitive stream. AH1 actor-style
+		// calls own no roots, but the same all-or-nothing lifetime boundary is
+		// required before AH2 adds rooted snapshots.
+		WebXRHudCommands.clear();
+		WebXRHudStats.LastFrameCommandTypeOrderDigest = 0;
 		restoreCaptureState();
 		throw;
 	}
@@ -257,6 +283,107 @@ bool RenderSubsystem::CaptureWebXRHud()
 	WebXRHudStats.CapturedCommands += WebXRHudCommands.size();
 	WebXRHudStats.LastFrameCapturedCommands = (uint32_t)WebXRHudCommands.size();
 	return !WebXRHudCommands.empty();
+}
+
+RenderSubsystem::WebXRHudActorRejectionReason RenderSubsystem::ClassifyWebXRHudActor(
+	const WebXRHudActorClassificationInput& input)
+{
+	if (input.CommandLimitReached) return WebXRHudActorRejectionReason::CommandLimit;
+	if (!input.ActorPresent) return WebXRHudActorRejectionReason::NullActor;
+	if (input.Deleted) return WebXRHudActorRejectionReason::DeletedActor;
+	if (!input.RectangleValid) return WebXRHudActorRejectionReason::InvalidRectangle;
+	if (!input.FiniteState) return WebXRHudActorRejectionReason::NonFiniteState;
+	if (input.StaleLevel) return WebXRHudActorRejectionReason::StaleLevel;
+	if (!input.DependenciesPresent) return WebXRHudActorRejectionReason::MissingDependency;
+	if (input.ForbiddenLocalActor) return WebXRHudActorRejectionReason::ForbiddenLocalActor;
+	if (input.OwnerAnimated) return WebXRHudActorRejectionReason::OwnerAnimation;
+	if (input.DynamicallyLit) return WebXRHudActorRejectionReason::DynamicLighting;
+	if (!input.SupportedMeshType) return WebXRHudActorRejectionReason::UnsupportedMeshType;
+	return WebXRHudActorRejectionReason::SnapshotUnavailable;
+}
+
+uint64_t RenderSubsystem::HashWebXRHudCommandType(uint64_t digest, WebXRHudCommandType type)
+{
+	// FNV-1a over type tags only: deterministic ordering evidence without
+	// object names, pointers, package paths, or imported-content metadata.
+	if (digest == 0)
+		digest = 14695981039346656037ull;
+	digest ^= (uint8_t)type;
+	digest *= 1099511628211ull;
+	return digest;
+}
+
+bool RenderSubsystem::AppendWebXRHudCommand(const WebXRHudCommand& command)
+{
+	if (WebXRHudCommands.size() >= WebXRHudDiagnostics::MaximumTotalCommandsPerFrame)
+	{
+		WebXRHudStats.TotalCommandLimitRejects++;
+		WebXRHudStats.LastFrameTotalCommandLimitRejects++;
+		WebXRHudStats.UnsupportedDraws++;
+		WebXRHudStats.LastFrameUnsupportedDraws++;
+		return false;
+	}
+	WebXRHudCommands.push_back(command);
+	WebXRHudStats.LastFrameCommandTypeOrderDigest = HashWebXRHudCommandType(
+		WebXRHudStats.LastFrameCommandTypeOrderDigest, command.Type);
+	WebXRHudStats.ObservedMaximumCapturedCommands = std::max(
+		WebXRHudStats.ObservedMaximumCapturedCommands, (uint32_t)WebXRHudCommands.size());
+	return true;
+}
+
+void RenderSubsystem::RejectWebXRHudActor(WebXRHudCommandType type,
+	WebXRHudActorRejectionReason reason)
+{
+	WebXRHudTypedCommandDiagnostics& typed = type == WebXRHudCommandType::ActorWorld ?
+		WebXRHudStats.ActorWorld : WebXRHudStats.ActorClipped;
+	typed.Attempts++;
+	typed.LastFrameAttempts++;
+	const uint32_t attempts = WebXRHudStats.ActorWorld.LastFrameAttempts +
+		WebXRHudStats.ActorClipped.LastFrameAttempts;
+	WebXRHudStats.ObservedMaximumActorAttempts = std::max(
+		WebXRHudStats.ObservedMaximumActorAttempts, attempts);
+
+	auto increment = [reason](WebXRHudActorRejectionDiagnostics& counters)
+	{
+		switch (reason)
+		{
+		case WebXRHudActorRejectionReason::NullActor: counters.NullActor++; break;
+		case WebXRHudActorRejectionReason::DeletedActor: counters.DeletedActor++; break;
+		case WebXRHudActorRejectionReason::MissingDependency: counters.MissingDependency++; break;
+		case WebXRHudActorRejectionReason::NonFiniteState: counters.NonFiniteState++; break;
+		case WebXRHudActorRejectionReason::ForbiddenLocalActor: counters.ForbiddenLocalActor++; break;
+		case WebXRHudActorRejectionReason::OwnerAnimation: counters.OwnerAnimation++; break;
+		case WebXRHudActorRejectionReason::DynamicLighting: counters.DynamicLighting++; break;
+		case WebXRHudActorRejectionReason::UnsupportedMeshType: counters.UnsupportedMeshType++; break;
+		case WebXRHudActorRejectionReason::InvalidRectangle: counters.InvalidRectangle++; break;
+		case WebXRHudActorRejectionReason::CommandLimit: counters.CommandLimit++; break;
+		case WebXRHudActorRejectionReason::StaleLevel: counters.StaleLevel++; break;
+		case WebXRHudActorRejectionReason::SnapshotUnavailable: counters.SnapshotUnavailable++; break;
+		}
+	};
+	increment(WebXRHudStats.ActorRejections);
+	increment(WebXRHudStats.LastFrameActorRejections);
+	WebXRHudStats.UnsupportedDraws++;
+	WebXRHudStats.LastFrameUnsupportedDraws++;
+}
+
+void RenderSubsystem::RejectWebXRHudLine3D(WebXRHudLine3DRejectionReason reason)
+{
+	WebXRHudStats.Line3D.Attempts++;
+	WebXRHudStats.Line3D.LastFrameAttempts++;
+	auto increment = [reason](WebXRHudLine3DRejectionDiagnostics& counters)
+	{
+		switch (reason)
+		{
+		case WebXRHudLine3DRejectionReason::NonFiniteEndpoints: counters.NonFiniteEndpoints++; break;
+		case WebXRHudLine3DRejectionReason::CommandLimit: counters.CommandLimit++; break;
+		case WebXRHudLine3DRejectionReason::ProductionDisabled: counters.ProductionDisabled++; break;
+		}
+	};
+	increment(WebXRHudStats.Line3DRejections);
+	increment(WebXRHudStats.LastFrameLine3DRejections);
+	WebXRHudStats.UnsupportedDraws++;
+	WebXRHudStats.LastFrameUnsupportedDraws++;
 }
 
 void RenderSubsystem::SubmitCanvasTile(FTextureInfo& info, float x, float y, float width, float height,
@@ -279,7 +406,7 @@ void RenderSubsystem::SubmitCanvasTile(FTextureInfo& info, float x, float y, flo
 		command.Color = color;
 		command.Fog = fog;
 		command.Flags = flags;
-		WebXRHudCommands.push_back(command);
+		AppendWebXRHudCommand(command);
 		return;
 	}
 	Device->DrawTile(&Canvas.Frame, info, x, y, width, height, u, v, uLength, vLength, z, color, fog, flags);
@@ -295,7 +422,7 @@ void RenderSubsystem::SubmitCanvas2DLine(vec4 color, uint32_t flags, vec3 p1, ve
 		command.Flags = flags;
 		command.P1 = p1;
 		command.P2 = p2;
-		WebXRHudCommands.push_back(command);
+		AppendWebXRHudCommand(command);
 		return;
 	}
 	Device->Draw2DLine(&Canvas.Frame, color, flags, p1, p2);
@@ -324,8 +451,30 @@ void RenderSubsystem::DrawActor(UActor* actor, bool WireFrame, bool ClearZ)
 {
 	if (WebXRHudCaptureActive)
 	{
-		WebXRHudStats.UnsupportedDraws++;
-		WebXRHudStats.LastFrameUnsupportedDraws++;
+		WebXRHudActorClassificationInput input;
+		const uint32_t nextAttempt = WebXRHudStats.ActorWorld.LastFrameAttempts +
+			WebXRHudStats.ActorClipped.LastFrameAttempts + 1;
+		input.CommandLimitReached = nextAttempt > WebXRHudDiagnostics::MaximumActorCommandsPerFrame ||
+			WebXRHudCommands.size() >= WebXRHudDiagnostics::MaximumTotalCommandsPerFrame;
+		input.ActorPresent = actor != nullptr;
+		if (actor)
+		{
+			input.Deleted = actor->bDeleteMe();
+			input.DependenciesPresent = actor->Class && actor->Level() && actor->XLevel() && actor->Mesh();
+			input.FiniteState = IsFiniteWebXRHudVector(actor->Location()) &&
+				IsFiniteWebXRHudVector(actor->PrePivot()) && std::isfinite(actor->DrawScale()) &&
+				std::isfinite(actor->AnimFrame()) && std::isfinite(actor->AnimRate()) &&
+				std::isfinite(actor->TweenRate()) && std::isfinite(actor->ScaleGlow());
+			UPlayerPawn* localPawn = engine->viewport ? engine->viewport->Actor() : nullptr;
+			input.ForbiddenLocalActor = actor == localPawn ||
+				(localPawn && actor == localPawn->Weapon()) ||
+				(localPawn && actor->IsA("Inventory") && actor->IsOwnedBy(localPawn));
+			input.OwnerAnimated = actor->bAnimByOwner();
+			input.DynamicallyLit = !actor->bUnlit() && actor->Region().ZoneNumber != 0;
+			input.SupportedMeshType = actor->Mesh() && !UObject::TryCast<USkeletalMesh>(actor->Mesh());
+			input.StaleLevel = engine->Level && actor->XLevel() != engine->Level;
+		}
+		RejectWebXRHudActor(WebXRHudCommandType::ActorWorld, ClassifyWebXRHudActor(input));
 		return;
 	}
 	Device->SetSceneNode(&MainFrame.Frame);
@@ -345,8 +494,32 @@ void RenderSubsystem::DrawClippedActor(UActor* actor, bool WireFrame, int X, int
 {
 	if (WebXRHudCaptureActive)
 	{
-		WebXRHudStats.UnsupportedDraws++;
-		WebXRHudStats.LastFrameUnsupportedDraws++;
+		WebXRHudActorClassificationInput input;
+		const uint32_t nextAttempt = WebXRHudStats.ActorWorld.LastFrameAttempts +
+			WebXRHudStats.ActorClipped.LastFrameAttempts + 1;
+		input.CommandLimitReached = nextAttempt > WebXRHudDiagnostics::MaximumActorCommandsPerFrame ||
+			WebXRHudCommands.size() >= WebXRHudDiagnostics::MaximumTotalCommandsPerFrame;
+		input.ActorPresent = actor != nullptr;
+		input.RectangleValid = IsValidWebXRHudActorRectangle(X, Y, XB, YB,
+			WebXRHudLayoutWidth, WebXRHudLayoutHeight);
+		if (actor)
+		{
+			input.Deleted = actor->bDeleteMe();
+			input.DependenciesPresent = actor->Class && actor->Level() && actor->XLevel() && actor->Mesh();
+			input.FiniteState = IsFiniteWebXRHudVector(actor->Location()) &&
+				IsFiniteWebXRHudVector(actor->PrePivot()) && std::isfinite(actor->DrawScale()) &&
+				std::isfinite(actor->AnimFrame()) && std::isfinite(actor->AnimRate()) &&
+				std::isfinite(actor->TweenRate()) && std::isfinite(actor->ScaleGlow());
+			UPlayerPawn* localPawn = engine->viewport ? engine->viewport->Actor() : nullptr;
+			input.ForbiddenLocalActor = actor == localPawn ||
+				(localPawn && actor == localPawn->Weapon()) ||
+				(localPawn && actor->IsA("Inventory") && actor->IsOwnedBy(localPawn));
+			input.OwnerAnimated = actor->bAnimByOwner();
+			input.DynamicallyLit = !actor->bUnlit() && actor->Region().ZoneNumber != 0;
+			input.SupportedMeshType = actor->Mesh() && !UObject::TryCast<USkeletalMesh>(actor->Mesh());
+			input.StaleLevel = engine->Level && actor->XLevel() != engine->Level;
+		}
+		RejectWebXRHudActor(WebXRHudCommandType::ActorClipped, ClassifyWebXRHudActor(input));
 		return;
 	}
 	FSceneNode frame;
@@ -729,8 +902,12 @@ void RenderSubsystem::Draw3DLine(vec4 Color, uint32_t LineFlags, vec3 P1, vec3 P
 {
 	if (WebXRHudCaptureActive)
 	{
-		WebXRHudStats.UnsupportedDraws++;
-		WebXRHudStats.LastFrameUnsupportedDraws++;
+		WebXRHudLine3DRejectionReason reason = WebXRHudLine3DRejectionReason::ProductionDisabled;
+		if (WebXRHudCommands.size() >= WebXRHudDiagnostics::MaximumTotalCommandsPerFrame)
+			reason = WebXRHudLine3DRejectionReason::CommandLimit;
+		else if (!IsFiniteWebXRHudVector(P1) || !IsFiniteWebXRHudVector(P2))
+			reason = WebXRHudLine3DRejectionReason::NonFiniteEndpoints;
+		RejectWebXRHudLine3D(reason);
 		return;
 	}
 	Device->Draw3DLine(&Canvas.Frame, Color, LineFlags, P1, P2);

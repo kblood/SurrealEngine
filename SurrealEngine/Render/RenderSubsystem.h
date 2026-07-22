@@ -82,8 +82,62 @@ enum WebXRHudSelfTestBits : uint32_t
 	WebXRHudSelfTestAll = (1u << 5) - 1u
 };
 
+// AH1 classifier tests are intentionally separate from the established HUD
+// self-test mask. This preserves the exported mask ABI while actor-style
+// commands remain fail-closed and carry no replayable UObject state.
+enum WebXRHudActorCaptureSelfTestBits : uint32_t
+{
+	WebXRHudActorCaptureSelfTestDistinctTypes = 1u << 0,
+	WebXRHudActorCaptureSelfTestTypedRejections = 1u << 1,
+	WebXRHudActorCaptureSelfTestCommandLimits = 1u << 2,
+	WebXRHudActorCaptureSelfTestOrderedDigest = 1u << 3,
+	WebXRHudActorCaptureSelfTestFailClosedLifetime = 1u << 4,
+	WebXRHudActorCaptureSelfTestAll = (1u << 5) - 1u
+};
+
+struct WebXRHudTypedCommandDiagnostics
+{
+	uint64_t Attempts = 0;
+	uint64_t AcceptedCommands = 0;
+	uint64_t EyePresentations = 0;
+	uint32_t LastFrameAttempts = 0;
+	uint32_t LastFrameAcceptedCommands = 0;
+	uint32_t LastFrameEyePresentations = 0;
+};
+
+struct WebXRHudActorRejectionDiagnostics
+{
+	uint64_t NullActor = 0;
+	uint64_t DeletedActor = 0;
+	uint64_t MissingDependency = 0;
+	uint64_t NonFiniteState = 0;
+	uint64_t ForbiddenLocalActor = 0;
+	uint64_t OwnerAnimation = 0;
+	uint64_t DynamicLighting = 0;
+	uint64_t UnsupportedMeshType = 0;
+	uint64_t InvalidRectangle = 0;
+	uint64_t CommandLimit = 0;
+	uint64_t StaleLevel = 0;
+	// AH1's terminal result for otherwise eligible calls. This is deliberately
+	// explicit: no actor pointer or incomplete render snapshot is retained.
+	uint64_t SnapshotUnavailable = 0;
+};
+
+struct WebXRHudLine3DRejectionDiagnostics
+{
+	uint64_t NonFiniteEndpoints = 0;
+	uint64_t CommandLimit = 0;
+	// Canvas.Draw3DLine is registered only for Unreal 1 227. AH1 does not
+	// enable replay for any launch profile without a loaded 227 fixture.
+	uint64_t ProductionDisabled = 0;
+};
+
 struct WebXRHudDiagnostics
 {
+	static constexpr uint32_t ActorCaptureSchemaVersion = 1;
+	static constexpr uint32_t MaximumActorCommandsPerFrame = 64;
+	static constexpr uint32_t MaximumTotalCommandsPerFrame = 4096;
+
 	uint64_t Frames = 0;
 	uint64_t StateUpdates = 0;
 	uint64_t EyePresentations = 0;
@@ -100,11 +154,35 @@ struct WebXRHudDiagnostics
 	// resulting immutable primitive stream is then replayed for every eye.
 	uint32_t LastFramePlayerPostRenderCalls = 0;
 	uint32_t LastFrameConsolePostRenderCalls = 0;
+	WebXRHudTypedCommandDiagnostics ActorWorld;
+	WebXRHudTypedCommandDiagnostics ActorClipped;
+	WebXRHudTypedCommandDiagnostics Line3D;
+	WebXRHudActorRejectionDiagnostics ActorRejections;
+	WebXRHudActorRejectionDiagnostics LastFrameActorRejections;
+	WebXRHudLine3DRejectionDiagnostics Line3DRejections;
+	WebXRHudLine3DRejectionDiagnostics LastFrameLine3DRejections;
+	uint64_t TotalCommandLimitRejects = 0;
+	uint32_t LastFrameTotalCommandLimitRejects = 0;
+	uint32_t ObservedMaximumActorAttempts = 0;
+	uint32_t ObservedMaximumCapturedCommands = 0;
+	uint64_t ReplaySkipsAfterCapture = 0;
+	uint64_t StateRestoreChecks = 0;
+	uint64_t RenderExceptions = 0;
+	uint64_t DepthClears = 0;
+	uint32_t LastFrameReplaySkipsAfterCapture = 0;
+	uint32_t LastFrameStateRestoreChecks = 0;
+	uint32_t LastFrameRenderExceptions = 0;
+	uint32_t LastFrameDepthClears = 0;
+	uint32_t LastFrameExpectedActorPresentations = 0;
+	uint32_t LastFrameCompletedActorPresentations = 0;
+	uint64_t LastFrameCommandTypeOrderDigest = 0;
 	bool LastFrameMenuPointerValid = false;
 	float LastFrameMenuPointerX = 0.0f;
 	float LastFrameMenuPointerY = 0.0f;
 	uint32_t SelfTestMask = 0;
 	bool SelfTestPassed = false;
+	uint32_t ActorCaptureSelfTestMask = 0;
+	bool ActorCaptureSelfTestPassed = false;
 };
 
 class RenderSubsystem
@@ -233,6 +311,7 @@ private:
 		float u, float v, float uLength, float vLength, float z, vec4 color, vec4 fog, uint32_t flags);
 	void SubmitCanvas2DLine(vec4 color, uint32_t flags, vec3 p1, vec3 p2);
 	uint32_t RunWebXRHudSelfTest();
+	uint32_t RunWebXRHudActorCaptureSelfTest();
 	void PostRender();
 	void PostRenderFlash();
 	void DrawTimedemoStats();
@@ -250,7 +329,45 @@ private:
 	WebXRHudPlaneSettings WebXRHudSettings;
 	WebXRHudDiagnostics WebXRHudStats;
 
-	enum class WebXRHudCommandType : uint8_t { Tile, Line2D };
+	// Actor-style variants are distinct for ordering, validation and telemetry,
+	// but AH1 never appends or presents them. Replay requires the rooted,
+	// explicit render snapshot and scoped restoration designed for AH2.
+	enum class WebXRHudCommandType : uint8_t { Tile, ActorWorld, Line2D, ActorClipped, Line3D };
+	enum class WebXRHudActorRejectionReason : uint8_t
+	{
+		NullActor,
+		DeletedActor,
+		MissingDependency,
+		NonFiniteState,
+		ForbiddenLocalActor,
+		OwnerAnimation,
+		DynamicLighting,
+		UnsupportedMeshType,
+		InvalidRectangle,
+		CommandLimit,
+		StaleLevel,
+		SnapshotUnavailable
+	};
+	enum class WebXRHudLine3DRejectionReason : uint8_t
+	{
+		NonFiniteEndpoints,
+		CommandLimit,
+		ProductionDisabled
+	};
+	struct WebXRHudActorClassificationInput
+	{
+		bool ActorPresent = true;
+		bool Deleted = false;
+		bool DependenciesPresent = true;
+		bool FiniteState = true;
+		bool ForbiddenLocalActor = false;
+		bool OwnerAnimated = false;
+		bool DynamicallyLit = false;
+		bool SupportedMeshType = true;
+		bool RectangleValid = true;
+		bool CommandLimitReached = false;
+		bool StaleLevel = false;
+	};
 	struct WebXRHudCommand
 	{
 		WebXRHudCommandType Type = WebXRHudCommandType::Tile;
@@ -273,6 +390,12 @@ private:
 		vec3 P2;
 	};
 	Array<WebXRHudCommand> WebXRHudCommands;
+	static WebXRHudActorRejectionReason ClassifyWebXRHudActor(
+		const WebXRHudActorClassificationInput& input);
+	static uint64_t HashWebXRHudCommandType(uint64_t digest, WebXRHudCommandType type);
+	bool AppendWebXRHudCommand(const WebXRHudCommand& command);
+	void RejectWebXRHudActor(WebXRHudCommandType type, WebXRHudActorRejectionReason reason);
+	void RejectWebXRHudLine3D(WebXRHudLine3DRejectionReason reason);
 	bool WebXRHudCaptureActive = false;
 	int WebXRHudLayoutWidth = 1280;
 	int WebXRHudLayoutHeight = 960;
