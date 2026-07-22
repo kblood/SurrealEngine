@@ -7,6 +7,7 @@
 #include "USubsystem.h"
 #include "VM/ScriptCall.h"
 #include "VM/Frame.h"
+#include "VM/Bytecode.h"
 #include "Package/PackageManager.h"
 #include "Package/IniProperty.h"
 #include "Engine.h"
@@ -554,9 +555,17 @@ void UActor::TickWalking(float elapsed)
 			const bool eventEnabled = IsEventEnabled(EventName::HitWall);
 			const NameString stateBefore = GetStateName();
 			const int physicsBefore = Physics();
+			const vec3 destinationBefore = pawn->Destination();
+			const vec3 focusBefore = pawn->Focus();
+			const float moveTimerBefore = pawn->MoveTimer();
+			const bool fromWallBefore = pawn->bFromWall();
+			const int latentBefore = StateFrame ? static_cast<int>(StateFrame->LatentState) : -1;
+			const size_t statementBefore = StateFrame ? StateFrame->StatementIndex : 0;
+			const uint64_t hitId = BotBenchmark::IsActive() ? BotBenchmark::NextWalkingHitWallId() : 0;
 			if (BotBenchmark::IsActive())
 			{
 				BotBenchmark::Emit("walking_hit_wall", {
+					{ "hit_id", std::to_string(hitId) },
 					{ "actor", Name.ToString() },
 					{ "blocker", blocker ? blocker->Name.ToString() : "None" },
 					{ "blocker_class", blocker ? UObject::GetUClassFullName(blocker).ToString() : "None" },
@@ -566,7 +575,20 @@ void UActor::TickWalking(float elapsed)
 					{ "normal_y", std::to_string(wallHit.Normal.y) },
 					{ "normal_z", std::to_string(wallHit.Normal.z) },
 					{ "physics_before", std::to_string(physicsBefore) },
-					{ "state_before", stateBefore.ToString() }
+					{ "state_before", stateBefore.ToString() },
+					{ "latent_before", std::to_string(latentBefore) },
+					{ "statement_index_before", std::to_string(statementBefore) },
+					{ "location_x_before", std::to_string(Location().x) },
+					{ "location_y_before", std::to_string(Location().y) },
+					{ "location_z_before", std::to_string(Location().z) },
+					{ "destination_x_before", std::to_string(destinationBefore.x) },
+					{ "destination_y_before", std::to_string(destinationBefore.y) },
+					{ "destination_z_before", std::to_string(destinationBefore.z) },
+					{ "focus_x_before", std::to_string(focusBefore.x) },
+					{ "focus_y_before", std::to_string(focusBefore.y) },
+					{ "focus_z_before", std::to_string(focusBefore.z) },
+					{ "move_timer_before", std::to_string(moveTimerBefore) },
+					{ "b_from_wall_before", fromWallBefore ? "true" : "false" }
 				});
 			}
 
@@ -574,14 +596,43 @@ void UActor::TickWalking(float elapsed)
 
 			if (BotBenchmark::IsActive())
 			{
+				const int latentAfter = StateFrame ? static_cast<int>(StateFrame->LatentState) : -1;
+				const size_t statementAfter = StateFrame ? StateFrame->StatementIndex : 0;
+				int adjustFromWallLabelAfter = -1;
+				if (StateFrame && StateFrame->Func && StateFrame->Func->Name == NameString("Roaming"))
+				{
+					UState* roaming = static_cast<UState*>(StateFrame->Func);
+					if (roaming->Code)
+						adjustFromWallLabelAfter = roaming->Code->FindLabelIndex(NameString("AdjustFromWall"));
+				}
 				BotBenchmark::Emit("walking_hit_wall_result", {
+					{ "hit_id", std::to_string(hitId) },
 					{ "actor", Name.ToString() },
 					{ "blocker", blocker ? blocker->Name.ToString() : "None" },
+					{ "blocker_class", blocker ? UObject::GetUClassFullName(blocker).ToString() : "None" },
 					{ "event_enabled", eventEnabled ? "true" : "false" },
 					{ "physics_after", std::to_string(Physics()) },
 					{ "state_after", GetStateName().ToString() },
-					{ "state_changed", stateBefore != GetStateName() ? "true" : "false" }
+					{ "state_changed", stateBefore != GetStateName() ? "true" : "false" },
+					{ "latent_after", std::to_string(latentAfter) },
+					{ "statement_index_after", std::to_string(statementAfter) },
+					{ "adjust_from_wall_label_index_after", std::to_string(adjustFromWallLabelAfter) },
+					{ "location_x_after", std::to_string(Location().x) },
+					{ "location_y_after", std::to_string(Location().y) },
+					{ "location_z_after", std::to_string(Location().z) },
+					{ "destination_x_after", std::to_string(pawn->Destination().x) },
+					{ "destination_y_after", std::to_string(pawn->Destination().y) },
+					{ "destination_z_after", std::to_string(pawn->Destination().z) },
+					{ "focus_x_after", std::to_string(pawn->Focus().x) },
+					{ "focus_y_after", std::to_string(pawn->Focus().y) },
+					{ "focus_z_after", std::to_string(pawn->Focus().z) },
+					{ "move_timer_after", std::to_string(pawn->MoveTimer()) },
+					{ "b_from_wall_after", pawn->bFromWall() ? "true" : "false" },
+					{ "health_after", std::to_string(pawn->Health()) },
+					{ "b_delete_me_after", pawn->bDeleteMe() ? "true" : "false" }
 				});
+				BotBenchmark::WalkingHitWallResult(hitId, pawn, blocker, eventEnabled,
+					wallHit.Normal.x, wallHit.Normal.y, wallHit.Normal.z);
 			}
 		};
 

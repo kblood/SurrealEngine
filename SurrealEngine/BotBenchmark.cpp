@@ -10,6 +10,7 @@
 #include "UObject/ULevel.h"
 #include "UObject/UActor.h"
 #include "VM/Frame.h"
+#include "VM/Bytecode.h"
 #include "UObject/UClient.h"
 #include "VM/ScriptCall.h"
 #include <cctype>
@@ -188,7 +189,34 @@ BotBenchmark& BotBenchmark::Get()
 void BotBenchmark::Emit(const std::string& type, const std::map<std::string, std::string>& fields)
 {
 	if (Instance && !Instance->Finalized)
+	{
+		// The controlled HitWall fixture's deterministic contract includes the
+		// complete before/result callback protocol, not just the resulting pawn
+		// snapshot and self-reported assertions. Keep this fixture-specific so
+		// passive diagnostics do not change ordinary benchmark digests.
+		if (Instance->Config.FixtureId == "controlled-hitwall-blockall-v1" &&
+			(type == "walking_hit_wall" || type == "walking_hit_wall_result"))
+		{
+			std::string canonical = "fixture_wall_event_tick=" + std::to_string(Instance->Tick) +
+				"|type=" + type;
+			for (const auto& field : fields)
+				canonical += "|" + field.first + "=" + field.second;
+			Instance->HashCanonical(canonical + "\n");
+		}
 		Instance->WriteEvent(type, fields);
+	}
+}
+
+uint64_t BotBenchmark::NextWalkingHitWallId()
+{
+	return Instance && !Instance->Finalized ? ++Instance->WalkingHitWallSequence : 0;
+}
+
+void BotBenchmark::WalkingHitWallResult(uint64_t hitId, UPawn* pawn, UActor* blocker,
+	bool eventEnabled, float normalX, float normalY, float normalZ)
+{
+	if (Instance && !Instance->Finalized)
+		Instance->RecordWalkingHitWallResult(hitId, pawn, blocker, eventEnabled, normalX, normalY, normalZ);
 }
 
 void BotBenchmark::BeginDamage(UPawn* victim, int requestedDamage, UPawn* instigator, UObject* source, const std::string& damageType)
@@ -481,38 +509,22 @@ void BotBenchmark::RunControlledFixture(Engine& engine)
 	FixtureStatus = "running";
 	auto setupFailure = [&](const std::string& reason)
 	{
-		FixtureStatus = "setup_error";
-		FailureReason = reason;
-		ExitCode = 2;
-		WriteEvent("fixture_error", { { "fixture_id", Config.FixtureId }, { "reason", reason } });
+		FixtureSetupFailure(reason);
 	};
 	auto assertion = [&](const std::string& name, bool expected, bool actual)
 	{
-		const bool passed = expected == actual;
-		FixtureAssertionsTotal++;
-		if (passed)
-			FixtureAssertionsPassed++;
-		else
-			FixtureAssertionsFailed++;
-		WriteEvent("fixture_assert", {
-			{ "fixture_id", Config.FixtureId },
-			{ "name", name },
-			{ "expected", expected ? "true" : "false" },
-			{ "actual", actual ? "true" : "false" },
-			{ "passed", passed ? "true" : "false" }
-		});
-		HashCanonical("fixture_assert=" + Config.FixtureId + "|" + name + "|" +
-			(expected ? "true" : "false") + "|" + (actual ? "true" : "false") + "\n");
+		FixtureAssertion(name, expected, actual);
 	};
 
-	if (Config.FixtureId != "controlled-reachability-blockall-v1")
+	if (Config.FixtureId != "controlled-reachability-blockall-v1" &&
+		Config.FixtureId != "controlled-hitwall-blockall-v1")
 	{
 		setupFailure("Unknown controlled fixture: " + Config.FixtureId);
 		return;
 	}
 	if (Config.BotCount != 1)
 	{
-		setupFailure("controlled-reachability-blockall-v1 requires exactly one bot");
+		setupFailure(Config.FixtureId + " requires exactly one bot");
 		return;
 	}
 
@@ -529,6 +541,20 @@ void BotBenchmark::RunControlledFixture(Engine& engine)
 	if (!bot)
 	{
 		setupFailure("Controlled fixture could not find its configured bot");
+		return;
+	}
+	if (Config.FixtureId == "controlled-hitwall-blockall-v1")
+	{
+		FixtureBot = bot;
+		FixturePhase = ControlledFixturePhase::AwaitWalking;
+		FixturePhaseStartTick = Tick;
+		WriteEvent("fixture_wait", {
+			{ "fixture_id", Config.FixtureId },
+			{ "bot", ObjectName(bot) },
+			{ "condition", "PHYS_Walking" },
+			{ "timeout_ticks", "60" }
+		});
+		HashCanonical("fixture_wait=" + Config.FixtureId + "|" + ObjectName(bot) + "|PHYS_Walking|60\n");
 		return;
 	}
 
@@ -680,6 +706,282 @@ void BotBenchmark::RunControlledFixture(Engine& engine)
 	{
 		FailureReason = "Controlled fixture assertions failed";
 		ExitCode = 5;
+	}
+}
+
+void BotBenchmark::FixtureAssertion(const std::string& name, bool expected, bool actual)
+{
+	const bool passed = expected == actual;
+	FixtureAssertionsTotal++;
+	if (passed)
+		FixtureAssertionsPassed++;
+	else
+		FixtureAssertionsFailed++;
+	WriteEvent("fixture_assert", {
+		{ "fixture_id", Config.FixtureId },
+		{ "name", name },
+		{ "expected", expected ? "true" : "false" },
+		{ "actual", actual ? "true" : "false" },
+		{ "passed", passed ? "true" : "false" }
+	});
+	HashCanonical("fixture_assert=" + Config.FixtureId + "|" + name + "|" +
+		(expected ? "true" : "false") + "|" + (actual ? "true" : "false") + "\n");
+}
+
+void BotBenchmark::FixtureSetupFailure(const std::string& reason)
+{
+	CleanupFixtureActors();
+	FixtureStatus = "setup_error";
+	FixturePhase = ControlledFixturePhase::Complete;
+	FailureReason = reason;
+	ExitCode = 2;
+	WriteEvent("fixture_error", { { "fixture_id", Config.FixtureId }, { "reason", reason } });
+}
+
+bool BotBenchmark::CleanupFixtureActors()
+{
+	bool succeeded = true;
+	for (UActor* blocker : FixtureBlockers)
+		succeeded = (!blocker || blocker->bDeleteMe() || blocker->Destroy()) && succeeded;
+	FixtureBlockers.clear();
+	if (FixtureTarget)
+		succeeded = (FixtureTarget->bDeleteMe() || FixtureTarget->Destroy()) && succeeded;
+	FixtureTarget = nullptr;
+	return succeeded;
+}
+
+void BotBenchmark::SetupHitWallFixture(Engine& engine)
+{
+	if (!FixtureBot || FixtureBot->bDeleteMe() || FixtureBot->Health() <= 0 || FixtureBot->Physics() != PHYS_Walking)
+	{
+		FixtureSetupFailure("HitWall fixture bot was not a live walking pawn at setup");
+		return;
+	}
+
+	UClass* targetClass = engine.packages->FindClass("Engine.AmbientSound");
+	UClass* blockerClass = engine.packages->FindClass("Engine.BlockAll");
+	if (!targetClass || !blockerClass)
+	{
+		FixtureSetupFailure("HitWall fixture requires Engine.AmbientSound and Engine.BlockAll");
+		return;
+	}
+
+	const vec3 source = FixtureBot->Location();
+	FixtureBot->Velocity() = vec3(0.0f);
+	FixtureBot->Acceleration() = vec3(0.0f);
+	const std::array<vec2, 8> directions = {
+		vec2(1.0f, 0.0f), vec2(-1.0f, 0.0f), vec2(0.0f, 1.0f), vec2(0.0f, -1.0f),
+		normalize(vec2(1.0f, 1.0f)), normalize(vec2(1.0f, -1.0f)),
+		normalize(vec2(-1.0f, 1.0f)), normalize(vec2(-1.0f, -1.0f))
+	};
+	auto prepareFixtureActor = [](UActor* actor)
+	{
+		if (actor)
+		{
+			actor->bStatic() = false;
+			actor->bNoDelete() = false;
+		}
+		return actor;
+	};
+
+	vec2 direction;
+	for (const vec2& candidateDirection : directions)
+	{
+		const vec3 candidateLocation = source + vec3(candidateDirection * 256.0f, 0.0f);
+		UActor* candidate = prepareFixtureActor(FixtureBot->Spawn(targetClass, {}, {}, candidateLocation, {}));
+		if (candidate && FixtureBot->ActorReachable(candidate, false))
+		{
+			FixtureTarget = candidate;
+			direction = candidateDirection;
+			break;
+		}
+		if (candidate && !candidate->Destroy())
+		{
+			FixtureSetupFailure("Could not remove a rejected HitWall fixture target");
+			return;
+		}
+	}
+	if (!FixtureTarget)
+	{
+		FixtureSetupFailure("No clear 256-unit HitWall fixture lane was found");
+		return;
+	}
+
+	const vec2 perpendicular(-direction.y, direction.x);
+	for (int offset = -256; offset <= 256; offset += 64)
+	{
+		const vec3 blockerLocation = source + vec3(direction * 128.0f + perpendicular * static_cast<float>(offset), 0.0f);
+		UActor* blocker = prepareFixtureActor(FixtureBot->Spawn(blockerClass, {}, {}, blockerLocation, {}));
+		if (!blocker)
+		{
+			FixtureSetupFailure("Could not spawn the complete HitWall BlockAll wall");
+			return;
+		}
+		blocker->SetCollisionSize(36.0f, 96.0f);
+		blocker->SetCollision(true, true, true);
+		FixtureBlockers.push_back(blocker);
+	}
+
+	FixtureSourceX = source.x;
+	FixtureSourceY = source.y;
+	FixtureSourceZ = source.z;
+	FixtureTargetX = FixtureTarget->Location().x;
+	FixtureTargetY = FixtureTarget->Location().y;
+	FixtureTargetZ = FixtureTarget->Location().z;
+	FixtureDirectionX = direction.x;
+	FixtureDirectionY = direction.y;
+	std::string blockerNames;
+	for (UActor* blocker : FixtureBlockers)
+	{
+		if (!blockerNames.empty())
+			blockerNames += ">";
+		blockerNames += blocker ? blocker->Name.ToString() : "None";
+	}
+	WriteEvent("fixture_setup", {
+		{ "fixture_id", Config.FixtureId },
+		{ "bot", ObjectName(FixtureBot) },
+		{ "target", ObjectName(FixtureTarget) },
+		{ "blocker_count", ToString(static_cast<int>(FixtureBlockers.size())) },
+		{ "blockers", blockerNames },
+		{ "source_x", ToString(FixtureSourceX) },
+		{ "source_y", ToString(FixtureSourceY) },
+		{ "source_z", ToString(FixtureSourceZ) },
+		{ "target_x", ToString(FixtureTargetX) },
+		{ "target_y", ToString(FixtureTargetY) },
+		{ "target_z", ToString(FixtureTargetZ) },
+		{ "direction_x", ToString(FixtureDirectionX) },
+		{ "direction_y", ToString(FixtureDirectionY) },
+		{ "blocker_radius", ToString(36.0f) },
+		{ "blocker_height", ToString(96.0f) },
+		{ "blocker_distance", ToString(128.0f) },
+		{ "blocker_spacing", ToString(64.0f) },
+		{ "blocker_offset_min", ToString(-256.0f) },
+		{ "blocker_offset_max", ToString(256.0f) },
+		{ "movement_timeout_ticks", "120" }
+	});
+	HashCanonical("fixture_setup=" + Config.FixtureId +
+		"|source=" + ToString(FixtureSourceX) + "," + ToString(FixtureSourceY) + "," + ToString(FixtureSourceZ) +
+		"|target=" + ToString(FixtureTargetX) + "," + ToString(FixtureTargetY) + "," + ToString(FixtureTargetZ) +
+		"|direction=" + ToString(FixtureDirectionX) + "," + ToString(FixtureDirectionY) +
+		"|blockers=" + blockerNames + "|36.000000|96.000000|128.000000|64.000000|-256.000000|256.000000|timeout=120\n");
+
+	FixtureBot->bAdvancedTactics() = false;
+	if (FixtureBot->HasProperty("bWallAdjust"))
+		FixtureBot->SetBool("bWallAdjust", false);
+	FixtureBot->bFromWall() = false;
+	FixtureBot->GotoState(NameString("Roaming"), NameString());
+	const vec3 beforeMoveToward = FixtureBot->Location();
+	FixtureBot->MoveToward(FixtureTarget, 1.0f);
+	FixtureAssertion("movetoward_preserves_location", true, FixtureBot->Location() == beforeMoveToward);
+	FixtureAssertion("movetoward_latent_started", true,
+		FixtureBot->StateFrame && FixtureBot->StateFrame->LatentState == LatentRunState::MoveToward);
+	FixtureAssertion("movetoward_target_assigned", true, FixtureBot->MoveTarget() == FixtureTarget);
+	FixtureAssertion("hitwall_setup_is_roaming", true, FixtureBot->GetStateName() == NameString("Roaming"));
+	FixtureAssertion("hitwall_setup_is_walking", true, FixtureBot->Physics() == PHYS_Walking);
+	FixturePhase = ControlledFixturePhase::Moving;
+	FixturePhaseStartTick = Tick;
+}
+
+void BotBenchmark::RecordWalkingHitWallResult(uint64_t hitId, UPawn* pawn, UActor* blocker,
+	bool eventEnabled, float normalX, float normalY, float normalZ)
+{
+	if (FixturePhase != ControlledFixturePhase::Moving || pawn != FixtureBot)
+		return;
+
+	FixtureHitCount++;
+	const bool ownedBlocker = std::find(FixtureBlockers.begin(), FixtureBlockers.end(), blocker) != FixtureBlockers.end();
+	FixtureAllBlockersOwned = FixtureAllBlockersOwned && hitId != 0 && ownedBlocker;
+	FixtureAllBlockersNonMover = FixtureAllBlockersNonMover && blocker && !blocker->IsA("Mover");
+	FixtureAllEventsEnabled = FixtureAllEventsEnabled && eventEnabled;
+	const float normalLength = std::sqrt(normalX * normalX + normalY * normalY);
+	const float normalDot = normalLength > 0.0f
+		? (normalX * FixtureDirectionX + normalY * FixtureDirectionY) / normalLength
+		: 1.0f;
+	FixtureAllNormalsOpposeLane = FixtureAllNormalsOpposeLane && normalDot < -0.9f;
+	if (FixtureHitCount != 1)
+		return;
+
+	FixtureFirstBotAlive = !pawn->bDeleteMe() && pawn->Health() > 0;
+	const float sourceProjection = (pawn->Location().x - FixtureSourceX) * FixtureDirectionX +
+		(pawn->Location().y - FixtureSourceY) * FixtureDirectionY;
+	FixtureFirstSourceSide = sourceProjection <= 130.0f;
+	FixtureFirstWalking = pawn->Physics() == PHYS_Walking;
+	FixtureFirstFromWall = pawn->bFromWall();
+	const vec3 sideDelta = pawn->Destination() - pawn->Location();
+	const float sideDistance = length(sideDelta);
+	FixtureFirstSideDestination = sideDistance >= 0.75f && sideDistance <= 1.25f;
+	const vec3 focusDelta = pawn->Focus() - vec3(FixtureTargetX, FixtureTargetY, FixtureTargetZ);
+	FixtureFirstFocusEndpoint = length(focusDelta) <= 0.01f;
+	FixtureFirstLatentContinue = pawn->StateFrame && pawn->StateFrame->LatentState == LatentRunState::Continue;
+	FixtureFirstMoveTimerNonnegative = pawn->MoveTimer() >= 0.0f;
+	if (pawn->StateFrame && pawn->StateFrame->Func && pawn->StateFrame->Func->Name == NameString("Roaming"))
+	{
+		UState* roaming = static_cast<UState*>(pawn->StateFrame->Func);
+		const int adjustLabel = roaming->Code->FindLabelIndex(NameString("AdjustFromWall"));
+		FixtureFirstAdjustLabel = adjustLabel >= 0 && pawn->StateFrame->StatementIndex == static_cast<size_t>(adjustLabel);
+	}
+}
+
+void BotBenchmark::CompleteHitWallFixture()
+{
+	FixtureAssertion("fixture_wall_callback_observed", true, FixtureHitCount > 0);
+	FixtureAssertion("fixture_wall_callback_ids_and_blockers_match", true, FixtureAllBlockersOwned);
+	FixtureAssertion("fixture_wall_callback_is_non_mover", true, FixtureAllBlockersNonMover);
+	FixtureAssertion("fixture_wall_callback_event_enabled", true, FixtureAllEventsEnabled);
+	FixtureAssertion("fixture_wall_normal_opposes_lane", true, FixtureAllNormalsOpposeLane);
+	FixtureAssertion("fixture_bot_alive_after_callback", true, FixtureFirstBotAlive);
+	FixtureAssertion("fixture_bot_remains_source_side", true, FixtureFirstSourceSide);
+	FixtureAssertion("fixture_bot_remains_walking", true, FixtureFirstWalking);
+	FixtureAssertion("stock_hitwall_sets_from_wall", true, FixtureFirstFromWall);
+	FixtureAssertion("stock_hitwall_sets_one_unit_side_destination", true, FixtureFirstSideDestination);
+	FixtureAssertion("stock_hitwall_preserves_endpoint_focus", true, FixtureFirstFocusEndpoint);
+	FixtureAssertion("stock_hitwall_selects_roaming_adjust_label", true, FixtureFirstAdjustLabel);
+	FixtureAssertion("stock_hitwall_clears_movetoward_latent", true, FixtureFirstLatentContinue);
+	FixtureAssertion("stock_hitwall_keeps_move_timer_nonnegative", true, FixtureFirstMoveTimerNonnegative);
+	FixtureAssertion("fixture_actors_destroyed", true, CleanupFixtureActors());
+	HashCanonical("fixture_wall_callback_count=" + std::to_string(FixtureHitCount) + "\n");
+
+	FixtureStatus = FixtureAssertionsFailed == 0 ? "passed" : "failed";
+	FixturePhase = ControlledFixturePhase::Complete;
+	WriteEvent("fixture_complete", {
+		{ "fixture_id", Config.FixtureId },
+		{ "status", FixtureStatus },
+		{ "assertions_total", ToString(FixtureAssertionsTotal) },
+		{ "assertions_passed", ToString(FixtureAssertionsPassed) },
+		{ "assertions_failed", ToString(FixtureAssertionsFailed) },
+		{ "walking_hit_wall_pairs", ToString(FixtureHitCount) }
+	});
+	if (FixtureAssertionsFailed != 0)
+	{
+		FailureReason = "Controlled HitWall fixture assertions failed";
+		ExitCode = 5;
+	}
+	else
+	{
+		StopRequested = true;
+	}
+}
+
+void BotBenchmark::AdvanceControlledFixture(Engine& engine)
+{
+	if (Config.FixtureId != "controlled-hitwall-blockall-v1")
+		return;
+	if (FixturePhase == ControlledFixturePhase::AwaitWalking)
+	{
+		if (FixtureBot && !FixtureBot->bDeleteMe() && FixtureBot->Health() > 0 &&
+			FixtureBot->StateFrame && FixtureBot->Physics() == PHYS_Walking)
+		{
+			SetupHitWallFixture(engine);
+		}
+		else if (Tick - FixturePhaseStartTick >= 60)
+		{
+			FixtureSetupFailure("HitWall fixture bot did not enter PHYS_Walking within 60 ticks");
+		}
+	}
+	else if (FixturePhase == ControlledFixturePhase::Moving)
+	{
+		if (FixtureHitCount > 0 || Tick - FixturePhaseStartTick >= 120)
+			CompleteHitWallFixture();
 	}
 }
 
@@ -859,6 +1161,7 @@ void BotBenchmark::AfterTick(Engine& engine)
 	Tick++;
 	HashCanonical("tick=" + std::to_string(Tick) + "\n");
 	ObserveBots(engine);
+	AdvanceControlledFixture(engine);
 }
 
 BotBenchmark::PawnSnapshot BotBenchmark::Capture(UPawn* pawn) const
@@ -1384,6 +1687,14 @@ void BotBenchmark::Finalize(Engine& engine)
 {
 	if (Finalized)
 		return;
+	if (FailureReason.empty() && Config.FixtureId == "controlled-hitwall-blockall-v1" &&
+		FixturePhase != ControlledFixturePhase::Complete)
+	{
+		CleanupFixtureActors();
+		FailureReason = "Controlled HitWall fixture ended before completion";
+		ExitCode = 5;
+		FixtureStatus = "failed";
+	}
 
 	if (FailureReason.empty() && MaximumObservedBots != Config.BotCount)
 	{

@@ -49,11 +49,14 @@ public:
 	static void EndHitscan(UWeapon* weapon);
 	static void ProjectileSpawned(UProjectile* projectile, UActor* spawner);
 	static void ProjectileDestroyed(UProjectile* projectile);
+	static uint64_t NextWalkingHitWallId();
+	static void WalkingHitWallResult(uint64_t hitId, UPawn* pawn, UActor* blocker,
+		bool eventEnabled, float normalX, float normalY, float normalZ);
 
 	const BotBenchmarkConfig& GetConfig() const { return Config; }
 	void Initialize(Engine& engine);
 	void AfterTick(Engine& engine);
-	bool IsComplete() const { return Tick >= Config.MaxTicks || ExitCode != 0 || Finalized; }
+	bool IsComplete() const { return Tick >= Config.MaxTicks || ExitCode != 0 || StopRequested || Finalized; }
 	void Finalize(Engine& engine);
 	void Fail(const std::string& message, int exitCode = 4);
 	int GetExitCode() const { return ExitCode; }
@@ -212,6 +215,14 @@ private:
 	bool ValidateViewportSpectator(Engine& engine);
 	void ConfigureBots(Engine& engine);
 	void RunControlledFixture(Engine& engine);
+	void AdvanceControlledFixture(Engine& engine);
+	void SetupHitWallFixture(Engine& engine);
+	void CompleteHitWallFixture();
+	void FixtureAssertion(const std::string& name, bool expected, bool actual);
+	void FixtureSetupFailure(const std::string& reason);
+	bool CleanupFixtureActors();
+	void RecordWalkingHitWallResult(uint64_t hitId, UPawn* pawn, UActor* blocker,
+		bool eventEnabled, float normalX, float normalY, float normalZ);
 	void ObserveBots(Engine& engine);
 	void UpdateTelemetry(const PawnSnapshot& snapshot, const PawnSnapshot* previous);
 	BotTelemetry& TelemetryForPawn(UPawn* pawn);
@@ -233,6 +244,7 @@ private:
 	std::map<UProjectile*, ProjectileObservation> Projectiles;
 	uint64_t Tick = 0;
 	uint64_t EventSequence = 0;
+	uint64_t WalkingHitWallSequence = 0;
 	uint64_t Digest = 1469598103934665603ULL;
 	uint64_t Deaths = 0;
 	int MaximumObservedBots = 0;
@@ -250,6 +262,41 @@ private:
 	int FixtureAssertionsTotal = 0;
 	int FixtureAssertionsPassed = 0;
 	int FixtureAssertionsFailed = 0;
+	enum class ControlledFixturePhase
+	{
+		Inactive,
+		AwaitWalking,
+		Moving,
+		Complete
+	};
+	ControlledFixturePhase FixturePhase = ControlledFixturePhase::Inactive;
+	UPawn* FixtureBot = nullptr;
+	UActor* FixtureTarget = nullptr;
+	std::vector<UActor*> FixtureBlockers;
+	uint64_t FixturePhaseStartTick = 0;
+	uint64_t FixtureHitCount = 0;
+	float FixtureSourceX = 0.0f;
+	float FixtureSourceY = 0.0f;
+	float FixtureSourceZ = 0.0f;
+	float FixtureTargetX = 0.0f;
+	float FixtureTargetY = 0.0f;
+	float FixtureTargetZ = 0.0f;
+	float FixtureDirectionX = 0.0f;
+	float FixtureDirectionY = 0.0f;
+	bool FixtureAllBlockersOwned = true;
+	bool FixtureAllBlockersNonMover = true;
+	bool FixtureAllEventsEnabled = true;
+	bool FixtureAllNormalsOpposeLane = true;
+	bool FixtureFirstBotAlive = false;
+	bool FixtureFirstSourceSide = false;
+	bool FixtureFirstWalking = false;
+	bool FixtureFirstFromWall = false;
+	bool FixtureFirstSideDestination = false;
+	bool FixtureFirstFocusEndpoint = false;
+	bool FixtureFirstAdjustLabel = false;
+	bool FixtureFirstLatentContinue = false;
+	bool FixtureFirstMoveTimerNonnegative = false;
+	bool StopRequested = false;
 	bool Finalized = false;
 	std::string FailureReason;
 };

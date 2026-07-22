@@ -37,6 +37,15 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
     fixture_assertion_names: set[str] = set()
     fixture_setup: dict[str, str] | None = None
     fixture_complete: dict[str, str] | None = None
+    fixture_setup_tick: int | None = None
+    fixture_complete_tick: int | None = None
+    fixture_waits: list[tuple[int, int, dict[str, str]]] = []
+    pending_wall_hits: dict[int, tuple[str, str, int, int, dict[str, str]]] = {}
+    matched_wall_hits: list[tuple[int, int, dict[str, str], int, int, dict[str, str]]] = []
+    legacy_wall_hits: list[tuple[str, str]] = []
+    last_wall_hit_id = 0
+    wall_hit_pairs = 0
+    warned_legacy_wall_hits = False
 
     def fixture_bool(fields: dict[str, str], name: str, line_number: int) -> bool:
         value = fields.get(name)
@@ -67,6 +76,11 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
             try:
                 if event_type == "run_config":
                     fixture_id = str(fields.get("fixture_id", ""))
+
+                elif event_type == "fixture_wait":
+                    if not fixture_id or fields.get("fixture_id") != fixture_id:
+                        errors.append(f"line {line_number}: fixture wait id mismatch")
+                    fixture_waits.append((tick, seq, fields))
 
                 elif event_type == "fixture_assert":
                     if not fixture_id:
@@ -101,6 +115,7 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                     if fixture_complete is not None:
                         errors.append(f"line {line_number}: duplicate fixture completion")
                     fixture_complete = fields
+                    fixture_complete_tick = tick
 
                 elif event_type in ("fixture_setup", "fixture_error"):
                     if not fixture_id:
@@ -113,6 +128,69 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                         if fixture_setup is not None:
                             errors.append(f"line {line_number}: duplicate fixture setup")
                         fixture_setup = fields
+                        fixture_setup_tick = tick
+
+                elif event_type == "walking_hit_wall":
+                    if "hit_id" not in fields:
+                        legacy_wall_hits.append((fields.get("actor", ""), fields.get("blocker", "")))
+                        if fixture_id == "controlled-hitwall-blockall-v1":
+                            errors.append(f"line {line_number}: controlled HitWall fixture event has no hit_id")
+                        elif not warned_legacy_wall_hits:
+                            warnings.append("legacy walking HitWall events have no hit_id or extended diagnostics")
+                            warned_legacy_wall_hits = True
+                    else:
+                        hit_id = as_int(fields, "hit_id")
+                        if hit_id <= last_wall_hit_id:
+                            errors.append(f"line {line_number}: walking HitWall id {hit_id} is not monotonic")
+                        last_wall_hit_id = hit_id
+                        if hit_id in pending_wall_hits:
+                            errors.append(f"line {line_number}: duplicate pending walking HitWall id {hit_id}")
+                        pending_wall_hits[hit_id] = (
+                            fields.get("actor", ""), fields.get("blocker", ""), tick, seq, fields
+                        )
+                        required_before = (
+                            "blocker_class", "blocker_is_mover", "event_enabled", "latent_before",
+                            "statement_index_before", "destination_x_before", "destination_y_before",
+                            "destination_z_before", "focus_x_before", "focus_y_before", "focus_z_before",
+                            "location_x_before", "location_y_before", "location_z_before",
+                            "move_timer_before", "b_from_wall_before",
+                        )
+                        for field in required_before:
+                            if field not in fields:
+                                errors.append(f"line {line_number}: walking HitWall missing {field}")
+
+                elif event_type == "walking_hit_wall_result":
+                    if "hit_id" not in fields:
+                        result_key = (fields.get("actor", ""), fields.get("blocker", ""))
+                        if fixture_id == "controlled-hitwall-blockall-v1":
+                            errors.append(f"line {line_number}: controlled HitWall fixture result has no hit_id")
+                        if not legacy_wall_hits:
+                            errors.append(f"line {line_number}: legacy walking HitWall result has no pending begin")
+                        else:
+                            pending = legacy_wall_hits.pop(0)
+                            if pending != result_key:
+                                errors.append(f"line {line_number}: legacy walking HitWall actor/blocker mismatch")
+                    else:
+                        hit_id = as_int(fields, "hit_id")
+                        pending = pending_wall_hits.pop(hit_id, None)
+                        if pending is None:
+                            errors.append(f"line {line_number}: walking HitWall result {hit_id} has no pending begin")
+                        elif pending[:2] != (fields.get("actor", ""), fields.get("blocker", "")):
+                            errors.append(f"line {line_number}: walking HitWall result {hit_id} actor/blocker mismatch")
+                        else:
+                            matched_wall_hits.append((pending[2], pending[3], pending[4], tick, seq, fields))
+                        required_after = (
+                            "blocker_class", "event_enabled", "latent_after", "statement_index_after",
+                            "adjust_from_wall_label_index_after",
+                            "destination_x_after", "destination_y_after", "destination_z_after",
+                            "location_x_after", "location_y_after", "location_z_after",
+                            "focus_x_after", "focus_y_after", "focus_z_after", "move_timer_after",
+                            "b_from_wall_after", "health_after", "b_delete_me_after",
+                        )
+                        for field in required_after:
+                            if field not in fields:
+                                errors.append(f"line {line_number}: walking HitWall result missing {field}")
+                    wall_hit_pairs += 1
 
                 elif event_type == "route_search":
                     nodes = as_int(fields, "route_nodes")
@@ -244,6 +322,12 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
         warnings.append("trace contains no SeePlayer probe; it does not exercise visual acquisition")
     if counts["enemy_not_visible"] == 0:
         warnings.append("trace contains no EnemyNotVisible probe; it does not exercise visual loss")
+    if pending_wall_hits:
+        errors.append(f"trace ended with unpaired walking HitWall ids: {sorted(pending_wall_hits)}")
+    if legacy_wall_hits:
+        errors.append(f"trace ended with {len(legacy_wall_hits)} unpaired legacy walking HitWall events")
+    if counts["walking_hit_wall"] != counts["walking_hit_wall_result"] or counts["walking_hit_wall"] != wall_hit_pairs:
+        errors.append("walking HitWall before/result counts do not reconcile")
     if fixture_id:
         if counts["fixture_setup"] != 1:
             errors.append(f"configured fixture has {counts['fixture_setup']} setup events, expected 1")
@@ -260,6 +344,150 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                     errors.append("reachability fixture setup did not contain nine blockers")
             except (KeyError, TypeError, ValueError) as exc:
                 errors.append(f"reachability fixture setup geometry error: {exc}")
+        if fixture_id == "controlled-hitwall-blockall-v1" and fixture_setup is not None:
+            required_geometry = (
+                "source_x", "source_y", "source_z", "target_x", "target_y", "target_z",
+                "direction_x", "direction_y", "blocker_radius", "blocker_height",
+                "blocker_distance", "blocker_spacing", "blocker_offset_min", "blocker_offset_max",
+            )
+            try:
+                for field in required_geometry:
+                    as_float(fixture_setup, field)
+                if as_int(fixture_setup, "blocker_count") != 9:
+                    errors.append("HitWall fixture setup did not contain nine blockers")
+                if as_int(fixture_setup, "movement_timeout_ticks") != 120:
+                    errors.append("HitWall fixture setup movement timeout was not 120 ticks")
+                if wall_hit_pairs < 1:
+                    errors.append("HitWall fixture did not contain a paired walking HitWall callback")
+            except (KeyError, TypeError, ValueError) as exc:
+                errors.append(f"HitWall fixture setup geometry error: {exc}")
+
+            # Independently reconstruct the fixture lifecycle, geometry, and
+            # stock-script transition from raw setup/before/result events. The
+            # fixture_assert records remain useful diagnostics, but are not the
+            # sole authority for this controlled contract.
+            if len(fixture_waits) != 1:
+                errors.append(f"HitWall fixture has {len(fixture_waits)} wait events, expected 1")
+            try:
+                wait_tick, _wait_seq, wait_fields = fixture_waits[0]
+                if wait_fields.get("condition") != "PHYS_Walking" or as_int(wait_fields, "timeout_ticks") != 60:
+                    errors.append("HitWall fixture wait contract is not PHYS_Walking/60 ticks")
+                if fixture_setup_tick is None or wait_tick >= fixture_setup_tick:
+                    errors.append("HitWall fixture setup did not occur after its walking wait")
+            except (IndexError, KeyError, TypeError, ValueError) as exc:
+                errors.append(f"HitWall fixture wait contract error: {exc}")
+
+            try:
+                source = tuple(as_float(fixture_setup, f"source_{axis}") for axis in "xyz")
+                target = tuple(as_float(fixture_setup, f"target_{axis}") for axis in "xyz")
+                direction = (as_float(fixture_setup, "direction_x"), as_float(fixture_setup, "direction_y"))
+                direction_length = math.hypot(*direction)
+                delta = tuple(target[index] - source[index] for index in range(3))
+                along = delta[0] * direction[0] + delta[1] * direction[1]
+                across = delta[0] * -direction[1] + delta[1] * direction[0]
+                if abs(direction_length - 1.0) > 1.0e-4:
+                    errors.append("HitWall fixture lane direction is not unit length")
+                if abs(along - 256.0) > 1.0e-3 or abs(across) > 1.0e-3 or abs(delta[2]) > 1.0e-3:
+                    errors.append("HitWall fixture target is not 256 UU along its horizontal lane")
+                expected_geometry = {
+                    "blocker_radius": 36.0, "blocker_height": 96.0, "blocker_distance": 128.0,
+                    "blocker_spacing": 64.0, "blocker_offset_min": -256.0, "blocker_offset_max": 256.0,
+                }
+                for field, expected in expected_geometry.items():
+                    if abs(as_float(fixture_setup, field) - expected) > 1.0e-4:
+                        errors.append(f"HitWall fixture {field} did not equal {expected}")
+                blocker_names = [name for name in fixture_setup.get("blockers", "").split(">") if name]
+                if len(blocker_names) != 9 or len(set(blocker_names)) != 9:
+                    errors.append("HitWall fixture setup blocker identities are not nine unique actors")
+                setup_actor = fixture_setup.get("bot", "").rsplit(":", 1)[-1]
+
+                if not matched_wall_hits:
+                    errors.append("HitWall fixture has no structurally matched callback pair")
+                for before_tick, before_seq, before, after_tick, after_seq, after in matched_wall_hits:
+                    if fixture_setup_tick is None or before_tick <= fixture_setup_tick:
+                        errors.append("HitWall callback did not occur on a normal tick after setup")
+                    if after_tick != before_tick or after_seq != before_seq + 1:
+                        errors.append("HitWall before/result pair was not synchronous and adjacent")
+                    if before.get("actor") != setup_actor or after.get("actor") != setup_actor:
+                        errors.append("HitWall callback actor did not match the configured fixture bot")
+                    if before.get("blocker") not in blocker_names:
+                        errors.append("HitWall callback blocker was not one of the fixture wall actors")
+                    if before.get("blocker_class") != "Engine.BlockAll" or after.get("blocker_class") != "Engine.BlockAll":
+                        errors.append("HitWall callback blocker class was not Engine.BlockAll")
+                    if fixture_bool(before, "blocker_is_mover", 0) or not fixture_bool(before, "event_enabled", 0):
+                        errors.append("HitWall callback mover/event-enabled contract failed")
+                    if not fixture_bool(after, "event_enabled", 0):
+                        errors.append("HitWall result did not retain event_enabled=true")
+
+                    normal = tuple(as_float(before, f"normal_{axis}") for axis in "xyz")
+                    normal_xy = math.hypot(normal[0], normal[1])
+                    normal_dot = 1.0 if normal_xy == 0.0 else (
+                        normal[0] * direction[0] + normal[1] * direction[1]
+                    ) / normal_xy
+                    if normal_dot >= -0.9 or abs(normal[2]) > 1.0e-4:
+                        errors.append("HitWall callback normal did not oppose the horizontal lane")
+                    if as_int(before, "physics_before") != 1 or as_int(after, "physics_after") != 1:
+                        errors.append("HitWall callback did not retain PHYS_Walking")
+                    if before.get("state_before") != "Roaming" or after.get("state_after") != "Roaming":
+                        errors.append("HitWall callback did not remain in Roaming")
+                    if as_int(before, "latent_before") != 6 or as_int(after, "latent_after") != 0:
+                        errors.append("HitWall callback latent transition was not MoveToward to Continue")
+                    if fixture_bool(before, "b_from_wall_before", 0) or not fixture_bool(after, "b_from_wall_after", 0):
+                        errors.append("HitWall callback bFromWall transition was not false to true")
+                    label_index = as_int(after, "adjust_from_wall_label_index_after")
+                    if label_index < 0 or as_int(after, "statement_index_after") != label_index:
+                        errors.append("HitWall result was not positioned at Roaming.AdjustFromWall")
+                    if as_float(after, "move_timer_after") < 0.0:
+                        errors.append("HitWall result move timer was negative")
+                    if as_int(after, "health_after") <= 0 or fixture_bool(after, "b_delete_me_after", 0):
+                        errors.append("HitWall fixture bot was not alive after the callback")
+
+                    location_before = tuple(as_float(before, f"location_{axis}_before") for axis in "xyz")
+                    location_after = tuple(as_float(after, f"location_{axis}_after") for axis in "xyz")
+                    destination_before = tuple(as_float(before, f"destination_{axis}_before") for axis in "xyz")
+                    destination_after = tuple(as_float(after, f"destination_{axis}_after") for axis in "xyz")
+                    focus_before = tuple(as_float(before, f"focus_{axis}_before") for axis in "xyz")
+                    focus_after = tuple(as_float(after, f"focus_{axis}_after") for axis in "xyz")
+                    if math.dist(location_before, location_after) > 1.0e-4:
+                        errors.append("HitWall script callback changed pawn location")
+                    if (math.dist(destination_before, target) > 1.0e-3
+                            or math.dist(focus_before, target) > 1.0e-3
+                            or math.dist(focus_after, target) > 1.0e-3):
+                        errors.append("HitWall callback did not preserve its endpoint destination/focus contract")
+                    side_distance = math.dist(destination_after, location_after)
+                    if not 0.75 <= side_distance <= 1.25:
+                        errors.append("HitWall callback side-adjust destination was not approximately one UU")
+                    source_projection = ((location_after[0] - source[0]) * direction[0]
+                                         + (location_after[1] - source[1]) * direction[1])
+                    if source_projection > 130.0:
+                        errors.append("HitWall callback pawn crossed the fixture wall center plane")
+
+                if fixture_complete_tick is None or (matched_wall_hits and
+                        fixture_complete_tick <= max(pair[3] for pair in matched_wall_hits)):
+                    errors.append("HitWall fixture completion did not occur after callback observation")
+                if (fixture_setup_tick is not None and matched_wall_hits
+                        and max(pair[0] for pair in matched_wall_hits) - fixture_setup_tick > 120):
+                    errors.append("HitWall callback exceeded the movement timeout")
+            except (KeyError, TypeError, ValueError) as exc:
+                errors.append(f"HitWall fixture raw protocol error: {exc}")
+            expected_assertions = {
+                "movetoward_preserves_location", "movetoward_latent_started",
+                "movetoward_target_assigned", "hitwall_setup_is_roaming",
+                "hitwall_setup_is_walking", "fixture_wall_callback_observed",
+                "fixture_wall_callback_ids_and_blockers_match",
+                "fixture_wall_callback_is_non_mover", "fixture_wall_callback_event_enabled",
+                "fixture_wall_normal_opposes_lane", "fixture_bot_alive_after_callback",
+                "fixture_bot_remains_source_side", "fixture_bot_remains_walking",
+                "stock_hitwall_sets_from_wall", "stock_hitwall_sets_one_unit_side_destination",
+                "stock_hitwall_preserves_endpoint_focus",
+                "stock_hitwall_selects_roaming_adjust_label",
+                "stock_hitwall_clears_movetoward_latent",
+                "stock_hitwall_keeps_move_timer_nonnegative", "fixture_actors_destroyed",
+            }
+            if fixture_assertion_names != expected_assertions:
+                missing = sorted(expected_assertions - fixture_assertion_names)
+                extra = sorted(fixture_assertion_names - expected_assertions)
+                errors.append(f"HitWall fixture assertion protocol mismatch; missing={missing}, extra={extra}")
         if fixture_complete is None:
             errors.append("configured fixture has no completion event")
         else:
@@ -277,6 +505,12 @@ def validate(events_path: Path, summary_path: Path | None) -> dict[str, Any]:
                     errors.append(f"fixture completion has invalid {field}")
             if fixture_complete.get("status") != "passed" or fixture_assertions["failed"] != 0:
                 errors.append("fixture completion did not pass all assertions")
+            if fixture_id == "controlled-hitwall-blockall-v1":
+                try:
+                    if int(fixture_complete.get("walking_hit_wall_pairs", -1)) != wall_hit_pairs:
+                        errors.append("HitWall fixture completion pair count does not match trace")
+                except (TypeError, ValueError):
+                    errors.append("HitWall fixture completion has invalid walking_hit_wall_pairs")
 
     if summary_path is not None:
         try:

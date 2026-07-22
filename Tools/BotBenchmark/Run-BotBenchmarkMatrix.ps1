@@ -89,6 +89,7 @@ function ConvertTo-SafeName {
 function Add-ValidationError {
     param(
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [System.Collections.Generic.List[string]] $Errors,
         [Parameter(Mandatory = $true)]
         [string] $Message
@@ -174,6 +175,15 @@ if ([string]::IsNullOrWhiteSpace($BotName) -or $BotName.Contains('"')) {
 $normalizedFixtureId = $FixtureId.Trim()
 if ($normalizedFixtureId.Contains('"')) {
     throw 'FixtureId must not contain a double quote.'
+}
+$traceValidatorPath = Join-Path $PSScriptRoot 'Validate-BotTrace.py'
+$pythonExecutable = $null
+if ($normalizedFixtureId.Length -gt 0) {
+    if (-not (Test-Path -LiteralPath $traceValidatorPath -PathType Leaf)) {
+        throw "Controlled fixture trace validator was not found: $traceValidatorPath"
+    }
+    $pythonCommand = Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1
+    $pythonExecutable = $pythonCommand.Source
 }
 
 $ticks = [UInt64] [Math]::Ceiling($Seconds / $FixedDelta)
@@ -281,6 +291,34 @@ foreach ($map in $normalizedMaps) {
                 }
                 if (-not (Test-Path -LiteralPath $eventsPath -PathType Leaf) -or (Get-Item -LiteralPath $eventsPath -ErrorAction SilentlyContinue).Length -le 0) {
                     Add-ValidationError $validationErrors 'events.jsonl is missing or empty.'
+                }
+
+                if ($normalizedFixtureId.Length -gt 0 -and
+                    (Test-Path -LiteralPath $summaryPath -PathType Leaf) -and
+                    (Test-Path -LiteralPath $eventsPath -PathType Leaf)) {
+                    $traceValidationPath = Join-Path $runDirectory 'trace-validation.json'
+                    try {
+                        $validatorConsole = @(& $pythonExecutable $traceValidatorPath $runDirectory --output $traceValidationPath 2>&1)
+                        $validatorExitCode = $LASTEXITCODE
+                        if ($validatorExitCode -ne 0) {
+                            $validatorDetail = ($validatorConsole | ForEach-Object { $_.ToString() }) -join ' '
+                            if (Test-Path -LiteralPath $traceValidationPath -PathType Leaf) {
+                                try {
+                                    $traceValidation = Get-Content -LiteralPath $traceValidationPath -Raw | ConvertFrom-Json
+                                    if (@($traceValidation.errors).Count -gt 0) {
+                                        $validatorDetail = (@($traceValidation.errors) -join '; ')
+                                    }
+                                }
+                                catch {
+                                    # Preserve the validator console output when its report cannot be parsed.
+                                }
+                            }
+                            Add-ValidationError $validationErrors "Controlled fixture trace validation failed: $validatorDetail"
+                        }
+                    }
+                    catch {
+                        Add-ValidationError $validationErrors "Controlled fixture trace validator could not run: $($_.Exception.Message)"
+                    }
                 }
 
                 $summaryStatus = ''
@@ -401,7 +439,10 @@ foreach ($map in $normalizedMaps) {
                     $expectedSkills = if ($OpponentSkill -ge 0) { "$skill,$OpponentSkill" } else { (@(1..$Bots | ForEach-Object { $skill }) -join ',') }
                     $actualSkills = (@($summary.requested_skills) -join ',')
                     if ($actualSkills -ne $expectedSkills) { Add-ValidationError $validationErrors "Summary skills '$actualSkills' did not match '$expectedSkills'." }
-                    if ([UInt64] $summary.ticks -ne $ticks) { Add-ValidationError $validationErrors "Summary ticks '$($summary.ticks)' did not match '$ticks'." }
+                    if ($normalizedFixtureId.Length -gt 0) {
+                        if ([UInt64] $summary.ticks -eq 0 -or [UInt64] $summary.ticks -gt $ticks) { Add-ValidationError $validationErrors "Fixture summary ticks '$($summary.ticks)' were outside 1..$ticks." }
+                    }
+                    elseif ([UInt64] $summary.ticks -ne $ticks) { Add-ValidationError $validationErrors "Summary ticks '$($summary.ticks)' did not match '$ticks'." }
                     if ($digest -notmatch '^[0-9a-fA-F]{16}$') { Add-ValidationError $validationErrors "Digest is not a 64-bit hexadecimal value: '$digest'" }
                 }
 
