@@ -9,9 +9,14 @@ Please note that while SurrealEngine itself is using a ZLIB style license (along
 some BSD/MIT licenses for other dependencies), anything within this folder falls
 under the LGPL.
 
-SurrealEngine's own source code is not affected by the LGPL as it is just a project linking
-up against the SurrealVideo dynamic library. SurrealEngine could have linked against
-ffmpeg as well, but that library is literally a 100 MB binary. SurrealVideo is about
-100 KB.
+Native SurrealEngine builds link against the SurrealVideo dynamic library.
+The Emscripten browser build instead compiles these sources into the WebAssembly
+executable. Browser release packages therefore include or identify the exact
+complete source tree and whole-program rebuild instructions; see
+`Docs/BROWSER_STATIC_RELINKING.md`. The final distribution mechanism and terms
+must still receive human/legal review.
+
+SurrealEngine could have linked against FFmpeg as well, but that library is
+literally a 100 MB binary. SurrealVideo is about 100 KB.
 
 We only need ffmpeg to play that one video codec.

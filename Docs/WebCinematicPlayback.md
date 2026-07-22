@@ -87,13 +87,12 @@ Release WASM artifact.
 
 SurrealVideo is LGPL 2.1-or-later. Static inclusion in WASM changes release
 obligations compared with the native shared-library arrangement. The browser
-packager now includes `SurrealVideo`'s LGPL text and project notice and warns
-the host in `HOSTING.txt`. Those notices alone are not a complete static-link
-compliance strategy. Before publishing, the release owner must provide the
-exact corresponding SurrealVideo source, local modifications, and the engine
-source/object or other relinkable materials needed to replace that library,
-under a durable offer appropriate to the release. Legal review should confirm
-the final source/relink mechanism.
+packager includes the LGPL 2.1 text, the project notice, a visible source link,
+and whole-program relink instructions. A separate deterministic command creates
+a matching archive of the complete tracked source tree. Build provenance,
+archive provenance, per-file SurrealVideo hashes, and final WASM hashes must all
+agree before packaging succeeds. This is the selected engineering mechanism;
+legal review must still confirm the final hosting, terms, and distribution.
 
 ## Validation performed without game data
 
@@ -125,5 +124,5 @@ Follow-up slices should stay separate:
 4. Diagnose UT99 and Unreal/Gold map intros through normal world/UI presentation
    and script input, independently of AVI playback. The first isolated result is
    documented in [`MapStartupIntro.md`](MapStartupIntro.md).
-5. Decide and document the exact LGPL corresponding-source/relink release
-   mechanism before distributing the statically linked WASM artifact.
+5. Have the generated corresponding-source/relink package and the publisher's
+   actual hosting and product terms reviewed before distribution.

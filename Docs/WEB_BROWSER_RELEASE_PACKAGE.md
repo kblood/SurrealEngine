@@ -65,7 +65,8 @@ Create a no-data Emscripten build, then package it:
 & C:\Devstuff\emsdk\emsdk_env.ps1
 emcmake cmake -S . -B build-emscripten -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" -DBUILD_TESTING=OFF
 cmake --build build-emscripten --target SurrealEngine --parallel 8
-node web/package_browser_release.mjs --engine-dir build-emscripten --output C:\path\to\webxr\Ports\SurrealEngine
+node web/package_corresponding_source.mjs --source-root . --output C:\release-materials\SurrealEngine-corresponding-source.tar.gz
+node web/package_browser_release.mjs --engine-dir build-emscripten --corresponding-source C:\release-materials\SurrealEngine-corresponding-source.tar.gz.json --output C:\path\to\webxr\Ports\SurrealEngine
 ```
 
 The output is self-contained and position-independent:
@@ -85,9 +86,14 @@ webxr/Ports/SurrealEngine/
   engine/
     SurrealEngine.js
     SurrealEngine.wasm
+  source/
+    SurrealEngine-corresponding-source.tar.gz
   licenses/
     SurrealVideo-LGPL-2.1.txt
     SurrealVideo-README.md
+    SurrealVideo-Relinking.md
+  SOURCE-OFFER.txt
+  source-compliance.json
   release-manifest.json
   HOSTING.txt
   _headers
@@ -106,13 +112,15 @@ fixed shell/runtime allowlist, and audits the output for UE1 game extensions.
 `release-manifest.json` records dependency SHAs plus each file's length,
 SHA-256, and expected MIME type. It never enumerates browser-private imports.
 
-When the Emscripten build statically includes SurrealVideo, the packager copies
-its LGPL 2.1 text and project notice into `licenses/` and `HOSTING.txt` warns the
-publisher about the corresponding-source/relink requirement. The notices alone
-are not the complete static-link compliance mechanism. Before redistribution,
-publish the exact corresponding decoder and engine source/object or other
-relinkable materials under a durable offer and have the final mechanism
-reviewed. See `WebCinematicPlayback.md`.
+When the Emscripten build statically includes SurrealVideo, packaging is refused
+unless a clean, generated corresponding-source archive matches the build's
+commit and tree provenance. By default the complete tracked source archive is
+copied into `source/`; `--source-url` may instead name an HTTPS location for
+that exact archive. The package records its hash beside the WASM hash, includes
+the LGPL 2.1 text selected for binary distribution, the project notice and
+rebuild instructions, and inserts a
+visible source link in `index.html`. See `BROWSER_STATIC_RELINKING.md` for the
+mechanism and the remaining human/legal review.
 
 ## Validation
 
@@ -124,6 +132,8 @@ node --check web/browser_release.js
 node --check web/webxr_browser_app_adapter.js
 node --check web/webxr_diagnostics.js
 node --check web/package_browser_release.mjs
+node --check web/package_corresponding_source.mjs
+node web/test_corresponding_source.mjs
 node web/test_release_package.mjs
 python web/smoke_test_browser_app.py --base-url=http://localhost:8112
 python web/smoke_test_browser_app_runtime.py --base-url=http://localhost:8112
