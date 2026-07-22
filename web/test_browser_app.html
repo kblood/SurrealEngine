@@ -81,6 +81,18 @@ window.browserAppTestPromise = (async () => {
 		assert(selection.map === "DM-Two" && selection.presentationId === "flat" && prepared === 1);
 		assert(document.getElementById("launcher").hidden);
 	});
+	await run("presentation activation runs after native startup", async () => {
+		const events = [];
+		const registry = new api.PresentationRegistry();
+		registry.register({ id: "webxr", label: "WebXR", activate: async value => {
+			assert(value.Module.marker === "runtime");
+			events.push("activate");
+		} });
+		const selection = { presentationId: "webxr" };
+		events.push("callMain");
+		await api.activatePresentation(registry, selection, { marker: "runtime" });
+		assert(events.join(",") === "callMain,activate");
+	});
 	window.browserAppTestDone = true;
 	document.getElementById("results").textContent = JSON.stringify(browserAppTestResults, null, 2);
 	const failures = browserAppTestResults.filter(result => !result.passed);
