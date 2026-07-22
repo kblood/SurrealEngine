@@ -28,6 +28,7 @@
 			this.mutableResult = { state: "not-started" };
 			this.selectedMap = null;
 			this.currentManifest = null;
+			this.currentSelection = null;
 			this.started = false;
 		}
 
@@ -35,10 +36,12 @@
 			if (typeof this.options.log === "function") this.options.log("[browser-data] " + message);
 		}
 
-		async _startMutable() {
+		async _startMutable(gameId) {
 			if (this.mutableController) return this.mutableResult;
 			try {
-				const mutableOptions = Object.assign({}, this.options.mutableOptions || {}, {
+				const gameOptions = typeof this.options.mutableOptionsForGame === "function" ?
+					this.options.mutableOptionsForGame(gameId || "ut99") : {};
+				const mutableOptions = Object.assign({}, this.options.mutableOptions || {}, gameOptions || {}, {
 					log: this.options.log,
 					logSnapshot: this.options.logSnapshot,
 				});
@@ -67,22 +70,34 @@
 			const importerOptions = Object.assign({}, this.options.importerOptions || {}, {
 				uiRoot: this.options.uiRoot || null,
 				log: this.options.log,
-				beforeLaunch: async mode => {
-					await this._startMutable();
+				beforeLaunch: async (mode, context) => {
+					const gameId = context && context.metadata && context.metadata.gameId ||
+						context && context.mapManifest && context.mapManifest.gameId || "ut99";
+					await this._startMutable(gameId);
 					if (typeof this.options.beforeLaunch === "function") await this.options.beforeLaunch(mode);
 				},
 				launch: async (mode, context) => {
 					this.currentManifest = context && context.mapManifest;
-					const preferredMap = typeof this.options.preferredMap === "function" ?
+					const metadata = context && context.metadata || null;
+					const gameId = metadata && metadata.gameId || this.currentManifest && this.currentManifest.gameId || "ut99";
+					const definitions = global.SurrealGameImporter && global.SurrealGameImporter.GAME_DEFINITIONS || {};
+					const game = definitions[gameId] || definitions.ut99 || Object.freeze({ id: gameId, name: gameId, defaultMap: DEFAULT_MAP });
+					const launchContext = Object.freeze({ mode, game, metadata, mapManifest: this.currentManifest });
+					const requested = typeof this.options.selectLaunch === "function" ?
+						(await this.options.selectLaunch(launchContext) || {}) : {};
+					const preferredMap = requested.map || (typeof this.options.preferredMap === "function" ?
 						await this.options.preferredMap(this.currentManifest) :
-						(this.options.preferredMap || DEFAULT_MAP);
+						(this.options.preferredMap || game.defaultMap || DEFAULT_MAP));
 					this.selectedMap = global.SurrealUT99Importer.selectLaunchMap(this.currentManifest, preferredMap);
+					this.currentSelection = Object.freeze(Object.assign({}, requested, {
+						mode,
+						game,
+						metadata,
+						map: this.selectedMap,
+						mapManifest: this.currentManifest,
+					}));
 					if (typeof this.options.launch === "function") {
-						await this.options.launch(Object.freeze({
-							mode,
-							map: this.selectedMap,
-							mapManifest: this.currentManifest,
-						}));
+						await this.options.launch(this.currentSelection);
 					}
 				},
 			});
@@ -104,6 +119,7 @@
 				mutable: this.mutableController && typeof this.mutableController.status === "function" ?
 					this.mutableController.status() : this.mutableResult,
 				selectedMap: this.selectedMap,
+				selection: this.currentSelection,
 				mapManifest: this.mapManifest(),
 			});
 		}

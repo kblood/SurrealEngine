@@ -49,6 +49,26 @@ function syntheticEntries() {
 	});
 }
 
+function syntheticUnrealGoldEntries() {
+	const files = [
+		["System/Core.u", "fake-core"],
+		["System/Engine.u", "fake-engine"],
+		["System/UnrealShare.u", "fake-share"],
+		["System/UnrealI.u", "fake-unreali"],
+		["System/Unreal.ini", "[fake-test-config]"],
+		["System/Unreal.exe", "fake-executable-not-runnable"],
+		["Maps/Vortex2.unr", "fake-map"],
+		["Maps/NyLeve.unr", "fake-map-two"],
+		["Textures/Synthetic.utx", "fake-texture"],
+		["Sounds/Synthetic.uax", "fake-sound"],
+		["Music/Synthetic.umx", "fake-music"],
+	];
+	return files.map(item => {
+		const blob = new Blob([item[1]], { type: "application/octet-stream" });
+		return { path: item[0], size: blob.size, getBlob: async () => blob };
+	});
+}
+
 class FakeFS {
 	constructor(preloaded) {
 		this.directories = new Set(["/"]);
@@ -103,6 +123,39 @@ window.importerTestPromise = (async function () {
 		assert(validation.fileCount === entries.length);
 		assert(validation.totalBytes > 0);
 		assert(reads === 0, "validation read file contents");
+	});
+
+	await run("detects and strictly validates synthetic Unreal Gold data", async () => {
+		const validation = api.validateEntries(syntheticUnrealGoldEntries());
+		assert(validation.gameId === "unreal-gold");
+		assert(validation.game === api.GAME_DEFINITIONS["unreal-gold"]);
+		const incomplete = syntheticUnrealGoldEntries().filter(entry => entry.path !== "System/UnrealI.u");
+		const error = await expectError("MISSING_GAME_DATA", async () => api.validateEntries(incomplete));
+		assert(error.message.includes("System/UnrealI.u"));
+	});
+
+	await run("Unreal Gold map manifest accepts safe campaign map names", async () => {
+		const entries = syntheticUnrealGoldEntries();
+		const metadata = {
+			schema: api.SCHEMA_NAME, version: api.SCHEMA_VERSION, datasetId: "unreal-gold-test", gameId: "unreal-gold",
+			fileCount: entries.length, totalBytes: entries.reduce((sum, entry) => sum + entry.size, 0),
+			files: entries.map(entry => ({ path: entry.path, size: entry.size })),
+		};
+		const manifest = api.mapManifestFromMetadata(metadata, "ready");
+		assert(manifest.gameId === "unreal-gold");
+		assert(manifest.maps.join(",") === "NyLeve,Vortex2", manifest.maps.join(","));
+		assert(api.selectLaunchMap(manifest, "vortex2") === "Vortex2");
+	});
+
+	await run("legacy version-one metadata remains UT99-compatible", async () => {
+		const entries = syntheticEntries();
+		const metadata = {
+			schema: api.SCHEMA_NAME, version: api.SCHEMA_VERSION, datasetId: "legacy-ut99-test",
+			fileCount: entries.length, totalBytes: entries.reduce((sum, entry) => sum + entry.size, 0),
+			files: entries.map(entry => ({ path: entry.path, size: entry.size })),
+		};
+		assert(api.validateMetadata(metadata) === metadata);
+		assert(api.mapManifestFromMetadata(metadata, "ready").gameId === "ut99");
 	});
 
 	await run("reports actionable missing-file errors", async () => {
@@ -176,6 +229,18 @@ window.importerTestPromise = (async function () {
 		assert(manifest.schema === api.MAP_MANIFEST_SCHEMA && manifest.version === 1);
 		assert(manifest.state === "unavailable" && manifest.maps.length === 0);
 		assert(Object.isFrozen(manifest) && Object.isFrozen(manifest.maps));
+	});
+
+	await run("developer preload detects Unreal Gold without touching persistence", async () => {
+		const fs = new FakeFS(false);
+		for (const path of ["/gamedata/System/Core.u", "/gamedata/System/Engine.u", "/gamedata/System/UnrealShare.u", "/gamedata/System/UnrealI.u", "/gamedata/System/Unreal.exe"]) {
+			fs.files.set(path, new Uint8Array([1]));
+		}
+		assert(api.developerPreloadGame(fs) === "unreal-gold");
+		let context = null;
+		const controller = new api.ImportController({ FS: fs }, { launch: (_mode, value) => { context = value; } });
+		await controller.initialize();
+		assert(context.mapManifest.gameId === "unreal-gold" && context.metadata === null);
 	});
 
 	await run("no-data build waits until a validated import is materialized", async () => {

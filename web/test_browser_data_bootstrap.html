@@ -73,6 +73,34 @@ window.browserDataTestPromise = (async function () {
 		assert(started.result.mutable.state === "unavailable");
 	});
 
+	await run("game-aware selection isolates mutable options before launch", async () => {
+		const goldManifest = Object.freeze(Object.assign({}, readyManifest, { gameId: "unreal-gold", maps: Object.freeze(["Vortex2"]) }));
+		const metadata = Object.freeze({ gameId: "unreal-gold" });
+		let mutableDatabase = null;
+		let selectedContext = null;
+		let launched = null;
+		window.SurrealUT99Importer = Object.freeze(Object.assign({}, realImporter, {
+			start: async (_Module, options) => {
+				const context = { mapManifest: goldManifest, metadata };
+				await options.beforeLaunch("persistent-import", context);
+				await options.launch("persistent-import", context);
+				return { controller: { mapManifest: () => goldManifest }, result: { state: "launched" } };
+			},
+		}));
+		window.SurrealMutableData = Object.freeze({ start: async (_Module, options) => {
+			mutableDatabase = options.databaseName;
+			return { controller: { status: () => ({ state: "ready" }) }, result: { state: "ready", backend: "synthetic" } };
+		} });
+		await window.SurrealBrowserData.start({ FS: {} }, {
+			mutableOptionsForGame: gameId => ({ databaseName: "mutable-" + gameId }),
+			selectLaunch: context => { selectedContext = context; return { map: "Vortex2", presentationId: "flat" }; },
+			launch: selection => { launched = selection; },
+		});
+		assert(mutableDatabase === "mutable-unreal-gold");
+		assert(selectedContext.game.id === "unreal-gold" && selectedContext.metadata === metadata);
+		assert(launched.map === "Vortex2" && launched.presentationId === "flat");
+	});
+
 	window.SurrealUT99Importer = realImporter;
 	window.browserDataTestDone = true;
 	document.getElementById("results").textContent = JSON.stringify(window.browserDataTestResults, null, 2);
