@@ -1209,7 +1209,7 @@ UWindow/menu/cursor, `PreRender`, full player overlays, actor/clipped-actor/3D
 canvas primitives, settings UI, and physical stereo/readability/comfort remain
 open; unsupported 3D-style capture calls are suppressed and counted.
 
-## M10 local UT99 importer checkpoint — 13/13 SYNTHETIC TESTS PASS (2026-07-22)
+## M10 local UT99 importer checkpoint — 14/14 SYNTHETIC TESTS PASS (2026-07-22)
 
 Commit `87f8324f` holds `Module.callMain()` behind a legal local-data gate.
 Developer preloads bypass it; otherwise the user can select their own install
@@ -1228,10 +1228,11 @@ eviction produce actionable errors, and saved blobs stream into `/gamedata`
 before main starts. Clear-data is available. This persists imported game data,
 not yet configs, bindings, VR settings, saves, or logs.
 
-`python -u web/smoke_test_ut99_importer.py` passes all 13 deterministic cases:
+`python -u web/smoke_test_ut99_importer.py` passes all 14 deterministic cases:
 schema/version; content-free layout validation; missing-file diagnostics;
 path traversal/case collision; directory fallback; IndexedDB round-trip;
-Emscripten-FS streaming; developer-preload bypass; no-data wait gate; later
+Emscripten-FS streaming; developer-preload bypass; no-data wait gate; immutable
+safe direct-map manifest; later
 saved-import boot; safe re-import; clear; and OPFS round-trip/missing-dataset
 behavior when available.
 
@@ -1481,21 +1482,23 @@ The following focused commits complete a browser-facing integration tranche:
 
 The integrated native Debug build and both normal and no-data Emscripten builds
 pass. Browser validation passes settings 8/8, mutable persistence 9/9, importer
-13/13, PWA 27/27, staging 9/9, and audit 8/8. The full experimental WebXR smoke
+14/14, launcher 44/44, PWA 27/27, staging 9/9, and audit 8/8. The full experimental WebXR smoke
 passes all lifecycle, visibility, repeat-session, device-loss, audio, packed
 stereo, input, haptics, settings, HUD, console, and menu-pointer checks. Its HUD
 sample records exactly one player and one console `PostRender`, one state
-capture, two eye presentations, 65 commands, and zero unsupported draws or
-clamped viewports. Packed stereo rendered 189 draws with 1,179 differing pixel
+capture, two eye presentations, 66 commands, and zero unsupported draws or
+clamped viewports.
+Packed stereo rendered 201 draws with 1,183 differing pixel
 samples and no reported WebGPU validation error.
 
-A fresh release-shape stage contains 15 files and passes 83 audit checks with
-zero errors and zero warnings. Its runtime pair is:
+A fresh release-shape stage contains 15 payload files plus its generated
+manifest; the auditor scans all 16 files and passes 94 checks with zero errors
+and zero warnings. Its runtime pair is:
 
-- `SurrealEngine.js`: 583,952 bytes, SHA-256
-  `b3eaf7e914a7de73699e3727037d812f078272b2f74853442be624d1496559eb`;
-- `SurrealEngine.wasm`: 6,282,208 bytes, SHA-256
-  `8af3653f5d6483f42f072ce8b1608525fd558f654feb2e175cc3f103f1a9f4d5`.
+- `SurrealEngine.js`: 601,067 bytes, SHA-256
+  `bcc387407eed76c812de022355c43845940d940216dc5dfe9d5bd01937aa1c6d`;
+- `SurrealEngine.wasm`: 6,340,778 bytes, SHA-256
+  `599bf573070bcc54873ee09bbd1a45b96cd46e987eb46ff80c903f5021efaa8c`.
 
 The remaining evidence boundary is unchanged: automation does not validate a
 native Quest `XRGPUBinding` compositor, physical weapon alignment, actuator
@@ -1863,3 +1866,40 @@ remaining stock fixture matrix, guided Redeemer policy, and physical Quest
 alignment remain prerequisites. The visual grip fallback remains deliberately
 non-authoritative. Native Debug, both Wasm builds, and the full experimental XR
 smoke pass.
+
+## M10 deliberate launcher, map picker, and integrated m10.7 stage (2026-07-22)
+
+Commit `131934c6` adds opt-in `?launcher=1` without changing automatic
+developer/smoke boot. It waits for importer and mutable-data readiness, accepts
+only fixed offline presets and strict local DM/CTF/DOM/AS package basenames,
+requires an explicit Start action, supports best-effort restart-to-launcher,
+and produces sanitized schema-v1 diagnostics. Browser multiplayer remains
+explicitly unsupported. Commit `ad7362fa` integrates the module into the PWA
+and release allowlists.
+
+Commit `e5e3e2e5` adds a browsable map picker without scanning OPFS, IndexedDB,
+or MEMFS again. The importer exposes a frozen/copying schema-v1 manifest derived
+only from already-validated metadata after restore, first import, and clear.
+Only direct `Maps/*.unr` DM/CTF/DOM/AS basenames escape; nested, path-like,
+extension-bearing, query-like, and unsupported candidates are rejected, then
+case-fold deduplicated and sorted. The launcher independently revalidates every
+entry, protects async refresh from stale completion, and retains manual entry
+for unavailable/empty/error/developer-preload states. Automatic boot makes zero
+manifest calls. The inventory and importer metadata never enter diagnostics;
+the pre-existing selected-map field remains schema compatible. Importer tests
+pass 14/14 and launcher tests 44/44; the full XR smoke and a real deliberate
+Deck launch also pass. `WEBXR_MAP_PICKER.md` records the remaining full-import,
+large-inventory, Quest persistence, and controller-accessibility gates.
+
+Commit `6a1b40c1` advances the service-worker generation to
+`2026.07.22-m10.7`. The PWA passes 27/27 checks on the strict-MIME server,
+interaction 38/38, orientation 7/7, importer 14/14, launcher 44/44, and the full
+experimental XR smoke with zero GPU errors. The immutable stage at
+`C:\Devstuff\QuestGames\webxr-release-stage-20260722-m107` contains 15 payload
+files plus its manifest; the independent auditor scanned all 16 files and
+passed 94 checks with zero errors or warnings. The runtime hashes are:
+
+- `SurrealEngine.js`: 601,067 bytes,
+  `bcc387407eed76c812de022355c43845940d940216dc5dfe9d5bd01937aa1c6d`;
+- `SurrealEngine.wasm`: 6,340,778 bytes,
+  `599bf573070bcc54873ee09bbd1a45b96cd46e987eb46ff80c903f5021efaa8c`.

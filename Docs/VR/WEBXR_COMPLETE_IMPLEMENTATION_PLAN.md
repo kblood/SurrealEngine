@@ -82,8 +82,8 @@ XRSession.requestAnimationFrame
 | M7 — tracking/camera/world scale | Deterministic implementation complete; headset validation gated | 6DoF pose conversion, body/head composition, recentering, world scale, and exact per-eye projection are implemented; physical scale and scene correctness remain to validate |
 | M8 — controller input/gameplay | In progress | ABI v2 input, Quest defaults, body/head/dominant-hand locomotion, turning, selectable dominant hand, controller recenter/menu actions, world-composed full-basis hands, scoped controller-direction firing, roll-preserving per-eye weapon presentation, narrowly scoped controller-relative visual position with safe zero-offset fallback, real loaded Botpack ShockRifle visual and fail-closed firing fixtures, deliberate safe-exit controls, confirmed fire/damage/pickup/menu-confirm haptics, and browser-persisted VR controls are implemented; calibrated authoritative origins, projectile/special paths, obstruction, two-hand UX, automatic/special fixtures, and headset validation remain |
 | M9 — UI/comfort/VR presentation | In progress | HUD plus console/menu 2D output is captured once and replayed per eye on a finite-depth plane, including UI-only frames. Dominant-hand aim drives UT's absolute cursor, a menu-gated trigger safely selects without firing behind the menu, and stick/D-pad focus navigation now routes through stock console key events while suppressing gameplay input. Tracking-loss/recovery feedback and an optional DOM-overlay safe-exit surface are implemented. Strict plane settings have a validated persistent browser panel; actor-style canvas draws, guaranteed in-headset loss feedback without DOM Overlay, recenter UX, comfort policies, complete loading/pause presentation, and headset readability remain |
-| M10 — audio/data/network/deploy | In progress | Real Web Audio output, tracked-head listener, no-data builds, local OPFS/IndexedDB UT99 import, allowlisted mutable settings/save/log persistence, disposable-profile restart/crash/forced-kill/corruption/origin-clear qualification, an installable PWA, strict trusted-HTTPS development serving, an offline-only browser MVP scope, and fail-closed release staging/auditing are implemented; real full-install import, storage-pressure/Quest recovery, fuller launcher UX, production HTTPS/Quest installation, and physical audio/storage validation remain |
-| M11 — performance/robustness/release | In progress | Automated session/lifecycle/device-loss coverage, a strict versioned desktop/IWER profiler, and a reproducible 83-check no-commercial-data release gate exist; physical Quest GPU/thermal profiling, headset lifecycle, compatibility, soak, and release gates remain |
+| M10 — audio/data/network/deploy | In progress | Real Web Audio output, tracked-head listener, no-data builds, local OPFS/IndexedDB UT99 import, allowlisted mutable settings/save/log persistence, disposable-profile restart/crash/forced-kill/corruption/origin-clear qualification, deliberate offline launcher with safe imported-map picker, an installable PWA, strict trusted-HTTPS development serving, an offline-only browser MVP scope, and fail-closed release staging/auditing are implemented; real full-install import, storage-pressure/Quest recovery, controller/loading/crash launcher polish, production HTTPS/Quest installation, and physical audio/storage validation remain |
+| M11 — performance/robustness/release | In progress | Automated session/lifecycle/device-loss coverage, a strict versioned desktop/IWER profiler, and a reproducible 94-check no-commercial-data release gate exist; physical Quest GPU/thermal profiling, headset lifecycle, compatibility, soak, and release gates remain |
 
 ## 3. M0 — architecture and platform gate
 
@@ -1165,11 +1165,11 @@ Replace the 629 MB `--preload-file` development artifact:
   whole-origin clearing. The versioned evidence records cut points, browser,
   hashes, observed generations, and limitations.
 
-Deterministic importer validation passes 13/13 checks: explicit schema;
+Deterministic importer validation passes 14/14 checks: explicit schema;
 content-free layout validation; actionable missing-file errors; traversal and
 case-collision rejection; directory-input root stripping; IndexedDB
 save/restore; streamed Emscripten-FS materialization; developer-preload bypass;
-no-data boot gating; saved-import boot on a later load; safe replacement
+no-data boot gating; an immutable safe direct-map manifest; saved-import boot on a later load; safe replacement
 without mutating the live FS; clear; and OPFS round-trip/corruption behavior
 when available.
 
@@ -1184,10 +1184,10 @@ cmake --build build-emscripten-nodata --target SurrealEngine -j 4
 The cache contains `SURREAL_GAMEDATA_DIR:PATH=`. The emitted link command has no
 `--preload-file`, `@/gamedata`, or commercial install path; no `.data` artifact
 exists; and generated JS has no `SurrealEngine.data`/package loader. The latest
-integrated no-data output was `SurrealEngine.js` 583,952 bytes, SHA-256
-`b3eaf7e914a7de73699e3727037d812f078272b2f74853442be624d1496559eb`, and
-`SurrealEngine.wasm` 6,282,208 bytes, SHA-256
-`8af3653f5d6483f42f072ce8b1608525fd558f654feb2e175cc3f103f1a9f4d5`.
+integrated no-data output was `SurrealEngine.js` 601,067 bytes, SHA-256
+`bcc387407eed76c812de022355c43845940d940216dc5dfe9d5bd01937aa1c6d`, and
+`SurrealEngine.wasm` 6,340,778 bytes, SHA-256
+`599bf573070bcc54873ee09bbd1a45b96cd46e987eb46ff80c903f5021efaa8c`.
 
 A brand-new Playwright Chrome process/profile loaded that exact build with no
 `.data` or `/gamedata/` request. It acquired WebGPU, initialized WASM, displayed
@@ -1278,9 +1278,20 @@ and must never describe controller-local aim as replicated or authoritative.
   `web/index_webxr.html?pwa=1&build=build-emscripten-nodata`, standalone web
   manifest/project icons, offline guidance, registration/version/update/error
   diagnostics, launch-readiness UI, deployment instructions, and versioned
-  service worker `2026.07.22-m10.5`. The allowlist includes the
+  service worker `2026.07.22-m10.7`. The allowlist includes the
   mutable-persistence and
-  WebXR-settings modules without caching any user data.
+  WebXR-settings/launcher modules without caching any user data.
+- **Implemented in commits `131934c6` and `e5e3e2e5`:** `?launcher=1` waits
+  for importer and mutable-data readiness, validates fixed offline presets and
+  safe local map basenames, and boots only after an explicit user action. A
+  frozen/copying importer manifest exposes only direct validated
+  `Maps/*.unr` DM/CTF/DOM/AS basenames; the launcher independently revalidates,
+  case-fold deduplicates/sorts, protects async refreshes from stale results,
+  and retains manual entry in unavailable/empty/error states. Automatic
+  developer/smoke boot makes zero manifest calls. Enumerated inventory and
+  importer metadata never enter diagnostics; the pre-existing single selected
+  map remains in schema v1. Importer checks pass 14/14 and launcher checks
+  44/44. See `WEBXR_MAP_PICKER.md`.
 - **Implemented policy:** the worker precaches exactly the launcher,
   WebXR/importer/registration scripts, manifest, offline page, and project
   icons. It lazily cache-firsts only no-data/release `SurrealEngine.js` and
@@ -1313,10 +1324,11 @@ and must never describe controller-local aim as replicated or authoritative.
   markers, malformed runtime signatures, duplicate/incomplete runtimes, and
   missing shell/MIME references. Unit coverage passes 9/9 staging and 8/8
   audit cases.
-- **Complete for the current integrated artifact:** a fresh real stage scanned
-  15 files and passed 83 checks with zero errors and zero warnings. It contains
-  exactly the current no-data JS/Wasm pair whose hashes are recorded in
-  section 13.2.
+- **Complete for the current integrated artifact:** the immutable
+  `webxr-release-stage-20260722-m107` contains 15 payload files plus its
+  generated manifest. The independent auditor scanned all 16 files and passed
+  94 checks with zero errors and zero warnings. It contains exactly the current
+  no-data JS/Wasm pair whose hashes are recorded in section 13.2.
 - **Still required:** serve only the staged production artifact from a hardened
   maintained HTTPS origin with a stable target-trusted certificate and
   `Cross-Origin-Opener-Policy: same-origin`,
@@ -1422,8 +1434,9 @@ The reproducible software-artifact half is implemented. The stager accepts only
 an explicit source root, one no-data runtime directory, and a nonexistent or
 empty destination; it never overwrites or cleans a destination. It stages the
 closed shell/runtime allowlist, emits deterministic hashes, and immediately
-runs the independent auditor. The current integrated stage passed 83 checks
-over 15 files with no errors or warnings. This gate does not replace the
+runs the independent auditor. The current integrated stage passed 94 checks
+over 16 scanned files (15 payload files plus its manifest) with no errors or
+warnings. This gate does not replace the
 physical compatibility, performance, legal-source, or soak gates below.
 
 Release candidates require:
@@ -1457,7 +1470,7 @@ tests.
 | M9 UI/comfort | Physically validate capture-once console/menu, UI-only frames, dominant-hand cursor ray, safe menu-gated trigger, focus navigation, tracking feedback, and safe exit; add engine-rendered loss/exit feedback for runtimes without DOM Overlay and unsupported actor draws; finish readable scale, weapon placement tuning, vignette/comfort policies, recenter, and loading/pause presentation | Actor-draw strategy, per-eye headset inspection, 30-minute comfort session |
 | M10 audio | Physically validate the implemented tracked-head listener: gesture unlock, head-relative direction/roll, Doppler and reset policy, focus/session re-entry, music, effects, volume, map changes, underruns, and shutdown | Real Quest Browser audio lifecycle and representative maps/sounds |
 | M10 data | Import a complete user-owned install into the audited no-preload artifact; verify playable clean-profile boot, large-copy quota/progress, Quest OS restart/kill, pressure eviction, custom save-path policy, and implement schema migration. Strict persistence plus disposable desktop restart/crash/forced-kill/corruption/origin-clear qualification are implemented | User-owned UT99 installation, clean Quest browser profile, Quest storage/browser support matrix, migration design |
-| M10 product | Extend the tested installable shell/settings UI into a full map/game/crash-diagnostics launcher; validate production HTTPS, Quest install/update/offline behavior, rollback, and license audit. Deterministic staging/proprietary-content scanning and a strict isolation-header HTTPS development server are implemented | Production hosting target and trusted certificate, Quest Browser, independent manifest/license review |
+| M10 product | Finish controller/loading/crash UX around the implemented deliberate offline launcher and safe imported-map picker; validate production HTTPS, Quest install/update/offline behavior, rollback, and license audit. Deterministic staging/proprietary-content scanning and a strict isolation-header HTTPS development server are implemented | Full user import and large inventory, production hosting target and trusted certificate, Quest Browser, independent manifest/license review |
 | M11 performance | 72 Hz minimum target qualification, Quest CPU/GPU/memory/GC traces, render-scale/foveation decisions, pthread memory strategy | The strict desktop/IWER profiler is implemented and validated; remaining evidence needs Quest hardware plus an acceptance/stress map set |
 | M11 release | Compatibility matrix, sleep/wake and failure recovery, three entry cycles, 60-minute soak, and independent final manifest/license review; reproducible staging/auditing is implemented | Release browser/runtime versions, physical test reports, clean profile/import path |
 
@@ -1660,7 +1673,7 @@ scale, frame rate, and error counters.
    dominant hand and conflict-safe recenter/menu actions, world full-basis hand
    composition, scoped weapon direction/presentation and visual-only grip
    position, per-eye weapon dispatch,
-   confirmed fire/damage/pickup/menu haptics, and persistent browser controls
+   confirmed fire/damage/pickup/menu haptics, persistent browser controls,
    a loaded stock ShockRifle visual fixture, a fail-closed result-aware
    hitscan seam, and a real loaded ShockRifle firing fixture are complete. Next
    add hardware-qualified viewmodel offsets/scale and authoritative calibration,
@@ -1681,7 +1694,7 @@ scale, frame rate, and error counters.
    Overlay is unavailable, unsupported actor-draw handling, recenter UX,
    comfort/vignette, loading/pause, and
    physical tuning/readability/fusion tests.
-9. **In progress:** the local schema-v1 OPFS/IndexedDB importer passes 13/13
+9. **In progress:** the local schema-v1 OPFS/IndexedDB importer passes 14/14
    synthetic tests, and a real no-preload artifact in a clean profile reaches
    the OPFS `waiting-for-import` state without calling main or requesting game
    data. The tracked-head listener and velocity-reset policy also pass desktop
@@ -1692,9 +1705,11 @@ scale, frame rate, and error counters.
    desktop Chrome/Brave restart, renderer crash, forced process-tree kill,
    corruption refusal, and explicit origin clearing now pass 6/6. The
    no-data PWA passes 27/27 checks; settings pass 8/8, mutable persistence 9/9,
-   release staging 9/9, and auditing 8/8. A real 15-file stage passed 83 checks
-   with zero errors/warnings. Next validate production HTTPS and Quest
-   install/update/offline paths, finish the map/game/crash launcher, and perform
+   launcher 44/44, release staging 9/9, and auditing 8/8. A real stage with 15
+   payload files plus its manifest passed 94 checks over 16 scanned files with
+   zero errors/warnings. Safe imported-map browsing is implemented; next
+   validate production HTTPS and Quest install/update/offline paths, finish
+   controller accessibility/loading/crash UX, and perform
    the independent license/manifest review.
 10. **In progress:** use the committed strict M11 desktop/IWER profiler for
     repeatable development comparisons, then finish M6/M7 headset gates and

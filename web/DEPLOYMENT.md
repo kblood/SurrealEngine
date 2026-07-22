@@ -57,9 +57,18 @@ use a separate local-only store with a strict path allowlist. See
 exported into a release artifact.
 
 Bump `APP_VERSION` in `service-worker.js` whenever shell/runtime compatibility
-changes; the current integrated shell is `2026.07.22-m10.7`. Activation verifies the complete new shell cache before deleting older
+changes; the current integrated shell is `2026.07.22-m10.7`. Activation
+verifies the complete new shell cache before deleting older
 `surrealengine-webxr-*` caches. HTML is network-first, so an online reload sees
 updates; immutable no-data JS/Wasm is cache-first within that version.
+
+The current immutable integration stage is
+`C:\Devstuff\QuestGames\webxr-release-stage-20260722-m107`: 15 payload files
+plus its generated manifest, 16 files scanned, 94 audit checks, and zero
+errors/warnings. Its no-data runtime is `SurrealEngine.js` 601,067 bytes
+(`bcc387407eed76c812de022355c43845940d940216dc5dfe9d5bd01937aa1c6d`)
+and `SurrealEngine.wasm` 6,340,778 bytes
+(`599bf573070bcc54873ee09bbd1a45b96cd46e987eb46ff80c903f5021efaa8c`).
 
 Before publishing, verify the artifact contains no `.data`, UE1 packages, maps,
 music, sounds, textures, install executables, or local import database exports.
