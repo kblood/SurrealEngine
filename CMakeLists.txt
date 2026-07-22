@@ -57,6 +57,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/WebXR/WebXRFrameBridge.h
 	SurrealEngine/WebXR/WebXRInputState.cpp
 	SurrealEngine/WebXR/WebXRInputState.h
+	SurrealEngine/WebXR/WebXRHaptics.cpp
+	SurrealEngine/WebXR/WebXRHaptics.h
 	SurrealEngine/UE1GameDatabase.h
 	SurrealEngine/UE1GameDatabase.cpp
 	SurrealEngine/Utils/CommandLine.cpp
