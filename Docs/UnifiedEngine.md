@@ -29,6 +29,9 @@ their development branches into one unreviewable fork.
 
 The integration branch contains equivalent cherry-picked commits at
 `0ba840c7`, `121428f5`, `f081ab56`, `91e77db4`, and `7e208406`.
+All five topic branches and `integration/unified-engine` are preserved on the
+`fork` remote. No pull requests have been opened yet, and the upstream
+`origin` has not been modified.
 
 ## Contract boundaries
 
