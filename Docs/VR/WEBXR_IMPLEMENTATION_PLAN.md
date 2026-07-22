@@ -765,3 +765,59 @@ IWER-only lifecycle with a real `XRGPUBinding` projection layer on a browser/
 headset that supplies a native session. M10 remains partial: tracked-head
 listener orientation, suspend/resume policy, music/effect headset testing,
 legal data import, persistence, deployment and networking scope are still open.
+
+## M6 packed XR frame ABI checkpoint — PASS (2026-07-22)
+
+The first M6 slice now replaces ad-hoc bridge calls with a versioned single-
+copy packet. ABI v1 is explicitly little-endian and packed:
+
+- 36-byte header: version, total byte size, view count, flags, timestamp,
+  reset generation, and color texture dimensions;
+- 116-byte view: eye, array layer, viewport, position, orientation, and one
+  4x4 float projection matrix;
+- 268 bytes total for two views, with a maximum of two in v1.
+
+`WebXRFrameBridge.h` uses fixed-width fields and compile-time size/offset
+assertions. Native validation first copies the packed header/views into local
+storage, rejects unknown flags, bad sizes/counts, non-finite values and out-of-
+bounds viewports, then converts into aligned `WebXRSceneView` state. Exports
+report ABI sizes, validate packets and expose a stable last-error code.
+
+The browser writer copies only numbers from `XRFrame`/`XRView`/
+`XRGPUSubImage`. It follows the current editor's draft by using
+`getViewSubImage(layer, view)`, taking the array layer from
+`getViewDescriptor().baseArrayLayer`, applying `subImage.viewport`, and
+requiring one shared color texture for both views. That texture is visible to
+Emdawnwebgpu only during one synchronous `Surreal_RenderWebXRFrame` call and is
+cleared in `finally`.
+
+The native entry imports the shared texture once, advances the game once,
+renders each supplied projection/layer/viewport through the existing M5 seam,
+finishes once and releases the wrapper before returning. Pose fields are
+transported and validated but are intentionally not composed into the body
+camera yet: coordinate conversion, recenter origin and calibrated
+world-units-per-meter are M7, and guessing those would make headset scale
+incorrect.
+
+Validation evidence:
+
+- JS layout diagnostic: 18/18 checks passed; native reports ABI version 1,
+  header 36 and view 116.
+- Experimental Chrome/IWER bridge diagnostic: packed render result 1, last
+  error 0, tick `10 -> 11`, 187 accumulated draw calls, both layers nonblank
+  and varied, 1,178 differing sampled pixels, zero WebGPU errors.
+- The surrounding M4/M5 interop tests and session lifecycle still pass; the
+  final XR run advanced frames `3 -> 184` and ended cleanly.
+- Native Windows Debug and Emscripten release builds pass.
+
+The current WebXR/WebGPU Binding editor's draft was rechecked during this
+slice. It still labels the API unstable, requires an XR-compatible adapter and
+the `webgpu` session feature, requires `layers` rather than `baseLayer`, uses
+WebGPU `[0,1]` projection depth, returns one frame-scoped texture shared by the
+projection views, and selects each view through `getViewDescriptor()`.
+
+Remaining M6 blocker: IWER creates a JavaScript emulated session that Blink's
+native `XRGPUBinding` constructor rejects. The production helper is ready, but
+real projection-layer creation, compositor presentation, repeated entry/exit
+and five-minute stability must run on a browser/headset with a native WebGPU-
+compatible XR session. After that, M7 composes the transported pose.

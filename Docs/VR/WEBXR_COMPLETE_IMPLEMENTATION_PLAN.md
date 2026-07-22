@@ -72,7 +72,7 @@ XRSession.requestAnimationFrame
 | M3 — WebGPU hot path | Complete | Bind-group caching and buffer diagnostics measured on small and large maps |
 | M4 — presentation groundwork | Complete | XR-compatible device, texture import/readback, full UT frame in array layer 1, frame-loop ownership handoff |
 | M5 — frame/view refactor | Complete (diagnostic projections) | One simulation tick now renders two independently selected texture-array layers; real `XRView` data starts M6 |
-| M6 — native WebGPU XR session | Not started; platform/headset gated | Real `XRGPUBinding`, projection layer, subimages, synchronous presentation |
+| M6 — native WebGPU XR session | In progress; native session/headset gated | Packed JS/WASM view ABI and synchronous subimage-shaped renderer pass; real `XRGPUBinding` session/presentation still requires a native supported runtime |
 | M7 — tracking/camera/world scale | Not started | Correct 6DoF head pose and per-eye projection |
 | M8 — controller input/gameplay | Not started | Motion controllers, locomotion, weapon aim, haptics |
 | M9 — UI/comfort/VR presentation | Not started | HUD, menus, weapon model, recenter and comfort controls |
@@ -265,9 +265,7 @@ color presentation is correct.
 
 ### 8.3 Per-frame bridge data
 
-Define a versioned POD structure shared by JS and C++. This is the first
-remaining M6 implementation slice because M5 has proven the consumer-side
-phase and attachment interfaces:
+The versioned POD structure shared by JS and C++ is complete as M6 ABI v1:
 
 - frame timestamp and view count;
 - reference-space/reset generation;
@@ -275,11 +273,22 @@ phase and attachment interfaces:
   texture base-array-layer, color dimensions;
 - optional controller state offsets reserved for M8.
 
+The packed layout is a 36-byte header plus 116 bytes per view (268 bytes for
+stereo). C++ `static_assert`s every size/critical offset; JS performs 18
+deterministic offset/value checks and Playwright compares the native-reported
+version and strides before using the bridge.
+
 Write it into WASM memory in one operation per XR frame. Avoid dozens of
 `ccall`s and avoid retaining JavaScript XR objects beyond the callback. Keep
 the current color texture in a JS global only for the duration of the one
 synchronous import/render call, clear it in `finally`, and assert that C++ has
 released its wrapper.
+
+Implemented: the JS helper copies pose, orientation, projection, viewport and
+`getViewDescriptor().baseArrayLayer`, requires both views to share one
+`colorTexture`, performs one synchronous `ccall`, and clears the temporary
+texture global in `finally`. Native code copies and validates the packed data
+before rendering; packed structs never leak into aligned renderer state.
 
 ### 8.4 Tests
 
@@ -300,6 +309,28 @@ canvas recovery, and zero uncaptured WebGPU errors. Real `XRView` matrices and
 subimages remain the M6/M7 production path, not an M5 claim.
 
 ## 9. M6 — real native WebGPU WebXR session and presentation
+
+### Completed bridge slice (2026-07-22)
+
+- Added ABI version/header/view/max-view introspection, native packet
+  validation and last-error diagnostics.
+- Added a synchronous `Surreal_RenderWebXRFrame` entry that imports the current
+  browser texture once, selects each supplied array layer and viewport, uses
+  each supplied WebGPU `[0,1]` projection matrix, advances simulation once,
+  finishes once and releases the imported wrapper before returning.
+- Added production-facing JS helpers around `getViewerPose()`,
+  `getViewSubImage()` and `getViewDescriptor()` without retaining XR objects.
+- Experimental Playwright passed the complete packed call: exactly one tick,
+  error code 0, 187 draw calls, two nonblank/varied layers, 1,178 differing
+  sampled pixels, canvas RAF recovery and zero uncaptured WebGPU errors.
+- Native Windows Debug and Emscripten release builds pass.
+
+M6 is not complete: IWER's JavaScript session still cannot satisfy Blink's
+native `XRSession` type check, so projection-layer creation/compositor
+presentation must be validated on a supported real runtime/headset. M7 still
+owns position/orientation composition, recentering and calibrated world scale;
+the M6 bridge currently applies exact per-view projections but retains the
+body camera transform.
 
 ### 9.1 Session creation
 
@@ -677,11 +708,12 @@ Release candidates require:
 
 ## 16. Immediate execution order
 
-1. Implement M5's simulation/render split with identical native and canvas
-   behavior.
-2. Upgrade the external-target API to render two independently projected array
-   layers in one synchronous frame and extend Playwright readback to both.
-3. Add the packed view-state ABI and matrix/unit tests.
+1. **Complete:** implement M5's simulation/render split with identical native
+   and canvas behavior.
+2. **Complete:** upgrade the external-target API to render two independently
+   projected array layers in one synchronous frame and read back both.
+3. **Complete:** add and validate the packed view-state ABI. Matrix storage is
+   proven end-to-end; coordinate/unit correctness remains M7 headset work.
 4. Run the real projection-layer probe on a supported physical headset/browser;
    in parallel, determine whether the public Chromium WebXR Test API can provide
    a native automated session.
@@ -694,7 +726,7 @@ Release candidates require:
 ## 17. Authoritative browser references
 
 - WebXR/WebGPU Binding Module:
-  <https://immersive-web.github.io/WebXR-WebGPU-Binding/>
+  <https://immersive-web.github.io/webxr-webgpu-binding/>
 - WebXR Device API:
   <https://www.w3.org/TR/webxr/>
 - WebXR Layers API:
