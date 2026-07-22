@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.15)
 
 project(SurrealEngine)
 
+include(CTest)
+
 add_subdirectory(Thirdparty/openmpt)
 add_subdirectory(SurrealGPU)
 add_subdirectory(SurrealWidgets)
@@ -372,6 +374,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/UDXGameDirectory.h
 	SurrealEngine/UObject/UDXSaveInfo.cpp
 	SurrealEngine/UObject/UDXSaveInfo.h
+	SurrealEngine/UObject/DXAIPerception.cpp
+	SurrealEngine/UObject/DXAIPerception.h
 	SurrealEngine/UObject/UDXTextParser.cpp
 	SurrealEngine/UObject/UDXTextParser.h
 	SurrealEngine/UObject/U227Emitter.cpp
@@ -731,6 +735,16 @@ set_target_properties(SurrealEditor PROPERTIES CXX_STANDARD 20)
 add_executable(SurrealDebugger ${SURREALDEBUGGER_SOURCES})
 target_link_libraries(SurrealDebugger SurrealCommon ${SURREALCOMMON_LIBS})
 set_target_properties(SurrealDebugger PROPERTIES CXX_STANDARD 20)
+
+if(BUILD_TESTING)
+	add_executable(DXAIPerceptionTests
+		Tests/DXAIPerceptionTests.cpp
+		SurrealEngine/UObject/DXAIPerception.cpp
+	)
+	target_include_directories(DXAIPerceptionTests PRIVATE SurrealEngine)
+	set_target_properties(DXAIPerceptionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME DXAIPerception COMMAND DXAIPerceptionTests)
+endif()
 
 if(WIN32)
 	add_custom_command(TARGET SurrealEngine POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:OpenAL::OpenAL>" $<TARGET_FILE_DIR:SurrealEngine>)
