@@ -2,9 +2,14 @@
 
 Date: 2026-07-22
 
+Integration status: the package composition and compliance mechanism are
+implemented and automated at `integration/unified-engine` commit `a0fb4f93`.
+WebXR and the optional demo descriptors remain experimental; Quest,
+owner-data, final-hosting, and human/legal release gates remain open.
+
 ## Branch and dependencies
 
-Branch: `release/webxr-browser-package`
+Original release branch: `release/webxr-browser-package`
 
 This is a product/release composition branch, not an upstream pull-request
 source. It starts from the smallest launcher/data stack and merges the existing
@@ -20,10 +25,16 @@ WebXR runtime topic without rewriting either history:
   input adapter.
 
 The dependency merge is `6d920b8c686b39344b2a66710cd1d7c9aec0f5ce`.
-`integration/unified-engine` is not a dependency or ancestor. New changes on
-this branch are confined to launcher, diagnostics, static packaging, tests, and
-this release document. They do not alter WebXR provider rendering or native XR
-UI capture.
+At that extraction point, `integration/unified-engine` was not a dependency or
+ancestor. New changes on this release branch were confined to launcher,
+diagnostics, static packaging, tests, and this release document; they did not
+alter WebXR provider rendering or native XR UI capture.
+
+The unified integration later reconstructs those release components alongside
+the WebGL atlas bridge, controller/exact-contact review, asynchronous KHG
+cinematic path, experimental demo descriptors, startup-map path, and
+corresponding-source enforcement. Those later product commits do not change the
+rule that this release composition is not an upstream PR source.
 
 ## User-visible behavior
 
@@ -31,15 +42,17 @@ UI capture.
 
 - **Desktop window** uses the normal flat WebGPU canvas and ordinary browser
   keyboard/mouse input.
-- **Immersive WebXR** is offered only when a secure browser exposes WebXR,
-  `immersive-vr`, `XRGPUBinding`, and an XR-compatible WebGPU adapter.
+- **Immersive WebXR** is offered on a secure browser with `immersive-vr` when
+  either direct `XRGPUBinding` presentation is available or the browser can use
+  the `XRWebGLLayer`/WebGL 2 stereo-atlas compatibility bridge.
 
-The shared WebGPU device is requested from
+For direct presentation, the shared WebGPU device is requested from
 `navigator.gpu.requestAdapter({ xrCompatible: true })` when the WebXR provider
-is otherwise available. If that request fails, the launcher reports why,
-disables only immersive mode, and retries ordinary WebGPU so flat play remains
-available. Failed or declined immersive-session entry also returns a visible
-flat fallback instead of terminating the running engine.
+is otherwise available. Compatibility presentation uses an ordinary WebGPU
+device for the engine atlas and a WebGL 2 context for `XRWebGLLayer`. If neither
+mode can initialize, the launcher reports why and keeps ordinary WebGPU flat
+play available. Failed or declined immersive-session entry also returns a
+visible flat fallback instead of terminating the running engine.
 
 Before loading the engine, the page reports secure-hosting, WebAssembly,
 WebGPU, local-storage, folder-import, and WebXR capability. Fatal platform
@@ -49,13 +62,24 @@ The existing shared data layers remain authoritative:
 
 - the user explicitly selects a local folder; no upload or automatic download
   exists;
-- typed validation recognizes UT99 and Unreal Gold without weakening either
-  layout contract;
+- typed validation recognizes retail UT99 and Unreal Gold without weakening
+  either layout contract. Separate experimental descriptors recognize locally
+  selected UT demo 348, Unreal demo 205, and Deus Ex demo 1002f folders; they
+  are not release-support or redistribution claims;
 - imported commercial data remains in per-game OPFS/IndexedDB storage;
 - mutable INIs, settings, logs, and strict saves remain in the separate
   allowlisted, crash-safe mutable store;
 - game, map, renderer, and presentation selection become fixed validated
   native arguments.
+
+At engine-integration level, startup has two distinct paths. UT99 and
+Unreal/Gold normally use their game-owned `URL.LocalMap`; the launcher exposes a
+checked-by-default skip option that supplies a validated direct map instead.
+KHG's file-backed `INTRO.AVI` uses the separate asynchronous browser cinematic
+path and existing IV50 decoder. The current release library does not claim KHG
+folder import or launch support. The map path still needs owned UT99/Unreal
+script tests, while the cinematic path needs owned KHG media tests and retains
+the documented audio/mask/continuation limitations.
 
 ## Static artifact layout
 
@@ -82,6 +106,7 @@ webxr/Ports/SurrealEngine/
   ut99_importer.js
   webxr_browser_app_adapter.js
   webxr_diagnostics.js
+  webxr_webgl_bridge.js
   webxr_provider.js
   engine/
     SurrealEngine.js
@@ -135,12 +160,21 @@ node --check web/package_browser_release.mjs
 node --check web/package_corresponding_source.mjs
 node web/test_corresponding_source.mjs
 node web/test_release_package.mjs
+node web/test_ue1_demo_imports.mjs
+node web/test_webxr_provider.mjs
+node web/test_webxr_webgl_bridge.mjs
+node web/test_webxr_webgl_fallback_provider.mjs
 python web/smoke_test_browser_app.py --base-url=http://localhost:8112
 python web/smoke_test_browser_app_runtime.py --base-url=http://localhost:8112
 python web/smoke_test_ut99_importer.py --base-url=http://localhost:8112
 python web/smoke_test_mutable_persistence.py --base-url=http://localhost:8112
 python web/smoke_test_browser_data_bootstrap.py --base-url=http://localhost:8112
-node web/test_webxr_provider.mjs
+$env:SURREAL_WEB_BASE_URL="http://localhost:8112"
+python web/probes/webgpu_webgl_bridge_probe_test.py
+
+cmake -S . -B build "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" -DBUILD_TESTING=ON
+cmake --build build --config Release --parallel 4
+ctest --test-dir build -C Release --output-on-failure
 ```
 
 Serve a staged artifact directly for the final layout smoke:
@@ -175,15 +209,19 @@ sensitive exception message.
 
 Current results:
 
-- 10 shared launcher/capability/diagnostics checks passed;
+- 11 shared launcher/capability/diagnostics/startup-policy checks passed;
 - 19 UT99/Unreal Gold importer checks passed;
+- the three-demo descriptor/import suite passed without commercial data;
 - 13 mutable-persistence checks passed;
 - 3 browser bootstrap ordering/isolation checks passed;
-- provider controller lifecycle Node test passed;
+- direct and `XRWebGLLayer` provider lifecycle/controller tests passed;
+- the desktop Chrome WebGPU-canvas to WebGL 2 upload/readback probe passed;
+- all 25 integrated native CTest tests passed;
 - fresh no-data Emscripten compile/link passed;
 - real staged package reached the import gate while cross-origin isolated and
   performed a synthetic Unreal Gold flat launch with the expected arguments;
-- static package/data audit and `git diff --check` passed.
+- corresponding-source, static package/data audit, and `git diff --check`
+  passed.
 
 ## Remaining release gates
 
@@ -192,16 +230,24 @@ Before publishing:
 
 1. Import complete user-owned UT99 and Unreal Gold folders independently;
    confirm detection, map lists, launch, switching, replacement, and persistence
-   after a browser restart and package upgrade.
+   after a browser restart and package upgrade. Test both checked direct-map
+   startup and unchecked game-owned `URL.LocalMap` startup.
 2. Run flat UT99 and Unreal Gold with keyboard/mouse, fullscreen/resize, INI
    changes, saves, explicit quit-and-flush, and restore.
 3. On a physical Quest browser, record browser/runtime versions outside the
-   generated report, then open the diagnostics panel and verify capability
-   `ready` and adapter `xr-compatible` before entering immersive mode.
-4. Verify the report reaches provider phase/stage `running`, records a supported
-   projection format and `local-floor` or `local` reference space, then compare
-   rendered/skipped/input counters while checking stereo output, controllers,
-   held-button disconnect, and blur.
+   generated report, then test direct `XRGPUBinding` where exposed and automatic
+   plus forced `XRWebGLLayer` compatibility selection. For the direct mode,
+   verify an XR-compatible adapter; for the bridge, record its timing counters
+   against the thresholds in `WEBXR_WEBGL_BRIDGE_HANDOFF.md`. The v1 packaged
+   report omits `presentationMode` and `bridgeDiagnostics`; capture those fields
+   separately from `surrealXRGetState()` through the browser's remote debugging
+   tools or a dedicated QA harness.
+4. Verify the generated report reaches provider phase/stage `running`, records
+   a supported projection format and `local-floor` or `local` reference space,
+   then compare rendered/skipped/input counters while checking stereo output,
+   controller proxies, laser/exact-contact alignment, intro HUD, menu ordering,
+   held-button disconnect, and blur. Confirm the expected presentation mode in
+   the separate state snapshot from step 3.
 5. Exit and re-enter once. Confirm the enter/exit/re-entry counters and bounded
    transition list change as expected, then copy or download the report. Inspect
    it before sharing and confirm it contains no game name/data, path, URL, log,
@@ -210,7 +256,14 @@ Before publishing:
    continues and keyboard/mouse still work.
 7. Verify production HTTPS, COOP/COEP/CORP headers, WASM MIME, quota/persistence
    diagnostics, and storage survival at the final origin and path.
+8. Generate the corresponding-source archive from the exact clean release
+   commit and have the final hosted source offer, product terms, notices, and
+   redistribution model reviewed. Keep all demo data out of the package and
+   local-import-only unless explicit artifact-specific permission is obtained.
 
-Tracked controller models, UI/cinematic quad capture, pointer lasers, weapons,
-locomotion policy, audio, and physical headset presentation remain separate
-runtime gates; this package does not duplicate or modify those systems.
+World-anchored UI/cinematic capture, procedural tracked-controller proxies,
+lasers, and exact-contact markers are implemented shared engine/provider
+features, not package-shell duplicates. Their automated geometry, ordering,
+input, and lifecycle evidence has passed, but physical presentation, release
+tuning, real game behavior, weapons, locomotion policy, and browser audio remain
+separate runtime gates.

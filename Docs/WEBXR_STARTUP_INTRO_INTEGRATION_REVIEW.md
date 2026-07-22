@@ -4,6 +4,10 @@ Date: 2026-07-22
 
 Base: `integration/unified-engine` at `f1246102`.
 
+Review result: integrated at `a0fb4f93`. The map-intro path and automated
+evidence are implemented; actual UT99/Unreal owner-data behavior and physical
+Quest presentation remain unverified.
+
 ## Scope and result
 
 This review combined the UT99/Unreal map-startup lifecycle with both WebXR

@@ -1,6 +1,9 @@
 # WebXR controller visual / compatibility bridge review
 
-Base: `integration/unified-engine` at `dc4f2d60`.
+Review base: `integration/unified-engine` at `dc4f2d60`; coverage and result are
+carried into integrated commit `a0fb4f93` (25/25 CTest tests). The visuals and
+shared exact-contact path are implemented, but headset scale, alignment, and
+latency remain hardware-unverified.
 
 Scope was limited to the controller proxy, laser, exact-contact marker, UI
 composition, and the two WebXR presentation modes. Cinematic/demo-owned files

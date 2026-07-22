@@ -1,7 +1,9 @@
 # WebXR WebGL compatibility bridge handoff
 
-Status: implemented on product-integration branch `integration/webxr-webgl-bridge`.
-This is not an upstream PR source and is not yet a Quest release claim.
+Status: implemented by product-integration commit `dc4f2d60` and carried into
+`integration/unified-engine` commit `a0fb4f93`. It has automated provider,
+native-bridge, and desktop-browser evidence, but is experimental and has no
+physical Quest release result. This is not an upstream PR source.
 
 ## What the bridge does
 
@@ -50,6 +52,8 @@ browser which also exposes direct binding support.
 - `python web/probes/webgpu_webgl_bridge_probe_test.py` drives real desktop
   Chrome and checks the actual WebGPU-canvas to WebGL 2 upload/readback path.
 - `WebXRFrameBridgeTests` validates known ABI flags and atlas invariants.
+- The complete integrated Windows Release suite passes all 25 CTest tests, and
+  the no-data Emscripten application compiles and links.
 
 Desktop Chrome proves API behavior, not Quest cost or WebXR compositor
 behavior. It cannot validate an opaque headset framebuffer.

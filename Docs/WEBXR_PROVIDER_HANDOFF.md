@@ -1,10 +1,14 @@
-# WebXR provider skeleton handoff
+# WebXR provider handoff
 
 Date: 2026-07-22
 
+Integration status: implemented and automated at `integration/unified-engine`
+commit `a0fb4f93`; both browser presentation modes remain experimental and
+hardware-unverified on Quest.
+
 ## Scope
 
-This branch layers an optional WebXR/WebGPU provider on the flat Emscripten
+The provider layers optional WebXR presentation on the flat Emscripten/WebGPU
 platform. It provides:
 
 - generation-safe immersive session enter, exit, failure cleanup, and re-entry;
@@ -17,30 +21,35 @@ platform. It provides:
 - per-view selection of WebGPU projection texture array slices or distinct
   per-eye textures, using each `XRGPUSubImage`'s descriptor and viewport;
 - `bgra8unorm`, `rgba8unorm`, and `rgba16float` projection pipelines selected
-  from `XRGPUBinding.getPreferredColorFormat()`; and
-- provider-owned menu, loading, and cinematic capture textures, replayed as
-  stable world-space quads into both projection eyes without scene depth; and
+  from `XRGPUBinding.getPreferredColorFormat()`;
+- provider-owned HUD, menu, loading, and cinematic capture textures, replayed
+  as stable world-space quads into both projection eyes without scene depth;
 - exact tracked-controller menu contact routing plus a packed laser/hit
-  feedback ABI; and
+  feedback ABI;
+- direct `XRGPUBinding` presentation plus an automatic `XRWebGLLayer`
+  compatibility mode that copies a WebGPU-rendered stereo atlas through
+  WebGL 2; and
 - a separate `web/index_webxr.html` harness. The existing flat
   `web/index_webgpu.html` remains unchanged and does not require WebXR.
 
 The provider deliberately excludes locomotion, weapon behavior, dominant-hand
-policy, controller models, haptics, PWA packaging, game-data import, data
-persistence, and game-specific VM hooks.
+policy, game-specific controller models, haptics, PWA packaging, game-data
+import, data persistence, and game-specific VM hooks. Product integration adds
+procedural controller proxies through the provider-neutral UI compositor; they
+are not weapon models or provider policy.
 
 ## Projection-eye UI connector
 
-The integration provider registers four non-zero WebGPU target slots for one
+The integration provider registers five non-zero WebGPU target slots for one
 XR frame: projection/world is slot 1, cinematic is slot 2, loading is slot 3,
-and menu is slot 4. The WebGPU backend can switch among registered targets
-inside one locked engine frame. UI replay therefore uses the existing
-`XRUISurfaceEngineBinding` and existing UE1 canvas callbacks; it does not add a
-second `PostRender` path. The ordinary flat WebGPU path still registers no
-external targets and retains its original slot-zero render flow.
+menu is slot 4, and startup HUD is slot 5. The WebGPU backend can switch among
+registered targets inside one locked engine frame. UI replay therefore uses the
+existing `XRUISurfaceEngineBinding` and existing UE1 canvas callbacks; it does
+not add a second `PostRender` path. The ordinary flat WebGPU path still
+registers no external targets and retains its original slot-zero render flow.
 
-Menu, loading, and cinematic textures are composited after world rendering by
-opening a load pass on each projection-eye texture. The pass has no depth
+HUD, menu, loading, and cinematic textures are composited after world rendering
+by opening a load pass on each projection-eye texture. The pass has no depth
 attachment and visits `BuildReplayFrame()` in its existing deterministic
 back-to-front order. Menu remains last and cannot be hidden behind a world or
 decorative quad. This intentionally does not use `createQuadLayer`; non-
@@ -159,21 +168,26 @@ exceptions may contain environment-specific details.
 
 The ordinary Emscripten main loop remains registered for the process lifetime.
 It yields while an XR session owns frame scheduling. Ownership transfers only
-after the session, `XRGPUBinding`, projection layer, and reference space are
-ready. Session end or any frame exception restores canvas scheduling and resets
-the tracked-pose origin.
+after the selected mode has a session, projection layer, and reference space:
+direct mode additionally requires `XRGPUBinding`, while compatibility mode
+requires its WebGL 2 context, `XRWebGLLayer`, and stereo-atlas bridge. Session
+end or any frame exception restores canvas scheduling and resets the
+tracked-pose origin.
 
 Each callback requires one left and one right primary view, validates the ABI in native code,
 advances simulation exactly once, builds one multi-view family, renders it, and
 finishes deferred save/travel work once. A missing viewer pose skips the frame
 without advancing simulation.
 
-The browser acquires an `XRGPUSubImage` for each `XRView`. ABI v2 deduplicates
-the common texture-array case, but does not assume both subimages share a
-`GPUTexture`: each packed view identifies its texture, array layer, texture
-extent, and viewport. Native code verifies those values against the imported
-runtime-owned texture before binding it. All imports and releases remain inside
-the owning `XRSession.requestAnimationFrame()` callback.
+In direct mode, the browser acquires an `XRGPUSubImage` for each `XRView`. ABI
+v2 deduplicates the common texture-array case, but does not assume both
+subimages share a `GPUTexture`: each packed view identifies its texture, array
+layer, texture extent, and viewport. Native code verifies those values against
+the imported runtime-owned texture before binding it. In compatibility mode,
+both views identify one WebGPU canvas atlas with distinct viewports; the bridge
+uploads it once and draws those subrectangles into the `XRWebGLLayer` eye
+viewports. All transient work remains inside the owning
+`XRSession.requestAnimationFrame()` callback.
 
 Session shutdown or frame failure cancels the queued XR animation callback,
 releases frame-loop ownership only if it was acquired, clears the transient
@@ -203,8 +217,10 @@ Completed locally:
   descriptor targets/scaling, center-pixel contact, one-shot replay/click,
   both-hand visual construction, exact beam endpoint/radius, marker alignment,
   draw-order invariants, and held-select edge behavior;
-- all 23 registered native tests passing after the visual connector, including
-  all eight WebXR/XR-UI focused tests;
+- all 25 registered native tests passing at integrated commit `a0fb4f93`;
+- direct and fallback provider tests passing controller input, cleanup,
+  exit/re-entry, and flat-loop restoration through the shared native runtime;
+- a real desktop Chrome WebGPU-canvas to WebGL 2 upload/readback probe passing;
 - flat Chrome/WebGPU UT99 runtime after the provider changes: ticked from 61
   to 604, 95 draw calls, 75 cached textures, zero WebGPU errors, 100% nonblank
   screenshot pixels, and clean quit;
@@ -214,48 +230,53 @@ Commands:
 
 ```text
 cmake -S . -B build "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" -DBUILD_TESTING=ON
-cmake --build build --config Release --target SurrealEngine WebXRFrameBridgeTests PresentationTests --parallel 4
-ctest --test-dir build -C Release --output-on-failure -R "WebXRFrameBridgeTests|PresentationTests"
+cmake --build build --config Release --parallel 4
+ctest --test-dir build -C Release --output-on-failure
 node web/test_webxr_provider.mjs
+node web/test_webxr_webgl_bridge.mjs
+node web/test_webxr_webgl_fallback_provider.mjs
 
 & C:\Devstuff\emsdk\emsdk_env.ps1
 emcmake cmake -S . -B build-emscripten -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" -DBUILD_TESTING=OFF
 cmake --build build-emscripten --target SurrealEngine --parallel 8
 node web/serve.mjs 8094
-$env:SURREAL_WEB_BASE_URL="http://localhost:8094"; python web/smoke_test_webgpu.py
+$env:SURREAL_WEB_BASE_URL="http://localhost:8094"
+python web/probes/webgpu_webgl_bridge_probe_test.py
+python web/smoke_test_webgpu.py
 ```
 
 ## Hardware gate and known limitations
 
-No automated test proves physical headset presentation. The current
-WebXR/WebGPU specification is explicitly an unstable editor's draft. Its current
-interface name is `XRGPUBinding`; `XRWebGPUBinding` is an obsolete experimental
-spelling and is reported but not used. Chrome first documented WebXR/WebGPU on
-Android as an experimental developer-testing feature in Chrome 135, behind the
-WebXR/WebGPU binding capability. Ordinary WebGPU availability is therefore not
-evidence that WebGPU can present to WebXR.
+No automated test proves physical headset presentation, and no repository
+evidence yet proves either mode on a target Quest/browser combination. The
+current WebXR/WebGPU specification is explicitly an unstable editor's draft.
+Its current interface name is `XRGPUBinding`; `XRWebGPUBinding` is an obsolete
+experimental spelling and is reported but not used. Chrome first documented
+WebXR/WebGPU on Android as an experimental developer-testing feature in Chrome
+135, behind the WebXR/WebGPU binding capability. Ordinary WebGPU availability
+is therefore not evidence that WebGPU can present to WebXR.
 
 Primary references: the [WebXR/WebGPU Binding editor's draft](https://immersive-web.github.io/webxr-webgpu-binding/)
 and Chrome's [WebGPU 135 platform note](https://developer.chrome.com/blog/new-in-webgpu-135).
 
-A real Quest browser and runtime must expose `XRGPUBinding`, accept an immersive
-session with the required `webgpu` feature, accept a `GPUDevice` created from an
-adapter requested with `xrCompatible: true`, import the runtime-owned
-`GPUTexture` through Emscripten's WebGPU bridge, and present both views. This is
-the release gate for the provider, not something the synthetic lifecycle test
-can emulate. Until that passes on the target Quest Browser version, this branch
-is an experimental/flag-required WebXR build, not a production WebXR release.
+A real Quest browser may use either implemented presentation mode. Direct mode
+requires `XRGPUBinding`, an immersive session with the `webgpu` feature, and an
+XR-compatible WebGPU adapter/device. Compatibility mode instead creates a
+normal immersive session with `XRWebGLLayer`, renders both eyes into the
+existing WebGPU canvas atlas, and copies that atlas through WebGL 2. The second
+mode was informed by the working Quake presentation shape but does not add a
+second SurrealEngine render device.
 
-Quake's working browser path uses `XRWebGLLayer`, which is materially different.
-SurrealEngine currently has no WebGL render backend. The minimum broadly
-deployable fallback would be a separate WebGL2 render-device implementation
-that can draw to the `XRWebGLLayer` framebuffer while reusing the same neutral
-`ViewFamily`, frame ownership, input, and presentation-policy seams. That is a
-sizable renderer project and must be an explicit product decision; it is not a
-small fallback inside this provider.
+Both modes remain **experimental**. Automated tests prove selection, ABI,
+projection conversion, shared engine behavior, cleanup, and desktop cross-API
+upload/readback. They cannot prove that a target Quest browser exposes direct
+binding, that its opaque WebGL XR framebuffer presents the atlas correctly, or
+that the cross-API copy meets the headset frame budget. The release gates and
+timing thresholds are recorded in `WEBXR_WEBGL_BRIDGE_HANDOFF.md`. A real WebGL
+2 render device remains the contingency if the atlas bridge fails those gates.
 
 The integration provider renders the world, procedural tracked-controller
-proxies, exact-contact lasers/markers, and captured menu/loading/cinematic
+proxies, exact-contact lasers/markers, and captured HUD/menu/loading/cinematic
 surfaces. Weapon rendering remains disabled; the proxy is intentionally not a
 game weapon model. Browser audio remains the flat platform's null backend.
 
@@ -265,10 +286,11 @@ flat/WebXR frame owner instead of entering the legacy synchronous `PlayAVI`
 loop. It routes decoded frames through this provider-neutral cinematic capture
 path; see `WebCinematicPlayback.md` for tests and limitations. Owner-supplied
 KHG data and a physical headset are still required to validate actual media,
-and UT99/Unreal map intros remain a separate world/UI path. Loading has a
-configured target but still needs an authoritative engine loading-visibility
-signal before it can be shown. These are exact content/lifecycle blockers, not
-quad-compositor blockers.
+and UT99/Unreal map intros use a separate implemented `URL.LocalMap`, startup
+HUD, menu-handoff, and intro-trigger path. That map path has synthetic coverage
+but remains owner-data/headset-unverified. Loading has a configured target but
+still needs an authoritative engine loading-visibility signal before it can be
+shown. These are exact content/lifecycle blockers, not quad-compositor blockers.
 
 The procedural proxy uses target-ray orientation with a stable world-up roll;
 the current feedback contract does not carry grip-pose roll into the compositor.
@@ -284,9 +306,11 @@ through `web/webxr_browser_app_adapter.js`. `web/surreal_app.html` is one shared
 game library for both targets. The release shell probes WebXR independently,
 requests an XR-compatible WebGPU adapter only when the provider can otherwise
 run, and retries an ordinary adapter when XR compatibility is unavailable. The
-adapter activates WebXR only after the launcher has validated local game data,
-selected a safe map, and started the native engine. Exiting, declining, or
-failing the session leaves that same flat application running. The shared
-launcher also propagates whether the actual device came from an adapter
-requested with `xrCompatible: true`, so provider entry cannot mistake an
-ordinary flat WebGPU device for an XR-compatible one.
+adapter activates WebXR only after the launcher has validated local game data
+and launch policy and started the native engine. Skip mode also requires a
+validated safe map; normal-intro mode deliberately omits `--url` and leaves the
+game's `URL.LocalMap` authoritative. Exiting, declining, or failing the session
+leaves that same flat application running. The shared launcher also propagates
+whether the actual device came from an adapter requested with
+`xrCompatible: true`, so provider entry cannot mistake an ordinary flat WebGPU
+device for an XR-compatible one.

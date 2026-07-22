@@ -61,8 +61,38 @@ The integration branch contains the reviewed equivalents of every completed
 topic above, including the small conflict and build-system follow-ups needed
 when those topics coexist. The original foundation topics are preserved on the
 `fork` remote. The newest runtime/package topics remain local until the combined
-Quest-facing behavior has been reviewed. No pull request has been opened and
-the upstream `origin` has not been modified.
+Quest-facing behavior passes final release review. No pull request has been
+opened and the upstream `origin` has not been modified.
+
+## Status language
+
+This roadmap uses four deliberately separate claims:
+
+- **Implemented** means the path exists in `integration/unified-engine`; it is
+  not by itself a release or upstream-readiness claim.
+- **Automated evidence** means a deterministic build or test passed at the
+  stated integration commit without commercial game data or a headset.
+- **Experimental** means the feature remains a product-integration lane and
+  may still change after real runtime evidence. Experimental integration
+  commits are not upstream PR sources.
+- **Hardware-unverified** means synthetic or desktop-browser evidence cannot
+  establish physical Quest presentation, timing, input, or comfort.
+- **Owner-data-unverified** means no automated fixture can establish behavior
+  with a user's commercial packages, maps, media, and scripts.
+
+At integration commit `a0fb4f93`, the main product-only additions beyond the
+foundation topics are:
+
+| Integrated slice | State | Evidence and remaining boundary |
+| --- | --- | --- |
+| Flat desktop WASM/WebGPU | Implemented | The complete no-data application links, the legal local-import gate passes, and a desktop browser render/tick/quit smoke passes. Real owner-data play, persistence, and final-origin storage remain release gates. |
+| Direct WebXR/WebGPU presentation | Implemented, experimental | ABI/lifecycle and native bridge tests pass; no target Quest browser with production `XRGPUBinding` has been verified. |
+| Quest compatibility presentation | Implemented, experimental | `XRWebGLLayer` receives a WebGPU-rendered stereo atlas through WebGL 2; desktop API probes and provider tests pass, but Quest correctness and transfer cost are hardware-unverified. |
+| WebXR UI and controllers | Implemented, experimental | World-anchored surfaces, both procedural controller proxies, lasers, and exact-contact markers share one hit result in both presentation modes; scale, latency, convergence, and comfort remain hardware-unverified. |
+| UT99/Unreal startup map intro | Implemented, experimental | `URL.LocalMap`, prompt-HUD capture, menu handoff, intro-only trigger routing, and explicit launcher skip policy have automated coverage; actual UT99/Unreal scripts remain owner-data and Quest-unverified. |
+| KHG browser AVI playback | Implemented, experimental | The existing IV50 decoder advances asynchronously under the flat/WebXR frame owner; synthetic scheduling and no-data linking pass, while actual KHG media, browser audio, masks, and same-call-stack script assumptions remain unverified or incomplete. |
+| Local UE1 demo import | Implemented, experimental | UT demo 348 and Deus Ex demo 1002f reach bounded package scans; Unreal demo 205 advances past `TextBuffer.Parent`/`Outer` and stops at a distinct `TravelItems` layout issue. All remain local-import-only, gameplay-unverified, and redistribution-gated. |
+| Static-WASM corresponding source | Implemented | Clean commit/tree provenance, matching source archive or exact HTTPS source URL, hashes, notices, and relink instructions are enforced by packaging tests. Human/legal review of the actual distribution is still required. |
 
 ## Contract boundaries
 
@@ -105,54 +135,50 @@ but must not fork gameplay, VM, menu, or game-support implementations.
 
 ## Current validation
 
-As of integration commit `61028b3b`, Windows x64 Release and the optional
-OpenXR-enabled build both link the full engine and pass all 21 registered tests.
-That matrix includes the existing UE1/Deus Ex/bot checks plus view families,
-presentation targets, XR common, native XR input, WebXR frame/input bridges,
-live WebXR input application, UI-surface policy, the runtime adapter, and the
-real engine-canvas binding. The ordinary executable and `--help` path remain
-available; desktop keyboard and mouse ownership is unchanged.
+As of integration commit `a0fb4f93`, a complete Windows x64 Release build
+passes all 25 registered CTest tests. The no-data Emscripten Release target also
+compiles and links the complete `SurrealEngine.js`/WASM application. The
+ordinary native executable, flat browser entry point, and desktop
+keyboard/mouse contributor remain available; WebXR is an optional presentation
+provider rather than a replacement desktop mode.
 
-The same integration compiles and links the complete data-free Emscripten
-JavaScript/WASM target. The served browser matrix currently passes:
+The served data-free browser matrix passes:
 
-- 9 shared launcher, provider-isolation, capability, and XR-adapter fallback checks;
-- 19 UT99/Unreal Gold import and safe-map checks;
+- 11 shared launcher, provider-isolation, capability, diagnostics, adapter
+  fallback, and startup-policy checks;
+- 19 retail UT99/Unreal Gold import and safe-map checks;
+- the separate three-demo descriptor/import suite;
 - 13 OPFS/IndexedDB mutable-persistence and migration checks;
 - 3 provider-neutral data-bootstrap checks;
-- the WebXR ABI-v2 eye-texture, controller-packet, failure, exit, and re-entry test;
-- the flat/WebGPU legal no-data import gate; and
-- a synthetic Unreal Gold launch with the expected native arguments.
+- direct WebXR ABI-v2 eye-texture, input, failure, exit, and re-entry tests;
+- `XRWebGLLayer` fallback selection, stereo-atlas, cleanup, and re-entry tests;
+- the real desktop Chrome WebGPU-to-WebGL 2 upload/readback probe;
+- corresponding-source and static release-package audits; and
+- flat and WebGPU no-data import-gate smoke, including a synthetic Unreal Gold
+  launch with the expected native arguments and a WebGPU render/tick/quit run.
 
-The staged data-free package at the current integration point contains 15 files
-and is 7,000,491 bytes unpacked. It is cross-origin isolated, reaches the local
-import gate, launches the synthetic Unreal Gold selection, includes no
-commercial packages, and records SHA-256 hashes for every payload file.
+This is **automated evidence**, not a content release result. No commercial
+package is part of the test or static artifact, and no synthetic test proves
+Quest compositor behavior, user-owned game scripts, browser storage durability
+at the final origin, or distribution permission.
 
-The direct WebGPU XR provider now owns actual left/right projection textures,
-viewports, asymmetric projection matrices, controller packets, and failure-safe
-frame-loop transfer. The engine binding captures menu, intro/video, and loading
-canvases, preserves topmost menu ordering, delays click edges until the new
-cursor position is consumed, and retains physical mouse fallback. Captured
-surfaces are composited into both projection eyes. Procedural controller
-proxies, beams, and opaque markers consume the exact hit-test feedback with no
-dominant-hand or weapon-gameplay policy. Browser video decoding, synchronous
-intro lifecycle, and loading visibility remain content/lifecycle work rather
-than projection compositor work.
-
-Physical Quest presentation is still a hard gate. Current Meta Quest Browser
-reports do not show production `XRGPUBinding` support even though ordinary
-WebGPU works. The direct WebGPU XR path therefore remains experimental. A
-separate `XRWebGLLayer` compatibility lane is evaluating a WebGPU-rendered
-stereo canvas copied through WebGL2 versus a full WebGL2 render device; neither
-fallback is represented as complete yet.
+The direct path owns runtime WebGPU eye textures. The compatibility path reuses
+the same simulation, view-family, input, UI, and WebGPU renderer, drawing both
+eyes to an atlas before a WebGL 2 bridge presents them through
+`XRWebGLLayer`. Both paths composite the same captured HUD, cinematic, loading,
+and topmost menu surfaces and consume the same exact controller contact. The
+fallback is therefore implemented, but remains experimental until its
+correctness, latency, and cross-API transfer cost pass the physical Quest
+matrix.
 
 ## Active extraction lanes
 
 - Web: flat WASM/WebGPU, legal local data import, per-game persistence, and a
   UT99/Unreal Gold game-library launcher are extracted with no WebXR
-  requirement. The WebXR provider composes with that launcher only on the
-  integration target.
+  requirement. Experimental local-import descriptors also recognize UT demo
+  348, Unreal demo 205, and Deus Ex demo 1002f without placing game data in the
+  package. The WebXR provider composes with that launcher only on the
+  product integration and release targets.
 - Deus Ex: generic actor movement and property serialization plus the first
   game-owned tokenizer/paging and pure AI-perception modules are extracted;
   next are save/package slices and native behavior registration.
@@ -163,8 +189,9 @@ fallback is represented as complete yet.
   are explicit. Native OpenXR and direct WebGPU WebXR providers, live controller
   input, XR-common spaces, pointer hits, haptic routing, provider-neutral
   UI-surface policy, actual engine canvas/input binding, projection-eye UI
-  composition, and exact-contact controller visuals are integrated. The
-  Quest-compatible WebGL presentation fallback remains an active isolated lane.
+  composition, exact-contact controller visuals, map-intro prompt/menu handoff,
+  and the Quest-compatible WebGL presentation fallback are integrated. The two
+  WebXR presentation modes remain experimental pending the physical matrix.
 
 The upstream repository is active. Contact in the public Discord on 2026-07-22
 confirmed that small bug fixes and improvements are welcome when maintainers can
@@ -175,22 +202,27 @@ human-curated bugfix-first PR strategy. No upstream PR has been opened.
 
 ## Next integration gates
 
-1. Validate projection-eye menu/controller/laser/contact composition on Quest,
-   then connect browser video decoding and authoritative loading visibility
-   without double-running script UI.
-2. Complete the smallest viable `XRWebGLLayer` path for production Quest
-   Browser, or document a verified target browser/runtime that exposes the
-   direct `XRGPUBinding` path.
-3. Rebuild the shared data-free browser artifact from the final integration and
-   test real user-owned UT99 and Unreal Gold imports, persistence, save/quit,
-   flat fallback, and XR enter/exit/re-entry.
-4. Run the headset matrix: stereo/FOV, head pose, both controller mappings,
+1. Validate both direct `XRGPUBinding` (where exposed) and automatic/forced
+   `XRWebGLLayer` atlas modes on Quest, including stereo/FOV, transfer cost,
+   controller/laser/contact alignment, menu ordering, and repeated lifecycle.
+2. Test normal and skipped `URL.LocalMap` startup for owned UT99 and Unreal Gold
+   data. Keep this map/script path separate from owner-supplied KHG AVI tests;
+   add authoritative loading visibility without double-running script UI.
+3. Rebuild the shared data-free browser artifact and matching corresponding
+   source from the final clean integration commit. Have the actual source offer,
+   hosting terms, notices, and redistribution model reviewed by a responsible
+   human/legal reviewer.
+4. Test real user-owned UT99 and Unreal Gold imports, persistence, save/quit,
+   flat fallback, and XR enter/exit/re-entry at the final origin. Keep all demo
+   support local-import-only; separately resolve Unreal 205 `TravelItems` and
+   validate every demo before advertising compatibility.
+5. Run the headset matrix: stereo/FOV, head pose, both controller mappings,
    disconnect/blur, menu laser/contact, mouse fallback, intro/menu ordering,
    audio, and return to desktop mode.
-5. Publish under `/webxr/Ports/SurrealEngine/` only after those hardware and
+6. Publish under `/webxr/Ports/SurrealEngine/` only after those hardware and
    legal-data gates pass. Electron remains an optional flat wrapper.
-6. Run the native flat, native OpenXR, flat WebGPU, WebXR, Deus Ex, Unreal Gold,
+7. Run the native flat, native OpenXR, flat WebGPU, WebXR, Deus Ex, Unreal Gold,
    and deterministic-bot regression matrix before retiring any old worktree.
-7. Audit each possible upstream contribution independently against current
+8. Audit each possible upstream contribution independently against current
    upstream. Select the smallest manually reproducible Deus Ex or generic UE1
    correctness fix first; do not submit the integration architecture.
