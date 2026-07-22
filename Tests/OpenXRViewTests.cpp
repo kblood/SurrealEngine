@@ -50,6 +50,41 @@ int main()
 		Near(pointer.Origin.y, 200.0f + 0.1f / 0.0254f) &&
 		Near(pointer.Direction.x, 1.0f),
 		"OpenXR aim pose did not share the view transform");
+	OpenXRUICompositionSpace compositionSpace = translator.CompositionSpace(
+		{ 100.0f, 200.0f, 300.0f });
+	XRUISurfacePose surface;
+	surface.Center = { 100.0f + 1.5f / 0.0254f, 200.0f, 300.0f };
+	OpenXRUIQuadPose quad;
+	Check(ConvertXRUISurfacePoseToOpenXRLocal(surface, compositionSpace, quad),
+		"canonical UI surface did not convert to LOCAL space");
+	Check(Near(quad.PositionMeters.z, -1.5f) && Near(quad.PositionMeters.x, 0.0f) &&
+		Near(quad.OrientationX, 0.0f) && Near(quad.OrientationY, 0.0f) &&
+		Near(quad.OrientationZ, 0.0f) && Near(std::abs(quad.OrientationW), 1.0f),
+		"canonical UI surface conversion changed its position or orientation");
+	OpenXRUIQuadPose invalidQuad;
+	Check(!ConvertXRUISurfacePoseToOpenXRLocal(surface, {}, invalidQuad),
+		"UI surface converted without a valid recenter transform");
+	const float quarterTurn = 3.14159265359f * 0.5f;
+	const Coords recenter = Coords::YawRotation(quarterTurn);
+	auto rotate = [&](const vec3& value)
+	{
+		return recenter.XAxis * value.x + recenter.YAxis * value.y +
+			recenter.ZAxis * value.z;
+	};
+	XRUISurfacePose yawedSurface;
+	yawedSurface.Center = vec3(10.0f, 20.0f, 30.0f) +
+		rotate(vec3(2.0f * 40.0f, 0.0f, 0.0f));
+	yawedSurface.Right = rotate(vec3(0.0f, -1.0f, 0.0f));
+	yawedSurface.Up = rotate(vec3(0.0f, 0.0f, 1.0f));
+	yawedSurface.Normal = rotate(vec3(-1.0f, 0.0f, 0.0f));
+	OpenXRUIQuadPose yawedQuad;
+	Check(ConvertXRUISurfacePoseToOpenXRLocal(yawedSurface,
+		{ true, vec3(10.0f, 20.0f, 30.0f), quarterTurn, 40.0f }, yawedQuad),
+		"recentered UI surface did not convert to LOCAL space");
+	Check(Near(yawedQuad.PositionMeters.z, -2.0f) &&
+		Near(yawedQuad.OrientationX, 0.0f) && Near(yawedQuad.OrientationY, 0.0f) &&
+		Near(yawedQuad.OrientationZ, 0.0f) && Near(std::abs(yawedQuad.OrientationW), 1.0f),
+		"UI surface did not reverse the shared recenter transform");
 
 	translator.ResetRecenter();
 	Check(Near(length(translator.CreatePointerRay(rightAim, {}).Direction), 0.0f),

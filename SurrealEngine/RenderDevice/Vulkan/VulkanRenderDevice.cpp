@@ -370,7 +370,9 @@ void VulkanRenderDevice::EndSurfaceTarget(PresentationTarget target)
 		blit.srcOffsets[1] = { surface.Width, surface.Height, 1 };
 		blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		blit.dstSubresource.layerCount = 1;
-		blit.dstOffsets[1] = { binding->Width, binding->Height, 1 };
+		blit.dstOffsets[0] = { binding->FlipHorizontal ? binding->Width : 0, 0, 0 };
+		blit.dstOffsets[1] = { binding->FlipHorizontal ? 0 : binding->Width,
+			binding->Height, 1 };
 		cmdbuffer->blitImage(surface.ResolveBuffer->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			output, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
 

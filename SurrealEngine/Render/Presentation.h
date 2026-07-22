@@ -34,6 +34,9 @@ struct PresentationTargetImage
 	void* NativeHandle = nullptr;
 	int Width = 0;
 	int Height = 0;
+	// Some compositor coordinate systems reflect the canvas U axis relative to
+	// the engine surface basis. The backend applies this during the final copy.
+	bool FlipHorizontal = false;
 };
 
 struct PresentationTargetBinding

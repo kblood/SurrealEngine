@@ -50,23 +50,36 @@ namespace
 			allocations++;
 			return allowAllocation;
 		}
-		bool ComposeSurfaceFrame(const XRUICanvasReplayFrame& source,
-			const std::array<XRUIPointerFeedback, XRHandCount>& sourceFeedback) override
+		bool BeginSurfaceFrame(const XRUICanvasReplayFrame& source,
+			const std::array<XRUIPointerFeedback, XRHandCount>& sourceFeedback,
+			const OpenXRUICompositionSpace& sourceSpace) override
 		{
 			frame = source;
 			feedback = sourceFeedback;
+			space = sourceSpace;
 			compositions++;
-			return true;
+			return allowComposition;
+		}
+		bool EndSurfaceFrame(bool rendered) override
+		{
+			finishes++;
+			lastRendered = rendered;
+			return allowFinish;
 		}
 		void ReleaseSurfaceTargets() override { releases++; }
 
 		bool allowAllocation = true;
+		bool allowComposition = true;
+		bool allowFinish = true;
 		int allocations = 0;
 		int compositions = 0;
+		int finishes = 0;
 		int releases = 0;
+		bool lastRendered = false;
 		std::array<XRUICanvasCaptureDescriptor, 4> descriptors;
 		XRUICanvasReplayFrame frame;
 		std::array<XRUIPointerFeedback, XRHandCount> feedback;
+		OpenXRUICompositionSpace space;
 	};
 
 	ViewFamily CenteredViews()
@@ -122,10 +135,15 @@ namespace
 		binding.SetCinematicActive(true);
 		binding.SetSurfaceActive(XRUISurfaceKind::Loading, true);
 		binding.SetMenuActive(true);
-		Check(runtime.Compose(binding, sink), "native UI composition sink rejected a frame");
+		OpenXRUICompositionSpace space{ true, {}, 0.0f, 40.0f };
+		Check(runtime.BeginComposition(binding, sink, space), "native UI composition sink rejected a frame");
 		Check(sink.frame.Items.size() == 4 &&
 			sink.frame.Items.back().Surface.Descriptor.Kind == XRUISurfaceKind::Menu,
 			"menu was not the topmost native UI surface");
+		Check(runtime.FinishComposition(sink, true),
+			"native UI composition sink rejected frame cleanup");
+		Check(sink.finishes == 1 && sink.lastRendered,
+			"native UI composition did not finish after replay submission");
 		runtime.Stop(binding, sink);
 	}
 
@@ -207,6 +225,16 @@ namespace
 			"runtime claimed UI support when the backend could not allocate targets");
 		Check(unavailable.releases == 0,
 			"failed allocation released targets it never owned");
+
+		Sink interrupted;
+		Check(runtime.Start(binding, interrupted, 40.0f),
+			"interrupted native UI runtime did not start");
+		Check(runtime.BeginComposition(binding, interrupted,
+			{ true, {}, 0.0f, 40.0f }), "interrupted frame did not begin");
+		runtime.Stop(binding, interrupted);
+		Check(interrupted.finishes == 1 && !interrupted.lastRendered &&
+			interrupted.releases == 1,
+			"stop did not roll back an active native UI frame before release");
 	}
 
 	void TestStartupFireHandoff()

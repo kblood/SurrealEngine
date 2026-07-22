@@ -13,11 +13,7 @@ RenderSubsystem::RenderSubsystem(RenderDevice* renderdevice) : Device(renderdevi
 
 void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFamily)
 {
-	const bool menuActive = IsXRUIMenuActive();
-	XRUIBinding.SetHudActive(engine->IsStartupIntroActive() && !menuActive);
-	XRUIBinding.SetMenuActive(menuActive);
-	if (menuActive)
-		engine->CompleteStartupIntro();
+	UpdateXRUISurfaceVisibility();
 	LevelTimeElapsed = levelTimeElapsed;
 	AutoUV += levelTimeElapsed * 64.0f;
 	AmbientGlowTime = std::fmod(AmbientGlowTime + 0.8f * levelTimeElapsed, 1.0f);
@@ -73,6 +69,15 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFam
 	XRUIBinding.Replay(XRUICanvasReplayContext::Game);
 
 	Device->Unlock(true);
+}
+
+void RenderSubsystem::UpdateXRUISurfaceVisibility()
+{
+	const bool menuActive = IsXRUIMenuActive();
+	XRUIBinding.SetHudActive(engine->IsStartupIntroActive() && !menuActive);
+	XRUIBinding.SetMenuActive(menuActive);
+	if (menuActive)
+		engine->CompleteStartupIntro();
 }
 
 void RenderSubsystem::DrawEditorViewport()

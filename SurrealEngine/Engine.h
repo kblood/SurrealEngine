@@ -7,6 +7,7 @@
 #include "RenderDevice/RenderDevice.h"
 #include "Render/ViewFamily.h"
 #include "Platform/OpenXR/OpenXRView.h"
+#include "Platform/OpenXR/OpenXRUIRuntime.h"
 #include "GameWindow.h"
 #include "UObject/UActor.h"
 #include "UObject/UnrealURL.h"
@@ -203,6 +204,7 @@ public:
 	std::unique_ptr<RenderSubsystem> render;
 	std::unique_ptr<OpenXRProvider> openXR;
 	OpenXRViewTranslator openXRViews;
+	OpenXRUIRuntime openXRUI;
 	XRStartupIntroTriggerRoute openXRStartupIntroTrigger;
 
 	int MouseMoveX = 0;

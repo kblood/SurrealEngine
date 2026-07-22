@@ -15,11 +15,12 @@ namespace
 	}
 
 	PresentationTargetBinding Binding(uint32_t slot, uintptr_t handle,
-		int width = 1024, int height = 768)
+		int width = 1024, int height = 768, bool flipHorizontal = false)
 	{
 		PresentationTargetBinding binding;
 		binding.Target = { slot };
-		binding.Images.push_back({ reinterpret_cast<void*>(handle), width, height });
+		binding.Images.push_back({ reinterpret_cast<void*>(handle), width, height,
+			flipHorizontal });
 		return binding;
 	}
 }
@@ -48,6 +49,10 @@ int main()
 	const PresentationTargetImage* rebound = targets.Find({ 3 });
 	Check(rebound && rebound->Width == 1280 && rebound->Height == 720,
 		"rebound UI extent was not retained");
+	targets.Unbind({ 3 });
+	Check(targets.Bind(Binding(3, 34, 1280, 720, true)) &&
+		targets.Find({ 3 })->FlipHorizontal,
+		"provider image orientation was not retained");
 
 	targets.Clear();
 	for (uint32_t slot = 2; slot <= 5; slot++)

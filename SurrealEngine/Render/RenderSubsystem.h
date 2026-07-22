@@ -21,6 +21,7 @@ public:
 	RenderSubsystem(RenderDevice* renderdevice);
 	XRUISurfaceEngineBinding& XRUISurfaces() { return XRUIBinding; }
 	bool IsXRUIMenuActive() const;
+	void UpdateXRUISurfaceVisibility();
 
 	void PreRenderWindows(UCanvas* canvas);
 	void PostRenderWindows(UCanvas* canvas);

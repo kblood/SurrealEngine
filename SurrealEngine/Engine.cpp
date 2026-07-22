@@ -251,6 +251,12 @@ void Engine::Setup()
 		LogMessage("OpenXR did not bind to the selected renderer; continuing in desktop mode");
 		openXR.reset();
 	}
+	else if (openXR)
+	{
+		openXR->SetUIRenderDevice(render->Device);
+		if (!openXRUI.Start(render->XRUISurfaces(), *openXR, 1.0f / 0.0254f))
+			LogMessage("OpenXR UI composition is unavailable: " + openXR->LastError());
+	}
 
 	if (engine->LaunchInfo.ue1Version > 219 && !client->StartupFullscreen)
 		viewport->bWindowsMouseAvailable() = true;
@@ -298,6 +304,8 @@ void Engine::Shutdown()
 	LogMessage("Closing window...");
 	UpdateOpenXRStartupIntro(nullptr);
 	openXRInput.Disconnect(*this);
+	if (openXR && render)
+		openXRUI.Stop(render->XRUISurfaces(), *openXR);
 	openXR.reset();
 	CloseWindow();
 }
@@ -309,6 +317,7 @@ void Engine::RunOneFrame()
 	bool xrFrameBegun = false;
 	bool shouldRenderXR = false;
 	bool submitXRLayer = false;
+	bool uiCompositionBegun = false;
 	bool acquired[2] = { false, false };
 	XRSpaceSamples xrSpaces;
 	XRControllerSnapshot xrControllers;
@@ -320,6 +329,8 @@ void Engine::RunOneFrame()
 			LogMessage("OpenXR session stopped; continuing in desktop mode");
 			UpdateOpenXRStartupIntro(nullptr);
 			openXRInput.Disconnect(*this);
+			if (render)
+				openXRUI.Stop(render->XRUISurfaces(), *openXR);
 			openXR.reset();
 		}
 		else if (openXR->IsSessionRunning())
@@ -365,10 +376,49 @@ void Engine::RunOneFrame()
 			xrViews.Presentation.SetLayer(PresentationLayer::World, target);
 			viewFamily = std::move(xrViews);
 			submitXRLayer = true;
+			if (openXRUI.IsStarted())
+			{
+				render->UpdateXRUISurfaceVisibility();
+				std::array<XRUISurfaceRay, XRHandCount> rays;
+				std::array<bool, XRHandCount> rayValid;
+				for (size_t hand = 0; hand < XRHandCount; hand++)
+				{
+					rays[hand] = openXRViews.CreatePointerRay(xrSpaces.Aim[hand], CameraLocation);
+					rayValid[hand] = IsValidXRPose(xrSpaces.Aim[hand]);
+				}
+				openXRUI.Update(render->XRUISurfaces(), viewFamily,
+					openXR->SessionState(), xrControllers, rays, rayValid,
+					1.0f / 0.0254f);
+				const bool hasComposedUI =
+					!render->XRUISurfaces().BuildReplayFrame().Items.empty();
+				uiCompositionBegun = openXRUI.BeginComposition(
+					render->XRUISurfaces(), *openXR,
+					openXRViews.CompositionSpace(CameraLocation));
+				if (uiCompositionBegun && hasComposedUI)
+				{
+					viewFamily.Presentation.SetLayer(PresentationLayer::UserInterface,
+						{ OpenXRProvider::ProjectionTargetSlot }, false);
+				}
+				if (!uiCompositionBegun)
+				{
+					LogMessage("OpenXR UI frame failed: " + openXR->LastError() +
+						"; disabling native UI composition");
+					openXRUI.Stop(render->XRUISurfaces(), *openXR);
+				}
+			}
 		}
 	}
 
 	RenderGameFrame(levelElapsed, viewFamily);
+	if (uiCompositionBegun)
+	{
+		if (!openXRUI.FinishComposition(*openXR, true))
+		{
+			LogMessage("OpenXR UI frame release failed: " + openXR->LastError() +
+				"; disabling native UI composition");
+			openXRUI.Stop(render->XRUISurfaces(), *openXR);
+		}
+	}
 	if (xrFrameBegun)
 	{
 		for (int eye = 0; eye < 2; eye++)

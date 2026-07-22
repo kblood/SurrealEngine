@@ -19,6 +19,16 @@ namespace
 	{
 		return rotation.XAxis * value.x + rotation.YAxis * value.y + rotation.ZAxis * value.z;
 	}
+
+	vec3 ToOpenXRVector(const vec3& value)
+	{
+		return { value.y, value.z, -value.x };
+	}
+
+	bool IsFinite(const vec3& value)
+	{
+		return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+	}
 }
 
 ViewFamily OpenXRViewTranslator::CreateViewFamily(const OpenXREyeView eyes[2], const vec3& anchorLocation, const Rotator& anchorRotation, const ViewRect& output)
@@ -86,4 +96,70 @@ XRUISurfaceRay OpenXRViewTranslator::CreatePointerRay(const XRPose& pose,
 			ToUnrealVector(positionMeters) * UnrealUnitsPerMeter),
 		normalize(forward)
 	};
+}
+
+OpenXRUICompositionSpace OpenXRViewTranslator::CompositionSpace(
+	const vec3& anchorLocation) const
+{
+	return { recentered, anchorLocation, yawOffset, UnrealUnitsPerMeter };
+}
+
+bool ConvertXRUISurfacePoseToOpenXRLocal(const XRUISurfacePose& pose,
+	const OpenXRUICompositionSpace& space, OpenXRUIQuadPose& output)
+{
+	output = {};
+	if (!space.Valid || !IsFinite(space.AnchorLocation) ||
+		!std::isfinite(space.YawOffset) || !std::isfinite(space.WorldUnitsPerMeter) ||
+		space.WorldUnitsPerMeter <= 0.0f || !IsFinite(pose.Center) ||
+		!IsFinite(pose.Right) || !IsFinite(pose.Up) || !IsFinite(pose.Normal))
+		return false;
+
+	const vec3 right = normalize(pose.Right);
+	const vec3 up = normalize(pose.Up);
+	const vec3 normal = normalize(pose.Normal);
+	if (length(right) <= 0.00001f || length(up) <= 0.00001f ||
+		length(normal) <= 0.00001f || std::abs(dot(right, up)) > 0.001f ||
+		std::abs(dot(right, normal)) > 0.001f || std::abs(dot(up, normal)) > 0.001f)
+		return false;
+
+	const Coords inverseRecenter = Coords::YawRotation(-space.YawOffset);
+	output.PositionMeters = ToOpenXRVector(RotateLocalToWorld(inverseRecenter,
+		pose.Center - space.AnchorLocation)) / space.WorldUnitsPerMeter;
+
+	// The surface basis is expressed relative to the shared UI's canonical
+	// (-Y right, +Z up, -X front) basis. Conjugating that relative rotation
+	// through the handedness-changing XR/UE axis map produces a proper
+	// right-handed OpenXR rotation. The fixed canonical U-axis reflection is
+	// handled once by the provider's final image copy.
+	const vec3 localRight = RotateLocalToWorld(inverseRecenter, right);
+	const vec3 localUp = RotateLocalToWorld(inverseRecenter, up);
+	const vec3 localNormal = RotateLocalToWorld(inverseRecenter, normal);
+	auto rotateSurface = [&](const vec3& unrealVector)
+	{
+		return localRight * dot(unrealVector, vec3(0.0f, -1.0f, 0.0f)) +
+			localUp * dot(unrealVector, vec3(0.0f, 0.0f, 1.0f)) +
+			localNormal * dot(unrealVector, vec3(-1.0f, 0.0f, 0.0f));
+	};
+
+	mat4 rotation = mat4::identity();
+	const vec3 columns[3] = {
+		ToOpenXRVector(rotateSurface(ToUnrealVector(vec3(1.0f, 0.0f, 0.0f)))),
+		ToOpenXRVector(rotateSurface(ToUnrealVector(vec3(0.0f, 1.0f, 0.0f)))),
+		ToOpenXRVector(rotateSurface(ToUnrealVector(vec3(0.0f, 0.0f, 1.0f))))
+	};
+	for (int column = 0; column < 3; column++)
+	{
+		rotation[column * 4 + 0] = columns[column].x;
+		rotation[column * 4 + 1] = columns[column].y;
+		rotation[column * 4 + 2] = columns[column].z;
+	}
+	const quaternion orientation = normalize(quaternion::rotation_matrix(rotation));
+	if (!std::isfinite(orientation.x) || !std::isfinite(orientation.y) ||
+		!std::isfinite(orientation.z) || !std::isfinite(orientation.w))
+		return false;
+	output.OrientationX = orientation.x;
+	output.OrientationY = orientation.y;
+	output.OrientationZ = orientation.z;
+	output.OrientationW = orientation.w;
+	return true;
 }

@@ -32,10 +32,25 @@ void OpenXRUIRuntime::Update(XRUISurfaceEngineBinding& binding,
 	input.Update(frame, binding);
 }
 
-bool OpenXRUIRuntime::Compose(XRUISurfaceEngineBinding& binding,
-	OpenXRUICompositionSink& sink)
+bool OpenXRUIRuntime::BeginComposition(XRUISurfaceEngineBinding& binding,
+	OpenXRUICompositionSink& sink,
+	const OpenXRUICompositionSpace& compositionSpace)
 {
-	return started && sink.ComposeSurfaceFrame(binding.BuildReplayFrame(), input.Feedback());
+	if (!started || compositionBegun)
+		return false;
+	compositionBegun = sink.BeginSurfaceFrame(binding.BuildReplayFrame(),
+		input.Feedback(), compositionSpace);
+	return compositionBegun;
+}
+
+bool OpenXRUIRuntime::FinishComposition(OpenXRUICompositionSink& sink,
+	bool rendered)
+{
+	if (!compositionBegun)
+		return false;
+	const bool completed = sink.EndSurfaceFrame(rendered);
+	compositionBegun = false;
+	return completed;
 }
 
 void OpenXRUIRuntime::Stop(XRUISurfaceEngineBinding& binding,
@@ -43,6 +58,7 @@ void OpenXRUIRuntime::Stop(XRUISurfaceEngineBinding& binding,
 {
 	if (!started)
 		return;
+	FinishComposition(sink, false);
 	input.Cancel(binding);
 	binding.ClearViewerPose();
 	sink.ReleaseSurfaceTargets();
