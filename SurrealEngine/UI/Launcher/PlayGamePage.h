@@ -8,6 +8,7 @@ class LauncherWindow;
 class TextLabel;
 class ListView;
 class LineEdit;
+class CheckboxLabel;
 struct GameLaunchInfo;
 
 class PlayGamePage : public Widget
@@ -22,11 +23,15 @@ public:
 private:
 	void OnSetFocus() override;
 	void OnGamesListActivated();
+	void UpdateSelectionSummary();
 
 	LauncherWindow* Launcher = nullptr;
 
 	TextLabel* WelcomeLabel = nullptr;
 	TextLabel* SelectLabel = nullptr;
+	TextLabel* SelectionSummary = nullptr;
+	CheckboxLabel* LaunchInVR = nullptr;
+	CheckboxLabel* SkipVRIntro = nullptr;
 #if defined(EXTRAARGS)
 	TextLabel* ParametersLabel = nullptr;
 #endif

@@ -7,6 +7,7 @@ public:
 
 	bool HasArg(const std::string& shortform, const std::string& longform) const;
 	std::string GetArg(const std::string& shortform, const std::string& longform, const std::string& defaultValue = {}) const;
+	void SetArg(const std::string& arg, const std::string& value = {}) { Args[arg] = value; }
 
 	int GetArgInt(const std::string& shortform, const std::string& longform, int defaultValue = 0) const
 	{

@@ -20,18 +20,41 @@ cmake --build build --config Release --target SurrealEngine -- /m
 Every configured build records the Git commit, dirty/clean state, compile
 time, and executable directory in its run log.
 
-## Launch
+## Graphical launcher
+
+The release entry point is Surreal Engine's existing graphical launcher. Run
+`SurrealEngine.exe` or double-click `Launch-Surreal-VR-GUI.cmd`
+(`Launch-UT99-VR.cmd` is retained as an alias), open the **Folders** tab, add an
+installed game root, return to **Games**, select the detected game, confirm the
+prominent **Selected game** line, and press **Play**. Pressing Play from another
+tab returns to Games first instead of launching a stale selection.
+
+The Games tab has two release controls:
+
+- **Launch Unreal / Unreal Tournament in OpenXR VR** is on by default. It
+  forces the Vulkan backend required by the current OpenXR implementation.
+  Turning it off preserves the ordinary desktop-engine launch path.
+- **Skip intro and open the VR menu** is on by default. UT99 loads
+  `DM-Deck16][`; Unreal Gold loads `Vortex2`; each then opens that game's own
+  compiled menu on the VR quad. Turning it off deliberately uses the game's
+  normal Entry/intro flow so the cinematic quad can be tested independently.
+
+Other games listed by Surreal Engine remain desktop-only. Unreal Gold shares
+the engine-level OpenXR, controller, quad, and input paths, but is an
+experimental compatibility target until its campaign/menu flow passes a full
+headset test.
+
+## Direct-launch fallback
 
 ```powershell
 .\run-ut99-vr.ps1
 ```
 
-For a packaged build, users can double-click `Launch-UT99-VR.cmd`. The launcher
-finds UT99 through Windows' installed-program registry, Steam's app manifest
-and library folders, common GOG/Steam folders, or the classic
+The PowerShell launcher remains a UT99-only diagnostic/recovery route. It finds
+UT99 through Windows' installed-program registry, Steam's app manifest and
+library folders, common GOG/Steam folders, or the classic
 `C:\UnrealTournament` location. It verifies that the selected root contains
-`System\UnrealTournament.exe` before starting. Detection can be tested without
-opening VR:
+`System\UnrealTournament.exe`. Detection can be tested without opening VR:
 
 ```powershell
 .\run-ut99-vr.ps1 -FindOnly

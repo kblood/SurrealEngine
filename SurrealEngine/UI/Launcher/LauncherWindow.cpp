@@ -8,6 +8,8 @@
 // #include "AudioSettingsPage.h"
 #include "GameFoldersPage.h"
 #include "LauncherSettings.h"
+#include "GameFolder.h"
+#include "Utils/Logger.h"
 #include <surrealwidgets/core/resourcedata.h>
 #include <surrealwidgets/window/window.h>
 #include <surrealwidgets/widgets/tabwidget/tabwidget.h>
@@ -85,8 +87,26 @@ void LauncherWindow::GamesListChanged()
 
 void LauncherWindow::Start()
 {
+	// The Play button is shared by every tab. A row selected on Folders is a
+	// search path, not a game selection; launching from there used the stale
+	// row on Games (usually index 0), making an Unreal folder appear to launch
+	// UT99. First press now returns to the authoritative Games list so the user
+	// must see and confirm the actual game row that will launch.
+	if (Pages->GetCurrentWidget() != PlayGame)
+	{
+		Pages->SetCurrentWidget(PlayGame);
+		PlayGame->SetFocus();
+		return;
+	}
+
 	Save();
 	ExecResult = PlayGame->GetSelectedGame();
+	if (ExecResult >= 0 && ExecResult < (int)GameFolderSelection::Games.size())
+	{
+		const GameLaunchInfo& selected = GameFolderSelection::Games[ExecResult];
+		LogMessage("Launcher confirmed row " + std::to_string(ExecResult) + ": " + selected.gameName +
+			" " + selected.gameVersionString + " root=" + selected.gameRootFolder);
+	}
 	DisplayWindow::ExitLoop();
 }
 

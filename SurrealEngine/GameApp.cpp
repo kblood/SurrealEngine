@@ -9,6 +9,7 @@
 #include "UI/WidgetResourceData.h"
 #include "UI/ErrorWindow/ErrorWindow.h"
 #include "UI/Launcher/LauncherWindow.h"
+#include "LauncherSettings.h"
 #include "Utils/File.h"
 #include "RenderDevice/Vulkan/VulkanXRSession.h"
 #include <stdexcept>
@@ -28,6 +29,39 @@ namespace
 			fs::create_directories(logPath.parent_path());
 		LogMessage("Diagnostic log: " + logPath.string());
 		Logger::Get()->SaveLogAsPlaintext(logPath.string());
+	}
+
+	void ConfigureLauncherVR(GameLaunchInfo& info)
+	{
+		auto& settings = LauncherSettings::Get();
+		if (!settings.Games.LaunchInVR || !info.SupportsOpenXRVR())
+			return;
+
+		// The current OpenXR renderer is Vulkan-only. Apply this after the GUI
+		// has saved its controls but before GameWindow selects a backend, and
+		// persist it so the next launcher visit accurately reflects reality.
+		if (settings.RenderDevice.Type != RenderDeviceType::Vulkan)
+		{
+			settings.RenderDevice.Type = RenderDeviceType::Vulkan;
+			settings.Save();
+		}
+
+		commandline->SetArg("--vr");
+		commandline->SetArg("--vr-quadmenu");
+
+		if (settings.Games.SkipVRIntro)
+		{
+			commandline->SetArg("--vr-startmenu");
+			info.noEntryMap = true;
+			// Each game needs one known playable map behind its compiled menu.
+			// UT and Unreal do not share map/package names.
+			info.url = info.IsUnrealTournament() ? "DM-Deck16][" : "Vortex2";
+		}
+
+		LogMessage("Launcher OpenXR selection: game=" + info.gameName +
+			" root=" + info.gameRootFolder +
+			" intro=" + std::string(settings.Games.SkipVRIntro ? "skip" : "normal Entry") +
+			" url=" + (info.url.empty() ? std::string("<default>") : info.url));
 	}
 }
 
@@ -93,6 +127,7 @@ int GameApp::main(Array<std::string> args)
 			if (selectedGameIndex >= 0)
 			{
 				GameLaunchInfo info = GameFolderSelection::GetLaunchInfo(selectedGameIndex);
+				ConfigureLauncherVR(info);
 				Engine engine(info);
 				engine.Run();
 			}

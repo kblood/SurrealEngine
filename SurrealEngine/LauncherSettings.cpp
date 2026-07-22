@@ -64,6 +64,12 @@ LauncherSettings::LauncherSettings()
 			Games.SearchList.push_back(jsonItem.to_string());
 		}
 		Games.LastSelected = settings["Games"]["LastSelected"].to_int();
+		const JsonValue& launchInVR = settings["Games"]["LaunchInVR"];
+		const JsonValue& skipVRIntro = settings["Games"]["SkipVRIntro"];
+		if (launchInVR.is_boolean())
+			Games.LaunchInVR = launchInVR.to_boolean();
+		if (skipVRIntro.is_boolean())
+			Games.SkipVRIntro = skipVRIntro.to_boolean();
 	}
 	catch (...)
 	{
@@ -116,6 +122,8 @@ void LauncherSettings::Save()
 	JsonValue games = JsonValue::object();
 	games["SearchList"] = JsonValue::array(Games.SearchList);
 	games["LastSelected"] = JsonValue::number(Games.LastSelected);
+	games["LaunchInVR"] = JsonValue::boolean(Games.LaunchInVR);
+	games["SkipVRIntro"] = JsonValue::boolean(Games.SkipVRIntro);
 
 	JsonValue settings = JsonValue::object();
 	settings["RenderDevice"] = std::move(rendev);

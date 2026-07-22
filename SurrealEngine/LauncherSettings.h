@@ -52,6 +52,8 @@ public:
 	{
 		Array<std::string> SearchList;
 		int LastSelected = -1;
+		bool LaunchInVR = true;
+		bool SkipVRIntro = true;
 	} Games;
 
 private:
