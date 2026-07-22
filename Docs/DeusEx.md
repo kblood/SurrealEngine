@@ -85,6 +85,13 @@ Initial tokenizer audit findings:
 - A token ending exactly at end-of-input is rejected by the low-level matching
   helpers.
 
+The first compatibility slice addresses those four findings. It emits distinct
+email metadata, preserves center/left/right alignment, copies validated color
+channels into the parsed color, and accepts text or delimiters that end exactly
+at end-of-input. After the change, the Release build completed and both
+`DX.dx` and `00_Training.dx` remained responsive during 15-second unattended
+smoke tests. Interactive email, book, and DataCube validation remains pending.
+
 ## Next validation targets
 
 1. Verify books, DataCubes, email terminals, and bulletin links interactively.
@@ -94,4 +101,3 @@ Initial tokenizer audit findings:
    independently reviewable change.
 4. Re-test title, training, a fresh game, map travel, save, and load before
    proposing an upstream pull request.
-

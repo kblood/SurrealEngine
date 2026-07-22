@@ -125,13 +125,19 @@ bool UDXTextParser::ProcessText()
 			}
 			else if (tagname == "JC" && ReadChars(text, pos, ">"))
 			{
-				LastTag() = DeusExTextTags::TT_None; // What does <JC> mean? Seems to be used for headlines
+				LastTag() = DeusExTextTags::TT_CenterText;
+				TextPos() = (int)pos;
+				return true;
+			}
+			else if (tagname == "JL" && ReadChars(text, pos, ">"))
+			{
+				LastTag() = DeusExTextTags::TT_LeftJustify;
 				TextPos() = (int)pos;
 				return true;
 			}
 			else if (tagname == "JR" && ReadChars(text, pos, ">"))
 			{
-				LastTag() = DeusExTextTags::TT_None; // What does <JR> mean? Seems to be used for signatures
+				LastTag() = DeusExTextTags::TT_RightJustify;
 				TextPos() = (int)pos;
 				return true;
 			}
@@ -169,7 +175,7 @@ bool UDXTextParser::ProcessText()
 			}
 			else if (tagname == "EMAIL" && ReadTagEmail(text, pos, LastEmailName(), LastEmailSubject(), LastEmailFrom(), LastEmailTo(), LastEmailCC()) && ReadChars(text, pos, ">"))
 			{
-				LastTag() = DeusExTextTags::TT_File;
+				LastTag() = DeusExTextTags::TT_Email;
 				TextPos() = (int)pos;
 				return true;
 			}
@@ -208,7 +214,7 @@ bool UDXTextParser::ReadTagName(const std::string& text, size_t& pos, std::strin
 
 bool UDXTextParser::ReadChars(const std::string& text, size_t& pos, const std::string& chars)
 {
-	if (pos + chars.size() >= text.size() || text.substr(pos, chars.size()) != chars)
+	if (pos > text.size() || chars.size() > text.size() - pos || text.compare(pos, chars.size(), chars) != 0)
 		return false;
 	pos += chars.size();
 	return true;
@@ -216,34 +222,40 @@ bool UDXTextParser::ReadChars(const std::string& text, size_t& pos, const std::s
 
 bool UDXTextParser::ReadTagColor(const std::string& text, size_t& pos, Color& color)
 {
+	Color parsedColor = color;
 	if (!ReadChars(text, pos, "="))
 		return false;
-	if (!ReadInteger(text, pos, color.R))
+	if (!ReadInteger(text, pos, parsedColor.R))
 		return false;
 	if (!ReadChars(text, pos, ","))
 		return false;
-	if (!ReadInteger(text, pos, color.G))
+	if (!ReadInteger(text, pos, parsedColor.G))
 		return false;
 	if (!ReadChars(text, pos, ","))
 		return false;
-	if (!ReadInteger(text, pos, color.B))
+	if (!ReadInteger(text, pos, parsedColor.B))
 		return false;
-	color.A = 255;
+	parsedColor.A = 255;
+	color = parsedColor;
 	return true;
 }
 
-bool UDXTextParser::ReadInteger(const std::string& text, size_t& pos, int value)
+bool UDXTextParser::ReadInteger(const std::string& text, size_t& pos, uint8_t& value)
 {
-	std::string v;
+	int parsedValue = 0;
+	bool hasDigits = false;
 	size_t len = text.size();
 	while (pos < len && text[pos] >= '0' && text[pos] <= '9')
 	{
-		v += text[pos];
+		hasDigits = true;
+		parsedValue = parsedValue * 10 + (text[pos] - '0');
+		if (parsedValue > 255)
+			return false;
 		pos++;
 	}
-	if (v.empty())
+	if (!hasDigits)
 		return false;
-	value = std::atoi(v.c_str());
+	value = static_cast<uint8_t>(parsedValue);
 	return true;
 }
 
@@ -292,12 +304,10 @@ bool UDXTextParser::ReadText(const std::string& text, size_t& pos, std::string& 
 	}
 
 	// Eat any whitespace at the end
-	while (!value.empty() && (value.back() == ' ' || value.back() == '\r' || value.back() == '\n'))
+	while (!value.empty() && (value.back() == ' ' || value.back() == '\t' || value.back() == '\r' || value.back() == '\n'))
 		value.pop_back();
 
-	if (value.empty() || pos == len)
-		return false;
-	return true;
+	return !value.empty();
 }
 
 bool UDXTextParser::IsEOF()

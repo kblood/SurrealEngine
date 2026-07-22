@@ -85,7 +85,7 @@ private:
 	static bool ReadChars(const std::string& text, size_t& pos, const std::string& chars);
 	static bool ReadTagName(const std::string& text, size_t& pos, std::string& tagname);
 	static bool ReadTagColor(const std::string& text, size_t& pos, Color& color);
-	static bool ReadInteger(const std::string& text, size_t& pos, int value);
+	static bool ReadInteger(const std::string& text, size_t& pos, uint8_t& value);
 	static bool ReadTextUntil(const std::string& text, size_t& pos, std::string& value, char endChar);
 	static bool ReadText(const std::string& text, size_t& pos, std::string& value);
 	static bool ReadTagFile(const std::string& text, size_t& pos, std::string& filename, std::string& filedescription);
