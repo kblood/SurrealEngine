@@ -117,155 +117,12 @@ void Engine::Run()
 
 	LoginPlayer();
 
-	auto objprop = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
-	auto vecprop = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
-	auto rotprop = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
+	frameObjProp = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
+	frameVecProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
+	frameRotProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 
-	bool firstCall = true;
 	while (!quit)
-	{
-		// Main game loop should consist of these 4 steps:
-		// Tick everything
-		// Render the scene
-		// Check if there is a request to save the game: save the game if that's the case
-		// Check if there is a new map to load (next level, saved game etc.): load it if that's the case
-
-		// Tick everything
-		float realTimeElapsed = CalcTimeElapsed();
-		float entryLevelElapsed = EntryLevel ? realTimeElapsed * clamp(EntryLevelInfo->TimeDilation(), 0.0025f, 25.0f) : 0.0f;
-		float levelElapsed = realTimeElapsed * clamp(LevelInfo->TimeDilation(), 0.0025f, 25.0f);
-
-		TotalTime += realTimeElapsed;
-
-		if (EntryLevel)
-			EntryLevelInfo->TimeSeconds() += entryLevelElapsed;
-		LevelInfo->TimeSeconds() += levelElapsed;
-		Logger::Get()->SetTimeSeconds(LevelInfo->TimeSeconds());
-
-		// Update the time fields
-		std::time_t now = std::time(nullptr);
-		std::tm* timedesc = std::localtime(&now);
-
-		LevelInfo->Year() = timedesc->tm_year;
-		LevelInfo->Month() = timedesc->tm_mon;
-		LevelInfo->Day() = timedesc->tm_mday;
-		LevelInfo->DayOfWeek() = timedesc->tm_wday;
-		LevelInfo->Hour() = timedesc->tm_hour;
-		LevelInfo->Minute() = timedesc->tm_min;
-		LevelInfo->Second() = timedesc->tm_sec;
-		LevelInfo->Millisecond() = 0; // No timedesc equivalent for LevelInfo->Millisecond()
-
-		UpdateInput(realTimeElapsed);
-
-		SetPause(!LevelInfo->Pauser().empty());
-
-		// Do NOT pause this Tick event otherwise some messages will stay on screen forever.
-		CallEvent(console, EventName::Tick, { ExpressionValue::FloatValue(levelElapsed) });
-
-		// To do: set these to true if the frame rate is too low
-		if (LaunchInfo.ue1Version >= 436)
-		{
-			LevelInfo->bDropDetail() = false;
-			LevelInfo->bAggressiveLOD() = false;
-		}
-
-		if (EntryLevel)
-			EntryLevel->Tick(entryLevelElapsed, m_GamePaused);
-		Level->Tick(levelElapsed, m_GamePaused);
-
-		if (dxRootWindow)
-			dxRootWindow->Tick(levelElapsed); // Should this maybe be realTimeElapsed?
-
-		// To do: improve CallEvent so parameter passing isn't this painful
-		UFunction* funcPlayerCalcView = viewport->Actor() ? FindEventFunction(viewport->Actor(), "PlayerCalcView") : nullptr;
-		if (funcPlayerCalcView)
-		{
-			vecprop->Struct = UObject::Cast<UStructProperty>(funcPlayerCalcView->Properties[1])->Struct;
-			rotprop->Struct = UObject::Cast<UStructProperty>(funcPlayerCalcView->Properties[2])->Struct;
-			CameraActor = viewport->Actor();
-			CameraLocation = viewport->Actor()->Location();
-			CameraRotation = viewport->Actor()->Rotation();
-			CameraFovAngle = viewport->Actor()->FovAngle();
-			CallEvent(viewport->Actor(), EventName::PlayerCalcView, {
-				ExpressionValue::Variable(&CameraActor, objprop),
-				ExpressionValue::Variable(&CameraLocation, vecprop),
-				ExpressionValue::Variable(&CameraRotation, rotprop)
-				});
-		}
-
-		UpdateAudio();
-
-		viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
-		render->DrawGame(levelElapsed);
-
-		// Save the game if there is a request for it
-		if (SaveGameInfo.SaveGameSlot != DONT_SAVE_GAME)
-		{
-			SaveGameToSlot(SaveGameInfo.SaveGameSlot, SaveGameInfo.SaveGameDescription);
-
-			SaveGameInfo.SaveGameSlot = DONT_SAVE_GAME;
-			SaveGameInfo.SaveGameDescription.clear();
-		}
-
-		// Check if there is a new map to load
-		if (!LevelInfo->NextURL().empty())
-		{
-			LevelInfo->NextSwitchCountdown() -= levelElapsed;
-			if (LevelInfo->NextSwitchCountdown() <= 0.0f)
-			{
-				// LoginPlayer only transfers travel actors when ClientTravelInfo.TravelType is
-				// TRAVEL_Relative, and TravelType is otherwise assigned only in ClientTravel. These
-				// NextURL routes never go through ClientTravel, so without setting it here they
-				// inherit whatever the last ClientTravel left behind (or TRAVEL_Absolute, the
-				// default) - which silently discarded the inventory the bNextItems branch exists
-				// specifically to carry. State the intent explicitly on each branch instead of
-				// depending on leftover state.
-				if (UnrealURL(LevelInfo->NextURL()).HasOption("restart"))
-				{
-					// Passes the level's own TravelInfo back in, so it means to preserve it.
-					ClientTravelInfo.TravelType = ETravelType::TRAVEL_Relative;
-					LoadMap(LevelInfo->URL, Level->TravelInfo);
-					LoginPlayer();
-				}
-				else if (LevelInfo->bNextItems())
-				{
-					ClientTravelInfo.TravelType = ETravelType::TRAVEL_Relative;
-					LoadMap(UnrealURL(LevelInfo->URL, LevelInfo->NextURL()), CreateTravelInfo(true));
-					LoginPlayer();
-				}
-				else
-				{
-					// Deliberately carries nothing - it passes no travel info at all.
-					ClientTravelInfo.TravelType = ETravelType::TRAVEL_Absolute;
-					LoadMap(UnrealURL(LevelInfo->URL, LevelInfo->NextURL()), {});
-					LoginPlayer();
-				}
-			}
-		}
-
-		if (ClientTravelInfo.URL.HasOption("restart"))
-		{
-			LoadMap(LevelInfo->URL, Level->TravelInfo);
-			LoginPlayer();
-		}
-
-		if (ClientTravelInfo.URL.HasOption("load"))
-		{
-			UnrealURL url(ClientTravelInfo.URL);
-			LoadFromSaveFile(url);
-			PossessSavedPlayer();
-		}
-
-		if (!ClientTravelInfo.URL.Map.empty())
-		{
-			// To do: need to do something about that travel type and transfering of items
-
-			UnrealURL url(ClientTravelInfo.URL);
-			LogMessage("Client travel to " + url.ToString());
-			LoadMap(url, CreateTravelInfo(ClientTravelInfo.TransferItems));
-			LoginPlayer();
-		}
-	}
+		RunOneFrame();
 
 	LogMessage("Shutting down...");
 	window->UnlockCursor();
@@ -283,6 +140,160 @@ void Engine::Run()
 
 	LogMessage("Closing window...");
 	CloseWindow();
+}
+
+void Engine::RunOneFrame()
+{
+	const float levelElapsed = AdvanceGameFrame();
+	RenderGameFrame(levelElapsed);
+	FinishGameFrame(levelElapsed);
+}
+
+float Engine::AdvanceGameFrame()
+{
+	// Tick everything once. Rendering is deliberately kept in a separate phase so
+	// alternate frame loops can schedule presentation independently.
+	float realTimeElapsed = CalcTimeElapsed();
+	float entryLevelElapsed = EntryLevel ? realTimeElapsed * clamp(EntryLevelInfo->TimeDilation(), 0.0025f, 25.0f) : 0.0f;
+	float levelElapsed = realTimeElapsed * clamp(LevelInfo->TimeDilation(), 0.0025f, 25.0f);
+
+	TotalTime += realTimeElapsed;
+
+	if (EntryLevel)
+		EntryLevelInfo->TimeSeconds() += entryLevelElapsed;
+	LevelInfo->TimeSeconds() += levelElapsed;
+	Logger::Get()->SetTimeSeconds(LevelInfo->TimeSeconds());
+
+	// Update the time fields
+	std::time_t now = std::time(nullptr);
+	std::tm* timedesc = std::localtime(&now);
+
+	LevelInfo->Year() = timedesc->tm_year;
+	LevelInfo->Month() = timedesc->tm_mon;
+	LevelInfo->Day() = timedesc->tm_mday;
+	LevelInfo->DayOfWeek() = timedesc->tm_wday;
+	LevelInfo->Hour() = timedesc->tm_hour;
+	LevelInfo->Minute() = timedesc->tm_min;
+	LevelInfo->Second() = timedesc->tm_sec;
+	LevelInfo->Millisecond() = 0; // No timedesc equivalent for LevelInfo->Millisecond()
+
+	UpdateInput(realTimeElapsed);
+
+	SetPause(!LevelInfo->Pauser().empty());
+
+	// Do NOT pause this Tick event otherwise some messages will stay on screen forever.
+	CallEvent(console, EventName::Tick, { ExpressionValue::FloatValue(levelElapsed) });
+
+	// To do: set these to true if the frame rate is too low
+	if (LaunchInfo.ue1Version >= 436)
+	{
+		LevelInfo->bDropDetail() = false;
+		LevelInfo->bAggressiveLOD() = false;
+	}
+
+	if (EntryLevel)
+		EntryLevel->Tick(entryLevelElapsed, m_GamePaused);
+	Level->Tick(levelElapsed, m_GamePaused);
+
+	if (dxRootWindow)
+		dxRootWindow->Tick(levelElapsed); // Should this maybe be realTimeElapsed?
+
+	// To do: improve CallEvent so parameter passing isn't this painful
+	UFunction* funcPlayerCalcView = viewport->Actor() ? FindEventFunction(viewport->Actor(), "PlayerCalcView") : nullptr;
+	if (funcPlayerCalcView)
+	{
+		frameVecProp->Struct = UObject::Cast<UStructProperty>(funcPlayerCalcView->Properties[1])->Struct;
+		frameRotProp->Struct = UObject::Cast<UStructProperty>(funcPlayerCalcView->Properties[2])->Struct;
+		CameraActor = viewport->Actor();
+		CameraLocation = viewport->Actor()->Location();
+		CameraRotation = viewport->Actor()->Rotation();
+		CameraFovAngle = viewport->Actor()->FovAngle();
+		CallEvent(viewport->Actor(), EventName::PlayerCalcView, {
+			ExpressionValue::Variable(&CameraActor, frameObjProp),
+			ExpressionValue::Variable(&CameraLocation, frameVecProp),
+			ExpressionValue::Variable(&CameraRotation, frameRotProp)
+			});
+	}
+
+	UpdateAudio();
+	return levelElapsed;
+}
+
+void Engine::RenderGameFrame(float levelElapsed)
+{
+	viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
+	render->DrawGame(levelElapsed);
+}
+
+void Engine::FinishGameFrame(float levelElapsed)
+{
+	// Save the game if there is a request for it
+	if (SaveGameInfo.SaveGameSlot != DONT_SAVE_GAME)
+	{
+		SaveGameToSlot(SaveGameInfo.SaveGameSlot, SaveGameInfo.SaveGameDescription);
+
+		SaveGameInfo.SaveGameSlot = DONT_SAVE_GAME;
+		SaveGameInfo.SaveGameDescription.clear();
+	}
+
+	// Check if there is a new map to load
+	if (!LevelInfo->NextURL().empty())
+	{
+		LevelInfo->NextSwitchCountdown() -= levelElapsed;
+		if (LevelInfo->NextSwitchCountdown() <= 0.0f)
+		{
+			// LoginPlayer only transfers travel actors when ClientTravelInfo.TravelType is
+			// TRAVEL_Relative, and TravelType is otherwise assigned only in ClientTravel. These
+			// NextURL routes never go through ClientTravel, so without setting it here they
+			// inherit whatever the last ClientTravel left behind (or TRAVEL_Absolute, the
+			// default) - which silently discarded the inventory the bNextItems branch exists
+			// specifically to carry. State the intent explicitly on each branch instead of
+			// depending on leftover state.
+			if (UnrealURL(LevelInfo->NextURL()).HasOption("restart"))
+			{
+				// Passes the level's own TravelInfo back in, so it means to preserve it.
+				ClientTravelInfo.TravelType = ETravelType::TRAVEL_Relative;
+				LoadMap(LevelInfo->URL, Level->TravelInfo);
+				LoginPlayer();
+			}
+			else if (LevelInfo->bNextItems())
+			{
+				ClientTravelInfo.TravelType = ETravelType::TRAVEL_Relative;
+				LoadMap(UnrealURL(LevelInfo->URL, LevelInfo->NextURL()), CreateTravelInfo(true));
+				LoginPlayer();
+			}
+			else
+			{
+				// Deliberately carries nothing - it passes no travel info at all.
+				ClientTravelInfo.TravelType = ETravelType::TRAVEL_Absolute;
+				LoadMap(UnrealURL(LevelInfo->URL, LevelInfo->NextURL()), {});
+				LoginPlayer();
+			}
+		}
+	}
+
+	if (ClientTravelInfo.URL.HasOption("restart"))
+	{
+		LoadMap(LevelInfo->URL, Level->TravelInfo);
+		LoginPlayer();
+	}
+
+	if (ClientTravelInfo.URL.HasOption("load"))
+	{
+		UnrealURL url(ClientTravelInfo.URL);
+		LoadFromSaveFile(url);
+		PossessSavedPlayer();
+	}
+
+	if (!ClientTravelInfo.URL.Map.empty())
+	{
+		// To do: need to do something about that travel type and transfering of items
+
+		UnrealURL url(ClientTravelInfo.URL);
+		LogMessage("Client travel to " + url.ToString());
+		LoadMap(url, CreateTravelInfo(ClientTravelInfo.TransferItems));
+		LoginPlayer();
+	}
 }
 
 void Engine::PlayAVI(const Array<std::string>& args)
