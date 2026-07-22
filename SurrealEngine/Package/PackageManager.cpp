@@ -258,6 +258,22 @@ bool PackageManager::DeleteSaveSlot(int32_t slotNum)
 	if (target.parent_path() != saveRoot || target.filename() != saveFolder)
 		Exception::Throw("Invalid Deus Ex save path");
 
+	// Windows will not remove a slot while either its metadata package or a map
+	// loaded directly from that slot still has an open PackageStream. Materialize
+	// every package backed by the target directory before releasing the streams;
+	// this also keeps a currently running game independent of the deleted files.
+	std::vector<Package*> targetPackages;
+	for (const OpenStream& openStream : openStreams)
+	{
+		if (fs::path(openStream.Pkg->GetPackageFilePath()).lexically_normal().parent_path() == target)
+			targetPackages.push_back(openStream.Pkg);
+	}
+	std::sort(targetPackages.begin(), targetPackages.end());
+	targetPackages.erase(std::unique(targetPackages.begin(), targetPackages.end()), targetPackages.end());
+	for (Package* package : targetPackages)
+		package->LoadAll();
+	CloseStreams();
+
 	RemoveSaveInfoPackage(saveFolder);
 	std::error_code error;
 	const bool removed = fs::remove_all(target, error) > 0;

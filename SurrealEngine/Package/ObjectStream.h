@@ -16,7 +16,11 @@ public:
 	void ReadBytes(void* d, uint32_t s)
 	{
 		if (pos + s > size)
-			Exception::Throw("Unexpected end of file");
+		{
+			Exception::Throw("Unexpected end of object " + package->GetPackageName().ToString() + "." + name.ToString() +
+				" at byte " + std::to_string(pos) + " of " + std::to_string(size) +
+				" while reading " + std::to_string(s) + " bytes");
+		}
 		memcpy(d, data + pos, s);
 		pos += s;
 	}

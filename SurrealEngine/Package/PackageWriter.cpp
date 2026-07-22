@@ -16,6 +16,7 @@ void PackageWriter::Save(UObject* packageObject, std::string filename)
 {
 	// Everything must be loaded
 	Source->LoadAll();
+	PreserveSourceTableIndices();
 
 	if (filename.empty())
 		filename = Source->GetPackageFilePath();
@@ -63,6 +64,54 @@ void PackageWriter::Save(UObject* packageObject, std::string filename)
 	{
 		File::try_delete(tempFilename);
 		throw;
+	}
+}
+
+void PackageWriter::PreserveSourceTableIndices()
+{
+	// Some native object serializers retain name and object references from the
+	// source package. Keep every existing table entry at its original index and
+	// append any new dependencies after it. Rebuilding these tables from traversal
+	// order makes otherwise unchanged native data refer to unrelated entries.
+	if (Source->GetPackageFilePath().empty())
+		return;
+
+	NameTable = Source->NameTable;
+	NameHash = Source->NameHash;
+	ExportTable = Source->ExportTable;
+	ImportTable = Source->ImportTable;
+	ExportObjects = Source->ExportObjects;
+
+	for (size_t i = 0; i < ExportObjects.size(); i++)
+	{
+		if (ExportObjects[i])
+			ObjRefHash[ExportObjects[i]] = (int)i + 1;
+	}
+
+	for (size_t i = 0; i < ImportTable.size(); i++)
+	{
+		const ImportTableEntry& entry = ImportTable[i];
+		if (entry.ObjOuter == 0 &&
+			Source->GetName(entry.ClassPackage) == "Core" &&
+			Source->GetName(entry.ClassName) == "Package")
+		{
+			PackageReferences[Source->GetName(entry.ObjName)] = -(int)i - 1;
+		}
+		else if (entry.ObjOuter != 0)
+		{
+			// Reuse an existing import whenever it can still be resolved. Unused
+			// legacy imports are allowed to remain unresolved; they are preserved
+			// for native data but do not need to block saving.
+			try
+			{
+				UObject* object = Source->GetUObject(-(int)i - 1);
+				if (object && ObjRefHash.find(object) == ObjRefHash.end())
+					ObjRefHash[object] = -(int)i - 1;
+			}
+			catch (...)
+			{
+			}
+		}
 	}
 }
 

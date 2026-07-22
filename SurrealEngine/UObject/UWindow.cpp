@@ -2775,8 +2775,106 @@ void URootWindow::EnableRendering(std::optional<bool> newRender)
 
 UObject* URootWindow::GenerateSnapshot(std::optional<bool> bFilter)
 {
-	LogUnimplemented("RootWindow.GenerateSnapshot");
-	return nullptr;
+	const int width = snapshotWidth();
+	const int height = snapshotHeight();
+	const int sourceWidth = engine->viewport->ViewportWidth();
+	const int sourceHeight = engine->viewport->ViewportHeight();
+	if (width <= 0 || height <= 0 || sourceWidth <= 0 || sourceHeight <= 0)
+		return nullptr;
+
+	Array<FColor> sourcePixels((size_t)sourceWidth * sourceHeight);
+	engine->window->GetRenderDevice()->ReadPixels(sourcePixels.data());
+
+	UClass* textureClass = engine->packages->FindClass("Engine.Texture");
+	UTexture* snapshot = UObject::Cast<UTexture>(engine->packages->GetTransientPackage()->NewObject("DeusExSaveSnapshot", textureClass, ObjectFlags::Transient));
+	snapshot->Format() = (uint8_t)TextureFormat::BGRA8;
+	snapshot->UsedFormat = TextureFormat::BGRA8;
+	snapshot->USize() = width;
+	snapshot->VSize() = height;
+	snapshot->UClamp() = width;
+	snapshot->VClamp() = height;
+	int uBits = 0;
+	int vBits = 0;
+	while ((1 << uBits) < width && uBits < 30) uBits++;
+	while ((1 << vBits) < height && vBits < 30) vBits++;
+	snapshot->UBits() = (uint8_t)uBits;
+	snapshot->VBits() = (uint8_t)vBits;
+	snapshot->MaxColor() = { 255, 255, 255, 255 };
+
+	// Preserve the target aspect ratio by cropping the center of widescreen or
+	// tall viewports before reducing it to the save-thumbnail dimensions.
+	double cropX = 0.0;
+	double cropY = 0.0;
+	double cropWidth = (double)sourceWidth;
+	double cropHeight = (double)sourceHeight;
+	const double sourceAspect = cropWidth / cropHeight;
+	const double targetAspect = (double)width / height;
+	if (sourceAspect > targetAspect)
+	{
+		cropWidth = cropHeight * targetAspect;
+		cropX = (sourceWidth - cropWidth) * 0.5;
+	}
+	else if (sourceAspect < targetAspect)
+	{
+		cropHeight = cropWidth / targetAspect;
+		cropY = (sourceHeight - cropHeight) * 0.5;
+	}
+
+	UnrealMipmap mip;
+	mip.Width = width;
+	mip.Height = height;
+	mip.UBits = uBits;
+	mip.VBits = vBits;
+	mip.Data.resize((size_t)width * height * 4);
+	const bool filter = bFilter && *bFilter;
+	for (int y = 0; y < height; y++)
+	{
+		for (int x = 0; x < width; x++)
+		{
+			double sourceX = cropX + ((x + 0.5) * cropWidth / width) - 0.5;
+			double sourceY = cropY + ((y + 0.5) * cropHeight / height) - 0.5;
+			FColor color;
+			if (filter)
+			{
+				int x0 = std::clamp((int)std::floor(sourceX), 0, sourceWidth - 1);
+				int y0 = std::clamp((int)std::floor(sourceY), 0, sourceHeight - 1);
+				int x1 = std::min(x0 + 1, sourceWidth - 1);
+				int y1 = std::min(y0 + 1, sourceHeight - 1);
+				double fx = std::clamp(sourceX - std::floor(sourceX), 0.0, 1.0);
+				double fy = std::clamp(sourceY - std::floor(sourceY), 0.0, 1.0);
+				const FColor& c00 = sourcePixels[(size_t)y0 * sourceWidth + x0];
+				const FColor& c10 = sourcePixels[(size_t)y0 * sourceWidth + x1];
+				const FColor& c01 = sourcePixels[(size_t)y1 * sourceWidth + x0];
+				const FColor& c11 = sourcePixels[(size_t)y1 * sourceWidth + x1];
+				auto blend = [&](uint8_t FColor::* channel)
+				{
+					double top = c00.*channel + (c10.*channel - c00.*channel) * fx;
+					double bottom = c01.*channel + (c11.*channel - c01.*channel) * fx;
+					return (uint8_t)std::clamp((int)std::lround(top + (bottom - top) * fy), 0, 255);
+				};
+				color = { blend(&FColor::R), blend(&FColor::G), blend(&FColor::B), 255 };
+			}
+			else
+			{
+				int nearestX = std::clamp((int)std::lround(sourceX), 0, sourceWidth - 1);
+				int nearestY = std::clamp((int)std::lround(sourceY), 0, sourceHeight - 1);
+				color = sourcePixels[(size_t)nearestY * sourceWidth + nearestX];
+				color.A = 255;
+			}
+
+			uint8_t* output = &mip.Data[((size_t)y * width + x) * 4];
+			output[0] = color.B;
+			output[1] = color.G;
+			output[2] = color.R;
+			output[3] = color.A;
+		}
+	}
+
+	snapshot->UncompressedMipmaps = { mip };
+	snapshot->UsedMipmaps = snapshot->UncompressedMipmaps;
+	snapshot->TextureModified = true;
+	engine->dxSaveInfo->Snapshot() = snapshot;
+	return snapshot;
 }
 
 bool URootWindow::IsPositionalSoundEnabled()
@@ -2844,7 +2942,8 @@ void URootWindow::ResetRenderViewport()
 
 void URootWindow::SetSnapshotSize(float newWidth, float NewHeight)
 {
-	LogUnimplemented("RootWindow.SetSnapshotSize");
+	snapshotWidth() = std::clamp((int)std::lround(newWidth), 1, 4096);
+	snapshotHeight() = std::clamp((int)std::lround(NewHeight), 1, 4096);
 }
 
 void URootWindow::ShowCursor(std::optional<bool> bShow)
@@ -3137,7 +3236,7 @@ bool URootWindow::OnWindowKeyChar(std::string chars)
 	if (focus->KeyPressed(chars))
 		return true;
 
-	if (UEditWindow* edit = UObject::Cast<UEditWindow>(focus))
+	if (UEditWindow* edit = UObject::TryCast<UEditWindow>(focus))
 	{
 		// Control keys are handled by VirtualKeyPressed. Inserting their
 		// corresponding WM_CHAR here would, for example, activate a
@@ -3611,9 +3710,15 @@ void UListWindow::AddSortColumn(int colIndex, std::optional<bool> bReverse, std:
 
 void UListWindow::DeleteAllRows()
 {
+	const bool hadSelection = numSelected() != 0;
 	items.clear();
 	nextRowId = 1;
 	numSelected() = 0;
+	focusLine() = -1;
+	anchorLine() = -1;
+	lastIndex() = 0;
+	if (hadSelection)
+		NotifySelectionChanged();
 }
 
 void UListWindow::DeleteRow(int rowId)
@@ -3621,8 +3726,15 @@ void UListWindow::DeleteRow(int rowId)
 	int index = RowIdToIndex(rowId);
 	if (index >= 0)
 	{
+		const bool wasSelected = items[index].selected;
 		items.erase(items.begin() + index);
 		numSelected() = (int)std::count_if(items.begin(), items.end(), [](const Item& item) { return item.selected; });
+		if (items.empty())
+			focusLine() = anchorLine() = -1;
+		else
+			focusLine() = std::clamp(focusLine(), 0, (int)items.size() - 1);
+		if (wasSelected)
+			NotifySelectionChanged();
 	}
 }
 
@@ -3716,8 +3828,7 @@ float UListWindow::GetFieldValue(int rowId, int colIndex)
 
 int UListWindow::GetFocusRow()
 {
-	LogUnimplemented("ListWindow.GetFocusRow");
-	return 0;
+	return IndexToRowId(focusLine());
 }
 
 int UListWindow::GetNumColumns()
@@ -3737,9 +3848,7 @@ int UListWindow::GetNumSelectedRows()
 
 int UListWindow::GetPageSize()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ListWindow.GetPageSize");
-	return 0;
+	return std::max((int)(Height() / CalculateLineSize()), 1);
 }
 
 int UListWindow::GetRowClientInt(int rowId)
@@ -3835,7 +3944,23 @@ void UListWindow::ModifyRow(int rowId, const std::string& rowStr)
 
 void UListWindow::MoveRow(uint8_t Move, std::optional<bool> bSelect, std::optional<bool> bClearRows, std::optional<bool> bDrag)
 {
-	LogUnimplemented("ListWindow.MoveRow");
+	if (items.empty())
+		return;
+
+	int index = std::clamp(focusLine(), 0, (int)items.size() - 1);
+	switch (Move)
+	{
+	case 0: index--; break;
+	case 1: index++; break;
+	case 2: index -= GetPageSize(); break;
+	case 3: index += GetPageSize(); break;
+	case 4: index = 0; break;
+	case 5: index = (int)items.size() - 1; break;
+	default: return;
+	}
+	index = std::clamp(index, 0, (int)items.size() - 1);
+	SetRow(items[index].id, bSelect, bClearRows, bDrag);
+	ShowFocusRow();
 }
 
 void UListWindow::PlayListSound(UObject* listSound, std::optional<float> Volume, std::optional<float> Pitch)
@@ -3878,11 +4003,20 @@ int UListWindow::RowIdToIndex(int rowId)
 void UListWindow::SelectAllRows(std::optional<bool> bSelect)
 {
 	bool selected = bSelect.has_value() ? bSelect.value() : true;
+	if (selected && !bMultiSelect() && !items.empty())
+	{
+		SetRow(items.front().id, true, true, false);
+		return;
+	}
+	bool changed = false;
 	for (auto& item : items)
 	{
+		changed |= item.selected != selected;
 		item.selected = selected;
 	}
 	numSelected() = selected ? (int)items.size() : 0;
+	if (changed)
+		NotifySelectionChanged();
 }
 
 void UListWindow::SelectRow(int rowId, std::optional<bool> bSelect)
@@ -3891,15 +4025,53 @@ void UListWindow::SelectRow(int rowId, std::optional<bool> bSelect)
 	int rowIndex = RowIdToIndex(rowId);
 	if (rowIndex != -1)
 	{
+		bool changed = items[rowIndex].selected != selected || focusLine() != rowIndex;
+		if (selected && !bMultiSelect())
+		{
+			for (Item& item : items)
+			{
+				changed |= item.selected && item.id != rowId;
+				item.selected = false;
+			}
+		}
 		items[rowIndex].selected = selected;
+		focusLine() = rowIndex;
+		anchorLine() = rowIndex;
 		numSelected() = (int)std::count_if(items.begin(), items.end(), [](const Item& item) { return item.selected; });
+		if (changed)
+			NotifySelectionChanged();
 	}
 }
 
 void UListWindow::SelectToRow(int rowId, std::optional<bool> bClearRows, std::optional<bool> bInvert, std::optional<bool> bSpanRows)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ListWindow.SelectToRow");
+	int rowIndex = RowIdToIndex(rowId);
+	if (rowIndex == -1)
+		return;
+
+	const bool clearRows = !bClearRows || *bClearRows;
+	const bool invert = bInvert && *bInvert;
+	const bool spanRows = !bSpanRows || *bSpanRows;
+	if (clearRows || !bMultiSelect())
+		for (Item& item : items)
+			item.selected = false;
+
+	if (spanRows && bMultiSelect() && anchorLine() >= 0)
+	{
+		const int first = std::min(anchorLine(), rowIndex);
+		const int last = std::max(anchorLine(), rowIndex);
+		for (int index = first; index <= last; index++)
+			items[index].selected = invert ? !items[index].selected : true;
+	}
+	else
+	{
+		items[rowIndex].selected = invert ? !items[rowIndex].selected : true;
+		anchorLine() = rowIndex;
+	}
+
+	focusLine() = rowIndex;
+	numSelected() = (int)std::count_if(items.begin(), items.end(), [](const Item& item) { return item.selected; });
+	NotifySelectionChanged();
 }
 
 void UListWindow::SetColumnAlignment(int colIndex, uint8_t newAlign)
@@ -3964,8 +4136,8 @@ void UListWindow::SetField(int rowId, int colIndex, const std::string& fieldStr)
 
 void UListWindow::SetFieldMargins(float newMarginWidth, float newMarginHeight)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ListWindow.SetFieldMargins");
+	colMargin() = std::max(newMarginWidth, 0.0f);
+	rowMargin() = std::max(newMarginHeight, 0.0f);
 }
 
 void UListWindow::SetFieldValue(int rowId, int colIndex, float NewValue)
@@ -3980,7 +4152,17 @@ void UListWindow::SetFocusColor(const Color& NewColor)
 
 void UListWindow::SetFocusRow(int rowId, std::optional<bool> bMoveTo, std::optional<bool> bAnchor)
 {
-	LogUnimplemented("ListWindow.SetFocusRow");
+	int rowIndex = RowIdToIndex(rowId);
+	if (rowIndex == -1)
+		return;
+	const bool changed = focusLine() != rowIndex;
+	focusLine() = rowIndex;
+	if (!bAnchor || *bAnchor)
+		anchorLine() = rowIndex;
+	if (!bMoveTo || *bMoveTo)
+		ShowFocusRow();
+	if (changed)
+		NotifySelectionChanged();
 }
 
 void UListWindow::SetFocusTexture(UObject* NewTexture)
@@ -4024,7 +4206,10 @@ void UListWindow::SetListSounds(std::optional<UObject*> newActivateSound, std::o
 
 void UListWindow::SetNumColumns(int newCols)
 {
-	columns.resize(newCols);
+	const size_t oldSize = columns.size();
+	columns.resize(std::max(newCols, 0));
+	for (size_t index = oldSize; index < columns.size(); index++)
+		columns[index].color = TextColor();
 }
 
 void UListWindow::SetRow(int rowId, std::optional<bool> bSelect, std::optional<bool> bClearRows, std::optional<bool> bDrag)
@@ -4035,14 +4220,23 @@ void UListWindow::SetRow(int rowId, std::optional<bool> bSelect, std::optional<b
 
 	bool select = !bSelect || *bSelect;
 	bool clearRows = !bClearRows || *bClearRows;
+	bool changed = focusLine() != rowIndex || items[rowIndex].selected != select;
 	if (clearRows || (!bMultiSelect() && select))
 	{
 		for (Item& item : items)
+		{
+			changed |= item.selected && item.id != rowId;
 			item.selected = false;
+		}
 	}
 	items[rowIndex].selected = select;
+	focusLine() = rowIndex;
+	if (!bDrag || !*bDrag)
+		anchorLine() = rowIndex;
 	numSelected() = (int)std::count_if(items.begin(), items.end(), [](const Item& item) { return item.selected; });
 	bDragging() = bDrag && *bDrag;
+	if (changed)
+		NotifySelectionChanged();
 }
 
 void UListWindow::SetRowClientInt(int rowId, int clientInt)
@@ -4068,8 +4262,14 @@ void UListWindow::SetSortColumn(int colIndex, std::optional<bool> bReverse, std:
 
 void UListWindow::ShowFocusRow()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ListWindow.ShowFocusRow");
+	if (items.empty() || focusLine() < 0)
+		return;
+	const int pageSize = GetPageSize();
+	if (focusLine() < lastIndex())
+		lastIndex() = focusLine();
+	else if (focusLine() >= lastIndex() + pageSize)
+		lastIndex() = focusLine() - pageSize + 1;
+	lastIndex() = std::clamp(lastIndex(), 0, std::max((int)items.size() - pageSize, 0));
 }
 
 void UListWindow::Sort()
@@ -4083,7 +4283,64 @@ void UListWindow::ToggleRowSelection(int rowId)
 	if (rowIndex == -1)
 		return;
 	items[rowIndex].selected = !items[rowIndex].selected;
+	focusLine() = rowIndex;
+	anchorLine() = rowIndex;
 	numSelected() = (int)std::count_if(items.begin(), items.end(), [](const Item& item) { return item.selected; });
+	NotifySelectionChanged();
+}
+
+float UListWindow::CalculateLineSize() const
+{
+	UFont* font = const_cast<UListWindow*>(this)->normalFont();
+	const float glyphHeight = font ? (float)font->GetGlyph('X').VSize : 1.0f;
+	return std::max(glyphHeight + std::max(const_cast<UListWindow*>(this)->rowMargin(), 0.0f) * 2.0f, 1.0f);
+}
+
+void UListWindow::NotifySelectionChanged()
+{
+	const int focusRowId = GetFocusRow();
+	for (UWindow* cur = this; cur; cur = cur->parentOwner())
+	{
+		if (cur->ListSelectionChanged(this, numSelected(), focusRowId))
+			break;
+	}
+}
+
+bool UListWindow::MouseButtonPressed(float pointX, float pointY, EInputKey button, int numClicks)
+{
+	if (UWindow::MouseButtonPressed(pointX, pointY, button, numClicks))
+		return true;
+	if (button != IK_LeftMouse || pointX < 0.0f || pointX >= Width() || pointY < 0.0f || pointY >= Height())
+		return false;
+
+	const int rowIndex = lastIndex() + (int)(pointY / CalculateLineSize());
+	if (rowIndex < 0 || (size_t)rowIndex >= items.size())
+		return true;
+
+	const int rowId = items[rowIndex].id;
+	if (numClicks >= 2)
+	{
+		SetRow(rowId, true, true, false);
+		for (UWindow* cur = this; cur; cur = cur->parentOwner())
+		{
+			if (cur->ListRowActivated(this, rowId))
+				break;
+		}
+	}
+	else if (bMultiSelect() && engine->window->GetKeyState(IK_Ctrl))
+	{
+		ToggleRowSelection(rowId);
+	}
+	else if (bMultiSelect() && engine->window->GetKeyState(IK_Shift))
+	{
+		SelectToRow(rowId, true, false, true);
+	}
+	else
+	{
+		SetRow(rowId, true, true, false);
+	}
+	ShowFocusRow();
+	return true;
 }
 
 void UListWindow::DrawWindow(UGC* gc)
@@ -4094,21 +4351,36 @@ void UListWindow::DrawWindow(UGC* gc)
 
 	float w = Width();
 	float h = Height();
-	float lineHeight = (float)font->GetGlyph('X').VSize + 2;
+	float lineHeight = CalculateLineSize();
+	lineSize() = lineHeight;
 
 	float y = 0.0f;
-	for (auto& item : items)
+	for (size_t itemIndex = (size_t)std::max(lastIndex(), 0); itemIndex < items.size() && y < h; itemIndex++)
 	{
+		auto& item = items[itemIndex];
+		if (item.selected && highlightTexture())
+		{
+			UTexture* texture = highlightTexture();
+			gc->DrawTile(texture, gc->ScaleRect(Rectf::xywh(0.0f, y, w, lineHeight)),
+				Rectf::xywh(0.0f, 0.0f, (float)texture->USize(), (float)texture->VSize()),
+				highlightColor(), gc->EffectivePolyFlags());
+		}
 		float x = 0.0f;
 		size_t colIndex = 0;
 		for (auto& col : columns)
 		{
+			if (col.hidden)
+			{
+				colIndex++;
+				continue;
+			}
 			if (item.cells.size() > colIndex)
 			{
 				UFont* colFont = col.font ? col.font : font;
 				gc->SetFont(colFont);
+				gc->SetTextColor(item.selected ? highlightTextColor : col.color);
 				gc->SetAlignments((uint8_t)col.align, (uint8_t)EVAlign::Center);
-				gc->DrawText(x, y, col.width, lineHeight, item.cells[colIndex]);
+				gc->DrawText(x + colMargin(), y, std::max(col.width - colMargin() * 2.0f, 0.0f), lineHeight, item.cells[colIndex]);
 			}
 			x += col.width;
 			colIndex++;

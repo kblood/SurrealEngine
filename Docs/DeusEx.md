@@ -63,12 +63,14 @@ Validation results on 2026-07-22:
   during unattended checks.
 - QuickSave (`-1`) and a menu-created numbered save (`Save0001`) both write a
   map package and `SaveInfo.dxs`. Direct startup through `?loadgame=-1` and
-  `?loadgame=1` restores the Liberty Island world. See
+  `?loadgame=1` restores the Liberty Island world. Existing-slot overwrite and
+  deletion now work through the stock menu, and the 160-by-120 save snapshot
+  survives a metadata-package round trip. See
   [`DeusExSaveSystem.md`](DeusExSaveSystem.md) for the exact lifecycle and open
   issues.
 - Every final validation launch uses a null audio backend and a non-activating
-  window. Foreground-window handles were compared before and after each launch
-  and remained unchanged.
+  window. Foreground-window handles were polled during the final save checks;
+  the game window was never foreground.
 
 These checks do not demonstrate that training or the campaign can be completed,
 that scripted map travel is correct, or that saves remain compatible across the
@@ -197,12 +199,14 @@ record shapes, and 239-character paging boundaries. The Release test run passed
 on 2026-07-22. AI tests cover horizontal and vertically weighted hearing,
 default radius and thresholds, apparent-size sight scoring, light visibility,
 minimum angular size, motion interpolation, and clamping. Save-path tests cover
-the QuickSave and numbered-slot directory naming contract. New-slot allocation,
+the QuickSave and numbered-slot directory naming contract. Property-
+serialization coverage verifies that nested booleans emit their required
+zero/one payload bytes while tagged booleans do not. New-slot allocation,
 metadata round trips, and rejected indices still need focused coverage.
 
 ## Next validation targets
 
 The maintained goals and pull-request gates are in
 [`DeusExRoadmap.md`](DeusExRoadmap.md). Immediate priorities are completing the
-save-list deletion round trip, exercising training and scripted travel, and
-comparing AI behavior against the original game.
+non-proprietary save regression coverage, exercising training and scripted
+travel, and comparing AI behavior against the original game.

@@ -1182,6 +1182,7 @@ public:
 	void Sort();
 	void ToggleRowSelection(int rowId);
 
+	bool MouseButtonPressed(float pointX, float pointY, EInputKey button, int numClicks) override;
 	void DrawWindow(UGC* gc) override;
 
 	struct Column
@@ -1209,6 +1210,9 @@ public:
 	int nextRowId = 1;
 
 	Color highlightTextColor;
+
+	float CalculateLineSize() const;
+	void NotifySelectionChanged();
 
 	USound*& ActivateSound() { return Value<USound*>(PropOffsets_ListWindow.ActivateSound); }
 	std::string& Delimiter() { return Value<std::string>(PropOffsets_ListWindow.Delimiter); }

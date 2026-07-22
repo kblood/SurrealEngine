@@ -13,6 +13,7 @@ public:
 	void Save(UObject* packageObject, std::string filename = {});
 
 private:
+	void PreserveSourceTableIndices();
 	void WriteHeader(PackageStreamWriter* stream);
 	void WriteObjects(UObject* packageObject, PackageStreamWriter* stream);
 	void WriteNameTable(PackageStreamWriter* stream);

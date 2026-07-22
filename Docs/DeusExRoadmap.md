@@ -14,12 +14,17 @@ new blockers.
 - Silent, non-activating, per-process-log validation profile.
 - QuickSave and numbered save creation plus direct QuickLoad/LoadGame startup.
 - Save Game description input and existing-slot list population.
+- Existing-slot selection, menu-driven overwrite and deletion, and serialized
+  save-thumbnail previews.
+- Stable source package indices and nested boolean serialization for reloadable
+  map overwrites.
+- Proprietary-data-free regression coverage for nested boolean serialization.
 - Headless symbolization of background validation crashes.
 
 ## Current work
 
-1. Finish save deletion and overwrite validation, then add missing generic array
-   and save-metadata tests.
+1. Add missing generic array and save-metadata tests that do not require
+   proprietary packages.
 2. Exercise Training from its normal menu entry and trace the first blocking AI,
    navigation, animation, conversation, or mission-script native.
 3. Validate scripted travel from Training into the campaign and between early
@@ -32,7 +37,7 @@ new blockers.
 - AI fidelity: sampled light visibility, smooth peripheral falloff, alarm and
   callback events, path reachability, random destination selection, and combat.
 - Animation and presentation: blend animation, head turning, landing sounds,
-  AVI/intro transitions, and save thumbnails.
+  and AVI/intro transitions.
 - UI breadth: Load Game, overwrite/delete dialogs, settings, key customization,
   computers, conversations, goals/notes/images, and scrolling lists.
 - Campaign state: flags, mission scripts, cross-map travel, inventory transfer,

@@ -761,6 +761,14 @@ if (BUILD_TESTING)
 	target_include_directories(DXSavePathTests PRIVATE SurrealEngine)
 	set_target_properties(DXSavePathTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME DXSavePath COMMAND DXSavePathTests)
+
+	add_executable(DXPropertySerializationTests
+		Tests/DXPropertySerializationTests.cpp
+	)
+	target_include_directories(DXPropertySerializationTests PRIVATE SurrealEngine)
+	target_link_libraries(DXPropertySerializationTests SurrealCommon ${SURREALCOMMON_LIBS})
+	set_target_properties(DXPropertySerializationTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME DXPropertySerialization COMMAND DXPropertySerializationTests)
 endif()
 
 if(WIN32)

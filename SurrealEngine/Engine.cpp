@@ -878,6 +878,25 @@ void Engine::SaveGameToSlot(int32_t slotNum, const std::string& saveDescription)
 			saveInfo->SaveTime() = (int)player->saveTime();
 			saveInfo->bCheatsEnabled() = player->bCheatsEnabled();
 		}
+		if (UTexture* sourceSnapshot = dxSaveInfo->Snapshot())
+		{
+			auto snapshot = UObject::Cast<UTexture>(saveInfoPackage->NewObject("Snapshot", sourceSnapshot->Class, ObjectFlags::NoFlags));
+			snapshot->Format() = sourceSnapshot->Format();
+			snapshot->UsedFormat = sourceSnapshot->UsedFormat;
+			snapshot->USize() = sourceSnapshot->USize();
+			snapshot->VSize() = sourceSnapshot->VSize();
+			snapshot->UClamp() = sourceSnapshot->UClamp();
+			snapshot->VClamp() = sourceSnapshot->VClamp();
+			snapshot->UBits() = sourceSnapshot->UBits();
+			snapshot->VBits() = sourceSnapshot->VBits();
+			snapshot->MaxColor() = sourceSnapshot->MaxColor();
+			snapshot->MipZero() = sourceSnapshot->MipZero();
+			snapshot->UncompressedMipmaps = sourceSnapshot->UncompressedMipmaps;
+			snapshot->CompressedMipmaps = sourceSnapshot->CompressedMipmaps;
+			snapshot->UsedMipmaps = sourceSnapshot->UsedMipmaps;
+			snapshot->TextureModified = true;
+			saveInfo->Snapshot() = snapshot;
+		}
 		saveInfo->UpdateTimeStamp();
 		saveInfoPackage->Save(saveInfo, saveInfoFullPath);
 		packages->RefreshSaveInfos();

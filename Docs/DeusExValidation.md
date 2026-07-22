@@ -33,8 +33,10 @@ build/RelWithDebInfo/SurrealEngine.exe `
 On Windows, background menu validation sends targeted window messages rather
 than global input. Absolute mouse movement is accepted in `--noactivate` mode
 because foreground-only raw mouse events are unavailable. Validation must
-compare `GetForegroundWindow()` before and after the run; all Deus Ex save tests
-on 2026-07-22 preserved the original foreground handle.
+poll `GetForegroundWindow()` during the run, not only compare endpoints. The
+game window was never foreground during the final overwrite, reload, and
+thumbnail checks on 2026-07-22. Window captures use `PrintWindow`; desktop
+captures would record whichever unrelated project remains in front.
 
 ## Crash collection without focus changes
 
@@ -62,16 +64,21 @@ This process found two concrete Save Game screen defects:
 ## Current smoke sequence
 
 1. Build `RelWithDebInfo` so minidumps contain useful source locations.
-2. Run the three focused CTests: `DXTextTokenizer`, `DXAIPerception`, and
-   `DXSavePath`.
+2. Run the four focused CTests: `DXTextTokenizer`, `DXAIPerception`,
+   `DXSavePath`, and `DXPropertySerialization`.
 3. Start Liberty Island with the non-interfering launch profile.
 4. Open the pause menu and Save Game screen through targeted input.
 5. Create a numbered save using an edit-control description.
 6. Close cleanly, then launch `--url=?loadgame=<slot>`.
 7. Confirm the process remains responsive and the restored world and HUD render.
-8. Archive generated test saves under ignored `build/test-saves` before testing
-   deletion.
-9. Run a Release build and the focused tests again before committing.
+8. Reopen Save Game, select the existing row, overwrite it through the stock
+   confirmation dialog, close, and reload it in a fresh process.
+9. Reopen the overwritten row and inspect its deserialized thumbnail for
+   orientation, color, and expected current-scene content.
+10. Archive generated test saves under ignored `build/test-saves`, delete the
+    slot through the stock confirmation dialog, and verify the loaded process
+    remains responsive after the directory disappears.
+11. Run a Release build and the focused tests again before committing.
 
 Generated screenshots, logs, minidumps, and proprietary save packages are test
 artifacts. Keep them under ignored build or local application-data directories;
