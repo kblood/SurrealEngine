@@ -141,6 +141,11 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 	if (!views || viewCount == 0 || !PrepareSceneViews())
 		return false;
 
+	WebXRWeaponOverlayStats.Frames++;
+	WebXRWeaponOverlayStats.LastFrameExpectedEyePasses = viewCount;
+	WebXRWeaponOverlayStats.LastFrameEyePasses = 0;
+	WebXRWeaponOverlayStats.LastFrameWeaponCalls = 0;
+
 	for (uint32_t index = 0; index < viewCount; index++)
 	{
 		const WebXRSceneView& view = views[index];
@@ -155,6 +160,16 @@ bool RenderSubsystem::DrawSceneWebXRViews(const WebXRSceneView* views, uint32_t 
 		viewport.Y = view.ViewportHeight;
 		viewport.Projection = &view.Projection;
 		DrawSceneView(view.Location, view.WorldToView, view.ViewRotation, &viewport);
+
+		// Restore only the first-person weapon here. The full player/HUD/menu
+		// overlay lifecycle remains a single, separate M9 concern.
+		WebXRWeaponOverlayStats.EyePasses++;
+		WebXRWeaponOverlayStats.LastFrameEyePasses++;
+		if (RenderWebXRWeaponOverlay())
+		{
+			WebXRWeaponOverlayStats.WeaponCalls++;
+			WebXRWeaponOverlayStats.LastFrameWeaponCalls++;
+		}
 	}
 	return true;
 }

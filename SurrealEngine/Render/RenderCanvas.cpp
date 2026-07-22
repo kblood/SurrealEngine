@@ -82,6 +82,95 @@ void RenderSubsystem::RenderOverlays()
 	}
 }
 
+bool RenderSubsystem::RenderWebXRWeaponOverlay()
+{
+	UPlayerPawn* viewActor = engine->viewport->Actor();
+	UWeapon* weapon = viewActor ? viewActor->Weapon() : nullptr;
+	if (!weapon)
+		return false;
+
+	// Keep this pass weapon-only. Calling PlayerPawn.RenderOverlays here would
+	// also restore HUD/crosshair work that belongs to the later WebXR UI
+	// milestone and could duplicate player-owned overlay side effects per eye.
+	// The weapon still uses its stock overlay placement; controller-relative
+	// viewmodel pose is supplied by the separate Engine/VM integration.
+	struct ScopedCanvasStateRestore
+	{
+		ScopedCanvasStateRestore(FSceneNode& frame, UCanvas* canvas, RenderDevice* device, UWeapon* weapon)
+			: Frame(frame), CanvasObject(canvas), DeviceObject(device), WeaponObject(weapon), SavedFrame(frame),
+			SavedSizeX(canvas->SizeX()), SavedSizeY(canvas->SizeY()),
+			SavedClipX(canvas->ClipX()), SavedClipY(canvas->ClipY()),
+			SavedCurX(canvas->CurX()), SavedCurY(canvas->CurY()),
+			SavedWeaponLocation(weapon->Location()), SavedWeaponRotation(weapon->Rotation())
+		{
+		}
+
+		~ScopedCanvasStateRestore()
+		{
+			// Stock weapon overlays reposition the inventory actor as part of
+			// drawing the viewmodel. Do not let the final eye's render transform
+			// escape into simulation or the next game frame.
+			WeaponObject->Location() = SavedWeaponLocation;
+			WeaponObject->Rotation() = SavedWeaponRotation;
+			Frame = SavedFrame;
+			CanvasObject->CurX() = SavedCurX;
+			CanvasObject->CurY() = SavedCurY;
+			CanvasObject->ClipX() = SavedClipX;
+			CanvasObject->ClipY() = SavedClipY;
+			CanvasObject->SizeX() = SavedSizeX;
+			CanvasObject->SizeY() = SavedSizeY;
+			DeviceObject->SetSceneNode(&Frame);
+		}
+
+		FSceneNode& Frame;
+		UCanvas* CanvasObject;
+		RenderDevice* DeviceObject;
+		UWeapon* WeaponObject;
+		FSceneNode SavedFrame;
+		int SavedSizeX;
+		int SavedSizeY;
+		float SavedClipX;
+		float SavedClipY;
+		float SavedCurX;
+		float SavedCurY;
+		vec3 SavedWeaponLocation;
+		Rotator SavedWeaponRotation;
+	} restore(Canvas.Frame, engine->canvas, Device, weapon);
+
+	// Canvas.DrawActor uses MainFrame.Frame for the 3D weapon. Restrict the
+	// canvas scene node as well so any weapon-specific tiles remain inside the
+	// active eye viewport/layer instead of using the desktop-sized canvas.
+	Canvas.Frame.XB = MainFrame.Frame.XB;
+	Canvas.Frame.YB = MainFrame.Frame.YB;
+	Canvas.Frame.X = MainFrame.Frame.X;
+	Canvas.Frame.Y = MainFrame.Frame.Y;
+	Canvas.Frame.FX = MainFrame.Frame.FX;
+	Canvas.Frame.FY = MainFrame.Frame.FY;
+	Canvas.Frame.FX2 = MainFrame.Frame.FX2;
+	Canvas.Frame.FY2 = MainFrame.Frame.FY2;
+	int eyeSizeX = std::max((int)(Canvas.Frame.FX / (float)Canvas.uiscale), 1);
+	int eyeSizeY = std::max((int)(Canvas.Frame.FY / (float)Canvas.uiscale), 1);
+	engine->canvas->CurX() = 0.0f;
+	engine->canvas->CurY() = 0.0f;
+	engine->canvas->ClipX() = (float)eyeSizeX;
+	engine->canvas->ClipY() = (float)eyeSizeY;
+	engine->canvas->SizeX() = eyeSizeX;
+	engine->canvas->SizeY() = eyeSizeY;
+	Device->SetSceneNode(&Canvas.Frame);
+
+	if (engine->LaunchInfo.ue1Version > 219)
+	{
+		CallEvent(weapon, EventName::RenderOverlays, { ExpressionValue::ObjectValue(engine->canvas) });
+	}
+	else
+	{
+		CallEvent(weapon, "InvCalcView", {});
+		DrawActor(weapon, false, false);
+	}
+
+	return true;
+}
+
 void RenderSubsystem::PostRender()
 {
 	Device->SetSceneNode(&Canvas.Frame);

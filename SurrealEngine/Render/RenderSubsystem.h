@@ -30,6 +30,21 @@ struct WebXRSceneView
 	mat4 Projection;
 };
 
+// Renderer-local test seam for the deliberately narrow WebXR weapon-overlay
+// pass. An eye pass is counted after its world view completes; a weapon call
+// is counted only when a current weapon exists and its overlay event is
+// dispatched. HUD, console, PreRender, and PostRender are not part of this
+// pass.
+struct WebXRWeaponOverlayDiagnostics
+{
+	uint64_t Frames = 0;
+	uint64_t EyePasses = 0;
+	uint64_t WeaponCalls = 0;
+	uint32_t LastFrameExpectedEyePasses = 0;
+	uint32_t LastFrameEyePasses = 0;
+	uint32_t LastFrameWeaponCalls = 0;
+};
+
 class RenderSubsystem
 {
 public:
@@ -50,6 +65,7 @@ public:
 	// is deliberately deferred to M9; this proves the world-view split first.
 	void DrawGameStereoLayers(float levelTimeElapsed);
 	bool DrawGameWebXRViews(float levelTimeElapsed, const WebXRSceneView* views, uint32_t viewCount);
+	const WebXRWeaponOverlayDiagnostics& GetWebXRWeaponOverlayDiagnostics() const { return WebXRWeaponOverlayStats; }
 	void OnMapLoaded();
 
 	void DrawActor(UActor* actor, bool WireFrame, bool ClearZ);
@@ -144,6 +160,7 @@ private:
 	void ResetCanvas();
 	void PreRender();
 	void RenderOverlays();
+	bool RenderWebXRWeaponOverlay();
 	void PostRender();
 	void PostRenderFlash();
 	void DrawTimedemoStats();
@@ -157,6 +174,7 @@ private:
 	float AutoUV = 0.0f;
 	float AmbientGlowTime = 0.0f;
 	float AmbientGlowAmount = 0.0f;
+	WebXRWeaponOverlayDiagnostics WebXRWeaponOverlayStats;
 
 	struct
 	{
