@@ -20,6 +20,7 @@ Frame* Frame::StepFrame = nullptr;
 Expression* Frame::StepExpression = nullptr;
 std::string Frame::ExceptionText;
 std::unique_ptr<Iterator> Frame::CreatedIterator;
+Frame::CallScopeHook Frame::CurrentCallScopeHook;
 
 Frame::Frame(UObject* instance, UStruct* func)
 {
@@ -230,6 +231,8 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 		}
 	}
 
+	ActiveCallScopeHook callScope(func, instance, args);
+
 	if (AllFlags(func->FuncFlags, FunctionFlags::Native))
 	{
 		return CallNative(func, instance, std::move(args));
@@ -237,6 +240,37 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 	else
 	{
 		return CallScript(func, instance, std::move(args));
+	}
+}
+
+void Frame::SetCallScopeHook(CallScopeHook hook)
+{
+	CurrentCallScopeHook = std::move(hook);
+}
+
+Frame::ActiveCallScopeHook::ActiveCallScopeHook(UFunction* func, UObject* instance, const Array<ExpressionValue>& args)
+{
+	// Copy first so replacing/clearing the global hook from inside the callback
+	// cannot invalidate the callback currently being invoked.
+	CallScopeHook hook = CurrentCallScopeHook;
+	if (hook)
+		Cleanup = hook(func, instance, args);
+}
+
+Frame::ActiveCallScopeHook::~ActiveCallScopeHook() noexcept
+{
+	if (!Cleanup)
+		return;
+
+	// A cleanup hook is an auxiliary observer/restorer and must never replace an
+	// exception already unwinding from the VM call. The public contract requires
+	// noexcept cleanup; this catch also protects the core VM from a bad hook.
+	try
+	{
+		Cleanup();
+	}
+	catch (...)
+	{
 	}
 }
 

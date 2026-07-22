@@ -58,7 +58,18 @@ public:
 class Frame
 {
 public:
+	// Called immediately before an enabled UnrealScript/native function is
+	// dispatched. A hook may return a cleanup function for temporary state; the
+	// cleanup is run when that exact call scope exits, including during exception
+	// unwinding. Nested calls therefore clean up in normal LIFO order.
+	//
+	// The enter hook must either return its cleanup function or leave external
+	// state unchanged if it throws. Cleanup functions must not throw.
+	using CallScopeCleanup = std::function<void()>;
+	using CallScopeHook = std::function<CallScopeCleanup(UFunction* func, UObject* instance, const Array<ExpressionValue>& args)>;
+
 	static ExpressionValue Call(UFunction* func, UObject* instance, Array<ExpressionValue> args);
+	static void SetCallScopeHook(CallScopeHook hook);
 	static std::string GetCallstack();
 	static std::string GetDisassembly(Expression* statement);
 
@@ -105,6 +116,18 @@ private:
 	static ExpressionValue CallNative(UFunction* func, UObject* instance, Array<ExpressionValue> args);
 	static ExpressionValue CallScript(UFunction* func, UObject* instance, Array<ExpressionValue> args);
 	static void TraceCall(UFunction* func, UObject* instance, const Array<ExpressionValue>& args);
+	static CallScopeHook CurrentCallScopeHook;
+
+	struct ActiveCallScopeHook
+	{
+		ActiveCallScopeHook(UFunction* func, UObject* instance, const Array<ExpressionValue>& args);
+		~ActiveCallScopeHook() noexcept;
+
+		ActiveCallScopeHook(const ActiveCallScopeHook&) = delete;
+		ActiveCallScopeHook& operator=(const ActiveCallScopeHook&) = delete;
+
+		CallScopeCleanup Cleanup;
+	};
 
 	struct ActiveCallStackFrame
 	{
