@@ -9,7 +9,7 @@
 
 namespace WebXR
 {
-	constexpr uint32_t FrameABIVersion = 1;
+	constexpr uint32_t FrameABIVersion = 2;
 	constexpr uint32_t MaxViews = 2;
 
 	enum class FrameError : int
@@ -36,17 +36,19 @@ namespace WebXR
 		uint32_t Version;
 		uint32_t ByteSize;
 		uint32_t ViewCount;
-		uint32_t Flags;
+		uint32_t TextureCount;
 		double Timestamp;
 		uint32_t ResetGeneration;
-		uint32_t TextureWidth;
-		uint32_t TextureHeight;
+		uint32_t Flags;
 	};
 
 	struct PackedView
 	{
 		uint32_t Eye;
+		uint32_t TextureIndex;
 		uint32_t ArrayLayer;
+		uint32_t TextureWidth;
+		uint32_t TextureHeight;
 		int32_t ViewportX;
 		int32_t ViewportY;
 		int32_t ViewportWidth;
@@ -57,11 +59,11 @@ namespace WebXR
 	};
 #pragma pack(pop)
 
-	static_assert(sizeof(PackedFrameHeader) == 36);
+	static_assert(sizeof(PackedFrameHeader) == 32);
 	static_assert(offsetof(PackedFrameHeader, Timestamp) == 16);
-	static_assert(sizeof(PackedView) == 116);
-	static_assert(offsetof(PackedView, Position) == 24);
-	static_assert(offsetof(PackedView, Projection) == 52);
+	static_assert(sizeof(PackedView) == 128);
+	static_assert(offsetof(PackedView, Position) == 36);
+	static_assert(offsetof(PackedView, Projection) == 64);
 
 	struct DecodedFrame
 	{

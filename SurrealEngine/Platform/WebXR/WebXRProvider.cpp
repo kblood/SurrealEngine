@@ -56,8 +56,9 @@ namespace
 #include "RenderDevice/WebGPU/WebGPURenderDevice.h"
 #include <emscripten.h>
 
-EM_JS(uintptr_t, JS_ImportCurrentWebXRTexture, (uintptr_t parentDevice), {
-	const texture = globalThis.surrealWebXRFrameTexture;
+EM_JS(uintptr_t, JS_ImportCurrentWebXRTexture, (uintptr_t parentDevice, uint32_t textureIndex), {
+	const textures = globalThis.surrealWebXRFrameTextures;
+	const texture = textures && textures[textureIndex];
 	if (!texture || typeof WebGPU === "undefined" || !WebGPU.importJsTexture)
 		return 0;
 	return WebGPU.importJsTexture(texture, parentDevice);
@@ -66,7 +67,8 @@ EM_JS(uintptr_t, JS_ImportCurrentWebXRTexture, (uintptr_t parentDevice), {
 namespace
 {
 	void ReleaseFrameResources(WebGPURenderDevice* device, const PresentationTarget& target,
-		WGPUTexture texture, WGPUTextureView* views, uint32_t viewCount, bool bound)
+		WGPUTexture* textures, uint32_t textureCount, WGPUTextureView* views,
+		uint32_t viewCount, bool bound)
 	{
 		if (bound)
 			device->UnbindPresentationTarget(target);
@@ -75,8 +77,11 @@ namespace
 			if (views[index])
 				wgpuTextureViewRelease(views[index]);
 		}
-		if (texture)
-			wgpuTextureRelease(texture);
+		for (uint32_t index = 0; index < textureCount; index++)
+		{
+			if (textures[index])
+				wgpuTextureRelease(textures[index]);
+		}
 	}
 }
 #endif
@@ -129,45 +134,63 @@ extern "C"
 			return 0;
 		}
 
-		WGPUTexture texture = reinterpret_cast<WGPUTexture>(
-			JS_ImportCurrentWebXRTexture(reinterpret_cast<uintptr_t>(device->Context->Device)));
-		if (!texture)
+		WGPUTexture textures[WebXR::MaxViews] = {};
+		for (uint32_t index = 0; index < frame.Header.TextureCount; index++)
 		{
-			WebXR::SetLastFrameError(WebXR::FrameError::TextureUnavailable);
-			return 0;
+			textures[index] = reinterpret_cast<WGPUTexture>(JS_ImportCurrentWebXRTexture(
+				reinterpret_cast<uintptr_t>(device->Context->Device), index));
+			if (!textures[index])
+			{
+				WGPUTextureView emptyViews[WebXR::MaxViews] = {};
+				ReleaseFrameResources(device, { 1 }, textures, frame.Header.TextureCount,
+					emptyViews, 0, false);
+				WebXR::SetLastFrameError(WebXR::FrameError::TextureUnavailable);
+				return 0;
+			}
 		}
-		const WGPUTextureFormat textureFormat = wgpuTextureGetFormat(texture);
-
 		WGPUTextureView views[WebXR::MaxViews] = {};
 		WebGPUPresentationImageHandle handles[WebXR::MaxViews] = {};
 		PresentationTargetBinding binding;
 		binding.Target = { 1 };
 		for (uint32_t index = 0; index < frame.Header.ViewCount; index++)
 		{
+			const WebXR::PackedView& source = frame.Views[index];
+			WGPUTexture texture = textures[source.TextureIndex];
+			if (wgpuTextureGetWidth(texture) != source.TextureWidth ||
+				wgpuTextureGetHeight(texture) != source.TextureHeight ||
+				source.ArrayLayer >= wgpuTextureGetDepthOrArrayLayers(texture))
+			{
+				ReleaseFrameResources(device, binding.Target, textures, frame.Header.TextureCount,
+					views, frame.Header.ViewCount, false);
+				WebXR::SetLastFrameError(WebXR::FrameError::PresentationRejected);
+				return 0;
+			}
+			const WGPUTextureFormat textureFormat = wgpuTextureGetFormat(texture);
 			WGPUTextureViewDescriptor description = {};
 			description.format = textureFormat;
 			description.dimension = WGPUTextureViewDimension_2D;
 			description.baseMipLevel = 0;
 			description.mipLevelCount = 1;
-			description.baseArrayLayer = frame.Views[index].ArrayLayer;
+			description.baseArrayLayer = source.ArrayLayer;
 			description.arrayLayerCount = 1;
 			description.aspect = WGPUTextureAspect_All;
 			views[index] = wgpuTextureCreateView(texture, &description);
 			if (!views[index])
 			{
-				ReleaseFrameResources(device, binding.Target, texture, views,
-					frame.Header.ViewCount, false);
+				ReleaseFrameResources(device, binding.Target, textures, frame.Header.TextureCount,
+					views, frame.Header.ViewCount, false);
 				WebXR::SetLastFrameError(WebXR::FrameError::PresentationRejected);
 				return 0;
 			}
 			handles[index] = { views[index], textureFormat };
-			binding.Images.push_back({ &handles[index],
-				static_cast<int>(frame.Header.TextureWidth), static_cast<int>(frame.Header.TextureHeight) });
+			binding.Images.push_back({ &handles[index], static_cast<int>(source.TextureWidth),
+				static_cast<int>(source.TextureHeight) });
 		}
 
 		if (!device->BindPresentationTarget(binding))
 		{
-			ReleaseFrameResources(device, binding.Target, texture, views, frame.Header.ViewCount, false);
+			ReleaseFrameResources(device, binding.Target, textures, frame.Header.TextureCount,
+				views, frame.Header.ViewCount, false);
 			WebXR::SetLastFrameError(WebXR::FrameError::PresentationRejected);
 			return 0;
 		}
@@ -184,12 +207,14 @@ extern "C"
 		}
 		catch (...)
 		{
-			ReleaseFrameResources(device, binding.Target, texture, views, frame.Header.ViewCount, true);
+			ReleaseFrameResources(device, binding.Target, textures, frame.Header.TextureCount,
+				views, frame.Header.ViewCount, true);
 			WebXR::SetLastFrameError(WebXR::FrameError::RenderFailed);
 			return 0;
 		}
 
-		ReleaseFrameResources(device, binding.Target, texture, views, frame.Header.ViewCount, true);
+		ReleaseFrameResources(device, binding.Target, textures, frame.Header.TextureCount,
+			views, frame.Header.ViewCount, true);
 		WebXR::SetLastFrameError(WebXR::FrameError::None);
 		return 1;
 #else

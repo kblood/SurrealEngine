@@ -1,7 +1,7 @@
 (function (root) {
 	"use strict";
 
-	const ABI = Object.freeze({ version: 1, headerBytes: 36, viewBytes: 116, maxViews: 2 });
+	const ABI = Object.freeze({ version: 2, headerBytes: 32, viewBytes: 128, maxViews: 2 });
 	const INPUT_ABI = Object.freeze({
 		version: 1, headerBytes: 24, sourceBytes: 112, maxSources: 2,
 		buttons: Object.freeze({ trigger: 0, squeeze: 1, primary: 2, secondary: 3, menu: 4, stickClick: 5 })
@@ -16,6 +16,8 @@
 	let binding = null;
 	let projectionLayer = null;
 	let resetGeneration = 0;
+	let animationFrameHandle = null;
+	let engineLoopOwned = false;
 
 	const status = {
 		phase: "idle",
@@ -25,9 +27,25 @@
 		skippedFrames: 0,
 		inputPackets: 0,
 		lastError: null,
+		lastErrorCode: null,
+		lastErrorStage: null,
 		referenceSpaceType: null,
 		projectionFormat: null,
+		capabilities: null,
 	};
+
+	class WebXRProviderError extends Error {
+		constructor(code, stage, message) {
+			super(message);
+			this.name = "WebXRProviderError";
+			this.code = code;
+			this.stage = stage;
+		}
+	}
+
+	function providerError(code, stage, message) {
+		return new WebXRProviderError(code, stage, message);
+	}
 
 	function log(message) {
 		if (typeof root.surrealXRLog === "function") root.surrealXRLog(message);
@@ -171,51 +189,68 @@
 		}
 	}
 
-	function arrayLayerOf(subImage, fallback) {
-		const descriptor = subImage && typeof subImage.getViewDescriptor === "function" ?
-			subImage.getViewDescriptor() : null;
-		return (descriptor && descriptor.baseArrayLayer) ?? subImage.arrayLayer ??
-			subImage.textureArrayLayer ?? subImage.imageIndex ?? fallback;
+	function frameViewData(view, image, textures) {
+		if (!image || !image.colorTexture || typeof image.getViewDescriptor !== "function")
+			throw providerError("invalid-projection-subimage", "frame", "WebXR returned an incomplete projection subimage");
+		const texture = image.colorTexture;
+		const descriptor = image.getViewDescriptor();
+		const width = texture.width;
+		const height = texture.height;
+		const arrayLayer = descriptor && descriptor.baseArrayLayer !== undefined ?
+			descriptor.baseArrayLayer : 0;
+		if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0 ||
+			!Number.isInteger(arrayLayer) || arrayLayer < 0 ||
+			(descriptor && descriptor.arrayLayerCount !== undefined && descriptor.arrayLayerCount !== 1))
+			throw providerError("invalid-projection-subimage", "frame", "WebXR returned invalid projection texture metadata");
+		let textureIndex = textures.indexOf(texture);
+		if (textureIndex < 0) {
+			textureIndex = textures.length;
+			textures.push(texture);
+		}
+		return { view, image, textureIndex, arrayLayer, width, height };
 	}
 
 	function packFrame(time, pose, currentBinding, layer, currentResetGeneration) {
-		const views = Array.from(pose.views).slice(0, ABI.maxViews);
-		if (views.length === 0) return null;
-		const subImages = views.map(view => currentBinding.getViewSubImage(layer, view));
-		const colorTexture = subImages[0].colorTexture;
-		if (!colorTexture || subImages.some(image => image.colorTexture !== colorTexture))
-			throw new Error("WebXR views did not share one projection color texture");
-
-		const width = colorTexture.width;
-		const height = colorTexture.height;
+		const views = Array.from(pose.views);
+		if (views.length !== ABI.maxViews || views[0].eye === views[1].eye ||
+			!views.some(view => view.eye === "left") || !views.some(view => view.eye === "right"))
+			throw providerError("unsupported-view-configuration", "frame",
+				"WebXR immersive VR requires exactly one left and one right primary view");
+		const textures = [];
+		const packedViews = views.map(function (view) {
+			return frameViewData(view, currentBinding.getViewSubImage(layer, view), textures);
+		});
 		const packet = new Uint8Array(ABI.headerBytes + views.length * ABI.viewBytes);
 		const data = new DataView(packet.buffer);
 		data.setUint32(0, ABI.version, true);
 		data.setUint32(4, packet.byteLength, true);
 		data.setUint32(8, views.length, true);
-		data.setUint32(12, 0, true);
+		data.setUint32(12, textures.length, true);
 		data.setFloat64(16, time, true);
 		data.setUint32(24, currentResetGeneration, true);
-		data.setUint32(28, width, true);
-		data.setUint32(32, height, true);
+		data.setUint32(28, 0, true);
 
-		views.forEach(function (view, index) {
-			const image = subImages[index];
-			const viewport = image.viewport || { x: 0, y: 0, width: width, height: height };
+		packedViews.forEach(function (packedView, index) {
+			const view = packedView.view;
+			const viewport = packedView.image.viewport ||
+				{ x: 0, y: 0, width: packedView.width, height: packedView.height };
 			const transform = view.transform;
 			const base = ABI.headerBytes + index * ABI.viewBytes;
 			data.setUint32(base, view.eye === "left" ? 1 : (view.eye === "right" ? 2 : 0), true);
-			data.setUint32(base + 4, arrayLayerOf(image, index), true);
-			data.setInt32(base + 8, viewport.x, true);
-			data.setInt32(base + 12, viewport.y, true);
-			data.setInt32(base + 16, viewport.width, true);
-			data.setInt32(base + 20, viewport.height, true);
-			writeArray(data, base + 24, [transform.position.x, transform.position.y, transform.position.z]);
-			writeArray(data, base + 36, [transform.orientation.x, transform.orientation.y,
+			data.setUint32(base + 4, packedView.textureIndex, true);
+			data.setUint32(base + 8, packedView.arrayLayer, true);
+			data.setUint32(base + 12, packedView.width, true);
+			data.setUint32(base + 16, packedView.height, true);
+			data.setInt32(base + 20, viewport.x, true);
+			data.setInt32(base + 24, viewport.y, true);
+			data.setInt32(base + 28, viewport.width, true);
+			data.setInt32(base + 32, viewport.height, true);
+			writeArray(data, base + 36, [transform.position.x, transform.position.y, transform.position.z]);
+			writeArray(data, base + 48, [transform.orientation.x, transform.orientation.y,
 				transform.orientation.z, transform.orientation.w]);
-			writeArray(data, base + 52, view.projectionMatrix);
+			writeArray(data, base + 64, view.projectionMatrix);
 		});
-		return { packet: packet, colorTexture: colorTexture };
+		return { packet, textures };
 	}
 
 	function renderFrame(time, frame) {
@@ -224,34 +259,49 @@
 		if (!pose) return false;
 		const packed = packFrame(time, pose, binding, projectionLayer, resetGeneration);
 		if (!packed) return false;
-		root.surrealWebXRFrameTexture = packed.colorTexture;
+		root.surrealWebXRFrameTextures = packed.textures;
 		try {
 			const rendered = moduleCall("Surreal_RenderWebXRFrame", "number", ["array", "number"],
 				[packed.packet, packed.packet.byteLength]);
 			if (rendered !== 1) {
 				const error = moduleCall("Surreal_GetWebXRFrameLastError", "number");
-				throw new Error("native WebXR frame bridge rejected the frame (error=" + error + ")");
+				throw providerError("native-frame-rejected-" + error, "frame",
+					"native WebXR frame bridge rejected the frame (error=" + error + ")");
 			}
 			return true;
 		} finally {
-			root.surrealWebXRFrameTexture = null;
+			root.surrealWebXRFrameTextures = null;
 		}
 	}
 
 	function finish(generation, phase, error) {
 		if (generation !== activeGeneration) return false;
 		submitNeutralInput(0, false);
+		const finishedSession = session;
+		const pendingFrame = animationFrameHandle;
+		const errorStage = error ? (error.stage || status.phase) : null;
 		activeGeneration = 0;
 		enterPending = false;
+		animationFrameHandle = null;
+		if (finishedSession && pendingFrame !== null &&
+			typeof finishedSession.cancelAnimationFrame === "function") {
+			try { finishedSession.cancelAnimationFrame(pendingFrame); } catch (_) {}
+		}
 		session = null;
 		referenceSpace = null;
 		binding = null;
 		projectionLayer = null;
-		try { setEngineLoop(false); } catch (_) {}
+		root.surrealWebXRFrameTextures = null;
+		if (engineLoopOwned) {
+			try { setEngineLoop(false); } catch (_) {}
+			engineLoopOwned = false;
+		}
 		resetNativePose();
 		status.phase = phase || "ended";
 		status.active = false;
-		status.lastError = error ? String(error) : null;
+		status.lastError = error ? String(error.message || error) : null;
+		status.lastErrorCode = error ? (error.code || "webxr-provider-failed") : null;
+		status.lastErrorStage = errorStage;
 		if (error) log("WebXR session failed: " + error);
 		return true;
 	}
@@ -270,13 +320,15 @@
 	function onFrame(generation, time, frame) {
 		if (generation !== activeGeneration || !session) return;
 		try {
-			session.requestAnimationFrame(function (nextTime, nextFrame) {
+			animationFrameHandle = session.requestAnimationFrame(function (nextTime, nextFrame) {
+				animationFrameHandle = null;
 				onFrame(generation, nextTime, nextFrame);
 			});
 			if (renderFrame(time, frame)) status.frames++;
 			else status.skippedFrames++;
 		} catch (error) {
-			fail(generation, error);
+			fail(generation, error instanceof WebXRProviderError ? error :
+				providerError("frame-failed", "frame", error.message || String(error)));
 		}
 	}
 
@@ -288,11 +340,42 @@
 		}
 	}
 
+	root.surrealXRGetCapabilities = async function () {
+		const hasCurrentBinding = typeof root.XRGPUBinding === "function";
+		const hasLegacyBinding = typeof root.XRWebGPUBinding === "function";
+		const result = {
+			secureContext: root.isSecureContext !== false,
+			webXR: !!(root.navigator && root.navigator.xr),
+			immersiveVR: false,
+			webGPUBinding: hasCurrentBinding,
+			webGPUBindingName: hasCurrentBinding ? "XRGPUBinding" :
+				(hasLegacyBinding ? "XRWebGPUBinding (obsolete)" : null),
+			legacyWebGPUBinding: hasLegacyBinding,
+			webGPUDevice: !!webGPUDevice(),
+			webGPUDeviceXRCompatible: root.surrealWebGPUDeviceXRCompatible === true,
+			supported: false,
+			reasons: [],
+		};
+		if (!result.secureContext) result.reasons.push("secure-context-required");
+		if (!result.webXR) result.reasons.push("webxr-unavailable");
+		if (!result.webGPUBinding)
+			result.reasons.push(hasLegacyBinding ? "obsolete-webgpu-binding-api" : "webxr-webgpu-binding-unavailable");
+		if (!result.webGPUDevice) result.reasons.push("webgpu-device-not-ready");
+		else if (!result.webGPUDeviceXRCompatible) result.reasons.push("webgpu-device-not-xr-compatible");
+		if (result.webXR && typeof root.navigator.xr.isSessionSupported === "function") {
+			try { result.immersiveVR = await root.navigator.xr.isSessionSupported("immersive-vr"); }
+			catch (_) { result.reasons.push("immersive-vr-query-failed"); }
+		}
+		if (!result.immersiveVR && !result.reasons.includes("immersive-vr-query-failed"))
+			result.reasons.push("immersive-vr-unavailable");
+		result.supported = result.secureContext && result.webXR && result.immersiveVR &&
+			result.webGPUBinding && result.webGPUDevice && result.webGPUDeviceXRCompatible;
+		status.capabilities = Object.assign({}, result, { reasons: result.reasons.slice() });
+		return Object.assign({}, result, { reasons: result.reasons.slice() });
+	};
+
 	root.surrealXRIsSupported = async function () {
-		if (!root.navigator || !root.navigator.xr || typeof root.navigator.xr.isSessionSupported !== "function")
-			return false;
-		try { return await root.navigator.xr.isSessionSupported("immersive-vr"); }
-		catch (_) { return false; }
+		return (await root.surrealXRGetCapabilities()).supported;
 	};
 
 	root.surrealXRIsColorFormatSupported = function (format) {
@@ -302,13 +385,25 @@
 	root.surrealXREnter = async function () {
 		if (session || enterPending) return false;
 		let preflightError = null;
-		if (!root.navigator || !root.navigator.xr) preflightError = "WebXR is unavailable";
-		else if (typeof root.XRGPUBinding !== "function") preflightError = "XRGPUBinding is unavailable";
-		else if (!webGPUDevice()) preflightError = "SurrealEngine WebGPU device is not ready";
+		if (root.isSecureContext === false)
+			preflightError = providerError("secure-context-required", "preflight", "WebXR requires a secure context");
+		else if (!root.navigator || !root.navigator.xr)
+			preflightError = providerError("webxr-unavailable", "preflight", "WebXR is unavailable");
+		else if (typeof root.XRGPUBinding !== "function")
+			preflightError = providerError("webxr-webgpu-binding-unavailable", "preflight",
+				"XRGPUBinding is unavailable; this browser does not expose the draft WebXR/WebGPU binding");
+		else if (!webGPUDevice())
+			preflightError = providerError("webgpu-device-not-ready", "preflight",
+				"SurrealEngine WebGPU device is not ready");
+		else if (root.surrealWebGPUDeviceXRCompatible !== true)
+			preflightError = providerError("webgpu-device-not-xr-compatible", "preflight",
+				"SurrealEngine WebGPU device was not acquired from an XR-compatible adapter");
 		if (preflightError) {
 			status.phase = "error";
-			status.lastError = preflightError;
-			log(preflightError);
+			status.lastError = preflightError.message;
+			status.lastErrorCode = preflightError.code;
+			status.lastErrorStage = preflightError.stage;
+			log(preflightError.message);
 			return false;
 		}
 
@@ -321,11 +416,19 @@
 		status.skippedFrames = 0;
 		status.inputPackets = 0;
 		status.lastError = null;
+		status.lastErrorCode = null;
+		status.lastErrorStage = null;
+		status.referenceSpaceType = null;
+		status.projectionFormat = null;
 		let requestedSession = null;
 		try {
-			requestedSession = await root.navigator.xr.requestSession("immersive-vr", {
-				requiredFeatures: ["webgpu"], optionalFeatures: ["local-floor"]
-			});
+			try {
+				requestedSession = await root.navigator.xr.requestSession("immersive-vr", {
+					requiredFeatures: ["webgpu"], optionalFeatures: ["local-floor"]
+				});
+			} catch (error) {
+				throw providerError("session-request-failed", "requesting-session", error.message || String(error));
+			}
 			if (generation !== activeGeneration) {
 				await requestedSession.end();
 				return false;
@@ -338,14 +441,29 @@
 			session.addEventListener("visibilitychange", function () {
 				if (generation === activeGeneration && !isActionFocused(session)) submitCurrentInput(0);
 			});
-			binding = new root.XRGPUBinding(session, webGPUDevice());
+			status.phase = "creating-binding";
+			try { binding = new root.XRGPUBinding(session, webGPUDevice()); }
+			catch (error) {
+				throw providerError("binding-creation-failed", "creating-binding", error.message || String(error));
+			}
 			const projectionFormat = binding.getPreferredColorFormat();
 			if (!root.surrealXRIsColorFormatSupported(projectionFormat))
-				throw new Error("unsupported WebXR projection color format: " + projectionFormat);
+				throw providerError("unsupported-color-format", "creating-projection-layer",
+					"unsupported WebXR projection color format: " + projectionFormat);
 			status.projectionFormat = projectionFormat;
-			projectionLayer = binding.createProjectionLayer({ colorFormat: projectionFormat, scaleFactor: 1 });
-			await session.updateRenderState({ layers: [projectionLayer] });
-			const reference = await requestReference(session);
+			status.phase = "creating-projection-layer";
+			try {
+				projectionLayer = binding.createProjectionLayer({ colorFormat: projectionFormat, scaleFactor: 1 });
+				session.updateRenderState({ layers: [projectionLayer] });
+			} catch (error) {
+				throw providerError("projection-layer-failed", "creating-projection-layer", error.message || String(error));
+			}
+			status.phase = "requesting-reference-space";
+			let reference;
+			try { reference = await requestReference(session); }
+			catch (error) {
+				throw providerError("reference-space-failed", "requesting-reference-space", error.message || String(error));
+			}
 			if (generation !== activeGeneration) return false;
 			referenceSpace = reference.space;
 			status.referenceSpaceType = reference.type;
@@ -357,11 +475,18 @@
 			}
 			resetNativePose();
 			submitNeutralInput(0, true);
-			if (!setEngineLoop(true)) throw new Error("engine rejected WebXR frame-loop ownership");
+			status.phase = "starting-frame-loop";
+			if (!setEngineLoop(true))
+				throw providerError("engine-loop-rejected", "starting-frame-loop",
+					"engine rejected WebXR frame-loop ownership");
+			engineLoopOwned = true;
 			enterPending = false;
 			status.phase = "running";
 			status.active = true;
-			session.requestAnimationFrame(function (time, frame) { onFrame(generation, time, frame); });
+			animationFrameHandle = session.requestAnimationFrame(function (time, frame) {
+				animationFrameHandle = null;
+				onFrame(generation, time, frame);
+			});
 			return true;
 		} catch (error) {
 			fail(generation, error);
@@ -384,7 +509,13 @@
 		}
 	};
 
-	root.surrealXRGetState = function () { return Object.assign({}, status); };
+	root.surrealXRGetState = function () {
+		const result = Object.assign({}, status);
+		if (status.capabilities)
+			result.capabilities = Object.assign({}, status.capabilities,
+				{ reasons: status.capabilities.reasons.slice() });
+		return result;
+	};
 	root.surrealXRFrameABI = ABI;
 	root.surrealXRInputABI = INPUT_ABI;
 	root.surrealXRPackInputSnapshot = packInputSnapshot;

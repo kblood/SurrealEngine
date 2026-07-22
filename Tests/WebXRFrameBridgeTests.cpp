@@ -17,17 +17,18 @@ namespace
 		WebXR::PackedFrameHeader header = {};
 		header.Version = WebXR::FrameABIVersion;
 		header.ViewCount = 2;
+		header.TextureCount = 2;
 		header.ByteSize = sizeof(header) + header.ViewCount * sizeof(WebXR::PackedView);
 		header.Timestamp = 12.5;
 		header.ResetGeneration = 4;
-		header.TextureWidth = 1024;
-		header.TextureHeight = 1024;
 
 		WebXR::PackedView views[2] = {};
 		for (uint32_t index = 0; index < 2; index++)
 		{
 			views[index].Eye = index + 1;
-			views[index].ArrayLayer = index;
+			views[index].TextureIndex = index;
+			views[index].TextureWidth = 1024;
+			views[index].TextureHeight = 1024;
 			views[index].ViewportWidth = 1024;
 			views[index].ViewportHeight = 1024;
 			views[index].Position[0] = index == 0 ? -0.032f : 0.032f;
@@ -53,7 +54,8 @@ int main()
 	WebXR::FrameError error;
 	if (!WebXR::DecodeFrame(bytes.data(), static_cast<uint32_t>(bytes.size()), decoded, error))
 		return 1;
-	if (decoded.Header.ViewCount != 2 || decoded.Views[1].ArrayLayer != 1)
+	if (decoded.Header.ViewCount != 2 || decoded.Header.TextureCount != 2 ||
+		decoded.Views[1].TextureIndex != 1)
 		return 2;
 
 	WebXR::RecenterState recenter;
@@ -85,6 +87,22 @@ int main()
 	if (WebXR::DecodeFrame(invalid.data(), static_cast<uint32_t>(invalid.size()), decoded, error) ||
 		error != WebXR::FrameError::InvalidHeader)
 		return 8;
+
+	invalid = bytes;
+	auto* duplicateEyes = reinterpret_cast<WebXR::PackedView*>(
+		invalid.data() + sizeof(WebXR::PackedFrameHeader));
+	duplicateEyes[1].Eye = static_cast<uint32_t>(WebXR::Eye::Left);
+	if (WebXR::DecodeFrame(invalid.data(), static_cast<uint32_t>(invalid.size()), decoded, error) ||
+		error != WebXR::FrameError::InvalidView)
+		return 9;
+
+	invalid = bytes;
+	auto* invalidTexture = reinterpret_cast<WebXR::PackedView*>(
+		invalid.data() + sizeof(WebXR::PackedFrameHeader));
+	invalidTexture[1].TextureIndex = 2;
+	if (WebXR::DecodeFrame(invalid.data(), static_cast<uint32_t>(invalid.size()), decoded, error) ||
+		error != WebXR::FrameError::InvalidView)
+		return 10;
 
 	std::cout << "WebXR packed frame and view-family tests passed\n";
 	return 0;

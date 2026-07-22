@@ -57,12 +57,11 @@
 	});
 
 	async function refreshXRAvailability() {
-		const supported = await window.surrealXRIsSupported();
-		const binding = typeof window.XRGPUBinding === "function";
-		enterButton.disabled = !(supported && binding && window.surrealBooted);
-		statusElement.textContent = supported ?
-			(binding ? "WebXR/WebGPU ready" : "WebXR found, but XRGPUBinding is unavailable") :
-			"Immersive WebXR is unavailable; flat WebGPU remains active";
+		const capabilities = await window.surrealXRGetCapabilities();
+		enterButton.disabled = !(capabilities.supported && window.surrealBooted);
+		statusElement.textContent = capabilities.supported ? "WebXR/WebGPU ready" :
+			("WebXR/WebGPU unavailable (" + capabilities.reasons.join(", ") +
+			"); flat WebGPU remains active");
 	}
 
 	enterButton.addEventListener("click", async function () {
@@ -96,6 +95,7 @@
 			function (feature) { return adapter.features.has(feature); });
 		const device = await adapter.requestDevice({ requiredFeatures: requiredFeatures });
 		window.surrealWebGPUDevice = device;
+		window.surrealWebGPUDeviceXRCompatible = true;
 		device.lost.then(function (info) { appendLog("[harness] WebGPU device lost: " + info.message); });
 		window.surrealWebGPUErrorCount = 0;
 		device.addEventListener("uncapturederror", function (event) {

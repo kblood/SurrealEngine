@@ -76,15 +76,18 @@ bool WebXR::DecodeFrame(const void* frameData, uint32_t bufferBytes, DecodedFram
 	std::memcpy(&result.Header, frameData, sizeof(PackedFrameHeader));
 	const PackedFrameHeader& header = result.Header;
 	if (header.Version != FrameABIVersion || header.Flags != 0 ||
-		header.ViewCount == 0 || header.ViewCount > MaxViews ||
+		header.ViewCount != MaxViews || header.TextureCount == 0 ||
+		header.TextureCount > header.ViewCount ||
 		header.ByteSize != bufferBytes ||
 		header.ByteSize != sizeof(PackedFrameHeader) + header.ViewCount * sizeof(PackedView) ||
-		header.TextureWidth == 0 || header.TextureHeight == 0 || !std::isfinite(header.Timestamp))
+		!std::isfinite(header.Timestamp))
 	{
 		error = FrameError::InvalidHeader;
 		return false;
 	}
 
+	bool texturesUsed[MaxViews] = {};
+	bool eyesUsed[static_cast<uint32_t>(Eye::Right) + 1] = {};
 	const uint8_t* bytes = static_cast<const uint8_t*>(frameData) + sizeof(PackedFrameHeader);
 	for (uint32_t index = 0; index < header.ViewCount; index++)
 	{
@@ -93,14 +96,27 @@ bool WebXR::DecodeFrame(const void* frameData, uint32_t bufferBytes, DecodedFram
 		const float lengthSquared = view.Orientation[0] * view.Orientation[0] +
 			view.Orientation[1] * view.Orientation[1] + view.Orientation[2] * view.Orientation[2] +
 			view.Orientation[3] * view.Orientation[3];
-		if (view.Eye > static_cast<uint32_t>(Eye::Right) || view.ViewportX < 0 || view.ViewportY < 0 ||
+		if (view.Eye < static_cast<uint32_t>(Eye::Left) ||
+			view.Eye > static_cast<uint32_t>(Eye::Right) || eyesUsed[view.Eye] ||
+			view.TextureIndex >= header.TextureCount || view.TextureWidth == 0 || view.TextureHeight == 0 ||
+			view.ViewportX < 0 || view.ViewportY < 0 ||
 			view.ViewportWidth <= 0 || view.ViewportHeight <= 0 ||
-			static_cast<uint32_t>(view.ViewportWidth) > header.TextureWidth ||
-			static_cast<uint32_t>(view.ViewportHeight) > header.TextureHeight ||
-			static_cast<uint32_t>(view.ViewportX) > header.TextureWidth - static_cast<uint32_t>(view.ViewportWidth) ||
-			static_cast<uint32_t>(view.ViewportY) > header.TextureHeight - static_cast<uint32_t>(view.ViewportHeight) ||
+			static_cast<uint32_t>(view.ViewportWidth) > view.TextureWidth ||
+			static_cast<uint32_t>(view.ViewportHeight) > view.TextureHeight ||
+			static_cast<uint32_t>(view.ViewportX) > view.TextureWidth - static_cast<uint32_t>(view.ViewportWidth) ||
+			static_cast<uint32_t>(view.ViewportY) > view.TextureHeight - static_cast<uint32_t>(view.ViewportHeight) ||
 			!IsFiniteArray(view.Position, 3) || !IsFiniteArray(view.Orientation, 4) ||
 			!IsFiniteArray(view.Projection, 16) || !std::isfinite(lengthSquared) || lengthSquared < 0.000001f)
+		{
+			error = FrameError::InvalidView;
+			return false;
+		}
+		eyesUsed[view.Eye] = true;
+		texturesUsed[view.TextureIndex] = true;
+	}
+	for (uint32_t index = 0; index < header.TextureCount; index++)
+	{
+		if (!texturesUsed[index])
 		{
 			error = FrameError::InvalidView;
 			return false;
