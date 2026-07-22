@@ -957,3 +957,56 @@ JavaScript syntax, Python parse, Emscripten build, native build, and diff checks
 all passed. Physical headset work still owns compositor presentation, real
 visibility transitions, sleep/wake, five-minute M6 stability, and the 60-minute
 M11 soak.
+
+## M8 packed controller/input checkpoint — PASS IN AUTOMATION (2026-07-22)
+
+Commit `737916e5` upgrades the single-copy frame contract from ABI v1 to v2.
+The header is now 44 bytes, each view remains 116 bytes, and up to two 128-byte
+controller records follow the view array (532 bytes for stereo plus two hands).
+Each record carries stable per-session source identity, handedness, connection/
+mapping/pose flags, pressed and touched masks, four axes, eight analog button
+values, and raw reference-space grip and aim poses.
+
+The native decoder validates exact offsets/counts/size, known flags, finite
+ranges, unique connected source IDs, and valid pose quaternions before changing
+state. A valid zero-source packet publishes an empty new generation. The
+aligned latest-state exchange normalizes handed sources into fixed slots,
+replaces the whole prior snapshot, and is published before
+`AdvanceGameFrame()` so `UpdateInput()` consumes it in the same simulation
+tick. Pose/session reset also publishes an empty snapshot.
+
+The browser collector tracks `session.inputSources` plus
+`inputsourceschange`, assigns stable IDs with a per-session `WeakMap`, and
+copies the live gamepad arrays every XR RAF. It applies a radial 0.15 dead zone
+to each axis pair, preserves X, flips Web Gamepad Y to positive-forward/up,
+clamps buttons/triggers, normalizes valid quaternions, and never retains XR
+poses or mutable gamepad data after the callback. `xr-standard` keeps its
+touchpad 0/1 and thumbstick 2/3 slots; generic sources have a deterministic
+fallback.
+
+Commit `b67c7083` consumes each input generation exactly once in the engine.
+It keeps explicit per-controller analog and tracked-pose state while mapping
+left buttons 0–5 to `Joy1`–`Joy6`, right buttons 0–5 to `Joy7`–`Joy12`, and
+the two thumbsticks to `JoyX/Y/U/V`. Button edges and disconnect releases flow
+through the existing `InputEvent`/keybinding system. A float axis path avoids
+quantizing normalized stick input; flatscreen behavior is unchanged.
+
+Validation evidence:
+
+- JavaScript ABI diagnostic: 44/44 checks, 532-byte maximum packet;
+- copied input collector: 37/37 checks, including in-place live-object
+  mutation, stable IDs, dead-zone/sign normalization, source removal, and
+  empty clearing;
+- C++ state self-test: pass;
+- packed stereo render: one published and processed generation, two sources,
+  synthesized held mask `129`, axes `[0.25, 0.75, -0.5, 0.25]`, triggers
+  `[0.6, 0.9]`, pose flags `[4, 7]`, and zero GPU errors;
+- default and experimental Playwright/IWER suites: pass;
+- ordinary WebGPU: 60.0 ticks/s, 95 draws, zero GPU errors, clean quit; and
+- native Windows Debug and Emscripten builds: pass.
+
+This is not M8 exit. Remaining work is a shipped/remappable Quest default
+layout, locomotion and turn behavior, controller-driven menu/recenter/exit,
+world-space hand composition, controller-aim firing/projectile/weapon hooks,
+haptics, optional input-profile labels/models, and physical headset tests for
+disconnect/reconnect, handedness changes, focus loss, and session re-entry.

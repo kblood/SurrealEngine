@@ -74,7 +74,7 @@ XRSession.requestAnimationFrame
 | M5 — frame/view refactor | Complete (diagnostic projections) | One simulation tick now renders two independently selected texture-array layers; real `XRView` data starts M6 |
 | M6 — native WebGPU XR session | Implementation complete; headset validation gated | Packed ABI, preferred-format pipeline families, synchronous renderer, and hardened production session/RAF lifecycle are implemented; real `XRGPUBinding` compositor presentation still requires a supported runtime |
 | M7 — tracking/camera/world scale | Deterministic implementation complete; headset validation gated | 6DoF pose conversion, body/head composition, recentering, world scale, and exact per-eye projection are implemented; physical scale and scene correctness remain to validate |
-| M8 — controller input/gameplay | Not started | Motion controllers, locomotion, weapon aim, haptics |
+| M8 — controller input/gameplay | In progress | ABI v2 controller collection, tracked poses, analog state, edge-safe UE1 joystick mapping, and disconnect clearing are implemented; bindings, locomotion, weapon aim, haptics, and headset validation remain |
 | M9 — UI/comfort/VR presentation | Not started | HUD, menus, weapon model, recenter and comfort controls |
 | M10 — audio/data/network/deploy | In progress | Real OpenAL/Web Audio output, gesture/lifecycle policy, and redistributable no-data builds work; importer, persistence, deployment, networking scope, and head-pose listener remain |
 | M11 — performance/robustness/release | In progress | Automated session-generation, visibility, setup-failure, shutdown, and device-loss coverage exists; Quest profiling, headset lifecycle, compatibility, and release gates remain |
@@ -267,18 +267,21 @@ color presentation is correct.
 
 ### 8.3 Per-frame bridge data
 
-The versioned POD structure shared by JS and C++ is complete as M6 ABI v1:
+The versioned POD structure shared by JS and C++ was introduced as M6 ABI v1
+and is now M8 ABI v2:
 
 - frame timestamp and view count;
 - reference-space/reset generation;
 - per view: eye/index, position, orientation, 4x4 projection matrix, viewport,
   texture base-array-layer, color dimensions;
-- optional controller state offsets reserved for M8.
+- per controller: stable source ID, handedness/validity flags, button masks,
+  analog axes/values, and grip/aim poses.
 
-The packed layout is a 36-byte header plus 116 bytes per view (268 bytes for
-stereo). C++ `static_assert`s every size/critical offset; JS performs 18
-deterministic offset/value checks and Playwright compares the native-reported
-version and strides before using the bridge.
+The current packed layout is a 44-byte header, 116 bytes per view, and 128
+bytes per input source (532 bytes for stereo plus two controllers). C++
+`static_assert`s every size/critical offset; JS performs 44 deterministic
+offset/value checks and Playwright compares all native-reported strides before
+using the bridge.
 
 Write it into WASM memory in one operation per XR frame. Avoid dozens of
 `ccall`s and avoid retaining JavaScript XR objects beyond the callback. Keep
@@ -504,17 +507,28 @@ tracking jumps, and ten-minute comfort on the target headset.
 
 ## 11. M8 — controllers, locomotion, weapon interaction, and haptics
 
+The first M8 slice landed on 2026-07-22. ABI v2 appends up to two fixed-size
+controller records to the same per-frame packet as the views, so the browser
+still performs one synchronous WASM handoff. Browser and native deterministic
+tests cover copied live state, stable source IDs, normalization, poses,
+disconnect clearing, packet validation, and exactly-once engine consumption.
+
 ### 11.1 Browser input collection
 
-- Track `session.inputSources` and `inputsourceschange`; key sources by
+- **Implemented:** track `session.inputSources` and `inputsourceschange`; key
+  sources by
   handedness plus stable per-session identity.
-- Read aim pose from `targetRaySpace`, grip pose from `gripSpace`, and controller
-  buttons/axes from the source's live `gamepad` each XR frame.
-- Require/understand `xr-standard` mapping and use WebXR Input Profiles for
-  controller-specific labels/models and robust generic fallback.
-- Copy button/axis values each frame because WebXR gamepad objects update live
-  in place; edge detection cannot compare the same retained object.
-- Normalize dead zones, axis signs, trigger thresholds, and handedness in JS,
+- **Implemented:** read aim pose from `targetRaySpace`, grip pose from
+  `gripSpace`, and controller buttons/axes from the source's live `gamepad`
+  each XR frame.
+- **Partial:** understand and flag `xr-standard`; use its fixed touchpad/stick
+  axis slots with a deterministic generic fallback. WebXR Input Profiles are
+  still needed for controller-specific labels/models.
+- **Implemented and tested:** copy button/axis values each frame because WebXR
+  gamepad objects update live in place; edge detection cannot compare the same
+  retained object.
+- **Implemented:** normalize a radial 0.15 dead zone, axis ranges/signs,
+  button/trigger ranges, and handedness in JS,
   then send one POD input block with the view state.
 
 ### 11.2 Engine input mapping
@@ -533,6 +547,23 @@ Provide a remappable default Quest layout:
 Synthesize existing `EInputKey`/axis events where semantics match, but add an
 explicit VR input state for tracked poses and analog trigger values. Do not
 force spatial data through integer keyboard events.
+
+Current implementation:
+
+- publishes a full replacement snapshot before `AdvanceGameFrame()` so the
+  same simulation tick consumes the controller state;
+- normalizes left/right sources into stable engine slots and retains raw
+  reference-space grip/aim poses plus eight analog button values per hand;
+- maps left buttons 0–5 to `Joy1`–`Joy6`, right buttons 0–5 to
+  `Joy7`–`Joy12`, and thumbsticks to `JoyX/Y/U/V` with correct edge/release
+  behavior through the existing remappable keybinding layer; and
+- publishes an empty new generation on disconnect/session reset so no held
+  button or axis can stick.
+
+Still missing in this subsection: ship a documented default Quest binding,
+implement snap/smooth turn and head/hand-relative locomotion policy, connect
+menu/recenter/exit actions without using reserved system buttons, and validate
+source loss/reconnect and handedness changes on a headset.
 
 ### 11.3 Weapon aiming
 
@@ -802,8 +833,9 @@ Release candidates require:
 6. Run the real projection-layer and tracked-pose path on a supported physical headset/browser;
    in parallel, determine whether the public Chromium WebXR Test API can provide
    a native automated session.
-7. Implement M8's versioned packed controller block and input-source lifecycle,
-   then engine mappings, locomotion, weapon aiming, and haptics.
+7. **In progress:** ABI v2 controller records, copied input-source lifecycle,
+   tracked-pose/analog state, and remappable UE1 joystick mapping are complete.
+   Next add default bindings, locomotion/turn policy, weapon aiming, and haptics.
 8. Implement M9 HUD/menus, weapon presentation, recenter UX, and comfort options.
 9. Finish M10 importer/persistence/launcher/deploy and make the explicit
    networking product decision; wire the listener to tracked head pose.
