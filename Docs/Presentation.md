@@ -9,6 +9,10 @@ The renderer exposes provider-neutral view and presentation contracts. `ViewFami
 
 Slot zero is always the render device's ordinary window target. Missing mappings resolve to an enabled layer on slot zero, so the default desktop path retains its original draw order and output. A presentation-aware render device may register and interpret non-zero, family-local slots without putting OpenXR, WebXR, or native graphics handles in engine code. Backends that do not implement external targets safely reject non-zero slots.
 
+`PresentationTargetBinding` is the provider-neutral registration payload for a non-zero slot. It carries an array of opaque image handles and their extents. The provider retains acquire/release ownership, while only the selected render backend interprets each handle. This shape supports native swapchain images as well as browser-owned WebGPU/WebXR textures without either provider type entering `ViewFamily`.
+
+For multi-view output, `BeginPresentationView(target, viewIndex)` and `EndPresentationView` bracket each world view. A backend can use the index to select an OpenXR eye image or a WebXR texture-array layer. Default render devices accept views only on slot zero, preserving the one-window path.
+
 `RenderSubsystem` brackets each logical layer with `BeginPresentationLayer` and `EndPresentationLayer`. The existing callback order is unchanged: UI `PreRender`, world, weapon overlays, UI `PostRender`. Video playback uses the cinematic layer. These calls identify ownership and target selection; they do not yet prescribe compositor blending or resource lifetime.
 
 ## Multi-view diagnostic

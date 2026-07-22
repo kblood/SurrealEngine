@@ -26,6 +26,22 @@ struct PresentationTarget
 	bool operator==(const PresentationTarget&) const = default;
 };
 
+// Opaque images are registered for a target slot by the provider that owns
+// their acquire/release lifecycle. The render backend alone interprets the
+// native handles; engine and presentation code only route the slot.
+struct PresentationTargetImage
+{
+	void* NativeHandle = nullptr;
+	int Width = 0;
+	int Height = 0;
+};
+
+struct PresentationTargetBinding
+{
+	PresentationTarget Target;
+	Array<PresentationTargetImage> Images;
+};
+
 struct PresentationLayerDescription
 {
 	PresentationLayer Layer = PresentationLayer::World;

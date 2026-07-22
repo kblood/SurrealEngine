@@ -65,9 +65,17 @@ void RenderSubsystem::DrawScene(const ViewFamily& viewFamily)
 	if (!PrepareSceneViews())
 		return;
 
-	for (const ViewDescription& view : viewFamily.Views)
+	PresentationTarget target = viewFamily.Presentation.GetLayer(PresentationLayer::World).Target;
+	for (size_t viewIndex = 0; viewIndex < viewFamily.Views.size(); viewIndex++)
 	{
+		const ViewDescription& view = viewFamily.Views[viewIndex];
 		if (view.Viewport.Width > 0 && view.Viewport.Height > 0)
-			DrawSceneView(view);
+		{
+			if (Device->BeginPresentationView(target, viewIndex))
+			{
+				DrawSceneView(view);
+				Device->EndPresentationView(target, viewIndex);
+			}
+		}
 	}
 }
