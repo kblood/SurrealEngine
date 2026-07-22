@@ -184,10 +184,14 @@
 			if (!requested) throw new ImportError("UNSUPPORTED_GAME", "That game is not supported by this browser build.");
 			return requested;
 		}
+		const ut = GAME_DEFINITIONS.ut99;
+		const utEvidence = paths.has("system/unrealtournament.exe") ||
+			paths.has("system/unrealtournament.ini") || paths.has("system/botpack.u");
+		if (utEvidence) return ut;
 		const unreal = GAME_DEFINITIONS["unreal-gold"];
 		const unrealEvidence = paths.has("system/unreal.exe") || paths.has("system/unreal.ini") ||
 			paths.has("system/unreali.u") || paths.has("system/unrealshare.u");
-		return unrealEvidence ? unreal : GAME_DEFINITIONS.ut99;
+		return unrealEvidence ? unreal : ut;
 	}
 
 	function validateEntries(entries, requestedGameId) {

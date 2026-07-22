@@ -36,6 +36,7 @@ function syntheticEntries() {
 		["System/Core.u", "fake-core"],
 		["System/Engine.u", "fake-engine"],
 		["System/Botpack.u", "fake-botpack"],
+		["System/UnrealShare.u", "fake-shared-unreal-package"],
 		["System/UnrealTournament.ini", "[fake-test-config]"],
 		["System/UnrealTournament.exe", "fake-executable-not-runnable"],
 		["Maps/DM-Synthetic.unr", "fake-map"],
@@ -122,6 +123,7 @@ window.importerTestPromise = (async function () {
 		const validation = api.validateEntries(entries);
 		assert(validation.fileCount === entries.length);
 		assert(validation.totalBytes > 0);
+		assert(validation.gameId === "ut99", "shared Unreal packages overrode title-specific UT markers");
 		assert(reads === 0, "validation read file contents");
 	});
 
