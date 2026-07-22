@@ -128,8 +128,20 @@ int main()
 	atlasViews[0].TextureWidth = atlasViews[1].TextureWidth = 2048;
 	atlasViews[0].ViewportWidth = atlasViews[1].ViewportWidth = 1024;
 	atlasViews[1].ViewportX = 1024;
+	atlasViews[0].Projection[8] = -0.25f;
+	atlasViews[1].Projection[8] = 0.25f;
 	if (!WebXR::DecodeFrame(invalid.data(), static_cast<uint32_t>(invalid.size()), decoded, error))
 		return 13;
+	WebXR::RecenterState atlasRecenter;
+	const ViewFamily atlasFamily = WebXR::BuildViewFamily(decoded, anchor,
+		Coords::Identity(), unitsPerMeter, atlasRecenter);
+	if (atlasFamily.Views.size() != 2 || atlasFamily.Views[0].Viewport.X != 0 ||
+		atlasFamily.Views[0].Viewport.Width != 1024 ||
+		atlasFamily.Views[1].Viewport.X != 1024 ||
+		atlasFamily.Views[1].Viewport.Width != 1024 ||
+		!NearlyEqual(atlasFamily.Views[0].Projection[8], 0.25f) ||
+		!NearlyEqual(atlasFamily.Views[1].Projection[8], -0.25f))
+		return 14;
 
 	std::cout << "WebXR packed frame and view-family tests passed\n";
 	return 0;
