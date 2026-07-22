@@ -79,6 +79,55 @@
 		});
 	}
 
+	function normalizeMapManifest(manifest) {
+		if (!manifest) {
+			return Object.freeze({ state: "unavailable", maps: Object.freeze([]), rejectedCount: 0 });
+		}
+		if (typeof manifest !== "object" ||
+			manifest.schema !== "surrealengine-ut99-map-manifest" || manifest.version !== 1 ||
+			!Array.isArray(manifest.maps) || manifest.maps.length > 8192) {
+			throw launcherError("map-manifest-invalid", "The imported map list is unavailable; manual entry remains available.");
+		}
+		const allowedStates = new Set(["ready", "empty", "unavailable", "cleared", "error"]);
+		if (!allowedStates.has(manifest.state)) {
+			throw launcherError("map-manifest-state", "The imported map list has an unsupported state.");
+		}
+		const candidates = [];
+		let rejectedCount = Number.isSafeInteger(manifest.rejectedCount) && manifest.rejectedCount > 0 ?
+			manifest.rejectedCount : 0;
+		for (const candidate of manifest.maps) {
+			const checked = validateMap(candidate);
+			if (!checked.ok) {
+				rejectedCount++;
+				continue;
+			}
+			candidates.push(checked.value);
+		}
+		candidates.sort((a, b) => {
+			const lowerA = a.toLowerCase();
+			const lowerB = b.toLowerCase();
+			if (lowerA < lowerB) return -1;
+			if (lowerA > lowerB) return 1;
+			return a < b ? -1 : (a > b ? 1 : 0);
+		});
+		const seen = new Set();
+		const maps = [];
+		for (const candidate of candidates) {
+			const key = candidate.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			maps.push(candidate);
+		}
+		let state = manifest.state;
+		if (state === "ready" && !maps.length) state = "empty";
+		if (state !== "ready") maps.length = 0;
+		return Object.freeze({
+			state: state,
+			maps: Object.freeze(maps),
+			rejectedCount: rejectedCount,
+		});
+	}
+
 	function restartURL(value) {
 		const url = new URL(value, global.location && global.location.href ? global.location.href : "http://localhost/");
 		url.searchParams.set("launcher", "1");
@@ -233,6 +282,11 @@
 			this.crash = null;
 			this.launchAttempts = 0;
 			this.logs = [];
+			this.mapRefreshGeneration = 0;
+			this.mapPickerState = this.enabled ? "loading" : "inactive";
+			this.mapInventory = Object.freeze([]);
+			this.mapRejectedCount = 0;
+			this.mapPickerRenderKey = null;
 			this.initialMapError = null;
 			const initialMap = this.query.has("map") ? this.query.get("map") : DEFAULT_MAP;
 			const checked = validateMap(initialMap);
@@ -247,6 +301,8 @@
 			if (!this.root) return;
 			this.mapInput = this.root.querySelector("[data-launcher-map]");
 			this.presetInput = this.root.querySelector("[data-launcher-preset]");
+			this.mapPicker = this.root.querySelector("[data-launcher-map-picker]");
+			this.mapRefreshButton = this.root.querySelector("[data-launcher-map-refresh]");
 			this.startButton = this.root.querySelector("[data-launcher-start]");
 			this.restartButton = this.root.querySelector("[data-launcher-restart]");
 			this.copyButton = this.root.querySelector("[data-launcher-copy]");
@@ -265,6 +321,14 @@
 			if (this.restartButton) this.restartButton.addEventListener("click", () => this.restart());
 			if (this.copyButton) this.copyButton.addEventListener("click", () => this.copyDiagnostics());
 			if (this.downloadButton) this.downloadButton.addEventListener("click", () => this.downloadDiagnostics());
+			if (this.mapRefreshButton) this.mapRefreshButton.addEventListener("click", () => this.refreshMaps());
+			if (this.mapPicker) this.mapPicker.addEventListener("change", () => {
+				if (!this.mapPicker.value || !this.mapInventory.includes(this.mapPicker.value)) return;
+				if (this.mapInput) this.mapInput.value = this.mapPicker.value;
+				this.map = this.mapPicker.value;
+				this.initialMapError = null;
+				this.render();
+			});
 			if (this.mapInput) this.mapInput.addEventListener("input", () => {
 				this.initialMapError = null;
 				this.render();
@@ -279,6 +343,31 @@
 			if (this.logs.length > MAX_DIAGNOSTIC_LOGS) this.logs.shift();
 		}
 
+		async refreshMaps() {
+			if (!this.enabled) return { state: "inactive", maps: [] };
+			const generation = ++this.mapRefreshGeneration;
+			this.mapPickerState = "refreshing";
+			this.render();
+			try {
+				const manifest = typeof this.options.mapManifest === "function" ?
+					await this.options.mapManifest() : null;
+				if (generation !== this.mapRefreshGeneration) return null;
+				const normalized = normalizeMapManifest(manifest);
+				this.mapPickerState = normalized.state;
+				this.mapInventory = normalized.maps;
+				this.mapRejectedCount = normalized.rejectedCount;
+				this.render();
+				return normalized;
+			} catch (_error) {
+				if (generation !== this.mapRefreshGeneration) return null;
+				this.mapPickerState = "error";
+				this.mapInventory = Object.freeze([]);
+				this.mapRejectedCount = 0;
+				this.render();
+				return { state: "error", maps: [] };
+			}
+		}
+
 		dataReady(dataMode, launch) {
 			if (typeof launch !== "function") throw launcherError("launch-callback", "Launcher callback is missing.");
 			this.dataMode = safeToken(dataMode, "ready");
@@ -286,6 +375,7 @@
 			if (this.enabled) {
 				this.state = "ready";
 				this.render();
+				this.refreshMaps();
 				return { waitingForUser: true };
 			}
 			const requested = this.query.has("map") ? this.query.get("map") : DEFAULT_MAP;
@@ -429,6 +519,7 @@
 			if (!this.enabled) return;
 			const status = this.root.querySelector("[data-launcher-status]");
 			const error = this.root.querySelector("[data-launcher-error]");
+			const mapStatus = this.root.querySelector("[data-launcher-map-status]");
 			const messages = {
 				loading: "Preparing the runtime and your local game data…",
 				ready: "Local game data is ready. Choose a map and deliberately start the offline game.",
@@ -447,6 +538,45 @@
 			if (this.startButton) this.startButton.disabled = this.state !== "ready" || validation.ok === false;
 			if (this.mapInput) this.mapInput.disabled = this.state !== "ready";
 			if (this.presetInput) this.presetInput.disabled = this.state !== "ready";
+			if (this.mapPicker) {
+				const current = this.mapInput ? this.mapInput.value.toLowerCase() : "";
+				const renderKey = this.mapRefreshGeneration + ":" + this.mapPickerState;
+				if (this.mapPickerRenderKey !== renderKey) {
+					this.mapPicker.replaceChildren();
+					const placeholder = this.root.ownerDocument.createElement("option");
+					placeholder.value = "";
+					placeholder.textContent = this.mapPickerState === "refreshing" ? "Refreshing map list…" :
+						(this.mapPickerState === "ready" ? "Choose an imported map…" : "No browsable map list");
+					this.mapPicker.appendChild(placeholder);
+					for (const map of this.mapInventory) {
+						const option = this.root.ownerDocument.createElement("option");
+						option.value = map;
+						option.textContent = map;
+						this.mapPicker.appendChild(option);
+					}
+					this.mapPickerRenderKey = renderKey;
+				}
+				const selected = this.mapInventory.find(map => map.toLowerCase() === current);
+				this.mapPicker.value = selected || "";
+				this.mapPicker.disabled = this.state !== "ready" || this.mapPickerState !== "ready" || !this.mapInventory.length;
+			}
+			if (this.mapRefreshButton) {
+				this.mapRefreshButton.disabled = this.state !== "ready" || this.mapPickerState === "refreshing";
+			}
+			if (mapStatus) {
+				const mapMessages = {
+					loading: "Map list is waiting for validated import metadata.",
+					refreshing: "Refreshing the compatible imported map list…",
+					ready: this.mapInventory.length + " compatible local map" +
+						(this.mapInventory.length === 1 ? "" : "s") + " found.",
+					empty: "No compatible DM/CTF/DOM/AS Maps/*.unr entries were found; manual entry remains available.",
+					cleared: "The saved import was cleared; manual entry remains available until new data is imported.",
+					unavailable: "Map browsing is unavailable for this data mode; manual entry remains available.",
+					error: "The imported map list could not be refreshed; manual entry remains available.",
+				};
+				mapStatus.textContent = mapMessages[this.mapPickerState] || mapMessages.unavailable;
+				mapStatus.dataset.state = this.mapPickerState;
+			}
 			if (this.restartButton) this.restartButton.hidden = this.state !== "running" && this.state !== "crashed";
 		}
 	}
@@ -462,6 +592,7 @@
 		PRESETS,
 		validateMap,
 		buildLocalSelection,
+		normalizeMapManifest,
 		restartURL,
 		sanitizeDiagnosticText,
 		sanitizedLogEvent,

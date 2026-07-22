@@ -11,6 +11,8 @@
 
 	const SCHEMA_NAME = "surrealengine-ut99-data";
 	const SCHEMA_VERSION = 1;
+	const MAP_MANIFEST_SCHEMA = "surrealengine-ut99-map-manifest";
+	const MAP_MANIFEST_VERSION = 1;
 	const DEFAULT_DATABASE_NAME = "surrealengine-ut99-data-v1";
 	const DEFAULT_OPFS_DIRECTORY = "surrealengine-ut99-data-v1";
 	const GAME_ROOT = "/gamedata";
@@ -214,6 +216,59 @@
 			throw new ImportError("STORAGE_METADATA", "Saved UT99 data metadata is inconsistent. Clear it and import again.");
 		}
 		return metadata;
+	}
+
+	function immutableMapManifest(state, maps, rejectedCount) {
+		return Object.freeze({
+			schema: MAP_MANIFEST_SCHEMA,
+			version: MAP_MANIFEST_VERSION,
+			state: state,
+			maps: Object.freeze(Array.from(maps || [])),
+			rejectedCount: Number.isSafeInteger(rejectedCount) && rejectedCount > 0 ? rejectedCount : 0,
+		});
+	}
+
+	function mapManifestFromMetadata(metadata, state) {
+		if (!metadata) return immutableMapManifest(state || "unavailable", [], 0);
+		validateMetadata(metadata);
+		const candidates = [];
+		let rejectedCount = 0;
+		for (const file of metadata.files) {
+			const path = canonicalizeRelativePath(file.path);
+			if (!/^Maps\//i.test(path) || !/\.unr$/i.test(path)) continue;
+			const match = /^Maps\/([^/]+)\.unr$/i.exec(path);
+			if (!match) {
+				rejectedCount++;
+				continue;
+			}
+			const basename = match[1];
+			// The public launcher manifest is narrower than valid UT package
+			// metadata: it contains only direct map basenames which can safely
+			// enter the launcher's fixed offline URL builder.
+			if (!/^(?:DM|CTF|DOM|AS)-[A-Za-z0-9][A-Za-z0-9_\-\[\]']{0,63}$/i.test(basename)) {
+				rejectedCount++;
+				continue;
+			}
+			candidates.push(basename);
+		}
+		candidates.sort((a, b) => {
+			const lowerA = a.toLowerCase();
+			const lowerB = b.toLowerCase();
+			if (lowerA < lowerB) return -1;
+			if (lowerA > lowerB) return 1;
+			return a < b ? -1 : (a > b ? 1 : 0);
+		});
+		const seen = new Set();
+		const maps = [];
+		for (const candidate of candidates) {
+			const key = candidate.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			maps.push(candidate);
+		}
+		const resolvedState = state === "ready" && !maps.length ? "empty" :
+			(state || (maps.length ? "ready" : "empty"));
+		return immutableMapManifest(resolvedState, maps, rejectedCount);
 	}
 
 	async function writeBlobToOPFS(fileHandle, blob) {
@@ -630,6 +685,34 @@
 			this.launchPromise = null;
 			this.busy = false;
 			this.lastError = null;
+			this._currentMapManifest = immutableMapManifest("unavailable", [], 0);
+		}
+
+		mapManifest() {
+			return immutableMapManifest(
+				this._currentMapManifest.state,
+				this._currentMapManifest.maps,
+				this._currentMapManifest.rejectedCount);
+		}
+
+		_setMapManifest(metadata, state) {
+			try {
+				this._currentMapManifest = mapManifestFromMetadata(metadata, state);
+			} catch (_error) {
+				// Browsing maps is optional product UX. Import validation and the
+				// main boot gate remain authoritative if this defensive projection
+				// ever rejects an otherwise loadable future metadata schema.
+				this._currentMapManifest = immutableMapManifest("error", [], 0);
+			}
+			return this.mapManifest();
+		}
+
+		async clearSavedImport() {
+			if (!this.storage || typeof this.storage.clear !== "function") {
+				throw new ImportError("STORAGE_UNAVAILABLE", "Saved UT99 data storage is unavailable.");
+			}
+			await this.storage.clear();
+			return this._setMapManifest(null, "cleared");
 		}
 
 		_log(message) {
@@ -638,6 +721,7 @@
 
 		async initialize() {
 			if (hasDeveloperPreload(this.Module.FS, this.options.rootPath)) {
+				this._setMapManifest(null, "unavailable");
 				this._log("developer-preloaded /gamedata detected; local importer bypassed");
 				this.ui.hide();
 				await this._launch("developer-preload");
@@ -656,16 +740,19 @@
 					this.ui.setBusy(true);
 					this.ui.setStatus("Restoring saved UT99 data…");
 					await materializeDataset(this.Module.FS, dataset, progress => this.ui.setProgress(progress), this.options.rootPath);
+					this._setMapManifest(dataset.metadata, "ready");
 					this.ui.setStatus("Saved UT99 data restored. Starting SurrealEngine…");
 					this._log("restored " + dataset.metadata.fileCount + " local files (" + formatBytes(dataset.metadata.totalBytes) + ") from " + this.storage.backend);
 					await this._launch("persistent-import");
 					return { state: "launched", mode: "persistent-import", backend: this.storage.backend, metadata: dataset.metadata };
 				}
 			} catch (error) {
+				this._setMapManifest(null, "error");
 				this.lastError = error;
 				this.ui.setError(safeMessage(error));
 				this._log("saved import is unavailable or corrupt; user action required");
 			}
+			if (this._currentMapManifest.state !== "error") this._setMapManifest(null, "empty");
 			this.ui.setBusy(false);
 			this.ui.setStatus("Select the folder from your own Unreal Tournament installation. Data stays on this device.");
 			return { state: "waiting-for-import", backend: this.storage.backend, error: this.lastError };
@@ -695,7 +782,7 @@
 					this.ui.setBusy(true);
 					this.ui.setError("");
 					try {
-						await this.storage.clear();
+						await this.clearSavedImport();
 						this.ui.setStatus(this.launched ? "Saved import cleared. Reload to choose data again." : "Saved import cleared. Select your UT99 installation folder.");
 						this._log("saved local UT99 import cleared");
 					} catch (_) {
@@ -749,6 +836,7 @@
 				};
 				this.ui.setStatus("Preparing UT99 data for SurrealEngine…");
 				await materializeDataset(this.Module.FS, sourceDataset, progress => this.ui.setProgress(progress), this.options.rootPath);
+				this._setMapManifest(metadata, "ready");
 				this.ui.setStatus("Import complete. Starting SurrealEngine…");
 				this._log("imported " + metadata.fileCount + " local files (" + formatBytes(metadata.totalBytes) + ") into " + this.storage.backend);
 				await this._launch("new-import");
@@ -790,6 +878,8 @@
 	global.SurrealUT99Importer = Object.freeze({
 		SCHEMA_NAME,
 		SCHEMA_VERSION,
+		MAP_MANIFEST_SCHEMA,
+		MAP_MANIFEST_VERSION,
 		GAME_ROOT,
 		ImportError,
 		OPFSStorage,
@@ -800,6 +890,7 @@
 		entriesFromDirectoryHandle,
 		validateEntries,
 		validateMetadata,
+		mapManifestFromMetadata,
 		createStorage,
 		storageDiagnostics,
 		ensureFSDirectory,

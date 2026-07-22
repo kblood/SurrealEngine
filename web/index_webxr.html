@@ -59,10 +59,19 @@
 		<label>Local map package
 			<input type="text" data-launcher-map value="DM-Deck16][" maxlength="72" autocomplete="off" spellcheck="false">
 		</label>
+		<label>Browse compatible imported maps
+			<select data-launcher-map-picker disabled>
+				<option value="">Map list is not ready</option>
+			</select>
+		</label>
 		<label>Local game preset
 			<select data-launcher-preset></select>
 		</label>
 	</div>
+	<div class="actions">
+		<button type="button" data-launcher-map-refresh disabled>Refresh imported maps</button>
+	</div>
+	<p data-launcher-map-status role="status">Map list is waiting for validated import metadata.</p>
 	<div class="actions">
 		<button type="button" data-launcher-start disabled>Start offline game</button>
 		<button type="button" data-launcher-restart hidden>Restart to launcher</button>
@@ -192,6 +201,11 @@
 		location: window.location,
 		onCrash: function (crash) {
 			if (!window.surrealCrashed) window.surrealCrashed = crash.phase + ": " + crash.message;
+		},
+		mapManifest: function () {
+			const controller = window.surrealUT99ImporterController;
+			return controller && typeof controller.mapManifest === "function" ?
+				controller.mapManifest() : null;
 		},
 		restart: async function (target) {
 			if (window.surrealBooted && typeof window.surrealRequestQuitAndFlush === "function") {
@@ -457,6 +471,7 @@
 			}).then(function (started) {
 				window.surrealUT99ImporterController = started.controller;
 				window.surrealUT99DataBootResult = started.result;
+				surrealLauncherController.refreshMaps();
 				return started.result;
 			}).catch(function (error) {
 				reportHarnessCrash(error, "data-bootstrap");

@@ -65,7 +65,12 @@ window.SurrealUT99Importer = {
   async start(Module, options) {
     await options.beforeLaunch();
     await options.launch("developer-preload");
-    return {controller: {kind: "fake-importer"},
+    window.__mapManifestCalls = window.__mapManifestCalls || 0;
+    return {controller: {kind: "fake-importer", mapManifest() { window.__mapManifestCalls++; return Object.freeze({
+        schema: "surrealengine-ut99-map-manifest", version: 1, state: "ready",
+        maps: Object.freeze(["DM-Zeta", "CTF-Face", "dm-zeta", "DM-Morpheus",
+          "MH-Unsupported", "../DM-Escape"]), rejectedCount: 2
+      }); }},
       result: {state: "launched", mode: "developer-preload", backend: "embedded",
         metadata: {datasetId: "must-not-export", localPath: "C:\\UT99"}}};
   }
@@ -167,7 +172,8 @@ def run(headless: bool) -> dict[str, object]:
           args: window.__callMainArgs,
           launcherHidden: document.getElementById("webxr-browser-launcher").hidden,
           state: window.surrealLauncherController.state,
-          dataMode: window.surrealLauncherController.dataMode
+          dataMode: window.surrealLauncherController.dataMode,
+          mapManifestCalls: window.__mapManifestCalls || 0
         })""")
         require(automatic_state == {
             "calls": 1,
@@ -175,6 +181,7 @@ def run(headless: bool) -> dict[str, object]:
             "launcherHidden": True,
             "state": "running",
             "dataMode": "developer-preload",
+            "mapManifestCalls": 0,
         }, f"automatic boot regressed: {automatic_state}")
         require(not automatic_errors, f"automatic page errors: {automatic_errors}")
 
@@ -185,13 +192,18 @@ def run(headless: bool) -> dict[str, object]:
         launcher.goto(base_url + "/?launcher=1&build=build-emscripten&map=DM-Deck16][",
                       wait_until="load")
         launcher.wait_for_function("window.surrealLauncherController.state === 'ready'")
+        launcher.wait_for_function("window.surrealLauncherController.mapPickerState === 'ready'")
         waiting = launcher.evaluate("""() => ({
           calls: window.__callMainCalls,
           booted: window.surrealBooted,
           visible: !document.getElementById("webxr-browser-launcher").hidden,
           startDisabled: document.querySelector("[data-launcher-start]").disabled,
           status: document.querySelector("[data-launcher-status]").textContent,
-          importer: window.surrealUT99DataBootResult
+          importer: window.surrealUT99DataBootResult,
+          mapState: window.surrealLauncherController.mapPickerState,
+          maps: Array.from(document.querySelector("[data-launcher-map-picker]").options,
+            option => option.value).filter(Boolean),
+          rejected: window.surrealLauncherController.mapRejectedCount
         })""")
         require(waiting["calls"] == 0 and waiting["booted"] is False and waiting["visible"] is True,
                 f"launcher did not wait at its deliberate gate: {waiting}")
@@ -199,6 +211,58 @@ def run(headless: bool) -> dict[str, object]:
                 f"ready launcher did not expose Start: {waiting}")
         require(waiting["importer"]["state"] == "launched",
                 "importer did not finish before launcher readiness")
+        require(waiting["mapState"] == "ready" and
+                waiting["maps"] == ["CTF-Face", "DM-Morpheus", "DM-Zeta"] and
+                waiting["rejected"] == 4,
+                f"map picker did not sort/deduplicate/reject defensively: {waiting}")
+
+        # Empty, unavailable and refresh-error states never disable manual
+        # validated launch. A later refresh recovers the browsable list.
+        fallback_states = launcher.evaluate(r"""async () => {
+          const controller = window.surrealLauncherController;
+          const original = controller.options.mapManifest;
+          controller.options.mapManifest = () => ({schema: "surrealengine-ut99-map-manifest",
+            version: 1, state: "empty", maps: [], rejectedCount: 0});
+          await controller.refreshMaps();
+          const empty = {state: controller.mapPickerState,
+            manualDisabled: document.querySelector("[data-launcher-map]").disabled,
+            startDisabled: document.querySelector("[data-launcher-start]").disabled};
+          controller.options.mapManifest = () => ({schema: "surrealengine-ut99-map-manifest",
+            version: 1, state: "unavailable", maps: [], rejectedCount: 0});
+          await controller.refreshMaps();
+          const unavailable = {state: controller.mapPickerState,
+            manualDisabled: document.querySelector("[data-launcher-map]").disabled,
+            startDisabled: document.querySelector("[data-launcher-start]").disabled};
+          controller.options.mapManifest = async () => { throw new Error("synthetic refresh failure"); };
+          await controller.refreshMaps();
+          const error = {state: controller.mapPickerState,
+            manualDisabled: document.querySelector("[data-launcher-map]").disabled,
+            startDisabled: document.querySelector("[data-launcher-start]").disabled};
+          let releaseOld;
+          controller.options.mapManifest = () => new Promise(resolve => { releaseOld = resolve; });
+          const staleRefresh = controller.refreshMaps();
+          await Promise.resolve();
+          controller.options.mapManifest = () => ({schema: "surrealengine-ut99-map-manifest",
+            version: 1, state: "ready", maps: ["DM-Newer"], rejectedCount: 0});
+          await controller.refreshMaps();
+          releaseOld({schema: "surrealengine-ut99-map-manifest", version: 1,
+            state: "ready", maps: ["DM-Stale"], rejectedCount: 0});
+          await staleRefresh;
+          const staleProtected = {state: controller.mapPickerState,
+            maps: Array.from(controller.mapInventory)};
+          controller.options.mapManifest = original;
+          await controller.refreshMaps();
+          return {empty, unavailable, error, staleProtected, recovered: controller.mapPickerState};
+        }""")
+        for state_name in ("empty", "unavailable", "error"):
+            state = fallback_states[state_name]
+            require(state["state"] == state_name and state["manualDisabled"] is False and
+                    state["startDisabled"] is False,
+                    f"{state_name} map-list state blocked manual launch: {fallback_states}")
+        require(fallback_states["recovered"] == "ready",
+                f"map-list refresh did not recover: {fallback_states}")
+        require(fallback_states["staleProtected"] == {"state": "ready", "maps": ["DM-Newer"]},
+                f"stale map refresh overwrote newer state: {fallback_states}")
 
         # Unit-level input matrix: package basenames only; fixed presets only;
         # paths, query injection, encoded delimiters and network-like values fail.
@@ -240,7 +304,9 @@ def run(headless: bool) -> dict[str, object]:
                                     "build": "build-emscripten", "native": "1"},
                 f"restart URL was not conservative: {unit['restart']}")
 
-        launcher.fill("[data-launcher-map]", "DM-Morpheus")
+        launcher.select_option("[data-launcher-map-picker]", "DM-Morpheus")
+        require(launcher.input_value("[data-launcher-map]") == "DM-Morpheus",
+                "browsable selection did not populate the validated manual field")
         launcher.select_option("[data-launcher-preset]", "deathmatch")
         launcher.click("[data-launcher-start]")
         launcher.wait_for_function("window.surrealBooted === true")
@@ -286,7 +352,7 @@ def run(headless: bool) -> dict[str, object]:
         diagnostics = launcher.evaluate("window.surrealGetBrowserDiagnostics()")
         serialized = json.dumps(diagnostics)
         for forbidden in ("C:\\\\", "/gamedata", "Botpack.u", "DM-Secret.unr",
-                          "SECRET FILE CONTENT", "SECRET-ID", "allowlist"):
+                          "SECRET FILE CONTENT", "SECRET-ID", "allowlist", "CTF-Face", "DM-Zeta"):
             require(forbidden not in serialized, f"diagnostics leaked forbidden value {forbidden!r}")
         require("stack" not in diagnostics.get("crash", {}), "crash stack was exported")
         require(diagnostics["crash"]["phase"] == "engine-start", "crash phase missing")
@@ -344,7 +410,7 @@ def run(headless: bool) -> dict[str, object]:
 
         result = {
             "passed": True,
-            "checks": 31,
+            "checks": 44,
             "automatic": automatic_state,
             "deliberate": deliberate,
             "diagnosticSchema": diagnostics["schema"],
