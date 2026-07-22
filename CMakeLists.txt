@@ -38,6 +38,10 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Engine.h
 	SurrealEngine/GameSupport.cpp
 	SurrealEngine/GameSupport.h
+	SurrealEngine/BotBenchmark/BotBenchmarkDriver.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkDriver.h
+	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.h
 	SurrealEngine/GameFolder.cpp
 	SurrealEngine/GameFolder.h
 	SurrealEngine/LauncherSettings.cpp
@@ -837,6 +841,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(HeadlessDriverTests PRIVATE SurrealEngine)
 	set_target_properties(HeadlessDriverTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME HeadlessDriver COMMAND HeadlessDriverTests)
+
+	add_executable(BotBenchmarkProtocolTests
+		Tests/BotBenchmarkProtocolTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
+	)
+	target_include_directories(BotBenchmarkProtocolTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkProtocolTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkProtocol COMMAND BotBenchmarkProtocolTests)
 endif()
 
 if(NOT EMSCRIPTEN)
