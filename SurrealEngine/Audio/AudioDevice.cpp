@@ -684,7 +684,33 @@ public:
 	float globalSoundVolume = 1.0f;
 };
 
+class NullAudioDevice : public AudioDevice
+{
+public:
+	explicit NullAudioDevice(int numVoices) : NumVoices(numVoices) { }
+
+	void AddSound(USound*) override { }
+	void RemoveSound(USound*) override { }
+	bool IsPlaying(int) override { return false; }
+	int GetTotalChannels() override { return NumVoices; }
+	void PlaySound(int, USound*, vec3&, float, float, float) override { }
+	void PlayMusic(std::unique_ptr<AudioSource>) override { }
+	void UpdateSound(int, USound*, vec3&, float, float, float) override { }
+	void StopSound(int) override { }
+	void SetMusicVolume(float) override { }
+	void SetSoundVolume(float) override { }
+	void Update() override { }
+
+private:
+	int NumVoices = 0;
+};
+
 std::unique_ptr<AudioDevice> AudioDevice::Create(int frequency, int numVoices, int musicBufferCount, int musicBufferSize)
 {
 	return std::make_unique<OpenALAudioDevice>(frequency, numVoices, musicBufferCount, musicBufferSize);
+}
+
+std::unique_ptr<AudioDevice> AudioDevice::CreateNull(int numVoices)
+{
+	return std::make_unique<NullAudioDevice>(numVoices);
 }

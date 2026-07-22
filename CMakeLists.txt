@@ -372,6 +372,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/UDXSaveInfo.h
 	SurrealEngine/UObject/DXAIPerception.cpp
 	SurrealEngine/UObject/DXAIPerception.h
+	SurrealEngine/UObject/DXSavePath.cpp
+	SurrealEngine/UObject/DXSavePath.h
 	SurrealEngine/UObject/DXTextTokenizer.cpp
 	SurrealEngine/UObject/DXTextTokenizer.h
 	SurrealEngine/UObject/UDXTextParser.cpp
@@ -751,6 +753,14 @@ if (BUILD_TESTING)
 	target_include_directories(DXAIPerceptionTests PRIVATE SurrealEngine)
 	set_target_properties(DXAIPerceptionTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME DXAIPerception COMMAND DXAIPerceptionTests)
+
+	add_executable(DXSavePathTests
+		Tests/DXSavePathTests.cpp
+		SurrealEngine/UObject/DXSavePath.cpp
+	)
+	target_include_directories(DXSavePathTests PRIVATE SurrealEngine)
+	set_target_properties(DXSavePathTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME DXSavePath COMMAND DXSavePathTests)
 endif()
 
 if(WIN32)

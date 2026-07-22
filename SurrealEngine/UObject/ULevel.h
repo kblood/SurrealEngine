@@ -90,9 +90,9 @@ public:
 class ZoneProperties
 {
 public:
-	UActor* ZoneActor;
-	uint64_t Connectivity;
-	uint64_t Visibility;
+	UActor* ZoneActor = nullptr;
+	uint64_t Connectivity = 0;
+	uint64_t Visibility = 0;
 };
 
 class LightMapIndex

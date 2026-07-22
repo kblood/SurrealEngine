@@ -13,7 +13,7 @@ public:
 class CrashReporter
 {
 public:
-	static void Init(const std::string& reportsDirectory, std::function<void(const std::string& logFilename)> saveLog);
+	static void Init(const std::string& reportsDirectory, std::function<void(const std::string& logFilename)> saveLog, bool launchUploader = true);
 	static void HookThread();
 	static void Invoke();
 	static CrashDumpInfo GetCrashDumpInfo(const std::string& dumpFilename);

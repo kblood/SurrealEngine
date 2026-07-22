@@ -41,30 +41,39 @@ The policy override is required with CMake 4.0 because the bundled OpenAL
 project still declares compatibility with CMake older than 3.5. Quote the whole
 argument in PowerShell so `3.5` is not split into separate arguments.
 
-Launch the title shell or training map by passing the game root folder:
+Launch the title shell or a map by passing the game root folder. For unattended
+compatibility work, use the non-interfering launch profile documented in
+[`DeusExValidation.md`](DeusExValidation.md):
 
 ```powershell
-build/Release/SurrealEngine.exe --url=DX.dx "C:\Games\Deus Ex GOTY"
-build/Release/SurrealEngine.exe --url=00_Training.dx "C:\Games\Deus Ex GOTY"
+build/Release/SurrealEngine.exe --autostart --nosound --noactivate `
+  --logfile=build/deusex-smoke.log --url=DX `
+  "C:\Program Files (x86)\GOG Galaxy\Games\Deus Ex GOTY"
+build/Release/SurrealEngine.exe --autostart --nosound --noactivate `
+  --logfile=build/deusex-training.log --url=00_Training `
+  "C:\Program Files (x86)\GOG Galaxy\Games\Deus Ex GOTY"
 ```
 
 Validation results on 2026-07-22:
 
-- `DX.dx` and `00_Training.dx` remained running and responsive during repeated
-  unattended smoke tests, including a 10-second check after the text paging
-  implementation.
-- `00_Training.dx` and `01_NYC_UNATCOIsland.dx` remained running and responsive
-  for 20 seconds after enabling the AI perception natives used by
-  `ScriptedPawn`.
-- All 88 installed `.dx` maps remained running and responsive for a three-second
-  direct-load check. The scan included representative early, middle, late, and
-  ending maps before it was expanded to the complete installed map set.
-- No output was written to stdout or stderr during either test. Behavioral
-  validation therefore still requires an interactive run.
+- The game selector correctly starts Deus Ex, and the title menu, New Game,
+  difficulty, character creation, and intro sequence have been exercised.
+- `00_Training` and `01_NYC_UNATCOIsland` load directly. Liberty Island renders
+  the world, HUD, inventory belt, player, and live actors and remains responsive
+  during unattended checks.
+- QuickSave (`-1`) and a menu-created numbered save (`Save0001`) both write a
+  map package and `SaveInfo.dxs`. Direct startup through `?loadgame=-1` and
+  `?loadgame=1` restores the Liberty Island world. See
+  [`DeusExSaveSystem.md`](DeusExSaveSystem.md) for the exact lifecycle and open
+  issues.
+- Every final validation launch uses a null audio backend and a non-activating
+  window. Foreground-window handles were compared before and after each launch
+  and remained unchanged.
 
-The all-map scan checks package loading and early map initialization. It does
-not demonstrate that missions can be completed, that scripted map travel works,
-or that save games remain compatible.
+These checks do not demonstrate that training or the campaign can be completed,
+that scripted map travel is correct, or that saves remain compatible across the
+whole campaign. Earlier notes claiming a successful all-map scan were based on
+an invalid launcher flow and have been removed.
 
 ## Text package findings
 
@@ -187,17 +196,13 @@ block consumption, escaped angle brackets, file metadata, the stock email
 record shapes, and 239-character paging boundaries. The Release test run passed
 on 2026-07-22. AI tests cover horizontal and vertically weighted hearing,
 default radius and thresholds, apparent-size sight scoring, light visibility,
-minimum angular size, motion interpolation, and clamping.
+minimum angular size, motion interpolation, and clamping. Save-path tests cover
+the QuickSave and numbered-slot directory naming contract. New-slot allocation,
+metadata round trips, and rejected indices still need focused coverage.
 
 ## Next validation targets
 
-1. Verify books, DataCubes, email terminals, bulletin links, and multi-page
-   speech text interactively.
-2. Compare guard detection in bright, dark, stationary, moving, peripheral,
-   and occluded cases against 1112fm, then implement light sampling and smooth
-   view-edge falloff.
-3. Exercise a fresh game and scripted map travel, then inventory the first
-   missing or incorrect game-native behavior on that path.
-4. Audit save-slot creation, loading, and deletion against the original game.
-5. Re-test title, training, a fresh game, map travel, save, and load before
-   proposing an upstream pull request.
+The maintained goals and pull-request gates are in
+[`DeusExRoadmap.md`](DeusExRoadmap.md). Immediate priorities are completing the
+save-list deletion round trip, exercising training and scripted travel, and
+comparing AI behavior against the original game.

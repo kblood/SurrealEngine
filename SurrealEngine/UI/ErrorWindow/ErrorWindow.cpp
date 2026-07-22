@@ -21,6 +21,15 @@ bool ErrorWindow::CheckCrashReporter()
 		{
 			CrashDumpInfo dumpInfo = CrashReporter::GetCrashDumpInfo(dumpFilename);
 			std::list<LogMessageLine> log = Logger::Get()->LoadLog(logFilename);
+			if (commandline->HasArg("", "--noactivate"))
+			{
+				LogMessage("Crash Reporter: " + dumpInfo.exception);
+				LogMessage(dumpInfo.callstack);
+				std::string output = commandline->GetArg("", "--logfile");
+				if (!output.empty())
+					Logger::Get()->SaveLogAsPlaintext(output);
+				return true;
+			}
 
 			LogMessageLine line;
 			line.Source = "Crash Reporter";
@@ -51,7 +60,7 @@ bool ErrorWindow::CheckCrashReporter()
 	{
 		const auto reportsDirectory = fs::path(Directory::localAppData()) / "SurrealEngine/CrashReports";
 		Directory::create(reportsDirectory.string());
-		CrashReporter::Init(reportsDirectory.string(), [](const std::string& logFilename) { Logger::Get()->SaveLog(logFilename); });
+		CrashReporter::Init(reportsDirectory.string(), [](const std::string& logFilename) { Logger::Get()->SaveLog(logFilename); }, !commandline->HasArg("", "--noactivate"));
 		return false;
 	}
 }

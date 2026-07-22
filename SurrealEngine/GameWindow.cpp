@@ -6,8 +6,12 @@
 #include <surrealgpu/vulkansurface.h>
 #include <surrealgpu/vulkancompatibledevice.h>
 #include <surrealgpu/vulkanbuilders.h>
+#ifdef _WIN32
+#include <surrealwidgets/window/win32nativehandle.h>
+#include <Windows.h>
+#endif
 
-GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI) : Widget(nullptr, WidgetType::Window, renderAPI), windowHost(windowHost)
+GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI, bool activate) : Widget(nullptr, WidgetType::Window, renderAPI), windowHost(windowHost)
 {
 	SetWindowIcon({
 		Image::LoadResource("surreal-engine-icon-16.png"),
@@ -21,7 +25,7 @@ GameWindow::GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI) : Widget
 
 	device = RenderDevice::Create(this, renderAPI);
 	SetCanvas(std::make_unique<RenderDeviceCanvas>(device.get()));
-	SetFocus();
+	SetFocus(activate);
 }
 
 RenderDevice* GameWindow::GetRenderDevice()
@@ -37,6 +41,16 @@ int GameWindow::GetPixelWidth()
 int GameWindow::GetPixelHeight()
 {
 	return GetNativePixelHeight();
+}
+
+void GameWindow::ShowNormalNoActivate()
+{
+#ifdef _WIN32
+	auto handle = static_cast<Win32NativeHandle*>(GetNativeHandle());
+	::ShowWindow(handle->hwnd, SW_SHOWNOACTIVATE);
+#else
+	ShowNormal();
+#endif
 }
 
 void GameWindow::ToggleWindowFullscreen(Size newResolution)
@@ -152,7 +166,7 @@ void GameWindow::OnLostFocus()
 	windowHost->OnWindowDeactivated();
 }
 
-std::unique_ptr<GameWindow> GameWindow::Create(GameWindowHost* windowHost)
+std::unique_ptr<GameWindow> GameWindow::Create(GameWindowHost* windowHost, bool activate)
 {
 	RenderAPI api;
 	switch (LauncherSettings::Get().RenderDevice.Type)
@@ -162,7 +176,7 @@ std::unique_ptr<GameWindow> GameWindow::Create(GameWindowHost* windowHost)
 	case RenderDeviceType::D3D11: api = RenderAPI::D3D11; break;
 	case RenderDeviceType::D3D12: api = RenderAPI::D3D12; break;
 	}
-	return std::make_unique<GameWindow>(windowHost, api);
+	return std::make_unique<GameWindow>(windowHost, api, activate);
 }
 
 void GameWindow::ProcessEvents()

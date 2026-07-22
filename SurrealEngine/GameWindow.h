@@ -107,9 +107,9 @@ public:
 class GameWindow : public Widget
 {
 public:
-	static std::unique_ptr<GameWindow> Create(GameWindowHost* windowHost);
+	static std::unique_ptr<GameWindow> Create(GameWindowHost* windowHost, bool activate = true);
 
-	GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI);
+	GameWindow(GameWindowHost* windowHost, RenderAPI renderAPI, bool activate);
 
 	static void ProcessEvents();
 	static void RunLoop();
@@ -123,6 +123,7 @@ public:
 
 	int GetPixelWidth();
 	int GetPixelHeight();
+	void ShowNormalNoActivate();
 
 	void ToggleWindowFullscreen(Size newResolution);
 

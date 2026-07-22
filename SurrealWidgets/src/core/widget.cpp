@@ -480,7 +480,7 @@ bool Widget::IsVisible()
 	}
 }
 
-void Widget::SetFocus()
+void Widget::SetFocus(bool activateWindow)
 {
 	Widget* window = Window();
 	if (window && window->FocusWidget != this)
@@ -489,7 +489,8 @@ void Widget::SetFocus()
 			window->FocusWidget->OnLostFocus();
 		window->FocusWidget = this;
 		window->FocusWidget->OnSetFocus();
-		window->ActivateWindow();
+		if (activateWindow)
+			window->ActivateWindow();
 	}
 }
 

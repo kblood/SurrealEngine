@@ -113,7 +113,7 @@ public:
 	bool IsHidden();
 	bool IsFullscreen();
 
-	void SetFocus();
+	void SetFocus(bool activateWindow = true);
 	void SetEnabled(bool value);
 	void SetDisabled(bool value) { SetEnabled(!value); }
 	void SetHidden(bool value) { if (value) Hide(); else Show(); }

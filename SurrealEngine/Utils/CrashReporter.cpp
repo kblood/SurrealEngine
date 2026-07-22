@@ -750,13 +750,13 @@ private:
 	StackFrameList stackFrameList = {};
 };
 
-void CrashReporter::Init(const std::string& reportsDirectory, std::function<void(const std::string& logFilename)> saveLog)
+void CrashReporter::Init(const std::string& reportsDirectory, std::function<void(const std::string& logFilename)> saveLog, bool launchUploader)
 {
 	WCHAR exeFilename[1024] = {};
 	if (GetModuleFileName(0, exeFilename, 1023) == 0)
 		return;
 
-	static CrashReporterWin32 reporter(to_utf16(reportsDirectory), exeFilename, saveLog);
+	static CrashReporterWin32 reporter(to_utf16(reportsDirectory), launchUploader ? exeFilename : L"", saveLog);
 }
 
 void CrashReporter::HookThread()
@@ -802,7 +802,7 @@ CrashDumpInfo CrashReporter::GetCrashDumpInfo(const std::string& dumpFilename)
 
 #else // gcc and clang on Windows (no idea how compatible they are with msvc/pdb here and we don't use them on Windows anyway)
 
-void CrashReporter::Init(const std::string& reportsDirectory, std::function<void(const std::string& logFilename)> saveLog)
+void CrashReporter::Init(const std::string& reportsDirectory, std::function<void(const std::string& logFilename)> saveLog, bool launchUploader)
 {
 }
 
@@ -822,7 +822,7 @@ CrashDumpInfo CrashReporter::GetCrashDumpInfo(const std::string& dumpFilename)
 #endif // _MSC_VER
 #else // Linux
 
-void CrashReporter::Init(const std::string& reportsDirectory, std::function<void(const std::string& logFilename)> saveLog)
+void CrashReporter::Init(const std::string& reportsDirectory, std::function<void(const std::string& logFilename)> saveLog, bool launchUploader)
 {
 }
 

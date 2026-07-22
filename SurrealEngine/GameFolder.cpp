@@ -53,7 +53,10 @@ GameLaunchInfo GameFolderSelection::GetLaunchInfo(int selectedGame)
 	info.ue1Version = commandline->GetArgInt("-e", "--engineversion", info.ue1Version);
 	info.gameName = commandline->GetArg("-g", "--game", info.gameName);
 	info.noEntryMap = commandline->HasArg("-n", "--noentrymap") || info.noEntryMap;
+	info.noSound = commandline->HasArg("", "--nosound") || info.noSound;
+	info.noActivate = commandline->HasArg("", "--noactivate") || info.noActivate;
 	info.url = commandline->GetArg("-u", "--url", info.url);
+	info.logFile = commandline->GetArg("", "--logfile", info.logFile);
 	return info;
 }
 

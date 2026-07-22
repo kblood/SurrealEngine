@@ -54,7 +54,9 @@ public:
 	Array<NameString> GetPackageNames() const;
 	Package* GetSaveInfoPackage(const NameString& saveFolderName);
 	void RemoveSaveInfoPackage(const NameString& saveFolderName);
+	void RefreshSaveInfos();
 	std::map<NameString, Package*> GetSaveInfoPackages() const { return saveInfos; };
+	Package* CreatePackage(const NameString& name, const Package* versionSource);
 
 	Package* LoadMap(const std::string& path);
 	void UnloadPackage(Package* package);
@@ -62,7 +64,8 @@ public:
 	void CloseStreams();
 
 	Package* LoadSaveFile(const std::string& path);
-	Package* LoadSaveSlot(const uint32_t slotNum);
+	Package* LoadSaveSlot(int32_t slotNum);
+	bool DeleteSaveSlot(int32_t slotNum);
 
 	std::shared_ptr<PackageStream> GetStream(Package* package);
 

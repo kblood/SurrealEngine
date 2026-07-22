@@ -130,7 +130,7 @@ public:
 	std::string GetPropertyAsString(const NameString& propertyName) const override;
 	void SetPropertyFromString(const NameString& propertyName, const std::string& value) override;
 
-	void InitDevice();
+	void InitDevice(bool enabled = true);
 	void ShutdownDevice();
 	void SetViewport(UViewport* InViewport);
 	UViewport* GetViewport() { return m_Viewport; }

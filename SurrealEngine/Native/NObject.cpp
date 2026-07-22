@@ -275,7 +275,8 @@ void NObject::RegisterFunctions()
 	if (engine->LaunchInfo.IsDeusEx())
 	{
 		RegisterVMNativeFunc_2("Object", "AllObjects", &NObject::AllObjects_DeusEx, 1001);
-		RegisterVMNativeFunc_1("Object", "CriticalDelete", &NObject::CriticalDelete, 751);
+		RegisterVMNativeFunc_2("Object", "CriticalDelete", &NObject::CriticalDelete, 751);
+		RegisterVMNativeFunc_3("Object", "GetConfig", &NObject::GetConfig, 0);
 	}
 
 	// Package 61 stuff
@@ -559,9 +560,14 @@ void NObject::Disable(UObject* Self, const NameString& ProbeFunc)
 	Self->DisableEvent(ProbeFunc);
 }
 
-void NObject::CriticalDelete(UObject* Self, UObject* myObject)
+void NObject::CriticalDelete(UObject* Self, UObject* myObject, int& ReturnValue)
 {
-	LogUnimplemented("Object.CriticalDelete");
+	// Objects are owned by their Package in Surreal Engine, so immediate
+	// destruction would leave dangling references in the package tables. The
+	// Deus Ex scripts only use this as an eager-release hint, but the stock
+	// declaration returns an int and the VM still supplies a return slot even
+	// when callers discard it.
+	ReturnValue = myObject ? 1 : 0;
 }
 
 void NObject::Divide_U227(std::string& Src, std::string& Divider, std::string& LeftPart, std::string& RightPart, BitfieldBool& ReturnValue)
@@ -828,6 +834,11 @@ void NObject::FRand(float& ReturnValue)
 void NObject::GetAxes(const Rotator& A, vec3& X, vec3& Y, vec3& Z)
 {
 	Coords::Rotation(A).GetAxes(X, Y, Z);
+}
+
+void NObject::GetConfig(const std::string& ConfigSection, const std::string& ConfigKey, std::string& ReturnValue)
+{
+	ReturnValue = engine->packages->GetIniValue("System", ConfigSection, ConfigKey);
 }
 
 void NObject::GetClassFlags_U227(UObject* Class, int& ReturnValue)

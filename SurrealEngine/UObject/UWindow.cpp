@@ -2321,7 +2321,7 @@ void ULargeTextWindow::SetVerticalSpacing(std::optional<float> newVSpace)
 
 void UEditWindow::ClearTextChangedFlag()
 {
-	LogUnimplemented("EditWindow.ClearTextChangedFlag");
+	unchangedUndo() = currentUndo();
 }
 
 void UEditWindow::ClearUndo()
@@ -2342,17 +2342,43 @@ void UEditWindow::Cut()
 
 void UEditWindow::DeleteChar(std::optional<bool> bBefore, std::optional<bool> bUndo)
 {
-	LogUnimplemented("EditWindow.DeleteChar");
+	if (!bEditable() || Text().empty())
+		return;
+
+	int start = std::clamp(std::min(selectStart(), selectEnd()), 0, (int)Text().size());
+	int end = std::clamp(std::max(selectStart(), selectEnd()), 0, (int)Text().size());
+	if (start == end)
+	{
+		int pos = std::clamp(insertPos(), 0, (int)Text().size());
+		if (!bBefore || *bBefore)
+			start = std::max(pos - 1, 0), end = pos;
+		else
+			start = pos, end = std::min(pos + 1, (int)Text().size());
+	}
+	if (start == end)
+		return;
+
+	std::string text = Text();
+	text.erase((size_t)start, (size_t)(end - start));
+	SetText(text);
+	insertPos() = start;
+	selectStart() = selectEnd() = start;
+	currentUndo()++;
+	for (UWindow* cur = this; cur; cur = cur->parentOwner())
+	{
+		if (cur->TextChanged(this, HasTextChanged()))
+			break;
+	}
 }
 
 void UEditWindow::EnableEditing(std::optional<bool> bEdit)
 {
-	LogUnimplemented("EditWindow.EnableEditing");
+	bEditable() = !bEdit || *bEdit;
 }
 
 void UEditWindow::EnableSingleLineEditing(std::optional<bool> bSingle)
 {
-	LogUnimplemented("EditWindow.EnableSingleLineEditing");
+	bSingleLine() = !bSingle || *bSingle;
 }
 
 void UEditWindow::EnableUppercaseOnly(std::optional<bool> bUppercase)
@@ -2363,45 +2389,87 @@ void UEditWindow::EnableUppercaseOnly(std::optional<bool> bUppercase)
 
 int UEditWindow::GetInsertionPoint()
 {
-
-	LogUnimplemented("EditWindow.GetInsertionPoint");
-	return 0;
+	return std::clamp(insertPos(), 0, (int)Text().size());
 }
 
 void UEditWindow::GetSelectedArea(int& startPos, int& Count)
 {
-	LogUnimplemented("EditWindow.GetSelectedArea");
+	startPos = std::clamp(std::min(selectStart(), selectEnd()), 0, (int)Text().size());
+	int end = std::clamp(std::max(selectStart(), selectEnd()), 0, (int)Text().size());
+	Count = end - startPos;
 }
 
 bool UEditWindow::HasTextChanged()
 {
-	LogUnimplemented("EditWindow.HasTextChanged");
-	return false;
+	return currentUndo() != unchangedUndo();
 }
 
-bool UEditWindow::InsertText(std::optional<std::string> InsertText, std::optional<bool> bUndo, std::optional<bool> bSelect)
+bool UEditWindow::InsertText(std::optional<std::string> insertText, std::optional<bool> bUndo, std::optional<bool> bSelect)
 {
-	LogUnimplemented("EditWindow.InsertText");
-	return false;
+	if (!bEditable() || !insertText)
+		return false;
+
+	std::string value = *insertText;
+	if (bSingleLine() && (value == "\r" || value == "\n" || value == "\r\n" || value == "|n"))
+	{
+		for (UWindow* cur = this; cur; cur = cur->parentOwner())
+		{
+			if (cur->EditActivated(this, HasTextChanged()))
+				break;
+		}
+		return true;
+	}
+	if (bSingleLine())
+	{
+		value.erase(std::remove(value.begin(), value.end(), '\r'), value.end());
+		std::replace(value.begin(), value.end(), '\n', ' ');
+	}
+	if (bUppercaseOnly())
+	{
+		std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) { return (char)std::toupper(ch); });
+	}
+
+	int start = std::clamp(std::min(selectStart(), selectEnd()), 0, (int)Text().size());
+	int end = std::clamp(std::max(selectStart(), selectEnd()), 0, (int)Text().size());
+	if (start == end)
+		start = end = std::clamp(insertPos(), 0, (int)Text().size());
+
+	int room = maxSize() > 0 ? std::max(maxSize() - ((int)Text().size() - (end - start)), 0) : (int)value.size();
+	if ((int)value.size() > room)
+		value.resize((size_t)room);
+
+	std::string text = Text();
+	text.replace((size_t)start, (size_t)(end - start), value);
+	SetText(text);
+	insertPos() = start + (int)value.size();
+	if (bSelect && *bSelect)
+		selectStart() = start, selectEnd() = insertPos();
+	else
+		selectStart() = selectEnd() = insertPos();
+	currentUndo()++;
+	for (UWindow* cur = this; cur; cur = cur->parentOwner())
+	{
+		if (cur->TextChanged(this, HasTextChanged()))
+			break;
+	}
+	return true;
 }
 
 bool UEditWindow::IsEditingEnabled()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("EditWindow.IsEditingEnabled");
-	return false;
+	return bEditable();
 }
 
 bool UEditWindow::IsSingleLineEditingEnabled()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("EditWindow.IsSingleLineEditingEnabled");
-	return false;
+	return bSingleLine();
 }
 
 void UEditWindow::MoveInsertionPoint(uint8_t moveInsert, std::optional<bool> bDrag)
 {
-	LogUnimplemented("EditWindow.MoveInsertionPoint");
+	// Deus Ex only invokes this native with MOVEINSERT_End. Keeping the
+	// fallback at the end is also safer than leaving the cursor outside Text.
+	SetInsertionPoint((int)Text().size(), bDrag);
 }
 
 void UEditWindow::Paste()
@@ -2432,7 +2500,19 @@ void UEditWindow::SetEditSounds(std::optional<UObject*> typeSound, std::optional
 
 void UEditWindow::SetInsertionPoint(int NewPos, std::optional<bool> bDrag)
 {
-	LogUnimplemented("EditWindow.SetInsertionPoint");
+	int oldPos = std::clamp(insertPos(), 0, (int)Text().size());
+	int newPos = std::clamp(NewPos, 0, (int)Text().size());
+	insertPos() = newPos;
+	if (bDrag && *bDrag)
+	{
+		if (selectStart() == selectEnd())
+			selectStart() = oldPos;
+		selectEnd() = newPos;
+	}
+	else
+	{
+		selectStart() = selectEnd() = newPos;
+	}
 }
 
 void UEditWindow::SetInsertionPointBlinkRate(std::optional<float> blinkStart, std::optional<float> blinkPeriod)
@@ -2448,12 +2528,19 @@ void UEditWindow::SetInsertionPointTexture(std::optional<UObject*> NewTexture, s
 
 void UEditWindow::SetInsertionPointType(uint8_t newType, std::optional<float> prefWidth, std::optional<float> prefHeight)
 {
-	LogUnimplemented("EditWindow.SetInsertionPointType");
+	insertType() = newType;
+	if (prefWidth)
+		insertPrefWidth() = *prefWidth;
+	if (prefHeight)
+		insertPrefHeight() = *prefHeight;
 }
 
 void UEditWindow::SetMaxSize(int newMaxSize)
 {
-	LogUnimplemented("EditWindow.SetMaxSize");
+	maxSize() = std::max(newMaxSize, 0);
+	if (maxSize() > 0 && (int)Text().size() > maxSize())
+		SetText(Text().substr(0, (size_t)maxSize()));
+	SetInsertionPoint(insertPos(), false);
 }
 
 void UEditWindow::SetMaxUndos(int newMaxUndos)
@@ -2464,7 +2551,9 @@ void UEditWindow::SetMaxUndos(int newMaxUndos)
 
 void UEditWindow::SetSelectedArea(int startPos, int Count)
 {
-	LogUnimplemented("EditWindow.SetSelectedArea");
+	selectStart() = std::clamp(startPos, 0, (int)Text().size());
+	selectEnd() = std::clamp(startPos + std::max(Count, 0), 0, (int)Text().size());
+	insertPos() = selectEnd();
 }
 
 void UEditWindow::SetSelectedAreaTextColor(std::optional<Color> NewColor)
@@ -2479,8 +2568,15 @@ void UEditWindow::SetSelectedAreaTexture(std::optional<UObject*> NewTexture, std
 
 void UEditWindow::SetTextChangedFlag(std::optional<bool> bSet)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("EditWindow.SetTextChangedFlag");
+	if (!bSet || *bSet)
+	{
+		if (currentUndo() == unchangedUndo())
+			currentUndo()++;
+	}
+	else
+	{
+		unchangedUndo() = currentUndo();
+	}
 }
 
 void UEditWindow::Undo()
@@ -2863,7 +2959,7 @@ bool URootWindow::SetRootFocusWindow(UWindow* newFocusWindow)
 				PlaySound(oldFocusWindow->unfocusSound(), {}, {}, {}, {});
 
 			oldFocusWindow->FocusLeftWindow();
-			for (UWindow* w = oldFocusWindow->parentOwner(); w != ancestor; w = w->parentOwner())
+			for (UWindow* w = oldFocusWindow->parentOwner(); w && w != ancestor; w = w->parentOwner())
 			{
 				w->FocusLeftDescendant(oldFocusWindow);
 			}
@@ -2873,7 +2969,7 @@ bool URootWindow::SetRootFocusWindow(UWindow* newFocusWindow)
 		{
 			// Note: this order is in reverse. Hopefully it doesn't matter.
 			newFocusWindow->FocusEnteredWindow();
-			for (UWindow* w = newFocusWindow->parentOwner(); w != ancestor; w = w->parentOwner())
+			for (UWindow* w = newFocusWindow->parentOwner(); w && w != ancestor; w = w->parentOwner())
 			{
 				w->FocusEnteredDescendant(newFocusWindow);
 			}
@@ -2952,10 +3048,14 @@ UWindow* URootWindow::GetCursorFocus(float& relativeX, float& relativeY)
 
 bool URootWindow::OnWindowMouseMove(const Point& pos)
 {
-#if 0 // We currently handle this in OnWindowRawMouseMove
-	if (IsCursorVisible())
+	// Background validation windows do not receive WM_INPUT because they never
+	// become the foreground window. Let targeted absolute mouse messages drive
+	// their UI without changing the normal raw-input path.
+	if (engine->LaunchInfo.noActivate && IsCursorVisible())
+	{
+		float scale = GetVirtualScale();
 		SetRootCursorPos((float)pos.x / scale, (float)pos.y / scale);
-#endif
+	}
 	return IsModalOpen();
 }
 
@@ -3034,13 +3134,18 @@ bool URootWindow::OnWindowKeyChar(std::string chars)
 	UWindow* focus = FocusWindow();
 	if (!focus)
 		return IsModalOpen();
-
 	if (focus->KeyPressed(chars))
 		return true;
 
-	// To do: fire these for edit windows
-	// event bool TextChanged(window edit, bool bModified)
-	// event bool EditActivated(window edit, bool bModified)
+	if (UEditWindow* edit = UObject::Cast<UEditWindow>(focus))
+	{
+		// Control keys are handled by VirtualKeyPressed. Inserting their
+		// corresponding WM_CHAR here would, for example, activate a
+		// single-line edit twice when Enter is pressed.
+		if (chars.empty() || std::any_of(chars.begin(), chars.end(), [](unsigned char ch) { return ch < 32; }))
+			return IsModalOpen();
+		return edit->InsertText(std::move(chars), true, false) || IsModalOpen();
+	}
 
 	return IsModalOpen();
 }
@@ -3508,13 +3613,17 @@ void UListWindow::DeleteAllRows()
 {
 	items.clear();
 	nextRowId = 1;
+	numSelected() = 0;
 }
 
 void UListWindow::DeleteRow(int rowId)
 {
 	int index = RowIdToIndex(rowId);
 	if (index >= 0)
+	{
 		items.erase(items.begin() + index);
+		numSelected() = (int)std::count_if(items.begin(), items.end(), [](const Item& item) { return item.selected; });
+	}
 }
 
 void UListWindow::EnableAutoExpandColumns(std::optional<bool> bAutoExpand)
@@ -3589,7 +3698,7 @@ std::string UListWindow::GetField(int rowId, int colIndex)
 	int rowIndex = RowIdToIndex(rowId);
 	if (rowIndex == -1)
 		return {};
-	if (colIndex < 0 || items[rowIndex].cells.size() >= (size_t)colIndex)
+	if (colIndex < 0 || items[rowIndex].cells.size() <= (size_t)colIndex)
 		return {};
 	return items[rowIndex].cells[colIndex];
 }
@@ -3623,8 +3732,7 @@ int UListWindow::GetNumRows()
 
 int UListWindow::GetNumSelectedRows()
 {
-	LogUnimplemented("ListWindow.GetNumSelectedRows");
-	return 0;
+	return (int)std::count_if(items.begin(), items.end(), [](const Item& item) { return item.selected; });
 }
 
 int UListWindow::GetPageSize()
@@ -3652,7 +3760,11 @@ UObject* UListWindow::GetRowClientObject(int rowId)
 
 int UListWindow::GetSelectedRow()
 {
-	LogUnimplemented("ListWindow.GetSelectedRow");
+	for (const Item& item : items)
+	{
+		if (item.selected)
+			return item.id;
+	}
 	return 0;
 }
 
@@ -3770,6 +3882,7 @@ void UListWindow::SelectAllRows(std::optional<bool> bSelect)
 	{
 		item.selected = selected;
 	}
+	numSelected() = selected ? (int)items.size() : 0;
 }
 
 void UListWindow::SelectRow(int rowId, std::optional<bool> bSelect)
@@ -3777,7 +3890,10 @@ void UListWindow::SelectRow(int rowId, std::optional<bool> bSelect)
 	bool selected = bSelect.has_value() ? bSelect.value() : true;
 	int rowIndex = RowIdToIndex(rowId);
 	if (rowIndex != -1)
+	{
 		items[rowIndex].selected = selected;
+		numSelected() = (int)std::count_if(items.begin(), items.end(), [](const Item& item) { return item.selected; });
+	}
 }
 
 void UListWindow::SelectToRow(int rowId, std::optional<bool> bClearRows, std::optional<bool> bInvert, std::optional<bool> bSpanRows)
@@ -3913,7 +4029,20 @@ void UListWindow::SetNumColumns(int newCols)
 
 void UListWindow::SetRow(int rowId, std::optional<bool> bSelect, std::optional<bool> bClearRows, std::optional<bool> bDrag)
 {
-	LogUnimplemented("ListWindow.SetRow");
+	int rowIndex = RowIdToIndex(rowId);
+	if (rowIndex == -1)
+		return;
+
+	bool select = !bSelect || *bSelect;
+	bool clearRows = !bClearRows || *bClearRows;
+	if (clearRows || (!bMultiSelect() && select))
+	{
+		for (Item& item : items)
+			item.selected = false;
+	}
+	items[rowIndex].selected = select;
+	numSelected() = (int)std::count_if(items.begin(), items.end(), [](const Item& item) { return item.selected; });
+	bDragging() = bDrag && *bDrag;
 }
 
 void UListWindow::SetRowClientInt(int rowId, int clientInt)
@@ -3954,6 +4083,7 @@ void UListWindow::ToggleRowSelection(int rowId)
 	if (rowIndex == -1)
 		return;
 	items[rowIndex].selected = !items[rowIndex].selected;
+	numSelected() = (int)std::count_if(items.begin(), items.end(), [](const Item& item) { return item.selected; });
 }
 
 void UListWindow::DrawWindow(UGC* gc)

@@ -195,7 +195,7 @@ void USurrealAudioDevice::SaveConfig()
 	engine->packages->SetIniValue("System", Class, "AmbientFactor", IniPropertyConverter<float>::ToString(AmbientFactor));
 }
 
-void USurrealAudioDevice::InitDevice()
+void USurrealAudioDevice::InitDevice(bool enabled)
 {
 	// TODO: Add configurable option for audio device
 	// TODO: Add configurable option for audio output frequency
@@ -203,8 +203,8 @@ void USurrealAudioDevice::InitDevice()
 	// TODO: Add option for music buffer count
 	// TODO: Add option for music buffer size
 	// m_Device = AudioDevice::Create(48000, 256, 16, 256);
-	m_Device = AudioDevice::Create(OutputRate.frequency, 256, 16, 256);
-	LogMessage("Audio device initialized");
+	m_Device = enabled ? AudioDevice::Create(OutputRate.frequency, 256, 16, 256) : AudioDevice::CreateNull(256);
+	LogMessage(enabled ? "Audio device initialized" : "Audio disabled by --nosound");
 }
 
 void USurrealAudioDevice::ShutdownDevice()

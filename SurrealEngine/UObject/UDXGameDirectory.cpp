@@ -1,6 +1,7 @@
 
 #include "Precomp.h"
 #include "UDXGameDirectory.h"
+#include "DXSavePath.h"
 #include "Utils/Logger.h"
 #include "Engine.h"
 #include "Package/PackageManager.h"
@@ -15,6 +16,7 @@ void UDXGameDirectory::GetGameDirectory()
 	else
 	{
 		currentDirectory = engine->packages->GetSaveFolderPath();
+		fs::create_directories(currentDirectory);
 		PopulateSaveInfoPointers();
 	}
 }
@@ -46,13 +48,10 @@ std::string UDXGameDirectory::GenerateNewSaveFileName(std::optional<int> newInde
 
 int UDXGameDirectory::GetDirCount()
 {
-	int count = 0;
+	if (GameDirectoryType() == EGameDirectoryTypes::GD_SaveGames)
+		return (int)LoadedSaveInfoPointers().size();
 
-	if (fs::exists(currentDirectory) && fs::is_directory(currentDirectory))
-		for (auto& p : fs::directory_iterator(currentDirectory))
-			count++;
-
-	return count;
+	return (int)DirectoryList().size();
 }
 
 std::string UDXGameDirectory::GetDirFilename(int fileIndex)
@@ -90,11 +89,8 @@ UDXSaveInfo* UDXGameDirectory::GetSaveInfo(int fileIndex)
 
 UDXSaveInfo* UDXGameDirectory::GetSaveInfoFromDirectoryIndex(int DirectoryIndex)
 {
-	for (const auto& dxSaveInfo : LoadedSaveInfoPointers())
-		if (dxSaveInfo->DirectoryIndex() == DirectoryIndex)
-			return dxSaveInfo;
-
-	return nullptr;
+	auto saveInfos = LoadedSaveInfoPointers();
+	return DirectoryIndex >= 0 && (size_t)DirectoryIndex < saveInfos.size() ? saveInfos[(size_t)DirectoryIndex] : nullptr;
 }
 
 UDXSaveInfo* UDXGameDirectory::GetTempSaveInfo()
@@ -104,40 +100,22 @@ UDXSaveInfo* UDXGameDirectory::GetTempSaveInfo()
 
 void UDXGameDirectory::DeleteSaveInfo(UDXSaveInfo& saveInfo)
 {
-	const auto saveFolderName = GetSaveIndexFolderName(saveInfo.DirectoryIndex());
-
-#if 0
-	for (auto it = LoadedSaveInfoPointers().cbegin() ; it != LoadedSaveInfoPointers().cend() ; it++)
-	{
-		if (*it == &saveInfo)
-		{
-			LoadedSaveInfoPointers().erase(it);
-			engine->packages->RemoveSaveInfoPackage(saveFolderName);
-			fs::remove_all(engine->packages->GetSaveFolderPath() / saveFolderName); // Also delete the folder
-			return;
-		}
-	}
-#endif
+	// The stock native releases the GameDirectory object's temporary ownership
+	// of a loaded metadata object. PackageManager owns these objects in Surreal,
+	// so there is no corresponding eager deletion to perform here.
 }
 
 void UDXGameDirectory::PurgeAllSaveInfo()
 {
-	if (GameDirectoryType() == EGameDirectoryTypes::GD_Maps)
-		return;
-
-	if (fs::exists(currentDirectory) && fs::is_directory(currentDirectory))
-		for (auto& p : fs::directory_iterator(currentDirectory))
-			// We're not using remove_all() as we don't want to remove the Save folder itself
-			fs::remove(p.path());
+	LoadedSaveInfoPointers().Array->Resize(0);
 }
 
 int UDXGameDirectory::GetSaveFreeSpace()
 {
-	// Returns a value in KBs, which limits us to ~2TB of "free space" max.
-	// Should be enough but still
-	const auto freeSpaceInKBs = static_cast<int>(fs::space(currentDirectory).free / 1024);
-	// Capped at 1TB
-	return std::min(freeSpaceInKBs, 1000 * 1024 * 1024);
+	// The script return type is signed 32-bit KB. Cap before narrowing so large
+	// modern volumes cannot wrap to a negative value.
+	const uintmax_t freeSpaceInKBs = fs::space(currentDirectory).free / 1024;
+	return static_cast<int>(std::min<uintmax_t>(freeSpaceInKBs, 1000ull * 1024 * 1024));
 }
 
 int UDXGameDirectory::GetSaveDirectorySize(int saveIndex)
@@ -147,18 +125,20 @@ int UDXGameDirectory::GetSaveDirectorySize(int saveIndex)
 		return 0;
 
 	int size = 0;
+	const auto directory = currentDirectory / GetSaveIndexFolderName(saveIndex);
+	if (!fs::exists(directory) || !fs::is_directory(directory))
+		return 0;
 
-	for (auto& p : fs::directory_iterator(currentDirectory / GetSaveIndexFolderName(saveIndex)))
-		size += (int)p.file_size();
+	for (auto& p : fs::recursive_directory_iterator(directory))
+		if (p.is_regular_file())
+			size += (int)p.file_size();
 
 	return size;
 }
 
 std::string UDXGameDirectory::GetSaveIndexFolderName(int saveIndex)
 {
-	std::string folderName = std::to_string(saveIndex);
-	folderName.insert(0, 4 - folderName.length(), '0'); // Pad with 0s
-	return "Save" + folderName;
+	return FormatDXSaveFolder(saveIndex);
 }
 
 void UDXGameDirectory::PopulateDirectoryList()
@@ -176,14 +156,17 @@ void UDXGameDirectory::PopulateDirectoryList()
 
 void UDXGameDirectory::PopulateSaveInfoPointers()
 {
-#if 0
-	Array<UDXSaveInfo*> saveInfos;
-
+	auto loaded = LoadedSaveInfoPointers();
+	loaded.Array->Resize(0);
 	for (const auto& saveInfoPackage : engine->packages->GetSaveInfoPackages())
 	{
-		saveInfos.push_back(Cast<UDXSaveInfo>(saveInfoPackage.second->GetUObject("DeusExSaveInfo", "MyDeusExSaveInfo")));
+		auto saveInfo = TryCast<UDXSaveInfo>(saveInfoPackage.second->GetUObject("DeusExSaveInfo", "MyDeusExSaveInfo"));
+		if (saveInfo && saveInfo->DirectoryIndex() >= 0)
+			loaded.push_back(saveInfo);
 	}
 
-	LoadedSaveInfoPointers() = saveInfos;
-#endif
+	std::sort(loaded.begin(), loaded.end(), [](UDXSaveInfo* left, UDXSaveInfo* right)
+	{
+		return left->DirectoryIndex() < right->DirectoryIndex();
+	});
 }

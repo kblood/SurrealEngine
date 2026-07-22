@@ -12,6 +12,7 @@
 #include "UObject/UMesh.h"
 #include "UObject/UActor.h"
 #include "UObject/ObjectTravelInfo.h"
+#include "UObject/DXSavePath.h"
 #include "UObject/UTexture.h"
 #include "UObject/UMusic.h"
 #include "UObject/USound.h"
@@ -59,7 +60,7 @@ Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 		deusExPackage = packages->GetPackage("DeusEx");
 		dxgc = UObject::Cast<UGC>(transientpkg->NewObject("gc", extpkg->GetClass("GC"), ObjectFlags::Transient));
 		dxgc->Canvas() = canvas;
-		dxSaveInfo = UObject::Cast<UDXSaveInfo>(transientpkg->NewObject("DeusExSaveInfo", deusExPackage->GetClass("DeusExSaveInfo"), ObjectFlags::Transient));
+		dxSaveInfo = UObject::Cast<UDXSaveInfo>(transientpkg->NewObject("MyDeusExSaveInfo", deusExPackage->GetClass("DeusExSaveInfo"), ObjectFlags::Transient));
 		dxConMissionList = UObject::Cast<UConversationMissionList>(packages->GetPackage("DeusExConText")->GetUObject("ConversationMissionList", "ConMissionList"));
 	}
 
@@ -78,7 +79,7 @@ Engine::~Engine()
 	if (audiodev)
 		audiodev->ShutdownDevice();
 
-	Logger::Get()->SaveLogAsPlaintext((Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt").string());
+	Logger::Get()->SaveLogAsPlaintext(LaunchInfo.logFile.empty() ? (Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt").string() : LaunchInfo.logFile);
 
 	engine = nullptr;
 }
@@ -94,13 +95,14 @@ void Engine::Run()
 
 	OpenWindow();
 
-	audiodev->InitDevice();
+	audiodev->InitDevice(!LaunchInfo.noSound);
 	render = std::make_unique<RenderSubsystem>(window->GetRenderDevice());
 
 	if (engine->LaunchInfo.ue1Version > 219 && !client->StartupFullscreen)
 		viewport->bWindowsMouseAvailable() = true;
 
-	window->LockCursor();
+	if (!LaunchInfo.noActivate)
+		window->LockCursor();
 
 	if (packages->IsKlingonHonorGuard())
 	{
@@ -110,12 +112,19 @@ void Engine::Run()
 	if (!LaunchInfo.noEntryMap)
 		LoadEntryMap();
 
-	if (LaunchInfo.url.empty())
-		LoadMap(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")));
+	UnrealURL startupURL = LaunchInfo.url.empty()
+		? GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap"))
+		: UnrealURL(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")), LaunchInfo.url);
+	if (startupURL.HasOption("load") || startupURL.HasOption("loadgame"))
+	{
+		LoadFromSaveFile(startupURL);
+		PossessSavedPlayer();
+	}
 	else
-		LoadMap(UnrealURL(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")), LaunchInfo.url));
-
-	LoginPlayer();
+	{
+		LoadMap(startupURL);
+		LoginPlayer();
+	}
 
 	auto objprop = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	auto vecprop = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
@@ -249,7 +258,7 @@ void Engine::Run()
 			LoginPlayer();
 		}
 
-		if (ClientTravelInfo.URL.HasOption("load"))
+		if (ClientTravelInfo.URL.HasOption("load") || ClientTravelInfo.URL.HasOption("loadgame"))
 		{
 			UnrealURL url(ClientTravelInfo.URL);
 			LoadFromSaveFile(url);
@@ -729,9 +738,10 @@ void Engine::LoadFromSaveFile(const UnrealURL& url)
 
 	Package* savefilePackage = nullptr;
 
-	if (url.HasOption("load"))
+	if (url.HasOption("load") || url.HasOption("loadgame"))
 	{
-		uint32_t slotNum = Convert::to_uint32(url.GetOption("load"));
+		std::string slotOption = url.HasOption("loadgame") ? url.GetOption("loadgame") : url.GetOption("load");
+		int32_t slotNum = Convert::to_int32(slotOption);
 		savefilePackage = packages->LoadSaveSlot(slotNum);
 	}
 
@@ -822,14 +832,26 @@ void Engine::SaveGameToSlot(int32_t slotNum, const std::string& saveDescription)
 
 	if (packages->IsDeusEx())
 	{
+		if (slotNum < -1 || slotNum > 9999)
+			Exception::Throw("Invalid Deus Ex save slot " + std::to_string(slotNum));
+
+		if (slotNum == 0)
+		{
+			for (slotNum = 1; slotNum < 10000; slotNum++)
+			{
+				if (!fs::is_directory(saveFolderPath / FormatDXSaveFolder(slotNum)))
+					break;
+			}
+			if (slotNum == 10000)
+				Exception::Throw("No free Deus Ex save slots");
+		}
+
 		// Saving a game on Deus Ex does the following:
 		// - Create a folder using the slotNum (e.g. 1 -> "Save0001")
 		// - Save the level package using the name [MapName].dxs
 		// - Save the associated DeusExSaveInfo class as SaveInfo.dxs within that same folder,
 		// in which saveDescription parameter will be used in DeusExSaveInfo.Description
-		auto slotNumStr = std::to_string(slotNum);
-		slotNumStr.insert(0, 4 - slotNumStr.length(), '0'); // Pad it with 0s
-		auto saveFolder = "Save" + slotNumStr;
+		auto saveFolder = FormatDXSaveFolder(slotNum);
 
 		auto saveSlotFolder = saveFolderPath / saveFolder;
 		if (!fs::exists(saveSlotFolder) || !fs::is_directory(saveSlotFolder))
@@ -839,14 +861,26 @@ void Engine::SaveGameToSlot(int32_t slotNum, const std::string& saveDescription)
 		auto saveInfoName = "SaveInfo." + packages->GetSaveExtension();
 		auto saveFileFullPath = (saveSlotFolder / levelName).string();
 		auto saveInfoFullPath = (saveSlotFolder / saveInfoName).string();
+		auto player = UObject::TryCast<UDeusExPlayer>(viewport->Actor());
+		if (player)
+			player->saveCount()++;
 		LevelPackage->Save(Level, saveFileFullPath);
 
-		dxSaveInfo->DirectoryIndex() = slotNum;
-		dxSaveInfo->Description() = saveDescription;
-		dxSaveInfo->MissionLocation() = DeusExLevelInfo ? DeusExLevelInfo->MissionLocation() : "";
-		dxSaveInfo->MapName() = Level->package->GetPackageName().ToString();
-		dxSaveInfo->UpdateTimeStamp();
-		deusExPackage->Save(dxSaveInfo, saveInfoFullPath);
+		auto saveInfoPackage = packages->CreatePackage("SaveInfo", deusExPackage);
+		auto saveInfo = UObject::Cast<UDXSaveInfo>(saveInfoPackage->NewObject("MyDeusExSaveInfo", deusExPackage->GetClass("DeusExSaveInfo"), ObjectFlags::NoFlags));
+		saveInfo->DirectoryIndex() = slotNum;
+		saveInfo->Description() = saveDescription;
+		saveInfo->MissionLocation() = DeusExLevelInfo ? DeusExLevelInfo->MissionLocation() : "";
+		saveInfo->MapName() = Level->package->GetPackageName().ToString();
+		if (player)
+		{
+			saveInfo->SaveCount() = player->saveCount();
+			saveInfo->SaveTime() = (int)player->saveTime();
+			saveInfo->bCheatsEnabled() = player->bCheatsEnabled();
+		}
+		saveInfo->UpdateTimeStamp();
+		saveInfoPackage->Save(saveInfo, saveInfoFullPath);
+		packages->RefreshSaveInfos();
 	}
 	else
 	{
@@ -1222,6 +1256,18 @@ std::string Engine::ConsoleCommand(UObject* context, const std::string& commandl
 		//LogMessage("SaveGame command not fully implemented yet!");
 		return {};
 	}
+	else if (command == "deletegame" && args.size() == 2 && packages->IsDeusEx())
+	{
+		try
+		{
+			packages->DeleteSaveSlot(Convert::to_int32(args[1]));
+		}
+		catch (const std::exception& error)
+		{
+			LogMessage(error.what());
+		}
+		return {};
+	}
 	else if (command == "get" && args.size() == 3)
 	{
 		NameString className = ParseClassName(args[1]);
@@ -1506,7 +1552,7 @@ void Engine::UpdateInput(float timeElapsed)
 void Engine::OpenWindow()
 {
 	if (!window)
-		window = GameWindow::Create(this);
+		window = GameWindow::Create(this, !LaunchInfo.noActivate);
 
 	int width = client->StartupFullscreen ? client->FullscreenViewportX : client->WindowedViewportX;
 	int height = client->StartupFullscreen ? client->FullscreenViewportY : client->WindowedViewportY;
@@ -1518,8 +1564,10 @@ void Engine::OpenWindow()
 	window->SetFrameGeometry(Rect::xywh(0.0, 0.0, width, height));
 	viewport->SetViewportRect(0, 0, width, height);
 
-	if (fullscreen)
+	if (fullscreen && !LaunchInfo.noActivate)
 		window->ShowFullscreen();
+	else if (LaunchInfo.noActivate)
+		window->ShowNormalNoActivate();
 	else
 		window->ShowNormal();
 }
@@ -1531,7 +1579,7 @@ void Engine::CloseWindow()
 
 void Engine::TickWindow()
 {
-	if (window && engine->LaunchInfo.ue1Version > 219)
+	if (window && engine->LaunchInfo.ue1Version > 219 && !LaunchInfo.noActivate)
 	{
 		if (viewport->bShowWindowsMouse() && viewport->bWindowsMouseAvailable())
 			window->UnlockCursor();

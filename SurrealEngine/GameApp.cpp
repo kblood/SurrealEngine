@@ -17,6 +17,8 @@
 
 int GameApp::main(Array<std::string> args)
 {
+	const bool noActivate = std::find(args.begin(), args.end(), "--noactivate") != args.end();
+	std::string logFile;
 	auto backend = DisplayBackend::TryCreateBackend();
 	DisplayBackend::Set(std::move(backend));
 	InitWidgetResources();
@@ -26,17 +28,29 @@ int GameApp::main(Array<std::string> args)
 	{
 		CommandLine cmd(args);
 		commandline = &cmd;
+		logFile = commandline->GetArg("", "--logfile");
 
 		if (ErrorWindow::CheckCrashReporter())
 			return 0;
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--nosound] [--noactivate] [--autostart] [--logfile=<path>] [Path to game folder]\n";
 			return 0;
 		}
 
-		int selectedGameIndex = LauncherWindow::ExecModal();
+		int selectedGameIndex = -1;
+		if (commandline->HasArg("", "--autostart"))
+		{
+			GameFolderSelection::UpdateList();
+			if (GameFolderSelection::Games.size() != 1)
+				Exception::Throw("--autostart requires exactly one detected game folder");
+			selectedGameIndex = 0;
+		}
+		else
+		{
+			selectedGameIndex = LauncherWindow::ExecModal();
+		}
 		if (selectedGameIndex >= 0)
 		{
 			GameLaunchInfo info = GameFolderSelection::GetLaunchInfo(selectedGameIndex);
@@ -46,7 +60,14 @@ int GameApp::main(Array<std::string> args)
 	}
 	catch (const std::exception& e)
 	{
-		ErrorWindow::ExecModal(e.what(), Logger::Get()->GetLog());
+		if (noActivate)
+		{
+			LogMessage(std::string("Fatal error: ") + e.what());
+			Logger::Get()->SaveLogAsPlaintext(logFile.empty() ? (Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt").string() : logFile);
+			std::cerr << "SurrealEngine error: " << e.what() << '\n';
+		}
+		else
+			ErrorWindow::ExecModal(e.what(), Logger::Get()->GetLog());
 	}
 
 	DeinitWidgetResources();

@@ -23,6 +23,7 @@
 #include "UObject/USubsystem.h"
 #include "UObject/UDXExtString.h"
 #include "UObject/UDXGameDirectory.h"
+#include "UObject/DXSavePath.h"
 #include "UObject/UDeusExLevelInfo.h"
 #include "UObject/UDXTextParser.h"
 #include "UObject/UWindow.h"
@@ -212,7 +213,7 @@ Package* PackageManager::LoadSaveFile(const std::string& path)
 {
 	auto fullPath = gameSaveFolderPath / fs::path(path);
 
-	if (!fullPath.has_extension() || (fullPath.extension().string() != GetSaveExtension()))
+	if (!fullPath.has_extension() || (fullPath.extension().string() != "." + GetSaveExtension()))
 		fullPath.replace_extension(GetSaveExtension());
 
 	if (fs::exists(fullPath))
@@ -221,9 +222,48 @@ Package* PackageManager::LoadSaveFile(const std::string& path)
 	return nullptr;
 }
 
-Package* PackageManager::LoadSaveSlot(const uint32_t slotNum)
+Package* PackageManager::LoadSaveSlot(int32_t slotNum)
 {
+	if (IsDeusEx())
+	{
+		std::string saveFolder = FormatDXSaveFolder(slotNum);
+		Package* saveInfoPackage = GetSaveInfoPackage(saveFolder);
+		if (!saveInfoPackage)
+		{
+			fs::path saveInfoPath = gameSaveFolderPath / saveFolder / ("SaveInfo." + GetSaveExtension());
+			if (fs::exists(saveInfoPath))
+				saveInfoPackage = GC::Alloc<Package>(this, saveFolder, saveInfoPath.string());
+		}
+
+		if (!saveInfoPackage)
+			return nullptr;
+
+		auto saveInfo = UObject::TryCast<UDXSaveInfo>(saveInfoPackage->GetUObject("DeusExSaveInfo", "MyDeusExSaveInfo"));
+		if (!saveInfo || saveInfo->MapName().empty())
+			return nullptr;
+
+		return LoadSaveFile((fs::path(saveFolder) / (saveInfo->MapName() + "." + GetSaveExtension())).string());
+	}
 	return LoadSaveFile("Save" + std::to_string(slotNum) + "." + GetSaveExtension());
+}
+
+bool PackageManager::DeleteSaveSlot(int32_t slotNum)
+{
+	if (!IsDeusEx() || slotNum == 0 || slotNum < -1)
+		return false;
+
+	const std::string saveFolder = FormatDXSaveFolder(slotNum);
+	const fs::path saveRoot = gameSaveFolderPath.lexically_normal();
+	const fs::path target = (saveRoot / saveFolder).lexically_normal();
+	if (target.parent_path() != saveRoot || target.filename() != saveFolder)
+		Exception::Throw("Invalid Deus Ex save path");
+
+	RemoveSaveInfoPackage(saveFolder);
+	std::error_code error;
+	const bool removed = fs::remove_all(target, error) > 0;
+	if (error)
+		Exception::Throw("Could not delete Deus Ex save slot " + std::to_string(slotNum) + ": " + error.message());
+	return removed;
 }
 
 void PackageManager::ScanForMaps()
@@ -333,6 +373,9 @@ void PackageManager::ScanPaths()
 
 void PackageManager::ScanSaveInfos()
 {
+	if (!fs::exists(gameSaveFolderPath) || !fs::is_directory(gameSaveFolderPath))
+		return;
+
 	for (const auto& entry : fs::directory_iterator{gameSaveFolderPath})
 	{
 		if (!entry.is_directory())
@@ -347,6 +390,23 @@ void PackageManager::ScanSaveInfos()
 
 		saveInfos[saveFolderName] = GC::Alloc<Package>(this, saveFolderName, save.string());
 	}
+}
+
+void PackageManager::RefreshSaveInfos()
+{
+	saveInfos.clear();
+	ScanSaveInfos();
+}
+
+Package* PackageManager::CreatePackage(const NameString& name, const Package* versionSource)
+{
+	auto package = GC::Alloc<Package>(this, name, "");
+	if (versionSource)
+	{
+		package->Version = versionSource->Version;
+		package->LicenseeMode = versionSource->LicenseeMode;
+	}
+	return package;
 }
 
 std::string PackageManager::GetVideoFilename(const std::string& name)

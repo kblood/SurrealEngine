@@ -4580,6 +4580,9 @@ UObject* UDeusExPlayer::CreateGameDirectoryObject()
 	{
 		auto cls = engine->packages->FindClass("DeusEx.GameDirectory");
 		m_GameDirectory = Cast<UDXGameDirectory>(engine->packages->GetTransientPackage()->NewObject("GameDirectory", cls, ObjectFlags::Transient));
+		// The stock native keeps one transient save-info object on every game
+		// directory. MenuScreenSaveGame asks for it before the first save exists.
+		m_GameDirectory->TempSaveInfo() = engine->dxSaveInfo;
 	}
 
 	return m_GameDirectory;
@@ -4605,7 +4608,25 @@ UObject* UDeusExPlayer::CreateLogObject()
 
 void UDeusExPlayer::DeleteSaveGameFiles(std::optional<std::string> saveDirectory)
 {
-	LogUnimplemented("DeusExPlayer.DeleteSaveGameFiles");
+	const fs::path saveRoot = engine->packages->GetSaveFolderPath().lexically_normal();
+	const fs::path directoryName = saveDirectory && !saveDirectory->empty() ? fs::path(*saveDirectory) : fs::path("Current");
+	if (directoryName.is_absolute() || directoryName.has_parent_path() || directoryName.filename() != directoryName)
+	{
+		LogMessage("Rejected invalid Deus Ex save directory: " + directoryName.string());
+		return;
+	}
+
+	const fs::path target = (saveRoot / directoryName).lexically_normal();
+	if (target.parent_path() != saveRoot)
+	{
+		LogMessage("Rejected Deus Ex save directory outside the Save folder");
+		return;
+	}
+
+	std::error_code error;
+	fs::remove_all(target, error);
+	if (error)
+		LogMessage("Could not clear Deus Ex save directory " + target.string() + ": " + error.message());
 }
 
 std::string UDeusExPlayer::GetDeusExVersion()
@@ -4616,7 +4637,7 @@ std::string UDeusExPlayer::GetDeusExVersion()
 void UDeusExPlayer::SaveGame(int saveIndex, std::optional<std::string> saveDesc)
 {
 	engine->SaveGameInfo.SaveGameSlot = saveIndex;
-	engine->SaveGameInfo.SaveGameDescription = *saveDesc;
+	engine->SaveGameInfo.SaveGameDescription = saveDesc.value_or("");
 }
 
 NameString UDeusExPlayer::SetBoolFlagFromString(const std::string& flagNameString, bool bValue)
