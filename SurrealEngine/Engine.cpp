@@ -276,7 +276,30 @@ float Engine::AdvanceGameFrame()
 void Engine::RenderGameFrame(float levelElapsed)
 {
 	viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
-	render->DrawGame(levelElapsed);
+	RenderGameFrame(levelElapsed, CreateDesktopViewFamily());
+}
+
+void Engine::RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily)
+{
+	render->DrawGame(levelElapsed, viewFamily);
+}
+
+ViewFamily Engine::CreateDesktopViewFamily() const
+{
+	ViewDescription view;
+	view.Location = CameraLocation;
+	view.Rotation = Coords::Rotation(CameraRotation);
+	view.WorldToView = Coords::ViewToRenderDev().ToMatrix() * view.Rotation.Inverse().ToMatrix() * Coords::Location(view.Location).ToMatrix();
+	view.Viewport.X = viewport->ViewportX();
+	view.Viewport.Y = viewport->ViewportY();
+	view.Viewport.Width = viewport->ViewportWidth();
+	view.Viewport.Height = viewport->ViewportHeight();
+	view.FovAngle = CameraFovAngle;
+	view.ApplyGameViewport = true;
+
+	ViewFamily family;
+	family.Views.push_back(view);
+	return family;
 }
 
 void Engine::FinishGameFrame(float levelElapsed)

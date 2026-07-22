@@ -11,7 +11,7 @@ RenderSubsystem::RenderSubsystem(RenderDevice* renderdevice) : Device(renderdevi
 {
 }
 
-void RenderSubsystem::DrawGame(float levelTimeElapsed)
+void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFamily)
 {
 	LevelTimeElapsed = levelTimeElapsed;
 	AutoUV += levelTimeElapsed * 64.0f;
@@ -40,7 +40,7 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed)
 
 	if (engine->LaunchInfo.ue1Version <= 219 || engine->console->bNoDrawWorld() == false)
 	{
-		DrawScene();
+		DrawScene(viewFamily);
 		RenderOverlays();
 		if (engine->LaunchInfo.IsDeusEx())
 			PostRenderFlash();

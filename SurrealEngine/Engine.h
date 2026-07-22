@@ -5,6 +5,7 @@
 #include "Math/mat.h"
 #include "Math/floating.h"
 #include "RenderDevice/RenderDevice.h"
+#include "Render/ViewFamily.h"
 #include "GameWindow.h"
 #include "UObject/UActor.h"
 #include "UObject/UnrealURL.h"
@@ -78,6 +79,7 @@ public:
 	void RunOneFrame();
 	float AdvanceGameFrame();
 	void RenderGameFrame(float levelElapsed);
+	void RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily);
 	void FinishGameFrame(float levelElapsed);
 	void Shutdown();
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
@@ -234,6 +236,8 @@ public:
 	bool getDXWindowDebugMode() const { return m_DrawDebugDXWindowHierarchy; }
 
 private:
+	ViewFamily CreateDesktopViewFamily() const;
+
 	// Scratch properties used by PlayerCalcView during AdvanceGameFrame.
 	UObjectProperty* frameObjProp = nullptr;
 	UStructProperty* frameVecProp = nullptr;

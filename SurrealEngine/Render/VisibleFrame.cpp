@@ -6,7 +6,7 @@
 #include "RenderDevice/RenderDevice.h"
 #include "UObject/UWindow.h"
 
-void VisibleFrame::Process(const vec3& location, const mat4& worldToView, const Coords& viewRotation, bool mirrorFlag, int portalDepth, const Array<PortalSpan>& portalSpans, const vec4& portalPlane)
+void VisibleFrame::Process(const vec3& location, const mat4& worldToView, const Coords& viewRotation, bool mirrorFlag, int portalDepth, const Array<PortalSpan>& portalSpans, const vec4& portalPlane, const ViewDescription* view)
 {
 	engine->render->Stats.Frames++;
 
@@ -14,8 +14,9 @@ void VisibleFrame::Process(const vec3& location, const mat4& worldToView, const 
 	FrameCounter = engine->render->FrameCounter++;
 	MirrorFlag = mirrorFlag;
 	PortalDepth = portalDepth;
+	Description = view;
 
-	SetupSceneFrame(worldToView);
+	SetupSceneFrame(worldToView, view);
 
 	Clipper.numDrawSpans = 0;
 	Clipper.numSurfs = 0;
@@ -36,7 +37,7 @@ void VisibleFrame::Process(const vec3& location, const mat4& worldToView, const 
 	ProcessNode(&engine->Level->Model->Nodes[0]);
 }
 
-void VisibleFrame::SetupSceneFrame(const mat4& worldToView)
+void VisibleFrame::SetupSceneFrame(const mat4& worldToView, const ViewDescription* view)
 {
 	Frame.XB = engine->viewport->ViewportX();
 	Frame.YB = engine->viewport->ViewportY();
@@ -45,7 +46,16 @@ void VisibleFrame::SetupSceneFrame(const mat4& worldToView)
 	Frame.FX = (float)engine->viewport->ViewportWidth();
 	Frame.FY = (float)engine->viewport->ViewportHeight();
 
-	if (engine->dxRootWindow && engine->dxRootWindow->RenderViewportSet)
+	if (view)
+	{
+		Frame.XB = view->Viewport.X;
+		Frame.YB = view->Viewport.Y;
+		Frame.X = view->Viewport.Width;
+		Frame.Y = view->Viewport.Height;
+		Frame.FX = (float)view->Viewport.Width;
+		Frame.FY = (float)view->Viewport.Height;
+	}
+	if ((!view || view->ApplyGameViewport) && engine->dxRootWindow && engine->dxRootWindow->RenderViewportSet)
 	{
 		float virtscale = engine->dxRootWindow->GetVirtualScale();
 		float x = engine->dxRootWindow->renderX();
@@ -87,12 +97,12 @@ void VisibleFrame::SetupSceneFrame(const mat4& worldToView)
 	Frame.FY2 = Frame.FY * 0.5f;
 	Frame.ObjectToWorld = mat4::identity();
 	Frame.WorldToView = worldToView;
-	Frame.FovAngle = engine->CameraFovAngle;
+	Frame.FovAngle = view ? view->FovAngle : engine->CameraFovAngle;
 	float Aspect = Frame.FY / Frame.FX;
 	float RProjZ = (float)std::tan(radians(Frame.FovAngle) * 0.5f);
 	float RFX2 = 2.0f * RProjZ / Frame.FX;
 	float RFY2 = 2.0f * RProjZ * Aspect / Frame.FY;
-	Frame.Projection = mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
+	Frame.Projection = view && view->HasProjection ? view->Projection : mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
 }
 
 void VisibleFrame::ProcessNode(BspNode* node)
@@ -390,7 +400,7 @@ void VisibleFrame::DrawPortals()
 				Coords::Location(portal.SkyZone->Location()).ToMatrix();
 
 			VisibleFrame skyframe;
-			skyframe.Process(portal.SkyZone->Location(), skyToView, ViewRotation * Coords::Rotation(portal.SkyZone->Rotation()), MirrorFlag, PortalDepth + 1, portal.Spans);
+			skyframe.Process(portal.SkyZone->Location(), skyToView, ViewRotation * Coords::Rotation(portal.SkyZone->Rotation()), MirrorFlag, PortalDepth + 1, portal.Spans, vec4(0.0f, 0.0f, 0.0f, 1.0f), Description);
 			Device->SetSceneNode(&skyframe.Frame);
 			skyframe.Draw();
 			Device->ClearZ();
@@ -413,7 +423,7 @@ void VisibleFrame::DrawPortals()
 				portalPlane = -portalPlane;
 
 			VisibleFrame portalframe;
-			portalframe.Process(newLocation, worldToView, rotation, MirrorFlag, PortalDepth + 1, portal.Spans, portalPlane);
+			portalframe.Process(newLocation, worldToView, rotation, MirrorFlag, PortalDepth + 1, portal.Spans, portalPlane, Description);
 			Device->SetSceneNode(&portalframe.Frame);
 			portalframe.Draw();
 			Device->ClearZ();
@@ -428,7 +438,7 @@ void VisibleFrame::DrawPortals()
 			mat4 mirrorToView = Frame.WorldToView * mat4::translate(v) * mirrorRotation * mat4::translate(-v);
 
 			VisibleFrame mirrorframe;
-			mirrorframe.Process(ViewLocation.xyz(), mirrorToView, ViewRotation * Coords::FromMatrix(mirrorRotation).Inverse(), !MirrorFlag, PortalDepth + 1, portal.Spans);
+			mirrorframe.Process(ViewLocation.xyz(), mirrorToView, ViewRotation * Coords::FromMatrix(mirrorRotation).Inverse(), !MirrorFlag, PortalDepth + 1, portal.Spans, vec4(0.0f, 0.0f, 0.0f, 1.0f), Description);
 			Device->SetSceneNode(&mirrorframe.Frame);
 			mirrorframe.Draw();
 			Device->ClearZ();
