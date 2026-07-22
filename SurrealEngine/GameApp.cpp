@@ -21,6 +21,7 @@ int GameApp::main(Array<std::string> args)
 	DisplayBackend::Set(std::move(backend));
 	InitWidgetResources();
 	WidgetTheme::SetTheme(std::make_unique<DarkWidgetTheme>());
+	int result = 0;
 
 	try
 	{
@@ -32,7 +33,7 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--headless-driver=<name>] [Path to game folder]\n";
 			return 0;
 		}
 
@@ -42,6 +43,7 @@ int GameApp::main(Array<std::string> args)
 			GameLaunchInfo info = GameFolderSelection::GetLaunchInfo(selectedGameIndex);
 			Engine engine(info);
 			engine.Run();
+			result = engine.GetRunExitCode();
 		}
 	}
 	catch (const std::exception& e)
@@ -50,5 +52,5 @@ int GameApp::main(Array<std::string> args)
 	}
 
 	DeinitWidgetResources();
-	return 0;
+	return result;
 }

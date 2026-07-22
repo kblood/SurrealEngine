@@ -4,6 +4,8 @@
 #include "Utils/File.h"
 #include "Utils/StrTools.h"
 #include "Utils/SHA1Sum.h"
+#include "Utils/CommandLine.h"
+#include "Runtime/HeadlessDriver.h"
 #include "Render/RenderSubsystem.h"
 #include "Package/PackageManager.h"
 #include "Package/ObjectStream.h"
@@ -91,6 +93,13 @@ void Engine::Run()
 	LoadKeybindings();
 	LogMessage("Loaded key bindings");
 	LogGamePackageSHA1Sums();
+
+	const std::string headlessDriverName = commandline ? commandline->GetArg("", "--headless-driver") : std::string();
+	if (!headlessDriverName.empty())
+	{
+		RunHeadlessDriver(headlessDriverName);
+		return;
+	}
 
 	OpenWindow();
 
@@ -283,6 +292,28 @@ void Engine::Run()
 
 	LogMessage("Closing window...");
 	CloseWindow();
+}
+
+void Engine::RunHeadlessDriver(const std::string& driverName)
+{
+	std::unique_ptr<HeadlessDriver> driver = GetHeadlessDriverRegistry().Create(driverName, *this);
+	if (!driver)
+	{
+		std::string message = "unknown headless driver: " + driverName;
+		const std::vector<std::string> names = GetHeadlessDriverRegistry().Names();
+		if (!names.empty())
+		{
+			message += " (available:";
+			for (const std::string& name : names)
+				message += " " + name;
+			message += ")";
+		}
+		throw std::invalid_argument(message);
+	}
+
+	LogMessage("Running headless driver: " + driverName);
+	m_RunExitCode = HeadlessDriverRunner().Run(*driver);
+	LogMessage("Headless driver complete with exit code " + std::to_string(m_RunExitCode));
 }
 
 void Engine::PlayAVI(const Array<std::string>& args)
@@ -807,7 +838,9 @@ void Engine::PossessSavedPlayer()
 	viewport->Actor()->Player() = viewport;
 	CallEvent(viewport->Actor(), EventName::Possess);
 
-	render->OnMapLoaded();
+	// Headless drivers intentionally do not construct a renderer.
+	if (render)
+		render->OnMapLoaded();
 }
 
 void Engine::SaveGameToSlot(int32_t slotNum, const std::string& saveDescription) const
@@ -963,7 +996,9 @@ void Engine::LoginPlayer()
 	CallEvent(pawn, EventName::TravelPostAccept);
 	CallEvent(LevelInfo->Game(), EventName::PostLogin, { ExpressionValue::ObjectValue(pawn) });
 
-	render->OnMapLoaded();
+	// Headless drivers intentionally do not construct a renderer.
+	if (render)
+		render->OnMapLoaded();
 }
 
 UZoneInfo* Engine::GetZoneActor(int zoneIndex)

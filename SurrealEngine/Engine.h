@@ -70,6 +70,7 @@ public:
 	~Engine();
 
 	void Run();
+	int GetRunExitCode() const { return m_RunExitCode; }
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -223,6 +224,7 @@ public:
 	bool getDXWindowDebugMode() const { return m_DrawDebugDXWindowHierarchy; }
 
 private:
+	void RunHeadlessDriver(const std::string& driverName);
 	std::map<std::string, std::string> CreateTravelInfo(bool transferItems);
 
 	void LogGamePackageSHA1Sums() const;
@@ -232,6 +234,7 @@ private:
 
 	bool m_EditorMode = false; // Set this to true to allow rendering of invisible polys.
 	bool m_GamePaused = false;
+	int m_RunExitCode = 0;
 
 	bool m_DrawDebugDXWindowHierarchy = false; // If set to true, engine will show the Deus Ex window hierarchy
 

@@ -51,6 +51,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Utils/Random.h
 	SurrealEngine/Runtime/DeterministicRuntime.cpp
 	SurrealEngine/Runtime/DeterministicRuntime.h
+	SurrealEngine/Runtime/HeadlessDriver.cpp
+	SurrealEngine/Runtime/HeadlessDriver.h
 	SurrealEngine/Utils/UTF16.cpp
 	SurrealEngine/Utils/UTF16.h
 	SurrealEngine/Utils/UTF8Reader.cpp
@@ -734,6 +736,16 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(DeterministicRuntimeTests PRIVATE SurrealEngine)
 	set_target_properties(DeterministicRuntimeTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME DeterministicRuntime COMMAND DeterministicRuntimeTests)
+
+	add_executable(HeadlessDriverTests
+		Tests/HeadlessDriverTests.cpp
+		SurrealEngine/Runtime/HeadlessDriver.cpp
+		SurrealEngine/Runtime/DeterministicRuntime.cpp
+		SurrealEngine/Utils/Random.cpp
+	)
+	target_include_directories(HeadlessDriverTests PRIVATE SurrealEngine)
+	set_target_properties(HeadlessDriverTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME HeadlessDriver COMMAND HeadlessDriverTests)
 endif()
 
 add_executable(SurrealEditor WIN32 MACOSX_BUNDLE ${SURREALEDITOR_SOURCES})
