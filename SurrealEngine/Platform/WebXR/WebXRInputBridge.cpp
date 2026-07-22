@@ -43,7 +43,9 @@ bool WebXR::DecodeInputSnapshot(const void* inputData, uint32_t bufferBytes,
 	PackedInputHeader header = {};
 	std::memcpy(&header, inputData, sizeof(header));
 	if (header.Version != InputABIVersion || header.SourceCount > MaxInputSources ||
-		(header.Flags & ~InputActionFocused) != 0 || !std::isfinite(header.Timestamp) ||
+		(header.Flags & ~(InputSessionActive | InputActionFocused)) != 0 ||
+		(header.Flags & InputActionFocused) != 0 && (header.Flags & InputSessionActive) == 0 ||
+		!std::isfinite(header.Timestamp) ||
 		header.ByteSize != bufferBytes ||
 		header.ByteSize != sizeof(PackedInputHeader) + header.SourceCount * sizeof(PackedInputSource))
 	{
@@ -52,6 +54,7 @@ bool WebXR::DecodeInputSnapshot(const void* inputData, uint32_t bufferBytes,
 	}
 
 	result.Timestamp = header.Timestamp;
+	result.SessionActive = (header.Flags & InputSessionActive) != 0;
 	result.ActionFocused = (header.Flags & InputActionFocused) != 0;
 	uint32_t seenHands = 0;
 	const uint8_t* sourceBytes = static_cast<const uint8_t*>(inputData) + sizeof(PackedInputHeader);

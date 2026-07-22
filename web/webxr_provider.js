@@ -6,7 +6,8 @@
 		version: 1, headerBytes: 24, sourceBytes: 112, maxSources: 2,
 		buttons: Object.freeze({ trigger: 0, squeeze: 1, primary: 2, secondary: 3, menu: 4, stickClick: 5 })
 	});
-	const INPUT_FLAGS = Object.freeze({ actionFocused: 1, connected: 1, aimValid: 2, gripValid: 4 });
+	const INPUT_HEADER_FLAGS = Object.freeze({ sessionActive: 1, actionFocused: 2 });
+	const INPUT_SOURCE_FLAGS = Object.freeze({ connected: 1, aimValid: 2, gripValid: 4 });
 	let generationCounter = 0;
 	let activeGeneration = 0;
 	let enterPending = false;
@@ -117,11 +118,11 @@
 		data.setUint32(0, INPUT_ABI.version, true);
 		data.setUint32(4, packet.byteLength, true);
 		data.setUint32(8, sources.length, true);
-		data.setUint32(12, actionFocused ? INPUT_FLAGS.actionFocused : 0, true);
+		data.setUint32(12, INPUT_HEADER_FLAGS.sessionActive | (actionFocused ? INPUT_HEADER_FLAGS.actionFocused : 0), true);
 		data.setFloat64(16, Number.isFinite(time) ? time : 0, true);
 		sources.forEach(function (source, index) {
 			const base = INPUT_ABI.headerBytes + index * INPUT_ABI.sourceBytes;
-			let flags = INPUT_FLAGS.connected;
+			let flags = INPUT_SOURCE_FLAGS.connected;
 			let aimPose = null;
 			let gripPose = null;
 			try {
@@ -134,8 +135,8 @@
 			data.setUint32(base + 12, gamepad.touched, true);
 			writeArray(data, base + 16, gamepad.values);
 			writeArray(data, base + 40, gamepad.axes);
-			if (writePose(data, base + 56, aimPose)) flags |= INPUT_FLAGS.aimValid;
-			if (writePose(data, base + 84, gripPose)) flags |= INPUT_FLAGS.gripValid;
+			if (writePose(data, base + 56, aimPose)) flags |= INPUT_SOURCE_FLAGS.aimValid;
+			if (writePose(data, base + 84, gripPose)) flags |= INPUT_SOURCE_FLAGS.gripValid;
 			data.setUint32(base + 4, flags, true);
 		});
 		return packet;
@@ -151,11 +152,12 @@
 		status.inputPackets++;
 	}
 
-	function submitNeutralInput(time) {
+	function submitNeutralInput(time, sessionActive) {
 		const packet = new Uint8Array(INPUT_ABI.headerBytes);
 		const data = new DataView(packet.buffer);
 		data.setUint32(0, INPUT_ABI.version, true);
 		data.setUint32(4, packet.byteLength, true);
+		data.setUint32(12, sessionActive ? INPUT_HEADER_FLAGS.sessionActive : 0, true);
 		data.setFloat64(16, Number.isFinite(time) ? time : 0, true);
 		try { submitInputPacket(packet); } catch (_) {
 			try { moduleCall("Surreal_ClearWebXRInputSnapshot", null); } catch (_) {}
@@ -231,7 +233,7 @@
 
 	function finish(generation, phase, error) {
 		if (generation !== activeGeneration) return false;
-		submitNeutralInput(0);
+		submitNeutralInput(0, false);
 		activeGeneration = 0;
 		enterPending = false;
 		session = null;
@@ -324,10 +326,10 @@
 			session = requestedSession;
 			session.addEventListener("end", function () { finish(generation, "ended", null); });
 			session.addEventListener("inputsourceschange", function (event) {
-				if (generation === activeGeneration && event && event.removed && event.removed.length) submitNeutralInput(0);
+				if (generation === activeGeneration && event && event.removed && event.removed.length) submitNeutralInput(0, true);
 			});
 			session.addEventListener("visibilitychange", function () {
-				if (generation === activeGeneration && !isActionFocused(session)) submitNeutralInput(0);
+				if (generation === activeGeneration && !isActionFocused(session)) submitNeutralInput(0, true);
 			});
 			binding = new root.XRGPUBinding(session, webGPUDevice());
 			const projectionFormat = binding.getPreferredColorFormat();
@@ -347,7 +349,7 @@
 				});
 			}
 			resetNativePose();
-			submitNeutralInput(0);
+			submitNeutralInput(0, true);
 			if (!setEngineLoop(true)) throw new Error("engine rejected WebXR frame-loop ownership");
 			enterPending = false;
 			status.phase = "running";

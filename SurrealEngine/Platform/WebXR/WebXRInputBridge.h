@@ -27,7 +27,8 @@ namespace WebXR
 
 	enum InputHeaderFlags : uint32_t
 	{
-		InputActionFocused = 1u << 0
+		InputSessionActive = 1u << 0,
+		InputActionFocused = 1u << 1
 	};
 
 	enum InputSourceFlags : uint32_t
@@ -97,6 +98,7 @@ namespace WebXR
 	struct DecodedInputSnapshot
 	{
 		double Timestamp = 0.0;
+		bool SessionActive = false;
 		bool ActionFocused = false;
 		std::array<DecodedInputSource, MaxInputSources> Sources = {};
 	};
