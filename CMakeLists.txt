@@ -135,6 +135,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Render/Lightmap/FogmapBuilder.h
 	SurrealEngine/VM/NativeFunc.cpp
 	SurrealEngine/VM/Frame.cpp
+	SurrealEngine/VM/CallHooks.cpp
+	SurrealEngine/VM/CallHooks.h
 	SurrealEngine/VM/ExpressionValue.h
 	SurrealEngine/VM/StructValue.h
 	SurrealEngine/VM/ArrayValue.h
@@ -746,3 +748,11 @@ endif()
 install(TARGETS SurrealEngine RUNTIME DESTINATION bin BUNDLE DESTINATION app)
 install(TARGETS SurrealEditor RUNTIME DESTINATION bin BUNDLE DESTINATION app)
 install(TARGETS SurrealDebugger RUNTIME DESTINATION bin)
+
+include(CTest)
+if(BUILD_TESTING)
+	add_executable(VMCallHookTests SurrealEngine/VM/CallHooksTests.cpp)
+	target_link_libraries(VMCallHookTests SurrealCommon ${SURREALCOMMON_LIBS})
+	set_target_properties(VMCallHookTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME VMCallHookTests COMMAND VMCallHookTests)
+endif()

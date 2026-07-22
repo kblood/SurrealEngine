@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ExpressionValue.h"
+#include "CallHooks.h"
 #include "Iterator.h"
 
 class DebuggerWindow;
@@ -59,6 +59,7 @@ class Frame
 {
 public:
 	static ExpressionValue Call(UFunction* func, UObject* instance, Array<ExpressionValue> args);
+	static VMCallHookRegistry& CallHooks();
 	static std::string GetCallstack();
 	static std::string GetDisassembly(Expression* statement);
 
@@ -102,8 +103,8 @@ private:
 	ExpressionEvalResult Run();
 	void ProcessSwitch(const ExpressionValue& condition);
 
-	static ExpressionValue CallNative(UFunction* func, UObject* instance, Array<ExpressionValue> args);
-	static ExpressionValue CallScript(UFunction* func, UObject* instance, Array<ExpressionValue> args);
+	static ExpressionValue CallNative(UFunction* func, UObject* instance, Array<ExpressionValue>& args);
+	static ExpressionValue CallScript(UFunction* func, UObject* instance, Array<ExpressionValue>& args);
 	static void TraceCall(UFunction* func, UObject* instance, const Array<ExpressionValue>& args);
 
 	struct ActiveCallStackFrame
