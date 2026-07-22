@@ -27,6 +27,7 @@
 				label: provider.label,
 				isAvailable: typeof provider.isAvailable === "function" ? provider.isAvailable : () => provider.isAvailable !== false,
 				prepareLaunch: typeof provider.prepareLaunch === "function" ? provider.prepareLaunch : async () => {},
+				activate: typeof provider.activate === "function" ? provider.activate : async () => {},
 			});
 			this._providers.set(stored.id, stored);
 			return stored;
@@ -175,6 +176,14 @@
 		return Object.freeze(["--autoplay", "--url=" + selection.map, "--render=" + renderer, "/gamedata"]);
 	}
 
+	async function activatePresentation(registry, selection, Module) {
+		const provider = registry.get(selection && selection.presentationId || "flat");
+		if (!provider || !provider.isAvailable()) {
+			throw new LauncherError("PRESENTATION_UNAVAILABLE", "That presentation mode is unavailable.");
+		}
+		return provider.activate(Object.freeze({ Module, selection }));
+	}
+
 	class LauncherController {
 		constructor(root, registry, options) {
 			this.root = root || null;
@@ -301,8 +310,9 @@
 							importerOptions,
 							mutableOptionsForGame: gameId => library.mutableOptions(gameId),
 							selectLaunch: context => { if (context.metadata) { library.register(context.metadata); libraryUI.refresh(); } return launcher.selectLaunch(context); },
-							launch: selection => {
+							launch: async selection => {
 								Module.callMain(buildNativeArguments(selection));
+								await activatePresentation(registry, selection, Module);
 								if (typeof options.onLaunch === "function") options.onLaunch(selection);
 							},
 						});
@@ -327,6 +337,7 @@
 		normalizeHostEntries,
 		createHostPicker,
 		buildNativeArguments,
+		activatePresentation,
 		acquireWebGPUDevice,
 		start,
 	});

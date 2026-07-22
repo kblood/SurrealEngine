@@ -64,15 +64,19 @@ extensions, URL syntax, nested names, and traversal remain forbidden.
   id: "provider-id",
   label: "User-facing label",
   isAvailable: () => true,
-  prepareLaunch: async ({ context, selection }) => {}
+  prepareLaunch: async ({ context, selection }) => {},
+  activate: async ({ Module, selection }) => {}
 }
 ```
 
 The shared app registers `flat`. A later provider supplies another entry from
 its own page or script. `prepareLaunch` runs only after the user presses Play
-and before `Module.callMain()`. Provider state never enters import metadata or
-mutable-data schemas. The native argument builder remains fixed to a validated
-direct map, `webgpu` or diagnostic `null`, and `/gamedata`.
+and before `Module.callMain()`. `activate` runs immediately after `callMain` in
+the same user-initiated launch flow, so WebXR can request a session only after
+the native engine exists without forking the launcher. Provider state never
+enters import metadata or mutable-data schemas. The native argument builder
+remains fixed to a validated direct map, `webgpu` or diagnostic `null`, and
+`/gamedata`.
 
 ## Electron wrapper reuse
 
