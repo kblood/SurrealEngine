@@ -28,6 +28,7 @@ int GameApp::main(Array<std::string> args)
 	InitWidgetResources();
 #endif
 	WidgetTheme::SetTheme(std::make_unique<DarkWidgetTheme>());
+	int result = 0;
 
 	try
 	{
@@ -39,7 +40,7 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu] [--headless-driver=<name>] [Path to game folder]\n";
 			return 0;
 		}
 
@@ -71,6 +72,7 @@ int GameApp::main(Array<std::string> args)
 				Engine engine(info);
 #endif
 				engine.Run();
+				result = engine.GetRunExitCode();
 			}
 			else
 			{
@@ -87,6 +89,7 @@ int GameApp::main(Array<std::string> args)
 				GameLaunchInfo info = GameFolderSelection::GetLaunchInfo(selectedGameIndex);
 				Engine engine(info);
 				engine.Run();
+				result = engine.GetRunExitCode();
 			}
 		}
 #else
@@ -115,5 +118,5 @@ int GameApp::main(Array<std::string> args)
 #ifndef __EMSCRIPTEN__
 	DeinitWidgetResources();
 #endif
-	return 0;
+	return result;
 }
