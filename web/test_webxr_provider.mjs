@@ -6,6 +6,7 @@ let renderedFrames = 0;
 let resetCalls = 0;
 
 globalThis.Module = {
+	preinitializedWebGPUDevice: {},
 	ccall(name, returnType, argumentTypes, args) {
 		if (name === "Surreal_SetXRFrameLoopActive") {
 			loopTransitions.push(args[0]);
@@ -24,7 +25,6 @@ globalThis.Module = {
 		throw new Error("unexpected native call: " + name);
 	}
 };
-globalThis.surrealWebGPUDevice = {};
 
 class FakeSession {
 	constructor() {
