@@ -311,6 +311,170 @@ namespace
 		return result;
 	}
 
+	struct WebXRInventoryEntrySnapshot
+	{
+		UInventory* Item = nullptr;
+		int Charge = 0;
+		uint32_t AmmoAmount = 0;
+		bool IsAmmo = false;
+	};
+
+	struct WebXRPickupSnapshot
+	{
+		int Health = 0;
+		UActor* Owner = nullptr;
+		bool DeleteMe = false;
+		bool Hidden = false;
+		bool CollideActors = false;
+		NameString State;
+		std::vector<WebXRInventoryEntrySnapshot> Inventory;
+	};
+
+	struct WebXRPickupOutcomeFacts
+	{
+		bool HealthIncreased = false;
+		bool InventoryChanged = false;
+		bool OwnerBecamePawn = false;
+		bool Destroyed = false;
+		bool Hidden = false;
+		bool CollisionDisabled = false;
+		bool EnteredSleepingState = false;
+	};
+
+	enum class WebXRGameplayOutcomeScopeKind
+	{
+		None,
+		Damage,
+		Pickup
+	};
+
+	WebXRGameplayOutcomeScopeKind ClassifyWebXRGameplayOutcomeScope(
+		const WebXRWeaponCallMetadata& call, bool instanceIsLocalPawn,
+		bool instanceIsInventory, bool firstArgumentIsLocalPawn)
+	{
+		// These are exact engine semantics on known runtime types. State-local
+		// functions and unrelated scripts that happen to reuse a name are excluded.
+		if (!call.DeclaringStateName.empty())
+			return WebXRGameplayOutcomeScopeKind::None;
+		if (instanceIsLocalPawn && WebXRNameEquals(call.FunctionName, "TakeDamage"))
+			return WebXRGameplayOutcomeScopeKind::Damage;
+		if (instanceIsInventory && firstArgumentIsLocalPawn &&
+			WebXRNameEquals(call.FunctionName, "Touch"))
+			return WebXRGameplayOutcomeScopeKind::Pickup;
+		return WebXRGameplayOutcomeScopeKind::None;
+	}
+
+	std::vector<WebXRInventoryEntrySnapshot> CaptureWebXRInventory(UPawn* pawn)
+	{
+		std::vector<WebXRInventoryEntrySnapshot> result;
+		std::set<UInventory*> visited;
+		for (UInventory* item = pawn ? pawn->Inventory() : nullptr;
+			item && visited.insert(item).second; item = item->Inventory())
+		{
+			WebXRInventoryEntrySnapshot entry;
+			entry.Item = item;
+			entry.Charge = item->Charge();
+			entry.IsAmmo = item->IsA("Ammo");
+			if (entry.IsAmmo)
+				entry.AmmoAmount = item->GetInt("AmmoAmount");
+			result.push_back(entry);
+		}
+		return result;
+	}
+
+	bool WebXRInventoryChanged(const std::vector<WebXRInventoryEntrySnapshot>& before,
+		const std::vector<WebXRInventoryEntrySnapshot>& after)
+	{
+		if (before.size() != after.size())
+			return true;
+		for (size_t index = 0; index < before.size(); index++)
+		{
+			if (before[index].Item != after[index].Item ||
+				before[index].Charge != after[index].Charge ||
+				before[index].IsAmmo != after[index].IsAmmo ||
+				before[index].AmmoAmount != after[index].AmmoAmount)
+				return true;
+		}
+		return false;
+	}
+
+	WebXRPickupSnapshot CaptureWebXRPickupSnapshot(UPlayerPawn* pawn, UInventory* pickup)
+	{
+		WebXRPickupSnapshot result;
+		result.Health = pawn->Health();
+		result.Owner = pickup->Owner();
+		result.DeleteMe = pickup->bDeleteMe();
+		result.Hidden = pickup->bHidden();
+		result.CollideActors = pickup->bCollideActors();
+		result.State = pickup->GetStateName();
+		result.Inventory = CaptureWebXRInventory(pawn);
+		return result;
+	}
+
+	bool IsConfirmedWebXRPickupOutcome(const WebXRPickupOutcomeFacts& facts)
+	{
+		return facts.HealthIncreased || facts.InventoryChanged || facts.OwnerBecamePawn ||
+			facts.Destroyed || facts.Hidden || facts.CollisionDisabled ||
+			facts.EnteredSleepingState;
+	}
+
+	bool IsConfirmedWebXRDamageOutcome(int healthBefore, int healthAfter)
+	{
+		return healthAfter < healthBefore;
+	}
+
+	WebXRPickupOutcomeFacts CompareWebXRPickupOutcome(const WebXRPickupSnapshot& before,
+		UPlayerPawn* pawn, UInventory* pickup)
+	{
+		const NameString state = pickup->GetStateName();
+		return {
+			pawn->Health() > before.Health,
+			WebXRInventoryChanged(before.Inventory, CaptureWebXRInventory(pawn)),
+			before.Owner != pawn && pickup->Owner() == pawn,
+			!before.DeleteMe && pickup->bDeleteMe(),
+			!before.Hidden && pickup->bHidden(),
+			before.CollideActors && !pickup->bCollideActors(),
+			state != before.State && WebXRNameEquals(state.ToString(), "Sleeping")
+		};
+	}
+
+	bool RunWebXRGameplayHapticsSelfTest()
+	{
+		if (!RunWebXRHapticsBridgeSelfTest())
+			return false;
+
+		if (!IsConfirmedWebXRDamageOutcome(100, 75) ||
+			IsConfirmedWebXRDamageOutcome(100, 100) ||
+			IsConfirmedWebXRDamageOutcome(75, 100))
+			return false;
+		using OutcomeKind = WebXRGameplayOutcomeScopeKind;
+		const WebXRWeaponCallMetadata damageCall{ "Engine", "Pawn", {}, {}, "TakeDamage" };
+		const WebXRWeaponCallMetadata pickupCall{ "Engine", "Inventory", {}, {}, "Touch" };
+		const WebXRWeaponCallMetadata stateTouch{ "Botpack", "CustomPickup", "Pickup", "Pickup", "Touch" };
+		if (ClassifyWebXRGameplayOutcomeScope(damageCall, true, false, false) != OutcomeKind::Damage ||
+			ClassifyWebXRGameplayOutcomeScope(pickupCall, false, true, true) != OutcomeKind::Pickup ||
+			ClassifyWebXRGameplayOutcomeScope(damageCall, false, false, false) != OutcomeKind::None ||
+			ClassifyWebXRGameplayOutcomeScope(pickupCall, false, false, true) != OutcomeKind::None ||
+			ClassifyWebXRGameplayOutcomeScope(pickupCall, false, true, false) != OutcomeKind::None ||
+			ClassifyWebXRGameplayOutcomeScope(stateTouch, false, true, true) != OutcomeKind::None)
+			return false;
+
+		const WebXRPickupOutcomeFacts none;
+		if (IsConfirmedWebXRPickupOutcome(none))
+			return false;
+		for (size_t field = 0; field < 7; field++)
+		{
+			WebXRPickupOutcomeFacts one;
+			bool* values[] = { &one.HealthIncreased, &one.InventoryChanged,
+				&one.OwnerBecamePawn, &one.Destroyed, &one.Hidden,
+				&one.CollisionDisabled, &one.EnteredSleepingState };
+			*values[field] = true;
+			if (!IsConfirmedWebXRPickupOutcome(one))
+				return false;
+		}
+		return true;
+	}
+
 	std::function<void()> BeginWebXRRotationOverride(Rotator& target, const Rotator& replacement)
 	{
 		Rotator* targetPtr = &target;
@@ -743,12 +907,13 @@ Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 #ifdef __EMSCRIPTEN__
 	if (LaunchInfo.IsUnrealTournament())
 	{
-		Frame::SetCallScopeHook([this](UFunction* func, UObject* instance, const Array<ExpressionValue>&)
+		Frame::SetCallScopeHook([this](UFunction* func, UObject* instance, const Array<ExpressionValue>& args)
 		{
-			return EnterWebXRWeaponAimScope(func, instance);
+			return EnterWebXRCallScope(func, instance, args);
 		});
-		LogMessage(std::string("WebXR weapon aim hook installed; classifier/restoration self-test=") +
-			(RunWebXRWeaponAimSelfTest() ? "pass" : "FAIL"));
+		LogMessage(std::string("WebXR gameplay call hook installed; aim self-test=") +
+			(RunWebXRWeaponAimSelfTest() ? "pass" : "FAIL") +
+			" haptics self-test=" + (RunWebXRGameplayHapticsSelfTest() ? "pass" : "FAIL"));
 	}
 #endif
 }
@@ -770,6 +935,149 @@ Engine::~Engine()
 }
 
 #ifdef __EMSCRIPTEN__
+std::function<void()> Engine::EnterWebXRCallScope(UFunction* func, UObject* instance,
+	const Array<ExpressionValue>& args)
+{
+	std::function<void()> weaponCleanup = EnterWebXRWeaponAimScope(func, instance);
+	std::function<void()> outcomeCleanup = EnterWebXRGameplayOutcomeScope(func, instance, args);
+	if (!weaponCleanup)
+		return outcomeCleanup;
+	if (!outcomeCleanup)
+		return weaponCleanup;
+	return [weaponCleanup = std::move(weaponCleanup),
+		outcomeCleanup = std::move(outcomeCleanup)]() mutable
+	{
+		outcomeCleanup();
+		weaponCleanup();
+	};
+}
+
+std::function<void()> Engine::EnterWebXRGameplayOutcomeScope(UFunction* func,
+	UObject* instance, const Array<ExpressionValue>& args)
+{
+	if (!LaunchInfo.IsUnrealTournament() || !func || !instance || !viewport)
+		return {};
+	UPlayerPawn* pawn = viewport->Actor();
+	if (!pawn)
+		return {};
+
+	const WebXRWeaponCallMetadata metadata = GetWebXRWeaponCallMetadata(func, instance);
+	UObject* firstArgument = nullptr;
+	if (!args.empty() && (args[0].GetType() == ExpressionValueType::ValueObject ||
+		args[0].GetType() == ExpressionValueType::Nothing))
+		firstArgument = args[0].ToObject();
+	UInventory* pickup = UObject::TryCast<UInventory>(instance);
+	const WebXRGameplayOutcomeScopeKind kind = ClassifyWebXRGameplayOutcomeScope(
+		metadata, instance == pawn, pickup != nullptr, firstArgument == pawn);
+
+	if (kind == WebXRGameplayOutcomeScopeKind::Damage)
+	{
+		if (WebXRDamageScopeDepth != 0)
+		{
+			WebXRDamageScopeDepth++;
+			return [this]() { WebXRDamageScopeDepth--; };
+		}
+
+		const int healthBefore = pawn->Health();
+		WebXRDamageScopeDepth = 1;
+		return [this, pawn, healthBefore]()
+		{
+			WebXRDamageScopeDepth--;
+			if (WebXRDamageScopeDepth == 0 && viewport && viewport->Actor() == pawn &&
+				IsConfirmedWebXRDamageOutcome(healthBefore, pawn->Health()))
+			{
+				const float healthLoss = static_cast<float>(healthBefore) -
+					static_cast<float>(pawn->Health());
+				RecordWebXRHapticOutcome(static_cast<uint32_t>(WebXRHapticEvent::Damage), healthLoss);
+			}
+		};
+	}
+
+	if (kind != WebXRGameplayOutcomeScopeKind::Pickup)
+		return {};
+
+	if (WebXRPickupScopeDepth != 0)
+	{
+		WebXRPickupScopeDepth++;
+		return [this]() { WebXRPickupScopeDepth--; };
+	}
+
+	const WebXRPickupSnapshot before = CaptureWebXRPickupSnapshot(pawn, pickup);
+	WebXRPickupScopeDepth = 1;
+	return [this, pawn, pickup, before]()
+	{
+		WebXRPickupScopeDepth--;
+		if (WebXRPickupScopeDepth == 0 && viewport && viewport->Actor() == pawn &&
+			IsConfirmedWebXRPickupOutcome(CompareWebXRPickupOutcome(before, pawn, pickup)))
+		{
+			RecordWebXRHapticOutcome(static_cast<uint32_t>(WebXRHapticEvent::Pickup), 1.0f);
+		}
+	};
+}
+
+void Engine::RecordWebXRHapticOutcome(uint32_t eventValue, float magnitude)
+{
+	if (eventValue >= static_cast<uint32_t>(WebXRHapticEvent::Count))
+		return;
+	const WebXRHapticEvent event = static_cast<WebXRHapticEvent>(eventValue);
+	WebXRHapticEventDiagnostics& diagnostics = WebXRHaptics.Events[eventValue];
+	diagnostics.ConfirmedOutcomeCount++;
+
+	auto queueHand = [&](WebXRHapticHand hand)
+	{
+		diagnostics.RequestCount++;
+		if (event == WebXRHapticEvent::Fire)
+			WebXRWeaponAim.HapticRequestCount++;
+		if (QueueWebXRHapticEvent(event, hand, magnitude))
+		{
+			diagnostics.AcceptedCount++;
+			if (event == WebXRHapticEvent::Fire)
+				WebXRWeaponAim.HapticAcceptedCount++;
+		}
+	};
+
+	if (event == WebXRHapticEvent::Damage)
+	{
+		uint32_t queuedHands = 0;
+		for (const VRControllerInputState& controller : WebXRInput.Controllers)
+		{
+			if (!controller.Connected || (controller.Handedness != 1 && controller.Handedness != 2))
+				continue;
+			const uint32_t handBit = 1u << controller.Handedness;
+			if ((queuedHands & handBit) != 0)
+				continue;
+			queuedHands |= handBit;
+			queueHand(controller.Handedness == 1 ? WebXRHapticHand::Left : WebXRHapticHand::Right);
+		}
+		return;
+	}
+
+	// Fire, pickup, and future accepted UI actions belong to the dominant
+	// interaction hand. Pose tracking is not required for a connected actuator.
+	const VRControllerInputState* selected = nullptr;
+	for (const VRControllerInputState& controller : WebXRInput.Controllers)
+	{
+		if (controller.Connected && controller.Handedness == WebXRInput.DominantHandedness)
+		{
+			selected = &controller;
+			break;
+		}
+	}
+	if (!selected)
+	{
+		for (const VRControllerInputState& controller : WebXRInput.Controllers)
+		{
+			if (controller.Connected && (controller.Handedness == 1 || controller.Handedness == 2))
+			{
+				selected = &controller;
+				break;
+			}
+		}
+	}
+	if (selected)
+		queueHand(selected->Handedness == 1 ? WebXRHapticHand::Left : WebXRHapticHand::Right);
+}
+
 std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject* instance)
 {
 	if (!LaunchInfo.IsUnrealTournament() || !func || !instance || !viewport)
@@ -819,11 +1127,7 @@ std::function<void()> Engine::EnterWebXRWeaponAimScope(UFunction* func, UObject*
 	if (kind == WebXRWeaponAimScopeKind::Ballistic)
 	{
 		WebXRWeaponAim.BallisticScopeCount++;
-		WebXRWeaponAim.HapticRequestCount++;
-		const WebXRHapticHand hand = dominant.Handedness == 1 ?
-			WebXRHapticHand::Left : WebXRHapticHand::Right;
-		if (QueueWebXRHapticPulse(hand, 0.55f, 35))
-			WebXRWeaponAim.HapticAcceptedCount++;
+		RecordWebXRHapticOutcome(static_cast<uint32_t>(WebXRHapticEvent::Fire), 1.0f);
 	}
 	else if (kind == WebXRWeaponAimScopeKind::TargetAcquisition)
 		WebXRWeaponAim.TargetAcquisitionScopeCount++;
@@ -1331,6 +1635,29 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRHapticsBridgeSelfTest()
 	{
 		return RunWebXRHapticsBridgeSelfTest() ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_RunWebXRGameplayHapticsSelfTest()
+	{
+		return RunWebXRGameplayHapticsSelfTest() ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHapticConfirmedOutcomeCount(uint32_t event)
+	{
+		return engine && event < engine->WebXRHaptics.Events.size() ?
+			engine->WebXRHaptics.Events[event].ConfirmedOutcomeCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHapticRequestCount(uint32_t event)
+	{
+		return engine && event < engine->WebXRHaptics.Events.size() ?
+			engine->WebXRHaptics.Events[event].RequestCount : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetWebXRHapticAcceptedCount(uint32_t event)
+	{
+		return engine && event < engine->WebXRHaptics.Events.size() ?
+			engine->WebXRHaptics.Events[event].AcceptedCount : 0;
 	}
 }
 #endif

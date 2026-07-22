@@ -161,6 +161,20 @@ public:
 		uint32_t HapticAcceptedCount = 0;
 	};
 
+	struct WebXRHapticEventDiagnostics
+	{
+		uint32_t ConfirmedOutcomeCount = 0;
+		uint32_t RequestCount = 0;
+		uint32_t AcceptedCount = 0;
+	};
+
+	struct WebXRHapticDiagnostics
+	{
+		// Indices are the stable WebXRHapticEvent values: fire, damage,
+		// pickup, and UI confirmation.
+		std::array<WebXRHapticEventDiagnostics, 4> Events = {};
+	};
+
 	Engine(GameLaunchInfo launchinfo);
 	~Engine();
 
@@ -307,6 +321,7 @@ public:
 	WebXRLocomotionDiagnostics WebXRLocomotion;
 	WebXRAudioListenerDiagnostics WebXRAudioListener;
 	WebXRWeaponAimDiagnostics WebXRWeaponAim;
+	WebXRHapticDiagnostics WebXRHaptics;
 
 	WebXRTurnMode GetWebXRTurnMode() const { return WebXRTurnModeSetting; }
 	WebXRMovementReference GetWebXRMovementReference() const { return WebXRMovementReferenceSetting; }
@@ -369,7 +384,12 @@ private:
 	void ApplyWebXRHudSettings();
 	void RefreshWebXRActionBindings();
 	void InstallWebXRDefaultBindings();
+	std::function<void()> EnterWebXRCallScope(UFunction* func, UObject* instance,
+		const Array<ExpressionValue>& args);
 	std::function<void()> EnterWebXRWeaponAimScope(UFunction* func, UObject* instance);
+	std::function<void()> EnterWebXRGameplayOutcomeScope(UFunction* func, UObject* instance,
+		const Array<ExpressionValue>& args);
+	void RecordWebXRHapticOutcome(uint32_t event, float magnitude);
 	std::map<std::string, std::string> CreateTravelInfo(bool transferItems);
 
 	void LogGamePackageSHA1Sums() const;
@@ -408,6 +428,8 @@ private:
 	uint32_t LastWebXRAudioRecenterCount = 0;
 	bool HasWebXRAudioListenerSample = false;
 	bool HasCalculatedCameraView = false;
+	uint32_t WebXRDamageScopeDepth = 0;
+	uint32_t WebXRPickupScopeDepth = 0;
 };
 
 extern Engine* engine;
