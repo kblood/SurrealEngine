@@ -38,6 +38,23 @@ cannot close it again on the following frame.
 
 The provider creates one action set with left/right subaction paths and semantic input plus vibration-output actions shared by both hands. Suggested bindings cover Oculus Touch and `khr/simple_controller`. Head, grip, and aim spaces use the frame's predicted display time. A current interaction profile reports connection; `isActive` reports whether the runtime is presently routing an action. OpenXR `IDLE`, `READY`, `SYNCHRONIZED`, `VISIBLE`, `FOCUSED`, `STOPPING`, and loss/exit states map explicitly to `XRSessionState` lifecycle and focus.
 
+## Bounded hardware diagnostics
+
+`XRInputDiagnosticsAccumulator` observes the same provider-neutral controller
+snapshot without changing it. Native OpenXR logs session/focus transitions,
+per-hand connection and profile-or-binding availability, active semantic
+button/axis masks, and cumulative trigger, menu/back, and nonzero-thumbstick
+counters. OpenXR sync, interaction-profile, and action-state query failures use
+fixed stage names with a four-event cap. Session, availability, and activity
+messages have separate small caps and are otherwise emitted only on changes or
+first activity, with a cumulative summary on focus loss.
+
+The diagnostics retain no poses, interaction-profile paths, game paths, or raw
+button/axis samples. They are intended to identify the failing boundary during
+a physical gate: missing focus, missing runtime binding/action activity,
+provider query failure, or a downstream engine mapping problem after semantic
+activity has already been counted.
+
 ## Source mapping and exclusions
 
 Action creation, Touch/simple-controller bindings, syncing, sticks, triggers, squeeze, and buttons are extracted from `vr-m2` commits `d01b36dc` and `87d3b5aa`. Only grip/aim action-space and pose-snapshot portions are extracted from `b64a995f`.
@@ -46,6 +63,6 @@ This topic branch intentionally excludes body/head-yaw policy, locomotion transf
 
 ## Validation
 
-`XRInputAdapterTests` uses a fake target backed by `InputComposition` to cover press, hold, per-control release, deadzone-to-zero, per-hand disconnect, session-stop cleanup, focus loss, idempotence, preservation of simultaneous desktop contributors, continuous-turn compatibility, runtime smooth scaling, and snap latch/rearm/focus safety. `XRCommonTests` covers the common pose, pointer-hit, and haptic-routing contracts. `XRHapticFeedbackPolicyTests` covers fresh gameplay edges, exact UI clicks, misses, holds, focus/controller recovery, mode handoff, and rejected transports. `OpenXRUIRuntimeTests` covers menu-topmost ordering, both controller sources, held-trigger startup/menu handoff, mouse fallback, allocation refusal, and exit/re-entry cleanup. These tests do not need an OpenXR SDK or headset and are built in both OpenXR-disabled and OpenXR-enabled configurations.
+`XRInputAdapterTests` uses a fake target backed by `InputComposition` to cover press, hold, per-control release, deadzone-to-zero, per-hand disconnect, session-stop cleanup, focus loss, idempotence, preservation of simultaneous desktop contributors, continuous-turn compatibility, runtime smooth scaling, and snap latch/rearm/focus safety. `XRInputDiagnosticsTests` covers focus loss/recovery, held-button edge suppression, reconnect baselines, action availability changes, and cumulative trigger/menu/thumbstick counters. `XRCommonTests` covers the common pose, pointer-hit, and haptic-routing contracts. `XRHapticFeedbackPolicyTests` covers fresh gameplay edges, exact UI clicks, misses, holds, focus/controller recovery, mode handoff, and rejected transports. `OpenXRUIRuntimeTests` covers menu-topmost ordering, both controller sources, held-trigger startup/menu handoff, mouse fallback, allocation refusal, and exit/re-entry cleanup. These tests do not need an OpenXR SDK or headset and are built in both OpenXR-disabled and OpenXR-enabled configurations.
 
 The SDK-enabled build still needs physical validation with a Vulkan-capable runtime and headset. Verify both interaction profiles, independent controller connect/disconnect, focus loss/recovery, every bound action, head/grip/aim orientation and scale, one-controller operation, controller sleep/wake, per-hand vibration, exact-hit menu feedback, and clean session stop. Weapon-specific and damage feedback remain follow-up topics.

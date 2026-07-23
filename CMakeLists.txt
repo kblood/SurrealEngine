@@ -94,6 +94,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Input/XRInputAdapter.h
 	SurrealEngine/XR/XRCommon.cpp
 	SurrealEngine/XR/XRCommon.h
+	SurrealEngine/XR/XRInputDiagnostics.cpp
+	SurrealEngine/XR/XRInputDiagnostics.h
 	SurrealEngine/XR/XRHapticFeedbackPolicy.cpp
 	SurrealEngine/XR/XRHapticFeedbackPolicy.h
 	SurrealEngine/XR/XRWeaponPoseSolver.cpp
@@ -1100,6 +1102,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRInputAdapterTests PRIVATE SurrealEngine)
 	set_target_properties(XRInputAdapterTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRInputAdapter COMMAND XRInputAdapterTests)
+
+	add_executable(XRInputDiagnosticsTests
+		Tests/XRInputDiagnosticsTests.cpp
+		SurrealEngine/XR/XRInputDiagnostics.cpp
+	)
+	target_include_directories(XRInputDiagnosticsTests PRIVATE SurrealEngine)
+	set_target_properties(XRInputDiagnosticsTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRInputDiagnostics COMMAND XRInputDiagnosticsTests)
 
 	add_executable(XRStartupMenuRouteTests
 		Tests/XRStartupMenuRouteTests.cpp

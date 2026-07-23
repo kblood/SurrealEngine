@@ -3,6 +3,7 @@
 #include "Platform/OpenXR/OpenXRExtensions.h"
 #include "RenderDevice/RenderDevice.h"
 #include "Utils/Logger.h"
+#include "XR/XRInputDiagnostics.h"
 
 #include <limits>
 
@@ -26,6 +27,7 @@ struct OpenXRProvider::Impl
 	bool sessionReady = false;
 	bool frameBegun = false;
 	XRSessionState sessionState;
+	XRInputDiagnosticsAccumulator inputDiagnostics;
 	std::string lastError;
 	int width = 0;
 	int height = 0;
@@ -54,6 +56,9 @@ struct OpenXRProvider::Impl
 	XrSpace gripSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
 	XrSpace aimSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
 	bool actionsReady = false;
+	uint32_t inputSyncFailureLogs = 0;
+	uint32_t profileQueryFailureLogs[2] = { 0, 0 };
+	uint32_t actionQueryFailureLogs[2] = { 0, 0 };
 	bool acquired[2] = { false, false };
 	uint32_t acquiredIndex[2] = { 0, 0 };
 	XrTime predictedDisplayTime = 0;
@@ -109,6 +114,107 @@ namespace
 		output.Position = { location.pose.position.x, location.pose.position.y, location.pose.position.z };
 		output.Orientation = { location.pose.orientation.x, location.pose.orientation.y, location.pose.orientation.z, location.pose.orientation.w };
 		return true;
+	}
+
+	const char* LifecycleName(XRSessionLifecycle lifecycle)
+	{
+		switch (lifecycle)
+		{
+		case XRSessionLifecycle::Inactive: return "inactive";
+		case XRSessionLifecycle::Starting: return "starting";
+		case XRSessionLifecycle::Running: return "running";
+		case XRSessionLifecycle::Stopping: return "stopping";
+		case XRSessionLifecycle::Lost: return "lost";
+		}
+		return "unknown";
+	}
+
+	const char* FocusName(XRSessionFocus focus)
+	{
+		switch (focus)
+		{
+		case XRSessionFocus::Unavailable: return "unavailable";
+		case XRSessionFocus::Visible: return "visible";
+		case XRSessionFocus::Focused: return "focused";
+		}
+		return "unknown";
+	}
+
+	std::string AvailabilityNames(uint32_t mask, bool buttons)
+	{
+		std::string names;
+		auto append = [&](const char* name)
+		{
+			if (!names.empty())
+				names += ',';
+			names += name;
+		};
+		if (buttons)
+		{
+			if (mask & XRInputButtonSelect) append("select");
+			if (mask & XRInputButtonSqueeze) append("squeeze");
+			if (mask & XRInputButtonPrimary) append("primary");
+			if (mask & XRInputButtonSecondary) append("secondary");
+			if (mask & XRInputButtonThumbstickClick) append("stick-click");
+			if (mask & XRInputButtonMenu) append("menu");
+		}
+		else if (mask & XRInputAxisThumbstick)
+		{
+			append("thumbstick");
+		}
+		return names.empty() ? "none" : names;
+	}
+
+	void LogInputDiagnosticEvents(const std::vector<XRInputDiagnosticEvent>& events)
+	{
+		for (const XRInputDiagnosticEvent& event : events)
+		{
+			if (event.Type == XRInputDiagnosticEventType::SessionState)
+			{
+				std::string message = "[openxr-input] session lifecycle=";
+				message += LifecycleName(event.Session.Lifecycle);
+				message += " focus=";
+				message += FocusName(event.Session.Focus);
+				if (!event.Initial)
+				{
+					message += " previous_lifecycle=";
+					message += LifecycleName(event.PreviousSession.Lifecycle);
+					message += " previous_focus=";
+					message += FocusName(event.PreviousSession.Focus);
+				}
+				LogMessage(message);
+			}
+			else if (event.Type == XRInputDiagnosticEventType::HandAvailability)
+			{
+				std::string message = "[openxr-input] hand=";
+				message += event.Hand == XRHand::Left ? "left" : "right";
+				message += event.Connected ? " connected=yes" : " connected=no";
+				message += event.Availability.ProfileOrBindingAvailable ?
+					" profile_or_binding=yes" : " profile_or_binding=no";
+				message += " buttons=" + AvailabilityNames(event.Availability.ButtonMask, true);
+				message += " axes=" + AvailabilityNames(event.Availability.AxisMask, false);
+				LogMessage(message);
+			}
+			else
+			{
+				std::string message = "[openxr-input] hand=";
+				message += event.Hand == XRHand::Left ? "left" : "right";
+				message += " activity trigger_edges=" + std::to_string(event.Counters.PrimaryTriggerPressEdges);
+				message += " menu_back_edges=" + std::to_string(event.Counters.MenuBackPressEdges);
+				message += " nonzero_stick_samples=" + std::to_string(event.Counters.NonzeroThumbstickSamples);
+				LogMessage(message);
+			}
+		}
+	}
+
+	void LogProviderInputFailure(const char* stage, uint32_t& emitted)
+	{
+		constexpr uint32_t MaxProviderFailureEvents = 4;
+		if (emitted >= MaxProviderFailureEvents)
+			return;
+		emitted++;
+		LogMessage(std::string("[openxr-input] provider_failure stage=") + stage +
+			" occurrence=" + std::to_string(emitted));
 	}
 }
 #endif
@@ -560,6 +666,7 @@ bool OpenXRProvider::PollEvents()
 		{
 			impl->lastError = ResultMessage("xrPollEvent", result);
 			impl->sessionState = { XRSessionLifecycle::Lost, XRSessionFocus::Unavailable };
+			LogInputDiagnosticEvents(impl->inputDiagnostics.ObserveSession(impl->sessionState));
 			return false;
 		}
 		if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED)
@@ -606,14 +713,17 @@ bool OpenXRProvider::PollEvents()
 			case XR_SESSION_STATE_EXITING:
 			case XR_SESSION_STATE_LOSS_PENDING:
 				impl->sessionState = { XRSessionLifecycle::Lost, XRSessionFocus::Unavailable };
+				LogInputDiagnosticEvents(impl->inputDiagnostics.ObserveSession(impl->sessionState));
 				return false;
 			default:
 				break;
 			}
+			LogInputDiagnosticEvents(impl->inputDiagnostics.ObserveSession(impl->sessionState));
 		}
 		else if (event.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING)
 		{
 			impl->sessionState = { XRSessionLifecycle::Lost, XRSessionFocus::Unavailable };
+			LogInputDiagnosticEvents(impl->inputDiagnostics.ObserveSession(impl->sessionState));
 			return false;
 		}
 	}
@@ -701,17 +811,30 @@ bool OpenXRProvider::SyncInput(XRSpaceSamples& spaces, XRControllerSnapshot& con
 	if (XR_FAILED(result))
 	{
 		impl->lastError = ResultMessage("xrSyncActions", result);
+		LogProviderInputFailure("sync-actions", impl->inputSyncFailureLogs);
 		return false;
 	}
 
+	std::array<XRInputHandAvailability, XRHandCount> availability;
 	for (int hand = 0; hand < 2; hand++)
 	{
 		const XRHand xrHand = hand == 0 ? XRHand::Left : XRHand::Right;
 		XRHandControllerState& controller = controllers.ForHand(xrHand);
 		bool anyActionActive = false;
+		bool actionQueryFailed = false;
 		XrInteractionProfileState profile{ XR_TYPE_INTERACTION_PROFILE_STATE };
-		if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(impl->session, impl->handPaths[hand], &profile)))
+		XrResult profileResult = xrGetCurrentInteractionProfile(
+			impl->session, impl->handPaths[hand], &profile);
+		if (XR_SUCCEEDED(profileResult))
+		{
 			controller.Connected = profile.interactionProfile != XR_NULL_PATH;
+			availability[hand].ProfileOrBindingAvailable = controller.Connected;
+		}
+		else
+		{
+			LogProviderInputFailure(hand == 0 ? "interaction-profile-left" : "interaction-profile-right",
+				impl->profileQueryFailureLogs[hand]);
+		}
 
 		auto getInfo = [&](XrAction action)
 		{
@@ -720,28 +843,34 @@ bool OpenXRProvider::SyncInput(XRSpaceSamples& spaces, XRControllerSnapshot& con
 			info.subactionPath = impl->handPaths[hand];
 			return info;
 		};
-		auto getFloat = [&](XrAction action)
+		auto getFloat = [&](XrAction action, uint32_t availabilityBit)
 		{
 			if (!action)
 				return 0.0f;
 			XrActionStateFloat state{ XR_TYPE_ACTION_STATE_FLOAT };
 			XrActionStateGetInfo info = getInfo(action);
-			if (XR_SUCCEEDED(xrGetActionStateFloat(impl->session, &info, &state)) && state.isActive)
+			XrResult stateResult = xrGetActionStateFloat(impl->session, &info, &state);
+			actionQueryFailed |= XR_FAILED(stateResult);
+			if (XR_SUCCEEDED(stateResult) && state.isActive)
 			{
 				anyActionActive = true;
+				availability[hand].ButtonMask |= availabilityBit;
 				return state.currentState;
 			}
 			return 0.0f;
 		};
-		auto getButton = [&](XrAction action)
+		auto getButton = [&](XrAction action, uint32_t availabilityBit)
 		{
 			if (!action)
 				return false;
 			XrActionStateBoolean state{ XR_TYPE_ACTION_STATE_BOOLEAN };
 			XrActionStateGetInfo info = getInfo(action);
-			if (XR_SUCCEEDED(xrGetActionStateBoolean(impl->session, &info, &state)) && state.isActive)
+			XrResult stateResult = xrGetActionStateBoolean(impl->session, &info, &state);
+			actionQueryFailed |= XR_FAILED(stateResult);
+			if (XR_SUCCEEDED(stateResult) && state.isActive)
 			{
 				anyActionActive = true;
+				availability[hand].ButtonMask |= availabilityBit;
 				return state.currentState != XR_FALSE;
 			}
 			return false;
@@ -752,7 +881,9 @@ bool OpenXRProvider::SyncInput(XRSpaceSamples& spaces, XRControllerSnapshot& con
 				return false;
 			XrActionStatePose state{ XR_TYPE_ACTION_STATE_POSE };
 			XrActionStateGetInfo info = getInfo(action);
-			bool active = XR_SUCCEEDED(xrGetActionStatePose(impl->session, &info, &state)) && state.isActive;
+			XrResult stateResult = xrGetActionStatePose(impl->session, &info, &state);
+			actionQueryFailed |= XR_FAILED(stateResult);
+			bool active = XR_SUCCEEDED(stateResult) && state.isActive;
 			anyActionActive |= active;
 			return active;
 		};
@@ -761,33 +892,42 @@ bool OpenXRProvider::SyncInput(XRSpaceSamples& spaces, XRControllerSnapshot& con
 		{
 			XrActionStateVector2f state{ XR_TYPE_ACTION_STATE_VECTOR2F };
 			XrActionStateGetInfo info = getInfo(impl->stickAction);
-			if (XR_SUCCEEDED(xrGetActionStateVector2f(impl->session, &info, &state)) && state.isActive)
+			XrResult stateResult = xrGetActionStateVector2f(impl->session, &info, &state);
+			actionQueryFailed |= XR_FAILED(stateResult);
+			if (XR_SUCCEEDED(stateResult) && state.isActive)
 			{
 				anyActionActive = true;
+				availability[hand].AxisMask |= XRInputAxisThumbstick;
 				controller.Thumbstick = { state.currentState.x, state.currentState.y };
 			}
 		}
-		controller.Select.Value = getFloat(impl->triggerAction);
+		controller.Select.Value = getFloat(impl->triggerAction, XRInputButtonSelect);
 		controller.Select.Pressed = controller.Select.Value > 0.0f;
-		controller.Squeeze.Value = getFloat(impl->gripAction);
+		controller.Squeeze.Value = getFloat(impl->gripAction, XRInputButtonSqueeze);
 		controller.Squeeze.Pressed = controller.Squeeze.Value > 0.0f;
-		controller.Primary.Pressed = getButton(impl->primaryButtonAction);
+		controller.Primary.Pressed = getButton(impl->primaryButtonAction, XRInputButtonPrimary);
 		controller.Primary.Value = controller.Primary.Pressed ? 1.0f : 0.0f;
-		controller.Secondary.Pressed = getButton(impl->secondaryButtonAction);
+		controller.Secondary.Pressed = getButton(impl->secondaryButtonAction, XRInputButtonSecondary);
 		controller.Secondary.Value = controller.Secondary.Pressed ? 1.0f : 0.0f;
-		controller.Menu.Pressed = getButton(impl->menuButtonAction);
+		controller.Menu.Pressed = getButton(impl->menuButtonAction, XRInputButtonMenu);
 		controller.Menu.Value = controller.Menu.Pressed ? 1.0f : 0.0f;
-		controller.ThumbstickClick.Pressed = getButton(impl->stickClickAction);
+		controller.ThumbstickClick.Pressed = getButton(impl->stickClickAction, XRInputButtonThumbstickClick);
 		controller.ThumbstickClick.Value = controller.ThumbstickClick.Pressed ? 1.0f : 0.0f;
 		bool gripActive = poseActive(impl->gripPoseAction);
 		bool aimActive = poseActive(impl->aimPoseAction);
 		controller.Connected |= anyActionActive;
+		availability[hand].ProfileOrBindingAvailable |= anyActionActive;
 
 		if (gripActive)
 			LocatePose(impl->gripSpaces[hand], impl->space, impl->predictedDisplayTime, spaces.GripFor(xrHand));
 		if (aimActive)
 			LocatePose(impl->aimSpaces[hand], impl->space, impl->predictedDisplayTime, spaces.AimFor(xrHand));
+		if (actionQueryFailed)
+			LogProviderInputFailure(hand == 0 ? "action-state-left" : "action-state-right",
+				impl->actionQueryFailureLogs[hand]);
 	}
+	LogInputDiagnosticEvents(impl->inputDiagnostics.ObserveInput(
+		impl->sessionState, controllers, availability));
 	return true;
 #else
 	return false;
