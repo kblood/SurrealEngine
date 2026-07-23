@@ -1,4 +1,4 @@
-"""Verify the shared product page reaches the legal no-data import gate."""
+"""Verify the no-data gate and the build's selected native launcher entry."""
 import json
 import os
 import sys
@@ -35,7 +35,27 @@ with sync_playwright() as playwright:
 		print("FAIL: shared browser app no-data gate", file=sys.stderr)
 		sys.exit(1)
 	page.evaluate("""() => {
-		Module.callMain = args => { window.syntheticCallMainArgs = Array.from(args); };
+		window.syntheticNativeEntry = null;
+		window.syntheticNativeArgs = null;
+		window.syntheticExpectedNativeEntry = typeof Module._Surreal_StartBrowserGame === 'function' &&
+			typeof Module.ccall === 'function' ? 'Surreal_StartBrowserGame' : 'callMain';
+		if (window.syntheticExpectedNativeEntry === 'Surreal_StartBrowserGame') {
+			const originalCcall = Module.ccall.bind(Module);
+			Module.ccall = (name, returnType, argumentTypes, args, options) => {
+				if (name !== 'Surreal_StartBrowserGame')
+					return originalCcall(name, returnType, argumentTypes, args, options);
+				window.syntheticNativeEntry = name;
+				window.syntheticNativeArgs = ['--autoplay'];
+				if (args[2]) window.syntheticNativeArgs.push('--url=' + args[0]);
+				window.syntheticNativeArgs.push('--render=' + args[1], '/gamedata');
+				return Promise.resolve(0);
+			};
+		} else {
+			Module.callMain = args => {
+				window.syntheticNativeEntry = 'callMain';
+				window.syntheticNativeArgs = Array.from(args);
+			};
+		}
 		const files = [
 			['System/Core.u','core'], ['System/Engine.u','engine'], ['System/UnrealShare.u','share'],
 			['System/UnrealI.u','unreali'], ['System/Unreal.ini','ini'], ['System/Unreal.exe','exe'],
@@ -48,12 +68,17 @@ with sync_playwright() as playwright:
 	page.click("#game-launcher button[type=submit]")
 	page.evaluate("window.syntheticImportPromise")
 	integration = page.evaluate("""() => ({
-		args: window.syntheticCallMainArgs,
+		entry: window.syntheticNativeEntry,
+		expectedEntry: window.syntheticExpectedNativeEntry,
+		args: window.syntheticNativeArgs,
 		selection: window.surrealLaunchSelection && { gameId: window.surrealLaunchSelection.game.id, map: window.surrealLaunchSelection.map },
 		library: window.surrealApp.library.status(),
 	})""")
 	print(json.dumps(integration, indent=2))
-	if integration["args"] != ["--autoplay", "--url=Vortex2", "--render=webgpu", "/gamedata"] or integration["selection"] != {"gameId": "unreal-gold", "map": "Vortex2"} or integration["library"]["activeGameId"] != "unreal-gold":
+	if (integration["entry"] != integration["expectedEntry"] or
+		integration["args"] != ["--autoplay", "--url=Vortex2", "--render=webgpu", "/gamedata"] or
+		integration["selection"] != {"gameId": "unreal-gold", "map": "Vortex2"} or
+		integration["library"]["activeGameId"] != "unreal-gold"):
 		print("FAIL: shared launcher integration", file=sys.stderr)
 		sys.exit(1)
 	print("PASS: shared browser app import gate and Unreal Gold launch selection")
