@@ -17,6 +17,7 @@
 #include "GameFolder.h"
 #include "Input/InputComposition.h"
 #include "Input/XRInputAdapter.h"
+#include "XR/XRHapticFeedbackPolicy.h"
 #include "XR/XRStartupIntroRoute.h"
 #include "XR/XRWeaponPoseSolver.h"
 #include <set>
@@ -214,6 +215,7 @@ public:
 	OpenXRViewTranslator openXRViews;
 	OpenXRUIRuntime openXRUI;
 	XRStartupIntroTriggerRoute openXRStartupIntroTrigger;
+	XRHapticFeedbackPolicy openXRHapticFeedback;
 
 	int MouseMoveX = 0;
 	int MouseMoveY = 0;

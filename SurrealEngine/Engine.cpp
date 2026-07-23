@@ -349,6 +349,7 @@ void Engine::Shutdown()
 	LogMessage("Closing window...");
 	UpdateOpenXRStartupIntro(nullptr);
 	openXRInput.Disconnect(*this);
+	openXRHapticFeedback.Reset();
 	if (openXR && render)
 		openXRUI.Stop(render->XRUISurfaces(), *openXR);
 	openXR.reset();
@@ -374,6 +375,7 @@ void Engine::RunOneFrame()
 			LogMessage("OpenXR session stopped; continuing in desktop mode");
 			UpdateOpenXRStartupIntro(nullptr);
 			openXRInput.Disconnect(*this);
+			openXRHapticFeedback.Reset();
 			if (render)
 				openXRUI.Stop(render->XRUISurfaces(), *openXR);
 			openXR.reset();
@@ -387,17 +389,25 @@ void Engine::RunOneFrame()
 				const bool gameplayInputEnabled = !render || !render->IsXRUIMenuActive();
 				openXRInput.Update(openXR->SessionState(), xrControllers, *this,
 					gameplayInputEnabled);
+				const XRHapticInputContext context = !gameplayInputEnabled ?
+					XRHapticInputContext::UserInterface :
+					(IsStartupIntroActive() ? XRHapticInputContext::Disabled :
+						XRHapticInputContext::Gameplay);
+				openXRHapticFeedback.UpdateInput(openXR->SessionState(), xrControllers,
+					context, openXR.get());
 			}
 			else
 			{
 				UpdateOpenXRStartupIntro(nullptr);
 				openXRInput.Disconnect(*this);
+				openXRHapticFeedback.Reset();
 			}
 		}
 		else
 		{
 			UpdateOpenXRStartupIntro(nullptr);
 			openXRInput.Disconnect(*this);
+			openXRHapticFeedback.Reset();
 		}
 	}
 
@@ -445,6 +455,8 @@ void Engine::RunOneFrame()
 				openXRUI.Update(render->XRUISurfaces(), viewFamily,
 					openXR->SessionState(), xrControllers, rays, rayValid,
 					1.0f / 0.0254f);
+				ResolveXRUIHapticFeedback(openXRHapticFeedback,
+					openXRUI.Feedback(), openXR.get());
 				const bool hasComposedUI =
 					!render->XRUISurfaces().BuildReplayFrame().Items.empty();
 				uiCompositionBegun = openXRUI.BeginComposition(

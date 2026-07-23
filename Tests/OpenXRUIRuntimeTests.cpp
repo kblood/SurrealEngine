@@ -3,6 +3,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <vector>
 
 namespace
 {
@@ -82,6 +83,18 @@ namespace
 		OpenXRUICompositionSpace space;
 	};
 
+	class HapticSink final : public IXRHapticSink
+	{
+	public:
+		bool SubmitHaptic(const XRHapticRequest& request) override
+		{
+			requests.push_back(request);
+			return true;
+		}
+
+		std::vector<XRHapticRequest> requests;
+	};
+
 	ViewFamily CenteredViews()
 	{
 		ViewDescription left;
@@ -153,34 +166,59 @@ namespace
 		Sink sink;
 		XRUISurfaceEngineBinding binding(host);
 		OpenXRUIRuntime runtime;
+		XRHapticFeedbackPolicy hapticPolicy;
+		HapticSink hapticSink;
 		Check(runtime.Start(binding, sink, 40.0f), "native UI runtime did not start");
 		binding.SetHudActive(true);
 		Input input;
-		input.controllers.ForHand(XRHand::Right).Select.Pressed = true;
+		hapticPolicy.UpdateInput(input.session, input.controllers,
+			XRHapticInputContext::UserInterface, &hapticSink);
 		Update(runtime, binding, input);
+		input.controllers.ForHand(XRHand::Right).Select.Pressed = true;
+		hapticPolicy.UpdateInput(input.session, input.controllers,
+			XRHapticInputContext::UserInterface, &hapticSink);
+		Update(runtime, binding, input);
+		ResolveXRUIHapticFeedback(hapticPolicy, runtime.Feedback(), &hapticSink);
 		Check(runtime.Feedback()[0].Active && runtime.Feedback()[1].Active,
 			"native UI did not retain both tracked controllers");
 		Check(!runtime.Feedback()[0].Contact.Hit && !runtime.Feedback()[1].Contact.Hit,
 			"non-interactive startup HUD captured a controller");
+		Check(hapticSink.requests.empty(),
+			"a fresh trigger on a UI miss produced haptic feedback");
 
 		binding.SetHudActive(false);
 		binding.SetMenuActive(true);
+		hapticPolicy.UpdateInput(input.session, input.controllers,
+			XRHapticInputContext::UserInterface, &hapticSink);
 		Update(runtime, binding, input);
+		ResolveXRUIHapticFeedback(hapticPolicy, runtime.Feedback(), &hapticSink);
 		binding.Replay(XRUICanvasReplayContext::Game);
 		Check(runtime.Feedback()[0].Contact.Hit && runtime.Feedback()[1].Contact.Hit,
 			"both native controller rays did not hit the menu");
 		Check(host.pressed.empty(), "held startup trigger clicked during menu handoff");
 
 		input.controllers.ForHand(XRHand::Right).Select.Pressed = false;
+		hapticPolicy.UpdateInput(input.session, input.controllers,
+			XRHapticInputContext::UserInterface, &hapticSink);
 		Update(runtime, binding, input);
+		ResolveXRUIHapticFeedback(hapticPolicy, runtime.Feedback(), &hapticSink);
 		binding.Replay(XRUICanvasReplayContext::Game);
 		Check(host.pressed.empty() && host.released.empty(),
 			"held-trigger handoff synthesized a release without a menu press");
 		input.controllers.ForHand(XRHand::Right).Select.Pressed = true;
+		hapticPolicy.UpdateInput(input.session, input.controllers,
+			XRHapticInputContext::UserInterface, &hapticSink);
 		Update(runtime, binding, input);
+		ResolveXRUIHapticFeedback(hapticPolicy, runtime.Feedback(), &hapticSink);
 		binding.Replay(XRUICanvasReplayContext::Game);
 		Check(host.pressed.size() == 1 && host.pressed[0] == XRUIPointerSource::Tracked(2),
 			"fresh right trigger edge did not click through exact shared contact");
+		Check(hapticSink.requests.size() == 1 &&
+			hapticSink.requests[0].Hand == XRHand::Right &&
+			hapticSink.requests[0].DurationSeconds ==
+				MakeXRHapticOutcomeRequest(XRHapticOutcome::UserInterfaceClick,
+					XRHand::Right).DurationSeconds,
+			"exact shared menu contact did not produce one UI haptic pulse");
 
 		input.controllers.ForHand(XRHand::Right).Select.Pressed = false;
 		Update(runtime, binding, input);

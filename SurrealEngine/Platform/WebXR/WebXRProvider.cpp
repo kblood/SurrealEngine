@@ -1,10 +1,12 @@
 #include "Platform/WebXR/WebXRFrameBridge.h"
 #include "Platform/WebXR/WebXRInputAdapter.h"
 #include "Platform/WebXR/WebXRInputRuntime.h"
+#include "Platform/WebXR/WebXRHaptics.h"
 #include "Platform/WebXR/WebXRUIProvider.h"
 
 #include "Engine.h"
 #include "Render/RenderSubsystem.h"
+#include "XR/XRHapticFeedbackPolicy.h"
 
 #include <cmath>
 #include <cstring>
@@ -18,6 +20,7 @@ namespace
 	WebXR::InputRuntime InputRuntime;
 	WebXR::StartupIntroTriggerRoute StartupIntroTrigger;
 	WebXR::UIInputConnector UIInput;
+	XRHapticFeedbackPolicy HapticFeedback;
 
 	EInputKey IntroFireKey(WebXR::StartupIntroFireControl control)
 	{
@@ -143,9 +146,16 @@ extern "C"
 		if (!engine)
 			return 0;
 		EngineInputTarget target(engine);
-		const bool gameplayInputEnabled = !engine->render || !engine->render->IsXRUIMenuActive();
-		InputRuntime.Apply(WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot()),
-			gameplayInputEnabled, target);
+		const WebXR::AdaptedInputSnapshot input =
+			WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot());
+		const bool menuActive = engine->render && engine->render->IsXRUIMenuActive();
+		const bool gameplayInputEnabled = !menuActive;
+		InputRuntime.Apply(input, gameplayInputEnabled, target);
+		const XRHapticInputContext context = menuActive ? XRHapticInputContext::UserInterface :
+			(engine->IsStartupIntroActive() ? XRHapticInputContext::Disabled :
+				XRHapticInputContext::Gameplay);
+		HapticFeedback.UpdateInput(input.Session, input.Controllers, context,
+			&WebXR::BrowserHapticSink());
 		return 1;
 	}
 
@@ -162,6 +172,7 @@ extern "C"
 	void Surreal_ResetWebXRPose()
 	{
 		Recenter.Valid = false;
+		HapticFeedback.Reset();
 		if (engine && engine->render)
 		{
 			UIInput.Cancel(engine->render->XRUISurfaces());
@@ -311,6 +322,8 @@ extern "C"
 			ui.SetViewerPose(WebXR::BuildUIViewerPose(family));
 			UIInput.Update(input, ui,
 				engine->CameraLocation, bodyRotation, WorldUnitsPerMeter, Recenter);
+			ResolveXRUIHapticFeedback(HapticFeedback, UIInput.Feedback(),
+				&WebXR::BrowserHapticSink());
 			engine->RenderGameFrame(levelElapsed, family);
 			const XRUICanvasReplayFrame replayFrame = ui.BuildReplayFrame();
 			const WebXR::UIVisualFrame visualFrame = WebXR::BuildUIVisualFrame(

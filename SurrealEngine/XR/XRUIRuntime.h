@@ -3,6 +3,7 @@
 #include "Render/ViewFamily.h"
 #include "Render/XRUISurfaceEngineBinding.h"
 #include "XR/XRCommon.h"
+#include "XR/XRHapticFeedbackPolicy.h"
 
 #include <array>
 
@@ -36,6 +37,10 @@ struct XRUIPointerFeedback
 	XRUISurfaceContact Contact;
 	vec3 HitPoint = vec3(0.0f);
 };
+
+void ResolveXRUIHapticFeedback(XRHapticFeedbackPolicy& policy,
+	const std::array<XRUIPointerFeedback, XRHandCount>& feedback,
+	IXRHapticSink* sink);
 
 // Provider-neutral controller-to-UI policy. Providers only translate their
 // tracked aim poses into AimRays and supply semantic controller snapshots.

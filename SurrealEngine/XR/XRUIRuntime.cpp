@@ -49,6 +49,19 @@ XRUIViewerPose BuildXRUIViewerPose(const ViewFamily& family)
 	return result;
 }
 
+void ResolveXRUIHapticFeedback(XRHapticFeedbackPolicy& policy,
+	const std::array<XRUIPointerFeedback, XRHandCount>& feedback,
+	IXRHapticSink* sink)
+{
+	std::array<bool, XRHandCount> exactHits = {};
+	for (size_t hand = 0; hand < XRHandCount; hand++)
+	{
+		exactHits[hand] = feedback[hand].Active && feedback[hand].Selecting &&
+			feedback[hand].Contact.Hit;
+	}
+	policy.ResolveUserInterfaceHits(exactHits, sink);
+}
+
 void XRUIInputConnector::Update(const XRUIInputFrame& input,
 	XRUISurfaceEngineBinding& binding)
 {

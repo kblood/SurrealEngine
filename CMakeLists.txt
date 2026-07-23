@@ -92,6 +92,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Input/XRInputAdapter.h
 	SurrealEngine/XR/XRCommon.cpp
 	SurrealEngine/XR/XRCommon.h
+	SurrealEngine/XR/XRHapticFeedbackPolicy.cpp
+	SurrealEngine/XR/XRHapticFeedbackPolicy.h
 	SurrealEngine/XR/XRWeaponPoseSolver.cpp
 	SurrealEngine/XR/XRWeaponPoseSolver.h
 	SurrealEngine/XR/XRWeaponRuntime.cpp
@@ -1360,6 +1362,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	set_target_properties(WebXRHapticsTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME WebXRHapticsTests COMMAND WebXRHapticsTests)
 
+	add_executable(XRHapticFeedbackPolicyTests
+		Tests/XRHapticFeedbackPolicyTests.cpp
+		SurrealEngine/XR/XRHapticFeedbackPolicy.cpp
+		SurrealEngine/XR/XRCommon.cpp
+	)
+	target_include_directories(XRHapticFeedbackPolicyTests PRIVATE SurrealEngine)
+	set_target_properties(XRHapticFeedbackPolicyTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRHapticFeedbackPolicyTests COMMAND XRHapticFeedbackPolicyTests)
+
 	add_executable(XRUISurfaceRuntimeAdapterTests
 		Tests/XRUISurfaceRuntimeAdapterTests.cpp
 		SurrealEngine/Render/XRUISurfaces.cpp
@@ -1383,6 +1394,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		Tests/OpenXRUIRuntimeTests.cpp
 		SurrealEngine/Platform/OpenXR/OpenXRUIRuntime.cpp
 		SurrealEngine/XR/XRUIRuntime.cpp
+		SurrealEngine/XR/XRHapticFeedbackPolicy.cpp
+		SurrealEngine/XR/XRCommon.cpp
 		SurrealEngine/XR/XRStartupIntroRoute.cpp
 		SurrealEngine/Render/XRUISurfaces.cpp
 		SurrealEngine/Render/XRUISurfaceRuntimeAdapter.cpp

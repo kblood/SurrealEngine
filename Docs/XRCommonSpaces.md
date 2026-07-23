@@ -86,6 +86,14 @@ retained across disconnect or session loss. The common request's frequency is
 preserved to the provider boundary, but current browser pulse APIs cannot apply
 that hint.
 
+`XRHapticFeedbackPolicy` owns the first shared outcomes above that transport.
+It emits one short gameplay pulse for a newly armed Select edge and a distinct
+UI pulse only after that same edge resolves to an exact shared UI contact. It
+requires an observed release in the current input mode before arming. Focus or
+controller loss, held recovery, mode handoff, misses, and holds therefore do not
+generate feedback. WebXR and native OpenXR route these identical requests to
+their respective `IXRHapticSink` implementations.
+
 ## Adapter checklist
 
 An OpenXR or WebXR adapter should:

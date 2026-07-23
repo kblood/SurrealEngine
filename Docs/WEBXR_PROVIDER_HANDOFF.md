@@ -38,8 +38,9 @@ The low-level provider deliberately excludes game-specific policy, PWA
 packaging, game-data import, and persistence. Product integration composes it
 with the shared semantic XR input adapter and provider-neutral one-hand weapon
 pose/runtime. Procedural controller proxies remain UI feedback rather than game
-weapon models. Dominant-hand settings, comfort locomotion, haptic outcome policy,
-muzzle calibration, and two-hand behavior remain separate profile work.
+weapon models. Dominant-hand settings, comfort locomotion, additional weapon or
+damage haptic profiles, muzzle calibration, and two-hand behavior remain
+separate profile work.
 
 ## Projection-eye UI connector
 

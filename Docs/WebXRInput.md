@@ -140,9 +140,14 @@ loss, and session exit reject later feedback immediately. Promise rejection is
 observed for diagnostics without blocking or re-entering the Wasm simulation.
 `surrealXRGetHapticCapabilities()` and the `haptics` field in
 `surrealXRGetState()` report per-hand connection, support, and actuator mode.
-The transport does not decide whether firing, damage, UI contact, or another
-gameplay outcome should vibrate; those policies remain shared engine/profile
-work.
+The provider transport does not decide outcomes. The shared
+`XRHapticFeedbackPolicy` currently submits one 35 ms pulse for a fresh gameplay
+Select edge and a distinct 18 ms pulse only when a fresh UI Select edge resolves
+to the exact contact returned by `XRUIInputConnector`. An observed release in
+the current gameplay/UI mode arms the next edge. Holds, misses, focus loss,
+controller loss, session loss, held-button recovery, and gameplay-to-menu
+handoff do not pulse. Both WebXR and native OpenXR use this policy; additional
+weapon, damage, and game-profile outcomes remain separate work.
 
 ## Validation
 
@@ -150,8 +155,8 @@ Native:
 
 ```text
 cmake -S . -B build-input-native -G "Visual Studio 17 2022" -A x64 "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
-cmake --build build-input-native --config Release --target WebXRInputBridgeTests WebXRInputAdapterTests WebXRInputRuntimeTests WebXRHapticsTests InputCompositionTests XRCommonTests --parallel 4
-ctest --test-dir build-input-native -C Release --output-on-failure -R "WebXRInput|WebXRHaptics|InputComposition|XRCommon"
+cmake --build build-input-native --config Release --target WebXRInputBridgeTests WebXRInputAdapterTests WebXRInputRuntimeTests WebXRHapticsTests XRHapticFeedbackPolicyTests InputCompositionTests XRCommonTests --parallel 4
+ctest --test-dir build-input-native -C Release --output-on-failure -R "WebXRInput|WebXRHaptics|XRHapticFeedbackPolicy|InputComposition|XRCommon"
 ```
 
 Browser-provider lifecycle:
@@ -168,8 +173,11 @@ keyboard/gamepad/XR composition. Haptic coverage routes requests through
 XRCommon into a deterministic native fake transport, bounds duration, reports
 transport rejection, detects both browser actuator shapes, and rejects
 unsupported, disconnected, unfocused, and ended-session requests. The browser
-lifecycle test also stalls one
-native render, retains more than sixteen alternating trigger edges, and proves
+transport test and shared outcome-policy test also prove fresh gameplay/UI
+edges, exact-hit-only UI feedback, distinct pulse profiles, held recovery, and
+no retry when a provider rejects a pulse. Separately, the browser lifecycle
+test stalls one native render, retains more than sixteen
+alternating trigger edges, and proves
 that each edge is paired with a distinct later simulation producer in order.
 They contain no game data. The runtime branch also completes a no-data
 Emscripten link to verify the browser-to-WASM export.
