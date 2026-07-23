@@ -95,6 +95,21 @@ The following checks pass without game data:
 
 ## Owner-data and Quest release gates
 
+An exact owned GOG UT99 installation now has a repeatable flat-browser gate in
+`web/smoke_test_owner_game.py`. `--startup-mode local-map-intro` unchecks the
+launcher option, waits through the real `LocalMap` sequence, sends one primary
+fire edge, and requires the browser main loop to keep advancing. The direct-map
+mode remains the default so the two startup paths cannot hide failures in each
+other.
+
+The public Experimental build imported all 496 files (629.3 MiB), entered the
+real UT99 fly-through, advanced from tick 1 through tick 1300, rendered a
+nonblank WebGPU frame, and reported no page or WebGPU errors. A primary-fire
+edge accepted late in the sequence then left the exported tick counter fixed at
+1300 for 120 seconds. This is a failed gate, not evidence that the menu works:
+it must be distinguished between a map-travel Asyncify stall and an intentional
+paused-menu state with new browser diagnostics before normal intro can ship.
+
 Before enabling normal intro by default, test both an owned UT99 installation
 and an owned Unreal Gold installation:
 
