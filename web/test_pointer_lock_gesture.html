@@ -2,10 +2,17 @@
 <meta charset="utf-8">
 <title>Pointer lock gesture test</title>
 <canvas id="canvas" width="320" height="200"></canvas>
+<div data-pointer-lock-control hidden>
+	<button type="button" data-pointer-lock-capture>Capture mouse</button>
+	<span data-pointer-lock-message></span>
+</div>
 <script src="pointer_lock_gesture.js"></script>
 <script>
 	let lockedElement = null;
 	let exits = 0;
+	let nativeEscapes = 0;
+	let failRequest = false;
+	window.Module = { _Surreal_ForwardBrowserEscape() { nativeEscapes++; } };
 	Object.defineProperty(document, "pointerLockElement", {
 		configurable: true,
 		get() { return lockedElement; },
@@ -18,6 +25,10 @@
 	};
 	const canvas = document.getElementById("canvas");
 	canvas.requestPointerLock = function () {
+		if (failRequest) {
+			failRequest = false;
+			return Promise.reject(new DOMException("synthetic denial", "NotAllowedError"));
+		}
 		lockedElement = canvas;
 		document.dispatchEvent(new Event("pointerlockchange"));
 		return Promise.resolve();
@@ -25,12 +36,14 @@
 	window.pointerLockTest = {
 		canvas,
 		get exits() { return exits; },
-		failNextRequest() {
-			canvas.requestPointerLock = function () {
-				return Promise.reject(new DOMException("synthetic denial", "NotAllowedError"));
-			};
+		get nativeEscapes() { return nativeEscapes; },
+		loseAsBrowserEscape() {
+			lockedElement = null;
+			document.dispatchEvent(new Event("pointerlockchange"));
 		},
+		failNextRequest() { failRequest = true; },
 	};
+	SurrealBrowserPointerLock.setInteractive(false);
 	SurrealBrowserPointerLock.setRequested(true);
 	window.pointerLockTestReady = true;
 </script>

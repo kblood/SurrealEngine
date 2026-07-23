@@ -7,11 +7,6 @@
 #include <emscripten.h>
 #include <emscripten/html5.h>
 
-EM_JS(void, surreal_browser_pointer_lock_requested, (int requested), {
-	if (globalThis.SurrealBrowserPointerLock)
-		globalThis.SurrealBrowserPointerLock.setRequested(requested !== 0);
-});
-
 #endif
 
 Uint32 SDL2DisplayWindow::PaintEventNumber = 0xffffffff;
@@ -192,11 +187,17 @@ void SDL2DisplayWindow::LockCursor()
 {
 #ifdef __EMSCRIPTEN__
 	// Pointer lock requires a trusted user gesture. The browser helper records
-	// intent here and performs the request from the canvas mousedown handler.
-	surreal_browser_pointer_lock_requested(1);
-	EmscriptenPointerlockChangeEvent status = {};
-	CursorLocked = emscripten_get_pointerlock_status(&status) == EMSCRIPTEN_RESULT_SUCCESS &&
-		status.isActive;
+	// intent here and performs the request from its visible capture control or
+	// the canvas. PROXY_TO_PTHREAD makes globalThis a worker here, so explicitly
+	// cross to the browser thread where the helper and document live.
+	if (!CursorLocked)
+	{
+		MAIN_THREAD_EM_ASM({
+			if (globalThis.SurrealBrowserPointerLock)
+				globalThis.SurrealBrowserPointerLock.setRequested(true);
+		});
+		CursorLocked = true;
+	}
 #else
 	if (!CursorLocked)
 	{
@@ -209,8 +210,14 @@ void SDL2DisplayWindow::LockCursor()
 void SDL2DisplayWindow::UnlockCursor()
 {
 #ifdef __EMSCRIPTEN__
-	surreal_browser_pointer_lock_requested(0);
-	CursorLocked = false;
+	if (CursorLocked)
+	{
+		MAIN_THREAD_EM_ASM({
+			if (globalThis.SurrealBrowserPointerLock)
+				globalThis.SurrealBrowserPointerLock.setRequested(false);
+		});
+		CursorLocked = false;
+	}
 #else
 	if (CursorLocked)
 	{

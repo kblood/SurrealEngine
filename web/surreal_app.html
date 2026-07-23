@@ -10,6 +10,10 @@
 <main>
 	<section id="browser-startup" class="startup-view" hidden aria-live="polite">
 		<canvas id="canvas" width="1280" height="720" tabindex="0" aria-label="SurrealEngine game view"></canvas>
+		<div class="pointer-lock-control" data-pointer-lock-control hidden>
+			<button type="button" data-pointer-lock-capture>Capture mouse</button>
+			<span data-pointer-lock-message>Click to capture the mouse for looking around. Press Escape to release it and send Escape to the game.</span>
+		</div>
 		<div class="startup-overlay" data-startup-overlay>
 			<h1>Starting SurrealEngine…</h1>
 			<p data-startup-stage>Preparing the native runtime.</p>
@@ -110,6 +114,7 @@ function log(line) { logLines.push(String(line)); logElement.textContent += line
 const engineBase = document.documentElement.dataset.engineBase;
 window.surrealXRDiagnostics = SurrealWebXRDiagnostics.create(document.getElementById("webxr-diagnostics"));
 window.surrealBrowserAudio = SurrealBrowserAudio.create(document.getElementById("browser-audio"));
+SurrealBrowserPointerLock.setInteractive(false);
 SurrealBrowserRelease.start({
 	statusRoot: document.getElementById("browser-status"),
 	appOptions: {
@@ -144,6 +149,7 @@ SurrealBrowserRelease.start({
 		onLaunch: selection => {
 			window.surrealBooted = true;
 			window.surrealLaunchSelection = selection;
+			SurrealBrowserPointerLock.setInteractive(true);
 			const canvas = document.getElementById("canvas");
 			canvas.scrollIntoView({ behavior: "auto", block: "start" });
 			canvas.focus({ preventScroll: true });

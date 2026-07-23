@@ -9,6 +9,9 @@ main { flex: 1 0 auto; min-width: 0; }
 .startup-overlay[hidden] { display: none; }
 .startup-overlay h1, .startup-overlay p { margin: 0; }
 .startup-overlay p { color: #cbd5e0; }
+.pointer-lock-control { position: absolute; z-index: 2; left: 50%; bottom: 1rem; transform: translateX(-50%); display: flex; align-items: center; gap: .75rem; width: min(42rem, calc(100% - 2rem)); box-sizing: border-box; padding: .65rem; border: 1px solid #718096; border-radius: .5rem; background: rgba(17, 21, 27, .94); }
+.pointer-lock-control[hidden] { display: none; }
+.pointer-lock-control span { color: #dbe5ef; font-size: .9rem; }
 .panel { width: min(46rem, calc(100% - 2rem)); box-sizing: border-box; margin: 1rem auto; padding: 1.25rem; border: 1px solid #394759; border-radius: .65rem; background: #18202b; }
 .panel h1, .panel h2 { margin-top: 0; }
 .capability-panel ul { display: grid; gap: .35rem; padding-left: 1.35rem; }

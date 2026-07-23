@@ -33,6 +33,7 @@
 #include "XR/XRWeaponRuntime.h"
 #include "Video/VideoPlayer.h"
 #include "Video/VideoFrameScheduler.h"
+#include <atomic>
 #include <chrono>
 #include <set>
 
@@ -141,6 +142,7 @@ extern "C"
 }
 
 static bool XRFrameLoopActive = false;
+static std::atomic<bool> BrowserEscapeIntentPending = false;
 
 static void EngineMainLoopCallback(void* arg)
 {
@@ -173,6 +175,11 @@ extern "C"
 		surreal_browser_audio_shutdown_js();
 		if (engine)
 			engine->quit = true;
+	}
+
+	EMSCRIPTEN_KEEPALIVE void Surreal_ForwardBrowserEscape()
+	{
+		BrowserEscapeIntentPending.store(true, std::memory_order_release);
 	}
 
 	EMSCRIPTEN_KEEPALIVE int Surreal_ResumeBrowserAudio() { return surreal_browser_audio_resume_js(); }
@@ -2139,6 +2146,17 @@ void Engine::TickWindow()
 
 	GameWindow::ProcessEvents();
 
+#ifdef __EMSCRIPTEN__
+	// Escape is reserved by the browser while pointer lock is active. The page
+	// reports the corresponding lock-loss intent here so it enters the same
+	// native intro/menu path after ordinary SDL events have had first chance.
+	if (BrowserEscapeIntentPending.exchange(false, std::memory_order_acq_rel))
+	{
+		OnWindowKeyDown(IK_Escape);
+		OnWindowKeyUp(IK_Escape);
+	}
+#endif
+
 	if (MouseMoveX != 0 || MouseMoveY != 0)
 	{
 		int dx = MouseMoveX;
@@ -2238,6 +2256,12 @@ void Engine::OnWindowKeyChar(std::string chars)
 
 void Engine::OnWindowKeyDown(EInputKey key)
 {
+#ifdef __EMSCRIPTEN__
+	// If SDL did deliver the physical Escape after all, suppress the queued
+	// pointer-lock-loss fallback rather than sending a duplicate press.
+	if (key == EInputKey::IK_Escape)
+		BrowserEscapeIntentPending.store(false, std::memory_order_release);
+#endif
 	if (playingAvi)
 	{
 		if (key == EInputKey::IK_Escape)

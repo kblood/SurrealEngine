@@ -83,8 +83,11 @@ Continuing past that boundary exposed three unrelated browser-runtime issues.
 The Emscripten OpenAL implementation reports `INT_MAX` mono/stereo source
 counts, so the engine now clamps allocation to its requested voice count rather
 than attempting an impossible vector allocation. Browser pointer lock records
-startup intent but requests capture only from trusted canvas input, and exits
-or suppresses capture while WebXR owns input. Finally, WebGPU surface creation
+startup intent on the window thread and exposes a trusted post-start
+capture/resume control while preserving direct canvas capture and uncaptured
+mouse fallback. Focused user lock loss forwards the browser-reserved Escape to
+the engine intro/menu path; native unlock and WebXR exit without forwarding.
+Finally, WebGPU surface creation
 uses the exact configured `Module.canvas` rather than assuming `#canvas`.
 These fixes are integrated and covered by the deterministic browser suites;
 the qualified owner-data result below establishes flat boot and rendering.

@@ -349,11 +349,22 @@ allocated 256 sources and completed audio initialization within the fixed
 heap.
 
 Browser pointer lock is also explicitly gesture-owned. Native startup records
-pointer-lock intent but does not request it. A trusted click on the exact game
-canvas performs the request, unlock remains available, rejection is handled,
-and an active WebXR session suppresses or exits pointer lock. The product shell
-uses SDL's expected `canvas` identifier, while WebGPU surface creation marks
-and selects the exact `Module.canvas` rather than a separate hard-coded node.
+pointer-lock intent on the browser main thread but does not request it. Once
+flat startup completes, the product shell exposes a **Capture mouse** control;
+that trusted click, or a trusted click on the exact game canvas, performs the
+request. After capture is released the control becomes **Resume mouse look**.
+Rejection leaves ordinary focused-canvas mouse input available, and an active
+WebXR session suppresses or exits pointer lock.
+
+Escape is reserved by the browser while pointer lock is active. A focused,
+visible page therefore treats non-programmatic lock loss as one Escape intent
+and queues it for the engine thread after SDL input is pumped. This lets the
+same action skip an intro or reach the native menu even though no SDL Escape
+arrives. Explicit engine unlock, WebXR entry, hidden/background loss, and an
+Escape already delivered by SDL do not synthesize a second press. The product
+shell uses SDL's expected `canvas` identifier, while WebGPU surface creation
+marks and selects the exact `Module.canvas` rather than a separate hard-coded
+node.
 
 Measured owner-data evidence for the Window-owned variant is:
 
@@ -365,8 +376,9 @@ Measured owner-data evidence for the Window-owned variant is:
 - flat WebGPU reached login and advanced beyond 450 ticks, with the exact
   `Module.canvas` owning the surface, nonzero draws/textures, zero engine
   WebGPU errors, and no page errors; and
-- deterministic Chrome pointer-lock coverage proved inert startup, one trusted
-  click request, unlock, WebXR suppression, and handled rejection.
+- deterministic Chrome pointer-lock coverage proved inert startup, a visible
+  trusted capture/resume path, one forwarded browser Escape intent,
+  programmatic unlock suppression, WebXR suppression, and handled rejection.
 
 The first flat WebGPU frame previously reported a destroyed swap-buffer
 texture. The renderer acquired the canvas texture in

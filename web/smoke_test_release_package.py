@@ -51,6 +51,8 @@ with sync_playwright() as playwright:
 		phase: document.querySelector('[data-app-phase]').textContent,
 		pointerLockReady: typeof SurrealBrowserPointerLock !== "undefined" &&
 			SurrealBrowserPointerLock.status().requested === false,
+		pointerLockInteractive: SurrealBrowserPointerLock.status().interactive,
+		pointerLockPromptVisible: SurrealBrowserPointerLock.status().promptVisible,
 		releaseNotice: document.querySelector('[data-release-notice]') &&
 			document.querySelector('[data-release-notice]').textContent,
 		sourceUI: (() => {
@@ -70,6 +72,7 @@ with sync_playwright() as playwright:
 		not result["crossOriginIsolated"] or result["engineBase"] != "./engine/" or
 		not result["webXRAbsent"] or result["adapterRequests"] != [None] or
 		result["registeredPresentations"] != ["flat"] or not result["pointerLockReady"] or
+		result["pointerLockInteractive"] or result["pointerLockPromptVisible"] or
 		not result["sourceUI"]["visible"] or
 		"experimental preview" not in (result["releaseNotice"] or "") or
 		"unverified on physical Quest hardware" not in (result["releaseNotice"] or "") or

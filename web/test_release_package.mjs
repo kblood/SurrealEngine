@@ -81,6 +81,9 @@ try {
 	assert.match(index, /<details><summary>Open-source licenses and corresponding source<\/summary>/);
 	assert.match(index, /source\/SurrealEngine-corresponding-source\.tar\.gz/);
 	assert.match(index, /browser may call folder selection an .upload./i);
+	assert.match(index, /data-pointer-lock-control/);
+	assert.match(index, /data-pointer-lock-capture/);
+	assert.match(index, /Press Escape to release it and send Escape to the game/);
 	assert.doesNotMatch(index, /Folder upload fallback/);
 	assert.ok(index.indexOf('id="game-data-importer"') < index.indexOf('id="browser-status"'),
 		"game selection must appear before capability and diagnostic details");
@@ -92,13 +95,17 @@ try {
 		"release content must use a non-overlapping vertical document flow");
 	assert.match(packagedStyles, /footer\[data-source-compliance\] \{[^}]*position: static;/,
 		"source compliance must remain in normal document flow");
+	assert.match(packagedStyles, /\.pointer-lock-control\[hidden\] \{[^}]*display: none;/,
+		"mouse capture prompt must be removable from the active game view");
 	assert.doesNotMatch(packagedStyles,
 		/footer\[data-source-compliance\] \{[^}]*(?:position:\s*(?:fixed|absolute)|z-index:)/,
 		"source compliance must never overlay launcher content");
 	assert.match(await readFile(join(output, "_headers"), "utf8"), /Cross-Origin-Embedder-Policy: require-corp/);
 	assert.match(await readFile(join(output, "_headers"), "utf8"), /Cache-Control: no-cache, must-revalidate/);
 	assert.match(await readFile(join(output, ".htaccess"), "utf8"), /Cache-Control "no-cache, must-revalidate"/);
-	assert.match(await readFile(join(output, "pointer_lock_gesture.js"), "utf8"), /SurrealBrowserPointerLock/);
+	const pointerLockHelper = await readFile(join(output, "pointer_lock_gesture.js"), "utf8");
+	assert.match(pointerLockHelper, /SurrealBrowserPointerLock/);
+	assert.match(pointerLockHelper, /Surreal_ForwardBrowserEscape/);
 	const defaultHosting = await readFile(join(output, "HOSTING.txt"), "utf8");
 	assert.match(defaultHosting, /Intended base path: \/webxr\/Ports\/SurrealEngine\//);
 	assert.match(defaultHosting, /Source archive SHA-256/);
