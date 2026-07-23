@@ -1,7 +1,21 @@
 #pragma once
 
+#include "BotBenchmarkRoster.h"
+
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <vector>
+
+struct BotBenchmarkActualParticipant
+{
+	size_t RosterIndex = 0;
+	std::string Identity;
+	std::string Actor;
+	std::string PlayerName;
+	std::string ClassName;
+};
 
 class BotBenchmarkRunConfig
 {
@@ -12,7 +26,10 @@ public:
 		std::string seed,
 		std::string maxTicks,
 		std::string fixedDelta,
-		std::string difficulty);
+		std::string difficulty,
+		std::optional<std::string> botCount = {},
+		std::optional<std::string> perBotSkills = {},
+		std::optional<std::string> requestedNames = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -20,10 +37,11 @@ public:
 	uint64_t GetMaxTicks() const { return MaxTicks; }
 	float GetFixedDelta() const { return FixedDelta; }
 	int GetDifficulty() const { return Difficulty; }
+	const BotBenchmarkRoster& GetRoster() const { return Roster; }
 
 private:
 	BotBenchmarkRunConfig(std::string url, std::string outputDirectory, uint64_t seed,
-		uint64_t maxTicks, float fixedDelta, int difficulty);
+		uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster);
 
 	std::string URL;
 	std::string OutputDirectory;
@@ -31,6 +49,7 @@ private:
 	uint64_t MaxTicks = 0;
 	float FixedDelta = 0.0f;
 	int Difficulty = 0;
+	BotBenchmarkRoster Roster;
 };
 
 class BotBenchmarkRunSummary
@@ -38,8 +57,8 @@ class BotBenchmarkRunSummary
 public:
 	BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
 		double simulatedSeconds, std::string game, std::string version,
-		std::string map, std::string botClass, std::string botName,
-		std::string failureReason);
+		std::string map, std::string failureReason,
+		std::vector<BotBenchmarkActualParticipant> actualRoster);
 
 	std::string ToJson(const BotBenchmarkRunConfig& config) const;
 
@@ -51,7 +70,6 @@ private:
 	std::string Game;
 	std::string Version;
 	std::string Map;
-	std::string BotClass;
-	std::string BotName;
 	std::string FailureReason;
+	std::vector<BotBenchmarkActualParticipant> ActualRoster;
 };

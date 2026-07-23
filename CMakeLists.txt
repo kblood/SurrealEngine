@@ -74,12 +74,29 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/GameSupport.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.h
+	SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.h
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.h
+	SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkRoster.h
 	SurrealEngine/GameSupport/DeusEx/TextTokenizer.cpp
 	SurrealEngine/GameSupport/DeusEx/TextTokenizer.h
 	SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.h
+	SurrealEngine/BotAI/BotPolicy.h
+	SurrealEngine/BotAI/BotPolicyObservationBuilder.cpp
+	SurrealEngine/BotAI/BotPolicyObservationBuilder.h
+	SurrealEngine/BotAI/BotPolicyRegistry.cpp
+	SurrealEngine/BotAI/BotPolicyRegistry.h
+	SurrealEngine/BotAI/BotPolicyShadow.cpp
+	SurrealEngine/BotAI/BotPolicyShadow.h
+	SurrealEngine/BotAI/BotPolicyShadowTelemetry.cpp
+	SurrealEngine/BotAI/BotPolicyShadowTelemetry.h
+	SurrealEngine/BotAI/UtilityBotPolicy.cpp
+	SurrealEngine/BotAI/UtilityBotPolicy.h
+	SurrealEngine/BotAI/TacticalBotPolicy.cpp
+	SurrealEngine/BotAI/TacticalBotPolicy.h
 	SurrealEngine/GameFolder.cpp
 	SurrealEngine/GameFolder.h
 	SurrealEngine/LauncherSettings.cpp
@@ -1074,6 +1091,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_executable(BotBenchmarkProtocolTests
 		Tests/BotBenchmarkProtocolTests.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 	)
 	target_include_directories(BotBenchmarkProtocolTests PRIVATE SurrealEngine)
 	set_target_properties(BotBenchmarkProtocolTests PROPERTIES CXX_STANDARD 20)
@@ -1082,11 +1100,81 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_executable(BotBenchmarkTelemetryTests
 		Tests/BotBenchmarkTelemetryTests.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
 	)
 	target_include_directories(BotBenchmarkTelemetryTests PRIVATE SurrealEngine)
 	set_target_properties(BotBenchmarkTelemetryTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkTelemetry COMMAND BotBenchmarkTelemetryTests)
+
+	add_executable(BotBenchmarkGameProfileTests
+		Tests/BotBenchmarkGameProfileTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.cpp
+	)
+	target_include_directories(BotBenchmarkGameProfileTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkGameProfileTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkGameProfile COMMAND BotBenchmarkGameProfileTests)
+
+	add_executable(BotBenchmarkRosterTests
+		Tests/BotBenchmarkRosterTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
+	)
+	target_include_directories(BotBenchmarkRosterTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkRosterTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkRoster COMMAND BotBenchmarkRosterTests)
+
+	add_executable(UtilityBotPolicyTests
+		Tests/UtilityBotPolicyTests.cpp
+		SurrealEngine/BotAI/UtilityBotPolicy.cpp
+	)
+	target_include_directories(UtilityBotPolicyTests PRIVATE SurrealEngine)
+	set_target_properties(UtilityBotPolicyTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME UtilityBotPolicy COMMAND UtilityBotPolicyTests)
+
+	add_executable(TacticalBotPolicyTests
+		Tests/TacticalBotPolicyTests.cpp
+		SurrealEngine/BotAI/TacticalBotPolicy.cpp
+	)
+	target_include_directories(TacticalBotPolicyTests PRIVATE SurrealEngine)
+	set_target_properties(TacticalBotPolicyTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME TacticalBotPolicy COMMAND TacticalBotPolicyTests)
+
+	add_executable(BotPolicyRegistryTests
+		Tests/BotPolicyRegistryTests.cpp
+		SurrealEngine/BotAI/BotPolicyRegistry.cpp
+		SurrealEngine/BotAI/UtilityBotPolicy.cpp
+		SurrealEngine/BotAI/TacticalBotPolicy.cpp
+	)
+	target_include_directories(BotPolicyRegistryTests PRIVATE SurrealEngine)
+	set_target_properties(BotPolicyRegistryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotPolicyRegistry COMMAND BotPolicyRegistryTests)
+
+	add_executable(BotPolicyShadowTests
+		Tests/BotPolicyShadowTests.cpp
+		SurrealEngine/BotAI/BotPolicyRegistry.cpp
+		SurrealEngine/BotAI/BotPolicyShadow.cpp
+		SurrealEngine/BotAI/UtilityBotPolicy.cpp
+		SurrealEngine/BotAI/TacticalBotPolicy.cpp
+	)
+	target_include_directories(BotPolicyShadowTests PRIVATE SurrealEngine)
+	set_target_properties(BotPolicyShadowTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotPolicyShadow COMMAND BotPolicyShadowTests)
+
+	add_executable(BotPolicyShadowTelemetryTests
+		Tests/BotPolicyShadowTelemetryTests.cpp
+		SurrealEngine/BotAI/BotPolicyShadowTelemetry.cpp
+	)
+	target_include_directories(BotPolicyShadowTelemetryTests PRIVATE SurrealEngine)
+	set_target_properties(BotPolicyShadowTelemetryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotPolicyShadowTelemetry COMMAND BotPolicyShadowTelemetryTests)
+
+	add_executable(BotPolicyObservationBuilderTests
+		Tests/BotPolicyObservationBuilderTests.cpp
+		SurrealEngine/BotAI/BotPolicyObservationBuilder.cpp
+	)
+	target_include_directories(BotPolicyObservationBuilderTests PRIVATE SurrealEngine)
+	set_target_properties(BotPolicyObservationBuilderTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotPolicyObservationBuilder COMMAND BotPolicyObservationBuilderTests)
 
 	add_executable(XRInputAdapterTests
 		Tests/XRInputAdapterTests.cpp

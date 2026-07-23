@@ -86,6 +86,22 @@ namespace
 			<< ",\"health\":" << bot.Health
 			<< ",\"state\":" << JsonString(bot.State) << "}";
 	}
+
+	void WriteRequestedRoster(std::ostringstream& out, const BotBenchmarkRoster& roster)
+	{
+		out << "  \"requested_roster\": [\n";
+		const auto& participants = roster.GetParticipants();
+		for (size_t index = 0; index < participants.size(); index++)
+		{
+			const auto& participant = participants[index];
+			out << "    {\"roster_index\": " << participant.RosterIndex
+				<< ", \"requested_name\": " << JsonString(participant.RequestedName)
+				<< ", \"external_skill\": " << participant.ExternalSkill
+				<< ", \"identity_fragment\": " << JsonString(participant.CanonicalIdentityFragment) << "}";
+			out << (index + 1 == participants.size() ? "\n" : ",\n");
+		}
+		out << "  ]";
+	}
 }
 
 uint64_t BotBenchmarkTelemetryProtocol::EventCap(uint64_t maxTicks)
@@ -103,7 +119,10 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "seed=" << config.GetSeed() << '\n'
 		<< "max_ticks=" << config.GetMaxTicks() << '\n'
 		<< "fixed_delta=" << Fixed(config.GetFixedDelta(), 9) << '\n'
-		<< "difficulty=" << config.GetDifficulty() << '\n';
+		<< "difficulty=" << config.GetDifficulty() << '\n'
+		<< "bot_count=" << config.GetRoster().GetCount() << '\n';
+	for (const auto& participant : config.GetRoster().GetParticipants())
+		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
 	Hash(digest, canonical.str());
 	return "fnv1a64:" + Hex64(digest);
@@ -114,7 +133,7 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 	std::ostringstream out;
 	out.imbue(std::locale::classic());
 	out << "{\n"
-		<< "  \"schema\": \"surreal-bot-benchmark-manifest-v1\",\n"
+		<< "  \"schema\": \"surreal-bot-benchmark-manifest-v2\",\n"
 		<< "  \"driver\": \"bot-benchmark\",\n"
 		<< "  \"config_id\": " << JsonString(ConfigIdentity(config)) << ",\n"
 		<< "  \"url\": " << JsonString(config.GetURL()) << ",\n"
@@ -123,6 +142,9 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< "  \"max_ticks\": \"" << config.GetMaxTicks() << "\",\n"
 		<< "  \"fixed_delta\": " << Fixed(config.GetFixedDelta(), 9) << ",\n"
 		<< "  \"difficulty\": " << config.GetDifficulty() << ",\n"
+		<< "  \"bot_count\": " << config.GetRoster().GetCount() << ",\n";
+	WriteRequestedRoster(out, config.GetRoster());
+	out << ",\n"
 		<< "  \"telemetry_event_cap\": \"" << EventCap(config.GetMaxTicks()) << "\"\n"
 		<< "}\n";
 	return out.str();
