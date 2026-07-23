@@ -23,13 +23,6 @@ enum class GammaMode
 	XOpenGL
 };
 
-struct XRLauncherSettings
-{
-	bool Enabled = false;
-	XRHand DominantHand = XRHand::Right;
-	bool FullBodyAvatar = false;
-};
-
 class LauncherSettings
 {
 public:
@@ -61,7 +54,10 @@ public:
 		int LastSelected = -1;
 	} Games;
 
-	XRLauncherSettings XR;
+	struct
+	{
+		XRHand DominantHand = XRHand::Right;
+	} XR;
 
 private:
 	LauncherSettings();

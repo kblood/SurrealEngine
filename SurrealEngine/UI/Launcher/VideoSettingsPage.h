@@ -44,6 +44,9 @@ private:
 	TextLabel* GammaModesLabel = nullptr;
 	Dropdown* GammaModes = nullptr;
 	CheckboxLabel* GammaCorrectScreenshots = nullptr;
+	TextLabel* XRDominantHandLabel = nullptr;
+	Dropdown* XRDominantHand = nullptr;
+
 	CheckboxLabel* Hdr = nullptr;
 	TextLabel* HdrScaleLabel = nullptr;
 	LineEdit* HdrScale = nullptr;

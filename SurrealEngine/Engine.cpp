@@ -9,7 +9,6 @@
 #include "BotBenchmark/BotBenchmarkDriver.h"
 #include "Input/DesktopInputDefaults.h"
 #include "Platform/OpenXR/OpenXRProvider.h"
-#include "XR/Avatar/AvatarRenderer.h"
 #include "Platform/Browser/BrowserRelativeMouse.h"
 #include <surrealwidgets/window/browser_relative_mouse.h>
 #include "Render/RenderSubsystem.h"
@@ -35,7 +34,6 @@
 #include "VM/Frame.h"
 #include "VM/ScriptCall.h"
 #include "XR/XRWeaponRuntime.h"
-#include "XR/XRLaunchPolicy.h"
 #include "LauncherSettings.h"
 #include "Video/VideoPlayer.h"
 #include "Video/VideoFrameScheduler.h"
@@ -283,13 +281,7 @@ void Engine::Setup()
 	LoadKeybindings();
 	LogMessage("Loaded key bindings");
 	LogGamePackageSHA1Sums();
-	AvatarRenderer::SetEnabled(LauncherSettings::Get().XR.FullBodyAvatar);
-	avatarIkSyntheticRequested = commandline && commandline->HasArg("", "--avatar-ik-synthetic");
-	const bool openXRRequested = ResolveOpenXRLaunchRequest(
-		LauncherSettings::Get().XR.Enabled,
-		commandline && commandline->HasArg("", "--openxr"),
-		commandline && commandline->HasArg("", "--no-openxr"));
-	if (openXRRequested)
+	if (commandline && commandline->HasArg("", "--openxr"))
 	{
 		openXR = std::make_unique<OpenXRProvider>();
 		if (!openXR->IsAvailable())
@@ -508,9 +500,8 @@ void Engine::RunOneFrame()
 	XRWeaponPoseResult xrWeaponPose;
 	XRWeaponPoseResult xrOffHandWeaponPose;
 	XRWorldTransform xrWeaponWorld;
-	const bool xrWorldTransformValid = openXR && xrFrameBegun &&
-		openXRViews.CreateWeaponWorldTransform(CameraLocation, xrWeaponWorld);
-	if (xrWorldTransformValid)
+	if (openXR && xrFrameBegun && openXRViews.CreateWeaponWorldTransform(
+		CameraLocation, xrWeaponWorld))
 	{
 		XRWeaponPoseOptions options;
 		options.Mirror = xrHandedness.MirrorWeaponPresentation();
@@ -528,39 +519,6 @@ void Engine::RunOneFrame()
 	}
 	if (!xrWeaponPose.Valid)
 		xrManualSlaveFirePending = false;
-
-	// Same provider-neutral snapshot feeds the full-body avatar's IK solver -
-	// real OpenXR poses anchored the same way the weapon aim already is, or a
-	// deterministic synthetic sample when no session is running (this
-	// workspace can't always get a real headset session - see
-	// Docs/FULLBODY_VR_AVATAR_PLAN.md milestone M2's verification note).
-	ClearXRAvatarInput();
-	if (ShouldUpdateXRAvatar(AvatarRenderer::Enabled(),
-		AvatarRenderer::DiagnosticsEnabled()))
-	{
-		auto toAvatarEnginePose = [](const XREnginePose& pose)
-		{
-			AvatarEnginePose result;
-			result.Valid = pose.Valid;
-			result.Position = vec3(pose.Position.X, pose.Position.Y, pose.Position.Z);
-			result.Orientation = quaternion(pose.Orientation.X, pose.Orientation.Y, pose.Orientation.Z, pose.Orientation.W);
-			return result;
-		};
-
-		AvatarIKFrameInput avatarInput;
-		if (xrWorldTransformValid)
-		{
-			avatarInput.Head = toAvatarEnginePose(TransformXRPoseToEngine(xrSpaces.Head, xrWeaponWorld));
-			avatarInput.LeftHandGrip = toAvatarEnginePose(TransformXRPoseToEngine(xrSpaces.GripFor(XRHand::Left), xrWeaponWorld));
-			avatarInput.RightHandGrip = toAvatarEnginePose(TransformXRPoseToEngine(xrSpaces.GripFor(XRHand::Right), xrWeaponWorld));
-		}
-		else if (avatarIkSyntheticRequested)
-		{
-			avatarSyntheticTimeSeconds += 1.0f / 60.0f;
-			avatarInput = AvatarRenderer::BuildSyntheticFrameInput(CameraLocation, avatarSyntheticTimeSeconds);
-		}
-		SetXRAvatarInput(avatarInput);
-	}
 	const float levelElapsed = xrWeaponPose.Valid ?
 		AdvanceGameFrameWithXRWeaponAim(xrWeaponPose, xrOffHandWeaponPose,
 			realTimeElapsed) :
@@ -2661,31 +2619,13 @@ void Engine::OpenWindow()
 	std::string versionString = !LaunchInfo.gameVersionString.empty() ? " (v" + LaunchInfo.gameVersionString + ")" : "";
 
 	window->SetWindowTitle(LaunchInfo.gameName + versionString + " - Surreal Engine");
+	window->SetFrameGeometry(Rect::xywh(0.0, 0.0, width, height));
 	viewport->SetViewportRect(0, 0, width, height);
 
-	if (commandline && commandline->HasArg("", "--minimized-window"))
-	{
-		// Verification/CI launches: keep a real, normally-rendered window
-		// (client rect unchanged, so nothing downstream that assumes a
-		// non-zero viewport breaks) but place it far outside any monitor's
-		// virtual desktop so it's never actually visible or in the way.
-		// Deliberately windowed, not ShowMinimized() (a minimized window's
-		// 0x0 client rect crashes the render viewport) and not
-		// ShowFullscreen() (its Win32 backend always repositions to the
-		// real screen at 0,0, ignoring any geometry set here). PrintWindow
-		// with PW_RENDERFULLCONTENT (see tools/capture_screenshot.ps1)
-		// still captures real frames from an off-screen window.
-		window->SetFrameGeometry(Rect::xywh(-32000.0, -32000.0, width, height));
-		window->ShowNormal();
-	}
+	if (fullscreen)
+		window->ShowFullscreen();
 	else
-	{
-		window->SetFrameGeometry(Rect::xywh(0.0, 0.0, width, height));
-		if (fullscreen)
-			window->ShowFullscreen();
-		else
-			window->ShowNormal();
-	}
+		window->ShowNormal();
 }
 
 void Engine::CloseWindow()

@@ -6,7 +6,6 @@
 #include "VM/ScriptCall.h"
 #include "Engine.h"
 #include "VisibleFrame.h"
-#include "XR/Avatar/AvatarRenderer.h"
 
 bool RenderSubsystem::PrepareSceneViews()
 {
@@ -41,38 +40,6 @@ void RenderSubsystem::DrawSceneView(const ViewDescription& view)
 	MainFrame.Process(view.Location, view.WorldToView, view.Rotation, false, 0, {}, vec4(0.0f, 0.0f, 0.0f, 1.0f), &view);
 	MainFrame.Draw();
 	MainFrame.DrawCoronas();
-
-	UActor* playerActor = engine->viewport ? engine->viewport->Actor() : nullptr;
-	const AvatarIKFrameInput& avatarInput = engine->GetXRAvatarInput();
-	const bool haveLiveInput = avatarInput.Head.Valid ||
-		avatarInput.LeftHandGrip.Valid || avatarInput.RightHandGrip.Valid;
-
-	// The launcher-facing feature draws the local avatar in place only while
-	// tracked XR input is available. Head/neck triangles are removed so the
-	// first-person camera is not enclosed by the player's own mesh.
-	if (AvatarRenderer::Enabled() && playerActor && haveLiveInput)
-	{
-		AvatarIKOptions options;
-		options.CullHeadForFirstPerson = true;
-		AvatarRenderer::DrawActorWithIK(&MainFrame, playerActor, {}, avatarInput,
-			options, LevelTimeElapsed);
-	}
-
-	// With --avatar-autorig-debug, draw the local player's auto-rigged avatar
-	// beside their normal render for visual comparison. Never runs unless
-	// explicitly enabled - no effect on normal play. M2: drives it with the
-	// frame's IK-solved pose when a head/hand sample is available (real
-	// OpenXR or --avatar-ik-synthetic), falling back to the M1 static bind
-	// pose otherwise.
-	if (AvatarRenderer::DiagnosticsEnabled() && playerActor)
-	{
-		Coords rotation = Coords::Rotation(playerActor->Rotation());
-		vec3 sideOffset = rotation.YAxis * 80.0f;
-		AvatarIKOptions options;
-		options.CullHeadForFirstPerson = AvatarRenderer::CullHeadDebugEnabled();
-		if (!haveLiveInput || !AvatarRenderer::DrawActorWithIK(&MainFrame, playerActor, sideOffset, avatarInput, options, LevelTimeElapsed))
-			AvatarRenderer::DrawActorBindPose(&MainFrame, playerActor, sideOffset);
-	}
 }
 
 void RenderSubsystem::DrawScene()

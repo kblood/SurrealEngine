@@ -5,7 +5,6 @@
 #include "LauncherButtonbar.h"
 #include "PlayGamePage.h"
 #include "VideoSettingsPage.h"
-#include "VRSettingsPage.h"
 // #include "AudioSettingsPage.h"
 #include "GameFoldersPage.h"
 #include "LauncherSettings.h"
@@ -48,14 +47,12 @@ LauncherWindow::LauncherWindow() : Widget(nullptr, WidgetType::Window)
 
 	PlayGame = new PlayGamePage(this);
 	GraphicsSettings = new VideoSettingsPage(this);
-	VRSettings = new VRSettingsPage(this);
 	// AudioSettings = new AudioSettingsPage(this);
 	GameFolders = new GameFoldersPage(this);
 
 	Pages->AddTab(PlayGame, "Games");
 	Pages->AddTab(GameFolders, "Folders");
 	Pages->AddTab(GraphicsSettings, "Video Settings");
-	Pages->AddTab(VRSettings, "VR Options");
 	// Pages->AddTab(AudioSettings, "Audio Settings");
 
 	Pages->SetCurrentWidget(PlayGame);
@@ -76,7 +73,6 @@ void LauncherWindow::Save()
 {
 	PlayGame->Save();
 	GraphicsSettings->Save();
-	VRSettings->Save();
 	// AudioSettings->Save();
 	GameFolders->Save();
 	LauncherSettings::Get().Save();

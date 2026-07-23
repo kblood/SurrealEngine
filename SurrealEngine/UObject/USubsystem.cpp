@@ -4,8 +4,6 @@
 #include "ULevel.h"
 #include "Engine.h"
 #include "Package/PackageManager.h"
-#include "Audio/NullAudioDevice.h"
-#include "Utils/CommandLine.h"
 
 static float square(float x) { return x * x; }
 
@@ -199,15 +197,13 @@ void USurrealAudioDevice::SaveConfig()
 
 void USurrealAudioDevice::InitDevice()
 {
+	// TODO: Add configurable option for audio device
 	// TODO: Add configurable option for audio output frequency
 	// TODO: Add option for number of sound channels
 	// TODO: Add option for music buffer count
 	// TODO: Add option for music buffer size
 	// m_Device = AudioDevice::Create(48000, 256, 16, 256);
-	if (commandline && commandline->HasArg("", "--mute-audio"))
-		m_Device = std::make_unique<NullAudioDevice>();
-	else
-		m_Device = AudioDevice::Create(OutputRate.frequency, 256, 16, 256);
+	m_Device = AudioDevice::Create(OutputRate.frequency, 256, 16, 256);
 	LogMessage("Audio device initialized");
 }
 
