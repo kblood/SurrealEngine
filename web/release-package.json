@@ -19,6 +19,7 @@
     "browser_data_bootstrap.js",
     "browser_release.js",
     "mutable_persistence.js",
+    "pointer_lock_gesture.js",
     "ut99_importer.js",
     "webxr_browser_app_adapter.js",
     "webxr_diagnostics.js",

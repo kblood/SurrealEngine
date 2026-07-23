@@ -49,6 +49,8 @@ with sync_playwright() as playwright:
 		presentations: Array.from(document.querySelectorAll('[data-launcher-presentation] option')).map(option => option.value),
 		capabilities: Array.from(document.querySelectorAll('[data-capability-list] li')).map(item => item.textContent),
 		phase: document.querySelector('[data-app-phase]').textContent,
+		pointerLockReady: typeof SurrealBrowserPointerLock !== "undefined" &&
+			SurrealBrowserPointerLock.status().requested === false,
 		releaseNotice: document.querySelector('[data-release-notice]') &&
 			document.querySelector('[data-release-notice]').textContent,
 		sourceUI: (() => {
@@ -67,7 +69,8 @@ with sync_playwright() as playwright:
 	failure = (not result["ready"] or result["state"] != "waiting-for-import" or result["booted"] or
 		not result["crossOriginIsolated"] or result["engineBase"] != "./engine/" or
 		not result["webXRAbsent"] or result["adapterRequests"] != [None] or
-		result["registeredPresentations"] != ["flat"] or not result["sourceUI"]["visible"] or
+		result["registeredPresentations"] != ["flat"] or not result["pointerLockReady"] or
+		not result["sourceUI"]["visible"] or
 		"experimental preview" not in (result["releaseNotice"] or "") or
 		"unverified on physical Quest hardware" not in (result["releaseNotice"] or "") or
 		"No game or demo data is bundled or downloaded" not in (result["releaseNotice"] or "") or

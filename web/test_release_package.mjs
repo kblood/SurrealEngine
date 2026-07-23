@@ -63,6 +63,7 @@ try {
 	assert.equal(result.manifest.dependencies[0].sha, "6c614d56e66e6ea8882aada892b93bc6526e0a33");
 	assert.equal(result.manifest.dependencies[1].sha, "d472068ad5894dc8cdddeefbb4f491bd118f2592");
 	assert.ok(result.manifest.files.some(file => file.path === "engine/SurrealEngine.wasm" && file.expectedMime === "application/wasm"));
+	assert.ok(result.manifest.files.some(file => file.path === "pointer_lock_gesture.js" && file.expectedMime === "text/javascript; charset=utf-8"));
 	assert.ok(result.manifest.files.some(file => file.path === "webxr_provider.js"));
 	assert.ok(result.manifest.files.some(file => file.path === "webxr_webgl_bridge.js"));
 	assert.ok(result.manifest.files.some(file => file.path === "webxr_diagnostics.js"));
@@ -82,6 +83,7 @@ try {
 	assert.match(index, /browser may call folder selection an .upload./i);
 	assert.doesNotMatch(index, /Folder upload fallback/);
 	assert.match(await readFile(join(output, "_headers"), "utf8"), /Cross-Origin-Embedder-Policy: require-corp/);
+	assert.match(await readFile(join(output, "pointer_lock_gesture.js"), "utf8"), /SurrealBrowserPointerLock/);
 	assert.match(await readFile(join(output, "HOSTING.txt"), "utf8"), /Source archive SHA-256/);
 	assert.match(await readFile(join(output, "licenses", "SurrealVideo-LGPL-2.1.txt"), "utf8"), /GNU LESSER GENERAL PUBLIC LICENSE/);
 	const compliance = JSON.parse(await readFile(join(output, "source-compliance.json"), "utf8"));
