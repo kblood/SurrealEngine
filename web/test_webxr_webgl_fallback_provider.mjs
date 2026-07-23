@@ -19,6 +19,8 @@ const presentations = [];
 const inputPackets = [];
 let destroyedBridges = 0;
 let requestOptions = null;
+let bridgeCreationGate = null;
+let referenceSpaceRequests = 0;
 const device = {
 	createTexture(description) {
 		const texture = {
@@ -67,7 +69,7 @@ globalThis.SurrealWebXRWebGLBridge = {
 		assert.equal(suppliedDevice, device);
 		assert.equal(blockingTiming, true);
 		let bridgeFrames = 0;
-		return {
+		const bridge = {
 			textureFormat: "bgra8unorm",
 			describeFrame: () => ({ width: 1600, height: 700, destinations: [],
 				atlasViews: [{ x: 0, y: 0, width: 800, height: 700 }, { x: 800, y: 0, width: 800, height: 700 }] }),
@@ -83,6 +85,8 @@ globalThis.SurrealWebXRWebGLBridge = {
 				privatePath: "C:\\Private\\Game\\System\\Core.u" }),
 			destroy: () => { destroyedBridges++; },
 		};
+		if (bridgeCreationGate) await bridgeCreationGate.promise;
+		return bridge;
 	}
 };
 
@@ -97,7 +101,7 @@ class FakeSession {
 	}
 	addEventListener(name, callback) { this.listeners.set(name, callback); }
 	updateRenderState() {}
-	async requestReferenceSpace() { return { addEventListener() {} }; }
+	async requestReferenceSpace() { referenceSpaceRequests++; return { addEventListener() {} }; }
 	requestAnimationFrame(callback) { const handle = this.nextHandle++; this.frames.set(handle, callback); return handle; }
 	cancelAnimationFrame(handle) { this.frames.delete(handle); }
 	fireFrame(time, frame) {
@@ -247,4 +251,29 @@ assert.equal(globalThis.surrealXRGetState().atlasWidth, null,
 assert.equal(globalThis.surrealXRExit(), true);
 await delay(5);
 assert.equal(destroyedBridges, 2);
+
+// If the runtime ends while asynchronous bridge setup is suspended, the completed bridge belongs
+// to an invalid generation. It must be destroyed without requesting a reference space, taking the
+// engine loop, or contaminating the next session's provider state.
+bridgeCreationGate = deferred();
+const loopTransitionsBeforeStaleBridge = nativeCalls.filter(name =>
+	name === "Surreal_SetXRFrameLoopActive").length;
+const referenceSpaceRequestsBeforeStaleBridge = referenceSpaceRequests;
+const staleBridgeEntry = globalThis.surrealXREnter();
+await delay(0);
+const staleBridgeSession = sessions.at(-1);
+assert.equal(globalThis.surrealXRGetState().phase, "creating-webgl-bridge");
+staleBridgeSession.listeners.get("end")();
+assert.equal(globalThis.surrealXRGetState().lastErrorCode, "session-ended-before-activation");
+bridgeCreationGate.resolve();
+assert.equal(await staleBridgeEntry, false);
+await delay(5);
+assert.equal(destroyedBridges, 3, "the bridge created after invalidation must be destroyed exactly once");
+assert.equal(nativeCalls.filter(name => name === "Surreal_SetXRFrameLoopActive").length,
+	loopTransitionsBeforeStaleBridge, "stale bridge completion must not transfer engine-loop ownership");
+assert.equal(referenceSpaceRequests, referenceSpaceRequestsBeforeStaleBridge,
+	"stale bridge completion must not continue session activation");
+assert.equal(globalThis.surrealXRGetState().active, false);
+assert.equal(globalThis.surrealXRGetState().presentationMode, null);
+assert.equal(globalThis.surrealXRGetState().projectionFormat, null);
 console.log("WebXR XRWebGLLayer async double-buffer and exit tests passed");

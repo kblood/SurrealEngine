@@ -1144,6 +1144,7 @@
 	root.surrealXRActivateReservedSession = async function () {
 		if (!session || status.active || enterPending || activationPending) return false;
 		const generation = activeGeneration;
+		const activatingSession = session;
 		activationPending = true;
 		try {
 			requireNativeFrameABI();
@@ -1182,9 +1183,14 @@
 				status.phase = "creating-webgl-bridge";
 				setStage("create-webgl-bridge");
 				try {
-					webGLBridge = await root.SurrealWebXRWebGLBridge.create({ root, session,
+					const createdBridge = await root.SurrealWebXRWebGLBridge.create({ root, session: activatingSession,
 						canvas: root.Module && root.Module.canvas, device: webGPUDevice(),
 						blockingTiming: status.bridgeBlockingTimingRequested });
+					if (generation !== activeGeneration || session !== activatingSession) {
+						try { createdBridge.destroy(); } catch (_) {}
+						return false;
+					}
+					webGLBridge = createdBridge;
 					status.projectionFormat = "rgba8unorm-webgl-bridge";
 					setBridgeDiagnostics(webGLBridge.diagnostics());
 				} catch (error) {
