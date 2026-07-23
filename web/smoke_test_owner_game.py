@@ -174,10 +174,13 @@ def main():
 			const bounds = canvas.getBoundingClientRect();
 			return { hidden: canvas.hidden, focused: document.activeElement === canvas,
 				top: bounds.top, bottom: bounds.bottom, width: bounds.width, height: bounds.height,
-				viewportWidth: innerWidth, viewportHeight: innerHeight, scrollY };
+				viewportWidth: innerWidth, viewportHeight: innerHeight, scrollY,
+				webgpuSurfaceOwnsModuleCanvas:
+					document.querySelector('[data-surreal-webgpu-canvas]') === Module.canvas };
 		}""")
 		if (layout["hidden"] or layout["top"] < -1 or layout["top"] >= layout["viewportHeight"] or
-			layout["bottom"] <= 0 or layout["width"] <= 0 or layout["height"] <= 0):
+			layout["bottom"] <= 0 or layout["width"] <= 0 or layout["height"] <= 0 or
+			not layout["webgpuSurfaceOwnsModuleCanvas"]):
 			raise RuntimeError("launched canvas is outside the viewport: " + json.dumps(layout))
 
 		screenshot = args.screenshot or Path(tempfile.gettempdir()) / "surrealengine-owner-game-smoke.png"
