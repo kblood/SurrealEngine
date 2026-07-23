@@ -8,6 +8,7 @@
 #include "Runtime/HeadlessDriver.h"
 #include "BotBenchmark/BotBenchmarkDriver.h"
 #include "Platform/OpenXR/OpenXRProvider.h"
+#include "XR/Avatar/AvatarRenderer.h"
 #include "Platform/Browser/BrowserRelativeMouse.h"
 #include <surrealwidgets/window/browser_relative_mouse.h>
 #include "Render/RenderSubsystem.h"
@@ -447,9 +448,43 @@ void Engine::RunOneFrame()
 	ClearXRWeaponPose();
 	XRWeaponPoseResult xrWeaponPose;
 	XRWorldTransform xrWeaponWorld;
-	if (openXR && xrFrameBegun && openXRViews.CreateWeaponWorldTransform(
-		CameraLocation, xrWeaponWorld))
+	bool xrWorldTransformValid = openXR && xrFrameBegun && openXRViews.CreateWeaponWorldTransform(
+		CameraLocation, xrWeaponWorld);
+	if (xrWorldTransformValid)
 		xrWeaponPose = SolveXRWeaponPose(xrSpaces, xrWeaponWorld, XRHand::Right);
+
+	// Same provider-neutral snapshot feeds the full-body avatar's IK solver -
+	// real OpenXR poses anchored the same way the weapon aim already is, or a
+	// deterministic synthetic sample when no session is running (this
+	// workspace can't always get a real headset session - see
+	// Docs/FULLBODY_VR_AVATAR_PLAN.md milestone M2's verification note).
+	ClearXRAvatarInput();
+	if (AvatarRenderer::DiagnosticsEnabled())
+	{
+		auto toAvatarEnginePose = [](const XREnginePose& pose)
+		{
+			AvatarEnginePose result;
+			result.Valid = pose.Valid;
+			result.Position = vec3(pose.Position.X, pose.Position.Y, pose.Position.Z);
+			result.Orientation = quaternion(pose.Orientation.X, pose.Orientation.Y, pose.Orientation.Z, pose.Orientation.W);
+			return result;
+		};
+
+		AvatarIKFrameInput avatarInput;
+		if (xrWorldTransformValid)
+		{
+			avatarInput.Head = toAvatarEnginePose(TransformXRPoseToEngine(xrSpaces.Head, xrWeaponWorld));
+			avatarInput.LeftHandGrip = toAvatarEnginePose(TransformXRPoseToEngine(xrSpaces.GripFor(XRHand::Left), xrWeaponWorld));
+			avatarInput.RightHandGrip = toAvatarEnginePose(TransformXRPoseToEngine(xrSpaces.GripFor(XRHand::Right), xrWeaponWorld));
+		}
+		else if (commandline && commandline->HasArg("", "--avatar-ik-synthetic"))
+		{
+			avatarSyntheticTimeSeconds += 1.0f / 60.0f;
+			avatarInput = AvatarRenderer::BuildSyntheticFrameInput(CameraLocation, avatarSyntheticTimeSeconds);
+		}
+		SetXRAvatarInput(avatarInput);
+	}
+
 	const float levelElapsed = xrWeaponPose.Valid ?
 		AdvanceGameFrameWithXRWeaponAim(xrWeaponPose) : AdvanceGameFrame();
 	viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());

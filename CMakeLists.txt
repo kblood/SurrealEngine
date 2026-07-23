@@ -104,6 +104,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/XR/Avatar/AvatarRigCache.h
 	SurrealEngine/XR/Avatar/AvatarSkinner.cpp
 	SurrealEngine/XR/Avatar/AvatarSkinner.h
+	SurrealEngine/XR/Avatar/AvatarIKSolver.cpp
+	SurrealEngine/XR/Avatar/AvatarIKSolver.h
 	SurrealEngine/XR/Avatar/AvatarRenderer.cpp
 	SurrealEngine/XR/Avatar/AvatarRenderer.h
 	SurrealEngine/UE1GameDatabase.h
@@ -1111,6 +1113,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRWeaponPoseSolverTests PRIVATE SurrealEngine)
 	set_target_properties(XRWeaponPoseSolverTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRWeaponPoseSolver COMMAND XRWeaponPoseSolverTests)
+
+	add_executable(AvatarIKSolverTests
+		Tests/AvatarIKSolverTests.cpp
+		SurrealEngine/XR/Avatar/AvatarIKSolver.cpp
+	)
+	target_include_directories(AvatarIKSolverTests PRIVATE SurrealEngine)
+	set_target_properties(AvatarIKSolverTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME AvatarIKSolver COMMAND AvatarIKSolverTests)
 
 	add_executable(XRWeaponRuntimeTests Tests/XRWeaponRuntimeTests.cpp)
 	target_link_libraries(XRWeaponRuntimeTests SurrealCommon ${SURREALCOMMON_LIBS})

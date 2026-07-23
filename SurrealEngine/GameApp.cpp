@@ -58,14 +58,17 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu|webgl2|null] [--openxr] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [--avatar-autorig-debug] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu|webgl2|null] [--openxr] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [--avatar-autorig-debug] [--avatar-ik-synthetic] [Path to game folder]\n";
 			return 0;
 		}
 
 		if (commandline->HasArg("", "--avatar-autorig-debug"))
 		{
-			// M1 diagnostic hook only: logs auto-rig joint labels for the
-			// level's pawn meshes at map load. See RenderSubsystem::OnMapLoaded.
+			// Diagnostic hook: logs auto-rig joint labels for the level's
+			// pawn meshes at map load (see RenderSubsystem::OnMapLoaded), and
+			// draws the local player's auto-rigged avatar beside their normal
+			// render each frame, driven by IK from a live head/hand sample
+			// (real OpenXR, or --avatar-ik-synthetic) when one is available.
 			AvatarRenderer::SetDiagnosticsEnabled(true);
 		}
 		if (commandline->HasArg("", "--probexr"))

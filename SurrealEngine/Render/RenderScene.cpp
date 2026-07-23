@@ -42,15 +42,21 @@ void RenderSubsystem::DrawSceneView(const ViewDescription& view)
 	MainFrame.Draw();
 	MainFrame.DrawCoronas();
 
-	// M1 scaffolding: with --avatar-autorig-debug, draw the local player's
-	// auto-rigged bind pose beside their normal render for visual comparison.
-	// Never runs unless explicitly enabled - no effect on normal play.
+	// With --avatar-autorig-debug, draw the local player's auto-rigged avatar
+	// beside their normal render for visual comparison. Never runs unless
+	// explicitly enabled - no effect on normal play. M2: drives it with the
+	// frame's IK-solved pose when a head/hand sample is available (real
+	// OpenXR or --avatar-ik-synthetic), falling back to the M1 static bind
+	// pose otherwise.
 	if (AvatarRenderer::DiagnosticsEnabled() && engine->viewport && engine->viewport->Actor())
 	{
 		UActor* playerActor = engine->viewport->Actor();
 		Coords rotation = Coords::Rotation(playerActor->Rotation());
 		vec3 sideOffset = rotation.YAxis * 80.0f;
-		AvatarRenderer::DrawActorBindPose(&MainFrame, playerActor, sideOffset);
+		const AvatarIKFrameInput& avatarInput = engine->GetXRAvatarInput();
+		bool haveLiveInput = avatarInput.Head.Valid || avatarInput.LeftHandGrip.Valid || avatarInput.RightHandGrip.Valid;
+		if (!haveLiveInput || !AvatarRenderer::DrawActorWithIK(&MainFrame, playerActor, sideOffset, avatarInput, {}))
+			AvatarRenderer::DrawActorBindPose(&MainFrame, playerActor, sideOffset);
 	}
 }
 

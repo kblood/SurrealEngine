@@ -20,6 +20,7 @@
 #include "XR/XRHapticFeedbackPolicy.h"
 #include "XR/XRStartupIntroRoute.h"
 #include "XR/XRWeaponPoseSolver.h"
+#include "XR/Avatar/AvatarIKSolver.h"
 #include <set>
 #include <list>
 
@@ -95,6 +96,14 @@ public:
 	void SetXRWeaponPose(const XRWeaponPoseResult& pose) { xrWeaponPose = pose; }
 	const XRWeaponPoseResult& GetXRWeaponPose() const { return xrWeaponPose; }
 	void ClearXRWeaponPose() { xrWeaponPose = {}; }
+
+	// One head/hand sample per frame for the full-body avatar's IK solver
+	// (see XR/Avatar/AvatarIKSolver.h) - real OpenXR when a session is
+	// running, or a synthetic stand-in behind --avatar-ik-synthetic. Follows
+	// the same per-frame cache pattern as SetXRWeaponPose/GetXRWeaponPose.
+	void SetXRAvatarInput(const AvatarIKFrameInput& input) { xrAvatarInput = input; }
+	const AvatarIKFrameInput& GetXRAvatarInput() const { return xrAvatarInput; }
+	void ClearXRAvatarInput() { xrAvatarInput = {}; }
 	void RenderGameFrame(float levelElapsed);
 	void RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily);
 	void FinishGameFrame(float levelElapsed);
@@ -258,6 +267,8 @@ public:
 
 private:
 	XRWeaponPoseResult xrWeaponPose;
+	AvatarIKFrameInput xrAvatarInput;
+	float avatarSyntheticTimeSeconds = 0.0f;
 	ViewFamily CreateDesktopViewFamily() const;
 
 	// Scratch properties used by PlayerCalcView during AdvanceGameFrame.
