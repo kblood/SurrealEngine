@@ -357,12 +357,37 @@ Measured owner-data evidence for the Window-owned variant is:
 - deterministic Chrome pointer-lock coverage proved inert startup, one trusted
   click request, unlock, WebXR suppression, and handled rejection.
 
-Chrome still reports one uncaptured destroyed swap-buffer texture during the
-first flat WebGPU submission. Retaining the acquired texture for one additional
-frame and until queue completion did not remove it, so those ineffective
-changes were discarded. Flat presentation is visibly advancing, but the
-warning remains a release-quality blocker for this experimental variant.
-Physical WebXR hardware has not been tested by this work and is not claimed.
+Chrome still reports one destroyed swap-buffer texture during the first flat
+WebGPU frame. This is now isolated to an application presentation-lifetime
+violation rather than C-handle release or queue retirement. The flat renderer
+acquires the canvas texture in `WebGPURenderDevice::Lock()`, before scene, UI,
+and lazy asset work, and submits it in `Unlock()`. A non-threaded WasmFS OPFS
+read awaits browser promises through Asyncify. Emscripten's animation-frame
+runner does not await that continuation, so the browser can present and expire
+the canvas texture before `Unlock()` resumes and submits its command buffer.
+
+The deterministic probe at
+`web/probes/webgpu_canvas_async_lifetime_probe.html` proves the boundary in the
+same Chrome/WebGPU stack: acquire, encode, and submit in one animation frame is
+clean; inserting one `requestAnimationFrame` before submission produces the
+exact `Destroyed texture ... used in a submit` validation error. Run it against
+the development server with:
+
+```powershell
+$env:SURREAL_WEB_BASE_URL='http://127.0.0.1:8091'
+python web/probes/webgpu_canvas_async_lifetime_probe_test.py
+```
+
+Retaining the acquired texture for one additional frame and until queue
+completion did not remove the error because the browser had already invalidated
+the drawing buffer; those ineffective changes were discarded. The robust flat
+renderer design is to render into a persistent offscreen color texture, finish
+all suspension-capable work, then acquire the canvas texture and immediately
+copy or blit and submit in `Unlock()`. WebXR frame textures require the same
+no-suspension ownership rule. Flat presentation is visibly advancing, but this
+fix remains a release-quality blocker for the experimental Window-owned
+variant. Physical WebXR hardware has not been tested by this work and is not
+claimed.
 
 ## Recommended persistent layout
 

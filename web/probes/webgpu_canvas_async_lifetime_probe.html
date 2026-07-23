@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WebGPU canvas Asyncify lifetime probe</title>
+</head>
+<body>
+<canvas id="same-frame" width="64" height="64"></canvas>
+<canvas id="expired-frame" width="64" height="64"></canvas>
+<pre id="result">running</pre>
+<script type="module">
+const output = document.getElementById("result");
+
+async function encodeAndSubmit(device, canvas, crossFrameBoundary) {
+  const context = canvas.getContext("webgpu");
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({ device, format });
+
+  await new Promise(requestAnimationFrame);
+  const texture = context.getCurrentTexture();
+  const encoder = device.createCommandEncoder();
+  const pass = encoder.beginRenderPass({ colorAttachments: [{
+    view: texture.createView(),
+    loadOp: "clear",
+    storeOp: "store",
+    clearValue: { r: 0, g: 0, b: 0, a: 1 }
+  }] });
+  pass.end();
+  const command = encoder.finish();
+
+  if (crossFrameBoundary)
+    await new Promise(requestAnimationFrame);
+
+  device.pushErrorScope("validation");
+  device.queue.submit([command]);
+  const error = await device.popErrorScope();
+  return error ? error.message : null;
+}
+
+async function runProbe() {
+  if (!navigator.gpu)
+    throw new Error("WebGPU is unavailable");
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter)
+    throw new Error("requestAdapter returned null");
+  const device = await adapter.requestDevice();
+
+  const sameFrameError = await encodeAndSubmit(
+    device, document.getElementById("same-frame"), false);
+  const expiredFrameError = await encodeAndSubmit(
+    device, document.getElementById("expired-frame"), true);
+  return { supported: true, sameFrameError, expiredFrameError };
+}
+
+try {
+  window.canvasLifetimeProbeResult = await runProbe();
+} catch (error) {
+  window.canvasLifetimeProbeResult = {
+    supported: false,
+    error: String(error),
+    stack: error?.stack ?? ""
+  };
+}
+output.textContent = JSON.stringify(window.canvasLifetimeProbeResult, null, 2);
+</script>
+</body>
+</html>
