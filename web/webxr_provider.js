@@ -1,10 +1,9 @@
 (function (root) {
 	"use strict";
 
-	// Version 3 keeps the packed layout from v2, but changes texture ownership:
-	// every texture handed to native code is an ordinary persistent GPUTexture.
-	// XR compositor textures are acquired and consumed only inside the XR rAF.
-	const ABI = Object.freeze({ version: 3, headerBytes: 32, viewBytes: 128, maxViews: 2 });
+	// Version 4 keeps the packed layout and persistent targets, but splits the
+	// Asyncify-capable simulation from the synchronous current-pose XR render.
+	const ABI = Object.freeze({ version: 4, headerBytes: 32, viewBytes: 128, maxViews: 2 });
 	const FRAME_FLAGS = Object.freeze({ projectionDepthZeroToOne: 1, sharedStereoAtlas: 2 });
 	const INPUT_ABI = Object.freeze({
 		version: 1, headerBytes: 24, sourceBytes: 112, maxSources: 2,
@@ -45,6 +44,9 @@
 	let inputQueueOverflow = false;
 	let renderPumpHandle = null;
 	let nativeRenderPromise = null;
+	let nativeFramePrepared = false;
+	let nativeFrameRendered = false;
+	let preparedFrame = null;
 	let cleanupPending = Promise.resolve();
 	let hapticStatus = null;
 	let audioGestureSession = null;
@@ -512,7 +514,7 @@
 		const query = root.Module && root.Module._Surreal_GetWebXRFrameABIVersion;
 		if (typeof query !== "function" || query() !== ABI.version)
 			throw providerError("incompatible-native-frame-abi", "activating-session",
-				"native WebXR frame ABI does not support persistent two-phase presentation");
+				"native WebXR frame ABI does not support current-pose phased presentation");
 	}
 
 	function enqueueInputPacket(packet) {
@@ -848,53 +850,52 @@
 				"WebXR input transition queue overflowed while native rendering was suspended"));
 			return;
 		}
-		if (latestFrameCapture && latestFrameCapture.epoch !== layoutEpoch) {
-			latestFrameCapture = null;
-			scheduleRenderPump(generation);
-			return;
-		}
-		if (!latestFrameCapture &&
+		const preparedIsCurrent = nativeFramePrepared && preparedFrame &&
+			preparedFrame.epoch === layoutEpoch &&
+			preparedFrame.resetGeneration === resetGeneration;
+		const safetyInputOnly = preparedIsCurrent && queuedInputPackets.length === 1 &&
+			queuedInputPackets[0].safetyBarrier;
+		if (preparedIsCurrent && !safetyInputOnly) return;
+		if (!nativeFramePrepared && !nativeFrameRendered && !latestFrameCapture &&
 			!(queuedInputPackets.length === 1 && queuedInputPackets[0].safetyBarrier)) return;
-		const input = takeInputPacketForSimulationFrame();
-		try { if (input) submitInputPacket(input); }
-		catch (error) { fail(generation, providerError("input-submit-failed", "frame", error.message || String(error))); return; }
-		if (!latestFrameCapture) return;
-		const capture = latestFrameCapture;
-		latestFrameCapture = null;
-		const backIndex = frontTargetIndex === 0 ? 1 : 0;
-		const targets = persistentTargets;
-		const packed = packPersistentFrame(capture, targets[backIndex]);
-		root.surrealWebXRFrameTextures = packed.textures;
 		setNativeCallsBlocked(true);
-		let renderResult;
-		try {
-			renderResult = moduleCall("Surreal_RenderWebXRFrame", "number", ["array", "number"],
-				[packed.packet, packed.packet.byteLength], { async: true });
-		} catch (error) {
-			root.surrealWebXRFrameTextures = null;
-			setNativeCallsBlocked(false);
-			fail(generation, providerError("frame-failed", "frame", error.message || String(error)));
-			return;
-		}
-		const promise = Promise.resolve(renderResult).then(function (rendered) {
-			if (rendered !== 1) {
+		const promise = (async function () {
+			if (safetyInputOnly) {
+				const safetyInput = takeInputPacketForSimulationFrame();
+				if (safetyInput) submitInputPacket(safetyInput);
+				return;
+			}
+			if (nativeFramePrepared || nativeFrameRendered) {
+				const completed = await moduleCall("Surreal_CompleteWebXRFrame", "number", [], [], { async: true });
+				if (completed !== 1) throw new Error("native WebXR frame completion failed");
+				nativeFramePrepared = false;
+				nativeFrameRendered = false;
+				preparedFrame = null;
+			}
+			const input = takeInputPacketForSimulationFrame();
+			if (input) submitInputPacket(input);
+			if (!latestFrameCapture) return;
+			const capture = latestFrameCapture;
+			latestFrameCapture = null;
+			const target = persistentTargets[frontTargetIndex === 0 ? 1 : 0];
+			const packed = packPersistentFrame(capture, target);
+			const prepared = await moduleCall("Surreal_PrepareWebXRFrame", "number",
+				["array", "number"], [packed.packet, packed.packet.byteLength], { async: true });
+			if (prepared !== 1) {
 				const error = moduleCall("Surreal_GetWebXRFrameLastError", "number");
-				throw providerError("native-frame-rejected-" + error, "frame",
-					"native WebXR frame bridge rejected the frame (error=" + error + ")");
+				throw providerError("native-frame-prepare-rejected-" + error, "frame",
+					"native WebXR frame preparation failed (error=" + error + ")");
 			}
 			if (generation === activeGeneration && capture.epoch === layoutEpoch &&
-				capture.resetGeneration === resetGeneration && targets === persistentTargets) {
-				targets[backIndex].presentation.source = capturePresentationSource(capture);
-				targets[backIndex].presentation.count = 0;
-				frontTargetIndex = backIndex;
-				status.frames++;
+				capture.resetGeneration === resetGeneration) {
+				nativeFramePrepared = true;
+				preparedFrame = capture;
 			}
-		}).catch(function (error) {
+		})().catch(function (error) {
 			if (generation === activeGeneration)
 				fail(generation, error instanceof WebXRProviderError ? error :
 					providerError("frame-failed", "frame", error.message || String(error)));
 		}).finally(function () {
-			root.surrealWebXRFrameTextures = null;
 			if (nativeRenderPromise === promise) nativeRenderPromise = null;
 			setNativeCallsBlocked(false);
 			if (generation === activeGeneration) scheduleRenderPump(generation);
@@ -937,6 +938,9 @@
 		targetLayout = null;
 		frontTargetIndex = null;
 		latestFrameCapture = null;
+		nativeFramePrepared = false;
+		nativeFrameRendered = false;
+		preparedFrame = null;
 		queuedInputPackets = [];
 		lastQueuedInputSignature = null;
 		lastQueuedInputSafety = null;
@@ -963,6 +967,11 @@
 		if (error) log("WebXR session failed: " + error);
 		cleanupPending = (async function () {
 			try { await Promise.resolve(pendingRender); } catch (_) {}
+			if (nativePresentationStarted) {
+				try {
+					await moduleCall("Surreal_CompleteWebXRFrame", "number", [], [], { async: true });
+				} catch (_) {}
+			}
 			if (nativePresentationStarted) submitNeutralInput(0, false);
 			if (ownedEngineLoop) {
 				try { setEngineLoop(false); } catch (_) {}
@@ -1085,32 +1094,62 @@
 				description = webGLBridge.describeFrame(pose);
 				description.mode = "webgl-bridge";
 				description.format = webGLBridge.textureFormat;
-				adoptLayout(description);
-				if (frontTargetIndex !== null) {
-					const frontTarget = persistentTargets[frontTargetIndex];
-					const source = frontTarget.presentation.source;
-					const sourceMatchesReset = source && source.resetGeneration === resetGeneration;
+			} else {
+				description = directFrameDescription(xrViews);
+			}
+			adoptLayout(description);
+			const capture = { generation, epoch: layoutEpoch, sequence: frameSequence, time, views,
+				resetGeneration, atlasViews: description.atlasViews || null };
+			let renderedCurrentPose = false;
+			if (nativeFramePrepared && preparedFrame &&
+				preparedFrame.epoch === layoutEpoch &&
+				preparedFrame.resetGeneration === resetGeneration) {
+				const backIndex = frontTargetIndex === 0 ? 1 : 0;
+				const target = persistentTargets[backIndex];
+				const packed = packPersistentFrame(capture, target);
+				root.surrealWebXRFrameTextures = packed.textures;
+				let rendered;
+				try {
+					rendered = moduleCall("Surreal_RenderWebXRFrame", "number",
+						["array", "number"], [packed.packet, packed.packet.byteLength]);
+				} finally {
+					root.surrealWebXRFrameTextures = null;
+				}
+				if (rendered !== 1) {
+					const error = moduleCall("Surreal_GetWebXRFrameLastError", "number");
+					throw providerError("native-frame-render-rejected-" + error, "frame",
+						"native synchronous WebXR render failed (error=" + error + ")");
+				}
+				target.presentation.source = capturePresentationSource(capture);
+				target.presentation.count = 0;
+				frontTargetIndex = backIndex;
+				nativeFramePrepared = false;
+				nativeFrameRendered = true;
+				preparedFrame = null;
+				status.frames++;
+				renderedCurrentPose = true;
+				if (presentationMode === "webgl-bridge") {
 					let metadata;
 					if (status.bridgeRotationReprojectionRequested) metadata = {
-						sourceViews: sourceMatchesReset ? source.views : null,
-						sourceAtlasViews: sourceMatchesReset ? source.atlasViews : null,
+						sourceViews: views, sourceAtlasViews: capture.atlasViews,
 						currentViews: views,
 					};
-					webGLBridge.present(description, frontTarget.textures[0], webGPUDevice(), metadata);
-					recordBridgePresentation(frontTarget, frameSequence, time);
+					webGLBridge.present(description, target.textures[0], webGPUDevice(), metadata);
+					recordBridgePresentation(target, frameSequence, time);
 					setBridgeDiagnostics(webGLBridge.diagnostics());
 				} else {
+					presentDirect(description);
+				}
+			}
+			if (!renderedCurrentPose) {
+				status.skippedFrames++;
+				if (presentationMode === "webgl-bridge") {
 					webGLBridge.clear();
 					setBridgeDiagnostics(webGLBridge.diagnostics());
 				}
-			} else {
-				description = directFrameDescription(xrViews);
-				adoptLayout(description);
-				presentDirect(description);
 			}
 			if (latestFrameCapture) status.skippedFrames++;
-			latestFrameCapture = { generation, epoch: layoutEpoch, sequence: frameSequence, time, views,
-				resetGeneration, atlasViews: description.atlasViews || null };
+			latestFrameCapture = capture;
 			scheduleRenderPump(generation);
 		} catch (error) {
 			fail(generation, error instanceof WebXRProviderError ? error :

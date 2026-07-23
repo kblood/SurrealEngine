@@ -12,8 +12,9 @@ const deferred = () => {
 
 const atlasTextures = [];
 const destroyedTextures = [];
-const renderDeferrals = [];
-const renderCalls = [];
+const prepareDeferrals = [];
+const prepareCalls = [];
+const synchronousRenders = [];
 const nativeCalls = [];
 const presentations = [];
 const presentationMetadata = [];
@@ -39,19 +40,24 @@ const device = {
 };
 globalThis.Module = {
 	canvas: {}, preinitializedWebGPUDevice: device,
-	_Surreal_GetWebXRFrameABIVersion: () => 3,
+	_Surreal_GetWebXRFrameABIVersion: () => 4,
 	ccall(name, _returnType, _types, args) {
 		nativeCalls.push(name);
 		if (name === "Surreal_SetXRFrameLoopActive") return 1;
 		if (name === "Surreal_SubmitWebXRInputSnapshot") { inputPackets.push(Uint8Array.from(args[0])); return 1; }
 		if (name === "Surreal_ApplyWebXRInputSnapshot") return 1;
-		if (name === "Surreal_RenderWebXRFrame") {
+		if (name === "Surreal_PrepareWebXRFrame") {
 			const pending = deferred();
-			const call = { packet: Uint8Array.from(args[0]), textures: globalThis.surrealWebXRFrameTextures.slice() };
-			renderCalls.push(call);
-			renderDeferrals.push(pending);
+			prepareCalls.push({ packet: Uint8Array.from(args[0]) });
+			prepareDeferrals.push(pending);
 			return pending.promise;
 		}
+		if (name === "Surreal_RenderWebXRFrame") {
+			synchronousRenders.push({ packet: Uint8Array.from(args[0]),
+				textures: globalThis.surrealWebXRFrameTextures.slice() });
+			return 1;
+		}
+		if (name === "Surreal_CompleteWebXRFrame") return 1;
 		if (name === "Surreal_ResetWebXRPose" || name === "Surreal_ClearWebXRInputSnapshot") return undefined;
 		if (name === "Surreal_GetWebXRFrameLastError" || name === "Surreal_GetWebXRInputLastError") return 0;
 		throw new Error("unexpected native call " + name);
@@ -185,25 +191,27 @@ const frame = {
 };
 const session = sessions[0];
 
-// The first producer suspends with no published front. Repeated XR rAF callbacks must
-// neither present its incomplete back texture nor re-enter native code.
+// The first callback captures input/pose and starts asynchronous preparation only.
+// Repeated XR rAF callbacks must clear instead of presenting stale pixels or
+// re-entering Wasm while Asyncify is suspended.
 session.fireFrame(10, frame);
 await delay(5);
 assert.equal(atlasTextures.length, 2);
 assert.notEqual(atlasTextures[0], atlasTextures[1]);
-assert.equal(renderCalls.length, 1);
-assert.deepEqual(renderCalls[0].textures, [atlasTextures[0]]);
+assert.equal(prepareCalls.length, 1);
+assert.equal(synchronousRenders.length, 0);
 assert.equal(presentations.length, 0);
 const firstPendingNativeCount = nativeCalls.length;
 session.fireFrame(20, frame);
 session.fireFrame(30, frame);
 session.fireFrame(40, frame);
-assert.equal(renderCalls.length, 1, "an unresolved producer must not be re-entered");
-assert.equal(nativeCalls.length, firstPendingNativeCount, "XR rAF must remain a pure-JS consumer while native rendering is suspended");
-assert.equal(presentations.length, 0, "there is no front texture until the first producer completes");
+assert.equal(prepareCalls.length, 1, "an unresolved prepare must not be re-entered");
+assert.equal(nativeCalls.length, firstPendingNativeCount,
+	"XR rAF must remain a pure-JS consumer while native preparation is suspended");
+assert.equal(presentations.length, 0, "stalled preparation must never reuse old-pose pixels");
 
-const packet = new DataView(renderCalls[0].packet.buffer);
-assert.equal(packet.getUint32(0, true), 3);
+const packet = new DataView(prepareCalls[0].packet.buffer);
+assert.equal(packet.getUint32(0, true), 4);
 assert.equal(packet.getUint32(12, true), 1);
 assert.equal(packet.getUint32(28, true), 3);
 assert.equal(packet.getInt32(32 + 20, true), 0);
@@ -221,9 +229,9 @@ for (let viewIndex = 0; viewIndex < 2; viewIndex++) {
 			`${eye} rotated orientation component ${component} was not packed`);
 }
 
-// Publish the first completed target. Before the scheduled producer pump runs again,
-// the next rAF must present exactly that immutable front.
-renderDeferrals[0].resolve(1);
+// Preparation completion alone cannot publish. The next callback samples its current
+// pose, synchronously renders to an ordinary atlas, and immediately presents it.
+prepareDeferrals[0].resolve(1);
 await Promise.resolve();
 await Promise.resolve();
 await Promise.resolve();
@@ -232,38 +240,38 @@ currentOrientation = newerOrientation;
 session.fireFrame(50, frame);
 assert.deepEqual(presentations, [atlasTextures[0]]);
 assert.equal(presentationMetadata[0].sourceViews[0].transform.orientation.x,
-	rotatedOrientation.x, "promoted target must retain the render-time source pose");
+	newerOrientation.x, "presentation source must be the current callback's render pose");
 assert.equal(presentationMetadata[0].currentViews[0].transform.orientation.x,
-	newerOrientation.x, "late presentation must receive the current XRFrame pose");
+	newerOrientation.x, "presentation must retain the current XRFrame pose");
 assert.deepEqual(presentationMetadata[0].sourceAtlasViews,
 	[{ x: 0, y: 0, width: 800, height: 700 }, { x: 800, y: 0, width: 800, height: 700 }],
 	"promoted target must retain the source eye-to-atlas mapping");
-assert.notEqual(presentationMetadata[0].sourceViews[0].transform.orientation,
-	presentationMetadata[0].currentViews[0].transform.orientation,
-	"source and current metadata must be independent snapshots");
+assert.equal(synchronousRenders.length, 1);
+assert.deepEqual(synchronousRenders[0].textures, [atlasTextures[0]]);
+const renderedPacket = new DataView(synchronousRenders[0].packet.buffer);
+assert.equal(renderedPacket.getFloat64(16, true), 50);
+assert.ok(Math.abs(renderedPacket.getFloat32(32 + 48 + 4, true) - newerOrientation.y) < 1e-6,
+	"synchronous render packet must use the current callback orientation");
 const firstPresentationState = globalThis.surrealXRGetState().bridgeDiagnostics;
-assert.equal(firstPresentationState.presentAgeFrames, 4);
-assert.equal(firstPresentationState.maxPresentAgeFrames, 4);
-assert.equal(firstPresentationState.presentAgeMs, 40);
-assert.equal(firstPresentationState.maxPresentAgeMs, 40);
+assert.equal(firstPresentationState.presentAgeFrames, 0);
+assert.equal(firstPresentationState.maxPresentAgeFrames, 0);
+assert.equal(firstPresentationState.presentAgeMs, 0);
+assert.equal(firstPresentationState.maxPresentAgeMs, 0);
 assert.equal(firstPresentationState.reusedPresents, 0,
-	"the first presentation of a completed target is not a reuse");
+	"a current-pose render is presented exactly once");
 await delay(5);
-assert.equal(renderCalls.length, 2);
-assert.deepEqual(renderCalls[1].textures, [atlasTextures[1]], "the next producer must render into the other persistent target");
+assert.equal(prepareCalls.length, 2);
 
-// While the second target is unresolved, every rAF re-presents the completed front;
-// it must not expose the back target or make another native call.
+// While the next preparation is unresolved, every rAF clears and never re-presents
+// the completed atlas from an older pose.
 const secondPendingNativeCount = nativeCalls.length;
 session.fireFrame(60, frame);
 session.fireFrame(70, frame);
 session.fireFrame(80, frame);
-assert.equal(renderCalls.length, 2);
+assert.equal(prepareCalls.length, 2);
 assert.equal(nativeCalls.length, secondPendingNativeCount);
-assert.equal(presentations.length, 4);
-assert.ok(presentations.every(texture => texture === atlasTextures[0]),
-	"the immutable front must remain presented while the other atlas is being produced");
-assert.ok(!presentations.includes(atlasTextures[1]), "the incomplete back atlas must never be presented");
+assert.equal(presentations.length, 1);
+assert.ok(!presentations.includes(atlasTextures[1]), "an unprepared atlas must never be presented");
 
 assert.equal(globalThis.surrealXRGetState().presentationMode, "webgl-bridge");
 assert.equal(globalThis.surrealXRGetState().presentationPreference, "webgl-bridge");
@@ -274,15 +282,15 @@ assert.equal(bridgeState.bridgeDiagnostics.p99Ms, 1.1);
 assert.equal(bridgeState.bridgeDiagnostics.blockingTiming, true);
 assert.equal(bridgeState.bridgeDiagnostics.layerWidth, 1832);
 assert.equal(bridgeState.bridgeDiagnostics.atlasWidth, 1600);
-assert.equal(bridgeState.bridgeDiagnostics.presentAgeFrames, 7);
-assert.equal(bridgeState.bridgeDiagnostics.maxPresentAgeFrames, 7);
-assert.equal(bridgeState.bridgeDiagnostics.presentAgeMs, 70);
-assert.equal(bridgeState.bridgeDiagnostics.maxPresentAgeMs, 70);
-assert.equal(bridgeState.bridgeDiagnostics.reusedPresents, 3);
+assert.equal(bridgeState.bridgeDiagnostics.presentAgeFrames, 0);
+assert.equal(bridgeState.bridgeDiagnostics.maxPresentAgeFrames, 0);
+assert.equal(bridgeState.bridgeDiagnostics.presentAgeMs, 0);
+assert.equal(bridgeState.bridgeDiagnostics.maxPresentAgeMs, 0);
+assert.equal(bridgeState.bridgeDiagnostics.reusedPresents, 0);
 assert.equal(bridgeState.bridgeDiagnostics.reprojectionMode, "rotation-only");
-assert.equal(bridgeState.bridgeDiagnostics.reprojectedFrames, 4);
+assert.equal(bridgeState.bridgeDiagnostics.reprojectedFrames, 1);
 assert.equal(bridgeState.bridgeDiagnostics.reprojectionFallbackFrames, 0);
-assert.equal(bridgeState.bridgeDiagnostics.reprojectedEyes, 8);
+assert.equal(bridgeState.bridgeDiagnostics.reprojectedEyes, 2);
 assert.equal(bridgeState.bridgeDiagnostics.reprojectionFallbackEyes, 0);
 assert.equal(bridgeState.layerWidth, 1832);
 assert.equal(bridgeState.atlasWidth, 1600);
@@ -307,17 +315,17 @@ assert.equal(presentations.length, presentationsBeforeResetFrame,
 	"a reference-space reset must invalidate the pre-reset front atlas");
 assert.equal(bridgeClears, clearsBeforeResetFrame + 1,
 	"the XR framebuffer must be cleared while no post-reset atlas is ready");
-assert.equal(resetFallbackState.reprojectedFrames, 4);
+assert.equal(resetFallbackState.reprojectedFrames, 1);
 assert.equal(resetFallbackState.reprojectionFallbackFrames, 0);
 
-// The producer that began before reset is stale even if it completes afterward.
+// The preparation that began before reset is stale even if it completes afterward.
 // Only a completed render captured in the new reset generation may become front.
-renderDeferrals[1].resolve(1);
+prepareDeferrals[1].resolve(1);
 await delay(5);
-assert.equal(renderCalls.length, 3, "post-reset producer did not start after stale completion");
+assert.equal(prepareCalls.length, 3, "post-reset preparation did not start after stale completion");
 assert.equal(globalThis.surrealXRGetState().frames, 1,
-	"pre-reset producer completion must not publish a stale atlas");
-renderDeferrals[2].resolve(1);
+	"pre-reset preparation completion must not publish a stale atlas");
+prepareDeferrals[2].resolve(1);
 await Promise.resolve();
 await Promise.resolve();
 await Promise.resolve();
@@ -325,12 +333,12 @@ session.fireFrame(90, frame);
 assert.equal(presentations.length, presentationsBeforeResetFrame + 1);
 assert.ok(presentationMetadata.at(-1).sourceViews,
 	"first post-reset presentation must carry post-reset source metadata");
-assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reprojectedFrames, 5);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reprojectedFrames, 2);
 await delay(5);
-assert.equal(renderCalls.length, 4, "next producer should be pending for teardown coverage");
+assert.equal(prepareCalls.length, 4, "next preparation should be pending for teardown coverage");
 
 // Exit invalidates the generation and cancels rAF immediately, but resource teardown
-// waits for the outstanding producer. Completing it must not publish or present stale work.
+// waits for the outstanding preparation. Completing it must not publish or present stale work.
 const staleFrameCallback = Array.from(session.frames.values())[0];
 const presentationCountAtExit = presentations.length;
 const nativeCountAtExit = nativeCalls.length;
@@ -338,20 +346,20 @@ assert.equal(globalThis.surrealXRExit(), true);
 assert.equal(globalThis.surrealXRGetState().active, false);
 assert.equal(globalThis.surrealXRGetState().presentationMode, null);
 assert.equal(session.frames.size, 0);
-assert.equal(destroyedBridges, 0, "bridge teardown must wait for the unresolved producer");
-assert.equal(destroyedTextures.length, 0, "persistent targets must outlive their unresolved producer");
-assert.equal(nativeCalls.length, nativeCountAtExit, "exit must not re-enter native code while its producer is suspended");
+assert.equal(destroyedBridges, 0, "bridge teardown must wait for unresolved preparation");
+assert.equal(destroyedTextures.length, 0, "persistent targets must outlive unresolved preparation");
+assert.equal(nativeCalls.length, nativeCountAtExit, "exit must not re-enter native code while preparation is suspended");
 
-renderDeferrals[3].resolve(1);
+prepareDeferrals[3].resolve(1);
 await delay(5);
 assert.equal(destroyedBridges, 1);
 assert.deepEqual(destroyedTextures, atlasTextures.slice(0, 2));
 assert.equal(presentations.length, presentationCountAtExit);
 assert.equal(globalThis.surrealXRGetState().frames, 2,
-	"completion from an invalidated generation must not publish the pending target");
+	"completion from an invalidated generation must not publish the pending preparation");
 staleFrameCallback(90, frame);
 assert.equal(presentations.length, presentationCountAtExit, "a stale XR callback must not present after exit");
-assert.equal(renderCalls.length, 4, "a stale XR callback must not restart native production");
+assert.equal(prepareCalls.length, 4, "a stale XR callback must not restart native preparation");
 assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics, null);
 assert.equal(globalThis.surrealXRGetState().layerWidth, null);
 assert.equal(globalThis.surrealXRGetState().atlasWidth, null);
@@ -379,11 +387,11 @@ assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reprojectionMode, 
 assert.equal(globalThis.surrealXRGetState().atlasWidth, null,
 	"bridge re-entry must not retain the previous atlas dimensions before its first frame");
 const reentrySession = sessions.at(-1);
-const rendersBeforeReentryFrame = renderCalls.length;
+const preparesBeforeReentryFrame = prepareCalls.length;
 reentrySession.fireFrame(100, frame);
 await delay(5);
-assert.equal(renderCalls.length, rendersBeforeReentryFrame + 1);
-renderDeferrals.at(-1).resolve(1);
+assert.equal(prepareCalls.length, preparesBeforeReentryFrame + 1);
+prepareDeferrals.at(-1).resolve(1);
 await Promise.resolve();
 await Promise.resolve();
 await Promise.resolve();
@@ -391,10 +399,10 @@ reentrySession.fireFrame(116, frame);
 assert.equal(presentationMetadata.at(-1), undefined,
 	"disabled reprojection retained per-eye presentation metadata");
 const oneFrameState = globalThis.surrealXRGetState().bridgeDiagnostics;
-assert.equal(oneFrameState.presentAgeFrames, 1);
-assert.equal(oneFrameState.maxPresentAgeFrames, 1);
-assert.equal(oneFrameState.presentAgeMs, 16);
-assert.equal(oneFrameState.maxPresentAgeMs, 16);
+assert.equal(oneFrameState.presentAgeFrames, 0);
+assert.equal(oneFrameState.maxPresentAgeFrames, 0);
+assert.equal(oneFrameState.presentAgeMs, 0);
+assert.equal(oneFrameState.maxPresentAgeMs, 0);
 assert.equal(oneFrameState.reusedPresents, 0);
 assert.equal(globalThis.surrealXRExit(), true);
 await delay(5);
@@ -424,4 +432,4 @@ assert.equal(referenceSpaceRequests, referenceSpaceRequestsBeforeStaleBridge,
 assert.equal(globalThis.surrealXRGetState().active, false);
 assert.equal(globalThis.surrealXRGetState().presentationMode, null);
 assert.equal(globalThis.surrealXRGetState().projectionFormat, null);
-console.log("WebXR XRWebGLLayer async double-buffer and exit tests passed");
+console.log("WebXR XRWebGLLayer current-pose render and exit tests passed");

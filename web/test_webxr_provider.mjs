@@ -10,6 +10,7 @@ globalThis.dispatchEvent = event => { const callback = rootListeners.get(event.t
 const nativeCalls = [];
 const loopTransitions = [];
 const renderedPackets = [];
+const synchronousRenders = [];
 const inputPackets = [];
 const copies = [];
 const submissions = [];
@@ -19,6 +20,9 @@ let renderDeferred = null;
 let textureSequence = 0;
 let submittedInput = null;
 let appliedInput = null;
+let xrCallbackActive = false;
+let poseSamplingWindow = false;
+const currentPoseOrdering = [];
 
 function deferred() {
 	let resolve, reject;
@@ -36,7 +40,13 @@ const device = {
 	createCommandEncoder() {
 		const commands = [];
 		return {
-			copyTextureToTexture(source, destination, size) { commands.push({ source, destination, size }); },
+			copyTextureToTexture(source, destination, size) {
+				assert.equal(xrCallbackActive, true, "XR projection copies must remain inside the active rAF callback");
+				assert.equal(poseSamplingWindow, true,
+					"no promise boundary may occur between current-pose sampling and presentation");
+				currentPoseOrdering.push("copy");
+				commands.push({ source, destination, size });
+			},
 			finish() { copies.push(...commands); return { commands }; },
 		};
 	},
@@ -48,22 +58,33 @@ const device = {
 
 globalThis.Module = {
 	preinitializedWebGPUDevice: device,
-	_Surreal_GetWebXRFrameABIVersion: () => 3,
+	_Surreal_GetWebXRFrameABIVersion: () => 4,
 	ccall(name, returnType, argumentTypes, args, options) {
 		nativeCalls.push(name);
 		if (name === "Surreal_SetXRFrameLoopActive") { loopTransitions.push(args[0]); return 1; }
 		if (name === "Surreal_ResetWebXRPose") { resetCalls++; return undefined; }
-		if (name === "Surreal_RenderWebXRFrame") {
+		if (name === "Surreal_PrepareWebXRFrame") {
 			assert.deepEqual(options, { async: true });
 			const packet = args[0];
 			const data = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
-			assert.equal(data.getUint32(0, true), 3);
+			assert.equal(data.getUint32(0, true), 4);
 			assert.equal(data.getUint32(8, true), 2);
 			renderedPackets.push({ bytes: Uint8Array.from(packet),
-				textures: globalThis.surrealWebXRFrameTextures.slice(),
+				textures: [],
 				input: appliedInput && Uint8Array.from(appliedInput) });
 			return renderDeferred ? renderDeferred.promise : 1;
 		}
+		if (name === "Surreal_RenderWebXRFrame") {
+			assert.equal(options, undefined, "current-pose render must be synchronous inside XR rAF");
+			assert.equal(xrCallbackActive, true, "current-pose render must run inside the active XR rAF callback");
+			assert.equal(poseSamplingWindow, true,
+				"no promise boundary may occur after current-pose sampling and before native render");
+			currentPoseOrdering.push("render");
+			synchronousRenders.push({ bytes: Uint8Array.from(args[0]),
+				textures: globalThis.surrealWebXRFrameTextures.slice() });
+			return 1;
+		}
+		if (name === "Surreal_CompleteWebXRFrame") return 1;
 		if (name === "Surreal_SubmitWebXRInputSnapshot") {
 			submittedInput = Uint8Array.from(args[0]); inputPackets.push(submittedInput); return 1;
 		}
@@ -95,7 +116,10 @@ class FakeSession {
 	fireFrame(time, frame) {
 		const pending = this.frames.entries().next().value;
 		assert.ok(pending, "an XR animation frame should be pending");
-		this.frames.delete(pending[0]); pending[1](time, frame);
+		this.frames.delete(pending[0]);
+		xrCallbackActive = true;
+		try { pending[1](time, frame); }
+		finally { xrCallbackActive = false; }
 	}
 	async end() {
 		if (this.endDeferred) await this.endDeferred.promise;
@@ -196,11 +220,17 @@ function makeView(eye, x) {
 	return { eye, projectionMatrix: projections[eye], transform: { position: { x, y: 1.6, z: 0 },
 		orientation: rotatedOrientation } };
 }
-const stereoFrame = {
-	getViewerPose: () => ({ views: [makeView("left", -.032), makeView("right", .032)] }),
+function makeStereoFrame(headOffset = 0) { return {
+	getViewerPose: () => {
+		currentPoseOrdering.push("pose");
+		poseSamplingWindow = true;
+		queueMicrotask(() => { poseSamplingWindow = false; });
+		return { views: [makeView("left", headOffset - .032), makeView("right", headOffset + .032)] };
+	},
 	getPose(space) { return { transform: { position: { x: space.x, y: 1.2, z: -.4 },
 		orientation: { x: 0, y: 0, z: 0, w: 1 } } }; },
-};
+}; }
+const stereoFrame = makeStereoFrame();
 const nextTask = () => new Promise(resolve => setTimeout(resolve, 5));
 function driveRightTriggerTransitions(session, count, startTime) {
 	const right = session.inputSources.find(source => source.handedness === "right");
@@ -233,7 +263,7 @@ const capabilities = await globalThis.surrealXRGetCapabilities();
 assert.equal(capabilities.supported, true);
 assert.equal(capabilities.presentationPreference, "auto");
 assert.equal(capabilities.preferredMode, "direct-webgpu");
-assert.equal(globalThis.surrealXRFrameABI.version, 3);
+assert.equal(globalThis.surrealXRFrameABI.version, 4);
 
 // Reservation stays native-free until startup has returned and activation is explicit.
 assert.equal(await globalThis.surrealXRRequestSession(), true);
@@ -293,8 +323,6 @@ assert.equal(renderedPackets.length, 0, "XR rAF must not call native rendering")
 await nextTask();
 assert.equal(renderedPackets.length, 1);
 assert.equal(globalThis.surrealXRNativeCallsBlocked, true);
-assert.equal(renderedPackets[0].textures.length, 2);
-assert.ok(renderedPackets[0].textures.every(texture => texture !== leftXRTexture && texture !== rightXRTexture));
 const firstInput = new DataView(renderedPackets[0].input.buffer,
 	renderedPackets[0].input.byteOffset, renderedPackets[0].input.byteLength);
 const firstRight = 24 + 112;
@@ -352,6 +380,19 @@ assert.equal(renderedPackets.length, 1, "there must be at most one producer in f
 // Completion atomically publishes the back target. The next rAF presents it to current XR textures.
 renderDeferred.resolve(1); renderDeferred = null;
 await nextTask();
+const currentPoseFrame = makeStereoFrame(.5);
+const orderingStart = currentPoseOrdering.length;
+sessions[0].fireFrame(100, currentPoseFrame);
+const orderedBoundary = currentPoseOrdering.slice(orderingStart);
+assert.deepEqual(orderedBoundary.slice(0, 4), ["pose", "render", "copy", "copy"],
+	"current pose, synchronous native render, and projection copies must be one uninterrupted XR rAF sequence");
+assert.equal(synchronousRenders.length, 1);
+const currentPosePacket = new DataView(synchronousRenders[0].bytes.buffer);
+assert.equal(currentPosePacket.getFloat64(16, true), 100,
+	"render must consume this XR callback's timestamp, not the prepared capture timestamp");
+assert.ok(Math.abs(currentPosePacket.getFloat32(32 + 36, true) - .468) < 1e-6,
+	"render must consume this XR callback's headset pose");
+await nextTask();
 let drained = inputPackets.slice(inputsBeforePending).map(packet => new DataView(packet.buffer));
 assert.equal(drained.length, 1,
 	"only one retained input edge may be applied before a simulation tick");
@@ -389,7 +430,8 @@ assert.deepEqual(sequencedRenders.slice(0, 20).map(render => {
 assert.ok(copies.length >= 2);
 assert.equal(copies.at(-2).destination.texture, leftXRTexture);
 assert.equal(copies.at(-1).destination.texture, rightXRTexture);
-assert.equal(globalThis.surrealXRGetState().frames, renderedPackets.length);
+assert.equal(globalThis.surrealXRGetState().frames, synchronousRenders.length,
+	"the presented-frame counter follows synchronous current-pose renders, not async preparation");
 assert.equal(globalThis.surrealWebXRFrameTextures, null);
 
 // A focus-loss safety packet must release native XR input even if the browser supplies no
@@ -472,6 +514,9 @@ sessions[0].fireFrame(88, stereoFrame);
 assert.equal(nativeCalls.length, layoutPendingCalls);
 renderDeferred.resolve(1); renderDeferred = null;
 await nextTask(); await nextTask();
+assert.equal(globalThis.surrealXRGetState().frames, framesBeforeLayoutChange,
+	"an async preparation completion cannot present outside an XR animation callback");
+sessions[0].fireFrame(104, stereoFrame);
 assert.equal(globalThis.surrealXRGetState().frames, framesBeforeLayoutChange + 1,
 	"only the replacement-layout render may publish");
 
@@ -685,6 +730,7 @@ assert.equal(await globalThis.surrealXREnter(), true);
 const normallyEndedSession = sessions.at(-1);
 normallyEndedSession.fireFrame(4000, stereoFrame);
 await nextTask();
+normallyEndedSession.fireFrame(4016, stereoFrame);
 assert.equal(globalThis.surrealXRGetState().frames, 1);
 normallyEndedSession.emitEnd();
 assert.equal(globalThis.surrealXRGetState().phase, "ended",
@@ -724,4 +770,4 @@ assert.equal(compactPacket.getFloat32(24 + 40 + 12, true), 0,
 
 assert.ok(inputPackets.length >= 4);
 assert.ok(resetCalls >= 4);
-console.log("WebXR persistent-target, deferred-render, no-reentry, and lifecycle tests passed");
+console.log("WebXR current-pose render, async preparation, no-reentry, and lifecycle tests passed");

@@ -50,7 +50,7 @@ function createScenario(options = {}) {
 		GPUTextureUsage: { COPY_DST: 2, RENDER_ATTACHMENT: 16 },
 		Module: {
 			preinitializedWebGPUDevice: device,
-			_Surreal_GetWebXRFrameABIVersion: () => 3,
+			_Surreal_GetWebXRFrameABIVersion: () => 4,
 			ccall(name) {
 				if (name === "Surreal_SetXRFrameLoopActive" || name === "Surreal_SubmitWebXRInputSnapshot" ||
 					name === "Surreal_ApplyWebXRInputSnapshot") return 1;
