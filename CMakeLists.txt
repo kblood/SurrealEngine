@@ -1319,6 +1319,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		SurrealEngine/Render/XRUISurfaceRuntimeAdapter.cpp
 		SurrealEngine/Render/XRUISurfaceEngineBinding.cpp
 		SurrealEngine/XR/XRUIRuntime.cpp
+		SurrealEngine/XR/XRHapticFeedbackPolicy.cpp
+		SurrealEngine/XR/XRCommon.cpp
 		SurrealEngine/Math/mat.cpp
 	)
 	target_include_directories(WebXRUIProviderTests PRIVATE SurrealEngine)
