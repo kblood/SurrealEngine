@@ -87,6 +87,14 @@ try {
 	assert.match(index, /ut99_importer\.js\?v=[0-9a-f]{12}/);
 	assert.match(index, /browser_app\.js\?v=[0-9a-f]{12}/);
 	assert.match(index, /browser_app\.css\?v=[0-9a-f]{12}/);
+	const packagedStyles = await readFile(join(output, "browser_app.css"), "utf8");
+	assert.match(packagedStyles, /body \{[^}]*display: flex;[^}]*flex-direction: column;/,
+		"release content must use a non-overlapping vertical document flow");
+	assert.match(packagedStyles, /footer\[data-source-compliance\] \{[^}]*position: static;/,
+		"source compliance must remain in normal document flow");
+	assert.doesNotMatch(packagedStyles,
+		/footer\[data-source-compliance\] \{[^}]*(?:position:\s*(?:fixed|absolute)|z-index:)/,
+		"source compliance must never overlay launcher content");
 	assert.match(await readFile(join(output, "_headers"), "utf8"), /Cross-Origin-Embedder-Policy: require-corp/);
 	assert.match(await readFile(join(output, "_headers"), "utf8"), /Cache-Control: no-cache, must-revalidate/);
 	assert.match(await readFile(join(output, ".htaccess"), "utf8"), /Cache-Control "no-cache, must-revalidate"/);
