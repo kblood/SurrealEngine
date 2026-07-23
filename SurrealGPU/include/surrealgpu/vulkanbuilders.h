@@ -41,6 +41,8 @@ public:
 	VulkanDeviceBuilder& Surface(std::shared_ptr<VulkanSurface> surface);
 	VulkanDeviceBuilder& SelectDevice(int index);
 
+	VulkanCompatibleDevice EvaluateDevice(VulkanPhysicalDevice& device,
+		std::vector<std::string>* incompatibilities = nullptr) const;
 	std::vector<VulkanCompatibleDevice> FindDevices(const std::shared_ptr<VulkanInstance>& instance);
 	std::shared_ptr<VulkanDevice> Create(std::shared_ptr<VulkanInstance> instance);
 

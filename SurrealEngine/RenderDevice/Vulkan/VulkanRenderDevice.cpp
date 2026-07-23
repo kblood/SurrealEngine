@@ -54,6 +54,38 @@ VulkanRenderDevice::VulkanRenderDevice(Widget* InViewport, VulkanGraphicsBinding
 
 		if (useBinding && requiredPhysicalDevice)
 		{
+			VulkanPhysicalDevice* runtimeDevice = nullptr;
+			for (VulkanPhysicalDevice& physicalDevice : instance->PhysicalDevices)
+			{
+				if (physicalDevice.Device == (VkPhysicalDevice)requiredPhysicalDevice)
+				{
+					runtimeDevice = &physicalDevice;
+					break;
+				}
+			}
+			if (!runtimeDevice)
+			{
+				for (const VulkanPhysicalDevice& physicalDevice : instance->PhysicalDevices)
+					LogMessage(std::string("OpenXR Vulkan device mismatch: Vulkan enumerated ") +
+						physicalDevice.Properties.Properties.deviceName);
+				throw std::runtime_error("OpenXR-required Vulkan physical device was not enumerated by this Vulkan instance; check Vulkan loader and capture/overlay layers");
+			}
+
+			const auto& runtimeProperties = runtimeDevice->Properties.Properties;
+			LogMessage(std::string("OpenXR requires Vulkan device: ") + runtimeProperties.deviceName +
+				" (vendor " + std::to_string(runtimeProperties.vendorID) +
+				", device " + std::to_string(runtimeProperties.deviceID) + ")");
+			std::vector<std::string> incompatibilities;
+			deviceBuilder.EvaluateDevice(*runtimeDevice, &incompatibilities);
+			if (!incompatibilities.empty())
+			{
+				for (const std::string& reason : incompatibilities)
+					LogMessage(std::string("OpenXR required-device rejection: ") + reason);
+				throw std::runtime_error(std::string("OpenXR-required Vulkan device ") +
+					runtimeProperties.deviceName + " is incompatible: " + incompatibilities.front() +
+					" (see diagnostic log for all reasons)");
+			}
+
 			auto candidates = deviceBuilder.FindDevices(instance);
 			int requiredIndex = -1;
 			for (size_t index = 0; index < candidates.size(); index++)

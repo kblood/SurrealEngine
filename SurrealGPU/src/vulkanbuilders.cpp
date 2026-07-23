@@ -1822,92 +1822,10 @@ std::vector<VulkanCompatibleDevice> VulkanDeviceBuilder::FindDevices(const std::
 
 	for (size_t idx = 0; idx < instance->PhysicalDevices.size(); idx++)
 	{
-		const auto& info = instance->PhysicalDevices[idx];
-
-		// Check if all required extensions are there
-		std::set<std::string> requiredExtensionSearch = requiredDeviceExtensions;
-		for (const auto& ext : info.Extensions)
-			requiredExtensionSearch.erase(ext.extensionName);
-		if (!requiredExtensionSearch.empty())
-			continue;
-
-		// Check if all required features are there
-		if (info.Features.Features.samplerAnisotropy != VK_TRUE ||
-			info.Features.Features.fragmentStoresAndAtomics != VK_TRUE ||
-			info.Features.Features.multiDrawIndirect != VK_TRUE ||
-			info.Features.Features.independentBlend != VK_TRUE)
-			continue;
-
-		VulkanCompatibleDevice dev;
-		dev.Device = &instance->PhysicalDevices[idx];
-		dev.EnabledDeviceExtensions = requiredDeviceExtensions;
-
-		// Enable optional extensions we are interested in, if they are available on this device
-		for (const auto& ext : dev.Device->Extensions)
-		{
-			if (optionalDeviceExtensions.find(ext.extensionName) != optionalDeviceExtensions.end())
-			{
-				dev.EnabledDeviceExtensions.insert(ext.extensionName);
-			}
-		}
-
-		// Enable optional features we are interested in, if they are available on this device
-		auto& enabledFeatures = dev.EnabledFeatures;
-		auto& deviceFeatures = dev.Device->Features;
-		enabledFeatures.Features.samplerAnisotropy = deviceFeatures.Features.samplerAnisotropy;
-		enabledFeatures.Features.fragmentStoresAndAtomics = deviceFeatures.Features.fragmentStoresAndAtomics;
-		enabledFeatures.Features.depthClamp = deviceFeatures.Features.depthClamp;
-		enabledFeatures.Features.shaderClipDistance = deviceFeatures.Features.shaderClipDistance;
-		enabledFeatures.Features.multiDrawIndirect = deviceFeatures.Features.multiDrawIndirect;
-		enabledFeatures.Features.independentBlend = deviceFeatures.Features.independentBlend;
-		enabledFeatures.Features.imageCubeArray = deviceFeatures.Features.imageCubeArray;
-		enabledFeatures.BufferDeviceAddress.bufferDeviceAddress = deviceFeatures.BufferDeviceAddress.bufferDeviceAddress;
-		enabledFeatures.AccelerationStructure.accelerationStructure = deviceFeatures.AccelerationStructure.accelerationStructure;
-		enabledFeatures.RayQuery.rayQuery = deviceFeatures.RayQuery.rayQuery;
-		enabledFeatures.DescriptorIndexing.runtimeDescriptorArray = deviceFeatures.DescriptorIndexing.runtimeDescriptorArray;
-		enabledFeatures.DescriptorIndexing.descriptorBindingPartiallyBound = deviceFeatures.DescriptorIndexing.descriptorBindingPartiallyBound;
-		enabledFeatures.DescriptorIndexing.descriptorBindingSampledImageUpdateAfterBind = deviceFeatures.DescriptorIndexing.descriptorBindingSampledImageUpdateAfterBind;
-		enabledFeatures.DescriptorIndexing.descriptorBindingVariableDescriptorCount = deviceFeatures.DescriptorIndexing.descriptorBindingVariableDescriptorCount;
-		enabledFeatures.DescriptorIndexing.shaderSampledImageArrayNonUniformIndexing = deviceFeatures.DescriptorIndexing.shaderSampledImageArrayNonUniformIndexing;
-		enabledFeatures.Fault.deviceFault = deviceFeatures.Fault.deviceFault;
-		enabledFeatures.GraphicsPipelineLibrary.graphicsPipelineLibrary = deviceFeatures.GraphicsPipelineLibrary.graphicsPipelineLibrary;
-
-		// Figure out which queue can present
-		if (surface)
-		{
-			for (int i = 0; i < (int)info.QueueFamilies.size(); i++)
-			{
-				VkBool32 presentSupport = false;
-				VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(info.Device, i, surface->Surface, &presentSupport);
-				if (result == VK_SUCCESS && info.QueueFamilies[i].queueCount > 0 && presentSupport)
-				{
-					dev.PresentFamily = i;
-					break;
-				}
-			}
-		}
-
-		// The vulkan spec states that graphics and compute queues can always do transfer.
-		// Furthermore the spec states that graphics queues always can do compute.
-		// Last, the spec makes it OPTIONAL whether the VK_QUEUE_TRANSFER_BIT is set for such queues, but they MUST support transfer.
-		//
-		// In short: pick the first graphics queue family for everything.
-		for (int i = 0; i < (int)info.QueueFamilies.size(); i++)
-		{
-			const auto& queueFamily = info.QueueFamilies[i];
-			if (queueFamily.queueCount > 0 && (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT))
-			{
-				dev.GraphicsFamily = i;
-				dev.GraphicsTimeQueries = queueFamily.timestampValidBits != 0;
-				break;
-			}
-		}
-
-		// Only use device if we found the required graphics and present queues
-		if (dev.GraphicsFamily != -1 && (!surface || dev.PresentFamily != -1))
-		{
-			supportedDevices.push_back(dev);
-		}
+		std::vector<std::string> incompatibilities;
+		VulkanCompatibleDevice dev = EvaluateDevice(instance->PhysicalDevices[idx], &incompatibilities);
+		if (incompatibilities.empty())
+			supportedDevices.push_back(std::move(dev));
 	}
 
 	// The device order returned by Vulkan can be anything. Prefer discrete > integrated > virtual gpu > cpu > other
@@ -1933,6 +1851,98 @@ std::vector<VulkanCompatibleDevice> VulkanDeviceBuilder::FindDevices(const std::
 	std::stable_sort(supportedDevices.begin(), supportedDevices.end(), sortFunc);
 
 	return supportedDevices;
+}
+
+VulkanCompatibleDevice VulkanDeviceBuilder::EvaluateDevice(
+	VulkanPhysicalDevice& info, std::vector<std::string>* incompatibilities) const
+{
+	std::vector<std::string> reasons;
+	std::set<std::string> missingExtensions = requiredDeviceExtensions;
+	for (const auto& ext : info.Extensions)
+		missingExtensions.erase(ext.extensionName);
+	for (const std::string& extension : missingExtensions)
+		reasons.push_back("missing required Vulkan device extension " + extension);
+
+	const auto& features = info.Features.Features;
+	if (features.samplerAnisotropy != VK_TRUE)
+		reasons.push_back("missing required Vulkan feature samplerAnisotropy");
+	if (features.fragmentStoresAndAtomics != VK_TRUE)
+		reasons.push_back("missing required Vulkan feature fragmentStoresAndAtomics");
+	if (features.multiDrawIndirect != VK_TRUE)
+		reasons.push_back("missing required Vulkan feature multiDrawIndirect");
+	if (features.independentBlend != VK_TRUE)
+		reasons.push_back("missing required Vulkan feature independentBlend");
+
+	VulkanCompatibleDevice dev;
+	dev.Device = &info;
+	dev.EnabledDeviceExtensions = requiredDeviceExtensions;
+	for (const auto& ext : info.Extensions)
+	{
+		if (optionalDeviceExtensions.find(ext.extensionName) != optionalDeviceExtensions.end())
+			dev.EnabledDeviceExtensions.insert(ext.extensionName);
+	}
+
+	auto& enabledFeatures = dev.EnabledFeatures;
+	auto& deviceFeatures = info.Features;
+	enabledFeatures.Features.samplerAnisotropy = deviceFeatures.Features.samplerAnisotropy;
+	enabledFeatures.Features.fragmentStoresAndAtomics = deviceFeatures.Features.fragmentStoresAndAtomics;
+	enabledFeatures.Features.depthClamp = deviceFeatures.Features.depthClamp;
+	enabledFeatures.Features.shaderClipDistance = deviceFeatures.Features.shaderClipDistance;
+	enabledFeatures.Features.multiDrawIndirect = deviceFeatures.Features.multiDrawIndirect;
+	enabledFeatures.Features.independentBlend = deviceFeatures.Features.independentBlend;
+	enabledFeatures.Features.imageCubeArray = deviceFeatures.Features.imageCubeArray;
+	enabledFeatures.BufferDeviceAddress.bufferDeviceAddress = deviceFeatures.BufferDeviceAddress.bufferDeviceAddress;
+	enabledFeatures.AccelerationStructure.accelerationStructure = deviceFeatures.AccelerationStructure.accelerationStructure;
+	enabledFeatures.RayQuery.rayQuery = deviceFeatures.RayQuery.rayQuery;
+	enabledFeatures.DescriptorIndexing.runtimeDescriptorArray = deviceFeatures.DescriptorIndexing.runtimeDescriptorArray;
+	enabledFeatures.DescriptorIndexing.descriptorBindingPartiallyBound = deviceFeatures.DescriptorIndexing.descriptorBindingPartiallyBound;
+	enabledFeatures.DescriptorIndexing.descriptorBindingSampledImageUpdateAfterBind = deviceFeatures.DescriptorIndexing.descriptorBindingSampledImageUpdateAfterBind;
+	enabledFeatures.DescriptorIndexing.descriptorBindingVariableDescriptorCount = deviceFeatures.DescriptorIndexing.descriptorBindingVariableDescriptorCount;
+	enabledFeatures.DescriptorIndexing.shaderSampledImageArrayNonUniformIndexing = deviceFeatures.DescriptorIndexing.shaderSampledImageArrayNonUniformIndexing;
+	enabledFeatures.Fault.deviceFault = deviceFeatures.Fault.deviceFault;
+	enabledFeatures.GraphicsPipelineLibrary.graphicsPipelineLibrary = deviceFeatures.GraphicsPipelineLibrary.graphicsPipelineLibrary;
+
+	std::vector<std::string> presentQueryErrors;
+	if (surface)
+	{
+		for (int i = 0; i < (int)info.QueueFamilies.size(); i++)
+		{
+			VkBool32 presentSupport = false;
+			VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(info.Device, i, surface->Surface, &presentSupport);
+			if (result != VK_SUCCESS)
+				presentQueryErrors.push_back("desktop mirror surface query failed for queue family " +
+					std::to_string(i) + ": " + VkResultToString(result));
+			else if (info.QueueFamilies[i].queueCount > 0 && presentSupport)
+			{
+				dev.PresentFamily = i;
+				break;
+			}
+		}
+	}
+
+	// The Vulkan spec guarantees transfer and compute support on graphics queues.
+	for (int i = 0; i < (int)info.QueueFamilies.size(); i++)
+	{
+		const auto& queueFamily = info.QueueFamilies[i];
+		if (queueFamily.queueCount > 0 && (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT))
+		{
+			dev.GraphicsFamily = i;
+			dev.GraphicsTimeQueries = queueFamily.timestampValidBits != 0;
+			break;
+		}
+	}
+	if (dev.GraphicsFamily == -1)
+		reasons.push_back("no graphics-capable Vulkan queue family");
+	if (surface && dev.PresentFamily == -1)
+	{
+		reasons.insert(reasons.end(), presentQueryErrors.begin(), presentQueryErrors.end());
+		reasons.push_back("no Vulkan queue family can present to the desktop mirror surface; "
+			"on a hybrid-GPU system, assign the mirror window to the headset GPU");
+	}
+
+	if (incompatibilities)
+		*incompatibilities = std::move(reasons);
+	return dev;
 }
 
 std::shared_ptr<VulkanDevice> VulkanDeviceBuilder::Create(std::shared_ptr<VulkanInstance> instance)

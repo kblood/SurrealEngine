@@ -36,6 +36,8 @@ The opaque image array and per-view target callbacks are shared with WebXR. Imag
 
 OpenXR reports its Vulkan extension lists as space-delimited, NUL-terminated buffers and includes the terminator in the reported buffer size. `ParseOpenXRExtensionList` stops at the first NUL and tokenizes only the byte count returned by the second runtime call. This is significant: passing the full buffer to a whitespace-only stream parser attaches the final NUL byte to the final extension name. VDXR places `VK_KHR_external_semaphore_win32` last, so the malformed name previously caused the runtime-selected RTX device to be rejected even though the driver supports the extension. `OpenXRExtensionsTests` preserves the trailing-NUL, embedded-NUL, and trailing-whitespace cases.
 
+The runtime-selected `VkPhysicalDevice` remains authoritative on hybrid-GPU systems; the engine does not substitute an integrated GPU for the headset GPU. `VulkanDeviceBuilder::EvaluateDevice` is shared by ordinary device filtering and the OpenXR-required-device check so their requirements cannot drift. If selection fails, the log names the required GPU and reports each missing extension, required feature, graphics queue, desktop-mirror presentation failure, or Vulkan loader/layer handle mismatch.
+
 ## Source mapping
 
 The lifecycle and Vulkan requirements are derived from `vr-m2` commits `22f2e344`, `31f0bd1a`, `3f3089d1`, `46126eba`, `86bd88d8`, and `30d1ae72`. Eye pose, axis/scale conversion, and asymmetric projections are derived from `82a32ca7`. The earlier debug-stereo changes in `3233cbdf` and `04a9eab6` are replaced by the shared `ViewFamily` and presentation APIs.
