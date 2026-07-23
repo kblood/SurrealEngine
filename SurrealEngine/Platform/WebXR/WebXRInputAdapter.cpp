@@ -10,10 +10,16 @@ namespace
 		if (!enabled)
 			return {};
 		const uint32_t mask = 1u << static_cast<uint32_t>(button);
+		const bool pressed = (source.PressedButtons & mask) != 0;
+		float value = source.ButtonValues[static_cast<size_t>(button)];
+		// The WebXR primary-action edge remains authoritative when a runtime does
+		// not publish a matching analog trigger value.
+		if (pressed && button == WebXR::InputTrigger)
+			value = 1.0f;
 		return {
-			(source.PressedButtons & mask) != 0,
+			pressed,
 			(source.TouchedButtons & mask) != 0,
-			source.ButtonValues[static_cast<size_t>(button)]
+			value
 		};
 	}
 

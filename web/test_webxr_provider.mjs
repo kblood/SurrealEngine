@@ -122,7 +122,7 @@ const rightHapticActuator = {
 };
 function makeInputSource(handedness, x) {
 	const gamepad = { mapping: "xr-standard", connected: true,
-			buttons: [button(handedness === "right" ? .8 : .2, handedness === "right"), button(.4),
+			buttons: [button(handedness === "right" ? 0 : .2, handedness === "right"), button(.4),
 				button(0), button(1, true), button(1, handedness === "left"),
 				button(handedness === "right" ? 1 : .5, handedness === "right")],
 			axes: [.1, -.2, handedness === "left" ? -.75 : .75, .25] };
@@ -290,6 +290,16 @@ assert.equal(renderedPackets.length, 1);
 assert.equal(globalThis.surrealXRNativeCallsBlocked, true);
 assert.equal(renderedPackets[0].textures.length, 2);
 assert.ok(renderedPackets[0].textures.every(texture => texture !== leftXRTexture && texture !== rightXRTexture));
+const firstInput = new DataView(renderedPackets[0].input.buffer,
+	renderedPackets[0].input.byteOffset, renderedPackets[0].input.byteLength);
+const firstRight = 24 + 112;
+assert.notEqual(firstInput.getUint32(firstRight + 8, true) & 1, 0,
+	"the Quest primary-action pressed edge must survive startup neutralization");
+assert.equal(firstInput.getFloat32(firstRight + 16, true), 0,
+	"the regression requires a digital trigger edge independent of analog value");
+assert.equal(firstInput.getFloat32(firstRight + 40 + 8, true), .75);
+assert.equal(firstInput.getFloat32(firstRight + 40 + 12, true), .25,
+	"xr-standard Quest thumbstick axes must remain in slots 2 and 3");
 let packet = new DataView(renderedPackets[0].bytes.buffer);
 assert.equal(packet.getUint32(12, true), 2);
 assert.equal(packet.getUint32(28, true), 1,
@@ -665,6 +675,21 @@ assert.equal(normallyEndedSession.listeners.has("selectstart"), false,
 await nextTask();
 
 // Input packing remains defensive and semantic.
+for (const profile of ["oculus-touch-v3", "meta-quest-touch-plus",
+	"generic-trigger-squeeze-thumbstick"]) {
+	const quest = makeInputSource("right", 0);
+	quest.profiles = [profile];
+	quest.gamepad.buttons[0] = button(0, true);
+	quest.gamepad.axes = [0, 0, -.625, .375];
+	const questPacket = new DataView(globalThis.surrealXRPackInputSnapshot(1,
+		{ visibilityState: "visible", inputSources: [quest] }, stereoFrame, {}).buffer);
+	assert.notEqual(questPacket.getUint32(24 + 8, true) & 1, 0,
+		`${profile} lost the xr-standard primary-action pressed bit`);
+	assert.equal(questPacket.getFloat32(24 + 16, true), 0);
+	assert.equal(questPacket.getFloat32(24 + 40 + 8, true), -.625);
+	assert.equal(questPacket.getFloat32(24 + 40 + 12, true), .375,
+		`${profile} lost the xr-standard thumbstick layout`);
+}
 const unsafe = makeInputSource("left", 0); unsafe.gamepad.mapping = "";
 const defensive = new DataView(globalThis.surrealXRPackInputSnapshot(1,
 	{ visibilityState: "visible", inputSources: [unsafe] }, stereoFrame, {}).buffer);

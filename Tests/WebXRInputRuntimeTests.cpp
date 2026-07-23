@@ -82,6 +82,46 @@ namespace
 		std::vector<InputSourceId> ReleasedSources;
 	};
 
+	class StartupIntroTarget final : public XRInputTarget
+	{
+	public:
+		void InputCommand(const std::string&, InputControlId control, float) override
+		{
+			if (control.Control == static_cast<int32_t>(XRInputControl::Trigger))
+			{
+				const WebXR::StartupIntroFireEvent event = route.Update(control.Source,
+					true, StartupActive, MenuActive);
+				if (event)
+					Events.push_back(event);
+			}
+		}
+
+		void ReleaseInputControl(InputControlId control) override
+		{
+			if (control.Control == static_cast<int32_t>(XRInputControl::Trigger))
+			{
+				const WebXR::StartupIntroFireEvent event = route.Update(control.Source,
+					false, StartupActive, MenuActive);
+				if (event)
+					Events.push_back(event);
+			}
+		}
+
+		void ReleaseInputSource(InputSourceId source) override
+		{
+			const WebXR::StartupIntroFireEvent event = route.ReleaseSource(source);
+			if (event)
+				Events.push_back(event);
+		}
+
+		bool StartupActive = true;
+		bool MenuActive = false;
+		std::vector<WebXR::StartupIntroFireEvent> Events;
+
+	private:
+		WebXR::StartupIntroTriggerRoute route;
+	};
+
 	WebXR::DecodedInputSnapshot ActiveSnapshot()
 	{
 		WebXR::DecodedInputSnapshot snapshot;
@@ -90,11 +130,11 @@ namespace
 		for (WebXR::DecodedInputSource& source : snapshot.Sources)
 			source.Connected = true;
 		snapshot.Sources[0].PressedButtons = 1u << WebXR::InputTrigger;
-		snapshot.Sources[0].ButtonValues[WebXR::InputTrigger] = 1.0f;
+		snapshot.Sources[0].ButtonValues[WebXR::InputTrigger] = 0.0f;
 		snapshot.Sources[0].Axes[2] = -0.75f;
 		snapshot.Sources[0].Axes[3] = 0.5f;
 		snapshot.Sources[1].PressedButtons = 1u << WebXR::InputTrigger;
-		snapshot.Sources[1].ButtonValues[WebXR::InputTrigger] = 1.0f;
+		snapshot.Sources[1].ButtonValues[WebXR::InputTrigger] = 0.0f;
 		snapshot.Sources[1].Axes[2] = 0.25f;
 		snapshot.Sources[1].Axes[3] = -0.5f;
 		return snapshot;
@@ -107,7 +147,7 @@ namespace
 			snapshot.Sources[hand].PressedButtons |= mask;
 		else
 			snapshot.Sources[hand].PressedButtons &= ~mask;
-		snapshot.Sources[hand].ButtonValues[WebXR::InputTrigger] = pressed ? 1.0f : 0.0f;
+		snapshot.Sources[hand].ButtonValues[WebXR::InputTrigger] = 0.0f;
 	}
 }
 
@@ -124,6 +164,34 @@ int main()
 		InputSourceId::XRRight, false, false, true);
 	Check(introRelease && !introRelease.Pressed,
 		"startup trigger was not balanced across the intro/menu transition");
+
+	// WebXR exposes a primary-action pressed bit independently from the analog
+	// trigger value. The intro and gameplay route must honor that edge once,
+	// while retaining the held-button gate across UI ownership.
+	WebXR::InputRuntime introRuntime;
+	StartupIntroTarget introTarget;
+	WebXR::DecodedInputSnapshot digitalTrigger = ActiveSnapshot();
+	SetTrigger(digitalTrigger, 0, false);
+	introRuntime.Apply(WebXR::AdaptInputSnapshot(digitalTrigger), true, introTarget);
+	introRuntime.Apply(WebXR::AdaptInputSnapshot(digitalTrigger), true, introTarget);
+	Check(introTarget.Events.size() == 1 && introTarget.Events[0].Pressed &&
+		introTarget.Events[0].Control == WebXR::StartupIntroFireControl::Primary,
+		"a digital WebXR trigger with zero analog value did not advance the startup intro exactly once");
+	SetTrigger(digitalTrigger, 1, false);
+	introRuntime.Apply(WebXR::AdaptInputSnapshot(digitalTrigger), true, introTarget);
+	Check(introTarget.Events.size() == 2 && !introTarget.Events[1].Pressed,
+		"the digital startup trigger release was not balanced");
+	SetTrigger(digitalTrigger, 1, true);
+	introRuntime.Apply(WebXR::AdaptInputSnapshot(digitalTrigger), false, introTarget);
+	introRuntime.Apply(WebXR::AdaptInputSnapshot(digitalTrigger), true, introTarget);
+	Check(introTarget.Events.size() == 2,
+		"a trigger held across UI ownership became a phantom startup click");
+	SetTrigger(digitalTrigger, 1, false);
+	introRuntime.Apply(WebXR::AdaptInputSnapshot(digitalTrigger), true, introTarget);
+	SetTrigger(digitalTrigger, 1, true);
+	introRuntime.Apply(WebXR::AdaptInputSnapshot(digitalTrigger), true, introTarget);
+	Check(introTarget.Events.size() == 3 && introTarget.Events.back().Pressed,
+		"a fresh digital trigger edge after UI ownership did not reach the startup intro");
 
 	SemanticTarget target;
 	const InputControlId keyboardFire{ InputSourceId::KeyboardMouse, 1 };

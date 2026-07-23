@@ -31,7 +31,7 @@ namespace
 		right.GripPosition = { 0.2f, 1.1f, -0.4f };
 		right.GripOrientation = { 0.0f, 0.0f, 0.0f, 1.0f };
 		right.PressedButtons = 1u << WebXR::InputTrigger;
-		right.ButtonValues[WebXR::InputTrigger] = 0.9f;
+		right.ButtonValues[WebXR::InputTrigger] = 0.0f;
 		return source;
 	}
 }
@@ -43,7 +43,8 @@ int main()
 	if (!Expect(adapted.Session.IsRunning() && adapted.Session.AcceptsInput(),
 		"active focused session was not represented")) return 1;
 	if (!Expect(adapted.Controllers.ForHand(XRHand::Left).Primary.Pressed &&
-		adapted.Controllers.ForHand(XRHand::Right).Select.Pressed,
+		adapted.Controllers.ForHand(XRHand::Right).Select.Pressed &&
+		adapted.Controllers.ForHand(XRHand::Right).Select.Value == 1.0f,
 		"semantic controller buttons were not adapted")) return 1;
 	if (!Expect(adapted.Spaces.AimFor(XRHand::Left).Valid &&
 		adapted.Spaces.AimFor(XRHand::Left).Position.X == -0.2f &&
