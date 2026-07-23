@@ -19,6 +19,15 @@ public:
 	static void SetDiagnosticsEnabled(bool enabled);
 	static bool DiagnosticsEnabled();
 
+	// Off by default; set from the --avatar-cull-head-debug command line
+	// flag. The --avatar-autorig-debug side-by-side draw itself should never
+	// cull the head (see DrawActorWithIK's options), but real-game
+	// verification of the M4 head-culling triangle count needs some way to
+	// force AvatarIKOptions::CullHeadForFirstPerson on for that same draw
+	// call - this is that diagnostic-only escape hatch, never set otherwise.
+	static void SetCullHeadDebugEnabled(bool enabled);
+	static bool CullHeadDebugEnabled();
+
 	// Runs the auto-rig against a handful of distinct Pawn meshes found in
 	// the current level (including the local player's), logging joint
 	// counts/role labels and a bind-pose reconstruction self-check. No-op if
@@ -41,15 +50,24 @@ public:
 	// (RenderSubsystem::LevelTimeElapsed) - it drives the leg step state
 	// machine's timing. Returns false (and draws nothing) under the same
 	// conditions DrawActorBindPose does.
+	//
+	// M4: also derives a height calibration scale (auto-detected from
+	// `engineInput.Head`'s height above a floor probe versus the rig's own
+	// bind-pose head height, or `options.ManualScaleOverride` when set - see
+	// AvatarIKSolver::ComputeCalibration) and folds it into the mesh<->world
+	// transform used both for interpreting `engineInput` and for the final
+	// skinned draw, and honors `options.CullHeadForFirstPerson` by skipping
+	// any triangle with a Head/Neck-weighted vertex.
 	static bool DrawActorWithIK(VisibleFrame* frame, UActor* actor, const vec3& worldOffset,
 		const AvatarIKFrameInput& engineInput, const AvatarIKOptions& options, float deltaTimeSeconds);
 
 	// Converts already engine-space head/hand poses into the rig's own
-	// bind-pose (mesh-local) space using `actor`/`mesh`'s current transform -
-	// the same space AvatarJoint::BindOrigin and AvatarSkinner already work
-	// in. Exposed mainly so AvatarIKSolverTests-style callers can inspect it;
+	// bind-pose (mesh-local) space using `actor`/`mesh`'s current transform,
+	// scaled by `calibrationScale` (see DrawActorWithIK) - the same space
+	// AvatarJoint::BindOrigin and AvatarSkinner already work in. Exposed
+	// mainly so AvatarIKSolverTests-style callers can inspect it;
 	// DrawActorWithIK is the normal entry point.
-	static AvatarIKInput BuildIKInput(UActor* actor, UMesh* mesh, const AvatarIKFrameInput& engineInput);
+	static AvatarIKInput BuildIKInput(UActor* actor, UMesh* mesh, const AvatarIKFrameInput& engineInput, float calibrationScale = 1.0f);
 
 	// Headset-free stand-in for a real XR sample, used only behind
 	// --avatar-ik-synthetic when no OpenXR session is driving the avatar.
@@ -59,4 +77,5 @@ public:
 
 private:
 	static bool DiagnosticsEnabledFlag;
+	static bool CullHeadDebugEnabledFlag;
 };

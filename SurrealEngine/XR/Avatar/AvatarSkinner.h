@@ -24,4 +24,11 @@ public:
 
 	// M1 entry point: skins every vertex at exactly its bind-pose position.
 	static void SkinBindPose(const AvatarRig& rig, Array<vec3>& outPositions, Array<vec3>& outNormals);
+
+	// M4: true if this bind-pose vertex's dominant joint (rig.VertexJoint) is
+	// Head or Neck - the caller (AvatarRenderer) skips any triangle with at
+	// least one such vertex when drawing the player's own first-person self
+	// view, so the avatar's own head mesh doesn't clip the camera. False for
+	// an out-of-range index rather than throwing.
+	static bool IsHeadOrNeckVertex(const AvatarRig& rig, int vertexIndex);
 };

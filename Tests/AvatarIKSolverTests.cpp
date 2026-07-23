@@ -1,4 +1,5 @@
 #include "XR/Avatar/AvatarIKSolver.h"
+#include "XR/Avatar/AvatarSkinner.h"
 
 #include <cmath>
 #include <iostream>
@@ -467,6 +468,205 @@ namespace
 		Require(NearlyEqual(rotatedBindForward, vec3(1.0f, 0.0f, 0.0f), 0.01f),
 			"pelvis yaw did not follow the head turn expressed in the rig's own bind-pose axes");
 	}
+
+	// ---- M4 tests below: head/neck triangle culling and height calibration ----
+
+	void TestHeadOrNeckVertexDetection()
+	{
+		AvatarRig rig;
+		rig.Valid = true;
+		int chestIdx = AddJoint(rig, AvatarJointRole::Chest, vec3(0.0f, 40.0f, 0.0f));
+		int neckIdx = AddJoint(rig, AvatarJointRole::Neck, vec3(0.0f, 55.0f, 0.0f));
+		int headIdx = AddJoint(rig, AvatarJointRole::Head, vec3(0.0f, 65.0f, 0.0f));
+
+		rig.FrameVerts = 6;
+		rig.VertexJoint = { (uint8_t)chestIdx, (uint8_t)chestIdx, (uint8_t)neckIdx, (uint8_t)neckIdx, (uint8_t)headIdx, (uint8_t)headIdx };
+
+		Require(!AvatarSkinner::IsHeadOrNeckVertex(rig, 0), "chest vertex misclassified as head/neck");
+		Require(!AvatarSkinner::IsHeadOrNeckVertex(rig, 1), "chest vertex misclassified as head/neck");
+		Require(AvatarSkinner::IsHeadOrNeckVertex(rig, 2), "neck vertex not detected as head/neck");
+		Require(AvatarSkinner::IsHeadOrNeckVertex(rig, 3), "neck vertex not detected as head/neck");
+		Require(AvatarSkinner::IsHeadOrNeckVertex(rig, 4), "head vertex not detected as head/neck");
+		Require(AvatarSkinner::IsHeadOrNeckVertex(rig, 5), "head vertex not detected as head/neck");
+
+		// Out-of-range indices must fail safe, not throw/crash.
+		Require(!AvatarSkinner::IsHeadOrNeckVertex(rig, -1), "negative vertex index was not handled safely");
+		Require(!AvatarSkinner::IsHeadOrNeckVertex(rig, 999), "out-of-range vertex index was not handled safely");
+	}
+
+	void TestTriangleCullingMatchesHeadNeckVertexCount()
+	{
+		// 9 vertices in 3 bands (chest/neck/head), 2 triangles per band-pair so
+		// there is at least one pure-chest, pure-neck, pure-head, and mixed
+		// triangle - the same "skip if any vertex is Head/Neck" rule
+		// AvatarRenderer::DrawSkinnedMesh's drawTri applies.
+		AvatarRig rig;
+		rig.Valid = true;
+		int chestIdx = AddJoint(rig, AvatarJointRole::Chest, vec3(0.0f, 40.0f, 0.0f));
+		int neckIdx = AddJoint(rig, AvatarJointRole::Neck, vec3(0.0f, 55.0f, 0.0f));
+		int headIdx = AddJoint(rig, AvatarJointRole::Head, vec3(0.0f, 65.0f, 0.0f));
+
+		rig.FrameVerts = 9;
+		rig.VertexJoint = {
+			(uint8_t)chestIdx, (uint8_t)chestIdx, (uint8_t)chestIdx,
+			(uint8_t)neckIdx,  (uint8_t)neckIdx,  (uint8_t)neckIdx,
+			(uint8_t)headIdx,  (uint8_t)headIdx,  (uint8_t)headIdx
+		};
+
+		struct Tri { int v[3]; bool expectedHeadOrNeck; };
+		Tri tris[] = {
+			{ { 0, 1, 2 }, false }, // pure chest
+			{ { 1, 2, 0 }, false }, // pure chest, different winding
+			{ { 0, 1, 3 }, true },  // chest+neck seam
+			{ { 3, 4, 5 }, true },  // pure neck
+			{ { 3, 4, 6 }, true },  // neck+head seam
+			{ { 6, 7, 8 }, true },  // pure head
+		};
+
+		auto referencesHeadOrNeck = [&](const Tri& tri)
+		{
+			return AvatarSkinner::IsHeadOrNeckVertex(rig, tri.v[0]) ||
+				AvatarSkinner::IsHeadOrNeckVertex(rig, tri.v[1]) || AvatarSkinner::IsHeadOrNeckVertex(rig, tri.v[2]);
+		};
+
+		int expectedCulledCount = 0;
+		int emittedCullOff = 0;
+		int emittedCullOn = 0;
+		for (const Tri& tri : tris)
+		{
+			bool got = referencesHeadOrNeck(tri);
+			Require(got == tri.expectedHeadOrNeck, "triangle head/neck classification did not match the hand-derived expectation");
+			if (got)
+				expectedCulledCount++;
+
+			emittedCullOff++; // cull disabled: every triangle is still emitted
+			if (!got)
+				emittedCullOn++; // cull enabled: only non-head/neck triangles are emitted
+		}
+
+		std::cout << "  triangles=" << (sizeof(tris) / sizeof(tris[0])) << " head/neck=" << expectedCulledCount
+			<< " emitted(cull off)=" << emittedCullOff << " emitted(cull on)=" << emittedCullOn << "\n";
+		Require(emittedCullOff - emittedCullOn == expectedCulledCount,
+			"emitted triangle count did not drop by exactly the head/neck-referencing triangle count when culling was enabled");
+		Require(emittedCullOff == (int)(sizeof(tris) / sizeof(tris[0])), "cull-disabled path did not emit every triangle");
+
+		// None of the triangles left in the cull-on set may reference a
+		// culled (Head/Neck) vertex.
+		for (const Tri& tri : tris)
+		{
+			if (!tri.expectedHeadOrNeck)
+				Require(!referencesHeadOrNeck(tri), "a triangle kept under culling unexpectedly referenced a Head/Neck vertex");
+		}
+	}
+
+	void TestRigHeadHeightMeasuresAboveFeet()
+	{
+		// BuildTestRig's own bind pose: Head at y=65, both feet at y=-70,
+		// pelvis at y=0 (see the header comment - this rig's own "up" is +Y).
+		AvatarRig rig = BuildTestRig();
+		AvatarRigHeightEstimate estimate = AvatarIKSolver::EstimateRigHeadHeight(rig);
+		Require(estimate.Valid, "rig head height estimate was invalid for a rig with full leg roles");
+		std::cout << "  rig reference head height (above feet): " << estimate.Height << " units\n";
+		Require(NearlyEqual(estimate.Height, 135.0f, 0.01f), "rig head height did not measure head-above-feet from the rig's own bind pose");
+		Require(NearlyEqual(estimate.Up, vec3(0.0f, 1.0f, 0.0f), 0.01f), "rig head height did not use the rig's own bind-pose up axis");
+	}
+
+	void TestRigHeadHeightFallsBackToPelvisWithoutLegs()
+	{
+		AvatarRig rig;
+		rig.Valid = true;
+		AddJoint(rig, AvatarJointRole::Pelvis, vec3(0.0f, 0.0f, 0.0f));
+		AddJoint(rig, AvatarJointRole::Head, vec3(0.0f, 65.0f, 0.0f));
+
+		AvatarRigHeightEstimate estimate = AvatarIKSolver::EstimateRigHeadHeight(rig);
+		Require(estimate.Valid, "rig head height estimate was invalid for a legless torso-only rig");
+		std::cout << "  rig reference head height (above pelvis, no legs): " << estimate.Height << " units\n";
+		Require(NearlyEqual(estimate.Height, 65.0f, 0.01f), "legless rig did not fall back to head-above-pelvis height");
+	}
+
+	void TestRigHeadHeightInvalidWithoutHeadOrPelvis()
+	{
+		AvatarRig rig;
+		rig.Valid = true;
+		AddJoint(rig, AvatarJointRole::Head, vec3(0.0f, 65.0f, 0.0f)); // no Pelvis role at all
+
+		AvatarRigHeightEstimate estimate = AvatarIKSolver::EstimateRigHeadHeight(rig);
+		Require(!estimate.Valid, "rig head height estimate should be invalid without a Pelvis role");
+	}
+
+	void TestCalibrationScaleIsProportionalToTrackedHeight()
+	{
+		// A few different tracked head-height-above-floor samples against the
+		// same 135-unit rig reference (see TestRigHeadHeightMeasuresAboveFeet) -
+		// scale must be exactly tracked/reference, i.e. 1.0 when the player is
+		// tracked at exactly the rig's own height, and scale up/down
+		// proportionally otherwise.
+		const float referenceHeight = 135.0f;
+		struct Case { float tracked; float expectedScale; };
+		Case cases[] = {
+			{ 135.0f, 1.0f },   // exact match -> no correction needed
+			{ 270.0f, 2.0f },   // tracked player twice as tall as the rig
+			{ 67.5f,  0.5f },   // tracked player half as tall as the rig
+			{ 189.0f, 1.4f },   // an arbitrary non-round ratio
+		};
+
+		for (const Case& c : cases)
+		{
+			AvatarCalibrationInput input;
+			input.RigReferenceHeadHeight = referenceHeight;
+			input.TrackedHeadHeightAboveFloor = c.tracked;
+			AvatarCalibrationResult result = AvatarIKSolver::ComputeCalibration(input);
+
+			std::cout << "  tracked=" << c.tracked << " reference=" << referenceHeight << " -> scale=" << result.Scale << "\n";
+			Require(result.AutoDetected, "calibration did not report auto-detection for valid height input");
+			Require(NearlyEqual(result.Scale, c.expectedScale, 0.001f), "calibration scale was not proportional to tracked/reference height");
+		}
+	}
+
+	void TestCalibrationScaleClampsExtremeInput()
+	{
+		AvatarCalibrationInput input;
+		input.RigReferenceHeadHeight = 135.0f;
+		input.TrackedHeadHeightAboveFloor = 135.0f * 50.0f; // absurdly tall reading (bad tracking sample)
+		AvatarCalibrationResult result = AvatarIKSolver::ComputeCalibration(input);
+		std::cout << "  clamped scale for an extreme tracked height: " << result.Scale << "\n";
+		Require(result.AutoDetected, "an extreme but positive height input should still count as auto-detected");
+		Require(result.Scale < 50.0f, "calibration scale was not clamped to a sane range for an extreme tracked height");
+		Require(result.Scale > 0.0f, "calibration scale must always stay positive");
+	}
+
+	void TestCalibrationFallsBackToUnityWithoutUsableHeights()
+	{
+		AvatarCalibrationInput input; // both heights left at 0 - "unknown"
+		AvatarCalibrationResult result = AvatarIKSolver::ComputeCalibration(input);
+		Require(!result.AutoDetected, "calibration should not report auto-detection with no usable height data");
+		Require(NearlyEqual(result.Scale, 1.0f, 0.0001f), "calibration did not fall back to scale 1.0 without usable height data");
+	}
+
+	void TestManualScaleOverrideReplacesAutoDetection()
+	{
+		AvatarCalibrationInput input;
+		input.RigReferenceHeadHeight = 135.0f;
+		input.TrackedHeadHeightAboveFloor = 270.0f; // would auto-detect to 2.0 without the override
+		input.HasManualScaleOverride = true;
+		input.ManualScaleOverride = 1.75f;
+
+		AvatarCalibrationResult result = AvatarIKSolver::ComputeCalibration(input);
+		std::cout << "  manual override=1.75 with auto-detect data present -> scale=" << result.Scale << "\n";
+		Require(!result.AutoDetected, "a manual override must not be reported as auto-detected");
+		Require(NearlyEqual(result.Scale, 1.75f, 0.0001f), "manual scale override did not replace the auto-detected scale");
+	}
+
+	void TestManualScaleOverrideAppliesEvenWithoutHeightData()
+	{
+		AvatarCalibrationInput input; // no usable auto-detect data at all
+		input.HasManualScaleOverride = true;
+		input.ManualScaleOverride = 0.85f;
+
+		AvatarCalibrationResult result = AvatarIKSolver::ComputeCalibration(input);
+		Require(!result.AutoDetected, "a manual override must not be reported as auto-detected");
+		Require(NearlyEqual(result.Scale, 0.85f, 0.0001f), "manual scale override was not applied when no auto-detect data was available");
+	}
 }
 
 int main()
@@ -486,6 +686,16 @@ int main()
 		TestStepMachineAdvancesFootOnceThresholdExceeded();
 		TestAirborneBlendsAwayFromStaleGroundContact();
 		TestMissingLegRoleDegradesGracefully();
+		TestHeadOrNeckVertexDetection();
+		TestTriangleCullingMatchesHeadNeckVertexCount();
+		TestRigHeadHeightMeasuresAboveFeet();
+		TestRigHeadHeightFallsBackToPelvisWithoutLegs();
+		TestRigHeadHeightInvalidWithoutHeadOrPelvis();
+		TestCalibrationScaleIsProportionalToTrackedHeight();
+		TestCalibrationScaleClampsExtremeInput();
+		TestCalibrationFallsBackToUnityWithoutUsableHeights();
+		TestManualScaleOverrideReplacesAutoDetection();
+		TestManualScaleOverrideAppliesEvenWithoutHeightData();
 		std::cout << "Avatar IK solver tests passed\n";
 		return 0;
 	}

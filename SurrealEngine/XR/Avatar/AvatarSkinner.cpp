@@ -34,3 +34,16 @@ void AvatarSkinner::SkinBindPose(const AvatarRig& rig, Array<vec3>& outPositions
 {
 	Skin(rig, nullptr, outPositions, outNormals);
 }
+
+bool AvatarSkinner::IsHeadOrNeckVertex(const AvatarRig& rig, int vertexIndex)
+{
+	if (vertexIndex < 0 || vertexIndex >= (int)rig.VertexJoint.size())
+		return false;
+
+	int joint = rig.VertexJoint[vertexIndex];
+	if (joint < 0 || joint >= (int)rig.Joints.size())
+		return false;
+
+	AvatarJointRole role = rig.Joints[joint].Role;
+	return role == AvatarJointRole::Head || role == AvatarJointRole::Neck;
+}

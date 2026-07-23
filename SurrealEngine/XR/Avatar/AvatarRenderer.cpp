@@ -24,6 +24,7 @@
 #include <iostream>
 
 bool AvatarRenderer::DiagnosticsEnabledFlag = false;
+bool AvatarRenderer::CullHeadDebugEnabledFlag = false;
 
 namespace
 {
@@ -46,6 +47,16 @@ void AvatarRenderer::SetDiagnosticsEnabled(bool enabled)
 bool AvatarRenderer::DiagnosticsEnabled()
 {
 	return DiagnosticsEnabledFlag;
+}
+
+void AvatarRenderer::SetCullHeadDebugEnabled(bool enabled)
+{
+	CullHeadDebugEnabledFlag = enabled;
+}
+
+bool AvatarRenderer::CullHeadDebugEnabled()
+{
+	return CullHeadDebugEnabledFlag;
 }
 
 namespace
@@ -252,16 +263,43 @@ void AvatarRenderer::RunMapLoadDiagnostics()
 
 namespace
 {
+	// Mesh<->world conversion shared by BuildIKInput, DrawActorWithIK's ground
+	// probing, and the final skinned draw - factored out so the M4
+	// calibration scale is threaded into every one of those consistently
+	// instead of three independent copies of the same formula silently
+	// drifting apart. `extraScale` folds in on top of the actor's own
+	// DrawScale (1.0 = no calibration, i.e. identical to every prior
+	// milestone's behavior).
+	struct MeshWorldTransform
+	{
+		mat4 MeshToWorld;
+		mat3 MeshToWorldLinear;
+		mat3 WorldToMeshLinear;
+		vec3 MeshOriginWorld;
+	};
+
+	MeshWorldTransform ComputeMeshWorldTransform(UActor* actor, UMesh* mesh, const vec3& worldOffset, float extraScale)
+	{
+		MeshWorldTransform result;
+		mat4 objectToWorld = mat4::translate(actor->Location() + actor->PrePivot() + worldOffset) *
+			Coords::Rotation(actor->Rotation()).ToMatrix() * mat4::scale(actor->DrawScale() * extraScale);
+		result.MeshToWorld = objectToWorld * mesh->meshToObject;
+		result.MeshToWorldLinear = mat3(result.MeshToWorld);
+		result.WorldToMeshLinear = mat3::inverse(result.MeshToWorldLinear);
+		result.MeshOriginWorld = (result.MeshToWorld * vec4(0.0f, 0.0f, 0.0f, 1.0f)).xyz();
+		return result;
+	}
+
 	// Shared by DrawActorBindPose and DrawActorWithIK - everything from here
 	// down only cares about the final skinned positions/normals, not how
 	// they were produced (bind pose vs. IK-solved). See
 	// ExtractTriangleVertexIndices in AvatarAutoRig.cpp for why there are two
 	// mesh storage formats below.
-	void DrawSkinnedMesh(VisibleFrame* frame, UActor* actor, UMesh* mesh, const Array<vec3>& skinnedPositions,
-		const Array<vec3>& skinnedNormals, const vec3& worldOffset)
+	void DrawSkinnedMesh(VisibleFrame* frame, UActor* actor, UMesh* mesh, const AvatarRig& rig, const Array<vec3>& skinnedPositions,
+		const Array<vec3>& skinnedNormals, const vec3& worldOffset, float calibrationScale, bool cullHeadForFirstPerson)
 	{
-		mat4 objectToWorld = mat4::translate(actor->Location() + actor->PrePivot() + worldOffset) * Coords::Rotation(actor->Rotation()).ToMatrix() * mat4::scale(actor->DrawScale());
-		mat4 meshToWorld = objectToWorld * mesh->meshToObject;
+		MeshWorldTransform xform = ComputeMeshWorldTransform(actor, mesh, worldOffset, calibrationScale);
+		mat4 meshToWorld = xform.MeshToWorld;
 		mat3 meshNormalToWorld = mat3::transpose(mat3(meshToWorld));
 
 		float fatness = actor->Fatness() / 16.0f - 8.0f;
@@ -285,6 +323,14 @@ namespace
 
 		UZoneInfo* zoneActor = engine->GetZoneActor(actor->Region().ZoneNumber);
 
+		// M4 diagnostics: trianglesConsidered/trianglesHeadNeck are counted
+		// regardless of cullHeadForFirstPerson (see the periodic log line
+		// below) so a single run's log line can prove the cull-triangle-count
+		// math without needing two separate runs.
+		uint32_t trianglesConsidered = 0;
+		uint32_t trianglesHeadNeck = 0;
+		uint32_t trianglesEmitted = 0;
+
 		// Draws one triangle given its bind-pose vertex indices, per-corner UV
 		// (already in texel space), and combined poly flags/texture. Shared by
 		// both mesh storage formats below - see ExtractTriangleVertexIndices in
@@ -297,6 +343,14 @@ namespace
 			uint32_t renderflags = triPolyFlags | polyflags;
 			UTexture* drawTex = (renderflags & PF_Environment) ? envmap : tex;
 			if (!drawTex)
+				return;
+
+			trianglesConsidered++;
+			bool referencesHeadOrNeck = AvatarSkinner::IsHeadOrNeckVertex(rig, (int)vindex[0]) ||
+				AvatarSkinner::IsHeadOrNeckVertex(rig, (int)vindex[1]) || AvatarSkinner::IsHeadOrNeckVertex(rig, (int)vindex[2]);
+			if (referencesHeadOrNeck)
+				trianglesHeadNeck++;
+			if (cullHeadForFirstPerson && referencesHeadOrNeck)
 				return;
 
 			engine->render->UpdateTexture(drawTex);
@@ -340,6 +394,7 @@ namespace
 			renderflags |= PF_RenderFog;
 
 			frame->Device->DrawGouraudPolygon(&frame->Frame, texinfo, vertices, 3, renderflags);
+			trianglesEmitted++;
 		};
 
 		if (!mesh->Tris.empty())
@@ -400,6 +455,26 @@ namespace
 				drawTri(vindex, uv, material.PolyFlags, textures[material.TextureIndex]);
 			}
 		}
+
+		// Rate-limited so a live run logs a handful of readable samples
+		// instead of one line per drawn frame (both draw paths call this, so
+		// this is deliberately its own counter rather than sharing
+		// LogSolvedJointsPeriodically's). trianglesConsidered/trianglesHeadNeck
+		// are always counted (see above), so this one line proves the M4
+		// verification claim ("emitted count drops by exactly the head/neck
+		// triangle count") whether or not culling is actually enabled this call.
+		static int drawCallCounter = 0;
+		drawCallCounter++;
+		if (drawCallCounter % 30 == 1)
+		{
+			std::ostringstream out;
+			out << "AvatarRenderer: mesh=" << rig.MeshIdentity
+				<< " cullHeadForFirstPerson=" << (cullHeadForFirstPerson ? "1" : "0")
+				<< " trianglesConsidered=" << trianglesConsidered
+				<< " trianglesHeadNeck=" << trianglesHeadNeck
+				<< " trianglesEmitted=" << trianglesEmitted;
+			LogDiagnostic(out.str());
+		}
 	}
 
 	AvatarIKTarget ConvertEnginePoseToMeshLocal(const mat3& worldToMeshLinear, const vec3& meshOriginWorld, const AvatarEnginePose& pose)
@@ -435,25 +510,23 @@ bool AvatarRenderer::DrawActorBindPose(VisibleFrame* frame, UActor* actor, const
 	if ((int)skinnedPositions.size() != rig.FrameVerts)
 		return false;
 
-	DrawSkinnedMesh(frame, actor, mesh, skinnedPositions, skinnedNormals, worldOffset);
+	// Bind-pose comparison draw: never calibrated (calibrationScale=1), never
+	// culls the head (this is the "see the whole rig" debug view).
+	DrawSkinnedMesh(frame, actor, mesh, rig, skinnedPositions, skinnedNormals, worldOffset, 1.0f, false);
 	return true;
 }
 
-AvatarIKInput AvatarRenderer::BuildIKInput(UActor* actor, UMesh* mesh, const AvatarIKFrameInput& engineInput)
+AvatarIKInput AvatarRenderer::BuildIKInput(UActor* actor, UMesh* mesh, const AvatarIKFrameInput& engineInput, float calibrationScale)
 {
 	// Deliberately no worldOffset here - that only exists to place the debug
 	// draw beside the actor's real render, and must not leak into where the
 	// real head/hand poses land in mesh-local space.
-	mat4 objectToWorld = mat4::translate(actor->Location() + actor->PrePivot()) * Coords::Rotation(actor->Rotation()).ToMatrix() * mat4::scale(actor->DrawScale());
-	mat4 meshToWorld = objectToWorld * mesh->meshToObject;
-	mat3 meshToWorldLinear(meshToWorld);
-	mat3 worldToMeshLinear = mat3::inverse(meshToWorldLinear);
-	vec3 meshOriginWorld = (meshToWorld * vec4(0.0f, 0.0f, 0.0f, 1.0f)).xyz();
+	MeshWorldTransform xform = ComputeMeshWorldTransform(actor, mesh, vec3(0.0f), calibrationScale);
 
 	AvatarIKInput input;
-	input.Head = ConvertEnginePoseToMeshLocal(worldToMeshLinear, meshOriginWorld, engineInput.Head);
-	input.LeftHand = ConvertEnginePoseToMeshLocal(worldToMeshLinear, meshOriginWorld, engineInput.LeftHandGrip);
-	input.RightHand = ConvertEnginePoseToMeshLocal(worldToMeshLinear, meshOriginWorld, engineInput.RightHandGrip);
+	input.Head = ConvertEnginePoseToMeshLocal(xform.WorldToMeshLinear, xform.MeshOriginWorld, engineInput.Head);
+	input.LeftHand = ConvertEnginePoseToMeshLocal(xform.WorldToMeshLinear, xform.MeshOriginWorld, engineInput.LeftHandGrip);
+	input.RightHand = ConvertEnginePoseToMeshLocal(xform.WorldToMeshLinear, xform.MeshOriginWorld, engineInput.RightHandGrip);
 	return input;
 }
 
@@ -580,6 +653,92 @@ namespace
 		outProbe.Valid = true;
 		outProbe.GroundPoint = worldToMeshLinear * (hitWorld - meshOriginWorld);
 	}
+
+	// M4: straight-down probe from the tracked head position to find the real
+	// floor height in world units - same TraceFirstHit convention as
+	// ProbeFootGround above, just anchored at the head instead of a hip.
+	// Returns false (outHeightAboveFloor left at 0) if no ground was found
+	// within range; ComputeAvatarCalibration then falls back to scale 1.0
+	// unless a manual override is set.
+	bool ProbeHeadFloorHeight(UActor* actor, const vec3& headWorld, const vec3& upWorld, float probeDistance, float& outHeightAboveFloor)
+	{
+		if (!actor->XLevel())
+			return false;
+
+		vec3 probeFrom = headWorld;
+		vec3 probeTo = headWorld - upWorld * probeDistance;
+
+		TraceFlags flags;
+		flags.world = true;
+		vec3 extents(1.0f, 1.0f, 1.0f);
+		CollisionHit hit = actor->XLevel()->Collision.TraceFirstHit(probeFrom, probeTo, actor, extents, flags);
+		if (!hit.Actor)
+			return false;
+
+		vec3 hitWorld = probeFrom + (probeTo - probeFrom) * hit.Fraction;
+		outHeightAboveFloor = dot(headWorld - hitWorld, upWorld);
+		return outHeightAboveFloor > 0.0f;
+	}
+
+	// M4: derives the calibration scale for `rig` as worn by `actor`, from a
+	// real tracked head height above a floor probe versus the rig's own
+	// bind-pose head height (AvatarIKSolver::EstimateRigHeadHeight /
+	// ComputeCalibration), or from options.ManualScaleOverride when set. The
+	// rig's own reference height is measured at calibrationScale=1 (an
+	// uncalibrated reference), never against an already-scaled transform -
+	// that would be circular.
+	AvatarCalibrationResult ComputeAvatarCalibration(UActor* actor, UMesh* mesh, const AvatarRig& rig,
+		const AvatarEnginePose& headPose, const AvatarIKOptions& options)
+	{
+		AvatarRigHeightEstimate heightEstimate = AvatarIKSolver::EstimateRigHeadHeight(rig);
+
+		float rigReferenceWorld = 0.0f;
+		float trackedWorld = 0.0f;
+		vec3 upWorld(0.0f, 0.0f, 1.0f);
+
+		if (heightEstimate.Valid)
+		{
+			MeshWorldTransform base = ComputeMeshWorldTransform(actor, mesh, vec3(0.0f), 1.0f);
+			upWorld = normalize(base.MeshToWorldLinear * heightEstimate.Up);
+			rigReferenceWorld = length(base.MeshToWorldLinear * (heightEstimate.Up * heightEstimate.Height));
+		}
+
+		if (headPose.Valid && actor->XLevel())
+		{
+			// Probe reach derived from whichever measured quantity is
+			// available (rig height, or the actor's own collision height as
+			// a fallback) rather than a bare constant.
+			float probeDistance = std::max(std::max(rigReferenceWorld, actor->CollisionHeight()), 1.0f) * 3.0f;
+			float heightAboveFloor = 0.0f;
+			if (ProbeHeadFloorHeight(actor, headPose.Position, upWorld, probeDistance, heightAboveFloor))
+				trackedWorld = heightAboveFloor;
+		}
+
+		AvatarCalibrationInput calInput;
+		calInput.RigReferenceHeadHeight = rigReferenceWorld;
+		calInput.TrackedHeadHeightAboveFloor = trackedWorld;
+		calInput.HasManualScaleOverride = options.HasManualScaleOverride;
+		calInput.ManualScaleOverride = options.ManualScaleOverride;
+		AvatarCalibrationResult result = AvatarIKSolver::ComputeCalibration(calInput);
+
+		// Rate-limited, same pattern as the other AvatarRenderer diagnostics -
+		// this is the evidence trail for the M4 calibration verification.
+		static int calibCounter = 0;
+		calibCounter++;
+		if (calibCounter % 30 == 1)
+		{
+			std::ostringstream out;
+			out << "AvatarCalibration: mesh=" << rig.MeshIdentity
+				<< " rigReferenceHeadHeight=" << rigReferenceWorld
+				<< " trackedHeadHeightAboveFloor=" << trackedWorld
+				<< " manualOverride=" << (options.HasManualScaleOverride ? "1" : "0")
+				<< " scale=" << result.Scale
+				<< " autoDetected=" << (result.AutoDetected ? "1" : "0");
+			LogDiagnostic(out.str());
+		}
+
+		return result;
+	}
 }
 
 bool AvatarRenderer::DrawActorWithIK(VisibleFrame* frame, UActor* actor, const vec3& worldOffset,
@@ -596,7 +755,9 @@ bool AvatarRenderer::DrawActorWithIK(VisibleFrame* frame, UActor* actor, const v
 	if (!rig.Valid)
 		return false;
 
-	AvatarIKInput ikInput = BuildIKInput(actor, mesh, engineInput);
+	AvatarCalibrationResult calibration = ComputeAvatarCalibration(actor, mesh, rig, engineInput.Head, options);
+
+	AvatarIKInput ikInput = BuildIKInput(actor, mesh, engineInput, calibration.Scale);
 
 	// M3: overall locomotion state - legs blend to a neutral hanging pose
 	// instead of ground-probing while airborne/falling/swimming/flying (see
@@ -607,18 +768,14 @@ bool AvatarRenderer::DrawActorWithIK(VisibleFrame* frame, UActor* actor, const v
 	ikInput.Grounded = physics != PHYS_Falling && physics != PHYS_Swimming && physics != PHYS_Flying
 		&& !engineInput.SyntheticAirborne;
 
-	mat4 objectToWorld = mat4::translate(actor->Location() + actor->PrePivot()) * Coords::Rotation(actor->Rotation()).ToMatrix() * mat4::scale(actor->DrawScale());
-	mat4 meshToWorld = objectToWorld * mesh->meshToObject;
-	mat3 meshToWorldLinear(meshToWorld);
-	mat3 worldToMeshLinear = mat3::inverse(meshToWorldLinear);
-	vec3 meshOriginWorld = (meshToWorld * vec4(0.0f, 0.0f, 0.0f, 1.0f)).xyz();
+	MeshWorldTransform xform = ComputeMeshWorldTransform(actor, mesh, vec3(0.0f), calibration.Scale);
 
 	AvatarLegRootEstimate legRoots = AvatarIKSolver::EstimateLegRoots(rig, ikInput, options);
 	if (legRoots.PelvisDriven)
 	{
-		ProbeFootGround(actor, meshToWorld, meshToWorldLinear, worldToMeshLinear, meshOriginWorld,
+		ProbeFootGround(actor, xform.MeshToWorld, xform.MeshToWorldLinear, xform.WorldToMeshLinear, xform.MeshOriginWorld,
 			legRoots.Up, legRoots.LeftValid, legRoots.LeftHipMeshLocal, legRoots.LeftLegLength, ikInput.LeftFootGround);
-		ProbeFootGround(actor, meshToWorld, meshToWorldLinear, worldToMeshLinear, meshOriginWorld,
+		ProbeFootGround(actor, xform.MeshToWorld, xform.MeshToWorldLinear, xform.WorldToMeshLinear, xform.MeshOriginWorld,
 			legRoots.Up, legRoots.RightValid, legRoots.RightHipMeshLocal, legRoots.RightLegLength, ikInput.RightFootGround);
 	}
 
@@ -640,7 +797,7 @@ bool AvatarRenderer::DrawActorWithIK(VisibleFrame* frame, UActor* actor, const v
 
 	LogSolvedJointsPeriodically(rig, ikInput, jointTransforms, legState);
 
-	DrawSkinnedMesh(frame, actor, mesh, skinnedPositions, skinnedNormals, worldOffset);
+	DrawSkinnedMesh(frame, actor, mesh, rig, skinnedPositions, skinnedNormals, worldOffset, calibration.Scale, options.CullHeadForFirstPerson);
 	return true;
 }
 

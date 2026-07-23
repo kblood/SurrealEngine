@@ -60,6 +60,53 @@ struct AvatarIKOptions
 	// offset). Every VRIK-family implementation surveyed in the plan doc
 	// exposes this as a tunable rather than hardcoding full tracking.
 	float PelvisFollowHeadWeight = 1.0f;
+
+	// M4: skip triangles weighted to the Head/Neck joints when drawing this
+	// avatar - the "headless body" treatment a first-person self-view needs
+	// so the avatar's own head mesh doesn't clip the camera. Left false for
+	// any third-person/debug view (e.g. --avatar-autorig-debug's side-by-side
+	// bind-pose comparison), where seeing the whole rig is the point.
+	bool CullHeadForFirstPerson = false;
+
+	// M4 height/arm-length calibration escape hatch: every VRIK-family
+	// implementation surveyed in the plan doc (Skyrim VRIK, FRIK,
+	// Godot-XR-Avatar, BeatSaberCustomAvatars) exposes a manual override
+	// because automatic head-height detection is a known failure point. When
+	// true, ManualScaleOverride replaces the auto-detected scale outright
+	// rather than combining with it. See AvatarIKSolver::ComputeCalibration.
+	bool HasManualScaleOverride = false;
+	float ManualScaleOverride = 1.0f;
+};
+
+// Rig's own bind-pose head height, used as the reference for M4 calibration.
+// Pure bind-pose measurement (BindOrigin only) - Up is exposed alongside the
+// scalar Height because the two are only meaningful together: Height is a
+// length along the rig's own Up axis in the rig's own mesh-local space, not
+// a world-space quantity (same reasoning as AvatarLegRootEstimate::Up).
+struct AvatarRigHeightEstimate
+{
+	bool Valid = false;
+	float Height = 0.0f;   // mesh-local units: Head joint's height above its feet (or Pelvis, if this rig has no leg roles)
+	vec3 Up = vec3(0.0f, 0.0f, 1.0f); // mesh-local unit "up" direction this Height was measured along
+};
+
+struct AvatarCalibrationInput
+{
+	// Both heights must already be in the same units (the caller - AvatarRenderer -
+	// converts AvatarRigHeightEstimate's mesh-local Height into engine-world
+	// units first, since TrackedHeadHeightAboveFloor naturally comes from a
+	// world-space head pose and floor probe). 0 means "unknown" for either.
+	float RigReferenceHeadHeight = 0.0f;
+	float TrackedHeadHeightAboveFloor = 0.0f;
+
+	bool HasManualScaleOverride = false;
+	float ManualScaleOverride = 1.0f;
+};
+
+struct AvatarCalibrationResult
+{
+	float Scale = 1.0f;
+	bool AutoDetected = false; // false when a manual override was applied, or detection lacked enough data (Scale left at 1.0)
 };
 
 // A pose already in engine-world space (native engine axes: +X forward, +Y
@@ -168,4 +215,19 @@ public:
 	// produces NaN/Inf given finite input.
 	static void SolveWithLegs(const AvatarRig& rig, const AvatarIKInput& input, const AvatarIKOptions& options,
 		float deltaTimeSeconds, AvatarLegIKState& legState, Array<AvatarJointTransform>& outTransforms);
+
+	// M4: this rig's own bind-pose head-above-feet (or head-above-pelvis,
+	// graceful fallback if it has no leg roles) height, used as the
+	// calibration reference. Pure rig lookup - Valid is false only if the rig
+	// has no Head/Pelvis role or a degenerate (zero-length) torso.
+	static AvatarRigHeightEstimate EstimateRigHeadHeight(const AvatarRig& rig);
+
+	// M4: turns a rig reference height and a real tracked head height into a
+	// scale factor - Scale = TrackedHeadHeightAboveFloor / RigReferenceHeadHeight,
+	// clamped to a sane range, or exactly ManualScaleOverride when
+	// HasManualScaleOverride is set (the override replaces auto-detection
+	// outright, it does not blend with it). Falls back to Scale == 1.0 when
+	// either height is unusable (<= 0) and no override was given. Never
+	// throws, never produces NaN/Inf given finite input.
+	static AvatarCalibrationResult ComputeCalibration(const AvatarCalibrationInput& input);
 };

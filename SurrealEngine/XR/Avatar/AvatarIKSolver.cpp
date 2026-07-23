@@ -540,3 +540,71 @@ void AvatarIKSolver::SolveWithLegs(const AvatarRig& rig, const AvatarIKInput& in
 		input.RightFootGround, input.Grounded, pelvis.Transform, pelvisBind, pelvis.Basis, 1.0f,
 		deltaTimeSeconds, legState.Right, outTransforms);
 }
+
+AvatarRigHeightEstimate AvatarIKSolver::EstimateRigHeadHeight(const AvatarRig& rig)
+{
+	AvatarRigHeightEstimate result;
+
+	int headIdx = FindJoint(rig, AvatarJointRole::Head);
+	int pelvisIdx = FindJoint(rig, AvatarJointRole::Pelvis);
+	if (headIdx < 0 || pelvisIdx < 0)
+		return result;
+
+	TorsoBasis basis = BuildTorsoBasis(rig, pelvisIdx, headIdx);
+	if (!basis.Valid)
+		return result;
+
+	int leftFootIdx = FindJoint(rig, AvatarJointRole::LeftFoot);
+	int rightFootIdx = FindJoint(rig, AvatarJointRole::RightFoot);
+
+	float headUp = dot(rig.Joints[headIdx].BindOrigin, basis.Up);
+	float floorUp;
+	if (leftFootIdx >= 0 && rightFootIdx >= 0)
+		floorUp = 0.5f * (dot(rig.Joints[leftFootIdx].BindOrigin, basis.Up) + dot(rig.Joints[rightFootIdx].BindOrigin, basis.Up));
+	else if (leftFootIdx >= 0)
+		floorUp = dot(rig.Joints[leftFootIdx].BindOrigin, basis.Up);
+	else if (rightFootIdx >= 0)
+		floorUp = dot(rig.Joints[rightFootIdx].BindOrigin, basis.Up);
+	else
+		floorUp = dot(rig.Joints[pelvisIdx].BindOrigin, basis.Up); // no leg roles - Pelvis is the best available reference
+
+	float height = headUp - floorUp;
+	if (height <= Epsilon)
+		return result;
+
+	result.Valid = true;
+	result.Height = height;
+	result.Up = basis.Up;
+	return result;
+}
+
+AvatarCalibrationResult AvatarIKSolver::ComputeCalibration(const AvatarCalibrationInput& input)
+{
+	AvatarCalibrationResult result;
+
+	if (input.HasManualScaleOverride)
+	{
+		result.Scale = std::max(input.ManualScaleOverride, Epsilon);
+		result.AutoDetected = false;
+		return result;
+	}
+
+	if (!std::isfinite(input.RigReferenceHeadHeight) || !std::isfinite(input.TrackedHeadHeightAboveFloor) ||
+		input.RigReferenceHeadHeight <= Epsilon || input.TrackedHeadHeightAboveFloor <= Epsilon)
+	{
+		result.Scale = 1.0f;
+		result.AutoDetected = false;
+		return result;
+	}
+
+	// Clamped to a sane range so a bad tracking sample (a floor probe that
+	// missed, a momentary head-height glitch) cannot balloon or collapse the
+	// avatar - the same kind of guard rail every VRIK-family implementation
+	// surveyed in the plan doc applies around its own auto height detection.
+	const float minScale = 0.3f;
+	const float maxScale = 3.0f;
+	float scale = input.TrackedHeadHeightAboveFloor / input.RigReferenceHeadHeight;
+	result.Scale = clamp(scale, minScale, maxScale);
+	result.AutoDetected = true;
+	return result;
+}

@@ -58,7 +58,7 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu|webgl2|null] [--openxr] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [--avatar-autorig-debug] [--avatar-ik-synthetic] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu|webgl2|null] [--openxr] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [--avatar-autorig-debug] [--avatar-ik-synthetic] [--avatar-cull-head-debug] [Path to game folder]\n";
 			return 0;
 		}
 
@@ -70,6 +70,14 @@ int GameApp::main(Array<std::string> args)
 			// render each frame, driven by IK from a live head/hand sample
 			// (real OpenXR, or --avatar-ik-synthetic) when one is available.
 			AvatarRenderer::SetDiagnosticsEnabled(true);
+		}
+		if (commandline->HasArg("", "--avatar-cull-head-debug"))
+		{
+			// M4 verification-only hook: forces the --avatar-autorig-debug
+			// side-by-side draw to also cull Head/Neck triangles, so a real
+			// run can produce evidence for the head-culling triangle-count
+			// claim. No effect without --avatar-autorig-debug.
+			AvatarRenderer::SetCullHeadDebugEnabled(true);
 		}
 		if (commandline->HasArg("", "--probexr"))
 		{

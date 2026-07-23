@@ -55,7 +55,9 @@ void RenderSubsystem::DrawSceneView(const ViewDescription& view)
 		vec3 sideOffset = rotation.YAxis * 80.0f;
 		const AvatarIKFrameInput& avatarInput = engine->GetXRAvatarInput();
 		bool haveLiveInput = avatarInput.Head.Valid || avatarInput.LeftHandGrip.Valid || avatarInput.RightHandGrip.Valid;
-		if (!haveLiveInput || !AvatarRenderer::DrawActorWithIK(&MainFrame, playerActor, sideOffset, avatarInput, {}, LevelTimeElapsed))
+		AvatarIKOptions options;
+		options.CullHeadForFirstPerson = AvatarRenderer::CullHeadDebugEnabled();
+		if (!haveLiveInput || !AvatarRenderer::DrawActorWithIK(&MainFrame, playerActor, sideOffset, avatarInput, options, LevelTimeElapsed))
 			AvatarRenderer::DrawActorBindPose(&MainFrame, playerActor, sideOffset);
 	}
 }

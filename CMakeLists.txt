@@ -1117,6 +1117,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_executable(AvatarIKSolverTests
 		Tests/AvatarIKSolverTests.cpp
 		SurrealEngine/XR/Avatar/AvatarIKSolver.cpp
+		SurrealEngine/XR/Avatar/AvatarSkinner.cpp
 	)
 	target_include_directories(AvatarIKSolverTests PRIVATE SurrealEngine)
 	set_target_properties(AvatarIKSolverTests PROPERTIES CXX_STANDARD 20)
