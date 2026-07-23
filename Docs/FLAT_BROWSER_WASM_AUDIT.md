@@ -71,11 +71,23 @@ retail `ut99` descriptor. A full run persists and materializes the dataset and
 reaches the map/presentation launcher, which rules out folder recursion,
 detection, storage, and the import gate as the current fault.
 
-After Play, both WebGPU and null-renderer runs remain inside synchronous native
-startup before `Module.callMain()` returns. Consequently the post-call canvas
-reveal, presentation activation, and `surrealBooted` signal do not run. The
-null-renderer result rules out WebGPU rendering as the cause. This is an open
-owner-data release blocker, not a successful gameplay claim.
+The original post-Play failure was reproduced exactly. `buildNativeArguments()`
+returns a frozen array, but Emscripten's generated `callMain()` mutates that
+array with `unshift()` to add the program name. The resulting `TypeError` was
+caught by the import callback and incorrectly shown as a generic data-import
+failure. The launcher now passes `Array.from(buildNativeArguments(...))` to
+native startup, while folder enumeration/read exceptions are normalized as a
+distinct `folder-scan` phase with permission and quota guidance.
+
+Continuing past that boundary exposed three unrelated browser-runtime issues.
+The Emscripten OpenAL implementation reports `INT_MAX` mono/stereo source
+counts, so the engine now clamps allocation to its requested voice count rather
+than attempting an impossible vector allocation. Browser pointer lock records
+startup intent but requests capture only from trusted canvas input, and exits
+or suppresses capture while WebXR owns input. Finally, WebGPU surface creation
+uses the exact configured `Module.canvas` rather than assuming `#canvas`.
+These fixes are integrated but still require a fresh default package and an
+owner-data browser run before this audit can claim release-ready gameplay.
 
 `smoke_test_owner_game.py` accepts `--profile-dir` so the private browser copy
 can be retained between diagnostic runs, and `--renderer=webgpu|null` so native
