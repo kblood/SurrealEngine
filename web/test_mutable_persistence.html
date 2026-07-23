@@ -121,6 +121,16 @@ function mutableFS() {
 	return fs;
 }
 
+function wasmLikeMutableFS(analyzeMode) {
+	const fs = mutableFS();
+	fs.files.delete("/gamedata/Save/Save0.usa");
+	fs.put("/gamedata/Save/Save99.usa", "wasmfs mutable save");
+	fs.analyzePath = analyzeMode === "throw"
+		? () => { throw new Error("WasmFS analyzePath failure"); }
+		: () => ({ exists: false });
+	return fs;
+}
+
 function asLegacyMetadata(metadata) {
 	const legacy = Object.assign({}, metadata, { version: 1 });
 	delete legacy.format;
@@ -254,6 +264,59 @@ window.mutablePersistenceTestPromise = (async function () {
 		assert(paths.includes("/gamedata/Save/Save0.usa"));
 		assert(!paths.some(path => /\.(?:u|unr|utx|uax|umx)$/i.test(path)), "commercial package entered snapshot");
 		assert(!paths.includes("/gamedata/System/UnrealTournament.ini"), "original imported INI entered snapshot");
+	});
+
+	await run("WasmFS analyzePath failures cannot veto save checkpoints", async () => {
+		for (const analyzeMode of ["throw", "false"]) {
+			const storage = new api.IndexedDBStorage(
+				"surrealengine-mutable-wasmfs-" + analyzeMode + "-" + suffix);
+			try {
+				const source = wasmLikeMutableFS(analyzeMode);
+				const controller = new api.MutableDataController({ FS: source }, {
+					storage,
+					checkpointIntervalMs: 0,
+				});
+				await controller.initialize();
+				const flushed = await controller.flush("wasmfs-" + analyzeMode);
+				assert(flushed.fileCount === 5, analyzeMode + " snapshot had " + flushed.fileCount + " files");
+				controller.dispose();
+
+				const stored = await storage.load();
+				const storedPaths = stored.metadata.files.map(file => file.path);
+				assert(storedPaths.includes("/gamedata/Save/Save99.usa"),
+					analyzeMode + " omitted Save99.usa");
+				assert(!storedPaths.includes("/gamedata/Save/Injected.u"),
+					analyzeMode + " admitted a disallowed package");
+
+				const target = new FakeFS(true);
+				const restored = new api.MutableDataController({ FS: target }, {
+					storage,
+					checkpointIntervalMs: 0,
+				});
+				await restored.initialize();
+				assert(target.text("/gamedata/Save/Save99.usa") === "wasmfs mutable save",
+					analyzeMode + " did not round-trip Save99.usa");
+				assert(target.text("/gamedata/System/Core.u") === "commercial-core",
+					analyzeMode + " restore changed commercial data");
+				restored.dispose();
+			} finally { await storage.clear(); }
+		}
+	});
+
+	await run("a genuinely absent WasmFS save directory remains optional", async () => {
+		const fs = new FakeFS();
+		fs.put("/gamedata/System/SE-User.ini", "settings without saves");
+		fs.analyzePath = () => ({ exists: false });
+		let saveDirectoryReads = 0;
+		const readdir = fs.readdir.bind(fs);
+		fs.readdir = path => {
+			if (path === "/gamedata/Save") saveDirectoryReads++;
+			return readdir(path);
+		};
+		const snapshot = await api.snapshotFS(fs);
+		assert(snapshot.fileCount === 1);
+		assert(snapshot.entries[0].path === "/gamedata/System/SE-User.ini");
+		assert(saveDirectoryReads === 0, "snapshot enumerated an absent save directory");
 	});
 
 	await run("metadata validation rejects commercial and traversal paths", async () => {

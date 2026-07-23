@@ -497,8 +497,12 @@
 	}
 
 	function fsExists(FS, path) {
+		if (typeof FS.analyzePath === "function") {
+			try {
+				if (FS.analyzePath(path).exists) return true;
+			} catch (_) { /* WasmFS stat remains authoritative. */ }
+		}
 		try {
-			if (typeof FS.analyzePath === "function") return !!FS.analyzePath(path).exists;
 			FS.stat(path);
 			return true;
 		} catch (_) { return false; }
