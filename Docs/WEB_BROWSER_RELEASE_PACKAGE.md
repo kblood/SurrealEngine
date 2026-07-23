@@ -175,6 +175,36 @@ UT99, advanced simulation ticks, produced 41 WebGPU draws and 52 textures, and
 reported zero page or WebGPU errors. This establishes the exact folder and
 current importer/runtime path; it does not replace physical Quest testing.
 
+### Revisioned public candidate 2904593c
+
+The immutable corrected candidate is live at
+`https://dionysus.dk/webxr/Ports/SurrealEngine-Candidate-2904593c/`. It was
+built from clean commit `2904593ca6010d02da4eef7b4ccc33cd54d595cf` and tree
+`bfa564e7a7b953ba5cc8f817250f9ed57b9c8616`. The package contains 25 files,
+is 36,733,381 bytes, and contains no game or demo data. It does not replace the
+older immutable candidate or either stable/experimental directory.
+
+The release records WebAssembly SHA-256
+`ab3752751dd97cbfe2cfcfc47b953da73d59935a76a5ad7be5fa1d49727f0506`,
+JavaScript SHA-256
+`47a01e685e7a0d85428134b8d2d05a43ca581410326942a62406276549bd4c7d`,
+manifest SHA-256
+`f9358d3da57c4683eeeb84a89d40ade25711ee939b57f53124e352b17acbedd2`,
+and corresponding-source SHA-256
+`bb55c5672d140237783b3c1eb6ba6ffac0d90ec430d7f2a37197bcc4492986ce`.
+The staged server copy had the expected 25 files and all four hashes before an
+atomic rename. The live HTTPS release-shell smoke then passed source retrieval,
+cross-origin isolation, OPFS import gating, synthetic Vortex2 launch, input,
+responsive canvas sizing, and fullscreen with no page error.
+
+Exact owned-data qualification on the same tracked revision passed UT99 direct
+startup with the declared Deck 16 default, the 85-second CityIntro-to-UMenu
+transition, and Unreal Gold direct startup with the declared Vortex2 default.
+All three visibly rendered and reported advancing ticks plus zero page/WebGPU
+errors. The Unreal run exposed a running 48 kHz AudioContext. An automated
+trusted click captured the exact canvas and hid the mouse-capture prompt; real
+mouse-look, audible output, and physical Quest presentation remain human gates.
+
 The packager fails unless `CMakeCache.txt` records an empty
 `SURREAL_GAMEDATA_DIR`, rejects every Emscripten `.data` payload, copies only a
 fixed shell/runtime allowlist, and audits the output for UE1 game extensions.
@@ -390,6 +420,13 @@ Current results:
 - the exact 629.3 MiB GOG UT99 installation passed recursive import and flat
   WebGPU launch both before deployment and from the revisioned public HTTPS
   candidate, with 496 OPFS-mounted files and no page/WebGPU error.
+- at corrected candidate `2904593c`, 10 Node suites, 7 syntax gates, 11 Chrome
+  browser probes, 33 native tests, and 33 OpenXR tests passed; both conventional
+  pthread/non-Asyncify and shipping Asyncify/WasmFS Emscripten links passed;
+- the exact owned UT99 direct and CityIntro-to-UMenu paths plus the exact owned
+  Unreal Gold Vortex2 path visibly rendered with advancing ticks and no
+  page/WebGPU errors; the live immutable HTTPS package passed its data-free
+  release-shell and corresponding-source smoke.
 
 ## Remaining release gates
 
@@ -397,12 +434,13 @@ The owned UT99 smoke proves import, initial engine startup, rendering, and tick
 progression, but not long-play behavior or any physical headset result. Before
 stable publication:
 
-1. Complete the remaining owner-data matrix: Unreal Gold import/launch plus
-   UT99 and Unreal Gold switching, replacement, and persistence after a browser
-   restart and package upgrade. Test both checked direct-map startup and
-   unchecked game-owned `URL.LocalMap` startup.
-2. Run flat UT99 and Unreal Gold with keyboard/mouse, fullscreen/resize, INI
-   changes, saves, explicit quit-and-flush, and restore.
+1. Manually test the published `2904593c` candidate on desktop: capture/resume
+   the mouse, confirm mouse-look, use browser Escape to enter the game/menu,
+   and audibly verify Unreal Gold ambient effects and music. Automated pointer
+   lock and PCM evidence do not replace this human pass.
+2. Complete the remaining owner-data matrix: UT99/Unreal Gold switching and
+   replacement, persistence after browser restart/package upgrade, INI changes,
+   saves, explicit quit-and-flush, fullscreen/resize, and restore.
 3. On a physical Quest browser, record browser/runtime versions outside the
    generated report, then test direct `XRGPUBinding` where exposed and automatic
    plus forced `XRWebGLLayer` compatibility selection. For the direct mode,
