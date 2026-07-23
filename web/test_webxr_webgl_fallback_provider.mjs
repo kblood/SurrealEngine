@@ -5,8 +5,13 @@ globalThis.surrealWebGPUDeviceXRCompatible = false;
 const atlasTexture = { width: 1600, height: 700 };
 let rendered = null, presented = 0, destroyed = 0, requestOptions = null;
 const inputPackets = [];
+const device = {
+	createTexture(description) { atlasTexture.description = description; atlasTexture.destroy = () => {}; return atlasTexture; },
+	queue: { submit() {}, onSubmittedWorkDone: () => Promise.resolve() },
+};
 globalThis.Module = {
-	canvas: {}, preinitializedWebGPUDevice: {},
+	canvas: {}, preinitializedWebGPUDevice: device,
+	_Surreal_GetWebXRFrameABIVersion: () => 3,
 	ccall(name, _returnType, _types, args) {
 		if (name === "Surreal_SetXRFrameLoopActive") return 1;
 		if (name === "Surreal_SubmitWebXRInputSnapshot") { inputPackets.push(Uint8Array.from(args[0])); return 1; }
@@ -31,14 +36,18 @@ globalThis.SurrealWebXRWebGLBridge = {
 			0.5 * (result[column * 4 + 2] + result[column * 4 + 3]);
 		return result;
 	},
-	async create({ session, canvas }) {
+	async create({ session, canvas, device: suppliedDevice }) {
 		assert.ok(sessions.includes(session)); assert.equal(canvas, globalThis.Module.canvas);
+		assert.equal(suppliedDevice, device);
 		let bridgeFrames = 0;
 		return {
-			beginFrame: pose => ({ texture: atlasTexture, width: 1600, height: 700,
-				views: pose.views, destinations: [],
+			textureFormat: "bgra8unorm",
+			describeFrame: () => ({ width: 1600, height: 700, destinations: [],
 				atlasViews: [{ x: 0, y: 0, width: 800, height: 700 }, { x: 800, y: 0, width: 800, height: 700 }] }),
-			present: () => { presented++; bridgeFrames++; },
+			present: (_frame, texture, renderDevice) => {
+				assert.equal(texture, atlasTexture); assert.equal(renderDevice, device);
+				presented++; bridgeFrames++;
+			},
 			diagnostics: () => ({ frames: bridgeFrames, errors: 0, samples: bridgeFrames ? 120 : 0,
 				medianMs: bridgeFrames ? 0.5 : null, p95Ms: bridgeFrames ? 0.8 : null,
 				p99Ms: bridgeFrames ? 1.1 : null, blockingTiming: false,
@@ -90,14 +99,23 @@ sessions[0].fireFrame(10, {
 	getPose: () => ({ transform: { position: { x: 0, y: 1.2, z: -.3 },
 		orientation: { x: 0, y: 0, z: 0, w: 1 } } })
 });
-assert.equal(presented, 1);
+assert.equal(presented, 0);
+await new Promise(resolve => setTimeout(resolve, 5));
 assert.deepEqual(rendered.textures, [atlasTexture]);
 const packet = new DataView(rendered.packet.buffer);
+assert.equal(packet.getUint32(0, true), 3);
 assert.equal(packet.getUint32(12, true), 1);
 assert.equal(packet.getUint32(28, true), 3);
 assert.equal(packet.getInt32(32 + 20, true), 0);
 assert.equal(packet.getInt32(32 + 128 + 20, true), 800);
 assert.ok(Math.abs(packet.getFloat32(32 + 64 + 14 * 4, true) + .1) < 1e-6);
+sessions[0].fireFrame(20, {
+	getViewerPose: () => ({ views: [view("left", -.032), view("right", .032)] }),
+	getPose: () => ({ transform: { position: { x: 0, y: 1.2, z: -.3 },
+		orientation: { x: 0, y: 0, z: 0, w: 1 } } })
+});
+assert.equal(presented, 1);
+await new Promise(resolve => setTimeout(resolve, 5));
 assert.equal(globalThis.surrealXRGetState().presentationMode, "webgl-bridge");
 const bridgeState = globalThis.surrealXRGetState();
 assert.equal(bridgeState.bridgeDiagnostics.errors, 0);
@@ -115,7 +133,7 @@ assert.equal(selectingInput.getUint32(24, true), 2);
 assert.equal(selectingInput.getUint32(24 + 8, true) & 1, 1,
 	"right select state must reach the same native input packet in bridge mode");
 assert.equal(globalThis.surrealXRExit(), true);
-await Promise.resolve();
+await new Promise(resolve => setTimeout(resolve, 5));
 assert.equal(destroyed, 1);
 assert.equal(sessions[0].frames.size, 0);
 assert.equal(globalThis.surrealXRGetState().presentationMode, null);
@@ -133,6 +151,6 @@ assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.samples, 0,
 assert.equal(globalThis.surrealXRGetState().atlasWidth, null,
 	"bridge re-entry must not retain the previous atlas dimensions before its first frame");
 assert.equal(globalThis.surrealXRExit(), true);
-await Promise.resolve();
+await new Promise(resolve => setTimeout(resolve, 5));
 assert.equal(destroyed, 2);
 console.log("WebXR XRWebGLLayer fallback provider tests passed");

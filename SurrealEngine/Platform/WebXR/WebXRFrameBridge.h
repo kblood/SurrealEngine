@@ -9,7 +9,9 @@
 
 namespace WebXR
 {
-	constexpr uint32_t FrameABIVersion = 2;
+	// Version 3 requires host-owned persistent render targets. Browser compositor
+	// textures must never be passed into a native render which can Asyncify-suspend.
+	constexpr uint32_t FrameABIVersion = 3;
 	constexpr uint32_t MaxViews = 2;
 	constexpr uint32_t FrameProjectionDepthZeroToOne = 1u << 0;
 	constexpr uint32_t FrameSharedStereoAtlas = 1u << 1;

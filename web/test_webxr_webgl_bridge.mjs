@@ -38,21 +38,58 @@ const gl = {
 	texImage2D() {}, texSubImage2D() {}, viewport() {}, uniform4f() {}, drawArrays() {}, finish() {},
 	getError: () => 0, deleteTexture() {}, deleteProgram() {}, deleteShader() {},
 };
-const sourceCanvas = { width: 1280, height: 720,
-	getContext: kind => kind === "webgpu" ? { getCurrentTexture: () => ({ width: 1600, height: 700 }) } : null };
+const sourceCanvas = { width: 1280, height: 720 };
 const times = [0, 2];
+const order = [];
+const currentTexture = { kind: "transfer-current" };
+const transferContext = {
+	configure(options) { this.options = options; },
+	getCurrentTexture() { order.push("acquire-current-texture"); return currentTexture; },
+	unconfigure() { order.push("unconfigure"); },
+};
+const xrCanvas = { getContext: kind => kind === "webgl2" ? gl : null };
+const transferCanvas = { width: 0, height: 0,
+	getContext: kind => kind === "webgpu" ? transferContext : null };
+let canvasCount = 0;
 const host = {
-	document: { createElement: () => ({ getContext: kind => kind === "webgl2" ? gl : null }) },
+	document: { createElement: () => canvasCount++ === 0 ? xrCanvas : transferCanvas },
 	performance: { now: () => times.shift() },
+	navigator: { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } },
 	XRWebGLLayer: function () { return {
 		framebuffer: {}, framebufferWidth: 1832, framebufferHeight: 1920,
 		getViewport: view => ({ x: view.eye === "left" ? 0 : 800, y: 0, width: 800, height: 700 }),
 	}; },
 };
 const session = { updateRenderState() {} };
-const liveBridge = await bridge.create({ root: host, session, canvas: sourceCanvas });
-const frame = liveBridge.beginFrame({ views: [{ eye: "left" }, { eye: "right" }] });
-liveBridge.present(frame);
+const sourceTexture = { kind: "persistent-atlas" };
+const device = {
+	createCommandEncoder() { return {
+		copyTextureToTexture(source, destination, size) {
+			order.push("copy-persistent-to-current");
+			if (source.texture !== sourceTexture || destination.texture !== currentTexture ||
+				size.width !== 1600 || size.height !== 700) throw new Error("incorrect bridge copy");
+		},
+		finish() { return {}; },
+	}; },
+	queue: { submit() { order.push("submit-webgpu-copy"); } },
+};
+const originalTexSubImage = gl.texSubImage2D;
+gl.texSubImage2D = function (...args) {
+	order.push("upload-transfer-canvas");
+	if (args.at(-1) !== transferCanvas) throw new Error("bridge uploaded the SDL canvas");
+	return originalTexSubImage.apply(this, args);
+};
+const originalDraw = gl.drawArrays;
+gl.drawArrays = function (...args) { order.push("draw-webgl-eye"); return originalDraw.apply(this, args); };
+const liveBridge = await bridge.create({ root: host, session, canvas: sourceCanvas, device });
+if (liveBridge.textureFormat !== "bgra8unorm") throw new Error("bridge did not expose its transfer format");
+const frame = liveBridge.describeFrame({ views: [{ eye: "left" }, { eye: "right" }] });
+if (order.length !== 0) throw new Error("describing a frame acquired or submitted a current texture");
+liveBridge.present(frame, sourceTexture, device);
+if (order.join(",") !== "acquire-current-texture,copy-persistent-to-current,submit-webgpu-copy,upload-transfer-canvas,draw-webgl-eye,draw-webgl-eye")
+	throw new Error("bridge late-present ordering is incorrect: " + order.join(","));
+if (sourceCanvas.width !== 1280 || sourceCanvas.height !== 720)
+	throw new Error("bridge changed the SDL/flat canvas dimensions");
 const liveDiagnostics = liveBridge.diagnostics();
 if (liveDiagnostics.samples !== 1 || liveDiagnostics.medianMs !== 2 || liveDiagnostics.p99Ms !== 2 ||
 	liveDiagnostics.frames !== 1 || liveDiagnostics.errors !== 0 ||

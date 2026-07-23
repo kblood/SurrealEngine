@@ -188,7 +188,17 @@ extern "C"
 	{
 		if (!engine || engine->quit)
 			return 0;
-		XRFrameLoopActive = active != 0;
+		const bool requested = active != 0;
+		if (requested == XRFrameLoopActive)
+			return 1;
+		XRFrameLoopActive = requested;
+		// Merely returning early from EngineMainLoopCallback still re-enters Wasm
+		// on every browser rAF. A WebXR render can be Asyncify-suspended on OPFS,
+		// so XR ownership must stop the callback itself until that render drains.
+		if (XRFrameLoopActive)
+			emscripten_pause_main_loop();
+		else
+			emscripten_resume_main_loop();
 		return 1;
 	}
 }

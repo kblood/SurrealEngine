@@ -387,10 +387,23 @@ without a suspension-capable call. A retail UT99 OPFS run advanced ticks with
 texture warning. The copy path preserves the default flat renderer and is
 bypassed for provider-owned presentation targets.
 
-WebXR frame textures require the same no-suspension ownership rule, but still
-bind provider-owned views directly around `RenderGameFrame()`. The flat fix
-does not resolve or claim physical WebXR presentation; a separate two-phase XR
-render/present design and headset validation remain required.
+WebXR now applies the same ownership rule through private frame ABI v3. Native
+code renders into double-buffered, persistent JavaScript-owned eye textures (or
+one persistent bridge atlas) from a later browser task. The XR animation
+callback itself only copies the last completed front image into compositor
+textures acquired late in that callback. It never calls Wasm, and the ordinary
+Emscripten main loop is actually paused while XR owns scheduling so it cannot
+re-enter a suspended Asyncify render. Controller/visibility snapshots and
+browser-audio mutations are queued behind the same native-call gate. Exit,
+failure, texture destruction, and re-entry wait for the producer and GPU queue
+to drain.
+
+Deterministic direct and bridge tests cover enter/exit/re-entry, one producer at
+a time, dropped/repeated headset frames, old-generation rejection, late copy
+ordering, and zero native calls while a render Promise is unresolved. This
+resolves the known software lifetime hazard; it does **not** claim physical
+Quest presentation. Direct compositor copy and especially the WebGPU transfer
+canvas to `XRWebGLLayer` upload remain headset qualification gates.
 
 ## Recommended persistent layout
 

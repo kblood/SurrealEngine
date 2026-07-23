@@ -58,7 +58,8 @@
 		const host = options.root || root;
 		const session = options.session;
 		const sourceCanvas = options.canvas;
-		if (!session || !sourceCanvas || typeof host.XRWebGLLayer !== "function")
+		const device = options.device;
+		if (!session || !sourceCanvas || !device || typeof host.XRWebGLLayer !== "function")
 			throw new Error("XRWebGLLayer bridge prerequisites are unavailable");
 		const xrCanvas = host.document.createElement("canvas");
 		const gl = xrCanvas.getContext("webgl2", {
@@ -72,6 +73,19 @@
 			framebufferScaleFactor: 1
 		});
 		session.updateRenderState({ baseLayer: layer });
+		// Keep the SDL/flat canvas untouched. This transfer canvas exists only for
+		// the same-task WebGPU-to-WebGL upload performed at the end of each XR rAF.
+		const transferCanvas = host.document.createElement("canvas");
+		const transferContext = transferCanvas.getContext("webgpu");
+		if (!transferContext || typeof transferContext.configure !== "function" ||
+			typeof transferContext.getCurrentTexture !== "function")
+			throw new Error("WebGPU transfer canvas creation failed");
+		const textureFormat = host.navigator && host.navigator.gpu &&
+			typeof host.navigator.gpu.getPreferredCanvasFormat === "function" ?
+			host.navigator.gpu.getPreferredCanvasFormat() : "bgra8unorm";
+		const usage = host.GPUTextureUsage || {};
+		transferContext.configure({ device, format: textureFormat, alphaMode: "opaque",
+			usage: (usage.RENDER_ATTACHMENT || 0x10) | (usage.COPY_DST || 0x02) });
 
 		const vertex = compile(gl, gl.VERTEX_SHADER, `#version 300 es
 			const vec2 p[3] = vec2[3](vec2(-1.,-1.),vec2(3.,-1.),vec2(-1.,3.));
@@ -94,7 +108,6 @@
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
 
-		const originalSize = { width: sourceCanvas.width, height: sourceCanvas.height };
 		const timings = createTimingWindow();
 		let allocatedWidth = 0, allocatedHeight = 0, errors = 0, frames = 0;
 		const layerWidth = Number.isInteger(layer.framebufferWidth) && layer.framebufferWidth > 0 ?
@@ -102,7 +115,7 @@
 		const layerHeight = Number.isInteger(layer.framebufferHeight) && layer.framebufferHeight > 0 ?
 			layer.framebufferHeight : 0;
 
-		function beginFrame(pose) {
+		function describeFrame(pose) {
 			const views = Array.from(pose.views);
 			const destinations = views.map(view => layer.getViewport(view));
 			if (destinations.some(viewport => !viewport || viewport.width <= 0 || viewport.height <= 0))
@@ -114,17 +127,21 @@
 				x += viewport.width;
 				return result;
 			});
-			if (sourceCanvas.width !== x) sourceCanvas.width = x;
-			if (sourceCanvas.height !== height) sourceCanvas.height = height;
-			const gpu = sourceCanvas.getContext("webgpu");
-			if (!gpu || typeof gpu.getCurrentTexture !== "function")
-				throw new Error("SurrealEngine WebGPU canvas is unavailable");
-			return { texture: gpu.getCurrentTexture(), width: x, height, views, destinations, atlasViews };
+			if (transferCanvas.width !== x) transferCanvas.width = x;
+			if (transferCanvas.height !== height) transferCanvas.height = height;
+			return { width: x, height, destinations, atlasViews };
 		}
 
-		function present(frame) {
+		function present(frame, sourceTexture, sourceDevice) {
 			const started = host.performance && host.performance.now ? host.performance.now() : null;
 			try {
+				if (!sourceTexture || sourceDevice !== device)
+					throw new Error("WebGL bridge received an invalid persistent atlas");
+				const currentTexture = transferContext.getCurrentTexture();
+				const encoder = device.createCommandEncoder({ label: "Surreal WebXR WebGL bridge present" });
+				encoder.copyTextureToTexture({ texture: sourceTexture }, { texture: currentTexture },
+					{ width: frame.width, height: frame.height, depthOrArrayLayers: 1 });
+				device.queue.submit([encoder.finish()]);
 				gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
 				gl.useProgram(program); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texture);
 				if (allocatedWidth !== frame.width || allocatedHeight !== frame.height) {
@@ -133,7 +150,7 @@
 					allocatedWidth = frame.width; allocatedHeight = frame.height;
 				}
 				// The only WebGPU-to-WebGL handoff. It must remain in the same XR rAF task.
-				gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, sourceCanvas);
+				gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, transferCanvas);
 				frame.destinations.forEach((destination, index) => {
 					const source = frame.atlasViews[index];
 					gl.viewport(destination.x, destination.y, destination.width, destination.height);
@@ -161,10 +178,11 @@
 
 		function destroy() {
 			try { gl.deleteTexture(texture); gl.deleteProgram(program); gl.deleteShader(vertex); gl.deleteShader(fragment); } catch (_) {}
-			sourceCanvas.width = originalSize.width; sourceCanvas.height = originalSize.height;
+			try { transferContext.unconfigure(); } catch (_) {}
 		}
 
-		return Object.freeze({ mode: "webgl-bridge", layer, beginFrame, present, diagnostics, destroy });
+		return Object.freeze({ mode: "webgl-bridge", layer, textureFormat,
+			describeFrame, present, diagnostics, destroy });
 	}
 
 	root.SurrealWebXRWebGLBridge = Object.freeze({

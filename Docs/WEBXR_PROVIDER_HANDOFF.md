@@ -121,9 +121,12 @@ The WebXR implementation follows those prerequisites and should not be used as
 the source for upstreaming the shared seams.
 
 Presentation-runtime follow-up branch: `pr/webxr-presentation-runtime`, based
-directly on `pr/webxr-provider` at `89608ca7`. It upgrades the private frame ABI
-to version 2, completes per-eye texture metadata handoff, and adds capability
-and lifecycle diagnostics without changing the flat desktop-WASM entry point.
+directly on `pr/webxr-provider` at `89608ca7`. It originally upgraded the
+private frame ABI to version 2, completed per-eye texture metadata handoff, and
+added capability and lifecycle diagnostics without changing the flat
+desktop-WASM entry point. The Window-owned Asyncify integration now uses ABI
+version 3. Its binary layout is unchanged, but v3 makes persistent host-owned
+textures (never XR compositor or canvas-current textures) part of the contract.
 
 ## Checkpoint provenance
 
@@ -168,32 +171,41 @@ may contain environment-specific details.
 
 ## Frame ownership and failure behavior
 
-The ordinary Emscripten main loop remains registered for the process lifetime.
-It yields while an XR session owns frame scheduling. Ownership transfers only
+The ordinary Emscripten main loop remains registered for the process lifetime,
+but `Surreal_SetXRFrameLoopActive(1)` pauses it rather than allowing its callback
+to re-enter Wasm and return early. It resumes only after the last Asyncify
+render and session cleanup have drained. Ownership transfers only
 after the selected mode has a session, projection layer, and reference space:
 direct mode additionally requires `XRGPUBinding`, while compatibility mode
 requires its WebGL 2 context, `XRWebGLLayer`, and stereo-atlas bridge. Session
 end or any frame exception restores canvas scheduling and resets the
 tracked-pose origin.
 
-Each callback requires one left and one right primary view, validates the ABI in native code,
-advances simulation exactly once, builds one multi-view family, renders it, and
-finishes deferred save/travel work once. A missing viewer pose skips the frame
-without advancing simulation.
+Each XR animation callback requires one left and one right primary view, but it
+never calls Wasm. It copies pose, projection, controller input, and layout
+metadata into JavaScript-owned packets; presents the last completed front
+target; discards all current-frame XR objects; and returns. A later browser task
+drains the ordered input queue and starts at most one Asyncify-aware native
+producer render into the back target. Completion atomically publishes that back
+target. A missing viewer pose skips capture without advancing simulation, and
+headset frames may repeat the immutable front image while the producer waits on
+OPFS. This is intentional frame dropping, not a second simulation tick.
 
-In direct mode, the browser acquires an `XRGPUSubImage` for each `XRView`. ABI
-v2 deduplicates the common texture-array case, but does not assume both
-subimages share a `GPUTexture`: each packed view identifies its texture, array
-layer, texture extent, and viewport. Native code verifies those values against
-the imported runtime-owned texture before binding it. In compatibility mode,
-both views identify one WebGPU canvas atlas with distinct viewports; the bridge
-uploads it once and draws those subrectangles into the `XRWebGLLayer` eye
-viewports. All transient work remains inside the owning
-`XRSession.requestAnimationFrame()` callback.
+In direct mode, ABI v3 gives native code two ordinary persistent 2D eye
+textures. The projection layer requests `COPY_DST`; the XR callback acquires
+each current `XRGPUSubImage` only during its late presentation section and
+copies the immutable front eyes into the returned viewport/array slices before
+returning. In compatibility mode, native code receives one persistent stereo
+atlas. A separate hidden WebGPU transfer canvas is acquired late, receives the
+atlas copy, and is synchronously uploaded and drawn into the `XRWebGLLayer` in
+that same callback. The SDL/flat canvas is not resized or borrowed by the
+bridge.
 
-Session shutdown or frame failure cancels the queued XR animation callback,
-releases frame-loop ownership only if it was acquired, clears the transient
-texture handoff, and restores the ordinary canvas loop. Capability reporting
+Session shutdown or frame failure immediately invalidates the generation and
+cancels the queued XR animation callback. Native neutral-input/pose cleanup,
+target destruction, flat-loop resume, and a new session request wait for any
+in-flight producer and submitted GPU work to finish. An old-generation
+completion can therefore neither publish nor present. Capability reporting
 distinguishes secure-context, immersive-session, current `XRGPUBinding`,
 obsolete `XRWebGPUBinding`, WebGPU-device readiness, and whether that device was
 created from an adapter requested with `xrCompatible: true`. Failures expose a
@@ -222,6 +234,14 @@ Completed locally:
 - all 25 registered native tests passing at integrated commit `a0fb4f93`;
 - direct and fallback provider tests passing controller input, cleanup,
   exit/re-entry, and flat-loop restoration through the shared native runtime;
+- deterministic ABI-v3 tests proving persistent double buffering, no Wasm
+  calls from XR callbacks, no provider/audio re-entry while an Asyncify render
+  is unresolved, bounded ordered input queueing, frame replacement, deferred
+  exit cleanup, and re-entry after cleanup;
+- fixed-256 MiB Window-owned Asyncify Emscripten compile and final link with
+  the paused flat loop and two-phase provider;
+- ordinary non-Asyncify Emscripten compile and final link, preserving the
+  shared flat/browser build configuration;
 - a real desktop Chrome WebGPU-canvas to WebGL 2 upload/readback probe passing;
 - flat Chrome/WebGPU UT99 runtime after the provider changes: ticked from 61
   to 604, 95 draw calls, 75 cached textures, zero WebGPU errors, 100% nonblank
