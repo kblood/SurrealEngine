@@ -102,6 +102,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/XR/XRWeaponPoseSolver.h
 	SurrealEngine/XR/XRWeaponRuntime.cpp
 	SurrealEngine/XR/XRWeaponRuntime.h
+	SurrealEngine/XR/XRLaunchPolicy.cpp
+	SurrealEngine/XR/XRLaunchPolicy.h
 	SurrealEngine/UE1GameDatabase.h
 	SurrealEngine/UE1GameDatabase.cpp
 	SurrealEngine/Utils/CommandLine.cpp
@@ -590,6 +592,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UI/Launcher/PlayGamePage.h
 	SurrealEngine/UI/Launcher/VideoSettingsPage.cpp
 	SurrealEngine/UI/Launcher/VideoSettingsPage.h
+	SurrealEngine/UI/Launcher/VRSettingsPage.cpp
+	SurrealEngine/UI/Launcher/VRSettingsPage.h
 	SurrealEngine/UI/Launcher/GameFoldersPage.cpp
 	SurrealEngine/UI/Launcher/GameFoldersPage.h
 	SurrealEngine/Compiler/Ast/Ast.h
@@ -1138,6 +1142,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRWeaponPoseSolverTests PRIVATE SurrealEngine)
 	set_target_properties(XRWeaponPoseSolverTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRWeaponPoseSolver COMMAND XRWeaponPoseSolverTests)
+
+	add_executable(XRLaunchPolicyTests
+		Tests/XRLaunchPolicyTests.cpp
+		SurrealEngine/XR/XRLaunchPolicy.cpp
+	)
+	target_include_directories(XRLaunchPolicyTests PRIVATE SurrealEngine)
+	set_target_properties(XRLaunchPolicyTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRLaunchPolicy COMMAND XRLaunchPolicyTests)
 
 	add_executable(XRWeaponRuntimeTests Tests/XRWeaponRuntimeTests.cpp)
 	target_link_libraries(XRWeaponRuntimeTests SurrealCommon ${SURREALCOMMON_LIBS})

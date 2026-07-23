@@ -97,6 +97,12 @@ static void TestGameplayHudContract()
 	Check(gameplay.Hud && !gameplay.Menu, "ordinary gameplay did not select the HUD surface");
 	XRUISurfaceVisibility menu = ResolveXRUISurfaceVisibility(true, true);
 	Check(!menu.Hud && menu.Menu, "menu did not replace the gameplay HUD surface");
+	XRUISurfaceVisibility direct = ResolveXRUISurfaceVisibility(true, false, true);
+	Check(!direct.Hud && !direct.Menu,
+		"direct per-eye HUD was also captured into a compositor surface");
+	XRUISurfaceVisibility directMenu = ResolveXRUISurfaceVisibility(true, true, true);
+	Check(!directMenu.Hud && directMenu.Menu,
+		"direct HUD policy suppressed the interactive menu surface");
 
 	XRUISurfaceDescriptor hud = CreateXRUISurfaceDescriptor(XRUISurfaceKind::Hud, 1024, 768);
 	Check(hud.AnchorMode == XRUISurfaceAnchorMode::HeadRelativeEveryFrame,

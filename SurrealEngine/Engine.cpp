@@ -34,6 +34,7 @@
 #include "VM/Frame.h"
 #include "VM/ScriptCall.h"
 #include "XR/XRWeaponRuntime.h"
+#include "XR/XRLaunchPolicy.h"
 #include "LauncherSettings.h"
 #include "Video/VideoPlayer.h"
 #include "Video/VideoFrameScheduler.h"
@@ -281,7 +282,11 @@ void Engine::Setup()
 	LoadKeybindings();
 	LogMessage("Loaded key bindings");
 	LogGamePackageSHA1Sums();
-	if (commandline && commandline->HasArg("", "--openxr"))
+	const bool openXRRequested = ResolveOpenXRLaunchRequest(
+		LauncherSettings::Get().XR.Enabled,
+		commandline && commandline->HasArg("", "--openxr"),
+		commandline && commandline->HasArg("", "--no-openxr"));
+	if (openXRRequested)
 	{
 		openXR = std::make_unique<OpenXRProvider>();
 		if (!openXR->IsAvailable())

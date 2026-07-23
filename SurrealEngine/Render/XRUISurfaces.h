@@ -33,7 +33,8 @@ struct XRUISurfaceVisibility
 	bool Menu = false;
 };
 
-XRUISurfaceVisibility ResolveXRUISurfaceVisibility(bool hasHudOwner, bool menuActive);
+XRUISurfaceVisibility ResolveXRUISurfaceVisibility(bool hasHudOwner,
+	bool menuActive, bool directHudPresentation = false);
 
 // UI surfaces are composed independently of scene depth. This prevents a
 // world or backing quad from hiding a menu, loading screen, or cinematic.

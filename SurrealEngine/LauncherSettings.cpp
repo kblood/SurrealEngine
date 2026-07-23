@@ -73,6 +73,7 @@ LauncherSettings::LauncherSettings()
 
 		if (settings["XR"]["DominantHand"].to_string() == "Left")
 			XR.DominantHand = XRHand::Left;
+		XR.Enabled = settings["XR"]["Enabled"].to_boolean();
 	}
 	catch (...)
 	{
@@ -133,6 +134,7 @@ void LauncherSettings::Save()
 	settings["RenderDevice"] = std::move(rendev);
 	settings["Games"] = std::move(games);
 	JsonValue xr = JsonValue::object();
+	xr["Enabled"] = JsonValue::boolean(XR.Enabled);
 	xr["DominantHand"] = JsonValue::string(
 		XR.DominantHand == XRHand::Left ? "Left" : "Right");
 	settings["XR"] = std::move(xr);

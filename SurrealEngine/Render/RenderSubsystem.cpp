@@ -148,8 +148,9 @@ void RenderSubsystem::UpdateXRUISurfaceVisibility()
 {
 	const bool menuActive = IsXRUIMenuActive();
 	const XRUISurfaceVisibility visibility = ResolveXRUISurfaceVisibility(
-		engine->viewport->Actor() != nullptr, menuActive);
-	XRUIBinding.SetHudActive(visibility.Hud && !DirectHudPresentationActive);
+		engine->viewport->Actor() != nullptr, menuActive,
+		DirectHudPresentationActive);
+	XRUIBinding.SetHudActive(visibility.Hud);
 	XRUIBinding.SetMenuActive(visibility.Menu);
 	if (menuActive)
 		engine->CompleteStartupIntro();

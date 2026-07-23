@@ -97,9 +97,10 @@ XRUISurfaceDescriptor CreateXRUISurfaceDescriptor(XRUISurfaceKind kind, int pixe
 	return descriptor;
 }
 
-XRUISurfaceVisibility ResolveXRUISurfaceVisibility(bool hasHudOwner, bool menuActive)
+XRUISurfaceVisibility ResolveXRUISurfaceVisibility(bool hasHudOwner,
+	bool menuActive, bool directHudPresentation)
 {
-	return { hasHudOwner && !menuActive, menuActive };
+	return { hasHudOwner && !menuActive && !directHudPresentation, menuActive };
 }
 
 void XRUISurfaceFramePolicy::Configure(const XRUISurfaceDescriptor& descriptor)
