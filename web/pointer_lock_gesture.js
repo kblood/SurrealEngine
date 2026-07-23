@@ -20,6 +20,11 @@
 		bridgeOwnsMotion: false,
 		pendingBridgeActive: null,
 		pendingMouseReset: false,
+		observedMouseMotionEvents: 0,
+		lockedMouseMotionEvents: 0,
+		nonzeroMouseMotionEvents: 0,
+		forwardedMouseMotionEvents: 0,
+		blockedMouseMotionEvents: 0,
 		lastError: null,
 	};
 
@@ -85,6 +90,18 @@
 		return root.surrealXRNativeCallsBlocked !== true;
 	}
 
+	function incrementCounter(name) {
+		if (state[name] < Number.MAX_SAFE_INTEGER) state[name]++;
+	}
+
+	function resetMouseMotionDiagnostics() {
+		state.observedMouseMotionEvents = 0;
+		state.lockedMouseMotionEvents = 0;
+		state.nonzeroMouseMotionEvents = 0;
+		state.forwardedMouseMotionEvents = 0;
+		state.blockedMouseMotionEvents = 0;
+	}
+
 	function relativeMotionBridgeReady() {
 		const Module = root.Module;
 		return !!Module && typeof Module._Surreal_ForwardBrowserMouseMotion === "function" &&
@@ -135,16 +152,23 @@
 	}
 
 	function forwardMouseMotion(event) {
-		synchronizeBridgeActive();
 		const canvas = state.canvas || currentCanvas();
-		if (!state.requested || state.xrActive || !nativeCallsAllowed() ||
-			!relativeMotionBridgeReady() || !state.bridgeOwnsMotion || !canvas ||
-			root.document.pointerLockElement !== canvas) return false;
+		if (!canvas || event.target !== canvas) return false;
+		incrementCounter("observedMouseMotionEvents");
+		synchronizeBridgeActive();
+		const exactCanvasLocked = !!canvas && root.document.pointerLockElement === canvas;
+		if (exactCanvasLocked) incrementCounter("lockedMouseMotionEvents");
 		const dx = Number.isFinite(event.movementX) ? Math.trunc(event.movementX) : 0;
 		const dy = Number.isFinite(event.movementY) ? Math.trunc(event.movementY) : 0;
+		if (exactCanvasLocked && (dx !== 0 || dy !== 0)) incrementCounter("nonzeroMouseMotionEvents");
+		if (exactCanvasLocked && !nativeCallsAllowed()) incrementCounter("blockedMouseMotionEvents");
+		if (!state.requested || state.xrActive || !nativeCallsAllowed() ||
+			!relativeMotionBridgeReady() || !state.bridgeOwnsMotion || !canvas ||
+			!exactCanvasLocked) return false;
 		if (dx === 0 && dy === 0) return false;
 		try {
 			root.Module._Surreal_ForwardBrowserMouseMotion(dx, dy);
+			incrementCounter("forwardedMouseMotionEvents");
 			return true;
 		} catch (error) {
 			recordFailure(error);
@@ -194,9 +218,11 @@
 		const canvas = state.canvas || currentCanvas();
 		const active = !!canvas && root.document.pointerLockElement === canvas;
 		const lost = state.wasActive && !active;
+		const acquired = !state.wasActive && active;
 		state.wasActive = active;
 		synchronizeBridgeActive();
 		if (active) {
+			if (acquired) resetMouseMotionDiagnostics();
 			state.everCaptured = true;
 			state.programmaticExit = false;
 			state.lastError = null;
@@ -313,6 +339,13 @@
 			bridgeOwnsMotion: state.bridgeOwnsMotion,
 			pendingBridgeActive: state.pendingBridgeActive,
 			pendingMouseReset: state.pendingMouseReset,
+			nativeCallsAllowed: nativeCallsAllowed(),
+			bridgeReady: relativeMotionBridgeReady(),
+			observedMouseMotionEvents: state.observedMouseMotionEvents,
+			lockedMouseMotionEvents: state.lockedMouseMotionEvents,
+			nonzeroMouseMotionEvents: state.nonzeroMouseMotionEvents,
+			forwardedMouseMotionEvents: state.forwardedMouseMotionEvents,
+			blockedMouseMotionEvents: state.blockedMouseMotionEvents,
 			lastError: state.lastError,
 		});
 	}

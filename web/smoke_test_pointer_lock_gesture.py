@@ -27,8 +27,10 @@ with sync_playwright() as playwright:
 	locked = page.evaluate("SurrealBrowserPointerLock.status()")
 	page.evaluate("pointerLockTest.move(8, -5); pointerLockTest.move(-3, 9)")
 	motion = page.evaluate("pointerLockTest.nativeMouse")
+	motion_status = page.evaluate("SurrealBrowserPointerLock.status()")
 	page.evaluate("globalThis.surrealXRNativeCallsBlocked = true; pointerLockTest.move(100, 100)")
 	blocked_motion = page.evaluate("pointerLockTest.nativeMouse")
+	blocked_motion_status = page.evaluate("SurrealBrowserPointerLock.status()")
 	page.evaluate("globalThis.surrealXRNativeCallsBlocked = false")
 	page.evaluate("pointerLockTest.loseAsBrowserEscape()")
 	escape_loss = page.evaluate("({ status: SurrealBrowserPointerLock.status(), nativeEscapes: pointerLockTest.nativeEscapes, nativeMouse: pointerLockTest.nativeMouse, label: document.querySelector('[data-pointer-lock-capture]').textContent })")
@@ -66,7 +68,8 @@ with sync_playwright() as playwright:
 	browser.close()
 
 result = {"initial": initial, "bridgeReady": bridge_ready, "prompt": prompt, "locked": locked,
-	"motion": motion, "blockedMotion": blocked_motion, "unlockedMotion": unlocked_motion,
+	"motion": motion, "motionStatus": motion_status, "blockedMotion": blocked_motion,
+	"blockedMotionStatus": blocked_motion_status, "unlockedMotion": unlocked_motion,
 	"notRequestedMotion": not_requested_motion, "wrongCanvasMotion": wrong_canvas_motion,
 	"xrMotion": xr_motion,
 	"escapeLoss": escape_loss, "resumed": resumed, "backgroundLoss": background_loss,
@@ -83,7 +86,18 @@ failed = (
 	locked["requestAttempts"] != 1 or not locked["active"] or locked["promptVisible"] or
 	not locked["bridgeOwnsMotion"] or
 	motion["x"] != 5 or motion["y"] != 4 or motion["events"] != 2 or not motion["active"] or
+	motion_status["observedMouseMotionEvents"] != 2 or
+	motion_status["lockedMouseMotionEvents"] != 2 or
+	motion_status["nonzeroMouseMotionEvents"] != 2 or
+	motion_status["forwardedMouseMotionEvents"] != 2 or
+	motion_status["blockedMouseMotionEvents"] != 0 or not motion_status["nativeCallsAllowed"] or
 	blocked_motion != motion or escape_loss["nativeMouse"]["x"] != 0 or
+	blocked_motion_status["observedMouseMotionEvents"] != 3 or
+	blocked_motion_status["lockedMouseMotionEvents"] != 3 or
+	blocked_motion_status["nonzeroMouseMotionEvents"] != 3 or
+	blocked_motion_status["forwardedMouseMotionEvents"] != 2 or
+	blocked_motion_status["blockedMouseMotionEvents"] != 1 or
+	blocked_motion_status["nativeCallsAllowed"] or
 	escape_loss["nativeMouse"]["y"] != 0 or escape_loss["nativeMouse"]["resets"] <= motion["resets"] or
 	escape_loss["nativeMouse"]["active"] or unlocked_motion != escape_loss["nativeMouse"] or
 	escape_loss["status"]["active"] or not escape_loss["status"]["promptVisible"] or
@@ -96,6 +110,8 @@ failed = (
 	background_loss["status"]["forwardedEscapeIntents"] != 1 or background_loss["nativeEscapes"] != 1 or
 	not background_resumed["active"] or not background_resumed["pageFocused"] or
 	background_resumed["requestAttempts"] != 3 or not background_resumed["bridgeOwnsMotion"] or
+	background_resumed["observedMouseMotionEvents"] != 0 or
+	background_resumed["forwardedMouseMotionEvents"] != 0 or
 	pre_blocked_release["x"] != 7 or pre_blocked_release["y"] != -6 or
 	pre_blocked_release["events"] != 3 or not pre_blocked_release["active"] or
 	not pending_release["status"]["bridgeOwnsMotion"] or

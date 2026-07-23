@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Real Chrome pointer lock test</title>
+<canvas id="canvas" width="640" height="480"></canvas>
+<div data-pointer-lock-control hidden>
+	<button type="button" data-pointer-lock-capture>Capture mouse</button>
+	<span data-pointer-lock-message></span>
+</div>
+<script>
+	let nativeMouseX = 0;
+	let nativeMouseY = 0;
+	let nativeMouseEvents = 0;
+	let nativeMouseActive = false;
+	window.Module = {
+		canvas: document.getElementById("canvas"),
+		_Surreal_ForwardBrowserEscape() {},
+		_Surreal_ForwardBrowserMouseMotion(dx, dy) {
+			nativeMouseX += dx;
+			nativeMouseY += dy;
+			nativeMouseEvents++;
+		},
+		_Surreal_ResetBrowserMouseMotion() {
+			nativeMouseX = 0;
+			nativeMouseY = 0;
+		},
+		_Surreal_SetBrowserMouseMotionActive(active) {
+			nativeMouseActive = active === 1;
+			nativeMouseX = 0;
+			nativeMouseY = 0;
+		},
+	};
+	window.realPointerLockTest = {
+		get nativeMouse() {
+			return { x: nativeMouseX, y: nativeMouseY, events: nativeMouseEvents,
+				active: nativeMouseActive };
+		},
+	};
+</script>
+<script src="pointer_lock_gesture.js"></script>
+<script>
+	SurrealBrowserPointerLock.setInteractive(true);
+	SurrealBrowserPointerLock.setRequested(true);
+	window.realPointerLockTestReady = true;
+</script>
