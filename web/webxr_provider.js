@@ -13,6 +13,7 @@
 	const INPUT_HEADER_FLAGS = Object.freeze({ sessionActive: 1, actionFocused: 2 });
 	const INPUT_SOURCE_FLAGS = Object.freeze({ connected: 1, aimValid: 2, gripValid: 4 });
 	const INPUT_QUEUE_LIMIT = 256;
+	const HAPTIC_POLICY = Object.freeze({ minimumDurationMilliseconds: 1, maximumDurationMilliseconds: 1000 });
 	let generationCounter = 0;
 	let activeGeneration = 0;
 	let enterPending = false;
@@ -40,6 +41,7 @@
 	let renderPumpHandle = null;
 	let nativeRenderPromise = null;
 	let cleanupPending = Promise.resolve();
+	let hapticStatus = null;
 
 	const status = {
 		phase: "idle",
@@ -185,6 +187,67 @@
 	function isActionFocused(currentSession) {
 		return !currentSession || currentSession.visibilityState === undefined || currentSession.visibilityState === "visible";
 	}
+
+	function resetHapticStatus(generation) {
+		hapticStatus = {
+			generation: generation || 0,
+			submissions: 0,
+			dispatched: 0,
+			rejected: 0,
+			asyncRejected: 0,
+			droppedInactive: 0,
+			droppedDisconnected: 0,
+			droppedUnsupported: 0,
+			lastHand: null,
+			lastAmplitude: null,
+			lastDurationMilliseconds: null,
+			lastActuator: null,
+		};
+	}
+
+	function hapticTarget(handedness) {
+		if (!session || !status.active || !activeGeneration || !isActionFocused(session))
+			return { status: "inactive" };
+		let sawConnected = false;
+		for (const source of Array.from(session.inputSources || [])) {
+			if (!source || source.handedness !== handedness) continue;
+			const gamepad = source.gamepad;
+			if (!gamepad || gamepad.connected === false) continue;
+			sawConnected = true;
+			try {
+				const actuators = Array.from(gamepad.hapticActuators || []);
+				if (gamepad.vibrationActuator && !actuators.includes(gamepad.vibrationActuator))
+					actuators.push(gamepad.vibrationActuator);
+				for (const actuator of actuators) {
+					if (actuator && typeof actuator.pulse === "function")
+						return { status: "supported", actuator, mode: "pulse" };
+					if (actuator && typeof actuator.playEffect === "function")
+						return { status: "supported", actuator, mode: "playEffect" };
+				}
+			} catch (_) { /* A capability accessor may disappear with its input source. */ }
+		}
+		return { status: sawConnected ? "unsupported" : "disconnected" };
+	}
+
+	function hapticCapability(handedness) {
+		const target = hapticTarget(handedness);
+		return Object.freeze({
+			connected: target.status === "supported" || target.status === "unsupported",
+			supported: target.status === "supported",
+			mode: target.status === "supported" ? target.mode : null,
+			status: target.status,
+		});
+	}
+
+	function snapshotHapticStatus() {
+		return Object.assign({}, hapticStatus, {
+			policy: HAPTIC_POLICY,
+			left: hapticCapability("left"),
+			right: hapticCapability("right"),
+		});
+	}
+
+	resetHapticStatus(0);
 
 	function semanticGamepad(inputSource, actionFocused) {
 		const neutral = { pressed: 0, touched: 0, values: new Array(6).fill(0), axes: new Array(4).fill(0) };
@@ -847,6 +910,67 @@
 		return format === "bgra8unorm" || format === "rgba8unorm" || format === "rgba16float";
 	};
 
+	root.surrealXRGetHapticCapabilities = function () {
+		return snapshotHapticStatus();
+	};
+
+	root.surrealXRSubmitHaptic = function (hand, amplitude, durationMilliseconds, frequencyHz) {
+		const handedness = hand === 0 ? "left" : (hand === 1 ? "right" : null);
+		amplitude = Number(amplitude);
+		durationMilliseconds = Number(durationMilliseconds);
+		frequencyHz = Number(frequencyHz);
+		hapticStatus.submissions++;
+		if (!handedness || !Number.isFinite(amplitude) || amplitude <= 0 || amplitude > 1 ||
+			!Number.isFinite(durationMilliseconds) || durationMilliseconds <= 0 ||
+			!Number.isFinite(frequencyHz) || frequencyHz < 0) {
+			hapticStatus.rejected++;
+			return false;
+		}
+		durationMilliseconds = Math.round(Math.max(HAPTIC_POLICY.minimumDurationMilliseconds,
+			Math.min(HAPTIC_POLICY.maximumDurationMilliseconds, durationMilliseconds)));
+		const target = hapticTarget(handedness);
+		if (target.status !== "supported") {
+			const field = target.status === "inactive" ? "droppedInactive" :
+				(target.status === "unsupported" ? "droppedUnsupported" : "droppedDisconnected");
+			hapticStatus[field]++;
+			return false;
+		}
+
+		const generation = activeGeneration;
+		let result;
+		try {
+			result = target.mode === "pulse" ? target.actuator.pulse(amplitude, durationMilliseconds) :
+				target.actuator.playEffect("dual-rumble", {
+					duration: durationMilliseconds,
+					startDelay: 0,
+					strongMagnitude: amplitude,
+					weakMagnitude: amplitude,
+				});
+		} catch (_) {
+			hapticStatus.rejected++;
+			return false;
+		}
+		if (result === false) {
+			hapticStatus.rejected++;
+			return false;
+		}
+		if (result && typeof result.then === "function") {
+			Promise.resolve(result).then(function (accepted) {
+				if (accepted === false && generation === activeGeneration && generation === hapticStatus.generation)
+					hapticStatus.asyncRejected++;
+			}).catch(function () {
+				if (generation === activeGeneration && generation === hapticStatus.generation)
+					hapticStatus.asyncRejected++;
+			});
+		}
+		hapticStatus.dispatched++;
+		hapticStatus.lastHand = handedness;
+		hapticStatus.lastAmplitude = amplitude;
+		hapticStatus.lastDurationMilliseconds = durationMilliseconds;
+		hapticStatus.lastActuator = target.mode;
+		return true;
+	};
+
 	root.surrealXRRequestSession = async function () {
 		await cleanupPending;
 		if (session || enterPending) return false;
@@ -903,6 +1027,7 @@
 		status.atlasWidth = null;
 		status.atlasHeight = null;
 		status.bridgeDiagnostics = null;
+		resetHapticStatus(generation);
 		let requestedSession = null;
 		try {
 			try {
@@ -1063,6 +1188,7 @@
 		result.sessionEndBlocked = sessionEndBlocked;
 		result.inputQueueDepth = queuedInputPackets.length;
 		result.inputQueueOverflow = inputQueueOverflow;
+		result.haptics = snapshotHapticStatus();
 		return result;
 	};
 	root.surrealXRFrameABI = ABI;

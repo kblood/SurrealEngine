@@ -10,7 +10,7 @@ This layer samples browser-owned WebXR input, crosses the JavaScript/WASM
 boundary through a packed replacement snapshot, and converts the decoded data
 to the provider-neutral types in `XRCommon.h`. It does not choose locomotion,
 weapons, dominant hand, menu clicks, UI raycasts, controller rendering, or
-haptic behavior. The integration product supplies those decisions through
+haptic outcomes. The integration product supplies those decisions through
 provider-neutral XR gameplay/profile modules rather than changing this ABI.
 
 Keyboard/mouse and flat presentation remain active. WebXR uses the independent
@@ -121,14 +121,37 @@ through `XRInputAdapter::SetTurnPolicy`, without changing WebXR code. Persisting
 that choice in launcher/in-game settings, dominant-hand settings, movement
 reference, and configurable remapping remain profile/settings follow-ups.
 
+## Haptic transport
+
+`WebXR::HapticSink` implements the shared `IXRHapticSink` contract. Engine and
+profile code submit a semantic `XRHapticRequest` through `RouteXRHaptic`; they
+does not call a browser or game-specific vibration helper. The WebXR sink
+preserves hand, amplitude, and frequency, converts seconds to integer
+milliseconds, and bounds browser pulses to 1–1000 ms. Frequency remains a
+provider-neutral hint because the browser Gamepad haptic APIs do not expose a
+frequency control.
+
+The JavaScript provider resolves the selected hand from the current session's
+live `XRInputSource` list for every request. It supports
+`gamepad.hapticActuators[].pulse()` and the
+`gamepad.vibrationActuator.playEffect("dual-rumble", ...)` compatibility shape.
+It retains neither input sources nor actuators, so controller removal, focus
+loss, and session exit reject later feedback immediately. Promise rejection is
+observed for diagnostics without blocking or re-entering the Wasm simulation.
+`surrealXRGetHapticCapabilities()` and the `haptics` field in
+`surrealXRGetState()` report per-hand connection, support, and actuator mode.
+The transport does not decide whether firing, damage, UI contact, or another
+gameplay outcome should vibrate; those policies remain shared engine/profile
+work.
+
 ## Validation
 
 Native:
 
 ```text
 cmake -S . -B build-input-native -G "Visual Studio 17 2022" -A x64 "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
-cmake --build build-input-native --config Release --target WebXRInputBridgeTests WebXRInputAdapterTests WebXRInputRuntimeTests InputCompositionTests XRCommonTests --parallel 4
-ctest --test-dir build-input-native -C Release --output-on-failure -R "WebXRInput|InputComposition|XRCommon"
+cmake --build build-input-native --config Release --target WebXRInputBridgeTests WebXRInputAdapterTests WebXRInputRuntimeTests WebXRHapticsTests InputCompositionTests XRCommonTests --parallel 4
+ctest --test-dir build-input-native -C Release --output-on-failure -R "WebXRInput|WebXRHaptics|InputComposition|XRCommon"
 ```
 
 Browser-provider lifecycle:
@@ -141,7 +164,11 @@ The synthetic tests cover two independent hands, aim/grip poses, axes and all
 semantic bit positions, action focus, profile-defensive mapping, duplicate and
 malformed packet rejection, per-hand disconnect, blur/session-end
 neutralization, held-button edge handling, shared-type adaptation, and
-keyboard/gamepad/XR composition. The browser lifecycle test also stalls one
+keyboard/gamepad/XR composition. Haptic coverage routes requests through
+XRCommon into a deterministic native fake transport, bounds duration, reports
+transport rejection, detects both browser actuator shapes, and rejects
+unsupported, disconnected, unfocused, and ended-session requests. The browser
+lifecycle test also stalls one
 native render, retains more than sixteen alternating trigger edges, and proves
 that each edge is paired with a distinct later simulation producer in order.
 They contain no game data. The runtime branch also completes a no-data
@@ -161,4 +188,6 @@ or release, test on a physical Quest browser with WebXR/WebGPU enabled:
 6. blur/hide the session while holding controls and confirm actions neutralize;
 7. exit while holding controls, then use keyboard/mouse in flat mode and confirm
    desktop input was never cleared;
-8. record any non-Oculus input profile before adding a profile-specific mapping.
+8. verify both hands vibrate independently, stop accepting requests on focus or
+   controller loss, and report the runtime's actual actuator mode;
+9. record any non-Oculus input profile before adding a profile-specific mapping.

@@ -199,6 +199,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Platform/WebXR/WebXRInputAdapter.h
 	SurrealEngine/Platform/WebXR/WebXRInputRuntime.cpp
 	SurrealEngine/Platform/WebXR/WebXRInputRuntime.h
+	SurrealEngine/Platform/WebXR/WebXRHaptics.cpp
+	SurrealEngine/Platform/WebXR/WebXRHaptics.h
 	SurrealEngine/Platform/WebXR/WebXRProvider.cpp
 	SurrealEngine/Render/XRUISurfaces.h
 	SurrealEngine/Render/XRUISurfaces.cpp
@@ -1348,6 +1350,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(WebXRInputRuntimeTests PRIVATE SurrealEngine)
 	set_target_properties(WebXRInputRuntimeTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME WebXRInputRuntimeTests COMMAND WebXRInputRuntimeTests)
+
+	add_executable(WebXRHapticsTests
+		Tests/WebXRHapticsTests.cpp
+		SurrealEngine/Platform/WebXR/WebXRHaptics.cpp
+		SurrealEngine/XR/XRCommon.cpp
+	)
+	target_include_directories(WebXRHapticsTests PRIVATE SurrealEngine)
+	set_target_properties(WebXRHapticsTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME WebXRHapticsTests COMMAND WebXRHapticsTests)
 
 	add_executable(XRUISurfaceRuntimeAdapterTests
 		Tests/XRUISurfaceRuntimeAdapterTests.cpp

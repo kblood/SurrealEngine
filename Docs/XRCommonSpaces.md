@@ -79,6 +79,13 @@ hand or values. Amplitude is `(0, 1]`, duration must be positive, and frequency
 must be non-negative; frequency zero asks the provider to use its default.
 Missing sinks and rejected provider submissions return `false`.
 
+The WebXR implementation adapts this same contract to live browser Gamepad
+haptic actuators. It bounds the provider pulse to 1–1000 ms and resolves the
+current hand on every submission, so no browser-owned controller or actuator is
+retained across disconnect or session loss. The common request's frequency is
+preserved to the provider boundary, but current browser pulse APIs cannot apply
+that hint.
+
 ## Adapter checklist
 
 An OpenXR or WebXR adapter should:

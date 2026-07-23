@@ -26,6 +26,8 @@ platform. It provides:
   as stable world-space quads into both projection eyes without scene depth;
 - exact tracked-controller menu contact routing plus a packed laser/hit
   feedback ABI;
+- XRCommon-routed, per-hand haptic transport with live browser actuator
+  capability detection and lifecycle-safe rejection;
 - direct `XRGPUBinding` presentation plus an automatic `XRWebGLLayer`
   compatibility mode that copies a WebGPU-rendered stereo atlas through
   WebGL 2; and
@@ -36,7 +38,7 @@ The low-level provider deliberately excludes game-specific policy, PWA
 packaging, game-data import, and persistence. Product integration composes it
 with the shared semantic XR input adapter and provider-neutral one-hand weapon
 pose/runtime. Procedural controller proxies remain UI feedback rather than game
-weapon models. Dominant-hand settings, comfort locomotion, haptic outcomes,
+weapon models. Dominant-hand settings, comfort locomotion, haptic outcome policy,
 muzzle calibration, and two-hand behavior remain separate profile work.
 
 ## Projection-eye UI connector

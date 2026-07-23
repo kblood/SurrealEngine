@@ -104,13 +104,30 @@ class FakeSession {
 }
 
 function button(value, pressed = false, touched = pressed) { return { value, pressed, touched }; }
+const leftHapticCalls = [];
+const rightHapticCalls = [];
+const leftHapticActuator = {
+	pulse(amplitude, durationMilliseconds) {
+		leftHapticCalls.push({ amplitude, durationMilliseconds });
+		return true;
+	},
+};
+const rightHapticActuator = {
+	playEffect(type, options) {
+		rightHapticCalls.push({ type, options: Object.assign({}, options) });
+		return Promise.resolve(true);
+	},
+};
 function makeInputSource(handedness, x) {
-	return { handedness, profiles: ["oculus-touch-v3"], targetRaySpace: { kind: "aim", x },
-		gripSpace: { kind: "grip", x }, gamepad: { mapping: "xr-standard",
+	const gamepad = { mapping: "xr-standard", connected: true,
 			buttons: [button(handedness === "right" ? .8 : .2, handedness === "right"), button(.4),
 				button(0), button(1, true), button(1, handedness === "left"),
 				button(handedness === "right" ? 1 : .5, handedness === "right")],
-			axes: [.1, -.2, handedness === "left" ? -.75 : .75, .25] } };
+			axes: [.1, -.2, handedness === "left" ? -.75 : .75, .25] };
+	if (handedness === "left") gamepad.hapticActuators = [leftHapticActuator];
+	else gamepad.vibrationActuator = rightHapticActuator;
+	return { handedness, profiles: ["oculus-touch-v3"], targetRaySpace: { kind: "aim", x },
+		gripSpace: { kind: "grip", x }, gamepad };
 }
 function makeInputSources() { return [makeInputSource("left", -.25), makeInputSource("right", .25)]; }
 
@@ -192,6 +209,33 @@ assert.equal(globalThis.surrealXRGetState().phase, "session-reserved");
 assert.equal(bindingCreations, 0); assert.equal(nativeCalls.length, 0); assert.equal(sessions[0].frames.size, 0);
 assert.equal(await globalThis.surrealXRActivateReservedSession(), true);
 assert.deepEqual(loopTransitions, [1]);
+
+// Haptic requests retain XRCommon hand/amplitude semantics, bound browser pulse
+// duration, and resolve the live controller capability for every dispatch.
+let haptics = globalThis.surrealXRGetHapticCapabilities();
+assert.equal(haptics.left.mode, "pulse");
+assert.equal(haptics.right.mode, "playEffect");
+assert.equal(globalThis.surrealXRSubmitHaptic(0, .25, .1, 90), true);
+assert.deepEqual(leftHapticCalls, [{ amplitude: .25, durationMilliseconds: 1 }]);
+assert.equal(globalThis.surrealXRSubmitHaptic(1, .75, 5000, 0), true);
+assert.equal(rightHapticCalls[0].type, "dual-rumble");
+assert.deepEqual(rightHapticCalls[0].options, { duration: 1000, startDelay: 0,
+	strongMagnitude: .75, weakMagnitude: .75 });
+assert.equal(globalThis.surrealXRSubmitHaptic(2, .5, 10, 0), false);
+assert.equal(globalThis.surrealXRSubmitHaptic(0, 1.1, 10, 0), false);
+const rightGamepad = sessions[0].inputSources.find(source => source.handedness === "right").gamepad;
+rightGamepad.vibrationActuator = {};
+assert.equal(globalThis.surrealXRGetHapticCapabilities().right.status, "unsupported");
+assert.equal(globalThis.surrealXRSubmitHaptic(1, .5, 10, 0), false);
+rightGamepad.vibrationActuator = { playEffect() { return Promise.reject(new Error("synthetic rejection")); } };
+assert.equal(globalThis.surrealXRSubmitHaptic(1, .5, 10, 0), true,
+	"an asynchronous actuator result is accepted without blocking the engine frame");
+await nextTask();
+assert.equal(globalThis.surrealXRGetState().haptics.asyncRejected, 1);
+rightGamepad.vibrationActuator = rightHapticActuator;
+assert.equal(globalThis.surrealXRGetState().haptics.dispatched, 3);
+assert.equal(globalThis.surrealXRGetState().haptics.rejected, 2);
+assert.equal(globalThis.surrealXRGetState().haptics.droppedUnsupported, 1);
 
 // First rAF only captures/discovers layout. The later task renders to ordinary persistent textures.
 renderDeferred = deferred();
@@ -277,6 +321,9 @@ const idleSafetyInputs = inputPackets.length;
 const idleSafetyRenders = renderedPackets.length;
 sessions[0].visibilityState = "visible-blurred";
 sessions[0].listeners.get("visibilitychange")();
+assert.equal(globalThis.surrealXRSubmitHaptic(0, .5, 20, 0), false,
+	"an unfocused session must not dispatch haptics");
+assert.equal(leftHapticCalls.length, 1);
 await nextTask();
 assert.equal(inputPackets.length, idleSafetyInputs + 1);
 assert.equal(renderedPackets.length, idleSafetyRenders,
@@ -314,6 +361,9 @@ for (let index = 0; index < 8; index++) {
 assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 8);
 sessions[0].inputSources = [stalledRight];
 sessions[0].listeners.get("inputsourceschange")({ removed: [stalledLeft], added: [] });
+assert.equal(globalThis.surrealXRSubmitHaptic(0, .5, 20, 0), false,
+	"a removed controller must not retain an actuator target");
+assert.equal(globalThis.surrealXRGetHapticCapabilities().left.status, "disconnected");
 assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 1,
 	"controller disconnect must purge older retained gameplay edges");
 sessions[0].visibilityState = "visible-blurred";
@@ -355,8 +405,13 @@ await nextTask();
 assert.equal(globalThis.surrealXRNativeCallsBlocked, true);
 const cleanupCallCount = nativeCalls.length;
 const delayedEnd = deferred();
+const staleHapticResult = deferred();
+rightGamepad.vibrationActuator = { playEffect() { return staleHapticResult.promise; } };
+assert.equal(globalThis.surrealXRSubmitHaptic(1, .5, 20, 0), true);
 sessions[0].endDeferred = delayedEnd;
 assert.equal(globalThis.surrealXRExit(), true);
+assert.equal(globalThis.surrealXRSubmitHaptic(1, .5, 20, 0), false,
+	"session exit must make browser haptics inactive immediately");
 assert.equal(globalThis.surrealXRGetState().active, false,
 	"successful exit request invalidates XR scheduling before the delayed end event");
 assert.equal(sessions[0].frames.size, 0, "successful exit request immediately cancels the XR callback");
@@ -372,6 +427,10 @@ assert.equal(await reentry, true);
 assert.equal(sessions.length, 2);
 assert.deepEqual(loopTransitions, [1, 0, 1]);
 assert.ok(destroyedTextures.length >= 4);
+staleHapticResult.resolve(false);
+await nextTask();
+assert.equal(globalThis.surrealXRGetState().haptics.asyncRejected, 0,
+	"an old session's actuator result must not contaminate the next session generation");
 
 // A rejected explicit end with no end event is terminal for session admission. Native/GPU cleanup
 // may finish, but only the browser's eventual real end event (or a page reset) can release the gate.
