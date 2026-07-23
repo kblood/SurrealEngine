@@ -54,6 +54,12 @@ and body placement. A bounded `[openxr-weapon]` diagnostic compares rendered
 position/direction, grip and aim origins, rendered and ballistic yaw/pitch,
 grip-to-aim angular separation, and pawn-view-to-aim separation.
 
+When that pose is valid, the native XR weapon overlay owns the mesh draw; it
+does not let stock camera-relative `RenderOverlays` replace the controller/world
+transform. `[openxr-weapon-render]` records the position and rotation actually
+applied to the actor. The solver regression covers both a rotated controller
+and a rotated player/reference frame through this final actor conversion.
+
 ## Bounded hardware diagnostics
 
 `XRInputDiagnosticsAccumulator` observes the same provider-neutral controller

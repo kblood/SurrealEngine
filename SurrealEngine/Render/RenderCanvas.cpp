@@ -119,32 +119,18 @@ void RenderSubsystem::DrawActor(UActor* actor, bool WireFrame, bool ClearZ)
 		{
 			if (!Applied)
 				return;
-			Actor->Location() = vec3(pose.VisualPose.Position.X,
-				pose.VisualPose.Position.Y, pose.VisualPose.Position.Z);
-			const vec3 forward(pose.VisualForward.X, pose.VisualForward.Y,
-				pose.VisualForward.Z);
-			const vec3 right(pose.VisualRight.X, pose.VisualRight.Y,
-				pose.VisualRight.Z);
-			const vec3 up(pose.VisualUp.X, pose.VisualUp.Y, pose.VisualUp.Z);
-			constexpr float unitsPerRadian = 65536.0f /
-				(2.0f * 3.14159265359f);
-			const float horizontal = std::sqrt(forward.x * forward.x +
-				forward.y * forward.y);
-			float yaw = 0.0f;
-			float roll = 0.0f;
-			if (horizontal > 0.00001f)
+			const XRWeaponActorTransform transform =
+				BuildXRWeaponActorTransform(pose);
+			if (!transform.Valid)
 			{
-				yaw = std::atan2(forward.y, forward.x);
-				roll = std::atan2(-right.z, up.z);
+				Applied = false;
+				return;
 			}
-			else
-				yaw = std::atan2(-right.x, right.y);
-			const float pitch = std::atan2(forward.z, horizontal);
+			Actor->Location() = vec3(transform.Position.X,
+				transform.Position.Y, transform.Position.Z);
 			Actor->Rotation() = normalize(Rotator(
-				static_cast<int>(std::lround(pitch * unitsPerRadian)),
-				static_cast<int>(std::lround(yaw * unitsPerRadian)),
-				static_cast<int>(std::lround(roll * unitsPerRadian))));
-			Actor->DrawScale() = pose.Scale;
+				transform.Pitch, transform.Yaw, transform.Roll));
+			Actor->DrawScale() = transform.Scale;
 		}
 		~ScopedXRWeaponTransform()
 		{
@@ -166,6 +152,21 @@ void RenderSubsystem::DrawActor(UActor* actor, bool WireFrame, bool ClearZ)
 	ScopedXRWeaponTransform xrTransform(actor,
 		XRWeaponOverlayActive && pose.Valid && actor == currentWeapon &&
 		currentWeapon && currentWeapon->Owner() == viewActor, pose);
+	if (xrTransform.Applied)
+	{
+		static uint64_t appliedTransformCount = 0;
+		if ((appliedTransformCount++ % 180) == 0)
+		{
+			LogMessage("[openxr-weapon-render] actor=" +
+				(actor->Class ? actor->Class->Name.ToString() : "none") +
+				" applied_pos=(" + std::to_string(actor->Location().x) + "," +
+				std::to_string(actor->Location().y) + "," +
+				std::to_string(actor->Location().z) + ") applied_yaw=" +
+				std::to_string(actor->Rotation().YawDegrees()) +
+				" applied_pitch=" + std::to_string(actor->Rotation().PitchDegrees()) +
+				" camera_yaw=" + std::to_string(engine->CameraRotation.YawDegrees()));
+		}
+	}
 
 	Device->SetSceneNode(&MainFrame.Frame);
 	if (ClearZ)
@@ -818,7 +819,14 @@ bool RenderSubsystem::RenderXRWeaponOverlay()
 	engine->canvas->SizeY() = eyeSizeY;
 	Device->SetSceneNode(&Canvas.Frame);
 
-	if (engine->LaunchInfo.ue1Version > 219)
+	if (engine->GetXRWeaponPose().Valid)
+	{
+		// Match the physically proven vr-m2 route: the XR pass owns the
+		// visible mesh draw. Stock RenderOverlays computes a camera-relative
+		// viewmodel transform and can overwrite controller/world rotation.
+		DrawActor(weapon, false, false);
+	}
+	else if (engine->LaunchInfo.ue1Version > 219)
 		CallEvent(weapon, EventName::RenderOverlays,
 			{ ExpressionValue::ObjectValue(engine->canvas) });
 	else

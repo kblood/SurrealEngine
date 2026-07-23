@@ -36,6 +36,19 @@ namespace
 		return same || negated;
 	}
 
+	float DegreesFromUnits(int value)
+	{
+		return value * (360.0f / 65536.0f);
+	}
+
+	float ShortestDegrees(float left, float right)
+	{
+		float delta = std::fmod(right - left, 360.0f);
+		if (delta > 180.0f) delta -= 360.0f;
+		if (delta < -180.0f) delta += 360.0f;
+		return delta;
+	}
+
 	float Dot(const XREngineVector3& left, const XREngineVector3& right)
 	{
 		return left.X * right.X + left.Y * right.Y + left.Z * right.Z;
@@ -138,6 +151,47 @@ namespace
 			NearlyEqual(openXR.AimDirection, webXR.AimDirection) &&
 			NearlyEqual(openXR.Scale, webXR.Scale) && openXR.Mirror == webXR.Mirror,
 			"identical OpenXR and WebXR canonical samples produced different weapon transforms");
+	}
+
+	void TestRenderedWeaponFollowsControllerAndReferenceTurns()
+	{
+		const XREnginePose neutral = Pose({ 12.0f, -7.0f, 3.0f });
+		const XREnginePose controllerTurned = Pose(neutral.Position,
+			AxisAngle(0.0f, 0.0f, 1.0f, Pi * 0.5f));
+		const XRWeaponActorTransform neutralActor = BuildXRWeaponActorTransform(
+			SolveXRWeaponPose(neutral, neutral, XRHand::Right));
+		const XRWeaponActorTransform controllerActor = BuildXRWeaponActorTransform(
+			SolveXRWeaponPose(controllerTurned, controllerTurned, XRHand::Right));
+		Require(neutralActor.Valid && controllerActor.Valid &&
+			NearlyEqual(neutralActor.Position, controllerActor.Position),
+			"controller rotation invalidated or translated the rendered weapon");
+		Require(NearlyEqual(std::abs(ShortestDegrees(
+			DegreesFromUnits(neutralActor.Yaw), DegreesFromUnits(controllerActor.Yaw))), 90.0f, 0.01f),
+			"rendered weapon yaw did not follow a 90-degree controller rotation");
+
+		XRSpaceSamples spaces;
+		spaces.GripFor(XRHand::Right) = { true, { 0.25f, 1.1f, -0.4f }, {} };
+		spaces.AimFor(XRHand::Right) = spaces.GripFor(XRHand::Right);
+		XRWorldTransform initialWorld;
+		initialWorld.UnitsPerMeter = 64.0f;
+		XRWorldTransform turnedWorld = initialWorld;
+		turnedWorld.EngineYawRadians = Pi * 0.5f;
+		const XRWeaponPoseResult initialPose = SolveXRWeaponPose(
+			spaces, initialWorld, XRHand::Right);
+		const XRWeaponPoseResult turnedPose = SolveXRWeaponPose(
+			spaces, turnedWorld, XRHand::Right);
+		const XRWeaponActorTransform initialActor =
+			BuildXRWeaponActorTransform(initialPose);
+		const XRWeaponActorTransform turnedActor =
+			BuildXRWeaponActorTransform(turnedPose);
+		Require(initialActor.Valid && turnedActor.Valid &&
+			!NearlyEqual(initialActor.Position, turnedActor.Position),
+			"player reference turn left the rendered weapon at its old world position");
+		Require(NearlyEqual(std::abs(ShortestDegrees(
+			DegreesFromUnits(initialActor.Yaw), DegreesFromUnits(turnedActor.Yaw))), 90.0f, 0.01f),
+			"rendered weapon yaw did not follow a 90-degree player reference turn");
+		Require(NearlyEqual(turnedPose.VisualForward, turnedPose.AimDirection),
+			"reference turn split the rendered weapon direction from ballistics");
 	}
 
 	void TestYawPitchRollBasis()
@@ -285,6 +339,7 @@ int main()
 	{
 		TestDefaultsAndAimGripSeparation();
 		TestCanonicalProviderParity();
+		TestRenderedWeaponFollowsControllerAndReferenceTurns();
 		TestYawPitchRollBasis();
 		TestLocalRollPreservation();
 		TestLocalPoseOffsetsAndMirrorMetadata();

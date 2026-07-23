@@ -102,6 +102,15 @@ presentation used the aim pose rather than the grip pose. The follow-up
 restores those choices and adds numeric `[openxr-weapon]` diagnostics;
 `a57bb806` remains a failed candidate.
 
+The `343480d9` retest confirmed that solving visual and ballistic direction
+from the same aim pose was insufficient: the visible weapon still failed to
+follow rotation. Numeric `[openxr-weapon]` lines showed the solved visual and
+aim directions moving together, isolating the remaining failure to the final
+render route. The follow-up makes the XR weapon pass draw the pose-transformed
+actor directly, adds `[openxr-weapon-render]` evidence from the actual draw,
+and regression-tests both controller rotation and player/reference-frame
+turning. `343480d9` remains a failed candidate.
+
 ## Safe start — explicit launcher only
 
 - [ ] Use a charged Quest 3 with both controllers awake. Connect Virtual

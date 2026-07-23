@@ -147,3 +147,34 @@ XRWeaponPoseResult SolveXRWeaponPose(const XRSpaceSamples& spaces, const XRWorld
 		TransformXRPoseToEngine(spaces.AimFor(dominantHand), worldTransform),
 		dominantHand, options);
 }
+
+XRWeaponActorTransform BuildXRWeaponActorTransform(const XRWeaponPoseResult& pose)
+{
+	if (!pose.Valid || !pose.VisualPose.Valid || !IsFinite(pose.VisualPose.Position) ||
+		!IsFinite(pose.VisualForward) || !IsFinite(pose.VisualRight) ||
+		!IsFinite(pose.VisualUp) || !IsFinite(pose.Scale) || pose.Scale <= 0.0f)
+		return {};
+
+	const float horizontal = std::sqrt(pose.VisualForward.X * pose.VisualForward.X +
+		pose.VisualForward.Y * pose.VisualForward.Y);
+	float yaw = 0.0f;
+	float roll = 0.0f;
+	if (horizontal > 0.00001f)
+	{
+		yaw = std::atan2(pose.VisualForward.Y, pose.VisualForward.X);
+		roll = std::atan2(-pose.VisualRight.Z, pose.VisualUp.Z);
+	}
+	else
+		yaw = std::atan2(-pose.VisualRight.X, pose.VisualRight.Y);
+	const float pitch = std::atan2(pose.VisualForward.Z, horizontal);
+	constexpr float unitsPerRadian = 65536.0f / (2.0f * 3.14159265359f);
+
+	XRWeaponActorTransform result;
+	result.Valid = true;
+	result.Position = pose.VisualPose.Position;
+	result.Pitch = static_cast<int>(std::lround(pitch * unitsPerRadian));
+	result.Yaw = static_cast<int>(std::lround(yaw * unitsPerRadian));
+	result.Roll = static_cast<int>(std::lround(roll * unitsPerRadian));
+	result.Scale = pose.Scale;
+	return result;
+}
