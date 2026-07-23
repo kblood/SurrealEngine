@@ -63,6 +63,7 @@ class UnrealURL;
 class VideoPlayer;
 class BrowserCinematicPlayback;
 class OpenXRProvider;
+class BotSpectatorMatch;
 class UnrealMipmap;
 class UFloatProperty;
 class UObjectProperty;
@@ -266,6 +267,7 @@ public:
 	bool getDXWindowDebugMode() const { return m_DrawDebugDXWindowHierarchy; }
 
 private:
+	std::unique_ptr<BotSpectatorMatch> botSpectatorMatch;
 	XRWeaponPoseResult xrWeaponPose;
 	AvatarIKFrameInput xrAvatarInput;
 	float avatarSyntheticTimeSeconds = 0.0f;

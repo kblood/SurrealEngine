@@ -185,8 +185,16 @@ preserving stock Botpack control:
 - bounded shadow-decision JSON can record deterministic policy outputs without
   granting those policies control of a live pawn.
 
-The next code step is intentionally narrow: connect the runtime-snapshot
-builder to read-only live Botpack observations and emit the shadow-decision
-records. Candidate policies should demonstrate stable, measurable shadow
-behavior beside stock Botpack before any policy is allowed to issue movement
-or fire commands.
+The fifth integration slice connects the runtime-snapshot builder to live
+controlled Botpack pawns without changing their behavior. Each roster identity
+owns independent `tactical-state` and `utility-arena` evaluators. A separate
+bounded manifest/JSONL stream records current weapon/ammunition usability,
+health and per-tick health loss, subjective line-of-sight enemies, policy
+decisions, evaluation counts, and action transitions. It explicitly marks item,
+armor, and stuck-time observations as unavailable and never issues movement or
+fire commands.
+
+The next code step is to validate this stream in a short owner-data smoke, then
+add evidence-backed item/reachability and route-progress observations. Only
+after shadow decisions are stable across repeated map/seed pairs should one
+experimental policy receive a narrowly scoped action adapter.

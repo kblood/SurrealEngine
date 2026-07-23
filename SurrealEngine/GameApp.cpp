@@ -72,7 +72,7 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu|webgl2|null] [--openxr] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [--avatar-autorig-debug] [--avatar-ik-synthetic] [--avatar-cull-head-debug] [--minimized-window] [--mute-audio] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu|webgl2|null] [--openxr] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [--bot-spectator] [--bot-spectator-url=<url>] [--bot-spectator-bots=N] [--bot-spectator-difficulty=0..7] [--bot-spectator-skills=list] [--bot-spectator-seconds=S] [--avatar-autorig-debug] [--avatar-ik-synthetic] [--avatar-cull-head-debug] [--minimized-window] [--mute-audio] [Path to game folder]\n";
 			return 0;
 		}
 

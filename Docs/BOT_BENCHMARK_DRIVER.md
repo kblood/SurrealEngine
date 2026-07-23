@@ -21,6 +21,39 @@ an actionable unsupported-profile failure. See
 [`BOT_AI_CROSS_GAME_AND_MAPS.md`](BOT_AI_CROSS_GAME_AND_MAPS.md) for the shared
 engine boundary and the work required for an Unreal-specific adapter.
 
+## Rendered unattended spectator matches
+
+`--bot-spectator` is the visual counterpart to the headless benchmark. It
+opens the normal window, audio, and selected renderer, but logs the viewport in
+as a `Botpack.CHSpectator` instead of a player. The same shared controlled-match
+setup suppresses automatic bots, creates the requested exact roster, verifies
+each stock skill mapping, and leaves all gameplay control with those bots. The
+camera automatically follows a living bot in third person and selects another
+living bot when its current target dies. It requires no player input.
+
+For example, this starts a four-bot exhibition match on Deck16][ with mixed
+stock skills and exits after two minutes:
+
+```powershell
+SurrealEngine.exe --autoplay --bot-spectator `
+  --bot-spectator-url="DM-Deck16][?Game=Botpack.DeathMatchPlus" `
+  --bot-spectator-bots=4 --bot-spectator-skills=7,5,3,1 `
+  --bot-spectator-seconds=120 "C:\Games\Unreal Tournament"
+```
+
+`--bot-spectator-seconds=0` (the default) runs until the window is closed.
+`--bot-spectator-url` defaults to DM-Morbias][, the roster defaults to four
+bots, `--bot-spectator-difficulty=0..7` defaults to 3, and an optional
+`--bot-spectator-skills=...` list must match the bot count. This is a live
+rendered match, not a recorded Unreal demo and not a special demo edition of
+the game. It currently shares the benchmark's fail-closed UT436-only profile;
+Unreal 226b still needs its separately verified spawn adapter.
+
+The spectator mode intentionally does not write benchmark telemetry or claim
+determinism. Use it for visual inspection, debugging, exhibition matches, and
+recording external video. Use `--headless-driver=bot-benchmark` for fast,
+fixed-step, machine-comparable quality runs.
+
 The immutable configuration is parsed once from `--botbench-url`,
 `--botbench-output`, `--botbench-seed`, `--botbench-ticks`,
 `--botbench-fixed-delta`, and `--botbench-difficulty`. The optional roster
@@ -152,11 +185,42 @@ to serialize or finalize telemetry changes the run to a nonzero failure. The
 protocol tests use synthetic configurations and bot snapshots; they do not
 contain captured game data.
 
+## Read-only policy shadow stream
+
+Every successful controlled-roster setup also creates two separate shadow
+artifacts. They do not change the v2 benchmark manifest, v1 movement telemetry,
+or the stock Botpack controller:
+
+- `shadow-manifest.json` uses
+  `surreal-bot-benchmark-shadow-manifest-v1`. It binds the existing benchmark
+  configuration identity to the ordered actual roster, sorted policy IDs and
+  versions, a `max_ticks` record cap, and `controls_live_bots: false`.
+- `shadow-decisions.jsonl` uses
+  `surreal-bot-benchmark-shadow-event-v1`. It contains exactly one bounded
+  record per simulated tick. Each roster slot states whether its pawn is live
+  and contains the latest deterministic decision/counters from every policy.
+
+Each controlled identity owns a separate policy evaluator that survives pawn
+replacement and respawn. A live observation includes current health, current
+weapon/ammunition usability, health lost since the previous observed tick, and
+only other controlled bots that pass the engine's line-of-sight test. Hidden
+enemy positions are not exposed. Policy memory is therefore built from earlier
+subjective sightings instead of current omniscient actor state.
+
+This first bridge deliberately reports no items, armor, or stuck-time signal;
+those fields are named as false in the shadow manifest. It also does not issue
+movement, aiming, firing, inventory, route, or state commands. The output can
+show what `tactical-state` and `utility-arena` would choose beside stock
+Botpack, but it cannot yet rank their real gameplay because they still do not
+act.
+
 ## Evidence mapping
 
 This is enough to prove repeatable setup, roster cardinality, requested stock
-skill mapping, bounded lifecycle completion, and exact run identity. It does
-not yet prove navigation, acquisition, combat, damage, death, or skill parity.
+skill mapping, bounded lifecycle completion, exact run identity, and stable
+read-only policy evaluation against live pawn observations. It does not yet
+prove experimental-policy navigation, acquisition, combat, damage, death, or
+skill parity.
 
 The read-only evidence source was `surreal-bot-ai` commit `a65ae787`, especially
 its `BotBenchmark` JSONL convention and `Tools/BotBenchmark` structural

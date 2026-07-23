@@ -166,6 +166,13 @@ score.
 
 ## Current limits and future telemetry
 
+Current engine builds may also emit `shadow-manifest.json` and
+`shadow-decisions.jsonl`. These files contain read-only decisions from the
+experimental policies while stock Botpack remains in control. This analyzer
+does not treat hypothetical decisions as gameplay outcomes and intentionally
+ignores the shadow stream until an action adapter and attributed combat/resource
+telemetry exist.
+
 Telemetry v1 cannot honestly measure kills, deaths, score, damage dealt,
 accuracy, opponent strength, weapon/resource control, or objective progress.
 The report lists those metrics as unavailable with their evidence

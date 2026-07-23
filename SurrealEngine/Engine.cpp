@@ -1,5 +1,6 @@
 
 #include "Precomp.h"
+#include "BotBenchmark/BotSpectatorMatch.h"
 #include "Engine.h"
 #include "Utils/File.h"
 #include "Utils/StrTools.h"
@@ -284,6 +285,7 @@ void Engine::Setup()
 		RunHeadlessDriver(headlessDriverName);
 		return;
 	}
+	botSpectatorMatch = CreateBotSpectatorMatchFromCommandLine();
 
 	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
 	LogMessage("[asyncify-stage] OpenWindow begin");
@@ -325,37 +327,45 @@ void Engine::Setup()
 		PlayAVI({ "playavi", "INTRO.AVI", "N" });
 	}
 
-	if (!LaunchInfo.noEntryMap)
+	if (botSpectatorMatch)
 	{
+		botSpectatorMatch->Setup(*this);
+		startupIntroActive = false;
+	}
+	else
+	{
+		if (!LaunchInfo.noEntryMap)
+		{
 	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-		LogMessage("[asyncify-stage] Entry map begin");
+			LogMessage("[asyncify-stage] Entry map begin");
 	#endif
-		LoadEntryMap();
+			LoadEntryMap();
 	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-		LogMessage("[asyncify-stage] Entry map complete");
+			LogMessage("[asyncify-stage] Entry map complete");
+	#endif
+		}
+
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] Main map begin");
+	#endif
+		if (LaunchInfo.url.empty())
+			LoadMap(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")));
+		else
+			LoadMap(UnrealURL(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")), LaunchInfo.url));
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] Main map complete");
+	#endif
+		startupIntroActive = LaunchInfo.url.empty() &&
+			(LaunchInfo.IsUnrealTournament() || LaunchInfo.IsUnreal1());
+
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] LoginPlayer begin");
+	#endif
+		LoginPlayer();
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] LoginPlayer complete");
 	#endif
 	}
-
-	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-	LogMessage("[asyncify-stage] Main map begin");
-	#endif
-	if (LaunchInfo.url.empty())
-		LoadMap(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")));
-	else
-		LoadMap(UnrealURL(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")), LaunchInfo.url));
-	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-	LogMessage("[asyncify-stage] Main map complete");
-	#endif
-	startupIntroActive = LaunchInfo.url.empty() &&
-		(LaunchInfo.IsUnrealTournament() || LaunchInfo.IsUnreal1());
-
-	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-	LogMessage("[asyncify-stage] LoginPlayer begin");
-	#endif
-	LoginPlayer();
-	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-	LogMessage("[asyncify-stage] LoginPlayer complete");
-	#endif
 
 	frameObjProp = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	frameVecProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
@@ -647,6 +657,8 @@ float Engine::AdvanceGameFrame()
 	if (EntryLevel)
 		EntryLevel->Tick(entryLevelElapsed, m_GamePaused);
 	Level->Tick(levelElapsed, m_GamePaused);
+	if (botSpectatorMatch)
+		botSpectatorMatch->Tick(*this, levelElapsed);
 
 	if (dxRootWindow)
 		dxRootWindow->Tick(levelElapsed); // Should this maybe be realTimeElapsed?
