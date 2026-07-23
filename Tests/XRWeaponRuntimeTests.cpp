@@ -1,0 +1,161 @@
+#include "Precomp.h"
+#include "XR/XRWeaponRuntime.h"
+
+#include <iostream>
+#include <stdexcept>
+
+namespace
+{
+	using XRWeaponRuntime::AimScopeKind;
+	using XRWeaponRuntime::CallMetadata;
+
+	void Require(bool condition, const char* message)
+	{
+		if (!condition)
+			throw std::runtime_error(message);
+	}
+
+	bool Exact(const Rotator& value, const Rotator& expected)
+	{
+		return value.Pitch == expected.Pitch && value.Yaw == expected.Yaw && value.Roll == expected.Roll;
+	}
+
+	CallMetadata Global(std::string_view packageName, std::string_view className,
+		std::string_view functionName)
+	{
+		return { packageName, className, {}, "Firing", functionName };
+	}
+
+	CallMetadata State(std::string_view className, std::string_view declaringState,
+		std::string_view activeState, std::string_view functionName)
+	{
+		return { "Botpack", className, declaringState, activeState, functionName };
+	}
+
+	void TestUT99Classification()
+	{
+		auto expect = [](const CallMetadata& call, AimScopeKind expected)
+		{
+			Require(XRWeaponRuntime::ClassifyUT99WeaponCall(call) == expected,
+				"UT99 weapon call was classified incorrectly");
+		};
+
+		expect(Global("Engine", "Weapon", "TraceFire"), AimScopeKind::Ballistic);
+		expect(Global("engine", "weapon", "PROJECTILEFIRE"), AimScopeKind::Ballistic);
+		expect(Global("Engine", "Pawn", "AdjustAim"), AimScopeKind::Ballistic);
+		expect(Global("Engine", "Pawn", "ADJUSTTOSS"), AimScopeKind::Ballistic);
+		expect(Global("Botpack", "UT_FlakCannon", "Fire"), AimScopeKind::Ballistic);
+		expect(Global("Botpack", "UT_FlakCannon", "AltFire"), AimScopeKind::Ballistic);
+		expect(State("UT_Eightball", "FireRockets", "FireRockets", "BeginState"), AimScopeKind::Ballistic);
+		expect(Global("Botpack", "UT_Eightball", "CheckTarget"), AimScopeKind::TargetAcquisition);
+		expect(Global("Botpack", "Translocator", "ThrowTarget"), AimScopeKind::Ballistic);
+		expect(Global("Botpack", "ChainSaw", "Slash"), AimScopeKind::Ballistic);
+		expect(Global("Botpack", "ImpactHammer", "TraceAltFire"), AimScopeKind::Ballistic);
+		expect(State("ImpactHammer", "Firing", "Firing", "Tick"), AimScopeKind::Ballistic);
+		expect(Global("Engine", "Weapon", "RenderOverlays"), AimScopeKind::Presentation);
+		expect(Global("CustomWeapons", "ModWeapon", "RenderOverlays"), AimScopeKind::Presentation);
+
+		const CallMetadata rejected[] = {
+			Global("Botpack", "TournamentWeapon", "Fire"),
+			Global("Engine", "Actor", "Tick"),
+			State("UT_Eightball", "NormalFire", "NormalFire", "Tick"),
+			State("ImpactHammer", "Firing", "ClientFiring", "Tick"),
+			Global("WrongPackage", "UT_FlakCannon", "Fire"),
+			Global("Botpack", "FlakCannon", "Fire"),
+			State("WrongClass", "FireRockets", "FireRockets", "BeginState"),
+			Global("Botpack", "GuidedWarShell", "TraceFire"),
+			Global("Botpack", "GuidedWarShell", "AdjustAim"),
+			Global("Engine", "Pawn", "AdjustAiming"),
+			State("TournamentWeapon", "Firing", "Firing", "RenderOverlays"),
+			Global("Engine", "Weapon", "CalcDrawOffset")
+		};
+		for (const CallMetadata& call : rejected)
+			expect(call, AimScopeKind::None);
+	}
+
+	void TestScopedRotatorRestoration()
+	{
+		XRWeaponRuntime::TransformInputs transforms;
+		transforms.BallisticRotationValid = true;
+		transforms.BallisticRotation = Rotator(1001, 2002, 0);
+		transforms.PresentationRotationValid = true;
+		transforms.PresentationRotation = Rotator(3003, 4004, 5005);
+
+		Rotator pawn(0x12345, -0x23456, 0x34567);
+		Rotator weapon(-0x45678, 0x56789, -0x6789a);
+		const Rotator pawnBaseline = pawn;
+		const Rotator weaponBaseline = weapon;
+
+		auto outer = XRWeaponRuntime::BeginRotationScope(AimScopeKind::Ballistic,
+			{ &pawn, &weapon }, transforms);
+		Require(outer && Exact(pawn, transforms.BallisticRotation) && Exact(weapon, weaponBaseline),
+			"ballistic scope did not replace only the pawn rotation");
+		auto inner = XRWeaponRuntime::BeginRotationScope(AimScopeKind::Presentation,
+			{ &pawn, &weapon }, transforms);
+		Require(inner && Exact(pawn, transforms.PresentationRotation) &&
+			Exact(weapon, transforms.PresentationRotation),
+			"presentation scope did not replace both rotations");
+		inner();
+		Require(Exact(pawn, transforms.BallisticRotation) && Exact(weapon, weaponBaseline),
+			"inner presentation scope did not restore its outer state");
+		outer();
+		Require(Exact(pawn, pawnBaseline) && Exact(weapon, weaponBaseline),
+			"outer ballistic scope did not restore exact baseline values");
+
+		XRWeaponRuntime::TransformInputs invalid;
+		Require(!XRWeaponRuntime::BeginRotationScope(AimScopeKind::Ballistic,
+			{ &pawn, &weapon }, invalid) && Exact(pawn, pawnBaseline),
+			"invalid ballistic transform changed runtime state");
+		Require(!XRWeaponRuntime::BeginRotationScope(AimScopeKind::Presentation,
+			{ &pawn, nullptr }, transforms) && Exact(pawn, pawnBaseline),
+			"incomplete presentation targets changed runtime state");
+	}
+
+	void TestVMHookAdapter()
+	{
+		Rotator pawn(11, 22, 33);
+		Rotator weapon(44, 55, 66);
+		int resolverCalls = 0;
+		XRWeaponRuntime::ScopeResolver resolver = [&](UFunction*, UObject*)
+			-> std::optional<XRWeaponRuntime::ScopeRequest>
+		{
+			resolverCalls++;
+			XRWeaponRuntime::ScopeRequest request;
+			request.Call = Global("Botpack", "UT_FlakCannon", "AltFire");
+			request.Targets = { &pawn, &weapon };
+			request.Transforms.BallisticRotationValid = true;
+			request.Transforms.BallisticRotation = Rotator(101, 202, 0);
+			return request;
+		};
+
+		VMCallHook hook = XRWeaponRuntime::MakeUT99WeaponCallHook(std::move(resolver), 47);
+		Require(hook.Order == 47, "VM hook order was not preserved");
+		VMCallHookRegistry registry;
+		registry.Register(std::move(hook));
+		Array<ExpressionValue> arguments;
+		{
+			auto scope = registry.BeginCall(nullptr, nullptr, arguments);
+			Require(resolverCalls == 1 && Exact(pawn, Rotator(101, 202, 0)),
+				"VM hook adapter did not enter the resolved ballistic scope");
+		}
+		Require(Exact(pawn, Rotator(11, 22, 33)) && Exact(weapon, Rotator(44, 55, 66)),
+			"VM hook cleanup did not restore rotations");
+	}
+}
+
+int main()
+{
+	try
+	{
+		TestUT99Classification();
+		TestScopedRotatorRestoration();
+		TestVMHookAdapter();
+		std::cout << "XR weapon runtime tests passed\n";
+		return 0;
+	}
+	catch (const std::exception& e)
+	{
+		std::cerr << "XR weapon runtime test failed: " << e.what() << '\n';
+		return 1;
+	}
+}

@@ -92,6 +92,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Input/XRInputAdapter.h
 	SurrealEngine/XR/XRCommon.cpp
 	SurrealEngine/XR/XRCommon.h
+	SurrealEngine/XR/XRWeaponRuntime.cpp
+	SurrealEngine/XR/XRWeaponRuntime.h
 	SurrealEngine/UE1GameDatabase.h
 	SurrealEngine/UE1GameDatabase.cpp
 	SurrealEngine/Utils/CommandLine.cpp
@@ -1066,6 +1068,11 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRCommonTests PRIVATE SurrealEngine)
 	set_target_properties(XRCommonTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRCommon COMMAND XRCommonTests)
+
+	add_executable(XRWeaponRuntimeTests Tests/XRWeaponRuntimeTests.cpp)
+	target_link_libraries(XRWeaponRuntimeTests SurrealCommon ${SURREALCOMMON_LIBS})
+	set_target_properties(XRWeaponRuntimeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRWeaponRuntime COMMAND XRWeaponRuntimeTests)
 
 	add_executable(RenderDeviceSelectionTests
 		Tests/RenderDeviceSelectionTests.cpp
