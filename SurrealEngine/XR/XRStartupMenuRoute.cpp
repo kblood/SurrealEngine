@@ -145,3 +145,74 @@ void XRMenuNavigationRoute::Reset()
 	previousMenu[0] = false;
 	previousMenu[1] = false;
 }
+
+std::vector<XRNativeKeyEvent> XRNativeControllerEventRoute::Update(
+	const XRSessionState& session, const XRControllerSnapshot& controllers,
+	XRHand dominantHand, bool gameplayInputEnabled, bool startupIntroActive,
+	bool menuActive)
+{
+	std::vector<XRNativeKeyEvent> output;
+	const bool acceptsInput = session.AcceptsInput();
+	const bool acceptsFire = acceptsInput && gameplayInputEnabled &&
+		!startupIntroActive && !menuActive;
+
+	for (size_t handIndex = 0; handIndex < XRHandCount; handIndex++)
+	{
+		const XRHand hand = handIndex == 0 ? XRHand::Left : XRHand::Right;
+		const XRHandControllerState& controller = controllers.Hands[handIndex];
+		const bool physicalTrigger = controller.Connected &&
+			(controller.Select.Pressed || controller.Select.Value >= 0.5f);
+		const XRNativeKeyEventKind fireKind = hand == dominantHand ?
+			XRNativeKeyEventKind::PrimaryFire :
+			XRNativeKeyEventKind::AlternateFire;
+
+		if (!acceptsFire)
+		{
+			triggerBlocked[handIndex] = physicalTrigger;
+			if (triggerPressed[handIndex])
+			{
+				output.push_back({ fireKind, hand, false });
+				triggerPressed[handIndex] = false;
+			}
+		}
+		else
+		{
+			if (triggerBlocked[handIndex])
+			{
+				if (!physicalTrigger)
+					triggerBlocked[handIndex] = false;
+			}
+			else if (physicalTrigger != triggerPressed[handIndex])
+			{
+				triggerPressed[handIndex] = physicalTrigger;
+				output.push_back({ fireKind, hand, physicalTrigger });
+			}
+		}
+
+		const bool physicalMenu = controller.Connected && controller.Menu.Pressed;
+		if (acceptsInput && !menuActive && physicalMenu && !previousMenu[handIndex])
+			output.push_back({ XRNativeKeyEventKind::EscapePulse, hand, true });
+		previousMenu[handIndex] = physicalMenu;
+	}
+	return output;
+}
+
+std::vector<XRNativeKeyEvent> XRNativeControllerEventRoute::Release(
+	XRHand dominantHand)
+{
+	std::vector<XRNativeKeyEvent> output;
+	for (size_t handIndex = 0; handIndex < XRHandCount; handIndex++)
+	{
+		const XRHand hand = handIndex == 0 ? XRHand::Left : XRHand::Right;
+		if (triggerPressed[handIndex])
+		{
+			output.push_back({ hand == dominantHand ?
+				XRNativeKeyEventKind::PrimaryFire :
+				XRNativeKeyEventKind::AlternateFire, hand, false });
+		}
+		triggerPressed[handIndex] = false;
+		triggerBlocked[handIndex] = false;
+		previousMenu[handIndex] = false;
+	}
+	return output;
+}

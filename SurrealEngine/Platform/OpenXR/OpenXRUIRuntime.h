@@ -4,6 +4,10 @@
 #include "XR/XRUIRuntime.h"
 #include "XR/XRUIVisuals.h"
 
+// The native Vulkan canvas is already in the orientation expected by an
+// OpenXR quad. A second U-axis reflection mirrors all menu text and controls.
+inline constexpr bool OpenXRUICanvasPresentationFlipHorizontal = false;
+
 class OpenXRUICompositionSink
 {
 public:

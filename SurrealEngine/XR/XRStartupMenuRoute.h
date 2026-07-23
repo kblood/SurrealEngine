@@ -70,3 +70,34 @@ private:
 	bool previousB = false;
 	bool previousMenu[2] = {};
 };
+
+// Native OpenXR must route fire through the same console KeyEvent path as a
+// physical mouse button. Writing bFire/bAltFire directly was tested on Quest
+// hardware and did not advance UT99's input gates or reliably fire weapons.
+enum class XRNativeKeyEventKind
+{
+	PrimaryFire,
+	AlternateFire,
+	EscapePulse
+};
+
+struct XRNativeKeyEvent
+{
+	XRNativeKeyEventKind Kind = XRNativeKeyEventKind::PrimaryFire;
+	XRHand Hand = XRHand::Right;
+	bool Pressed = false;
+};
+
+class XRNativeControllerEventRoute
+{
+public:
+	std::vector<XRNativeKeyEvent> Update(const XRSessionState& session,
+		const XRControllerSnapshot& controllers, XRHand dominantHand,
+		bool gameplayInputEnabled, bool startupIntroActive, bool menuActive);
+	std::vector<XRNativeKeyEvent> Release(XRHand dominantHand);
+
+private:
+	bool triggerPressed[2] = {};
+	bool triggerBlocked[2] = {};
+	bool previousMenu[2] = {};
+};

@@ -110,6 +110,73 @@ namespace
 		Check(route.Update(0.0f, Focused(), input, true).empty(),
 			"button held through focus recovery selected a UMenu item");
 	}
+
+	void TestHardwareProvenNativeKeyRoute()
+	{
+		XRNativeControllerEventRoute route;
+		XRControllerSnapshot input;
+		input.ForHand(XRHand::Left).Connected = true;
+		input.ForHand(XRHand::Right).Connected = true;
+
+		input.ForHand(XRHand::Right).Select.Value = 1.0f;
+		auto events = route.Update(Focused(), input, XRHand::Right,
+			true, false, false);
+		Check(events.size() == 1 &&
+			events[0].Kind == XRNativeKeyEventKind::PrimaryFire &&
+			events[0].Hand == XRHand::Right && events[0].Pressed,
+			"dominant trigger did not produce a physical left-mouse press route");
+		Check(route.Update(Focused(), input, XRHand::Right,
+			true, false, false).empty(),
+			"held dominant trigger repeated its press edge");
+		input.ForHand(XRHand::Right).Select = {};
+		events = route.Update(Focused(), input, XRHand::Right,
+			true, false, false);
+		Check(events.size() == 1 &&
+			events[0].Kind == XRNativeKeyEventKind::PrimaryFire &&
+			!events[0].Pressed,
+			"dominant trigger did not balance its physical left-mouse release");
+
+		input.ForHand(XRHand::Left).Select.Pressed = true;
+		events = route.Update(Focused(), input, XRHand::Right,
+			true, false, false);
+		Check(events.size() == 1 &&
+			events[0].Kind == XRNativeKeyEventKind::AlternateFire &&
+			events[0].Hand == XRHand::Left && events[0].Pressed,
+			"off-hand trigger did not produce a physical right-mouse press route");
+		events = route.Release(XRHand::Right);
+		Check(events.size() == 1 &&
+			events[0].Kind == XRNativeKeyEventKind::AlternateFire &&
+			!events[0].Pressed,
+			"session release did not balance an active alternate-fire key");
+
+		input.ForHand(XRHand::Left).Select = {};
+		input.ForHand(XRHand::Left).Menu.Pressed = true;
+		events = route.Update(Focused(), input, XRHand::Right,
+			true, false, false);
+		Check(events.size() == 1 &&
+			events[0].Kind == XRNativeKeyEventKind::EscapePulse &&
+			events[0].Hand == XRHand::Left,
+			"left controller menu button did not produce an Escape pulse");
+		Check(route.Update(Focused(), input, XRHand::Right,
+			true, false, false).empty(),
+			"held controller menu button repeated its Escape pulse");
+
+		input.ForHand(XRHand::Left).Menu.Pressed = false;
+		input.ForHand(XRHand::Right).Select.Value = 1.0f;
+		Check(route.Update(Focused(), input, XRHand::Right,
+			false, false, true).empty(),
+			"menu-owned trigger leaked into gameplay fire");
+		Check(route.Update(Focused(), input, XRHand::Right,
+			true, false, false).empty(),
+			"trigger held across menu exit became a phantom fire press");
+		input.ForHand(XRHand::Right).Select = {};
+		route.Update(Focused(), input, XRHand::Right, true, false, false);
+		input.ForHand(XRHand::Right).Select.Value = 1.0f;
+		events = route.Update(Focused(), input, XRHand::Right,
+			true, false, false);
+		Check(events.size() == 1 && events[0].Pressed,
+			"fresh trigger after menu handoff did not rearm fire");
+	}
 }
 
 int main()
@@ -117,6 +184,7 @@ int main()
 	TestLaunchPolicy();
 	TestFocusedStartupTiming();
 	TestMenuNavigation();
+	TestHardwareProvenNativeKeyRoute();
 	std::cout << "XR startup menu route tests passed\n";
 	return 0;
 }

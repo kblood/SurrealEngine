@@ -6,7 +6,7 @@ This topic originally composed the optional native OpenXR provider (`e6150bf2`, 
 
 `OpenXRProvider::SyncInput` publishes the shared `XRControllerSnapshot` and adds raw LOCAL-space grip/aim poses to `XRSpaceSamples`. `WaitBeginAndLocate` samples the VIEW reference space into `XRSpaceSamples::Head`. Positions remain in metres and orientations remain canonical OpenXR quaternions. The provider does not choose locomotion, body yaw, handedness, weapon aim, menu interaction, or game objects.
 
-`XRInputAdapter` converts the shared controller snapshot into ordinary engine input commands. Each hand uses its own `InputSourceId` (`XRLeft` or `XRRight`) and stable logical control numbers, so keyboard, mouse, and both controllers can contribute simultaneously. Presses are edge-triggered, holds remain composed without repeated press commands, releases remove only their physical control, and a disconnect or session stop calls `Engine::ReleaseInputSource` for that hand. `XRSessionState::AcceptsInput` is the provider-neutral focus gate; a visible but unfocused session publishes neutral values so held controls cannot stick.
+`XRInputAdapter` converts the shared controller snapshot into ordinary engine input commands. Each hand uses its own `InputSourceId` (`XRLeft` or `XRRight`) and stable logical control numbers, so keyboard, mouse, and both controllers can contribute simultaneously. Presses are edge-triggered, holds remain composed without repeated press commands, releases remove only their physical control, and a disconnect or session stop calls `Engine::ReleaseInputSource` for that hand. `XRSessionState::AcceptsInput` is the provider-neutral focus gate; a visible but unfocused session publishes neutral values so held controls cannot stick. Native trigger fire is the intentional exception: the Quest-validated route synthesizes `IK_LeftMouse`/`IK_RightMouse` press and release edges through `Engine::InputEvent`, because direct `bFire`/`bAltFire` property composition bypasses UT99's console `KeyEvent` gates. The raw OpenXR menu action similarly produces an Escape pulse when gameplay owns input; the menu navigation route owns close/back while UMenu is active.
 
 `XRTurnPolicy` keeps comfort-turn interpretation out of both OpenXR and WebXR providers. The compatibility default is right-hand smooth turn with the existing deadzone and continuous axis value. An integration/settings layer can call `XRInputAdapter::SetTurnPolicy` to change smooth scale or explicitly select snap mode. Snap mode emits one configured turn-axis pulse when the stick crosses its activation threshold, latches while held, and rearms only after crossing the lower release threshold. Switching modes, reconnecting, or holding the stick through lost focus requires a neutral sample before a snap can fire. Launcher/in-game UI still needs to persist a user choice and call this narrow API; no provider-specific setting is required.
 
@@ -36,15 +36,16 @@ cannot close it again on the following frame.
 
 ## Runtime actions
 
-The provider creates one action set with left/right subaction paths and semantic input plus vibration-output actions shared by both hands. Suggested bindings cover Oculus Touch and `khr/simple_controller`. Head, grip, and aim spaces use the frame's predicted display time. A current interaction profile reports connection; `isActive` reports whether the runtime is presently routing an action. OpenXR `IDLE`, `READY`, `SYNCHRONIZED`, `VISIBLE`, `FOCUSED`, `STOPPING`, and loss/exit states map explicitly to `XRSessionState` lifecycle and focus.
+The provider creates one action set with left/right subaction paths for semantic buttons, axes, and vibration. Grip and aim poses use separate per-hand actions and action spaces, matching the original Quest/VDXR hardware-qualified implementation. Suggested bindings cover Oculus Touch and `khr/simple_controller`. Head, grip, and aim spaces use the frame's predicted display time. A current interaction profile reports connection; `isActive` reports whether the runtime is presently routing an action. OpenXR `IDLE`, `READY`, `SYNCHRONIZED`, `VISIBLE`, `FOCUSED`, `STOPPING`, and loss/exit states map explicitly to `XRSessionState` lifecycle and focus.
 
 ## Bounded hardware diagnostics
 
 `XRInputDiagnosticsAccumulator` observes the same provider-neutral controller
 snapshot without changing it. Native OpenXR logs session/focus transitions,
 per-hand connection and profile-or-binding availability, active semantic
-button/axis masks, and cumulative trigger, menu/back, and nonzero-thumbstick
-counters. OpenXR sync, interaction-profile, and action-state query failures use
+button/axis masks, grip/aim pose-validity transitions, and cumulative trigger,
+menu/back, and nonzero-thumbstick counters. OpenXR sync, interaction-profile,
+and action-state query failures use
 fixed stage names with a four-event cap. Session, availability, and activity
 messages have separate small caps and are otherwise emitted only on changes or
 first activity, with a cumulative summary on focus loss.

@@ -50,8 +50,11 @@ struct OpenXRProvider::Impl
 	XrAction secondaryButtonAction = XR_NULL_HANDLE;
 	XrAction menuButtonAction = XR_NULL_HANDLE;
 	XrAction stickClickAction = XR_NULL_HANDLE;
-	XrAction gripPoseAction = XR_NULL_HANDLE;
-	XrAction aimPoseAction = XR_NULL_HANDLE;
+	// Keep pose actions per-hand. This matches the original Quest/VDXR
+	// hardware-qualified integration and avoids relying on runtime-specific
+	// subaction-path behavior for tracked spaces.
+	XrAction gripPoseActions[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
+	XrAction aimPoseActions[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
 	XrAction hapticAction = XR_NULL_HANDLE;
 	XrSpace gripSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
 	XrSpace aimSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
@@ -59,6 +62,9 @@ struct OpenXRProvider::Impl
 	uint32_t inputSyncFailureLogs = 0;
 	uint32_t profileQueryFailureLogs[2] = { 0, 0 };
 	uint32_t actionQueryFailureLogs[2] = { 0, 0 };
+	bool poseAvailabilityInitialized[2] = { false, false };
+	bool lastGripPoseValid[2] = { false, false };
+	bool lastAimPoseValid[2] = { false, false };
 	bool acquired[2] = { false, false };
 	uint32_t acquiredIndex[2] = { 0, 0 };
 	XrTime predictedDisplayTime = 0;
@@ -475,14 +481,15 @@ bool OpenXRProvider::OnVulkanDeviceCreated(void* instance, void* physicalDevice,
 	result = xrCreateActionSet(impl->instance, &actionSetInfo, &impl->actionSet);
 	if (XR_SUCCEEDED(result))
 	{
-		auto makeAction = [&](XrActionType type, const char* name, const char* localized) -> XrAction
+		auto makeAction = [&](XrActionType type, const char* name,
+			const char* localized, bool sharedAcrossHands = true) -> XrAction
 		{
 			XrActionCreateInfo info{ XR_TYPE_ACTION_CREATE_INFO };
 			info.actionType = type;
 			std::strncpy(info.actionName, name, XR_MAX_ACTION_NAME_SIZE - 1);
 			std::strncpy(info.localizedActionName, localized, XR_MAX_LOCALIZED_ACTION_NAME_SIZE - 1);
-			info.countSubactionPaths = 2;
-			info.subactionPaths = impl->handPaths;
+			info.countSubactionPaths = sharedAcrossHands ? 2 : 0;
+			info.subactionPaths = sharedAcrossHands ? impl->handPaths : nullptr;
 			XrAction action = XR_NULL_HANDLE;
 			XrResult createResult = xrCreateAction(impl->actionSet, &info, &action);
 			if (XR_FAILED(createResult))
@@ -497,8 +504,14 @@ bool OpenXRProvider::OnVulkanDeviceCreated(void* instance, void* physicalDevice,
 		impl->secondaryButtonAction = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "secondary_button", "Secondary Button");
 		impl->menuButtonAction = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "menu_button", "Menu Button");
 		impl->stickClickAction = makeAction(XR_ACTION_TYPE_BOOLEAN_INPUT, "thumbstick_click", "Thumbstick Click");
-		impl->gripPoseAction = makeAction(XR_ACTION_TYPE_POSE_INPUT, "grip_pose", "Grip Pose");
-		impl->aimPoseAction = makeAction(XR_ACTION_TYPE_POSE_INPUT, "aim_pose", "Aim Pose");
+		impl->gripPoseActions[0] = makeAction(XR_ACTION_TYPE_POSE_INPUT,
+			"left_grip_pose", "Left Grip Pose", false);
+		impl->gripPoseActions[1] = makeAction(XR_ACTION_TYPE_POSE_INPUT,
+			"right_grip_pose", "Right Grip Pose", false);
+		impl->aimPoseActions[0] = makeAction(XR_ACTION_TYPE_POSE_INPUT,
+			"left_aim_pose", "Left Aim Pose", false);
+		impl->aimPoseActions[1] = makeAction(XR_ACTION_TYPE_POSE_INPUT,
+			"right_aim_pose", "Right Aim Pose", false);
 		impl->hapticAction = makeAction(XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic", "Haptic Output");
 
 		auto suggest = [&](const char* profileName, const std::vector<std::pair<XrAction, const char*>>& bindings)
@@ -536,10 +549,10 @@ bool OpenXRProvider::OnVulkanDeviceCreated(void* instance, void* physicalDevice,
 			{ impl->menuButtonAction, "/user/hand/left/input/menu/click" },
 			{ impl->stickClickAction, "/user/hand/left/input/thumbstick/click" },
 			{ impl->stickClickAction, "/user/hand/right/input/thumbstick/click" },
-			{ impl->gripPoseAction, "/user/hand/left/input/grip/pose" },
-			{ impl->gripPoseAction, "/user/hand/right/input/grip/pose" },
-			{ impl->aimPoseAction, "/user/hand/left/input/aim/pose" },
-			{ impl->aimPoseAction, "/user/hand/right/input/aim/pose" },
+			{ impl->gripPoseActions[0], "/user/hand/left/input/grip/pose" },
+			{ impl->gripPoseActions[1], "/user/hand/right/input/grip/pose" },
+			{ impl->aimPoseActions[0], "/user/hand/left/input/aim/pose" },
+			{ impl->aimPoseActions[1], "/user/hand/right/input/aim/pose" },
 			{ impl->hapticAction, "/user/hand/left/output/haptic" },
 			{ impl->hapticAction, "/user/hand/right/output/haptic" },
 		});
@@ -548,10 +561,10 @@ bool OpenXRProvider::OnVulkanDeviceCreated(void* instance, void* physicalDevice,
 			{ impl->triggerAction, "/user/hand/right/input/select/click" },
 			{ impl->menuButtonAction, "/user/hand/left/input/menu/click" },
 			{ impl->menuButtonAction, "/user/hand/right/input/menu/click" },
-			{ impl->gripPoseAction, "/user/hand/left/input/grip/pose" },
-			{ impl->gripPoseAction, "/user/hand/right/input/grip/pose" },
-			{ impl->aimPoseAction, "/user/hand/left/input/aim/pose" },
-			{ impl->aimPoseAction, "/user/hand/right/input/aim/pose" },
+			{ impl->gripPoseActions[0], "/user/hand/left/input/grip/pose" },
+			{ impl->gripPoseActions[1], "/user/hand/right/input/grip/pose" },
+			{ impl->aimPoseActions[0], "/user/hand/left/input/aim/pose" },
+			{ impl->aimPoseActions[1], "/user/hand/right/input/aim/pose" },
 			{ impl->hapticAction, "/user/hand/left/output/haptic" },
 			{ impl->hapticAction, "/user/hand/right/output/haptic" },
 		});
@@ -564,20 +577,20 @@ bool OpenXRProvider::OnVulkanDeviceCreated(void* instance, void* physicalDevice,
 		{
 			for (int hand = 0; hand < 2; hand++)
 			{
-					auto makeSpace = [&](XrAction action, XrSpace& output)
-					{
-						if (!action)
-							return;
+				auto makeSpace = [&](XrAction action, XrSpace& output)
+				{
+					if (!action)
+						return;
 					XrActionSpaceCreateInfo info{ XR_TYPE_ACTION_SPACE_CREATE_INFO };
-						info.action = action;
-						info.subactionPath = impl->handPaths[hand];
-						info.poseInActionSpace.orientation.w = 1.0f;
-						XrResult spaceResult = xrCreateActionSpace(impl->session, &info, &output);
-						if (XR_FAILED(spaceResult))
-							LogMessage(ResultMessage("xrCreateActionSpace", spaceResult));
-					};
-				makeSpace(impl->gripPoseAction, impl->gripSpaces[hand]);
-				makeSpace(impl->aimPoseAction, impl->aimSpaces[hand]);
+					info.action = action;
+					info.subactionPath = XR_NULL_PATH;
+					info.poseInActionSpace.orientation.w = 1.0f;
+					XrResult spaceResult = xrCreateActionSpace(impl->session, &info, &output);
+					if (XR_FAILED(spaceResult))
+						LogMessage(ResultMessage("xrCreateActionSpace", spaceResult));
+				};
+				makeSpace(impl->gripPoseActions[hand], impl->gripSpaces[hand]);
+				makeSpace(impl->aimPoseActions[hand], impl->aimSpaces[hand]);
 			}
 			impl->actionsReady = true;
 		}
@@ -897,7 +910,9 @@ bool OpenXRProvider::SyncInput(XRSpaceSamples& spaces, XRControllerSnapshot& con
 			if (!action)
 				return false;
 			XrActionStatePose state{ XR_TYPE_ACTION_STATE_POSE };
-			XrActionStateGetInfo info = getInfo(action);
+			XrActionStateGetInfo info{ XR_TYPE_ACTION_STATE_GET_INFO };
+			info.action = action;
+			info.subactionPath = XR_NULL_PATH;
 			XrResult stateResult = xrGetActionStatePose(impl->session, &info, &state);
 			actionQueryFailed |= XR_FAILED(stateResult);
 			bool active = XR_SUCCEEDED(stateResult) && state.isActive;
@@ -930,8 +945,8 @@ bool OpenXRProvider::SyncInput(XRSpaceSamples& spaces, XRControllerSnapshot& con
 		controller.Menu.Value = controller.Menu.Pressed ? 1.0f : 0.0f;
 		controller.ThumbstickClick.Pressed = getButton(impl->stickClickAction, XRInputButtonThumbstickClick);
 		controller.ThumbstickClick.Value = controller.ThumbstickClick.Pressed ? 1.0f : 0.0f;
-		bool gripActive = poseActive(impl->gripPoseAction);
-		bool aimActive = poseActive(impl->aimPoseAction);
+		bool gripActive = poseActive(impl->gripPoseActions[hand]);
+		bool aimActive = poseActive(impl->aimPoseActions[hand]);
 		controller.Connected |= anyActionActive;
 		availability[hand].ProfileOrBindingAvailable |= anyActionActive;
 
@@ -939,6 +954,20 @@ bool OpenXRProvider::SyncInput(XRSpaceSamples& spaces, XRControllerSnapshot& con
 			LocatePose(impl->gripSpaces[hand], impl->space, impl->predictedDisplayTime, spaces.GripFor(xrHand));
 		if (aimActive)
 			LocatePose(impl->aimSpaces[hand], impl->space, impl->predictedDisplayTime, spaces.AimFor(xrHand));
+		const bool gripValid = IsValidXRPose(spaces.GripFor(xrHand));
+		const bool aimValid = IsValidXRPose(spaces.AimFor(xrHand));
+		if (!impl->poseAvailabilityInitialized[hand] ||
+			impl->lastGripPoseValid[hand] != gripValid ||
+			impl->lastAimPoseValid[hand] != aimValid)
+		{
+			impl->poseAvailabilityInitialized[hand] = true;
+			impl->lastGripPoseValid[hand] = gripValid;
+			impl->lastAimPoseValid[hand] = aimValid;
+			LogMessage(std::string("[openxr-input] hand=") +
+				(hand == 0 ? "left" : "right") + " grip_pose=" +
+				(gripValid ? "valid" : "invalid") + " aim_pose=" +
+				(aimValid ? "valid" : "invalid"));
+		}
 		if (actionQueryFailed)
 			LogProviderInputFailure(hand == 0 ? "action-state-left" : "action-state-right",
 				impl->actionQueryFailureLogs[hand]);
@@ -1258,7 +1287,7 @@ bool OpenXRProvider::BeginSurfaceFrame(const XRUICanvasReplayFrame& frame,
 			reinterpret_cast<void*>(target.Images[target.ImageIndex].image),
 			target.Descriptor.Surface.PixelWidth,
 			target.Descriptor.Surface.PixelHeight,
-			true });
+			OpenXRUICanvasPresentationFlipHorizontal });
 		if (!impl->uiRenderDevice->BindPresentationTarget(binding))
 		{
 			impl->lastError = "Vulkan renderer rejected an OpenXR UI target binding";

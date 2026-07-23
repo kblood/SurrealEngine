@@ -61,6 +61,28 @@ The WebXR manifest names `/WebXR/Ports/SurrealEngine/` as its intended hosting
 base. Before a hosted run, hash the served/downloaded JS, WASM, source, and
 manifest; never qualify a mutable website or a build whose hashes are unknown.
 
+## Native 71650dd7 physical result — 2026-07-23
+
+The first Quest 3 + Virtual Desktop + VDXR run of the exact native archive
+failed the physical gate. The menu was horizontally mirrored, the weapon did
+not follow the controller/turning behavior, the left controller menu button did
+not visibly open the menu, and the VR trigger did not fire. Do not promote the
+frozen native archive as qualified.
+
+The privacy-safe native diagnostic recorded a focused session, both controllers
+connected, all declared semantic button/axis bindings active, positive trigger
+edges, positive menu/back edges, and nonzero stick samples. The failure was
+therefore downstream of OpenXR action capture rather than absent VDXR input.
+
+Comparison with hardware-confirmed `vr-m2` commit `89831fae` exposed two
+regressions in the modular integration: native fire had returned to direct
+`bFire`/`bAltFire` composition even though the earlier headset investigation
+proved UT99 required real `InputEvent` mouse edges, and native UI targets added
+a horizontal final-copy reflection that the working quad path did not use.
+The follow-up integration also restores the working branch's separate per-hand
+pose actions and adds bounded grip/aim validity diagnostics. Any follow-up build
+is a new test candidate and must not reuse the frozen `71650dd7` identity.
+
 ## Safe start — explicit launcher only
 
 - [ ] Use a charged Quest 3 with both controllers awake. Connect Virtual

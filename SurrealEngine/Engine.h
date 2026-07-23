@@ -224,6 +224,7 @@ public:
 	XRStartupIntroTriggerRoute openXRStartupIntroTrigger;
 	XRStartupMenuRoute openXRStartupMenu;
 	XRMenuNavigationRoute openXRMenuNavigation;
+	XRNativeControllerEventRoute openXRControllerEvents;
 	XRHapticFeedbackPolicy openXRHapticFeedback;
 	XRHandedness xrHandedness;
 
@@ -278,6 +279,10 @@ private:
 	void UpdateOpenXRLocomotion(const XRPose& headPose,
 		const XRControllerSnapshot& controllers, float realTimeElapsed,
 		bool gameplayInputEnabled);
+	void UpdateOpenXRControllerEvents(const XRSessionState& session,
+		const XRControllerSnapshot& controllers, bool gameplayInputEnabled);
+	void ReleaseOpenXRControllerEvents();
+	void ApplyOpenXRControllerEvents(const std::vector<XRNativeKeyEvent>& events);
 
 	// Scratch properties used by PlayerCalcView during AdvanceGameFrame.
 	UObjectProperty* frameObjProp = nullptr;

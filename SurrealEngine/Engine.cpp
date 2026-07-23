@@ -48,6 +48,14 @@ namespace
 	XRInputBindings NativeOpenXRInputBindings(XRHand dominantHand = XRHand::Right)
 	{
 		XRInputBindings bindings = XRInputBindings::ConventionalUE1(dominantHand);
+		// Quest hardware established that direct bFire/bAltFire composition is
+		// insufficient for UT99. Native trigger edges are routed through
+		// Engine::InputEvent below, matching physical mouse buttons exactly.
+		for (XRHandInputBindings& hand : bindings.Hands)
+		{
+			hand.Trigger.clear();
+			hand.MenuButton.clear();
+		}
 		// Native OpenXR composes this stick into the headset recenter yaw so
 		// world rendering and pawn movement turn together.
 		bindings.Hands[XRHandIndex(XRHand::Right)].StickX.clear();
@@ -412,6 +420,7 @@ void Engine::Shutdown()
 
 	LogMessage("Closing window...");
 	UpdateOpenXRStartupIntro(nullptr);
+	ReleaseOpenXRControllerEvents();
 	openXRInput.Disconnect(*this);
 	openXRHapticFeedback.Reset();
 	if (openXR && render)
@@ -440,6 +449,7 @@ void Engine::RunOneFrame()
 		{
 			LogMessage("OpenXR session stopped; continuing in desktop mode");
 			UpdateOpenXRStartupIntro(nullptr);
+			ReleaseOpenXRControllerEvents();
 			openXRInput.Disconnect(*this);
 			openXRHapticFeedback.Reset();
 			if (render)
@@ -458,6 +468,8 @@ void Engine::RunOneFrame()
 				const bool gameplayInputEnabled =
 					!render || !render->IsXRUIMenuActive();
 				xrGameplayInputEnabled = gameplayInputEnabled;
+				UpdateOpenXRControllerEvents(openXR->SessionState(), xrControllers,
+					gameplayInputEnabled);
 				openXRInput.Update(openXR->SessionState(), xrControllers, *this,
 					gameplayInputEnabled);
 				const XRHapticInputContext context = !gameplayInputEnabled ?
@@ -470,6 +482,7 @@ void Engine::RunOneFrame()
 			else
 			{
 				UpdateOpenXRStartupIntro(nullptr);
+				ReleaseOpenXRControllerEvents();
 				openXRInput.Disconnect(*this);
 				openXRHapticFeedback.Reset();
 			}
@@ -477,6 +490,7 @@ void Engine::RunOneFrame()
 		else
 		{
 			UpdateOpenXRStartupIntro(nullptr);
+			ReleaseOpenXRControllerEvents();
 			openXRInput.Disconnect(*this);
 			openXRHapticFeedback.Reset();
 		}
@@ -497,6 +511,9 @@ void Engine::RunOneFrame()
 	{
 		XRWeaponPoseOptions options;
 		options.Mirror = xrHandedness.MirrorWeaponPresentation();
+		// Match the original native Quest integration: the rendered weapon
+		// follows the controller grip while ballistics use the aim pose.
+		options.VisualAnchor = XRWeaponVisualAnchor::Grip;
 		xrWeaponPose = SolveXRWeaponPose(xrSpaces, xrWeaponWorld,
 			xrHandedness.Dominant, options);
 	}
@@ -612,11 +629,48 @@ void Engine::UpdateOpenXRStartupIntro(const XRControllerSnapshot* controllers)
 void Engine::SetXRDominantHand(XRHand hand)
 {
 	if (xrHandedness.Dominant != hand)
+	{
+		ReleaseOpenXRControllerEvents();
 		openXRInput.Disconnect(*this);
+	}
 	xrHandedness.Dominant = hand;
 	openXRInput.SetBindings(NativeOpenXRInputBindings(hand));
 	openXRStartupIntroTrigger.SetDominantHand(hand);
 	openXRUI.SetPointerHand(hand);
+}
+
+void Engine::ApplyOpenXRControllerEvents(
+	const std::vector<XRNativeKeyEvent>& events)
+{
+	for (const XRNativeKeyEvent& event : events)
+	{
+		const InputSourceId source = event.Hand == XRHand::Left ?
+			InputSourceId::XRLeft : InputSourceId::XRRight;
+		if (event.Kind == XRNativeKeyEventKind::EscapePulse)
+		{
+			InputEvent(IK_Escape, EInputType::IST_Press, 0.0f, source);
+			InputEvent(IK_Escape, EInputType::IST_Release, 0.0f, source);
+			continue;
+		}
+		const EInputKey key = event.Kind == XRNativeKeyEventKind::PrimaryFire ?
+			IK_LeftMouse : IK_RightMouse;
+		InputEvent(key, event.Pressed ? EInputType::IST_Press :
+			EInputType::IST_Release, 0.0f, source);
+	}
+}
+
+void Engine::UpdateOpenXRControllerEvents(const XRSessionState& session,
+	const XRControllerSnapshot& controllers, bool gameplayInputEnabled)
+{
+	ApplyOpenXRControllerEvents(openXRControllerEvents.Update(session,
+		controllers, xrHandedness.Dominant, gameplayInputEnabled,
+		IsStartupIntroActive(), render && render->IsXRUIMenuActive()));
+}
+
+void Engine::ReleaseOpenXRControllerEvents()
+{
+	ApplyOpenXRControllerEvents(openXRControllerEvents.Release(
+		xrHandedness.Dominant));
 }
 
 void Engine::UpdateOpenXRStartupMenu(float elapsedSeconds,

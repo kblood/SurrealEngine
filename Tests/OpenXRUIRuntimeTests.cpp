@@ -157,6 +157,8 @@ namespace
 
 	void TestAllocationAndTopmostMenu()
 	{
+		Check(!OpenXRUICanvasPresentationFlipHorizontal,
+			"native OpenXR canvas presentation would mirror the menu horizontally");
 		Host host;
 		Sink sink;
 		XRUISurfaceEngineBinding binding(host);

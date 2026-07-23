@@ -184,8 +184,8 @@ bool ConvertXRUISurfacePoseToOpenXRLocal(const XRUISurfacePose& pose,
 	// The surface basis is expressed relative to the shared UI's canonical
 	// (-Y right, +Z up, -X front) basis. Conjugating that relative rotation
 	// through the handedness-changing XR/UE axis map produces a proper
-	// right-handed OpenXR rotation. The fixed canonical U-axis reflection is
-	// handled once by the provider's final image copy.
+	// right-handed OpenXR rotation. The canvas is copied without an additional
+	// U-axis reflection, matching the original hardware-qualified quad path.
 	const vec3 localRight = RotateLocalToWorld(inverseRecenter, right);
 	const vec3 localUp = RotateLocalToWorld(inverseRecenter, up);
 	const vec3 localNormal = RotateLocalToWorld(inverseRecenter, normal);
