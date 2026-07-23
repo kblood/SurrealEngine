@@ -643,6 +643,9 @@
 					width: layoutView.width, height: layoutView.height,
 					image: { viewport: { x: 0, y: 0, width: layoutView.width, height: layoutView.height } } };
 			});
+			// Chromium supplies XRView projection matrices in WebGPU's [0, 1]
+			// depth range when XRGPUBinding is the active graphics API.
+			flags = FRAME_FLAGS.projectionDepthZeroToOne;
 		}
 		return createFramePacket(capture.time, views, packedViews, targetSet.textures,
 			capture.resetGeneration, flags);

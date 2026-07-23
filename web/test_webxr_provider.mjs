@@ -181,9 +181,15 @@ const webGLProjection = (left, right, down, up, near = .1, far = 1000) =>
 	new Float32Array([2 / (right - left),0,0,0, 0,2 / (up - down),0,0,
 		(right + left) / (right - left), (up + down) / (up - down),
 		-(far + near) / (far - near),-1, 0,0,-2 * far * near / (far - near),0]);
+const webGPUProjection = matrix => {
+	const result = Float32Array.from(matrix);
+	for (let column = 0; column < 4; column++) result[column * 4 + 2] =
+		0.5 * (result[column * 4 + 2] + result[column * 4 + 3]);
+	return result;
+};
 const projections = {
-	left: webGLProjection(-1.17, .97, -1.08, 1.12),
-	right: webGLProjection(-.97, 1.17, -1.07, 1.13),
+	left: webGPUProjection(webGLProjection(-1.17, .97, -1.08, 1.12)),
+	right: webGPUProjection(webGLProjection(-.97, 1.17, -1.07, 1.13)),
 };
 const rotatedOrientation = { x: -.08871944, y: .22108249, z: .08185684, w: .96775557 };
 function makeView(eye, x) {
@@ -286,8 +292,8 @@ assert.equal(renderedPackets[0].textures.length, 2);
 assert.ok(renderedPackets[0].textures.every(texture => texture !== leftXRTexture && texture !== rightXRTexture));
 let packet = new DataView(renderedPackets[0].bytes.buffer);
 assert.equal(packet.getUint32(12, true), 2);
-assert.equal(packet.getUint32(28, true), 0,
-	"direct WebGPU packets must identify the spec WebGL depth range for native conversion");
+assert.equal(packet.getUint32(28, true), 1,
+	"direct WebGPU packets must identify Chromium's WebGPU zero-to-one depth range");
 assert.equal(packet.getUint32(32 + 12, true), 800);
 assert.equal(packet.getUint32(32 + 128 + 12, true), 1024);
 for (let viewIndex = 0; viewIndex < 2; viewIndex++) {
