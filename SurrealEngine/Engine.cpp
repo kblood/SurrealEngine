@@ -584,7 +584,7 @@ float Engine::AdvanceGameFrame()
 
 float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose)
 {
-	SetXRWeaponPose(pose);
+	ClearXRWeaponPose();
 	UPlayerPawn* pawn = viewport ? viewport->Actor() : nullptr;
 	UWeapon* weapon = pawn ? pawn->Weapon() : nullptr;
 	const bool menuActive = render && render->IsXRUIMenuActive();
@@ -611,6 +611,7 @@ float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose)
 		{ &pawn->ViewRotation(), &weapon->Rotation() }, transforms);
 	if (!aimCleanup)
 		return AdvanceGameFrame();
+	SetXRWeaponPose(pose);
 
 	struct ScopedAimRestore
 	{
