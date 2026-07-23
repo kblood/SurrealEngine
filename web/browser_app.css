@@ -27,8 +27,13 @@ main { flex: 1 0 auto; min-width: 0; }
 .fields label { display: grid; gap: .3rem; min-width: 12rem; flex: 1; }
 .fields .check-field { display: flex; flex-direction: row; align-items: center; align-self: center; }
 .check-field input { width: 1.2rem; height: 1.2rem; }
-button, select, .file-button { box-sizing: border-box; min-height: 2.5rem; border: 1px solid #718096; border-radius: .35rem; padding: .45rem .7rem; color: inherit; background: #253244; }
-button { cursor: pointer; background: #2367a5; border-color: #3182ce; font-weight: 650; }
+button, select, .file-button, .action-link { box-sizing: border-box; min-height: 2.5rem; border: 1px solid #718096; border-radius: .35rem; padding: .45rem .7rem; color: inherit; background: #253244; }
+button, .action-link { cursor: pointer; background: #2367a5; border-color: #3182ce; font-weight: 650; }
+.action-link { display: inline-flex; align-items: center; text-decoration: none; }
+.acquisition-links { margin-block: 1rem; padding: 1rem; border: 1px solid #394759; border-radius: .5rem; background: #111923; }
+.acquisition-links h2 { font-size: 1.05rem; }
+.acquisition-links p { color: #cbd5e0; }
+.acquisition-links .actions > a:not(.action-link) { align-self: center; color: #90cdf4; }
 button:disabled { opacity: .55; cursor: wait; }
 progress { width: 100%; margin-top: .8rem; }
 [data-game-files] { position: absolute; width: 1px; height: 1px; opacity: 0; }

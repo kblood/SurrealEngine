@@ -1,6 +1,6 @@
 # Game-data distribution and desktop web packaging
 
-Status: decision record, reviewed 2026-07-22. This is a conservative engineering
+Status: decision record, reviewed 2026-07-24. This is a conservative engineering
 and release recommendation based on public materials, not legal advice.
 
 ## Decisions
@@ -8,9 +8,9 @@ and release recommendation based on public materials, not legal advice.
 1. SurrealEngine releases contain engine code and assets created for the project,
    but no original game packages, maps, textures, music, executables, installers,
    disc images, demos, or shareware archives.
-2. The launcher may link to a current acquisition page and may import files the
-   user selects from their own installation. It must not silently download game
-   data from mirrors or treat an Internet Archive copy as distribution authority.
+2. The launcher may link to a current rightsholder-sanctioned acquisition page
+   and may import files the user selects from their own installation. It must
+   not silently download game data or mirror an externally sanctioned copy.
 3. A package is redistributable only after its own licence/readme or written
    rightsholder permission has been reviewed and recorded. “Free download,”
    “DRM-free,” “demo,” and “shareware” do not by themselves grant redistribution.
@@ -31,8 +31,8 @@ judgment about every historical release.
 
 | Game | Current user acquisition found | Redistribution finding | Launcher/release policy |
 | --- | --- | --- | --- |
-| Unreal Tournament (1999) | [OldUnreal's UT GOTY installer](https://www.oldunreal.com/downloads/unrealtournament/full-game-installers/) downloads the original disc image and applies the current patch. | The page permits users to download it, but publishes no third-party rebundling grant. OldUnreal's general [download disclaimer](https://www.oldunreal.com/downloads/) directs claims to the relevant author/company; it is not a licence grant. No current, authoritative UT demo redistribution grant was located. | Link to the OldUnreal page or import a user-owned install. Do not mirror the installer or disc image. |
-| Unreal / Unreal Gold | [OldUnreal's Unreal Gold installer](https://www.oldunreal.com/downloads/unreal/full-game-installers/) likewise downloads the original disc image and patches it. | No public grant to rebundle the base game was located. The separate [227 patch release notes](https://www.oldunreal.com/patch/unreal/oldunreal/227ReleaseNotes.pdf) do expressly allow free redistribution of that patch if it remains unmodified and the OldUnreal page is referenced; that permission does not extend to original game data. | Link/import the base game. Treat a patch as a separate artefact with its own exact licence and provenance; linking remains the simpler default. |
+| Unreal Tournament (1999) | [Epic's current Unreal page](https://www.epicgames.com/unrealtournament/) links to [OldUnreal's UT GOTY installer](https://www.oldunreal.com/downloads/unrealtournament/full-game-installers/), which downloads the sanctioned full-game image and applies the current patch. | Epic publicly confirmed that people may independently link to and play the specific sanctioned Archive versions. That supports linking to this acquisition path, but is not a third-party rebundling grant and does not identify the separate demo 348 executable. | Link to the OldUnreal page and import the user's installed folder. Do not mirror the installer, disc image, or local demo archive. |
+| Unreal / Unreal Gold | [Epic's current Unreal page](https://www.epicgames.com/unrealtournament/) likewise links to [OldUnreal's Unreal Gold installer](https://www.oldunreal.com/downloads/unreal/full-game-installers/). | The same Epic statement supports linking to and playing the sanctioned full-game version. It does not grant this project permission to mirror the unrelated Unreal Special Edition demo repack. The separate 227 patch has its own redistribution terms. | Link to OldUnreal and import the user's installed folder. Do not mirror the installer, disc image, or local demo repack. |
 | Deus Ex: Game of the Year Edition | Current purchase/download pages include [GOG](https://www.gog.com/en/game/deus_ex) and [Steam](https://store.steampowered.com/app/6910/Deus_Ex_Game_of_the_Year_Edition/). | Distributor terms provide personal use, not a right for this project to redistribute the game. No current rightsholder-hosted demo with an affirmative redistribution grant was located. | Detect/import the user's GOG, Steam, or original-media install. Link to store pages; bundle no data. |
 | Rune Classic | [GOG](https://www.gog.com/en/game/rune_classic) offers a current user download. | No third-party redistribution grant located. | Link/import only. |
 | Clive Barker's Undying | [GOG](https://www.gog.com/en/game/clive_barkers_undying) offers a current user download. | No third-party redistribution grant located. | Link/import only. |

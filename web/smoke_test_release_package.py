@@ -82,7 +82,7 @@ with sync_playwright() as playwright:
 		not result["sourceUI"]["visible"] or
 		"experimental preview" not in (result["releaseNotice"] or "") or
 		"unverified on physical Quest hardware" not in (result["releaseNotice"] or "") or
-		"No game or demo data is bundled or downloaded" not in (result["releaseNotice"] or "") or
+		"No game or demo data is bundled or downloaded by this site" not in (result["releaseNotice"] or "") or
 		result["sourceUI"]["href"] != compliance.get("sourceUrl") or
 		compliance.get("archiveSha256") not in (result["sourceUI"]["text"] or "") or
 		result["manifestSchema"] != "surrealengine-browser-release-v1" or

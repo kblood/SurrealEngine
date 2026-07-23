@@ -90,6 +90,10 @@ try {
 	assert.match(index, /Temporary QA: blocking bridge timing \(slower\)/);
 	assert.match(index, /Press Escape to release it and send Escape to the game/);
 	assert.doesNotMatch(index, /Folder upload fallback/);
+	assert.match(index, /https:\/\/www\.oldunreal\.com\/downloads\/unreal\/full-game-installers\//);
+	assert.match(index, /https:\/\/www\.oldunreal\.com\/downloads\/unrealtournament\/full-game-installers\//);
+	assert.match(index, /https:\/\/www\.epicgames\.com\/unrealtournament\//);
+	assert.match(index, /does not mirror or repackage them/);
 	assert.ok(index.indexOf('id="game-data-importer"') < index.indexOf('id="browser-status"'),
 		"game selection must appear before capability and diagnostic details");
 	assert.match(index, /ut99_importer\.js\?v=[0-9a-f]{12}/);
