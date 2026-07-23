@@ -92,6 +92,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Input/XRInputAdapter.h
 	SurrealEngine/XR/XRCommon.cpp
 	SurrealEngine/XR/XRCommon.h
+	SurrealEngine/XR/XRWeaponPoseSolver.cpp
+	SurrealEngine/XR/XRWeaponPoseSolver.h
 	SurrealEngine/XR/XRWeaponRuntime.cpp
 	SurrealEngine/XR/XRWeaponRuntime.h
 	SurrealEngine/UE1GameDatabase.h
@@ -1068,6 +1070,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRCommonTests PRIVATE SurrealEngine)
 	set_target_properties(XRCommonTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRCommon COMMAND XRCommonTests)
+
+	add_executable(XRWeaponPoseSolverTests
+		Tests/XRWeaponPoseSolverTests.cpp
+		SurrealEngine/XR/XRCommon.cpp
+		SurrealEngine/XR/XRWeaponPoseSolver.cpp
+	)
+	target_include_directories(XRWeaponPoseSolverTests PRIVATE SurrealEngine)
+	set_target_properties(XRWeaponPoseSolverTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRWeaponPoseSolver COMMAND XRWeaponPoseSolverTests)
 
 	add_executable(XRWeaponRuntimeTests Tests/XRWeaponRuntimeTests.cpp)
 	target_link_libraries(XRWeaponRuntimeTests SurrealCommon ${SURREALCOMMON_LIBS})
