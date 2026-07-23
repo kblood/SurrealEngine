@@ -132,6 +132,14 @@ follow-up scopes the beam tick to controller aim and restores the first VR
 release's explicit slave draw and off-hand shot routing. `95d4417d` remains a
 failed overall candidate; the follow-up requires physical verification.
 
+The `28a0c997` retest exposed one remaining dual-Enforcer behavior mismatch:
+pulling either trigger still fired both guns through UT99's stock delayed slave
+echo. The earlier port had restored the E1 pair rendering and per-actor aim but
+missed the later E2 input/timing work in `446231aa`. The follow-up suppresses
+unrequested slave ballistic dispatch, sends an off-hand trigger press directly
+to the slave, and preserves ordinary alternate fire for every unpaired weapon.
+`28a0c997` remains a failed candidate.
+
 ## Safe start — explicit launcher only
 
 - [ ] Use a charged Quest 3 with both controllers awake. Connect Virtual

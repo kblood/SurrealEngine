@@ -282,6 +282,9 @@ private:
 	XRWeaponPoseResult xrOffHandWeaponPose;
 	UClass* xrEnforcerClass = nullptr;
 	PropertyDataOffset xrEnforcerSlaveOffset;
+	bool xrManualSlaveFireActive = false;
+	bool xrManualSlaveFirePending = false;
+	bool xrAlternateFireKeyDown = false;
 	uint64_t xrWeaponCallHook = 0;
 	ViewFamily CreateDesktopViewFamily() const;
 	void InstallXRWeaponCallHook();
@@ -299,6 +302,7 @@ private:
 		bool menuActive);
 	void ReleaseOpenXRControllerEvents();
 	void ApplyOpenXRControllerEvents(const std::vector<XRNativeKeyEvent>& events);
+	void DispatchPendingXRSlaveFire();
 	void UpdateOpenXRWeaponDiagnostics(float elapsedSeconds,
 		const XRSpaceSamples& spaces, const XRWorldTransform& worldTransform,
 		const XRWeaponPoseResult& pose);

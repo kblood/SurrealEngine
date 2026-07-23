@@ -60,7 +60,18 @@ namespace XRWeaponRuntime
 		CallMetadata Call;
 		RotationTargets Targets;
 		TransformInputs Transforms;
+		bool SuppressDispatch = false;
 	};
+
+	enum class PairedOffHandTriggerAction
+	{
+		DefaultAlternateFire,
+		FireSlave,
+		ConsumeRelease
+	};
+
+	PairedOffHandTriggerAction ResolvePairedOffHandTrigger(bool hasSlave,
+		bool pressed, bool alternateFireKeyDown = false);
 
 	using ScopeResolver = std::function<std::optional<ScopeRequest>(UFunction*, UObject*)>;
 

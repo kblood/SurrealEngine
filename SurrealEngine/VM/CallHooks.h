@@ -19,6 +19,10 @@ public:
 	const Array<ExpressionValue>& Values() const { return Arguments; }
 	size_t Size() const { return Arguments.size(); }
 	bool Replace(size_t index, ExpressionValue value);
+	// Supplies the call result and skips native/script dispatch. Like argument
+	// replacement, this change commits only if the current hook returns normally.
+	bool OverrideResult(ExpressionValue value);
+	bool DispatchSuppressed() const { return *ResultOverridden; }
 
 private:
 	friend class VMCallHookRegistry;
@@ -29,12 +33,20 @@ private:
 		ExpressionValue Value;
 	};
 
-	explicit VMCallArguments(Array<ExpressionValue>& arguments) : Arguments(arguments) { }
+	explicit VMCallArguments(Array<ExpressionValue>& arguments,
+		ExpressionValue& overriddenResult, bool& resultOverridden)
+		: Arguments(arguments), OverriddenResult(&overriddenResult),
+		ResultOverridden(&resultOverridden) { }
 	~VMCallArguments() noexcept;
 	void Commit() noexcept { Committed = true; }
 
 	Array<ExpressionValue>& Arguments;
 	std::vector<Backup> Backups;
+	ExpressionValue* OverriddenResult = nullptr;
+	bool* ResultOverridden = nullptr;
+	ExpressionValue PreviousOverriddenResult;
+	bool PreviousResultOverridden = false;
+	bool ReplacedResult = false;
 	bool Committed = false;
 };
 
@@ -78,6 +90,8 @@ public:
 		// Observers run in reverse entry order, like nested middleware. Exceptions
 		// from observers are isolated and do not change the VM result.
 		void ObserveResult(const ExpressionValue& result) noexcept;
+		bool DispatchSuppressed() const { return ResultOverridden; }
+		const ExpressionValue& OverriddenResult() const { return ResultOverride; }
 
 	private:
 		friend class VMCallHookRegistry;
@@ -96,6 +110,8 @@ public:
 		UObject* Instance = nullptr;
 		Array<ExpressionValue>* Arguments = nullptr;
 		std::vector<ActiveHook> ActiveHooks;
+		ExpressionValue ResultOverride;
+		bool ResultOverridden = false;
 		bool CleanedUp = false;
 	};
 

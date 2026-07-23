@@ -185,6 +185,44 @@ namespace
 		}
 		Require(resolverCalls == 14, "VM hook resolver call count was unexpected");
 	}
+
+	void TestIndependentDualEnforcerFirePolicy()
+	{
+		using XRWeaponRuntime::PairedOffHandTriggerAction;
+		Require(XRWeaponRuntime::ResolvePairedOffHandTrigger(false, true) ==
+			PairedOffHandTriggerAction::DefaultAlternateFire,
+			"single weapon did not retain ordinary alternate fire");
+		Require(XRWeaponRuntime::ResolvePairedOffHandTrigger(true, true) ==
+			PairedOffHandTriggerAction::FireSlave,
+			"paired off-hand press did not select manual slave fire");
+		Require(XRWeaponRuntime::ResolvePairedOffHandTrigger(true, false) ==
+			PairedOffHandTriggerAction::ConsumeRelease,
+			"paired off-hand release leaked into alternate fire");
+		Require(XRWeaponRuntime::ResolvePairedOffHandTrigger(true, false, true) ==
+			PairedOffHandTriggerAction::DefaultAlternateFire,
+			"pairing while alternate fire was held did not balance its key release");
+
+		Rotator pawn(11, 22, 33);
+		XRWeaponRuntime::ScopeResolver resolver = [&](UFunction*, UObject*)
+			-> std::optional<XRWeaponRuntime::ScopeRequest>
+		{
+			XRWeaponRuntime::ScopeRequest request;
+			request.Call = Global("Engine", "Weapon", "TraceFire");
+			request.Targets.PawnViewRotation = &pawn;
+			request.SuppressDispatch = true;
+			return request;
+		};
+		VMCallHookRegistry registry;
+		registry.Register(XRWeaponRuntime::MakeUT99WeaponCallHook(
+			std::move(resolver)));
+		Array<ExpressionValue> arguments;
+		auto scope = registry.BeginCall(nullptr, nullptr, arguments);
+		Require(scope.DispatchSuppressed() &&
+			scope.OverriddenResult().GetType() == ExpressionValueType::Nothing,
+			"unrequested slave ballistic call was not suppressed");
+		Require(Exact(pawn, Rotator(11, 22, 33)),
+			"suppressed slave call changed pawn rotation");
+	}
 }
 
 int main()
@@ -194,6 +232,7 @@ int main()
 		TestUT99Classification();
 		TestScopedRotatorRestoration();
 		TestVMHookAdapter();
+		TestIndependentDualEnforcerFirePolicy();
 		std::cout << "XR weapon runtime tests passed\n";
 		return 0;
 	}

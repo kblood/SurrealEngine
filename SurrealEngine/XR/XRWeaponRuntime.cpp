@@ -113,7 +113,7 @@ namespace XRWeaponRuntime
 		VMCallHook hook;
 		hook.Order = order;
 		hook.Enter = [resolver = std::move(resolver)](UFunction* function, UObject* instance,
-			VMCallArguments&) -> VMCallHookCleanup
+			VMCallArguments& arguments) -> VMCallHookCleanup
 		{
 			if (!resolver)
 				return {};
@@ -121,8 +121,22 @@ namespace XRWeaponRuntime
 			if (!request)
 				return {};
 			const AimScopeKind kind = ClassifyUT99WeaponCall(request->Call);
+			if (request->SuppressDispatch && kind != AimScopeKind::None)
+			{
+				arguments.OverrideResult(ExpressionValue::NothingValue());
+				return {};
+			}
 			return BeginRotationScope(kind, request->Targets, request->Transforms);
 		};
 		return hook;
+	}
+
+	PairedOffHandTriggerAction ResolvePairedOffHandTrigger(bool hasSlave,
+		bool pressed, bool alternateFireKeyDown)
+	{
+		if (!hasSlave || (!pressed && alternateFireKeyDown))
+			return PairedOffHandTriggerAction::DefaultAlternateFire;
+		return pressed ? PairedOffHandTriggerAction::FireSlave :
+			PairedOffHandTriggerAction::ConsumeRelease;
 	}
 }

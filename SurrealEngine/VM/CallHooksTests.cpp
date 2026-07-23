@@ -166,6 +166,42 @@ namespace
 		}
 		Require(entries == 1, "unregistered hook affected a later call");
 	}
+
+	void TestDispatchOverrideOrderingAndRollback()
+	{
+		VMCallHookRegistry registry;
+		Array<ExpressionValue> arguments;
+		int observedResult = 0;
+
+		VMCallHook first;
+		first.Order = 10;
+		first.Enter = [](UFunction*, UObject*, VMCallArguments& call)
+		{
+			Require(call.OverrideResult(ExpressionValue::IntValue(7)),
+				"dispatch result override failed");
+			return VMCallHookCleanup{};
+		};
+		first.ObserveResult = [&](UFunction*, UObject*, const Array<ExpressionValue>&,
+			const ExpressionValue& result) { observedResult = result.ToInt(); };
+
+		VMCallHook failing;
+		failing.Order = 20;
+		failing.Enter = [](UFunction*, UObject*, VMCallArguments& call)
+			-> VMCallHookCleanup
+		{
+			Require(call.DispatchSuppressed(), "later hook did not see result override");
+			call.OverrideResult(ExpressionValue::IntValue(9));
+			throw std::runtime_error("intentional result rollback");
+		};
+
+		registry.Register(std::move(first));
+		registry.Register(std::move(failing));
+		auto scope = registry.BeginCall(nullptr, nullptr, arguments);
+		Require(scope.DispatchSuppressed() && scope.OverriddenResult().ToInt() == 7,
+			"failed hook did not restore the prior dispatch override");
+		scope.ObserveResult(scope.OverriddenResult());
+		Require(observedResult == 7, "observer did not receive overridden result");
+	}
 }
 
 int main()
@@ -175,6 +211,7 @@ int main()
 		TestOrderingRollbackAndResult();
 		TestNestedCleanupAndExceptionIsolation();
 		TestSnapshotAndDispatchExceptionCleanup();
+		TestDispatchOverrideOrderingAndRollback();
 		std::cout << "VM call hook tests passed\n";
 		return 0;
 	}

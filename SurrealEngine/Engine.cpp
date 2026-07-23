@@ -517,6 +517,8 @@ void Engine::RunOneFrame()
 		UpdateOpenXRWeaponDiagnostics(realTimeElapsed, xrSpaces,
 			xrWeaponWorld, xrWeaponPose);
 	}
+	if (!xrWeaponPose.Valid)
+		xrManualSlaveFirePending = false;
 	const float levelElapsed = xrWeaponPose.Valid ?
 		AdvanceGameFrameWithXRWeaponAim(xrWeaponPose, xrOffHandWeaponPose,
 			realTimeElapsed) :
@@ -653,11 +655,51 @@ void Engine::ApplyOpenXRControllerEvents(
 			InputEvent(IK_Escape, EInputType::IST_Release, 0.0f, source);
 			continue;
 		}
+		if (event.Kind == XRNativeKeyEventKind::AlternateFire)
+		{
+			UPlayerPawn* pawn = viewport ? viewport->Actor() : nullptr;
+			UWeapon* master = pawn ? pawn->Weapon() : nullptr;
+			UWeapon* slave = GetXRSecondaryWeapon(master);
+			const auto action = XRWeaponRuntime::ResolvePairedOffHandTrigger(
+				slave != nullptr, event.Pressed, xrAlternateFireKeyDown);
+			if (action == XRWeaponRuntime::PairedOffHandTriggerAction::FireSlave)
+			{
+				xrManualSlaveFirePending = true;
+				continue;
+			}
+			if (action == XRWeaponRuntime::PairedOffHandTriggerAction::ConsumeRelease)
+				continue;
+		}
 		const EInputKey key = event.Kind == XRNativeKeyEventKind::PrimaryFire ?
 			IK_LeftMouse : IK_RightMouse;
 		InputEvent(key, event.Pressed ? EInputType::IST_Press :
 			EInputType::IST_Release, 0.0f, source);
+		if (event.Kind == XRNativeKeyEventKind::AlternateFire)
+			xrAlternateFireKeyDown = event.Pressed;
 	}
+}
+
+void Engine::DispatchPendingXRSlaveFire()
+{
+	if (!xrManualSlaveFirePending)
+		return;
+	xrManualSlaveFirePending = false;
+	UPlayerPawn* pawn = viewport ? viewport->Actor() : nullptr;
+	UWeapon* master = pawn ? pawn->Weapon() : nullptr;
+	UWeapon* slave = GetXRSecondaryWeapon(master);
+	if (!slave || !xrOffHandWeaponPose.Valid)
+		return;
+
+	struct ScopedManualSlaveFire
+	{
+		explicit ScopedManualSlaveFire(bool& active)
+			: Active(active), Saved(active) { Active = true; }
+		~ScopedManualSlaveFire() { Active = Saved; }
+		bool& Active;
+		bool Saved;
+	} manualFire(xrManualSlaveFireActive);
+	LogMessage("[openxr-dual-enforcer] off-hand trigger fired slave only");
+	CallEvent(slave, NameString("Fire"));
 }
 
 void Engine::UpdateOpenXRControllerEvents(const XRSessionState& session,
@@ -673,6 +715,8 @@ void Engine::ReleaseOpenXRControllerEvents()
 {
 	ApplyOpenXRControllerEvents(openXRControllerEvents.Release(
 		xrHandedness.Dominant));
+	xrManualSlaveFirePending = false;
+	xrAlternateFireKeyDown = false;
 }
 
 void Engine::UpdateOpenXRStartupMenu(float elapsedSeconds,
@@ -923,13 +967,19 @@ float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose,
 #endif
 	if (!pose.Valid || menuActive || cinematicActive || !pawn || !weapon ||
 		weapon->Owner() != pawn)
+	{
+		xrManualSlaveFirePending = false;
 		return AdvanceGameFrame(realTimeElapsed);
+	}
 
 	const vec3 aimDirection(pose.AimDirection.X, pose.AimDirection.Y,
 		pose.AimDirection.Z);
 	if (!std::isfinite(aimDirection.x) || !std::isfinite(aimDirection.y) ||
 		!std::isfinite(aimDirection.z) || length(aimDirection) < 0.0001f)
+	{
+		xrManualSlaveFirePending = false;
 		return AdvanceGameFrame(realTimeElapsed);
+	}
 
 	XRWeaponPoseResult validatedOffHandPose;
 	const vec3 offHandAim(offHandPose.AimDirection.X, offHandPose.AimDirection.Y,
@@ -939,6 +989,7 @@ float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose,
 		length(offHandAim) >= 0.0001f)
 		validatedOffHandPose = offHandPose;
 	SetXRWeaponPoses(pose, validatedOffHandPose);
+	DispatchPendingXRSlaveFire();
 	return AdvanceGameFrame(realTimeElapsed);
 }
 
@@ -1004,9 +1055,36 @@ void Engine::InstallXRWeaponCallHook()
 					!pawnAimCall && !pulseBeamTick)
 					return {};
 
+				const bool slaveCall = secondaryWeapon && instance == secondaryWeapon;
+				UWeapon* scopedWeapon = slaveCall ? secondaryWeapon : weapon;
+				XRWeaponRuntime::ScopeRequest request;
+				UObject* callClassSource = pulseBeamTick ? instance : scopedWeapon;
+				if (callClassSource->Class && callClassSource->Class->package)
+					request.Call.PackageName = callClassSource->Class->package->GetPackageName().ToString();
+				if (callClassSource->Class)
+					request.Call.ClassName = callClassSource->Class->Name.ToString();
+				request.Call.ActiveStateName = instance->GetStateName().ToString();
+				request.Call.FunctionName = function->Name.ToString();
+				UObject* outer = function->Outer();
+				if (UState* state = UObject::TryCast<UState>(outer))
+				{
+					if (!UObject::TryCast<UClass>(outer))
+						request.Call.DeclaringStateName = state->Name.ToString();
+				}
+
+				const bool slaveBallisticCall = slaveCall &&
+					(function->Name == "TraceFire" || function->Name == "ProjectileFire");
+				if (slaveBallisticCall && !xrManualSlaveFireActive)
+				{
+					request.SuppressDispatch = true;
+					static uint64_t suppressedEchoCount = 0;
+					if ((suppressedEchoCount++ % 4) == 0)
+						LogMessage("[openxr-dual-enforcer] suppressed stock slave echo");
+					return request;
+				}
+
 				const XRWeaponPoseResult* pose = &xrWeaponPose;
-				UWeapon* scopedWeapon = weapon;
-				if (instance == secondaryWeapon)
+				if (slaveCall)
 				{
 					if (!xrOffHandWeaponPose.Valid)
 						return {};
@@ -1039,22 +1117,6 @@ void Engine::InstallXRWeaponCallHook()
 				if (!std::isfinite(aimDirection.x) || !std::isfinite(aimDirection.y) ||
 					!std::isfinite(aimDirection.z) || length(aimDirection) < 0.0001f)
 					return {};
-
-				XRWeaponRuntime::ScopeRequest request;
-				UObject* callClassSource = pulseBeamTick ? instance : scopedWeapon;
-				if (callClassSource->Class && callClassSource->Class->package)
-					request.Call.PackageName = callClassSource->Class->package->GetPackageName().ToString();
-				if (callClassSource->Class)
-					request.Call.ClassName = callClassSource->Class->Name.ToString();
-				request.Call.ActiveStateName = instance->GetStateName().ToString();
-				request.Call.FunctionName = function->Name.ToString();
-
-				UObject* outer = function->Outer();
-				if (UState* state = UObject::TryCast<UState>(outer))
-				{
-					if (!UObject::TryCast<UClass>(outer))
-						request.Call.DeclaringStateName = state->Name.ToString();
-				}
 
 				request.Targets = { &pawn->ViewRotation(), &scopedWeapon->Rotation() };
 				request.Transforms.BallisticRotationValid = true;

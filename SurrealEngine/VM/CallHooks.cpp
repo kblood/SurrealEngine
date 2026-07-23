@@ -16,10 +16,30 @@ bool VMCallArguments::Replace(size_t index, ExpressionValue value)
 	return true;
 }
 
+bool VMCallArguments::OverrideResult(ExpressionValue value)
+{
+	if (!OverriddenResult || !ResultOverridden)
+		return false;
+	if (!ReplacedResult)
+	{
+		PreviousOverriddenResult = *OverriddenResult;
+		PreviousResultOverridden = *ResultOverridden;
+		ReplacedResult = true;
+	}
+	*OverriddenResult = std::move(value);
+	*ResultOverridden = true;
+	return true;
+}
+
 VMCallArguments::~VMCallArguments() noexcept
 {
 	if (Committed)
 		return;
+	if (ReplacedResult)
+	{
+		*OverriddenResult = std::move(PreviousOverriddenResult);
+		*ResultOverridden = PreviousResultOverridden;
+	}
 
 	for (auto it = Backups.rbegin(); it != Backups.rend(); ++it)
 	{
@@ -41,7 +61,7 @@ VMCallHookRegistry::CallScope::CallScope(UFunction* function, UObject* instance,
 	for (VMCallHook& hook : hooks)
 	{
 		VMCallHookCleanup cleanup;
-		VMCallArguments editor(arguments);
+		VMCallArguments editor(arguments, ResultOverride, ResultOverridden);
 		try
 		{
 			if (hook.Enter)
@@ -59,7 +79,9 @@ VMCallHookRegistry::CallScope::CallScope(UFunction* function, UObject* instance,
 
 VMCallHookRegistry::CallScope::CallScope(CallScope&& other) noexcept
 	: Function(other.Function), Instance(other.Instance), Arguments(other.Arguments),
-	ActiveHooks(std::move(other.ActiveHooks)), CleanedUp(other.CleanedUp)
+	ActiveHooks(std::move(other.ActiveHooks)),
+	ResultOverride(std::move(other.ResultOverride)),
+	ResultOverridden(other.ResultOverridden), CleanedUp(other.CleanedUp)
 {
 	other.CleanedUp = true;
 }

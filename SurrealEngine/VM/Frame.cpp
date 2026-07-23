@@ -235,7 +235,11 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 	auto callScope = CallHooks().BeginCall(func, instance, args);
 
 	ExpressionValue result;
-	if (AllFlags(func->FuncFlags, FunctionFlags::Native))
+	if (callScope.DispatchSuppressed())
+	{
+		result = callScope.OverriddenResult();
+	}
+	else if (AllFlags(func->FuncFlags, FunctionFlags::Native))
 	{
 		result = CallNative(func, instance, args);
 	}
