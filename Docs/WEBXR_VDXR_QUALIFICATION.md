@@ -77,3 +77,7 @@ textures; removing that usage is not a valid compatibility workaround.
 
 This attempt is useful hardware evidence, but it is a failed qualification and
 the candidate must not be promoted to stable.
+
+The independent Claude Code Opus 4.8 code-path review, ranked hypotheses,
+candidate fixes, tests, risks, and commit decomposition are recorded in
+`CLAUDE_OPUS_RUNTIME_BLOCKER_ANALYSIS.md`.

@@ -49,6 +49,8 @@ throws or reports false, then add a WasmFS-like regression in which
 round trips must be repeated before save persistence is claimed. Deus Ex uses
 nested `SaveNNNN/*.dxs` data and is outside the current flat allowlist; it needs
 a separate typed path policy rather than a broad recursive exception.
+The cross-blocker second-opinion review is in
+`../Docs/CLAUDE_OPUS_RUNTIME_BLOCKER_ANALYSIS.md`.
 
 ## Storage and APIs
 
