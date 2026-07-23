@@ -221,6 +221,7 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Render/XRUISurfaceEngineBinding.h
 	SurrealEngine/Render/XRUISurfaceEngineBinding.cpp
 	SurrealEngine/XR/XRUIRuntime.cpp
+	SurrealEngine/XR/XRUIVisuals.cpp
 	SurrealEngine/XR/XRUIRuntime.h
 	SurrealEngine/XR/XRStartupIntroRoute.cpp
 	SurrealEngine/XR/XRStartupIntroRoute.h
@@ -1381,6 +1382,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		SurrealEngine/Render/XRUISurfaceRuntimeAdapter.cpp
 		SurrealEngine/Render/XRUISurfaceEngineBinding.cpp
 		SurrealEngine/XR/XRUIRuntime.cpp
+		SurrealEngine/XR/XRUIVisuals.cpp
 		SurrealEngine/XR/XRHapticFeedbackPolicy.cpp
 		SurrealEngine/XR/XRCommon.cpp
 		SurrealEngine/Math/mat.cpp
@@ -1468,6 +1470,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		Tests/OpenXRUIRuntimeTests.cpp
 		SurrealEngine/Platform/OpenXR/OpenXRUIRuntime.cpp
 		SurrealEngine/XR/XRUIRuntime.cpp
+		SurrealEngine/XR/XRUIVisuals.cpp
 		SurrealEngine/XR/XRHapticFeedbackPolicy.cpp
 		SurrealEngine/XR/XRCommon.cpp
 		SurrealEngine/XR/XRStartupIntroRoute.cpp

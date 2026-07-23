@@ -3,6 +3,7 @@
 #include "Platform/WebXR/WebXRFrameBridge.h"
 #include "Platform/WebXR/WebXRInputAdapter.h"
 #include "XR/XRUIRuntime.h"
+#include "XR/XRUIVisuals.h"
 
 #include <array>
 
@@ -12,8 +13,8 @@ namespace WebXR
 	constexpr PresentationTarget LoadingSurfaceTarget = { 3 };
 	constexpr PresentationTarget MenuSurfaceTarget = { 4 };
 	constexpr PresentationTarget HudSurfaceTarget = { 5 };
-	constexpr int ControllerVisualCompositionOrder = 100;
-	constexpr int HitMarkerCompositionOrder = 600;
+	constexpr int ControllerVisualCompositionOrder = XRUIControllerVisualCompositionOrder;
+	constexpr int HitMarkerCompositionOrder = XRUIHitMarkerCompositionOrder;
 
 	using PointerFeedback = XRUIPointerFeedback;
 
@@ -35,40 +36,10 @@ namespace WebXR
 #pragma pack(pop)
 	static_assert(sizeof(PackedPointerFeedback) == 76);
 
-	struct UIVisualSettings
-	{
-		float ControllerBodyLengthMeters = 0.14f;
-		float ControllerBodyWidthMeters = 0.045f;
-		float ControllerBodyHeightMeters = 0.04f;
-		float ControllerGripLengthMeters = 0.10f;
-		float ControllerGripForwardOffsetMeters = -0.075f;
-		float ControllerGripUpOffsetMeters = -0.065f;
-		float LaserRadiusMeters = 0.0025f;
-		float SelectingLaserScale = 1.6f;
-		float HitMarkerRadiusMeters = 0.014f;
-	};
-
-	struct UIVisualVertex
-	{
-		vec3 Position = vec3(0.0f);
-		vec4 Color = vec4(1.0f);
-	};
-
-	struct UIHandVisual
-	{
-		XRHand Hand = XRHand::Right;
-		bool Selecting = false;
-		Array<UIVisualVertex> Controller;
-		Array<UIVisualVertex> Laser;
-		Array<UIVisualVertex> HitMarker;
-	};
-
-	struct UIVisualFrame
-	{
-		// Controller and laser geometry is drawn before UI surfaces. HitMarker is
-		// intentionally drawn after UI so the exact contact remains visible.
-		Array<UIHandVisual> Hands;
-	};
+	using UIVisualSettings = XRUIVisualSettings;
+	using UIVisualVertex = XRUIVisualVertex;
+	using UIHandVisual = XRUIHandVisual;
+	using UIVisualFrame = XRUIVisualFrame;
 
 	XRUIViewerPose BuildUIViewerPose(const ViewFamily& family);
 	XRUISurfaceRay BuildUIRay(const XRPose& pose, const vec3& cameraLocation,
