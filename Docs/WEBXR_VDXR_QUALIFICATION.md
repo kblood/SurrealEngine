@@ -60,6 +60,15 @@ the headset was not actively connected as a WebXR device. The copied report
 correctly remained entirely idle (`enter_attempts: 0`, no transitions). It does
 not contradict or qualify either presentation backend.
 
+The later report with `capability_code: ready` and
+`capability_available: yes` is also not an immersive test. It still records
+`provider_phase: idle`, `enter_attempts: 0`, `successful_entries: 0`, and
+`frames: 0`. Capability discovery can succeed without an active immersive
+session; projection format, reference space, layer dimensions, bridge timing,
+and pose correctness therefore remain `unknown`. Browser automation can test
+ordering and lifecycle, but only an actively connected headset can exercise
+the XR compositor path.
+
 For every desktop Chrome/VDXR retest, wake the Quest and controllers, select
 VDXR, connect Virtual Desktop, and confirm the headset remains actively
 connected as a WebXR device before loading the page and pressing Play. If the
@@ -102,29 +111,43 @@ The audit identified two independent source defects behind the result:
    `[0,1]` form. Native metre-to-UU scaling applies to both without double
    converting direct mode. Automated regressions pass; hardware requalification
    remains required.
-2. Every XR callback presents the previously completed front atlas before it
-   captures and schedules rendering for the current pose. Even without an
-   Asyncify delay the visible atlas is therefore one XR callback old; with a
-   delay it can be older. The color-only `XRWebGLLayer` submission carries no
-   source-pose/depth information, so the compositor cannot make that image
-   current and `gl.finish()` cannot repair the mismatch.
+2. The tested ABI-v3 candidate presented the previously completed front atlas
+   before it captured and scheduled rendering for the current pose. Even
+   without an Asyncify delay its visible atlas was therefore one XR callback
+   old; with a delay it could be older. The color-only `XRWebGLLayer`
+   submission carried no source-pose/depth information, so the compositor could
+   not make that image current and `gl.finish()` could not repair the mismatch.
+
+The ABI-v4 current-pose branch removes that deliberate stale-atlas path. It
+prepares simulation asynchronously before an XR callback, then performs
+`getViewerPose`, synchronous native rendering, and copy/upload/presentation in
+one uninterrupted callback. Deferred finish/travel/save work runs afterward.
+If preparation is late, the callback clears/skips instead of resubmitting old
+pixels. Deterministic tests enforce that no Promise/microtask boundary occurs
+between pose sampling and presentation and that the render packet carries the
+presenting callback's pose and timestamp. This branch has not yet run on an
+actively connected Quest 3/VDXR session, so it does not close physical
+distortion, stereo/FOV, performance, or startup-reliability gates.
 
 The landed projection-unit correction is the smallest first retest because it
 directly explains the cutoff and is covered mathematically. Forced bridge is not
-shippable as stable until current-pose presentation is also solved. A
+shippable as stable until the ABI-v4 current-pose boundary is physically
+qualified. A
 rotation-only image warp may reduce turning artifacts, but full correctness for
 translation and nearby world/UI/controller geometry requires same-XR-callback
 render/present or depth/motion-aware reprojection.
 
-Commit `078a6d2f` makes the remaining atlas defect measurable without exposing
-pose or game data. In a running bridge report,
+Commit `078a6d2f` made the ABI-v3 atlas defect measurable and the same fields
+serve as ABI-v4 regression guards without exposing pose or game data. In a
+running bridge report,
 `bridge_present_age_frames`/`bridge_present_age_ms` describe the currently
 presented target's source age, their `bridge_max_*` counterparts retain the
 session maxima, and `bridge_reused_presents` increments when the same completed
 target is submitted again. Values are bounded to 65,535 frames, 60,000 ms, and
 4,294,967,295 reuses and reset on entry/re-entry. `unknown` age before the first
 completed presentation is normal. Positive age is evidence of stale-pose
-submission; a rising maximum or reuse count shows worse delay. The fields are
+submission in ABI v3. ABI v4 should report zero age and reuse for every
+presentation; any positive value is a regression. The fields remain
 diagnostics, not a release waiver.
 
 ## Candidate 802cfa62 physical retest

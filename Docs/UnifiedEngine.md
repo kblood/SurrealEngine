@@ -89,8 +89,8 @@ main product-only additions beyond the foundation topics are:
 | Integrated slice | State | Evidence and remaining boundary |
 | --- | --- | --- |
 | Flat desktop WASM/WebGPU | Implemented; audio endurance qualification remains | Immutable candidate `173bf623` restored exact owned GOG UT99 and Unreal Gold libraries at the live origin and launched both with advancing ticks, visible WebGPU rendering, and zero page/WebGPU errors. Its owner-data qualification reproduced WasmFS `analyzePath` failure, then proved the `46d13173` `stat` fallback by snapshotting, flushing, reopening, and byte-exactly restoring `Save99.usa` while excluding a disallowed sibling. A human Chrome/Virtual Desktop retest confirmed pointer capture, fire, and working relative mouse-look through the `28906717` browser-delta bridge. Audio was audible but later remained suspended after a lifecycle transition; `4dfceb0f` now retries resume on return-to-visible and presentation transitions. Audio recovery and longer play remain gates. |
-| Direct WebXR/WebGPU presentation | Implemented, experimental; prior hardware-observed failure | On Quest 3 through desktop Chrome/VDXR, the old Automatic path reached consent but immediately left immersive mode. Commit `f3643b78` now negotiates optional WebGPU from `session.enabledFeatures`, fails unobservable state closed, and prohibits same-session layer mixing. Automated ABI/lifecycle/exclusivity tests pass; the new path remains physically unqualified. |
-| Quest compatibility presentation | Implemented, experimental; hardware-observed visual failure | Candidate `173bf623` proved forced `XRWebGLLayer` immersive entry but showed severe rotational distortion and a short black cutoff. Commits `0331ef21` and `0218d5b7` corrected its projection-unit/depth-convention defects, while `078a6d2f` exposed bounded stale-atlas pose age. The newer physical `802cfa62` attempt required several starts and waiting, then responded to head look and controller aim, but the world remained distorted and its local report was not preserved. Projection and startup reliability therefore remain failed gates; no remote telemetry can reconstruct the missing report. |
+| Direct WebXR/WebGPU presentation | Implemented, experimental; prior hardware-observed failure | On Quest 3 through desktop Chrome/VDXR, the old Automatic path reached consent but immediately left immersive mode. Commit `f3643b78` now negotiates optional WebGPU from `session.enabledFeatures`, fails unobservable state closed, and prohibits same-session layer mixing. ABI v4 prepares simulation asynchronously, then renders and copies the presenting callback's current pose synchronously with no Promise boundary. Automated ABI/lifecycle/order tests pass; the new path remains physically unqualified. |
+| Quest compatibility presentation | Implemented, experimental; hardware-observed visual failure | Candidate `173bf623` proved forced `XRWebGLLayer` immersive entry but showed severe rotational distortion and a short black cutoff. Commits `0331ef21` and `0218d5b7` corrected its projection-unit/depth-convention defects, while `078a6d2f` exposed bounded stale-atlas pose age. ABI v4 now clears/skips late preparations instead of resubmitting old-pose pixels, and its same-callback render/upload order is deterministic-test covered. The newer physical `802cfa62` attempt predates that boundary and remained distorted. Projection, frame budget, and startup reliability remain failed/unqualified gates until an actively connected headset run records nonzero entry/frame counters. |
 | WebXR UI and controllers | Implemented, experimental; partial hardware evidence | Candidate `173bf623` rendered tracked blue/red procedural controller proxies. On `802cfa62`, controller aim tracked and menu pointers could point and click, but the menu was horizontally mirrored. This proves partial pose/contact/click transport, not correct UI orientation, scale, laser alignment, convergence, latency, or comfort. |
 | Semantic XR gameplay input | Implemented, experimental; hardware-observed input failure | WebXR and OpenXR use the provider-neutral `XRInputAdapter`; right-dominant Select maps to Fire, the other Select to AltFire, sticks map to movement/turning, and independent sources preserve keyboard/mouse fallback. On physical candidate `802cfa62`, menu controller clicks worked, but the gameplay trigger did not satisfy **Press Fire** and thumbsticks did not move the player; mouse left did clear the prompt. The declared mapping therefore remains unqualified on Quest 3/VDXR. WebXR still retains one discrete state per simulation frame, and the shared turn policy supports smooth or snap interpretation, but settings, movement reference, remapping, and hardware comfort remain follow-ups. |
 | One-hand XR weapons | Implemented, experimental | A shared aim-pose solver, scoped full-tick firing direction, and contiguous per-eye weapon pass are used by WebXR and OpenXR. Default placement follows the Farantir hardware baseline (aim pose, zero offset, 5x scale); physical calibration, muzzle-origin rewriting, two-hand/dual-wield behavior, and loaded UT99/Unreal fixtures remain gates. |
@@ -171,7 +171,8 @@ The served data-free browser matrix passes:
 - the separate three-demo descriptor/import suite;
 - 16 OPFS/IndexedDB mutable-persistence and migration checks;
 - 3 provider-neutral data-bootstrap checks;
-- direct WebXR ABI-v3 persistent eye-texture, input, failure, exit, and re-entry tests;
+- direct WebXR ABI-v4 async-prepare/current-pose synchronous-render/async-complete,
+  input, failure, exit, and re-entry tests;
 - `XRWebGLLayer` fallback selection, stereo-atlas, cleanup, and re-entry tests;
 - the real desktop Chrome WebGPU-to-WebGL 2 upload/readback probe;
 - corresponding-source and static release-package audits; and
@@ -226,14 +227,17 @@ Native metre-to-UU scaling then applies to both. Automated near/far,
 asymmetric-eye, and rotated-pose regressions pass, but physical stereo/FOV and
 cutoff behavior must be requalified.
 
-Independently, the current two-phase producer presents the previous completed
-atlas before scheduling the current pose render, making the visible image at
-least one XR callback old even without an Asyncify delay. `078a6d2f` reports
-the current/maximum source age in frames and milliseconds plus reuse count,
-with bounded allowlisted values and no source pose or projection data. A value
-of `unknown` before the first completed presentation is expected; positive age
-or reuse during running presentation quantifies staleness rather than proving
-correctness. The stale-pose architecture remains a release blocker.
+The tested ABI-v3 producer presented the previous completed atlas before
+scheduling the current pose render, making the visible image at least one XR
+callback old even without an Asyncify delay. ABI v4 replaces that architecture:
+an Asyncify-capable task prepares simulation before the callback; the callback
+then samples its current pose, synchronously renders, and immediately
+copies/uploads the result with no Promise boundary; completion runs afterward.
+If preparation is not ready, the callback clears/skips rather than reusing an
+old target. Deterministic tests require exact pose-render-copy ordering and zero
+reported pose age/reuse. This closes the deliberate software staleness in
+automation, but an actively connected Quest/VDXR session is still required to
+qualify compositor behavior, stereo/FOV, and frame budget.
 
 Physical candidate `802cfa62` includes those projection corrections and
 pose-age diagnostics. On Quest 3 through Virtual Desktop/VDXR it needed several
@@ -292,9 +296,9 @@ eyes to an atlas before a WebGL 2 bridge presents them through
 and topmost menu surfaces and consume the same exact controller contact. The
 fallback is therefore implemented and can enter a physical VDXR session, but
 remains experimental until the landed projection correction passes physical
-requalification, the stale-pose presentation is corrected, and stereo
-correctness, latency, and cross-API transfer cost pass the physical Quest
-matrix.
+requalification, the ABI-v4 current-pose boundary is exercised on an actively
+connected headset, and stereo correctness, latency, and cross-API transfer cost
+pass the physical Quest matrix.
 
 ## Active extraction lanes
 

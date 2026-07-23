@@ -10,6 +10,9 @@ failed after consent and before confirmed presentation. A later candidate
 with its temporary blocking-timing QA option unchecked. Presentation and input
 reached the headset, but rotational distortion and a short black world cutoff
 make this a hardware-observed visual failure rather than a qualification.
+The later ABI-v4 current-pose branch is native-, Emscripten-, and deterministic-
+test validated, but has not yet been run through an actively connected headset;
+it is not a physical qualification or release candidate.
 
 ## Scope
 
@@ -147,9 +150,11 @@ Presentation-runtime follow-up branch: `pr/webxr-presentation-runtime`, based
 directly on `pr/webxr-provider` at `89608ca7`. It originally upgraded the
 private frame ABI to version 2, completed per-eye texture metadata handoff, and
 added capability and lifecycle diagnostics without changing the flat
-desktop-WASM entry point. The Window-owned Asyncify integration now uses ABI
-version 3. Its binary layout is unchanged, but v3 makes persistent host-owned
-textures (never XR compositor or canvas-current textures) part of the contract.
+desktop-WASM entry point. Window-owned Asyncify first used ABI version 3 for
+persistent host-owned textures. The current-pose branch uses ABI version 4;
+its packet layout remains unchanged, while the native lifecycle is explicitly
+split into asynchronous preparation, synchronous current-pose rendering, and
+asynchronous completion.
 
 ## Checkpoint provenance
 
@@ -205,28 +210,35 @@ least one published frame remain normal clean ends.
 The ordinary Emscripten main loop remains registered for the process lifetime,
 but `Surreal_SetXRFrameLoopActive(1)` pauses it rather than allowing its callback
 to re-enter Wasm and return early. It resumes only after the last Asyncify
-render and session cleanup have drained. Ownership transfers only
+preparation/completion and session cleanup have drained. Ownership transfers only
 after the selected mode has a session, projection layer, and reference space:
 direct mode additionally requires `XRGPUBinding`, while compatibility mode
 requires its WebGL 2 context, `XRWebGLLayer`, and stereo-atlas bridge. Session
 end or any frame exception restores canvas scheduling and resets the
 tracked-pose origin.
 
-Each XR animation callback requires one left and one right primary view, but it
-never calls Wasm. It copies pose, projection, controller input, and layout
-metadata into JavaScript-owned packets; presents the last completed front
-target; discards all current-frame XR objects; and returns. A later browser task
-takes at most one retained input state and starts at most one Asyncify-aware
-native producer render into the back target. Discrete states remain queued for
-later simulation frames; a lone continuous pose/axis state is replaced by its
-newest sample. Completion atomically publishes that back target. A missing
-viewer pose skips capture without advancing simulation, and headset frames may
-repeat the immutable front image while the producer waits on OPFS. This is
-intentional frame dropping, not a second simulation tick.
+ABI v4 separates frame work at a hard browser boundary. Outside XR animation
+callbacks, one Asyncify-aware task applies at most one retained input state and
+calls `Surreal_PrepareWebXRFrame` to advance simulation. Once preparation has
+completed, the next XR animation callback obtains its current `XRViewerPose`,
+calls `Surreal_RenderWebXRFrame` synchronously with that callback's view packet,
+and immediately copies/uploads and presents the result before returning. There
+is no Promise or microtask boundary from pose sampling through native render
+and presentation. `Surreal_CompleteWebXRFrame` then runs outside the callback
+to perform deferred finish/travel/save work and allow the next preparation.
+
+If preparation is not complete when an XR callback begins, that callback
+clears/skips; it never resubmits the previous pose's target. Discrete input
+states remain queued for later simulation frames, while a lone continuous
+pose/axis state is replaced by its newest sample. A missing viewer pose skips
+capture without advancing simulation. This removes guaranteed stale-pose
+presentation at the cost of dropped headset frames when preparation or OPFS
+work misses the callback deadline. Simulation state may be older than the
+render pose, but the rendered headset view uses the presenting callback's pose.
 
 The same native-call gate covers browser-side services. Mutable-data interval,
 visibility, and pagehide checkpoints never inspect `Module.FS` while an
-Asyncify XR producer is unresolved. Repeated triggers coalesce into one
+Asyncify preparation/completion is unresolved. Repeated triggers coalesce into one
 deferred lifecycle reason and flush once the gate reopens; disposal removes
 the listener. Browser audio uses the same defer-and-flush rule. Once the engine
 has created its OpenAL/WebAudio context, startup, return-to-visible, and
@@ -244,7 +256,7 @@ callbacks cannot use `dynCall` to re-enter Wasm while
 `surrealXRNativeCallsBlocked` is true. The same library overrides
 `emscripten_set_timeout` and `emscripten_clear_timeout` with stable logical
 timer IDs, preventing SDL timers from entering Wasm during the unresolved
-producer and retaining correct cancellation behavior. Ordinary non-Asyncify
+preparation/completion and retaining correct cancellation behavior. Ordinary non-Asyncify
 browser builds do not link or install this library.
 
 Blocked DOM events are snapshotted in gate-owned JavaScript and replayed
@@ -254,7 +266,7 @@ Registrations removed before replay are treated as stale and skipped. The
 queue is bounded: expendable continuous samples are discarded first, while a
 discrete-only overflow latches instead of silently dropping an input edge. One
 `surrealnativecallgateoverflow` event then fails the WebXR provider closed, and
-normal cleanup still waits for the in-flight producer before releasing native
+normal cleanup still waits for the in-flight async phase before releasing native
 state. The latch and deferred queue are cleared during that cleanup so a later
 session can start cleanly.
 
@@ -270,7 +282,7 @@ suspended render. Pose and axis-only samples with the same discrete state are
 coalesced to the latest sample. A 256-entry safety limit fails the session
 closed with `input-transition-overflow`; it never silently discards a button
 edge. Only one retained discrete state is submitted before each native
-simulation/render producer, ensuring a quick press and release are observable
+simulation preparation, ensuring a quick press and release are observable
 on separate engine frames instead of both being applied before one tick.
 Session focus loss and controller removal are cancellation barriers: older
 queued gameplay edges are discarded and the neutral/latest connection state
@@ -279,11 +291,10 @@ controller. A safety packet can be applied without inventing a simulation or
 render frame when focus/controller events arrive and the browser supplies no
 new viewer pose.
 
-In direct mode, ABI v3 gives native code two ordinary persistent 2D eye
-textures. The projection layer requests `COPY_DST`; the XR callback acquires
-each current `XRGPUSubImage` only during its late presentation section and
-copies the immutable front eyes into the returned viewport/array slices before
-returning. Before copying, it validates integer viewport bounds, one valid
+In direct mode, ABI v4 gives native code two ordinary persistent 2D eye
+textures. The projection layer requests `COPY_DST`; after synchronous native
+rendering, that same XR callback copies the just-rendered eyes into its current
+`XRGPUSubImage` viewport/array slices before returning. Before copying, it validates integer viewport bounds, one valid
 array layer, exact projection format, and `COPY_DST` usage. Any mismatch fails
 closed as `invalid-projection-subimage`. In compatibility mode, native code
 receives one persistent stereo
@@ -295,7 +306,7 @@ bridge.
 Session shutdown or frame failure immediately invalidates the generation and
 cancels the queued XR animation callback. Native neutral-input/pose cleanup,
 target destruction, flat-loop resume, and a new session request wait for any
-in-flight producer and submitted GPU work to finish. An old-generation
+in-flight async phase and submitted GPU work to finish. An old-generation
 completion can therefore neither publish nor present. Capability reporting
 distinguishes secure-context, immersive-session, current `XRGPUBinding`,
 obsolete `XRWebGPUBinding`, WebGPU-device readiness, and whether that device was
@@ -316,7 +327,8 @@ Completed locally:
 
 - native Windows RelWithDebInfo compile/link of the complete default target
   set, including `SurrealEngine`, editor, debugger, and tests;
-- `PresentationTests` and `WebXRFrameBridgeTests`, both passing;
+- `PresentationTests`, `WebXRFrameBridgeTests`, and the ABI-v4
+  `WebXRFramePhaseTests`, all passing;
 - synthetic Node lifecycle test covering capability, preferred RGBA format,
   duplicate-entry rejection, distinct per-eye textures, shared texture-array
   slices, packed two-view metadata, callback cancellation, controlled frame
@@ -330,19 +342,21 @@ Completed locally:
   Release builds at integrated commit `359aaa30`;
 - direct and fallback provider tests passing controller input, cleanup,
   exit/re-entry, and flat-loop restoration through the shared native runtime;
-- deterministic ABI-v3 tests proving persistent double buffering, no Wasm
-  calls from XR callbacks, no provider/audio re-entry while an Asyncify render
-  is unresolved, bounded ordered input queueing, frame replacement, deferred
-  exit cleanup, and re-entry after cleanup;
+- deterministic ABI-v4 tests proving async prepare/synchronous render/async
+  complete ordering, no provider/audio re-entry while Asyncify is unresolved,
+  bounded ordered input queueing, deferred exit cleanup, and re-entry after
+  cleanup. The direct-provider test opens a microtask-bounded window at
+  `getViewerPose` and requires the exact uninterrupted order pose, synchronous
+  native render, left-eye copy, right-eye copy inside one XR callback;
 - deterministic mutable-persistence gate coverage proving multiple interval
   and lifecycle triggers make zero filesystem calls while blocked, then create
   exactly one checkpoint after unblock and none after teardown;
 - fixed-256 MiB Window-owned Asyncify Emscripten compile and final link with
-  the paused flat loop and two-phase provider;
+  the paused flat loop and phased provider;
 - ordinary non-Asyncify Emscripten compile and final link, preserving the
   shared flat/browser build configuration;
 - a real desktop Chrome WebGPU-canvas to WebGL 2 upload/readback probe passing;
-- a real desktop Chrome two-phase WebGPU probe proving an artificially
+- historical ABI-v3 real desktop Chrome two-phase WebGPU coverage proving an artificially
   suspended Wasm producer left the red front immutable across three browser
   frames, never exposed the partial blue back, then published green, with one
   Wasm entry, zero rAF-time Wasm re-entries, and zero validation/uncaptured
@@ -360,17 +374,18 @@ Completed locally:
   release configurations: synthetic keyboard, mouse, wheel, touch, focus,
   blur, visibility, and gamepad events plus repeating and cancelled
   `SDL_AddTimer` callbacks produced zero Wasm entries while the Asyncify
-  producer was unresolved, then resumed after unblock; an `SDL_AddEventWatch`
+  async native phase was unresolved, then resumed after unblock; an `SDL_AddEventWatch`
   canary also remained silent during suspension and observed replayed SDL
   events afterward;
 - that harness's overflow control proved the bounded queue emits one provider
-  failure, makes no further Wasm entry before the producer resolves, drains
+  failure, makes no further Wasm entry before the async phase resolves, drains
   cleanup, and permits a fresh session; its generated-output audit also found
   no `SDL.receiveEvent` path;
 - bridge-provider Node coverage proving distinct persistent atlas targets,
-  no native re-entry across multiple rAF callbacks while a producer is
-  unresolved, immutable-front repeat presentation, immediate exit
-  invalidation, deferred destruction, and no stale publication after drain;
+  no native re-entry across multiple rAF callbacks while preparation is
+  unresolved, clear/skip rather than old-target reuse, current-pose render and
+  presentation in one callback, immediate exit invalidation, deferred
+  destruction, and no stale publication after drain;
 - flat Chrome/WebGPU UT99 runtime after the provider changes: ticked from 61
   to 604, 95 draw calls, 75 cached textures, zero WebGPU errors, 100% nonblank
   screenshot pixels, and clean quit;
@@ -473,25 +488,22 @@ far, asymmetric-eye, rotated-pose, and mode-specific depth tests pass. Physical
 Quest/VDXR requalification is still required before the cutoff or stereo/FOV
 defect can be considered closed.
 
-### Persistent-atlas pose age
+### Current-pose render boundary and pose age
 
-The current XR callback presents the existing front atlas before storing the
-current pose and scheduling native rendering with `setTimeout(0)`. The native
-render then fills the back atlas and promotes it only after its asynchronous
-Promise resolves. Consequently, the first XR callback has no completed image,
-and in the best steady state callback N+1 submits an image rendered for pose N.
-Asyncify delay can make that source arbitrarily older while the same front
-atlas is resubmitted. `gl.finish` changes WebGL completion timing only; it does
-not make the atlas pose current, which is why the unchecked QA timing option
-does not explain the physical distortion.
+ABI v4 implements the minimum same-callback boundary: simulation preparation
+finishes before the XR callback; the callback samples its current pose, performs
+one synchronous native render, and copies/uploads that result immediately.
+Deferred `FinishGameFrame` work and the next preparation run afterward. No
+`await`, Promise continuation, or Asyncify-capable call is permitted between
+`getViewerPose` and presentation. If preparation misses the callback, the
+provider clears/skips instead of reusing a completed atlas from an older pose.
 
-The minimum stable forced-bridge architecture must render the current pose and
-upload/present it during the same XR callback, without allowing asynchronous
-asset I/O to suspend that critical path, or provide compositor-quality
-pose-aware reprojection with enough depth/motion information. A color-only
-rotation warp may be useful experimental mitigation, but cannot correct head
-translation or nearby world/UI/controller geometry and is not by itself a
-stable-release qualification.
+The compatibility bridge's optional rotation-only reprojection remains
+default-off. It is no longer required to compensate for a deliberately stale
+source pose; if enabled for QA, source and current metadata describe the same
+callback and therefore should produce an identity correction. A color-only
+warp still cannot correct translation or nearby geometry and is not a release
+qualification mechanism.
 
 Commit `078a6d2f` adds privacy-bounded measurements to provider state and the
 v2 report:
@@ -505,12 +517,11 @@ v2 report:
   bounded to 4,294,967,295 and reset with each session/re-entry.
 
 Before the first completed atlas is presented, age fields are `unknown` and
-reuse is zero. In the current architecture, a running bridge normally reports
-positive age; increasing maximum age or reuse proves that older output was
-submitted again. These measurements diagnose the defect but do not correct it,
-and zero timing-copy percentiles or `gl.finish()` do not override pose-age
-evidence. Only allowlisted numeric aggregates leave the provider: source poses,
-view matrices, projections, game data, paths, and logs remain excluded.
+reuse is zero. ABI-v4 presentations should report zero current/maximum age and
+zero reuse because each rendered target is submitted once from the same
+callback. Any positive age or reuse is now a regression signal. Only
+allowlisted numeric aggregates leave the provider: source poses, view matrices,
+projections, game data, paths, and logs remain excluded.
 
 The physical report can now distinguish an ordinary session-request or layer
 failure from a runtime that grants consent and then ends the session before
@@ -522,10 +533,14 @@ dead generation; reference-space and engine-loop ownership cannot continue.
 
 Both modes remain **experimental**. Automated tests prove selection, ABI,
 projection conversion, shared engine behavior, cleanup, and desktop cross-API
-upload/readback. Hardware now proves that the VDXR `XRWebGLLayer` path can enter
-and display native content, but contradicts visual correctness. Tests still
-cannot prove direct binding, current-pose presentation, stereo/FOV correctness,
-or that the cross-API copy meets the headset frame budget. The release gates and
+upload/readback. Hardware proves that the older VDXR `XRWebGLLayer` path could
+enter and display native content, but contradicted visual correctness.
+Automated ordering tests prove the ABI-v4 software boundary, not physical
+current-pose presentation: that requires an actively connected headset and a
+successful immersive session (`enter_attempts`, `successful_entries`, and
+`frames` must be nonzero). Tests still cannot prove direct binding, stereo/FOV
+correctness, or that synchronous rendering plus cross-API copy meets the
+headset frame budget. The release gates and
 timing thresholds are recorded in `WEBXR_WEBGL_BRIDGE_HANDOFF.md`. A real WebGL
 2 render device remains the contingency if the atlas bridge fails those gates.
 
