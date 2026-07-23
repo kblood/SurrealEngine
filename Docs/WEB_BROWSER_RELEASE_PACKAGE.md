@@ -161,6 +161,7 @@ node --check web/package_corresponding_source.mjs
 node web/test_corresponding_source.mjs
 node web/test_release_package.mjs
 node web/test_ue1_demo_imports.mjs
+node web/test_mutable_persistence_native_gate.mjs
 node web/test_webxr_diagnostics.mjs
 node web/test_webxr_provider.mjs
 node web/test_webxr_webgl_bridge.mjs

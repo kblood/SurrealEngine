@@ -191,6 +191,12 @@ target. A missing viewer pose skips capture without advancing simulation, and
 headset frames may repeat the immutable front image while the producer waits on
 OPFS. This is intentional frame dropping, not a second simulation tick.
 
+The same native-call gate covers browser-side services. Mutable-data interval,
+visibility, and pagehide checkpoints never inspect `Module.FS` while an
+Asyncify XR producer is unresolved. Repeated triggers coalesce into one
+deferred lifecycle reason and flush once the gate reopens; disposal removes
+the listener. Browser audio uses the same defer-and-flush rule.
+
 The input queue preserves discrete focus, connection, pressed, and touched
 transitions in capture order even when more than 16 changes arrive during one
 suspended render. Pose and axis-only samples with the same discrete state are
@@ -248,6 +254,9 @@ Completed locally:
   calls from XR callbacks, no provider/audio re-entry while an Asyncify render
   is unresolved, bounded ordered input queueing, frame replacement, deferred
   exit cleanup, and re-entry after cleanup;
+- deterministic mutable-persistence gate coverage proving multiple interval
+  and lifecycle triggers make zero filesystem calls while blocked, then create
+  exactly one checkpoint after unblock and none after teardown;
 - fixed-256 MiB Window-owned Asyncify Emscripten compile and final link with
   the paused flat loop and two-phase provider;
 - ordinary non-Asyncify Emscripten compile and final link, preserving the

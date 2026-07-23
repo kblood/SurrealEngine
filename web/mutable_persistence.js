@@ -582,6 +582,7 @@
 			this.disposed = false;
 			this.automaticPaused = false;
 			this.requiresClear = false;
+			this.deferredCheckpointReason = null;
 			this.queue = Promise.resolve();
 			this.details = {
 				schema: SCHEMA_NAME, version: SCHEMA_VERSION, backend: null, state: "created",
@@ -593,6 +594,31 @@
 				if (global.document && global.document.hidden) this.checkpoint("visibility-hidden");
 			};
 			this.onPageHide = () => this.checkpoint("pagehide");
+			this.onNativeCallGateChange = () => {
+				if (this.disposed || this.automaticPaused || this._nativeCallsBlocked() ||
+						!this.deferredCheckpointReason) return;
+				const reason = this.deferredCheckpointReason;
+				this.deferredCheckpointReason = null;
+				this._enqueue(() => {
+					if (this._nativeCallsBlocked()) {
+						this._deferCheckpoint(reason);
+						return this.status();
+					}
+					return this._flush(reason);
+				}).catch(() => {});
+			};
+		}
+
+		_nativeCallsBlocked() { return global.surrealXRNativeCallsBlocked === true; }
+
+		_deferCheckpoint(reason) {
+			// Coalesce interval storms. Prefer lifecycle reasons because they describe
+			// why the pending snapshot must survive a hidden/pagehide transition.
+			const next = reason || "checkpoint";
+			const priority = { interval: 0, checkpoint: 0, "visibility-hidden": 1, pagehide: 2 };
+			if (!this.deferredCheckpointReason ||
+					(priority[next] || 0) > (priority[this.deferredCheckpointReason] || 0))
+				this.deferredCheckpointReason = next;
 		}
 
 		_log(message) {
@@ -603,6 +629,7 @@
 			return Object.assign({}, this.details, {
 				migration: Object.assign({}, this.details.migration),
 				automaticCheckpoints: !this.automaticPaused && !this.disposed,
+				deferredCheckpointReason: this.deferredCheckpointReason,
 				requiresClear: this.requiresClear,
 				allowlist: Array.from(EXACT_MUTABLE_PATHS.keys()).concat(["/gamedata/Save/Save<N>.usa"]),
 			});
@@ -640,6 +667,7 @@
 		_attachLifecycle() {
 			if (global.document) global.document.addEventListener("visibilitychange", this.onVisibilityChange);
 			if (global.addEventListener) global.addEventListener("pagehide", this.onPageHide);
+			if (global.addEventListener) global.addEventListener("surrealnativecallgatechange", this.onNativeCallGateChange);
 			const intervalMs = Number.isFinite(this.options.checkpointIntervalMs) ?
 				this.options.checkpointIntervalMs : CHECKPOINT_INTERVAL_MS;
 			if (intervalMs > 0) this.interval = global.setInterval(() => this.checkpoint("interval"), intervalMs);
@@ -684,17 +712,40 @@
 			if (this.disposed) return Promise.reject(new MutableDataError("DISPOSED", "Mutable-data persistence has been disposed."));
 			if (this.requiresClear) return Promise.reject(new MutableDataError("CLEAR_REQUIRED", "Clear incompatible or corrupt mutable data before creating a new checkpoint."));
 			this.automaticPaused = false;
-			return this._enqueue(() => this._flush(reason || "explicit"));
+			const checkpointReason = reason || "explicit";
+			if (this._nativeCallsBlocked()) {
+				this._deferCheckpoint(checkpointReason);
+				return this.queue.then(() => this.status());
+			}
+			return this._enqueue(() => {
+				if (this._nativeCallsBlocked()) {
+					this._deferCheckpoint(checkpointReason);
+					return this.status();
+				}
+				return this._flush(checkpointReason);
+			});
 		}
 
 		checkpoint(reason) {
 			if (this.disposed || this.automaticPaused) return this.queue;
-			return this._enqueue(() => this._flush(reason || "checkpoint")).catch(() => this.status());
+			const checkpointReason = reason || "checkpoint";
+			if (this._nativeCallsBlocked()) {
+				this._deferCheckpoint(checkpointReason);
+				return this.queue.then(() => this.status());
+			}
+			return this._enqueue(() => {
+				if (this._nativeCallsBlocked()) {
+					this._deferCheckpoint(checkpointReason);
+					return this.status();
+				}
+				return this._flush(checkpointReason);
+			}).catch(() => this.status());
 		}
 
 		clear() {
 			if (this.disposed) return Promise.reject(new MutableDataError("DISPOSED", "Mutable-data persistence has been disposed."));
 			this.automaticPaused = true;
+			this.deferredCheckpointReason = null;
 			return this._enqueue(async () => {
 				await this.storage.clear();
 				this.requiresClear = false;
@@ -714,6 +765,8 @@
 			if (this.interval !== null) global.clearInterval(this.interval);
 			if (global.document) global.document.removeEventListener("visibilitychange", this.onVisibilityChange);
 			if (global.removeEventListener) global.removeEventListener("pagehide", this.onPageHide);
+			if (global.removeEventListener) global.removeEventListener("surrealnativecallgatechange", this.onNativeCallGateChange);
+			this.deferredCheckpointReason = null;
 			this.details.state = "disposed";
 		}
 	}
