@@ -3,8 +3,8 @@ body { margin: 0; min-height: 100vh; display: grid; grid-template-columns: minma
 main { min-width: 0; }
 .startup-view { position: relative; width: 100%; margin: 0 auto; background: #05070a; }
 .startup-view[hidden] { display: none; }
-#game { display: block; box-sizing: border-box; width: 100%; max-width: min(100%, calc(100svh * 16 / 9)); height: auto; aspect-ratio: 16 / 9; margin-inline: auto; background: #05070a; }
-#game:fullscreen { width: 100%; max-width: none; height: 100%; margin: 0; object-fit: contain; }
+#canvas { display: block; box-sizing: border-box; width: 100%; max-width: min(100%, calc(100svh * 16 / 9)); height: auto; aspect-ratio: 16 / 9; margin-inline: auto; background: #05070a; }
+#canvas:fullscreen { width: 100%; max-width: none; height: 100%; margin: 0; object-fit: contain; }
 .startup-overlay { position: absolute; inset: 0; display: grid; place-content: center; gap: .5rem; box-sizing: border-box; padding: 2rem; text-align: center; background: radial-gradient(circle, rgba(24, 32, 43, .72), rgba(5, 7, 10, .96)); pointer-events: none; }
 .startup-overlay[hidden] { display: none; }
 .startup-overlay h1, .startup-overlay p { margin: 0; }

@@ -85,7 +85,7 @@ with sync_playwright() as playwright:
 		sys.exit(1)
 
 	prelaunch = page.evaluate("""() => {
-		const canvas = document.getElementById('game');
+		const canvas = document.getElementById('canvas');
 		const picker = document.querySelector('[data-game-pick]');
 		const pickerBounds = picker.getBoundingClientRect();
 		return { canvasHidden: canvas.hidden, canvasDisplay: getComputedStyle(canvas).display,
@@ -113,7 +113,7 @@ with sync_playwright() as playwright:
 	pre_launch_scroll = page.evaluate("""() => {
 		const launcher = document.getElementById('game-launcher');
 		launcher.scrollIntoView({ behavior: 'auto', block: 'start' });
-		const canvas = document.getElementById('game');
+		const canvas = document.getElementById('canvas');
 		const launcherBounds = launcher.getBoundingClientRect();
 		return { scrollY, canvasHidden: canvas.hidden, canvasRects: canvas.getClientRects().length,
 			launcherTop: launcherBounds.top, launcherBottom: launcherBounds.bottom, viewportHeight: innerHeight };
@@ -129,7 +129,7 @@ with sync_playwright() as playwright:
 			presentationId: window.surrealLaunchSelection.presentationId,
 		},
 		layout: (() => {
-			const canvas = document.getElementById('game');
+			const canvas = document.getElementById('canvas');
 			const bounds = canvas.getBoundingClientRect();
 			return { top: bounds.top, bottom: bounds.bottom, width: bounds.width, height: bounds.height,
 				viewportWidth: innerWidth, viewportHeight: innerHeight, scrollY,
@@ -152,13 +152,13 @@ with sync_playwright() as playwright:
 		sys.exit(1)
 
 	page.set_viewport_size({"width": 1100, "height": 760})
-	wide_canvas = page.locator("#game").bounding_box()
+	wide_canvas = page.locator("#canvas").bounding_box()
 	page.set_viewport_size({"width": 700, "height": 520})
-	narrow_canvas = page.locator("#game").bounding_box()
+	narrow_canvas = page.locator("#canvas").bounding_box()
 	page.set_viewport_size({"width": 390, "height": 844})
-	portrait_canvas = page.locator("#game").bounding_box()
+	portrait_canvas = page.locator("#canvas").bounding_box()
 	page.set_viewport_size({"width": 844, "height": 390})
-	landscape_canvas = page.locator("#game").bounding_box()
+	landscape_canvas = page.locator("#canvas").bounding_box()
 	page.set_viewport_size({"width": 700, "height": 520})
 	if (not wide_canvas or not narrow_canvas or wide_canvas["width"] < 1090 or
 		narrow_canvas["width"] < 690 or narrow_canvas["width"] >= wide_canvas["width"] or
@@ -178,7 +178,7 @@ with sync_playwright() as playwright:
 		sys.exit(1)
 
 	fullscreen = page.evaluate("""async () => {
-		const canvas = document.getElementById('game');
+		const canvas = document.getElementById('canvas');
 		if (!document.fullscreenEnabled || typeof canvas.requestFullscreen !== 'function')
 			return { supported: false, entered: false };
 		const button = document.createElement('button');
@@ -192,10 +192,10 @@ with sync_playwright() as playwright:
 	if fullscreen["supported"]:
 		page.click("#flat-fullscreen-probe")
 		try:
-			page.wait_for_function("document.fullscreenElement === document.getElementById('game')", timeout=5000)
+			page.wait_for_function("document.fullscreenElement === document.getElementById('canvas')", timeout=5000)
 		except Exception:
 			pass
-		fullscreen["entered"] = page.evaluate("document.fullscreenElement === document.getElementById('game')")
+		fullscreen["entered"] = page.evaluate("document.fullscreenElement === document.getElementById('canvas')")
 		if fullscreen["entered"]:
 			page.evaluate("document.exitFullscreen()")
 			page.wait_for_function("document.fullscreenElement === null", timeout=5000)
@@ -205,12 +205,12 @@ with sync_playwright() as playwright:
 		sys.exit(1)
 
 	page.evaluate("""() => {
-		const canvas = document.getElementById('game');
+		const canvas = document.getElementById('canvas');
 		window.__flatInputEvents = { keydown: 0, keyup: 0, mousedown: 0, mouseup: 0, mousemove: 0, wheel: 0 };
 		for (const name of Object.keys(window.__flatInputEvents))
 			canvas.addEventListener(name, () => window.__flatInputEvents[name]++);
 	}""")
-	canvas = page.locator("#game")
+	canvas = page.locator("#canvas")
 	canvas.click(position={"x": 40, "y": 40})
 	page.keyboard.press("w")
 	box = canvas.bounding_box()

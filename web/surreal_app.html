@@ -9,7 +9,7 @@
 <body>
 <main>
 	<section id="browser-startup" class="startup-view" hidden aria-live="polite">
-		<canvas id="game" width="1280" height="720" tabindex="0" aria-label="SurrealEngine game view"></canvas>
+		<canvas id="canvas" width="1280" height="720" tabindex="0" aria-label="SurrealEngine game view"></canvas>
 		<div class="startup-overlay" data-startup-overlay>
 			<h1>Starting SurrealEngine…</h1>
 			<p data-startup-stage>Preparing the native runtime.</p>
@@ -113,7 +113,7 @@ window.surrealBrowserAudio = SurrealBrowserAudio.create(document.getElementById(
 SurrealBrowserRelease.start({
 	statusRoot: document.getElementById("browser-status"),
 	appOptions: {
-		canvas: document.getElementById("game"),
+		canvas: document.getElementById("canvas"),
 		importerRoot: document.getElementById("game-data-importer"),
 		launcherRoot: document.getElementById("game-launcher"),
 		libraryRoot: document.getElementById("game-library"),
@@ -144,7 +144,7 @@ SurrealBrowserRelease.start({
 		onLaunch: selection => {
 			window.surrealBooted = true;
 			window.surrealLaunchSelection = selection;
-			const canvas = document.getElementById("game");
+			const canvas = document.getElementById("canvas");
 			canvas.scrollIntoView({ behavior: "auto", block: "start" });
 			canvas.focus({ preventScroll: true });
 		},

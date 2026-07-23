@@ -97,7 +97,7 @@ def main():
 		initial = page.evaluate("""() => ({
 			crossOriginIsolated,
 			state: window.surrealApp && window.surrealApp.result.import.state,
-			canvasHidden: document.getElementById('game').hidden,
+			canvasHidden: document.getElementById('canvas').hidden,
 		})""")
 		if (not initial["crossOriginIsolated"] or
 			(not restored and initial["state"] != "waiting-for-import") or not initial["canvasHidden"]):
@@ -170,7 +170,7 @@ def main():
 		time.sleep(10)
 
 		layout = page.evaluate("""() => {
-			const canvas = document.getElementById('game');
+			const canvas = document.getElementById('canvas');
 			const bounds = canvas.getBoundingClientRect();
 			return { hidden: canvas.hidden, focused: document.activeElement === canvas,
 				top: bounds.top, bottom: bounds.bottom, width: bounds.width, height: bounds.height,
@@ -185,7 +185,7 @@ def main():
 
 		screenshot = args.screenshot or Path(tempfile.gettempdir()) / "surrealengine-owner-game-smoke.png"
 		screenshot.parent.mkdir(parents=True, exist_ok=True)
-		page.locator("#game").screenshot(path=str(screenshot))
+		page.locator("#canvas").screenshot(path=str(screenshot))
 		image = Image.open(screenshot).convert("RGB")
 		pixels = list(image.getdata())
 		reference = pixels[0]
