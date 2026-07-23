@@ -114,19 +114,25 @@ with sync_playwright() as playwright:
 	page.evaluate("""asyncifyEntry => {
 		window.syntheticNativeEntry = null;
 		window.syntheticNativeArgs = null;
-		if (asyncifyEntry) {
-			Module._Surreal_StartBrowserGame = () => 0;
+		window.syntheticDominantHands = [];
+		if (typeof Module.ccall === 'function') {
 			const originalCcall = Module.ccall.bind(Module);
 			Module.ccall = (name, returnType, argumentTypes, args, options) => {
-				if (name !== 'Surreal_StartBrowserGame')
-					return originalCcall(name, returnType, argumentTypes, args, options);
-				window.syntheticNativeEntry = name;
-				window.syntheticNativeArgs = ['--autoplay'];
-				if (args[2]) window.syntheticNativeArgs.push('--url=' + args[0]);
-				window.syntheticNativeArgs.push('--render=' + args[1], '/gamedata');
-				return Promise.resolve(0);
+				if (name === 'Surreal_StartBrowserGame' && asyncifyEntry) {
+					window.syntheticNativeEntry = name;
+					window.syntheticNativeArgs = ['--autoplay'];
+					if (args[2]) window.syntheticNativeArgs.push('--url=' + args[0]);
+					window.syntheticNativeArgs.push('--render=' + args[1], '/gamedata');
+					return Promise.resolve(0);
+				}
+				if (name === 'Surreal_SetXRDominantHand') {
+					window.syntheticDominantHands.push(args[0]);
+					return Promise.resolve(1);
+				}
+				return originalCcall(name, returnType, argumentTypes, args, options);
 			};
-		} else {
+		}
+		if (!asyncifyEntry) {
 			Module.callMain = args => {
 				window.syntheticNativeEntry = 'callMain';
 				window.syntheticNativeArgs = Array.from(args);
@@ -157,10 +163,12 @@ with sync_playwright() as playwright:
 	integration = page.evaluate("""() => ({
 		entry: window.syntheticNativeEntry,
 		args: window.syntheticNativeArgs,
+		dominantHands: window.syntheticDominantHands,
 		selection: window.surrealLaunchSelection && {
 			gameId: window.surrealLaunchSelection.game.id,
 			map: window.surrealLaunchSelection.map,
 			presentationId: window.surrealLaunchSelection.presentationId,
+			xrDominantHand: window.surrealLaunchSelection.xrDominantHand,
 		},
 		layout: (() => {
 			const canvas = document.getElementById('canvas');
@@ -174,7 +182,9 @@ with sync_playwright() as playwright:
 	expected_entry = "Surreal_StartBrowserGame" if compliance.get("buildProvenance", {}).get("browserEntryPoint") == "asyncify-opfs" else "callMain"
 	if (presentations != ["Desktop window"] or integration["entry"] != expected_entry or
 		integration["args"] != ["--autoplay", "--url=Vortex2", "--render=webgpu", "/gamedata"] or
-		integration["selection"] != {"gameId": "unreal-gold", "map": "Vortex2", "presentationId": "flat"}):
+		integration["dominantHands"] != [1] or
+		integration["selection"] != {"gameId": "unreal-gold", "map": "Vortex2",
+			"presentationId": "flat", "xrDominantHand": "right"}):
 		print("FAIL: staged package game detection or flat launch", file=sys.stderr)
 		sys.exit(1)
 	layout = integration["layout"]
