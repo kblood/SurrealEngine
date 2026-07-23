@@ -58,6 +58,73 @@ the headset was not actively connected as a WebXR device. The copied report
 correctly remained entirely idle (`enter_attempts: 0`, no transitions). It does
 not contradict or qualify either presentation backend.
 
+For every desktop Chrome/VDXR retest, wake the Quest and controllers, select
+VDXR, connect Virtual Desktop, and confirm the headset remains actively
+connected as a WebXR device before loading the page and pressing Play. If the
+pre-entry report still shows `capability_available: no`, do not treat a later
+flat run as a WebXR failure. If it shows `enter_attempts: 0`, no immersive
+request was recorded and the report is not headset-session evidence.
+
+## Candidate 173bf623 forced-bridge headset retest
+
+A subsequent physical test actively connected Quest 3 through Virtual Desktop
+with VDXR selected, opened the deployed candidate in desktop Chrome, and chose
+**Force WebGL compatibility bridge**. **Temporary QA: blocking bridge timing
+(slower)** remained unchecked. The browser entered immersive VR instead of
+falling back to the flat canvas.
+
+The headset displayed native content and visibly tracked the blue left and
+orange-red right pistol-like controller proxies. Those objects are the WebXR
+UI provider's procedural controller boxes, not UT weapon models. Their presence
+proves session reservation and activation, `XRWebGLLayer` presentation, native
+frame production, UI visual composition, and tracked-controller input reached
+the headset.
+
+Visual correctness failed. Turning the head produced severe rotational
+distortion, and recognizable world geometry ended in black after a short
+distance. The test therefore does **not** qualify stereo/FOV, world scale,
+tracking registration, controller/laser alignment, UI placement, latency, or
+gameplay comfort. The unchecked blocking-timing option also rules out the
+intentional `gl.finish()` QA mode as the cause.
+
+The audit identified two independent source defects behind the result:
+
+1. WebXR projection near/far values are metres, but native view-space positions
+   are Unreal Units. The candidate flipped Z but did not apply the configured
+   `WorldUnitsPerMeter`. At 39.3701 UU/m, a default 1000 m far plane was treated
+   as roughly 1000 UU, or 25.4 m, matching the short black cutoff. `0331ef21`
+   now scales the full homogeneous column while preserving the supplied
+   asymmetric/sheared projection. Bridge packets convert WebGL depth to WebGPU
+   `[0,1]` before setting the depth flag; `0218d5b7` also flags direct
+   `XRGPUBinding` packets because Chromium already supplies their projection in
+   `[0,1]` form. Native metre-to-UU scaling applies to both without double
+   converting direct mode. Automated regressions pass; hardware requalification
+   remains required.
+2. Every XR callback presents the previously completed front atlas before it
+   captures and schedules rendering for the current pose. Even without an
+   Asyncify delay the visible atlas is therefore one XR callback old; with a
+   delay it can be older. The color-only `XRWebGLLayer` submission carries no
+   source-pose/depth information, so the compositor cannot make that image
+   current and `gl.finish()` cannot repair the mismatch.
+
+The landed projection-unit correction is the smallest first retest because it
+directly explains the cutoff and is covered mathematically. Forced bridge is not
+shippable as stable until current-pose presentation is also solved. A
+rotation-only image warp may reduce turning artifacts, but full correctness for
+translation and nearby world/UI/controller geometry requires same-XR-callback
+render/present or depth/motion-aware reprojection.
+
+Commit `078a6d2f` makes the remaining atlas defect measurable without exposing
+pose or game data. In a running bridge report,
+`bridge_present_age_frames`/`bridge_present_age_ms` describe the currently
+presented target's source age, their `bridge_max_*` counterparts retain the
+session maxima, and `bridge_reused_presents` increments when the same completed
+target is submitted again. Values are bounded to 65,535 frames, 60,000 ms, and
+4,294,967,295 reuses and reset on entry/re-entry. `unknown` age before the first
+completed presentation is normal. Positive age is evidence of stale-pose
+submission; a rising maximum or reuse count shows worse delay. The fields are
+diagnostics, not a release waiver.
+
 ## Automatic backend correction
 
 The current Automatic preflight selects direct presentation when
@@ -89,8 +156,9 @@ textures; removing that usage is not a valid compatibility workaround.
 ## Required next evidence
 
 - Reproduce Automatic and save the v2 report before reloading.
-- Reload the preserved game library, select **Force WebGL compatibility
-  bridge**, leave blocking timing disabled, and test entry.
+- Retain the proved forced-bridge entry with blocking timing disabled; test the
+  landed projection correction, then repeat after correcting atlas pose age and require stable
+  stereo/FOV while yawing, pitching, and translating the head.
 - Re-run the deterministic provider tests in the final package; the implemented
   matrix covers optional-feature negotiation, both enabled-feature outcomes,
   bridge-only, forced bridge, direct-only, unobservable feature state, and
@@ -106,9 +174,9 @@ textures; removing that usage is not a valid compatibility workaround.
 - Retain the passed human mouse-look result plus the real Chrome Pointer Lock,
   post-XR capture-prompt, requested-but-unlocked SDL fallback, and aggregate
   counter checks in the superseding package.
-- Only after bridge entry works, qualify stereo output, head/controller
-  tracking, menu and intro quads, exact pointer contact, exit/re-entry, timing,
-  and loaded UT99/Unreal Gold behavior.
+- Once bridge visuals are stable, qualify head/controller tracking, menu and
+  intro quads, exact pointer contact, exit/re-entry, timing, and loaded
+  UT99/Unreal Gold behavior.
 
 This attempt is useful hardware evidence, but it is a failed qualification and
 the candidate must not be promoted to stable.
@@ -119,7 +187,13 @@ Post-candidate fixes are implemented but not yet physically qualified:
 - `f3643b78` negotiates the WebXR backend from enabled session features; and
 - `28906717` bridges exact-canvas browser relative motion into the engine while
   retaining requested-but-unlocked SDL fallback and de-duplicating active-lock
-  delivery.
+  delivery;
+- `0331ef21` scales runtime projection depth from metres to Unreal Units while
+  preserving its asymmetric matrix;
+- `0218d5b7` marks direct Chromium WebGPU projections as already zero-to-one;
+  and
+- `078a6d2f` reports bounded bridge pose age and target reuse without exposing
+  source pose/projection data.
 
 All three are available for retest in immutable candidate `173bf623` at
 `https://dionysus.dk/webxr/Ports/SurrealEngine-Candidate-173bf623/`. Its clean
@@ -140,8 +214,11 @@ WebGPU errors. The run reproduced throwing WasmFS `analyzePath`, proved the
 flushed it to OPFS, and restored its exact 32-byte content after closing and
 reopening Chrome. A disallowed sibling remained absent. This closes the
 candidate's real owner-save gate. The later human flat retest qualified
-mouse-look and established initial audible output, but audio recovery after a
-lifecycle transition and headset presentation remain unqualified.
+mouse-look and established initial audible output. Forced bridge subsequently
+entered immersive VR and displayed tracked procedural controllers, but failed
+visual qualification through projection cutoff and rotational distortion.
+Audio recovery after a lifecycle transition, corrected headset visuals, and
+the remaining physical matrix are still unqualified.
 
 The independent Claude Code Opus 4.8 code-path review, ranked hypotheses,
 candidate fixes, tests, risks, and commit decomposition are recorded in

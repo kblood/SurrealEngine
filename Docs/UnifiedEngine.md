@@ -83,15 +83,15 @@ This roadmap uses four deliberately separate claims:
 - **Owner-data-unverified** means no automated fixture can establish behavior
   with a user's commercial packages, maps, media, and scripts.
 
-At tested integration code commit `4dfceb0f`, the main product-only additions
+At tested integration code commit `078a6d2f`, the main product-only additions
 beyond the foundation topics are:
 
 | Integrated slice | State | Evidence and remaining boundary |
 | --- | --- | --- |
 | Flat desktop WASM/WebGPU | Implemented; audio endurance qualification remains | Immutable candidate `173bf623` restored exact owned GOG UT99 and Unreal Gold libraries at the live origin and launched both with advancing ticks, visible WebGPU rendering, and zero page/WebGPU errors. Its owner-data qualification reproduced WasmFS `analyzePath` failure, then proved the `46d13173` `stat` fallback by snapshotting, flushing, reopening, and byte-exactly restoring `Save99.usa` while excluding a disallowed sibling. A human Chrome/Virtual Desktop retest confirmed pointer capture, fire, and working relative mouse-look through the `28906717` browser-delta bridge. Audio was audible but later remained suspended after a lifecycle transition; `4dfceb0f` now retries resume on return-to-visible and presentation transitions. Audio recovery and longer play remain gates. |
 | Direct WebXR/WebGPU presentation | Implemented, experimental; prior hardware-observed failure | On Quest 3 through desktop Chrome/VDXR, the old Automatic path reached consent but immediately left immersive mode. Commit `f3643b78` now negotiates optional WebGPU from `session.enabledFeatures`, fails unobservable state closed, and prohibits same-session layer mixing. Automated ABI/lifecycle/exclusivity tests pass; the new path remains physically unqualified. |
-| Quest compatibility presentation | Implemented, experimental | `XRWebGLLayer` receives a WebGPU-rendered stereo atlas through WebGL 2; desktop API probes and provider tests pass. The first VDXR attempt did not force this backend, so physical correctness and transfer cost remain unverified. |
-| WebXR UI and controllers | Implemented, experimental | World-anchored surfaces, both procedural controller proxies, lasers, and exact-contact markers share one hit result in both presentation modes; scale, latency, convergence, and comfort remain hardware-unverified. |
+| Quest compatibility presentation | Implemented, experimental; hardware-observed visual failure | On Quest 3 through desktop Chrome, Virtual Desktop, and VDXR, immutable candidate `173bf623` entered immersive VR with **Force WebGL compatibility bridge** and the temporary blocking-timing option unchecked. This proves session reservation/activation, `XRWebGLLayer` presentation, native frames, and XR input reached the headset. The world had severe rotational distortion and a short black cutoff, so stereo/FOV correctness is not qualified. Commits `0331ef21` and `0218d5b7` correct the candidate's projection-unit/depth-convention defect with automated coverage; physical requalification remains. The asynchronous persistent atlas still presents an older-pose image and remains a release blocker; `078a6d2f` exposes bounded pose-age evidence. |
+| WebXR UI and controllers | Implemented, experimental; partial hardware evidence | The forced-bridge run visibly rendered the blue left and orange-red right procedural controller proxies and they responded to tracked input. Those pistol-like solids are provider UI feedback, not UT weapon meshes. Presence and input transport are proven; scale, laser/contact alignment, convergence, latency, and comfort remain unqualified because the projection image was distorted. |
 | Semantic XR gameplay input | Implemented, experimental | WebXR and OpenXR use the provider-neutral `XRInputAdapter`; right-dominant Select maps directly to Fire, the other Select to AltFire, sticks map to movement/turning, dominant primary is Jump, off-hand primary is NextWeapon, and off-hand secondary/provider Menu opens ShowMenu. Menu/focus ownership releases only XR contributors and blocks held buttons until a fresh press, while hostile `User.ini` Joy mappings are bypassed. WebXR retains one discrete state per simulation frame. The shared turn policy keeps continuous right-stick turn as the compatibility default and supports runtime smooth scaling or explicit snap mode with latch/hysteresis and focus-safe rearming. Settings persistence/UI, movement reference, remapping, and hardware comfort qualification remain follow-ups. |
 | One-hand XR weapons | Implemented, experimental | A shared aim-pose solver, scoped full-tick firing direction, and contiguous per-eye weapon pass are used by WebXR and OpenXR. Default placement follows the Farantir hardware baseline (aim pose, zero offset, 5x scale); physical calibration, muzzle-origin rewriting, two-hand/dual-wield behavior, and loaded UT99/Unreal fixtures remain gates. |
 | UT99/Unreal startup map intro | Implemented, experimental | `URL.LocalMap`, prompt-HUD capture, menu handoff, intro-only trigger routing, and explicit launcher skip policy have automated coverage. Owned UT99 reached its CityIntro-to-UMenu handoff; Unreal's normal `URL.LocalMap` path and both games in Quest remain unverified. |
@@ -199,12 +199,44 @@ retest then confirmed working relative mouse-look. It exposed a reproducible
 audio-resume lifecycle gap now corrected in `4dfceb0f`; recovery and headset
 presentation still require human requalification.
 
+A subsequent test kept Quest 3 awake and actively connected as a WebXR headset
+through Virtual Desktop with VDXR before loading/requesting the immersive
+session, then explicitly selected **Force WebGL compatibility bridge** on candidate
+`173bf623`. The default-off **Temporary QA: blocking bridge timing** checkbox
+remained unchecked. Immersive entry succeeded and blue/red procedural hand
+proxies were visible, proving the session, presentation, native-frame, and XR
+input path. Turning the head produced severe image distortion and geometry
+ended in black at a short distance, so this is hardware-observed failed visual
+qualification, not a working headset release.
+
+The corresponding audit found that WebXR projection near/far values are metres
+while native world/view positions are Unreal Units. At the default 39.3701
+units per metre, an unscaled 1000 m runtime far plane becomes roughly 1000 UU,
+or 25.4 m. `0331ef21` now retains runtime asymmetry/shear and scales the full
+homogeneous projection column into UE units. `0218d5b7` marks direct
+`XRGPUBinding` matrices as already using Chromium's WebGPU `[0,1]` depth range;
+the bridge converts its WebGL matrix to `[0,1]` before setting the same flag.
+Native metre-to-UU scaling then applies to both. Automated near/far,
+asymmetric-eye, and rotated-pose regressions pass, but physical stereo/FOV and
+cutoff behavior must be requalified.
+
+Independently, the current two-phase producer presents the previous completed
+atlas before scheduling the current pose render, making the visible image at
+least one XR callback old even without an Asyncify delay. `078a6d2f` reports
+the current/maximum source age in frames and milliseconds plus reuse count,
+with bounded allowlisted values and no source pose or projection data. A value
+of `unknown` before the first completed presentation is expected; positive age
+or reuse during running presentation quantifies staleness rather than proving
+correctness. The stale-pose architecture remains a release blocker.
+
 The direct path owns runtime WebGPU eye textures. The compatibility path reuses
 the same simulation, view-family, input, UI, and WebGPU renderer, drawing both
 eyes to an atlas before a WebGL 2 bridge presents them through
 `XRWebGLLayer`. Both paths composite the same captured HUD, cinematic, loading,
 and topmost menu surfaces and consume the same exact controller contact. The
-fallback is therefore implemented, but remains experimental until its
+fallback is therefore implemented and can enter a physical VDXR session, but
+remains experimental until the landed projection correction passes physical
+requalification, the stale-pose presentation is corrected, and stereo
 correctness, latency, and cross-API transfer cost pass the physical Quest
 matrix.
 

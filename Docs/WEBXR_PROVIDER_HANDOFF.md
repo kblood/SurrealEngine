@@ -3,10 +3,13 @@
 Date: 2026-07-23
 
 Integration status: implemented and automated through
-`integration/unified-engine` commit `4dfceb0f`. Both presentation modes remain
+`integration/unified-engine` commit `078a6d2f`. Both presentation modes remain
 experimental. The first physical Quest 3/Virtual Desktop/VDXR Automatic attempt
-failed after consent and before confirmed presentation; forced bridge remains
-hardware-unverified.
+failed after consent and before confirmed presentation. A later candidate
+`173bf623` test explicitly forced the WebGL bridge and entered immersive VR,
+with its temporary blocking-timing QA option unchecked. Presentation and input
+reached the headset, but rotational distortion and a short black world cutoff
+make this a hardware-observed visual failure rather than a qualification.
 
 ## Scope
 
@@ -116,6 +119,10 @@ These metre values are converted with the same `WorldUnitsPerMeter` used for
 eyes, controller rays, and UI surface placement. The proxy intentionally uses
 procedural geometry rather than a UT weapon mesh: it does not acquire game
 assets, alter weapon gameplay, or add provider handles to shared contracts.
+The physical forced-bridge run visibly confirmed the blue left and orange-red
+right pistol-like proxies. That proves tracked input and visual composition
+reached the headset, not that proxy scale, aim, or stereo registration is
+correct while the projection path remains distorted.
 
 ## Dependency and commit order
 
@@ -399,12 +406,22 @@ python web/smoke_test_webgpu.py
 
 ## Hardware gate and known limitations
 
-No automated test proves physical headset presentation, and no repository
-evidence yet proves either mode on a target Quest/browser combination. A
-2026-07-23 Quest 3 test through desktop Chrome, Virtual Desktop, and VDXR reached
-WebXR consent in Automatic mode and immediately returned to flat presentation.
-The v2 report was not saved, so the precise session/binding/projection stage is
-unknown. See `WEBXR_VDXR_QUALIFICATION.md`. The current WebXR/WebGPU
+Automated tests cannot prove physical headset presentation. For desktop Chrome
+through Virtual Desktop/VDXR, the Quest must be awake and actively connected as
+a WebXR headset before the page loads and requests `immersive-vr`. A report
+with `enter_attempts: 0` records no immersive request and is not headset-session
+evidence. A 2026-07-23 Quest
+3 test through desktop Chrome, Virtual Desktop, and VDXR reached WebXR consent
+in Automatic mode and immediately returned to flat presentation. The v2 report
+was not saved, so the precise session/binding/projection stage is unknown. A
+later run on immutable candidate `173bf623` selected **Force WebGL compatibility
+bridge**, left **Temporary QA: blocking bridge timing** unchecked, and entered
+immersive VR. Head rotation produced severe distortion, recognizable geometry
+ended in black at a short distance, and the blue/red procedural controller
+proxies were visible and tracked. This proves reservation, activation,
+`XRWebGLLayer` presentation, native rendering, UI composition, and XR input; it
+does not qualify stereo, FOV, world scale, latency, or visual correctness. See
+`WEBXR_VDXR_QUALIFICATION.md`. The current WebXR/WebGPU
 specification is explicitly an unstable editor's draft.
 Its current interface name is `XRGPUBinding`; `XRWebGPUBinding` is an obsolete
 experimental spelling and is reported but not used. Chrome first documented
@@ -434,6 +451,67 @@ uninspectable enabled features fail closed with an allowlisted exact code and
 forced-bridge guidance. The automated direct/bridge exclusivity matrix passes;
 physical VDXR requalification remains.
 
+### Projection metre/Unreal-Unit correction and retest gate
+
+`XRView.projectionMatrix` encodes `depthNear` and `depthFar` in metres, while
+the native `WorldToView` input is in Unreal Units. Candidate `173bf623` retained
+the runtime matrix and flipped forward Z but did not apply
+`WorldUnitsPerMeter`. With the default 39.3701 UU/m, the default 1000 m far
+plane acted like approximately 1000 UU, or 25.4 m, matching the observed short
+black cutoff.
+
+Commit `0331ef21` retains the runtime matrix, applies the existing handedness
+conversion, and scales its entire fourth homogeneous column by
+`WorldUnitsPerMeter`. This preserves asymmetric FOV and runtime shear rather
+than rebuilding a symmetric frustum. The native correction applies to both
+presentation modes. Bridge packets first convert the runtime WebGL `[-1,1]`
+depth projection to WebGPU `[0,1]` and set
+`FrameProjectionDepthZeroToOne`. At `0218d5b7`, direct `XRGPUBinding` packets
+also set that flag because Chromium already supplies their projections in
+WebGPU `[0,1]` form; native code therefore does not convert them again. Near,
+far, asymmetric-eye, rotated-pose, and mode-specific depth tests pass. Physical
+Quest/VDXR requalification is still required before the cutoff or stereo/FOV
+defect can be considered closed.
+
+### Persistent-atlas pose age
+
+The current XR callback presents the existing front atlas before storing the
+current pose and scheduling native rendering with `setTimeout(0)`. The native
+render then fills the back atlas and promotes it only after its asynchronous
+Promise resolves. Consequently, the first XR callback has no completed image,
+and in the best steady state callback N+1 submits an image rendered for pose N.
+Asyncify delay can make that source arbitrarily older while the same front
+atlas is resubmitted. `gl.finish` changes WebGL completion timing only; it does
+not make the atlas pose current, which is why the unchecked QA timing option
+does not explain the physical distortion.
+
+The minimum stable forced-bridge architecture must render the current pose and
+upload/present it during the same XR callback, without allowing asynchronous
+asset I/O to suspend that critical path, or provide compositor-quality
+pose-aware reprojection with enough depth/motion information. A color-only
+rotation warp may be useful experimental mitigation, but cannot correct head
+translation or nearby world/UI/controller geometry and is not by itself a
+stable-release qualification.
+
+Commit `078a6d2f` adds privacy-bounded measurements to provider state and the
+v2 report:
+
+- `bridge_present_age_frames` / `bridge_max_present_age_frames` are the current
+  and session-maximum differences between the presenting callback sequence and
+  the source capture sequence, bounded to 65,535;
+- `bridge_present_age_ms` / `bridge_max_present_age_ms` are the corresponding
+  callback-time differences, bounded to 60,000 ms; and
+- `bridge_reused_presents` counts repeated submissions of a completed target,
+  bounded to 4,294,967,295 and reset with each session/re-entry.
+
+Before the first completed atlas is presented, age fields are `unknown` and
+reuse is zero. In the current architecture, a running bridge normally reports
+positive age; increasing maximum age or reuse proves that older output was
+submitted again. These measurements diagnose the defect but do not correct it,
+and zero timing-copy percentiles or `gl.finish()` do not override pose-age
+evidence. Only allowlisted numeric aggregates leave the provider: source poses,
+view matrices, projections, game data, paths, and logs remain excluded.
+
 The physical report can now distinguish an ordinary session-request or layer
 failure from a runtime that grants consent and then ends the session before
 activation/first presentation. This is diagnostic state only; it neither keeps
@@ -444,9 +522,10 @@ dead generation; reference-space and engine-loop ownership cannot continue.
 
 Both modes remain **experimental**. Automated tests prove selection, ABI,
 projection conversion, shared engine behavior, cleanup, and desktop cross-API
-upload/readback. They cannot prove that a target Quest browser exposes direct
-binding, that its opaque WebGL XR framebuffer presents the atlas correctly, or
-that the cross-API copy meets the headset frame budget. The release gates and
+upload/readback. Hardware now proves that the VDXR `XRWebGLLayer` path can enter
+and display native content, but contradicts visual correctness. Tests still
+cannot prove direct binding, current-pose presentation, stereo/FOV correctness,
+or that the cross-API copy meets the headset frame budget. The release gates and
 timing thresholds are recorded in `WEBXR_WEBGL_BRIDGE_HANDOFF.md`. A real WebGL
 2 render device remains the contingency if the atlas bridge fails those gates.
 

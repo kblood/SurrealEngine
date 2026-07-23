@@ -247,8 +247,8 @@ Physical Quest 3 testing through desktop Chrome, Virtual Desktop, and VDXR did
 not qualify it. Automatic reached WebXR consent and then immediately returned
 to flat mode. In that flat fallback the exact canvas acquired pointer lock and
 mouse fire worked, but relative mouse motion did not rotate the view. The v2
-failure report was not captured, and forced bridge still needs a separate
-test. See `WEBXR_VDXR_QUALIFICATION.md`.
+failure report was not captured, and forced bridge had not yet been tested
+separately. See `WEBXR_VDXR_QUALIFICATION.md`.
 
 The three corrections are not part of immutable `cef1e89b`: WasmFS save
 discovery (`46d13173`), enabled-feature WebXR negotiation and exact safe error
@@ -314,6 +314,17 @@ human Chrome/Virtual Desktop run additionally confirmed pointer capture, fire,
 and working relative mouse-look. Audio was audible but later failed to recover
 from a lifecycle transition until restart, which current source corrects by
 retrying resume after visibility and presentation transitions.
+
+A subsequent Quest 3 test through Virtual Desktop/VDXR explicitly selected
+**Force WebGL compatibility bridge** on this candidate and left **Temporary QA:
+blocking bridge timing** unchecked. Immersive entry succeeded; native content
+and blue/red procedural tracked-controller proxies appeared. This proves the
+session, `XRWebGLLayer`, native-frame, UI-composition, and XR-input path in a
+real headset. Severe rotational distortion and a short black world cutoff mean
+the candidate still fails visual qualification. Audit attributes the cutoff to
+WebXR metre projection depth being applied to Unreal-Unit view coordinates and
+identifies the necessarily previous-pose asynchronous atlas as a second release
+blocker.
 
 ## Validation
 
@@ -398,9 +409,12 @@ unavailable measurements are reported as `unknown` rather than inferred.
 ### Quest 3 experimental-site test card
 
 Use the separate experimental URL, not the public Ports page. Test with a
-charged Quest 3 and both controllers awake. Record the build commit, Quest OS,
-refresh rate, and browser/runtime versions separately; those identifiers are
-intentionally absent from the privacy-safe report.
+charged Quest 3 and both controllers awake. For the PC path, the Quest must be
+awake and actively connected through Virtual Desktop/VDXR as a WebXR headset
+before loading the page or requesting `immersive-vr`; merely running desktop
+Chrome is not a headset test. Record the build commit, Quest OS, refresh rate,
+and browser/runtime versions separately; those identifiers are intentionally
+absent from the privacy-safe report.
 
 Run the applicable path or paths:
 
@@ -434,12 +448,27 @@ The running report should satisfy the following criteria:
 | dimensions | positive layer dimensions when exposed | positive layer and atlas dimensions after frames begin |
 | frame/input counters | increase while moving the head and controllers | increase while moving the head and controllers |
 | bridge counters | not applicable | `bridge_frames` and `bridge_samples` increase; `bridge_errors: 0` |
+| bridge pose age | not applicable / `unknown` | age becomes numeric after first completed atlas; record current/max frames and ms plus reuse count |
+
+A pre-entry report with `enter_attempts: 0` confirms only that no immersive
+request has been recorded. It cannot qualify either presentation backend. In a
+running bridge, `bridge_present_age_frames` and `bridge_present_age_ms` are the
+age of the currently submitted atlas; `bridge_max_present_age_frames` and
+`bridge_max_present_age_ms` retain session maxima; and
+`bridge_reused_presents` counts repeated submission of a completed target.
+`unknown` age before the first completed target is expected. Positive age,
+increasing maxima, or reuse are stale-presentation evidence, not acceptable
+substitutes for stable head tracking. The values are bounded and reset on
+entry/re-entry; no source pose, projection, game data, path, or log is included.
 
 On 2026-07-23, the `cef1e89b` Automatic path on Quest 3 through Virtual
 Desktop/VDXR reached consent but did not reach this running-state table. That is
 a failed qualification, not an unsupported preflight and not evidence against
-the forced bridge. Capture the report immediately after a repeat, then reload
-and test **Force WebGL compatibility bridge** with blocking timing off.
+the forced bridge. Candidate `173bf623` later entered forced bridge with blocking
+timing off and displayed native content plus both procedural controller proxies,
+but failed the stereo/FOV behavior gate through rotational distortion and short
+distance cutoff. Preserve this entry evidence; do not treat it as a successful
+presentation qualification.
 
 For the short bridge timing qualification run, select **Force WebGL
 compatibility bridge**, enable **Temporary QA: blocking bridge timing
@@ -540,6 +569,13 @@ Current results:
   presentation modes passed, while the first physical Quest 3/VDXR Automatic
   attempt exited immersive mode after consent; flat pointer lock and mouse
   buttons worked, but relative mouse-look did not.
+- at immutable candidate `173bf623`, a physical Quest 3/Virtual Desktop/VDXR
+  forced-bridge attempt with blocking timing disabled entered immersive VR and
+  showed native output plus blue/red tracked procedural controller proxies.
+  Rotational distortion and a short black cutoff failed visual qualification.
+  Commits `0331ef21` and `0218d5b7` now correct and test metre-to-UU scaling
+  plus mode-specific depth convention, but need physical requalification.
+  Stale-atlas pose age remains a release blocker; `078a6d2f` now reports it.
 - a fresh live owner-data matrix on `2904593c` imported UT99 (496 files,
   659,817,346 bytes) and Unreal Gold (335 files, 586,421,656 bytes), switched
   both directions before and after Chrome restart, replaced only UT99 without
@@ -566,29 +602,37 @@ stable publication:
 2. Retain the passed real owner `.usa` save/restore evidence, including the
    reproduced `FS.analyzePath` throw with working `FS.stat`. Complete
    fullscreen/resize and long-play persistence checks.
-3. Repeat Automatic on Quest 3/VDXR and capture the v2 failure report before
-   reloading. Then test **Force WebGL compatibility bridge** with blocking
-   timing disabled. On each physical Quest/browser path, record versions
-   outside the report and test direct `XRGPUBinding` only where actually
-   enabled. Record bridge timing only after basic presentation works.
-   The optional-feature correction exists at `f3643b78`; test both Automatic
-   and forced bridge from the superseding immutable package.
-4. Verify the generated report reaches provider phase/stage `running`, records
+3. Retain the proved forced-bridge immersive entry with blocking timing off.
+   Requalify the landed WebXR-metre-to-Unreal-Unit projection mapping without
+   replacing the runtime's asymmetric/sheared matrix. Bridge converts its
+   WebGL projection to WebGPU depth and flags it; direct `XRGPUBinding` flags
+   Chromium's already-zero-to-one projection. Native code scales both. Retain
+   the passing near/far, asymmetric-eye, and rotated-pose regressions.
+4. Replace or correct the previous-pose persistent-atlas presentation. The
+   stable bridge gate requires current-pose render and upload/present in the
+   same XR callback, or compositor-quality depth/motion-aware reprojection.
+   Use the landed bounded atlas age/reuse diagnostics and fail qualification on
+   positive age associated with stale-pose rotation or increasing reuse/maxima.
+   Blocking `gl.finish()` is not a pose correction.
+5. Repeat Automatic on Quest 3/VDXR and capture the v2 failure report before
+   reloading. Test direct `XRGPUBinding` only where actually enabled. Record
+   bridge timing only after projection and pose correctness pass.
+6. Verify the generated report reaches provider phase/stage `running`, records
    a supported projection format, the expected presentation mode, and
    `local-floor` or `local` reference space,
    then compare rendered/skipped/input counters while checking stereo output,
    controller proxies, laser/exact-contact alignment, intro HUD, menu ordering,
    held-button disconnect, and blur. Confirm the expected presentation mode in
-   the separate state snapshot from step 3.
-5. Exit and re-enter once. Confirm the enter/exit/re-entry counters and bounded
+   the separate state snapshot from step 5.
+7. Exit and re-enter once. Confirm the enter/exit/re-entry counters and bounded
    transition list change as expected, then copy or download the report. Inspect
    it before sharing and confirm it contains no game name/data, path, URL, log,
    or user-agent details.
-6. After successful, declined, and failed XR entry, confirm the same flat canvas
+8. After successful, declined, and failed XR entry, confirm the same flat canvas
    continues and keyboard/mouse still work.
-7. Verify production HTTPS, COOP/COEP/CORP headers, WASM MIME, quota/persistence
+9. Verify production HTTPS, COOP/COEP/CORP headers, WASM MIME, quota/persistence
    diagnostics, and storage survival at the final origin and path.
-8. Generate the corresponding-source archive from the exact clean release
+10. Generate the corresponding-source archive from the exact clean release
    commit and have the final hosted source offer, product terms, notices, and
    redistribution model reviewed. Keep all demo data out of the package and
    local-import-only unless explicit artifact-specific permission is obtained.
