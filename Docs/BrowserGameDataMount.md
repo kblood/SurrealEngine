@@ -308,16 +308,22 @@ manifest and awaits `Surreal_PrepareBrowserOPFSMount` through an Asyncify-aware
 `ccall` before mutable restore and native startup. The symlink tree and mutable
 overlay policy are otherwise the same as the worker experiment.
 
-The installed Emscripten 6.0.2 runtime passes resizable Wasm-backed views to
-its internal `UTF8Decoder`. Chrome rejects those views with a `TypeError`.
-The Window-owned build therefore uses `TEXTDECODER=1` and a project-owned
-`--js-library` that sets only Emscripten's `$UTF8Decoder` helper to `null`.
-This selects Emscripten's built-in scalar UTF-8 path without changing the
-browser's global `TextDecoder` or application-owned decoding. The heap starts
-at the measured 256 MiB baseline and can grow as game demand requires. A
-post-link generated-output gate verifies both the scalar fallback and the
-`WebAssembly.Memory.grow` path so a future Emscripten library-ordering change
-cannot silently restore the incompatible decoder or the fixed heap.
+The installed Emscripten 6.0.2 runtime defaults to exposing resizable
+Wasm-backed views when the browser supports them. Chrome rejects those views
+at several browser API boundaries, including `TextDecoder`, Web Crypto, and
+WebGPU queue uploads. Browser builds therefore use
+`GROWABLE_ARRAYBUFFERS=0`: Emscripten keeps ordinary `ArrayBuffer` views and
+refreshes its HEAP views after each WebAssembly memory growth. The heap still
+starts at the measured 256 MiB baseline and can grow as game demand requires.
+A post-link generated-output gate verifies both the ordinary-buffer path and
+`WebAssembly.Memory.grow`, so a future toolchain change cannot silently restore
+resizable browser-API arguments or the fixed heap.
+
+The owner-data Unreal Gold check mounted the complete 335-file GOG install
+(559.3 MiB), grew the engine heap from 256 MiB to 307.25 MiB, loaded `Bluff`,
+and advanced beyond 1,100 animation frames without a page error or runtime
+abort. This qualifies the memory-view boundary and continued main-loop
+ownership; visual, audio, and input acceptance still require device testing.
 
 Two startup details are essential:
 

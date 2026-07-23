@@ -1182,22 +1182,15 @@ if(EMSCRIPTEN)
 		-sUSE_SDL=2
 		--use-port=emdawnwebgpu
 	)
-	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
-		# Emscripten 6.0.2's internal UTF8Decoder rejects resizable Wasm-backed
-		# views in Chrome. TEXTDECODER=1 retains Emscripten's scalar fallback;
-		# the project-owned library disables only that internal decoder so the
-		# Window-owned OPFS build can grow beyond its measured 256 MiB baseline.
-		target_link_options(SurrealEngine PRIVATE
-			-sINITIAL_MEMORY=256MB
-			-sALLOW_MEMORY_GROWTH=1
-			-sTEXTDECODER=1
-		)
-	else()
-		target_link_options(SurrealEngine PRIVATE
-			-sINITIAL_MEMORY=256MB
-			-sALLOW_MEMORY_GROWTH=1
-		)
-	endif()
+	# Chrome rejects browser-API arguments backed by resizable ArrayBuffers.
+	# Keep Emscripten's ordinary Wasm buffers and refresh HEAP views after each
+	# growth, rather than exposing resizable views to TextDecoder, crypto, or
+	# WebGPU. The heap can still grow beyond its measured 256 MiB baseline.
+	target_link_options(SurrealEngine PRIVATE
+		-sINITIAL_MEMORY=256MB
+		-sALLOW_MEMORY_GROWTH=1
+		-sGROWABLE_ARRAYBUFFERS=0
+	)
 	if(SURREAL_WEB_USE_PTHREADS)
 		target_link_options(SurrealEngine PRIVATE
 			-pthread
@@ -1240,11 +1233,9 @@ if(EMSCRIPTEN)
 	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
 		set_property(TARGET SurrealEngine APPEND PROPERTY LINK_DEPENDS
 			${CMAKE_CURRENT_SOURCE_DIR}/web/browser_native_call_gate_library.js
-			${CMAKE_CURRENT_SOURCE_DIR}/web/browser_resizable_memory_text_decoder_library.js
 			${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyEmscriptenMemoryGrowth.cmake)
 		target_link_options(SurrealEngine PRIVATE
 			--js-library=${CMAKE_CURRENT_SOURCE_DIR}/web/browser_native_call_gate_library.js
-			--js-library=${CMAKE_CURRENT_SOURCE_DIR}/web/browser_resizable_memory_text_decoder_library.js
 			-sWASMFS
 			-sFORCE_FILESYSTEM
 			-sASYNCIFY
@@ -1254,7 +1245,7 @@ if(EMSCRIPTEN)
 			COMMAND ${CMAKE_COMMAND}
 				-DGENERATED_JAVASCRIPT=$<TARGET_FILE:SurrealEngine>
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyEmscriptenMemoryGrowth.cmake
-			COMMENT "Verifying growable WebAssembly memory and scalar UTF-8 fallback"
+			COMMENT "Verifying browser-safe growable WebAssembly memory"
 			VERBATIM)
 	endif()
 	if(SURREAL_GAMEDATA_DIR)

@@ -8,25 +8,19 @@ endif()
 
 file(READ "${GENERATED_JAVASCRIPT}" generated_javascript)
 
-# This is intentionally a generated-output gate rather than a source-only
-# assertion: it catches an Emscripten library ordering change that silently
-# replaces the project override with the built-in TextDecoder initializer.
-if(NOT generated_javascript MATCHES "var[ \t\r\n]+UTF8Decoder[ \t\r\n]*=[ \t\r\n]*(null|false)")
+# Browser APIs such as TextDecoder, Web Crypto, and WebGPU reject views backed
+# by resizable ArrayBuffers. GROWABLE_ARRAYBUFFERS=0 must keep Emscripten on its
+# ordinary ArrayBuffer path and refresh HEAP views after WebAssembly growth.
+string(FIND "${generated_javascript}" "toResizableBuffer(" resizable_buffer_position)
+if(NOT resizable_buffer_position EQUAL -1)
 	message(FATAL_ERROR
-		"The shipping Emscripten output did not disable its internal UTF8Decoder")
+		"The shipping Emscripten output can expose resizable Wasm-backed views")
 endif()
 
-if(generated_javascript MATCHES
-		"var[ \t\r\n]+UTF8Decoder[ \t\r\n]*=[^;\r\n]*new[ \t\r\n]+TextDecoder")
+string(FIND "${generated_javascript}" "return wasmMemory.buffer" fixed_buffer_position)
+if(fixed_buffer_position EQUAL -1)
 	message(FATAL_ERROR
-		"The shipping Emscripten output reinstated TextDecoder for Wasm-backed strings")
-endif()
-
-# TEXTDECODER=1 must retain the scalar branch that the null decoder selects.
-if(NOT generated_javascript MATCHES
-		"while[ \t\r\n]*\\([ \t\r\n]*idx[ \t\r\n]*<[ \t\r\n]*endPtr[ \t\r\n]*\\)")
-	message(FATAL_ERROR
-		"The shipping Emscripten output does not contain the scalar UTF-8 fallback")
+		"The shipping Emscripten output does not select ordinary Wasm memory buffers")
 endif()
 
 # ALLOW_MEMORY_GROWTH=1 emits the WebAssembly.Memory growth path. Fixed-memory
@@ -37,5 +31,11 @@ if(memory_growth_position EQUAL -1)
 		"The shipping Emscripten output does not contain WebAssembly memory growth")
 endif()
 
+if(NOT generated_javascript MATCHES
+		"wasmMemory\\.grow\\([^)]*\\)[ \t\r\n]*;[ \t\r\n]*updateMemoryViews\\(\\)")
+	message(FATAL_ERROR
+		"The shipping Emscripten output does not refresh HEAP views after growth")
+endif()
+
 message(STATUS
-	"Verified growable WebAssembly memory with Emscripten scalar UTF-8 decoding")
+	"Verified growable WebAssembly memory with ordinary browser-safe views")
