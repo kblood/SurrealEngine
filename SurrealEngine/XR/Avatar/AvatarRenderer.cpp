@@ -5,6 +5,7 @@
 #include "AvatarRigCache.h"
 #include "AvatarSkinner.h"
 #include "Engine.h"
+#include "XR/XRWeaponPoseSolver.h"
 #include "UObject/UActor.h"
 #include "UObject/UMesh.h"
 #include "UObject/UTexture.h"
@@ -111,6 +112,63 @@ namespace
 		}
 	}
 
+	int FindRigJointIndex(const AvatarRig& rig, AvatarJointRole role)
+	{
+		for (size_t i = 0; i < rig.Joints.size(); i++)
+			if (rig.Joints[i].Role == role)
+				return (int)i;
+		return -1;
+	}
+
+	// M5: for any real mesh whose auto-rig has a complete right arm chain,
+	// proves against that mesh's own bind-pose geometry that the arm IK's
+	// hand target and the weapon's grip-anchored visual pose (zero local
+	// offset - see XRWeaponPoseSolver.cpp) land at the same point. Same
+	// claim as Tests/AvatarIKSolverTests.cpp's TestHandTracksSimulatedGripSequence,
+	// just run per real mesh instead of a synthetic rig - a sibling check to
+	// the bind-pose self-check above.
+	void LogHandWeaponReconciliationCheck(const AvatarRig& rig)
+	{
+		int upperArmIdx = FindRigJointIndex(rig, AvatarJointRole::RightUpperArm);
+		int forearmIdx = FindRigJointIndex(rig, AvatarJointRole::RightForearm);
+		int handIdx = FindRigJointIndex(rig, AvatarJointRole::RightHand);
+		if (upperArmIdx < 0 || forearmIdx < 0 || handIdx < 0)
+			return;
+
+		const vec3& upperArmBind = rig.Joints[upperArmIdx].BindOrigin;
+		const vec3& handBind = rig.Joints[handIdx].BindOrigin;
+
+		// 70% of the way from shoulder to the bind-pose hand - within this
+		// arm's own measured reach regardless of this mesh's scale/axes.
+		vec3 target = mix(upperArmBind, handBind, 0.7f);
+
+		AvatarIKInput input;
+		input.RightHand.Valid = true;
+		input.RightHand.Position = target;
+		AvatarIKOptions options;
+		Array<AvatarJointTransform> transforms;
+		AvatarIKSolver::Solve(rig, input, options, transforms);
+
+		vec3 solvedHand = rig.Joints[handIdx].BindOrigin + transforms[handIdx].Translation;
+		float gripTargetGap = length(solvedHand - target);
+
+		XREnginePose grip;
+		grip.Valid = true;
+		grip.Position = { target.x, target.y, target.z };
+		XRWeaponPoseOptions weaponOptions;
+		weaponOptions.VisualAnchor = XRWeaponVisualAnchor::Grip;
+		XRWeaponPoseResult weaponPose = SolveXRWeaponPose(grip, grip, XRHand::Right, weaponOptions);
+		vec3 weaponWorld(weaponPose.VisualPose.Position.X, weaponPose.VisualPose.Position.Y, weaponPose.VisualPose.Position.Z);
+		float weaponVisualGap = length(solvedHand - weaponWorld);
+
+		std::ostringstream out;
+		out << "  M5 hand/weapon-grip check: target=(" << target.x << "," << target.y << "," << target.z << ")"
+			<< " solvedHand=(" << solvedHand.x << "," << solvedHand.y << "," << solvedHand.z << ")"
+			<< " gripTargetGap=" << gripTargetGap
+			<< " weaponVisualGap=" << weaponVisualGap;
+		LogDiagnostic(out.str());
+	}
+
 	void LogRigDiagnostic(UMesh* mesh, const AvatarRig& rig)
 	{
 		std::ostringstream out;
@@ -180,6 +238,8 @@ namespace
 			<< " maxError=" << maxPosError
 			<< " meanError=" << (checked > 0 ? (sumPosError / checked) : 0.0);
 		LogDiagnostic(check.str());
+
+		LogHandWeaponReconciliationCheck(rig);
 	}
 }
 
@@ -617,6 +677,69 @@ namespace
 		}
 		LogDiagnostic(out.str());
 	}
+
+	// M5: proves the avatar's solved right-hand joint lands on the same world
+	// point the weapon's grip-anchored visual pose uses. `xform` must be the
+	// worldOffset=0 transform (same one BuildIKInput used) so this measures
+	// the real targeting math, not the side-by-side debug draw's cosmetic
+	// shift. `rightHandGripWorld` is the same engine-space grip pose Engine.cpp
+	// feeds both this solver (via BuildIKInput) and, when avatar diagnostics
+	// are enabled, SolveXRWeaponPose's Grip anchor - so gripTargetGap is the
+	// avatar-side half of the reconciliation. weaponVisualGap prefers the
+	// real rendered weapon pose (real XR session); when none is running (no
+	// headset - this workspace's usual case, see BuildSyntheticFrameInput)
+	// it falls back to calling the real SolveXRWeaponPose with the same grip
+	// sample directly, purely to produce comparable evidence - this fallback
+	// never touches engine gameplay/render state, only local logging output.
+	void LogHandWeaponAlignment(const AvatarRig& rig, const MeshWorldTransform& xform,
+		const Array<AvatarJointTransform>& jointTransforms, const AvatarEnginePose& rightHandGripWorld)
+	{
+		static int frameCounter = 0;
+		frameCounter++;
+		if (frameCounter % 30 != 1)
+			return;
+
+		int rightHandIdx = FindJointIndex(rig, AvatarJointRole::RightHand);
+		if (rightHandIdx < 0 || !rightHandGripWorld.Valid)
+			return;
+
+		vec3 handMeshLocal = rig.Joints[rightHandIdx].BindOrigin + jointTransforms[rightHandIdx].Translation;
+		vec3 handWorld = (xform.MeshToWorld * vec4(handMeshLocal, 1.0f)).xyz();
+		float gripTargetGap = length(handWorld - rightHandGripWorld.Position);
+
+		XRWeaponPoseResult weaponPose = engine->GetXRWeaponPose();
+		const bool liveWeaponPose = weaponPose.Valid;
+		if (!liveWeaponPose)
+		{
+			XREnginePose grip;
+			grip.Valid = true;
+			grip.Position = { rightHandGripWorld.Position.x, rightHandGripWorld.Position.y, rightHandGripWorld.Position.z };
+			grip.Orientation = { rightHandGripWorld.Orientation.x, rightHandGripWorld.Orientation.y,
+				rightHandGripWorld.Orientation.z, rightHandGripWorld.Orientation.w };
+			XRWeaponPoseOptions options;
+			options.VisualAnchor = XRWeaponVisualAnchor::Grip;
+			weaponPose = SolveXRWeaponPose(grip, grip, XRHand::Right, options);
+		}
+
+		std::ostringstream out;
+		out << "AvatarWeaponAlign: frame " << frameCounter
+			<< " handWorld=(" << handWorld.x << "," << handWorld.y << "," << handWorld.z << ")"
+			<< " gripTargetGap=" << gripTargetGap;
+		if (weaponPose.Valid)
+		{
+			vec3 weaponWorld(weaponPose.VisualPose.Position.X, weaponPose.VisualPose.Position.Y, weaponPose.VisualPose.Position.Z);
+			float weaponVisualGap = length(handWorld - weaponWorld);
+			out << " weaponWorld=(" << weaponWorld.x << "," << weaponWorld.y << "," << weaponWorld.z << ")"
+				<< " weaponVisualGap=" << weaponVisualGap
+				<< " weaponAnchor=" << (weaponPose.VisualAnchor == XRWeaponVisualAnchor::Grip ? "grip" : "aim")
+				<< " weaponSource=" << (liveWeaponPose ? "live" : "derived");
+		}
+		else
+		{
+			out << " weaponWorld=none";
+		}
+		LogDiagnostic(out.str());
+	}
 }
 
 namespace
@@ -796,6 +919,7 @@ bool AvatarRenderer::DrawActorWithIK(VisibleFrame* frame, UActor* actor, const v
 		return false;
 
 	LogSolvedJointsPeriodically(rig, ikInput, jointTransforms, legState);
+	LogHandWeaponAlignment(rig, xform, jointTransforms, engineInput.RightHandGrip);
 
 	DrawSkinnedMesh(frame, actor, mesh, rig, skinnedPositions, skinnedNormals, worldOffset, calibration.Scale, options.CullHeadForFirstPerson);
 	return true;

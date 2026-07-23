@@ -1118,6 +1118,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		Tests/AvatarIKSolverTests.cpp
 		SurrealEngine/XR/Avatar/AvatarIKSolver.cpp
 		SurrealEngine/XR/Avatar/AvatarSkinner.cpp
+		SurrealEngine/XR/XRCommon.cpp
+		SurrealEngine/XR/XRWeaponPoseSolver.cpp
 	)
 	target_include_directories(AvatarIKSolverTests PRIVATE SurrealEngine)
 	set_target_properties(AvatarIKSolverTests PROPERTIES CXX_STANDARD 20)

@@ -1,5 +1,6 @@
 #include "XR/Avatar/AvatarIKSolver.h"
 #include "XR/Avatar/AvatarSkinner.h"
+#include "XR/XRWeaponPoseSolver.h"
 
 #include <cmath>
 #include <iostream>
@@ -153,6 +154,69 @@ namespace
 		float forearmLen = length(solvedLeft - elbow);
 		Require(NearlyEqual(upperLen, 25.0f, 0.01f), "solved upper arm length drifted from the rig's own measured length");
 		Require(NearlyEqual(forearmLen, 25.0f, 0.01f), "solved forearm length drifted from the rig's own measured length");
+	}
+
+	// M5 reconciliation: AvatarRenderer::BuildIKInput builds this solver's
+	// RightHand target directly from the same engine-space grip pose (see
+	// Engine.cpp's SetXRAvatarInput/RightHandGrip) that, when avatar
+	// diagnostics are enabled, Engine.cpp also feeds SolveXRWeaponPose with
+	// XRWeaponVisualAnchor::Grip - the weapon and hand targets are the same
+	// pose sample, just converted into different spaces. This test proves the
+	// numeric consequence: with XRWeaponPoseSolver's default (zero) local
+	// offset, its grip-anchored visual position equals the raw grip pose
+	// exactly, and this solver's hand joint tracks that same position (within
+	// the arm's reach) across a sequence of distinct poses, the way a moving
+	// controller would drive both frame to frame. Together they show the
+	// avatar's hand and the weapon's grip anchor land in the same place
+	// without any extra offset needed on either side.
+	void TestHandTracksSimulatedGripSequence()
+	{
+		AvatarRig rig = BuildTestRig();
+		AvatarIKOptions options;
+
+		XRWeaponPoseOptions weaponOptions;
+		weaponOptions.VisualAnchor = XRWeaponVisualAnchor::Grip;
+
+		// All within the rig's 50-unit right-arm span (upper arm 25 + forearm
+		// 25 from the RightUpperArm root at (15, 40, 0)), simulating a
+		// controller moving frame to frame.
+		const vec3 gripSequence[] = {
+			vec3(15.0f, 40.0f, -45.0f), // near, but not exactly at, full arm extension
+			vec3(20.0f, 45.0f, -35.0f),
+			vec3(10.0f, 30.0f, -40.0f),
+			vec3(25.0f, 55.0f, -20.0f),
+			vec3(5.0f, 35.0f, -45.0f),
+			vec3(18.0f, 48.0f, -30.0f),
+		};
+
+		float maxHandWeaponGap = 0.0f;
+		for (vec3 gripPosition : gripSequence)
+		{
+			XREnginePose gripPose;
+			gripPose.Valid = true;
+			gripPose.Position = { gripPosition.x, gripPosition.y, gripPosition.z };
+			gripPose.Orientation = {}; // identity - position is all this test checks
+
+			const XRWeaponPoseResult weaponResult = SolveXRWeaponPose(gripPose, gripPose, XRHand::Right, weaponOptions);
+			Require(weaponResult.Valid && weaponResult.VisualAnchor == XRWeaponVisualAnchor::Grip,
+				"grip-anchored weapon pose solve failed for a simulated grip sample");
+			vec3 weaponWorld(weaponResult.VisualPose.Position.X, weaponResult.VisualPose.Position.Y, weaponResult.VisualPose.Position.Z);
+			Require(NearlyEqual(weaponWorld, gripPosition, 0.0001f),
+				"default-offset grip anchor did not reproduce the raw grip pose exactly");
+
+			AvatarIKInput input;
+			input.RightHand = MakeTarget(gripPosition);
+			Array<AvatarJointTransform> transforms;
+			AvatarIKSolver::Solve(rig, input, options, transforms);
+			vec3 solvedHand = SolvedPosition(rig, transforms, AvatarJointRole::RightHand);
+
+			float handWeaponGap = length(solvedHand - weaponWorld);
+			std::cout << "  grip (" << gripPosition.x << "," << gripPosition.y << "," << gripPosition.z
+				<< ") hand/weapon-grip gap: " << handWeaponGap << " units\n";
+			Require(handWeaponGap < 0.01f, "solved hand joint did not land on the weapon's grip-anchored position");
+			maxHandWeaponGap = std::max(maxHandWeaponGap, handWeaponGap);
+		}
+		std::cout << "  max hand/weapon-grip gap across sequence: " << maxHandWeaponGap << " units\n";
 	}
 
 	void TestHandClampsUnreachableTarget()
@@ -675,6 +739,7 @@ int main()
 	{
 		TestNoInputLeavesExactBindPose();
 		TestHandTracksReachableTarget();
+		TestHandTracksSimulatedGripSequence();
 		TestHandClampsUnreachableTarget();
 		TestPelvisFollowsHeadProportionally();
 		TestSpineInterpolatesBetweenPelvisAndHead();

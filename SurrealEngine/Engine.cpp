@@ -451,7 +451,17 @@ void Engine::RunOneFrame()
 	bool xrWorldTransformValid = openXR && xrFrameBegun && openXRViews.CreateWeaponWorldTransform(
 		CameraLocation, xrWeaponWorld);
 	if (xrWorldTransformValid)
-		xrWeaponPose = SolveXRWeaponPose(xrSpaces, xrWeaponWorld, XRHand::Right);
+	{
+		// The full-body avatar's hand IK target tracks GripFor(hand) (see
+		// below) - anchor the weapon visual to the same pose while the avatar
+		// diagnostics path is drawing it, so there is no gap between hand and
+		// weapon. Left at the default Aim anchor otherwise, so ordinary XR
+		// play is unaffected.
+		XRWeaponPoseOptions xrWeaponPoseOptions;
+		if (AvatarRenderer::DiagnosticsEnabled())
+			xrWeaponPoseOptions.VisualAnchor = XRWeaponVisualAnchor::Grip;
+		xrWeaponPose = SolveXRWeaponPose(xrSpaces, xrWeaponWorld, XRHand::Right, xrWeaponPoseOptions);
+	}
 
 	// Same provider-neutral snapshot feeds the full-body avatar's IK solver -
 	// real OpenXR poses anchored the same way the weapon aim already is, or a
