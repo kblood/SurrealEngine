@@ -35,6 +35,29 @@ separate browser-relative-motion-to-SDL/native delivery defect, or a Virtual
 Desktop input-injection incompatibility, and remains a flat desktop release
 blocker until instrumented and corrected.
 
+## Candidate 173bf623 flat retest
+
+A later human retest of immutable candidate `173bf623` confirmed that the exact
+canvas captured the pointer, fire still worked, and relative mouse motion now
+rotated the view. This physically qualifies the `28906717` delivery correction
+for that Chrome/Virtual Desktop flat path. Current source additionally records
+per-capture aggregate event/lock/nonzero/forward/gate counters and has a real
+Chrome Pointer Lock regression, without retaining movement values.
+
+Audio was initially audible, but disappeared later and did not recover until
+the game was restarted. Inspection found a deterministic lifecycle gap: hidden
+documents suspended WebAudio, while return-to-visible and presentation changes
+only refreshed the UI. Commit `4dfceb0f` now best-effort resumes a started game
+after either transition. The explicit Enable audio button remains available if
+browser policy rejects that attempt, and a trusted active-session controller
+`selectstart` supplies an additional data-free retry. Physical recovery still
+needs retesting.
+
+An apparent WebXR fallback during this round was not a valid headset result:
+the headset was not actively connected as a WebXR device. The copied report
+correctly remained entirely idle (`enter_attempts: 0`, no transitions). It does
+not contradict or qualify either presentation backend.
+
 ## Automatic backend correction
 
 The current Automatic preflight selects direct presentation when
@@ -80,10 +103,9 @@ textures; removing that usage is not a valid compatibility workaround.
   completed native presentation. In either case, preserve the report and VDXR
   OpenXR log before trying forced bridge; do not infer a projection or game
   rendering failure from the consent prompt alone.
-- Run a real Chrome pointer-lock test from nonzero browser
-  `movementX`/`movementY` through the `28906717` atomic bridge to
-  `Engine::OnWindowRawMouseMove`; retain the existing post-XR capture-prompt
-  and requested-but-unlocked SDL fallback checks.
+- Retain the passed human mouse-look result plus the real Chrome Pointer Lock,
+  post-XR capture-prompt, requested-but-unlocked SDL fallback, and aggregate
+  counter checks in the superseding package.
 - Only after bridge entry works, qualify stereo output, head/controller
   tracking, menu and intro quads, exact pointer contact, exit/re-entry, timing,
   and loaded UT99/Unreal Gold behavior.
@@ -117,8 +139,9 @@ WebGPU errors. The run reproduced throwing WasmFS `analyzePath`, proved the
 `stat` fallback included a synthetic allowlisted `Save99.usa`, explicitly
 flushed it to OPFS, and restored its exact 32-byte content after closing and
 reopening Chrome. A disallowed sibling remained absent. This closes the
-candidate's real owner-save gate, but automation did not claim human
-mouse-look, audio, or headset presentation.
+candidate's real owner-save gate. The later human flat retest qualified
+mouse-look and established initial audible output, but audio recovery after a
+lifecycle transition and headset presentation remain unqualified.
 
 The independent Claude Code Opus 4.8 code-path review, ranked hypotheses,
 candidate fixes, tests, risks, and commit decomposition are recorded in

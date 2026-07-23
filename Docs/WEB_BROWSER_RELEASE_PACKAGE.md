@@ -283,8 +283,9 @@ staging directory followed by an atomic rename. The live HTTPS smoke passed the
 no-data import gate, synthetic Unreal Gold flat launch, input, responsive
 layout, fullscreen, source retrieval, and zero page errors. Public downloads
 match all five hashes, and index/WASM/source responses carry the required
-COOP/COEP/CORP headers and MIME types. Physical mouse-look, audible output, and
-headset presentation remain gates rather than claims.
+COOP/COEP/CORP headers and MIME types. A later human retest confirmed physical
+mouse-look and initial audible output. Audio recovery/endurance and headset
+presentation remain gates rather than claims.
 
 The live packaged launcher also passed three synthetic trusted-Play WebXR
 scenarios. Automatic requested `webgpu` only as optional and selected direct
@@ -308,8 +309,11 @@ probe reproduced throwing `FS.analyzePath('/gamedata/Save')` while `stat` and
 and a fresh Chrome process restored all four files with the save's exact SHA-256
 `1d6fd3a8de9d6466d1877f18238f33a794c1c32a00553f37aa49e89030870c36`.
 A disallowed `.usa` sibling was absent from both metadata and the restored
-filesystem. This is real owner-library and save-persistence evidence, but the
-headless pointer inspection intentionally makes no human mouse-look claim.
+filesystem. This is real owner-library and save-persistence evidence. A later
+human Chrome/Virtual Desktop run additionally confirmed pointer capture, fire,
+and working relative mouse-look. Audio was audible but later failed to recover
+from a lifecycle transition until restart, which current source corrects by
+retrying resume after visibility and presentation transitions.
 
 ## Validation
 
@@ -554,17 +558,14 @@ restoration, but not save restoration, long-play behavior, or successful
 physical headset presentation. Before
 stable publication:
 
-1. Manually retest the corrected relative mouse delivery. The physical VDXR pass
-   proved that `cef1e89b` can lock the cursor and receive mouse fire while
-   mouse-look remains static. Then test capture/resume, browser Escape,
-   wheel/buttons, and audibly verify Unreal Gold effects and music.
-   The implementation exists at `28906717`; run this gate on its rebuilt
-   candidate rather than `cef1e89b`.
-2. Repeat real `.usa` save and restore with the WasmFS fallback, including an
-   `FS.analyzePath` throw or false result with working `FS.stat`. Complete
+1. Retain the passed `173bf623` physical relative-mouse result while testing
+   capture/resume, browser Escape, wheel/buttons, and the new aggregate pointer
+   counters. Retest the `4dfceb0f` audio recovery after visibility and failed or
+   successful presentation transitions; verify music/effects, volume/mute, and
+   the explicit Enable audio fallback over longer play.
+2. Retain the passed real owner `.usa` save/restore evidence, including the
+   reproduced `FS.analyzePath` throw with working `FS.stat`. Complete
    fullscreen/resize and long-play persistence checks.
-   The code/test correction exists at `46d13173`; real owner-save evidence is
-   still required.
 3. Repeat Automatic on Quest 3/VDXR and capture the v2 failure report before
    reloading. Then test **Force WebGL compatibility bridge** with blocking
    timing disabled. On each physical Quest/browser path, record versions

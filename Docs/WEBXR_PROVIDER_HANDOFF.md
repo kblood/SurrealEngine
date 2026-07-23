@@ -3,7 +3,7 @@
 Date: 2026-07-23
 
 Integration status: implemented and automated through
-`integration/unified-engine` commit `173bf623`. Both presentation modes remain
+`integration/unified-engine` commit `4dfceb0f`. Both presentation modes remain
 experimental. The first physical Quest 3/Virtual Desktop/VDXR Automatic attempt
 failed after consent and before confirmed presentation; forced bridge remains
 hardware-unverified.
@@ -221,7 +221,13 @@ The same native-call gate covers browser-side services. Mutable-data interval,
 visibility, and pagehide checkpoints never inspect `Module.FS` while an
 Asyncify XR producer is unresolved. Repeated triggers coalesce into one
 deferred lifecycle reason and flush once the gate reopens; disposal removes
-the listener. Browser audio uses the same defer-and-flush rule.
+the listener. Browser audio uses the same defer-and-flush rule. Once the engine
+has created its OpenAL/WebAudio context, startup, return-to-visible, and
+presentation transitions make a best-effort resume; hidden pages still
+suspend. A trusted `selectstart` on the currently active XR session forwards
+only a detail-free audio-unlock event, never controller or pose data. Central
+session cleanup removes that listener before allowing re-entry, while the DOM
+Enable audio button remains the explicit policy fallback.
 
 Asyncify builds also link an Emscripten user JavaScript library that installs a
 native-callback gate before `SDL_Init`. It wraps the live
@@ -432,6 +438,9 @@ The physical report can now distinguish an ordinary session-request or layer
 failure from a runtime that grants consent and then ends the session before
 activation/first presentation. This is diagnostic state only; it neither keeps
 an ended session alive nor attempts an illegal same-session backend fallback.
+If an end arrives while asynchronous WebGL `makeXRCompatible()` setup is still
+pending, a later-created bridge is destroyed rather than being attached to a
+dead generation; reference-space and engine-loop ownership cannot continue.
 
 Both modes remain **experimental**. Automated tests prove selection, ABI,
 projection conversion, shared engine behavior, cleanup, and desktop cross-API
