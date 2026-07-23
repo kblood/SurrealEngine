@@ -31,13 +31,18 @@ public:
 	// nothing) if the mesh could not be auto-rigged.
 	static bool DrawActorBindPose(VisibleFrame* frame, UActor* actor, const vec3& worldOffset);
 
-	// M2: as DrawActorBindPose, but solves arm IK and pelvis/spine
-	// extrapolation from `engineInput` (already-converted engine-space head/
-	// hand poses - see Engine::GetXRAvatarInput) before skinning, instead of
-	// drawing the static bind pose. Returns false (and draws nothing) under
-	// the same conditions DrawActorBindPose does.
+	// M2/M3: as DrawActorBindPose, but solves arm IK, pelvis/spine
+	// extrapolation, and (M3) leg IK from `engineInput` (already-converted
+	// engine-space head/hand poses - see Engine::GetXRAvatarInput) before
+	// skinning, instead of drawing the static bind pose. Ground-probes each
+	// leg via `actor`'s own CollisionSystem and reads `actor`'s Physics()
+	// state to decide whether to ground-probe at all. `deltaTimeSeconds` is
+	// the same per-frame elapsed time the rest of rendering already uses
+	// (RenderSubsystem::LevelTimeElapsed) - it drives the leg step state
+	// machine's timing. Returns false (and draws nothing) under the same
+	// conditions DrawActorBindPose does.
 	static bool DrawActorWithIK(VisibleFrame* frame, UActor* actor, const vec3& worldOffset,
-		const AvatarIKFrameInput& engineInput, const AvatarIKOptions& options);
+		const AvatarIKFrameInput& engineInput, const AvatarIKOptions& options, float deltaTimeSeconds);
 
 	// Converts already engine-space head/hand poses into the rig's own
 	// bind-pose (mesh-local) space using `actor`/`mesh`'s current transform -

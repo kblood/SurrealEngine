@@ -47,7 +47,7 @@ namespace
 		return (int)rig.Joints.size() - 1;
 	}
 
-	AvatarRig BuildTestRig(bool includeRightArm = true)
+	AvatarRig BuildTestRig(bool includeRightArm = true, bool includeRightLeg = true)
 	{
 		AvatarRig rig;
 		rig.Valid = true;
@@ -64,6 +64,19 @@ namespace
 			AddJoint(rig, AvatarJointRole::RightUpperArm, vec3(15.0f, 40.0f, 0.0f));
 			AddJoint(rig, AvatarJointRole::RightForearm, vec3(15.0f, 40.0f, -25.0f));
 			AddJoint(rig, AvatarJointRole::RightHand, vec3(15.0f, 40.0f, -50.0f));
+		}
+		// Legs hang below the pelvis (-Y, since this rig's own bind-pose "up"
+		// is +Y - see the header comment above) - thigh/calf both 25 units,
+		// same as the arm segments, so leg tests can reuse the arm tests'
+		// reach numbers.
+		AddJoint(rig, AvatarJointRole::LeftThigh, vec3(-15.0f, -20.0f, 0.0f));
+		AddJoint(rig, AvatarJointRole::LeftCalf, vec3(-15.0f, -45.0f, 0.0f));
+		AddJoint(rig, AvatarJointRole::LeftFoot, vec3(-15.0f, -70.0f, 0.0f));
+		if (includeRightLeg)
+		{
+			AddJoint(rig, AvatarJointRole::RightThigh, vec3(15.0f, -20.0f, 0.0f));
+			AddJoint(rig, AvatarJointRole::RightCalf, vec3(15.0f, -45.0f, 0.0f));
+			AddJoint(rig, AvatarJointRole::RightFoot, vec3(15.0f, -70.0f, 0.0f));
 		}
 		return rig;
 	}
@@ -248,6 +261,191 @@ namespace
 			"the present arm should still solve normally when the other side is missing its roles");
 	}
 
+	AvatarLegGroundProbe MakeGroundProbe(vec3 groundPoint)
+	{
+		AvatarLegGroundProbe probe;
+		probe.Valid = true;
+		probe.GroundPoint = groundPoint;
+		return probe;
+	}
+
+	// M3 leg tests below. BuildTestRig's legs hang along -Y from the pelvis
+	// (thigh at y=-20, foot at y=-70 in bind pose, 50 units of leg length
+	// total, same as the arms), so "ground height" in these tests is just a
+	// Y coordinate.
+
+	void TestNoGroundProbeBlendsToNeutralHangPose()
+	{
+		AvatarRig rig = BuildTestRig();
+		AvatarIKInput input;
+		input.Head = MakeTarget(vec3(0.0f, 65.0f, 0.0f)); // pelvis stays at bind position
+		input.Grounded = true; // even claiming "grounded" shouldn't matter without a probe hit
+		AvatarIKOptions options;
+		AvatarLegIKState legState;
+		Array<AvatarJointTransform> transforms;
+		// A large delta time settles GroundedBlend fully in one call.
+		AvatarIKSolver::SolveWithLegs(rig, input, options, 1.0f, legState, transforms);
+
+		vec3 hip(-15.0f, -20.0f, 0.0f);
+		vec3 expectedFoot = hip - vec3(0.0f, 1.0f, 0.0f) * (50.0f * 0.95f);
+		vec3 solvedFoot = SolvedPosition(rig, transforms, AvatarJointRole::LeftFoot);
+		std::cout << "  neutral hang foot position: (" << solvedFoot.x << ", " << solvedFoot.y << ", " << solvedFoot.z << ")\n";
+		Require(NearlyEqual(solvedFoot, expectedFoot, 0.01f), "an ungrounded leg did not settle to the neutral hanging pose");
+	}
+
+	void TestGroundedFootMatchesProbedHeight()
+	{
+		AvatarRig rig = BuildTestRig();
+		AvatarIKInput input;
+		input.Head = MakeTarget(vec3(0.0f, 65.0f, 0.0f)); // pelvis stays at bind position
+		input.Grounded = true;
+		const float groundY = -60.0f; // within reach: hip is at y=-20, leg span is 50
+		input.LeftFootGround = MakeGroundProbe(vec3(-15.0f, groundY, 0.0f));
+		input.RightFootGround = MakeGroundProbe(vec3(15.0f, groundY, 0.0f));
+		AvatarIKOptions options;
+		AvatarLegIKState legState;
+		Array<AvatarJointTransform> transforms;
+		AvatarIKSolver::SolveWithLegs(rig, input, options, 1.0f, legState, transforms);
+
+		vec3 solvedLeft = SolvedPosition(rig, transforms, AvatarJointRole::LeftFoot);
+		vec3 solvedRight = SolvedPosition(rig, transforms, AvatarJointRole::RightFoot);
+		std::cout << "  grounded foot height: left=" << solvedLeft.y << " right=" << solvedRight.y << " (probed ground=" << groundY << ")\n";
+		Require(std::abs(solvedLeft.y - groundY) < 0.05f, "left foot did not settle at the probed ground height");
+		Require(std::abs(solvedRight.y - groundY) < 0.05f, "right foot did not settle at the probed ground height");
+
+		// Bone lengths must stay exactly as measured from the bind pose - a
+		// foot at plausible ground height must not come from a stretched leg.
+		vec3 knee = SolvedPosition(rig, transforms, AvatarJointRole::LeftCalf);
+		vec3 hip = SolvedPosition(rig, transforms, AvatarJointRole::LeftThigh);
+		Require(NearlyEqual(length(knee - hip), 25.0f, 0.01f), "thigh length drifted while grounding the foot");
+		Require(NearlyEqual(length(solvedLeft - knee), 25.0f, 0.01f), "calf length drifted while grounding the foot");
+	}
+
+	void TestStepMachineAdvancesFootOnceThresholdExceeded()
+	{
+		AvatarRig rig = BuildTestRig();
+		AvatarIKOptions options;
+		AvatarLegIKState legState;
+		Array<AvatarJointTransform> transforms;
+
+		const float groundY = -60.0f;
+		AvatarIKInput input;
+		input.Head = MakeTarget(vec3(0.0f, 65.0f, 0.0f));
+		input.Grounded = true;
+		input.LeftFootGround = MakeGroundProbe(vec3(-15.0f, groundY, 0.0f));
+		input.RightFootGround = MakeGroundProbe(vec3(15.0f, groundY, 0.0f));
+
+		// Frame 0: plant the foot and fully settle the grounded blend.
+		AvatarIKSolver::SolveWithLegs(rig, input, options, 1.0f, legState, transforms);
+		Require(legState.Left.Phase == AvatarLegStepPhase::Idle, "leg did not start planted and idle");
+		vec3 plantedFoot = SolvedPosition(rig, transforms, AvatarJointRole::LeftFoot);
+
+		// Move the pelvis forward (this rig's own bind-pose "forward" is
+		// (0,0,-1) - see the header comment) by less than the step threshold
+		// (leg length 50 * 0.45 = 22.5) - the foot must stay exactly planted,
+		// not continuously chase the hip every frame.
+		const float smallForwardMove = 10.0f;
+		input.Head = MakeTarget(vec3(0.0f, 65.0f, -smallForwardMove));
+		input.LeftFootGround = MakeGroundProbe(vec3(-15.0f, groundY, -smallForwardMove)); // ground plane still flat, follows probe under the new hip position
+		input.RightFootGround = MakeGroundProbe(vec3(15.0f, groundY, -smallForwardMove));
+		AvatarIKSolver::SolveWithLegs(rig, input, options, 0.05f, legState, transforms);
+		Require(legState.Left.Phase == AvatarLegStepPhase::Idle, "leg started stepping before the threshold was exceeded");
+		vec3 stillPlanted = SolvedPosition(rig, transforms, AvatarJointRole::LeftFoot);
+		Require(NearlyEqual(stillPlanted, plantedFoot, 0.01f), "a sub-threshold pelvis move dragged the planted foot instead of leaving it in place");
+
+		// Now move far enough (35 units, past the 22.5 threshold) to force a step.
+		const float bigForwardMove = 35.0f;
+		input.Head = MakeTarget(vec3(0.0f, 65.0f, -bigForwardMove));
+		input.LeftFootGround = MakeGroundProbe(vec3(-15.0f, groundY, -bigForwardMove));
+		input.RightFootGround = MakeGroundProbe(vec3(15.0f, groundY, -bigForwardMove));
+		AvatarIKSolver::SolveWithLegs(rig, input, options, 0.05f, legState, transforms);
+		Require(legState.Left.Phase == AvatarLegStepPhase::SteppingForward, "leg did not start a forward step once the threshold was exceeded");
+
+		// Keep advancing the same step (same target) until it completes -
+		// the foot must reach the new target and stop, not stretch forever.
+		vec3 expectedFinalFoot(-15.0f, groundY, -bigForwardMove);
+		for (int i = 0; i < 20 && legState.Left.Phase != AvatarLegStepPhase::Idle; i++)
+			AvatarIKSolver::SolveWithLegs(rig, input, options, 0.05f, legState, transforms);
+
+		Require(legState.Left.Phase == AvatarLegStepPhase::Idle, "step never completed (foot stretching indefinitely instead of stepping)");
+		vec3 finalFoot = SolvedPosition(rig, transforms, AvatarJointRole::LeftFoot);
+		std::cout << "  foot position after completed step: (" << finalFoot.x << ", " << finalFoot.y << ", " << finalFoot.z << ")\n";
+		Require(NearlyEqual(finalFoot, expectedFinalFoot, 0.05f), "completed step did not land the foot at the new planted target");
+
+		vec3 knee = SolvedPosition(rig, transforms, AvatarJointRole::LeftCalf);
+		vec3 hip = SolvedPosition(rig, transforms, AvatarJointRole::LeftThigh);
+		Require(NearlyEqual(length(knee - hip), 25.0f, 0.01f), "thigh length drifted during a step");
+		Require(NearlyEqual(length(finalFoot - knee), 25.0f, 0.01f), "calf length drifted during a step");
+	}
+
+	void TestAirborneBlendsAwayFromStaleGroundContact()
+	{
+		AvatarRig rig = BuildTestRig();
+		AvatarIKOptions options;
+		AvatarLegIKState legState;
+		Array<AvatarJointTransform> transforms;
+
+		const float groundY = -60.0f;
+		AvatarIKInput input;
+		input.Head = MakeTarget(vec3(0.0f, 65.0f, 0.0f));
+		input.Grounded = true;
+		input.LeftFootGround = MakeGroundProbe(vec3(-15.0f, groundY, 0.0f));
+		input.RightFootGround = MakeGroundProbe(vec3(15.0f, groundY, 0.0f));
+
+		AvatarIKSolver::SolveWithLegs(rig, input, options, 1.0f, legState, transforms);
+		vec3 groundedFoot = SolvedPosition(rig, transforms, AvatarJointRole::LeftFoot);
+		Require(std::abs(groundedFoot.y - groundY) < 0.05f, "setup failed: foot was not grounded before the airborne test began");
+
+		// Go airborne (falling/jumping) - the probe may still nominally hit
+		// the same ground, but Grounded=false must be respected regardless
+		// (plan doc M3: "ground probes are meaningless there").
+		input.Grounded = false;
+		AvatarIKSolver::SolveWithLegs(rig, input, options, 0.05f, legState, transforms);
+		vec3 justAirborneFoot = SolvedPosition(rig, transforms, AvatarJointRole::LeftFoot);
+		// One small time step should not snap all the way to neutral (this
+		// is a blend, not an instant cut) but must have started moving.
+		Require(length(justAirborneFoot - groundedFoot) > 0.01f, "airborne transition did not blend at all (looks like a snap, not a blend)");
+
+		vec3 hip = SolvedPosition(rig, transforms, AvatarJointRole::LeftThigh);
+		float legLength = 50.0f;
+		Require(length(justAirborneFoot - hip) <= legLength + 0.5f, "airborne foot exceeded the leg's own measured reach");
+
+		// After enough airborne time the foot must settle at the neutral
+		// hang pose, not hold the stale ground contact.
+		for (int i = 0; i < 20; i++)
+			AvatarIKSolver::SolveWithLegs(rig, input, options, 0.1f, legState, transforms);
+
+		vec3 settledFoot = SolvedPosition(rig, transforms, AvatarJointRole::LeftFoot);
+		vec3 expectedNeutral = hip - vec3(0.0f, 1.0f, 0.0f) * (legLength * 0.95f);
+		std::cout << "  settled airborne foot position: (" << settledFoot.x << ", " << settledFoot.y << ", " << settledFoot.z << ")\n";
+		Require(NearlyEqual(settledFoot, expectedNeutral, 0.05f), "airborne leg never settled at the neutral hang pose");
+		Require(std::abs(settledFoot.y - groundY) > 1.0f, "airborne foot stayed suspiciously close to the stale ground contact");
+	}
+
+	void TestMissingLegRoleDegradesGracefully()
+	{
+		AvatarRig rig = BuildTestRig(/*includeRightArm=*/true, /*includeRightLeg=*/false);
+		AvatarIKInput input;
+		input.Head = MakeTarget(vec3(3.0f, 68.0f, 0.0f));
+		input.Grounded = true;
+		input.LeftFootGround = MakeGroundProbe(vec3(-15.0f, -60.0f, 0.0f));
+		input.RightFootGround = MakeGroundProbe(vec3(999.0f, 999.0f, 999.0f)); // no right-leg roles to receive this
+		AvatarIKOptions options;
+		AvatarLegIKState legState;
+		Array<AvatarJointTransform> transforms;
+		AvatarIKSolver::SolveWithLegs(rig, input, options, 1.0f, legState, transforms);
+
+		Require(transforms.size() == rig.Joints.size(), "output size did not match a rig missing a leg's roles");
+		for (size_t i = 0; i < transforms.size(); i++)
+		{
+			Require(IsFinite(transforms[i].Translation) && IsFinite(transforms[i].Rotation),
+				"a rig missing a leg's roles produced a non-finite transform");
+		}
+
+		vec3 solvedLeft = SolvedPosition(rig, transforms, AvatarJointRole::LeftFoot);
+		Require(std::abs(solvedLeft.y - (-60.0f)) < 0.5f, "the present leg should still ground normally when the other side is missing its roles");
+	}
+
 	void TestPelvisYawFollowsHeadOnItsOwnBindAxes()
 	{
 		// This rig's own bind-pose "forward" is (0,0,-1) (see BuildTestRig
@@ -283,6 +481,11 @@ int main()
 		TestElbowStaysOnAnatomicalSide();
 		TestMissingArmRoleDegradesGracefully();
 		TestPelvisYawFollowsHeadOnItsOwnBindAxes();
+		TestNoGroundProbeBlendsToNeutralHangPose();
+		TestGroundedFootMatchesProbedHeight();
+		TestStepMachineAdvancesFootOnceThresholdExceeded();
+		TestAirborneBlendsAwayFromStaleGroundContact();
+		TestMissingLegRoleDegradesGracefully();
 		std::cout << "Avatar IK solver tests passed\n";
 		return 0;
 	}

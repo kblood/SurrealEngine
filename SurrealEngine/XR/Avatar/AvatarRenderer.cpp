@@ -15,6 +15,8 @@
 #include "Render/RenderSubsystem.h"
 #include "RenderDevice/RenderDevice.h"
 #include "Utils/Logger.h"
+#include "Collision/TopLevel/CollisionSystem.h"
+#include "Collision/TopLevel/CollisionHit.h"
 
 #include <cmath>
 #include <sstream>
@@ -467,11 +469,23 @@ namespace
 		return -1;
 	}
 
+	const char* LegStepPhaseName(AvatarLegStepPhase phase)
+	{
+		switch (phase)
+		{
+		case AvatarLegStepPhase::Idle: return "idle";
+		case AvatarLegStepPhase::SteppingForward: return "steppingForward";
+		case AvatarLegStepPhase::SteppingBack: return "steppingBack";
+		default: return "unknown";
+		}
+	}
+
 	// Rate-limited so a live run logs a handful of readable samples instead of
 	// one line per frame. Mesh-local space, matching AvatarIKSolver's inputs -
 	// see AvatarIKSolverTests for the same joints checked against a synthetic
 	// rig; this is that solver run against real player mesh data instead.
-	void LogSolvedJointsPeriodically(const AvatarRig& rig, const AvatarIKInput& ikInput, const Array<AvatarJointTransform>& jointTransforms)
+	void LogSolvedJointsPeriodically(const AvatarRig& rig, const AvatarIKInput& ikInput, const Array<AvatarJointTransform>& jointTransforms,
+		const AvatarLegIKState& legState)
 	{
 		static int frameCounter = 0;
 		frameCounter++;
@@ -482,6 +496,8 @@ namespace
 		int leftHandIdx = FindJointIndex(rig, AvatarJointRole::LeftHand);
 		int rightHandIdx = FindJointIndex(rig, AvatarJointRole::RightHand);
 		int leftForearmIdx = FindJointIndex(rig, AvatarJointRole::LeftForearm);
+		int leftFootIdx = FindJointIndex(rig, AvatarJointRole::LeftFoot);
+		int rightFootIdx = FindJointIndex(rig, AvatarJointRole::RightFoot);
 
 		std::ostringstream out;
 		out << "AvatarIK: frame " << frameCounter << " mesh=" << rig.MeshIdentity;
@@ -507,12 +523,67 @@ namespace
 			vec3 elbowPos = rig.Joints[leftForearmIdx].BindOrigin + jointTransforms[leftForearmIdx].Translation;
 			out << " leftElbow=(" << elbowPos.x << "," << elbowPos.y << "," << elbowPos.z << ")";
 		}
+		out << " grounded=" << (ikInput.Grounded ? "1" : "0");
+		if (leftFootIdx >= 0)
+		{
+			vec3 footPos = rig.Joints[leftFootIdx].BindOrigin + jointTransforms[leftFootIdx].Translation;
+			out << " leftFoot=(" << footPos.x << "," << footPos.y << "," << footPos.z << ")"
+				<< " leftFootGroundValid=" << (ikInput.LeftFootGround.Valid ? "1" : "0")
+				<< " leftFootGroundY=" << ikInput.LeftFootGround.GroundPoint.z
+				<< " leftPhase=" << LegStepPhaseName(legState.Left.Phase)
+				<< " leftBlend=" << legState.Left.GroundedBlend;
+		}
+		if (rightFootIdx >= 0)
+		{
+			vec3 footPos = rig.Joints[rightFootIdx].BindOrigin + jointTransforms[rightFootIdx].Translation;
+			out << " rightFoot=(" << footPos.x << "," << footPos.y << "," << footPos.z << ")"
+				<< " rightFootGroundValid=" << (ikInput.RightFootGround.Valid ? "1" : "0")
+				<< " rightFootGroundY=" << ikInput.RightFootGround.GroundPoint.z
+				<< " rightPhase=" << LegStepPhaseName(legState.Right.Phase)
+				<< " rightBlend=" << legState.Right.GroundedBlend;
+		}
 		LogDiagnostic(out.str());
 	}
 }
 
+namespace
+{
+	// M3: straight-down ground probe for one foot, from its live hip position
+	// (already solved for pelvis motion) down through this leg's own measured
+	// length plus a safety margin - see AvatarIKSolver::EstimateLegRoots and
+	// UActor::Trace (UObject/UActor.cpp) for the same TraceFirstHit calling
+	// convention this mirrors. A small fixed extents is used (this is a
+	// foot-sized point probe, not a full pawn-sized sweep) - unlike the step
+	// threshold, probe reach is sized off the leg's own measured length, not
+	// hardcoded, so it scales with the mesh being probed.
+	void ProbeFootGround(UActor* actor, const mat4& meshToWorld, const mat3& meshToWorldLinear, const mat3& worldToMeshLinear,
+		const vec3& meshOriginWorld, const vec3& upMeshLocal, bool valid, const vec3& hipMeshLocal, float legLength,
+		AvatarLegGroundProbe& outProbe)
+	{
+		if (!valid || !actor->XLevel())
+			return;
+
+		vec3 upWorld = normalize(meshToWorldLinear * upMeshLocal);
+		vec3 hipWorld = (meshToWorld * vec4(hipMeshLocal, 1.0f)).xyz();
+		float probeDistance = std::max(legLength, 1.0f) * 2.0f;
+		vec3 probeFrom = hipWorld;
+		vec3 probeTo = hipWorld - upWorld * probeDistance;
+
+		TraceFlags flags;
+		flags.world = true;
+		vec3 extents(1.0f, 1.0f, 1.0f);
+		CollisionHit hit = actor->XLevel()->Collision.TraceFirstHit(probeFrom, probeTo, actor, extents, flags);
+		if (!hit.Actor)
+			return; // no ground within probe range - leave outProbe.Valid false
+
+		vec3 hitWorld = probeFrom + (probeTo - probeFrom) * hit.Fraction;
+		outProbe.Valid = true;
+		outProbe.GroundPoint = worldToMeshLinear * (hitWorld - meshOriginWorld);
+	}
+}
+
 bool AvatarRenderer::DrawActorWithIK(VisibleFrame* frame, UActor* actor, const vec3& worldOffset,
-	const AvatarIKFrameInput& engineInput, const AvatarIKOptions& options)
+	const AvatarIKFrameInput& engineInput, const AvatarIKOptions& options, float deltaTimeSeconds)
 {
 	if (!frame || !actor)
 		return false;
@@ -526,15 +597,48 @@ bool AvatarRenderer::DrawActorWithIK(VisibleFrame* frame, UActor* actor, const v
 		return false;
 
 	AvatarIKInput ikInput = BuildIKInput(actor, mesh, engineInput);
+
+	// M3: overall locomotion state - legs blend to a neutral hanging pose
+	// instead of ground-probing while airborne/falling/swimming/flying (see
+	// EPhysics in UObject/UActor.h; this branch has not yet ported vr-m2's
+	// controller-aim swim/crouch work, so Physics() is the real, already-
+	// existing signal to read here).
+	uint8_t physics = actor->Physics();
+	ikInput.Grounded = physics != PHYS_Falling && physics != PHYS_Swimming && physics != PHYS_Flying
+		&& !engineInput.SyntheticAirborne;
+
+	mat4 objectToWorld = mat4::translate(actor->Location() + actor->PrePivot()) * Coords::Rotation(actor->Rotation()).ToMatrix() * mat4::scale(actor->DrawScale());
+	mat4 meshToWorld = objectToWorld * mesh->meshToObject;
+	mat3 meshToWorldLinear(meshToWorld);
+	mat3 worldToMeshLinear = mat3::inverse(meshToWorldLinear);
+	vec3 meshOriginWorld = (meshToWorld * vec4(0.0f, 0.0f, 0.0f, 1.0f)).xyz();
+
+	AvatarLegRootEstimate legRoots = AvatarIKSolver::EstimateLegRoots(rig, ikInput, options);
+	if (legRoots.PelvisDriven)
+	{
+		ProbeFootGround(actor, meshToWorld, meshToWorldLinear, worldToMeshLinear, meshOriginWorld,
+			legRoots.Up, legRoots.LeftValid, legRoots.LeftHipMeshLocal, legRoots.LeftLegLength, ikInput.LeftFootGround);
+		ProbeFootGround(actor, meshToWorld, meshToWorldLinear, worldToMeshLinear, meshOriginWorld,
+			legRoots.Up, legRoots.RightValid, legRoots.RightHipMeshLocal, legRoots.RightLegLength, ikInput.RightFootGround);
+	}
+
+	// Persists across frames (planted foot position, step phase, grounded
+	// blend) for whichever single avatar is being drawn - only the local
+	// player's own avatar is ever drawn (see plan doc non-goals), so one
+	// static instance is sufficient; a large horizontal jump (map travel,
+	// respawn) is treated as a teleport snap rather than an animated step -
+	// see AvatarIKSolver.cpp's teleportThreshold.
+	static AvatarLegIKState legState;
+
 	Array<AvatarJointTransform> jointTransforms;
-	AvatarIKSolver::Solve(rig, ikInput, options, jointTransforms);
+	AvatarIKSolver::SolveWithLegs(rig, ikInput, options, deltaTimeSeconds, legState, jointTransforms);
 
 	Array<vec3> skinnedPositions, skinnedNormals;
 	AvatarSkinner::Skin(rig, &jointTransforms, skinnedPositions, skinnedNormals);
 	if ((int)skinnedPositions.size() != rig.FrameVerts)
 		return false;
 
-	LogSolvedJointsPeriodically(rig, ikInput, jointTransforms);
+	LogSolvedJointsPeriodically(rig, ikInput, jointTransforms, legState);
 
 	DrawSkinnedMesh(frame, actor, mesh, skinnedPositions, skinnedNormals, worldOffset);
 	return true;
@@ -552,8 +656,16 @@ AvatarIKFrameInput AvatarRenderer::BuildSyntheticFrameInput(const vec3& cameraLo
 
 	const float headBob = 6.0f;
 	vec3 headOffset(std::cos(timeSeconds * 0.5f) * headBob, std::sin(timeSeconds * 0.5f) * headBob, 0.0f);
+
+	// A slower, larger horizontal sway on top of the head bob so this same
+	// synthetic path can also exercise the M3 leg step state machine without
+	// a real headset - the bob above is far tighter than any rig's measured
+	// step-distance threshold and would never move a foot.
+	const float walkAmplitude = 300.0f;
+	vec3 walkOffset(std::sin(timeSeconds * 0.8f) * walkAmplitude, 0.0f, 0.0f);
+
 	input.Head.Valid = true;
-	input.Head.Position = cameraLocation + headOffset;
+	input.Head.Position = cameraLocation + headOffset + walkOffset;
 
 	const float reach = 40.0f + std::sin(timeSeconds * 0.75f) * 20.0f;
 	input.LeftHandGrip.Valid = true;
@@ -561,6 +673,12 @@ AvatarIKFrameInput AvatarRenderer::BuildSyntheticFrameInput(const vec3& cameraLo
 
 	input.RightHandGrip.Valid = true;
 	input.RightHandGrip.Position = cameraLocation + vec3(reach, 25.0f, -10.0f);
+
+	// Periodically simulate an airborne spell (jump/fall) so this same debug
+	// path can also demonstrate the leg IK's neutral-hang blend without
+	// needing a real jump; brief relative to the grounded stretches so the
+	// step machine above still gets plenty of grounded time to react to.
+	input.SyntheticAirborne = std::fmod(timeSeconds, 8.0f) > 6.5f;
 
 	return input;
 }
