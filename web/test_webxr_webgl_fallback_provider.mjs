@@ -62,9 +62,10 @@ globalThis.SurrealWebXRWebGLBridge = {
 			0.5 * (result[column * 4 + 2] + result[column * 4 + 3]);
 		return result;
 	},
-	async create({ session, canvas, device: suppliedDevice }) {
+	async create({ session, canvas, device: suppliedDevice, blockingTiming }) {
 		assert.ok(sessions.includes(session)); assert.equal(canvas, globalThis.Module.canvas);
 		assert.equal(suppliedDevice, device);
+		assert.equal(blockingTiming, true);
 		let bridgeFrames = 0;
 		return {
 			textureFormat: "bgra8unorm",
@@ -76,7 +77,7 @@ globalThis.SurrealWebXRWebGLBridge = {
 			},
 			diagnostics: () => ({ frames: bridgeFrames, errors: 0, samples: bridgeFrames ? 120 : 0,
 				medianMs: bridgeFrames ? 0.5 : null, p95Ms: bridgeFrames ? 0.8 : null,
-				p99Ms: bridgeFrames ? 1.1 : null, blockingTiming: false,
+				p99Ms: bridgeFrames ? 1.1 : null, blockingTiming: true,
 				layerWidth: 1832, layerHeight: 1920,
 				atlasWidth: bridgeFrames ? 1600 : 0, atlasHeight: bridgeFrames ? 700 : 0,
 				privatePath: "C:\\Private\\Game\\System\\Core.u" }),
@@ -112,10 +113,14 @@ Object.defineProperty(globalThis, "navigator", { configurable: true, value: { xr
 } } });
 
 await import("./webxr_provider.js");
+assert.equal(globalThis.surrealXRSetPresentationPreference("webgl-bridge"), "webgl-bridge");
+assert.throws(() => globalThis.surrealXRSetBridgeBlockingTiming("yes"), TypeError);
+assert.equal(globalThis.surrealXRSetBridgeBlockingTiming(true), true);
 const capabilities = await globalThis.surrealXRGetCapabilities();
 assert.equal(capabilities.supported, true);
 assert.equal(capabilities.directWebGPU, false);
 assert.equal(capabilities.webGLBridge, true);
+assert.equal(capabilities.presentationPreference, "webgl-bridge");
 assert.equal(capabilities.preferredMode, "webgl-bridge");
 assert.equal(await globalThis.surrealXREnter(), true);
 assert.equal(requestOptions.requiredFeatures, undefined);
@@ -184,10 +189,12 @@ assert.ok(presentations.every(texture => texture === atlasTextures[0]),
 assert.ok(!presentations.includes(atlasTextures[1]), "the incomplete back atlas must never be presented");
 
 assert.equal(globalThis.surrealXRGetState().presentationMode, "webgl-bridge");
+assert.equal(globalThis.surrealXRGetState().presentationPreference, "webgl-bridge");
 const bridgeState = globalThis.surrealXRGetState();
 assert.equal(bridgeState.bridgeDiagnostics.errors, 0);
 assert.equal(bridgeState.bridgeDiagnostics.samples, 120);
 assert.equal(bridgeState.bridgeDiagnostics.p99Ms, 1.1);
+assert.equal(bridgeState.bridgeDiagnostics.blockingTiming, true);
 assert.equal(bridgeState.bridgeDiagnostics.layerWidth, 1832);
 assert.equal(bridgeState.bridgeDiagnostics.atlasWidth, 1600);
 assert.equal(bridgeState.layerWidth, 1832);

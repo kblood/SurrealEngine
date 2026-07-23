@@ -83,6 +83,11 @@ try {
 	assert.match(index, /browser may call folder selection an .upload./i);
 	assert.match(index, /data-pointer-lock-control/);
 	assert.match(index, /data-pointer-lock-capture/);
+	assert.match(index, /data-launcher-webxr-backend/);
+	assert.match(index, />Automatic</);
+	assert.match(index, />Force WebGL compatibility bridge</);
+	assert.match(index, /data-launcher-webxr-bridge-blocking-timing/);
+	assert.match(index, /Temporary QA: blocking bridge timing \(slower\)/);
 	assert.match(index, /Press Escape to release it and send Escape to the game/);
 	assert.doesNotMatch(index, /Folder upload fallback/);
 	assert.ok(index.indexOf('id="game-data-importer"') < index.indexOf('id="browser-status"'),

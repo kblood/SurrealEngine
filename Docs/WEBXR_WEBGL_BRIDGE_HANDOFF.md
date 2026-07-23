@@ -40,11 +40,15 @@ nonnegative samples. The raw bounded window remains inside the bridge closure;
 only its numeric summaries are copied into provider state and the privacy-safe
 headset report.
 
-Normal timings measure CPU submission only. Set
-`window.surrealXRBridgeBlockingTiming = true` for a short QA run that includes
-`gl.finish()` synchronization. Do not ship with that switch enabled.
-`window.surrealXRForceWebGLBridge = true` forces the compatibility path on a
-browser which also exposes direct binding support.
+Normal timings measure CPU submission only. For a short synchronized QA run,
+select **Force WebGL compatibility bridge** and enable **Temporary QA: blocking
+bridge timing (slower)** before pressing **Play**. That validated launch option
+adds `gl.finish()` synchronization. It is off by default, is suppressed outside
+forced bridge mode, and is never persisted enabled. The launcher configures
+the provider through `surrealXRSetPresentationPreference()` and
+`surrealXRSetBridgeBlockingTiming()` before session reservation. The former
+`surrealXRForceWebGLBridge` and `surrealXRBridgeBlockingTiming` globals remain
+compatibility fallbacks for old standalone harnesses, not release evidence.
 
 ## Automated evidence
 

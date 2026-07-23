@@ -29,6 +29,10 @@
 		return value === "direct-webgpu" || value === "webgl-bridge" ? value : UNKNOWN;
 	}
 
+	function knownPresentationPreference(value) {
+		return value === "auto" || value === "webgl-bridge" ? value : UNKNOWN;
+	}
+
 	function dimensions(width, height) {
 		return width === UNKNOWN || height === UNKNOWN ? UNKNOWN : width + "x" + height;
 	}
@@ -52,6 +56,7 @@
 			projectionFormat: token(source.projectionFormat),
 			referenceSpaceType: token(source.referenceSpaceType),
 			presentationMode: knownPresentationMode(source.presentationMode),
+			presentationPreference: knownPresentationPreference(source.presentationPreference),
 			layerWidth: dimension(source.layerWidth ?? bridge.layerWidth),
 			layerHeight: dimension(source.layerHeight ?? bridge.layerHeight),
 			atlasWidth: dimension(source.atlasWidth ?? bridge.atlasWidth),
@@ -98,6 +103,7 @@
 			"reentries: " + state.reentries,
 			"transitions: " + (state.transitions.join(",") || "none"),
 			"presentation_mode: " + state.presentationMode,
+			"presentation_preference: " + state.presentationPreference,
 			"layer_width: " + state.layerWidth,
 			"layer_height: " + state.layerHeight,
 			"atlas_width: " + state.atlasWidth,
@@ -181,6 +187,7 @@
 				projection: state.projectionFormat,
 				reference: state.referenceSpaceType,
 				mode: state.presentationMode,
+				preference: state.presentationPreference,
 				dimensions: dimensions(state.layerWidth, state.layerHeight) + " layer, " +
 					dimensions(state.atlasWidth, state.atlasHeight) + " atlas",
 				bridge: state.bridgeSamples + " samples, median " + state.bridgeMedianMs +

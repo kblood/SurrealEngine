@@ -26,6 +26,8 @@
 	let projectionLayer = null;
 	let webGLBridge = null;
 	let presentationMode = null;
+	let configuredPresentationPreference = null;
+	let configuredBridgeBlockingTiming = null;
 	let resetGeneration = 0;
 	let animationFrameHandle = null;
 	let engineLoopOwned = false;
@@ -56,6 +58,8 @@
 		lastErrorStage: null,
 		referenceSpaceType: null,
 		projectionFormat: null,
+		presentationPreference: "auto",
+		bridgeBlockingTimingRequested: false,
 		presentationMode: null,
 		layerWidth: null,
 		layerHeight: null,
@@ -131,6 +135,21 @@
 
 	function providerError(code, stage, message) {
 		return new WebXRProviderError(code, stage, message);
+	}
+
+	function presentationPreference() {
+		if (configuredPresentationPreference) return configuredPresentationPreference;
+		return root.surrealXRForceWebGLBridge === true ? "webgl-bridge" : "auto";
+	}
+
+	function selectPresentationMode(preference, directAvailable, bridgeAvailable) {
+		if (preference === "webgl-bridge") return bridgeAvailable ? "webgl-bridge" : null;
+		return directAvailable ? "direct-webgpu" : (bridgeAvailable ? "webgl-bridge" : null);
+	}
+
+	function bridgeBlockingTimingPreference() {
+		if (configuredBridgeBlockingTiming !== null) return configuredBridgeBlockingTiming;
+		return root.surrealXRBridgeBlockingTiming === true;
 	}
 
 	function log(message) {
@@ -860,6 +879,7 @@
 	}
 
 	root.surrealXRGetCapabilities = async function () {
+		const preference = presentationPreference();
 		const hasCurrentBinding = typeof root.XRGPUBinding === "function";
 		const hasLegacyBinding = typeof root.XRWebGPUBinding === "function";
 		const result = {
@@ -874,6 +894,7 @@
 			webGPUDeviceXRCompatible: root.surrealWebGPUDeviceXRCompatible === true,
 			directWebGPU: false,
 			webGLBridge: false,
+			presentationPreference: preference,
 			preferredMode: null,
 			supported: false,
 			reasons: [],
@@ -892,8 +913,9 @@
 			root.SurrealWebXRWebGLBridge && root.SurrealWebXRWebGLBridge.canCreateWebGL2(root));
 		if (result.webGPUDevice && !result.webGPUDeviceXRCompatible && !result.webGLBridge)
 			result.reasons.push("webgpu-device-not-xr-compatible");
-		result.preferredMode = root.surrealXRForceWebGLBridge === true && result.webGLBridge ? "webgl-bridge" :
-			(result.directWebGPU ? "direct-webgpu" : (result.webGLBridge ? "webgl-bridge" : null));
+		result.preferredMode = selectPresentationMode(preference, result.directWebGPU, result.webGLBridge);
+		if (preference === "webgl-bridge" && !result.webGLBridge)
+			result.reasons.push("webgl-bridge-unavailable");
 		if (!result.directWebGPU && !result.webGLBridge)
 			result.reasons.push(hasLegacyBinding ? "obsolete-webgpu-binding-api" : "no-webxr-presentation-backend");
 		result.supported = result.secureContext && result.webXR && result.immersiveVR &&
@@ -904,6 +926,28 @@
 
 	root.surrealXRIsSupported = async function () {
 		return (await root.surrealXRGetCapabilities()).supported;
+	};
+
+	root.surrealXRSetPresentationPreference = function (value) {
+		if (value !== "auto" && value !== "webgl-bridge")
+			throw new TypeError("WebXR presentation preference must be 'auto' or 'webgl-bridge'");
+		if (session || enterPending || activationPending)
+			throw providerError("presentation-preference-active", "preflight",
+				"WebXR presentation preference cannot change while a session is active or pending");
+		configuredPresentationPreference = value;
+		status.presentationPreference = value;
+		return value;
+	};
+
+	root.surrealXRSetBridgeBlockingTiming = function (enabled) {
+		if (enabled !== true && enabled !== false)
+			throw new TypeError("WebXR bridge blocking timing must be a boolean");
+		if (session || enterPending || activationPending)
+			throw providerError("bridge-timing-active", "preflight",
+				"WebXR bridge timing cannot change while a session is active or pending");
+		configuredBridgeBlockingTiming = enabled;
+		status.bridgeBlockingTimingRequested = enabled;
+		return enabled;
 	};
 
 	root.surrealXRIsColorFormatSupported = function (format) {
@@ -985,17 +1029,24 @@
 		else if (!webGPUDevice())
 			preflightError = providerError("webgpu-device-not-ready", "preflight",
 				"SurrealEngine WebGPU device is not ready");
+		const preference = presentationPreference();
+		status.presentationPreference = preference;
+		status.bridgeBlockingTimingRequested = bridgeBlockingTimingPreference();
 		const bridgeAvailable = typeof root.XRWebGLLayer === "function" && root.SurrealWebXRWebGLBridge &&
 			root.SurrealWebXRWebGLBridge.canCreateWebGL2(root);
 		const directAvailable = typeof root.XRGPUBinding === "function" &&
 			root.surrealWebGPUDeviceXRCompatible === true;
-		presentationMode = root.surrealXRForceWebGLBridge === true && bridgeAvailable ? "webgl-bridge" :
-			(directAvailable ? "direct-webgpu" : (bridgeAvailable ? "webgl-bridge" : null));
+		presentationMode = selectPresentationMode(preference, directAvailable, bridgeAvailable);
 		if (!preflightError && !presentationMode) {
-			const missingBinding = typeof root.XRGPUBinding !== "function";
-			preflightError = providerError(missingBinding ? "webxr-webgpu-binding-unavailable" :
-				"no-webxr-presentation-backend", "preflight",
-				"Neither direct WebGPU WebXR layers nor the XRWebGLLayer compatibility bridge is available");
+			if (preference === "webgl-bridge")
+				preflightError = providerError("webxr-webgl-bridge-unavailable", "preflight",
+					"WebGL compatibility bridge was requested but is unavailable");
+			else {
+				const missingBinding = typeof root.XRGPUBinding !== "function";
+				preflightError = providerError(missingBinding ? "webxr-webgpu-binding-unavailable" :
+					"no-webxr-presentation-backend", "preflight",
+					"Neither direct WebGPU WebXR layers nor the XRWebGLLayer compatibility bridge is available");
+			}
 		}
 		if (preflightError) {
 			status.phase = "error";
@@ -1098,7 +1149,8 @@
 				setStage("create-webgl-bridge");
 				try {
 					webGLBridge = await root.SurrealWebXRWebGLBridge.create({ root, session,
-						canvas: root.Module && root.Module.canvas, device: webGPUDevice() });
+						canvas: root.Module && root.Module.canvas, device: webGPUDevice(),
+						blockingTiming: status.bridgeBlockingTimingRequested });
 					status.projectionFormat = "rgba8unorm-webgl-bridge";
 					setBridgeDiagnostics(webGLBridge.diagnostics());
 				} catch (error) {
@@ -1180,6 +1232,7 @@
 
 	root.surrealXRGetState = function () {
 		const result = Object.assign({}, status);
+		result.presentationPreference = presentationPreference();
 		if (status.capabilities)
 			result.capabilities = Object.assign({}, status.capabilities,
 				{ reasons: status.capabilities.reasons.slice() });

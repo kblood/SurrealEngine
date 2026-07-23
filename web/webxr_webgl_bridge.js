@@ -56,6 +56,8 @@
 
 	async function create(options) {
 		const host = options.root || root;
+		const blockingTiming = options.blockingTiming === true ||
+			(options.blockingTiming === undefined && host.surrealXRBridgeBlockingTiming === true);
 		const session = options.session;
 		const sourceCanvas = options.canvas;
 		const device = options.device;
@@ -158,7 +160,7 @@
 						(source.x + source.width) / frame.width, (source.y + source.height) / frame.height);
 					gl.drawArrays(gl.TRIANGLES, 0, 3);
 				});
-				if (host.surrealXRBridgeBlockingTiming === true) gl.finish();
+				if (blockingTiming) gl.finish();
 				const error = gl.getError();
 				if (error !== gl.NO_ERROR) throw new Error("WebGL bridge error " + error);
 				frames++;
@@ -171,7 +173,7 @@
 
 		function diagnostics() {
 			return Object.freeze(Object.assign({ frames, errors,
-				blockingTiming: host.surrealXRBridgeBlockingTiming === true,
+				blockingTiming,
 				layerWidth, layerHeight, atlasWidth: allocatedWidth, atlasHeight: allocatedHeight },
 				timings.summary()));
 		}

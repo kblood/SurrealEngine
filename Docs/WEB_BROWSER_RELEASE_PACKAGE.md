@@ -315,8 +315,8 @@ Run the applicable path or paths:
    unsupported; do not silently switch to SteamVR or count that as a provider
    rendering failure.
 
-Start with automatic mode selection. If the experimental site exposes a
-**Force WebGL bridge** control, repeat with it enabled before entry. Do not use
+Start with **Automatic** under **WebXR backend**. Then repeat with **Force WebGL
+compatibility bridge** selected before pressing **Play**. Do not use
 developer-console overrides as release evidence. Copy a report after at least
 30 seconds of running presentation for every mode that actually starts.
 
@@ -335,13 +335,16 @@ The running report should satisfy the following criteria:
 | frame/input counters | increase while moving the head and controllers | increase while moving the head and controllers |
 | bridge counters | not applicable | `bridge_frames` and `bridge_samples` increase; `bridge_errors: 0` |
 
-For bridge timing, leave the session running until `bridge_samples` reaches
-120. Compare percentiles with the release thresholds only when
-`bridge_blocking_timing: yes`: p95 must be at most 4.0 ms and p99 at most
-5.5 ms. Also record the selected refresh rate separately and look for missed
-frames against the whole-frame budget: 13.89 ms at 72 Hz or 11.11 ms at
-90 Hz. Direct mode has no bridge timing values; `unknown` or zero bridge fields
-are expected there.
+For the short bridge timing qualification run, select **Force WebGL
+compatibility bridge**, enable **Temporary QA: blocking bridge timing
+(slower)**, and leave the session running until `bridge_samples` reaches 120.
+The checkbox is intentionally off by default and does not remain enabled after
+a reload or later launch. Compare percentiles with the release thresholds only
+when `bridge_blocking_timing: yes`: p95 must be at most 4.0 ms and p99 at most
+5.5 ms. Disable the QA option for normal behavior and thermal runs. Also record
+the selected refresh rate separately and look for missed frames against the
+whole-frame budget: 13.89 ms at 72 Hz or 11.11 ms at 90 Hz. Direct mode has no
+bridge timing values; `unknown` or zero bridge fields are expected there.
 
 Perform this behavior pass in each working mode:
 
@@ -387,7 +390,7 @@ device: quest-3
 os_runtime_version: <version>
 browser_version: <Quest Browser or Chrome version>
 refresh_rate_hz: <72 or 90>
-selection: automatic | forced-webgl-bridge
+selection: automatic | forced-webgl-bridge | forced-webgl-bridge-blocking-timing
 behavior_result: pass | fail:<short category, no paths or game-data names>
 ```
 
@@ -445,7 +448,8 @@ stable publication:
    generated report, then test direct `XRGPUBinding` where exposed and automatic
    plus forced `XRWebGLLayer` compatibility selection. For the direct mode,
    verify an XR-compatible adapter; for the bridge, record its timing counters
-   against the thresholds in `WEBXR_WEBGL_BRIDGE_HANDOFF.md`. Save the v2 report
+   against the thresholds in `WEBXR_WEBGL_BRIDGE_HANDOFF.md` using the visible,
+   temporary blocking-timing QA checkbox. Save the v2 report
    while each tested mode is running; it includes the mode, available dimensions,
    and bounded bridge summaries without requiring remote debugging.
 4. Verify the generated report reaches provider phase/stage `running`, records

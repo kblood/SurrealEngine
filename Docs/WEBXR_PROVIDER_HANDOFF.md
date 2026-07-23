@@ -34,6 +34,16 @@ platform. It provides:
 - a separate `web/index_webxr.html` harness. The existing flat
   `web/index_webgpu.html` remains unchanged and does not require WebXR.
 
+The packaged launcher exposes **Automatic** and **Force WebGL compatibility
+bridge** as persistent WebXR backend choices. It applies the immutable launch
+selection through `surrealXRSetPresentationPreference("auto" | "webgl-bridge")`
+before session reservation. The former `surrealXRForceWebGLBridge` global is
+only a compatibility fallback for older harnesses that never call the API.
+A separate default-off **Temporary QA: blocking bridge timing (slower)**
+checkbox is available only with forced bridge selection. The adapter applies
+it through `surrealXRSetBridgeBlockingTiming(boolean)` before reservation and
+the launcher never persists an enabled value.
+
 The low-level provider deliberately excludes game-specific policy, PWA
 packaging, game-data import, and persistence. Product integration composes it
 with the shared semantic XR input adapter and provider-neutral one-hand weapon

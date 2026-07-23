@@ -7,6 +7,8 @@
 	<form data-launcher-form>
 		<select data-launcher-map></select>
 		<select data-launcher-presentation></select>
+		<select data-launcher-webxr-backend disabled><option value="auto">Automatic</option><option value="webgl-bridge">Force WebGL compatibility bridge</option></select>
+		<input type="checkbox" data-launcher-webxr-bridge-blocking-timing disabled>
 		<select data-launcher-renderer><option value="webgpu">WebGPU</option><option value="null">Null</option></select>
 		<input type="checkbox" data-launcher-skip-intro checked>
 		<button type="submit">Play</button><p data-launcher-error hidden></p>
@@ -18,6 +20,7 @@
 	<span data-xr-diagnostics-frames></span><span data-xr-diagnostics-input></span>
 	<span data-xr-diagnostics-projection></span><span data-xr-diagnostics-reference></span>
 	<span data-xr-diagnostics-mode></span><span data-xr-diagnostics-dimensions></span>
+	<span data-xr-diagnostics-preference></span>
 	<span data-xr-diagnostics-bridge></span>
 	<span data-xr-diagnostics-lifecycle></span>
 	<button data-xr-diagnostics-copy></button><button data-xr-diagnostics-download></button>
@@ -127,7 +130,49 @@ window.browserAppTestPromise = (async () => {
 		const selection = await pending;
 		assert(selection.map === "DM-Two" && selection.presentationId === "flat" && prepared === 1);
 		assert(selection.skipIntro === true);
+		assert(!("webXRPresentationPreference" in selection), "flat selection gained WebXR-only state");
+		assert(document.querySelector("[data-launcher-webxr-backend]").disabled);
 		assert(document.getElementById("launcher").hidden);
+	});
+	await run("launcher persists an immutable WebXR backend choice only for immersive launches", async () => {
+		localStorage.clear();
+		let prepared = null;
+		const registry = new api.PresentationRegistry();
+		registry.register({ id: "flat", label: "Desktop" });
+		registry.register({ id: "webxr", label: "Immersive WebXR", prepareLaunch: async value => { prepared = value.selection; } });
+		const root = document.getElementById("launcher");
+		const controller = new api.LauncherController(root, registry);
+		const context = { game: SurrealGameImporter.GAME_DEFINITIONS.ut99,
+			mapManifest: { state: "ready", maps: ["DM-Deck16"] } };
+		const pending = controller.selectLaunch(context);
+		const presentation = root.querySelector("[data-launcher-presentation]");
+		const backend = root.querySelector("[data-launcher-webxr-backend]");
+		const blockingTiming = root.querySelector("[data-launcher-webxr-bridge-blocking-timing]");
+		presentation.value = "webxr";
+		presentation.dispatchEvent(new Event("change", { bubbles: true }));
+		assert(!backend.disabled && blockingTiming.disabled && !blockingTiming.checked);
+		backend.value = "webgl-bridge";
+		backend.dispatchEvent(new Event("change", { bubbles: true }));
+		assert(!blockingTiming.disabled);
+		blockingTiming.checked = true;
+		root.querySelector("[data-launcher-form]").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		const selection = await pending;
+		assert(Object.isFrozen(selection) && selection.webXRPresentationPreference === "webgl-bridge");
+		assert(selection.webXRBridgeBlockingTiming === true);
+		assert(prepared === selection);
+		const next = controller.selectLaunch(context);
+		assert(presentation.value === "webxr" && backend.value === "webgl-bridge" && !backend.disabled);
+		assert(!blockingTiming.checked && !blockingTiming.disabled, "blocking timing persisted enabled across launches");
+		blockingTiming.checked = true;
+		backend.value = "auto";
+		backend.dispatchEvent(new Event("change", { bubbles: true }));
+		assert(blockingTiming.disabled && !blockingTiming.checked, "automatic mode retained forced-bridge QA timing");
+		presentation.value = "flat";
+		presentation.dispatchEvent(new Event("change", { bubbles: true }));
+		assert(backend.disabled && blockingTiming.disabled && !blockingTiming.checked);
+		root.querySelector("[data-launcher-form]").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		const flat = await next;
+		assert(!("webXRPresentationPreference" in flat));
 	});
 	await run("launcher selects the game default map before the alphabetical manifest entry", async () => {
 		localStorage.clear();
@@ -303,7 +348,7 @@ window.browserAppTestPromise = (async () => {
 			phase: "running", currentStage: "running", lastError: "C:\\Private\\Game\\System\\Core.u",
 			lastErrorStage: "request-reference-space", frames: 23, skippedFrames: 2, inputPackets: 9,
 			projectionFormat: "rgba8unorm-webgl-bridge", referenceSpaceType: "local-floor",
-			presentationMode: "webgl-bridge", layerWidth: 1832, layerHeight: 1920,
+			presentationMode: "webgl-bridge", presentationPreference: "webgl-bridge", layerWidth: 1832, layerHeight: 1920,
 			atlasWidth: 1600, atlasHeight: 700,
 			bridgeDiagnostics: { frames: 23, errors: 0, samples: 120, medianMs: 0.51234,
 				p95Ms: 3.98765, p99Ms: 5.43219, blockingTiming: true,
@@ -325,11 +370,13 @@ window.browserAppTestPromise = (async () => {
 		assert(report.includes("capability_code: ready") && report.includes("frames: 23"));
 		assert(report.includes("reentries: 1") && report.includes("provider_error: present"));
 		assert(report.includes("presentation_mode: webgl-bridge"));
+		assert(report.includes("presentation_preference: webgl-bridge"));
 		assert(report.includes("layer_width: 1832") && report.includes("atlas_width: 1600"));
 		assert(report.includes("bridge_samples: 120") && report.includes("bridge_median_ms: 0.512"));
 		assert(report.includes("bridge_p95_ms: 3.988") && report.includes("bridge_p99_ms: 5.432"));
 		assert(report.includes("bridge_errors: 0") && report.includes("bridge_blocking_timing: yes"));
 		assert(document.querySelector("[data-xr-diagnostics-mode]").textContent === "webgl-bridge");
+		assert(document.querySelector("[data-xr-diagnostics-preference]").textContent === "webgl-bridge");
 		assert(!report.includes("Private") && !report.includes("Core.u") && !report.includes("C:\\"));
 		assert(!report.includes("private.invalid") && !report.includes("Owned UT99") &&
 			!report.includes("engine log") && !report.includes("Browser 1"));

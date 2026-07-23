@@ -199,8 +199,19 @@ function driveRightTriggerTransitions(session, count, startTime) {
 }
 
 await import("./webxr_provider.js");
+assert.throws(() => globalThis.surrealXRSetPresentationPreference("direct-webgpu"), TypeError);
+assert.equal(globalThis.surrealXRSetPresentationPreference("webgl-bridge"), "webgl-bridge");
+const forcedCapabilities = await globalThis.surrealXRGetCapabilities();
+assert.equal(forcedCapabilities.supported, false);
+assert.equal(forcedCapabilities.preferredMode, null);
+assert.ok(forcedCapabilities.reasons.includes("webgl-bridge-unavailable"));
+assert.equal(await globalThis.surrealXRRequestSession(), false);
+assert.equal(globalThis.surrealXRGetState().lastErrorCode, "webxr-webgl-bridge-unavailable");
+assert.equal(globalThis.surrealXRSetPresentationPreference("auto"), "auto");
 const capabilities = await globalThis.surrealXRGetCapabilities();
 assert.equal(capabilities.supported, true);
+assert.equal(capabilities.presentationPreference, "auto");
+assert.equal(capabilities.preferredMode, "direct-webgpu");
 assert.equal(globalThis.surrealXRFrameABI.version, 3);
 
 // Reservation stays native-free until startup has returned and activation is explicit.

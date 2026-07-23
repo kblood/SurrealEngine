@@ -12,7 +12,7 @@ const report = diagnostics.formatReport({
 	phase: "running", currentStage: "running", lastError: "C:\\Private\\Core.u",
 	lastErrorStage: "frame", frames: 321, skippedFrames: 2, inputPackets: 44,
 	projectionFormat: "rgba8unorm-webgl-bridge", referenceSpaceType: "local-floor",
-	presentationMode: "webgl-bridge", layerWidth: 1832, layerHeight: 1920,
+	presentationMode: "webgl-bridge", presentationPreference: "webgl-bridge", layerWidth: 1832, layerHeight: 1920,
 	atlasWidth: 1600, atlasHeight: 700,
 	bridgeDiagnostics: { frames: 320, errors: 1, samples: 120, medianMs: 0.12349,
 		p95Ms: 3.9996, p99Ms: 5.4996, blockingTiming: true,
@@ -26,6 +26,7 @@ const report = diagnostics.formatReport({
 assert.match(report, /^SurrealEngine WebXR headset report\nschema: surrealengine-webxr-headset-report-v2\n/);
 assert.match(report, /\nframes: 321\n/);
 assert.match(report, /\npresentation_mode: webgl-bridge\n/);
+assert.match(report, /\npresentation_preference: webgl-bridge\n/);
 assert.match(report, /\nlayer_width: 1832\nlayer_height: 1920\natlas_width: 1600\natlas_height: 700\n/);
 assert.match(report, /\nbridge_frames: 320\nbridge_errors: 1\nbridge_samples: 120\n/);
 assert.match(report, /\nbridge_median_ms: 0\.123\nbridge_p95_ms: 4\nbridge_p99_ms: 5\.5\n/);

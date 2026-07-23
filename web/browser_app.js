@@ -328,6 +328,8 @@
 			this.pending = null;
 			this.map = root && root.querySelector("[data-launcher-map]");
 			this.presentation = root && root.querySelector("[data-launcher-presentation]");
+			this.webXRBackend = root && root.querySelector("[data-launcher-webxr-backend]");
+			this.webXRBridgeBlockingTiming = root && root.querySelector("[data-launcher-webxr-bridge-blocking-timing]");
 			this.renderer = root && root.querySelector("[data-launcher-renderer]");
 			this.skipIntro = root && root.querySelector("[data-launcher-skip-intro]");
 			this.game = root && root.querySelector("[data-launcher-game]");
@@ -335,6 +337,8 @@
 			this.form = root && root.querySelector("[data-launcher-form]");
 			if (this.form) this.form.addEventListener("submit", event => this._submit(event));
 			if (this.skipIntro) this.skipIntro.addEventListener("change", () => this._updateMapAvailability());
+			if (this.presentation) this.presentation.addEventListener("change", () => this._updatePresentationAvailability());
+			if (this.webXRBackend) this.webXRBackend.addEventListener("change", () => this._updatePresentationAvailability());
 		}
 
 		_preferences() {
@@ -346,6 +350,8 @@
 			try { global.localStorage.setItem(PREFERENCE_KEY, JSON.stringify({
 				mapByGame: Object.assign({}, this._preferences().mapByGame || {}, { [selection.game.id]: selection.map }),
 				presentationId: selection.presentationId,
+				webXRPresentationPreference: selection.webXRPresentationPreference ||
+					(this.webXRBackend && this.webXRBackend.value === "webgl-bridge" ? "webgl-bridge" : "auto"),
 				renderer: selection.renderer,
 				skipIntro: selection.skipIntro,
 			})); } catch (_) { /* Preferences are optional. */ }
@@ -353,6 +359,16 @@
 
 		_updateMapAvailability() {
 			if (this.map) this.map.disabled = !!this.skipIntro && !this.skipIntro.checked;
+		}
+
+		_updatePresentationAvailability() {
+			const webXRSelected = !!this.presentation && this.presentation.value === "webxr";
+			if (this.webXRBackend) this.webXRBackend.disabled = !webXRSelected;
+			const bridgeForced = webXRSelected && this.webXRBackend && this.webXRBackend.value === "webgl-bridge";
+			if (this.webXRBridgeBlockingTiming) {
+				this.webXRBridgeBlockingTiming.disabled = !bridgeForced;
+				if (!bridgeForced) this.webXRBridgeBlockingTiming.checked = false;
+			}
 		}
 
 		_option(select, value, label) {
@@ -384,9 +400,13 @@
 					this.presentation.value = preferences.presentationId;
 				}
 			}
+			if (this.webXRBackend) this.webXRBackend.value =
+				preferences.webXRPresentationPreference === "webgl-bridge" ? "webgl-bridge" : "auto";
+			if (this.webXRBridgeBlockingTiming) this.webXRBridgeBlockingTiming.checked = false;
 			if (this.renderer && preferences.renderer) this.renderer.value = preferences.renderer;
 			if (this.skipIntro) this.skipIntro.checked = preferences.skipIntro !== false;
 			this._updateMapAvailability();
+			this._updatePresentationAvailability();
 			if (this.root) this.root.hidden = false;
 			return new Promise((resolve, reject) => { this.pending = { resolve, reject }; });
 		}
@@ -397,13 +417,19 @@
 			try {
 				const provider = this.registry.get(this.presentation && this.presentation.value || "flat");
 				if (!provider || !provider.isAvailable()) throw new LauncherError("PRESENTATION_UNAVAILABLE", "That presentation mode is unavailable.");
-				const selection = Object.freeze({
+				const selectionData = {
 					game: this.context.game,
 					map: this.map && this.map.value || this.context.game.defaultMap,
 					presentationId: provider.id,
 					renderer: this.renderer && this.renderer.value || "webgpu",
 					skipIntro: !this.skipIntro || this.skipIntro.checked,
-				});
+				};
+				if (provider.id === "webxr") selectionData.webXRPresentationPreference =
+					this.webXRBackend && this.webXRBackend.value === "webgl-bridge" ? "webgl-bridge" : "auto";
+				if (provider.id === "webxr" && selectionData.webXRPresentationPreference === "webgl-bridge")
+					selectionData.webXRBridgeBlockingTiming = !!this.webXRBridgeBlockingTiming &&
+						this.webXRBridgeBlockingTiming.checked;
+				const selection = Object.freeze(selectionData);
 				buildNativeArguments(selection);
 				await provider.prepareLaunch(Object.freeze({ context: this.context, selection }));
 				this._savePreferences(selection);

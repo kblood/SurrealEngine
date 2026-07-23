@@ -59,10 +59,28 @@
 				"The immersive session was rejected. Continuing in the flat window.";
 		}
 
-		async function prepareLaunch() {
+		function preferenceFromSelection(selection) {
+			const preference = selection && selection.webXRPresentationPreference || "auto";
+			if (preference !== "auto" && preference !== "webgl-bridge")
+				throw new TypeError("WebXR presentation preference must be 'auto' or 'webgl-bridge'");
+			return preference;
+		}
+
+		async function prepareLaunch(options) {
 			reservationState = "requesting";
 			reservationMessage = null;
 			try {
+				const preference = preferenceFromSelection(options && options.selection);
+				if (typeof host.surrealXRSetPresentationPreference === "function")
+					host.surrealXRSetPresentationPreference(preference);
+				else if (preference !== "auto")
+					throw new Error("This WebXR provider cannot force the WebGL compatibility bridge.");
+				const blockingTiming = preference === "webgl-bridge" &&
+					options && options.selection && options.selection.webXRBridgeBlockingTiming === true;
+				if (typeof host.surrealXRSetBridgeBlockingTiming === "function")
+					host.surrealXRSetBridgeBlockingTiming(blockingTiming);
+				else if (blockingTiming)
+					throw new Error("This WebXR provider cannot enable QA blocking timing.");
 				// This method is invoked directly by the Play submit event. Reserve the
 				// immersive session here, while user activation is still eligible, but do
 				// not create layers or transfer frame-loop ownership yet.

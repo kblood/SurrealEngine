@@ -47,6 +47,10 @@ with sync_playwright() as playwright:
 			typeof XRWebGPUBinding === "undefined" && typeof XRWebGLLayer === "undefined",
 		adapterRequests: window.__flatAdapterRequests,
 		presentations: Array.from(document.querySelectorAll('[data-launcher-presentation] option')).map(option => option.value),
+		webXRBackends: Array.from(document.querySelectorAll('[data-launcher-webxr-backend] option')).map(option => option.value),
+		webXRBackendDisabled: document.querySelector('[data-launcher-webxr-backend]').disabled,
+		bridgeTimingDisabled: document.querySelector('[data-launcher-webxr-bridge-blocking-timing]').disabled,
+		bridgeTimingChecked: document.querySelector('[data-launcher-webxr-bridge-blocking-timing]').checked,
 		capabilities: Array.from(document.querySelectorAll('[data-capability-list] li')).map(item => item.textContent),
 		phase: document.querySelector('[data-app-phase]').textContent,
 		pointerLockReady: typeof SurrealBrowserPointerLock !== "undefined" &&
@@ -72,6 +76,8 @@ with sync_playwright() as playwright:
 		not result["crossOriginIsolated"] or result["engineBase"] != "./engine/" or
 		not result["webXRAbsent"] or result["adapterRequests"] != [None] or
 		result["registeredPresentations"] != ["flat"] or not result["pointerLockReady"] or
+		result["webXRBackends"] != ["auto", "webgl-bridge"] or not result["webXRBackendDisabled"] or
+		not result["bridgeTimingDisabled"] or result["bridgeTimingChecked"] or
 		result["pointerLockInteractive"] or result["pointerLockPromptVisible"] or
 		not result["sourceUI"]["visible"] or
 		"experimental preview" not in (result["releaseNotice"] or "") or
