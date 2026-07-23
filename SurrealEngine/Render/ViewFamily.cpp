@@ -30,6 +30,21 @@ std::optional<StereoAtlasLayout> CreateStereoAtlasLayout(int eyeWidth,
 	return layout;
 }
 
+mat4 CreateCanvasProjection(int width, int height, float fovAngleDegrees)
+{
+	if (width <= 0 || height <= 0 || !std::isfinite(fovAngleDegrees) ||
+		fovAngleDegrees <= 0.0f || fovAngleDegrees >= 180.0f)
+		return mat4::identity();
+
+	constexpr float Pi = 3.14159265359f;
+	const float aspect = static_cast<float>(height) /
+		static_cast<float>(width);
+	const float projectionZ = std::tan(fovAngleDegrees * Pi / 360.0f);
+	return mat4::frustum(-projectionZ, projectionZ,
+		-aspect * projectionZ, aspect * projectionZ, 1.0f, 32768.0f,
+		handedness::left, clipzrange::zero_positive_w);
+}
+
 std::optional<ViewRect> CreatePerViewHudRect(const ViewFamily& family,
 	size_t viewIndex)
 {

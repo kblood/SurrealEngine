@@ -86,6 +86,32 @@ int main()
 	Check(leftHud->Width < hudFamily.Views[0].Viewport.Width &&
 		leftHud->Height < hudFamily.Views[0].Viewport.Height,
 		"HUD expanded back to the full lens edges");
+
+	// Reproduce the physical OpenXR failure: the desktop mirror is 16:9 but
+	// each direct HUD is approximately 4:3 inside the 4224x2304 atlas. A Canvas
+	// frame that keeps the mirror projection maps its bottom edge outside clip
+	// space, leaving only part of UT's status doll visible. The HUD projection
+	// must instead be derived from the HUD frame itself.
+	const mat4 mirrorCanvasProjection = CreateCanvasProjection(2560, 1440, 90.0f);
+	const mat4 hudCanvasProjection = CreateCanvasProjection(leftHud->Width,
+		leftHud->Height, 90.0f);
+	const float hudAspect = static_cast<float>(leftHud->Height) /
+		static_cast<float>(leftHud->Width);
+	Check(std::abs(hudCanvasProjection[0] / hudCanvasProjection[5] - hudAspect) < 0.0001f,
+		"per-eye Canvas projection does not match the HUD frame aspect");
+	Check(std::abs(hudCanvasProjection[5] - mirrorCanvasProjection[5]) > 0.1f,
+		"per-eye Canvas accidentally retained the desktop mirror projection");
+	const float projectionZ = std::tan(45.0f * 3.14159265359f / 180.0f);
+	const vec4 bottomHudPoint(0.0f, projectionZ * hudAspect, 1.0f, 1.0f);
+	const vec4 wronglyClipped = mirrorCanvasProjection * bottomHudPoint;
+	const vec4 correctlyFitted = hudCanvasProjection * bottomHudPoint;
+	Check(std::abs(wronglyClipped.y / wronglyClipped.w) > 1.1f,
+		"regression fixture no longer demonstrates mirror-projection clipping");
+	Check(std::abs(std::abs(correctlyFitted.y / correctlyFitted.w) - 1.0f) < 0.0001f,
+		"per-eye Canvas projection does not fit the HUD edge to clip space");
+	const mat4 invalidCanvasProjection = CreateCanvasProjection(0, 2304, 90.0f);
+	Check(invalidCanvasProjection[0] == 1.0f && invalidCanvasProjection[5] == 1.0f,
+		"invalid Canvas extent did not fail closed to identity");
 	ViewFamily invalidHud = hudFamily;
 	invalidHud.Views[0].HasProjectionTangents = false;
 	Check(!CreatePerViewHudRect(invalidHud, 0),

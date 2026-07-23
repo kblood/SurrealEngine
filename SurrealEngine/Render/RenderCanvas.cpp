@@ -29,11 +29,8 @@ void RenderSubsystem::ResetCanvas()
 	Canvas.Frame.ObjectToWorld = mat4::identity();
 	Canvas.Frame.WorldToView = mat4::identity();
 	Canvas.Frame.FovAngle = engine->CameraFovAngle;
-	float Aspect = Canvas.Frame.FY / Canvas.Frame.FX;
-	float RProjZ = (float)std::tan(radians(Canvas.Frame.FovAngle) * 0.5f);
-	float RFX2 = 2.0f * RProjZ / Canvas.Frame.FX;
-	float RFY2 = 2.0f * RProjZ * Aspect / Canvas.Frame.FY;
-	Canvas.Frame.Projection = mat4::frustum(-RProjZ, RProjZ, -Aspect * RProjZ, Aspect * RProjZ, 1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
+	Canvas.Frame.Projection = CreateCanvasProjection(Canvas.Frame.X,
+		Canvas.Frame.Y, Canvas.Frame.FovAngle);
 
 	int sizeX = (int)(engine->viewport->ViewportWidth() / (float)Canvas.uiscale);
 	int sizeY = (int)(engine->viewport->ViewportHeight() / (float)Canvas.uiscale);
@@ -142,6 +139,12 @@ void RenderSubsystem::PostRenderPerViewHud(const ViewFamily& viewFamily)
 		Canvas.Frame.FY = static_cast<float>(hudRect->Height);
 		Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
 		Canvas.Frame.FY2 = Canvas.Frame.FY * 0.5f;
+		// Canvas.Frame started life as the desktop mirror frame. Rebuild its
+		// projection for this compact 4:3 eye-local viewport; retaining the
+		// mirror's 16:9 projection causes the HUD to be clipped down to a
+		// corner in the OpenXR atlas.
+		Canvas.Frame.Projection = CreateCanvasProjection(Canvas.Frame.X,
+			Canvas.Frame.Y, Canvas.Frame.FovAngle);
 
 		const int canvasWidth = std::max(static_cast<int>(hudRect->Width /
 			static_cast<float>(Canvas.uiscale)), 1);

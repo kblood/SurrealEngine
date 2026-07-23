@@ -42,6 +42,12 @@ struct StereoAtlasLayout
 std::optional<StereoAtlasLayout> CreateStereoAtlasLayout(int eyeWidth,
 	int eyeHeight);
 
+// Creates the symmetric projection used by a 2D Canvas frame. The projection
+// must be rebuilt whenever the frame's width/height changes; retaining a
+// desktop projection for a differently-shaped XR HUD frame clips and distorts
+// its contents.
+mat4 CreateCanvasProjection(int width, int height, float fovAngleDegrees);
+
 // Describes one camera view of an already-advanced game frame. The transform
 // and viewport are always explicit. Projection is optional so the ordinary
 // desktop view can retain its FOV-derived projection while stereo providers can
