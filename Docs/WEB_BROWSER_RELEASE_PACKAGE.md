@@ -326,6 +326,40 @@ WebXR metre projection depth being applied to Unreal-Unit view coordinates and
 identifies the necessarily previous-pose asynchronous atlas as a second release
 blocker.
 
+### Physical candidate 802cfa62
+
+The newer physical candidate `802cfa62b7436a0c7f473d6292052812bae33b5f`
+contains the projection-unit/depth corrections and bounded atlas pose-age
+diagnostics. On Quest 3 through Virtual Desktop/VDXR, immersive startup needed
+several attempts and waiting before it remained interactive. Head look and
+controller aim responded, and controller pointers could point at and click menu
+items. Gameplay input did not qualify: the controller trigger did not satisfy
+**Press Fire**, while mouse left did, and thumbsticks did not move the player.
+
+The menu was horizontally mirrored and the world remained distorted after the
+projection correction. The privacy-safe report was not preserved and remains
+pending; the release page sends no remote telemetry, so presentation mode,
+provider stage, projection/reference-space values, frame/input counters, and
+atlas pose age cannot be reconstructed. This is a failed physical qualification
+and candidate `802cfa62` remains non-final.
+
+A controlled native A/B package from the same exact commit is available at
+`C:\Devstuff\QuestGames\release-candidates\SurrealEngine-Native-OpenXR-802cfa62-VDXR-test`.
+After connecting Quest 3 through Virtual Desktop with VDXR active, launch its
+integrated game-library UI with:
+
+```powershell
+& 'C:\Devstuff\QuestGames\release-candidates\SurrealEngine-Native-OpenXR-802cfa62-VDXR-test\SurrealEngine.exe' --openxr
+```
+
+Select **Vulkan** on the launcher Video page before Play. Direct3D 11 cannot
+bind OpenXR, and native `--render=vulkan` is not applied at this commit because
+the renderer override is Emscripten-only. The data-free x64 Release package
+passed all 34 native tests and contains no owner-game files; its executable and
+runtime probe were deliberately not run during packaging. Repeat the identical
+head, aim, menu, trigger, thumbstick, and visual-orientation checks and preserve
+the native log.
+
 ## Validation
 
 Synthetic tests contain no commercial data:
@@ -576,6 +610,12 @@ Current results:
   Commits `0331ef21` and `0218d5b7` now correct and test metre-to-UU scaling
   plus mode-specific depth convention, but need physical requalification.
   Stale-atlas pose age remains a release blocker; `078a6d2f` now reports it.
+- at physical candidate `802cfa62`, immersive startup required several attempts
+  and waiting. Head look, controller aim, and menu point/click responded, but
+  gameplay trigger and thumbstick movement did not; mouse left cleared **Press
+  Fire**. The menu was horizontally mirrored and the world remained distorted.
+  No report was preserved and no remote telemetry exists, so the candidate is
+  non-final and the exact provider/presentation counters remain pending.
 - a fresh live owner-data matrix on `2904593c` imported UT99 (496 files,
   659,817,346 bytes) and Unreal Gold (335 files, 586,421,656 bytes), switched
   both directions before and after Chrome restart, replaced only UT99 without
@@ -603,7 +643,11 @@ stable publication:
    reproduced `FS.analyzePath` throw with working `FS.stat`. Complete
    fullscreen/resize and long-play persistence checks.
 3. Retain the proved forced-bridge immersive entry with blocking timing off.
-   Requalify the landed WebXR-metre-to-Unreal-Unit projection mapping without
+   Repeat `802cfa62` and preserve its local privacy-safe report, then run the
+   exact native OpenXR package through VDXR with Vulkan selected in the
+   integrated launcher. Compare the same head, aim, menu click, gameplay
+   trigger, thumbstick, menu-handedness, and world-distortion checks. Requalify
+   the landed WebXR-metre-to-Unreal-Unit projection mapping without
    replacing the runtime's asymmetric/sheared matrix. Bridge converts its
    WebGL projection to WebGPU depth and flags it; direct `XRGPUBinding` flags
    Chromium's already-zero-to-one projection. Native code scales both. Retain

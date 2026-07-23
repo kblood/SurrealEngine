@@ -2,7 +2,9 @@
 
 Date: 2026-07-23
 
-Candidate: `cef1e89b3bbccba4d041ce5d00cc09bd99358c06`
+Initial diagnostic candidate: `cef1e89b3bbccba4d041ce5d00cc09bd99358c06`
+
+Newest physical candidate: `802cfa62b7436a0c7f473d6292052812bae33b5f`
 
 Public URL:
 `https://dionysus.dk/webxr/Ports/SurrealEngine-Candidate-cef1e89b/`
@@ -125,6 +127,69 @@ completed presentation is normal. Positive age is evidence of stale-pose
 submission; a rising maximum or reuse count shows worse delay. The fields are
 diagnostics, not a release waiver.
 
+## Candidate 802cfa62 physical retest
+
+The newest physical Quest 3 retest used candidate `802cfa62` through Virtual
+Desktop with VDXR selected. Immersive startup required several attempts and
+additional waiting before content remained in the headset. The attempt
+eventually reached an interactive immersive view, but startup reliability did
+not pass.
+
+Head movement changed the view, controller aim tracked, and the controller
+pointers could point at and click menu items. This is useful evidence that head
+and aim samples plus the shared menu-contact path reached the headset. It does
+not qualify gameplay input: the controller trigger did not satisfy the
+in-game **Press Fire** prompt, while the desktop mouse left button did, and the
+thumbsticks did not move the player.
+
+Visual qualification also failed. The menu was horizontally mirrored and the
+world remained distorted after the landed projection-unit and depth-convention
+corrections. The result therefore does not close projection, atlas pose age,
+image orientation, UI orientation, stereo/FOV, movement, or gameplay-button
+gates. Candidate `802cfa62` remains non-final.
+
+The privacy-safe headset report was not preserved during this attempt and is
+still pending. The page does not upload remote telemetry, so the exact
+presentation mode, provider stage, frame/input counters, projection format,
+reference space, and atlas pose age cannot be inferred from this observation.
+The next run must copy the local report before reload or exit.
+
+## Native OpenXR A/B package
+
+A separate data-free Windows x64 Release package was built from exact commit
+`802cfa62b7436a0c7f473d6292052812bae33b5f` with native OpenXR enabled. Its
+detached source and all 34 registered native tests passed, including the
+OpenXR view, Vulkan presentation-target, XR-common input/weapon/haptic, and
+shared UI-runtime suites. Package preparation found no owner-game files and did
+not launch the executable or probe the runtime.
+
+Package folder:
+
+```text
+C:\Devstuff\QuestGames\release-candidates\SurrealEngine-Native-OpenXR-802cfa62-VDXR-test
+```
+
+Launch the integrated game-library UI from PowerShell after connecting Quest 3
+through Virtual Desktop and selecting VDXR as the active PC OpenXR runtime:
+
+```powershell
+& 'C:\Devstuff\QuestGames\release-candidates\SurrealEngine-Native-OpenXR-802cfa62-VDXR-test\SurrealEngine.exe' --openxr
+```
+
+Add or select the same owned game folder in the launcher, select **Vulkan** on
+the Video page, then select the game and click Play. Direct3D 11 cannot bind
+the OpenXR provider. At this commit `--render=vulkan` is handled only by the
+Emscripten path, so it is not a native renderer override; the Vulkan choice
+must be made in the integrated launcher.
+
+Repeat the same head-turn, controller-aim, menu point/click, **Press Fire**, and
+thumbstick checks used for the browser candidate. Also compare menu handedness
+and world distortion. Matching native failures would implicate shared
+view/input/UI behavior; a correct native result would narrow the defect to the
+browser WebXR provider, projection/copy bridge, or browser/runtime boundary.
+That comparison is a diagnostic gate, not proof by itself. Record the native
+log and exact observed behavior before changing either path.
+
 ## Automatic backend correction
 
 The current Automatic preflight selects direct presentation when
@@ -155,6 +220,14 @@ textures; removing that usage is not a valid compatibility workaround.
 
 ## Required next evidence
 
+- Repeat candidate `802cfa62` and copy its local privacy-safe report before
+  reload or exit. Confirm the presentation mode, provider stage, projection
+  format, reference space, frame/input counters, and bridge pose-age fields;
+  no remote telemetry will recover a report that was not copied.
+- Run the native OpenXR `802cfa62` package as the controlled A/B case through
+  the same Quest 3/Virtual Desktop/VDXR connection, with Vulkan selected in the
+  integrated launcher. Compare world/menu orientation and the identical head,
+  aim, menu-click, gameplay-trigger, and thumbstick actions.
 - Reproduce Automatic and save the v2 report before reloading.
 - Retain the proved forced-bridge entry with blocking timing disabled; test the
   landed projection correction, then repeat after correcting atlas pose age and require stable
@@ -195,10 +268,12 @@ Post-candidate fixes are implemented but not yet physically qualified:
 - `078a6d2f` reports bounded bridge pose age and target reuse without exposing
   source pose/projection data.
 
-All three are available for retest in immutable candidate `173bf623` at
+The first three are available in immutable candidate `173bf623` at
 `https://dionysus.dk/webxr/Ports/SurrealEngine-Candidate-173bf623/`. Its clean
 package, live flat HTTPS smoke, source offer, headers, and public hashes pass;
 those checks do not substitute for the physical VDXR matrix above.
+Candidate `802cfa62` contains all six listed changes; its newest physical result
+is recorded above and remains a failed, non-final qualification.
 
 Live synthetic trusted-Play checks additionally prove both Automatic outcomes
 and forced bridge against the deployed provider assets. The granted feature set
@@ -219,6 +294,14 @@ entered immersive VR and displayed tracked procedural controllers, but failed
 visual qualification through projection cutoff and rotational distortion.
 Audio recovery after a lifecycle transition, corrected headset visuals, and
 the remaining physical matrix are still unqualified.
+
+Candidate `802cfa62` subsequently reached interactive immersive presentation
+only after several attempts and waiting. Head look, controller aim, and menu
+point/click responded, but the controller trigger did not clear **Press Fire**,
+thumbsticks did not move the player, the menu was horizontally mirrored, and
+the world remained distorted. Its local report was not preserved and no remote
+telemetry exists. These observations refine the failing matrix; they do not
+promote the candidate or supersede the need for the native OpenXR A/B run.
 
 The independent Claude Code Opus 4.8 code-path review, ranked hypotheses,
 candidate fixes, tests, risks, and commit decomposition are recorded in
