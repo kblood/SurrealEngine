@@ -89,8 +89,8 @@ public:
 	void UpdateOpenXRStartupIntro(const XRControllerSnapshot* controllers);
 	float AdvanceGameFrame();
 	// XR providers publish one provider-neutral weapon pose before simulation.
-	// The hand direction is scoped across input, level tick, delayed weapon
-	// states, and PlayerCalcView, then exact pawn/camera state is restored.
+	// Narrow VM weapon scopes consume its hand direction while movement and the
+	// ordinary gameplay view remain unchanged outside classified weapon calls.
 	float AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose);
 	void SetXRWeaponPose(const XRWeaponPoseResult& pose) { xrWeaponPose = pose; }
 	const XRWeaponPoseResult& GetXRWeaponPose() const { return xrWeaponPose; }
@@ -258,7 +258,10 @@ public:
 
 private:
 	XRWeaponPoseResult xrWeaponPose;
+	uint64_t xrWeaponCallHook = 0;
 	ViewFamily CreateDesktopViewFamily() const;
+	void InstallXRWeaponCallHook();
+	void UninstallXRWeaponCallHook();
 
 	// Scratch properties used by PlayerCalcView during AdvanceGameFrame.
 	UObjectProperty* frameObjProp = nullptr;

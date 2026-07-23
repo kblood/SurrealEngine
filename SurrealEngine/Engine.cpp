@@ -122,6 +122,7 @@ Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
 
 Engine::~Engine()
 {
+	UninstallXRWeaponCallHook();
 	if (audiodev)
 		audiodev->ShutdownDevice();
 
@@ -358,11 +359,13 @@ void Engine::Setup()
 	frameObjProp = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	frameVecProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	frameRotProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
+	InstallXRWeaponCallHook();
 }
 
 void Engine::Shutdown()
 {
 	LogMessage("Shutting down...");
+	UninstallXRWeaponCallHook();
 	window->UnlockCursor();
 
 	LogMessage("Saving configurations...");
@@ -646,33 +649,68 @@ float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose)
 		!std::isfinite(aimDirection.z) || length(aimDirection) < 0.0001f)
 		return AdvanceGameFrame();
 
-	XRWeaponRuntime::TransformInputs transforms;
-	transforms.BallisticRotationValid = true;
-	transforms.BallisticRotation = normalize(
-		Rotator::FromVector(normalize(aimDirection)));
-	VMCallHookCleanup aimCleanup = XRWeaponRuntime::BeginRotationScope(
-		XRWeaponRuntime::AimScopeKind::Ballistic,
-		{ &pawn->ViewRotation(), &weapon->Rotation() }, transforms);
-	if (!aimCleanup)
-		return AdvanceGameFrame();
 	SetXRWeaponPose(pose);
-
-	struct ScopedAimRestore
-	{
-		ScopedAimRestore(VMCallHookCleanup cleanup, Rotator& cameraRotation)
-			: Cleanup(std::move(cleanup)), CameraRotation(cameraRotation),
-			SavedCamera(cameraRotation) {}
-		~ScopedAimRestore()
-		{
-			Cleanup();
-			CameraRotation = SavedCamera;
-		}
-		VMCallHookCleanup Cleanup;
-		Rotator& CameraRotation;
-		Rotator SavedCamera;
-	} restore(std::move(aimCleanup), CameraRotation);
-
 	return AdvanceGameFrame();
+}
+
+void Engine::InstallXRWeaponCallHook()
+{
+	if (xrWeaponCallHook || !LaunchInfo.IsUnrealTournament())
+		return;
+
+	xrWeaponCallHook = Frame::CallHooks().Register(
+		XRWeaponRuntime::MakeUT99WeaponCallHook(
+			[this](UFunction* function, UObject* instance)
+				-> std::optional<XRWeaponRuntime::ScopeRequest>
+			{
+				if (!xrWeaponPose.Valid || !function || !instance || !viewport)
+					return {};
+
+				UPlayerPawn* pawn = viewport->Actor();
+				UWeapon* weapon = pawn ? pawn->Weapon() : nullptr;
+				if (!pawn || !weapon || weapon->Owner() != pawn)
+					return {};
+
+				const bool pawnAimCall = instance == pawn &&
+					(function->Name == "AdjustAim" || function->Name == "AdjustToss");
+				if (instance != weapon && !pawnAimCall)
+					return {};
+
+				const vec3 aimDirection(xrWeaponPose.AimDirection.X,
+					xrWeaponPose.AimDirection.Y, xrWeaponPose.AimDirection.Z);
+				if (!std::isfinite(aimDirection.x) || !std::isfinite(aimDirection.y) ||
+					!std::isfinite(aimDirection.z) || length(aimDirection) < 0.0001f)
+					return {};
+
+				XRWeaponRuntime::ScopeRequest request;
+				if (weapon->Class && weapon->Class->package)
+					request.Call.PackageName = weapon->Class->package->GetPackageName().ToString();
+				if (weapon->Class)
+					request.Call.ClassName = weapon->Class->Name.ToString();
+				request.Call.ActiveStateName = instance->GetStateName().ToString();
+				request.Call.FunctionName = function->Name.ToString();
+
+				UObject* outer = function->Outer();
+				if (UState* state = UObject::TryCast<UState>(outer))
+				{
+					if (!UObject::TryCast<UClass>(outer))
+						request.Call.DeclaringStateName = state->Name.ToString();
+				}
+
+				request.Targets = { &pawn->ViewRotation(), &weapon->Rotation() };
+				request.Transforms.BallisticRotationValid = true;
+				request.Transforms.BallisticRotation = normalize(
+					Rotator::FromVector(normalize(aimDirection)));
+				return request;
+			}));
+}
+
+void Engine::UninstallXRWeaponCallHook()
+{
+	if (!xrWeaponCallHook)
+		return;
+	Frame::CallHooks().Unregister(xrWeaponCallHook);
+	xrWeaponCallHook = 0;
 }
 
 void Engine::RenderGameFrame(float levelElapsed)

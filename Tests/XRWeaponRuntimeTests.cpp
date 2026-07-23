@@ -116,12 +116,13 @@ namespace
 		Rotator pawn(11, 22, 33);
 		Rotator weapon(44, 55, 66);
 		int resolverCalls = 0;
+		CallMetadata currentCall = Global("Botpack", "UT_FlakCannon", "AltFire");
 		XRWeaponRuntime::ScopeResolver resolver = [&](UFunction*, UObject*)
 			-> std::optional<XRWeaponRuntime::ScopeRequest>
 		{
 			resolverCalls++;
 			XRWeaponRuntime::ScopeRequest request;
-			request.Call = Global("Botpack", "UT_FlakCannon", "AltFire");
+			request.Call = currentCall;
 			request.Targets = { &pawn, &weapon };
 			request.Transforms.BallisticRotationValid = true;
 			request.Transforms.BallisticRotation = Rotator(101, 202, 0);
@@ -133,13 +134,51 @@ namespace
 		VMCallHookRegistry registry;
 		registry.Register(std::move(hook));
 		Array<ExpressionValue> arguments;
+		const CallMetadata ballisticCalls[] = {
+			Global("Engine", "Weapon", "TraceFire"),
+			Global("Engine", "Weapon", "ProjectileFire"),
+			Global("Engine", "Pawn", "AdjustAim"),
+			Global("Engine", "Pawn", "AdjustToss"),
+			Global("Botpack", "UT_FlakCannon", "Fire"),
+			Global("Botpack", "UT_FlakCannon", "AltFire"),
+			State("UT_Eightball", "FireRockets", "FireRockets", "BeginState"),
+			Global("Botpack", "UT_Eightball", "CheckTarget"),
+			Global("Botpack", "ImpactHammer", "TraceAltFire"),
+			State("ImpactHammer", "Firing", "Firing", "Tick")
+		};
+		for (const CallMetadata& call : ballisticCalls)
 		{
+			currentCall = call;
 			auto scope = registry.BeginCall(nullptr, nullptr, arguments);
-			Require(resolverCalls == 1 && Exact(pawn, Rotator(101, 202, 0)),
-				"VM hook adapter did not enter the resolved ballistic scope");
+			Require(Exact(pawn, Rotator(101, 202, 0)),
+				"VM hook adapter did not enter a classified ballistic scope");
 		}
 		Require(Exact(pawn, Rotator(11, 22, 33)) && Exact(weapon, Rotator(44, 55, 66)),
-			"VM hook cleanup did not restore rotations");
+			"VM hook cleanup did not restore rotations after classified calls");
+
+		currentCall = Global("Botpack", "UT_FlakCannon", "AltFire");
+		{
+			auto outer = registry.BeginCall(nullptr, nullptr, arguments);
+			Require(Exact(pawn, Rotator(101, 202, 0)),
+				"outer VM weapon scope did not apply hand aim");
+			{
+				auto inner = registry.BeginCall(nullptr, nullptr, arguments);
+				Require(Exact(pawn, Rotator(101, 202, 0)),
+					"nested VM weapon scope did not preserve hand aim");
+			}
+			Require(Exact(pawn, Rotator(101, 202, 0)),
+				"nested VM weapon scope did not restore its outer state");
+		}
+		Require(Exact(pawn, Rotator(11, 22, 33)) && Exact(weapon, Rotator(44, 55, 66)),
+			"nested VM hook cleanup did not restore exact baseline rotations");
+
+		currentCall = Global("Botpack", "TournamentWeapon", "Fire");
+		{
+			auto scope = registry.BeginCall(nullptr, nullptr, arguments);
+			Require(Exact(pawn, Rotator(11, 22, 33)) && Exact(weapon, Rotator(44, 55, 66)),
+				"unclassified weapon call changed rotations");
+		}
+		Require(resolverCalls == 13, "VM hook resolver call count was unexpected");
 	}
 }
 
