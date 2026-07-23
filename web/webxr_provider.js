@@ -304,6 +304,15 @@
 		// fails closed instead of leaving a logically stuck button in native input.
 	}
 
+	function takeInputPacketForSimulationFrame() {
+		if (!queuedInputPackets.length) return null;
+		if (queuedInputPackets[0].transition)
+			return queuedInputPackets.shift().packet;
+		const latest = queuedInputPackets.at(-1).packet;
+		queuedInputPackets = [];
+		return latest;
+	}
+
 	function submitNeutralInput(time, sessionActive) {
 		const packet = new Uint8Array(INPUT_ABI.headerBytes);
 		const data = new DataView(packet.buffer);
@@ -525,9 +534,8 @@
 				"WebXR input transition queue overflowed while native rendering was suspended"));
 			return;
 		}
-		const input = queuedInputPackets;
-		queuedInputPackets = [];
-		try { input.forEach(entry => submitInputPacket(entry.packet)); }
+		const input = takeInputPacketForSimulationFrame();
+		try { if (input) submitInputPacket(input); }
 		catch (error) { fail(generation, providerError("input-submit-failed", "frame", error.message || String(error))); return; }
 		const backIndex = frontTargetIndex === 0 ? 1 : 0;
 		const targets = persistentTargets;

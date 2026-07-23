@@ -94,6 +94,12 @@ hand releases only its contributors. Blur and session end release the XR
 sources that were active; keyboard, mouse, gamepad, and synthetic contributors
 are never cleared.
 
+If native rendering is suspended, discrete browser snapshots remain ordered.
+The producer applies at most one retained state before each simulation frame;
+later edges wait for later frames, while redundant pose/axis-only samples
+coalesce to the newest value. A trigger press and release therefore cannot be
+collapsed before gameplay or UI observes the pressed frame.
+
 The integration runtime feeds `XRControllerSnapshot` to the shared
 `XRInputAdapter`; it does not emit `Joy*` keys or depend on the game's existing
 joystick bindings. With the current right-dominant UE1 profile, right Select is
@@ -124,8 +130,11 @@ The synthetic tests cover two independent hands, aim/grip poses, axes and all
 semantic bit positions, action focus, profile-defensive mapping, duplicate and
 malformed packet rejection, per-hand disconnect, blur/session-end
 neutralization, held-button edge handling, shared-type adaptation, and
-keyboard/gamepad/XR composition. They contain no game data. The runtime branch
-also completes a no-data Emscripten link to verify the browser-to-WASM export.
+keyboard/gamepad/XR composition. The browser lifecycle test also stalls one
+native render, retains more than sixteen alternating trigger edges, and proves
+that each edge is paired with a distinct later simulation producer in order.
+They contain no game data. The runtime branch also completes a no-data
+Emscripten link to verify the browser-to-WASM export.
 
 ## Hardware gates
 

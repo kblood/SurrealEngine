@@ -17,6 +17,8 @@ const destroyedTextures = [];
 let resetCalls = 0;
 let renderDeferred = null;
 let textureSequence = 0;
+let submittedInput = null;
+let appliedInput = null;
 
 function deferred() {
 	let resolve, reject;
@@ -58,11 +60,14 @@ globalThis.Module = {
 			assert.equal(data.getUint32(0, true), 3);
 			assert.equal(data.getUint32(8, true), 2);
 			renderedPackets.push({ bytes: Uint8Array.from(packet),
-				textures: globalThis.surrealWebXRFrameTextures.slice() });
+				textures: globalThis.surrealWebXRFrameTextures.slice(),
+				input: appliedInput && Uint8Array.from(appliedInput) });
 			return renderDeferred ? renderDeferred.promise : 1;
 		}
-		if (name === "Surreal_SubmitWebXRInputSnapshot") { inputPackets.push(Uint8Array.from(args[0])); return 1; }
-		if (name === "Surreal_ApplyWebXRInputSnapshot") return 1;
+		if (name === "Surreal_SubmitWebXRInputSnapshot") {
+			submittedInput = Uint8Array.from(args[0]); inputPackets.push(submittedInput); return 1;
+		}
+		if (name === "Surreal_ApplyWebXRInputSnapshot") { appliedInput = submittedInput; return 1; }
 		if (name === "Surreal_GetWebXRInputLastError" || name === "Surreal_GetWebXRFrameLastError") return 0;
 		if (name === "Surreal_ClearWebXRInputSnapshot") return undefined;
 		throw new Error("unexpected native call: " + name);
@@ -205,6 +210,7 @@ assert.equal(packet.getUint32(32 + 128 + 12, true), 1024);
 // A second XR frame and event callbacks make zero Wasm entries while Asyncify is suspended.
 const callsWhilePending = nativeCalls.length;
 const inputsBeforePending = inputPackets.length;
+const rendersBeforePending = renderedPackets.length;
 const stalledRight = sessions[0].inputSources[1];
 for (let index = 0; index < 20; index++) {
 	const pressed = index % 2 === 1;
@@ -228,9 +234,19 @@ assert.equal(renderedPackets.length, 1, "there must be at most one producer in f
 // Completion atomically publishes the back target. The next rAF presents it to current XR textures.
 renderDeferred.resolve(1); renderDeferred = null;
 await nextTask();
-const drained = inputPackets.slice(inputsBeforePending).map(packet => new DataView(packet.buffer));
+let drained = inputPackets.slice(inputsBeforePending).map(packet => new DataView(packet.buffer));
+assert.equal(drained.length, 1,
+	"only one retained input edge may be applied before a simulation tick");
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 21);
+for (let index = 0; index < 21; index++) {
+	sessions[0].fireFrame(48 + index, stereoFrame);
+	await nextTask();
+}
+drained = inputPackets.slice(inputsBeforePending).map(packet => new DataView(packet.buffer));
 assert.equal(drained.length, 22,
-	">16 frame button edges are retained while 30 obsolete pose/axis frames coalesce away");
+	">16 button edges are retained and delivered across separate simulation ticks while obsolete pose/axis frames coalesce away");
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 1,
+	"the newest continuous sample remains coalesced behind retained edges");
 assert.deepEqual(drained.map(packet => packet.getUint32(8, true)),
 	new Array(20).fill(2).concat([1, 1]));
 assert.deepEqual(drained.map(packet => packet.getUint32(12, true)),
@@ -238,14 +254,24 @@ assert.deepEqual(drained.map(packet => packet.getUint32(12, true)),
 assert.deepEqual(drained.slice(0, 20).map(packet =>
 	(packet.getUint32(24 + 112 + 8, true) & 1) !== 0),
 	Array.from({ length: 20 }, (_, index) => index % 2 === 1));
-sessions[0].fireFrame(48, stereoFrame);
-assert.equal(copies.length, 2);
-assert.equal(copies[0].destination.texture, leftXRTexture);
-assert.equal(copies[1].destination.texture, rightXRTexture);
-assert.equal(submissions.length, 1);
+sessions[0].fireFrame(80, stereoFrame);
 await nextTask();
-assert.equal(renderedPackets.length, 3, "each completed producer starts at most one queued replacement");
-assert.equal(globalThis.surrealXRGetState().frames, 3);
+assert.equal(inputPackets.slice(inputsBeforePending).length, 23,
+	"the coalesced continuous sample is delivered after all retained edges");
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 0);
+const sequencedRenders = renderedPackets.slice(rendersBeforePending);
+assert.equal(sequencedRenders.length, 23);
+assert.ok(sequencedRenders.every(render => render.input),
+	"every simulation render must observe its one applied XR input packet");
+assert.deepEqual(sequencedRenders.slice(0, 20).map(render => {
+	const input = new DataView(render.input.buffer, render.input.byteOffset, render.input.byteLength);
+	return (input.getUint32(24 + 112 + 8, true) & 1) !== 0;
+}), Array.from({ length: 20 }, (_, index) => index % 2 === 1),
+	"press and release edges must reach distinct simulation frames in order");
+assert.ok(copies.length >= 2);
+assert.equal(copies.at(-2).destination.texture, leftXRTexture);
+assert.equal(copies.at(-1).destination.texture, rightXRTexture);
+assert.equal(globalThis.surrealXRGetState().frames, renderedPackets.length);
 assert.equal(globalThis.surrealWebXRFrameTextures, null);
 
 // Shared XR arrays affect only the late copy destinations; native still receives two safe 2D targets.

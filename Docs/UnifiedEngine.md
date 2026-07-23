@@ -205,9 +205,11 @@ matrix.
   and the Quest-compatible WebGL presentation fallback are integrated. The two
   WebXR presentation modes remain experimental pending the physical matrix.
   Semantic Fire/AltFire/movement input and the first shared one-hand weapon
-  pose/firing/per-eye-rendering slice are integrated; quick-tap frame
-  sequencing, comfort locomotion, muzzle origins, two-hand support, and loaded
-  game qualification remain active work.
+  pose/firing/per-eye-rendering slice are integrated. Retained WebXR input
+  edges now advance at most one state per simulation frame, so a quick
+  press/release cannot collapse before gameplay observes it; comfort
+  locomotion, face-button/menu policy, muzzle origins, two-hand support, and
+  loaded game qualification remain active work.
 
 The upstream repository is active. Contact in the public Discord on 2026-07-22
 confirmed that small bug fixes and improvements are welcome when maintainers can

@@ -186,11 +186,13 @@ Each XR animation callback requires one left and one right primary view, but it
 never calls Wasm. It copies pose, projection, controller input, and layout
 metadata into JavaScript-owned packets; presents the last completed front
 target; discards all current-frame XR objects; and returns. A later browser task
-drains the ordered input queue and starts at most one Asyncify-aware native
-producer render into the back target. Completion atomically publishes that back
-target. A missing viewer pose skips capture without advancing simulation, and
-headset frames may repeat the immutable front image while the producer waits on
-OPFS. This is intentional frame dropping, not a second simulation tick.
+takes at most one retained input state and starts at most one Asyncify-aware
+native producer render into the back target. Discrete states remain queued for
+later simulation frames; a lone continuous pose/axis state is replaced by its
+newest sample. Completion atomically publishes that back target. A missing
+viewer pose skips capture without advancing simulation, and headset frames may
+repeat the immutable front image while the producer waits on OPFS. This is
+intentional frame dropping, not a second simulation tick.
 
 The same native-call gate covers browser-side services. Mutable-data interval,
 visibility, and pagehide checkpoints never inspect `Module.FS` while an
@@ -231,7 +233,9 @@ transitions in capture order even when more than 16 changes arrive during one
 suspended render. Pose and axis-only samples with the same discrete state are
 coalesced to the latest sample. A 256-entry safety limit fails the session
 closed with `input-transition-overflow`; it never silently discards a button
-edge.
+edge. Only one retained discrete state is submitted before each native
+simulation/render producer, ensuring a quick press and release are observable
+on separate engine frames instead of both being applied before one tick.
 
 In direct mode, ABI v3 gives native code two ordinary persistent 2D eye
 textures. The projection layer requests `COPY_DST`; the XR callback acquires

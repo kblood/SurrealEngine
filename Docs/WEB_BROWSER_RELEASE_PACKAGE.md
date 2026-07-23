@@ -403,5 +403,5 @@ lasers, exact-contact markers, semantic XR gameplay input, and the first
 controller-aimed per-eye weapon path are shared engine/provider features, not
 package-shell duplicates. Automated geometry, ordering, input, lifecycle, and
 30-test native evidence passes; physical presentation, loaded-game weapon
-behavior, quick-tap sequencing, comfort locomotion, calibration, and long-play
-browser audio remain separate runtime gates.
+behavior, comfort locomotion, face-button/menu policy, calibration, and
+long-play browser audio remain separate runtime gates.
