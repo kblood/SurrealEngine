@@ -11,6 +11,7 @@
 #include "Utils/Exception.h"
 #include <map>
 #include <cmath>
+#include <limits>
 #include <queue>
 #include <thread>
 #include <chrono>
@@ -230,7 +231,7 @@ public:
 		alListener3f(AL_POSITION, 0, 0, 0.0f);
 		alListener3f(AL_VELOCITY, 0, 0, 0);
 		alListenerfv(AL_ORIENTATION, listenerOri);
-#ifdef AL_METERS_PER_UNIT
+#if defined(AL_METERS_PER_UNIT) && !defined(__EMSCRIPTEN__)
 		alListenerf(AL_METERS_PER_UNIT, 1.f / UU_PER_METER);
 #endif
 
@@ -240,9 +241,29 @@ public:
 		// Init sound sources
 		alcGetIntegerv(alDevice, ALC_MONO_SOURCES, 1, &monoSources);
 		alcGetIntegerv(alDevice, ALC_STEREO_SOURCES, 1, &stereoSources);
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] OpenAL reported mono=" + std::to_string(monoSources) +
+			" stereo=" + std::to_string(stereoSources) + " requested=" + std::to_string(numVoices));
+	#endif
+	#ifdef __EMSCRIPTEN__
+		// Emscripten's WebAudio-backed OpenAL reports INT_MAX for its virtual
+		// source limits. That means "not hardware-limited", not that the engine
+		// should allocate billions of ALSoundSource objects.
+		const ALint requestedSources = std::max<ALint>(1, numVoices);
+		if (monoSources <= 0 || monoSources == std::numeric_limits<ALint>::max())
+			monoSources = requestedSources;
+		else
+			monoSources = std::min(monoSources, requestedSources);
+		// Do not let a non-source initialization error make the first successfully
+		// generated source look like it failed.
+		while (alGetError() != AL_NO_ERROR) { }
+	#endif
 
 		// TODO: how do we prioritize mono vs stereo source count?
 		sources.resize(monoSources);
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] OpenAL allocated voices=" + std::to_string(monoSources));
+	#endif
 
 		// init music source/buffer
 		alGenSources(1, &alMusicSource);
