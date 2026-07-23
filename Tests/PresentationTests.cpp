@@ -1,6 +1,7 @@
 #include "Render/Presentation.h"
 #include "Render/ViewFamily.h"
 
+#include <climits>
 #include <cstdlib>
 #include <iostream>
 
@@ -15,6 +16,26 @@ static void Check(bool condition, const char* message)
 
 int main()
 {
+	auto runtimeAtlas = CreateStereoAtlasLayout(2112, 2304);
+	Check(runtimeAtlas.has_value(), "runtime eye extent did not create a stereo atlas");
+	Check(runtimeAtlas->Atlas.X == 0 && runtimeAtlas->Atlas.Y == 0 &&
+		runtimeAtlas->Atlas.Width == 4224 && runtimeAtlas->Atlas.Height == 2304,
+		"stereo atlas extent does not match two runtime eye images");
+	Check(runtimeAtlas->EyeSources[0].X == 0 &&
+		runtimeAtlas->EyeSources[0].Width == 2112 &&
+		runtimeAtlas->EyeSources[1].X == 2112 &&
+		runtimeAtlas->EyeSources[1].Width == 2112,
+		"stereo atlas eye layout is not contiguous");
+	Check(runtimeAtlas->CopiesExactlyTo(2112, 2304),
+		"runtime atlas unexpectedly requires eye-copy scaling");
+	Check(!runtimeAtlas->CopiesExactlyTo(2048, 2304),
+		"mismatched destination extent was accepted as an exact copy");
+	Check(!CreateStereoAtlasLayout(0, 2304) &&
+		!CreateStereoAtlasLayout(2112, 0),
+		"invalid runtime extent created a stereo atlas");
+	Check(!CreateStereoAtlasLayout(INT_MAX, 2304),
+		"overflowing runtime extent created a stereo atlas");
+
 	PresentationPlan plan;
 	auto defaultWorld = plan.GetLayer(PresentationLayer::World);
 	Check(defaultWorld.Enabled, "unconfigured layers must be enabled");

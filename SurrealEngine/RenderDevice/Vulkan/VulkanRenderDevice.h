@@ -14,6 +14,7 @@
 #include "UploadManager.h"
 #include "VulkanGraphicsBinding.h"
 #include "VulkanPresentationTargets.h"
+#include "Render/ViewFamily.h"
 #include "Math/vec.h"
 #include "Math/mat.h"
 
@@ -124,6 +125,7 @@ private:
 	int ActiveTargetWidth() const;
 	int ActiveTargetHeight() const;
 	void BlitPresentationTarget(VulkanCommandBuffer* cmdbuffer, VkImage windowImage);
+	void ClearStereoPresentationBinding();
 	void ClearTextureCache();
 	void BlitSceneToPostprocess();
 
@@ -161,6 +163,7 @@ private:
 	VkImage PresentationImages[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
 	int PresentationWidth = 0;
 	int PresentationHeight = 0;
+	std::optional<StereoAtlasLayout> PresentationAtlas;
 	bool PresentExternalStereo = false;
 	VulkanPresentationTargets SurfaceBindings;
 	std::map<uint32_t, std::unique_ptr<SurfaceTarget>> SurfaceTargets;

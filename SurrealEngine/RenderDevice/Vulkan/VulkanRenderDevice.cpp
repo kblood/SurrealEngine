@@ -1,6 +1,7 @@
 
 #include "Precomp.h"
 #include "VulkanRenderDevice.h"
+#include "Render/ViewFamily.h"
 #include "CachedTexture.h"
 #include "Utils/Logger.h"
 #include <surrealgpu/vulkanbuilders.h>
@@ -204,10 +205,16 @@ bool VulkanRenderDevice::BindPresentationTarget(const PresentationTargetBinding&
 	if (binding.Images[0].Width <= 0 || binding.Images[0].Height <= 0 ||
 		binding.Images[1].Width != binding.Images[0].Width || binding.Images[1].Height != binding.Images[0].Height)
 		return false;
+	auto atlas = CreateStereoAtlasLayout(binding.Images[0].Width,
+		binding.Images[0].Height);
+	if (!atlas || !atlas->CopiesExactlyTo(binding.Images[0].Width,
+		binding.Images[0].Height))
+		return false;
 	PresentationImages[0] = (VkImage)binding.Images[0].NativeHandle;
 	PresentationImages[1] = (VkImage)binding.Images[1].NativeHandle;
 	PresentationWidth = binding.Images[0].Width;
 	PresentationHeight = binding.Images[0].Height;
+	PresentationAtlas = atlas;
 	PresentExternalStereo = true;
 	return true;
 }
@@ -222,10 +229,16 @@ void VulkanRenderDevice::UnbindPresentationTarget(PresentationTarget target)
 	}
 	if (IsLocked)
 		return;
+	ClearStereoPresentationBinding();
+}
+
+void VulkanRenderDevice::ClearStereoPresentationBinding()
+{
 	PresentationImages[0] = VK_NULL_HANDLE;
 	PresentationImages[1] = VK_NULL_HANDLE;
 	PresentationWidth = 0;
 	PresentationHeight = 0;
+	PresentationAtlas.reset();
 	PresentExternalStereo = false;
 }
 
@@ -525,12 +538,19 @@ void VulkanRenderDevice::Lock(vec4 InFlashScale, vec4 InFlashFog, vec4 ScreenCle
 	pushconstants.hitIndex = 0;
 	ForceHitIndex = -1;
 
-	// If frame textures no longer match the window or user settings, recreate them along with the swap chain
-	if (!Textures->Scene || Textures->Scene->Width != Viewport->GetNativePixelWidth() || Textures->Scene->Height != Viewport->GetNativePixelHeight() ||Textures->Scene->Multisample != GetSettingsMultisample())
+	// Native stereo renders at the runtime eye extent; all other frames retain
+	// the window-sized scene target.
+	const int sceneWidth = PresentationAtlas ? PresentationAtlas->Atlas.Width :
+		Viewport->GetNativePixelWidth();
+	const int sceneHeight = PresentationAtlas ? PresentationAtlas->Atlas.Height :
+		Viewport->GetNativePixelHeight();
+	if (!Textures->Scene || Textures->Scene->Width != sceneWidth ||
+		Textures->Scene->Height != sceneHeight || Textures->Scene->Multisample != GetSettingsMultisample())
 	{
 		Framebuffers->DestroySceneFramebuffer();
 		Textures->Scene.reset();
-		Textures->Scene.reset(new SceneTextures(this, Viewport->GetNativePixelWidth(), Viewport->GetNativePixelHeight(), GetSettingsMultisample()));
+		Textures->Scene.reset(new SceneTextures(this, sceneWidth, sceneHeight,
+			GetSettingsMultisample()));
 		RenderPasses->CreateRenderPass();
 		RenderPasses->CreatePipelines();
 		Framebuffers->CreateSceneFramebuffer();
@@ -1813,13 +1833,86 @@ void VulkanRenderDevice::DrawPresentTexture(int width, int height)
 
 void VulkanRenderDevice::BlitPresentationTarget(VulkanCommandBuffer* cmdbuffer, VkImage windowImage)
 {
-	int sourceWidth = Commands->SwapChain->Width();
-	int sourceHeight = Commands->SwapChain->Height();
-	int leftWidth = sourceWidth / 2;
+	if (!PresentationAtlas ||
+		!PresentationAtlas->CopiesExactlyTo(PresentationWidth, PresentationHeight) ||
+		Textures->Scene->Width != PresentationAtlas->Atlas.Width ||
+		Textures->Scene->Height != PresentationAtlas->Atlas.Height)
+	{
+		PipelineBarrier()
+			.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+				VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+				VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0)
+			.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+		ClearStereoPresentationBinding();
+		return;
+	}
+
+	PresentPushConstants presentation = GetPresentPushConstants();
+	int presentShader = 0;
+	if (GammaMode == 1)
+		presentShader |= 2;
+	if (presentation.Brightness != 0.0f || presentation.Contrast != 1.0f ||
+		presentation.Saturation != 1.0f)
+		presentShader |= (clamp(GrayFormula, 0, 2) + 1) << 2;
+
+	VkViewport atlasViewport = {};
+	atlasViewport.width = static_cast<float>(PresentationAtlas->Atlas.Width);
+	atlasViewport.height = static_cast<float>(PresentationAtlas->Atlas.Height);
+	atlasViewport.maxDepth = 1.0f;
+	VkRect2D atlasScissor = {};
+	atlasScissor.extent.width = PresentationAtlas->Atlas.Width;
+	atlasScissor.extent.height = PresentationAtlas->Atlas.Height;
+
 	PipelineBarrier()
-		.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT)
-		.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+		.AddImage(Textures->Scene->PPImage[1].get(), VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0,
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+		.Execute(cmdbuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+	RenderPassBegin()
+		.RenderPass(RenderPasses->Postprocess.RenderPass.get())
+		.Framebuffer(Framebuffers->PPImageFB[1].get())
+		.RenderArea(0, 0, PresentationAtlas->Atlas.Width,
+			PresentationAtlas->Atlas.Height)
+		.AddClearColor(0.0f, 0.0f, 0.0f, 1.0f)
+		.Execute(cmdbuffer);
+	cmdbuffer->setViewport(0, 1, &atlasViewport);
+	cmdbuffer->setScissor(0, 1, &atlasScissor);
+	cmdbuffer->bindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS,
+		RenderPasses->Present.ScreenshotPipeline[presentShader].get());
+	cmdbuffer->bindDescriptorSet(VK_PIPELINE_BIND_POINT_GRAPHICS,
+		RenderPasses->Present.PipelineLayout.get(), 0,
+		DescriptorSets->GetPresentSet());
+	cmdbuffer->pushConstants(RenderPasses->Present.PipelineLayout.get(),
+		VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PresentPushConstants), &presentation);
+	cmdbuffer->draw(6, 1, 0, 0);
+	cmdbuffer->endRenderPass();
+	PipelineBarrier()
+		.AddImage(Textures->Scene->PPImage[1].get(),
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT)
+		.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+	static int extentLogCount = 0;
+	static int loggedWidth = 0;
+	static int loggedHeight = 0;
+	if (extentLogCount < 4 && (loggedWidth != PresentationWidth ||
+		loggedHeight != PresentationHeight))
+	{
+		loggedWidth = PresentationWidth;
+		loggedHeight = PresentationHeight;
+		extentLogCount++;
+		LogMessage("OpenXR stereo atlas " +
+			std::to_string(PresentationAtlas->Atlas.Width) + "x" +
+			std::to_string(PresentationAtlas->Atlas.Height) +
+			" -> two exact " + std::to_string(PresentationWidth) + "x" +
+			std::to_string(PresentationHeight) + " eye copies; mirror " +
+			std::to_string(Commands->SwapChain->Width()) + "x" +
+			std::to_string(Commands->SwapChain->Height()));
+	}
 
 	for (int eye = 0; eye < 2; eye++)
 	{
@@ -1830,13 +1923,16 @@ void VulkanRenderDevice::BlitPresentationTarget(VulkanCommandBuffer* cmdbuffer, 
 		VkImageBlit blit = {};
 		blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		blit.srcSubresource.layerCount = 1;
-		blit.srcOffsets[0] = { eye == 0 ? 0 : leftWidth, 0, 0 };
-		blit.srcOffsets[1] = { eye == 0 ? leftWidth : sourceWidth, sourceHeight, 1 };
+		const ViewRect& source = PresentationAtlas->EyeSources[eye];
+		blit.srcOffsets[0] = { source.X, source.Y, 0 };
+		blit.srcOffsets[1] = { source.X + source.Width,
+			source.Y + source.Height, 1 };
 		blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		blit.dstSubresource.layerCount = 1;
 		blit.dstOffsets[1] = { PresentationWidth, PresentationHeight, 1 };
-		cmdbuffer->blitImage(windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			PresentationImages[eye], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+		cmdbuffer->blitImage(Textures->Scene->PPImage[1]->image,
+			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, PresentationImages[eye],
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
 
 		PipelineBarrier()
 			.AddImage(PresentationImages[eye], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -1845,7 +1941,10 @@ void VulkanRenderDevice::BlitPresentationTarget(VulkanCommandBuffer* cmdbuffer, 
 	}
 
 	PipelineBarrier()
-		.AddImage(windowImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_TRANSFER_READ_BIT, 0)
-		.Execute(cmdbuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
-	UnbindPresentationTarget({ ExternalStereoTargetSlot });
+		.AddImage(windowImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0)
+		.Execute(cmdbuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+	ClearStereoPresentationBinding();
 }

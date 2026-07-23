@@ -1,5 +1,33 @@
 #include "Render/ViewFamily.h"
 
+#include <limits>
+
+bool StereoAtlasLayout::CopiesExactlyTo(int eyeWidth, int eyeHeight) const
+{
+	return eyeWidth > 0 && eyeHeight > 0 &&
+		eyeWidth <= std::numeric_limits<int>::max() / 2 &&
+		Atlas.X == 0 && Atlas.Y == 0 && Atlas.Width == eyeWidth * 2 &&
+		Atlas.Height == eyeHeight &&
+		EyeSources[0].X == 0 && EyeSources[0].Y == 0 &&
+		EyeSources[0].Width == eyeWidth && EyeSources[0].Height == eyeHeight &&
+		EyeSources[1].X == eyeWidth && EyeSources[1].Y == 0 &&
+		EyeSources[1].Width == eyeWidth && EyeSources[1].Height == eyeHeight;
+}
+
+std::optional<StereoAtlasLayout> CreateStereoAtlasLayout(int eyeWidth,
+	int eyeHeight)
+{
+	if (eyeWidth <= 0 || eyeHeight <= 0 ||
+		eyeWidth > std::numeric_limits<int>::max() / 2)
+		return {};
+
+	StereoAtlasLayout layout;
+	layout.Atlas = { 0, 0, eyeWidth * 2, eyeHeight };
+	layout.EyeSources[0] = { 0, 0, eyeWidth, eyeHeight };
+	layout.EyeSources[1] = { eyeWidth, 0, eyeWidth, eyeHeight };
+	return layout;
+}
+
 bool ShouldRenderWeaponPerView(const ViewFamily& family)
 {
 	const PresentationLayerDescription world =

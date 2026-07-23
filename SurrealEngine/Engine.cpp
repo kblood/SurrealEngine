@@ -504,9 +504,14 @@ void Engine::RunOneFrame()
 		binding.Target = target;
 		for (void* image : images)
 			binding.Images.push_back({ image, openXR->SwapchainWidth(), openXR->SwapchainHeight() });
-		ViewRect output{ viewport->ViewportX(), viewport->ViewportY(), viewport->ViewportWidth(), viewport->ViewportHeight() };
-		ViewFamily xrViews = openXRViews.CreateViewFamily(eyes, CameraLocation, CameraRotation, output);
-		if (xrViews.Views.size() == 2 && render->Device->BindPresentationTarget(binding))
+		auto atlas = CreateStereoAtlasLayout(openXR->SwapchainWidth(),
+			openXR->SwapchainHeight());
+		ViewFamily xrViews;
+		if (atlas)
+			xrViews = openXRViews.CreateViewFamily(eyes, CameraLocation,
+				CameraRotation, atlas->Atlas);
+		if (atlas && xrViews.Views.size() == 2 &&
+			render->Device->BindPresentationTarget(binding))
 		{
 			xrViews.Presentation.SetLayer(PresentationLayer::World, target);
 			xrViews.Presentation.SetLayer(PresentationLayer::WeaponOverlay, target);

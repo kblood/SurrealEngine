@@ -6,6 +6,8 @@
 #include "Render/Presentation.h"
 #include "Utils/Array.h"
 
+#include <optional>
+
 struct ViewRect
 {
 	int X = 0;
@@ -13,6 +15,20 @@ struct ViewRect
 	int Width = 0;
 	int Height = 0;
 };
+
+// A side-by-side source atlas whose halves match two equal-sized destination
+// images. Providers which render directly into independent eye images do not
+// use this layout.
+struct StereoAtlasLayout
+{
+	ViewRect Atlas;
+	ViewRect EyeSources[2];
+
+	bool CopiesExactlyTo(int eyeWidth, int eyeHeight) const;
+};
+
+std::optional<StereoAtlasLayout> CreateStereoAtlasLayout(int eyeWidth,
+	int eyeHeight);
 
 // Describes one camera view of an already-advanced game frame. The transform
 // and viewport are always explicit. Projection is optional so the ordinary

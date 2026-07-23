@@ -62,11 +62,18 @@ int main()
 	questEyes[1].AngleRight = Radians(54.0f);
 	questEyes[1].AngleUp = Radians(44.0f);
 	questEyes[1].AngleDown = Radians(-55.0f);
+	auto questAtlas = CreateStereoAtlasLayout(2112, 2304);
+	Check(questAtlas.has_value(), "Quest runtime extent did not produce a stereo atlas");
 	OpenXRViewTranslator questTranslator;
 	ViewFamily questFamily = questTranslator.CreateViewFamily(questEyes, {},
-		Rotator(), { 0, 0, 4224, 2304 });
+		Rotator(), questAtlas->Atlas);
 	for (int eye = 0; eye < 2; eye++)
 	{
+		Check(questFamily.Views[eye].Viewport.X == questAtlas->EyeSources[eye].X &&
+			questFamily.Views[eye].Viewport.Y == questAtlas->EyeSources[eye].Y &&
+			questFamily.Views[eye].Viewport.Width == questAtlas->EyeSources[eye].Width &&
+			questFamily.Views[eye].Viewport.Height == questAtlas->EyeSources[eye].Height,
+			"OpenXR view does not fill its exact runtime-sized atlas half");
 		const mat4 expected = mat4::frustum(
 			std::tan(questEyes[eye].AngleLeft), std::tan(questEyes[eye].AngleRight),
 			-std::tan(questEyes[eye].AngleUp), -std::tan(questEyes[eye].AngleDown),
@@ -96,7 +103,7 @@ int main()
 	OpenXRViewTranslator rotatedTranslator;
 	ViewFamily rotatedFamily = rotatedTranslator.CreateViewFamily(rotatedEyes,
 		{ 123.0f, -456.0f, 789.0f }, Rotator(2800, -6100, 1900),
-		{ 0, 0, 4224, 2304 });
+		questAtlas->Atlas);
 	for (const ViewDescription& view : rotatedFamily.Views)
 	{
 		Check(Near(view.WorldToView * vec4(view.Location, 1.0f),
