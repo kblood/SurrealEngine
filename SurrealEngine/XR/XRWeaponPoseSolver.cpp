@@ -119,11 +119,19 @@ XRWeaponPoseResult SolveXRWeaponPose(const XREnginePose& gripPose, const XREngin
 	};
 	if (!IsValid(visualPose))
 		return {};
+	const XREngineVector3 visualForward = Normalize(Rotate(visualPose.Orientation, { 1.0f, 0.0f, 0.0f }));
+	const XREngineVector3 visualRight = Normalize(Rotate(visualPose.Orientation, { 0.0f, 1.0f, 0.0f }));
+	const XREngineVector3 visualUp = Normalize(Rotate(visualPose.Orientation, { 0.0f, 0.0f, 1.0f }));
+	if (!IsFinite(visualForward) || !IsFinite(visualRight) || !IsFinite(visualUp))
+		return {};
 
 	XRWeaponPoseResult result;
 	result.Valid = true;
 	result.Hand = dominantHand;
 	result.VisualPose = visualPose;
+	result.VisualForward = visualForward;
+	result.VisualRight = visualRight;
+	result.VisualUp = visualUp;
 	result.AimDirection = aimDirection;
 	result.Scale = options.Scale;
 	result.Mirror = options.Mirror;

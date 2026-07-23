@@ -131,6 +131,9 @@ namespace
 		Require(openXR.Valid && webXR.Valid, "canonical provider samples were rejected");
 		Require(NearlyEqual(openXR.VisualPose.Position, webXR.VisualPose.Position) &&
 			Equivalent(openXR.VisualPose.Orientation, webXR.VisualPose.Orientation) &&
+			NearlyEqual(openXR.VisualForward, webXR.VisualForward) &&
+			NearlyEqual(openXR.VisualRight, webXR.VisualRight) &&
+			NearlyEqual(openXR.VisualUp, webXR.VisualUp) &&
 			NearlyEqual(openXR.AimDirection, webXR.AimDirection) &&
 			NearlyEqual(openXR.Scale, webXR.Scale) && openXR.Mirror == webXR.Mirror,
 			"identical OpenXR and WebXR canonical samples produced different weapon transforms");
@@ -150,17 +153,35 @@ namespace
 		const XRWeaponPoseResult result = SolveXRWeaponPose(Pose({}, orientation), Pose({}, orientation), XRHand::Right);
 		Require(result.Valid, "finite non-unit yaw/pitch/roll pose was rejected");
 
-		const XREngineVector3 forward = Rotate(result.VisualPose.Orientation, { 1.0f, 0.0f, 0.0f });
-		const XREngineVector3 right = Rotate(result.VisualPose.Orientation, { 0.0f, 1.0f, 0.0f });
-		const XREngineVector3 up = Rotate(result.VisualPose.Orientation, { 0.0f, 0.0f, 1.0f });
+		const XREngineVector3 forward = result.VisualForward;
+		const XREngineVector3 right = result.VisualRight;
+		const XREngineVector3 up = result.VisualUp;
 		Require(NearlyEqual(Length(forward), 1.0f) && NearlyEqual(Length(right), 1.0f) &&
 			NearlyEqual(Length(up), 1.0f), "weapon orientation basis was not normalized");
 		Require(NearlyEqual(Dot(forward, right), 0.0f) && NearlyEqual(Dot(forward, up), 0.0f) &&
 			NearlyEqual(Dot(right, up), 0.0f), "weapon orientation basis was not orthogonal");
 		Require(NearlyEqual(Dot(Cross(forward, right), up), 1.0f),
 			"weapon orientation basis was reflected or left handed");
+		Require(NearlyEqual(forward, Rotate(result.VisualPose.Orientation, { 1.0f, 0.0f, 0.0f })) &&
+			NearlyEqual(right, Rotate(result.VisualPose.Orientation, { 0.0f, 1.0f, 0.0f })) &&
+			NearlyEqual(up, Rotate(result.VisualPose.Orientation, { 0.0f, 0.0f, 1.0f })),
+			"exposed visual basis did not match the solved orientation");
 		Require(NearlyEqual(Length(result.AimDirection), 1.0f) && NearlyEqual(result.AimDirection, forward),
 			"yaw/pitch/roll aim direction was not normalized from the aim pose");
+	}
+
+	void TestLocalRollPreservation()
+	{
+		XRWeaponPoseOptions options;
+		options.LocalRotation = AxisAngle(1.0f, 0.0f, 0.0f, Pi * 0.5f);
+		const XRWeaponPoseResult result = SolveXRWeaponPose(Pose(), Pose(), XRHand::Right, options);
+		Require(result.Valid && NearlyEqual(result.VisualForward, { 1.0f, 0.0f, 0.0f }),
+			"local roll changed the visual forward axis");
+		Require(NearlyEqual(result.VisualRight, { 0.0f, 0.0f, 1.0f }) &&
+			NearlyEqual(result.VisualUp, { 0.0f, -1.0f, 0.0f }),
+			"local roll was not preserved in the exposed visual right/up basis");
+		Require(NearlyEqual(result.AimDirection, { 1.0f, 0.0f, 0.0f }),
+			"local visual roll changed the independent aim direction");
 	}
 
 	void TestLocalPoseOffsetsAndMirrorMetadata()
@@ -190,7 +211,8 @@ namespace
 	void RequireNoOp(const XRWeaponPoseResult& result, const char* message)
 	{
 		Require(!result.Valid && !result.VisualPose.Valid && NearlyEqual(result.VisualPose.Position, {}) &&
-			NearlyEqual(result.AimDirection, {}), message);
+			NearlyEqual(result.VisualForward, {}) && NearlyEqual(result.VisualRight, {}) &&
+			NearlyEqual(result.VisualUp, {}) && NearlyEqual(result.AimDirection, {}), message);
 	}
 
 	void TestInvalidInputsAreNoOp()
@@ -241,6 +263,7 @@ int main()
 		TestDefaultsAndAimGripSeparation();
 		TestCanonicalProviderParity();
 		TestYawPitchRollBasis();
+		TestLocalRollPreservation();
 		TestLocalPoseOffsetsAndMirrorMetadata();
 		TestInvalidInputsAreNoOp();
 		std::cout << "XR weapon pose solver tests passed\n";

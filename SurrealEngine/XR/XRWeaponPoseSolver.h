@@ -22,6 +22,9 @@ struct XRWeaponPoseResult
 	bool Valid = false;
 	XRHand Hand = XRHand::Right;
 	XREnginePose VisualPose;
+	XREngineVector3 VisualForward;
+	XREngineVector3 VisualRight;
+	XREngineVector3 VisualUp;
 	XREngineVector3 AimDirection;
 	float Scale = 5.0f;
 	bool Mirror = false;
