@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Pointer lock gesture test</title>
+<canvas id="canvas" width="320" height="200"></canvas>
+<script src="pointer_lock_gesture.js"></script>
+<script>
+	let lockedElement = null;
+	let exits = 0;
+	Object.defineProperty(document, "pointerLockElement", {
+		configurable: true,
+		get() { return lockedElement; },
+	});
+	document.exitPointerLock = function () {
+		exits++;
+		lockedElement = null;
+		document.dispatchEvent(new Event("pointerlockchange"));
+		return Promise.resolve();
+	};
+	const canvas = document.getElementById("canvas");
+	canvas.requestPointerLock = function () {
+		lockedElement = canvas;
+		document.dispatchEvent(new Event("pointerlockchange"));
+		return Promise.resolve();
+	};
+	window.pointerLockTest = {
+		canvas,
+		get exits() { return exits; },
+		failNextRequest() {
+			canvas.requestPointerLock = function () {
+				return Promise.reject(new DOMException("synthetic denial", "NotAllowedError"));
+			};
+		},
+	};
+	SurrealBrowserPointerLock.setRequested(true);
+	window.pointerLockTestReady = true;
+</script>

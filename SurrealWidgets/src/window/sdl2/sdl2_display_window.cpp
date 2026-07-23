@@ -3,6 +3,16 @@
 #include <vector>
 #include <string>
 #include <SDL2/SDL_vulkan.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include <emscripten/html5.h>
+
+EM_JS(void, surreal_browser_pointer_lock_requested, (int requested), {
+	if (globalThis.SurrealBrowserPointerLock)
+		globalThis.SurrealBrowserPointerLock.setRequested(requested !== 0);
+});
+
+#endif
 
 Uint32 SDL2DisplayWindow::PaintEventNumber = 0xffffffff;
 bool SDL2DisplayWindow::ExitRunLoop;
@@ -180,20 +190,34 @@ void SDL2DisplayWindow::UnlockKeyboard()
 
 void SDL2DisplayWindow::LockCursor()
 {
+#ifdef __EMSCRIPTEN__
+	// Pointer lock requires a trusted user gesture. The browser helper records
+	// intent here and performs the request from the canvas mousedown handler.
+	surreal_browser_pointer_lock_requested(1);
+	EmscriptenPointerlockChangeEvent status = {};
+	CursorLocked = emscripten_get_pointerlock_status(&status) == EMSCRIPTEN_RESULT_SUCCESS &&
+		status.isActive;
+#else
 	if (!CursorLocked)
 	{
 		SDL_SetRelativeMouseMode(SDL_TRUE);
 		CursorLocked = true;
 	}
+#endif
 }
 
 void SDL2DisplayWindow::UnlockCursor()
 {
+#ifdef __EMSCRIPTEN__
+	surreal_browser_pointer_lock_requested(0);
+	CursorLocked = false;
+#else
 	if (CursorLocked)
 	{
 		SDL_SetRelativeMouseMode(SDL_FALSE);
 		CursorLocked = false;
 	}
+#endif
 }
 
 void SDL2DisplayWindow::CaptureMouse()

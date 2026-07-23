@@ -382,6 +382,7 @@
 			try { finishedSession.cancelAnimationFrame(pendingFrame); } catch (_) {}
 		}
 		session = null;
+		if (root.SurrealBrowserPointerLock) root.SurrealBrowserPointerLock.setXRActive(false);
 		referenceSpace = null;
 		binding = null;
 		projectionLayer = null;
@@ -568,6 +569,7 @@
 				return false;
 			}
 			session = requestedSession;
+			if (root.SurrealBrowserPointerLock) root.SurrealBrowserPointerLock.setXRActive(true);
 			session.addEventListener("end", function () { finish(generation, "ended", null); });
 			enterPending = false;
 			status.phase = "session-reserved";
