@@ -13,6 +13,7 @@
 			this.state = this.root && this.root.querySelector("[data-audio-state]");
 			this.error = this.root && this.root.querySelector("[data-audio-error]");
 			this.onUnlock = () => this.resume(); this.onOutput = () => this.setOutput();
+			this.onXRUserActivation = () => { if (this.started) this.resume(); };
 			this.onVisibility = () => this.environment.document && this.environment.document.visibilityState === "hidden" ? this.suspend() : this.refresh();
 			this.onPageHide = () => this.shutdown(); this.onPresentation = () => this.refresh();
 			this.onNativeCallGate = () => {
@@ -30,11 +31,12 @@
 			if (this.environment.document) this.environment.document.addEventListener("visibilitychange", this.onVisibility);
 			this.environment.addEventListener("pagehide", this.onPageHide);
 			this.environment.addEventListener("surrealwebxrpresentation", this.onPresentation);
+			this.environment.addEventListener("surrealwebxraudiogesture", this.onXRUserActivation);
 			this.environment.addEventListener("surrealnativecallgatechange", this.onNativeCallGate);
 			this.refresh();
 		}
 		attachModule(Module) { this.Module = Module || null; this.refresh(); return this; }
-		engineStarted() { this.started = true; this.setOutput(); this.refresh(); }
+		engineStarted() { this.started = true; this.setOutput(); return this.resume(); }
 		call(name, returnType, argumentTypes, args) {
 			if (!this.Module || typeof this.Module.ccall !== "function") return null;
 			if (this.environment.surrealXRNativeCallsBlocked === true) return null;
