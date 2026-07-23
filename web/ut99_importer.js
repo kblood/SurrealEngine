@@ -86,13 +86,13 @@
 			detectionAny: Object.freeze(["maps/dm-morpheusdemo.unr", "maps/ctf-coretdemo.unr", "maps/dom-sesmardemo.unr"]),
 			developerDetectionAny: Object.freeze(["Maps/DM-MorpheusDEMO.unr", "Maps/CTF-CoretDEMO.unr", "Maps/DOM-SesmarDEMO.unr"]),
 		}),
-		"unreal-demo-205": Object.freeze({
-			id: "unreal-demo-205",
-			name: "Unreal Special Edition / OEM 205 (experimental)",
-			defaultMap: "Vortex2",
+		"unreal-demo-200": Object.freeze({
+			id: "unreal-demo-200",
+			name: "Unreal Special Edition Demo 200 (experimental)",
+			defaultMap: "Unreal",
 			executables: Object.freeze(["Unreal.exe"]),
 			executableSHA1: "b851dcc69c4f773252c0498bd12756d90bcb59c2",
-			version: "205",
+			version: "200",
 			demo: true,
 			experimental: true,
 			requiredPackages: Object.freeze(["Core.u", "Engine.u", "UnrealI.u", "UnrealIOrder.u"]),

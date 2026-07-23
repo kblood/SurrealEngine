@@ -222,10 +222,12 @@ ExpressionValue Frame::Call(UFunction* func, UObject* instance, Array<Expression
 		UProperty* prop = UObject::TryCast<UProperty>(field);
 		if (prop)
 		{
-			if (argindex == args.size() && AllFlags(prop->PropFlags, PropertyFlags::Parm | PropertyFlags::OptionalParm))
+			const bool isArgument = AllFlags(prop->PropFlags, PropertyFlags::Parm) &&
+				!AllFlags(prop->PropFlags, PropertyFlags::ReturnParm);
+			if (isArgument && argindex == args.size() && AllFlags(prop->PropFlags, PropertyFlags::OptionalParm))
 				args.push_back(ExpressionValue::NothingValue());
 
-			if (AllFlags(prop->PropFlags, PropertyFlags::Parm))
+			if (isArgument)
 				argindex++;
 		}
 	}
@@ -263,7 +265,9 @@ ExpressionValue Frame::CallScript(UFunction* func, UObject* instance, Array<Expr
 		if (prop)
 		{
 			ExpressionValue lvalue = ExpressionValue::Variable(frame.Variables->Data, prop);
-			if (AllFlags(prop->PropFlags, PropertyFlags::Parm))
+			const bool isArgument = AllFlags(prop->PropFlags, PropertyFlags::Parm) &&
+				!AllFlags(prop->PropFlags, PropertyFlags::ReturnParm);
+			if (isArgument)
 			{
 				if (argindex < args.size())
 				{
@@ -290,7 +294,9 @@ ExpressionValue Frame::CallScript(UFunction* func, UObject* instance, Array<Expr
 		{
 			ExpressionValue lvalue = ExpressionValue::Variable(frame.Variables->Data, prop);
 
-			if (AllFlags(prop->PropFlags, PropertyFlags::Parm | PropertyFlags::OutParm) && argindex < args.size())
+			const bool isArgument = AllFlags(prop->PropFlags, PropertyFlags::Parm) &&
+				!AllFlags(prop->PropFlags, PropertyFlags::ReturnParm);
+			if (isArgument && AllFlags(prop->PropFlags, PropertyFlags::OutParm) && argindex < args.size())
 			{
 				args[argindex].Store(lvalue);
 			}
@@ -300,7 +306,7 @@ ExpressionValue Frame::CallScript(UFunction* func, UObject* instance, Array<Expr
 				result = ExpressionValue::DefaultValue(prop);
 			}
 
-			if (AllFlags(prop->PropFlags, PropertyFlags::Parm))
+			if (isArgument)
 				argindex++;
 		}
 	}

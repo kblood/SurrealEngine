@@ -5,6 +5,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 namespace
@@ -54,12 +55,28 @@ void ScanAuditFolder(const char* path, KnownUE1Games expectedId, const char* exp
 	Engine engineInstance(launchInfo);
 	std::cout << std::filesystem::path(path).filename().string() << ": detection and package scan passed" << std::endl;
 }
+
+int RunIsolatedAuditFolder(const char* executable, const char* path)
+{
+	// Engine construction registers process-global VM native functions. Run each
+	// real-data scan in a fresh process so one game's native table cannot leak
+	// into the next scan and make the result depend on argument order.
+	std::ostringstream command;
+#ifdef _WIN32
+	// cmd.exe requires an extra enclosing pair when the command itself starts
+	// with a quoted executable path.
+	command << "\"\"" << executable << "\" \"" << path << "\"\"";
+#else
+	command << '"' << executable << "\" \"" << path << '"';
+#endif
+	return std::system(command.str().c_str());
+}
 }
 
 int main(int argc, char** argv)
 {
 	CheckDescriptor("4bb5e71f78cf4806d9240df01f72236134af4a31", KnownUE1Games::UT99_348_DEMO, "UnrealTournament.exe", 348, 348, "348demo");
-	CheckDescriptor("b851dcc69c4f773252c0498bd12756d90bcb59c2", KnownUE1Games::UNREAL_205_DEMO, "Unreal.exe", 205, 205, "205");
+	CheckDescriptor("b851dcc69c4f773252c0498bd12756d90bcb59c2", KnownUE1Games::UNREAL_200_DEMO, "Unreal.exe", 200, 200, "200");
 	CheckDescriptor("4be582d4194400e87f64894c92b3f2119e012251", KnownUE1Games::DEUS_EX_1002f_DEMO, "DeusEx.exe", 500, 1002, "1002f_DEMO");
 
 	// Preserve the existing retail identity next to the demo identity.
@@ -71,16 +88,13 @@ int main(int argc, char** argv)
 	// Optional read-only validation against locally extracted audit folders.
 	if (argc == 4)
 	{
-		try
+		for (int index = 1; index != 4; index++)
 		{
-			ScanAuditFolder(argv[1], KnownUE1Games::UT99_348_DEMO, "UnrealTournament.exe");
-			ScanAuditFolder(argv[2], KnownUE1Games::UNREAL_205_DEMO, "Unreal.exe");
-			ScanAuditFolder(argv[3], KnownUE1Games::DEUS_EX_1002f_DEMO, "DeusEx.exe");
-		}
-		catch (const std::exception& error)
-		{
-			std::cerr << "package scan failed: " << error.what() << std::endl;
-			return 2;
+			if (RunIsolatedAuditFolder(argv[0], argv[index]) != 0)
+			{
+				std::cerr << "isolated package scan failed for " << argv[index] << std::endl;
+				return 2;
+			}
 		}
 	}
 	else if (argc == 2)
@@ -90,7 +104,7 @@ int main(int argc, char** argv)
 			const auto detected = FindUE1GameInPath(argv[1]);
 			if (detected.first == KnownUE1Games::UT99_348_DEMO)
 				ScanAuditFolder(argv[1], detected.first, "UnrealTournament.exe");
-			else if (detected.first == KnownUE1Games::UNREAL_205_DEMO)
+			else if (detected.first == KnownUE1Games::UNREAL_200_DEMO)
 				ScanAuditFolder(argv[1], detected.first, "Unreal.exe");
 			else if (detected.first == KnownUE1Games::DEUS_EX_1002f_DEMO)
 				ScanAuditFolder(argv[1], detected.first, "DeusEx.exe");

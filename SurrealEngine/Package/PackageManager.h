@@ -51,6 +51,7 @@ public:
 	fs::path GetCacheFolderPath() const { return gameCacheFolderPath; }
 
 	Package* GetPackage(const NameString& name);
+	bool HasPackage(const NameString& name) const;
 	Array<NameString> GetPackageNames() const;
 	Package* GetSaveInfoPackage(const NameString& saveFolderName);
 	void RemoveSaveInfoPackage(const NameString& saveFolderName);

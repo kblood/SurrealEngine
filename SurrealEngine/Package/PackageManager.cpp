@@ -103,6 +103,12 @@ Package* PackageManager::GetPackage(const NameString& name)
 	return package.get();
 }
 
+bool PackageManager::HasPackage(const NameString& name) const
+{
+	return packageFilenames.find(name) != packageFilenames.end() ||
+		packages.find(name) != packages.end();
+}
+
 Package* PackageManager::LoadMap(const std::string& path)
 {
 	const auto mapPath = convert_path_separators(path);
@@ -455,6 +461,9 @@ std::unique_ptr<IniFile>& PackageManager::LoadIniFile(NameString iniName)
 
 std::unique_ptr<IniFile>& PackageManager::LoadUserIniFile()
 {
+	if (launchInfo.ue1Version <= 219)
+		return LoadSystemIniFile();
+
 	if (IsKlingonHonorGuard())
 	{
 		// User.ini contents are in the system ini file
@@ -601,11 +610,16 @@ void PackageManager::LoadEngineIniFiles()
 		{
 			userIniName = userIniName.substr(3); // Trim off the "SE-" part
 			if (!File::try_open_existing((gameSystemFolderPath / userIniName).string()))
+			{
 				userIniName = "DefUser.ini";
+				if (!File::try_open_existing((gameSystemFolderPath / userIniName).string()))
+					userIniName = "Default.ini";
+			}
 		}
 
 		iniFiles["User"] = std::make_unique<IniFile>((gameSystemFolderPath / userIniName).string());
-		defaultUserFile = std::make_unique<IniFile>((gameSystemFolderPath / "DefUser.ini").string());
+		const auto defaultUserIniName = File::try_open_existing((gameSystemFolderPath / "DefUser.ini").string()) ? "DefUser.ini" : "Default.ini";
+		defaultUserFile = std::make_unique<IniFile>((gameSystemFolderPath / defaultUserIniName).string());
 	}
 }
 
@@ -981,7 +995,7 @@ void PackageManager::RegisterNativeClasses()
 	RegisterNativeClass<UTcpLink>(ipdrvPackage, "TcpLink", "InternetLink");
 	RegisterNativeClass<UUdpLink>(ipdrvPackage, "UdpLink", "InternetLink");
 
-	if (IsUnreal1())
+	if (IsUnreal1() && HasPackage(upakPackage))
 	{
 		RegisterNativeClass<UPakPathNodeIterator>(upakPackage, "PathNodeIterator", "Actor");
 		RegisterNativeClass<UPakPawnPathNodeIterator>(upakPackage, "PawnPathNodeIterator", "PathNodeIterator");

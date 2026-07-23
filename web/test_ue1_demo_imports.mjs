@@ -28,12 +28,12 @@ const distributions = [
 		map: "DM-MorpheusDEMO",
 	},
 	{
-		id: "unreal-demo-205",
+		id: "unreal-demo-200",
 		hash: "b851dcc69c4f773252c0498bd12756d90bcb59c2",
-		version: "205",
+		version: "200",
 		paths: ["System/Core.u", "System/Engine.u", "System/UnrealI.u", "System/UnrealIOrder.u", "System/Unreal.exe", "System/Default.ini",
-			"Maps/Vortex2.unr", "Textures/Ancient.utx", "Sounds/VRikers.uax", "Music/Vortex.umx"],
-		map: "Vortex2",
+			"Maps/Unreal.unr", "Textures/Ancient.utx", "Sounds/VRikers.uax", "Music/Vortex.umx"],
+		map: "Unreal",
 	},
 	{
 		id: "deus-ex-demo-1002f",

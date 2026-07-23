@@ -5563,7 +5563,7 @@ void InitPropertyOffsets(PackageManager* packages)
 	InitPropertyOffsets_UdpLink(packages);
 	InitPropertyOffsets_TcpLink(packages);
 	InitPropertyOffsets_RMusic_Player(packages);
-	if (packages->IsUnreal1())
+	if (packages->IsUnreal1() && packages->HasPackage("UPak"))
 	{
 		InitPropertyOffsets_UPakPathNodeIterator(packages);
 		InitPropertyOffsets_UPakPawnPathNodeIterator(packages);

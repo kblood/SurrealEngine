@@ -5,7 +5,7 @@
 #include <iostream>
 
 static const UE1GameCompatibilityDescriptor DemoCompatibilityDescriptors[] = {
-	{ KnownUE1Games::UNREAL_205_DEMO, "b851dcc69c4f773252c0498bd12756d90bcb59c2", "Unreal.exe", "Unreal Special Edition Demo (experimental)", 205, 205, 0, "205", true, true },
+	{ KnownUE1Games::UNREAL_200_DEMO, "b851dcc69c4f773252c0498bd12756d90bcb59c2", "Unreal.exe", "Unreal Special Edition Demo (experimental)", 200, 200, 0, "200", true, true },
 	{ KnownUE1Games::UT99_348_DEMO, "4bb5e71f78cf4806d9240df01f72236134af4a31", "UnrealTournament.exe", "Unreal Tournament Demo (experimental)", 348, 348, 0, "348demo", true, true },
 	{ KnownUE1Games::DEUS_EX_1002f_DEMO, "4be582d4194400e87f64894c92b3f2119e012251", "DeusEx.exe", "Deus Ex Demo (experimental)", 500, 1002, 0, "1002f_DEMO", true, true },
 };

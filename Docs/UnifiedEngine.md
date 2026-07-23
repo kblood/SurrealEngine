@@ -96,7 +96,7 @@ main product-only additions beyond the foundation topics are:
 | One-hand XR weapons | Implemented, experimental | A shared aim-pose solver and contiguous per-eye weapon pass are used by WebXR and OpenXR. UT99 hand aim is now restricted to classified VM weapon calls with exact restoration, so movement and camera calculation retain head/body orientation while trace/projectile, Flak, Eightball, Impact Hammer, `AdjustAim`, and `AdjustToss` see controller aim. Default placement follows the Farantir hardware baseline (aim pose, zero offset, 5x scale); physical calibration, muzzle-origin rewriting, two-hand/dual-wield behavior, handedness, and loaded UT99 fixtures remain gates. |
 | UT99/Unreal startup map intro | Implemented, experimental | Browser `URL.LocalMap`, prompt-HUD capture, menu handoff, and intro-only trigger routing retain automated coverage. For the native UT99 release path, a no-map OpenXR launch now skips the looping Entry/CityIntro sequence, loads Deck16, waits for a focused session, then emits the headset-confirmed one-shot fire and Escape handoff into UMenu. Explicit map launches remain ordinary gameplay launches. Keyboard/controller Escape and the direct route still require physical Quest 3/VDXR qualification; Unreal's normal `URL.LocalMap` path remains separate and unverified in XR. |
 | KHG browser AVI playback | Implemented, experimental | The existing IV50 decoder advances asynchronously under the flat/WebXR frame owner; synthetic scheduling and no-data linking pass, while actual KHG media, browser audio, masks, and same-call-stack script assumptions remain unverified or incomplete. |
-| Local UE1 demo import | Implemented, experimental | UT demo 348 and Deus Ex demo 1002f reach bounded package scans; Unreal demo 205 advances past both the legacy `Parent`/`Outer` and `DynamicString` layout boundaries, then stops at the absent `UPak` content dependency. All remain local-import-only, gameplay-unverified, and redistribution-gated. |
+| Local UE1 demo import | Implemented, experimental | UT demo 348, Unreal Special Edition demo 200, and Deus Ex demo 1002f pass exact-hash detection and isolated bounded package scans. Early-Unreal configuration fallback, optional `UPak`, and VM return-parameter compatibility are integrated. All remain local-import-only, gameplay-unverified, and redistribution-gated. |
 | Static-WASM corresponding source | Implemented | Clean commit/tree provenance, matching source archive or exact HTTPS source URL, hashes, notices, and relink instructions are enforced by packaging tests. Human/legal review of the actual distribution is still required. |
 
 ## Contract boundaries
@@ -307,7 +307,7 @@ pass the physical Quest matrix.
 - Web: flat WASM/WebGPU, legal local data import, per-game persistence, and a
   UT99/Unreal Gold game-library launcher are extracted with no WebXR
   requirement. Experimental local-import descriptors also recognize UT demo
-  348, Unreal demo 205, and Deus Ex demo 1002f without placing game data in the
+  348, Unreal demo 200, and Deus Ex demo 1002f without placing game data in the
   package. The WebXR provider composes with that launcher only on the
   product integration and release targets.
 - Deus Ex: generic actor movement and property serialization plus the first
@@ -357,8 +357,7 @@ human-curated bugfix-first PR strategy. No upstream PR has been opened.
 4. Extend the successful owned UT99 and Unreal Gold direct-start smokes to
    title switching, persistence, save/quit, package upgrade, flat fallback, and
    XR enter/exit/re-entry. Keep all demo support local-import-only; determine
-   whether Unreal 205's missing `UPak` dependency can come from a lawful
-   original artifact, and validate every demo before advertising compatibility.
+   validate every demo before advertising compatibility.
 5. Run the headset matrix: stereo/FOV, head pose, both controller mappings,
    disconnect/blur, menu laser/contact, mouse fallback, intro/menu ordering,
    audio, and return to desktop mode.
