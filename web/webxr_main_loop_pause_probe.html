@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><link rel="icon" href="data:,"><title>WebXR main-loop pause probe</title></head>
+<body>
+<pre id="result">loading</pre>
+<script>
+globalThis.webXRMainLoopCallbackCount = 0;
+globalThis.webXRMainLoopSuspended = false;
+globalThis.webXRMainLoopPauseResult = null;
+
+var Module = {
+  noInitialRun: true,
+  onRuntimeInitialized() {
+    Module.callMain([]);
+    globalThis.webXRMainLoopPauseProbeReady = true;
+  }
+};
+globalThis.Module = Module;
+
+globalThis.runWebXRMainLoopPauseProbe = async function () {
+  while (globalThis.webXRMainLoopCallbackCount < 3) {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+  }
+
+  const before = globalThis.webXRMainLoopCallbackCount;
+  const pending = Module.ccall("Probe_PauseAndSuspend", "number", [], [], { async: true });
+  while (!globalThis.webXRMainLoopSuspended) {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  const suspendedStart = globalThis.webXRMainLoopCallbackCount;
+  const samples = [];
+  for (let index = 0; index < 8; ++index) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    samples.push(globalThis.webXRMainLoopCallbackCount);
+  }
+  const returnedCount = await pending;
+  const atResolution = globalThis.webXRMainLoopCallbackCount;
+
+  const resumeDeadline = performance.now() + 1000;
+  while (globalThis.webXRMainLoopCallbackCount <= atResolution && performance.now() < resumeDeadline) {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+  }
+
+  const result = {
+    before,
+    suspendedStart,
+    samples,
+    returnedCount,
+    atResolution,
+    afterResume: globalThis.webXRMainLoopCallbackCount,
+    zeroEntriesDuringSuspension: samples.every(value => value === suspendedStart),
+    resumedAfterResolution: globalThis.webXRMainLoopCallbackCount > atResolution
+  };
+  globalThis.webXRMainLoopPauseResult = result;
+  document.getElementById("result").textContent = JSON.stringify(result, null, 2);
+  return result;
+};
+</script>
+<script src="../build-webxr-mainloop-pause-em/WebXRMainLoopPauseProbe.js"></script>
+</body>
+</html>

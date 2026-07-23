@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WebGPU two-phase persistent-target probe</title>
+</head>
+<body>
+<canvas id="direct-like-target" width="64" height="64"></canvas>
+<pre id="result">running</pre>
+<script type="module">
+const canvas = document.getElementById("direct-like-target");
+const output = document.getElementById("result");
+
+function importedCounterModule(onEnter) {
+  // (module (import "env" "onEnter" (func)) (func (export "enter") call 0))
+  const bytes = new Uint8Array([
+    0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00,
+    0x01,0x04,0x01,0x60,0x00,0x00,
+    0x02,0x0f,0x01,0x03,0x65,0x6e,0x76,0x07,0x6f,0x6e,0x45,0x6e,0x74,0x65,0x72,0x00,0x00,
+    0x03,0x02,0x01,0x00,
+    0x07,0x09,0x01,0x05,0x65,0x6e,0x74,0x65,0x72,0x00,0x01,
+    0x0a,0x06,0x01,0x04,0x00,0x10,0x00,0x0b,
+  ]);
+  return WebAssembly.instantiate(bytes, { env: { onEnter } });
+}
+
+function clearTexture(device, texture, color, label) {
+  const encoder = device.createCommandEncoder({ label });
+  const pass = encoder.beginRenderPass({ colorAttachments: [{
+    view: texture.createView(), clearValue: color, loadOp: "clear", storeOp: "store",
+  }] });
+  pass.end();
+  device.queue.submit([encoder.finish()]);
+}
+
+function classify(pixel, format) {
+  const red = format.startsWith("bgra") ? pixel[2] : pixel[0];
+  const green = pixel[1];
+  const blue = format.startsWith("bgra") ? pixel[0] : pixel[2];
+	if (red > 240 && green < 15 && blue < 15) return "red";
+	if (green > 240 && red < 15 && blue < 15) return "green";
+	if (blue > 240 && red < 15 && green < 15) return "blue";
+  return "other";
+}
+
+async function runProbe() {
+  window.twoPhaseProbeProgress = { stage: "starting", frame: 0 };
+  if (!navigator.gpu) throw new Error("WebGPU is unavailable");
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) throw new Error("requestAdapter returned null");
+  const device = await adapter.requestDevice();
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  const context = canvas.getContext("webgpu");
+  context.configure({ device, format,
+    usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+
+  const targets = [0, 1].map(index => device.createTexture({
+    label: `persistent-${index}`, size: [canvas.width, canvas.height, 1], format,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+  }));
+  clearTexture(device, targets[0], { r: 1, g: 0, b: 0, a: 1 }, "initial-front-red");
+  clearTexture(device, targets[1], { r: 0, g: 0, b: 0, a: 1 }, "initial-back-black");
+  await device.queue.onSubmittedWorkDone();
+  window.twoPhaseProbeProgress.stage = "targets-initialized";
+
+  let inAnimationFrame = false;
+  let wasmEntries = 0;
+  let wasmReentriesInsideFrame = 0;
+  const wasm = (await importedCounterModule(() => {
+    wasmEntries++;
+    if (inAnimationFrame) wasmReentriesInsideFrame++;
+  })).instance.exports;
+  let frontIndex = 0;
+  let producerPending = false;
+  let producerCompleted = false;
+  let resumeProducer = null;
+  const suspension = new Promise(resolve => { resumeProducer = resolve; });
+  const samples = [];
+  const errors = [];
+  const uncaptured = [];
+  device.addEventListener("uncapturederror", event => uncaptured.push(event.error?.message || String(event.error)));
+
+  async function produceBack() {
+    window.twoPhaseProbeProgress.stage = "producer-entered";
+    producerPending = true;
+    wasm.enter();
+    const backIndex = frontIndex === 0 ? 1 : 0;
+    // Model native work submitted before an Asyncify OPFS suspension. This back
+    // target is deliberately blue and must never become visible as the front.
+    clearTexture(device, targets[backIndex], { r: 0, g: 0, b: 1, a: 1 }, "partial-back-blue");
+    await suspension;
+    window.twoPhaseProbeProgress.stage = "producer-resumed";
+    clearTexture(device, targets[backIndex], { r: 0, g: 1, b: 0, a: 1 }, "completed-back-green");
+    await device.queue.onSubmittedWorkDone();
+    frontIndex = backIndex;
+    producerCompleted = true;
+    producerPending = false;
+    window.twoPhaseProbeProgress.stage = "producer-completed";
+  }
+
+  let producerPromise = null;
+  function present(frameNumber) {
+    inAnimationFrame = true;
+    device.pushErrorScope("validation");
+    const currentTexture = context.getCurrentTexture();
+    const readback = device.createBuffer({
+      size: 256 * canvas.height,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    const encoder = device.createCommandEncoder({ label: `late-present-${frameNumber}` });
+    encoder.copyTextureToTexture({ texture: targets[frontIndex] }, { texture: currentTexture },
+      [canvas.width, canvas.height, 1]);
+    encoder.copyTextureToBuffer({ texture: targets[frontIndex] },
+      { buffer: readback, bytesPerRow: 256, rowsPerImage: canvas.height },
+      [canvas.width, canvas.height, 1]);
+    device.queue.submit([encoder.finish()]);
+    const errorPromise = device.popErrorScope().then(error => {
+      if (error) errors.push(error.message);
+    });
+    const sample = { frameNumber, frontIndex, pending: producerPending,
+      completed: producerCompleted, wasmEntriesAtPresent: wasmEntries, color: null };
+    samples.push(sample);
+    readback.mapAsync(GPUMapMode.READ).then(() => {
+      const bytes = new Uint8Array(readback.getMappedRange());
+      const center = (Math.floor(canvas.height / 2) * 256) + Math.floor(canvas.width / 2) * 4;
+      sample.color = classify(Array.from(bytes.slice(center, center + 4)), format);
+      readback.unmap(); readback.destroy();
+    }).catch(error => { sample.color = "readback-error"; errors.push(String(error)); readback.destroy(); });
+    errors.push(errorPromise);
+    inAnimationFrame = false;
+  }
+
+  await new Promise((resolve, reject) => {
+    let frameNumber = 0;
+    function frame() {
+      try {
+        frameNumber++;
+        window.twoPhaseProbeProgress.frame = frameNumber;
+        present(frameNumber);
+        if (frameNumber === 1) {
+          setTimeout(() => { producerPromise = produceBack(); }, 0);
+        }
+        if (frameNumber === 4) {
+          // Resume in a new task, never from the animation callback microtask checkpoint.
+          setTimeout(() => resumeProducer(), 0);
+        }
+        if (producerCompleted && frameNumber >= 6) resolve();
+        else if (frameNumber >= 20) reject(new Error("producer did not complete within 20 frames"));
+        else requestAnimationFrame(frame);
+      } catch (error) { reject(error); }
+    }
+    requestAnimationFrame(frame);
+  });
+
+  await producerPromise;
+  window.twoPhaseProbeProgress.stage = "collecting-readbacks";
+  await device.queue.onSubmittedWorkDone();
+  await Promise.all(errors.filter(value => value && typeof value.then === "function"));
+	const readbackDeadline = performance.now() + 5000;
+	while (samples.some(sample => sample.color === null) && performance.now() < readbackDeadline)
+		await new Promise(resolve => setTimeout(resolve, 0));
+  const validationErrors = errors.filter(value => typeof value === "string");
+  const suspendedSamples = samples.filter(sample => sample.pending);
+  const completedSamples = samples.filter(sample => sample.completed);
+  const result = {
+    supported: true,
+    valid: wasmEntries === 1 && wasmReentriesInsideFrame === 0 &&
+      suspendedSamples.length >= 2 && suspendedSamples.every(sample => sample.color === "red") &&
+      completedSamples.some(sample => sample.color === "green") &&
+      !samples.some(sample => sample.color === "blue" || sample.color === "other") &&
+      validationErrors.length === 0 && uncaptured.length === 0,
+    wasmEntries,
+    wasmReentriesInsideFrame,
+    suspendedFrameCount: suspendedSamples.length,
+    samples,
+    validationErrors,
+    uncapturedErrors: uncaptured,
+  };
+  targets.forEach(texture => texture.destroy());
+  return result;
+}
+
+try {
+  window.twoPhaseProbeResult = await runProbe();
+} catch (error) {
+  window.twoPhaseProbeResult = { supported: false, error: String(error), stack: error?.stack ?? "" };
+}
+output.textContent = JSON.stringify(window.twoPhaseProbeResult, null, 2);
+</script>
+</body>
+</html>

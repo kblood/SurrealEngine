@@ -2,15 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>WebGPU canvas to WebGL 2 bridge probe</title>
+<title>Persistent WebGPU atlas to WebGL 2 bridge probe</title>
 </head>
 <body>
-<canvas id="webgpu-source" width="512" height="256"></canvas>
+<canvas id="webgpu-transfer" width="512" height="256"></canvas>
 <canvas id="webgl-destination" width="512" height="256"></canvas>
 <pre id="result">running</pre>
 <script src="../webxr_webgl_bridge.js"></script>
 <script type="module">
-const source = document.getElementById("webgpu-source");
+const transferCanvas = document.getElementById("webgpu-transfer");
 const destination = document.getElementById("webgl-destination");
 const output = document.getElementById("result");
 
@@ -22,10 +22,22 @@ function compileShader(gl, type, sourceText) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, sourceText);
   gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    throw new Error(gl.getShaderInfoLog(shader));
-  }
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader));
   return shader;
+}
+
+async function expiredCanvasNegativeControl(device, context, atlas) {
+  await new Promise(requestAnimationFrame);
+  const expired = context.getCurrentTexture();
+  const encoder = device.createCommandEncoder({ label: "expired-canvas-negative-control" });
+  encoder.copyTextureToTexture({ texture: atlas }, { texture: expired },
+    [transferCanvas.width, transferCanvas.height, 1]);
+  const command = encoder.finish();
+  await new Promise(requestAnimationFrame);
+  device.pushErrorScope("validation");
+  device.queue.submit([command]);
+  const error = await device.popErrorScope();
+  return error ? error.message : null;
 }
 
 async function runProbe() {
@@ -33,10 +45,17 @@ async function runProbe() {
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) throw new Error("requestAdapter returned null");
   const device = await adapter.requestDevice();
-  const gpu = source.getContext("webgpu");
   const format = navigator.gpu.getPreferredCanvasFormat();
-  gpu.configure({ device, format, alphaMode: "opaque" });
+  const transfer = transferCanvas.getContext("webgpu");
+  transfer.configure({ device, format, alphaMode: "opaque",
+    usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
 
+  // This texture models the bridge provider's ordinary persistent stereo atlas.
+  const atlas = device.createTexture({
+    label: "persistent-stereo-atlas",
+    size: [transferCanvas.width, transferCanvas.height, 1], format,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+  });
   const shader = device.createShaderModule({ code: `
     @vertex fn vertexMain(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
       var positions = array<vec2f, 3>(
@@ -52,26 +71,24 @@ async function runProbe() {
     layout: "auto",
     vertex: { module: shader, entryPoint: "vertexMain" },
     fragment: { module: shader, entryPoint: "fragmentMain", targets: [{ format }] },
-    primitive: { topology: "triangle-list" }
+    primitive: { topology: "triangle-list" },
   });
-  function renderAtlas() {
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginRenderPass({ colorAttachments: [{
-      view: gpu.getCurrentTexture().createView(),
-      clearValue: { r: 0, g: 0, b: 0, a: 1 },
-      loadOp: "clear",
-      storeOp: "store"
-    }] });
-    pass.setPipeline(pipeline);
-    pass.draw(3);
-    pass.end();
-    device.queue.submit([encoder.finish()]);
-  }
+  const atlasEncoder = device.createCommandEncoder({ label: "render-persistent-atlas" });
+  const atlasPass = atlasEncoder.beginRenderPass({ colorAttachments: [{
+    view: atlas.createView(), clearValue: { r: 0, g: 0, b: 0, a: 1 },
+    loadOp: "clear", storeOp: "store",
+  }] });
+  atlasPass.setPipeline(pipeline); atlasPass.draw(3); atlasPass.end();
+  device.queue.submit([atlasEncoder.finish()]);
+  await device.queue.onSubmittedWorkDone();
+
+  // Cross an awaited task boundary while retaining only the ordinary atlas.
+  // No canvas-current texture exists yet.
+  await new Promise(requestAnimationFrame);
+  const expiredCanvasError = await expiredCanvasNegativeControl(device, transfer, atlas);
 
   const gl = destination.getContext("webgl2", {
-    alpha: false,
-    antialias: false,
-    preserveDrawingBuffer: true
+    alpha: false, antialias: false, preserveDrawingBuffer: true,
   });
   if (!gl) throw new Error("WebGL 2 is unavailable");
   const vertex = compileShader(gl, gl.VERTEX_SHADER, `#version 300 es
@@ -80,73 +97,84 @@ async function runProbe() {
     void main() { vec2 p = positions[gl_VertexID]; gl_Position = vec4(p, 0., 1.); uv = p * .5 + .5; }
   `);
   const fragment = compileShader(gl, gl.FRAGMENT_SHADER, `#version 300 es
-    precision highp float;
-    uniform sampler2D atlas;
-    in vec2 uv;
-    out vec4 color;
+    precision highp float; uniform sampler2D atlas; in vec2 uv; out vec4 color;
     void main() { color = texture(atlas, uv); }
   `);
   const program = gl.createProgram();
-  gl.attachShader(program, vertex);
-  gl.attachShader(program, fragment);
-  gl.linkProgram(program);
+  gl.attachShader(program, vertex); gl.attachShader(program, fragment); gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
   gl.useProgram(program);
-
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, source.width, source.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, transferCanvas.width, transferCanvas.height,
+    0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 
-  // Warm up cross-API upload and shader compilation before measuring.
-  for (let i = 0; i < 10; i++) {
-    await new Promise(requestAnimationFrame);
-    renderAtlas();
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.finish();
+  const uncaptured = [];
+  device.addEventListener("uncapturederror", event => uncaptured.push(event.error?.message || String(event.error)));
+  function handoffInAnimationFrame(iteration) {
+    return new Promise((resolve, reject) => requestAnimationFrame(() => {
+      try {
+        const started = performance.now();
+        device.pushErrorScope("validation");
+        // This is the exact late section used by the bridge: acquire, copy,
+        // submit, immediate canvas upload, and WebGL draw without any await.
+        const current = transfer.getCurrentTexture();
+        const encoder = device.createCommandEncoder({ label: `bridge-late-copy-${iteration}` });
+        encoder.copyTextureToTexture({ texture: atlas }, { texture: current },
+          [transferCanvas.width, transferCanvas.height, 1]);
+        device.queue.submit([encoder.finish()]);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, transferCanvas);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        gl.finish();
+        const left = new Uint8Array(4), right = new Uint8Array(4);
+        gl.readPixels(128, 128, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, left);
+        gl.readPixels(384, 128, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, right);
+        const elapsed = performance.now() - started;
+        const errorPromise = device.popErrorScope().then(error => error ? error.message : null);
+        resolve({ elapsed, left: Array.from(left), right: Array.from(right), errorPromise });
+      } catch (error) { reject(error); }
+    }));
   }
 
-  const timings = [];
-  for (let i = 0; i < 60; i++) {
-    await new Promise(requestAnimationFrame);
-    renderAtlas();
-    const start = performance.now();
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.finish();
-    timings.push(performance.now() - start);
-  }
-
-  const left = new Uint8Array(4);
-  const right = new Uint8Array(4);
-  gl.readPixels(128, 128, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, left);
-  gl.readPixels(384, 128, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, right);
-  const valid = left[0] > 240 && left[1] < 15 && right[1] > 240 && right[0] < 15;
-  const error = gl.getError();
-  timings.sort((a, b) => a - b);
-
-  return {
+  const samples = [];
+  for (let iteration = 0; iteration < 70; iteration++) samples.push(await handoffInAnimationFrame(iteration));
+  const validationErrors = (await Promise.all(samples.map(sample => sample.errorPromise))).filter(Boolean);
+  const measured = samples.slice(10);
+  const invalidIterations = measured.map((sample, index) => ({ sample, index: index + 10 }))
+    .filter(({ sample }) => !(sample.left[0] > 240 && sample.left[1] < 15 &&
+      sample.right[1] > 240 && sample.right[0] < 15))
+    .map(({ index, sample }) => ({ index, left: sample.left, right: sample.right }));
+  const timings = measured.map(sample => sample.elapsed).sort((a, b) => a - b);
+  const glError = gl.getError();
+  const result = {
     supported: true,
-    valid,
-    width: source.width,
-    height: source.height,
-    iterations: timings.length,
-    medianHandoffDrawFinishMs: percentile(timings, 0.5),
-    p95HandoffDrawFinishMs: percentile(timings, 0.95),
-    left: Array.from(left),
-    right: Array.from(right),
-    glError: error,
+    valid: invalidIterations.length === 0 && validationErrors.length === 0 &&
+      uncaptured.length === 0 && glError === gl.NO_ERROR &&
+      typeof expiredCanvasError === "string" && expiredCanvasError.includes("Destroyed texture"),
+    width: transferCanvas.width,
+    height: transferCanvas.height,
+    iterations: measured.length,
+    medianLateCopyUploadDrawFinishMs: percentile(timings, 0.5),
+    p95LateCopyUploadDrawFinishMs: percentile(timings, 0.95),
+    invalidIterations,
+    validationErrors,
+    uncapturedErrors: uncaptured,
+    glError,
+    expiredCanvasError,
+    awaitedBetweenLateCopySubmitAndUpload: false,
     projectionConversionValid: (() => {
       const value = SurrealWebXRWebGLBridge.convertProjectionDepth(
         [2,0,0,0, 0,3,0,0, .2,-.3,-1,-1, 0,0,-.2,0]);
       return Math.abs(value[14] + .1) < 1e-7 && value[8] === .2 && value[9] === -.3;
     })(),
-    caveat: "HTMLCanvasElement upload is specified; zero-copy is not. Each timing starts after WebGPU submission and includes synchronization, texSubImage2D, one quad, and gl.finish."
+    caveat: "Desktop Chrome proof only; Quest XRWebGLLayer still requires physical qualification.",
   };
+  atlas.destroy();
+  return result;
 }
 
 try {

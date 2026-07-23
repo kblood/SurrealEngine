@@ -36,6 +36,12 @@ print(json.dumps(result, indent=2))
 if not result.get("supported"):
 	print("FAIL: cross-API bridge is unsupported in this browser")
 	sys.exit(1)
-if not result.get("valid") or result.get("glError") != 0 or not result.get("projectionConversionValid"):
+expired_error = result.get("expiredCanvasError") or ""
+if (not result.get("valid") or result.get("glError") != 0 or
+		not result.get("projectionConversionValid") or
+		"Destroyed texture" not in expired_error or
+		result.get("awaitedBetweenLateCopySubmitAndUpload") is not False):
 	print("FAIL: uploaded atlas did not retain the expected eye colors")
 	sys.exit(1)
+
+print("PASS: persistent atlas survived an awaited boundary and copied/uploaded in one callback")

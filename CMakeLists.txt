@@ -942,6 +942,16 @@ if(BUILD_TESTING AND EMSCRIPTEN)
 		--js-library ${CMAKE_CURRENT_SOURCE_DIR}/web/browser_audio_library.js
 		-sEXPORTED_RUNTIME_METHODS=ccall
 		-sEXPORTED_FUNCTIONS=_main,_Probe_Start,_Probe_PlayingSources,_Probe_QueuedMusicBuffers,_Surreal_ResumeBrowserAudio,_Surreal_SuspendBrowserAudio,_Surreal_ShutdownBrowserAudio,_Surreal_SetBrowserAudioOutput,_Surreal_GetBrowserAudioState,_Surreal_GetBrowserAudioCurrentTimeMs)
+
+	add_executable(WebXRMainLoopPauseProbe Tests/WebXRMainLoopPauseProbe.cpp)
+	set_target_properties(WebXRMainLoopPauseProbe PROPERTIES CXX_STANDARD 20)
+	target_link_options(WebXRMainLoopPauseProbe PRIVATE
+		-sASYNCIFY
+		-sASYNCIFY_STACK_SIZE=65536
+		-sINVOKE_RUN=0
+		-sEXIT_RUNTIME=0
+		-sEXPORTED_RUNTIME_METHODS=callMain,ccall
+		-sEXPORTED_FUNCTIONS=_main,_Probe_PauseAndSuspend)
 endif()
 
 target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Precomp.h>)

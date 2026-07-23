@@ -1,6 +1,6 @@
 # WebXR provider handoff
 
-Date: 2026-07-22
+Date: 2026-07-23
 
 Integration status: implemented and automated at `integration/unified-engine`
 commit `a0fb4f93`; both browser presentation modes remain experimental and
@@ -191,11 +191,21 @@ target. A missing viewer pose skips capture without advancing simulation, and
 headset frames may repeat the immutable front image while the producer waits on
 OPFS. This is intentional frame dropping, not a second simulation tick.
 
+The input queue preserves discrete focus, connection, pressed, and touched
+transitions in capture order even when more than 16 changes arrive during one
+suspended render. Pose and axis-only samples with the same discrete state are
+coalesced to the latest sample. A 256-entry safety limit fails the session
+closed with `input-transition-overflow`; it never silently discards a button
+edge.
+
 In direct mode, ABI v3 gives native code two ordinary persistent 2D eye
 textures. The projection layer requests `COPY_DST`; the XR callback acquires
 each current `XRGPUSubImage` only during its late presentation section and
 copies the immutable front eyes into the returned viewport/array slices before
-returning. In compatibility mode, native code receives one persistent stereo
+returning. Before copying, it validates integer viewport bounds, one valid
+array layer, exact projection format, and `COPY_DST` usage. Any mismatch fails
+closed as `invalid-projection-subimage`. In compatibility mode, native code
+receives one persistent stereo
 atlas. A separate hidden WebGPU transfer canvas is acquired late, receives the
 atlas copy, and is synchronously uploaded and drawn into the `XRWebGLLayer` in
 that same callback. The SDL/flat canvas is not resized or borrowed by the
@@ -243,6 +253,24 @@ Completed locally:
 - ordinary non-Asyncify Emscripten compile and final link, preserving the
   shared flat/browser build configuration;
 - a real desktop Chrome WebGPU-canvas to WebGL 2 upload/readback probe passing;
+- a real desktop Chrome two-phase WebGPU probe proving an artificially
+  suspended Wasm producer left the red front immutable across three browser
+  frames, never exposed the partial blue back, then published green, with one
+  Wasm entry, zero rAF-time Wasm re-entries, and zero validation/uncaptured
+  errors;
+- a real desktop Chrome compatibility-shape probe completing 60 exact-pixel
+  persistent-atlas transfers after an awaited boundary, acquiring the transfer
+  canvas late and performing submit plus immediate WebGL `texSubImage2D` in
+  one callback (1.390 ms median, 2.115 ms p95), with zero WebGPU/WebGL errors;
+- that same probe's expired-canvas negative control produced the expected
+  destroyed-current-texture submission validation error;
+- a standalone Emscripten/Asyncify real-Chrome probe observed the JavaScript-
+  published `EngineMainLoopCallback` count remain exactly 3 through eight
+  samples during the unresolved suspension and advance to 4 only after resume;
+- bridge-provider Node coverage proving distinct persistent atlas targets,
+  no native re-entry across multiple rAF callbacks while a producer is
+  unresolved, immutable-front repeat presentation, immediate exit
+  invalidation, deferred destruction, and no stale publication after drain;
 - flat Chrome/WebGPU UT99 runtime after the provider changes: ticked from 61
   to 604, 95 draw calls, 75 cached textures, zero WebGPU errors, 100% nonblank
   screenshot pixels, and clean quit;
@@ -258,12 +286,17 @@ node web/test_webxr_provider.mjs
 node web/test_webxr_webgl_bridge.mjs
 node web/test_webxr_webgl_fallback_provider.mjs
 
+cmake -S . -B build-webxr-mainloop-pause-em -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build-webxr-mainloop-pause-em --target WebXRMainLoopPauseProbe --parallel 4
+python web/smoke_test_webxr_main_loop_pause.py
+
 & C:\Devstuff\emsdk\emsdk_env.ps1
 emcmake cmake -S . -B build-emscripten -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" -DBUILD_TESTING=OFF
 cmake --build build-emscripten --target SurrealEngine --parallel 8
 node web/serve.mjs 8094
 $env:SURREAL_WEB_BASE_URL="http://localhost:8094"
 python web/probes/webgpu_webgl_bridge_probe_test.py
+python web/probes/webgpu_two_phase_present_probe_test.py
 python web/smoke_test_webgpu.py
 ```
 
