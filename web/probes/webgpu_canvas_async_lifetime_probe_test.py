@@ -38,8 +38,11 @@ expired_error = result.get("expiredFrameError") or ""
 if "Destroyed texture" not in expired_error or "used in a submit" not in expired_error:
 	print("FAIL: crossing the animation-frame boundary did not expire the canvas texture")
 	sys.exit(1)
+if result.get("offscreenPresentError") is not None:
+	print("FAIL: persistent offscreen rendering with same-frame presentation produced a validation error")
+	sys.exit(1)
 if page_errors:
 	print("FAIL: browser page errors occurred")
 	sys.exit(1)
 
-print("PASS: canvas textures expire before a post-animation-frame submission")
+print("PASS: persistent offscreen rendering survives a frame boundary and presents synchronously")

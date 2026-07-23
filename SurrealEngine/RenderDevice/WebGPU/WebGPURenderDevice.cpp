@@ -74,9 +74,7 @@ WebGPURenderDevice::~WebGPURenderDevice()
 
 	if (FramePass) { wgpuRenderPassEncoderRelease(FramePass); FramePass = nullptr; }
 	if (FrameEncoder) { wgpuCommandEncoderRelease(FrameEncoder); FrameEncoder = nullptr; }
-	if (CurrentSurfaceView && !ExternalPresentationActive) { wgpuTextureViewRelease(CurrentSurfaceView); }
 	CurrentSurfaceView = nullptr;
-	if (CurrentSurfaceTexture) { wgpuTextureRelease(CurrentSurfaceTexture); CurrentSurfaceTexture = nullptr; }
 	for (auto& entry : UniformBindGroups)
 		wgpuBindGroupRelease(entry.second);
 	UniformBindGroups.clear();
@@ -86,6 +84,8 @@ WebGPURenderDevice::~WebGPURenderDevice()
 	if (VertexBuffer) wgpuBufferRelease(VertexBuffer);
 	if (DepthView) wgpuTextureViewRelease(DepthView);
 	if (DepthTexture) wgpuTextureRelease(DepthTexture);
+	if (CanvasColorView) wgpuTextureViewRelease(CanvasColorView);
+	if (CanvasColorTexture) wgpuTextureRelease(CanvasColorTexture);
 }
 
 void WebGPURenderDevice::ConfigureDepthBuffer(int width, int height)
@@ -117,6 +117,69 @@ void WebGPURenderDevice::ConfigureDepthBuffer(int width, int height)
 
 	DepthWidth = width;
 	DepthHeight = height;
+}
+
+void WebGPURenderDevice::ConfigureCanvasColorBuffer(int width, int height)
+{
+	if (CanvasColorTexture && width == CanvasColorWidth && height == CanvasColorHeight)
+		return;
+
+	if (CanvasColorView) { wgpuTextureViewRelease(CanvasColorView); CanvasColorView = nullptr; }
+	if (CanvasColorTexture) { wgpuTextureRelease(CanvasColorTexture); CanvasColorTexture = nullptr; }
+
+	WGPUTextureDescriptor texDesc = {};
+	texDesc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
+	texDesc.dimension = WGPUTextureDimension_2D;
+	texDesc.size = { (uint32_t)width, (uint32_t)height, 1 };
+	texDesc.format = Context->SurfaceFormat;
+	texDesc.mipLevelCount = 1;
+	texDesc.sampleCount = 1;
+	CanvasColorTexture = wgpuDeviceCreateTexture(Context->Device, &texDesc);
+
+	WGPUTextureViewDescriptor viewDesc = {};
+	viewDesc.format = Context->SurfaceFormat;
+	viewDesc.dimension = WGPUTextureViewDimension_2D;
+	viewDesc.baseMipLevel = 0;
+	viewDesc.mipLevelCount = 1;
+	viewDesc.baseArrayLayer = 0;
+	viewDesc.arrayLayerCount = 1;
+	viewDesc.aspect = WGPUTextureAspect_All;
+	CanvasColorView = wgpuTextureCreateView(CanvasColorTexture, &viewDesc);
+
+	CanvasColorWidth = width;
+	CanvasColorHeight = height;
+}
+
+void WebGPURenderDevice::PresentCanvas()
+{
+	WGPUSurfaceTexture surfaceTexture = {};
+	wgpuSurfaceGetCurrentTexture(Context->Surface, &surfaceTexture);
+	if ((surfaceTexture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
+		surfaceTexture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) ||
+		!surfaceTexture.texture)
+	{
+		if (surfaceTexture.texture)
+			wgpuTextureRelease(surfaceTexture.texture);
+		return;
+	}
+
+	WGPUCommandEncoderDescriptor encDesc = {};
+	WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(Context->Device, &encDesc);
+	WGPUTexelCopyTextureInfo source = {};
+	source.texture = CanvasColorTexture;
+	source.aspect = WGPUTextureAspect_All;
+	WGPUTexelCopyTextureInfo destination = {};
+	destination.texture = surfaceTexture.texture;
+	destination.aspect = WGPUTextureAspect_All;
+	WGPUExtent3D copySize = { (uint32_t)CanvasColorWidth, (uint32_t)CanvasColorHeight, 1 };
+	wgpuCommandEncoderCopyTextureToTexture(encoder, &source, &destination, &copySize);
+
+	WGPUCommandBufferDescriptor cmdDesc = {};
+	WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, &cmdDesc);
+	wgpuQueueSubmit(Context->Queue, 1, &command);
+	wgpuCommandBufferRelease(command);
+	wgpuCommandEncoderRelease(encoder);
+	wgpuTextureRelease(surfaceTexture.texture);
 }
 
 void WebGPURenderDevice::BeginFramePass(bool colorClear, vec4 clearColor, bool depthClear)
@@ -367,25 +430,13 @@ void WebGPURenderDevice::Lock(vec4 InFlashScale, vec4 InFlashFog, vec4 ScreenCle
 	if (ExternalPresentationActive)
 	{
 		CurrentExternalView = 0;
-		CurrentSurfaceTexture = nullptr;
 		CurrentSurfaceView = static_cast<WebGPUPresentationImageHandle*>(ExternalViews[0].NativeHandle)->View;
 	}
 	else
 	{
 		Context->ConfigureSurface(CurrentSizeX, CurrentSizeY);
-		WGPUSurfaceTexture surfaceTexture = {};
-		wgpuSurfaceGetCurrentTexture(Context->Surface, &surfaceTexture);
-		CurrentSurfaceTexture = surfaceTexture.texture;
-
-		WGPUTextureViewDescriptor viewDesc = {};
-		viewDesc.format = Context->SurfaceFormat;
-		viewDesc.dimension = WGPUTextureViewDimension_2D;
-		viewDesc.baseMipLevel = 0;
-		viewDesc.mipLevelCount = 1;
-		viewDesc.baseArrayLayer = 0;
-		viewDesc.arrayLayerCount = 1;
-		viewDesc.aspect = WGPUTextureAspect_All;
-		CurrentSurfaceView = wgpuTextureCreateView(CurrentSurfaceTexture, &viewDesc);
+		ConfigureCanvasColorBuffer(CurrentSizeX, CurrentSizeY);
+		CurrentSurfaceView = CanvasColorView;
 	}
 
 	CurrentClearColor = ScreenClear;
@@ -407,25 +458,15 @@ void WebGPURenderDevice::Lock(vec4 InFlashScale, vec4 InFlashFog, vec4 ScreenCle
 
 void WebGPURenderDevice::Unlock(bool Blit)
 {
-	(void)Blit; // No off-screen buffer to blit from - see class comment (M2 scope trim).
-
 	if (!IsLocked)
 		return;
 
 	DrawBatches();
 	EndAndSubmitFramePass();
 
-	// No wgpuSurfacePresent() call: on Emscripten, a canvas-backed WGPUSurface
-	// presents implicitly once the current requestAnimationFrame callback
-	// returns control to the browser. wgpuSurfacePresent() is hard-
-	// unimplemented in this port (always aborts) - confirmed via a
-	// standalone spike before writing this backend.
-	if (!ExternalPresentationActive)
-		wgpuTextureViewRelease(CurrentSurfaceView);
+	if (Blit && !ExternalPresentationActive)
+		PresentCanvas();
 	CurrentSurfaceView = nullptr;
-	if (CurrentSurfaceTexture)
-		wgpuTextureRelease(CurrentSurfaceTexture);
-	CurrentSurfaceTexture = nullptr;
 
 	Batch = WebGPUDrawBatchEntry();
 	HaveViewport = false;
@@ -445,8 +486,8 @@ void WebGPURenderDevice::PopHit(int Count, bool bForce)
 void WebGPURenderDevice::ReadPixels(FColor* Pixels)
 {
 	// WebGPU buffer/texture readback is async-only (mapAsync) and this
-	// engine's ReadPixels() is a synchronous pure virtual; Asyncify is
-	// deliberately not used in this build. Render verification instead uses a JS-side canvas
+	// engine's ReadPixels() is a synchronous pure virtual with no async readback
+	// bridge. Render verification instead uses a JS-side canvas
 	// capture (see web/smoke_test_webgpu.py) rather than this in-engine
 	// path, which only backs the in-game screenshot console command -
 	// unimplemented for now under WebGPU.

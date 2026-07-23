@@ -43,11 +43,10 @@ struct WebGPUPresentationImageHandle
 // the existing RenderDevice contract.
 //
 // Deliberate M2 scope trims vs D3D11RenderDevice (all documented at their
-// point of use in the .cpp): no post-process/present pass (renders straight
-// into the swapchain surface), no bloom, no HDR, no multisampling, no
+// point of use in the .cpp): no post-processing, bloom, HDR, multisampling, or
 // hit-testing (PushHit/PopHit are no-ops - editor-only, already excluded
 // from the Emscripten build), no synchronous screenshot readback (WebGPU
-// buffer mapping is async-only and Asyncify is deliberately not used here).
+// buffer mapping is async-only and the RenderDevice API has no async bridge).
 //
 // Structural deviation from D3D11's per-draw immediate-context model: WebGPU
 // only guarantees a buffer write is visible to commands submitted *after*
@@ -123,6 +122,8 @@ private:
 	void DrawComplexSurfaceFaces(const ComplexSurfaceInfo& info);
 
 	void ConfigureDepthBuffer(int width, int height);
+	void ConfigureCanvasColorBuffer(int width, int height);
+	void PresentCanvas();
 	bool EnsurePipelineColorFormat(WGPUTextureFormat format);
 	void CreateUniformBindGroup();
 	bool SelectExternalTarget(PresentationTarget target, size_t viewIndex);
@@ -175,10 +176,13 @@ private:
 	WGPUTextureView DepthView = nullptr;
 	int DepthWidth = 0;
 	int DepthHeight = 0;
+	WGPUTexture CanvasColorTexture = nullptr;
+	WGPUTextureView CanvasColorView = nullptr;
+	int CanvasColorWidth = 0;
+	int CanvasColorHeight = 0;
 
 	WGPUCommandEncoder FrameEncoder = nullptr;
 	WGPURenderPassEncoder FramePass = nullptr;
-	WGPUTexture CurrentSurfaceTexture = nullptr;
 	WGPUTextureView CurrentSurfaceView = nullptr;
 	vec4 CurrentClearColor = vec4(0.0f);
 	PresentationTarget ExternalTarget;

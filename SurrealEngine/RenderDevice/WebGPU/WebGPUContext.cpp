@@ -66,7 +66,7 @@ void WebGPUContext::ConfigureSurface(int width, int height)
 	WGPUSurfaceConfiguration config = {};
 	config.device = Device;
 	config.format = SurfaceFormat;
-	config.usage = WGPUTextureUsage_RenderAttachment;
+	config.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopyDst;
 	config.width = (uint32_t)width;
 	config.height = (uint32_t)height;
 	config.presentMode = WGPUPresentMode_Fifo;

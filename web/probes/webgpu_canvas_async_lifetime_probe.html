@@ -7,6 +7,7 @@
 <body>
 <canvas id="same-frame" width="64" height="64"></canvas>
 <canvas id="expired-frame" width="64" height="64"></canvas>
+<canvas id="offscreen-present" width="64" height="64"></canvas>
 <pre id="result">running</pre>
 <script type="module">
 const output = document.getElementById("result");
@@ -37,6 +38,42 @@ async function encodeAndSubmit(device, canvas, crossFrameBoundary) {
   return error ? error.message : null;
 }
 
+async function renderOffscreenThenPresent(device, canvas) {
+  const context = canvas.getContext("webgpu");
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({ device, format, usage: GPUTextureUsage.COPY_DST });
+
+  const offscreen = device.createTexture({
+    size: [canvas.width, canvas.height],
+    format,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+  });
+  const sceneEncoder = device.createCommandEncoder();
+  const scenePass = sceneEncoder.beginRenderPass({ colorAttachments: [{
+    view: offscreen.createView(),
+    loadOp: "clear",
+    storeOp: "store",
+    clearValue: { r: 0, g: 0.5, b: 0, a: 1 }
+  }] });
+  scenePass.end();
+  const sceneCommand = sceneEncoder.finish();
+
+  await new Promise(requestAnimationFrame);
+
+  device.pushErrorScope("validation");
+  const canvasTexture = context.getCurrentTexture();
+  const presentEncoder = device.createCommandEncoder();
+  presentEncoder.copyTextureToTexture(
+    { texture: offscreen }, { texture: canvasTexture },
+    [canvas.width, canvas.height]);
+  const presentCommand = presentEncoder.finish();
+  device.queue.submit([sceneCommand, presentCommand]);
+  const error = await device.popErrorScope();
+  await device.queue.onSubmittedWorkDone();
+  offscreen.destroy();
+  return error ? error.message : null;
+}
+
 async function runProbe() {
   if (!navigator.gpu)
     throw new Error("WebGPU is unavailable");
@@ -49,7 +86,9 @@ async function runProbe() {
     device, document.getElementById("same-frame"), false);
   const expiredFrameError = await encodeAndSubmit(
     device, document.getElementById("expired-frame"), true);
-  return { supported: true, sameFrameError, expiredFrameError };
+  const offscreenPresentError = await renderOffscreenThenPresent(
+    device, document.getElementById("offscreen-present"));
+  return { supported: true, sameFrameError, expiredFrameError, offscreenPresentError };
 }
 
 try {
