@@ -94,6 +94,9 @@ public:
 	bool CompareArray(const void* v1, const void* v2);
 	bool CompareLessArray(const void* v1, const void* v2);
 
+	GCAllocation* MarkProperty(GCAllocation* marklist, void* data);
+	virtual GCAllocation* MarkPropertyElement(GCAllocation* marklist, void* data) = 0;
+
 	virtual void GetExportText(std::string& buf, const std::string& whitespace, UObject* obj, UObject* defobj, int i);
 	virtual void GetExportText(std::string& buf, const std::string& whitespace, void* objval, void* defval, int i);
 	virtual bool IsDefaultValue(void* val) { return false; }
@@ -133,6 +136,7 @@ public:
 	void DestructElement(void* data) {}
 	bool CompareElement(const void* v1, const void* v2) { return true; }
 	bool CompareLessElement(const void* v1, const void* v2) { return false; }
+	GCAllocation* MarkPropertyElement(GCAllocation* marklist, void* data) override { return marklist; }
 };
 
 class MapPropertyValue
@@ -174,6 +178,8 @@ public:
 
 	bool CompareElement(const void* v1, const void* v2) override { return *static_cast<const T*>(v1) == *static_cast<const T*>(v2); }
 	bool CompareLessElement(const void* v1, const void* v2) override { return *static_cast<const T*>(v1) < *static_cast<const T*>(v2); }
+
+	GCAllocation* MarkPropertyElement(GCAllocation* marklist, void* data) override { return marklist; }
 };
 
 // Dummy property class so we can keep the virtual functions in UProperty abstract
@@ -235,6 +241,8 @@ public:
 	bool IsDefaultValue(void* val) override;
 	void SetValueFromString(void* data, const std::string& valueString) override;
 
+	GCAllocation* MarkPropertyElement(GCAllocation* marklist, void* data) override;
+
 	UClass* ObjectClass = nullptr;
 };
 
@@ -262,6 +270,8 @@ public:
 	bool CompareLessElement(const void* v1, const void* v2) override;
 
 	std::string PrintValue(const void* data) override;
+
+	GCAllocation* MarkPropertyElement(GCAllocation* marklist, void* data) override;
 
 	UProperty* Inner = nullptr;
 	int Count = 0;
@@ -293,6 +303,8 @@ public:
 	void GetExportText(std::string& buf, const std::string& whitespace, UObject* obj, UObject* defobj, int i) override;
 	std::string PrintValue(const void* data) override;
 
+	GCAllocation* MarkPropertyElement(GCAllocation* marklist, void* data) override;
+
 	UProperty* Inner = nullptr;
 };
 
@@ -322,6 +334,8 @@ public:
 	bool CompareLessElement(const void* a, const void* b) override;
 
 	std::string PrintValue(const void* data) override;
+
+	GCAllocation* MarkPropertyElement(GCAllocation* marklist, void* data) override;
 
 	UProperty* Key = nullptr;
 	UProperty* Value = nullptr;
@@ -371,6 +385,8 @@ public:
 	void SetValueFromString(void* data, const std::string& valueString) override;
 	bool IsDefaultValue(void* val) override;
 
+	GCAllocation* MarkPropertyElement(GCAllocation* marklist, void* data) override;
+
 	UStruct* Struct = nullptr;
 
 private:
@@ -418,6 +434,8 @@ public:
 	void SetValueFromString(void* data, const std::string& valueString) override;
 	bool IsDefaultValue(void* val) override;
 	std::string PrintValue(const void* data) override;
+
+	GCAllocation* MarkPropertyElement(GCAllocation* marklist, void* data) override { return marklist; }
 
 	bool GetBool(const void* data) const;
 	void SetBool(void* data, bool value);
