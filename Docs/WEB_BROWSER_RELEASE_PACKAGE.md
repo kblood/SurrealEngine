@@ -220,6 +220,109 @@ the projection layer when the browser exposes them. Compatibility-mode layer
 and atlas dimensions appear once their respective objects are available;
 unavailable measurements are reported as `unknown` rather than inferred.
 
+### Quest 3 experimental-site test card
+
+Use the separate experimental URL, not the public Ports page. Test with a
+charged Quest 3 and both controllers awake. Record the build commit, Quest OS,
+refresh rate, and browser/runtime versions separately; those identifiers are
+intentionally absent from the privacy-safe report.
+
+Run the applicable path or paths:
+
+1. **Quest Browser (primary standalone path):** open the HTTPS site in Quest
+   Browser, select user-owned data, choose **Immersive WebXR** under
+   **Presentation**, open **WebXR headset diagnostics**, and press **Play**.
+2. **Desktop Chrome through Virtual Desktop/VDXR (separate PC path):** select
+   VDXR as the active OpenXR runtime in Virtual Desktop, connect the Quest 3,
+   start desktop Chrome from that session, and open the same HTTPS site. This
+   tests desktop Chrome's WebXR-to-OpenXR path, not Quest Browser. If Chrome
+   does not expose `immersive-vr`, copy the pre-entry report and mark the path
+   unsupported; do not silently switch to SteamVR or count that as a provider
+   rendering failure.
+
+Start with automatic mode selection. If the experimental site exposes a
+**Force WebGL bridge** control, repeat with it enabled before entry. Do not use
+developer-console overrides as release evidence. Copy a report after at least
+30 seconds of running presentation for every mode that actually starts.
+
+The running report should satisfy the following criteria:
+
+| Report field | Direct binding | WebGL compatibility bridge |
+| --- | --- | --- |
+| `capability_available` | `yes` | `yes` |
+| `provider_phase` / `provider_stage` | `running` / `running` | `running` / `running` |
+| `provider_error` / `provider_error_stage` | `none` / `unknown` | `none` / `unknown` |
+| `presentation_mode` | `direct-webgpu` | `webgl-bridge` |
+| `xr_compatible_adapter` | `xr-compatible` | may be `xr-compatible` or the site's recorded flat fallback |
+| `projection_format` | a supported WebGPU color format | `rgba8unorm-webgl-bridge` |
+| `reference_space` | `local-floor` preferred; `local` accepted | `local-floor` preferred; `local` accepted |
+| dimensions | positive layer dimensions when exposed | positive layer and atlas dimensions after frames begin |
+| frame/input counters | increase while moving the head and controllers | increase while moving the head and controllers |
+| bridge counters | not applicable | `bridge_frames` and `bridge_samples` increase; `bridge_errors: 0` |
+
+For bridge timing, leave the session running until `bridge_samples` reaches
+120. Compare percentiles with the release thresholds only when
+`bridge_blocking_timing: yes`: p95 must be at most 4.0 ms and p99 at most
+5.5 ms. Also record the selected refresh rate separately and look for missed
+frames against the whole-frame budget: 13.89 ms at 72 Hz or 11.11 ms at
+90 Hz. Direct mode has no bridge timing values; `unknown` or zero bridge fields
+are expected there.
+
+Perform this behavior pass in each working mode:
+
+1. Enter VR, wait for `running`, exit to the still-working flat canvas, and
+   re-enter. Do three quick cycles for a test build; the release gate remains
+   20 consecutive cycles. Counters must show another successful entry, exit,
+   ended session, and re-entry without stuck input, a black canvas, or a dead
+   engine loop.
+2. Check stereo and FOV in a recognizable room: left/right eyes must not be
+   swapped or vertically flipped; geometry must not crop, stretch, converge at
+   the wrong depth, or move with the head. Yaw, pitch, and small positional
+   movement must produce stable tracking and parallax without a stale eye.
+3. Open the menu. Both controller proxies must track in 3D. Each laser must
+   start at its controller, end at its visible contact marker, and highlight
+   and click exactly the option under that marker. A trigger press produces one
+   click, holding it does not repeat, the menu stays above world/intro quads,
+   and controller sleep, focus loss, or exit does not leave a held action.
+4. With intro skipping disabled, confirm the intro/prompt is visible on a
+   world-anchored quad, **Press Fire** advances it, and the menu or game appears
+   instead of a darker black frame. With skip enabled, confirm loading reaches
+   the selected safe map. Check that loading, menu, and any available cinematic
+   have correct aspect, never appear behind another quad, and return control
+   after completion or skip.
+5. Unlock audio with a user gesture. Confirm music and effects are audible,
+   volume/mute work, and audio neither duplicates nor permanently stops over
+   enter, exit, re-entry, intro/cinematic transition, and visibility loss.
+6. Play while turning and moving for at least five minutes for a test build
+   (30 minutes for release qualification). Fail on repeatable black/stale
+   frames, eye disagreement, input lag that moves the selected menu item away
+   from the contact marker, growing unexpected skipped frames, bridge errors,
+   audio loss, context loss, or thermal frame collapse.
+
+Copy back only the generated text from **Copy test report**, once before entry,
+once while each presentation mode is running, and once after re-entry. If entry
+fails, copy the report immediately while the failure stage is still present.
+Paste each report verbatim inside a code block, preceded only by this manually
+written, data-free header:
+
+```text
+build_commit: <commit>
+test_path: quest-browser | desktop-chrome-vdxr
+device: quest-3
+os_runtime_version: <version>
+browser_version: <Quest Browser or Chrome version>
+refresh_rate_hz: <72 or 90>
+selection: automatic | forced-webgl-bridge
+behavior_result: pass | fail:<short category, no paths or game-data names>
+```
+
+The generated `surrealengine-webxr-headset-report-v2` is allowlisted and ends
+with `privacy: no-game-data,no-paths,no-logs`. Inspect that line before sharing.
+Do not copy console output, screenshots of local files, page URLs, imported
+file names, private paths, browser user-agent text, engine logs, or raw browser
+exceptions. A report with `provider_error: present` plus its allowlisted
+`provider_error_stage` is sufficient to triage the lifecycle boundary.
+
 Current results:
 
 - 12 shared launcher/capability/diagnostics/startup-policy checks passed;
