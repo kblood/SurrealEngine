@@ -292,6 +292,78 @@ desktop window, or WebXR presentation yet. A product solution needs one of:
 An asynchronous worker dispatch bridge alone is insufficient for the current
 WebXR render contract.
 
+## Window-owned Asyncify variant
+
+A second default-off experiment keeps engine, WebGPU, and WebXR ownership on
+the browser Window thread:
+
+```text
+SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY=ON
+```
+
+This variant is mutually exclusive with the `PROXY_TO_PTHREAD` option. It
+removes browser pthread flags, enables `-sWASMFS -sFORCE_FILESYSTEM -sASYNCIFY`,
+and uses mount ABI version 2, mode 2. JavaScript registers the validated OPFS
+manifest and awaits `Surreal_PrepareBrowserOPFSMount` through an Asyncify-aware
+`ccall` before mutable restore and native startup. The symlink tree and mutable
+overlay policy are otherwise the same as the worker experiment.
+
+The installed Emscripten 6.0.2 OPFS glue passes resizable Wasm views to
+`TextDecoder`. Chrome rejects those views before the mount with a `TypeError`.
+A measured fixed 256 MiB heap is therefore used for this experiment. A 512 MiB
+initial/maximum heap with growth still failed because the underlying buffer was
+resizable; this was not an engine capacity failure.
+
+Two startup details are essential:
+
+- Emscripten `callMain` mutates its argument array by prepending `argv[0]`, so
+  the frozen launcher description must be copied before ordinary builds call
+  it.
+- `callMain` is not an Asyncify-aware boundary. The Window-owned variant uses
+  the exported `Surreal_StartBrowserGame` entry through
+  `Module.ccall(..., { async: true })`; otherwise the first asynchronous OPFS
+  filesystem operation unwinds and startup returns at tick zero.
+
+The single-thread audit found one active browser `std::thread` dependency:
+`UInternetLink::Resolve`. The Window-owned variant runs its existing resolver
+body synchronously after releasing the object mutex. Browser audio is already
+main-thread pumped, the selected OpenMPT configuration supplies no-thread
+mutex shims, and the WebXR mutexes do not create worker ownership.
+
+Emscripten OpenAL reports `INT_MAX` for its virtual mono and stereo source
+limits. Treating that value as an allocation count caused the apparent
+fixed-heap `std::bad_alloc`. Browser builds now clamp unlimited, nonpositive,
+or oversized reports to the requested voice count. The measured owner run
+allocated 256 sources and completed audio initialization within the fixed
+heap.
+
+Browser pointer lock is also explicitly gesture-owned. Native startup records
+pointer-lock intent but does not request it. A trusted click on the exact game
+canvas performs the request, unlock remains available, rejection is handled,
+and an active WebXR session suppresses or exits pointer lock. The product shell
+uses SDL's expected `canvas` identifier, while WebGPU surface creation marks
+and selects the exact `Module.canvas` rather than a separate hard-coded node.
+
+Measured owner-data evidence for the Window-owned variant is:
+
+- 496 files and 659,817,346 bytes restored from OPFS without MEMFS
+  materialization;
+- fixed 268,435,456-byte Wasm heap;
+- UT99 version 436, configuration, and packages read successfully;
+- `DM-Deck16][` headless/null bot coverage completed and exited 0;
+- flat WebGPU reached login and advanced beyond 450 ticks, with the exact
+  `Module.canvas` owning the surface, nonzero draws/textures, zero engine
+  WebGPU errors, and no page errors; and
+- deterministic Chrome pointer-lock coverage proved inert startup, one trusted
+  click request, unlock, WebXR suppression, and handled rejection.
+
+Chrome still reports one uncaptured destroyed swap-buffer texture during the
+first flat WebGPU submission. Retaining the acquired texture for one additional
+frame and until queue completion did not remove it, so those ineffective
+changes were discarded. Flat presentation is visibly advancing, but the
+warning remains a release-quality blocker for this experimental variant.
+Physical WebXR hardware has not been tested by this work and is not claimed.
+
 ## Recommended persistent layout
 
 The lowest-memory persistent design is:
