@@ -75,7 +75,7 @@ class FakeSession {
 	constructor() {
 		this.listeners = new Map(); this.visibilityState = "visible"; this.inputSources = makeInputSources();
 		this.frames = new Map(); this.cancelledFrames = []; this.nextHandle = 1;
-		this.referenceSpace = new FakeReferenceSpace(); this.endDeferred = null;
+		this.referenceSpace = new FakeReferenceSpace(); this.endDeferred = null; this.endError = null;
 	}
 	addEventListener(name, callback) { this.listeners.set(name, callback); }
 	updateRenderState(state) { this.renderState = state; }
@@ -89,8 +89,10 @@ class FakeSession {
 	}
 	async end() {
 		if (this.endDeferred) await this.endDeferred.promise;
-		const callback = this.listeners.get("end"); if (callback) callback();
+		if (this.endError) throw this.endError;
+		this.emitEnd();
 	}
+	emitEnd() { const callback = this.listeners.get("end"); if (callback) callback(); }
 }
 
 function button(value, pressed = false, touched = pressed) { return { value, pressed, touched }; }
@@ -160,6 +162,16 @@ const stereoFrame = {
 		orientation: { x: 0, y: 0, z: 0, w: 1 } } }; },
 };
 const nextTask = () => new Promise(resolve => setTimeout(resolve, 5));
+function driveRightTriggerTransitions(session, count, startTime) {
+	const right = session.inputSources.find(source => source.handedness === "right");
+	for (let index = 0; index < count; index++) {
+		const pressed = index % 2 === 0;
+		right.gamepad.buttons[0].pressed = pressed;
+		right.gamepad.buttons[0].touched = pressed;
+		right.gamepad.buttons[0].value = pressed ? 1 : 0;
+		session.fireFrame(startTime + index, stereoFrame);
+	}
+}
 
 await import("./webxr_provider.js");
 const capabilities = await globalThis.surrealXRGetCapabilities();
@@ -284,6 +296,26 @@ assert.equal(await reentry, true);
 assert.equal(sessions.length, 2);
 assert.deepEqual(loopTransitions, [1, 0, 1]);
 assert.ok(destroyedTextures.length >= 4);
+
+// A rejected explicit end with no end event is terminal for session admission. Native/GPU cleanup
+// may finish, but only the browser's eventual real end event (or a page reset) can release the gate.
+sessions[1].endError = new Error("synthetic end rejection");
+assert.equal(globalThis.surrealXRExit(), true);
+await nextTask();
+assert.equal(globalThis.surrealXRGetState().active, false);
+assert.equal(globalThis.surrealXRGetState().sessionEndBlocked, true);
+assert.equal(globalThis.surrealXRGetState().phase, "error");
+assert.equal(globalThis.surrealXRGetState().lastErrorCode, "session-end-rejected");
+assert.equal(globalThis.surrealXRGetState().lastErrorStage, "session-shutdown");
+const rejectedEndRetry = globalThis.surrealXREnter();
+await nextTask(); await nextTask();
+assert.equal(sessions.length, 2,
+	"cleanup completion must not admit a retry while rejected end has no browser end event");
+sessions[1].emitEnd();
+assert.equal(await rejectedEndRetry, true);
+assert.equal(sessions.length, 3);
+assert.equal(globalThis.surrealXRGetState().sessionEndBlocked, false);
+assert.equal(globalThis.surrealXRGetState().phase, "running");
 assert.equal(globalThis.surrealXRExit(), true);
 await nextTask();
 
@@ -326,6 +358,49 @@ for (const mode of ["layer", "format", "usage"]) {
 	assert.equal(copies.length, copiesBeforeInvalidFrame, "invalid " + mode + " metadata must not submit a copy");
 	invalidProjectionMode = null;
 }
+
+// Overflow is terminal and capped even if the scheduled producer has not started. Exit must cancel
+// that queued render pump and discard the bounded queue without making a late native render call.
+assert.equal(await globalThis.surrealXREnter(), true);
+const queuedPumpSession = sessions.at(-1);
+const rendersBeforeQueuedExit = renderedPackets.length;
+driveRightTriggerTransitions(queuedPumpSession, 256, 200);
+assert.equal(globalThis.surrealXRGetState().inputQueueOverflow, false);
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 256);
+driveRightTriggerTransitions(queuedPumpSession, 1, 456);
+assert.equal(globalThis.surrealXRGetState().inputQueueOverflow, true);
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 256);
+driveRightTriggerTransitions(queuedPumpSession, 443, 457);
+assert.equal(globalThis.surrealXRExit(), true);
+assert.equal(globalThis.surrealXRGetState().inputQueueOverflow, false);
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 0);
+await nextTask();
+assert.equal(renderedPackets.length, rendersBeforeQueuedExit,
+	"exit must cancel a queued overflow render pump before native entry");
+
+// During an already-hung native render, the 257th retained edge makes overflow terminal. Later
+// frames cannot grow the queue; producer drain then fails closed and clears the bounded storage.
+assert.equal(await globalThis.surrealXREnter(), true);
+const overflowSession = sessions.at(-1);
+renderDeferred = deferred();
+overflowSession.fireFrame(1000, stereoFrame);
+await nextTask();
+const rendersAtOverflowStart = renderedPackets.length;
+driveRightTriggerTransitions(overflowSession, 700, 1100);
+assert.equal(globalThis.surrealXRGetState().inputQueueOverflow, true);
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 256);
+driveRightTriggerTransitions(overflowSession, 700, 1900);
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 256,
+	"terminal overflow must reject all later transitions without growing memory");
+assert.equal(renderedPackets.length, rendersAtOverflowStart,
+	"a hung producer must not be re-entered while overflow frames arrive");
+renderDeferred.resolve(1); renderDeferred = null;
+await nextTask(); await nextTask();
+assert.equal(globalThis.surrealXRGetState().phase, "error");
+assert.equal(globalThis.surrealXRGetState().lastErrorCode, "input-transition-overflow");
+assert.equal(globalThis.surrealXRGetState().inputQueueOverflow, false);
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 0);
+assert.equal(overflowSession.frames.size, 0);
 
 // Input packing remains defensive and semantic.
 const unsafe = makeInputSource("left", 0); unsafe.gamepad.mapping = "";

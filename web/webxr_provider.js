@@ -12,11 +12,14 @@
 	});
 	const INPUT_HEADER_FLAGS = Object.freeze({ sessionActive: 1, actionFocused: 2 });
 	const INPUT_SOURCE_FLAGS = Object.freeze({ connected: 1, aimValid: 2, gripValid: 4 });
+	const INPUT_QUEUE_LIMIT = 256;
 	let generationCounter = 0;
 	let activeGeneration = 0;
 	let enterPending = false;
 	let activationPending = false;
 	let session = null;
+	let sessionEndTracker = null;
+	let sessionEndBlocked = false;
 	let referenceSpace = null;
 	let binding = null;
 	let projectionLayer = null;
@@ -271,6 +274,7 @@
 	}
 
 	function enqueueInputPacket(packet) {
+		if (inputQueueOverflow) return;
 		const data = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
 		const sourceCount = data.getUint32(8, true);
 		const signature = [data.getUint32(12, true), sourceCount];
@@ -286,13 +290,18 @@
 		// redundant because the edge packet also contains the newest pose/axes.
 		if (transition && queuedInputPackets.length && !queuedInputPackets.at(-1).transition)
 			queuedInputPackets.pop();
-		if (transition) queuedInputPackets.push({ packet, transition: true });
+		if (transition) {
+			if (queuedInputPackets.length >= INPUT_QUEUE_LIMIT) { inputQueueOverflow = true; return; }
+			queuedInputPackets.push({ packet, transition: true });
+		}
 		else if (queuedInputPackets.length && !queuedInputPackets.at(-1).transition)
 			queuedInputPackets[queuedInputPackets.length - 1] = { packet, transition: false };
-		else queuedInputPackets.push({ packet, transition: false });
+		else {
+			if (queuedInputPackets.length >= INPUT_QUEUE_LIMIT) { inputQueueOverflow = true; return; }
+			queuedInputPackets.push({ packet, transition: false });
+		}
 		// Never silently discard a button/focus/connect edge. A pathological stall
 		// fails closed instead of leaving a logically stuck button in native input.
-		if (queuedInputPackets.length > 256) inputQueueOverflow = true;
 	}
 
 	function submitNeutralInput(time, sessionActive) {
@@ -581,6 +590,7 @@
 			try { finishedSession.cancelAnimationFrame(pendingFrame); } catch (_) {}
 		}
 		session = null;
+		sessionEndTracker = null;
 		if (root.SurrealBrowserPointerLock) root.SurrealBrowserPointerLock.setXRActive(false);
 		referenceSpace = null;
 		binding = null;
@@ -630,26 +640,69 @@
 		return true;
 	}
 
-	function drainSessionEnd(ending, failureMessage) {
+	function createSessionEndTracker(sessionObject, generation) {
+		let resolveEnded;
+		const tracker = {
+			generation,
+			ended: false,
+			blocked: false,
+			promise: new Promise(function (resolve) { resolveEnded = resolve; }),
+		};
+		sessionObject.addEventListener("end", function () {
+			if (!tracker.ended) {
+				tracker.ended = true;
+				resolveEnded();
+			}
+			if (tracker.blocked) {
+				tracker.blocked = false;
+				sessionEndBlocked = false;
+				if (activeGeneration === 0) {
+					status.phase = "ended";
+					setStage("ended");
+					recordTransition("session-end-confirmed", generation, status.currentStage);
+				}
+			}
+			finish(generation, "ended", null);
+		});
+		return tracker;
+	}
+
+	function drainSessionEnd(ending, endTracker, failureMessage) {
 		const localCleanup = cleanupPending;
 		cleanupPending = Promise.all([
 			localCleanup,
 			Promise.resolve(ending).catch(function (error) {
 				log(failureMessage + error);
+				if (!endTracker || endTracker.ended) return;
+				endTracker.blocked = true;
+				sessionEndBlocked = true;
+				status.phase = "error";
+				setStage("session-shutdown");
+				status.lastError = String(error && (error.message || error) || "session end rejected");
+				status.lastErrorCode = "session-end-rejected";
+				status.lastErrorStage = "session-shutdown";
+				recordTransition("session-end-rejected", endTracker.generation, status.currentStage);
+				// A rejected end request does not prove that the browser released its
+				// immersive session. Admission stays closed until the real end event;
+				// otherwise only a full page reset can clear this terminal gate.
+				return endTracker.promise;
 			}),
 		]).then(function () {});
 	}
 
 	function fail(generation, error) {
 		const failedSession = generation === activeGeneration ? session : null;
+		const failedEndTracker = generation === activeGeneration ? sessionEndTracker : null;
 		if (!finish(generation, "error", error)) return;
 		if (failedSession) {
+			let ending;
 			try {
-				const ending = failedSession.end();
-				drainSessionEnd(ending, "WebXR failed-session end rejected after scheduling stopped: ");
+				ending = failedSession.end();
 			} catch (endError) {
-				log("WebXR failed-session end threw after scheduling stopped: " + endError);
+				ending = Promise.reject(endError);
 			}
+			drainSessionEnd(ending, failedEndTracker,
+				"WebXR failed-session end rejected after scheduling stopped: ");
 		}
 	}
 
@@ -820,8 +873,8 @@
 				return false;
 			}
 			session = requestedSession;
+			sessionEndTracker = createSessionEndTracker(session, generation);
 			if (root.SurrealBrowserPointerLock) root.SurrealBrowserPointerLock.setXRActive(true);
-			session.addEventListener("end", function () { finish(generation, "ended", null); });
 			enterPending = false;
 			status.phase = "session-reserved";
 			setStage("session-reserved");
@@ -933,21 +986,26 @@
 	root.surrealXRExit = function () {
 		if (!session) return false;
 		const generation = activeGeneration;
+		const exitingSession = session;
+		const exitingEndTracker = sessionEndTracker;
 		status.exitRequests++;
 		setStage("exit-requested");
 		recordTransition("exit-requested", generation, status.currentStage);
+		let ending;
+		let accepted = true;
 		try {
-			const ending = session.end();
+			ending = exitingSession.end();
 			// The browser may delay the `end` event or the returned Promise. Invalidate
 			// scheduling immediately after it accepts the request, then make re-entry
 			// wait for both native/GPU cleanup and the actual session shutdown.
 			finish(generation, "ended", null);
-			drainSessionEnd(ending, "WebXR session end failed after scheduling stopped: ");
-			return true;
 		} catch (error) {
-			fail(generation, error);
-			return false;
+			accepted = false;
+			ending = Promise.reject(error);
+			finish(generation, "ended", null);
 		}
+		drainSessionEnd(ending, exitingEndTracker, "WebXR session end failed after scheduling stopped: ");
+		return accepted;
 	};
 
 	root.surrealXRGetState = function () {
@@ -957,6 +1015,9 @@
 				{ reasons: status.capabilities.reasons.slice() });
 		result.transitions = status.transitions.slice();
 		result.bridgeDiagnostics = copyBridgeDiagnostics(status.bridgeDiagnostics);
+		result.sessionEndBlocked = sessionEndBlocked;
+		result.inputQueueDepth = queuedInputPackets.length;
+		result.inputQueueOverflow = inputQueueOverflow;
 		return result;
 	};
 	root.surrealXRFrameABI = ABI;
