@@ -88,6 +88,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/GameWindow.h
 	SurrealEngine/Input/InputComposition.cpp
 	SurrealEngine/Input/InputComposition.h
+	SurrealEngine/Input/DesktopInputDefaults.cpp
+	SurrealEngine/Input/DesktopInputDefaults.h
 	SurrealEngine/Input/XRInputAdapter.cpp
 	SurrealEngine/Input/XRInputAdapter.h
 	SurrealEngine/XR/XRCommon.cpp
@@ -1031,6 +1033,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(InputCompositionTests PRIVATE SurrealEngine)
 	set_target_properties(InputCompositionTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME InputComposition COMMAND InputCompositionTests)
+
+	add_executable(DesktopInputDefaultsTests
+		Tests/DesktopInputDefaultsTests.cpp
+		SurrealEngine/Input/DesktopInputDefaults.cpp
+	)
+	target_include_directories(DesktopInputDefaultsTests PRIVATE SurrealEngine)
+	set_target_properties(DesktopInputDefaultsTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME DesktopInputDefaults COMMAND DesktopInputDefaultsTests)
 
 	add_executable(BrowserRelativeMouseTests
 		Tests/BrowserRelativeMouseTests.cpp

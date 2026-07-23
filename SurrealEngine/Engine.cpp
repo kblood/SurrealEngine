@@ -7,6 +7,7 @@
 #include "Utils/CommandLine.h"
 #include "Runtime/HeadlessDriver.h"
 #include "BotBenchmark/BotBenchmarkDriver.h"
+#include "Input/DesktopInputDefaults.h"
 #include "Platform/OpenXR/OpenXRProvider.h"
 #include "Platform/Browser/BrowserRelativeMouse.h"
 #include <surrealwidgets/window/browser_relative_mouse.h>
@@ -2220,6 +2221,7 @@ void Engine::LoadKeybindings()
 		std::string keyname = keynames[i];
 		keybindings[keyname] = packages->GetIniValue("user", "Engine.Input", keyname);
 	}
+	DesktopInputDefaults::ApplyModernMovement(keybindings);
 
 	for (int i = 0; i < 40; i++)
 	{

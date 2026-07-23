@@ -112,6 +112,12 @@ controller or browser session removes only that source. Keyboard/mouse remains
 the default and can operate alongside native XR or WebXR instead of being
 replaced by them.
 
+Fresh desktop input now uses non-inverted mouse look and WASD movement. The
+compatibility overlay applies only to an untouched classic arrow-key layout or
+an entirely empty movement layout, retains the arrow keys as secondary
+bindings, and does not replace a customized user layout. A saved
+`bInvertMouse` value continues to take precedence over the new default.
+
 Native and browser UI policy converges through `XRUIRuntime`: both use the same
 surface descriptors, anchoring, menu-last ordering, exact pointer contact and
 click ownership, startup fire route, mouse coexistence, and lifecycle cleanup.

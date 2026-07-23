@@ -1,4 +1,5 @@
 #include "Precomp.h"
+#include "Input/DesktopInputDefaults.h"
 #include "UActor.h"
 #include "ULevel.h"
 #include "UMesh.h"
@@ -4096,7 +4097,7 @@ void UPlayerPawn::TickRotating(float elapsed)
 
 void UPlayerPawn::LoadProperties()
 {
-	bInvertMouse() = IniPropertyConverter<bool>::FromIniFile(*engine->packages->GetIniFile("user"), "Engine.PlayerPawn", "bInvertMouse", true);
+	bInvertMouse() = IniPropertyConverter<bool>::FromIniFile(*engine->packages->GetIniFile("user"), "Engine.PlayerPawn", "bInvertMouse", DesktopInputDefaults::InvertMouse);
 	MouseSensitivity() = IniPropertyConverter<float>::FromIniFile(*engine->packages->GetIniFile("user"), "Engine.PlayerPawn", "MouseSensitivity", 5.0f);
 	// TODO: Handle the array property this class has (WeaponPriority)
 	DodgeClickTime() = IniPropertyConverter<float>::FromIniFile(*engine->packages->GetIniFile("user"), "Engine.PlayerPawn", "DodgeClickTime", 0.25f);
