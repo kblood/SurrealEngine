@@ -11,7 +11,6 @@ main { min-width: 0; }
 .startup-overlay p { color: #cbd5e0; }
 .panel { width: min(46rem, calc(100% - 2rem)); box-sizing: border-box; margin: 1rem auto; padding: 1.25rem; border: 1px solid #394759; border-radius: .65rem; background: #18202b; }
 .panel h1, .panel h2 { margin-top: 0; }
-.capability-panel { order: -1; }
 .capability-panel ul { display: grid; gap: .35rem; padding-left: 1.35rem; }
 .capability-panel li[data-available="true"]::marker { color: #68d391; }
 .capability-panel li[data-available="false"]::marker { color: #f6ad55; }

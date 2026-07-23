@@ -98,7 +98,7 @@ with sync_playwright() as playwright:
 	}""")
 	if (not prelaunch["startupHidden"] or prelaunch["startupDisplay"] != "none" or
 		prelaunch["canvasRects"] != 0 or prelaunch["pickerTop"] < 0 or
-		prelaunch["pickerTop"] >= prelaunch["viewportHeight"] * 2 or prelaunch["scrollY"] != 0):
+		prelaunch["pickerBottom"] > prelaunch["viewportHeight"] or prelaunch["scrollY"] != 0):
 		print(json.dumps({"prelaunch": prelaunch}, indent=2), file=sys.stderr)
 		print("FAIL: inactive canvas obscured the pre-launch controls", file=sys.stderr)
 		sys.exit(1)

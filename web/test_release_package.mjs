@@ -82,6 +82,8 @@ try {
 	assert.match(index, /source\/SurrealEngine-corresponding-source\.tar\.gz/);
 	assert.match(index, /browser may call folder selection an .upload./i);
 	assert.doesNotMatch(index, /Folder upload fallback/);
+	assert.ok(index.indexOf('id="game-data-importer"') < index.indexOf('id="browser-status"'),
+		"game selection must appear before capability and diagnostic details");
 	assert.match(index, /ut99_importer\.js\?v=[0-9a-f]{12}/);
 	assert.match(index, /browser_app\.js\?v=[0-9a-f]{12}/);
 	assert.match(index, /browser_app\.css\?v=[0-9a-f]{12}/);
