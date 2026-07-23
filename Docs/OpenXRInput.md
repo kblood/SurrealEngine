@@ -59,6 +59,11 @@ does not let stock camera-relative `RenderOverlays` replace the controller/world
 transform. `[openxr-weapon-render]` records the position and rotation actually
 applied to the actor. The solver regression covers both a rotated controller
 and a rotated player/reference frame through this final actor conversion.
+`OpenXRViewTests` separately crosses the real native view and weapon pipelines:
+the same tracked head/controller pose is transformed before and after a
+90-degree reference turn, and weapon forward/position must match the rendered
+eye forward and pointer origin. This catches yaw-convention errors that an
+isolated solver test cannot detect.
 
 ## Bounded hardware diagnostics
 

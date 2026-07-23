@@ -155,7 +155,10 @@ bool OpenXRViewTranslator::CreateWeaponWorldTransform(const vec3& anchorLocation
 		return false;
 	output.EngineOrigin = { anchorLocation.x, anchorLocation.y, anchorLocation.z };
 	output.UnitsPerMeter = UnrealUnitsPerMeter;
-	output.EngineYawRadians = yawOffset;
+	// XRCommon's engine-yaw matrix and Coords::YawRotation use opposite
+	// positive-yaw signs. The eyes/pointers above use Coords, so negate at
+	// this handoff to keep weapon position/orientation in the same world frame.
+	output.EngineYawRadians = -yawOffset;
 	return true;
 }
 

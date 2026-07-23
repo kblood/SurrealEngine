@@ -29,6 +29,19 @@ static bool Near(const vec4& a, const vec4& b)
 	return Near(a.x, b.x) && Near(a.y, b.y) && Near(a.z, b.z) && Near(a.w, b.w);
 }
 
+static bool Near(const vec3& a, const vec3& b)
+{
+	return Near(a.x, b.x) && Near(a.y, b.y) && Near(a.z, b.z);
+}
+
+static vec3 Rotate(const XRQuaternion& orientation, const vec3& value)
+{
+	const vec3 imaginary(orientation.X, orientation.Y, orientation.Z);
+	const vec3 firstCross = cross(imaginary, value);
+	const vec3 secondCross = cross(imaginary, firstCross);
+	return value + 2.0f * (orientation.W * firstCross + secondCross);
+}
+
 int main()
 {
 	OpenXREyeView eyes[2];
@@ -143,6 +156,47 @@ int main()
 		spawnTranslator.CreateHeadRotation(neutralHead, spawnFacing, headRotation) &&
 		Near(headRotation.YawRadians(), spawnFacing.YawRadians() - smoothTurn),
 		"OpenXR smooth turn did not compose with tracked head yaw");
+
+	// Cross the actual view and weapon pipelines. A unit test that only applies
+	// XRWorldTransform to a weapon can agree with itself while using the
+	// opposite yaw convention from CreateViewFamily.
+	OpenXRViewTranslator sharedTurnTranslator;
+	ViewFamily sharedInitialViews = sharedTurnTranslator.CreateViewFamily(
+		neutralEyes, {}, Rotator(), { 0, 0, 200, 100 });
+	XRPose sharedController;
+	sharedController.Valid = true;
+	sharedController.Position = { 0.2f, 1.2f, -0.4f };
+	XRWorldTransform sharedInitialWorld;
+	Check(sharedTurnTranslator.CreateWeaponWorldTransform({}, sharedInitialWorld),
+		"initial shared view/weapon transform was unavailable");
+	XREnginePose sharedInitialWeapon = TransformXRPoseToEngine(
+		sharedController, sharedInitialWorld);
+	XRUISurfaceRay sharedInitialPointer = sharedTurnTranslator.CreatePointerRay(
+		sharedController, {});
+	Check(sharedInitialWeapon.Valid && Near(
+		Rotate(sharedInitialWeapon.Orientation, { 1.0f, 0.0f, 0.0f }),
+		sharedInitialViews.Views[0].Rotation.XAxis) && Near(
+		vec3(sharedInitialWeapon.Position.X, sharedInitialWeapon.Position.Y,
+			sharedInitialWeapon.Position.Z), sharedInitialPointer.Origin),
+		"neutral OpenXR view and weapon forward axes disagreed");
+
+	Check(sharedTurnTranslator.ApplyYawTurn(Radians(90.0f)),
+		"shared view/weapon reference turn was rejected");
+	ViewFamily sharedTurnedViews = sharedTurnTranslator.CreateViewFamily(
+		neutralEyes, {}, Rotator(), { 0, 0, 200, 100 });
+	XRWorldTransform sharedTurnedWorld;
+	Check(sharedTurnTranslator.CreateWeaponWorldTransform({}, sharedTurnedWorld),
+		"turned shared view/weapon transform was unavailable");
+	XREnginePose sharedTurnedWeapon = TransformXRPoseToEngine(
+		sharedController, sharedTurnedWorld);
+	XRUISurfaceRay sharedTurnedPointer = sharedTurnTranslator.CreatePointerRay(
+		sharedController, {});
+	Check(sharedTurnedWeapon.Valid && Near(
+		Rotate(sharedTurnedWeapon.Orientation, { 1.0f, 0.0f, 0.0f }),
+		sharedTurnedViews.Views[0].Rotation.XAxis) && Near(
+		vec3(sharedTurnedWeapon.Position.X, sharedTurnedWeapon.Position.Y,
+			sharedTurnedWeapon.Position.Z), sharedTurnedPointer.Origin),
+		"OpenXR reference turn rotated the weapon opposite to the rendered view");
 	OpenXRViewTranslator inactiveTranslator;
 	Check(!inactiveTranslator.ApplyYawTurn(Radians(10.0f)),
 		"OpenXR yaw turn was accepted before a tracked pose established recentering");

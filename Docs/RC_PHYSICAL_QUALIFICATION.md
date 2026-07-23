@@ -111,6 +111,17 @@ actor directly, adds `[openxr-weapon-render]` evidence from the actual draw,
 and regression-tests both controller rotation and player/reference-frame
 turning. `343480d9` remains a failed candidate.
 
+The `48cc99ea` retest produced actual-render evidence, but paired samples showed
+weapon yaw near the opposite of camera yaw (for example `37.44` versus
+`-40.52`, and `106.62` versus `-109.60`). The pose solver and actor draw agreed,
+so the remaining defect was the OpenXR view/weapon yaw handoff. A new
+cross-pipeline regression using `CreateViewFamily`, `CreateWeaponWorldTransform`,
+and the same controller pose reproduced the defect before the fix with
+`OpenXR reference turn rotated the weapon opposite to the rendered view`.
+Negating the yaw at that convention boundary makes both orientation and
+position agree with the rendered view/pointer after a 90-degree turn.
+`48cc99ea` remains a failed candidate.
+
 ## Safe start — explicit launcher only
 
 - [ ] Use a charged Quest 3 with both controllers awake. Connect Virtual
