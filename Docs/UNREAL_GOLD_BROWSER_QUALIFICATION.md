@@ -1,0 +1,91 @@
+# Unreal Gold browser qualification
+
+Date: 2026-07-23
+
+This is an owner-data qualification record. No game files, imported filenames,
+browser profile, or screenshots are part of the repository or release package.
+
+## Test boundary
+
+The test used the clean shipping Asyncify/WasmFS artifact from source commit
+`5e6fba9257778833925e03c5350ee55b452dd040` and tree
+`5d59f459558c312da263e0a7eb446e1a6926da1e`. Its build provenance records an
+empty game-data directory and `sourceDirty: false`. The selected GOG Unreal Gold
+installation contained 335 files and 586,421,656 bytes. Both a new Chrome
+profile/import and a restored owner profile were exercised locally.
+
+## First-run map correction
+
+Unreal Gold declares `Vortex2` as its safe direct-start default. The launcher
+previously sorted the imported map manifest and left the first option selected
+when no per-game preference existed. That made a new Unreal Gold import select
+`Bluff`, while a new UT99 import could select `AS-Frigate` instead of its
+declared Deck 16 default.
+
+The launcher now chooses, in order:
+
+1. a valid saved per-game map preference;
+2. the game's declared default map when it is present in the imported manifest;
+3. the first validated manifest map as the existing fallback.
+
+The selection uses the map spelling stored in the validated manifest. A focused
+browser test covers the Unreal Gold default and confirms that a later explicit
+Bluff preference still overrides it.
+
+## Visual evidence
+
+The corrected Vortex2 direct path advanced simulation, rendered 240 draw calls
+and 270 textures, and reported no browser or WebGPU errors. Its 1280 by 720
+canvas had a mean luminance of 23.985, median luminance of 18.923, 45.420% of
+pixels below luminance 16, and 64,349 distinct RGB values. The captured frame
+clearly showed the blue-lit Vortex Rikers interior, HUD, and first-person view;
+it was dark art direction rather than a blank render.
+
+For comparison, the unintended first-run Bluff frame also rendered correctly
+but was darker: mean luminance 20.246, median 16.689, and 48.037% below
+luminance 16. A direct NyLeve start was a worse visual gate because that player
+start was a cramped dark/red interior (mean 14.253 and 66.708% below luminance
+16). Use Vortex2, not the alphabetically first map, for the Unreal Gold release
+smoke.
+
+The browser does not currently expose a product diagnostic for exact camera
+coordinates. The launch selection, `LoginPlayer` completion, advancing ticks,
+first-person HUD/view, and stable draw counts establish an active player camera
+rather than an intro-only or menu-only frame. Coordinate-level debugging would
+require temporary instrumentation and is not a release feature.
+
+## Audio evidence
+
+The launcher Start action was a sufficient trusted gesture in the tested Chrome
+path. Chrome DevTools Protocol observed the 48 kHz realtime AudioContext change
+from suspended to running. Browser and native bridge diagnostics then reported
+running state, mute disabled, output volume 1, no resume failure, and no audio
+error. The separate Enable audio control was correctly hidden once running.
+
+Vortex2 produced nonzero mono effect/ambient buffers at its stationary opening.
+Bluff and NyLeve produced continuous nonzero stereo PCM through the browser
+OpenAL queue; sampled stereo buffers had nonzero samples in both channels and
+nonzero RMS. This exercises the module decoder and browser music scheduling,
+not merely AudioContext creation. SurrealVideo is unrelated to map music;
+Unreal module music uses `AudioSource::CreateMod` and libopenmpt, while
+SurrealVideo handles supported cinematic streams.
+
+Headless automation cannot prove what reached physical speakers. A human pass
+must still confirm audible music/effects and the intended relative levels on
+the target browser/device. If that fails while the diagnostics remain running
+and PCM remains nonzero, investigate the OS/browser output route and final
+gain graph rather than folder import or module-format support first.
+
+## Release gate
+
+For the next immutable candidate:
+
+1. import or restore the owned Unreal Gold folder;
+2. confirm the initial direct-map selection is Vortex2;
+3. launch Vortex2 and require advancing ticks, visible Vortex Rikers geometry,
+   zero browser/WebGPU errors, and a running AudioContext;
+4. audibly verify ambient effects and later music during real play;
+5. separately exercise the unchecked game-owned LocalMap path.
+
+Bluff remains useful for continuous music-buffer diagnostics, but it is no
+longer the first-run renderer gate.

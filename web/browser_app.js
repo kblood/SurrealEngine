@@ -373,7 +373,9 @@
 				const maps = context.mapManifest && context.mapManifest.maps.length ? context.mapManifest.maps : [context.game.defaultMap];
 				for (const map of maps) this._option(this.map, map, map);
 				const preferred = preferences.mapByGame && preferences.mapByGame[context.game.id];
-				if (preferred && maps.some(map => map.toLowerCase() === preferred.toLowerCase())) this.map.value = preferred;
+				const selected = (preferred && maps.find(map => map.toLowerCase() === preferred.toLowerCase())) ||
+					maps.find(map => map.toLowerCase() === context.game.defaultMap.toLowerCase());
+				if (selected) this.map.value = selected;
 			}
 			if (this.presentation) {
 				this.presentation.textContent = "";

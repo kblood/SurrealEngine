@@ -129,6 +129,28 @@ window.browserAppTestPromise = (async () => {
 		assert(selection.skipIntro === true);
 		assert(document.getElementById("launcher").hidden);
 	});
+	await run("launcher selects the game default map before the alphabetical manifest entry", async () => {
+		localStorage.clear();
+		const registry = new api.PresentationRegistry();
+		registry.register({ id: "flat", label: "Desktop" });
+		const root = document.getElementById("launcher");
+		const controller = new api.LauncherController(root, registry);
+		const pending = controller.selectLaunch({
+			game: SurrealGameImporter.GAME_DEFINITIONS["unreal-gold"],
+			mapManifest: { state: "ready", maps: ["Bluff", "Vortex2"] },
+		});
+		assert(root.querySelector("[data-launcher-map]").value === "Vortex2");
+		root.querySelector("[data-launcher-map]").value = "Bluff";
+		root.querySelector("[data-launcher-form]").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		await pending;
+		const next = controller.selectLaunch({
+			game: SurrealGameImporter.GAME_DEFINITIONS["unreal-gold"],
+			mapManifest: { state: "ready", maps: ["Bluff", "Vortex2"] },
+		});
+		assert(root.querySelector("[data-launcher-map]").value === "Bluff");
+		root.querySelector("[data-launcher-form]").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		await next;
+	});
 	await run("launcher can intentionally use the configured LocalMap intro", async () => {
 		localStorage.clear();
 		const registry = new api.PresentationRegistry();
