@@ -125,6 +125,22 @@ window.importerTestPromise = (async function () {
 		assert(interrupted.code === "STORAGE_INTERRUPTED", "storage abort was mistaken for picker cancellation");
 		const expected = api.normalizeImportFailure(new api.ImportError("EXPECTED", "safe", { marker: true }), "validation");
 		assert(expected.code === "EXPECTED" && expected.details.marker && expected.details.phase === "validation");
+		assert(api.safeMessage(new Error(secret), "folder-scan").includes("IMPORT_FAILED; phase: folder-scan"));
+		assert(!api.safeMessage(new Error(secret), "folder-scan").includes(secret), "private path leaked through fallback message");
+	});
+
+	await run("typed importer failures survive duplicate-script or cross-realm boundaries", async () => {
+		const foreignFailure = {
+			name: "SurrealUT99ImportError",
+			code: "FILE_NOT_READABLE",
+			message: "The selected game file could not be read.",
+			details: { marker: true },
+		};
+		const normalized = api.normalizeImportFailure(foreignFailure, "folder-scan");
+		assert(normalized instanceof api.ImportError, "foreign typed failure was not localized");
+		assert(normalized.code === "FILE_NOT_READABLE" && normalized.details.marker);
+		assert(normalized.details.phase === "folder-scan" && normalized.details.underlyingName === "ImportError");
+		assert(api.safeMessage(normalized).endsWith("[Diagnostic: FILE_NOT_READABLE; phase: folder-scan]"));
 	});
 
 	await run("folder-picker failures are normalized instead of showing a generic error", async () => {
@@ -211,6 +227,32 @@ window.importerTestPromise = (async function () {
 		const entries = api.entriesFromFileList(files);
 		assert(entries[0].path === "System/Core.u");
 		assert(api.validateEntries(entries).fileCount === files.length);
+	});
+
+	await run("directory picker recursively retains the complete game layout", async () => {
+		const tree = new Map();
+		for (const entry of syntheticEntries()) {
+			const parts = entry.path.split("/");
+			const directory = parts.shift();
+			if (!tree.has(directory)) tree.set(directory, []);
+			tree.get(directory).push({
+				kind: "file",
+				name: parts.join("/"),
+				getFile: async () => new File([await entry.getBlob()], parts.join("/")),
+			});
+		}
+		const root = {
+			kind: "directory",
+			async *values() {
+				for (const [name, files] of tree) {
+					yield { kind: "directory", name, async *values() { for (const file of files) yield file; } };
+				}
+			},
+		};
+		const progress = [];
+		const entries = await api.entriesFromDirectoryHandle(root, value => progress.push(value));
+		assert(api.validateEntries(entries).fileCount === syntheticEntries().length);
+		assert(progress.at(-1).filesDone === syntheticEntries().length);
 	});
 
 	const databaseName = "surrealengine-importer-test-" + Date.now() + "-" + Math.random();
@@ -356,8 +398,11 @@ window.importerTestPromise = (async function () {
 		const waiting = await controller.initialize();
 		assert(waiting.state === "waiting-for-import");
 		assert(launches === 0, "main gate opened before import");
+		controller._handleImportError(new DOMException("previous read failure", "NotReadableError"), "folder-scan");
+		assert(controller.lastError.code === "FILE_NOT_READABLE");
 		await controller.importEntries(syntheticEntries());
 		assert(launches === 1);
+		assert(controller.lastError === null, "successful retry retained a stale import error");
 		assert(fs.files.has("/gamedata/Maps/DM-Synthetic.unr"));
 		await storage.clear();
 	});
@@ -529,13 +574,20 @@ window.importerTestPromise = (async function () {
 		try {
 			const metadata = await storage.save(validation);
 			assert(metadata.backend === "opfs");
+			const replacement = await storage.save(validation);
+			assert(replacement.datasetId !== metadata.datasetId, "replacement reused the active generation");
 			const loaded = await storage.load();
+			assert(loaded.metadata.datasetId === replacement.datasetId, "replacement generation was not published");
 			assert(loaded.mount.type === "wasmfs-opfs-v1" && loaded.mount.storageDirectory === directoryName);
-			assert(loaded.mount.datasetId === metadata.datasetId);
+			assert(loaded.mount.datasetId === replacement.datasetId);
 			assert(await (await loaded.getBlob("Maps/DM-Synthetic.unr")).text() === "fake-map");
 			const appRoot = await root.getDirectoryHandle(directoryName);
 			const imports = await appRoot.getDirectoryHandle("imports");
-			await imports.removeEntry(metadata.datasetId, { recursive: true });
+			let oldGenerationPresent = true;
+			try { await imports.getDirectoryHandle(metadata.datasetId); }
+			catch (error) { if (error && error.name === "NotFoundError") oldGenerationPresent = false; else throw error; }
+			assert(!oldGenerationPresent, "replacement left the previous OPFS generation behind");
+			await imports.removeEntry(replacement.datasetId, { recursive: true });
 			await expectError("STORAGE_MISSING_DATASET", async () => storage.load());
 		} finally {
 			await storage.clear();

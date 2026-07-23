@@ -156,7 +156,10 @@ def main():
 		page.locator("#game-launcher").scroll_into_view_if_needed()
 		page.click("#game-launcher button[type=submit]")
 		try:
-			page.wait_for_function("window.surrealBooted === true", timeout=timeout_ms)
+			page.wait_for_function("""() => {
+				const controller = window.surrealApp && window.surrealApp.dataController.importController;
+				return window.surrealBooted === true || !!window.surrealCrashed || !!(controller && controller.lastError);
+			}""", timeout=timeout_ms)
 		except PlaywrightTimeoutError as error:
 			startup = page.evaluate("""() => ({
 				booted: window.surrealBooted === true,
@@ -169,6 +172,22 @@ def main():
 				log: document.getElementById('log').textContent,
 			})""")
 			raise RuntimeError("native startup did not complete: " + json.dumps(startup)) from error
+		startup_failure = page.evaluate("""() => {
+			const controller = window.surrealApp && window.surrealApp.dataController.importController;
+			const error = controller && controller.lastError;
+			return window.surrealBooted === true ? null : {
+				crashed: window.surrealCrashed || null,
+				name: error && error.name,
+				code: error && error.code,
+				message: error && error.message,
+				details: error && error.details,
+				status: document.querySelector('[data-game-status]').textContent,
+				visibleError: document.querySelector('[data-game-error]').textContent,
+				log: document.getElementById('log').textContent,
+			};
+		}""")
+		if startup_failure:
+			raise RuntimeError("native startup failed: " + json.dumps(startup_failure))
 		ticks = wait_for_advancing_ticks(page, min(timeout_ms, 120_000))
 		time.sleep(10)
 

@@ -136,10 +136,18 @@
 		}
 	}
 
-	function safeMessage(error) {
-		if (error instanceof ImportError) return error.message;
-		if (error && error.name === "AbortError") return "Folder selection was cancelled.";
-		return "The browser could not import the selected data. Try again or clear the saved import.";
+	function isImportError(error) {
+		return !!error && (error instanceof ImportError ||
+			(error.name === "SurrealUT99ImportError" && typeof error.code === "string" && typeof error.message === "string"));
+	}
+
+	function safeMessage(error, phase) {
+		if (error && error.name === "AbortError" && !isImportError(error)) return "Folder selection was cancelled.";
+		const failure = isImportError(error) ? error : normalizeImportFailure(error, phase || "validation");
+		const failurePhase = failure.details && Object.prototype.hasOwnProperty.call(IMPORT_PHASE_LABELS, failure.details.phase) ?
+			failure.details.phase : "validation";
+		const code = /^[A-Z][A-Z0-9_]{0,63}$/.test(failure.code) ? failure.code : "IMPORT_FAILED";
+		return failure.message + " [Diagnostic: " + code + "; phase: " + failurePhase + "]";
 	}
 
 	const IMPORT_PHASE_LABELS = Object.freeze({
@@ -173,9 +181,9 @@
 					underlyingName: safeErrorName(error),
 				});
 		}
-		if (error instanceof ImportError) {
+		if (isImportError(error)) {
 			const existingDetails = error.details && typeof error.details === "object" ? error.details : {};
-			if (existingDetails.phase && existingDetails.underlyingName) return error;
+			if (error instanceof ImportError && existingDetails.phase && existingDetails.underlyingName) return error;
 			return new ImportError(error.code, error.message, Object.assign({}, existingDetails, {
 				phase: safePhase,
 				underlyingName: "ImportError",
@@ -1147,6 +1155,7 @@
 		async importEntries(entries) {
 			if (this.busy) throw new ImportError("BUSY", "An import is already in progress.");
 			this.busy = true;
+			this.lastError = null;
 			this.ui.show();
 			this.ui.setBusy(true);
 			this.ui.setError("");
@@ -1249,6 +1258,7 @@
 		OPFSStorage,
 		IndexedDBStorage,
 		ImportController,
+		safeMessage,
 		normalizeImportFailure,
 		canonicalizeRelativePath,
 		entriesFromFileList,
