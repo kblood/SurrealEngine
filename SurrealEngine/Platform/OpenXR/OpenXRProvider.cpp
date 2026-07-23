@@ -1120,6 +1120,7 @@ bool OpenXRProvider::AllocateSurfaceTargets(
 				LogMessage("OpenXR: optional controller visual overlay allocation failed (" +
 					impl->lastError + "); keeping UI quads");
 			}
+			impl->lastError.clear();
 		}
 	}
 	impl->uiTargetsAllocated = true;
