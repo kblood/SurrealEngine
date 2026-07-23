@@ -331,6 +331,46 @@ window.importerTestPromise = (async function () {
 		assert(!logs.join("\n").includes(secret), "private path leaked into log");
 	});
 
+	await run("new-import startup failures preserve the saved import", async () => {
+		const storage = new api.IndexedDBStorage(databaseName + "-new-startup-failure");
+		await storage.clear();
+		const statuses = [];
+		const controller = new api.ImportController({ FS: new FakeFS(false) }, {
+			storage,
+			launch: async () => { throw new Error("native startup failed"); },
+		});
+		controller.ui.setStatus = message => statuses.push(message);
+		const waiting = await controller.initialize();
+		assert(waiting.state === "waiting-for-import");
+		const failure = await expectError("STARTUP_FAILED", () => controller.importEntries(syntheticEntries()));
+		assert(failure.details.phase === "startup", "startup exception was mislabeled as an import phase");
+		assert(failure.message.includes("imported or restored successfully"));
+		assert(!failure.message.toLowerCase().includes("clear"), "valid saved data was presented as disposable");
+		assert(statuses.at(-1).includes("imported and saved") && statuses.at(-1).includes("could not start"));
+		assert((await storage.load()).metadata.fileCount === syntheticEntries().length, "startup failure removed the saved import");
+		await storage.clear();
+	});
+
+	await run("restored-import startup failures remain distinct from restore failures", async () => {
+		const storage = new api.IndexedDBStorage(databaseName + "-restored-startup-failure");
+		await storage.clear();
+		await storage.save(api.validateEntries(syntheticEntries()));
+		const statuses = [];
+		const controller = new api.ImportController({ FS: new FakeFS(false) }, {
+			storage,
+			launch: async () => { throw new Error("native startup failed"); },
+		});
+		controller.ui.setStatus = message => statuses.push(message);
+		const result = await controller.initialize();
+		assert(result.state === "startup-failed" && result.mode === "persistent-import");
+		assert(result.error.code === "STARTUP_FAILED" && result.error.details.phase === "startup");
+		assert(!result.error.message.toLowerCase().includes("clear"), "restored data was presented as disposable");
+		assert(statuses.at(-1).includes("were restored") && statuses.at(-1).includes("could not start"));
+		assert(controller.mapManifest().state === "ready", "startup failure invalidated restored metadata");
+		assert((await storage.load()).metadata.fileCount === syntheticEntries().length, "startup failure cleared restored data");
+		await storage.clear();
+	});
+
 	await run("map manifest exposes only immutable safe direct map basenames", async () => {
 		const extras = [
 			["Maps/CTF-Face.unr", "ctf"],

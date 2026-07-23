@@ -148,6 +148,7 @@
 		"storage-check": "checking available browser storage",
 		"storage-copy": "copying files into private browser storage",
 		"runtime-copy": "preparing files for the game runtime",
+		"runtime-prepare": "preparing files for the game runtime",
 		startup: "starting the game runtime",
 		validation: "validating the selected folder",
 	});
@@ -165,6 +166,13 @@
 	function normalizeImportFailure(error, phase) {
 		const safePhase = Object.prototype.hasOwnProperty.call(IMPORT_PHASE_LABELS, phase) ? phase : "validation";
 		const phaseLabel = IMPORT_PHASE_LABELS[safePhase];
+		if (safePhase === "startup") {
+			return new ImportError("STARTUP_FAILED",
+				"The game files were imported or restored successfully, but SurrealEngine could not start. Reload the page and try again; the saved import remains available.", {
+					phase: safePhase,
+					underlyingName: safeErrorName(error),
+				});
+		}
 		if (error instanceof ImportError) {
 			const existingDetails = error.details && typeof error.details === "object" ? error.details : {};
 			if (existingDetails.phase && existingDetails.underlyingName) return error;
@@ -1027,9 +1035,11 @@
 			this.ui.show();
 			this.ui.setStatus("Checking for saved game data…");
 			let phase = "storage-load";
+			let restoredMetadata = null;
 			try {
 				const dataset = await this.storage.load();
 				if (dataset) {
+					restoredMetadata = dataset.metadata;
 					this.ui.setBusy(true);
 					this.ui.setStatus("Restoring saved game data…");
 					phase = "runtime-prepare";
@@ -1038,14 +1048,22 @@
 					this._setMapManifest(dataset.metadata, "ready");
 					this.ui.setStatus("Saved game data restored. Choose how to start SurrealEngine…");
 					this._log("prepared " + dataset.metadata.fileCount + " local files (" + formatBytes(dataset.metadata.totalBytes) + ") via " + prepared.mode + " from " + this.storage.backend);
+					phase = "startup";
 					await this._launch("persistent-import");
 					return { state: "launched", mode: "persistent-import", backend: this.storage.backend, metadata: dataset.metadata };
 				}
 			} catch (error) {
 				const failure = normalizeImportFailure(error, phase);
-				this._setMapManifest(null, "error");
 				this.lastError = failure;
 				this.ui.setError(safeMessage(failure));
+				if (failure.details.phase === "startup") {
+					this.ui.setBusy(false);
+					this.ui.setStatus("Saved game files were restored, but SurrealEngine could not start. Reload the page to try again; the saved import is still available.");
+					this._log("game startup failed after restoring the saved import (" + failure.code + "; " + failure.details.underlyingName + ")");
+					return { state: "startup-failed", mode: "persistent-import", backend: this.storage.backend,
+						metadata: restoredMetadata, error: failure };
+				}
+				this._setMapManifest(null, "error");
 				this._log("saved import failed during " + failure.details.phase + " (" + failure.code + "; " + failure.details.underlyingName + "); user action required");
 			}
 			if (this._currentMapManifest.state !== "error") this._setMapManifest(null, "empty");
@@ -1162,8 +1180,13 @@
 				const failure = normalizeImportFailure(error, phase);
 				this.lastError = failure;
 				this.ui.setError(safeMessage(failure));
-				this.ui.setStatus("Import did not finish. No game data was sent anywhere; fix the issue and try again.");
-				this._log("import failed during " + failure.details.phase + " (" + failure.code + "; " + failure.details.underlyingName + ")");
+				if (failure.details.phase === "startup") {
+					this.ui.setStatus("Game files were imported and saved, but SurrealEngine could not start. Reload the page to try again; the saved import is still available.");
+					this._log("game startup failed after saving the new import (" + failure.code + "; " + failure.details.underlyingName + ")");
+				} else {
+					this.ui.setStatus("Import did not finish. No game data was sent anywhere; fix the issue and try again.");
+					this._log("import failed during " + failure.details.phase + " (" + failure.code + "; " + failure.details.underlyingName + ")");
+				}
 				throw failure;
 			} finally {
 				this.busy = false;
