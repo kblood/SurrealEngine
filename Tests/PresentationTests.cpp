@@ -45,10 +45,21 @@ int main()
 	Check(stereo.Views[0].Location == vec3(10.0f, 18.0f, 30.0f), "left eye offset is incorrect");
 	Check(stereo.Views[1].Location == vec3(10.0f, 22.0f, 30.0f), "right eye offset is incorrect");
 	Check(!stereo.Views[0].ApplyGameViewport && !stereo.Views[1].ApplyGameViewport, "game viewport crop must be disabled for diagnostic views");
+	Check(ShouldRenderWeaponPerView(stereo),
+		"stereo layers on the default target must keep world and weapon contiguous");
+	stereo.Presentation.SetLayer(PresentationLayer::World, { 1 }, true);
+	stereo.Presentation.SetLayer(PresentationLayer::WeaponOverlay, { 2 }, true);
+	Check(!ShouldRenderWeaponPerView(stereo),
+		"separate weapon targets must retain their own presentation pass");
+	stereo.Presentation.SetLayer(PresentationLayer::WeaponOverlay, { 1 }, false);
+	Check(!ShouldRenderWeaponPerView(stereo),
+		"a disabled weapon layer must not be rendered per view");
 
 	center.Viewport.Width = 1;
 	ViewFamily fallback = CreateSideBySideDiagnosticViewFamily(center);
 	Check(fallback.Views.size() == 1, "invalid split must safely retain one view");
+	Check(!ShouldRenderWeaponPerView(fallback),
+		"single-view desktop rendering must keep its established overlay pass");
 
 	return 0;
 }

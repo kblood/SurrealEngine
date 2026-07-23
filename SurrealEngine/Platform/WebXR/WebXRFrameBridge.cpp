@@ -218,10 +218,11 @@ ViewFamily WebXR::BuildViewFamily(const DecodedFrame& frame, const vec3& cameraL
 		family.Views.push_back(view);
 	}
 
-	// This provider skeleton presents only the world. Controller, weapon, HUD,
-	// menu, and cinematic policies deliberately remain separate follow-ups.
+	// The first-person weapon shares the projection target and is rendered
+	// contiguously with each world eye. UI and cinematic surfaces remain owned
+	// by the dedicated XR UI compositor.
 	family.Presentation.SetLayer(PresentationLayer::World, { 1 }, true);
-	family.Presentation.SetLayer(PresentationLayer::WeaponOverlay, { 1 }, false);
+	family.Presentation.SetLayer(PresentationLayer::WeaponOverlay, { 1 }, true);
 	family.Presentation.SetLayer(PresentationLayer::UserInterface, { 1 }, false);
 	family.Presentation.SetLayer(PresentationLayer::Cinematic, { 1 }, false);
 	return family;

@@ -60,7 +60,7 @@ void RenderSubsystem::DrawScene()
 	DrawSceneView(view);
 }
 
-void RenderSubsystem::DrawScene(const ViewFamily& viewFamily)
+void RenderSubsystem::DrawScene(const ViewFamily& viewFamily, bool renderWeaponPerView)
 {
 	if (!PrepareSceneViews())
 		return;
@@ -74,6 +74,8 @@ void RenderSubsystem::DrawScene(const ViewFamily& viewFamily)
 			if (Device->BeginPresentationView(target, viewIndex))
 			{
 				DrawSceneView(view);
+				if (renderWeaponPerView)
+					RenderXRWeaponOverlay();
 				Device->EndPresentationView(target, viewIndex);
 			}
 		}

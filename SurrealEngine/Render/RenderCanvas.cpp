@@ -674,3 +674,90 @@ void RenderSubsystem::DrawCollisionDebug()
 		}
 	}
 }
+
+bool RenderSubsystem::RenderXRWeaponOverlay()
+{
+	UPlayerPawn* viewActor = engine->viewport->Actor();
+	UWeapon* weapon = viewActor ? viewActor->Weapon() : nullptr;
+	if (!weapon)
+		return false;
+
+	// This pass is deliberately weapon-only. Calling PlayerPawn.RenderOverlays
+	// for every eye would repeat HUD and player-owned script side effects that
+	// belong to the once-per-family XR UI capture.
+	struct ScopedStateRestore
+	{
+		ScopedStateRestore(FSceneNode& frame, UCanvas* canvas, RenderDevice* device,
+			UWeapon* weapon)
+			: Frame(frame), CanvasObject(canvas), DeviceObject(device), WeaponObject(weapon),
+			SavedFrame(frame), SavedSizeX(canvas->SizeX()), SavedSizeY(canvas->SizeY()),
+			SavedClipX(canvas->ClipX()), SavedClipY(canvas->ClipY()),
+			SavedCurX(canvas->CurX()), SavedCurY(canvas->CurY()),
+			SavedWeaponLocation(weapon->Location()), SavedWeaponRotation(weapon->Rotation()),
+			SavedWeaponScale(weapon->DrawScale())
+		{
+		}
+
+		~ScopedStateRestore()
+		{
+			WeaponObject->Location() = SavedWeaponLocation;
+			WeaponObject->Rotation() = SavedWeaponRotation;
+			WeaponObject->DrawScale() = SavedWeaponScale;
+			Frame = SavedFrame;
+			CanvasObject->CurX() = SavedCurX;
+			CanvasObject->CurY() = SavedCurY;
+			CanvasObject->ClipX() = SavedClipX;
+			CanvasObject->ClipY() = SavedClipY;
+			CanvasObject->SizeX() = SavedSizeX;
+			CanvasObject->SizeY() = SavedSizeY;
+			DeviceObject->SetSceneNode(&Frame);
+		}
+
+		FSceneNode& Frame;
+		UCanvas* CanvasObject;
+		RenderDevice* DeviceObject;
+		UWeapon* WeaponObject;
+		FSceneNode SavedFrame;
+		int SavedSizeX;
+		int SavedSizeY;
+		float SavedClipX;
+		float SavedClipY;
+		float SavedCurX;
+		float SavedCurY;
+		vec3 SavedWeaponLocation;
+		Rotator SavedWeaponRotation;
+		float SavedWeaponScale;
+	} restore(Canvas.Frame, engine->canvas, Device, weapon);
+
+	// Canvas.DrawActor consumes MainFrame.Frame. Match the 2D canvas state to
+	// that same eye so weapon-specific tiles cannot spill into the other eye.
+	Canvas.Frame.XB = MainFrame.Frame.XB;
+	Canvas.Frame.YB = MainFrame.Frame.YB;
+	Canvas.Frame.X = MainFrame.Frame.X;
+	Canvas.Frame.Y = MainFrame.Frame.Y;
+	Canvas.Frame.FX = MainFrame.Frame.FX;
+	Canvas.Frame.FY = MainFrame.Frame.FY;
+	Canvas.Frame.FX2 = MainFrame.Frame.FX2;
+	Canvas.Frame.FY2 = MainFrame.Frame.FY2;
+	const int eyeSizeX = std::max(static_cast<int>(Canvas.Frame.FX /
+		static_cast<float>(Canvas.uiscale)), 1);
+	const int eyeSizeY = std::max(static_cast<int>(Canvas.Frame.FY /
+		static_cast<float>(Canvas.uiscale)), 1);
+	engine->canvas->CurX() = 0.0f;
+	engine->canvas->CurY() = 0.0f;
+	engine->canvas->ClipX() = static_cast<float>(eyeSizeX);
+	engine->canvas->ClipY() = static_cast<float>(eyeSizeY);
+	engine->canvas->SizeX() = eyeSizeX;
+	engine->canvas->SizeY() = eyeSizeY;
+	Device->SetSceneNode(&Canvas.Frame);
+
+	if (engine->LaunchInfo.ue1Version > 219)
+		CallEvent(weapon, EventName::RenderOverlays,
+			{ ExpressionValue::ObjectValue(engine->canvas) });
+	else
+	{
+		CallEvent(weapon, "InvCalcView", {});
+		DrawActor(weapon, false, false);
+	}
+	return true;
+}

@@ -119,7 +119,7 @@ private:
 	bool PrepareSceneViews();
 	void DrawSceneView(const ViewDescription& view);
 	void DrawScene();
-	void DrawScene(const ViewFamily& viewFamily);
+	void DrawScene(const ViewFamily& viewFamily, bool renderWeaponPerView = false);
 	bool BeginPresentationLayer(const PresentationPlan& presentation, PresentationLayer layer);
 	void EndPresentationLayer(const PresentationPlan& presentation, PresentationLayer layer);
 
@@ -130,6 +130,7 @@ private:
 	void ResetCanvas();
 	void PreRender();
 	void RenderOverlays();
+	bool RenderXRWeaponOverlay();
 	void PostRender();
 	void PostRenderFlash();
 	void DrawTimedemoStats();

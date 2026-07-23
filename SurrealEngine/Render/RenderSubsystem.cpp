@@ -45,12 +45,18 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFam
 
 	if (engine->LaunchInfo.ue1Version <= 219 || engine->console->bNoDrawWorld() == false)
 	{
+		// Presentation backends may clear/select an eye when BeginPresentationView
+		// is called.  Keep the world and first-person weapon in the same eye pass
+		// when they share a stereo target so a later overlay pass cannot erase the
+		// world.  Single-view desktop rendering retains its established lifecycle.
+		const bool weaponPerView = ShouldRenderWeaponPerView(viewFamily);
 		if (BeginPresentationLayer(viewFamily.Presentation, PresentationLayer::World))
 		{
-			DrawScene(viewFamily);
+			DrawScene(viewFamily, weaponPerView);
 			EndPresentationLayer(viewFamily.Presentation, PresentationLayer::World);
 		}
-		if (BeginPresentationLayer(viewFamily.Presentation, PresentationLayer::WeaponOverlay))
+		if (!weaponPerView &&
+			BeginPresentationLayer(viewFamily.Presentation, PresentationLayer::WeaponOverlay))
 		{
 			RenderOverlays();
 			if (engine->LaunchInfo.IsDeusEx())

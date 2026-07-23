@@ -47,3 +47,9 @@ struct ViewFamily
 // viewport horizontally and offsets the two cameras along the view's lateral
 // axis. Invalid or one-pixel viewports safely remain a single view.
 ViewFamily CreateSideBySideDiagnosticViewFamily(const ViewDescription& centerView, float eyeSeparation = 4.0f);
+
+// Stereo targets render the first-person weapon inside each world view when
+// both layers share ownership. This prevents a backend target re-selection
+// from clearing an already rendered eye. The ordinary one-view desktop path
+// intentionally remains a separate overlay pass.
+bool ShouldRenderWeaponPerView(const ViewFamily& family);

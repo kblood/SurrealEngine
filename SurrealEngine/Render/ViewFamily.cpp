@@ -1,5 +1,15 @@
 #include "Render/ViewFamily.h"
 
+bool ShouldRenderWeaponPerView(const ViewFamily& family)
+{
+	const PresentationLayerDescription world =
+		family.Presentation.GetLayer(PresentationLayer::World);
+	const PresentationLayerDescription weapon =
+		family.Presentation.GetLayer(PresentationLayer::WeaponOverlay);
+	return family.Views.size() > 1 && world.Enabled && weapon.Enabled &&
+		world.Target == weapon.Target;
+}
+
 ViewFamily CreateSideBySideDiagnosticViewFamily(const ViewDescription& centerView, float eyeSeparation)
 {
 	ViewFamily family;
