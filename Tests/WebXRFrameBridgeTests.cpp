@@ -71,7 +71,7 @@ namespace
 
 int main()
 {
-	if (WebXR::FrameABIVersion != 3 || Surreal_GetWebXRFrameABIVersion() != 3)
+	if (WebXR::FrameABIVersion != 4 || Surreal_GetWebXRFrameABIVersion() != 4)
 		return 15;
 	std::vector<uint8_t> bytes = MakeFrame();
 	WebXR::DecodedFrame decoded;

@@ -10,9 +10,9 @@
 
 namespace WebXR
 {
-	// Version 3 requires host-owned persistent render targets. Browser compositor
-	// textures must never be passed into a native render which can Asyncify-suspend.
-	constexpr uint32_t FrameABIVersion = 3;
+	// Version 4 separates async simulation preparation from the synchronous
+	// current-pose render called inside the browser's XR animation callback.
+	constexpr uint32_t FrameABIVersion = 4;
 	constexpr uint32_t MaxViews = 2;
 	constexpr uint32_t FrameProjectionDepthZeroToOne = 1u << 0;
 	constexpr uint32_t FrameSharedStereoAtlas = 1u << 1;
@@ -26,7 +26,8 @@ namespace WebXR
 		TextureUnavailable = 3,
 		RenderDeviceUnavailable = 4,
 		PresentationRejected = 5,
-		RenderFailed = 6
+		RenderFailed = 6,
+		PhaseRejected = 7
 	};
 
 	enum class Eye : uint32_t
@@ -115,7 +116,9 @@ extern "C"
 	uint32_t Surreal_GetWebXRFrameMaxViews();
 	int Surreal_ValidateWebXRFrame(const void* frameData, uint32_t bufferBytes);
 	int Surreal_GetWebXRFrameLastError();
+	int Surreal_PrepareWebXRFrame(const void* frameData, uint32_t bufferBytes);
 	int Surreal_RenderWebXRFrame(const void* frameData, uint32_t bufferBytes);
+	int Surreal_CompleteWebXRFrame();
 	float Surreal_GetWebXRWorldUnitsPerMeter();
 	int Surreal_SetWebXRWorldUnitsPerMeter(float worldUnitsPerMeter);
 	void Surreal_ResetWebXRPose();

@@ -1,4 +1,5 @@
 #include "Platform/WebXR/WebXRFrameBridge.h"
+#include "Platform/WebXR/WebXRFramePhase.h"
 #include "Platform/WebXR/WebXRInputAdapter.h"
 #include "Platform/WebXR/WebXRInputRuntime.h"
 #include "Platform/WebXR/WebXRHaptics.h"
@@ -21,6 +22,8 @@ namespace
 	WebXR::StartupIntroTriggerRoute StartupIntroTrigger;
 	WebXR::UIInputConnector UIInput;
 	XRHapticFeedbackPolicy HapticFeedback;
+	WebXR::FramePhaseState NativeFramePhase;
+	float PreparedLevelElapsed = 0.0f;
 
 	EInputKey IntroFireKey(WebXR::StartupIntroFireControl control)
 	{
@@ -172,6 +175,8 @@ extern "C"
 	void Surreal_ResetWebXRPose()
 	{
 		Recenter.Valid = false;
+		NativeFramePhase.Reset();
+		PreparedLevelElapsed = 0.0f;
 		HapticFeedback.Reset();
 		if (engine && engine->render)
 		{
@@ -191,6 +196,52 @@ extern "C"
 		return 1;
 	}
 
+	int Surreal_PrepareWebXRFrame(const void* frameData, uint32_t bufferBytes)
+	{
+		WebXR::DecodedFrame frame;
+		WebXR::FrameError error;
+		if (!WebXR::DecodeFrame(frameData, bufferBytes, frame, error))
+		{
+			WebXR::SetLastFrameError(error);
+			return 0;
+		}
+		if (!engine || !engine->render)
+		{
+			WebXR::SetLastFrameError(WebXR::FrameError::RenderDeviceUnavailable);
+			return 0;
+		}
+		if (!NativeFramePhase.BeginPrepare())
+		{
+			WebXR::SetLastFrameError(WebXR::FrameError::PhaseRejected);
+			return 0;
+		}
+
+		try
+		{
+			WebXR::BuildViewFamily(frame, engine->CameraLocation,
+				Coords::Rotation(Rotator(0, engine->CameraRotation.Yaw, 0)),
+				WorldUnitsPerMeter, Recenter);
+			const WebXR::AdaptedInputSnapshot input =
+				WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot());
+			const XRWorldTransform weaponWorld = WebXR::BuildWeaponWorldTransform(
+				engine->CameraLocation, engine->CameraRotation.YawRadians(),
+				WorldUnitsPerMeter, Recenter);
+			const XRWeaponPoseResult weaponPose = SolveXRWeaponPose(
+				input.Spaces, weaponWorld, XRHand::Right);
+			engine->tickCount++;
+			PreparedLevelElapsed = engine->AdvanceGameFrameWithXRWeaponAim(weaponPose);
+		}
+		catch (...)
+		{
+			NativeFramePhase.Reset();
+			PreparedLevelElapsed = 0.0f;
+			WebXR::SetLastFrameError(WebXR::FrameError::RenderFailed);
+			return 0;
+		}
+		WebXR::SetLastFrameError(WebXR::FrameError::None);
+		return 1;
+	}
+
 	int Surreal_RenderWebXRFrame(const void* frameData, uint32_t bufferBytes)
 	{
 		WebXR::DecodedFrame frame;
@@ -205,6 +256,11 @@ extern "C"
 		if (!engine || !engine->render)
 		{
 			WebXR::SetLastFrameError(WebXR::FrameError::RenderDeviceUnavailable);
+			return 0;
+		}
+		if (NativeFramePhase.Phase() != WebXR::FramePhase::Prepared)
+		{
+			WebXR::SetLastFrameError(WebXR::FrameError::PhaseRejected);
 			return 0;
 		}
 
@@ -299,21 +355,11 @@ extern "C"
 
 		try
 		{
-			engine->tickCount++;
-			ViewFamily family = WebXR::BuildViewFamily(frame, engine->CameraLocation,
-				Coords::Rotation(Rotator(0, engine->CameraRotation.Yaw, 0)),
-				WorldUnitsPerMeter, Recenter);
 			const WebXR::AdaptedInputSnapshot input =
 				WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot());
-			const XRWorldTransform weaponWorld = WebXR::BuildWeaponWorldTransform(
-				engine->CameraLocation, engine->CameraRotation.YawRadians(),
-				WorldUnitsPerMeter, Recenter);
-			const XRWeaponPoseResult weaponPose = SolveXRWeaponPose(
-				input.Spaces, weaponWorld, XRHand::Right);
-			const float levelElapsed = engine->AdvanceGameFrameWithXRWeaponAim(weaponPose);
 			const Coords bodyRotation = Coords::Rotation(
 				Rotator(0, engine->CameraRotation.Yaw, 0));
-			family = WebXR::BuildViewFamily(frame, engine->CameraLocation,
+			ViewFamily family = WebXR::BuildViewFamily(frame, engine->CameraLocation,
 				bodyRotation, WorldUnitsPerMeter, Recenter);
 			XRUISurfaceEngineBinding& ui = engine->render->XRUISurfaces();
 			for (const XRUICanvasCaptureDescriptor& descriptor :
@@ -324,7 +370,7 @@ extern "C"
 				engine->CameraLocation, bodyRotation, WorldUnitsPerMeter, Recenter);
 			ResolveXRUIHapticFeedback(HapticFeedback, UIInput.Feedback(),
 				&WebXR::BrowserHapticSink());
-			engine->RenderGameFrame(levelElapsed, family);
+			engine->RenderGameFrame(PreparedLevelElapsed, family);
 			const XRUICanvasReplayFrame replayFrame =
 				WebXR::OrientUIReplayFrame(ui.BuildReplayFrame());
 			const WebXR::UIVisualFrame visualFrame = WebXR::BuildUIVisualFrame(
@@ -332,7 +378,8 @@ extern "C"
 			if (!WebXR::CompositeUISurfaces(device, handles[0].Format, family, replayFrame,
 				visualFrame, views, frame.Header.ViewCount))
 				throw std::runtime_error("WebXR UI composition failed");
-			engine->FinishGameFrame(levelElapsed);
+			if (!NativeFramePhase.MarkRendered())
+				throw std::runtime_error("WebXR frame phase changed during rendering");
 		}
 		catch (...)
 		{
@@ -352,5 +399,33 @@ extern "C"
 		WebXR::SetLastFrameError(WebXR::FrameError::RenderDeviceUnavailable);
 		return 0;
 #endif
+	}
+
+	int Surreal_CompleteWebXRFrame()
+	{
+		if (NativeFramePhase.Phase() == WebXR::FramePhase::Idle)
+			return 1;
+		if (!engine)
+		{
+			NativeFramePhase.Reset();
+			PreparedLevelElapsed = 0.0f;
+			WebXR::SetLastFrameError(WebXR::FrameError::RenderDeviceUnavailable);
+			return 0;
+		}
+		try
+		{
+			engine->FinishGameFrame(PreparedLevelElapsed);
+		}
+		catch (...)
+		{
+			NativeFramePhase.Reset();
+			PreparedLevelElapsed = 0.0f;
+			WebXR::SetLastFrameError(WebXR::FrameError::RenderFailed);
+			return 0;
+		}
+		NativeFramePhase.Complete();
+		PreparedLevelElapsed = 0.0f;
+		WebXR::SetLastFrameError(WebXR::FrameError::None);
+		return 1;
 	}
 }
