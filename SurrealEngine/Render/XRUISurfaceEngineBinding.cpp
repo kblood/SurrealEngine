@@ -20,6 +20,7 @@ void XRUISurfaceEngineBinding::SetViewerPose(const XRUIViewerPose& viewerPose)
 		if (DesiredVisibility[SurfaceIndex(kind)] && !Runtime.IsVisible(kind))
 			Runtime.Show(kind, ViewerPose);
 	}
+	Runtime.UpdateViewerPose(ViewerPose);
 }
 
 void XRUISurfaceEngineBinding::ClearViewerPose()

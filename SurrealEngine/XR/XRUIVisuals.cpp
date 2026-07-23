@@ -102,10 +102,15 @@ namespace
 XRUIVisualFrame BuildXRUIVisualFrame(
 	const std::array<XRUIPointerFeedback, XRHandCount>& feedback,
 	const XRUICanvasReplayFrame& replayFrame, float worldUnitsPerMeter,
-	const XRUIVisualSettings& settings)
+	const XRUIVisualSettings& settings, bool includeNonInteractiveSurfaces)
 {
 	XRUIVisualFrame frame;
 	if (replayFrame.Items.empty() || !std::isfinite(worldUnitsPerMeter) || worldUnitsPerMeter <= 0.0f)
+		return frame;
+	bool hasInteractiveSurface = false;
+	for (const XRUICanvasReplayItem& item : replayFrame.Items)
+		hasInteractiveSurface = hasInteractiveSurface || item.Surface.Descriptor.Interactive;
+	if (!hasInteractiveSurface && !includeNonInteractiveSurfaces)
 		return frame;
 
 	for (const XRUIPointerFeedback& pointer : feedback)

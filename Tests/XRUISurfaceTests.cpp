@@ -89,6 +89,40 @@ static void TestVisibilityAndCompositionOrder()
 	Check(policy.BuildFrame().Surfaces.size() == 3, "hidden menu remained in the frame");
 }
 
+static void TestGameplayHudContract()
+{
+	XRUISurfaceVisibility noPlayer = ResolveXRUISurfaceVisibility(false, false);
+	Check(!noPlayer.Hud && !noPlayer.Menu, "HUD appeared without a player canvas owner");
+	XRUISurfaceVisibility gameplay = ResolveXRUISurfaceVisibility(true, false);
+	Check(gameplay.Hud && !gameplay.Menu, "ordinary gameplay did not select the HUD surface");
+	XRUISurfaceVisibility menu = ResolveXRUISurfaceVisibility(true, true);
+	Check(!menu.Hud && menu.Menu, "menu did not replace the gameplay HUD surface");
+
+	XRUISurfaceDescriptor hud = CreateXRUISurfaceDescriptor(XRUISurfaceKind::Hud, 1024, 768);
+	Check(hud.AnchorMode == XRUISurfaceAnchorMode::HeadRelativeEveryFrame,
+		"gameplay HUD is not viewer-relative");
+	const float halfFovDegrees = std::atan((hud.PhysicalWidth * 0.5f) /
+		hud.HeadRelativeDistance) * 180.0f / 3.14159265359f;
+	Check(Near(halfFovDegrees, XRGameplayHudHalfFovDegrees, 0.01f),
+		"gameplay HUD no longer matches the validated 50-degree width");
+	Check(Near(hud.HeadRelativeDistance, XRGameplayHudDistanceMeters),
+		"gameplay HUD no longer matches the validated convergence distance");
+
+	XRUISurfaceFramePolicy policy;
+	policy.Configure(hud);
+	XRUIViewerPose first;
+	Check(policy.Show(XRUISurfaceKind::Hud, first), "gameplay HUD failed to show");
+	XRUIViewerPose turned;
+	turned.Position = vec3(10.0f, 20.0f, 30.0f);
+	turned.Forward = vec3(0.0f, 1.0f, 0.0f);
+	policy.UpdateViewerPose(turned);
+	XRUISurfaceFrame frame = policy.BuildFrame();
+	Check(frame.Surfaces.size() == 1, "tracked gameplay HUD disappeared");
+	Check(Near(frame.Surfaces[0].Pose.Center,
+		vec3(10.0f, 20.0f + XRGameplayHudDistanceMeters, 30.0f)),
+		"gameplay HUD did not follow the current viewer pose");
+}
+
 static void TestAnchorStabilityAndRecenter()
 {
 	XRUISurfaceFramePolicy policy;
@@ -255,6 +289,7 @@ int main()
 {
 	TestDefaultDesktopContract();
 	TestVisibilityAndCompositionOrder();
+	TestGameplayHudContract();
 	TestAnchorStabilityAndRecenter();
 	TestInvalidViewerBasisAndAnchorModeChange();
 	TestAspectAndRayMapping();

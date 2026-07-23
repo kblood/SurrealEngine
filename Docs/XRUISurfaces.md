@@ -50,6 +50,12 @@ is world-anchored rather than uncomfortable head-locked UI. `Recenter()` is the
 explicit user/action boundary for moving a visible quad. Hiding and showing it
 again also takes a fresh initial pose.
 
+The gameplay HUD uses `HeadRelativeEveryFrame`, a 50-degree-wide 4:3 surface at
+1.75 metres. This preserves the physically validated first native VR release's
+inset and convergence while rendering `PlayerPawn.PostRender` only once. Menus
+remain `HeadRelativeOnShow` and therefore retain their world-fixed-on-open
+interaction behavior.
+
 ## Pointer mapping and routing
 
 Pointer geometry and button lifecycle are deliberately separate:
@@ -158,12 +164,11 @@ refreshing the quad throughout a long load.
 File-backed browser video playback and its owner-data gates are documented in
 [`WebCinematicPlayback.md`](WebCinematicPlayback.md).
 
-The map-driven UT99/Unreal startup path additionally configures a noninteractive
-HUD capture. It is active only between the no-URL `LocalMap` load and the first
-map travel or menu transition, so its player/console prompt is world-anchored.
-The interactive menu then replaces it at the higher composition order. This is
-not the file-backed cinematic surface and does not turn general gameplay HUD
-into a quad. See [`MapStartupIntro.md`](MapStartupIntro.md).
+The map-driven UT99/Unreal startup path uses the same noninteractive HUD capture
+as gameplay, so its player/console prompt and the later health/armor/ammo HUD
+share one tested angular-size contract. The interactive menu replaces that HUD
+at the higher composition order. This is not the file-backed cinematic surface.
+See [`MapStartupIntro.md`](MapStartupIntro.md).
 
 ## Native OpenXR integration status
 

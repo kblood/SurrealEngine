@@ -72,6 +72,11 @@ bool XRUISurfaceRuntimeAdapter::Recenter(XRUISurfaceKind kind, const XRUIViewerP
 	return SurfacePolicy.Recenter(kind, viewerPose);
 }
 
+void XRUISurfaceRuntimeAdapter::UpdateViewerPose(const XRUIViewerPose& viewerPose)
+{
+	SurfacePolicy.UpdateViewerPose(viewerPose);
+}
+
 bool XRUISurfaceRuntimeAdapter::IsVisible(XRUISurfaceKind kind) const
 {
 	return SurfacePolicy.IsVisible(kind);

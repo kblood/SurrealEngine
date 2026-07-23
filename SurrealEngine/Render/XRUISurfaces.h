@@ -17,8 +17,23 @@ enum class XRUISurfaceKind
 enum class XRUISurfaceAnchorMode
 {
 	WorldFixed,
-	HeadRelativeOnShow
+	HeadRelativeOnShow,
+	HeadRelativeEveryFrame
 };
+
+// Matches the physically validated UT99 VR HUD: a 50-degree-wide virtual
+// screen converged at roughly 1.75 metres.  Keep these values provider-neutral
+// so native OpenXR and WebXR present the same gameplay HUD geometry.
+constexpr float XRGameplayHudHalfFovDegrees = 25.0f;
+constexpr float XRGameplayHudDistanceMeters = 1.75f;
+
+struct XRUISurfaceVisibility
+{
+	bool Hud = false;
+	bool Menu = false;
+};
+
+XRUISurfaceVisibility ResolveXRUISurfaceVisibility(bool hasHudOwner, bool menuActive);
 
 // UI surfaces are composed independently of scene depth. This prevents a
 // world or backing quad from hiding a menu, loading screen, or cinematic.
@@ -83,6 +98,7 @@ public:
 	bool Show(XRUISurfaceKind kind, const XRUIViewerPose& viewerPose = {});
 	void Hide(XRUISurfaceKind kind);
 	bool Recenter(XRUISurfaceKind kind, const XRUIViewerPose& viewerPose);
+	void UpdateViewerPose(const XRUIViewerPose& viewerPose);
 	bool IsVisible(XRUISurfaceKind kind) const;
 	XRUISurfaceFrame BuildFrame() const;
 

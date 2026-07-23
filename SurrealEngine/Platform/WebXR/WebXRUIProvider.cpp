@@ -36,9 +36,10 @@ XRUICanvasReplayFrame WebXR::OrientUIReplayFrame(XRUICanvasReplayFrame frame)
 WebXR::UIVisualFrame WebXR::BuildUIVisualFrame(
 	const std::array<PointerFeedback, XRHandCount>& feedback,
 	const XRUICanvasReplayFrame& replayFrame, float worldUnitsPerMeter,
-	const UIVisualSettings& settings)
+	const UIVisualSettings& settings, bool includeNonInteractiveSurfaces)
 {
-	return ::BuildXRUIVisualFrame(feedback, replayFrame, worldUnitsPerMeter, settings);
+	return ::BuildXRUIVisualFrame(feedback, replayFrame, worldUnitsPerMeter,
+		settings, includeNonInteractiveSurfaces);
 }
 
 void WebXR::UIInputConnector::Update(const AdaptedInputSnapshot& input,

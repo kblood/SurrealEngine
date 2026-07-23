@@ -408,7 +408,8 @@ extern "C"
 			XRUIVisualSettings visualSettings;
 			visualSettings.PointerHand = engine->GetXRDominantHand();
 			const WebXR::UIVisualFrame visualFrame = WebXR::BuildUIVisualFrame(
-				UIInput.Feedback(), replayFrame, WorldUnitsPerMeter, visualSettings);
+				UIInput.Feedback(), replayFrame, WorldUnitsPerMeter, visualSettings,
+				engine->IsStartupIntroActive());
 			if (!WebXR::CompositeUISurfaces(device, handles[0].Format, family, replayFrame,
 				visualFrame, views, frame.Header.ViewCount))
 				throw std::runtime_error("WebXR UI composition failed");

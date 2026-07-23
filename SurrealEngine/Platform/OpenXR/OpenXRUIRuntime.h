@@ -61,7 +61,8 @@ public:
 	void Update(XRUISurfaceEngineBinding& binding, const ViewFamily& views,
 		const XRSessionState& session, const XRControllerSnapshot& controllers,
 		const std::array<XRUISurfaceRay, XRHandCount>& aimRays,
-		const std::array<bool, XRHandCount>& aimRayValid, float missDistance);
+		const std::array<bool, XRHandCount>& aimRayValid, float missDistance,
+		bool includeNonInteractiveVisuals = true);
 	bool BeginComposition(XRUISurfaceEngineBinding& binding,
 		OpenXRUICompositionSink& sink,
 		const OpenXRUICompositionSpace& compositionSpace);

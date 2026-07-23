@@ -48,7 +48,8 @@ namespace WebXR
 	XRUICanvasReplayFrame OrientUIReplayFrame(XRUICanvasReplayFrame frame);
 	UIVisualFrame BuildUIVisualFrame(const std::array<PointerFeedback, XRHandCount>& feedback,
 		const XRUICanvasReplayFrame& replayFrame, float worldUnitsPerMeter,
-		const UIVisualSettings& settings = {});
+		const UIVisualSettings& settings = {},
+		bool includeNonInteractiveSurfaces = true);
 
 	class UIInputConnector
 	{

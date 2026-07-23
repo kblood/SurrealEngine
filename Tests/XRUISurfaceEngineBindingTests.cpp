@@ -182,6 +182,18 @@ static void TestStartupHudHandsOffToMenu()
 		"startup prompt did not use the non-menu HUD surface");
 	Check(!intro.Items[0].Surface.Descriptor.Interactive,
 		"startup prompt unexpectedly captured the menu pointer");
+	XRUIViewerPose turned;
+	turned.Position = vec3(10.0f, 20.0f, 30.0f);
+	turned.Forward = vec3(0.0f, 1.0f, 0.0f);
+	binding.SetViewerPose(turned);
+	XRUICanvasReplayFrame followed = binding.BuildReplayFrame();
+	Check(followed.Items.size() == 1,
+		"engine binding dropped the gameplay HUD after the viewer turned");
+	const vec3 followedCenter = followed.Items[0].Surface.Pose.Center;
+	Check(Near(followedCenter.x, 10.0f) &&
+		Near(followedCenter.y, 20.0f + XRGameplayHudDistanceMeters) &&
+		Near(followedCenter.z, 30.0f),
+		"engine binding left the gameplay HUD behind after the viewer turned");
 
 	binding.SetHudActive(false);
 	binding.SetMenuActive(true);

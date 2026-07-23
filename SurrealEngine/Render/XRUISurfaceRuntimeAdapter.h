@@ -77,6 +77,7 @@ public:
 	bool Show(XRUISurfaceKind kind, const XRUIViewerPose& viewerPose = {});
 	void Hide(XRUISurfaceKind kind);
 	bool Recenter(XRUISurfaceKind kind, const XRUIViewerPose& viewerPose);
+	void UpdateViewerPose(const XRUIViewerPose& viewerPose);
 	bool IsVisible(XRUISurfaceKind kind) const;
 
 	XRUICanvasReplayFrame BuildReplayFrame() const;

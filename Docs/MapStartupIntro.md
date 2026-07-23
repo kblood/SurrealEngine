@@ -51,9 +51,9 @@ surface, so native desktop and flat WASM continue to use the ordinary canvas.
 The projection views continue to render the LocalMap as normal stereo world
 content. While its startup state is active and no menu is open, WebXR captures
 the existing player/console `PostRender` canvas into the noninteractive HUD
-surface. This places prompts such as “Press Fire” on a world-anchored quad
-instead of making them head-locked or losing them when projection rendering
-suppresses the slot-zero UI layer.
+surface. This places prompts such as “Press Fire” on the same 50-degree,
+viewer-relative surface used by the gameplay HUD instead of losing them when
+projection rendering suppresses the slot-zero UI layer.
 
 When UE1 opens either its scripted menu or UWindow menu, the startup HUD is
 hidden and the existing interactive menu surface replaces it. Menu composition

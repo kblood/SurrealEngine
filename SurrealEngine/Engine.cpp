@@ -560,7 +560,7 @@ void Engine::RunOneFrame()
 				}
 				openXRUI.Update(render->XRUISurfaces(), viewFamily,
 					openXR->SessionState(), xrControllers, rays, rayValid,
-					1.0f / 0.0254f);
+					1.0f / 0.0254f, IsStartupIntroActive());
 				ResolveXRUIHapticFeedback(openXRHapticFeedback,
 					openXRUI.Feedback(), openXR.get());
 				const bool hasComposedUI =

@@ -48,4 +48,5 @@ struct XRUIVisualFrame
 XRUIVisualFrame BuildXRUIVisualFrame(
 	const std::array<XRUIPointerFeedback, XRHandCount>& feedback,
 	const XRUICanvasReplayFrame& replayFrame, float worldUnitsPerMeter,
-	const XRUIVisualSettings& settings = {});
+	const XRUIVisualSettings& settings = {},
+	bool includeNonInteractiveSurfaces = true);

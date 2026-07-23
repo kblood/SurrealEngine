@@ -126,10 +126,10 @@ namespace
 	};
 
 	void Update(OpenXRUIRuntime& runtime, XRUISurfaceEngineBinding& binding,
-		const Input& input)
+		const Input& input, bool includeNonInteractiveVisuals = true)
 	{
 		runtime.Update(binding, CenteredViews(), input.session, input.controllers,
-			input.rays, input.valid, 40.0f);
+			input.rays, input.valid, 40.0f, includeNonInteractiveVisuals);
 	}
 
 	void TestOptionalVisualLayerCapacityAndOrdering()
@@ -208,16 +208,18 @@ namespace
 		input.rays[XRHandIndex(XRHand::Right)].Origin.y = 7.0f;
 		hapticPolicy.UpdateInput(input.session, input.controllers,
 			XRHapticInputContext::UserInterface, &hapticSink);
-		Update(runtime, binding, input);
+		Update(runtime, binding, input, false);
 		input.controllers.ForHand(XRHand::Right).Select.Pressed = true;
 		hapticPolicy.UpdateInput(input.session, input.controllers,
 			XRHapticInputContext::UserInterface, &hapticSink);
-		Update(runtime, binding, input);
+		Update(runtime, binding, input, false);
 		ResolveXRUIHapticFeedback(hapticPolicy, runtime.Feedback(), &hapticSink);
 		Check(runtime.Feedback()[0].Active && runtime.Feedback()[1].Active,
 			"native UI did not retain both tracked controllers");
 		Check(!runtime.Feedback()[0].Contact.Hit && !runtime.Feedback()[1].Contact.Hit,
 			"non-interactive startup HUD captured a controller");
+		Check(runtime.VisualFrame().Hands.empty(),
+			"non-interactive gameplay HUD displayed menu controller visuals");
 		Check(hapticSink.requests.empty(),
 			"a fresh trigger on a UI miss produced haptic feedback");
 
@@ -225,8 +227,10 @@ namespace
 		binding.SetMenuActive(true);
 		hapticPolicy.UpdateInput(input.session, input.controllers,
 			XRHapticInputContext::UserInterface, &hapticSink);
-		Update(runtime, binding, input);
+		Update(runtime, binding, input, false);
 		ResolveXRUIHapticFeedback(hapticPolicy, runtime.Feedback(), &hapticSink);
+		Check(!runtime.VisualFrame().Hands.empty(),
+			"interactive menu did not restore controller visuals");
 		binding.Replay(XRUICanvasReplayContext::Game);
 		Check(runtime.Feedback()[0].Contact.Hit && runtime.Feedback()[1].Contact.Hit,
 			"both native controller rays did not hit the menu");
@@ -274,7 +278,7 @@ namespace
 					"native hit marker was not centered on the authoritative UI contact");
 		}
 		runtime.SetPointerHand(XRHand::Left);
-		Update(runtime, binding, input);
+		Update(runtime, binding, input, false);
 		const XRUIVisualFrame& leftVisuals = runtime.VisualFrame();
 		Check(!leftVisuals.Hands[0].Laser.empty() &&
 			leftVisuals.Hands[1].Laser.empty(),
@@ -284,7 +288,7 @@ namespace
 		input.controllers.ForHand(XRHand::Right).Select.Pressed = false;
 		hapticPolicy.UpdateInput(input.session, input.controllers,
 			XRHapticInputContext::UserInterface, &hapticSink);
-		Update(runtime, binding, input);
+		Update(runtime, binding, input, false);
 		ResolveXRUIHapticFeedback(hapticPolicy, runtime.Feedback(), &hapticSink);
 		binding.Replay(XRUICanvasReplayContext::Game);
 		Check(host.pressed.empty() && host.released.empty(),

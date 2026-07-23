@@ -87,7 +87,19 @@ XRUISurfaceDescriptor CreateXRUISurfaceDescriptor(XRUISurfaceKind kind, int pixe
 	descriptor.PixelHeight = pixelHeight;
 	descriptor.Interactive = kind == XRUISurfaceKind::Menu;
 	descriptor.ContentLayer = kind == XRUISurfaceKind::Cinematic ? PresentationLayer::Cinematic : PresentationLayer::UserInterface;
+	if (kind == XRUISurfaceKind::Hud)
+	{
+		descriptor.AnchorMode = XRUISurfaceAnchorMode::HeadRelativeEveryFrame;
+		descriptor.HeadRelativeDistance = XRGameplayHudDistanceMeters;
+		descriptor.PhysicalWidth = 2.0f * XRGameplayHudDistanceMeters *
+			std::tan(XRGameplayHudHalfFovDegrees * 3.14159265359f / 180.0f);
+	}
 	return descriptor;
+}
+
+XRUISurfaceVisibility ResolveXRUISurfaceVisibility(bool hasHudOwner, bool menuActive)
+{
+	return { hasHudOwner && !menuActive, menuActive };
 }
 
 void XRUISurfaceFramePolicy::Configure(const XRUISurfaceDescriptor& descriptor)
@@ -136,7 +148,7 @@ void XRUISurfaceFramePolicy::Hide(XRUISurfaceKind kind)
 	if (SurfaceState* state = Find(kind))
 	{
 		state->Visible = false;
-		if (state->Descriptor.AnchorMode == XRUISurfaceAnchorMode::HeadRelativeOnShow)
+		if (state->Descriptor.AnchorMode != XRUISurfaceAnchorMode::WorldFixed)
 			state->Anchored = false;
 	}
 }
@@ -144,10 +156,19 @@ void XRUISurfaceFramePolicy::Hide(XRUISurfaceKind kind)
 bool XRUISurfaceFramePolicy::Recenter(XRUISurfaceKind kind, const XRUIViewerPose& viewerPose)
 {
 	SurfaceState* state = Find(kind);
-	if (!state || state->Descriptor.AnchorMode != XRUISurfaceAnchorMode::HeadRelativeOnShow)
+	if (!state || state->Descriptor.AnchorMode == XRUISurfaceAnchorMode::WorldFixed)
 		return false;
 	state->Anchored = false;
 	return InitializeAnchor(*state, viewerPose);
+}
+
+void XRUISurfaceFramePolicy::UpdateViewerPose(const XRUIViewerPose& viewerPose)
+{
+	for (SurfaceState& state : States)
+	{
+		if (state.Visible && state.Descriptor.AnchorMode == XRUISurfaceAnchorMode::HeadRelativeEveryFrame)
+			InitializeAnchor(state, viewerPose);
+	}
 }
 
 bool XRUISurfaceFramePolicy::IsVisible(XRUISurfaceKind kind) const

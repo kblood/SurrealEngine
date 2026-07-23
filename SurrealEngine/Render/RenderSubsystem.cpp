@@ -143,8 +143,10 @@ void RenderSubsystem::DrawXRUIVisualOverlay(const ViewFamily& viewFamily)
 void RenderSubsystem::UpdateXRUISurfaceVisibility()
 {
 	const bool menuActive = IsXRUIMenuActive();
-	XRUIBinding.SetHudActive(engine->IsStartupIntroActive() && !menuActive);
-	XRUIBinding.SetMenuActive(menuActive);
+	const XRUISurfaceVisibility visibility = ResolveXRUISurfaceVisibility(
+		engine->viewport->Actor() != nullptr, menuActive);
+	XRUIBinding.SetHudActive(visibility.Hud);
+	XRUIBinding.SetMenuActive(visibility.Menu);
 	if (menuActive)
 		engine->CompleteStartupIntro();
 }

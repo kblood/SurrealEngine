@@ -50,7 +50,8 @@ void OpenXRUIRuntime::Update(XRUISurfaceEngineBinding& binding,
 	const ViewFamily& views, const XRSessionState& session,
 	const XRControllerSnapshot& controllers,
 	const std::array<XRUISurfaceRay, XRHandCount>& aimRays,
-	const std::array<bool, XRHandCount>& aimRayValid, float missDistance)
+	const std::array<bool, XRHandCount>& aimRayValid, float missDistance,
+	bool includeNonInteractiveVisuals)
 {
 	if (!started)
 		return;
@@ -65,7 +66,7 @@ void OpenXRUIRuntime::Update(XRUISurfaceEngineBinding& binding,
 	input.Update(frame, binding,
 		BuildOpenXRUIHitTestFrame(presentationFrame));
 	visualFrame = BuildXRUIVisualFrame(input.Feedback(), presentationFrame,
-		missDistance, visualSettings);
+		missDistance, visualSettings, includeNonInteractiveVisuals);
 }
 
 bool OpenXRUIRuntime::BeginComposition(XRUISurfaceEngineBinding& binding,
