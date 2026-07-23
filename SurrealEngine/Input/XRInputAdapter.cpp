@@ -37,9 +37,10 @@ XRInputBindings XRInputBindings::ConventionalUE1(XRHand dominantHand)
 	result.Hands[1 - dominantIndex].Trigger = "Button bAltFire";
 	result.Hands[dominantIndex].PrimaryButton = "Jump";
 	result.Hands[1 - dominantIndex].PrimaryButton = "NextWeapon";
-	result.Hands[1 - dominantIndex].SecondaryButton = "ShowMenu";
-	result.Hands[0].MenuButton = "ShowMenu";
-	result.Hands[1].MenuButton = "ShowMenu";
+	result.Hands[0].SecondaryButton = "KeyPulse Escape";
+	result.Hands[1].SecondaryButton = "KeyPulse Escape";
+	result.Hands[0].MenuButton = "KeyPulse Escape";
+	result.Hands[1].MenuButton = "KeyPulse Escape";
 	result.Hands[1].Grip = "Button bDuck";
 	return result;
 }

@@ -63,14 +63,15 @@ int main()
 	Check(rightDominant.Hands[1].PrimaryButton == "Jump",
 		"dominant primary face button must provide the conventional jump action");
 	Check(rightDominant.Hands[0].PrimaryButton == "NextWeapon" &&
-		rightDominant.Hands[0].SecondaryButton == "ShowMenu",
-		"off-hand face buttons must provide weapon cycling and a headset-accessible menu");
-	Check(rightDominant.Hands[0].MenuButton == "ShowMenu" &&
-		rightDominant.Hands[1].MenuButton == "ShowMenu",
-		"provider-reported menu controls must open the menu from either hand");
+		rightDominant.Hands[0].SecondaryButton == "KeyPulse Escape" &&
+		rightDominant.Hands[1].SecondaryButton == "KeyPulse Escape",
+		"controller back buttons must use the physical Escape route");
+	Check(rightDominant.Hands[0].MenuButton == "KeyPulse Escape" &&
+		rightDominant.Hands[1].MenuButton == "KeyPulse Escape",
+		"provider-reported menu controls must use Escape from either hand");
 	const XRInputBindings leftDominant = XRInputBindings::ConventionalUE1(XRHand::Left);
 	Check(leftDominant.Hands[0].PrimaryButton == "Jump" &&
-		leftDominant.Hands[1].SecondaryButton == "ShowMenu",
+		leftDominant.Hands[1].SecondaryButton == "KeyPulse Escape",
 		"dominant-hand selection must swap face-button action policy");
 	XRInputAdapter conventional(rightDominant);
 	FakeTarget conventionalTarget;
@@ -84,7 +85,7 @@ int main()
 	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
 	Check(conventionalTarget.commandCounts["Jump"] == 1 &&
 		conventionalTarget.commandCounts["NextWeapon"] == 1 &&
-		conventionalTarget.commandCounts["ShowMenu"] == 1,
+		conventionalTarget.commandCounts["KeyPulse Escape"] == 1,
 		"conventional face-button actions did not reach the engine command target");
 
 	// Compatibility remains smooth continuous turn until settings explicitly

@@ -2556,7 +2556,19 @@ void Engine::InputCommand(const std::string& commands, InputControlId control, f
 			}
 			else
 			{
-				ExecCommand(args);
+				std::string keyName = args.size() == 2 ? args[1] : std::string();
+				for (char& c : keyName) c = std::tolower(c);
+				if (command == "keypulse" && keyName == "escape")
+				{
+					InputEvent(IK_Escape, EInputType::IST_Press, 0.0f,
+						control.Source);
+					InputEvent(IK_Escape, EInputType::IST_Release, 0.0f,
+						control.Source);
+				}
+				else
+				{
+					ExecCommand(args);
+				}
 			}
 		}
 	}
