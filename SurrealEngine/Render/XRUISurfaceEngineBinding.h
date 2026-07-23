@@ -45,6 +45,8 @@ public:
 	void Replay(XRUICanvasReplayContext context);
 
 	XRUIPointerUpdateResult UpdateRayPointer(const XRUIPointerSource& source, const XRUISurfaceRay& ray, bool primaryPressed);
+	XRUIPointerUpdateResult UpdateRayPointer(const XRUICanvasReplayFrame& frame,
+		const XRUIPointerSource& source, const XRUISurfaceRay& ray, bool primaryPressed);
 	XRUIPointerUpdateResult UpdateMousePointer(const Pointf& surfacePixel, bool primaryPressed);
 	Array<XRUIPointerEvent> CancelPointer(const XRUIPointerSource& source);
 	void CancelAllPointers();

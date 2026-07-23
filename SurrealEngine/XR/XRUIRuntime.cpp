@@ -78,6 +78,12 @@ XRUILoadingSurfaceScope::~XRUILoadingSurfaceScope()
 void XRUIInputConnector::Update(const XRUIInputFrame& input,
 	XRUISurfaceEngineBinding& binding)
 {
+	Update(input, binding, binding.BuildReplayFrame());
+}
+
+void XRUIInputConnector::Update(const XRUIInputFrame& input,
+	XRUISurfaceEngineBinding& binding, const XRUICanvasReplayFrame& frame)
+{
 	const float missDistance = std::isfinite(input.MissDistance) && input.MissDistance > 0.0f ?
 		input.MissDistance : 1.0f;
 	for (size_t handIndex = 0; handIndex < XRHandCount; handIndex++)
@@ -97,7 +103,7 @@ void XRUIInputConnector::Update(const XRUIInputFrame& input,
 		}
 
 		const XRUIPointerUpdateResult update = binding.UpdateRayPointer(
-			PointerSource(handIndex), ray, controller.Select.Pressed);
+			frame, PointerSource(handIndex), ray, controller.Select.Pressed);
 		active[handIndex] = true;
 		feedback[handIndex].Active = true;
 		feedback[handIndex].Selecting = controller.Select.Pressed;

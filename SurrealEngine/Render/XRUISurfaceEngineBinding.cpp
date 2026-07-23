@@ -74,8 +74,15 @@ void XRUISurfaceEngineBinding::Replay(XRUICanvasReplayContext context)
 
 XRUIPointerUpdateResult XRUISurfaceEngineBinding::UpdateRayPointer(const XRUIPointerSource& source, const XRUISurfaceRay& ray, bool primaryPressed)
 {
+	return UpdateRayPointer(Runtime.BuildReplayFrame(), source, ray, primaryPressed);
+}
+
+XRUIPointerUpdateResult XRUISurfaceEngineBinding::UpdateRayPointer(
+	const XRUICanvasReplayFrame& frame, const XRUIPointerSource& source,
+	const XRUISurfaceRay& ray, bool primaryPressed)
+{
 	RegisterPointer(source);
-	return Runtime.UpdateRayPointer(Runtime.BuildReplayFrame(), source, ray, primaryPressed, *this);
+	return Runtime.UpdateRayPointer(frame, source, ray, primaryPressed, *this);
 }
 
 XRUIPointerUpdateResult XRUISurfaceEngineBinding::UpdateMousePointer(const Pointf& surfacePixel, bool primaryPressed)

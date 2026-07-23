@@ -1,6 +1,7 @@
 #include "Platform/OpenXR/OpenXRUIRuntime.h"
 #include "XR/XRStartupIntroRoute.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <vector>
@@ -153,6 +154,11 @@ namespace
 		Check(sink.frame.Items.size() == 4 &&
 			sink.frame.Items.back().Surface.Descriptor.Kind == XRUISurfaceKind::Menu,
 			"menu was not the topmost native UI surface");
+		const vec3 submittedRight = sink.frame.Items.back().Surface.Pose.Right;
+		Check(std::abs(submittedRight.x) < 0.001f &&
+			std::abs(submittedRight.y + 1.0f) < 0.001f &&
+			std::abs(submittedRight.z) < 0.001f,
+			"native OpenXR composition received WebXR's image-orientation reflection");
 		Check(runtime.FinishComposition(sink, true),
 			"native UI composition sink rejected frame cleanup");
 		Check(sink.finishes == 1 && sink.lastRendered,
@@ -246,6 +252,11 @@ namespace
 				active.Items[0].Surface.Descriptor.Kind == XRUISurfaceKind::Loading &&
 				active.Items[1].Surface.Descriptor.Kind == XRUISurfaceKind::Menu,
 				"loading scope did not preserve the topmost menu");
+			const vec3 nativeRight = active.Items.back().Surface.Pose.Right;
+			Check(std::abs(nativeRight.x) < 0.001f &&
+				std::abs(nativeRight.y + 1.0f) < 0.001f &&
+				std::abs(nativeRight.z) < 0.001f,
+				"WebXR orientation handling changed native OpenXR's canonical reflected UI basis");
 		}
 		Check(binding.BuildReplayFrame().Items.size() == 1,
 			"completed loading scope did not hide loading");

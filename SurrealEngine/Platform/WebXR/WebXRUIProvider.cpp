@@ -120,6 +120,16 @@ std::array<XRUICanvasCaptureDescriptor, 4> WebXR::BuildUICaptureDescriptors(floa
 		{ HudSurfaceTarget, CinematicSurfaceTarget, LoadingSurfaceTarget, MenuSurfaceTarget });
 }
 
+XRUICanvasReplayFrame WebXR::OrientUIReplayFrame(XRUICanvasReplayFrame frame)
+{
+	// The shared/OpenXR surface basis deliberately carries the native reflected
+	// -Y right axis. WebXR's decoded view projection uses +Y as screen right, so
+	// flip only its replay copy. The same copy drives hit testing and composition.
+	for (XRUICanvasReplayItem& item : frame.Items)
+		item.Surface.Pose.Right = -item.Surface.Pose.Right;
+	return frame;
+}
+
 WebXR::UIVisualFrame WebXR::BuildUIVisualFrame(
 	const std::array<PointerFeedback, XRHandCount>& feedback,
 	const XRUICanvasReplayFrame& replayFrame, float worldUnitsPerMeter,
@@ -185,7 +195,7 @@ void WebXR::UIInputConnector::Update(const AdaptedInputSnapshot& input,
 			worldUnitsPerMeter, recenter);
 		frame.AimRayValid[handIndex] = aim.Valid && recenter.Valid;
 	}
-	connector.Update(frame, binding);
+	connector.Update(frame, binding, OrientUIReplayFrame(binding.BuildReplayFrame()));
 }
 
 void WebXR::UIInputConnector::Cancel(XRUISurfaceEngineBinding& binding)

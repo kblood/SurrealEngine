@@ -63,6 +63,8 @@ class XRUIInputConnector
 {
 public:
 	void Update(const XRUIInputFrame& input, XRUISurfaceEngineBinding& binding);
+	void Update(const XRUIInputFrame& input, XRUISurfaceEngineBinding& binding,
+		const XRUICanvasReplayFrame& frame);
 	void Cancel(XRUISurfaceEngineBinding& binding);
 	const std::array<XRUIPointerFeedback, XRHandCount>& Feedback() const { return feedback; }
 

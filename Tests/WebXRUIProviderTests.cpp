@@ -51,7 +51,8 @@ namespace
 		WebXR::UIInputConnector connector;
 		connector.Update(input, binding, vec3(0.0f), Coords::Identity(), worldUnitsPerMeter, recenter);
 
-		const XRUICanvasReplayFrame intro = binding.BuildReplayFrame();
+		const XRUICanvasReplayFrame intro =
+			WebXR::OrientUIReplayFrame(binding.BuildReplayFrame());
 		const WebXR::UIVisualFrame introVisuals = WebXR::BuildUIVisualFrame(
 			connector.Feedback(), intro, worldUnitsPerMeter);
 		if (intro.Items.size() != 1 || intro.Items[0].Surface.Descriptor.Kind != XRUISurfaceKind::Hud ||
@@ -76,7 +77,8 @@ namespace
 		input.Controllers.ForHand(XRHand::Right).Select.Pressed = true;
 		connector.Update(input, binding, vec3(0.0f), Coords::Identity(), worldUnitsPerMeter, recenter);
 		binding.Replay(XRUICanvasReplayContext::Game);
-		const XRUICanvasReplayFrame menu = binding.BuildReplayFrame();
+		const XRUICanvasReplayFrame menu =
+			WebXR::OrientUIReplayFrame(binding.BuildReplayFrame());
 		const WebXR::UIVisualFrame menuVisuals = WebXR::BuildUIVisualFrame(
 			connector.Feedback(), menu, worldUnitsPerMeter);
 		return host.Presses == 1 && menu.Items.size() == 1 &&
@@ -154,12 +156,26 @@ int main()
 
 	binding.Configure(descriptors[2]);
 	binding.SetSurfaceActive(XRUISurfaceKind::Loading, true);
-	const XRUICanvasReplayFrame replayFrame = binding.BuildReplayFrame();
+	const XRUICanvasReplayFrame nativeReplayFrame = binding.BuildReplayFrame();
+	const XRUICanvasReplayFrame replayFrame = WebXR::OrientUIReplayFrame(nativeReplayFrame);
 	if (replayFrame.Items.size() != 2 ||
 		replayFrame.Items[0].Surface.Descriptor.Kind != XRUISurfaceKind::Loading ||
 		replayFrame.Items[1].Surface.Descriptor.Kind != XRUISurfaceKind::Menu ||
 		selectingFeedback.Contact.Surface != XRUISurfaceKind::Menu)
 		return 7;
+	const vec3 nativeRight = nativeReplayFrame.Items[1].Surface.Pose.Right;
+	const vec3 webRight = replayFrame.Items[1].Surface.Pose.Right;
+	if (!NearlyEqual(nativeRight.y, -1.0f) || !NearlyEqual(webRight.y, 1.0f))
+		return 23;
+	const XRUISurfaceFrameItem& menuSurface = replayFrame.Items[1].Surface;
+	const vec3 readableRight = menuSurface.Pose.Center + menuSurface.Pose.Right *
+		(menuSurface.Descriptor.PhysicalWidth * 0.25f);
+	const XRUISurfaceContact readableContact = MapRayToXRUISurface(
+		menuSurface, { vec3(0.0f), readableRight });
+	if (!readableContact.Hit || !NearlyEqual(readableContact.UV.x, 0.75f) ||
+		!NearlyEqual(readableContact.Pixel.x,
+			menuSurface.Descriptor.PixelWidth * 0.75f, 1.0f))
+		return 24;
 	const WebXR::UIVisualFrame visuals = WebXR::BuildUIVisualFrame(
 		connector.Feedback(), replayFrame, units);
 	if (visuals.Hands.size() != 1 || visuals.Hands[0].Hand != XRHand::Right ||

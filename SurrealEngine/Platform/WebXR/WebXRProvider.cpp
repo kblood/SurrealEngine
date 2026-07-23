@@ -325,7 +325,8 @@ extern "C"
 			ResolveXRUIHapticFeedback(HapticFeedback, UIInput.Feedback(),
 				&WebXR::BrowserHapticSink());
 			engine->RenderGameFrame(levelElapsed, family);
-			const XRUICanvasReplayFrame replayFrame = ui.BuildReplayFrame();
+			const XRUICanvasReplayFrame replayFrame =
+				WebXR::OrientUIReplayFrame(ui.BuildReplayFrame());
 			const WebXR::UIVisualFrame visualFrame = WebXR::BuildUIVisualFrame(
 				UIInput.Feedback(), replayFrame, WorldUnitsPerMeter);
 			if (!WebXR::CompositeUISurfaces(device, handles[0].Format, family, replayFrame,
