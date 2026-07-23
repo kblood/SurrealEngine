@@ -706,6 +706,14 @@
 		}
 	}
 
+	function onNativeCallGateOverflow() {
+		if (!activeGeneration) return;
+		fail(activeGeneration, providerError("native-callback-overflow", "frame",
+			"Browser callback transitions overflowed while native rendering was suspended"));
+	}
+	if (typeof root.addEventListener === "function")
+		root.addEventListener("surrealnativecallgateoverflow", onNativeCallGateOverflow);
+
 	function onFrame(generation, time, frame) {
 		if (generation !== activeGeneration || !session) return;
 		try {

@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><link rel="icon" href="data:,"><title>WebXR native callback gate probe</title></head>
+<body>
+<canvas id="canvas" width="320" height="200"></canvas>
+<pre id="result">loading</pre>
+<script>
+globalThis.webXRNativeCallbackEntries = [];
+globalThis.webXRNativeCallbackSuspended = false;
+if (new URLSearchParams(location.search).has("overflow")) globalThis.surrealNativeCallGateQueueLimit = 4;
+var Module = {
+  noInitialRun: true,
+  canvas: document.getElementById("canvas"),
+  onRuntimeInitialized() {
+	globalThis.webXRNativeCallbackMainResult = Module.callMain([]);
+    globalThis.webXRNativeCallbackGateProbeReady = true;
+  }
+};
+globalThis.Module = Module;
+
+function dispatchTouch(type, target) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  const point = { identifier: 1, screenX: 10, screenY: 20, clientX: 10, clientY: 20,
+    pageX: 10, pageY: 20, target };
+  const active = type === "touchend" || type === "touchcancel" ? [] : [point];
+  Object.defineProperties(event, {
+    touches: { value: active }, targetTouches: { value: active }, changedTouches: { value: [point] }
+  });
+  target.dispatchEvent(event);
+}
+
+function dispatchGamepad(type) {
+  const gamepad = { id: "probe", index: 0, connected: type === "gamepadconnected", timestamp: performance.now(),
+    mapping: "standard", axes: [0, 0], buttons: [{ value: 0, pressed: false, touched: false }] };
+  let event;
+  try { event = new GamepadEvent(type, { gamepad }); }
+  catch (_) { event = new Event(type); Object.defineProperty(event, "gamepad", { value: gamepad }); }
+  window.dispatchEvent(event);
+}
+
+function dispatchNativeEvents() {
+  const canvas = document.getElementById("canvas");
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", bubbles: true }));
+  window.dispatchEvent(new KeyboardEvent("keyup", { key: "a", code: "KeyA", bubbles: true }));
+  window.dispatchEvent(new KeyboardEvent("keypress", { key: "a", code: "KeyA", bubbles: true }));
+  canvas.dispatchEvent(new MouseEvent("mousedown", { clientX: 11, clientY: 12, button: 0, bubbles: true }));
+  canvas.dispatchEvent(new MouseEvent("mouseup", { clientX: 11, clientY: 12, button: 0, bubbles: true }));
+  canvas.dispatchEvent(new MouseEvent("mousemove", { clientX: 13, clientY: 14, movementX: 2, movementY: 2, bubbles: true }));
+  canvas.dispatchEvent(new MouseEvent("mouseenter", { clientX: 13, clientY: 14 }));
+  canvas.dispatchEvent(new MouseEvent("mouseleave", { clientX: 13, clientY: 14 }));
+  canvas.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, clientX: 13, clientY: 14, bubbles: true, cancelable: true }));
+  window.dispatchEvent(new FocusEvent("focus"));
+  window.dispatchEvent(new FocusEvent("blur"));
+  document.dispatchEvent(new Event("visibilitychange"));
+  dispatchTouch("touchstart", canvas);
+  dispatchTouch("touchend", canvas);
+  dispatchTouch("touchmove", canvas);
+  dispatchTouch("touchcancel", canvas);
+  dispatchGamepad("gamepadconnected");
+  dispatchGamepad("gamepaddisconnected");
+}
+
+globalThis.runWebXRNativeCallbackGateProbe = async function () {
+  const baseline = globalThis.webXRNativeCallbackEntries.slice();
+  if (Module.ccall("Probe_StartTimer", "number", [], []) !== 1) throw new Error("SDL timer did not start: " + globalThis.webXRNativeCallbackTimerError + "; main=" + globalThis.webXRNativeCallbackMainResult);
+  globalThis.surrealXRNativeCallsBlocked = true;
+  globalThis.dispatchEvent(new Event("surrealnativecallgatechange"));
+  const pending = Module.ccall("Probe_Suspend", "number", [], [], { async: true });
+  while (!globalThis.webXRNativeCallbackSuspended) await new Promise(resolve => setTimeout(resolve, 0));
+  dispatchNativeEvents();
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const during = globalThis.webXRNativeCallbackEntries.slice();
+  const diagnosticsDuring = { ...globalThis.SurrealNativeCallGateDiagnostics };
+  const returned = await pending;
+  globalThis.surrealXRNativeCallsBlocked = false;
+  globalThis.dispatchEvent(new Event("surrealnativecallgatechange"));
+	const canceledDeferredTimer = Module.ccall("Probe_CancelDeferredTimer", "number", [], []);
+
+	const expected = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+  const deadline = performance.now() + 1000;
+  while (performance.now() < deadline && !expected.every(id => globalThis.webXRNativeCallbackEntries.includes(id))) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+	const sdlEvents = Module.ccall("Probe_PollSDLEvents", "number", [], []);
+  const after = globalThis.webXRNativeCallbackEntries.slice();
+  const result = {
+	baseline, during, after, returned, diagnosticsDuring, canceledDeferredTimer, sdlEvents,
+    zeroEntriesDuringSuspension: during.length === baseline.length,
+    resumedAfterUnblock: expected.every(id => after.includes(id)),
+	missing: expected.filter(id => !after.includes(id)), canceledTimerFired: after.includes(21)
+  };
+	result.sdlWatchEntries = after.filter(id => id === 100).length;
+  document.getElementById("result").textContent = JSON.stringify(result, null, 2);
+  return result;
+};
+
+globalThis.runWebXRNativeCallbackGateOverflowProbe = async function () {
+  let resolveRender;
+  const renderPromise = new Promise(resolve => { resolveRender = resolve; });
+  let renderCalls = 0;
+  const nativeCalls = [];
+  let textureId = 0;
+  const device = {
+    createTexture(description) {
+      const size = Array.isArray(description.size) ? description.size :
+        [description.size.width, description.size.height, description.size.depthOrArrayLayers];
+      return { id: ++textureId, width: size[0], height: size[1], format: description.format, destroy() {} };
+    },
+    createCommandEncoder() { return { copyTextureToTexture() {}, finish() { return {}; } }; },
+    queue: { submit() {}, onSubmittedWorkDone() { return Promise.resolve(); } }
+  };
+  const fakeModule = {
+    preinitializedWebGPUDevice: device,
+    _Surreal_GetWebXRFrameABIVersion: () => 3,
+    ccall(name) {
+      nativeCalls.push(name);
+      if (name === "Surreal_SetXRFrameLoopActive" || name === "Surreal_SubmitWebXRInputSnapshot" ||
+          name === "Surreal_ApplyWebXRInputSnapshot") return 1;
+      if (name === "Surreal_RenderWebXRFrame") { renderCalls++; return renderPromise; }
+      if (name === "Surreal_GetWebXRFrameLastError" || name === "Surreal_GetWebXRInputLastError") return 0;
+      return undefined;
+    }
+  };
+  globalThis.Module = fakeModule;
+  globalThis.surrealWebGPUDeviceXRCompatible = true;
+  globalThis.GPUTextureUsage = { COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, RENDER_ATTACHMENT: 16 };
+  const sessions = [];
+  class FakeSession {
+    constructor() { this.listeners = new Map(); this.frames = new Map(); this.nextFrame = 1;
+      this.visibilityState = "visible"; this.inputSources = []; }
+    addEventListener(name, callback) { this.listeners.set(name, callback); }
+    updateRenderState() {}
+    requestReferenceSpace() { return Promise.resolve({ addEventListener() {} }); }
+    requestAnimationFrame(callback) { const id = this.nextFrame++; this.frames.set(id, callback); return id; }
+    cancelAnimationFrame(id) { this.frames.delete(id); }
+    fireFrame(time, frame) { const entry = this.frames.entries().next().value; this.frames.delete(entry[0]); entry[1](time, frame); }
+    end() { const callback = this.listeners.get("end"); if (callback) callback(); return Promise.resolve(); }
+  }
+  Object.defineProperty(navigator, "xr", { configurable: true, value: {
+    isSessionSupported: async () => true,
+    requestSession: async () => { const value = new FakeSession(); sessions.push(value); return value; }
+  } });
+  const compositorTextures = ["left", "right"].map(eye => ({ eye, width: 320, height: 200,
+    depthOrArrayLayers: 1, format: "rgba8unorm", usage: 18 }));
+  globalThis.XRGPUBinding = class {
+    getPreferredColorFormat() { return "rgba8unorm"; }
+    createProjectionLayer() { return {}; }
+    getViewSubImage(_, view) { const texture = compositorTextures[view.eye === "left" ? 0 : 1];
+      return { colorTexture: texture, getViewDescriptor: () => ({ baseArrayLayer: 0, arrayLayerCount: 1 }),
+        viewport: { x: 0, y: 0, width: 320, height: 200 } }; }
+  };
+  const projection = new Float32Array(16); projection[0] = projection[5] = projection[10] = projection[15] = 1;
+  const view = eye => ({ eye, projectionMatrix: projection, transform: { position: { x: 0, y: 1.6, z: 0 },
+    orientation: { x: 0, y: 0, z: 0, w: 1 } } });
+  const frame = { getViewerPose: () => ({ views: [view("left"), view("right")] }) };
+  let overflowEvents = 0;
+  addEventListener("surrealnativecallgateoverflow", () => overflowEvents++);
+  await import("./webxr_provider.js?native-callback-overflow-probe");
+  if (!await globalThis.surrealXREnter()) throw new Error("fake WebXR session did not start");
+  sessions[0].fireFrame(1, frame);
+  while (!globalThis.surrealXRNativeCallsBlocked || renderCalls !== 1)
+    await new Promise(resolve => setTimeout(resolve, 0));
+  for (let index = 0; index < 10; ++index)
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA" }));
+  const atOverflow = { ...globalThis.SurrealNativeCallGateDiagnostics };
+  const callsAtOverflow = nativeCalls.length;
+  for (let index = 0; index < 20; ++index)
+    window.dispatchEvent(new KeyboardEvent("keyup", { key: "a", code: "KeyA" }));
+  const afterMoreEvents = { ...globalThis.SurrealNativeCallGateDiagnostics };
+  const failedState = globalThis.surrealXRGetState();
+	const callsAfterBurstBeforeResolve = nativeCalls.length;
+  resolveRender(1);
+  const cleanupDeadline = performance.now() + 1000;
+  while (globalThis.surrealXRNativeCallsBlocked && performance.now() < cleanupDeadline)
+    await new Promise(resolve => setTimeout(resolve, 5));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const afterCleanup = { ...globalThis.SurrealNativeCallGateDiagnostics };
+  const freshSession = await globalThis.surrealXREnter();
+  const freshState = globalThis.surrealXRGetState();
+  globalThis.surrealXRExit();
+  return { overflowEvents, atOverflow, afterMoreEvents, afterCleanup, failedState,
+	callsAtOverflow, callsAfterBurstBeforeResolve, freshSession, freshState };
+};
+</script>
+<script src="../build-webxr-native-callback-gate-em/WebXRNativeCallbackGateProbe.js"></script>
+</body>
+</html>

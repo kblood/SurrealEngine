@@ -21,8 +21,15 @@
 #include <surrealwidgets/window/window.h>
 #include <iostream>
 
+#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+extern "C" void surreal_install_native_call_gate_js();
+#endif
+
 int GameApp::main(Array<std::string> args)
 {
+#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+	surreal_install_native_call_gate_js();
+#endif
 	auto backend = DisplayBackend::TryCreateBackend();
 	DisplayBackend::Set(std::move(backend));
 #ifndef __EMSCRIPTEN__

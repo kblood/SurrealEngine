@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 globalThis.window = globalThis;
 globalThis.surrealWebGPUDeviceXRCompatible = true;
 globalThis.GPUTextureUsage = { COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, RENDER_ATTACHMENT: 16 };
+const rootListeners = new Map();
+globalThis.addEventListener = (name, callback) => rootListeners.set(name, callback);
+globalThis.dispatchEvent = event => { const callback = rootListeners.get(event.type); if (callback) callback(event); return true; };
 
 const nativeCalls = [];
 const loopTransitions = [];
@@ -401,6 +404,28 @@ assert.equal(globalThis.surrealXRGetState().lastErrorCode, "input-transition-ove
 assert.equal(globalThis.surrealXRGetState().inputQueueOverflow, false);
 assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 0);
 assert.equal(overflowSession.frames.size, 0);
+
+// The generated callback gate reports a terminal pure-JS overflow. The provider invalidates the
+// session immediately but makes no cleanup calls until the unresolved native producer drains.
+assert.equal(await globalThis.surrealXREnter(), true);
+const callbackOverflowSession = sessions.at(-1);
+renderDeferred = deferred();
+callbackOverflowSession.fireFrame(3000, stereoFrame);
+await nextTask();
+const callsAtCallbackOverflow = nativeCalls.length;
+globalThis.dispatchEvent(new Event("surrealnativecallgateoverflow"));
+assert.equal(globalThis.surrealXRGetState().active, false);
+assert.equal(globalThis.surrealXRGetState().phase, "error");
+assert.equal(globalThis.surrealXRGetState().lastErrorCode, "native-callback-overflow");
+assert.equal(nativeCalls.length, callsAtCallbackOverflow,
+	"callback overflow must defer native cleanup until the producer drains");
+renderDeferred.resolve(1); renderDeferred = null;
+await nextTask(); await nextTask();
+assert.equal(await globalThis.surrealXREnter(), true,
+	"a fresh session must be admitted after overflow cleanup completes");
+assert.equal(globalThis.surrealXRGetState().phase, "running");
+assert.equal(globalThis.surrealXRExit(), true);
+await nextTask();
 
 // Input packing remains defensive and semantic.
 const unsafe = makeInputSource("left", 0); unsafe.gamepad.mapping = "";

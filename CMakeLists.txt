@@ -952,6 +952,23 @@ if(BUILD_TESTING AND EMSCRIPTEN)
 		-sEXIT_RUNTIME=0
 		-sEXPORTED_RUNTIME_METHODS=callMain,ccall
 		-sEXPORTED_FUNCTIONS=_main,_Probe_PauseAndSuspend)
+
+	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
+		add_executable(WebXRNativeCallbackGateProbe Tests/WebXRNativeCallbackGateProbe.cpp)
+		set_target_properties(WebXRNativeCallbackGateProbe PROPERTIES CXX_STANDARD 20)
+		set_property(TARGET WebXRNativeCallbackGateProbe APPEND PROPERTY LINK_DEPENDS
+			${CMAKE_CURRENT_SOURCE_DIR}/web/browser_native_call_gate_library.js)
+		target_compile_options(WebXRNativeCallbackGateProbe PRIVATE -sUSE_SDL=2)
+		target_link_options(WebXRNativeCallbackGateProbe PRIVATE
+			--js-library ${CMAKE_CURRENT_SOURCE_DIR}/web/browser_native_call_gate_library.js
+			-sUSE_SDL=2
+			-sASYNCIFY
+			-sASYNCIFY_STACK_SIZE=65536
+			-sINVOKE_RUN=0
+			-sEXIT_RUNTIME=0
+			-sEXPORTED_RUNTIME_METHODS=callMain,ccall
+			-sEXPORTED_FUNCTIONS=_main,_Probe_StartTimer,_Probe_CancelDeferredTimer,_Probe_PollSDLEvents,_Probe_Suspend)
+	endif()
 endif()
 
 target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Precomp.h>)
@@ -1194,7 +1211,10 @@ if(EMSCRIPTEN)
 		set_target_properties(PthreadWebGPUDeviceProbe PROPERTIES SUFFIX ".js")
 	endif()
 	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
+		set_property(TARGET SurrealEngine APPEND PROPERTY LINK_DEPENDS
+			${CMAKE_CURRENT_SOURCE_DIR}/web/browser_native_call_gate_library.js)
 		target_link_options(SurrealEngine PRIVATE
+			--js-library=${CMAKE_CURRENT_SOURCE_DIR}/web/browser_native_call_gate_library.js
 			-sWASMFS
 			-sFORCE_FILESYSTEM
 			-sASYNCIFY

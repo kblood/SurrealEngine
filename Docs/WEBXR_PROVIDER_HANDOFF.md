@@ -197,6 +197,34 @@ Asyncify XR producer is unresolved. Repeated triggers coalesce into one
 deferred lifecycle reason and flush once the gate reopens; disposal removes
 the listener. Browser audio uses the same defer-and-flush rule.
 
+Asyncify builds also link an Emscripten user JavaScript library that installs a
+native-callback gate before `SDL_Init`. It wraps the live
+`JSEvents.registerOrRemoveHandler` registration seam, so keyboard, mouse,
+wheel, touch, focus, blur, visibility, gamepad, and other Emscripten HTML5
+callbacks cannot use `dynCall` to re-enter Wasm while
+`surrealXRNativeCallsBlocked` is true. The same library overrides
+`emscripten_set_timeout` and `emscripten_clear_timeout` with stable logical
+timer IDs, preventing SDL timers from entering Wasm during the unresolved
+producer and retaining correct cancellation behavior. Ordinary non-Asyncify
+browser builds do not link or install this library.
+
+Blocked DOM events are snapshotted in gate-owned JavaScript and replayed
+after the gate reopens. Only continuous events with the same registration
+owner and type are coalesced; discrete transitions retain capture order.
+Registrations removed before replay are treated as stale and skipped. The
+queue is bounded: expendable continuous samples are discarded first, while a
+discrete-only overflow latches instead of silently dropping an input edge. One
+`surrealnativecallgateoverflow` event then fails the WebXR provider closed, and
+normal cleanup still waits for the in-flight producer before releasing native
+state. The latch and deferred queue are cleared during that cleanup so a later
+session can start cleanly.
+
+This is intentionally a scoped Emscripten integration rather than a patch to
+`EventTarget` or `safeSetTimeout`. Browser-only tasks and Asyncify's own sleep
+mechanism remain available while native entry is blocked. The generated SDL2
+path uses the current `JSEvents` handlers; audited debug, release, and packaged
+outputs contain no legacy `SDL.receiveEvent` path.
+
 The input queue preserves discrete focus, connection, pressed, and touched
 transitions in capture order even when more than 16 changes arrive during one
 suspended render. Pose and axis-only samples with the same discrete state are
@@ -232,6 +260,10 @@ texture or presentation target fails the active session rather than silently
 rendering to the flat canvas.
 
 ## Validation
+
+The full-engine entries below include the native-callback-gate follow-up.
+Focused debug and release harnesses pass, as do complete optimized default and
+Window-owned Asyncify `SurrealEngine` rebuilds.
 
 Completed locally:
 
@@ -276,6 +308,17 @@ Completed locally:
 - a standalone Emscripten/Asyncify real-Chrome probe observed the JavaScript-
   published `EngineMainLoopCallback` count remain exactly 3 through eight
   samples during the unresolved suspension and advance to 4 only after resume;
+- a real-Chrome Emscripten/SDL2 callback-gate harness passed in debug and
+  release configurations: synthetic keyboard, mouse, wheel, touch, focus,
+  blur, visibility, and gamepad events plus repeating and cancelled
+  `SDL_AddTimer` callbacks produced zero Wasm entries while the Asyncify
+  producer was unresolved, then resumed after unblock; an `SDL_AddEventWatch`
+  canary also remained silent during suspension and observed replayed SDL
+  events afterward;
+- that harness's overflow control proved the bounded queue emits one provider
+  failure, makes no further Wasm entry before the producer resolves, drains
+  cleanup, and permits a fresh session; its generated-output audit also found
+  no `SDL.receiveEvent` path;
 - bridge-provider Node coverage proving distinct persistent atlas targets,
   no native re-entry across multiple rAF callbacks while a producer is
   unresolved, immutable-front repeat presentation, immediate exit
@@ -298,6 +341,10 @@ node web/test_webxr_webgl_fallback_provider.mjs
 cmake -S . -B build-webxr-mainloop-pause-em -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 cmake --build build-webxr-mainloop-pause-em --target WebXRMainLoopPauseProbe --parallel 4
 python web/smoke_test_webxr_main_loop_pause.py
+
+cmake -S . -B build-webxr-native-callback-gate-em -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DSURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY=ON
+cmake --build build-webxr-native-callback-gate-em --target WebXRNativeCallbackGateProbe --parallel 4
+python web/smoke_test_webxr_native_callback_gate.py
 
 & C:\Devstuff\emsdk\emsdk_env.ps1
 emcmake cmake -S . -B build-emscripten -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" -DBUILD_TESTING=OFF
