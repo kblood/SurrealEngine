@@ -23,6 +23,11 @@ def parse_args():
 	parser.add_argument("--base-url", default="http://localhost:8091")
 	parser.add_argument("--expected-game", choices=("ut99", "unreal-gold"))
 	parser.add_argument("--renderer", choices=("webgpu", "null"), default="webgpu")
+	parser.add_argument("--map", help="Validated imported map basename to select before launch")
+	parser.add_argument("--require-audio", action="store_true",
+		help="Require a running browser context and at least one nonzero decoded buffer")
+	parser.add_argument("--require-stereo-audio", action="store_true",
+		help="Additionally require at least one nonzero stereo buffer (for a known music map)")
 	parser.add_argument("--startup-mode", choices=("direct-map", "local-map-intro"),
 		default="direct-map", help="Launch the selected map directly or exercise the game's configured LocalMap intro")
 	parser.add_argument("--intro-input-delay", "--intro-fire-delay", dest="intro_input_delay",
@@ -92,6 +97,51 @@ def main():
 			browser = playwright.chromium.launch(channel="chrome", headless=not args.headed)
 			context = browser.new_context(service_workers="block", viewport={"width": 1280, "height": 800})
 		page = context.new_page()
+		page.add_init_script("""(() => {
+			const state = globalThis.surrealOwnerAudioProbe = {
+				starts: 0, buffers: 0, nonzeroBuffers: 0, monoBuffers: 0, stereoBuffers: 0,
+				nonzeroMonoBuffers: 0, nonzeroStereoBuffers: 0,
+				sampledValues: 0, nonzeroSamples: 0, maxRms: 0, maxDurationSeconds: 0,
+			};
+			const prototype = globalThis.BaseAudioContext && BaseAudioContext.prototype;
+			if (!prototype || typeof prototype.createBufferSource !== 'function') return;
+			const createBufferSource = prototype.createBufferSource;
+			prototype.createBufferSource = function (...argumentsList) {
+				const source = createBufferSource.apply(this, argumentsList);
+				const start = source.start;
+				source.start = function (...startArguments) {
+					state.starts++;
+					const buffer = source.buffer;
+					if (buffer) {
+						state.buffers++;
+						if (buffer.numberOfChannels === 1) state.monoBuffers++;
+						if (buffer.numberOfChannels === 2) state.stereoBuffers++;
+						state.maxDurationSeconds = Math.max(state.maxDurationSeconds,
+							Number.isFinite(buffer.duration) ? buffer.duration : 0);
+						let squares = 0, samples = 0, nonzero = 0;
+						for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+							const values = buffer.getChannelData(channel);
+							const stride = Math.max(1, Math.floor(values.length / 2048));
+							for (let index = 0; index < values.length; index += stride) {
+								const value = values[index];
+								squares += value * value; samples++;
+								if (value !== 0) nonzero++;
+							}
+						}
+						state.sampledValues += samples;
+						state.nonzeroSamples += nonzero;
+						if (nonzero) {
+							state.nonzeroBuffers++;
+							if (buffer.numberOfChannels === 1) state.nonzeroMonoBuffers++;
+							if (buffer.numberOfChannels === 2) state.nonzeroStereoBuffers++;
+						}
+						if (samples) state.maxRms = Math.max(state.maxRms, Math.sqrt(squares / samples));
+					}
+					return start.apply(source, startArguments);
+				};
+				return source;
+			};
+		})()""")
 		console_lines = []
 		page_errors = []
 		page.on("console", lambda message: console_lines.append(message.text))
@@ -158,13 +208,18 @@ def main():
 		})""")
 		if args.expected_game and imported["gameId"] and imported["gameId"] != args.expected_game:
 			raise RuntimeError("detected %s instead of %s" % (imported["gameId"], args.expected_game))
-
 		page.select_option("[data-launcher-presentation]", "flat")
 		page.select_option("[data-launcher-renderer]", args.renderer)
 		if args.startup_mode == "direct-map":
 			page.check("[data-launcher-skip-intro]")
 		else:
 			page.uncheck("[data-launcher-skip-intro]")
+		if args.map:
+			current_map = page.locator("[data-launcher-map]").input_value()
+			if current_map.lower() != args.map.lower():
+				selected = page.select_option("[data-launcher-map]", label=args.map)
+				if not selected:
+					raise RuntimeError("requested map is absent from the validated manifest: " + args.map)
 		page.locator("#game-launcher").scroll_into_view_if_needed()
 		page.click("#game-launcher button[type=submit]")
 		try:
@@ -279,16 +334,37 @@ def main():
 			"introInput": intro_input,
 			"restoredFromProfile": restored,
 			"detected": imported,
+			"launchSelection": page.evaluate("""() => {
+				const selection = window.surrealLaunchSelection;
+				return selection ? {
+					gameId: selection.game && selection.game.id,
+					map: selection.map,
+					presentationId: selection.presentationId,
+					renderer: selection.renderer,
+					skipIntro: selection.skipIntro,
+				} : null;
+			}"""),
 			"ticks": ticks,
 			"layout": layout,
 			"nonuniformPercent": round(nonuniform_percent, 2),
 			"webgpuErrors": optional_counter(page, "Surreal_GetWebGPUErrorCount"),
 			"webgpuDrawCalls": optional_counter(page, "Surreal_GetWebGPUDrawCalls"),
 			"webgpuTextures": optional_counter(page, "Surreal_GetWebGPUTextureCount"),
+			"audio": page.evaluate("""() => ({
+				diagnostics: window.surrealBrowserAudio && window.surrealBrowserAudio.diagnostics(),
+				buffers: window.surrealOwnerAudioProbe || null,
+			})"""),
 			"pageErrors": page_errors,
 			"screenshot": str(screenshot.resolve()),
 		}
 		print(json.dumps(result, indent=2))
+		audio = result["audio"]
+		if args.require_audio or args.require_stereo_audio:
+			if (not audio or not audio["diagnostics"] or audio["diagnostics"]["state"] != "running" or
+				not audio["buffers"] or audio["buffers"]["nonzeroBuffers"] < 1):
+				raise RuntimeError("browser audio did not reach a running nonzero-buffer state")
+		if args.require_stereo_audio and audio["buffers"]["nonzeroStereoBuffers"] < 1:
+			raise RuntimeError("browser audio did not start a nonzero stereo buffer")
 		if page_errors or (result["webgpuErrors"] not in (None, 0)):
 			print("Recent browser console output:", file=sys.stderr)
 			print("\n".join(console_lines[-80:]), file=sys.stderr)
