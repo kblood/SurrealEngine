@@ -102,8 +102,27 @@ with sync_playwright() as playwright:
 		print(json.dumps({"prelaunch": prelaunch}, indent=2), file=sys.stderr)
 		print("FAIL: inactive canvas obscured the pre-launch controls", file=sys.stderr)
 		sys.exit(1)
-	page.evaluate("""() => {
-		Module.callMain = args => { window.syntheticCallMainArgs = Array.from(args); };
+	page.evaluate("""asyncifyEntry => {
+		window.syntheticNativeEntry = null;
+		window.syntheticNativeArgs = null;
+		if (asyncifyEntry) {
+			Module._Surreal_StartBrowserGame = () => 0;
+			const originalCcall = Module.ccall.bind(Module);
+			Module.ccall = (name, returnType, argumentTypes, args, options) => {
+				if (name !== 'Surreal_StartBrowserGame')
+					return originalCcall(name, returnType, argumentTypes, args, options);
+				window.syntheticNativeEntry = name;
+				window.syntheticNativeArgs = ['--autoplay'];
+				if (args[2]) window.syntheticNativeArgs.push('--url=' + args[0]);
+				window.syntheticNativeArgs.push('--render=' + args[1], '/gamedata');
+				return Promise.resolve(0);
+			};
+		} else {
+			Module.callMain = args => {
+				window.syntheticNativeEntry = 'callMain';
+				window.syntheticNativeArgs = Array.from(args);
+			};
+		}
 		const files = [
 			['System/Core.u','core'], ['System/Engine.u','engine'], ['System/UnrealShare.u','share'],
 			['System/UnrealI.u','unreali'], ['System/Unreal.ini','ini'], ['System/Unreal.exe','exe'],
@@ -111,7 +130,7 @@ with sync_playwright() as playwright:
 		];
 		const entries = files.map(([path, value]) => { const blob = new Blob([value]); return { path, size: blob.size, getBlob: async () => blob }; });
 		window.syntheticImportPromise = window.surrealApp.dataController.importController.importEntries(entries);
-	}""")
+	}""", compliance.get("buildProvenance", {}).get("browserEntryPoint") == "asyncify-opfs")
 	page.wait_for_selector("#game-launcher:not([hidden])", timeout=30000)
 	presentations = page.locator("[data-launcher-presentation] option").all_text_contents()
 	pre_launch_scroll = page.evaluate("""() => {
@@ -127,7 +146,8 @@ with sync_playwright() as playwright:
 	page.evaluate("window.syntheticImportPromise")
 	page.wait_for_function("window.surrealBooted === true")
 	integration = page.evaluate("""() => ({
-		args: window.syntheticCallMainArgs,
+		entry: window.syntheticNativeEntry,
+		args: window.syntheticNativeArgs,
 		selection: window.surrealLaunchSelection && {
 			gameId: window.surrealLaunchSelection.game.id,
 			map: window.surrealLaunchSelection.map,
@@ -142,7 +162,10 @@ with sync_playwright() as playwright:
 				focused: document.activeElement === canvas, label: canvas.getAttribute('aria-label') };
 		})(),
 	})""")
-	if presentations != ["Desktop window"] or integration["args"] != ["--autoplay", "--url=Vortex2", "--render=webgpu", "/gamedata"] or integration["selection"] != {"gameId": "unreal-gold", "map": "Vortex2", "presentationId": "flat"}:
+	expected_entry = "Surreal_StartBrowserGame" if compliance.get("buildProvenance", {}).get("browserEntryPoint") == "asyncify-opfs" else "callMain"
+	if (presentations != ["Desktop window"] or integration["entry"] != expected_entry or
+		integration["args"] != ["--autoplay", "--url=Vortex2", "--render=webgpu", "/gamedata"] or
+		integration["selection"] != {"gameId": "unreal-gold", "map": "Vortex2", "presentationId": "flat"}):
 		print("FAIL: staged package game detection or flat launch", file=sys.stderr)
 		sys.exit(1)
 	layout = integration["layout"]

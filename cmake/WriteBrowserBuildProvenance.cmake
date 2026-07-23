@@ -1,5 +1,6 @@
-if(NOT DEFINED SOURCE_ROOT OR NOT DEFINED OUTPUT_FILE OR NOT DEFINED GIT_EXECUTABLE OR NOT DEFINED COMPILER_EXECUTABLE)
-	message(FATAL_ERROR "Browser build provenance requires SOURCE_ROOT, OUTPUT_FILE, GIT_EXECUTABLE, and COMPILER_EXECUTABLE")
+if(NOT DEFINED SOURCE_ROOT OR NOT DEFINED OUTPUT_FILE OR NOT DEFINED GIT_EXECUTABLE OR
+		NOT DEFINED COMPILER_EXECUTABLE OR NOT BROWSER_ENTRY_POINT MATCHES "^(call-main|asyncify-opfs)$")
+	message(FATAL_ERROR "Browser build provenance requires source/toolchain fields and a supported browser entry point")
 endif()
 
 execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${SOURCE_ROOT}" rev-parse HEAD
@@ -35,6 +36,7 @@ string(APPEND contents "  \"emscriptenRevision\": \"${emscripten_revision}\",\n"
 string(APPEND contents "  \"compilerId\": \"${COMPILER_ID}\",\n")
 string(APPEND contents "  \"compilerVersion\": \"${COMPILER_VERSION}\",\n")
 string(APPEND contents "  \"cmakeVersion\": \"${CMAKE_VERSION_VALUE}\",\n")
+string(APPEND contents "  \"browserEntryPoint\": \"${BROWSER_ENTRY_POINT}\",\n")
 string(APPEND contents "  \"surrealVideoLinkage\": \"static-wasm\"\n")
 string(APPEND contents "}\n")
 

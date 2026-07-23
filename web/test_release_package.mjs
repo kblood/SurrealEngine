@@ -22,7 +22,7 @@ try {
 		sourceDirty: false, toolchain: "Emscripten", emscriptenVersion: "6.0.2",
 		emscriptenRevision: "7a2d97d627ff4945eae28847ce0387ac52b92c09",
 		compilerId: "Clang", compilerVersion: "test",
-		cmakeVersion: "test", surrealVideoLinkage: "static-wasm",
+		cmakeVersion: "test", browserEntryPoint: "call-main", surrealVideoLinkage: "static-wasm",
 	};
 	await writeFile(join(engine, "build-compliance-provenance.json"), JSON.stringify(provenance));
 	const sourceArchive = join(temporaryRoot, "SurrealEngine-corresponding-source.tar.gz");
@@ -89,6 +89,7 @@ try {
 	const compliance = JSON.parse(await readFile(join(output, "source-compliance.json"), "utf8"));
 	assert.equal(compliance.wasmSha256, await sha256File(join(engine, "SurrealEngine.wasm")));
 	assert.equal(compliance.buildProvenance.surrealVideoLinkage, "static-wasm");
+	assert.equal(compliance.buildProvenance.browserEntryPoint, "call-main");
 	assert.match(await readFile(join(output, "SOURCE-OFFER.txt"), "utf8"), new RegExp(sourceMetadata.archiveSha256));
 	await auditRelease(output);
 

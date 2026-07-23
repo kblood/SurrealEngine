@@ -114,6 +114,7 @@ async function validateNoDataBuild(engineDirectory) {
 		provenance.sourceDirty !== false || provenance.toolchain !== "Emscripten" ||
 		!/^\d+\.\d+\.\d+$/.test(provenance.emscriptenVersion || "") ||
 		!/^[0-9a-f]{7,40}$/.test(provenance.emscriptenRevision || "") ||
+		!(["call-main", "asyncify-opfs"].includes(provenance.browserEntryPoint)) ||
 		provenance.surrealVideoLinkage !== "static-wasm")
 		throw new Error("Browser build provenance is incomplete or records a dirty/non-static build.");
 	return Object.freeze({ javascript, wasm, provenance });
