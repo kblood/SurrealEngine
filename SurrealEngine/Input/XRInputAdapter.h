@@ -54,6 +54,10 @@ struct XRInputBindings
 	// game-name or provider checks. Unassigned controls remain available for a
 	// later game-support or settings adapter.
 	static XRInputBindings ConventionalUE1(XRHand dominantHand = XRHand::Right);
+	// Physical layout retained from the first Quest-qualified native branch:
+	// X/Y switch weapons, left stick click ducks, A jumps, and B goes back.
+	// Trigger and raw Menu edges are handled by the native Engine event route.
+	static XRInputBindings NativeOpenXR(XRHand dominantHand = XRHand::Right);
 };
 
 class XRInputTarget

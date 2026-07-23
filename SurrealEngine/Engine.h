@@ -285,6 +285,10 @@ private:
 		bool menuActive);
 	void ReleaseOpenXRControllerEvents();
 	void ApplyOpenXRControllerEvents(const std::vector<XRNativeKeyEvent>& events);
+	void UpdateOpenXRWeaponDiagnostics(float elapsedSeconds,
+		const XRSpaceSamples& spaces, const XRWorldTransform& worldTransform,
+		const XRWeaponPoseResult& pose);
+	float openXRWeaponDiagnosticTime = 0.0f;
 
 	// Scratch properties used by PlayerCalcView during AdvanceGameFrame.
 	UObjectProperty* frameObjProp = nullptr;

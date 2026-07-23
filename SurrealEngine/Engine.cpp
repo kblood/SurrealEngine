@@ -47,19 +47,7 @@ namespace
 {
 	XRInputBindings NativeOpenXRInputBindings(XRHand dominantHand = XRHand::Right)
 	{
-		XRInputBindings bindings = XRInputBindings::ConventionalUE1(dominantHand);
-		// Quest hardware established that direct bFire/bAltFire composition is
-		// insufficient for UT99. Native trigger edges are routed through
-		// Engine::InputEvent below, matching physical mouse buttons exactly.
-		for (XRHandInputBindings& hand : bindings.Hands)
-		{
-			hand.Trigger.clear();
-			hand.MenuButton.clear();
-		}
-		// Native OpenXR composes this stick into the headset recenter yaw so
-		// world rendering and pawn movement turn together.
-		bindings.Hands[XRHandIndex(XRHand::Right)].StickX.clear();
-		return bindings;
+		return XRInputBindings::NativeOpenXR(dominantHand);
 	}
 }
 
@@ -516,11 +504,14 @@ void Engine::RunOneFrame()
 	{
 		XRWeaponPoseOptions options;
 		options.Mirror = xrHandedness.MirrorWeaponPresentation();
-		// Match the original native Quest integration: the rendered weapon
-		// follows the controller grip while ballistics use the aim pose.
-		options.VisualAnchor = XRWeaponVisualAnchor::Grip;
+		// The first Quest-qualified integration rendered and fired from the aim
+		// pose. Using grip here while ballistics used aim visibly split the gun
+		// direction from its shots by the runtime's grip-to-aim angular offset.
+		options.VisualAnchor = XRWeaponVisualAnchor::Aim;
 		xrWeaponPose = SolveXRWeaponPose(xrSpaces, xrWeaponWorld,
 			xrHandedness.Dominant, options);
+		UpdateOpenXRWeaponDiagnostics(realTimeElapsed, xrSpaces,
+			xrWeaponWorld, xrWeaponPose);
 	}
 	const float levelElapsed = xrWeaponPose.Valid ?
 		AdvanceGameFrameWithXRWeaponAim(xrWeaponPose, realTimeElapsed) :
@@ -754,6 +745,71 @@ void Engine::UpdateOpenXRLocomotion(const XRPose& headPose,
 	pawn->Rotation().Yaw = headRotation.Yaw;
 	pawn->ViewRotation().Yaw = headRotation.Yaw;
 	pawn->ViewRotation().Pitch = headRotation.Pitch;
+}
+
+void Engine::UpdateOpenXRWeaponDiagnostics(float elapsedSeconds,
+	const XRSpaceSamples& spaces, const XRWorldTransform& worldTransform,
+	const XRWeaponPoseResult& pose)
+{
+	openXRWeaponDiagnosticTime += std::max(elapsedSeconds, 0.0f);
+	if (!pose.Valid || openXRWeaponDiagnosticTime < 2.0f)
+		return;
+	openXRWeaponDiagnosticTime = 0.0f;
+
+	UPlayerPawn* pawn = viewport ? viewport->Actor() : nullptr;
+	UWeapon* weapon = pawn ? pawn->Weapon() : nullptr;
+	const XREnginePose grip = TransformXRPoseToEngine(
+		spaces.GripFor(xrHandedness.Dominant), worldTransform);
+	const XREnginePose aim = TransformXRPoseToEngine(
+		spaces.AimFor(xrHandedness.Dominant), worldTransform);
+	XRWeaponPoseOptions gripOptions;
+	gripOptions.VisualAnchor = XRWeaponVisualAnchor::Grip;
+	const XRWeaponPoseResult gripResult = SolveXRWeaponPose(
+		grip, aim, xrHandedness.Dominant, gripOptions);
+
+	auto asVector = [](const XREngineVector3& value)
+	{
+		return vec3(value.X, value.Y, value.Z);
+	};
+	auto angularDelta = [](const vec3& left, const vec3& right)
+	{
+		if (length(left) < 0.0001f || length(right) < 0.0001f)
+			return -1.0f;
+		const float cosine = std::clamp(dot(normalize(left), normalize(right)),
+			-1.0f, 1.0f);
+		return degrees(std::acos(cosine));
+	};
+	auto xyz = [](const XREngineVector3& value)
+	{
+		return "(" + std::to_string(value.X) + "," +
+			std::to_string(value.Y) + "," + std::to_string(value.Z) + ")";
+	};
+
+	const vec3 visualDirection = asVector(pose.VisualForward);
+	const vec3 aimDirection = asVector(pose.AimDirection);
+	const float visualAimDelta = angularDelta(visualDirection, aimDirection);
+	const float gripAimDelta = gripResult.Valid ?
+		angularDelta(asVector(gripResult.VisualForward), aimDirection) : -1.0f;
+	const float viewAimDelta = pawn ? angularDelta(
+		Coords::Rotation(pawn->ViewRotation()).XAxis, aimDirection) : -1.0f;
+	const Rotator visualRotation = normalize(Rotator::FromVector(visualDirection));
+	const Rotator ballisticRotation = normalize(Rotator::FromVector(aimDirection));
+	const std::string weaponName = weapon && weapon->Class ?
+		weapon->Class->Name.ToString() : "none";
+
+	LogMessage("[openxr-weapon] weapon=" + weaponName +
+		" hand=" + std::string(xrHandedness.Dominant == XRHand::Left ? "left" : "right") +
+		" anchor=aim visual_pos=" + xyz(pose.VisualPose.Position) +
+		" grip_pos=" + xyz(grip.Position) + " aim_pos=" + xyz(aim.Position) +
+		" visual_dir=" + xyz(pose.VisualForward) +
+		" aim_dir=" + xyz(pose.AimDirection) +
+		" visual_yaw=" + std::to_string(visualRotation.YawDegrees()) +
+		" visual_pitch=" + std::to_string(visualRotation.PitchDegrees()) +
+		" ballistic_yaw=" + std::to_string(ballisticRotation.YawDegrees()) +
+		" ballistic_pitch=" + std::to_string(ballisticRotation.PitchDegrees()) +
+		" visual_aim_delta_deg=" + std::to_string(visualAimDelta) +
+		" grip_aim_delta_deg=" + std::to_string(gripAimDelta) +
+		" pawn_view_aim_delta_deg=" + std::to_string(viewAimDelta));
 }
 
 float Engine::AdvanceGameFrame()

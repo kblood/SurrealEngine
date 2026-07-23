@@ -22,16 +22,18 @@ cannot cause one physical edge to close and reopen UMenu in the same frame.
 
 Tracked menu input is shared rather than implemented in the controller adapter. `OpenXRViewTranslator` converts the raw aim pose into the same engine-space ray as the eye views; `XRUIInputConnector` owns independent left/right contacts, exact hit coordinates, press ownership, and cancellation. The desktop mouse path remains available after tracked capture releases.
 
-`XRInputBindings` owns policy as configurable command strings. `ConventionalUE1()` supplies these non-game-specific defaults:
+`XRInputBindings` owns policy as configurable command strings. `ConventionalUE1()` supplies provider-neutral defaults:
 
 - left stick: `aStrafe` / `aBaseY`
 - right stick: `aTurn` / `aUp`
 - left/right trigger: `bAltFire` / `bFire`
 - right squeeze: `bDuck`
 
-The conventional profile assigns face buttons to jump, next weapon, and the
-menu/back route. Stick-click remains available for a game-support or settings
-module without adding game-name checks to OpenXR.
+Native OpenXR retains the physical Touch layout from the first Quest-qualified
+branch: X/Y are `PrevWeapon`/`NextWeapon`, A is `Jump`, B is Escape/back, and
+left stick click holds `bDuck`. Raw Menu and trigger actions remain unassigned
+in the adapter because the Engine route synthesizes the real Escape and mouse
+key edges required by UT99.
 
 The integration profile assigns both controller secondary/menu buttons to a
 synthetic Escape key pulse. This intentionally uses the same console
@@ -45,6 +47,12 @@ cannot close it again on the following frame.
 ## Runtime actions
 
 The provider creates one action set with left/right subaction paths for semantic buttons, axes, and vibration. Grip and aim poses use separate per-hand actions and action spaces, matching the original Quest/VDXR hardware-qualified implementation. Suggested bindings cover Oculus Touch and `khr/simple_controller`. Head, grip, and aim spaces use the frame's predicted display time. A current interaction profile reports connection; `isActive` reports whether the runtime is presently routing an action. OpenXR `IDLE`, `READY`, `SYNCHRONIZED`, `VISIBLE`, `FOCUSED`, `STOPPING`, and loss/exit states map explicitly to `XRSessionState` lifecycle and focus.
+
+Native weapon presentation and ballistics both use the dominant controller's
+aim pose, matching `vr-m2`. The grip pose remains independent for controller
+and body placement. A bounded `[openxr-weapon]` diagnostic compares rendered
+position/direction, grip and aim origins, rendered and ballistic yaw/pitch,
+grip-to-aim angular separation, and pawn-view-to-aim separation.
 
 ## Bounded hardware diagnostics
 

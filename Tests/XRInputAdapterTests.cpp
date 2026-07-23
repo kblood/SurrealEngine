@@ -77,6 +77,19 @@ int main()
 	Check(leftDominant.Hands[0].PrimaryButton == "Jump" &&
 		leftDominant.Hands[1].SecondaryButton == "KeyPulse Escape",
 		"dominant-hand selection must swap face-button action policy");
+	const XRInputBindings native = XRInputBindings::NativeOpenXR(XRHand::Right);
+	Check(native.Hands[0].PrimaryButton == "PrevWeapon" &&
+		native.Hands[0].SecondaryButton == "NextWeapon" &&
+		native.Hands[0].StickClick == "Button bDuck",
+		"native OpenXR did not retain X/Y weapon switching and stick-click duck");
+	Check(native.Hands[1].PrimaryButton == "Jump" &&
+		native.Hands[1].SecondaryButton == "KeyPulse Escape" &&
+		native.Hands[0].Grip.empty() && native.Hands[1].Grip.empty(),
+		"native OpenXR face/grip controls diverged from the physical layout");
+	Check(native.Hands[0].Trigger.empty() && native.Hands[1].Trigger.empty() &&
+		native.Hands[0].MenuButton.empty() && native.Hands[1].MenuButton.empty() &&
+		native.Hands[1].StickX.empty(),
+		"native OpenXR duplicated Engine-owned fire, menu, or turn routing");
 	XRInputAdapter conventional(rightDominant);
 	FakeTarget conventionalTarget;
 	XRSessionState conventionalSession{ XRSessionLifecycle::Running, XRSessionFocus::Focused };

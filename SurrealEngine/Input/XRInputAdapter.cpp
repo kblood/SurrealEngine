@@ -47,6 +47,33 @@ XRInputBindings XRInputBindings::ConventionalUE1(XRHand dominantHand)
 	return result;
 }
 
+XRInputBindings XRInputBindings::NativeOpenXR(XRHand dominantHand)
+{
+	XRInputBindings result = ConventionalUE1(dominantHand);
+	const size_t left = XRHandIndex(XRHand::Left);
+	const size_t right = XRHandIndex(XRHand::Right);
+
+	// Match vr-m2's physical Touch layout instead of treating Y as Back.
+	result.Hands[left].PrimaryButton = "PrevWeapon";
+	result.Hands[left].SecondaryButton = "NextWeapon";
+	result.Hands[right].PrimaryButton = "Jump";
+	result.Hands[right].SecondaryButton = "KeyPulse Escape";
+	result.Hands[left].StickClick = "Button bDuck";
+	result.Hands[left].Grip.clear();
+	result.Hands[right].Grip.clear();
+
+	// Native OpenXR synthesizes real mouse/Escape key edges in Engine so UT99
+	// console gates see the same path as physical desktop input.
+	for (XRHandInputBindings& hand : result.Hands)
+	{
+		hand.Trigger.clear();
+		hand.MenuButton.clear();
+	}
+	// Native locomotion composes right-stick turn into the recenter transform.
+	result.Hands[right].StickX.clear();
+	return result;
+}
+
 XRInputAdapter::XRInputAdapter(XRInputBindings bindings, XRTurnPolicy turnPolicy)
 	: bindings(std::move(bindings)), turnPolicy(std::move(turnPolicy))
 {

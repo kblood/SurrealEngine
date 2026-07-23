@@ -92,6 +92,16 @@ reflects only the native hit-test U basis and makes open/close routing consume
 one start-of-frame menu-state snapshot. `600a8684` remains failed and must not
 be promoted; the follow-up requires another physical run.
 
+The `a57bb806` retest physically passed readable menu presentation, matching
+controller hit coordinates, clicking, and menu reopening. It exposed remaining
+gameplay regressions: Y opened the menu instead of switching weapon, the
+expected stick-click duck control was missing, and weapon aim still disagreed
+with the controller. Comparison with the actual `vr-m2` head showed X/Y mapped
+to previous/next weapon, left stick click mapped to duck, and weapon
+presentation used the aim pose rather than the grip pose. The follow-up
+restores those choices and adds numeric `[openxr-weapon]` diagnostics;
+`a57bb806` remains a failed candidate.
+
 ## Safe start — explicit launcher only
 
 - [ ] Use a charged Quest 3 with both controllers awake. Connect Virtual
