@@ -229,6 +229,44 @@ namespace
 		runtime.Stop(binding, sink);
 	}
 
+	void TestLoadingScopeCleanupAndMenuOrdering()
+	{
+		Host host;
+		Sink sink;
+		XRUISurfaceEngineBinding binding(host);
+		OpenXRUIRuntime runtime;
+		Check(runtime.Start(binding, sink, 40.0f),
+			"native UI runtime did not start for loading scope");
+		Update(runtime, binding, Input{});
+		binding.SetMenuActive(true);
+		{
+			XRUILoadingSurfaceScope loading(&binding);
+			const XRUICanvasReplayFrame active = binding.BuildReplayFrame();
+			Check(active.Items.size() == 2 &&
+				active.Items[0].Surface.Descriptor.Kind == XRUISurfaceKind::Loading &&
+				active.Items[1].Surface.Descriptor.Kind == XRUISurfaceKind::Menu,
+				"loading scope did not preserve the topmost menu");
+		}
+		Check(binding.BuildReplayFrame().Items.size() == 1,
+			"completed loading scope did not hide loading");
+
+		try
+		{
+			XRUILoadingSurfaceScope loading(&binding);
+			throw 1;
+		}
+		catch (int)
+		{
+		}
+
+		const XRUICanvasReplayFrame cleaned = binding.BuildReplayFrame();
+		Check(cleaned.Items.size() == 1 &&
+			cleaned.Items[0].Surface.Descriptor.Kind == XRUISurfaceKind::Menu,
+			"failed loading scope did not hide loading and preserve the menu");
+		XRUILoadingSurfaceScope headless(nullptr);
+		runtime.Stop(binding, sink);
+	}
+
 	void TestExitAndReentryCleanup()
 	{
 		Host host;
@@ -299,6 +337,7 @@ int main()
 {
 	TestAllocationAndTopmostMenu();
 	TestBothControllersAndHeldTriggerHandoff();
+	TestLoadingScopeCleanupAndMenuOrdering();
 	TestExitAndReentryCleanup();
 	TestStartupFireHandoff();
 	std::cout << "OpenXR UI runtime tests passed\n";

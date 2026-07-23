@@ -37,6 +37,7 @@ public:
 	void SetHudActive(bool active) { SetSurfaceActive(XRUISurfaceKind::Hud, active); }
 	void SetMenuActive(bool active) { SetSurfaceActive(XRUISurfaceKind::Menu, active); }
 	void SetCinematicActive(bool active) { SetSurfaceActive(XRUISurfaceKind::Cinematic, active); }
+	void SetLoadingActive(bool active) { SetSurfaceActive(XRUISurfaceKind::Loading, active); }
 	bool IsSurfaceVisible(XRUISurfaceKind kind) const;
 	bool Recenter(XRUISurfaceKind kind);
 

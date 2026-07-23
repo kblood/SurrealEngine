@@ -142,7 +142,19 @@ opaque marker alone renders after it at the exact contact point. Selecting
 brightens and thickens only that hand's visuals, with no dominant-hand policy.
 It deliberately does not bind weapon/locomotion behavior. Menu activation
 comes from the existing engine menu state; cinematic activation comes from the
-existing video guard. Loading still needs an explicit engine visibility signal.
+existing video guard. `Engine::LoadMap()` and `Engine::LoadFromSaveFile()` own
+an exception-safe loading scope that drives the shared loading surface for the
+lifetime of a real load. Invalid `entry` requests, missing save slots, and
+headless runs do not expose a surface. Normal completion and failure both hide
+it, while composition order keeps an independently open menu above loading.
+
+This is the authoritative visibility producer, not a second loading-screen
+renderer. A synchronous native load still blocks `Engine::RunOneFrame`, so it
+cannot submit an additional OpenXR frame while the call stack is inside the
+load. Async/yielding frame owners can consume the state immediately; native XR
+still needs load scheduling that preserves balanced XR frames if it is to keep
+refreshing the quad throughout a long load.
+
 File-backed browser video playback and its owner-data gates are documented in
 [`WebCinematicPlayback.md`](WebCinematicPlayback.md).
 

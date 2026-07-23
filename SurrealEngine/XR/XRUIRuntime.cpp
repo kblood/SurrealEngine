@@ -62,6 +62,19 @@ void ResolveXRUIHapticFeedback(XRHapticFeedbackPolicy& policy,
 	policy.ResolveUserInterfaceHits(exactHits, sink);
 }
 
+XRUILoadingSurfaceScope::XRUILoadingSurfaceScope(XRUISurfaceEngineBinding* binding)
+	: Binding(binding)
+{
+	if (Binding)
+		Binding->SetLoadingActive(true);
+}
+
+XRUILoadingSurfaceScope::~XRUILoadingSurfaceScope()
+{
+	if (Binding)
+		Binding->SetLoadingActive(false);
+}
+
 void XRUIInputConnector::Update(const XRUIInputFrame& input,
 	XRUISurfaceEngineBinding& binding)
 {

@@ -416,9 +416,11 @@ path; see `WebCinematicPlayback.md` for tests and limitations. Owner-supplied
 KHG data and a physical headset are still required to validate actual media,
 and UT99/Unreal map intros use a separate implemented `URL.LocalMap`, startup
 HUD, menu-handoff, and intro-trigger path. That map path has synthetic coverage
-but remains owner-data/headset-unverified. Loading has a configured target but
-still needs an authoritative engine loading-visibility signal before it can be
-shown. These are exact content/lifecycle blockers, not quad-compositor blockers.
+but remains owner-data/headset-unverified. Loading now has both a configured
+target and an authoritative, exception-safe engine visibility scope around
+real map and save loads. Its actual presentation during yielded browser I/O
+and long travel remains an owner-data/headset validation gate. These are exact
+content/lifecycle blockers, not quad-compositor blockers.
 
 The procedural proxy uses target-ray orientation with a stable world-up roll;
 the current feedback contract does not carry grip-pose roll into the compositor.

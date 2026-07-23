@@ -42,6 +42,21 @@ void ResolveXRUIHapticFeedback(XRHapticFeedbackPolicy& policy,
 	const std::array<XRUIPointerFeedback, XRHandCount>& feedback,
 	IXRHapticSink* sink);
 
+// Makes the engine's synchronous map/save-load boundary authoritative for the
+// shared loading surface and guarantees cleanup when a load throws.
+class XRUILoadingSurfaceScope
+{
+public:
+	explicit XRUILoadingSurfaceScope(XRUISurfaceEngineBinding* binding);
+	~XRUILoadingSurfaceScope();
+
+	XRUILoadingSurfaceScope(const XRUILoadingSurfaceScope&) = delete;
+	XRUILoadingSurfaceScope& operator=(const XRUILoadingSurfaceScope&) = delete;
+
+private:
+	XRUISurfaceEngineBinding* Binding = nullptr;
+};
+
 // Provider-neutral controller-to-UI policy. Providers only translate their
 // tracked aim poses into AimRays and supply semantic controller snapshots.
 class XRUIInputConnector

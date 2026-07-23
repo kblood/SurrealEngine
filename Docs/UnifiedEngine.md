@@ -226,7 +226,8 @@ human-curated bugfix-first PR strategy. No upstream PR has been opened.
    controller/laser/contact alignment, menu ordering, and repeated lifecycle.
 2. Test normal and skipped `URL.LocalMap` startup for owned UT99 and Unreal Gold
    data. Keep this map/script path separate from owner-supplied KHG AVI tests;
-   add authoritative loading visibility without double-running script UI.
+   validate the new map/save loading-visibility scope without double-running
+   script UI, including success, failure, and menu-topmost behavior.
 3. Keep the deployed data-free browser artifact and matching corresponding
    source reproducible from the exact clean release commit. Candidate
    `54283bd8` satisfies that mechanical gate and uses revisioned browser assets;

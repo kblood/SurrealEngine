@@ -1180,6 +1180,7 @@ void Engine::LoadMap(const UnrealURL& url, const std::map<std::string, std::stri
 
 	if (url.HasOption("entry")) // Not sure what the purpose of this kind of travel is - do nothing for now.
 		return;
+	XRUILoadingSurfaceScope loadingSurface(render ? &render->XRUISurfaces() : nullptr);
 
 	audiodev->StopSounds();
 	UnloadMap();
@@ -1300,6 +1301,7 @@ void Engine::LoadFromSaveFile(const UnrealURL& url)
 
 	if (!savefilePackage)
 		return;
+	XRUILoadingSurfaceScope loadingSurface(render ? &render->XRUISurfaces() : nullptr);
 
 	audiodev->StopSounds();
 	UnloadMap();
