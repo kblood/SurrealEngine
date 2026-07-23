@@ -292,10 +292,10 @@ window.importerTestPromise = (async function () {
 		const calls = [];
 		const Module = {
 			FS: new FakeFS(false),
+			_Surreal_GetBrowserOPFSMountABIVersion: () => 2,
+			_Surreal_GetBrowserOPFSMountMode: () => 2,
 			ccall(name, returnType, argumentTypes, args, options) {
 				calls.push({ name, args: (args || []).slice(), options });
-				if (name === "Surreal_GetBrowserOPFSMountABIVersion") return 2;
-				if (name === "Surreal_GetBrowserOPFSMountMode") return 2;
 				if (name === "Surreal_PrepareBrowserOPFSMount") return Promise.resolve(1);
 				return 1;
 			},
