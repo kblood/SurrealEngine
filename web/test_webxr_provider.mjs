@@ -75,7 +75,7 @@ class FakeSession {
 	constructor() {
 		this.listeners = new Map(); this.visibilityState = "visible"; this.inputSources = makeInputSources();
 		this.frames = new Map(); this.cancelledFrames = []; this.nextHandle = 1;
-		this.referenceSpace = new FakeReferenceSpace();
+		this.referenceSpace = new FakeReferenceSpace(); this.endDeferred = null;
 	}
 	addEventListener(name, callback) { this.listeners.set(name, callback); }
 	updateRenderState(state) { this.renderState = state; }
@@ -87,7 +87,10 @@ class FakeSession {
 		assert.ok(pending, "an XR animation frame should be pending");
 		this.frames.delete(pending[0]); pending[1](time, frame);
 	}
-	async end() { const callback = this.listeners.get("end"); if (callback) callback(); }
+	async end() {
+		if (this.endDeferred) await this.endDeferred.promise;
+		const callback = this.listeners.get("end"); if (callback) callback();
+	}
 }
 
 function button(value, pressed = false, touched = pressed) { return { value, pressed, touched }; }
@@ -111,9 +114,14 @@ Object.defineProperty(globalThis, "navigator", { configurable: true, value: { xr
 } } });
 
 let useSharedTexture = false;
-const leftXRTexture = { kind: "xr-left", width: 800, height: 600 };
-const rightXRTexture = { kind: "xr-right", width: 1024, height: 768 };
-const sharedXRTexture = { kind: "xr-array", width: 1200, height: 900 };
+let invalidProjectionMode = null;
+const projectionUsage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST;
+const leftXRTexture = { kind: "xr-left", width: 800, height: 600,
+	depthOrArrayLayers: 1, format: "rgba8unorm", usage: projectionUsage };
+const rightXRTexture = { kind: "xr-right", width: 1024, height: 768,
+	depthOrArrayLayers: 1, format: "rgba8unorm", usage: projectionUsage };
+const sharedXRTexture = { kind: "xr-array", width: 1200, height: 900,
+	depthOrArrayLayers: 2, format: "rgba8unorm", usage: projectionUsage };
 let bindingCreations = 0;
 globalThis.XRGPUBinding = class {
 	constructor() { bindingCreations++; }
@@ -125,12 +133,17 @@ globalThis.XRGPUBinding = class {
 	}
 	getViewSubImage(layer, view) {
 		const layerIndex = view.eye === "left" ? 0 : 1;
-		const colorTexture = useSharedTexture ? sharedXRTexture :
+		let colorTexture = useSharedTexture ? sharedXRTexture :
 			(view.eye === "left" ? leftXRTexture : rightXRTexture);
+		if (invalidProjectionMode === "format") colorTexture = Object.assign({}, colorTexture, { format: "bgra8unorm" });
+		if (invalidProjectionMode === "usage") colorTexture = Object.assign({}, colorTexture,
+			{ usage: GPUTextureUsage.RENDER_ATTACHMENT });
 		return { colorTexture,
-			getViewDescriptor: () => ({ baseArrayLayer: useSharedTexture ? layerIndex : 0, arrayLayerCount: 1 }),
+			getViewDescriptor: () => ({ baseArrayLayer: invalidProjectionMode === "layer" ?
+				colorTexture.depthOrArrayLayers : (useSharedTexture ? layerIndex : 0), arrayLayerCount: 1 }),
 			viewport: { x: useSharedTexture && view.eye === "right" ? 8 : 0, y: 0,
-				width: colorTexture.width - (useSharedTexture && view.eye === "right" ? 8 : 0),
+				width: invalidProjectionMode === "bounds" ? colorTexture.width + 1 :
+					colorTexture.width - (useSharedTexture && view.eye === "right" ? 8 : 0),
 				height: colorTexture.height } };
 	}
 };
@@ -177,7 +190,18 @@ assert.equal(packet.getUint32(32 + 128 + 12, true), 1024);
 // A second XR frame and event callbacks make zero Wasm entries while Asyncify is suspended.
 const callsWhilePending = nativeCalls.length;
 const inputsBeforePending = inputPackets.length;
-sessions[0].fireFrame(32, stereoFrame);
+const stalledRight = sessions[0].inputSources[1];
+for (let index = 0; index < 20; index++) {
+	const pressed = index % 2 === 1;
+	stalledRight.gamepad.buttons[0].pressed = pressed;
+	stalledRight.gamepad.buttons[0].touched = pressed;
+	stalledRight.gamepad.buttons[0].value = pressed ? 1 : 0;
+	sessions[0].fireFrame(32 + index, stereoFrame);
+}
+for (let index = 0; index < 30; index++) {
+	stalledRight.gamepad.axes[2] = index / 30;
+	sessions[0].fireFrame(60 + index, stereoFrame);
+}
 sessions[0].inputSources = [sessions[0].inputSources[1]];
 sessions[0].listeners.get("inputsourceschange")({ removed: [{}], added: [] });
 sessions[0].visibilityState = "visible-blurred";
@@ -190,9 +214,15 @@ assert.equal(renderedPackets.length, 1, "there must be at most one producer in f
 renderDeferred.resolve(1); renderDeferred = null;
 await nextTask();
 const drained = inputPackets.slice(inputsBeforePending).map(packet => new DataView(packet.buffer));
-assert.equal(drained.length, 3, "frame, disconnect, and blur snapshots are drained without collapsing transitions");
-assert.deepEqual(drained.map(packet => packet.getUint32(8, true)), [2, 1, 1]);
-assert.deepEqual(drained.map(packet => packet.getUint32(12, true)), [3, 3, 1]);
+assert.equal(drained.length, 22,
+	">16 frame button edges are retained while 30 obsolete pose/axis frames coalesce away");
+assert.deepEqual(drained.map(packet => packet.getUint32(8, true)),
+	new Array(20).fill(2).concat([1, 1]));
+assert.deepEqual(drained.map(packet => packet.getUint32(12, true)),
+	new Array(21).fill(3).concat([1]));
+assert.deepEqual(drained.slice(0, 20).map(packet =>
+	(packet.getUint32(24 + 112 + 8, true) & 1) !== 0),
+	Array.from({ length: 20 }, (_, index) => index % 2 === 1));
 sessions[0].fireFrame(48, stereoFrame);
 assert.equal(copies.length, 2);
 assert.equal(copies[0].destination.texture, leftXRTexture);
@@ -236,19 +266,40 @@ sessions[0].fireFrame(96, stereoFrame);
 await nextTask();
 assert.equal(globalThis.surrealXRNativeCallsBlocked, true);
 const cleanupCallCount = nativeCalls.length;
+const delayedEnd = deferred();
+sessions[0].endDeferred = delayedEnd;
 assert.equal(globalThis.surrealXRExit(), true);
+assert.equal(globalThis.surrealXRGetState().active, false,
+	"successful exit request invalidates XR scheduling before the delayed end event");
+assert.equal(sessions[0].frames.size, 0, "successful exit request immediately cancels the XR callback");
 const reentry = globalThis.surrealXREnter();
 await nextTask();
 assert.equal(nativeCalls.length, cleanupCallCount, "exit/re-entry must not call Wasm during the suspended render");
 assert.equal(sessions.length, 1, "a new session must wait for cleanup");
 renderDeferred.resolve(1); renderDeferred = null;
 await nextTask(); await nextTask();
+assert.equal(sessions.length, 1, "re-entry also waits for the browser's delayed session end");
+delayedEnd.resolve();
 assert.equal(await reentry, true);
 assert.equal(sessions.length, 2);
 assert.deepEqual(loopTransitions, [1, 0, 1]);
 assert.ok(destroyedTextures.length >= 4);
 assert.equal(globalThis.surrealXRExit(), true);
 await nextTask();
+
+// Invalid compositor metadata fails before a GPU copy can become an asynchronous validation error.
+for (const mode of ["bounds", "layer", "format", "usage"]) {
+	invalidProjectionMode = mode;
+	assert.equal(await globalThis.surrealXREnter(), true);
+	const invalidSession = sessions.at(-1);
+	const copiesBeforeInvalidFrame = copies.length;
+	invalidSession.fireFrame(120, stereoFrame);
+	await nextTask();
+	assert.equal(globalThis.surrealXRGetState().phase, "error", mode + " metadata must fail closed");
+	assert.equal(globalThis.surrealXRGetState().lastErrorCode, "invalid-projection-subimage");
+	assert.equal(copies.length, copiesBeforeInvalidFrame, "invalid " + mode + " metadata must not submit a copy");
+	invalidProjectionMode = null;
+}
 
 // Input packing remains defensive and semantic.
 const unsafe = makeInputSource("left", 0); unsafe.gamepad.mapping = "";

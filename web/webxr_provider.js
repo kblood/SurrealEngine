@@ -31,6 +31,8 @@
 	let frontTargetIndex = null;
 	let latestFrameCapture = null;
 	let queuedInputPackets = [];
+	let lastQueuedInputSignature = null;
+	let inputQueueOverflow = false;
 	let renderPumpHandle = null;
 	let nativeRenderPromise = null;
 	let cleanupPending = Promise.resolve();
@@ -269,10 +271,28 @@
 	}
 
 	function enqueueInputPacket(packet) {
-		queuedInputPackets.push(packet);
-		// Keep a bounded history so press/release transitions are not collapsed merely
-		// because a native Asyncify render spans multiple headset frames.
-		if (queuedInputPackets.length > 16) queuedInputPackets.shift();
+		const data = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+		const sourceCount = data.getUint32(8, true);
+		const signature = [data.getUint32(12, true), sourceCount];
+		for (let index = 0; index < sourceCount; index++) {
+			const base = INPUT_ABI.headerBytes + index * INPUT_ABI.sourceBytes;
+			signature.push(data.getUint32(base, true), data.getUint32(base + 4, true) & INPUT_SOURCE_FLAGS.connected,
+				data.getUint32(base + 8, true), data.getUint32(base + 12, true));
+		}
+		const discrete = signature.join(":");
+		const transition = discrete !== lastQueuedInputSignature;
+		lastQueuedInputSignature = discrete;
+		// A continuous pose/axis sample immediately before a discrete edge is
+		// redundant because the edge packet also contains the newest pose/axes.
+		if (transition && queuedInputPackets.length && !queuedInputPackets.at(-1).transition)
+			queuedInputPackets.pop();
+		if (transition) queuedInputPackets.push({ packet, transition: true });
+		else if (queuedInputPackets.length && !queuedInputPackets.at(-1).transition)
+			queuedInputPackets[queuedInputPackets.length - 1] = { packet, transition: false };
+		else queuedInputPackets.push({ packet, transition: false });
+		// Never silently discard a button/focus/connect edge. A pathological stall
+		// fails closed instead of leaving a logically stuck button in native input.
+		if (queuedInputPackets.length > 256) inputQueueOverflow = true;
 	}
 
 	function submitNeutralInput(time, sessionActive) {
@@ -352,14 +372,22 @@
 			if (!image || !image.colorTexture || typeof image.getViewDescriptor !== "function")
 				throw providerError("invalid-projection-subimage", "frame", "WebXR returned an incomplete projection subimage");
 			const descriptor = image.getViewDescriptor() || {};
+			const texture = image.colorTexture;
 			const viewport = image.viewport || { x: 0, y: 0,
-				width: image.colorTexture.width, height: image.colorTexture.height };
+				width: texture.width, height: texture.height };
 			const arrayLayer = descriptor.baseArrayLayer === undefined ? 0 : descriptor.baseArrayLayer;
+			const depth = texture.depthOrArrayLayers;
+			const usage = root.GPUTextureUsage || {};
+			const copyDestination = usage.COPY_DST || 0x02;
 			if (![viewport.x, viewport.y, viewport.width, viewport.height, arrayLayer].every(Number.isInteger) ||
 				viewport.width <= 0 || viewport.height <= 0 || viewport.x < 0 || viewport.y < 0 || arrayLayer < 0 ||
+				!Number.isInteger(texture.width) || !Number.isInteger(texture.height) ||
+				viewport.x + viewport.width > texture.width || viewport.y + viewport.height > texture.height ||
+				!Number.isInteger(depth) || depth <= arrayLayer || texture.format !== status.projectionFormat ||
+				!Number.isInteger(texture.usage) || (texture.usage & copyDestination) === 0 ||
 				(descriptor.arrayLayerCount !== undefined && descriptor.arrayLayerCount !== 1))
 				throw providerError("invalid-projection-subimage", "frame", "WebXR returned invalid projection texture metadata");
-			return { eye: view.eye, texture: image.colorTexture, arrayLayer,
+			return { eye: view.eye, texture, arrayLayer,
 				viewport: { x: viewport.x, y: viewport.y, width: viewport.width, height: viewport.height } };
 		});
 		return { mode: "direct-webgpu", format: status.projectionFormat, destinations,
@@ -483,9 +511,14 @@
 		const capture = latestFrameCapture;
 		latestFrameCapture = null;
 		if (capture.epoch !== layoutEpoch) { scheduleRenderPump(generation); return; }
+		if (inputQueueOverflow) {
+			fail(generation, providerError("input-transition-overflow", "frame",
+				"WebXR input transition queue overflowed while native rendering was suspended"));
+			return;
+		}
 		const input = queuedInputPackets;
 		queuedInputPackets = [];
-		try { input.forEach(submitInputPacket); }
+		try { input.forEach(entry => submitInputPacket(entry.packet)); }
 		catch (error) { fail(generation, providerError("input-submit-failed", "frame", error.message || String(error))); return; }
 		const backIndex = frontTargetIndex === 0 ? 1 : 0;
 		const targets = persistentTargets;
@@ -559,6 +592,8 @@
 		frontTargetIndex = null;
 		latestFrameCapture = null;
 		queuedInputPackets = [];
+		lastQueuedInputSignature = null;
+		inputQueueOverflow = false;
 		engineLoopOwned = false;
 		if (!pendingRender) root.surrealWebXRFrameTextures = null;
 		status.phase = phase || "ended";
@@ -891,9 +926,17 @@
 		recordTransition("exit-requested", generation, status.currentStage);
 		try {
 			const ending = session.end();
-			if (ending && typeof ending.catch === "function") {
-				ending.catch(function (error) { fail(generation, error); });
-			}
+			// The browser may delay the `end` event or the returned Promise. Invalidate
+			// scheduling immediately after it accepts the request, then make re-entry
+			// wait for both native/GPU cleanup and the actual session shutdown.
+			finish(generation, "ended", null);
+			const localCleanup = cleanupPending;
+			cleanupPending = Promise.all([
+				localCleanup,
+				Promise.resolve(ending).catch(function (error) {
+					log("WebXR session end failed after scheduling stopped: " + error);
+				}),
+			]).then(function () {});
 			return true;
 		} catch (error) {
 			fail(generation, error);
