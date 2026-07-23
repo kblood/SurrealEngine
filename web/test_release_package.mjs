@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { auditRelease, packageRelease, validateNoDataBuild } from "./package_browser_release.mjs";
+import { auditRelease, packageRelease, validateIntendedBasePath, validateNoDataBuild } from "./package_browser_release.mjs";
 import { sha256File, sourceIdentity, trackedSurrealVideoFiles } from "./package_corresponding_source.mjs";
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), "surreal-browser-package-"));
@@ -84,7 +84,9 @@ try {
 	assert.doesNotMatch(index, /Folder upload fallback/);
 	assert.match(await readFile(join(output, "_headers"), "utf8"), /Cross-Origin-Embedder-Policy: require-corp/);
 	assert.match(await readFile(join(output, "pointer_lock_gesture.js"), "utf8"), /SurrealBrowserPointerLock/);
-	assert.match(await readFile(join(output, "HOSTING.txt"), "utf8"), /Source archive SHA-256/);
+	const defaultHosting = await readFile(join(output, "HOSTING.txt"), "utf8");
+	assert.match(defaultHosting, /Intended base path: \/webxr\/Ports\/SurrealEngine\//);
+	assert.match(defaultHosting, /Source archive SHA-256/);
 	assert.match(await readFile(join(output, "licenses", "SurrealVideo-LGPL-2.1.txt"), "utf8"), /GNU LESSER GENERAL PUBLIC LICENSE/);
 	const compliance = JSON.parse(await readFile(join(output, "source-compliance.json"), "utf8"));
 	assert.equal(compliance.wasmSha256, await sha256File(join(engine, "SurrealEngine.wasm")));
@@ -92,6 +94,45 @@ try {
 	assert.equal(compliance.buildProvenance.browserEntryPoint, "call-main");
 	assert.match(await readFile(join(output, "SOURCE-OFFER.txt"), "utf8"), new RegExp(sourceMetadata.archiveSha256));
 	await auditRelease(output);
+
+	const experimentalOutput = join(temporaryRoot, "webxr", "Ports", "SurrealEngine-Experimental");
+	const experimentalBasePath = "/webxr/Ports/SurrealEngine-Experimental/";
+	const experimentalResult = await packageRelease({
+		sourceRoot,
+		engineDirectory: engine,
+		outputDirectory: experimentalOutput,
+		correspondingSourceMetadata: sourceMetadataPath,
+		allowDirtySourceTree: true,
+		intendedBasePath: experimentalBasePath,
+	});
+	assert.equal(experimentalResult.manifest.intendedBasePath, experimentalBasePath);
+	assert.equal(JSON.parse(await readFile(join(experimentalOutput, "release-manifest.json"), "utf8")).intendedBasePath,
+		experimentalBasePath);
+	const experimentalHosting = await readFile(join(experimentalOutput, "HOSTING.txt"), "utf8");
+	assert.match(experimentalHosting, /Intended base path: \/webxr\/Ports\/SurrealEngine-Experimental\//);
+	assert.doesNotMatch(experimentalHosting, /Intended base path: \/webxr\/Ports\/SurrealEngine\//);
+
+	assert.equal(validateIntendedBasePath("/"), "/");
+	assert.equal(validateIntendedBasePath(experimentalBasePath), experimentalBasePath);
+	for (const unsafePath of [
+		"webxr/Ports/SurrealEngine/",
+		"/webxr/Ports/SurrealEngine",
+		"/webxr/../SurrealEngine/",
+		"/webxr/./SurrealEngine/",
+		"/webxr//SurrealEngine/",
+		"/webxr/SurrealEngine/?candidate=1",
+		"/webxr/SurrealEngine/#candidate",
+		"/webxr\\SurrealEngine/",
+		"/webxr/%2e%2e/SurrealEngine/",
+	]) assert.throws(() => validateIntendedBasePath(unsafePath), /Intended base path/);
+	await assert.rejects(() => packageRelease({
+		sourceRoot,
+		engineDirectory: engine,
+		outputDirectory: join(temporaryRoot, "unsafe-base-path-package"),
+		correspondingSourceMetadata: sourceMetadataPath,
+		allowDirtySourceTree: true,
+		intendedBasePath: "/webxr/../SurrealEngine/",
+	}), /Intended base path/);
 
 	await writeFile(join(output, "DM-Forbidden.unr"), "not game data");
 	await assert.rejects(() => auditRelease(output), /game data is forbidden/);

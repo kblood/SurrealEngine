@@ -29,11 +29,24 @@ const htaccess = `<IfModule mod_headers.c>
 </IfModule>
 `;
 
-function hostingReadme(compliance) { return `SurrealEngine browser release
+function validateIntendedBasePath(value) {
+	if (typeof value !== "string" || !value.startsWith("/") || !value.endsWith("/") ||
+		value.includes("\\") || value.includes("?") || value.includes("#"))
+		throw new Error("Intended base path must be an absolute URL path with leading and trailing slashes.");
+	const segments = value === "/" ? [] : value.slice(1, -1).split("/");
+	if (segments.some(segment => !segment || segment === "." || segment === ".." ||
+		!/^[A-Za-z0-9._~-]+$/.test(segment)))
+		throw new Error("Intended base path contains an unsafe or unsupported path segment.");
+	return value;
+}
 
-This directory is intended to be hosted at /webxr/Ports/SurrealEngine/ or any
-other HTTPS path without rewriting its relative URLs. Serve index.html as the
-directory index and .wasm as application/wasm.
+function hostingReadme(compliance, intendedBasePath) { return `SurrealEngine browser release
+
+Intended base path: ${intendedBasePath}
+
+This directory can also be hosted at another HTTPS path without rewriting its
+relative URLs. Serve index.html as the directory index and .wasm as
+application/wasm.
 
 The engine uses WebAssembly threads. The host must send the COOP/COEP headers
 listed in _headers or .htaccess. Those files cover common static hosts; configure
@@ -231,6 +244,9 @@ async function packageRelease(options) {
 	if (await exists(outputDirectory)) throw new Error("Output directory already exists; choose an empty release destination: " + outputDirectory);
 	const config = JSON.parse(await readFile(join(sourceRoot, "web", "release-package.json"), "utf8"));
 	if (config.schema !== "surrealengine-browser-release-config-v1") throw new Error("Unsupported browser release configuration.");
+	const intendedBasePath = validateIntendedBasePath(options && Object.hasOwn(options, "intendedBasePath") ?
+		options.intendedBasePath : config.intendedBasePath);
+	const releaseConfig = { ...config, intendedBasePath };
 	const engine = await validateNoDataBuild(engineDirectory);
 	const corresponding = await validateCorrespondingSource(sourceRoot,
 		options && options.correspondingSourceMetadata, options && options.allowDirtySourceTree === true);
@@ -297,9 +313,9 @@ async function packageRelease(options) {
 		await writeFile(join(staging, "index.html"), index);
 		await writeFile(join(staging, "_headers"), headers);
 		await writeFile(join(staging, ".htaccess"), htaccess);
-		await writeFile(join(staging, "HOSTING.txt"), hostingReadme(compliance));
+		await writeFile(join(staging, "HOSTING.txt"), hostingReadme(compliance, intendedBasePath));
 		await auditRelease(staging);
-		const manifest = await releaseManifest(staging, config, compliance);
+		const manifest = await releaseManifest(staging, releaseConfig, compliance);
 		await writeFile(join(staging, "release-manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
 		await rename(staging, outputDirectory);
 		return Object.freeze({ outputDirectory, manifest });
@@ -319,13 +335,14 @@ function commandLine(argumentsList) {
 		else if (name === "--output") options.outputDirectory = value;
 		else if (name === "--corresponding-source") options.correspondingSourceMetadata = value;
 		else if (name === "--source-url") options.sourceUrl = value;
+		else if (name === "--intended-base-path") options.intendedBasePath = value;
 		else throw new Error("Unknown or incomplete argument: " + name);
 		index++;
 	}
 	return options;
 }
 
-export { auditRelease, packageRelease, releaseManifest, validateCorrespondingSource, validateNoDataBuild };
+export { auditRelease, packageRelease, releaseManifest, validateCorrespondingSource, validateIntendedBasePath, validateNoDataBuild };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
 	packageRelease(commandLine(process.argv.slice(2))).then(result => {

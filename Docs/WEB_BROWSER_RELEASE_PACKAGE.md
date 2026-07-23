@@ -93,6 +93,19 @@ node web/package_corresponding_source.mjs --source-root . --output C:\release-ma
 node web/package_browser_release.mjs --engine-dir build-emscripten --corresponding-source C:\release-materials\SurrealEngine-corresponding-source.tar.gz.json --output C:\path\to\webxr\Ports\SurrealEngine
 ```
 
+For a separately hosted candidate, keep the same package inputs and set its
+origin-absolute deployment path explicitly:
+
+```powershell
+node web/package_browser_release.mjs --engine-dir build-emscripten --corresponding-source C:\release-materials\SurrealEngine-corresponding-source.tar.gz.json --output C:\path\to\webxr\Ports\SurrealEngine-Experimental --intended-base-path /webxr/Ports/SurrealEngine-Experimental/
+```
+
+The override must begin and end with `/` and use safe URL path segments. The
+packager rejects traversal, query, fragment, backslash, encoded, and empty path
+segments. It records the effective path in both `release-manifest.json` and
+`HOSTING.txt`; omitting the option preserves the stable path from
+`web/release-package.json`.
+
 The output is self-contained and position-independent:
 
 ```text
