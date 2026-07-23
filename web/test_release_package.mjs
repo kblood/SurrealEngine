@@ -111,6 +111,11 @@ try {
 	const pointerLockHelper = await readFile(join(output, "pointer_lock_gesture.js"), "utf8");
 	assert.match(pointerLockHelper, /SurrealBrowserPointerLock/);
 	assert.match(pointerLockHelper, /Surreal_ForwardBrowserEscape/);
+	assert.match(pointerLockHelper, /Surreal_ForwardBrowserMouseMotion/);
+	assert.match(pointerLockHelper, /Surreal_ResetBrowserMouseMotion/);
+	assert.match(pointerLockHelper, /Surreal_SetBrowserMouseMotionActive/);
+	assert.match(pointerLockHelper, /relativeMotionBridgeReady/);
+	assert.match(pointerLockHelper, /surrealXRNativeCallsBlocked/);
 	const defaultHosting = await readFile(join(output, "HOSTING.txt"), "utf8");
 	assert.match(defaultHosting, /Intended base path: \/webxr\/Ports\/SurrealEngine\//);
 	assert.match(defaultHosting, /Source archive SHA-256/);

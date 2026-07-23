@@ -8,6 +8,8 @@
 #include "Runtime/HeadlessDriver.h"
 #include "BotBenchmark/BotBenchmarkDriver.h"
 #include "Platform/OpenXR/OpenXRProvider.h"
+#include "Platform/Browser/BrowserRelativeMouse.h"
+#include <surrealwidgets/window/browser_relative_mouse.h>
 #include "Render/RenderSubsystem.h"
 #include "Package/PackageManager.h"
 #include "Package/ObjectStream.h"
@@ -143,6 +145,7 @@ extern "C"
 
 static bool XRFrameLoopActive = false;
 static std::atomic<bool> BrowserEscapeIntentPending = false;
+static BrowserRelativeMouseAccumulator BrowserRelativeMouseMotion;
 
 static void EngineMainLoopCallback(void* arg)
 {
@@ -180,6 +183,26 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE void Surreal_ForwardBrowserEscape()
 	{
 		BrowserEscapeIntentPending.store(true, std::memory_order_release);
+	}
+
+	EMSCRIPTEN_KEEPALIVE void Surreal_ForwardBrowserMouseMotion(int dx, int dy)
+	{
+		BrowserRelativeMouseMotion.Add(dx, dy);
+	}
+
+	EMSCRIPTEN_KEEPALIVE void Surreal_ResetBrowserMouseMotion()
+	{
+		BrowserRelativeMouseMotion.Reset();
+	}
+
+	EMSCRIPTEN_KEEPALIVE void Surreal_SetBrowserMouseMotionActive(int active)
+	{
+		const bool enabled = active != 0;
+		if (!enabled)
+			SetBrowserRelativeMouseBridgeActive(false);
+		BrowserRelativeMouseMotion.Reset();
+		if (enabled)
+			SetBrowserRelativeMouseBridgeActive(true);
 	}
 
 	EMSCRIPTEN_KEEPALIVE int Surreal_ResumeBrowserAudio() { return surreal_browser_audio_resume_js(); }
@@ -2147,6 +2170,10 @@ void Engine::TickWindow()
 	GameWindow::ProcessEvents();
 
 #ifdef __EMSCRIPTEN__
+	const BrowserRelativeMouseDelta browserMouseMotion = BrowserRelativeMouseMotion.Drain();
+	if (browserMouseMotion.X != 0 || browserMouseMotion.Y != 0)
+		OnWindowRawMouseMove(browserMouseMotion.X, browserMouseMotion.Y);
+
 	// Escape is reserved by the browser while pointer lock is active. The page
 	// reports the corresponding lock-loss intent here so it enters the same
 	// native intro/menu path after ordinary SDL events have had first chance.

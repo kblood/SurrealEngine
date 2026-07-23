@@ -146,6 +146,7 @@ set(SURREALWIDGETS_INCLUDES
 	include/surrealwidgets/widgets/tabwidget/tabwidget.h
 	include/surrealwidgets/widgets/layout/hboxlayout.h
 	include/surrealwidgets/widgets/layout/vboxlayout.h
+	include/surrealwidgets/window/browser_relative_mouse.h
 	include/surrealwidgets/window/window.h
 	include/surrealwidgets/window/x11nativehandle.h
 	include/surrealwidgets/window/waylandnativehandle.h
@@ -201,6 +202,7 @@ set(SURREALWIDGETS_COCOA_ARC_SOURCES
 )
 
 set(SURREALWIDGETS_SDL2_SOURCES
+	src/window/sdl2/browser_relative_mouse.cpp
 	src/window/sdl2/sdl2_display_backend.cpp
 	src/window/sdl2/sdl2_display_backend.h
 	src/window/sdl2/sdl2_display_window.cpp

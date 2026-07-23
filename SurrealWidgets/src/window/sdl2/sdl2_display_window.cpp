@@ -2,6 +2,7 @@
 #include <stdexcept>
 #include <vector>
 #include <string>
+#include <surrealwidgets/window/browser_relative_mouse.h>
 #include <SDL2/SDL_vulkan.h>
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -643,11 +644,15 @@ void SDL2DisplayWindow::OnMouseWheel(const SDL_MouseWheelEvent& event)
 
 void SDL2DisplayWindow::OnMouseMotion(const SDL_MouseMotionEvent& event)
 {
-	if (CursorLocked)
+	bool browserBridgeOwnsMotion = false;
+#ifdef __EMSCRIPTEN__
+	browserBridgeOwnsMotion = IsBrowserRelativeMouseBridgeActive();
+#endif
+	if (ShouldForwardSDLRawMouseMotion(CursorLocked, browserBridgeOwnsMotion))
 	{
 		WindowHost->OnWindowRawMouseMove(event.xrel, event.yrel);
 	}
-	else
+	else if (!CursorLocked)
 	{
 		WindowHost->OnWindowMouseMove(GetMousePos(event));
 	}

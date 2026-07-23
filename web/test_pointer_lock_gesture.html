@@ -2,6 +2,7 @@
 <meta charset="utf-8">
 <title>Pointer lock gesture test</title>
 <canvas id="canvas" width="320" height="200"></canvas>
+<div id="other"></div>
 <div data-pointer-lock-control hidden>
 	<button type="button" data-pointer-lock-capture>Capture mouse</button>
 	<span data-pointer-lock-message></span>
@@ -11,8 +12,33 @@
 	let lockedElement = null;
 	let exits = 0;
 	let nativeEscapes = 0;
+	let nativeMouseX = 0;
+	let nativeMouseY = 0;
+	let nativeMouseEvents = 0;
+	let nativeMouseResets = 0;
+	let nativeMouseActive = false;
+	let nativeMouseActiveTransitions = 0;
 	let failRequest = false;
-	window.Module = { _Surreal_ForwardBrowserEscape() { nativeEscapes++; } };
+	window.Module = {
+		_Surreal_ForwardBrowserEscape() { nativeEscapes++; },
+		_Surreal_ForwardBrowserMouseMotion(dx, dy) {
+			nativeMouseX += dx;
+			nativeMouseY += dy;
+			nativeMouseEvents++;
+		},
+		_Surreal_ResetBrowserMouseMotion() {
+			nativeMouseX = 0;
+			nativeMouseY = 0;
+			nativeMouseResets++;
+		},
+		_Surreal_SetBrowserMouseMotionActive(active) {
+			nativeMouseActive = active === 1;
+			nativeMouseX = 0;
+			nativeMouseY = 0;
+			nativeMouseResets++;
+			nativeMouseActiveTransitions++;
+		},
+	};
 	Object.defineProperty(document, "pointerLockElement", {
 		configurable: true,
 		get() { return lockedElement; },
@@ -37,6 +63,20 @@
 		canvas,
 		get exits() { return exits; },
 		get nativeEscapes() { return nativeEscapes; },
+		get nativeMouse() {
+			return { x: nativeMouseX, y: nativeMouseY, events: nativeMouseEvents,
+				resets: nativeMouseResets, active: nativeMouseActive,
+				activeTransitions: nativeMouseActiveTransitions };
+		},
+		move(dx, dy, target = canvas) {
+			const event = new MouseEvent("mousemove", { bubbles: true });
+			Object.defineProperties(event, {
+				movementX: { value: dx },
+				movementY: { value: dy },
+			});
+			target.dispatchEvent(event);
+		},
+		setSyntheticLock(element) { lockedElement = element; },
 		loseAsBrowserEscape() {
 			lockedElement = null;
 			document.dispatchEvent(new Event("pointerlockchange"));
