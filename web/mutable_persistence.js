@@ -581,6 +581,7 @@
 			this.interval = null;
 			this.disposed = false;
 			this.automaticPaused = false;
+			this.runtimeAborted = false;
 			this.requiresClear = false;
 			this.deferredCheckpointReason = null;
 			this.queue = Promise.resolve();
@@ -594,6 +595,19 @@
 				if (global.document && global.document.hidden) this.checkpoint("visibility-hidden");
 			};
 			this.onPageHide = () => this.checkpoint("pagehide");
+			this.onRuntimeAbort = () => {
+				if (this.disposed || this.runtimeAborted) return;
+				this.runtimeAborted = true;
+				this.automaticPaused = true;
+				this.deferredCheckpointReason = null;
+				if (this.interval !== null) {
+					global.clearInterval(this.interval);
+					this.interval = null;
+				}
+				this.details.state = "runtime-aborted";
+				this.details.error = "RUNTIME_ABORTED: automatic checkpoints stopped after the WebAssembly runtime aborted";
+				this._log("automatic checkpoints stopped after runtime abort");
+			};
 			this.onNativeCallGateChange = () => {
 				if (this.disposed || this.automaticPaused || this._nativeCallsBlocked() ||
 						!this.deferredCheckpointReason) return;
@@ -667,6 +681,7 @@
 		_attachLifecycle() {
 			if (global.document) global.document.addEventListener("visibilitychange", this.onVisibilityChange);
 			if (global.addEventListener) global.addEventListener("pagehide", this.onPageHide);
+			if (global.addEventListener) global.addEventListener("surrealruntimeabort", this.onRuntimeAbort);
 			if (global.addEventListener) global.addEventListener("surrealnativecallgatechange", this.onNativeCallGateChange);
 			const intervalMs = Number.isFinite(this.options.checkpointIntervalMs) ?
 				this.options.checkpointIntervalMs : CHECKPOINT_INTERVAL_MS;
@@ -710,6 +725,7 @@
 
 		flush(reason) {
 			if (this.disposed) return Promise.reject(new MutableDataError("DISPOSED", "Mutable-data persistence has been disposed."));
+			if (this.runtimeAborted) return Promise.reject(new MutableDataError("RUNTIME_ABORTED", "The WebAssembly runtime aborted; mutable data cannot be read safely."));
 			if (this.requiresClear) return Promise.reject(new MutableDataError("CLEAR_REQUIRED", "Clear incompatible or corrupt mutable data before creating a new checkpoint."));
 			this.automaticPaused = false;
 			const checkpointReason = reason || "explicit";
@@ -765,6 +781,7 @@
 			if (this.interval !== null) global.clearInterval(this.interval);
 			if (global.document) global.document.removeEventListener("visibilitychange", this.onVisibilityChange);
 			if (global.removeEventListener) global.removeEventListener("pagehide", this.onPageHide);
+			if (global.removeEventListener) global.removeEventListener("surrealruntimeabort", this.onRuntimeAbort);
 			if (global.removeEventListener) global.removeEventListener("surrealnativecallgatechange", this.onNativeCallGateChange);
 			this.deferredCheckpointReason = null;
 			this.details.state = "disposed";

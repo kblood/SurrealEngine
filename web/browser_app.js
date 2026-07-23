@@ -14,6 +14,26 @@
 		}
 	}
 
+	function createRuntimeAbortHandler(log, onRuntimeCrash, environment) {
+		const host = environment || global;
+		const writeLog = typeof log === "function" ? log : () => {};
+		const notify = typeof onRuntimeCrash === "function" ? onRuntimeCrash : () => {};
+		return reason => {
+			const reasonText = reason && typeof reason.message === "string" ? reason.message :
+				String(reason === undefined || reason === null ? "unknown reason" : reason);
+			const detail = "WebAssembly runtime aborted: " + reasonText;
+			host.surrealCrashed = detail;
+			writeLog("[runtime] " + detail);
+			notify(detail);
+			if (typeof host.dispatchEvent === "function" && typeof host.CustomEvent === "function") {
+				host.dispatchEvent(new host.CustomEvent("surrealruntimeabort", {
+					detail: Object.freeze({ message: detail }),
+				}));
+			}
+			return detail;
+		};
+	}
+
 	class PresentationRegistry {
 		constructor() { this._providers = new Map(); }
 		register(provider) {
@@ -430,6 +450,7 @@
 				for (const provider of xrProviders) provider.setXRCompatibleAdapter(available, detail);
 			},
 		});
+		global.surrealCrashed = null;
 		return new Promise((resolve, reject) => {
 			const Module = {
 				canvas: options.canvas,
@@ -437,6 +458,7 @@
 				print: log,
 				printErr: log,
 				preinitializedWebGPUDevice: device,
+				onAbort: createRuntimeAbortHandler(log, options.onRuntimeCrash, global),
 				onRuntimeInitialized: async () => {
 					try {
 						const importerOptions = Object.assign({}, options.importerOptions || {}, {
@@ -470,6 +492,7 @@
 
 	global.SurrealBrowserApp = Object.freeze({
 		LauncherError,
+		createRuntimeAbortHandler,
 		PresentationRegistry,
 		GameLibrary,
 		GameLibraryUI,

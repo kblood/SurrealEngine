@@ -343,6 +343,27 @@ window.mutablePersistenceTestPromise = (async function () {
 		await storage.clear();
 	});
 
+	await run("runtime abort stops automatic mutable checkpoints", async () => {
+		let saves = 0;
+		const storage = {
+			backend: "abort-test",
+			load: async () => null,
+			save: async () => { saves++; throw new Error("must not save after abort"); },
+			clear: async () => {},
+		};
+		const controller = new api.MutableDataController({ FS: mutableFS() }, {
+			storage, checkpointIntervalMs: 60_000,
+		});
+		await controller.initialize();
+		window.dispatchEvent(new CustomEvent("surrealruntimeabort", { detail: { message: "test abort" } }));
+		await controller.checkpoint("interval");
+		const status = controller.status();
+		assert(status.state === "runtime-aborted" && !status.automaticCheckpoints);
+		assert(status.error.startsWith("RUNTIME_ABORTED") && saves === 0);
+		await expectError("RUNTIME_ABORTED", async () => controller.flush("explicit-after-abort"));
+		controller.dispose();
+	});
+
 	await run("clearing mutable data leaves live and imported game data untouched", async () => {
 		const gameStorage = new importer.IndexedDBStorage("surrealengine-game-separation-test-" + suffix);
 		const gameValidation = importer.validateEntries(importerEntries());

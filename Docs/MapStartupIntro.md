@@ -103,12 +103,14 @@ mode remains the default so the two startup paths cannot hide failures in each
 other.
 
 The public Experimental build imported all 496 files (629.3 MiB), entered the
-real UT99 fly-through, advanced from tick 1 through tick 1300, rendered a
-nonblank WebGPU frame, and reported no page or WebGPU errors. A primary-fire
-edge accepted late in the sequence then left the exported tick counter fixed at
-1300 for 120 seconds. This is a failed gate, not evidence that the menu works:
-it must be distinguished between a map-travel Asyncify stall and an intentional
-paused-menu state with new browser diagnostics before normal intro can ship.
+real UT99 fly-through, advanced from tick 1 through tick 1310, rendered a
+nonblank WebGPU frame, and reported no WebGPU errors. A primary-fire edge
+accepted late in the sequence then aborted while growing the fixed 256 MiB heap
+to 268,455,936 bytes; the old shell did not surface that abort and the exported
+tick counter consequently stayed at 1310. This is a failed public-build gate,
+not evidence that the menu works. Source commit `578a3b10` replaces that fixed
+heap with verified on-demand growth. The complete transition must be rerun
+against the next package before normal intro can ship.
 
 Before enabling normal intro by default, test both an owned UT99 installation
 and an owned Unreal Gold installation:

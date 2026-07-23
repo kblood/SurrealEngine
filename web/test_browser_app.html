@@ -65,6 +65,18 @@ window.browserAppTestPromise = (async () => {
 		await expectError("LAUNCH_MAP", () => api.buildNativeArguments({ game: { id: "unreal-gold" }, map: "../Entry", renderer: "webgpu" }));
 		await expectError("LAUNCH_RENDERER", () => api.buildNativeArguments({ game: { id: "ut99" }, map: "DM-Test", renderer: "native" }));
 	});
+	await run("WebAssembly aborts become an observable runtime failure", async () => {
+		const events = [];
+		const environment = new EventTarget();
+		environment.CustomEvent = CustomEvent;
+		environment.addEventListener("surrealruntimeabort", event => events.push(event.detail.message));
+		const logs = [];
+		const handler = api.createRuntimeAbortHandler(value => logs.push(value), value => events.push(value), environment);
+		const detail = handler(new Error("test heap exhausted"));
+		assert(environment.surrealCrashed === detail && detail.includes("test heap exhausted"));
+		assert(logs.length === 1 && logs[0] === "[runtime] " + detail);
+		assert(events.length === 2 && events[0] === detail && events[1] === detail);
+	});
 	await run("desktop host records become importer entries without exposing native paths", async () => {
 		const picker = api.createHostPicker({ pickGameDirectory: async () => [{ path: "System/Core.u", blob: new Blob(["core"]) }] });
 		const entries = await picker();

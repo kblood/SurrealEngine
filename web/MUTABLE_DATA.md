@@ -80,6 +80,12 @@ events. They are best effort because browsers do not guarantee completion of
 asynchronous storage work during abrupt process termination. Use the explicit
 quit-and-flush API for a confirmed final checkpoint.
 
+If the WebAssembly runtime aborts, the launcher records
+`window.surrealCrashed` and publishes `surrealruntimeabort`. Automatic
+checkpoints stop immediately and explicit flushes reject with
+`RUNTIME_ABORTED`; reading the Emscripten filesystem after an abort is not
+safe. The already-published browser snapshot remains available after reload.
+
 Restore failures are nonfatal: boot continues with the materialized imported
 baseline and diagnostics report `restore-failed`. Automatic and explicit
 flushes remain blocked until schema or integrity errors are cleared, preventing
