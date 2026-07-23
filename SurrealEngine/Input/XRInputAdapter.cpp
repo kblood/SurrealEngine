@@ -113,7 +113,7 @@ void XRInputAdapter::Update(const XRSessionState& session, const XRControllerSna
 	for (size_t hand = 0; hand < XRHandCount; hand++)
 	{
 		XRHandControllerState filtered = snapshot.Hands[hand];
-		ApplyGameplayGate((int)hand, gameplayInputEnabled, filtered);
+		ApplyGameplayGate((int)hand, active, filtered);
 		UpdateHand((int)hand, active, filtered, target);
 	}
 }

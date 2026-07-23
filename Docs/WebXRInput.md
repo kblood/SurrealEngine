@@ -98,7 +98,11 @@ If native rendering is suspended, discrete browser snapshots remain ordered.
 The producer applies at most one retained state before each simulation frame;
 later edges wait for later frames, while redundant pose/axis-only samples
 coalesce to the newest value. A trigger press and release therefore cannot be
-collapsed before gameplay or UI observes the pressed frame.
+collapsed before gameplay or UI observes the pressed frame. Focus loss,
+session loss, and controller removal are safety barriers which cancel older
+queued gameplay edges and publish the neutral/latest connection state next.
+That neutral release can run without a viewer frame; focus recovery blocks a
+button which remained held until it is released and pressed again.
 
 The integration runtime feeds `XRControllerSnapshot` to the shared
 `XRInputAdapter`; it does not emit `Joy*` keys or depend on the game's existing

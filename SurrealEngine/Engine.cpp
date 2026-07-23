@@ -384,7 +384,9 @@ void Engine::RunOneFrame()
 			if (xrFrameBegun && openXR->SyncInput(xrSpaces, xrControllers))
 			{
 				UpdateOpenXRStartupIntro(&xrControllers);
-				openXRInput.Update(openXR->SessionState(), xrControllers, *this);
+				const bool gameplayInputEnabled = !render || !render->IsXRUIMenuActive();
+				openXRInput.Update(openXR->SessionState(), xrControllers, *this,
+					gameplayInputEnabled);
 			}
 			else
 			{

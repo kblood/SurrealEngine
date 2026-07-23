@@ -35,6 +35,7 @@
 	let latestFrameCapture = null;
 	let queuedInputPackets = [];
 	let lastQueuedInputSignature = null;
+	let lastQueuedInputSafety = null;
 	let inputQueueOverflow = false;
 	let renderPumpHandle = null;
 	let nativeRenderPromise = null;
@@ -264,6 +265,7 @@
 
 	function submitCurrentInput(time) {
 		enqueueInputPacket(packInputSnapshot(time, session, null, referenceSpace));
+		scheduleRenderPump(activeGeneration);
 	}
 
 	function requireNativeFrameABI() {
@@ -277,12 +279,31 @@
 		if (inputQueueOverflow) return;
 		const data = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
 		const sourceCount = data.getUint32(8, true);
-		const signature = [data.getUint32(12, true), sourceCount];
+		const headerFlags = data.getUint32(12, true);
+		const signature = [headerFlags, sourceCount];
+		const connectedHands = [];
 		for (let index = 0; index < sourceCount; index++) {
 			const base = INPUT_ABI.headerBytes + index * INPUT_ABI.sourceBytes;
-			signature.push(data.getUint32(base, true), data.getUint32(base + 4, true) & INPUT_SOURCE_FLAGS.connected,
+			const hand = data.getUint32(base, true);
+			const connected = data.getUint32(base + 4, true) & INPUT_SOURCE_FLAGS.connected;
+			if (connected) connectedHands.push(hand);
+			signature.push(hand, connected,
 				data.getUint32(base + 8, true), data.getUint32(base + 12, true));
 		}
+		connectedHands.sort();
+		const safety = {
+			sessionActive: (headerFlags & INPUT_HEADER_FLAGS.sessionActive) !== 0,
+			actionFocused: (headerFlags & INPUT_HEADER_FLAGS.actionFocused) !== 0,
+			connectedHands: connectedHands.join(","),
+		};
+		const disconnected = lastQueuedInputSafety && lastQueuedInputSafety.connectedHands
+			.split(",").filter(Boolean).some(hand => !connectedHands.includes(Number(hand)));
+		const safetyBarrier = !safety.sessionActive || !safety.actionFocused || disconnected;
+		if (safetyBarrier) {
+			queuedInputPackets = [];
+			lastQueuedInputSignature = null;
+		}
+		lastQueuedInputSafety = safety;
 		const discrete = signature.join(":");
 		const transition = discrete !== lastQueuedInputSignature;
 		lastQueuedInputSignature = discrete;
@@ -292,13 +313,13 @@
 			queuedInputPackets.pop();
 		if (transition) {
 			if (queuedInputPackets.length >= INPUT_QUEUE_LIMIT) { inputQueueOverflow = true; return; }
-			queuedInputPackets.push({ packet, transition: true });
+			queuedInputPackets.push({ packet, transition: true, safetyBarrier });
 		}
 		else if (queuedInputPackets.length && !queuedInputPackets.at(-1).transition)
-			queuedInputPackets[queuedInputPackets.length - 1] = { packet, transition: false };
+			queuedInputPackets[queuedInputPackets.length - 1] = { packet, transition: false, safetyBarrier };
 		else {
 			if (queuedInputPackets.length >= INPUT_QUEUE_LIMIT) { inputQueueOverflow = true; return; }
-			queuedInputPackets.push({ packet, transition: false });
+			queuedInputPackets.push({ packet, transition: false, safetyBarrier });
 		}
 		// Never silently discard a button/focus/connect edge. A pathological stall
 		// fails closed instead of leaving a logically stuck button in native input.
@@ -524,19 +545,26 @@
 	}
 
 	function pumpNativeRender(generation) {
-		if (generation !== activeGeneration || nativeRenderPromise || !latestFrameCapture ||
+		if (generation !== activeGeneration || nativeRenderPromise ||
 			!persistentTargets || !targetLayout) return;
-		const capture = latestFrameCapture;
-		latestFrameCapture = null;
-		if (capture.epoch !== layoutEpoch) { scheduleRenderPump(generation); return; }
 		if (inputQueueOverflow) {
 			fail(generation, providerError("input-transition-overflow", "frame",
 				"WebXR input transition queue overflowed while native rendering was suspended"));
 			return;
 		}
+		if (latestFrameCapture && latestFrameCapture.epoch !== layoutEpoch) {
+			latestFrameCapture = null;
+			scheduleRenderPump(generation);
+			return;
+		}
+		if (!latestFrameCapture &&
+			!(queuedInputPackets.length === 1 && queuedInputPackets[0].safetyBarrier)) return;
 		const input = takeInputPacketForSimulationFrame();
 		try { if (input) submitInputPacket(input); }
 		catch (error) { fail(generation, providerError("input-submit-failed", "frame", error.message || String(error))); return; }
+		if (!latestFrameCapture) return;
+		const capture = latestFrameCapture;
+		latestFrameCapture = null;
 		const backIndex = frontTargetIndex === 0 ? 1 : 0;
 		const targets = persistentTargets;
 		const packed = packPersistentFrame(capture, targets[backIndex]);
@@ -611,6 +639,7 @@
 		latestFrameCapture = null;
 		queuedInputPackets = [];
 		lastQueuedInputSignature = null;
+		lastQueuedInputSafety = null;
 		inputQueueOverflow = false;
 		engineLoopOwned = false;
 		if (!pendingRender) root.surrealWebXRFrameTextures = null;

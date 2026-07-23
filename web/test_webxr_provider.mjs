@@ -211,6 +211,7 @@ assert.equal(packet.getUint32(32 + 128 + 12, true), 1024);
 const callsWhilePending = nativeCalls.length;
 const inputsBeforePending = inputPackets.length;
 const rendersBeforePending = renderedPackets.length;
+const stalledLeft = sessions[0].inputSources[0];
 const stalledRight = sessions[0].inputSources[1];
 for (let index = 0; index < 20; index++) {
 	const pressed = index % 2 === 1;
@@ -223,10 +224,6 @@ for (let index = 0; index < 30; index++) {
 	stalledRight.gamepad.axes[2] = index / 30;
 	sessions[0].fireFrame(60 + index, stereoFrame);
 }
-sessions[0].inputSources = [sessions[0].inputSources[1]];
-sessions[0].listeners.get("inputsourceschange")({ removed: [{}], added: [] });
-sessions[0].visibilityState = "visible-blurred";
-sessions[0].listeners.get("visibilitychange")();
 await nextTask();
 assert.equal(nativeCalls.length, callsWhilePending);
 assert.equal(renderedPackets.length, 1, "there must be at most one producer in flight");
@@ -237,30 +234,30 @@ await nextTask();
 let drained = inputPackets.slice(inputsBeforePending).map(packet => new DataView(packet.buffer));
 assert.equal(drained.length, 1,
 	"only one retained input edge may be applied before a simulation tick");
-assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 21);
-for (let index = 0; index < 21; index++) {
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 20);
+for (let index = 0; index < 19; index++) {
 	sessions[0].fireFrame(48 + index, stereoFrame);
 	await nextTask();
 }
 drained = inputPackets.slice(inputsBeforePending).map(packet => new DataView(packet.buffer));
-assert.equal(drained.length, 22,
+assert.equal(drained.length, 20,
 	">16 button edges are retained and delivered across separate simulation ticks while obsolete pose/axis frames coalesce away");
 assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 1,
 	"the newest continuous sample remains coalesced behind retained edges");
 assert.deepEqual(drained.map(packet => packet.getUint32(8, true)),
-	new Array(20).fill(2).concat([1, 1]));
+	new Array(20).fill(2));
 assert.deepEqual(drained.map(packet => packet.getUint32(12, true)),
-	new Array(21).fill(3).concat([1]));
+	new Array(20).fill(3));
 assert.deepEqual(drained.slice(0, 20).map(packet =>
 	(packet.getUint32(24 + 112 + 8, true) & 1) !== 0),
 	Array.from({ length: 20 }, (_, index) => index % 2 === 1));
 sessions[0].fireFrame(80, stereoFrame);
 await nextTask();
-assert.equal(inputPackets.slice(inputsBeforePending).length, 23,
+assert.equal(inputPackets.slice(inputsBeforePending).length, 21,
 	"the coalesced continuous sample is delivered after all retained edges");
 assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 0);
 const sequencedRenders = renderedPackets.slice(rendersBeforePending);
-assert.equal(sequencedRenders.length, 23);
+assert.equal(sequencedRenders.length, 21);
 assert.ok(sequencedRenders.every(render => render.input),
 	"every simulation render must observe its one applied XR input packet");
 assert.deepEqual(sequencedRenders.slice(0, 20).map(render => {
@@ -274,6 +271,22 @@ assert.equal(copies.at(-1).destination.texture, rightXRTexture);
 assert.equal(globalThis.surrealXRGetState().frames, renderedPackets.length);
 assert.equal(globalThis.surrealWebXRFrameTextures, null);
 
+// A focus-loss safety packet must release native XR input even if the browser supplies no
+// subsequent viewer frame on which to run simulation.
+const idleSafetyInputs = inputPackets.length;
+const idleSafetyRenders = renderedPackets.length;
+sessions[0].visibilityState = "visible-blurred";
+sessions[0].listeners.get("visibilitychange")();
+await nextTask();
+assert.equal(inputPackets.length, idleSafetyInputs + 1);
+assert.equal(renderedPackets.length, idleSafetyRenders,
+	"input-only safety release must not invent a simulation/render frame");
+let idleSafetyPacket = new DataView(inputPackets.at(-1).buffer);
+assert.equal(idleSafetyPacket.getUint32(12, true), 1);
+sessions[0].visibilityState = "visible";
+sessions[0].fireFrame(81, stereoFrame);
+await nextTask();
+
 // Shared XR arrays affect only the late copy destinations; native still receives two safe 2D targets.
 useSharedTexture = true;
 sessions[0].fireFrame(64, stereoFrame);
@@ -284,6 +297,40 @@ assert.equal(copies.at(-2).destination.origin.z, 0);
 assert.equal(copies.at(-1).destination.texture, sharedXRTexture);
 assert.equal(copies.at(-1).destination.origin.z, 1);
 await nextTask();
+
+// Focus loss or a disconnected hand is a safety barrier: retained gameplay edges are discarded
+// and the neutral/latest connection state is the next state observed by simulation and UI.
+renderDeferred = deferred();
+sessions[0].fireFrame(90, stereoFrame);
+await nextTask();
+const safetyInputsBefore = inputPackets.length;
+for (let index = 0; index < 8; index++) {
+	const pressed = index % 2 === 1;
+	stalledRight.gamepad.buttons[0].pressed = pressed;
+	stalledRight.gamepad.buttons[0].touched = pressed;
+	stalledRight.gamepad.buttons[0].value = pressed ? 1 : 0;
+	sessions[0].fireFrame(91 + index, stereoFrame);
+}
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 8);
+sessions[0].inputSources = [stalledRight];
+sessions[0].listeners.get("inputsourceschange")({ removed: [stalledLeft], added: [] });
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 1,
+	"controller disconnect must purge older retained gameplay edges");
+sessions[0].visibilityState = "visible-blurred";
+sessions[0].listeners.get("visibilitychange")();
+assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 1,
+	"focus loss must retain only the neutral safety state");
+renderDeferred.resolve(1); renderDeferred = null;
+await nextTask();
+const safetyPacket = new DataView(inputPackets.at(-1).buffer);
+assert.equal(inputPackets.length, safetyInputsBefore + 1);
+assert.equal(safetyPacket.getUint32(8, true), 1);
+assert.equal(safetyPacket.getUint32(12, true), 1);
+assert.equal(safetyPacket.getUint32(24 + 8, true), 0);
+sessions[0].visibilityState = "visible";
+sessions[0].inputSources = [stalledLeft, stalledRight];
+sessions[0].listeners.get("visibilitychange")();
+sessions[0].listeners.get("inputsourceschange")({ removed: [], added: [stalledLeft] });
 
 // A layout epoch change while rendering suppresses the old completion and waits for a correctly
 // sized target before presenting again.

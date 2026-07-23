@@ -128,6 +128,16 @@ int main()
 	adapter.Update(session, snapshot, target);
 	Check(target.input.IsButtonActive("Fire"), "focus loss removed the desktop button contributor");
 	Check(target.controlReleases == 4, "focus loss did not release active XR buttons");
+	session.Focus = XRSessionFocus::Focused;
+	adapter.Update(session, snapshot, target);
+	Check(target.commandCounts["Button Fire"] == 3,
+		"a button held through focus loss became a new XR press");
+	snapshot.Hands[1].Select.Value = 0.0f;
+	adapter.Update(session, snapshot, target);
+	snapshot.Hands[1].Select.Value = 1.0f;
+	adapter.Update(session, snapshot, target);
+	Check(target.commandCounts["Button Fire"] == 4,
+		"a fresh press after focus recovery was not restored");
 
 	adapter.Disconnect(target);
 	adapter.Disconnect(target);

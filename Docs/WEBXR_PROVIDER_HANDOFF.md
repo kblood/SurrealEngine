@@ -236,6 +236,12 @@ closed with `input-transition-overflow`; it never silently discards a button
 edge. Only one retained discrete state is submitted before each native
 simulation/render producer, ensuring a quick press and release are observable
 on separate engine frames instead of both being applied before one tick.
+Session focus loss and controller removal are cancellation barriers: older
+queued gameplay edges are discarded and the neutral/latest connection state
+is delivered next, preventing delayed firing after a system overlay or lost
+controller. A safety packet can be applied without inventing a simulation or
+render frame when focus/controller events arrive and the browser supplies no
+new viewer pose.
 
 In direct mode, ABI v3 gives native code two ordinary persistent 2D eye
 textures. The projection layer requests `COPY_DST`; the XR callback acquires
