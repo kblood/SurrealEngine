@@ -1,6 +1,7 @@
 
 #include "Precomp.h"
 #include "AudioDevice.h"
+#include "AudioGainPolicy.h"
 #include "AudioSource.h"
 #include "AudioStreamBufferQueue.h"
 #include "Engine.h"
@@ -131,17 +132,18 @@ public:
 
 	void SetVolume(float newVolume)
 	{
-		if (volume != newVolume)
+		if (gain.SetSourceVolume(newVolume))
 		{
-			volume = newVolume;
-			alSourcef(id, AL_GAIN, volume * globalVolume);
-			alSourcef(id, AL_MAX_GAIN, volume * globalVolume);
+			ApplyGain();
 		}
 	}
 
 	void SetGlobalVolume(float newGlobalVolume)
 	{
-		globalVolume = newGlobalVolume;
+		if (gain.SetGlobalVolume(newGlobalVolume))
+		{
+			ApplyGain();
+		}
 	}
 
 	void SetPitch(float newPitch)
@@ -167,13 +169,17 @@ public:
 	ALuint id = -1;
 
 private:
+	void ApplyGain()
+	{
+		alSourcef(id, AL_GAIN, gain.EffectiveGain());
+	}
+
 	UActor* actor = nullptr;
 	USound* sound = nullptr;
 	vec3 position = vec3(0.0f);
 	vec3 velocity = vec3(0.0f);
 	float radius = 0.0f;
-	float volume = 0.0f;
-	float globalVolume = 1.0f; // Comes from Audio Subsystem
+	AudioGainPolicy gain;
 	float pitch = 0.0f;
 	float dopplerFactor = 0.0f;
 	bool bIs3d = false;

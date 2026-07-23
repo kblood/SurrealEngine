@@ -15,6 +15,13 @@ The browser adaptation is deliberately small:
   browser OpenAL calls must remain on the browser thread;
 - extensions absent from Emscripten, currently `AL_METERS_PER_UNIT`, are guarded
   at compile time without changing native OpenAL behavior;
+- engine source gain is written through `AL_GAIN` only. Unreal ambient sounds
+  can legitimately calculate gains above 1.0, while OpenAL requires
+  `AL_MAX_GAIN` itself to stay in the 0..1 range. Treating the effective gain as
+  `AL_MAX_GAIN` left `AL_INVALID_VALUE` behind and could terminate the browser
+  animation frame when the source was played;
+- master-volume changes are reapplied to existing sources immediately, instead
+  of waiting for a later per-source volume change;
 - `web/browser_audio_library.js` is a narrow lifecycle bridge to the private
   WebAudio context owned by Emscripten OpenAL. It is not a second mixer.
 
@@ -47,6 +54,12 @@ and two generated queued music buffers. It proves real OpenAL/WebAudio context
 time and queued graph state, gesture resume, mute/volume, suspend/resume, WebXR
 transition continuity, and no page errors. It does not claim CI speakers are
 audible.
+
+`AudioGainPolicyTests` covers source gains above 1.0, master-volume updates,
+and suppression of redundant OpenAL writes. An owner-data Unreal Gold startup
+also reached its next browser frame without the former `Failed to play AL
+source` exception; other browser-runtime qualification remains a separate
+release gate.
 
 The complete Release Emscripten and native engines build, all 26 native tests
 pass, and the browser release packaging and WebXR provider suites pass.

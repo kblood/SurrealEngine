@@ -908,6 +908,10 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(AudioStreamBufferQueueTests PRIVATE SurrealEngine)
 	set_target_properties(AudioStreamBufferQueueTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME AudioStreamBufferQueue COMMAND AudioStreamBufferQueueTests)
+	add_executable(AudioGainPolicyTests Tests/AudioGainPolicyTests.cpp)
+	target_include_directories(AudioGainPolicyTests PRIVATE SurrealEngine)
+	set_target_properties(AudioGainPolicyTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME AudioGainPolicy COMMAND AudioGainPolicyTests)
 
 	add_executable(VideoFrameSchedulerTests
 		Tests/VideoFrameSchedulerTests.cpp
