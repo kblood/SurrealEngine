@@ -266,6 +266,7 @@ void Engine::Setup()
 	LoadKeybindings();
 	LogMessage("Loaded key bindings");
 	LogGamePackageSHA1Sums();
+	avatarIkSyntheticRequested = commandline && commandline->HasArg("", "--avatar-ik-synthetic");
 	if (commandline && commandline->HasArg("", "--openxr"))
 	{
 		openXR = std::make_unique<OpenXRProvider>();
@@ -487,7 +488,7 @@ void Engine::RunOneFrame()
 			avatarInput.LeftHandGrip = toAvatarEnginePose(TransformXRPoseToEngine(xrSpaces.GripFor(XRHand::Left), xrWeaponWorld));
 			avatarInput.RightHandGrip = toAvatarEnginePose(TransformXRPoseToEngine(xrSpaces.GripFor(XRHand::Right), xrWeaponWorld));
 		}
-		else if (commandline && commandline->HasArg("", "--avatar-ik-synthetic"))
+		else if (avatarIkSyntheticRequested)
 		{
 			avatarSyntheticTimeSeconds += 1.0f / 60.0f;
 			avatarInput = AvatarRenderer::BuildSyntheticFrameInput(CameraLocation, avatarSyntheticTimeSeconds);

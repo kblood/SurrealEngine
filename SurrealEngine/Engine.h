@@ -269,6 +269,14 @@ private:
 	XRWeaponPoseResult xrWeaponPose;
 	AvatarIKFrameInput xrAvatarInput;
 	float avatarSyntheticTimeSeconds = 0.0f;
+	// Captured once in Setup() rather than re-read from the global
+	// `commandline` per frame - on Emscripten, Engine::Run() registers the
+	// frame callback and returns immediately (emscripten_set_main_loop_arg,
+	// simulate_infinite_loop=0), so GameApp::main's local CommandLine has
+	// already been destroyed by the time later frames execute. Setup() itself
+	// still runs synchronously before that happens, so it is the last safe
+	// place to consult `commandline` for anything a per-frame method needs.
+	bool avatarIkSyntheticRequested = false;
 	ViewFamily CreateDesktopViewFamily() const;
 
 	// Scratch properties used by PlayerCalcView during AdvanceGameFrame.
