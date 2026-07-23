@@ -19,11 +19,18 @@ namespace DesktopInputDefaults
 			return value == "Axis aUp Speed=+300.0" ||
 				value == "Axis aUp Speed=300.0";
 		}
+
+		bool IsLegacyWBinding(std::string_view value)
+		{
+			// Older SurrealEngine profiles could save Fire on W while retaining
+			// the otherwise untouched arrow-key movement layout.
+			return value.empty() || value == "Fire";
+		}
 	}
 
 	bool ApplyModernMovement(std::map<std::string, std::string>& bindings)
 	{
-		const bool modernKeysUntouched = Binding(bindings, "W").empty() &&
+		const bool modernKeysUntouched = IsLegacyWBinding(Binding(bindings, "W")) &&
 			Binding(bindings, "A").empty() && Binding(bindings, "D").empty() &&
 			(Binding(bindings, "S").empty() || IsLegacyUpBinding(Binding(bindings, "S")));
 		const bool classicArrows = Binding(bindings, "Up") == "MoveForward" &&

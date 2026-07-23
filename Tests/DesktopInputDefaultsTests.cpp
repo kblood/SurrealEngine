@@ -31,6 +31,17 @@ int main()
 	Check(classic["Up"] == "MoveForward" && classic["Left"] == "StrafeLeft",
 		"secondary arrow bindings were removed");
 
+	std::map<std::string, std::string> olderSurrealProfile = {
+		{ "Up", "MoveForward" }, { "Down", "MoveBackward" },
+		{ "Left", "StrafeLeft" }, { "Right", "StrafeRight" },
+		{ "W", "Fire" }, { "A", "" }, { "S", "Axis aUp Speed=+300.0" },
+		{ "D", "" }
+	};
+	Check(DesktopInputDefaults::ApplyModernMovement(olderSurrealProfile) &&
+		olderSurrealProfile["W"] == "MoveForward" &&
+		olderSurrealProfile["S"] == "MoveBackward",
+		"older SurrealEngine profile was not migrated to WASD");
+
 	std::map<std::string, std::string> empty;
 	Check(DesktopInputDefaults::ApplyModernMovement(empty) &&
 		empty["W"] == "MoveForward" && empty["S"] == "MoveBackward",

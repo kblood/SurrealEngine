@@ -113,10 +113,12 @@ the default and can operate alongside native XR or WebXR instead of being
 replaced by them.
 
 Fresh desktop input now uses non-inverted mouse look and WASD movement. The
-compatibility overlay applies only to an untouched classic arrow-key layout or
-an entirely empty movement layout, retains the arrow keys as secondary
-bindings, and does not replace a customized user layout. A saved
-`bInvertMouse` value continues to take precedence over the new default.
+compatibility overlay applies only to an untouched classic arrow-key layout,
+the older Surreal profile variant with `W=Fire`, or an entirely empty movement
+layout. It retains the arrow keys as secondary bindings and persists the
+one-time WASD/non-inverted migration so subsequent launches see the same
+controls. Other customized user layouts and their saved inversion preference
+remain untouched.
 
 Native and browser UI policy converges through `XRUIRuntime`: both use the same
 surface descriptors, anchoring, menu-last ordering, exact pointer contact and
