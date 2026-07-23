@@ -85,7 +85,7 @@ foundation topics are:
 
 | Integrated slice | State | Evidence and remaining boundary |
 | --- | --- | --- |
-| Flat desktop WASM/WebGPU | Implemented | The complete no-data application links, the legal local-import gate passes, and a desktop browser render/tick/quit smoke passes. Real owner-data play, persistence, and final-origin storage remain release gates. |
+| Flat desktop WASM/WebGPU | Implemented | The complete no-data application links and the legal local-import gate passes. A clean revisioned package imported the exact 629.3 MiB GOG UT99 folder and launched it from both local staging and the public HTTPS candidate with advancing ticks, visible WebGPU rendering, and zero page/WebGPU errors. Unreal Gold, persistence/upgrade, and longer play remain release gates. |
 | Direct WebXR/WebGPU presentation | Implemented, experimental | ABI/lifecycle and native bridge tests pass; no target Quest browser with production `XRGPUBinding` has been verified. |
 | Quest compatibility presentation | Implemented, experimental | `XRWebGLLayer` receives a WebGPU-rendered stereo atlas through WebGL 2; desktop API probes and provider tests pass, but Quest correctness and transfer cost are hardware-unverified. |
 | WebXR UI and controllers | Implemented, experimental | World-anchored surfaces, both procedural controller proxies, lasers, and exact-contact markers share one hit result in both presentation modes; scale, latency, convergence, and comfort remain hardware-unverified. |
@@ -227,14 +227,15 @@ human-curated bugfix-first PR strategy. No upstream PR has been opened.
    data. Keep this map/script path separate from owner-supplied KHG AVI tests;
    add authoritative loading visibility without double-running script UI.
 3. Keep the deployed data-free browser artifact and matching corresponding
-   source reproducible from the exact clean release commit. Have the actual
-   source offer, hosting terms, notices, and redistribution model reviewed by a
-   responsible human/legal reviewer.
-4. Test real user-owned UT99 and Unreal Gold imports, persistence, save/quit,
-   flat fallback, and XR enter/exit/re-entry at the final origin. Keep all demo
-   support local-import-only; determine whether Unreal 205's missing `UPak`
-   dependency can come from a lawful original artifact, and validate every demo
-   before advertising compatibility.
+   source reproducible from the exact clean release commit. Candidate
+   `54283bd8` satisfies that mechanical gate and uses revisioned browser assets;
+   have the actual source offer, hosting terms, notices, and redistribution
+   model reviewed by a responsible human/legal reviewer.
+4. Extend the successful owned-UT99 public-origin smoke to Unreal Gold, then
+   test persistence, save/quit, package upgrade, flat fallback, and XR
+   enter/exit/re-entry. Keep all demo support local-import-only; determine
+   whether Unreal 205's missing `UPak` dependency can come from a lawful
+   original artifact, and validate every demo before advertising compatibility.
 5. Run the headset matrix: stereo/FOV, head pose, both controller mappings,
    disconnect/blur, menu laser/contact, mouse fallback, intro/menu ordering,
    audio, and return to desktop mode.

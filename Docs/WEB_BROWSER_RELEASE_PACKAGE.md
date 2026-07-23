@@ -2,10 +2,12 @@
 
 Date: 2026-07-23
 
-Integration status: the package composition and compliance mechanism are
-implemented and automated at `integration/unified-engine` commit `359aaa30`.
-WebXR and the optional demo descriptors remain experimental; Quest,
-owner-data, final-hosting, and human/legal release gates remain open.
+Integration status: the package composition, compliance mechanism, revisioned
+browser assets, and current shared XR input/weapon runtime are implemented at
+`integration/unified-engine` commit `54283bd8`. A complete owned GOG UT99
+folder has passed both local-package and public-origin flat WebGPU launch tests.
+WebXR and the optional demo descriptors remain experimental; Quest, Unreal
+Gold, persistence/upgrade, and human/legal release gates remain open.
 
 ## Branch and dependencies
 
@@ -150,6 +152,28 @@ updated `index.html` from running with a cached pre-fix importer or launcher;
 ETags can still make unchanged-file revalidation inexpensive. A deployment
 must keep the generated `index.html`, assets, and `release-manifest.json`
 together instead of copying individual files over an older package.
+
+### Revisioned public candidate 54283bd8
+
+The immutable candidate at
+`https://dionysus.dk/webxr/Ports/SurrealEngine-Candidate-54283bd8/` was packaged
+from clean commit `54283bd83053577eee88fb177d4c8f1cea81a465` and tree
+`b08ce057c0ea2b3133dc86dabeb943dfbd86ee9c`. It deliberately does not replace
+the stable or earlier experimental directory. Its generated page references
+`ut99_importer.js?v=d1987b081e8e`; the accompanying hosting policy requires
+revalidation, closing the stale unversioned-script failure seen on the older
+public packages.
+
+The package records WebAssembly SHA-256
+`23dc8292efe22572ccece704c3e187df5179ffb15ca2b3bedae9fccc429a40e7` and
+corresponding-source SHA-256
+`a69293299a6f6ac1d92d6fdd6c7d888197722ab66e20c9da0b761a4da293443b`.
+Both the locally served package and the deployed HTTPS directory passed the
+release-shell smoke. A fresh Chrome profile then imported the owned GOG UT99
+folder (496 files, 659,817,346 bytes), mounted all files through OPFS, detected
+UT99, advanced simulation ticks, produced 41 WebGPU draws and 52 textures, and
+reported zero page or WebGPU errors. This establishes the exact folder and
+current importer/runtime path; it does not replace physical Quest testing.
 
 The packager fails unless `CMakeCache.txt` records an empty
 `SURREAL_GAMEDATA_DIR`, rejects every Emscripten `.data` payload, copies only a
@@ -359,16 +383,24 @@ Current results:
   performed a synthetic Unreal Gold flat launch with the expected arguments;
 - corresponding-source, static package/data audit, and `git diff --check`
   passed.
+- at clean candidate `54283bd8`, all current browser package, audio,
+  persistence, demo-import, WebXR provider/diagnostics, and WebGL bridge gates
+  passed; the Window-owned Asyncify build exposed OPFS mount ABI 2/mode 2 and
+  WebXR frame ABI 3 without page errors;
+- the exact 629.3 MiB GOG UT99 installation passed recursive import and flat
+  WebGPU launch both before deployment and from the revisioned public HTTPS
+  candidate, with 496 OPFS-mounted files and no page/WebGPU error.
 
 ## Remaining release gates
 
-Synthetic files prove validation and launch wiring, not real game behavior.
-Before publishing:
+The owned UT99 smoke proves import, initial engine startup, rendering, and tick
+progression, but not long-play behavior or any physical headset result. Before
+stable publication:
 
-1. Import complete user-owned UT99 and Unreal Gold folders independently;
-   confirm detection, map lists, launch, switching, replacement, and persistence
-   after a browser restart and package upgrade. Test both checked direct-map
-   startup and unchecked game-owned `URL.LocalMap` startup.
+1. Complete the remaining owner-data matrix: Unreal Gold import/launch plus
+   UT99 and Unreal Gold switching, replacement, and persistence after a browser
+   restart and package upgrade. Test both checked direct-map startup and
+   unchecked game-owned `URL.LocalMap` startup.
 2. Run flat UT99 and Unreal Gold with keyboard/mouse, fullscreen/resize, INI
    changes, saves, explicit quit-and-flush, and restore.
 3. On a physical Quest browser, record browser/runtime versions outside the
