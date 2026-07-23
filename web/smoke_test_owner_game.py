@@ -39,10 +39,12 @@ def directory_summary(root):
 	return {"files": len(files), "bytes": sum(path.stat().st_size for path in files)}
 
 
-def wait_for_advancing_ticks(page, timeout_ms):
+def wait_for_advancing_ticks(page, timeout_ms, page_errors=None):
 	deadline = time.time() + timeout_ms / 1000
 	samples = []
 	while time.time() < deadline:
+		if page_errors:
+			raise RuntimeError("browser page error stopped the engine: " + str(page_errors[-1]))
 		crash = page.evaluate("window.surrealCrashed || null")
 		if crash:
 			raise RuntimeError("engine crashed: " + str(crash))
@@ -195,7 +197,7 @@ def main():
 		}""")
 		if startup_failure:
 			raise RuntimeError("native startup failed: " + json.dumps(startup_failure))
-		ticks = wait_for_advancing_ticks(page, min(timeout_ms, 120_000))
+		ticks = wait_for_advancing_ticks(page, min(timeout_ms, 120_000), page_errors)
 		intro_fire = None
 		if args.startup_mode == "local-map-intro":
 			time.sleep(max(0.0, args.intro_fire_delay))
@@ -207,7 +209,7 @@ def main():
 				return { before, dispatched: true };
 			}""")
 			try:
-				post_fire_ticks = wait_for_advancing_ticks(page, min(timeout_ms, 120_000))
+				post_fire_ticks = wait_for_advancing_ticks(page, min(timeout_ms, 120_000), page_errors)
 			except RuntimeError as error:
 				stall = page.evaluate("""() => ({
 					ticks: (() => { try { return Module.ccall('Surreal_GetTickCount', 'number', [], []); } catch (_) { return null; } })(),
