@@ -25,8 +25,11 @@ def parse_args():
 	parser.add_argument("--renderer", choices=("webgpu", "null"), default="webgpu")
 	parser.add_argument("--startup-mode", choices=("direct-map", "local-map-intro"),
 		default="direct-map", help="Launch the selected map directly or exercise the game's configured LocalMap intro")
-	parser.add_argument("--intro-fire-delay", type=float, default=45.0,
-		help="Seconds to wait after the LocalMap loop starts before sending one primary-fire click")
+	parser.add_argument("--intro-input-delay", "--intro-fire-delay", dest="intro_input_delay",
+		type=float, default=45.0,
+		help="Seconds to wait after the LocalMap loop starts before sending the selected input")
+	parser.add_argument("--intro-input", choices=("fire", "menu"), default="fire",
+		help="Input used to leave the LocalMap intro: primary fire or a focused-canvas Escape key")
 	parser.add_argument("--timeout-minutes", type=float, default=15.0)
 	parser.add_argument("--headed", action="store_true")
 	parser.add_argument("--profile-dir", type=Path)
@@ -92,7 +95,7 @@ def main():
 		console_lines = []
 		page_errors = []
 		page.on("console", lambda message: console_lines.append(message.text))
-		page.on("pageerror", lambda error: page_errors.append(str(error)))
+		page.on("pageerror", lambda error: page_errors.append(error.stack or str(error)))
 
 		page.goto(base_url + "/", wait_until="load", timeout=60_000)
 		page.wait_for_function("""() => window.surrealApp !== undefined ||
@@ -198,18 +201,27 @@ def main():
 		if startup_failure:
 			raise RuntimeError("native startup failed: " + json.dumps(startup_failure))
 		ticks = wait_for_advancing_ticks(page, min(timeout_ms, 120_000), page_errors)
-		intro_fire = None
+		intro_input = None
 		if args.startup_mode == "local-map-intro":
-			time.sleep(max(0.0, args.intro_fire_delay))
-			intro_fire = page.evaluate("""() => {
-				const canvas = document.getElementById('canvas');
-				const before = (() => { try { return Module.ccall('Surreal_GetTickCount', 'number', [], []); } catch (_) { return null; } })();
-				canvas.dispatchEvent(new MouseEvent('mousedown', { button: 0, buttons: 1, bubbles: true, cancelable: true }));
-				canvas.dispatchEvent(new MouseEvent('mouseup', { button: 0, buttons: 0, bubbles: true, cancelable: true }));
-				return { before, dispatched: true };
-			}""")
+			time.sleep(max(0.0, args.intro_input_delay))
+			if args.intro_input == "menu":
+				page.locator("#canvas").focus()
+				intro_input = page.evaluate("""() => ({
+					before: (() => { try { return Module.ccall('Surreal_GetTickCount', 'number', [], []); } catch (_) { return null; } })(),
+					dispatched: true,
+					input: 'menu',
+				})""")
+				page.keyboard.press("Escape")
+			else:
+				intro_input = page.evaluate("""() => {
+					const canvas = document.getElementById('canvas');
+					const before = (() => { try { return Module.ccall('Surreal_GetTickCount', 'number', [], []); } catch (_) { return null; } })();
+					canvas.dispatchEvent(new MouseEvent('mousedown', { button: 0, buttons: 1, bubbles: true, cancelable: true }));
+					canvas.dispatchEvent(new MouseEvent('mouseup', { button: 0, buttons: 0, bubbles: true, cancelable: true }));
+					return { before, dispatched: true, input: 'fire' };
+				}""")
 			try:
-				post_fire_ticks = wait_for_advancing_ticks(page, min(timeout_ms, 120_000), page_errors)
+				post_input_ticks = wait_for_advancing_ticks(page, min(timeout_ms, 120_000), page_errors)
 			except RuntimeError as error:
 				stall = page.evaluate("""() => ({
 					ticks: (() => { try { return Module.ccall('Surreal_GetTickCount', 'number', [], []); } catch (_) { return null; } })(),
@@ -226,12 +238,13 @@ def main():
 					drawCalls: (() => { try { return Module.ccall('Surreal_GetWebGPUDrawCalls', 'number', [], []); } catch (_) { return null; } })(),
 					log: document.getElementById('log').textContent,
 				})""")
+				stall["pageErrors"] = page_errors
 				failure_shot = args.screenshot or Path(tempfile.gettempdir()) / "surrealengine-owner-intro-stall.png"
 				failure_shot.parent.mkdir(parents=True, exist_ok=True)
 				page.locator("#canvas").screenshot(path=str(failure_shot))
 				stall["screenshot"] = str(failure_shot.resolve())
-				raise RuntimeError("startup intro did not resume after primary fire: " + json.dumps(stall)) from error
-			intro_fire["ticks"] = post_fire_ticks
+				raise RuntimeError("startup intro did not continue after input: " + json.dumps(stall)) from error
+			intro_input["ticks"] = post_input_ticks
 		time.sleep(10)
 
 		layout = page.evaluate("""() => {
@@ -263,7 +276,7 @@ def main():
 			"source": summary,
 			"renderer": args.renderer,
 			"startupMode": args.startup_mode,
-			"introFire": intro_fire,
+			"introInput": intro_input,
 			"restoredFromProfile": restored,
 			"detected": imported,
 			"ticks": ticks,

@@ -468,7 +468,12 @@ void WebGPURenderDevice::Unlock(bool Blit)
 		PresentCanvas();
 	CurrentSurfaceView = nullptr;
 
+	SceneVertexPos = 0;
+	SceneIndexPos = 0;
+	UploadedVertexPos = 0;
+	UploadedIndexPos = 0;
 	Batch = WebGPUDrawBatchEntry();
+	QueuedBatches.clear();
 	HaveViewport = false;
 	IsLocked = false;
 }
