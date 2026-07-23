@@ -81,6 +81,12 @@
 					host.surrealXRSetBridgeBlockingTiming(blockingTiming);
 				else if (blockingTiming)
 					throw new Error("This WebXR provider cannot enable QA blocking timing.");
+				const rotationReprojection = preference === "webgl-bridge" && options &&
+					options.selection && options.selection.webXRBridgeRotationReprojection === true;
+				if (typeof host.surrealXRSetBridgeRotationReprojection === "function")
+					host.surrealXRSetBridgeRotationReprojection(rotationReprojection);
+				else if (rotationReprojection)
+					throw new Error("This WebXR provider cannot enable rotation-only late reprojection.");
 				// This method is invoked directly by the Play submit event. Reserve the
 				// immersive session here, while user activation is still eligible, but do
 				// not create layers or transfer frame-loop ownership yet.

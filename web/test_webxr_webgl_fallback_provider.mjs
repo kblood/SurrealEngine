@@ -16,11 +16,15 @@ const renderDeferrals = [];
 const renderCalls = [];
 const nativeCalls = [];
 const presentations = [];
+const presentationMetadata = [];
+let bridgeClears = 0;
 const inputPackets = [];
 let destroyedBridges = 0;
 let requestOptions = null;
 let bridgeCreationGate = null;
 let referenceSpaceRequests = 0;
+let referenceResetListener = null;
+let expectedRotationReprojection = true;
 const device = {
 	createTexture(description) {
 		const texture = {
@@ -64,24 +68,41 @@ globalThis.SurrealWebXRWebGLBridge = {
 			0.5 * (result[column * 4 + 2] + result[column * 4 + 3]);
 		return result;
 	},
-	async create({ session, canvas, device: suppliedDevice, blockingTiming }) {
+	async create({ session, canvas, device: suppliedDevice, blockingTiming, rotationReprojection }) {
 		assert.ok(sessions.includes(session)); assert.equal(canvas, globalThis.Module.canvas);
 		assert.equal(suppliedDevice, device);
 		assert.equal(blockingTiming, true);
+		assert.equal(rotationReprojection, expectedRotationReprojection);
 		let bridgeFrames = 0;
+		let reprojectedFrames = 0, fallbackFrames = 0;
+		let reprojectedEyes = 0, fallbackEyes = 0;
 		const bridge = {
 			textureFormat: "bgra8unorm",
 			describeFrame: () => ({ width: 1600, height: 700, destinations: [],
 				atlasViews: [{ x: 0, y: 0, width: 800, height: 700 }, { x: 800, y: 0, width: 800, height: 700 }] }),
-			present: (_frame, texture, renderDevice) => {
+			present: (_frame, texture, renderDevice, metadata) => {
 				assert.ok(atlasTextures.includes(texture)); assert.equal(renderDevice, device);
-				presentations.push(texture); bridgeFrames++;
+				presentations.push(texture); presentationMetadata.push(metadata); bridgeFrames++;
+				if (!rotationReprojection) {
+					assert.equal(metadata, undefined,
+						"disabled reprojection must not allocate provider presentation metadata");
+				} else if (metadata && metadata.sourceViews && metadata.sourceViews.length === 2 &&
+					metadata.sourceAtlasViews && metadata.sourceAtlasViews.length === 2 &&
+					metadata.currentViews && metadata.currentViews.length === 2) {
+					reprojectedFrames++; reprojectedEyes += 2;
+				} else {
+					fallbackFrames++; fallbackEyes += 2;
+				}
 			},
+			clear: () => { bridgeClears++; },
 			diagnostics: () => ({ frames: bridgeFrames, errors: 0, samples: bridgeFrames ? 120 : 0,
 				medianMs: bridgeFrames ? 0.5 : null, p95Ms: bridgeFrames ? 0.8 : null,
 				p99Ms: bridgeFrames ? 1.1 : null, blockingTiming: true,
 				layerWidth: 1832, layerHeight: 1920,
 				atlasWidth: bridgeFrames ? 1600 : 0, atlasHeight: bridgeFrames ? 700 : 0,
+				reprojectionMode: rotationReprojection ? "rotation-only" : "disabled", reprojectedFrames,
+				reprojectionFallbackFrames: fallbackFrames, reprojectedEyes,
+				reprojectionFallbackEyes: fallbackEyes,
 				privatePath: "C:\\Private\\Game\\System\\Core.u" }),
 			destroy: () => { destroyedBridges++; },
 		};
@@ -101,7 +122,9 @@ class FakeSession {
 	}
 	addEventListener(name, callback) { this.listeners.set(name, callback); }
 	updateRenderState() {}
-	async requestReferenceSpace() { referenceSpaceRequests++; return { addEventListener() {} }; }
+	async requestReferenceSpace() { referenceSpaceRequests++; return { addEventListener(name, callback) {
+		if (name === "reset") referenceResetListener = callback;
+	} }; }
 	requestAnimationFrame(callback) { const handle = this.nextHandle++; this.frames.set(handle, callback); return handle; }
 	cancelAnimationFrame(handle) { this.frames.delete(handle); }
 	fireFrame(time, frame) {
@@ -120,6 +143,10 @@ await import("./webxr_provider.js");
 assert.equal(globalThis.surrealXRSetPresentationPreference("webgl-bridge"), "webgl-bridge");
 assert.throws(() => globalThis.surrealXRSetBridgeBlockingTiming("yes"), TypeError);
 assert.equal(globalThis.surrealXRSetBridgeBlockingTiming(true), true);
+assert.equal(globalThis.surrealXRGetState().bridgeRotationReprojectionRequested, false,
+	"rotation reprojection must default off");
+assert.throws(() => globalThis.surrealXRSetBridgeRotationReprojection("yes"), TypeError);
+assert.equal(globalThis.surrealXRSetBridgeRotationReprojection(true), true);
 const capabilities = await globalThis.surrealXRGetCapabilities();
 assert.equal(capabilities.supported, true);
 assert.equal(capabilities.directWebGPU, false);
@@ -127,6 +154,8 @@ assert.equal(capabilities.webGLBridge, true);
 assert.equal(capabilities.presentationPreference, "webgl-bridge");
 assert.equal(capabilities.preferredMode, "webgl-bridge");
 assert.equal(await globalThis.surrealXREnter(), true);
+assert.throws(() => globalThis.surrealXRSetBridgeRotationReprojection(false),
+	error => error.code === "bridge-reprojection-active");
 assert.equal(requestOptions.requiredFeatures, undefined);
 assert.deepEqual(requestOptions.optionalFeatures, ["local-floor"]);
 assert.equal(atlasTextures.length, 0, "persistent targets are allocated after the first frame describes the atlas");
@@ -145,8 +174,9 @@ const projections = {
 	right: webGLProjection(-.97, 1.17, -1.07, 1.13),
 };
 const rotatedOrientation = { x: -.08871944, y: .22108249, z: .08185684, w: .96775557 };
+let currentOrientation = rotatedOrientation;
 const view = (eye, x) => ({ eye, projectionMatrix: projections[eye], transform: {
-	position: { x, y: 1.6, z: 0 }, orientation: rotatedOrientation
+	position: { x, y: 1.6, z: 0 }, orientation: currentOrientation
 } });
 const frame = {
 	getViewerPose: () => ({ views: [view("left", -.032), view("right", .032)] }),
@@ -197,8 +227,20 @@ renderDeferrals[0].resolve(1);
 await Promise.resolve();
 await Promise.resolve();
 await Promise.resolve();
+const newerOrientation = { x: -.04, y: .3, z: .02, w: .95215545 };
+currentOrientation = newerOrientation;
 session.fireFrame(50, frame);
 assert.deepEqual(presentations, [atlasTextures[0]]);
+assert.equal(presentationMetadata[0].sourceViews[0].transform.orientation.x,
+	rotatedOrientation.x, "promoted target must retain the render-time source pose");
+assert.equal(presentationMetadata[0].currentViews[0].transform.orientation.x,
+	newerOrientation.x, "late presentation must receive the current XRFrame pose");
+assert.deepEqual(presentationMetadata[0].sourceAtlasViews,
+	[{ x: 0, y: 0, width: 800, height: 700 }, { x: 800, y: 0, width: 800, height: 700 }],
+	"promoted target must retain the source eye-to-atlas mapping");
+assert.notEqual(presentationMetadata[0].sourceViews[0].transform.orientation,
+	presentationMetadata[0].currentViews[0].transform.orientation,
+	"source and current metadata must be independent snapshots");
 const firstPresentationState = globalThis.surrealXRGetState().bridgeDiagnostics;
 assert.equal(firstPresentationState.presentAgeFrames, 4);
 assert.equal(firstPresentationState.maxPresentAgeFrames, 4);
@@ -237,6 +279,11 @@ assert.equal(bridgeState.bridgeDiagnostics.maxPresentAgeFrames, 7);
 assert.equal(bridgeState.bridgeDiagnostics.presentAgeMs, 70);
 assert.equal(bridgeState.bridgeDiagnostics.maxPresentAgeMs, 70);
 assert.equal(bridgeState.bridgeDiagnostics.reusedPresents, 3);
+assert.equal(bridgeState.bridgeDiagnostics.reprojectionMode, "rotation-only");
+assert.equal(bridgeState.bridgeDiagnostics.reprojectedFrames, 4);
+assert.equal(bridgeState.bridgeDiagnostics.reprojectionFallbackFrames, 0);
+assert.equal(bridgeState.bridgeDiagnostics.reprojectedEyes, 8);
+assert.equal(bridgeState.bridgeDiagnostics.reprojectionFallbackEyes, 0);
 assert.equal(bridgeState.layerWidth, 1832);
 assert.equal(bridgeState.atlasWidth, 1600);
 assert.equal("privatePath" in bridgeState.bridgeDiagnostics, false,
@@ -251,6 +298,37 @@ assert.equal(selectingInput.getUint32(24, true), 2);
 assert.equal(selectingInput.getUint32(24 + 8, true) & 1, 1,
 	"right select state must reach the same native input packet in bridge mode");
 
+referenceResetListener();
+const presentationsBeforeResetFrame = presentations.length;
+const clearsBeforeResetFrame = bridgeClears;
+session.fireFrame(85, frame);
+const resetFallbackState = globalThis.surrealXRGetState().bridgeDiagnostics;
+assert.equal(presentations.length, presentationsBeforeResetFrame,
+	"a reference-space reset must invalidate the pre-reset front atlas");
+assert.equal(bridgeClears, clearsBeforeResetFrame + 1,
+	"the XR framebuffer must be cleared while no post-reset atlas is ready");
+assert.equal(resetFallbackState.reprojectedFrames, 4);
+assert.equal(resetFallbackState.reprojectionFallbackFrames, 0);
+
+// The producer that began before reset is stale even if it completes afterward.
+// Only a completed render captured in the new reset generation may become front.
+renderDeferrals[1].resolve(1);
+await delay(5);
+assert.equal(renderCalls.length, 3, "post-reset producer did not start after stale completion");
+assert.equal(globalThis.surrealXRGetState().frames, 1,
+	"pre-reset producer completion must not publish a stale atlas");
+renderDeferrals[2].resolve(1);
+await Promise.resolve();
+await Promise.resolve();
+await Promise.resolve();
+session.fireFrame(90, frame);
+assert.equal(presentations.length, presentationsBeforeResetFrame + 1);
+assert.ok(presentationMetadata.at(-1).sourceViews,
+	"first post-reset presentation must carry post-reset source metadata");
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reprojectedFrames, 5);
+await delay(5);
+assert.equal(renderCalls.length, 4, "next producer should be pending for teardown coverage");
+
 // Exit invalidates the generation and cancels rAF immediately, but resource teardown
 // waits for the outstanding producer. Completing it must not publish or present stale work.
 const staleFrameCallback = Array.from(session.frames.values())[0];
@@ -264,16 +342,16 @@ assert.equal(destroyedBridges, 0, "bridge teardown must wait for the unresolved 
 assert.equal(destroyedTextures.length, 0, "persistent targets must outlive their unresolved producer");
 assert.equal(nativeCalls.length, nativeCountAtExit, "exit must not re-enter native code while its producer is suspended");
 
-renderDeferrals[1].resolve(1);
+renderDeferrals[3].resolve(1);
 await delay(5);
 assert.equal(destroyedBridges, 1);
 assert.deepEqual(destroyedTextures, atlasTextures.slice(0, 2));
 assert.equal(presentations.length, presentationCountAtExit);
-assert.equal(globalThis.surrealXRGetState().frames, 1,
-	"completion from an invalidated generation must not publish the second target");
+assert.equal(globalThis.surrealXRGetState().frames, 2,
+	"completion from an invalidated generation must not publish the pending target");
 staleFrameCallback(90, frame);
 assert.equal(presentations.length, presentationCountAtExit, "a stale XR callback must not present after exit");
-assert.equal(renderCalls.length, 2, "a stale XR callback must not restart native production");
+assert.equal(renderCalls.length, 4, "a stale XR callback must not restart native production");
 assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics, null);
 assert.equal(globalThis.surrealXRGetState().layerWidth, null);
 assert.equal(globalThis.surrealXRGetState().atlasWidth, null);
@@ -281,6 +359,8 @@ const neutralInput = new DataView(inputPackets.at(-1).buffer);
 assert.equal(neutralInput.getUint32(8, true), 0);
 assert.equal(neutralInput.getUint32(12, true), 0);
 
+expectedRotationReprojection = false;
+assert.equal(globalThis.surrealXRSetBridgeRotationReprojection(false), false);
 assert.equal(await globalThis.surrealXREnter(), true);
 assert.equal(globalThis.surrealXRGetState().reentries, 1);
 assert.equal(globalThis.surrealXRGetState().presentationMode, "webgl-bridge");
@@ -290,6 +370,12 @@ assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.presentAgeFrames, 
 assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.maxPresentAgeMs, null);
 assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reusedPresents, 0,
 	"bridge re-entry must start with fresh pose-age counters");
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reprojectedFrames, 0);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reprojectionFallbackFrames, 0);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reprojectedEyes, 0);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reprojectionFallbackEyes, 0,
+	"bridge re-entry must start with fresh reprojection counters");
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reprojectionMode, "disabled");
 assert.equal(globalThis.surrealXRGetState().atlasWidth, null,
 	"bridge re-entry must not retain the previous atlas dimensions before its first frame");
 const reentrySession = sessions.at(-1);
@@ -302,6 +388,8 @@ await Promise.resolve();
 await Promise.resolve();
 await Promise.resolve();
 reentrySession.fireFrame(116, frame);
+assert.equal(presentationMetadata.at(-1), undefined,
+	"disabled reprojection retained per-eye presentation metadata");
 const oneFrameState = globalThis.surrealXRGetState().bridgeDiagnostics;
 assert.equal(oneFrameState.presentAgeFrames, 1);
 assert.equal(oneFrameState.maxPresentAgeFrames, 1);

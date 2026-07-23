@@ -9,6 +9,7 @@
 		<select data-launcher-presentation></select>
 		<select data-launcher-webxr-backend disabled><option value="auto">Automatic</option><option value="webgl-bridge">Force WebGL compatibility bridge</option></select>
 		<input type="checkbox" data-launcher-webxr-bridge-blocking-timing disabled>
+		<input type="checkbox" data-launcher-webxr-bridge-rotation-reprojection disabled>
 		<select data-launcher-renderer><option value="webgpu">WebGPU</option><option value="null">Null</option></select>
 		<input type="checkbox" data-launcher-skip-intro checked>
 		<button type="submit">Play</button><p data-launcher-error hidden></p>
@@ -148,21 +149,27 @@ window.browserAppTestPromise = (async () => {
 		const presentation = root.querySelector("[data-launcher-presentation]");
 		const backend = root.querySelector("[data-launcher-webxr-backend]");
 		const blockingTiming = root.querySelector("[data-launcher-webxr-bridge-blocking-timing]");
+		const rotationReprojection = root.querySelector("[data-launcher-webxr-bridge-rotation-reprojection]");
 		presentation.value = "webxr";
 		presentation.dispatchEvent(new Event("change", { bubbles: true }));
-		assert(!backend.disabled && blockingTiming.disabled && !blockingTiming.checked);
+		assert(!backend.disabled && blockingTiming.disabled && !blockingTiming.checked &&
+			rotationReprojection.disabled && !rotationReprojection.checked);
 		backend.value = "webgl-bridge";
 		backend.dispatchEvent(new Event("change", { bubbles: true }));
 		assert(!blockingTiming.disabled);
 		blockingTiming.checked = true;
+		rotationReprojection.checked = true;
 		root.querySelector("[data-launcher-form]").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 		const selection = await pending;
 		assert(Object.isFrozen(selection) && selection.webXRPresentationPreference === "webgl-bridge");
 		assert(selection.webXRBridgeBlockingTiming === true);
+		assert(selection.webXRBridgeRotationReprojection === true);
 		assert(prepared === selection);
 		const next = controller.selectLaunch(context);
 		assert(presentation.value === "webxr" && backend.value === "webgl-bridge" && !backend.disabled);
 		assert(!blockingTiming.checked && !blockingTiming.disabled, "blocking timing persisted enabled across launches");
+		assert(!rotationReprojection.checked && !rotationReprojection.disabled,
+			"rotation reprojection persisted enabled across launches");
 		blockingTiming.checked = true;
 		backend.value = "auto";
 		backend.dispatchEvent(new Event("change", { bubbles: true }));

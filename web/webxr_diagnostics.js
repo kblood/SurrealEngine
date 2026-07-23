@@ -106,6 +106,12 @@
 			bridgeMedianMs: measurement(bridge.medianMs),
 			bridgeP95Ms: measurement(bridge.p95Ms),
 			bridgeP99Ms: measurement(bridge.p99Ms),
+			bridgeReprojectionMode: bridge.reprojectionMode === "rotation-only" ?
+				"rotation-only" : (bridge.reprojectionMode === "disabled" ? "disabled" : UNKNOWN),
+			bridgeReprojectedFrames: number(bridge.reprojectedFrames),
+			bridgeReprojectionFallbackFrames: number(bridge.reprojectionFallbackFrames),
+			bridgeReprojectedEyes: number(bridge.reprojectedEyes),
+			bridgeReprojectionFallbackEyes: number(bridge.reprojectionFallbackEyes),
 			bridgePresentAgeFrames: measurement(bridge.presentAgeFrames),
 			bridgeMaxPresentAgeFrames: measurement(bridge.maxPresentAgeFrames),
 			bridgePresentAgeMs: measurement(bridge.presentAgeMs),
@@ -166,6 +172,11 @@
 			"bridge_median_ms: " + state.bridgeMedianMs,
 			"bridge_p95_ms: " + state.bridgeP95Ms,
 			"bridge_p99_ms: " + state.bridgeP99Ms,
+			"bridge_reprojection_mode: " + state.bridgeReprojectionMode,
+			"bridge_reprojected_frames: " + state.bridgeReprojectedFrames,
+			"bridge_reprojection_fallback_frames: " + state.bridgeReprojectionFallbackFrames,
+			"bridge_reprojected_eyes: " + state.bridgeReprojectedEyes,
+			"bridge_reprojection_fallback_eyes: " + state.bridgeReprojectionFallbackEyes,
 			"bridge_present_age_frames: " + state.bridgePresentAgeFrames,
 			"bridge_max_present_age_frames: " + state.bridgeMaxPresentAgeFrames,
 			"bridge_present_age_ms: " + state.bridgePresentAgeMs,
@@ -253,7 +264,11 @@
 					dimensions(state.atlasWidth, state.atlasHeight) + " atlas",
 				bridge: state.bridgeSamples + " samples, median " + state.bridgeMedianMs +
 					" ms, p95 " + state.bridgeP95Ms + " ms, p99 " + state.bridgeP99Ms +
-					" ms, pose age " + state.bridgePresentAgeFrames + "/" +
+					" ms, reprojection " + state.bridgeReprojectionMode + ", " +
+					state.bridgeReprojectedFrames + " frames/" + state.bridgeReprojectedEyes +
+					" eyes, fallback " + state.bridgeReprojectionFallbackFrames + " frames/" +
+					state.bridgeReprojectionFallbackEyes + " eyes, " +
+					"pose age " + state.bridgePresentAgeFrames + "/" +
 					state.bridgeMaxPresentAgeFrames + " frames current/max, " +
 					state.bridgePresentAgeMs + "/" + state.bridgeMaxPresentAgeMs +
 					" ms current/max, " + state.bridgeReusedPresents + " reused, " +

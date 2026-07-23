@@ -330,6 +330,7 @@
 			this.presentation = root && root.querySelector("[data-launcher-presentation]");
 			this.webXRBackend = root && root.querySelector("[data-launcher-webxr-backend]");
 			this.webXRBridgeBlockingTiming = root && root.querySelector("[data-launcher-webxr-bridge-blocking-timing]");
+			this.webXRBridgeRotationReprojection = root && root.querySelector("[data-launcher-webxr-bridge-rotation-reprojection]");
 			this.renderer = root && root.querySelector("[data-launcher-renderer]");
 			this.skipIntro = root && root.querySelector("[data-launcher-skip-intro]");
 			this.game = root && root.querySelector("[data-launcher-game]");
@@ -369,6 +370,10 @@
 				this.webXRBridgeBlockingTiming.disabled = !bridgeForced;
 				if (!bridgeForced) this.webXRBridgeBlockingTiming.checked = false;
 			}
+			if (this.webXRBridgeRotationReprojection) {
+				this.webXRBridgeRotationReprojection.disabled = !bridgeForced;
+				if (!bridgeForced) this.webXRBridgeRotationReprojection.checked = false;
+			}
 		}
 
 		_option(select, value, label) {
@@ -403,6 +408,7 @@
 			if (this.webXRBackend) this.webXRBackend.value =
 				preferences.webXRPresentationPreference === "webgl-bridge" ? "webgl-bridge" : "auto";
 			if (this.webXRBridgeBlockingTiming) this.webXRBridgeBlockingTiming.checked = false;
+			if (this.webXRBridgeRotationReprojection) this.webXRBridgeRotationReprojection.checked = false;
 			if (this.renderer && preferences.renderer) this.renderer.value = preferences.renderer;
 			if (this.skipIntro) this.skipIntro.checked = preferences.skipIntro !== false;
 			this._updateMapAvailability();
@@ -429,6 +435,9 @@
 				if (provider.id === "webxr" && selectionData.webXRPresentationPreference === "webgl-bridge")
 					selectionData.webXRBridgeBlockingTiming = !!this.webXRBridgeBlockingTiming &&
 						this.webXRBridgeBlockingTiming.checked;
+				if (provider.id === "webxr" && selectionData.webXRPresentationPreference === "webgl-bridge")
+					selectionData.webXRBridgeRotationReprojection = !!this.webXRBridgeRotationReprojection &&
+						this.webXRBridgeRotationReprojection.checked;
 				const selection = Object.freeze(selectionData);
 				buildNativeArguments(selection);
 				await provider.prepareLaunch(Object.freeze({ context: this.context, selection }));

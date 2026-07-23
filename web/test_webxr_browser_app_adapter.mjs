@@ -14,6 +14,9 @@ globalThis.surrealXRSetPresentationPreference = preference => {
 globalThis.surrealXRSetBridgeBlockingTiming = enabled => {
 	lifecycle.push("blocking-timing:" + enabled);
 };
+globalThis.surrealXRSetBridgeRotationReprojection = enabled => {
+	lifecycle.push("rotation-reprojection:" + enabled);
+};
 globalThis.surrealXRRequestSession = async () => {
 	lifecycle.push("request-session");
 	assert.notEqual(globalThis.surrealWebGPUDevice, device, "prepare must not depend on activation wiring");
@@ -32,17 +35,21 @@ assert.equal(provider.id, "webxr");
 assert.equal(provider.isAvailable(), true);
 const reservation = await provider.prepareLaunch({ selection: {
 	webXRPresentationPreference: "webgl-bridge", webXRBridgeBlockingTiming: true,
+	webXRBridgeRotationReprojection: true,
 } });
 assert.equal(reservation.reserved, true);
-assert.deepEqual(lifecycle, ["preference:webgl-bridge", "blocking-timing:true", "request-session"]);
+assert.deepEqual(lifecycle, ["preference:webgl-bridge", "blocking-timing:true",
+	"rotation-reprojection:true", "request-session"]);
 await provider.activate({ Module: { preinitializedWebGPUDevice: device }, selection: {} });
-assert.deepEqual(lifecycle, ["preference:webgl-bridge", "blocking-timing:true", "request-session", "activate-reserved"]);
+assert.deepEqual(lifecycle, ["preference:webgl-bridge", "blocking-timing:true",
+	"rotation-reprojection:true", "request-session", "activate-reserved"]);
 
 const unavailableHost = {
 	navigator: globalThis.navigator,
 	XRGPUBinding: globalThis.XRGPUBinding,
 	surrealXRSetPresentationPreference(preference) { assert.equal(preference, "webgl-bridge"); },
 	surrealXRSetBridgeBlockingTiming(enabled) { assert.equal(enabled, false); },
+	surrealXRSetBridgeRotationReprojection(enabled) { assert.equal(enabled, false); },
 	async surrealXRRequestSession() { return false; },
 	surrealXRGetState() { return { lastError: "WebGL compatibility bridge was requested but is unavailable" }; },
 };
@@ -65,12 +72,14 @@ const automaticHost = {
 	navigator: globalThis.navigator, XRGPUBinding: globalThis.XRGPUBinding,
 	surrealXRSetPresentationPreference(value) { automaticLifecycle.push("preference:" + value); },
 	surrealXRSetBridgeBlockingTiming(value) { automaticLifecycle.push("blocking-timing:" + value); },
+	surrealXRSetBridgeRotationReprojection(value) { automaticLifecycle.push("rotation-reprojection:" + value); },
 	async surrealXRRequestSession() { automaticLifecycle.push("request-session"); return true; },
 };
 const automatic = await globalThis.SurrealWebXRBrowserProvider.createProvider(capability, automaticHost)
 	.prepareLaunch({ selection: { webXRPresentationPreference: "auto", webXRBridgeBlockingTiming: true } });
 assert.equal(automatic.reserved, true);
-assert.deepEqual(automaticLifecycle, ["preference:auto", "blocking-timing:false", "request-session"]);
+assert.deepEqual(automaticLifecycle, ["preference:auto", "blocking-timing:false",
+	"rotation-reprojection:false", "request-session"]);
 
 let legacyEntries = 0;
 const legacyHost = {

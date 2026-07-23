@@ -30,6 +30,7 @@
 	let presentationMode = null;
 	let configuredPresentationPreference = null;
 	let configuredBridgeBlockingTiming = null;
+	let configuredBridgeRotationReprojection = null;
 	let resetGeneration = 0;
 	let animationFrameHandle = null;
 	let engineLoopOwned = false;
@@ -67,6 +68,7 @@
 		projectionFormat: null,
 		presentationPreference: "auto",
 		bridgeBlockingTimingRequested: false,
+		bridgeRotationReprojectionRequested: false,
 		presentationMode: null,
 		layerWidth: null,
 		layerHeight: null,
@@ -208,6 +210,12 @@
 			layerHeight: positiveDimension(source.layerHeight),
 			atlasWidth: positiveDimension(source.atlasWidth),
 			atlasHeight: positiveDimension(source.atlasHeight),
+			reprojectionMode: source.reprojectionMode === "rotation-only" ? "rotation-only" :
+				(source.reprojectionMode === "disabled" ? "disabled" : null),
+			reprojectedFrames: boundedCounter(source.reprojectedFrames, POSE_AGE_LIMITS.presentations),
+			reprojectionFallbackFrames: boundedCounter(source.reprojectionFallbackFrames, POSE_AGE_LIMITS.presentations),
+			reprojectedEyes: boundedCounter(source.reprojectedEyes, POSE_AGE_LIMITS.presentations),
+			reprojectionFallbackEyes: boundedCounter(source.reprojectionFallbackEyes, POSE_AGE_LIMITS.presentations),
 			presentAgeFrames: boundedIntegerOrNull(source.presentAgeFrames, POSE_AGE_LIMITS.frames),
 			maxPresentAgeFrames: boundedIntegerOrNull(source.maxPresentAgeFrames, POSE_AGE_LIMITS.frames),
 			presentAgeMs: boundedNonnegative(source.presentAgeMs, POSE_AGE_LIMITS.milliseconds),
@@ -264,6 +272,12 @@
 	function bridgeBlockingTimingPreference() {
 		if (configuredBridgeBlockingTiming !== null) return configuredBridgeBlockingTiming;
 		return root.surrealXRBridgeBlockingTiming === true;
+	}
+
+	function bridgeRotationReprojectionPreference() {
+		if (configuredBridgeRotationReprojection !== null)
+			return configuredBridgeRotationReprojection;
+		return root.surrealXRBridgeRotationReprojection === true;
 	}
 
 	function log(message) {
@@ -671,18 +685,34 @@
 	}
 
 	function capturePresentationSource(capture) {
-		return Object.freeze({
+		const source = {
 			sequence: capture.sequence,
 			time: capture.time,
-			views: Object.freeze(capture.views.map(view => Object.freeze({
-				eye: view.eye,
+			resetGeneration: capture.resetGeneration,
+		};
+		if (!status.bridgeRotationReprojectionRequested) return Object.freeze(source);
+		if (capture.atlasViews) {
+			const atlasViews = new Array(capture.atlasViews.length);
+			for (let index = 0; index < atlasViews.length; index++) {
+				const view = capture.atlasViews[index];
+				atlasViews[index] = Object.freeze({ x: view.x, y: view.y,
+					width: view.width, height: view.height });
+			}
+			source.atlasViews = Object.freeze(atlasViews);
+		} else source.atlasViews = null;
+		const views = new Array(capture.views.length);
+		for (let index = 0; index < views.length; index++) {
+			const view = capture.views[index];
+			views[index] = Object.freeze({ eye: view.eye,
 				projectionMatrix: Object.freeze(view.projectionMatrix.slice()),
 				transform: Object.freeze({
 					position: Object.freeze(Object.assign({}, view.transform.position)),
 					orientation: Object.freeze(Object.assign({}, view.transform.orientation)),
 				}),
-			}))),
-		});
+			});
+		}
+		source.views = Object.freeze(views);
+		return Object.freeze(source);
 	}
 
 	function createPersistentTargetSets(layout) {
@@ -852,7 +882,8 @@
 				throw providerError("native-frame-rejected-" + error, "frame",
 					"native WebXR frame bridge rejected the frame (error=" + error + ")");
 			}
-			if (generation === activeGeneration && capture.epoch === layoutEpoch && targets === persistentTargets) {
+			if (generation === activeGeneration && capture.epoch === layoutEpoch &&
+				capture.resetGeneration === resetGeneration && targets === persistentTargets) {
 				targets[backIndex].presentation.source = capturePresentationSource(capture);
 				targets[backIndex].presentation.count = 0;
 				frontTargetIndex = backIndex;
@@ -1044,7 +1075,9 @@
 			const pose = frame.getViewerPose(referenceSpace);
 			if (!pose) { status.skippedFrames++; return; }
 			const xrViews = validateViews(pose);
-			const views = xrViews.map(snapshotView);
+			const views = new Array(xrViews.length);
+			for (let index = 0; index < xrViews.length; index++)
+				views[index] = snapshotView(xrViews[index]);
 			const frameSequence = ++captureSequence;
 			enqueueInputPacket(packInputSnapshot(time, session, frame, referenceSpace));
 			let description;
@@ -1055,8 +1088,19 @@
 				adoptLayout(description);
 				if (frontTargetIndex !== null) {
 					const frontTarget = persistentTargets[frontTargetIndex];
-					webGLBridge.present(description, frontTarget.textures[0], webGPUDevice());
+					const source = frontTarget.presentation.source;
+					const sourceMatchesReset = source && source.resetGeneration === resetGeneration;
+					let metadata;
+					if (status.bridgeRotationReprojectionRequested) metadata = {
+						sourceViews: sourceMatchesReset ? source.views : null,
+						sourceAtlasViews: sourceMatchesReset ? source.atlasViews : null,
+						currentViews: views,
+					};
+					webGLBridge.present(description, frontTarget.textures[0], webGPUDevice(), metadata);
 					recordBridgePresentation(frontTarget, frameSequence, time);
+					setBridgeDiagnostics(webGLBridge.diagnostics());
+				} else {
+					webGLBridge.clear();
 					setBridgeDiagnostics(webGLBridge.diagnostics());
 				}
 			} else {
@@ -1154,6 +1198,17 @@
 		return enabled;
 	};
 
+	root.surrealXRSetBridgeRotationReprojection = function (enabled) {
+		if (enabled !== true && enabled !== false)
+			throw new TypeError("WebXR bridge rotation reprojection must be a boolean");
+		if (session || enterPending || activationPending)
+			throw providerError("bridge-reprojection-active", "preflight",
+				"WebXR bridge rotation reprojection cannot change while a session is active or pending");
+		configuredBridgeRotationReprojection = enabled;
+		status.bridgeRotationReprojectionRequested = enabled;
+		return enabled;
+	};
+
 	root.surrealXRIsColorFormatSupported = function (format) {
 		return format === "bgra8unorm" || format === "rgba8unorm" || format === "rgba16float";
 	};
@@ -1236,6 +1291,7 @@
 		const preference = presentationPreference();
 		status.presentationPreference = preference;
 		status.bridgeBlockingTimingRequested = bridgeBlockingTimingPreference();
+		status.bridgeRotationReprojectionRequested = bridgeRotationReprojectionPreference();
 		const bridgeAvailable = typeof root.XRWebGLLayer === "function" && root.SurrealWebXRWebGLBridge &&
 			root.SurrealWebXRWebGLBridge.canCreateWebGL2(root);
 		const directAvailable = typeof root.XRGPUBinding === "function" &&
@@ -1367,7 +1423,8 @@
 				try {
 					const createdBridge = await root.SurrealWebXRWebGLBridge.create({ root, session: activatingSession,
 						canvas: root.Module && root.Module.canvas, device: webGPUDevice(),
-						blockingTiming: status.bridgeBlockingTimingRequested });
+						blockingTiming: status.bridgeBlockingTimingRequested,
+						rotationReprojection: status.bridgeRotationReprojectionRequested });
 					if (generation !== activeGeneration || session !== activatingSession) {
 						try { createdBridge.destroy(); } catch (_) {}
 						return false;
@@ -1393,7 +1450,12 @@
 			resetGeneration = 0;
 			if (referenceSpace && typeof referenceSpace.addEventListener === "function") {
 				referenceSpace.addEventListener("reset", function () {
-					if (generation === activeGeneration) resetGeneration++;
+					if (generation === activeGeneration) {
+						resetGeneration++;
+						frontTargetIndex = null;
+						latestFrameCapture = null;
+						resetBridgePoseAge();
+					}
 				});
 			}
 			resetNativePose();
