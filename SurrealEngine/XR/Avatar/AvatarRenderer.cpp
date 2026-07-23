@@ -455,6 +455,62 @@ AvatarIKInput AvatarRenderer::BuildIKInput(UActor* actor, UMesh* mesh, const Ava
 	return input;
 }
 
+namespace
+{
+	int FindJointIndex(const AvatarRig& rig, AvatarJointRole role)
+	{
+		for (int i = 0; i < (int)rig.Joints.size(); i++)
+		{
+			if (rig.Joints[i].Role == role)
+				return i;
+		}
+		return -1;
+	}
+
+	// Rate-limited so a live run logs a handful of readable samples instead of
+	// one line per frame. Mesh-local space, matching AvatarIKSolver's inputs -
+	// see AvatarIKSolverTests for the same joints checked against a synthetic
+	// rig; this is that solver run against real player mesh data instead.
+	void LogSolvedJointsPeriodically(const AvatarRig& rig, const AvatarIKInput& ikInput, const Array<AvatarJointTransform>& jointTransforms)
+	{
+		static int frameCounter = 0;
+		frameCounter++;
+		if (frameCounter % 30 != 1)
+			return;
+
+		int headIdx = FindJointIndex(rig, AvatarJointRole::Head);
+		int leftHandIdx = FindJointIndex(rig, AvatarJointRole::LeftHand);
+		int rightHandIdx = FindJointIndex(rig, AvatarJointRole::RightHand);
+		int leftForearmIdx = FindJointIndex(rig, AvatarJointRole::LeftForearm);
+
+		std::ostringstream out;
+		out << "AvatarIK: frame " << frameCounter << " mesh=" << rig.MeshIdentity;
+		if (headIdx >= 0 && ikInput.Head.Valid)
+		{
+			vec3 headPos = rig.Joints[headIdx].BindOrigin + jointTransforms[headIdx].Translation;
+			out << " head=(" << headPos.x << "," << headPos.y << "," << headPos.z << ")";
+		}
+		if (leftHandIdx >= 0 && ikInput.LeftHand.Valid)
+		{
+			vec3 handPos = rig.Joints[leftHandIdx].BindOrigin + jointTransforms[leftHandIdx].Translation;
+			vec3 err = handPos - ikInput.LeftHand.Position;
+			out << " leftHand=(" << handPos.x << "," << handPos.y << "," << handPos.z << ") err=" << length(err);
+		}
+		if (rightHandIdx >= 0 && ikInput.RightHand.Valid)
+		{
+			vec3 handPos = rig.Joints[rightHandIdx].BindOrigin + jointTransforms[rightHandIdx].Translation;
+			vec3 err = handPos - ikInput.RightHand.Position;
+			out << " rightHand=(" << handPos.x << "," << handPos.y << "," << handPos.z << ") err=" << length(err);
+		}
+		if (leftForearmIdx >= 0)
+		{
+			vec3 elbowPos = rig.Joints[leftForearmIdx].BindOrigin + jointTransforms[leftForearmIdx].Translation;
+			out << " leftElbow=(" << elbowPos.x << "," << elbowPos.y << "," << elbowPos.z << ")";
+		}
+		LogDiagnostic(out.str());
+	}
+}
+
 bool AvatarRenderer::DrawActorWithIK(VisibleFrame* frame, UActor* actor, const vec3& worldOffset,
 	const AvatarIKFrameInput& engineInput, const AvatarIKOptions& options)
 {
@@ -477,6 +533,8 @@ bool AvatarRenderer::DrawActorWithIK(VisibleFrame* frame, UActor* actor, const v
 	AvatarSkinner::Skin(rig, &jointTransforms, skinnedPositions, skinnedNormals);
 	if ((int)skinnedPositions.size() != rig.FrameVerts)
 		return false;
+
+	LogSolvedJointsPeriodically(rig, ikInput, jointTransforms);
 
 	DrawSkinnedMesh(frame, actor, mesh, skinnedPositions, skinnedNormals, worldOffset);
 	return true;
