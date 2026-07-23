@@ -2,6 +2,7 @@
 
 #include "Math/coords.h"
 #include "Render/ViewFamily.h"
+#include "XR/XRCommon.h"
 
 #include <array>
 #include <cstddef>
@@ -99,6 +100,9 @@ namespace WebXR
 		const RecenterState& recenter);
 	ViewFamily BuildViewFamily(const DecodedFrame& frame, const vec3& cameraLocation,
 		const Coords& bodyRotation, float worldUnitsPerMeter, RecenterState& recenter);
+	XRWorldTransform BuildWeaponWorldTransform(const vec3& cameraLocation,
+		float engineYawRadians, float worldUnitsPerMeter,
+		const RecenterState& recenter);
 	void SetLastFrameError(FrameError error);
 	FrameError GetLastFrameError();
 }

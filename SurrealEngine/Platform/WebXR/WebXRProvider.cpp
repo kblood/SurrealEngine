@@ -289,16 +289,27 @@ extern "C"
 		try
 		{
 			engine->tickCount++;
-			const float levelElapsed = engine->AdvanceGameFrame();
-			const Coords bodyRotation = Coords::Rotation(Rotator(0, engine->CameraRotation.Yaw, 0));
 			ViewFamily family = WebXR::BuildViewFamily(frame, engine->CameraLocation,
+				Coords::Rotation(Rotator(0, engine->CameraRotation.Yaw, 0)),
+				WorldUnitsPerMeter, Recenter);
+			const WebXR::AdaptedInputSnapshot input =
+				WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot());
+			const XRWorldTransform weaponWorld = WebXR::BuildWeaponWorldTransform(
+				engine->CameraLocation, engine->CameraRotation.YawRadians(),
+				WorldUnitsPerMeter, Recenter);
+			const XRWeaponPoseResult weaponPose = SolveXRWeaponPose(
+				input.Spaces, weaponWorld, XRHand::Right);
+			const float levelElapsed = engine->AdvanceGameFrameWithXRWeaponAim(weaponPose);
+			const Coords bodyRotation = Coords::Rotation(
+				Rotator(0, engine->CameraRotation.Yaw, 0));
+			family = WebXR::BuildViewFamily(frame, engine->CameraLocation,
 				bodyRotation, WorldUnitsPerMeter, Recenter);
 			XRUISurfaceEngineBinding& ui = engine->render->XRUISurfaces();
 			for (const XRUICanvasCaptureDescriptor& descriptor :
 				WebXR::BuildUICaptureDescriptors(WorldUnitsPerMeter))
 				ui.Configure(descriptor);
 			ui.SetViewerPose(WebXR::BuildUIViewerPose(family));
-			UIInput.Update(WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot()), ui,
+			UIInput.Update(input, ui,
 				engine->CameraLocation, bodyRotation, WorldUnitsPerMeter, Recenter);
 			engine->RenderGameFrame(levelElapsed, family);
 			const XRUICanvasReplayFrame replayFrame = ui.BuildReplayFrame();

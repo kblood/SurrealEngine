@@ -144,6 +144,7 @@ private:
 	float AutoUV = 0.0f;
 	float AmbientGlowTime = 0.0f;
 	float AmbientGlowAmount = 0.0f;
+	bool XRWeaponOverlayActive = false;
 
 	struct
 	{

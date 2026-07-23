@@ -30,6 +30,7 @@
 #include "RenderDevice/RenderDevice.h"
 #include "VM/Frame.h"
 #include "VM/ScriptCall.h"
+#include "XR/XRWeaponRuntime.h"
 #include "Video/VideoPlayer.h"
 #include "Video/VideoFrameScheduler.h"
 #include <chrono>
@@ -399,8 +400,16 @@ void Engine::RunOneFrame()
 	}
 
 	// XR waits and samples controls before simulation so this snapshot is
-	// composed with keyboard/mouse during the same game update.
-	const float levelElapsed = AdvanceGameFrame();
+	// composed with keyboard/mouse during the same game update. Weapon aim uses
+	// the same provider-neutral pose solver in native OpenXR and WebXR.
+	ClearXRWeaponPose();
+	XRWeaponPoseResult xrWeaponPose;
+	XRWorldTransform xrWeaponWorld;
+	if (openXR && xrFrameBegun && openXRViews.CreateWeaponWorldTransform(
+		CameraLocation, xrWeaponWorld))
+		xrWeaponPose = SolveXRWeaponPose(xrSpaces, xrWeaponWorld, XRHand::Right);
+	const float levelElapsed = xrWeaponPose.Valid ?
+		AdvanceGameFrameWithXRWeaponAim(xrWeaponPose) : AdvanceGameFrame();
 	viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
 	ViewFamily viewFamily = CreateDesktopViewFamily();
 	if (openXR && xrFrameBegun && shouldRenderXR)
@@ -418,6 +427,7 @@ void Engine::RunOneFrame()
 		if (xrViews.Views.size() == 2 && render->Device->BindPresentationTarget(binding))
 		{
 			xrViews.Presentation.SetLayer(PresentationLayer::World, target);
+			xrViews.Presentation.SetLayer(PresentationLayer::WeaponOverlay, target);
 			viewFamily = std::move(xrViews);
 			submitXRLayer = true;
 			if (openXRUI.IsStarted())
@@ -570,6 +580,54 @@ float Engine::AdvanceGameFrame()
 
 	UpdateAudio();
 	return levelElapsed;
+}
+
+float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose)
+{
+	SetXRWeaponPose(pose);
+	UPlayerPawn* pawn = viewport ? viewport->Actor() : nullptr;
+	UWeapon* weapon = pawn ? pawn->Weapon() : nullptr;
+	const bool menuActive = render && render->IsXRUIMenuActive();
+	bool cinematicActive = false;
+#ifdef __EMSCRIPTEN__
+	cinematicActive = browserCinematic != nullptr;
+#endif
+	if (!pose.Valid || menuActive || cinematicActive || !pawn || !weapon ||
+		weapon->Owner() != pawn)
+		return AdvanceGameFrame();
+
+	const vec3 aimDirection(pose.AimDirection.X, pose.AimDirection.Y,
+		pose.AimDirection.Z);
+	if (!std::isfinite(aimDirection.x) || !std::isfinite(aimDirection.y) ||
+		!std::isfinite(aimDirection.z) || length(aimDirection) < 0.0001f)
+		return AdvanceGameFrame();
+
+	XRWeaponRuntime::TransformInputs transforms;
+	transforms.BallisticRotationValid = true;
+	transforms.BallisticRotation = normalize(
+		Rotator::FromVector(normalize(aimDirection)));
+	VMCallHookCleanup aimCleanup = XRWeaponRuntime::BeginRotationScope(
+		XRWeaponRuntime::AimScopeKind::Ballistic,
+		{ &pawn->ViewRotation(), &weapon->Rotation() }, transforms);
+	if (!aimCleanup)
+		return AdvanceGameFrame();
+
+	struct ScopedAimRestore
+	{
+		ScopedAimRestore(VMCallHookCleanup cleanup, Rotator& cameraRotation)
+			: Cleanup(std::move(cleanup)), CameraRotation(cameraRotation),
+			SavedCamera(cameraRotation) {}
+		~ScopedAimRestore()
+		{
+			Cleanup();
+			CameraRotation = SavedCamera;
+		}
+		VMCallHookCleanup Cleanup;
+		Rotator& CameraRotation;
+		Rotator SavedCamera;
+	} restore(std::move(aimCleanup), CameraRotation);
+
+	return AdvanceGameFrame();
 }
 
 void Engine::RenderGameFrame(float levelElapsed)

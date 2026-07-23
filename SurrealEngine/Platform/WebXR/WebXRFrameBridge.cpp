@@ -167,6 +167,22 @@ WebXR::FrameError WebXR::GetLastFrameError()
 	return LastFrameError;
 }
 
+XRWorldTransform WebXR::BuildWeaponWorldTransform(const vec3& cameraLocation,
+	float engineYawRadians, float worldUnitsPerMeter,
+	const RecenterState& recenter)
+{
+	XRWorldTransform result;
+	result.EngineOrigin = { cameraLocation.x, cameraLocation.y,
+		cameraLocation.z - recenter.OriginMeters.z * worldUnitsPerMeter };
+	result.UnitsPerMeter = worldUnitsPerMeter;
+	result.EngineYawRadians = engineYawRadians;
+	result.Recenter.Valid = recenter.Valid;
+	result.Recenter.HorizontalOrigin = {
+		recenter.OriginMeters.y, 0.0f, -recenter.OriginMeters.x };
+	result.Recenter.ReferenceYawRadians = -recenter.YawOffset;
+	return result;
+}
+
 ViewFamily WebXR::BuildViewFamily(const DecodedFrame& frame, const vec3& cameraLocation,
 	const Coords& bodyRotation, float worldUnitsPerMeter, RecenterState& recenter)
 {

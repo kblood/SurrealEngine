@@ -18,6 +18,7 @@
 #include "Input/InputComposition.h"
 #include "Input/XRInputAdapter.h"
 #include "XR/XRStartupIntroRoute.h"
+#include "XR/XRWeaponPoseSolver.h"
 #include <set>
 #include <list>
 
@@ -86,6 +87,13 @@ public:
 	void RunOneFrame();
 	void UpdateOpenXRStartupIntro(const XRControllerSnapshot* controllers);
 	float AdvanceGameFrame();
+	// XR providers publish one provider-neutral weapon pose before simulation.
+	// The hand direction is scoped across input, level tick, delayed weapon
+	// states, and PlayerCalcView, then exact pawn/camera state is restored.
+	float AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose);
+	void SetXRWeaponPose(const XRWeaponPoseResult& pose) { xrWeaponPose = pose; }
+	const XRWeaponPoseResult& GetXRWeaponPose() const { return xrWeaponPose; }
+	void ClearXRWeaponPose() { xrWeaponPose = {}; }
 	void RenderGameFrame(float levelElapsed);
 	void RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily);
 	void FinishGameFrame(float levelElapsed);
@@ -247,6 +255,7 @@ public:
 	bool getDXWindowDebugMode() const { return m_DrawDebugDXWindowHierarchy; }
 
 private:
+	XRWeaponPoseResult xrWeaponPose;
 	ViewFamily CreateDesktopViewFamily() const;
 
 	// Scratch properties used by PlayerCalcView during AdvanceGameFrame.

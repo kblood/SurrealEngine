@@ -110,6 +110,63 @@ void RenderSubsystem::PostRenderFlash()
 
 void RenderSubsystem::DrawActor(UActor* actor, bool WireFrame, bool ClearZ)
 {
+	struct ScopedXRWeaponTransform
+	{
+		ScopedXRWeaponTransform(UActor* actor, bool apply,
+			const XRWeaponPoseResult& pose)
+			: Actor(actor), Applied(apply), SavedLocation(actor->Location()),
+			SavedRotation(actor->Rotation()), SavedScale(actor->DrawScale())
+		{
+			if (!Applied)
+				return;
+			Actor->Location() = vec3(pose.VisualPose.Position.X,
+				pose.VisualPose.Position.Y, pose.VisualPose.Position.Z);
+			const vec3 forward(pose.VisualForward.X, pose.VisualForward.Y,
+				pose.VisualForward.Z);
+			const vec3 right(pose.VisualRight.X, pose.VisualRight.Y,
+				pose.VisualRight.Z);
+			const vec3 up(pose.VisualUp.X, pose.VisualUp.Y, pose.VisualUp.Z);
+			constexpr float unitsPerRadian = 65536.0f /
+				(2.0f * 3.14159265359f);
+			const float horizontal = std::sqrt(forward.x * forward.x +
+				forward.y * forward.y);
+			float yaw = 0.0f;
+			float roll = 0.0f;
+			if (horizontal > 0.00001f)
+			{
+				yaw = std::atan2(forward.y, forward.x);
+				roll = std::atan2(-right.z, up.z);
+			}
+			else
+				yaw = std::atan2(-right.x, right.y);
+			const float pitch = std::atan2(forward.z, horizontal);
+			Actor->Rotation() = normalize(Rotator(
+				static_cast<int>(std::lround(pitch * unitsPerRadian)),
+				static_cast<int>(std::lround(yaw * unitsPerRadian)),
+				static_cast<int>(std::lround(roll * unitsPerRadian))));
+			Actor->DrawScale() = pose.Scale;
+		}
+		~ScopedXRWeaponTransform()
+		{
+			if (!Applied)
+				return;
+			Actor->Location() = SavedLocation;
+			Actor->Rotation() = SavedRotation;
+			Actor->DrawScale() = SavedScale;
+		}
+		UActor* Actor;
+		bool Applied;
+		vec3 SavedLocation;
+		Rotator SavedRotation;
+		float SavedScale;
+	};
+	UPlayerPawn* viewActor = engine->viewport ? engine->viewport->Actor() : nullptr;
+	UWeapon* currentWeapon = viewActor ? viewActor->Weapon() : nullptr;
+	const XRWeaponPoseResult& pose = engine->GetXRWeaponPose();
+	ScopedXRWeaponTransform xrTransform(actor,
+		XRWeaponOverlayActive && pose.Valid && actor == currentWeapon &&
+		currentWeapon && currentWeapon->Owner() == viewActor, pose);
+
 	Device->SetSceneNode(&MainFrame.Frame);
 	if (ClearZ)
 		Device->ClearZ();
@@ -728,6 +785,16 @@ bool RenderSubsystem::RenderXRWeaponOverlay()
 		Rotator SavedWeaponRotation;
 		float SavedWeaponScale;
 	} restore(Canvas.Frame, engine->canvas, Device, weapon);
+	struct ScopedOverlayFlag
+	{
+		explicit ScopedOverlayFlag(bool& active) : Active(active), Saved(active)
+		{
+			Active = true;
+		}
+		~ScopedOverlayFlag() { Active = Saved; }
+		bool& Active;
+		bool Saved;
+	} overlayFlag(XRWeaponOverlayActive);
 
 	// Canvas.DrawActor consumes MainFrame.Frame. Match the 2D canvas state to
 	// that same eye so weapon-specific tiles cannot spill into the other eye.

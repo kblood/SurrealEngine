@@ -73,8 +73,24 @@ int main()
 		!NearlyEqual(family.Views[0].Projection[11], 1.0f))
 		return 4;
 	if (family.Presentation.GetLayer(PresentationLayer::World).Target.Slot != 1 ||
+		family.Presentation.GetLayer(PresentationLayer::WeaponOverlay).Target.Slot != 1 ||
+		!family.Presentation.GetLayer(PresentationLayer::WeaponOverlay).Enabled ||
 		family.Presentation.GetLayer(PresentationLayer::UserInterface).Enabled)
 		return 5;
+	const XRWorldTransform weaponWorld = WebXR::BuildWeaponWorldTransform(
+		anchor, 0.0f, unitsPerMeter, recenter);
+	if (!weaponWorld.Recenter.Valid ||
+		!NearlyEqual(weaponWorld.EngineOrigin.X, anchor.x) ||
+		!NearlyEqual(weaponWorld.EngineOrigin.Y, anchor.y) ||
+		!NearlyEqual(weaponWorld.EngineOrigin.Z,
+			anchor.z - recenter.OriginMeters.z * unitsPerMeter) ||
+		!NearlyEqual(weaponWorld.Recenter.HorizontalOrigin.X,
+			recenter.OriginMeters.y) ||
+		!NearlyEqual(weaponWorld.Recenter.HorizontalOrigin.Z,
+			-recenter.OriginMeters.x) ||
+		!NearlyEqual(weaponWorld.Recenter.ReferenceYawRadians,
+			-recenter.YawOffset))
+		return 16;
 
 	ViewFamily sameGeneration = WebXR::BuildViewFamily(decoded, anchor, Coords::Identity(), unitsPerMeter, recenter);
 	(void)sameGeneration;

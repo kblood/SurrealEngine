@@ -44,6 +44,8 @@ public:
 	ViewFamily CreateViewFamily(const OpenXREyeView eyes[2], const vec3& anchorLocation, const Rotator& anchorRotation, const ViewRect& output);
 	XRUISurfaceRay CreatePointerRay(const XRPose& pose, const vec3& anchorLocation) const;
 	OpenXRUICompositionSpace CompositionSpace(const vec3& anchorLocation) const;
+	bool CreateWeaponWorldTransform(const vec3& anchorLocation,
+		XRWorldTransform& output) const;
 	void ResetRecenter() { recentered = false; yawOffset = 0.0f; }
 
 private:

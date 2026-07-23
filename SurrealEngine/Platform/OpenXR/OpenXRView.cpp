@@ -104,6 +104,18 @@ OpenXRUICompositionSpace OpenXRViewTranslator::CompositionSpace(
 	return { recentered, anchorLocation, yawOffset, UnrealUnitsPerMeter };
 }
 
+bool OpenXRViewTranslator::CreateWeaponWorldTransform(const vec3& anchorLocation,
+	XRWorldTransform& output) const
+{
+	output = {};
+	if (!recentered || !IsFinite(anchorLocation))
+		return false;
+	output.EngineOrigin = { anchorLocation.x, anchorLocation.y, anchorLocation.z };
+	output.UnitsPerMeter = UnrealUnitsPerMeter;
+	output.EngineYawRadians = yawOffset;
+	return true;
+}
+
 bool ConvertXRUISurfacePoseToOpenXRLocal(const XRUISurfacePose& pose,
 	const OpenXRUICompositionSpace& space, OpenXRUIQuadPose& output)
 {

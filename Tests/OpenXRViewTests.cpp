@@ -50,6 +50,17 @@ int main()
 		Near(pointer.Origin.y, 200.0f + 0.1f / 0.0254f) &&
 		Near(pointer.Direction.x, 1.0f),
 		"OpenXR aim pose did not share the view transform");
+	XRWorldTransform weaponWorld;
+	Check(translator.CreateWeaponWorldTransform({ 100.0f, 200.0f, 300.0f },
+		weaponWorld), "OpenXR weapon transform was unavailable after recenter");
+	XRSpaceSamples weaponSpaces;
+	weaponSpaces.AimFor(XRHand::Right) = rightAim;
+	XREnginePose weaponPose = TransformXRPoseToEngine(
+		weaponSpaces.AimFor(XRHand::Right), weaponWorld);
+	Check(weaponPose.Valid && Near(weaponPose.Position.X, pointer.Origin.x) &&
+		Near(weaponPose.Position.Y, pointer.Origin.y) &&
+		Near(weaponPose.Position.Z, pointer.Origin.z),
+		"OpenXR weapon pose did not share the view/pointer transform");
 	OpenXRUICompositionSpace compositionSpace = translator.CompositionSpace(
 		{ 100.0f, 200.0f, 300.0f });
 	XRUISurfacePose surface;
@@ -87,6 +98,8 @@ int main()
 		"UI surface did not reverse the shared recenter transform");
 
 	translator.ResetRecenter();
+	Check(!translator.CreateWeaponWorldTransform({}, weaponWorld),
+		"OpenXR weapon transform remained active after recenter reset");
 	Check(Near(length(translator.CreatePointerRay(rightAim, {}).Direction), 0.0f),
 		"OpenXR pointer remained active after recenter state reset");
 	ViewFamily invalid = translator.CreateViewFamily(eyes, {}, Rotator(), { 0, 0, 1, 1 });
