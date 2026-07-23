@@ -113,14 +113,17 @@ void RenderSubsystem::DrawActor(UActor* actor, bool WireFrame, bool ClearZ)
 	struct ScopedXRWeaponTransform
 	{
 		ScopedXRWeaponTransform(UActor* actor, bool apply,
-			const XRWeaponPoseResult& pose)
+			const XRWeaponPoseResult* pose)
 			: Actor(actor), Applied(apply), SavedLocation(actor->Location()),
 			SavedRotation(actor->Rotation()), SavedScale(actor->DrawScale())
 		{
-			if (!Applied)
+			if (!Applied || !pose)
+			{
+				Applied = false;
 				return;
+			}
 			const XRWeaponActorTransform transform =
-				BuildXRWeaponActorTransform(pose);
+				BuildXRWeaponActorTransform(*pose);
 			if (!transform.Valid)
 			{
 				Applied = false;
@@ -146,12 +149,9 @@ void RenderSubsystem::DrawActor(UActor* actor, bool WireFrame, bool ClearZ)
 		Rotator SavedRotation;
 		float SavedScale;
 	};
-	UPlayerPawn* viewActor = engine->viewport ? engine->viewport->Actor() : nullptr;
-	UWeapon* currentWeapon = viewActor ? viewActor->Weapon() : nullptr;
-	const XRWeaponPoseResult& pose = engine->GetXRWeaponPose();
+	const XRWeaponPoseResult* pose = engine->GetXRWeaponPoseForActor(actor);
 	ScopedXRWeaponTransform xrTransform(actor,
-		XRWeaponOverlayActive && pose.Valid && actor == currentWeapon &&
-		currentWeapon && currentWeapon->Owner() == viewActor, pose);
+		XRWeaponOverlayActive && pose && pose->Valid, pose);
 	if (xrTransform.Applied)
 	{
 		static uint64_t appliedTransformCount = 0;
@@ -825,6 +825,25 @@ bool RenderSubsystem::RenderXRWeaponOverlay()
 		// visible mesh draw. Stock RenderOverlays computes a camera-relative
 		// viewmodel transform and can overwrite controller/world rotation.
 		DrawActor(weapon, false, false);
+		UWeapon* secondaryWeapon = engine->GetXRSecondaryWeapon(weapon);
+		if (secondaryWeapon && engine->GetXROffHandWeaponPose().Valid)
+		{
+			DrawActor(secondaryWeapon, false, false);
+			static uint64_t dualDrawCount = 0;
+			if ((dualDrawCount++ % 180) == 0)
+			{
+				const XRWeaponPoseResult& mainPose = engine->GetXRWeaponPose();
+				const XRWeaponPoseResult& offPose = engine->GetXROffHandWeaponPose();
+				LogMessage("[openxr-dual-enforcer] master=" + weapon->Name.ToString() +
+					" main_yaw=" + std::to_string(Rotator::FromVector(vec3(
+						mainPose.AimDirection.X, mainPose.AimDirection.Y,
+						mainPose.AimDirection.Z)).YawDegrees()) +
+					" slave=" + secondaryWeapon->Name.ToString() +
+					" off_yaw=" + std::to_string(Rotator::FromVector(vec3(
+						offPose.AimDirection.X, offPose.AimDirection.Y,
+						offPose.AimDirection.Z)).YawDegrees()));
+			}
+		}
 	}
 	else if (engine->LaunchInfo.ue1Version > 219)
 		CallEvent(weapon, EventName::RenderOverlays,

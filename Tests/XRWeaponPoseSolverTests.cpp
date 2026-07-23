@@ -331,6 +331,33 @@ namespace
 		RequireNoOp(SolveXRWeaponPose(spaces, world, XRHand::Left),
 			"missing canonical aim sample did not return a no-op result");
 	}
+
+	void TestPrimaryAndSecondaryActorsSelectIndependentHandPoses()
+	{
+		int primaryActor = 1;
+		int secondaryActor = 2;
+		int unrelatedActor = 3;
+		XRWeaponPoseResult primaryPose;
+		primaryPose.Valid = true;
+		primaryPose.Hand = XRHand::Right;
+		XRWeaponPoseResult secondaryPose;
+		secondaryPose.Valid = true;
+		secondaryPose.Hand = XRHand::Left;
+
+		Require(SelectXRWeaponActorPose(&primaryActor, &primaryActor, primaryPose,
+			&secondaryActor, secondaryPose) == &primaryPose,
+			"primary weapon actor did not select the dominant-hand pose");
+		Require(SelectXRWeaponActorPose(&secondaryActor, &primaryActor, primaryPose,
+			&secondaryActor, secondaryPose) == &secondaryPose,
+			"secondary weapon actor did not select the off-hand pose");
+		Require(!SelectXRWeaponActorPose(&unrelatedActor, &primaryActor, primaryPose,
+			&secondaryActor, secondaryPose),
+			"unrelated actor incorrectly received an XR weapon pose");
+		secondaryPose.Valid = false;
+		Require(!SelectXRWeaponActorPose(&secondaryActor, &primaryActor, primaryPose,
+			&secondaryActor, secondaryPose),
+			"secondary actor received an invalid off-hand pose");
+	}
 }
 
 int main()
@@ -345,6 +372,7 @@ int main()
 		TestLocalPoseOffsetsAndMirrorMetadata();
 		TestDominantHandPolicySelectsPoseAndMirrorMetadata();
 		TestInvalidInputsAreNoOp();
+		TestPrimaryAndSecondaryActorsSelectIndependentHandPoses();
 		std::cout << "XR weapon pose solver tests passed\n";
 		return 0;
 	}

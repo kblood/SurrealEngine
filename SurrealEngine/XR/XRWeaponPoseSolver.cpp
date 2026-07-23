@@ -178,3 +178,14 @@ XRWeaponActorTransform BuildXRWeaponActorTransform(const XRWeaponPoseResult& pos
 	result.Scale = pose.Scale;
 	return result;
 }
+
+const XRWeaponPoseResult* SelectXRWeaponActorPose(const void* actor,
+	const void* primaryActor, const XRWeaponPoseResult& primaryPose,
+	const void* secondaryActor, const XRWeaponPoseResult& secondaryPose)
+{
+	if (actor && actor == primaryActor && primaryPose.Valid)
+		return &primaryPose;
+	if (actor && actor == secondaryActor && secondaryPose.Valid)
+		return &secondaryPose;
+	return nullptr;
+}

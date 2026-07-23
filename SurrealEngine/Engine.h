@@ -98,8 +98,17 @@ public:
 	// ordinary gameplay view remain unchanged outside classified weapon calls.
 	float AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose);
 	void SetXRWeaponPose(const XRWeaponPoseResult& pose) { xrWeaponPose = pose; }
+	void SetXRWeaponPoses(const XRWeaponPoseResult& pose,
+		const XRWeaponPoseResult& offHandPose)
+	{
+		xrWeaponPose = pose;
+		xrOffHandWeaponPose = offHandPose;
+	}
 	const XRWeaponPoseResult& GetXRWeaponPose() const { return xrWeaponPose; }
-	void ClearXRWeaponPose() { xrWeaponPose = {}; }
+	const XRWeaponPoseResult& GetXROffHandWeaponPose() const { return xrOffHandWeaponPose; }
+	void ClearXRWeaponPose() { xrWeaponPose = {}; xrOffHandWeaponPose = {}; }
+	UWeapon* GetXRSecondaryWeapon(UWeapon* master);
+	const XRWeaponPoseResult* GetXRWeaponPoseForActor(UActor* actor);
 	void SetXRDominantHand(XRHand hand);
 	XRHand GetXRDominantHand() const { return xrHandedness.Dominant; }
 	const XRHandedness& GetXRHandedness() const { return xrHandedness; }
@@ -270,6 +279,9 @@ public:
 
 private:
 	XRWeaponPoseResult xrWeaponPose;
+	XRWeaponPoseResult xrOffHandWeaponPose;
+	UClass* xrEnforcerClass = nullptr;
+	PropertyDataOffset xrEnforcerSlaveOffset;
 	uint64_t xrWeaponCallHook = 0;
 	ViewFamily CreateDesktopViewFamily() const;
 	void InstallXRWeaponCallHook();
@@ -277,6 +289,8 @@ private:
 	float AdvanceGameFrame(float realTimeElapsed);
 	float AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose,
 		float realTimeElapsed);
+	float AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose,
+		const XRWeaponPoseResult& offHandPose, float realTimeElapsed);
 	void UpdateOpenXRLocomotion(const XRPose& headPose,
 		const XRControllerSnapshot& controllers, float realTimeElapsed,
 		bool gameplayInputEnabled);

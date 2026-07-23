@@ -52,6 +52,7 @@ namespace
 		expect(Global("Botpack", "ChainSaw", "Slash"), AimScopeKind::Ballistic);
 		expect(Global("Botpack", "ImpactHammer", "TraceAltFire"), AimScopeKind::Ballistic);
 		expect(State("ImpactHammer", "Firing", "Firing", "Tick"), AimScopeKind::Ballistic);
+		expect(Global("Botpack", "StarterBolt", "Tick"), AimScopeKind::Ballistic);
 		expect(Global("Engine", "Weapon", "RenderOverlays"), AimScopeKind::Presentation);
 		expect(Global("CustomWeapons", "ModWeapon", "RenderOverlays"), AimScopeKind::Presentation);
 
@@ -60,6 +61,9 @@ namespace
 			Global("Engine", "Actor", "Tick"),
 			State("UT_Eightball", "NormalFire", "NormalFire", "Tick"),
 			State("ImpactHammer", "Firing", "ClientFiring", "Tick"),
+			Global("Botpack", "PBolt", "Tick"),
+			Global("Botpack", "StarterBolt", "Timer"),
+			Global("WrongPackage", "StarterBolt", "Tick"),
 			Global("WrongPackage", "UT_FlakCannon", "Fire"),
 			Global("Botpack", "FlakCannon", "Fire"),
 			State("WrongClass", "FireRockets", "FireRockets", "BeginState"),
@@ -144,7 +148,8 @@ namespace
 			State("UT_Eightball", "FireRockets", "FireRockets", "BeginState"),
 			Global("Botpack", "UT_Eightball", "CheckTarget"),
 			Global("Botpack", "ImpactHammer", "TraceAltFire"),
-			State("ImpactHammer", "Firing", "Firing", "Tick")
+			State("ImpactHammer", "Firing", "Firing", "Tick"),
+			Global("Botpack", "StarterBolt", "Tick")
 		};
 		for (const CallMetadata& call : ballisticCalls)
 		{
@@ -178,7 +183,7 @@ namespace
 			Require(Exact(pawn, Rotator(11, 22, 33)) && Exact(weapon, Rotator(44, 55, 66)),
 				"unclassified weapon call changed rotations");
 		}
-		Require(resolverCalls == 13, "VM hook resolver call count was unexpected");
+		Require(resolverCalls == 14, "VM hook resolver call count was unexpected");
 	}
 }
 

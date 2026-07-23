@@ -122,6 +122,16 @@ Negating the yaw at that convention boundary makes both orientation and
 position agree with the rendered view/pointer after a 90-degree turn.
 `48cc99ea` remains a failed candidate.
 
+The `95d4417d` retest physically passed the corrected weapon/world turn
+relationship. It then exposed two weapon-specific gaps: the PulseGun's
+continuous alternate-fire beam still followed `ViewRotation`, and collecting a
+second Enforcer did not produce the stock dual-wield pair in the XR overlay.
+The beam is updated by the local player's `StarterBolt.Tick` after its initial
+`ProjectileFire`, while the pair uses the reflected `SlaveEnforcer` actor. The
+follow-up scopes the beam tick to controller aim and restores the first VR
+release's explicit slave draw and off-hand shot routing. `95d4417d` remains a
+failed overall candidate; the follow-up requires physical verification.
+
 ## Safe start — explicit launcher only
 
 - [ ] Use a charged Quest 3 with both controllers awake. Connect Virtual

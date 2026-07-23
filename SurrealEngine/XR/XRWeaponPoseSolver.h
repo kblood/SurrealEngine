@@ -54,3 +54,7 @@ XRWeaponPoseResult SolveXRWeaponPose(const XRSpaceSamples& spaces, const XRWorld
 	XRHand dominantHand, const XRWeaponPoseOptions& options = {});
 
 XRWeaponActorTransform BuildXRWeaponActorTransform(const XRWeaponPoseResult& pose);
+
+const XRWeaponPoseResult* SelectXRWeaponActorPose(const void* actor,
+	const void* primaryActor, const XRWeaponPoseResult& primaryPose,
+	const void* secondaryActor, const XRWeaponPoseResult& secondaryPose);

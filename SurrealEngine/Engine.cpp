@@ -498,6 +498,7 @@ void Engine::RunOneFrame()
 			xrGameplayInputEnabled && openXR->SessionState().AcceptsInput());
 	ClearXRWeaponPose();
 	XRWeaponPoseResult xrWeaponPose;
+	XRWeaponPoseResult xrOffHandWeaponPose;
 	XRWorldTransform xrWeaponWorld;
 	if (openXR && xrFrameBegun && openXRViews.CreateWeaponWorldTransform(
 		CameraLocation, xrWeaponWorld))
@@ -510,11 +511,15 @@ void Engine::RunOneFrame()
 		options.VisualAnchor = XRWeaponVisualAnchor::Aim;
 		xrWeaponPose = SolveXRWeaponPose(xrSpaces, xrWeaponWorld,
 			xrHandedness.Dominant, options);
+		options.Mirror = xrHandedness.OffHand() == XRHand::Left;
+		xrOffHandWeaponPose = SolveXRWeaponPose(xrSpaces, xrWeaponWorld,
+			xrHandedness.OffHand(), options);
 		UpdateOpenXRWeaponDiagnostics(realTimeElapsed, xrSpaces,
 			xrWeaponWorld, xrWeaponPose);
 	}
 	const float levelElapsed = xrWeaponPose.Valid ?
-		AdvanceGameFrameWithXRWeaponAim(xrWeaponPose, realTimeElapsed) :
+		AdvanceGameFrameWithXRWeaponAim(xrWeaponPose, xrOffHandWeaponPose,
+			realTimeElapsed) :
 		AdvanceGameFrame(realTimeElapsed);
 	viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
 	ViewFamily viewFamily = CreateDesktopViewFamily();
@@ -902,6 +907,12 @@ float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose)
 float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose,
 	float realTimeElapsed)
 {
+	return AdvanceGameFrameWithXRWeaponAim(pose, {}, realTimeElapsed);
+}
+
+float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose,
+	const XRWeaponPoseResult& offHandPose, float realTimeElapsed)
+{
 	ClearXRWeaponPose();
 	UPlayerPawn* pawn = viewport ? viewport->Actor() : nullptr;
 	UWeapon* weapon = pawn ? pawn->Weapon() : nullptr;
@@ -920,8 +931,47 @@ float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose,
 		!std::isfinite(aimDirection.z) || length(aimDirection) < 0.0001f)
 		return AdvanceGameFrame(realTimeElapsed);
 
-	SetXRWeaponPose(pose);
+	XRWeaponPoseResult validatedOffHandPose;
+	const vec3 offHandAim(offHandPose.AimDirection.X, offHandPose.AimDirection.Y,
+		offHandPose.AimDirection.Z);
+	if (offHandPose.Valid && std::isfinite(offHandAim.x) &&
+		std::isfinite(offHandAim.y) && std::isfinite(offHandAim.z) &&
+		length(offHandAim) >= 0.0001f)
+		validatedOffHandPose = offHandPose;
+	SetXRWeaponPoses(pose, validatedOffHandPose);
 	return AdvanceGameFrame(realTimeElapsed);
+}
+
+UWeapon* Engine::GetXRSecondaryWeapon(UWeapon* master)
+{
+	if (!master || !master->Class || master->Class->Name != NameString("Enforcer"))
+		return nullptr;
+
+	if (xrEnforcerClass != master->Class)
+	{
+		xrEnforcerClass = master->Class;
+		xrEnforcerSlaveOffset = master->GetPropertyDataOffset("SlaveEnforcer");
+		LogMessage(std::string("[openxr-dual-enforcer] SlaveEnforcer property ") +
+			(xrEnforcerSlaveOffset.DataOffset == ~(size_t)0 ? "not found" : "resolved"));
+	}
+	if (xrEnforcerSlaveOffset.DataOffset == ~(size_t)0)
+		return nullptr;
+
+	UWeapon* slave = UObject::TryCast<UWeapon>(
+		master->Value<UObject*>(xrEnforcerSlaveOffset));
+	if (!slave || slave == master || slave->Owner() != master->Owner())
+		return nullptr;
+	return slave;
+}
+
+const XRWeaponPoseResult* Engine::GetXRWeaponPoseForActor(UActor* actor)
+{
+	UPlayerPawn* pawn = viewport ? viewport->Actor() : nullptr;
+	UWeapon* master = pawn ? pawn->Weapon() : nullptr;
+	if (!actor || !master || master->Owner() != pawn)
+		return nullptr;
+	return SelectXRWeaponActorPose(actor, master, xrWeaponPose,
+		GetXRSecondaryWeapon(master), xrOffHandWeaponPose);
 }
 
 void Engine::InstallXRWeaponCallHook()
@@ -942,22 +992,60 @@ void Engine::InstallXRWeaponCallHook()
 				if (!pawn || !weapon || weapon->Owner() != pawn)
 					return {};
 
+				UWeapon* secondaryWeapon = GetXRSecondaryWeapon(weapon);
+				UActor* callActor = UObject::TryCast<UActor>(instance);
+				const bool pulseBeamTick = callActor && callActor->Class &&
+					weapon->Class && weapon->Class->Name == NameString("PulseGun") &&
+					callActor->Class->Name == NameString("StarterBolt") &&
+					callActor->Instigator() == pawn && function->Name == "Tick";
 				const bool pawnAimCall = instance == pawn &&
 					(function->Name == "AdjustAim" || function->Name == "AdjustToss");
-				if (instance != weapon && !pawnAimCall)
+				if (instance != weapon && instance != secondaryWeapon &&
+					!pawnAimCall && !pulseBeamTick)
 					return {};
 
-				const vec3 aimDirection(xrWeaponPose.AimDirection.X,
-					xrWeaponPose.AimDirection.Y, xrWeaponPose.AimDirection.Z);
+				const XRWeaponPoseResult* pose = &xrWeaponPose;
+				UWeapon* scopedWeapon = weapon;
+				if (instance == secondaryWeapon)
+				{
+					if (!xrOffHandWeaponPose.Valid)
+						return {};
+					pose = &xrOffHandWeaponPose;
+					scopedWeapon = secondaryWeapon;
+					static bool loggedSlaveAim = false;
+					if (!loggedSlaveAim && (function->Name == "TraceFire" ||
+						function->Name == "ProjectileFire"))
+					{
+						loggedSlaveAim = true;
+						LogMessage("[openxr-dual-enforcer] slave fire routed to off-hand aim");
+					}
+				}
+				else if (pawnAimCall && secondaryWeapon && xrOffHandWeaponPose.Valid)
+				{
+					const vec3 secondaryAim(xrOffHandWeaponPose.AimDirection.X,
+						xrOffHandWeaponPose.AimDirection.Y,
+						xrOffHandWeaponPose.AimDirection.Z);
+					const Rotator secondaryRotation = normalize(
+						Rotator::FromVector(normalize(secondaryAim)));
+					if (pawn->ViewRotation() == secondaryRotation)
+					{
+						pose = &xrOffHandWeaponPose;
+						scopedWeapon = secondaryWeapon;
+					}
+				}
+
+				const vec3 aimDirection(pose->AimDirection.X,
+					pose->AimDirection.Y, pose->AimDirection.Z);
 				if (!std::isfinite(aimDirection.x) || !std::isfinite(aimDirection.y) ||
 					!std::isfinite(aimDirection.z) || length(aimDirection) < 0.0001f)
 					return {};
 
 				XRWeaponRuntime::ScopeRequest request;
-				if (weapon->Class && weapon->Class->package)
-					request.Call.PackageName = weapon->Class->package->GetPackageName().ToString();
-				if (weapon->Class)
-					request.Call.ClassName = weapon->Class->Name.ToString();
+				UObject* callClassSource = pulseBeamTick ? instance : scopedWeapon;
+				if (callClassSource->Class && callClassSource->Class->package)
+					request.Call.PackageName = callClassSource->Class->package->GetPackageName().ToString();
+				if (callClassSource->Class)
+					request.Call.ClassName = callClassSource->Class->Name.ToString();
 				request.Call.ActiveStateName = instance->GetStateName().ToString();
 				request.Call.FunctionName = function->Name.ToString();
 
@@ -968,10 +1056,19 @@ void Engine::InstallXRWeaponCallHook()
 						request.Call.DeclaringStateName = state->Name.ToString();
 				}
 
-				request.Targets = { &pawn->ViewRotation(), &weapon->Rotation() };
+				request.Targets = { &pawn->ViewRotation(), &scopedWeapon->Rotation() };
 				request.Transforms.BallisticRotationValid = true;
 				request.Transforms.BallisticRotation = normalize(
 					Rotator::FromVector(normalize(aimDirection)));
+				if (pulseBeamTick)
+				{
+					static bool loggedPulseBeamAim = false;
+					if (!loggedPulseBeamAim)
+					{
+						loggedPulseBeamAim = true;
+						LogMessage("[openxr-pulse-beam] StarterBolt.Tick routed to controller aim");
+					}
+				}
 				return request;
 			}));
 }

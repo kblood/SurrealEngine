@@ -58,10 +58,13 @@ namespace XRWeaponRuntime
 				EqualsIgnoreCase(call.FunctionName, functionName);
 		};
 
+		// StarterBolt owns the PulseGun beam after its initial ProjectileFire and
+		// reads the instigator's ViewRotation again on every update.
 		if (global("UT_FlakCannon", "Fire") || global("UT_FlakCannon", "AltFire") ||
 			state("UT_Eightball", "FireRockets", "BeginState") ||
 			global("Translocator", "ThrowTarget") || global("ChainSaw", "Slash") ||
-			global("ImpactHammer", "TraceAltFire") || state("ImpactHammer", "Firing", "Tick"))
+			global("ImpactHammer", "TraceAltFire") || state("ImpactHammer", "Firing", "Tick") ||
+			global("StarterBolt", "Tick"))
 			return AimScopeKind::Ballistic;
 
 		if (global("UT_Eightball", "CheckTarget"))
