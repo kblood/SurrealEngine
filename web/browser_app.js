@@ -188,6 +188,13 @@
 		if (!Module || typeof Module.callMain !== "function") {
 			throw new LauncherError("ENGINE_RUNTIME", "The SurrealEngine runtime is not ready to start.");
 		}
+		if (typeof Module._Surreal_StartBrowserGame === "function" && typeof Module.ccall === "function") {
+			return Module.ccall("Surreal_StartBrowserGame", "number",
+				["string", "string", "number"],
+				[selection.skipIntro === false ? "" : selection.map,
+					selection.renderer || "webgpu", selection.skipIntro === false ? 0 : 1],
+				{ async: true });
+		}
 		// Emscripten prepends argv[0] in place. Keep the public launch
 		// description immutable, but give callMain its own mutable copy.
 		return Module.callMain(Array.from(buildNativeArguments(selection)));

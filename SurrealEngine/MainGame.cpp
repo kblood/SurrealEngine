@@ -4,6 +4,9 @@
 #include "Utils/UTF16.h"
 #include <iostream>
 #include <vector>
+#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+#include <emscripten/emscripten.h>
+#endif
 #ifdef WIN32
 #include <CommCtrl.h>
 #include <ObjBase.h>
@@ -70,14 +73,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 
 #else
 
-int main(int argc, char** argv)
+static int RunGame(Array<std::string> args)
 {
 	try
 	{
-		Array<std::string> args;
-		for (int i = 1; i < argc; i++)
-			args.push_back(argv[i]);
-
 		GameApp app;
 		return app.main(std::move(args));
 	}
@@ -87,5 +86,26 @@ int main(int argc, char** argv)
 		return 1;
 	}
 }
+
+int main(int argc, char** argv)
+{
+	Array<std::string> args;
+	for (int i = 1; i < argc; i++)
+		args.push_back(argv[i]);
+	return RunGame(std::move(args));
+}
+
+#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+extern "C" EMSCRIPTEN_KEEPALIVE int Surreal_StartBrowserGame(const char* map, const char* renderer, int skipIntro)
+{
+	Array<std::string> args;
+	args.push_back("--autoplay");
+	if (skipIntro && map && *map)
+		args.push_back(std::string("--url=") + map);
+	args.push_back(std::string("--render=") + (renderer && *renderer ? renderer : "webgpu"));
+	args.push_back("/gamedata");
+	return RunGame(std::move(args));
+}
+#endif
 
 #endif

@@ -5,8 +5,17 @@ project(SurrealEngine)
 include(CTest)
 
 option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS "Use the experimental on-demand WasmFS OPFS game-data mount" OFF)
-if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS AND NOT EMSCRIPTEN)
-	message(FATAL_ERROR "SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS is available only for Emscripten builds")
+option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY "Use the experimental Window-owned Asyncify/WasmFS OPFS game-data mount" OFF)
+if((SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS OR SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY) AND NOT EMSCRIPTEN)
+	message(FATAL_ERROR "The experimental WasmFS OPFS options are available only for Emscripten builds")
+endif()
+if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS AND SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
+	message(FATAL_ERROR "Select only one experimental WasmFS OPFS execution model")
+endif()
+
+set(SURREAL_WEB_USE_PTHREADS ON)
+if(EMSCRIPTEN AND SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
+	set(SURREAL_WEB_USE_PTHREADS OFF)
 endif()
 option(SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD "Run the experimental Emscripten application main on a worker" OFF)
 if(SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD AND NOT EMSCRIPTEN)
@@ -14,15 +23,16 @@ if(SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD AND NOT EMSCRIPTEN)
 endif()
 
 if(EMSCRIPTEN)
-	# Every TU in every subdirectory must be compiled with atomics/bulk-memory
-	# (implied by -pthread) since the final link uses --shared-memory - a single
-	# TU compiled without it fails the link, not just a warning. Likewise,
+	# Every TU in every subdirectory must be compiled with atomics/bulk-memory when
+	# the final link uses shared memory. The Asyncify experiment deliberately keeps
+	# the application on Window and therefore compiles without pthreads. Likewise,
 	# exception catching (needed throughout - the engine uses try/catch
 	# pervasively, e.g. File::try_open_existing) must be enabled per-TU at
-	# compile time, not just as a link setting - a TU compiled without it
-	# lets exceptions thrown within it escape any local catch, matching the
-	# -pthread lesson above.
-	add_compile_options(-pthread -sNO_DISABLE_EXCEPTION_CATCHING)
+	# compile time, not just as a link setting.
+	if(SURREAL_WEB_USE_PTHREADS)
+		add_compile_options(-pthread)
+	endif()
+	add_compile_options(-sNO_DISABLE_EXCEPTION_CATCHING)
 endif()
 
 option(SURREAL_ENABLE_OPENXR "Build the optional native OpenXR Vulkan provider" OFF)
@@ -704,7 +714,7 @@ set(SURREALENGINE_SOURCES
 	SurrealEngine/MainGame.cpp
 )
 
-if(EMSCRIPTEN AND SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS)
+if(EMSCRIPTEN AND (SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS OR SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY))
 	list(APPEND SURREALCOMMON_SOURCES
 		SurrealEngine/Platform/BrowserGameDataMount.cpp
 		SurrealEngine/Platform/BrowserGameDataMount.h
@@ -849,8 +859,11 @@ elseif(EMSCRIPTEN)
 	set(SURREALCOMMON_SOURCES ${SURREALCOMMON_SOURCES} ${SURREALCOMMON_WEBGPU_SOURCES})
 	set(THIRDPARTY_SOURCES ${THIRDPARTY_SOURCES} ${THIRDPARTY_UNIX_SOURCES})
 	add_definitions(-DUNIX -D_UNIX)
-	add_compile_options(-pthread --use-port=emdawnwebgpu)
-	add_link_options(-pthread)
+	add_compile_options(--use-port=emdawnwebgpu)
+	if(SURREAL_WEB_USE_PTHREADS)
+		add_compile_options(-pthread)
+		add_link_options(-pthread)
+	endif()
 else()
 	set(SURREALCOMMON_SOURCES ${SURREALCOMMON_SOURCES})
 	set(SURREALCOMMON_LIBS ${SURREALCOMMON_LIBS} ${SURREALCOMMON_UNIX_LIBS} ${CMAKE_DL_LIBS} -lasound)
@@ -1078,9 +1091,17 @@ endif()
 
 if(EMSCRIPTEN)
 	set(SURREAL_BROWSER_EXPORTED_FUNCTIONS "_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_SetXRFrameLoopActive,_Surreal_ResumeBrowserAudio,_Surreal_SuspendBrowserAudio,_Surreal_ShutdownBrowserAudio,_Surreal_SetBrowserAudioOutput,_Surreal_GetBrowserAudioState,_Surreal_GetBrowserAudioCurrentTimeMs,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_GetWebXRFrameLastError,_Surreal_RenderWebXRFrame,_Surreal_GetWebXRWorldUnitsPerMeter,_Surreal_SetWebXRWorldUnitsPerMeter,_Surreal_ResetWebXRPose,_Surreal_GetWebXRPoseRecenterCount,_Surreal_GetWebXRPointerFeedbackSize,_Surreal_GetWebXRPointerFeedback,_Surreal_GetWebXRInputABIVersion,_Surreal_GetWebXRInputHeaderSize,_Surreal_GetWebXRInputSourceSize,_Surreal_GetWebXRInputMaxSources,_Surreal_ValidateWebXRInputSnapshot,_Surreal_SubmitWebXRInputSnapshot,_Surreal_GetWebXRInputLastError,_Surreal_ClearWebXRInputSnapshot,_Surreal_ApplyWebXRInputSnapshot")
-	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS)
-		string(APPEND SURREAL_BROWSER_EXPORTED_FUNCTIONS ",_Surreal_GetBrowserOPFSMountABIVersion,_Surreal_GetBrowserWasmHeapSize,_Surreal_BeginBrowserOPFSMount,_Surreal_AddBrowserOPFSMountFile")
+	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS OR SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
+		string(APPEND SURREAL_BROWSER_EXPORTED_FUNCTIONS ",_Surreal_GetBrowserOPFSMountABIVersion,_Surreal_GetBrowserOPFSMountMode,_Surreal_GetBrowserWasmHeapSize,_Surreal_BeginBrowserOPFSMount,_Surreal_AddBrowserOPFSMountFile,_Surreal_PrepareBrowserOPFSMount")
 		target_compile_definitions(SurrealCommon PRIVATE SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS=1)
+		if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
+			string(APPEND SURREAL_BROWSER_EXPORTED_FUNCTIONS ",_Surreal_StartBrowserGame")
+			target_compile_definitions(SurrealEngine PRIVATE SURREAL_WEB_WASMFS_OPFS_ASYNCIFY=1)
+			target_compile_definitions(SurrealCommon PRIVATE
+				SURREAL_WEB_WASMFS_OPFS_ASYNCIFY=1
+				SURREAL_WEB_SINGLE_THREADED=1
+			)
+		endif()
 	endif()
 	if(SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD OR SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS)
 		target_compile_definitions(surrealwidgets PRIVATE SURREAL_WEB_PROXY_TO_PTHREAD=1)
@@ -1092,20 +1113,37 @@ if(EMSCRIPTEN)
 	target_link_options(SurrealEngine PRIVATE
 		-lopenal
 		--js-library ${CMAKE_CURRENT_SOURCE_DIR}/web/browser_audio_library.js
-		-sALLOW_MEMORY_GROWTH=1
 		-sSTACK_SIZE=8MB
-		-sINITIAL_MEMORY=256MB
 		-sINVOKE_RUN=0
 		-sEXIT_RUNTIME=0
 		-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall
 		-sEXPORTED_FUNCTIONS=${SURREAL_BROWSER_EXPORTED_FUNCTIONS}
 		-sASSERTIONS=1
 		-sNO_DISABLE_EXCEPTION_CATCHING
-		-pthread
-		-sPTHREAD_POOL_SIZE=2
 		-sUSE_SDL=2
 		--use-port=emdawnwebgpu
 	)
+	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
+		# Emscripten 6.0.2's Asyncify OPFS glue passes views of a resizable Wasm
+		# ArrayBuffer to TextDecoder, which Chrome rejects. Use a measured fixed
+		# 256 MiB heap. A former presentation failure at this size was an
+		# unbounded Emscripten OpenAL source-count allocation, not engine demand.
+		target_link_options(SurrealEngine PRIVATE
+			-sINITIAL_MEMORY=256MB
+			-sALLOW_MEMORY_GROWTH=0
+		)
+	else()
+		target_link_options(SurrealEngine PRIVATE
+			-sINITIAL_MEMORY=256MB
+			-sALLOW_MEMORY_GROWTH=1
+		)
+	endif()
+	if(SURREAL_WEB_USE_PTHREADS)
+		target_link_options(SurrealEngine PRIVATE
+			-pthread
+			-sPTHREAD_POOL_SIZE=2
+		)
+	endif()
 	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS)
 		target_link_options(SurrealEngine PRIVATE
 			-sWASMFS
@@ -1138,6 +1176,14 @@ if(EMSCRIPTEN)
 			--use-port=emdawnwebgpu
 		)
 		set_target_properties(PthreadWebGPUDeviceProbe PROPERTIES SUFFIX ".js")
+	endif()
+	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
+		target_link_options(SurrealEngine PRIVATE
+			-sWASMFS
+			-sFORCE_FILESYSTEM
+			-sASYNCIFY
+			-sASYNCIFY_STACK_SIZE=65536
+		)
 	endif()
 	if(SURREAL_GAMEDATA_DIR)
 		# Developer convenience only. Production/distributable builds deliberately

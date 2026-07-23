@@ -19,7 +19,7 @@
 
 namespace
 {
-	constexpr int MountABIVersion = 1;
+	constexpr int MountABIVersion = 2;
 	constexpr const char* OPFSMountRoot = "/.surreal-opfs";
 	constexpr const char* GameDataRoot = "/gamedata";
 
@@ -208,6 +208,15 @@ extern "C"
 		return MountABIVersion;
 	}
 
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetBrowserOPFSMountMode()
+	{
+#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		return 2; // Window-owned engine; JavaScript awaits the native OPFS preparation.
+#else
+		return 1; // PROXY_TO_PTHREAD engine; GameApp prepares OPFS on its worker.
+#endif
+	}
+
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetBrowserWasmHeapSize()
 	{
 		return static_cast<uint32_t>(emscripten_get_heap_size());
@@ -314,4 +323,9 @@ namespace BrowserGameDataMount
 	{
 		return Configuration.Error;
 	}
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int Surreal_PrepareBrowserOPFSMount()
+{
+	return BrowserGameDataMount::MountConfigured() ? 1 : 0;
 }

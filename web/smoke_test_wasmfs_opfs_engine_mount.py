@@ -52,6 +52,7 @@ with sync_playwright() as playwright:
 	}""")
 	first_log = wait_for_log(page, "[data] mounted 9 OPFS file(s)")
 	first_heap = page.evaluate("Module.ccall('Surreal_GetBrowserWasmHeapSize', 'number', [], [])")
+	mount_mode = page.evaluate("Module.ccall('Surreal_GetBrowserOPFSMountMode', 'number', [], [])")
 
 	page.goto(page_url, wait_until="load")
 	second_log = wait_for_log(page, "[data] mounted 9 OPFS file(s)")
@@ -65,13 +66,14 @@ summary = {
 	"restoredRuntimeMode": next((line for line in second_log if "via opfs-mount" in line), None),
 	"firstHeapBytes": first_heap,
 	"restoredHeapBytes": second_heap,
+	"mountMode": mount_mode,
 	"crashed": crashed,
 	"pageErrors": page_errors,
 }
 print(json.dumps(summary, indent=2))
 if ("runtime=opfs-mount" not in (summary["firstRuntimeMode"] or "") or
 		"via opfs-mount" not in (summary["restoredRuntimeMode"] or "") or
-		first_heap != 256 * 1024 * 1024 or second_heap != first_heap or crashed or page_errors):
+		first_heap != 256 * 1024 * 1024 or second_heap != first_heap or mount_mode != 2 or crashed or page_errors):
 	print("FAIL: experimental engine OPFS mount", file=sys.stderr)
 	sys.exit(1)
-print("PASS: synthetic import and reload use the engine-worker OPFS mount at fixed initial heap")
+print("PASS: synthetic import and reload use the Window-owned Asyncify OPFS mount at fixed initial heap")

@@ -242,10 +242,24 @@ void Engine::Setup()
 		return;
 	}
 
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+	LogMessage("[asyncify-stage] OpenWindow begin");
+	#endif
 	OpenWindow();
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+	LogMessage("[asyncify-stage] OpenWindow complete");
+	LogMessage("[asyncify-stage] Audio InitDevice begin");
+	#endif
 
 	audiodev->InitDevice();
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+	LogMessage("[asyncify-stage] Audio InitDevice complete");
+	LogMessage("[asyncify-stage] RenderSubsystem begin");
+	#endif
 	render = std::make_unique<RenderSubsystem>(window->GetRenderDevice());
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+	LogMessage("[asyncify-stage] RenderSubsystem complete");
+	#endif
 	if (openXR && !openXR->IsSessionReady())
 	{
 		LogMessage("OpenXR did not bind to the selected renderer; continuing in desktop mode");
@@ -269,16 +283,36 @@ void Engine::Setup()
 	}
 
 	if (!LaunchInfo.noEntryMap)
+	{
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] Entry map begin");
+	#endif
 		LoadEntryMap();
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] Entry map complete");
+	#endif
+	}
 
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+	LogMessage("[asyncify-stage] Main map begin");
+	#endif
 	if (LaunchInfo.url.empty())
 		LoadMap(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")));
 	else
 		LoadMap(UnrealURL(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")), LaunchInfo.url));
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+	LogMessage("[asyncify-stage] Main map complete");
+	#endif
 	startupIntroActive = LaunchInfo.url.empty() &&
 		(LaunchInfo.IsUnrealTournament() || LaunchInfo.IsUnreal1());
 
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+	LogMessage("[asyncify-stage] LoginPlayer begin");
+	#endif
 	LoginPlayer();
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+	LogMessage("[asyncify-stage] LoginPlayer complete");
+	#endif
 
 	frameObjProp = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	frameVecProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);

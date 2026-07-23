@@ -22,8 +22,10 @@ static int closesocket(int fd) { return close(fd); }
 
 UInternetLink::~UInternetLink()
 {
+#ifndef SURREAL_WEB_SINGLE_THREADED
 	if (Thread.joinable())
 		Thread.join();
+#endif
 }
 
 void UInternetLink::Tick(float elapsed)
@@ -76,9 +78,6 @@ void UInternetLink::Resolve(const std::string& Domain)
 	{
 		ResolveStatus = 1;
 
-		if (Thread.joinable())
-			Thread.detach();
-
 		std::string _address = Domain;
 		auto threadMain = [this, _address]()
 		{
@@ -98,7 +97,16 @@ void UInternetLink::Resolve(const std::string& Domain)
 			ResolvedAddr.Port = htons(7777);
 		};
 
+#ifdef SURREAL_WEB_SINGLE_THREADED
+		// Browser name resolution is already supplied synchronously by Emscripten's
+		// socket shim. Avoid creating a pthread in the Window-owned Asyncify build.
+		lock.unlock();
+		threadMain();
+#else
+		if (Thread.joinable())
+			Thread.detach();
 		Thread = std::thread(threadMain);
+#endif
 	}
 }
 

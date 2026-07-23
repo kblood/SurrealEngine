@@ -49,7 +49,9 @@ public:
 	int& RemoteSocket() { return Value<int>(PropOffsets_InternetLink.RemoteSocket); }
 	int& Socket() { return Value<int>(PropOffsets_InternetLink.Socket); }
 
+#ifndef SURREAL_WEB_SINGLE_THREADED
 	std::thread Thread;
+#endif
 	std::mutex Mutex;
 	int LastError = 0;
 	IpAddr ResolvedAddr = { 0 };

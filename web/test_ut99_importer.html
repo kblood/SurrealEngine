@@ -287,6 +287,33 @@ window.importerTestPromise = (async function () {
 		assert(Module.FS.files.size === 0, "mount preparation materialized data in MEMFS");
 	});
 
+	await run("Window-owned OPFS runtime awaits native Asyncify preparation", async () => {
+		const restored = await idbStorage.load();
+		const calls = [];
+		const Module = {
+			FS: new FakeFS(false),
+			ccall(name, returnType, argumentTypes, args, options) {
+				calls.push({ name, args: (args || []).slice(), options });
+				if (name === "Surreal_GetBrowserOPFSMountABIVersion") return 2;
+				if (name === "Surreal_GetBrowserOPFSMountMode") return 2;
+				if (name === "Surreal_PrepareBrowserOPFSMount") return Promise.resolve(1);
+				return 1;
+			},
+		};
+		const dataset = {
+			metadata: restored.metadata,
+			mount: { type: "wasmfs-opfs-v1", storageDirectory: "synthetic-opfs", datasetId: restored.metadata.datasetId },
+			getBlob: async () => { throw new Error("Asyncify preparation must not read a blob"); },
+		};
+		const prepared = await api.prepareRuntimeDataset(Module, dataset);
+		assert(prepared.mode === "opfs-mount");
+		const nativePrepare = calls.find(call => call.name === "Surreal_PrepareBrowserOPFSMount");
+		assert(nativePrepare && nativePrepare.options && nativePrepare.options.async === true,
+			"native mount preparation was not awaited through Asyncify");
+		assert(calls.indexOf(nativePrepare) > calls.findIndex(call => call.name === "Surreal_AddBrowserOPFSMountFile"),
+			"native mount preparation ran before its manifest was registered");
+	});
+
 	await run("developer preload bypasses persistence and launches once", async () => {
 		let storageLoads = 0;
 		let launches = 0;

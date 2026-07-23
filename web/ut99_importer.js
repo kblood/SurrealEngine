@@ -843,14 +843,23 @@
 		}
 	}
 
-	function supportsOPFSMount(Module) {
+	function getOPFSMountMode(Module) {
 		if (!Module || typeof Module.ccall !== "function" ||
-			typeof Module._Surreal_GetBrowserOPFSMountABIVersion !== "function") return false;
+			typeof Module._Surreal_GetBrowserOPFSMountABIVersion !== "function") return 0;
 		try {
-			return Module._Surreal_GetBrowserOPFSMountABIVersion() === 1;
+			const version = Module._Surreal_GetBrowserOPFSMountABIVersion();
+			if (version === 1) return 1;
+			if (version !== 2 ||
+				typeof Module._Surreal_GetBrowserOPFSMountMode !== "function") return 0;
+			const mode = Module._Surreal_GetBrowserOPFSMountMode();
+			return mode === 1 || mode === 2 ? mode : 0;
 		} catch (_) {
-			return false;
+			return 0;
 		}
+	}
+
+	function supportsOPFSMount(Module) {
+		return getOPFSMountMode(Module) !== 0;
 	}
 
 	async function prepareRuntimeDataset(Module, dataset, onProgress, rootPath) {
@@ -860,7 +869,8 @@
 		validateMetadata(dataset.metadata);
 		const root = rootPath || GAME_ROOT;
 		const mount = dataset.mount;
-		if (!supportsOPFSMount(Module) || root !== GAME_ROOT || !mount ||
+		const mountMode = getOPFSMountMode(Module);
+		if (!mountMode || root !== GAME_ROOT || !mount ||
 			mount.type !== "wasmfs-opfs-v1") {
 			await materializeDataset(Module.FS, dataset, onProgress, root);
 			return Object.freeze({ mode: "materialized", backend: dataset.metadata.backend || "unknown" });
@@ -890,6 +900,13 @@
 			bytesDone += size;
 			if (onProgress) onProgress({ phase: "mount-manifest", filesDone: index + 1,
 				filesTotal: dataset.metadata.fileCount, bytesDone, bytesTotal: dataset.metadata.totalBytes });
+		}
+		if (mountMode === 2) {
+			const prepared = await Module.ccall("Surreal_PrepareBrowserOPFSMount", "number",
+				[], [], { async: true });
+			if (prepared !== 1) {
+				throw new ImportError("STORAGE_MOUNT", "The experimental runtime could not prepare the OPFS game-data mount.");
+			}
 		}
 		return Object.freeze({ mode: "opfs-mount", backend: "opfs" });
 	}
@@ -1250,6 +1267,7 @@
 		fsPathExists,
 		materializeDataset,
 		supportsOPFSMount,
+		getOPFSMountMode,
 		prepareRuntimeDataset,
 		developerPreloadGame,
 		hasDeveloperPreload,

@@ -49,6 +49,17 @@ window.browserAppTestPromise = (async () => {
 			{ game: { id: "unreal-gold" }, map: "Vortex2", renderer: "webgpu" });
 		assert(received[0] === "SurrealEngine" && !Object.isFrozen(received), "callMain received frozen argv");
 		assert(args[0] === "--autoplay", "callMain mutated the immutable launch description");
+		let asyncCall = null;
+		await api.callNativeMain({
+			_Surreal_StartBrowserGame() {},
+			ccall(name, returnType, argumentTypes, values, options) {
+				asyncCall = { name, returnType, argumentTypes, values, options };
+				return Promise.resolve(0);
+			},
+			callMain() { throw new Error("Asyncify launcher used callMain"); },
+		}, { game: { id: "unreal-gold" }, map: "Vortex2", renderer: "webgpu" });
+		assert(asyncCall.name === "Surreal_StartBrowserGame" && asyncCall.options.async === true);
+		assert(asyncCall.values.join("|") === "Vortex2|webgpu|1");
 		const introArgs = api.buildNativeArguments({ game: { id: "unreal-gold" }, skipIntro: false, renderer: "webgpu" });
 		assert(introArgs.join(" ") === "--autoplay --render=webgpu /gamedata");
 		await expectError("LAUNCH_MAP", () => api.buildNativeArguments({ game: { id: "unreal-gold" }, map: "../Entry", renderer: "webgpu" }));
