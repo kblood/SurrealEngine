@@ -97,9 +97,10 @@ namespace
 		Require(result.Valid && result.VisualPose.Valid, "valid grip and aim poses did not produce a weapon pose");
 		Require(result.Hand == XRHand::Left && !result.Mirror, "default hand or mirror metadata was incorrect");
 		Require(NearlyEqual(result.Scale, 5.0f), "default weapon scale was not the Farantir 5.0 baseline");
-		Require(NearlyEqual(result.VisualPose.Position, grip.Position) &&
-			Equivalent(result.VisualPose.Orientation, grip.Orientation),
-			"default visual transform did not follow the grip pose");
+		Require(result.VisualAnchor == XRWeaponVisualAnchor::Aim &&
+			NearlyEqual(result.VisualPose.Position, aim.Position) &&
+			Equivalent(result.VisualPose.Orientation, aim.Orientation),
+			"default visual transform did not follow the aim pose");
 		Require(NearlyEqual(result.AimDirection, { 0.0f, 0.0f, -1.0f }) &&
 			NearlyEqual(Length(result.AimDirection), 1.0f),
 			"aim direction did not follow the independent aim pose");
@@ -171,6 +172,7 @@ namespace
 		options.LocalRotation = localRotation;
 		options.Scale = 6.0f;
 		options.Mirror = true;
+		options.VisualAnchor = XRWeaponVisualAnchor::Grip;
 
 		const XRWeaponPoseResult result = SolveXRWeaponPose(
 			Pose({ 10.0f, 20.0f, 30.0f }, gripRotation), Pose({}, {}), XRHand::Left, options);
@@ -178,8 +180,9 @@ namespace
 			"local offset was not transformed through the grip pose basis");
 		Require(Equivalent(result.VisualPose.Orientation, Multiply(gripRotation, localRotation)),
 			"local rotation was not composed in grip pose space");
-		Require(result.Mirror && NearlyEqual(result.Scale, 6.0f),
-			"mirror or scale metadata was not preserved");
+		Require(result.Mirror && NearlyEqual(result.Scale, 6.0f) &&
+			result.VisualAnchor == XRWeaponVisualAnchor::Grip,
+			"mirror, scale, or explicit grip anchor metadata was not preserved");
 		Require(NearlyEqual(result.AimDirection, { 1.0f, 0.0f, 0.0f }),
 			"visual offset, rotation, or mirror metadata changed the firing direction");
 	}
@@ -195,12 +198,16 @@ namespace
 		const XREnginePose valid = Pose();
 		XREnginePose invalidPose = valid;
 		invalidPose.Valid = false;
-		RequireNoOp(SolveXRWeaponPose(invalidPose, valid, XRHand::Right),
-			"invalid grip pose did not return a no-op result");
+		Require(SolveXRWeaponPose(invalidPose, valid, XRHand::Right).Valid,
+			"default aim anchor incorrectly required a valid grip pose");
+		XRWeaponPoseOptions options;
+		options.VisualAnchor = XRWeaponVisualAnchor::Grip;
+		RequireNoOp(SolveXRWeaponPose(invalidPose, valid, XRHand::Right, options),
+			"explicit grip anchor accepted an invalid grip pose");
 		RequireNoOp(SolveXRWeaponPose(valid, invalidPose, XRHand::Right),
 			"invalid aim pose did not return a no-op result");
 
-		XRWeaponPoseOptions options;
+		options = {};
 		options.Scale = 0.0f;
 		RequireNoOp(SolveXRWeaponPose(valid, valid, XRHand::Right, options),
 			"zero visual scale did not return a no-op result");
@@ -212,6 +219,12 @@ namespace
 		options.LocalOffset.X = std::numeric_limits<float>::quiet_NaN();
 		RequireNoOp(SolveXRWeaponPose(valid, valid, XRHand::Right, options),
 			"non-finite local offset did not return a no-op result");
+		options = {};
+		options.LocalOffset.X = std::numeric_limits<float>::max();
+		XREnginePose maximumPosition = valid;
+		maximumPosition.Position.X = std::numeric_limits<float>::max();
+		RequireNoOp(SolveXRWeaponPose(valid, maximumPosition, XRHand::Right, options),
+			"overflowing visual transform did not return a no-op result");
 
 		XRSpaceSamples spaces;
 		spaces.GripFor(XRHand::Left).Valid = true;

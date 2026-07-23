@@ -84,36 +84,50 @@ namespace
 XRWeaponPoseResult SolveXRWeaponPose(const XREnginePose& gripPose, const XREnginePose& aimPose,
 	XRHand dominantHand, const XRWeaponPoseOptions& options)
 {
-	if (!IsValid(gripPose) || !IsValid(aimPose) || !IsFinite(options.LocalOffset) ||
+	const XREnginePose* visualSource = nullptr;
+	switch (options.VisualAnchor)
+	{
+	case XRWeaponVisualAnchor::Aim: visualSource = &aimPose; break;
+	case XRWeaponVisualAnchor::Grip: visualSource = &gripPose; break;
+	default: return {};
+	}
+
+	if (!IsValid(*visualSource) || !IsValid(aimPose) || !IsFinite(options.LocalOffset) ||
 		!IsFinite(options.LocalRotation) || !IsFinite(options.Scale) || options.Scale <= 0.0f)
 		return {};
 
-	const XRQuaternion gripOrientation = Normalize(gripPose.Orientation);
+	const XRQuaternion visualOrientation = Normalize(visualSource->Orientation);
 	const XRQuaternion aimOrientation = Normalize(aimPose.Orientation);
 	const XRQuaternion localRotation = Normalize(options.LocalRotation);
 	if (localRotation.X == 0.0f && localRotation.Y == 0.0f &&
 		localRotation.Z == 0.0f && localRotation.W == 0.0f)
 		return {};
 
-	const XREngineVector3 worldOffset = Rotate(gripOrientation, options.LocalOffset);
+	const XREngineVector3 worldOffset = Rotate(visualOrientation, options.LocalOffset);
 	const XREngineVector3 aimDirection = Normalize(Rotate(aimOrientation, { 1.0f, 0.0f, 0.0f }));
 	if (!IsFinite(aimDirection) ||
 		(aimDirection.X == 0.0f && aimDirection.Y == 0.0f && aimDirection.Z == 0.0f))
+		return {};
+	const XREnginePose visualPose = {
+		true,
+		{
+			visualSource->Position.X + worldOffset.X,
+			visualSource->Position.Y + worldOffset.Y,
+			visualSource->Position.Z + worldOffset.Z
+		},
+		Normalize(Multiply(visualOrientation, localRotation))
+	};
+	if (!IsValid(visualPose))
 		return {};
 
 	XRWeaponPoseResult result;
 	result.Valid = true;
 	result.Hand = dominantHand;
-	result.VisualPose.Valid = true;
-	result.VisualPose.Position = {
-		gripPose.Position.X + worldOffset.X,
-		gripPose.Position.Y + worldOffset.Y,
-		gripPose.Position.Z + worldOffset.Z
-	};
-	result.VisualPose.Orientation = Normalize(Multiply(gripOrientation, localRotation));
+	result.VisualPose = visualPose;
 	result.AimDirection = aimDirection;
 	result.Scale = options.Scale;
 	result.Mirror = options.Mirror;
+	result.VisualAnchor = options.VisualAnchor;
 	return result;
 }
 

@@ -2,12 +2,19 @@
 
 #include "XRCommon.h"
 
+enum class XRWeaponVisualAnchor : uint8_t
+{
+	Aim,
+	Grip
+};
+
 struct XRWeaponPoseOptions
 {
 	XREngineVector3 LocalOffset;
 	XRQuaternion LocalRotation;
 	float Scale = 5.0f;
 	bool Mirror = false;
+	XRWeaponVisualAnchor VisualAnchor = XRWeaponVisualAnchor::Aim;
 };
 
 struct XRWeaponPoseResult
@@ -18,11 +25,12 @@ struct XRWeaponPoseResult
 	XREngineVector3 AimDirection;
 	float Scale = 5.0f;
 	bool Mirror = false;
+	XRWeaponVisualAnchor VisualAnchor = XRWeaponVisualAnchor::Aim;
 };
 
-// The visual transform follows the grip pose while firing remains aligned to
-// the independent aim pose. Local offsets use engine pose axes: +X forward,
-// +Y right, and +Z up.
+// Visuals follow the aim pose by default, matching the established hardware
+// baseline. Grip anchoring is explicit; firing always follows the independent
+// aim pose. Local offsets use engine pose axes: +X forward, +Y right, +Z up.
 XRWeaponPoseResult SolveXRWeaponPose(const XREnginePose& gripPose, const XREnginePose& aimPose,
 	XRHand dominantHand, const XRWeaponPoseOptions& options = {});
 
