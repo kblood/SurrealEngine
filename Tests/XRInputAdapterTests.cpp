@@ -87,6 +87,73 @@ int main()
 		conventionalTarget.commandCounts["ShowMenu"] == 1,
 		"conventional face-button actions did not reach the engine command target");
 
+	// Compatibility remains smooth continuous turn until settings explicitly
+	// select snap. The adapter policy can be changed without provider changes.
+	conventionalSnapshot.Hands[1].Thumbstick.X = 0.5f;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(conventional.GetTurnPolicy().Mode == XRTurnMode::Smooth &&
+		Near(conventionalTarget.input.GetAxisValue("aTurn"), 0.5f),
+		"default right-hand turning must preserve continuous stick output");
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(Near(conventionalTarget.input.GetAxisValue("aTurn"), 0.5f),
+		"smooth turn must remain continuous while held");
+
+	conventional.SetTurnPolicy(XRTurnPolicy::Snap(XRHand::Right, 0.8f, 0.7f, 0.3f));
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(Near(conventionalTarget.input.GetAxisValue("aTurn"), 0.0f),
+		"entering snap mode must require a neutral sample");
+	conventionalSnapshot.Hands[1].Thumbstick.X = 0.0f;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	conventionalSnapshot.Hands[1].Thumbstick.X = 0.9f;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(Near(conventionalTarget.input.GetAxisValue("aTurn"), 0.8f),
+		"snap turn did not emit its configured positive pulse");
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(Near(conventionalTarget.input.GetAxisValue("aTurn"), 0.0f),
+		"held snap input emitted more than one pulse");
+	conventionalSnapshot.Hands[1].Thumbstick.X = 0.5f;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	conventionalSnapshot.Hands[1].Thumbstick.X = -0.9f;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(Near(conventionalTarget.input.GetAxisValue("aTurn"), 0.0f),
+		"snap latch rearmed without crossing the release threshold");
+	conventionalSnapshot.Hands[1].Thumbstick.X = 0.2f;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	conventionalSnapshot.Hands[1].Thumbstick.X = -0.9f;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(Near(conventionalTarget.input.GetAxisValue("aTurn"), -0.8f),
+		"snap turn did not rearm and preserve direction after recentering");
+
+	conventionalSession.Focus = XRSessionFocus::Visible;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	conventionalSession.Focus = XRSessionFocus::Focused;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(Near(conventionalTarget.input.GetAxisValue("aTurn"), 0.0f),
+		"stick held through focus loss emitted an unsafe snap");
+	conventionalSnapshot.Hands[1].Thumbstick.X = 0.0f;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	conventionalSnapshot.Hands[1].Thumbstick.X = 0.9f;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(Near(conventionalTarget.input.GetAxisValue("aTurn"), 0.8f),
+		"snap turn did not rearm after focus recovery and recentering");
+	conventionalSnapshot.Hands[1].Connected = false;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	conventionalSnapshot.Hands[1].Connected = true;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(Near(conventionalTarget.input.GetAxisValue("aTurn"), 0.0f),
+		"reconnecting with a held stick emitted an unsafe snap");
+	conventionalSnapshot.Hands[1].Thumbstick.X = 0.0f;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	conventionalSnapshot.Hands[1].Thumbstick.X = 0.9f;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(Near(conventionalTarget.input.GetAxisValue("aTurn"), 0.8f),
+		"snap turn did not rearm after reconnecting and recentering");
+
+	conventional.SetTurnPolicy(XRTurnPolicy::Smooth(XRHand::Right, 0.5f));
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(Near(conventionalTarget.input.GetAxisValue("aTurn"), 0.45f),
+		"runtime smooth-turn scale was not applied");
+
 	XRInputBindings bindings;
 	bindings.Hands[0].StickX = "Axis MoveX";
 	bindings.Hands[0].StickY = "Axis MoveY";

@@ -114,9 +114,12 @@ button also maps to `ShowMenu`. This gives Quest WebXR a menu action even though
 the browser reserves and does not expose the system button. Menu ownership
 publishes neutral gameplay controls, releases only XR contributors, and blocks
 held buttons until release so closing a menu cannot leak a fire press. Keyboard
-and mouse contributors remain simultaneous fallbacks. Dominant-hand settings,
-snap/smooth turn, movement reference, and configurable remapping remain
-profile/settings follow-ups.
+and mouse contributors remain simultaneous fallbacks. The shared
+`XRTurnPolicy` preserves right-hand continuous turn by default; an integration
+layer can select smooth scaling or snap turn with activation/release hysteresis
+through `XRInputAdapter::SetTurnPolicy`, without changing WebXR code. Persisting
+that choice in launcher/in-game settings, dominant-hand settings, movement
+reference, and configurable remapping remain profile/settings follow-ups.
 
 ## Validation
 

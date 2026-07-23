@@ -1,7 +1,29 @@
 #include "Input/XRInputAdapter.h"
 
+#include <algorithm>
 #include <cmath>
 #include <utility>
+
+XRTurnPolicy XRTurnPolicy::Smooth(XRHand hand, float scale)
+{
+	XRTurnPolicy result;
+	result.Mode = XRTurnMode::Smooth;
+	result.Hand = hand;
+	result.SmoothScale = scale;
+	return result;
+}
+
+XRTurnPolicy XRTurnPolicy::Snap(XRHand hand, float axisValue,
+	float activationThreshold, float releaseThreshold)
+{
+	XRTurnPolicy result;
+	result.Mode = XRTurnMode::Snap;
+	result.Hand = hand;
+	result.SnapAxisValue = axisValue;
+	result.ActivationThreshold = activationThreshold;
+	result.ReleaseThreshold = releaseThreshold;
+	return result;
+}
 
 XRInputBindings XRInputBindings::ConventionalUE1(XRHand dominantHand)
 {
@@ -22,8 +44,22 @@ XRInputBindings XRInputBindings::ConventionalUE1(XRHand dominantHand)
 	return result;
 }
 
-XRInputAdapter::XRInputAdapter(XRInputBindings bindings) : bindings(std::move(bindings))
+XRInputAdapter::XRInputAdapter(XRInputBindings bindings, XRTurnPolicy turnPolicy)
+	: bindings(std::move(bindings)), turnPolicy(std::move(turnPolicy))
 {
+	ResetTurnState();
+}
+
+void XRInputAdapter::SetTurnPolicy(XRTurnPolicy policy)
+{
+	turnPolicy = std::move(policy);
+	ResetTurnState();
+}
+
+void XRInputAdapter::ResetTurnState()
+{
+	turnLatched = false;
+	turnNeedsNeutral = turnPolicy.Mode == XRTurnMode::Snap;
 }
 
 InputSourceId XRInputAdapter::SourceForHand(int hand)
@@ -45,12 +81,59 @@ void XRInputAdapter::UpdateButton(InputSourceId source, XRInputControl control, 
 	previous = down;
 }
 
-void XRInputAdapter::UpdateHand(int hand, bool active, const XRHandControllerState& snapshot, XRInputTarget& target)
+float XRInputAdapter::ApplyTurnPolicy(int hand, bool active, float value)
+{
+	const int turnHand = turnPolicy.Hand == XRHand::Left ? 0 : 1;
+	if (hand != turnHand)
+		return active ? value : 0.0f;
+
+	if (turnPolicy.Mode == XRTurnMode::Smooth)
+		return active ? value * turnPolicy.SmoothScale : 0.0f;
+
+	const float activation = std::clamp(std::fabs(turnPolicy.ActivationThreshold), 0.0f, 1.0f);
+	const float release = std::clamp(std::fabs(turnPolicy.ReleaseThreshold), 0.0f, activation);
+	const float magnitude = std::fabs(value);
+	if (!active)
+	{
+		turnLatched = magnitude > release;
+		turnNeedsNeutral = turnLatched;
+		return 0.0f;
+	}
+
+	if (turnNeedsNeutral)
+	{
+		if (magnitude <= release)
+		{
+			turnNeedsNeutral = false;
+			turnLatched = false;
+		}
+		return 0.0f;
+	}
+
+	if (turnLatched)
+	{
+		if (magnitude <= release)
+			turnLatched = false;
+		return 0.0f;
+	}
+
+	if (magnitude == 0.0f || magnitude < activation)
+		return 0.0f;
+
+	turnLatched = true;
+	return std::copysign(std::fabs(turnPolicy.SnapAxisValue), value);
+}
+
+void XRInputAdapter::UpdateHand(int hand, bool active, const XRHandControllerState& snapshot,
+	float rawStickX, XRInputTarget& target)
 {
 	HandState& previous = state[hand];
 	InputSourceId source = SourceForHand(hand);
 	if (!snapshot.Connected)
 	{
+		const int turnHand = turnPolicy.Hand == XRHand::Left ? 0 : 1;
+		if (hand == turnHand)
+			ResetTurnState();
 		if (previous.Connected)
 			target.ReleaseInputSource(source);
 		previous = {};
@@ -63,8 +146,12 @@ void XRInputAdapter::UpdateHand(int hand, bool active, const XRHandControllerSta
 	{
 		return std::fabs(value) < bindings.StickDeadzone ? 0.0f : value;
 	};
+	float stickX = ApplyTurnPolicy(hand, active, deadzone(rawStickX));
 	if (!handBindings.StickX.empty())
-		target.InputCommand(handBindings.StickX, { source, static_cast<int32_t>(XRInputControl::StickX) }, active ? deadzone(snapshot.Thumbstick.X) : 0.0f);
+	{
+		target.InputCommand(handBindings.StickX,
+			{ source, static_cast<int32_t>(XRInputControl::StickX) }, stickX);
+	}
 	if (!handBindings.StickY.empty())
 		target.InputCommand(handBindings.StickY, { source, static_cast<int32_t>(XRInputControl::StickY) }, active ? deadzone(snapshot.Thumbstick.Y) : 0.0f);
 
@@ -119,7 +206,8 @@ void XRInputAdapter::Update(const XRSessionState& session, const XRControllerSna
 	{
 		XRHandControllerState filtered = snapshot.Hands[hand];
 		ApplyGameplayGate((int)hand, active, filtered);
-		UpdateHand((int)hand, active, filtered, target);
+		UpdateHand((int)hand, active, filtered,
+			snapshot.Hands[hand].Thumbstick.X, target);
 	}
 }
 
@@ -131,4 +219,5 @@ void XRInputAdapter::Disconnect(XRInputTarget& target)
 			target.ReleaseInputSource(SourceForHand(hand));
 		state[hand] = {};
 	}
+	ResetTurnState();
 }

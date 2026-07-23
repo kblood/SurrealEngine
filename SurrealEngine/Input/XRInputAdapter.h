@@ -5,6 +5,29 @@
 
 #include <string>
 
+enum class XRTurnMode
+{
+	Smooth,
+	Snap
+};
+
+// Provider-neutral comfort policy for the semantic turn stick. Smooth is the
+// compatibility default. Snap emits one axis pulse, then requires the stick to
+// return through ReleaseThreshold before another pulse can be emitted.
+struct XRTurnPolicy
+{
+	XRTurnMode Mode = XRTurnMode::Smooth;
+	XRHand Hand = XRHand::Right;
+	float SmoothScale = 1.0f;
+	float SnapAxisValue = 1.0f;
+	float ActivationThreshold = 0.7f;
+	float ReleaseThreshold = 0.3f;
+
+	static XRTurnPolicy Smooth(XRHand hand = XRHand::Right, float scale = 1.0f);
+	static XRTurnPolicy Snap(XRHand hand = XRHand::Right, float axisValue = 1.0f,
+		float activationThreshold = 0.7f, float releaseThreshold = 0.3f);
+};
+
 // Engine-facing command strings are policy, so the OpenXR provider only
 // reports semantic controls. A launcher or game-support module can replace
 // any of these bindings without changing the runtime integration.
@@ -59,7 +82,13 @@ enum class XRInputControl : int32_t
 class XRInputAdapter
 {
 public:
-	explicit XRInputAdapter(XRInputBindings bindings = XRInputBindings::ConventionalUE1());
+	explicit XRInputAdapter(XRInputBindings bindings = XRInputBindings::ConventionalUE1(),
+		XRTurnPolicy turnPolicy = XRTurnPolicy::Smooth());
+
+	// Settings layers can change comfort mode without reaching into an XR
+	// provider. Entering snap mode requires a neutral stick sample before firing.
+	void SetTurnPolicy(XRTurnPolicy policy);
+	const XRTurnPolicy& GetTurnPolicy() const { return turnPolicy; }
 
 	// Disabling gameplay publishes neutral controls and blocks held buttons until
 	// they are released, allowing an XR UI layer to own the same physical input.
@@ -75,11 +104,17 @@ private:
 		bool BlockedButtons[6] = {};
 	};
 
-	void UpdateHand(int hand, bool active, const XRHandControllerState& snapshot, XRInputTarget& target);
+	void UpdateHand(int hand, bool active, const XRHandControllerState& snapshot,
+		float rawStickX, XRInputTarget& target);
 	void ApplyGameplayGate(int hand, bool enabled, XRHandControllerState& snapshot);
+	float ApplyTurnPolicy(int hand, bool active, float value);
+	void ResetTurnState();
 	void UpdateButton(InputSourceId source, XRInputControl control, const std::string& command, bool down, bool& previous, XRInputTarget& target);
 	static InputSourceId SourceForHand(int hand);
 
 	XRInputBindings bindings;
+	XRTurnPolicy turnPolicy;
+	bool turnLatched = false;
+	bool turnNeedsNeutral = false;
 	HandState state[2];
 };
