@@ -1,4 +1,5 @@
 #include "Platform/OpenXR/OpenXRView.h"
+#include "Math/quaternion.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -16,6 +17,16 @@ static void Check(bool condition, const char* message)
 static bool Near(float a, float b)
 {
 	return std::abs(a - b) < 0.001f;
+}
+
+static float Radians(float degrees)
+{
+	return degrees * 3.14159265359f / 180.0f;
+}
+
+static bool Near(const vec4& a, const vec4& b)
+{
+	return Near(a.x, b.x) && Near(a.y, b.y) && Near(a.z, b.z) && Near(a.w, b.w);
 }
 
 int main()
@@ -41,6 +52,67 @@ int main()
 	Check(Near(family.Views[0].Location.y, 200.0f - 0.032f / 0.0254f), "left-eye meter scale or axis mapping is incorrect");
 	Check(Near(family.Views[1].Location.y, 200.0f + 0.032f / 0.0254f), "right-eye meter scale or axis mapping is incorrect");
 	Check(!Near(family.Views[0].Projection[0], family.Views[0].Projection[8]), "asymmetric projection was not retained");
+
+	OpenXREyeView questEyes[2];
+	questEyes[0].AngleLeft = Radians(-54.0f);
+	questEyes[0].AngleRight = Radians(40.0f);
+	questEyes[0].AngleUp = Radians(44.0f);
+	questEyes[0].AngleDown = Radians(-55.0f);
+	questEyes[1].AngleLeft = Radians(-40.0f);
+	questEyes[1].AngleRight = Radians(54.0f);
+	questEyes[1].AngleUp = Radians(44.0f);
+	questEyes[1].AngleDown = Radians(-55.0f);
+	OpenXRViewTranslator questTranslator;
+	ViewFamily questFamily = questTranslator.CreateViewFamily(questEyes, {},
+		Rotator(), { 0, 0, 4224, 2304 });
+	for (int eye = 0; eye < 2; eye++)
+	{
+		const mat4 expected = mat4::frustum(
+			std::tan(questEyes[eye].AngleLeft), std::tan(questEyes[eye].AngleRight),
+			-std::tan(questEyes[eye].AngleUp), -std::tan(questEyes[eye].AngleDown),
+			1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
+		const mat4 verticallyFlipped = mat4::frustum(
+			std::tan(questEyes[eye].AngleLeft), std::tan(questEyes[eye].AngleRight),
+			std::tan(questEyes[eye].AngleDown), std::tan(questEyes[eye].AngleUp),
+			1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
+		for (size_t component = 0; component < 16; component++)
+			Check(Near(questFamily.Views[eye].Projection[component], expected[component]),
+			"Quest asymmetric vertical FOV was not converted to render-device Y-down coordinates");
+		Check(!Near(questFamily.Views[eye].Projection[9], verticallyFlipped[9]),
+			"Quest asymmetric vertical FOV remained vertically flipped");
+	}
+
+	OpenXREyeView rotatedEyes[2] = { questEyes[0], questEyes[1] };
+	const quaternion trackedOrientation = quaternion::euler(
+		Radians(17.0f), Radians(-23.0f), Radians(11.0f), EulerOrder::yxz);
+	for (OpenXREyeView& eye : rotatedEyes)
+	{
+		eye.PositionMeters = { 0.04f, 1.65f, -0.12f };
+		eye.OrientationX = trackedOrientation.x;
+		eye.OrientationY = trackedOrientation.y;
+		eye.OrientationZ = trackedOrientation.z;
+		eye.OrientationW = trackedOrientation.w;
+	}
+	OpenXRViewTranslator rotatedTranslator;
+	ViewFamily rotatedFamily = rotatedTranslator.CreateViewFamily(rotatedEyes,
+		{ 123.0f, -456.0f, 789.0f }, Rotator(2800, -6100, 1900),
+		{ 0, 0, 4224, 2304 });
+	for (const ViewDescription& view : rotatedFamily.Views)
+	{
+		Check(Near(view.WorldToView * vec4(view.Location, 1.0f),
+			vec4(0.0f, 0.0f, 0.0f, 1.0f)),
+			"rotated OpenXR camera location did not map to view-space origin");
+		Check(Near(view.WorldToView * vec4(view.Location + view.Rotation.XAxis, 1.0f),
+			vec4(0.0f, 0.0f, 1.0f, 1.0f)),
+			"rotated OpenXR forward axis did not map to render-device forward");
+		Check(Near(view.WorldToView * vec4(view.Location + view.Rotation.YAxis, 1.0f),
+			vec4(1.0f, 0.0f, 0.0f, 1.0f)),
+			"rotated OpenXR right axis did not map to render-device right");
+		Check(Near(view.WorldToView * vec4(view.Location + view.Rotation.ZAxis, 1.0f),
+			vec4(0.0f, -1.0f, 0.0f, 1.0f)),
+			"rotated OpenXR up axis did not map to render-device Y-down");
+	}
+
 	XRPose rightAim;
 	rightAim.Valid = true;
 	rightAim.Position = { 0.1f, 0.0f, 0.0f };

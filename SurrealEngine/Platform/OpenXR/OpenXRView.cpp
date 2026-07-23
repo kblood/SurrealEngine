@@ -70,9 +70,12 @@ ViewFamily OpenXRViewTranslator::CreateViewFamily(const OpenXREyeView eyes[2], c
 		view.WorldToView = Coords::ViewToRenderDev().ToMatrix() * view.Rotation.Inverse().ToMatrix() * Coords::Location(view.Location).ToMatrix();
 		view.Viewport = { output.X + (eye == 0 ? 0 : leftWidth), output.Y, eye == 0 ? leftWidth : output.Width - leftWidth, output.Height };
 		view.HasProjection = true;
+		// OpenXR's up/down angles use +Y up. Render-device view space uses
+		// +Y down, so its frustum bottom/top bounds are the negated up/down
+		// extents rather than OpenXR's down/up order.
 		view.Projection = mat4::frustum(
 			std::tan(eyes[eye].AngleLeft), std::tan(eyes[eye].AngleRight),
-			std::tan(eyes[eye].AngleDown), std::tan(eyes[eye].AngleUp),
+			-std::tan(eyes[eye].AngleUp), -std::tan(eyes[eye].AngleDown),
 			1.0f, 32768.0f, handedness::left, clipzrange::zero_positive_w);
 		view.ApplyGameViewport = false;
 		family.Views.push_back(view);
