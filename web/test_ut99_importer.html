@@ -127,6 +127,19 @@ window.importerTestPromise = (async function () {
 		assert(expected.code === "EXPECTED" && expected.details.marker && expected.details.phase === "validation");
 	});
 
+	await run("folder-picker failures are normalized instead of showing a generic error", async () => {
+		const secret = "C:\\private-game-folder\\System\\Core.u";
+		const logs = [];
+		const controller = new api.ImportController({ FS: new FakeFS(false) }, {
+			log: value => logs.push(value),
+		});
+		controller._handleImportError(new DOMException(secret, "NotReadableError"), "folder-scan");
+		assert(controller.lastError.code === "FILE_NOT_READABLE");
+		assert(controller.lastError.details.phase === "folder-scan");
+		assert(controller.lastError.message.includes("reading the selected folder"));
+		assert(!logs.join("\n").includes(secret), "private path leaked into folder-scan log");
+	});
+
 	await run("validates synthetic UT99 layout without reading contents", async () => {
 		let reads = 0;
 		const entries = syntheticEntries().map(entry => ({

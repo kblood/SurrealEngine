@@ -143,6 +143,7 @@
 	}
 
 	const IMPORT_PHASE_LABELS = Object.freeze({
+		"folder-scan": "reading the selected folder",
 		"storage-load": "checking saved browser data",
 		"storage-check": "checking available browser storage",
 		"storage-copy": "copying files into private browser storage",
@@ -1063,13 +1064,13 @@
 							await hostPicker(progress => this.ui.setProgress(progress)) :
 							await entriesFromDirectoryHandle(await global.showDirectoryPicker({ mode: "read" }), progress => this.ui.setProgress(progress));
 						await this.importEntries(entries);
-					} catch (error) { this._handleImportError(error); }
+					} catch (error) { this._handleImportError(error, "folder-scan"); }
 				});
 			}
 			if (this.ui.fileInput) {
 				this.ui.fileInput.addEventListener("change", async event => {
 					try { await this.importEntries(entriesFromFileList(event.target.files)); }
-					catch (error) { this._handleImportError(error); }
+					catch (error) { this._handleImportError(error, "folder-scan"); }
 					finally { event.target.value = ""; }
 				});
 			}
@@ -1091,12 +1092,20 @@
 			}
 		}
 
-		_handleImportError(error) {
+		_handleImportError(error, phase) {
 			this.busy = false;
-			this.lastError = error;
+			const failure = error && error.name === "AbortError" ? error :
+				normalizeImportFailure(error, phase || "validation");
+			this.lastError = failure;
 			this.ui.setBusy(false);
-			if (!error || error.name !== "AbortError") this.ui.setError(safeMessage(error));
-			if (error && error.name === "AbortError") this.ui.setStatus("Folder selection cancelled. No data was changed.");
+			if (!failure || failure.name !== "AbortError") {
+				this.ui.setError(safeMessage(failure));
+				if (failure instanceof ImportError) {
+					this._log("folder selection failed during " + failure.details.phase +
+						" (" + failure.code + "; " + failure.details.underlyingName + ")");
+				}
+			}
+			if (failure && failure.name === "AbortError") this.ui.setStatus("Folder selection cancelled. No data was changed.");
 		}
 
 		async importEntries(entries) {
