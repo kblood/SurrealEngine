@@ -218,6 +218,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/XR/XRUIRuntime.h
 	SurrealEngine/XR/XRStartupIntroRoute.cpp
 	SurrealEngine/XR/XRStartupIntroRoute.h
+	SurrealEngine/XR/XRStartupMenuRoute.cpp
+	SurrealEngine/XR/XRStartupMenuRoute.h
 	SurrealEngine/Render/VisibleMesh.cpp
 	SurrealEngine/Render/VisibleMesh.h
 	SurrealEngine/Render/VisibleNode.cpp
@@ -1088,6 +1090,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(XRInputAdapterTests PRIVATE SurrealEngine)
 	set_target_properties(XRInputAdapterTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRInputAdapter COMMAND XRInputAdapterTests)
+
+	add_executable(XRStartupMenuRouteTests
+		Tests/XRStartupMenuRouteTests.cpp
+		SurrealEngine/XR/XRStartupMenuRoute.cpp
+	)
+	target_include_directories(XRStartupMenuRouteTests PRIVATE SurrealEngine)
+	set_target_properties(XRStartupMenuRouteTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME XRStartupMenuRoute COMMAND XRStartupMenuRouteTests)
 
 	add_executable(XRCommonTests
 		Tests/XRCommonTests.cpp

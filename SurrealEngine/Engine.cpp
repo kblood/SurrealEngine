@@ -314,6 +314,18 @@ void Engine::Setup()
 			LogMessage("OpenXR UI composition is unavailable: " + openXR->LastError());
 	}
 
+	const XRStartupLaunchPlan xrStartupPlan =
+		MakeUT99OpenXRStartupLaunchPlan(openXR != nullptr,
+			LaunchInfo.IsUnrealTournament(), LaunchInfo.url);
+	if (xrStartupPlan.Active)
+	{
+		LaunchInfo.noEntryMap = xrStartupPlan.SkipEntryMap;
+		LaunchInfo.url = xrStartupPlan.Map;
+		openXRStartupMenu.Begin(true);
+		LogMessage("OpenXR UT99 startup: loading " + LaunchInfo.url +
+			" behind the compiled menu; waiting for focused session input");
+	}
+
 	if (engine->LaunchInfo.ue1Version > 219 && !client->StartupFullscreen)
 		viewport->bWindowsMouseAvailable() = true;
 
@@ -419,7 +431,10 @@ void Engine::RunOneFrame()
 			if (xrFrameBegun && openXR->SyncInput(xrSpaces, xrControllers))
 			{
 				UpdateOpenXRStartupIntro(&xrControllers);
-				const bool gameplayInputEnabled = !render || !render->IsXRUIMenuActive();
+				UpdateOpenXRStartupMenu(lastRealTimeElapsed,
+					openXR->SessionState(), xrControllers);
+				const bool gameplayInputEnabled =
+					!render || !render->IsXRUIMenuActive();
 				openXRInput.Update(openXR->SessionState(), xrControllers, *this,
 					gameplayInputEnabled);
 				const XRHapticInputContext context = !gameplayInputEnabled ?
@@ -552,11 +567,56 @@ void Engine::UpdateOpenXRStartupIntro(const XRControllerSnapshot* controllers)
 	}
 }
 
+void Engine::UpdateOpenXRStartupMenu(float elapsedSeconds,
+	const XRSessionState& session, const XRControllerSnapshot& controllers)
+{
+	const bool menuActive = render && render->IsXRUIMenuActive();
+	const XRStartupMenuActions startup = openXRStartupMenu.Update(
+		elapsedSeconds, session, menuActive);
+	if (startup.PrimaryFirePulse)
+	{
+		InputEvent(IK_LeftMouse, EInputType::IST_Press, 0.0f,
+			InputSourceId::XRRight);
+		InputEvent(IK_LeftMouse, EInputType::IST_Release, 0.0f,
+			InputSourceId::XRRight);
+	}
+	if (startup.EscapePulse)
+	{
+		InputEvent(IK_Escape, EInputType::IST_Press, 0.0f,
+			InputSourceId::XRRight);
+		InputEvent(IK_Escape, EInputType::IST_Release, 0.0f,
+			InputSourceId::XRRight);
+	}
+
+	auto inputKey = [](XRMenuNavigationKey key)
+	{
+		switch (key)
+		{
+		case XRMenuNavigationKey::Up: return IK_Up;
+		case XRMenuNavigationKey::Down: return IK_Down;
+		case XRMenuNavigationKey::Left: return IK_Left;
+		case XRMenuNavigationKey::Right: return IK_Right;
+		case XRMenuNavigationKey::Enter: return IK_Enter;
+		default: return IK_Escape;
+		}
+	};
+	for (XRMenuNavigationKey key : openXRMenuNavigation.Update(
+		elapsedSeconds, session, controllers, menuActive))
+	{
+		const EInputKey engineKey = inputKey(key);
+		InputEvent(engineKey, EInputType::IST_Press, 0.0f,
+			InputSourceId::XRRight);
+		InputEvent(engineKey, EInputType::IST_Release, 0.0f,
+			InputSourceId::XRRight);
+	}
+}
+
 float Engine::AdvanceGameFrame()
 {
 	// Tick everything once. Rendering is deliberately kept in a separate phase so
 	// alternate frame loops can schedule presentation independently.
 	float realTimeElapsed = CalcTimeElapsed();
+	lastRealTimeElapsed = realTimeElapsed;
 #ifdef __EMSCRIPTEN__
 	if (browserCinematic)
 	{

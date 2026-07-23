@@ -18,6 +18,7 @@
 #include "Input/InputComposition.h"
 #include "Input/XRInputAdapter.h"
 #include "XR/XRHapticFeedbackPolicy.h"
+#include "XR/XRStartupMenuRoute.h"
 #include "XR/XRStartupIntroRoute.h"
 #include "XR/XRWeaponPoseSolver.h"
 #include <set>
@@ -87,6 +88,8 @@ public:
 	// deferred save and travel requests. RunOneFrame preserves the native ordering.
 	void RunOneFrame();
 	void UpdateOpenXRStartupIntro(const XRControllerSnapshot* controllers);
+	void UpdateOpenXRStartupMenu(float elapsedSeconds,
+		const XRSessionState& session, const XRControllerSnapshot& controllers);
 	float AdvanceGameFrame();
 	// XR providers publish one provider-neutral weapon pose before simulation.
 	// Narrow VM weapon scopes consume its hand direction while movement and the
@@ -215,6 +218,8 @@ public:
 	OpenXRViewTranslator openXRViews;
 	OpenXRUIRuntime openXRUI;
 	XRStartupIntroTriggerRoute openXRStartupIntroTrigger;
+	XRStartupMenuRoute openXRStartupMenu;
+	XRMenuNavigationRoute openXRMenuNavigation;
 	XRHapticFeedbackPolicy openXRHapticFeedback;
 
 	int MouseMoveX = 0;
@@ -286,6 +291,7 @@ private:
 	bool playingAvi = false;
 	bool skipAvi = false;
 	bool startupIntroActive = false;
+	float lastRealTimeElapsed = 0.0f;
 #ifdef __EMSCRIPTEN__
 	std::unique_ptr<BrowserCinematicPlayback> browserCinematic;
 	bool AdvanceBrowserCinematic(float elapsedSeconds);

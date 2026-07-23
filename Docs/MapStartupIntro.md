@@ -129,8 +129,36 @@ and an owned Unreal Gold installation:
 5. Check Unreal Gold separately: its LocalMap and script sequence may differ
    from UT99 even though the engine lifecycle is shared.
 
-Native OpenXR does not yet use the WebXR startup-trigger bridge or configure
-this browser HUD capture. Its UT99 VR release must retain its already validated
-intro-skip behavior, or receive a separate provider-neutral input/presentation
-follow-up backed by headset evidence. Do not claim normal native-OpenXR intro
-support from these browser changes.
+## Native OpenXR UT99 release route
+
+Native OpenXR deliberately retains the headset-tested intro-skip contract. Once
+the OpenXR provider has successfully bound to the renderer, a no-map UT99 launch
+suppresses the Entry level and loads `DM-Deck16][` behind the compiled menu.
+An explicit `--url` remains an explicit gameplay launch and does not arm this
+sequence. Desktop, failed/fallback OpenXR, Unreal/Gold, and every other game keep
+their existing startup arguments and map behavior.
+
+`XRStartupMenuRoute` does not advance its clock until the OpenXR session is
+`FOCUSED`. It then mirrors the validated release sequence: a primary-fire
+press/release at 250 ms dismisses UT's map gate, and an Escape press/release at
+one second opens UMenu through `console.KeyEvent`. Detecting the real menu ends
+the route. Skipping Entry is what prevents its independently ticking scripts
+from repeatedly requesting CityIntro travel; no general map-travel filter or
+game-script override is installed.
+
+The existing XR UI binding detects that UMenu and activates the dedicated,
+interactive, world-anchored menu surface. Its composition order remains above
+HUD, cinematic, loading, controller, and world layers. A normal keyboard Escape
+still enters the same `InputEvent` path.
+
+Controller B/Menu buttons now synthesize Escape instead of calling the
+`ShowMenu` exec function directly. While the menu is active, the left stick
+produces arrow-key navigation with bounded repeat, A produces Enter, and B or
+Menu produces Escape. Edges held across menu activation or focus loss are
+blocked until released; tracked ray input and the desktop mouse remain
+available in parallel.
+
+`XRStartupMenuRouteTests` fixes the 250 ms/one-second focused timeline, session
+focus pause, one-shot completion, repeated no-CityIntro launch selection,
+held-button handoff, stick repeat, A/Enter, and B/Menu/Escape behavior. Physical
+headset validation is still required before calling this release-ready.

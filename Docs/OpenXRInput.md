@@ -21,7 +21,18 @@ Tracked menu input is shared rather than implemented in the controller adapter. 
 - left/right trigger: `bAltFire` / `bFire`
 - right squeeze: `bDuck`
 
-Face, menu, and stick-click snapshots are exposed but deliberately unassigned by default. A game-support or UI module can bind them without adding a game-name check to OpenXR.
+The conventional profile assigns face buttons to jump, next weapon, and the
+menu/back route. Stick-click remains available for a game-support or settings
+module without adding game-name checks to OpenXR.
+
+The integration profile assigns both controller secondary/menu buttons to a
+synthetic Escape key pulse. This intentionally uses the same console
+`KeyEvent` path as the keyboard: calling the `ShowMenu` exec function directly
+bypasses UMenu's input/state transition in UT99. When the shared XR menu surface
+is active, `XRMenuNavigationRoute` owns left-stick arrow navigation, A/Enter,
+and B/Menu/Escape while `XRInputAdapter` publishes neutral gameplay controls.
+The route observes held buttons while inactive so the button that opened a menu
+cannot close it again on the following frame.
 
 ## Runtime actions
 
