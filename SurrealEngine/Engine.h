@@ -90,7 +90,8 @@ public:
 	void RunOneFrame();
 	void UpdateOpenXRStartupIntro(const XRControllerSnapshot* controllers);
 	void UpdateOpenXRStartupMenu(float elapsedSeconds,
-		const XRSessionState& session, const XRControllerSnapshot& controllers);
+		const XRSessionState& session, const XRControllerSnapshot& controllers,
+		bool menuActive);
 	float AdvanceGameFrame();
 	// XR providers publish one provider-neutral weapon pose before simulation.
 	// Narrow VM weapon scopes consume its hand direction while movement and the
@@ -280,7 +281,8 @@ private:
 		const XRControllerSnapshot& controllers, float realTimeElapsed,
 		bool gameplayInputEnabled);
 	void UpdateOpenXRControllerEvents(const XRSessionState& session,
-		const XRControllerSnapshot& controllers, bool gameplayInputEnabled);
+		const XRControllerSnapshot& controllers, bool gameplayInputEnabled,
+		bool menuActive);
 	void ReleaseOpenXRControllerEvents();
 	void ApplyOpenXRControllerEvents(const std::vector<XRNativeKeyEvent>& events);
 

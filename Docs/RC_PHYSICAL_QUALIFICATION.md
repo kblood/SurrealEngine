@@ -83,6 +83,15 @@ The follow-up integration also restores the working branch's separate per-hand
 pose actions and adds bounded grip/aim validity diagnostics. Any follow-up build
 is a new test candidate and must not reuse the frozen `71650dd7` identity.
 
+The first `600a8684` physical retest confirmed that menu presentation was no
+longer horizontally mirrored and that both hands published valid grip and aim
+poses. It also exposed two remaining failures: controller hit coordinates were
+still horizontally reflected relative to the now-readable menu, and a menu
+button transition could leave a black state that did not reopen. The follow-up
+reflects only the native hit-test U basis and makes open/close routing consume
+one start-of-frame menu-state snapshot. `600a8684` remains failed and must not
+be promoted; the follow-up requires another physical run.
+
 ## Safe start — explicit launcher only
 
 - [ ] Use a charged Quest 3 with both controllers awake. Connect Virtual

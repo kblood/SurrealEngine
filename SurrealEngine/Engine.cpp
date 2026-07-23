@@ -463,13 +463,18 @@ void Engine::RunOneFrame()
 			if (xrFrameBegun && openXR->SyncInput(xrSpaces, xrControllers))
 			{
 				UpdateOpenXRStartupIntro(&xrControllers);
+				// Both menu routes must consume the same start-of-frame state.
+				// An Escape edge can change UMenu immediately; re-reading afterward
+				// lets one controller edge close and reopen it in the same frame.
+				const bool menuActiveAtInputStart =
+					render && render->IsXRUIMenuActive();
 				UpdateOpenXRStartupMenu(lastRealTimeElapsed,
-					openXR->SessionState(), xrControllers);
-				const bool gameplayInputEnabled =
-					!render || !render->IsXRUIMenuActive();
+					openXR->SessionState(), xrControllers,
+					menuActiveAtInputStart);
+				const bool gameplayInputEnabled = !menuActiveAtInputStart;
 				xrGameplayInputEnabled = gameplayInputEnabled;
 				UpdateOpenXRControllerEvents(openXR->SessionState(), xrControllers,
-					gameplayInputEnabled);
+					gameplayInputEnabled, menuActiveAtInputStart);
 				openXRInput.Update(openXR->SessionState(), xrControllers, *this,
 					gameplayInputEnabled);
 				const XRHapticInputContext context = !gameplayInputEnabled ?
@@ -660,11 +665,12 @@ void Engine::ApplyOpenXRControllerEvents(
 }
 
 void Engine::UpdateOpenXRControllerEvents(const XRSessionState& session,
-	const XRControllerSnapshot& controllers, bool gameplayInputEnabled)
+	const XRControllerSnapshot& controllers, bool gameplayInputEnabled,
+	bool menuActive)
 {
 	ApplyOpenXRControllerEvents(openXRControllerEvents.Update(session,
 		controllers, xrHandedness.Dominant, gameplayInputEnabled,
-		IsStartupIntroActive(), render && render->IsXRUIMenuActive()));
+		IsStartupIntroActive(), menuActive));
 }
 
 void Engine::ReleaseOpenXRControllerEvents()
@@ -674,9 +680,9 @@ void Engine::ReleaseOpenXRControllerEvents()
 }
 
 void Engine::UpdateOpenXRStartupMenu(float elapsedSeconds,
-	const XRSessionState& session, const XRControllerSnapshot& controllers)
+	const XRSessionState& session, const XRControllerSnapshot& controllers,
+	bool menuActive)
 {
-	const bool menuActive = render && render->IsXRUIMenuActive();
 	const XRStartupMenuActions startup = openXRStartupMenu.Update(
 		elapsedSeconds, session, menuActive);
 	if (startup.PrimaryFirePulse)

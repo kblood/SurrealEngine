@@ -7,6 +7,13 @@
 // The native Vulkan canvas is already in the orientation expected by an
 // OpenXR quad. A second U-axis reflection mirrors all menu text and controls.
 inline constexpr bool OpenXRUICanvasPresentationFlipHorizontal = false;
+inline constexpr bool OpenXRUIHitTestReflectHorizontal = true;
+
+// OpenXR quad texels run opposite the engine surface's canonical Right basis
+// after the handedness conversion. Reflect only the native hit-test basis so
+// the pointer addresses the texel the user sees without mirroring the image.
+XRUICanvasReplayFrame BuildOpenXRUIHitTestFrame(
+	const XRUICanvasReplayFrame& presentationFrame);
 
 class OpenXRUICompositionSink
 {

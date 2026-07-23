@@ -159,6 +159,8 @@ namespace
 	{
 		Check(!OpenXRUICanvasPresentationFlipHorizontal,
 			"native OpenXR canvas presentation would mirror the menu horizontally");
+		Check(OpenXRUIHitTestReflectHorizontal,
+			"native OpenXR hit testing would remain mirrored against the visible menu");
 		Host host;
 		Sink sink;
 		XRUISurfaceEngineBinding binding(host);
@@ -233,12 +235,21 @@ namespace
 			runtime.Feedback()[0].HitPoint.y != runtime.Feedback()[1].HitPoint.y,
 			"asymmetric native rays collapsed to one UI contact");
 		const XRUICanvasReplayFrame orderedFrame = binding.BuildReplayFrame();
+		const XRUICanvasReplayFrame hitTestFrame =
+			BuildOpenXRUIHitTestFrame(orderedFrame);
 		Check(orderedFrame.Items.size() == 1 &&
 			XRUIControllerVisualCompositionOrder <
 				orderedFrame.Items.front().Surface.CompositionOrder &&
 			XRUIHitMarkerCompositionOrder >
 				orderedFrame.Items.back().Surface.CompositionOrder,
 			"native controller/UI/exact-marker composition order changed");
+		Check(hitTestFrame.Items.size() == 1 &&
+			dot(hitTestFrame.Items[0].Surface.Pose.Right,
+				orderedFrame.Items[0].Surface.Pose.Right) < -0.999f,
+			"native hit-test U axis did not reflect against the presentation quad");
+		Check(runtime.Feedback()[0].Contact.Pixel.x < 512.0f &&
+			runtime.Feedback()[1].Contact.Pixel.x > 512.0f,
+			"native controller contacts remained horizontally mirrored");
 		const XRUIVisualFrame& visuals = runtime.VisualFrame();
 		Check(visuals.Hands.size() == 2 &&
 			visuals.Hands[0].Hand == XRHand::Left &&

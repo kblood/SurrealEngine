@@ -177,6 +177,44 @@ namespace
 		Check(events.size() == 1 && events[0].Pressed,
 			"fresh trigger after menu handoff did not rearm fire");
 	}
+
+	void TestMenuRoutesShareOneFrameState()
+	{
+		XRNativeControllerEventRoute gameplayRoute;
+		XRMenuNavigationRoute menuRoute;
+		XRControllerSnapshot input;
+		input.ForHand(XRHand::Left).Connected = true;
+		input.ForHand(XRHand::Left).Menu.Pressed = true;
+
+		// UMenu was closed at frame start. The gameplay route opens it, while
+		// navigation must still see that same closed snapshot and do nothing.
+		auto open = gameplayRoute.Update(Focused(), input, XRHand::Right,
+			true, false, false);
+		auto sameFrameNavigation = menuRoute.Update(0.0f, Focused(), input, false);
+		Check(open.size() == 1 &&
+			open[0].Kind == XRNativeKeyEventKind::EscapePulse &&
+			sameFrameNavigation.empty(),
+			"one menu-button edge was processed twice while opening UMenu");
+
+		// The held edge cannot close the newly opened menu on the next frame.
+		Check(gameplayRoute.Update(Focused(), input, XRHand::Right,
+			false, false, true).empty() &&
+			menuRoute.Update(0.0f, Focused(), input, true).empty(),
+			"menu button held across opening immediately closed UMenu");
+
+		// After release, one fresh edge belongs only to menu navigation/close.
+		input.ForHand(XRHand::Left).Menu.Pressed = false;
+		gameplayRoute.Update(Focused(), input, XRHand::Right,
+			false, false, true);
+		menuRoute.Update(0.0f, Focused(), input, true);
+		input.ForHand(XRHand::Left).Menu.Pressed = true;
+		Check(gameplayRoute.Update(Focused(), input, XRHand::Right,
+			false, false, true).empty(),
+			"gameplay route consumed a menu-owned close edge");
+		auto close = menuRoute.Update(0.0f, Focused(), input, true);
+		Check(close.size() == 1 && close[0] == XRMenuNavigationKey::Escape,
+			"fresh menu-owned edge did not close UMenu exactly once");
+	}
 }
 
 int main()
@@ -185,6 +223,7 @@ int main()
 	TestFocusedStartupTiming();
 	TestMenuNavigation();
 	TestHardwareProvenNativeKeyRoute();
+	TestMenuRoutesShareOneFrameState();
 	std::cout << "XR startup menu route tests passed\n";
 	return 0;
 }

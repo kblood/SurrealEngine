@@ -8,6 +8,14 @@ This topic originally composed the optional native OpenXR provider (`e6150bf2`, 
 
 `XRInputAdapter` converts the shared controller snapshot into ordinary engine input commands. Each hand uses its own `InputSourceId` (`XRLeft` or `XRRight`) and stable logical control numbers, so keyboard, mouse, and both controllers can contribute simultaneously. Presses are edge-triggered, holds remain composed without repeated press commands, releases remove only their physical control, and a disconnect or session stop calls `Engine::ReleaseInputSource` for that hand. `XRSessionState::AcceptsInput` is the provider-neutral focus gate; a visible but unfocused session publishes neutral values so held controls cannot stick. Native trigger fire is the intentional exception: the Quest-validated route synthesizes `IK_LeftMouse`/`IK_RightMouse` press and release edges through `Engine::InputEvent`, because direct `bFire`/`bAltFire` property composition bypasses UT99's console `KeyEvent` gates. The raw OpenXR menu action similarly produces an Escape pulse when gameplay owns input; the menu navigation route owns close/back while UMenu is active.
 
+Native menu presentation and pointer coordinates have separate handedness
+boundaries. The Vulkan canvas is copied to the OpenXR quad without a horizontal
+image flip so text remains readable. Native hit testing reflects only the
+surface Right basis, making the controller contact address the displayed texel
+rather than its former mirrored location. Opening and closing routes consume
+one captured start-of-frame menu state so a synchronous Escape transition
+cannot cause one physical edge to close and reopen UMenu in the same frame.
+
 `XRTurnPolicy` keeps comfort-turn interpretation out of both OpenXR and WebXR providers. The compatibility default is right-hand smooth turn with the existing deadzone and continuous axis value. An integration/settings layer can call `XRInputAdapter::SetTurnPolicy` to change smooth scale or explicitly select snap mode. Snap mode emits one configured turn-axis pulse when the stick crosses its activation threshold, latches while held, and rearms only after crossing the lower release threshold. Switching modes, reconnecting, or holding the stick through lost focus requires a neutral sample before a snap can fire. Launcher/in-game UI still needs to persist a user choice and call this narrow API; no provider-specific setting is required.
 
 `XRStartupIntroTriggerRoute` is shared with WebXR. While the engine explicitly reports the startup intro active and no menu is open, native trigger edges are also mirrored into the ordinary primary/alternate fire key events expected by scripted UE1 startup maps. A press remains owned until its matching release even if the menu opens in between, preventing a held intro trigger from becoming a synthetic menu click. Session loss balances any mirrored edge before the native input source is released.

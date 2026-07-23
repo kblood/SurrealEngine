@@ -1,5 +1,17 @@
 #include "Platform/OpenXR/OpenXRUIRuntime.h"
 
+XRUICanvasReplayFrame BuildOpenXRUIHitTestFrame(
+	const XRUICanvasReplayFrame& presentationFrame)
+{
+	XRUICanvasReplayFrame result = presentationFrame;
+	if (OpenXRUIHitTestReflectHorizontal)
+	{
+		for (XRUICanvasReplayItem& item : result.Items)
+			item.Surface.Pose.Right = -item.Surface.Pose.Right;
+	}
+	return result;
+}
+
 bool SupportsOpenXRUIVisualOverlay(uint32_t maxLayerCount)
 {
 	return maxLayerCount >= 6;
@@ -49,8 +61,10 @@ void OpenXRUIRuntime::Update(XRUISurfaceEngineBinding& binding,
 	frame.AimRays = aimRays;
 	frame.AimRayValid = aimRayValid;
 	frame.MissDistance = missDistance;
-	input.Update(frame, binding);
-	visualFrame = BuildXRUIVisualFrame(input.Feedback(), binding.BuildReplayFrame(),
+	const XRUICanvasReplayFrame presentationFrame = binding.BuildReplayFrame();
+	input.Update(frame, binding,
+		BuildOpenXRUIHitTestFrame(presentationFrame));
+	visualFrame = BuildXRUIVisualFrame(input.Feedback(), presentationFrame,
 		missDistance, visualSettings);
 }
 
