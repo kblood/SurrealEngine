@@ -131,9 +131,17 @@ assert.equal(requestOptions.requiredFeatures, undefined);
 assert.deepEqual(requestOptions.optionalFeatures, ["local-floor"]);
 assert.equal(atlasTextures.length, 0, "persistent targets are allocated after the first frame describes the atlas");
 
-const projection = new Float32Array([2,0,0,0, 0,3,0,0, .2,-.3,-1,-1, 0,0,-.2,0]);
-const view = (eye, x) => ({ eye, projectionMatrix: projection, transform: {
-	position: { x, y: 1.6, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 }
+const webGLProjection = (left, right, down, up, near = .1, far = 1000) =>
+	new Float32Array([2 / (right - left),0,0,0, 0,2 / (up - down),0,0,
+		(right + left) / (right - left), (up + down) / (up - down),
+		-(far + near) / (far - near),-1, 0,0,-2 * far * near / (far - near),0]);
+const projections = {
+	left: webGLProjection(-1.17, .97, -1.08, 1.12),
+	right: webGLProjection(-.97, 1.17, -1.07, 1.13),
+};
+const rotatedOrientation = { x: -.08871944, y: .22108249, z: .08185684, w: .96775557 };
+const view = (eye, x) => ({ eye, projectionMatrix: projections[eye], transform: {
+	position: { x, y: 1.6, z: 0 }, orientation: rotatedOrientation
 } });
 const frame = {
 	getViewerPose: () => ({ views: [view("left", -.032), view("right", .032)] }),
@@ -165,7 +173,18 @@ assert.equal(packet.getUint32(12, true), 1);
 assert.equal(packet.getUint32(28, true), 3);
 assert.equal(packet.getInt32(32 + 20, true), 0);
 assert.equal(packet.getInt32(32 + 128 + 20, true), 800);
-assert.ok(Math.abs(packet.getFloat32(32 + 64 + 14 * 4, true) + .1) < 1e-6);
+for (let viewIndex = 0; viewIndex < 2; viewIndex++) {
+	const eye = viewIndex === 0 ? "left" : "right";
+	const expected = globalThis.SurrealWebXRWebGLBridge.convertProjectionDepth(projections[eye]);
+	const projectionOffset = 32 + viewIndex * 128 + 64;
+	for (let element = 0; element < 16; element++)
+		assert.ok(Math.abs(packet.getFloat32(projectionOffset + element * 4, true) - expected[element]) < 1e-6,
+			`${eye} projection element ${element} was not packed after depth conversion`);
+	const orientationOffset = 32 + viewIndex * 128 + 48;
+	for (const [element, component] of ["x", "y", "z", "w"].entries())
+		assert.ok(Math.abs(packet.getFloat32(orientationOffset + element * 4, true) - rotatedOrientation[component]) < 1e-6,
+			`${eye} rotated orientation component ${component} was not packed`);
+}
 
 // Publish the first completed target. Before the scheduled producer pump runs again,
 // the next rAF must present exactly that immutable front.

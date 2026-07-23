@@ -1326,6 +1326,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		Tests/WebXRUIProviderTests.cpp
 		SurrealEngine/Platform/WebXR/WebXRUIProvider.cpp
 		SurrealEngine/Platform/WebXR/WebXRFrameBridge.cpp
+		SurrealEngine/RenderDevice/ClipSpaceConversion.cpp
 		SurrealEngine/Render/XRUISurfaces.cpp
 		SurrealEngine/Render/XRUISurfaceRuntimeAdapter.cpp
 		SurrealEngine/Render/XRUISurfaceEngineBinding.cpp

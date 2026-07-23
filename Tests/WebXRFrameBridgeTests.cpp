@@ -13,6 +13,27 @@ namespace
 		return std::abs(a - b) <= epsilon;
 	}
 
+	std::array<float, 16> MakeWebGLProjection(float left, float right,
+		float down, float up, float nearDistance, float farDistance)
+	{
+		std::array<float, 16> projection = {};
+		projection[0] = 2.0f / (right - left);
+		projection[5] = 2.0f / (up - down);
+		projection[8] = (right + left) / (right - left);
+		projection[9] = (up + down) / (up - down);
+		projection[10] = -(farDistance + nearDistance) / (farDistance - nearDistance);
+		projection[11] = -1.0f;
+		projection[14] = -(2.0f * farDistance * nearDistance) /
+			(farDistance - nearDistance);
+		return projection;
+	}
+
+	vec3 ProjectToNDC(const ViewDescription& view, const vec3& worldPosition)
+	{
+		const vec4 clip = view.Projection * view.WorldToView * vec4(worldPosition, 1.0f);
+		return vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
+	}
+
 	std::vector<uint8_t> MakeFrame()
 	{
 		WebXR::PackedFrameHeader header = {};
@@ -160,6 +181,113 @@ int main()
 		!NearlyEqual(atlasFamily.Views[0].Projection[8], 0.25f) ||
 		!NearlyEqual(atlasFamily.Views[1].Projection[8], -0.25f))
 		return 14;
+
+	const std::array<float, 16> leftWebGLProjection = MakeWebGLProjection(
+		-1.17f, 0.97f, -1.08f, 1.12f, 0.1f, 1000.0f);
+	const std::array<float, 16> rightWebGLProjection = MakeWebGLProjection(
+		-0.97f, 1.17f, -1.07f, 1.13f, 0.1f, 1000.0f);
+	const std::array<float, 16> leftWebGPUProjection =
+		ConvertProjectionDepthMinusOneToOneToZeroToOne(leftWebGLProjection);
+	const std::array<float, 16> rightWebGPUProjection =
+		ConvertProjectionDepthMinusOneToOneToZeroToOne(rightWebGLProjection);
+	atlasHeader->ResetGeneration++;
+	const float rotatedOrientation[4] = {
+		-0.08871944f, 0.22108249f, 0.08185684f, 0.96775557f
+	};
+	WebXR::RecenterState canonicalRecenter;
+	canonicalRecenter.Valid = true;
+	const WebXR::EngineTrackedPose canonicalPose = WebXR::TransformCanonicalPose(
+		vec3(0.25f, 1.6f, -0.4f),
+		vec4(rotatedOrientation[0], rotatedOrientation[1],
+			rotatedOrientation[2], rotatedOrientation[3]),
+		vec3(0.0f), Coords::Identity(), unitsPerMeter, canonicalRecenter);
+	if (!NearlyEqual(canonicalPose.Position.x, 0.4f * unitsPerMeter) ||
+		!NearlyEqual(canonicalPose.Position.y, 0.25f * unitsPerMeter) ||
+		!NearlyEqual(canonicalPose.Position.z, 1.6f * unitsPerMeter) ||
+		!NearlyEqual(canonicalPose.Forward.x, 0.8865028f) ||
+		!NearlyEqual(canonicalPose.Forward.y, -0.4133830f) ||
+		!NearlyEqual(canonicalPose.Forward.z, -0.2079117f) ||
+		!NearlyEqual(canonicalPose.Right.x, 0.4424322f) ||
+		!NearlyEqual(canonicalPose.Right.y, 0.8888440f) ||
+		!NearlyEqual(canonicalPose.Right.z, 0.1192062f) ||
+		!NearlyEqual(canonicalPose.Up.x, 0.1355232f) ||
+		!NearlyEqual(canonicalPose.Up.y, -0.1976635f) ||
+		!NearlyEqual(canonicalPose.Up.z, 0.9708566f))
+		return 22;
+	for (uint32_t index = 0; index < 2; index++)
+	{
+		std::memcpy(atlasViews[index].Orientation, rotatedOrientation,
+			sizeof(rotatedOrientation));
+		const std::array<float, 16>& projection = index == 0 ?
+			leftWebGPUProjection : rightWebGPUProjection;
+		std::memcpy(atlasViews[index].Projection, projection.data(),
+			sizeof(atlasViews[index].Projection));
+	}
+	if (!WebXR::DecodeFrame(invalid.data(), static_cast<uint32_t>(invalid.size()), decoded, error))
+		return 17;
+	WebXR::RecenterState metricRecenter;
+	const ViewFamily metricFamily = WebXR::BuildViewFamily(decoded, anchor,
+		Coords::YawRotation(0.31f), unitsPerMeter, metricRecenter);
+	if (metricFamily.Views.size() != 2)
+		return 18;
+	const std::array<std::array<float, 16>, 2> sourceProjections = {
+		leftWebGPUProjection, rightWebGPUProjection
+	};
+	const auto projectionMatchesMetricSpace = [&](const ViewFamily& viewFamily)
+	{
+		if (viewFamily.Views.size() != 2)
+			return false;
+		for (size_t index = 0; index < viewFamily.Views.size(); index++)
+		{
+			const ViewDescription& view = viewFamily.Views[index];
+			const std::array<float, 16>& projection = sourceProjections[index];
+			const float nearEngineUnits = -view.Projection[14] / view.Projection[10];
+			const float farEngineUnits = view.Projection[14] /
+				(view.Projection[11] - view.Projection[10]);
+			if (!NearlyEqual(nearEngineUnits, 0.1f * unitsPerMeter, 0.001f) ||
+				!NearlyEqual(farEngineUnits, 1000.0f * unitsPerMeter,
+					1000.0f * unitsPerMeter * 0.002f))
+				return false;
+			for (const float distanceMeters : { 0.1f, 500.0f, 1000.0f })
+			{
+				const vec3 worldPosition = view.Location +
+					view.Rotation.XAxis * (distanceMeters * unitsPerMeter);
+				const vec3 ndc = ProjectToNDC(view, worldPosition);
+				const float expectedDepth =
+					(projection[10] * -distanceMeters + projection[14]) /
+					(projection[11] * -distanceMeters);
+				if (!NearlyEqual(ndc.x, -projection[8], 0.0001f) ||
+					!NearlyEqual(ndc.y, -projection[9], 0.0001f) ||
+					!NearlyEqual(ndc.z, expectedDepth, 0.0001f))
+					return false;
+			}
+		}
+		return true;
+	};
+	if (!projectionMatchesMetricSpace(metricFamily))
+		return 19;
+
+	atlasHeader->Flags = 0;
+	atlasHeader->TextureCount = 2;
+	for (uint32_t index = 0; index < 2; index++)
+	{
+		atlasViews[index].TextureIndex = index;
+		atlasViews[index].TextureWidth = 1024;
+		atlasViews[index].TextureHeight = 1024;
+		atlasViews[index].ViewportX = 0;
+		atlasViews[index].ViewportWidth = 1024;
+		const std::array<float, 16>& projection = index == 0 ?
+			leftWebGLProjection : rightWebGLProjection;
+		std::memcpy(atlasViews[index].Projection, projection.data(),
+			sizeof(atlasViews[index].Projection));
+	}
+	if (!WebXR::DecodeFrame(invalid.data(), static_cast<uint32_t>(invalid.size()), decoded, error))
+		return 20;
+	WebXR::RecenterState directRecenter;
+	const ViewFamily directFamily = WebXR::BuildViewFamily(decoded, anchor,
+		Coords::YawRotation(0.31f), unitsPerMeter, directRecenter);
+	if (!projectionMatchesMetricSpace(directFamily))
+		return 21;
 
 	std::cout << "WebXR packed frame and view-family tests passed\n";
 	return 0;

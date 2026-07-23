@@ -1,6 +1,7 @@
 #include "Platform/WebXR/WebXRFrameBridge.h"
 
 #include "Math/quaternion.h"
+#include "RenderDevice/ClipSpaceConversion.h"
 
 #include <cmath>
 #include <cstring>
@@ -52,13 +53,23 @@ namespace
 		};
 	}
 
-	mat4 DecodeProjection(const WebXR::PackedView& view)
+	mat4 DecodeProjection(const WebXR::PackedView& view, uint32_t frameFlags,
+		float worldUnitsPerMeter)
 	{
-		float values[16];
-		std::memcpy(values, view.Projection, sizeof(values));
-		mat4 projection = mat4::from_values(values);
+		std::array<float, 16> values;
+		std::memcpy(values.data(), view.Projection, sizeof(view.Projection));
+		if ((frameFlags & WebXR::FrameProjectionDepthZeroToOne) == 0)
+			values = ConvertProjectionDepthMinusOneToOneToZeroToOne(values);
+
+		// WebXR bakes meter-valued clip distances into the homogeneous column.
+		// The view transform below produces engine-unit coordinates, so scale that
+		// column to preserve the projection's NDC result without changing its FOV.
+		for (size_t row = 0; row < 4; row++)
+			values[12 + row] *= worldUnitsPerMeter;
+
+		mat4 projection = mat4::from_values(values.data());
 		// WebXR looks down -Z. SurrealEngine's render path looks down +Z.
-		if (view.Projection[11] < 0.0f)
+		if (values[11] < 0.0f)
 			projection = projection * mat4::scale(1.0f, 1.0f, -1.0f);
 		return projection;
 	}
@@ -229,7 +240,7 @@ ViewFamily WebXR::BuildViewFamily(const DecodedFrame& frame, const vec3& cameraL
 		view.WorldToView = Coords::ViewToRenderDev().ToMatrix() * view.Rotation.Inverse().ToMatrix() *
 			Coords::Location(view.Location).ToMatrix();
 		view.HasProjection = true;
-		view.Projection = DecodeProjection(source);
+		view.Projection = DecodeProjection(source, frame.Header.Flags, worldUnitsPerMeter);
 		view.ApplyGameViewport = false;
 		family.Views.push_back(view);
 	}

@@ -177,11 +177,18 @@ globalThis.XRGPUBinding = class {
 	}
 };
 
-const projection = new Float32Array(16);
-projection[0] = projection[5] = projection[10] = projection[15] = 1; projection[11] = -1;
+const webGLProjection = (left, right, down, up, near = .1, far = 1000) =>
+	new Float32Array([2 / (right - left),0,0,0, 0,2 / (up - down),0,0,
+		(right + left) / (right - left), (up + down) / (up - down),
+		-(far + near) / (far - near),-1, 0,0,-2 * far * near / (far - near),0]);
+const projections = {
+	left: webGLProjection(-1.17, .97, -1.08, 1.12),
+	right: webGLProjection(-.97, 1.17, -1.07, 1.13),
+};
+const rotatedOrientation = { x: -.08871944, y: .22108249, z: .08185684, w: .96775557 };
 function makeView(eye, x) {
-	return { eye, projectionMatrix: projection, transform: { position: { x, y: 1.6, z: 0 },
-		orientation: { x: 0, y: 0, z: 0, w: 1 } } };
+	return { eye, projectionMatrix: projections[eye], transform: { position: { x, y: 1.6, z: 0 },
+		orientation: rotatedOrientation } };
 }
 const stereoFrame = {
 	getViewerPose: () => ({ views: [makeView("left", -.032), makeView("right", .032)] }),
@@ -279,8 +286,17 @@ assert.equal(renderedPackets[0].textures.length, 2);
 assert.ok(renderedPackets[0].textures.every(texture => texture !== leftXRTexture && texture !== rightXRTexture));
 let packet = new DataView(renderedPackets[0].bytes.buffer);
 assert.equal(packet.getUint32(12, true), 2);
+assert.equal(packet.getUint32(28, true), 0,
+	"direct WebGPU packets must identify the spec WebGL depth range for native conversion");
 assert.equal(packet.getUint32(32 + 12, true), 800);
 assert.equal(packet.getUint32(32 + 128 + 12, true), 1024);
+for (let viewIndex = 0; viewIndex < 2; viewIndex++) {
+	const eye = viewIndex === 0 ? "left" : "right";
+	const projectionOffset = 32 + viewIndex * 128 + 64;
+	for (let element = 0; element < 16; element++)
+		assert.ok(Math.abs(packet.getFloat32(projectionOffset + element * 4, true) - projections[eye][element]) < 1e-6,
+			`${eye} direct projection element ${element} did not preserve the WebXR matrix`);
+}
 
 // A second XR frame and event callbacks make zero Wasm entries while Asyncify is suspended.
 const callsWhilePending = nativeCalls.length;
