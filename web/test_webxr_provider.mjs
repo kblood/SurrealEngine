@@ -569,6 +569,38 @@ assert.equal(await globalThis.surrealXREnter(), true,
 assert.equal(globalThis.surrealXRGetState().phase, "running");
 assert.equal(globalThis.surrealXRExit(), true);
 await nextTask();
+assert.equal(globalThis.surrealXRGetState().phase, "ended",
+	"an explicit exit before the first frame remains a normal end");
+assert.equal(globalThis.surrealXRGetState().lastErrorCode, null);
+
+// A runtime-driven end during the reserved/activation window must retain the exact safe stage
+// instead of looking like a successful exit after the browser has already returned to flat mode.
+assert.equal(await globalThis.surrealXRRequestSession(), true);
+const endedWhileReserved = sessions.at(-1);
+endedWhileReserved.emitEnd();
+assert.equal(globalThis.surrealXRGetState().phase, "error");
+assert.equal(globalThis.surrealXRGetState().lastErrorCode, "session-ended-before-activation");
+assert.equal(globalThis.surrealXRGetState().lastErrorStage, "session-reserved");
+await nextTask();
+
+assert.equal(await globalThis.surrealXREnter(), true);
+const endedBeforeFirstFrame = sessions.at(-1);
+endedBeforeFirstFrame.emitEnd();
+assert.equal(globalThis.surrealXRGetState().phase, "error");
+assert.equal(globalThis.surrealXRGetState().lastErrorCode, "session-ended-before-first-frame");
+assert.equal(globalThis.surrealXRGetState().lastErrorStage, "frame");
+await nextTask();
+
+assert.equal(await globalThis.surrealXREnter(), true);
+const normallyEndedSession = sessions.at(-1);
+normallyEndedSession.fireFrame(4000, stereoFrame);
+await nextTask();
+assert.equal(globalThis.surrealXRGetState().frames, 1);
+normallyEndedSession.emitEnd();
+assert.equal(globalThis.surrealXRGetState().phase, "ended",
+	"a runtime end after presentation started remains a normal end");
+assert.equal(globalThis.surrealXRGetState().lastErrorCode, null);
+await nextTask();
 
 // Input packing remains defensive and semantic.
 const unsafe = makeInputSource("left", 0); unsafe.gamepad.mapping = "";

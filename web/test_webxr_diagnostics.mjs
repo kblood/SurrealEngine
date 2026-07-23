@@ -43,6 +43,14 @@ assert.equal(direct.layerWidth, 2048);
 assert.equal(direct.bridgeSamples, 0);
 assert.equal(direct.bridgeP99Ms, "unknown");
 
+for (const code of ["session-ended-before-activation", "session-ended-before-first-frame"]) {
+	const prematureEnd = diagnostics.formatReport({ lastError: "C:\\Private\\runtime failure",
+		lastErrorCode: code, lastErrorStage: "session-reserved" });
+	assert.match(prematureEnd, new RegExp("\\nprovider_error_code: " + code + "\\n"));
+	assert.equal(prematureEnd.includes("Private"), false);
+	assert.equal(prematureEnd.includes("runtime failure"), false);
+}
+
 const rejected = diagnostics.normalized({ presentationMode: "https://private.invalid/mode",
 	lastErrorCode: "C:\\Private\\Core.u",
 	bridgeDiagnostics: { p99Ms: -1, samples: "not-a-number" } });

@@ -778,6 +778,7 @@
 			generation,
 			ended: false,
 			blocked: false,
+			applicationEndRequested: false,
 			promise: new Promise(function (resolve) { resolveEnded = resolve; }),
 		};
 		sessionObject.addEventListener("end", function () {
@@ -794,7 +795,18 @@
 					recordTransition("session-end-confirmed", generation, status.currentStage);
 				}
 			}
-			finish(generation, "ended", null);
+			let prematureEnd = null;
+			if (generation === activeGeneration && !tracker.applicationEndRequested) {
+				if (!status.active) {
+					prematureEnd = providerError("session-ended-before-activation",
+						status.currentStage || "session-reserved",
+						"WebXR session ended before presentation activation completed");
+				} else if (status.frames === 0) {
+					prematureEnd = providerError("session-ended-before-first-frame", "frame",
+						"WebXR session ended before its first rendered frame completed");
+				}
+			}
+			finish(generation, prematureEnd ? "error" : "ended", prematureEnd);
 		});
 		return tracker;
 	}
@@ -1232,6 +1244,7 @@
 		const generation = activeGeneration;
 		const exitingSession = session;
 		const exitingEndTracker = sessionEndTracker;
+		if (exitingEndTracker) exitingEndTracker.applicationEndRequested = true;
 		status.exitRequests++;
 		setStage("exit-requested");
 		recordTransition("exit-requested", generation, status.currentStage);

@@ -185,6 +185,14 @@ ownership, frame rendering, input submission, or error cleanup. The release
 reporter does not export provider error text because browser/native exceptions
 may contain environment-specific details.
 
+A runtime-driven `end` event during session reservation or layer/reference-space
+activation is retained as `session-ended-before-activation`. If activation
+completed but the runtime ends before the first native render is published, the
+code is `session-ended-before-first-frame`. Both are fixed allowlisted tokens;
+their messages are static and raw browser/runtime exceptions remain private.
+An explicit `surrealXRExit()` before the first frame and a runtime end after at
+least one published frame remain normal clean ends.
+
 ## Frame ownership and failure behavior
 
 The ordinary Emscripten main loop remains registered for the process lifetime,
@@ -419,6 +427,11 @@ end it and require a fresh trusted gesture for forced bridge. Missing or
 uninspectable enabled features fail closed with an allowlisted exact code and
 forced-bridge guidance. The automated direct/bridge exclusivity matrix passes;
 physical VDXR requalification remains.
+
+The physical report can now distinguish an ordinary session-request or layer
+failure from a runtime that grants consent and then ends the session before
+activation/first presentation. This is diagnostic state only; it neither keeps
+an ended session alive nor attempts an illegal same-session backend fallback.
 
 Both modes remain **experimental**. Automated tests prove selection, ABI,
 projection conversion, shared engine behavior, cleanup, and desktop cross-API

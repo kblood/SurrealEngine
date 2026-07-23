@@ -23,6 +23,10 @@ the report before reloading. Its `provider_error_stage` distinguishes session
 request, binding, format, projection-layer, and render-state failures. The
 post-candidate `f3643b78` diagnostics now include the exact `lastErrorCode` only
 as an allowlisted `provider_error_code`; raw exception text remains excluded.
+Current source also preserves two formerly lost runtime-end outcomes:
+`session-ended-before-activation` for an `end` event during reservation/setup,
+and `session-ended-before-first-frame` after activation but before a completed
+native presentation. Explicit application exit is not classified as either.
 
 The fallback flat canvas successfully acquired pointer lock and mouse buttons
 reached the game: primary fire worked. Relative mouse motion did not rotate the
@@ -70,6 +74,12 @@ textures; removing that usage is not a valid compatibility workaround.
   direct failure without an illegal same-session fallback.
 - Confirm the new allowlisted `provider_error_code` appears in a physical
   privacy-safe report without raw exception text.
+- Interpret `session-ended-before-activation` as a browser/runtime shutdown
+  during the reserved session, layer, or reference-space setup. Interpret
+  `session-ended-before-first-frame` as successful activation without one
+  completed native presentation. In either case, preserve the report and VDXR
+  OpenXR log before trying forced bridge; do not infer a projection or game
+  rendering failure from the consent prompt alone.
 - Run a real Chrome pointer-lock test from nonzero browser
   `movementX`/`movementY` through the `28906717` atomic bridge to
   `Engine::OnWindowRawMouseMove`; retain the existing post-XR capture-prompt
