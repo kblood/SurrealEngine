@@ -308,11 +308,16 @@ manifest and awaits `Surreal_PrepareBrowserOPFSMount` through an Asyncify-aware
 `ccall` before mutable restore and native startup. The symlink tree and mutable
 overlay policy are otherwise the same as the worker experiment.
 
-The installed Emscripten 6.0.2 OPFS glue passes resizable Wasm views to
-`TextDecoder`. Chrome rejects those views before the mount with a `TypeError`.
-A measured fixed 256 MiB heap is therefore used for this experiment. A 512 MiB
-initial/maximum heap with growth still failed because the underlying buffer was
-resizable; this was not an engine capacity failure.
+The installed Emscripten 6.0.2 runtime passes resizable Wasm-backed views to
+its internal `UTF8Decoder`. Chrome rejects those views with a `TypeError`.
+The Window-owned build therefore uses `TEXTDECODER=1` and a project-owned
+`--js-library` that sets only Emscripten's `$UTF8Decoder` helper to `null`.
+This selects Emscripten's built-in scalar UTF-8 path without changing the
+browser's global `TextDecoder` or application-owned decoding. The heap starts
+at the measured 256 MiB baseline and can grow as game demand requires. A
+post-link generated-output gate verifies both the scalar fallback and the
+`WebAssembly.Memory.grow` path so a future Emscripten library-ordering change
+cannot silently restore the incompatible decoder or the fixed heap.
 
 Two startup details are essential:
 
@@ -508,6 +513,8 @@ The two standalone probes must first be compiled into
 `build-wasmfs-probe/index.html` and
 `build-proxy-thread-probe/index.html` with the flags documented above.
 
-Do not raise `MAXIMUM_MEMORY` as the primary fix. That changes the failure
-ceiling but preserves the unnecessary full-data allocation and its headset
-pressure.
+Do not raise `INITIAL_MEMORY` as the primary fix. That reserves more memory at
+startup and masks the actual peak. The OPFS mount keeps commercial game files
+out of MEMFS, while the growable 256 MiB engine heap accommodates real runtime
+demand. Keep measuring heap and browser-process peaks on Quest before changing
+the initial or maximum limits.

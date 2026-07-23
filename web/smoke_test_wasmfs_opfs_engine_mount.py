@@ -76,4 +76,4 @@ if ("runtime=opfs-mount" not in (summary["firstRuntimeMode"] or "") or
 		first_heap != 256 * 1024 * 1024 or second_heap != first_heap or mount_mode != 2 or crashed or page_errors):
 	print("FAIL: experimental engine OPFS mount", file=sys.stderr)
 	sys.exit(1)
-print("PASS: synthetic import and reload use the Window-owned Asyncify OPFS mount at fixed initial heap")
+print("PASS: synthetic import and reload use the Window-owned Asyncify OPFS mount at its 256 MiB initial heap")
