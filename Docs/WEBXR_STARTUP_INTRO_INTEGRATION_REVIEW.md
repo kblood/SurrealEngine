@@ -14,8 +14,8 @@ flat browser path, and owned Unreal Gold advanced through unchecked
 This review combined the UT99/Unreal map-startup lifecycle with both WebXR
 presentation paths, shared controller input, controller/laser/contact visuals,
 XR UI ordering, flat browser launch, and the experimental demo descriptors.
-It did not modify Unreal 205 serialization or browser cinematic licensing
-material.
+It did not modify Unreal Special Edition demo 200 serialization or browser
+cinematic licensing material.
 
 No production-path defect was found. One stale integration-test index was
 found: adding the HUD capture at descriptor slot zero moved loading from slot
@@ -68,7 +68,8 @@ The browser launcher retains its checked-by-default safe path:
 
 Unchecking **Skip startup intro** omits `--url`, leaving each imported game's
 own `URL.LocalMap` authoritative. The browser demo-descriptor test now applies
-both argument policies to the UT 348 demo, Unreal 205 demo, and Deus Ex 1002f
+both argument policies to the UT 348 demo, Unreal Special Edition demo 200, and
+Deus Ex 1002f
 demo. This validates descriptor/launcher composition only; it does not claim
 that each demo's normal intro, menu, or gameplay works.
 
@@ -112,7 +113,8 @@ that entry failure and force the WebGL bridge before intro/menu observations can
 be attributed to the headset compositor. In the surviving flat mode, pointer
 lock and fire worked but relative mouse-look did not.
 
-The Unreal 205 demo passes the two isolated legacy serialization boundaries but
+The Unreal Special Edition demo 200 passes the two isolated legacy serialization
+boundaries but
 remains blocked by its absent `UPak` content dependency. Demo descriptors remain
 experimental and local-import-only unless their independent compatibility and
 distribution gates are satisfied.

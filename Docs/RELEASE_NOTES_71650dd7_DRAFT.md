@@ -1,5 +1,9 @@
 # SurrealEngine `71650dd7` candidate release notes — draft
 
+> Historical candidate record. This package was not published. The stable Web
+> release was updated to `e9031169` on 2026-07-24; see
+> `WEB_DEPLOYMENT_E9031169.md`.
+
 Frozen production candidate commit:
 `71650dd7e80411532cc2baaca6623ad9404b25a9`
 

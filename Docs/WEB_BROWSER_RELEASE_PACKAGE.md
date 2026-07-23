@@ -1,13 +1,36 @@
 # Shared flat/WebXR browser release package
 
-Date: 2026-07-23
+Date: 2026-07-24
+
+## Current stable website release
+
+The single public Surreal Engine folder at
+`https://dionysus.dk/webxr/Ports/SurrealEngine/` now serves clean integration
+commit `e9031169`. It was built as the shipping Release Asyncify/WasmFS variant
+with no preloaded game data, packaged with matching corresponding source, and
+deployed by a verified atomic folder swap on 2026-07-24.
+
+The live WASM SHA-256 is
+`6d1899984e75da6481cf04aec655153d69e28ca449471702c3aead0562d4de92`;
+the live manifest SHA-256 is
+`b7a49d83ed2c9cd21bd6eb97ffd0fa723cb188e8e10a7a81497a5b58f0462b94`.
+Local and live release smokes pass. See `WEB_DEPLOYMENT_E9031169.md`.
+
+Do not publish numbered Surreal candidate directories. Use the one stable
+folder, retain rollback copies outside `Ports`, and keep commit/hash identity
+inside the manifest.
+
+The historical extraction/integration record follows. Status statements in
+that record describe the earlier `54283bd8` milestone, not the current live
+release above.
 
 Integration status: the package composition, compliance mechanism, revisioned
 browser assets, and current shared XR input/weapon runtime are implemented at
 `integration/unified-engine` commit `54283bd8`. A complete owned GOG UT99
 folder has passed both local-package and public-origin flat WebGPU launch tests.
-WebXR and the optional demo descriptors remain experimental; Quest, Unreal
-Gold, persistence/upgrade, and human/legal release gates remain open.
+At that milestone, WebXR and the optional demo descriptors remained
+experimental; Quest, Unreal Gold, persistence/upgrade, and human/legal release
+gates remained open.
 
 ## Branch and dependencies
 
@@ -66,8 +89,8 @@ The existing shared data layers remain authoritative:
   exists;
 - typed validation recognizes retail UT99 and Unreal Gold without weakening
   either layout contract. Separate experimental descriptors recognize locally
-  selected UT demo 348, Unreal demo 205, and Deus Ex demo 1002f folders; they
-  are not release-support or redistribution claims;
+  selected UT demo 348, Unreal Special Edition demo 200, and Deus Ex demo 1002f
+  folders; they are not release-support or redistribution claims;
 - imported commercial data remains in per-game OPFS/IndexedDB storage;
 - mutable INIs, settings, logs, and strict saves remain in the separate
   allowlisted, crash-safe mutable store;
@@ -95,18 +118,20 @@ node web/package_corresponding_source.mjs --source-root . --output C:\release-ma
 node web/package_browser_release.mjs --engine-dir build-emscripten --corresponding-source C:\release-materials\SurrealEngine-corresponding-source.tar.gz.json --output C:\path\to\webxr\Ports\SurrealEngine
 ```
 
-For a separately hosted candidate, keep the same package inputs and set its
-origin-absolute deployment path explicitly:
+For a non-public staging directory, keep the stable origin path explicit even
+when the filesystem output includes a commit-qualified staging directory:
 
 ```powershell
-node web/package_browser_release.mjs --engine-dir build-emscripten --corresponding-source C:\release-materials\SurrealEngine-corresponding-source.tar.gz.json --output C:\path\to\webxr\Ports\SurrealEngine-Experimental --intended-base-path /webxr/Ports/SurrealEngine-Experimental/
+node web/package_browser_release.mjs --engine-dir build-emscripten --corresponding-source C:\release-materials\SurrealEngine-corresponding-source.tar.gz.json --output C:\path\to\releases\staging\e9031169\SurrealEngine --intended-base-path /webxr/Ports/SurrealEngine/
 ```
 
 The override must begin and end with `/` and use safe URL path segments. The
 packager rejects traversal, query, fragment, backslash, encoded, and empty path
 segments. It records the effective path in both `release-manifest.json` and
 `HOSTING.txt`; omitting the option preserves the stable path from
-`web/release-package.json`.
+`web/release-package.json`. Do not expose the commit-qualified staging parent
+under `Ports`; atomically publish its `SurrealEngine` child to the one stable
+public folder.
 
 The output is self-contained and position-independent:
 

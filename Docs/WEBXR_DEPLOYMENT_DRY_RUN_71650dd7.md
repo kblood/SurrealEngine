@@ -1,5 +1,10 @@
 # WebXR deployment dry run: candidate 71650dd7
 
+> Historical record, superseded 2026-07-24. Candidate `71650dd7` was not
+> published. The stable `SurrealEngine/` folder now serves `e9031169`; see
+> `WEB_DEPLOYMENT_E9031169.md`. The project no longer uses numbered public
+> Surreal release folders.
+
 ## Decision
 
 Do not deploy the current package yet. Its payload and compliance records are

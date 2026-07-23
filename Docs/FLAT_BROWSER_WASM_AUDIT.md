@@ -22,9 +22,10 @@ and synthetic game-shaped entries only; no commercial game data is present.
   synthetic staged launch selects Unreal Gold `Vortex2` and produces
   `--autoplay --url=Vortex2 --render=webgpu /gamedata`.
 - Import tests cover retail UT99 and Unreal Gold. The separate demo descriptor
-  test covers UT99 demo 348, Unreal demo 205, and Deus Ex demo 1002f while
-  retaining their experimental markers and title-specific validation. The
-  public packaged launcher still advertises UT99 and Unreal Gold only.
+  test covers UT99 demo 348, Unreal Special Edition demo 200, and Deus Ex demo
+  1002f while retaining their experimental markers and title-specific
+  validation. The public packaged launcher at the time advertised UT99 and
+  Unreal Gold only.
 - Input-composition and XR UI tests prove that releasing or ending WebXR input
   removes only XR contributors and that the legacy mouse can press and release
   after tracked-pointer input. The staged Chrome test independently verifies
