@@ -14,8 +14,13 @@
 			this.error = this.root && this.root.querySelector("[data-audio-error]");
 			this.onUnlock = () => this.resume(); this.onOutput = () => this.setOutput();
 			this.onXRUserActivation = () => { if (this.started) this.resume(); };
-			this.onVisibility = () => this.environment.document && this.environment.document.visibilityState === "hidden" ? this.suspend() : this.refresh();
-			this.onPageHide = () => this.shutdown(); this.onPresentation = () => this.refresh();
+			this.onVisibility = () => {
+				if (this.environment.document && this.environment.document.visibilityState === "hidden") this.suspend();
+				else if (this.started) this.resume();
+				else this.refresh();
+			};
+			this.onPageHide = () => this.shutdown();
+			this.onPresentation = () => { if (this.started) this.resume(); else this.refresh(); };
 			this.onNativeCallGate = () => {
 				if (this.environment.surrealXRNativeCallsBlocked !== true) {
 					const pending = this.pendingLifecycle; this.pendingLifecycle = null;

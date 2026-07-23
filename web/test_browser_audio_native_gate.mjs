@@ -20,16 +20,46 @@ const Module = { ccall(name) {
 	return 1;
 } };
 const controller = environment.SurrealBrowserAudio.create(null, environment).attachModule(Module);
+const resumeCount = () => calls.filter(name => name === "Surreal_ResumeBrowserAudio").length;
+const resumesBeforeStart = resumeCount();
+listeners.get("visibilitychange")();
+listeners.get("surrealwebxrpresentation")({ detail: { state: "flat-fallback" } });
+listeners.get("surrealwebxraudiogesture")();
+assert.equal(resumeCount(), resumesBeforeStart,
+	"visibility, presentation, and XR gesture notifications do not resume audio before engine start");
 controller.engineStarted();
 assert.ok(calls.length > 0);
 assert.ok(calls.includes("Surreal_ResumeBrowserAudio"),
 	"engine startup makes a best-effort resume after the OpenAL context exists");
+
+environment.document.visibilityState = "hidden";
+const beforeHidden = calls.length;
+listeners.get("visibilitychange")();
+assert.equal(calls.slice(beforeHidden).filter(name => name === "Surreal_SuspendBrowserAudio").length, 1,
+	"a hidden document still suspends browser audio");
+assert.equal(calls.slice(beforeHidden).includes("Surreal_ResumeBrowserAudio"), false);
+environment.document.visibilityState = "visible";
+const beforeVisible = calls.length;
+listeners.get("visibilitychange")();
+assert.equal(calls.slice(beforeVisible).filter(name => name === "Surreal_ResumeBrowserAudio").length, 1,
+	"returning to a visible started game best-effort resumes browser audio");
+
+for (const state of ["flat-fallback", "active"]) {
+	const beforePresentation = calls.length;
+	listeners.get("surrealwebxrpresentation")({ detail: { state } });
+	assert.equal(calls.slice(beforePresentation).filter(name => name === "Surreal_ResumeBrowserAudio").length, 1,
+		state + " presentation transition best-effort resumes browser audio");
+}
 const beforeXRGesture = calls.length;
 listeners.get("surrealwebxraudiogesture")();
 assert.equal(calls.slice(beforeXRGesture).filter(name => name === "Surreal_ResumeBrowserAudio").length, 1,
 	"a forwarded trusted XR select retries the same bounded audio resume path");
 const beforeBlock = calls.length;
 environment.surrealXRNativeCallsBlocked = true;
+environment.document.visibilityState = "hidden";
+listeners.get("visibilitychange")();
+environment.document.visibilityState = "visible";
+listeners.get("visibilitychange")();
 listeners.get("surrealwebxraudiogesture")();
 controller.setOutput(); controller.refresh();
 const diagnostics = controller.diagnostics();
@@ -46,7 +76,7 @@ assert.ok(calls.slice(beforeBlock).includes("Surreal_ResumeBrowserAudio"),
 
 const beforeShutdown = calls.length;
 environment.surrealXRNativeCallsBlocked = true;
-controller.resume(); controller.suspend(); controller.shutdown();
+controller.resume(); controller.suspend(); listeners.get("pagehide")();
 assert.equal(calls.length, beforeShutdown);
 environment.surrealXRNativeCallsBlocked = false;
 listeners.get("surrealnativecallgatechange")();
