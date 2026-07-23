@@ -566,6 +566,7 @@ void Engine::RunOneFrame()
 			realTimeElapsed) :
 		AdvanceGameFrame(realTimeElapsed);
 	viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
+	render->SetDirectHudPresentation(false);
 	ViewFamily viewFamily = CreateDesktopViewFamily();
 	if (openXR && xrFrameBegun && shouldRenderXR)
 	{
@@ -589,6 +590,7 @@ void Engine::RunOneFrame()
 			xrViews.Presentation.SetLayer(PresentationLayer::World, target);
 			xrViews.Presentation.SetLayer(PresentationLayer::WeaponOverlay, target);
 			viewFamily = std::move(xrViews);
+			render->SetDirectHudPresentation(viewFamily.Hud.Enabled);
 			submitXRLayer = true;
 			if (openXRUI.IsStarted())
 			{

@@ -8,6 +8,8 @@
 #include "VM/ScriptCall.h"
 #include "Engine.h"
 
+#include <limits>
+
 void RenderSubsystem::ResetCanvas()
 {
 	// Scale the UI so it matches what you saw on a 1024x768 CRT monitor for Unreal and other older games.
@@ -97,6 +99,81 @@ void RenderSubsystem::PostRender()
 	CallEvent(engine->console, EventName::PostRender, { ExpressionValue::ObjectValue(engine->canvas) });
 	DrawTimedemoStats();
 	
+	if (ShowCollisionDebug)
+		DrawCollisionDebug();
+}
+
+void RenderSubsystem::PostRenderPerViewHud(const ViewFamily& viewFamily)
+{
+	const FSceneNode savedFrame = Canvas.Frame;
+	const float savedCurX = engine->canvas->CurX();
+	const float savedCurY = engine->canvas->CurY();
+	const float savedClipX = engine->canvas->ClipX();
+	const float savedClipY = engine->canvas->ClipY();
+	const int savedSizeX = engine->canvas->SizeX();
+	const int savedSizeY = engine->canvas->SizeY();
+	const PresentationTarget target = viewFamily.Presentation.GetLayer(
+		PresentationLayer::UserInterface).Target;
+
+	UPlayerPawn* player = engine->viewport ? engine->viewport->Actor() : nullptr;
+	UHUD* hud = player ? player->myHUD() : nullptr;
+	const int savedCrosshair = hud ? hud->Crosshair() : 0;
+	if (hud)
+	{
+		// UT's ChallengeHUD returns before loading/drawing a crosshair when the
+		// selected index is >= CrosshairCount. Scope the override to the two VR
+		// PostRender calls so the user's persisted desktop setting is untouched.
+		hud->Crosshair() = std::numeric_limits<int>::max();
+	}
+
+	for (size_t viewIndex = 0; viewIndex < viewFamily.Views.size(); viewIndex++)
+	{
+		const std::optional<ViewRect> hudRect = CreatePerViewHudRect(viewFamily,
+			viewIndex);
+		if (!hudRect || !Device->BeginPresentationView(target, viewIndex))
+			continue;
+
+		Canvas.Frame = savedFrame;
+		Canvas.Frame.XB = hudRect->X;
+		Canvas.Frame.YB = hudRect->Y;
+		Canvas.Frame.X = hudRect->Width;
+		Canvas.Frame.Y = hudRect->Height;
+		Canvas.Frame.FX = static_cast<float>(hudRect->Width);
+		Canvas.Frame.FY = static_cast<float>(hudRect->Height);
+		Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
+		Canvas.Frame.FY2 = Canvas.Frame.FY * 0.5f;
+
+		const int canvasWidth = std::max(static_cast<int>(hudRect->Width /
+			static_cast<float>(Canvas.uiscale)), 1);
+		const int canvasHeight = std::max(static_cast<int>(hudRect->Height /
+			static_cast<float>(Canvas.uiscale)), 1);
+		engine->canvas->CurX() = 0.0f;
+		engine->canvas->CurY() = 0.0f;
+		engine->canvas->ClipX() = static_cast<float>(canvasWidth);
+		engine->canvas->ClipY() = static_cast<float>(canvasHeight);
+		engine->canvas->SizeX() = canvasWidth;
+		engine->canvas->SizeY() = canvasHeight;
+		Device->SetSceneNode(&Canvas.Frame);
+		if (player)
+			CallEvent(player, EventName::PostRender,
+				{ ExpressionValue::ObjectValue(engine->canvas) });
+		CallEvent(engine->console, EventName::PostRender,
+			{ ExpressionValue::ObjectValue(engine->canvas) });
+		Device->EndPresentationView(target, viewIndex);
+	}
+
+	if (hud)
+		hud->Crosshair() = savedCrosshair;
+	Canvas.Frame = savedFrame;
+	engine->canvas->CurX() = savedCurX;
+	engine->canvas->CurY() = savedCurY;
+	engine->canvas->ClipX() = savedClipX;
+	engine->canvas->ClipY() = savedClipY;
+	engine->canvas->SizeX() = savedSizeX;
+	engine->canvas->SizeY() = savedSizeY;
+	Device->SetSceneNode(&Canvas.Frame);
+
+	DrawTimedemoStats();
 	if (ShowCollisionDebug)
 		DrawCollisionDebug();
 }

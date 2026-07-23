@@ -1,5 +1,7 @@
 #include "Render/ViewFamily.h"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 
 bool StereoAtlasLayout::CopiesExactlyTo(int eyeWidth, int eyeHeight) const
@@ -26,6 +28,52 @@ std::optional<StereoAtlasLayout> CreateStereoAtlasLayout(int eyeWidth,
 	layout.EyeSources[0] = { 0, 0, eyeWidth, eyeHeight };
 	layout.EyeSources[1] = { eyeWidth, 0, eyeWidth, eyeHeight };
 	return layout;
+}
+
+std::optional<ViewRect> CreatePerViewHudRect(const ViewFamily& family,
+	size_t viewIndex)
+{
+	if (!family.Hud.Enabled || family.Views.size() != 2 || viewIndex >= 2 ||
+		!std::isfinite(family.Hud.HalfFovDegrees) ||
+		!std::isfinite(family.Hud.HeightToWidth) ||
+		!std::isfinite(family.Hud.ConvergenceDepth) ||
+		family.Hud.HalfFovDegrees <= 0.0f ||
+		family.Hud.HalfFovDegrees >= 89.0f ||
+		family.Hud.HeightToWidth <= 0.0f ||
+		family.Hud.ConvergenceDepth <= 0.0f)
+		return {};
+
+	const ViewDescription& view = family.Views[viewIndex];
+	if (!view.HasProjectionTangents || view.Viewport.Width <= 0 ||
+		view.Viewport.Height <= 0)
+		return {};
+
+	const ProjectionTangentBounds& bounds = view.ProjectionTangents;
+	const float horizontalRange = bounds.Right - bounds.Left;
+	const float verticalRange = bounds.Up - bounds.Down;
+	if (!std::isfinite(horizontalRange) || !std::isfinite(verticalRange) ||
+		horizontalRange <= 0.0f || verticalRange <= 0.0f)
+		return {};
+
+	constexpr float Pi = 3.14159265359f;
+	const float halfTanX = std::tan(family.Hud.HalfFovDegrees * Pi / 180.0f);
+	const float halfTanY = halfTanX * family.Hud.HeightToWidth;
+	const float eyeSeparation = length(family.Views[1].Location -
+		family.Views[0].Location);
+	const float shift = (viewIndex == 0 ? 1.0f : -1.0f) *
+		(eyeSeparation * 0.5f) / family.Hud.ConvergenceDepth;
+
+	const int x0 = static_cast<int>(std::lround(view.Viewport.Width *
+		((-halfTanX + shift) - bounds.Left) / horizontalRange));
+	const int x1 = static_cast<int>(std::lround(view.Viewport.Width *
+		((halfTanX + shift) - bounds.Left) / horizontalRange));
+	const int y0 = static_cast<int>(std::lround(view.Viewport.Height *
+		(bounds.Up - halfTanY) / verticalRange));
+	const int y1 = static_cast<int>(std::lround(view.Viewport.Height *
+		(bounds.Up + halfTanY) / verticalRange));
+
+	return ViewRect{ view.Viewport.X + x0, view.Viewport.Y + y0,
+		std::max(x1 - x0, 1), std::max(y1 - y0, 1) };
 }
 
 bool ShouldRenderWeaponPerView(const ViewFamily& family)

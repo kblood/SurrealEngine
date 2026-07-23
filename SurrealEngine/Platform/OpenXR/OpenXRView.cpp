@@ -62,6 +62,11 @@ ViewFamily OpenXRViewTranslator::CreateViewFamily(const OpenXREyeView eyes[2], c
 		view.WorldToView = Coords::ViewToRenderDev().ToMatrix() * view.Rotation.Inverse().ToMatrix() * Coords::Location(view.Location).ToMatrix();
 		view.Viewport = { output.X + (eye == 0 ? 0 : leftWidth), output.Y, eye == 0 ? leftWidth : output.Width - leftWidth, output.Height };
 		view.HasProjection = true;
+		view.HasProjectionTangents = true;
+		view.ProjectionTangents = {
+			std::tan(eyes[eye].AngleLeft), std::tan(eyes[eye].AngleRight),
+			std::tan(eyes[eye].AngleUp), std::tan(eyes[eye].AngleDown)
+		};
 		// OpenXR's up/down angles use +Y up. Render-device view space uses
 		// +Y down, so its frustum bottom/top bounds are the negated up/down
 		// extents rather than OpenXR's down/up order.
@@ -72,6 +77,10 @@ ViewFamily OpenXRViewTranslator::CreateViewFamily(const OpenXREyeView eyes[2], c
 		view.ApplyGameViewport = false;
 		family.Views.push_back(view);
 	}
+	// Gameplay HUD primitives use UE1 destination-dependent blending. Draw
+	// them directly over each eye like the first native VR release; menus and
+	// other interactive surfaces remain independent compositor quads.
+	family.Hud.Enabled = true;
 	return family;
 }
 

@@ -23,6 +23,7 @@ public:
 	XRUISurfaceEngineBinding& XRUISurfaces() { return XRUIBinding; }
 	bool IsXRUIMenuActive() const;
 	void UpdateXRUISurfaceVisibility();
+	void SetDirectHudPresentation(bool active) { DirectHudPresentationActive = active; }
 	void SetXRUIVisualOverlay(const XRUIVisualFrame& frame,
 		const std::array<PresentationTarget, 2>& targets);
 
@@ -136,6 +137,7 @@ private:
 	void RenderOverlays();
 	bool RenderXRWeaponOverlay();
 	void PostRender();
+	void PostRenderPerViewHud(const ViewFamily& viewFamily);
 	void PostRenderFlash();
 	void DrawTimedemoStats();
 	void DrawCollisionDebug();
@@ -149,6 +151,7 @@ private:
 	float AmbientGlowTime = 0.0f;
 	float AmbientGlowAmount = 0.0f;
 	bool XRWeaponOverlayActive = false;
+	bool DirectHudPresentationActive = false;
 	XRUIVisualFrame PendingXRUIVisualFrame;
 	std::array<PresentationTarget, 2> PendingXRUIVisualTargets;
 

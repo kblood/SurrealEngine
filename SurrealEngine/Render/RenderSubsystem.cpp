@@ -14,6 +14,7 @@ RenderSubsystem::RenderSubsystem(RenderDevice* renderdevice) : Device(renderdevi
 
 void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFamily)
 {
+	DirectHudPresentationActive = viewFamily.Hud.Enabled;
 	UpdateXRUISurfaceVisibility();
 	LevelTimeElapsed = levelTimeElapsed;
 	AutoUV += levelTimeElapsed * 64.0f;
@@ -69,7 +70,10 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFam
 
 	if (BeginPresentationLayer(viewFamily.Presentation, PresentationLayer::UserInterface))
 	{
-		PostRender();
+		if (DirectHudPresentationActive && !IsXRUIMenuActive())
+			PostRenderPerViewHud(viewFamily);
+		else
+			PostRender();
 		EndPresentationLayer(viewFamily.Presentation, PresentationLayer::UserInterface);
 	}
 
@@ -146,7 +150,7 @@ void RenderSubsystem::UpdateXRUISurfaceVisibility()
 	const bool menuActive = IsXRUIMenuActive();
 	const XRUISurfaceVisibility visibility = ResolveXRUISurfaceVisibility(
 		engine->viewport->Actor() != nullptr, menuActive);
-	XRUIBinding.SetHudActive(visibility.Hud);
+	XRUIBinding.SetHudActive(visibility.Hud && !DirectHudPresentationActive);
 	XRUIBinding.SetMenuActive(visibility.Menu);
 	if (menuActive)
 		engine->CompleteStartupIntro();

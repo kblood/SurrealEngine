@@ -2,6 +2,7 @@
 #include "Render/ViewFamily.h"
 
 #include <climits>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -53,6 +54,42 @@ int main()
 	binding.Images.push_back({ reinterpret_cast<void*>(2), 1200, 1200 });
 	Check(binding.Target.Slot == 7 && binding.Images.size() == 2, "opaque presentation target binding was not retained");
 	Check(binding.Images[1].Width == 1200 && binding.Images[1].NativeHandle == reinterpret_cast<void*>(2), "presentation image metadata was not retained");
+
+	ViewFamily hudFamily;
+	hudFamily.Hud.Enabled = true;
+	hudFamily.Views.resize(2);
+	for (int eye = 0; eye < 2; eye++)
+	{
+		hudFamily.Views[eye].Viewport = { eye * 2112, 0, 2112, 2304 };
+		hudFamily.Views[eye].HasProjectionTangents = true;
+		hudFamily.Views[eye].ProjectionTangents = {
+			std::tan((eye == 0 ? -54.0f : -40.0f) * 3.14159265359f / 180.0f),
+			std::tan((eye == 0 ? 40.0f : 54.0f) * 3.14159265359f / 180.0f),
+			std::tan(44.0f * 3.14159265359f / 180.0f),
+			std::tan(-55.0f * 3.14159265359f / 180.0f)
+		};
+		hudFamily.Views[eye].Location = { 0.0f, eye == 0 ? -1.26f : 1.26f, 0.0f };
+	}
+	const auto leftHud = CreatePerViewHudRect(hudFamily, 0);
+	const auto rightHud = CreatePerViewHudRect(hudFamily, 1);
+	Check(leftHud && rightHud, "qualified per-eye HUD rectangles were not created");
+	Check(leftHud->Width == rightHud->Width && leftHud->Height == rightHud->Height,
+		"symmetric headset FOV produced mismatched HUD extents");
+	Check(leftHud->X >= hudFamily.Views[0].Viewport.X &&
+		leftHud->X + leftHud->Width <= hudFamily.Views[0].Viewport.X + hudFamily.Views[0].Viewport.Width &&
+		rightHud->X >= hudFamily.Views[1].Viewport.X &&
+		rightHud->X + rightHud->Width <= hudFamily.Views[1].Viewport.X + hudFamily.Views[1].Viewport.Width,
+		"compact HUD escaped an eye viewport");
+	const float expectedAspect = 4.0f / 3.0f;
+	Check(std::abs(static_cast<float>(leftHud->Width) / leftHud->Height - expectedAspect) < 0.12f,
+		"qualified HUD no longer approximates its 4:3 virtual screen");
+	Check(leftHud->Width < hudFamily.Views[0].Viewport.Width &&
+		leftHud->Height < hudFamily.Views[0].Viewport.Height,
+		"HUD expanded back to the full lens edges");
+	ViewFamily invalidHud = hudFamily;
+	invalidHud.Views[0].HasProjectionTangents = false;
+	Check(!CreatePerViewHudRect(invalidHud, 0),
+		"direct HUD accepted a view without optical tangent bounds");
 
 	ViewDescription center;
 	center.Location = vec3(10.0f, 20.0f, 30.0f);
