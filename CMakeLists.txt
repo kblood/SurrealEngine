@@ -98,6 +98,14 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/XR/XRWeaponPoseSolver.h
 	SurrealEngine/XR/XRWeaponRuntime.cpp
 	SurrealEngine/XR/XRWeaponRuntime.h
+	SurrealEngine/XR/Avatar/AvatarAutoRig.cpp
+	SurrealEngine/XR/Avatar/AvatarAutoRig.h
+	SurrealEngine/XR/Avatar/AvatarRigCache.cpp
+	SurrealEngine/XR/Avatar/AvatarRigCache.h
+	SurrealEngine/XR/Avatar/AvatarSkinner.cpp
+	SurrealEngine/XR/Avatar/AvatarSkinner.h
+	SurrealEngine/XR/Avatar/AvatarRenderer.cpp
+	SurrealEngine/XR/Avatar/AvatarRenderer.h
 	SurrealEngine/UE1GameDatabase.h
 	SurrealEngine/UE1GameDatabase.cpp
 	SurrealEngine/Utils/CommandLine.cpp

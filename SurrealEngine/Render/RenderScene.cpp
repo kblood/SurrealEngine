@@ -6,6 +6,7 @@
 #include "VM/ScriptCall.h"
 #include "Engine.h"
 #include "VisibleFrame.h"
+#include "XR/Avatar/AvatarRenderer.h"
 
 bool RenderSubsystem::PrepareSceneViews()
 {
@@ -40,6 +41,17 @@ void RenderSubsystem::DrawSceneView(const ViewDescription& view)
 	MainFrame.Process(view.Location, view.WorldToView, view.Rotation, false, 0, {}, vec4(0.0f, 0.0f, 0.0f, 1.0f), &view);
 	MainFrame.Draw();
 	MainFrame.DrawCoronas();
+
+	// M1 scaffolding: with --avatar-autorig-debug, draw the local player's
+	// auto-rigged bind pose beside their normal render for visual comparison.
+	// Never runs unless explicitly enabled - no effect on normal play.
+	if (AvatarRenderer::DiagnosticsEnabled() && engine->viewport && engine->viewport->Actor())
+	{
+		UActor* playerActor = engine->viewport->Actor();
+		Coords rotation = Coords::Rotation(playerActor->Rotation());
+		vec3 sideOffset = rotation.YAxis * 80.0f;
+		AvatarRenderer::DrawActorBindPose(&MainFrame, playerActor, sideOffset);
+	}
 }
 
 void RenderSubsystem::DrawScene()
