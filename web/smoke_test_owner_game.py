@@ -97,10 +97,13 @@ def main():
 		initial = page.evaluate("""() => ({
 			crossOriginIsolated,
 			state: window.surrealApp && window.surrealApp.result.import.state,
-			canvasHidden: document.getElementById('canvas').hidden,
+			startupHidden: document.getElementById('browser-startup').hidden,
+			startupDisplay: getComputedStyle(document.getElementById('browser-startup')).display,
+			canvasRects: document.getElementById('canvas').getClientRects().length,
 		})""")
 		if (not initial["crossOriginIsolated"] or
-			(not restored and initial["state"] != "waiting-for-import") or not initial["canvasHidden"]):
+			(not restored and initial["state"] != "waiting-for-import") or
+			not initial["startupHidden"] or initial["startupDisplay"] != "none" or initial["canvasRects"] != 0):
 			raise RuntimeError("unexpected pre-import state: " + json.dumps(initial))
 
 		if not restored:
