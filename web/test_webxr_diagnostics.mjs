@@ -10,7 +10,8 @@ const diagnostics = sandbox.globalThis.SurrealWebXRDiagnostics;
 const report = diagnostics.formatReport({
 	capabilityCode: "ready", capabilityAvailable: true, adapterState: "xr-compatible",
 	phase: "running", currentStage: "running", lastError: "C:\\Private\\Core.u",
-	lastErrorStage: "frame", frames: 321, skippedFrames: 2, inputPackets: 44,
+	lastErrorCode: "feature-negotiation-unobservable", lastErrorStage: "frame",
+	frames: 321, skippedFrames: 2, inputPackets: 44,
 	projectionFormat: "rgba8unorm-webgl-bridge", referenceSpaceType: "local-floor",
 	presentationMode: "webgl-bridge", presentationPreference: "webgl-bridge", layerWidth: 1832, layerHeight: 1920,
 	atlasWidth: 1600, atlasHeight: 700,
@@ -25,6 +26,7 @@ const report = diagnostics.formatReport({
 
 assert.match(report, /^SurrealEngine WebXR headset report\nschema: surrealengine-webxr-headset-report-v2\n/);
 assert.match(report, /\nframes: 321\n/);
+assert.match(report, /\nprovider_error_code: feature-negotiation-unobservable\n/);
 assert.match(report, /\npresentation_mode: webgl-bridge\n/);
 assert.match(report, /\npresentation_preference: webgl-bridge\n/);
 assert.match(report, /\nlayer_width: 1832\nlayer_height: 1920\natlas_width: 1600\natlas_height: 700\n/);
@@ -42,9 +44,16 @@ assert.equal(direct.bridgeSamples, 0);
 assert.equal(direct.bridgeP99Ms, "unknown");
 
 const rejected = diagnostics.normalized({ presentationMode: "https://private.invalid/mode",
+	lastErrorCode: "C:\\Private\\Core.u",
 	bridgeDiagnostics: { p99Ms: -1, samples: "not-a-number" } });
 assert.equal(rejected.presentationMode, "unknown");
+assert.equal(rejected.errorCode, "unknown");
 assert.equal(rejected.bridgeP99Ms, "unknown");
 assert.equal(rejected.bridgeSamples, 0);
+const rejectedReport = diagnostics.formatReport({ lastError: "present",
+	lastErrorCode: "C:\\Private\\Core.u" });
+assert.match(rejectedReport, /\nprovider_error_code: unknown\n/);
+assert.equal(rejectedReport.includes("Private"), false);
+assert.equal(rejectedReport.includes("Core.u"), false);
 
 console.log("WebXR headset diagnostics v2 allowlist tests passed");

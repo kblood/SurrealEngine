@@ -3,6 +3,20 @@
 	"use strict";
 
 	const UNKNOWN = "unknown";
+	const PROVIDER_ERROR_CODES = new Set([
+		"binding-creation-failed", "bridge-timing-active", "engine-loop-rejected",
+		"feature-negotiation-unobservable", "frame-failed", "incompatible-native-frame-abi",
+		"input-submit-failed", "input-transition-overflow", "invalid-projection-subimage",
+		"invalid-view-pose", "native-callback-overflow", "no-webxr-presentation-backend",
+		"presentation-preference-active", "projection-layer-failed", "reference-space-failed",
+		"secure-context-required", "session-end-rejected", "session-request-failed",
+		"unsupported-color-format", "unsupported-view-configuration", "webgl-bridge-creation-failed",
+		"webgpu-device-not-ready", "webxr-provider-failed", "webxr-unavailable",
+		"webxr-webgl-bridge-unavailable", "webxr-webgpu-binding-unavailable",
+		"native-frame-rejected-0", "native-frame-rejected-1", "native-frame-rejected-2",
+		"native-frame-rejected-3", "native-frame-rejected-4", "native-frame-rejected-5",
+		"native-frame-rejected-6",
+	]);
 	function token(value) {
 		if (value === null || value === undefined || value === "") return UNKNOWN;
 		const cleaned = String(value).toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -33,6 +47,10 @@
 		return value === "auto" || value === "webgl-bridge" ? value : UNKNOWN;
 	}
 
+	function knownProviderErrorCode(value) {
+		return PROVIDER_ERROR_CODES.has(value) ? value : UNKNOWN;
+	}
+
 	function dimensions(width, height) {
 		return width === UNKNOWN || height === UNKNOWN ? UNKNOWN : width + "x" + height;
 	}
@@ -49,6 +67,7 @@
 			phase: token(source.phase),
 			stage: token(source.currentStage),
 			errorStage: token(source.lastErrorStage),
+			errorCode: knownProviderErrorCode(source.lastErrorCode),
 			lastError: source.lastError ? "present" : "none",
 			frames: number(source.frames),
 			skippedFrames: number(source.skippedFrames),
@@ -90,6 +109,7 @@
 			"provider_phase: " + state.phase,
 			"provider_stage: " + state.stage,
 			"provider_error_stage: " + state.errorStage,
+			"provider_error_code: " + state.errorCode,
 			"provider_error: " + state.lastError,
 			"frames: " + state.frames,
 			"skipped_frames: " + state.skippedFrames,
@@ -181,7 +201,7 @@
 				capability: state.capabilityCode,
 				adapter: state.adapterState,
 				phase: state.phase + " / " + state.stage,
-				error: state.errorStage,
+				error: state.errorCode + " / " + state.errorStage,
 				frames: state.frames + " rendered, " + state.skippedFrames + " skipped",
 				input: String(state.inputPackets),
 				projection: state.projectionFormat,

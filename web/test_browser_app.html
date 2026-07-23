@@ -346,7 +346,8 @@ window.browserAppTestPromise = (async () => {
 		let downloaded = null;
 		window.surrealXRGetState = () => ({
 			phase: "running", currentStage: "running", lastError: "C:\\Private\\Game\\System\\Core.u",
-			lastErrorStage: "request-reference-space", frames: 23, skippedFrames: 2, inputPackets: 9,
+			lastErrorCode: "feature-negotiation-unobservable", lastErrorStage: "request-reference-space",
+			frames: 23, skippedFrames: 2, inputPackets: 9,
 			projectionFormat: "rgba8unorm-webgl-bridge", referenceSpaceType: "local-floor",
 			presentationMode: "webgl-bridge", presentationPreference: "webgl-bridge", layerWidth: 1832, layerHeight: 1920,
 			atlasWidth: 1600, atlasHeight: 700,
@@ -369,6 +370,7 @@ window.browserAppTestPromise = (async () => {
 		assert(report.includes("schema: surrealengine-webxr-headset-report-v2"));
 		assert(report.includes("capability_code: ready") && report.includes("frames: 23"));
 		assert(report.includes("reentries: 1") && report.includes("provider_error: present"));
+		assert(report.includes("provider_error_code: feature-negotiation-unobservable"));
 		assert(report.includes("presentation_mode: webgl-bridge"));
 		assert(report.includes("presentation_preference: webgl-bridge"));
 		assert(report.includes("layer_width: 1832") && report.includes("atlas_width: 1600"));

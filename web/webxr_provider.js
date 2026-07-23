@@ -147,6 +147,19 @@
 		return directAvailable ? "direct-webgpu" : (bridgeAvailable ? "webgl-bridge" : null);
 	}
 
+	function sessionHasWebGPUFeature(sessionObject) {
+		try {
+			const enabledFeatures = sessionObject && sessionObject.enabledFeatures;
+			if (!enabledFeatures || typeof enabledFeatures === "string" ||
+				typeof enabledFeatures[Symbol.iterator] !== "function")
+				throw new TypeError("enabledFeatures is not iterable");
+			return Array.from(enabledFeatures).includes("webgpu");
+		} catch (_) {
+			throw providerError("feature-negotiation-unobservable", "negotiating-features",
+				"WebXR did not expose enabled session features; retry with Force WebGL compatibility bridge");
+		}
+	}
+
 	function bridgeBlockingTimingPreference() {
 		if (configuredBridgeBlockingTiming !== null) return configuredBridgeBlockingTiming;
 		return root.surrealXRBridgeBlockingTiming === true;
@@ -1036,8 +1049,10 @@
 			root.SurrealWebXRWebGLBridge.canCreateWebGL2(root);
 		const directAvailable = typeof root.XRGPUBinding === "function" &&
 			root.surrealWebGPUDeviceXRCompatible === true;
-		presentationMode = selectPresentationMode(preference, directAvailable, bridgeAvailable);
-		if (!preflightError && !presentationMode) {
+		const negotiatePresentationMode = preference === "auto" && directAvailable && bridgeAvailable;
+		presentationMode = negotiatePresentationMode ? null :
+			selectPresentationMode(preference, directAvailable, bridgeAvailable);
+		if (!preflightError && !presentationMode && !negotiatePresentationMode) {
 			if (preference === "webgl-bridge")
 				preflightError = providerError("webxr-webgl-bridge-unavailable", "preflight",
 					"WebGL compatibility bridge was requested but is unavailable");
@@ -1082,9 +1097,11 @@
 		let requestedSession = null;
 		try {
 			try {
-				const sessionOptions = presentationMode === "direct-webgpu" ?
-					{ requiredFeatures: ["webgpu"], optionalFeatures: ["local-floor"] } :
-					{ optionalFeatures: ["local-floor"] };
+				const sessionOptions = negotiatePresentationMode ?
+					{ optionalFeatures: ["local-floor", "webgpu"] } :
+					(presentationMode === "direct-webgpu" ?
+						{ requiredFeatures: ["webgpu"], optionalFeatures: ["local-floor"] } :
+						{ optionalFeatures: ["local-floor"] });
 				requestedSession = await root.navigator.xr.requestSession("immersive-vr", sessionOptions);
 			} catch (error) {
 				throw providerError("session-request-failed", "requesting-session", error.message || String(error));
@@ -1095,6 +1112,11 @@
 			}
 			session = requestedSession;
 			sessionEndTracker = createSessionEndTracker(session, generation);
+			if (negotiatePresentationMode) {
+				setStage("negotiate-features");
+				presentationMode = sessionHasWebGPUFeature(session) ? "direct-webgpu" : "webgl-bridge";
+				status.presentationMode = presentationMode;
+			}
 			if (root.SurrealBrowserPointerLock) root.SurrealBrowserPointerLock.setXRActive(true);
 			enterPending = false;
 			status.phase = "session-reserved";
