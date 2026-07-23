@@ -89,6 +89,27 @@ Post-candidate fixes are implemented but not yet physically qualified:
   retaining requested-but-unlocked SDL fallback and de-duplicating active-lock
   delivery.
 
+All three are available for retest in immutable candidate `173bf623` at
+`https://dionysus.dk/webxr/Ports/SurrealEngine-Candidate-173bf623/`. Its clean
+package, live flat HTTPS smoke, source offer, headers, and public hashes pass;
+those checks do not substitute for the physical VDXR matrix above.
+
+Live synthetic trusted-Play checks additionally prove both Automatic outcomes
+and forced bridge against the deployed provider assets. The granted feature set
+selected exactly one layer API in every session and cleanup returned the engine
+loop. The native engine and immersive compositor were necessarily synthetic,
+so the next action remains a real VDXR session rather than promotion.
+
+The same live candidate also passed an isolated same-origin owner-data upgrade
+test. It restored and flat-launched owned GOG Unreal Gold (335 files) and UT99
+(496 files), with advancing ticks, nonuniform rendered canvases, and no page or
+WebGPU errors. The run reproduced throwing WasmFS `analyzePath`, proved the
+`stat` fallback included a synthetic allowlisted `Save99.usa`, explicitly
+flushed it to OPFS, and restored its exact 32-byte content after closing and
+reopening Chrome. A disallowed sibling remained absent. This closes the
+candidate's real owner-save gate, but automation did not claim human
+mouse-look, audio, or headset presentation.
+
 The independent Claude Code Opus 4.8 code-path review, ranked hypotheses,
 candidate fixes, tests, risks, and commit decomposition are recorded in
 `CLAUDE_OPUS_RUNTIME_BLOCKER_ANALYSIS.md`.

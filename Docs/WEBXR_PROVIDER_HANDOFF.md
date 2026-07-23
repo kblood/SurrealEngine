@@ -3,7 +3,7 @@
 Date: 2026-07-23
 
 Integration status: implemented and automated through
-`integration/unified-engine` commit `28906717`. Both presentation modes remain
+`integration/unified-engine` commit `173bf623`. Both presentation modes remain
 experimental. The first physical Quest 3/Virtual Desktop/VDXR Automatic attempt
 failed after consent and before confirmed presentation; forced bridge remains
 hardware-unverified.

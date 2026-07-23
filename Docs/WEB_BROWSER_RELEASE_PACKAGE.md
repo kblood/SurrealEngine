@@ -250,12 +250,66 @@ mouse fire worked, but relative mouse motion did not rotate the view. The v2
 failure report was not captured, and forced bridge still needs a separate
 test. See `WEBXR_VDXR_QUALIFICATION.md`.
 
-The integration branch now contains three post-candidate corrections that are
-not part of immutable `cef1e89b`: WasmFS save discovery (`46d13173`),
-enabled-feature WebXR negotiation and exact safe error codes (`f3643b78`), and
-actual-lock browser relative-motion delivery (`28906717`). Their focused suites
-and both Emscripten build variants pass. A new clean package and physical/owner
-matrix are required before any of those corrections are release evidence.
+The three corrections are not part of immutable `cef1e89b`: WasmFS save
+discovery (`46d13173`), enabled-feature WebXR negotiation and exact safe error
+codes (`f3643b78`), and actual-lock browser relative-motion delivery
+(`28906717`). They are packaged in the newer candidate below.
+
+### Revisioned public candidate 173bf623
+
+The superseding immutable candidate is live at
+`https://dionysus.dk/webxr/Ports/SurrealEngine-Candidate-173bf623/`. It was
+built in a clean detached worktree from commit
+`173bf623fe738142c142c7b8d9c5c4e9c8c72071` and tree
+`cff42cf266f53bb6572c59c12cc44330fb6b9f3f`. Its shipping
+Asyncify/WasmFS build records an empty game-data directory. The package contains
+25 files, is 36,776,160 bytes, and contains no game or demo data.
+
+Its WebAssembly SHA-256 is
+`829a37e2b2be4dd1a38d6d057fc99e6495a3f12407e832c87bebeac11f039d42`,
+JavaScript SHA-256 is
+`a8d28a2238f6db0c857619832caba7ac3562f9a57b69471bb8fd9c48c60ad3df`,
+index SHA-256 is
+`07c6c39003d5917b049b7e0c4d52c6d9559b8b42d0931061a0eddab4939a5b15`,
+manifest SHA-256 is
+`40f14a050646dbcf9c7f81d79efb742aae6b9a056023c004a7da6b0f18143a9e`,
+and corresponding-source SHA-256 is
+`626c31f8cf6e0bf490a3963a3da527cd7e92e7663b89bd6f6987e1ccc74fdf06`.
+
+The clean build, growable-memory verifier, source/package/data audits, normal
+and OpenXR Windows builds with 34/34 tests each, both Emscripten variants, and
+the combined browser matrix passed. Deployment used a separately verified
+staging directory followed by an atomic rename. The live HTTPS smoke passed the
+no-data import gate, synthetic Unreal Gold flat launch, input, responsive
+layout, fullscreen, source retrieval, and zero page errors. Public downloads
+match all five hashes, and index/WASM/source responses carry the required
+COOP/COEP/CORP headers and MIME types. Physical mouse-look, audible output, and
+headset presentation remain gates rather than claims.
+
+The live packaged launcher also passed three synthetic trusted-Play WebXR
+scenarios. Automatic requested `webgpu` only as optional and selected direct
+presentation when the granted session enabled it; the same request selected the
+WebGL bridge when the session omitted it. Forced bridge requested only
+`local-floor`. Every session used exactly one layer API, reached `running`,
+ended once, returned engine-loop ownership, and produced zero page, console, or
+request errors. The formatted report retained the allowlisted error-code field
+while removing injected private paths, URLs, and logs. This validates the live
+launcher/provider/adapter/diagnostics assets with a bounded native seam; it does
+not validate an opaque headset framebuffer.
+
+An isolated clone of the prior same-origin owner profile then qualified the
+live candidate without editing the GOG installations. It restored and launched
+Unreal Gold (335 files, 586,421,656 bytes, `Vortex2`) and UT99 (496 files,
+659,817,346 bytes, `DM-Deck16][`) in flat WebGPU mode. Both advanced ticks,
+produced nonuniform frames, and reported zero page/WebGPU errors. The save
+probe reproduced throwing `FS.analyzePath('/gamedata/Save')` while `stat` and
+`readdir` worked. The corrected snapshot included a synthetic 32-byte
+`Save99.usa`; an explicit flush stored it with the two UT INIs and last-run log,
+and a fresh Chrome process restored all four files with the save's exact SHA-256
+`1d6fd3a8de9d6466d1877f18238f33a794c1c32a00553f37aa49e89030870c36`.
+A disallowed `.usa` sibling was absent from both metadata and the restored
+filesystem. This is real owner-library and save-persistence evidence, but the
+headless pointer inspection intentionally makes no human mouse-look claim.
 
 ## Validation
 

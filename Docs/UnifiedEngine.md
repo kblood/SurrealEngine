@@ -83,12 +83,12 @@ This roadmap uses four deliberately separate claims:
 - **Owner-data-unverified** means no automated fixture can establish behavior
   with a user's commercial packages, maps, media, and scripts.
 
-At tested integration code commit `28906717`, the main product-only additions
+At tested integration code commit `173bf623`, the main product-only additions
 beyond the foundation topics are:
 
 | Integrated slice | State | Evidence and remaining boundary |
 | --- | --- | --- |
-| Flat desktop WASM/WebGPU | Implemented; fixes await physical/owner requalification | Clean revisioned artifacts launched exact owned GOG UT99 and Unreal Gold folders with visible WebGPU rendering, title switching/restart/UT replacement, and zero page/WebGPU errors. Quest 3 through desktop Chrome/VDXR previously proved pointer lock and mouse fire but not relative look; `28906717` adds actual-lock browser-delta delivery with SDL fallback/de-duplication. The owner matrix previously exposed omitted saves; `46d13173` adds the WasmFS `stat` fallback and round-trip regressions. Plain Chrome/VDXR mouse-look, real save restore, audible output, and longer play remain gates. |
+| Flat desktop WASM/WebGPU | Implemented; physical input/audio qualification remains | Immutable candidate `173bf623` restored exact owned GOG UT99 and Unreal Gold libraries at the live origin and launched both with advancing ticks, visible WebGPU rendering, and zero page/WebGPU errors. Its owner-data qualification reproduced WasmFS `analyzePath` failure, then proved the `46d13173` `stat` fallback by snapshotting, flushing, reopening, and byte-exactly restoring `Save99.usa` while excluding a disallowed sibling. Quest 3 through desktop Chrome/VDXR previously proved pointer lock and mouse fire but not relative look; `28906717` adds actual-lock browser-delta delivery with SDL fallback/de-duplication. Human mouse-look, audible output, and longer play remain gates. |
 | Direct WebXR/WebGPU presentation | Implemented, experimental; prior hardware-observed failure | On Quest 3 through desktop Chrome/VDXR, the old Automatic path reached consent but immediately left immersive mode. Commit `f3643b78` now negotiates optional WebGPU from `session.enabledFeatures`, fails unobservable state closed, and prohibits same-session layer mixing. Automated ABI/lifecycle/exclusivity tests pass; the new path remains physically unqualified. |
 | Quest compatibility presentation | Implemented, experimental | `XRWebGLLayer` receives a WebGPU-rendered stereo atlas through WebGL 2; desktop API probes and provider tests pass. The first VDXR attempt did not force this backend, so physical correctness and transfer cost remain unverified. |
 | WebXR UI and controllers | Implemented, experimental | World-anchored surfaces, both procedural controller proxies, lasers, and exact-contact markers share one hit result in both presentation modes; scale, latency, convergence, and comfort remain hardware-unverified. |
@@ -149,8 +149,8 @@ but must not fork gameplay, VM, menu, or game-support implementations.
 
 ## Current validation
 
-At tested integration code commit `28906717`, both ordinary and OpenXR-enabled
-Windows x64 Release builds pass all 33 registered CTest tests. Conventional
+At tested integration code commit `173bf623`, both ordinary and OpenXR-enabled
+Windows x64 Release builds pass all 34 registered CTest tests. Conventional
 pthread and Window-owned Asyncify/WasmFS no-data Emscripten Release targets also
 compile and link the complete `SurrealEngine.js`/WASM application. The ordinary
 native executable, flat browser entry point, and desktop keyboard/mouse
@@ -159,11 +159,11 @@ than a replacement desktop mode.
 
 The served data-free browser matrix passes:
 
-- 16 shared launcher, provider-isolation, capability, diagnostics, adapter
+- 17 shared launcher, provider-isolation, capability, diagnostics, adapter
   fallback, and startup-policy checks;
 - 30 retail UT99/Unreal Gold import and safe-map checks;
 - the separate three-demo descriptor/import suite;
-- 14 OPFS/IndexedDB mutable-persistence and migration checks;
+- 16 OPFS/IndexedDB mutable-persistence and migration checks;
 - 3 provider-neutral data-bootstrap checks;
 - direct WebXR ABI-v3 persistent eye-texture, input, failure, exit, and re-entry tests;
 - `XRWebGLLayer` fallback selection, stereo-atlas, cleanup, and re-entry tests;
@@ -191,8 +191,11 @@ Three focused follow-up commits now address the observed software paths:
 WebXR backend from enabled session features, and `28906717` bridges browser
 relative motion without disabling requested-but-unlocked SDL fallback. Their
 focused native/browser and conventional plus shipping Emscripten gates pass.
-They are not yet present in an immutable public candidate and do not erase the
-required physical and real-owner-data requalification.
+They are present in immutable public candidate `173bf623`, whose clean package,
+live HTTPS smoke, and public hashes pass. A same-origin isolated owner-profile
+qualification also restored and launched both commercial libraries and proved
+an allowlisted UT99 save round-trip through the exact WasmFS fallback. Physical
+mouse-look and headset presentation still require human requalification.
 
 The direct path owns runtime WebGPU eye textures. The compatibility path reuses
 the same simulation, view-family, input, UI, and WebGPU renderer, drawing both
