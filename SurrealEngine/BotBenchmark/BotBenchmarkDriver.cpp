@@ -1,8 +1,13 @@
 #include "Precomp.h"
 #include "BotBenchmarkDriver.h"
+#include "BotControlledMatch.h"
 #include "BotBenchmarkGameProfile.h"
 #include "BotBenchmarkProtocol.h"
+#include "BotBenchmarkShadowTelemetry.h"
 #include "BotBenchmarkTelemetry.h"
+#include "BotAI/BotPolicyObservationBuilder.h"
+#include "BotAI/BotPolicyRegistry.h"
+#include "BotAI/BotPolicyShadow.h"
 #include "Engine.h"
 #include "Runtime/HeadlessDriver.h"
 #include "Utils/CommandLine.h"
@@ -13,29 +18,12 @@
 #include "UObject/UClient.h"
 #include "VM/ScriptCall.h"
 
+#include <algorithm>
 #include <filesystem>
+#include <memory>
 #include <optional>
-#include <set>
-
 namespace
 {
-	bool AsciiCaseInsensitiveEqual(const std::string& left, const std::string& right)
-	{
-		if (left.size() != right.size())
-			return false;
-		for (size_t index = 0; index < left.size(); index++)
-		{
-			auto lower = [](unsigned char character)
-			{
-				return character >= 'A' && character <= 'Z'
-					? static_cast<unsigned char>(character + ('a' - 'A')) : character;
-			};
-			if (lower(static_cast<unsigned char>(left[index])) != lower(static_cast<unsigned char>(right[index])))
-				return false;
-		}
-		return true;
-	}
-
 	class BotBenchmarkDriver final : public HeadlessDriver
 	{
 	public:
@@ -60,9 +48,9 @@ namespace
 				OpenTelemetry();
 				ValidateGameProfile();
 				if (!Complete)
-					SetupMapAndPlayer();
+					SetupControlledMatch();
 				if (!Complete)
-					SetupBots();
+					OpenShadowTelemetry();
 			}
 			catch (const std::exception& e)
 			{
@@ -112,6 +100,7 @@ namespace
 				}
 				EngineRef.Level->Tick(levelElapsed, false);
 				Ticks = frameTime.Tick;
+				WriteShadowTelemetry(frameTime.Tick, frameTime.RealElapsed);
 				WriteTelemetry("tick", "running", {}, frameTime.Tick, frameTime.TotalReal);
 			}
 			catch (const std::exception& e)
@@ -124,6 +113,8 @@ namespace
 		{
 			if (summary.TickLimitReached && ExitCode == 0)
 				Fail("headless runner reached its tick limit before driver completion");
+			if (ExitCode == 0 && ShadowTelemetryFile && ShadowTelemetryEventCount != Ticks)
+				Fail("shadow telemetry did not produce exactly one record per simulated tick");
 
 			const double simulatedSeconds = static_cast<double>(Ticks) * Config.GetFixedDelta();
 			try
@@ -149,6 +140,15 @@ namespace
 		}
 
 	private:
+		struct ShadowParticipantRuntime
+		{
+			size_t RosterIndex = 0;
+			std::string Identity;
+			std::unique_ptr<BotAI::PolicyShadowEvaluator> Evaluator;
+			bool HasPreviousHealth = false;
+			int PreviousHealth = 0;
+		};
+
 		void ValidateGameProfile()
 		{
 			const BotBenchmarkGameProfile profile = BotBenchmarkGameProfileResolver::Resolve(
@@ -160,6 +160,174 @@ namespace
 			}
 			if (!profile.SupportsMode(BotBenchmarkGameMode::Deathmatch))
 				Fail("bot benchmark game profile has no verified deathmatch mode");
+		}
+
+		static std::string PawnIdentity(UPawn* pawn)
+		{
+			if (!pawn)
+				return {};
+			if (UPlayerReplicationInfo* pri = pawn->PlayerReplicationInfo())
+				return "pri:" + std::to_string(pri->PlayerID());
+			return "actor:" + pawn->Name.ToString();
+		}
+
+		std::vector<std::pair<std::string, UPawn*>> CaptureLiveControlledBots() const
+		{
+			std::vector<std::pair<std::string, UPawn*>> bots;
+			if (!EngineRef.Level)
+				return bots;
+			for (UActor* actor : EngineRef.Level->Actors)
+			{
+				UPawn* pawn = UObject::TryCast<UPawn>(actor);
+				if (!pawn || !pawn->IsA("Bot") || pawn->bDeleteMe())
+					continue;
+				const std::string identity = PawnIdentity(pawn);
+				const auto controlled = std::find_if(ActualRoster.begin(), ActualRoster.end(), [&](const auto& participant)
+				{
+					return participant.Identity == identity;
+				});
+				if (controlled != ActualRoster.end())
+					bots.emplace_back(identity, pawn);
+			}
+			std::sort(bots.begin(), bots.end(), [](const auto& left, const auto& right)
+			{
+				return left.first < right.first;
+			});
+			for (size_t index = 1; index < bots.size(); index++)
+			{
+				if (bots[index - 1].first == bots[index].first)
+					throw std::runtime_error("multiple live controlled bots share identity '" + bots[index].first + "'");
+			}
+			return bots;
+		}
+
+		BotAI::RuntimeObservationSnapshot CaptureShadowObservation(
+			ShadowParticipantRuntime& runtime,
+			UPawn* self,
+			const std::vector<std::pair<std::string, UPawn*>>& liveBots,
+			uint64_t tick,
+			double deltaSeconds) const
+		{
+			BotAI::RuntimeObservationSnapshot snapshot;
+			snapshot.Tick = tick;
+			snapshot.DeltaSeconds = deltaSeconds;
+			snapshot.Self.StableIdentity = runtime.Identity;
+			snapshot.Self.Position = { self->Location().x, self->Location().y, self->Location().z };
+			snapshot.Self.HealthFraction = static_cast<double>(self->Health()) / 100.0;
+
+			if (runtime.HasPreviousHealth && self->Health() < runtime.PreviousHealth)
+				snapshot.Self.RecentIncomingDamage =
+					static_cast<double>(runtime.PreviousHealth - self->Health()) / 100.0;
+			runtime.HasPreviousHealth = true;
+			runtime.PreviousHealth = self->Health();
+
+			UWeapon* weapon = self->Weapon();
+			if (weapon && !weapon->bDeleteMe())
+			{
+				snapshot.Self.HasUsableWeapon = true;
+				snapshot.Self.AmmunitionFraction = 1.0;
+				if (weapon->HasProperty("AmmoType"))
+				{
+					UObject* ammo = weapon->GetUObject("AmmoType");
+					if (ammo && ammo->HasProperty("AmmoAmount") && ammo->HasProperty("MaxAmmo"))
+					{
+						const uint32_t amount = ammo->GetInt("AmmoAmount");
+						const uint32_t maximum = ammo->GetInt("MaxAmmo");
+						snapshot.Self.AmmunitionFraction = maximum == 0
+							? 0.0 : static_cast<double>(amount) / static_cast<double>(maximum);
+						const bool melee = weapon->HasProperty("bMeleeWeapon") && weapon->GetBool("bMeleeWeapon");
+						snapshot.Self.HasUsableWeapon = melee || amount > 0;
+					}
+				}
+			}
+
+			for (const auto& [identity, other] : liveBots)
+			{
+				if (other == self || other->Health() <= 0)
+					continue;
+				const bool visible = self->LineOfSightTo(other, false);
+				if (!visible)
+					continue;
+				const bool firingAtBot = other->Enemy() == self && (other->bFire() != 0 || other->bAltFire() != 0);
+
+				BotAI::RuntimeEnemySnapshot enemy;
+				enemy.StableIdentity = identity;
+				enemy.Position = { other->Location().x, other->Location().y, other->Location().z };
+				enemy.Velocity = { other->Velocity().x, other->Velocity().y, other->Velocity().z };
+				enemy.Confidence = 1.0;
+				enemy.EstimatedHealthFraction = static_cast<double>(other->Health()) / 100.0;
+				enemy.Visible = visible;
+				enemy.HasLineOfSight = visible;
+				enemy.FiringAtBot = firingAtBot;
+				enemy.Hostile = true;
+				snapshot.Enemies.push_back(std::move(enemy));
+			}
+			return snapshot;
+		}
+
+		void OpenShadowTelemetry()
+		{
+			std::vector<BotBenchmarkShadowParticipantDescriptor> participants;
+			participants.reserve(ActualRoster.size());
+			ShadowParticipants.reserve(ActualRoster.size());
+			const auto& policies = BotAI::PolicyRegistry::Enumerate();
+			for (const auto& actual : ActualRoster)
+			{
+				auto runtime = std::make_unique<ShadowParticipantRuntime>();
+				runtime->RosterIndex = actual.RosterIndex;
+				runtime->Identity = actual.Identity;
+				runtime->Evaluator = std::make_unique<BotAI::PolicyShadowEvaluator>(policies.size());
+				for (const auto& policy : policies)
+				{
+					if (runtime->Evaluator->AddPolicy(policy.Id) != BotAI::ShadowAddStatus::Added)
+						throw std::runtime_error("failed to initialize shadow policy '" + policy.Id + "'");
+				}
+				runtime->Evaluator->Reset(Config.GetSeed() + static_cast<uint64_t>(actual.RosterIndex));
+				participants.push_back({ actual.RosterIndex, actual.Identity });
+				ShadowParticipants.push_back(std::move(runtime));
+			}
+
+			const std::filesystem::path outputDirectory(Config.GetOutputDirectory());
+			const std::filesystem::path manifestPath = outputDirectory / "shadow-manifest.json";
+			File::write_all_text(manifestPath.string(), BotBenchmarkShadowTelemetry::ManifestJson(
+				TelemetryConfigIdentity, Config.GetMaxTicks(), policies, std::move(participants)));
+			const std::filesystem::path eventsPath = outputDirectory / "shadow-decisions.jsonl";
+			ShadowTelemetryFile = File::create_always(eventsPath.string());
+			LogMessage("Bot benchmark shadow manifest: " + manifestPath.string());
+			LogMessage("Bot benchmark shadow decisions: " + eventsPath.string());
+		}
+
+		void WriteShadowTelemetry(uint64_t tick, double deltaSeconds)
+		{
+			if (!ShadowTelemetryFile)
+				return;
+			if (ShadowTelemetryEventCount >= ShadowTelemetryEventCap)
+				throw std::runtime_error("bot benchmark shadow telemetry event cap reached");
+
+			const auto liveBots = CaptureLiveControlledBots();
+			std::vector<BotBenchmarkShadowParticipantState> states;
+			states.reserve(ShadowParticipants.size());
+			for (auto& runtime : ShadowParticipants)
+			{
+				const auto live = std::find_if(liveBots.begin(), liveBots.end(), [&](const auto& bot)
+				{
+					return bot.first == runtime->Identity;
+				});
+				const bool available = live != liveBots.end() && live->second->Health() > 0;
+				if (available)
+				{
+					BotAI::RuntimeObservationSnapshot snapshot = CaptureShadowObservation(
+						*runtime, live->second, liveBots, tick, deltaSeconds);
+					runtime->Evaluator->Evaluate(BotAI::PolicyObservationBuilder::Build(snapshot));
+				}
+				states.push_back({ runtime->RosterIndex, runtime->Identity, available,
+					runtime->Evaluator->GetSnapshots() });
+			}
+
+			const std::string line = BotBenchmarkShadowTelemetry::EventJson(
+				TelemetryConfigIdentity, ShadowTelemetryEventCount, tick, std::move(states));
+			ShadowTelemetryFile->write(line.data(), line.size());
+			ShadowTelemetryEventCount++;
 		}
 
 		void OpenTelemetry()
@@ -231,148 +399,20 @@ namespace
 			TelemetryEventCount++;
 		}
 
-		void SetupMapAndPlayer()
+		void SetupControlledMatch()
 		{
-			EngineRef.LaunchInfo.noEntryMap = true;
-			EngineRef.LaunchInfo.url = Config.GetURL();
-			UnrealURL url(EngineRef.GetDefaultURL(EngineRef.packages->GetIniValue("system", "URL", "LocalMap")), Config.GetURL());
-			url.AddOrReplaceOption("Bots=0");
-			url.AddOrReplaceOption("MinPlayers=0");
-			url.AddOrReplaceOption("InitialBots=0");
-			url.AddOrReplaceOption("OverrideClass=Botpack.CHSpectator");
-			EngineRef.LoadMap(url);
-
-			if (EngineRef.GameInfo)
+			ActualRoster.reserve(Config.GetRoster().GetCount());
+			BotControlledMatch::Setup(EngineRef, Config.GetURL(), Config.GetRoster(),
+				[this](const BotControlledParticipant& participant)
 			{
-				if (EngineRef.GameInfo->HasProperty("RemainingBots"))
-					EngineRef.GameInfo->SetInt("RemainingBots", 0);
-				if (EngineRef.GameInfo->HasProperty("InitialBots"))
-					EngineRef.GameInfo->SetInt("InitialBots", 0);
-				if (EngineRef.GameInfo->HasProperty("MinPlayers"))
-					EngineRef.GameInfo->SetInt("MinPlayers", 0);
-			}
-			EngineRef.LoginPlayer();
-
-			UPlayerPawn* viewportPawn = EngineRef.viewport ? EngineRef.viewport->Actor() : nullptr;
-			UPlayerReplicationInfo* pri = viewportPawn ? viewportPawn->PlayerReplicationInfo() : nullptr;
-			if (!viewportPawn || !viewportPawn->IsA("Spectator") || !pri || !pri->bIsSpectator())
-				Fail("benchmark viewport login did not produce a spectator");
-		}
-
-		void SetupBots()
-		{
-			if (!EngineRef.GameInfo || !EngineRef.GameInfo->HasProperty("BotConfig"))
-			{
-				Fail("GameInfo has no BotConfig; Botpack.DeathMatchPlus is required");
-				return;
-			}
-			UObject* botConfig = EngineRef.GameInfo->GetUObject("BotConfig");
-			if (!botConfig || !botConfig->HasProperty("Difficulty"))
-			{
-				Fail("BotConfig has no Difficulty property");
-				return;
-			}
-
-			if (EngineRef.GameInfo->HasProperty("MinPlayers"))
-				EngineRef.GameInfo->SetInt("MinPlayers", 0);
-			if (EngineRef.GameInfo->HasProperty("InitialBots"))
-				EngineRef.GameInfo->SetInt("InitialBots", 0);
-			if (EngineRef.GameInfo->HasProperty("bRequireReady"))
-				EngineRef.GameInfo->SetBool("bRequireReady", false);
-			if (botConfig->HasProperty("bAdjustSkill"))
-				botConfig->SetBool("bAdjustSkill", false);
-			if (botConfig->HasProperty("MinPlayers"))
-				botConfig->SetInt("MinPlayers", 0);
-			if (botConfig->HasProperty("InitialBots"))
-				botConfig->SetInt("InitialBots", 0);
-
-			std::set<UPawn*> controlledBots;
-			for (const auto& requested : Config.GetRoster().GetParticipants())
-			{
-				std::set<UPawn*> existingBots;
-				for (UActor* actor : EngineRef.Level->Actors)
-				{
-					UPawn* pawn = UObject::TryCast<UPawn>(actor);
-					if (pawn && pawn->IsA("Bot") && !pawn->bDeleteMe())
-						existingBots.insert(pawn);
-				}
-
-				botConfig->SetInt("Difficulty", requested.ExternalSkill);
-				const bool commandFound = requested.RequestedName.empty()
-					? EngineRef.ExecCommand({ "AddBots", "1" })
-					: EngineRef.ExecCommand({ "AddBotNamed", requested.RequestedName });
-				if (!commandFound)
-				{
-					if (requested.RequestedName.empty())
-						Fail("AddBots exec function was not found");
-					else
-						Fail("requested bot names require AddBotNamed, which is unavailable from the benchmark spectator");
-					return;
-				}
-
-				std::vector<UPawn*> newBots;
-				for (UActor* actor : EngineRef.Level->Actors)
-				{
-					UPawn* pawn = UObject::TryCast<UPawn>(actor);
-					if (pawn && pawn->IsA("Bot") && !pawn->bDeleteMe() && existingBots.find(pawn) == existingBots.end())
-						newBots.push_back(pawn);
-				}
-				if (newBots.size() != 1)
-				{
-					Fail("stock bot spawn command did not create exactly one controlled bot for roster index "
-						+ std::to_string(requested.RosterIndex));
-					return;
-				}
-
-				UPawn* bot = newBots.front();
-				controlledBots.insert(bot);
-				UPlayerReplicationInfo* pri = bot->PlayerReplicationInfo();
-				if (!pri)
-				{
-					Fail("spawned controlled bot has no PlayerReplicationInfo at roster index "
-						+ std::to_string(requested.RosterIndex));
-					return;
-				}
-
 				BotBenchmarkActualParticipant actual;
-				actual.RosterIndex = requested.RosterIndex;
-				actual.Identity = "pri:" + std::to_string(pri->PlayerID());
-				actual.Actor = bot->Name.ToString();
-				actual.PlayerName = pri->PlayerName();
-				actual.ClassName = UObject::GetUClassFullName(bot).ToString();
+				actual.RosterIndex = participant.RosterIndex;
+				actual.Identity = participant.Identity;
+				actual.Actor = participant.Actor;
+				actual.PlayerName = participant.PlayerName;
+				actual.ClassName = participant.ClassName;
 				ActualRoster.push_back(std::move(actual));
-				if (!requested.RequestedName.empty()
-					&& !AsciiCaseInsensitiveEqual(ActualRoster.back().PlayerName, requested.RequestedName))
-				{
-					Fail("AddBotNamed did not produce the requested profile at roster index "
-						+ std::to_string(requested.RosterIndex));
-					return;
-				}
-
-				CallEvent(bot, "InitializeSkill", {
-					ExpressionValue::FloatValue(static_cast<float>(requested.ExternalSkill)) });
-				const bool expectedNovice = requested.ExternalSkill < 4;
-				const float expectedSkill = static_cast<float>(
-					expectedNovice ? requested.ExternalSkill : requested.ExternalSkill - 4);
-				if (!bot->HasProperty("bNovice") || bot->GetBool("bNovice") != expectedNovice
-					|| std::abs(bot->Skill() - expectedSkill) >= 0.001f)
-				{
-					Fail("spawned bot skill did not match requested external tier at roster index "
-						+ std::to_string(requested.RosterIndex));
-					return;
-				}
-			}
-
-			std::set<UPawn*> finalBots;
-			for (UActor* actor : EngineRef.Level->Actors)
-			{
-				UPawn* pawn = UObject::TryCast<UPawn>(actor);
-				if (pawn && pawn->IsA("Bot") && !pawn->bDeleteMe())
-					finalBots.insert(pawn);
-			}
-			if (finalBots != controlledBots || finalBots.size() != Config.GetRoster().GetCount()
-				|| ActualRoster.size() != Config.GetRoster().GetCount())
-				Fail("controlled bot roster did not exactly match the requested ordered roster");
+			});
 		}
 
 		void Fail(std::string reason)
@@ -390,13 +430,17 @@ namespace
 		const BotBenchmarkRunConfig Config;
 		const std::string TelemetryConfigIdentity = BotBenchmarkTelemetryProtocol::ConfigIdentity(Config);
 		const uint64_t TelemetryEventCap = BotBenchmarkTelemetryProtocol::EventCap(Config.GetMaxTicks());
+		const uint64_t ShadowTelemetryEventCap = BotBenchmarkShadowTelemetry::EventCap(Config.GetMaxTicks());
 		std::shared_ptr<File> TelemetryFile;
+		std::shared_ptr<File> ShadowTelemetryFile;
 		uint64_t TelemetryEventCount = 0;
+		uint64_t ShadowTelemetryEventCount = 0;
 		uint64_t Ticks = 0;
 		int ExitCode = 0;
 		bool Complete = false;
 		std::string FailureReason;
 		std::vector<BotBenchmarkActualParticipant> ActualRoster;
+		std::vector<std::unique_ptr<ShadowParticipantRuntime>> ShadowParticipants;
 	};
 
 	std::optional<std::string> OptionalCommandLineArg(const char* name)

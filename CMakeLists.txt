@@ -82,12 +82,19 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/GameSupport.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.h
+	SurrealEngine/BotBenchmark/BotControlledMatch.cpp
+	SurrealEngine/BotBenchmark/BotControlledMatch.h
 	SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.h
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.h
 	SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkRoster.h
+	SurrealEngine/BotBenchmark/BotBenchmarkShadowTelemetry.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkShadowTelemetry.h
+	SurrealEngine/BotBenchmark/BotSpectatorMatch.cpp
+	SurrealEngine/BotBenchmark/BotSpectatorMatch.h
+	SurrealEngine/BotBenchmark/BotSpectatorMatchConfig.cpp
 	SurrealEngine/GameSupport/DeusEx/TextTokenizer.cpp
 	SurrealEngine/GameSupport/DeusEx/TextTokenizer.h
 	SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
@@ -1149,6 +1156,24 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(BotBenchmarkRosterTests PRIVATE SurrealEngine)
 	set_target_properties(BotBenchmarkRosterTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkRoster COMMAND BotBenchmarkRosterTests)
+
+	add_executable(BotSpectatorMatchConfigTests
+		Tests/BotSpectatorMatchConfigTests.cpp
+		SurrealEngine/BotBenchmark/BotSpectatorMatchConfig.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
+	)
+	target_include_directories(BotSpectatorMatchConfigTests PRIVATE SurrealEngine)
+	set_target_properties(BotSpectatorMatchConfigTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotSpectatorMatchConfig COMMAND BotSpectatorMatchConfigTests)
+
+	add_executable(BotBenchmarkShadowTelemetryTests
+		Tests/BotBenchmarkShadowTelemetryTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkShadowTelemetry.cpp
+		SurrealEngine/BotAI/BotPolicyShadowTelemetry.cpp
+	)
+	target_include_directories(BotBenchmarkShadowTelemetryTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkShadowTelemetryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkShadowTelemetry COMMAND BotBenchmarkShadowTelemetryTests)
 
 	add_executable(UtilityBotPolicyTests
 		Tests/UtilityBotPolicyTests.cpp
