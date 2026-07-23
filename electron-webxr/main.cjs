@@ -9,6 +9,7 @@ const path = require("node:path");
 
 const DIAGNOSTICS_ONLY = process.argv.includes("--diagnostics-only");
 const FORCE_OPENXR = !process.argv.includes("--no-force-openxr");
+const EXPERIMENTAL_WEBGPU_XR = process.argv.includes("--experimental-webgpu-xr");
 const EXTERNAL_HOSTS = new Set(["www.oldunreal.com", "www.epicgames.com"]);
 const MIME_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -21,7 +22,8 @@ const MIME_TYPES = new Map([
   [".wasm", "application/wasm"],
 ]);
 
-app.commandLine.appendSwitch("enable-features", "WebXR,WebXRIncubations,OpenXrExtendedFeatureSupport");
+if (EXPERIMENTAL_WEBGPU_XR)
+  app.commandLine.appendSwitch("enable-features", "WebXRIncubations,OpenXrExtendedFeatureSupport");
 if (FORCE_OPENXR) app.commandLine.appendSwitch("force-webxr-runtime", "openxr");
 app.commandLine.appendSwitch("force_high_performance_gpu");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
@@ -201,6 +203,7 @@ async function collectDiagnostics() {
     generatedAt: new Date().toISOString(),
     wrapper: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
     openxrForced: FORCE_OPENXR,
+    experimentalWebGPUXR: EXPERIMENTAL_WEBGPU_XR,
     renderer,
   };
 }

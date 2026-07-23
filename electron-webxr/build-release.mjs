@@ -57,7 +57,7 @@ const metadata = {
   electron: "43.2.0",
   wrapperSourceCommit: wrapperCommitOutput.trim(),
   wrapperTrackedTreeDirty: wrapperStatusOutput.trim().length > 0,
-  chromiumRuntime: "OpenXR forced by default; pass --no-force-openxr to use Chromium runtime selection",
+  chromiumRuntime: "Core WebXR with OpenXR forced by default; pass --no-force-openxr for automatic runtime selection or --experimental-webgpu-xr for WebGPU-WebXR incubation features",
   webRelease: {
     sourceCommit: manifest.sourceCompliance?.sourceCommit || null,
     sourceTree: manifest.sourceCompliance?.sourceTree || null,

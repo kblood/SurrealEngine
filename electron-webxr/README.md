@@ -9,9 +9,11 @@ so the hosted Quest browser remains the primary immersive target.
 
 - Serves the bundled web release from an ephemeral `127.0.0.1` origin with
   COOP/COEP headers, preserving `crossOriginIsolated` for pthreads.
-- Enables Chromium's WebXR incubation and OpenXR extended feature gates.
 - Forces the Chromium WebXR runtime to OpenXR by default. Start with
   `--no-force-openxr` to let Chromium choose a runtime instead.
+- Uses core WebXR by default. Start with `--experimental-webgpu-xr` only when
+  deliberately testing Chromium's WebGPU-WebXR incubation and extended OpenXR
+  features; this experimental mode is not a production default.
 - Uses a sandboxed renderer with context isolation and no Node.js integration.
 - Exposes only opaque, session-scoped file tokens after an explicit game-folder
   choice. Symbolic links and paths outside that folder are rejected.
@@ -36,6 +38,13 @@ For a noninteractive capability check, run:
 
 The process writes a JSON report and exits. `immersiveVr: false` means Chromium
 did not see an immersive OpenXR device/runtime in that launch.
+
+To compare the experimental direct WebGPU-WebXR path against the default core
+WebXR/WebGL compatibility path, run:
+
+```powershell
+./SurrealEngine-WebXR-Test.exe --experimental-webgpu-xr
+```
 
 ## Build
 
