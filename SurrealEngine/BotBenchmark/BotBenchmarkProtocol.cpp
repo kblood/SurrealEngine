@@ -1,7 +1,9 @@
 #include "BotBenchmarkProtocol.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <locale>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -71,17 +73,77 @@ namespace
 	{
 		return "\"" + EscapeJson(value) + "\"";
 	}
+
+	std::string Fixed(double value, int precision)
+	{
+		if (!std::isfinite(value))
+			throw std::invalid_argument("bot benchmark summary contains a non-finite number");
+		if (value == 0.0)
+			value = 0.0;
+		std::ostringstream out;
+		out.imbue(std::locale::classic());
+		out << std::fixed << std::setprecision(precision) << value;
+		return out.str();
+	}
+
+	void WriteRequestedRoster(std::ostringstream& out, const BotBenchmarkRoster& roster, const std::string& indent)
+	{
+		out << indent << "\"requested_roster\": [";
+		const auto& participants = roster.GetParticipants();
+		if (!participants.empty())
+			out << '\n';
+		for (size_t index = 0; index < participants.size(); index++)
+		{
+			const auto& participant = participants[index];
+			out << indent << "  {\"roster_index\": " << participant.RosterIndex
+				<< ", \"requested_name\": " << JsonString(participant.RequestedName)
+				<< ", \"external_skill\": " << participant.ExternalSkill
+				<< ", \"identity_fragment\": " << JsonString(participant.CanonicalIdentityFragment) << "}";
+			out << (index + 1 == participants.size() ? "\n" : ",\n");
+		}
+		out << indent << ']';
+	}
+
+	void WriteActualRoster(std::ostringstream& out, std::vector<BotBenchmarkActualParticipant> participants)
+	{
+		std::sort(participants.begin(), participants.end(), [](const auto& left, const auto& right)
+		{
+			return left.RosterIndex < right.RosterIndex;
+		});
+		out << "  \"actual_roster\": [";
+		if (participants.empty())
+		{
+			out << ']';
+			return;
+		}
+		out << '\n';
+		for (size_t index = 0; index < participants.size(); index++)
+		{
+			const auto& participant = participants[index];
+			if (index != 0 && participants[index - 1].RosterIndex == participant.RosterIndex)
+				throw std::invalid_argument("bot benchmark actual roster contains a duplicate index");
+			out << "    {\"roster_index\": " << participant.RosterIndex
+				<< ", \"identity\": " << JsonString(participant.Identity)
+				<< ", \"actor\": " << JsonString(participant.Actor)
+				<< ", \"player_name\": " << JsonString(participant.PlayerName)
+				<< ", \"class\": " << JsonString(participant.ClassName) << "}";
+			out << (index + 1 == participants.size() ? "\n" : ",\n");
+		}
+		out << "  ]";
+	}
 }
 
 BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string outputDirectory,
-	uint64_t seed, uint64_t maxTicks, float fixedDelta, int difficulty)
+	uint64_t seed, uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
-	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty)
+	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster))
 {
 }
 
 BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string outputDirectory,
-	std::string seed, std::string maxTicks, std::string fixedDelta, std::string difficulty)
+	std::string seed, std::string maxTicks, std::string fixedDelta, std::string difficulty,
+	std::optional<std::string> botCount, std::optional<std::string> perBotSkills,
+	std::optional<std::string> requestedNames)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -98,43 +160,53 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		throw std::invalid_argument("bot benchmark fixed delta must be finite and between 0 and 1");
 	if (parsedDifficulty < 0 || parsedDifficulty > 7)
 		throw std::invalid_argument("bot benchmark difficulty must be between 0 and 7");
+	BotBenchmarkRoster roster = BotBenchmarkRoster::Parse(
+		std::move(botCount), std::move(perBotSkills), std::move(requestedNames), parsedDifficulty);
 
 	return BotBenchmarkRunConfig(std::move(url), std::move(outputDirectory), parsedSeed,
-		parsedTicks, parsedDelta, parsedDifficulty);
+		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster));
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
-	double simulatedSeconds, std::string game, std::string version, std::string map,
-	std::string botClass, std::string botName, std::string failureReason)
+	double simulatedSeconds, std::string game, std::string version, std::string map, std::string failureReason,
+	std::vector<BotBenchmarkActualParticipant> actualRoster)
 	: Status(std::move(status)), ExitCode(exitCode), Ticks(ticks), SimulatedSeconds(simulatedSeconds),
 	Game(std::move(game)), Version(std::move(version)), Map(std::move(map)),
-	BotClass(std::move(botClass)), BotName(std::move(botName)), FailureReason(std::move(failureReason))
+	FailureReason(std::move(failureReason)), ActualRoster(std::move(actualRoster))
 {
 }
 
 std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) const
 {
+	for (const auto& participant : ActualRoster)
+	{
+		if (participant.RosterIndex >= config.GetRoster().GetCount())
+			throw std::invalid_argument("bot benchmark actual roster index exceeds requested roster");
+	}
 	std::ostringstream out;
-	out << std::setprecision(9);
+	out.imbue(std::locale::classic());
 	out << "{\n"
-		<< "  \"schema\": \"surreal-bot-benchmark-summary-v1\",\n"
+		<< "  \"schema\": \"surreal-bot-benchmark-summary-v2\",\n"
 		<< "  \"status\": " << JsonString(Status) << ",\n"
 		<< "  \"exit_code\": " << ExitCode << ",\n"
 		<< "  \"ticks\": \"" << Ticks << "\",\n"
-		<< "  \"simulated_seconds\": " << SimulatedSeconds << ",\n"
+		<< "  \"simulated_seconds\": " << Fixed(SimulatedSeconds, 9) << ",\n"
 		<< "  \"game\": " << JsonString(Game) << ",\n"
 		<< "  \"version\": " << JsonString(Version) << ",\n"
 		<< "  \"map\": " << JsonString(Map) << ",\n"
-		<< "  \"bot_class\": " << JsonString(BotClass) << ",\n"
-		<< "  \"bot_name\": " << JsonString(BotName) << ",\n"
-		<< "  \"failure_reason\": " << JsonString(FailureReason) << ",\n"
+		<< "  \"failure_reason\": " << JsonString(FailureReason) << ",\n";
+	WriteRequestedRoster(out, config.GetRoster(), "  ");
+	out << ",\n";
+	WriteActualRoster(out, ActualRoster);
+	out << ",\n"
 		<< "  \"config\": {\n"
 		<< "    \"url\": " << JsonString(config.GetURL()) << ",\n"
 		<< "    \"output_directory\": " << JsonString(config.GetOutputDirectory()) << ",\n"
 		<< "    \"seed\": \"" << config.GetSeed() << "\",\n"
 		<< "    \"max_ticks\": \"" << config.GetMaxTicks() << "\",\n"
-		<< "    \"fixed_delta\": " << config.GetFixedDelta() << ",\n"
-		<< "    \"difficulty\": " << config.GetDifficulty() << "\n"
+		<< "    \"fixed_delta\": " << Fixed(config.GetFixedDelta(), 9) << ",\n"
+		<< "    \"difficulty\": " << config.GetDifficulty() << ",\n"
+		<< "    \"bot_count\": " << config.GetRoster().GetCount() << "\n"
 		<< "  }\n"
 		<< "}\n";
 	return out.str();

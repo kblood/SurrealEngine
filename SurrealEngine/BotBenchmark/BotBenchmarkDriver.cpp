@@ -1,5 +1,6 @@
 #include "Precomp.h"
 #include "BotBenchmarkDriver.h"
+#include "BotBenchmarkGameProfile.h"
 #include "BotBenchmarkProtocol.h"
 #include "BotBenchmarkTelemetry.h"
 #include "Engine.h"
@@ -13,10 +14,28 @@
 #include "VM/ScriptCall.h"
 
 #include <filesystem>
+#include <optional>
 #include <set>
 
 namespace
 {
+	bool AsciiCaseInsensitiveEqual(const std::string& left, const std::string& right)
+	{
+		if (left.size() != right.size())
+			return false;
+		for (size_t index = 0; index < left.size(); index++)
+		{
+			auto lower = [](unsigned char character)
+			{
+				return character >= 'A' && character <= 'Z'
+					? static_cast<unsigned char>(character + ('a' - 'A')) : character;
+			};
+			if (lower(static_cast<unsigned char>(left[index])) != lower(static_cast<unsigned char>(right[index])))
+				return false;
+		}
+		return true;
+	}
+
 	class BotBenchmarkDriver final : public HeadlessDriver
 	{
 	public:
@@ -39,9 +58,11 @@ namespace
 			try
 			{
 				OpenTelemetry();
-				SetupMapAndPlayer();
+				ValidateGameProfile();
 				if (!Complete)
-					SetupBot();
+					SetupMapAndPlayer();
+				if (!Complete)
+					SetupBots();
 			}
 			catch (const std::exception& e)
 			{
@@ -119,7 +140,7 @@ namespace
 			BotBenchmarkRunSummary runSummary(status, ExitCode, Ticks, simulatedSeconds,
 				EngineRef.LaunchInfo.gameName, EngineRef.LaunchInfo.gameVersionString,
 				EngineRef.LevelInfo ? EngineRef.LevelInfo->URL.Map : std::string(),
-				BotClass, BotName, FailureReason);
+				FailureReason, ActualRoster);
 			std::filesystem::create_directories(Config.GetOutputDirectory());
 			const std::filesystem::path summaryPath = std::filesystem::path(Config.GetOutputDirectory()) / "summary.json";
 			File::write_all_text(summaryPath.string(), runSummary.ToJson(Config));
@@ -128,6 +149,19 @@ namespace
 		}
 
 	private:
+		void ValidateGameProfile()
+		{
+			const BotBenchmarkGameProfile profile = BotBenchmarkGameProfileResolver::Resolve(
+				EngineRef.LaunchInfo.gameName, EngineRef.LaunchInfo.gameVersionString);
+			if (!profile.ControlledBenchmarkSupported)
+			{
+				Fail("bot benchmark game profile is unsupported: " + profile.UnsupportedReason);
+				return;
+			}
+			if (!profile.SupportsMode(BotBenchmarkGameMode::Deathmatch))
+				Fail("bot benchmark game profile has no verified deathmatch mode");
+		}
+
 		void OpenTelemetry()
 		{
 			std::filesystem::create_directories(Config.GetOutputDirectory());
@@ -225,7 +259,7 @@ namespace
 				Fail("benchmark viewport login did not produce a spectator");
 		}
 
-		void SetupBot()
+		void SetupBots()
 		{
 			if (!EngineRef.GameInfo || !EngineRef.GameInfo->HasProperty("BotConfig"))
 			{
@@ -251,48 +285,94 @@ namespace
 				botConfig->SetInt("MinPlayers", 0);
 			if (botConfig->HasProperty("InitialBots"))
 				botConfig->SetInt("InitialBots", 0);
-			botConfig->SetInt("Difficulty", Config.GetDifficulty());
 
-			std::set<UPawn*> existingBots;
+			std::set<UPawn*> controlledBots;
+			for (const auto& requested : Config.GetRoster().GetParticipants())
+			{
+				std::set<UPawn*> existingBots;
+				for (UActor* actor : EngineRef.Level->Actors)
+				{
+					UPawn* pawn = UObject::TryCast<UPawn>(actor);
+					if (pawn && pawn->IsA("Bot") && !pawn->bDeleteMe())
+						existingBots.insert(pawn);
+				}
+
+				botConfig->SetInt("Difficulty", requested.ExternalSkill);
+				const bool commandFound = requested.RequestedName.empty()
+					? EngineRef.ExecCommand({ "AddBots", "1" })
+					: EngineRef.ExecCommand({ "AddBotNamed", requested.RequestedName });
+				if (!commandFound)
+				{
+					if (requested.RequestedName.empty())
+						Fail("AddBots exec function was not found");
+					else
+						Fail("requested bot names require AddBotNamed, which is unavailable from the benchmark spectator");
+					return;
+				}
+
+				std::vector<UPawn*> newBots;
+				for (UActor* actor : EngineRef.Level->Actors)
+				{
+					UPawn* pawn = UObject::TryCast<UPawn>(actor);
+					if (pawn && pawn->IsA("Bot") && !pawn->bDeleteMe() && existingBots.find(pawn) == existingBots.end())
+						newBots.push_back(pawn);
+				}
+				if (newBots.size() != 1)
+				{
+					Fail("stock bot spawn command did not create exactly one controlled bot for roster index "
+						+ std::to_string(requested.RosterIndex));
+					return;
+				}
+
+				UPawn* bot = newBots.front();
+				controlledBots.insert(bot);
+				UPlayerReplicationInfo* pri = bot->PlayerReplicationInfo();
+				if (!pri)
+				{
+					Fail("spawned controlled bot has no PlayerReplicationInfo at roster index "
+						+ std::to_string(requested.RosterIndex));
+					return;
+				}
+
+				BotBenchmarkActualParticipant actual;
+				actual.RosterIndex = requested.RosterIndex;
+				actual.Identity = "pri:" + std::to_string(pri->PlayerID());
+				actual.Actor = bot->Name.ToString();
+				actual.PlayerName = pri->PlayerName();
+				actual.ClassName = UObject::GetUClassFullName(bot).ToString();
+				ActualRoster.push_back(std::move(actual));
+				if (!requested.RequestedName.empty()
+					&& !AsciiCaseInsensitiveEqual(ActualRoster.back().PlayerName, requested.RequestedName))
+				{
+					Fail("AddBotNamed did not produce the requested profile at roster index "
+						+ std::to_string(requested.RosterIndex));
+					return;
+				}
+
+				CallEvent(bot, "InitializeSkill", {
+					ExpressionValue::FloatValue(static_cast<float>(requested.ExternalSkill)) });
+				const bool expectedNovice = requested.ExternalSkill < 4;
+				const float expectedSkill = static_cast<float>(
+					expectedNovice ? requested.ExternalSkill : requested.ExternalSkill - 4);
+				if (!bot->HasProperty("bNovice") || bot->GetBool("bNovice") != expectedNovice
+					|| std::abs(bot->Skill() - expectedSkill) >= 0.001f)
+				{
+					Fail("spawned bot skill did not match requested external tier at roster index "
+						+ std::to_string(requested.RosterIndex));
+					return;
+				}
+			}
+
+			std::set<UPawn*> finalBots;
 			for (UActor* actor : EngineRef.Level->Actors)
 			{
 				UPawn* pawn = UObject::TryCast<UPawn>(actor);
-				if (pawn && pawn->IsA("Bot"))
-					existingBots.insert(pawn);
+				if (pawn && pawn->IsA("Bot") && !pawn->bDeleteMe())
+					finalBots.insert(pawn);
 			}
-
-			if (!EngineRef.ExecCommand({ "AddBots", "1" }))
-			{
-				Fail("AddBots exec function was not found");
-				return;
-			}
-			std::vector<UPawn*> newBots;
-			for (UActor* actor : EngineRef.Level->Actors)
-			{
-				UPawn* pawn = UObject::TryCast<UPawn>(actor);
-				if (pawn && pawn->IsA("Bot") && existingBots.find(pawn) == existingBots.end())
-					newBots.push_back(pawn);
-			}
-			if (newBots.size() != 1)
-			{
-				Fail("AddBots did not create exactly one controlled bot");
-				return;
-			}
-
-			UPawn* bot = newBots.front();
-			CallEvent(bot, "InitializeSkill", { ExpressionValue::FloatValue(static_cast<float>(Config.GetDifficulty())) });
-			const bool expectedNovice = Config.GetDifficulty() < 4;
-			const float expectedSkill = static_cast<float>(expectedNovice ? Config.GetDifficulty() : Config.GetDifficulty() - 4);
-			if (!bot->HasProperty("bNovice") || bot->GetBool("bNovice") != expectedNovice ||
-				std::abs(bot->Skill() - expectedSkill) >= 0.001f)
-			{
-				Fail("spawned bot skill did not match the requested external tier");
-				return;
-			}
-
-			BotClass = UObject::GetUClassFullName(bot).ToString();
-			if (UPlayerReplicationInfo* pri = bot->PlayerReplicationInfo())
-				BotName = pri->PlayerName();
+			if (finalBots != controlledBots || finalBots.size() != Config.GetRoster().GetCount()
+				|| ActualRoster.size() != Config.GetRoster().GetCount())
+				Fail("controlled bot roster did not exactly match the requested ordered roster");
 		}
 
 		void Fail(std::string reason)
@@ -316,9 +396,15 @@ namespace
 		int ExitCode = 0;
 		bool Complete = false;
 		std::string FailureReason;
-		std::string BotClass;
-		std::string BotName;
+		std::vector<BotBenchmarkActualParticipant> ActualRoster;
 	};
+
+	std::optional<std::string> OptionalCommandLineArg(const char* name)
+	{
+		if (!commandline || !commandline->HasArg("", name))
+			return {};
+		return commandline->GetArg("", name);
+	}
 
 	BotBenchmarkRunConfig ConfigFromCommandLine()
 	{
@@ -328,7 +414,10 @@ namespace
 			commandline ? commandline->GetArg("", "--botbench-seed") : std::string(),
 			commandline ? commandline->GetArg("", "--botbench-ticks") : std::string(),
 			commandline ? commandline->GetArg("", "--botbench-fixed-delta") : std::string(),
-			commandline ? commandline->GetArg("", "--botbench-difficulty") : std::string());
+			commandline ? commandline->GetArg("", "--botbench-difficulty") : std::string(),
+			OptionalCommandLineArg("--botbench-bots"),
+			OptionalCommandLineArg("--botbench-skills"),
+			OptionalCommandLineArg("--botbench-names"));
 	}
 }
 
