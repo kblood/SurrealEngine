@@ -1,0 +1,717 @@
+#!/usr/bin/env python3
+"""Validate unified bot telemetry and report the quality signals it supports."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import statistics
+import sys
+from collections import defaultdict
+from pathlib import Path
+from typing import Any, Iterable
+
+
+MANIFEST_SCHEMA = "surreal-bot-benchmark-manifest-v1"
+MANIFEST_SCHEMA_V2 = "surreal-bot-benchmark-manifest-v2"
+TELEMETRY_SCHEMA = "surreal-bot-benchmark-telemetry-v1"
+SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
+SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
+METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
+REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
+TOOL_VERSION = 2
+
+DISTANCE_EPSILON = 0.25
+STUCK_WINDOW_SECONDS = 2.0
+
+METRIC_DIRECTIONS: dict[str, str | None] = {
+    "distance_traveled": None,
+    "active_movement_seconds": None,
+    "active_movement_fraction": None,
+    "no_progress_seconds_proxy": "lower",
+    "longest_no_progress_seconds_proxy": "lower",
+    "stuck_events_proxy": "lower",
+    "health_loss_observed": "lower",
+    "minimum_health_observed": "higher",
+    "survived_to_final_sample": "higher",
+    "completion": "higher",
+}
+
+FUTURE_METRICS = {
+    "kills": "An exact, attributed kill event or adjudicated kill counter is required.",
+    "deaths": "An exact death event or persistent PRI death counter is required.",
+    "score": "A per-participant score sample is required.",
+    "damage_dealt": "Attributed damage events are required.",
+    "accuracy": "Attributed shot and finalized hit/miss events are required.",
+    "objective_progress": "Mode-specific, attributed objective events are required.",
+}
+
+
+class QualityError(ValueError):
+    pass
+
+
+def _object(value: Any, context: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise QualityError(f"{context} must be a JSON object")
+    return value
+
+
+def _string(fields: dict[str, Any], name: str, context: str, *, nonempty: bool = False) -> str:
+    value = fields.get(name)
+    if not isinstance(value, str) or (nonempty and not value):
+        suffix = " non-empty" if nonempty else ""
+        raise QualityError(f"{context}.{name} must be a{suffix} string")
+    return value
+
+
+def _integer(value: Any, context: str, *, minimum: int | None = None) -> int:
+    if isinstance(value, bool):
+        raise QualityError(f"{context} must be an integer")
+    try:
+        result = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise QualityError(f"{context} must be an integer") from exc
+    if isinstance(value, float) and value != result:
+        raise QualityError(f"{context} must be an integer")
+    if isinstance(value, str) and (str(result) != value or not value):
+        raise QualityError(f"{context} must be a canonical decimal integer string")
+    if minimum is not None and result < minimum:
+        raise QualityError(f"{context} must be at least {minimum}")
+    return result
+
+
+def _strict_integer(value: Any, context: str, *, minimum: int | None = None,
+                    maximum: int | None = None) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise QualityError(f"{context} must be an integer")
+    if minimum is not None and value < minimum:
+        raise QualityError(f"{context} must be at least {minimum}")
+    if maximum is not None and value > maximum:
+        raise QualityError(f"{context} must be at most {maximum}")
+    return value
+
+
+def _number(value: Any, context: str, *, minimum: float | None = None) -> float:
+    if isinstance(value, bool):
+        raise QualityError(f"{context} must be a finite number")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise QualityError(f"{context} must be a finite number") from exc
+    if not math.isfinite(result):
+        raise QualityError(f"{context} must be a finite number")
+    if minimum is not None and result < minimum:
+        raise QualityError(f"{context} must be at least {minimum}")
+    return result
+
+
+def _load_json(path: Path, context: str) -> dict[str, Any]:
+    try:
+        return _object(json.loads(path.read_text(encoding="utf-8-sig")), context)
+    except FileNotFoundError as exc:
+        raise QualityError(f"missing {context}: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise QualityError(f"invalid {context} JSON at {path}: {exc}") from exc
+
+
+def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficulty: int,
+               bot_count: int | None = None, requested_roster: list[dict[str, Any]] | None = None) -> str:
+    canonical_text = (
+        f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
+        f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
+    )
+    if bot_count is not None:
+        canonical_text += f"bot_count={bot_count}\n"
+        assert requested_roster is not None
+        canonical_text += "".join(f"roster={entry['identity_fragment']}\n" for entry in requested_roster)
+    canonical = canonical_text.encode("utf-8")
+    digest = 1469598103934665603
+    for byte in canonical:
+        digest ^= byte
+        digest = (digest * 1099511628211) & ((1 << 64) - 1)
+    return f"fnv1a64:{digest:016x}"
+
+
+def _close(left: float, right: float) -> bool:
+    return math.isclose(left, right, rel_tol=1e-7, abs_tol=1e-8)
+
+
+def _ascii_lower(value: str) -> str:
+    return "".join(chr(ord(character) + 32) if "A" <= character <= "Z" else character
+                   for character in value)
+
+
+def _validate_requested_roster(raw: Any, context: str, bot_count: int) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        raise QualityError(f"{context} must be an array")
+    if len(raw) != bot_count:
+        raise QualityError(f"{context} count must equal bot_count")
+    roster: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        fields = _object(item, f"{context}[{index}]")
+        roster.append({
+            "roster_index": _strict_integer(fields.get("roster_index"),
+                                             f"{context}[{index}].roster_index", minimum=0),
+            "requested_name": _string(fields, "requested_name", f"{context}[{index}]"),
+            "external_skill": _strict_integer(fields.get("external_skill"),
+                                               f"{context}[{index}].external_skill", minimum=0, maximum=7),
+            "identity_fragment": _string(fields, "identity_fragment", f"{context}[{index}]", nonempty=True),
+        })
+    indexes = [entry["roster_index"] for entry in roster]
+    if indexes != list(range(bot_count)):
+        raise QualityError(f"{context} indexes must be unique, contiguous, and ordered from zero")
+    fragments = [entry["identity_fragment"] for entry in roster]
+    if len(fragments) != len(set(fragments)):
+        raise QualityError(f"{context} identity fragments must be unique")
+    for index, entry in enumerate(roster):
+        try:
+            name_hex = entry["requested_name"].encode("utf-8").hex()
+        except UnicodeEncodeError as exc:
+            raise QualityError(f"{context}[{index}].requested_name must be valid UTF-8") from exc
+        expected_fragment = (
+            f"participant-v1:index={entry['roster_index']};external_skill={entry['external_skill']};"
+            f"requested_name_hex={name_hex}")
+        if entry["identity_fragment"] != expected_fragment:
+            raise QualityError(f"{context}[{index}].identity_fragment is not canonical")
+    names = [_ascii_lower(entry["requested_name"]) for entry in roster if entry["requested_name"]]
+    if len(names) != len(set(names)):
+        raise QualityError(f"{context} non-empty requested names must be unique case-insensitively")
+    return roster
+
+
+def _validate_actual_roster(raw: Any, context: str, bot_count: int, *, complete: bool) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        raise QualityError(f"{context} must be an array")
+    if len(raw) > bot_count:
+        raise QualityError(f"{context} count exceeds bot_count")
+    if complete and len(raw) != bot_count:
+        raise QualityError(f"{context} count must equal bot_count for a complete run")
+    roster: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        fields = _object(item, f"{context}[{index}]")
+        roster.append({
+            "roster_index": _strict_integer(fields.get("roster_index"),
+                                             f"{context}[{index}].roster_index", minimum=0),
+            "identity": _string(fields, "identity", f"{context}[{index}]", nonempty=True),
+            "actor": _string(fields, "actor", f"{context}[{index}]", nonempty=True),
+            "player_name": _string(fields, "player_name", f"{context}[{index}]", nonempty=True),
+            "class": _string(fields, "class", f"{context}[{index}]", nonempty=True),
+        })
+    indexes = [entry["roster_index"] for entry in roster]
+    if indexes != list(range(len(roster))):
+        raise QualityError(f"{context} indexes must be unique, contiguous, and ordered from zero")
+    for field in ("identity", "actor"):
+        values = [entry[field] for entry in roster]
+        if len(values) != len(set(values)):
+            raise QualityError(f"{context} {field} values must be unique")
+    names = [_ascii_lower(entry["player_name"]) for entry in roster]
+    if len(names) != len(set(names)):
+        raise QualityError(f"{context} player names must be unique case-insensitively")
+    return roster
+
+
+def _validate_manifest(path: Path) -> dict[str, Any]:
+    raw = _load_json(path, "manifest")
+    schema = raw.get("schema")
+    if schema not in (MANIFEST_SCHEMA, MANIFEST_SCHEMA_V2):
+        raise QualityError(f"{path}: unsupported manifest schema {raw.get('schema')!r}")
+    if raw.get("driver") != "bot-benchmark":
+        raise QualityError(f"{path}: manifest driver must be 'bot-benchmark'")
+    url = _string(raw, "url", "manifest", nonempty=True)
+    output_directory = _string(raw, "output_directory", "manifest")
+    seed = _integer(raw.get("seed"), "manifest.seed", minimum=0)
+    max_ticks = _integer(raw.get("max_ticks"), "manifest.max_ticks", minimum=1)
+    fixed_delta = _number(raw.get("fixed_delta"), "manifest.fixed_delta", minimum=0.0)
+    if fixed_delta <= 0:
+        raise QualityError("manifest.fixed_delta must be positive")
+    difficulty = _integer(raw.get("difficulty"), "manifest.difficulty", minimum=0)
+    if difficulty > 7:
+        raise QualityError("manifest.difficulty must be at most 7")
+    event_cap = _integer(raw.get("telemetry_event_cap"), "manifest.telemetry_event_cap", minimum=0)
+    if event_cap != max_ticks + 2:
+        raise QualityError(f"{path}: telemetry event cap does not equal max_ticks + 2")
+    config_id = _string(raw, "config_id", "manifest", nonempty=True)
+    bot_count = None
+    requested_roster = None
+    if schema == MANIFEST_SCHEMA_V2:
+        bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
+        requested_roster = _validate_requested_roster(raw.get("requested_roster"),
+                                                      "manifest.requested_roster", bot_count)
+    expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count, requested_roster)
+    if config_id != expected_id:
+        raise QualityError(f"{path}: config_id does not match the manifest configuration")
+    return {
+        "config_id": config_id,
+        "url": url,
+        "output_directory": output_directory,
+        "seed": seed,
+        "max_ticks": max_ticks,
+        "fixed_delta": fixed_delta,
+        "difficulty": difficulty,
+        "telemetry_event_cap": event_cap,
+        "schema": schema,
+        "bot_count": bot_count,
+        "requested_roster": requested_roster,
+    }
+
+
+def _validate_bot(raw: Any, context: str) -> dict[str, Any]:
+    bot = _object(raw, context)
+    result: dict[str, Any] = {
+        "identity": _string(bot, "identity", context, nonempty=True),
+        "actor": _string(bot, "actor", context, nonempty=True),
+        "player_name": _string(bot, "player_name", context),
+        "class": _string(bot, "class", context, nonempty=True),
+        "state": _string(bot, "state", context),
+        "health": _integer(bot.get("health"), f"{context}.health"),
+    }
+    for vector_name in ("position", "velocity"):
+        vector = _object(bot.get(vector_name), f"{context}.{vector_name}")
+        result[vector_name] = {
+            axis: _number(vector.get(axis), f"{context}.{vector_name}.{axis}") for axis in "xyz"
+        }
+    return result
+
+
+def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    if not path.is_file():
+        raise QualityError(f"missing telemetry: {path}")
+    events: list[dict[str, Any]] = []
+    try:
+        handle = path.open("r", encoding="utf-8-sig")
+    except OSError as exc:
+        raise QualityError(f"cannot read telemetry {path}: {exc}") from exc
+    with handle:
+        for line_number, line in enumerate(handle, 1):
+            if not line.strip():
+                raise QualityError(f"{path}:{line_number}: blank telemetry line")
+            try:
+                raw = _object(json.loads(line), f"telemetry line {line_number}")
+            except json.JSONDecodeError as exc:
+                raise QualityError(f"{path}:{line_number}: invalid JSON: {exc}") from exc
+            context = f"{path}:{line_number}"
+            if raw.get("schema") != TELEMETRY_SCHEMA:
+                raise QualityError(f"{context}: unsupported telemetry schema {raw.get('schema')!r}")
+            seq = _integer(raw.get("seq"), f"{context}.seq", minimum=0)
+            tick = _integer(raw.get("tick"), f"{context}.tick", minimum=0)
+            seconds = _number(raw.get("simulated_seconds"), f"{context}.simulated_seconds", minimum=0.0)
+            event_type = _string(raw, "type", context, nonempty=True)
+            status = _string(raw, "status", context, nonempty=True)
+            event = {
+                "seq": seq,
+                "tick": tick,
+                "simulated_seconds": seconds,
+                "type": event_type,
+                "map": _string(raw, "map", context),
+                "status": status,
+                "failure_reason": _string(raw, "failure_reason", context),
+                "bots": [_validate_bot(item, f"{context}.bots[{index}]")
+                         for index, item in enumerate(raw.get("bots", []))],
+            }
+            if not isinstance(raw.get("bots"), list):
+                raise QualityError(f"{context}.bots must be an array")
+            if raw.get("config_id") != manifest["config_id"]:
+                raise QualityError(f"{context}: config_id differs from manifest")
+            order = [(bot["identity"], bot["actor"]) for bot in event["bots"]]
+            if order != sorted(order):
+                raise QualityError(f"{context}: bots are not ordered by identity and actor")
+            identities = [bot["identity"] for bot in event["bots"]]
+            if len(identities) != len(set(identities)):
+                raise QualityError(f"{context}: duplicate bot identity")
+            events.append(event)
+    if not events:
+        raise QualityError(f"empty telemetry: {path}")
+    if len(events) > manifest["telemetry_event_cap"]:
+        raise QualityError(f"{path}: telemetry exceeds the manifest event cap")
+    for index, event in enumerate(events):
+        if event["seq"] != index:
+            raise QualityError(f"{path}: sequence {event['seq']} found where {index} was expected")
+        if index and event["tick"] < events[index - 1]["tick"]:
+            raise QualityError(f"{path}: tick regressed at sequence {index}")
+        if index and event["simulated_seconds"] < events[index - 1]["simulated_seconds"]:
+            raise QualityError(f"{path}: simulated time regressed at sequence {index}")
+        if not _close(event["simulated_seconds"], event["tick"] * manifest["fixed_delta"]):
+            raise QualityError(f"{path}: simulated time does not match tick * fixed_delta at sequence {index}")
+    if events[0]["type"] != "run_start" or events[0]["tick"] != 0:
+        raise QualityError(f"{path}: first event must be run_start at tick zero")
+    if events[-1]["type"] != "run_result":
+        raise QualityError(f"{path}: last event must be run_result")
+    for index, event in enumerate(events[1:-1], 1):
+        if event["type"] != "tick":
+            raise QualityError(f"{path}: event {index} must be a tick event")
+        if event["tick"] != index:
+            raise QualityError(f"{path}: tick event {index} has tick {event['tick']}")
+        if event["status"] != "running" or event["failure_reason"]:
+            raise QualityError(f"{path}: tick event {index} is not a clean running sample")
+    if events[-1]["tick"] != len(events) - 2:
+        raise QualityError(f"{path}: final tick does not match the number of tick samples")
+    if events[-1]["tick"] > manifest["max_ticks"]:
+        raise QualityError(f"{path}: final tick exceeds max_ticks")
+    maps = {event["map"] for event in events}
+    if len(maps) != 1:
+        raise QualityError(f"{path}: map changed during the run")
+    return events
+
+
+def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+    raw = _load_json(path, "summary")
+    expected_schema = SUMMARY_SCHEMA_V2 if manifest["schema"] == MANIFEST_SCHEMA_V2 else SUMMARY_SCHEMA
+    if raw.get("schema") != expected_schema:
+        raise QualityError(f"{path}: unsupported summary schema {raw.get('schema')!r}")
+    status = _string(raw, "status", "summary", nonempty=True)
+    if status not in ("complete", "failed"):
+        raise QualityError(f"{path}: unsupported summary status {status!r}")
+    exit_code = _integer(raw.get("exit_code"), "summary.exit_code")
+    ticks = _integer(raw.get("ticks"), "summary.ticks", minimum=0)
+    seconds = _number(raw.get("simulated_seconds"), "summary.simulated_seconds", minimum=0.0)
+    config = _object(raw.get("config"), "summary.config")
+    comparisons = {
+        "url": _string(config, "url", "summary.config", nonempty=True),
+        "seed": _integer(config.get("seed"), "summary.config.seed", minimum=0),
+        "max_ticks": _integer(config.get("max_ticks"), "summary.config.max_ticks", minimum=1),
+        "fixed_delta": _number(config.get("fixed_delta"), "summary.config.fixed_delta", minimum=0.0),
+        "difficulty": _integer(config.get("difficulty"), "summary.config.difficulty", minimum=0),
+    }
+    requested_roster = None
+    actual_roster = None
+    if expected_schema == SUMMARY_SCHEMA_V2:
+        summary_bot_count = _strict_integer(config.get("bot_count"), "summary.config.bot_count",
+                                            minimum=1, maximum=16)
+        if summary_bot_count != manifest["bot_count"]:
+            raise QualityError(f"{path}: summary config bot_count differs from manifest")
+        requested_roster = _validate_requested_roster(
+            raw.get("requested_roster"), "summary.requested_roster", summary_bot_count)
+        if requested_roster != manifest["requested_roster"]:
+            raise QualityError(f"{path}: summary requested_roster differs from manifest")
+        actual_roster = _validate_actual_roster(
+            raw.get("actual_roster"), "summary.actual_roster", summary_bot_count, complete=status == "complete")
+    _string(config, "output_directory", "summary.config")
+    for name, value in comparisons.items():
+        expected = manifest[name]
+        equal = _close(value, expected) if name == "fixed_delta" else value == expected
+        if not equal:
+            raise QualityError(f"{path}: summary config {name} differs from manifest")
+    final = events[-1]
+    failure_reason = _string(raw, "failure_reason", "summary")
+    map_name = _string(raw, "map", "summary")
+    summary_strings = ("game", "version") if expected_schema == SUMMARY_SCHEMA_V2 else (
+        "game", "version", "bot_class", "bot_name")
+    for name in summary_strings:
+        _string(raw, name, "summary")
+    if ticks != final["tick"] or not _close(seconds, final["simulated_seconds"]):
+        raise QualityError(f"{path}: summary time does not match final telemetry")
+    if status != final["status"] or failure_reason != final["failure_reason"]:
+        raise QualityError(f"{path}: summary result differs from final telemetry")
+    if map_name != final["map"]:
+        raise QualityError(f"{path}: summary map differs from telemetry")
+    if (status == "complete") != (exit_code == 0):
+        raise QualityError(f"{path}: completion status and exit code disagree")
+    if actual_roster is not None:
+        actual_by_identity = {entry["identity"]: entry for entry in actual_roster}
+        for event_index, event in enumerate(events):
+            for bot in event["bots"]:
+                actual = actual_by_identity.get(bot["identity"])
+                if actual is None:
+                    raise QualityError(
+                        f"{path}: telemetry event {event_index} bot identity is absent from actual_roster")
+                for field in ("actor", "player_name", "class"):
+                    if bot[field] != actual[field]:
+                        raise QualityError(
+                            f"{path}: telemetry event {event_index} bot {field} differs from actual_roster")
+        if status == "complete" and {bot["identity"] for bot in events[0]["bots"]} != set(actual_by_identity):
+            raise QualityError(f"{path}: initial telemetry bot identities differ from actual_roster")
+    return {
+        "status": status,
+        "exit_code": exit_code,
+        "ticks": ticks,
+        "simulated_seconds": seconds,
+        "map": map_name,
+        "failure_reason": failure_reason,
+        "requested_roster": requested_roster,
+        "actual_roster": actual_roster,
+    }
+
+
+def _load_metadata(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    raw = _load_json(path, "quality metadata")
+    if raw.get("schema") != METADATA_SCHEMA:
+        raise QualityError(f"{path}: unsupported quality metadata schema {raw.get('schema')!r}")
+    variant = _string(raw, "variant", "quality metadata", nonempty=True)
+    pair_id = raw.get("pair_id")
+    role = raw.get("comparison_role")
+    if (pair_id is None) != (role is None):
+        raise QualityError(f"{path}: pair_id and comparison_role must be provided together")
+    if pair_id is not None:
+        if not isinstance(pair_id, str) or not pair_id:
+            raise QualityError(f"{path}: pair_id must be a non-empty string")
+        if role not in ("baseline", "candidate"):
+            raise QualityError(f"{path}: comparison_role must be baseline or candidate")
+    return {"variant": variant, "pair_id": pair_id, "comparison_role": role}
+
+
+def _distance(left: dict[str, float], right: dict[str, float]) -> float:
+    return math.sqrt(sum((right[axis] - left[axis]) ** 2 for axis in "xyz"))
+
+
+def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    identities = sorted({bot["identity"] for event in events for bot in event["bots"]})
+    final_bots = {bot["identity"]: bot for bot in events[-1]["bots"]}
+    metrics: dict[str, dict[str, Any]] = {}
+    for identity in identities:
+        samples = [(index, event["simulated_seconds"], bot)
+                   for index, event in enumerate(events)
+                   for bot in event["bots"] if bot["identity"] == identity]
+        distance = active = no_progress = observed = health_loss = 0.0
+        longest_no_progress = current_no_progress = 0.0
+        stuck_events = discontinuities = 0
+        stuck_latched = False
+        health_values = [bot["health"] for _, _, bot in samples]
+        for (previous_index, previous_time, previous), (index, now, current) in zip(samples, samples[1:]):
+            if index != previous_index + 1 or current["actor"] != previous["actor"]:
+                current_no_progress = 0.0
+                stuck_latched = False
+                discontinuities += 1
+                continue
+            delta = now - previous_time
+            if delta <= 0:
+                continue
+            health_loss += max(0, previous["health"] - current["health"])
+            if previous["health"] <= 0 or current["health"] <= 0:
+                current_no_progress = 0.0
+                stuck_latched = False
+                continue
+            travelled = _distance(previous["position"], current["position"])
+            distance += travelled
+            observed += delta
+            if travelled >= DISTANCE_EPSILON:
+                active += delta
+                current_no_progress = 0.0
+                stuck_latched = False
+            else:
+                no_progress += delta
+                current_no_progress += delta
+                longest_no_progress = max(longest_no_progress, current_no_progress)
+                if current_no_progress + 1e-12 >= STUCK_WINDOW_SECONDS and not stuck_latched:
+                    stuck_events += 1
+                    stuck_latched = True
+        final = final_bots.get(identity)
+        first = samples[0][2]
+        metrics[identity] = {
+            "identity": identity,
+            "player_name": first["player_name"],
+            "class": first["class"],
+            "distance_traveled": distance,
+            "observed_alive_seconds": observed,
+            "active_movement_seconds": active,
+            "active_movement_fraction": active / observed if observed > 0 else None,
+            "no_progress_seconds_proxy": no_progress,
+            "longest_no_progress_seconds_proxy": longest_no_progress,
+            "stuck_events_proxy": stuck_events,
+            "health_loss_observed": health_loss,
+            "minimum_health_observed": min(health_values),
+            "final_health_observed": final["health"] if final is not None else None,
+            "survived_to_final_sample": final["health"] > 0 if final is not None else None,
+            "actor_or_observation_discontinuities": discontinuities,
+        }
+    return metrics
+
+
+def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str, Any]:
+    values = list(bots.values())
+    observed = sum(bot["observed_alive_seconds"] for bot in values)
+    active = sum(bot["active_movement_seconds"] for bot in values)
+    survival = [bot["survived_to_final_sample"] for bot in values]
+    return {
+        "distance_traveled": sum(bot["distance_traveled"] for bot in values),
+        "active_movement_seconds": active,
+        "active_movement_fraction": active / observed if observed > 0 else None,
+        "no_progress_seconds_proxy": sum(bot["no_progress_seconds_proxy"] for bot in values),
+        "longest_no_progress_seconds_proxy": max(
+            (bot["longest_no_progress_seconds_proxy"] for bot in values), default=0.0),
+        "stuck_events_proxy": sum(bot["stuck_events_proxy"] for bot in values),
+        "health_loss_observed": sum(bot["health_loss_observed"] for bot in values),
+        "minimum_health_observed": min((bot["minimum_health_observed"] for bot in values), default=None),
+        "survived_to_final_sample": all(survival) if survival and all(item is not None for item in survival) else None,
+        "completion": completion,
+    }
+
+
+def analyze_run(path: Path) -> dict[str, Any]:
+    run_path = path.resolve()
+    if not run_path.is_dir():
+        raise QualityError(f"run path is not a directory: {run_path}")
+    manifest = _validate_manifest(run_path / "manifest.json")
+    events = _load_events(run_path / "events.jsonl", manifest)
+    summary = _validate_summary(run_path / "summary.json", manifest, events)
+    metadata = _load_metadata(run_path / "quality-metadata.json")
+    bots = _bot_metrics(events)
+    completion = summary["status"] == "complete" and summary["exit_code"] == 0
+    metrics = _run_metrics(bots, completion)
+    return {
+        "path": str(run_path),
+        "metadata": metadata,
+        "variant": metadata["variant"] if metadata else run_path.name,
+        "config": {
+            "url": manifest["url"], "seed": manifest["seed"], "max_ticks": manifest["max_ticks"],
+            "fixed_delta": manifest["fixed_delta"], "difficulty": manifest["difficulty"],
+            "map": summary["map"], "initial_bot_count": len(events[0]["bots"]),
+            "requested_roster": manifest["requested_roster"],
+        },
+        "result": summary,
+        "metrics": metrics,
+        "bots": [bots[key] for key in sorted(bots)],
+        "validation": {"status": "passed", "telemetry_events": len(events)},
+    }
+
+
+def _numeric(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    result = float(value)
+    return result if math.isfinite(result) else None
+
+
+def _describe(values: Iterable[float]) -> dict[str, Any]:
+    materialized = list(values)
+    return {
+        "count": len(materialized),
+        "mean": statistics.fmean(materialized) if materialized else None,
+        "median": statistics.median(materialized) if materialized else None,
+        "minimum": min(materialized) if materialized else None,
+        "maximum": max(materialized) if materialized else None,
+    }
+
+
+def aggregate_variants(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for run in runs:
+        grouped[run["variant"]].append(run)
+    result = []
+    for variant, group in sorted(grouped.items()):
+        metrics = {}
+        for name in METRIC_DIRECTIONS:
+            values = [numeric for run in group if (numeric := _numeric(run["metrics"].get(name))) is not None]
+            metrics[name] = _describe(values)
+        result.append({"variant": variant, "runs": len(group), "metrics": metrics})
+    return result
+
+
+def _comparison_signature(run: dict[str, Any]) -> tuple[Any, ...]:
+    config = run["config"]
+    base = tuple(config[name] for name in (
+        "url", "seed", "max_ticks", "fixed_delta", "difficulty", "map", "initial_bot_count"))
+    roster = config["requested_roster"]
+    roster_signature = None if roster is None else tuple(
+        (entry["roster_index"], entry["requested_name"], entry["external_skill"], entry["identity_fragment"])
+        for entry in roster)
+    return (*base, roster_signature)
+
+
+def paired_comparisons(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    paired: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    for run in runs:
+        metadata = run["metadata"]
+        if not metadata or metadata["pair_id"] is None:
+            continue
+        pair_id = metadata["pair_id"]
+        role = metadata["comparison_role"]
+        if role in paired[pair_id]:
+            raise QualityError(f"pair {pair_id!r} has more than one {role} run")
+        paired[pair_id][role] = run
+    comparisons: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for pair_id, roles in sorted(paired.items()):
+        if set(roles) != {"baseline", "candidate"}:
+            raise QualityError(f"pair {pair_id!r} must contain exactly one baseline and one candidate")
+        baseline, candidate = roles["baseline"], roles["candidate"]
+        if _comparison_signature(baseline) != _comparison_signature(candidate):
+            raise QualityError(f"pair {pair_id!r} has incomparable run configurations")
+        deltas = {}
+        for name in METRIC_DIRECTIONS:
+            left, right = _numeric(baseline["metrics"].get(name)), _numeric(candidate["metrics"].get(name))
+            deltas[name] = right - left if left is not None and right is not None else None
+        comparisons[(baseline["variant"], candidate["variant"])].append({
+            "pair_id": pair_id,
+            "baseline_path": baseline["path"],
+            "candidate_path": candidate["path"],
+            "candidate_minus_baseline": deltas,
+        })
+    result = []
+    for (baseline_variant, candidate_variant), pairs in sorted(comparisons.items()):
+        metrics = {}
+        for name, direction in METRIC_DIRECTIONS.items():
+            values = [pair["candidate_minus_baseline"][name] for pair in pairs
+                      if pair["candidate_minus_baseline"][name] is not None]
+            preferred = [value if direction == "higher" else -value for value in values] if direction else []
+            metrics[name] = {
+                "preferred_direction": direction,
+                "candidate_minus_baseline": _describe(values),
+                "candidate_wins": sum(value > 0 for value in preferred) if direction else None,
+                "ties": sum(value == 0 for value in preferred) if direction else None,
+                "candidate_losses": sum(value < 0 for value in preferred) if direction else None,
+            }
+        result.append({
+            "baseline_variant": baseline_variant,
+            "candidate_variant": candidate_variant,
+            "pair_count": len(pairs),
+            "metrics": metrics,
+            "pairs": pairs,
+        })
+    return result
+
+
+def analyze(paths: list[Path]) -> dict[str, Any]:
+    if not paths:
+        raise QualityError("at least one run directory is required")
+    resolved = [path.resolve() for path in paths]
+    if len(resolved) != len(set(resolved)):
+        raise QualityError("the same run directory was provided more than once")
+    runs = [analyze_run(path) for path in resolved]
+    return {
+        "schema": REPORT_SCHEMA,
+        "tool": {"name": Path(__file__).name, "version": TOOL_VERSION},
+        "thresholds": {
+            "movement_distance_per_sample": DISTANCE_EPSILON,
+            "stuck_window_seconds": STUCK_WINDOW_SECONDS,
+        },
+        "runs": runs,
+        "variant_aggregates": aggregate_variants(runs),
+        "paired_comparisons": paired_comparisons(runs),
+        "metric_availability": {
+            "available": list(METRIC_DIRECTIONS),
+            "unavailable_until_telemetry_is_extended": FUTURE_METRICS,
+            "composite_quality_score": None,
+        },
+        "interpretation": (
+            "Movement and health values are sampled proxies, not combat outcomes. Distance and activity have no "
+            "preferred direction. No composite quality score is emitted because telemetry-v1 has no score, kill, "
+            "damage-attribution, accuracy, objective, or opponent-strength fields."
+        ),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("runs", nargs="+", help="Run directories containing manifest.json, events.jsonl, and summary.json")
+    parser.add_argument("--output", required=True, help="New JSON report path")
+    args = parser.parse_args(argv)
+    output = Path(args.output).resolve()
+    if output.exists():
+        parser.error(f"output already exists: {output}")
+    try:
+        report = analyze([Path(value) for value in args.runs])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    except (QualityError, OSError) as exc:
+        parser.error(str(exc))
+    print(output)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
