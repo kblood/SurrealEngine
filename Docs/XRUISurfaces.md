@@ -174,11 +174,18 @@ color/depth attachment set, resolves it into the provider image, and reopens
 the untouched world pass. The backing attachments survive per-frame provider
 unbind/rebind, while acquired provider handles do not.
 
-The remaining native blocker is the OpenXR owner of those images. A production
-`OpenXRUICompositionSink` must create one swapchain per descriptor, acquire and
-bind the visible images before canvas replay, release them after Vulkan
-submission, convert the shared anchored poses back into OpenXR LOCAL space, and
-append ordered `XrCompositionLayerQuad` entries after the projection layer.
-Until that sink completes all operations, `OpenXRUIRuntime::Start` must not be
-called. There is intentionally no null/fake production sink and no invisible
-interactive fallback.
+`OpenXRProvider` now implements the production `OpenXRUICompositionSink`. It
+owns one descriptor-sized color swapchain for each standard surface, acquires
+and binds visible images before canvas replay, releases them after Vulkan
+submission, converts shared anchored poses back into OpenXR LOCAL space, and
+appends ordered, alpha-blended `XrCompositionLayerQuad` entries after the
+projection layer. Allocation and per-frame failures stop the UI runtime instead
+of leaving an invisible interactive surface; there is no null production sink
+or clickable fallback.
+
+The native owner and deterministic runtime seam are therefore implemented, but
+remain hardware-unverified. A physical OpenXR pass must still establish runtime
+layer-limit support, alpha and orientation correctness, anchored placement,
+pointer/contact agreement, repeated lifecycle cleanup, and menu-last ordering.
+Long synchronous map loads also need scheduling that can keep balanced OpenXR
+frames flowing if the loading quad is expected to refresh throughout the load.

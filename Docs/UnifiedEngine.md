@@ -80,18 +80,18 @@ This roadmap uses four deliberately separate claims:
 - **Owner-data-unverified** means no automated fixture can establish behavior
   with a user's commercial packages, maps, media, and scripts.
 
-At integration commit `359aaa30`, the main product-only additions beyond the
-foundation topics are:
+At tested integration code commit `2904593c`, the main product-only additions
+beyond the foundation topics are:
 
 | Integrated slice | State | Evidence and remaining boundary |
 | --- | --- | --- |
-| Flat desktop WASM/WebGPU | Implemented | The complete no-data application links and the legal local-import gate passes. A clean revisioned package imported the exact 629.3 MiB GOG UT99 folder and launched it from both local staging and the public HTTPS candidate with advancing ticks, visible WebGPU rendering, and zero page/WebGPU errors. Unreal Gold, persistence/upgrade, and longer play remain release gates. |
+| Flat desktop WASM/WebGPU | Implemented | The complete no-data application links and the legal local-import gate passes. Clean revisioned browser artifacts launched the exact owned GOG UT99 and Unreal Gold folders with advancing ticks, visible WebGPU rendering, and zero page/WebGPU errors. Title switching, persistence/upgrade, human input/audio, and longer play remain release gates. |
 | Direct WebXR/WebGPU presentation | Implemented, experimental | ABI/lifecycle and native bridge tests pass; no target Quest browser with production `XRGPUBinding` has been verified. |
 | Quest compatibility presentation | Implemented, experimental | `XRWebGLLayer` receives a WebGPU-rendered stereo atlas through WebGL 2; desktop API probes and provider tests pass, but Quest correctness and transfer cost are hardware-unverified. |
 | WebXR UI and controllers | Implemented, experimental | World-anchored surfaces, both procedural controller proxies, lasers, and exact-contact markers share one hit result in both presentation modes; scale, latency, convergence, and comfort remain hardware-unverified. |
 | Semantic XR gameplay input | Implemented, experimental | WebXR and OpenXR use the provider-neutral `XRInputAdapter`; right-dominant Select maps directly to Fire, the other Select to AltFire, sticks map to movement/turning, dominant primary is Jump, off-hand primary is NextWeapon, and off-hand secondary/provider Menu opens ShowMenu. Menu/focus ownership releases only XR contributors and blocks held buttons until a fresh press, while hostile `User.ini` Joy mappings are bypassed. WebXR retains one discrete state per simulation frame. The shared turn policy keeps continuous right-stick turn as the compatibility default and supports runtime smooth scaling or explicit snap mode with latch/hysteresis and focus-safe rearming. Settings persistence/UI, movement reference, remapping, and hardware comfort qualification remain follow-ups. |
 | One-hand XR weapons | Implemented, experimental | A shared aim-pose solver, scoped full-tick firing direction, and contiguous per-eye weapon pass are used by WebXR and OpenXR. Default placement follows the Farantir hardware baseline (aim pose, zero offset, 5x scale); physical calibration, muzzle-origin rewriting, two-hand/dual-wield behavior, and loaded UT99/Unreal fixtures remain gates. |
-| UT99/Unreal startup map intro | Implemented, experimental | `URL.LocalMap`, prompt-HUD capture, menu handoff, intro-only trigger routing, and explicit launcher skip policy have automated coverage; actual UT99/Unreal scripts remain owner-data and Quest-unverified. |
+| UT99/Unreal startup map intro | Implemented, experimental | `URL.LocalMap`, prompt-HUD capture, menu handoff, intro-only trigger routing, and explicit launcher skip policy have automated coverage. Owned UT99 reached its CityIntro-to-UMenu handoff; Unreal's normal `URL.LocalMap` path and both games in Quest remain unverified. |
 | KHG browser AVI playback | Implemented, experimental | The existing IV50 decoder advances asynchronously under the flat/WebXR frame owner; synthetic scheduling and no-data linking pass, while actual KHG media, browser audio, masks, and same-call-stack script assumptions remain unverified or incomplete. |
 | Local UE1 demo import | Implemented, experimental | UT demo 348 and Deus Ex demo 1002f reach bounded package scans; Unreal demo 205 advances past both the legacy `Parent`/`Outer` and `DynamicString` layout boundaries, then stops at the absent `UPak` content dependency. All remain local-import-only, gameplay-unverified, and redistribution-gated. |
 | Static-WASM corresponding source | Implemented | Clean commit/tree provenance, matching source archive or exact HTTPS source URL, hashes, notices, and relink instructions are enforced by packaging tests. Human/legal review of the actual distribution is still required. |
@@ -146,21 +146,21 @@ but must not fork gameplay, VM, menu, or game-support implementations.
 
 ## Current validation
 
-As of integration commit `359aaa30`, both ordinary and OpenXR-enabled Windows
-x64 Release builds pass all 30 registered CTest tests. A clean Window-owned
-Asyncify/WasmFS no-data Emscripten Release target also
-compiles and links the complete `SurrealEngine.js`/WASM application. The
-ordinary native executable, flat browser entry point, and desktop
-keyboard/mouse contributor remain available; WebXR is an optional presentation
-provider rather than a replacement desktop mode.
+At tested integration code commit `2904593c`, both ordinary and OpenXR-enabled
+Windows x64 Release builds pass all 33 registered CTest tests. Conventional
+pthread and Window-owned Asyncify/WasmFS no-data Emscripten Release targets also
+compile and link the complete `SurrealEngine.js`/WASM application. The ordinary
+native executable, flat browser entry point, and desktop keyboard/mouse
+contributor remain available; WebXR is an optional presentation provider rather
+than a replacement desktop mode.
 
 The served data-free browser matrix passes:
 
-- 11 shared launcher, provider-isolation, capability, diagnostics, adapter
+- 16 shared launcher, provider-isolation, capability, diagnostics, adapter
   fallback, and startup-policy checks;
-- 19 retail UT99/Unreal Gold import and safe-map checks;
+- 30 retail UT99/Unreal Gold import and safe-map checks;
 - the separate three-demo descriptor/import suite;
-- 13 OPFS/IndexedDB mutable-persistence and migration checks;
+- 14 OPFS/IndexedDB mutable-persistence and migration checks;
 - 3 provider-neutral data-bootstrap checks;
 - direct WebXR ABI-v3 persistent eye-texture, input, failure, exit, and re-entry tests;
 - `XRWebGLLayer` fallback selection, stereo-atlas, cleanup, and re-entry tests;
@@ -230,12 +230,12 @@ human-curated bugfix-first PR strategy. No upstream PR has been opened.
    script UI, including success, failure, and menu-topmost behavior.
 3. Keep the deployed data-free browser artifact and matching corresponding
    source reproducible from the exact clean release commit. Candidate
-   `54283bd8` satisfies that mechanical gate and uses revisioned browser assets;
+   `2904593c` satisfies that mechanical gate and uses revisioned browser assets;
    have the actual source offer, hosting terms, notices, and redistribution
    model reviewed by a responsible human/legal reviewer.
-4. Extend the successful owned-UT99 public-origin smoke to Unreal Gold, then
-   test persistence, save/quit, package upgrade, flat fallback, and XR
-   enter/exit/re-entry. Keep all demo support local-import-only; determine
+4. Extend the successful owned UT99 and Unreal Gold direct-start smokes to
+   title switching, persistence, save/quit, package upgrade, flat fallback, and
+   XR enter/exit/re-entry. Keep all demo support local-import-only; determine
    whether Unreal 205's missing `UPak` dependency can come from a lawful
    original artifact, and validate every demo before advertising compatibility.
 5. Run the headset matrix: stereo/FOV, head pose, both controller mappings,
