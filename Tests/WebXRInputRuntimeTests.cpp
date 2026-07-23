@@ -1,6 +1,7 @@
 #include "Platform/WebXR/WebXRInputRuntime.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <map>
 #include <string>
@@ -8,50 +9,76 @@
 
 namespace
 {
-	bool Expect(bool condition, const char* message)
+	void Check(bool condition, const char* message)
 	{
-		if (!condition) std::cerr << message << '\n';
-		return condition;
+		if (!condition)
+		{
+			std::cerr << message << '\n';
+			std::exit(1);
+		}
 	}
 
-	struct ButtonEvent
+	bool Near(float a, float b)
 	{
-		InputSourceId Source;
-		int32_t Control;
-		bool Pressed;
+		return std::fabs(a - b) < 0.0001f;
+	}
+
+	struct CommandEvent
+	{
+		std::string Command;
+		InputControlId Control;
+		float Delta = 0.0f;
 	};
 
-	class CompositionTarget final : public WebXR::RuntimeInputTarget
+	class SemanticTarget final : public XRInputTarget
 	{
 	public:
-		void SetButton(InputSourceId source, int32_t control, bool pressed) override
+		void InputCommand(const std::string& command, InputControlId control, float delta) override
 		{
-			Buttons.push_back({ source, control, pressed });
-			const auto binding = ButtonBindings.find(control);
-			if (binding == ButtonBindings.end()) return;
-			if (pressed)
-				Composition.SetButton(binding->second, { source, control });
-			else
-				Composition.ReleaseControl({ source, control });
+			Commands.push_back({ command, control, delta });
+			if (command.starts_with("Button "))
+			{
+				Composition.SetButton(command.substr(7), control);
+			}
+			else if (command.starts_with("Axis "))
+			{
+				const size_t end = command.find(' ', 5);
+				const std::string action = command.substr(5,
+					end == std::string::npos ? end : end - 5);
+				float speed = 1.0f;
+				if (end != std::string::npos)
+				{
+					const size_t speedAt = command.find("Speed=", end);
+					if (speedAt != std::string::npos)
+						speed = std::strtof(command.c_str() + speedAt + 6, nullptr);
+				}
+				Composition.SetAxis(action, control, speed * delta);
+			}
 		}
 
-		void SetAxis(InputSourceId source, int32_t control, float value) override
+		void ReleaseInputControl(InputControlId control) override
 		{
-			const auto binding = AxisBindings.find(control);
-			if (binding != AxisBindings.end())
-				Composition.SetAxis(binding->second, { source, control }, value);
+			ReleasedControls.push_back(control);
+			Composition.ReleaseControl(control);
 		}
 
-		void ReleaseSource(InputSourceId source) override
+		void ReleaseInputSource(InputSourceId source) override
 		{
 			ReleasedSources.push_back(source);
 			Composition.ReleaseSource(source);
 		}
 
+		int CountCommand(const std::string& command) const
+		{
+			int count = 0;
+			for (const CommandEvent& event : Commands)
+				count += event.Command == command;
+			return count;
+		}
+
 		InputComposition Composition;
-		std::map<int32_t, std::string> ButtonBindings;
-		std::map<int32_t, std::string> AxisBindings;
-		std::vector<ButtonEvent> Buttons;
+		std::vector<CommandEvent> Commands;
+		std::vector<InputControlId> ReleasedControls;
 		std::vector<InputSourceId> ReleasedSources;
 	};
 
@@ -60,103 +87,137 @@ namespace
 		WebXR::DecodedInputSnapshot snapshot;
 		snapshot.SessionActive = true;
 		snapshot.ActionFocused = true;
-		snapshot.Sources[0].Connected = true;
+		for (WebXR::DecodedInputSource& source : snapshot.Sources)
+			source.Connected = true;
 		snapshot.Sources[0].PressedButtons = 1u << WebXR::InputTrigger;
+		snapshot.Sources[0].ButtonValues[WebXR::InputTrigger] = 1.0f;
 		snapshot.Sources[0].Axes[2] = -0.75f;
-		snapshot.Sources[1].Connected = true;
-		snapshot.Sources[1].PressedButtons = 1u << WebXR::InputPrimary;
-		snapshot.Sources[1].Axes[3] = 0.5f;
+		snapshot.Sources[0].Axes[3] = 0.5f;
+		snapshot.Sources[1].PressedButtons = 1u << WebXR::InputTrigger;
+		snapshot.Sources[1].ButtonValues[WebXR::InputTrigger] = 1.0f;
+		snapshot.Sources[1].Axes[2] = 0.25f;
+		snapshot.Sources[1].Axes[3] = -0.5f;
 		return snapshot;
+	}
+
+	void SetTrigger(WebXR::DecodedInputSnapshot& snapshot, size_t hand, bool pressed)
+	{
+		const uint32_t mask = 1u << WebXR::InputTrigger;
+		if (pressed)
+			snapshot.Sources[hand].PressedButtons |= mask;
+		else
+			snapshot.Sources[hand].PressedButtons &= ~mask;
+		snapshot.Sources[hand].ButtonValues[WebXR::InputTrigger] = pressed ? 1.0f : 0.0f;
 	}
 }
 
 int main()
 {
 	WebXR::StartupIntroTriggerRoute introRoute;
-	if (!Expect(!introRoute.Update(InputSourceId::XRRight, true, false, false),
-		"trigger was remapped outside the startup intro")) return 1;
-	WebXR::StartupIntroFireEvent introPress = introRoute.Update(InputSourceId::XRRight, true, true, false);
-	if (!Expect(introPress && introPress.Control == WebXR::StartupIntroFireControl::Primary && introPress.Pressed,
-		"right startup trigger did not emit primary fire")) return 1;
-	if (!Expect(!introRoute.Update(InputSourceId::XRRight, true, true, false),
-		"held startup trigger emitted a duplicate press")) return 1;
-	WebXR::StartupIntroFireEvent introRelease = introRoute.Update(InputSourceId::XRRight, false, false, true);
-	if (!Expect(introRelease && introRelease.Control == WebXR::StartupIntroFireControl::Primary && !introRelease.Pressed,
-		"startup trigger did not release after the menu transition")) return 1;
-	if (!Expect(!introRoute.Update(InputSourceId::XRRight, true, true, true),
-		"menu trigger was stolen by the startup intro route")) return 1;
-	WebXR::StartupIntroFireEvent alternatePress = introRoute.Update(InputSourceId::XRLeft, true, true, false);
-	if (!Expect(alternatePress && alternatePress.Control == WebXR::StartupIntroFireControl::Alternate,
-		"left startup trigger did not emit alternate fire")) return 1;
-	WebXR::StartupIntroFireEvent disconnectRelease = introRoute.ReleaseSource(InputSourceId::XRLeft);
-	if (!Expect(disconnectRelease && !disconnectRelease.Pressed &&
-		disconnectRelease.Control == WebXR::StartupIntroFireControl::Alternate,
-		"controller disconnect did not release mirrored startup fire")) return 1;
+	Check(!introRoute.Update(InputSourceId::XRRight, true, false, false),
+		"trigger was remapped outside the startup intro");
+	WebXR::StartupIntroFireEvent introPress = introRoute.Update(
+		InputSourceId::XRRight, true, true, false);
+	Check(introPress && introPress.Control == WebXR::StartupIntroFireControl::Primary && introPress.Pressed,
+		"right startup trigger did not emit primary fire");
+	WebXR::StartupIntroFireEvent introRelease = introRoute.Update(
+		InputSourceId::XRRight, false, false, true);
+	Check(introRelease && !introRelease.Pressed,
+		"startup trigger was not balanced across the intro/menu transition");
 
-	WebXR::RuntimeInputBindings bindings;
-	bindings.Hands[0].Buttons[WebXR::InputTrigger] = 10;
-	bindings.Hands[0].ThumbstickX = 11;
-	bindings.Hands[1].Buttons[WebXR::InputPrimary] = 20;
-	bindings.Hands[1].ThumbstickY = 21;
-
-	CompositionTarget target;
-	target.ButtonBindings = { { 10, "bFire" }, { 20, "bUse" } };
-	target.AxisBindings = { { 11, "aStrafe" }, { 21, "aLookUp" } };
-	target.Composition.SetButton("bFire", { InputSourceId::KeyboardMouse, 1 });
-	target.Composition.SetButton("bUse", { InputSourceId::Gamepad, 2 });
-
+	SemanticTarget target;
+	const InputControlId keyboardFire{ InputSourceId::KeyboardMouse, 1 };
+	target.Composition.SetButton("bFire", keyboardFire);
 	WebXR::InputRuntime runtime;
 	WebXR::DecodedInputSnapshot decoded = ActiveSnapshot();
-	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), bindings, target);
-	if (!Expect(target.Buttons.size() == 2 && target.Buttons[0].Source == InputSourceId::XRLeft &&
-		target.Buttons[1].Source == InputSourceId::XRRight,
-		"focused controllers did not enter the per-hand runtime sources")) return 1;
-	if (!Expect(target.Composition.IsButtonActive("bFire") && target.Composition.IsButtonActive("bUse") &&
-		std::abs(target.Composition.GetAxisValue("aStrafe") + 0.75f) < 0.0001f &&
-		std::abs(target.Composition.GetAxisValue("aLookUp") - 0.5f) < 0.0001f,
-		"focused controller state did not reach ordinary input composition")) return 1;
+	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), true, target);
 
-	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), bindings, target);
-	if (!Expect(target.Buttons.size() == 2, "unchanged held buttons emitted duplicate presses")) return 1;
-	decoded.Sources[0].PressedButtons = 0;
-	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), bindings, target);
-	if (!Expect(target.Buttons.size() == 3 && !target.Buttons.back().Pressed &&
-		target.Composition.IsButtonActive("bFire"),
-		"button release did not preserve the keyboard contributor")) return 1;
-	decoded.Sources[0].PressedButtons = 1u << WebXR::InputTrigger;
-	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), bindings, target);
-	if (!Expect(target.Buttons.size() == 4 && target.Buttons.back().Pressed,
-		"button re-press did not emit a new edge")) return 1;
+	Check(target.CountCommand("Button bAltFire") == 1 &&
+		target.CountCommand("Button bFire") == 1,
+		"right-dominant conventional triggers did not emit direct fire semantics");
+	Check(target.Composition.IsButtonActive("bFire") &&
+		target.Composition.IsButtonActive("bAltFire"),
+		"semantic fire commands did not enter shared input composition");
+	Check(Near(target.Composition.GetAxisValue("aStrafe"), -240.0f) &&
+		Near(target.Composition.GetAxisValue("aBaseY"), 160.0f) &&
+		Near(target.Composition.GetAxisValue("aTurn"), 50.0f) &&
+		Near(target.Composition.GetAxisValue("aUp"), -160.0f),
+		"conventional sticks did not emit movement and turn semantics");
+	for (const CommandEvent& event : target.Commands)
+		Check(event.Command.find("Joy") == std::string::npos,
+			"WebXR gameplay input leaked through host Joy mappings");
 
+	// The menu owns the raw trigger for pointer clicks. Entering the menu must
+	// release gameplay controls, and leaving while held must not synthesize fire.
+	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), false, target);
+	Check(!target.Composition.IsButtonActive("bAltFire"),
+		"menu ownership left alternate fire held");
+	Check(target.Composition.IsButtonActive("bFire"),
+		"menu ownership removed the simultaneous keyboard fire contributor");
+	Check(Near(target.Composition.GetAxisValue("aStrafe"), 0.0f) &&
+		Near(target.Composition.GetAxisValue("aTurn"), 0.0f),
+		"menu ownership left XR locomotion active");
+	const int firePressesBeforeHandoff = target.CountCommand("Button bFire");
+	const int altPressesBeforeHandoff = target.CountCommand("Button bAltFire");
+	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), true, target);
+	Check(target.CountCommand("Button bFire") == firePressesBeforeHandoff &&
+		target.CountCommand("Button bAltFire") == altPressesBeforeHandoff,
+		"a held menu trigger became a gameplay press after handoff");
+
+	SetTrigger(decoded, 0, false);
+	SetTrigger(decoded, 1, false);
+	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), true, target);
+	SetTrigger(decoded, 1, true);
+	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), true, target);
+	Check(target.CountCommand("Button bFire") == firePressesBeforeHandoff + 1,
+		"a fresh dominant-hand trigger press did not fire after menu handoff");
+
+	// A source disconnect releases only that hand. Keyboard and the other XR
+	// hand remain independent contributors.
+	SetTrigger(decoded, 0, true);
+	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), true, target);
 	decoded.Sources[0] = {};
-	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), bindings, target);
-	if (!Expect(target.ReleasedSources.size() == 1 && target.ReleasedSources[0] == InputSourceId::XRLeft,
-		"left disconnect did not release only the left XR source")) return 1;
-	if (!Expect(target.Composition.IsButtonActive("bFire") && target.Composition.IsButtonActive("bUse") &&
-		std::abs(target.Composition.GetAxisValue("aStrafe")) < 0.0001f &&
-		std::abs(target.Composition.GetAxisValue("aLookUp") - 0.5f) < 0.0001f,
-		"left disconnect removed desktop/gamepad/right-hand contributors")) return 1;
+	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), true, target);
+	Check(!target.Composition.IsButtonActive("bAltFire"),
+		"left source disconnect left its alternate fire active");
+	Check(target.Composition.IsButtonActive("bFire"),
+		"left source disconnect removed right-hand or keyboard fire");
+	const auto& fireContributors = target.Composition.Buttons().at("bFire");
+	Check(fireContributors.contains(keyboardFire) &&
+		fireContributors.contains({ InputSourceId::XRRight,
+			static_cast<int32_t>(XRInputControl::Trigger) }),
+		"left source disconnect did not preserve independent fire contributors");
+	Check(!target.ReleasedSources.empty() &&
+		target.ReleasedSources.back() == InputSourceId::XRLeft,
+		"left disconnect did not release the XRLeft source");
 
-	decoded.ActionFocused = false;
-	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), bindings, target);
-	if (!Expect(target.ReleasedSources.size() == 2 && target.ReleasedSources[1] == InputSourceId::XRRight,
-		"blur did not neutralize the remaining XR source")) return 1;
-	if (!Expect(target.Composition.IsButtonActive("bFire") && target.Composition.IsButtonActive("bUse") &&
-		target.Composition.Axes().empty(),
-		"blur disturbed non-XR input contributors")) return 1;
+	// Dominant-hand policy is provider-neutral and can be changed without host
+	// key maps or WebXR control numbers.
+	SemanticTarget leftDominantTarget;
+	WebXR::InputRuntime leftDominant(XRInputBindings::ConventionalUE1(XRHand::Left));
+	WebXR::DecodedInputSnapshot leftDominantSnapshot = ActiveSnapshot();
+	leftDominant.Apply(WebXR::AdaptInputSnapshot(leftDominantSnapshot), true,
+		leftDominantTarget);
+	Check(leftDominantTarget.Commands[0].Command.find("aStrafe") != std::string::npos,
+		"left-dominant test did not publish conventional movement first");
+	Check(leftDominantTarget.CountCommand("Button bFire") == 1 &&
+		leftDominantTarget.CountCommand("Button bAltFire") == 1,
+		"left-dominant bindings did not preserve both fire actions");
+	bool leftFires = false;
+	bool rightAltFires = false;
+	for (const CommandEvent& event : leftDominantTarget.Commands)
+	{
+		leftFires |= event.Command == "Button bFire" &&
+			event.Control.Source == InputSourceId::XRLeft;
+		rightAltFires |= event.Command == "Button bAltFire" &&
+			event.Control.Source == InputSourceId::XRRight;
+	}
+	Check(leftFires && rightAltFires,
+		"dominant-hand selection did not swap semantic trigger actions");
 
-	decoded.ActionFocused = true;
-	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), bindings, target);
-	if (!Expect(target.Buttons.size() == 5 && target.Buttons.back().Pressed,
-		"focus recovery did not restore a held controller button")) return 1;
-
-	decoded = {};
-	runtime.Apply(WebXR::AdaptInputSnapshot(decoded), bindings, target);
-	if (!Expect(target.ReleasedSources.size() == 3 && target.ReleasedSources.back() == InputSourceId::XRRight,
-		"session end did not release the active XR source")) return 1;
-	if (!Expect(target.Composition.IsButtonActive("bFire") && target.Composition.IsButtonActive("bUse"),
-		"session end removed keyboard or gamepad input")) return 1;
-
-	std::cout << "WebXR runtime input lifecycle tests passed\n";
+	runtime.Reset(target);
+	Check(target.Composition.IsButtonActive("bFire"),
+		"WebXR reset removed the keyboard fire contributor");
+	std::cout << "WebXR semantic gameplay input tests passed\n";
 	return 0;
 }

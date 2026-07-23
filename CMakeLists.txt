@@ -1331,6 +1331,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		SurrealEngine/Platform/WebXR/WebXRInputAdapter.cpp
 		SurrealEngine/Platform/WebXR/WebXRInputBridge.cpp
 		SurrealEngine/Input/InputComposition.cpp
+		SurrealEngine/Input/XRInputAdapter.cpp
 		SurrealEngine/XR/XRStartupIntroRoute.cpp
 	)
 	target_include_directories(WebXRInputRuntimeTests PRIVATE SurrealEngine)

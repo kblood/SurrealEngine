@@ -24,39 +24,46 @@ namespace
 		return control == WebXR::StartupIntroFireControl::Primary ? IK_LeftMouse : IK_RightMouse;
 	}
 
-	class EngineInputTarget final : public WebXR::RuntimeInputTarget
+	class EngineInputTarget final : public XRInputTarget
 	{
 	public:
 		explicit EngineInputTarget(Engine* instance) : instance(instance) {}
 
-		void SetButton(InputSourceId source, int32_t control, bool pressed) override
+		void InputCommand(const std::string& command, InputControlId control, float delta) override
 		{
-			const bool sourceTrigger =
-				(source == InputSourceId::XRLeft && control == IK_Joy1) ||
-				(source == InputSourceId::XRRight && control == IK_Joy9);
-			if (sourceTrigger)
+			if (control.Control == static_cast<int32_t>(XRInputControl::Trigger))
 			{
 				const bool menuActive = instance->render && instance->render->IsXRUIMenuActive();
-				WebXR::StartupIntroFireEvent introEvent = StartupIntroTrigger.Update(source,
-					pressed, instance->IsStartupIntroActive(), menuActive);
+				WebXR::StartupIntroFireEvent introEvent = StartupIntroTrigger.Update(control.Source,
+					true, instance->IsStartupIntroActive(), menuActive);
 				if (introEvent)
 				{
 					instance->InputEvent(IntroFireKey(introEvent.Control),
-						introEvent.Pressed ? EInputType::IST_Press : EInputType::IST_Release,
-						0.0f, source);
+						EInputType::IST_Press, 0.0f, control.Source);
 					return;
 				}
 			}
-			instance->InputEvent(static_cast<EInputKey>(control),
-				pressed ? EInputType::IST_Press : EInputType::IST_Release, 0.0f, source);
+			instance->InputCommand(command, control, delta);
 		}
 
-		void SetAxis(InputSourceId source, int32_t control, float value) override
+		void ReleaseInputControl(InputControlId control) override
 		{
-			instance->InputEvent(static_cast<EInputKey>(control), EInputType::IST_Axis, value, source);
+			if (control.Control == static_cast<int32_t>(XRInputControl::Trigger))
+			{
+				const bool menuActive = instance->render && instance->render->IsXRUIMenuActive();
+				WebXR::StartupIntroFireEvent introEvent = StartupIntroTrigger.Update(control.Source,
+					false, instance->IsStartupIntroActive(), menuActive);
+				if (introEvent)
+				{
+					instance->InputEvent(IntroFireKey(introEvent.Control),
+						EInputType::IST_Release, 0.0f, control.Source);
+					return;
+				}
+			}
+			instance->ReleaseInputControl(control);
 		}
 
-		void ReleaseSource(InputSourceId source) override
+		void ReleaseInputSource(InputSourceId source) override
 		{
 			WebXR::StartupIntroFireEvent introEvent = StartupIntroTrigger.ReleaseSource(source);
 			if (introEvent)
@@ -67,18 +74,6 @@ namespace
 	private:
 		Engine* instance;
 	};
-
-	WebXR::RuntimeInputBindings EngineBindings()
-	{
-		WebXR::RuntimeInputBindings bindings;
-		bindings.Hands[static_cast<size_t>(XRHand::Left)] = {
-			{ IK_Joy1, IK_Joy2, IK_Joy3, IK_Joy4, IK_Joy5, IK_Joy6 }, IK_JoyX, IK_JoyY
-		};
-		bindings.Hands[static_cast<size_t>(XRHand::Right)] = {
-			{ IK_Joy9, IK_Joy10, IK_Joy11, IK_Joy12, IK_Joy13, IK_Joy14 }, IK_JoyU, IK_JoyV
-		};
-		return bindings;
-	}
 
 	WebXR::PackedPointerFeedback PackPointerFeedback(const WebXR::PointerFeedback& source)
 	{
@@ -148,7 +143,9 @@ extern "C"
 		if (!engine)
 			return 0;
 		EngineInputTarget target(engine);
-		InputRuntime.Apply(WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot()), EngineBindings(), target);
+		const bool gameplayInputEnabled = !engine->render || !engine->render->IsXRUIMenuActive();
+		InputRuntime.Apply(WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot()),
+			gameplayInputEnabled, target);
 		return 1;
 	}
 

@@ -30,7 +30,7 @@ struct XRInputBindings
 	// Conventional UE1 pawn properties only; there are no game-name checks.
 	// Unassigned face/menu controls remain available in the snapshot for a
 	// later game-support or UI adapter.
-	static XRInputBindings ConventionalUE1();
+	static XRInputBindings ConventionalUE1(XRHand dominantHand = XRHand::Right);
 };
 
 class XRInputTarget
@@ -61,7 +61,10 @@ class XRInputAdapter
 public:
 	explicit XRInputAdapter(XRInputBindings bindings = XRInputBindings::ConventionalUE1());
 
-	void Update(const XRSessionState& session, const XRControllerSnapshot& snapshot, XRInputTarget& target);
+	// Disabling gameplay publishes neutral controls and blocks held buttons until
+	// they are released, allowing an XR UI layer to own the same physical input.
+	void Update(const XRSessionState& session, const XRControllerSnapshot& snapshot,
+		XRInputTarget& target, bool gameplayInputEnabled = true);
 	void Disconnect(XRInputTarget& target);
 
 private:
@@ -69,9 +72,11 @@ private:
 	{
 		bool Connected = false;
 		bool Buttons[6] = {};
+		bool BlockedButtons[6] = {};
 	};
 
 	void UpdateHand(int hand, bool active, const XRHandControllerState& snapshot, XRInputTarget& target);
+	void ApplyGameplayGate(int hand, bool enabled, XRHandControllerState& snapshot);
 	void UpdateButton(InputSourceId source, XRInputControl control, const std::string& command, bool down, bool& previous, XRInputTarget& target);
 	static InputSourceId SourceForHand(int hand);
 
