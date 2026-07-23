@@ -1,5 +1,25 @@
 #include "Platform/OpenXR/OpenXRUIRuntime.h"
 
+bool SupportsOpenXRUIVisualOverlay(uint32_t maxLayerCount)
+{
+	return maxLayerCount >= 6;
+}
+
+Array<OpenXRUICompositionLayerKind> BuildOpenXRUICompositionLayerOrder(
+	uint32_t maxLayerCount, uint32_t surfaceQuadCount, bool visualOverlayReady)
+{
+	Array<OpenXRUICompositionLayerKind> order;
+	if (maxLayerCount < surfaceQuadCount + 1)
+		return order;
+	order.push_back(OpenXRUICompositionLayerKind::WorldProjection);
+	for (uint32_t index = 0; index < surfaceQuadCount; index++)
+		order.push_back(OpenXRUICompositionLayerKind::SurfaceQuad);
+	if (visualOverlayReady && SupportsOpenXRUIVisualOverlay(maxLayerCount) &&
+		order.size() < maxLayerCount)
+		order.push_back(OpenXRUICompositionLayerKind::VisualOverlay);
+	return order;
+}
+
 bool OpenXRUIRuntime::Start(XRUISurfaceEngineBinding& binding,
 	OpenXRUICompositionSink& sink, float worldUnitsPerMeter)
 {

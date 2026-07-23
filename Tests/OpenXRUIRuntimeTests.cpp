@@ -132,6 +132,29 @@ namespace
 			input.rays, input.valid, 40.0f);
 	}
 
+	void TestOptionalVisualLayerCapacityAndOrdering()
+	{
+		Check(!SupportsOpenXRUIVisualOverlay(5),
+			"five-layer runtime incorrectly advertised the optional visual overlay");
+		const Array<OpenXRUICompositionLayerKind> fallback =
+			BuildOpenXRUICompositionLayerOrder(5, 4, true);
+		Check(fallback.size() == 5 &&
+			fallback.front() == OpenXRUICompositionLayerKind::WorldProjection,
+			"five-layer runtime lost projection plus four UI quads");
+		for (size_t index = 1; index < fallback.size(); index++)
+			Check(fallback[index] == OpenXRUICompositionLayerKind::SurfaceQuad,
+				"five-layer fallback replaced a UI quad with controller visuals");
+
+		Check(SupportsOpenXRUIVisualOverlay(6),
+			"six-layer runtime did not advertise the controller visual overlay");
+		const Array<OpenXRUICompositionLayerKind> enhanced =
+			BuildOpenXRUICompositionLayerOrder(6, 4, true);
+		Check(enhanced.size() == 6 &&
+			enhanced.front() == OpenXRUICompositionLayerKind::WorldProjection &&
+			enhanced.back() == OpenXRUICompositionLayerKind::VisualOverlay,
+			"six-layer runtime did not order controller visuals after every UI quad");
+	}
+
 	void TestAllocationAndTopmostMenu()
 	{
 		Host host;
@@ -382,6 +405,7 @@ namespace
 
 int main()
 {
+	TestOptionalVisualLayerCapacityAndOrdering();
 	TestAllocationAndTopmostMenu();
 	TestBothControllersAndHeldTriggerHandoff();
 	TestLoadingScopeCleanupAndMenuOrdering();

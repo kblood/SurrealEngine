@@ -26,6 +26,7 @@ public:
 	bool IsAvailable() const;
 	bool IsSessionReady() const;
 	bool IsSessionRunning() const;
+	bool SupportsUIVisualOverlay() const;
 	const XRSessionState& SessionState() const;
 	const std::string& LastError() const;
 

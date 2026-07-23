@@ -20,6 +20,19 @@ public:
 	virtual void ReleaseSurfaceTargets() = 0;
 };
 
+enum class OpenXRUICompositionLayerKind
+{
+	WorldProjection,
+	SurfaceQuad,
+	VisualOverlay
+};
+
+// Projection plus four UI quads remains the required five-layer baseline.
+// Tracked controller visuals are an optional sixth layer after those quads.
+bool SupportsOpenXRUIVisualOverlay(uint32_t maxLayerCount);
+Array<OpenXRUICompositionLayerKind> BuildOpenXRUICompositionLayerOrder(
+	uint32_t maxLayerCount, uint32_t surfaceQuadCount, bool visualOverlayReady);
+
 // SDK-free native runtime seam. The OpenXR/Vulkan backend owns only target
 // allocation and composition; all surface/input policy remains shared.
 class OpenXRUIRuntime
