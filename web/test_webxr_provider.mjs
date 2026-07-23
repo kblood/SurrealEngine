@@ -287,8 +287,34 @@ assert.ok(destroyedTextures.length >= 4);
 assert.equal(globalThis.surrealXRExit(), true);
 await nextTask();
 
+// A provider failure invalidates immediately, but a retry must wait until the browser confirms
+// that its failed session has ended as well as waiting for native/GPU cleanup.
+invalidProjectionMode = "bounds";
+assert.equal(await globalThis.surrealXREnter(), true);
+const delayedFailureSession = sessions.at(-1);
+const sessionsBeforeFailureRetry = sessions.length;
+const delayedFailureEnd = deferred();
+delayedFailureSession.endDeferred = delayedFailureEnd;
+delayedFailureSession.fireFrame(112, stereoFrame);
+await nextTask();
+assert.equal(globalThis.surrealXRGetState().phase, "error");
+assert.equal(globalThis.surrealXRGetState().active, false);
+assert.equal(delayedFailureSession.frames.size, 0,
+	"a failed session must cancel XR scheduling before its delayed end settles");
+const failureRetry = globalThis.surrealXREnter();
+await nextTask();
+assert.equal(sessions.length, sessionsBeforeFailureRetry,
+	"an immediate retry must not request a browser session while failed-session end is pending");
+delayedFailureEnd.resolve();
+assert.equal(await failureRetry, true);
+assert.equal(sessions.length, sessionsBeforeFailureRetry + 1);
+assert.equal(globalThis.surrealXRGetState().phase, "running");
+assert.equal(globalThis.surrealXRExit(), true);
+await nextTask();
+invalidProjectionMode = null;
+
 // Invalid compositor metadata fails before a GPU copy can become an asynchronous validation error.
-for (const mode of ["bounds", "layer", "format", "usage"]) {
+for (const mode of ["layer", "format", "usage"]) {
 	invalidProjectionMode = mode;
 	assert.equal(await globalThis.surrealXREnter(), true);
 	const invalidSession = sessions.at(-1);

@@ -630,14 +630,26 @@
 		return true;
 	}
 
+	function drainSessionEnd(ending, failureMessage) {
+		const localCleanup = cleanupPending;
+		cleanupPending = Promise.all([
+			localCleanup,
+			Promise.resolve(ending).catch(function (error) {
+				log(failureMessage + error);
+			}),
+		]).then(function () {});
+	}
+
 	function fail(generation, error) {
 		const failedSession = generation === activeGeneration ? session : null;
-		finish(generation, "error", error);
+		if (!finish(generation, "error", error)) return;
 		if (failedSession) {
 			try {
 				const ending = failedSession.end();
-				if (ending && typeof ending.catch === "function") ending.catch(function () {});
-			} catch (_) {}
+				drainSessionEnd(ending, "WebXR failed-session end rejected after scheduling stopped: ");
+			} catch (endError) {
+				log("WebXR failed-session end threw after scheduling stopped: " + endError);
+			}
 		}
 	}
 
@@ -930,13 +942,7 @@
 			// scheduling immediately after it accepts the request, then make re-entry
 			// wait for both native/GPU cleanup and the actual session shutdown.
 			finish(generation, "ended", null);
-			const localCleanup = cleanupPending;
-			cleanupPending = Promise.all([
-				localCleanup,
-				Promise.resolve(ending).catch(function (error) {
-					log("WebXR session end failed after scheduling stopped: " + error);
-				}),
-			]).then(function () {});
+			drainSessionEnd(ending, "WebXR session end failed after scheduling stopped: ");
 			return true;
 		} catch (error) {
 			fail(generation, error);
