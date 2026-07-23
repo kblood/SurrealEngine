@@ -13,10 +13,11 @@ std::unordered_map<std::string, AvatarRig> AvatarRigCache::InMemoryCache;
 namespace
 {
 	const uint32_t CacheMagic = 0x47525641u; // "AVRG"
-	// v2: AvatarAutoRig gained per-chain completeness repair, which can
-	// change the joint layout for a mesh whose content hash is unchanged -
-	// bump so any v1 cache file is rebuilt instead of misread.
-	const uint32_t CacheVersion = 2;
+	// v3: fixed the arm/leg bucket split so an under-articulated leg cluster
+	// reaching into hip-adjacent height is no longer misrouted to the arm
+	// bucket - changes joint layout for a mesh whose content hash is
+	// unchanged, so bump again.
+	const uint32_t CacheVersion = 3;
 
 	std::string SanitizeForFilename(const std::string& s)
 	{

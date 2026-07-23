@@ -427,6 +427,7 @@ namespace
 		int Index = 0;      // cluster index, or vertex index for the fallback tier
 		float UpFraction = 0.0f;
 		float MaxUpFraction = 0.0f; // highest point reached by this cluster (arm/leg split)
+		float MinUpFraction = 0.0f; // lowest point reached by this cluster (arm/leg split)
 		float LateralOffset = 0.0f; // signed, relative to BindStats::centerLateral
 		int VertexCount = 1;
 	};
@@ -943,10 +944,13 @@ AvatarRig AvatarAutoRig::Build(UMesh* mesh)
 		{
 			vec3 sum(0.0f);
 			float maxUp = -1e30f;
+			float minUp = 1e30f;
 			for (int v : clusters[c].second)
 			{
 				sum += orientedBind[v];
-				maxUp = std::max(maxUp, UpFractionOf(orientedBind[v], stats));
+				float u = UpFractionOf(orientedBind[v], stats);
+				maxUp = std::max(maxUp, u);
+				minUp = std::min(minUp, u);
 			}
 			vec3 centroid = sum / (float)clusters[c].second.size();
 
@@ -954,6 +958,7 @@ AvatarRig AvatarAutoRig::Build(UMesh* mesh)
 			cand.Index = (int)c;
 			cand.UpFraction = UpFractionOf(centroid, stats);
 			cand.MaxUpFraction = maxUp;
+			cand.MinUpFraction = minUp;
 			cand.LateralOffset = LateralOf(centroid, stats);
 			cand.VertexCount = (int)clusters[c].second.size();
 			allCandidates[c] = cand;
@@ -961,6 +966,18 @@ AvatarRig AvatarAutoRig::Build(UMesh* mesh)
 
 		const float coreLateralFrac = 0.18f;
 		const float armReachThreshold = 0.42f; // "reaches up into torso height" cutoff for arm vs leg
+		// A limb whose sampled animations don't articulate its hip/shoulder
+		// joint separately from its next segment collapses to one rigid
+		// cluster spanning both (see RepairDeficientChain) - for a leg that
+		// cluster's own peak can reach past armReachThreshold (hip-adjacent
+		// vertices sit at torso-ish height), which would otherwise send the
+		// whole limb to the arm bucket. Legs still always extend down toward
+		// the foot/ground; arms in a standing bind pose never do. Requiring
+		// the cluster's lowest point to also stay clear of leg territory
+		// keeps a real low-hanging arm (whose own peak reaches back up to the
+		// shoulder within the same rigid piece) correctly classified while
+		// rejecting a leg that merely reaches higher than expected.
+		const float armMinUpFraction = 0.30f;
 
 		Array<LabelCandidate> coreC, leftArmC, rightArmC, leftLegC, rightLegC;
 		for (const LabelCandidate& cand : allCandidates)
@@ -972,7 +989,7 @@ AvatarRig AvatarAutoRig::Build(UMesh* mesh)
 				continue;
 			}
 			bool isLeft = cand.LateralOffset < 0.0f; // convention: negative lateral = "left" (see AvatarAutoRig.h)
-			bool isArm = cand.MaxUpFraction >= armReachThreshold;
+			bool isArm = cand.MaxUpFraction >= armReachThreshold && cand.MinUpFraction >= armMinUpFraction;
 			if (isArm)
 				(isLeft ? leftArmC : rightArmC).push_back(cand);
 			else
