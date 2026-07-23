@@ -82,7 +82,12 @@ try {
 	assert.match(index, /source\/SurrealEngine-corresponding-source\.tar\.gz/);
 	assert.match(index, /browser may call folder selection an .upload./i);
 	assert.doesNotMatch(index, /Folder upload fallback/);
+	assert.match(index, /ut99_importer\.js\?v=[0-9a-f]{12}/);
+	assert.match(index, /browser_app\.js\?v=[0-9a-f]{12}/);
+	assert.match(index, /browser_app\.css\?v=[0-9a-f]{12}/);
 	assert.match(await readFile(join(output, "_headers"), "utf8"), /Cross-Origin-Embedder-Policy: require-corp/);
+	assert.match(await readFile(join(output, "_headers"), "utf8"), /Cache-Control: no-cache, must-revalidate/);
+	assert.match(await readFile(join(output, ".htaccess"), "utf8"), /Cache-Control "no-cache, must-revalidate"/);
 	assert.match(await readFile(join(output, "pointer_lock_gesture.js"), "utf8"), /SurrealBrowserPointerLock/);
 	const defaultHosting = await readFile(join(output, "HOSTING.txt"), "utf8");
 	assert.match(defaultHosting, /Intended base path: \/webxr\/Ports\/SurrealEngine\//);

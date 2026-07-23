@@ -144,6 +144,13 @@ intended `/webxr/Ports/SurrealEngine/` location or another HTTPS base path.
 by the threaded WASM build and the `application/wasm` MIME type. Hosts that do
 not consume either file must configure equivalent headers themselves.
 
+Packaged CSS and JavaScript references carry a twelve-character content-hash
+query. The supplied hosting files also require revalidation. This prevents an
+updated `index.html` from running with a cached pre-fix importer or launcher;
+ETags can still make unchanged-file revalidation inexpensive. A deployment
+must keep the generated `index.html`, assets, and `release-manifest.json`
+together instead of copying individual files over an older package.
+
 The packager fails unless `CMakeCache.txt` records an empty
 `SURREAL_GAMEDATA_DIR`, rejects every Emscripten `.data` payload, copies only a
 fixed shell/runtime allowlist, and audits the output for UE1 game extensions.

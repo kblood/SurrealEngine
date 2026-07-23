@@ -13,6 +13,7 @@ const headers = `/*
   Cross-Origin-Embedder-Policy: require-corp
   Cross-Origin-Resource-Policy: same-origin
   X-Content-Type-Options: nosniff
+  Cache-Control: no-cache, must-revalidate
 
 /engine/*.wasm
   Content-Type: application/wasm
@@ -23,6 +24,7 @@ const htaccess = `<IfModule mod_headers.c>
   Header always set Cross-Origin-Embedder-Policy "require-corp"
   Header always set Cross-Origin-Resource-Policy "same-origin"
   Header always set X-Content-Type-Options "nosniff"
+  Header always set Cache-Control "no-cache, must-revalidate"
 </IfModule>
 <IfModule mod_mime.c>
   AddType application/wasm .wasm
@@ -99,6 +101,16 @@ async function filesBelow(root) {
 
 function portablePath(root, path) {
 	return relative(root, path).split(sep).join("/");
+}
+
+function revisionWebAssetReferences(index, revisions) {
+	let revised = index;
+	for (const [asset, revision] of revisions) {
+		const reference = `"${asset}"`;
+		if (!revised.includes(reference)) continue;
+		revised = revised.replaceAll(reference, `"${asset}?v=${revision}"`);
+	}
+	return revised;
 }
 
 async function validateNoDataBuild(engineDirectory) {
@@ -257,12 +269,17 @@ async function packageRelease(options) {
 	const staging = outputDirectory + ".staging-" + randomUUID();
 	try {
 		await mkdir(join(staging, "engine"), { recursive: true });
-		for (const asset of config.webAssets) await cp(join(sourceRoot, "web", asset), join(staging, asset));
+		const webAssetRevisions = [];
+		for (const asset of config.webAssets) {
+			const source = join(sourceRoot, "web", asset);
+			await cp(source, join(staging, asset));
+			webAssetRevisions.push([asset, (await sha256File(source)).slice(0, 12)]);
+		}
 		let index = await readFile(join(sourceRoot, "web", "surreal_app.html"), "utf8");
 		const developmentBase = 'data-engine-base="../build-emscripten/"';
 		if (!index.includes(developmentBase)) throw new Error("The shared launcher is missing its packageable engine-base marker.");
 		index = index.replace(developmentBase, 'data-engine-base="./engine/"');
-		await writeFile(join(staging, "index.html"), index);
+		index = revisionWebAssetReferences(index, webAssetRevisions);
 		await cp(engine.javascript, join(staging, "engine", "SurrealEngine.js"));
 		await cp(engine.wasm, join(staging, "engine", "SurrealEngine.wasm"));
 		let sourceUrl = options && options.sourceUrl ? String(options.sourceUrl) :
