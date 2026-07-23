@@ -283,6 +283,18 @@ int main()
 	Check(leftFires && rightAltFires,
 		"dominant-hand selection did not swap semantic trigger actions");
 
+	SemanticTarget switchedTarget;
+	WebXR::InputRuntime switchedRuntime;
+	switchedRuntime.SetDominantHand(XRHand::Left, switchedTarget);
+	switchedRuntime.Apply(WebXR::AdaptInputSnapshot(leftDominantSnapshot), true,
+		switchedTarget);
+	bool switchedLeftFires = false;
+	for (const CommandEvent& event : switchedTarget.Commands)
+		switchedLeftFires |= event.Command == "Button bFire" &&
+			event.Control.Source == InputSourceId::XRLeft;
+	Check(switchedLeftFires,
+		"runtime dominant-hand adapter did not update the semantic fire source");
+
 	runtime.Reset(target);
 	Check(target.Composition.IsButtonActive("bFire"),
 		"WebXR reset removed the keyboard fire contributor");

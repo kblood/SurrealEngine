@@ -260,6 +260,12 @@ namespace
 					runtime.Feedback()[hand].HitPoint) < 0.001f,
 					"native hit marker was not centered on the authoritative UI contact");
 		}
+		runtime.SetPointerHand(XRHand::Left);
+		Update(runtime, binding, input);
+		const XRUIVisualFrame& leftVisuals = runtime.VisualFrame();
+		Check(!leftVisuals.Hands[0].Laser.empty() &&
+			leftVisuals.Hands[1].Laser.empty(),
+			"native dominant-hand setting did not move the menu pointer visual");
 		Check(host.pressed.empty(), "held startup trigger clicked during menu handoff");
 
 		input.controllers.ForHand(XRHand::Right).Select.Pressed = false;
@@ -400,6 +406,21 @@ namespace
 			"native startup trigger was not balanced after menu handoff");
 		Check(!route.ReleaseSource(InputSourceId::XRRight),
 			"native startup cleanup emitted a duplicate release");
+
+		XRStartupIntroTriggerRoute leftRoute(XRHand::Left);
+		const XRStartupIntroFireEvent leftPress = leftRoute.Update(
+			InputSourceId::XRLeft, true, true, false);
+		const XRStartupIntroFireEvent rightPress = leftRoute.Update(
+			InputSourceId::XRRight, true, true, false);
+		Check(leftPress.Control == XRStartupIntroFireControl::Primary &&
+			rightPress.Control == XRStartupIntroFireControl::Alternate,
+			"left dominant startup route did not swap primary/alternate roles");
+		leftRoute.SetDominantHand(XRHand::Right);
+		const XRStartupIntroFireEvent balancedLeftRelease = leftRoute.Update(
+			InputSourceId::XRLeft, false, true, false);
+		Check(balancedLeftRelease.Control == XRStartupIntroFireControl::Primary &&
+			!balancedLeftRelease.Pressed,
+			"hand change did not balance the startup control originally pressed");
 	}
 }
 

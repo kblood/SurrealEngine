@@ -1,4 +1,5 @@
 #include "Platform/WebXR/WebXRUIProvider.h"
+#include "XR/XRHandedness.h"
 
 #include <cmath>
 #include <iostream>
@@ -217,8 +218,9 @@ int main()
 		!pairedVisuals.Hands[0].Laser.empty() || pairedVisuals.Hands[1].Laser.empty() ||
 		pairedVisuals.Hands[0].Controller[0].Color == pairedVisuals.Hands[1].Controller[0].Color)
 		return 12;
+	const XRHandedness leftHanded{ XRHand::Left };
 	WebXR::UIVisualSettings leftPointer;
-	leftPointer.PointerHand = XRHand::Left;
+	leftPointer.PointerHand = leftHanded.Dominant;
 	const WebXR::UIVisualFrame leftPointerVisuals = WebXR::BuildUIVisualFrame(
 		bothHands, replayFrame, units, leftPointer);
 	if (leftPointerVisuals.Hands[0].Laser.empty() ||

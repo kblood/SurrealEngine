@@ -306,6 +306,13 @@
 			await callNativeMain(settings.Module, settings.selection);
 			tracker.markNativeReturned();
 			tracker.transition("native-ready");
+			if (settings.selection && settings.selection.xrDominantHand && settings.Module &&
+				typeof settings.Module.ccall === "function") {
+				const hand = settings.selection.xrDominantHand === "left" ? 0 : 1;
+				if (await settings.Module.ccall("Surreal_SetXRDominantHand", "number",
+					["number"], [hand], { async: true }) !== 1)
+					throw new LauncherError("XR_HAND_SETTING", "The engine rejected the XR dominant-hand setting.");
+			}
 			if (settings.audioController && typeof settings.audioController.engineStarted === "function")
 				settings.audioController.engineStarted();
 			tracker.transition("presentation-activation");
@@ -333,6 +340,7 @@
 			this.webXRBridgeRotationReprojection = root && root.querySelector("[data-launcher-webxr-bridge-rotation-reprojection]");
 			this.renderer = root && root.querySelector("[data-launcher-renderer]");
 			this.skipIntro = root && root.querySelector("[data-launcher-skip-intro]");
+			this.xrDominantHand = root && root.querySelector("[data-launcher-xr-dominant-hand]");
 			this.game = root && root.querySelector("[data-launcher-game]");
 			this.error = root && root.querySelector("[data-launcher-error]");
 			this.form = root && root.querySelector("[data-launcher-form]");
@@ -355,6 +363,7 @@
 					(this.webXRBackend && this.webXRBackend.value === "webgl-bridge" ? "webgl-bridge" : "auto"),
 				renderer: selection.renderer,
 				skipIntro: selection.skipIntro,
+				xrDominantHand: selection.xrDominantHand,
 			})); } catch (_) { /* Preferences are optional. */ }
 		}
 
@@ -411,6 +420,8 @@
 			if (this.webXRBridgeRotationReprojection) this.webXRBridgeRotationReprojection.checked = false;
 			if (this.renderer && preferences.renderer) this.renderer.value = preferences.renderer;
 			if (this.skipIntro) this.skipIntro.checked = preferences.skipIntro !== false;
+			if (this.xrDominantHand) this.xrDominantHand.value =
+				preferences.xrDominantHand === "left" ? "left" : "right";
 			this._updateMapAvailability();
 			this._updatePresentationAvailability();
 			if (this.root) this.root.hidden = false;
@@ -429,6 +440,7 @@
 					presentationId: provider.id,
 					renderer: this.renderer && this.renderer.value || "webgpu",
 					skipIntro: !this.skipIntro || this.skipIntro.checked,
+					xrDominantHand: this.xrDominantHand && this.xrDominantHand.value === "left" ? "left" : "right",
 				};
 				if (provider.id === "webxr") selectionData.webXRPresentationPreference =
 					this.webXRBackend && this.webXRBackend.value === "webgl-bridge" ? "webgl-bridge" : "auto";

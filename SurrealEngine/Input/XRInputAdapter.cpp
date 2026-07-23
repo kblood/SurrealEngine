@@ -59,6 +59,11 @@ void XRInputAdapter::SetTurnPolicy(XRTurnPolicy policy)
 	ResetTurnState();
 }
 
+void XRInputAdapter::SetBindings(XRInputBindings newBindings)
+{
+	bindings = std::move(newBindings);
+}
+
 void XRInputAdapter::ResetTurnState()
 {
 	turnLatched = false;

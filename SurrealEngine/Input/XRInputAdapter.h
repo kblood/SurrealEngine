@@ -89,6 +89,7 @@ public:
 	// provider. Entering snap mode requires a neutral stick sample before firing.
 	void SetTurnPolicy(XRTurnPolicy policy);
 	const XRTurnPolicy& GetTurnPolicy() const { return turnPolicy; }
+	void SetBindings(XRInputBindings newBindings);
 
 	// Disabling gameplay publishes neutral controls and blocks held buttons until
 	// they are released, allowing an XR UI layer to own the same physical input.

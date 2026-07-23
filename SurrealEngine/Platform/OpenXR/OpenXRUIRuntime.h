@@ -62,10 +62,12 @@ public:
 		return input.Feedback();
 	}
 	const XRUIVisualFrame& VisualFrame() const { return visualFrame; }
+	void SetPointerHand(XRHand hand) { visualSettings.PointerHand = hand; }
 
 private:
 	XRUIInputConnector input;
 	XRUIVisualFrame visualFrame;
+	XRUIVisualSettings visualSettings;
 	bool started = false;
 	bool compositionBegun = false;
 };

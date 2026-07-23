@@ -21,6 +21,7 @@
 #include "XR/XRStartupMenuRoute.h"
 #include "XR/XRStartupIntroRoute.h"
 #include "XR/XRWeaponPoseSolver.h"
+#include "XR/XRHandedness.h"
 #include <set>
 #include <list>
 
@@ -98,6 +99,9 @@ public:
 	void SetXRWeaponPose(const XRWeaponPoseResult& pose) { xrWeaponPose = pose; }
 	const XRWeaponPoseResult& GetXRWeaponPose() const { return xrWeaponPose; }
 	void ClearXRWeaponPose() { xrWeaponPose = {}; }
+	void SetXRDominantHand(XRHand hand);
+	XRHand GetXRDominantHand() const { return xrHandedness.Dominant; }
+	const XRHandedness& GetXRHandedness() const { return xrHandedness; }
 	void RenderGameFrame(float levelElapsed);
 	void RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily);
 	void FinishGameFrame(float levelElapsed);
@@ -221,6 +225,7 @@ public:
 	XRStartupMenuRoute openXRStartupMenu;
 	XRMenuNavigationRoute openXRMenuNavigation;
 	XRHapticFeedbackPolicy openXRHapticFeedback;
+	XRHandedness xrHandedness;
 
 	int MouseMoveX = 0;
 	int MouseMoveY = 0;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RenderDevice/RenderDeviceSelection.h"
+#include "XR/XRCommon.h"
 
 enum class AntialiasMode
 {
@@ -52,6 +53,11 @@ public:
 		Array<std::string> SearchList;
 		int LastSelected = -1;
 	} Games;
+
+	struct
+	{
+		XRHand DominantHand = XRHand::Right;
+	} XR;
 
 private:
 	LauncherSettings();

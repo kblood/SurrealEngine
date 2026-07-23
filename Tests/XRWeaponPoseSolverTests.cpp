@@ -1,4 +1,5 @@
 #include "XR/XRWeaponPoseSolver.h"
+#include "XR/XRHandedness.h"
 
 #include <cmath>
 #include <iostream>
@@ -208,6 +209,28 @@ namespace
 			"visual offset, rotation, or mirror metadata changed the firing direction");
 	}
 
+	void TestDominantHandPolicySelectsPoseAndMirrorMetadata()
+	{
+		XRSpaceSamples spaces;
+		spaces.AimFor(XRHand::Left).Valid = true;
+		spaces.GripFor(XRHand::Left).Valid = true;
+		spaces.AimFor(XRHand::Right).Valid = true;
+		spaces.GripFor(XRHand::Right).Valid = true;
+		XRWorldTransform world;
+		world.UnitsPerMeter = 1.0f;
+		for (XRHand hand : { XRHand::Right, XRHand::Left })
+		{
+			const XRHandedness policy{ hand };
+			XRWeaponPoseOptions options;
+			options.Mirror = policy.MirrorWeaponPresentation();
+			const XRWeaponPoseResult result = SolveXRWeaponPose(
+				spaces, world, policy.Dominant, options);
+			Require(result.Valid && result.Hand == hand &&
+				result.Mirror == (hand == XRHand::Left),
+				"dominant-hand policy did not select matching pose/mirror metadata");
+		}
+	}
+
 	void RequireNoOp(const XRWeaponPoseResult& result, const char* message)
 	{
 		Require(!result.Valid && !result.VisualPose.Valid && NearlyEqual(result.VisualPose.Position, {}) &&
@@ -265,6 +288,7 @@ int main()
 		TestYawPitchRollBasis();
 		TestLocalRollPreservation();
 		TestLocalPoseOffsetsAndMirrorMetadata();
+		TestDominantHandPolicySelectsPoseAndMirrorMetadata();
 		TestInvalidInputsAreNoOp();
 		std::cout << "XR weapon pose solver tests passed\n";
 		return 0;

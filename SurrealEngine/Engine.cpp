@@ -34,6 +34,7 @@
 #include "VM/Frame.h"
 #include "VM/ScriptCall.h"
 #include "XR/XRWeaponRuntime.h"
+#include "LauncherSettings.h"
 #include "Video/VideoPlayer.h"
 #include "Video/VideoFrameScheduler.h"
 #include <atomic>
@@ -44,9 +45,9 @@ Engine* engine = nullptr;
 
 namespace
 {
-	XRInputBindings NativeOpenXRInputBindings()
+	XRInputBindings NativeOpenXRInputBindings(XRHand dominantHand = XRHand::Right)
 	{
-		XRInputBindings bindings = XRInputBindings::ConventionalUE1();
+		XRInputBindings bindings = XRInputBindings::ConventionalUE1(dominantHand);
 		// Native OpenXR composes this stick into the headset recenter yaw so
 		// world rendering and pawn movement turn together.
 		bindings.Hands[XRHandIndex(XRHand::Right)].StickX.clear();
@@ -276,6 +277,10 @@ void Engine::Setup()
 {
 	LogMessage("Game: " + LaunchInfo.gameName + " (Version: " + LaunchInfo.gameVersionString + ")");
 	LoadEngineSettings();
+	XRHand configuredHand = LauncherSettings::Get().XR.DominantHand;
+	if (commandline && commandline->HasArg("", "--vr-lefthand"))
+		configuredHand = XRHand::Left;
+	SetXRDominantHand(configuredHand);
 	LogMessage("Loaded Engine settings");
 	LoadKeybindings();
 	LogMessage("Loaded key bindings");
@@ -489,7 +494,12 @@ void Engine::RunOneFrame()
 	XRWorldTransform xrWeaponWorld;
 	if (openXR && xrFrameBegun && openXRViews.CreateWeaponWorldTransform(
 		CameraLocation, xrWeaponWorld))
-		xrWeaponPose = SolveXRWeaponPose(xrSpaces, xrWeaponWorld, XRHand::Right);
+	{
+		XRWeaponPoseOptions options;
+		options.Mirror = xrHandedness.MirrorWeaponPresentation();
+		xrWeaponPose = SolveXRWeaponPose(xrSpaces, xrWeaponWorld,
+			xrHandedness.Dominant, options);
+	}
 	const float levelElapsed = xrWeaponPose.Valid ?
 		AdvanceGameFrameWithXRWeaponAim(xrWeaponPose, realTimeElapsed) :
 		AdvanceGameFrame(realTimeElapsed);
@@ -599,6 +609,16 @@ void Engine::UpdateOpenXRStartupIntro(const XRControllerSnapshot* controllers)
 	}
 }
 
+void Engine::SetXRDominantHand(XRHand hand)
+{
+	if (xrHandedness.Dominant != hand)
+		openXRInput.Disconnect(*this);
+	xrHandedness.Dominant = hand;
+	openXRInput.SetBindings(NativeOpenXRInputBindings(hand));
+	openXRStartupIntroTrigger.SetDominantHand(hand);
+	openXRUI.SetPointerHand(hand);
+}
+
 void Engine::UpdateOpenXRStartupMenu(float elapsedSeconds,
 	const XRSessionState& session, const XRControllerSnapshot& controllers)
 {
@@ -607,10 +627,12 @@ void Engine::UpdateOpenXRStartupMenu(float elapsedSeconds,
 		elapsedSeconds, session, menuActive);
 	if (startup.PrimaryFirePulse)
 	{
+		const InputSourceId source = xrHandedness.Dominant == XRHand::Left ?
+			InputSourceId::XRLeft : InputSourceId::XRRight;
 		InputEvent(IK_LeftMouse, EInputType::IST_Press, 0.0f,
-			InputSourceId::XRRight);
+			source);
 		InputEvent(IK_LeftMouse, EInputType::IST_Release, 0.0f,
-			InputSourceId::XRRight);
+			source);
 	}
 	if (startup.EscapePulse)
 	{

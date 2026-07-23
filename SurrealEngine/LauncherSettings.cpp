@@ -70,6 +70,9 @@ LauncherSettings::LauncherSettings()
 			Games.SearchList.push_back(jsonItem.to_string());
 		}
 		Games.LastSelected = settings["Games"]["LastSelected"].to_int();
+
+		if (settings["XR"]["DominantHand"].to_string() == "Left")
+			XR.DominantHand = XRHand::Left;
 	}
 	catch (...)
 	{
@@ -129,6 +132,10 @@ void LauncherSettings::Save()
 	JsonValue settings = JsonValue::object();
 	settings["RenderDevice"] = std::move(rendev);
 	settings["Games"] = std::move(games);
+	JsonValue xr = JsonValue::object();
+	xr["DominantHand"] = JsonValue::string(
+		XR.DominantHand == XRHand::Left ? "Left" : "Right");
+	settings["XR"] = std::move(xr);
 
 	const std::string filename = GetSettingsFilename();
 	Directory::create(fs::path(filename).parent_path().string());

@@ -8,6 +8,7 @@
 #include "Engine.h"
 #include "Render/RenderSubsystem.h"
 #include "XR/XRHapticFeedbackPolicy.h"
+#include "LauncherSettings.h"
 
 #include <cmath>
 #include <cstring>
@@ -81,6 +82,15 @@ namespace
 		Engine* instance;
 	};
 
+	void ApplyWebXRHandedness(EngineInputTarget& target)
+	{
+		if (!engine)
+			return;
+		const XRHand hand = engine->GetXRDominantHand();
+		InputRuntime.SetDominantHand(hand, target);
+		StartupIntroTrigger.SetDominantHand(hand);
+	}
+
 	WebXR::PackedPointerFeedback PackPointerFeedback(const WebXR::PointerFeedback& source)
 	{
 		WebXR::PackedPointerFeedback result;
@@ -149,6 +159,7 @@ extern "C"
 		if (!engine)
 			return 0;
 		EngineInputTarget target(engine);
+		ApplyWebXRHandedness(target);
 		const WebXR::AdaptedInputSnapshot input =
 			WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot());
 		const bool menuActive = engine->render && engine->render->IsXRUIMenuActive();
@@ -159,6 +170,25 @@ extern "C"
 				XRHapticInputContext::Gameplay);
 		HapticFeedback.UpdateInput(input.Session, input.Controllers, context,
 			&WebXR::BrowserHapticSink());
+		return 1;
+	}
+
+	int Surreal_GetXRDominantHand()
+	{
+		return engine && engine->GetXRDominantHand() == XRHand::Left ? 0 : 1;
+	}
+
+	int Surreal_SetXRDominantHand(int hand)
+	{
+		if (!engine || (hand != 0 && hand != 1))
+			return 0;
+		const XRHand selected = hand == 0 ? XRHand::Left : XRHand::Right;
+		EngineInputTarget target(engine);
+		InputRuntime.SetDominantHand(selected, target);
+		StartupIntroTrigger.SetDominantHand(selected);
+		engine->SetXRDominantHand(selected);
+		LauncherSettings::Get().XR.DominantHand = selected;
+		LauncherSettings::Get().Save();
 		return 1;
 	}
 
@@ -226,8 +256,10 @@ extern "C"
 			const XRWorldTransform weaponWorld = WebXR::BuildWeaponWorldTransform(
 				engine->CameraLocation, engine->CameraRotation.YawRadians(),
 				WorldUnitsPerMeter, Recenter);
+			XRWeaponPoseOptions weaponOptions;
+			weaponOptions.Mirror = engine->GetXRHandedness().MirrorWeaponPresentation();
 			const XRWeaponPoseResult weaponPose = SolveXRWeaponPose(
-				input.Spaces, weaponWorld, XRHand::Right);
+				input.Spaces, weaponWorld, engine->GetXRDominantHand(), weaponOptions);
 			engine->tickCount++;
 			PreparedLevelElapsed = engine->AdvanceGameFrameWithXRWeaponAim(weaponPose);
 		}
@@ -373,8 +405,10 @@ extern "C"
 			engine->RenderGameFrame(PreparedLevelElapsed, family);
 			const XRUICanvasReplayFrame replayFrame =
 				WebXR::OrientUIReplayFrame(ui.BuildReplayFrame());
+			XRUIVisualSettings visualSettings;
+			visualSettings.PointerHand = engine->GetXRDominantHand();
 			const WebXR::UIVisualFrame visualFrame = WebXR::BuildUIVisualFrame(
-				UIInput.Feedback(), replayFrame, WorldUnitsPerMeter);
+				UIInput.Feedback(), replayFrame, WorldUnitsPerMeter, visualSettings);
 			if (!WebXR::CompositeUISurfaces(device, handles[0].Format, family, replayFrame,
 				visualFrame, views, frame.Header.ViewCount))
 				throw std::runtime_error("WebXR UI composition failed");

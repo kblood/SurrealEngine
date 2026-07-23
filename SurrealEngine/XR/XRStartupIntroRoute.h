@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Input/InputComposition.h"
+#include "XR/XRCommon.h"
 
 #include <array>
 #include <cstdint>
@@ -26,10 +27,14 @@ struct XRStartupIntroFireEvent
 class XRStartupIntroTriggerRoute
 {
 public:
+	explicit XRStartupIntroTriggerRoute(XRHand dominantHand = XRHand::Right)
+		: dominantHand(dominantHand) {}
+	void SetDominantHand(XRHand hand) { dominantHand = hand; }
 	XRStartupIntroFireEvent Update(InputSourceId source, bool pressed,
 		bool startupIntroActive, bool menuActive);
 	XRStartupIntroFireEvent ReleaseSource(InputSourceId source);
 
 private:
-	std::array<bool, 2> mirrored = {};
+	std::array<XRStartupIntroFireControl, 2> mirrored = {};
+	XRHand dominantHand = XRHand::Right;
 };

@@ -18,6 +18,11 @@ cmake -S . -B build-openxr -DSURREAL_ENABLE_OPENXR=ON
 
 `--probexr` checks loader/runtime/HMD availability without opening a game. `--openxr` requests OpenXR for a normal game launch. If the build lacks OpenXR, the runtime/HMD is unavailable, the selected renderer is D3D11, or Vulkan session creation fails, the provider is released and the existing desktop path continues. `GameWindow` passes the graphics requirements hook only when the selected API is Vulkan.
 
+Dominant-hand roles are shared with WebXR and documented in
+[XR_DOMINANT_HAND.md](XR_DOMINANT_HAND.md). The launcher setting controls fire,
+weapon pose, and menu-pointer ownership without changing physical locomotion or
+desktop input.
+
 ## Architecture
 
 - `OpenXRProvider` owns the OpenXR instance, system, session, LOCAL and VIEW spaces, stereo swapchains, events, and balanced wait/begin/end frame calls.

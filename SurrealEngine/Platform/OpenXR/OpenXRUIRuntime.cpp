@@ -51,7 +51,7 @@ void OpenXRUIRuntime::Update(XRUISurfaceEngineBinding& binding,
 	frame.MissDistance = missDistance;
 	input.Update(frame, binding);
 	visualFrame = BuildXRUIVisualFrame(input.Feedback(), binding.BuildReplayFrame(),
-		missDistance);
+		missDistance, visualSettings);
 }
 
 bool OpenXRUIRuntime::BeginComposition(XRUISurfaceEngineBinding& binding,

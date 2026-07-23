@@ -11,6 +11,7 @@
 		<input type="checkbox" data-launcher-webxr-bridge-blocking-timing disabled>
 		<input type="checkbox" data-launcher-webxr-bridge-rotation-reprojection disabled>
 		<select data-launcher-renderer><option value="webgpu">WebGPU</option><option value="null">Null</option></select>
+		<select data-launcher-xr-dominant-hand><option value="right">Right</option><option value="left">Left</option></select>
 		<input type="checkbox" data-launcher-skip-intro checked>
 		<button type="submit">Play</button><p data-launcher-error hidden></p>
 	</form>
@@ -127,10 +128,11 @@ window.browserAppTestPromise = (async () => {
 			mapManifest: { state: "ready", maps: ["DM-One", "DM-Two"] },
 		});
 		document.querySelector("[data-launcher-map]").value = "DM-Two";
+		document.querySelector("[data-launcher-xr-dominant-hand]").value = "left";
 		document.querySelector("[data-launcher-form]").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 		const selection = await pending;
 		assert(selection.map === "DM-Two" && selection.presentationId === "flat" && prepared === 1);
-		assert(selection.skipIntro === true);
+		assert(selection.skipIntro === true && selection.xrDominantHand === "left");
 		assert(!("webXRPresentationPreference" in selection), "flat selection gained WebXR-only state");
 		assert(document.querySelector("[data-launcher-webxr-backend]").disabled);
 		assert(document.getElementById("launcher").hidden);
@@ -275,6 +277,27 @@ window.browserAppTestPromise = (async () => {
 		});
 		assert(stages.join(",") === "native-startup,native-ready,presentation-activation,running");
 		assert(tracker.status().nativeStartupMs === 50);
+	});
+	await run("browser launch applies the persistent XR dominant-hand adapter", async () => {
+		let applied = null;
+		const registry = new api.PresentationRegistry();
+		registry.register({ id: "flat", label: "Desktop" });
+		await api.runLaunchBoundary({
+			Module: {
+				callMain() {},
+				ccall(name, returnType, argumentTypes, values, options) {
+					assert(name === "Surreal_SetXRDominantHand" && returnType === "number");
+					assert(options && options.async === true,
+						"persistent browser hand adapter was not Asyncify-safe");
+					applied = values[0];
+					return 1;
+				},
+			},
+			selection: { game: { id: "ut99" }, map: "DM-Test", renderer: "webgpu",
+				presentationId: "flat", xrDominantHand: "left" },
+			registry, waitForPaint: async () => {},
+		});
+		assert(applied === 0, "left dominant-hand selection did not reach the native adapter");
 	});
 	await run("WebGPU acquisition requests XR compatibility and falls back flat with diagnostics", async () => {
 		const originalGPU = navigator.gpu;

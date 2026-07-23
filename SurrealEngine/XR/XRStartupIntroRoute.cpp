@@ -11,11 +11,15 @@ namespace
 		return -1;
 	}
 
-	XRStartupIntroFireControl FireControlForSource(InputSourceId source)
+	XRStartupIntroFireControl FireControlForSource(InputSourceId source,
+		XRHand dominantHand)
 	{
-		return source == InputSourceId::XRRight ? XRStartupIntroFireControl::Primary :
-			source == InputSourceId::XRLeft ? XRStartupIntroFireControl::Alternate :
-			XRStartupIntroFireControl::None;
+		const InputSourceId dominantSource = dominantHand == XRHand::Left ?
+			InputSourceId::XRLeft : InputSourceId::XRRight;
+		if (source == dominantSource)
+			return XRStartupIntroFireControl::Primary;
+		return source == InputSourceId::XRLeft || source == InputSourceId::XRRight ?
+			XRStartupIntroFireControl::Alternate : XRStartupIntroFireControl::None;
 	}
 }
 
@@ -26,20 +30,23 @@ XRStartupIntroFireEvent XRStartupIntroTriggerRoute::Update(InputSourceId source,
 	if (sourceIndex < 0)
 		return {};
 
-	if (mirrored[sourceIndex])
+	if (mirrored[sourceIndex] != XRStartupIntroFireControl::None)
 	{
 		if (!pressed)
 		{
-			mirrored[sourceIndex] = false;
-			return { FireControlForSource(source), false };
+			const XRStartupIntroFireControl control = mirrored[sourceIndex];
+			mirrored[sourceIndex] = XRStartupIntroFireControl::None;
+			return { control, false };
 		}
 		return {};
 	}
 
 	if (pressed && startupIntroActive && !menuActive)
 	{
-		mirrored[sourceIndex] = true;
-		return { FireControlForSource(source), true };
+		const XRStartupIntroFireControl control =
+			FireControlForSource(source, dominantHand);
+		mirrored[sourceIndex] = control;
+		return { control, true };
 	}
 	return {};
 }
@@ -47,8 +54,10 @@ XRStartupIntroFireEvent XRStartupIntroTriggerRoute::Update(InputSourceId source,
 XRStartupIntroFireEvent XRStartupIntroTriggerRoute::ReleaseSource(InputSourceId source)
 {
 	const int sourceIndex = XRSourceIndex(source);
-	if (sourceIndex < 0 || !mirrored[sourceIndex])
+	if (sourceIndex < 0 ||
+		mirrored[sourceIndex] == XRStartupIntroFireControl::None)
 		return {};
-	mirrored[sourceIndex] = false;
-	return { FireControlForSource(source), false };
+	const XRStartupIntroFireControl control = mirrored[sourceIndex];
+	mirrored[sourceIndex] = XRStartupIntroFireControl::None;
+	return { control, false };
 }
