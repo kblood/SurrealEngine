@@ -130,6 +130,11 @@ assert.equal(await globalThis.surrealXREnter(), true);
 assert.equal(requestOptions.requiredFeatures, undefined);
 assert.deepEqual(requestOptions.optionalFeatures, ["local-floor"]);
 assert.equal(atlasTextures.length, 0, "persistent targets are allocated after the first frame describes the atlas");
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.presentAgeFrames, null);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.maxPresentAgeFrames, null);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.presentAgeMs, null);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.maxPresentAgeMs, null);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reusedPresents, 0);
 
 const webGLProjection = (left, right, down, up, near = .1, far = 1000) =>
 	new Float32Array([2 / (right - left),0,0,0, 0,2 / (up - down),0,0,
@@ -194,6 +199,13 @@ await Promise.resolve();
 await Promise.resolve();
 session.fireFrame(50, frame);
 assert.deepEqual(presentations, [atlasTextures[0]]);
+const firstPresentationState = globalThis.surrealXRGetState().bridgeDiagnostics;
+assert.equal(firstPresentationState.presentAgeFrames, 4);
+assert.equal(firstPresentationState.maxPresentAgeFrames, 4);
+assert.equal(firstPresentationState.presentAgeMs, 40);
+assert.equal(firstPresentationState.maxPresentAgeMs, 40);
+assert.equal(firstPresentationState.reusedPresents, 0,
+	"the first presentation of a completed target is not a reuse");
 await delay(5);
 assert.equal(renderCalls.length, 2);
 assert.deepEqual(renderCalls[1].textures, [atlasTextures[1]], "the next producer must render into the other persistent target");
@@ -220,10 +232,19 @@ assert.equal(bridgeState.bridgeDiagnostics.p99Ms, 1.1);
 assert.equal(bridgeState.bridgeDiagnostics.blockingTiming, true);
 assert.equal(bridgeState.bridgeDiagnostics.layerWidth, 1832);
 assert.equal(bridgeState.bridgeDiagnostics.atlasWidth, 1600);
+assert.equal(bridgeState.bridgeDiagnostics.presentAgeFrames, 7);
+assert.equal(bridgeState.bridgeDiagnostics.maxPresentAgeFrames, 7);
+assert.equal(bridgeState.bridgeDiagnostics.presentAgeMs, 70);
+assert.equal(bridgeState.bridgeDiagnostics.maxPresentAgeMs, 70);
+assert.equal(bridgeState.bridgeDiagnostics.reusedPresents, 3);
 assert.equal(bridgeState.layerWidth, 1832);
 assert.equal(bridgeState.atlasWidth, 1600);
 assert.equal("privatePath" in bridgeState.bridgeDiagnostics, false,
 	"provider state must copy only allowlisted bridge diagnostics");
+assert.equal("source" in bridgeState.bridgeDiagnostics, false,
+	"provider state must not expose target-bound source poses or projections");
+assert.equal("views" in bridgeState.bridgeDiagnostics, false,
+	"provider state must not expose target-bound source poses or projections");
 const selectingInput = new DataView(inputPackets.at(-1).buffer);
 assert.equal(selectingInput.getUint32(8, true), 1);
 assert.equal(selectingInput.getUint32(24, true), 2);
@@ -265,8 +286,28 @@ assert.equal(globalThis.surrealXRGetState().reentries, 1);
 assert.equal(globalThis.surrealXRGetState().presentationMode, "webgl-bridge");
 assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.samples, 0,
 	"bridge re-entry must start with a fresh timing window");
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.presentAgeFrames, null);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.maxPresentAgeMs, null);
+assert.equal(globalThis.surrealXRGetState().bridgeDiagnostics.reusedPresents, 0,
+	"bridge re-entry must start with fresh pose-age counters");
 assert.equal(globalThis.surrealXRGetState().atlasWidth, null,
 	"bridge re-entry must not retain the previous atlas dimensions before its first frame");
+const reentrySession = sessions.at(-1);
+const rendersBeforeReentryFrame = renderCalls.length;
+reentrySession.fireFrame(100, frame);
+await delay(5);
+assert.equal(renderCalls.length, rendersBeforeReentryFrame + 1);
+renderDeferrals.at(-1).resolve(1);
+await Promise.resolve();
+await Promise.resolve();
+await Promise.resolve();
+reentrySession.fireFrame(116, frame);
+const oneFrameState = globalThis.surrealXRGetState().bridgeDiagnostics;
+assert.equal(oneFrameState.presentAgeFrames, 1);
+assert.equal(oneFrameState.maxPresentAgeFrames, 1);
+assert.equal(oneFrameState.presentAgeMs, 16);
+assert.equal(oneFrameState.maxPresentAgeMs, 16);
+assert.equal(oneFrameState.reusedPresents, 0);
 assert.equal(globalThis.surrealXRExit(), true);
 await delay(5);
 assert.equal(destroyedBridges, 2);

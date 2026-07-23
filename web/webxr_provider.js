@@ -14,6 +14,7 @@
 	const INPUT_SOURCE_FLAGS = Object.freeze({ connected: 1, aimValid: 2, gripValid: 4 });
 	const INPUT_QUEUE_LIMIT = 256;
 	const HAPTIC_POLICY = Object.freeze({ minimumDurationMilliseconds: 1, maximumDurationMilliseconds: 1000 });
+	const POSE_AGE_LIMITS = Object.freeze({ frames: 65535, milliseconds: 60000, presentations: 0xffffffff });
 	let generationCounter = 0;
 	let activeGeneration = 0;
 	let enterPending = false;
@@ -46,6 +47,8 @@
 	let hapticStatus = null;
 	let audioGestureSession = null;
 	let audioGestureListener = null;
+	let captureSequence = 0;
+	let bridgePoseAge = null;
 
 	const status = {
 		phase: "idle",
@@ -100,6 +103,32 @@
 		return Number.isInteger(value) && value > 0 ? value : null;
 	}
 
+	function boundedNonnegative(value, maximum) {
+		return Number.isFinite(value) && value >= 0 ? Math.min(value, maximum) : null;
+	}
+
+	function boundedCounter(value, maximum) {
+		const bounded = boundedNonnegative(value, maximum);
+		return bounded === null ? 0 : Math.floor(bounded);
+	}
+
+	function boundedIntegerOrNull(value, maximum) {
+		const bounded = boundedNonnegative(value, maximum);
+		return bounded === null ? null : Math.floor(bounded);
+	}
+
+	function resetBridgePoseAge() {
+		bridgePoseAge = {
+			presentAgeFrames: null,
+			maxPresentAgeFrames: null,
+			presentAgeMs: null,
+			maxPresentAgeMs: null,
+			reusedPresents: 0,
+		};
+	}
+
+	resetBridgePoseAge();
+
 	function copyBridgeDiagnostics(source) {
 		if (!source || typeof source !== "object") return null;
 		return Object.freeze({
@@ -114,11 +143,16 @@
 			layerHeight: positiveDimension(source.layerHeight),
 			atlasWidth: positiveDimension(source.atlasWidth),
 			atlasHeight: positiveDimension(source.atlasHeight),
+			presentAgeFrames: boundedIntegerOrNull(source.presentAgeFrames, POSE_AGE_LIMITS.frames),
+			maxPresentAgeFrames: boundedIntegerOrNull(source.maxPresentAgeFrames, POSE_AGE_LIMITS.frames),
+			presentAgeMs: boundedNonnegative(source.presentAgeMs, POSE_AGE_LIMITS.milliseconds),
+			maxPresentAgeMs: boundedNonnegative(source.maxPresentAgeMs, POSE_AGE_LIMITS.milliseconds),
+			reusedPresents: boundedCounter(source.reusedPresents, POSE_AGE_LIMITS.presentations),
 		});
 	}
 
 	function setBridgeDiagnostics(source) {
-		status.bridgeDiagnostics = copyBridgeDiagnostics(source);
+		status.bridgeDiagnostics = copyBridgeDiagnostics(Object.assign({}, source, bridgePoseAge));
 		if (!status.bridgeDiagnostics) return;
 		status.layerWidth = status.bridgeDiagnostics.layerWidth;
 		status.layerHeight = status.bridgeDiagnostics.layerHeight;
@@ -570,19 +604,56 @@
 			(usage.TEXTURE_BINDING || 0x04);
 	}
 
+	function capturePresentationSource(capture) {
+		return Object.freeze({
+			sequence: capture.sequence,
+			time: capture.time,
+			views: Object.freeze(capture.views.map(view => Object.freeze({
+				eye: view.eye,
+				projectionMatrix: Object.freeze(view.projectionMatrix.slice()),
+				transform: Object.freeze({
+					position: Object.freeze(Object.assign({}, view.transform.position)),
+					orientation: Object.freeze(Object.assign({}, view.transform.orientation)),
+				}),
+			}))),
+		});
+	}
+
 	function createPersistentTargetSets(layout) {
 		const device = webGPUDevice();
 		if (!device || typeof device.createTexture !== "function")
 			throw providerError("webgpu-device-not-ready", "frame", "WebGPU cannot allocate persistent WebXR targets");
-		return [0, 1].map(setIndex => Object.freeze({
-			textures: layout.mode === "webgl-bridge" ? [device.createTexture({
+		return [0, 1].map(setIndex => {
+			const textures = layout.mode === "webgl-bridge" ? [device.createTexture({
 				label: "Surreal WebXR atlas " + setIndex, size: [layout.width, layout.height, 1],
 				format: layout.format, usage: textureUsage(),
 			})] : layout.views.map(view => device.createTexture({
 				label: "Surreal WebXR " + view.eye + " " + setIndex,
 				size: [view.width, view.height, 1], format: layout.format, usage: textureUsage(),
-			})),
-		}));
+			}));
+			return Object.freeze({ textures, presentation: { source: null, count: 0 } });
+		});
+	}
+
+	function recordBridgePresentation(targetSet, currentSequence, currentTime) {
+		const presentation = targetSet && targetSet.presentation;
+		const source = presentation && presentation.source;
+		if (!source) return;
+		const ageFrames = boundedCounter(currentSequence - source.sequence, POSE_AGE_LIMITS.frames);
+		const elapsed = Number.isFinite(currentTime) && Number.isFinite(source.time) ?
+			Math.max(0, currentTime - source.time) : null;
+		const ageMs = boundedNonnegative(elapsed, POSE_AGE_LIMITS.milliseconds);
+		if (presentation.count > 0)
+			bridgePoseAge.reusedPresents = boundedCounter(
+				bridgePoseAge.reusedPresents + 1, POSE_AGE_LIMITS.presentations);
+		presentation.count = boundedCounter(presentation.count + 1, POSE_AGE_LIMITS.presentations);
+		bridgePoseAge.presentAgeFrames = ageFrames;
+		bridgePoseAge.maxPresentAgeFrames = bridgePoseAge.maxPresentAgeFrames === null ? ageFrames :
+			Math.max(bridgePoseAge.maxPresentAgeFrames, ageFrames);
+		bridgePoseAge.presentAgeMs = ageMs;
+		if (ageMs !== null)
+			bridgePoseAge.maxPresentAgeMs = bridgePoseAge.maxPresentAgeMs === null ? ageMs :
+				Math.max(bridgePoseAge.maxPresentAgeMs, ageMs);
 	}
 
 	function destroyTargetSets(sets) {
@@ -716,6 +787,8 @@
 					"native WebXR frame bridge rejected the frame (error=" + error + ")");
 			}
 			if (generation === activeGeneration && capture.epoch === layoutEpoch && targets === persistentTargets) {
+				targets[backIndex].presentation.source = capturePresentationSource(capture);
+				targets[backIndex].presentation.count = 0;
 				frontTargetIndex = backIndex;
 				status.frames++;
 			}
@@ -904,6 +977,7 @@
 			if (!pose) { status.skippedFrames++; return; }
 			const xrViews = validateViews(pose);
 			const views = xrViews.map(snapshotView);
+			const frameSequence = ++captureSequence;
 			enqueueInputPacket(packInputSnapshot(time, session, frame, referenceSpace));
 			let description;
 			if (presentationMode === "webgl-bridge") {
@@ -912,7 +986,9 @@
 				description.format = webGLBridge.textureFormat;
 				adoptLayout(description);
 				if (frontTargetIndex !== null) {
-					webGLBridge.present(description, persistentTargets[frontTargetIndex].textures[0], webGPUDevice());
+					const frontTarget = persistentTargets[frontTargetIndex];
+					webGLBridge.present(description, frontTarget.textures[0], webGPUDevice());
+					recordBridgePresentation(frontTarget, frameSequence, time);
 					setBridgeDiagnostics(webGLBridge.diagnostics());
 				}
 			} else {
@@ -921,7 +997,7 @@
 				presentDirect(description);
 			}
 			if (latestFrameCapture) status.skippedFrames++;
-			latestFrameCapture = { generation, epoch: layoutEpoch, time, views,
+			latestFrameCapture = { generation, epoch: layoutEpoch, sequence: frameSequence, time, views,
 				resetGeneration, atlasViews: description.atlasViews || null };
 			scheduleRenderPump(generation);
 		} catch (error) {
@@ -1140,6 +1216,8 @@
 		status.atlasWidth = null;
 		status.atlasHeight = null;
 		status.bridgeDiagnostics = null;
+		captureSequence = 0;
+		resetBridgePoseAge();
 		resetHapticStatus(generation);
 		let requestedSession = null;
 		try {

@@ -17,6 +17,9 @@ const report = diagnostics.formatReport({
 	atlasWidth: 1600, atlasHeight: 700,
 	bridgeDiagnostics: { frames: 320, errors: 1, samples: 120, medianMs: 0.12349,
 		p95Ms: 3.9996, p99Ms: 5.4996, blockingTiming: true,
+		presentAgeFrames: 7, maxPresentAgeFrames: 12, presentAgeMs: 11.23456,
+		maxPresentAgeMs: 42.9996, reusedPresents: 99,
+		sourceViews: [{ eye: "private-eye-secret", projectionMatrix: [123456789] }],
 		path: "C:\\Private", url: "https://private.invalid", exception: "secret" },
 	enterAttempts: 2, successfulEntries: 2, exitRequests: 1, endedSessions: 1, reentries: 1,
 	transitions: [{ type: "session-reentered", generation: 2, stage: "running" }],
@@ -32,8 +35,11 @@ assert.match(report, /\npresentation_preference: webgl-bridge\n/);
 assert.match(report, /\nlayer_width: 1832\nlayer_height: 1920\natlas_width: 1600\natlas_height: 700\n/);
 assert.match(report, /\nbridge_frames: 320\nbridge_errors: 1\nbridge_samples: 120\n/);
 assert.match(report, /\nbridge_median_ms: 0\.123\nbridge_p95_ms: 4\nbridge_p99_ms: 5\.5\n/);
+assert.match(report, /\nbridge_present_age_frames: 7\nbridge_max_present_age_frames: 12\n/);
+assert.match(report, /\nbridge_present_age_ms: 11\.235\nbridge_max_present_age_ms: 43\nbridge_reused_presents: 99\n/);
 assert.match(report, /\nbridge_blocking_timing: yes\n/);
-for (const secret of ["Private", "Core.u", "private.invalid", "Owned Unreal", "private log", "secret"])
+for (const secret of ["Private", "Core.u", "private.invalid", "Owned Unreal", "private log",
+	"secret", "private-eye-secret", "123456789"])
 	assert.equal(report.includes(secret), false, "report exposed non-allowlisted value: " + secret);
 
 const direct = diagnostics.normalized({ presentationMode: "direct-webgpu",
@@ -53,11 +59,18 @@ for (const code of ["session-ended-before-activation", "session-ended-before-fir
 
 const rejected = diagnostics.normalized({ presentationMode: "https://private.invalid/mode",
 	lastErrorCode: "C:\\Private\\Core.u",
-	bridgeDiagnostics: { p99Ms: -1, samples: "not-a-number" } });
+	bridgeDiagnostics: { p99Ms: -1, samples: "not-a-number", presentAgeFrames: -2,
+		maxPresentAgeFrames: "private", presentAgeMs: Number.POSITIVE_INFINITY,
+		maxPresentAgeMs: -1, reusedPresents: "not-a-number" } });
 assert.equal(rejected.presentationMode, "unknown");
 assert.equal(rejected.errorCode, "unknown");
 assert.equal(rejected.bridgeP99Ms, "unknown");
 assert.equal(rejected.bridgeSamples, 0);
+assert.equal(rejected.bridgePresentAgeFrames, "unknown");
+assert.equal(rejected.bridgeMaxPresentAgeFrames, "unknown");
+assert.equal(rejected.bridgePresentAgeMs, "unknown");
+assert.equal(rejected.bridgeMaxPresentAgeMs, "unknown");
+assert.equal(rejected.bridgeReusedPresents, 0);
 const rejectedReport = diagnostics.formatReport({ lastError: "present",
 	lastErrorCode: "C:\\Private\\Core.u" });
 assert.match(rejectedReport, /\nprovider_error_code: unknown\n/);

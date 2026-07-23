@@ -87,6 +87,11 @@
 			bridgeMedianMs: measurement(bridge.medianMs),
 			bridgeP95Ms: measurement(bridge.p95Ms),
 			bridgeP99Ms: measurement(bridge.p99Ms),
+			bridgePresentAgeFrames: measurement(bridge.presentAgeFrames),
+			bridgeMaxPresentAgeFrames: measurement(bridge.maxPresentAgeFrames),
+			bridgePresentAgeMs: measurement(bridge.presentAgeMs),
+			bridgeMaxPresentAgeMs: measurement(bridge.maxPresentAgeMs),
+			bridgeReusedPresents: number(bridge.reusedPresents),
 			bridgeBlockingTiming: bridge.blockingTiming === true ? "yes" :
 				bridge.blockingTiming === false ? "no" : UNKNOWN,
 			enterAttempts: number(source.enterAttempts),
@@ -135,6 +140,11 @@
 			"bridge_median_ms: " + state.bridgeMedianMs,
 			"bridge_p95_ms: " + state.bridgeP95Ms,
 			"bridge_p99_ms: " + state.bridgeP99Ms,
+			"bridge_present_age_frames: " + state.bridgePresentAgeFrames,
+			"bridge_max_present_age_frames: " + state.bridgeMaxPresentAgeFrames,
+			"bridge_present_age_ms: " + state.bridgePresentAgeMs,
+			"bridge_max_present_age_ms: " + state.bridgeMaxPresentAgeMs,
+			"bridge_reused_presents: " + state.bridgeReusedPresents,
 			"bridge_blocking_timing: " + state.bridgeBlockingTiming,
 			"privacy: no-game-data,no-paths,no-logs",
 		].join("\n") + "\n";
@@ -213,7 +223,11 @@
 					dimensions(state.atlasWidth, state.atlasHeight) + " atlas",
 				bridge: state.bridgeSamples + " samples, median " + state.bridgeMedianMs +
 					" ms, p95 " + state.bridgeP95Ms + " ms, p99 " + state.bridgeP99Ms +
-					" ms, " + state.bridgeErrors + " errors, blocking " + state.bridgeBlockingTiming,
+					" ms, pose age " + state.bridgePresentAgeFrames + "/" +
+					state.bridgeMaxPresentAgeFrames + " frames current/max, " +
+					state.bridgePresentAgeMs + "/" + state.bridgeMaxPresentAgeMs +
+					" ms current/max, " + state.bridgeReusedPresents + " reused, " +
+					state.bridgeErrors + " errors, blocking " + state.bridgeBlockingTiming,
 				lifecycle: state.enterAttempts + " enter, " + state.exitRequests + " exit, " + state.reentries + " re-entry",
 			};
 			Object.entries(values).forEach(([name, value]) => {
