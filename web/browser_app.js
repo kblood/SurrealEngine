@@ -14,23 +14,34 @@
 		}
 	}
 
-	function createRuntimeAbortHandler(log, onRuntimeCrash, environment) {
+	function publishRuntimeFailure(label, reason, log, onRuntimeCrash, environment) {
 		const host = environment || global;
 		const writeLog = typeof log === "function" ? log : () => {};
 		const notify = typeof onRuntimeCrash === "function" ? onRuntimeCrash : () => {};
-		return reason => {
-			const reasonText = reason && typeof reason.message === "string" ? reason.message :
-				String(reason === undefined || reason === null ? "unknown reason" : reason);
-			const detail = "WebAssembly runtime aborted: " + reasonText;
-			host.surrealCrashed = detail;
-			writeLog("[runtime] " + detail);
-			notify(detail);
-			if (typeof host.dispatchEvent === "function" && typeof host.CustomEvent === "function") {
-				host.dispatchEvent(new host.CustomEvent("surrealruntimeabort", {
-					detail: Object.freeze({ message: detail }),
-				}));
-			}
-			return detail;
+		const reasonText = reason && typeof reason.message === "string" ? reason.message :
+			String(reason === undefined || reason === null ? "unknown reason" : reason);
+		const detail = label + ": " + reasonText;
+		host.surrealCrashed = detail;
+		writeLog("[runtime] " + detail);
+		notify(detail);
+		if (typeof host.dispatchEvent === "function" && typeof host.CustomEvent === "function") {
+			host.dispatchEvent(new host.CustomEvent("surrealruntimeabort", {
+				detail: Object.freeze({ message: detail }),
+			}));
+		}
+		return detail;
+	}
+
+	function createRuntimeAbortHandler(log, onRuntimeCrash, environment) {
+		return reason => publishRuntimeFailure("WebAssembly runtime aborted", reason,
+			log, onRuntimeCrash, environment);
+	}
+
+	function createUnhandledRuntimeErrorHandler(log, onRuntimeCrash, environment) {
+		return event => {
+			const reason = event && (event.error || event.reason || event.message);
+			return publishRuntimeFailure("Uncaught browser runtime error", reason,
+				log, onRuntimeCrash, environment);
 		};
 	}
 
@@ -451,6 +462,11 @@
 			},
 		});
 		global.surrealCrashed = null;
+		const unhandledRuntimeError = createUnhandledRuntimeErrorHandler(log, options.onRuntimeCrash, global);
+		if (typeof global.addEventListener === "function") {
+			global.addEventListener("error", unhandledRuntimeError);
+			global.addEventListener("unhandledrejection", unhandledRuntimeError);
+		}
 		return new Promise((resolve, reject) => {
 			const Module = {
 				canvas: options.canvas,
@@ -493,6 +509,7 @@
 	global.SurrealBrowserApp = Object.freeze({
 		LauncherError,
 		createRuntimeAbortHandler,
+		createUnhandledRuntimeErrorHandler,
 		PresentationRegistry,
 		GameLibrary,
 		GameLibraryUI,

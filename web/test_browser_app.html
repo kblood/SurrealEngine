@@ -76,6 +76,10 @@ window.browserAppTestPromise = (async () => {
 		assert(environment.surrealCrashed === detail && detail.includes("test heap exhausted"));
 		assert(logs.length === 1 && logs[0] === "[runtime] " + detail);
 		assert(events.length === 2 && events[0] === detail && events[1] === detail);
+		const uncaught = api.createUnhandledRuntimeErrorHandler(value => logs.push(value), null, environment);
+		const uncaughtDetail = uncaught({ error: new Error("test RAF failure") });
+		assert(environment.surrealCrashed === uncaughtDetail && uncaughtDetail.includes("test RAF failure"));
+		assert(uncaughtDetail.startsWith("Uncaught browser runtime error:"));
 	});
 	await run("desktop host records become importer entries without exposing native paths", async () => {
 		const picker = api.createHostPicker({ pickGameDirectory: async () => [{ path: "System/Core.u", blob: new Blob(["core"]) }] });
