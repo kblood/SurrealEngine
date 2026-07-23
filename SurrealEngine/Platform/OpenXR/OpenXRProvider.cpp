@@ -1,9 +1,9 @@
 #include "Precomp.h"
 #include "Platform/OpenXR/OpenXRProvider.h"
+#include "Platform/OpenXR/OpenXRExtensions.h"
 #include "RenderDevice/RenderDevice.h"
 #include "Utils/Logger.h"
 
-#include <sstream>
 #include <limits>
 
 #if defined(SURREAL_ENABLE_OPENXR)
@@ -80,15 +80,6 @@ struct OpenXRProvider::Impl
 #if defined(SURREAL_ENABLE_OPENXR)
 namespace
 {
-	std::vector<std::string> SplitExtensions(const std::string& value)
-	{
-		std::vector<std::string> result;
-		std::istringstream stream(value);
-		for (std::string item; stream >> item; )
-			result.push_back(item);
-		return result;
-	}
-
 	template<typename T>
 	T LoadExtension(XrInstance instance, const char* name)
 	{
@@ -238,21 +229,22 @@ std::vector<std::string> OpenXRProvider::GetVulkanInstanceExtensions()
 		impl->lastError = ResultMessage("xrGetVulkanGraphicsRequirementsKHR", result);
 		return {};
 	}
-	uint32_t size = 0;
-	result = getExtensions(impl->instance, impl->system, 0, &size, nullptr);
-	if (XR_FAILED(result) || size == 0)
+	uint32_t capacity = 0;
+	result = getExtensions(impl->instance, impl->system, 0, &capacity, nullptr);
+	if (XR_FAILED(result) || capacity == 0)
 	{
 		impl->lastError = ResultMessage("xrGetVulkanInstanceExtensionsKHR", result);
 		return {};
 	}
-	std::string value(size, '\0');
-	result = getExtensions(impl->instance, impl->system, size, &size, value.data());
+	std::string value(capacity, '\0');
+	uint32_t returnedSize = capacity;
+	result = getExtensions(impl->instance, impl->system, capacity, &returnedSize, value.data());
 	if (XR_FAILED(result))
 	{
 		impl->lastError = ResultMessage("xrGetVulkanInstanceExtensionsKHR", result);
 		return {};
 	}
-	return SplitExtensions(value);
+	return ParseOpenXRExtensionList(value.data(), std::min<size_t>(returnedSize, value.size()));
 #else
 	return {};
 #endif
@@ -279,23 +271,24 @@ bool OpenXRProvider::ResolveVulkanDevice(void* instance, void** physicalDevice, 
 		impl->lastError = ResultMessage("xrGetVulkanGraphicsDeviceKHR", result);
 		return false;
 	}
-	uint32_t size = 0;
-	result = getExtensions(impl->instance, impl->system, 0, &size, nullptr);
+	uint32_t capacity = 0;
+	result = getExtensions(impl->instance, impl->system, 0, &capacity, nullptr);
 	if (XR_FAILED(result))
 	{
 		impl->lastError = ResultMessage("xrGetVulkanDeviceExtensionsKHR", result);
 		return false;
 	}
-	std::string value(size, '\0');
-	if (size > 0)
-		result = getExtensions(impl->instance, impl->system, size, &size, value.data());
+	std::string value(capacity, '\0');
+	uint32_t returnedSize = capacity;
+	if (capacity > 0)
+		result = getExtensions(impl->instance, impl->system, capacity, &returnedSize, value.data());
 	if (XR_FAILED(result))
 	{
 		impl->lastError = ResultMessage("xrGetVulkanDeviceExtensionsKHR", result);
 		return false;
 	}
 	*physicalDevice = (void*)device;
-	deviceExtensions = SplitExtensions(value);
+	deviceExtensions = ParseOpenXRExtensionList(value.data(), std::min<size_t>(returnedSize, value.size()));
 	return true;
 #else
 	return false;

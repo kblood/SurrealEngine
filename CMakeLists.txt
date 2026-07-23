@@ -185,6 +185,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Render/Presentation.h
 	SurrealEngine/Platform/OpenXR/OpenXRProvider.cpp
 	SurrealEngine/Platform/OpenXR/OpenXRProvider.h
+	SurrealEngine/Platform/OpenXR/OpenXRExtensions.cpp
+	SurrealEngine/Platform/OpenXR/OpenXRExtensions.h
 	SurrealEngine/Platform/OpenXR/OpenXRView.cpp
 	SurrealEngine/Platform/OpenXR/OpenXRView.h
 	SurrealEngine/Platform/OpenXR/OpenXRUIRuntime.cpp
@@ -1311,6 +1313,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(OpenXRViewTests PRIVATE SurrealEngine)
 	set_target_properties(OpenXRViewTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME OpenXRViewTests COMMAND OpenXRViewTests)
+
+	add_executable(OpenXRExtensionsTests
+		Tests/OpenXRExtensionsTests.cpp
+		SurrealEngine/Platform/OpenXR/OpenXRExtensions.cpp
+	)
+	target_include_directories(OpenXRExtensionsTests PRIVATE SurrealEngine)
+	set_target_properties(OpenXRExtensionsTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME OpenXRExtensionsTests COMMAND OpenXRExtensionsTests)
 
 	add_executable(WebXRFrameBridgeTests
 		Tests/WebXRFrameBridgeTests.cpp
