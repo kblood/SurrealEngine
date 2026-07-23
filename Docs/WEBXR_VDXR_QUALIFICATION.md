@@ -190,6 +190,23 @@ browser WebXR provider, projection/copy bridge, or browser/runtime boundary.
 That comparison is a diagnostic gate, not proof by itself. Record the native
 log and exact observed behavior before changing either path.
 
+The comparison has now been run. The first native package failed Vulkan device
+selection because VDXR's final required extension included a trailing NUL; the
+bounded parser fix subsequently selected the RTX 5090 and entered OpenXR.
+Inside the headset, the unified native path showed the same rotational world
+warp. Neither the controller menu button nor keyboard Escape left CityIntro,
+and the preserved log recorded three CityIntro travels without creating a
+UMenu root window. This demonstrates shared native parity regressions rather
+than proving a browser-only projection problem.
+
+The known-good port provides the acceptance contract for the next A/B. Its
+vertical OpenXR frustum negates and swaps the up/down tangents for the engine's
+Y-down render-device coordinates; its menu action emits real Escape press and
+release events; and its release startup waits for a focused session before a
+one-shot fire then Escape sequence opens UMenu over a direct playable map. The
+next native candidate must restore and physically pass those behaviors before
+their provider-neutral portions are carried into another WebXR candidate.
+
 ## Automatic backend correction
 
 The current Automatic preflight selects direct presentation when

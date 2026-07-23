@@ -257,6 +257,28 @@ menu click, gameplay trigger, thumbstick, world-orientation, and menu-handedness
 checks and preserve the native log. The executable and runtime probe were not
 run while preparing the package, and its owner-data audit found no game files.
 
+The physical native A/B exposed two separate failures. The exact `802cfa62`
+package initially rejected the selected RTX 5090 because the final
+runtime-required Vulkan extension retained VDXR's trailing NUL. The bounded
+parser correction in `0e7a9b60` and device diagnostics in `e2d15b58` then let
+the unified build select the RTX 5090 and enter the headset. This closes the
+hybrid-GPU device-selection blocker, but not native XR parity: the world still
+warped during head rotation, the controller menu button did not leave the
+intro, and keyboard Escape did not produce UMenu. The preserved log shows
+three CityIntro travels and no root-window creation.
+
+A comparison with the headset-confirmed UT99 VR port found that the unified
+OpenXR view path had restored the old, known-bad vertical frustum conversion.
+OpenXR supplies +Y-up angles, while the render-device view coordinates are
+Y-down; the working port therefore uses `-tan(angleUp)` and
+`-tan(angleDown)` for the bottom/top bounds. The same audit found that the
+unified controller menu semantic executes `ShowMenu` directly instead of
+synthesizing the Escape key edges consumed by UMenu, scales movement sticks
+about 22 times lower than the tested VR path, and omitted its focused-session
+fire-then-Escape startup route. These are now explicit restoration gates.
+Until the corrected projection and startup/input slices pass the same physical
+Quest 3/VDXR test, native OpenXR and WebXR both remain non-release candidates.
+
 The direct path owns runtime WebGPU eye textures. The compatibility path reuses
 the same simulation, view-family, input, UI, and WebGPU renderer, drawing both
 eyes to an atlas before a WebGL 2 bridge presents them through
