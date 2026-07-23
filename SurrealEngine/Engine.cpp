@@ -2185,13 +2185,31 @@ void Engine::OpenWindow()
 	std::string versionString = !LaunchInfo.gameVersionString.empty() ? " (v" + LaunchInfo.gameVersionString + ")" : "";
 
 	window->SetWindowTitle(LaunchInfo.gameName + versionString + " - Surreal Engine");
-	window->SetFrameGeometry(Rect::xywh(0.0, 0.0, width, height));
 	viewport->SetViewportRect(0, 0, width, height);
 
-	if (fullscreen)
-		window->ShowFullscreen();
-	else
+	if (commandline && commandline->HasArg("", "--minimized-window"))
+	{
+		// Verification/CI launches: keep a real, normally-rendered window
+		// (client rect unchanged, so nothing downstream that assumes a
+		// non-zero viewport breaks) but place it far outside any monitor's
+		// virtual desktop so it's never actually visible or in the way.
+		// Deliberately windowed, not ShowMinimized() (a minimized window's
+		// 0x0 client rect crashes the render viewport) and not
+		// ShowFullscreen() (its Win32 backend always repositions to the
+		// real screen at 0,0, ignoring any geometry set here). PrintWindow
+		// with PW_RENDERFULLCONTENT (see tools/capture_screenshot.ps1)
+		// still captures real frames from an off-screen window.
+		window->SetFrameGeometry(Rect::xywh(-32000.0, -32000.0, width, height));
 		window->ShowNormal();
+	}
+	else
+	{
+		window->SetFrameGeometry(Rect::xywh(0.0, 0.0, width, height));
+		if (fullscreen)
+			window->ShowFullscreen();
+		else
+			window->ShowNormal();
+	}
 }
 
 void Engine::CloseWindow()
