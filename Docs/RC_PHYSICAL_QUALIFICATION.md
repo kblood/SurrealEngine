@@ -1,9 +1,10 @@
 # Quest 3 / VDXR physical qualification
 
-Use this card for the exact native OpenXR candidate at
-`6f86491b00bb0bb234141566efccddee6ea27144` and for the forthcoming WebXR
-candidate only after recording its exact commit and ZIP SHA-256. Automated tests
-do not satisfy this gate.
+Use this card only for the frozen native OpenXR and WebXR production artifacts
+from commit `71650dd7e80411532cc2baaca6623ad9404b25a9`. The later integration head
+`32a2948684b2166a269ba0aeaf2425cb9d03c406` adds documentation and a focused
+test regression; it is not the production artifact identity. Automated tests
+do not satisfy this physical gate.
 
 ## Evidence header
 
@@ -12,8 +13,13 @@ screenshots of folder pickers, or unsanitized logs.
 
 ```text
 candidate: native-openxr | webxr
-commit: <40 hex characters>
-artifact_sha256: <64 hex characters>
+production_commit: 71650dd7e80411532cc2baaca6623ad9404b25a9
+artifact_identity: native-zip | webxr-directory
+artifact_sha256: <native ZIP hash | n/a for directory>
+js_sha256: <n/a | 64 hex characters>
+wasm_sha256: <n/a | 64 hex characters>
+source_sha256: <64 hex characters>
+release_manifest_sha256: <n/a | 64 hex characters>
 path: quest-3-vdxr-native | quest-3-vdxr-webxr-auto | quest-3-vdxr-webxr-bridge
 game: ut99 | unreal-gold
 profile: fresh | recognized-legacy
@@ -27,11 +33,33 @@ gpu_driver: <version>
 result: pass | fail:<short category>
 ```
 
-The native artifact is
-`SurrealEngine-Native-OpenXR-6f86491b-headless-rc.zip`, SHA-256
-`9afb91459a93bd1fb36ce277c0465d2a84a93da14ebb5e906b1c8c6c74206a9b`.
-Record the WebXR artifact identity here before testing; never qualify a mutable
-website or a build whose commit/hash is unknown.
+## Frozen artifact identities
+
+Native OpenXR ZIP:
+
+`C:\Devstuff\QuestGames\release-candidates\SurrealEngine-Native-OpenXR-71650dd7-headless-rc.zip`
+
+- ZIP SHA-256:
+  `42d64b2660ef7c7dc208979ee1199a0b0b645a950a432ebc1d97aaa5cde6cf56`
+- bundled tracked-source SHA-256:
+  `2533a389bfa8baa046960fa6ab03c88d3052856c6a22f2052a28c7d0f67dacdf`
+
+WebXR package directory:
+
+`C:\Devstuff\QuestGames\release-candidates\SurrealEngine-WebXR-71650dd7`
+
+- `engine/SurrealEngine.js` SHA-256:
+  `22dd5ec417ea5debdb0d9d9a8bd5b0bd5d6d2f759e81c22ae5b1ddba4ce128dd`
+- `engine/SurrealEngine.wasm` SHA-256:
+  `1ca34875dbfbd822904195ea90bceb2727a91552c210d563c3a5ede7c04acb77`
+- `source/SurrealEngine-71650dd7-corresponding-source.tar.gz` SHA-256:
+  `25c47c542c26943adb7b01e928f25f2987959fd4c2ddc728c6761a79f27af101`
+- `release-manifest.json` SHA-256:
+  `0c5bd9a59e086fc6d69babfc7763ca17acd155013714c5f0e4d4dc9cecaf8fb1`
+
+The WebXR manifest names `/WebXR/Ports/SurrealEngine/` as its intended hosting
+base. Before a hosted run, hash the served/downloaded JS, WASM, source, and
+manifest; never qualify a mutable website or a build whose hashes are unknown.
 
 ## Safe start — explicit launcher only
 
@@ -214,9 +242,9 @@ unsanitized engine logs.
 ## Sign-off
 
 ```text
-native_openxr_6f86491b: pass | fail:<category>
-webxr_<exact_commit>_automatic: pass | unsupported | fail:<category>
-webxr_<exact_commit>_bridge: pass | unsupported | fail:<category>
+native_openxr_71650dd7: pass | fail:<category>
+webxr_71650dd7_automatic: pass | unsupported | fail:<category>
+webxr_71650dd7_bridge: pass | unsupported | fail:<category>
 ut99_ladder_transition: pass | fail:<category>
 unreal_gold_title_menu_audio: pass | fail:<category>
 tester: <name>

@@ -1,27 +1,64 @@
-# Integration branch map for `55433b37`
+# Integration branch map for production candidate `71650dd7`
 
 Date: 2026-07-23
 
-This document maps the unified release candidate at
-`55433b37275a49bf9e5a8c61fe721165c37a96bc` into independently maintainable
+This document maps the frozen production candidate at
+`71650dd7e80411532cc2baaca6623ad9404b25a9` into independently maintainable
 topics relative to the inspected `origin/master` at
 `c2599d51ecde93b2308f8165de33e9296feca685`. It is an extraction plan, not a
 proposal to merge the release branch upstream.
 
+The current documentation/test integration head is
+`32a2948684b2166a269ba0aeaf2425cb9d03c406`. It is five commits after the
+production candidate and changes only four documentation files plus
+`Tests/ExpressionEvaluatorTests.cpp`. It does not replace `71650dd7` as the
+native or WebXR artifact/source identity.
+
+## Frozen artifact boundary
+
+- Native package:
+  `C:\Devstuff\QuestGames\release-candidates\SurrealEngine-Native-OpenXR-71650dd7-headless-rc.zip`
+  with SHA-256
+  `42d64b2660ef7c7dc208979ee1199a0b0b645a950a432ebc1d97aaa5cde6cf56`;
+  its bundled tracked-source archive is
+  `2533a389bfa8baa046960fa6ab03c88d3052856c6a22f2052a28c7d0f67dacdf`.
+- WebXR package:
+  `C:\Devstuff\QuestGames\release-candidates\SurrealEngine-WebXR-71650dd7`.
+  Its frozen hashes are:
+  `engine/SurrealEngine.js`
+  `22dd5ec417ea5debdb0d9d9a8bd5b0bd5d6d2f759e81c22ae5b1ddba4ce128dd`,
+  `engine/SurrealEngine.wasm`
+  `1ca34875dbfbd822904195ea90bceb2727a91552c210d563c3a5ede7c04acb77`,
+  corresponding source
+  `25c47c542c26943adb7b01e928f25f2987959fd4c2ddc728c6761a79f27af101`,
+  and `release-manifest.json`
+  `0c5bd9a59e086fc6d69babfc7763ca17acd155013714c5f0e4d4dc9cecaf8fb1`.
+- Later documentation or test commits can improve evidence and instructions,
+  but cannot silently change the qualified artifact identity. Any executable,
+  engine JS/WASM, source bundle, or release-manifest change requires a new
+  candidate commit and new hashes.
+
 ## Comparison result
 
 - The common ancestor is `891082d9f05a0f7b9ffcb4f65c9653f36fce5613`.
-- `origin/master` is 3 commits ahead of that ancestor; the release candidate is
-  239 commits ahead.
-- The release delta is 343 files, 45,239 insertions, and 1,074 deletions.
+- `origin/master` is 3 commits ahead of that ancestor; production candidate
+  `71650dd7` is 240 commits ahead.
+- The production-candidate delta is 343 files, 45,249 insertions, and 1,074
+  deletions.
 - Upstream changed seven files after the common ancestor. Only
   `SurrealEngine/UObject/UActor.cpp` is also changed by the release candidate.
-- A Git merge-tree check found no textual conflict between the complete release
-  head and the inspected `origin/master`. The same check was clean for all 32
-  local `pr/*` tips.
-- Clean textual merges do not make the 239-commit integration history suitable
+- A Git merge-tree check found no textual conflict between complete production
+  head `71650dd7` and the inspected `origin/master`. The same check was clean
+  for all 32 local `pr/*` tips.
+- Clean textual merges do not make the 240-commit integration history suitable
   for review. The size, mixed policy, and cross-platform coupling still require
   reconstruction as the layers below.
+
+The first detailed audit was captured one commit earlier at `55433b37`. Its
+snapshot was 239 release-side commits and 45,239 insertions across the same 343
+files. Production commit `71650dd7` adds only the packaging regression change
+in `web/smoke_test_release_package.py`, producing the exact 240-commit/45,249
+count above without changing the dependency map.
 
 The three newer upstream commits are the `GCRootNode` list correction,
 experimental `BlendAnim` support, and `UBorderWindow`. `BlendAnim` is why

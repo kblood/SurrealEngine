@@ -1,6 +1,15 @@
-# SurrealEngine `55433b37` candidate release notes — draft
+# SurrealEngine `71650dd7` candidate release notes — draft
 
-Source commit: `55433b37275a49bf9e5a8c61fe721165c37a96bc`
+Frozen production candidate commit:
+`71650dd7e80411532cc2baaca6623ad9404b25a9`
+
+Documentation/test integration head:
+`32a2948684b2166a269ba0aeaf2425cb9d03c406`
+
+The later integration head adds documentation and an
+`ExpressionEvaluatorTests.cpp` regression only. It is not the source identity
+of either production artifact. All executable, JavaScript, WebAssembly, source,
+and manifest hashes below are tied to frozen commit `71650dd7`.
 
 This candidate brings native desktop, native OpenXR, browser WebAssembly/WebGPU,
 and experimental WebXR onto the same engine foundations. Desktop keyboard,
@@ -10,6 +19,33 @@ optional presentation and input layer rather than a separate game-engine fork.
 This is a test candidate, not a fully qualified public release. Automated gates
 pass, but the native OpenXR and WebXR paths still require the physical headset
 checks listed below.
+
+## Frozen artifact identities
+
+The native Windows package is:
+
+`C:\Devstuff\QuestGames\release-candidates\SurrealEngine-Native-OpenXR-71650dd7-headless-rc.zip`
+
+- ZIP SHA-256:
+  `42d64b2660ef7c7dc208979ee1199a0b0b645a950a432ebc1d97aaa5cde6cf56`
+- bundled tracked-source SHA-256:
+  `2533a389bfa8baa046960fa6ab03c88d3052856c6a22f2052a28c7d0f67dacdf`
+
+The WebXR package directory is:
+
+`C:\Devstuff\QuestGames\release-candidates\SurrealEngine-WebXR-71650dd7`
+
+- `engine/SurrealEngine.js` SHA-256:
+  `22dd5ec417ea5debdb0d9d9a8bd5b0bd5d6d2f759e81c22ae5b1ddba4ce128dd`
+- `engine/SurrealEngine.wasm` SHA-256:
+  `1ca34875dbfbd822904195ea90bceb2727a91552c210d563c3a5ede7c04acb77`
+- `source/SurrealEngine-71650dd7-corresponding-source.tar.gz` SHA-256:
+  `25c47c542c26943adb7b01e928f25f2987959fd4c2ddc728c6761a79f27af101`
+- `release-manifest.json` SHA-256:
+  `0c5bd9a59e086fc6d69babfc7763ca17acd155013714c5f0e4d4dc9cecaf8fb1`
+
+The manifest's intended hosting base is `/WebXR/Ports/SurrealEngine/`. A hosted
+copy is the same candidate only when these hashes still match.
 
 ## Included engine paths
 
@@ -138,10 +174,13 @@ and unclassified script execution retain head/body orientation.
 
 ## Automated status
 
-The exact native candidate passed the 40-test Release CTest registry, including
-OpenXR view/extensions/UI, XR input/diagnostics/weapon/haptics, UI surfaces,
-presentation, VM hooks, and desktop-default controls. The focused
-OpenXR/XR/input/VM/default-controls selection passed 21/21.
+The native binaries retained in the exact candidate passed the 40-test Release
+CTest registry, including OpenXR view/extensions/UI, XR
+input/diagnostics/weapon/haptics, UI surfaces, presentation, VM hooks, and
+desktop-default controls. The focused
+OpenXR/XR/input/VM/default-controls selection passed 21/21. The only changes
+from the binary build commit through frozen commit `71650dd7` are two
+browser-only Python test files; no native source or CMake input changed.
 
 Browser syntax, launcher/import, mutable-persistence, presentation-provider,
 diagnostics, audio, and WebXR bridge/runtime harnesses are automated and
@@ -175,9 +214,9 @@ manual gates include:
   running, on failure, and after re-entry, with increasing frame/input counters,
   zero unexpected bridge errors, and the final privacy marker.
 
-See `Docs/RC_PHYSICAL_QUALIFICATION.md` in the qualification-docs topic for the
-full pass/fail card. A successful flat-window run is not evidence that immersive
-OpenXR or WebXR presentation passed.
+See `Docs/RC_PHYSICAL_QUALIFICATION.md` for the full pass/fail card. A
+successful flat-window run is not evidence that immersive OpenXR or WebXR
+presentation passed.
 
 ## Licenses and source
 
@@ -187,7 +226,7 @@ tracked-source archive identified by commit and SHA-256. `SurrealVideo.dll` is
 dynamically linked and its LGPL 2.1-or-later license, notice, and corresponding
 source are included.
 
-The browser release must ship its matching clean source/relinking bundle and
-release manifest because SurrealVideo is statically included in the WASM build.
-Artifact and source hashes must match the exact published candidate. These
-materials do not grant rights to redistribute any original game data.
+The browser package ships its matching clean source/relinking bundle and release
+manifest because SurrealVideo is statically included in the WASM build. Its
+exact source, JS, WASM, and manifest hashes are recorded above. These materials
+do not grant rights to redistribute any original game data.
