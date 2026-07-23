@@ -184,6 +184,15 @@
 		return Object.freeze(args);
 	}
 
+	function callNativeMain(Module, selection) {
+		if (!Module || typeof Module.callMain !== "function") {
+			throw new LauncherError("ENGINE_RUNTIME", "The SurrealEngine runtime is not ready to start.");
+		}
+		// Emscripten prepends argv[0] in place. Keep the public launch
+		// description immutable, but give callMain its own mutable copy.
+		return Module.callMain(Array.from(buildNativeArguments(selection)));
+	}
+
 	async function activatePresentation(registry, selection, Module) {
 		const provider = registry.get(selection && selection.presentationId || "flat");
 		if (!provider || !provider.isAvailable()) {
@@ -256,7 +265,7 @@
 			tracker.transition("native-startup");
 			await (settings.waitForPaint || waitForBrowserPaint)(settings.environment || global);
 			tracker.markNativeStarted();
-			settings.Module.callMain(buildNativeArguments(settings.selection));
+			await callNativeMain(settings.Module, settings.selection);
 			tracker.markNativeReturned();
 			tracker.transition("native-ready");
 			if (settings.audioController && typeof settings.audioController.engineStarted === "function")
@@ -461,6 +470,7 @@
 		normalizeHostEntries,
 		createHostPicker,
 		buildNativeArguments,
+		callNativeMain,
 		activatePresentation,
 		LaunchStartupTracker,
 		waitForBrowserPaint,
