@@ -27,9 +27,9 @@ struct XRInputBindings
 	float TriggerThreshold = 0.5f;
 	float GripThreshold = 0.5f;
 
-	// Conventional UE1 pawn properties only; there are no game-name checks.
-	// Unassigned face/menu controls remain available in the snapshot for a
-	// later game-support or UI adapter.
+	// Conventional UE1 pawn properties and exec commands only; there are no
+	// game-name or provider checks. Unassigned controls remain available for a
+	// later game-support or settings adapter.
 	static XRInputBindings ConventionalUE1(XRHand dominantHand = XRHand::Right);
 };
 

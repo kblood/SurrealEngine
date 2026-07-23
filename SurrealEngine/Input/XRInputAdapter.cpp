@@ -13,6 +13,11 @@ XRInputBindings XRInputBindings::ConventionalUE1(XRHand dominantHand)
 	const size_t dominantIndex = dominantHand == XRHand::Left ? 0 : 1;
 	result.Hands[dominantIndex].Trigger = "Button bFire";
 	result.Hands[1 - dominantIndex].Trigger = "Button bAltFire";
+	result.Hands[dominantIndex].PrimaryButton = "Jump";
+	result.Hands[1 - dominantIndex].PrimaryButton = "NextWeapon";
+	result.Hands[1 - dominantIndex].SecondaryButton = "ShowMenu";
+	result.Hands[0].MenuButton = "ShowMenu";
+	result.Hands[1].MenuButton = "ShowMenu";
 	result.Hands[1].Grip = "Button bDuck";
 	return result;
 }

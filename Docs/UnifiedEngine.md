@@ -89,7 +89,7 @@ foundation topics are:
 | Direct WebXR/WebGPU presentation | Implemented, experimental | ABI/lifecycle and native bridge tests pass; no target Quest browser with production `XRGPUBinding` has been verified. |
 | Quest compatibility presentation | Implemented, experimental | `XRWebGLLayer` receives a WebGPU-rendered stereo atlas through WebGL 2; desktop API probes and provider tests pass, but Quest correctness and transfer cost are hardware-unverified. |
 | WebXR UI and controllers | Implemented, experimental | World-anchored surfaces, both procedural controller proxies, lasers, and exact-contact markers share one hit result in both presentation modes; scale, latency, convergence, and comfort remain hardware-unverified. |
-| Semantic XR gameplay input | Implemented, experimental | WebXR and OpenXR use the provider-neutral `XRInputAdapter`; right-dominant Select maps directly to Fire, the other Select to AltFire, sticks map to movement/turning, menu/focus ownership releases only XR contributors and blocks held buttons until a fresh press, and hostile `User.ini` Joy mappings are bypassed. WebXR retains one discrete state per simulation frame. Snap/smooth turn, movement-reference, face-button, and comfort settings remain follow-ups. |
+| Semantic XR gameplay input | Implemented, experimental | WebXR and OpenXR use the provider-neutral `XRInputAdapter`; right-dominant Select maps directly to Fire, the other Select to AltFire, sticks map to movement/turning, dominant primary is Jump, off-hand primary is NextWeapon, and off-hand secondary/provider Menu opens ShowMenu. Menu/focus ownership releases only XR contributors and blocks held buttons until a fresh press, while hostile `User.ini` Joy mappings are bypassed. WebXR retains one discrete state per simulation frame. Snap/smooth turn, movement-reference, remapping, and comfort settings remain follow-ups. |
 | One-hand XR weapons | Implemented, experimental | A shared aim-pose solver, scoped full-tick firing direction, and contiguous per-eye weapon pass are used by WebXR and OpenXR. Default placement follows the Farantir hardware baseline (aim pose, zero offset, 5x scale); physical calibration, muzzle-origin rewriting, two-hand/dual-wield behavior, and loaded UT99/Unreal fixtures remain gates. |
 | UT99/Unreal startup map intro | Implemented, experimental | `URL.LocalMap`, prompt-HUD capture, menu handoff, intro-only trigger routing, and explicit launcher skip policy have automated coverage; actual UT99/Unreal scripts remain owner-data and Quest-unverified. |
 | KHG browser AVI playback | Implemented, experimental | The existing IV50 decoder advances asynchronously under the flat/WebXR frame owner; synthetic scheduling and no-data linking pass, while actual KHG media, browser audio, masks, and same-call-stack script assumptions remain unverified or incomplete. |
@@ -208,7 +208,7 @@ matrix.
   pose/firing/per-eye-rendering slice are integrated. Retained WebXR input
   edges now advance at most one state per simulation frame, so a quick
   press/release cannot collapse before gameplay observes it; comfort
-  locomotion, face-button/menu policy, muzzle origins, two-hand support, and
+  locomotion, configurable face-button/menu policy, muzzle origins, two-hand support, and
   loaded game qualification remain active work.
 
 The upstream repository is active. Contact in the public Discord on 2026-07-22

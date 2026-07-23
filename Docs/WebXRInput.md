@@ -108,11 +108,15 @@ The integration runtime feeds `XRControllerSnapshot` to the shared
 `XRInputAdapter`; it does not emit `Joy*` keys or depend on the game's existing
 joystick bindings. With the current right-dominant UE1 profile, right Select is
 `bFire`, left Select is `bAltFire`, the left stick supplies strafe/forward, and
-the right stick supplies turn/up. Menu ownership publishes neutral gameplay
-controls, releases only XR contributors, and blocks held buttons until release
-so closing a menu cannot leak a fire press. Keyboard and mouse contributors
-remain simultaneous fallbacks. Dominant-hand settings, snap/smooth turn,
-movement reference, and face-button policy remain profile/settings follow-ups.
+the right stick supplies turn/up. Dominant primary is `Jump`, off-hand primary
+is `NextWeapon`, and off-hand secondary is `ShowMenu`; a provider-reported Menu
+button also maps to `ShowMenu`. This gives Quest WebXR a menu action even though
+the browser reserves and does not expose the system button. Menu ownership
+publishes neutral gameplay controls, releases only XR contributors, and blocks
+held buttons until release so closing a menu cannot leak a fire press. Keyboard
+and mouse contributors remain simultaneous fallbacks. Dominant-hand settings,
+snap/smooth turn, movement reference, and configurable remapping remain
+profile/settings follow-ups.
 
 ## Validation
 

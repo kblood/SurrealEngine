@@ -59,6 +59,34 @@ namespace
 
 int main()
 {
+	const XRInputBindings rightDominant = XRInputBindings::ConventionalUE1(XRHand::Right);
+	Check(rightDominant.Hands[1].PrimaryButton == "Jump",
+		"dominant primary face button must provide the conventional jump action");
+	Check(rightDominant.Hands[0].PrimaryButton == "NextWeapon" &&
+		rightDominant.Hands[0].SecondaryButton == "ShowMenu",
+		"off-hand face buttons must provide weapon cycling and a headset-accessible menu");
+	Check(rightDominant.Hands[0].MenuButton == "ShowMenu" &&
+		rightDominant.Hands[1].MenuButton == "ShowMenu",
+		"provider-reported menu controls must open the menu from either hand");
+	const XRInputBindings leftDominant = XRInputBindings::ConventionalUE1(XRHand::Left);
+	Check(leftDominant.Hands[0].PrimaryButton == "Jump" &&
+		leftDominant.Hands[1].SecondaryButton == "ShowMenu",
+		"dominant-hand selection must swap face-button action policy");
+	XRInputAdapter conventional(rightDominant);
+	FakeTarget conventionalTarget;
+	XRSessionState conventionalSession{ XRSessionLifecycle::Running, XRSessionFocus::Focused };
+	XRControllerSnapshot conventionalSnapshot;
+	conventionalSnapshot.Hands[0].Connected = true;
+	conventionalSnapshot.Hands[0].Primary.Pressed = true;
+	conventionalSnapshot.Hands[0].Secondary.Pressed = true;
+	conventionalSnapshot.Hands[1].Connected = true;
+	conventionalSnapshot.Hands[1].Primary.Pressed = true;
+	conventional.Update(conventionalSession, conventionalSnapshot, conventionalTarget);
+	Check(conventionalTarget.commandCounts["Jump"] == 1 &&
+		conventionalTarget.commandCounts["NextWeapon"] == 1 &&
+		conventionalTarget.commandCounts["ShowMenu"] == 1,
+		"conventional face-button actions did not reach the engine command target");
+
 	XRInputBindings bindings;
 	bindings.Hands[0].StickX = "Axis MoveX";
 	bindings.Hands[0].StickY = "Axis MoveY";
