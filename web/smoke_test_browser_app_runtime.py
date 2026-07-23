@@ -37,20 +37,28 @@ with sync_playwright() as playwright:
 	page.evaluate("""() => {
 		window.syntheticNativeEntry = null;
 		window.syntheticNativeArgs = null;
+		window.syntheticDominantHands = [];
 		window.syntheticExpectedNativeEntry = typeof Module._Surreal_StartBrowserGame === 'function' &&
 			typeof Module.ccall === 'function' ? 'Surreal_StartBrowserGame' : 'callMain';
-		if (window.syntheticExpectedNativeEntry === 'Surreal_StartBrowserGame') {
+		if (typeof Module.ccall === 'function') {
 			const originalCcall = Module.ccall.bind(Module);
 			Module.ccall = (name, returnType, argumentTypes, args, options) => {
-				if (name !== 'Surreal_StartBrowserGame')
-					return originalCcall(name, returnType, argumentTypes, args, options);
-				window.syntheticNativeEntry = name;
-				window.syntheticNativeArgs = ['--autoplay'];
-				if (args[2]) window.syntheticNativeArgs.push('--url=' + args[0]);
-				window.syntheticNativeArgs.push('--render=' + args[1], '/gamedata');
-				return Promise.resolve(0);
+				if (name === 'Surreal_StartBrowserGame' &&
+					window.syntheticExpectedNativeEntry === 'Surreal_StartBrowserGame') {
+					window.syntheticNativeEntry = name;
+					window.syntheticNativeArgs = ['--autoplay'];
+					if (args[2]) window.syntheticNativeArgs.push('--url=' + args[0]);
+					window.syntheticNativeArgs.push('--render=' + args[1], '/gamedata');
+					return Promise.resolve(0);
+				}
+				if (name === 'Surreal_SetXRDominantHand') {
+					window.syntheticDominantHands.push(args[0]);
+					return Promise.resolve(1);
+				}
+				return originalCcall(name, returnType, argumentTypes, args, options);
 			};
-		} else {
+		}
+		if (window.syntheticExpectedNativeEntry === 'callMain') {
 			Module.callMain = args => {
 				window.syntheticNativeEntry = 'callMain';
 				window.syntheticNativeArgs = Array.from(args);
@@ -71,13 +79,16 @@ with sync_playwright() as playwright:
 		entry: window.syntheticNativeEntry,
 		expectedEntry: window.syntheticExpectedNativeEntry,
 		args: window.syntheticNativeArgs,
-		selection: window.surrealLaunchSelection && { gameId: window.surrealLaunchSelection.game.id, map: window.surrealLaunchSelection.map },
+		dominantHands: window.syntheticDominantHands,
+		selection: window.surrealLaunchSelection && { gameId: window.surrealLaunchSelection.game.id,
+			map: window.surrealLaunchSelection.map, xrDominantHand: window.surrealLaunchSelection.xrDominantHand },
 		library: window.surrealApp.library.status(),
 	})""")
 	print(json.dumps(integration, indent=2))
 	if (integration["entry"] != integration["expectedEntry"] or
 		integration["args"] != ["--autoplay", "--url=Vortex2", "--render=webgpu", "/gamedata"] or
-		integration["selection"] != {"gameId": "unreal-gold", "map": "Vortex2"} or
+		integration["dominantHands"] != [1] or
+		integration["selection"] != {"gameId": "unreal-gold", "map": "Vortex2", "xrDominantHand": "right"} or
 		integration["library"]["activeGameId"] != "unreal-gold"):
 		print("FAIL: shared launcher integration", file=sys.stderr)
 		sys.exit(1)
