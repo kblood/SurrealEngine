@@ -86,6 +86,8 @@ class FakeSession {
 		this.referenceSpace = new FakeReferenceSpace(); this.endDeferred = null; this.endError = null;
 	}
 	addEventListener(name, callback) { this.listeners.set(name, callback); }
+	removeEventListener(name, callback) { if (this.listeners.get(name) === callback) this.listeners.delete(name); }
+	emit(name, event) { const callback = this.listeners.get(name); if (callback) callback(event); }
 	updateRenderState(state) { this.renderState = state; }
 	async requestReferenceSpace() { return this.referenceSpace; }
 	requestAnimationFrame(callback) { const handle = this.nextHandle++; this.frames.set(handle, callback); return handle; }
@@ -199,6 +201,12 @@ function driveRightTriggerTransitions(session, count, startTime) {
 }
 
 await import("./webxr_provider.js");
+let audioGestureEvents = 0;
+let lastAudioGesture = null;
+globalThis.addEventListener("surrealwebxraudiogesture", event => {
+	audioGestureEvents++;
+	lastAudioGesture = event;
+});
 assert.throws(() => globalThis.surrealXRSetPresentationPreference("direct-webgpu"), TypeError);
 assert.equal(globalThis.surrealXRSetPresentationPreference("webgl-bridge"), "webgl-bridge");
 const forcedCapabilities = await globalThis.surrealXRGetCapabilities();
@@ -220,6 +228,18 @@ assert.equal(globalThis.surrealXRGetState().phase, "session-reserved");
 assert.equal(bindingCreations, 0); assert.equal(nativeCalls.length, 0); assert.equal(sessions[0].frames.size, 0);
 assert.equal(await globalThis.surrealXRActivateReservedSession(), true);
 assert.deepEqual(loopTransitions, [1]);
+const nativeCallsBeforeAudioGesture = nativeCalls.length;
+const inputPacketsBeforeAudioGesture = inputPackets.length;
+sessions[0].emit("selectstart", { isTrusted: false, inputSource: { privateProfile: "not-forwarded" } });
+assert.equal(audioGestureEvents, 0, "synthetic XR select events must not unlock browser audio");
+sessions[0].emit("selectstart", { isTrusted: true, inputSource: { privateProfile: "not-forwarded" } });
+assert.equal(audioGestureEvents, 1, "one trusted XR select publishes one bounded audio-unlock notification");
+assert.equal(lastAudioGesture.type, "surrealwebxraudiogesture");
+assert.equal("detail" in lastAudioGesture, false, "the audio notification must not carry raw XR event data");
+assert.equal(nativeCalls.length, nativeCallsBeforeAudioGesture,
+	"the audio notification must not call or synthesize native gameplay input");
+assert.equal(inputPackets.length, inputPacketsBeforeAudioGesture,
+	"the audio notification must not mutate the XR input snapshot queue");
 
 // Haptic requests retain XRCommon hand/amplitude semantics, bound browser pulse
 // duration, and resolve the live controller capability for every dispatch.
@@ -421,6 +441,10 @@ rightGamepad.vibrationActuator = { playEffect() { return staleHapticResult.promi
 assert.equal(globalThis.surrealXRSubmitHaptic(1, .5, 20, 0), true);
 sessions[0].endDeferred = delayedEnd;
 assert.equal(globalThis.surrealXRExit(), true);
+assert.equal(sessions[0].listeners.has("selectstart"), false,
+	"explicit exit removes the old session's audio gesture listener immediately");
+sessions[0].emit("selectstart", { isTrusted: true });
+assert.equal(audioGestureEvents, 1, "an exited session cannot retry browser audio");
 assert.equal(globalThis.surrealXRSubmitHaptic(1, .5, 20, 0), false,
 	"session exit must make browser haptics inactive immediately");
 assert.equal(globalThis.surrealXRGetState().active, false,
@@ -436,6 +460,16 @@ assert.equal(sessions.length, 1, "re-entry also waits for the browser's delayed 
 delayedEnd.resolve();
 assert.equal(await reentry, true);
 assert.equal(sessions.length, 2);
+assert.equal(sessions[1].listeners.has("selectstart"), true,
+	"re-entry attaches one audio gesture listener to the new session");
+sessions[0].emit("selectstart", { isTrusted: true });
+assert.equal(audioGestureEvents, 1, "the old session remains detached after re-entry");
+const reentryNativeCallsBeforeAudioGesture = nativeCalls.length;
+const reentryInputPacketsBeforeAudioGesture = inputPackets.length;
+sessions[1].emit("selectstart", { isTrusted: true });
+assert.equal(audioGestureEvents, 2, "the new session publishes its own trusted audio gesture");
+assert.equal(nativeCalls.length, reentryNativeCallsBeforeAudioGesture);
+assert.equal(inputPackets.length, reentryInputPacketsBeforeAudioGesture);
 assert.deepEqual(loopTransitions, [1, 0, 1]);
 assert.ok(destroyedTextures.length >= 4);
 staleHapticResult.resolve(false);
@@ -477,6 +511,8 @@ delayedFailureSession.fireFrame(112, stereoFrame);
 await nextTask();
 assert.equal(globalThis.surrealXRGetState().phase, "error");
 assert.equal(globalThis.surrealXRGetState().active, false);
+assert.equal(delayedFailureSession.listeners.has("selectstart"), false,
+	"provider failure removes the session's audio gesture listener");
 assert.equal(delayedFailureSession.frames.size, 0,
 	"a failed session must cancel XR scheduling before its delayed end settles");
 const failureRetry = globalThis.surrealXREnter();
@@ -589,6 +625,8 @@ endedBeforeFirstFrame.emitEnd();
 assert.equal(globalThis.surrealXRGetState().phase, "error");
 assert.equal(globalThis.surrealXRGetState().lastErrorCode, "session-ended-before-first-frame");
 assert.equal(globalThis.surrealXRGetState().lastErrorStage, "frame");
+assert.equal(endedBeforeFirstFrame.listeners.has("selectstart"), false,
+	"a premature browser end removes the session's audio gesture listener");
 await nextTask();
 
 assert.equal(await globalThis.surrealXREnter(), true);
@@ -600,6 +638,8 @@ normallyEndedSession.emitEnd();
 assert.equal(globalThis.surrealXRGetState().phase, "ended",
 	"a runtime end after presentation started remains a normal end");
 assert.equal(globalThis.surrealXRGetState().lastErrorCode, null);
+assert.equal(normallyEndedSession.listeners.has("selectstart"), false,
+	"a normal browser end removes the session's audio gesture listener");
 await nextTask();
 
 // Input packing remains defensive and semantic.

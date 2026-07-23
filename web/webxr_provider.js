@@ -44,6 +44,8 @@
 	let nativeRenderPromise = null;
 	let cleanupPending = Promise.resolve();
 	let hapticStatus = null;
+	let audioGestureSession = null;
+	let audioGestureListener = null;
 
 	const status = {
 		phase: "idle",
@@ -180,6 +182,35 @@
 		if (typeof root.dispatchEvent === "function" && typeof root.Event === "function") {
 			try { root.dispatchEvent(new root.Event("surrealnativecallgatechange")); } catch (_) {}
 		}
+	}
+
+	function detachAudioGestureListener(sessionObject) {
+		const attachedSession = audioGestureSession;
+		const listener = audioGestureListener;
+		audioGestureSession = null;
+		audioGestureListener = null;
+		if (!attachedSession || attachedSession !== sessionObject || !listener ||
+			typeof attachedSession.removeEventListener !== "function") return;
+		try { attachedSession.removeEventListener("selectstart", listener); } catch (_) {}
+	}
+
+	function attachAudioGestureListener(sessionObject, generation) {
+		detachAudioGestureListener(audioGestureSession);
+		if (!sessionObject || typeof sessionObject.addEventListener !== "function") return;
+		const listener = function (event) {
+			if (event && event.isTrusted === true && generation === activeGeneration &&
+				status.active && session === sessionObject && typeof root.dispatchEvent === "function" &&
+				typeof root.Event === "function") {
+				// Forward only the fact that a trusted XR activation occurred. Controller,
+				// input-source, pose, button, and profile data never leave the XR provider.
+				try { root.dispatchEvent(new root.Event("surrealwebxraudiogesture")); } catch (_) {}
+			}
+		};
+		try {
+			sessionObject.addEventListener("selectstart", listener);
+			audioGestureSession = sessionObject;
+			audioGestureListener = listener;
+		} catch (_) {}
 	}
 
 	function webGPUDevice() {
@@ -708,6 +739,7 @@
 		const finishedBridge = webGLBridge;
 		const ownedEngineLoop = engineLoopOwned;
 		const errorStage = error ? (error.stage || status.currentStage || status.phase) : null;
+		detachAudioGestureListener(finishedSession);
 		activeGeneration = 0;
 		enterPending = false;
 		activationPending = false;
@@ -1229,6 +1261,7 @@
 			status.successfulEntries++;
 			status.reentries = Math.max(0, status.successfulEntries - 1);
 			recordTransition(status.reentries ? "session-reentered" : "session-entered", generation, status.currentStage);
+			attachAudioGestureListener(session, generation);
 			animationFrameHandle = session.requestAnimationFrame(function (time, frame) {
 				animationFrameHandle = null;
 				onFrame(generation, time, frame);
