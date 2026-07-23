@@ -102,3 +102,57 @@ see `web/MUTABLE_DATA.md`.
 
 Bluff remains useful for continuous music-buffer diagnostics, but it is no
 longer the first-run renderer gate.
+
+## Current integration reproduction (e371041d)
+
+The owner-data matrix was repeated from exact integration commit `e371041d`
+with a fresh data-free Window-owned Asyncify/WasmFS build. The original GOG
+folder remained outside the build and package. A local isolated profile imported
+the same 335 files and 586,421,656 bytes.
+
+Flat WebGPU did not reproduce a black-render regression:
+
+- direct `Vortex2` advanced ticks `3 -> 61 -> 121`, rendered 238 draw calls
+  and 236 textures, produced a 99.98% nonuniform canvas, and reported zero
+  WebGPU or page errors. The captured frame visibly showed the Vortex Rikers
+  interior;
+- game-owned `URL.LocalMap` advanced ticks before and after input, remained
+  nonuniform, and reported zero WebGPU or page errors. Its flyby explicitly
+  displays **Press ESC to begin**. Primary fire does not satisfy that title-
+  specific prompt; focused Escape opens the Unreal Gold menu, as the resulting
+  menu frame confirmed; and
+- a native Release build identified Unreal 226b, initialized Vulkan and audio,
+  completed `Vortex2` login/inventory acceptance, stayed responsive, and shut
+  down cleanly. This was a diagnostic comparison only; subsequent work remains
+  headless/noninteractive.
+
+The owner smoke now has aggregate, content-free WebAudio sampling and optional
+audio gates. It reports context state and counts/RMS only; it does not retain
+filenames, PCM, browser profiles, or game data. On `Vortex2`, the context was
+running with no error and all four started mono buffers contained nonzero PCM.
+No stereo buffer started at the stationary opening, matching the earlier
+qualification. Direct `Bluff` exercised the music path: ticks advanced
+`3 -> 64 -> 125`, the frame was visibly valid with zero WebGPU/page errors,
+and `--require-stereo-audio` passed with 4,354 nonzero stereo buffers plus 19
+nonzero mono buffers during the sampled window (maximum sampled RMS 0.307).
+
+These results establish current flat rendering, package/music decoding, browser
+queueing, and AudioContext state. They do not prove audible speaker/headset
+output, relative levels, long-play stability, or WebXR presentation. No WebXR
+claim can be made without an actively connected headset and a real immersive
+session. The previously reported mostly-black/missing-audio observation should
+therefore be reproduced with its exact launch mode and headset/runtime state;
+there is no evidenced engine compatibility correction to apply from the flat
+path.
+
+Repeatable owner gates include:
+
+```powershell
+python web/smoke_test_owner_game.py --game-dir <owned-unreal-folder> `
+  --expected-game unreal-gold --map Vortex2 --startup-mode direct-map `
+  --renderer webgpu --require-audio --base-url <local-package-origin>
+
+python web/smoke_test_owner_game.py --game-dir <owned-unreal-folder> `
+  --expected-game unreal-gold --map Bluff --startup-mode direct-map `
+  --renderer webgpu --require-stereo-audio --base-url <local-package-origin>
+```

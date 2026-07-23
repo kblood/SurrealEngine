@@ -61,6 +61,13 @@ also reached its next browser frame without the former `Failed to play AL
 source` exception; other browser-runtime qualification remains a separate
 release gate.
 
+`smoke_test_owner_game.py` can additionally require a running context plus a
+nonzero decoded buffer with `--require-audio`. For a map already known to play
+tracker music, `--require-stereo-audio` requires a nonzero stereo buffer. The
+probe samples bounded aggregate counts and RMS before buffers start; it neither
+stores PCM nor identifies game assets. This is decoder/queue evidence, not an
+audibility or output-routing test.
+
 The complete Release Emscripten and native engines build, all 26 native tests
 pass, and the browser release packaging and WebXR provider suites pass.
 
