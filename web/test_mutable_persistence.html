@@ -32,7 +32,7 @@ async function expectError(code, callback) {
 }
 
 async function run(name, callback) {
-	try { await callback(); record(name, true); }
+	try { record(name, true, await callback()); }
 	catch (error) { record(name, false, error && (error.stack || error.message) || String(error)); }
 }
 
@@ -119,6 +119,56 @@ function mutableFS() {
 	fs.put("/home/web_user/.config/SurrealEngine/Settings.json", "{\"local\":true}");
 	fs.put("/home/web_user/.config/SurrealEngine/SE-Log-LastRun.txt", "local log");
 	return fs;
+}
+
+const LEGACY_DESKTOP_PROFILE = `[Engine.Input]
+Up=MoveForward
+Down=MoveBackward
+Left=StrafeLeft
+Right=StrafeRight
+W=Fire
+S=Axis aUp Speed=+300.0
+
+[Engine.PlayerPawn]
+bInvertMouse=True
+`;
+
+const MIGRATED_DESKTOP_PROFILE = `[Engine.Input]
+Up=MoveForward
+Down=MoveBackward
+Left=StrafeLeft
+Right=StrafeRight
+W=MoveForward
+A=StrafeLeft
+S=MoveBackward
+D=StrafeRight
+
+[Engine.PlayerPawn]
+bInvertMouse=False
+`;
+
+async function assertControlProfileRoundTrip(api, storage) {
+	const source = new FakeFS(true);
+	source.put("/gamedata/System/SE-User.ini", LEGACY_DESKTOP_PROFILE);
+	const first = new api.MutableDataController({ FS: source }, {
+		storage,
+		checkpointIntervalMs: 0,
+	});
+	await first.initialize();
+	source.put("/gamedata/System/SE-User.ini", MIGRATED_DESKTOP_PROFILE);
+	await first.flush("desktop-controls-migrated");
+	first.dispose();
+
+	const target = new FakeFS(true);
+	target.put("/gamedata/System/SE-User.ini", LEGACY_DESKTOP_PROFILE);
+	const second = new api.MutableDataController({ FS: target }, {
+		storage,
+		checkpointIntervalMs: 0,
+	});
+	await second.initialize();
+	assert(target.text("/gamedata/System/SE-User.ini") === MIGRATED_DESKTOP_PROFILE,
+		"restored profile did not contain the persisted WASD/non-inverted migration");
+	second.dispose();
 }
 
 function wasmLikeMutableFS(analyzeMode) {
@@ -330,6 +380,21 @@ window.mutablePersistenceTestPromise = (async function () {
 	});
 
 	const idbStorage = new api.IndexedDBStorage("surrealengine-mutable-test-" + suffix);
+	await run("browser stores preserve migrated desktop controls across reload", async () => {
+		const storages = [new api.IndexedDBStorage(
+			"surrealengine-controls-persistence-test-" + suffix)];
+		if (navigator.storage && typeof navigator.storage.getDirectory === "function") {
+			const root = await navigator.storage.getDirectory();
+			storages.push(new api.OPFSStorage(root,
+				"surrealengine-controls-persistence-test-" + suffix));
+		}
+		for (const storage of storages) {
+			try { await assertControlProfileRoundTrip(api, storage); }
+			finally { await storage.clear(); }
+		}
+		return "backends=" + storages.map(storage => storage.backend).join(",");
+	});
+
 	await run("IndexedDB fallback flushes and restores mutable files", async () => {
 		await idbStorage.clear();
 		const source = mutableFS();

@@ -49,4 +49,13 @@ namespace DesktopInputDefaults
 		bindings["D"] = "StrafeRight";
 		return true;
 	}
+
+	bool ApplyModernControls(std::map<std::string, std::string>& bindings,
+		std::string& invertMouse)
+	{
+		if (!ApplyModernMovement(bindings))
+			return false;
+		invertMouse = "False";
+		return true;
+	}
 }

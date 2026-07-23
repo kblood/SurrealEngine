@@ -2247,11 +2247,12 @@ void Engine::LoadKeybindings()
 		std::string keyname = keynames[i];
 		keybindings[keyname] = packages->GetIniValue("user", "Engine.Input", keyname);
 	}
-	if (DesktopInputDefaults::ApplyModernMovement(keybindings))
+	std::string invertMouse = packages->GetIniValue("user", "Engine.PlayerPawn", "bInvertMouse");
+	if (DesktopInputDefaults::ApplyModernControls(keybindings, invertMouse))
 	{
 		for (const char* key : { "W", "A", "S", "D" })
 			packages->SetIniValue("user", "Engine.Input", key, keybindings[key]);
-		packages->SetIniValue("user", "Engine.PlayerPawn", "bInvertMouse", "False");
+		packages->SetIniValue("user", "Engine.PlayerPawn", "bInvertMouse", invertMouse);
 	}
 
 	for (int i = 0; i < 40; i++)

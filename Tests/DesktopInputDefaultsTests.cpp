@@ -17,6 +17,16 @@ namespace
 
 int main()
 {
+	std::string freshInvertMouse;
+	std::map<std::string, std::string> fresh;
+	Check(DesktopInputDefaults::ApplyModernControls(fresh, freshInvertMouse) &&
+		fresh["W"] == "MoveForward" && fresh["A"] == "StrafeLeft" &&
+		fresh["S"] == "MoveBackward" && fresh["D"] == "StrafeRight" &&
+		freshInvertMouse == "False",
+		"fresh profile did not receive persistent modern controls");
+	Check(!DesktopInputDefaults::ApplyModernControls(fresh, freshInvertMouse),
+		"persisted modern controls were migrated more than once");
+
 	std::map<std::string, std::string> classic = {
 		{ "Up", "MoveForward" }, { "Down", "MoveBackward" },
 		{ "Left", "StrafeLeft" }, { "Right", "StrafeRight" },
@@ -37,9 +47,12 @@ int main()
 		{ "W", "Fire" }, { "A", "" }, { "S", "Axis aUp Speed=+300.0" },
 		{ "D", "" }
 	};
-	Check(DesktopInputDefaults::ApplyModernMovement(olderSurrealProfile) &&
+	std::string olderSurrealInvertMouse = "True";
+	Check(DesktopInputDefaults::ApplyModernControls(olderSurrealProfile,
+		olderSurrealInvertMouse) &&
 		olderSurrealProfile["W"] == "MoveForward" &&
-		olderSurrealProfile["S"] == "MoveBackward",
+		olderSurrealProfile["S"] == "MoveBackward" &&
+		olderSurrealInvertMouse == "False",
 		"older SurrealEngine profile was not migrated to WASD");
 
 	std::map<std::string, std::string> empty;
@@ -52,9 +65,12 @@ int main()
 		{ "Left", "StrafeLeft" }, { "Right", "StrafeRight" },
 		{ "W", "Jump" }, { "S", "Axis aUp Speed=+300.0" }
 	};
-	Check(!DesktopInputDefaults::ApplyModernMovement(custom) &&
+	std::string customInvertMouse = "True";
+	Check(!DesktopInputDefaults::ApplyModernControls(custom, customInvertMouse) &&
 		custom["W"] == "Jump" && custom["S"] == "Axis aUp Speed=+300.0",
 		"custom user bindings were overwritten");
+	Check(customInvertMouse == "True",
+		"custom mouse inversion preference was overwritten");
 	Check(!DesktopInputDefaults::InvertMouse,
 		"fresh desktop configurations must not invert mouse look");
 

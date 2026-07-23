@@ -32,6 +32,13 @@ No other path is eligible. The snapshotter does not recursively walk
 `.unr`, `.utx`, `.uax`, `.umx`, executable, cache, and arbitrary `.usa` files
 are excluded and rejected again when stored metadata is loaded.
 
+The desktop-controls compatibility migration updates `W`, `A`, `S`, `D`, and
+`bInvertMouse` together in the in-memory user INI. Native shutdown writes that
+profile to `SE-User.ini`; the browser checkpoint then stores the same file in
+the mutable overlay. Recognized fresh and legacy profiles become WASD with
+non-inverted mouse look, while custom bindings and their inversion preference
+do not enter the migration path.
+
 ### Qualified WasmFS defect and correction
 
 The 2026-07-23 live owner-data matrix proved that the allowlist classification
@@ -125,4 +132,6 @@ is serving the repository. Its deterministic browser checks seed real v1 OPFS
 and IndexedDB metadata, prove success and idempotence, interrupt each backend
 before publication, verify that the old pointer remains current, and retry.
 The synthetic test page requires no commercial data and covers both storage
-backends when the browser exposes them.
+backends when the browser exposes them. It also checkpoints a synthetic
+migrated `SE-User.ini` over a legacy baseline and verifies that IndexedDB and
+OPFS restore the complete WASD/non-inverted profile before the next launch.
