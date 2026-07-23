@@ -89,8 +89,11 @@ mouse fallback. Focused user lock loss forwards the browser-reserved Escape to
 the engine intro/menu path; native unlock and WebXR exit without forwarding.
 The first physical Quest 3/Virtual Desktop/VDXR fallback test refined this
 claim: the cursor locked and mouse fire reached the game, but relative mouse
-motion did not rotate the view. Capture permission is proven; browser-relative
-motion through SDL/native input remains a release blocker.
+motion did not rotate the view. Capture permission is proven. Commit `28906717`
+adds an exact-canvas `movementX`/`movementY` bridge with atomic per-frame drain,
+actual-lock ownership, SDL de-duplication, stale-asset fallback, and queued
+lifecycle resets. Automated native/browser and both Emscripten build gates pass;
+plain Chrome and VDXR relative-look behavior still require human requalification.
 Finally, WebGPU surface creation
 uses the exact configured `Module.canvas` rather than assuming `#canvas`.
 These fixes are integrated and covered by the deterministic browser suites;
@@ -145,13 +148,16 @@ cannot establish real gameplay. Before a stable release, an owner must still:
    buttons, wheel, pointer-lock behavior, resize, fullscreen enter/exit, audio,
    focus loss, and restoration.
    The 2026-07-23 VDXR test failed this gate specifically at relative
-   mouse-look despite successful pointer lock and mouse-button delivery.
+   mouse-look despite successful pointer lock and mouse-button delivery. Retest
+   the `28906717` or later artifact to qualify the implemented bridge.
 3. Quit through the actual game, confirm ticks stop and the mutable-data flush
    completes, reload, and verify INI/save restoration. Then switch titles and
    repeat without storage crossover.
    The owner matrix restored INI/log/Settings data but proved that WasmFS
    `analyzePath` can throw for the Save directory, causing `.usa` files to be
-   omitted even though `stat`, `readdir`, and classification work.
+   omitted even though `stat`, `readdir`, and classification work. The
+   `46d13173` fallback has deterministic coverage but still needs a real save
+   round trip in the rebuilt artifact.
 4. Test any locally owned demo distribution only against its experimental
    descriptor; demo detection passing does not claim full engine compatibility.
 5. On real XR hardware, enter, exit to the same flat canvas, exercise a failed

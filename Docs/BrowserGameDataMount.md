@@ -360,8 +360,12 @@ Physical Quest 3 testing through desktop Chrome/Virtual Desktop/VDXR confirmed
 that the exact canvas can acquire pointer lock and receive mouse buttons after
 a failed XR attempt. It also exposed that relative motion did not reach working
 mouse-look. The gesture-owned lock protocol is therefore not the remaining
-problem; the browser `movementX`/`movementY` to SDL relative-event and native raw
-mouse path needs focused instrumentation.
+problem. Commit `28906717` now forwards exact-canvas `movementX`/`movementY`
+through an atomic native accumulator, drains it through the existing raw-mouse
+consumer once per frame, and suppresses SDL duplication only while the browser
+bridge owns an actual pointer lock. Requested-but-unlocked, old/new asset
+mismatch, lock loss, native-call blocking, and XR transitions retain safe
+fallback/reset behavior. Physical Chrome and VDXR validation remains.
 
 Escape is reserved by the browser while pointer lock is active. A focused,
 visible page therefore treats non-programmatic lock loss as one Escape intent

@@ -459,3 +459,19 @@ Before a new immutable candidate is published:
 
 Until those gates pass, `cef1e89b` remains useful diagnostic evidence rather
 than a promotable WebXR release.
+
+## Implementation follow-up
+
+The three focused product corrections were subsequently implemented without a
+broad engine refactor:
+
+- `46d13173` — WasmFS mutable Save-directory `stat` fallback and regressions;
+- `f3643b78` — optional-WebGPU session negotiation, backend exclusivity matrix,
+  and allowlisted provider error code; and
+- `28906717` — actual-lock browser relative-motion ownership, atomic per-frame
+  delivery, SDL de-duplication, blocked-call reset handoff, and regressions.
+
+Their automated gates pass. This does not change the report's physical release
+requirements: a newly built immutable package still needs real owner-save,
+plain Chrome mouse-look, Quest/VDXR mouse-look, Automatic WebXR, forced bridge,
+stereo/tracking/UI, exit, and re-entry qualification.

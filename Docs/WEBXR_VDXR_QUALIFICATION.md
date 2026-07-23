@@ -20,9 +20,9 @@ submitted.
 The privacy-safe v2 report was not captured during the failed attempt, so the
 exact provider failure stage remains unknown. The next reproduction must copy
 the report before reloading. Its `provider_error_stage` distinguishes session
-request, binding, format, projection-layer, and render-state failures. A future
-diagnostics revision should also include the already allowlisted
-`lastErrorCode`; raw exception text must remain excluded.
+request, binding, format, projection-layer, and render-state failures. The
+post-candidate `f3643b78` diagnostics now include the exact `lastErrorCode` only
+as an allowlisted `provider_error_code`; raw exception text remains excluded.
 
 The fallback flat canvas successfully acquired pointer lock and mouse buttons
 reached the game: primary fire worked. Relative mouse motion did not rotate the
@@ -38,12 +38,13 @@ The current Automatic preflight selects direct presentation when
 adapter. A WebIDL implementation may ignore an unrecognized dictionary member,
 so adapter creation alone can overstate XR compatibility.
 
-When direct WebGPU and the WebGL bridge are both candidates, Automatic should:
+Implemented at `f3643b78`, when direct WebGPU and the WebGL bridge are both
+candidates, Automatic now:
 
-1. request one immersive session with `webgpu` in `optionalFeatures`;
-2. inspect `session.enabledFeatures` after consent;
-3. use direct `XRGPUBinding` only when `webgpu` was enabled; and
-4. otherwise create the normal `XRWebGLLayer` compatibility bridge.
+1. requests one immersive session with `webgpu` in `optionalFeatures`;
+2. inspects `session.enabledFeatures` after consent;
+3. uses direct `XRGPUBinding` only when `webgpu` was enabled; and
+4. otherwise creates the normal `XRWebGLLayer` compatibility bridge.
 
 This is the adaptive path described by the
 [WebXR/WebGPU Binding editor's draft](https://immersive-web.github.io/webxr-webgpu-binding/).
@@ -63,20 +64,30 @@ textures; removing that usage is not a valid compatibility workaround.
 - Reproduce Automatic and save the v2 report before reloading.
 - Reload the preserved game library, select **Force WebGL compatibility
   bridge**, leave blocking timing disabled, and test entry.
-- Add deterministic provider tests for optional-feature negotiation, both
-  enabled-feature outcomes, forced bridge, and direct failure without an
-  illegal same-session fallback.
-- Add the allowlisted exact provider error code to the privacy-safe report.
-- Instrument a real Chrome pointer-lock test from nonzero browser
-  `movementX`/`movementY` through SDL relative motion to
+- Re-run the deterministic provider tests in the final package; the implemented
+  matrix covers optional-feature negotiation, both enabled-feature outcomes,
+  bridge-only, forced bridge, direct-only, unobservable feature state, and
+  direct failure without an illegal same-session fallback.
+- Confirm the new allowlisted `provider_error_code` appears in a physical
+  privacy-safe report without raw exception text.
+- Run a real Chrome pointer-lock test from nonzero browser
+  `movementX`/`movementY` through the `28906717` atomic bridge to
   `Engine::OnWindowRawMouseMove`; retain the existing post-XR capture-prompt
-  test.
+  and requested-but-unlocked SDL fallback checks.
 - Only after bridge entry works, qualify stereo output, head/controller
   tracking, menu and intro quads, exact pointer contact, exit/re-entry, timing,
   and loaded UT99/Unreal Gold behavior.
 
 This attempt is useful hardware evidence, but it is a failed qualification and
 the candidate must not be promoted to stable.
+
+Post-candidate fixes are implemented but not yet physically qualified:
+
+- `46d13173` restores WasmFS save-directory discovery through a `stat` fallback;
+- `f3643b78` negotiates the WebXR backend from enabled session features; and
+- `28906717` bridges exact-canvas browser relative motion into the engine while
+  retaining requested-but-unlocked SDL fallback and de-duplicating active-lock
+  delivery.
 
 The independent Claude Code Opus 4.8 code-path review, ranked hypotheses,
 candidate fixes, tests, risks, and commit decomposition are recorded in

@@ -32,7 +32,7 @@ No other path is eligible. The snapshotter does not recursively walk
 `.unr`, `.utx`, `.uax`, `.umx`, executable, cache, and arbitrary `.usa` files
 are excluded and rejected again when stored metadata is loaded.
 
-### Qualified WasmFS defect
+### Qualified WasmFS defect and correction
 
 The 2026-07-23 live owner-data matrix proved that the allowlist classification
 is correct but the production snapshot walk is not yet reliable under WasmFS.
@@ -43,12 +43,15 @@ current `fsExists` helper treats that exception as absence, so a valid
 INI, Settings, last-run log, explicit flush, pagehide, clean quit, and restore
 passed; real save persistence did not.
 
-The focused correction is to fall back to `FS.stat` whenever `analyzePath`
-throws or reports false, then add a WasmFS-like regression in which
-`analyzePath` fails while `stat` and `readdir` succeed. UT99 and Unreal `.usa`
-round trips must be repeated before save persistence is claimed. Deus Ex uses
-nested `SaveNNNN/*.dxs` data and is outside the current flat allowlist; it needs
-a separate typed path policy rather than a broad recursive exception.
+Commit `46d13173` makes `analyzePath` a positive-only fast path and falls back
+to `FS.stat` whenever it throws or reports false. Sixteen deterministic browser
+checks now include WasmFS-like throwing and false results while `stat`,
+`readdir`, and reads succeed; `Save99.usa` checkpoints and restores, a
+disallowed package stays excluded, and a genuinely absent directory remains
+optional. Real UT99 and Unreal `.usa` round trips must still be repeated in the
+rebuilt shipping artifact before save persistence is release-qualified. Deus
+Ex uses nested `SaveNNNN/*.dxs` data and is outside the current flat allowlist;
+it needs a separate typed path policy rather than a broad recursive exception.
 The cross-blocker second-opinion review is in
 `../Docs/CLAUDE_OPUS_RUNTIME_BLOCKER_ANALYSIS.md`.
 

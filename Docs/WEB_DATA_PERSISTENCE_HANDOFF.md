@@ -133,9 +133,10 @@ The development server on port 8094 was stopped after validation.
 - A live WasmFS owner-data run proved that `FS.analyzePath` throws for the real
   `/gamedata/Save` directory while `FS.stat` and `FS.readdir` succeed. The
   current existence helper then skips valid `.usa` files. INI/log/Settings and
-  explicit/pagehide/quit restoration passed, but save persistence did not. Fall
-  back to `FS.stat` on `analyzePath` failure and add the corresponding
-  WasmFS-like regression before claiming saves.
+  explicit/pagehide/quit restoration passed, but save persistence did not.
+  Commit `46d13173` adds the `FS.stat` fallback and throwing/false
+  `analyzePath` regressions, including save round-trip and exclusion checks.
+  The real owner-save matrix must still pass in the rebuilt artifact.
 - Deus Ex save slots use nested `SaveNNNN/*.dxs` files and are not covered by
   the current flat UT/Unreal `.usa` allowlist. Add a typed Deus Ex policy rather
   than recursively widening the existing rule.

@@ -3,7 +3,7 @@
 Date: 2026-07-23
 
 Integration status: implemented and automated through
-`integration/unified-engine` commit `cef1e89b`. Both presentation modes remain
+`integration/unified-engine` commit `28906717`. Both presentation modes remain
 experimental. The first physical Quest 3/Virtual Desktop/VDXR Automatic attempt
 failed after consent and before confirmed presentation; forced bridge remains
 hardware-unverified.
@@ -409,14 +409,16 @@ existing WebGPU canvas atlas, and copies that atlas through WebGL 2. The second
 mode was informed by the working Quake presentation shape but does not add a
 second SurrealEngine render device.
 
-Automatic capability selection must not treat successful
+Automatic capability selection no longer treats successful
 `requestAdapter({xrCompatible: true})` as conclusive: a WebIDL implementation
-may ignore an unrecognized dictionary member. When both backends are available,
-the corrective design is one session request with `webgpu` optional, followed
-by selection from `session.enabledFeatures`. If `webgpu` is enabled, WebGL
+may ignore an unrecognized dictionary member. At `f3643b78`, when both backends
+are available, the provider makes one session request with `webgpu` optional,
+then selects from `session.enabledFeatures`. If `webgpu` is enabled, WebGL
 `baseLayer` fallback is forbidden for that session; a later direct failure must
-end it and require a fresh trusted gesture for forced bridge. This behavior and
-safe exact error-code reporting remain to be implemented and tested.
+end it and require a fresh trusted gesture for forced bridge. Missing or
+uninspectable enabled features fail closed with an allowlisted exact code and
+forced-bridge guidance. The automated direct/bridge exclusivity matrix passes;
+physical VDXR requalification remains.
 
 Both modes remain **experimental**. Automated tests prove selection, ABI,
 projection conversion, shared engine behavior, cleanup, and desktop cross-API

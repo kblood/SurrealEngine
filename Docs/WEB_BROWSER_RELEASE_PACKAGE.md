@@ -250,6 +250,13 @@ mouse fire worked, but relative mouse motion did not rotate the view. The v2
 failure report was not captured, and forced bridge still needs a separate
 test. See `WEBXR_VDXR_QUALIFICATION.md`.
 
+The integration branch now contains three post-candidate corrections that are
+not part of immutable `cef1e89b`: WasmFS save discovery (`46d13173`),
+enabled-feature WebXR negotiation and exact safe error codes (`f3643b78`), and
+actual-lock browser relative-motion delivery (`28906717`). Their focused suites
+and both Emscripten build variants pass. A new clean package and physical/owner
+matrix are required before any of those corrections are release evidence.
+
 ## Validation
 
 Synthetic tests contain no commercial data:
@@ -318,9 +325,10 @@ strict schema readers must explicitly accept
 `surrealengine-webxr-headset-report-v2`.
 
 The first physical VDXR failure showed that stage alone is insufficient for a
-fast remote diagnosis. A later schema revision should add the provider's
-already allowlisted exact `lastErrorCode` while continuing to exclude raw
-exception text.
+fast remote diagnosis. Commit `f3643b78` adds the provider's exact
+`lastErrorCode` as an allowlisted `provider_error_code` token while continuing
+to exclude raw exception text. The field still needs confirmation in a physical
+failure report.
 
 Bridge percentiles come from the most recent 120 valid nonnegative timing
 samples. Raw samples remain private to the in-page timing window and are not
@@ -492,18 +500,24 @@ restoration, but not save restoration, long-play behavior, or successful
 physical headset presentation. Before
 stable publication:
 
-1. Correct and manually retest relative mouse delivery. The physical VDXR pass
+1. Manually retest the corrected relative mouse delivery. The physical VDXR pass
    proved that `cef1e89b` can lock the cursor and receive mouse fire while
    mouse-look remains static. Then test capture/resume, browser Escape,
    wheel/buttons, and audibly verify Unreal Gold effects and music.
-2. Fix WasmFS save-directory detection so `FS.stat` is tried when
-   `FS.analyzePath` throws or reports false, then repeat real `.usa` save and
-   restore. Complete fullscreen/resize and long-play persistence checks.
+   The implementation exists at `28906717`; run this gate on its rebuilt
+   candidate rather than `cef1e89b`.
+2. Repeat real `.usa` save and restore with the WasmFS fallback, including an
+   `FS.analyzePath` throw or false result with working `FS.stat`. Complete
+   fullscreen/resize and long-play persistence checks.
+   The code/test correction exists at `46d13173`; real owner-save evidence is
+   still required.
 3. Repeat Automatic on Quest 3/VDXR and capture the v2 failure report before
    reloading. Then test **Force WebGL compatibility bridge** with blocking
    timing disabled. On each physical Quest/browser path, record versions
    outside the report and test direct `XRGPUBinding` only where actually
    enabled. Record bridge timing only after basic presentation works.
+   The optional-feature correction exists at `f3643b78`; test both Automatic
+   and forced bridge from the superseding immutable package.
 4. Verify the generated report reaches provider phase/stage `running`, records
    a supported projection format, the expected presentation mode, and
    `local-floor` or `local` reference space,
