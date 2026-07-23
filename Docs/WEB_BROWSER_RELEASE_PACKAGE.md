@@ -6,15 +6,17 @@ Date: 2026-07-24
 
 The single public Surreal Engine folder at
 `https://dionysus.dk/webxr/Ports/SurrealEngine/` now serves clean integration
-commit `e9031169`. It was built as the shipping Release Asyncify/WasmFS variant
+commit `e8a57fb8`. It was built as the shipping Release Asyncify/WasmFS variant
 with no preloaded game data, packaged with matching corresponding source, and
-deployed by a verified atomic folder swap on 2026-07-24.
+deployed by a verified atomic folder swap on 2026-07-24. The importer links to
+Epic-sanctioned OldUnreal acquisition pages for Unreal Gold and Unreal
+Tournament without mirroring any game payload.
 
 The live WASM SHA-256 is
 `6d1899984e75da6481cf04aec655153d69e28ca449471702c3aead0562d4de92`;
 the live manifest SHA-256 is
-`b7a49d83ed2c9cd21bd6eb97ffd0fa723cb188e8e10a7a81497a5b58f0462b94`.
-Local and live release smokes pass. See `WEB_DEPLOYMENT_E9031169.md`.
+`f7a3e80504787653935b0c16b7157ced7b48a5a63377d7274f7e866b43b6d64e`.
+Local and live release smokes pass. See `WEB_DEPLOYMENT_E8A57FB8.md`.
 
 Do not publish numbered Surreal candidate directories. Use the one stable
 folder, retain rollback copies outside `Ports`, and keep commit/hash identity

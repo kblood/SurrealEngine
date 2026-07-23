@@ -9,8 +9,8 @@ The active integration worktree is:
 ```text
 C:\Devstuff\QuestGames\surreal-webxr-release-gates
 branch: integration/unified-engine
-release source: e90311692f09d06955bd9da244c695f2484c3421
-release source tree: 9820f8af9da371711a36f03c8c49003eb600b773
+release source: e8a57fb8c2da898c83488c02110dab115cb89fd1
+release source tree: 5568b305241799fd045ffe94f7ba7e01daf57fa7
 ```
 
 Push integration changes only to `fork` (`kblood/SurrealEngine`), never to
@@ -24,40 +24,40 @@ https://dionysus.dk/webxr/Ports/SurrealEngine/
 server: /var/www/html/webxr/Ports/SurrealEngine
 ```
 
-The site was atomically updated from `04687fe1` to clean commit `e9031169` on
+The site was atomically updated from `e9031169` to clean commit `e8a57fb8` on
 2026-07-24. Do not create numbered public Surreal release folders. Commit and
 hash identity belong in `release-manifest.json`, not in the URL. Build into a
 hidden staging directory, verify hashes, move the live folder to a non-public
 rollback path, and rename the staged folder to `SurrealEngine`.
 
-The complete deployment record is `Docs/WEB_DEPLOYMENT_E9031169.md`.
+The complete deployment record is `Docs/WEB_DEPLOYMENT_E8A57FB8.md`.
 
 ## Live browser release identity
 
 Local audited package:
 
 ```text
-C:\Devstuff\QuestGames\SurrealEngine\releases\staging\e9031169\SurrealEngine
+C:\Devstuff\QuestGames\SurrealEngine\releases\staging\e8a57fb8\SurrealEngine
 ```
 
 Build and compliance identity:
 
 | Item | Value |
 | --- | --- |
-| Source commit | `e90311692f09d06955bd9da244c695f2484c3421` |
-| Source tree | `9820f8af9da371711a36f03c8c49003eb600b773` |
+| Source commit | `e8a57fb8c2da898c83488c02110dab115cb89fd1` |
+| Source tree | `5568b305241799fd045ffe94f7ba7e01daf57fa7` |
 | Browser entry point | `asyncify-opfs` |
 | Emscripten | `6.0.2`, revision `7a2d97d627ff4945eae28847ce0387ac52b92c09` |
 | JavaScript SHA-256 | `fb7595ab328bb9b51be9eab3a7e9b601564d6e484f73852032a18bab37e0dab6` |
 | WASM SHA-256 | `6d1899984e75da6481cf04aec655153d69e28ca449471702c3aead0562d4de92` |
-| Manifest SHA-256 | `b7a49d83ed2c9cd21bd6eb97ffd0fa723cb188e8e10a7a81497a5b58f0462b94` |
-| Corresponding source SHA-256 | `603ed057178310130b281e09ca24e2a598b452ddb04d8fff5c5fff167354e6d7` |
+| Manifest SHA-256 | `f7a3e80504787653935b0c16b7157ced7b48a5a63377d7274f7e866b43b6d64e` |
+| Corresponding source SHA-256 | `1ef83bc181c5bb948c436e002d534c3c46cb6e8af532a732f7be6c55704117f9` |
 | File count | 25 total: 24 manifest payloads plus the manifest |
 
 The previous live release is retained outside the public catalog at:
 
 ```text
-/var/www/html/webxr/.SurrealEngine.rollback-04687fe1-20260724
+/var/www/html/webxr/.SurrealEngine.rollback-e9031169-20260724
 ```
 
 Older numbered/experimental Surreal folders were removed from the public
@@ -97,7 +97,9 @@ The live engine and importer recognize these local demo folders:
 
 All three descriptors are present in the live `ut99_importer.js`, and their
 detector/launch tests pass. They remain experimental. No demo or retail game
-data is hosted, bundled, or downloaded by the application.
+data is hosted or bundled. The importer links to Epic-sanctioned OldUnreal
+acquisition pages for Unreal Gold and Unreal Tournament; downloads remain
+external and users import the installed folders locally.
 
 Magazine-CD distribution history does not itself establish a current right to
 republish the files. The local demo handoff explicitly prohibits treating the
@@ -136,10 +138,10 @@ worktrees. New Surreal builds, releases, and QA evidence belong under the new
 has now exercised:
 
 ```text
-SurrealEngine\out\web-e9031169
-SurrealEngine\releases\materials\e9031169
-SurrealEngine\releases\staging\e9031169
-SurrealEngine\qa\runs\2026-07-24\e9031169\web-release
+SurrealEngine\out\web-e8a57fb8
+SurrealEngine\releases\materials\e8a57fb8
+SurrealEngine\releases\staging\e8a57fb8
+SurrealEngine\qa\runs\2026-07-24\e8a57fb8\web-release
 ```
 
 Do not create new top-level `surreal-*`, `build-*`, candidate, capture, or test
