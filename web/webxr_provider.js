@@ -15,6 +15,7 @@
 	const INPUT_QUEUE_LIMIT = 256;
 	const HAPTIC_POLICY = Object.freeze({ minimumDurationMilliseconds: 1, maximumDurationMilliseconds: 1000 });
 	const POSE_AGE_LIMITS = Object.freeze({ frames: 65535, milliseconds: 60000, presentations: 0xffffffff });
+	const INPUT_DIAGNOSTIC_LIMITS = Object.freeze({ arrayEntries: 64, sources: 2, samples: 0xffffffff });
 	let generationCounter = 0;
 	let activeGeneration = 0;
 	let enterPending = false;
@@ -49,6 +50,7 @@
 	let audioGestureListener = null;
 	let captureSequence = 0;
 	let bridgePoseAge = null;
+	let inputDiagnostics = null;
 
 	const status = {
 		phase: "idle",
@@ -71,6 +73,7 @@
 		atlasWidth: null,
 		atlasHeight: null,
 		bridgeDiagnostics: null,
+		inputDiagnostics: null,
 		capabilities: null,
 		enterAttempts: 0,
 		successfulEntries: 0,
@@ -115,6 +118,68 @@
 	function boundedIntegerOrNull(value, maximum) {
 		const bounded = boundedNonnegative(value, maximum);
 		return bounded === null ? null : Math.floor(bounded);
+	}
+
+	function inputArrayLength(value) {
+		if (!value || !Number.isInteger(value.length) || value.length < 0) return null;
+		return Math.min(value.length, INPUT_DIAGNOSTIC_LIMITS.arrayEntries);
+	}
+
+	function resetInputDiagnostics() {
+		inputDiagnostics = {
+			actionFocused: null,
+			xrStandardSources: 0,
+			leftButtons: null,
+			leftAxes: null,
+			rightButtons: null,
+			rightAxes: null,
+			nonzeroThumbstickSamples: 0,
+		};
+		status.inputDiagnostics = copyInputDiagnostics(inputDiagnostics);
+	}
+
+	function copyInputDiagnostics(source) {
+		if (!source || typeof source !== "object") return null;
+		return Object.freeze({
+			actionFocused: source.actionFocused === true ? true :
+				source.actionFocused === false ? false : null,
+			xrStandardSources: boundedCounter(source.xrStandardSources, INPUT_DIAGNOSTIC_LIMITS.sources),
+			leftButtons: boundedIntegerOrNull(source.leftButtons, INPUT_DIAGNOSTIC_LIMITS.arrayEntries),
+			leftAxes: boundedIntegerOrNull(source.leftAxes, INPUT_DIAGNOSTIC_LIMITS.arrayEntries),
+			rightButtons: boundedIntegerOrNull(source.rightButtons, INPUT_DIAGNOSTIC_LIMITS.arrayEntries),
+			rightAxes: boundedIntegerOrNull(source.rightAxes, INPUT_DIAGNOSTIC_LIMITS.arrayEntries),
+			nonzeroThumbstickSamples: boundedCounter(source.nonzeroThumbstickSamples,
+				INPUT_DIAGNOSTIC_LIMITS.samples),
+		});
+	}
+
+	function updateInputDiagnostics(currentSession, actionFocused, sources) {
+		// Export only observations from the live provider session. The public packet
+		// helper remains side-effect free for tests and launcher feature probes.
+		if (!inputDiagnostics || !activeGeneration || currentSession !== session) return;
+		inputDiagnostics.actionFocused = actionFocused === true;
+		inputDiagnostics.xrStandardSources = 0;
+		inputDiagnostics.leftButtons = null;
+		inputDiagnostics.leftAxes = null;
+		inputDiagnostics.rightButtons = null;
+		inputDiagnostics.rightAxes = null;
+		for (const source of sources) {
+			const gamepad = source && source.gamepad;
+			const hand = source && source.handedness;
+			if (hand === "left" || hand === "right") {
+				inputDiagnostics[hand + "Buttons"] = inputArrayLength(gamepad && gamepad.buttons);
+				inputDiagnostics[hand + "Axes"] = inputArrayLength(gamepad && gamepad.axes);
+			}
+			if (!gamepad || gamepad.mapping !== "xr-standard") continue;
+			inputDiagnostics.xrStandardSources++;
+			if (!actionFocused || !gamepad.axes || gamepad.axes.length < 4) continue;
+			const stickX = finiteClamped(gamepad.axes[2], -1, 1);
+			const stickY = finiteClamped(gamepad.axes[3], -1, 1);
+			if (stickX !== 0 || stickY !== 0)
+				inputDiagnostics.nonzeroThumbstickSamples = Math.min(
+					inputDiagnostics.nonzeroThumbstickSamples + 1, INPUT_DIAGNOSTIC_LIMITS.samples);
+		}
+		status.inputDiagnostics = copyInputDiagnostics(inputDiagnostics);
 	}
 
 	function resetBridgePoseAge() {
@@ -384,6 +449,7 @@
 		const packet = new Uint8Array(INPUT_ABI.headerBytes + sources.length * INPUT_ABI.sourceBytes);
 		const data = new DataView(packet.buffer);
 		const actionFocused = isActionFocused(currentSession);
+		updateInputDiagnostics(currentSession, actionFocused, sources);
 		data.setUint32(0, INPUT_ABI.version, true);
 		data.setUint32(4, packet.byteLength, true);
 		data.setUint32(8, sources.length, true);
@@ -855,6 +921,8 @@
 		status.atlasWidth = null;
 		status.atlasHeight = null;
 		status.bridgeDiagnostics = null;
+		status.inputDiagnostics = null;
+		inputDiagnostics = null;
 		status.lastError = error ? String(error.message || error) : null;
 		status.lastErrorCode = error ? (error.code || "webxr-provider-failed") : null;
 		status.lastErrorStage = errorStage;
@@ -1216,6 +1284,7 @@
 		status.atlasWidth = null;
 		status.atlasHeight = null;
 		status.bridgeDiagnostics = null;
+		resetInputDiagnostics();
 		captureSequence = 0;
 		resetBridgePoseAge();
 		resetHapticStatus(generation);
@@ -1393,6 +1462,7 @@
 				{ reasons: status.capabilities.reasons.slice() });
 		result.transitions = status.transitions.slice();
 		result.bridgeDiagnostics = copyBridgeDiagnostics(status.bridgeDiagnostics);
+		result.inputDiagnostics = copyInputDiagnostics(status.inputDiagnostics);
 		result.sessionEndBlocked = sessionEndBlocked;
 		result.inputQueueDepth = queuedInputPackets.length;
 		result.inputQueueOverflow = inputQueueOverflow;

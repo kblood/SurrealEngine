@@ -40,6 +40,16 @@
 		return Number.isInteger(parsed) && parsed > 0 ? parsed : UNKNOWN;
 	}
 
+	function optionalCount(value) {
+		if (value === null || value === undefined || value === "") return UNKNOWN;
+		const parsed = Number(value);
+		return Number.isInteger(parsed) && parsed >= 0 ? parsed : UNKNOWN;
+	}
+
+	function actionFocus(value) {
+		return value === true ? "focused" : value === false ? "not-focused" : UNKNOWN;
+	}
+
 	function knownPresentationMode(value) {
 		return value === "direct-webgpu" || value === "webgl-bridge" ? value : UNKNOWN;
 	}
@@ -60,6 +70,8 @@
 		const source = snapshot || {};
 		const bridge = source.bridgeDiagnostics && typeof source.bridgeDiagnostics === "object" ?
 			source.bridgeDiagnostics : {};
+		const input = source.inputDiagnostics && typeof source.inputDiagnostics === "object" ?
+			source.inputDiagnostics : {};
 		return Object.freeze({
 			capabilityCode: token(source.capabilityCode),
 			capabilityAvailable: source.capabilityAvailable === true ? "yes" :
@@ -73,6 +85,13 @@
 			frames: number(source.frames),
 			skippedFrames: number(source.skippedFrames),
 			inputPackets: number(source.inputPackets),
+			inputActionFocus: actionFocus(input.actionFocused),
+			inputXRStandardSources: number(input.xrStandardSources),
+			inputLeftButtons: optionalCount(input.leftButtons),
+			inputLeftAxes: optionalCount(input.leftAxes),
+			inputRightButtons: optionalCount(input.rightButtons),
+			inputRightAxes: optionalCount(input.rightAxes),
+			inputNonzeroThumbstickSamples: number(input.nonzeroThumbstickSamples),
 			projectionFormat: token(source.projectionFormat),
 			referenceSpaceType: token(source.referenceSpaceType),
 			presentationMode: knownPresentationMode(source.presentationMode),
@@ -120,6 +139,13 @@
 			"frames: " + state.frames,
 			"skipped_frames: " + state.skippedFrames,
 			"input_packets: " + state.inputPackets,
+			"input_action_focus: " + state.inputActionFocus,
+			"input_xr_standard_sources: " + state.inputXRStandardSources,
+			"input_left_buttons: " + state.inputLeftButtons,
+			"input_left_axes: " + state.inputLeftAxes,
+			"input_right_buttons: " + state.inputRightButtons,
+			"input_right_axes: " + state.inputRightAxes,
+			"input_nonzero_thumbstick_samples: " + state.inputNonzeroThumbstickSamples,
 			"projection_format: " + state.projectionFormat,
 			"reference_space: " + state.referenceSpaceType,
 			"enter_attempts: " + state.enterAttempts,
@@ -214,7 +240,11 @@
 				phase: state.phase + " / " + state.stage,
 				error: state.errorCode + " / " + state.errorStage,
 				frames: state.frames + " rendered, " + state.skippedFrames + " skipped",
-				input: String(state.inputPackets),
+				input: state.inputPackets + " packets, focus " + state.inputActionFocus +
+					", xr-standard " + state.inputXRStandardSources + ", left " +
+					state.inputLeftButtons + "b/" + state.inputLeftAxes + "a, right " +
+					state.inputRightButtons + "b/" + state.inputRightAxes + "a, stick samples " +
+					state.inputNonzeroThumbstickSamples,
 				projection: state.projectionFormat,
 				reference: state.referenceSpaceType,
 				mode: state.presentationMode,

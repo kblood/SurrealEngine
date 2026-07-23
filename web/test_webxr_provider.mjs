@@ -238,6 +238,11 @@ assert.equal(globalThis.surrealXRFrameABI.version, 3);
 // Reservation stays native-free until startup has returned and activation is explicit.
 assert.equal(await globalThis.surrealXRRequestSession(), true);
 assert.equal(globalThis.surrealXRGetState().phase, "session-reserved");
+assert.deepEqual(globalThis.surrealXRGetState().inputDiagnostics, {
+	actionFocused: null, xrStandardSources: 0,
+	leftButtons: null, leftAxes: null, rightButtons: null, rightAxes: null,
+	nonzeroThumbstickSamples: 0,
+}, "a reserved session starts with bounded diagnostics and no inferred controller data");
 assert.equal(bindingCreations, 0); assert.equal(nativeCalls.length, 0); assert.equal(sessions[0].frames.size, 0);
 assert.equal(await globalThis.surrealXRActivateReservedSession(), true);
 assert.deepEqual(loopTransitions, [1]);
@@ -300,6 +305,15 @@ assert.equal(firstInput.getFloat32(firstRight + 16, true), 0,
 assert.equal(firstInput.getFloat32(firstRight + 40 + 8, true), .75);
 assert.equal(firstInput.getFloat32(firstRight + 40 + 12, true), .25,
 	"xr-standard Quest thumbstick axes must remain in slots 2 and 3");
+const firstInputDiagnostics = globalThis.surrealXRGetState().inputDiagnostics;
+assert.deepEqual(firstInputDiagnostics, {
+	actionFocused: true, xrStandardSources: 2,
+	leftButtons: 6, leftAxes: 4, rightButtons: 6, rightAxes: 4,
+	nonzeroThumbstickSamples: 2,
+});
+assert.deepEqual(Object.keys(firstInputDiagnostics).sort(), ["actionFocused", "leftAxes", "leftButtons",
+	"nonzeroThumbstickSamples", "rightAxes", "rightButtons", "xrStandardSources"],
+	"provider state must expose only the diagnostics allowlist");
 let packet = new DataView(renderedPackets[0].bytes.buffer);
 assert.equal(packet.getUint32(12, true), 2);
 assert.equal(packet.getUint32(28, true), 1,
@@ -384,6 +398,7 @@ const idleSafetyInputs = inputPackets.length;
 const idleSafetyRenders = renderedPackets.length;
 sessions[0].visibilityState = "visible-blurred";
 sessions[0].listeners.get("visibilitychange")();
+assert.equal(globalThis.surrealXRGetState().inputDiagnostics.actionFocused, false);
 assert.equal(globalThis.surrealXRSubmitHaptic(0, .5, 20, 0), false,
 	"an unfocused session must not dispatch haptics");
 assert.equal(leftHapticCalls.length, 1);
@@ -492,6 +507,11 @@ assert.equal(sessions.length, 1, "re-entry also waits for the browser's delayed 
 delayedEnd.resolve();
 assert.equal(await reentry, true);
 assert.equal(sessions.length, 2);
+assert.deepEqual(globalThis.surrealXRGetState().inputDiagnostics, {
+	actionFocused: null, xrStandardSources: 0,
+	leftButtons: null, leftAxes: null, rightButtons: null, rightAxes: null,
+	nonzeroThumbstickSamples: 0,
+}, "input observations do not leak across XR session generations");
 assert.equal(sessions[1].listeners.has("selectstart"), true,
 	"re-entry attaches one audio gesture listener to the new session");
 sessions[0].emit("selectstart", { isTrusted: true });
@@ -695,6 +715,12 @@ const defensive = new DataView(globalThis.surrealXRPackInputSnapshot(1,
 	{ visibilityState: "visible", inputSources: [unsafe] }, stereoFrame, {}).buffer);
 assert.equal(defensive.getUint32(24 + 8, true), 0);
 assert.equal(defensive.getFloat32(24 + 40 + 8, true), 0);
+const compact = makeInputSource("left", 0); compact.gamepad.axes = [-.5, .75];
+const compactPacket = new DataView(globalThis.surrealXRPackInputSnapshot(1,
+	{ visibilityState: "visible", inputSources: [compact] }, stereoFrame, {}).buffer);
+assert.equal(compactPacket.getFloat32(24 + 40 + 8, true), 0);
+assert.equal(compactPacket.getFloat32(24 + 40 + 12, true), 0,
+	"xr-standard axes 0/1 are touchpad slots and must not be guessed to be a thumbstick");
 
 assert.ok(inputPackets.length >= 4);
 assert.ok(resetCalls >= 4);

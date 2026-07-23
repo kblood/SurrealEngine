@@ -12,6 +12,10 @@ const report = diagnostics.formatReport({
 	phase: "running", currentStage: "running", lastError: "C:\\Private\\Core.u",
 	lastErrorCode: "feature-negotiation-unobservable", lastErrorStage: "frame",
 	frames: 321, skippedFrames: 2, inputPackets: 44,
+	inputDiagnostics: { actionFocused: true, xrStandardSources: 2,
+		leftButtons: 6, leftAxes: 4, rightButtons: 6, rightAxes: 4,
+		nonzeroThumbstickSamples: 123,
+		profiles: ["private-controller-profile"], axes: [987654321], path: "C:\\Private\\input" },
 	projectionFormat: "rgba8unorm-webgl-bridge", referenceSpaceType: "local-floor",
 	presentationMode: "webgl-bridge", presentationPreference: "webgl-bridge", layerWidth: 1832, layerHeight: 1920,
 	atlasWidth: 1600, atlasHeight: 700,
@@ -30,6 +34,9 @@ const report = diagnostics.formatReport({
 assert.match(report, /^SurrealEngine WebXR headset report\nschema: surrealengine-webxr-headset-report-v2\n/);
 assert.match(report, /\nframes: 321\n/);
 assert.match(report, /\nprovider_error_code: feature-negotiation-unobservable\n/);
+assert.match(report, /\ninput_action_focus: focused\ninput_xr_standard_sources: 2\n/);
+assert.match(report, /\ninput_left_buttons: 6\ninput_left_axes: 4\ninput_right_buttons: 6\ninput_right_axes: 4\n/);
+assert.match(report, /\ninput_nonzero_thumbstick_samples: 123\n/);
 assert.match(report, /\npresentation_mode: webgl-bridge\n/);
 assert.match(report, /\npresentation_preference: webgl-bridge\n/);
 assert.match(report, /\nlayer_width: 1832\nlayer_height: 1920\natlas_width: 1600\natlas_height: 700\n/);
@@ -39,7 +46,7 @@ assert.match(report, /\nbridge_present_age_frames: 7\nbridge_max_present_age_fra
 assert.match(report, /\nbridge_present_age_ms: 11\.235\nbridge_max_present_age_ms: 43\nbridge_reused_presents: 99\n/);
 assert.match(report, /\nbridge_blocking_timing: yes\n/);
 for (const secret of ["Private", "Core.u", "private.invalid", "Owned Unreal", "private log",
-	"secret", "private-eye-secret", "123456789"])
+	"secret", "private-eye-secret", "private-controller-profile", "123456789", "987654321"])
 	assert.equal(report.includes(secret), false, "report exposed non-allowlisted value: " + secret);
 
 const direct = diagnostics.normalized({ presentationMode: "direct-webgpu",
@@ -59,11 +66,21 @@ for (const code of ["session-ended-before-activation", "session-ended-before-fir
 
 const rejected = diagnostics.normalized({ presentationMode: "https://private.invalid/mode",
 	lastErrorCode: "C:\\Private\\Core.u",
+	inputDiagnostics: { actionFocused: "yes", xrStandardSources: "not-a-number",
+		leftButtons: -1, leftAxes: 3.5, rightButtons: "private", rightAxes: Number.POSITIVE_INFINITY,
+		nonzeroThumbstickSamples: -4 },
 	bridgeDiagnostics: { p99Ms: -1, samples: "not-a-number", presentAgeFrames: -2,
 		maxPresentAgeFrames: "private", presentAgeMs: Number.POSITIVE_INFINITY,
 		maxPresentAgeMs: -1, reusedPresents: "not-a-number" } });
 assert.equal(rejected.presentationMode, "unknown");
 assert.equal(rejected.errorCode, "unknown");
+assert.equal(rejected.inputActionFocus, "unknown");
+assert.equal(rejected.inputXRStandardSources, 0);
+assert.equal(rejected.inputLeftButtons, "unknown");
+assert.equal(rejected.inputLeftAxes, "unknown");
+assert.equal(rejected.inputRightButtons, "unknown");
+assert.equal(rejected.inputRightAxes, "unknown");
+assert.equal(rejected.inputNonzeroThumbstickSamples, 0);
 assert.equal(rejected.bridgeP99Ms, "unknown");
 assert.equal(rejected.bridgeSamples, 0);
 assert.equal(rejected.bridgePresentAgeFrames, "unknown");
