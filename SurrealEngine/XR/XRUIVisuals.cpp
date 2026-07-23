@@ -131,17 +131,23 @@ XRUIVisualFrame BuildXRUIVisualFrame(
 			forward, right, up, bodyHeight * 0.65f, bodyWidth * 0.45f,
 			gripLength * 0.5f, color * 0.82f);
 
-		const float laserRadius = settings.LaserRadiusMeters * worldUnitsPerMeter *
-			(pointer.Selecting ? settings.SelectingLaserScale : 1.0f);
-		AppendBeam(hand.Laser, pointer.Ray.Origin, pointer.HitPoint, laserRadius,
-			vec4(color.rgb(), pointer.Selecting ? 1.0f : 0.82f));
-		if (pointer.Contact.Hit)
+		const bool pointerVisible = settings.ShowBothPointers ||
+			pointer.Hand == settings.PointerHand;
+		if (pointerVisible)
 		{
-			if (const XRUICanvasReplayItem* surface = FindSurface(replayFrame, pointer.Contact.Surface))
+			const float laserRadius = settings.LaserRadiusMeters * worldUnitsPerMeter *
+				(pointer.Selecting ? settings.SelectingLaserScale : 1.0f);
+			AppendBeam(hand.Laser, pointer.Ray.Origin, pointer.HitPoint, laserRadius,
+				vec4(color.rgb(), pointer.Selecting ? 1.0f : 0.82f));
+			if (pointer.Contact.Hit)
 			{
-				const vec4 markerColor = pointer.Selecting ? vec4(1.0f) : color;
-				AppendHitMarker(hand.HitMarker, pointer, *surface,
-					settings.HitMarkerRadiusMeters * worldUnitsPerMeter, markerColor);
+				if (const XRUICanvasReplayItem* surface = FindSurface(replayFrame,
+					pointer.Contact.Surface))
+				{
+					const vec4 markerColor = pointer.Selecting ? vec4(1.0f) : color;
+					AppendHitMarker(hand.HitMarker, pointer, *surface,
+						settings.HitMarkerRadiusMeters * worldUnitsPerMeter, markerColor);
+				}
 			}
 		}
 		frame.Hands.push_back(std::move(hand));

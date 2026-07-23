@@ -221,10 +221,14 @@ namespace
 			"native UI did not build provider-neutral geometry for both tracked hands");
 		for (size_t hand = 0; hand < XRHandCount; hand++)
 		{
-			Check(!visuals.Hands[hand].Controller.empty() &&
-				!visuals.Hands[hand].Laser.empty() &&
-				!visuals.Hands[hand].HitMarker.empty(),
-				"native UI omitted controller, beam, or exact-hit geometry");
+			Check(!visuals.Hands[hand].Controller.empty(),
+				"native UI omitted tracked controller geometry");
+			const bool dominant = visuals.Hands[hand].Hand == XRHand::Right;
+			Check(dominant ? (!visuals.Hands[hand].Laser.empty() &&
+				!visuals.Hands[hand].HitMarker.empty()) :
+				(visuals.Hands[hand].Laser.empty() &&
+				visuals.Hands[hand].HitMarker.empty()),
+				"native UI did not limit the exact pointer to the dominant hand");
 			for (const XRUIVisualVertex& vertex : visuals.Hands[hand].Laser)
 				Check(vertex.Position.x <= runtime.Feedback()[hand].HitPoint.x + 0.001f,
 					"native beam extended beyond the authoritative UI contact");

@@ -19,6 +19,8 @@ struct XRUIVisualSettings
 	float LaserRadiusMeters = 0.0025f;
 	float SelectingLaserScale = 1.6f;
 	float HitMarkerRadiusMeters = 0.014f;
+	XRHand PointerHand = XRHand::Right;
+	bool ShowBothPointers = false;
 };
 
 struct XRUIVisualVertex

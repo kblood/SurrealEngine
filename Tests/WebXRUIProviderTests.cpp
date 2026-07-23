@@ -214,8 +214,16 @@ int main()
 	if (pairedVisuals.Hands.size() != 2 || pairedVisuals.Hands[0].Hand != XRHand::Left ||
 		pairedVisuals.Hands[0].Selecting || pairedVisuals.Hands[1].Hand != XRHand::Right ||
 		!pairedVisuals.Hands[1].Selecting ||
+		!pairedVisuals.Hands[0].Laser.empty() || pairedVisuals.Hands[1].Laser.empty() ||
 		pairedVisuals.Hands[0].Controller[0].Color == pairedVisuals.Hands[1].Controller[0].Color)
 		return 12;
+	WebXR::UIVisualSettings leftPointer;
+	leftPointer.PointerHand = XRHand::Left;
+	const WebXR::UIVisualFrame leftPointerVisuals = WebXR::BuildUIVisualFrame(
+		bothHands, replayFrame, units, leftPointer);
+	if (leftPointerVisuals.Hands[0].Laser.empty() ||
+		!leftPointerVisuals.Hands[1].Laser.empty())
+		return 25;
 
 	// A held select remains visual state; it does not synthesize another edge.
 	connector.Update(input, binding, vec3(0.0f), Coords::Identity(), units, recenter);
