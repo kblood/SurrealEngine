@@ -88,14 +88,15 @@ with sync_playwright() as playwright:
 		sys.exit(1)
 
 	prelaunch = page.evaluate("""() => {
+		const startup = document.getElementById('browser-startup');
 		const canvas = document.getElementById('canvas');
 		const picker = document.querySelector('[data-game-pick]');
 		const pickerBounds = picker.getBoundingClientRect();
-		return { canvasHidden: canvas.hidden, canvasDisplay: getComputedStyle(canvas).display,
+		return { startupHidden: startup.hidden, startupDisplay: getComputedStyle(startup).display,
 			canvasRects: canvas.getClientRects().length, pickerTop: pickerBounds.top,
 			pickerBottom: pickerBounds.bottom, viewportHeight: innerHeight, scrollY };
 	}""")
-	if (not prelaunch["canvasHidden"] or prelaunch["canvasDisplay"] != "none" or
+	if (not prelaunch["startupHidden"] or prelaunch["startupDisplay"] != "none" or
 		prelaunch["canvasRects"] != 0 or prelaunch["pickerTop"] < 0 or
 		prelaunch["pickerTop"] >= prelaunch["viewportHeight"] * 2 or prelaunch["scrollY"] != 0):
 		print(json.dumps({"prelaunch": prelaunch}, indent=2), file=sys.stderr)
@@ -116,9 +117,10 @@ with sync_playwright() as playwright:
 	pre_launch_scroll = page.evaluate("""() => {
 		const launcher = document.getElementById('game-launcher');
 		launcher.scrollIntoView({ behavior: 'auto', block: 'start' });
+		const startup = document.getElementById('browser-startup');
 		const canvas = document.getElementById('canvas');
 		const launcherBounds = launcher.getBoundingClientRect();
-		return { scrollY, canvasHidden: canvas.hidden, canvasRects: canvas.getClientRects().length,
+		return { scrollY, startupHidden: startup.hidden, canvasRects: canvas.getClientRects().length,
 			launcherTop: launcherBounds.top, launcherBottom: launcherBounds.bottom, viewportHeight: innerHeight };
 	}""")
 	page.click("#game-launcher button[type=submit]")
@@ -144,7 +146,7 @@ with sync_playwright() as playwright:
 		print("FAIL: staged package game detection or flat launch", file=sys.stderr)
 		sys.exit(1)
 	layout = integration["layout"]
-	if (pre_launch_scroll["scrollY"] <= 0 or not pre_launch_scroll["canvasHidden"] or
+	if (pre_launch_scroll["scrollY"] <= 0 or not pre_launch_scroll["startupHidden"] or
 		pre_launch_scroll["canvasRects"] != 0 or pre_launch_scroll["launcherTop"] < -1 or
 		pre_launch_scroll["launcherTop"] >= pre_launch_scroll["viewportHeight"] or
 		layout["top"] < -1 or layout["top"] >= layout["viewportHeight"] or layout["bottom"] <= 0 or
