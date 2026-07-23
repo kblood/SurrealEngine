@@ -221,6 +221,35 @@ rebuild instructions, and inserts a
 visible source link in `index.html`. See `BROWSER_STATIC_RELINKING.md` for the
 mechanism and the remaining human/legal review.
 
+### Revisioned public candidate cef1e89b
+
+The newer immutable diagnostic candidate is live at
+`https://dionysus.dk/webxr/Ports/SurrealEngine-Candidate-cef1e89b/`. It adds a
+visible **Automatic** / **Force WebGL compatibility bridge** selector and a
+default-off, non-persisted blocking-timing QA option. It was built from clean
+commit `cef1e89b3bbccba4d041ce5d00cc09bd99358c06` and tree
+`15d82324767c24373b28090500f4176509e1357d`. The package contains 25 files,
+is 36,746,638 bytes, and contains no game or demo data.
+
+Its WebAssembly SHA-256 is
+`e59508958452312affb8ee7ee4943a78ad14a64518619488d351c63b75fd81fd`,
+JavaScript SHA-256 is
+`47a01e685e7a0d85428134b8d2d05a43ca581410326942a62406276549bd4c7d`,
+manifest SHA-256 is
+`7fa5214f8dd837bf640a6d080d16dc1bd668680583bdc57cbb45bc019dcce58a`,
+and corresponding-source SHA-256 is
+`65e97f12a3619573fa711cffc821f9aae95d83f83ab080a0e9a14a30cd907679`.
+The staged and live copies contained the expected 25 files with matching
+hashes. The live flat release-shell smoke and synthetic Automatic/direct and
+forced-bridge sessions passed without page or asset errors.
+
+Physical Quest 3 testing through desktop Chrome, Virtual Desktop, and VDXR did
+not qualify it. Automatic reached WebXR consent and then immediately returned
+to flat mode. In that flat fallback the exact canvas acquired pointer lock and
+mouse fire worked, but relative mouse motion did not rotate the view. The v2
+failure report was not captured, and forced bridge still needs a separate
+test. See `WEBXR_VDXR_QUALIFICATION.md`.
+
 ## Validation
 
 Synthetic tests contain no commercial data:
@@ -288,6 +317,11 @@ and blocking-timing state. Key-based v1 readers can ignore the appended fields;
 strict schema readers must explicitly accept
 `surrealengine-webxr-headset-report-v2`.
 
+The first physical VDXR failure showed that stage alone is insufficient for a
+fast remote diagnosis. A later schema revision should add the provider's
+already allowlisted exact `lastErrorCode` while continuing to exclude raw
+exception text.
+
 Bridge percentiles come from the most recent 120 valid nonnegative timing
 samples. Raw samples remain private to the in-page timing window and are not
 placed in provider state or the report. Direct-mode layer dimensions come from
@@ -334,6 +368,12 @@ The running report should satisfy the following criteria:
 | dimensions | positive layer dimensions when exposed | positive layer and atlas dimensions after frames begin |
 | frame/input counters | increase while moving the head and controllers | increase while moving the head and controllers |
 | bridge counters | not applicable | `bridge_frames` and `bridge_samples` increase; `bridge_errors: 0` |
+
+On 2026-07-23, the `cef1e89b` Automatic path on Quest 3 through Virtual
+Desktop/VDXR reached consent but did not reach this running-state table. That is
+a failed qualification, not an unsupported preflight and not evidence against
+the forced bridge. Capture the report immediately after a repeat, then reload
+and test **Force WebGL compatibility bridge** with blocking timing off.
 
 For the short bridge timing qualification run, select **Force WebGL
 compatibility bridge**, enable **Temporary QA: blocking bridge timing
@@ -430,28 +470,40 @@ Current results:
   Unreal Gold Vortex2 path visibly rendered with advancing ticks and no
   page/WebGPU errors; the live immutable HTTPS package passed its data-free
   release-shell and corresponding-source smoke.
+- at clean diagnostic candidate `cef1e89b`, the live package and both synthetic
+  presentation modes passed, while the first physical Quest 3/VDXR Automatic
+  attempt exited immersive mode after consent; flat pointer lock and mouse
+  buttons worked, but relative mouse-look did not.
+- a fresh live owner-data matrix on `2904593c` imported UT99 (496 files,
+  659,817,346 bytes) and Unreal Gold (335 files, 586,421,656 bytes), switched
+  both directions before and after Chrome restart, replaced only UT99 without
+  disturbing Unreal, and launched Unreal through unchecked `LocalMap` with
+  advancing ticks, visible rendering, running AudioContext state, and zero
+  page/WebGPU errors. Explicit, pagehide, clean-quit, INI, Settings, and
+  same-origin old-to-new candidate restoration passed. WasmFS directory
+  detection omitted real `.usa` saves from snapshots, so save persistence did
+  not pass.
 
 ## Remaining release gates
 
-The owned UT99 smoke proves import, initial engine startup, rendering, and tick
-progression, but not long-play behavior or any physical headset result. Before
+The owned-data matrix proves import, initial startup, rendering, title
+isolation/switching/restart, UT replacement, Unreal `LocalMap`, and configuration
+restoration, but not save restoration, long-play behavior, or successful
+physical headset presentation. Before
 stable publication:
 
-1. Manually test the published `2904593c` candidate on desktop: capture/resume
-   the mouse, confirm mouse-look, use browser Escape to enter the game/menu,
-   and audibly verify Unreal Gold ambient effects and music. Automated pointer
-   lock and PCM evidence do not replace this human pass.
-2. Complete the remaining owner-data matrix: UT99/Unreal Gold switching and
-   replacement, persistence after browser restart/package upgrade, INI changes,
-   saves, explicit quit-and-flush, fullscreen/resize, and restore.
-3. On a physical Quest browser, record browser/runtime versions outside the
-   generated report, then test direct `XRGPUBinding` where exposed and automatic
-   plus forced `XRWebGLLayer` compatibility selection. For the direct mode,
-   verify an XR-compatible adapter; for the bridge, record its timing counters
-   against the thresholds in `WEBXR_WEBGL_BRIDGE_HANDOFF.md` using the visible,
-   temporary blocking-timing QA checkbox. Save the v2 report
-   while each tested mode is running; it includes the mode, available dimensions,
-   and bounded bridge summaries without requiring remote debugging.
+1. Correct and manually retest relative mouse delivery. The physical VDXR pass
+   proved that `cef1e89b` can lock the cursor and receive mouse fire while
+   mouse-look remains static. Then test capture/resume, browser Escape,
+   wheel/buttons, and audibly verify Unreal Gold effects and music.
+2. Fix WasmFS save-directory detection so `FS.stat` is tried when
+   `FS.analyzePath` throws or reports false, then repeat real `.usa` save and
+   restore. Complete fullscreen/resize and long-play persistence checks.
+3. Repeat Automatic on Quest 3/VDXR and capture the v2 failure report before
+   reloading. Then test **Force WebGL compatibility bridge** with blocking
+   timing disabled. On each physical Quest/browser path, record versions
+   outside the report and test direct `XRGPUBinding` only where actually
+   enabled. Record bridge timing only after basic presentation works.
 4. Verify the generated report reaches provider phase/stage `running`, records
    a supported projection format, the expected presentation mode, and
    `local-floor` or `local` reference space,

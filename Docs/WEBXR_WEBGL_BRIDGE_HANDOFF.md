@@ -3,7 +3,9 @@
 Status: implemented by product-integration commit `dc4f2d60` and carried into
 `integration/unified-engine` commit `a0fb4f93`. It has automated provider,
 native-bridge, and desktop-browser evidence, but is experimental and has no
-physical Quest release result. This is not an upstream PR source.
+successful physical Quest release result. The first Quest 3/VDXR test used
+Automatic and exited after consent before its backend was confirmed; it did not
+qualify or disqualify the forced bridge. This is not an upstream PR source.
 
 ## What the bridge does
 
@@ -99,7 +101,10 @@ WebGL 2 render device; do not hide a failing bridge behind looser claims.
 
 ## Known physical limitations
 
-No physical Quest result exists on this branch yet. The canvas upload is legal
+No successful physical Quest presentation result exists on this branch yet.
+The `cef1e89b` Automatic VDXR attempt exited immersive mode after consent and
+did not save its failure-stage report. The next run must force this bridge with
+blocking timing disabled before any timing qualification. The canvas upload is legal
 but not guaranteed zero-copy, so Quest Browser may perform a costly
 GPU-to-CPU-to-GPU transfer. The browser controls synchronization between the
 submitted WebGPU work and `texSubImage2D`. The implementation intentionally

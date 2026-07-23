@@ -32,6 +32,24 @@ No other path is eligible. The snapshotter does not recursively walk
 `.unr`, `.utx`, `.uax`, `.umx`, executable, cache, and arbitrary `.usa` files
 are excluded and rejected again when stored metadata is loaded.
 
+### Qualified WasmFS defect
+
+The 2026-07-23 live owner-data matrix proved that the allowlist classification
+is correct but the production snapshot walk is not yet reliable under WasmFS.
+`FS.analyzePath("/gamedata/Save")` throws an `ErrnoError` for the real Save
+directory even though `FS.stat`, `FS.readdir`, and direct file reads work. The
+current `fsExists` helper treats that exception as absence, so a valid
+`Save99.usa` was omitted from both the snapshot entries and stored metadata.
+INI, Settings, last-run log, explicit flush, pagehide, clean quit, and restore
+passed; real save persistence did not.
+
+The focused correction is to fall back to `FS.stat` whenever `analyzePath`
+throws or reports false, then add a WasmFS-like regression in which
+`analyzePath` fails while `stat` and `readdir` succeed. UT99 and Unreal `.usa`
+round trips must be repeated before save persistence is claimed. Deus Ex uses
+nested `SaveNNNN/*.dxs` data and is outside the current flat allowlist; it needs
+a separate typed path policy rather than a broad recursive exception.
+
 ## Storage and APIs
 
 The independent `surrealengine-mutable-data` schema is version 2. The deployed
@@ -63,7 +81,7 @@ mutable-only clear remains required. The migration never enumerates the UT99
 import store and never reads package, map, texture, sound, music, executable,
 or original imported INI content.
 
-After boot, the page exposes:
+The mutable controller implements these operations:
 
 - `surrealGetMutableDataStatus()` — backend, state, schema, counts, last
   checkpoint, deterministic migration diagnostics, and any actionable
@@ -74,6 +92,11 @@ After boot, the page exposes:
   pauses automatic checkpoints for the rest of that session.
 - `surrealRequestQuitAndFlush()` — request the engine's clean shutdown, wait
   for native INI/log writes, then checkpoint them.
+
+The production launcher exposes the controller as
+`window.surrealApp.dataController`; it does not currently install the four
+convenience globals named above. Tests and troubleshooting should call the
+controller methods unless/until a deliberate public wrapper API is added.
 
 Automatic checkpoints run every 30 seconds and on hidden/pagehide lifecycle
 events. They are best effort because browsers do not guarantee completion of

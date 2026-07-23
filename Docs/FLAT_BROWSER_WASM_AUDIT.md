@@ -87,6 +87,10 @@ startup intent on the window thread and exposes a trusted post-start
 capture/resume control while preserving direct canvas capture and uncaptured
 mouse fallback. Focused user lock loss forwards the browser-reserved Escape to
 the engine intro/menu path; native unlock and WebXR exit without forwarding.
+The first physical Quest 3/Virtual Desktop/VDXR fallback test refined this
+claim: the cursor locked and mouse fire reached the game, but relative mouse
+motion did not rotate the view. Capture permission is proven; browser-relative
+motion through SDL/native input remains a release blocker.
 Finally, WebGPU surface creation
 uses the exact configured `Module.canvas` rather than assuming `#canvas`.
 These fixes are integrated and covered by the deterministic browser suites;
@@ -140,9 +144,14 @@ cannot establish real gameplay. Before a stable release, an owner must still:
 2. In running flat gameplay, verify keyboard layout/text input, mouse capture,
    buttons, wheel, pointer-lock behavior, resize, fullscreen enter/exit, audio,
    focus loss, and restoration.
+   The 2026-07-23 VDXR test failed this gate specifically at relative
+   mouse-look despite successful pointer lock and mouse-button delivery.
 3. Quit through the actual game, confirm ticks stop and the mutable-data flush
    completes, reload, and verify INI/save restoration. Then switch titles and
    repeat without storage crossover.
+   The owner matrix restored INI/log/Settings data but proved that WasmFS
+   `analyzePath` can throw for the Save directory, causing `.usa` files to be
+   omitted even though `stat`, `readdir`, and classification work.
 4. Test any locally owned demo distribution only against its experimental
    descriptor; demo detection passing does not claim full engine compatibility.
 5. On real XR hardware, enter, exit to the same flat canvas, exercise a failed

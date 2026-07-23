@@ -14,6 +14,11 @@ empty game-data directory and `sourceDirty: false`. The selected GOG Unreal Gold
 installation contained 335 files and 586,421,656 bytes. Both a new Chrome
 profile/import and a restored owner profile were exercised locally.
 
+A later live same-origin matrix at immutable candidate `2904593c` imported the
+same 335 files, kept Unreal isolated while UT99 was added and replaced, restored
+both titles after Chrome restart and an older-to-newer candidate transition,
+and left the original GOG directory unchanged.
+
 ## First-run map correction
 
 Unreal Gold declares `Vortex2` as its safe direct-start default. The launcher
@@ -86,6 +91,14 @@ For the next immutable candidate:
    zero browser/WebGPU errors, and a running AudioContext;
 4. audibly verify ambient effects and later music during real play;
 5. separately exercise the unchecked game-owned LocalMap path.
+
+The later owner matrix passed step 5: unchecked `URL.LocalMap` advanced from
+startup into running Vortex2, continued after fire input, remained visibly
+nonuniform, reported a running AudioContext, and produced zero page/WebGPU
+errors. Human audible output and long play remain gates. Mutable INI/log/Settings
+restore also passed, but `.usa` save persistence failed because the WasmFS
+snapshot's `analyzePath` check skipped the otherwise readable Save directory;
+see `web/MUTABLE_DATA.md`.
 
 Bluff remains useful for continuous music-buffer diagnostics, but it is no
 longer the first-run renderer gate.

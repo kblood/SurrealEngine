@@ -146,6 +146,13 @@ Minimum acceptance matrix before claiming desktop WebXR support:
 - flat keyboard/mouse/gamepad behavior after both successful and failed XR entry;
 - local game import and persistence across application/browser upgrades.
 
+The 2026-07-23 Quest 3 test through desktop Chrome, Virtual Desktop, and VDXR
+does not satisfy this matrix. Automatic reached WebXR consent and then returned
+to flat mode before confirmed presentation. The fallback canvas locked the
+pointer and received mouse buttons, but relative mouse-look failed. This named
+configuration therefore remains experimental with two concrete blockers rather
+than merely untested; see `WEBXR_VDXR_QUALIFICATION.md`.
+
 ## Staged implementation recommendation
 
 1. Ship the data-free native release with local-folder import and native OpenXR.

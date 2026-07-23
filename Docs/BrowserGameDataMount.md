@@ -356,6 +356,13 @@ request. After capture is released the control becomes **Resume mouse look**.
 Rejection leaves ordinary focused-canvas mouse input available, and an active
 WebXR session suppresses or exits pointer lock.
 
+Physical Quest 3 testing through desktop Chrome/Virtual Desktop/VDXR confirmed
+that the exact canvas can acquire pointer lock and receive mouse buttons after
+a failed XR attempt. It also exposed that relative motion did not reach working
+mouse-look. The gesture-owned lock protocol is therefore not the remaining
+problem; the browser `movementX`/`movementY` to SDL relative-event and native raw
+mouse path needs focused instrumentation.
+
 Escape is reserved by the browser while pointer lock is active. A focused,
 visible page therefore treats non-programmatic lock loss as one Escape intent
 and queues it for the engine thread after SDL input is pumped. This lets the
@@ -379,6 +386,14 @@ Measured owner-data evidence for the Window-owned variant is:
 - deterministic Chrome pointer-lock coverage proved inert startup, a visible
   trusted capture/resume path, one forwarded browser Escape intent,
   programmatic unlock suppression, WebXR suppression, and handled rejection.
+
+The later live `2904593c` owner matrix additionally passed UT99/Unreal import,
+two-way switching before and after Chrome restart, UT-only replacement, Unreal
+unchecked `LocalMap`, explicit/pagehide/clean-quit configuration checkpoints,
+and same-origin old-candidate-to-new-candidate restoration. It also exposed a
+separate mutable overlay defect: WasmFS `FS.analyzePath` throws for the Save
+directory while `FS.stat`/`FS.readdir` work, so valid `.usa` saves are omitted
+from the snapshot. The original GOG folders remained unchanged.
 
 The first flat WebGPU frame previously reported a destroyed swap-buffer
 texture. The renderer acquired the canvas texture in

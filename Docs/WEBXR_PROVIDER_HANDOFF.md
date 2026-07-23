@@ -2,9 +2,11 @@
 
 Date: 2026-07-23
 
-Integration status: implemented and automated at `integration/unified-engine`
-commit `359aaa30`; both browser presentation modes remain experimental and
-hardware-unverified on Quest.
+Integration status: implemented and automated through
+`integration/unified-engine` commit `cef1e89b`. Both presentation modes remain
+experimental. The first physical Quest 3/Virtual Desktop/VDXR Automatic attempt
+failed after consent and before confirmed presentation; forced bridge remains
+hardware-unverified.
 
 ## Scope
 
@@ -384,8 +386,12 @@ python web/smoke_test_webgpu.py
 ## Hardware gate and known limitations
 
 No automated test proves physical headset presentation, and no repository
-evidence yet proves either mode on a target Quest/browser combination. The
-current WebXR/WebGPU specification is explicitly an unstable editor's draft.
+evidence yet proves either mode on a target Quest/browser combination. A
+2026-07-23 Quest 3 test through desktop Chrome, Virtual Desktop, and VDXR reached
+WebXR consent in Automatic mode and immediately returned to flat presentation.
+The v2 report was not saved, so the precise session/binding/projection stage is
+unknown. See `WEBXR_VDXR_QUALIFICATION.md`. The current WebXR/WebGPU
+specification is explicitly an unstable editor's draft.
 Its current interface name is `XRGPUBinding`; `XRWebGPUBinding` is an obsolete
 experimental spelling and is reported but not used. Chrome first documented
 WebXR/WebGPU on Android as an experimental developer-testing feature in Chrome
@@ -402,6 +408,15 @@ normal immersive session with `XRWebGLLayer`, renders both eyes into the
 existing WebGPU canvas atlas, and copies that atlas through WebGL 2. The second
 mode was informed by the working Quake presentation shape but does not add a
 second SurrealEngine render device.
+
+Automatic capability selection must not treat successful
+`requestAdapter({xrCompatible: true})` as conclusive: a WebIDL implementation
+may ignore an unrecognized dictionary member. When both backends are available,
+the corrective design is one session request with `webgpu` optional, followed
+by selection from `session.enabledFeatures`. If `webgpu` is enabled, WebGL
+`baseLayer` fallback is forbidden for that session; a later direct failure must
+end it and require a fresh trusted gesture for forced bridge. This behavior and
+safe exact error-code reporting remain to be implemented and tested.
 
 Both modes remain **experimental**. Automated tests prove selection, ABI,
 projection conversion, shared engine behavior, cleanup, and desktop cross-API

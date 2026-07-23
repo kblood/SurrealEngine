@@ -5,8 +5,9 @@ Date: 2026-07-22
 Base: `integration/unified-engine` at `f1246102`.
 
 Review result: integrated at `a0fb4f93`. The map-intro path and automated
-evidence are implemented; actual UT99/Unreal owner-data behavior and physical
-Quest presentation remain unverified.
+evidence are implemented. Owned UT99 later reached CityIntro-to-UMenu in the
+flat browser path, and owned Unreal Gold advanced through unchecked
+`URL.LocalMap`; physical Quest presentation remains unqualified.
 
 ## Scope and result
 
@@ -103,6 +104,13 @@ physical Quest:
   release-through click;
 - controller/laser/contact alignment, mouse fallback, exit, and re-entry; and
 - flat mode after leaving XR.
+
+The first `cef1e89b` Quest 3/Virtual Desktop/VDXR attempt never reached this
+content matrix: Automatic obtained consent, then immediately returned to flat
+mode. The v2 failure-stage report was not captured. The next test must diagnose
+that entry failure and force the WebGL bridge before intro/menu observations can
+be attributed to the headset compositor. In the surviving flat mode, pointer
+lock and fire worked but relative mouse-look did not.
 
 The Unreal 205 demo passes the two isolated legacy serialization boundaries but
 remains blocked by its absent `UPak` content dependency. Demo descriptors remain
