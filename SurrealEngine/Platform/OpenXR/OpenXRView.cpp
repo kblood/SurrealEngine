@@ -42,22 +42,14 @@ ViewFamily OpenXRViewTranslator::CreateViewFamily(const OpenXREyeView eyes[2], c
 	for (int eye = 0; eye < 2; eye++)
 	{
 		const OpenXREyeView& source = eyes[eye];
-		quaternion orientation(source.OrientationX, source.OrientationY, source.OrientationZ, source.OrientationW);
-		vec3 forward = ToUnrealVector(orientation * vec3(0.0f, 0.0f, -1.0f));
-		vec3 right = ToUnrealVector(orientation * vec3(1.0f, 0.0f, 0.0f));
-		vec3 up = ToUnrealVector(orientation * vec3(0.0f, 1.0f, 0.0f));
-
-		if (!recentered && eye == 0)
-		{
-			yawOffset = anchorRotation.YawRadians() - std::atan2(-forward.y, forward.x);
-			recentered = true;
-		}
+		XRPose pose;
+		pose.Valid = true;
+		pose.Orientation = { source.OrientationX, source.OrientationY,
+			source.OrientationZ, source.OrientationW };
+		if (!CreateEngineRotation(pose, anchorRotation, eyeRotations[eye]))
+			return {};
 
 		Coords recenter = Coords::YawRotation(yawOffset);
-		eyeRotations[eye].Origin = vec3(0.0f);
-		eyeRotations[eye].XAxis = RotateLocalToWorld(recenter, forward);
-		eyeRotations[eye].YAxis = RotateLocalToWorld(recenter, right);
-		eyeRotations[eye].ZAxis = RotateLocalToWorld(recenter, up);
 		unrealPositions[eye] = RotateLocalToWorld(recenter, ToUnrealVector(source.PositionMeters) * UnrealUnitsPerMeter);
 	}
 
@@ -81,6 +73,54 @@ ViewFamily OpenXRViewTranslator::CreateViewFamily(const OpenXREyeView eyes[2], c
 		family.Views.push_back(view);
 	}
 	return family;
+}
+
+bool OpenXRViewTranslator::CreateEngineRotation(const XRPose& pose,
+	const Rotator& anchorRotation, Coords& output)
+{
+	if (!IsValidXRPose(pose))
+		return false;
+	quaternion orientation(pose.Orientation.X, pose.Orientation.Y,
+		pose.Orientation.Z, pose.Orientation.W);
+	const vec3 forward = ToUnrealVector(orientation * vec3(0.0f, 0.0f, -1.0f));
+	const vec3 right = ToUnrealVector(orientation * vec3(1.0f, 0.0f, 0.0f));
+	const vec3 up = ToUnrealVector(orientation * vec3(0.0f, 1.0f, 0.0f));
+	if (!IsFinite(forward) || !IsFinite(right) || !IsFinite(up))
+		return false;
+
+	if (!recentered)
+	{
+		// Coords::YawRotation and Rotator yaw use opposite signs. Keep the
+		// tracked-space offset in Coords convention so a neutral headset
+		// begins at the pawn's Rotator-space facing.
+		yawOffset = -anchorRotation.YawRadians() - std::atan2(-forward.y, forward.x);
+		recentered = true;
+	}
+
+	const Coords recenter = Coords::YawRotation(yawOffset);
+	output.Origin = vec3(0.0f);
+	output.XAxis = RotateLocalToWorld(recenter, forward);
+	output.YAxis = RotateLocalToWorld(recenter, right);
+	output.ZAxis = RotateLocalToWorld(recenter, up);
+	return true;
+}
+
+bool OpenXRViewTranslator::CreateHeadRotation(const XRPose& pose,
+	const Rotator& anchorRotation, Rotator& output)
+{
+	Coords rotation;
+	if (!CreateEngineRotation(pose, anchorRotation, rotation))
+		return false;
+	output = normalize(Rotator::FromVector(rotation.XAxis));
+	return true;
+}
+
+bool OpenXRViewTranslator::ApplyYawTurn(float radians)
+{
+	if (!recentered || !std::isfinite(radians))
+		return false;
+	yawOffset += radians;
+	return true;
 }
 
 XRUISurfaceRay OpenXRViewTranslator::CreatePointerRay(const XRPose& pose,

@@ -206,10 +206,10 @@ int main()
 	Check(target.Composition.IsButtonActive("bFire") &&
 		target.Composition.IsButtonActive("bAltFire"),
 		"semantic fire commands did not enter shared input composition");
-	Check(Near(target.Composition.GetAxisValue("aStrafe"), -240.0f) &&
-		Near(target.Composition.GetAxisValue("aBaseY"), 160.0f) &&
+	Check(Near(target.Composition.GetAxisValue("aStrafe"), -5250.0f) &&
+		Near(target.Composition.GetAxisValue("aBaseY"), 3500.0f) &&
 		Near(target.Composition.GetAxisValue("aTurn"), 50.0f) &&
-		Near(target.Composition.GetAxisValue("aUp"), -160.0f),
+		Near(target.Composition.GetAxisValue("aUp"), -3500.0f),
 		"conventional sticks did not emit movement and turn semantics");
 	for (const CommandEvent& event : target.Commands)
 		Check(event.Command.find("Joy") == std::string::npos,

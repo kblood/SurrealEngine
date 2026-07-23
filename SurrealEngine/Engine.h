@@ -267,6 +267,12 @@ private:
 	ViewFamily CreateDesktopViewFamily() const;
 	void InstallXRWeaponCallHook();
 	void UninstallXRWeaponCallHook();
+	float AdvanceGameFrame(float realTimeElapsed);
+	float AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose,
+		float realTimeElapsed);
+	void UpdateOpenXRLocomotion(const XRPose& headPose,
+		const XRControllerSnapshot& controllers, float realTimeElapsed,
+		bool gameplayInputEnabled);
 
 	// Scratch properties used by PlayerCalcView during AdvanceGameFrame.
 	UObjectProperty* frameObjProp = nullptr;

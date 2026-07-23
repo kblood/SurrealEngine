@@ -28,10 +28,12 @@ XRTurnPolicy XRTurnPolicy::Snap(XRHand hand, float axisValue,
 XRInputBindings XRInputBindings::ConventionalUE1(XRHand dominantHand)
 {
 	XRInputBindings result;
-	result.Hands[0].StickX = "Axis aStrafe Speed=320.0";
-	result.Hands[0].StickY = "Axis aBaseY Speed=320.0";
+	// UE1 movement axes expect the same scale produced by a digital key:
+	// the conventional Speed=350 binding multiplied by its press delta 20.
+	result.Hands[0].StickX = "Axis aStrafe Speed=7000.0";
+	result.Hands[0].StickY = "Axis aBaseY Speed=7000.0";
 	result.Hands[1].StickX = "Axis aTurn Speed=200.0";
-	result.Hands[1].StickY = "Axis aUp Speed=320.0";
+	result.Hands[1].StickY = "Axis aUp Speed=7000.0";
 	const size_t dominantIndex = dominantHand == XRHand::Left ? 0 : 1;
 	result.Hands[dominantIndex].Trigger = "Button bFire";
 	result.Hands[1 - dominantIndex].Trigger = "Button bAltFire";

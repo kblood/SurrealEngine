@@ -113,6 +113,32 @@ int main()
 			"rotated OpenXR up axis did not map to render-device Y-down");
 	}
 
+	OpenXREyeView neutralEyes[2] = { questEyes[0], questEyes[1] };
+	const Rotator spawnFacing(0, 13289, 0);
+	OpenXRViewTranslator spawnTranslator;
+	ViewFamily spawnFamily = spawnTranslator.CreateViewFamily(neutralEyes, {},
+		spawnFacing, { 0, 0, 4224, 2304 });
+	const Coords expectedSpawnFacing = Coords::Rotation(spawnFacing);
+	for (const ViewDescription& view : spawnFamily.Views)
+	{
+		Check(Near(vec4(view.Rotation.XAxis, 0.0f),
+			vec4(expectedSpawnFacing.XAxis, 0.0f)),
+			"OpenXR recenter mirrored a nonzero pawn spawn facing");
+	}
+	XRPose neutralHead;
+	neutralHead.Valid = true;
+	Rotator headRotation;
+	Check(spawnTranslator.CreateHeadRotation(neutralHead, spawnFacing, headRotation) &&
+		Near(headRotation.YawRadians(), spawnFacing.YawRadians()),
+		"neutral OpenXR head rotation did not preserve pawn facing");
+	const float smoothTurn = Radians(-30.0f);
+	Check(spawnTranslator.ApplyYawTurn(smoothTurn) &&
+		spawnTranslator.CreateHeadRotation(neutralHead, spawnFacing, headRotation) &&
+		Near(headRotation.YawRadians(), spawnFacing.YawRadians() - smoothTurn),
+		"OpenXR smooth turn did not compose with tracked head yaw");
+	OpenXRViewTranslator inactiveTranslator;
+	Check(!inactiveTranslator.ApplyYawTurn(Radians(10.0f)),
+		"OpenXR yaw turn was accepted before a tracked pose established recentering");
 	XRPose rightAim;
 	rightAim.Valid = true;
 	rightAim.Position = { 0.1f, 0.0f, 0.0f };

@@ -41,6 +41,18 @@
 
 Engine* engine = nullptr;
 
+namespace
+{
+	XRInputBindings NativeOpenXRInputBindings()
+	{
+		XRInputBindings bindings = XRInputBindings::ConventionalUE1();
+		// Native OpenXR composes this stick into the headset recenter yaw so
+		// world rendering and pawn movement turn together.
+		bindings.Hands[XRHandIndex(XRHand::Right)].StickX.clear();
+		return bindings;
+	}
+}
+
 #ifdef __EMSCRIPTEN__
 class BrowserCinematicPlayback
 {
@@ -79,7 +91,8 @@ private:
 };
 #endif
 
-Engine::Engine(GameLaunchInfo launchinfo) : LaunchInfo(launchinfo)
+Engine::Engine(GameLaunchInfo launchinfo)
+	: LaunchInfo(launchinfo), openXRInput(NativeOpenXRInputBindings())
 {
 	engine = this;
 
@@ -398,6 +411,7 @@ void Engine::Shutdown()
 	if (openXR && render)
 		openXRUI.Stop(render->XRUISurfaces(), *openXR);
 	openXR.reset();
+	openXRViews.ResetRecenter();
 	CloseWindow();
 }
 
@@ -412,6 +426,7 @@ void Engine::RunOneFrame()
 	bool acquired[2] = { false, false };
 	XRSpaceSamples xrSpaces;
 	XRControllerSnapshot xrControllers;
+	bool xrGameplayInputEnabled = false;
 
 	if (openXR && openXR->IsSessionReady())
 	{
@@ -424,6 +439,7 @@ void Engine::RunOneFrame()
 			if (render)
 				openXRUI.Stop(render->XRUISurfaces(), *openXR);
 			openXR.reset();
+			openXRViews.ResetRecenter();
 		}
 		else if (openXR->IsSessionRunning())
 		{
@@ -435,6 +451,7 @@ void Engine::RunOneFrame()
 					openXR->SessionState(), xrControllers);
 				const bool gameplayInputEnabled =
 					!render || !render->IsXRUIMenuActive();
+				xrGameplayInputEnabled = gameplayInputEnabled;
 				openXRInput.Update(openXR->SessionState(), xrControllers, *this,
 					gameplayInputEnabled);
 				const XRHapticInputContext context = !gameplayInputEnabled ?
@@ -462,6 +479,10 @@ void Engine::RunOneFrame()
 	// XR waits and samples controls before simulation so this snapshot is
 	// composed with keyboard/mouse during the same game update. Weapon aim uses
 	// the same provider-neutral pose solver in native OpenXR and WebXR.
+	const float realTimeElapsed = CalcTimeElapsed();
+	if (openXR && xrFrameBegun)
+		UpdateOpenXRLocomotion(xrSpaces.Head, xrControllers, realTimeElapsed,
+			xrGameplayInputEnabled && openXR->SessionState().AcceptsInput());
 	ClearXRWeaponPose();
 	XRWeaponPoseResult xrWeaponPose;
 	XRWorldTransform xrWeaponWorld;
@@ -469,7 +490,8 @@ void Engine::RunOneFrame()
 		CameraLocation, xrWeaponWorld))
 		xrWeaponPose = SolveXRWeaponPose(xrSpaces, xrWeaponWorld, XRHand::Right);
 	const float levelElapsed = xrWeaponPose.Valid ?
-		AdvanceGameFrameWithXRWeaponAim(xrWeaponPose) : AdvanceGameFrame();
+		AdvanceGameFrameWithXRWeaponAim(xrWeaponPose, realTimeElapsed) :
+		AdvanceGameFrame(realTimeElapsed);
 	viewport->SetViewportRect(0, 0, engine->window->GetPixelWidth(), engine->window->GetPixelHeight());
 	ViewFamily viewFamily = CreateDesktopViewFamily();
 	if (openXR && xrFrameBegun && shouldRenderXR)
@@ -611,11 +633,46 @@ void Engine::UpdateOpenXRStartupMenu(float elapsedSeconds,
 	}
 }
 
+void Engine::UpdateOpenXRLocomotion(const XRPose& headPose,
+	const XRControllerSnapshot& controllers, float realTimeElapsed,
+	bool gameplayInputEnabled)
+{
+	if (!gameplayInputEnabled || IsStartupIntroActive() ||
+		(render && render->IsXRUIMenuActive()) || !viewport)
+		return;
+	UPlayerPawn* pawn = viewport->Actor();
+	if (!pawn || !IsValidXRPose(headPose))
+		return;
+
+	Rotator headRotation;
+	if (!openXRViews.CreateHeadRotation(headPose, pawn->Rotation(), headRotation))
+		return;
+	const XRHandControllerState& turnHand = controllers.ForHand(XRHand::Right);
+	const float rawTurn = turnHand.Connected ? turnHand.Thumbstick.X : 0.0f;
+	const float turn = std::fabs(rawTurn) < 0.15f ? 0.0f : rawTurn;
+	if (turn != 0.0f)
+	{
+		openXRViews.ApplyYawTurn(-turn * radians(120.0f) * realTimeElapsed);
+		openXRViews.CreateHeadRotation(headPose, pawn->Rotation(), headRotation);
+	}
+
+	// Movement scripts derive their axes from ViewRotation. Keep the upright
+	// pawn body and its view yaw aligned to the tracked head; pitch belongs on
+	// ViewRotation only so the collision cylinder never tilts.
+	pawn->Rotation().Yaw = headRotation.Yaw;
+	pawn->ViewRotation().Yaw = headRotation.Yaw;
+	pawn->ViewRotation().Pitch = headRotation.Pitch;
+}
+
 float Engine::AdvanceGameFrame()
+{
+	return AdvanceGameFrame(CalcTimeElapsed());
+}
+
+float Engine::AdvanceGameFrame(float realTimeElapsed)
 {
 	// Tick everything once. Rendering is deliberately kept in a separate phase so
 	// alternate frame loops can schedule presentation independently.
-	float realTimeElapsed = CalcTimeElapsed();
 	lastRealTimeElapsed = realTimeElapsed;
 #ifdef __EMSCRIPTEN__
 	if (browserCinematic)
@@ -691,6 +748,12 @@ float Engine::AdvanceGameFrame()
 
 float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose)
 {
+	return AdvanceGameFrameWithXRWeaponAim(pose, CalcTimeElapsed());
+}
+
+float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose,
+	float realTimeElapsed)
+{
 	ClearXRWeaponPose();
 	UPlayerPawn* pawn = viewport ? viewport->Actor() : nullptr;
 	UWeapon* weapon = pawn ? pawn->Weapon() : nullptr;
@@ -701,16 +764,16 @@ float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose)
 #endif
 	if (!pose.Valid || menuActive || cinematicActive || !pawn || !weapon ||
 		weapon->Owner() != pawn)
-		return AdvanceGameFrame();
+		return AdvanceGameFrame(realTimeElapsed);
 
 	const vec3 aimDirection(pose.AimDirection.X, pose.AimDirection.Y,
 		pose.AimDirection.Z);
 	if (!std::isfinite(aimDirection.x) || !std::isfinite(aimDirection.y) ||
 		!std::isfinite(aimDirection.z) || length(aimDirection) < 0.0001f)
-		return AdvanceGameFrame();
+		return AdvanceGameFrame(realTimeElapsed);
 
 	SetXRWeaponPose(pose);
-	return AdvanceGameFrame();
+	return AdvanceGameFrame(realTimeElapsed);
 }
 
 void Engine::InstallXRWeaponCallHook()
@@ -1301,6 +1364,7 @@ void Engine::UnloadMap()
 void Engine::LoadMap(const UnrealURL& url, const std::map<std::string, std::string>& travelInfo)
 {
 	startupIntroActive = false;
+	openXRViews.ResetRecenter();
 	ClientTravelInfo.URL.Clear();
 
 	if (Level)
@@ -1411,6 +1475,7 @@ void Engine::LoadMap(const UnrealURL& url, const std::map<std::string, std::stri
 void Engine::LoadFromSaveFile(const UnrealURL& url)
 {
 	startupIntroActive = false;
+	openXRViews.ResetRecenter();
 	ClientTravelInfo.URL.Clear();
 
 	if (Level)

@@ -69,6 +69,10 @@ int main()
 	Check(rightDominant.Hands[0].MenuButton == "KeyPulse Escape" &&
 		rightDominant.Hands[1].MenuButton == "KeyPulse Escape",
 		"provider-reported menu controls must use Escape from either hand");
+	Check(rightDominant.Hands[0].StickX == "Axis aStrafe Speed=7000.0" &&
+		rightDominant.Hands[0].StickY == "Axis aBaseY Speed=7000.0" &&
+		rightDominant.Hands[1].StickY == "Axis aUp Speed=7000.0",
+		"conventional XR locomotion must match UE1's full digital-axis scale");
 	const XRInputBindings leftDominant = XRInputBindings::ConventionalUE1(XRHand::Left);
 	Check(leftDominant.Hands[0].PrimaryButton == "Jump" &&
 		leftDominant.Hands[1].SecondaryButton == "KeyPulse Escape",
