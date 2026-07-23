@@ -844,9 +844,10 @@
 	}
 
 	function supportsOPFSMount(Module) {
-		if (!Module || typeof Module.ccall !== "function") return false;
+		if (!Module || typeof Module.ccall !== "function" ||
+			typeof Module._Surreal_GetBrowserOPFSMountABIVersion !== "function") return false;
 		try {
-			return Module.ccall("Surreal_GetBrowserOPFSMountABIVersion", "number", [], []) === 1;
+			return Module._Surreal_GetBrowserOPFSMountABIVersion() === 1;
 		} catch (_) {
 			return false;
 		}

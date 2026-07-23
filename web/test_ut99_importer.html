@@ -238,12 +238,35 @@ window.importerTestPromise = (async function () {
 		assert(progress[progress.length - 1].bytesDone === validation.totalBytes);
 	});
 
+	await run("missing optional OPFS export falls back without calling ccall", async () => {
+		let ccallCount = 0;
+		const Module = {
+			ccall() {
+				ccallCount++;
+				throw new Error("missing export");
+			},
+		};
+		assert(api.supportsOPFSMount(Module) === false);
+		assert(ccallCount === 0, "missing export was probed through ccall");
+	});
+
+	await run("OPFS support uses the directly exported ABI probe", async () => {
+		let ccallCount = 0;
+		const Module = {
+			_Surreal_GetBrowserOPFSMountABIVersion: () => 1,
+			ccall() { ccallCount++; },
+		};
+		assert(api.supportsOPFSMount(Module) === true);
+		assert(ccallCount === 0, "ABI probe unexpectedly used ccall");
+	});
+
 	await run("experimental OPFS runtime registers metadata without reading blobs", async () => {
 		const restored = await idbStorage.load();
 		let blobReads = 0;
 		const calls = [];
 		const Module = {
 			FS: new FakeFS(false),
+			_Surreal_GetBrowserOPFSMountABIVersion: () => 1,
 			ccall(name, returnType, argumentTypes, args) {
 				calls.push({ name, args: (args || []).slice() });
 				return 1;
@@ -257,8 +280,7 @@ window.importerTestPromise = (async function () {
 		const prepared = await api.prepareRuntimeDataset(Module, dataset);
 		assert(prepared.mode === "opfs-mount");
 		assert(blobReads === 0, "OPFS mount preparation read file contents");
-		assert(calls[0].name === "Surreal_GetBrowserOPFSMountABIVersion");
-		assert(calls[1].name === "Surreal_BeginBrowserOPFSMount" && calls[1].args[2] === restored.metadata.fileCount);
+		assert(calls[0].name === "Surreal_BeginBrowserOPFSMount" && calls[0].args[2] === restored.metadata.fileCount);
 		const additions = calls.filter(call => call.name === "Surreal_AddBrowserOPFSMountFile");
 		assert(additions.length === restored.metadata.fileCount);
 		assert(additions.some(call => call.args[0] === "System/Core.u"));
