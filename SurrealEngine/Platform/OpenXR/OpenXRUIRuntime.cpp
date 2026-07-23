@@ -30,6 +30,8 @@ void OpenXRUIRuntime::Update(XRUISurfaceEngineBinding& binding,
 	frame.AimRayValid = aimRayValid;
 	frame.MissDistance = missDistance;
 	input.Update(frame, binding);
+	visualFrame = BuildXRUIVisualFrame(input.Feedback(), binding.BuildReplayFrame(),
+		missDistance);
 }
 
 bool OpenXRUIRuntime::BeginComposition(XRUISurfaceEngineBinding& binding,
@@ -60,6 +62,7 @@ void OpenXRUIRuntime::Stop(XRUISurfaceEngineBinding& binding,
 		return;
 	FinishComposition(sink, false);
 	input.Cancel(binding);
+	visualFrame = {};
 	binding.ClearViewerPose();
 	sink.ReleaseSurfaceTargets();
 	started = false;

@@ -17,6 +17,8 @@ class OpenXRProvider : public VulkanGraphicsBinding, public IXRHapticSink
 {
 public:
 	static constexpr uint32_t ProjectionTargetSlot = 1;
+	static constexpr std::array<PresentationTarget, 2> UIVisualTargets = {
+		PresentationTarget{ 6 }, PresentationTarget{ 7 } };
 
 	OpenXRProvider();
 	~OpenXRProvider() override;

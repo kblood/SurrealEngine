@@ -12,6 +12,7 @@ enum class PresentationLayer
 	World,
 	WeaponOverlay,
 	UserInterface,
+	XRUIVisualOverlay,
 	Cinematic
 };
 

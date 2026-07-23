@@ -4,6 +4,7 @@
 #include "ViewFamily.h"
 #include "XRUISurfaceEngineBinding.h"
 #include "Lightmap/LightmapBuilder.h"
+#include "XR/XRUIVisuals.h"
 
 class RenderDevice;
 class UWindow;
@@ -22,6 +23,8 @@ public:
 	XRUISurfaceEngineBinding& XRUISurfaces() { return XRUIBinding; }
 	bool IsXRUIMenuActive() const;
 	void UpdateXRUISurfaceVisibility();
+	void SetXRUIVisualOverlay(const XRUIVisualFrame& frame,
+		const std::array<PresentationTarget, 2>& targets);
 
 	void PreRenderWindows(UCanvas* canvas);
 	void PostRenderWindows(UCanvas* canvas);
@@ -120,6 +123,7 @@ private:
 	void DrawSceneView(const ViewDescription& view);
 	void DrawScene();
 	void DrawScene(const ViewFamily& viewFamily, bool renderWeaponPerView = false);
+	void DrawXRUIVisualOverlay(const ViewFamily& viewFamily);
 	bool BeginPresentationLayer(const PresentationPlan& presentation, PresentationLayer layer);
 	void EndPresentationLayer(const PresentationPlan& presentation, PresentationLayer layer);
 
@@ -145,6 +149,8 @@ private:
 	float AmbientGlowTime = 0.0f;
 	float AmbientGlowAmount = 0.0f;
 	bool XRWeaponOverlayActive = false;
+	XRUIVisualFrame PendingXRUIVisualFrame;
+	std::array<PresentationTarget, 2> PendingXRUIVisualTargets;
 
 	struct
 	{

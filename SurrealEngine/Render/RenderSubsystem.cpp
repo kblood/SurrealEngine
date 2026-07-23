@@ -73,8 +73,71 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFam
 	}
 
 	XRUIBinding.Replay(XRUICanvasReplayContext::Game);
+	DrawXRUIVisualOverlay(viewFamily);
+	PendingXRUIVisualFrame = {};
+	PendingXRUIVisualTargets = {};
 
 	Device->Unlock(true);
+}
+
+void RenderSubsystem::SetXRUIVisualOverlay(const XRUIVisualFrame& frame,
+	const std::array<PresentationTarget, 2>& targets)
+{
+	PendingXRUIVisualFrame = frame;
+	PendingXRUIVisualTargets = targets;
+}
+
+void RenderSubsystem::DrawXRUIVisualOverlay(const ViewFamily& viewFamily)
+{
+	if (PendingXRUIVisualTargets[0].IsDefault() ||
+		PendingXRUIVisualTargets[1].IsDefault() || PendingXRUIVisualFrame.Hands.empty() ||
+		viewFamily.Views.size() != 2)
+		return;
+
+	auto drawTrianglesAsEdges = [&](FSceneNode& scene,
+		const Array<XRUIVisualVertex>& vertices)
+	{
+		for (size_t index = 0; index + 2 < vertices.size(); index += 3)
+		{
+			const vec4 color = vertices[index].Color;
+			Device->Draw3DLine(&scene, color, LINE_None,
+				vertices[index].Position, vertices[index + 1].Position);
+			Device->Draw3DLine(&scene, color, LINE_None,
+				vertices[index + 1].Position, vertices[index + 2].Position);
+			Device->Draw3DLine(&scene, color, LINE_None,
+				vertices[index + 2].Position, vertices[index].Position);
+		}
+	};
+
+	for (size_t viewIndex = 0; viewIndex < viewFamily.Views.size(); viewIndex++)
+	{
+		const ViewDescription& view = viewFamily.Views[viewIndex];
+		const PresentationLayerDescription layer = { PresentationLayer::XRUIVisualOverlay,
+			PendingXRUIVisualTargets[viewIndex], true };
+		if (!Device->BeginPresentationLayer(layer))
+			continue;
+		FSceneNode scene;
+		scene.XB = 0;
+		scene.YB = 0;
+		scene.X = view.Viewport.Width;
+		scene.Y = view.Viewport.Height;
+		scene.FX = static_cast<float>(scene.X);
+		scene.FY = static_cast<float>(scene.Y);
+		scene.FX2 = scene.FX * 0.5f;
+		scene.FY2 = scene.FY * 0.5f;
+		scene.ObjectToWorld = mat4::identity();
+		scene.WorldToView = view.WorldToView;
+		scene.Projection = view.Projection;
+		scene.FovAngle = view.FovAngle;
+		Device->SetSceneNode(&scene);
+		for (const XRUIHandVisual& hand : PendingXRUIVisualFrame.Hands)
+		{
+			drawTrianglesAsEdges(scene, hand.Controller);
+			drawTrianglesAsEdges(scene, hand.Laser);
+			drawTrianglesAsEdges(scene, hand.HitMarker);
+		}
+		Device->EndPresentationLayer(layer);
+	}
 }
 
 void RenderSubsystem::UpdateXRUISurfaceVisibility()

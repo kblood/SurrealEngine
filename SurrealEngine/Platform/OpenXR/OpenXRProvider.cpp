@@ -79,6 +79,12 @@ struct OpenXRProvider::Impl
 	bool uiFrameActive = false;
 	std::array<XrCompositionLayerQuad, 4> uiQuads;
 	uint32_t uiQuadCount = 0;
+	XrSwapchain uiVisualSwapchains[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
+	std::vector<XrSwapchainImageVulkanKHR> uiVisualImages[2];
+	uint32_t uiVisualImageIndex[2] = {};
+	bool uiVisualAcquired[2] = {};
+	bool uiVisualBound[2] = {};
+	bool uiVisualReady = false;
 #endif
 };
 
@@ -977,9 +983,9 @@ bool OpenXRProvider::AllocateSurfaceTargets(
 		impl->lastError = "OpenXR UI composition requires a ready Vulkan session and render device";
 		return false;
 	}
-	if (impl->maxLayerCount < 5)
+	if (impl->maxLayerCount < 6)
 	{
-		impl->lastError = "OpenXR runtime does not support projection plus four UI layers";
+		impl->lastError = "OpenXR runtime does not support projection, four UI layers, and the controller overlay";
 		return false;
 	}
 	VkFormatProperties properties{};
@@ -1037,6 +1043,47 @@ bool OpenXRProvider::AllocateSurfaceTargets(
 			return false;
 		}
 	}
+	for (int eye = 0; eye < 2; eye++)
+	{
+		XrSwapchainCreateInfo visualInfo{ XR_TYPE_SWAPCHAIN_CREATE_INFO };
+		visualInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
+			XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+		visualInfo.format = impl->colorFormat;
+		visualInfo.sampleCount = 1;
+		visualInfo.width = static_cast<uint32_t>(impl->width);
+		visualInfo.height = static_cast<uint32_t>(impl->height);
+		visualInfo.faceCount = 1;
+		visualInfo.arraySize = 1;
+		visualInfo.mipCount = 1;
+		XrResult visualResult = xrCreateSwapchain(impl->session, &visualInfo,
+			&impl->uiVisualSwapchains[eye]);
+		if (XR_FAILED(visualResult))
+		{
+			impl->lastError = ResultMessage("xrCreateSwapchain(UI visuals)", visualResult);
+			ReleaseSurfaceTargets();
+			return false;
+		}
+		uint32_t visualImageCount = 0;
+		visualResult = xrEnumerateSwapchainImages(impl->uiVisualSwapchains[eye], 0,
+			&visualImageCount, nullptr);
+		if (XR_FAILED(visualResult) || visualImageCount == 0)
+		{
+			impl->lastError = ResultMessage("xrEnumerateSwapchainImages(UI visuals)", visualResult);
+			ReleaseSurfaceTargets();
+			return false;
+		}
+		impl->uiVisualImages[eye].assign(visualImageCount,
+			{ XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR });
+		visualResult = xrEnumerateSwapchainImages(impl->uiVisualSwapchains[eye],
+			visualImageCount, &visualImageCount,
+			reinterpret_cast<XrSwapchainImageBaseHeader*>(impl->uiVisualImages[eye].data()));
+		if (XR_FAILED(visualResult))
+		{
+			impl->lastError = ResultMessage("xrEnumerateSwapchainImages(UI visuals)", visualResult);
+			ReleaseSurfaceTargets();
+			return false;
+		}
+	}
 	impl->uiTargetsAllocated = true;
 	return true;
 #else
@@ -1049,7 +1096,6 @@ bool OpenXRProvider::BeginSurfaceFrame(const XRUICanvasReplayFrame& frame,
 	const std::array<XRUIPointerFeedback, XRHandCount>& feedback,
 	const OpenXRUICompositionSpace& compositionSpace)
 {
-	(void)feedback;
 #if defined(SURREAL_ENABLE_OPENXR)
 	if (!impl->uiTargetsAllocated || impl->uiFrameActive || !impl->frameBegun ||
 		!impl->sessionState.IsRunning() || !compositionSpace.Valid ||
@@ -1102,7 +1148,49 @@ bool OpenXRProvider::BeginSurfaceFrame(const XRUICanvasReplayFrame& frame,
 	}
 
 	impl->uiQuadCount = 0;
+	impl->uiVisualReady = false;
 	impl->uiFrameActive = true;
+	bool hasVisuals = false;
+	for (const XRUIPointerFeedback& pointer : feedback)
+		hasVisuals = hasVisuals || pointer.Active;
+	if (hasVisuals && !frame.Items.empty())
+	{
+		for (int eye = 0; eye < 2; eye++)
+		{
+			XrSwapchainImageAcquireInfo acquireInfo{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+			XrResult result = xrAcquireSwapchainImage(impl->uiVisualSwapchains[eye],
+				&acquireInfo, &impl->uiVisualImageIndex[eye]);
+			if (XR_FAILED(result))
+			{
+				impl->lastError = ResultMessage("xrAcquireSwapchainImage(UI visuals)", result);
+				EndSurfaceFrame(false);
+				return false;
+			}
+			impl->uiVisualAcquired[eye] = true;
+			XrSwapchainImageWaitInfo waitInfo{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+			waitInfo.timeout = XR_INFINITE_DURATION;
+			result = xrWaitSwapchainImage(impl->uiVisualSwapchains[eye], &waitInfo);
+			if (XR_FAILED(result) || impl->uiVisualImageIndex[eye] >=
+				impl->uiVisualImages[eye].size())
+			{
+				impl->lastError = ResultMessage("xrWaitSwapchainImage(UI visuals)", result);
+				EndSurfaceFrame(false);
+				return false;
+			}
+			PresentationTargetBinding binding;
+			binding.Target = UIVisualTargets[eye];
+			binding.Images.push_back({ reinterpret_cast<void*>(
+				impl->uiVisualImages[eye][impl->uiVisualImageIndex[eye]].image),
+				impl->width, impl->height, false });
+			if (!impl->uiRenderDevice->BindPresentationTarget(binding))
+			{
+				impl->lastError = "Vulkan renderer rejected the OpenXR UI visual overlay binding";
+				EndSurfaceFrame(false);
+				return false;
+			}
+			impl->uiVisualBound[eye] = true;
+		}
+	}
 	for (size_t index = 0; index < plannedCount; index++)
 	{
 		auto& target = *planned[index].Target;
@@ -1174,6 +1262,7 @@ bool OpenXRProvider::EndSurfaceFrame(bool rendered)
 	if (!impl->uiFrameActive)
 		return false;
 	bool completed = true;
+	const bool hadVisualFrame = impl->uiVisualAcquired[0] && impl->uiVisualAcquired[1];
 	for (auto it = impl->uiSwapchains.rbegin(); it != impl->uiSwapchains.rend(); ++it)
 	{
 		if (it->Bound && impl->uiRenderDevice)
@@ -1191,6 +1280,24 @@ bool OpenXRProvider::EndSurfaceFrame(bool rendered)
 			it->Acquired = false;
 		}
 	}
+	for (int eye = 1; eye >= 0; eye--)
+	{
+		if (impl->uiVisualBound[eye] && impl->uiRenderDevice)
+			impl->uiRenderDevice->UnbindPresentationTarget(UIVisualTargets[eye]);
+		impl->uiVisualBound[eye] = false;
+		if (impl->uiVisualAcquired[eye])
+		{
+			XrSwapchainImageReleaseInfo releaseInfo{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+			XrResult result = xrReleaseSwapchainImage(impl->uiVisualSwapchains[eye], &releaseInfo);
+			if (XR_FAILED(result))
+			{
+				impl->lastError = ResultMessage("xrReleaseSwapchainImage(UI visuals)", result);
+				completed = false;
+			}
+			impl->uiVisualAcquired[eye] = false;
+		}
+	}
+	impl->uiVisualReady = hadVisualFrame && rendered && completed;
 	if (!rendered || !completed)
 		impl->uiQuadCount = 0;
 	impl->uiFrameActive = false;
@@ -1212,6 +1319,16 @@ void OpenXRProvider::ReleaseSurfaceTargets()
 			xrDestroySwapchain(target.Handle);
 		target = {};
 	}
+	for (int eye = 0; eye < 2; eye++)
+	{
+		if (impl->uiVisualSwapchains[eye])
+			xrDestroySwapchain(impl->uiVisualSwapchains[eye]);
+		impl->uiVisualSwapchains[eye] = XR_NULL_HANDLE;
+		impl->uiVisualImages[eye].clear();
+		impl->uiVisualAcquired[eye] = false;
+		impl->uiVisualBound[eye] = false;
+	}
+	impl->uiVisualReady = false;
 	impl->uiTargetsAllocated = false;
 #endif
 }
@@ -1268,7 +1385,9 @@ void OpenXRProvider::EndFrame(bool submitLayer, const OpenXREyeView eyes[2])
 		EndSurfaceFrame(false);
 	XrCompositionLayerProjectionView projectionViews[2] = {};
 	XrCompositionLayerProjection projection{ XR_TYPE_COMPOSITION_LAYER_PROJECTION };
-	const XrCompositionLayerBaseHeader* layers[5] = {};
+	XrCompositionLayerProjectionView visualViews[2] = {};
+	XrCompositionLayerProjection visualProjection{ XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+	const XrCompositionLayerBaseHeader* layers[6] = {};
 	uint32_t layerCount = 0;
 	if (submitLayer && eyes)
 	{
@@ -1288,6 +1407,25 @@ void OpenXRProvider::EndFrame(bool submitLayer, const OpenXREyeView eyes[2])
 		for (uint32_t index = 0; index < impl->uiQuadCount; index++)
 			layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
 				&impl->uiQuads[index]);
+		if (impl->uiVisualReady)
+		{
+			for (int eye = 0; eye < 2; eye++)
+			{
+				visualViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+				visualViews[eye].pose = projectionViews[eye].pose;
+				visualViews[eye].fov = projectionViews[eye].fov;
+				visualViews[eye].subImage.swapchain = impl->uiVisualSwapchains[eye];
+				visualViews[eye].subImage.imageRect.extent = { impl->width, impl->height };
+			}
+			visualProjection.layerFlags =
+				XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT |
+				XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+			visualProjection.space = impl->space;
+			visualProjection.viewCount = 2;
+			visualProjection.views = visualViews;
+			layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
+				&visualProjection);
+		}
 	}
 	XrFrameEndInfo endInfo{ XR_TYPE_FRAME_END_INFO };
 	endInfo.displayTime = impl->predictedDisplayTime;
@@ -1299,5 +1437,6 @@ void OpenXRProvider::EndFrame(bool submitLayer, const OpenXREyeView eyes[2])
 		impl->lastError = ResultMessage("xrEndFrame", result);
 	impl->frameBegun = false;
 	impl->uiQuadCount = 0;
+	impl->uiVisualReady = false;
 #endif
 }

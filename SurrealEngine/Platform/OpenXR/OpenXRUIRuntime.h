@@ -2,6 +2,7 @@
 
 #include "Platform/OpenXR/OpenXRView.h"
 #include "XR/XRUIRuntime.h"
+#include "XR/XRUIVisuals.h"
 
 class OpenXRUICompositionSink
 {
@@ -47,9 +48,11 @@ public:
 	{
 		return input.Feedback();
 	}
+	const XRUIVisualFrame& VisualFrame() const { return visualFrame; }
 
 private:
 	XRUIInputConnector input;
+	XRUIVisualFrame visualFrame;
 	bool started = false;
 	bool compositionBegun = false;
 };

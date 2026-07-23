@@ -538,6 +538,9 @@ void Engine::RunOneFrame()
 				uiCompositionBegun = openXRUI.BeginComposition(
 					render->XRUISurfaces(), *openXR,
 					openXRViews.CompositionSpace(CameraLocation));
+				if (uiCompositionBegun && !openXRUI.VisualFrame().Hands.empty())
+					render->SetXRUIVisualOverlay(openXRUI.VisualFrame(),
+						OpenXRProvider::UIVisualTargets);
 				if (uiCompositionBegun && hasComposedUI)
 				{
 					viewFamily.Presentation.SetLayer(PresentationLayer::UserInterface,

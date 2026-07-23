@@ -177,6 +177,8 @@ namespace
 		Check(runtime.Start(binding, sink, 40.0f), "native UI runtime did not start");
 		binding.SetHudActive(true);
 		Input input;
+		input.rays[XRHandIndex(XRHand::Left)].Origin.y = -5.0f;
+		input.rays[XRHandIndex(XRHand::Right)].Origin.y = 7.0f;
 		hapticPolicy.UpdateInput(input.session, input.controllers,
 			XRHapticInputContext::UserInterface, &hapticSink);
 		Update(runtime, binding, input);
@@ -201,6 +203,36 @@ namespace
 		binding.Replay(XRUICanvasReplayContext::Game);
 		Check(runtime.Feedback()[0].Contact.Hit && runtime.Feedback()[1].Contact.Hit,
 			"both native controller rays did not hit the menu");
+		Check(runtime.Feedback()[0].Contact.Pixel.x !=
+			runtime.Feedback()[1].Contact.Pixel.x &&
+			runtime.Feedback()[0].HitPoint.y != runtime.Feedback()[1].HitPoint.y,
+			"asymmetric native rays collapsed to one UI contact");
+		const XRUICanvasReplayFrame orderedFrame = binding.BuildReplayFrame();
+		Check(orderedFrame.Items.size() == 1 &&
+			XRUIControllerVisualCompositionOrder <
+				orderedFrame.Items.front().Surface.CompositionOrder &&
+			XRUIHitMarkerCompositionOrder >
+				orderedFrame.Items.back().Surface.CompositionOrder,
+			"native controller/UI/exact-marker composition order changed");
+		const XRUIVisualFrame& visuals = runtime.VisualFrame();
+		Check(visuals.Hands.size() == 2 &&
+			visuals.Hands[0].Hand == XRHand::Left &&
+			visuals.Hands[1].Hand == XRHand::Right,
+			"native UI did not build provider-neutral geometry for both tracked hands");
+		for (size_t hand = 0; hand < XRHandCount; hand++)
+		{
+			Check(!visuals.Hands[hand].Controller.empty() &&
+				!visuals.Hands[hand].Laser.empty() &&
+				!visuals.Hands[hand].HitMarker.empty(),
+				"native UI omitted controller, beam, or exact-hit geometry");
+			for (const XRUIVisualVertex& vertex : visuals.Hands[hand].Laser)
+				Check(vertex.Position.x <= runtime.Feedback()[hand].HitPoint.x + 0.001f,
+					"native beam extended beyond the authoritative UI contact");
+			for (size_t vertex = 0; vertex < visuals.Hands[hand].HitMarker.size(); vertex += 3)
+				Check(length(visuals.Hands[hand].HitMarker[vertex].Position -
+					runtime.Feedback()[hand].HitPoint) < 0.001f,
+					"native hit marker was not centered on the authoritative UI contact");
+		}
 		Check(host.pressed.empty(), "held startup trigger clicked during menu handoff");
 
 		input.controllers.ForHand(XRHand::Right).Select.Pressed = false;
