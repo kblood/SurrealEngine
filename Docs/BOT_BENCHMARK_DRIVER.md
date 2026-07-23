@@ -9,26 +9,54 @@ concrete driver as `bot-benchmark`. It is selected explicitly with:
 
 With no selection, registration is inert and interactive behavior is unchanged.
 The driver consumes `DeterministicRuntime`, loads a caller-selected UT map with
-automatic bots disabled, logs the viewport in as a spectator, spawns exactly
-one bot at an external skill tier from 0 through 7, and advances a bounded
-fixed-step level loop without window, audio, or renderer creation.
+automatic bots disabled, logs the viewport in as a spectator, spawns a bounded
+ordered roster, and advances a fixed-step level loop without window, audio, or
+renderer creation. The default remains one unnamed bot at the uniform external
+difficulty, so existing invocations keep their gameplay setup.
+
+The setup is currently verified only for Unreal Tournament 436 deathmatch. A
+fail-closed game-profile check runs before applying the Botpack-specific setup;
+recognized but unverified Unreal, UT patch, mode, and mod combinations report
+an actionable unsupported-profile failure. See
+[`BOT_AI_CROSS_GAME_AND_MAPS.md`](BOT_AI_CROSS_GAME_AND_MAPS.md) for the shared
+engine boundary and the work required for an Unreal-specific adapter.
 
 The immutable configuration is parsed once from `--botbench-url`,
 `--botbench-output`, `--botbench-seed`, `--botbench-ticks`,
-`--botbench-fixed-delta`, and `--botbench-difficulty`. `summary.json` binds the
-exact configuration to game/version/map identity, controlled bot identity,
-ticks, simulated time, status, failure reason, and exit code. Seed and tick
-integers are serialized as decimal strings to avoid JSON precision loss.
+`--botbench-fixed-delta`, and `--botbench-difficulty`. The optional roster
+arguments are `--botbench-bots=1..16`, `--botbench-skills=0..7,...`, and
+`--botbench-names=name,...`. Skill and name lists must exactly match the bot
+count. An absent skill list repeats the uniform difficulty; an absent name list
+selects stock random profiles. Present empty lists, empty entries, invalid
+skills, name-count mismatches, and case-insensitive duplicate names fail before
+engine setup. There is no bot-policy selector in this configuration.
+
+Each unnamed participant is spawned sequentially through the verified stock
+`AddBots 1` command. The driver applies `InitializeSkill` independently, checks
+the stock novice/internal-skill mapping, identifies exactly one newly created
+bot, and binds its PRI identity, actor, player name, and class to that roster
+index. It finally requires the complete live bot set to equal the controlled
+set. This makes roster order a spawn contract rather than an accidental sort
+order in telemetry.
+
+Explicit names never fall back to random profiles. The only allowed named path
+is stock `AddBotNamed`; the verified benchmark viewport is a
+`Botpack.CHSpectator`, whose exec surface does not provide that
+`TournamentPlayer` function. Current named runs therefore fail explicitly with
+an unavailable-command reason. Supporting stable named profiles later requires
+an independently verified command contract; this slice does not substitute a
+native `ForceAddBot` path.
 
 ## Manifest and bounded telemetry
 
 An opted-in run also creates two comparison inputs in the output directory:
 
 - `manifest.json` is written once at driver start using
-  `surreal-bot-benchmark-manifest-v1`. It records the parsed configuration, a
+  `surreal-bot-benchmark-manifest-v2`. It records the parsed configuration, a
   deterministic FNV-1a configuration identity, and the telemetry event cap.
   The output directory is recorded for provenance but excluded from the
-  configuration identity because it cannot affect simulation.
+  configuration identity because it cannot affect simulation. Bot count and
+  every ordered canonical participant fragment are included in that identity.
 - `events.jsonl` uses `surreal-bot-benchmark-telemetry-v1`. It contains one
   `run_start` record, at most one `tick` record for each simulated tick, and
   one `run_result` record. The hard cap is therefore `max_ticks + 2`; no bot or
@@ -43,6 +71,80 @@ keys have a fixed order, strings are escaped explicitly, numbers use the
 classic locale, position and velocity use six fixed decimals, negative zero is
 normalized, and non-finite values fail the benchmark instead of entering the
 trace.
+
+`summary.json` uses `surreal-bot-benchmark-summary-v2`. It contains the exact
+requested roster and the successfully created portion of the actual roster.
+Actual participants are serialized by roster index, not PRI or actor sort
+order. Failed setup can therefore retain partial spawn evidence. A successful
+run has one actual participant for every requested index.
+
+## Version 2 JSON contract
+
+The manifest adds `bot_count` and `requested_roster` to the original
+configuration fields:
+
+```json
+{
+  "schema": "surreal-bot-benchmark-manifest-v2",
+  "bot_count": 1,
+  "requested_roster": [
+    {
+      "roster_index": 0,
+      "requested_name": "",
+      "external_skill": 7,
+      "identity_fragment": "participant-v1:index=0;external_skill=7;requested_name_hex="
+    }
+  ]
+}
+```
+
+The array always contains exactly `bot_count` entries in ascending index order.
+`identity_fragment` is an unambiguous canonical string whose requested name is
+encoded as lowercase hexadecimal bytes. It is intended for configuration
+hashing, not as the runtime pawn identity. The existing top-level `difficulty`
+remains the uniform fallback and is still identity-bound when explicit skills
+are supplied.
+
+The v2 summary retains the lifecycle and game fields, then adds:
+
+```json
+{
+  "schema": "surreal-bot-benchmark-summary-v2",
+  "requested_roster": [
+    {
+      "roster_index": 0,
+      "requested_name": "",
+      "external_skill": 7,
+      "identity_fragment": "participant-v1:index=0;external_skill=7;requested_name_hex="
+    }
+  ],
+  "actual_roster": [
+    {
+      "roster_index": 0,
+      "identity": "pri:1",
+      "actor": "Bot1",
+      "player_name": "Loque",
+      "class": "Botpack.Bot"
+    }
+  ],
+  "config": {
+    "url": "DM-Morbias][?Game=Botpack.DeathMatchPlus",
+    "output_directory": "botbench-output",
+    "seed": "104729",
+    "max_ticks": "600",
+    "fixed_delta": 0.016666668,
+    "difficulty": 7,
+    "bot_count": 1
+  }
+}
+```
+
+The example omits unchanged lifecycle fields. V2 removes the ambiguous
+singular `bot_class` and `bot_name`; consumers must use `actual_roster`. Seed
+and tick counts remain decimal strings. Fixed delta and simulated time use
+fixed nine-decimal, classic-locale formatting. Telemetry remains v1 because its
+existing sorted `bots` vector already supports multiple actors. Consumers must
+use the v2 summary when roster-slot identity matters.
 
 Setup and tick failures are repeated in `run_start` or `run_result` when the
 telemetry stream remains writable and always remain in `summary.json`. Failure
