@@ -6,6 +6,7 @@
 #include "UObject/USubsystem.h"
 #include "VM/ScriptCall.h"
 #include "Engine.h"
+#include "XR/Avatar/AvatarRenderer.h"
 
 RenderSubsystem::RenderSubsystem(RenderDevice* renderdevice) : Device(renderdevice), XRUIBinding(*this)
 {
@@ -291,4 +292,6 @@ void RenderSubsystem::OnMapLoaded()
 		if (light->VolumeRadius() != 0)
 			Light.FogBalls.push_back(light);
 	}
+
+	AvatarRenderer::RunMapLoadDiagnostics();
 }

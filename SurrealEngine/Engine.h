@@ -22,6 +22,7 @@
 #include "XR/XRStartupIntroRoute.h"
 #include "XR/XRWeaponPoseSolver.h"
 #include "XR/XRHandedness.h"
+#include "XR/Avatar/AvatarIKSolver.h"
 #include <set>
 #include <list>
 
@@ -112,6 +113,14 @@ public:
 	void SetXRDominantHand(XRHand hand);
 	XRHand GetXRDominantHand() const { return xrHandedness.Dominant; }
 	const XRHandedness& GetXRHandedness() const { return xrHandedness; }
+
+	// One head/hand sample per frame for the full-body avatar's IK solver
+	// (see XR/Avatar/AvatarIKSolver.h) - real OpenXR when a session is
+	// running, or a synthetic stand-in behind --avatar-ik-synthetic. Follows
+	// the same per-frame cache pattern as SetXRWeaponPose/GetXRWeaponPose.
+	void SetXRAvatarInput(const AvatarIKFrameInput& input) { xrAvatarInput = input; }
+	const AvatarIKFrameInput& GetXRAvatarInput() const { return xrAvatarInput; }
+	void ClearXRAvatarInput() { xrAvatarInput = {}; }
 	void RenderGameFrame(float levelElapsed);
 	void RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily);
 	void FinishGameFrame(float levelElapsed);
@@ -286,6 +295,16 @@ private:
 	bool xrManualSlaveFirePending = false;
 	bool xrAlternateFireKeyDown = false;
 	uint64_t xrWeaponCallHook = 0;
+	AvatarIKFrameInput xrAvatarInput;
+	float avatarSyntheticTimeSeconds = 0.0f;
+	// Captured once in Setup() rather than re-read from the global
+	// `commandline` per frame - on Emscripten, Engine::Run() registers the
+	// frame callback and returns immediately (emscripten_set_main_loop_arg,
+	// simulate_infinite_loop=0), so GameApp::main's local CommandLine has
+	// already been destroyed by the time later frames execute. Setup() itself
+	// still runs synchronously before that happens, so it is the last safe
+	// place to consult `commandline` for anything a per-frame method needs.
+	bool avatarIkSyntheticRequested = false;
 	ViewFamily CreateDesktopViewFamily() const;
 	void InstallXRWeaponCallHook();
 	void UninstallXRWeaponCallHook();

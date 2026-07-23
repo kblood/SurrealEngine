@@ -34,8 +34,6 @@ VideoSettingsPage::VideoSettingsPage(Widget* parent)
 	GammaModesLabel = new TextLabel(this);
 	GammaModes = new Dropdown(this);
 	GammaCorrectScreenshots = new CheckboxLabel(this);
-	XRDominantHandLabel = new TextLabel(this);
-	XRDominantHand = new Dropdown(this);
 	Hdr = new CheckboxLabel(this);
 	HdrScaleLabel = new TextLabel(this);
 	HdrScale = new LineEdit(this);
@@ -57,9 +55,6 @@ VideoSettingsPage::VideoSettingsPage(Widget* parent)
 	LightModesLabel->SetText("Light mode");
 	GammaModesLabel->SetText("Gamma mode");
 	GammaCorrectScreenshots->SetText("Gamma correct screenshots");
-	XRDominantHandLabel->SetText("XR dominant hand");
-	XRDominantHand->AddItem("Right");
-	XRDominantHand->AddItem("Left");
 	Hdr->SetText("HDR mode");
 	HdrScaleLabel->SetText("HDR scale");
 	Bloom->SetText("Bloom effect");
@@ -101,7 +96,6 @@ VideoSettingsPage::VideoSettingsPage(Widget* parent)
 	LightModes->SetSelectedItem((int)settings.RenderDevice.Light);
 	GammaModes->SetSelectedItem((int)settings.RenderDevice.Gamma);
 	GammaCorrectScreenshots->SetChecked(settings.RenderDevice.GammaCorrectScreenshots);
-	XRDominantHand->SetSelectedItem(settings.XR.DominantHand == XRHand::Left ? 1 : 0);
 	Hdr->SetChecked(settings.RenderDevice.Hdr);
 	HdrScale->SetTextInt(settings.RenderDevice.HdrScale);
 	Bloom->SetChecked(settings.RenderDevice.Bloom);
@@ -139,11 +133,6 @@ VideoSettingsPage::VideoSettingsPage(Widget* parent)
 	hdrScaleLayout->AddWidget(HdrScale);
 	hdrScaleLayout->AddStretch();
 
-	auto xrDominantHandLayout = new HBoxLayout();
-	xrDominantHandLayout->AddWidget(XRDominantHandLabel);
-	xrDominantHandLayout->AddWidget(XRDominantHand);
-	xrDominantHandLayout->AddStretch();
-
 	auto bloomAmountLayout = new HBoxLayout();
 	bloomAmountLayout->AddWidget(BloomAmountLabel);
 	bloomAmountLayout->AddWidget(BloomAmount);
@@ -168,7 +157,6 @@ VideoSettingsPage::VideoSettingsPage(Widget* parent)
 	mainLayout->AddLayout(gammaModesLayout);
 
 	mainLayout->AddWidget(GammaCorrectScreenshots);
-	mainLayout->AddLayout(xrDominantHandLayout);
 
 	mainLayout->AddWidget(Hdr);
 	mainLayout->AddLayout(hdrScaleLayout);
@@ -220,8 +208,6 @@ void VideoSettingsPage::Save()
 		settings.RenderDevice.Gamma = GammaMode::XOpenGL;
 
 	settings.RenderDevice.GammaCorrectScreenshots = GammaCorrectScreenshots->GetChecked();
-	settings.XR.DominantHand = XRDominantHand->GetSelectedItem() == 1 ?
-		XRHand::Left : XRHand::Right;
 	settings.RenderDevice.Hdr = Hdr->GetChecked();
 	settings.RenderDevice.HdrScale = HdrScale->GetTextInt();
 	settings.RenderDevice.Bloom = Bloom->GetChecked();
@@ -240,7 +226,6 @@ void VideoSettingsPage::OnResetButtonClicked()
 	AntialiasModes->SetSelectedItem(0);
 	LightModes->SetSelectedItem(0);
 	GammaModes->SetSelectedItem(0);
-	XRDominantHand->SetSelectedItem(0);
 	Hdr->SetChecked(false);
 	HdrScale->SetTextInt(128);
 	Bloom->SetChecked(false);
