@@ -1,6 +1,6 @@
 # WebXR input provider
 
-Date: 2026-07-22
+Date: 2026-07-23
 
 ## Scope
 
@@ -10,7 +10,8 @@ This layer samples browser-owned WebXR input, crosses the JavaScript/WASM
 boundary through a packed replacement snapshot, and converts the decoded data
 to the provider-neutral types in `XRCommon.h`. It does not choose locomotion,
 weapons, dominant hand, menu clicks, UI raycasts, controller rendering, or
-haptic behavior.
+haptic behavior. The integration product supplies those decisions through
+provider-neutral XR gameplay/profile modules rather than changing this ABI.
 
 Keyboard/mouse and flat presentation remain active. WebXR uses the independent
 `XRLeft` and `XRRight` contributors in `InputComposition`; replacing or clearing
@@ -93,17 +94,15 @@ hand releases only its contributors. Blur and session end release the XR
 sources that were active; keyboard, mouse, gamepad, and synthetic contributors
 are never cleared.
 
-The runtime presents hardware controls as bindable UE1 joystick keys:
-
-- left trigger, squeeze, primary, secondary, menu, and stick click are
-  `Joy1` through `Joy6`; its stick axes are `JoyX` and `JoyY`;
-- right equivalents are `Joy9` through `Joy14`; its stick axes are `JoyU` and
-  `JoyV`.
-
-This is a stable hardware layout, not a game binding table. Existing `.ini`
-key bindings still decide what those keys do. This branch does not choose
-locomotion, weapons, dominant hand, menu clicks, raycasts, or controller
-rendering.
+The integration runtime feeds `XRControllerSnapshot` to the shared
+`XRInputAdapter`; it does not emit `Joy*` keys or depend on the game's existing
+joystick bindings. With the current right-dominant UE1 profile, right Select is
+`bFire`, left Select is `bAltFire`, the left stick supplies strafe/forward, and
+the right stick supplies turn/up. Menu ownership publishes neutral gameplay
+controls, releases only XR contributors, and blocks held buttons until release
+so closing a menu cannot leak a fire press. Keyboard and mouse contributors
+remain simultaneous fallbacks. Dominant-hand settings, snap/smooth turn,
+movement reference, and face-button policy remain profile/settings follow-ups.
 
 ## Validation
 

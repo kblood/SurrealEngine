@@ -1,9 +1,9 @@
 # Shared flat/WebXR browser release package
 
-Date: 2026-07-22
+Date: 2026-07-23
 
 Integration status: the package composition and compliance mechanism are
-implemented and automated at `integration/unified-engine` commit `a0fb4f93`.
+implemented and automated at `integration/unified-engine` commit `359aaa30`.
 WebXR and the optional demo descriptors remain experimental; Quest,
 owner-data, final-hosting, and human/legal release gates remain open.
 
@@ -392,8 +392,9 @@ Before publishing:
    local-import-only unless explicit artifact-specific permission is obtained.
 
 World-anchored UI/cinematic capture, procedural tracked-controller proxies,
-lasers, and exact-contact markers are implemented shared engine/provider
-features, not package-shell duplicates. Their automated geometry, ordering,
-input, and lifecycle evidence has passed, but physical presentation, release
-tuning, real game behavior, weapons, locomotion policy, and browser audio remain
-separate runtime gates.
+lasers, exact-contact markers, semantic XR gameplay input, and the first
+controller-aimed per-eye weapon path are shared engine/provider features, not
+package-shell duplicates. Automated geometry, ordering, input, lifecycle, and
+30-test native evidence passes; physical presentation, loaded-game weapon
+behavior, quick-tap sequencing, comfort locomotion, calibration, and long-play
+browser audio remain separate runtime gates.

@@ -66,8 +66,9 @@ not enough for the UT startup gate: the intro console/script needed an ordinary
 `KeyEvent` fire path. WebXR therefore mirrors a trigger edge to primary fire
 (right hand) or alternate fire (left hand) only while the startup state is
 active and no menu is open. Its matching release is guaranteed even if the
-intro ends or the controller disconnects. Outside that interval the original
-`IK_Joy1`/`IK_Joy9` events and user bindings are preserved.
+intro ends or the controller disconnects. Outside that interval the shared
+semantic XR profile handles Fire/AltFire directly without depending on
+`IK_Joy1`/`IK_Joy9` or the user's legacy joystick bindings.
 
 This implementation does **not** render the complete map from a separate mono
 camera into a texture. It is the smallest fix for the observed black prompt and

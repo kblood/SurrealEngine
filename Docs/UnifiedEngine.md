@@ -80,7 +80,7 @@ This roadmap uses four deliberately separate claims:
 - **Owner-data-unverified** means no automated fixture can establish behavior
   with a user's commercial packages, maps, media, and scripts.
 
-At integration commit `a0fb4f93`, the main product-only additions beyond the
+At integration commit `359aaa30`, the main product-only additions beyond the
 foundation topics are:
 
 | Integrated slice | State | Evidence and remaining boundary |
@@ -89,6 +89,8 @@ foundation topics are:
 | Direct WebXR/WebGPU presentation | Implemented, experimental | ABI/lifecycle and native bridge tests pass; no target Quest browser with production `XRGPUBinding` has been verified. |
 | Quest compatibility presentation | Implemented, experimental | `XRWebGLLayer` receives a WebGPU-rendered stereo atlas through WebGL 2; desktop API probes and provider tests pass, but Quest correctness and transfer cost are hardware-unverified. |
 | WebXR UI and controllers | Implemented, experimental | World-anchored surfaces, both procedural controller proxies, lasers, and exact-contact markers share one hit result in both presentation modes; scale, latency, convergence, and comfort remain hardware-unverified. |
+| Semantic XR gameplay input | Implemented, experimental | WebXR and OpenXR use the provider-neutral `XRInputAdapter`; right-dominant Select maps directly to Fire, the other Select to AltFire, sticks map to movement/turning, menu ownership releases only XR contributors, and hostile `User.ini` Joy mappings are bypassed. Snap/smooth turn, movement-reference, face-button, and comfort settings remain follow-ups. |
+| One-hand XR weapons | Implemented, experimental | A shared aim-pose solver, scoped full-tick firing direction, and contiguous per-eye weapon pass are used by WebXR and OpenXR. Default placement follows the Farantir hardware baseline (aim pose, zero offset, 5x scale); physical calibration, muzzle-origin rewriting, two-hand/dual-wield behavior, and loaded UT99/Unreal fixtures remain gates. |
 | UT99/Unreal startup map intro | Implemented, experimental | `URL.LocalMap`, prompt-HUD capture, menu handoff, intro-only trigger routing, and explicit launcher skip policy have automated coverage; actual UT99/Unreal scripts remain owner-data and Quest-unverified. |
 | KHG browser AVI playback | Implemented, experimental | The existing IV50 decoder advances asynchronously under the flat/WebXR frame owner; synthetic scheduling and no-data linking pass, while actual KHG media, browser audio, masks, and same-call-stack script assumptions remain unverified or incomplete. |
 | Local UE1 demo import | Implemented, experimental | UT demo 348 and Deus Ex demo 1002f reach bounded package scans; Unreal demo 205 advances past both the legacy `Parent`/`Outer` and `DynamicString` layout boundaries, then stops at the absent `UPak` content dependency. All remain local-import-only, gameplay-unverified, and redistribution-gated. |
@@ -111,12 +113,10 @@ Native and browser UI policy converges through `XRUIRuntime`: both use the same
 surface descriptors, anchoring, menu-last ordering, exact pointer contact and
 click ownership, startup fire route, mouse coexistence, and lifecycle cleanup.
 Native OpenXR has an SDK-free allocation/composition seam and view-consistent
-ray translation. Vulkan can now render and retain independent single-image
-slots 2-5 without disturbing the world pass. The remaining native gap is the
-OpenXR owner that allocates/acquires those swapchains, binds them for replay,
-converts shared poses through the view recenter transform, and submits ordered
-no-depth quad layers. This limitation remains explicit so the backend primitive
-cannot masquerade as working native quad UI.
+ray translation. Vulkan can render and retain independent single-image slots
+2-5 without disturbing the world pass, and the OpenXR owner now allocates,
+acquires, binds, and submits the ordered no-depth quad layers. This remains
+hardware-unverified on the current integration branch.
 
 The VM hook registry is a narrow attachment point for optional game and XR
 behavior. Hooks are ordered, scoped to a call, mutation-safe, and unwind in
@@ -146,8 +146,9 @@ but must not fork gameplay, VM, menu, or game-support implementations.
 
 ## Current validation
 
-As of integration commit `a0fb4f93`, a complete Windows x64 Release build
-passes all 25 registered CTest tests. The no-data Emscripten Release target also
+As of integration commit `359aaa30`, both ordinary and OpenXR-enabled Windows
+x64 Release builds pass all 30 registered CTest tests. A clean Window-owned
+Asyncify/WasmFS no-data Emscripten Release target also
 compiles and links the complete `SurrealEngine.js`/WASM application. The
 ordinary native executable, flat browser entry point, and desktop
 keyboard/mouse contributor remain available; WebXR is an optional presentation
@@ -161,7 +162,7 @@ The served data-free browser matrix passes:
 - the separate three-demo descriptor/import suite;
 - 13 OPFS/IndexedDB mutable-persistence and migration checks;
 - 3 provider-neutral data-bootstrap checks;
-- direct WebXR ABI-v2 eye-texture, input, failure, exit, and re-entry tests;
+- direct WebXR ABI-v3 persistent eye-texture, input, failure, exit, and re-entry tests;
 - `XRWebGLLayer` fallback selection, stereo-atlas, cleanup, and re-entry tests;
 - the real desktop Chrome WebGPU-to-WebGL 2 upload/readback probe;
 - corresponding-source and static release-package audits; and
@@ -203,6 +204,10 @@ matrix.
   composition, exact-contact controller visuals, map-intro prompt/menu handoff,
   and the Quest-compatible WebGL presentation fallback are integrated. The two
   WebXR presentation modes remain experimental pending the physical matrix.
+  Semantic Fire/AltFire/movement input and the first shared one-hand weapon
+  pose/firing/per-eye-rendering slice are integrated; quick-tap frame
+  sequencing, comfort locomotion, muzzle origins, two-hand support, and loaded
+  game qualification remain active work.
 
 The upstream repository is active. Contact in the public Discord on 2026-07-22
 confirmed that small bug fixes and improvements are welcome when maintainers can

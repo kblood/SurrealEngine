@@ -3,7 +3,7 @@
 Date: 2026-07-23
 
 Integration status: implemented and automated at `integration/unified-engine`
-commit `a0fb4f93`; both browser presentation modes remain experimental and
+commit `359aaa30`; both browser presentation modes remain experimental and
 hardware-unverified on Quest.
 
 ## Scope
@@ -32,11 +32,12 @@ platform. It provides:
 - a separate `web/index_webxr.html` harness. The existing flat
   `web/index_webgpu.html` remains unchanged and does not require WebXR.
 
-The provider deliberately excludes locomotion, weapon behavior, dominant-hand
-policy, game-specific controller models, haptics, PWA packaging, game-data
-import, data persistence, and game-specific VM hooks. Product integration adds
-procedural controller proxies through the provider-neutral UI compositor; they
-are not weapon models or provider policy.
+The low-level provider deliberately excludes game-specific policy, PWA
+packaging, game-data import, and persistence. Product integration composes it
+with the shared semantic XR input adapter and provider-neutral one-hand weapon
+pose/runtime. Procedural controller proxies remain UI feedback rather than game
+weapon models. Dominant-hand settings, comfort locomotion, haptic outcomes,
+muzzle calibration, and two-hand behavior remain separate profile work.
 
 ## Projection-eye UI connector
 
@@ -279,7 +280,8 @@ Completed locally:
   descriptor targets/scaling, center-pixel contact, one-shot replay/click,
   both-hand visual construction, exact beam endpoint/radius, marker alignment,
   draw-order invariants, and held-select edge behavior;
-- all 25 registered native tests passing at integrated commit `a0fb4f93`;
+- all 30 registered native tests passing in both ordinary and OpenXR-enabled
+  Release builds at integrated commit `359aaa30`;
 - direct and fallback provider tests passing controller input, cleanup,
   exit/re-entry, and flat-loop restoration through the shared native runtime;
 - deterministic ABI-v3 tests proving persistent double buffering, no Wasm
@@ -386,10 +388,12 @@ that the cross-API copy meets the headset frame budget. The release gates and
 timing thresholds are recorded in `WEBXR_WEBGL_BRIDGE_HANDOFF.md`. A real WebGL
 2 render device remains the contingency if the atlas bridge fails those gates.
 
-The integration provider renders the world, procedural tracked-controller
-proxies, exact-contact lasers/markers, and captured HUD/menu/loading/cinematic
-surfaces. Weapon rendering remains disabled; the proxy is intentionally not a
-game weapon model. Browser audio remains the flat platform's null backend.
+The integration provider renders the world, a controller-aimed first-person
+game weapon in each eye, procedural tracked-controller proxies,
+exact-contact lasers/markers, and captured HUD/menu/loading/cinematic surfaces.
+The weapon path is experimental and still needs loaded-game and physical Quest
+qualification. Browser audio uses the bounded OpenAL browser backend rather
+than the former null backend.
 
 The `integration/web-cinematic` topic replaces the Emscripten null decoder with
 the existing IV50 SurrealVideo implementation and advances it from the outer
