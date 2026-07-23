@@ -503,6 +503,131 @@ namespace
 		}
 		return best;
 	}
+
+	// ---- per-chain completeness repair ------------------------------------
+	// A limb chain can legitimately collapse to fewer rigid clusters than it
+	// has roles for, when that limb barely articulates across the sampled
+	// animation frames (see AvatarAutoRig.h remarks / plan doc step 2) - the
+	// rigidity test is correct, there just isn't enough distinct motion to
+	// split the limb into sub-joints. AssignBucketRoles then hands the one
+	// surviving cluster to whichever single role's target height is closest,
+	// leaving the rest of that chain's roles unfilled. This repairs that by
+	// re-slicing the chain's own donor vertices along the limb's bind-pose
+	// axis into even bands - the same "nearest band by distance" idea the
+	// whole-mesh fallback tier (buildFallbackBands) uses, just scoped to one
+	// deficient chain's geometry instead of the whole mesh.
+	struct ChainRepairSpec
+	{
+		AvatarJointRole Roles[3]; // proximal -> distal
+		AvatarJointRole PreserveRole; // left alone if already assigned (Shoulder); Unknown if none
+		AvatarJointRole AnchorRole; // proximal parent joint this chain hangs off (Chest or Pelvis)
+		const Array<LabelCandidate>* Bucket;
+	};
+
+	void RepairDeficientChain(const ChainRepairSpec& spec, Array<std::pair<int, Array<int>>>& clusters,
+		Array<int>& roleToClusterIndex, const Array<vec3>& bindVertices, std::string& diagnostic)
+	{
+		int filled = 0;
+		for (AvatarJointRole role : spec.Roles)
+			if (roleToClusterIndex[(size_t)role] >= 0)
+				filled++;
+		if (filled == 3)
+			return; // chain already has a distinct cluster for every required role
+
+		const char* chainName = AvatarJointRoleName(spec.Roles[0]);
+
+		// Donor vertices: every cluster in this chain's bucket except the one
+		// already holding the optional preserve role (e.g. a genuinely
+		// distinct shoulder cluster is left as-is; everything else in the
+		// bucket - including whatever currently holds any of the 3 required
+		// roles - gets re-sliced fresh so the chain ends up consistent).
+		Array<int> donorClusterIdx;
+		for (const LabelCandidate& cand : *spec.Bucket)
+		{
+			if (spec.PreserveRole != AvatarJointRole::Unknown && roleToClusterIndex[(size_t)spec.PreserveRole] == cand.Index)
+				continue;
+			donorClusterIdx.push_back(cand.Index);
+		}
+		if (donorClusterIdx.empty())
+		{
+			diagnostic += std::string("; ") + chainName + " chain incomplete: no donor geometry found";
+			return;
+		}
+
+		Array<int> donorVerts;
+		for (int idx : donorClusterIdx)
+			for (int v : clusters[idx].second)
+				donorVerts.push_back(v);
+		if ((int)donorVerts.size() < 3)
+		{
+			diagnostic += std::string("; ") + chainName + " chain incomplete: only " +
+				std::to_string(donorVerts.size()) + " donor vertex(es), too few to subdivide into 3 roles";
+			return;
+		}
+
+		int anchorClusterIdx = roleToClusterIndex[(size_t)spec.AnchorRole];
+		if (anchorClusterIdx < 0)
+		{
+			diagnostic += std::string("; ") + chainName + " chain incomplete: no anchor joint (" + AvatarJointRoleName(spec.AnchorRole) + ") found";
+			return;
+		}
+
+		vec3 anchorSum(0.0f);
+		for (int v : clusters[anchorClusterIdx].second)
+			anchorSum += bindVertices[v];
+		vec3 anchorPos = anchorSum / (float)clusters[anchorClusterIdx].second.size();
+
+		int farthestV = -1;
+		float farthestDist = -1.0f;
+		for (int v : donorVerts)
+		{
+			float d = length(bindVertices[v] - anchorPos);
+			if (d > farthestDist) { farthestDist = d; farthestV = v; }
+		}
+		if (farthestV < 0 || farthestDist <= 1e-3f)
+		{
+			diagnostic += std::string("; ") + chainName + " chain incomplete: degenerate geometry, cannot subdivide";
+			return;
+		}
+		vec3 axis = (bindVertices[farthestV] - anchorPos) / farthestDist;
+
+		// Equal-count bands (sorted by projection along axis), not equal-range
+		// - the donor vertex distribution along a limb is often lopsided (e.g.
+		// far more hand/foot geometry than upper-limb geometry), and an
+		// equal-range split can starve a proximal band to zero members while
+		// an equal-count split always gives every band its share as long as
+		// there are at least 3 donor vertices (checked above).
+		Array<int> sortedVerts = donorVerts;
+		std::sort(sortedVerts.begin(), sortedVerts.end(), [&](int a, int b)
+			{
+				return dot(bindVertices[a] - anchorPos, axis) < dot(bindVertices[b] - anchorPos, axis);
+			});
+
+		Array<int> bandVerts[3];
+		size_t n = sortedVerts.size();
+		size_t cut1 = n / 3;
+		size_t cut2 = (n * 2) / 3;
+		for (size_t i = 0; i < n; i++)
+		{
+			int band = (i < cut1) ? 0 : (i < cut2 ? 1 : 2);
+			bandVerts[band].push_back(sortedVerts[i]);
+		}
+
+		// Donor clusters are fully absorbed into the fresh bands - clear them
+		// so the later "home leftover clusters to nearest joint" pass (which
+		// operates at whole-cluster granularity and would otherwise dump an
+		// entire stale cluster onto one joint again) has nothing left to do
+		// for them.
+		for (int idx : donorClusterIdx)
+			clusters[idx].second.clear();
+
+		for (int i = 0; i < 3; i++)
+		{
+			int newClusterIdx = (int)clusters.size();
+			clusters.push_back({ newClusterIdx, std::move(bandVerts[i]) });
+			roleToClusterIndex[(size_t)spec.Roles[i]] = newClusterIdx;
+		}
+	}
 }
 
 const char* AvatarJointRoleName(AvatarJointRole role)
@@ -884,6 +1009,25 @@ AvatarRig AvatarAutoRig::Build(UMesh* mesh)
 				roleToClusterIndex[(size_t)b.targets[t].Role] = winner.Index;
 			}
 		}
+
+		// A limb whose motion data didn't distinguish sub-joints collapses to
+		// one role instead of a full chain (see RepairDeficientChain above) -
+		// fix that per chain before deciding whether this mesh is riggable at
+		// all, so a single stiff limb doesn't force the whole mesh to the
+		// whole-mesh fallback tier.
+		ChainRepairSpec chainRepairs[] =
+		{
+			{ { AvatarJointRole::LeftUpperArm, AvatarJointRole::LeftForearm, AvatarJointRole::LeftHand },
+				AvatarJointRole::LeftShoulder, AvatarJointRole::Chest, &leftArmC },
+			{ { AvatarJointRole::RightUpperArm, AvatarJointRole::RightForearm, AvatarJointRole::RightHand },
+				AvatarJointRole::RightShoulder, AvatarJointRole::Chest, &rightArmC },
+			{ { AvatarJointRole::LeftThigh, AvatarJointRole::LeftCalf, AvatarJointRole::LeftFoot },
+				AvatarJointRole::Unknown, AvatarJointRole::Pelvis, &leftLegC },
+			{ { AvatarJointRole::RightThigh, AvatarJointRole::RightCalf, AvatarJointRole::RightFoot },
+				AvatarJointRole::Unknown, AvatarJointRole::Pelvis, &rightLegC },
+		};
+		for (const ChainRepairSpec& spec : chainRepairs)
+			RepairDeficientChain(spec, clusters, roleToClusterIndex, rig.BindVertices, rig.Diagnostic);
 
 		int filledRoles = 0;
 		for (int r : roleToClusterIndex)
