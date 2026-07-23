@@ -151,8 +151,20 @@ void ExpressionEvaluator::Expr(LetBoolExpression* expr)
 
 void ExpressionEvaluator::Expr(DynArrayElementExpression* expr)
 {
-	int index = Eval(expr->Index).Value.ToInt();
-	auto arrayval = Eval(expr->Array).Value;
+	ExpressionEvalResult indexResult = Eval(expr->Index);
+	if (indexResult.Result == StatementResult::AccessedNone)
+	{
+		Result = std::move(indexResult);
+		return;
+	}
+	int index = indexResult.Value.ToInt();
+	ExpressionEvalResult arrayResult = Eval(expr->Array);
+	if (arrayResult.Result == StatementResult::AccessedNone)
+	{
+		Result = std::move(arrayResult);
+		return;
+	}
+	auto arrayval = std::move(arrayResult.Value);
 	if (arrayval.IsVariable())
 	{
 		if (index < 0)
@@ -258,8 +270,20 @@ void ExpressionEvaluator::Expr(ContextExpression* expr)
 
 void ExpressionEvaluator::Expr(ArrayElementExpression* expr)
 {
-	int index = Eval(expr->Index).Value.ToInt();
-	auto arrayval = Eval(expr->Array).Value;
+	ExpressionEvalResult indexResult = Eval(expr->Index);
+	if (indexResult.Result == StatementResult::AccessedNone)
+	{
+		Result = std::move(indexResult);
+		return;
+	}
+	int index = indexResult.Value.ToInt();
+	ExpressionEvalResult arrayResult = Eval(expr->Array);
+	if (arrayResult.Result == StatementResult::AccessedNone)
+	{
+		Result = std::move(arrayResult);
+		return;
+	}
+	auto arrayval = std::move(arrayResult.Value);
 	if (arrayval.IsVariable())
 	{
 		Result.Value = arrayval.ItemAt(index);

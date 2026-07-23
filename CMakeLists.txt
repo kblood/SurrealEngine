@@ -1144,6 +1144,11 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	set_target_properties(XRWeaponRuntimeTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME XRWeaponRuntime COMMAND XRWeaponRuntimeTests)
 
+	add_executable(ExpressionEvaluatorTests Tests/ExpressionEvaluatorTests.cpp)
+	target_link_libraries(ExpressionEvaluatorTests SurrealCommon ${SURREALCOMMON_LIBS})
+	set_target_properties(ExpressionEvaluatorTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ExpressionEvaluator COMMAND ExpressionEvaluatorTests)
+
 	add_executable(RenderDeviceSelectionTests
 		Tests/RenderDeviceSelectionTests.cpp
 		SurrealEngine/RenderDevice/ClipSpaceConversion.cpp
