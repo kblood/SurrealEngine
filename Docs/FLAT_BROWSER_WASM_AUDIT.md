@@ -86,8 +86,39 @@ than attempting an impossible vector allocation. Browser pointer lock records
 startup intent but requests capture only from trusted canvas input, and exits
 or suppresses capture while WebXR owns input. Finally, WebGPU surface creation
 uses the exact configured `Module.canvas` rather than assuming `#canvas`.
-These fixes are integrated but still require a fresh default package and an
-owner-data browser run before this audit can claim release-ready gameplay.
+These fixes are integrated and covered by the deterministic browser suites;
+the qualified owner-data result below establishes flat boot and rendering.
+
+The first corrected owner run then revealed a second, independent pre-launch
+failure. The importer probed the optional experimental OPFS ABI through
+`Module.ccall()` even when the default build did not export that function.
+Emscripten's missing-function assertion set the generated runtime's sticky
+`ABORT` flag before JavaScript caught the exception and selected MEMFS. Native
+setup, package loading, map login, and main-loop registration all completed,
+but Emscripten discarded every animation-frame callback at its initial
+`if (ABORT) return` guard. Capability detection now checks the direct
+`Module._Surreal_GetBrowserOPFSMountABIVersion` export before calling anything;
+the default fallback therefore leaves the runtime healthy.
+
+## Qualified browser candidate
+
+Candidate `release/browser-candidate-04687fe1` was built from exact commit
+`04687fe1525035f5bdff57b028f1a7fd5496ad4a` with empty bundled game data and
+both experimental OPFS/worker options disabled. A preserved browser profile
+restored the full 496-file GOG UT99 installation plus three mutable files. At
+Play, `ABORT` remained false, ticks advanced `2, 59, 116`, WebGPU reported 41
+draw calls and 52 textures, and the captured canvas was 99.83% nonuniform with
+zero engine WebGPU errors or page errors. This qualifies owned-data flat boot
+and rendering; it does not yet qualify physical WebXR, long gameplay, save
+round trips, intro/cinematics, Unreal Gold gameplay, or human audio listening.
+
+The deployed package exposes source archive SHA-256
+`702056eb9e04a2520cde7aaf6a53c73062274451820f19b3201467399858d570`
+and WASM SHA-256
+`759c1f13ba46a70114ee2a47c40a2871c44c730e09a9bb428df00e4312ed9be2`.
+The public-origin release smoke passes isolation headers, MIME, source/hash,
+no-data gate, static collapsed legal footer, pointer-lock helper, responsive
+layout, fullscreen, ordinary input, and synthetic Unreal Gold launch.
 
 `smoke_test_owner_game.py` accepts `--profile-dir` so the private browser copy
 can be retained between diagnostic runs, and `--renderer=webgpu|null` so native
