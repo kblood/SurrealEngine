@@ -144,14 +144,14 @@ Example `surreal-bot-quality-gates-v1` configuration:
   "schema": "surreal-bot-quality-gates-v1",
   "required_metrics": ["completion", "kills_exact", "deaths_exact"],
   "required_runs": [
-    {"variant": "candidate", "map": "DM-Deck16][", "min": 2}
+    {"id": "candidate-deck-runs", "variant": "candidate", "map": "DM-Deck16][", "min": 2}
   ],
   "aggregate_gates": [
-    {"variant": "candidate", "metric": "kills_exact", "statistic": "mean", "min": 1}
+    {"id": "candidate-kills", "variant": "candidate", "metric": "kills_exact", "statistic": "mean", "min": 1}
   ],
   "per_run_gates": [
-    {"variant": "candidate", "metric": "completion", "equals": true},
-    {"variant": "candidate", "map": "DM-Deck16][", "metric": "deaths_exact", "max": 3}
+    {"id": "candidate-completion", "variant": "candidate", "metric": "completion", "equals": true},
+    {"id": "candidate-deck-deaths", "variant": "candidate", "map": "DM-Deck16][", "metric": "deaths_exact", "max": 3}
   ]
 }
 ```
@@ -161,7 +161,9 @@ Selectors matching no runs, missing metrics, and null metrics fail closed. Metri
 names are literal: the evaluator does not reinterpret `suicides_exact` as
 avoidable deaths or synthesize death attribution. Such a metric remains
 unavailable unless the analyzer report contains live telemetry evidence under
-that exact name.
+that exact name. Every required-run, aggregate-gate, and per-run-gate entry
+must have an explicit, non-empty `id`, and IDs must be unique across the whole
+configuration so results remain stable and auditable when entries are reordered.
 
 Per-run attributed-death safety is expressible as separate zero-tolerance
 gates. For example, a Deck16 candidate can require the live attribution fields
@@ -182,15 +184,15 @@ death, recent-enemy-contributed environmental-death proxy, or ambiguous death:
     "recent_enemy_momentum_contributed_environmental_deaths_proxy"
   ],
   "required_runs": [
-    {"variant": "candidate", "map": "DM-Deck16][", "min": 2}
+    {"id": "candidate-deck-runs", "variant": "candidate", "map": "DM-Deck16][", "min": 2}
   ],
   "aggregate_gates": [],
   "per_run_gates": [
-    {"variant": "candidate", "map": "DM-Deck16][", "metric": "completion", "equals": true},
-    {"variant": "candidate", "map": "DM-Deck16][", "metric": "direct_self_kills", "max": 0},
-    {"variant": "candidate", "map": "DM-Deck16][", "metric": "unassisted_environmental_deaths", "max": 0},
-    {"variant": "candidate", "map": "DM-Deck16][", "metric": "recent_enemy_contributed_environmental_deaths_proxy", "max": 0},
-    {"variant": "candidate", "map": "DM-Deck16][", "metric": "ambiguous_deaths", "max": 0}
+    {"id": "candidate-deck-completion", "variant": "candidate", "map": "DM-Deck16][", "metric": "completion", "equals": true},
+    {"id": "candidate-deck-self-kills", "variant": "candidate", "map": "DM-Deck16][", "metric": "direct_self_kills", "max": 0},
+    {"id": "candidate-deck-unassisted-environment", "variant": "candidate", "map": "DM-Deck16][", "metric": "unassisted_environmental_deaths", "max": 0},
+    {"id": "candidate-deck-enemy-environment", "variant": "candidate", "map": "DM-Deck16][", "metric": "recent_enemy_contributed_environmental_deaths_proxy", "max": 0},
+    {"id": "candidate-deck-ambiguous-deaths", "variant": "candidate", "map": "DM-Deck16][", "metric": "ambiguous_deaths", "max": 0}
   ]
 }
 ```

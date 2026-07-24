@@ -66,13 +66,16 @@ def config(**overrides) -> dict:
     document = {
         "schema": GATE.CONFIG_SCHEMA,
         "required_metrics": ["completion", "kills_exact"],
-        "required_runs": [{"variant": "candidate", "min": 1}],
+        "required_runs": [{"id": "candidate-runs", "variant": "candidate", "min": 1}],
         "aggregate_gates": [
-            {"variant": "candidate", "metric": "kills_exact", "statistic": "mean", "min": 1},
+            {"id": "candidate-kills", "variant": "candidate", "metric": "kills_exact",
+             "statistic": "mean", "min": 1},
         ],
         "per_run_gates": [
-            {"variant": "candidate", "metric": "completion", "equals": True},
-            {"variant": "candidate", "metric": "deaths_exact", "max": 2},
+            {"id": "candidate-completion", "variant": "candidate",
+             "metric": "completion", "equals": True},
+            {"id": "candidate-deaths", "variant": "candidate",
+             "metric": "deaths_exact", "max": 2},
         ],
     }
     document.update(overrides)
@@ -91,6 +94,103 @@ class QualityGateTests(unittest.TestCase):
         self.assertEqual(result["status"], "passed")
         self.assertEqual(result["violations"], [])
         self.assertGreater(result["summary"]["checks"], 0)
+
+    def test_explicit_validity_only_config_passes(self) -> None:
+        gate_config = {
+            "schema": GATE.CONFIG_SCHEMA,
+            "validity_only": True,
+        }
+        result = GATE.evaluate(report(self.good), gate_config)
+        self.assertEqual(result["status"], "passed")
+        self.assertTrue(all(
+            item["kind"] in {"required_runs", "run_validity"}
+            for item in result["checks"]))
+
+        invalid = run("failed", "candidate", "DM-Deck16][", {}, complete=False)
+        invalid_result = GATE.evaluate(report(invalid), gate_config)
+        self.assertEqual(invalid_result["status"], "failed")
+        self.assertTrue(any(
+            item["kind"] == "run_validity" for item in invalid_result["violations"]))
+
+    def test_schema_only_config_is_rejected(self) -> None:
+        with self.assertRaisesRegex(GATE.GateInputError, "substantive gate"):
+            GATE.evaluate(report(self.good), {"schema": GATE.CONFIG_SCHEMA})
+
+    def test_non_boolean_validity_only_is_rejected(self) -> None:
+        with self.assertRaisesRegex(GATE.GateInputError, "must be a boolean"):
+            GATE.evaluate(report(self.good), {
+                "schema": GATE.CONFIG_SCHEMA,
+                "validity_only": 1,
+            })
+
+    def test_validity_only_cannot_be_mixed_with_substantive_gates(self) -> None:
+        with self.assertRaisesRegex(GATE.GateInputError, "cannot be combined"):
+            GATE.evaluate(report(self.good), {
+                "schema": GATE.CONFIG_SCHEMA,
+                "validity_only": True,
+                "required_metrics": ["completion"],
+            })
+
+    def test_unknown_top_level_and_nested_keys_are_rejected(self) -> None:
+        cases = [
+            config(typo_per_run_gates=[]),
+            config(required_runs=[{"variant": "candidate", "min": 1, "count": 1}]),
+            config(aggregate_gates=[{
+                "variant": "candidate", "metric": "kills_exact", "min": 1,
+                "map": "DM-Deck16][",
+            }]),
+            config(per_run_gates=[{
+                "variant": "candidate", "metric": "deaths_exact", "max": 2,
+                "statistic": "mean",
+            }]),
+        ]
+        for gate_config in cases:
+            with self.subTest(gate_config=gate_config):
+                with self.assertRaisesRegex(GATE.GateInputError, "unknown keys"):
+                    GATE.evaluate(report(self.good), gate_config)
+
+    def test_duplicate_and_empty_gate_ids_are_rejected(self) -> None:
+        duplicate = config(
+            required_runs=[{"id": "deck", "variant": "candidate", "min": 1}],
+            aggregate_gates=[{
+                "id": "deck", "variant": "candidate", "metric": "kills_exact", "min": 1,
+            }],
+        )
+        with self.assertRaisesRegex(GATE.GateInputError, "duplicate gate id"):
+            GATE.evaluate(report(self.good), duplicate)
+
+        for empty_id in ("", "   "):
+            with self.subTest(empty_id=empty_id):
+                gate_config = config(per_run_gates=[{
+                    "id": empty_id, "variant": "candidate",
+                    "metric": "deaths_exact", "max": 2,
+                }])
+                with self.assertRaisesRegex(GATE.GateInputError, "non-empty string"):
+                    GATE.evaluate(report(self.good), gate_config)
+
+        without_id = config(required_runs=[{"variant": "candidate", "min": 1}])
+        with self.assertRaisesRegex(GATE.GateInputError, "must define a non-empty string id"):
+            GATE.evaluate(report(self.good), without_id)
+
+    def test_inconsistent_thresholds_are_rejected(self) -> None:
+        gates = [
+            {"id": "bad-min-max", "metric": "deaths_exact", "min": 3, "max": 2},
+            {"id": "bad-equals-min", "metric": "deaths_exact", "equals": 1, "min": 2},
+            {"id": "bad-equals-max", "metric": "deaths_exact", "equals": 3, "max": 2},
+            {"id": "bad-bool-range", "metric": "completion", "equals": True, "min": 0},
+            {"id": "bad-infinite", "metric": "deaths_exact", "equals": float("inf")},
+        ]
+        for gate in gates:
+            with self.subTest(gate=gate):
+                with self.assertRaises(GATE.GateInputError):
+                    GATE.evaluate(report(self.good), config(per_run_gates=[gate]))
+
+    def test_required_metrics_alone_is_a_substantive_config(self) -> None:
+        result = GATE.evaluate(report(self.good), {
+            "schema": GATE.CONFIG_SCHEMA,
+            "required_metrics": ["completion"],
+        })
+        self.assertEqual(result["status"], "passed")
 
     def test_threshold_regression_fails(self) -> None:
         bad = run("candidate-deck", "candidate", "DM-Deck16][", {
@@ -144,7 +244,8 @@ class QualityGateTests(unittest.TestCase):
             "completion": True, "kills_exact": 2, "deaths_exact": 99,
         })
         gate_config = config(
-            required_runs=[{"variant": "candidate", "map": "DM-Deck16][", "min": 1}],
+            required_runs=[{"id": "candidate-deck-runs", "variant": "candidate",
+                            "map": "DM-Deck16][", "min": 1}],
             per_run_gates=[{
                 "id": "deck-deaths", "variant": "candidate", "map": "DM-Deck16][",
                 "metric": "deaths_exact", "max": 2,
@@ -158,7 +259,8 @@ class QualityGateTests(unittest.TestCase):
 
     def test_missing_map_scoped_run_fails(self) -> None:
         gate_config = config(required_runs=[{
-            "variant": "candidate", "map": "DM-Morbias][", "min": 1,
+            "id": "candidate-morbias-runs", "variant": "candidate",
+            "map": "DM-Morbias][", "min": 1,
         }])
         result = GATE.evaluate(report(self.good), gate_config)
         self.assertEqual(result["status"], "failed")
@@ -190,7 +292,8 @@ class QualityGateTests(unittest.TestCase):
         ]
         gate_config = config(
             required_metrics=["completion", "deaths_exact", *attribution_metrics],
-            required_runs=[{"variant": "candidate", "map": "DM-Deck16][", "min": 1}],
+            required_runs=[{"id": "candidate-deck-runs", "variant": "candidate",
+                            "map": "DM-Deck16][", "min": 1}],
             aggregate_gates=[],
             per_run_gates=[{
                 "id": f"deck-{metric}", "variant": "candidate", "map": "DM-Deck16][",
@@ -230,7 +333,8 @@ class QualityGateTests(unittest.TestCase):
         required = list(shadow_metrics)
         gate_config = config(
             required_metrics=["completion", *required],
-            required_runs=[{"variant": "candidate", "map": "DM-SafeCorner", "min": 1}],
+            required_runs=[{"id": "candidate-safe-corner-runs", "variant": "candidate",
+                            "map": "DM-SafeCorner", "min": 1}],
             aggregate_gates=[],
             per_run_gates=[
                 {"id": "candidate-probed", "variant": "candidate", "map": "DM-SafeCorner",
@@ -262,7 +366,8 @@ class QualityGateTests(unittest.TestCase):
             output_path = root / "result.json"
             report_path.write_text(json.dumps(report(self.good)), encoding="utf-8")
             config_path.write_text(json.dumps(config(per_run_gates=[{
-                "variant": "candidate", "metric": "deaths_exact", "max": 0,
+                "id": "candidate-zero-deaths", "variant": "candidate",
+                "metric": "deaths_exact", "max": 0,
             }])), encoding="utf-8")
             completed = subprocess.run(
                 [sys.executable, str(TOOL_PATH), str(report_path), str(config_path),
