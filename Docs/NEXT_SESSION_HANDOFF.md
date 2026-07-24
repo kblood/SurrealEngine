@@ -150,15 +150,20 @@ processes have stopped and the migration ledger is ready.
 
 ## Exact next checks
 
-1. Open the stable URL in the intended Quest/VDXR browser path.
-2. Import a locally supplied supported game or demo folder.
-3. Verify flat launch first, then enter WebXR.
-4. Check projection, HUD bounds, menu orientation/hit testing, controller
+1. Use the frozen `0cb8a55b` artifacts and
+   `Docs/WEBXR_PHYSICAL_QUALIFICATION_0CB8A55B.md`; do not substitute a rebuild.
+2. Stage that exact browser candidate on Apache 2.4 and verify all headers,
+   rewrite, compression, immutable-generation, expected-hash, and rollback gates.
+3. Open the staged URL in the intended Quest/VDXR browser path.
+4. Import a locally supplied supported game folder and verify flat launch first,
+   then enter WebXR without restarting WASM.
+5. Check projection, HUD bounds, both-eye menu orientation/hit testing, ray and
+   hit-marker alignment, single trigger selection, controller
    tracking, turning, trigger fire, Pulse beam direction, dual-Enforcer
    alternation, audio, immersive exit, and re-entry.
-5. Save the headset report, logs, screenshots, and any video under a dated
+6. Save the headset report, logs, screenshots, and any video under a dated
    `SurrealEngine\qa\runs` directory.
-6. If a regression is found, preserve the current server rollback and rebuild
+7. If a regression is found, preserve the current server rollback and rebuild
    only from a clean committed source.
 
 Historical `71650dd7` release notes and deployment dry-run documents remain for

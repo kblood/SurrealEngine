@@ -432,6 +432,23 @@ artifact identities and the required Q1/D1/E1/E2 rows are in
 `Docs/WEBXR_PHYSICAL_QUALIFICATION_FF89E9D1.md`; automated evidence is in
 `SurrealEngine/qa/runs/2026-07-24/ff89e9d1/wp7-production-candidate/manifest.json`.
 
+Direct-UI candidate progress, 2026-07-24: clean commit
+`0cb8a55bd2fb71d56c2034603e9c29e91452f10e` supersedes the automated
+candidate above as build `0cb8a55bd2fb-2c33259ba0d3e82d`. Direct WebGL2 now
+uses the same compact, UI-scale-aligned eye rectangles for rendering and hit
+testing; presents the UE1 menu in both eyes; draws the controller ray/hit
+feedback in both eyes; delivers a successful direct-menu trigger exactly once;
+and clears pointer/visual diagnostics on exit before re-entry. The live UE1
+smoke preserved one engine and renderer through flat -> VR -> flat -> VR while
+proving nonzero menu pixels in both eyes, a menu hit, trigger selection, and
+stereo view mask `3`. The frozen data-free browser candidate, matching source
+archive, and hardened Electron 43.2.0 diagnostic ZIP pass their automated
+gates. Exact identities and remaining physical rows are in
+`Docs/WEBXR_PHYSICAL_QUALIFICATION_0CB8A55B.md`; evidence is in
+`SurrealEngine/qa/runs/2026-07-24/0cb8a55b/wp7-production-candidate/manifest.json`.
+Actual Apache staging and named Quest/OpenXR rows remain open, so the live
+stable pointer has not been changed.
+
 ## Release gates for VR
 
 A candidate is not qualified until physical hardware passes all of these:
