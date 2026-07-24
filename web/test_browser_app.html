@@ -311,6 +311,23 @@ window.browserAppTestPromise = (async () => {
 		assert(stages.join(",") === "native-startup,native-ready,presentation-activation,running");
 		assert(tracker.status().nativeStartupMs === 50);
 	});
+	await run("launch diagnostics identify the selected renderer and first WebGL2 frame", async () => {
+		const milestones = [];
+		const registry = new api.PresentationRegistry();
+		registry.register({ id: "flat", label: "Desktop" });
+		await api.runLaunchBoundary({
+			Module: { callMain() {}, ccall(name) {
+				if (name === "Surreal_GetWebGL2FrameCount") return 1;
+				return 1;
+			} },
+			selection: { game: { id: "ut99" }, map: "DM-Test", renderer: "webgl2", presentationId: "flat" },
+			registry, waitForPaint: async () => {},
+			onRuntimeMilestone: (stage, detail) => milestones.push({ stage, detail }),
+		});
+		assert(milestones.length === 2);
+		assert(milestones[0].stage === "renderer-selected" && milestones[0].detail.renderer === "webgl2");
+		assert(milestones[1].stage === "first-frame-observed" && milestones[1].detail.frames === 1);
+	});
 	await run("browser launch applies the persistent XR dominant-hand adapter", async () => {
 		let applied = null;
 		const registry = new api.PresentationRegistry();
@@ -529,6 +546,50 @@ window.browserAppTestPromise = (async () => {
 			window.SurrealBrowserData = originalBrowserData;
 		}
 	});
+	await run("precompiled WebAssembly reports separate instantiation and initialization", async () => {
+		const originalBrowserData = window.SurrealBrowserData;
+		const originalAppendChild = document.body.appendChild;
+		const milestones = [];
+		const compiledWasm = { marker: "compiled" };
+		const instance = { exports: {} };
+		class FakeBrowserDataController {
+			async start() { return { import: { state: "waiting-for-import" }, mutable: { state: "not-started" } }; }
+		}
+		window.SurrealBrowserData = { BrowserDataController: FakeBrowserDataController };
+		document.body.appendChild = function (node) {
+			if (node.tagName === "SCRIPT") queueMicrotask(() => {
+				if (typeof node.onload === "function") node.onload();
+				window.Module.instantiateWasm({ env: {} }, received => {
+					assert(received === instance);
+					window.Module.onRuntimeInitialized();
+				});
+			});
+			return node;
+		};
+		try {
+			const environment = {
+				performance: { now: (() => { let value = 100; return () => value += 5; })() },
+				WebAssembly: { async instantiate(module, imports) {
+					assert(module === compiledWasm && imports.env);
+					return instance;
+				} },
+			};
+			await api.start({
+				availableRenderers: ["null"], compiledWasm, environment,
+				onRuntimeMilestone: value => milestones.push(value),
+				presentationRegistry: new api.PresentationRegistry(),
+				library: { storageProxy() { return {}; }, register() {} }, libraryUI: { refresh() {} },
+				launcher: { setAvailableRenderers() {} }, viewportController: { attachModule() {} },
+			});
+			const byStage = Object.fromEntries(milestones.map(value => [value.stage, value.detail]));
+			assert(byStage["wasm-instantiated"].durationMs === 5);
+			assert(byStage["wasm-runtime-initialized"].initializationMs === 5);
+			assert(byStage["import-storage-ready"].state === "waiting-for-import");
+		} finally {
+			document.body.appendChild = originalAppendChild;
+			window.SurrealBrowserData = originalBrowserData;
+		}
+	});
 	await run("packaged release diagnostics reject mixed engine identities", async () => {
 		const javascript = "engine/SurrealEngine." + "a".repeat(64) + ".js";
 		const wasm = "engine/SurrealEngine." + "b".repeat(64) + ".wasm";
@@ -555,6 +616,58 @@ window.browserAppTestPromise = (async () => {
 		try { await mixed.loadIdentity(); }
 		catch (error) { rejected = String(error).includes("different engine assets"); }
 		assert(rejected, "mixed engine identity was accepted");
+	});
+	await run("packaged diagnostics observe exact asset responses and compile streaming", async () => {
+		const javascript = "engine/SurrealEngine." + "c".repeat(64) + ".js";
+		const wasm = "engine/SurrealEngine." + "d".repeat(64) + ".wasm";
+		const manifest = { schema: "surrealengine-browser-release-v2", version: 2, buildId: "build-observed",
+			entrypoints: { html: "index.html", javascript, wasm }, build: { profile: "diagnostic" },
+			sourceCompliance: {}, files: [
+				{ path: javascript, bytes: 1, sha256: "c".repeat(64), expectedMime: "text/javascript", cacheControl: "immutable" },
+				{ path: wasm, bytes: 1, sha256: "d".repeat(64), expectedMime: "application/wasm", cacheControl: "immutable" },
+			] };
+		let clock = 0;
+		const requested = [];
+		const headerSets = {
+			["./" + javascript]: { "content-type": "application/javascript", "content-encoding": "br", "cache-control": "immutable" },
+			["./" + wasm]: { "content-type": "application/wasm", "content-encoding": "br", "cache-control": "immutable" },
+		};
+		const responseFor = (path, body) => ({ ok: true, status: 200, redirected: false,
+			headers: { get: name => (headerSets[path] || {})[name] || null },
+			async json() { return body; }, async arrayBuffer() { return new ArrayBuffer(1); },
+			clone() { return responseFor(path, body); } });
+		const compiled = { marker: "compiled" };
+		const environment = {
+			document: { documentElement: { dataset: { engineScript: "./" + javascript, engineWasm: "./" + wasm } } },
+			performance: { now: () => ++clock, getEntriesByType: () => [] }, navigator: {}, location: {},
+			WebAssembly: { async compileStreaming(responsePromise) {
+				const response = await responsePromise;
+				assert(response.headers.get("content-type") === "application/wasm");
+				return compiled;
+			} },
+			async fetch(path) {
+				requested.push(path);
+				if (path === "release-manifest.json") return responseFor(path, manifest);
+				return responseFor(path);
+			},
+		};
+		const diagnostics = new SurrealBrowserRelease.ReleaseDiagnostics(environment);
+		await diagnostics.loadIdentity();
+		assert(await diagnostics.prepareEngineAssets() === compiled);
+		const report = diagnostics.report();
+		assert(requested.join(",") === "release-manifest.json,./" + javascript + ",./" + wasm);
+		assert(report.assetResponses.length === 2 && report.assetResponses.every(value => value.method === "GET" && value.status === 200));
+		assert(report.assetResponses[0].contentEncoding === "br" && report.assetResponses[1].contentType === "application/wasm");
+		assert(report.milestones.some(value => value.stage === "wasm-compiled" && value.detail.durationMs > 0));
+		environment.WebAssembly = {
+			async compileStreaming() { throw new TypeError("synthetic streaming rejection"); },
+			async compile(bytes) { assert(bytes.byteLength === 1); return compiled; },
+		};
+		const fallback = new SurrealBrowserRelease.ReleaseDiagnostics(environment);
+		await fallback.loadIdentity();
+		assert(await fallback.prepareEngineAssets() === compiled);
+		assert(fallback.report().milestones.some(value => value.stage === "wasm-compiled" &&
+			value.detail.method === "array-buffer-fallback"));
 	});
 	await run("WebXR probe and failed entry report a flat fallback", async () => {
 		const environment = {

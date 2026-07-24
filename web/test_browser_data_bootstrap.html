@@ -33,6 +33,7 @@ window.browserDataTestPromise = (async function () {
 
 	await run("restores mutable overlay before launching a safe imported map", async () => {
 		const order = [];
+		let observedMutable = null;
 		window.SurrealUT99Importer = Object.freeze(Object.assign({}, realImporter, {
 			start: async (_Module, options) => {
 				order.push("import-materialized");
@@ -49,10 +50,12 @@ window.browserDataTestPromise = (async function () {
 		});
 		const started = await window.SurrealBrowserData.start({ FS: {} }, {
 			preferredMap: "dm-synthetic",
+			onMutableReady: status => { observedMutable = status; },
 			launch: selection => { order.push("launch:" + selection.map); },
 		});
 		assert(order.join(",") === "import-materialized,mutable-restored,launch:DM-Synthetic", order.join(","));
 		assert(started.result.selectedMap === "DM-Synthetic");
+		assert(observedMutable.state === "ready" && observedMutable.backend === "synthetic");
 		assert(await started.controller.flush("test") === "flushed");
 		assert(await started.controller.clearMutableData() === "mutable-cleared");
 		assert(await started.controller.clearImportedData() === "import-cleared");
@@ -60,6 +63,7 @@ window.browserDataTestPromise = (async function () {
 
 	await run("mutable storage failure is nonfatal by default", async () => {
 		let launched = false;
+		let observedMutable = null;
 		window.SurrealUT99Importer = Object.freeze(Object.assign({}, realImporter, {
 			start: async (_Module, options) => {
 				await options.beforeLaunch("new-import");
@@ -68,9 +72,12 @@ window.browserDataTestPromise = (async function () {
 			},
 		}));
 		window.SurrealMutableData = Object.freeze({ start: async () => { throw new Error("synthetic storage denial"); } });
-		const started = await window.SurrealBrowserData.start({ FS: {} }, { launch: () => { launched = true; } });
+		const started = await window.SurrealBrowserData.start({ FS: {} }, {
+			onMutableReady: status => { observedMutable = status; }, launch: () => { launched = true; },
+		});
 		assert(launched, "engine launch was blocked");
 		assert(started.result.mutable.state === "unavailable");
+		assert(observedMutable.state === "unavailable" && observedMutable.error.includes("synthetic storage denial"));
 	});
 
 	await run("game-aware selection isolates mutable options before launch", async () => {

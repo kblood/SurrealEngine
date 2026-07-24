@@ -69,6 +69,8 @@
 			this.startedAt = this.now();
 			this.manifest = null;
 			this.manifestFetch = null;
+			this.assetResponses = [];
+			this.compiledWasm = null;
 			this.platform = null;
 			this.webxr = null;
 			this.milestones = [];
@@ -125,6 +127,68 @@
 			return manifest;
 		}
 
+		async prepareEngineAssets() {
+			if (!this.manifest) return null;
+			const host = this.environment;
+			if (typeof host.fetch !== "function" || !host.WebAssembly ||
+				(typeof host.WebAssembly.compileStreaming !== "function" && typeof host.WebAssembly.compile !== "function"))
+				throw new Error("This browser cannot compile the packaged WebAssembly module.");
+			const assets = [
+				{ role: "javascript", path: this.manifest.entrypoints.javascript },
+				{ role: "wasm", path: this.manifest.entrypoints.wasm },
+			];
+			this.record("engine-assets-requested");
+			const responses = await Promise.all(assets.map(async asset => {
+				const requestedAt = this.now();
+				const response = await host.fetch("./" + asset.path, {
+					cache: "default", credentials: "same-origin",
+				});
+				const observed = {
+					role: asset.role, path: asset.path, method: "GET", status: response.status,
+					ok: response.ok === true, redirected: response.redirected === true,
+					contentType: response.headers && response.headers.get("content-type") || null,
+					contentEncoding: response.headers && response.headers.get("content-encoding") || null,
+					cacheControl: response.headers && response.headers.get("cache-control") || null,
+					responseMs: Math.max(0, this.now() - requestedAt),
+				};
+				this.assetResponses.push(Object.freeze(observed));
+				if (!response.ok || response.redirected)
+					throw new Error("Packaged " + asset.role + " asset request failed or redirected.");
+				const expected = this.manifest.files.find(file => file.path === asset.path);
+				const actualMime = String(observed.contentType || "").split(";", 1)[0].trim().toLowerCase();
+				const expectedMime = expected && String(expected.expectedMime || "").toLowerCase();
+				const mimeMatches = expectedMime === "text/javascript" ?
+					(actualMime === "text/javascript" || actualMime === "application/javascript") :
+					actualMime === expectedMime;
+				if (!expected || !mimeMatches)
+					throw new Error("Packaged " + asset.role + " asset returned an unexpected MIME type.");
+				return { asset, response };
+			}));
+			const javascript = responses.find(value => value.asset.role === "javascript");
+			const wasm = responses.find(value => value.asset.role === "wasm");
+			// Consume the JavaScript response so the immutable GET is complete and reusable by
+			// the subsequent script element. The engine executes only through that element.
+			await javascript.response.arrayBuffer();
+			const compileStartedAt = this.now();
+			this.record("wasm-compile-requested", { path: wasm.asset.path });
+			let compileMethod = "streaming";
+			if (typeof host.WebAssembly.compileStreaming === "function") {
+				const fallbackResponse = typeof wasm.response.clone === "function" ? wasm.response.clone() : null;
+				try { this.compiledWasm = await host.WebAssembly.compileStreaming(Promise.resolve(wasm.response)); }
+				catch (error) {
+					if (!fallbackResponse || typeof host.WebAssembly.compile !== "function") throw error;
+					compileMethod = "array-buffer-fallback";
+					this.record("wasm-compile-streaming-fallback", { name: error && error.name || "Error" });
+					this.compiledWasm = await host.WebAssembly.compile(await fallbackResponse.arrayBuffer());
+				}
+			} else {
+				compileMethod = "array-buffer";
+				this.compiledWasm = await host.WebAssembly.compile(await wasm.response.arrayBuffer());
+			}
+			this.record("wasm-compiled", { durationMs: Math.max(0, this.now() - compileStartedAt), method: compileMethod });
+			return this.compiledWasm;
+		}
+
 		setCapabilities(platform, webxr) {
 			this.platform = platform;
 			this.webxr = webxr;
@@ -178,6 +242,7 @@
 					[name, { available: value.available, code: value.code }])) : null,
 				webxr: this.webxr ? { available: this.webxr.available, code: this.webxr.code } : null,
 				criticalAssets: this.criticalAssetRecords(),
+				assetResponses: this.assetResponses.slice().sort((left, right) => left.role.localeCompare(right.role)),
 				resourceTimings: this.resourceTimings(),
 				milestones: this.milestones.slice(),
 			};
@@ -261,6 +326,13 @@
 			view.setError(message);
 			throw new Error(message);
 		}
+		try { await diagnostics.prepareEngineAssets(); }
+		catch (error) {
+			diagnostics.record("engine-assets-failed", { name: error && error.name || "Error" });
+			view.setError(error && error.message ? error.message : String(error));
+			view.setPhase("Startup stopped before instantiating the engine.");
+			throw error;
+		}
 
 		view.setPhase("Loading the data-free SurrealEngine runtime…");
 		let xrController = null;
@@ -285,6 +357,7 @@
 		const appOptions = Object.assign({}, suppliedAppOptions, {
 			availableRenderers,
 			xrController,
+			compiledWasm: diagnostics.compiledWasm || suppliedAppOptions.compiledWasm,
 			onRuntimeMilestone: milestone => {
 				diagnostics.record(milestone.stage, milestone.detail);
 				if (typeof suppliedAppOptions.onRuntimeMilestone === "function") suppliedAppOptions.onRuntimeMilestone(milestone);

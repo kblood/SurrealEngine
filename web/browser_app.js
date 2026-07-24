@@ -538,6 +538,31 @@
 			await activatePresentation(settings.registry, settings.selection, settings.Module);
 			tracker.transition("running");
 			if (typeof settings.onLaunch === "function") settings.onLaunch(settings.selection);
+			if (typeof settings.onRuntimeMilestone === "function") {
+				const selection = settings.selection || {};
+				settings.onRuntimeMilestone("renderer-selected", {
+					renderer: selection.renderer || null, presentation: selection.presentationId || null,
+				});
+				if (selection.renderer === "webgl2" && settings.Module && typeof settings.Module.ccall === "function") {
+					const environment = settings.environment || global;
+					let attempts = 0;
+					const inspect = () => {
+						attempts++;
+						let frames = 0;
+						try { frames = Number(settings.Module.ccall("Surreal_GetWebGL2FrameCount", "number", [], [])) || 0; }
+						catch (_) { /* The production export may be unavailable in synthetic builds. */ }
+						if (frames > 0) settings.onRuntimeMilestone("first-frame-observed", { renderer: "webgl2", frames });
+						else if (attempts >= 120) settings.onRuntimeMilestone("first-frame-unobserved", { renderer: "webgl2", attempts });
+						else if (typeof environment.requestAnimationFrame === "function") environment.requestAnimationFrame(inspect);
+						else environment.setTimeout(inspect, 16);
+					};
+					inspect();
+				} else {
+					settings.onRuntimeMilestone("first-frame-observation-unavailable", {
+						renderer: selection.renderer || null,
+					});
+				}
+			}
 			return tracker.status();
 		} catch (error) {
 			tracker.transition("failed");
@@ -810,6 +835,7 @@
 		}
 		return new Promise((resolve, reject) => {
 			const engineFiles = options.engineFiles && typeof options.engineFiles === "object" ? options.engineFiles : null;
+			let wasmInstantiatedAt = null;
 			const Module = {
 				canvas: options.canvas,
 				locateFile: path => engineFiles && typeof engineFiles[path] === "string" ?
@@ -819,7 +845,12 @@
 				preinitializedWebGPUDevice: device || undefined,
 				onAbort: createRuntimeAbortHandler(log, options.onRuntimeCrash, global),
 				onRuntimeInitialized: async () => {
-					runtimeMilestone("wasm-runtime-initialized");
+					runtimeMilestone("wasm-runtime-initialized", {
+						initializationMs: wasmInstantiatedAt === null ? null :
+							Math.max(0, ((options.environment || global).performance &&
+								typeof (options.environment || global).performance.now === "function" ?
+								(options.environment || global).performance.now() : Date.now()) - wasmInstantiatedAt),
+					});
 					try {
 						const importerOptions = Object.assign({}, options.importerOptions || {}, {
 							storage: library.storageProxy(),
@@ -832,13 +863,22 @@
 							importerOptions,
 							mutableOptionsForGame: gameId => library.mutableOptions(gameId),
 							selectLaunch: context => { if (context.metadata) { library.register(context.metadata); libraryUI.refresh(); } return launcher.selectLaunch(context); },
+							onMutableReady: status => runtimeMilestone("persistent-storage-ready", {
+								state: status && status.state || null, backend: status && status.backend || null,
+								schema: status && status.schema || null, version: status && status.version || null,
+								migration: status && status.migration ? {
+									state: status.migration.state || null, fromVersion: status.migration.fromVersion || null,
+									toVersion: status.migration.toVersion || null, strategy: status.migration.strategy || null,
+								} : null,
+							}),
 							launch: selection => {
 								activeRenderer = selection.renderer;
 								return runLaunchBoundary({ Module, selection, registry,
 									audioController: options.audioController, onLaunch: options.onLaunch,
 									viewportController, xrController: options.xrController,
 									onStartupStage: options.onStartupStage, environment: options.environment || global,
-									waitForPaint: options.waitForPaint });
+									waitForPaint: options.waitForPaint,
+									onRuntimeMilestone: runtimeMilestone });
 							},
 						};
 						let started;
@@ -852,7 +892,7 @@
 							started = await global.SurrealBrowserData.start(Module, browserDataOptions);
 							dataController = started.controller;
 						}
-						runtimeMilestone("persistent-storage-ready", {
+						runtimeMilestone("import-storage-ready", {
 							state: started.result && started.result.import && started.result.import.state || null,
 						});
 						resolve(Object.freeze({ Module, launcher, registry, library, libraryUI, viewportController,
@@ -862,6 +902,24 @@
 					} catch (error) { reject(error); }
 				},
 			};
+			if (options.compiledWasm) {
+				Module.instantiateWasm = (imports, receiveInstance) => {
+					const environment = options.environment || global;
+					const now = () => environment.performance && typeof environment.performance.now === "function" ?
+						environment.performance.now() : Date.now();
+					const startedAt = now();
+					runtimeMilestone("wasm-instantiate-requested");
+					environment.WebAssembly.instantiate(options.compiledWasm, imports).then(instance => {
+						wasmInstantiatedAt = now();
+						runtimeMilestone("wasm-instantiated", { durationMs: Math.max(0, wasmInstantiatedAt - startedAt) });
+						receiveInstance(instance && instance.instance || instance);
+					}).catch(error => {
+						runtimeMilestone("wasm-instantiate-failed", { name: error && error.name || "Error" });
+						reject(error);
+					});
+					return {};
+				};
+			}
 			global.Module = Module;
 			viewportController.attachModule(Module);
 			if (options.audioController && typeof options.audioController.attachModule === "function") options.audioController.attachModule(Module);

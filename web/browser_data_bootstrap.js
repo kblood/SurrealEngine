@@ -51,12 +51,20 @@
 				this.mutableController = started.controller;
 				this.mutableResult = started.result;
 				this._log("mutable overlay " + started.result.state + " via " + started.result.backend);
+				if (typeof this.options.onMutableReady === "function") {
+					try { this.options.onMutableReady(started.result); }
+					catch (error) { this._log("mutable-ready observer failed: " + (error && error.message || String(error))); }
+				}
 			} catch (error) {
 				this.mutableResult = Object.freeze({
 					state: "unavailable",
 					error: error && error.message ? error.message : String(error),
 				});
 				this._log("mutable persistence unavailable; continuing with imported baseline");
+				if (typeof this.options.onMutableReady === "function") {
+					try { this.options.onMutableReady(this.mutableResult); }
+					catch (observerError) { this._log("mutable-ready observer failed: " + (observerError && observerError.message || String(observerError))); }
+				}
 				if (this.options.requireMutablePersistence) throw error;
 			}
 			return this.mutableResult;
