@@ -43,6 +43,7 @@ namespace
 			EngineRef.SetBotBenchmarkHarmfulZoneEscapeEnabled(Config.IsHarmfulZoneEscapeEnabled());
 			EngineRef.SetBotBenchmarkWalkingPreflightPositiveDpsVetoEnabled(
 				Config.IsWalkingPreflightPositiveDpsVetoEnabled());
+			EngineRef.SetBotBenchmarkHazardSwimEgressEnabled(Config.IsHazardSwimEgressEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -1448,7 +1449,8 @@ namespace
 			OptionalCommandLineArg("--botbench-skills"),
 			OptionalCommandLineArg("--botbench-names"),
 			OptionalCommandLineArg("--botbench-harmful-zone-escape"),
-			OptionalCommandLineArg("--botbench-walking-preflight-positive-dps-veto"));
+			OptionalCommandLineArg("--botbench-walking-preflight-positive-dps-veto"),
+			OptionalCommandLineArg("--botbench-hazard-swim-egress"));
 	}
 }
 

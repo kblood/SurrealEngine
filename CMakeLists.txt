@@ -1324,6 +1324,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	set_target_properties(HarmfulZoneEscapeGateTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME HarmfulZoneEscapeGate COMMAND HarmfulZoneEscapeGateTests)
 
+	add_executable(HazardSwimEgressGateTests
+		Tests/HazardSwimEgressGateTests.cpp
+		SurrealEngine/BotAI/HazardSwimEgressGate.cpp
+	)
+	target_include_directories(HazardSwimEgressGateTests PRIVATE SurrealEngine)
+	set_target_properties(HazardSwimEgressGateTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME HazardSwimEgressGate COMMAND HazardSwimEgressGateTests)
+
 	add_executable(CollisionActorOrderTests Tests/CollisionActorOrderTests.cpp)
 	target_include_directories(CollisionActorOrderTests PRIVATE SurrealEngine)
 	set_target_properties(CollisionActorOrderTests PROPERTIES CXX_STANDARD 20)

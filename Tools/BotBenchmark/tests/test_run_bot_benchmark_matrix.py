@@ -260,6 +260,63 @@ class MatrixRunnerTests(unittest.TestCase):
                     with self.assertRaises(MATRIX.MatrixError):
                         MATRIX.load_matrix(path)
 
+    def test_hazard_swim_egress_is_per_variant_and_pairable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            disabled_path = write_manifest(root)
+            disabled = MATRIX.load_matrix(disabled_path)
+            disabled_candidate = next(
+                case for case in MATRIX.expand_cases(disabled)
+                if case.variant.id == "candidate")
+
+            enabled_path = write_manifest(root)
+            enabled_manifest = json.loads(enabled_path.read_text(encoding="utf-8"))
+            enabled_manifest["variants"][1]["hazard_swim_egress_enabled"] = True
+            enabled_path.write_text(json.dumps(enabled_manifest) + "\n", encoding="utf-8")
+            enabled = MATRIX.load_matrix(enabled_path)
+            enabled_cases = MATRIX.expand_cases(enabled)
+            enabled_baseline = next(case for case in enabled_cases if case.variant.id == "stock")
+            enabled_candidate = next(case for case in enabled_cases if case.variant.id == "candidate")
+
+            self.assertFalse(enabled_baseline.variant.hazard_swim_egress_enabled)
+            self.assertTrue(enabled_candidate.variant.hazard_swim_egress_enabled)
+            self.assertNotEqual(disabled_candidate.run_id, enabled_candidate.run_id)
+            self.assertEqual(enabled_baseline.pair_id, enabled_candidate.pair_id)
+            self.assertIn("--botbench-hazard-swim-egress=0", MATRIX.command_for(
+                enabled, enabled_baseline, root / "baseline"))
+            self.assertIn("--botbench-hazard-swim-egress=1", MATRIX.command_for(
+                enabled, enabled_candidate, root / "candidate"))
+
+            plan = MATRIX.dry_run_plan(enabled, root / "planned")
+            plan_settings = {item["variant"]: item["hazard_swim_egress_enabled"]
+                             for item in plan["cases"]}
+            self.assertEqual(plan_settings, {"stock": False, "candidate": True})
+
+            def launcher(command, timeout, stdout, stderr):
+                run = output_from_command(command)
+                for name in ("manifest.json", "events.jsonl", "summary.json"):
+                    (run / name).write_text("{}\n", encoding="utf-8")
+                return MATRIX.LaunchResult(0, False, 0.01)
+
+            result = MATRIX.run_matrix(
+                enabled, root / "results", launcher=launcher, validator=lambda path: None)
+            result_settings = {item["variant"]: item["hazard_swim_egress_enabled"]
+                               for item in result["runs"]}
+            self.assertEqual(result_settings, {"stock": False, "candidate": True})
+            for item in result["runs"]:
+                invocation = json.loads((Path(item["run_directory"]) / "invocation.json").read_text())
+                self.assertEqual(invocation["hazard_swim_egress_enabled"],
+                                 item["hazard_swim_egress_enabled"])
+
+            for value in (0, 1, "true", None):
+                with self.subTest(value=value):
+                    path = write_manifest(root)
+                    manifest = json.loads(path.read_text(encoding="utf-8"))
+                    manifest["variants"][0]["hazard_swim_egress_enabled"] = value
+                    path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+                    with self.assertRaises(MATRIX.MatrixError):
+                        MATRIX.load_matrix(path)
+
     def test_roster_is_part_of_case_and_pair_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

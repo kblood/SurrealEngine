@@ -39,6 +39,7 @@ class Variant:
     executable: Path
     comparison_role: str | None
     build_preset: str | None = None
+    hazard_swim_egress_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -208,7 +209,12 @@ def load_matrix(path: Path) -> MatrixConfig:
         if role is not None and role not in ("baseline", "candidate"):
             raise MatrixError(f"matrix.variants[{index}].comparison_role must be baseline or candidate")
         build_preset = _optional_nonempty_string(fields, "build_preset", f"matrix.variants[{index}]")
-        variants.append(Variant(variant_id, executable, role, build_preset))
+        hazard_swim_egress_enabled = fields.get("hazard_swim_egress_enabled", False)
+        if not isinstance(hazard_swim_egress_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].hazard_swim_egress_enabled must be a boolean")
+        variants.append(Variant(
+            variant_id, executable, role, build_preset, hazard_swim_egress_enabled))
     ids = [variant.id for variant in variants]
     if len(ids) != len(set(ids)):
         raise MatrixError("matrix variant IDs must be unique")
@@ -336,7 +342,8 @@ def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
                           config.walking_preflight_positive_dps_veto_enabled]
                 pair_id = f"case-{_digest(shared, 16)}" if paired else None
                 for variant in config.variants:
-                    identity = [*shared, variant.id, str(variant.executable)]
+                    identity = [*shared, variant.id, str(variant.executable),
+                                variant.hazard_swim_egress_enabled]
                     run_id = (
                         f"{ordinal:06d}-{_slug(variant.id)}-{_slug(map_url)}-"
                         f"s{seed}-r{repetition}-{_digest(identity)}"
@@ -366,6 +373,8 @@ def command_for(config: MatrixConfig, case: MatrixCase, run_directory: Path) -> 
             "1" if config.harmful_zone_escape_enabled else "0"),
         "--botbench-walking-preflight-positive-dps-veto=" + (
             "1" if config.walking_preflight_positive_dps_veto_enabled else "0"),
+        "--botbench-hazard-swim-egress=" + (
+            "1" if case.variant.hazard_swim_egress_enabled else "0"),
     ]
     if config.per_bot_skills is not None:
         command.append("--botbench-skills=" + ",".join(str(value) for value in config.per_bot_skills))
@@ -568,6 +577,7 @@ def _run_case(
         "harmful_zone_escape_enabled": config.harmful_zone_escape_enabled,
         "walking_preflight_positive_dps_veto_enabled": (
             config.walking_preflight_positive_dps_veto_enabled),
+        "hazard_swim_egress_enabled": case.variant.hazard_swim_egress_enabled,
         "command": command,
     })
     launch = launcher(command, config.timeout_seconds, run_directory / "stdout.txt", run_directory / "stderr.txt")
@@ -604,6 +614,7 @@ def _run_case(
         "harmful_zone_escape_enabled": config.harmful_zone_escape_enabled,
         "walking_preflight_positive_dps_veto_enabled": (
             config.walking_preflight_positive_dps_veto_enabled),
+        "hazard_swim_egress_enabled": case.variant.hazard_swim_egress_enabled,
         "exit_code": launch.exit_code,
         "timed_out": launch.timed_out,
         "wall_seconds": launch.wall_seconds,
@@ -637,6 +648,7 @@ def dry_run_plan(config: MatrixConfig, output: Path) -> dict[str, Any]:
             "harmful_zone_escape_enabled": config.harmful_zone_escape_enabled,
             "walking_preflight_positive_dps_veto_enabled": (
                 config.walking_preflight_positive_dps_veto_enabled),
+            "hazard_swim_egress_enabled": case.variant.hazard_swim_egress_enabled,
             "command": command_for(config, case, runs_directory / case.run_id),
         } for case in cases],
     }
