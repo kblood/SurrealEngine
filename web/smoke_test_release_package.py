@@ -4,7 +4,7 @@ import hashlib
 import os
 import sys
 import time
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from playwright.sync_api import sync_playwright
 
 
@@ -17,6 +17,10 @@ def mime_matches(actual, expected):
 
 
 base_url = next((arg.split("=", 1)[1].rstrip("/") for arg in sys.argv[1:] if arg.startswith("--base-url=")), os.environ.get("SURREAL_WEB_BASE_URL", "http://localhost:8091").rstrip("/"))
+expected_manifest_sha256 = next((arg.split("=", 1)[1] for arg in sys.argv[1:] if arg.startswith("--expected-manifest-sha256=")), None)
+if expected_manifest_sha256 is not None and (len(expected_manifest_sha256) != 64 or any(character not in "0123456789abcdef" for character in expected_manifest_sha256)):
+	print("FAIL: --expected-manifest-sha256 must be 64 lowercase hex characters", file=sys.stderr)
+	sys.exit(1)
 with sync_playwright() as playwright:
 	browser = playwright.chromium.launch(channel="chrome", headless=True)
 	context = browser.new_context(service_workers="block")
@@ -37,7 +41,34 @@ with sync_playwright() as playwright:
 	page = context.new_page()
 	page_errors = []
 	page.on("pageerror", lambda error: page_errors.append(str(error)))
+	if expected_manifest_sha256:
+		canonical_response = context.request.get(base_url + "/", max_redirects=0)
+		location = canonical_response.headers.get("location", "")
+		expected_path = urlparse(base_url + "/").path.rstrip("/") + "/releases/" + expected_manifest_sha256 + "/"
+		target_url = urljoin(base_url + "/", location)
+		target_parts = urlparse(target_url)
+		base_parts = urlparse(base_url)
+		if (canonical_response.status != 302 or
+			canonical_response.headers.get("cache-control") != "no-store" or
+			target_parts.path != expected_path or target_parts.query or target_parts.fragment or
+			(target_parts.scheme, target_parts.hostname, target_parts.port) !=
+			(base_parts.scheme, base_parts.hostname, base_parts.port)):
+			print(json.dumps({"status": canonical_response.status, "location": location,
+				"cacheControl": canonical_response.headers.get("cache-control"),
+				"expectedPath": expected_path}, indent=2), file=sys.stderr)
+			print("FAIL: canonical release pointer did not select the expected immutable generation", file=sys.stderr)
+			sys.exit(1)
+		target_manifest_response = context.request.get(urljoin(target_url, "release-manifest.json"),
+			headers={"Accept-Encoding": "identity"})
+		if (not target_manifest_response.ok or
+			hashlib.sha256(target_manifest_response.body()).hexdigest() != expected_manifest_sha256):
+			print("FAIL: canonical pointer target manifest does not match the externally expected hash", file=sys.stderr)
+			sys.exit(1)
 	page.goto(base_url + "/", wait_until="load")
+	if expected_manifest_sha256 and urlparse(page.url).path != expected_path:
+		print("FAIL: browser navigation did not finish at the expected immutable generation", file=sys.stderr)
+		sys.exit(1)
+	page_base_url = urljoin(page.url, "./")
 	deadline = time.time() + 60
 	while time.time() < deadline:
 		if page.evaluate("window.surrealApp || document.getElementById('log').textContent.includes('[launcher]')"):
@@ -118,7 +149,7 @@ with sync_playwright() as playwright:
 	for role in ["javascript", "wasm"]:
 		asset_path = manifest["entrypoints"][role]
 		record = next((item for item in manifest["files"] if item["path"] == asset_path), None)
-		identity_response = context.request.get(urljoin(base_url + "/", asset_path),
+		identity_response = context.request.get(urljoin(page_base_url, asset_path),
 			headers={"Accept-Encoding": "identity"})
 		if (not record or not identity_response.ok or
 			len(identity_response.body()) != record["bytes"] or
@@ -127,13 +158,13 @@ with sync_playwright() as playwright:
 			not mime_matches(identity_response.headers.get("content-type", ""), record["expectedMime"])):
 			print("FAIL: immutable engine identity or headers for " + asset_path, file=sys.stderr)
 			sys.exit(1)
-		brotli_response = context.request.get(urljoin(base_url + "/", asset_path),
+		brotli_response = context.request.get(urljoin(page_base_url, asset_path),
 			headers={"Accept-Encoding": "br"})
 		if (not brotli_response.ok or brotli_response.headers.get("content-encoding") != "br" or
 			"accept-encoding" not in brotli_response.headers.get("vary", "").lower()):
 			print("FAIL: Brotli negotiation for " + asset_path, file=sys.stderr)
 			sys.exit(1)
-	source_response = context.request.get(urljoin(base_url + "/", compliance["sourceUrl"]))
+	source_response = context.request.get(urljoin(page_base_url, compliance["sourceUrl"]))
 	if (not source_response.ok or len(source_response.body()) != compliance["archiveBytes"] or
 		hashlib.sha256(source_response.body()).hexdigest() != compliance["archiveSha256"]):
 		print("FAIL: visible corresponding-source link does not return the recorded archive", file=sys.stderr)

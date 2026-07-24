@@ -21,6 +21,8 @@ Browser candidate:
 - corresponding-source SHA-256:
   `fef669a6309c5fd92ce2a815ee74a699b69de69edacf6f540aa8cba68f5c289f`
 - intended stable URL: `https://dionysus.dk/webxr/Ports/SurrealEngine/`
+- immutable generation URL after publication:
+  `https://dionysus.dk/webxr/Ports/SurrealEngine/releases/c039c946c1f48457f4cac881682159d004f3ff592cc612ef18e7883c74eac35e/`
 
 Electron diagnostic candidate:
 
@@ -109,8 +111,10 @@ header, browser/Electron diagnostics, the two privacy-safe headset reports, and
 sanitized screenshots or video. Record failed attempts as failures.
 
 Do not move the public stable pointer until all required rows pass. Promotion
-must upload to a hidden sibling, verify the remote 52-file manifest payload and
-critical hashes, atomically rename the old stable folder to a rollback path,
-rename the verified stage to `Ports/SurrealEngine`, rerun remote flat checks,
-then perform Q1 on the exact stable URL. A failed post-promotion check triggers
-the inverse rename immediately; preserve both generations and the rollback log.
+must publish and verify the remote 52-file payload at its immutable full-manifest
+hash URL, then atomically switch only the non-cacheable stable redirect using
+`Docs/WEB_VERSIONED_RELEASE.md`. Rerun remote flat checks, then perform Q1 on the
+exact canonical URL and record its final generation URL. A failed
+post-promotion check triggers the recorded pointer rollback immediately;
+preserve the bootstrap compatibility payload, every published generation, and
+every transaction record.

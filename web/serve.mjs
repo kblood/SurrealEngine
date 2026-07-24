@@ -9,6 +9,7 @@ import { createServer } from 'node:http';
 import { access, readFile } from 'node:fs/promises';
 import { extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseVersionPointer } from './versioned_release_library.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
 const port = Number(process.argv[2] ?? 8091);
@@ -29,7 +30,28 @@ const MIME = {
 createServer(async (req, res) => {
   try {
     let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+	if (requestedRoot && (path === '/' || path === '/index.html')) {
+	  try {
+		const manifest = JSON.parse(await readFile(join(root, 'release-manifest.json'), 'utf8'));
+		const pointer = parseVersionPointer(await readFile(join(root, '.htaccess'), 'utf8'), manifest.intendedBasePath);
+		if (pointer) {
+		  const localTarget = `/releases/${pointer.manifestSha256}/`;
+		  res.writeHead(302, {
+			'Location': localTarget,
+			'Cache-Control': 'no-store',
+			'Cross-Origin-Opener-Policy': 'same-origin',
+			'Cross-Origin-Embedder-Policy': 'require-corp',
+			'Cross-Origin-Resource-Policy': 'same-origin',
+		  });
+		  res.end();
+		  return;
+		}
+	  } catch (error) {
+		if (error && error.code !== 'ENOENT') throw error;
+	  }
+	}
 	if (path === '/') path = requestedRoot ? '/index.html' : '/web/index.html';
+	else if (path.endsWith('/')) path += 'index.html';
     const file = normalize(join(root, path));
 	const relativePath = relative(root, file);
 	if (isAbsolute(relativePath) || relativePath.startsWith('..')) { res.writeHead(403); res.end(); return; }
@@ -44,7 +66,7 @@ createServer(async (req, res) => {
     }
     const body = await readFile(servedFile);
     const portable = relative(root, file).split('\\').join('/');
-    const immutable = /^(?:assets|engine)\/[^/]+\.[0-9a-f]{64}\.(?:css|js|wasm)$/.test(portable);
+    const immutable = /^(?:(?:releases\/[0-9a-f]{64}\/)?(?:assets|engine))\/[^/]+\.[0-9a-f]{64}\.(?:css|js|wasm)$/.test(portable);
     const responseHeaders = {
       'Content-Type': MIME[extname(file)] ?? 'application/octet-stream',
       'Cross-Origin-Opener-Policy': 'same-origin',
