@@ -156,7 +156,7 @@
 					throw new Error("Packaged " + asset.role + " asset request failed or redirected.");
 				const expected = this.manifest.files.find(file => file.path === asset.path);
 				const actualMime = String(observed.contentType || "").split(";", 1)[0].trim().toLowerCase();
-				const expectedMime = expected && String(expected.expectedMime || "").toLowerCase();
+				const expectedMime = expected && String(expected.expectedMime || "").split(";", 1)[0].trim().toLowerCase();
 				const mimeMatches = expectedMime === "text/javascript" ?
 					(actualMime === "text/javascript" || actualMime === "application/javascript") :
 					actualMime === expectedMime;

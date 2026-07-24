@@ -623,7 +623,7 @@ window.browserAppTestPromise = (async () => {
 		const manifest = { schema: "surrealengine-browser-release-v2", version: 2, buildId: "build-observed",
 			entrypoints: { html: "index.html", javascript, wasm }, build: { profile: "diagnostic" },
 			sourceCompliance: {}, files: [
-				{ path: javascript, bytes: 1, sha256: "c".repeat(64), expectedMime: "text/javascript", cacheControl: "immutable" },
+				{ path: javascript, bytes: 1, sha256: "c".repeat(64), expectedMime: "text/javascript; charset=utf-8", cacheControl: "immutable" },
 				{ path: wasm, bytes: 1, sha256: "d".repeat(64), expectedMime: "application/wasm", cacheControl: "immutable" },
 			] };
 		let clock = 0;
