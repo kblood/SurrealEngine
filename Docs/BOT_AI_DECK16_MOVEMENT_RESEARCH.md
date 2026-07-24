@@ -123,27 +123,27 @@ This is the strongest code explanation for repeated slime exposure. Fix route
 cost first, then add local escape steering for cases where combat, knockback,
 spawn position, or an already-committed segment puts the pawn inside pain.
 
-### 5. Jump adjustment uses the wrong flight model and target
+### 5. Jump-adjustment hypothesis was tested and rejected
 
 Unified `EAdjustJump` simulates a jump starting from `JumpZ`, toward the current
 height, and initially aims at `Focus`. Stock scripts can set boosted vertical
 velocity immediately before calling it, and `Focus` may be an enemy while
-`Destination` is the landing goal. The fork instead solves flight time from
+`Destination` is the landing goal. A prototype instead solved flight time from
 the current vertical velocity and gravity to `Destination.Z`, then derives the
 horizontal velocity toward `Destination`.
 
 This is relevant to bad jumps and splash/impact boosts. It is not a substitute
 for proving that the landing corridor is supported and below a safe drop.
 
-The exported Botpack script confirms the native call contract: ordinary jump
+The exported Botpack script motivated that prototype: ordinary jump
 setup assigns `Velocity.Z = JumpZ` immediately before `Velocity =
 EAdjustJump()`, while impact-jump paths assign a computed boosted `velZ` or
-`Default.JumpZ + velZ` first. The focused reconstruction therefore solves the
-later positive gravity root from current `Velocity.Z` to `Destination.Z`, aims
-the horizontal component at `Destination`, and bounds it by `GroundSpeed`.
-Level, uphill, downhill, boosted, zero-gravity, no-solution, and invalid inputs
-are covered by a pure deterministic fixture. This improves landing intent; it
-does not authorize a jump or establish that a Deck16 landing is safe.
+`Default.JumpZ + velZ` first. The prototype covered level, uphill, downhill,
+boosted, zero-gravity, no-solution, and invalid inputs in a pure fixture, but
+the live benchmark did not establish a quality improvement. It has been
+removed, and the stock `EAdjustJump` behavior remains in use. Any future jump
+change must first add supported-landing and safe-drop evidence, then pass the
+fixed UT and Unreal matrices independently.
 
 ## Design lessons from other FPS bot implementations
 
@@ -194,6 +194,199 @@ Consequently, `Destination` and caller-provided vertical intent are the best
 supported semantics, but the exact horizontal adjustment remains unknown.
 Three reconstructed variants were benchmarked and all regressed at least one
 map. None is suitable as canonical runtime behavior yet.
+
+## Measured wall-slide and rollback failure
+
+The fixed-seed traces show that some apparent intentional slime entries are a
+walking collision sequence, not simply a bad high-level goal. Necroth had an
+already-selected `MoveToward BulletBox4`, but iteration-38 tracing corrected
+the earlier causal claim: the target was live before the recent ledge veto, so
+a new post-veto `ActorReachable` decision was not available to cancel the
+in-flight move. Direct inventory selection is useful context, not a proven
+single interception point. The pawn crosses the last supported edge, the
+forward fall prediction immediately hits a vertical wall, and the original
+fail-open collision rule never samples the pain zone below. Continuing a
+bounded prediction through two near-vertical contacts recognized both
+reproduced Deck16-II cases, but the first live implementation saved only one
+bot.
+
+The failed case explains why prediction and enforcement must be qualified
+separately. Necroth seed 104729 received a veto at the correct tick, but the
+walking loop restored only to its current inner-iteration start. An earlier
+sub-iteration in that same tick had already moved the pawn beyond support, so
+the bot began falling on the next tick and died. Sarena seed 271828 remained
+grounded after the same class of veto and survived. Four follow-up enforcement
+variants then tried whole-tick rollback, exact floor verification, a selected
+supported retreat, and four real collision-checked reverse steps. None changed
+Necroth's next-tick fall or death, and the last variant introduced no aggregate
+survival gain. The wall-slide continuation and synchronous retreat are
+therefore removed from live runtime. Increasing prediction breadth alone
+cannot fix this failure.
+
+Unreal Gold `DmDeathFan` exposes a different bound. Dante falls for 2.47
+seconds before entering the harmful zone, beyond the current 1.5-second
+prediction horizon. Iteration 22 was therefore exactly trajectory-identical
+to the prior Unreal baseline and emitted no veto. A longer or height-adaptive
+horizon is required for that map, but it should be tested only after Deck's
+rollback contract is reliable so longer prediction does not amplify ineffective
+vetoes.
+
+### Bounded adaptive-horizon design
+
+The DeathFan trace gives concrete limits: Dante leaves support at tick 546 at
+`Z=1384` and enters pain at tick 694 at `Z=-300.85`. The trajectory lasts
+2.4667 seconds, descends 1684.85 units, and travels 2174.6 units. Keep the
+current 24 fixed `1/16`-second steps as a 1.5-second base phase. Only when that
+phase remains a valid descending fall in the original non-pain zone, with no
+walkable landing or dynamic mover contact, extend it to at most 44 total steps
+(2.75 seconds). Retaining the existing step size avoids introducing a second,
+coarser physics model.
+
+Bound the whole prediction to 2048 units of downward displacement, 4096 units
+of accumulated path, 64 collision sweeps including wall retries, and 256 zone
+samples. Keep the existing two near-vertical wall responses per step. Stop
+safely on a walkable floor and report danger immediately on a harmful pain-zone
+sample. Invalid geometry, a non-walkable/nonvertical collision, a dynamic
+mover, an unexpected non-pain zone transition, insufficient samples at the
+required spacing, or any exhausted bound must fail open. A segment that crosses
+a spatial bound should be traced and sampled only up to that bound before the
+prediction stops.
+
+This is adaptive in cost as well as distance. Deck's reproduced Necroth fall
+reaches slime after only about 0.55 seconds and 158 units, so it stays inside
+the unchanged base phase. Under DeathFan's measured `-1045` gravity, the model
+misses the pain depth after 24 steps but reaches it by step 29; the expected
+increment is therefore about five sweeps rather than all 20 optional steps.
+The hard 64-sweep ceiling is also below the current theoretical 72-sweep worst
+case of 24 steps with two collision responses on every step.
+
+Focused tests should prove that the DeathFan start/gravity/depth misses at step
+24 and is detected by step 29; a walkable floor found during the extension wins
+over pain below it; mover, zone-change, invalid-collision, and each resource
+cap fail open; and the reconstructed Deck wall/slime case is still detected
+without entering the extension. The fixed DeathFan seed 424242 integration run
+must then veto Dante's measured ledge transition without a hazard entry, while
+the complete Deck/Morbias matrix must show no survival, combat, wall, or stuck
+regression. Do not enable the longer live horizon until a different enforcement
+contract can keep a vetoed pawn on demonstrably safe support and pass its Deck
+fixtures; iterations 23 through 26 did not establish that contract.
+
+### Later wall-jump forecast evidence
+
+Iterations 37 through 41 covered the rejected inventory handshake and then
+isolated Visse's seed-314159 Wandering wall jump:
+
+| Iteration | Finding | Outcome |
+| --- | --- | --- |
+| 37 | forecast began with pre-script velocity, not the prospective adjusted jump velocity | invalid and neutral; reject |
+| 38 | a recent-veto/native reachability handshake first spun the VM, then completed only after handshake repair | K0/D3/S3/E3/score -3; reject and exactly roll back |
+| 39 | correct jump input reached the first static wall, slid, then retained inward velocity and failed open on the next same-wall contact | byte-identical neutral result |
+| 40 | same-surface identity and actual `TryMove`-style actor blocking were diagnosed; compliant clean run remained byte-identical | no quality gain |
+| 41 | bounded repeated contact with the same BSP surface finally changed the trajectory | intent stall improved, but hazard entries/deaths worsened; reject |
+
+The pure Visse fixture makes the iteration-39 stop concrete: the first slide
+ends with a small velocity component back into the wall. On the next fixed
+prediction step that produces another contact, but the one-contact allowance
+has already been consumed. Iteration 40 also exposed a separate modeling risk:
+generic `TraceFirstHit` actor flags do not reproduce the pawn/other actor
+blocking pairs used by `TryMove`, so nonblocking actors can create false
+dynamic collisions unless the forecast applies the real blocking filter.
+
+Iteration 41 bounded continued contact to the same BSP surface and reduced
+seed-314159 movement-intent no-progress from 10.62 to 4.45 seconds. It did not
+save Visse: hazard entries and hazard-exposed deaths increased from one to two,
+while K2/D3/S1/E1 and score +1 were unchanged. That is a safety regression, so
+the live wall-jump forecast is rolled back and only the pure diagnostics and
+fixtures remain. Repository-local-build diagnostics are noncompliant with the
+central output policy and do not qualify; the admissible iteration-40 clean run
+was neutral.
+
+The first iteration-38 run stopped at tick 358 without a summary. The repaired
+handshake completed but regressed seed 104729 from K2/D4/S2/E2/score 0 to
+K0/D3/S3/E3/score -3, increased wall callbacks from 291 to 395, and increased
+intent no-progress from 5.88 seconds (longest 1.65) to 13.13 seconds (longest
+6.00). Removing it restored the iteration-35 event stream exactly, including
+SHA-256 `9fd10f192866...`; neither the VM spin nor the severe completed result is
+part of the retained design.
+
+## Deterministic lift recovery and cross-game evidence
+
+The persistent `LiftExit3` loop required physical topology rather than exact
+actor identity. A same-lift-only rule was neutral. Penalizing all lift exits
+proved the alternate exit was part of the loop, but was too broad. The retained
+pure relation groups only exits that share a nearby, same-zone, same-height
+non-lift landing node. It reduced Cilia's seed-314159 recovery from two
+activations and 4,261 applications to one activation and 85 applications while
+preserving the first six-case iteration-35 result.
+
+The first iteration-35 repeat then exposed an ASLR leak: overlap hits were
+ordered by actor pointer, which changed `Touch` order and UT Morbias seed
+104729. Stable world/level-index/name ordering removed the pointer dependency.
+Repeated Unreal Gold `DmDeck16`/`DmMorbias` and `DmHealPod`/`DmDeathFan`
+matrices then reproduced exactly. DeathFan still recorded one environmental
+suicide, 1,609 wall callbacks, and a 2.27-second intent stall; determinism does
+not make that behavior acceptable.
+
+A rendered UT436 spectator smoke also proved that bot-only matches can use the
+normal Vulkan path unattended: four stock bots ran on `DM-Morbias][` while a
+`Botpack.CHSpectator` followed a bot and owned no combat pawn. The minimized
+two-second lifecycle run proves setup, rendering, camera follow, and timed exit,
+not subjective bot quality.
+
+## Falling two-plane seam: iteration 42 rejection
+
+DeathFan's long wall episode is a falling collision seam rather than the
+walking stall already covered by the watchdog. A bounded pure model identified
+two distinct non-walkable planes and iteration 42 applied one additional sweep
+along their crease. At the established Unreal timestep (`0.0166667`), the
+candidate reduced wall callbacks from 1,609 to 371 and removed the stuck proxy,
+but increased unassisted environmental deaths from one to three. Ash fell
+1,171 units and Dante 928 units from the released seam into the pain pool even
+though both movement destinations were far above them.
+
+This rejects an important assumption: a collision-valid crease is not a
+survival-valid bot route. The live sweep is removed and rollback restores the
+historical shadow stream exactly. A nearby timestep (`0.016666667`) happened
+to produce a much better trajectory, but cannot be compared against the
+historical run or used to hide the matching-timestep regression. Both values
+are now explicit robustness cases.
+
+The next safe contract is tri-state. `Safe` requires positive target progress
+and a clear horizontal endpoint with nearby walkable, non-pain support;
+`Harmful` rejects a proven dangerous landing; `Unknown` performs no extra
+movement. A no-translation latent replan should be tested before any supported
+outward nudge. Full multi-plane collision parity remains a separate engine
+experiment because physical correctness alone cannot choose a safe route.
+
+That no-translation experiment became iteration 43. It was exactly neutral on
+the historical DeathFan stream and reduced wall contacts only on the nearby
+timestep. On Deck seed 271828 it added one death, changed score 0 to -1, doubled
+hazard entries/deaths from one to two, and introduced a 2.32-second intent
+stall. Both new environmental outcomes carried recent enemy momentum, showing
+why the complete causal partition must be combined with total-death, hazard,
+combat, and movement gates. The live latent replan is removed. Only the pure
+eligibility/projection and evidence-gated supported-escape models remain.
+
+## Quality measurement truth boundary
+
+The analyzer and executable gate evaluator now fail closed for missing runs,
+invalid completion, unmatched selectors, and absent/null metrics. Live hooks
+track canonical damage, actual `AddVelocity` momentum, known environmental
+call scopes, nested calls, abnormal returns, and per-life reset. Five primary
+counters form an exact monotonic partition of `deaths_exact`: direct self,
+direct enemy, unassisted environmental, recent-enemy-contributed environmental
+proxy, and ambiguous. The sixth momentum field is a subset proxy, not another
+disjoint class. `suicides_exact` remains explicitly labeled legacy scoreboard
+semantics.
+
+UT Deck's live smoke partitioned three deaths as one direct self, one direct
+enemy, and one unassisted environmental death. Unreal DeathFan seed 424242
+partitioned two deaths as one direct enemy and one unassisted environmental
+death while preserving all 1,802 older telemetry payloads after removing only
+the new fields, and preserving the shadow stream byte-for-byte. Measurement is
+therefore trustworthy enough to reject iteration 42 causally. Until the bot
+safety gates and unopened held-out maps pass, the work is still not release-
+or merge-ready.
 
 ## Proposed runtime architecture
 
@@ -270,3 +463,7 @@ sequence of narrow merges, starting with the arrival-envelope fixture and fix,
 then hazard-aware route cost. Local steering remains shadow-only until the
 Deck16 environmental-death signal improves. Difficulty levels should be built
 only after competent survival and locomotion are stable.
+
+Current status remains **not ready to merge**. Keep held-out maps unopened,
+remove the rejected live wall-jump forecast, and qualify the retained narrow
+runtime corrections against trustworthy causal telemetry before promotion.
