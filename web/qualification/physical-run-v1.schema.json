@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dionysus.dk/schemas/surrealengine-physical-run-v1.schema.json",
+  "title": "SurrealEngine WebXR physical qualification run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "schemaVersion", "runId", "generatedAtUtc", "matrixRow",
+    "gameCase", "candidate", "test", "result", "attachments"
+  ],
+  "properties": {
+    "schema": { "const": "surrealengine-webxr-physical-run-v1" },
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{7,95}$" },
+    "generatedAtUtc": { "type": "string", "format": "date-time" },
+    "matrixRow": { "enum": ["Q1", "D1", "E1", "E2"] },
+    "gameCase": { "enum": ["ut99", "unreal-gold", "official-sample"] },
+    "candidate": { "$ref": "#/$defs/candidate" },
+    "test": { "$ref": "#/$defs/test" },
+    "result": { "$ref": "#/$defs/result" },
+    "resourcePolicy": { "$ref": "#/$defs/resourcePolicy" },
+    "cycles": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": { "$ref": "#/$defs/cycle" }
+    },
+    "failureScenarios": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "$ref": "#/$defs/failureScenario" }
+    },
+    "officialSample": { "$ref": "#/$defs/officialSample" },
+    "attachments": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/attachment" }
+    },
+    "notes": { "type": "string", "maxLength": 2000 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "matrixRow": { "const": "D1" } }, "required": ["matrixRow"] },
+      "then": {
+        "properties": { "gameCase": { "const": "official-sample" } },
+        "required": ["officialSample"]
+      },
+      "else": {
+        "properties": { "gameCase": { "enum": ["ut99", "unreal-gold"] } },
+        "required": ["resourcePolicy", "cycles", "failureScenarios"]
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["qualificationCard", "browser", "electron"],
+      "properties": {
+        "qualificationCard": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^Docs/[^/].*\\.md$" },
+        "browser": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["buildId", "sourceCommit", "sourceTree", "manifestSha256", "javascriptSha256", "wasmSha256", "correspondingSourceSha256", "immutableGenerationUrl"],
+          "properties": {
+            "buildId": { "type": "string", "pattern": "^[0-9a-f]{12}-[0-9a-f]{16}$" },
+            "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "sourceTree": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "manifestSha256": { "$ref": "#/$defs/sha256" },
+            "javascriptSha256": { "$ref": "#/$defs/sha256" },
+            "wasmSha256": { "$ref": "#/$defs/sha256" },
+            "correspondingSourceSha256": { "$ref": "#/$defs/sha256" },
+            "immutableGenerationUrl": { "type": "string", "format": "uri", "pattern": "^https://.*/releases/[0-9a-f]{64}/$" }
+          }
+        },
+        "electron": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["electron", "chrome", "zipName", "zipSha256", "status"],
+          "properties": {
+            "electron": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+            "chrome": { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+){3}$" },
+            "zipName": { "type": "string", "pattern": "^[^/\\\\]+\\.zip$", "maxLength": 255 },
+            "zipSha256": { "$ref": "#/$defs/sha256" },
+            "status": { "enum": ["unsigned-internal-diagnostic", "signed-internal-diagnostic"] }
+          }
+        }
+      }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startedAtUtc", "completedAtUtc", "tester", "clientVersion", "questModel", "questOs", "questBrowser", "virtualDesktop", "openxrRuntime", "gpuDriver", "refreshRateHz", "artifactKind", "artifactName", "artifactSha256", "presentationMode"],
+      "properties": {
+        "startedAtUtc": { "type": "string", "format": "date-time" },
+        "completedAtUtc": { "type": "string", "format": "date-time" },
+        "tester": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "clientVersion": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "questModel": { "const": "Quest 3" },
+        "questOs": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "questBrowser": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "virtualDesktop": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "openxrRuntime": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "gpuDriver": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "refreshRateHz": { "type": "number", "minimum": 60, "maximum": 240 },
+        "artifactKind": { "enum": ["hosted-immutable-generation", "official-immersive-web-sample", "electron-automatic", "electron-force-openxr"] },
+        "artifactName": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^/\\\\]+$" },
+        "artifactSha256": { "$ref": "#/$defs/sha256" },
+        "presentationMode": { "enum": ["direct-webgl2", "official-sample", "electron-automatic", "electron-force-openxr"] },
+        "officialSampleUrl": { "type": "string", "format": "uri", "maxLength": 500 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "category", "summary"],
+      "properties": {
+        "status": { "enum": ["pass", "fail"] },
+        "category": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "resourcePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxHeapGrowthBytes", "maxTextureGrowth", "maxFrameDeltaUs"],
+      "properties": {
+        "maxHeapGrowthBytes": { "type": "integer", "minimum": 0 },
+        "maxTextureGrowth": { "type": "integer", "minimum": 0 },
+        "maxFrameDeltaUs": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "cycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "result", "entry", "exit", "metrics", "resources", "continuity", "observations"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "result": { "enum": ["pass", "fail"] },
+        "entry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requestedAtUtc", "activatedAtUtc", "firstFrameAtUtc", "firstFrameSeen", "viewCount", "positiveViewports"],
+          "properties": {
+            "requestedAtUtc": { "type": "string", "format": "date-time" },
+            "activatedAtUtc": { "type": ["string", "null"], "format": "date-time" },
+            "firstFrameAtUtc": { "type": ["string", "null"], "format": "date-time" },
+            "firstFrameSeen": { "type": "boolean" },
+            "viewCount": { "type": "integer", "minimum": 0, "maximum": 8 },
+            "positiveViewports": { "type": "boolean" }
+          }
+        },
+        "exit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["route", "requestedAtUtc", "flatRestoredAtUtc", "flatRestored"],
+          "properties": {
+            "route": { "enum": ["game-ui", "headset-system"] },
+            "requestedAtUtc": { "type": "string", "format": "date-time" },
+            "flatRestoredAtUtc": { "type": ["string", "null"], "format": "date-time" },
+            "flatRestored": { "type": "boolean" }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entryLatencyMs", "firstFrameLatencyMs", "exitLatencyMs", "xrFrames", "skippedFrames", "frameTimeMs", "visibilityTransitions", "maxFrameDeltaUs"],
+          "properties": {
+            "entryLatencyMs": { "type": ["number", "null"], "minimum": 0 },
+            "firstFrameLatencyMs": { "type": ["number", "null"], "minimum": 0 },
+            "exitLatencyMs": { "type": ["number", "null"], "minimum": 0 },
+            "xrFrames": { "type": "integer", "minimum": 0 },
+            "skippedFrames": { "type": "integer", "minimum": 0 },
+            "frameTimeMs": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["samples", "p50", "p95", "p99"],
+              "properties": {
+                "samples": { "type": "integer", "minimum": 0 },
+                "p50": { "type": ["number", "null"], "minimum": 0 },
+                "p95": { "type": ["number", "null"], "minimum": 0 },
+                "p99": { "type": ["number", "null"], "minimum": 0 }
+              }
+            },
+            "visibilityTransitions": {
+              "type": "array",
+              "items": { "enum": ["visible", "visible-blurred", "hidden"] }
+            },
+            "maxFrameDeltaUs": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["heapBytesBefore", "heapBytesAfter", "texturesBefore", "texturesAfter", "webglGenerationBefore", "webglGenerationAfter"],
+          "properties": {
+            "heapBytesBefore": { "type": "integer", "minimum": 0 },
+            "heapBytesAfter": { "type": "integer", "minimum": 0 },
+            "texturesBefore": { "type": "integer", "minimum": 0 },
+            "texturesAfter": { "type": "integer", "minimum": 0 },
+            "webglGenerationBefore": { "type": "integer", "minimum": 0 },
+            "webglGenerationAfter": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "continuity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["engineStable", "levelStable", "playerStable", "rendererStable", "audioStable", "tickBefore", "tickAtFirstFrame", "tickAfter"],
+          "properties": {
+            "engineStable": { "type": "boolean" },
+            "levelStable": { "type": "boolean" },
+            "playerStable": { "type": "boolean" },
+            "rendererStable": { "type": "boolean" },
+            "audioStable": { "type": "boolean" },
+            "tickBefore": { "type": "integer", "minimum": 0 },
+            "tickAtFirstFrame": { "type": "integer", "minimum": 0 },
+            "tickAfter": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "observations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sameMap", "samePosition", "sameHealth", "sameWeapon", "sameAudio", "duplicateSimulation", "largeTimeStep", "blackOrStaleEye", "stuckInputOrHaptics", "pointerLockRecovered"],
+          "properties": {
+            "sameMap": { "type": "boolean" },
+            "samePosition": { "type": "boolean" },
+            "sameHealth": { "type": "boolean" },
+            "sameWeapon": { "type": "boolean" },
+            "sameAudio": { "type": "boolean" },
+            "duplicateSimulation": { "type": "boolean" },
+            "largeTimeStep": { "type": "boolean" },
+            "blackOrStaleEye": { "type": "boolean" },
+            "stuckInputOrHaptics": { "type": "boolean" },
+            "pointerLockRecovered": { "type": "boolean" }
+          }
+        },
+        "notes": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "failureScenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "result", "flatRecovered", "laterEntrySucceeded", "notes"],
+      "properties": {
+        "category": { "enum": ["denied-entry", "headset-sleep-obscured", "controller-disconnect-reconnect", "forced-session-end"] },
+        "result": { "enum": ["pass", "fail"] },
+        "flatRecovered": { "type": "boolean" },
+        "laterEntrySucceeded": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "officialSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "capabilityDetected", "sessionGranted", "firstFrameSeen", "viewCount", "positiveViewports", "controllersObserved", "exitSucceeded"],
+      "properties": {
+        "result": { "enum": ["pass", "fail"] },
+        "capabilityDetected": { "type": "boolean" },
+        "sessionGranted": { "type": "boolean" },
+        "firstFrameSeen": { "type": "boolean" },
+        "viewCount": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "positiveViewports": { "type": "boolean" },
+        "controllersObserved": { "type": "boolean" },
+        "exitSucceeded": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "path", "mimeType", "bytes", "sha256", "capturedAtUtc"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$" },
+        "role": { "enum": ["before-diagnostics", "running-diagnostics", "after-diagnostics", "electron-diagnostics", "sample-diagnostics", "screenshot", "video", "other"] },
+        "path": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$" },
+        "mimeType": { "enum": ["application/json", "text/plain", "text/markdown", "image/png", "image/jpeg", "video/mp4", "video/webm"] },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "capturedAtUtc": { "type": "string", "format": "date-time" },
+        "cycle": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "description": { "type": "string", "maxLength": 300 }
+      }
+    }
+  }
+}
