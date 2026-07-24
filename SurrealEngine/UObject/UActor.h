@@ -10,6 +10,7 @@
 #include "PawnMoveStallWatchdog.h"
 #include "PawnPainLedgeRecovery.h"
 #include "PawnLedgeTransition.h"
+#include "PawnFallingParityRealizedTrace.h"
 #include "PawnWalkingStepPreflight.h"
 #include "PawnWallAdjustRecovery.h"
 
@@ -23,6 +24,25 @@ class UInventory;
 class ULevelInfo;
 class UAnimation;
 class UPlayer;
+
+enum MoveCallbackEvidenceBits : uint32_t
+{
+	MoveCallbackBasedActor = 1u << 0,
+	MoveCallbackEncroachment = 1u << 1,
+	MoveCallbackBump = 1u << 2,
+	MoveCallbackTouch = 1u << 3,
+	MoveCallbackUnTouch = 1u << 4,
+	MoveCallbackRegionChange = 1u << 5,
+	MoveCallbackFootRegionChange = 1u << 6,
+	MoveCallbackHeadRegionChange = 1u << 7,
+	MoveCallbackHitWall = 1u << 8
+};
+
+struct MoveCallbackEvidence
+{
+	uint32_t Mask = 0;
+	bool Any() const { return Mask != 0; }
+};
 class UMusic;
 class UGameReplicationInfo;
 class UPlayerReplicationInfo;
@@ -470,7 +490,8 @@ public:
 
 	CollisionHit ProbeMoveCollision(const vec3& origin, const vec3& delta,
 		bool isOwnBaseBlocking = true, CollisionHitList* tracedHits = nullptr);
-	CollisionHit TryMove(const vec3 & delta, bool dryRun = false, bool isOwnBaseBlocking = true);
+	CollisionHit TryMove(const vec3 & delta, bool dryRun = false,
+		bool isOwnBaseBlocking = true, MoveCallbackEvidence* callbackEvidence = nullptr);
 	CollisionHit TryMoveSmooth(const vec3& delta);
 	bool Move(const vec3& delta);
 	bool MoveSmooth(const vec3& delta);
@@ -1927,6 +1948,30 @@ public:
 		uint64_t invocationToken);
 	void ConfirmWalkingStepPreflightShadow(int walkingIteration, uint64_t invocationToken,
 		PawnMovement::LedgeTransition transition);
+	void ArmFallingParityRealizedTrace(int walkingIteration, uint64_t invocationToken);
+	bool HasActiveFallingParityRealizedModel() const
+	{
+		return FallingParityRealizedTrace.ModelActive;
+	}
+	bool HasActiveFallingParityRealizedLifecycle() const
+	{
+		return FallingParityRealizedTrace.LifecycleActive;
+	}
+	bool HasFallingParityRealizedContinuity()
+	{
+		return FallingParityRealizedTrace.LifecycleActive
+			&& !bDeleteMe() && Physics() == PHYS_Falling && !bJustTeleported()
+			&& FallingParityRealizedTrace.Correlation.LifeGeneration
+				== WalkingStepPreflightLifeGeneration;
+	}
+	void RecordFallingParityRealizedStep(
+		PawnMovement::FallingParityRealizedOutcome outcome,
+		const PawnMovement::FallingParityRealizedRecord& evidence);
+	void ObserveFallingParityRealizedPain();
+	void FinishFallingParityRealizedTrace(
+		PawnMovement::FallingParityRealizedOutcome outcome);
+	std::vector<PawnMovement::FallingParityRealizedRecord>
+		DrainFallingParityRealizedRecords();
 	uint64_t BeginWalkingStepPreflightInvocation()
 	{
 		return ++WalkingStepPreflightInvocationSequence;
@@ -1981,6 +2026,17 @@ public:
 	uint64_t WalkingStepPreflightAuthorizationCount() const { return WalkingStepPreflightAuthorizationCountValue; }
 	uint64_t WalkingStepPreflightAuthorizableEpisodeCount() const { return WalkingStepPreflightAuthorizableEpisodeCountValue; }
 	uint64_t WalkingStepPreflightDiagnosticOverflowCount() const { return WalkingStepPreflightDiagnosticOverflowCountValue; }
+	uint64_t FallingParityRealizedEpisodeCount() const { return FallingParityRealizedEpisodeCountValue; }
+	uint64_t FallingParityRealizedStepCount() const { return FallingParityRealizedStepCountValue; }
+	uint64_t FallingParityRealizedMatchedStepCount() const { return FallingParityRealizedMatchedStepCountValue; }
+	uint64_t FallingParityRealizedMismatchCount() const { return FallingParityRealizedMismatchCountValue; }
+	uint64_t FallingParityRealizedUnknownCount() const { return FallingParityRealizedUnknownCountValue; }
+	uint64_t FallingParityRealizedCallbackBarrierCount() const { return FallingParityRealizedCallbackBarrierCountValue; }
+	uint64_t FallingParityRealizedPainEntryCount() const { return FallingParityRealizedPainEntryCountValue; }
+	uint64_t FallingParityRealizedDeathCount() const { return FallingParityRealizedDeathCountValue; }
+	uint64_t FallingParityRealizedLandingCount() const { return FallingParityRealizedLandingCountValue; }
+	uint64_t FallingParityRealizedContinuityLossCount() const { return FallingParityRealizedContinuityLossCountValue; }
+	uint64_t FallingParityRealizedRecordOverflowCount() const { return FallingParityRealizedRecordOverflowCountValue; }
 	const std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>&
 		WalkingStepPreflightReasonCounts() const { return WalkingStepPreflightReasonCountValues; }
 
@@ -2257,6 +2313,25 @@ private:
 	uint64_t WalkingStepPreflightLifeGeneration = 1;
 	std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>
 		WalkingStepPreflightReasonCountValues = {};
+	bool WalkingStepPreflightObservedTransactionValid = false;
+	int WalkingStepPreflightObservedIteration = 0;
+	uint64_t WalkingStepPreflightObservedInvocation = 0;
+	PawnMovement::FallingParityRealizedCorrelation
+		WalkingStepPreflightObservedCorrelation;
+	PawnMovement::FallingParityRealizedTraceState FallingParityRealizedTrace;
+	std::vector<PawnMovement::FallingParityRealizedRecord>
+		FallingParityRealizedRecords;
+	uint64_t FallingParityRealizedEpisodeCountValue = 0;
+	uint64_t FallingParityRealizedStepCountValue = 0;
+	uint64_t FallingParityRealizedMatchedStepCountValue = 0;
+	uint64_t FallingParityRealizedMismatchCountValue = 0;
+	uint64_t FallingParityRealizedUnknownCountValue = 0;
+	uint64_t FallingParityRealizedCallbackBarrierCountValue = 0;
+	uint64_t FallingParityRealizedPainEntryCountValue = 0;
+	uint64_t FallingParityRealizedDeathCountValue = 0;
+	uint64_t FallingParityRealizedLandingCountValue = 0;
+	uint64_t FallingParityRealizedContinuityLossCountValue = 0;
+	uint64_t FallingParityRealizedRecordOverflowCountValue = 0;
 };
 
 class UScout : public UPawn

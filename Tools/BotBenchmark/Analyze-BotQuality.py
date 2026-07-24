@@ -21,7 +21,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 14
+TOOL_VERSION = 15
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -90,6 +90,15 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "minimum_health_observed": "higher",
     "survived_to_final_sample": "higher",
     "completion": "higher",
+    "falling_parity_realized_episode_completion_fraction": "higher",
+    "falling_parity_realized_comparable_step_fraction": "higher",
+    "falling_parity_realized_matched_step_fraction": "higher",
+    "falling_parity_realized_mismatch_fraction": "lower",
+    "falling_parity_realized_unknown_step_fraction": "lower",
+    "vertical_pain_column_precision": "higher",
+    "vertical_pain_column_recall": "higher",
+    "vertical_pain_column_false_positive_rate": "lower",
+    "vertical_pain_column_labeled_episode_fraction": "higher",
 }
 
 FUTURE_METRICS = {
@@ -189,12 +198,47 @@ WALKING_STEP_PREFLIGHT_COUNTERS = (
     "walking_step_preflight_authorizable_episodes_exact",
     "walking_step_preflight_diagnostic_overflows_exact",
 ) + WALKING_STEP_PREFLIGHT_REASON_COUNTERS
-METRIC_DIRECTIONS.update({name: None for name in WALKING_STEP_PREFLIGHT_COUNTERS})
+FALLING_PARITY_REALIZED_STEP_COUNTERS = (
+    "falling_parity_realized_matched_steps_exact",
+    "falling_parity_realized_mismatches_exact",
+    "falling_parity_realized_unknowns_exact",
+    "falling_parity_realized_callback_barriers_exact",
+)
+FALLING_PARITY_COUNTERS = (
+    "falling_parity_realized_episodes_exact",
+    "falling_parity_realized_steps_exact",
+) + FALLING_PARITY_REALIZED_STEP_COUNTERS + (
+    "falling_parity_realized_pain_entries_exact",
+    "falling_parity_realized_deaths_exact",
+    "falling_parity_realized_landings_exact",
+    "falling_parity_realized_continuity_losses_exact",
+    "falling_parity_realized_record_overflows_exact",
+)
+VERTICAL_PAIN_COLUMN_OUTCOME_COUNTERS = (
+    "vertical_pain_column_true_positive_outcomes_exact",
+    "vertical_pain_column_false_positive_outcomes_exact",
+    "vertical_pain_column_false_negative_outcomes_exact",
+    "vertical_pain_column_true_negative_outcomes_exact",
+    "vertical_pain_column_ambiguous_outcomes_exact",
+    "vertical_pain_column_unknown_outcomes_exact",
+)
+VERTICAL_PAIN_COLUMN_COUNTERS = (
+    "vertical_pain_column_episodes_started_exact",
+    "vertical_pain_column_episodes_completed_exact",
+) + VERTICAL_PAIN_COLUMN_OUTCOME_COUNTERS + (
+    "vertical_pain_column_diagnostic_overflows_exact",
+)
+METRIC_DIRECTIONS.update({
+    name: None for name in (
+        WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
+        + VERTICAL_PAIN_COLUMN_COUNTERS)
+})
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
     + FAILED_NAVIGATION_EXACT_COUNTERS + DEATH_ATTRIBUTION_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
-    + WALKING_STEP_PREFLIGHT_COUNTERS
+    + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
+    + VERTICAL_PAIN_COLUMN_COUNTERS
 )
 OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
 OPTIONAL_CUMULATIVE_METRICS = OPTIONAL_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_NUMBERS
@@ -214,6 +258,7 @@ MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP = (
 OPTIONAL_DIAGNOSTIC_FIELDS = (
     "physics_mode", "latent_action", "acceleration", "destination", "move_timer",
     "move_target_identity", "move_target_name", "walking_step_preflight_diagnostics",
+    "falling_parity_realized_records",
 )
 PHYSICS_MODES = {
     "", "None", "Walking", "Falling", "Swimming", "Flying", "Rotating", "Projectile",
@@ -235,6 +280,18 @@ WALKING_STEP_PREFLIGHT_TRANSITIONS = {
     "abort", "restore_grounded", "begin_falling", "post_callback_evidence_changed",
     "post_callback_forecast_rejected",
 }
+FALLING_PARITY_REALIZED_OUTCOMES = {
+    "episode_started", "matched_clear", "mismatch", "unknown", "callback_barrier",
+    "pain_entered", "landed", "died", "continuity_lost",
+}
+FALLING_PARITY_REALIZED_STEP_OUTCOMES = {
+    "matched_clear", "mismatch", "unknown", "callback_barrier",
+}
+FALLING_PARITY_REALIZED_COLLISIONS = {
+    "unknown", "clear", "static_world", "mover", "dynamic_actor",
+}
+FALLING_PARITY_REALIZED_MAX_STEPS = 96
+FALLING_PARITY_REALIZED_MATCH_EPSILON = 0.001
 
 
 class QualityError(ValueError):
@@ -464,6 +521,295 @@ def _walking_step_preflight_diagnostics(value: Any, context: str) -> list[dict[s
         _walking_step_preflight_diagnostic(item, f"{context}[{index}]")
         for index, item in enumerate(value)
     ]
+
+
+def _falling_parity_realized_record(value: Any, context: str) -> dict[str, Any]:
+    fields = _exact_object(value, context, {
+        "source_pawn_actor", "life_generation", "invocation_token", "walking_iteration",
+        "step_ordinal", "outcome", "elapsed", "collision", "hit_fraction", "hit_normal",
+        "velocity_error", "requested_delta_error", "endpoint_error",
+        "callback_barrier_mask",
+    })
+    outcome = _string(fields, "outcome", context, nonempty=True)
+    if outcome not in FALLING_PARITY_REALIZED_OUTCOMES:
+        raise QualityError(f"{context}.outcome is not recognized")
+    collision = _string(fields, "collision", context, nonempty=True)
+    if collision not in FALLING_PARITY_REALIZED_COLLISIONS:
+        raise QualityError(f"{context}.collision is not recognized")
+    hit_fraction = _number(fields.get("hit_fraction"), f"{context}.hit_fraction", minimum=0.0)
+    if hit_fraction > 1.0:
+        raise QualityError(f"{context}.hit_fraction must be at most 1.0")
+    elapsed = _number(fields.get("elapsed"), f"{context}.elapsed", minimum=0.0)
+    velocity_error = _number(
+        fields.get("velocity_error"), f"{context}.velocity_error", minimum=0.0)
+    requested_delta_error = _number(
+        fields.get("requested_delta_error"),
+        f"{context}.requested_delta_error", minimum=0.0)
+    endpoint_error = _number(
+        fields.get("endpoint_error"), f"{context}.endpoint_error", minimum=0.0)
+    callback_mask = _integer(
+        fields.get("callback_barrier_mask"), f"{context}.callback_barrier_mask", minimum=0)
+    if callback_mask > 0x1ff:
+        raise QualityError(f"{context}.callback_barrier_mask must be at most 511")
+    if outcome == "callback_barrier" and callback_mask == 0:
+        raise QualityError(f"{context}.callback_barrier outcome requires a nonzero callback mask")
+    if outcome != "callback_barrier" and callback_mask != 0:
+        raise QualityError(f"{context}.callback_barrier_mask requires a callback_barrier outcome")
+    if outcome in FALLING_PARITY_REALIZED_STEP_OUTCOMES and elapsed <= 0.0:
+        raise QualityError(f"{context}.elapsed must be positive for a realized step")
+    if outcome in {"matched_clear", "mismatch"}:
+        if collision != "clear" or hit_fraction != 1.0:
+            raise QualityError(
+                f"{context}: {outcome} requires clear collision evidence at full fraction")
+        errors = (velocity_error, requested_delta_error, endpoint_error)
+        if outcome == "matched_clear" and any(
+                error > FALLING_PARITY_REALIZED_MATCH_EPSILON for error in errors):
+            raise QualityError(
+                f"{context}: matched_clear errors must be at most "
+                f"{FALLING_PARITY_REALIZED_MATCH_EPSILON}")
+        if outcome == "mismatch" and not any(
+                error > FALLING_PARITY_REALIZED_MATCH_EPSILON for error in errors):
+            raise QualityError(
+                f"{context}: mismatch requires at least one error greater than "
+                f"{FALLING_PARITY_REALIZED_MATCH_EPSILON}")
+
+    record = {
+        "source_pawn_actor": _string(
+            fields, "source_pawn_actor", context, nonempty=True),
+        "life_generation": _integer(
+            fields.get("life_generation"), f"{context}.life_generation", minimum=0),
+        "invocation_token": _integer(
+            fields.get("invocation_token"), f"{context}.invocation_token", minimum=1),
+        "walking_iteration": _strict_integer(
+            fields.get("walking_iteration"), f"{context}.walking_iteration",
+            minimum=0, maximum=4),
+        "step_ordinal": _integer(
+            fields.get("step_ordinal"), f"{context}.step_ordinal", minimum=0),
+        "outcome": outcome,
+        "elapsed": elapsed,
+        "collision": collision,
+        "hit_fraction": hit_fraction,
+        "hit_normal": _diagnostic_vector(fields.get("hit_normal"), f"{context}.hit_normal"),
+        "velocity_error": velocity_error,
+        "requested_delta_error": requested_delta_error,
+        "endpoint_error": endpoint_error,
+        "callback_barrier_mask": callback_mask,
+    }
+    if record["life_generation"] > 0xffffffffffffffff:
+        raise QualityError(f"{context}.life_generation must be at most 18446744073709551615")
+    if record["invocation_token"] > 0xffffffffffffffff:
+        raise QualityError(f"{context}.invocation_token must be at most 18446744073709551615")
+    if record["step_ordinal"] > 0xffffffff:
+        raise QualityError(f"{context}.step_ordinal must be at most 4294967295")
+    evidence_free = {
+        "episode_started", "pain_entered", "landed", "died", "continuity_lost",
+    }
+    if outcome in evidence_free and (
+            elapsed != 0.0 or collision != "unknown" or hit_fraction != 1.0
+            or any(record["hit_normal"][axis] != 0.0 for axis in "xyz")
+            or velocity_error != 0.0 or requested_delta_error != 0.0
+            or endpoint_error != 0.0):
+        raise QualityError(f"{context}: {outcome} must not contain realized-step evidence")
+    if outcome == "episode_started" and record["step_ordinal"] != 0:
+        raise QualityError(f"{context}.step_ordinal must be zero for episode_started")
+    return record
+
+
+def _falling_parity_realized_records(value: Any, context: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise QualityError(f"{context} must be an array")
+    return [
+        _falling_parity_realized_record(item, f"{context}[{index}]")
+        for index, item in enumerate(value)
+    ]
+
+
+def _validate_falling_parity_realized_record_stream(
+        events: list[dict[str, Any]], path: Path) -> None:
+    primary_counters = (
+        "falling_parity_realized_episodes_exact",
+        "falling_parity_realized_steps_exact",
+        "falling_parity_realized_pain_entries_exact",
+        "falling_parity_realized_deaths_exact",
+        "falling_parity_realized_landings_exact",
+        "falling_parity_realized_continuity_losses_exact",
+    )
+    reconciled_counters = primary_counters + FALLING_PARITY_REALIZED_STEP_COUNTERS
+    outcome_counters = {
+        "episode_started": ("falling_parity_realized_episodes_exact",),
+        "matched_clear": (
+            "falling_parity_realized_steps_exact",
+            "falling_parity_realized_matched_steps_exact"),
+        "mismatch": (
+            "falling_parity_realized_steps_exact",
+            "falling_parity_realized_mismatches_exact"),
+        "unknown": (
+            "falling_parity_realized_steps_exact",
+            "falling_parity_realized_unknowns_exact"),
+        "callback_barrier": (
+            "falling_parity_realized_steps_exact",
+            "falling_parity_realized_callback_barriers_exact"),
+        "pain_entered": ("falling_parity_realized_pain_entries_exact",),
+        "died": ("falling_parity_realized_deaths_exact",),
+        "landed": ("falling_parity_realized_landings_exact",),
+        "continuity_lost": ("falling_parity_realized_continuity_losses_exact",),
+    }
+    previous: dict[str, dict[str, int]] = {}
+    last_correlation: dict[tuple[str, str], tuple[int, int, int]] = {}
+    states: dict[tuple[str, str, int, int, int], dict[str, Any]] = {}
+    history_tainted: defaultdict[tuple[str, str], bool] = defaultdict(bool)
+
+    for event in events:
+        for bot in event["bots"]:
+            records = bot.get("falling_parity_realized_records")
+            if records is None:
+                continue
+            identity = bot["identity"]
+            prior = previous.get(identity, {name: 0 for name in (
+                reconciled_counters + ("falling_parity_realized_record_overflows_exact",))})
+            deltas = {name: bot[name] - prior[name] for name in reconciled_counters}
+            overflow_name = "falling_parity_realized_record_overflows_exact"
+            overflow_delta = bot[overflow_name] - prior[overflow_name]
+            observed: defaultdict[str, int] = defaultdict(int)
+
+            for record in records:
+                actor = record["source_pawn_actor"]
+                if actor != bot["actor"]:
+                    raise QualityError(
+                        f"{path}: falling parity record actor does not match {identity} "
+                        f"at telemetry sequence {event['seq']}")
+                stream = (identity, actor)
+                correlation = (
+                    record["life_generation"], record["invocation_token"],
+                    record["walking_iteration"])
+                prior_correlation = last_correlation.get(stream)
+                if prior_correlation is not None:
+                    prior_life, prior_invocation, prior_iteration = prior_correlation
+                    life, invocation, iteration = correlation
+                    if life < prior_life or invocation < prior_invocation or (
+                            life == prior_life and invocation == prior_invocation
+                            and iteration < prior_iteration):
+                        raise QualityError(
+                            f"{path}: falling parity record correlation regressed for "
+                            f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                new_correlation = correlation != prior_correlation
+                if new_correlation and prior_correlation is not None:
+                    prior_state = states[(identity, actor, *prior_correlation)]
+                    if not prior_state["terminal"] and not prior_state["tainted"]:
+                        raise QualityError(
+                            f"{path}: falling parity episode correlation changed before a "
+                            f"terminal outcome for {identity}/{actor} at telemetry sequence "
+                            f"{event['seq']}")
+                key = (identity, actor, *correlation)
+                state = states.setdefault(key, {
+                    "started": False, "last_ordinal": None, "next_ordinal": 0,
+                    "pain": False, "terminal": False, "model_stopped": False,
+                    "tainted": history_tainted[stream],
+                })
+                outcome = record["outcome"]
+                ordinal = record["step_ordinal"]
+                if new_correlation and outcome != "episode_started" \
+                        and not history_tainted[stream]:
+                    raise QualityError(
+                        f"{path}: falling parity correlation does not begin with episode_started "
+                        f"for {identity}/{actor} at telemetry sequence {event['seq']}")
+                if state["last_ordinal"] is not None and ordinal < state["last_ordinal"]:
+                    raise QualityError(
+                        f"{path}: falling parity step ordinal regressed for {identity}/{actor} "
+                        f"at telemetry sequence {event['seq']}")
+                if state["terminal"] and not state["tainted"]:
+                    raise QualityError(
+                        f"{path}: falling parity record follows a terminal outcome for "
+                        f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                if outcome == "episode_started":
+                    if state["started"]:
+                        raise QualityError(
+                            f"{path}: duplicate falling parity episode_started record for "
+                            f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                    state.update({
+                        "started": True, "last_ordinal": 0, "next_ordinal": 0,
+                        "pain": False, "terminal": False, "model_stopped": False,
+                        "tainted": False,
+                    })
+                    history_tainted[stream] = False
+                elif outcome in FALLING_PARITY_REALIZED_STEP_OUTCOMES:
+                    if ordinal >= FALLING_PARITY_REALIZED_MAX_STEPS:
+                        raise QualityError(
+                            f"{path}: falling parity realized step ordinal must be below "
+                            f"{FALLING_PARITY_REALIZED_MAX_STEPS} for {identity}/{actor} "
+                            f"at telemetry sequence {event['seq']}")
+                    if not state["started"] and not state["tainted"]:
+                        raise QualityError(
+                            f"{path}: falling parity step has no episode_started record for "
+                            f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                    expected = state["next_ordinal"]
+                    if ordinal < expected or (ordinal != expected and not state["tainted"]):
+                        raise QualityError(
+                            f"{path}: falling parity realized step ordinals are not consecutive for "
+                            f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                    if state["model_stopped"] and not state["tainted"]:
+                        raise QualityError(
+                            f"{path}: falling parity realized step follows a model-stopping outcome "
+                            f"for {identity}/{actor} at telemetry sequence {event['seq']}")
+                    state["next_ordinal"] = ordinal + 1
+                    if outcome != "matched_clear":
+                        state["model_stopped"] = True
+                elif outcome == "pain_entered":
+                    if ordinal > FALLING_PARITY_REALIZED_MAX_STEPS:
+                        raise QualityError(
+                            f"{path}: falling parity pain ordinal must be at most "
+                            f"{FALLING_PARITY_REALIZED_MAX_STEPS} for {identity}/{actor} "
+                            f"at telemetry sequence {event['seq']}")
+                    if ordinal != state["next_ordinal"] and not state["tainted"]:
+                        raise QualityError(
+                            f"{path}: falling parity pain record does not match the current "
+                            f"step ordinal for {identity}/{actor} at telemetry sequence "
+                            f"{event['seq']}")
+                    if state["pain"] and not state["tainted"]:
+                        raise QualityError(
+                            f"{path}: duplicate falling parity pain_entered record for "
+                            f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                    state["pain"] = True
+                else:
+                    if ordinal > FALLING_PARITY_REALIZED_MAX_STEPS:
+                        raise QualityError(
+                            f"{path}: falling parity terminal ordinal must be at most "
+                            f"{FALLING_PARITY_REALIZED_MAX_STEPS} for {identity}/{actor} "
+                            f"at telemetry sequence {event['seq']}")
+                    if ordinal != state["next_ordinal"] and not state["tainted"]:
+                        raise QualityError(
+                            f"{path}: falling parity terminal record does not match the current "
+                            f"step ordinal for {identity}/{actor} at telemetry sequence "
+                            f"{event['seq']}")
+                    state["terminal"] = True
+                state["last_ordinal"] = ordinal
+                last_correlation[stream] = correlation
+                for counter in outcome_counters[outcome]:
+                    observed[counter] += 1
+
+            for name in reconciled_counters:
+                if observed[name] > deltas[name]:
+                    raise QualityError(
+                        f"{path}: falling parity records exceed {name} delta for {identity} "
+                        f"at telemetry sequence {event['seq']}")
+                if overflow_delta == 0 and observed[name] != deltas[name]:
+                    raise QualityError(
+                        f"{path}: falling parity records do not reconcile with {name} delta "
+                        f"for {identity} at telemetry sequence {event['seq']}")
+            primary_delta = sum(deltas[name] for name in primary_counters)
+            if primary_delta != len(records) + overflow_delta:
+                raise QualityError(
+                    f"{path}: falling parity records and overflows do not reconcile with "
+                    f"counter deltas for {identity} at telemetry sequence {event['seq']}")
+            if overflow_delta:
+                history_tainted[(identity, bot["actor"])] = True
+                for key, state in states.items():
+                    if key[0] == identity and key[1] == bot["actor"] and not state["terminal"]:
+                        state["tainted"] = True
+            previous[identity] = {
+                name: bot[name] for name in (
+                    reconciled_counters + ("falling_parity_realized_record_overflows_exact",))
+            }
 
 
 def _validate_walking_step_preflight_diagnostic_stream(
@@ -743,9 +1089,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
 
 def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
     bot = _object(raw, context)
-    if schema != TELEMETRY_SCHEMA_V2 and "walking_step_preflight_diagnostics" in bot:
+    if schema != TELEMETRY_SCHEMA_V2 and any(name in bot for name in (
+            "walking_step_preflight_diagnostics", "falling_parity_realized_records")):
         raise QualityError(
-            f"{context}.walking_step_preflight_diagnostics require telemetry v2")
+            f"{context}: observer record arrays require telemetry v2")
     result: dict[str, Any] = {
         "identity": _string(bot, "identity", context, nonempty=True),
         "actor": _string(bot, "actor", context, nonempty=True),
@@ -781,7 +1128,9 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
-                ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS)):
+                ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS),
+                ("falling parity shadow", FALLING_PARITY_COUNTERS),
+                ("vertical pain column shadow", VERTICAL_PAIN_COLUMN_COUNTERS)):
             present = [name for name in names if name in result]
             if present and len(present) != len(names):
                 raise QualityError(f"{context}: {label} counters must be provided as a complete group")
@@ -905,6 +1254,34 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if authorizations > unsupported or unsupported > observations:
                 raise QualityError(
                     f"{context}: walking step authorization/unsupported-endpoint bounds are invalid")
+        if "falling_parity_realized_episodes_exact" in result:
+            episodes = result["falling_parity_realized_episodes_exact"]
+            realized_steps = result["falling_parity_realized_steps_exact"]
+            if sum(result[name] for name in FALLING_PARITY_REALIZED_STEP_COUNTERS) \
+                    != realized_steps:
+                raise QualityError(
+                    f"{context}: falling parity realized step outcomes do not partition realized steps")
+            pain_entries = result["falling_parity_realized_pain_entries_exact"]
+            deaths = result["falling_parity_realized_deaths_exact"]
+            landings = result["falling_parity_realized_landings_exact"]
+            continuity_losses = result[
+                "falling_parity_realized_continuity_losses_exact"]
+            if pain_entries > episodes:
+                raise QualityError(
+                    f"{context}: falling parity realized pain entries exceed episodes")
+            if deaths + landings + continuity_losses > episodes:
+                raise QualityError(
+                    f"{context}: falling parity realized terminal outcomes exceed episodes")
+        if "vertical_pain_column_episodes_started_exact" in result:
+            episodes_started = result["vertical_pain_column_episodes_started_exact"]
+            episodes_completed = result["vertical_pain_column_episodes_completed_exact"]
+            if episodes_completed > episodes_started:
+                raise QualityError(
+                    f"{context}: vertical pain column completed episodes exceed started episodes")
+            if sum(result[name] for name in VERTICAL_PAIN_COLUMN_OUTCOME_COUNTERS) != \
+                    episodes_completed:
+                raise QualityError(
+                    f"{context}: vertical pain column outcomes do not partition completed episodes")
         if "walking_step_preflight_diagnostics" in bot:
             if "walking_step_preflight_observations_exact" not in result:
                 raise QualityError(
@@ -913,6 +1290,17 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 _walking_step_preflight_diagnostics(
                     bot.get("walking_step_preflight_diagnostics"),
                     f"{context}.walking_step_preflight_diagnostics")
+        if "falling_parity_realized_records" in bot:
+            if "falling_parity_realized_episodes_exact" not in result:
+                raise QualityError(
+                    f"{context}: falling parity realized records require the complete counter group")
+            result["falling_parity_realized_records"] = \
+                _falling_parity_realized_records(
+                    bot.get("falling_parity_realized_records"),
+                    f"{context}.falling_parity_realized_records")
+        elif "falling_parity_realized_episodes_exact" in result:
+            raise QualityError(
+                f"{context}: falling parity counter group requires falling_parity_realized_records")
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
@@ -1060,6 +1448,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 previous[bot["identity"]] = bot
         if optional_presence and "walking_step_preflight_diagnostics" in optional_presence:
             _validate_walking_step_preflight_diagnostic_stream(events, path)
+        if optional_presence and "falling_parity_realized_records" in optional_presence:
+            _validate_falling_parity_realized_record_stream(events, path)
     if events[0]["type"] != "run_start" or events[0]["tick"] != 0:
         raise QualityError(f"{path}: first event must be run_start at tick zero")
     if events[-1]["type"] != "run_result":
@@ -1183,6 +1573,13 @@ def _distance(left: dict[str, float], right: dict[str, float]) -> float:
     return math.sqrt(sum((right[axis] - left[axis]) ** 2 for axis in "xyz"))
 
 
+def _counter_fraction(numerator: int | float | None,
+                      denominator: int | float | None) -> float | None:
+    if numerator is None or denominator is None or denominator <= 0:
+        return None
+    return numerator / denominator
+
+
 def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     telemetry_v2 = events[0]["schema"] == TELEMETRY_SCHEMA_V2
     identities = sorted({bot["identity"] for event in events for bot in event["bots"]})
@@ -1265,6 +1662,27 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         else:
             exact = {name: None for name in CORE_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_METRICS}
             kills = deaths = None
+        parity_episodes = exact.get("falling_parity_realized_episodes_exact")
+        parity_steps = exact.get("falling_parity_realized_steps_exact")
+        parity_matched = exact.get("falling_parity_realized_matched_steps_exact")
+        parity_mismatched = exact.get("falling_parity_realized_mismatches_exact")
+        parity_comparable = (
+            parity_matched + parity_mismatched
+            if parity_matched is not None and parity_mismatched is not None else None)
+        column_true_positive = exact.get(
+            "vertical_pain_column_true_positive_outcomes_exact")
+        column_false_positive = exact.get(
+            "vertical_pain_column_false_positive_outcomes_exact")
+        column_false_negative = exact.get(
+            "vertical_pain_column_false_negative_outcomes_exact")
+        column_true_negative = exact.get(
+            "vertical_pain_column_true_negative_outcomes_exact")
+        column_labeled = (
+            column_true_positive + column_false_positive + column_false_negative
+            + column_true_negative
+            if all(value is not None for value in (
+                column_true_positive, column_false_positive,
+                column_false_negative, column_true_negative)) else None)
         metrics[identity] = {
             "identity": identity,
             "player_name": first["player_name"],
@@ -1299,6 +1717,39 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             "final_health_observed": final["health"] if final is not None else None,
             "survived_to_final_sample": final["health"] > 0 if final is not None else None,
             "actor_or_observation_discontinuities": discontinuities,
+            "falling_parity_realized_episode_completion_fraction": _counter_fraction(
+                (exact.get("falling_parity_realized_deaths_exact")
+                 + exact.get("falling_parity_realized_landings_exact")
+                 + exact.get("falling_parity_realized_continuity_losses_exact")
+                 if exact.get("falling_parity_realized_deaths_exact") is not None
+                 and exact.get("falling_parity_realized_landings_exact") is not None
+                 and exact.get("falling_parity_realized_continuity_losses_exact") is not None
+                 else None), parity_episodes),
+            "falling_parity_realized_comparable_step_fraction": _counter_fraction(
+                parity_comparable, parity_steps),
+            "falling_parity_realized_matched_step_fraction": _counter_fraction(
+                parity_matched, parity_comparable),
+            "falling_parity_realized_mismatch_fraction": _counter_fraction(
+                parity_mismatched, parity_comparable),
+            "falling_parity_realized_unknown_step_fraction": _counter_fraction(
+                exact.get("falling_parity_realized_unknowns_exact"), parity_steps),
+            "vertical_pain_column_precision": _counter_fraction(
+                column_true_positive,
+                column_true_positive + column_false_positive
+                if column_true_positive is not None and column_false_positive is not None
+                else None),
+            "vertical_pain_column_recall": _counter_fraction(
+                column_true_positive,
+                column_true_positive + column_false_negative
+                if column_true_positive is not None and column_false_negative is not None
+                else None),
+            "vertical_pain_column_false_positive_rate": _counter_fraction(
+                column_false_positive,
+                column_false_positive + column_true_negative
+                if column_false_positive is not None and column_true_negative is not None
+                else None),
+            "vertical_pain_column_labeled_episode_fraction": _counter_fraction(
+                column_labeled, exact.get("vertical_pain_column_episodes_completed_exact")),
         }
     return metrics
 
@@ -1348,6 +1799,55 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
         "completion": completion,
     }
     result.update({name: sum_available(name) for name in OPTIONAL_CUMULATIVE_METRICS})
+    parity_episodes = result.get("falling_parity_realized_episodes_exact")
+    parity_steps = result.get("falling_parity_realized_steps_exact")
+    parity_matched = result.get("falling_parity_realized_matched_steps_exact")
+    parity_mismatched = result.get("falling_parity_realized_mismatches_exact")
+    parity_comparable = (
+        parity_matched + parity_mismatched
+        if parity_matched is not None and parity_mismatched is not None else None)
+    result.update({
+        "falling_parity_realized_episode_completion_fraction": _counter_fraction(
+            (result.get("falling_parity_realized_deaths_exact")
+             + result.get("falling_parity_realized_landings_exact")
+             + result.get("falling_parity_realized_continuity_losses_exact")
+             if result.get("falling_parity_realized_deaths_exact") is not None
+             and result.get("falling_parity_realized_landings_exact") is not None
+             and result.get("falling_parity_realized_continuity_losses_exact") is not None
+             else None), parity_episodes),
+        "falling_parity_realized_comparable_step_fraction": _counter_fraction(
+            parity_comparable, parity_steps),
+        "falling_parity_realized_matched_step_fraction": _counter_fraction(
+            parity_matched, parity_comparable),
+        "falling_parity_realized_mismatch_fraction": _counter_fraction(
+            parity_mismatched, parity_comparable),
+        "falling_parity_realized_unknown_step_fraction": _counter_fraction(
+            result.get("falling_parity_realized_unknowns_exact"), parity_steps),
+    })
+    true_positive = result.get("vertical_pain_column_true_positive_outcomes_exact")
+    false_positive = result.get("vertical_pain_column_false_positive_outcomes_exact")
+    false_negative = result.get("vertical_pain_column_false_negative_outcomes_exact")
+    true_negative = result.get("vertical_pain_column_true_negative_outcomes_exact")
+    labeled = (
+        true_positive + false_positive + false_negative + true_negative
+        if all(value is not None for value in (
+            true_positive, false_positive, false_negative, true_negative)) else None)
+    result.update({
+        "vertical_pain_column_precision": _counter_fraction(
+            true_positive,
+            true_positive + false_positive
+            if true_positive is not None and false_positive is not None else None),
+        "vertical_pain_column_recall": _counter_fraction(
+            true_positive,
+            true_positive + false_negative
+            if true_positive is not None and false_negative is not None else None),
+        "vertical_pain_column_false_positive_rate": _counter_fraction(
+            false_positive,
+            false_positive + true_negative
+            if false_positive is not None and true_negative is not None else None),
+        "vertical_pain_column_labeled_episode_fraction": _counter_fraction(
+            labeled, result.get("vertical_pain_column_episodes_completed_exact")),
+    })
     return result
 
 
@@ -1534,6 +2034,14 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
                 any(run["metrics"].get(name) is not None for run in runs)
                 for name in WALKING_STEP_PREFLIGHT_COUNTERS
             ),
+            "falling_parity_shadow_metrics_present": all(
+                any(run["metrics"].get(name) is not None for run in runs)
+                for name in FALLING_PARITY_COUNTERS
+            ),
+            "vertical_pain_column_shadow_metrics_present": all(
+                any(run["metrics"].get(name) is not None for run in runs)
+                for name in VERTICAL_PAIN_COLUMN_COUNTERS
+            ),
             "unavailable_until_telemetry_is_extended": FUTURE_METRICS,
             "composite_quality_score": None,
         },
@@ -1552,6 +2060,11 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
             "read-only policy probe and do not prove that any movement was applied. "
             "Optional walking-step preflight observations, decisions, debounced authorizable episodes, and exact "
             "reason counters are validated as a complete monotonic partition; this observer does not veto movement. "
+            "Optional realized falling-parity episodes and step outcomes are validated as a complete monotonic "
+            "partition with strictly correlated sampled records; callback barriers, continuity losses, and unknown "
+            "steps are distinct from matches and mismatches. Optional "
+            "vertical pain-column episode outcomes are validated as an exclusive partition; precision and recall "
+            "exclude ambiguous or unknown episodes. "
             "Physics, latent-action, acceleration, destination, move-timer, and move-target diagnostics are "
             "validated when present and remain available in the source event stream. "
             "PRI score/deaths are sampled persistent game counters. Hazard-exposed death and movement-intent "

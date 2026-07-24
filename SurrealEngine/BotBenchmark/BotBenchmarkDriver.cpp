@@ -184,6 +184,8 @@ namespace
 			BotBenchmarkDriverDetail::NativePawnCounters NativeCounterTotals;
 			std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 				PendingWalkingStepPreflightDiagnostics;
+			std::vector<PawnMovement::FallingParityRealizedRecord>
+				PendingFallingParityRealizedRecords;
 		};
 
 		enum class AttributionScopeKind
@@ -518,6 +520,17 @@ namespace
 				pawn->WalkingStepPreflightAuthorizableEpisodeCount();
 			counters.WalkingStepPreflightDiagnosticOverflows =
 				pawn->WalkingStepPreflightDiagnosticOverflowCount();
+			counters.FallingParityRealizedEpisodes = pawn->FallingParityRealizedEpisodeCount();
+			counters.FallingParityRealizedSteps = pawn->FallingParityRealizedStepCount();
+			counters.FallingParityRealizedMatchedSteps = pawn->FallingParityRealizedMatchedStepCount();
+			counters.FallingParityRealizedMismatches = pawn->FallingParityRealizedMismatchCount();
+			counters.FallingParityRealizedUnknowns = pawn->FallingParityRealizedUnknownCount();
+			counters.FallingParityRealizedCallbackBarriers = pawn->FallingParityRealizedCallbackBarrierCount();
+			counters.FallingParityRealizedPainEntries = pawn->FallingParityRealizedPainEntryCount();
+			counters.FallingParityRealizedDeaths = pawn->FallingParityRealizedDeathCount();
+			counters.FallingParityRealizedLandings = pawn->FallingParityRealizedLandingCount();
+			counters.FallingParityRealizedContinuityLosses = pawn->FallingParityRealizedContinuityLossCount();
+			counters.FallingParityRealizedRecordOverflows = pawn->FallingParityRealizedRecordOverflowCount();
 			counters.WalkingStepPreflightReasons = pawn->WalkingStepPreflightReasonCounts();
 			return counters;
 		}
@@ -540,14 +553,21 @@ namespace
 			if (victimRuntime != QualityParticipants.end())
 			{
 				QualityParticipantRuntime& counters = victimRuntime->second;
+				victim->FinishFallingParityRealizedTrace(
+					PawnMovement::FallingParityRealizedOutcome::Died);
 				AccumulateNativePawnCounters(victimIdentity, counters, victim,
 					BotBenchmarkDriverDetail::NativePawnCounterSample::DeathFlush);
 				auto diagnostics = victim->DrainWalkingStepPreflightDiagnostics();
+				auto parityRecords = victim->DrainFallingParityRealizedRecords();
 				victim->EndWalkingStepPreflightLife();
 				counters.PendingWalkingStepPreflightDiagnostics.insert(
 					counters.PendingWalkingStepPreflightDiagnostics.end(),
 					std::make_move_iterator(diagnostics.begin()),
 					std::make_move_iterator(diagnostics.end()));
+				counters.PendingFallingParityRealizedRecords.insert(
+					counters.PendingFallingParityRealizedRecords.end(),
+					std::make_move_iterator(parityRecords.begin()),
+					std::make_move_iterator(parityRecords.end()));
 				counters.DeathsExact++;
 				const bool environmental = !killer || !killer->bIsPlayer();
 				if (killer == victim || environmental)
@@ -1164,6 +1184,17 @@ namespace
 					native.WalkingStepPreflightAuthorizableEpisodes;
 				bot.WalkingStepPreflightDiagnosticOverflowsExact =
 					native.WalkingStepPreflightDiagnosticOverflows;
+				bot.FallingParityRealizedEpisodesExact = native.FallingParityRealizedEpisodes;
+				bot.FallingParityRealizedStepsExact = native.FallingParityRealizedSteps;
+				bot.FallingParityRealizedMatchedStepsExact = native.FallingParityRealizedMatchedSteps;
+				bot.FallingParityRealizedMismatchesExact = native.FallingParityRealizedMismatches;
+				bot.FallingParityRealizedUnknownsExact = native.FallingParityRealizedUnknowns;
+				bot.FallingParityRealizedCallbackBarriersExact = native.FallingParityRealizedCallbackBarriers;
+				bot.FallingParityRealizedPainEntriesExact = native.FallingParityRealizedPainEntries;
+				bot.FallingParityRealizedDeathsExact = native.FallingParityRealizedDeaths;
+				bot.FallingParityRealizedLandingsExact = native.FallingParityRealizedLandings;
+				bot.FallingParityRealizedContinuityLossesExact = native.FallingParityRealizedContinuityLosses;
+				bot.FallingParityRealizedRecordOverflowsExact = native.FallingParityRealizedRecordOverflows;
 				if (pawn)
 				{
 					auto diagnostics = pawn->DrainWalkingStepPreflightDiagnostics();
@@ -1171,10 +1202,18 @@ namespace
 						runtime.PendingWalkingStepPreflightDiagnostics.end(),
 						std::make_move_iterator(diagnostics.begin()),
 						std::make_move_iterator(diagnostics.end()));
+					auto parityRecords = pawn->DrainFallingParityRealizedRecords();
+					runtime.PendingFallingParityRealizedRecords.insert(
+						runtime.PendingFallingParityRealizedRecords.end(),
+						std::make_move_iterator(parityRecords.begin()),
+						std::make_move_iterator(parityRecords.end()));
 				}
 				bot.WalkingStepPreflightDiagnostics = std::move(
 					runtime.PendingWalkingStepPreflightDiagnostics);
 				runtime.PendingWalkingStepPreflightDiagnostics.clear();
+				bot.FallingParityRealizedRecords = std::move(
+					runtime.PendingFallingParityRealizedRecords);
+				runtime.PendingFallingParityRealizedRecords.clear();
 				bot.WalkingStepPreflightReasonsExact = native.WalkingStepPreflightReasons;
 				runtime.LastState = bot;
 				runtime.HasLastState = true;

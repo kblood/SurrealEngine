@@ -168,7 +168,19 @@ int main()
 	}
 	walkingPreflightSuffix
 		<< ",\"walking_step_preflight_diagnostic_overflows_exact\":\"0\""
-		<< ",\"walking_step_preflight_diagnostics\":[]";
+		<< ",\"walking_step_preflight_diagnostics\":[]"
+		<< ",\"falling_parity_realized_episodes_exact\":\"0\""
+		<< ",\"falling_parity_realized_steps_exact\":\"0\""
+		<< ",\"falling_parity_realized_matched_steps_exact\":\"0\""
+		<< ",\"falling_parity_realized_mismatches_exact\":\"0\""
+		<< ",\"falling_parity_realized_unknowns_exact\":\"0\""
+		<< ",\"falling_parity_realized_callback_barriers_exact\":\"0\""
+		<< ",\"falling_parity_realized_pain_entries_exact\":\"0\""
+		<< ",\"falling_parity_realized_deaths_exact\":\"0\""
+		<< ",\"falling_parity_realized_landings_exact\":\"0\""
+		<< ",\"falling_parity_realized_continuity_losses_exact\":\"0\""
+		<< ",\"falling_parity_realized_record_overflows_exact\":\"0\""
+		<< ",\"falling_parity_realized_records\":[]";
 	const std::string expectedWalkingPreflightSuffix = walkingPreflightSuffix.str();
 	const std::string expectedEvent =
 		"{\"schema\":\"surreal-bot-benchmark-telemetry-v2\",\"seq\":\"5\",\"config_id\":\"fnv1a64:b998eb71db26e88f\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
@@ -232,6 +244,28 @@ int main()
 		|| diagnosticEvent.find("\"hit_fractions\":[0.500000000]") == std::string::npos)
 		return Fail("walking-step preflight diagnostic serialization was incomplete or unstable");
 	event.Bots.front().WalkingStepPreflightDiagnostics.clear();
+
+	PawnMovement::FallingParityRealizedRecord parityRecord;
+	parityRecord.Correlation.SourcePawnActor = "Necroth";
+	parityRecord.Correlation.LifeGeneration = 2;
+	parityRecord.Correlation.InvocationToken = 9;
+	parityRecord.Correlation.WalkingIteration = 1;
+	parityRecord.StepOrdinal = 10;
+	parityRecord.Outcome = PawnMovement::FallingParityRealizedOutcome::CallbackBarrier;
+	parityRecord.Elapsed = 1.0f / 60.0f;
+	parityRecord.Collision = PawnMovement::FallingParityCollisionKind::StaticWorld;
+	parityRecord.HitFraction = 0.25f;
+	parityRecord.HitNormal = vec3(0.0f, 1.0f, 0.0f);
+	parityRecord.CallbackBarrierMask = 1u << 8;
+	event.Bots.front().FallingParityRealizedRecords.push_back(parityRecord);
+	const std::string parityEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (parityEvent.find("\"source_pawn_actor\":\"Necroth\",\"life_generation\":\"2\",\"invocation_token\":\"9\",\"walking_iteration\":1") == std::string::npos
+		|| parityEvent.find("\"step_ordinal\":\"10\",\"outcome\":\"callback_barrier\"") == std::string::npos
+		|| parityEvent.find("\"collision\":\"static_world\",\"hit_fraction\":0.250000000") == std::string::npos
+		|| parityEvent.find("\"callback_barrier_mask\":\"256\"") == std::string::npos)
+		return Fail("falling parity realized record serialization was incomplete or unstable");
+	event.Bots.front().FallingParityRealizedRecords.clear();
 
 	bool rejectedNonFinite = false;
 	try

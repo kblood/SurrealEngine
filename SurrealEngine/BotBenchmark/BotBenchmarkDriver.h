@@ -53,6 +53,17 @@ namespace BotBenchmarkDriverDetail
 		uint64_t WalkingStepPreflightAuthorizations = 0;
 		uint64_t WalkingStepPreflightAuthorizableEpisodes = 0;
 		uint64_t WalkingStepPreflightDiagnosticOverflows = 0;
+		uint64_t FallingParityRealizedEpisodes = 0;
+		uint64_t FallingParityRealizedSteps = 0;
+		uint64_t FallingParityRealizedMatchedSteps = 0;
+		uint64_t FallingParityRealizedMismatches = 0;
+		uint64_t FallingParityRealizedUnknowns = 0;
+		uint64_t FallingParityRealizedCallbackBarriers = 0;
+		uint64_t FallingParityRealizedPainEntries = 0;
+		uint64_t FallingParityRealizedDeaths = 0;
+		uint64_t FallingParityRealizedLandings = 0;
+		uint64_t FallingParityRealizedContinuityLosses = 0;
+		uint64_t FallingParityRealizedRecordOverflows = 0;
 		std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>
 			WalkingStepPreflightReasons = {};
 	};
@@ -188,6 +199,39 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.WalkingStepPreflightDiagnosticOverflows,
 				Previous.WalkingStepPreflightDiagnosticOverflows,
 				totals.WalkingStepPreflightDiagnosticOverflows);
+			AccumulateCounter(current.FallingParityRealizedEpisodes,
+				Previous.FallingParityRealizedEpisodes,
+				totals.FallingParityRealizedEpisodes);
+			AccumulateCounter(current.FallingParityRealizedSteps,
+				Previous.FallingParityRealizedSteps,
+				totals.FallingParityRealizedSteps);
+			AccumulateCounter(current.FallingParityRealizedMatchedSteps,
+				Previous.FallingParityRealizedMatchedSteps,
+				totals.FallingParityRealizedMatchedSteps);
+			AccumulateCounter(current.FallingParityRealizedMismatches,
+				Previous.FallingParityRealizedMismatches,
+				totals.FallingParityRealizedMismatches);
+			AccumulateCounter(current.FallingParityRealizedUnknowns,
+				Previous.FallingParityRealizedUnknowns,
+				totals.FallingParityRealizedUnknowns);
+			AccumulateCounter(current.FallingParityRealizedCallbackBarriers,
+				Previous.FallingParityRealizedCallbackBarriers,
+				totals.FallingParityRealizedCallbackBarriers);
+			AccumulateCounter(current.FallingParityRealizedPainEntries,
+				Previous.FallingParityRealizedPainEntries,
+				totals.FallingParityRealizedPainEntries);
+			AccumulateCounter(current.FallingParityRealizedDeaths,
+				Previous.FallingParityRealizedDeaths,
+				totals.FallingParityRealizedDeaths);
+			AccumulateCounter(current.FallingParityRealizedLandings,
+				Previous.FallingParityRealizedLandings,
+				totals.FallingParityRealizedLandings);
+			AccumulateCounter(current.FallingParityRealizedContinuityLosses,
+				Previous.FallingParityRealizedContinuityLosses,
+				totals.FallingParityRealizedContinuityLosses);
+			AccumulateCounter(current.FallingParityRealizedRecordOverflows,
+				Previous.FallingParityRealizedRecordOverflows,
+				totals.FallingParityRealizedRecordOverflows);
 			for (size_t index = 0; index < current.WalkingStepPreflightReasons.size(); index++)
 			{
 				AccumulateCounter(current.WalkingStepPreflightReasons[index],

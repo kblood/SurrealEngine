@@ -205,7 +205,399 @@ def declare_death_attribution(run: Path) -> None:
     path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
 
 
+def falling_parity_record(
+        outcome: str, invocation: int, ordinal: int, *, life: int = 1) -> dict:
+    is_realized_step = outcome in {
+        "matched_clear", "mismatch", "unknown", "callback_barrier",
+    }
+    return {
+        "source_pawn_actor": "Bot1",
+        "life_generation": str(life),
+        "invocation_token": str(invocation),
+        "walking_iteration": 0,
+        "step_ordinal": str(ordinal),
+        "outcome": outcome,
+        "elapsed": 1.0 / 60.0 if is_realized_step else 0.0,
+        "collision": "static_world" if outcome == "callback_barrier" else (
+            "clear" if is_realized_step else "unknown"),
+        "hit_fraction": 0.5 if outcome == "callback_barrier" else 1.0,
+        "hit_normal": {
+            "x": 0.0, "y": 1.0 if outcome == "callback_barrier" else 0.0, "z": 0.0,
+        },
+        "velocity_error": 0.01 if outcome == "mismatch" else 0.0,
+        "requested_delta_error": 0.0,
+        "endpoint_error": 0.0,
+        "callback_barrier_mask": "1" if outcome == "callback_barrier" else "0",
+    }
+
+
 class BotQualityAnalysisTests(unittest.TestCase):
+    def test_falling_parity_and_vertical_column_counters_are_exclusive_and_reported(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {
+            name: 0 for name in
+            QUALITY.FALLING_PARITY_COUNTERS + QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS
+        }
+        records = [
+            falling_parity_record("episode_started", 10, 0),
+            falling_parity_record("matched_clear", 10, 0),
+            falling_parity_record("mismatch", 10, 1),
+            falling_parity_record("pain_entered", 10, 2),
+            falling_parity_record("died", 10, 2),
+            falling_parity_record("episode_started", 20, 0),
+            falling_parity_record("matched_clear", 20, 0),
+            falling_parity_record("matched_clear", 20, 1),
+            falling_parity_record("callback_barrier", 20, 2),
+            falling_parity_record("landed", 20, 3),
+            falling_parity_record("episode_started", 30, 0),
+            falling_parity_record("continuity_lost", 30, 0),
+        ]
+        final = {
+            **zero,
+            "falling_parity_realized_episodes_exact": 3,
+            "falling_parity_realized_steps_exact": 5,
+            "falling_parity_realized_matched_steps_exact": 3,
+            "falling_parity_realized_mismatches_exact": 1,
+            "falling_parity_realized_callback_barriers_exact": 1,
+            "falling_parity_realized_pain_entries_exact": 1,
+            "falling_parity_realized_deaths_exact": 1,
+            "falling_parity_realized_landings_exact": 1,
+            "falling_parity_realized_continuity_losses_exact": 1,
+            "vertical_pain_column_episodes_started_exact": 4,
+            "vertical_pain_column_episodes_completed_exact": 4,
+            "vertical_pain_column_true_positive_outcomes_exact": 1,
+            "vertical_pain_column_false_positive_outcomes_exact": 1,
+            "vertical_pain_column_true_negative_outcomes_exact": 1,
+            "vertical_pain_column_unknown_outcomes_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "parity-column", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **zero, "falling_parity_realized_records": []},
+                {**common, **final, "falling_parity_realized_records": records},
+                {**common, **final, "falling_parity_realized_records": []},
+            ])
+            report = QUALITY.analyze([run])
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(metrics["falling_parity_realized_episodes_exact"], 3)
+            self.assertEqual(
+                metrics["falling_parity_realized_episode_completion_fraction"], 1.0)
+            self.assertEqual(
+                metrics["falling_parity_realized_comparable_step_fraction"], 0.8)
+            self.assertEqual(metrics["falling_parity_realized_matched_step_fraction"], 0.75)
+            self.assertEqual(metrics["falling_parity_realized_mismatch_fraction"], 0.25)
+            self.assertEqual(metrics["falling_parity_realized_unknown_step_fraction"], 0.0)
+            self.assertEqual(metrics["vertical_pain_column_precision"], 0.5)
+            self.assertEqual(metrics["vertical_pain_column_recall"], 1.0)
+            self.assertEqual(metrics["vertical_pain_column_false_positive_rate"], 0.5)
+            self.assertEqual(metrics["vertical_pain_column_labeled_episode_fraction"], 0.75)
+            availability = report["metric_availability"]
+            self.assertIs(availability["falling_parity_shadow_metrics_present"], True)
+            self.assertIs(availability["vertical_pain_column_shadow_metrics_present"], True)
+
+            partial = write_v2_run(Path(temporary), "partial-parity", bot_count=1)
+            partial_final = {**final}
+            partial_final.pop("falling_parity_realized_record_overflows_exact")
+            upgrade_telemetry_v2(partial, counters=[
+                {**common, **zero, "falling_parity_realized_records": []},
+                {**common, **partial_final, "falling_parity_realized_records": records},
+                {**common, **partial_final, "falling_parity_realized_records": []},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "falling parity shadow counters must be provided"):
+                QUALITY.analyze_run(partial)
+
+            invalid = write_v2_run(Path(temporary), "invalid-column", bot_count=1)
+            invalid_final = {**final, "vertical_pain_column_false_positive_outcomes_exact": 2}
+            upgrade_telemetry_v2(invalid, counters=[
+                {**common, **zero, "falling_parity_realized_records": []},
+                {**common, **invalid_final, "falling_parity_realized_records": records},
+                {**common, **invalid_final, "falling_parity_realized_records": []},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "vertical pain column outcomes do not partition"):
+                QUALITY.analyze_run(invalid)
+
+    def test_falling_parity_realized_records_are_strict_ordered_and_reconciled(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.FALLING_PARITY_COUNTERS}
+        records = [
+            falling_parity_record("episode_started", 5, 0),
+            falling_parity_record("matched_clear", 5, 0),
+            falling_parity_record("continuity_lost", 5, 1),
+        ]
+        final = {
+            **zero,
+            "falling_parity_realized_episodes_exact": 1,
+            "falling_parity_realized_steps_exact": 1,
+            "falling_parity_realized_matched_steps_exact": 1,
+            "falling_parity_realized_continuity_losses_exact": 1,
+        }
+
+        def samples_with(records_at_tick: list[dict], counters: dict | None = None) -> list[dict]:
+            counters = counters or final
+            return [
+                {**common, **zero, "falling_parity_realized_records": []},
+                {**common, **counters,
+                 "falling_parity_realized_records": records_at_tick},
+                {**common, **counters, "falling_parity_realized_records": []},
+            ]
+
+        def analyze_samples(root: Path, name: str, samples: list[dict]) -> dict:
+            run = write_v2_run(root, name, bot_count=1)
+            upgrade_telemetry_v2(run, counters=samples)
+            return QUALITY.analyze([run])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            report = analyze_samples(root, "valid-realized-records", samples_with(records))
+            self.assertEqual(
+                report["runs"][0]["metrics"]
+                ["falling_parity_realized_episode_completion_fraction"], 1.0)
+
+            overflow_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_matched_steps_exact": 1,
+                "falling_parity_realized_record_overflows_exact": 1,
+            }
+            analyze_samples(root, "valid-overflow-reconciliation", samples_with(
+                [falling_parity_record("episode_started", 7, 0)], overflow_final))
+
+            maximum_step_records = [
+                falling_parity_record("episode_started", 9, 0),
+                *(falling_parity_record("matched_clear", 9, ordinal)
+                  for ordinal in range(96)),
+                falling_parity_record("continuity_lost", 9, 96),
+            ]
+            maximum_step_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 96,
+                "falling_parity_realized_matched_steps_exact": 96,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            analyze_samples(
+                root, "valid-maximum-realized-steps",
+                samples_with(maximum_step_records, maximum_step_final))
+
+            malformed_cases = []
+
+            unexpected = json.loads(json.dumps(records))
+            unexpected[0]["extra"] = 1
+            malformed_cases.append(("unexpected", unexpected, final, "unexpected fields"))
+
+            unknown_outcome = json.loads(json.dumps(records))
+            unknown_outcome[1]["outcome"] = "approximately_matched"
+            malformed_cases.append((
+                "unknown-outcome", unknown_outcome, final, "outcome is not recognized"))
+
+            walking_collision = json.loads(json.dumps(records))
+            walking_collision[1]["collision"] = "static_bsp"
+            malformed_cases.append((
+                "walking-collision-enum", walking_collision, final,
+                "collision is not recognized"))
+
+            nonclear_match = json.loads(json.dumps(records))
+            nonclear_match[1]["collision"] = "static_world"
+            malformed_cases.append((
+                "nonclear-match", nonclear_match, final,
+                "requires clear collision evidence at full fraction"))
+
+            partial_fraction_match = json.loads(json.dumps(records))
+            partial_fraction_match[1]["hit_fraction"] = 0.5
+            malformed_cases.append((
+                "partial-fraction-match", partial_fraction_match, final,
+                "requires clear collision evidence at full fraction"))
+
+            excessive_match_error = json.loads(json.dumps(records))
+            excessive_match_error[1]["endpoint_error"] = 0.001001
+            malformed_cases.append((
+                "excessive-match-error", excessive_match_error, final,
+                "matched_clear errors must be at most 0.001"))
+
+            insufficient_mismatch_error = json.loads(json.dumps(records))
+            insufficient_mismatch_error[1]["outcome"] = "mismatch"
+            insufficient_mismatch_error[1]["velocity_error"] = 0.001
+            mismatch_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_mismatches_exact": 1,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "insufficient-mismatch-error", insufficient_mismatch_error,
+                mismatch_final, "mismatch requires at least one error greater than 0.001"))
+
+            oversized_callback_mask = [
+                falling_parity_record("episode_started", 11, 0),
+                falling_parity_record("callback_barrier", 11, 0),
+                falling_parity_record("continuity_lost", 11, 1),
+            ]
+            oversized_callback_mask[1]["callback_barrier_mask"] = "512"
+            callback_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_callback_barriers_exact": 1,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "oversized-callback-mask", oversized_callback_mask, callback_final,
+                "callback_barrier_mask must be at most 511"))
+
+            noncallback_mask = json.loads(json.dumps(records))
+            noncallback_mask[1]["callback_barrier_mask"] = "1"
+            malformed_cases.append((
+                "noncallback-mask", noncallback_mask, final,
+                "callback_barrier_mask requires a callback_barrier outcome"))
+
+            nonfinite = json.loads(json.dumps(records))
+            nonfinite[1]["endpoint_error"] = "nan"
+            malformed_cases.append((
+                "nonfinite", nonfinite, final, "must be a finite number"))
+
+            wrong_actor = json.loads(json.dumps(records))
+            wrong_actor[1]["source_pawn_actor"] = "OtherBot"
+            malformed_cases.append((
+                "wrong-actor", wrong_actor, final, "record actor does not match"))
+
+            bad_ordinal = json.loads(json.dumps(records))
+            bad_ordinal[1]["step_ordinal"] = "1"
+            malformed_cases.append((
+                "bad-ordinal", bad_ordinal, final,
+                "realized step ordinals are not consecutive"))
+
+            excessive_steps = [
+                falling_parity_record("episode_started", 12, 0),
+                *(falling_parity_record("matched_clear", 12, ordinal)
+                  for ordinal in range(97)),
+                falling_parity_record("continuity_lost", 12, 97),
+            ]
+            excessive_steps_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 97,
+                "falling_parity_realized_matched_steps_exact": 97,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "excessive-steps", excessive_steps, excessive_steps_final,
+                "realized step ordinal must be below 96"))
+
+            excessive_terminal_ordinal = [
+                falling_parity_record("episode_started", 13, 0),
+                falling_parity_record("continuity_lost", 13, 97),
+            ]
+            excessive_terminal_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "excessive-terminal-ordinal", excessive_terminal_ordinal,
+                excessive_terminal_final, "terminal ordinal must be at most 96"))
+
+            after_terminal = [
+                falling_parity_record("episode_started", 7, 0),
+                falling_parity_record("continuity_lost", 7, 0),
+                falling_parity_record("pain_entered", 7, 0),
+            ]
+            after_terminal_counters = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_pain_entries_exact": 1,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "after-terminal", after_terminal, after_terminal_counters,
+                "record follows a terminal outcome"))
+
+            regressed_correlation = [
+                falling_parity_record("episode_started", 20, 0),
+                falling_parity_record("continuity_lost", 20, 0),
+                falling_parity_record("episode_started", 10, 0, life=2),
+                falling_parity_record("continuity_lost", 10, 0, life=2),
+            ]
+            regressed_counters = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 2,
+                "falling_parity_realized_continuity_losses_exact": 2,
+            }
+            malformed_cases.append((
+                "regressed-correlation", regressed_correlation, regressed_counters,
+                "record correlation regressed"))
+
+            unterminated_correlation = [
+                falling_parity_record("episode_started", 30, 0),
+                falling_parity_record("matched_clear", 30, 0),
+                falling_parity_record("episode_started", 40, 0),
+                falling_parity_record("continuity_lost", 40, 0),
+            ]
+            unterminated_counters = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 2,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_matched_steps_exact": 1,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "unterminated-correlation", unterminated_correlation,
+                unterminated_counters, "correlation changed before a terminal outcome"))
+
+            mismatched_counters = json.loads(json.dumps(final))
+            mismatched_records = json.loads(json.dumps(records))
+            mismatched_records[1]["outcome"] = "mismatch"
+            mismatched_records[1]["velocity_error"] = 0.01
+            malformed_cases.append((
+                "counter-mismatch", mismatched_records, mismatched_counters,
+                "records do not reconcile with falling_parity_realized_matched_steps_exact delta"))
+
+            bad_overflow = {**overflow_final,
+                            "falling_parity_realized_record_overflows_exact": 2}
+            malformed_cases.append((
+                "bad-overflow", [falling_parity_record("episode_started", 8, 0)],
+                bad_overflow, "records and overflows do not reconcile"))
+
+            for name, malformed_records, counters, message in malformed_cases:
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(QUALITY.QualityError, message):
+                        analyze_samples(
+                            root, f"invalid-realized-{name}",
+                            samples_with(malformed_records, counters))
+
+            counters_without_records = write_v2_run(
+                root, "parity-counters-without-records", bot_count=1)
+            upgrade_telemetry_v2(counters_without_records, counters=[
+                {**common, **zero}, {**common, **final}, {**common, **final},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "counter group requires falling_parity_realized_records"):
+                QUALITY.analyze([counters_without_records])
+
+            records_without_counters = write_v2_run(
+                root, "parity-records-without-counters", bot_count=1)
+            upgrade_telemetry_v2(records_without_counters, counters=[
+                {**common, "falling_parity_realized_records": []},
+                {**common, "falling_parity_realized_records": []},
+                {**common, "falling_parity_realized_records": []},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "records require the complete counter group"):
+                QUALITY.analyze([records_without_counters])
+
     def test_falling_seam_shadow_counters_are_complete_monotonic_and_reported(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,

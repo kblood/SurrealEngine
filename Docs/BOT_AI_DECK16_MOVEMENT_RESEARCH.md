@@ -577,6 +577,60 @@ but the exposed UT survival regressions block bot release. A conservative
 pre-entry pain-column shadow and realized falling trace must now show how to
 avoid those entries without suppressing useful drops.
 
+## Iteration 50 realized falling evidence
+
+The runtime now has a benchmark-only trace that starts only after a real
+walking-to-falling transition and compares each actual falling move with the
+pure forecast. It records exact matches, mismatches, unknowns, and callback
+barriers, plus pain entry and terminal landing/death/continuity outcomes. The
+observer is deliberately downstream of `MayFall` and `HitWall`: if script
+changes physics or movement, it observes the committed post-callback state or
+records the callback barrier instead of forecasting through script.
+
+On Deck seed 104729, Necroth's fall starts at tick 471. Clear realized steps
+472 through 480 match with zero velocity, requested-delta, and endpoint error.
+Tick 481 is a partial static-world collision with `HitWall` callback mask 256;
+pain follows at tick 503 and swimming ends the same-life falling correlation at
+tick 507. On seed 314159, Visse's `EAdjustJump` case becomes a `HitWall` barrier
+immediately after the transition, which confirms that the pre-callback state
+must not be used as the safety decision.
+
+Across repeat runs, seed 104729 produced 77 matches out of 90 steps with 13
+callback barriers and 85.56% comparable coverage. Seed 314159 produced 142
+matches out of 152 steps with 10 barriers and 93.42% coverage. Neither case
+had a mismatch, unknown, or record overflow. Unreal `DmDeathFan` added 99
+matches out of 105 steps with six barriers and 94.29% coverage; `DmDeck16`
+offered only a single callback-barrier step and therefore remains a coverage
+gap. All candidate repeats were exact, and baseline/candidate gameplay was
+exact after explicitly ignoring only the added bounded diagnostics.
+
+The companion pure vertical pain-column prototype samples the full vertical
+center/foot/head column only across static-world evidence and requires an
+independent walkable support result. It fails open on movers, dynamic actors,
+callbacks, sample gaps, and bounded-horizon uncertainty. It is not yet wired
+to the known Deck transitions, so it cannot authorize a live ledge veto.
+
+## Retail two-plane falling correction target
+
+Exact disassembly of UT436 `Engine.dll` and Unreal 226b `Engine.dll` shows the
+same retail algorithm after two nonwalkable falling contacts: call
+`AActor::TwoWallAdjust`, make a third collision move, test the special ditch or
+strict `normal.z > 0.7` landing condition, reconstruct only horizontal velocity
+from realized displacement, preserve falling Z velocity, and continue the
+remaining-time loop under an eight-iteration cap.
+
+Surreal currently uses `0.7071`, stops after its aligned second move, never
+calls the retail two-wall adjustment or third move, reconstructs Z from zero
+displacement, and sets remaining time to zero. Athena on UT Deck and Ash on
+Unreal DeathFan both enter repeated static BSP two-plane contacts at a fixed
+position with zeroed velocity, so this shared mismatch is a direct causal
+candidate for their permanent falls. The correction must update the existing
+tests that currently codify Surreal's `0.7071` boundary and must be evaluated
+separately from the behavior-neutral observer. Its gates are: remove the
+fixed-position seam episode, introduce no new pain/pool fall, retain bounded
+physics, match repeat runs, and improve or preserve survival and movement on
+both games.
+
 ## Wall callback and ledge-property parity audit
 
 Retail UT436 and Unreal 226b `Engine.Pawn` both define `MinHitWall` as a

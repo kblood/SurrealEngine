@@ -47,6 +47,7 @@ PROTECTED_FIELDS = {
 INTEGER_STRING = re.compile(r"-?(?:0|[1-9][0-9]*)\Z")
 COUNTER_FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*_exact\Z")
 DIAGNOSTIC_FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*_diagnostics\Z")
+KNOWN_RECORD_DIAGNOSTIC_FIELDS = {"falling_parity_realized_records"}
 
 
 class ComparisonError(Exception):
@@ -495,9 +496,11 @@ def compare_runs(left_run: Path, right_run: Path, ignore_fields: list[str],
                 "ignored diagnostic fields must be non-empty names without surrounding whitespace")
         if field in PROTECTED_FIELDS:
             raise ComparisonError(f"cannot ignore protected structural field {field!r}")
-        if DIAGNOSTIC_FIELD.fullmatch(field) is None:
+        if DIAGNOSTIC_FIELD.fullmatch(field) is None \
+                and field not in KNOWN_RECORD_DIAGNOSTIC_FIELDS:
             raise ComparisonError(
-                f"ignored diagnostic field {field!r} must be a safe identifier ending in '_diagnostics'")
+                f"ignored diagnostic field {field!r} must be a safe identifier ending in "
+                f"'_diagnostics' or a recognized bounded record array")
     overlap = set(ignore_fields) & set(ignore_diagnostic_fields)
     if overlap:
         raise ComparisonError(f"fields cannot use both ignore modes: {', '.join(sorted(overlap))}")
@@ -607,7 +610,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ignore-field", action="append", default=[], metavar="NAME",
                         help="explicit counter field to remove (repeatable); output_directory is also permitted")
     parser.add_argument("--ignore-diagnostic-field", action="append", default=[], metavar="NAME",
-                        help="explicit *_diagnostics JSON payload to remove (repeatable)")
+                        help="explicit *_diagnostics or recognized bounded record JSON payload "
+                             "to remove (repeatable)")
     parser.add_argument("--output", help="write JSON report here; defaults to stdout")
     args = parser.parse_args(argv)
     try:
