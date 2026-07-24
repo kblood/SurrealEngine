@@ -61,6 +61,15 @@ const htaccess = `<IfModule mod_rewrite.c>
     Header always set Content-Encoding "gzip"
   </FilesMatch>
 </IfModule>
+<FilesMatch "\\.${hashPattern}\\.css\\.(br|gz)$">
+  ForceType text/css
+</FilesMatch>
+<FilesMatch "\\.${hashPattern}\\.js\\.(br|gz)$">
+  ForceType text/javascript
+</FilesMatch>
+<FilesMatch "\\.${hashPattern}\\.wasm\\.(br|gz)$">
+  ForceType application/wasm
+</FilesMatch>
 <IfModule mod_mime.c>
   AddType application/wasm .wasm
 </IfModule>

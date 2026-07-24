@@ -155,6 +155,12 @@ try {
 	assert.match(await readFile(join(output, ".htaccess"), "utf8"), /RewriteCond %\{HTTP:Accept-Encoding\} br/);
 	assert.match(await readFile(join(output, ".htaccess"), "utf8"), /max-age=31536000, immutable/);
 	assert.match(await readFile(join(output, ".htaccess"), "utf8"), /Content-Encoding "gzip"/);
+	assert.match(await readFile(join(output, ".htaccess"), "utf8"),
+		/\\\.js\\\.\(br\|gz\)\$">[\s\S]*?ForceType text\/javascript/,
+		"Apache sidecars must retain the JavaScript MIME type after rewrite");
+	assert.match(await readFile(join(output, ".htaccess"), "utf8"),
+		/\\\.wasm\\\.\(br\|gz\)\$">[\s\S]*?ForceType application\/wasm/,
+		"Apache sidecars must retain the WebAssembly MIME type after rewrite");
 	assert.doesNotMatch(await readFile(join(output, ".htaccess"), "utf8"), /AddEncoding gzip \.gz/,
 		"the corresponding-source tar.gz must not be mislabeled as HTTP content encoding");
 	const pointerPath = result.manifest.files.find(file => /^assets\/pointer_lock_gesture\.[0-9a-f]{64}\.js$/.test(file.path)).path;
