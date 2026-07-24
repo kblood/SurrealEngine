@@ -1914,6 +1914,9 @@ public:
 	bool TickRotateTo(const vec3& target);
 	bool TickMoveTo(const vec3& target, float elapsed, UActor* targetActor = nullptr);
 	void RecordPainLedgeVeto(const vec3& origin, const vec2& unsafeDirection);
+	void ObserveFallingSeamEscapeShadow(const vec3& requestedRemainingDelta,
+		const vec3& actualDisplacement, const vec3& firstHitNormal,
+		const vec3& secondHitNormal, bool normalDownwardGravity);
 	uint64_t PainLedgeVetoCount() const { return PainLedgeVetoCountValue; }
 	uint64_t PainLedgeRepeatVetoCount() const { return PainLedgeRepeatVetoCountValue; }
 	uint64_t PainLedgeRecoveryAttemptCount() const { return PainLedgeRecoveryAttemptCountValue; }
@@ -1932,6 +1935,11 @@ public:
 	uint64_t FailedNavigationAvoidanceActivationCount() const { return FailedNavigationAvoidanceActivationCountValue; }
 	uint64_t FailedNavigationSafeguardSuppressionCount() const { return FailedNavigationSafeguardSuppressionCountValue; }
 	uint64_t FailedNavigationRoutePenaltyApplicationCount() const { return FailedNavigationRoutePenaltyApplicationCountValue; }
+	uint64_t FallingSeamDetectionCount() const { return FallingSeamDetectionCountValue; }
+	uint64_t HorizontalCornerCandidateProbeCount() const { return HorizontalCornerCandidateProbeCountValue; }
+	uint64_t HorizontalCornerAuthorizedEscapeCount() const { return HorizontalCornerAuthorizedEscapeCountValue; }
+	uint64_t HorizontalCornerTargetProgressRejectCount() const { return HorizontalCornerTargetProgressRejectCountValue; }
+	uint64_t HorizontalCornerUnknownOrUnsafeSupportCount() const { return HorizontalCornerUnknownOrUnsafeSupportCountValue; }
 
 	// Returns true if any of the several points of other is visible (origin, top, bottom)
 	// ignoreDistance is a Deus Ex only parameter, it is always false on Unreal.
@@ -2166,6 +2174,11 @@ private:
 	uint64_t FailedNavigationAvoidanceActivationCountValue = 0;
 	uint64_t FailedNavigationSafeguardSuppressionCountValue = 0;
 	uint64_t FailedNavigationRoutePenaltyApplicationCountValue = 0;
+	uint64_t FallingSeamDetectionCountValue = 0;
+	uint64_t HorizontalCornerCandidateProbeCountValue = 0;
+	uint64_t HorizontalCornerAuthorizedEscapeCountValue = 0;
+	uint64_t HorizontalCornerTargetProgressRejectCountValue = 0;
+	uint64_t HorizontalCornerUnknownOrUnsafeSupportCountValue = 0;
 };
 
 class UScout : public UPawn

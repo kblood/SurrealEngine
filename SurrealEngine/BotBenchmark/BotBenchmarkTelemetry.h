@@ -65,6 +65,11 @@ struct BotBenchmarkBotState
 	uint64_t FailedNavigationAvoidanceActivationsExact = 0;
 	uint64_t FailedNavigationSafeguardSuppressionsExact = 0;
 	uint64_t FailedNavigationRoutePenaltyApplicationsExact = 0;
+	uint64_t FallingSeamDetectionsExact = 0;
+	uint64_t HorizontalCornerCandidateProbesExact = 0;
+	uint64_t HorizontalCornerAuthorizedEscapesExact = 0;
+	uint64_t HorizontalCornerTargetProgressRejectsExact = 0;
+	uint64_t HorizontalCornerUnknownOrUnsafeSupportExact = 0;
 };
 
 struct BotBenchmarkTelemetryEvent

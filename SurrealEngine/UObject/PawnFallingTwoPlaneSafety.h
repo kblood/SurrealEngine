@@ -77,4 +77,16 @@ namespace PawnMovement
 	FallingTwoPlaneSafetyResult SelectHorizontalCornerEscape(
 		const HorizontalCornerEscapeCandidate& candidate,
 		const FallingRecoveryAuthorizationEvidence& evidence);
+
+	enum class HorizontalCornerEscapeShadowClassification
+	{
+		CandidateInvalid,
+		UnknownOrUnsafeSupport,
+		TargetProgressRejected,
+		Authorized
+	};
+
+	HorizontalCornerEscapeShadowClassification ClassifyHorizontalCornerEscapeShadow(
+		const HorizontalCornerEscapeCandidate& candidate,
+		const FallingRecoveryAuthorizationEvidence& evidence);
 }

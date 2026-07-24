@@ -266,6 +266,11 @@ static void TestHorizontalCornerEscapeRequiresCompleteEvidence()
 		== PawnMovement::FallingTwoPlaneSafetyDecision::Unknown,
 		"unknown short support selects no corner recovery");
 	evidence = AuthorizedEscapeEvidence();
+	evidence.PainResultKnown = false;
+	Check(PawnMovement::SelectHorizontalCornerEscape(candidate, evidence).Decision
+		== PawnMovement::FallingTwoPlaneSafetyDecision::Unknown,
+		"unknown pain-zone evidence selects no corner recovery");
+	evidence = AuthorizedEscapeEvidence();
 	evidence.SupportInPainZone = true;
 	Check(PawnMovement::SelectHorizontalCornerEscape(candidate, evidence).Decision
 		== PawnMovement::FallingTwoPlaneSafetyDecision::Unknown,
@@ -279,6 +284,85 @@ static void TestHorizontalCornerEscapeRequiresCompleteEvidence()
 	input.Contact.SecondHitNormal = -input.Contact.FirstHitNormal;
 	Check(!PawnMovement::BuildHorizontalCornerEscapeCandidate(input).Valid,
 		"opposed wall normals have no stable outward bisector");
+	input = {};
+	input.Contact = VerticalSeamInput().Contact;
+	input.Contact.SecondHitNormal = normalize(vec3(-1.0f, 0.075f, 0.0f));
+	Check(!PawnMovement::BuildHorizontalCornerEscapeCandidate(input).Valid,
+		"a near-opposed pair below the bisector threshold is rejected");
+	input = {};
+	input.Contact = VerticalSeamInput().Contact;
+	input.Contact.FirstHitNormal = normalize(vec3(0.2f, 0.0f, -0.9797959f));
+	Check(!PawnMovement::BuildHorizontalCornerEscapeCandidate(input).Valid,
+		"a contact without enough horizontal wall normal is rejected");
+	input = {};
+	input.Contact = VerticalSeamInput().Contact;
+	input.SweepDistance = 65.0f;
+	Check(!PawnMovement::BuildHorizontalCornerEscapeCandidate(input).Valid,
+		"an over-bound horizontal sweep is rejected");
+}
+
+static void TestHorizontalCornerEscapeShadowClassificationIsDisjoint()
+{
+	PawnMovement::HorizontalCornerEscapeInput input;
+	input.Contact = VerticalSeamInput().Contact;
+	const auto candidate = PawnMovement::BuildHorizontalCornerEscapeCandidate(input);
+	auto evidence = AuthorizedEscapeEvidence();
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence)
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::Authorized,
+		"complete supported evidence is classified as an authorized shadow escape");
+
+	evidence.SweepClear = false;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence)
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::UnknownOrUnsafeSupport,
+		"a blocked dry-run sweep is classified as unknown or unsafe support");
+	evidence = AuthorizedEscapeEvidence();
+	evidence.WalkableShortSupport = false;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence)
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::UnknownOrUnsafeSupport,
+		"missing walkable support is classified before target progress");
+	evidence = AuthorizedEscapeEvidence();
+	evidence.SupportInPainZone = true;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence)
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::UnknownOrUnsafeSupport,
+		"pain support is classified as unsafe");
+	evidence = AuthorizedEscapeEvidence();
+	evidence.PainResultKnown = false;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence)
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::UnknownOrUnsafeSupport,
+		"unknown pain evidence is classified as unknown support");
+
+	evidence = AuthorizedEscapeEvidence();
+	evidence.TargetProgressKnown = false;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence)
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::TargetProgressRejected,
+		"unknown target progress rejects an otherwise supported candidate");
+	evidence.TargetProgressKnown = true;
+	evidence.TargetProgress = 0.0f;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence)
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::TargetProgressRejected,
+		"non-positive target progress rejects an otherwise supported candidate");
+	evidence.TargetProgress = std::numeric_limits<float>::quiet_NaN();
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence)
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::TargetProgressRejected,
+		"non-finite target progress rejects an otherwise supported candidate");
+
+	PawnMovement::HorizontalCornerEscapeCandidate invalid;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(invalid, AuthorizedEscapeEvidence())
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::CandidateInvalid,
+		"invalid geometry is distinct from a candidate probe rejection");
+	invalid.Valid = true;
+	invalid.SweepDelta = vec3(std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f);
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(invalid, AuthorizedEscapeEvidence())
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::CandidateInvalid,
+		"a non-finite valid-marked candidate remains structurally invalid");
+	invalid.SweepDelta = vec3(0.0f);
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(invalid, AuthorizedEscapeEvidence())
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::CandidateInvalid,
+		"a zero valid-marked candidate remains structurally invalid");
+	invalid.SweepDelta = vec3(1.0f, 0.0f, 1.0f);
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeShadow(invalid, AuthorizedEscapeEvidence())
+		== PawnMovement::HorizontalCornerEscapeShadowClassification::CandidateInvalid,
+		"a vertical valid-marked candidate remains structurally invalid");
 }
 
 int main()
@@ -292,6 +376,7 @@ int main()
 	TestEveryDownwardCreaseRequiresTargetProgress();
 	TestSupportedHorizontalCornerEscapeIsSelected();
 	TestHorizontalCornerEscapeRequiresCompleteEvidence();
+	TestHorizontalCornerEscapeShadowClassificationIsDisjoint();
 	if (Failures == 0)
 		std::cout << "Pawn falling two-plane safety tests passed\n";
 	return Failures == 0 ? 0 : 1;

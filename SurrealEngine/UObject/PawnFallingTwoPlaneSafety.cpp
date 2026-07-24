@@ -31,6 +31,14 @@ namespace PawnMovement
 				&& evidence.TargetProgressKnown && std::isfinite(evidence.TargetProgress)
 				&& evidence.TargetProgress > 0.0f;
 		}
+
+		bool IsValidHorizontalCornerEscapeCandidate(
+			const HorizontalCornerEscapeCandidate& candidate)
+		{
+			return candidate.Valid && IsFinite(candidate.SweepDelta)
+				&& dot(candidate.SweepDelta, candidate.SweepDelta) > 0.0f
+				&& candidate.SweepDelta.z == 0.0f;
+		}
 	}
 
 	FallingTwoPlaneSafetyResult EvaluateFallingTwoPlaneSafety(
@@ -146,14 +154,33 @@ namespace PawnMovement
 		const FallingRecoveryAuthorizationEvidence& evidence)
 	{
 		FallingTwoPlaneSafetyResult result;
-		if (!candidate.Valid || !IsFinite(candidate.SweepDelta)
-			|| dot(candidate.SweepDelta, candidate.SweepDelta) <= 0.0f
-			|| candidate.SweepDelta.z != 0.0f
+		if (!IsValidHorizontalCornerEscapeCandidate(candidate)
 			|| !HasAuthorizedRecoveryEvidence(evidence))
 			return result;
 
 		result.Decision = FallingTwoPlaneSafetyDecision::ProbeHorizontalCornerEscape;
 		result.SweepDelta = candidate.SweepDelta;
 		return result;
+	}
+
+	HorizontalCornerEscapeShadowClassification ClassifyHorizontalCornerEscapeShadow(
+		const HorizontalCornerEscapeCandidate& candidate,
+		const FallingRecoveryAuthorizationEvidence& evidence)
+	{
+		if (!IsValidHorizontalCornerEscapeCandidate(candidate))
+			return HorizontalCornerEscapeShadowClassification::CandidateInvalid;
+
+		const FallingTwoPlaneSafetyResult selection = SelectHorizontalCornerEscape(
+			candidate, evidence);
+		if (selection.Decision
+			== FallingTwoPlaneSafetyDecision::ProbeHorizontalCornerEscape)
+			return HorizontalCornerEscapeShadowClassification::Authorized;
+
+		if (!evidence.SweepResultKnown || !evidence.SweepClear
+			|| !evidence.SupportResultKnown || !evidence.WalkableShortSupport
+			|| !evidence.PainResultKnown || evidence.SupportInPainZone)
+			return HorizontalCornerEscapeShadowClassification::UnknownOrUnsafeSupport;
+
+		return HorizontalCornerEscapeShadowClassification::TargetProgressRejected;
 	}
 }

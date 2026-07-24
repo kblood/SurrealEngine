@@ -21,7 +21,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 10
+TOOL_VERSION = 11
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -67,6 +67,11 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "failed_navigation_avoidance_activations_exact": None,
     "failed_navigation_safeguard_suppressions_exact": None,
     "failed_navigation_route_penalty_applications_exact": None,
+    "falling_seam_detections_exact": None,
+    "horizontal_corner_candidate_probes_exact": None,
+    "horizontal_corner_authorized_escapes_exact": None,
+    "horizontal_corner_target_progress_rejects_exact": None,
+    "horizontal_corner_unknown_or_unsafe_support_exact": None,
     "hazard_exposure_seconds": "lower",
     "hazard_entries": "lower",
     "hazard_exposed_deaths_proxy": "lower",
@@ -111,9 +116,17 @@ DEATH_ATTRIBUTION_COUNTERS = (
     "recent_enemy_contributed_environmental_deaths_proxy", "ambiguous_deaths",
     "recent_enemy_momentum_contributed_environmental_deaths_proxy",
 )
+FALLING_SEAM_SHADOW_COUNTERS = (
+    "falling_seam_detections_exact",
+    "horizontal_corner_candidate_probes_exact",
+    "horizontal_corner_authorized_escapes_exact",
+    "horizontal_corner_target_progress_rejects_exact",
+    "horizontal_corner_unknown_or_unsafe_support_exact",
+)
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
     + FAILED_NAVIGATION_EXACT_COUNTERS + DEATH_ATTRIBUTION_COUNTERS
+    + FALLING_SEAM_SHADOW_COUNTERS
 )
 OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
 OPTIONAL_CUMULATIVE_METRICS = OPTIONAL_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_NUMBERS
@@ -406,7 +419,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("pain ledge", PAIN_LEDGE_EXACT_COUNTERS),
                 ("wall adjust", WALL_ADJUST_EXACT_COUNTERS),
                 ("failed navigation", FAILED_NAVIGATION_EXACT_COUNTERS),
-                ("death attribution", DEATH_ATTRIBUTION_COUNTERS)):
+                ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
+                ("falling seam shadow", FALLING_SEAM_SHADOW_COUNTERS)):
             present = [name for name in names if name in result]
             if present and len(present) != len(names):
                 raise QualityError(f"{context}: {label} counters must be provided as a complete group")
@@ -433,6 +447,26 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                     result["recent_enemy_contributed_environmental_deaths_proxy"]:
                 raise QualityError(
                     f"{context}: momentum-contributed deaths exceed enemy-contributed deaths")
+        if "falling_seam_detections_exact" in result:
+            candidates = result["horizontal_corner_candidate_probes_exact"]
+            if candidates > result["falling_seam_detections_exact"]:
+                raise QualityError(
+                    f"{context}: horizontal corner candidates exceed falling seam detections")
+            for name, label in (
+                    ("horizontal_corner_authorized_escapes_exact", "authorized escapes"),
+                    ("horizontal_corner_target_progress_rejects_exact", "target-progress rejects"),
+                    ("horizontal_corner_unknown_or_unsafe_support_exact",
+                     "unknown-or-unsafe-support results")):
+                if result[name] > candidates:
+                    raise QualityError(
+                        f"{context}: horizontal corner {label} exceed candidate probes")
+            classified = (
+                result["horizontal_corner_authorized_escapes_exact"]
+                + result["horizontal_corner_target_progress_rejects_exact"]
+                + result["horizontal_corner_unknown_or_unsafe_support_exact"])
+            if classified != candidates:
+                raise QualityError(
+                    f"{context}: horizontal corner classifications do not partition candidate probes")
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
@@ -1040,6 +1074,10 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
                 any(run["metrics"].get(name) is not None for run in runs)
                 for name in DEATH_ATTRIBUTION_COUNTERS
             ),
+            "falling_seam_shadow_metrics_present": all(
+                any(run["metrics"].get(name) is not None for run in runs)
+                for name in FALLING_SEAM_SHADOW_COUNTERS
+            ),
             "unavailable_until_telemetry_is_extended": FUTURE_METRICS,
             "composite_quality_score": None,
         },
@@ -1053,6 +1091,9 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
             "a legacy, aggregate-recovery, or attributed-recovery complete monotonic group and reported when present. "
             "Optional failed-navigation activations, safeguard suppressions, and route-penalty applications are "
             "validated as a complete monotonic group and reported when present. "
+            "Optional falling-seam shadow detections, candidate probes, authorization decisions, and rejection "
+            "reasons are validated as a complete monotonic group and reported when present; they describe a "
+            "read-only policy probe and do not prove that any movement was applied. "
             "Physics, latent-action, acceleration, destination, move-timer, and move-target diagnostics are "
             "validated when present and remain available in the source event stream. "
             "PRI score/deaths are sampled persistent game counters. Hazard-exposed death and movement-intent "

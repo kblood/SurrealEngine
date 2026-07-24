@@ -7,6 +7,7 @@
 #include "USubsystem.h"
 #include "ActorMovement.h"
 #include "PawnFailedNavigationMemory.h"
+#include "PawnFallingTwoPlaneSafety.h"
 #include "PawnLedgeTransition.h"
 #include "PawnPainZoneFallPrediction.h"
 #include "PawnPainLedgeRecovery.h"
@@ -963,6 +964,7 @@ void UActor::TickFalling(float elapsed)
 		vec3 moveDelta = (newVelocity + zone->ZoneVelocity() * elapsed * 25.0f) * timeLeft;
 		vec3 dirNormal = normalize(newVelocity);
 
+		const vec3 iterationStartLocation = location;
 		CollisionHit hit = TryMove(moveDelta);
 		timeLeft -= timeLeft * hit.Fraction;
 
@@ -991,7 +993,17 @@ void UActor::TickFalling(float elapsed)
 					vec3 alignedDelta = (moveDelta - hit.Normal * dot(moveDelta, hit.Normal)) * (1.0f - hit.Fraction);
 					if (dot(moveDelta, alignedDelta) >= 0.0f) // Don't end up going backwards
 					{
+						const CollisionHit firstHit = hit;
 						hit = TryMove(alignedDelta);
+						if (pawn && !firstHit.Actor && !hit.Actor && hit.Fraction < 1.0f
+							&& hit.Normal.z < 0.7071f)
+						{
+							const vec3 zoneGravity = zone->ZoneGravity();
+							pawn->ObserveFallingSeamEscapeShadow(alignedDelta,
+								location - iterationStartLocation, firstHit.Normal, hit.Normal,
+								zoneGravity.x == 0.0f && zoneGravity.y == 0.0f
+									&& zoneGravity.z < 0.0f);
+						}
 						if (hit.Fraction < 1.0f && hit.Normal.z > 0.7071f)
 						{
 							PhysLanded(hit.Actor, hit.Normal);
@@ -4565,6 +4577,102 @@ void UPawn::RecordPainLedgeVeto(const vec3& origin, const vec2& unsafeDirection)
 	PainLedgeRecovery = record.State;
 	if (record.Repeat)
 		PainLedgeRepeatVetoCountValue++;
+}
+
+void UPawn::ObserveFallingSeamEscapeShadow(const vec3& requestedRemainingDelta,
+	const vec3& actualDisplacement, const vec3& firstHitNormal,
+	const vec3& secondHitNormal, bool normalDownwardGravity)
+{
+	UZoneInfo* startFootZone = FootRegion().Zone;
+	if (!IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority
+		|| bDeleteMe() || Health() <= 0 || Physics() != PHYS_Falling
+		|| !startFootZone || startFootZone->bPainZone() || startFootZone->bWaterZone())
+		return;
+
+	PawnMovement::HorizontalCornerEscapeInput input;
+	input.Contact = {
+		.RequestedRemainingDelta = requestedRemainingDelta,
+		.ActualDisplacement = actualDisplacement,
+		.FirstHitNormal = firstHitNormal,
+		.SecondHitNormal = secondHitNormal,
+		.AutonomousPlayerBot = true,
+		.NormalDownwardGravity = normalDownwardGravity
+	};
+	if (PawnMovement::ResolveFallingTwoPlaneContact(input.Contact).Decision
+		!= PawnMovement::FallingTwoPlaneContactDecision::ProbeCreaseSweep)
+		return;
+	FallingSeamDetectionCountValue++;
+
+	const PawnMovement::HorizontalCornerEscapeCandidate candidate =
+		PawnMovement::BuildHorizontalCornerEscapeCandidate(input);
+	if (!candidate.Valid)
+		return;
+	HorizontalCornerCandidateProbeCountValue++;
+
+	PawnMovement::FallingRecoveryAuthorizationEvidence evidence;
+	evidence.SweepResultKnown = true;
+	evidence.SweepClear = TryMove(candidate.SweepDelta, true).Fraction == 1.0f;
+	if (evidence.SweepClear)
+	{
+		const TraceFlags supportTraceFlags = {
+			.pawns = true,
+			.movers = true,
+			.others = true,
+			.world = true
+		};
+		const vec3 candidateCenter = Location() + candidate.SweepDelta;
+		const float supportDepth = std::max(MaxStepHeight() * stepDownDeltaFactor, 1.0f);
+		const vec3 supportEnd = candidateCenter - vec3(0.0f, 0.0f, supportDepth);
+		const vec3 traceExtent(CollisionRadius(), CollisionRadius(), CollisionHeight());
+		const CollisionHit support = XLevel()->Collision.TraceFirstHit(
+			candidateCenter, supportEnd, this, traceExtent, supportTraceFlags);
+		evidence.SupportResultKnown = true;
+		evidence.WalkableShortSupport = support.Fraction < 1.0f
+			&& support.Actor == Level()
+			&& support.Normal.z >= input.Contact.WalkableNormalZ;
+		if (evidence.WalkableShortSupport)
+		{
+			const vec3 supportedCenter = candidateCenter
+				+ (supportEnd - candidateCenter) * support.Fraction;
+			UZoneInfo* supportZone = XLevel()->Model->FindRegion(
+				supportedCenter - vec3(0.0f, 0.0f, CollisionHeight()), Level()).Zone;
+			evidence.PainResultKnown = supportZone != nullptr;
+			evidence.SupportInPainZone = supportZone && supportZone->bPainZone();
+		}
+	}
+
+	const LatentRunState latentState = StateFrame
+		? StateFrame->LatentState : LatentRunState::Continue;
+	const bool liveMoveTowardTarget = latentState != LatentRunState::MoveToward
+		|| (MoveTarget() && !MoveTarget()->bDeleteMe());
+	if (IsMovementLatentState(latentState) && liveMoveTowardTarget)
+	{
+		const vec3 target = Destination();
+		const vec3 currentTargetDelta = target - Location();
+		const vec3 candidateTargetDelta = target - (Location() + candidate.SweepDelta);
+		const float currentDistance = length(currentTargetDelta);
+		const float candidateDistance = length(candidateTargetDelta);
+		if (std::isfinite(currentDistance) && std::isfinite(candidateDistance))
+		{
+			evidence.TargetProgressKnown = true;
+			evidence.TargetProgress = currentDistance - candidateDistance;
+		}
+	}
+
+	switch (PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence))
+	{
+	case PawnMovement::HorizontalCornerEscapeShadowClassification::Authorized:
+		HorizontalCornerAuthorizedEscapeCountValue++;
+		break;
+	case PawnMovement::HorizontalCornerEscapeShadowClassification::TargetProgressRejected:
+		HorizontalCornerTargetProgressRejectCountValue++;
+		break;
+	case PawnMovement::HorizontalCornerEscapeShadowClassification::UnknownOrUnsafeSupport:
+		HorizontalCornerUnknownOrUnsafeSupportCountValue++;
+		break;
+	case PawnMovement::HorizontalCornerEscapeShadowClassification::CandidateInvalid:
+		break;
+	}
 }
 
 void UPawn::AdvancePainLedgeRecovery(float elapsed)
