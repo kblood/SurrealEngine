@@ -187,6 +187,8 @@ namespace
 			BotBenchmarkDriverDetail::NativePawnCounters NativeCounterTotals;
 			std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 				PendingWalkingStepPreflightDiagnostics;
+			std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
+				PendingWalkingStepPreflightPositiveDpsVetoActions;
 			std::vector<PawnMovement::FallingParityRealizedRecord>
 				PendingFallingParityRealizedRecords;
 			std::vector<PawnMovement::FallingHazardDiagnosticRecord>
@@ -544,6 +546,8 @@ namespace
 				pawn->WalkingStepPreflightPositiveDpsVetoForcedReplanCount();
 			counters.WalkingStepPreflightPositiveDpsVetoRollbackRejected =
 				pawn->WalkingStepPreflightPositiveDpsVetoRollbackRejectedCount();
+			counters.WalkingStepPreflightPositiveDpsVetoActionOverflows =
+				pawn->WalkingStepPreflightPositiveDpsVetoActionOverflowCount();
 			counters.WalkingStepPreflightDiagnosticOverflows =
 				pawn->WalkingStepPreflightDiagnosticOverflowCount();
 			counters.FallingParityRealizedEpisodes = pawn->FallingParityRealizedEpisodeCount();
@@ -605,6 +609,7 @@ namespace
 				AccumulateNativePawnCounters(victimIdentity, counters, victim,
 					BotBenchmarkDriverDetail::NativePawnCounterSample::DeathFlush);
 				auto diagnostics = victim->DrainWalkingStepPreflightDiagnostics();
+				auto vetoActions = victim->DrainWalkingStepPreflightPositiveDpsVetoActions();
 				auto parityRecords = victim->DrainFallingParityRealizedRecords();
 				auto hazardDiagnostics = victim->DrainFallingHazardDiagnostics();
 				victim->EndWalkingStepPreflightLife();
@@ -612,6 +617,10 @@ namespace
 					counters.PendingWalkingStepPreflightDiagnostics.end(),
 					std::make_move_iterator(diagnostics.begin()),
 					std::make_move_iterator(diagnostics.end()));
+				counters.PendingWalkingStepPreflightPositiveDpsVetoActions.insert(
+					counters.PendingWalkingStepPreflightPositiveDpsVetoActions.end(),
+					std::make_move_iterator(vetoActions.begin()),
+					std::make_move_iterator(vetoActions.end()));
 				counters.PendingFallingParityRealizedRecords.insert(
 					counters.PendingFallingParityRealizedRecords.end(),
 					std::make_move_iterator(parityRecords.begin()),
@@ -1255,6 +1264,8 @@ namespace
 					native.WalkingStepPreflightPositiveDpsVetoForcedReplans;
 				bot.WalkingStepPreflightPositiveDpsVetoRollbackRejectedExact =
 					native.WalkingStepPreflightPositiveDpsVetoRollbackRejected;
+				bot.WalkingStepPreflightPositiveDpsVetoActionOverflowsExact =
+					native.WalkingStepPreflightPositiveDpsVetoActionOverflows;
 				bot.WalkingStepPreflightDiagnosticOverflowsExact =
 					native.WalkingStepPreflightDiagnosticOverflows;
 				bot.FallingParityRealizedEpisodesExact = native.FallingParityRealizedEpisodes;
@@ -1297,6 +1308,11 @@ namespace
 						runtime.PendingWalkingStepPreflightDiagnostics.end(),
 						std::make_move_iterator(diagnostics.begin()),
 						std::make_move_iterator(diagnostics.end()));
+					auto vetoActions = pawn->DrainWalkingStepPreflightPositiveDpsVetoActions();
+					runtime.PendingWalkingStepPreflightPositiveDpsVetoActions.insert(
+						runtime.PendingWalkingStepPreflightPositiveDpsVetoActions.end(),
+						std::make_move_iterator(vetoActions.begin()),
+						std::make_move_iterator(vetoActions.end()));
 					auto parityRecords = pawn->DrainFallingParityRealizedRecords();
 					runtime.PendingFallingParityRealizedRecords.insert(
 						runtime.PendingFallingParityRealizedRecords.end(),
@@ -1311,6 +1327,9 @@ namespace
 				bot.WalkingStepPreflightDiagnostics = std::move(
 					runtime.PendingWalkingStepPreflightDiagnostics);
 				runtime.PendingWalkingStepPreflightDiagnostics.clear();
+				bot.WalkingStepPreflightPositiveDpsVetoActions = std::move(
+					runtime.PendingWalkingStepPreflightPositiveDpsVetoActions);
+				runtime.PendingWalkingStepPreflightPositiveDpsVetoActions.clear();
 				bot.FallingParityRealizedRecords = std::move(
 					runtime.PendingFallingParityRealizedRecords);
 				runtime.PendingFallingParityRealizedRecords.clear();

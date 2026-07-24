@@ -1254,6 +1254,17 @@ void UActor::TickWalking(float elapsed)
 					vec2 unsafeDirection = (Location() - iterationStartLocation).xy();
 					if (dot(unsafeDirection, unsafeDirection) <= 0.0001f)
 						unsafeDirection = Acceleration().xy();
+					if (positiveDpsVetoAuthorized && painZoneVeto)
+					{
+						PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord action;
+						action.InvocationToken = preflightInvocation;
+						action.WalkingIteration = iteration;
+						action.Outcome = PawnMovement::WalkingStepPreflightPositiveDpsVetoOutcome::
+							LegacyPainLedgeSuperseded;
+						action.LegacyPainLedgeSuperseded = true;
+						action.RollbackDelta = iterationStartLocation - Location();
+						pawn->QueueWalkingStepPreflightPositiveDpsVetoAction(std::move(action));
+					}
 					// Backtrack along the movement we just completed so restoration is
 					// collision checked rather than teleporting through new obstructions.
 					TryMove(iterationStartLocation - Location());
@@ -1271,17 +1282,37 @@ void UActor::TickWalking(float elapsed)
 				// never return early and suppress RecordPainLedgeVeto above.
 				if (positiveDpsVetoAuthorized)
 				{
+					PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord action;
+					action.InvocationToken = preflightInvocation;
+					action.WalkingIteration = iteration;
 					const vec3 rollbackDelta = iterationStartLocation - Location();
-					const bool rollbackClear = TryMove(rollbackDelta, true).Fraction == 1.0f;
-					if (rollbackClear && TryMove(rollbackDelta).Fraction == 1.0f)
+					action.RollbackDelta = rollbackDelta;
+					action.RollbackTestAttempted = true;
+					const CollisionHit rollbackTest = TryMove(rollbackDelta, true);
+					action.RollbackTestFraction = rollbackTest.Fraction;
+					const bool rollbackClear = rollbackTest.Fraction == 1.0f;
+					if (rollbackClear)
 					{
+						action.RollbackActualAttempted = true;
+						const CollisionHit rollbackActual = TryMove(rollbackDelta);
+						action.RollbackActualFraction = rollbackActual.Fraction;
+						if (rollbackActual.Fraction == 1.0f)
+						{
 						Velocity() = vec3(0.0f);
 						Acceleration() = vec3(0.0f);
 						pawn->MoveTimer() = -1.0f;
 						pawn->RecordWalkingStepPreflightPositiveDpsVetoOutcome(true);
+						action.Outcome = PawnMovement::WalkingStepPreflightPositiveDpsVetoOutcome::Applied;
+						action.ForcedReplan = true;
+						pawn->QueueWalkingStepPreflightPositiveDpsVetoAction(std::move(action));
 						return;
+						}
 					}
 					pawn->RecordWalkingStepPreflightPositiveDpsVetoOutcome(false);
+					action.Outcome = rollbackClear
+						? PawnMovement::WalkingStepPreflightPositiveDpsVetoOutcome::RollbackActualRejected
+						: PawnMovement::WalkingStepPreflightPositiveDpsVetoOutcome::RollbackTestRejected;
+					pawn->QueueWalkingStepPreflightPositiveDpsVetoAction(std::move(action));
 				}
 
 				SetPhysics(PHYS_Falling);
@@ -5966,6 +5997,19 @@ void UPawn::RecordWalkingStepPreflightPositiveDpsVetoOutcome(bool applied)
 	}
 }
 
+void UPawn::QueueWalkingStepPreflightPositiveDpsVetoAction(
+	PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord record)
+{
+	static constexpr size_t maximumQueuedRecords = 1024;
+	record.SourcePawnActor = Name.ToString();
+	record.Sequence = WalkingStepPreflightPositiveDpsVetoActionSequence++;
+	record.LifeGeneration = WalkingStepPreflightLifeGeneration;
+	if (WalkingStepPreflightPositiveDpsVetoActions.size() < maximumQueuedRecords)
+		WalkingStepPreflightPositiveDpsVetoActions.push_back(std::move(record));
+	else
+		WalkingStepPreflightPositiveDpsVetoActionOverflowCountValue++;
+}
+
 void UPawn::ArmFallingParityRealizedTrace(int walkingIteration,
 	uint64_t invocationToken)
 {
@@ -6601,6 +6645,14 @@ std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord> diagnostics;
 	diagnostics.swap(WalkingStepPreflightDiagnostics);
 	return diagnostics;
+}
+
+std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
+	UPawn::DrainWalkingStepPreflightPositiveDpsVetoActions()
+{
+	std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord> actions;
+	actions.swap(WalkingStepPreflightPositiveDpsVetoActions);
+	return actions;
 }
 
 void UPawn::AdvancePainLedgeRecovery(float elapsed)

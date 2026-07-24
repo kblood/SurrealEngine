@@ -221,4 +221,30 @@ namespace PawnMovement
 		std::array<float, 3> FallHitFractions = {};
 		size_t FallHitCount = 0;
 	};
+
+	enum class WalkingStepPreflightPositiveDpsVetoOutcome
+	{
+		LegacyPainLedgeSuperseded,
+		RollbackTestRejected,
+		RollbackActualRejected,
+		Applied
+	};
+
+	struct WalkingStepPreflightPositiveDpsVetoActionRecord
+	{
+		std::string SourcePawnActor;
+		uint64_t Sequence = 0;
+		uint64_t LifeGeneration = 0;
+		uint64_t InvocationToken = 0;
+		int WalkingIteration = 0;
+		WalkingStepPreflightPositiveDpsVetoOutcome Outcome =
+			WalkingStepPreflightPositiveDpsVetoOutcome::RollbackTestRejected;
+		bool LegacyPainLedgeSuperseded = false;
+		vec3 RollbackDelta = vec3(0.0f);
+		bool RollbackTestAttempted = false;
+		float RollbackTestFraction = 0.0f;
+		bool RollbackActualAttempted = false;
+		float RollbackActualFraction = 0.0f;
+		bool ForcedReplan = false;
+	};
 }

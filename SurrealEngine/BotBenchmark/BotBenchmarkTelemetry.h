@@ -103,6 +103,9 @@ struct BotBenchmarkBotState
 	uint64_t WalkingStepPreflightPositiveDpsVetoDebouncedExact = 0;
 	uint64_t WalkingStepPreflightPositiveDpsVetoForcedReplansExact = 0;
 	uint64_t WalkingStepPreflightPositiveDpsVetoRollbackRejectedExact = 0;
+	uint64_t WalkingStepPreflightPositiveDpsVetoActionOverflowsExact = 0;
+	std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
+		WalkingStepPreflightPositiveDpsVetoActions;
 	uint64_t WalkingStepPreflightDiagnosticOverflowsExact = 0;
 	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 		WalkingStepPreflightDiagnostics;

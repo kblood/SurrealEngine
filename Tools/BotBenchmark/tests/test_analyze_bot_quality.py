@@ -2104,5 +2104,22 @@ class BotQualityAnalysisTests(unittest.TestCase):
                         QUALITY.analyze_run(run)
 
 
+    def test_positive_dps_veto_action_record_rejects_inconsistent_outcomes(self) -> None:
+        action = {
+            "source_pawn_actor": "Bot1", "sequence": "0", "life_generation": "0",
+            "invocation_token": "7", "walking_iteration": 2, "outcome": "applied",
+            "legacy_pain_ledge_superseded": False,
+            "rollback_delta": {"x": 1.0, "y": 0.0, "z": 0.0},
+            "rollback_test_attempted": True, "rollback_test_fraction": 1.0,
+            "rollback_actual_attempted": True, "rollback_actual_fraction": 1.0,
+            "forced_replan": True,
+        }
+        parsed = QUALITY._walking_step_preflight_positive_dps_veto_action(action, "action")
+        self.assertEqual(parsed["outcome"], "applied")
+        invalid = {**action, "rollback_actual_fraction": 1.1}
+        with self.assertRaisesRegex(QUALITY.QualityError, "at most 1"):
+            QUALITY._walking_step_preflight_positive_dps_veto_action(invalid, "action")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -224,6 +224,46 @@ namespace
 			<< "\"}";
 	}
 
+	const char* PositiveDpsVetoOutcomeName(
+		PawnMovement::WalkingStepPreflightPositiveDpsVetoOutcome outcome)
+	{
+		switch (outcome)
+		{
+		case PawnMovement::WalkingStepPreflightPositiveDpsVetoOutcome::LegacyPainLedgeSuperseded:
+			return "legacy_pain_ledge_superseded";
+		case PawnMovement::WalkingStepPreflightPositiveDpsVetoOutcome::RollbackTestRejected:
+			return "rollback_test_rejected";
+		case PawnMovement::WalkingStepPreflightPositiveDpsVetoOutcome::RollbackActualRejected:
+			return "rollback_actual_rejected";
+		case PawnMovement::WalkingStepPreflightPositiveDpsVetoOutcome::Applied:
+			return "applied";
+		}
+		return "unknown";
+	}
+
+	void WritePositiveDpsVetoAction(std::ostringstream& out,
+		const PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord& action)
+	{
+		out << "{\"source_pawn_actor\":" << JsonString(action.SourcePawnActor)
+			<< ",\"sequence\":\"" << action.Sequence
+			<< "\",\"life_generation\":\"" << action.LifeGeneration
+			<< "\",\"invocation_token\":\"" << action.InvocationToken
+			<< "\",\"walking_iteration\":" << action.WalkingIteration
+			<< ",\"outcome\":" << JsonString(PositiveDpsVetoOutcomeName(action.Outcome))
+			<< ",\"legacy_pain_ledge_superseded\":"
+			<< (action.LegacyPainLedgeSuperseded ? "true" : "false")
+			<< ",\"rollback_delta\":";
+		WriteVector(out, action.RollbackDelta);
+		out << ",\"rollback_test_attempted\":"
+			<< (action.RollbackTestAttempted ? "true" : "false")
+			<< ",\"rollback_test_fraction\":" << Fixed(action.RollbackTestFraction, 9)
+			<< ",\"rollback_actual_attempted\":"
+			<< (action.RollbackActualAttempted ? "true" : "false")
+			<< ",\"rollback_actual_fraction\":" << Fixed(action.RollbackActualFraction, 9)
+			<< ",\"forced_replan\":" << (action.ForcedReplan ? "true" : "false")
+			<< '}';
+	}
+
 	void WriteFallingHazardZone(std::ostringstream& out,
 		const PawnMovement::FallingHazardZoneId& zone)
 	{
@@ -436,6 +476,14 @@ namespace
 		{
 			if (index) out << ',';
 			WritePreflightDiagnostic(out, bot.WalkingStepPreflightDiagnostics[index]);
+		}
+		out << ']' << ",\"walking_step_preflight_positive_dps_veto_action_overflows_exact\":\""
+			<< bot.WalkingStepPreflightPositiveDpsVetoActionOverflowsExact << "\""
+			<< ",\"walking_step_preflight_positive_dps_veto_actions\":[";
+		for (size_t index = 0; index < bot.WalkingStepPreflightPositiveDpsVetoActions.size(); index++)
+		{
+			if (index) out << ',';
+			WritePositiveDpsVetoAction(out, bot.WalkingStepPreflightPositiveDpsVetoActions[index]);
 		}
 		out << ']';
 		out << ",\"falling_parity_realized_episodes_exact\":\""

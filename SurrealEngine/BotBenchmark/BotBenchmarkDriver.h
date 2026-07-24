@@ -64,6 +64,7 @@ namespace BotBenchmarkDriverDetail
 		uint64_t WalkingStepPreflightPositiveDpsVetoDebounced = 0;
 		uint64_t WalkingStepPreflightPositiveDpsVetoForcedReplans = 0;
 		uint64_t WalkingStepPreflightPositiveDpsVetoRollbackRejected = 0;
+		uint64_t WalkingStepPreflightPositiveDpsVetoActionOverflows = 0;
 		uint64_t WalkingStepPreflightDiagnosticOverflows = 0;
 		uint64_t FallingParityRealizedEpisodes = 0;
 		uint64_t FallingParityRealizedSteps = 0;
@@ -252,6 +253,9 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.WalkingStepPreflightPositiveDpsVetoRollbackRejected,
 				Previous.WalkingStepPreflightPositiveDpsVetoRollbackRejected,
 				totals.WalkingStepPreflightPositiveDpsVetoRollbackRejected);
+			AccumulateCounter(current.WalkingStepPreflightPositiveDpsVetoActionOverflows,
+				Previous.WalkingStepPreflightPositiveDpsVetoActionOverflows,
+				totals.WalkingStepPreflightPositiveDpsVetoActionOverflows);
 			AccumulateCounter(current.WalkingStepPreflightDiagnosticOverflows,
 				Previous.WalkingStepPreflightDiagnosticOverflows,
 				totals.WalkingStepPreflightDiagnosticOverflows);

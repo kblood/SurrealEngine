@@ -54,6 +54,15 @@ remained identical with zero eligible controls. This removes the demonstrated
 regression, but it also means the experiment has no demonstrated benefit and
 still fails the action-effect promotion gate.
 
+Each positive-DPS authorization now emits one bounded immutable action record
+with its pawn/life/invocation/iteration join key, terminal outcome, legacy
+supersession status, and both collision rollback fractions. The analyzer checks
+record identity, outcome semantics, and reconciliation with the exact applied,
+replan, rejected, and overflow counters. The Deck legacy-first repeat emitted
+34 `legacy_pain_ledge_superseded` records and no rollback attempts, confirming
+that the stock guard owns every observed candidate site rather than hiding a
+new applied policy action.
+
 ## Next step
 
 Do not tune this global veto by loosening its evidence gate. First causally

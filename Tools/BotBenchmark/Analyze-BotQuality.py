@@ -221,6 +221,7 @@ WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_COUNTERS = (
     "walking_step_preflight_positive_dps_veto_debounced_exact",
     "walking_step_preflight_positive_dps_veto_forced_replans_exact",
     "walking_step_preflight_positive_dps_veto_rollback_rejected_exact",
+    "walking_step_preflight_positive_dps_veto_action_overflows_exact",
 )
 FALLING_PARITY_REALIZED_STEP_COUNTERS = (
     "falling_parity_realized_matched_steps_exact",
@@ -292,6 +293,7 @@ MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP = (
 OPTIONAL_DIAGNOSTIC_FIELDS = (
     "physics_mode", "latent_action", "acceleration", "destination", "move_timer",
     "move_target_identity", "move_target_name", "walking_step_preflight_diagnostics",
+    "walking_step_preflight_positive_dps_veto_actions",
     "falling_parity_realized_records", "vertical_pain_column_diagnostics",
 )
 PHYSICS_MODES = {
@@ -313,6 +315,10 @@ WALKING_STEP_PREFLIGHT_PHASES = {
 WALKING_STEP_PREFLIGHT_TRANSITIONS = {
     "abort", "restore_grounded", "begin_falling", "post_callback_evidence_changed",
     "post_callback_forecast_rejected",
+}
+WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_OUTCOMES = {
+    "legacy_pain_ledge_superseded", "rollback_test_rejected", "rollback_actual_rejected",
+    "applied",
 }
 FALLING_PARITY_REALIZED_OUTCOMES = {
     "episode_started", "matched_clear", "matched_landing", "mismatch", "unknown",
@@ -617,6 +623,50 @@ def _walking_step_preflight_diagnostics(value: Any, context: str) -> list[dict[s
         raise QualityError(f"{context} must be an array")
     return [
         _walking_step_preflight_diagnostic(item, f"{context}[{index}]")
+        for index, item in enumerate(value)
+    ]
+
+
+def _walking_step_preflight_positive_dps_veto_action(value: Any, context: str) -> dict[str, Any]:
+    fields = _exact_object(value, context, {
+        "source_pawn_actor", "sequence", "life_generation", "invocation_token",
+        "walking_iteration", "outcome", "legacy_pain_ledge_superseded", "rollback_delta",
+        "rollback_test_attempted", "rollback_test_fraction", "rollback_actual_attempted",
+        "rollback_actual_fraction", "forced_replan",
+    })
+    outcome = _string(fields, "outcome", context, nonempty=True)
+    if outcome not in WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_OUTCOMES:
+        raise QualityError(f"{context}.outcome is not recognized")
+    result = {
+        "source_pawn_actor": _string(fields, "source_pawn_actor", context, nonempty=True),
+        "sequence": _integer(fields.get("sequence"), f"{context}.sequence", minimum=0),
+        "life_generation": _integer(fields.get("life_generation"), f"{context}.life_generation", minimum=0),
+        "invocation_token": _integer(fields.get("invocation_token"), f"{context}.invocation_token", minimum=0),
+        "walking_iteration": _integer(fields.get("walking_iteration"), f"{context}.walking_iteration", minimum=0),
+        "outcome": outcome,
+        "legacy_pain_ledge_superseded": _boolean(
+            fields.get("legacy_pain_ledge_superseded"), f"{context}.legacy_pain_ledge_superseded"),
+        "rollback_delta": _diagnostic_vector(fields.get("rollback_delta"), f"{context}.rollback_delta"),
+        "rollback_test_attempted": _boolean(
+            fields.get("rollback_test_attempted"), f"{context}.rollback_test_attempted"),
+        "rollback_test_fraction": _number(
+            fields.get("rollback_test_fraction"), f"{context}.rollback_test_fraction", minimum=0.0),
+        "rollback_actual_attempted": _boolean(
+            fields.get("rollback_actual_attempted"), f"{context}.rollback_actual_attempted"),
+        "rollback_actual_fraction": _number(
+            fields.get("rollback_actual_fraction"), f"{context}.rollback_actual_fraction", minimum=0.0),
+        "forced_replan": _boolean(fields.get("forced_replan"), f"{context}.forced_replan"),
+    }
+    if result["rollback_test_fraction"] > 1.0 or result["rollback_actual_fraction"] > 1.0:
+        raise QualityError(f"{context}: rollback fractions must be at most 1")
+    return result
+
+
+def _walking_step_preflight_positive_dps_veto_actions(value: Any, context: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise QualityError(f"{context} must be an array")
+    return [
+        _walking_step_preflight_positive_dps_veto_action(item, f"{context}[{index}]")
         for index, item in enumerate(value)
     ]
 
@@ -1484,6 +1534,61 @@ def _load_json(path: Path, context: str) -> dict[str, Any]:
         raise QualityError(f"invalid {context} JSON at {path}: {exc}") from exc
 
 
+def _validate_positive_dps_veto_action_stream(events: list[dict[str, Any]], path: Path) -> None:
+    previous_sequence: dict[tuple[str, str], int] = {}
+    seen_keys: set[tuple[str, str, int, int, int]] = set()
+    counts: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
+    final: dict[str, dict[str, Any]] = {}
+    for event in events:
+        for bot in event["bots"]:
+            identity = bot["identity"]
+            final[identity] = bot
+            for action in bot.get("walking_step_preflight_positive_dps_veto_actions", []):
+                stream = (identity, action["source_pawn_actor"])
+                previous = previous_sequence.get(stream)
+                if previous is not None and action["sequence"] <= previous:
+                    raise QualityError(f"{path}: positive-DPS veto action sequence regressed for {stream}")
+                previous_sequence[stream] = action["sequence"]
+                key = (*stream, action["life_generation"], action["invocation_token"],
+                       action["walking_iteration"])
+                if key in seen_keys:
+                    raise QualityError(f"{path}: duplicate positive-DPS veto action join key for {stream}")
+                seen_keys.add(key)
+                outcome = action["outcome"]
+                test = action["rollback_test_attempted"]
+                actual = action["rollback_actual_attempted"]
+                forced = action["forced_replan"]
+                if outcome == "legacy_pain_ledge_superseded":
+                    valid = action["legacy_pain_ledge_superseded"] and not test and not actual and not forced
+                elif outcome == "rollback_test_rejected":
+                    valid = not action["legacy_pain_ledge_superseded"] and test and not actual \
+                        and action["rollback_test_fraction"] < 1.0 and not forced
+                elif outcome == "rollback_actual_rejected":
+                    valid = not action["legacy_pain_ledge_superseded"] and test and actual \
+                        and action["rollback_test_fraction"] == 1.0 \
+                        and action["rollback_actual_fraction"] < 1.0 and not forced
+                else:
+                    valid = not action["legacy_pain_ledge_superseded"] and test and actual \
+                        and action["rollback_test_fraction"] == 1.0 \
+                        and action["rollback_actual_fraction"] == 1.0 and forced
+                if not valid:
+                    raise QualityError(f"{path}: invalid positive-DPS veto action outcome evidence")
+                counts[identity][outcome] += 1
+    for identity, bot in final.items():
+        observed = counts[identity]
+        if observed["applied"] != bot["walking_step_preflight_positive_dps_veto_applied_exact"]:
+            raise QualityError(f"{path}: applied positive-DPS action records do not reconcile")
+        if observed["applied"] != bot["walking_step_preflight_positive_dps_veto_forced_replans_exact"]:
+            raise QualityError(f"{path}: forced replan action records do not reconcile")
+        rejected = observed["rollback_test_rejected"] + observed["rollback_actual_rejected"]
+        if rejected != bot["walking_step_preflight_positive_dps_veto_rollback_rejected_exact"]:
+            raise QualityError(f"{path}: rejected positive-DPS action records do not reconcile")
+        emitted = sum(observed.values())
+        overflow = bot["walking_step_preflight_positive_dps_veto_action_overflows_exact"]
+        if emitted + overflow > bot["walking_step_preflight_positive_dps_veto_eligible_exact"]:
+            raise QualityError(f"{path}: positive-DPS action records exceed eligibility")
+
+
 def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficulty: int,
                bot_count: int | None = None, requested_roster: list[dict[str, Any]] | None = None,
                harmful_zone_escape_enabled: bool | None = None,
@@ -1918,6 +2023,14 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 _walking_step_preflight_diagnostics(
                     bot.get("walking_step_preflight_diagnostics"),
                     f"{context}.walking_step_preflight_diagnostics")
+        if "walking_step_preflight_positive_dps_veto_actions" in bot:
+            if "walking_step_preflight_positive_dps_veto_action_overflows_exact" not in result:
+                raise QualityError(
+                    f"{context}: positive-DPS veto action records require their overflow counter")
+            result["walking_step_preflight_positive_dps_veto_actions"] = \
+                _walking_step_preflight_positive_dps_veto_actions(
+                    bot.get("walking_step_preflight_positive_dps_veto_actions"),
+                    f"{context}.walking_step_preflight_positive_dps_veto_actions")
         if "falling_parity_realized_records" in bot:
             if "falling_parity_realized_episodes_exact" not in result:
                 raise QualityError(
@@ -2088,6 +2201,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 previous[bot["identity"]] = bot
         if optional_presence and "walking_step_preflight_diagnostics" in optional_presence:
             _validate_walking_step_preflight_diagnostic_stream(events, path)
+        if optional_presence and "walking_step_preflight_positive_dps_veto_actions" in optional_presence:
+            _validate_positive_dps_veto_action_stream(events, path)
         if optional_presence and "falling_parity_realized_records" in optional_presence:
             _validate_falling_parity_realized_record_stream(events, path)
         if optional_presence and "vertical_pain_column_diagnostics" in optional_presence:

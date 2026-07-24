@@ -1953,6 +1953,8 @@ public:
 	bool ConfirmWalkingStepPreflightShadow(int walkingIteration, uint64_t invocationToken,
 		PawnMovement::LedgeTransition transition);
 	void RecordWalkingStepPreflightPositiveDpsVetoOutcome(bool applied);
+	void QueueWalkingStepPreflightPositiveDpsVetoAction(
+		PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord record);
 	void ArmFallingParityRealizedTrace(int walkingIteration, uint64_t invocationToken);
 	bool HasActiveFallingParityRealizedModel() const
 	{
@@ -2019,6 +2021,8 @@ public:
 	void EndWalkingStepPreflightLife();
 	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 		DrainWalkingStepPreflightDiagnostics();
+	std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
+		DrainWalkingStepPreflightPositiveDpsVetoActions();
 	uint64_t PainLedgeVetoCount() const { return PainLedgeVetoCountValue; }
 	uint64_t PainLedgeRepeatVetoCount() const { return PainLedgeRepeatVetoCountValue; }
 	uint64_t PainLedgeRecoveryAttemptCount() const { return PainLedgeRecoveryAttemptCountValue; }
@@ -2071,6 +2075,7 @@ public:
 	uint64_t WalkingStepPreflightPositiveDpsVetoDebouncedCount() const { return WalkingStepPreflightPositiveDpsVetoDebouncedCountValue; }
 	uint64_t WalkingStepPreflightPositiveDpsVetoForcedReplanCount() const { return WalkingStepPreflightPositiveDpsVetoForcedReplanCountValue; }
 	uint64_t WalkingStepPreflightPositiveDpsVetoRollbackRejectedCount() const { return WalkingStepPreflightPositiveDpsVetoRollbackRejectedCountValue; }
+	uint64_t WalkingStepPreflightPositiveDpsVetoActionOverflowCount() const { return WalkingStepPreflightPositiveDpsVetoActionOverflowCountValue; }
 	uint64_t FallingParityRealizedEpisodeCount() const { return FallingParityRealizedEpisodeCountValue; }
 	uint64_t FallingParityRealizedStepCount() const { return FallingParityRealizedStepCountValue; }
 	uint64_t FallingParityRealizedMatchedStepCount() const { return FallingParityRealizedMatchedStepCountValue; }
@@ -2373,6 +2378,10 @@ private:
 	uint64_t WalkingStepPreflightDiagnosticSequence = 0;
 	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 		WalkingStepPreflightDiagnostics;
+	uint64_t WalkingStepPreflightPositiveDpsVetoActionOverflowCountValue = 0;
+	uint64_t WalkingStepPreflightPositiveDpsVetoActionSequence = 0;
+	std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
+		WalkingStepPreflightPositiveDpsVetoActions;
 	bool WalkingStepPreflightPendingConfirmation = false;
 	int WalkingStepPreflightPendingIteration = 0;
 	uint64_t WalkingStepPreflightPendingInvocation = 0;
