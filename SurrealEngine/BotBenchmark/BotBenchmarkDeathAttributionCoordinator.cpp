@@ -162,7 +162,11 @@ namespace BotBenchmarkDeathAttribution
 			return { status };
 
 		const ScopeToken token = NextToken();
-		const bool outermost = KilledFrames.empty();
+		const bool outermost = std::none_of(KilledFrames.begin(), KilledFrames.end(),
+			[&observation](const KilledFrame& frame)
+			{
+				return frame.Observation.Victim == observation.Victim;
+			});
 		KilledFrame frame;
 		frame.Token = token;
 		frame.Observation = std::move(observation);

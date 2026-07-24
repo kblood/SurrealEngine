@@ -177,60 +177,10 @@ namespace
 			uint64_t SuicidesExact = 0;
 			uint64_t EnvironmentalDeathsExact = 0;
 			uint64_t HazardExposedDeathsProxy = 0;
-			uint64_t DirectSelfKills = 0;
-			uint64_t DirectEnemyKills = 0;
-			uint64_t UnassistedEnvironmentalDeaths = 0;
-			uint64_t RecentEnemyContributedEnvironmentalDeathsProxy = 0;
-			uint64_t AmbiguousDeaths = 0;
-			uint64_t RecentEnemyMomentumContributedEnvironmentalDeathsProxy = 0;
+			BotBenchmarkDriverDetail::DeathAttributionCounters DeathAttribution;
 			uint64_t HitWallEventsExact = 0;
-			UPawn* PainLedgeCounterPawn = nullptr;
-			uint64_t PreviousPainLedgeVetoes = 0;
-			uint64_t PreviousPainLedgeRepeatVetoes = 0;
-			uint64_t PreviousPainLedgeRecoveryAttempts = 0;
-			uint64_t PreviousPainLedgeRecoveryEscapes = 0;
-			uint64_t PainLedgeVetoesExact = 0;
-			uint64_t PainLedgeRepeatVetoesExact = 0;
-			uint64_t PainLedgeRecoveryAttemptsExact = 0;
-			uint64_t PainLedgeRecoveryEscapesExact = 0;
-			uint64_t PreviousWallAdjustCalls = 0;
-			uint64_t PreviousWallAdjustRepeats = 0;
-			uint64_t PreviousWallAdjustRecoveryAttempts = 0;
-			uint64_t PreviousWallAdjustRecoverySuccesses = 0;
-			uint64_t PreviousWallAdjustForcedReplans = 0;
-			uint64_t WallAdjustCallsExact = 0;
-			uint64_t WallAdjustRepeatsExact = 0;
-			uint64_t WallAdjustRecoveryAttemptsExact = 0;
-			uint64_t WallAdjustRecoverySuccessesExact = 0;
-			uint64_t WallAdjustForcedReplansExact = 0;
-			uint64_t PreviousMoveStallDetections = 0;
-			uint64_t PreviousMoveStallEpisodeResets = 0;
-			uint64_t PreviousMoveStallForcedReplans = 0;
-			uint64_t PreviousMoveStallNavigationForcedReplans = 0;
-			uint64_t PreviousMoveStallTargetlessMoveToTimeouts = 0;
-			double PreviousMoveStallEligibleSeconds = 0.0;
-			uint64_t MoveStallDetectionsExact = 0;
-			uint64_t MoveStallEpisodeResetsExact = 0;
-			uint64_t MoveStallForcedReplansExact = 0;
-			uint64_t MoveStallNavigationForcedReplansExact = 0;
-			uint64_t MoveStallTargetlessMoveToTimeoutsExact = 0;
-			double MoveStallEligibleSeconds = 0.0;
-			uint64_t PreviousFailedNavigationAvoidanceActivations = 0;
-			uint64_t PreviousFailedNavigationSafeguardSuppressions = 0;
-			uint64_t PreviousFailedNavigationRoutePenaltyApplications = 0;
-			uint64_t FailedNavigationAvoidanceActivationsExact = 0;
-			uint64_t FailedNavigationSafeguardSuppressionsExact = 0;
-			uint64_t FailedNavigationRoutePenaltyApplicationsExact = 0;
-			uint64_t PreviousFallingSeamDetections = 0;
-			uint64_t PreviousHorizontalCornerCandidateProbes = 0;
-			uint64_t PreviousHorizontalCornerAuthorizedEscapes = 0;
-			uint64_t PreviousHorizontalCornerTargetProgressRejects = 0;
-			uint64_t PreviousHorizontalCornerUnknownOrUnsafeSupport = 0;
-			uint64_t FallingSeamDetectionsExact = 0;
-			uint64_t HorizontalCornerCandidateProbesExact = 0;
-			uint64_t HorizontalCornerAuthorizedEscapesExact = 0;
-			uint64_t HorizontalCornerTargetProgressRejectsExact = 0;
-			uint64_t HorizontalCornerUnknownOrUnsafeSupportExact = 0;
+			BotBenchmarkDriverDetail::NativePawnCounterEpoch NativeCounterEpoch;
+			BotBenchmarkDriverDetail::NativePawnCounters NativeCounterTotals;
 		};
 
 		enum class AttributionScopeKind
@@ -493,21 +443,57 @@ namespace
 			auto runtime = QualityParticipants.find(victimIdentity);
 			if (runtime == QualityParticipants.end())
 				return;
-			using BotBenchmarkDeathAttribution::Kind;
-			switch (decision.Attribution)
-			{
-			case Kind::DirectSelfKill: runtime->second.DirectSelfKills++; break;
-			case Kind::DirectEnemyKill: runtime->second.DirectEnemyKills++; break;
-			case Kind::UnassistedEnvironmentalDeath:
-				runtime->second.UnassistedEnvironmentalDeaths++;
-				break;
-			case Kind::RecentEnemyContributedEnvironmentalDeathProxy:
-				runtime->second.RecentEnemyContributedEnvironmentalDeathsProxy++;
-				if (decision.HadRecentEnemyMomentumContribution)
-					runtime->second.RecentEnemyMomentumContributedEnvironmentalDeathsProxy++;
-				break;
-			case Kind::AmbiguousDeath: runtime->second.AmbiguousDeaths++; break;
-			}
+			runtime->second.DeathAttribution.Apply(decision);
+		}
+
+		static BotBenchmarkDriverDetail::NativePawnCounters CaptureNativePawnCounters(
+			UPawn* pawn)
+		{
+			BotBenchmarkDriverDetail::NativePawnCounters counters;
+			counters.PainLedgeVetoes = pawn->PainLedgeVetoCount();
+			counters.PainLedgeRepeatVetoes = pawn->PainLedgeRepeatVetoCount();
+			counters.PainLedgeRecoveryAttempts = pawn->PainLedgeRecoveryAttemptCount();
+			counters.PainLedgeRecoveryEscapes = pawn->PainLedgeRecoveryEscapeCount();
+			counters.WallAdjustCalls = pawn->WallAdjustCallCount();
+			counters.WallAdjustRepeats = pawn->WallAdjustRepeatCount();
+			counters.WallAdjustRecoveryAttempts = pawn->WallAdjustRecoveryAttemptCount();
+			counters.WallAdjustRecoverySuccesses = pawn->WallAdjustRecoverySuccessCount();
+			counters.WallAdjustForcedReplans = pawn->WallAdjustForcedReplanCount();
+			counters.MoveStallDetections = pawn->MoveStallDetectionCount();
+			counters.MoveStallEpisodeResets = pawn->MoveStallEpisodeResetCount();
+			counters.MoveStallForcedReplans = pawn->MoveStallForcedReplanCount();
+			counters.MoveStallNavigationForcedReplans =
+				pawn->MoveStallNavigationForcedReplanCount();
+			counters.MoveStallTargetlessMoveToTimeouts =
+				pawn->MoveStallTargetlessMoveToTimeoutCount();
+			counters.MoveStallEligibleSeconds = pawn->MoveStallEligibleSeconds();
+			counters.FailedNavigationAvoidanceActivations =
+				pawn->FailedNavigationAvoidanceActivationCount();
+			counters.FailedNavigationSafeguardSuppressions =
+				pawn->FailedNavigationSafeguardSuppressionCount();
+			counters.FailedNavigationRoutePenaltyApplications =
+				pawn->FailedNavigationRoutePenaltyApplicationCount();
+			counters.FallingSeamDetections = pawn->FallingSeamDetectionCount();
+			counters.HorizontalCornerCandidateProbes =
+				pawn->HorizontalCornerCandidateProbeCount();
+			counters.HorizontalCornerAuthorizedEscapes =
+				pawn->HorizontalCornerAuthorizedEscapeCount();
+			counters.HorizontalCornerTargetProgressRejects =
+				pawn->HorizontalCornerTargetProgressRejectCount();
+			counters.HorizontalCornerUnknownOrUnsafeSupport =
+				pawn->HorizontalCornerUnknownOrUnsafeSupportCount();
+			return counters;
+		}
+
+		void AccumulateNativePawnCounters(const std::string& identity,
+			QualityParticipantRuntime& runtime, UPawn* pawn,
+			BotBenchmarkDriverDetail::NativePawnCounterSample sample)
+		{
+			const auto began = runtime.NativeCounterEpoch.BeginPawn(pawn, sample);
+			if (began.ResetLifeAttribution)
+				AttributionCoordinator.ResetLife(identity);
+			runtime.NativeCounterEpoch.Accumulate(CaptureNativePawnCounters(pawn),
+				runtime.NativeCounterTotals);
 		}
 
 		void RecordKilled(UPawn* killer, UPawn* victim)
@@ -517,6 +503,8 @@ namespace
 			if (victimRuntime != QualityParticipants.end())
 			{
 				QualityParticipantRuntime& counters = victimRuntime->second;
+				AccumulateNativePawnCounters(victimIdentity, counters, victim,
+					BotBenchmarkDriverDetail::NativePawnCounterSample::DeathFlush);
 				counters.DeathsExact++;
 				const bool environmental = !killer || !killer->bIsPlayer();
 				if (killer == victim || environmental)
@@ -567,6 +555,23 @@ namespace
 			AcceptCoordinatorStatus(status, "hook cleanup");
 		}
 
+		bool BeginKilledCall(const std::string& victimIdentity)
+		{
+			return KilledHookDepths[victimIdentity]++ == 0;
+		}
+
+		void FinishKilledCall(const std::string& victimIdentity)
+		{
+			auto depth = KilledHookDepths.find(victimIdentity);
+			if (depth == KilledHookDepths.end() || depth->second == 0)
+			{
+				Fail("death attribution Killed depth cleanup had no active victim");
+				return;
+			}
+			if (--depth->second == 0)
+				KilledHookDepths.erase(depth);
+		}
+
 		void RegisterQualityHooks()
 		{
 			using namespace BotBenchmarkDeathAttribution;
@@ -581,22 +586,22 @@ namespace
 					return {};
 				if (function->Name == "Killed" && instance == EngineRef.GameInfo)
 				{
-					const bool outermost = KilledHookDepth++ == 0;
 					if (!ValidateAttributionFunction(function, HookPoint::Killed))
-						return [this]() { KilledHookDepth--; };
+						return {};
 					if (arguments.Size() != 3)
 					{
 						Fail("death attribution Killed call argument count does not match its contract");
-						return [this]() { KilledHookDepth--; };
+						return {};
 					}
 					UPawn* killer = UObject::TryCast<UPawn>(arguments.Values()[0].ToObject());
 					UPawn* victim = UObject::TryCast<UPawn>(arguments.Values()[1].ToObject());
+					const std::string victimIdentity = PawnIdentity(victim);
+					const bool outermost = BeginKilledCall(victimIdentity);
 					if (outermost && victim)
 						RecordKilled(killer, victim);
 
-					const std::string victimIdentity = PawnIdentity(victim);
 					if (QualityParticipants.find(victimIdentity) == QualityParticipants.end())
-						return [this]() { KilledHookDepth--; };
+						return [this, victimIdentity]() { FinishKilledCall(victimIdentity); };
 					DeathKiller relation = DeathKiller::None;
 					if (killer)
 					{
@@ -607,13 +612,19 @@ namespace
 					const auto entered = AttributionCoordinator.EnterKilled({ victimIdentity, relation,
 						AttributionTimeSeconds(), true });
 					if (!AcceptCoordinatorStatus(entered.Status, "Killed enter"))
-						return [this]() { KilledHookDepth--; };
+						return [this, victimIdentity]() { FinishKilledCall(victimIdentity); };
+					if (entered.IsOutermost != outermost)
+					{
+						Fail("death attribution Killed victim depth disagreed with coordinator");
+						AttributionCoordinator.ExitKilled(entered.Token);
+						return [this, victimIdentity]() { FinishKilledCall(victimIdentity); };
+					}
 					ActiveAttributionCalls.push_back({ function, instance, victimIdentity, entered.Token,
 						AttributionScopeKind::Killed });
-					return [this, function, instance]()
+					return [this, function, instance, victimIdentity]()
 					{
 						FinishAttributionCall(function, instance, AttributionScopeKind::Killed);
-						KilledHookDepth--;
+						FinishKilledCall(victimIdentity);
 					};
 				}
 				if (function->Name == "TakeDamage")
@@ -979,104 +990,8 @@ namespace
 				bot.MoveTargetName.clear();
 				if (pawn)
 				{
-					if (runtime.PainLedgeCounterPawn != pawn)
-					{
-						AttributionCoordinator.ResetLife(actual.Identity);
-						runtime.PainLedgeCounterPawn = pawn;
-						runtime.PreviousPainLedgeVetoes = 0;
-						runtime.PreviousPainLedgeRepeatVetoes = 0;
-						runtime.PreviousPainLedgeRecoveryAttempts = 0;
-						runtime.PreviousPainLedgeRecoveryEscapes = 0;
-						runtime.PreviousWallAdjustCalls = 0;
-						runtime.PreviousWallAdjustRepeats = 0;
-						runtime.PreviousWallAdjustRecoveryAttempts = 0;
-						runtime.PreviousWallAdjustRecoverySuccesses = 0;
-						runtime.PreviousWallAdjustForcedReplans = 0;
-						runtime.PreviousMoveStallDetections = 0;
-						runtime.PreviousMoveStallEpisodeResets = 0;
-						runtime.PreviousMoveStallForcedReplans = 0;
-						runtime.PreviousMoveStallNavigationForcedReplans = 0;
-						runtime.PreviousMoveStallTargetlessMoveToTimeouts = 0;
-						runtime.PreviousMoveStallEligibleSeconds = 0.0;
-						runtime.PreviousFailedNavigationAvoidanceActivations = 0;
-						runtime.PreviousFailedNavigationSafeguardSuppressions = 0;
-						runtime.PreviousFailedNavigationRoutePenaltyApplications = 0;
-						runtime.PreviousFallingSeamDetections = 0;
-						runtime.PreviousHorizontalCornerCandidateProbes = 0;
-						runtime.PreviousHorizontalCornerAuthorizedEscapes = 0;
-						runtime.PreviousHorizontalCornerTargetProgressRejects = 0;
-						runtime.PreviousHorizontalCornerUnknownOrUnsafeSupport = 0;
-					}
-					auto accumulatePawnCounter = [](uint64_t current, uint64_t& previous, uint64_t& total)
-					{
-						total += current >= previous ? current - previous : current;
-						previous = current;
-					};
-					accumulatePawnCounter(pawn->PainLedgeVetoCount(), runtime.PreviousPainLedgeVetoes,
-						runtime.PainLedgeVetoesExact);
-					accumulatePawnCounter(pawn->PainLedgeRepeatVetoCount(), runtime.PreviousPainLedgeRepeatVetoes,
-						runtime.PainLedgeRepeatVetoesExact);
-					accumulatePawnCounter(pawn->PainLedgeRecoveryAttemptCount(),
-						runtime.PreviousPainLedgeRecoveryAttempts, runtime.PainLedgeRecoveryAttemptsExact);
-					accumulatePawnCounter(pawn->PainLedgeRecoveryEscapeCount(),
-						runtime.PreviousPainLedgeRecoveryEscapes, runtime.PainLedgeRecoveryEscapesExact);
-					accumulatePawnCounter(pawn->WallAdjustCallCount(), runtime.PreviousWallAdjustCalls,
-						runtime.WallAdjustCallsExact);
-					accumulatePawnCounter(pawn->WallAdjustRepeatCount(), runtime.PreviousWallAdjustRepeats,
-						runtime.WallAdjustRepeatsExact);
-					accumulatePawnCounter(pawn->WallAdjustRecoveryAttemptCount(),
-						runtime.PreviousWallAdjustRecoveryAttempts, runtime.WallAdjustRecoveryAttemptsExact);
-					accumulatePawnCounter(pawn->WallAdjustRecoverySuccessCount(),
-						runtime.PreviousWallAdjustRecoverySuccesses, runtime.WallAdjustRecoverySuccessesExact);
-					accumulatePawnCounter(pawn->WallAdjustForcedReplanCount(),
-						runtime.PreviousWallAdjustForcedReplans, runtime.WallAdjustForcedReplansExact);
-					accumulatePawnCounter(pawn->MoveStallDetectionCount(),
-						runtime.PreviousMoveStallDetections, runtime.MoveStallDetectionsExact);
-					accumulatePawnCounter(pawn->MoveStallEpisodeResetCount(),
-						runtime.PreviousMoveStallEpisodeResets, runtime.MoveStallEpisodeResetsExact);
-					accumulatePawnCounter(pawn->MoveStallForcedReplanCount(),
-						runtime.PreviousMoveStallForcedReplans, runtime.MoveStallForcedReplansExact);
-					accumulatePawnCounter(pawn->MoveStallNavigationForcedReplanCount(),
-						runtime.PreviousMoveStallNavigationForcedReplans,
-						runtime.MoveStallNavigationForcedReplansExact);
-					accumulatePawnCounter(pawn->MoveStallTargetlessMoveToTimeoutCount(),
-						runtime.PreviousMoveStallTargetlessMoveToTimeouts,
-						runtime.MoveStallTargetlessMoveToTimeoutsExact);
-					accumulatePawnCounter(pawn->FailedNavigationAvoidanceActivationCount(),
-						runtime.PreviousFailedNavigationAvoidanceActivations,
-						runtime.FailedNavigationAvoidanceActivationsExact);
-					accumulatePawnCounter(pawn->FailedNavigationSafeguardSuppressionCount(),
-						runtime.PreviousFailedNavigationSafeguardSuppressions,
-						runtime.FailedNavigationSafeguardSuppressionsExact);
-					accumulatePawnCounter(pawn->FailedNavigationRoutePenaltyApplicationCount(),
-						runtime.PreviousFailedNavigationRoutePenaltyApplications,
-						runtime.FailedNavigationRoutePenaltyApplicationsExact);
-					accumulatePawnCounter(pawn->FallingSeamDetectionCount(),
-						runtime.PreviousFallingSeamDetections,
-						runtime.FallingSeamDetectionsExact);
-					accumulatePawnCounter(pawn->HorizontalCornerCandidateProbeCount(),
-						runtime.PreviousHorizontalCornerCandidateProbes,
-						runtime.HorizontalCornerCandidateProbesExact);
-					accumulatePawnCounter(pawn->HorizontalCornerAuthorizedEscapeCount(),
-						runtime.PreviousHorizontalCornerAuthorizedEscapes,
-						runtime.HorizontalCornerAuthorizedEscapesExact);
-					accumulatePawnCounter(pawn->HorizontalCornerTargetProgressRejectCount(),
-						runtime.PreviousHorizontalCornerTargetProgressRejects,
-						runtime.HorizontalCornerTargetProgressRejectsExact);
-					accumulatePawnCounter(pawn->HorizontalCornerUnknownOrUnsafeSupportCount(),
-						runtime.PreviousHorizontalCornerUnknownOrUnsafeSupport,
-						runtime.HorizontalCornerUnknownOrUnsafeSupportExact);
-					auto accumulatePawnDuration = [](double current, double& previous, double& total)
-					{
-						if (!std::isfinite(current) || current < 0.0)
-							return;
-						const double delta = current >= previous ? current - previous : current;
-						if (std::isfinite(total + delta))
-							total += delta;
-						previous = current;
-					};
-					accumulatePawnDuration(pawn->MoveStallEligibleSeconds(),
-						runtime.PreviousMoveStallEligibleSeconds, runtime.MoveStallEligibleSeconds);
+					AccumulateNativePawnCounters(actual.Identity, runtime, pawn,
+						BotBenchmarkDriverDetail::NativePawnCounterSample::LivePawn);
 					runtime.Pri = pawn->PlayerReplicationInfo();
 					bot.State = pawn->GetStateName().ToString();
 					bot.PositionX = pawn->Location().x;
@@ -1130,47 +1045,49 @@ namespace
 				bot.SuicidesExact = runtime.SuicidesExact;
 				bot.EnvironmentalDeathsExact = runtime.EnvironmentalDeathsExact;
 				bot.HazardExposedDeathsProxy = runtime.HazardExposedDeathsProxy;
-				bot.DirectSelfKills = runtime.DirectSelfKills;
-				bot.DirectEnemyKills = runtime.DirectEnemyKills;
-				bot.UnassistedEnvironmentalDeaths = runtime.UnassistedEnvironmentalDeaths;
+				bot.DirectSelfKills = runtime.DeathAttribution.DirectSelfKills;
+				bot.DirectEnemyKills = runtime.DeathAttribution.DirectEnemyKills;
+				bot.UnassistedEnvironmentalDeaths =
+					runtime.DeathAttribution.UnassistedEnvironmentalDeaths;
 				bot.RecentEnemyContributedEnvironmentalDeathsProxy =
-					runtime.RecentEnemyContributedEnvironmentalDeathsProxy;
-				bot.AmbiguousDeaths = runtime.AmbiguousDeaths;
+					runtime.DeathAttribution.RecentEnemyContributedEnvironmentalDeathsProxy;
+				bot.AmbiguousDeaths = runtime.DeathAttribution.AmbiguousDeaths;
 				bot.RecentEnemyMomentumContributedEnvironmentalDeathsProxy =
-					runtime.RecentEnemyMomentumContributedEnvironmentalDeathsProxy;
+					runtime.DeathAttribution.RecentEnemyMomentumContributedEnvironmentalDeathsProxy;
 				bot.HitWallEventsExact = runtime.HitWallEventsExact;
-				bot.PainLedgeVetoesExact = runtime.PainLedgeVetoesExact;
-				bot.PainLedgeRepeatVetoesExact = runtime.PainLedgeRepeatVetoesExact;
-				bot.PainLedgeRecoveryAttemptsExact = runtime.PainLedgeRecoveryAttemptsExact;
-				bot.PainLedgeRecoveryEscapesExact = runtime.PainLedgeRecoveryEscapesExact;
-				bot.WallAdjustCallsExact = runtime.WallAdjustCallsExact;
-				bot.WallAdjustRepeatsExact = runtime.WallAdjustRepeatsExact;
-				bot.WallAdjustRecoveryAttemptsExact = runtime.WallAdjustRecoveryAttemptsExact;
-				bot.WallAdjustRecoverySuccessesExact = runtime.WallAdjustRecoverySuccessesExact;
-				bot.WallAdjustForcedReplansExact = runtime.WallAdjustForcedReplansExact;
-				bot.MoveStallDetectionsExact = runtime.MoveStallDetectionsExact;
-				bot.MoveStallEpisodeResetsExact = runtime.MoveStallEpisodeResetsExact;
-				bot.MoveStallForcedReplansExact = runtime.MoveStallForcedReplansExact;
+				const auto& native = runtime.NativeCounterTotals;
+				bot.PainLedgeVetoesExact = native.PainLedgeVetoes;
+				bot.PainLedgeRepeatVetoesExact = native.PainLedgeRepeatVetoes;
+				bot.PainLedgeRecoveryAttemptsExact = native.PainLedgeRecoveryAttempts;
+				bot.PainLedgeRecoveryEscapesExact = native.PainLedgeRecoveryEscapes;
+				bot.WallAdjustCallsExact = native.WallAdjustCalls;
+				bot.WallAdjustRepeatsExact = native.WallAdjustRepeats;
+				bot.WallAdjustRecoveryAttemptsExact = native.WallAdjustRecoveryAttempts;
+				bot.WallAdjustRecoverySuccessesExact = native.WallAdjustRecoverySuccesses;
+				bot.WallAdjustForcedReplansExact = native.WallAdjustForcedReplans;
+				bot.MoveStallDetectionsExact = native.MoveStallDetections;
+				bot.MoveStallEpisodeResetsExact = native.MoveStallEpisodeResets;
+				bot.MoveStallForcedReplansExact = native.MoveStallForcedReplans;
 				bot.MoveStallNavigationForcedReplansExact =
-					runtime.MoveStallNavigationForcedReplansExact;
+					native.MoveStallNavigationForcedReplans;
 				bot.MoveStallTargetlessMoveToTimeoutsExact =
-					runtime.MoveStallTargetlessMoveToTimeoutsExact;
-				bot.MoveStallEligibleSeconds = runtime.MoveStallEligibleSeconds;
+					native.MoveStallTargetlessMoveToTimeouts;
+				bot.MoveStallEligibleSeconds = native.MoveStallEligibleSeconds;
 				bot.FailedNavigationAvoidanceActivationsExact =
-					runtime.FailedNavigationAvoidanceActivationsExact;
+					native.FailedNavigationAvoidanceActivations;
 				bot.FailedNavigationSafeguardSuppressionsExact =
-					runtime.FailedNavigationSafeguardSuppressionsExact;
+					native.FailedNavigationSafeguardSuppressions;
 				bot.FailedNavigationRoutePenaltyApplicationsExact =
-					runtime.FailedNavigationRoutePenaltyApplicationsExact;
-				bot.FallingSeamDetectionsExact = runtime.FallingSeamDetectionsExact;
+					native.FailedNavigationRoutePenaltyApplications;
+				bot.FallingSeamDetectionsExact = native.FallingSeamDetections;
 				bot.HorizontalCornerCandidateProbesExact =
-					runtime.HorizontalCornerCandidateProbesExact;
+					native.HorizontalCornerCandidateProbes;
 				bot.HorizontalCornerAuthorizedEscapesExact =
-					runtime.HorizontalCornerAuthorizedEscapesExact;
+					native.HorizontalCornerAuthorizedEscapes;
 				bot.HorizontalCornerTargetProgressRejectsExact =
-					runtime.HorizontalCornerTargetProgressRejectsExact;
+					native.HorizontalCornerTargetProgressRejects;
 				bot.HorizontalCornerUnknownOrUnsafeSupportExact =
-					runtime.HorizontalCornerUnknownOrUnsafeSupportExact;
+					native.HorizontalCornerUnknownOrUnsafeSupport;
 				runtime.LastState = bot;
 				runtime.HasLastState = true;
 				bots.push_back(std::move(bot));
@@ -1257,7 +1174,7 @@ namespace
 		UFunction* CanonicalTakeDamageFunction = nullptr;
 		UFunction* CanonicalAddVelocityFunction = nullptr;
 		VMCallHookHandle QualityHookHandle = 0;
-		uint32_t KilledHookDepth = 0;
+		std::map<std::string, uint32_t> KilledHookDepths;
 		uint32_t HitWallHookDepth = 0;
 		bool IsUnrealTournamentProfile = false;
 	};
