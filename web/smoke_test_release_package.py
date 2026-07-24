@@ -104,8 +104,8 @@ with sync_playwright() as playwright:
 		result["startupDiagnostics"].get("build", {}).get("id") != manifest.get("buildId") or
 		len(result["startupDiagnostics"].get("criticalAssets", [])) != 2 or
 		"launcher-ready" not in [entry.get("stage") for entry in result["startupDiagnostics"].get("milestones", [])] or
-		"experimental preview" not in (result["releaseNotice"] or "") or
-		"unverified on physical Quest hardware" not in (result["releaseNotice"] or "") or
+		"Direct WebGL 2 is the production desktop-to-VR path" not in (result["releaseNotice"] or "") or
+		"physical Quest qualification is still required" not in (result["releaseNotice"] or "") or
 		"No game or demo data is bundled or downloaded by this site" not in (result["releaseNotice"] or "") or
 		result["sourceUI"]["href"] != compliance.get("sourceUrl") or
 		compliance.get("archiveSha256") not in (result["sourceUI"]["text"] or "") or
@@ -230,14 +230,16 @@ with sync_playwright() as playwright:
 		},
 	})""")
 	expected_entry = "Surreal_StartBrowserGame" if compliance.get("buildProvenance", {}).get("browserEntryPoint") == "asyncify-opfs" else "callMain"
+	expected_renderer = "webgl2" if manifest.get("build", {}).get("webgl2Renderer") else "webgpu"
 	if (presentations != [] or integration["entry"] != expected_entry or
-		integration["args"] != ["--autoplay", "--url=Vortex2", "--render=webgpu", "/gamedata"] or
+		integration["args"] != ["--autoplay", "--url=Vortex2", "--render=" + expected_renderer, "/gamedata"] or
 		integration["dominantHands"] != [1] or
 		integration["selection"] != {"gameId": "unreal-gold", "map": "Vortex2",
 			"presentationId": "flat", "xrDominantHand": "right"} or
 		integration["xr"]["panelHidden"] or not integration["xr"]["enterDisabled"] or
 		not integration["xr"]["preLaunchPresentationControlAbsent"] or
 		integration["xr"]["controllerState"] != "FlatRunning"):
+		print(json.dumps({"presentations": presentations, "integration": integration}, indent=2), file=sys.stderr)
 		print("FAIL: staged package game detection or flat launch", file=sys.stderr)
 		sys.exit(1)
 	layout = integration["layout"]
