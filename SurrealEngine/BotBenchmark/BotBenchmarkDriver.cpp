@@ -497,6 +497,14 @@ namespace
 				pawn->HarmfulZoneEscapeForcedReplanCount();
 			counters.HarmfulZoneEscapeNoSafeCandidates =
 				pawn->HarmfulZoneEscapeNoSafeCandidateCount();
+			counters.HazardSwimEgressEpisodes = pawn->HazardSwimEgressEpisodeCount();
+			counters.HazardSwimEgressEligible = pawn->HazardSwimEgressEligibleCount();
+			counters.HazardSwimEgressAuthorized = pawn->HazardSwimEgressAuthorizedCount();
+			counters.HazardSwimEgressDebounced = pawn->HazardSwimEgressDebouncedCount();
+			counters.HazardSwimEgressNoAnchorRejected = pawn->HazardSwimEgressNoAnchorRejectedCount();
+			counters.HazardSwimEgressExited = pawn->HazardSwimEgressExitCount();
+			counters.HazardSwimEgressDeathsBeforeExit = pawn->HazardSwimEgressDeathsBeforeExitCount();
+			counters.HazardSwimEgressForcedReplans = pawn->HazardSwimEgressForcedReplanCount();
 			counters.FallingSeamDetections = pawn->FallingSeamDetectionCount();
 			counters.HorizontalCornerCandidateProbes =
 				pawn->HorizontalCornerCandidateProbeCount();
@@ -604,6 +612,7 @@ namespace
 			if (victimRuntime != QualityParticipants.end())
 			{
 				QualityParticipantRuntime& counters = victimRuntime->second;
+				victim->RecordHazardSwimEgressDeath();
 				victim->FinishFallingHazardDeath();
 				victim->FinishFallingParityRealizedTrace(
 					PawnMovement::FallingParityRealizedOutcome::Died);
@@ -1215,6 +1224,14 @@ namespace
 					native.HarmfulZoneEscapeForcedReplans;
 				bot.HarmfulZoneEscapeNoSafeCandidatesExact =
 					native.HarmfulZoneEscapeNoSafeCandidates;
+				bot.HazardSwimEgressEpisodesExact = native.HazardSwimEgressEpisodes;
+				bot.HazardSwimEgressEligibleExact = native.HazardSwimEgressEligible;
+				bot.HazardSwimEgressAuthorizedExact = native.HazardSwimEgressAuthorized;
+				bot.HazardSwimEgressDebouncedExact = native.HazardSwimEgressDebounced;
+				bot.HazardSwimEgressNoAnchorRejectedExact = native.HazardSwimEgressNoAnchorRejected;
+				bot.HazardSwimEgressExitedExact = native.HazardSwimEgressExited;
+				bot.HazardSwimEgressDeathsBeforeExitExact = native.HazardSwimEgressDeathsBeforeExit;
+				bot.HazardSwimEgressForcedReplansExact = native.HazardSwimEgressForcedReplans;
 				bot.FallingSeamDetectionsExact = native.FallingSeamDetections;
 				bot.HorizontalCornerCandidateProbesExact =
 					native.HorizontalCornerCandidateProbes;

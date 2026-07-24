@@ -77,6 +77,14 @@ struct BotBenchmarkBotState
 	uint64_t HarmfulZoneEscapeSuccessfulEscapesExact = 0;
 	uint64_t HarmfulZoneEscapeForcedReplansExact = 0;
 	uint64_t HarmfulZoneEscapeNoSafeCandidatesExact = 0;
+	uint64_t HazardSwimEgressEpisodesExact = 0;
+	uint64_t HazardSwimEgressEligibleExact = 0;
+	uint64_t HazardSwimEgressAuthorizedExact = 0;
+	uint64_t HazardSwimEgressDebouncedExact = 0;
+	uint64_t HazardSwimEgressNoAnchorRejectedExact = 0;
+	uint64_t HazardSwimEgressExitedExact = 0;
+	uint64_t HazardSwimEgressDeathsBeforeExitExact = 0;
+	uint64_t HazardSwimEgressForcedReplansExact = 0;
 	uint64_t FallingSeamDetectionsExact = 0;
 	uint64_t HorizontalCornerCandidateProbesExact = 0;
 	uint64_t HorizontalCornerAuthorizedEscapesExact = 0;

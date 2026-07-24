@@ -144,6 +144,16 @@ HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS = (
     "harmful_zone_escape_forced_replans_exact",
     "harmful_zone_escape_no_safe_candidates_exact",
 )
+HAZARD_SWIM_EGRESS_EXACT_COUNTERS = (
+    "hazard_swim_egress_episodes_exact",
+    "hazard_swim_egress_eligible_exact",
+    "hazard_swim_egress_authorized_exact",
+    "hazard_swim_egress_debounced_exact",
+    "hazard_swim_egress_no_anchor_rejected_exact",
+    "hazard_swim_egress_exited_exact",
+    "hazard_swim_egress_died_before_exit_exact",
+    "hazard_swim_egress_forced_replans_exact",
+)
 DEATH_ATTRIBUTION_COUNTERS = (
     "direct_self_kills", "direct_enemy_kills", "unassisted_environmental_deaths",
     "recent_enemy_contributed_environmental_deaths_proxy", "ambiguous_deaths",
@@ -264,11 +274,12 @@ VERTICAL_PAIN_COLUMN_COUNTERS = VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS + (
 METRIC_DIRECTIONS.update({
     name: None for name in (
         WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
-        + VERTICAL_PAIN_COLUMN_COUNTERS)
+        + VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS)
 })
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
     + FAILED_NAVIGATION_EXACT_COUNTERS + HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS
+    + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
     + DEATH_ATTRIBUTION_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
@@ -1814,6 +1825,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("wall adjust", WALL_ADJUST_EXACT_COUNTERS),
                 ("failed navigation", FAILED_NAVIGATION_EXACT_COUNTERS),
                 ("harmful-zone escape", HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS),
+                ("hazard swim egress", HAZARD_SWIM_EGRESS_EXACT_COUNTERS),
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
@@ -1865,6 +1877,30 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if result["harmful_zone_escape_forced_replans_exact"] > \
                     result["harmful_zone_escape_recovery_attempts_exact"]:
                 raise QualityError(f"{context}: harmful-zone escape replans exceed recovery attempts")
+        if "hazard_swim_egress_episodes_exact" in result:
+            episodes = result["hazard_swim_egress_episodes_exact"]
+            eligible = result["hazard_swim_egress_eligible_exact"]
+            authorized = result["hazard_swim_egress_authorized_exact"]
+            debounced = result["hazard_swim_egress_debounced_exact"]
+            no_anchor = result["hazard_swim_egress_no_anchor_rejected_exact"]
+            exited = result["hazard_swim_egress_exited_exact"]
+            died_before_exit = result["hazard_swim_egress_died_before_exit_exact"]
+            forced_replans = result["hazard_swim_egress_forced_replans_exact"]
+            if eligible + no_anchor > episodes:
+                raise QualityError(
+                    f"{context}: hazard swim egress eligibility/no-anchor counts exceed episodes")
+            if authorized + debounced > eligible:
+                raise QualityError(
+                    f"{context}: hazard swim egress authorized/debounced counts exceed eligibility")
+            if exited + died_before_exit > episodes:
+                raise QualityError(
+                    f"{context}: hazard swim egress terminal outcomes exceed episodes")
+            if died_before_exit > authorized:
+                raise QualityError(
+                    f"{context}: hazard swim egress deaths before exit exceed authorization")
+            if forced_replans > authorized:
+                raise QualityError(
+                    f"{context}: hazard swim egress forced replans exceed authorization")
         if "direct_self_kills" in result:
             primary_attributions = sum(result[name] for name in DEATH_ATTRIBUTION_COUNTERS[:-1])
             if primary_attributions != result["deaths_exact"]:

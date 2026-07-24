@@ -15,6 +15,7 @@
 #include "PawnWalkingStepPreflight.h"
 #include "PawnWallAdjustRecovery.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
+#include "BotAI/HazardSwimEgressGate.h"
 
 class UTexture;
 class UPrimitive;
@@ -1930,6 +1931,10 @@ public:
 	void UpdateActorZone() override;
 	void ObserveHarmfulZoneEscapeBoundary(UZoneInfo* oldZone, UZoneInfo* newZone,
 		bool footBoundary);
+	void CaptureHazardSwimEgressAnchorBeforePhysicsMove();
+	void ObserveHazardSwimEgressAfterPhysicsMove();
+	void EndHazardSwimEgressSwimSession();
+	void RecordHazardSwimEgressDeath();
 
 	void MoveTo(const vec3& newDestination, float speed);
 	void MoveToward(UActor* newTarget, float speed);
@@ -2048,6 +2053,14 @@ public:
 	uint64_t HarmfulZoneEscapeSuccessfulEscapeCount() const { return HarmfulZoneEscapeSuccessfulEscapeCountValue; }
 	uint64_t HarmfulZoneEscapeForcedReplanCount() const { return HarmfulZoneEscapeForcedReplanCountValue; }
 	uint64_t HarmfulZoneEscapeNoSafeCandidateCount() const { return HarmfulZoneEscapeNoSafeCandidateCountValue; }
+	uint64_t HazardSwimEgressEpisodeCount() const { return HazardSwimEgressEpisodeCountValue; }
+	uint64_t HazardSwimEgressEligibleCount() const { return HazardSwimEgressEligibleCountValue; }
+	uint64_t HazardSwimEgressAuthorizedCount() const { return HazardSwimEgressAuthorizedCountValue; }
+	uint64_t HazardSwimEgressDebouncedCount() const { return HazardSwimEgressDebouncedCountValue; }
+	uint64_t HazardSwimEgressNoAnchorRejectedCount() const { return HazardSwimEgressNoAnchorRejectedCountValue; }
+	uint64_t HazardSwimEgressExitCount() const { return HazardSwimEgressExitCountValue; }
+	uint64_t HazardSwimEgressDeathsBeforeExitCount() const { return HazardSwimEgressDeathsBeforeExitCountValue; }
+	uint64_t HazardSwimEgressForcedReplanCount() const { return HazardSwimEgressForcedReplanCountValue; }
 	uint64_t FallingSeamDetectionCount() const { return FallingSeamDetectionCountValue; }
 	uint64_t HorizontalCornerCandidateProbeCount() const { return HorizontalCornerCandidateProbeCountValue; }
 	uint64_t HorizontalCornerAuthorizedEscapeCount() const { return HorizontalCornerAuthorizedEscapeCountValue; }
@@ -2302,6 +2315,7 @@ private:
 	bool ApplyWallAdjustRecovery(const vec2& requestedDirection);
 	bool ApplyHarmfulZoneEscape();
 	void EndHarmfulZoneEscapeLife();
+	void ResetHazardSwimEgressObservation();
 
 	bool IsInPathSpecialHandling = false;
 	PawnMovement::FailedNavigationMemoryState FailedNavigationMemory;
@@ -2320,6 +2334,17 @@ private:
 	BotAI::HarmfulZoneEscapeGate HarmfulZoneEscapeGate;
 	uint64_t HarmfulZoneEscapeLifeId = 1;
 	uint64_t HarmfulZoneEscapeEpisodeId = 0;
+	struct HazardSwimEgressState
+	{
+		bool AnchorKnown = false;
+		vec3 Anchor = vec3(0.0f);
+		bool HarmfulWaterEpisodeActive = false;
+		bool ActionActive = false;
+	};
+	HazardSwimEgressState HazardSwimEgress;
+	BotAI::HazardSwimEgressGate HazardSwimEgressGate;
+	uint64_t HazardSwimEgressLifeId = 1;
+	uint64_t HazardSwimEgressEpisodeId = 0;
 	PawnMovement::FallingSeamEpisodeState FallingSeamEpisode;
 	PawnMovement::WalkingStepPreflightEpisodeState WalkingStepPreflightEpisode;
 	bool WalkingStepExplicitJumpRequested = false;
@@ -2348,6 +2373,14 @@ private:
 	uint64_t HarmfulZoneEscapeSuccessfulEscapeCountValue = 0;
 	uint64_t HarmfulZoneEscapeForcedReplanCountValue = 0;
 	uint64_t HarmfulZoneEscapeNoSafeCandidateCountValue = 0;
+	uint64_t HazardSwimEgressEpisodeCountValue = 0;
+	uint64_t HazardSwimEgressEligibleCountValue = 0;
+	uint64_t HazardSwimEgressAuthorizedCountValue = 0;
+	uint64_t HazardSwimEgressDebouncedCountValue = 0;
+	uint64_t HazardSwimEgressNoAnchorRejectedCountValue = 0;
+	uint64_t HazardSwimEgressExitCountValue = 0;
+	uint64_t HazardSwimEgressDeathsBeforeExitCountValue = 0;
+	uint64_t HazardSwimEgressForcedReplanCountValue = 0;
 	uint64_t FallingSeamDetectionCountValue = 0;
 	uint64_t HorizontalCornerCandidateProbeCountValue = 0;
 	uint64_t HorizontalCornerAuthorizedEscapeCountValue = 0;

@@ -118,6 +118,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/BotAI/BotMovementSafety.h
 	SurrealEngine/BotAI/HarmfulZoneEscapeGate.cpp
 	SurrealEngine/BotAI/HarmfulZoneEscapeGate.h
+	SurrealEngine/BotAI/HazardSwimEgressGate.cpp
+	SurrealEngine/BotAI/HazardSwimEgressGate.h
 	SurrealEngine/BotAI/UtilityBotPolicy.cpp
 	SurrealEngine/BotAI/UtilityBotPolicy.h
 	SurrealEngine/BotAI/TacticalBotPolicy.cpp

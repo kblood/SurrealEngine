@@ -38,6 +38,14 @@ namespace BotBenchmarkDriverDetail
 		uint64_t HarmfulZoneEscapeSuccessfulEscapes = 0;
 		uint64_t HarmfulZoneEscapeForcedReplans = 0;
 		uint64_t HarmfulZoneEscapeNoSafeCandidates = 0;
+		uint64_t HazardSwimEgressEpisodes = 0;
+		uint64_t HazardSwimEgressEligible = 0;
+		uint64_t HazardSwimEgressAuthorized = 0;
+		uint64_t HazardSwimEgressDebounced = 0;
+		uint64_t HazardSwimEgressNoAnchorRejected = 0;
+		uint64_t HazardSwimEgressExited = 0;
+		uint64_t HazardSwimEgressDeathsBeforeExit = 0;
+		uint64_t HazardSwimEgressForcedReplans = 0;
 		uint64_t FallingSeamDetections = 0;
 		uint64_t HorizontalCornerCandidateProbes = 0;
 		uint64_t HorizontalCornerAuthorizedEscapes = 0;
@@ -177,6 +185,25 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.HarmfulZoneEscapeNoSafeCandidates,
 				Previous.HarmfulZoneEscapeNoSafeCandidates,
 				totals.HarmfulZoneEscapeNoSafeCandidates);
+			AccumulateCounter(current.HazardSwimEgressEpisodes, Previous.HazardSwimEgressEpisodes,
+				totals.HazardSwimEgressEpisodes);
+			AccumulateCounter(current.HazardSwimEgressEligible, Previous.HazardSwimEgressEligible,
+				totals.HazardSwimEgressEligible);
+			AccumulateCounter(current.HazardSwimEgressAuthorized, Previous.HazardSwimEgressAuthorized,
+				totals.HazardSwimEgressAuthorized);
+			AccumulateCounter(current.HazardSwimEgressDebounced, Previous.HazardSwimEgressDebounced,
+				totals.HazardSwimEgressDebounced);
+			AccumulateCounter(current.HazardSwimEgressNoAnchorRejected,
+				Previous.HazardSwimEgressNoAnchorRejected,
+				totals.HazardSwimEgressNoAnchorRejected);
+			AccumulateCounter(current.HazardSwimEgressExited, Previous.HazardSwimEgressExited,
+				totals.HazardSwimEgressExited);
+			AccumulateCounter(current.HazardSwimEgressDeathsBeforeExit,
+				Previous.HazardSwimEgressDeathsBeforeExit,
+				totals.HazardSwimEgressDeathsBeforeExit);
+			AccumulateCounter(current.HazardSwimEgressForcedReplans,
+				Previous.HazardSwimEgressForcedReplans,
+				totals.HazardSwimEgressForcedReplans);
 			AccumulateCounter(current.FallingSeamDetections, Previous.FallingSeamDetections,
 				totals.FallingSeamDetections);
 			AccumulateCounter(current.HorizontalCornerCandidateProbes,
