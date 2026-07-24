@@ -823,6 +823,40 @@ No live walking veto is enabled. Iteration 48 is useful instrumentation, but
 it neither prevents the known Deck fall nor improves bot results, and is
 therefore **not release-ready or merge-ready as a bot behavior change**.
 
+## Iteration 49: retail pawn subzone callbacks
+
+Exact UT436 and Unreal 226b package/disassembly evidence showed that Surreal
+sent `FootZoneChange` and `HeadZoneChange` to the wrong receiver with the wrong
+argument. Retail calls the pawn with the new `ZoneInfo`, retains the old
+`FootRegion`/`HeadRegion` during the callback, then publishes the new region.
+The shared fix also removes native pain/drowning timer compensation because
+the exact Pawn script handlers already implement entry and exit timing.
+
+The pre-fix and candidate executable SHA-256 values were respectively
+`D541794E2BBF3BB239AD3E7C7239917E190890D5BE3C5F2BC648A19B1446E80E` and
+`25ACADC3F4441226F032B5D85668D4BE92882410698434ED49F4E62117F9F7DD`.
+Three UT Deck cases and Unreal `DmDeck16`/`DmDeathFan` all passed exact
+five-artifact candidate repeat comparison. All ten candidate matches completed
+and passed structural analysis.
+
+The A/B quality result is mixed. UT seed 104729 changed K2/D4 to K1/D4,
+unassisted environmental deaths 1 to 2, hazard deaths 2 to 3, and walls 291 to
+319. Seed 271828 stayed K1/D2 while walls rose 380 to 399. Seed 314159 changed
+K2/D3 to K1/D4, unassisted environmental deaths 1 to 2, enemy-contributed
+environmental deaths 0 to 1, hazard entries/deaths 1 to 3, walls 422 to 626,
+and movement-intent stuck episodes 0 to 2. In every UT case, the first A/B
+divergence is 16 health points at pain entry rather than movement. Correct
+scripted pain timing exposes suicides that the broken callback had delayed or
+masked; it does not create evidence that the bot decision was safe.
+
+Unreal `DmDeck16` remained artifact-equivalent at K0/D0. Unreal `DmDeathFan`
+kept 3 kills while deaths improved 8 to 6, unassisted environmental deaths 5
+to 3, hazard entries 14 to 5, walls 643 to 605, and stuck episodes 1 to 0.
+The callback change is required cross-game engine fidelity and restores bot
+overrides such as `FindAir.HeadZoneChange`, but it is not bot-release-ready by
+itself. The UT regressions make conservative pre-entry hazard classification
+and realized falling correlation the next blocking work.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
