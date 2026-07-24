@@ -26,7 +26,7 @@ struct GameLaunchInfo
 	bool IsDeusEx() const { return Support().Id() == GameId::DeusEx; }
 	bool IsCliveBarkersUndying() const { return gameExecutableName == "Undying"; }
 	bool IsKlingonHonorGuard() const { return gameExecutableName == "Klingons" || gameExecutableName == "Khg"; }
-	bool IsRune() const { return gameExecutableName == "Rune"; }
+	bool IsRune() const { return Support().Id() == GameId::Rune; }
 	bool IsHarryPotter1() const { return gameExecutableName == "HP"; }
 	bool IsHarryPotter2() const { return gameExecutableName == "Game"; }
 };

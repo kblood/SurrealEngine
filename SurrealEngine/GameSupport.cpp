@@ -61,6 +61,12 @@ namespace
 		}
 	}
 
+	void RegisterRuneNativeFunctions(const GameLaunchInfo&)
+	{
+		// No Rune-specific native classes exist yet; gap discovery against a
+		// real Rune install determines what belongs here.
+	}
+
 	void RegisterDeusExNativeFunctions(const GameLaunchInfo&)
 	{
 		NDebugInfo::RegisterFunctions();
@@ -128,7 +134,8 @@ const GameSupport& GameSupportRegistry::Find(std::string_view executableName)
 	{
 		{ GameId::Unreal, "Unreal", 0, RegisterUnrealNativeFunctions },
 		{ GameId::UnrealTournament, "UnrealTournament", 0, nullptr },
-		{ GameId::DeusEx, "DeusEx", deusExCapabilities, RegisterDeusExNativeFunctions }
+		{ GameId::DeusEx, "DeusEx", deusExCapabilities, RegisterDeusExNativeFunctions },
+		{ GameId::Rune, "Rune", 0, RegisterRuneNativeFunctions }
 	};
 
 	for (const GameSupport& game : games)

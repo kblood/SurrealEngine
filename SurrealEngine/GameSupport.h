@@ -10,7 +10,8 @@ enum class GameId
 	Unknown,
 	Unreal,
 	UnrealTournament,
-	DeusEx
+	DeusEx,
+	Rune
 };
 
 enum class GameCapability : uint32_t
