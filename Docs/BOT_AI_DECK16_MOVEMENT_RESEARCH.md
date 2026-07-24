@@ -509,15 +509,27 @@ authorization, so it cannot justify a live veto. Conversely, seed 314159 tick
 then invokes `EAdjustJump` and changes the pawn to falling. A read-only
 preflight must not guess through that callback.
 
-The next work is a minimum native-parity helper set:
-`BeginFallingParityStep`, `ResolveFallingDirectSweep`, and
-`ResolveFallingAlignedSweep`, driven with exact bounded `TickPhysics` substeps
-of at most 0.02 seconds and explicit-origin `ProbeMoveCollision` sweeps. It
-must stop and fail open at script-visible `HitWall`, `Touch`/`UnTouch`/`Bump`,
-mover, dynamic-actor, or zone-transition boundaries. Any future restoration
-also requires a proven reverse move and static walkable non-pain support after
-the real callback. This design is not implemented. Iteration 48 enables no
-live veto and is not release-ready or merge-ready as bot behavior.
+The pure part of the minimum native-parity helper set is now implemented and
+unit tested: exact bounded `TickPhysics` substep scheduling,
+`BeginFallingParityStep`, `ResolveFallingParityDirectSweep`, and
+`ResolveFallingParityAlignedSweep`. Tests cover clear integration, speed caps,
+partial blocked slides, displacement-derived velocity, the native direct versus
+aligned `0.7071` threshold asymmetry, two-contact bounds, and fail-open malformed,
+mover, dynamic, water, bounce, and exhausted-horizon evidence. No runtime
+adapter calls these helpers yet. That adapter must use explicit-origin
+`ProbeMoveCollision` sweeps and stop at script-visible `HitWall`,
+`Touch`/`UnTouch`/`Bump`, mover, dynamic-actor, or zone-transition boundaries.
+Any future restoration also requires a proven reverse move and static walkable
+non-pain support after the real callback. Iteration 48 enables no live veto and
+is not release-ready or merge-ready as bot behavior.
+
+The same observer was also exercised on Unreal Gold 226b `DmDeck16` with its
+native `UnrealShare.DeathMatchGame` adapter. Seed 104729 passed baseline/candidate
+and candidate-repeat equivalence for all five artifacts. It recorded 5,353
+observations, 624 unsupported endpoints, 107 provisional predictions, zero
+post-`MayFall` confirmations, and zero overflows. This proves deterministic,
+behavior-neutral coverage of the shared path in Unreal; it is not evidence for
+a live policy.
 
 ## Wall callback and ledge-property parity audit
 

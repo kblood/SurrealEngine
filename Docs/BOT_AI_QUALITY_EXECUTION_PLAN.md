@@ -796,18 +796,28 @@ authorization. It is not promotable. The negative trace at tick 55 in seed
 state, so the observer returns the explicit callback-required unknown reason
 without forecasting or acting.
 
-The current fall forecast is not `TickFalling` parity. It uses different
+The current runtime fall forecast is not `TickFalling` parity. It uses different
 substep timing and residual-motion arithmetic, predicts velocity rather than
 deriving it from actual displacement/elapsed where native physics does so, and
 cannot reproduce script-visible `HitWall`, `Touch`/`UnTouch`/`Bump`, mover,
 dynamic-actor, or zone-transition effects. The minimum next helper design is
-to factor `BeginFallingParityStep`, `ResolveFallingDirectSweep`, and
-`ResolveFallingAlignedSweep`, then drive them with the exact bounded
+to factor `BeginFallingParityStep`, `ResolveFallingParityDirectSweep`, and
+`ResolveFallingParityAlignedSweep`, then drive them with the exact bounded
 `TickPhysics` substeps of at most 0.02 seconds and explicit-origin
-`ProbeMoveCollision` sweeps. Any script-visible callback or mover, dynamic, or
-zone evidence must fail open. Before any later live restore is considered, a
-reverse move and static walkable non-pain support must also be proven from the
-post-callback state. These helpers are next work, not implemented.
+`ProbeMoveCollision` sweeps. The pure numerical helpers and their focused tests
+are now implemented, including blocked aligned sweeps, displacement-derived
+velocity, threshold asymmetry, and conservative evidence bounds. They are not
+connected to runtime forecasting. Any script-visible callback or mover,
+dynamic, or zone evidence must fail open. Before any later live restore is
+considered, a reverse move and static walkable non-pain support must also be
+proven from the post-callback state.
+
+The unchanged benchmark-only observer also passed a cross-game check on Unreal
+Gold 226b `DmDeck16`: baseline/candidate and candidate-repeat comparisons were
+exact for all five artifacts. The run recorded 5,353 observations, 624
+unsupported endpoints, 107 provisional predictions, zero post-`MayFall`
+confirmations, zero episodes, and zero overflows. It demonstrates shared-path
+coverage and determinism, not a quality improvement.
 
 No live walking veto is enabled. Iteration 48 is useful instrumentation, but
 it neither prevents the known Deck fall nor improves bot results, and is
