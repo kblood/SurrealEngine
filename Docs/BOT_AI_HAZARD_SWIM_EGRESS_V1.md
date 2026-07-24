@@ -39,7 +39,26 @@ zero eligible and authorized actions. The fall-to-water entry therefore has no
 safe prior swimming anchor. This is the intended fail-closed result and means
 that live egress steering is not ready to implement from this anchor model.
 
-The next experiment must observe a separately proven, recent safe location
-across the falling-to-water boundary before any live action is considered. It
-must retain default-off behavior and demonstrate that the original death is
-removed without a safety regression on UT99 and Unreal held-out matrices.
+The next observer revision captures a separate falling pre-move anchor only
+immediately before a falling physics move when cached center, foot, and head
+zones are all static, dry, non-harmful, and finite. It overwrites the anchor
+on each valid falling move, and only retains it across a falling tick when the
+cached zones prove continuous water transit. Once swimming has been observed,
+it also survives a falling physics-mode change because UE1's cached zone state
+can lag that transition; walking, flying, and life boundaries reset it. This
+relaxation is observer-only. Live authorization still requires static water at
+every zone, plus later explicit anchor-age, distance, collision, and endpoint
+checks. It records
+exact capture/use counters and still makes no live movement decision.
+
+With the revised lifecycle, the same two Deck16 target repeats recorded one
+Alys episode, one eligible/authorized gate result, and one falling-anchor use
+each. The original environmental death remained in both runs, as required for
+a behavior-neutral observer. The retained evidence is
+`qa/runs/2026-07-25/hazard-swim-egress-v1-observer/ut-deck271828-observer-runs-v12`.
+
+Only if this observer authorizes the original episode consistently may a later
+candidate collision-test the path from the current swimming position toward
+the anchor, revalidate both zones, and steer through ordinary acceleration.
+It must remain default-off and demonstrate that the original death is removed
+without a safety regression on UT99 and Unreal held-out matrices.

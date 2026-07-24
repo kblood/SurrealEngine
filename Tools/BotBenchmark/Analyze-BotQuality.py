@@ -154,6 +154,10 @@ HAZARD_SWIM_EGRESS_EXACT_COUNTERS = (
     "hazard_swim_egress_died_before_exit_exact",
     "hazard_swim_egress_forced_replans_exact",
 )
+FALLING_PRE_MOVE_ANCHOR_COUNTERS = (
+    "falling_pre_move_anchor_captures_exact",
+    "falling_pre_move_anchor_uses_exact",
+)
 DEATH_ATTRIBUTION_COUNTERS = (
     "direct_self_kills", "direct_enemy_kills", "unassisted_environmental_deaths",
     "recent_enemy_contributed_environmental_deaths_proxy", "ambiguous_deaths",
@@ -274,12 +278,14 @@ VERTICAL_PAIN_COLUMN_COUNTERS = VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS + (
 METRIC_DIRECTIONS.update({
     name: None for name in (
         WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
-        + VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS)
+        + VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
+        + FALLING_PRE_MOVE_ANCHOR_COUNTERS)
 })
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
     + FAILED_NAVIGATION_EXACT_COUNTERS + HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS
     + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
+    + FALLING_PRE_MOVE_ANCHOR_COUNTERS
     + DEATH_ATTRIBUTION_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
@@ -1826,6 +1832,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("failed navigation", FAILED_NAVIGATION_EXACT_COUNTERS),
                 ("harmful-zone escape", HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS),
                 ("hazard swim egress", HAZARD_SWIM_EGRESS_EXACT_COUNTERS),
+                ("falling pre-move anchor", FALLING_PRE_MOVE_ANCHOR_COUNTERS),
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
@@ -1901,6 +1908,11 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if forced_replans > authorized:
                 raise QualityError(
                     f"{context}: hazard swim egress forced replans exceed authorization")
+        if "falling_pre_move_anchor_captures_exact" in result:
+            if result["falling_pre_move_anchor_uses_exact"] > \
+                    result["falling_pre_move_anchor_captures_exact"]:
+                raise QualityError(
+                    f"{context}: falling pre-move anchor uses exceed captures")
         if "direct_self_kills" in result:
             primary_attributions = sum(result[name] for name in DEATH_ATTRIBUTION_COUNTERS[:-1])
             if primary_attributions != result["deaths_exact"]:

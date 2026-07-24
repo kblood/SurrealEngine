@@ -254,7 +254,11 @@ int main()
 		",\"hazard_swim_egress_no_anchor_rejected_exact\":\"0\""
 		",\"hazard_swim_egress_exited_exact\":\"0\""
 		",\"hazard_swim_egress_died_before_exit_exact\":\"0\""
-		",\"hazard_swim_egress_forced_replans_exact\":\"0\"";
+		",\"hazard_swim_egress_forced_replans_exact\":\"0\""
+		",\"hazard_swim_egress_falling_pre_move_anchor_captures_exact\":\"0\""
+		",\"hazard_swim_egress_falling_pre_move_anchor_uses_exact\":\"0\""
+		",\"hazard_swim_egress_anchor_known\":false"
+		",\"hazard_swim_egress_anchor_source\":\"\"";
 	for (const std::string controlCounterMarker : {
 		std::string("\"failed_navigation_route_penalty_applications_exact\":\"0\""),
 		std::string("\"failed_navigation_route_penalty_applications_exact\":\"4\"") })

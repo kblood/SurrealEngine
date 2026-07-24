@@ -405,6 +405,63 @@ class BotQualityAnalysisTests(unittest.TestCase):
                     QUALITY.QualityError, "terminal outcomes exceed episodes"):
                 QUALITY.analyze_run(invalid_terminal)
 
+    def test_falling_pre_move_anchor_counters_are_complete_and_bounded(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.FALLING_PRE_MOVE_ANCHOR_COUNTERS}
+        final = {
+            **zero,
+            "falling_pre_move_anchor_captures_exact": 3,
+            "falling_pre_move_anchor_uses_exact": 2,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "falling-pre-move-anchor", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, **zero}, {**common, **final}, {**common, **final},
+            ])
+            metrics = QUALITY.analyze([valid])["runs"][0]["metrics"]
+            self.assertEqual(metrics["falling_pre_move_anchor_captures_exact"], 3)
+            self.assertEqual(metrics["falling_pre_move_anchor_uses_exact"], 2)
+
+            partial = write_v2_run(root, "falling-pre-move-anchor-partial", bot_count=1)
+            partial_final = {**final}
+            partial_final.pop("falling_pre_move_anchor_uses_exact")
+            upgrade_telemetry_v2(partial, counters=[
+                {**common, **zero}, {**common, **partial_final}, {**common, **partial_final},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "falling pre-move anchor counters must be provided"):
+                QUALITY.analyze_run(partial)
+
+            excessive_use = write_v2_run(root, "falling-pre-move-anchor-excess", bot_count=1)
+            excessive_final = {
+                **final, "falling_pre_move_anchor_uses_exact": 4,
+            }
+            upgrade_telemetry_v2(excessive_use, counters=[
+                {**common, **zero}, {**common, **excessive_final},
+                {**common, **excessive_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "uses exceed captures"):
+                QUALITY.analyze_run(excessive_use)
+
+            regressed = write_v2_run(root, "falling-pre-move-anchor-regressed", bot_count=1)
+            upgrade_telemetry_v2(regressed, counters=[
+                {**common, **zero}, {**common, **final},
+                {**common, "falling_pre_move_anchor_captures_exact": 2,
+                 "falling_pre_move_anchor_uses_exact": 2},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "captures_exact regressed"):
+                QUALITY.analyze_run(regressed)
+
+            absent = write_v2_run(root, "falling-pre-move-anchor-absent", bot_count=1)
+            upgrade_telemetry_v2(absent, counters=[common, common, common])
+            QUALITY.analyze_run(absent)
+
     def test_falling_parity_and_vertical_column_counters_are_exclusive_and_reported(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,

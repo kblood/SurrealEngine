@@ -437,6 +437,10 @@ namespace
 			<< ",\"hazard_swim_egress_exited_exact\":\"" << bot.HazardSwimEgressExitedExact << "\""
 			<< ",\"hazard_swim_egress_died_before_exit_exact\":\"" << bot.HazardSwimEgressDeathsBeforeExitExact << "\""
 			<< ",\"hazard_swim_egress_forced_replans_exact\":\"" << bot.HazardSwimEgressForcedReplansExact << "\""
+			<< ",\"hazard_swim_egress_falling_pre_move_anchor_captures_exact\":\"" << bot.HazardSwimEgressFallingPreMoveAnchorCapturesExact << "\""
+			<< ",\"hazard_swim_egress_falling_pre_move_anchor_uses_exact\":\"" << bot.HazardSwimEgressFallingPreMoveAnchorUsesExact << "\""
+			<< ",\"hazard_swim_egress_anchor_known\":" << (bot.HazardSwimEgressAnchorKnown ? "true" : "false")
+			<< ",\"hazard_swim_egress_anchor_source\":" << JsonString(bot.HazardSwimEgressAnchorSource)
 			<< ",\"falling_seam_detections_exact\":\"" << bot.FallingSeamDetectionsExact << "\""
 			<< ",\"horizontal_corner_candidate_probes_exact\":\"" << bot.HorizontalCornerCandidateProbesExact << "\""
 			<< ",\"horizontal_corner_authorized_escapes_exact\":\"" << bot.HorizontalCornerAuthorizedEscapesExact << "\""

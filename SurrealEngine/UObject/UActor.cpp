@@ -1368,7 +1368,7 @@ void UActor::TickFalling(float elapsed)
 	UDecoration* decor = UObject::TryCast<UDecoration>(this);
 	UPawn* pawn = UObject::TryCast<UPawn>(this);
 	if (pawn)
-		pawn->EndHazardSwimEgressSwimSession();
+		pawn->BeginHazardSwimEgressFallingTick();
 
 	// UnrealScript property references
 	vec3& acceleration = Acceleration();
@@ -1483,6 +1483,8 @@ void UActor::TickFalling(float elapsed)
 		}
 
 		const vec3 iterationStartLocation = location;
+		if (pawn)
+			pawn->CaptureHazardSwimEgressFallingAnchorBeforePhysicsMove();
 		MoveCallbackEvidence realizedMoveCallbacks;
 		const bool observeFallingHazard = pawn
 			&& pawn->PrepareFallingHazardSweep(
@@ -1491,6 +1493,8 @@ void UActor::TickFalling(float elapsed)
 		CollisionHit hit = TryMove(moveDelta, false, true,
 			(observeRealizedParity || observeFallingHazard)
 				? &realizedMoveCallbacks : nullptr);
+		if (pawn && Physics() == PHYS_Swimming)
+			pawn->ObserveHazardSwimEgressAfterPhysicsMove();
 		bool realizedCallbackBarrier = false;
 		if (observeRealizedParity && pawn && !pawn->bDeleteMe())
 		{
@@ -1587,7 +1591,11 @@ void UActor::TickFalling(float elapsed)
 			{
 				callFallingHitWall(hit);
 				vec3 reflectedDelta = reflect(moveDelta, hit.Normal);
+				if (pawn)
+					pawn->CaptureHazardSwimEgressFallingAnchorBeforePhysicsMove();
 				hit = TryMove(reflectedDelta);
+				if (pawn && Physics() == PHYS_Swimming)
+					pawn->ObserveHazardSwimEgressAfterPhysicsMove();
 				if (realizedCallbackBarrier && pawn
 					&& !pawn->HasFallingParityRealizedContinuity())
 				{
@@ -1616,8 +1624,12 @@ void UActor::TickFalling(float elapsed)
 							&& pawn->PrepareFallingHazardSweep(
 								PawnMovement::FallingHazardSweepLeg::Aligned,
 								location, alignedDelta, 0.0f);
+						if (pawn)
+							pawn->CaptureHazardSwimEgressFallingAnchorBeforePhysicsMove();
 						hit = TryMove(alignedDelta, false, true,
 							observeAlignedHazard ? &alignedMoveCallbacks : nullptr);
+						if (pawn && Physics() == PHYS_Swimming)
+							pawn->ObserveHazardSwimEgressAfterPhysicsMove();
 						if (pawn && !pawn->bDeleteMe()
 							&& engine->IsBotBenchmarkWalkingPreflightEnabled())
 							pawn->ObserveFallingParityRealizedPain();
@@ -1668,8 +1680,12 @@ void UActor::TickFalling(float elapsed)
 								&& pawn->PrepareFallingHazardSweep(
 									PawnMovement::FallingHazardSweepLeg::TwoWallAdjusted,
 									location, adjustedDelta, 0.0f);
+							if (pawn)
+								pawn->CaptureHazardSwimEgressFallingAnchorBeforePhysicsMove();
 							hit = TryMove(adjustedDelta, false, true,
 								observeAdjustedHazard ? &adjustedMoveCallbacks : nullptr);
+							if (pawn && Physics() == PHYS_Swimming)
+								pawn->ObserveHazardSwimEgressAfterPhysicsMove();
 							if (pawn && !pawn->bDeleteMe()
 								&& engine->IsBotBenchmarkWalkingPreflightEnabled())
 								pawn->ObserveFallingParityRealizedPain();
@@ -5212,16 +5228,66 @@ void UPawn::EndHazardSwimEgressSwimSession()
 	ResetHazardSwimEgressObservation();
 }
 
-void UPawn::CaptureHazardSwimEgressAnchorBeforePhysicsMove()
+void UPawn::BeginHazardSwimEgressFallingTick()
 {
 	const bool validContext = engine->IsBotBenchmarkHazardSwimEgressEnabled()
 		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
-		&& !bDeleteMe() && Health() > 0 && Physics() == PHYS_Swimming;
+		&& !bDeleteMe() && Health() > 0 && Physics() == PHYS_Falling;
 	if (!validContext)
 	{
 		ResetHazardSwimEgressObservation();
 		return;
 	}
+
+	const std::array<UZoneInfo*, 3> zones = {
+		Region().Zone, FootRegion().Zone, HeadRegion().Zone
+	};
+	const bool waterTransit = std::all_of(zones.begin(), zones.end(),
+		[](UZoneInfo* zone) { return zone != nullptr; })
+		&& std::any_of(zones.begin(), zones.end(),
+			[](UZoneInfo* zone) { return zone->bWaterZone(); });
+	if (!waterTransit && !HazardSwimEgress.SwimmingSessionObserved)
+		ResetHazardSwimEgressObservation();
+}
+
+void UPawn::CaptureHazardSwimEgressFallingAnchorBeforePhysicsMove()
+{
+	const bool validContext = engine->IsBotBenchmarkHazardSwimEgressEnabled()
+		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
+		&& !bDeleteMe() && Health() > 0 && Physics() == PHYS_Falling;
+	if (!validContext)
+		return;
+
+	const std::array<UZoneInfo*, 3> zones = {
+		Region().Zone, FootRegion().Zone, HeadRegion().Zone
+	};
+	const bool safeAnchor = IsFiniteVector(Location())
+		&& std::all_of(zones.begin(), zones.end(), [](UZoneInfo* zone)
+		{
+			return zone && zone->bStatic() && !zone->bWaterZone()
+				&& !IsExactHarmfulZone(zone);
+		});
+	if (!safeAnchor)
+		return;
+
+	HazardSwimEgress.Anchor = Location();
+	HazardSwimEgress.AnchorKnown = true;
+	HazardSwimEgress.Source = HazardSwimEgressState::AnchorSource::FallingPreMove;
+	HazardSwimEgressFallingPreMoveAnchorCaptureCountValue++;
+}
+
+void UPawn::CaptureHazardSwimEgressAnchorBeforePhysicsMove()
+{
+	const bool eligibleBot = engine->IsBotBenchmarkHazardSwimEgressEnabled()
+		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
+		&& !bDeleteMe() && Health() > 0;
+	if (!eligibleBot)
+	{
+		ResetHazardSwimEgressObservation();
+		return;
+	}
+	if (Physics() != PHYS_Swimming)
+		return;
 
 	const std::array<UZoneInfo*, 3> zones = {
 		Region().Zone, FootRegion().Zone, HeadRegion().Zone
@@ -5235,19 +5301,23 @@ void UPawn::CaptureHazardSwimEgressAnchorBeforePhysicsMove()
 	{
 		HazardSwimEgress.Anchor = Location();
 		HazardSwimEgress.AnchorKnown = true;
+		HazardSwimEgress.Source = HazardSwimEgressState::AnchorSource::SafeSwimming;
 	}
+	HazardSwimEgress.SwimmingSessionObserved = true;
 }
 
 void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 {
-	const bool validContext = engine->IsBotBenchmarkHazardSwimEgressEnabled()
+	const bool eligibleBot = engine->IsBotBenchmarkHazardSwimEgressEnabled()
 		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
-		&& !bDeleteMe() && Health() > 0 && Physics() == PHYS_Swimming;
-	if (!validContext)
+		&& !bDeleteMe() && Health() > 0;
+	if (!eligibleBot)
 	{
 		ResetHazardSwimEgressObservation();
 		return;
 	}
+	if (Physics() != PHYS_Swimming)
+		return;
 
 	const std::array<UZoneInfo*, 3> zones = {
 		Region().Zone, FootRegion().Zone, HeadRegion().Zone
@@ -5263,8 +5333,6 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 		HazardSwimEgress.HarmfulWaterEpisodeActive = false;
 		HazardSwimEgress.ActionActive = false;
 		HazardSwimEgressGate.Reset();
-		if (!primaryZone || !primaryZone->bWaterZone())
-			EndHazardSwimEgressSwimSession();
 		return;
 	}
 
@@ -5281,6 +5349,8 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 	}
 
 	HazardSwimEgressEligibleCountValue++;
+	if (HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove)
+		HazardSwimEgressFallingPreMoveAnchorUseCountValue++;
 	const BotAI::HazardSwimEgressEligibility decision =
 		HazardSwimEgressGate.Evaluate({ HazardSwimEgressLifeId,
 			HazardSwimEgressEpisodeId, true, static_cast<double>(primaryZone->DamagePerSec()), true,
@@ -5297,6 +5367,19 @@ void UPawn::RecordHazardSwimEgressDeath()
 	if (HazardSwimEgress.ActionActive && HazardSwimEgress.HarmfulWaterEpisodeActive
 		&& Physics() == PHYS_Swimming && !bDeleteMe())
 		HazardSwimEgressDeathsBeforeExitCountValue++;
+}
+
+const char* UPawn::HazardSwimEgressAnchorSourceName() const
+{
+	switch (HazardSwimEgress.Source)
+	{
+	case HazardSwimEgressState::AnchorSource::SafeSwimming:
+		return "safe_swimming";
+	case HazardSwimEgressState::AnchorSource::FallingPreMove:
+		return "falling_pre_move";
+	default:
+		return "none";
+	}
 }
 
 void UPawn::ObserveHarmfulZoneEscapeBoundary(UZoneInfo* oldZone, UZoneInfo* newZone,

@@ -1931,6 +1931,8 @@ public:
 	void UpdateActorZone() override;
 	void ObserveHarmfulZoneEscapeBoundary(UZoneInfo* oldZone, UZoneInfo* newZone,
 		bool footBoundary);
+	void BeginHazardSwimEgressFallingTick();
+	void CaptureHazardSwimEgressFallingAnchorBeforePhysicsMove();
 	void CaptureHazardSwimEgressAnchorBeforePhysicsMove();
 	void ObserveHazardSwimEgressAfterPhysicsMove();
 	void EndHazardSwimEgressSwimSession();
@@ -2061,6 +2063,16 @@ public:
 	uint64_t HazardSwimEgressExitCount() const { return HazardSwimEgressExitCountValue; }
 	uint64_t HazardSwimEgressDeathsBeforeExitCount() const { return HazardSwimEgressDeathsBeforeExitCountValue; }
 	uint64_t HazardSwimEgressForcedReplanCount() const { return HazardSwimEgressForcedReplanCountValue; }
+	uint64_t HazardSwimEgressFallingPreMoveAnchorCaptureCount() const
+	{
+		return HazardSwimEgressFallingPreMoveAnchorCaptureCountValue;
+	}
+	uint64_t HazardSwimEgressFallingPreMoveAnchorUseCount() const
+	{
+		return HazardSwimEgressFallingPreMoveAnchorUseCountValue;
+	}
+	bool HasHazardSwimEgressAnchor() const { return HazardSwimEgress.AnchorKnown; }
+	const char* HazardSwimEgressAnchorSourceName() const;
 	uint64_t FallingSeamDetectionCount() const { return FallingSeamDetectionCountValue; }
 	uint64_t HorizontalCornerCandidateProbeCount() const { return HorizontalCornerCandidateProbeCountValue; }
 	uint64_t HorizontalCornerAuthorizedEscapeCount() const { return HorizontalCornerAuthorizedEscapeCountValue; }
@@ -2336,8 +2348,17 @@ private:
 	uint64_t HarmfulZoneEscapeEpisodeId = 0;
 	struct HazardSwimEgressState
 	{
+		enum class AnchorSource : uint8_t
+		{
+			None,
+			SafeSwimming,
+			FallingPreMove
+		};
+
 		bool AnchorKnown = false;
 		vec3 Anchor = vec3(0.0f);
+		AnchorSource Source = AnchorSource::None;
+		bool SwimmingSessionObserved = false;
 		bool HarmfulWaterEpisodeActive = false;
 		bool ActionActive = false;
 	};
@@ -2381,6 +2402,8 @@ private:
 	uint64_t HazardSwimEgressExitCountValue = 0;
 	uint64_t HazardSwimEgressDeathsBeforeExitCountValue = 0;
 	uint64_t HazardSwimEgressForcedReplanCountValue = 0;
+	uint64_t HazardSwimEgressFallingPreMoveAnchorCaptureCountValue = 0;
+	uint64_t HazardSwimEgressFallingPreMoveAnchorUseCountValue = 0;
 	uint64_t FallingSeamDetectionCountValue = 0;
 	uint64_t HorizontalCornerCandidateProbeCountValue = 0;
 	uint64_t HorizontalCornerAuthorizedEscapeCountValue = 0;
