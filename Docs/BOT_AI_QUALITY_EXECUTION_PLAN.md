@@ -1073,6 +1073,24 @@ mask and pre/post-callback state rather than infer that source after the fact.
 Live control remains disabled until the shadow demonstrates useful recall on
 the audited positives, preserves all safe negatives, and repeats exactly.
 
+Damage truth and bot policy are separate. Outcome correlation uses
+`bPainZone && DamagePerSec > 0`; `DamageType != ReducedDamageType` only marks
+whether stock Bot/Bots avoidance logic considers that damage when choosing a
+retreat state. A different harmful-zone identity or a harmful entry simultaneous
+with a non-zone callback is ambiguous. A known harmful entry after a negative
+forecast is a false negative, including harmful water; unrelated combat death
+before a forecast terminal is censored unknown, not a false positive or true
+negative.
+
+The initial per-generation bounds are 256 actual swept subsegments and four
+seconds. Aligned and two-wall-adjusted legs may consume zero additional time
+because retail already charged their outer falling slice. A four-second horizon
+that expires while the pawn is still falling closes unknown and starts a typed
+`horizon_continuation_commit` generation. This covers the audited Deck and
+DeathFan intervals without assigning Morpheus's 9.5-to-15.7-second wall cycles
+to one causal forecast. The runtime retains only the active generation and
+emits completed summaries immediately, avoiding a large per-pawn history array.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

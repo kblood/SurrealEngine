@@ -730,6 +730,15 @@ contact, or unavailable zone evidence. Four proven safe drops, including a
 is authorized by this research: callbacks and large drops are not hazards by
 themselves.
 
+The first runtime bound is 256 swept subsegments or four seconds per forecast
+generation. Morpheus's audited callback-to-pain delays are approximately 9.5,
+9.5, and 15.7 seconds, so horizon expiry must roll into a new committed
+generation rather than stretch one attribution window. This preserves bounded
+causality and leaves the long Morpheus episodes visible as a separate
+falling/wall-stall problem. Outcome truth uses positive `DamagePerSec`; stock
+`ReducedDamageType` comparison is retained separately as an avoidance-policy
+signal rather than treated as immunity.
+
 ## Wall callback and ledge-property parity audit
 
 Retail UT436 and Unreal 226b `Engine.Pawn` both define `MinHitWall` as a
