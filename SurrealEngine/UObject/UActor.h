@@ -465,6 +465,8 @@ public:
 	// Unreal 227 - Perform a single line check with this actor
 	bool TraceThisActor(vec3& TraceEnd, vec3 TraceStart, vec3* HitLocation, vec3* HitNormal, std::optional<vec3> Extent);
 
+	CollisionHit ProbeMoveCollision(const vec3& origin, const vec3& delta,
+		bool isOwnBaseBlocking = true, CollisionHitList* tracedHits = nullptr);
 	CollisionHit TryMove(const vec3 & delta, bool dryRun = false, bool isOwnBaseBlocking = true);
 	CollisionHit TryMoveSmooth(const vec3& delta);
 	bool Move(const vec3& delta);

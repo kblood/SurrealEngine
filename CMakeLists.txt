@@ -532,6 +532,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/UMusic.cpp
 	SurrealEngine/UObject/UClient.cpp
 	SurrealEngine/UObject/UActor.cpp
+	SurrealEngine/UObject/ActorMoveCollisionProbe.cpp
+	SurrealEngine/UObject/ActorMoveCollisionProbe.h
 	SurrealEngine/UObject/PawnFailedNavigationMemory.cpp
 	SurrealEngine/UObject/PawnFailedNavigationMemory.h
 	SurrealEngine/UObject/PawnInventoryReachability.cpp
@@ -1299,6 +1301,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(CollisionActorOrderTests PRIVATE SurrealEngine)
 	set_target_properties(CollisionActorOrderTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME CollisionActorOrder COMMAND CollisionActorOrderTests)
+
+	add_executable(ActorMoveCollisionProbeTests
+		Tests/ActorMoveCollisionProbeTests.cpp
+		SurrealEngine/UObject/ActorMoveCollisionProbe.cpp
+	)
+	target_include_directories(ActorMoveCollisionProbeTests PRIVATE SurrealEngine)
+	set_target_properties(ActorMoveCollisionProbeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ActorMoveCollisionProbe COMMAND ActorMoveCollisionProbeTests)
 
 	add_executable(PawnMovementArrivalTests
 		Tests/PawnMovementArrivalTests.cpp

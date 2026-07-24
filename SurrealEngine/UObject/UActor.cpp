@@ -7,6 +7,7 @@
 #include "UConSys.h"
 #include "USubsystem.h"
 #include "ActorMovement.h"
+#include "ActorMoveCollisionProbe.h"
 #include "PawnFailedNavigationMemory.h"
 #include "PawnFallingTwoPlaneSafety.h"
 #include "PawnLedgeTransition.h"
@@ -1841,9 +1842,9 @@ bool UActor::IsOverlapping(UActor* other)
 	return XLevel()->Collision.IsOverlapping(this, other);
 }
 
-CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlocking)
+CollisionHit UActor::ProbeMoveCollision(const vec3& origin, const vec3& delta,
+	bool isOwnBaseBlocking, CollisionHitList* tracedHits)
 {
-	// Static and non-movable objects can't move
 	if (bStatic() || !bMovable())
 	{
 		CollisionHit hit;
@@ -1851,44 +1852,62 @@ CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlock
 		return hit;
 	}
 
-	// Avoid moving if movement is too small as the physics code doesn't like very small numbers
 	if (dot(delta, delta) < 0.00000001f)
 		return {};
 
-	// Analyze what we will hit if we move as requested and stop if it is the level or a blocking actor
-	bool useBlockPlayers = UObject::TryCast<UPlayerPawn>(this) || UObject::TryCast<UProjectile>(this);
 	CollisionHit blockingHit;
-	CollisionHitList hits;
-	if (!Brush())
-	{
-		hits = XLevel()->Collision.Trace(Location(), Location() + delta, CollisionHeight(), CollisionRadius(), bCollideActors(), bCollideWorld(), false);
-		if (bCollideWorld() || bBlockActors() || bBlockPlayers())
-		{
-			for (auto& hit : hits)
-			{
-				if (hit.Actor)
-				{
-					bool isBlocking;
-					if (useBlockPlayers || UObject::TryCast<UPlayerPawn>(hit.Actor) || UObject::TryCast<UProjectile>(hit.Actor))
-						isBlocking = hit.Actor->bBlockPlayers() && bBlockPlayers();
-					else
-						isBlocking = hit.Actor->bBlockActors() && bBlockActors();
+	if (Brush())
+		return blockingHit;
 
-					// We never hit ourselves or anything moving along with us
-					if (isBlocking && (isOwnBaseBlocking || !hit.Actor->IsBasedOn(this)) && !IsBasedOn(hit.Actor))
-					{
-						blockingHit = hit;
-						break;
-					}
-				}
-				else
-				{
-					blockingHit = hit;
-					break;
-				}
+	CollisionHitList localHits;
+	CollisionHitList& hits = tracedHits ? *tracedHits : localHits;
+	hits = XLevel()->Collision.Trace(
+		origin, origin + delta, CollisionHeight(), CollisionRadius(), bCollideActors(), bCollideWorld(), false);
+	ActorMoveCollisionProbe::BlockingRules rules;
+	rules.ConsiderBlocking = bCollideWorld() || bBlockActors() || bBlockPlayers();
+	rules.MovingActorUsesPlayerBlocking = UObject::TryCast<UPlayerPawn>(this)
+		|| UObject::TryCast<UProjectile>(this);
+	rules.MovingActorBlocksActors = bBlockActors();
+	rules.MovingActorBlocksPlayers = bBlockPlayers();
+	rules.OwnBaseIsBlocking = isOwnBaseBlocking;
+
+	auto selected = ActorMoveCollisionProbe::SelectFirstBlockingHit(
+		hits.begin(), hits.end(), rules, [this](const CollisionHit& hit)
+		{
+			ActorMoveCollisionProbe::HitProperties properties;
+			properties.IsWorld = hit.Actor == nullptr;
+			properties.HasActor = hit.Actor != nullptr;
+			if (hit.Actor)
+			{
+				properties.HitActorUsesPlayerBlocking = UObject::TryCast<UPlayerPawn>(hit.Actor)
+					|| UObject::TryCast<UProjectile>(hit.Actor);
+				properties.HitActorBlocksActors = hit.Actor->bBlockActors();
+				properties.HitActorBlocksPlayers = hit.Actor->bBlockPlayers();
+				properties.HitActorIsBasedOnMovingActor = hit.Actor->IsBasedOn(this);
+				properties.MovingActorIsBasedOnHitActor = IsBasedOn(hit.Actor);
 			}
-		}
+			return properties;
+		});
+	if (selected != hits.end())
+		blockingHit = *selected;
+	return blockingHit;
+}
+
+CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlocking)
+{
+	if (bStatic() || !bMovable())
+	{
+		CollisionHit hit;
+		hit.Fraction = 0.0f;
+		return hit;
 	}
+
+	if (dot(delta, delta) < 0.00000001f)
+		return {};
+
+	bool useBlockPlayers = UObject::TryCast<UPlayerPawn>(this) || UObject::TryCast<UProjectile>(this);
+	CollisionHitList hits;
+	CollisionHit blockingHit = ProbeMoveCollision(Location(), delta, isOwnBaseBlocking, &hits);
 
 	if (dryRun)
 		return blockingHit;
