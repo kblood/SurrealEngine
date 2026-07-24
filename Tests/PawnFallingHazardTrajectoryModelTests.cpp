@@ -292,6 +292,89 @@ namespace
 			"generation evidence cannot cross fall episodes within one pawn life");
 	}
 
+	void TestInvalidKnownZoneIdentitiesFailClosed()
+	{
+		using namespace PawnMovement;
+		FallingHazardForecastArm arm = {
+			.Life = { 1 },
+			.FallEpisode = { 10 },
+			.Source = FallingHazardForecastSource::ExistingFallingCommit,
+			.Forecast = FallingHazardForecast::Unknown,
+			.StartingPhysicsZone = Zone(0)
+		};
+		Check(!ArmFallingHazardForecast({}, arm).Armed,
+			"a known starting zone requires a positive actor identity");
+
+		arm.StartingPhysicsZone = Zone(100);
+		arm.Forecast = FallingHazardForecast::HarmfulPainObserved;
+		arm.ExpectedHarmfulFootZone = Zone(0);
+		arm.ExpectedHarmfulPhysicsZone = Zone(42);
+		Check(!ArmFallingHazardForecast({}, arm).Armed,
+			"a known harmful foot zone requires a positive actor identity");
+		arm.ExpectedHarmfulFootZone = Zone(42);
+		arm.ExpectedHarmfulPhysicsZone = Zone(0);
+		Check(!ArmFallingHazardForecast({}, arm).Armed,
+			"a known harmful physics zone requires a positive actor identity");
+		arm.Forecast = FallingHazardForecast::NoHarmfulPainObserved;
+		arm.ExpectedHarmfulFootZone = {
+			.Known = false, .ZoneActorId = 42, .ZoneNumber = 0
+		};
+		arm.ExpectedHarmfulPhysicsZone = {};
+		Check(!ArmFallingHazardForecast({}, arm).Armed,
+			"an unknown expected zone cannot carry a stale actor identity");
+
+		auto armed = Arm({}, FallingHazardForecast::NoHarmfulPainObserved);
+		auto invalidPhysics = SafeSegment(armed.ArmedGeneration);
+		invalidPhysics.PhysicsZone = Zone(0);
+		const auto lost = ObserveFallingHazardSweptSegment(
+			armed.Model, invalidPhysics);
+		Check(lost.HasCompletedGeneration
+			&& CorrelateFallingHazardGeneration(lost.CompletedGeneration)
+				== FallingHazardCorrelation::Unknown
+			&& !lost.CompletedGeneration.PhysicsZoneEvidenceKnown
+			&& !lost.CompletedGeneration.LastObservedPhysicsZone.Known
+			&& lost.CompletedGeneration.LastObservedPhysicsZone.ZoneActorId == 0
+			&& lost.CompletedGeneration.LastObservedPhysicsZone.ZoneNumber == 0,
+			"a known-zero observed physics zone becomes sanitized unknown evidence");
+
+		armed = Arm({}, FallingHazardForecast::NoHarmfulPainObserved);
+		auto safeWithoutFootIdentity = SafeSegment(armed.ArmedGeneration);
+		safeWithoutFootIdentity.FootZone = {};
+		const auto safe = ObserveFallingHazardSweptSegment(
+			armed.Model, safeWithoutFootIdentity);
+		Check(!safe.HasCompletedGeneration
+			&& safe.Model.ActiveGeneration.HarmfulFootEvidenceKnown,
+			"known non-harmful truth does not require an unused foot-zone identity");
+
+		armed = Arm({}, FallingHazardForecast::HarmfulPainObserved);
+		auto invalidFoot = HarmfulSegment(armed.ArmedGeneration, 42, false);
+		invalidFoot.FootZone = Zone(0);
+		const auto unknownFoot = ObserveFallingHazardSweptSegment(
+			armed.Model, invalidFoot);
+		Check(unknownFoot.HasCompletedGeneration
+			&& CorrelateFallingHazardGeneration(unknownFoot.CompletedGeneration)
+				== FallingHazardCorrelation::Unknown
+			&& !unknownFoot.CompletedGeneration.HarmfulFootEvidenceKnown
+			&& !unknownFoot.CompletedGeneration.ObservedHarmfulFootZone.Known
+			&& unknownFoot.CompletedGeneration.ObservedHarmfulFootZone.ZoneActorId == 0
+			&& unknownFoot.CompletedGeneration.ObservedHarmfulFootZone.ZoneNumber == 0,
+			"a known-zero observed harmful foot zone is never copied to completion");
+
+		armed = Arm({}, FallingHazardForecast::HarmfulPainObserved);
+		auto invalidHarmfulPhysics = HarmfulSegment(
+			armed.ArmedGeneration, 42, false);
+		invalidHarmfulPhysics.PhysicsZone = Zone(0);
+		const auto unknownPhysics = ObserveFallingHazardSweptSegment(
+			armed.Model, invalidHarmfulPhysics);
+		Check(unknownPhysics.HasCompletedGeneration
+			&& CorrelateFallingHazardGeneration(unknownPhysics.CompletedGeneration)
+				== FallingHazardCorrelation::Unknown
+			&& !unknownPhysics.CompletedGeneration.PhysicsZoneEvidenceKnown
+			&& !unknownPhysics.CompletedGeneration.LastObservedPhysicsZone.Known
+			&& unknownPhysics.CompletedGeneration.LastObservedPhysicsZone.ZoneActorId == 0,
+			"known-zero harmful physics evidence is sanitized before completion");
+	}
+
 	void TestUnexpectedRegionFootAndHeadWaterFailClosed()
 	{
 		using namespace PawnMovement;
@@ -466,6 +549,25 @@ namespace
 		const auto overflow = Arm(atLimit, FallingHazardForecast::Unknown);
 		Check(!overflow.Armed && overflow.Model.GenerationCapacityExceeded,
 			"the high per-life generation count still has an explicit hard bound");
+		FallingHazardTrajectoryModel rejectedModel = atLimit;
+		uint32_t capacityTransitions = 0;
+		for (int attempt = 0; attempt < 3; attempt++)
+		{
+			const bool wasExceeded = rejectedModel.GenerationCapacityExceeded;
+			const auto rejected = Arm(rejectedModel, FallingHazardForecast::Unknown);
+			capacityTransitions += !wasExceeded
+				&& rejected.Model.GenerationCapacityExceeded ? 1u : 0u;
+			Check(!rejected.Armed,
+				"every arm beyond the per-life generation bound is rejected");
+			rejectedModel = rejected.Model;
+		}
+		Check(capacityTransitions == 1,
+			"capacity exhaustion has one latched transition per pawn life");
+		const auto nextLife = Arm(rejectedModel, FallingHazardForecast::Unknown,
+			FallingHazardForecastSource::ExistingFallingCommit, 2, 20);
+		Check(nextLife.Armed && !nextLife.Model.GenerationCapacityExceeded
+			&& nextLife.Model.GenerationCountForLife == 1,
+			"a new pawn life resets the one-shot capacity transition latch");
 
 		auto activeAtLimit = defaults.Model;
 		activeAtLimit.GenerationCountForLife =
@@ -497,6 +599,7 @@ int main()
 	TestDeathIsCensored();
 	TestZeroElapsedSecondaryLegsAndSafeLanding();
 	TestPhysicsZoneAndFallContinuity();
+	TestInvalidKnownZoneIdentitiesFailClosed();
 	TestUnexpectedRegionFootAndHeadWaterFailClosed();
 	TestNonharmfulUnstableContactsCompleteUnknown();
 	TestRearmStreamsCompletedGenerations();
