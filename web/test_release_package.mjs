@@ -25,7 +25,7 @@ try {
 		cmakeVersion: "test", buildType: "Release", releaseProfile: "diagnostic",
 		assertions: 2, stackOverflowCheck: 2, initialMemoryBytes: 268435456, allowMemoryGrowth: true,
 		threads: true, pthreadPoolSize: 2, wasmfsOpfs: false, wasmfsOpfsAsyncify: false,
-		proxyToPthread: false, browserEntryPoint: "call-main", surrealVideoLinkage: "static-wasm",
+		proxyToPthread: false, webgl2Renderer: false, browserEntryPoint: "call-main", surrealVideoLinkage: "static-wasm",
 	};
 	await writeFile(join(engine, "build-compliance-provenance.json"), JSON.stringify(provenance));
 	const sourceArchive = join(temporaryRoot, "SurrealEngine-corresponding-source.tar.gz");

@@ -6,6 +6,24 @@
 		return Object.freeze({ available, code, message });
 	}
 
+	function detectWebGL2(environment) {
+		try {
+			const document = environment && environment.document;
+			if (!document || typeof document.createElement !== "function")
+				return typeof environment.WebGL2RenderingContext === "function";
+			const canvas = document.createElement("canvas");
+			const context = canvas.getContext && canvas.getContext("webgl2", {
+				alpha: false, antialias: false, depth: true, failIfMajorPerformanceCaveat: true,
+			});
+			if (!context) return false;
+			const loss = context.getExtension && context.getExtension("WEBGL_lose_context");
+			if (loss) loss.loseContext();
+			return true;
+		} catch (_) {
+			return false;
+		}
+	}
+
 	async function detectPlatformCapabilities(environment) {
 		const host = environment || root;
 		const navigator = host.navigator || {};
@@ -18,6 +36,7 @@
 			(host.indexedDB ? "IndexedDB" : null);
 		const folderMode = typeof host.showDirectoryPicker === "function" ? "directory picker" :
 			(host.File && host.Blob ? "folder upload fallback" : null);
+		const webGL2 = detectWebGL2(host);
 		return Object.freeze({
 			secureContext: frozenCapability(host.isSecureContext !== false,
 				host.isSecureContext === false ? "insecure-context" : "ready",
@@ -25,7 +44,9 @@
 			webAssembly: frozenCapability(typeof host.WebAssembly === "object", "webassembly",
 				typeof host.WebAssembly === "object" ? "WebAssembly ready." : "WebAssembly is unavailable."),
 			webGPU: frozenCapability(!!navigator.gpu, "webgpu",
-				navigator.gpu ? "WebGPU ready." : "WebGPU is required by this build."),
+				navigator.gpu ? "WebGPU available as an optional renderer." : "WebGPU is unavailable; WebGL 2 or diagnostics can still run."),
+			webGL2: frozenCapability(webGL2, "webgl2",
+				webGL2 ? "WebGL 2 ready." : "WebGL 2 is unavailable."),
 			webAudio: frozenCapability(!!(host.AudioContext || host.webkitAudioContext), "webaudio",
 				(host.AudioContext || host.webkitAudioContext) ? "Web Audio ready; playback unlocks from an explicit button." : "Web Audio is unavailable."),
 			storage: frozenCapability(!!storageBackend, storageBackend ? storageBackend.toLowerCase() : "storage-unavailable",
@@ -37,7 +58,7 @@
 	}
 
 	function canStart(capabilities) {
-		return !!(capabilities && capabilities.secureContext.available && capabilities.webAssembly.available && capabilities.webGPU.available && capabilities.webAudio.available &&
+		return !!(capabilities && capabilities.secureContext.available && capabilities.webAssembly.available && capabilities.webAudio.available &&
 			capabilities.storage.available && capabilities.folderImport.available);
 	}
 
@@ -108,6 +129,7 @@
 			this.platform = platform;
 			this.webxr = webxr;
 			this.record("capabilities-ready", { webGPU: !!(platform && platform.webGPU && platform.webGPU.available),
+				webGL2: !!(platform && platform.webGL2 && platform.webGL2.available),
 				immersiveVR: !!(webxr && webxr.available) });
 		}
 
@@ -188,7 +210,7 @@
 			this.list.textContent = "";
 			const rows = [
 				["Secure hosting", platform.secureContext],
-				["WebAssembly", platform.webAssembly], ["WebGPU", platform.webGPU], ["Web Audio", platform.webAudio],
+				["WebAssembly", platform.webAssembly], ["WebGL 2", platform.webGL2], ["WebGPU", platform.webGPU], ["Web Audio", platform.webAudio],
 				["Game storage", platform.storage], ["Folder import", platform.folderImport],
 				["Immersive WebXR", webxr],
 			];
@@ -235,7 +257,7 @@
 		}
 		view.setCapabilities(platform, webxr);
 		if (!canStart(platform)) {
-			const message = "This browser cannot start the SurrealEngine WebGPU build. See the capability details above.";
+			const message = "This browser cannot start the SurrealEngine web runtime. See the capability details above.";
 			view.setError(message);
 			throw new Error(message);
 		}
@@ -247,7 +269,16 @@
 			view.setPhase(webxr.message || "Immersive WebXR capability changed.");
 		});
 		const suppliedAppOptions = settings.appOptions || {};
+		const packagedBuild = diagnostics.manifest && diagnostics.manifest.build || null;
+		const webGL2Compiled = packagedBuild ? packagedBuild.webgl2Renderer === true : settings.webgl2Renderer === true;
+		let availableRenderers = [];
+		if (webGL2Compiled && platform.webGL2.available) availableRenderers.push("webgl2");
+		if (platform.webGPU.available) availableRenderers.push("webgpu");
+		if (settings.allowNullRenderer !== false) availableRenderers.push("null");
+		if (Array.isArray(suppliedAppOptions.availableRenderers))
+			availableRenderers = availableRenderers.filter(renderer => suppliedAppOptions.availableRenderers.includes(renderer));
 		const appOptions = Object.assign({}, suppliedAppOptions, {
+			availableRenderers,
 			presentationProviders: [root.SurrealWebXRBrowserProvider.createProvider(webxr)],
 			onRuntimeMilestone: milestone => {
 				diagnostics.record(milestone.stage, milestone.detail);

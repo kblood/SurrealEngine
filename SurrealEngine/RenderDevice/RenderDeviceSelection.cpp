@@ -13,6 +13,12 @@ namespace
 	constexpr bool WebGPUCompiled = false;
 #endif
 
+#if defined(__EMSCRIPTEN__) && defined(SURREAL_WEBGL2_RENDERER)
+	constexpr bool WebGL2Compiled = true;
+#else
+	constexpr bool WebGL2Compiled = false;
+#endif
+
 #ifdef WIN32
 	constexpr bool D3D11Compiled = true;
 #else
@@ -28,8 +34,8 @@ namespace
 		{ RenderDeviceType::D3D12, RenderAPI::D3D12, "d3d12", "Direct3D 12", false,
 			"SurrealEngine does not currently contain a Direct3D 12 render device." },
 		{ RenderDeviceType::Null, RenderAPI::Bitmap, "null", "Null", true, {} },
-		{ RenderDeviceType::OpenGL, RenderAPI::OpenGL, "webgl2", "OpenGL / WebGL 2", false,
-			"SurrealEngine does not currently contain an OpenGL/WebGL 2 render device." },
+		{ RenderDeviceType::OpenGL, RenderAPI::OpenGL, "webgl2", "WebGL 2", WebGL2Compiled,
+			"The experimental WebGL 2 render device is not compiled in this build." },
 		{ RenderDeviceType::WebGPU, RenderAPI::WebGPU, "webgpu", "WebGPU", WebGPUCompiled,
 			"The WebGPU render device is only compiled for Emscripten browser builds." }
 	};

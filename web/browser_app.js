@@ -208,7 +208,8 @@
 			throw new LauncherError("LAUNCH_MAP", "The selected map name is unsafe.");
 		}
 		const renderer = selection.renderer || "webgpu";
-		if (renderer !== "webgpu" && renderer !== "null") throw new LauncherError("LAUNCH_RENDERER", "That renderer is not available in this browser build.");
+		if (renderer !== "webgl2" && renderer !== "webgpu" && renderer !== "null")
+			throw new LauncherError("LAUNCH_RENDERER", "That renderer is not available in this browser build.");
 		const args = ["--autoplay"];
 		if (skipIntro) args.push("--url=" + selection.map);
 		args.push("--render=" + renderer, "/gamedata");
@@ -344,6 +345,7 @@
 			this.game = root && root.querySelector("[data-launcher-game]");
 			this.error = root && root.querySelector("[data-launcher-error]");
 			this.form = root && root.querySelector("[data-launcher-form]");
+			this._configureRenderers(null);
 			if (this.form) this.form.addEventListener("submit", event => this._submit(event));
 			if (this.skipIntro) this.skipIntro.addEventListener("change", () => this._updateMapAvailability());
 			if (this.presentation) this.presentation.addEventListener("change", () => this._updatePresentationAvailability());
@@ -393,6 +395,16 @@
 			select.appendChild(option);
 		}
 
+		_configureRenderers(preferred) {
+			if (!this.renderer) return;
+			const labels = { webgl2: "WebGL 2", webgpu: "WebGPU", null: "No graphics (diagnostics)" };
+			const renderers = Array.isArray(this.options.availableRenderers) && this.options.availableRenderers.length ?
+				this.options.availableRenderers : ["webgpu", "null"];
+			this.renderer.textContent = "";
+			for (const renderer of renderers) this._option(this.renderer, renderer, labels[renderer] || renderer);
+			this.renderer.value = renderers.includes(preferred) ? preferred : renderers[0];
+		}
+
 		async selectLaunch(context) {
 			if (this.pending) throw new LauncherError("LAUNCH_PENDING", "A launch choice is already pending.");
 			this.context = context;
@@ -418,7 +430,7 @@
 				preferences.webXRPresentationPreference === "webgl-bridge" ? "webgl-bridge" : "auto";
 			if (this.webXRBridgeBlockingTiming) this.webXRBridgeBlockingTiming.checked = false;
 			if (this.webXRBridgeRotationReprojection) this.webXRBridgeRotationReprojection.checked = false;
-			if (this.renderer && preferences.renderer) this.renderer.value = preferences.renderer;
+			this._configureRenderers(preferences.renderer);
 			if (this.skipIntro) this.skipIntro.checked = preferences.skipIntro !== false;
 			if (this.xrDominantHand) this.xrDominantHand.value =
 				preferences.xrDominantHand === "left" ? "left" : "right";
@@ -434,11 +446,15 @@
 			try {
 				const provider = this.registry.get(this.presentation && this.presentation.value || "flat");
 				if (!provider || !provider.isAvailable()) throw new LauncherError("PRESENTATION_UNAVAILABLE", "That presentation mode is unavailable.");
+				const renderer = this.renderer && this.renderer.value || "webgpu";
+				const availableRenderers = Array.isArray(this.options.availableRenderers) ? this.options.availableRenderers : ["webgpu", "null"];
+				if (!availableRenderers.includes(renderer))
+					throw new LauncherError("LAUNCH_RENDERER", "That renderer is unavailable in this browser and build.");
 				const selectionData = {
 					game: this.context.game,
 					map: this.map && this.map.value || this.context.game.defaultMap,
 					presentationId: provider.id,
-					renderer: this.renderer && this.renderer.value || "webgpu",
+					renderer,
 					skipIntro: !this.skipIntro || this.skipIntro.checked,
 					xrDominantHand: this.xrDominantHand && this.xrDominantHand.value === "left" ? "left" : "right",
 				};
@@ -502,19 +518,35 @@
 		const registry = options.presentationRegistry || new PresentationRegistry();
 		if (!registry.get("flat")) registry.register({ id: "flat", label: "Desktop window" });
 		for (const provider of options.presentationProviders || []) registry.register(provider);
-		const launcher = options.launcher || new LauncherController(options.launcherRoot || null, registry, options.launcherOptions);
 		const library = options.library || new GameLibrary();
 		const libraryUI = options.libraryUI || new GameLibraryUI(options.libraryRoot || null, library);
 		const xrProviders = registry.available().filter(provider =>
 			provider.requiresXRCompatibleAdapter || provider.prefersXRCompatibleAdapter);
-		runtimeMilestone("webgpu-device-requested");
-		const device = await acquireWebGPUDevice(log, {
-			xrCompatible: xrProviders.length > 0,
-			onXRCompatibility: (available, detail) => {
-				for (const provider of xrProviders) provider.setXRCompatibleAdapter(available, detail);
-			},
-		});
-		runtimeMilestone("webgpu-device-ready", { xrCompatible: global.surrealWebGPUDeviceXRCompatible === true });
+		let availableRenderers = Array.isArray(options.availableRenderers) ?
+			options.availableRenderers.filter(renderer => ["webgl2", "webgpu", "null"].includes(renderer)) : ["webgpu", "null"];
+		availableRenderers = Array.from(new Set(availableRenderers));
+		let device = null;
+		if (availableRenderers.includes("webgpu")) {
+			runtimeMilestone("webgpu-device-requested");
+			try {
+				device = await acquireWebGPUDevice(log, {
+					xrCompatible: xrProviders.length > 0,
+					onXRCompatibility: (available, detail) => {
+						for (const provider of xrProviders) provider.setXRCompatibleAdapter(available, detail);
+					},
+				});
+				runtimeMilestone("webgpu-device-ready", { xrCompatible: global.surrealWebGPUDeviceXRCompatible === true });
+			} catch (error) {
+				availableRenderers = availableRenderers.filter(renderer => renderer !== "webgpu");
+				for (const provider of xrProviders) provider.setXRCompatibleAdapter(false, error.message || String(error));
+				log("[runtime] WebGPU unavailable: " + (error.message || String(error)));
+				runtimeMilestone("webgpu-device-unavailable", { name: error && error.name || "Error" });
+			}
+		}
+		if (!availableRenderers.length)
+			throw new LauncherError("RENDERER_UNAVAILABLE", "No renderer compiled in this build is available in this browser.");
+		const launcherOptions = Object.assign({}, options.launcherOptions || {}, { availableRenderers });
+		const launcher = options.launcher || new LauncherController(options.launcherRoot || null, registry, launcherOptions);
 		global.surrealCrashed = null;
 		const unhandledRuntimeError = createUnhandledRuntimeErrorHandler(log, options.onRuntimeCrash, global);
 		if (typeof global.addEventListener === "function") {
@@ -529,7 +561,7 @@
 					engineFiles[path] : (options.engineBase || "../build-emscripten/") + path,
 				print: log,
 				printErr: log,
-				preinitializedWebGPUDevice: device,
+				preinitializedWebGPUDevice: device || undefined,
 				onAbort: createRuntimeAbortHandler(log, options.onRuntimeCrash, global),
 				onRuntimeInitialized: async () => {
 					runtimeMilestone("wasm-runtime-initialized");

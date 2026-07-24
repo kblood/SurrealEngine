@@ -149,6 +149,7 @@ function buildManifestInfo(provenance) {
 		wasmfsOpfs: provenance.wasmfsOpfs,
 		wasmfsOpfsAsyncify: provenance.wasmfsOpfsAsyncify,
 		proxyToPthread: provenance.proxyToPthread,
+		webgl2Renderer: provenance.webgl2Renderer,
 	};
 }
 
@@ -240,6 +241,7 @@ async function validateNoDataBuild(engineDirectory) {
 		provenance.pthreadPoolSize !== (provenance.threads ? 2 : 0) ||
 		typeof provenance.wasmfsOpfs !== "boolean" || typeof provenance.wasmfsOpfsAsyncify !== "boolean" ||
 		typeof provenance.proxyToPthread !== "boolean" ||
+		typeof provenance.webgl2Renderer !== "boolean" ||
 		(provenance.browserEntryPoint === "asyncify-opfs") !== provenance.wasmfsOpfsAsyncify ||
 		(provenance.wasmfsOpfsAsyncify && provenance.threads) ||
 		(provenance.proxyToPthread && !provenance.threads) ||

@@ -11,6 +11,9 @@
 #endif
 #ifdef __EMSCRIPTEN__
 #include "WebGPU/WebGPURenderDevice.h"
+#ifdef SURREAL_WEBGL2_RENDERER
+#include "WebGL2/WebGL2RenderDevice.h"
+#endif
 #endif
 #include "UObject/ULevel.h"
 #include <surrealwidgets/core/colorf.h>
@@ -54,6 +57,12 @@ std::unique_ptr<RenderDevice> RenderDevice::Create(Widget* viewport, RenderAPI r
 	{
 		return std::make_unique<WebGPURenderDevice>(viewport);
 	}
+#ifdef SURREAL_WEBGL2_RENDERER
+	else if (renderAPI == RenderAPI::OpenGL)
+	{
+		return std::make_unique<WebGL2RenderDevice>(viewport);
+	}
+#endif
 #endif
 	else
 	{

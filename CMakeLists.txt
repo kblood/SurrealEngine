@@ -6,6 +6,7 @@ include(CTest)
 
 option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS "Use the experimental on-demand WasmFS OPFS game-data mount" OFF)
 option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY "Use the experimental Window-owned Asyncify/WasmFS OPFS game-data mount" OFF)
+option(SURREAL_WEB_EXPERIMENTAL_WEBGL2_RENDERER "Compile the incomplete WebGL2 render-device milestone" OFF)
 set(SURREAL_WEB_RELEASE_PROFILE "diagnostic" CACHE STRING "Browser build profile: diagnostic or production")
 set_property(CACHE SURREAL_WEB_RELEASE_PROFILE PROPERTY STRINGS diagnostic production)
 if(NOT SURREAL_WEB_RELEASE_PROFILE MATCHES "^(diagnostic|production)$")
@@ -16,6 +17,9 @@ if(EMSCRIPTEN AND SURREAL_WEB_RELEASE_PROFILE STREQUAL "production" AND NOT CMAK
 endif()
 if((SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS OR SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY) AND NOT EMSCRIPTEN)
 	message(FATAL_ERROR "The experimental WasmFS OPFS options are available only for Emscripten builds")
+endif()
+if(SURREAL_WEB_EXPERIMENTAL_WEBGL2_RENDERER AND NOT EMSCRIPTEN)
+	message(FATAL_ERROR "SURREAL_WEB_EXPERIMENTAL_WEBGL2_RENDERER is available only for Emscripten builds")
 endif()
 if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS AND SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
 	message(FATAL_ERROR "Select only one experimental WasmFS OPFS execution model")
@@ -684,6 +688,15 @@ set(SURREALCOMMON_WEBGPU_SOURCES
 	SurrealEngine/RenderDevice/WebGPU/WebGPUPipelineCache.h
 )
 
+set(SURREALCOMMON_WEBGL2_SOURCES
+	SurrealEngine/RenderDevice/WebGL2/WebGL2ContextLifecycle.cpp
+	SurrealEngine/RenderDevice/WebGL2/WebGL2ContextLifecycle.h
+	SurrealEngine/RenderDevice/WebGL2/WebGL2Context.cpp
+	SurrealEngine/RenderDevice/WebGL2/WebGL2Context.h
+	SurrealEngine/RenderDevice/WebGL2/WebGL2RenderDevice.cpp
+	SurrealEngine/RenderDevice/WebGL2/WebGL2RenderDevice.h
+)
+
 set(THIRDPARTY_SOURCES
 	Thirdparty/dr_wav.h
 	Thirdparty/minimp3_ex.h
@@ -890,6 +903,9 @@ elseif(EMSCRIPTEN)
 	list(FILTER SURREALCOMMON_SOURCES EXCLUDE REGEX "SurrealEngine/DebuggerApp\\.")
 	set(SURREALCOMMON_SOURCES ${SURREALCOMMON_SOURCES} ${SURREALVIDEO_SOURCES})
 	set(SURREALCOMMON_SOURCES ${SURREALCOMMON_SOURCES} ${SURREALCOMMON_WEBGPU_SOURCES})
+	if(SURREAL_WEB_EXPERIMENTAL_WEBGL2_RENDERER)
+		set(SURREALCOMMON_SOURCES ${SURREALCOMMON_SOURCES} ${SURREALCOMMON_WEBGL2_SOURCES})
+	endif()
 	set(THIRDPARTY_SOURCES ${THIRDPARTY_SOURCES} ${THIRDPARTY_UNIX_SOURCES})
 	add_definitions(-DUNIX -D_UNIX)
 	add_compile_options(--use-port=emdawnwebgpu)
@@ -1006,6 +1022,24 @@ if(BUILD_TESTING AND EMSCRIPTEN)
 			-sEXPORTED_RUNTIME_METHODS=callMain,ccall
 			-sEXPORTED_FUNCTIONS=_main,_Probe_StartTimer,_Probe_CancelDeferredTimer,_Probe_PollSDLEvents,_Probe_Suspend)
 	endif()
+
+	if(SURREAL_WEB_EXPERIMENTAL_WEBGL2_RENDERER)
+		add_executable(WebGL2ContextProbe
+			web/webgl2_context_probe.cpp
+			SurrealEngine/RenderDevice/WebGL2/WebGL2Context.cpp
+			SurrealEngine/RenderDevice/WebGL2/WebGL2ContextLifecycle.cpp
+		)
+		target_include_directories(WebGL2ContextProbe PRIVATE SurrealEngine)
+		set_target_properties(WebGL2ContextProbe PROPERTIES CXX_STANDARD 20 SUFFIX ".html")
+		target_link_options(WebGL2ContextProbe PRIVATE
+			-sMIN_WEBGL_VERSION=2
+			-sMAX_WEBGL_VERSION=2
+			-sEXIT_RUNTIME=0
+			-sASSERTIONS=1
+			-sEXPORTED_RUNTIME_METHODS=ccall
+			-sEXPORTED_FUNCTIONS=_main,_Surreal_WebGL2ProbeState,_Surreal_WebGL2ProbeGeneration,_Surreal_WebGL2ProbeLossCount,_Surreal_WebGL2ProbeClearAfterRestore
+		)
+	endif()
 endif()
 
 target_precompile_headers(SurrealCommon PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Precomp.h>)
@@ -1041,6 +1075,7 @@ if(EMSCRIPTEN)
 			-DWASMFS_OPFS=${SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS}
 			-DWASMFS_OPFS_ASYNCIFY=${SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY}
 			-DPROXY_TO_PTHREAD=${SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD}
+			-DWEBGL2_RENDERER=${SURREAL_WEB_EXPERIMENTAL_WEBGL2_RENDERER}
 			-P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteBrowserBuildProvenance.cmake
 		BYPRODUCTS ${SURREAL_BROWSER_BUILD_PROVENANCE}
 		VERBATIM)
@@ -1183,6 +1218,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(RenderDeviceSelectionTests PRIVATE SurrealEngine)
 	set_target_properties(RenderDeviceSelectionTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME RenderDeviceSelectionTests COMMAND RenderDeviceSelectionTests)
+	add_executable(WebGL2ContextLifecycleTests
+		Tests/WebGL2ContextLifecycleTests.cpp
+		SurrealEngine/RenderDevice/WebGL2/WebGL2ContextLifecycle.cpp
+	)
+	target_include_directories(WebGL2ContextLifecycleTests PRIVATE SurrealEngine)
+	set_target_properties(WebGL2ContextLifecycleTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME WebGL2ContextLifecycleTests COMMAND WebGL2ContextLifecycleTests)
 endif()
 
 if(NOT EMSCRIPTEN)
@@ -1235,6 +1277,10 @@ if(EMSCRIPTEN)
 	# Kept separate from the WebXR ABI so flat browser builds can configure it too.
 	set(SURREAL_BROWSER_EXPORTED_FUNCTIONS "_main,_Surreal_GetTickCount,_Surreal_RequestQuit,_Surreal_ForwardBrowserEscape,_Surreal_ForwardBrowserMouseMotion,_Surreal_ResetBrowserMouseMotion,_Surreal_SetBrowserMouseMotionActive,_Surreal_SetXRFrameLoopActive,_Surreal_ResumeBrowserAudio,_Surreal_SuspendBrowserAudio,_Surreal_ShutdownBrowserAudio,_Surreal_SetBrowserAudioOutput,_Surreal_GetBrowserAudioState,_Surreal_GetBrowserAudioCurrentTimeMs,_Surreal_GetWebXRFrameABIVersion,_Surreal_GetWebXRFrameHeaderSize,_Surreal_GetWebXRViewSize,_Surreal_GetWebXRFrameMaxViews,_Surreal_ValidateWebXRFrame,_Surreal_GetWebXRFrameLastError,_Surreal_PrepareWebXRFrame,_Surreal_RenderWebXRFrame,_Surreal_CompleteWebXRFrame,_Surreal_GetWebXRWorldUnitsPerMeter,_Surreal_SetWebXRWorldUnitsPerMeter,_Surreal_ResetWebXRPose,_Surreal_GetWebXRPoseRecenterCount,_Surreal_GetWebXRPointerFeedbackSize,_Surreal_GetWebXRPointerFeedback,_Surreal_GetWebXRInputABIVersion,_Surreal_GetWebXRInputHeaderSize,_Surreal_GetWebXRInputSourceSize,_Surreal_GetWebXRInputMaxSources,_Surreal_ValidateWebXRInputSnapshot,_Surreal_SubmitWebXRInputSnapshot,_Surreal_GetWebXRInputLastError,_Surreal_ClearWebXRInputSnapshot,_Surreal_ApplyWebXRInputSnapshot")
 	string(APPEND SURREAL_BROWSER_EXPORTED_FUNCTIONS ",_Surreal_GetXRDominantHand,_Surreal_SetXRDominantHand")
+	if(SURREAL_WEB_EXPERIMENTAL_WEBGL2_RENDERER)
+		string(APPEND SURREAL_BROWSER_EXPORTED_FUNCTIONS ",_Surreal_GetWebGL2ContextState,_Surreal_GetWebGL2ContextGeneration,_Surreal_GetWebGL2ContextLossCount,_Surreal_GetWebGL2ContextHandle,_Surreal_GetWebGL2FrameCount,_Surreal_GetWebGL2SuppressedFrameCount,_Surreal_GetWebGL2UnsupportedDrawCount,_Surreal_GetWebGL2ErrorCount")
+		target_compile_definitions(SurrealCommon PRIVATE SURREAL_WEBGL2_RENDERER=1)
+	endif()
 	if(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS OR SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY)
 		string(APPEND SURREAL_BROWSER_EXPORTED_FUNCTIONS ",_Surreal_GetBrowserOPFSMountABIVersion,_Surreal_GetBrowserOPFSMountMode,_Surreal_GetBrowserWasmHeapSize,_Surreal_BeginBrowserOPFSMount,_Surreal_AddBrowserOPFSMountFile,_Surreal_PrepareBrowserOPFSMount")
 		target_compile_definitions(SurrealCommon PRIVATE SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS=1)
@@ -1266,6 +1312,12 @@ if(EMSCRIPTEN)
 		-sUSE_SDL=2
 		--use-port=emdawnwebgpu
 	)
+	if(SURREAL_WEB_EXPERIMENTAL_WEBGL2_RENDERER)
+		target_link_options(SurrealEngine PRIVATE
+			-sMIN_WEBGL_VERSION=2
+			-sMAX_WEBGL_VERSION=2
+		)
+	endif()
 	if(SURREAL_WEB_RELEASE_PROFILE STREQUAL "production")
 		target_link_options(SurrealEngine PRIVATE -O3 -sASSERTIONS=0 -sSTACK_OVERFLOW_CHECK=0)
 	else()

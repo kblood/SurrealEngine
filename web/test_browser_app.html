@@ -48,6 +48,8 @@ window.browserAppTestPromise = (async () => {
 	await run("native arguments are fixed and reject unsafe input", async () => {
 		const args = api.buildNativeArguments({ game: { id: "unreal-gold" }, map: "Vortex2", renderer: "webgpu" });
 		assert(args.join(" ") === "--autoplay --url=Vortex2 --render=webgpu /gamedata");
+		const webglArgs = api.buildNativeArguments({ game: { id: "unreal-gold" }, map: "Vortex2", renderer: "webgl2" });
+		assert(webglArgs.join(" ") === "--autoplay --url=Vortex2 --render=webgl2 /gamedata");
 		assert(Object.isFrozen(args));
 		let received = null;
 		api.callNativeMain({ callMain(value) { received = value; value.unshift("SurrealEngine"); } },
@@ -352,10 +354,11 @@ window.browserAppTestPromise = (async () => {
 		});
 		assert(SurrealBrowserRelease.canStart(platform));
 		const noGPU = await SurrealBrowserRelease.detectPlatformCapabilities({
-			isSecureContext: true, WebAssembly: {}, File, Blob, indexedDB: {},
+			isSecureContext: true, AudioContext: function () {}, WebAssembly: {}, File, Blob, indexedDB: {},
 			navigator: { storage: { async persisted() { return false; } } },
 		});
-		assert(!SurrealBrowserRelease.canStart(noGPU) && !noGPU.webGPU.available);
+		assert(SurrealBrowserRelease.canStart(noGPU) && !noGPU.webGPU.available,
+			"missing navigator.gpu blocked the data/import shell");
 	});
 	await run("packaged release diagnostics reject mixed engine identities", async () => {
 		const javascript = "engine/SurrealEngine." + "a".repeat(64) + ".js";
