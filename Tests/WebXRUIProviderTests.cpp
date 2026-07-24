@@ -112,6 +112,63 @@ int main()
 		!NearlyEqual(descriptors[3].Surface.PhysicalWidth, 56.0f) ||
 		!descriptors[3].Surface.Interactive)
 		return 2;
+	PerViewHudPresentation directHud;
+	directHud.Enabled = true;
+	directHud.HalfFovDegrees = 25.0f;
+	directHud.ConvergenceDepth = 68.9f;
+	const auto directDescriptors = WebXR::BuildDirectUICaptureDescriptors(
+		units, directHud, 800, 600, 2);
+	const float directWidth = 2.0f * directHud.ConvergenceDepth *
+		std::tan(directHud.HalfFovDegrees * 3.14159265359f / 180.0f);
+	if (directDescriptors[3].Surface.AnchorMode !=
+			XRUISurfaceAnchorMode::HeadRelativeEveryFrame ||
+		!NearlyEqual(directDescriptors[3].Surface.HeadRelativeDistance,
+			directHud.ConvergenceDepth) ||
+		!NearlyEqual(directDescriptors[3].Surface.PhysicalWidth, directWidth) ||
+		directDescriptors[3].Surface.PixelWidth != 800 ||
+		directDescriptors[3].Surface.PixelHeight != 600 ||
+		directDescriptors[3].CanvasScale != 2)
+		return 26;
+	const Pointf directLogicalCenter = directDescriptors[3].ToCanvasPixel(
+		Pointf(400.0f, 300.0f));
+	if (!NearlyEqual(directLogicalCenter.x, 200.0f) ||
+		!NearlyEqual(directLogicalCenter.y, 150.0f))
+		return 29;
+	Host directHost;
+	XRUISurfaceEngineBinding directBinding(directHost);
+	directBinding.Configure(directDescriptors[3]);
+	directBinding.SetViewerPose({});
+	directBinding.SetMenuActive(true);
+	XRUIViewerPose movedViewer;
+	movedViewer.Position = vec3(4.0f, 5.0f, 6.0f);
+	movedViewer.Forward = vec3(0.0f, 1.0f, 0.0f);
+	movedViewer.Up = vec3(0.0f, 0.0f, 1.0f);
+	directBinding.SetViewerPose(movedViewer);
+	const XRUICanvasReplayFrame directReplay =
+		WebXR::OrientUIReplayFrame(directBinding.BuildReplayFrame());
+	if (directReplay.Items.size() != 1 ||
+		!NearlyEqual(directReplay.Items[0].Surface.Pose.Center.x, 4.0f) ||
+		!NearlyEqual(directReplay.Items[0].Surface.Pose.Center.y,
+			5.0f + directHud.ConvergenceDepth) ||
+		!NearlyEqual(directReplay.Items[0].Surface.Pose.Center.z, 6.0f))
+		return 27;
+	const XRUISurfaceFrameItem& directMenu = directReplay.Items[0].Surface;
+	const XRUISurfaceContact directCenter = MapRayToXRUISurface(directMenu,
+		{ movedViewer.Position, movedViewer.Forward });
+	const vec3 directRightPoint = directMenu.Pose.Center +
+		directMenu.Pose.Right * (directMenu.Descriptor.PhysicalWidth * 0.5f);
+	const XRUISurfaceContact directRight = MapRayToXRUISurface(directMenu,
+		{ movedViewer.Position, directRightPoint - movedViewer.Position });
+	if (!directCenter.Hit ||
+		!NearlyEqual(directCenter.Pixel.x, 399.5f, 1.0f) ||
+		!NearlyEqual(directCenter.Pixel.y, 299.5f, 1.0f) ||
+		directRight.Hit)
+		return 28;
+	directBinding.UpdateRayPointer(XRUIPointerSource::Tracked(1),
+		{ movedViewer.Position, movedViewer.Forward }, false);
+	if (!NearlyEqual(directHost.Cursor.x, 200.0f, 1.0f) ||
+		!NearlyEqual(directHost.Cursor.y, 150.0f, 1.0f))
+		return 30;
 
 	WebXR::RecenterState recenter;
 	recenter.Valid = true;

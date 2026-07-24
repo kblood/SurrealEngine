@@ -24,8 +24,12 @@ public:
 	bool IsXRUIMenuActive() const;
 	void UpdateXRUISurfaceVisibility();
 	void SetDirectHudPresentation(bool active) { DirectHudPresentationActive = active; }
+	int CalculateCanvasUIScale() const;
 	void SetXRUIVisualOverlay(const XRUIVisualFrame& frame,
 		const std::array<PresentationTarget, 2>& targets);
+	void ResetXRPresentationState();
+	uint32_t XRUIVisualViewMask() const { return LastXRUIVisualViewMask; }
+	uint32_t XRUIVisualHandCount() const { return LastXRUIVisualHandCount; }
 
 	void PreRenderWindows(UCanvas* canvas);
 	void PostRenderWindows(UCanvas* canvas);
@@ -138,7 +142,7 @@ private:
 	void RenderOverlays();
 	bool RenderXRWeaponOverlay();
 	void PostRender();
-	void PostRenderPerViewHud(const ViewFamily& viewFamily);
+	bool PostRenderPerViewHud(const ViewFamily& viewFamily);
 	void PostRenderFlash();
 	void DrawTimedemoStats();
 	void DrawCollisionDebug();
@@ -155,6 +159,8 @@ private:
 	bool DirectHudPresentationActive = false;
 	XRUIVisualFrame PendingXRUIVisualFrame;
 	std::array<PresentationTarget, 2> PendingXRUIVisualTargets;
+	uint32_t LastXRUIVisualViewMask = 0;
+	uint32_t LastXRUIVisualHandCount = 0;
 
 	struct
 	{

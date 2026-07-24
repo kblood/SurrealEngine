@@ -262,6 +262,46 @@ static void TestUnavailableCaptureDropsPressAndCancelsHeldInput()
 	Check(host.Events[host.Events.size() - 2] == "cancel" && host.Events.back() == "end-pointer-session", "menu close did not cancel input and restore the pointer session");
 }
 
+static void TestDirectPresentationDeliversOneButtonEdge()
+{
+	EngineHost host;
+	XRUISurfaceEngineBinding binding(host);
+	binding.Configure(Capture(XRUISurfaceKind::Menu, 4));
+	binding.SetViewerPose({});
+	binding.SetMenuActive(true);
+	XRUIPointerSource hand = XRUIPointerSource::Tracked(8);
+	XRUISurfaceRay center = { vec3(0.0f), vec3(1.0f, 0.0f, 0.0f) };
+
+	binding.UpdateRayPointer(hand, center, false);
+	binding.UpdateRayPointer(hand, center, true);
+	Check(host.ButtonSources.empty(),
+		"direct press ran before the menu was presented");
+	Check(binding.AcknowledgeDirectInteractivePresentation(
+		XRUISurfaceKind::Menu),
+		"visible interactive menu rejected direct presentation");
+	Check(host.ButtonSources.size() == 1 && host.ButtonSources[0] == hand,
+		"direct menu presentation did not deliver its queued press");
+
+	host.CaptureAvailable = false;
+	binding.Replay(XRUICanvasReplayContext::Game);
+	binding.AcknowledgeDirectInteractivePresentation(XRUISurfaceKind::Menu);
+	Check(host.ButtonSources.size() == 1,
+		"direct menu press was duplicated by capture replay or acknowledgement");
+
+	binding.UpdateRayPointer(hand, center, false);
+	binding.AcknowledgeDirectInteractivePresentation(XRUISurfaceKind::Menu);
+	Check(host.ButtonSources.size() == 2 && host.ButtonSources[1] == hand,
+		"direct menu presentation did not deliver its queued release");
+	binding.Replay(XRUICanvasReplayContext::Game);
+	Check(host.ButtonSources.size() == 2,
+		"direct menu release was duplicated by rejected capture replay");
+
+	binding.SetMenuActive(false);
+	Check(!binding.AcknowledgeDirectInteractivePresentation(
+		XRUISurfaceKind::Menu),
+		"hidden menu accepted a direct interactive presentation");
+}
+
 int main()
 {
 	TestVisibilityTransitionsKeepAStableAnchor();
@@ -270,5 +310,6 @@ int main()
 	TestStartupHudHandsOffToMenu();
 	TestSourceIsolationAndMouseFallback();
 	TestUnavailableCaptureDropsPressAndCancelsHeldInput();
+	TestDirectPresentationDeliversOneButtonEdge();
 	return 0;
 }

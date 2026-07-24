@@ -1,6 +1,7 @@
 #include "Render/Presentation.h"
 #include "Render/ViewFamily.h"
 
+#include <algorithm>
 #include <climits>
 #include <cmath>
 #include <cstdlib>
@@ -116,6 +117,21 @@ int main()
 	invalidHud.Views[0].HasProjectionTangents = false;
 	Check(!CreatePerViewHudRect(invalidHud, 0),
 		"direct HUD accepted a view without optical tangent bounds");
+	ViewFamily asymmetricHud = hudFamily;
+	asymmetricHud.Views[1].ProjectionTangents.Right *= 1.08f;
+	const auto rawAsymmetricLeft = CreatePerViewHudRect(asymmetricHud, 0);
+	const auto rawAsymmetricRight = CreatePerViewHudRect(asymmetricHud, 1);
+	const auto symmetricHudRects = CreateStereoPerViewHudRects(asymmetricHud);
+	Check(rawAsymmetricLeft && rawAsymmetricRight && symmetricHudRects,
+		"asymmetric headset FOV did not create stereo HUD rectangles");
+	Check((*symmetricHudRects)[0].Width == (*symmetricHudRects)[1].Width &&
+		(*symmetricHudRects)[0].Height == (*symmetricHudRects)[1].Height,
+		"stereo HUD did not normalize asymmetric eye extents");
+	Check((*symmetricHudRects)[0].Width == std::min(rawAsymmetricLeft->Width,
+		rawAsymmetricRight->Width) &&
+		(*symmetricHudRects)[0].Height == std::min(rawAsymmetricLeft->Height,
+		rawAsymmetricRight->Height),
+		"stereo HUD normalization expanded beyond an eye's safe rectangle");
 
 	ViewDescription center;
 	center.Location = vec3(10.0f, 20.0f, 30.0f);

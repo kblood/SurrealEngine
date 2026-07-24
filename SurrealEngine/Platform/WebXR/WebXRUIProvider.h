@@ -45,6 +45,9 @@ namespace WebXR
 	XRUISurfaceRay BuildUIRay(const XRPose& pose, const vec3& cameraLocation,
 		const Coords& bodyRotation, float worldUnitsPerMeter, const RecenterState& recenter);
 	std::array<XRUICanvasCaptureDescriptor, 4> BuildUICaptureDescriptors(float worldUnitsPerMeter);
+	std::array<XRUICanvasCaptureDescriptor, 4> BuildDirectUICaptureDescriptors(
+		float worldUnitsPerMeter, const PerViewHudPresentation& hud,
+		int pixelWidth, int pixelHeight, int canvasScale);
 	XRUICanvasReplayFrame OrientUIReplayFrame(XRUICanvasReplayFrame frame);
 	UIVisualFrame BuildUIVisualFrame(const std::array<PointerFeedback, XRHandCount>& feedback,
 		const XRUICanvasReplayFrame& replayFrame, float worldUnitsPerMeter,

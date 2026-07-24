@@ -213,6 +213,7 @@ extern "C"
 		{
 			UIInput.Cancel(engine->render->XRUISurfaces());
 			engine->render->XRUISurfaces().ClearViewerPose();
+			engine->render->ResetXRPresentationState();
 		}
 	}
 	uint32_t Surreal_GetWebXRPoseRecenterCount() { return Recenter.RecenterCount; }
@@ -437,6 +438,37 @@ extern "C"
 #endif
 	}
 
+	uint32_t Surreal_GetWebXRUIVisualViewMask()
+	{
+		return engine && engine->render ? engine->render->XRUIVisualViewMask() : 0;
+	}
+
+	uint32_t Surreal_GetWebXRUIVisualHandCount()
+	{
+		return engine && engine->render ? engine->render->XRUIVisualHandCount() : 0;
+	}
+
+	int Surreal_IsXRUIMenuActive()
+	{
+		return engine && engine->render && engine->render->IsXRUIMenuActive() ? 1 : 0;
+	}
+
+	int Surreal_GetWebXRPointerHit(uint32_t hand)
+	{
+		return hand < XRHandCount && UIInput.Feedback()[hand].Contact.Hit ? 1 : 0;
+	}
+
+	int Surreal_GetWebXRPointerSelecting(uint32_t hand)
+	{
+		return hand < XRHandCount && UIInput.Feedback()[hand].Selecting ? 1 : 0;
+	}
+
+	int Surreal_GetWebXRPointerSurface(uint32_t hand)
+	{
+		return hand < XRHandCount ? static_cast<int>(
+			UIInput.Feedback()[hand].Contact.Surface) : -1;
+	}
+
 	int Surreal_RenderDirectWebGL2XRFrame(const void* frameData, uint32_t bufferBytes)
 	{
 		WebXR::DecodedFrame frame;
@@ -483,15 +515,32 @@ extern "C"
 				Rotator(0, engine->CameraRotation.Yaw, 0));
 			ViewFamily family = WebXR::BuildViewFamily(frame, engine->CameraLocation,
 				bodyRotation, WorldUnitsPerMeter, Recenter, true);
+			const std::optional<std::array<ViewRect, 2>> hudRects =
+				CreateStereoPerViewHudRects(family);
+			if (!hudRects)
+				throw std::runtime_error("direct WebXR HUD geometry is invalid");
 			XRUISurfaceEngineBinding& ui = engine->render->XRUISurfaces();
 			for (const XRUICanvasCaptureDescriptor& descriptor :
-				WebXR::BuildUICaptureDescriptors(WorldUnitsPerMeter))
+				WebXR::BuildDirectUICaptureDescriptors(WorldUnitsPerMeter,
+					family.Hud, (*hudRects)[0].Width, (*hudRects)[0].Height,
+					engine->render->CalculateCanvasUIScale()))
 				ui.Configure(descriptor);
 			ui.SetViewerPose(WebXR::BuildUIViewerPose(family));
+			engine->render->SetDirectHudPresentation(family.Hud.Enabled);
+			engine->render->UpdateXRUISurfaceVisibility();
 			UIInput.Update(input, ui, engine->CameraLocation, bodyRotation,
 				WorldUnitsPerMeter, Recenter);
 			ResolveXRUIHapticFeedback(HapticFeedback, UIInput.Feedback(),
 				&WebXR::BrowserHapticSink());
+			const XRUICanvasReplayFrame replayFrame =
+				WebXR::OrientUIReplayFrame(ui.BuildReplayFrame());
+			XRUIVisualSettings visualSettings;
+			visualSettings.PointerHand = engine->GetXRDominantHand();
+			const WebXR::UIVisualFrame visualFrame = WebXR::BuildUIVisualFrame(
+				UIInput.Feedback(), replayFrame, WorldUnitsPerMeter, visualSettings,
+				engine->IsStartupIntroActive());
+			engine->render->SetXRUIVisualOverlay(visualFrame,
+				{ PresentationTarget{ 1 }, PresentationTarget{ 1 } });
 			engine->RenderGameFrame(PreparedLevelElapsed, family);
 			if (!NativeFramePhase.MarkRendered())
 				throw std::runtime_error("WebXR frame phase changed during direct WebGL2 rendering");

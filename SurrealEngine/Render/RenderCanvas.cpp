@@ -14,8 +14,7 @@ void RenderSubsystem::ResetCanvas()
 {
 	// Scale the UI so it matches what you saw on a 1024x768 CRT monitor for Unreal and other older games.
 	// Assume 1280x960 for UT and newer.
-	int vertResolution = engine->LaunchInfo.ue1Version < 400 ? 768 : 960;
-	Canvas.uiscale = std::max((engine->viewport->ViewportHeight() + vertResolution / 2) / vertResolution, 1);
+	Canvas.uiscale = CalculateCanvasUIScale();
 
 	FSceneNode frame;
 	Canvas.Frame.XB = 0;
@@ -59,6 +58,13 @@ void RenderSubsystem::ResetCanvas()
 	CallEvent(engine->canvas, EventName::Reset);
 }
 
+int RenderSubsystem::CalculateCanvasUIScale() const
+{
+	const int vertResolution = engine->LaunchInfo.ue1Version < 400 ? 768 : 960;
+	return std::max((engine->viewport->ViewportHeight() + vertResolution / 2) /
+		vertResolution, 1);
+}
+
 void RenderSubsystem::PreRender()
 {
 	Device->SetSceneNode(&Canvas.Frame);
@@ -100,7 +106,7 @@ void RenderSubsystem::PostRender()
 		DrawCollisionDebug();
 }
 
-void RenderSubsystem::PostRenderPerViewHud(const ViewFamily& viewFamily)
+bool RenderSubsystem::PostRenderPerViewHud(const ViewFamily& viewFamily)
 {
 	const FSceneNode savedFrame = Canvas.Frame;
 	const float savedCurX = engine->canvas->CurX();
@@ -109,8 +115,17 @@ void RenderSubsystem::PostRenderPerViewHud(const ViewFamily& viewFamily)
 	const float savedClipY = engine->canvas->ClipY();
 	const int savedSizeX = engine->canvas->SizeX();
 	const int savedSizeY = engine->canvas->SizeY();
+	const bool hasConsoleFrame = engine->LaunchInfo.ue1Version > 219;
+	const float savedConsoleFrameX = hasConsoleFrame ? engine->console->FrameX() : 0.0f;
+	const float savedConsoleFrameY = hasConsoleFrame ? engine->console->FrameY() : 0.0f;
+	const int savedViewportX = engine->viewport->ViewportX();
+	const int savedViewportY = engine->viewport->ViewportY();
+	const int savedViewportWidth = engine->viewport->ViewportWidth();
+	const int savedViewportHeight = engine->viewport->ViewportHeight();
 	const PresentationTarget target = viewFamily.Presentation.GetLayer(
 		PresentationLayer::UserInterface).Target;
+	const std::optional<std::array<ViewRect, 2>> hudRects =
+		CreateStereoPerViewHudRects(viewFamily);
 
 	UPlayerPawn* player = engine->viewport ? engine->viewport->Actor() : nullptr;
 	UHUD* hud = player ? player->myHUD() : nullptr;
@@ -122,21 +137,21 @@ void RenderSubsystem::PostRenderPerViewHud(const ViewFamily& viewFamily)
 		// PostRender calls so the user's persisted desktop setting is untouched.
 		hud->Crosshair() = std::numeric_limits<int>::max();
 	}
+	size_t presentedViews = 0;
 
 	for (size_t viewIndex = 0; viewIndex < viewFamily.Views.size(); viewIndex++)
 	{
-		const std::optional<ViewRect> hudRect = CreatePerViewHudRect(viewFamily,
-			viewIndex);
-		if (!hudRect || !Device->BeginPresentationView(target, viewIndex))
+		if (!hudRects || !Device->BeginPresentationView(target, viewIndex))
 			continue;
+		const ViewRect& hudRect = (*hudRects)[viewIndex];
 
 		Canvas.Frame = savedFrame;
-		Canvas.Frame.XB = hudRect->X;
-		Canvas.Frame.YB = hudRect->Y;
-		Canvas.Frame.X = hudRect->Width;
-		Canvas.Frame.Y = hudRect->Height;
-		Canvas.Frame.FX = static_cast<float>(hudRect->Width);
-		Canvas.Frame.FY = static_cast<float>(hudRect->Height);
+		Canvas.Frame.XB = hudRect.X;
+		Canvas.Frame.YB = hudRect.Y;
+		Canvas.Frame.X = hudRect.Width;
+		Canvas.Frame.Y = hudRect.Height;
+		Canvas.Frame.FX = static_cast<float>(hudRect.Width);
+		Canvas.Frame.FY = static_cast<float>(hudRect.Height);
 		Canvas.Frame.FX2 = Canvas.Frame.FX * 0.5f;
 		Canvas.Frame.FY2 = Canvas.Frame.FY * 0.5f;
 		// Canvas.Frame started life as the desktop mirror frame. Rebuild its
@@ -146,9 +161,9 @@ void RenderSubsystem::PostRenderPerViewHud(const ViewFamily& viewFamily)
 		Canvas.Frame.Projection = CreateCanvasProjection(Canvas.Frame.X,
 			Canvas.Frame.Y, Canvas.Frame.FovAngle);
 
-		const int canvasWidth = std::max(static_cast<int>(hudRect->Width /
+		const int canvasWidth = std::max(static_cast<int>(hudRect.Width /
 			static_cast<float>(Canvas.uiscale)), 1);
-		const int canvasHeight = std::max(static_cast<int>(hudRect->Height /
+		const int canvasHeight = std::max(static_cast<int>(hudRect.Height /
 			static_cast<float>(Canvas.uiscale)), 1);
 		engine->canvas->CurX() = 0.0f;
 		engine->canvas->CurY() = 0.0f;
@@ -156,13 +171,21 @@ void RenderSubsystem::PostRenderPerViewHud(const ViewFamily& viewFamily)
 		engine->canvas->ClipY() = static_cast<float>(canvasHeight);
 		engine->canvas->SizeX() = canvasWidth;
 		engine->canvas->SizeY() = canvasHeight;
+		if (hasConsoleFrame)
+		{
+			engine->console->FrameX() = static_cast<float>(canvasWidth);
+			engine->console->FrameY() = static_cast<float>(canvasHeight);
+		}
+		engine->viewport->SetViewportRect(0, 0, hudRect.Width, hudRect.Height);
 		Device->SetSceneNode(&Canvas.Frame);
+		CallEvent(engine->canvas, EventName::Reset);
 		if (player)
 			CallEvent(player, EventName::PostRender,
 				{ ExpressionValue::ObjectValue(engine->canvas) });
 		CallEvent(engine->console, EventName::PostRender,
 			{ ExpressionValue::ObjectValue(engine->canvas) });
 		Device->EndPresentationView(target, viewIndex);
+		presentedViews++;
 	}
 
 	if (hud)
@@ -174,11 +197,19 @@ void RenderSubsystem::PostRenderPerViewHud(const ViewFamily& viewFamily)
 	engine->canvas->ClipY() = savedClipY;
 	engine->canvas->SizeX() = savedSizeX;
 	engine->canvas->SizeY() = savedSizeY;
+	if (hasConsoleFrame)
+	{
+		engine->console->FrameX() = savedConsoleFrameX;
+		engine->console->FrameY() = savedConsoleFrameY;
+	}
+	engine->viewport->SetViewportRect(savedViewportX, savedViewportY,
+		savedViewportWidth, savedViewportHeight);
 	Device->SetSceneNode(&Canvas.Frame);
 
 	DrawTimedemoStats();
 	if (ShowCollisionDebug)
 		DrawCollisionDebug();
+	return !viewFamily.Views.empty() && presentedViews == viewFamily.Views.size();
 }
 
 void RenderSubsystem::PostRenderFlash()

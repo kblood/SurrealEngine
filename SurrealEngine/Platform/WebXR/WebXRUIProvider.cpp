@@ -1,5 +1,7 @@
 #include "Platform/WebXR/WebXRUIProvider.h"
 
+#include <cmath>
+
 XRUIViewerPose WebXR::BuildUIViewerPose(const ViewFamily& family)
 {
 	return BuildXRUIViewerPose(family);
@@ -21,6 +23,30 @@ std::array<XRUICanvasCaptureDescriptor, 4> WebXR::BuildUICaptureDescriptors(floa
 {
 	return ::BuildXRUICaptureDescriptors(worldUnitsPerMeter,
 		{ HudSurfaceTarget, CinematicSurfaceTarget, LoadingSurfaceTarget, MenuSurfaceTarget });
+}
+
+std::array<XRUICanvasCaptureDescriptor, 4>
+WebXR::BuildDirectUICaptureDescriptors(float worldUnitsPerMeter,
+	const PerViewHudPresentation& hud, int pixelWidth, int pixelHeight,
+	int canvasScale)
+{
+	auto descriptors = BuildUICaptureDescriptors(worldUnitsPerMeter);
+	if (!hud.Enabled || !std::isfinite(hud.ConvergenceDepth) ||
+		!std::isfinite(hud.HalfFovDegrees) || hud.ConvergenceDepth <= 0.0f ||
+		hud.HalfFovDegrees <= 0.0f || hud.HalfFovDegrees >= 89.0f ||
+		pixelWidth <= 0 || pixelHeight <= 0 || canvasScale <= 0)
+		return descriptors;
+
+	XRUICanvasCaptureDescriptor& directMenu = descriptors[3];
+	XRUISurfaceDescriptor& menu = directMenu.Surface;
+	menu.AnchorMode = XRUISurfaceAnchorMode::HeadRelativeEveryFrame;
+	menu.HeadRelativeDistance = hud.ConvergenceDepth;
+	menu.PhysicalWidth = 2.0f * hud.ConvergenceDepth *
+		std::tan(hud.HalfFovDegrees * 3.14159265359f / 180.0f);
+	menu.PixelWidth = pixelWidth;
+	menu.PixelHeight = pixelHeight;
+	directMenu.CanvasScale = canvasScale;
+	return descriptors;
 }
 
 XRUICanvasReplayFrame WebXR::OrientUIReplayFrame(XRUICanvasReplayFrame frame)

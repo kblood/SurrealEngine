@@ -75,13 +75,19 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFam
 		// compositor. Render both gameplay HUD and active menus into both eye
 		// viewports instead of falling back to one desktop-sized PostRender.
 		if (DirectHudPresentationActive)
-			PostRenderPerViewHud(viewFamily);
+		{
+			if (PostRenderPerViewHud(viewFamily))
+				XRUIBinding.AcknowledgeDirectInteractivePresentation(
+					XRUISurfaceKind::Menu);
+		}
 		else
 			PostRender();
 		EndPresentationLayer(viewFamily.Presentation, PresentationLayer::UserInterface);
 	}
 
 	XRUIBinding.Replay(XRUICanvasReplayContext::Game);
+	LastXRUIVisualViewMask = 0;
+	LastXRUIVisualHandCount = 0;
 	DrawXRUIVisualOverlay(viewFamily);
 	PendingXRUIVisualFrame = {};
 	PendingXRUIVisualTargets = {};
@@ -94,6 +100,15 @@ void RenderSubsystem::SetXRUIVisualOverlay(const XRUIVisualFrame& frame,
 {
 	PendingXRUIVisualFrame = frame;
 	PendingXRUIVisualTargets = targets;
+}
+
+void RenderSubsystem::ResetXRPresentationState()
+{
+	DirectHudPresentationActive = false;
+	PendingXRUIVisualFrame = {};
+	PendingXRUIVisualTargets = {};
+	LastXRUIVisualViewMask = 0;
+	LastXRUIVisualHandCount = 0;
 }
 
 void RenderSubsystem::DrawXRUIVisualOverlay(const ViewFamily& viewFamily)
@@ -121,13 +136,15 @@ void RenderSubsystem::DrawXRUIVisualOverlay(const ViewFamily& viewFamily)
 	for (size_t viewIndex = 0; viewIndex < viewFamily.Views.size(); viewIndex++)
 	{
 		const ViewDescription& view = viewFamily.Views[viewIndex];
+		const bool sharedTarget = PendingXRUIVisualTargets[0] ==
+			PendingXRUIVisualTargets[1];
 		const PresentationLayerDescription layer = { PresentationLayer::XRUIVisualOverlay,
 			PendingXRUIVisualTargets[viewIndex], true };
 		if (!Device->BeginPresentationLayer(layer))
 			continue;
 		FSceneNode scene;
-		scene.XB = 0;
-		scene.YB = 0;
+		scene.XB = sharedTarget ? view.Viewport.X : 0;
+		scene.YB = sharedTarget ? view.Viewport.Y : 0;
 		scene.X = view.Viewport.Width;
 		scene.Y = view.Viewport.Height;
 		scene.FX = static_cast<float>(scene.X);
@@ -139,11 +156,20 @@ void RenderSubsystem::DrawXRUIVisualOverlay(const ViewFamily& viewFamily)
 		scene.Projection = view.Projection;
 		scene.FovAngle = view.FovAngle;
 		Device->SetSceneNode(&scene);
+		bool submittedGeometry = false;
 		for (const XRUIHandVisual& hand : PendingXRUIVisualFrame.Hands)
 		{
+			submittedGeometry = submittedGeometry || !hand.Controller.empty() ||
+				!hand.Laser.empty() || !hand.HitMarker.empty();
 			drawTrianglesAsEdges(scene, hand.Controller);
 			drawTrianglesAsEdges(scene, hand.Laser);
 			drawTrianglesAsEdges(scene, hand.HitMarker);
+		}
+		if (submittedGeometry)
+		{
+			LastXRUIVisualViewMask |= 1u << static_cast<uint32_t>(viewIndex);
+			LastXRUIVisualHandCount = static_cast<uint32_t>(
+				PendingXRUIVisualFrame.Hands.size());
 		}
 		Device->EndPresentationLayer(layer);
 	}

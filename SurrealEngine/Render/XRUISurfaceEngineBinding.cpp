@@ -73,6 +73,21 @@ void XRUISurfaceEngineBinding::Replay(XRUICanvasReplayContext context)
 	FlushPendingButtons(false);
 }
 
+bool XRUISurfaceEngineBinding::AcknowledgeDirectInteractivePresentation(
+	XRUISurfaceKind kind)
+{
+	for (const XRUICanvasReplayItem& item : Runtime.BuildReplayFrame().Items)
+	{
+		if (item.Surface.Descriptor.Kind == kind &&
+			item.Surface.Descriptor.Interactive)
+		{
+			FlushPendingButtons(true, &kind);
+			return true;
+		}
+	}
+	return false;
+}
+
 XRUIPointerUpdateResult XRUISurfaceEngineBinding::UpdateRayPointer(const XRUIPointerSource& source, const XRUISurfaceRay& ray, bool primaryPressed)
 {
 	return UpdateRayPointer(Runtime.BuildReplayFrame(), source, ray, primaryPressed);
@@ -165,10 +180,17 @@ void XRUISurfaceEngineBinding::RegisterPointer(const XRUIPointerSource& source)
 	KnownPointers.push_back(source);
 }
 
-void XRUISurfaceEngineBinding::FlushPendingButtons(bool captureAvailable)
+void XRUISurfaceEngineBinding::FlushPendingButtons(bool captureAvailable,
+	const XRUISurfaceKind* presentedSurface)
 {
+	Array<PendingButton> retained;
 	for (const PendingButton& button : PendingButtons)
 	{
+		if (presentedSurface && button.Surface != *presentedSurface)
+		{
+			retained.push_back(button);
+			continue;
+		}
 		if (button.Pressed)
 		{
 			if (captureAvailable && !LegacyButtonDown)
@@ -183,7 +205,7 @@ void XRUISurfaceEngineBinding::FlushPendingButtons(bool captureAvailable)
 			LegacyButtonDown = false;
 		}
 	}
-	PendingButtons.clear();
+	PendingButtons = std::move(retained);
 }
 
 bool XRUISurfaceEngineBinding::Accepts(XRUICanvasReplaySource source) const

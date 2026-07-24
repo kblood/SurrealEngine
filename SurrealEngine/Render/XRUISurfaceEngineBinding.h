@@ -43,6 +43,7 @@ public:
 
 	XRUICanvasReplayFrame BuildReplayFrame() const;
 	void Replay(XRUICanvasReplayContext context);
+	bool AcknowledgeDirectInteractivePresentation(XRUISurfaceKind kind);
 
 	XRUIPointerUpdateResult UpdateRayPointer(const XRUIPointerSource& source, const XRUISurfaceRay& ray, bool primaryPressed);
 	XRUIPointerUpdateResult UpdateRayPointer(const XRUICanvasReplayFrame& frame,
@@ -69,7 +70,8 @@ private:
 	void ReleasePrimary(const XRUIPointerSource& source, XRUISurfaceKind surface, const Pointf& canvasPixel, bool canceled) override;
 
 	void RegisterPointer(const XRUIPointerSource& source);
-	void FlushPendingButtons(bool captureAvailable);
+	void FlushPendingButtons(bool captureAvailable,
+		const XRUISurfaceKind* presentedSurface = nullptr);
 	bool Accepts(XRUICanvasReplaySource source) const;
 	static size_t SurfaceIndex(XRUISurfaceKind kind);
 

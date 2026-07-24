@@ -91,6 +91,29 @@ std::optional<ViewRect> CreatePerViewHudRect(const ViewFamily& family,
 		std::max(x1 - x0, 1), std::max(y1 - y0, 1) };
 }
 
+std::optional<std::array<ViewRect, 2>> CreateStereoPerViewHudRects(
+	const ViewFamily& family)
+{
+	const std::optional<ViewRect> left = CreatePerViewHudRect(family, 0);
+	const std::optional<ViewRect> right = CreatePerViewHudRect(family, 1);
+	if (!left || !right)
+		return {};
+
+	const int width = std::min(left->Width, right->Width);
+	const int height = std::min(left->Height, right->Height);
+	if (width <= 0 || height <= 0)
+		return {};
+	std::array<ViewRect, 2> result = { *left, *right };
+	for (ViewRect& rect : result)
+	{
+		rect.X += (rect.Width - width) / 2;
+		rect.Y += (rect.Height - height) / 2;
+		rect.Width = width;
+		rect.Height = height;
+	}
+	return result;
+}
+
 bool ShouldRenderWeaponPerView(const ViewFamily& family)
 {
 	const PresentationLayerDescription world =

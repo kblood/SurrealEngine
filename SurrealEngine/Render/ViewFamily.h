@@ -6,6 +6,7 @@
 #include "Render/Presentation.h"
 #include "Utils/Array.h"
 
+#include <array>
 #include <optional>
 
 struct ViewRect
@@ -97,6 +98,8 @@ struct ViewFamily
 // at Hud.ConvergenceDepth rather than at infinity.
 std::optional<ViewRect> CreatePerViewHudRect(const ViewFamily& family,
 	size_t viewIndex);
+std::optional<std::array<ViewRect, 2>> CreateStereoPerViewHudRects(
+	const ViewFamily& family);
 
 // Creates a provider-free multi-view diagnostic. It splits the supplied
 // viewport horizontally and offsets the two cameras along the view's lateral

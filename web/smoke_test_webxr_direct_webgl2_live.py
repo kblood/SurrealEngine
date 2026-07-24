@@ -68,11 +68,19 @@ with sync_playwright() as playwright:
 		const makeView = (eye, x) => ({ eye, projectionMatrix: projection,
 			transform: { position: { x, y: 1.6, z: 0 },
 				orientation: { x: 0, y: 0, z: 0, w: 1 } } });
+		const button = () => ({ value: 0, pressed: false, touched: false });
+		const rightController = {
+			handedness: 'right', profiles: ['oculus-touch-v3'],
+			targetRaySpace: { kind: 'aim' }, gripSpace: { kind: 'grip' },
+			gamepad: { mapping: 'xr-standard', connected: true,
+				buttons: [button(), button(), button(), button(), button(), button()],
+				axes: [0, 0, 0, 0] },
+		};
 
 		class SyntheticSession {
 			constructor() {
 				this.listeners = new Map(); this.frames = new Map(); this.nextHandle = 1;
-				this.visibilityState = 'visible'; this.inputSources = [];
+				this.visibilityState = 'visible'; this.inputSources = [rightController];
 			}
 			addEventListener(name, callback) { this.listeners.set(name, callback); }
 			removeEventListener(name, callback) {
@@ -90,7 +98,9 @@ with sync_playwright() as playwright:
 				this.frames.delete(entry[0]);
 				const frame = {
 					getViewerPose: () => ({ views: [makeView('left', -.032), makeView('right', .032)] }),
-					getPose: () => null,
+					getPose: space => space && (space.kind === 'aim' || space.kind === 'grip') ?
+						({ transform: { position: { x: 0, y: 1.6, z: 0 },
+							orientation: { x: 0, y: 0, z: 0, w: 1 } } }) : null,
 				};
 				entry[1](time, frame);
 			}
@@ -161,7 +171,7 @@ with sync_playwright() as playwright:
 			requestSession: async () => { const session = new SyntheticSession(); sessions.push(session); return session; },
 		} });
 		window.XRWebGLLayer = SyntheticXRWebGLLayer;
-		window.__directXR = { gl, sessions };
+		window.__directXR = { gl, sessions, rightController };
 		return { contextHandle: Module.ccall('Surreal_GetWebGL2ContextHandle', 'number', [], []),
 			engine: Module.ccall('Surreal_GetBrowserEngineIdentity', 'number', [], []),
 			renderer: Module.ccall('Surreal_GetBrowserRendererIdentity', 'number', [], []),
@@ -198,6 +208,60 @@ with sync_playwright() as playwright:
 	state_during = page.evaluate("surrealXRGetState()")
 	gl_during = page.evaluate("surrealGetWebGL2Diagnostics()")
 	pixels = page.evaluate("__directXR.sessions[0].renderState.baseLayer.checksum()")
+
+	# Oculus Touch secondary is the conservative, profile-qualified Escape
+	# binding. Its simulation frame opens the menu; the following render must
+	# expose one controller visual and draw it into both atlas eyes.
+	menu_visuals = page.evaluate("""() => {
+		const source = __directXR.rightController;
+		const secondary = source.gamepad.buttons[5];
+		secondary.value = 1; secondary.pressed = true; secondary.touched = true;
+		__directXR.sessions[0].fire(48);
+		return true;
+	}""")
+	if not menu_visuals or not wait_until(page, "!window.surrealXRNativeCallsBlocked", timeout=30):
+		raise RuntimeError("menu-open simulation frame did not prepare")
+	menu_visuals = page.evaluate("""() => {
+		const source = __directXR.rightController;
+		const secondary = source.gamepad.buttons[5];
+		secondary.value = 0; secondary.pressed = false; secondary.touched = false;
+		__directXR.sessions[0].fire(64);
+		return {
+			menu: Module.ccall('Surreal_IsXRUIMenuActive', 'number', [], []),
+			viewMask: Module.ccall('Surreal_GetWebXRUIVisualViewMask', 'number', [], []),
+			hands: Module.ccall('Surreal_GetWebXRUIVisualHandCount', 'number', [], []),
+			hit: Module.ccall('Surreal_GetWebXRPointerHit', 'number', ['number'], [1]),
+			surface: Module.ccall('Surreal_GetWebXRPointerSurface', 'number', ['number'], [1]),
+			pixels: __directXR.sessions[0].renderState.baseLayer.checksum(),
+		};
+	}""")
+	if not wait_until(page, "!window.surrealXRNativeCallsBlocked", timeout=30):
+		raise RuntimeError("menu visual frame did not complete")
+
+	# A trigger edge is sampled by one simulation frame and rendered by the
+	# next. The direct presentation must keep the pointer selecting and hit-test
+	# the Menu surface (enum value 3) while both eye overlays succeed.
+	page.evaluate("""() => {
+		const trigger = __directXR.rightController.gamepad.buttons[0];
+		trigger.value = 1; trigger.pressed = true; trigger.touched = true;
+		__directXR.sessions[0].fire(80);
+	}""")
+	if not wait_until(page, "!window.surrealXRNativeCallsBlocked", timeout=30):
+		raise RuntimeError("menu trigger simulation frame did not prepare")
+	menu_select = page.evaluate("""() => {
+		const trigger = __directXR.rightController.gamepad.buttons[0];
+		trigger.value = 0; trigger.pressed = false; trigger.touched = false;
+		__directXR.sessions[0].fire(96);
+		return {
+			selecting: Module.ccall('Surreal_GetWebXRPointerSelecting', 'number', ['number'], [1]),
+			hit: Module.ccall('Surreal_GetWebXRPointerHit', 'number', ['number'], [1]),
+			surface: Module.ccall('Surreal_GetWebXRPointerSurface', 'number', ['number'], [1]),
+			viewMask: Module.ccall('Surreal_GetWebXRUIVisualViewMask', 'number', [], []),
+			hands: Module.ccall('Surreal_GetWebXRUIVisualHandCount', 'number', [], []),
+		};
+	}""")
+	if not wait_until(page, "!window.surrealXRNativeCallsBlocked", timeout=30):
+		raise RuntimeError("menu trigger render did not complete")
 	identity_during = page.evaluate("""() => ({
 		engine: Module.ccall('Surreal_GetBrowserEngineIdentity', 'number', [], []),
 		renderer: Module.ccall('Surreal_GetBrowserRendererIdentity', 'number', [], []),
@@ -209,6 +273,11 @@ with sync_playwright() as playwright:
 			json.dumps(page.evaluate("surrealXRGetState()"), indent=2))
 	if not wait_until(page, "!surrealXRGetState().cleanupPending", timeout=30):
 		raise RuntimeError("direct WebGL2 cleanup did not drain")
+	reset_after_exit = page.evaluate("""() => ({
+		viewMask: Module.ccall('Surreal_GetWebXRUIVisualViewMask', 'number', [], []),
+		hands: Module.ccall('Surreal_GetWebXRUIVisualHandCount', 'number', [], []),
+		hit: Module.ccall('Surreal_GetWebXRPointerHit', 'number', ['number'], [1]),
+	})""")
 	if not wait_until(page, f"surrealGetTickCount() > {identity_during['tick']}", timeout=10):
 		raise RuntimeError("flat rendering did not resume after direct XR")
 	identity_after = page.evaluate("""() => ({
@@ -216,6 +285,37 @@ with sync_playwright() as playwright:
 		renderer: Module.ccall('Surreal_GetBrowserRendererIdentity', 'number', [], []),
 		tick: surrealGetTickCount(), gl: surrealGetWebGL2Diagnostics()
 	})""")
+
+	if not page.evaluate("surrealXREnter()"):
+		raise RuntimeError("direct WebGL2 re-entry was rejected: " +
+			json.dumps(page.evaluate("surrealXRGetState()"), indent=2))
+	reentry_before = page.evaluate("""() => ({
+		engine: Module.ccall('Surreal_GetBrowserEngineIdentity', 'number', [], []),
+		renderer: Module.ccall('Surreal_GetBrowserRendererIdentity', 'number', [], []),
+		viewMask: Module.ccall('Surreal_GetWebXRUIVisualViewMask', 'number', [], []),
+		hands: Module.ccall('Surreal_GetWebXRUIVisualHandCount', 'number', [], []),
+	})""")
+	page.evaluate("""() => {
+		const secondary = __directXR.rightController.gamepad.buttons[5];
+		secondary.value = 1; secondary.pressed = true; secondary.touched = true;
+		__directXR.sessions[1].fire(128);
+	}""")
+	if not wait_until(page, "!window.surrealXRNativeCallsBlocked", timeout=30):
+		raise RuntimeError("re-entry simulation frame did not prepare")
+	reentry_after = page.evaluate("""() => {
+		const secondary = __directXR.rightController.gamepad.buttons[5];
+		secondary.value = 0; secondary.pressed = false; secondary.touched = false;
+		__directXR.sessions[1].fire(144);
+		return {
+			engine: Module.ccall('Surreal_GetBrowserEngineIdentity', 'number', [], []),
+			renderer: Module.ccall('Surreal_GetBrowserRendererIdentity', 'number', [], []),
+			viewMask: Module.ccall('Surreal_GetWebXRUIVisualViewMask', 'number', [], []),
+			hands: Module.ccall('Surreal_GetWebXRUIVisualHandCount', 'number', [], []),
+		};
+	}""")
+	if not page.evaluate("surrealXRExit()") or not wait_until(page,
+		"!surrealXRGetState().cleanupPending", timeout=30):
+		raise RuntimeError("re-entry cleanup did not drain")
 
 	result = {
 		"schema": "surrealengine-webxr-direct-webgl2-live-v1",
@@ -229,9 +329,14 @@ with sync_playwright() as playwright:
 		"renderBoundary": render_boundary,
 		"during": identity_during,
 		"after": identity_after,
+		"resetAfterExit": reset_after_exit,
+		"reentryBefore": reentry_before,
+		"reentryAfter": reentry_after,
 		"providerDuring": state_during,
 		"webGLDuring": gl_during,
 		"pixels": pixels,
+		"menuVisuals": menu_visuals,
+		"menuSelect": menu_select,
 		"pageErrors": page_errors,
 	}
 	print(json.dumps(result, indent=2))
@@ -252,6 +357,22 @@ with sync_playwright() as playwright:
 		and gl_during["drawCalls"] > 0
 		and pixels["error"] == 0 and pixels["nonzero"] > 0 and pixels["checksum"] > 0
 		and pixels["leftNonzero"] > 0 and pixels["rightNonzero"] > 0
+		and menu_visuals["menu"] == 1 and menu_visuals["viewMask"] == 3
+		and menu_visuals["hands"] == 1 and menu_visuals["hit"] == 1
+		and menu_visuals["surface"] == 3
+		and menu_visuals["pixels"]["leftNonzero"] > 0
+		and menu_visuals["pixels"]["rightNonzero"] > 0
+		and menu_select["selecting"] == 1 and menu_select["hit"] == 1
+		and menu_select["surface"] == 3 and menu_select["viewMask"] == 3
+		and menu_select["hands"] == 1
+		and reset_after_exit["viewMask"] == 0 and reset_after_exit["hands"] == 0
+		and reset_after_exit["hit"] == 0
+		and reentry_before["viewMask"] == 0 and reentry_before["hands"] == 0
+		and reentry_before["engine"] == setup["engine"]
+		and reentry_before["renderer"] == setup["renderer"]
+		and reentry_after["engine"] == setup["engine"]
+		and reentry_after["renderer"] == setup["renderer"]
+		and reentry_after["viewMask"] == 3 and reentry_after["hands"] == 1
 		and identity_after["tick"] > identity_during["tick"]
 		and not page_errors
 	)
