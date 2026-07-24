@@ -921,12 +921,90 @@ Exact UT436 and Unreal 226b disassembly has now identified the next shared
 runtime correction. Both retail `physFalling` implementations use a strict
 `normal.z > 0.7` landing threshold, project the remainder after the first wall,
 perform a second move, call `TwoWallAdjust` and perform a third move after a
-second nonwalkable contact, preserve falling Z velocity while reconstructing
-horizontal velocity, and continue the bounded eight-iteration physics loop.
-Surreal currently stops after the second move, rebuilds all three velocity
-components, and discards remaining time. That defect exactly fits the frozen
-Athena and Ash BSP-crease traces. It will be implemented and A/B-qualified as
-a separate live iteration.
+second nonwalkable contact, and reconstruct horizontal velocity while restoring
+the iteration-start Z velocity. Retail selects and charges the whole current
+time slice before the sweeps; hit fractions scale spatial residuals but never
+become outer remaining time. Only an independently pre-existing backlog can
+continue under the eight-iteration bound. Surreal currently stops after the
+second move and rebuilds all three velocity components. That defect exactly
+fits the frozen Athena and Ash BSP-crease traces. It will be implemented and
+A/B-qualified as a separate live iteration.
+
+## Iteration 51: retail two-plane falling physics
+
+Both target retail binaries independently prove the same reachable path.
+Each iteration snapshots location and velocity, integrates gravity/fluid/air
+control for the selected slice, charges that whole slice from outer remaining
+time, and makes the direct move. A nonwalkable direct contact calls `HitWall`
+and moves the projected residual. A second nonwalkable contact calls `HitWall`
+again, applies `TwoWallAdjust`, and makes a third move. A walkable direct or
+second contact and a walkable/ditch third contact land under strict
+`normal.z > 0.7`. Nonbounce wall resolution reconstructs XY from realized
+iteration displacement divided by slice time while restoring the pre-gravity
+iteration-start Z velocity. The loop is capped at eight; normal `TickPhysics`
+inputs of at most 0.02 seconds consume one complete slice.
+
+The implementation and pure parity model now share those thresholds, slice
+selection, two-wall adjustment, ditch predicate, and velocity reconstruction.
+Focused tests cover exact 0.7, a higher walkable normal, normal and independently
+split backlogs, cross-plane and same-side adjustment, gravity-integrated Z
+restoration, third-move geometry, malformed evidence, and the existing
+two-plane safety/contact fixtures. Direct walkable landing no longer emits the
+pre-existing nonretail `HitWall`; a static nonwalkable two-plane sequence emits
+exactly two callbacks before adjustment.
+
+An intermediate executable (`D506DA30...3AE269C`) was explicitly rejected.
+It reused the first-hit time residual after aligned/third sweeps had already
+consumed the same spatial residual, causing about 1.96x first-divergence motion
+and later velocities up to roughly 19,600 units/second. It deterministically
+increased hazard deaths in both games and is not committed. A second review
+also corrected integrated-Z preservation, multi-slice sources, and walkable
+callback order before final qualification.
+
+The final candidate SHA-256 is
+`8F7BF38B8C4CDFD2B815E7876BE531E7E00FCCE01B07DF171060DC5637D09139`.
+The primary observer baseline is `1C9DDE3E...ADB52CE`; extra behavior-only
+controls use `A7982728...B345E4` from the same zone-callback gameplay state but
+without iteration-50 instrumentation. Eight UT/Unreal configurations each ran
+twice for 30 simulated seconds. Every pair completed and was exactly equivalent
+across all five artifacts after normalizing only `output_directory`.
+
+Every comparable realized-falling step still matches with zero numerical
+mismatches and zero record overflows. The final runs do contain conservative
+`unknown` steps: after direct walkable landings stopped emitting the incorrect
+`HitWall`, the current record vocabulary has no `matched_landing` step outcome,
+so a zero-error direct landing is recorded as `unknown` immediately before its
+separate `landed` terminal. This is an instrumentation vocabulary gap, not a
+physics mismatch, but it fails the zero-unknown release gate and must be fixed
+without relabeling a landing as `matched_clear`.
+
+The final quality result is mixed rather than releasable. UT Deck seed 314159
+improves from K4/D5 to K1/D2 while retaining one unassisted environmental death;
+hazard deaths fall 2 to 1, seams 3 to 1, and walls 525 to 473, although hazard
+entries rise 2 to 4. Seed 104729 changes K2/D3 to K0/D1 with the same one
+unassisted environmental death and one hazard death, but hazard entries rise
+1 to 3, seams 1 to 13, and walls 333 to 352. Seed 271828 changes K3/D4 to K0/D1,
+keeps one unassisted environmental death, reduces hazard deaths 3 to 1, and
+keeps walls approximately flat at 342 versus 340. Survival improves, but combat
+engagement and kills regress sharply.
+
+Unreal DeathFan seed 424242 changes K1/D2 to K0/D1 while retaining the same one
+unassisted hazard death; walls fall 1,483 to 262, but one bot still has a long
+no-progress interval. DeathFan seed 123, DmDeck16, and DmHealPod remain
+death-free and nearly or exactly neutral. UT Morpheus is a decisive policy
+regression: K2/D4 becomes K0/D3, hazard deaths rise 2 to 3, walls 330 to 2,283,
+and seam detections 3 to 433. No tick exceeds the exact two-callback retail
+bound and affected pawns continue tangential motion, so this is not the
+rejected duplicated-time defect; it exposes repeated stock low-gravity wall
+behavior that still needs policy control.
+
+This is a binary-proven shared engine-fidelity correction and a useful
+foundation for safety work, but it is **not a bot release**. It does not meet
+combat, hazard-entry, Morpheus wall-contact, or cross-map quality gates. The
+next live policy must prevent harmful pain-column entry and replan repeated
+wall/seam trajectories without undoing retail physics. Held-out maps remain
+unopened, and the branch remains **not release-ready and not merge-ready as a
+complete bot improvement**.
 
 ## Frozen tuning and held-out maps
 
