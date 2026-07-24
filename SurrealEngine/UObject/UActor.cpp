@@ -1228,21 +1228,6 @@ void UActor::TickWalking(float elapsed)
 				}
 				if (transition == PawnMovement::LedgeTransition::Abort)
 					return;
-				if (positiveDpsVetoAuthorized)
-				{
-					const vec3 rollbackDelta = iterationStartLocation - Location();
-					const bool rollbackClear = TryMove(rollbackDelta, true).Fraction == 1.0f;
-					if (rollbackClear && TryMove(rollbackDelta).Fraction == 1.0f)
-					{
-						Velocity() = vec3(0.0f);
-						Acceleration() = vec3(0.0f);
-						pawn->MoveTimer() = -1.0f;
-						pawn->RecordWalkingStepPreflightPositiveDpsVetoOutcome(true);
-						return;
-					}
-					pawn->RecordWalkingStepPreflightPositiveDpsVetoOutcome(false);
-				}
-
 				bool painZoneVeto = false;
 				bool restoreGrounded = transition == PawnMovement::LedgeTransition::RestoreGrounded;
 				if (transition == PawnMovement::LedgeTransition::BeginFalling)
@@ -1279,6 +1264,24 @@ void UActor::TickWalking(float elapsed)
 					if (painZoneVeto)
 						pawn->MoveTimer() = -1.0f;
 					return;
+				}
+
+				// The stock pain-ledge guard owns its recovery/replan state. An opt-in
+				// preflight action may augment only the cases that it declined; it must
+				// never return early and suppress RecordPainLedgeVeto above.
+				if (positiveDpsVetoAuthorized)
+				{
+					const vec3 rollbackDelta = iterationStartLocation - Location();
+					const bool rollbackClear = TryMove(rollbackDelta, true).Fraction == 1.0f;
+					if (rollbackClear && TryMove(rollbackDelta).Fraction == 1.0f)
+					{
+						Velocity() = vec3(0.0f);
+						Acceleration() = vec3(0.0f);
+						pawn->MoveTimer() = -1.0f;
+						pawn->RecordWalkingStepPreflightPositiveDpsVetoOutcome(true);
+						return;
+					}
+					pawn->RecordWalkingStepPreflightPositiveDpsVetoOutcome(false);
 				}
 
 				SetPhysics(PHYS_Falling);
