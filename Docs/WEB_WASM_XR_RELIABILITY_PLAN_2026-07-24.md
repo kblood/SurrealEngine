@@ -404,6 +404,18 @@ headset/runtime was attached. The evidence manifest is
 This package remains unsigned and internal, and it does not close any named
 physical WebXR matrix row.
 
+Production-browser candidate progress, 2026-07-24: clean production build
+`ff89e9d1aec186a929545a7b571954c6c4a3125e` is frozen as build
+`ff89e9d1aec1-34c387709c89fff4` with direct WebGL2, Asyncify/OPFS, zero
+assertions, 52 manifest payloads, and no bundled game data. The staged Chrome
+gate passed immutable hashes and compression, launcher/import readiness,
+WebGL2 flat launch, fullscreen, input, responsive layout, and zero page errors.
+The live stable site remains the older `8b93cf60dfb2-3a67ac2ff50e7191`
+generation; it was intentionally not promoted without hardware. Current
+artifact identities and the required Q1/D1/E1/E2 rows are in
+`Docs/WEBXR_PHYSICAL_QUALIFICATION_FF89E9D1.md`; automated evidence is in
+`SurrealEngine/qa/runs/2026-07-24/ff89e9d1/wp7-production-candidate/manifest.json`.
+
 ## Release gates for VR
 
 A candidate is not qualified until physical hardware passes all of these:
