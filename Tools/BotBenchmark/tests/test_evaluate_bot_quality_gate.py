@@ -62,6 +62,63 @@ def report(*runs: dict) -> dict:
     }
 
 
+def paired_report(*pairs: tuple[str, str, dict, dict]) -> dict:
+    runs = []
+    pair_entries = []
+    metric_names: set[str] = set()
+    for pair_id, map_name, baseline_metrics, candidate_metrics in pairs:
+        baseline = run(f"{pair_id}-baseline", "baseline", map_name, baseline_metrics)
+        candidate = run(f"{pair_id}-candidate", "candidate", map_name, candidate_metrics)
+        baseline["metadata"] = {
+            "variant": "baseline", "pair_id": pair_id, "comparison_role": "baseline",
+        }
+        candidate["metadata"] = {
+            "variant": "candidate", "pair_id": pair_id, "comparison_role": "candidate",
+        }
+        runs.extend((baseline, candidate))
+        pair_metric_names = set(baseline_metrics) | set(candidate_metrics)
+        metric_names.update(pair_metric_names)
+        pair_entries.append({
+            "pair_id": pair_id,
+            "baseline_path": baseline["path"],
+            "candidate_path": candidate["path"],
+            "candidate_minus_baseline": {
+                metric: (float(candidate_metrics[metric]) - float(baseline_metrics[metric])
+                         if metric in baseline_metrics and metric in candidate_metrics
+                         and baseline_metrics[metric] is not None and candidate_metrics[metric] is not None
+                         else None)
+                for metric in pair_metric_names
+            },
+        })
+    quality_report = report(*runs)
+    quality_report["paired_comparisons"] = [{
+        "baseline_variant": "baseline",
+        "candidate_variant": "candidate",
+        "pair_count": len(pair_entries),
+        "metrics": {
+            metric: {"preferred_direction": None}
+            for metric in metric_names
+        },
+        "pairs": pair_entries,
+    }]
+    return quality_report
+
+
+def paired_gate(**overrides) -> dict:
+    gate = {
+        "id": "deck-death-non-regression",
+        "baseline_variant": "baseline",
+        "candidate_variant": "candidate",
+        "map": "DM-Deck16][",
+        "metric": "deaths_exact",
+        "comparison": "delta",
+        "direction": "lower",
+        "maximum_regression": 0,
+    }
+    gate.update(overrides)
+    return {"schema": GATE.CONFIG_SCHEMA, "paired_gates": [gate]}
+
+
 def config(**overrides) -> dict:
     document = {
         "schema": GATE.CONFIG_SCHEMA,
@@ -357,6 +414,168 @@ class QualityGateTests(unittest.TestCase):
             and item["evidence"].get("metric") ==
             "horizontal_corner_unknown_or_unsafe_support_exact"
             for item in result["violations"]))
+
+    def test_paired_gate_supports_equality_delta_and_ratio_thresholds(self) -> None:
+        equal_report = paired_report((
+            "deck-1", "DM-Deck16][", {"deaths_exact": 2}, {"deaths_exact": 2},
+        ))
+        equality = paired_gate(maximum_regression=None)
+        equality["paired_gates"][0].pop("maximum_regression")
+        equality["paired_gates"][0]["exact_equality"] = True
+        self.assertEqual(GATE.evaluate(equal_report, equality)["status"], "passed")
+
+        improved_report = paired_report((
+            "deck-2", "DM-Deck16][", {"deaths_exact": 10}, {"deaths_exact": 8},
+        ))
+        ratio = paired_gate(comparison="ratio", minimum_improvement=0.2)
+        ratio["paired_gates"][0].pop("maximum_regression")
+        result = GATE.evaluate(improved_report, ratio)
+        self.assertEqual(result["status"], "passed")
+        pair_check = next(item for item in result["checks"] if item["id"].endswith(":deck-2"))
+        self.assertAlmostEqual(pair_check["evidence"]["directed_improvement"], 0.2)
+
+    def test_paired_gate_rejects_regression(self) -> None:
+        quality_report = paired_report((
+            "deck-regression", "DM-Deck16][", {"deaths_exact": 2}, {"deaths_exact": 3},
+        ))
+        result = GATE.evaluate(quality_report, paired_gate())
+        self.assertEqual(result["status"], "failed")
+        violation = next(
+            item for item in result["violations"] if item["id"].endswith(":deck-regression"))
+        self.assertIn("regression", violation["reason"])
+
+    def test_paired_gate_enforces_minimum_pair_coverage(self) -> None:
+        quality_report = paired_report((
+            "deck-only-pair", "DM-Deck16][", {"deaths_exact": 2}, {"deaths_exact": 2},
+        ))
+        result = GATE.evaluate(quality_report, paired_gate(min_pairs=2))
+        self.assertEqual(result["status"], "failed")
+        coverage = next(item for item in result["violations"] if item["id"].endswith(":coverage"))
+        self.assertIn("fewer than required 2", coverage["reason"])
+
+    def test_paired_ratio_rejects_zero_baseline(self) -> None:
+        quality_report = paired_report((
+            "deck-zero", "DM-Deck16][", {"deaths_exact": 0}, {"deaths_exact": 0},
+        ))
+        gate_config = paired_gate(comparison="ratio")
+        result = GATE.evaluate(quality_report, gate_config)
+        self.assertEqual(result["status"], "failed")
+        violation = next(item for item in result["violations"] if item["id"].endswith(":deck-zero"))
+        self.assertIn("strictly positive baseline", violation["reason"])
+
+    def test_paired_gate_rejects_tampered_paths_and_deltas(self) -> None:
+        wrong_path = paired_report((
+            "deck-path", "DM-Deck16][", {"deaths_exact": 2}, {"deaths_exact": 2},
+        ))
+        wrong_path["paired_comparisons"][0]["pairs"][0]["baseline_path"] = "not-the-baseline"
+        path_result = GATE.evaluate(wrong_path, paired_gate())
+        self.assertEqual(path_result["status"], "failed")
+        self.assertIn("baseline_path does not match", " ".join(
+            item["reason"] for item in path_result["violations"]))
+
+        wrong_delta = paired_report((
+            "deck-delta", "DM-Deck16][", {"deaths_exact": 2}, {"deaths_exact": 2},
+        ))
+        wrong_delta["paired_comparisons"][0]["pairs"][0][
+            "candidate_minus_baseline"]["deaths_exact"] = 1
+        delta_result = GATE.evaluate(wrong_delta, paired_gate())
+        self.assertEqual(delta_result["status"], "failed")
+        self.assertIn("delta disagrees", " ".join(
+            item["reason"] for item in delta_result["violations"]))
+
+    def test_paired_gate_applies_explicit_higher_and_lower_directions(self) -> None:
+        higher = paired_report((
+            "deck-higher", "DM-Deck16][", {"kills_exact": 2}, {"kills_exact": 3},
+        ))
+        higher_gate = paired_gate(metric="kills_exact", direction="higher", minimum_improvement=1)
+        higher_gate["paired_gates"][0].pop("maximum_regression")
+        self.assertEqual(GATE.evaluate(higher, higher_gate)["status"], "passed")
+
+        lower = paired_report((
+            "deck-lower", "DM-Deck16][", {"deaths_exact": 3}, {"deaths_exact": 2},
+        ))
+        lower_gate = paired_gate(minimum_improvement=1)
+        lower_gate["paired_gates"][0].pop("maximum_regression")
+        self.assertEqual(GATE.evaluate(lower, lower_gate)["status"], "passed")
+
+        higher_regression = paired_report((
+            "deck-higher-regression", "DM-Deck16][", {"kills_exact": 2}, {"kills_exact": 1},
+        ))
+        non_regression = paired_gate(metric="kills_exact", direction="higher")
+        self.assertEqual(GATE.evaluate(higher_regression, non_regression)["status"], "failed")
+
+    def test_paired_gate_rejects_invalid_or_multiple_thresholds(self) -> None:
+        quality_report = paired_report((
+            "deck-1", "DM-Deck16][", {"deaths_exact": 2}, {"deaths_exact": 2},
+        ))
+        invalid_gates = [
+            paired_gate(maximum_regression=-1),
+            paired_gate(maximum_regression=True),
+        ]
+        false_equality = paired_gate(exact_equality=False)
+        false_equality["paired_gates"][0].pop("maximum_regression")
+        invalid_gates.append(false_equality)
+        minimum_negative = paired_gate(minimum_improvement=-1)
+        minimum_negative["paired_gates"][0].pop("maximum_regression")
+        invalid_gates.append(minimum_negative)
+        minimum_boolean = paired_gate(minimum_improvement=False)
+        minimum_boolean["paired_gates"][0].pop("maximum_regression")
+        invalid_gates.append(minimum_boolean)
+        multiple = paired_gate(minimum_improvement=0)
+        invalid_gates.append(multiple)
+        for gate_config in invalid_gates:
+            with self.subTest(gate_config=gate_config):
+                with self.assertRaises(GATE.GateInputError):
+                    GATE.evaluate(quality_report, gate_config)
+
+    def test_paired_gate_fails_on_missing_or_unpaired_evidence(self) -> None:
+        quality_report = paired_report((
+            "deck-missing", "DM-Deck16][", {"deaths_exact": 2}, {"deaths_exact": 2},
+        ))
+        quality_report["runs"][1]["metadata"] = None
+        quality_report["paired_comparisons"][0]["pairs"] = []
+        quality_report["paired_comparisons"][0]["pair_count"] = 0
+        result = GATE.evaluate(quality_report, paired_gate())
+        self.assertEqual(result["status"], "failed")
+        coverage = next(item for item in result["violations"] if item["id"].endswith(":coverage"))
+        self.assertIn("no quality pair metadata", coverage["reason"])
+        self.assertIn("missing candidate evidence", coverage["reason"])
+
+        null_report = paired_report((
+            "deck-null", "DM-Deck16][", {"deaths_exact": 2}, {"deaths_exact": None},
+        ))
+        null_result = GATE.evaluate(null_report, paired_gate())
+        self.assertEqual(null_result["status"], "failed")
+        null_violation = next(
+            item for item in null_result["violations"] if item["id"].endswith(":deck-null"))
+        self.assertIn("null", null_violation["reason"])
+
+    def test_paired_gate_rejects_duplicate_ids_and_unknown_keys(self) -> None:
+        quality_report = paired_report((
+            "deck-1", "DM-Deck16][", {"deaths_exact": 2}, {"deaths_exact": 2},
+        ))
+        duplicate = paired_gate()
+        duplicate["required_runs"] = [{"id": "deck-death-non-regression", "min": 1}]
+        with self.assertRaisesRegex(GATE.GateInputError, "duplicate gate id"):
+            GATE.evaluate(quality_report, duplicate)
+
+        unknown = paired_gate()
+        unknown["paired_gates"][0]["preferred_direction"] = "lower"
+        with self.assertRaisesRegex(GATE.GateInputError, "unknown keys"):
+            GATE.evaluate(quality_report, unknown)
+
+    def test_paired_gate_is_map_scoped_with_mixed_pairs(self) -> None:
+        quality_report = paired_report(
+            ("deck-pass", "DM-Deck16][", {"deaths_exact": 2}, {"deaths_exact": 2}),
+            ("morbias-regression", "DM-Morbias][", {"deaths_exact": 0}, {"deaths_exact": 9}),
+        )
+        result = GATE.evaluate(quality_report, paired_gate())
+        self.assertEqual(result["status"], "passed")
+        checked_pairs = {
+            item["evidence"].get("pair_id") for item in result["checks"]
+            if item["kind"] == "paired_gate" and item["evidence"].get("pair_id")
+        }
+        self.assertEqual(checked_pairs, {"deck-pass"})
 
     def test_cli_returns_nonzero_and_writes_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

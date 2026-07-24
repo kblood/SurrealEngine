@@ -14,15 +14,22 @@ from typing import Any
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
 CONFIG_SCHEMA = "surreal-bot-quality-gates-v1"
 RESULT_SCHEMA = "surreal-bot-quality-gate-result-v1"
-TOOL_VERSION = 2
+TOOL_VERSION = 3
 AGGREGATE_STATISTICS = {"count", "mean", "median", "minimum", "maximum"}
 CONFIG_KEYS = {
     "schema", "validity_only", "required_runs", "required_metrics",
-    "aggregate_gates", "per_run_gates",
+    "aggregate_gates", "per_run_gates", "paired_gates",
 }
 REQUIRED_RUN_KEYS = {"id", "variant", "map", "min"}
 AGGREGATE_GATE_KEYS = {"id", "variant", "metric", "statistic", "min", "max", "equals"}
 PER_RUN_GATE_KEYS = {"id", "variant", "map", "metric", "min", "max", "equals"}
+PAIRED_GATE_KEYS = {
+    "id", "baseline_variant", "candidate_variant", "map", "metric", "comparison",
+    "direction", "min_pairs", "exact_equality", "maximum_regression", "minimum_improvement",
+}
+PAIRED_COMPARISONS = {"delta", "ratio"}
+PAIRED_DIRECTIONS = {"higher", "lower"}
+PAIRED_THRESHOLDS = {"exact_equality", "maximum_regression", "minimum_improvement"}
 
 
 class GateInputError(ValueError):
@@ -110,6 +117,29 @@ def _thresholds(gate: dict[str, Any]) -> dict[str, Any]:
     return thresholds
 
 
+def _paired_threshold(gate: dict[str, Any]) -> tuple[str, float | bool]:
+    present = [key for key in PAIRED_THRESHOLDS if key in gate]
+    if len(present) != 1:
+        raise GateInputError(
+            "each paired gate must define exactly one of exact_equality, "
+            "maximum_regression, or minimum_improvement")
+    name = present[0]
+    value = gate[name]
+    if name == "exact_equality":
+        if value is not True:
+            raise GateInputError("paired gate exact_equality must be true")
+    elif not _is_number(value) or value < 0:
+        raise GateInputError(f"paired gate {name} must be a finite non-negative number")
+    return name, value
+
+
+def _paired_string(gate: dict[str, Any], key: str) -> str:
+    value = gate.get(key)
+    if not isinstance(value, str) or not value:
+        raise GateInputError(f"paired gates require a non-empty {key}")
+    return value
+
+
 def _validate_config(config: dict[str, Any]) -> None:
     _reject_unknown_keys(config, CONFIG_KEYS, "gate config")
 
@@ -121,17 +151,19 @@ def _validate_config(config: dict[str, Any]) -> None:
     required_metrics = config.get("required_metrics", [])
     aggregate_gates = config.get("aggregate_gates", [])
     per_run_gates = config.get("per_run_gates", [])
+    paired_gates = config.get("paired_gates", [])
     for name, value in (
         ("required_runs", required_runs),
         ("required_metrics", required_metrics),
         ("aggregate_gates", aggregate_gates),
         ("per_run_gates", per_run_gates),
+        ("paired_gates", paired_gates),
     ):
         if not isinstance(value, list):
             raise GateInputError(f"{name} must be an array")
 
     substantive_count = sum(map(len, (
-        required_runs, required_metrics, aggregate_gates, per_run_gates,
+        required_runs, required_metrics, aggregate_gates, per_run_gates, paired_gates,
     )))
     if validity_only:
         if substantive_count:
@@ -186,6 +218,27 @@ def _validate_config(config: dict[str, Any]) -> None:
             raise GateInputError("per-run gates require a metric")
         _thresholds(gate)
 
+    for index, gate in enumerate(paired_gates):
+        if not isinstance(gate, dict):
+            raise GateInputError("paired gates must be objects")
+        context = f"paired_gates[{index}]"
+        _reject_unknown_keys(gate, PAIRED_GATE_KEYS, context)
+        register_id(_entry_id(gate, context))
+        baseline_variant = _paired_string(gate, "baseline_variant")
+        candidate_variant = _paired_string(gate, "candidate_variant")
+        if baseline_variant == candidate_variant:
+            raise GateInputError("paired gate baseline_variant and candidate_variant must differ")
+        _paired_string(gate, "map")
+        _paired_string(gate, "metric")
+        if gate.get("comparison") not in PAIRED_COMPARISONS:
+            raise GateInputError("paired gate comparison must be delta or ratio")
+        if gate.get("direction") not in PAIRED_DIRECTIONS:
+            raise GateInputError("paired gate direction must be higher or lower")
+        minimum = gate.get("min_pairs", 1)
+        if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum <= 0:
+            raise GateInputError("paired gate min_pairs must be a positive integer")
+        _paired_threshold(gate)
+
 
 def _equal(actual: Any, expected: Any) -> bool:
     if isinstance(actual, bool) or isinstance(expected, bool):
@@ -211,6 +264,49 @@ def _threshold_failures(value: Any, thresholds: dict[str, Any]) -> list[str]:
         elif key == "max" and value > thresholds[key]:
             failures.append(f"expected {operator} {thresholds[key]!r}, observed {value!r}")
     return failures
+
+
+def _numeric_metric(run: dict[str, Any], metric: str) -> float | None:
+    metrics = run.get("metrics")
+    if not isinstance(metrics, dict) or metric not in metrics:
+        return None
+    value = metrics[metric]
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    return float(value) if _is_number(value) else None
+
+
+def _paired_change(
+        baseline: float, candidate: float, comparison: str, direction: str,
+) -> tuple[float | None, float | None, str | None]:
+    delta = candidate - baseline
+    if comparison == "delta":
+        compared = delta
+        improvement = delta if direction == "higher" else -delta
+        return compared, improvement, None
+    if baseline <= 0:
+        return None, None, "ratio comparison requires a strictly positive baseline value"
+    ratio = candidate / baseline
+    improvement = ratio - 1.0 if direction == "higher" else 1.0 - ratio
+    return ratio, improvement, None
+
+
+def _paired_threshold_failures(
+        baseline: float, candidate: float, improvement: float,
+        threshold: tuple[str, float | bool],
+) -> list[str]:
+    name, limit = threshold
+    if name == "exact_equality":
+        return [] if candidate == baseline else [
+            f"expected exact candidate/baseline equality, observed {candidate!r} versus {baseline!r}"]
+    assert isinstance(limit, (int, float)) and not isinstance(limit, bool)
+    if (name == "maximum_regression" and improvement < -limit
+            and not math.isclose(improvement, -limit, rel_tol=1e-12, abs_tol=1e-12)):
+        return [f"regression {-improvement!r} exceeds maximum {limit!r}"]
+    if (name == "minimum_improvement" and improvement < limit
+            and not math.isclose(improvement, limit, rel_tol=1e-12, abs_tol=1e-12)):
+        return [f"improvement {improvement!r} is below minimum {limit!r}"]
+    return []
 
 
 def evaluate(report: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
@@ -356,6 +452,195 @@ def evaluate(report: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
             evidence = {"selector": selector, "path": run.get("path"), "variant": run.get("variant"),
                         "map": _run_map(run), "metric": metric, "value": value, "thresholds": thresholds}
             add_check("per_run_gate", f"{gate_id}:run-{run_index}", not failures, evidence,
+                      "; ".join(failures))
+
+    paired_gates = config.get("paired_gates", [])
+    if not isinstance(paired_gates, list):
+        raise GateInputError("paired_gates must be an array")
+    paired_comparisons = report.get("paired_comparisons")
+    if paired_gates and not isinstance(paired_comparisons, list):
+        raise GateInputError("quality report paired_comparisons must be an array")
+    for gate in paired_gates:
+        baseline_variant = gate["baseline_variant"]
+        candidate_variant = gate["candidate_variant"]
+        map_name = gate["map"]
+        metric = gate["metric"]
+        comparison_mode = gate["comparison"]
+        direction = gate["direction"]
+        minimum_pairs = gate.get("min_pairs", 1)
+        threshold = _paired_threshold(gate)
+        gate_id = gate["id"]
+        selector = {
+            "baseline_variant": baseline_variant,
+            "candidate_variant": candidate_variant,
+            "map": map_name,
+        }
+        issues: list[str] = []
+
+        if metric not in available_metrics:
+            issues.append(f"metric {metric!r} is not declared available by the analyzer")
+
+        selected_runs = [
+            run for run in runs if isinstance(run, dict)
+            and run.get("variant") in {baseline_variant, candidate_variant}
+            and _run_map(run) == map_name
+        ]
+        if not selected_runs:
+            issues.append("paired selector matched no baseline or candidate runs")
+
+        roles_by_pair: dict[str, dict[str, dict[str, Any]]] = {}
+        for run in selected_runs:
+            metadata = run.get("metadata")
+            path = run.get("path")
+            expected_role = "baseline" if run.get("variant") == baseline_variant else "candidate"
+            if not isinstance(metadata, dict):
+                issues.append(f"run {path!r} has no quality pair metadata")
+                continue
+            pair_id = metadata.get("pair_id")
+            role = metadata.get("comparison_role")
+            if metadata.get("variant") != run.get("variant"):
+                issues.append(f"run {path!r} metadata variant does not match the analyzed variant")
+                continue
+            if not isinstance(pair_id, str) or not pair_id:
+                issues.append(f"run {path!r} has no non-empty pair_id")
+                continue
+            if role != expected_role:
+                issues.append(
+                    f"run {path!r} comparison_role {role!r} does not match {expected_role!r}")
+                continue
+            pair_roles = roles_by_pair.setdefault(pair_id, {})
+            if role in pair_roles:
+                issues.append(f"pair {pair_id!r} has duplicate {role} runs on {map_name!r}")
+                continue
+            pair_roles[role] = run
+
+        complete_pairs: dict[str, dict[str, dict[str, Any]]] = {}
+        for pair_id, pair_roles in sorted(roles_by_pair.items()):
+            missing_roles = sorted({"baseline", "candidate"} - set(pair_roles))
+            if missing_roles:
+                issues.append(
+                    f"pair {pair_id!r} is missing {', '.join(missing_roles)} evidence on {map_name!r}")
+            else:
+                complete_pairs[pair_id] = pair_roles
+
+        comparison_matches = [
+            item for item in paired_comparisons or [] if isinstance(item, dict)
+            and item.get("baseline_variant") == baseline_variant
+            and item.get("candidate_variant") == candidate_variant
+        ]
+        comparison_object = comparison_matches[0] if len(comparison_matches) == 1 else None
+        if not comparison_matches:
+            issues.append("analyzer report has no paired comparison for the selected variants")
+        elif len(comparison_matches) > 1:
+            issues.append("analyzer report has duplicate paired comparisons for the selected variants")
+
+        reported_pairs: dict[str, dict[str, Any]] = {}
+        if comparison_object is not None:
+            pair_items = comparison_object.get("pairs")
+            if not isinstance(pair_items, list):
+                issues.append("paired comparison pairs is not an array")
+            else:
+                for pair in pair_items:
+                    if not isinstance(pair, dict):
+                        issues.append("paired comparison contains a non-object pair")
+                        continue
+                    pair_id = pair.get("pair_id")
+                    if not isinstance(pair_id, str) or not pair_id:
+                        issues.append("paired comparison contains a pair without a non-empty pair_id")
+                    elif pair_id in reported_pairs:
+                        issues.append(f"paired comparison contains duplicate pair {pair_id!r}")
+                    else:
+                        reported_pairs[pair_id] = pair
+                reported_count = comparison_object.get("pair_count")
+                if (not isinstance(reported_count, int) or isinstance(reported_count, bool)
+                        or reported_count != len(pair_items)):
+                    issues.append("paired comparison pair_count does not match its pair array")
+            metric_summaries = comparison_object.get("metrics")
+            metric_summary = (metric_summaries.get(metric)
+                              if isinstance(metric_summaries, dict) else None)
+            if not isinstance(metric_summary, dict):
+                issues.append(f"paired comparison has no summary for metric {metric!r}")
+            else:
+                reported_direction = metric_summary.get("preferred_direction")
+                if reported_direction not in (None, direction):
+                    issues.append(
+                        f"configured direction {direction!r} conflicts with analyzer direction "
+                        f"{reported_direction!r}")
+
+        observed_pairs = len(complete_pairs)
+        if observed_pairs < minimum_pairs:
+            issues.append(
+                f"observed {observed_pairs} complete pairs, fewer than required {minimum_pairs}")
+        for pair_id in complete_pairs:
+            if pair_id not in reported_pairs:
+                issues.append(f"complete pair {pair_id!r} is absent from paired_comparisons")
+
+        coverage_evidence = {
+            "selector": selector,
+            "metric": metric,
+            "comparison": comparison_mode,
+            "direction": direction,
+            "threshold": {threshold[0]: threshold[1]},
+            "required_pairs": minimum_pairs,
+            "observed_complete_pairs": observed_pairs,
+            "selected_runs": len(selected_runs),
+            "pair_ids": sorted(complete_pairs),
+        }
+        add_check("paired_gate", f"{gate_id}:coverage", not issues, coverage_evidence,
+                  "; ".join(issues))
+
+        for pair_id, pair_roles in sorted(complete_pairs.items()):
+            baseline_run = pair_roles["baseline"]
+            candidate_run = pair_roles["candidate"]
+            reported_pair = reported_pairs.get(pair_id)
+            failures: list[str] = []
+            baseline_value = _numeric_metric(baseline_run, metric)
+            candidate_value = _numeric_metric(candidate_run, metric)
+            reported_delta: Any = None
+            if baseline_value is None:
+                failures.append("baseline metric is missing, null, or non-numeric")
+            if candidate_value is None:
+                failures.append("candidate metric is missing, null, or non-numeric")
+            if reported_pair is None:
+                failures.append("pair is absent from paired_comparisons")
+            else:
+                if reported_pair.get("baseline_path") != baseline_run.get("path"):
+                    failures.append("paired comparison baseline_path does not match quality metadata")
+                if reported_pair.get("candidate_path") != candidate_run.get("path"):
+                    failures.append("paired comparison candidate_path does not match quality metadata")
+                deltas = reported_pair.get("candidate_minus_baseline")
+                reported_delta = deltas.get(metric) if isinstance(deltas, dict) else None
+                if not _is_number(reported_delta):
+                    failures.append("paired comparison delta is missing, null, or non-numeric")
+                elif (baseline_value is not None and candidate_value is not None
+                      and reported_delta != candidate_value - baseline_value):
+                    failures.append("paired comparison delta disagrees with the paired run metrics")
+
+            compared_value = improvement = None
+            if baseline_value is not None and candidate_value is not None:
+                compared_value, improvement, comparison_error = _paired_change(
+                    baseline_value, candidate_value, comparison_mode, direction)
+                if comparison_error:
+                    failures.append(comparison_error)
+                elif improvement is not None:
+                    failures.extend(_paired_threshold_failures(
+                        baseline_value, candidate_value, improvement, threshold))
+            evidence = {
+                "selector": selector,
+                "pair_id": pair_id,
+                "baseline_path": baseline_run.get("path"),
+                "candidate_path": candidate_run.get("path"),
+                "metric": metric,
+                "baseline_value": baseline_value,
+                "candidate_value": candidate_value,
+                "reported_candidate_minus_baseline": reported_delta,
+                "comparison": comparison_mode,
+                "compared_value": compared_value,
+                "direction": direction,
+                "directed_improvement": improvement,
+                "threshold": {threshold[0]: threshold[1]},
+            }
+            add_check("paired_gate", f"{gate_id}:{pair_id}", not failures, evidence,
                       "; ".join(failures))
 
     return {

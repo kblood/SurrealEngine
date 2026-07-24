@@ -199,6 +199,48 @@ Example `surreal-bot-quality-gates-v1` configuration:
 }
 ```
 
+Paired gates make candidate-versus-baseline non-regression executable. They
+cross-check `quality-metadata.json` against the analyzer's
+`paired_comparisons`, and they evaluate every complete pair selected by map and
+variant. For example, this rejects any increase in Deck16 deaths:
+
+```json
+{
+  "schema": "surreal-bot-quality-gates-v1",
+  "paired_gates": [
+    {
+      "id": "deck-death-non-regression",
+      "baseline_variant": "repaired-stock",
+      "candidate_variant": "enhanced-bot",
+      "map": "DM-Deck16][",
+      "metric": "deaths_exact",
+      "comparison": "delta",
+      "direction": "lower",
+      "min_pairs": 2,
+      "maximum_regression": 0
+    }
+  ]
+}
+```
+
+Every paired gate must state `comparison` (`delta` or `ratio`) and `direction`
+(`higher` or `lower`); the evaluator never guesses direction from a metric
+name. Exactly one threshold is required:
+
+- `"exact_equality": true` requires the candidate value to equal the baseline
+  value in every selected pair.
+- `"maximum_regression": N` permits at most `N` worsening in metric units for
+  a delta comparison, or as a fraction of the baseline for a ratio comparison.
+- `"minimum_improvement": N` requires at least `N` improvement in metric units
+  for a delta comparison, or as a fraction of the baseline for a ratio
+  comparison.
+
+Ratio gates require a strictly positive baseline value. `min_pairs` defaults to
+one and should be set to the complete expected seed/role count for release
+evidence. Missing metadata, one-sided pairs, null or non-numeric metrics,
+missing analyzer pair records, and a selector with too few complete pairs all
+fail closed. Other maps and other variant pairs do not contribute to the gate.
+
 Every reported run must be complete, successful, and structurally valid.
 Selectors matching no runs, missing metrics, and null metrics fail closed. Metric
 names are literal: the evaluator does not reinterpret `suicides_exact` as
