@@ -284,6 +284,18 @@ assert heap, map/player, renderer, audio graph, and mount identity and prove no
 second `main()` call across transitions. Remaining WP3 work is the in-headset
 exit action and equivalent evidence from a live runtime transition harness.
 
+WP3 gate closed, 2026-07-24: the headset-rendered UE1 menu's existing
+Quit/Exit action now emits a browser session-exit request while WebXR owns the
+frame loop, returning to the same flat game instead of terminating WASM; flat
+Quit semantics are unchanged. A real WebGL2 UE1/WASM continuity harness, with
+only the unavailable headless browser XR-session boundary mocked, exercised
+flat, entry, exit, re-entry, and the game-menu exit route. Engine, loaded
+level, player pawn, renderer, audio device, module, data controller, and audio
+controller identities remained equal; heap size stayed 256 MiB; ticks advanced
+7 to 70 to 131; WebGL remained generation 1 with 164 textures and zero errors;
+and no second `main()` call occurred. This closes state-machine continuity, not
+physical headset presentation qualification.
+
 ### WP4 — Transition lifecycle correctness
 
 - Make `requestSession()` the first platform request of an enabled Enter click;

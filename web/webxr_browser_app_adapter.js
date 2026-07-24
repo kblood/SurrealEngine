@@ -66,11 +66,14 @@
 			this.currentState = SESSION_STATES.WAITING_FOR_ENGINE;
 			this.lastError = null;
 			this._providerStateChanged = () => this.refreshFromProvider();
+			this._gameExitRequested = () => { void this.exit(); };
 			if (this.enterButton) this.enterButton.addEventListener("click", () => { void this.enter(); });
 			if (this.exitButton) this.exitButton.addEventListener("click", () => { void this.exit(); });
 			if (this.backend) this.backend.addEventListener("change", () => this._render());
 			if (typeof this.host.addEventListener === "function")
 				this.host.addEventListener("surrealwebxrproviderstate", this._providerStateChanged);
+			if (typeof this.host.addEventListener === "function")
+				this.host.addEventListener("surrealwebxrgameexit", this._gameExitRequested);
 			this._render();
 		}
 

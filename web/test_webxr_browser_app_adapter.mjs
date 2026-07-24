@@ -91,6 +91,14 @@ function makeHost() {
 	assert.equal(await reentering, true);
 	assert.equal(controller.status().state, api.SESSION_STATES.IMMERSIVE_RUNNING,
 		"the same controller could not re-enter without restarting the engine");
+	host.providerState = { ...host.providerState, active: true, cleanupPending: false, phase: "running" };
+	host.dispatchEvent(new Event("surrealwebxrgameexit"));
+	assert.equal(controller.status().state, api.SESSION_STATES.ENDING_XR,
+		"the in-headset game menu exit did not request a return to flat play");
+	host.providerState = { ...host.providerState, active: false, cleanupPending: false, phase: "ended" };
+	controller.refreshFromProvider();
+	assert.equal(controller.status().state, api.SESSION_STATES.FLAT_RUNNING);
+	assert.equal(await controller.enter(), true, "game-menu exit prevented later re-entry");
 	host.providerState = { ...host.providerState, active: false, cleanupPending: false, phase: "ended" };
 	controller.refreshFromProvider();
 	assert.equal(controller.status().state, api.SESSION_STATES.FLAT_RUNNING,

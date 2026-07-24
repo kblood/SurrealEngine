@@ -145,6 +145,7 @@ Engine::~Engine()
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include <emscripten/heap.h>
 
 extern "C"
 {
@@ -184,6 +185,37 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetTickCount()
 	{
 		return engine ? static_cast<uint32_t>(engine->tickCount) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetBrowserEngineIdentity()
+	{
+		return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(engine));
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetBrowserLevelIdentity()
+	{
+		return engine ? static_cast<uint32_t>(reinterpret_cast<uintptr_t>(engine->LevelInfo)) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetBrowserPlayerIdentity()
+	{
+		return engine && engine->viewport ?
+			static_cast<uint32_t>(reinterpret_cast<uintptr_t>(engine->viewport->Actor())) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetBrowserRendererIdentity()
+	{
+		return engine ? static_cast<uint32_t>(reinterpret_cast<uintptr_t>(engine->renderdev)) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetBrowserAudioIdentity()
+	{
+		return engine ? static_cast<uint32_t>(reinterpret_cast<uintptr_t>(engine->audiodev)) : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetBrowserHeapSize()
+	{
+		return static_cast<uint32_t>(emscripten_get_heap_size());
 	}
 
 	EMSCRIPTEN_KEEPALIVE void Surreal_RequestQuit()
@@ -2137,6 +2169,19 @@ std::string Engine::ConsoleCommand(UObject* context, const std::string& commandl
 	found = true;
 	if (command == "exit" || command == "quit")
 	{
+		#ifdef __EMSCRIPTEN__
+		if (XRFrameLoopActive)
+		{
+			// The UE1 menu is captured into the headset. Its existing Exit/Quit
+			// action leaves immersive presentation and resumes this same game in
+			// the flat canvas instead of destroying the browser-owned WASM module.
+			EM_ASM({
+				if (typeof globalThis.dispatchEvent === 'function' && typeof globalThis.Event === 'function')
+					globalThis.dispatchEvent(new globalThis.Event('surrealwebxrgameexit'));
+			});
+			return {};
+		}
+		#endif
 		quit = true;
 	}
 	else if (command == "timedemo" && args.size() == 2)

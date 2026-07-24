@@ -21,6 +21,14 @@ pre-launch reservation adapter remains only as a compatibility surface for old
 harnesses. This controller integration is deterministic-test validated, not a
 new physical qualification.
 
+The world-space UE1 menu is already rendered into the headset. While the
+WebXR frame loop owns presentation, its existing Quit/Exit command dispatches
+`surrealwebxrgameexit`; the post-launch controller ends only the immersive
+session and resumes the same flat process. The same command outside WebXR keeps
+its original game-quit behavior. Browser-only runtime identity probes expose
+opaque engine, level, player, renderer, and audio handles plus heap size for
+continuity testing; they do not expose game data.
+
 ## Scope
 
 The provider layers optional WebXR presentation on the flat Emscripten/WebGPU
