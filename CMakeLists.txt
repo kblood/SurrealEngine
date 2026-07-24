@@ -546,6 +546,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnFallingTwoPlaneSafety.h
 	SurrealEngine/UObject/PawnPainZoneFallPrediction.cpp
 	SurrealEngine/UObject/PawnPainZoneFallPrediction.h
+	SurrealEngine/UObject/PawnFallingParityForecast.cpp
+	SurrealEngine/UObject/PawnFallingParityForecast.h
 	SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
 	SurrealEngine/UObject/PawnWalkingStepPreflight.h
 	SurrealEngine/UObject/PawnPainLedgeRecovery.cpp
@@ -1352,6 +1354,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PawnPainZoneFallPredictionTests PRIVATE SurrealEngine)
 	set_target_properties(PawnPainZoneFallPredictionTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnPainZoneFallPrediction COMMAND PawnPainZoneFallPredictionTests)
+
+	add_executable(PawnFallingParityForecastTests
+		Tests/PawnFallingParityForecastTests.cpp
+		SurrealEngine/UObject/PawnFallingParityForecast.cpp
+	)
+	target_include_directories(PawnFallingParityForecastTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingParityForecastTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingParityForecast COMMAND PawnFallingParityForecastTests)
 
 	add_executable(PawnFallingTwoPlaneContactTests
 		Tests/PawnFallingTwoPlaneContactTests.cpp
