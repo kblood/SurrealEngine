@@ -32,16 +32,36 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [Path to game folder]\n";
 			return 0;
 		}
 
-		int selectedGameIndex = LauncherWindow::ExecModal();
-		if (selectedGameIndex >= 0)
+		if (commandline->HasArg("", "--autoplay"))
 		{
-			GameLaunchInfo info = GameFolderSelection::GetLaunchInfo(selectedGameIndex);
-			Engine engine(info);
-			engine.Run();
+			// Non-interactive launch for scripted verification: skip the
+			// launcher GUI and run the first game resolved from the
+			// command-line folder / search list.
+			GameFolderSelection::UpdateList();
+			if (!GameFolderSelection::Games.empty())
+			{
+				GameLaunchInfo info = GameFolderSelection::GetLaunchInfo(0);
+				Engine engine(info);
+				engine.Run();
+			}
+			else
+			{
+				std::cout << "--autoplay: no UE1 game found\n";
+			}
+		}
+		else
+		{
+			int selectedGameIndex = LauncherWindow::ExecModal();
+			if (selectedGameIndex >= 0)
+			{
+				GameLaunchInfo info = GameFolderSelection::GetLaunchInfo(selectedGameIndex);
+				Engine engine(info);
+				engine.Run();
+			}
 		}
 	}
 	catch (const std::exception& e)

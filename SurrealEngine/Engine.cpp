@@ -4,6 +4,7 @@
 #include "Utils/File.h"
 #include "Utils/StrTools.h"
 #include "Utils/SHA1Sum.h"
+#include "Utils/CommandLine.h"
 #include "Render/RenderSubsystem.h"
 #include "Package/PackageManager.h"
 #include "Package/ObjectStream.h"
@@ -78,7 +79,18 @@ Engine::~Engine()
 	if (audiodev)
 		audiodev->ShutdownDevice();
 
-	Logger::Get()->SaveLogAsPlaintext((Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt").string());
+	{
+		fs::path logPath = Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt";
+		if (commandline)
+		{
+			std::string requestedPath = commandline->GetArg("", "--logfile");
+			if (!requestedPath.empty())
+				logPath = fs::absolute(fs::path(requestedPath));
+		}
+		if (logPath.has_parent_path())
+			fs::create_directories(logPath.parent_path());
+		Logger::Get()->SaveLogAsPlaintext(logPath.string());
+	}
 
 	engine = nullptr;
 }
