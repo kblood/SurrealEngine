@@ -72,6 +72,7 @@ const htaccess = `<IfModule mod_rewrite.c>
 </FilesMatch>
 <IfModule mod_mime.c>
   AddType application/wasm .wasm
+  AddType application/gzip .gz
 </IfModule>
 `;
 

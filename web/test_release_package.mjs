@@ -161,6 +161,9 @@ try {
 	assert.match(await readFile(join(output, ".htaccess"), "utf8"),
 		/\\\.wasm\\\.\(br\|gz\)\$">[\s\S]*?ForceType application\/wasm/,
 		"Apache sidecars must retain the WebAssembly MIME type after rewrite");
+	assert.match(await readFile(join(output, ".htaccess"), "utf8"),
+		/AddType application\/gzip \.gz/,
+		"Apache must serve the corresponding-source archive as application/gzip");
 	assert.doesNotMatch(await readFile(join(output, ".htaccess"), "utf8"), /AddEncoding gzip \.gz/,
 		"the corresponding-source tar.gz must not be mislabeled as HTTP content encoding");
 	const pointerPath = result.manifest.files.find(file => /^assets\/pointer_lock_gesture\.[0-9a-f]{64}\.js$/.test(file.path)).path;
