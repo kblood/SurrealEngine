@@ -21,7 +21,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 15
+TOOL_VERSION = 16
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -200,6 +200,7 @@ WALKING_STEP_PREFLIGHT_COUNTERS = (
 ) + WALKING_STEP_PREFLIGHT_REASON_COUNTERS
 FALLING_PARITY_REALIZED_STEP_COUNTERS = (
     "falling_parity_realized_matched_steps_exact",
+    "falling_parity_realized_matched_landing_steps_exact",
     "falling_parity_realized_mismatches_exact",
     "falling_parity_realized_unknowns_exact",
     "falling_parity_realized_callback_barriers_exact",
@@ -213,6 +214,10 @@ FALLING_PARITY_COUNTERS = (
     "falling_parity_realized_landings_exact",
     "falling_parity_realized_continuity_losses_exact",
     "falling_parity_realized_record_overflows_exact",
+)
+FALLING_PARITY_LEGACY_COUNTERS = tuple(
+    name for name in FALLING_PARITY_COUNTERS
+    if name != "falling_parity_realized_matched_landing_steps_exact"
 )
 VERTICAL_PAIN_COLUMN_OUTCOME_COUNTERS = (
     "vertical_pain_column_true_positive_outcomes_exact",
@@ -281,11 +286,12 @@ WALKING_STEP_PREFLIGHT_TRANSITIONS = {
     "post_callback_forecast_rejected",
 }
 FALLING_PARITY_REALIZED_OUTCOMES = {
-    "episode_started", "matched_clear", "mismatch", "unknown", "callback_barrier",
+    "episode_started", "matched_clear", "matched_landing", "mismatch", "unknown",
+    "callback_barrier",
     "pain_entered", "landed", "died", "continuity_lost",
 }
 FALLING_PARITY_REALIZED_STEP_OUTCOMES = {
-    "matched_clear", "mismatch", "unknown", "callback_barrier",
+    "matched_clear", "matched_landing", "mismatch", "unknown", "callback_barrier",
 }
 FALLING_PARITY_REALIZED_COLLISIONS = {
     "unknown", "clear", "static_world", "mover", "dynamic_actor",
@@ -547,6 +553,7 @@ def _falling_parity_realized_record(value: Any, context: str) -> dict[str, Any]:
         f"{context}.requested_delta_error", minimum=0.0)
     endpoint_error = _number(
         fields.get("endpoint_error"), f"{context}.endpoint_error", minimum=0.0)
+    hit_normal = _diagnostic_vector(fields.get("hit_normal"), f"{context}.hit_normal")
     callback_mask = _integer(
         fields.get("callback_barrier_mask"), f"{context}.callback_barrier_mask", minimum=0)
     if callback_mask > 0x1ff:
@@ -557,15 +564,25 @@ def _falling_parity_realized_record(value: Any, context: str) -> dict[str, Any]:
         raise QualityError(f"{context}.callback_barrier_mask requires a callback_barrier outcome")
     if outcome in FALLING_PARITY_REALIZED_STEP_OUTCOMES and elapsed <= 0.0:
         raise QualityError(f"{context}.elapsed must be positive for a realized step")
-    if outcome in {"matched_clear", "mismatch"}:
-        if collision != "clear" or hit_fraction != 1.0:
+    if outcome in {"matched_clear", "matched_landing", "mismatch"}:
+        clear_evidence = collision == "clear" and hit_fraction == 1.0
+        landing_evidence = (
+            collision == "static_world" and hit_fraction < 1.0
+            and hit_normal["z"] > 0.7)
+        if outcome == "matched_clear" and not clear_evidence:
             raise QualityError(
-                f"{context}: {outcome} requires clear collision evidence at full fraction")
+                f"{context}: matched_clear requires clear collision evidence at full fraction")
+        if outcome == "matched_landing" and not landing_evidence:
+            raise QualityError(
+                f"{context}: matched_landing requires walkable static-world landing evidence")
+        if outcome == "mismatch" and not (clear_evidence or landing_evidence):
+            raise QualityError(
+                f"{context}: mismatch requires clear or walkable static-world landing evidence")
         errors = (velocity_error, requested_delta_error, endpoint_error)
-        if outcome == "matched_clear" and any(
+        if outcome in {"matched_clear", "matched_landing"} and any(
                 error > FALLING_PARITY_REALIZED_MATCH_EPSILON for error in errors):
             raise QualityError(
-                f"{context}: matched_clear errors must be at most "
+                f"{context}: {outcome} errors must be at most "
                 f"{FALLING_PARITY_REALIZED_MATCH_EPSILON}")
         if outcome == "mismatch" and not any(
                 error > FALLING_PARITY_REALIZED_MATCH_EPSILON for error in errors):
@@ -589,7 +606,7 @@ def _falling_parity_realized_record(value: Any, context: str) -> dict[str, Any]:
         "elapsed": elapsed,
         "collision": collision,
         "hit_fraction": hit_fraction,
-        "hit_normal": _diagnostic_vector(fields.get("hit_normal"), f"{context}.hit_normal"),
+        "hit_normal": hit_normal,
         "velocity_error": velocity_error,
         "requested_delta_error": requested_delta_error,
         "endpoint_error": endpoint_error,
@@ -640,6 +657,9 @@ def _validate_falling_parity_realized_record_stream(
         "matched_clear": (
             "falling_parity_realized_steps_exact",
             "falling_parity_realized_matched_steps_exact"),
+        "matched_landing": (
+            "falling_parity_realized_steps_exact",
+            "falling_parity_realized_matched_landing_steps_exact"),
         "mismatch": (
             "falling_parity_realized_steps_exact",
             "falling_parity_realized_mismatches_exact"),
@@ -1129,11 +1149,22 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
                 ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS),
-                ("falling parity shadow", FALLING_PARITY_COUNTERS),
                 ("vertical pain column shadow", VERTICAL_PAIN_COLUMN_COUNTERS)):
             present = [name for name in names if name in result]
             if present and len(present) != len(names):
                 raise QualityError(f"{context}: {label} counters must be provided as a complete group")
+        falling_parity_present = {
+            name for name in FALLING_PARITY_COUNTERS if name in result
+        }
+        valid_falling_parity_groups = (
+            set(), set(FALLING_PARITY_LEGACY_COUNTERS), set(FALLING_PARITY_COUNTERS),
+        )
+        if falling_parity_present not in valid_falling_parity_groups:
+            raise QualityError(
+                f"{context}: falling parity shadow counters must be provided as the legacy "
+                "or current complete group")
+        if falling_parity_present == set(FALLING_PARITY_LEGACY_COUNTERS):
+            result["falling_parity_realized_matched_landing_steps_exact"] = 0
         stall_field_names = set(
             MOVE_STALL_LEGACY_TELEMETRY_GROUP + MOVE_STALL_TELEMETRY_GROUP
             + MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP)
@@ -1665,10 +1696,15 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         parity_episodes = exact.get("falling_parity_realized_episodes_exact")
         parity_steps = exact.get("falling_parity_realized_steps_exact")
         parity_matched = exact.get("falling_parity_realized_matched_steps_exact")
+        parity_matched_landings = exact.get(
+            "falling_parity_realized_matched_landing_steps_exact")
         parity_mismatched = exact.get("falling_parity_realized_mismatches_exact")
+        parity_matched_total = (
+            parity_matched + parity_matched_landings
+            if parity_matched is not None and parity_matched_landings is not None else None)
         parity_comparable = (
-            parity_matched + parity_mismatched
-            if parity_matched is not None and parity_mismatched is not None else None)
+            parity_matched_total + parity_mismatched
+            if parity_matched_total is not None and parity_mismatched is not None else None)
         column_true_positive = exact.get(
             "vertical_pain_column_true_positive_outcomes_exact")
         column_false_positive = exact.get(
@@ -1728,7 +1764,7 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             "falling_parity_realized_comparable_step_fraction": _counter_fraction(
                 parity_comparable, parity_steps),
             "falling_parity_realized_matched_step_fraction": _counter_fraction(
-                parity_matched, parity_comparable),
+                parity_matched_total, parity_comparable),
             "falling_parity_realized_mismatch_fraction": _counter_fraction(
                 parity_mismatched, parity_comparable),
             "falling_parity_realized_unknown_step_fraction": _counter_fraction(
@@ -1802,10 +1838,15 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
     parity_episodes = result.get("falling_parity_realized_episodes_exact")
     parity_steps = result.get("falling_parity_realized_steps_exact")
     parity_matched = result.get("falling_parity_realized_matched_steps_exact")
+    parity_matched_landings = result.get(
+        "falling_parity_realized_matched_landing_steps_exact")
     parity_mismatched = result.get("falling_parity_realized_mismatches_exact")
+    parity_matched_total = (
+        parity_matched + parity_matched_landings
+        if parity_matched is not None and parity_matched_landings is not None else None)
     parity_comparable = (
-        parity_matched + parity_mismatched
-        if parity_matched is not None and parity_mismatched is not None else None)
+        parity_matched_total + parity_mismatched
+        if parity_matched_total is not None and parity_mismatched is not None else None)
     result.update({
         "falling_parity_realized_episode_completion_fraction": _counter_fraction(
             (result.get("falling_parity_realized_deaths_exact")
@@ -1818,7 +1859,7 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
         "falling_parity_realized_comparable_step_fraction": _counter_fraction(
             parity_comparable, parity_steps),
         "falling_parity_realized_matched_step_fraction": _counter_fraction(
-            parity_matched, parity_comparable),
+            parity_matched_total, parity_comparable),
         "falling_parity_realized_mismatch_fraction": _counter_fraction(
             parity_mismatched, parity_comparable),
         "falling_parity_realized_unknown_step_fraction": _counter_fraction(

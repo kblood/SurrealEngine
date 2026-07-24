@@ -969,14 +969,12 @@ without iteration-50 instrumentation. Eight UT/Unreal configurations each ran
 twice for 30 simulated seconds. Every pair completed and was exactly equivalent
 across all five artifacts after normalizing only `output_directory`.
 
-Every comparable realized-falling step still matches with zero numerical
-mismatches and zero record overflows. The final runs do contain conservative
-`unknown` steps: after direct walkable landings stopped emitting the incorrect
-`HitWall`, the current record vocabulary has no `matched_landing` step outcome,
-so a zero-error direct landing is recorded as `unknown` immediately before its
-separate `landed` terminal. This is an instrumentation vocabulary gap, not a
-physics mismatch, but it fails the zero-unknown release gate and must be fixed
-without relabeling a landing as `matched_clear`.
+Every comparable realized-falling step in the iteration-51 evidence matches
+with zero numerical mismatches and zero record overflows. Direct walkable
+landings initially exposed a record-vocabulary gap: a zero-error landing became
+`unknown` immediately before its separate `landed` terminal because only
+`matched_clear` existed. Iteration 52 closes that gap with a distinct
+`matched_landing` step; it does not relabel a collision as clear.
 
 The final quality result is mixed rather than releasable. UT Deck seed 314159
 improves from K4/D5 to K1/D2 while retaining one unassisted environmental death;
@@ -1005,6 +1003,41 @@ next live policy must prevent harmful pain-column entry and replan repeated
 wall/seam trajectories without undoing retail physics. Held-out maps remain
 unopened, and the branch remains **not release-ready and not merge-ready as a
 complete bot improvement**.
+
+## Iteration 52: matched direct-landing evidence
+
+Realized falling now has an exclusive `matched_landing` step outcome and
+`falling_parity_realized_matched_landing_steps_exact` counter. A direct partial
+static-world hit qualifies only when `normal.z > 0.7` and velocity,
+requested-delta, and endpoint errors are all at most 0.001. A larger error is a
+real mismatch. The matched-landing step stops numerical forecasting; the
+separate `landed` record still terminates the episode lifecycle. Analyzer
+version 16 validates the static collision evidence and includes both matched
+clear and matched landing in comparable/matched fractions while retaining an
+exact step partition.
+
+The executable SHA-256 is
+`72A3EE06650AC4D7F560E8BAB27C23FAC24AA3FED0329A901AA6F64AA07630F8`.
+UT Deck seeds 314159 and 104729, UT Morpheus seed 424242, and Unreal DeathFan
+seed 424242 each ran twice for 1,800 ticks. All four repeat pairs are exactly
+equivalent across all five artifacts after normalizing only `output_directory`.
+Each run is also equivalent to its iteration-51 candidate after explicitly
+excluding only the new matched-landing counter, the replaced unknown counter,
+the bounded realized records, and output path. Gameplay counters and the older
+shadow stream are unchanged.
+
+Deck314159 records 512 matched-clear steps, 11 matched landings, 30 callback
+barriers, zero mismatch/unknown/overflow, and 94.58% comparable coverage.
+Deck104729 records 253 clear matches, five landing matches, 22 barriers, zero
+mismatch/unknown/overflow, and 92.14% coverage. Morpheus has 344 clear matches,
+eight barriers, zero mismatch/unknown/overflow, and 97.73% coverage. DeathFan
+has 182 clear matches, two landing matches, seven barriers, zero mismatch/
+unknown/overflow, and 96.34% coverage. Every comparable fraction is 100%
+matched.
+
+This fixes a release-measurement blocker and remains behavior-neutral. It does
+not improve the candidate's kills, pain entries, or Morpheus wall cycles, so the
+bot-release judgment remains unchanged.
 
 ## Frozen tuning and held-out maps
 

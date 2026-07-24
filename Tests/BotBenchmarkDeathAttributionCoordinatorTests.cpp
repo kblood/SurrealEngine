@@ -89,8 +89,9 @@ namespace
 		counters.WalkingStepPreflightDiagnosticOverflows = 0;
 		counters.WalkingStepPreflightReasons.fill(value);
 		counters.FallingParityRealizedEpisodes = value;
-		counters.FallingParityRealizedSteps = value * 3;
+		counters.FallingParityRealizedSteps = value * 4;
 		counters.FallingParityRealizedMatchedSteps = value;
+		counters.FallingParityRealizedMatchedLandingSteps = value;
 		counters.FallingParityRealizedMismatches = value;
 		counters.FallingParityRealizedUnknowns = 0;
 		counters.FallingParityRealizedCallbackBarriers = value;
@@ -145,8 +146,9 @@ namespace
 			counters.WalkingStepPreflightAuthorizableEpisodes == value &&
 			counters.WalkingStepPreflightDiagnosticOverflows == 0 &&
 			counters.FallingParityRealizedEpisodes == value &&
-			counters.FallingParityRealizedSteps == value * 3 &&
+			counters.FallingParityRealizedSteps == value * 4 &&
 			counters.FallingParityRealizedMatchedSteps == value &&
+			counters.FallingParityRealizedMatchedLandingSteps == value &&
 			counters.FallingParityRealizedMismatches == value &&
 			counters.FallingParityRealizedUnknowns == 0 &&
 			counters.FallingParityRealizedCallbackBarriers == value &&

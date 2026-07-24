@@ -11,6 +11,7 @@ namespace PawnMovement
 	{
 		EpisodeStarted,
 		MatchedClear,
+		MatchedLanding,
 		Mismatch,
 		Unknown,
 		CallbackBarrier,

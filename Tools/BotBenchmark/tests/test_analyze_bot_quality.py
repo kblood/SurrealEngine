@@ -208,8 +208,11 @@ def declare_death_attribution(run: Path) -> None:
 def falling_parity_record(
         outcome: str, invocation: int, ordinal: int, *, life: int = 1) -> dict:
     is_realized_step = outcome in {
-        "matched_clear", "mismatch", "unknown", "callback_barrier",
+        "matched_clear", "matched_landing", "mismatch", "unknown", "callback_barrier",
     }
+    # A matched landing is the direct, walkable static-world sweep outcome.  The
+    # terminal landed record follows separately and intentionally has no evidence.
+    is_matched_landing = outcome == "matched_landing"
     return {
         "source_pawn_actor": "Bot1",
         "life_generation": str(life),
@@ -218,11 +221,15 @@ def falling_parity_record(
         "step_ordinal": str(ordinal),
         "outcome": outcome,
         "elapsed": 1.0 / 60.0 if is_realized_step else 0.0,
-        "collision": "static_world" if outcome == "callback_barrier" else (
+        "collision": "static_world" if outcome in {
+            "matched_landing", "callback_barrier"} else (
             "clear" if is_realized_step else "unknown"),
-        "hit_fraction": 0.5 if outcome == "callback_barrier" else 1.0,
+        "hit_fraction": 0.5 if outcome in {
+            "matched_landing", "callback_barrier"} else 1.0,
         "hit_normal": {
-            "x": 0.0, "y": 1.0 if outcome == "callback_barrier" else 0.0, "z": 0.0,
+            "x": 0.0,
+            "y": 1.0 if outcome == "callback_barrier" else 0.0,
+            "z": 1.0 if is_matched_landing else 0.0,
         },
         "velocity_error": 0.01 if outcome == "mismatch" else 0.0,
         "requested_delta_error": 0.0,
@@ -256,17 +263,21 @@ class BotQualityAnalysisTests(unittest.TestCase):
             falling_parity_record("landed", 20, 3),
             falling_parity_record("episode_started", 30, 0),
             falling_parity_record("continuity_lost", 30, 0),
+            falling_parity_record("episode_started", 40, 0),
+            falling_parity_record("matched_landing", 40, 0),
+            falling_parity_record("landed", 40, 1),
         ]
         final = {
             **zero,
-            "falling_parity_realized_episodes_exact": 3,
-            "falling_parity_realized_steps_exact": 5,
+            "falling_parity_realized_episodes_exact": 4,
+            "falling_parity_realized_steps_exact": 6,
             "falling_parity_realized_matched_steps_exact": 3,
+            "falling_parity_realized_matched_landing_steps_exact": 1,
             "falling_parity_realized_mismatches_exact": 1,
             "falling_parity_realized_callback_barriers_exact": 1,
             "falling_parity_realized_pain_entries_exact": 1,
             "falling_parity_realized_deaths_exact": 1,
-            "falling_parity_realized_landings_exact": 1,
+            "falling_parity_realized_landings_exact": 2,
             "falling_parity_realized_continuity_losses_exact": 1,
             "vertical_pain_column_episodes_started_exact": 4,
             "vertical_pain_column_episodes_completed_exact": 4,
@@ -284,13 +295,13 @@ class BotQualityAnalysisTests(unittest.TestCase):
             ])
             report = QUALITY.analyze([run])
             metrics = report["runs"][0]["metrics"]
-            self.assertEqual(metrics["falling_parity_realized_episodes_exact"], 3)
+            self.assertEqual(metrics["falling_parity_realized_episodes_exact"], 4)
             self.assertEqual(
                 metrics["falling_parity_realized_episode_completion_fraction"], 1.0)
             self.assertEqual(
-                metrics["falling_parity_realized_comparable_step_fraction"], 0.8)
-            self.assertEqual(metrics["falling_parity_realized_matched_step_fraction"], 0.75)
-            self.assertEqual(metrics["falling_parity_realized_mismatch_fraction"], 0.25)
+                metrics["falling_parity_realized_comparable_step_fraction"], 5.0 / 6.0)
+            self.assertEqual(metrics["falling_parity_realized_matched_step_fraction"], 0.8)
+            self.assertEqual(metrics["falling_parity_realized_mismatch_fraction"], 0.2)
             self.assertEqual(metrics["falling_parity_realized_unknown_step_fraction"], 0.0)
             self.assertEqual(metrics["vertical_pain_column_precision"], 0.5)
             self.assertEqual(metrics["vertical_pain_column_recall"], 1.0)
@@ -322,6 +333,40 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(
                     QUALITY.QualityError, "vertical pain column outcomes do not partition"):
                 QUALITY.analyze_run(invalid)
+
+    def test_falling_parity_legacy_counter_group_defaults_matched_landings_to_zero(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        legacy_zero = {name: 0 for name in QUALITY.FALLING_PARITY_LEGACY_COUNTERS}
+        records = [
+            falling_parity_record("episode_started", 5, 0),
+            falling_parity_record("matched_clear", 5, 0),
+            falling_parity_record("continuity_lost", 5, 1),
+        ]
+        legacy_final = {
+            **legacy_zero,
+            "falling_parity_realized_episodes_exact": 1,
+            "falling_parity_realized_steps_exact": 1,
+            "falling_parity_realized_matched_steps_exact": 1,
+            "falling_parity_realized_continuity_losses_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "legacy-parity", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **legacy_zero, "falling_parity_realized_records": []},
+                {**common, **legacy_final, "falling_parity_realized_records": records},
+                {**common, **legacy_final, "falling_parity_realized_records": []},
+            ])
+            report = QUALITY.analyze([run])
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(
+                metrics["falling_parity_realized_matched_landing_steps_exact"], 0)
+            self.assertEqual(metrics["falling_parity_realized_comparable_step_fraction"], 1.0)
+            self.assertEqual(metrics["falling_parity_realized_matched_step_fraction"], 1.0)
 
     def test_falling_parity_realized_records_are_strict_ordered_and_reconciled(self) -> None:
         common = {
@@ -365,6 +410,39 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 report["runs"][0]["metrics"]
                 ["falling_parity_realized_episode_completion_fraction"], 1.0)
 
+            matched_landing_records = [
+                falling_parity_record("episode_started", 6, 0),
+                falling_parity_record("matched_landing", 6, 0),
+                falling_parity_record("landed", 6, 1),
+            ]
+            matched_landing_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_matched_landing_steps_exact": 1,
+                "falling_parity_realized_landings_exact": 1,
+            }
+            matched_landing_report = analyze_samples(
+                root, "valid-matched-landing",
+                samples_with(matched_landing_records, matched_landing_final))
+            self.assertEqual(
+                matched_landing_report["runs"][0]["metrics"]
+                ["falling_parity_realized_matched_step_fraction"], 1.0)
+
+            mismatched_landing_records = json.loads(json.dumps(matched_landing_records))
+            mismatched_landing_records[1]["outcome"] = "mismatch"
+            mismatched_landing_records[1]["velocity_error"] = 0.01
+            mismatched_landing_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_mismatches_exact": 1,
+                "falling_parity_realized_landings_exact": 1,
+            }
+            analyze_samples(
+                root, "valid-mismatched-landing",
+                samples_with(mismatched_landing_records, mismatched_landing_final))
+
             overflow_final = {
                 **zero,
                 "falling_parity_realized_episodes_exact": 1,
@@ -393,6 +471,21 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 samples_with(maximum_step_records, maximum_step_final))
 
             malformed_cases = []
+
+            nonwalkable_matched_landing = json.loads(json.dumps(matched_landing_records))
+            nonwalkable_matched_landing[1]["hit_normal"]["z"] = 0.7
+            malformed_cases.append((
+                "nonwalkable-matched-landing", nonwalkable_matched_landing,
+                matched_landing_final,
+                "matched_landing requires walkable static-world landing evidence"))
+
+            excessive_matched_landing_error = json.loads(
+                json.dumps(matched_landing_records))
+            excessive_matched_landing_error[1]["endpoint_error"] = 0.001001
+            malformed_cases.append((
+                "excessive-matched-landing-error", excessive_matched_landing_error,
+                matched_landing_final,
+                "matched_landing errors must be at most 0.001"))
 
             unexpected = json.loads(json.dumps(records))
             unexpected[0]["extra"] = 1

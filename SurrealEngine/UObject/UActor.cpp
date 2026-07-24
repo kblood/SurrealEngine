@@ -1270,14 +1270,20 @@ void UActor::TickFalling(float elapsed)
 				realizedCallbackBarrier = true;
 			}
 			else if (directResult.Kind
-				== PawnMovement::FallingParityTransitionKind::Continue)
+				== PawnMovement::FallingParityTransitionKind::Continue
+				|| directResult.Kind
+					== PawnMovement::FallingParityTransitionKind::Landed)
 			{
 				const float tolerance = 0.001f;
-				outcome = evidence.VelocityError <= tolerance
+				const bool matched = evidence.VelocityError <= tolerance
 					&& evidence.RequestedDeltaError <= tolerance
-					&& evidence.EndpointError <= tolerance
-					? PawnMovement::FallingParityRealizedOutcome::MatchedClear
-					: PawnMovement::FallingParityRealizedOutcome::Mismatch;
+					&& evidence.EndpointError <= tolerance;
+				outcome = !matched
+					? PawnMovement::FallingParityRealizedOutcome::Mismatch
+					: directResult.Kind
+						== PawnMovement::FallingParityTransitionKind::Landed
+						? PawnMovement::FallingParityRealizedOutcome::MatchedLanding
+						: PawnMovement::FallingParityRealizedOutcome::MatchedClear;
 			}
 			pawn->RecordFallingParityRealizedStep(outcome, evidence);
 		}
@@ -1394,13 +1400,12 @@ void UActor::TickFalling(float elapsed)
 					}
 
 					// Retail reconstructs horizontal velocity from realized travel while
-					// retaining gravity's vertical velocity for the remaining-time pass.
+					// restoring the iteration-start vertical velocity for the remaining pass.
 					if (!bBounce() && !bJustTeleported())
 					{
 						velocity = PawnMovement::ReconstructFallingCollisionVelocity(
 							iterationStartLocation, location, timeTick,
 							iterationOldVelocity.z);
-						newVelocity = velocity;
 					}
 				}
 				else
@@ -5538,6 +5543,9 @@ void UPawn::RecordFallingParityRealizedStep(
 	{
 	case PawnMovement::FallingParityRealizedOutcome::MatchedClear:
 		FallingParityRealizedMatchedStepCountValue++;
+		break;
+	case PawnMovement::FallingParityRealizedOutcome::MatchedLanding:
+		FallingParityRealizedMatchedLandingStepCountValue++;
 		break;
 	case PawnMovement::FallingParityRealizedOutcome::Mismatch:
 		FallingParityRealizedMismatchCountValue++;
