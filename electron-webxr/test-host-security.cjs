@@ -10,6 +10,7 @@ const {
   isAllowedExternalUrl,
   isPathInside,
   isTrustedOriginUrl,
+  requireWebGL2Release,
   sha256File,
   verifyWebRelease,
 } = require("./host-security.cjs");
@@ -30,6 +31,7 @@ try {
   const manifest = {
     schema: "surrealengine-browser-release-v2",
     version: 2,
+    build: { webgl2Renderer: true },
     files: [await record("assets/app.js"), await record("index.html")],
   };
   const manifestPath = path.join(temporaryRoot, "release-manifest.json");
@@ -38,6 +40,12 @@ try {
   const verified = await verifyWebRelease(temporaryRoot, manifestHash);
   assert.equal(verified.verifiedFiles, 2);
   assert.equal(verified.manifestSha256, manifestHash);
+  assert.equal(requireWebGL2Release(verified.manifest), verified.manifest);
+  assert.throws(() => requireWebGL2Release({ build: { webgl2Renderer: false } }),
+    /requires an audited WebGL2 browser release/);
+  assert.throws(() => requireWebGL2Release({ sourceCompliance: {
+    buildProvenance: { webgl2Renderer: true },
+  } }), /requires an audited WebGL2 browser release/);
 
   const inlineDigest = crypto.createHash("sha256")
     .update("globalThis.ready = true;", "utf8").digest("base64");

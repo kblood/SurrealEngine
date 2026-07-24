@@ -12,7 +12,7 @@ import hostSecurity from "./host-security.cjs";
 
 const appDirectory = path.dirname(fileURLToPath(import.meta.url));
 const execFile = promisify(execFileCallback);
-const { sha256File, verifyWebRelease } = hostSecurity;
+const { requireWebGL2Release, sha256File, verifyWebRelease } = hostSecurity;
 
 async function packageInventory(root, excludedName) {
   const files = [];
@@ -46,8 +46,7 @@ if (!output) throw new Error("Pass --out=<empty directory under SurrealEngine/ou
 await access(path.join(webRelease, "index.html"));
 await auditRelease(webRelease);
 const manifest = JSON.parse(await readFile(path.join(webRelease, "release-manifest.json"), "utf8"));
-if (manifest.sourceCompliance?.buildProvenance?.webgl2Renderer !== true)
-  throw new Error("Electron WebXR packaging requires an audited WebGL2 browser release.");
+requireWebGL2Release(manifest);
 const manifestSha256 = await sha256File(path.join(webRelease, "release-manifest.json"));
 const repositoryRoot = path.resolve(appDirectory, "..");
 const { stdout: wrapperCommitOutput } = await execFile("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot });

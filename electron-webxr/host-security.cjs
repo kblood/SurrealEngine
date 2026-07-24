@@ -138,11 +138,18 @@ function contentSecurityPolicy(indexHtml) {
   ].join("; ");
 }
 
+function requireWebGL2Release(manifest) {
+  if (manifest?.build?.webgl2Renderer !== true)
+    throw new Error("Electron WebXR packaging requires an audited WebGL2 browser release.");
+  return manifest;
+}
+
 module.exports = Object.freeze({
   contentSecurityPolicy,
   isAllowedExternalUrl,
   isPathInside,
   isTrustedOriginUrl,
+  requireWebGL2Release,
   sha256File,
   verifyWebRelease,
 });
