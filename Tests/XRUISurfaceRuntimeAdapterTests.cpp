@@ -149,6 +149,13 @@ static void TestRayMappingUsesCanvasCoordinates()
 	adapter.UpdateRayPointer(frame, hand, { vec3(0.0f), vec3(1.0f, 0.0f, 0.0f) }, false, mouse);
 	Check(mouse.Presses.size() == 1 && mouse.Releases.size() == 1, "tracked click did not reach the existing mouse primitives");
 	Check(!mouse.Releases[0].Canceled, "valid tracked click was canceled");
+
+	const XRUICanvasCaptureDescriptor aligned = CreateXRUICanvasCaptureDescriptor(
+		XRUISurfaceKind::Menu, 800, 602, 2, { 7 });
+	const Pointf lastSurfacePixel(799.999f, 601.999f);
+	const Pointf lastCanvasPixel = aligned.ToCanvasPixel(lastSurfacePixel);
+	Check(lastCanvasPixel.x < 400.0f && lastCanvasPixel.y < 301.0f,
+		"last in-range surface hit escaped the aligned logical Canvas");
 }
 
 static void TestSourceIsolationAndMouseFallback()

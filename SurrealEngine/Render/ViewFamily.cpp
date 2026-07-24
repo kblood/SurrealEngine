@@ -92,15 +92,16 @@ std::optional<ViewRect> CreatePerViewHudRect(const ViewFamily& family,
 }
 
 std::optional<std::array<ViewRect, 2>> CreateStereoPerViewHudRects(
-	const ViewFamily& family)
+	const ViewFamily& family, int pixelAlignment)
 {
 	const std::optional<ViewRect> left = CreatePerViewHudRect(family, 0);
 	const std::optional<ViewRect> right = CreatePerViewHudRect(family, 1);
 	if (!left || !right)
 		return {};
 
-	const int width = std::min(left->Width, right->Width);
-	const int height = std::min(left->Height, right->Height);
+	const int alignment = std::max(pixelAlignment, 1);
+	const int width = (std::min(left->Width, right->Width) / alignment) * alignment;
+	const int height = (std::min(left->Height, right->Height) / alignment) * alignment;
 	if (width <= 0 || height <= 0)
 		return {};
 	std::array<ViewRect, 2> result = { *left, *right };

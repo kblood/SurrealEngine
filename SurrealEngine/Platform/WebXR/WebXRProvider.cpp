@@ -515,15 +515,16 @@ extern "C"
 				Rotator(0, engine->CameraRotation.Yaw, 0));
 			ViewFamily family = WebXR::BuildViewFamily(frame, engine->CameraLocation,
 				bodyRotation, WorldUnitsPerMeter, Recenter, true);
+			const int canvasScale = engine->render->CalculateCanvasUIScale();
 			const std::optional<std::array<ViewRect, 2>> hudRects =
-				CreateStereoPerViewHudRects(family);
+				CreateStereoPerViewHudRects(family, canvasScale);
 			if (!hudRects)
 				throw std::runtime_error("direct WebXR HUD geometry is invalid");
 			XRUISurfaceEngineBinding& ui = engine->render->XRUISurfaces();
 			for (const XRUICanvasCaptureDescriptor& descriptor :
 				WebXR::BuildDirectUICaptureDescriptors(WorldUnitsPerMeter,
 					family.Hud, (*hudRects)[0].Width, (*hudRects)[0].Height,
-					engine->render->CalculateCanvasUIScale()))
+					canvasScale))
 				ui.Configure(descriptor);
 			ui.SetViewerPose(WebXR::BuildUIViewerPose(family));
 			engine->render->SetDirectHudPresentation(family.Hud.Enabled);

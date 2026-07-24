@@ -125,7 +125,7 @@ bool RenderSubsystem::PostRenderPerViewHud(const ViewFamily& viewFamily)
 	const PresentationTarget target = viewFamily.Presentation.GetLayer(
 		PresentationLayer::UserInterface).Target;
 	const std::optional<std::array<ViewRect, 2>> hudRects =
-		CreateStereoPerViewHudRects(viewFamily);
+		CreateStereoPerViewHudRects(viewFamily, Canvas.uiscale);
 
 	UPlayerPawn* player = engine->viewport ? engine->viewport->Actor() : nullptr;
 	UHUD* hud = player ? player->myHUD() : nullptr;

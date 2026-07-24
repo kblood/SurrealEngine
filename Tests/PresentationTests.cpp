@@ -133,6 +133,35 @@ int main()
 		rawAsymmetricRight->Height),
 		"stereo HUD normalization expanded beyond an eye's safe rectangle");
 
+	ViewFamily oddHud;
+	oddHud.Hud.Enabled = true;
+	oddHud.Views.resize(2);
+	const float oddHalfTanX = std::tan(oddHud.Hud.HalfFovDegrees *
+		3.14159265359f / 180.0f);
+	const float oddHalfTanY = oddHalfTanX * oddHud.Hud.HeightToWidth;
+	for (int eye = 0; eye < 2; eye++)
+	{
+		oddHud.Views[eye].Viewport = { eye * 801, 0, 801, 603 };
+		oddHud.Views[eye].HasProjectionTangents = true;
+		oddHud.Views[eye].ProjectionTangents = {
+			-oddHalfTanX, oddHalfTanX, oddHalfTanY, -oddHalfTanY
+		};
+	}
+	const auto rawOddHud = CreateStereoPerViewHudRects(oddHud);
+	const auto scaleTwoHud = CreateStereoPerViewHudRects(oddHud, 2);
+	const auto scaleThreeHud = CreateStereoPerViewHudRects(oddHud, 3);
+	Check(rawOddHud && scaleTwoHud && scaleThreeHud &&
+		(*rawOddHud)[0].Width == 801 && (*rawOddHud)[0].Height == 603,
+		"odd-size HUD regression fixture did not preserve its raw extent");
+	Check((*scaleTwoHud)[0].Width == 800 && (*scaleTwoHud)[0].Height == 602 &&
+		(*scaleTwoHud)[1].Width == 800 && (*scaleTwoHud)[1].Height == 602,
+		"scale-two HUD was not aligned down to complete Canvas pixels");
+	Check((*scaleThreeHud)[0].Width == 801 && (*scaleThreeHud)[0].Height == 603,
+		"already aligned scale-three HUD was changed");
+	Check((*scaleTwoHud)[0].X == (*rawOddHud)[0].X &&
+		(*scaleTwoHud)[0].Y == (*rawOddHud)[0].Y,
+		"aligned odd-size HUD was not kept centered in its safe rectangle");
+
 	ViewDescription center;
 	center.Location = vec3(10.0f, 20.0f, 30.0f);
 	center.Rotation = Coords::Identity();

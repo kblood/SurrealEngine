@@ -99,7 +99,7 @@ struct ViewFamily
 std::optional<ViewRect> CreatePerViewHudRect(const ViewFamily& family,
 	size_t viewIndex);
 std::optional<std::array<ViewRect, 2>> CreateStereoPerViewHudRects(
-	const ViewFamily& family);
+	const ViewFamily& family, int pixelAlignment = 1);
 
 // Creates a provider-free multi-view diagnostic. It splits the supplied
 // viewport horizontally and offsets the two cameras along the view's lateral
