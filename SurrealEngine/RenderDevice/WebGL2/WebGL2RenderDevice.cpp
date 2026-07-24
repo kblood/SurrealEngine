@@ -258,6 +258,9 @@ void WebGL2RenderDevice::ReleaseResources(bool deleteObjects)
 
 void WebGL2RenderDevice::InitializeGeneration()
 {
+	queuedVertices.clear();
+	queuedIndexes.clear();
+	queuedDraws.clear();
 	if (!context || !context->IsReady() || !context->MakeCurrent())
 		return;
 	if (program || vertexShader || fragmentShader || vertexArray || vertexBuffer || indexBuffer)
@@ -318,6 +321,7 @@ void WebGL2RenderDevice::Flush(bool allowPrecache)
 {
 	if (!EnsureReady())
 		return;
+	SubmitQueuedDraws();
 	glFlush();
 	if (textures)
 		textures->Clear(true);
@@ -331,6 +335,10 @@ void WebGL2RenderDevice::Lock(vec4 inFlashScale, vec4 inFlashFog, vec4 screenCle
 		*hitSize = 0;
 	locked = false;
 	drawCallCount = 0;
+	submissionCount = 0;
+	queuedVertices.clear();
+	queuedIndexes.clear();
+	queuedDraws.clear();
 	if (!EnsureReady())
 	{
 		suppressedFrameCount++;
@@ -365,6 +373,7 @@ void WebGL2RenderDevice::Unlock(bool)
 {
 	if (!locked)
 		return;
+	SubmitQueuedDraws();
 	glFlush();
 	CountErrors();
 	locked = false;
@@ -415,22 +424,66 @@ void WebGL2RenderDevice::DrawIndexed(GLenum mode, const std::vector<WebGL2SceneV
 {
 	if (!locked || vertices.empty() || indexes.empty() || !EnsureReady())
 		return;
+	const uint32_t vertexOffset = static_cast<uint32_t>(queuedVertices.size());
+	const size_t firstIndex = queuedIndexes.size();
+	queuedVertices.insert(queuedVertices.end(), vertices.begin(), vertices.end());
+	queuedIndexes.reserve(queuedIndexes.size() + indexes.size());
+	for (uint32_t index : indexes)
+		queuedIndexes.push_back(vertexOffset + index);
+	QueuedDraw command;
+	command.Mode = mode;
+	command.FirstIndex = firstIndex;
+	command.IndexCount = static_cast<GLsizei>(indexes.size());
+	command.PolyFlags = polyFlags;
+	command.Texture = texture;
+	command.Lightmap = lightmap;
+	command.MacroTexture = macroTexture;
+	command.DetailTexture = detailTexture;
+	command.ClampTexture = clampTexture;
+	command.HasBlendColor = blendColor != nullptr;
+	if (blendColor)
+		command.BlendColor = *blendColor;
+	command.MinDepth = minDepth;
+	command.MaxDepth = maxDepth;
+	queuedDraws.push_back(command);
+}
+
+void WebGL2RenderDevice::SubmitQueuedDraws()
+{
+	if (queuedDraws.empty())
+		return;
+	if (!EnsureReady())
+	{
+		queuedVertices.clear();
+		queuedIndexes.clear();
+		queuedDraws.clear();
+		return;
+	}
 	glUseProgram(program);
-	ApplyPipelineState(polyFlags, blendColor);
-	const bool noSmooth = (polyFlags & PF_NoSmooth) != 0;
-	BindTextureUnit(0, texture, noSmooth, clampTexture);
-	BindTextureUnit(1, lightmap, false, false);
-	BindTextureUnit(2, macroTexture, false, false);
-	BindTextureUnit(3, detailTexture, false, false);
-	glDepthRangef(minDepth, maxDepth);
 	glBindVertexArray(vertexArray);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
-	glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices.size() * sizeof(WebGL2SceneVertex)), vertices.data(), GL_STREAM_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(queuedVertices.size() * sizeof(WebGL2SceneVertex)), queuedVertices.data(), GL_STREAM_DRAW);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indexes.size() * sizeof(uint32_t)), indexes.data(), GL_STREAM_DRAW);
-	glDrawElements(mode, static_cast<GLsizei>(indexes.size()), GL_UNSIGNED_INT, nullptr);
-	drawCallCount++;
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(queuedIndexes.size() * sizeof(uint32_t)), queuedIndexes.data(), GL_STREAM_DRAW);
+	submissionCount++;
+	for (const QueuedDraw& command : queuedDraws)
+	{
+		const vec4* blendColor = command.HasBlendColor ? &command.BlendColor : nullptr;
+		ApplyPipelineState(command.PolyFlags, blendColor);
+		const bool noSmooth = (command.PolyFlags & PF_NoSmooth) != 0;
+		BindTextureUnit(0, command.Texture, noSmooth, command.ClampTexture);
+		BindTextureUnit(1, command.Lightmap, false, false);
+		BindTextureUnit(2, command.MacroTexture, false, false);
+		BindTextureUnit(3, command.DetailTexture, false, false);
+		glDepthRangef(command.MinDepth, command.MaxDepth);
+		glDrawElements(command.Mode, command.IndexCount, GL_UNSIGNED_INT,
+			reinterpret_cast<const void*>(command.FirstIndex * sizeof(uint32_t)));
+		drawCallCount++;
+	}
 	CountErrors();
+	queuedVertices.clear();
+	queuedIndexes.clear();
+	queuedDraws.clear();
 }
 
 void WebGL2RenderDevice::DrawComplexSurface(FSceneNode*, FSurfaceInfo& surface, FSurfaceFacet& facet)
@@ -623,6 +676,7 @@ void WebGL2RenderDevice::ClearZ()
 {
 	if (!EnsureReady())
 		return;
+	SubmitQueuedDraws();
 	glDepthMask(GL_TRUE);
 	glClearDepthf(1.0f);
 	glClear(GL_DEPTH_BUFFER_BIT);
@@ -636,6 +690,7 @@ void WebGL2RenderDevice::ReadPixels(FColor* pixels)
 {
 	if (!pixels || !EnsureReady() || currentWidth <= 0 || currentHeight <= 0)
 		return;
+	SubmitQueuedDraws();
 	std::vector<FColor> rows(static_cast<size_t>(currentWidth) * currentHeight);
 	glReadPixels(0, 0, currentWidth, currentHeight, GL_RGBA, GL_UNSIGNED_BYTE, rows.data());
 	for (int y = 0; y < currentHeight; y++)
@@ -650,6 +705,7 @@ void WebGL2RenderDevice::EndFlash()
 {
 	if (!locked || (flashScale == vec4(0.5f, 0.5f, 0.5f, 0.0f) && flashFog == vec4(0.0f)))
 		return;
+	SubmitQueuedDraws();
 	const mat4 savedMatrix = currentMatrix;
 	UpdateSceneUniforms(mat4::identity());
 	const vec4 color(flashFog.x, flashFog.y, flashFog.z, 1.0f - std::min(flashScale.x * 2.0f, 1.0f));
@@ -660,6 +716,7 @@ void WebGL2RenderDevice::EndFlash()
 	SetVertex(vertices[3], 0, vec3(-1.0f, 1.0f, 0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color);
 	std::vector<uint32_t> indexes = { 0, 1, 2, 0, 2, 3 };
 	DrawIndexed(GL_TRIANGLES, vertices, indexes, PF_Highlighted, nullptr, nullptr, nullptr, nullptr, false, nullptr, 0.0f, 0.1f);
+	SubmitQueuedDraws();
 	UpdateSceneUniforms(savedMatrix);
 	if (currentFrame)
 		SetSceneNode(currentFrame);
@@ -669,6 +726,7 @@ void WebGL2RenderDevice::SetSceneNode(FSceneNode* frame)
 {
 	if (!frame || !EnsureReady())
 		return;
+	SubmitQueuedDraws();
 	currentFrame = frame;
 	aspect = frame->FY / frame->FX;
 	rProjZ = static_cast<float>(std::tan(radians(frame->FovAngle) * 0.5));
@@ -698,7 +756,10 @@ bool WebGL2RenderDevice::SupportsTextureFormat(TextureFormat format)
 void WebGL2RenderDevice::UpdateTextureRect(FTextureInfo& info, int u, int v, int width, int height)
 {
 	if (EnsureReady())
+	{
+		SubmitQueuedDraws();
 		textures->UpdateTextureRect(&info, u, v, width, height);
+	}
 }
 
 extern "C"
@@ -713,6 +774,7 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2ErrorCount() { return ActiveDevice ? static_cast<int>(ActiveDevice->ErrorCount()) : 0; }
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2ContextLossStatusCount() { return ActiveDevice ? static_cast<int>(ActiveDevice->ContextLossStatusCount()) : 0; }
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2DrawCallCount() { return ActiveDevice ? static_cast<int>(ActiveDevice->DrawCallCount()) : 0; }
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2SubmissionCount() { return ActiveDevice ? static_cast<int>(ActiveDevice->SubmissionCount()) : 0; }
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2TextureCount() { return ActiveDevice ? static_cast<int>(ActiveDevice->TextureCount()) : 0; }
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2DrawingBufferWidth() { return ActiveDevice ? ActiveDevice->DrawingBufferWidth() : 0; }
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2DrawingBufferHeight() { return ActiveDevice ? ActiveDevice->DrawingBufferHeight() : 0; }

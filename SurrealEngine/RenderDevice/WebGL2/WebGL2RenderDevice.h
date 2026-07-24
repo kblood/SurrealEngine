@@ -53,6 +53,7 @@ public:
 	uint32_t ErrorCount() const { return errorCount; }
 	uint32_t ContextLossStatusCount() const { return contextLossStatusCount; }
 	uint32_t DrawCallCount() const { return drawCallCount; }
+	uint32_t SubmissionCount() const { return submissionCount; }
 	uint32_t TextureCount() const { return textures ? static_cast<uint32_t>(textures->TextureCount()) : 0; }
 	int DrawingBufferWidth() const { return currentWidth; }
 	int DrawingBufferHeight() const { return currentHeight; }
@@ -67,6 +68,22 @@ private:
 		WebGL2CachedTexture* DetailTexture = nullptr;
 		WebGL2CachedTexture* FogMap = nullptr;
 	};
+	struct QueuedDraw
+	{
+		GLenum Mode = GL_TRIANGLES;
+		size_t FirstIndex = 0;
+		GLsizei IndexCount = 0;
+		uint32_t PolyFlags = 0;
+		WebGL2CachedTexture* Texture = nullptr;
+		WebGL2CachedTexture* Lightmap = nullptr;
+		WebGL2CachedTexture* MacroTexture = nullptr;
+		WebGL2CachedTexture* DetailTexture = nullptr;
+		bool ClampTexture = false;
+		bool HasBlendColor = false;
+		vec4 BlendColor = vec4(1.0f);
+		float MinDepth = 0.1f;
+		float MaxDepth = 1.0f;
+	};
 
 	bool EnsureReady();
 	void InitializeGeneration();
@@ -76,6 +93,7 @@ private:
 	void UpdateSceneUniforms(const mat4& matrix, bool webXRProjection = false);
 	void ApplyPipelineState(uint32_t polyFlags, const vec4* blendColor = nullptr);
 	void BindTextureUnit(int unit, WebGL2CachedTexture* texture, bool noSmooth, bool clamp);
+	void SubmitQueuedDraws();
 	void DrawIndexed(GLenum mode, const std::vector<WebGL2SceneVertex>& vertices, const std::vector<uint32_t>& indexes,
 		uint32_t polyFlags, WebGL2CachedTexture* texture = nullptr, WebGL2CachedTexture* lightmap = nullptr,
 		WebGL2CachedTexture* macroTexture = nullptr, WebGL2CachedTexture* detailTexture = nullptr,
@@ -104,6 +122,7 @@ private:
 	uint32_t errorCount = 0;
 	uint32_t contextLossStatusCount = 0;
 	uint32_t drawCallCount = 0;
+	uint32_t submissionCount = 0;
 	int currentWidth = 0;
 	int currentHeight = 0;
 	FSceneNode* currentFrame = nullptr;
@@ -116,4 +135,7 @@ private:
 	mat4 currentMatrix = mat4::identity();
 	bool resourcesReady = false;
 	bool locked = false;
+	std::vector<WebGL2SceneVertex> queuedVertices;
+	std::vector<uint32_t> queuedIndexes;
+	std::vector<QueuedDraw> queuedDraws;
 };

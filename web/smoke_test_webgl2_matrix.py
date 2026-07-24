@@ -110,6 +110,7 @@ with sync_playwright() as playwright:
 			"engineReadyMs": boot_ms,
 			"tick": diagnostic["tick"],
 			"drawCalls": diagnostic["renderer"]["drawCalls"],
+			"submissions": diagnostic["renderer"]["submissions"],
 			"textures": diagnostic["renderer"]["textures"],
 			"errors": diagnostic["renderer"]["errors"],
 		})
@@ -174,6 +175,7 @@ with sync_playwright() as playwright:
 			"bootMs": boot_ms,
 			"tick": diagnostic["tick"],
 			"drawCalls": diagnostic["renderer"]["drawCalls"],
+			"submissions": diagnostic["renderer"]["submissions"],
 			"textures": diagnostic["renderer"]["textures"],
 			"unsupportedDraws": diagnostic["renderer"]["unsupportedDraws"],
 			"errors": diagnostic["renderer"]["errors"],
@@ -182,7 +184,8 @@ with sync_playwright() as playwright:
 			"screenshot": str(screenshot),
 		}
 		result["maps"].append(entry)
-		if (entry["drawCalls"] <= 0 or entry["textures"] < 5 or entry["unsupportedDraws"] != 0 or
+		if (entry["drawCalls"] <= 0 or entry["submissions"] <= 0 or entry["submissions"] >= entry["drawCalls"] or
+				entry["textures"] < 5 or entry["unsupportedDraws"] != 0 or
 				entry["errors"] != 0 or entry["nonBlankPercent"] < 5 or not entry["requestedMapObserved"]):
 			raise RuntimeError(f"map qualification failed: {entry}")
 	if len(result["maps"]) < 2:

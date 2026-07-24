@@ -88,10 +88,18 @@ with sync_playwright() as playwright:
 		raise RuntimeError("XR-style activation did not release flat pointer lock")
 	pointer_xr = page.evaluate("window.surrealGetPointerLockDiagnostics()")
 	page.evaluate("SurrealBrowserPointerLock.setXRActive(false)")
-	page.locator("[data-pointer-lock-capture]").click()
-	if not wait_until(page, "window.surrealGetPointerLockDiagnostics().active", timeout=10):
+	pointer_reacquired = None
+	for _ in range(3):
+		page.locator("#canvas").focus()
+		page.locator("[data-pointer-lock-capture]").click()
+		if wait_until(page, "window.surrealGetPointerLockDiagnostics().active && window.surrealGetPointerLockDiagnostics().bridgeOwnsMotion", timeout=3):
+			time.sleep(0.25)
+			candidate = page.evaluate("window.surrealGetPointerLockDiagnostics()")
+			if candidate["active"] and candidate["bridgeOwnsMotion"]:
+				pointer_reacquired = candidate
+				break
+	if pointer_reacquired is None:
 		raise RuntimeError("flat pointer lock could not be reacquired after XR-style release")
-	pointer_reacquired = page.evaluate("window.surrealGetPointerLockDiagnostics()")
 	page.evaluate("SurrealBrowserPointerLock.setRequested(false)")
 
 	# Resize the real Emscripten canvas and require the renderer to observe the
@@ -141,6 +149,7 @@ with sync_playwright() as playwright:
 		len(set(ticks)) > 1
 		and before["state"] == 1
 		and before["drawCalls"] > 0
+		and before["submissions"] > 0 and before["submissions"] < before["drawCalls"]
 		and before["textures"] >= 5
 		and before["unsupportedDraws"] == 0
 		and before["errors"] == 0
@@ -158,6 +167,7 @@ with sync_playwright() as playwright:
 		and after["generation"] == before["generation"] + 1
 		and after["losses"] == before["losses"] + 1
 		and after["drawCalls"] > 0
+		and after["submissions"] > 0 and after["submissions"] < after["drawCalls"]
 		and after["textures"] >= 5
 		and after["unsupportedDraws"] == 0
 		and after["errors"] == 0

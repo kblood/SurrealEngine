@@ -38,6 +38,9 @@
 	window.surrealLog = [];
 	window.surrealBooted = false;
 	window.surrealCrashed = null;
+	const query = new URLSearchParams(location.search);
+	const engineBase = query.get("engineBase") || "../build-emscripten/";
+	const preferredMap = query.get("map") || undefined;
 
 	const logEl = document.getElementById('log');
 	function appendLog(line) {
@@ -47,7 +50,7 @@
 
 	var Module = {
 		canvas: document.getElementById("canvas"),
-		locateFile: function (path) { return "../build-emscripten/" + path; },
+		locateFile: function (path) { return engineBase + path; },
 		print: appendLog,
 		printErr: appendLog,
 		onRuntimeInitialized: function () {
@@ -56,6 +59,7 @@
 				uiRoot: document.getElementById("game-data-importer"),
 				log: appendLog,
 				logSnapshot: () => window.surrealLog.join("\n") + "\n",
+				preferredMap,
 				launch: selection => {
 					Module.callMain(["--autoplay", "--url=" + selection.map, "--render=webgpu", "/gamedata"]);
 					window.surrealBooted = true;
@@ -135,7 +139,7 @@
 		Module.preinitializedWebGPUDevice = device;
 		appendLog("[harness] WebGPU device acquired, loading wasm module");
 		const script = document.createElement("script");
-		script.src = "../build-emscripten/SurrealEngine.js";
+		script.src = engineBase + "SurrealEngine.js";
 		script.onerror = function () {
 			window.surrealCrashed = "failed to load SurrealEngine.js";
 			appendLog("[harness] " + window.surrealCrashed);

@@ -236,6 +236,19 @@ before renderer creation with `Could not find package UnrealI`, rather than
 being counted as renderer passes. A clean 10-reload/30-second run and the
 WebGPU comparison remain pending.
 
+Progress, 2026-07-24 (flat performance/comparison increment): the first direct
+comparison found WebGL2 stable but limited to 29.2 ticks/s while WebGPU reached
+59.6 on the same 640x480 Turbine scene. The WebGL2 path was reallocating and
+uploading vertex and index buffers for every ordered draw. It now preserves
+draw order, depth, blend, texture, viewport, and matrix boundaries while
+aggregating CPU geometry; a representative 345-draw frame requires four buffer
+submission batches rather than roughly 690 per-draw buffer uploads. The
+post-change comparison measured 60.1 WebGL2 ticks/s and 59.8 WebGPU ticks/s,
+with coherent frames and zero backend errors on both. Resize, pointer-lock,
+audio, and forced context-restoration tests still pass through the aggregated
+path. Clean-commit comparison and matrix evidence remain to be preserved before
+closing WP2.
+
 ### WP3 — Post-launch Enter/Exit VR state machine
 
 - Change WebXR from a pre-launch presentation choice to a post-launch controller.
