@@ -65,6 +65,16 @@ namespace BotBenchmarkDriverDetail
 		uint64_t FallingParityRealizedLandings = 0;
 		uint64_t FallingParityRealizedContinuityLosses = 0;
 		uint64_t FallingParityRealizedRecordOverflows = 0;
+		uint64_t VerticalPainColumnEpisodesStarted = 0;
+		uint64_t VerticalPainColumnEpisodesCompleted = 0;
+		uint64_t VerticalPainColumnTruePositiveOutcomes = 0;
+		uint64_t VerticalPainColumnFalsePositiveOutcomes = 0;
+		uint64_t VerticalPainColumnFalseNegativeOutcomes = 0;
+		uint64_t VerticalPainColumnTrueNegativeOutcomes = 0;
+		uint64_t VerticalPainColumnAmbiguousOutcomes = 0;
+		uint64_t VerticalPainColumnUnknownOutcomes = 0;
+		uint64_t VerticalPainColumnDiagnosticOverflows = 0;
+		uint64_t VerticalPainColumnGenerationCapacityExhaustions = 0;
 		std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>
 			WalkingStepPreflightReasons = {};
 	};
@@ -236,6 +246,37 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.FallingParityRealizedRecordOverflows,
 				Previous.FallingParityRealizedRecordOverflows,
 				totals.FallingParityRealizedRecordOverflows);
+			AccumulateCounter(current.VerticalPainColumnEpisodesStarted,
+				Previous.VerticalPainColumnEpisodesStarted,
+				totals.VerticalPainColumnEpisodesStarted);
+			AccumulateCounter(current.VerticalPainColumnEpisodesCompleted,
+				Previous.VerticalPainColumnEpisodesCompleted,
+				totals.VerticalPainColumnEpisodesCompleted);
+			AccumulateCounter(current.VerticalPainColumnTruePositiveOutcomes,
+				Previous.VerticalPainColumnTruePositiveOutcomes,
+				totals.VerticalPainColumnTruePositiveOutcomes);
+			AccumulateCounter(current.VerticalPainColumnFalsePositiveOutcomes,
+				Previous.VerticalPainColumnFalsePositiveOutcomes,
+				totals.VerticalPainColumnFalsePositiveOutcomes);
+			AccumulateCounter(current.VerticalPainColumnFalseNegativeOutcomes,
+				Previous.VerticalPainColumnFalseNegativeOutcomes,
+				totals.VerticalPainColumnFalseNegativeOutcomes);
+			AccumulateCounter(current.VerticalPainColumnTrueNegativeOutcomes,
+				Previous.VerticalPainColumnTrueNegativeOutcomes,
+				totals.VerticalPainColumnTrueNegativeOutcomes);
+			AccumulateCounter(current.VerticalPainColumnAmbiguousOutcomes,
+				Previous.VerticalPainColumnAmbiguousOutcomes,
+				totals.VerticalPainColumnAmbiguousOutcomes);
+			AccumulateCounter(current.VerticalPainColumnUnknownOutcomes,
+				Previous.VerticalPainColumnUnknownOutcomes,
+				totals.VerticalPainColumnUnknownOutcomes);
+			AccumulateCounter(current.VerticalPainColumnDiagnosticOverflows,
+				Previous.VerticalPainColumnDiagnosticOverflows,
+				totals.VerticalPainColumnDiagnosticOverflows);
+			AccumulateCounter(
+				current.VerticalPainColumnGenerationCapacityExhaustions,
+				Previous.VerticalPainColumnGenerationCapacityExhaustions,
+				totals.VerticalPainColumnGenerationCapacityExhaustions);
 			for (size_t index = 0; index < current.WalkingStepPreflightReasons.size(); index++)
 			{
 				AccumulateCounter(current.WalkingStepPreflightReasons[index],

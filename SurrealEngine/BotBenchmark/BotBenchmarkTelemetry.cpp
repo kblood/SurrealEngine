@@ -276,6 +276,8 @@ namespace
 		WriteFallingHazardZone(out, generation.LastObservedPhysicsZone);
 		out << ",\"observed_harmful_foot_zone\":";
 		WriteFallingHazardZone(out, generation.ObservedHarmfulFootZone);
+		out << ",\"observed_harmful_center_zone\":";
+		WriteFallingHazardZone(out, generation.ObservedHarmfulCenterZone);
 		out << ",\"swept_segment_count\":"
 			<< generation.SweptSegmentCount
 			<< ",\"observed_elapsed\":"
@@ -286,10 +288,14 @@ namespace
 			<< (generation.PhysicsZoneEvidenceKnown ? "true" : "false")
 			<< ",\"harmful_foot_evidence_known\":"
 			<< (generation.HarmfulFootEvidenceKnown ? "true" : "false")
+			<< ",\"harmful_center_evidence_known\":"
+			<< (generation.HarmfulCenterEvidenceKnown ? "true" : "false")
 			<< ",\"water_evidence_known\":"
 			<< (generation.WaterEvidenceKnown ? "true" : "false")
 			<< ",\"entered_harmful_foot_zone\":"
 			<< (generation.EnteredHarmfulFootZone ? "true" : "false")
+			<< ",\"entered_harmful_center_zone\":"
+			<< (generation.EnteredHarmfulCenterZone ? "true" : "false")
 			<< ",\"expected_harmful_path_matched\":"
 			<< (generation.ExpectedHarmfulPathMatched ? "true" : "false")
 			<< ",\"causal_ambiguity\":"

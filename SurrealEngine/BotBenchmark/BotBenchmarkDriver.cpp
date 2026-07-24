@@ -186,6 +186,8 @@ namespace
 				PendingWalkingStepPreflightDiagnostics;
 			std::vector<PawnMovement::FallingParityRealizedRecord>
 				PendingFallingParityRealizedRecords;
+			std::vector<PawnMovement::FallingHazardDiagnosticRecord>
+				PendingFallingHazardDiagnostics;
 		};
 
 		enum class AttributionScopeKind
@@ -533,6 +535,24 @@ namespace
 			counters.FallingParityRealizedLandings = pawn->FallingParityRealizedLandingCount();
 			counters.FallingParityRealizedContinuityLosses = pawn->FallingParityRealizedContinuityLossCount();
 			counters.FallingParityRealizedRecordOverflows = pawn->FallingParityRealizedRecordOverflowCount();
+			const PawnMovement::FallingHazardRuntimeCounters& hazard =
+				pawn->FallingHazardRuntimeCounterValues();
+			counters.VerticalPainColumnEpisodesStarted = hazard.EpisodesStarted;
+			counters.VerticalPainColumnEpisodesCompleted = hazard.EpisodesCompleted;
+			counters.VerticalPainColumnTruePositiveOutcomes =
+				hazard.TruePositiveOutcomes;
+			counters.VerticalPainColumnFalsePositiveOutcomes =
+				hazard.FalsePositiveOutcomes;
+			counters.VerticalPainColumnFalseNegativeOutcomes =
+				hazard.FalseNegativeOutcomes;
+			counters.VerticalPainColumnTrueNegativeOutcomes =
+				hazard.TrueNegativeOutcomes;
+			counters.VerticalPainColumnAmbiguousOutcomes = hazard.AmbiguousOutcomes;
+			counters.VerticalPainColumnUnknownOutcomes = hazard.UnknownOutcomes;
+			counters.VerticalPainColumnDiagnosticOverflows =
+				hazard.DiagnosticOverflows;
+			counters.VerticalPainColumnGenerationCapacityExhaustions =
+				hazard.GenerationCapacityExhaustions;
 			counters.WalkingStepPreflightReasons = pawn->WalkingStepPreflightReasonCounts();
 			return counters;
 		}
@@ -555,12 +575,14 @@ namespace
 			if (victimRuntime != QualityParticipants.end())
 			{
 				QualityParticipantRuntime& counters = victimRuntime->second;
+				victim->FinishFallingHazardDeath();
 				victim->FinishFallingParityRealizedTrace(
 					PawnMovement::FallingParityRealizedOutcome::Died);
 				AccumulateNativePawnCounters(victimIdentity, counters, victim,
 					BotBenchmarkDriverDetail::NativePawnCounterSample::DeathFlush);
 				auto diagnostics = victim->DrainWalkingStepPreflightDiagnostics();
 				auto parityRecords = victim->DrainFallingParityRealizedRecords();
+				auto hazardDiagnostics = victim->DrainFallingHazardDiagnostics();
 				victim->EndWalkingStepPreflightLife();
 				counters.PendingWalkingStepPreflightDiagnostics.insert(
 					counters.PendingWalkingStepPreflightDiagnostics.end(),
@@ -570,6 +592,10 @@ namespace
 					counters.PendingFallingParityRealizedRecords.end(),
 					std::make_move_iterator(parityRecords.begin()),
 					std::make_move_iterator(parityRecords.end()));
+				counters.PendingFallingHazardDiagnostics.insert(
+					counters.PendingFallingHazardDiagnostics.end(),
+					std::make_move_iterator(hazardDiagnostics.begin()),
+					std::make_move_iterator(hazardDiagnostics.end()));
 				counters.DeathsExact++;
 				const bool environmental = !killer || !killer->bIsPlayer();
 				if (killer == victim || environmental)
@@ -1199,6 +1225,26 @@ namespace
 				bot.FallingParityRealizedLandingsExact = native.FallingParityRealizedLandings;
 				bot.FallingParityRealizedContinuityLossesExact = native.FallingParityRealizedContinuityLosses;
 				bot.FallingParityRealizedRecordOverflowsExact = native.FallingParityRealizedRecordOverflows;
+				bot.VerticalPainColumnEpisodesStartedExact =
+					native.VerticalPainColumnEpisodesStarted;
+				bot.VerticalPainColumnEpisodesCompletedExact =
+					native.VerticalPainColumnEpisodesCompleted;
+				bot.VerticalPainColumnTruePositiveOutcomesExact =
+					native.VerticalPainColumnTruePositiveOutcomes;
+				bot.VerticalPainColumnFalsePositiveOutcomesExact =
+					native.VerticalPainColumnFalsePositiveOutcomes;
+				bot.VerticalPainColumnFalseNegativeOutcomesExact =
+					native.VerticalPainColumnFalseNegativeOutcomes;
+				bot.VerticalPainColumnTrueNegativeOutcomesExact =
+					native.VerticalPainColumnTrueNegativeOutcomes;
+				bot.VerticalPainColumnAmbiguousOutcomesExact =
+					native.VerticalPainColumnAmbiguousOutcomes;
+				bot.VerticalPainColumnUnknownOutcomesExact =
+					native.VerticalPainColumnUnknownOutcomes;
+				bot.VerticalPainColumnDiagnosticOverflowsExact =
+					native.VerticalPainColumnDiagnosticOverflows;
+				bot.VerticalPainColumnGenerationCapacityExhaustionsExact =
+					native.VerticalPainColumnGenerationCapacityExhaustions;
 				if (pawn)
 				{
 					auto diagnostics = pawn->DrainWalkingStepPreflightDiagnostics();
@@ -1211,6 +1257,11 @@ namespace
 						runtime.PendingFallingParityRealizedRecords.end(),
 						std::make_move_iterator(parityRecords.begin()),
 						std::make_move_iterator(parityRecords.end()));
+					auto hazardDiagnostics = pawn->DrainFallingHazardDiagnostics();
+					runtime.PendingFallingHazardDiagnostics.insert(
+						runtime.PendingFallingHazardDiagnostics.end(),
+						std::make_move_iterator(hazardDiagnostics.begin()),
+						std::make_move_iterator(hazardDiagnostics.end()));
 				}
 				bot.WalkingStepPreflightDiagnostics = std::move(
 					runtime.PendingWalkingStepPreflightDiagnostics);
@@ -1218,6 +1269,9 @@ namespace
 				bot.FallingParityRealizedRecords = std::move(
 					runtime.PendingFallingParityRealizedRecords);
 				runtime.PendingFallingParityRealizedRecords.clear();
+				bot.VerticalPainColumnDiagnostics = std::move(
+					runtime.PendingFallingHazardDiagnostics);
+				runtime.PendingFallingHazardDiagnostics.clear();
 				bot.WalkingStepPreflightReasonsExact = native.WalkingStepPreflightReasons;
 				runtime.LastState = bot;
 				runtime.HasLastState = true;

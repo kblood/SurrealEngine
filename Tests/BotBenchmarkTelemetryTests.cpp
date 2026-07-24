@@ -336,13 +336,16 @@ int main()
 	terminal.Generation.Terminal = FallingHazardTerminal::HarmfulPainEntered;
 	terminal.Generation.LastObservedPhysicsZone = knownZone(31, 0);
 	terminal.Generation.ObservedHarmfulFootZone = knownZone(37, 5);
+	terminal.Generation.ObservedHarmfulCenterZone = knownZone(41, 7);
 	terminal.Generation.SweptSegmentCount = 3;
 	terminal.Generation.ObservedElapsed = 0.02f;
 	terminal.Generation.HasPositiveElapsed = true;
 	terminal.Generation.PhysicsZoneEvidenceKnown = true;
 	terminal.Generation.HarmfulFootEvidenceKnown = true;
+	terminal.Generation.HarmfulCenterEvidenceKnown = true;
 	terminal.Generation.WaterEvidenceKnown = true;
 	terminal.Generation.EnteredHarmfulFootZone = true;
+	terminal.Generation.EnteredHarmfulCenterZone = true;
 	terminal.Generation.CausalAmbiguity = true;
 	terminal.Generation.LandingCollision = FallingHazardCollisionKind::StaticWorld;
 	terminal.Correlation = FallingHazardCorrelation::Ambiguous;
@@ -393,7 +396,16 @@ int main()
 			"\"last_observed_physics_zone\":{\"known\":true,\"zone_actor_id\":31,\"zone_number\":0}")
 			== std::string::npos
 		|| hazardEvent.find(
+			"\"observed_harmful_foot_zone\":{\"known\":true,\"zone_actor_id\":37,\"zone_number\":5},\"observed_harmful_center_zone\":{\"known\":true,\"zone_actor_id\":41,\"zone_number\":7}")
+			== std::string::npos
+		|| hazardEvent.find(
 			"\"swept_segment_count\":3,\"observed_elapsed\":0.020000000")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"harmful_foot_evidence_known\":true,\"harmful_center_evidence_known\":true,\"water_evidence_known\":true")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"entered_harmful_foot_zone\":true,\"entered_harmful_center_zone\":true,\"expected_harmful_path_matched\":false")
 			== std::string::npos
 		|| hazardEvent.find("\"causal_ambiguity\":true,\"actual_trajectory_unknown\":false")
 			== std::string::npos)

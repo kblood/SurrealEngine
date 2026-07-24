@@ -100,6 +100,16 @@ namespace
 		counters.FallingParityRealizedLandings = value;
 		counters.FallingParityRealizedContinuityLosses = value;
 		counters.FallingParityRealizedRecordOverflows = 0;
+		counters.VerticalPainColumnEpisodesStarted = value;
+		counters.VerticalPainColumnEpisodesCompleted = value;
+		counters.VerticalPainColumnTruePositiveOutcomes = value;
+		counters.VerticalPainColumnFalsePositiveOutcomes = value;
+		counters.VerticalPainColumnFalseNegativeOutcomes = value;
+		counters.VerticalPainColumnTrueNegativeOutcomes = value;
+		counters.VerticalPainColumnAmbiguousOutcomes = value;
+		counters.VerticalPainColumnUnknownOutcomes = value;
+		counters.VerticalPainColumnDiagnosticOverflows = value;
+		counters.VerticalPainColumnGenerationCapacityExhaustions = value;
 		return counters;
 	}
 
@@ -157,6 +167,16 @@ namespace
 			counters.FallingParityRealizedLandings == value &&
 			counters.FallingParityRealizedContinuityLosses == value &&
 			counters.FallingParityRealizedRecordOverflows == 0 &&
+			counters.VerticalPainColumnEpisodesStarted == value &&
+			counters.VerticalPainColumnEpisodesCompleted == value &&
+			counters.VerticalPainColumnTruePositiveOutcomes == value &&
+			counters.VerticalPainColumnFalsePositiveOutcomes == value &&
+			counters.VerticalPainColumnFalseNegativeOutcomes == value &&
+			counters.VerticalPainColumnTrueNegativeOutcomes == value &&
+			counters.VerticalPainColumnAmbiguousOutcomes == value &&
+			counters.VerticalPainColumnUnknownOutcomes == value &&
+			counters.VerticalPainColumnDiagnosticOverflows == value &&
+			counters.VerticalPainColumnGenerationCapacityExhaustions == value &&
 			std::all_of(counters.WalkingStepPreflightReasons.begin(),
 				counters.WalkingStepPreflightReasons.end(),
 				[value](uint64_t reason) { return reason == value; });
