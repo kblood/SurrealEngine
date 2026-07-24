@@ -1,0 +1,494 @@
+{
+  "schema": "surreal-falling-hazard-labels-v1",
+  "description": "Frozen causal labels reconstructed from the exact iteration-51 candidate-3 falling traces.",
+  "provenance_policy": {
+    "safe_negative_set": {
+      "status": "reconstructed_from_documented_set",
+      "basis": "The four labels are the four largest realised safe callback landings in the Deck271828 trace; the fourth is the documented 568-unit late-HitWall case.",
+      "limitation": "The planning documents state that four controls were frozen but do not persist their actor, life, token, or tick selectors."
+    },
+    "selector_identity": "Legacy invocation tokens are pawn-scoped. A token selector is valid only as (config_id, actor, life_generation, invocation_token), with ticks retained as an exact-repeat backstop."
+  },
+  "documentation": [
+    {
+      "path": "Docs/BOT_AI_QUALITY_EXECUTION_PLAN.md",
+      "lines": "1042-1074"
+    },
+    {
+      "path": "Docs/BOT_AI_DECK16_MOVEMENT_RESEARCH.md",
+      "lines": "704-730"
+    }
+  ],
+  "displacement_definitions": {
+    "realised_vertical_drop_uu": "origin.position.z - outcome.position.z, where origin is the last supported sample before the committed fall",
+    "realised_horizontal_displacement_uu": "Euclidean XY distance from origin.position to outcome.position",
+    "realised_euclidean_displacement_uu": "Euclidean XYZ distance from origin.position to outcome.position",
+    "forecast_total_drop_uu": "predicted unsupported endpoint Z minus the forecast landing endpoint Z; the landing endpoint is summarized by telemetry rather than emitted directly"
+  },
+  "runs": [
+    {
+      "id": "ut-deck104729-candidate3",
+      "game": "Unreal Tournament",
+      "version": "436",
+      "map": "DM-Deck16][",
+      "seed": "104729",
+      "config_id": "fnv1a64:837c222f1c0c951c",
+      "events_workspace_relative": "SurrealEngine/qa/runs/2026-07-24/iteration51-retail-two-wall/candidate3-ut-deck104729-r0/events.jsonl",
+      "repeat_report_workspace_relative": "SurrealEngine/qa/runs/2026-07-24/iteration51-retail-two-wall/repeat-candidate3-ut-deck104729.json",
+      "events_raw_sha256": "F1CA2DBDBBCB7B6AD42D473B66151F9F2490645011FD28EE2E3D869752155266",
+      "events_line_count": 1802,
+      "repeat_equivalent": true
+    },
+    {
+      "id": "ut-deck314159-candidate3",
+      "game": "Unreal Tournament",
+      "version": "436",
+      "map": "DM-Deck16][",
+      "seed": "314159",
+      "config_id": "fnv1a64:cb9621960d1f74b4",
+      "events_workspace_relative": "SurrealEngine/qa/runs/2026-07-24/iteration51-retail-two-wall/candidate3-ut-deck314159-r0/events.jsonl",
+      "repeat_report_workspace_relative": "SurrealEngine/qa/runs/2026-07-24/iteration51-retail-two-wall/repeat-candidate3-ut-deck314159.json",
+      "events_raw_sha256": "88926FAA12294F3CBA482905B8D77BC585AD2C16D7908186CED7DAC5E10FE68E",
+      "events_line_count": 1802,
+      "repeat_equivalent": true
+    },
+    {
+      "id": "ut-deck271828-candidate3",
+      "game": "Unreal Tournament",
+      "version": "436",
+      "map": "DM-Deck16][",
+      "seed": "271828",
+      "config_id": "fnv1a64:749a1b5fcfb0d167",
+      "events_workspace_relative": "SurrealEngine/qa/runs/2026-07-24/iteration51-retail-two-wall/candidate3-ut-deck271828-r0/events.jsonl",
+      "repeat_report_workspace_relative": "SurrealEngine/qa/runs/2026-07-24/iteration51-retail-two-wall/repeat-candidate3-ut-deck271828.json",
+      "events_raw_sha256": "F72F7805A14EDD8820D273588055FE1552F7D5F7091B11CA9A8F50F9C2FFD795",
+      "events_line_count": 1802,
+      "repeat_equivalent": true
+    }
+  ],
+  "labels": [
+    {
+      "id": "deck271828-safe-alys-life1-token103",
+      "provenance": {
+        "status": "reconstructed_from_documented_set",
+        "set_rank_by_realised_drop": 1,
+        "note": "Largest realised safe callback landing in the trace."
+      },
+      "expected": {
+        "outcome_class": "safe_negative",
+        "evaluation_role": "safe_control",
+        "transition_source": "walking_support_loss"
+      },
+      "selector": {
+        "kind": "legacy_actor_life_invocation",
+        "run_id": "ut-deck271828-candidate3",
+        "pri": "pri:2",
+        "actor": "TFemale2Bot1",
+        "player_name": "Alys",
+        "class": "Botpack.TFemale2Bot",
+        "life_generation": "1",
+        "invocation_token": "103",
+        "origin_tick": 105,
+        "start_tick": 106,
+        "outcome_tick": 231,
+        "correlation_end_tick": 231
+      },
+      "observed": {
+        "origin_position": {"x": 1266.557007, "y": -1009.920410, "z": -152.000000},
+        "start_position": {"x": 1271.739014, "y": -1004.731445, "z": -152.000000},
+        "outcome_position": {"x": 1391.095093, "y": -266.683655, "z": -1048.093750},
+        "legacy_forecast": {"classification": "incomplete", "total_drop_uu": 96.644226},
+        "callback_barriers": [
+          {"kind": "hit_wall", "tick": 130, "step_ordinal": 23, "hit_fraction": 0.068177439, "normal": {"x": -1.0, "y": 0.0, "z": 0.0}, "mask": 256}
+        ],
+        "hit_wall_counter": {"before": 0, "after": 101, "tick_ranges": ["130", "132-231"]},
+        "outcome_records": ["landed"],
+        "primary_outcome": "landed",
+        "correlation_terminal": "landed",
+        "terminal_physics": "Walking",
+        "terminal_state": "Roaming",
+        "health_before": 100,
+        "health_after": 100,
+        "pain_entry_ticks": [],
+        "in_hazard_zone_after": false,
+        "counter_deltas": {"deaths": 0, "suicides": 0, "environmental_deaths": 0, "unassisted_environmental_deaths": 0},
+        "displacement": {"realised_vertical_drop_uu": 896.093750, "realised_horizontal_displacement_uu": 753.598440, "realised_euclidean_displacement_uu": 1170.852090}
+      }
+    },
+    {
+      "id": "deck271828-safe-sarena-life1-token531",
+      "provenance": {
+        "status": "reconstructed_from_documented_set",
+        "set_rank_by_realised_drop": 2,
+        "note": "Second-largest realised safe callback landing in the trace."
+      },
+      "expected": {
+        "outcome_class": "safe_negative",
+        "evaluation_role": "safe_control",
+        "transition_source": "walking_support_loss"
+      },
+      "selector": {
+        "kind": "legacy_actor_life_invocation",
+        "run_id": "ut-deck271828-candidate3",
+        "pri": "pri:1",
+        "actor": "TFemale2Bot0",
+        "player_name": "Sarena",
+        "class": "Botpack.TFemale2Bot",
+        "life_generation": "1",
+        "invocation_token": "531",
+        "origin_tick": 672,
+        "start_tick": 673,
+        "outcome_tick": 762,
+        "correlation_end_tick": 762
+      },
+      "observed": {
+        "origin_position": {"x": 596.087158, "y": -142.626907, "z": -628.105164},
+        "start_position": {"x": 589.427368, "y": -145.696915, "z": -628.105164},
+        "outcome_position": {"x": 400.900879, "y": -373.890900, "z": -1232.011108},
+        "legacy_forecast": {"classification": "incomplete", "total_drop_uu": 133.569092},
+        "callback_barriers": [
+          {"kind": "hit_wall", "tick": 701, "step_ordinal": 27, "hit_fraction": 0.530056417, "normal": {"x": 1.0, "y": 0.0, "z": 0.0}, "mask": 256}
+        ],
+        "hit_wall_counter": {"before": 5, "after": 66, "tick_ranges": ["701-702", "704-762"]},
+        "outcome_records": ["landed"],
+        "primary_outcome": "landed",
+        "correlation_terminal": "landed",
+        "terminal_physics": "Walking",
+        "terminal_state": "Roaming",
+        "health_before": 100,
+        "health_after": 100,
+        "pain_entry_ticks": [],
+        "in_hazard_zone_after": false,
+        "counter_deltas": {"deaths": 0, "suicides": 0, "environmental_deaths": 0, "unassisted_environmental_deaths": 0},
+        "displacement": {"realised_vertical_drop_uu": 603.905944, "realised_horizontal_displacement_uu": 302.623063, "realised_euclidean_displacement_uu": 675.487311}
+      }
+    },
+    {
+      "id": "deck271828-safe-alys-life2-token744",
+      "provenance": {
+        "status": "reconstructed_from_documented_set",
+        "set_rank_by_realised_drop": 3,
+        "note": "Third-largest realised safe callback landing in the trace."
+      },
+      "expected": {
+        "outcome_class": "safe_negative",
+        "evaluation_role": "safe_control",
+        "transition_source": "walking_support_loss"
+      },
+      "selector": {
+        "kind": "legacy_actor_life_invocation",
+        "run_id": "ut-deck271828-candidate3",
+        "pri": "pri:2",
+        "actor": "TFemale2Bot1",
+        "player_name": "Alys",
+        "class": "Botpack.TFemale2Bot",
+        "life_generation": "2",
+        "invocation_token": "744",
+        "origin_tick": 1316,
+        "start_tick": 1317,
+        "outcome_tick": 1414,
+        "correlation_end_tick": 1414
+      },
+      "observed": {
+        "origin_position": {"x": 437.332214, "y": -653.483887, "z": -630.931824},
+        "start_position": {"x": 438.288147, "y": -660.754639, "z": -630.931824},
+        "outcome_position": {"x": 529.160339, "y": -1007.149353, "z": -1232.004150},
+        "legacy_forecast": {"classification": "incomplete", "total_drop_uu": 347.490112},
+        "callback_barriers": [
+          {"kind": "hit_wall", "tick": 1364, "step_ordinal": 46, "hit_fraction": 0.932634950, "normal": {"x": 0.0, "y": 1.0, "z": 0.0}, "mask": 256}
+        ],
+        "hit_wall_counter": {"before": 141, "after": 178, "tick_ranges": ["1364-1365", "1375-1376", "1378-1410"]},
+        "outcome_records": ["landed"],
+        "primary_outcome": "landed",
+        "correlation_terminal": "landed",
+        "terminal_physics": "Walking",
+        "terminal_state": "Roaming",
+        "health_before": 100,
+        "health_after": 100,
+        "pain_entry_ticks": [],
+        "in_hazard_zone_after": false,
+        "counter_deltas": {"deaths": 0, "suicides": 0, "environmental_deaths": 0, "unassisted_environmental_deaths": 0},
+        "displacement": {"realised_vertical_drop_uu": 601.072326, "realised_horizontal_displacement_uu": 365.392483, "realised_euclidean_displacement_uu": 703.419937}
+      }
+    },
+    {
+      "id": "deck271828-safe-malakai-life1-token732",
+      "provenance": {
+        "status": "documented_case_reconstructed_selector",
+        "set_rank_by_realised_drop": 4,
+        "note": "The documented 568-unit Deck fall with a late HitWall; the prose rounds forecast total_drop, while realised drop is 568.007202."
+      },
+      "expected": {
+        "outcome_class": "safe_negative",
+        "evaluation_role": "safe_control",
+        "transition_source": "walking_support_loss"
+      },
+      "selector": {
+        "kind": "legacy_actor_life_invocation",
+        "run_id": "ut-deck271828-candidate3",
+        "pri": "pri:4",
+        "actor": "TMale1Bot0",
+        "player_name": "Malakai",
+        "class": "Botpack.TMale1Bot",
+        "life_generation": "1",
+        "invocation_token": "732",
+        "origin_tick": 1371,
+        "start_tick": 1372,
+        "outcome_tick": 1443,
+        "correlation_end_tick": 1443
+      },
+      "observed": {
+        "origin_position": {"x": 978.176270, "y": 1551.882812, "z": -664.000000},
+        "start_position": {"x": 979.802124, "y": 1559.033691, "z": -664.000000},
+        "semantic_target": "LiftExit2",
+        "outcome_position": {"x": 1095.645142, "y": 1998.667358, "z": -1232.007202},
+        "legacy_forecast": {"classification": "safe", "total_drop_uu": 568.069824, "landing_collision": "static_bsp", "landing_normal": {"x": 0.0, "y": 0.0, "z": 1.0}, "continuation_count": 0, "hit_fractions": [0.004436270]},
+        "callback_barriers": [
+          {"kind": "hit_wall", "tick": 1433, "step_ordinal": 60, "hit_fraction": 0.609366834, "normal": {"x": 0.0, "y": -1.0, "z": 0.0}, "mask": 256}
+        ],
+        "hit_wall_counter": {"before": 85, "after": 89, "tick_ranges": ["1433-1434", "1437-1438"]},
+        "outcome_records": ["landed"],
+        "primary_outcome": "landed",
+        "correlation_terminal": "landed",
+        "terminal_physics": "Walking",
+        "terminal_state": "Roaming",
+        "health_before": 100,
+        "health_after": 100,
+        "pain_entry_ticks": [],
+        "in_hazard_zone_after": false,
+        "counter_deltas": {"deaths": 0, "suicides": 0, "environmental_deaths": 0, "unassisted_environmental_deaths": 0},
+        "displacement": {"realised_vertical_drop_uu": 568.007202, "realised_horizontal_displacement_uu": 461.969010, "realised_euclidean_displacement_uu": 732.152681}
+      }
+    },
+    {
+      "id": "deck104729-positive-necroth-life1-token591",
+      "provenance": {
+        "status": "documented_case_reconstructed_selector",
+        "note": "First nonfatal recurrence of the documented ordinary support-loss fall into pain after wall redirection."
+      },
+      "expected": {
+        "outcome_class": "harmful_positive",
+        "evaluation_role": "positive_control",
+        "transition_source": "walking_support_loss"
+      },
+      "selector": {
+        "kind": "legacy_actor_life_invocation",
+        "run_id": "ut-deck104729-candidate3",
+        "pri": "pri:2",
+        "actor": "TMale2Bot0",
+        "player_name": "Necroth",
+        "class": "Botpack.TMale2Bot",
+        "life_generation": "1",
+        "invocation_token": "591",
+        "origin_tick": 802,
+        "start_tick": 803,
+        "outcome_tick": 848,
+        "correlation_end_tick": 855
+      },
+      "observed": {
+        "origin_position": {"x": 2040.632080, "y": 1453.339844, "z": -525.647156},
+        "start_position": {"x": 2045.934204, "y": 1458.405884, "z": -525.647156},
+        "outcome_position": {"x": 2117.121826, "y": 1646.441284, "z": -677.709778},
+        "legacy_forecast": {"classification": "incomplete", "total_drop_uu": 24.749390},
+        "callback_barriers": [
+          {"kind": "hit_wall", "tick": 813, "step_ordinal": 9, "hit_fraction": 0.135297015, "normal": {"x": -1.0, "y": 0.0, "z": 0.0}, "mask": 256}
+        ],
+        "hit_wall_counter": {"before": 3, "after": 24, "tick_ranges": ["813-831", "836-837"]},
+        "outcome_records": ["pain_entered", "continuity_lost"],
+        "primary_outcome": "pain_entered",
+        "correlation_terminal": "continuity_lost",
+        "terminal_physics": "Swimming",
+        "health_before": 100,
+        "health_after": 84,
+        "pain_entry_ticks": [848],
+        "in_hazard_zone_after": true,
+        "counter_deltas": {"deaths": 0, "suicides": 0, "environmental_deaths": 0, "unassisted_environmental_deaths": 0},
+        "displacement": {"realised_vertical_drop_uu": 152.062622, "realised_horizontal_displacement_uu": 207.698934, "realised_euclidean_displacement_uu": 257.413847}
+      }
+    },
+    {
+      "id": "deck104729-positive-necroth-life1-token694",
+      "provenance": {
+        "status": "documented_case_reconstructed_selector",
+        "note": "Second distinct recurrence; fatal unassisted environmental outcome rather than a duplicate of token 591."
+      },
+      "expected": {
+        "outcome_class": "harmful_positive",
+        "evaluation_role": "positive_control",
+        "transition_source": "walking_support_loss"
+      },
+      "selector": {
+        "kind": "legacy_actor_life_invocation",
+        "run_id": "ut-deck104729-candidate3",
+        "pri": "pri:2",
+        "actor": "TMale2Bot0",
+        "player_name": "Necroth",
+        "class": "Botpack.TMale2Bot",
+        "life_generation": "1",
+        "invocation_token": "694",
+        "origin_tick": 1221,
+        "start_tick": 1222,
+        "outcome_tick": 1268,
+        "correlation_end_tick": 1268
+      },
+      "observed": {
+        "origin_position": {"x": 2038.432129, "y": 1452.413452, "z": -526.527100},
+        "start_position": {"x": 2043.751953, "y": 1457.460938, "z": -526.527100},
+        "outcome_position": {"x": 2119.471191, "y": 1645.941528, "z": -682.258301},
+        "legacy_forecast": {"classification": "incomplete", "total_drop_uu": 25.026855},
+        "callback_barriers": [
+          {"kind": "hit_wall", "tick": 1232, "step_ordinal": 9, "hit_fraction": 0.429739654, "normal": {"x": -1.0, "y": 0.0, "z": 0.0}, "mask": 256}
+        ],
+        "hit_wall_counter": {"before": 27, "after": 49, "tick_ranges": ["1232-1250", "1255-1256", "1258"]},
+        "outcome_records": ["pain_entered", "died"],
+        "primary_outcome": "died",
+        "correlation_terminal": "died",
+        "terminal_physics": "Falling",
+        "health_before": 4,
+        "health_after": -12,
+        "pain_entry_ticks": [1268],
+        "in_hazard_zone_after": true,
+        "counter_deltas": {"deaths": 1, "suicides": 1, "environmental_deaths": 1, "unassisted_environmental_deaths": 1},
+        "displacement": {"realised_vertical_drop_uu": 155.731201, "realised_horizontal_displacement_uu": 209.810500, "realised_euclidean_displacement_uu": 261.290361}
+      }
+    },
+    {
+      "id": "deck314159-positive-tamerlane-external-595",
+      "provenance": {
+        "status": "documented_case_reconstructed_transition_selector",
+        "note": "Combat damage and upward momentum start falling without a walking preflight diagnostic, so this selector intentionally has no legacy invocation token."
+      },
+      "expected": {
+        "outcome_class": "harmful_positive",
+        "evaluation_role": "positive_control",
+        "transition_source": "external_impulse_commit"
+      },
+      "selector": {
+        "kind": "actor_life_transition",
+        "run_id": "ut-deck314159-candidate3",
+        "pri": "pri:4",
+        "actor": "TMale2Bot1",
+        "player_name": "Tamerlane",
+        "class": "Botpack.TMale2Bot",
+        "life_generation": "1",
+        "invocation_token": null,
+        "origin_tick": 594,
+        "start_tick": 595,
+        "outcome_tick": 606,
+        "correlation_end_tick": null
+      },
+      "observed": {
+        "origin_position": {"x": 526.066162, "y": 582.330994, "z": -1232.000000},
+        "start_position": {"x": 527.620300, "y": 585.565552, "z": -1231.219360},
+        "start_velocity": {"x": 84.771164, "y": 176.431351, "z": 42.583294},
+        "outcome_position": {"x": 537.643860, "y": 612.180237, "z": -1242.339233},
+        "legacy_forecast": {"classification": "not_observed", "total_drop_uu": null},
+        "callback_barriers": [],
+        "hit_wall_counter": {"before": 142, "after": 145, "tick_ranges": ["602-603", "606"]},
+        "outcome_records": [],
+        "primary_outcome": "pain_entered",
+        "correlation_terminal": "not_observed",
+        "terminal_physics": "Falling",
+        "health_before": 100,
+        "health_after": 59,
+        "combat_damage_at_start": 25,
+        "pain_entry_ticks": [606],
+        "in_hazard_zone_after": true,
+        "counter_deltas": {"deaths": 0, "suicides": 0, "environmental_deaths": 0, "unassisted_environmental_deaths": 0},
+        "displacement": {"realised_vertical_drop_uu": 10.339233, "realised_horizontal_displacement_uu": 32.015940, "realised_euclidean_displacement_uu": 33.644021}
+      }
+    },
+    {
+      "id": "deck314159-positive-tamerlane-life1-token730",
+      "provenance": {
+        "status": "documented_case_reconstructed_selector",
+        "note": "Later policy-relevant support-loss suicide; this is the walking-token case, not the external-impulse case."
+      },
+      "expected": {
+        "outcome_class": "harmful_positive",
+        "evaluation_role": "positive_control",
+        "transition_source": "walking_support_loss"
+      },
+      "selector": {
+        "kind": "legacy_actor_life_invocation",
+        "run_id": "ut-deck314159-candidate3",
+        "pri": "pri:4",
+        "actor": "TMale2Bot1",
+        "player_name": "Tamerlane",
+        "class": "Botpack.TMale2Bot",
+        "life_generation": "1",
+        "invocation_token": "730",
+        "origin_tick": 1284,
+        "start_tick": 1285,
+        "outcome_tick": 1294,
+        "correlation_end_tick": 1294
+      },
+      "observed": {
+        "origin_position": {"x": 526.840088, "y": -833.198669, "z": -1232.000000},
+        "start_position": {"x": 529.875916, "y": -839.874146, "z": -1232.000000},
+        "outcome_position": {"x": 571.369324, "y": -889.355591, "z": -1241.478027},
+        "legacy_forecast": {"classification": "incomplete", "total_drop_uu": 5.825928},
+        "callback_barriers": [
+          {"kind": "hit_wall", "tick": 1288, "step_ordinal": 2, "hit_fraction": 0.049825601, "normal": {"x": 0.707107, "y": 0.707107, "z": 0.0}, "mask": 256}
+        ],
+        "hit_wall_counter": {"before": 226, "after": 232, "tick_ranges": ["1288", "1290-1294"]},
+        "outcome_records": ["pain_entered", "died"],
+        "primary_outcome": "died",
+        "correlation_terminal": "died",
+        "terminal_physics": "Falling",
+        "health_before": 11,
+        "health_after": -5,
+        "pain_entry_ticks": [1294],
+        "in_hazard_zone_after": true,
+        "counter_deltas": {"deaths": 1, "suicides": 1, "environmental_deaths": 1, "unassisted_environmental_deaths": 1},
+        "displacement": {"realised_vertical_drop_uu": 9.478027, "realised_horizontal_displacement_uu": 71.669050, "realised_euclidean_displacement_uu": 72.293055}
+      }
+    },
+    {
+      "id": "deck314159-false-negative-cilia-life2-token610",
+      "provenance": {
+        "status": "trace_mined_reconstruction",
+        "note": "Separate walking-start false-safe forecast that reaches pain nonfatally; it is not the documented external-impulse case."
+      },
+      "expected": {
+        "outcome_class": "harmful_positive",
+        "evaluation_role": "false_negative_control",
+        "transition_source": "walking_support_loss"
+      },
+      "selector": {
+        "kind": "legacy_actor_life_invocation",
+        "run_id": "ut-deck314159-candidate3",
+        "pri": "pri:1",
+        "actor": "TMale2Bot0",
+        "player_name": "Cilia",
+        "class": "Botpack.TMale2Bot",
+        "life_generation": "2",
+        "invocation_token": "610",
+        "origin_tick": 1540,
+        "start_tick": 1541,
+        "outcome_tick": 1587,
+        "correlation_end_tick": 1590
+      },
+      "observed": {
+        "origin_position": {"x": 1223.322754, "y": -1007.115295, "z": -728.000000},
+        "start_position": {"x": 1223.961182, "y": -999.809814, "z": -728.000000},
+        "outcome_position": {"x": 1262.477173, "y": -658.464722, "z": -1242.061768},
+        "legacy_forecast": {"classification": "safe", "total_drop_uu": 504.086182, "landing_collision": "static_bsp", "landing_normal": {"x": 0.0, "y": 0.0, "z": 1.0}, "continuation_count": 0, "hit_fractions": [0.989872396]},
+        "callback_barriers": [
+          {"kind": "zone_callback", "tick": 1587, "step_ordinal": 45, "hit_fraction": 1.0, "normal": {"x": 0.0, "y": 0.0, "z": 0.0}, "mask": 64}
+        ],
+        "hit_wall_counter": {"before": 5, "after": 8, "tick_ranges": ["1588-1590"]},
+        "outcome_records": ["callback_barrier", "pain_entered", "continuity_lost"],
+        "primary_outcome": "pain_entered",
+        "correlation_terminal": "continuity_lost",
+        "terminal_physics": "Swimming",
+        "health_before": 100,
+        "health_after": 84,
+        "pain_entry_ticks": [1587],
+        "in_hazard_zone_after": true,
+        "counter_deltas": {"deaths": 0, "suicides": 0, "environmental_deaths": 0, "unassisted_environmental_deaths": 0},
+        "displacement": {"realised_vertical_drop_uu": 514.061768, "realised_horizontal_displacement_uu": 350.842259, "realised_euclidean_displacement_uu": 622.374318}
+      }
+    }
+  ]
+}
