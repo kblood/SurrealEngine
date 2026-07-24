@@ -2,6 +2,7 @@
 
 #include "UObject/PawnWalkingStepPreflight.h"
 #include "UObject/PawnFallingParityRealizedTrace.h"
+#include "UObject/PawnFallingHazardDiagnostics.h"
 
 #include <array>
 #include <cstdint>
@@ -109,6 +110,18 @@ struct BotBenchmarkBotState
 	uint64_t FallingParityRealizedRecordOverflowsExact = 0;
 	std::vector<PawnMovement::FallingParityRealizedRecord>
 		FallingParityRealizedRecords;
+	uint64_t VerticalPainColumnEpisodesStartedExact = 0;
+	uint64_t VerticalPainColumnEpisodesCompletedExact = 0;
+	uint64_t VerticalPainColumnTruePositiveOutcomesExact = 0;
+	uint64_t VerticalPainColumnFalsePositiveOutcomesExact = 0;
+	uint64_t VerticalPainColumnFalseNegativeOutcomesExact = 0;
+	uint64_t VerticalPainColumnTrueNegativeOutcomesExact = 0;
+	uint64_t VerticalPainColumnAmbiguousOutcomesExact = 0;
+	uint64_t VerticalPainColumnUnknownOutcomesExact = 0;
+	uint64_t VerticalPainColumnDiagnosticOverflowsExact = 0;
+	uint64_t VerticalPainColumnGenerationCapacityExhaustionsExact = 0;
+	std::vector<PawnMovement::FallingHazardDiagnosticRecord>
+		VerticalPainColumnDiagnostics;
 };
 
 struct BotBenchmarkTelemetryEvent

@@ -181,7 +181,18 @@ int main()
 		<< ",\"falling_parity_realized_landings_exact\":\"0\""
 		<< ",\"falling_parity_realized_continuity_losses_exact\":\"0\""
 		<< ",\"falling_parity_realized_record_overflows_exact\":\"0\""
-		<< ",\"falling_parity_realized_records\":[]";
+		<< ",\"falling_parity_realized_records\":[]"
+		<< ",\"vertical_pain_column_episodes_started_exact\":\"0\""
+		<< ",\"vertical_pain_column_episodes_completed_exact\":\"0\""
+		<< ",\"vertical_pain_column_true_positive_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_false_positive_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_false_negative_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_true_negative_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_ambiguous_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_unknown_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_diagnostic_overflows_exact\":\"0\""
+		<< ",\"vertical_pain_column_generation_capacity_exhaustions_exact\":\"0\""
+		<< ",\"vertical_pain_column_diagnostics\":[]";
 	const std::string expectedWalkingPreflightSuffix = walkingPreflightSuffix.str();
 	const std::string expectedEvent =
 		"{\"schema\":\"surreal-bot-benchmark-telemetry-v2\",\"seq\":\"5\",\"config_id\":\"fnv1a64:b998eb71db26e88f\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
@@ -275,6 +286,142 @@ int main()
 		== std::string::npos)
 		return Fail("matched landing step vocabulary was not serialized distinctly");
 	event.Bots.front().FallingParityRealizedRecords.clear();
+
+	using namespace PawnMovement;
+	if (std::string(FallingHazardForecastSourceName(
+		FallingHazardForecastSource::AlignedContinuationCommit))
+			!= "aligned_continuation_commit"
+		|| std::string(FallingHazardForecastSourceName(
+			FallingHazardForecastSource::ThirdMoveContinuationCommit))
+			!= "third_move_continuation_commit"
+		|| std::string(FallingHazardForecastSourceName(
+			FallingHazardForecastSource::HorizonContinuationCommit))
+			!= "horizon_continuation_commit"
+		|| std::string(FallingHazardTerminalName(
+			FallingHazardTerminal::HarmfulPainEntered)) != "harmful_pain_entered"
+		|| std::string(FallingHazardCorrelationName(
+			FallingHazardCorrelation::Ambiguous)) != "ambiguous")
+		return Fail("falling hazard diagnostic enum vocabulary was incomplete");
+
+	auto knownZone = [](uint32_t actorId, uint32_t zoneNumber)
+	{
+		return FallingHazardZoneId {
+			.Known = true,
+			.ZoneActorId = actorId,
+			.ZoneNumber = zoneNumber
+		};
+	};
+	FallingHazardDiagnosticRecord start;
+	start.Kind = FallingHazardDiagnosticKind::Start;
+	start.SourcePawnActor = "Bot\"Hazard";
+	start.Sequence = std::numeric_limits<uint64_t>::max();
+	start.PrechargedElapsed = 1.0f / 60.0f;
+	start.Generation.Life.Value = std::numeric_limits<uint64_t>::max() - 1;
+	start.Generation.FallEpisode.Value = std::numeric_limits<uint64_t>::max() - 2;
+	start.Generation.Generation.Value = std::numeric_limits<uint32_t>::max();
+	start.Generation.Source = FallingHazardForecastSource::AlignedContinuationCommit;
+	start.Generation.Forecast = FallingHazardForecast::HarmfulPainObserved;
+	start.Generation.StartingPhysicsZone = knownZone(17, 0);
+	start.Generation.ExpectedHarmfulFootZone = knownZone(23, 0);
+	start.Generation.ExpectedHarmfulPhysicsZone = knownZone(29, 3);
+	start.Generation.ExpectedHarmfulWaterEntry = true;
+	start.Generation.SweptSegmentBudget = 256;
+	start.Generation.ElapsedHorizon = 4.0f;
+
+	FallingHazardDiagnosticRecord terminal = start;
+	terminal.Kind = FallingHazardDiagnosticKind::Terminal;
+	terminal.Sequence--;
+	terminal.Generation.Source =
+		FallingHazardForecastSource::ThirdMoveContinuationCommit;
+	terminal.Generation.Terminal = FallingHazardTerminal::HarmfulPainEntered;
+	terminal.Generation.LastObservedPhysicsZone = knownZone(31, 0);
+	terminal.Generation.ObservedHarmfulFootZone = knownZone(37, 5);
+	terminal.Generation.SweptSegmentCount = 3;
+	terminal.Generation.ObservedElapsed = 0.02f;
+	terminal.Generation.HasPositiveElapsed = true;
+	terminal.Generation.PhysicsZoneEvidenceKnown = true;
+	terminal.Generation.HarmfulFootEvidenceKnown = true;
+	terminal.Generation.WaterEvidenceKnown = true;
+	terminal.Generation.EnteredHarmfulFootZone = true;
+	terminal.Generation.CausalAmbiguity = true;
+	terminal.Generation.LandingCollision = FallingHazardCollisionKind::StaticWorld;
+	terminal.Correlation = FallingHazardCorrelation::Ambiguous;
+
+	FallingHazardDiagnosticRecord capacity;
+	capacity.Kind = FallingHazardDiagnosticKind::GenerationCapacityExceeded;
+	capacity.SourcePawnActor = "BotCapacity";
+	capacity.Sequence = 9;
+	capacity.Generation.Life.Value = 7;
+	capacity.Generation.FallEpisode.Value = 8;
+	capacity.Generation.Source =
+		FallingHazardForecastSource::HorizonContinuationCommit;
+
+	event.Bots.front().VerticalPainColumnEpisodesStartedExact = 10;
+	event.Bots.front().VerticalPainColumnEpisodesCompletedExact = 6;
+	event.Bots.front().VerticalPainColumnTruePositiveOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnFalsePositiveOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnFalseNegativeOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnTrueNegativeOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnAmbiguousOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnUnknownOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnDiagnosticOverflowsExact = 2;
+	event.Bots.front().VerticalPainColumnGenerationCapacityExhaustionsExact = 3;
+	event.Bots.front().VerticalPainColumnDiagnostics = { start, terminal, capacity };
+	const std::string hazardEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (hazardEvent.find("\"source_pawn_actor\":\"Bot\\\"Hazard\"")
+			== std::string::npos
+		|| hazardEvent.find(
+		"\"sequence\":\"18446744073709551615\",\"life_id\":\"18446744073709551614\",\"fall_episode_id\":\"18446744073709551613\",\"generation_id\":\"4294967295\",\"kind\":\"start\"")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"starting_physics_zone\":{\"known\":true,\"zone_actor_id\":17,\"zone_number\":0}")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"source\":\"aligned_continuation_commit\",\"forecast\":\"harmful_pain_observed\"")
+			== std::string::npos
+		|| hazardEvent.find("\"precharged_elapsed\":0.016666668")
+			== std::string::npos)
+		return Fail("falling hazard start diagnostic serialization was incomplete");
+	if (hazardEvent.find(
+		"\"kind\":\"terminal\",\"source\":\"third_move_continuation_commit\"")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"terminal\":\"harmful_pain_entered\",\"correlation\":\"ambiguous\"")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"last_observed_physics_zone\":{\"known\":true,\"zone_actor_id\":31,\"zone_number\":0}")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"swept_segment_count\":3,\"observed_elapsed\":0.020000000")
+			== std::string::npos
+		|| hazardEvent.find("\"causal_ambiguity\":true,\"actual_trajectory_unknown\":false")
+			== std::string::npos)
+		return Fail("falling hazard terminal diagnostic serialization was incomplete");
+	if (hazardEvent.find(
+		"\"source_pawn_actor\":\"BotCapacity\",\"sequence\":\"9\",\"life_id\":\"7\",\"fall_episode_id\":\"8\",\"generation_id\":\"0\",\"kind\":\"generation_capacity_exceeded\",\"attempted_source\":\"horizon_continuation_commit\"")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"vertical_pain_column_true_positive_outcomes_exact\":\"1\"")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"vertical_pain_column_generation_capacity_exhaustions_exact\":\"3\"")
+			== std::string::npos)
+		return Fail("falling hazard capacity/counter serialization was incomplete");
+	bool rejectedHazardNonFinite = false;
+	try
+	{
+		start.PrechargedElapsed = std::numeric_limits<float>::infinity();
+		event.Bots.front().VerticalPainColumnDiagnostics = { start };
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	}
+	catch (const std::invalid_argument&)
+	{
+		rejectedHazardNonFinite = true;
+	}
+	if (!rejectedHazardNonFinite)
+		return Fail("falling hazard diagnostics accepted non-finite elapsed evidence");
+	event.Bots.front().VerticalPainColumnDiagnostics.clear();
 
 	bool rejectedNonFinite = false;
 	try

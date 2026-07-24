@@ -211,6 +211,96 @@ namespace
 			<< "\"}";
 	}
 
+	void WriteFallingHazardZone(std::ostringstream& out,
+		const PawnMovement::FallingHazardZoneId& zone)
+	{
+		out << "{\"known\":" << (zone.Known ? "true" : "false")
+			<< ",\"zone_actor_id\":" << (zone.Known ? zone.ZoneActorId : 0)
+			<< ",\"zone_number\":" << (zone.Known ? zone.ZoneNumber : 0)
+			<< '}';
+	}
+
+	void WriteFallingHazardStartSummary(std::ostringstream& out,
+		const PawnMovement::FallingHazardGenerationState& generation)
+	{
+		out << ",\"source\":" << JsonString(
+			PawnMovement::FallingHazardForecastSourceName(generation.Source))
+			<< ",\"forecast\":" << JsonString(
+				PawnMovement::FallingHazardForecastName(generation.Forecast))
+			<< ",\"starting_physics_zone\":";
+		WriteFallingHazardZone(out, generation.StartingPhysicsZone);
+		out << ",\"expected_harmful_foot_zone\":";
+		WriteFallingHazardZone(out, generation.ExpectedHarmfulFootZone);
+		out << ",\"expected_harmful_physics_zone\":";
+		WriteFallingHazardZone(out, generation.ExpectedHarmfulPhysicsZone);
+		out << ",\"expected_harmful_water_entry\":"
+			<< (generation.ExpectedHarmfulWaterEntry ? "true" : "false")
+			<< ",\"swept_segment_budget\":"
+			<< generation.SweptSegmentBudget
+			<< ",\"elapsed_horizon\":"
+			<< Fixed(generation.ElapsedHorizon, 9);
+	}
+
+	void WriteFallingHazardDiagnostic(std::ostringstream& out,
+		const PawnMovement::FallingHazardDiagnosticRecord& diagnostic)
+	{
+		const auto& generation = diagnostic.Generation;
+		out << "{\"source_pawn_actor\":" << JsonString(diagnostic.SourcePawnActor)
+			<< ",\"sequence\":\"" << diagnostic.Sequence
+			<< "\",\"life_id\":\"" << generation.Life.Value
+			<< "\",\"fall_episode_id\":\"" << generation.FallEpisode.Value
+			<< "\",\"generation_id\":\"" << generation.Generation.Value
+			<< "\",\"kind\":" << JsonString(
+				PawnMovement::FallingHazardDiagnosticKindName(diagnostic.Kind));
+		if (diagnostic.Kind
+			== PawnMovement::FallingHazardDiagnosticKind::GenerationCapacityExceeded)
+		{
+			out << ",\"attempted_source\":" << JsonString(
+				PawnMovement::FallingHazardForecastSourceName(generation.Source)) << '}';
+			return;
+		}
+
+		WriteFallingHazardStartSummary(out, generation);
+		if (diagnostic.Kind == PawnMovement::FallingHazardDiagnosticKind::Start)
+		{
+			out << ",\"precharged_elapsed\":"
+				<< Fixed(diagnostic.PrechargedElapsed, 9) << '}';
+			return;
+		}
+
+		out << ",\"terminal\":" << JsonString(
+			PawnMovement::FallingHazardTerminalName(generation.Terminal))
+			<< ",\"correlation\":" << JsonString(
+				PawnMovement::FallingHazardCorrelationName(diagnostic.Correlation))
+			<< ",\"last_observed_physics_zone\":";
+		WriteFallingHazardZone(out, generation.LastObservedPhysicsZone);
+		out << ",\"observed_harmful_foot_zone\":";
+		WriteFallingHazardZone(out, generation.ObservedHarmfulFootZone);
+		out << ",\"swept_segment_count\":"
+			<< generation.SweptSegmentCount
+			<< ",\"observed_elapsed\":"
+			<< Fixed(generation.ObservedElapsed, 9)
+			<< ",\"has_positive_elapsed\":"
+			<< (generation.HasPositiveElapsed ? "true" : "false")
+			<< ",\"physics_zone_evidence_known\":"
+			<< (generation.PhysicsZoneEvidenceKnown ? "true" : "false")
+			<< ",\"harmful_foot_evidence_known\":"
+			<< (generation.HarmfulFootEvidenceKnown ? "true" : "false")
+			<< ",\"water_evidence_known\":"
+			<< (generation.WaterEvidenceKnown ? "true" : "false")
+			<< ",\"entered_harmful_foot_zone\":"
+			<< (generation.EnteredHarmfulFootZone ? "true" : "false")
+			<< ",\"expected_harmful_path_matched\":"
+			<< (generation.ExpectedHarmfulPathMatched ? "true" : "false")
+			<< ",\"causal_ambiguity\":"
+			<< (generation.CausalAmbiguity ? "true" : "false")
+			<< ",\"actual_trajectory_unknown\":"
+			<< (generation.ActualTrajectoryUnknown ? "true" : "false")
+			<< ",\"landing_collision\":" << JsonString(
+				PawnMovement::FallingHazardCollisionName(generation.LandingCollision))
+			<< '}';
+	}
+
 	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot)
 	{
 		out << "{\"identity\":" << JsonString(bot.Identity)
@@ -342,6 +432,34 @@ namespace
 			if (index) out << ',';
 			WriteFallingParityRealizedRecord(out,
 				bot.FallingParityRealizedRecords[index]);
+		}
+		out << ']';
+		out << ",\"vertical_pain_column_episodes_started_exact\":\""
+			<< bot.VerticalPainColumnEpisodesStartedExact << "\""
+			<< ",\"vertical_pain_column_episodes_completed_exact\":\""
+			<< bot.VerticalPainColumnEpisodesCompletedExact << "\""
+			<< ",\"vertical_pain_column_true_positive_outcomes_exact\":\""
+			<< bot.VerticalPainColumnTruePositiveOutcomesExact << "\""
+			<< ",\"vertical_pain_column_false_positive_outcomes_exact\":\""
+			<< bot.VerticalPainColumnFalsePositiveOutcomesExact << "\""
+			<< ",\"vertical_pain_column_false_negative_outcomes_exact\":\""
+			<< bot.VerticalPainColumnFalseNegativeOutcomesExact << "\""
+			<< ",\"vertical_pain_column_true_negative_outcomes_exact\":\""
+			<< bot.VerticalPainColumnTrueNegativeOutcomesExact << "\""
+			<< ",\"vertical_pain_column_ambiguous_outcomes_exact\":\""
+			<< bot.VerticalPainColumnAmbiguousOutcomesExact << "\""
+			<< ",\"vertical_pain_column_unknown_outcomes_exact\":\""
+			<< bot.VerticalPainColumnUnknownOutcomesExact << "\""
+			<< ",\"vertical_pain_column_diagnostic_overflows_exact\":\""
+			<< bot.VerticalPainColumnDiagnosticOverflowsExact << "\""
+			<< ",\"vertical_pain_column_generation_capacity_exhaustions_exact\":\""
+			<< bot.VerticalPainColumnGenerationCapacityExhaustionsExact << "\""
+			<< ",\"vertical_pain_column_diagnostics\":[";
+		for (size_t index = 0; index < bot.VerticalPainColumnDiagnostics.size(); index++)
+		{
+			if (index) out << ',';
+			WriteFallingHazardDiagnostic(out,
+				bot.VerticalPainColumnDiagnostics[index]);
 		}
 		out << ']';
 		out << ",\"state\":" << JsonString(bot.State) << "}";
