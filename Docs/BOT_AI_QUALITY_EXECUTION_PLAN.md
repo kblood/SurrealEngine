@@ -648,6 +648,34 @@ fixture. No seam movement is promoted. The next instrumentation slice must
 debounce repeated ticks into physical seam episodes and partition rejection
 causes more precisely before another live intervention is considered.
 
+## Iteration 46: measurement and collision-preflight foundations
+
+Two behavior-neutral foundations were accepted before attempting the walking
+preflight. First, the benchmark now accumulates every pawn-native exact counter
+at the start of the victim's outermost `Killed` call. A death after the last
+tick sample, repeated flush, subsequent same-pawn capture, death before first
+sample, and replacement pawn sharing the roster identity are covered without
+double counting. Death flushing never clears life attribution, and `Killed`
+depth is tracked per victim so synchronously nested deaths of different bots
+are both recorded and classified.
+
+Second, `TryMove` now shares its blocking-hit selection with an explicit-origin
+read-only probe. The current-location path retains one ordered collision trace
+for blocking, touch, and encroachment processing; it does not retrace or mutate
+the actor during a probe. Pure fixtures preserve the chosen hit fraction,
+normal, and stable fake actor identity across world, pawn, mover/other, player-
+blocking, and base-exclusion cases. The new API is infrastructure only: it does
+not yet simulate a walking step or alter bot behavior.
+
+The combined Release candidate SHA-256 was
+`E3DC775E4CA509817D71BD623CF565E5CC18531C1B09F9E7FEB45434D84257A3`.
+Two repeats on historical DeathFan, nearby-timestep DeathFan, and Deck seed
+271828 produced exact repeated shadow streams. After removing only the native
+diagnostic counters whose polling implementation changed, gameplay, causal
+death attribution, and summaries exactly matched iteration 45. The diagnostic
+counters were also unchanged on these runs; focused fixtures provide the
+positive death-between-samples case that the maps did not happen to trigger.
+
 ## Next behavior slice: pre-commit unsupported-step hazard shadow
 
 The next Deck intervention moves earlier in the walking transaction. Current
