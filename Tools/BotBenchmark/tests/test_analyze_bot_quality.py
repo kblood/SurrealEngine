@@ -267,7 +267,8 @@ def vertical_start(*, sequence: int = 1, life: int = 1, fall: int = 1,
 
 
 def vertical_terminal(*, sequence: int = 2, life: int = 1, fall: int = 1,
-                      generation: int = 1, harmful: bool = False) -> dict:
+                      generation: int = 1, harmful: bool = False,
+                      center_only: bool = False) -> dict:
     start = vertical_start(
         sequence=sequence, life=life, fall=fall, generation=generation,
         harmful=harmful)
@@ -288,15 +289,21 @@ def vertical_terminal(*, sequence: int = 2, life: int = 1, fall: int = 1,
         else "confirmed_no_harmful_observation",
         "last_observed_physics_zone": vertical_zone(True, 3, 0) if harmful
         else vertical_zone(True, 1, 0),
-        "observed_harmful_foot_zone": vertical_zone(True, 2, 0) if harmful
+        "observed_harmful_foot_zone": vertical_zone(True, 2, 0)
+        if harmful and not center_only
+        else vertical_zone(False),
+        "observed_harmful_center_zone": vertical_zone(True, 2, 0)
+        if harmful and center_only
         else vertical_zone(False),
         "swept_segment_count": 1,
         "observed_elapsed": 0.02,
         "has_positive_elapsed": True,
         "physics_zone_evidence_known": True,
         "harmful_foot_evidence_known": True,
+        "harmful_center_evidence_known": True,
         "water_evidence_known": True,
-        "entered_harmful_foot_zone": harmful,
+        "entered_harmful_foot_zone": harmful and not center_only,
+        "entered_harmful_center_zone": harmful and center_only,
         "expected_harmful_path_matched": harmful,
         "causal_ambiguity": False,
         "actual_trajectory_unknown": False,
@@ -526,6 +533,94 @@ class BotQualityAnalysisTests(unittest.TestCase):
             ])
             with self.assertRaisesRegex(QUALITY.QualityError, "expected"):
                 QUALITY.analyze_run(wrong_correlation)
+
+    def test_current_vertical_column_accepts_center_only_harmful_entry(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        final = {
+            **zero,
+            "vertical_pain_column_episodes_started_exact": 1,
+            "vertical_pain_column_episodes_completed_exact": 1,
+            "vertical_pain_column_true_positive_outcomes_exact": 1,
+        }
+        terminal = vertical_terminal(harmful=True, center_only=True)
+        parsed = QUALITY._vertical_pain_column_diagnostic(terminal, "center-only")
+        self.assertIs(parsed["entered_harmful_foot_zone"], False)
+        self.assertIs(parsed["entered_harmful_center_zone"], True)
+        self.assertEqual(
+            parsed["observed_harmful_center_zone"], vertical_zone(True, 2, 0))
+        self.assertEqual(parsed["correlation"], "confirmed_harmful_forecast")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "column-center-only", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [
+                    vertical_start(harmful=True), terminal,
+                ]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            metrics = QUALITY.analyze([run])["runs"][0]["metrics"]
+            self.assertEqual(metrics["vertical_pain_column_precision"], 1.0)
+            self.assertEqual(metrics["vertical_pain_column_recall"], 1.0)
+
+    def test_current_vertical_column_center_fields_are_strict(self) -> None:
+        missing = vertical_terminal(harmful=True, center_only=True)
+        missing.pop("observed_harmful_center_zone")
+        with self.assertRaisesRegex(QUALITY.QualityError, "missing fields"):
+            QUALITY._vertical_pain_column_diagnostic(missing, "missing-center")
+
+        no_entry = vertical_terminal(harmful=True, center_only=True)
+        no_entry["observed_harmful_center_zone"] = vertical_zone(False)
+        no_entry["entered_harmful_center_zone"] = False
+        no_entry["expected_harmful_path_matched"] = False
+        no_entry["correlation"] = "ambiguous"
+        with self.assertRaisesRegex(QUALITY.QualityError, "requires harmful entry"):
+            QUALITY._vertical_pain_column_diagnostic(no_entry, "no-entry")
+
+        unknown_identity = vertical_terminal(harmful=True, center_only=True)
+        unknown_identity["observed_harmful_center_zone"] = vertical_zone(False)
+        with self.assertRaisesRegex(QUALITY.QualityError, "exact known zone identity"):
+            QUALITY._vertical_pain_column_diagnostic(
+                unknown_identity, "unknown-center-identity")
+
+        mismatched_identity = vertical_terminal(harmful=True, center_only=True)
+        mismatched_identity["observed_harmful_center_zone"] = vertical_zone(True, 4, 0)
+        with self.assertRaisesRegex(QUALITY.QualityError, "matching zone identities"):
+            QUALITY._vertical_pain_column_diagnostic(
+                mismatched_identity, "mismatched-center-identity")
+
+        unknown_center_evidence = vertical_terminal(harmful=True, center_only=True)
+        unknown_center_evidence["harmful_center_evidence_known"] = False
+        with self.assertRaisesRegex(
+                QUALITY.QualityError,
+                "entered_harmful_center_zone requires harmful_center_evidence_known"):
+            QUALITY._vertical_pain_column_diagnostic(
+                unknown_center_evidence, "unknown-center-evidence")
+
+        unknown_foot_evidence = vertical_terminal(harmful=True)
+        unknown_foot_evidence["harmful_foot_evidence_known"] = False
+        with self.assertRaisesRegex(
+                QUALITY.QualityError,
+                "entered_harmful_foot_zone requires harmful_foot_evidence_known"):
+            QUALITY._vertical_pain_column_diagnostic(
+                unknown_foot_evidence, "unknown-foot-evidence")
+
+        unclaimed_unknown_foot = vertical_terminal(
+            harmful=True, center_only=True)
+        unclaimed_unknown_foot["harmful_foot_evidence_known"] = False
+        unclaimed_unknown_foot["correlation"] = "unknown"
+        parsed = QUALITY._vertical_pain_column_diagnostic(
+            unclaimed_unknown_foot, "unclaimed-unknown-foot")
+        self.assertIs(parsed["entered_harmful_center_zone"], True)
+        self.assertIs(parsed["entered_harmful_foot_zone"], False)
+        self.assertIs(parsed["harmful_foot_evidence_known"], False)
+        self.assertEqual(parsed["correlation"], "unknown")
 
     def test_current_vertical_column_accepts_final_continuation_and_ambiguous_enums(self) -> None:
         common = {

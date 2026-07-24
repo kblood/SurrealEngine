@@ -738,11 +738,13 @@ def _vertical_pain_column_diagnostic(value: Any, context: str) -> dict[str, Any]
         "source", "forecast", "terminal", "correlation",
         "starting_physics_zone", "expected_harmful_foot_zone",
         "expected_harmful_physics_zone", "last_observed_physics_zone",
-        "observed_harmful_foot_zone", "expected_harmful_water_entry",
+        "observed_harmful_foot_zone", "observed_harmful_center_zone",
+        "expected_harmful_water_entry",
         "swept_segment_budget", "swept_segment_count", "elapsed_horizon",
         "observed_elapsed", "has_positive_elapsed",
         "physics_zone_evidence_known", "harmful_foot_evidence_known",
-        "water_evidence_known", "entered_harmful_foot_zone",
+        "harmful_center_evidence_known", "water_evidence_known",
+        "entered_harmful_foot_zone", "entered_harmful_center_zone",
         "expected_harmful_path_matched", "causal_ambiguity",
         "actual_trajectory_unknown", "landing_collision",
     }
@@ -855,31 +857,55 @@ def _vertical_pain_column_diagnostic(value: Any, context: str) -> dict[str, Any]
     observed_foot = _vertical_pain_column_zone(
         fields.get("observed_harmful_foot_zone"),
         f"{context}.observed_harmful_foot_zone")
+    observed_center = _vertical_pain_column_zone(
+        fields.get("observed_harmful_center_zone"),
+        f"{context}.observed_harmful_center_zone")
     booleans = {
         name: _boolean(fields.get(name), f"{context}.{name}") for name in (
             "has_positive_elapsed", "physics_zone_evidence_known",
-            "harmful_foot_evidence_known", "water_evidence_known",
-            "entered_harmful_foot_zone", "expected_harmful_path_matched",
+            "harmful_foot_evidence_known", "harmful_center_evidence_known",
+            "water_evidence_known", "entered_harmful_foot_zone",
+            "entered_harmful_center_zone", "expected_harmful_path_matched",
             "causal_ambiguity", "actual_trajectory_unknown",
         )
     }
     if booleans["has_positive_elapsed"] != (observed_elapsed > 0.0):
         raise QualityError(f"{context}.has_positive_elapsed disagrees with observed_elapsed")
-    if not booleans["entered_harmful_foot_zone"] and observed_foot["known"]:
-        raise QualityError(f"{context}: observed harmful zone requires harmful entry")
+    if booleans["entered_harmful_foot_zone"] != observed_foot["known"]:
+        raise QualityError(
+            f"{context}: harmful foot entry requires an exact known zone identity")
+    if booleans["entered_harmful_center_zone"] != observed_center["known"]:
+        raise QualityError(
+            f"{context}: harmful center entry requires an exact known zone identity")
+    if booleans["entered_harmful_foot_zone"] \
+            and not booleans["harmful_foot_evidence_known"]:
+        raise QualityError(
+            f"{context}: entered_harmful_foot_zone requires harmful_foot_evidence_known")
+    if booleans["entered_harmful_center_zone"] \
+            and not booleans["harmful_center_evidence_known"]:
+        raise QualityError(
+            f"{context}: entered_harmful_center_zone requires harmful_center_evidence_known")
     if booleans["expected_harmful_path_matched"]:
-        if not booleans["entered_harmful_foot_zone"] \
-                or not _same_vertical_pain_column_zone(observed_foot, expected_foot) \
+        entered_expected_zone = (
+            booleans["entered_harmful_foot_zone"]
+            and _same_vertical_pain_column_zone(observed_foot, expected_foot)
+        ) or (
+            booleans["entered_harmful_center_zone"]
+            and _same_vertical_pain_column_zone(observed_center, expected_foot)
+        )
+        if not entered_expected_zone \
                 or not _same_vertical_pain_column_zone(last_physics, expected_physics):
             raise QualityError(f"{context}: matched harmful path requires matching zone identities")
     if terminal == "harmful_pain_entered" \
-            and not booleans["entered_harmful_foot_zone"]:
+            and not (booleans["entered_harmful_foot_zone"]
+                     or booleans["entered_harmful_center_zone"]):
         raise QualityError(f"{context}: harmful_pain_entered requires harmful entry")
     record.update({
         "terminal": terminal,
         "correlation": correlation,
         "last_observed_physics_zone": last_physics,
         "observed_harmful_foot_zone": observed_foot,
+        "observed_harmful_center_zone": observed_center,
         "swept_segment_count": segment_count,
         "observed_elapsed": observed_elapsed,
         "landing_collision": landing,
@@ -897,6 +923,7 @@ def _vertical_pain_column_expected_correlation(record: dict[str, Any]) -> str:
     if terminal == "harmful_pain_entered":
         if record["actual_trajectory_unknown"] \
                 or not record["harmful_foot_evidence_known"] \
+                or not record["harmful_center_evidence_known"] \
                 or not record["water_evidence_known"] \
                 or not record["physics_zone_evidence_known"] \
                 or not record["has_positive_elapsed"]:
@@ -914,6 +941,7 @@ def _vertical_pain_column_expected_correlation(record: dict[str, Any]) -> str:
     if terminal != "landed" or record["landing_collision"] != "static_world" \
             or record["actual_trajectory_unknown"] or record["causal_ambiguity"] \
             or not record["harmful_foot_evidence_known"] \
+            or not record["harmful_center_evidence_known"] \
             or not record["water_evidence_known"] \
             or record["swept_segment_count"] == 0 \
             or not record["has_positive_elapsed"]:

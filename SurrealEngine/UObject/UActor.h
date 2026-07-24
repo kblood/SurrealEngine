@@ -11,6 +11,7 @@
 #include "PawnPainLedgeRecovery.h"
 #include "PawnLedgeTransition.h"
 #include "PawnFallingParityRealizedTrace.h"
+#include "PawnFallingHazardRuntimeObserver.h"
 #include "PawnWalkingStepPreflight.h"
 #include "PawnWallAdjustRecovery.h"
 
@@ -1972,6 +1973,34 @@ public:
 		PawnMovement::FallingParityRealizedOutcome outcome);
 	std::vector<PawnMovement::FallingParityRealizedRecord>
 		DrainFallingParityRealizedRecords();
+	void QueueFallingHazardForecastSource(
+		PawnMovement::FallingHazardForecastSource source);
+	void EnsureFallingHazardGeneration(float physicsSliceElapsed,
+		const vec3& acceleration);
+	bool PrepareFallingHazardSweep(PawnMovement::FallingHazardSweepLeg leg,
+		const vec3& origin, const vec3& delta, float elapsedContribution);
+	bool BeginFallingHazardTryMove();
+	void EndFallingHazardTryMove();
+	void LatchPendingFallingHazardSweepGeometry(
+		const CollisionHit& hit, const MoveCallbackEvidence& callbacks);
+	void CommitPendingFallingHazardSweepAtCenterBoundary(
+		const PointRegion& center, bool actorLeavingCallbackDispatched);
+	void CommitPendingFallingHazardSweepAtFootBoundary();
+	void RecoverFallingHazardCallbackReturn();
+	void CancelPendingFallingHazardSweep(bool callbackBoundary);
+	std::optional<PawnMovement::FallingHazardForecastContinuationSeed>
+		FinishFallingHazardCallbackBoundary();
+	void ArmFallingHazardContinuation(
+		PawnMovement::FallingHazardForecastSource source,
+		const PawnMovement::FallingHazardForecastContinuationSeed& continuation,
+		float physicsSliceElapsed, const vec3& acceleration);
+	void FinishFallingHazardLanding(const CollisionHit& hit,
+		bool ditchSupportUnknown = false);
+	void FinishFallingHazardDeath();
+	const PawnMovement::FallingHazardRuntimeCounters&
+		FallingHazardRuntimeCounterValues() const;
+	std::vector<PawnMovement::FallingHazardDiagnosticRecord>
+		DrainFallingHazardDiagnostics();
 	uint64_t BeginWalkingStepPreflightInvocation()
 	{
 		return ++WalkingStepPreflightInvocationSequence;
@@ -2334,6 +2363,35 @@ private:
 	uint64_t FallingParityRealizedLandingCountValue = 0;
 	uint64_t FallingParityRealizedContinuityLossCountValue = 0;
 	uint64_t FallingParityRealizedRecordOverflowCountValue = 0;
+	struct FallingHazardPendingSweep
+	{
+		bool Active = false;
+		bool GeometryLatched = false;
+		bool ReentrantMoveObserved = false;
+		bool HitWallCallbackExpected = false;
+		uint32_t MoveDepth = 0;
+		PawnMovement::FallingHazardSweepLeg Leg =
+			PawnMovement::FallingHazardSweepLeg::Direct;
+		vec3 Origin = vec3(0.0f);
+		vec3 RequestedDelta = vec3(0.0f);
+		float ElapsedContribution = 0.0f;
+		PawnMovement::FallingHazardCollisionKind Collision =
+			PawnMovement::FallingHazardCollisionKind::Unknown;
+		float HitFraction = 1.0f;
+		vec3 HitNormal = vec3(0.0f);
+		uint32_t MoveCallbackMask = 0;
+	};
+	void CommitPendingFallingHazardSweep(const PointRegion& center,
+		const PointRegion& foot, const PointRegion& head,
+		uint32_t zoneCallbackMask, bool callbackAlreadyDispatched);
+	std::unique_ptr<PawnMovement::FallingHazardRuntimeObserver>
+		FallingHazardObserver;
+	FallingHazardPendingSweep FallingHazardPending;
+	uint32_t FallingHazardTryMoveDepth = 0;
+	PawnMovement::FallingHazardForecastSource FallingHazardQueuedSource =
+		PawnMovement::FallingHazardForecastSource::Unknown;
+	std::optional<PawnMovement::FallingHazardForecastContinuationSeed>
+		FallingHazardCallbackContinuation;
 };
 
 class UScout : public UPawn

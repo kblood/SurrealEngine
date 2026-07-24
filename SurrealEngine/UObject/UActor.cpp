@@ -234,6 +234,159 @@ namespace
 		return FallingParityCollisionKind::DynamicActor;
 	}
 
+	PawnMovement::FallingHazardCollisionKind ClassifyFallingHazardCollision(
+		UPawn* pawn, const CollisionHit& hit)
+	{
+		using PawnMovement::FallingHazardCollisionKind;
+		if (!std::isfinite(hit.Fraction) || hit.Fraction < 0.0f
+			|| hit.Fraction > 1.0f)
+			return FallingHazardCollisionKind::Unknown;
+		if (hit.Fraction == 1.0f)
+			return FallingHazardCollisionKind::Clear;
+		if (!hit.Actor || hit.Actor == pawn->Level())
+			return FallingHazardCollisionKind::StaticWorld;
+		if (UObject::TryCast<UMover>(hit.Actor))
+			return FallingHazardCollisionKind::Mover;
+		return FallingHazardCollisionKind::DynamicActor;
+	}
+
+	PawnMovement::FallingHazardZoneId FallingHazardZoneIdentity(
+		const PointRegion& region)
+	{
+		PawnMovement::FallingHazardZoneId identity;
+		if (!region.Zone || region.Zone->Index < 0
+			|| static_cast<uint64_t>(region.Zone->Index)
+				>= std::numeric_limits<uint32_t>::max())
+			return identity;
+		identity.Known = true;
+		identity.ZoneActorId = static_cast<uint32_t>(region.Zone->Index) + 1;
+		identity.ZoneNumber = region.ZoneNumber;
+		return identity;
+	}
+
+	PawnMovement::FallingHazardForecastZoneObservation
+		BuildFallingHazardZoneObservation(UPawn* pawn, const PointRegion& region)
+	{
+		PawnMovement::FallingHazardForecastZoneObservation observation;
+		observation.Identity = FallingHazardZoneIdentity(region);
+		if (!region.Zone)
+			return observation;
+		observation.PainZone = region.Zone->bPainZone();
+		observation.DamagePerSecond = region.Zone->DamagePerSec();
+		observation.WaterZone = region.Zone->bWaterZone();
+		observation.DamageTypeMatchesReduced =
+			region.Zone->DamageType() == pawn->ReducedDamageType();
+		observation.Gravity = region.Zone->ZoneGravity();
+		observation.ZoneVelocity = region.Zone->ZoneVelocity();
+		observation.TerminalVelocity = region.Zone->ZoneTerminalVelocity();
+		return observation;
+	}
+
+	PawnMovement::FallingHazardForecastPointObservation
+		BuildFallingHazardPointObservation(UPawn* pawn, const vec3& center)
+	{
+		PawnMovement::FallingHazardForecastPointObservation observation;
+		const PointRegion centerRegion = pawn->XLevel()->Model->FindRegion(
+			center, pawn->Level());
+		const PointRegion footRegion = pawn->XLevel()->Model->FindRegion(
+			center - vec3(0.0f, 0.0f, pawn->CollisionHeight()), pawn->Level());
+		const PointRegion headRegion = pawn->XLevel()->Model->FindRegion(
+			center + vec3(0.0f, 0.0f, pawn->EyeHeight()), pawn->Level());
+		observation.Center = BuildFallingHazardZoneObservation(pawn, centerRegion);
+		observation.Foot = BuildFallingHazardZoneObservation(pawn, footRegion);
+		observation.Head = BuildFallingHazardZoneObservation(pawn, headRegion);
+		observation.Physics = observation.Center;
+		return observation;
+	}
+
+	PawnMovement::FallingHazardForecastUpdate CompleteFallingHazardForecast(
+		UPawn* pawn, const PawnMovement::FallingHazardForecastInput& input)
+	{
+		using namespace PawnMovement;
+		FallingHazardForecastUpdate update = BeginFallingHazardForecast(input);
+		std::vector<FallingHazardForecastPathSample> samples;
+		for (size_t probeCount = 0;
+			!update.Complete && probeCount <= FallingHazardForecastMaximumSegments;
+			probeCount++)
+		{
+			if (!update.Probe.Valid)
+				break;
+			const CollisionHit hit = pawn->ProbeMoveCollision(
+				update.Probe.Origin, update.Probe.Delta, true);
+			FallingHazardForecastSweepObservation observation;
+			observation.Collision = ClassifyFallingHazardCollision(pawn, hit);
+			observation.Fraction = hit.Fraction;
+			observation.Normal = hit.Normal;
+
+			const float traveledDistance = length(
+				update.Probe.Delta * hit.Fraction);
+			size_t sampleCount = 1;
+			if (std::isfinite(traveledDistance)
+				&& traveledDistance > FallingHazardForecastVectorTolerance)
+			{
+				const float required = std::ceil(
+					traveledDistance / input.MaximumSampleSpacing);
+				if (!std::isfinite(required)
+					|| required > static_cast<float>(input.MaximumSamples))
+				{
+					observation.SampleCapExhausted = true;
+				}
+				else
+				{
+					sampleCount = static_cast<size_t>(required);
+				}
+			}
+			if (!observation.SampleCapExhausted
+				&& (update.State.SampleCount > input.MaximumSamples
+					|| sampleCount > input.MaximumSamples
+						- update.State.SampleCount))
+			{
+				observation.SampleCapExhausted = true;
+			}
+			samples.clear();
+			if (!observation.SampleCapExhausted)
+			{
+				samples.reserve(sampleCount);
+				for (size_t sampleIndex = 1; sampleIndex <= sampleCount;
+					sampleIndex++)
+				{
+					const float fraction = static_cast<float>(sampleIndex)
+						/ static_cast<float>(sampleCount);
+					FallingHazardForecastPathSample sample;
+					sample.DistanceAlongSegment = traveledDistance * fraction;
+					sample.Zones = BuildFallingHazardPointObservation(pawn,
+						update.Probe.Origin
+							+ update.Probe.Delta * (hit.Fraction * fraction));
+					samples.push_back(std::move(sample));
+				}
+			}
+			observation.Samples = samples;
+			update = ObserveFallingHazardForecastSweep(update.State, observation);
+		}
+		return update;
+	}
+
+	uint32_t FallingHazardCallbackMask(uint32_t moveMask)
+	{
+		using namespace PawnMovement;
+		uint32_t mask = 0;
+		if (moveMask & (MoveCallbackBasedActor | MoveCallbackEncroachment))
+			mask |= FallingHazardEncroachmentCallback;
+		if (moveMask & MoveCallbackBump)
+			mask |= FallingHazardBumpCallback;
+		if (moveMask & (MoveCallbackTouch | MoveCallbackUnTouch))
+			mask |= FallingHazardTouchCallback;
+		if (moveMask & MoveCallbackRegionChange)
+			mask |= FallingHazardRegionCallback;
+		if (moveMask & MoveCallbackFootRegionChange)
+			mask |= FallingHazardFootZoneCallback;
+		if (moveMask & MoveCallbackHeadRegionChange)
+			mask |= FallingHazardHeadZoneCallback;
+		if (moveMask & MoveCallbackHitWall)
+			mask |= FallingHazardHitWallCallback;
+		return mask;
+	}
+
 	PawnMovement::WalkingStepCollisionKind ClassifyWalkingStepCollision(
 		UPawn* pawn, const CollisionHit& hit)
 	{
@@ -611,17 +764,26 @@ void UActor::UpdateActorZone()
 {
 	PointRegion oldregion = Region();
 	PointRegion newregion = FindRegion();
+	const bool regionChanged = oldregion.Zone != newregion.Zone;
+	UPawn* pawn = UObject::TryCast<UPawn>(this);
 
-	if (oldregion.Zone && oldregion.Zone != newregion.Zone)
+	if (oldregion.Zone && regionChanged)
 		CallEvent(oldregion.Zone, EventName::ActorLeaving, { ExpressionValue::ObjectValue(this) });
 
 	Region() = newregion;
+	if (pawn && regionChanged)
+	{
+		pawn->CommitPendingFallingHazardSweepAtCenterBoundary(
+			newregion, oldregion.Zone != nullptr);
+	}
 
-	if (newregion.Zone && oldregion.Zone != newregion.Zone)
+	if (newregion.Zone && regionChanged)
 	{
 		CallEvent(this, EventName::ZoneChange, { ExpressionValue::ObjectValue(newregion.Zone) });
 		CallEvent(newregion.Zone, EventName::ActorEntered, { ExpressionValue::ObjectValue(this) });
 	}
+	if (pawn && regionChanged)
+		pawn->RecoverFallingHazardCallbackReturn();
 
 	if (Region().Zone)
 	{
@@ -743,6 +905,7 @@ void UActor::RelinkBasedActor()
 
 void UActor::Tick(float elapsed)
 {
+	const uint8_t physicsAtTickEntry = Physics();
 	TickAnimation(elapsed);
 	if (engine->LaunchInfo.IsDeusEx())
 		TickBlendAnimation(elapsed);
@@ -770,6 +933,13 @@ void UActor::Tick(float elapsed)
 		{
 			StateFrame->Tick();
 		}
+	}
+	if (UPawn* pawn = UObject::TryCast<UPawn>(this);
+		pawn && physicsAtTickEntry != PHYS_Falling
+		&& Physics() == PHYS_Falling)
+	{
+		pawn->QueueFallingHazardForecastSource(
+			PawnMovement::FallingHazardForecastSource::ExternalImpulseCommit);
 	}
 
 	TickPhysics(elapsed);
@@ -924,6 +1094,7 @@ void UActor::TickWalking(float elapsed)
 			? pawn->BeginWalkingStepPreflightInvocation() : 0;
 		for (int iteration = 0; timeLeft > 0.0f && iteration < 5; iteration++)
 		{
+			bool walkingHitWallDispatched = false;
 			const vec3 iterationStartLocation = Location();
 			const float iterationStartTimeLeft = timeLeft;
 			vec3 moveDelta = vel * timeLeft;
@@ -961,6 +1132,7 @@ void UActor::TickWalking(float elapsed)
 
 						bJustTeleported() = true;
 						vel = Velocity() = Velocity() * Mass() / (Mass() + hit.Actor->Mass());
+						walkingHitWallDispatched = true;
 						CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
 						timeLeft = 0.0f;
 					}
@@ -973,6 +1145,7 @@ void UActor::TickWalking(float elapsed)
 				else if (hit.Normal.z < 0.2f && hit.Normal.z > -0.2f)
 				{
 					// We hit a wall
+					walkingHitWallDispatched = true;
 					CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
 
 					vec3 alignedDelta = (moveDelta - hit.Normal * dot(moveDelta, hit.Normal)) * (1.0f - hit.Fraction);
@@ -982,6 +1155,7 @@ void UActor::TickWalking(float elapsed)
 						timeLeft -= timeLeft * hit.Fraction;
 						if (hit.Fraction < 1.0f)
 						{
+							walkingHitWallDispatched = true;
 							CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
 						}
 					}
@@ -996,7 +1170,12 @@ void UActor::TickWalking(float elapsed)
 			if (Physics() != PHYS_Walking)
 			{
 				if (walkingPreflightEnabled && Physics() == PHYS_Falling)
+				{
 					pawn->ArmFallingParityRealizedTrace(iteration, preflightInvocation);
+					pawn->QueueFallingHazardForecastSource(walkingHitWallDispatched
+						? PawnMovement::FallingHazardForecastSource::PostWallDeflectionCommit
+						: PawnMovement::FallingHazardForecastSource::CallbackReturnCommit);
+				}
 				return;
 			}
 
@@ -1020,7 +1199,11 @@ void UActor::TickWalking(float elapsed)
 				const bool callbackBeganFalling = !deleteMe
 					&& pawn->Physics() == PHYS_Falling;
 				if (walkingPreflightEnabled && callbackBeganFalling)
+				{
 					pawn->ArmFallingParityRealizedTrace(iteration, preflightInvocation);
+					pawn->QueueFallingHazardForecastSource(
+						PawnMovement::FallingHazardForecastSource::CallbackReturnCommit);
+				}
 				const bool stillWalking = !deleteMe && pawn->Physics() == PHYS_Walking;
 				const bool canJump = stillWalking && pawn->bCanJump();
 				const PawnMovement::LedgeTransition transition = PawnMovement::ResolveLedgeTransition(
@@ -1075,7 +1258,11 @@ void UActor::TickWalking(float elapsed)
 
 				SetPhysics(PHYS_Falling);
 				if (walkingPreflightEnabled && Physics() == PHYS_Falling)
+				{
 					pawn->ArmFallingParityRealizedTrace(iteration, preflightInvocation);
+					pawn->QueueFallingHazardForecastSource(
+						PawnMovement::FallingHazardForecastSource::UnsupportedWalkCommit);
+				}
 				SetBase(nullptr, true);
 				return;
 			}
@@ -1094,6 +1281,12 @@ void UActor::TickWalking(float elapsed)
 		{
 			// No we couldn't. We are falling
 			SetPhysics(PHYS_Falling);
+			if (engine->IsBotBenchmarkWalkingPreflightEnabled()
+				&& Physics() == PHYS_Falling)
+			{
+				pawn->QueueFallingHazardForecastSource(
+					PawnMovement::FallingHazardForecastSource::UnsupportedWalkCommit);
+			}
 			SetBase(nullptr, true);
 		}
 	}
@@ -1189,6 +1382,8 @@ void UActor::TickFalling(float elapsed)
 			break;
 		const float timeTick = physicsSlice.Elapsed;
 		timeLeft = physicsSlice.RemainingTime;
+		if (pawn)
+			pawn->EnsureFallingHazardGeneration(timeTick, acceleration);
 		const vec3 iterationOldVelocity = velocity;
 		const float fluidFactor = 1.0f - fluidFriction * timeTick;
 		vec3 newVelocity = iterationOldVelocity * fluidFactor
@@ -1227,8 +1422,13 @@ void UActor::TickFalling(float elapsed)
 
 		const vec3 iterationStartLocation = location;
 		MoveCallbackEvidence realizedMoveCallbacks;
+		const bool observeFallingHazard = pawn
+			&& pawn->PrepareFallingHazardSweep(
+				PawnMovement::FallingHazardSweepLeg::Direct,
+				iterationStartLocation, moveDelta, timeTick);
 		CollisionHit hit = TryMove(moveDelta, false, true,
-			observeRealizedParity ? &realizedMoveCallbacks : nullptr);
+			(observeRealizedParity || observeFallingHazard)
+				? &realizedMoveCallbacks : nullptr);
 		bool realizedCallbackBarrier = false;
 		if (observeRealizedParity && pawn && !pawn->bDeleteMe())
 		{
@@ -1297,19 +1497,25 @@ void UActor::TickFalling(float elapsed)
 			&& engine->IsBotBenchmarkWalkingPreflightEnabled())
 			pawn->ObserveFallingParityRealizedPain();
 		auto callFallingHitWall = [&](const CollisionHit& wallHit)
+			-> std::optional<PawnMovement::FallingHazardForecastContinuationSeed>
 		{
 			if (wallHit.Actor && wallHit.Actor->IsA("Pawn"))
-				return;
+				return std::nullopt;
+			auto continuation = pawn
+				? pawn->FinishFallingHazardCallbackBoundary() : std::nullopt;
 			CallEvent(this, EventName::HitWall, {
 				ExpressionValue::VectorValue(wallHit.Normal),
 				ExpressionValue::ObjectValue(wallHit.Actor ? wallHit.Actor : Level())
 			});
+			if (pawn)
+				pawn->RecoverFallingHazardCallbackReturn();
 			if (pawn && pawn->HasActiveFallingParityRealizedLifecycle()
 				&& !pawn->HasFallingParityRealizedContinuity())
 			{
 				pawn->FinishFallingParityRealizedTrace(
 					PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
 			}
+			return continuation;
 		};
 
 		if (hit.Fraction < 1.0f)
@@ -1331,13 +1537,25 @@ void UActor::TickFalling(float elapsed)
 			{
 				if (hit.Normal.z <= fallingWalkableNormalZ)
 				{
-					callFallingHitWall(hit);
+					auto alignedHazardContinuation = callFallingHitWall(hit);
 					// We hit a slope. Try to follow it.
 					vec3 alignedDelta = (moveDelta - hit.Normal * dot(moveDelta, hit.Normal)) * (1.0f - hit.Fraction);
 					if (dot(moveDelta, alignedDelta) >= 0.0f) // Don't end up going backwards
 					{
 						const CollisionHit firstHit = hit;
-						hit = TryMove(alignedDelta);
+						if (pawn && alignedHazardContinuation)
+						{
+							pawn->ArmFallingHazardContinuation(
+								PawnMovement::FallingHazardForecastSource::AlignedContinuationCommit,
+								*alignedHazardContinuation, timeTick, acceleration);
+						}
+						MoveCallbackEvidence alignedMoveCallbacks;
+						const bool observeAlignedHazard = pawn
+							&& pawn->PrepareFallingHazardSweep(
+								PawnMovement::FallingHazardSweepLeg::Aligned,
+								location, alignedDelta, 0.0f);
+						hit = TryMove(alignedDelta, false, true,
+							observeAlignedHazard ? &alignedMoveCallbacks : nullptr);
 						if (pawn && !pawn->bDeleteMe()
 							&& engine->IsBotBenchmarkWalkingPreflightEnabled())
 							pawn->ObserveFallingParityRealizedPain();
@@ -1358,6 +1576,8 @@ void UActor::TickFalling(float elapsed)
 						}
 						if (hit.Fraction < 1.0f && hit.Normal.z > fallingWalkableNormalZ)
 						{
+							if (pawn)
+								pawn->FinishFallingHazardLanding(hit);
 							PhysLanded(hit.Actor, hit.Normal);
 							if (pawn && engine->IsBotBenchmarkWalkingPreflightEnabled()
 								&& pawn->HasActiveFallingParityRealizedLifecycle())
@@ -1369,13 +1589,25 @@ void UActor::TickFalling(float elapsed)
 						}
 						if (hit.Fraction < 1.0f)
 						{
-							callFallingHitWall(hit);
+							auto thirdHazardContinuation = callFallingHitWall(hit);
 							const PawnMovement::FallingTwoWallAdjustment adjustment =
 								PawnMovement::BuildFallingTwoWallAdjustment(normalize(moveDelta),
 									alignedDelta, hit.Normal, firstHit.Normal, hit.Fraction);
 							const vec3 adjustedDelta = adjustment.Delta;
 
-							hit = TryMove(adjustedDelta);
+							if (pawn && thirdHazardContinuation)
+							{
+								pawn->ArmFallingHazardContinuation(
+									PawnMovement::FallingHazardForecastSource::ThirdMoveContinuationCommit,
+									*thirdHazardContinuation, timeTick, acceleration);
+							}
+							MoveCallbackEvidence adjustedMoveCallbacks;
+							const bool observeAdjustedHazard = pawn
+								&& pawn->PrepareFallingHazardSweep(
+									PawnMovement::FallingHazardSweepLeg::TwoWallAdjusted,
+									location, adjustedDelta, 0.0f);
+							hit = TryMove(adjustedDelta, false, true,
+								observeAdjustedHazard ? &adjustedMoveCallbacks : nullptr);
 							if (pawn && !pawn->bDeleteMe()
 								&& engine->IsBotBenchmarkWalkingPreflightEnabled())
 								pawn->ObserveFallingParityRealizedPain();
@@ -1387,6 +1619,9 @@ void UActor::TickFalling(float elapsed)
 							}
 							if (adjustment.Ditch || hit.Normal.z > fallingWalkableNormalZ)
 							{
+								if (pawn)
+									pawn->FinishFallingHazardLanding(
+										hit, adjustment.Ditch);
 								PhysLanded(hit.Actor, hit.Normal);
 								if (pawn && engine->IsBotBenchmarkWalkingPreflightEnabled()
 									&& pawn->HasActiveFallingParityRealizedLifecycle())
@@ -1410,6 +1645,8 @@ void UActor::TickFalling(float elapsed)
 				}
 				else
 				{
+					if (pawn)
+						pawn->FinishFallingHazardLanding(hit);
 					PhysLanded(hit.Actor, hit.Normal);
 					if (pawn && engine->IsBotBenchmarkWalkingPreflightEnabled()
 						&& pawn->HasActiveFallingParityRealizedLifecycle())
@@ -2291,17 +2528,39 @@ CollisionHit UActor::ProbeMoveCollision(const vec3& origin, const vec3& delta,
 CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlocking,
 	MoveCallbackEvidence* callbackEvidence)
 {
+	UPawn* movingPawn = UObject::TryCast<UPawn>(this);
+	struct FallingHazardTryMoveScope
+	{
+		UPawn* Pawn = nullptr;
+		bool Entered = false;
+		explicit FallingHazardTryMoveScope(UPawn* pawn) : Pawn(pawn)
+		{
+			if (Pawn)
+				Entered = Pawn->BeginFallingHazardTryMove();
+		}
+		~FallingHazardTryMoveScope()
+		{
+			if (Pawn && Entered)
+				Pawn->EndFallingHazardTryMove();
+		}
+	} fallingHazardScope(dryRun ? nullptr : movingPawn);
 	if (callbackEvidence)
 		callbackEvidence->Mask = 0;
 	if (bStatic() || !bMovable())
 	{
+		if (!dryRun && movingPawn)
+			movingPawn->CancelPendingFallingHazardSweep(false);
 		CollisionHit hit;
 		hit.Fraction = 0.0f;
 		return hit;
 	}
 
 	if (dot(delta, delta) < 0.00000001f)
+	{
+		if (!dryRun && movingPawn)
+			movingPawn->CancelPendingFallingHazardSweep(false);
 		return {};
+	}
 
 	bool useBlockPlayers = UObject::TryCast<UPlayerPawn>(this) || UObject::TryCast<UProjectile>(this);
 	CollisionHitList hits;
@@ -2365,6 +2624,8 @@ CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlock
 
 					CollisionHit hit;
 					hit.Fraction = 0.0f;
+					if (movingPawn)
+						movingPawn->CancelPendingFallingHazardSweep(true);
 					return hit;
 				}
 			}
@@ -2452,7 +2713,7 @@ CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlock
 		const PointRegion nextRegion = FindRegion();
 		if (Region().Zone != nextRegion.Zone)
 			callbackEvidence->Mask |= MoveCallbackRegionChange;
-		if (UPawn* movingPawn = UObject::TryCast<UPawn>(this))
+		if (movingPawn)
 		{
 			const PointRegion nextFoot = FindRegion({
 				0.0f, 0.0f, -movingPawn->CollisionHeight() });
@@ -2463,6 +2724,12 @@ CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlock
 			if (movingPawn->HeadRegion().Zone != nextHead.Zone)
 				callbackEvidence->Mask |= MoveCallbackHeadRegionChange;
 		}
+	}
+	if (movingPawn)
+	{
+		const MoveCallbackEvidence noCallbacks;
+		movingPawn->LatchPendingFallingHazardSweepGeometry(
+			blockingHit, callbackEvidence ? *callbackEvidence : noCallbacks);
 	}
 	UpdateActorZone();
 
@@ -4602,12 +4869,14 @@ void UPawn::InitActorZone()
 void UPawn::UpdateActorZone()
 {
 	UActor::UpdateActorZone();
+	CommitPendingFallingHazardSweepAtFootBoundary();
 
 	PointRegion oldfootregion = FootRegion();
 	PointRegion newfootregion = FindRegion({ 0.0f, 0.0f, -CollisionHeight() });
 	if (oldfootregion.Zone != newfootregion.Zone)
 	{
 		CallEvent(this, EventName::FootZoneChange, { ExpressionValue::ObjectValue(newfootregion.Zone) });
+		RecoverFallingHazardCallbackReturn();
 	}
 
 	// FootZoneChange reads FootRegion as the old region, so publish the new region afterward.
@@ -4617,7 +4886,9 @@ void UPawn::UpdateActorZone()
 	PointRegion newheadregion = FindRegion({ 0.0f, 0.0f, EyeHeight() });
 	if (oldheadregion.Zone != newheadregion.Zone)
 	{
+		FinishFallingHazardCallbackBoundary();
 		CallEvent(this, EventName::HeadZoneChange, { ExpressionValue::ObjectValue(newheadregion.Zone) });
+		RecoverFallingHazardCallbackReturn();
 	}
 
 	// HeadZoneChange likewise reads HeadRegion as the old region.
@@ -4629,6 +4900,7 @@ void UPawn::UpdateActorZone()
 
 void UPawn::Tick(float elapsed)
 {
+	const uint8_t physicsAtPawnTickEntry = Physics();
 	UZoneInfo* seamFootZone = FootRegion().Zone;
 	if (bDeleteMe() || Health() <= 0 || Physics() != PHYS_Falling
 		|| !seamFootZone || seamFootZone->bPainZone() || seamFootZone->bWaterZone())
@@ -4759,6 +5031,12 @@ void UPawn::Tick(float elapsed)
 		}
 	}
 
+	if (physicsAtPawnTickEntry != PHYS_Falling
+		&& Physics() == PHYS_Falling)
+	{
+		QueueFallingHazardForecastSource(
+			PawnMovement::FallingHazardForecastSource::ExternalImpulseCommit);
+	}
 	UActor::Tick(elapsed);
 	WalkingStepExplicitJumpRequested = false;
 	if (bDeleteMe() || Health() <= 0)
@@ -5614,8 +5892,505 @@ std::vector<PawnMovement::FallingParityRealizedRecord>
 	return records;
 }
 
+void UPawn::QueueFallingHazardForecastSource(
+	PawnMovement::FallingHazardForecastSource source)
+{
+	if (source == PawnMovement::FallingHazardForecastSource::Unknown
+		|| !engine->IsBotBenchmarkWalkingPreflightEnabled()
+		|| !IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority
+		|| bDeleteMe() || Health() <= 0)
+		return;
+	if (!FallingHazardObserver)
+	{
+		FallingHazardObserver =
+			std::make_unique<PawnMovement::FallingHazardRuntimeObserver>(
+				Name.ToString());
+	}
+	if (!FallingHazardObserver->HasActiveFallEpisode())
+		FallingHazardObserver->BeginFallEpisode();
+	if (FallingHazardObserver->GenerationCapacityExhaustedForLife())
+		return;
+	FallingHazardQueuedSource = source;
+}
+
+void UPawn::EnsureFallingHazardGeneration(float physicsSliceElapsed,
+	const vec3& acceleration)
+{
+	if (!engine->IsBotBenchmarkWalkingPreflightEnabled()
+		|| !IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority
+		|| bDeleteMe() || Health() <= 0 || Physics() != PHYS_Falling)
+	{
+		if (FallingHazardObserver
+			&& FallingHazardObserver->HasActiveFallEpisode())
+			FallingHazardObserver->AbandonFallEpisode();
+		FallingHazardPending = {};
+		FallingHazardQueuedSource =
+			PawnMovement::FallingHazardForecastSource::Unknown;
+		return;
+	}
+
+	if (!FallingHazardObserver)
+	{
+		FallingHazardObserver =
+			std::make_unique<PawnMovement::FallingHazardRuntimeObserver>(
+				Name.ToString());
+	}
+	else
+	{
+		FallingHazardObserver->SetSourcePawnActor(Name.ToString());
+	}
+	if (!FallingHazardObserver->HasActiveFallEpisode())
+		FallingHazardObserver->BeginFallEpisode();
+	if (FallingHazardObserver->GenerationCapacityExhaustedForLife())
+	{
+		FallingHazardPending = {};
+		FallingHazardQueuedSource =
+			PawnMovement::FallingHazardForecastSource::Unknown;
+		return;
+	}
+
+	if (FallingHazardObserver->HasActiveGeneration()
+		&& FallingHazardQueuedSource
+			== PawnMovement::FallingHazardForecastSource::CallbackReturnCommit)
+	{
+		FallingHazardObserver->FinishCallbackBoundary();
+	}
+	else if (FallingHazardObserver->HasActiveGeneration()
+		&& FallingHazardQueuedSource
+			== PawnMovement::FallingHazardForecastSource::ExternalImpulseCommit)
+	{
+		FallingHazardObserver->FinishExternalImpulseBoundary();
+	}
+
+	if (FallingHazardObserver->HasActiveGeneration())
+	{
+		const PawnMovement::FallingHazardForecastState* forecast =
+			FallingHazardObserver->ActiveForecast();
+		const size_t observed = FallingHazardObserver->Model()
+			.ActiveGeneration.SweptSegmentCount;
+		if (forecast && forecast->ExpectedSegmentCount == 0)
+			return;
+		if (forecast && observed < forecast->ExpectedSegmentCount)
+		{
+			const PawnMovement::FallingHazardForecastExpectedSegment& expected =
+				forecast->ExpectedSegments[observed];
+			bool continuous = MaximumAbsoluteComponent(
+				Location() - expected.Origin)
+				<= PawnMovement::FallingHazardForecastVectorTolerance;
+			continuous = continuous && MaximumAbsoluteComponent(
+				acceleration - forecast->Input.Acceleration)
+				<= PawnMovement::FallingHazardForecastVectorTolerance;
+			if (continuous
+				&& expected.Leg == PawnMovement::FallingHazardSweepLeg::Direct)
+			{
+				const auto currentZones =
+					BuildFallingHazardPointObservation(this, Location());
+				const auto& physics = currentZones.Physics;
+				const auto& startingPhysics =
+					forecast->Input.StartingZones.Physics;
+				const bool samePhysicsZone = physics.Identity.Known
+					&& startingPhysics.Identity.Known
+					&& physics.Identity.ZoneActorId
+						== startingPhysics.Identity.ZoneActorId
+					&& physics.Identity.ZoneNumber
+						== startingPhysics.Identity.ZoneNumber;
+				PawnMovement::FallingParityTransition next =
+					PawnMovement::BeginFallingParityStep({
+						.Location = Location(),
+						.Velocity = Velocity()
+					}, {
+						.Acceleration = acceleration,
+						.Gravity = physics.Gravity,
+						.ZoneVelocity = physics.ZoneVelocity,
+						.GroundSpeed = GroundSpeed(),
+						.TerminalVelocity = physics.TerminalVelocity,
+						.Elapsed = physicsSliceElapsed,
+						.WaterPhysics = currentZones.Foot.WaterZone,
+						.Bounce = bBounce()
+					});
+				continuous = samePhysicsZone
+					&& MaximumAbsoluteComponent(
+						physics.Gravity - startingPhysics.Gravity)
+						<= PawnMovement::FallingHazardForecastVectorTolerance
+					&& MaximumAbsoluteComponent(
+						physics.ZoneVelocity - startingPhysics.ZoneVelocity)
+						<= PawnMovement::FallingHazardForecastVectorTolerance
+					&& std::abs(physics.TerminalVelocity
+						- startingPhysics.TerminalVelocity)
+						<= PawnMovement::FallingHazardForecastVectorTolerance
+					&& next.Kind
+						== PawnMovement::FallingParityTransitionKind::ProbeDirectSweep
+					&& MaximumAbsoluteComponent(
+						next.DirectDelta - expected.RequestedDelta)
+						<= PawnMovement::FallingHazardForecastVectorTolerance
+					&& std::abs(physicsSliceElapsed
+						- expected.ElapsedContribution)
+						<= PawnMovement::FallingHazardForecastElapsedTolerance;
+			}
+			if (continuous)
+				return;
+			FallingHazardObserver->FinishExternalImpulseBoundary();
+			FallingHazardQueuedSource = PawnMovement::
+				FallingHazardForecastSource::ExternalImpulseCommit;
+		}
+		else
+		{
+			FallingHazardObserver->FinishObservationHorizon();
+			FallingHazardQueuedSource = PawnMovement::
+				FallingHazardForecastSource::HorizonContinuationCommit;
+		}
+	}
+
+	using namespace PawnMovement;
+	FallingHazardForecastInput input;
+	input.State.Location = Location();
+	input.State.Velocity = Velocity();
+	input.Acceleration = acceleration;
+	input.GroundSpeed = GroundSpeed();
+	input.PhysicsSliceElapsed = physicsSliceElapsed;
+	input.Bounce = bBounce();
+	input.StartingZones = BuildFallingHazardPointObservation(this, Location());
+	const FallingHazardForecastUpdate forecast =
+		CompleteFallingHazardForecast(this, input);
+	const FallingHazardForecastSource source =
+		FallingHazardQueuedSource != FallingHazardForecastSource::Unknown
+			? FallingHazardQueuedSource
+			: FallingHazardForecastSource::ExistingFallingCommit;
+	FallingHazardObserver->ArmGeneration(source, forecast);
+	FallingHazardQueuedSource = FallingHazardForecastSource::Unknown;
+}
+
+bool UPawn::PrepareFallingHazardSweep(PawnMovement::FallingHazardSweepLeg leg,
+	const vec3& origin, const vec3& delta, float elapsedContribution)
+{
+	if (!FallingHazardObserver
+		|| !FallingHazardObserver->HasActiveGeneration()
+		|| FallingHazardPending.Active)
+		return false;
+	const PawnMovement::FallingHazardForecastState* forecast =
+		FallingHazardObserver->ActiveForecast();
+	if (!forecast)
+		return false;
+	const size_t ordinal = FallingHazardObserver->Model()
+		.ActiveGeneration.SweptSegmentCount;
+	if (ordinal >= forecast->ExpectedSegmentCount)
+		return false;
+	FallingHazardCallbackContinuation.reset();
+	FallingHazardPending.Active = true;
+	FallingHazardPending.Leg = leg;
+	FallingHazardPending.Origin = origin;
+	FallingHazardPending.RequestedDelta = delta;
+	FallingHazardPending.ElapsedContribution = elapsedContribution;
+	return true;
+}
+
+bool UPawn::BeginFallingHazardTryMove()
+{
+	if (FallingHazardTryMoveDepth == std::numeric_limits<uint32_t>::max())
+	{
+		CancelPendingFallingHazardSweep(false);
+		return false;
+	}
+	if (FallingHazardPending.Active && FallingHazardPending.MoveDepth != 0)
+		FallingHazardPending.ReentrantMoveObserved = true;
+	FallingHazardTryMoveDepth++;
+	if (FallingHazardPending.Active && FallingHazardPending.MoveDepth == 0)
+		FallingHazardPending.MoveDepth = FallingHazardTryMoveDepth;
+	return true;
+}
+
+void UPawn::EndFallingHazardTryMove()
+{
+	if (FallingHazardTryMoveDepth == 0)
+		return;
+	const uint32_t endingDepth = FallingHazardTryMoveDepth--;
+	if (FallingHazardPending.Active
+		&& FallingHazardPending.MoveDepth == endingDepth)
+		CancelPendingFallingHazardSweep(false);
+}
+
+void UPawn::LatchPendingFallingHazardSweepGeometry(
+	const CollisionHit& hit, const MoveCallbackEvidence& callbacks)
+{
+	if (!FallingHazardPending.Active
+		|| FallingHazardPending.GeometryLatched
+		|| FallingHazardPending.MoveDepth != FallingHazardTryMoveDepth)
+		return;
+	FallingHazardPending.GeometryLatched = true;
+	FallingHazardPending.Collision = ClassifyFallingHazardCollision(this, hit);
+	FallingHazardPending.HitFraction = hit.Fraction;
+	FallingHazardPending.HitNormal = hit.Normal;
+	FallingHazardPending.MoveCallbackMask = callbacks.Mask;
+	const bool partialHit = std::isfinite(hit.Fraction)
+		&& hit.Fraction >= 0.0f && hit.Fraction < 1.0f;
+	const bool hitPawn = hit.Actor && hit.Actor->IsA("Pawn");
+	if (partialHit && !hitPawn)
+	{
+		if (FallingHazardPending.Leg
+			== PawnMovement::FallingHazardSweepLeg::Direct)
+		{
+			FallingHazardPending.HitWallCallbackExpected = bBounce()
+				|| hit.Normal.z <= fallingWalkableNormalZ;
+		}
+		else if (FallingHazardPending.Leg
+			== PawnMovement::FallingHazardSweepLeg::Aligned)
+		{
+			FallingHazardPending.HitWallCallbackExpected =
+				hit.Normal.z <= fallingWalkableNormalZ;
+		}
+	}
+}
+
+void UPawn::CommitPendingFallingHazardSweepAtCenterBoundary(
+	const PointRegion& center, bool actorLeavingCallbackDispatched)
+{
+	if (!FallingHazardPending.Active
+		|| !FallingHazardPending.GeometryLatched
+		|| FallingHazardPending.MoveDepth != FallingHazardTryMoveDepth)
+		return;
+	const PointRegion foot = FindRegion({ 0.0f, 0.0f, -CollisionHeight() });
+	const PointRegion head = FindRegion({ 0.0f, 0.0f, EyeHeight() });
+	CommitPendingFallingHazardSweep(center, foot, head,
+		MoveCallbackRegionChange, actorLeavingCallbackDispatched);
+}
+
+void UPawn::CommitPendingFallingHazardSweepAtFootBoundary()
+{
+	if (!FallingHazardPending.Active
+		|| !FallingHazardPending.GeometryLatched
+		|| FallingHazardPending.MoveDepth != FallingHazardTryMoveDepth)
+		return;
+	const PointRegion center = Region();
+	const PointRegion foot = FindRegion({ 0.0f, 0.0f, -CollisionHeight() });
+	const PointRegion head = FindRegion({ 0.0f, 0.0f, EyeHeight() });
+	const uint32_t zoneCallbackMask = FootRegion().Zone != foot.Zone
+		? MoveCallbackFootRegionChange : 0;
+	CommitPendingFallingHazardSweep(center, foot, head,
+		zoneCallbackMask, false);
+}
+
+void UPawn::CommitPendingFallingHazardSweep(const PointRegion& center,
+	const PointRegion& foot, const PointRegion& head,
+	uint32_t zoneCallbackMask, bool callbackAlreadyDispatched)
+{
+	const FallingHazardPendingSweep pending = FallingHazardPending;
+	FallingHazardPending = {};
+	if (!FallingHazardObserver
+		|| !FallingHazardObserver->HasActiveGeneration()
+		|| bDeleteMe() || Health() <= 0)
+		return;
+
+	using namespace PawnMovement;
+	const FallingHazardForecastState* forecast =
+		FallingHazardObserver->ActiveForecast();
+	if (pending.HitWallCallbackExpected && forecast)
+	{
+		const auto& candidate = forecast->Result.Continuation;
+		if (candidate.Phase != FallingHazardForecastPhase::FullStep)
+			FallingHazardCallbackContinuation = candidate;
+	}
+
+	FallingHazardRuntimeSweepObservation observation;
+	observation.Segment.Leg = pending.Leg;
+	observation.Segment.Origin = pending.Origin;
+	observation.Segment.RequestedDelta = pending.RequestedDelta;
+	observation.Segment.Collision = pending.Collision;
+	observation.Segment.HitFraction = pending.HitFraction;
+	observation.Segment.HitNormal = pending.HitNormal;
+	observation.Segment.Endpoint = Location();
+	observation.Segment.ElapsedContribution = pending.ElapsedContribution;
+	const float traveledDistance = length(Location() - pending.Origin);
+	const float spacing = forecast
+		? forecast->Input.MaximumSampleSpacing
+		: FallingHazardForecastMaximumSampleSpacing;
+	observation.Segment.SampleCount = std::isfinite(traveledDistance)
+		&& traveledDistance > FallingHazardForecastVectorTolerance
+		? static_cast<size_t>(std::ceil(traveledDistance / spacing)) : 1;
+
+	observation.HarmfulCenterZoneKnown = center.Zone != nullptr;
+	observation.InHarmfulCenterZone = center.Zone && center.Zone->bPainZone()
+		&& center.Zone->DamagePerSec() > 0;
+	observation.CenterZone = FallingHazardZoneIdentity(center);
+	observation.HarmfulFootZoneKnown = foot.Zone != nullptr;
+	observation.InHarmfulFootZone = foot.Zone && foot.Zone->bPainZone()
+		&& foot.Zone->DamagePerSec() > 0;
+	observation.FootZone = FallingHazardZoneIdentity(foot);
+	observation.PhysicsZone = FallingHazardZoneIdentity(center);
+	observation.RegionWaterKnown = center.Zone != nullptr;
+	observation.InRegionWater = center.Zone && center.Zone->bWaterZone();
+	observation.FootWaterKnown = foot.Zone != nullptr;
+	observation.InFootWater = foot.Zone && foot.Zone->bWaterZone();
+	observation.HeadWaterKnown = head.Zone != nullptr;
+	observation.InHeadWater = head.Zone && head.Zone->bWaterZone();
+	observation.CallbackMaskKnown = !pending.ReentrantMoveObserved;
+	const uint32_t priorNonZoneCallbacks = pending.MoveCallbackMask
+		& ~(MoveCallbackRegionChange | MoveCallbackFootRegionChange
+			| MoveCallbackHeadRegionChange | MoveCallbackHitWall);
+	uint32_t moveCallbackMask = priorNonZoneCallbacks | zoneCallbackMask;
+	observation.CallbackMask = FallingHazardCallbackMask(moveCallbackMask);
+	FallingHazardObserver->ObserveSweep(observation);
+
+	const bool actualCallbackObserved = callbackAlreadyDispatched
+		|| priorNonZoneCallbacks != 0 || pending.ReentrantMoveObserved;
+	const std::optional<FallingHazardTerminal> terminal =
+		FallingHazardObserver->LastCompletedTerminal();
+	if (actualCallbackObserved)
+	{
+		FallingHazardQueuedSource =
+			FallingHazardForecastSource::CallbackReturnCommit;
+	}
+	else if (terminal == FallingHazardTerminal::ContinuityLost)
+	{
+		FallingHazardQueuedSource =
+			FallingHazardForecastSource::ExternalImpulseCommit;
+	}
+}
+
+void UPawn::RecoverFallingHazardCallbackReturn()
+{
+	if (!FallingHazardObserver
+		|| !FallingHazardObserver->HasActiveFallEpisode()
+		|| bDeleteMe() || Health() <= 0)
+		return;
+	FallingHazardQueuedSource =
+		PawnMovement::FallingHazardForecastSource::Unknown;
+	FinishFallingHazardCallbackBoundary();
+	if (!engine->IsBotBenchmarkWalkingPreflightEnabled()
+		|| !IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority
+		|| Physics() != PHYS_Falling
+		|| FallingHazardObserver->GenerationCapacityExhaustedForLife())
+		return;
+	FallingHazardQueuedSource =
+		PawnMovement::FallingHazardForecastSource::CallbackReturnCommit;
+}
+
+void UPawn::CancelPendingFallingHazardSweep(bool callbackBoundary)
+{
+	if (!FallingHazardPending.Active)
+		return;
+	if (FallingHazardPending.MoveDepth != 0
+		&& FallingHazardPending.MoveDepth != FallingHazardTryMoveDepth)
+		return;
+	FallingHazardPending = {};
+	FallingHazardCallbackContinuation.reset();
+	if (!FallingHazardObserver
+		|| !FallingHazardObserver->HasActiveGeneration())
+		return;
+	if (callbackBoundary)
+	{
+		FallingHazardObserver->FinishCallbackBoundary();
+		FallingHazardQueuedSource =
+			PawnMovement::FallingHazardForecastSource::CallbackReturnCommit;
+	}
+	else
+		FallingHazardObserver->FinishGeneration(
+			PawnMovement::FallingHazardTerminal::InvalidObservation);
+}
+
+std::optional<PawnMovement::FallingHazardForecastContinuationSeed>
+	UPawn::FinishFallingHazardCallbackBoundary()
+{
+	FallingHazardPending = {};
+	std::optional<PawnMovement::FallingHazardForecastContinuationSeed>
+		continuation = FallingHazardCallbackContinuation;
+	FallingHazardCallbackContinuation.reset();
+	if (!FallingHazardObserver
+		|| !FallingHazardObserver->HasActiveGeneration())
+		return continuation;
+	if (const PawnMovement::FallingHazardForecastState* forecast =
+		FallingHazardObserver->ActiveForecast())
+	{
+		const auto& candidate = forecast->Result.Continuation;
+		if (candidate.Phase
+			!= PawnMovement::FallingHazardForecastPhase::FullStep)
+			continuation = candidate;
+	}
+	FallingHazardObserver->FinishCallbackBoundary();
+	return continuation;
+}
+
+void UPawn::ArmFallingHazardContinuation(
+	PawnMovement::FallingHazardForecastSource source,
+	const PawnMovement::FallingHazardForecastContinuationSeed& continuation,
+	float physicsSliceElapsed, const vec3& acceleration)
+{
+	if (!FallingHazardObserver
+		|| !FallingHazardObserver->HasActiveFallEpisode()
+		|| FallingHazardObserver->HasActiveGeneration()
+		|| FallingHazardObserver->GenerationCapacityExhaustedForLife()
+		|| bDeleteMe() || Health() <= 0 || Physics() != PHYS_Falling
+		|| bJustTeleported())
+		return;
+	using namespace PawnMovement;
+	FallingHazardForecastInput input;
+	input.Phase = continuation.Phase;
+	input.State.Location = Location();
+	input.State.Velocity = Velocity();
+	input.Acceleration = acceleration;
+	input.GroundSpeed = GroundSpeed();
+	input.PhysicsSliceElapsed = physicsSliceElapsed;
+	input.Bounce = bBounce();
+	input.StartingZones = BuildFallingHazardPointObservation(this, Location());
+	input.Continuation = continuation;
+	const FallingHazardForecastUpdate forecast =
+		CompleteFallingHazardForecast(this, input);
+	if (FallingHazardObserver->ArmGeneration(source, forecast))
+	{
+		FallingHazardQueuedSource =
+			PawnMovement::FallingHazardForecastSource::Unknown;
+	}
+}
+
+void UPawn::FinishFallingHazardLanding(const CollisionHit& hit,
+	bool ditchSupportUnknown)
+{
+	FallingHazardPending = {};
+	FallingHazardCallbackContinuation.reset();
+	FallingHazardQueuedSource =
+		PawnMovement::FallingHazardForecastSource::Unknown;
+	if (FallingHazardObserver
+		&& FallingHazardObserver->HasActiveFallEpisode())
+	{
+		FallingHazardObserver->FinishLanding(ditchSupportUnknown
+			? PawnMovement::FallingHazardCollisionKind::Unknown
+			: ClassifyFallingHazardCollision(this, hit));
+	}
+}
+
+void UPawn::FinishFallingHazardDeath()
+{
+	FallingHazardPending = {};
+	FallingHazardCallbackContinuation.reset();
+	FallingHazardQueuedSource =
+		PawnMovement::FallingHazardForecastSource::Unknown;
+	if (FallingHazardObserver
+		&& FallingHazardObserver->HasActiveFallEpisode())
+		FallingHazardObserver->FinishDeath();
+}
+
+const PawnMovement::FallingHazardRuntimeCounters&
+	UPawn::FallingHazardRuntimeCounterValues() const
+{
+	static const PawnMovement::FallingHazardRuntimeCounters empty;
+	return FallingHazardObserver ? FallingHazardObserver->Counters() : empty;
+}
+
+std::vector<PawnMovement::FallingHazardDiagnosticRecord>
+	UPawn::DrainFallingHazardDiagnostics()
+{
+	return FallingHazardObserver
+		? FallingHazardObserver->DrainDiagnostics()
+		: std::vector<PawnMovement::FallingHazardDiagnosticRecord>{};
+}
+
 void UPawn::EndWalkingStepPreflightLife()
 {
+	if (FallingHazardObserver)
+		FallingHazardObserver->EndLife();
+	FallingHazardPending = {};
+	FallingHazardCallbackContinuation.reset();
+	FallingHazardQueuedSource =
+		PawnMovement::FallingHazardForecastSource::Unknown;
 	WalkingStepPreflightPendingConfirmation = false;
 	WalkingStepPreflightObservedTransactionValid = false;
 	WalkingStepPreflightEpisode = {};
