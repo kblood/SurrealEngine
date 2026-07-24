@@ -393,6 +393,28 @@ The clean live evidence is
 Gate: no upgrade or recovery path reports success with missing/corrupt data, and
 the user can clear derived data without deleting saves.
 
+WP6 closed, 2026-07-24, at clean executable-source commit
+`df90483cb0fd8b0a438962a1d954b4e0691ed53e`. Mutable data uses explicit
+version-two schemas and isolated save/settings allowlists. IndexedDB and OPFS
+both pass deployed version-one migration, interrupted migration rollback and
+retry, future-schema rejection, corrupt-restore diagnostics, and clearing
+mutable data without touching imported game data. Import tests cover quota and
+transaction-interruption classification without reporting false success.
+Forced WebGL 2 context loss restores a new context generation and exact pixels.
+An active WebGPU device loss now removes the unavailable renderer, attempts one
+bounded mutable checkpoint, publishes a terminal failure, and offers a
+user-triggered WebGL 2 restart without an automatic reload loop; loss of an
+unused WebGPU device does not fail a running WebGL 2 game. Browser audio passes
+gesture unlock, volume/mute, visibility suspend/resume, XR continuity, and
+shutdown checks.
+
+The same commit also closes two XR teardown edge cases found during the WP6
+audit: a synchronous `XRSession.end()` failure remains non-retryable until the
+browser confirms cleanup, and rejection of the scheduler handoff back to flat
+mode is terminal instead of being mislabeled `FlatRunning`. A denied session
+can be retried on the next trusted click. Evidence is in
+`SurrealEngine/qa/runs/2026-07-24/df90483c/wp6-recovery-candidate/manifest.json`.
+
 ### WP7 — Browser, Quest, OpenXR, and Electron qualification
 
 - Automate flat, lifecycle, failure-injection, repeat-entry, and remote artifact
@@ -452,6 +474,18 @@ identities and remaining physical rows are in
 `SurrealEngine/qa/runs/2026-07-24/9aa65824/wp7-production-candidate/manifest.json`.
 Named Quest/OpenXR rows remain open, so the live stable pointer has not been
 changed.
+
+Recovery-qualified candidate progress, 2026-07-24: clean commit
+`df90483cb0fd8b0a438962a1d954b4e0691ed53e` supersedes `9aa65824` as build
+`df90483cb0fd-2c33259ba0d3e82d`. The WASM binary is unchanged, while the
+browser assets add the WP6 and XR teardown corrections above. The data-free
+browser package, hardened Electron 43.2.0 ZIP, direct WebGL 2 live UE1 smoke,
+and actual Apache 2.4 promote/rollback gates pass. Physical evidence now has a
+candidate-pinned schema, generator, validator, and seven explicit records:
+Q1/UT99, Q1/Unreal Gold, D1/official sample, E1/UT99, E1/Unreal Gold, E2/UT99,
+and E2/Unreal Gold. Exact identities are in
+`Docs/WEBXR_PHYSICAL_QUALIFICATION_DF90483C.md`. No headset was connected and
+the public website was not changed.
 
 ## Release gates for VR
 

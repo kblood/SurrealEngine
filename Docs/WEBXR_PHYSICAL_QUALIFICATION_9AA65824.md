@@ -1,6 +1,9 @@
 # WebXR physical qualification card — `9aa65824`
 
-This is the current data-free production candidate for flat browser play with
+> Superseded by `Docs/WEBXR_PHYSICAL_QUALIFICATION_DF90483C.md`. Do not start a
+> new physical run with this artifact.
+
+This was the data-free production candidate for flat browser play with
 post-launch enter, exit, and re-entry to immersive WebXR. Automated,
 synthetic-session, Electron, and actual Apache 2.4 gates pass. It is not
 physical-headset proof.

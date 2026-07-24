@@ -4,18 +4,24 @@ Date: 2026-07-24 (Europe/Copenhagen)
 
 ## Current product and website state
 
-The active integration worktree is:
+The active goal worktree is:
 
 ```text
-C:\Devstuff\QuestGames\surreal-webxr-release-gates
-branch: integration/unified-engine
-release source: e8a57fb8c2da898c83488c02110dab115cb89fd1
-release source tree: 5568b305241799fd045ffe94f7ba7e01daf57fa7
+C:\Devstuff\QuestGames\SurrealEngine\repos\worktrees\active\webgl2-production
+branch: goal/webgl2-production
+release source: df90483cb0fd8b0a438962a1d954b4e0691ed53e
+release source tree: ef6f1a14145e37516aac8ac74613dbeb54b87858
 ```
 
-Push integration changes only to `fork` (`kblood/SurrealEngine`), never to
-`origin` (`dpjudas/SurrealEngine`). The integration branch is a product branch,
-not an upstream-PR source.
+Push this goal branch only to `fork` (`kblood/SurrealEngine`), never to
+`origin` (`dpjudas/SurrealEngine`). It is a product/qualification branch, not
+an upstream-PR source.
+
+The current physical candidate is documented in
+`Docs/WEBXR_PHYSICAL_QUALIFICATION_DF90483C.md`. Its browser manifest is
+`f3372349b5da45cb9d6bddec99317851f13735521a44c5e4932e09d63e0a99af`.
+It supersedes `9aa65824`; the public website has not been changed to either
+candidate.
 
 The current browser release is live at the one stable public URL:
 
@@ -150,18 +156,20 @@ processes have stopped and the migration ledger is ready.
 
 ## Exact next checks
 
-1. Use the frozen `9aa65824` artifacts and
-   `Docs/WEBXR_PHYSICAL_QUALIFICATION_9AA65824.md`; do not substitute a rebuild.
-2. Use the Apache-qualified immutable generation in the intended Quest/VDXR
-   browser path; do not change the live stable pointer before physical gates.
+1. Use the frozen `df90483c` artifacts and
+   `Docs/WEBXR_PHYSICAL_QUALIFICATION_DF90483C.md`; do not use `9aa65824` or
+   substitute a rebuild.
+2. Publish manifest `f3372349...a99af` as an immutable generation without
+   changing the stable pointer, then use that exact URL for Q1. Use the pinned
+   Electron ZIP for E1/E2.
 3. Import a locally supplied supported game folder and verify flat launch first,
    then enter WebXR without restarting WASM.
 4. Check projection, HUD bounds, both-eye menu orientation/hit testing, ray and
    hit-marker alignment, single trigger selection, controller
    tracking, turning, trigger fire, Pulse beam direction, dual-Enforcer
    alternation, audio, immersive exit, and re-entry.
-5. Save the headset report, logs, screenshots, and any video under a dated
-   `SurrealEngine\qa\runs` directory.
+5. Create and validate all seven candidate-pinned records with the generator,
+   validator, and privacy rules in `Docs/WEBXR_PHYSICAL_RUN_TEMPLATE.md`.
 6. If a regression is found, preserve the current server rollback and rebuild
    only from a clean committed source.
 
