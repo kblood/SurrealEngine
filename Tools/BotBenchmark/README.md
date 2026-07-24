@@ -344,6 +344,49 @@ minimum health, final-sample survival, and completion. Distance and activity
 remain descriptive. The analyzer intentionally emits no composite quality
 score.
 
+## Deterministic run equivalence
+
+`Compare-BotBenchmarkRuns.py` checks whether two completed, successful run
+directories are semantically identical. It validates and compares
+`manifest.json`, `events.jsonl`, `summary.json`, and the paired
+`shadow-manifest.json`/`shadow-decisions.jsonl` artifacts when present:
+
+```powershell
+python .\Tools\BotBenchmark\Compare-BotBenchmarkRuns.py `
+  .\baseline-run .\candidate-run `
+  --ignore-field walking_preflight_candidates_exact `
+  --ignore-field walking_preflight_rejects_exact `
+  --ignore-diagnostic-field walking_step_preflight_diagnostics `
+  --ignore-field output_directory `
+  --output .\equivalence-report.json
+```
+
+The command exits 0 only for equivalence, 1 for a valid comparison with a
+mismatch, and 2 for invalid or incomplete evidence. JSON object formatting and
+key order do not affect the normalized comparison. JSONL line count and order,
+array order, schemas, behavioral configuration, and rosters remain exact.
+
+`--ignore-field` is repeatable and literal. It accepts integer-valued counter
+fields whose safe identifier ends in `_exact`, plus the run-local
+`output_directory` string needed when otherwise
+identical A/B artifacts were written to different directories. Structural and
+behavioral fields such as `schema`, `seed`, `config_id`, `tick`, `seq`, and
+participant identities are protected and cannot be ignored. Every requested
+counter or diagnostic ignore is confined to JSONL streams, so it cannot hide a
+manifest or summary configuration difference. Every requested ignore must
+occur, and the report records occurrence counts, first/last JSON
+pointers, and a digest of every ignored pointer/value record. Each artifact
+also records its raw and normalized SHA-256, and the first mismatch includes
+its artifact, JSON pointer, and JSONL line where applicable. The report cannot
+be written inside either input run, so the QA evidence remains immutable.
+
+`--ignore-diagnostic-field` is a separate repeatable lane for one-sided,
+read-only JSON payloads whose safe field name ends in `_diagnostics`. Its value
+may be any finite JSON value, including an array or object, and receives the
+same pointer/value occurrence audit. It cannot weaken the numeric `_exact`
+counter rule or remove protected structural fields, and an unused diagnostic
+ignore is an error.
+
 ## Current limits and future telemetry
 
 Current engine builds may also emit `shadow-manifest.json` and
