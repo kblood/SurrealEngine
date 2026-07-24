@@ -1,6 +1,6 @@
 # WebXR provider handoff
 
-Date: 2026-07-23
+Date: 2026-07-24
 
 Integration status: implemented and automated through
 `integration/unified-engine` commit `078a6d2f`. Both presentation modes remain
@@ -13,6 +13,13 @@ make this a hardware-observed visual failure rather than a qualification.
 The later ABI-v4 current-pose branch is native-, Emscripten-, and deterministic-
 test validated, but has not yet been run through an actively connected headset;
 it is not a physical qualification or release candidate.
+
+The production browser integration now starts the game flat and exposes WebXR
+as a post-launch session controller. Enter, exit, headset/system end, denial,
+setup failure, and re-entry operate on the same live WASM module; the former
+pre-launch reservation adapter remains only as a compatibility surface for old
+harnesses. This controller integration is deterministic-test validated, not a
+new physical qualification.
 
 ## Scope
 
@@ -42,15 +49,16 @@ platform. It provides:
 - a separate `web/index_webxr.html` harness. The existing flat
   `web/index_webgpu.html` remains unchanged and does not require WebXR.
 
-The packaged launcher exposes **Automatic** and **Force WebGL compatibility
-bridge** as persistent WebXR backend choices. It applies the immutable launch
-selection through `surrealXRSetPresentationPreference("auto" | "webgl-bridge")`
-before session reservation. The former `surrealXRForceWebGLBridge` global is
-only a compatibility fallback for older harnesses that never call the API.
+After the flat game reaches `FlatRunning`, the packaged launcher exposes
+**Automatic** and **Force WebGL compatibility bridge** in its separate VR
+session panel. The trusted Enter action applies the current panel settings
+through `surrealXRSetPresentationPreference("auto" | "webgl-bridge")` and calls
+`surrealXRRequestSession()` synchronously before awaiting activation. The
+former `surrealXRForceWebGLBridge` global is only a compatibility fallback for
+older harnesses that never call the API.
 A separate default-off **Temporary QA: blocking bridge timing (slower)**
-checkbox is available only with forced bridge selection. The adapter applies
-it through `surrealXRSetBridgeBlockingTiming(boolean)` before reservation and
-the launcher never persists an enabled value.
+checkbox is available only with forced bridge selection. The controller applies
+it through `surrealXRSetBridgeBlockingTiming(boolean)` before reservation.
 
 The low-level provider deliberately excludes game-specific policy, PWA
 packaging, game-data import, and persistence. Product integration composes it

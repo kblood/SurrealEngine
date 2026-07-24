@@ -271,8 +271,14 @@ window.browserAppTestPromise = (async () => {
 			assert(!surface.hidden && surface.getClientRects().length === 1, "loading surface was not visible at callMain");
 			events.push("callMain:" + args[1]);
 		} };
+		const xrController = {
+			engineStarted() {
+				assert(events.some(value => value.startsWith("callMain:")), "XR controller started before native main");
+				events.push("xr-flat-running");
+			},
+		};
 		const status = await api.runLaunchBoundary({
-			Module, registry,
+			Module, registry, xrController,
 			selection: { game: { id: "ut99" }, map: "DM-Test", renderer: "webgpu", presentationId: "flat" },
 			onStartupStage: snapshot => {
 				events.push("stage:" + snapshot.stage);
@@ -284,7 +290,7 @@ window.browserAppTestPromise = (async () => {
 			},
 			onLaunch: () => events.push("onLaunch"),
 		});
-		assert(events.join(",") === "stage:native-startup,paint,callMain:--url=DM-Test,stage:native-ready,stage:presentation-activation,activate,stage:running,onLaunch");
+		assert(events.join(",") === "stage:native-startup,paint,callMain:--url=DM-Test,stage:native-ready,xr-flat-running,stage:presentation-activation,activate,stage:running,onLaunch");
 		assert(status.stage === "running" && status.nativeStartupMs !== null);
 		assert(Object.keys(status).sort().join(",") === "elapsedMs,nativeStartupMs,stage,stageElapsedMs",
 			"startup status exposed fields outside the privacy allowlist");

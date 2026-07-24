@@ -114,10 +114,14 @@ try {
 	assert.match(index, /browser may call folder selection an .upload./i);
 	assert.match(index, /data-pointer-lock-control/);
 	assert.match(index, /data-pointer-lock-capture/);
-	assert.match(index, /data-launcher-webxr-backend/);
+	assert.doesNotMatch(index, /data-launcher-presentation/,
+		"production release still required a pre-launch presentation choice");
+	assert.match(index, /data-xr-session-backend/);
 	assert.match(index, />Automatic</);
 	assert.match(index, />Force WebGL compatibility bridge</);
-	assert.match(index, /data-launcher-webxr-bridge-blocking-timing/);
+	assert.match(index, /data-xr-session-bridge-blocking-timing/);
+	assert.match(index, /data-xr-enter/);
+	assert.match(index, /data-xr-exit/);
 	assert.match(index, /Temporary QA: blocking bridge timing \(slower\)/);
 	assert.match(index, /Press Escape to release it and send Escape to the game/);
 	assert.doesNotMatch(index, /Folder upload fallback/);

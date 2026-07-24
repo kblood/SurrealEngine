@@ -263,12 +263,17 @@
 		}
 
 		view.setPhase("Loading the data-free SurrealEngine runtime…");
+		let xrController = null;
 		root.addEventListener("surrealwebxrcapability", event => {
 			webxr = event.detail || webxr;
+			if (xrController && typeof xrController.updateCapability === "function")
+				xrController.updateCapability(webxr);
 			view.setCapabilities(platform, webxr);
 			view.setPhase(webxr.message || "Immersive WebXR capability changed.");
 		});
 		const suppliedAppOptions = settings.appOptions || {};
+		xrController = suppliedAppOptions.xrController ||
+			root.SurrealWebXRBrowserProvider.createSessionController(webxr, settings.xrRoot || null, environment);
 		const packagedBuild = diagnostics.manifest && diagnostics.manifest.build || null;
 		const webGL2Compiled = packagedBuild ? packagedBuild.webgl2Renderer === true : settings.webgl2Renderer === true;
 		let availableRenderers = [];
@@ -279,7 +284,7 @@
 			availableRenderers = availableRenderers.filter(renderer => suppliedAppOptions.availableRenderers.includes(renderer));
 		const appOptions = Object.assign({}, suppliedAppOptions, {
 			availableRenderers,
-			presentationProviders: [root.SurrealWebXRBrowserProvider.createProvider(webxr)],
+			xrController,
 			onRuntimeMilestone: milestone => {
 				diagnostics.record(milestone.stage, milestone.detail);
 				if (typeof suppliedAppOptions.onRuntimeMilestone === "function") suppliedAppOptions.onRuntimeMilestone(milestone);

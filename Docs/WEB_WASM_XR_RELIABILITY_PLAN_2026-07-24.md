@@ -246,8 +246,17 @@ submission batches rather than roughly 690 per-draw buffer uploads. The
 post-change comparison measured 60.1 WebGL2 ticks/s and 59.8 WebGPU ticks/s,
 with coherent frames and zero backend errors on both. Resize, pointer-lock,
 audio, and forced context-restoration tests still pass through the aggregated
-path. Clean-commit comparison and matrix evidence remain to be preserved before
-closing WP2.
+path.
+
+WP2 closed, 2026-07-24: clean commit `2723fe44972a0edecc407c77c2373071ea92f618`
+passed 10/10 full browser/WASM reloads, exact mutable-settings persistence, a
+30.165-second sustained run at 60.0 frames/ticks per second, stable 256 MiB heap
+and texture counts, two rendered fixture maps, and explicit pre-render
+classification of four maps excluded by the demo's missing `UnrealI.u`. The
+clean WebGL2/WebGPU comparison measured a 1.002 tick-rate ratio and 1.3247/255
+mean absolute channel difference with zero backend errors. The combined,
+hash-verified evidence manifest is
+`SurrealEngine/qa/runs/2026-07-24/2723fe44/wp2-flat-complete/manifest.json`.
 
 ### WP3 — Post-launch Enter/Exit VR state machine
 
@@ -261,6 +270,19 @@ closing WP2.
 
 Gate: mocks cover success, denial, setup failure, runtime end, repeated re-entry,
 and stale async completion without a reload or second `main()` call.
+
+Progress, 2026-07-24: production launch now registers only the flat presentation
+and reveals a separate WebXR session panel after native startup. A controller
+owns the five explicit states above, calls `requestSession()` synchronously from
+the Enter action, activates the reserved session against the existing module,
+waits for provider/GPU cleanup on exit, and returns denial or setup failure to a
+retryable flat state. Provider readiness events include cleanup and blocked-end
+admission state. Deterministic tests cover success, denial, activation failure,
+system end, repeated entry on one module, and a superseded async completion;
+the browser launcher and immutable package tests also pass. Mock sentinels now
+assert heap, map/player, renderer, audio graph, and mount identity and prove no
+second `main()` call across transitions. Remaining WP3 work is the in-headset
+exit action and equivalent evidence from a live runtime transition harness.
 
 ### WP4 — Transition lifecycle correctness
 

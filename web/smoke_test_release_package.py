@@ -57,11 +57,11 @@ with sync_playwright() as playwright:
 		webXRAbsent: typeof navigator.xr === "undefined" && typeof XRGPUBinding === "undefined" &&
 			typeof XRWebGPUBinding === "undefined" && typeof XRWebGLLayer === "undefined",
 		adapterRequests: window.__flatAdapterRequests,
-		presentations: Array.from(document.querySelectorAll('[data-launcher-presentation] option')).map(option => option.value),
-		webXRBackends: Array.from(document.querySelectorAll('[data-launcher-webxr-backend] option')).map(option => option.value),
-		webXRBackendDisabled: document.querySelector('[data-launcher-webxr-backend]').disabled,
-		bridgeTimingDisabled: document.querySelector('[data-launcher-webxr-bridge-blocking-timing]').disabled,
-		bridgeTimingChecked: document.querySelector('[data-launcher-webxr-bridge-blocking-timing]').checked,
+		preLaunchPresentationControlAbsent: !document.querySelector('[data-launcher-presentation]'),
+		webXRBackends: Array.from(document.querySelectorAll('[data-xr-session-backend] option')).map(option => option.value),
+		webXRBackendDisabled: document.querySelector('[data-xr-session-backend]').disabled,
+		bridgeTimingDisabled: document.querySelector('[data-xr-session-bridge-blocking-timing]').disabled,
+		bridgeTimingChecked: document.querySelector('[data-xr-session-bridge-blocking-timing]').checked,
 		capabilities: Array.from(document.querySelectorAll('[data-capability-list] li')).map(item => item.textContent),
 		phase: document.querySelector('[data-app-phase]').textContent,
 		pointerLockReady: typeof SurrealBrowserPointerLock !== "undefined" &&
@@ -93,6 +93,7 @@ with sync_playwright() as playwright:
 		result["engineWasm"] != "./" + manifest.get("entrypoints", {}).get("wasm", "") or
 		not result["webXRAbsent"] or result["adapterRequests"] != [None] or
 		result["registeredPresentations"] != ["flat"] or not result["pointerLockReady"] or
+		not result["preLaunchPresentationControlAbsent"] or
 		result["webXRBackends"] != ["auto", "webgl-bridge"] or not result["webXRBackendDisabled"] or
 		not result["bridgeTimingDisabled"] or result["bridgeTimingChecked"] or
 		result["pointerLockInteractive"] or result["pointerLockPromptVisible"] or
@@ -220,13 +221,23 @@ with sync_playwright() as playwright:
 				hidden: canvas.hidden, display: getComputedStyle(canvas).display,
 				focused: document.activeElement === canvas, label: canvas.getAttribute('aria-label') };
 		})(),
+		xr: {
+			controllerState: window.surrealRelease && window.surrealRelease.app &&
+				window.surrealRelease.app.xrController && window.surrealRelease.app.xrController.status().state,
+			panelHidden: document.getElementById('webxr-session').hidden,
+			enterDisabled: document.querySelector('[data-xr-enter]').disabled,
+			preLaunchPresentationControlAbsent: !document.querySelector('[data-launcher-presentation]'),
+		},
 	})""")
 	expected_entry = "Surreal_StartBrowserGame" if compliance.get("buildProvenance", {}).get("browserEntryPoint") == "asyncify-opfs" else "callMain"
-	if (presentations != ["Desktop window"] or integration["entry"] != expected_entry or
+	if (presentations != [] or integration["entry"] != expected_entry or
 		integration["args"] != ["--autoplay", "--url=Vortex2", "--render=webgpu", "/gamedata"] or
 		integration["dominantHands"] != [1] or
 		integration["selection"] != {"gameId": "unreal-gold", "map": "Vortex2",
-			"presentationId": "flat", "xrDominantHand": "right"}):
+			"presentationId": "flat", "xrDominantHand": "right"} or
+		integration["xr"]["panelHidden"] or not integration["xr"]["enterDisabled"] or
+		not integration["xr"]["preLaunchPresentationControlAbsent"] or
+		integration["xr"]["controllerState"] != "FlatRunning"):
 		print("FAIL: staged package game detection or flat launch", file=sys.stderr)
 		sys.exit(1)
 	layout = integration["layout"]

@@ -54,10 +54,6 @@
 		<form data-launcher-form>
 			<div class="fields">
 				<label>Map<select data-launcher-map></select></label>
-				<label>Presentation<select data-launcher-presentation></select></label>
-				<label>WebXR backend<select data-launcher-webxr-backend disabled><option value="auto">Automatic</option><option value="webgl-bridge">Force WebGL compatibility bridge</option></select></label>
-				<label class="check-field"><input type="checkbox" data-launcher-webxr-bridge-blocking-timing disabled>Temporary QA: blocking bridge timing (slower)</label>
-				<label class="check-field"><input type="checkbox" data-launcher-webxr-bridge-rotation-reprojection disabled>Experimental: rotation-only late reprojection</label>
 				<label>Renderer<select data-launcher-renderer><option value="webgpu">WebGPU</option><option value="null">No graphics (diagnostics)</option></select></label>
 				<label>XR dominant hand<select data-launcher-xr-dominant-hand><option value="right">Right</option><option value="left">Left</option></select></label>
 				<label class="check-field"><input type="checkbox" data-launcher-skip-intro checked>Skip startup intro and open the selected map</label>
@@ -65,6 +61,20 @@
 			</div>
 			<p data-launcher-error hidden role="alert"></p>
 		</form>
+	</section>
+	<section id="webxr-session" class="panel" hidden aria-live="polite">
+		<h2>Virtual reality</h2>
+		<p data-xr-session-status>Start the game before entering VR.</p>
+		<div class="fields">
+			<label>WebXR backend<select data-xr-session-backend><option value="auto">Automatic</option><option value="webgl-bridge">Force WebGL compatibility bridge</option></select></label>
+			<label class="check-field"><input type="checkbox" data-xr-session-bridge-blocking-timing disabled>Temporary QA: blocking bridge timing (slower)</label>
+			<label class="check-field"><input type="checkbox" data-xr-session-bridge-rotation-reprojection disabled>Experimental: rotation-only late reprojection</label>
+		</div>
+		<div class="actions">
+			<button type="button" data-xr-enter disabled>Enter VR</button>
+			<button type="button" data-xr-exit hidden>Exit VR</button>
+		</div>
+		<p data-xr-session-error hidden role="alert"></p>
 	</section>
 	<section id="browser-status" class="panel capability-panel" aria-live="polite">
 		<h1>SurrealEngine Web</h1>
@@ -135,6 +145,7 @@ window.surrealBrowserAudio = SurrealBrowserAudio.create(document.getElementById(
 SurrealBrowserPointerLock.setInteractive(false);
 SurrealBrowserRelease.start({
 	statusRoot: document.getElementById("browser-status"),
+	xrRoot: document.getElementById("webxr-session"),
 	appOptions: {
 		canvas: document.getElementById("canvas"),
 		importerRoot: document.getElementById("game-data-importer"),

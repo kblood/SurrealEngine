@@ -48,6 +48,8 @@
 	let nativeFrameRendered = false;
 	let preparedFrame = null;
 	let cleanupPending = Promise.resolve();
+	let cleanupInProgress = false;
+	let cleanupSequence = 0;
 	let hapticStatus = null;
 	let audioGestureSession = null;
 	let audioGestureListener = null;
@@ -96,6 +98,30 @@
 			stage: String(stage || status.currentStage || "unknown"),
 		}));
 		if (status.transitions.length > 16) status.transitions.shift();
+		publishProviderState();
+	}
+
+	function publishProviderState() {
+		if (typeof root.dispatchEvent !== "function" || typeof root.CustomEvent !== "function") return;
+		try {
+			root.dispatchEvent(new root.CustomEvent("surrealwebxrproviderstate", { detail: Object.freeze({
+				phase: status.phase, stage: status.currentStage, active: status.active,
+				generation: status.generation, cleanupPending: cleanupInProgress,
+				sessionEndBlocked,
+			}) }));
+		} catch (_) {}
+	}
+
+	function trackCleanup(promise) {
+		const sequence = ++cleanupSequence;
+		cleanupInProgress = true;
+		cleanupPending = Promise.resolve(promise).finally(function () {
+			if (sequence !== cleanupSequence) return;
+			cleanupInProgress = false;
+			publishProviderState();
+		});
+		publishProviderState();
+		return cleanupPending;
 	}
 
 	function setStage(stage) {
@@ -962,10 +988,8 @@
 		status.lastErrorCode = error ? (error.code || "webxr-provider-failed") : null;
 		status.lastErrorStage = errorStage;
 		status.endedSessions++;
-		recordTransition(error ? "entry-or-session-failed" : "session-ended", generation,
-			errorStage || status.phase);
 		if (error) log("WebXR session failed: " + error);
-		cleanupPending = (async function () {
+		trackCleanup((async function () {
 			try { await Promise.resolve(pendingRender); } catch (_) {}
 			if (nativePresentationStarted) {
 				try {
@@ -984,7 +1008,9 @@
 			} catch (_) {}
 			destroyTargetSets(finishedTargets);
 			if (finishedBridge) { try { finishedBridge.destroy(); } catch (_) {} }
-		})();
+		})());
+		recordTransition(error ? "entry-or-session-failed" : "session-ended", generation,
+			errorStage || status.phase);
 		return true;
 	}
 
@@ -1029,7 +1055,7 @@
 
 	function drainSessionEnd(ending, endTracker, failureMessage) {
 		const localCleanup = cleanupPending;
-		cleanupPending = Promise.all([
+		trackCleanup(Promise.all([
 			localCleanup,
 			Promise.resolve(ending).catch(function (error) {
 				log(failureMessage + error);
@@ -1047,7 +1073,7 @@
 				// otherwise only a full page reset can clear this terminal gate.
 				return endTracker.promise;
 			}),
-		]).then(function () {});
+		]).then(function () {}));
 	}
 
 	function fail(generation, error) {
@@ -1314,8 +1340,10 @@
 	};
 
 	root.surrealXRRequestSession = async function () {
-		await cleanupPending;
-		if (session || enterPending) return false;
+		// Admission is synchronous so navigator.xr.requestSession remains in the
+		// trusted button activation. The UI keeps entry disabled while cleanup is
+		// pending instead of consuming activation by awaiting cleanup here.
+		if (cleanupInProgress || sessionEndBlocked || session || enterPending) return false;
 		status.enterAttempts++;
 		setStage("preflight");
 		recordTransition("enter-requested", generationCounter + 1, status.currentStage);
@@ -1525,6 +1553,10 @@
 	};
 
 	root.surrealXREnter = async function () {
+		// Compatibility callers may queue programmatic re-entry while teardown is
+		// draining. The production trusted-click controller calls RequestSession
+		// directly and never takes this await-before-request path.
+		if (cleanupInProgress) await cleanupPending;
 		if (!await root.surrealXRRequestSession()) return false;
 		return root.surrealXRActivateReservedSession();
 	};
@@ -1565,6 +1597,7 @@
 		result.bridgeDiagnostics = copyBridgeDiagnostics(status.bridgeDiagnostics);
 		result.inputDiagnostics = copyInputDiagnostics(status.inputDiagnostics);
 		result.sessionEndBlocked = sessionEndBlocked;
+		result.cleanupPending = cleanupInProgress;
 		result.inputQueueDepth = queuedInputPackets.length;
 		result.inputQueueOverflow = inputQueueOverflow;
 		result.haptics = snapshotHapticStatus();

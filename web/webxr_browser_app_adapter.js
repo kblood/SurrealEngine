@@ -35,6 +35,215 @@
 		}
 	}
 
+	const SESSION_STATES = Object.freeze({
+		WAITING_FOR_ENGINE: "WaitingForEngine",
+		FLAT_RUNNING: "FlatRunning",
+		REQUESTING_SESSION: "RequestingSession",
+		ACTIVATING_XR: "ActivatingXR",
+		IMMERSIVE_RUNNING: "ImmersiveRunning",
+		ENDING_XR: "EndingXR",
+	});
+
+	function errorMessage(error, fallback) {
+		return error && error.message ? error.message : (error ? String(error) : fallback);
+	}
+
+	class WebXRSessionController {
+		constructor(capability, uiRoot, environment) {
+			this.host = environment || root;
+			this.capability = capability || result(false, "not-probed", "WebXR has not been checked.");
+			this.root = uiRoot || null;
+			this.enterButton = this.root && this.root.querySelector("[data-xr-enter]");
+			this.exitButton = this.root && this.root.querySelector("[data-xr-exit]");
+			this.statusLabel = this.root && this.root.querySelector("[data-xr-session-status]");
+			this.errorLabel = this.root && this.root.querySelector("[data-xr-session-error]");
+			this.backend = this.root && this.root.querySelector("[data-xr-session-backend]");
+			this.blockingTiming = this.root && this.root.querySelector("[data-xr-session-bridge-blocking-timing]");
+			this.rotationReprojection = this.root && this.root.querySelector("[data-xr-session-bridge-rotation-reprojection]");
+			this.Module = null;
+			this.engineRunning = false;
+			this.operation = 0;
+			this.currentState = SESSION_STATES.WAITING_FOR_ENGINE;
+			this.lastError = null;
+			this._providerStateChanged = () => this.refreshFromProvider();
+			if (this.enterButton) this.enterButton.addEventListener("click", () => { void this.enter(); });
+			if (this.exitButton) this.exitButton.addEventListener("click", () => { void this.exit(); });
+			if (this.backend) this.backend.addEventListener("change", () => this._render());
+			if (typeof this.host.addEventListener === "function")
+				this.host.addEventListener("surrealwebxrproviderstate", this._providerStateChanged);
+			this._render();
+		}
+
+		attachModule(Module) {
+			this.Module = Module || null;
+			return this;
+		}
+
+		updateCapability(capability) {
+			this.capability = capability || result(false, "not-probed", "WebXR has not been checked.");
+			this._render();
+			return this.status();
+		}
+
+		engineStarted() {
+			this.engineRunning = true;
+			this._transition(SESSION_STATES.FLAT_RUNNING, null);
+			if (this.root) this.root.hidden = false;
+		}
+
+		_preference() {
+			return this.backend && this.backend.value === "webgl-bridge" ? "webgl-bridge" : "auto";
+		}
+
+		_configureProvider() {
+			const preference = this._preference();
+			if (typeof this.host.surrealXRSetPresentationPreference === "function")
+				this.host.surrealXRSetPresentationPreference(preference);
+			else if (preference !== "auto")
+				throw new Error("This WebXR provider cannot force the WebGL compatibility bridge.");
+			const forcedBridge = preference === "webgl-bridge";
+			const blocking = forcedBridge && !!this.blockingTiming && this.blockingTiming.checked;
+			const reprojection = forcedBridge && !!this.rotationReprojection && this.rotationReprojection.checked;
+			if (typeof this.host.surrealXRSetBridgeBlockingTiming === "function")
+				this.host.surrealXRSetBridgeBlockingTiming(blocking);
+			else if (blocking) throw new Error("This WebXR provider cannot enable QA blocking timing.");
+			if (typeof this.host.surrealXRSetBridgeRotationReprojection === "function")
+				this.host.surrealXRSetBridgeRotationReprojection(reprojection);
+			else if (reprojection) throw new Error("This WebXR provider cannot enable rotation-only late reprojection.");
+		}
+
+		_transition(state, message) {
+			this.currentState = state;
+			this.lastError = message || null;
+			this._render();
+			publish(this.host, state, message || this._statusMessage());
+		}
+
+		_statusMessage() {
+			const messages = {
+				WaitingForEngine: "Start the game before entering VR.",
+				FlatRunning: this.capability.available ? "Game running in the browser window. VR is ready." : this.capability.message,
+				RequestingSession: "Waiting for the headset to grant an immersive session…",
+				ActivatingXR: "Preparing immersive rendering without restarting the game…",
+				ImmersiveRunning: "Immersive WebXR session active.",
+				EndingXR: "Leaving VR and returning to the browser window…",
+			};
+			return messages[this.currentState] || this.currentState;
+		}
+
+		_render() {
+			const flat = this.currentState === SESSION_STATES.FLAT_RUNNING;
+			const immersive = this.currentState === SESSION_STATES.IMMERSIVE_RUNNING;
+			const pending = this.currentState === SESSION_STATES.REQUESTING_SESSION ||
+				this.currentState === SESSION_STATES.ACTIVATING_XR || this.currentState === SESSION_STATES.ENDING_XR;
+			if (this.statusLabel) this.statusLabel.textContent = this._statusMessage();
+			if (this.errorLabel) {
+				this.errorLabel.hidden = !this.lastError;
+				this.errorLabel.textContent = this.lastError || "";
+			}
+			if (this.enterButton) this.enterButton.disabled = !this.engineRunning || !flat || !this.capability.available;
+			if (this.exitButton) {
+				this.exitButton.hidden = !(immersive || this.currentState === SESSION_STATES.ENDING_XR);
+				this.exitButton.disabled = !immersive;
+			}
+			if (this.backend) this.backend.disabled = !flat || pending;
+			const bridge = flat && this._preference() === "webgl-bridge";
+			if (this.blockingTiming) this.blockingTiming.disabled = !bridge || pending;
+			if (this.rotationReprojection) this.rotationReprojection.disabled = !bridge || pending;
+		}
+
+		async enter() {
+			if (!this.engineRunning || this.currentState !== SESSION_STATES.FLAT_RUNNING || !this.capability.available)
+				return false;
+			const operation = ++this.operation;
+			try {
+				this._configureProvider();
+				this.host.surrealWebGPUDevice = this.Module && this.Module.preinitializedWebGPUDevice;
+				this._transition(SESSION_STATES.REQUESTING_SESSION, null);
+				// Keep requestSession in the trusted click call stack. Do not await any
+				// preparation or cleanup before asking the browser for the session.
+				if (typeof this.host.surrealXRRequestSession !== "function")
+					throw new Error("The WebXR runtime provider is not loaded.");
+				const request = this.host.surrealXRRequestSession();
+				const reserved = await request;
+				if (operation !== this.operation) return false;
+				if (!reserved) throw new Error(this._providerError("The headset declined the immersive session."));
+				this._transition(SESSION_STATES.ACTIVATING_XR, null);
+				if (typeof this.host.surrealXRActivateReservedSession !== "function" ||
+					!await this.host.surrealXRActivateReservedSession())
+					throw new Error(this._providerError("Immersive presentation could not be activated."));
+				if (operation !== this.operation) return false;
+				this._transition(SESSION_STATES.IMMERSIVE_RUNNING, null);
+				return true;
+			} catch (error) {
+				if (operation !== this.operation) return false;
+				this._transition(SESSION_STATES.FLAT_RUNNING,
+					errorMessage(error, "Immersive entry failed.") + " The game is still running in the browser window; you can retry.");
+				return false;
+			}
+		}
+
+		async exit() {
+			if (this.currentState !== SESSION_STATES.IMMERSIVE_RUNNING) return false;
+			const operation = ++this.operation;
+			this._transition(SESSION_STATES.ENDING_XR, null);
+			let accepted = false;
+			try { accepted = typeof this.host.surrealXRExit === "function" && this.host.surrealXRExit(); }
+			catch (error) {
+				this._transition(SESSION_STATES.FLAT_RUNNING,
+					errorMessage(error, "Could not end the immersive session.") + " The flat game remains available.");
+				return false;
+			}
+			if (!accepted) {
+				this._transition(SESSION_STATES.FLAT_RUNNING,
+					this._providerError("The immersive session was already unavailable."));
+				return false;
+			}
+			this._settleFlatWhenProviderReady(operation);
+			return true;
+		}
+
+		_providerError(fallback) {
+			const state = typeof this.host.surrealXRGetState === "function" ? this.host.surrealXRGetState() : null;
+			return state && state.lastError || fallback;
+		}
+
+		_settleFlatWhenProviderReady(operation) {
+			const state = typeof this.host.surrealXRGetState === "function" ? this.host.surrealXRGetState() : null;
+			if (operation !== this.operation) return;
+			if (!state || (!state.active && !state.cleanupPending && !state.sessionEndBlocked)) {
+				this._transition(SESSION_STATES.FLAT_RUNNING, state && state.lastError || null);
+				return;
+			}
+			if (typeof this.host.setTimeout === "function")
+				this.host.setTimeout(() => this._settleFlatWhenProviderReady(operation), 25);
+		}
+
+		refreshFromProvider() {
+			const state = typeof this.host.surrealXRGetState === "function" ? this.host.surrealXRGetState() : null;
+			if ((this.currentState === SESSION_STATES.REQUESTING_SESSION ||
+				this.currentState === SESSION_STATES.ACTIVATING_XR) && state && !state.active &&
+				(state.phase === "error" || state.phase === "ended")) {
+				const operation = ++this.operation;
+				this._transition(SESSION_STATES.ENDING_XR, null);
+				this._settleFlatWhenProviderReady(operation);
+				return this.status();
+			}
+			if (this.currentState === SESSION_STATES.IMMERSIVE_RUNNING || this.currentState === SESSION_STATES.ENDING_XR)
+				this._settleFlatWhenProviderReady(this.operation);
+			return this.status();
+		}
+
+		status() {
+			return Object.freeze({ state: this.currentState, engineRunning: this.engineRunning,
+				available: this.capability.available === true, lastError: this.lastError });
+		}
+	}
+
+	function createSessionController(capability, uiRoot, environment) {
+		return new WebXRSessionController(capability, uiRoot, environment);
+	}
+
 	function publishAdapter(host, available, detail) {
 		if (host && typeof host.dispatchEvent === "function" && typeof host.CustomEvent === "function") {
 			host.dispatchEvent(new host.CustomEvent("surrealwebxradapter", {
@@ -143,5 +352,6 @@
 		});
 	}
 
-	root.SurrealWebXRBrowserProvider = Object.freeze({ probe, createProvider });
+	root.SurrealWebXRBrowserProvider = Object.freeze({ probe, createProvider, createSessionController,
+		WebXRSessionController, SESSION_STATES });
 })(typeof window !== "undefined" ? window : globalThis);

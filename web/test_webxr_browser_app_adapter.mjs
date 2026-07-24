@@ -6,88 +6,155 @@ Object.defineProperty(globalThis, "navigator", {
 	value: { xr: { isSessionSupported: async mode => mode === "immersive-vr" } },
 });
 globalThis.XRGPUBinding = function () {};
-const device = { label: "shared-device" };
-const lifecycle = [];
-globalThis.surrealXRSetPresentationPreference = preference => {
-	lifecycle.push("preference:" + preference);
-};
-globalThis.surrealXRSetBridgeBlockingTiming = enabled => {
-	lifecycle.push("blocking-timing:" + enabled);
-};
-globalThis.surrealXRSetBridgeRotationReprojection = enabled => {
-	lifecycle.push("rotation-reprojection:" + enabled);
-};
-globalThis.surrealXRRequestSession = async () => {
-	lifecycle.push("request-session");
-	assert.notEqual(globalThis.surrealWebGPUDevice, device, "prepare must not depend on activation wiring");
-	return true;
-};
-globalThis.surrealXRActivateReservedSession = async () => {
-	lifecycle.push("activate-reserved");
-	assert.equal(globalThis.surrealWebGPUDevice, device);
-	return true;
-};
 
 await import("./webxr_browser_app_adapter.js");
-const capability = await globalThis.SurrealWebXRBrowserProvider.probe();
-const provider = globalThis.SurrealWebXRBrowserProvider.createProvider(capability);
-assert.equal(provider.id, "webxr");
-assert.equal(provider.isAvailable(), true);
-const reservation = await provider.prepareLaunch({ selection: {
-	webXRPresentationPreference: "webgl-bridge", webXRBridgeBlockingTiming: true,
-	webXRBridgeRotationReprojection: true,
-} });
-assert.equal(reservation.reserved, true);
-assert.deepEqual(lifecycle, ["preference:webgl-bridge", "blocking-timing:true",
-	"rotation-reprojection:true", "request-session"]);
-await provider.activate({ Module: { preinitializedWebGPUDevice: device }, selection: {} });
-assert.deepEqual(lifecycle, ["preference:webgl-bridge", "blocking-timing:true",
-	"rotation-reprojection:true", "request-session", "activate-reserved"]);
+const api = globalThis.SurrealWebXRBrowserProvider;
+const capability = await api.probe();
+assert.equal(capability.available, true);
 
-const unavailableHost = {
-	navigator: globalThis.navigator,
-	XRGPUBinding: globalThis.XRGPUBinding,
-	surrealXRSetPresentationPreference(preference) { assert.equal(preference, "webgl-bridge"); },
-	surrealXRSetBridgeBlockingTiming(enabled) { assert.equal(enabled, false); },
-	surrealXRSetBridgeRotationReprojection(enabled) { assert.equal(enabled, false); },
-	async surrealXRRequestSession() { return false; },
-	surrealXRGetState() { return { lastError: "WebGL compatibility bridge was requested but is unavailable" }; },
-};
-const unavailable = await globalThis.SurrealWebXRBrowserProvider.createProvider(capability, unavailableHost)
-	.prepareLaunch({ selection: { webXRPresentationPreference: "webgl-bridge" } });
-assert.equal(unavailable.reserved, false);
-assert.equal(unavailable.fallback, "flat");
-assert.match(unavailable.message, /requested but is unavailable/);
+function deferred() {
+	let resolve;
+	const promise = new Promise(done => { resolve = done; });
+	return { promise, resolve };
+}
 
-const oldForcedProvider = globalThis.SurrealWebXRBrowserProvider.createProvider(capability, {
-	navigator: globalThis.navigator, XRGPUBinding: globalThis.XRGPUBinding,
-	async surrealXRRequestSession() { throw new Error("must not reserve with an unsupported forced preference"); },
-});
-const oldForced = await oldForcedProvider.prepareLaunch({ selection: { webXRPresentationPreference: "webgl-bridge" } });
-assert.equal(oldForced.fallback, "flat");
-assert.match(oldForced.message, /cannot force the WebGL compatibility bridge/);
+function makeHost() {
+	const host = new EventTarget();
+	host.CustomEvent = globalThis.CustomEvent;
+	host.navigator = globalThis.navigator;
+	host.XRGPUBinding = globalThis.XRGPUBinding;
+	host.setTimeout = callback => { host.timer = callback; };
+	host.lifecycle = [];
+	host.providerState = { active: false, cleanupPending: false, sessionEndBlocked: false, lastError: null };
+	host.surrealXRGetState = () => ({ ...host.providerState });
+	host.surrealXRSetPresentationPreference = value => host.lifecycle.push("preference:" + value);
+	host.surrealXRSetBridgeBlockingTiming = value => host.lifecycle.push("blocking:" + value);
+	host.surrealXRSetBridgeRotationReprojection = value => host.lifecycle.push("reprojection:" + value);
+	return host;
+}
 
-const automaticLifecycle = [];
-const automaticHost = {
-	navigator: globalThis.navigator, XRGPUBinding: globalThis.XRGPUBinding,
-	surrealXRSetPresentationPreference(value) { automaticLifecycle.push("preference:" + value); },
-	surrealXRSetBridgeBlockingTiming(value) { automaticLifecycle.push("blocking-timing:" + value); },
-	surrealXRSetBridgeRotationReprojection(value) { automaticLifecycle.push("rotation-reprojection:" + value); },
-	async surrealXRRequestSession() { automaticLifecycle.push("request-session"); return true; },
-};
-const automatic = await globalThis.SurrealWebXRBrowserProvider.createProvider(capability, automaticHost)
-	.prepareLaunch({ selection: { webXRPresentationPreference: "auto", webXRBridgeBlockingTiming: true } });
-assert.equal(automatic.reserved, true);
-assert.deepEqual(automaticLifecycle, ["preference:auto", "blocking-timing:false",
-	"rotation-reprojection:false", "request-session"]);
+{
+	const host = makeHost();
+	const request = deferred();
+	const activation = deferred();
+	host.surrealXRRequestSession = () => {
+		host.lifecycle.push("request-session");
+		return request.promise;
+	};
+	host.surrealXRActivateReservedSession = () => {
+		host.lifecycle.push("activate-reserved");
+		return activation.promise;
+	};
+	host.surrealXRExit = () => {
+		host.lifecycle.push("exit");
+		host.providerState = { ...host.providerState, active: false, cleanupPending: true };
+		return true;
+	};
+	let mainCalls = 0;
+	const identities = {
+		heap: new ArrayBuffer(64), map: { name: "DM-Turbine" }, player: { id: 7 },
+		renderer: { backend: "webgl2" }, audio: { context: "same" }, mounts: new Map([["/gamedata", true]]),
+	};
+	const module = { preinitializedWebGPUDevice: { label: "shared-device" }, identities,
+		callMain() { mainCalls++; } };
+	const controller = api.createSessionController(capability, null, host);
+	controller.attachModule(module);
+	assert.equal(controller.status().state, api.SESSION_STATES.WAITING_FOR_ENGINE);
+	assert.equal(await controller.enter(), false, "entry was admitted before native startup");
+	controller.engineStarted();
+	assert.equal(controller.status().state, api.SESSION_STATES.FLAT_RUNNING);
 
-let legacyEntries = 0;
-const legacyHost = {
-	navigator: globalThis.navigator,
-	XRGPUBinding: globalThis.XRGPUBinding,
-	async surrealXREnter() { legacyEntries++; return true; },
-};
-const legacyProvider = globalThis.SurrealWebXRBrowserProvider.createProvider(capability, legacyHost);
-await legacyProvider.activate({ Module: { preinitializedWebGPUDevice: device }, selection: {} });
-assert.equal(legacyEntries, 1, "older provider scripts retain their flat/immersive activation path");
-console.log("WebXR browser launcher reservation and activation test passed");
+	const entering = controller.enter();
+	assert.deepEqual(host.lifecycle, ["preference:auto", "blocking:false", "reprojection:false", "request-session"],
+		"requestSession was not invoked synchronously from the entry call");
+	assert.equal(controller.status().state, api.SESSION_STATES.REQUESTING_SESSION);
+	request.resolve(true);
+	await Promise.resolve();
+	assert.equal(controller.status().state, api.SESSION_STATES.ACTIVATING_XR);
+	assert.equal(host.surrealWebGPUDevice, module.preinitializedWebGPUDevice);
+	activation.resolve(true);
+	assert.equal(await entering, true);
+	host.providerState = { ...host.providerState, active: true };
+	assert.equal(controller.status().state, api.SESSION_STATES.IMMERSIVE_RUNNING);
+
+	assert.equal(await controller.exit(), true);
+	assert.equal(controller.status().state, api.SESSION_STATES.ENDING_XR);
+	host.providerState = { ...host.providerState, cleanupPending: false };
+	controller.refreshFromProvider();
+	assert.equal(controller.status().state, api.SESSION_STATES.FLAT_RUNNING);
+
+	const secondRequest = deferred();
+	host.surrealXRRequestSession = () => { host.lifecycle.push("request-session-2"); return secondRequest.promise; };
+	host.surrealXRActivateReservedSession = async () => { host.lifecycle.push("activate-reserved-2"); return true; };
+	const reentering = controller.enter();
+	secondRequest.resolve(true);
+	assert.equal(await reentering, true);
+	assert.equal(controller.status().state, api.SESSION_STATES.IMMERSIVE_RUNNING,
+		"the same controller could not re-enter without restarting the engine");
+	host.providerState = { ...host.providerState, active: false, cleanupPending: false, phase: "ended" };
+	controller.refreshFromProvider();
+	assert.equal(controller.status().state, api.SESSION_STATES.FLAT_RUNNING,
+		"a headset/system session end did not restore flat play");
+	assert.equal(mainCalls, 0, "an XR transition called native main a second time");
+	assert.equal(module.identities, identities);
+	for (const [name, value] of Object.entries(identities))
+		assert.equal(module.identities[name], value, name + " identity changed across flat/XR transitions");
+}
+
+{
+	const host = makeHost();
+	host.providerState.lastError = "headset permission denied";
+	host.surrealXRRequestSession = () => Promise.resolve(false);
+	const controller = api.createSessionController(capability, null, host);
+	controller.attachModule({});
+	controller.engineStarted();
+	assert.equal(await controller.enter(), false);
+	assert.equal(controller.status().state, api.SESSION_STATES.FLAT_RUNNING);
+	assert.match(controller.status().lastError, /permission denied.*still running.*retry/i);
+	assert.equal(await controller.enter(), false, "a denied session made retry impossible");
+}
+
+{
+	const host = makeHost();
+	host.surrealXRRequestSession = async () => true;
+	host.surrealXRActivateReservedSession = async () => {
+		host.providerState = { ...host.providerState, phase: "error", lastError: "projection layer setup failed" };
+		return false;
+	};
+	const controller = api.createSessionController(capability, null, host);
+	controller.attachModule({});
+	controller.engineStarted();
+	assert.equal(await controller.enter(), false);
+	assert.equal(controller.status().state, api.SESSION_STATES.FLAT_RUNNING);
+	assert.match(controller.status().lastError, /projection layer setup failed.*still running/i);
+}
+
+{
+	const host = makeHost();
+	const delayedRequest = deferred();
+	let activations = 0;
+	host.surrealXRRequestSession = () => delayedRequest.promise;
+	host.surrealXRActivateReservedSession = async () => { activations++; return true; };
+	const controller = api.createSessionController(capability, null, host);
+	controller.attachModule({});
+	controller.engineStarted();
+	const staleEntry = controller.enter();
+	host.providerState = { ...host.providerState, phase: "error", lastError: "session ended during request" };
+	controller.refreshFromProvider();
+	delayedRequest.resolve(true);
+	assert.equal(await staleEntry, false);
+	assert.equal(activations, 0, "a stale request completion activated a superseded session");
+	assert.equal(controller.status().state, api.SESSION_STATES.FLAT_RUNNING);
+}
+
+{
+	const unavailable = { available: false, code: "immersive-vr-unsupported", message: "No headset found." };
+	const host = makeHost();
+	host.surrealXRRequestSession = () => { throw new Error("unavailable controller requested a session"); };
+	const controller = api.createSessionController(unavailable, null, host);
+	controller.engineStarted();
+	assert.equal(await controller.enter(), false);
+	assert.equal(controller.status().state, api.SESSION_STATES.FLAT_RUNNING);
+}
+
+console.log("WebXR post-launch session controller lifecycle test passed");

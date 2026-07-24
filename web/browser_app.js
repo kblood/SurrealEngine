@@ -395,6 +395,8 @@
 				settings.audioController.engineStarted();
 			if (settings.viewportController && typeof settings.viewportController.engineStarted === "function")
 				settings.viewportController.engineStarted();
+			if (settings.xrController && typeof settings.xrController.engineStarted === "function")
+				settings.xrController.engineStarted();
 			tracker.transition("presentation-activation");
 			await activatePresentation(settings.registry, settings.selection, settings.Module);
 			tracker.transition("running");
@@ -662,7 +664,7 @@
 							selectLaunch: context => { if (context.metadata) { library.register(context.metadata); libraryUI.refresh(); } return launcher.selectLaunch(context); },
 							launch: selection => runLaunchBoundary({ Module, selection, registry,
 								audioController: options.audioController, onLaunch: options.onLaunch,
-								viewportController,
+								viewportController, xrController: options.xrController,
 								onStartupStage: options.onStartupStage, environment: options.environment || global,
 								waitForPaint: options.waitForPaint }),
 						});
@@ -670,6 +672,7 @@
 							state: started.result && started.result.import && started.result.import.state || null,
 						});
 						resolve(Object.freeze({ Module, launcher, registry, library, libraryUI, viewportController,
+							xrController: options.xrController || null,
 							dataController: started.controller, result: started.result }));
 					} catch (error) { reject(error); }
 				},
@@ -677,6 +680,7 @@
 			global.Module = Module;
 			viewportController.attachModule(Module);
 			if (options.audioController && typeof options.audioController.attachModule === "function") options.audioController.attachModule(Module);
+			if (options.xrController && typeof options.xrController.attachModule === "function") options.xrController.attachModule(Module);
 			const script = global.document.createElement("script");
 			script.src = options.engineScript || DEFAULT_ENGINE_SCRIPT;
 			script.onload = () => runtimeMilestone("engine-script-loaded");
