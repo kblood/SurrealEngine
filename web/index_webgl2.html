@@ -7,13 +7,24 @@
 <style>
 	body { margin: 0; background: #111; color: #eee; font: 14px system-ui, sans-serif; }
 	canvas { display: block; width: min(100vw, 1280px); height: auto; background: #000; }
-	#game-data-importer, pre { max-width: 72rem; padding: 1rem; }
+	#game-data-importer, #browser-audio, .pointer-lock-control, pre { max-width: 72rem; padding: 1rem; }
 	.actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 	[data-game-files] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 </style>
 </head>
 <body>
 <canvas id="canvas" width="1280" height="720" tabindex="0"></canvas>
+<div class="pointer-lock-control" data-pointer-lock-control hidden>
+	<button type="button" data-pointer-lock-capture>Capture mouse</button>
+	<span data-pointer-lock-message></span>
+</div>
+<section id="browser-audio" aria-live="polite">
+	<strong data-audio-state>waiting for game</strong>
+	<button type="button" data-audio-unlock hidden>Enable audio</button>
+	<label><input type="checkbox" data-audio-mute>Mute</label>
+	<label>Volume <input type="range" data-audio-volume min="0" max="1" step="0.05" value="1"></label>
+	<p data-audio-error hidden></p>
+</section>
 <section id="game-data-importer" hidden aria-live="polite">
 	<h1>Import game data</h1>
 	<p data-game-status></p><p data-game-error hidden></p>
@@ -30,6 +41,7 @@
 <script src="mutable_persistence.js"></script>
 <script src="browser_data_bootstrap.js"></script>
 <script src="pointer_lock_gesture.js"></script>
+<script src="browser_audio.js"></script>
 <script>
 "use strict";
 const query = new URLSearchParams(location.search);
@@ -40,6 +52,8 @@ const logElement = document.getElementById("log");
 window.surrealLog = [];
 window.surrealBooted = false;
 window.surrealCrashed = null;
+window.surrealBrowserAudio = SurrealBrowserAudio.create(document.getElementById("browser-audio"));
+SurrealBrowserPointerLock.setInteractive(false);
 function appendLog(value) {
 	const line = String(value);
 	window.surrealLog.push(line);
@@ -62,6 +76,7 @@ var Module = {
 	printErr: appendLog,
 	onRuntimeInitialized: () => {
 		appendLog("[harness] runtime initialized, preparing game data");
+		window.surrealBrowserAudio.attachModule(Module);
 		window.surrealDataBootPromise = SurrealBrowserData.start(Module, {
 			uiRoot: document.getElementById("game-data-importer"),
 			log: appendLog,
@@ -69,6 +84,9 @@ var Module = {
 			preferredMap,
 			launch: selection => {
 				Module.callMain(["--autoplay", "--url=" + selection.map, "--render=webgl2", "/gamedata"]);
+				window.surrealBrowserAudio.engineStarted();
+				SurrealBrowserPointerLock.setInteractive(true);
+				SurrealBrowserPointerLock.setRequested(true);
 				window.surrealBooted = true;
 			},
 		}).then(started => {
@@ -95,7 +113,11 @@ window.surrealGetWebGL2Diagnostics = () => ({
 	contextLossStatuses: nativeCounter("Surreal_GetWebGL2ContextLossStatusCount"),
 	drawCalls: nativeCounter("Surreal_GetWebGL2DrawCallCount"),
 	textures: nativeCounter("Surreal_GetWebGL2TextureCount"),
+	drawingBufferWidth: nativeCounter("Surreal_GetWebGL2DrawingBufferWidth"),
+	drawingBufferHeight: nativeCounter("Surreal_GetWebGL2DrawingBufferHeight"),
 });
+window.surrealGetAudioDiagnostics = () => window.surrealBrowserAudio.diagnostics();
+window.surrealGetPointerLockDiagnostics = () => SurrealBrowserPointerLock.status();
 window.surrealLoseWebGL2Context = () => {
 	const gl = canvas.getContext("webgl2");
 	const extension = gl && gl.getExtension("WEBGL_lose_context");

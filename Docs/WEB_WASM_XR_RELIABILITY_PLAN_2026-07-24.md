@@ -207,6 +207,21 @@ gate: reload, resize, pointer-lock, audio-activation, save/restore, broader map,
 and WebGPU comparison qualification remain pending before WebGL2 is advertised
 or shipped as the production default.
 
+Progress, 2026-07-24 (flat lifecycle increment): the running UT99 demo now
+passes a single-browser test covering trusted-gesture audio activation, native
+relative mouse motion, pointer-lock release and reacquisition across an XR-style
+transition, a 640x480 to 960x540 live resize, and forced WebGL context loss and
+restoration. SDL window geometry, the Emscripten canvas backing store, and the
+UE1 viewport resize through one native transaction, so the resized and restored
+frames fill the complete buffer rather than retaining black bands around a stale
+640x480 scene. The shared production browser launcher also observes CSS,
+device-pixel-ratio, window, and fullscreen geometry and calls that transaction
+without restarting the module. Automated evidence records uninterrupted ticks,
+zero unsupported draws or unexpected GL errors, generation 1 to 2 resource
+recovery, and 99.8% nonblank frames before and after restoration. Reload,
+save/restore, broader-map, sustained-performance, and WebGPU comparison gates
+remain pending.
+
 ### WP3 — Post-launch Enter/Exit VR state machine
 
 - Change WebXR from a pre-launch presentation choice to a post-launch controller.

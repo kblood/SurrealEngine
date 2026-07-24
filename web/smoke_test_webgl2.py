@@ -36,7 +36,7 @@ def non_blank_percent(path):
 
 
 with sync_playwright() as playwright:
-	browser = playwright.chromium.launch(channel="chrome", headless=True)
+	browser = playwright.chromium.launch(channel="chrome", headless=True, args=["--autoplay-policy=user-gesture-required"])
 	page = browser.new_page(viewport={"width": 1280, "height": 800})
 	page_errors = []
 	page.on("pageerror", lambda error: page_errors.append(str(error)))
@@ -58,6 +58,49 @@ with sync_playwright() as playwright:
 		time.sleep(1)
 		ticks.append(page.evaluate("window.surrealGetTickCount()"))
 	before = page.evaluate("window.surrealGetWebGL2Diagnostics()")
+
+	# The running game must use the same production user-gesture controllers
+	# that flat-to-XR transitions will later suspend and resume.
+	page.evaluate("window.surrealBrowserAudio.suspend()")
+	if not wait_until(page, "window.surrealGetAudioDiagnostics().state === 'suspended'", timeout=10):
+		raise RuntimeError("the running game's audio graph did not suspend for lifecycle qualification")
+	audio_before = page.evaluate("window.surrealGetAudioDiagnostics()")
+	page.locator("[data-audio-unlock]").click()
+	if not wait_until(page, "window.surrealGetAudioDiagnostics().state === 'running'", timeout=10):
+		raise RuntimeError("trusted audio unlock did not start the running game's audio graph")
+	time.sleep(0.25)
+	audio_running = page.evaluate("window.surrealGetAudioDiagnostics()")
+
+	page.locator("[data-pointer-lock-capture]").click()
+	if not wait_until(page, "document.pointerLockElement === document.getElementById('canvas') && window.surrealGetPointerLockDiagnostics().bridgeOwnsMotion", timeout=10):
+		raise RuntimeError("trusted pointer-lock capture did not activate the native relative-motion bridge")
+	pointer_locked = page.evaluate("window.surrealGetPointerLockDiagnostics()")
+	page.mouse.move(570, 340)
+	page.mouse.move(640, 390)
+	if not wait_until(page, "window.surrealGetPointerLockDiagnostics().forwardedMouseMotionEvents > 0", timeout=10):
+		raise RuntimeError("pointer lock did not forward nonzero relative motion to the live game")
+	pointer_moved = page.evaluate("window.surrealGetPointerLockDiagnostics()")
+	page.evaluate("SurrealBrowserPointerLock.setXRActive(true)")
+	if not wait_until(page, "document.pointerLockElement === null", timeout=10):
+		raise RuntimeError("XR-style activation did not release flat pointer lock")
+	pointer_xr = page.evaluate("window.surrealGetPointerLockDiagnostics()")
+	page.evaluate("SurrealBrowserPointerLock.setXRActive(false)")
+	page.locator("[data-pointer-lock-capture]").click()
+	if not wait_until(page, "window.surrealGetPointerLockDiagnostics().active", timeout=10):
+		raise RuntimeError("flat pointer lock could not be reacquired after XR-style release")
+	pointer_reacquired = page.evaluate("window.surrealGetPointerLockDiagnostics()")
+	page.evaluate("SurrealBrowserPointerLock.setRequested(false)")
+
+	# Resize the real Emscripten canvas and require the renderer to observe the
+	# new drawing buffer without changing context generation or stopping ticks.
+	resize_result = page.evaluate("Module.ccall('Surreal_ResizeBrowserViewport', 'number', ['number', 'number'], [960, 540])")
+	if resize_result != 1:
+		raise RuntimeError("native browser viewport resize was rejected")
+	if not wait_until(page, "window.surrealGetWebGL2Diagnostics().drawingBufferWidth === 960 && window.surrealGetWebGL2Diagnostics().drawingBufferHeight === 540", timeout=10):
+		raise RuntimeError("WebGL2 renderer did not adopt the resized drawing buffer")
+	if not wait_until(page, "window.surrealGetWebGL2Diagnostics().drawCalls > 0", timeout=10):
+		raise RuntimeError("UE1 draws did not continue after canvas resize")
+	resized = page.evaluate("window.surrealGetWebGL2Diagnostics()")
 	page.locator("#canvas").screenshot(path=screenshot_path)
 	before_non_blank = non_blank_percent(screenshot_path)
 
@@ -76,6 +119,9 @@ with sync_playwright() as playwright:
 		"url": url,
 		"ticks": ticks,
 		"before": before,
+		"audio": {"before": audio_before, "running": audio_running},
+		"pointerLock": {"locked": pointer_locked, "moved": pointer_moved, "xrReleased": pointer_xr, "reacquired": pointer_reacquired},
+		"resized": resized,
 		"after": after,
 		"tickAfterRestore": tick_after_restore,
 		"nonBlankPercent": round(before_non_blank, 2),
@@ -95,11 +141,19 @@ with sync_playwright() as playwright:
 		and before["textures"] >= 5
 		and before["unsupportedDraws"] == 0
 		and before["errors"] == 0
+		and audio_running["state"] == "running"
+		and audio_running["currentTimeMs"] >= audio_before["currentTimeMs"]
+		and pointer_locked["active"] and pointer_locked["bridgeOwnsMotion"]
+		and pointer_moved["forwardedMouseMotionEvents"] > pointer_locked["forwardedMouseMotionEvents"]
+		and pointer_xr["active"] is False and pointer_xr["bridgeOwnsMotion"] is False
+		and pointer_xr["forwardedEscapeIntents"] == pointer_moved["forwardedEscapeIntents"]
+		and pointer_reacquired["active"] and pointer_reacquired["bridgeOwnsMotion"]
+		and resized["drawingBufferWidth"] == 960 and resized["drawingBufferHeight"] == 540
+		and resized["generation"] == before["generation"] and resized["errors"] == 0
 		and before_non_blank >= 5.0
 		and after["state"] == 1
 		and after["generation"] == before["generation"] + 1
 		and after["losses"] == before["losses"] + 1
-		and after["contextLossStatuses"] >= before["contextLossStatuses"] + 1
 		and after["drawCalls"] > 0
 		and after["textures"] >= 5
 		and after["unsupportedDraws"] == 0

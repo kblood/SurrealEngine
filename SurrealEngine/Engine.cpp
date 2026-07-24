@@ -193,6 +193,11 @@ extern "C"
 			engine->quit = true;
 	}
 
+	EMSCRIPTEN_KEEPALIVE int Surreal_ResizeBrowserViewport(int width, int height)
+	{
+		return engine && engine->ResizeBrowserViewport(width, height) ? 1 : 0;
+	}
+
 	EMSCRIPTEN_KEEPALIVE void Surreal_ForwardBrowserEscape()
 	{
 		BrowserEscapeIntentPending.store(true, std::memory_order_release);
@@ -2631,6 +2636,27 @@ void Engine::OpenWindow()
 		window->ShowFullscreen();
 	else
 		window->ShowNormal();
+}
+
+bool Engine::ResizeBrowserViewport(int width, int height)
+{
+	// Keep SDL's window geometry, the Emscripten canvas backing store, and
+	// UE1's viewport in one transaction. Changing canvas.width/height from JS
+	// alone leaves SDL and FSceneNode at the old dimensions, producing a valid
+	// WebGL buffer with black bands outside the stale game viewport.
+	if (!window || !viewport || width < 320 || height < 200 || width > 8192 || height > 8192)
+		return false;
+	auto geometry = window->GetFrameGeometry();
+	geometry.width = width;
+	geometry.height = height;
+	window->SetFrameGeometry(geometry);
+	viewport->SetViewportRect(0, 0, width, height);
+	if (client)
+	{
+		client->WindowedViewportX = width;
+		client->WindowedViewportY = height;
+	}
+	return window->GetPixelWidth() == width && window->GetPixelHeight() == height;
 }
 
 void Engine::CloseWindow()

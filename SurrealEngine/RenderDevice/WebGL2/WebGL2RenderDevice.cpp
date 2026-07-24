@@ -714,4 +714,6 @@ extern "C"
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2ContextLossStatusCount() { return ActiveDevice ? static_cast<int>(ActiveDevice->ContextLossStatusCount()) : 0; }
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2DrawCallCount() { return ActiveDevice ? static_cast<int>(ActiveDevice->DrawCallCount()) : 0; }
 	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2TextureCount() { return ActiveDevice ? static_cast<int>(ActiveDevice->TextureCount()) : 0; }
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2DrawingBufferWidth() { return ActiveDevice ? ActiveDevice->DrawingBufferWidth() : 0; }
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetWebGL2DrawingBufferHeight() { return ActiveDevice ? ActiveDevice->DrawingBufferHeight() : 0; }
 }

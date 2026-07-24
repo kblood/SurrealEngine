@@ -88,6 +88,30 @@ window.browserAppTestPromise = (async () => {
 		assert(environment.surrealCrashed === uncaughtDetail && uncaughtDetail.includes("test RAF failure"));
 		assert(uncaughtDetail.startsWith("Uncaught browser runtime error:"));
 	});
+	await run("flat viewport resize keeps CSS pixels, device scale, and native geometry synchronized", async () => {
+		const environment = new EventTarget();
+		environment.document = new EventTarget();
+		environment.devicePixelRatio = 2;
+		let bounds = { width: 640, height: 360 };
+		const canvas = { getBoundingClientRect: () => bounds };
+		const calls = [];
+		const controller = new api.BrowserViewportController(canvas, { environment });
+		controller.attachModule({ ccall(name, returnType, argumentTypes, values) {
+			calls.push({ name, returnType, argumentTypes, values });
+			return 1;
+		} });
+		controller.engineStarted();
+		assert(calls.length === 1 && calls[0].name === "Surreal_ResizeBrowserViewport");
+		assert(calls[0].values.join("x") === "1280x720");
+		environment.dispatchEvent(new Event("resize"));
+		assert(calls.length === 1, "unchanged CSS geometry caused a redundant native resize");
+		bounds = { width: 500, height: 300 };
+		environment.document.dispatchEvent(new Event("fullscreenchange"));
+		assert(calls.length === 2 && calls[1].values.join("x") === "1000x600");
+		const status = controller.diagnostics();
+		assert(status.running && status.width === 1000 && status.height === 600 &&
+			status.resizeCount === 2 && status.lastError === null);
+	});
 	await run("desktop host records become importer entries without exposing native paths", async () => {
 		const picker = api.createHostPicker({ pickGameDirectory: async () => [{ path: "System/Core.u", blob: new Blob(["core"]) }] });
 		const entries = await picker();

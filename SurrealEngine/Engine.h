@@ -150,6 +150,7 @@ public:
 	void UpdateAudio();
 
 	void OpenWindow();
+	bool ResizeBrowserViewport(int width, int height);
 	void CloseWindow();
 	void TickWindow();
 

@@ -295,6 +295,83 @@
 		});
 	}
 
+	class BrowserViewportController {
+		constructor(canvas, options) {
+			const settings = options || {};
+			this.canvas = canvas || null;
+			this.environment = settings.environment || global;
+			this.log = typeof settings.log === "function" ? settings.log : () => {};
+			this.Module = null;
+			this.running = false;
+			this.pendingFrame = null;
+			this.lastWidth = 0;
+			this.lastHeight = 0;
+			this.resizeCount = 0;
+			this.lastError = null;
+			this._schedule = () => this.schedule();
+			const ResizeObserverType = this.environment.ResizeObserver;
+			this.observer = this.canvas && typeof ResizeObserverType === "function" ?
+				new ResizeObserverType(this._schedule) : null;
+		}
+
+		attachModule(Module) { this.Module = Module || null; }
+
+		engineStarted() {
+			if (this.running) return;
+			this.running = true;
+			if (this.observer) this.observer.observe(this.canvas);
+			if (this.environment && typeof this.environment.addEventListener === "function")
+				this.environment.addEventListener("resize", this._schedule);
+			const document = this.environment && this.environment.document;
+			if (document && typeof document.addEventListener === "function")
+				document.addEventListener("fullscreenchange", this._schedule);
+			this.schedule();
+		}
+
+		schedule() {
+			if (!this.running || this.pendingFrame !== null) return;
+			const requestFrame = this.environment && this.environment.requestAnimationFrame;
+			if (typeof requestFrame === "function") {
+				this.pendingFrame = requestFrame.call(this.environment, () => {
+					this.pendingFrame = null;
+					this.synchronize();
+				});
+			} else {
+				this.pendingFrame = 0;
+				this.pendingFrame = null;
+				this.synchronize();
+			}
+		}
+
+		synchronize() {
+			if (!this.running || !this.canvas || !this.Module || typeof this.Module.ccall !== "function") return false;
+			const bounds = this.canvas.getBoundingClientRect();
+			const scale = Math.max(1, Number(this.environment.devicePixelRatio) || 1);
+			const width = Math.max(320, Math.min(8192, Math.round(bounds.width * scale)));
+			const height = Math.max(200, Math.min(8192, Math.round(bounds.height * scale)));
+			if (width === this.lastWidth && height === this.lastHeight) return true;
+			try {
+				if (this.Module.ccall("Surreal_ResizeBrowserViewport", "number",
+					["number", "number"], [width, height]) !== 1)
+					throw new Error("native viewport rejected " + width + "x" + height);
+				this.lastWidth = width;
+				this.lastHeight = height;
+				this.resizeCount++;
+				this.lastError = null;
+				return true;
+			} catch (error) {
+				this.lastError = error && error.message || String(error);
+				this.log("[viewport] " + this.lastError);
+				return false;
+			}
+		}
+
+		diagnostics() {
+			return Object.freeze({ running: this.running, width: this.lastWidth, height: this.lastHeight,
+				resizeCount: this.resizeCount, lastError: this.lastError });
+		}
+	}
+
 	async function runLaunchBoundary(options) {
 		const settings = options || {};
 		const tracker = settings.startupTracker || new LaunchStartupTracker({ onChange: settings.onStartupStage });
@@ -316,6 +393,8 @@
 			}
 			if (settings.audioController && typeof settings.audioController.engineStarted === "function")
 				settings.audioController.engineStarted();
+			if (settings.viewportController && typeof settings.viewportController.engineStarted === "function")
+				settings.viewportController.engineStarted();
 			tracker.transition("presentation-activation");
 			await activatePresentation(settings.registry, settings.selection, settings.Module);
 			tracker.transition("running");
@@ -515,6 +594,10 @@
 			if (typeof options.onRuntimeMilestone === "function") options.onRuntimeMilestone(Object.freeze({ stage, detail: detail || null }));
 		};
 		const log = typeof options.log === "function" ? options.log : () => {};
+		const viewportController = options.viewportController || new BrowserViewportController(options.canvas, {
+			environment: options.environment || global,
+			log,
+		});
 		const registry = options.presentationRegistry || new PresentationRegistry();
 		if (!registry.get("flat")) registry.register({ id: "flat", label: "Desktop window" });
 		for (const provider of options.presentationProviders || []) registry.register(provider);
@@ -579,17 +662,20 @@
 							selectLaunch: context => { if (context.metadata) { library.register(context.metadata); libraryUI.refresh(); } return launcher.selectLaunch(context); },
 							launch: selection => runLaunchBoundary({ Module, selection, registry,
 								audioController: options.audioController, onLaunch: options.onLaunch,
+								viewportController,
 								onStartupStage: options.onStartupStage, environment: options.environment || global,
 								waitForPaint: options.waitForPaint }),
 						});
 						runtimeMilestone("persistent-storage-ready", {
 							state: started.result && started.result.import && started.result.import.state || null,
 						});
-						resolve(Object.freeze({ Module, launcher, registry, library, libraryUI, dataController: started.controller, result: started.result }));
+						resolve(Object.freeze({ Module, launcher, registry, library, libraryUI, viewportController,
+							dataController: started.controller, result: started.result }));
 					} catch (error) { reject(error); }
 				},
 			};
 			global.Module = Module;
+			viewportController.attachModule(Module);
 			if (options.audioController && typeof options.audioController.attachModule === "function") options.audioController.attachModule(Module);
 			const script = global.document.createElement("script");
 			script.src = options.engineScript || DEFAULT_ENGINE_SCRIPT;
@@ -618,6 +704,7 @@
 		activatePresentation,
 		LaunchStartupTracker,
 		waitForBrowserPaint,
+		BrowserViewportController,
 		runLaunchBoundary,
 		acquireWebGPUDevice,
 		start,
