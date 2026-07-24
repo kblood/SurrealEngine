@@ -451,6 +451,44 @@ their falls are enemy momentum or an explicit wall jump. Morbias, Unreal Deck/
 Morbias, HealPod, and both DeathFan timestep spellings are required tuning
 non-regressions; held-outs remain closed until the behavior is frozen.
 
+The explicit-origin foundation and death-time measurement repair were accepted
+together as iteration 46. `TryMove` retains a single ordered collision hit list
+for both blocking selection and later touch processing, while the shared probe
+can start at a caller-provided point without moving the actor. Death-time
+counter accumulation is idempotent and keeps recent enemy damage/momentum
+evidence intact. A combined UT/Unreal A/B on the two DeathFan timestep cases
+and Deck seed 271828 preserved gameplay, causal deaths, summaries, and repeated
+shadow streams exactly.
+
+## Wall callback and ledge-property parity audit
+
+Retail UT436 and Unreal 226b `Engine.Pawn` both define `MinHitWall` as a
+threshold based on the hit-normal dot normalized velocity, and expose
+`bAvoidLedges` plus `bStopAtLedges`. Surreal reflects all three properties but
+`TickWalking` reads none of them. Walking currently calls `HitWall` only for a
+hard-coded `-0.2 < HitNormal.z < 0.2` band. That can emit callbacks for vertical
+glancing contacts regardless of `MinHitWall`, suppress opposing steep faces,
+and makes stock changes from `-0.5` to `-0.35` inert. Falling likewise ignores
+the threshold, although stock falling-state handlers often mask the mismatch.
+
+The live properties must be honored rather than replaced by a global bot rule.
+UT enables both ledge flags in `Wandering` and `TacticalMove`, conditionally
+uses avoidance in `Hunting`, and has five specialized `MayFall` states. Unreal
+never sets `bStopAtLedges`; it conditionally enables `bAvoidLedges` in tactical
+and hunting movement and has only two specialized `MayFall` states. An
+unconditional UT-style ledge stop would therefore change Unreal policy.
+
+The first parity slice remains observational: record normalized movement dot
+normal, `MinHitWall`, the current Z-band decision, the inferred threshold
+decision, blocker kind, state, and enabled event; separately record ledge flags
+around the existing unsupported-step/`MayFall` decision. A pure boundary
+fixture should cover head-on `-1`, glancing `-0.25`, an opposing steep face,
+both stock thresholds, all ledge-flag combinations, and the existing script
+outcomes (retain/clear `bCanJump`, change physics, or delete). A retail boundary
+oracle must confirm the comparison sign before any callback predicate changes.
+Restoring these properties is important wall/ledge parity, but most known Deck
+slime entries occurred in `Roaming`, so it is not by itself the Deck fix.
+
 ## Quality measurement truth boundary
 
 The analyzer and executable gate evaluator now fail closed for missing runs,
