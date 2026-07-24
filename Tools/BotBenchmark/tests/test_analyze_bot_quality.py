@@ -161,7 +161,70 @@ def write_v2_run(root: Path, name: str, *, bot_count: int = 2) -> Path:
     return run
 
 
+def upgrade_telemetry_v2(run: Path, *, counters: list[dict]) -> None:
+    path = run / "events.jsonl"
+    events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    tick_events = [event for event in events if event["type"] != "run_result"]
+    if len(counters) != len(tick_events):
+        raise AssertionError("one v2 counter sample is required for run_start and every tick")
+    for index, event in enumerate(events):
+        event["schema"] = QUALITY.TELEMETRY_SCHEMA_V2
+        sample = counters[min(index, len(counters) - 1)]
+        for bot in event["bots"]:
+            bot.update({
+                "score": sample["score"],
+                "pri_deaths": sample["pri_deaths"],
+                "movement_intent": sample["movement_intent"],
+                "in_hazard_zone": sample["in_hazard_zone"],
+                "kills_exact": str(sample["kills_exact"]),
+                "deaths_exact": str(sample["deaths_exact"]),
+                "suicides_exact": str(sample["suicides_exact"]),
+                "environmental_deaths_exact": str(sample["environmental_deaths_exact"]),
+                "hazard_exposed_deaths_proxy": str(sample["hazard_exposed_deaths_proxy"]),
+                "hit_wall_events_exact": str(sample["hit_wall_events_exact"]),
+            })
+    path.write_text(
+        "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+        encoding="utf-8")
+
+
 class BotQualityAnalysisTests(unittest.TestCase):
+    def test_v2_exact_outcomes_and_intent_proxies_are_computed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_run(Path(temporary), "run", [0.0, 0.0, 0.0, 1.0])
+            counters = [
+                {"score": 0, "pri_deaths": 0, "movement_intent": True,
+                 "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+                 "suicides_exact": 0, "environmental_deaths_exact": 0,
+                 "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0},
+                {"score": 1, "pri_deaths": 0, "movement_intent": True,
+                 "in_hazard_zone": True, "kills_exact": 1, "deaths_exact": 0,
+                 "suicides_exact": 0, "environmental_deaths_exact": 0,
+                 "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 2},
+                {"score": 0, "pri_deaths": 2, "movement_intent": True,
+                 "in_hazard_zone": True, "kills_exact": 1, "deaths_exact": 2,
+                 "suicides_exact": 1, "environmental_deaths_exact": 1,
+                 "hazard_exposed_deaths_proxy": 1, "hit_wall_events_exact": 4},
+                {"score": 0, "pri_deaths": 3, "movement_intent": False,
+                 "in_hazard_zone": False, "kills_exact": 2, "deaths_exact": 3,
+                 "suicides_exact": 2, "environmental_deaths_exact": 1,
+                 "hazard_exposed_deaths_proxy": 1, "hit_wall_events_exact": 5},
+            ]
+            upgrade_telemetry_v2(run, counters=counters)
+            metrics = QUALITY.analyze_run(run)["metrics"]
+            self.assertEqual(metrics["kills_exact"], 2)
+            self.assertEqual(metrics["deaths_exact"], 3)
+            self.assertEqual(metrics["suicides_exact"], 2)
+            self.assertEqual(metrics["environmental_deaths_exact"], 1)
+            self.assertEqual(metrics["suicide_to_kill_ratio"], 1.0)
+            self.assertEqual(metrics["hit_wall_events_exact"], 5)
+            self.assertEqual(metrics["movement_intent_no_progress_seconds_proxy"], 2.0)
+            self.assertEqual(metrics["movement_intent_stuck_events_proxy"], 1)
+            self.assertEqual(metrics["hazard_exposure_seconds"], 2.0)
+            self.assertEqual(metrics["hazard_entries"], 1)
+            self.assertEqual(metrics["hazard_exposed_deaths_proxy"], 1)
+            self.assertEqual(metrics["hazard_exposed_death_fraction_proxy"], 1.0 / 3.0)
+
     def test_supported_metrics_are_computed_from_samples(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             run = write_run(Path(temporary), "run", [0.0, 3.0, 3.0, 3.0], [100, 90, 90, 90])
@@ -189,6 +252,17 @@ class BotQualityAnalysisTests(unittest.TestCase):
             path.write_text("".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
             with self.assertRaisesRegex(QUALITY.QualityError, "sequence"):
                 QUALITY.analyze([run])
+
+    def test_v2_regressing_exact_counter_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_run(Path(temporary), "run", [0.0, 1.0])
+            base = {"score": 0, "pri_deaths": 0, "movement_intent": False,
+                    "in_hazard_zone": False, "kills_exact": 1, "deaths_exact": 0,
+                    "suicides_exact": 0, "environmental_deaths_exact": 0,
+                    "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0}
+            upgrade_telemetry_v2(run, counters=[base, {**base, "kills_exact": 0}])
+            with self.assertRaisesRegex(QUALITY.QualityError, "kills_exact regressed"):
+                QUALITY.analyze_run(run)
 
     def test_explicit_comparable_pair_is_aggregated(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

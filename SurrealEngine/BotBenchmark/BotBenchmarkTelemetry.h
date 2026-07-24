@@ -20,6 +20,16 @@ struct BotBenchmarkBotState
 	double VelocityY = 0.0;
 	double VelocityZ = 0.0;
 	int Health = 0;
+	double Score = 0.0;
+	double PriDeaths = 0.0;
+	bool MovementIntent = false;
+	bool InHazardZone = false;
+	uint64_t KillsExact = 0;
+	uint64_t DeathsExact = 0;
+	uint64_t SuicidesExact = 0;
+	uint64_t EnvironmentalDeathsExact = 0;
+	uint64_t HazardExposedDeathsProxy = 0;
+	uint64_t HitWallEventsExact = 0;
 };
 
 struct BotBenchmarkTelemetryEvent

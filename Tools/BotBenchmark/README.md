@@ -139,6 +139,22 @@ A bot holding useful cover can therefore look stationary, while a blocked bot
 with intermittent movement can evade the two-second window. Movement distance
 also has no inherent preferred direction.
 
+Telemetry v2 adds authoritative cumulative counters captured at UE1 script-call
+boundaries for `Killed` and `HitWall`, plus persistent PRI score/death samples,
+movement intent, and pain/kill-zone presence. The analyzer reports exact kills,
+deaths, UT-style suicides (self or no valid player killer), environmental deaths,
+wall-hit calls, score delta, and suicide-to-kill ratio. Its stricter stuck proxy
+only accumulates no-progress time while a latent movement action or horizontal
+acceleration indicates intent.
+
+Hazard-exposed deaths remain a proxy: the victim occupied a pain, kill, or
+positive-damage zone when `Killed` entered, but the hook does not prove that the
+zone caused the final damage or that entering it was tactically avoidable.
+Likewise, a `HitWall` call is an exact collision callback, not by itself proof of
+bad wall-running. Compare rates across identical map/seed/roster runs and inspect
+movement-intent stuck time alongside it. Telemetry v1 remains accepted, with
+v2-only metrics reported as null.
+
 ## Exact paired comparisons
 
 Place an optional `quality-metadata.json` beside a run's other three files:
@@ -173,15 +189,17 @@ does not treat hypothetical decisions as gameplay outcomes and intentionally
 ignores the shadow stream until an action adapter and attributed combat/resource
 telemetry exist.
 
-Telemetry v1 cannot honestly measure kills, deaths, score, damage dealt,
-accuracy, opponent strength, weapon/resource control, or objective progress.
-The report lists those metrics as unavailable with their evidence
-requirements instead of filling them with zeroes.
+Telemetry v2 still cannot honestly measure damage dealt, accuracy, opponent
+strength, weapon/resource control, or objective progress. The report lists
+those metrics as unavailable with their evidence requirements instead of
+filling them with zeroes. Older games that lack a PRI or zone field emit the
+schema's neutral sample for that field rather than dereferencing an invalid
+generated property offset.
 
 A future telemetry schema should add attributed, stable-participant events or
 counters for:
 
-- score, kills, deaths, damage dealt/taken, and self/environment damage;
+- damage dealt/taken and exact causal environmental damage;
 - hitscan shots/hits and finalized projectile hits/misses;
 - weapon and pickup acquisition, firing intent, and objective interactions;
 - movement goal/latent action, destination, route progress, and recovery
