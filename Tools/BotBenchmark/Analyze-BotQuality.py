@@ -21,7 +21,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 16
+TOOL_VERSION = 17
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -99,6 +99,11 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "vertical_pain_column_recall": "higher",
     "vertical_pain_column_false_positive_rate": "lower",
     "vertical_pain_column_labeled_episode_fraction": "higher",
+    "vertical_pain_column_episode_completion_fraction": "higher",
+    "vertical_pain_column_unknown_outcome_fraction": "lower",
+    "vertical_pain_column_ambiguous_outcome_fraction": "lower",
+    "vertical_pain_column_diagnostic_coverage_fraction": "higher",
+    "vertical_pain_column_generation_capacity_exhaustion_rate": "lower",
 }
 
 FUTURE_METRICS = {
@@ -227,11 +232,14 @@ VERTICAL_PAIN_COLUMN_OUTCOME_COUNTERS = (
     "vertical_pain_column_ambiguous_outcomes_exact",
     "vertical_pain_column_unknown_outcomes_exact",
 )
-VERTICAL_PAIN_COLUMN_COUNTERS = (
+VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS = (
     "vertical_pain_column_episodes_started_exact",
     "vertical_pain_column_episodes_completed_exact",
 ) + VERTICAL_PAIN_COLUMN_OUTCOME_COUNTERS + (
     "vertical_pain_column_diagnostic_overflows_exact",
+)
+VERTICAL_PAIN_COLUMN_COUNTERS = VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS + (
+    "vertical_pain_column_generation_capacity_exhaustions_exact",
 )
 METRIC_DIRECTIONS.update({
     name: None for name in (
@@ -263,7 +271,7 @@ MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP = (
 OPTIONAL_DIAGNOSTIC_FIELDS = (
     "physics_mode", "latent_action", "acceleration", "destination", "move_timer",
     "move_target_identity", "move_target_name", "walking_step_preflight_diagnostics",
-    "falling_parity_realized_records",
+    "falling_parity_realized_records", "vertical_pain_column_diagnostics",
 )
 PHYSICS_MODES = {
     "", "None", "Walking", "Falling", "Swimming", "Flying", "Rotating", "Projectile",
@@ -298,6 +306,29 @@ FALLING_PARITY_REALIZED_COLLISIONS = {
 }
 FALLING_PARITY_REALIZED_MAX_STEPS = 96
 FALLING_PARITY_REALIZED_MATCH_EPSILON = 0.001
+VERTICAL_PAIN_COLUMN_SOURCES = {
+    "unsupported_walk_commit", "existing_falling_commit",
+    "post_wall_deflection_commit", "aligned_continuation_commit",
+    "third_move_continuation_commit", "callback_return_commit",
+    "external_impulse_commit", "horizon_continuation_commit",
+}
+VERTICAL_PAIN_COLUMN_FORECASTS = {
+    "unknown", "no_harmful_pain_observed", "harmful_pain_observed",
+}
+VERTICAL_PAIN_COLUMN_TERMINALS = {
+    "harmful_pain_entered", "landed", "died", "callback_boundary",
+    "external_impulse_boundary", "continuity_lost", "water_physics_boundary",
+    "observation_horizon_exhausted", "superseded_by_committed_source",
+    "swept_segment_budget_exceeded", "invalid_observation",
+}
+VERTICAL_PAIN_COLUMN_CORRELATIONS = {
+    "unknown", "ambiguous", "confirmed_harmful_forecast", "forecast_only",
+    "actual_only", "confirmed_no_harmful_observation",
+}
+VERTICAL_PAIN_COLUMN_COLLISIONS = {
+    "unknown", "clear", "static_world", "mover", "dynamic_actor",
+}
+VERTICAL_PAIN_COLUMN_MAX_SEGMENTS = 256
 
 
 class QualityError(ValueError):
@@ -641,6 +672,268 @@ def _falling_parity_realized_records(value: Any, context: str) -> list[dict[str,
     ]
 
 
+def _vertical_pain_column_zone(value: Any, context: str) -> dict[str, Any]:
+    fields = _exact_object(value, context, {"known", "zone_actor_id", "zone_number"})
+    known = _boolean(fields.get("known"), f"{context}.known")
+    actor = _strict_integer(
+        fields.get("zone_actor_id"), f"{context}.zone_actor_id",
+        minimum=0, maximum=0xffffffff)
+    number = _strict_integer(
+        fields.get("zone_number"), f"{context}.zone_number",
+        minimum=0, maximum=0xffffffff)
+    if known and actor == 0:
+        raise QualityError(f"{context}.zone_actor_id must be positive when known")
+    if not known and (actor != 0 or number != 0):
+        raise QualityError(f"{context}: unknown zone identity must use zero identifiers")
+    return {"known": known, "zone_actor_id": actor, "zone_number": number}
+
+
+def _same_vertical_pain_column_zone(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    return left["known"] and right["known"] \
+        and left["zone_actor_id"] == right["zone_actor_id"] \
+        and left["zone_number"] == right["zone_number"]
+
+
+def _vertical_pain_column_id(value: Any, context: str, maximum: int) -> int:
+    result = _integer(value, context, minimum=0)
+    if not isinstance(value, str):
+        raise QualityError(f"{context} must be a canonical decimal integer string")
+    if result > maximum:
+        raise QualityError(f"{context} must be at most {maximum}")
+    return result
+
+
+def _vertical_pain_column_source(fields: dict[str, Any], name: str,
+                                 context: str) -> str:
+    source = _string(fields, name, context, nonempty=True)
+    if source not in VERTICAL_PAIN_COLUMN_SOURCES:
+        raise QualityError(f"{context}.{name} is not recognized")
+    return source
+
+
+def _validate_vertical_pain_column_forecast_zones(
+        forecast: str, expected_foot: dict[str, Any],
+        expected_physics: dict[str, Any], expected_water: bool, context: str) -> None:
+    if forecast == "harmful_pain_observed":
+        if not expected_foot["known"] or not expected_physics["known"]:
+            raise QualityError(f"{context}: harmful forecast requires known expected zones")
+    elif expected_foot["known"] or expected_physics["known"] or expected_water:
+        raise QualityError(f"{context}: non-harmful/unknown forecast must not expect a hazard zone")
+
+
+def _vertical_pain_column_diagnostic(value: Any, context: str) -> dict[str, Any]:
+    raw = _object(value, context)
+    kind = _string(raw, "kind", context, nonempty=True)
+    common = {
+        "source_pawn_actor", "sequence", "life_id", "fall_episode_id",
+        "generation_id", "kind",
+    }
+    start_fields = common | {
+        "source", "forecast", "starting_physics_zone",
+        "expected_harmful_foot_zone", "expected_harmful_physics_zone",
+        "expected_harmful_water_entry", "swept_segment_budget",
+        "elapsed_horizon", "precharged_elapsed",
+    }
+    terminal_fields = common | {
+        "source", "forecast", "terminal", "correlation",
+        "starting_physics_zone", "expected_harmful_foot_zone",
+        "expected_harmful_physics_zone", "last_observed_physics_zone",
+        "observed_harmful_foot_zone", "expected_harmful_water_entry",
+        "swept_segment_budget", "swept_segment_count", "elapsed_horizon",
+        "observed_elapsed", "has_positive_elapsed",
+        "physics_zone_evidence_known", "harmful_foot_evidence_known",
+        "water_evidence_known", "entered_harmful_foot_zone",
+        "expected_harmful_path_matched", "causal_ambiguity",
+        "actual_trajectory_unknown", "landing_collision",
+    }
+    capacity_fields = common | {"attempted_source"}
+    expected_fields = {
+        "start": start_fields,
+        "terminal": terminal_fields,
+        "generation_capacity_exceeded": capacity_fields,
+    }.get(kind)
+    if expected_fields is None:
+        raise QualityError(f"{context}.kind is not recognized")
+    fields = _exact_object(raw, context, expected_fields)
+    record = {
+        "source_pawn_actor": _string(
+            fields, "source_pawn_actor", context, nonempty=True),
+        "sequence": _vertical_pain_column_id(
+            fields.get("sequence"), f"{context}.sequence", 0xffffffffffffffff),
+        "life_id": _vertical_pain_column_id(
+            fields.get("life_id"), f"{context}.life_id", 0xffffffffffffffff),
+        "fall_episode_id": _vertical_pain_column_id(
+            fields.get("fall_episode_id"), f"{context}.fall_episode_id",
+            0xffffffffffffffff),
+        "generation_id": _vertical_pain_column_id(
+            fields.get("generation_id"), f"{context}.generation_id", 0xffffffff),
+        "kind": kind,
+    }
+    if record["sequence"] == 0 or record["life_id"] == 0 \
+            or record["fall_episode_id"] == 0:
+        raise QualityError(f"{context}: sequence, life, and fall episode IDs must be positive")
+    if kind == "generation_capacity_exceeded":
+        if record["generation_id"] != 0:
+            raise QualityError(f"{context}.generation_id must be zero for capacity exhaustion")
+        record["attempted_source"] = _vertical_pain_column_source(
+            fields, "attempted_source", context)
+        return record
+    if record["generation_id"] == 0:
+        raise QualityError(f"{context}.generation_id must be positive")
+
+    source = _vertical_pain_column_source(fields, "source", context)
+    forecast = _string(fields, "forecast", context, nonempty=True)
+    if forecast not in VERTICAL_PAIN_COLUMN_FORECASTS:
+        raise QualityError(f"{context}.forecast is not recognized")
+    starting_zone = _vertical_pain_column_zone(
+        fields.get("starting_physics_zone"), f"{context}.starting_physics_zone")
+    expected_foot = _vertical_pain_column_zone(
+        fields.get("expected_harmful_foot_zone"),
+        f"{context}.expected_harmful_foot_zone")
+    expected_physics = _vertical_pain_column_zone(
+        fields.get("expected_harmful_physics_zone"),
+        f"{context}.expected_harmful_physics_zone")
+    expected_water = _boolean(
+        fields.get("expected_harmful_water_entry"),
+        f"{context}.expected_harmful_water_entry")
+    if not starting_zone["known"]:
+        raise QualityError(f"{context}.starting_physics_zone must be known")
+    _validate_vertical_pain_column_forecast_zones(
+        forecast, expected_foot, expected_physics, expected_water, context)
+    segment_budget = _strict_integer(
+        fields.get("swept_segment_budget"), f"{context}.swept_segment_budget",
+        minimum=1, maximum=VERTICAL_PAIN_COLUMN_MAX_SEGMENTS)
+    elapsed_horizon = _number(
+        fields.get("elapsed_horizon"), f"{context}.elapsed_horizon", minimum=0.0)
+    if elapsed_horizon <= 0.0:
+        raise QualityError(f"{context}.elapsed_horizon must be positive")
+    record.update({
+        "source": source,
+        "forecast": forecast,
+        "starting_physics_zone": starting_zone,
+        "expected_harmful_foot_zone": expected_foot,
+        "expected_harmful_physics_zone": expected_physics,
+        "expected_harmful_water_entry": expected_water,
+        "swept_segment_budget": segment_budget,
+        "elapsed_horizon": elapsed_horizon,
+    })
+    if kind == "start":
+        precharged = _number(
+            fields.get("precharged_elapsed"), f"{context}.precharged_elapsed", minimum=0.0)
+        if precharged > elapsed_horizon:
+            raise QualityError(f"{context}.precharged_elapsed exceeds elapsed_horizon")
+        continuation = source in {
+            "aligned_continuation_commit", "third_move_continuation_commit",
+        }
+        if continuation != (precharged > 0.0):
+            raise QualityError(
+                f"{context}.precharged_elapsed does not match the forecast source")
+        record["precharged_elapsed"] = precharged
+        return record
+
+    terminal = _string(fields, "terminal", context, nonempty=True)
+    if terminal not in VERTICAL_PAIN_COLUMN_TERMINALS:
+        raise QualityError(f"{context}.terminal is not recognized")
+    correlation = _string(fields, "correlation", context, nonempty=True)
+    if correlation not in VERTICAL_PAIN_COLUMN_CORRELATIONS:
+        raise QualityError(f"{context}.correlation is not recognized")
+    landing = _string(fields, "landing_collision", context, nonempty=True)
+    if landing not in VERTICAL_PAIN_COLUMN_COLLISIONS:
+        raise QualityError(f"{context}.landing_collision is not recognized")
+    segment_count = _strict_integer(
+        fields.get("swept_segment_count"), f"{context}.swept_segment_count",
+        minimum=0, maximum=VERTICAL_PAIN_COLUMN_MAX_SEGMENTS)
+    if segment_count > segment_budget:
+        raise QualityError(f"{context}.swept_segment_count exceeds its budget")
+    observed_elapsed = _number(
+        fields.get("observed_elapsed"), f"{context}.observed_elapsed", minimum=0.0)
+    if observed_elapsed > elapsed_horizon + 0.000001:
+        raise QualityError(f"{context}.observed_elapsed exceeds elapsed_horizon")
+    last_physics = _vertical_pain_column_zone(
+        fields.get("last_observed_physics_zone"),
+        f"{context}.last_observed_physics_zone")
+    observed_foot = _vertical_pain_column_zone(
+        fields.get("observed_harmful_foot_zone"),
+        f"{context}.observed_harmful_foot_zone")
+    booleans = {
+        name: _boolean(fields.get(name), f"{context}.{name}") for name in (
+            "has_positive_elapsed", "physics_zone_evidence_known",
+            "harmful_foot_evidence_known", "water_evidence_known",
+            "entered_harmful_foot_zone", "expected_harmful_path_matched",
+            "causal_ambiguity", "actual_trajectory_unknown",
+        )
+    }
+    if booleans["has_positive_elapsed"] != (observed_elapsed > 0.0):
+        raise QualityError(f"{context}.has_positive_elapsed disagrees with observed_elapsed")
+    if not booleans["entered_harmful_foot_zone"] and observed_foot["known"]:
+        raise QualityError(f"{context}: observed harmful zone requires harmful entry")
+    if booleans["expected_harmful_path_matched"]:
+        if not booleans["entered_harmful_foot_zone"] \
+                or not _same_vertical_pain_column_zone(observed_foot, expected_foot) \
+                or not _same_vertical_pain_column_zone(last_physics, expected_physics):
+            raise QualityError(f"{context}: matched harmful path requires matching zone identities")
+    if terminal == "harmful_pain_entered" \
+            and not booleans["entered_harmful_foot_zone"]:
+        raise QualityError(f"{context}: harmful_pain_entered requires harmful entry")
+    record.update({
+        "terminal": terminal,
+        "correlation": correlation,
+        "last_observed_physics_zone": last_physics,
+        "observed_harmful_foot_zone": observed_foot,
+        "swept_segment_count": segment_count,
+        "observed_elapsed": observed_elapsed,
+        "landing_collision": landing,
+        **booleans,
+    })
+    expected_correlation = _vertical_pain_column_expected_correlation(record)
+    if correlation != expected_correlation:
+        raise QualityError(
+            f"{context}.correlation is {correlation!r}, expected {expected_correlation!r}")
+    return record
+
+
+def _vertical_pain_column_expected_correlation(record: dict[str, Any]) -> str:
+    terminal = record["terminal"]
+    if terminal == "harmful_pain_entered":
+        if record["actual_trajectory_unknown"] \
+                or not record["harmful_foot_evidence_known"] \
+                or not record["water_evidence_known"] \
+                or not record["physics_zone_evidence_known"] \
+                or not record["has_positive_elapsed"]:
+            return "unknown"
+        if record["causal_ambiguity"]:
+            return "ambiguous"
+        if record["forecast"] == "unknown":
+            return "unknown"
+        if record["forecast"] == "no_harmful_pain_observed":
+            return "actual_only"
+        return "confirmed_harmful_forecast" \
+            if record["expected_harmful_path_matched"] else "ambiguous"
+    if terminal == "died":
+        return "unknown"
+    if terminal != "landed" or record["landing_collision"] != "static_world" \
+            or record["actual_trajectory_unknown"] or record["causal_ambiguity"] \
+            or not record["harmful_foot_evidence_known"] \
+            or not record["water_evidence_known"] \
+            or record["swept_segment_count"] == 0 \
+            or not record["has_positive_elapsed"]:
+        return "unknown"
+    if record["forecast"] == "harmful_pain_observed":
+        return "forecast_only"
+    if record["forecast"] == "no_harmful_pain_observed":
+        return "confirmed_no_harmful_observation"
+    return "unknown"
+
+
+def _vertical_pain_column_diagnostics(value: Any, context: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise QualityError(f"{context} must be an array")
+    return [
+        _vertical_pain_column_diagnostic(item, f"{context}[{index}]")
+        for index, item in enumerate(value)
+    ]
+
+
 def _validate_falling_parity_realized_record_stream(
         events: list[dict[str, Any]], path: Path) -> None:
     primary_counters = (
@@ -829,6 +1122,154 @@ def _validate_falling_parity_realized_record_stream(
             previous[identity] = {
                 name: bot[name] for name in (
                     reconciled_counters + ("falling_parity_realized_record_overflows_exact",))
+            }
+
+
+def _validate_vertical_pain_column_diagnostic_stream(
+        events: list[dict[str, Any]], path: Path) -> None:
+    primary_counters = (
+        "vertical_pain_column_episodes_started_exact",
+        "vertical_pain_column_episodes_completed_exact",
+        "vertical_pain_column_generation_capacity_exhaustions_exact",
+    )
+    overflow_name = "vertical_pain_column_diagnostic_overflows_exact"
+    reconciled_counters = primary_counters + VERTICAL_PAIN_COLUMN_OUTCOME_COUNTERS
+    correlation_counters = {
+        "confirmed_harmful_forecast":
+            "vertical_pain_column_true_positive_outcomes_exact",
+        "forecast_only": "vertical_pain_column_false_positive_outcomes_exact",
+        "actual_only": "vertical_pain_column_false_negative_outcomes_exact",
+        "confirmed_no_harmful_observation":
+            "vertical_pain_column_true_negative_outcomes_exact",
+        "ambiguous": "vertical_pain_column_ambiguous_outcomes_exact",
+        "unknown": "vertical_pain_column_unknown_outcomes_exact",
+    }
+    previous: dict[str, dict[str, int]] = {}
+    streams: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for event in events:
+        for bot in event["bots"]:
+            records = bot.get("vertical_pain_column_diagnostics")
+            if records is None:
+                continue
+            identity = bot["identity"]
+            prior = previous.get(identity, {
+                name: 0 for name in reconciled_counters + (overflow_name,)
+            })
+            deltas = {name: bot[name] - prior[name] for name in reconciled_counters}
+            overflow_delta = bot[overflow_name] - prior[overflow_name]
+            observed: defaultdict[str, int] = defaultdict(int)
+
+            for record in records:
+                actor = record["source_pawn_actor"]
+                if actor != bot["actor"]:
+                    raise QualityError(
+                        f"{path}: vertical pain column diagnostic actor does not match "
+                        f"{identity} at telemetry sequence {event['seq']}")
+                stream = streams.setdefault((identity, actor), {
+                    "last_sequence": None,
+                    "last_life": None,
+                    "last_fall": None,
+                    "last_generation": None,
+                    "active": None,
+                    "active_start": None,
+                    "tainted": False,
+                })
+                sequence = record["sequence"]
+                if stream["last_sequence"] is not None:
+                    if sequence <= stream["last_sequence"]:
+                        raise QualityError(
+                            f"{path}: vertical pain column diagnostic sequence did not increase "
+                            f"for {identity}/{actor} at telemetry sequence {event['seq']}")
+                    if not stream["tainted"] and overflow_delta == 0 \
+                            and sequence != stream["last_sequence"] + 1:
+                        raise QualityError(
+                            f"{path}: vertical pain column diagnostic sequence is not consecutive "
+                            f"for {identity}/{actor} at telemetry sequence {event['seq']}")
+                stream["last_sequence"] = sequence
+                key = (record["life_id"], record["fall_episode_id"],
+                       record["generation_id"])
+                kind = record["kind"]
+                if kind == "start":
+                    if not stream["tainted"] and stream["active"] is not None:
+                        raise QualityError(
+                            f"{path}: vertical pain column start precedes the prior terminal for "
+                            f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                    last_life = stream["last_life"]
+                    last_fall = stream["last_fall"]
+                    last_generation = stream["last_generation"]
+                    if not stream["tainted"] and last_life is not None:
+                        if record["life_id"] < last_life \
+                                or (record["life_id"] == last_life
+                                    and record["fall_episode_id"] < last_fall) \
+                                or (record["life_id"] == last_life
+                                    and record["generation_id"] <= last_generation):
+                            raise QualityError(
+                                f"{path}: vertical pain column life/fall/generation regressed for "
+                                f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                    stream.update({
+                        "last_life": record["life_id"],
+                        "last_fall": record["fall_episode_id"],
+                        "last_generation": record["generation_id"],
+                        "active": key,
+                        "active_start": record,
+                    })
+                    observed["vertical_pain_column_episodes_started_exact"] += 1
+                    if overflow_delta == 0:
+                        stream["tainted"] = False
+                elif kind == "terminal":
+                    if not stream["tainted"] and stream["active"] != key:
+                        raise QualityError(
+                            f"{path}: vertical pain column terminal has no matching start for "
+                            f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                    if not stream["tainted"] and stream["active_start"] is not None:
+                        stable_fields = (
+                            "source", "forecast", "starting_physics_zone",
+                            "expected_harmful_foot_zone",
+                            "expected_harmful_physics_zone",
+                            "expected_harmful_water_entry", "swept_segment_budget",
+                            "elapsed_horizon",
+                        )
+                        if any(record[name] != stream["active_start"][name]
+                               for name in stable_fields):
+                            raise QualityError(
+                                f"{path}: vertical pain column terminal does not preserve its "
+                                f"start fields for {identity}/{actor} at telemetry sequence "
+                                f"{event['seq']}")
+                    if stream["active"] == key:
+                        stream["active"] = None
+                        stream["active_start"] = None
+                    observed["vertical_pain_column_episodes_completed_exact"] += 1
+                    observed[correlation_counters[record["correlation"]]] += 1
+                else:
+                    if not stream["tainted"] and stream["active"] is not None:
+                        raise QualityError(
+                            f"{path}: vertical pain column capacity exhaustion precedes the "
+                            f"active terminal for {identity}/{actor} at telemetry sequence "
+                            f"{event['seq']}")
+                    observed[
+                        "vertical_pain_column_generation_capacity_exhaustions_exact"] += 1
+
+            for name in reconciled_counters:
+                if observed[name] > deltas[name]:
+                    raise QualityError(
+                        f"{path}: vertical pain column diagnostics exceed {name} delta for "
+                        f"{identity} at telemetry sequence {event['seq']}")
+                if overflow_delta == 0 and observed[name] != deltas[name]:
+                    raise QualityError(
+                        f"{path}: vertical pain column diagnostics do not reconcile with {name} "
+                        f"delta for {identity} at telemetry sequence {event['seq']}")
+            primary_delta = sum(deltas[name] for name in primary_counters)
+            if primary_delta != len(records) + overflow_delta:
+                raise QualityError(
+                    f"{path}: vertical pain column diagnostics and overflows do not reconcile "
+                    f"with counter deltas for {identity} at telemetry sequence {event['seq']}")
+            if overflow_delta:
+                for (stream_identity, _actor), stream in streams.items():
+                    if stream_identity == identity:
+                        stream["tainted"] = True
+            previous[identity] = {
+                name: bot[name] for name in reconciled_counters + (overflow_name,)
             }
 
 
@@ -1110,7 +1551,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
 def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
     bot = _object(raw, context)
     if schema != TELEMETRY_SCHEMA_V2 and any(name in bot for name in (
-            "walking_step_preflight_diagnostics", "falling_parity_realized_records")):
+            "walking_step_preflight_diagnostics", "falling_parity_realized_records",
+            "vertical_pain_column_diagnostics")):
         raise QualityError(
             f"{context}: observer record arrays require telemetry v2")
     result: dict[str, Any] = {
@@ -1148,8 +1590,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
-                ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS),
-                ("vertical pain column shadow", VERTICAL_PAIN_COLUMN_COUNTERS)):
+                ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS)):
             present = [name for name in names if name in result]
             if present and len(present) != len(names):
                 raise QualityError(f"{context}: {label} counters must be provided as a complete group")
@@ -1165,6 +1606,17 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 "or current complete group")
         if falling_parity_present == set(FALLING_PARITY_LEGACY_COUNTERS):
             result["falling_parity_realized_matched_landing_steps_exact"] = 0
+        vertical_pain_present = {
+            name for name in VERTICAL_PAIN_COLUMN_COUNTERS if name in result
+        }
+        valid_vertical_pain_groups = (
+            set(), set(VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS),
+            set(VERTICAL_PAIN_COLUMN_COUNTERS),
+        )
+        if vertical_pain_present not in valid_vertical_pain_groups:
+            raise QualityError(
+                f"{context}: vertical pain column shadow counters must be provided as the "
+                "legacy or current complete group")
         stall_field_names = set(
             MOVE_STALL_LEGACY_TELEMETRY_GROUP + MOVE_STALL_TELEMETRY_GROUP
             + MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP)
@@ -1313,6 +1765,15 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                     episodes_completed:
                 raise QualityError(
                     f"{context}: vertical pain column outcomes do not partition completed episodes")
+            if "vertical_pain_column_generation_capacity_exhaustions_exact" in result:
+                if episodes_started - episodes_completed > 1:
+                    raise QualityError(
+                        f"{context}: current vertical pain column telemetry has more than one "
+                        "active episode")
+                if result["vertical_pain_column_generation_capacity_exhaustions_exact"] \
+                        > episodes_started:
+                    raise QualityError(
+                        f"{context}: vertical pain column capacity exhaustions exceed starts")
         if "walking_step_preflight_diagnostics" in bot:
             if "walking_step_preflight_observations_exact" not in result:
                 raise QualityError(
@@ -1332,6 +1793,18 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
         elif "falling_parity_realized_episodes_exact" in result:
             raise QualityError(
                 f"{context}: falling parity counter group requires falling_parity_realized_records")
+        if "vertical_pain_column_diagnostics" in bot:
+            if "vertical_pain_column_generation_capacity_exhaustions_exact" not in result:
+                raise QualityError(
+                    f"{context}: vertical pain column diagnostics require the current counter group")
+            result["vertical_pain_column_diagnostics"] = \
+                _vertical_pain_column_diagnostics(
+                    bot.get("vertical_pain_column_diagnostics"),
+                    f"{context}.vertical_pain_column_diagnostics")
+        elif "vertical_pain_column_generation_capacity_exhaustions_exact" in result:
+            raise QualityError(
+                f"{context}: current vertical pain column counters require "
+                "vertical_pain_column_diagnostics")
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
@@ -1481,6 +1954,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             _validate_walking_step_preflight_diagnostic_stream(events, path)
         if optional_presence and "falling_parity_realized_records" in optional_presence:
             _validate_falling_parity_realized_record_stream(events, path)
+        if optional_presence and "vertical_pain_column_diagnostics" in optional_presence:
+            _validate_vertical_pain_column_diagnostic_stream(events, path)
     if events[0]["type"] != "run_start" or events[0]["tick"] != 0:
         raise QualityError(f"{path}: first event must be run_start at tick zero")
     if events[-1]["type"] != "run_result":
@@ -1713,6 +2188,15 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             "vertical_pain_column_false_negative_outcomes_exact")
         column_true_negative = exact.get(
             "vertical_pain_column_true_negative_outcomes_exact")
+        column_ambiguous = exact.get(
+            "vertical_pain_column_ambiguous_outcomes_exact")
+        column_unknown = exact.get(
+            "vertical_pain_column_unknown_outcomes_exact")
+        column_started = exact.get("vertical_pain_column_episodes_started_exact")
+        column_completed = exact.get("vertical_pain_column_episodes_completed_exact")
+        column_overflows = exact.get("vertical_pain_column_diagnostic_overflows_exact")
+        column_capacity = exact.get(
+            "vertical_pain_column_generation_capacity_exhaustions_exact")
         column_labeled = (
             column_true_positive + column_false_positive + column_false_negative
             + column_true_negative
@@ -1785,7 +2269,23 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 if column_false_positive is not None and column_true_negative is not None
                 else None),
             "vertical_pain_column_labeled_episode_fraction": _counter_fraction(
-                column_labeled, exact.get("vertical_pain_column_episodes_completed_exact")),
+                column_labeled, column_completed),
+            "vertical_pain_column_episode_completion_fraction": _counter_fraction(
+                column_completed, column_started),
+            "vertical_pain_column_unknown_outcome_fraction": _counter_fraction(
+                column_unknown, column_completed),
+            "vertical_pain_column_ambiguous_outcome_fraction": _counter_fraction(
+                column_ambiguous, column_completed),
+            "vertical_pain_column_diagnostic_coverage_fraction": _counter_fraction(
+                (column_started + column_completed + column_capacity - column_overflows
+                 if all(value is not None for value in (
+                     column_started, column_completed, column_capacity, column_overflows))
+                 else None),
+                (column_started + column_completed + column_capacity
+                 if all(value is not None for value in (
+                     column_started, column_completed, column_capacity)) else None)),
+            "vertical_pain_column_generation_capacity_exhaustion_rate":
+                _counter_fraction(column_capacity, column_started),
         }
     return metrics
 
@@ -1869,6 +2369,13 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
     false_positive = result.get("vertical_pain_column_false_positive_outcomes_exact")
     false_negative = result.get("vertical_pain_column_false_negative_outcomes_exact")
     true_negative = result.get("vertical_pain_column_true_negative_outcomes_exact")
+    ambiguous = result.get("vertical_pain_column_ambiguous_outcomes_exact")
+    unknown = result.get("vertical_pain_column_unknown_outcomes_exact")
+    column_started = result.get("vertical_pain_column_episodes_started_exact")
+    column_completed = result.get("vertical_pain_column_episodes_completed_exact")
+    column_overflows = result.get("vertical_pain_column_diagnostic_overflows_exact")
+    column_capacity = result.get(
+        "vertical_pain_column_generation_capacity_exhaustions_exact")
     labeled = (
         true_positive + false_positive + false_negative + true_negative
         if all(value is not None for value in (
@@ -1887,7 +2394,23 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
             false_positive + true_negative
             if false_positive is not None and true_negative is not None else None),
         "vertical_pain_column_labeled_episode_fraction": _counter_fraction(
-            labeled, result.get("vertical_pain_column_episodes_completed_exact")),
+            labeled, column_completed),
+        "vertical_pain_column_episode_completion_fraction": _counter_fraction(
+            column_completed, column_started),
+        "vertical_pain_column_unknown_outcome_fraction": _counter_fraction(
+            unknown, column_completed),
+        "vertical_pain_column_ambiguous_outcome_fraction": _counter_fraction(
+            ambiguous, column_completed),
+        "vertical_pain_column_diagnostic_coverage_fraction": _counter_fraction(
+            (column_started + column_completed + column_capacity - column_overflows
+             if all(value is not None for value in (
+                 column_started, column_completed, column_capacity, column_overflows))
+             else None),
+            (column_started + column_completed + column_capacity
+             if all(value is not None for value in (
+                 column_started, column_completed, column_capacity)) else None)),
+        "vertical_pain_column_generation_capacity_exhaustion_rate":
+            _counter_fraction(column_capacity, column_started),
     })
     return result
 
@@ -2081,7 +2604,7 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
             ),
             "vertical_pain_column_shadow_metrics_present": all(
                 any(run["metrics"].get(name) is not None for run in runs)
-                for name in VERTICAL_PAIN_COLUMN_COUNTERS
+                for name in VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS
             ),
             "unavailable_until_telemetry_is_extended": FUTURE_METRICS,
             "composite_quality_score": None,
@@ -2105,7 +2628,9 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
             "partition with strictly correlated sampled records; callback barriers, continuity losses, and unknown "
             "steps are distinct from matches and mismatches. Optional "
             "vertical pain-column episode outcomes are validated as an exclusive partition; precision and recall "
-            "exclude ambiguous or unknown episodes. "
+            "exclude ambiguous or unknown episodes. The current vertical pain-column group additionally validates "
+            "strict start/terminal/capacity diagnostics, opaque deterministic zone identities, lifecycle ordering, "
+            "and exact record-overflow reconciliation while retaining legacy counter-only telemetry-v2 support. "
             "Physics, latent-action, acceleration, destination, move-timer, and move-target diagnostics are "
             "validated when present and remain available in the source event stream. "
             "PRI score/deaths are sampled persistent game counters. Hazard-exposed death and movement-intent "

@@ -238,6 +238,72 @@ def falling_parity_record(
     }
 
 
+def vertical_zone(known: bool, actor: int = 0, number: int = 0) -> dict:
+    return {"known": known, "zone_actor_id": actor, "zone_number": number}
+
+
+def vertical_start(*, sequence: int = 1, life: int = 1, fall: int = 1,
+                   generation: int = 1, harmful: bool = False) -> dict:
+    expected_foot = vertical_zone(True, 2, 0) if harmful else vertical_zone(False)
+    expected_physics = vertical_zone(True, 3, 0) if harmful else vertical_zone(False)
+    return {
+        "source_pawn_actor": "Bot1",
+        "sequence": str(sequence),
+        "life_id": str(life),
+        "fall_episode_id": str(fall),
+        "generation_id": str(generation),
+        "kind": "start",
+        "source": "existing_falling_commit",
+        "forecast": "harmful_pain_observed" if harmful
+        else "no_harmful_pain_observed",
+        "starting_physics_zone": vertical_zone(True, 1, 0),
+        "expected_harmful_foot_zone": expected_foot,
+        "expected_harmful_physics_zone": expected_physics,
+        "expected_harmful_water_entry": harmful,
+        "swept_segment_budget": 256,
+        "elapsed_horizon": 4.0,
+        "precharged_elapsed": 0.0,
+    }
+
+
+def vertical_terminal(*, sequence: int = 2, life: int = 1, fall: int = 1,
+                      generation: int = 1, harmful: bool = False) -> dict:
+    start = vertical_start(
+        sequence=sequence, life=life, fall=fall, generation=generation,
+        harmful=harmful)
+    common = {
+        name: start[name] for name in (
+            "source_pawn_actor", "sequence", "life_id", "fall_episode_id",
+            "generation_id", "source", "forecast", "starting_physics_zone",
+            "expected_harmful_foot_zone", "expected_harmful_physics_zone",
+            "expected_harmful_water_entry", "swept_segment_budget",
+            "elapsed_horizon",
+        )
+    }
+    return {
+        **common,
+        "kind": "terminal",
+        "terminal": "harmful_pain_entered" if harmful else "landed",
+        "correlation": "confirmed_harmful_forecast" if harmful
+        else "confirmed_no_harmful_observation",
+        "last_observed_physics_zone": vertical_zone(True, 3, 0) if harmful
+        else vertical_zone(True, 1, 0),
+        "observed_harmful_foot_zone": vertical_zone(True, 2, 0) if harmful
+        else vertical_zone(False),
+        "swept_segment_count": 1,
+        "observed_elapsed": 0.02,
+        "has_positive_elapsed": True,
+        "physics_zone_evidence_known": True,
+        "harmful_foot_evidence_known": True,
+        "water_evidence_known": True,
+        "entered_harmful_foot_zone": harmful,
+        "expected_harmful_path_matched": harmful,
+        "causal_ambiguity": False,
+        "actual_trajectory_unknown": False,
+        "landing_collision": "unknown" if harmful else "static_world",
+    }
+
+
 class BotQualityAnalysisTests(unittest.TestCase):
     def test_falling_parity_and_vertical_column_counters_are_exclusive_and_reported(self) -> None:
         common = {
@@ -248,7 +314,8 @@ class BotQualityAnalysisTests(unittest.TestCase):
         }
         zero = {
             name: 0 for name in
-            QUALITY.FALLING_PARITY_COUNTERS + QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS
+            QUALITY.FALLING_PARITY_COUNTERS
+            + QUALITY.VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS
         }
         records = [
             falling_parity_record("episode_started", 10, 0),
@@ -333,6 +400,239 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(
                     QUALITY.QualityError, "vertical pain column outcomes do not partition"):
                 QUALITY.analyze_run(invalid)
+
+    def test_current_vertical_column_diagnostics_reconcile_and_report_coverage(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        final = {
+            **zero,
+            "vertical_pain_column_episodes_started_exact": 1,
+            "vertical_pain_column_episodes_completed_exact": 1,
+            "vertical_pain_column_true_negative_outcomes_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "current-column", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [
+                    vertical_start(), vertical_terminal(),
+                ]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            metrics = QUALITY.analyze([run])["runs"][0]["metrics"]
+            self.assertEqual(metrics["vertical_pain_column_episode_completion_fraction"], 1.0)
+            self.assertEqual(metrics["vertical_pain_column_unknown_outcome_fraction"], 0.0)
+            self.assertEqual(metrics["vertical_pain_column_ambiguous_outcome_fraction"], 0.0)
+            self.assertEqual(metrics["vertical_pain_column_diagnostic_coverage_fraction"], 1.0)
+            self.assertEqual(
+                metrics["vertical_pain_column_generation_capacity_exhaustion_rate"], 0.0)
+
+            overflow = write_v2_run(Path(temporary), "current-column-overflow", bot_count=1)
+            overflow_final = {
+                **zero,
+                "vertical_pain_column_episodes_started_exact": 1,
+                "vertical_pain_column_diagnostic_overflows_exact": 1,
+            }
+            upgrade_telemetry_v2(overflow, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **overflow_final, "vertical_pain_column_diagnostics": []},
+                {**common, **overflow_final, "vertical_pain_column_diagnostics": []},
+            ])
+            overflow_metrics = QUALITY.analyze([overflow])["runs"][0]["metrics"]
+            self.assertEqual(
+                overflow_metrics["vertical_pain_column_diagnostic_coverage_fraction"], 0.0)
+
+    def test_current_vertical_column_schema_is_strict_and_zone_zero_is_valid(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        final = {**zero, "vertical_pain_column_episodes_started_exact": 1}
+        with tempfile.TemporaryDirectory() as temporary:
+            valid = write_v2_run(Path(temporary), "zone-zero-valid", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final,
+                 "vertical_pain_column_diagnostics": [vertical_start()]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            QUALITY.analyze_run(valid)
+
+            malformed = write_v2_run(Path(temporary), "zone-identity-invalid", bot_count=1)
+            bad = vertical_start()
+            bad["starting_physics_zone"] = vertical_zone(True, 0, 7)
+            upgrade_telemetry_v2(malformed, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [bad]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "zone_actor_id must be positive"):
+                QUALITY.analyze_run(malformed)
+
+            extra = write_v2_run(Path(temporary), "column-extra-field", bot_count=1)
+            bad = {**vertical_start(), "unexpected": True}
+            upgrade_telemetry_v2(extra, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [bad]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "unexpected fields"):
+                QUALITY.analyze_run(extra)
+
+    def test_current_vertical_column_lifecycle_and_correlation_are_strict(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        final = {
+            **zero,
+            "vertical_pain_column_episodes_started_exact": 1,
+            "vertical_pain_column_episodes_completed_exact": 1,
+            "vertical_pain_column_true_negative_outcomes_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            missing_start = write_v2_run(Path(temporary), "column-missing-start", bot_count=1)
+            upgrade_telemetry_v2(missing_start, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final,
+                 "vertical_pain_column_diagnostics": [vertical_terminal()]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "no matching start"):
+                QUALITY.analyze_run(missing_start)
+
+            wrong_correlation = write_v2_run(
+                Path(temporary), "column-wrong-correlation", bot_count=1)
+            terminal = vertical_terminal()
+            terminal["correlation"] = "forecast_only"
+            upgrade_telemetry_v2(wrong_correlation, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [
+                    vertical_start(), terminal,
+                ]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "expected"):
+                QUALITY.analyze_run(wrong_correlation)
+
+    def test_current_vertical_column_accepts_final_continuation_and_ambiguous_enums(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        start = vertical_start(harmful=True)
+        start["source"] = "aligned_continuation_commit"
+        start["precharged_elapsed"] = 0.02
+        terminal = vertical_terminal(harmful=True)
+        terminal["source"] = "aligned_continuation_commit"
+        terminal["causal_ambiguity"] = True
+        terminal["expected_harmful_path_matched"] = False
+        terminal["correlation"] = "ambiguous"
+        final = {
+            **zero,
+            "vertical_pain_column_episodes_started_exact": 1,
+            "vertical_pain_column_episodes_completed_exact": 1,
+            "vertical_pain_column_ambiguous_outcomes_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "column-ambiguous", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final,
+                 "vertical_pain_column_diagnostics": [start, terminal]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            metrics = QUALITY.analyze([run])["runs"][0]["metrics"]
+            self.assertEqual(
+                metrics["vertical_pain_column_ambiguous_outcome_fraction"], 1.0)
+
+            for source in (
+                    "third_move_continuation_commit", "horizon_continuation_commit"):
+                with self.subTest(source=source):
+                    record = vertical_start()
+                    record["source"] = source
+                    record["precharged_elapsed"] = (
+                        0.02 if source == "third_move_continuation_commit" else 0.0)
+                    QUALITY._vertical_pain_column_diagnostic(record, source)
+
+    def test_current_vertical_column_capacity_record_is_reconciled_after_terminal(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        terminal = vertical_terminal()
+        terminal["actual_trajectory_unknown"] = True
+        terminal["correlation"] = "unknown"
+        capacity = {
+            "source_pawn_actor": "Bot1",
+            "sequence": "3",
+            "life_id": "1",
+            "fall_episode_id": "1",
+            "generation_id": "0",
+            "kind": "generation_capacity_exceeded",
+            "attempted_source": "horizon_continuation_commit",
+        }
+        final = {
+            **zero,
+            "vertical_pain_column_episodes_started_exact": 1,
+            "vertical_pain_column_episodes_completed_exact": 1,
+            "vertical_pain_column_unknown_outcomes_exact": 1,
+            "vertical_pain_column_generation_capacity_exhaustions_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "column-capacity", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [
+                    vertical_start(), terminal, capacity,
+                ]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            metrics = QUALITY.analyze([run])["runs"][0]["metrics"]
+            self.assertEqual(
+                metrics["vertical_pain_column_generation_capacity_exhaustion_rate"], 1.0)
+
+    def test_current_vertical_column_requires_records_but_legacy_does_not(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        legacy = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS}
+        current = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        with tempfile.TemporaryDirectory() as temporary:
+            old = write_v2_run(Path(temporary), "legacy-column-no-records", bot_count=1)
+            upgrade_telemetry_v2(old, counters=[
+                {**common, **legacy}, {**common, **legacy}, {**common, **legacy},
+            ])
+            QUALITY.analyze_run(old)
+
+            missing = write_v2_run(Path(temporary), "current-column-no-records", bot_count=1)
+            upgrade_telemetry_v2(missing, counters=[
+                {**common, **current}, {**common, **current}, {**common, **current},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "current vertical pain column counters require"):
+                QUALITY.analyze_run(missing)
 
     def test_falling_parity_legacy_counter_group_defaults_matched_landings_to_zero(self) -> None:
         common = {
