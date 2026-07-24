@@ -90,36 +90,46 @@ namespace
 		profile.Spawn.GameClass = "Botpack.DeathMatchPlus";
 		profile.Spawn.SpectatorClass = "Botpack.CHSpectator";
 		profile.Spawn.BotBaseClass = "Botpack.Bot";
+		profile.Spawn.BotBaseClassName = "Bot";
 		profile.Spawn.VerifiedBotClasses = { "Botpack.Bot" };
 		profile.Spawn.BotConfigProperty = "BotConfig";
 		profile.Spawn.SpawnCommand = "AddBots 1";
+		profile.Spawn.SpectatorLogin = BotBenchmarkSpectatorLogin::OverrideClass;
+		profile.Spawn.SkillInitialization = BotBenchmarkSkillInitialization::UT436InitializeSkill;
+		profile.Spawn.MaximumExternalSkill = 7;
+		profile.Spawn.SupportsRequestedNames = true;
+		profile.Spawn.SuppressMinPlayers = true;
 		return profile;
 	}
 
-	BotBenchmarkGameProfile MakeRecognizedUnrealProfile(std::string identity, std::string version)
+	BotBenchmarkGameProfile MakeUnrealGold226Profile(std::string identity, std::string version)
 	{
 		BotBenchmarkGameProfile profile;
-		profile.Id = "unreal-gold-226b-recognized";
+		profile.Id = "unreal-gold-226b-deathmatch";
 		profile.Family = BotBenchmarkGameFamily::Unreal;
 		profile.NormalizedGameIdentity = std::move(identity);
 		profile.NormalizedVersion = std::move(version);
-		profile.UnsupportedReason =
-			"Unreal 226b is recognized, but controlled bot benchmarking is unsupported: "
-			"the user-owned exports verify game, spectator, and bot class identities, not the runtime bot-spawn "
-			"command or BotConfig/skill contract. Export and verify the UnrealShare/UnrealI scripts, then add a "
-			"dedicated spawn adapter before running a benchmark.";
+		profile.ControlledBenchmarkSupported = true;
 		profile.Modes = {
-			{ BotBenchmarkGameMode::Deathmatch, "UnrealShare.DeathMatchGame", false },
+			{ BotBenchmarkGameMode::Deathmatch, "UnrealShare.DeathMatchGame", true },
 			{ BotBenchmarkGameMode::TeamDeathmatch, "UnrealShare.TeamGame", false },
 			{ BotBenchmarkGameMode::Cooperative, "UnrealShare.CoopGame", false },
 			{ BotBenchmarkGameMode::DarkMatch, "UnrealI.DarkMatch", false },
 			{ BotBenchmarkGameMode::KingOfTheHill, "UnrealI.KingOfTheHill", false }
 		};
-		profile.Capabilities = { BotBenchmarkCapability::VerifiedBotClassCatalog };
+		profile.Capabilities = {
+			BotBenchmarkCapability::SpectatorLogin,
+			BotBenchmarkCapability::ControlledBotSpawn,
+			BotBenchmarkCapability::BotConfigSkillControl,
+			BotBenchmarkCapability::AutomaticBotSuppression,
+			BotBenchmarkCapability::DeterministicSingleBotRoster,
+			BotBenchmarkCapability::VerifiedBotClassCatalog
+		};
 		profile.RecommendedMapFeatures = UnrealMapFeatures();
 		profile.Spawn.GameClass = "UnrealShare.DeathMatchGame";
 		profile.Spawn.SpectatorClass = "UnrealShare.UnrealSpectator";
 		profile.Spawn.BotBaseClass = "UnrealShare.Bots";
+		profile.Spawn.BotBaseClassName = "Bots";
 		profile.Spawn.VerifiedBotClasses = {
 			"UnrealShare.FemaleOneBot",
 			"UnrealShare.MaleThreeBot",
@@ -128,6 +138,16 @@ namespace
 			"UnrealI.MaleTwoBot",
 			"UnrealI.SkaarjPlayerBot"
 		};
+		profile.Spawn.BotConfigProperty = "BotConfig";
+		profile.Spawn.SpawnCommand = "AddBots 1";
+		profile.Spawn.SpectatorLogin = BotBenchmarkSpectatorLogin::PlayerClass;
+		profile.Spawn.SkillInitialization = BotBenchmarkSkillInitialization::Unreal226EffectiveSkill;
+		profile.Spawn.MaximumExternalSkill = 3;
+		profile.Spawn.SuppressMultiPlayerBots = true;
+		profile.Spawn.DisableRandomBotOrder = true;
+		profile.Spawn.RequireNumBotsAccounting = true;
+		profile.Spawn.RequireBotPRIFlag = true;
+		profile.Spawn.RequireVerifiedConcreteBotClass = true;
 		return profile;
 	}
 }
@@ -175,7 +195,7 @@ BotBenchmarkGameProfile BotBenchmarkGameProfileResolver::Resolve(
 	if (IsOneOf(identity, { "unreal", "unrealgold" }))
 	{
 		if (normalizedVersion == "226b")
-			return MakeRecognizedUnrealProfile(std::move(identity), std::move(normalizedVersion));
+			return MakeUnrealGold226Profile(std::move(identity), std::move(normalizedVersion));
 
 		return UnsupportedProfile(
 			BotBenchmarkGameFamily::Unreal,

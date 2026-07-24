@@ -7,6 +7,7 @@
 #include "Utils/CommandLine.h"
 #include "Utils/Logger.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace
@@ -28,6 +29,10 @@ void BotSpectatorMatch::Setup(Engine& engine)
 {
 	const BotControlledMatchResult match = BotControlledMatch::Setup(
 		engine, Config.GetURL(), Config.GetRoster());
+	ControlledBots.clear();
+	ControlledBots.reserve(match.Participants.size());
+	for (const auto& participant : match.Participants)
+		ControlledBots.push_back(participant.Pawn);
 	FollowLiveBot(engine);
 	LogMessage("Bot spectator match started: " + std::to_string(match.Participants.size()) +
 		" bots on " + engine.LevelInfo->URL.Map +
@@ -54,19 +59,17 @@ void BotSpectatorMatch::FollowLiveBot(Engine& engine)
 		return;
 	UActor* current = spectator->ViewTarget();
 	UPawn* currentPawn = UObject::TryCast<UPawn>(current);
-	if (currentPawn && currentPawn->IsA("Bot") && !currentPawn->bDeleteMe() && currentPawn->Health() > 0)
+	if (currentPawn && std::find(ControlledBots.begin(), ControlledBots.end(), currentPawn) != ControlledBots.end() &&
+		!currentPawn->bDeleteMe() && currentPawn->Health() > 0)
 	{
 		spectator->bBehindView() = true;
 		return;
 	}
 
 	spectator->ViewTarget() = nullptr;
-	if (!engine.Level)
-		return;
-	for (UActor* actor : engine.Level->Actors)
+	for (UPawn* pawn : ControlledBots)
 	{
-		UPawn* pawn = UObject::TryCast<UPawn>(actor);
-		if (!pawn || !pawn->IsA("Bot") || pawn->bDeleteMe() || pawn->Health() <= 0)
+		if (!pawn || pawn->bDeleteMe() || pawn->Health() <= 0)
 			continue;
 		spectator->ViewTarget() = pawn;
 		spectator->bBehindView() = true;

@@ -46,6 +46,18 @@ enum class BotBenchmarkMapFeature
 	DarkVisibility
 };
 
+enum class BotBenchmarkSpectatorLogin
+{
+	OverrideClass,
+	PlayerClass
+};
+
+enum class BotBenchmarkSkillInitialization
+{
+	UT436InitializeSkill,
+	Unreal226EffectiveSkill
+};
+
 struct BotBenchmarkModeProfile
 {
 	BotBenchmarkGameMode Mode = BotBenchmarkGameMode::Deathmatch;
@@ -58,9 +70,25 @@ struct BotBenchmarkSpawnContract
 	std::string GameClass;
 	std::string SpectatorClass;
 	std::string BotBaseClass;
+	std::string BotBaseClassName;
 	std::vector<std::string> VerifiedBotClasses;
 	std::string BotConfigProperty;
 	std::string SpawnCommand;
+	BotBenchmarkSpectatorLogin SpectatorLogin = BotBenchmarkSpectatorLogin::OverrideClass;
+	BotBenchmarkSkillInitialization SkillInitialization = BotBenchmarkSkillInitialization::UT436InitializeSkill;
+	int MaximumExternalSkill = -1;
+	bool SupportsRequestedNames = false;
+	bool SuppressMinPlayers = false;
+	bool SuppressMultiPlayerBots = false;
+	bool DisableRandomBotOrder = false;
+	bool RequireNumBotsAccounting = false;
+	bool RequireBotPRIFlag = false;
+	bool RequireVerifiedConcreteBotClass = false;
+
+	bool SupportsExternalSkill(int skill) const
+	{
+		return skill >= 0 && skill <= MaximumExternalSkill;
+	}
 };
 
 struct BotBenchmarkGameProfile

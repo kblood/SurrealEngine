@@ -44,6 +44,16 @@ namespace
 		Check(profile.Spawn.SpectatorClass == "Botpack.CHSpectator", "UT99 spectator class is exact");
 		Check(profile.Spawn.BotConfigProperty == "BotConfig", "UT99 requires BotConfig");
 		Check(profile.Spawn.SpawnCommand == "AddBots 1", "UT99 uses the verified AddBots command");
+		Check(profile.Spawn.BotBaseClassName == "Bot", "UT99 uses its singular Bot ancestry");
+		Check(profile.Spawn.SpectatorLogin == BotBenchmarkSpectatorLogin::OverrideClass,
+			"UT99 preserves its OverrideClass spectator login");
+		Check(profile.Spawn.SkillInitialization == BotBenchmarkSkillInitialization::UT436InitializeSkill,
+			"UT99 preserves InitializeSkill semantics");
+		Check(profile.Spawn.SupportsExternalSkill(7) && !profile.Spawn.SupportsExternalSkill(8),
+			"UT99 preserves its verified 0-7 external skill range");
+		Check(profile.Spawn.SupportsRequestedNames, "UT99 preserves named roster support");
+		Check(profile.Spawn.SuppressMinPlayers && !profile.Spawn.SuppressMultiPlayerBots,
+			"UT99 preserves its MinPlayers roster suppression contract");
 		Check(profile.SupportsMode(BotBenchmarkGameMode::Deathmatch), "UT99 deathmatch mode is supported");
 		Check(!profile.SupportsMode(BotBenchmarkGameMode::TeamDeathmatch),
 			"unverified UT99 benchmark modes are not implied");
@@ -72,31 +82,46 @@ namespace
 			"unverified version gives an actionable verified-version boundary");
 	}
 
-	void TestRecognizedUnrealProfileIsConservative()
+	void TestUnrealGold226DeathmatchProfile()
 	{
 		const auto profile = BotBenchmarkGameProfileResolver::Resolve("Unreal Gold", "226B");
-		Check(profile.Id == "unreal-gold-226b-recognized", "Unreal Gold 226b resolves to the recognized profile");
+		Check(profile.Id == "unreal-gold-226b-deathmatch", "Unreal Gold 226b resolves to its exact profile");
 		Check(profile.Family == BotBenchmarkGameFamily::Unreal, "Unreal family is preserved");
-		Check(!profile.ControlledBenchmarkSupported, "Unreal benchmark remains unsupported");
+		Check(profile.ControlledBenchmarkSupported, "Unreal Gold 226b controlled deathmatch is supported");
+		Check(profile.UnsupportedReason.empty(), "supported Unreal profile has no unsupported reason");
 		Check(profile.Spawn.GameClass == "UnrealShare.DeathMatchGame", "verified Unreal game class is recorded");
 		Check(profile.Spawn.SpectatorClass == "UnrealShare.UnrealSpectator",
 			"verified Unreal spectator class is recorded");
-		Check(profile.Spawn.BotConfigProperty.empty() && profile.Spawn.SpawnCommand.empty(),
-			"Unreal does not borrow unverified BotConfig/AddBots requirements");
+		Check(profile.Spawn.BotBaseClassName == "Bots", "Unreal uses its plural Bots ancestry");
+		Check(profile.Spawn.BotConfigProperty == "BotConfig" && profile.Spawn.SpawnCommand == "AddBots 1",
+			"Unreal records its verified BotConfig and AddBots contract");
 		Check(HasClass(profile, "UnrealShare.FemaleOneBot") && HasClass(profile, "UnrealI.SkaarjPlayerBot"),
 			"verified Unreal bot class catalog is recorded");
-		Check(!profile.SupportsMode(BotBenchmarkGameMode::Deathmatch),
-			"a verified game class does not imply benchmark support");
-		Check(!profile.HasCapability(BotBenchmarkCapability::ControlledBotSpawn),
-			"Unreal does not advertise unverified controlled spawning");
+		Check(profile.SupportsMode(BotBenchmarkGameMode::Deathmatch),
+			"Unreal Gold 226b supports only its verified deathmatch adapter");
+		Check(!profile.SupportsMode(BotBenchmarkGameMode::TeamDeathmatch),
+			"Unreal team deathmatch remains fail-closed");
+		Check(profile.HasCapability(BotBenchmarkCapability::ControlledBotSpawn),
+			"Unreal advertises verified controlled spawning");
 		Check(profile.HasCapability(BotBenchmarkCapability::VerifiedBotClassCatalog),
-			"Unreal advertises only its verified class catalog");
+			"Unreal advertises its verified class catalog");
+		Check(profile.Spawn.SpectatorLogin == BotBenchmarkSpectatorLogin::PlayerClass,
+			"Unreal logs in through the player Class URL option");
+		Check(profile.Spawn.SkillInitialization == BotBenchmarkSkillInitialization::Unreal226EffectiveSkill,
+			"Unreal uses explicit effective skill plus ReSetSkill");
+		Check(profile.Spawn.SupportsExternalSkill(0) && profile.Spawn.SupportsExternalSkill(3)
+			&& !profile.Spawn.SupportsExternalSkill(4), "Unreal accepts only verified 0-3 skills");
+		Check(!profile.Spawn.SupportsRequestedNames, "Unreal rejects unverified named roster spawning");
+		Check(!profile.Spawn.SuppressMinPlayers && profile.Spawn.SuppressMultiPlayerBots,
+			"Unreal uses InitialBots/RemainingBots and bMultiPlayerBots suppression, not MinPlayers");
+		Check(profile.Spawn.DisableRandomBotOrder && profile.Spawn.RequireNumBotsAccounting
+			&& profile.Spawn.RequireBotPRIFlag
+			&& profile.Spawn.RequireVerifiedConcreteBotClass,
+			"Unreal requires deterministic order, NumBots/PRI accounting, and a catalogued class");
 		Check(profile.RecommendsMapFeature(BotBenchmarkMapFeature::ScriptedObjectives),
 			"future Unreal matrix covers scripted traversal");
 		Check(profile.RecommendsMapFeature(BotBenchmarkMapFeature::DarkVisibility),
 			"future Unreal matrix covers dark visibility");
-		Check(profile.UnsupportedReason.find("dedicated spawn adapter") != std::string::npos,
-			"Unreal failure gives an actionable implementation requirement");
 	}
 
 	void TestUnknownAndUnverifiedUnrealStayEmpty()
@@ -121,7 +146,7 @@ int main()
 	TestNormalization();
 	TestUT99Profile();
 	TestUT99VersionGateAndDeterminism();
-	TestRecognizedUnrealProfileIsConservative();
+	TestUnrealGold226DeathmatchProfile();
 	TestUnknownAndUnverifiedUnrealStayEmpty();
 
 	if (failures == 0)
