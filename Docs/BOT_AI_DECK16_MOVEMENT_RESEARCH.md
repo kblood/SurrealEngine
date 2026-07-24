@@ -412,6 +412,45 @@ next observer should count deterministic episodes and separate blocked sweep,
 missing support, pain support, true destination regression, and unknown intent
 instead of treating all non-authorizations alike.
 
+## Pre-commit walking support is the next intervention point
+
+The Deck traces now point to a timing defect rather than another falling escape
+direction. `TickWalking` mutates the step-up/forward/slide path before its final
+floor-support decision. The bounded pain fall forecast also returns no hazard
+when its first trace hits a wall. In seed 104729, Necroth becomes falling at
+tick 471 while targeting `BulletBox4`, does not receive the first wall contact
+until tick 481, and reaches pain at tick 503. By then every post-hoc rollback or
+falling recovery starts from an unsupported position; iterations 23 through 26
+could not reconstruct the lost safe origin.
+
+The narrow hypothesis is therefore: preflight the walking subiteration while
+the bot is still on known support, and identify only those unsupported
+endpoints whose bounded continuation reaches a known pain region. This must
+begin as an observer. It applies only to live autonomous stock UT/Unreal bots
+in `PHYS_Walking`, ordinary downward gravity, a known non-pain/non-water foot
+region, finite walking deltas, and static-world collision evidence. Upward jump
+impulses, movers, dynamic blockers, unknown zones, and non-stock or human pawns
+produce no authorization.
+
+The current `TryMove(delta, true)` is insufficient for the multi-stage
+simulation because it always starts from the pawn's actual `Location`. The
+first implementation step is an explicit-origin read-only collision probe
+shared with `TryMove`. At the actual current origin, synthetic clear/static/
+dynamic collision fixtures must prove identical hit fraction, normal, and
+actor selection before chained step endpoints are trusted. Temporary actor
+translation is forbidden even in shadow mode.
+
+After that equivalence gate, shadow telemetry should distinguish unsupported
+preflights, wall-continuation hazard authorizations, and fail-open reasons, and
+debounce by pawn life, supported origin, and semantic target. A future live
+veto is allowed only if the known Deck trace authorizes before tick 471 and A/B
+evidence shows that cancelling one step while still supported removes the
+hazard without adding deaths, pain entries, wall/stall time, score loss, or
+determinism changes. Deck seeds 271828 and 314159 must remain unattributed when
+their falls are enemy momentum or an explicit wall jump. Morbias, Unreal Deck/
+Morbias, HealPod, and both DeathFan timestep spellings are required tuning
+non-regressions; held-outs remain closed until the behavior is frozen.
+
 ## Quality measurement truth boundary
 
 The analyzer and executable gate evaluator now fail closed for missing runs,
