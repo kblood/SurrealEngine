@@ -88,6 +88,19 @@ namespace PawnMovement
 				&& dot(candidate.SweepDelta, candidate.SweepDelta) > 0.0f
 				&& candidate.SweepDelta.z == 0.0f;
 		}
+
+		bool NormalLess(const vec3& first, const vec3& second)
+		{
+			return first.x < second.x
+				|| (first.x == second.x && (first.y < second.y
+					|| (first.y == second.y && first.z < second.z)));
+		}
+
+		void CanonicalizeNormalPair(vec3& first, vec3& second)
+		{
+			if (NormalLess(second, first))
+				std::swap(first, second);
+		}
 	}
 
 	FallingTwoPlaneSafetyResult EvaluateFallingTwoPlaneSafety(
@@ -261,6 +274,48 @@ namespace PawnMovement
 		return result;
 	}
 
+	FallingSeamEpisodeUpdate UpdateFallingSeamEpisode(
+		const FallingSeamEpisodeState& state,
+		const FallingSeamEpisodeObservation& observation)
+	{
+		FallingSeamEpisodeUpdate result;
+		if (!observation.Eligible)
+			return result;
+		if (!std::isfinite(observation.Position.x)
+			|| !std::isfinite(observation.Position.y)
+			|| !IsUnitNormal(observation.FirstNormal)
+			|| !IsUnitNormal(observation.SecondNormal)
+			|| !std::isfinite(observation.MaximumAnchorDistance)
+			|| observation.MaximumAnchorDistance < 0.0f
+			|| !std::isfinite(observation.MinimumNormalAlignment)
+			|| observation.MinimumNormalAlignment < -1.0f
+			|| observation.MinimumNormalAlignment > 1.0f)
+			return result;
+
+		vec3 firstNormal = observation.FirstNormal;
+		vec3 secondNormal = observation.SecondNormal;
+		CanonicalizeNormalPair(firstNormal, secondNormal);
+		const vec2 anchorDelta = observation.Position - state.Anchor;
+		const bool sameAnchor = state.Active
+			&& dot(anchorDelta, anchorDelta) <= observation.MaximumAnchorDistance
+				* observation.MaximumAnchorDistance;
+		const bool samePair = state.Active
+			&& dot(firstNormal, state.FirstNormal) >= observation.MinimumNormalAlignment
+			&& dot(secondNormal, state.SecondNormal) >= observation.MinimumNormalAlignment;
+		if (sameAnchor && samePair)
+		{
+			result.State = state;
+			return result;
+		}
+
+		result.State.Active = true;
+		result.State.Anchor = observation.Position;
+		result.State.FirstNormal = firstNormal;
+		result.State.SecondNormal = secondNormal;
+		result.Started = true;
+		return result;
+	}
+
 	FallingTwoPlaneSafetyResult SelectHorizontalCornerEscape(
 		const HorizontalCornerEscapeCandidate& candidate,
 		const FallingRecoveryAuthorizationEvidence& evidence)
@@ -294,5 +349,33 @@ namespace PawnMovement
 			return HorizontalCornerEscapeShadowClassification::UnknownOrUnsafeSupport;
 
 		return HorizontalCornerEscapeShadowClassification::TargetProgressRejected;
+	}
+
+	HorizontalCornerEscapeDetailedClassification ClassifyHorizontalCornerEscapeDetailed(
+		const HorizontalCornerEscapeCandidate& candidate,
+		const FallingRecoveryAuthorizationEvidence& evidence,
+		bool activeMovementIntentAndTarget)
+	{
+		if (!IsValidHorizontalCornerEscapeCandidate(candidate))
+			return HorizontalCornerEscapeDetailedClassification::CandidateInvalid;
+		if (!evidence.SweepResultKnown)
+			return HorizontalCornerEscapeDetailedClassification::UnknownEvidence;
+		if (!evidence.SweepClear)
+			return HorizontalCornerEscapeDetailedClassification::BlockedSweep;
+		if (!evidence.SupportResultKnown)
+			return HorizontalCornerEscapeDetailedClassification::UnknownEvidence;
+		if (!evidence.WalkableShortSupport)
+			return HorizontalCornerEscapeDetailedClassification::NoStaticWalkableSupport;
+		if (!evidence.PainResultKnown)
+			return HorizontalCornerEscapeDetailedClassification::UnknownEvidence;
+		if (evidence.SupportInPainZone)
+			return HorizontalCornerEscapeDetailedClassification::PainSupport;
+		if (!activeMovementIntentAndTarget)
+			return HorizontalCornerEscapeDetailedClassification::NoActiveMovementIntentOrTarget;
+		if (!evidence.TargetProgressKnown || !std::isfinite(evidence.TargetProgress))
+			return HorizontalCornerEscapeDetailedClassification::UnknownEvidence;
+		if (evidence.TargetProgress <= 0.0f)
+			return HorizontalCornerEscapeDetailedClassification::TrueTargetRegression;
+		return HorizontalCornerEscapeDetailedClassification::Authorized;
 	}
 }

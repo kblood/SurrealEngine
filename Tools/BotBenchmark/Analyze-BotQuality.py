@@ -21,7 +21,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 12
+TOOL_VERSION = 13
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -72,6 +72,16 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "horizontal_corner_authorized_escapes_exact": None,
     "horizontal_corner_target_progress_rejects_exact": None,
     "horizontal_corner_unknown_or_unsafe_support_exact": None,
+    "falling_seam_episodes_exact": None,
+    "falling_seam_invalid_geometry_rejects_exact": None,
+    "falling_seam_authorizable_episodes_exact": None,
+    "horizontal_corner_authorized_candidates_exact": None,
+    "horizontal_corner_blocked_sweep_candidates_exact": None,
+    "horizontal_corner_no_static_walkable_support_candidates_exact": None,
+    "horizontal_corner_pain_support_candidates_exact": None,
+    "horizontal_corner_no_active_movement_intent_or_target_candidates_exact": None,
+    "horizontal_corner_true_target_regression_candidates_exact": None,
+    "horizontal_corner_unknown_evidence_candidates_exact": None,
     "hazard_exposure_seconds": "lower",
     "hazard_entries": "lower",
     "hazard_exposed_deaths_proxy": "lower",
@@ -123,10 +133,22 @@ FALLING_SEAM_SHADOW_COUNTERS = (
     "horizontal_corner_target_progress_rejects_exact",
     "horizontal_corner_unknown_or_unsafe_support_exact",
 )
+FALLING_SEAM_DETAILED_COUNTERS = (
+    "falling_seam_episodes_exact",
+    "falling_seam_invalid_geometry_rejects_exact",
+    "falling_seam_authorizable_episodes_exact",
+    "horizontal_corner_authorized_candidates_exact",
+    "horizontal_corner_blocked_sweep_candidates_exact",
+    "horizontal_corner_no_static_walkable_support_candidates_exact",
+    "horizontal_corner_pain_support_candidates_exact",
+    "horizontal_corner_no_active_movement_intent_or_target_candidates_exact",
+    "horizontal_corner_true_target_regression_candidates_exact",
+    "horizontal_corner_unknown_evidence_candidates_exact",
+)
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
     + FAILED_NAVIGATION_EXACT_COUNTERS + DEATH_ATTRIBUTION_COUNTERS
-    + FALLING_SEAM_SHADOW_COUNTERS
+    + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
 )
 OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
 OPTIONAL_CUMULATIVE_METRICS = OPTIONAL_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_NUMBERS
@@ -420,7 +442,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("wall adjust", WALL_ADJUST_EXACT_COUNTERS),
                 ("failed navigation", FAILED_NAVIGATION_EXACT_COUNTERS),
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
-                ("falling seam shadow", FALLING_SEAM_SHADOW_COUNTERS)):
+                ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
+                ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS)):
             present = [name for name in names if name in result]
             if present and len(present) != len(names):
                 raise QualityError(f"{context}: {label} counters must be provided as a complete group")
@@ -471,6 +494,52 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if classified != candidates:
                 raise QualityError(
                     f"{context}: horizontal corner classifications do not partition candidate probes")
+        if "falling_seam_episodes_exact" in result:
+            if "falling_seam_detections_exact" not in result:
+                raise QualityError(
+                    f"{context}: falling seam detailed v2 counters require the complete v1 rollup group")
+            detections = result["falling_seam_detections_exact"]
+            episodes = result["falling_seam_episodes_exact"]
+            invalid_geometry = result["falling_seam_invalid_geometry_rejects_exact"]
+            authorizable_episodes = result["falling_seam_authorizable_episodes_exact"]
+            probes = result["horizontal_corner_candidate_probes_exact"]
+            authorized_candidates = result["horizontal_corner_authorized_candidates_exact"]
+            if episodes > detections:
+                raise QualityError(f"{context}: falling seam episodes exceed detections")
+            if detections > 0 and episodes == 0:
+                raise QualityError(
+                    f"{context}: falling seam detections require at least one episode")
+            if invalid_geometry > detections:
+                raise QualityError(
+                    f"{context}: falling seam invalid-geometry rejects exceed detections")
+            candidate_sets = detections - invalid_geometry
+            if probes < candidate_sets or probes > 3 * candidate_sets:
+                raise QualityError(
+                    f"{context}: horizontal corner probes are outside one-to-three per candidate-bearing detection")
+            detailed_outcomes = sum(result[name] for name in (
+                "horizontal_corner_authorized_candidates_exact",
+                "horizontal_corner_blocked_sweep_candidates_exact",
+                "horizontal_corner_no_static_walkable_support_candidates_exact",
+                "horizontal_corner_pain_support_candidates_exact",
+                "horizontal_corner_no_active_movement_intent_or_target_candidates_exact",
+                "horizontal_corner_true_target_regression_candidates_exact",
+                "horizontal_corner_unknown_evidence_candidates_exact",
+            ))
+            if detailed_outcomes != probes:
+                raise QualityError(
+                    f"{context}: detailed horizontal corner outcomes do not partition candidate probes")
+            if authorized_candidates > candidate_sets:
+                raise QualityError(
+                    f"{context}: authorized horizontal corner candidates exceed candidate-bearing detections")
+            if authorized_candidates != result["horizontal_corner_authorized_escapes_exact"]:
+                raise QualityError(
+                    f"{context}: detailed authorized candidates do not match v1 authorized escapes")
+            if authorizable_episodes > episodes or authorizable_episodes > authorized_candidates:
+                raise QualityError(
+                    f"{context}: authorizable falling seam episodes exceed their episode or authorization bounds")
+            if authorized_candidates > 0 and authorizable_episodes == 0:
+                raise QualityError(
+                    f"{context}: authorized horizontal corner candidates require an authorizable episode")
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
@@ -1082,6 +1151,10 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
                 any(run["metrics"].get(name) is not None for run in runs)
                 for name in FALLING_SEAM_SHADOW_COUNTERS
             ),
+            "falling_seam_detailed_metrics_present": all(
+                any(run["metrics"].get(name) is not None for run in runs)
+                for name in FALLING_SEAM_DETAILED_COUNTERS
+            ),
             "unavailable_until_telemetry_is_extended": FUTURE_METRICS,
             "composite_quality_score": None,
         },
@@ -1095,8 +1168,8 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
             "a legacy, aggregate-recovery, or attributed-recovery complete monotonic group and reported when present. "
             "Optional failed-navigation activations, safeguard suppressions, and route-penalty applications are "
             "validated as a complete monotonic group and reported when present. "
-            "Optional falling-seam shadow detections, candidate probes, authorization decisions, and rejection "
-            "reasons are validated as a complete monotonic group and reported when present; they describe a "
+            "Optional falling-seam shadow v1 rollups and detailed v2 episode, geometry, and candidate outcome "
+            "counters are validated as complete monotonic groups and reported when present; they describe a "
             "read-only policy probe and do not prove that any movement was applied. "
             "Physics, latent-action, acceleration, destination, move-timer, and move-target diagnostics are "
             "validated when present and remain available in the source event stream. "

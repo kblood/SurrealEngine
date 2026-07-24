@@ -34,6 +34,16 @@ namespace BotBenchmarkDriverDetail
 		uint64_t HorizontalCornerAuthorizedEscapes = 0;
 		uint64_t HorizontalCornerTargetProgressRejects = 0;
 		uint64_t HorizontalCornerUnknownOrUnsafeSupport = 0;
+		uint64_t FallingSeamEpisodes = 0;
+		uint64_t FallingSeamInvalidGeometryRejects = 0;
+		uint64_t FallingSeamAuthorizableEpisodes = 0;
+		uint64_t HorizontalCornerAuthorizedCandidates = 0;
+		uint64_t HorizontalCornerBlockedSweepCandidates = 0;
+		uint64_t HorizontalCornerNoStaticWalkableSupportCandidates = 0;
+		uint64_t HorizontalCornerPainSupportCandidates = 0;
+		uint64_t HorizontalCornerNoActiveMovementIntentOrTargetCandidates = 0;
+		uint64_t HorizontalCornerTrueTargetRegressionCandidates = 0;
+		uint64_t HorizontalCornerUnknownEvidenceCandidates = 0;
 	};
 
 	enum class NativePawnCounterSample
@@ -117,6 +127,35 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.HorizontalCornerUnknownOrUnsafeSupport,
 				Previous.HorizontalCornerUnknownOrUnsafeSupport,
 				totals.HorizontalCornerUnknownOrUnsafeSupport);
+			AccumulateCounter(current.FallingSeamEpisodes, Previous.FallingSeamEpisodes,
+				totals.FallingSeamEpisodes);
+			AccumulateCounter(current.FallingSeamInvalidGeometryRejects,
+				Previous.FallingSeamInvalidGeometryRejects,
+				totals.FallingSeamInvalidGeometryRejects);
+			AccumulateCounter(current.FallingSeamAuthorizableEpisodes,
+				Previous.FallingSeamAuthorizableEpisodes,
+				totals.FallingSeamAuthorizableEpisodes);
+			AccumulateCounter(current.HorizontalCornerAuthorizedCandidates,
+				Previous.HorizontalCornerAuthorizedCandidates,
+				totals.HorizontalCornerAuthorizedCandidates);
+			AccumulateCounter(current.HorizontalCornerBlockedSweepCandidates,
+				Previous.HorizontalCornerBlockedSweepCandidates,
+				totals.HorizontalCornerBlockedSweepCandidates);
+			AccumulateCounter(current.HorizontalCornerNoStaticWalkableSupportCandidates,
+				Previous.HorizontalCornerNoStaticWalkableSupportCandidates,
+				totals.HorizontalCornerNoStaticWalkableSupportCandidates);
+			AccumulateCounter(current.HorizontalCornerPainSupportCandidates,
+				Previous.HorizontalCornerPainSupportCandidates,
+				totals.HorizontalCornerPainSupportCandidates);
+			AccumulateCounter(current.HorizontalCornerNoActiveMovementIntentOrTargetCandidates,
+				Previous.HorizontalCornerNoActiveMovementIntentOrTargetCandidates,
+				totals.HorizontalCornerNoActiveMovementIntentOrTargetCandidates);
+			AccumulateCounter(current.HorizontalCornerTrueTargetRegressionCandidates,
+				Previous.HorizontalCornerTrueTargetRegressionCandidates,
+				totals.HorizontalCornerTrueTargetRegressionCandidates);
+			AccumulateCounter(current.HorizontalCornerUnknownEvidenceCandidates,
+				Previous.HorizontalCornerUnknownEvidenceCandidates,
+				totals.HorizontalCornerUnknownEvidenceCandidates);
 		}
 
 	private:
