@@ -340,7 +340,9 @@ asynchronous prepare phase, restores the prior framebuffer, and resumes the
 same flat runtime after exit/failure. Physical presentation remains a separate
 WP7 promotion gate.
 
-Progress, 2026-07-24: production `auto` now selects `direct-webgl2` only when
+WP5 closed, 2026-07-24, at clean commit
+`5db4b8159b64d168ed907af312ae9db629acd4c8`: production `auto` now selects
+`direct-webgl2` only when
 the running engine owns a live WebGL 2 context. Entry calls
 `makeXRCompatible()`, creates a fresh session-owned `XRWebGLLayer`, and uses its
 actual two eye viewports as a shared ABI-v4 atlas. The async phase performs the
@@ -358,6 +360,9 @@ update before the render boundary, no update during synchronous stereo
 rendering, stable engine/renderer identities, and successful return to
 advancing flat frames. This is strong implementation evidence, not
 physical-headset qualification.
+
+The clean live evidence is
+`SurrealEngine/qa/runs/2026-07-24/5db4b815/wp5-direct-webgl2/manifest.json`.
 
 ### WP6 — Storage, recovery, and upgrade behavior
 
@@ -384,6 +389,20 @@ the user can clear derived data without deleting saves.
 
 Gate: the full matrix below passes, evidence is preserved, the production pointer
 is promoted atomically, and rollback is tested after promotion.
+
+Electron diagnostic-package progress, 2026-07-24: wrapper commit
+`8fcefa4d5a0ca928bdebc7b8db377c7bbcaf11cf` packages the clean, data-free
+WebGL2 browser build from `af790cceabbd0aa40cde91016f83c2096c4d978c`
+with Electron 43.2.0. The package pins and verifies every browser-release file,
+uses a stable single-instance loopback origin, applies restrictive response
+headers and renderer permissions, enforces ASAR integrity and hardened Electron
+fuses, and records a complete package inventory plus ZIP hash. Packaged-runtime
+automatic, forced-OpenXR, and experimental-WebGPU-XR diagnostics pass their
+non-immersive gates; strict immersive capability correctly fails because no
+headset/runtime was attached. The evidence manifest is
+`SurrealEngine/qa/runs/2026-07-24/8fcefa4d/wp6-electron-diagnostic/manifest.json`.
+This package remains unsigned and internal, and it does not close any named
+physical WebXR matrix row.
 
 ## Release gates for VR
 
