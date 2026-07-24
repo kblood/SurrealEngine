@@ -83,6 +83,8 @@ namespace
 	{
 		FallingHazardRuntimeSweepObservation observation;
 		observation.Segment = segment;
+		observation.HarmfulCenterZoneKnown = true;
+		observation.CenterZone = Zone(100);
 		observation.HarmfulFootZoneKnown = true;
 		observation.FootZone = Zone(100);
 		observation.PhysicsZone = Zone(100);
@@ -90,6 +92,14 @@ namespace
 		observation.FootWaterKnown = true;
 		observation.HeadWaterKnown = true;
 		observation.CallbackMaskKnown = true;
+		return observation;
+	}
+
+	FallingHazardRuntimeSweepObservation HarmfulCenterSweep()
+	{
+		auto observation = SafeSweep();
+		observation.InHarmfulCenterZone = true;
+		observation.CenterZone = Zone(42);
 		return observation;
 	}
 
@@ -258,6 +268,105 @@ namespace
 			"callback replacement has typed terminal and increasing generation");
 	}
 
+	void TestCenterOnlyHarmfulCorrelationAndInvalidIdentity()
+	{
+		FallingHazardRuntimeObserver predicted("CenterPredictedBot");
+		Check(predicted.BeginFallEpisode()
+			&& predicted.ArmGeneration(
+				FallingHazardForecastSource::ExistingFallingCommit,
+				Forecast(FallingHazardForecast::HarmfulPainObserved))
+			&& predicted.ObserveSweep(HarmfulCenterSweep()),
+			"a predicted center-only harmful entry completes");
+		Check(predicted.Counters().TruePositiveOutcomes == 1
+			&& predicted.Counters().EpisodesCompleted == 1,
+			"a center-only harmful entry counts as a true positive");
+		const auto& predictedGeneration =
+			predicted.Diagnostics().back().Generation;
+		Check(predictedGeneration.EnteredHarmfulCenterZone
+			&& !predictedGeneration.EnteredHarmfulFootZone
+			&& predictedGeneration.ObservedHarmfulCenterZone.ZoneActorId == 42,
+			"the terminal diagnostic preserves center-only evidence");
+
+		FallingHazardRuntimeObserver missed("CenterMissedBot");
+		Check(missed.BeginFallEpisode()
+			&& missed.ArmGeneration(
+				FallingHazardForecastSource::ExistingFallingCommit,
+				Forecast(FallingHazardForecast::NoHarmfulPainObserved))
+			&& missed.ObserveSweep(HarmfulCenterSweep()),
+			"an unpredicted center-only harmful entry completes");
+		Check(missed.Counters().FalseNegativeOutcomes == 1
+			&& missed.Counters().EpisodesCompleted == 1,
+			"a center-only harmful entry counts as a false negative");
+
+		FallingHazardRuntimeObserver unknownFoot("UnknownFootBot");
+		Check(unknownFoot.BeginFallEpisode()
+			&& unknownFoot.ArmGeneration(
+				FallingHazardForecastSource::ExistingFallingCommit,
+				Forecast(FallingHazardForecast::HarmfulPainObserved)),
+			"the unknown-foot center-entry generation arms");
+		auto unknownFootSweep = HarmfulCenterSweep();
+		unknownFootSweep.HarmfulFootZoneKnown = false;
+		Check(unknownFoot.ObserveSweep(unknownFootSweep)
+			&& unknownFoot.Counters().UnknownOutcomes == 1
+			&& unknownFoot.LastCompletedTerminal()
+				== FallingHazardTerminal::HarmfulPainEntered,
+			"a valid center entry with unclaimed unknown foot evidence completes unknown");
+		const auto& unknownFootGeneration =
+			unknownFoot.Diagnostics().back().Generation;
+		Check(unknownFootGeneration.EnteredHarmfulCenterZone
+			&& !unknownFootGeneration.EnteredHarmfulFootZone
+			&& unknownFootGeneration.HarmfulCenterEvidenceKnown
+			&& !unknownFootGeneration.HarmfulFootEvidenceKnown,
+			"unknown-foot diagnostics preserve the strict evidence boundary");
+
+		FallingHazardRuntimeObserver invalid("InvalidCenterBot");
+		Check(invalid.BeginFallEpisode()
+			&& invalid.ArmGeneration(
+				FallingHazardForecastSource::ExistingFallingCommit,
+				Forecast(FallingHazardForecast::HarmfulPainObserved)),
+			"the invalid-center test generation arms");
+		auto invalidSweep = HarmfulCenterSweep();
+		invalidSweep.CenterZone = Zone(0);
+		Check(invalid.ObserveSweep(invalidSweep)
+			&& invalid.Counters().UnknownOutcomes == 1
+			&& invalid.LastCompletedTerminal()
+				== FallingHazardTerminal::ContinuityLost,
+			"an invalid-only harmful center fails closed as continuity lost");
+		const auto& invalidGeneration = invalid.Diagnostics().back().Generation;
+		Check(!invalidGeneration.HarmfulCenterEvidenceKnown
+			&& !invalidGeneration.EnteredHarmfulCenterZone
+			&& !invalidGeneration.EnteredHarmfulFootZone
+			&& !invalidGeneration.ObservedHarmfulCenterZone.Known
+			&& invalidGeneration.ObservedHarmfulCenterZone.ZoneActorId == 0,
+			"invalid center identity is not copied into diagnostics");
+
+		FallingHazardRuntimeObserver partial("PartialCenterBot");
+		Check(partial.BeginFallEpisode()
+			&& partial.ArmGeneration(
+				FallingHazardForecastSource::ExistingFallingCommit,
+				Forecast(FallingHazardForecast::HarmfulPainObserved)),
+			"the partial-valid harmful test generation arms");
+		auto partialSweep = HarmfulSweep();
+		partialSweep.InHarmfulCenterZone = true;
+		partialSweep.CenterZone = Zone(0);
+		Check(partial.ObserveSweep(partialSweep)
+			&& partial.Counters().UnknownOutcomes == 1
+			&& partial.LastCompletedTerminal()
+				== FallingHazardTerminal::HarmfulPainEntered,
+			"a valid foot identity retains the harmful terminal despite invalid center evidence");
+		const auto& partialGeneration = partial.Diagnostics().back().Generation;
+		Check(!partialGeneration.EnteredHarmfulCenterZone
+			&& partialGeneration.EnteredHarmfulFootZone
+			&& partialGeneration.ObservedHarmfulFootZone.ZoneActorId == 42,
+			"partial-valid diagnostics preserve only the valid harmful identity");
+
+		CheckPartition(predicted.Counters());
+		CheckPartition(missed.Counters());
+		CheckPartition(unknownFoot.Counters());
+		CheckPartition(invalid.Counters());
+		CheckPartition(partial.Counters());
+	}
+
 	void TestZeroElapsedContinuation()
 	{
 		FallingHazardRuntimeObserver observer("ContinuationBot");
@@ -339,6 +448,9 @@ namespace
 			Forecast(FallingHazardForecast::NoHarmfulPainObserved)),
 			"life one generation arms");
 		observer.FinishLanding(FallingHazardCollisionKind::StaticWorld);
+		Check(observer.LastCompletedTerminal()
+			== FallingHazardTerminal::Landed,
+			"the observer exposes the most recent completion terminal");
 		Check(observer.BeginFallEpisode() && observer.CurrentFallEpisode().Value == 2,
 			"fall IDs increase within a life");
 		observer.AbandonFallEpisode();
@@ -350,6 +462,8 @@ namespace
 		Check(observer.ArmGeneration(FallingHazardForecastSource::ExistingFallingCommit,
 			Forecast(FallingHazardForecast::NoHarmfulPainObserved)),
 			"new-life generation arms");
+		Check(!observer.LastCompletedTerminal(),
+			"arming a generation clears the prior completion terminal");
 		Check(observer.CurrentGeneration().Value == 1,
 			"generation storage resets safely under the increasing life ID");
 	}
@@ -372,6 +486,8 @@ namespace
 			FallingHazardForecastSource::HorizonContinuationCommit,
 			Forecast(FallingHazardForecast::NoHarmfulPainObserved)),
 			"the first over-capacity generation is rejected");
+		Check(capacity.GenerationCapacityExhaustedForLife(),
+			"capacity exhaustion is exposed for runtime forecast short-circuiting");
 		last = capacity.DrainDiagnostics();
 		Check(last.size() == 2
 			&& last[0].Kind == FallingHazardDiagnosticKind::Terminal
@@ -464,6 +580,7 @@ int main()
 	TestAcceptsPureForecastOutput();
 	TestCorrelationPartition();
 	TestSupersedeOrderingAndSources();
+	TestCenterOnlyHarmfulCorrelationAndInvalidIdentity();
 	TestZeroElapsedContinuation();
 	TestTypedBoundaryCompletions();
 	TestLifeAndFallIdentifiers();

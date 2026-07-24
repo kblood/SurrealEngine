@@ -104,6 +104,8 @@ namespace PawnMovement
 		ForecastState = forecast.State;
 		HasForecastState = true;
 		ActualSampleCount = 0;
+		HasLastCompletion = false;
+		LastCompletionTerminal = FallingHazardTerminal::Active;
 		CounterValues.EpisodesStarted++;
 		QueueStart(prechargedElapsed);
 		return true;
@@ -142,6 +144,9 @@ namespace PawnMovement
 		segment.Leg = actual.Leg;
 		segment.Collision = actual.Collision;
 		segment.Elapsed = actual.ElapsedContribution;
+		segment.HarmfulCenterZoneKnown = observation.HarmfulCenterZoneKnown;
+		segment.InHarmfulCenterZone = observation.InHarmfulCenterZone;
+		segment.CenterZone = observation.CenterZone;
 		segment.HarmfulFootZoneKnown = observation.HarmfulFootZoneKnown;
 		segment.InHarmfulFootZone = observation.InHarmfulFootZone;
 		segment.FootZone = observation.FootZone;
@@ -238,6 +243,8 @@ namespace PawnMovement
 		TrajectoryModel = {};
 		ClearGenerationForecast();
 		CapacityDiagnosticEmittedForLife = false;
+		HasLastCompletion = false;
+		LastCompletionTerminal = FallingHazardTerminal::Active;
 		if (Life.Value < std::numeric_limits<uint64_t>::max())
 			Life.Value++;
 	}
@@ -267,6 +274,8 @@ namespace PawnMovement
 	void FallingHazardRuntimeObserver::ProcessCompletion(
 		const FallingHazardGenerationState& generation)
 	{
+		HasLastCompletion = true;
+		LastCompletionTerminal = generation.Terminal;
 		const FallingHazardCorrelation correlation =
 			CorrelateFallingHazardGeneration(generation);
 		CounterValues.EpisodesCompleted++;

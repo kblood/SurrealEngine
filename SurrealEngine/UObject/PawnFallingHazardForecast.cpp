@@ -405,7 +405,8 @@ namespace PawnMovement
 			return Complete(state, FallingHazardForecast::Unknown,
 				FallingHazardForecastReason::InvalidInput);
 		}
-		if (DamageBearing(input.StartingZones.Foot))
+		if (DamageBearing(input.StartingZones.Center)
+			|| DamageBearing(input.StartingZones.Foot))
 		{
 			return Complete(state, FallingHazardForecast::Unknown,
 				FallingHazardForecastReason::AlreadyInHarmfulPain);

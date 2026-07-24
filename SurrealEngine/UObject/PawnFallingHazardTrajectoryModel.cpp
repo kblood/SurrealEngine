@@ -232,6 +232,9 @@ namespace PawnMovement
 			observation.Collision == FallingHazardCollisionKind::Clear
 			|| observation.Collision == FallingHazardCollisionKind::StaticWorld;
 		const bool physicsZoneKnown = ValidKnownZone(observation.PhysicsZone);
+		const bool harmfulCenterEvidenceKnown = observation.HarmfulCenterZoneKnown
+			&& (!observation.InHarmfulCenterZone
+				|| ValidKnownZone(observation.CenterZone));
 		const bool harmfulFootEvidenceKnown = observation.HarmfulFootZoneKnown
 			&& (!observation.InHarmfulFootZone
 				|| ValidKnownZone(observation.FootZone));
@@ -253,28 +256,62 @@ namespace PawnMovement
 			|| !waterKnown)
 			generation.ActualTrajectoryUnknown = true;
 
+		if (!harmfulCenterEvidenceKnown)
+			generation.HarmfulCenterEvidenceKnown = false;
 		if (!harmfulFootEvidenceKnown)
 			generation.HarmfulFootEvidenceKnown = false;
-		if (harmfulFootEvidenceKnown && observation.InHarmfulFootZone)
+		const bool harmfulCenterClaimed = observation.InHarmfulCenterZone;
+		const bool harmfulFootClaimed = observation.InHarmfulFootZone;
+		if (harmfulCenterClaimed || harmfulFootClaimed)
 		{
-			generation.EnteredHarmfulFootZone = true;
+			const bool harmfulEntryEvidenceKnown =
+				(!harmfulCenterClaimed || harmfulCenterEvidenceKnown)
+				&& (!harmfulFootClaimed || harmfulFootEvidenceKnown);
+			if (!harmfulEntryEvidenceKnown)
+				generation.ActualTrajectoryUnknown = true;
+			if (harmfulCenterEvidenceKnown && harmfulCenterClaimed)
+			{
+				generation.EnteredHarmfulCenterZone = true;
+				generation.ObservedHarmfulCenterZone = observation.CenterZone;
+			}
+			if (harmfulFootEvidenceKnown && harmfulFootClaimed)
+			{
+				generation.EnteredHarmfulFootZone = true;
+				generation.ObservedHarmfulFootZone = observation.FootZone;
+			}
+			if (!generation.EnteredHarmfulCenterZone
+				&& !generation.EnteredHarmfulFootZone)
+			{
+				Complete(update, FallingHazardTerminal::ContinuityLost, true);
+				return update;
+			}
 			if (!physicsZoneKnown)
 				generation.ActualTrajectoryUnknown = true;
-			else
-				generation.ObservedHarmfulFootZone = observation.FootZone;
-			const bool expectedZone = SameZone(observation.FootZone,
-				generation.ExpectedHarmfulFootZone);
+			const bool expectedCenterZone = !harmfulCenterClaimed
+				|| SameZone(observation.CenterZone,
+					generation.ExpectedHarmfulFootZone);
+			const bool expectedFootZone = !harmfulFootClaimed
+				|| SameZone(observation.FootZone,
+					generation.ExpectedHarmfulFootZone);
+			const bool expectedZone = expectedCenterZone && expectedFootZone;
 			const bool expectedPhysicsZone = SameZone(observation.PhysicsZone,
 				generation.ExpectedHarmfulPhysicsZone);
+			const bool harmfulPointWater =
+				(harmfulCenterClaimed && observation.RegionWaterKnown
+					&& observation.InRegionWater)
+				|| (harmfulFootClaimed && observation.FootWaterKnown
+					&& observation.InFootWater);
 			const bool expectedWater = !generation.ExpectedHarmfulWaterEntry
-				|| (observation.FootWaterKnown && observation.InFootWater);
-			generation.ExpectedHarmfulPathMatched = expectedZone
+				|| harmfulPointWater;
+			generation.ExpectedHarmfulPathMatched = harmfulEntryEvidenceKnown
+				&& expectedZone
 				&& expectedPhysicsZone
 				&& expectedWater && endpointMatched && callbacksZoneOnly;
 			generation.CausalAmbiguity = !endpointMatched || !callbacksZoneOnly
 				|| (generation.Forecast
 					== FallingHazardForecast::HarmfulPainObserved
-					&& (!expectedZone || !expectedPhysicsZone))
+					&& (!harmfulEntryEvidenceKnown || !expectedZone
+						|| !expectedPhysicsZone || !expectedWater))
 				|| (generation.Forecast
 					== FallingHazardForecast::HarmfulPainObserved
 					&& !generation.ExpectedHarmfulWaterEntry && anyWater);
@@ -287,7 +324,7 @@ namespace PawnMovement
 			Complete(update, FallingHazardTerminal::ContinuityLost, true);
 			return update;
 		}
-		if (!harmfulFootEvidenceKnown)
+		if (!harmfulCenterEvidenceKnown || !harmfulFootEvidenceKnown)
 		{
 			Complete(update, FallingHazardTerminal::ContinuityLost, true);
 			return update;
@@ -332,6 +369,7 @@ namespace PawnMovement
 		}
 		if (!ExternallyObservableTerminal(observation.Terminal)
 			|| (observation.Terminal == FallingHazardTerminal::HarmfulPainEntered
+				&& !generation.EnteredHarmfulCenterZone
 				&& !generation.EnteredHarmfulFootZone))
 		{
 			Complete(update, FallingHazardTerminal::InvalidObservation, true);
@@ -356,8 +394,15 @@ namespace PawnMovement
 			return FallingHazardCorrelation::Pending;
 		if (generation.Terminal == FallingHazardTerminal::HarmfulPainEntered)
 		{
+			const bool validHarmfulEntry =
+				(generation.EnteredHarmfulCenterZone
+					&& ValidKnownZone(generation.ObservedHarmfulCenterZone))
+				|| (generation.EnteredHarmfulFootZone
+					&& ValidKnownZone(generation.ObservedHarmfulFootZone));
 			if (generation.ActualTrajectoryUnknown
+				|| !generation.HarmfulCenterEvidenceKnown
 				|| !generation.HarmfulFootEvidenceKnown
+				|| !validHarmfulEntry
 				|| !generation.WaterEvidenceKnown
 				|| !generation.PhysicsZoneEvidenceKnown
 				|| !generation.HasPositiveElapsed)
@@ -377,6 +422,7 @@ namespace PawnMovement
 		if (generation.Terminal != FallingHazardTerminal::Landed
 			|| generation.LandingCollision != FallingHazardCollisionKind::StaticWorld
 			|| generation.ActualTrajectoryUnknown || generation.CausalAmbiguity
+			|| !generation.HarmfulCenterEvidenceKnown
 			|| !generation.HarmfulFootEvidenceKnown
 			|| !generation.WaterEvidenceKnown
 			|| generation.SweptSegmentCount == 0
