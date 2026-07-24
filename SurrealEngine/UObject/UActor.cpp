@@ -4328,34 +4328,22 @@ void UPawn::UpdateActorZone()
 
 	PointRegion oldfootregion = FootRegion();
 	PointRegion newfootregion = FindRegion({ 0.0f, 0.0f, -CollisionHeight() });
-	if (oldfootregion.Zone && oldfootregion.Zone != newfootregion.Zone)
+	if (oldfootregion.Zone != newfootregion.Zone)
 	{
-		CallEvent(oldfootregion.Zone, EventName::FootZoneChange, { ExpressionValue::ObjectValue(this) });
-		if (newfootregion.Zone && newfootregion.Zone->bPainZone())
-		{
-			// Pain zones, such as lava and slime, should immediately start hurting the pawn upon entering,
-			// so set the pawn's PainTime to something quite low.
-			// After that, they'll get DamagePerSec damage each second.
-			PainTime() = 0.1f;
-		}
+		CallEvent(this, EventName::FootZoneChange, { ExpressionValue::ObjectValue(newfootregion.Zone) });
 	}
 
+	// FootZoneChange reads FootRegion as the old region, so publish the new region afterward.
 	FootRegion() = newfootregion;
 
 	PointRegion oldheadregion = HeadRegion();
 	PointRegion newheadregion = FindRegion({ 0.0f, 0.0f, EyeHeight() });
-	if (oldheadregion.Zone && oldheadregion.Zone != newheadregion.Zone)
+	if (oldheadregion.Zone != newheadregion.Zone)
 	{
-		CallEvent(oldheadregion.Zone, EventName::HeadZoneChange, { ExpressionValue::ObjectValue(this) });
-
-		if (newheadregion.Zone && newheadregion.Zone->bWaterZone() && !newheadregion.Zone->bPainZone())
-		{
-			// If the new zone is also a pain zone, like lava or slime, then by this point PainTime is already set,
-			// so don't set it again. Otherwise, cause the pawn to start drowning in UnderWaterTime seconds.
-			PainTime() = UnderWaterTime();
-		}
+		CallEvent(this, EventName::HeadZoneChange, { ExpressionValue::ObjectValue(newheadregion.Zone) });
 	}
 
+	// HeadZoneChange likewise reads HeadRegion as the old region.
 	HeadRegion() = newheadregion;
 
 	if (engine->LaunchInfo.ue1Version > 219 && PlayerReplicationInfo())

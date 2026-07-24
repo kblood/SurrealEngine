@@ -531,6 +531,52 @@ post-`MayFall` confirmations, and zero overflows. This proves deterministic,
 behavior-neutral coverage of the shared path in Unreal; it is not evidence for
 a live policy.
 
+## Iteration 49 pawn subzone callback parity
+
+An exact-package audit found that `UPawn::UpdateActorZone` dispatched
+`FootZoneChange` and `HeadZoneChange` on the old `ZoneInfo` with the pawn as
+the argument. Retail dispatches both events on the pawn with the new
+`ZoneInfo`, while leaving `FootRegion` or `HeadRegion` at its old value until
+the callback returns. Retail also compares the old and new zone pointers
+directly, without an old-zone null guard. The corrected shared implementation
+now follows that contract and removes native pain/drowning timer writes that
+conflicted with the exact Pawn script handlers.
+
+This is binary-proven for both target games. UT436 `ULevel::SetActorZone`
+compares/calls/assigns the foot region at `0x1039bd16`,
+`0x1039bd24-0x1039bd45`, and `0x1039bd4e`, and the head region at
+`0x1039bdc7`, `0x1039bdd5`, and `0x1039bdde`. Unreal 226b has the same order at
+`0x1037c72a`/`0x1037c738`/`0x1037c762` and
+`0x1037c7db`/`0x1037c7e9`/`0x1037c7f2`. The audited package hashes were UT436
+`Engine.u` `D587EEF8...964C11` and `BotPack.u` `9E21D633...A6C5AE`, plus Unreal
+226b `Engine.u` `6CC42698...5E9201`, `UnrealShare.u`
+`10C688AD...3C487`, and `UnrealI.u` `B64BAB7E...FAAA4`.
+
+The pre-fix executable SHA-256 was
+`D541794E2BBF3BB239AD3E7C7239917E190890D5BE3C5F2BC648A19B1446E80E`;
+the corrected candidate was
+`25ACADC3F4441226F032B5D85668D4BE92882410698434ED49F4E62117F9F7DD`.
+Candidate repeats were exactly equivalent across all five artifacts for three
+UT Deck seeds plus Unreal `DmDeck16` and `DmDeathFan`.
+
+The quality result is deliberately not labeled a win. UT seed 104729 changed
+from K2/D4 to K1/D4, unassisted environmental deaths 1 to 2, hazard deaths 2
+to 3, and walls 291 to 319. Seed 271828 kept K1/D2 but walls rose 380 to 399.
+Seed 314159 changed from K2/D3 to K1/D4, unassisted environmental deaths 1 to
+2, enemy-contributed environmental deaths 0 to 1, hazard entries/deaths 1 to
+3, walls 422 to 626, and movement-intent stuck episodes 0 to 2. The first UT
+A/B mismatch on every seed is 16 points of pawn health, not movement: the
+restored script callback applies immediate retail pain damage that the broken
+dispatch delayed or masked.
+
+Unreal `DmDeck16` remained artifact-equivalent at K0/D0. On `DmDeathFan`, kills
+stayed 3 while deaths fell 8 to 6, unassisted environmental deaths 5 to 3,
+hazard entries 14 to 5, walls 643 to 605, and stuck episodes 1 to 0. Restoring
+the callback is required engine fidelity and makes hazard measurement honest,
+but the exposed UT survival regressions block bot release. A conservative
+pre-entry pain-column shadow and realized falling trace must now show how to
+avoid those entries without suppressing useful drops.
+
 ## Wall callback and ledge-property parity audit
 
 Retail UT436 and Unreal 226b `Engine.Pawn` both define `MinHitWall` as a
