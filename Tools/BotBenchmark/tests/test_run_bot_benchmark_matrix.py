@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -28,6 +30,7 @@ def write_manifest(
     bot_count: int | None = None,
     per_bot_skills: list[int] | None = None,
     requested_names: list[str] | None = None,
+    release_provenance: bool = False,
 ) -> Path:
     game = root / "game"
     game.mkdir(exist_ok=True)
@@ -38,6 +41,11 @@ def write_manifest(
     if paired:
         variants[0]["comparison_role"] = "baseline"
         variants[1]["comparison_role"] = "candidate"
+    if release_provenance:
+        for variant in variants:
+            variant["build_preset"] = f"test-{variant['id']}"
+        game_manifest = root / "game-install.json"
+        game_manifest.write_text('{"fixture":"synthetic"}\n', encoding="utf-8")
     manifest = {
         "schema": MATRIX.MATRIX_SCHEMA,
         "game": {"family": "ut99", "root": str(game)},
@@ -51,6 +59,13 @@ def write_manifest(
         "timeout_seconds": 10,
         "repetitions": repetitions,
     }
+    if release_provenance:
+        manifest["game"]["manifest"] = str(game_manifest)
+        manifest["provenance"] = {
+            "mode": "release",
+            "classification": "heldout",
+            "environment_allowlist": ["BOT_BENCHMARK_TEST_ENV", "BOT_BENCHMARK_MISSING_ENV"],
+        }
     if bot_count is not None:
         manifest["bot_count"] = bot_count
     if per_bot_skills is not None:
@@ -68,6 +83,111 @@ def output_from_command(command: list[str]) -> Path:
 
 
 class MatrixRunnerTests(unittest.TestCase):
+    def test_release_mode_requires_complete_declared_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = write_manifest(root, release_provenance=True)
+            complete = json.loads(path.read_text(encoding="utf-8"))
+            mutations = [
+                lambda value: value["provenance"].pop("classification"),
+                lambda value: value["provenance"].pop("environment_allowlist"),
+                lambda value: value["game"].pop("manifest"),
+                lambda value: value["variants"][0].pop("build_preset"),
+                lambda value: value["provenance"].update({"classifiction": "heldout"}),
+            ]
+            for mutation in mutations:
+                with self.subTest(mutation=mutation):
+                    manifest = json.loads(json.dumps(complete))
+                    mutation(manifest)
+                    path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+                    with self.assertRaises(MATRIX.MatrixError):
+                        MATRIX.load_matrix(path)
+
+    def test_release_provenance_hashes_inputs_and_child_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = write_manifest(root, paired=False, release_provenance=True)
+            config = MATRIX.load_matrix(manifest)
+
+            def launcher(command, timeout, stdout, stderr):
+                run = output_from_command(command)
+                for name in ("manifest.json", "events.jsonl", "summary.json"):
+                    (run / name).write_text(f"{{\"artifact\":\"{name}\"}}\n", encoding="utf-8")
+                stdout.write_text("synthetic stdout\n", encoding="utf-8")
+                stderr.write_text("", encoding="utf-8")
+                return MATRIX.LaunchResult(0, False, 0.01)
+
+            output = root / "release-results"
+            invocation = ["python", "Run-BotBenchmarkMatrix.py", "--synthetic"]
+            environment = {"BOT_BENCHMARK_TEST_ENV": "declared value", "UNLISTED_SECRET": "not recorded"}
+            report = MATRIX.run_matrix(
+                config, output, invocation=invocation, environment=environment,
+                launcher=launcher, validator=lambda path: None)
+            self.assertEqual(report["status"], "passed")
+            provenance = json.loads((output / "provenance.json").read_text(encoding="utf-8"))
+            self.assertEqual(provenance["schema"], MATRIX.PROVENANCE_SCHEMA)
+            self.assertEqual(provenance["mode"], "release")
+            self.assertEqual(provenance["classification"], "heldout")
+            self.assertTrue(provenance["utc_start"].endswith("Z"))
+            self.assertTrue(provenance["utc_end"].endswith("Z"))
+            self.assertEqual(provenance["runner_invocation"]["argv"], invocation)
+            recorded_environment = provenance["runner_invocation"]["environment"]
+            self.assertEqual(recorded_environment["BOT_BENCHMARK_TEST_ENV"], {
+                "present": True, "value": "declared value"})
+            self.assertEqual(recorded_environment["BOT_BENCHMARK_MISSING_ENV"], {
+                "present": False, "value": None})
+            self.assertNotIn("UNLISTED_SECRET", recorded_environment)
+            self.assertEqual(
+                provenance["scenario_manifest"]["sha256"],
+                hashlib.sha256(manifest.read_bytes()).hexdigest().upper())
+            executable = provenance["variants"][0]["executable"]
+            self.assertEqual(executable["size"], Path(sys.executable).stat().st_size)
+            self.assertEqual(
+                executable["sha256"], hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest().upper())
+            self.assertTrue(provenance["source"]["available"])
+            self.assertTrue(provenance["source"]["untracked_contents_hashed"])
+            for field in ("repository", "branch", "commit", "tree", "dirty", "diff_sha256"):
+                self.assertIn(field, provenance["source"])
+            artifacts = {item["path"]: item for item in provenance["child_artifacts"]}
+            artifact_path = next(path for path in artifacts if path.endswith("/events.jsonl"))
+            actual_path = output / Path(artifact_path)
+            self.assertEqual(artifacts[artifact_path]["size"], actual_path.stat().st_size)
+            self.assertEqual(
+                artifacts[artifact_path]["sha256"],
+                hashlib.sha256(actual_path.read_bytes()).hexdigest().upper())
+            self.assertIn("matrix-results.json", artifacts)
+            self.assertNotIn("provenance.json", artifacts)
+
+    def test_release_run_requires_exact_invocation_before_output_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = MATRIX.load_matrix(write_manifest(root, release_provenance=True))
+            output = root / "must-not-exist"
+            with self.assertRaisesRegex(MATRIX.MatrixError, "exact runner invocation"):
+                MATRIX.run_matrix(config, output, launcher=lambda *args: self.fail("launcher called"))
+            self.assertFalse(output.exists())
+
+    def test_source_diff_hash_covers_untracked_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            subprocess.run(["git", "init", "-q", str(repository)], check=True)
+            tracked = repository / "tracked.txt"
+            tracked.write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repository), "add", "tracked.txt"], check=True)
+            subprocess.run([
+                "git", "-C", str(repository), "-c", "user.name=Test", "-c",
+                "user.email=test@example.invalid", "commit", "-qm", "base"], check=True)
+            clean = MATRIX._source_provenance(repository)
+            self.assertFalse(clean["dirty"])
+            untracked = repository / "untracked.txt"
+            untracked.write_text("first\n", encoding="utf-8")
+            first = MATRIX._source_provenance(repository)
+            untracked.write_text("second\n", encoding="utf-8")
+            second = MATRIX._source_provenance(repository)
+            self.assertTrue(first["dirty"])
+            self.assertNotEqual(clean["diff_sha256"], first["diff_sha256"])
+            self.assertNotEqual(first["diff_sha256"], second["diff_sha256"])
+
     def test_expansion_order_is_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
