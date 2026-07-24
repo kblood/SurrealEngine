@@ -58,6 +58,7 @@ namespace
 	constexpr int32_t failedNavigationFirstHopCost = 4096;
 	constexpr float failedNavigationLiftExitLandingRadius = 400.0f;
 	constexpr float failedNavigationLiftExitLandingStepHeights = 2.0f;
+	constexpr float fallingWalkableNormalZ = 0.7f;
 	constexpr float walkingStepWalkableNormalZ = 0.7071f;
 	constexpr float walkingStepVerticalWallNormalZ = 0.2f;
 	constexpr float walkingStepMaximumDelta = 96.0f;
@@ -1175,27 +1176,36 @@ void UActor::TickFalling(float elapsed)
 	OldLocation() = Location();
 	bJustTeleported() = false;
 
-	float fluidFactor = 1.0f - fluidFriction * elapsed;
-	vec3 accelVector = acceleration * 1.5f;
-	vec3 gravityVector = gravityScale * zone->ZoneGravity();
-
-	vec3 oldVelocity = velocity;
-	vec3 newVelocity = oldVelocity * fluidFactor + (accelVector + gravityVector) * 0.5f * elapsed;
-
-	// Limit air control to controlling which direction we are moving in the XY plane, but not increase the speed beyond the ground speed
-	vec2 velocity2d = velocity.xy();
-	vec2 newVelocity2d = newVelocity.xy();
-	float curSpeedSquared = dot(velocity2d, velocity2d);
-	if (pawn && curSpeedSquared >= (groundSpeed * groundSpeed) && dot(newVelocity2d, newVelocity2d) > curSpeedSquared)
-	{
-		float xySpeed = length(velocity2d);
-		newVelocity = vec3(normalize(newVelocity2d) * xySpeed, newVelocity.z);
-	}
-	velocity = newVelocity;
+	const vec3 accelVector = acceleration * 1.5f;
+	const vec3 gravityVector = gravityScale * zone->ZoneGravity();
 
 	float timeLeft = elapsed;
-	for (int iteration = 0; timeLeft > 0.0f && iteration < 5; iteration++)
+	for (int iteration = 0; timeLeft > 0.0f && iteration < 8; iteration++)
 	{
+		const PawnMovement::FallingRetailPhysicsSlice physicsSlice =
+			PawnMovement::SelectFallingRetailPhysicsSlice(timeLeft);
+		if (!physicsSlice.Valid)
+			break;
+		const float timeTick = physicsSlice.Elapsed;
+		timeLeft = physicsSlice.RemainingTime;
+		const vec3 iterationOldVelocity = velocity;
+		const float fluidFactor = 1.0f - fluidFriction * timeTick;
+		vec3 newVelocity = iterationOldVelocity * fluidFactor
+			+ (accelVector + gravityVector) * (0.5f * timeTick);
+
+		// Limit air control to direction changes in the XY plane without
+		// increasing speed beyond the current ground-speed envelope.
+		const vec2 velocity2d = iterationOldVelocity.xy();
+		const vec2 newVelocity2d = newVelocity.xy();
+		const float curSpeedSquared = dot(velocity2d, velocity2d);
+		if (pawn && curSpeedSquared >= groundSpeed * groundSpeed
+			&& dot(newVelocity2d, newVelocity2d) > curSpeedSquared)
+		{
+			const float xySpeed = length(velocity2d);
+			newVelocity = vec3(normalize(newVelocity2d) * xySpeed, newVelocity.z);
+		}
+		velocity = newVelocity;
+
 		float zoneTerminalVelocity = zone->ZoneTerminalVelocity();
 		if (dot(velocity, velocity) > zoneTerminalVelocity * zoneTerminalVelocity)
 		{
@@ -1203,8 +1213,7 @@ void UActor::TickFalling(float elapsed)
 			newVelocity = velocity;
 		}
 
-		vec3 moveDelta = (newVelocity + zone->ZoneVelocity() * elapsed * 25.0f) * timeLeft;
-		vec3 dirNormal = normalize(newVelocity);
+		vec3 moveDelta = (newVelocity + zone->ZoneVelocity() * timeTick * 25.0f) * timeTick;
 		float realizedVelocityError = 0.0f;
 		float realizedDeltaError = 0.0f;
 		if (observeRealizedParity)
@@ -1219,7 +1228,6 @@ void UActor::TickFalling(float elapsed)
 		MoveCallbackEvidence realizedMoveCallbacks;
 		CollisionHit hit = TryMove(moveDelta, false, true,
 			observeRealizedParity ? &realizedMoveCallbacks : nullptr);
-		timeLeft -= timeLeft * hit.Fraction;
 		bool realizedCallbackBarrier = false;
 		if (observeRealizedParity && pawn && !pawn->bDeleteMe())
 		{
@@ -1248,7 +1256,8 @@ void UActor::TickFalling(float elapsed)
 					.Normal = hit.Normal
 				});
 			const bool hitWallCallback = hit.Fraction < 1.0f
-				&& !(hit.Actor && hit.Actor->IsA("Pawn"));
+				&& !(hit.Actor && hit.Actor->IsA("Pawn"))
+				&& (bBounce() || hit.Normal.z <= fallingWalkableNormalZ);
 			if (hitWallCallback)
 				realizedMoveCallbacks.Mask |= MoveCallbackHitWall;
 			evidence.CallbackBarrierMask = realizedMoveCallbacks.Mask;
@@ -1280,27 +1289,28 @@ void UActor::TickFalling(float elapsed)
 		if (pawn && !pawn->bDeleteMe()
 			&& engine->IsBotBenchmarkWalkingPreflightEnabled())
 			pawn->ObserveFallingParityRealizedPain();
+		auto callFallingHitWall = [&](const CollisionHit& wallHit)
+		{
+			if (wallHit.Actor && wallHit.Actor->IsA("Pawn"))
+				return;
+			CallEvent(this, EventName::HitWall, {
+				ExpressionValue::VectorValue(wallHit.Normal),
+				ExpressionValue::ObjectValue(wallHit.Actor ? wallHit.Actor : Level())
+			});
+			if (pawn && pawn->HasActiveFallingParityRealizedLifecycle()
+				&& !pawn->HasFallingParityRealizedContinuity())
+			{
+				pawn->FinishFallingParityRealizedTrace(
+					PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
+			}
+		};
 
 		if (hit.Fraction < 1.0f)
 		{
-			if (hit.Actor && hit.Actor->IsA("Pawn"))
-			{
-				// So projectiles don't think they hit a wall.
-			}
-			else
-			{
-				CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
-				if (realizedCallbackBarrier && pawn
-					&& !pawn->HasFallingParityRealizedContinuity())
-				{
-					pawn->FinishFallingParityRealizedTrace(
-						PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
-				}
-			}
-
 			// Hit the level
 			if (bBounce())
 			{
+				callFallingHitWall(hit);
 				vec3 reflectedDelta = reflect(moveDelta, hit.Normal);
 				hit = TryMove(reflectedDelta);
 				if (realizedCallbackBarrier && pawn
@@ -1312,8 +1322,9 @@ void UActor::TickFalling(float elapsed)
 			}
 			else
 			{
-				if (hit.Normal.z < 0.7071f)
+				if (hit.Normal.z <= fallingWalkableNormalZ)
 				{
+					callFallingHitWall(hit);
 					// We hit a slope. Try to follow it.
 					vec3 alignedDelta = (moveDelta - hit.Normal * dot(moveDelta, hit.Normal)) * (1.0f - hit.Fraction);
 					if (dot(moveDelta, alignedDelta) >= 0.0f) // Don't end up going backwards
@@ -1330,7 +1341,7 @@ void UActor::TickFalling(float elapsed)
 								PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
 						}
 						if (pawn && !firstHit.Actor && !hit.Actor && hit.Fraction < 1.0f
-							&& hit.Normal.z < 0.7071f)
+							&& hit.Normal.z <= fallingWalkableNormalZ)
 						{
 							const vec3 zoneGravity = zone->ZoneGravity();
 							pawn->ObserveFallingSeamEscapeShadow(alignedDelta,
@@ -1338,7 +1349,7 @@ void UActor::TickFalling(float elapsed)
 								zoneGravity.x == 0.0f && zoneGravity.y == 0.0f
 									&& zoneGravity.z < 0.0f);
 						}
-						if (hit.Fraction < 1.0f && hit.Normal.z > 0.7071f)
+						if (hit.Fraction < 1.0f && hit.Normal.z > fallingWalkableNormalZ)
 						{
 							PhysLanded(hit.Actor, hit.Normal);
 							if (pawn && engine->IsBotBenchmarkWalkingPreflightEnabled()
@@ -1349,13 +1360,47 @@ void UActor::TickFalling(float elapsed)
 							}
 							return;
 						}
+						if (hit.Fraction < 1.0f)
+						{
+							callFallingHitWall(hit);
+							const PawnMovement::FallingTwoWallAdjustment adjustment =
+								PawnMovement::BuildFallingTwoWallAdjustment(normalize(moveDelta),
+									alignedDelta, hit.Normal, firstHit.Normal, hit.Fraction);
+							const vec3 adjustedDelta = adjustment.Delta;
+
+							hit = TryMove(adjustedDelta);
+							if (pawn && !pawn->bDeleteMe()
+								&& engine->IsBotBenchmarkWalkingPreflightEnabled())
+								pawn->ObserveFallingParityRealizedPain();
+							if (realizedCallbackBarrier && pawn
+								&& !pawn->HasFallingParityRealizedContinuity())
+							{
+								pawn->FinishFallingParityRealizedTrace(
+									PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
+							}
+							if (adjustment.Ditch || hit.Normal.z > fallingWalkableNormalZ)
+							{
+								PhysLanded(hit.Actor, hit.Normal);
+								if (pawn && engine->IsBotBenchmarkWalkingPreflightEnabled()
+									&& pawn->HasActiveFallingParityRealizedLifecycle())
+								{
+									pawn->FinishFallingParityRealizedTrace(
+										PawnMovement::FallingParityRealizedOutcome::Landed);
+								}
+								return;
+							}
+						}
 					}
 
-					// adjust velocity along the slope
+					// Retail reconstructs horizontal velocity from realized travel while
+					// retaining gravity's vertical velocity for the remaining-time pass.
 					if (!bBounce() && !bJustTeleported())
-						velocity = (location - oldLocation) / elapsed;
-
-					timeLeft = 0.0f;
+					{
+						velocity = PawnMovement::ReconstructFallingCollisionVelocity(
+							iterationStartLocation, location, timeTick,
+							iterationOldVelocity.z);
+						newVelocity = velocity;
+					}
 				}
 				else
 				{

@@ -59,6 +59,22 @@ namespace
 	void TestTickPhysicsSubstepSchedule()
 	{
 		using namespace PawnMovement;
+		const FallingRetailPhysicsSlice normalSlice =
+			SelectFallingRetailPhysicsSlice(0.02f);
+		Check(normalSlice.Valid && Near(normalSlice.Elapsed, 0.02f)
+			&& Near(normalSlice.RemainingTime, 0.0f),
+			"a normal retail falling slice consumes the complete 0.02 time budget");
+		const FallingRetailPhysicsSlice largeSlice =
+			SelectFallingRetailPhysicsSlice(0.25f);
+		Check(largeSlice.Valid && Near(largeSlice.Elapsed, 0.1f)
+			&& Near(largeSlice.RemainingTime, 0.15f),
+			"a 0.25 retail backlog selects 0.1 and retains an independent 0.15 remainder");
+		const FallingRetailPhysicsSlice secondLargeSlice =
+			SelectFallingRetailPhysicsSlice(largeSlice.RemainingTime);
+		Check(secondLargeSlice.Valid && Near(secondLargeSlice.Elapsed, 0.075f)
+			&& Near(secondLargeSlice.RemainingTime, 0.075f),
+			"the next retail slice is selected from backlog rather than collision fractions");
+
 		for (float elapsed : { 0.0166667f, 0.016666667f })
 		{
 			const FallingParitySubstepSchedule schedule =
@@ -144,11 +160,16 @@ namespace
 		const FallingParityTransition step = BeginFallingParityStep(
 			state, { .GroundSpeed = 400.0f, .TerminalVelocity = 2500.0f,
 				.Elapsed = 0.02f });
-		const FallingParityTransition directLanding =
+		const FallingParityTransition exactDirect =
 			ResolveFallingParityDirectSweep(step,
 				StaticSweep(0.5f, NormalWithZ(FallingParityWalkableNormalZ)));
-		Check(directLanding.Kind == FallingParityTransitionKind::Landed,
-			"a direct hit at exactly 0.7071 is a landing");
+		Check(exactDirect.Kind == FallingParityTransitionKind::ProbeAlignedSweep,
+			"a direct hit at exactly the retail 0.7 threshold is not a landing");
+		const FallingParityTransition higherDirect =
+			ResolveFallingParityDirectSweep(step,
+				StaticSweep(0.5f, NormalWithZ(0.7001f)));
+		Check(higherDirect.Kind == FallingParityTransitionKind::Landed,
+			"a direct hit above the retail 0.7 threshold is a landing");
 
 		const FallingParityTransition alignedRequest =
 			ResolveFallingParityDirectSweep(step,
@@ -159,12 +180,12 @@ namespace
 			ResolveFallingParityAlignedSweep(alignedRequest,
 				StaticSweep(0.5f, NormalWithZ(FallingParityWalkableNormalZ)));
 		Check(exactAligned.Kind == FallingParityTransitionKind::Continue,
-			"an aligned hit at exactly 0.7071 is not a landing");
+			"an aligned hit at exactly the retail 0.7 threshold is not a landing");
 		const FallingParityTransition higherAligned =
 			ResolveFallingParityAlignedSweep(alignedRequest,
-				StaticSweep(0.5f, NormalWithZ(0.7072f)));
+				StaticSweep(0.5f, NormalWithZ(0.7001f)));
 		Check(higherAligned.Kind == FallingParityTransitionKind::Landed,
-			"an aligned hit above 0.7071 is a landing");
+			"an aligned hit above the retail 0.7 threshold is a landing");
 	}
 
 	void TestAlignedSweepReconstructsDisplacementVelocity()
@@ -191,7 +212,7 @@ namespace
 		Check(Near(result.State.Velocity.x, 100.0f)
 			&& Near(result.State.Velocity.y, -25.0f)
 			&& Near(result.State.Velocity.z, -50.0f),
-			"post-slide velocity is total displacement divided by full elapsed time");
+			"post-slide velocity reconstructs XY while preserving falling Z velocity");
 
 		const FallingParityTransition blocked =
 			ResolveFallingParityAlignedSweep(alignedRequest,
@@ -204,8 +225,61 @@ namespace
 			"a blocked aligned sweep stops at its exact partial aligned fraction");
 		Check(Near(blocked.State.Velocity.x, 62.5f)
 			&& Near(blocked.State.Velocity.y, -25.0f)
-			&& Near(blocked.State.Velocity.z, -31.25f),
-			"blocked aligned velocity uses total partial displacement divided by full elapsed time");
+			&& Near(blocked.State.Velocity.z, -50.0f),
+			"blocked aligned velocity reconstructs XY while preserving falling Z velocity");
+
+		const FallingParityTransition gravityStep = BeginFallingParityStep(
+			state, { .Gravity = vec3(0.0f, 0.0f, -1000.0f),
+				.GroundSpeed = 400.0f, .TerminalVelocity = 2500.0f,
+				.Elapsed = 0.02f });
+		const FallingParityTransition gravityAligned =
+			ResolveFallingParityDirectSweep(gravityStep,
+				StaticSweep(0.25f, vec3(0.0f, 1.0f, 0.0f)));
+		const FallingParityTransition gravityResult =
+			ResolveFallingParityAlignedSweep(gravityAligned, ClearSweep());
+		Check(Near(gravityStep.State.Velocity.z, -70.0f)
+			&& Near(gravityResult.State.Velocity.z, -50.0f),
+			"wall reconstruction restores iteration-start Z after gravity integration");
+	}
+
+	void TestRetailThirdMoveAndRemainingTimeContinuation()
+	{
+		using namespace PawnMovement;
+		const vec3 desiredDir = normalize(vec3(4.0f, 3.0f, -8.0f));
+		const FallingTwoWallAdjustment crease = BuildFallingTwoWallAdjustment(
+			desiredDir, vec3(4.0f, 3.0f, -8.0f),
+			vec3(0.0f, 1.0f, 0.0f), vec3(1.0f, 0.0f, 0.0f), 0.5f);
+		Check(Near(crease.Delta.x, 0.0f) && Near(crease.Delta.y, 0.0f)
+			&& Near(crease.Delta.z, -4.0f),
+			"a perpendicular second plane produces the retail crease third-move delta");
+		Check(!crease.Ditch,
+			"vertical wall normals do not trigger the positive-Z retail ditch landing");
+
+		const vec3 oldDitchNormal = normalize(vec3(1.0f, 0.0f, 0.5f));
+		const vec3 newDitchNormal = normalize(vec3(-1.0f, 0.0f, 0.5f));
+		const FallingTwoWallAdjustment ditch = BuildFallingTwoWallAdjustment(
+			vec3(0.0f, 1.0f, 0.0f), vec3(0.0f, 8.0f, 0.0f),
+			newDitchNormal, oldDitchNormal, 0.25f);
+		Check(ditch.Ditch && Near(ditch.Delta.y, 6.0f),
+			"opposed upward planes with a horizontal crease reproduce retail ditch detection");
+
+		const FallingTwoWallAdjustment projected = BuildFallingTwoWallAdjustment(
+			normalize(vec3(1.0f, 0.0f, -1.0f)), vec3(4.0f, 0.0f, -8.0f),
+			normalize(vec3(1.0f, 1.0f, 0.0f)), vec3(1.0f, 0.0f, 0.0f), 0.5f);
+		Check(Near(projected.Delta.x, 1.0f) && Near(projected.Delta.y, -1.0f)
+			&& Near(projected.Delta.z, -4.0f),
+			"same-side planes use the retail second-normal projection branch");
+
+		const FallingRetailPhysicsSlice physicsSlice =
+			SelectFallingRetailPhysicsSlice(0.02f);
+		const vec3 continuedVelocity = ReconstructFallingCollisionVelocity(
+			vec3(0.0f), vec3(1.5f, -0.375f, 0.0f), 0.02f, -50.0f);
+		Check(Near(continuedVelocity.x, 75.0f)
+			&& Near(continuedVelocity.y, -18.75f)
+			&& Near(continuedVelocity.z, -50.0f),
+			"the post-third-move velocity reconstructs horizontal travel and preserves falling Z");
+		Check(physicsSlice.Valid && Near(physicsSlice.RemainingTime, 0.0f),
+			"a clear third move exhausts the normal slice and schedules no fourth sweep");
 	}
 
 	void TestAtMostTwoDirectWallContactsAcrossSubsteps()
@@ -319,6 +393,7 @@ int main()
 	TestGroundAndTerminalSpeedCaps();
 	TestDirectAndAlignedLandingThresholds();
 	TestAlignedSweepReconstructsDisplacementVelocity();
+	TestRetailThirdMoveAndRemainingTimeContinuation();
 	TestAtMostTwoDirectWallContactsAcrossSubsteps();
 	TestUnknownEvidenceFailsOpen();
 	if (Failures == 0)

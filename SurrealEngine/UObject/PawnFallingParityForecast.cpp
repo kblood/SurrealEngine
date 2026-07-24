@@ -58,6 +58,19 @@ namespace PawnMovement
 		}
 	}
 
+	FallingRetailPhysicsSlice SelectFallingRetailPhysicsSlice(float timeLeft)
+	{
+		FallingRetailPhysicsSlice result;
+		if (!std::isfinite(timeLeft) || timeLeft <= 0.0f)
+			return result;
+		result.Elapsed = timeLeft <= FallingRetailMaximumPhysicsSlice
+			? timeLeft
+			: std::min(FallingRetailMaximumPhysicsSlice, timeLeft * 0.5f);
+		result.RemainingTime = timeLeft - result.Elapsed;
+		result.Valid = result.Elapsed > 0.0f && result.RemainingTime >= 0.0f;
+		return result;
+	}
+
 	FallingParitySubstepSchedule BuildFallingParitySubstepSchedule(
 		float elapsed, size_t maximumSubsteps)
 	{
@@ -79,6 +92,40 @@ namespace PawnMovement
 		}
 		result.Valid = result.Count > 0;
 		return result;
+	}
+
+	FallingTwoWallAdjustment BuildFallingTwoWallAdjustment(
+		const vec3& desiredDir, const vec3& sourceDelta,
+		const vec3& hitNormal, const vec3& oldHitNormal, float hitFraction)
+	{
+		FallingTwoWallAdjustment result;
+		if (dot(oldHitNormal, hitNormal) <= 0.0f)
+		{
+			const vec3 creaseDirection = normalize(cross(hitNormal, oldHitNormal));
+			result.Delta = creaseDirection * dot(sourceDelta, creaseDirection)
+				* (1.0f - hitFraction);
+			if (dot(desiredDir, result.Delta) < 0.0f)
+				result.Delta = -result.Delta;
+		}
+		else
+		{
+			result.Delta = (sourceDelta - hitNormal * dot(sourceDelta, hitNormal))
+				* (1.0f - hitFraction);
+			if (dot(desiredDir, result.Delta) <= 0.0f)
+				result.Delta = vec3(0.0f);
+		}
+		result.Ditch = oldHitNormal.z > 0.0f && hitNormal.z > 0.0f
+			&& result.Delta.z == 0.0f
+			&& dot(oldHitNormal, hitNormal) < 0.0f;
+		return result;
+	}
+
+	vec3 ReconstructFallingCollisionVelocity(
+		const vec3& oldLocation, const vec3& location,
+		float elapsed, float fallingVelocityZ)
+	{
+		const vec3 realizedVelocity = (location - oldLocation) / elapsed;
+		return vec3(realizedVelocity.xy(), fallingVelocityZ);
 	}
 
 	FallingParityTransition BeginFallingParityStep(
@@ -157,7 +204,7 @@ namespace PawnMovement
 		FallingParityTransition result = step;
 		result.State.Location = step.StepStart.Location
 			+ step.DirectDelta * observation.Fraction;
-		if (observation.Normal.z >= FallingParityWalkableNormalZ)
+		if (observation.Normal.z > FallingParityWalkableNormalZ)
 		{
 			result.Kind = FallingParityTransitionKind::Landed;
 			return result;
@@ -217,8 +264,9 @@ namespace PawnMovement
 			}
 			result.State.NonWalkableStaticContacts++;
 		}
-		result.State.Velocity = (result.State.Location
-			- result.StepStart.Location) / result.Elapsed;
+		result.State.Velocity = ReconstructFallingCollisionVelocity(
+			result.StepStart.Location, result.State.Location, result.Elapsed,
+			alignedSweep.StepStart.Velocity.z);
 		result.State.Valid = IsFinite(result.State.Velocity);
 		if (!result.State.Valid)
 			return Unknown(result, FallingParityReason::InvalidSweepEvidence);

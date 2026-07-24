@@ -10,7 +10,17 @@ namespace PawnMovement
 	constexpr float FallingParityMaximumPhysicsSubstep = 0.02f;
 	constexpr size_t FallingParityMaximumScheduledSubsteps = 96;
 	constexpr int FallingParityMaximumNonWalkableStaticContacts = 2;
-	constexpr float FallingParityWalkableNormalZ = 0.7071f;
+	constexpr float FallingParityWalkableNormalZ = 0.7f;
+	constexpr float FallingRetailMaximumPhysicsSlice = 0.1f;
+
+	struct FallingRetailPhysicsSlice
+	{
+		float Elapsed = 0.0f;
+		float RemainingTime = 0.0f;
+		bool Valid = false;
+	};
+
+	FallingRetailPhysicsSlice SelectFallingRetailPhysicsSlice(float timeLeft);
 
 	struct FallingParitySubstepSchedule
 	{
@@ -93,6 +103,25 @@ namespace PawnMovement
 		vec3 AlignedDelta = vec3(0.0f);
 		float Elapsed = 0.0f;
 	};
+
+	struct FallingTwoWallAdjustment
+	{
+		vec3 Delta = vec3(0.0f);
+		bool Ditch = false;
+	};
+
+	FallingTwoWallAdjustment BuildFallingTwoWallAdjustment(
+		const vec3& desiredDir,
+		const vec3& delta,
+		const vec3& hitNormal,
+		const vec3& oldHitNormal,
+		float hitFraction);
+
+	vec3 ReconstructFallingCollisionVelocity(
+		const vec3& oldLocation,
+		const vec3& location,
+		float elapsed,
+		float fallingVelocityZ);
 
 	FallingParityTransition BeginFallingParityStep(
 		const FallingParityState& state,

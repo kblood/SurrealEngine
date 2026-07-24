@@ -616,8 +616,11 @@ Exact disassembly of UT436 `Engine.dll` and Unreal 226b `Engine.dll` shows the
 same retail algorithm after two nonwalkable falling contacts: call
 `AActor::TwoWallAdjust`, make a third collision move, test the special ditch or
 strict `normal.z > 0.7` landing condition, reconstruct only horizontal velocity
-from realized displacement, preserve falling Z velocity, and continue the
-remaining-time loop under an eight-iteration cap.
+from realized displacement, and restore the iteration-start falling Z
+velocity. Retail charges the selected time slice before moving; the aligned and
+third moves consume collision residuals inside that slice rather than adding
+those fractions back to outer time. Only an independent backlog can continue,
+under an eight-iteration cap.
 
 Surreal currently uses `0.7071`, stops after its aligned second move, never
 calls the retail two-wall adjustment or third move, reconstructs Z from zero
@@ -630,6 +633,55 @@ separately from the behavior-neutral observer. Its gates are: remove the
 fixed-position seam episode, introduce no new pain/pool fall, retain bounded
 physics, match repeat runs, and improve or preserve survival and movement on
 both games.
+
+## Iteration 51 retail correction result
+
+The shared runtime now implements the audited path, including per-slice
+integration, strict 0.7 boundary, direct and second nonwalkable `HitWall`
+callbacks, `TwoWallAdjust`, third move, ditch landing, charged outer time, and
+pre-gravity Z restoration. A direct walkable landing skips `HitWall`, matching
+retail. The pure model has the same boundary and restoration behavior, with a
+gravity fixture that proves an integrated -70 Z returns to the iteration-start
+-50 Z after wall reconstruction.
+
+The first candidate was rejected before commit because it confused collision
+residual with outer remaining time. Its first physical divergence was about
+1.96x movement across UT and Unreal; later wall responses generated velocities
+up to roughly 19,600 units/second and new environmental suicides. Final retail
+time accounting selects and subtracts the whole 0.02-second slice first, so a
+clear aligned/third sequence schedules no fourth sweep.
+
+The final executable is
+`8F7BF38B8C4CDFD2B815E7876BE531E7E00FCCE01B07DF171060DC5637D09139`.
+Eight configurations ran twice with exact five-artifact repeats: three UT Deck
+seeds, UT Morpheus, Unreal DeathFan at two seeds, DmDeck16, and DmHealPod.
+All comparable falling steps remain exact and no record overflows occur. Direct
+walkable landings now produce a conservative `unknown` step followed by a
+`landed` terminal because the trace schema has no matched-landing outcome; this
+measurement gap must be closed before applying the zero-unknown release gate.
+
+Deck survival improves in all three seeds while unassisted environmental death
+counts do not increase. Seed 314159 changes K4/D5 to K1/D2, hazard deaths 2 to
+1, seams 3 to 1, and walls 525 to 473. Seed 104729 changes K2/D3 to K0/D1 with
+the same single environmental/hazard death, but hazard entries rise 1 to 3 and
+seams 1 to 13. Seed 271828 changes K3/D4 to K0/D1 and hazard deaths 3 to 1.
+The reduced deaths do not make these bots strong: kills collapse from 9 across
+the three baselines to 1, and repeated harmful entries remain.
+
+DeathFan seed 424242 retains one environmental/hazard death while walls fall
+1,483 to 262 and deaths 2 to 1, but a long no-progress interval remains. Its
+seed-123 control plus Unreal DmDeck16 and DmHealPod remain death-free. Morpheus
+exposes a different failure: walls rise 330 to 2,283, seam detections 3 to 433,
+and hazard deaths 2 to 3. Each tick stays within the exact two-callback bound
+and pawns keep moving tangentially, so this is repeated low-gravity stock wall
+behavior rather than a frozen seam or time-duplication bug.
+
+Therefore the correction is retained as engine fidelity, not accepted as a
+complete bot improvement. The next Deck work must use actual-trajectory pain
+classification to veto or replan harmful entries. Morpheus needs episode-
+debounced repeated-contact policy that distinguishes useful low-gravity motion
+from nonproductive wall cycling. Combat engagement must be measured and
+restored; lower deaths alone are not sufficient.
 
 ## Wall callback and ledge-property parity audit
 
