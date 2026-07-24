@@ -80,8 +80,6 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Engine.h
 	SurrealEngine/GameSupport.cpp
 	SurrealEngine/GameSupport.h
-	SurrealEngine/Automation/AutomationProtocol.cpp
-	SurrealEngine/Automation/AutomationProtocol.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.h
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
@@ -1107,14 +1105,6 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(BotBenchmarkProtocolTests PRIVATE SurrealEngine)
 	set_target_properties(BotBenchmarkProtocolTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkProtocol COMMAND BotBenchmarkProtocolTests)
-
-	add_executable(AutomationProtocolTests
-		Tests/AutomationProtocolTests.cpp
-		SurrealEngine/Automation/AutomationProtocol.cpp
-	)
-	target_include_directories(AutomationProtocolTests PRIVATE SurrealEngine)
-	set_target_properties(AutomationProtocolTests PROPERTIES CXX_STANDARD 20)
-	add_test(NAME AutomationProtocol COMMAND AutomationProtocolTests)
 
 	add_executable(BotBenchmarkTelemetryTests
 		Tests/BotBenchmarkTelemetryTests.cpp
