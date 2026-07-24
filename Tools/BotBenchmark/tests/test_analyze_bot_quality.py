@@ -318,6 +318,99 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 report["runs"][0]["metrics"][name] is None
                 for name in QUALITY.FALLING_SEAM_SHADOW_COUNTERS))
 
+    def test_detailed_falling_seam_episode_and_candidate_outcomes_fail_closed(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        samples = [
+            {**common,
+             "falling_seam_detections_exact": 0,
+             "horizontal_corner_candidate_probes_exact": 0,
+             "horizontal_corner_authorized_escapes_exact": 0,
+             "horizontal_corner_target_progress_rejects_exact": 0,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 0,
+             **{name: 0 for name in QUALITY.FALLING_SEAM_DETAILED_COUNTERS}},
+            {**common,
+             "falling_seam_detections_exact": 2,
+             "horizontal_corner_candidate_probes_exact": 2,
+             "horizontal_corner_authorized_escapes_exact": 0,
+             "horizontal_corner_target_progress_rejects_exact": 1,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 1,
+             "falling_seam_episodes_exact": 1,
+             "falling_seam_invalid_geometry_rejects_exact": 1,
+             "falling_seam_authorizable_episodes_exact": 0,
+             "horizontal_corner_authorized_candidates_exact": 0,
+             "horizontal_corner_blocked_sweep_candidates_exact": 1,
+             "horizontal_corner_no_static_walkable_support_candidates_exact": 0,
+             "horizontal_corner_pain_support_candidates_exact": 0,
+             "horizontal_corner_no_active_movement_intent_or_target_candidates_exact": 1,
+             "horizontal_corner_true_target_regression_candidates_exact": 0,
+             "horizontal_corner_unknown_evidence_candidates_exact": 0},
+            {**common,
+             "falling_seam_detections_exact": 4,
+             "horizontal_corner_candidate_probes_exact": 5,
+             "horizontal_corner_authorized_escapes_exact": 1,
+             "horizontal_corner_target_progress_rejects_exact": 2,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 2,
+             "falling_seam_episodes_exact": 2,
+             "falling_seam_invalid_geometry_rejects_exact": 1,
+             "falling_seam_authorizable_episodes_exact": 1,
+             "horizontal_corner_authorized_candidates_exact": 1,
+             "horizontal_corner_blocked_sweep_candidates_exact": 1,
+             "horizontal_corner_no_static_walkable_support_candidates_exact": 1,
+             "horizontal_corner_pain_support_candidates_exact": 0,
+             "horizontal_corner_no_active_movement_intent_or_target_candidates_exact": 1,
+             "horizontal_corner_true_target_regression_candidates_exact": 1,
+             "horizontal_corner_unknown_evidence_candidates_exact": 0},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = write_v2_run(root, "detailed")
+            upgrade_telemetry_v2(run, counters=samples)
+            report = QUALITY.analyze([run])
+            self.assertTrue(
+                report["metric_availability"]["falling_seam_detailed_metrics_present"])
+            self.assertEqual(
+                report["runs"][0]["bots"][0]["falling_seam_episodes_exact"], 2)
+
+            incomplete = write_v2_run(root, "detailed-incomplete")
+            incomplete_samples = [{**sample} for sample in samples]
+            for sample in incomplete_samples:
+                sample.pop("horizontal_corner_unknown_evidence_candidates_exact")
+            upgrade_telemetry_v2(incomplete, counters=incomplete_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "detailed v2.*complete group"):
+                QUALITY.analyze([incomplete])
+
+            bad_partition = write_v2_run(root, "detailed-bad-partition")
+            bad_samples = [{**sample} for sample in samples]
+            bad_samples[2]["horizontal_corner_true_target_regression_candidates_exact"] = 0
+            upgrade_telemetry_v2(bad_partition, counters=bad_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "detailed horizontal corner outcomes do not partition"):
+                QUALITY.analyze([bad_partition])
+
+            missing_episode = write_v2_run(root, "detailed-missing-episode")
+            missing_episode_samples = [{**sample} for sample in samples]
+            missing_episode_samples[1]["falling_seam_episodes_exact"] = 0
+            upgrade_telemetry_v2(missing_episode, counters=missing_episode_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "detections require at least one episode"):
+                QUALITY.analyze([missing_episode])
+
+            missing_authorizable_episode = write_v2_run(
+                root, "detailed-missing-authorizable-episode")
+            missing_authorizable_samples = [{**sample} for sample in samples]
+            missing_authorizable_samples[2]["falling_seam_authorizable_episodes_exact"] = 0
+            upgrade_telemetry_v2(
+                missing_authorizable_episode, counters=missing_authorizable_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "require an authorizable episode"):
+                QUALITY.analyze([missing_authorizable_episode])
+
     def test_causal_death_attribution_is_partitioned_monotonic_and_reported(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,

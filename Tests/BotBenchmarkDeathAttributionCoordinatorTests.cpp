@@ -69,6 +69,16 @@ namespace
 		counters.HorizontalCornerAuthorizedEscapes = value;
 		counters.HorizontalCornerTargetProgressRejects = value;
 		counters.HorizontalCornerUnknownOrUnsafeSupport = value;
+		counters.FallingSeamEpisodes = value;
+		counters.FallingSeamInvalidGeometryRejects = 0;
+		counters.FallingSeamAuthorizableEpisodes = value;
+		counters.HorizontalCornerAuthorizedCandidates = value;
+		counters.HorizontalCornerBlockedSweepCandidates = 0;
+		counters.HorizontalCornerNoStaticWalkableSupportCandidates = 0;
+		counters.HorizontalCornerPainSupportCandidates = 0;
+		counters.HorizontalCornerNoActiveMovementIntentOrTargetCandidates = 0;
+		counters.HorizontalCornerTrueTargetRegressionCandidates = value;
+		counters.HorizontalCornerUnknownEvidenceCandidates = value;
 		return counters;
 	}
 
@@ -96,7 +106,17 @@ namespace
 			counters.HorizontalCornerCandidateProbes == value * 3 &&
 			counters.HorizontalCornerAuthorizedEscapes == value &&
 			counters.HorizontalCornerTargetProgressRejects == value &&
-			counters.HorizontalCornerUnknownOrUnsafeSupport == value;
+			counters.HorizontalCornerUnknownOrUnsafeSupport == value &&
+			counters.FallingSeamEpisodes == value &&
+			counters.FallingSeamInvalidGeometryRejects == 0 &&
+			counters.FallingSeamAuthorizableEpisodes == value &&
+			counters.HorizontalCornerAuthorizedCandidates == value &&
+			counters.HorizontalCornerBlockedSweepCandidates == 0 &&
+			counters.HorizontalCornerNoStaticWalkableSupportCandidates == 0 &&
+			counters.HorizontalCornerPainSupportCandidates == 0 &&
+			counters.HorizontalCornerNoActiveMovementIntentOrTargetCandidates == 0 &&
+			counters.HorizontalCornerTrueTargetRegressionCandidates == value &&
+			counters.HorizontalCornerUnknownEvidenceCandidates == value;
 	}
 }
 

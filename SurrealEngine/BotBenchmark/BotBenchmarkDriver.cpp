@@ -482,6 +482,25 @@ namespace
 				pawn->HorizontalCornerTargetProgressRejectCount();
 			counters.HorizontalCornerUnknownOrUnsafeSupport =
 				pawn->HorizontalCornerUnknownOrUnsafeSupportCount();
+			counters.FallingSeamEpisodes = pawn->FallingSeamEpisodeCount();
+			counters.FallingSeamInvalidGeometryRejects =
+				pawn->FallingSeamInvalidGeometryRejectCount();
+			counters.FallingSeamAuthorizableEpisodes =
+				pawn->FallingSeamAuthorizableEpisodeCount();
+			counters.HorizontalCornerAuthorizedCandidates =
+				pawn->HorizontalCornerAuthorizedCandidateCount();
+			counters.HorizontalCornerBlockedSweepCandidates =
+				pawn->HorizontalCornerBlockedSweepCandidateCount();
+			counters.HorizontalCornerNoStaticWalkableSupportCandidates =
+				pawn->HorizontalCornerNoStaticWalkableSupportCandidateCount();
+			counters.HorizontalCornerPainSupportCandidates =
+				pawn->HorizontalCornerPainSupportCandidateCount();
+			counters.HorizontalCornerNoActiveMovementIntentOrTargetCandidates =
+				pawn->HorizontalCornerNoActiveMovementIntentOrTargetCandidateCount();
+			counters.HorizontalCornerTrueTargetRegressionCandidates =
+				pawn->HorizontalCornerTrueTargetRegressionCandidateCount();
+			counters.HorizontalCornerUnknownEvidenceCandidates =
+				pawn->HorizontalCornerUnknownEvidenceCandidateCount();
 			return counters;
 		}
 
@@ -1088,6 +1107,25 @@ namespace
 					native.HorizontalCornerTargetProgressRejects;
 				bot.HorizontalCornerUnknownOrUnsafeSupportExact =
 					native.HorizontalCornerUnknownOrUnsafeSupport;
+				bot.FallingSeamEpisodesExact = native.FallingSeamEpisodes;
+				bot.FallingSeamInvalidGeometryRejectsExact =
+					native.FallingSeamInvalidGeometryRejects;
+				bot.FallingSeamAuthorizableEpisodesExact =
+					native.FallingSeamAuthorizableEpisodes;
+				bot.HorizontalCornerAuthorizedCandidatesExact =
+					native.HorizontalCornerAuthorizedCandidates;
+				bot.HorizontalCornerBlockedSweepCandidatesExact =
+					native.HorizontalCornerBlockedSweepCandidates;
+				bot.HorizontalCornerNoStaticWalkableSupportCandidatesExact =
+					native.HorizontalCornerNoStaticWalkableSupportCandidates;
+				bot.HorizontalCornerPainSupportCandidatesExact =
+					native.HorizontalCornerPainSupportCandidates;
+				bot.HorizontalCornerNoActiveMovementIntentOrTargetCandidatesExact =
+					native.HorizontalCornerNoActiveMovementIntentOrTargetCandidates;
+				bot.HorizontalCornerTrueTargetRegressionCandidatesExact =
+					native.HorizontalCornerTrueTargetRegressionCandidates;
+				bot.HorizontalCornerUnknownEvidenceCandidatesExact =
+					native.HorizontalCornerUnknownEvidenceCandidates;
 				runtime.LastState = bot;
 				runtime.HasLastState = true;
 				bots.push_back(std::move(bot));

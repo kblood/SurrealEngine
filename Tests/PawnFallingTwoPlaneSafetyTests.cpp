@@ -486,6 +486,73 @@ static void TestHorizontalCornerEscapeShadowClassificationIsDisjoint()
 		"a vertical valid-marked candidate remains structurally invalid");
 }
 
+static void TestFallingSeamEpisodesAreSpatialAndPairStable()
+{
+	PawnMovement::FallingSeamEpisodeState state;
+	PawnMovement::FallingSeamEpisodeObservation observation;
+	observation.Eligible = true;
+	observation.Position = vec2(10.0f, 20.0f);
+	observation.FirstNormal = vec3(1.0f, 0.0f, 0.0f);
+	observation.SecondNormal = vec3(0.0f, 1.0f, 0.0f);
+	auto update = PawnMovement::UpdateFallingSeamEpisode(state, observation);
+	Check(update.Started && update.State.Active, "the first eligible seam starts an episode");
+	state = update.State;
+	state.AuthorizationCounted = true;
+	std::swap(observation.FirstNormal, observation.SecondNormal);
+	observation.Position = vec2(18.0f, 20.0f);
+	update = PawnMovement::UpdateFallingSeamEpisode(state, observation);
+	Check(!update.Started && update.State.AuthorizationCounted,
+		"callback order and an eight-unit XY displacement preserve the episode");
+	observation.Position = vec2(18.01f, 20.0f);
+	update = PawnMovement::UpdateFallingSeamEpisode(state, observation);
+	Check(update.Started && !update.State.AuthorizationCounted,
+		"an XY displacement beyond the episode anchor starts a fresh episode");
+	state = update.State;
+	observation.Position = state.Anchor;
+	observation.SecondNormal = vec3(-1.0f, 0.0f, 0.0f);
+	update = PawnMovement::UpdateFallingSeamEpisode(state, observation);
+	Check(update.Started, "a different unordered wall-normal pair starts a fresh episode");
+	update = PawnMovement::UpdateFallingSeamEpisode(update.State, {});
+	Check(!update.Started && !update.State.Active,
+		"an ineligible observation resets the per-life episode state");
+}
+
+static void TestDetailedHorizontalCornerClassificationsAreDisjoint()
+{
+	using Classification = PawnMovement::HorizontalCornerEscapeDetailedClassification;
+	PawnMovement::HorizontalCornerEscapeInput input;
+	input.Contact = VerticalSeamInput().Contact;
+	const auto candidate = PawnMovement::BuildHorizontalCornerEscapeCandidate(input);
+	auto evidence = AuthorizedEscapeEvidence();
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeDetailed(candidate, evidence, true)
+		== Classification::Authorized, "positive target progress authorizes a detailed candidate");
+	evidence.SweepClear = false;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeDetailed(candidate, evidence, true)
+		== Classification::BlockedSweep, "a blocked sweep has a distinct detailed outcome");
+	evidence = AuthorizedEscapeEvidence();
+	evidence.WalkableShortSupport = false;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeDetailed(candidate, evidence, true)
+		== Classification::NoStaticWalkableSupport,
+		"missing static walkable support has a distinct detailed outcome");
+	evidence = AuthorizedEscapeEvidence();
+	evidence.SupportInPainZone = true;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeDetailed(candidate, evidence, true)
+		== Classification::PainSupport, "pain support has a distinct detailed outcome");
+	evidence = AuthorizedEscapeEvidence();
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeDetailed(candidate, evidence, false)
+		== Classification::NoActiveMovementIntentOrTarget,
+		"Sleep or a missing required target is not mislabeled as target regression");
+	evidence.TargetProgress = 0.0f;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeDetailed(candidate, evidence, true)
+		== Classification::TrueTargetRegression,
+		"known non-positive progress is the only true target regression");
+	evidence = AuthorizedEscapeEvidence();
+	evidence.TargetProgressKnown = false;
+	Check(PawnMovement::ClassifyHorizontalCornerEscapeDetailed(candidate, evidence, true)
+		== Classification::UnknownEvidence,
+		"missing evidence during active movement remains explicitly unknown");
+}
+
 int main()
 {
 	TestDeathFanDanteAndAshCreasesRequireTargetProgress();
@@ -501,6 +568,8 @@ int main()
 	TestSupportedHorizontalCornerEscapeIsSelected();
 	TestHorizontalCornerEscapeRequiresCompleteEvidence();
 	TestHorizontalCornerEscapeShadowClassificationIsDisjoint();
+	TestFallingSeamEpisodesAreSpatialAndPairStable();
+	TestDetailedHorizontalCornerClassificationsAreDisjoint();
 	if (Failures == 0)
 		std::cout << "Pawn falling two-plane safety tests passed\n";
 	return Failures == 0 ? 0 : 1;

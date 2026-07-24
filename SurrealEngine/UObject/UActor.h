@@ -6,6 +6,7 @@
 #include "UnrealURL.h"
 #include "Math/bbox.h"
 #include "PawnFailedNavigationMemory.h"
+#include "PawnFallingTwoPlaneSafety.h"
 #include "PawnMoveStallWatchdog.h"
 #include "PawnPainLedgeRecovery.h"
 #include "PawnWallAdjustRecovery.h"
@@ -1942,6 +1943,16 @@ public:
 	uint64_t HorizontalCornerAuthorizedEscapeCount() const { return HorizontalCornerAuthorizedEscapeCountValue; }
 	uint64_t HorizontalCornerTargetProgressRejectCount() const { return HorizontalCornerTargetProgressRejectCountValue; }
 	uint64_t HorizontalCornerUnknownOrUnsafeSupportCount() const { return HorizontalCornerUnknownOrUnsafeSupportCountValue; }
+	uint64_t FallingSeamEpisodeCount() const { return FallingSeamEpisodeCountValue; }
+	uint64_t FallingSeamInvalidGeometryRejectCount() const { return FallingSeamInvalidGeometryRejectCountValue; }
+	uint64_t FallingSeamAuthorizableEpisodeCount() const { return FallingSeamAuthorizableEpisodeCountValue; }
+	uint64_t HorizontalCornerAuthorizedCandidateCount() const { return HorizontalCornerAuthorizedCandidateCountValue; }
+	uint64_t HorizontalCornerBlockedSweepCandidateCount() const { return HorizontalCornerBlockedSweepCandidateCountValue; }
+	uint64_t HorizontalCornerNoStaticWalkableSupportCandidateCount() const { return HorizontalCornerNoStaticWalkableSupportCandidateCountValue; }
+	uint64_t HorizontalCornerPainSupportCandidateCount() const { return HorizontalCornerPainSupportCandidateCountValue; }
+	uint64_t HorizontalCornerNoActiveMovementIntentOrTargetCandidateCount() const { return HorizontalCornerNoActiveMovementIntentOrTargetCandidateCountValue; }
+	uint64_t HorizontalCornerTrueTargetRegressionCandidateCount() const { return HorizontalCornerTrueTargetRegressionCandidateCountValue; }
+	uint64_t HorizontalCornerUnknownEvidenceCandidateCount() const { return HorizontalCornerUnknownEvidenceCandidateCountValue; }
 
 	// Returns true if any of the several points of other is visible (origin, top, bottom)
 	// ignoreDistance is a Deus Ex only parameter, it is always false on Unreal.
@@ -2158,6 +2169,7 @@ private:
 	PawnMovement::MoveStallWatchdogState MoveStallWatchdog;
 	PawnMovement::PainLedgeRecoveryState PainLedgeRecovery;
 	PawnMovement::WallAdjustRecoveryState WallAdjustRecovery;
+	PawnMovement::FallingSeamEpisodeState FallingSeamEpisode;
 	uint64_t PainLedgeVetoCountValue = 0;
 	uint64_t PainLedgeRepeatVetoCountValue = 0;
 	uint64_t PainLedgeRecoveryAttemptCountValue = 0;
@@ -2181,6 +2193,16 @@ private:
 	uint64_t HorizontalCornerAuthorizedEscapeCountValue = 0;
 	uint64_t HorizontalCornerTargetProgressRejectCountValue = 0;
 	uint64_t HorizontalCornerUnknownOrUnsafeSupportCountValue = 0;
+	uint64_t FallingSeamEpisodeCountValue = 0;
+	uint64_t FallingSeamInvalidGeometryRejectCountValue = 0;
+	uint64_t FallingSeamAuthorizableEpisodeCountValue = 0;
+	uint64_t HorizontalCornerAuthorizedCandidateCountValue = 0;
+	uint64_t HorizontalCornerBlockedSweepCandidateCountValue = 0;
+	uint64_t HorizontalCornerNoStaticWalkableSupportCandidateCountValue = 0;
+	uint64_t HorizontalCornerPainSupportCandidateCountValue = 0;
+	uint64_t HorizontalCornerNoActiveMovementIntentOrTargetCandidateCountValue = 0;
+	uint64_t HorizontalCornerTrueTargetRegressionCandidateCountValue = 0;
+	uint64_t HorizontalCornerUnknownEvidenceCandidateCountValue = 0;
 };
 
 class UScout : public UPawn

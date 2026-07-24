@@ -85,6 +85,35 @@ namespace PawnMovement
 		size_t Count = 0;
 	};
 
+	struct FallingSeamEpisodeState
+	{
+		bool Active = false;
+		vec2 Anchor = vec2(0.0f);
+		vec3 FirstNormal = vec3(0.0f);
+		vec3 SecondNormal = vec3(0.0f);
+		bool AuthorizationCounted = false;
+	};
+
+	struct FallingSeamEpisodeObservation
+	{
+		bool Eligible = false;
+		vec2 Position = vec2(0.0f);
+		vec3 FirstNormal = vec3(0.0f);
+		vec3 SecondNormal = vec3(0.0f);
+		float MaximumAnchorDistance = 8.0f;
+		float MinimumNormalAlignment = 0.999f;
+	};
+
+	struct FallingSeamEpisodeUpdate
+	{
+		FallingSeamEpisodeState State;
+		bool Started = false;
+	};
+
+	FallingSeamEpisodeUpdate UpdateFallingSeamEpisode(
+		const FallingSeamEpisodeState& state,
+		const FallingSeamEpisodeObservation& observation);
+
 	HorizontalCornerEscapeCandidates BuildHorizontalCornerEscapeCandidates(
 		const HorizontalCornerEscapeInput& input);
 	FallingTwoPlaneSafetyResult SelectHorizontalCornerEscape(
@@ -102,4 +131,21 @@ namespace PawnMovement
 	HorizontalCornerEscapeShadowClassification ClassifyHorizontalCornerEscapeShadow(
 		const HorizontalCornerEscapeCandidate& candidate,
 		const FallingRecoveryAuthorizationEvidence& evidence);
+
+	enum class HorizontalCornerEscapeDetailedClassification
+	{
+		CandidateInvalid,
+		Authorized,
+		BlockedSweep,
+		NoStaticWalkableSupport,
+		PainSupport,
+		NoActiveMovementIntentOrTarget,
+		TrueTargetRegression,
+		UnknownEvidence
+	};
+
+	HorizontalCornerEscapeDetailedClassification ClassifyHorizontalCornerEscapeDetailed(
+		const HorizontalCornerEscapeCandidate& candidate,
+		const FallingRecoveryAuthorizationEvidence& evidence,
+		bool activeMovementIntentAndTarget);
 }

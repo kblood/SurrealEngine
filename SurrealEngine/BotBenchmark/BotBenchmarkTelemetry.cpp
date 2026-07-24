@@ -136,6 +136,16 @@ namespace
 			<< ",\"horizontal_corner_authorized_escapes_exact\":\"" << bot.HorizontalCornerAuthorizedEscapesExact << "\""
 			<< ",\"horizontal_corner_target_progress_rejects_exact\":\"" << bot.HorizontalCornerTargetProgressRejectsExact << "\""
 			<< ",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"" << bot.HorizontalCornerUnknownOrUnsafeSupportExact << "\""
+			<< ",\"falling_seam_episodes_exact\":\"" << bot.FallingSeamEpisodesExact << "\""
+			<< ",\"falling_seam_invalid_geometry_rejects_exact\":\"" << bot.FallingSeamInvalidGeometryRejectsExact << "\""
+			<< ",\"falling_seam_authorizable_episodes_exact\":\"" << bot.FallingSeamAuthorizableEpisodesExact << "\""
+			<< ",\"horizontal_corner_authorized_candidates_exact\":\"" << bot.HorizontalCornerAuthorizedCandidatesExact << "\""
+			<< ",\"horizontal_corner_blocked_sweep_candidates_exact\":\"" << bot.HorizontalCornerBlockedSweepCandidatesExact << "\""
+			<< ",\"horizontal_corner_no_static_walkable_support_candidates_exact\":\"" << bot.HorizontalCornerNoStaticWalkableSupportCandidatesExact << "\""
+			<< ",\"horizontal_corner_pain_support_candidates_exact\":\"" << bot.HorizontalCornerPainSupportCandidatesExact << "\""
+			<< ",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"" << bot.HorizontalCornerNoActiveMovementIntentOrTargetCandidatesExact << "\""
+			<< ",\"horizontal_corner_true_target_regression_candidates_exact\":\"" << bot.HorizontalCornerTrueTargetRegressionCandidatesExact << "\""
+			<< ",\"horizontal_corner_unknown_evidence_candidates_exact\":\"" << bot.HorizontalCornerUnknownEvidenceCandidatesExact << "\""
 			<< ",\"state\":" << JsonString(bot.State) << "}";
 	}
 

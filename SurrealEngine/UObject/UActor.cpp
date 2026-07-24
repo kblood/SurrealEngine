@@ -4198,6 +4198,11 @@ void UPawn::UpdateActorZone()
 
 void UPawn::Tick(float elapsed)
 {
+	UZoneInfo* seamFootZone = FootRegion().Zone;
+	if (bDeleteMe() || Health() <= 0 || Physics() != PHYS_Falling
+		|| !seamFootZone || seamFootZone->bPainZone() || seamFootZone->bWaterZone())
+		FallingSeamEpisode = {};
+
 	std::array<bool, 2> rememberedNavigationTargetsLive = {};
 	for (size_t index = 0; index < FailedNavigationMemory.Entries.size(); index++)
 	{
@@ -4604,10 +4609,14 @@ void UPawn::ObserveFallingSeamEscapeShadow(const vec3& requestedRemainingDelta,
 	const vec3& secondHitNormal, bool normalDownwardGravity)
 {
 	UZoneInfo* startFootZone = FootRegion().Zone;
-	if (!IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority
-		|| bDeleteMe() || Health() <= 0 || Physics() != PHYS_Falling
-		|| !startFootZone || startFootZone->bPainZone() || startFootZone->bWaterZone())
+	const bool eligible = IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
+		&& !bDeleteMe() && Health() > 0 && Physics() == PHYS_Falling
+		&& startFootZone && !startFootZone->bPainZone() && !startFootZone->bWaterZone();
+	if (!eligible)
+	{
+		FallingSeamEpisode = {};
 		return;
+	}
 
 	PawnMovement::HorizontalCornerEscapeInput input;
 	input.Contact = {
@@ -4621,10 +4630,25 @@ void UPawn::ObserveFallingSeamEscapeShadow(const vec3& requestedRemainingDelta,
 	if (PawnMovement::ResolveFallingTwoPlaneContact(input.Contact).Decision
 		!= PawnMovement::FallingTwoPlaneContactDecision::ProbeCreaseSweep)
 		return;
+	const PawnMovement::FallingSeamEpisodeUpdate episode =
+		PawnMovement::UpdateFallingSeamEpisode(FallingSeamEpisode, {
+			.Eligible = true,
+			.Position = Location().xy(),
+			.FirstNormal = firstHitNormal,
+			.SecondNormal = secondHitNormal
+		});
+	FallingSeamEpisode = episode.State;
+	if (episode.Started)
+		FallingSeamEpisodeCountValue++;
 	FallingSeamDetectionCountValue++;
 
 	const PawnMovement::HorizontalCornerEscapeCandidates candidates =
 		PawnMovement::BuildHorizontalCornerEscapeCandidates(input);
+	if (candidates.Count == 0)
+	{
+		FallingSeamInvalidGeometryRejectCountValue++;
+		return;
+	}
 	for (size_t candidateIndex = 0; candidateIndex < candidates.Count; candidateIndex++)
 	{
 		const PawnMovement::HorizontalCornerEscapeCandidate& candidate =
@@ -4669,7 +4693,9 @@ void UPawn::ObserveFallingSeamEscapeShadow(const vec3& requestedRemainingDelta,
 			? StateFrame->LatentState : LatentRunState::Continue;
 		const bool liveMoveTowardTarget = latentState != LatentRunState::MoveToward
 			|| (MoveTarget() && !MoveTarget()->bDeleteMe());
-		if (IsMovementLatentState(latentState) && liveMoveTowardTarget)
+		const bool activeMovementIntentAndTarget = IsMovementLatentState(latentState)
+			&& liveMoveTowardTarget;
+		if (activeMovementIntentAndTarget)
 		{
 			const vec3 target = Destination();
 			const vec3 currentTargetDelta = target - Location();
@@ -4681,6 +4707,39 @@ void UPawn::ObserveFallingSeamEscapeShadow(const vec3& requestedRemainingDelta,
 				evidence.TargetProgressKnown = true;
 				evidence.TargetProgress = currentDistance - candidateDistance;
 			}
+		}
+
+		switch (PawnMovement::ClassifyHorizontalCornerEscapeDetailed(
+			candidate, evidence, activeMovementIntentAndTarget))
+		{
+		case PawnMovement::HorizontalCornerEscapeDetailedClassification::Authorized:
+			HorizontalCornerAuthorizedCandidateCountValue++;
+			if (!FallingSeamEpisode.AuthorizationCounted)
+			{
+				FallingSeamEpisode.AuthorizationCounted = true;
+				FallingSeamAuthorizableEpisodeCountValue++;
+			}
+			break;
+		case PawnMovement::HorizontalCornerEscapeDetailedClassification::BlockedSweep:
+			HorizontalCornerBlockedSweepCandidateCountValue++;
+			break;
+		case PawnMovement::HorizontalCornerEscapeDetailedClassification::NoStaticWalkableSupport:
+			HorizontalCornerNoStaticWalkableSupportCandidateCountValue++;
+			break;
+		case PawnMovement::HorizontalCornerEscapeDetailedClassification::PainSupport:
+			HorizontalCornerPainSupportCandidateCountValue++;
+			break;
+		case PawnMovement::HorizontalCornerEscapeDetailedClassification::NoActiveMovementIntentOrTarget:
+			HorizontalCornerNoActiveMovementIntentOrTargetCandidateCountValue++;
+			break;
+		case PawnMovement::HorizontalCornerEscapeDetailedClassification::TrueTargetRegression:
+			HorizontalCornerTrueTargetRegressionCandidateCountValue++;
+			break;
+		case PawnMovement::HorizontalCornerEscapeDetailedClassification::UnknownEvidence:
+			HorizontalCornerUnknownEvidenceCandidateCountValue++;
+			break;
+		case PawnMovement::HorizontalCornerEscapeDetailedClassification::CandidateInvalid:
+			break;
 		}
 
 		switch (PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence))

@@ -70,6 +70,16 @@ struct BotBenchmarkBotState
 	uint64_t HorizontalCornerAuthorizedEscapesExact = 0;
 	uint64_t HorizontalCornerTargetProgressRejectsExact = 0;
 	uint64_t HorizontalCornerUnknownOrUnsafeSupportExact = 0;
+	uint64_t FallingSeamEpisodesExact = 0;
+	uint64_t FallingSeamInvalidGeometryRejectsExact = 0;
+	uint64_t FallingSeamAuthorizableEpisodesExact = 0;
+	uint64_t HorizontalCornerAuthorizedCandidatesExact = 0;
+	uint64_t HorizontalCornerBlockedSweepCandidatesExact = 0;
+	uint64_t HorizontalCornerNoStaticWalkableSupportCandidatesExact = 0;
+	uint64_t HorizontalCornerPainSupportCandidatesExact = 0;
+	uint64_t HorizontalCornerNoActiveMovementIntentOrTargetCandidatesExact = 0;
+	uint64_t HorizontalCornerTrueTargetRegressionCandidatesExact = 0;
+	uint64_t HorizontalCornerUnknownEvidenceCandidatesExact = 0;
 };
 
 struct BotBenchmarkTelemetryEvent
