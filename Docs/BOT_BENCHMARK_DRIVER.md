@@ -14,12 +14,12 @@ ordered roster, and advances a fixed-step level loop without window, audio, or
 renderer creation. The default remains one unnamed bot at the uniform external
 difficulty, so existing invocations keep their gameplay setup.
 
-The setup is currently verified only for Unreal Tournament 436 deathmatch. A
-fail-closed game-profile check runs before applying the Botpack-specific setup;
-recognized but unverified Unreal, UT patch, mode, and mod combinations report
-an actionable unsupported-profile failure. See
+The setup is verified for Unreal Tournament 436 and Unreal Gold 226b
+deathmatch. A fail-closed game-profile check selects the game's independently
+verified spectator, bot-spawn, roster, and skill contract; unverified engine
+versions, modes, and mods report an actionable unsupported-profile failure. See
 [`BOT_AI_CROSS_GAME_AND_MAPS.md`](BOT_AI_CROSS_GAME_AND_MAPS.md) for the shared
-engine boundary and the work required for an Unreal-specific adapter.
+engine boundary and the separate game-profile contracts.
 
 ## Rendered unattended spectator matches
 
@@ -41,13 +41,22 @@ SurrealEngine.exe --autoplay --bot-spectator `
   --bot-spectator-seconds=120 "C:\Games\Unreal Tournament"
 ```
 
+The equivalent two-bot Unreal Gold match is:
+
+```powershell
+SurrealEngine.exe --autoplay --bot-spectator `
+  --bot-spectator-url="DmDeathFan?Game=UnrealShare.DeathMatchGame" `
+  --bot-spectator-bots=2 --bot-spectator-skills=0,3 `
+  --bot-spectator-seconds=120 "C:\Games\Unreal Gold"
+```
+
 `--bot-spectator-seconds=0` (the default) runs until the window is closed.
 `--bot-spectator-url` defaults to DM-Morbias][, the roster defaults to four
-bots, `--bot-spectator-difficulty=0..7` defaults to 3, and an optional
-`--bot-spectator-skills=...` list must match the bot count. This is a live
-rendered match, not a recorded Unreal demo and not a special demo edition of
-the game. It currently shares the benchmark's fail-closed UT436-only profile;
-Unreal 226b still needs its separately verified spawn adapter.
+bots, and an optional `--bot-spectator-skills=...` list must match the bot
+count. UT436 accepts external skills 0 through 7; Unreal 226b accepts 0 through
+3 and requires an explicit Unreal deathmatch URL. This is a live rendered
+match, not a recorded Unreal demo and not a special demo edition of either
+game. Both verified profiles run as unattended bot-only matches.
 
 The spectator mode intentionally does not write benchmark telemetry or claim
 determinism. Use it for visual inspection, debugging, exhibition matches, and

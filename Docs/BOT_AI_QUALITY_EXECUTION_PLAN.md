@@ -182,6 +182,20 @@ Numeric gates are versioned in quality metadata. They may be tightened after
 the first trustworthy baseline, but they cannot be relaxed merely to pass a
 candidate.
 
+The gate is now executable rather than only prose. `Evaluate-BotQualityGate.py`
+checks required run counts, structural completion, required metrics, aggregate
+thresholds, and per-run/map thresholds, and exits nonzero on a violation. It
+fails closed when a selector matches nothing or a metric is absent or null; it
+does not rename a proxy or synthesize an unavailable causal metric. The current
+death counters still have a truth gap: a null/non-player `Killed` argument does
+not distinguish an unassisted environmental death from a recent enemy
+knockback or damage contribution. A pure five-way attribution model and a
+nested-call coordinator now cover canonical `TakeDamage`, `AddVelocity`, known
+environmental sources, `Killed`, abnormal unwinding, and per-life reset. They
+are tested infrastructure, not live telemetry evidence, until the coordinator
+is wired to verified UT436 and Unreal 226b script contracts and reconciled with
+the final summary.
+
 ## Initial pre-fix baseline
 
 The pushed `ed93e9c2` binary was run for three seeds each on UT436
@@ -329,6 +343,249 @@ Artifacts are retained in the central QA tree under the dated
 `iteration10-recovery-stock-jump-v2` directories. Stale-binary iterations are
 not evidence and are explicitly discarded.
 
+## Iterations 11 through 18: wall and stall recovery evidence
+
+Cross-tick wall recovery was tested as a sequence of deliberately small
+candidates. Destination-only success reporting was rejected because it could
+claim progress without moving. Latent steering was starved by UE1 scheduling:
+`UPawn::Tick` polls the latent action before the state VM can reassert the
+escape. Synchronous callback steering reduced Deck wall callbacks but created
+a repeatable steer/jump/return loop and worsened deaths. The retained
+timeout-only wall safeguard is narrower: repeated contact within four units
+times out the move and requests a normal script replan. In the fixed matrix it
+cut Deck intent no-progress from 70.23 to 34.59 seconds and wall-adjust calls
+from 7,043 to 1,047, but did not reduce the four environmental deaths. It is a
+bounded safeguard, not a complete quality result.
+
+A once-per-pawn-tick move-stall watchdog then localized a separate Deck seed
+314159 failure: Cilia remained at one coordinate while repeatedly executing
+`MoveToward LiftExit3`. The shadow observer was proven behavior-neutral by an
+enabled/disabled same-layout A/B. A normal latent timeout was safe but
+ineffective: the script selected the identical target eight times and the bot
+remained stationary for 15.15 seconds. That live timeout candidate is rejected
+until replanning retains bounded memory of the failed navigation segment.
+
+| Iteration | Candidate | Evidence | Decision |
+| --- | --- | --- | --- |
+| 11 | destination-only wall completion | false success without displacement | reject |
+| 12 | latent wall steering | scheduling starved the callback | reject |
+| 14 | synchronous wall steering | fewer walls, worse deaths, repeat loop | reject |
+| 15 | timeout-only wall replan | large wall/stall reduction; no survival gain | retain as bounded safeguard |
+| 16 | shadow move-stall watchdog | one exact persistent `LiftExit3` episode; observer A/B neutral | retain telemetry |
+| 17 | nav timeout on detection | eight same-target replans, zero movement | reject live action |
+| 18 | empty-path filter plus failed-node memory | movement improved, but Deck suicides rose from 4 to 7 and the two-strike penalty was not exercised | reject combined candidate |
+
+Iteration 18 was separated with a same-layout isolation build. Restoring the
+old inventory scoring reproduced iteration 17 byte-for-byte on Deck, including
+the eight failed LiftExit replans. Therefore the apparent movement improvement
+and suicide regression came from rejecting empty inventory paths, while the
+failed-node memory was being cleared by a nominal arrival before its second
+strike. The next experiment must preserve a first strike until measured escape
+and emit exact activation/application counters; no result may be attributed to
+the penalty until those counters prove it ran.
+
+## Iterations 19 through 22: durable failed-node memory and wall-slide prediction
+
+Progress-aware failure memory was instrumented with exact activation,
+safeguard-suppression, and route-penalty counters. Two-strike and immediate
+two-entry variants moved Cilia away from `LiftExit3`, but cleared avoidance
+after a 96-unit excursion and let her return to the same anchor in under two
+seconds. Iteration 21 retained an activated entry for the full ten-second
+window. That eliminated the permanent stall and reduced the seed-314159
+longest intent stall from 9.37 to 1.78 seconds, but selected a riskier route:
+the six-case matrix lost one kill, added one suicide/environmental death, and
+applied the route penalty 12,441 times in that case. It remains an experiment,
+not a release candidate.
+
+Iteration 22 extended the bounded fall predictor through at most two
+near-vertical wall collisions. It recognized both known Deck16-II walking
+falls: Sarena seed 271828 was redirected and survived, while Necroth seed
+104729 was vetoed but fell on the next tick and still died. The six cases and
+their repeats were byte-identical, but Deck kills fell from six to five,
+hazard-exposed deaths rose from five to six, longest intent stall rose from
+1.78 to 6.58 seconds, and suicides remained tied with kills. The live extension
+is rejected in that state. Attribution showed that rollback used the current
+walking sub-iteration, which can already be unsupported; the next isolated
+candidate must restore the tick's last supported start before changing the
+prediction model again.
+
+Iterations 23 through 26 isolated enforcement. Whole-tick rollback removed the
+new 6.58-second stall but did not move Necroth back onto support. Post-rollback
+support verification, a selected 64-unit retreat, exact walking-floor checks,
+and finally four real collision-checked reverse steps of eight units all left
+the reproduced tick-471 through tick-475 trajectory unchanged. The final two
+candidates also exposed a 7.88-second targetless `MoveTo` stall. Because none
+reduced deaths and the last candidate still produced K/D/S/E of 1/4/3/3 for
+seed 104729, the wall-slide continuation and synchronous enforcement sequence
+is rejected and removed from live runtime. The useful result is diagnostic:
+the predictor can recognize the fall, but changing ledge physics is not yet a
+safe way to enforce it.
+
+Iteration 27 then exposed a watchdog attribution requirement. Resetting the
+episode on every latent native call suppressed all Cilia detections because
+Botpack reissues the same `MoveToward LiftExit3` command; the 9.37-second stall
+returned. The watchdog now uses a stable command key: reissues for the same
+actor target (or the same positional destination) preserve elapsed no-progress,
+while a genuinely different target, destination, or latent mode starts a new
+episode. Iteration 28 reproduced iteration 21 exactly, including two correctly
+attributed activations and a 1.78-second maximum intent stall. A separately
+typed targetless `MoveTo`/`StrafeTo` timeout cannot write failed-navigation
+memory, although the clean fixed cases have not yet exercised that branch.
+The remaining problem is the ten-second endpoint penalty: it removes the stall
+but applies 12,441 times and retains the iteration-21 combat/survival regression.
+
+Iteration 29 moved the failed-node cost out of internal reverse-graph relaxation
+and onto unique final first-hop candidates, and reduced the hard lifetime from
+ten to four seconds. Cilia's gameplay trajectory remained exact, while counted
+applications fell from 12,441 to 4,261. The remaining count represents repeated
+route searches during the active window rather than distorted internal graph
+distances. Quality is still the iteration-21 result, so the live recovery
+remains experimental.
+
+Iterations 30 and 31 tested a higher-level hypothesis for Necroth's walk-off.
+Telemetry correlated the failure with an already-selected direct
+`MoveToward BulletBox4`, and bounded inventory-corridor variants changed the
+target to `PathNode122` and eliminated three seed-104 deaths. They did not prove
+that a fresh native `ActorReachable` approval at the veto was the causal
+interception point. Iteration 38 tracing later showed that the inventory target
+was already live before the recent ledge veto; a post-veto reachability check
+could not cancel that in-flight latent move. The corridor variants also cut
+kills from two to zero, score from zero to -1, and raised wall contacts from 291
+to 568. Live integration is removed; the pure bounded corridor helper remains
+research infrastructure, and the earlier direct-inventory causal claim is
+withdrawn.
+
+Iterations 32 and 33 proved another native-contract defect: `PickWallAdjust`
+forced a jump even though Botpack Wandering had set `bCanJump=false`. The guard
+kept Visse walking at the exact tick-55 oracle and removed her first slime
+entry, but the isolated match regressed from K3/S2/score +1 to K2/S3/score -1
+and wall-adjust calls changed substantially. The live guard is removed while
+its pure contract test is retained. Correct local semantics alone are not
+accepted when the match-level quality signal worsens.
+
+The same iteration-22 binary was also run unattended on Unreal Gold 226b
+`DmDeathFan`. All 1,802 shared gameplay records exactly matched the iteration-10
+baseline: Dante still fell, entered pain 2.47 seconds later, and died. The
+current 1.5-second predictor horizon therefore cannot see that hazard, and the
+wall-slide extension did not affect Unreal. A longer horizon must be separately
+bounded and qualified after rollback is proven on Deck.
+
+| Iteration | Candidate | Evidence | Decision |
+| --- | --- | --- | --- |
+| 19 | progress-aware two-strike memory | penalty exercised, but escape cleared too early | revise |
+| 20 | two remembered targets, immediate activation | moved 96 units, then returned to the same anchor | revise |
+| 21 | durable ten-second avoidance | permanent stall removed; combat/survival regression and 12,441 applications | experimental only |
+| 22 | two-collision wall-slide prediction | one walk-off saved, one veto failed; aggregate quality regressed | reject live behavior |
+| 23-26 | supported rollback and bounded synchronous retreats | known fall remained trajectory-identical; targetless stall reached 7.88 s | reject and remove |
+| 27 | reset watchdog on every latent call | Botpack reissues same target; detections fell to zero and 9.37 s stall returned | reject |
+| 28 | stable command-key watchdog | correct two detections; exact iteration-21 escape and quality result | retain correctness, revise penalty |
+| 29 | final-endpoint, four-second failed-node cost | exact escape; applications 12,441→4,261; quality regression remains | experimental |
+| 30-31 | hazardous direct-inventory corridor | Necroth saved; K2→0 and walls 291→568 | remove live, retain helper |
+| 32-33 | honor `bCanJump` in wall-jump branch | invalid jump prevented; K3→2, S2→3, score +1→-1 | remove live, retain helper |
+
+## Iterations 34 through 41: lift topology, determinism, and rejected wall-jump guards
+
+Iterations 34 through 36 narrowed failed-navigation avoidance from actor
+identity to a physical lift landing. Avoiding only another exit with the same
+lift identity did not change Cilia's seed-314159 result: two activations still
+caused 4,261 endpoint penalties. Temporarily penalizing every lift exit proved
+that avoiding the alternate exit removed the permanent loop: one activation
+and 85 applications moved Cilia to `PathNode116`. The retained narrow model
+groups exits only when they share a non-lift landing node, zone, bounded XY
+radius, and bounded height. Iteration 36 reproduced the first iteration-35
+six-case result exactly while avoiding the global all-lifts rule.
+
+The first and repeated iteration-35 matrices initially disagreed on UT Morbias
+seed 104729 (K6/walls65/longest-intent-stall0.27 s versus
+K7/walls100/2.83 s). The root cause was not bot randomness: overlap hits were
+sorted by process pointer, so ASLR changed `Touch` callback order. Sorting world
+first and actors by stable level index with name fallback removed that pointer
+nondeterminism. This engine-level correction is required for trustworthy fixed
+seeds; a same-seed repeat remains a reproducibility check, not an independent
+quality sample.
+
+| Iteration | Candidate and result | Decision |
+| --- | --- | --- |
+| 34 | same-lift-identity avoidance; seed 314159 unchanged at two activations/4,261 applications | revise topology |
+| 35 | all-lift-exit avoidance; Cilia escaped with one activation/85 applications; six-case K22/D27/S5/E4/score +17 | behavioral proof only; rule too broad |
+| 36 | shared-landing topology; exact iteration-35 first-matrix result after stable overlap ordering | retain narrow correctness, not a quality release |
+| 37 | prospective wall-jump forecast used the pre-script velocity rather than the adjusted jump velocity; seed 314159 stayed K2/D3/S1/E1/score +1 | reject invalid experiment |
+| 38 | recent-veto/VM handshake first spun and stopped at tick 358; corrected run regressed to K0/D3/S3/E3/score -3, walls 395, intent no-progress 13.13 s (longest 6.00 s) | reject; exact rollback |
+| 39-40 | correct jump input plus first/same-wall diagnostics; admissible central-build run stayed byte-identical at K2/D3/S1/E1/score +1 | neutral; do not promote |
+| 41 | bounded sustained same-BSP forecast changed motion, but hazard entries and hazard-exposed deaths rose 1→2; intent no-progress fell 10.62→4.45 s while K/D/S/E and score stayed 2/3/1/1 and +1 | reject safety regression; roll live forecast back |
+
+Iteration 38's rollback events have the same SHA-256 as the iteration-35
+seed-104729 events (`9fd10f192866...`), proving restoration rather than a
+similar aggregate. Iteration 39 showed why the one-contact predictor was
+neutral: after the first aligned slide, its reconstructed velocity retained a
+small component into the same wall, and the next step failed open because the
+single continuation was already consumed. Iteration 40 added same-surface and
+actual-blocking diagnostics, but all clean seed-314159 outputs remained
+byte-identical (`e4f17d562ea2...`). Diagnostic runs made from a repository-local
+build directory violate the workspace output policy and are excluded from
+qualification; only `iteration40-compliant-final-clean-deck314159-micro`, built
+from the central output tree, is admissible, and it is neutral. Iteration 41
+finally changed the trajectory but worsened the safety signal, so live
+wall-jump forecasting must be removed while its pure fixtures remain.
+
+The stable-overlap build also passed repeated Unreal Gold evidence. The fixed
+four-case `DmDeck16`/`DmMorbias` regression matrix reproduced exactly at
+aggregate K3/D4/S1/E0/score +2. The repeated tuning smoke also reproduced:
+`DmHealPod` was K0/D0/S0/E0 with two wall callbacks, while `DmDeathFan` was
+K1/D2/S1/E1 with 1,609 wall callbacks and a 2.27-second longest intent stall.
+This confirms cross-game determinism and preserves the known DeathFan failure;
+it is not a claim of Unreal bot competence.
+
+The rendered bot-only lane is operational: a two-second UT436 `DM-Morbias][`
+Vulkan run launched four stock bots at skills 7/5/3/1, logged in as
+`Botpack.CHSpectator`, followed `TMale1Bot0`, owned no gameplay pawn, and exited
+at the requested duration. The manifest-backed run proves unattended renderer,
+camera, roster, and shutdown lifecycle. Because it ran minimized and retained
+no subjective capture review, it does not prove visual or behavioral quality.
+
+## Iteration 42: falling seam release rejected on causal safety evidence
+
+Unreal `DmDeathFan` exposed a separate falling-physics defect. Dante and Ash
+could enter a two-plane static-world seam in `PHYS_Falling`, make effectively
+zero progress, and receive one `HitWall` callback per tick. The walking-only
+stall watchdog cannot act in that state. A pure resolver reconstructed the
+two-plane crease and iteration 42 tried exactly one additional crease sweep
+after the existing aligned sweep. It was bot-only, bounded, deterministic, and
+removed the long wall episode, but a geometrically valid vertical crease was
+not a survivable route.
+
+The first comparison was invalid because the candidate used
+`0.016666667` while the established Unreal matrix invoked `0.0166667`. At the
+historical timestep, two exact candidate repeats changed `DmDeathFan` seed
+424242 from K1/D2, one unassisted environmental death, 1,609 wall callbacks,
+and one 2.27-second intent-stuck episode to K1/D4, three unassisted
+environmental deaths, 371 wall callbacks, and no intent-stuck episode. Ash and
+Dante were released 1,171 and 928 units downward into the pain pool while
+their requested destinations were hundreds of units above them. The candidate
+therefore traded a locomotion failure for two additional avoidable deaths and
+is rejected. Its repeated event files are byte-identical; this is a stable
+regression, not noise.
+
+The live crease sweep was removed. The rollback restored K1/D2 and the exact
+historical shadow-decision SHA-256
+`1542313e58c908f658d2c69faa7fc95ad0837137e322cd1a0d007fce5d05d8ef`.
+Pure two-plane, falling-damage, target-progress, and supported-escape fixtures
+remain research inputs. Future recovery must treat `Unknown` as no additional
+movement, require positive target progress and proven walkable non-pain
+support for any translation, and test both timestep spellings explicitly.
+
+Iteration 43 then tested the lowest-risk research recommendation: perform no
+extra sweep, expire only the active movement latent request, and project
+acceleration out of the two inward wall half-spaces. It was byte-neutral on the
+historical DeathFan case. At the nearby timestep it reduced DeathFan wall
+callbacks from 182 to 32 without adding a death, but UT Deck seed 271828
+regressed from K1/D2/score 0, one hazard entry/death, and longest intent stall
+1.22 seconds to K1/D3/score -1, two hazard entries/deaths, and longest intent
+stall 2.32 seconds. The two candidate hazard deaths had recent enemy momentum,
+so they were not misreported as unassisted suicides; they still fail total
+survival, hazard, combat, and locomotion non-regression gates. The live replan
+is rejected and removed. Its pure projection fixtures remain available.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
@@ -342,7 +599,11 @@ URLs omit the package extension:
 The first tuning smoke completed on all four maps. UT Pressure had no hazard
 entry, UT Morpheus exposed two, Unreal HealPod had none, and Unreal DeathFan
 exposed one slime/environmental death. These are tuning observations only;
-held-out results remain unopened until parameters freeze.
+held-out results remain unopened until parameters freeze. No iteration through
+42 is merge-ready: Deck still has avoidable hazard deaths, DeathFan remains an
+Unreal safety/stall failure, and the required held-out evidence has deliberately
+not been opened. Live causal death attribution is available, but measurement
+truth does not make the observed behavior safe.
 
 ## Iteration and parallel ownership
 
@@ -371,3 +632,6 @@ merges remain focused:
 
 Ordinary gameplay remains unchanged until a focused change passes its gates.
 Enhanced AI stays explicitly selectable until its full matrix is release-ready.
+The current branch is **not ready to merge**; retain only independently proven
+helpers/corrections and keep rejected live wall-jump and inventory enforcement
+out of the release candidate.
