@@ -5,8 +5,10 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 class Engine;
+class UPawn;
 
 class BotSpectatorMatchConfig
 {
@@ -43,6 +45,7 @@ private:
 
 	BotSpectatorMatchConfig Config;
 	double ElapsedSeconds = 0.0;
+	std::vector<UPawn*> ControlledBots;
 };
 
 // Returns null unless --bot-spectator is present. This must be called during

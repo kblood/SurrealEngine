@@ -2,11 +2,9 @@
 
 ## Decision
 
-No Unreal profile should be enabled in the bot benchmark yet.
+Enable a dedicated, fail-closed Unreal Gold 226b deathmatch profile. Do not enable a generic Unreal profile or the version 200 demo profile.
 
-Unreal Special Edition demo version 200 and owner-supplied Unreal Gold 226b both have a real, script-visible deathmatch bot lifecycle. That lifecycle is sufficiently understood to implement a small Unreal-specific probe, but it is not the Unreal Tournament v436 lifecycle that the current driver enforces. No end-to-end SurrealEngine run has yet proved controlled bot creation, skill initialization, spectator login, automatic-roster suppression, death, and respawn for either Unreal version. Versions 224v, 225f, and 226f have engine identities in this repository, but no matching local packages or version-tagged exported scripts were available for this spike.
-
-The first enablement candidate should be the version 200 demo, because the locally supplied demo data contains three deathmatch maps and the relevant script text. Unreal Gold 226b should follow using the owner's local data. Both remain fail-closed until the runtime probe below passes.
+The exact owner-installed GOG 226b packages now pass end-to-end SurrealEngine runs covering spectator login, automatic-roster suppression, ordered controlled spawning, 0-through-3 skill assignment, ordinary AI execution, combat death, and respawn. A second stock map also passes and same-seed runs reproduce the same ordered roster. Unreal 224v, 225f, 226f, and the version 200 demo remain unsupported because this runtime evidence does not generalize to them.
 
 ## Evidence rules
 
@@ -28,7 +26,7 @@ No commercial script body or game asset is copied into this repository. The desc
 | Unreal 224v | Executable hash recognition only in `UE1GameDatabase.h` | Identity only | Unsupported |
 | Unreal 225f | Executable hash recognition only in `UE1GameDatabase.h` | Identity only | Unsupported |
 | Unreal 226f | Executable hash recognition only in `UE1GameDatabase.h` | Identity only | Unsupported |
-| Unreal Gold 226b | Owner-supplied `Engine.u` SHA-1 `2877472679afa0da5b7286b41666864a80253ceb`; `UnrealShare.u` SHA-1 `2bd91ab92544dab22d353d3b64e47581090e8c14`; runtime reports identify 226b | Exact game, spectator, bot manager, spawn, skill-adjustment, death, and respawn scripts; ordinary single-player load/login works in SurrealEngine | Strong static contract; bot runtime unverified |
+| Unreal Gold 226b | Owner-installed `Unreal.exe` SHA-1 `a4e8149a3e3a9aeba3921eb5004973c4cb1a5c35`; `Engine.u` SHA-1 `2877472679afa0da5b7286b41666864a80253ceb`; `UnrealShare.u` SHA-1 `2bd91ab92544dab22d353d3b64e47581090e8c14`; runtime reports identify 226b | Exact game, spectator, bot manager, spawn, skill-adjustment, death, and respawn scripts plus completed controlled runtime on `DmMorbias` and `DmDeck16` | Enabled only by the exact 226b profile |
 
 SurrealEngine recognizes all of 224v, 225f, 226f, and 226b, but executable recognition is not behavioral compatibility. Public OldUnreal registration pages confirm later Unreal distributions use `UnrealShare.DeathMatchGame` and `UnrealShare.UnrealSpectator`, but those pages are not version-tagged behavioral exports. No authoritative, version-specific 224v/225f/226f bot script set was found, so this report does not project 226b behavior backward or sideways onto them.
 
@@ -158,25 +156,18 @@ That is not the Unreal contract:
 
 Public v436 pages must therefore remain comparison citations only, especially because the public UnrealShare localization/registration pages combine Unreal and UT sections and do not identify a precise Unreal patch's function bodies.
 
-## Current engine and driver gap
+## Implemented adapter and runtime evidence
 
-**Verified engine facts:**
+The shared controlled-match code now selects behavior from a version-specific spawn contract. UT436 retains `OverrideClass`, singular `Bot`, `MinPlayers`, named bot support, `InitializeSkill`, and its 0-through-7 novice/master split. Unreal Gold 226b instead uses URL `Class`, plural `Bots`, `InitialBots`/`RemainingBots` plus `bMultiPlayerBots`, unnamed `AddBots`, an exact concrete-class catalog, `NumBots` accounting, and explicit effective `Skill` 0 through 3 followed by `ReSetSkill`. Requested names or skills outside that range fail before the map is mutated. Other Unreal versions remain unsupported.
 
-- `Engine::LoadMap` completes `InitGame` and actor begin-play events before returning, while the benchmark can write reflected properties before its first simulated gameplay tick.
-- The object layer already supports property presence checks, integer/boolean/object reads and writes, event calls, actor enumeration, and console exec dispatch. These are sufficient for the proposed probe without new UnrealScript.
-- `Engine::LoginPlayer` resolves the URL `Class` option as the spawn class passed to `GameInfo.Login`.
-- Existing 226b owner reports prove that SurrealEngine can mount the data, identify version 226b, load ordinary maps, run `GameInfo.InitGame`, and log in a normal player. They do not exercise deathmatch bots.
+The runtime validation used the owner-installed GOG data listed above:
 
-The current `BotBenchmarkDriver` cannot be reused unchanged:
+- `DmMorbias`, seed 123, two skill-2 bots: 600 fixed ticks / 10.000019521 simulated seconds completed. The exact roster was `UnrealShare.MaleThreeBot` (`Dante`, PRI 1) followed by `UnrealI.MaleTwoBot` (`Ash`, PRI 2). Both entered AI states and moved; Dante recorded a kill, Ash recorded a death, and Ash was live again at 100 health in `Roaming`, proving normal death/respawn continuity.
+- `DmDeck16`, seed 123, the same roster: 1200 fixed ticks / 20.000039041 seconds completed. Both bots executed AI; Ash recorded an environmental suicide/death and returned live at 100 health in `Roaming`.
+- `DmMorbias`, seed 321, requested skills 0 and 3: two separate 120-tick runs completed with identical ordered class, actor, player-name, and PRI fields. Setup's runtime assertions verified each pawn's effective skill after `ReSetSkill`.
+- UT GOTY v436 regression, `DM-Morbias][`, seed 123, two external-skill-7 bots: 120 fixed ticks completed with the normal `Botpack.DeathMatchPlus`/`CHSpectator` path and an ordered `Botpack` roster, confirming the Unreal specialization did not replace UT's contract.
 
-1. It hardcodes `OverrideClass=Botpack.CHSpectator` instead of an Unreal `Class` option.
-2. It requires `BotConfig.Difficulty`; version 200 intentionally lacks that property.
-3. It discovers actors only with `IsA("Bot")`; both Unreal versions use the plural `Bots` base.
-4. It invokes `InitializeSkill`, then requires UT's `bNovice` and 0-through-7 mapping; neither Unreal package provides that contract.
-5. It uses `MinPlayers`, which is not the mechanism driving these Unreal rosters.
-6. Its single supported gameplay lifecycle is still the UT v436 profile. The 226b profile is correctly fail-closed, and version 200 has no enabled profile.
-
-The existing 226b profile's text says only class identities have been inspected. This spike advances static knowledge beyond that statement, but it does not change the correct unsupported result because the missing evidence is now the runtime lifecycle.
+The successful artifacts are outside the repository under `C:/Devstuff/QuestGames/artifacts/unreal-226b-bot-probe-20260724-b` through `-e`. The first `-a` run exposed an unrelated UT-shaped telemetry property access; that access was property-gated and the same adapter then passed. No game data was modified.
 
 ## Smallest owner-data runtime probe
 
@@ -247,6 +238,6 @@ No map is an approved bot fixture for these profiles until the user supplies mat
 
 ## Recommended next action
 
-Implement only the probe above, first against `DmKrazy`, `DmCreek`, or `DmBayC` from the version 200 demo. If every gate passes, add a dedicated `unreal-200-demo` adapter whose class names, bot predicate, suppression fields, and 0-through-3 skill handling are explicit. Then run the same probe against owner-supplied 226b `DmMorbias` and `DmDeck16` and enable a separate hash-scoped 226b adapter only after its native difficulty mapping is observed.
+Keep Unreal Gold 226b scoped to the exact detected version and deathmatch mode. Add CI/package-fixture coverage when legally and operationally possible; until then, retain the runtime evidence above as the owner-data acceptance record. If Unreal 200 support is wanted, run the same full probe against its exact demo packages and implement a separate adapter because its `BotInfo` contract differs.
 
 Do not create a generic "Unreal 224-226" profile from the two verified endpoints.
