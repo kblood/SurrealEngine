@@ -539,6 +539,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnFallingParityForecast.h
 	SurrealEngine/UObject/PawnFallingParityRealizedTrace.cpp
 	SurrealEngine/UObject/PawnFallingParityRealizedTrace.h
+	SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.cpp
+	SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.h
 	SurrealEngine/UObject/PawnVerticalPainColumnShadow.cpp
 	SurrealEngine/UObject/PawnVerticalPainColumnShadow.h
 	SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
@@ -1348,6 +1350,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PawnFallingParityRealizedTraceTests PRIVATE SurrealEngine)
 	set_target_properties(PawnFallingParityRealizedTraceTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnFallingParityRealizedTrace COMMAND PawnFallingParityRealizedTraceTests)
+
+	add_executable(PawnFallingHazardTrajectoryModelTests
+		Tests/PawnFallingHazardTrajectoryModelTests.cpp
+		SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.cpp
+	)
+	target_include_directories(PawnFallingHazardTrajectoryModelTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingHazardTrajectoryModelTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingHazardTrajectoryModel COMMAND PawnFallingHazardTrajectoryModelTests)
 
 	add_executable(PawnVerticalPainColumnShadowTests
 		Tests/PawnVerticalPainColumnShadowTests.cpp
