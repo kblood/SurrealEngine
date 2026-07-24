@@ -1,6 +1,7 @@
 
 #include "Precomp.h"
 #include "OverlapTest.h"
+#include "CollisionActorOrder.h"
 #include "Collision/BottomLevel/OverlapAABBModel.h"
 #include "UObject/UActor.h"
 
@@ -58,9 +59,17 @@ CollisionHitList OverlapTester::TestOverlap(const vec3& location, float height, 
 		}
 	}
 
-	// Only include each actor once
+	// Only include each actor once. Hit order also controls Touch callback order,
+	// so use level identity instead of ASLR-dependent actor addresses.
 
-	std::stable_sort(hits.begin(), hits.end(), [](const auto& a, const auto& b) { return a.Actor < b.Actor; });
+	std::stable_sort(hits.begin(), hits.end(), [](const auto& a, const auto& b)
+	{
+		return CollisionActorOrder::Less(
+			{ a.Actor != nullptr, a.Actor ? a.Actor->Index : -1,
+				a.Actor ? std::string_view(a.Actor->Name.ToString()) : std::string_view() },
+			{ b.Actor != nullptr, b.Actor ? b.Actor->Index : -1,
+				b.Actor ? std::string_view(b.Actor->Name.ToString()) : std::string_view() });
+	});
 
 	UActor* prevActor = nullptr;
 	CollisionHitList uniqueHits;

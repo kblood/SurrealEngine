@@ -48,22 +48,24 @@ Example `surreal-bot-benchmark-matrix-v1` manifest:
 }
 ```
 
-Paths are resolved relative to the manifest. `game.family` is recorded as
-provenance; map URLs are never rewritten, so each game family can retain its
-own class and URL options. The current unified bot driver still requires UT's
-`Botpack.DeathMatchPlus`; recording other families does not imply that their
-engine-side bot setup is implemented yet. `bot_count` defaults to one.
+Paths are resolved relative to the manifest. `game.family` selects a verified
+engine-side match adapter; map URLs are never rewritten, so each game family
+retains its own game class and URL options. The implemented adapters are UT436
+(`Botpack.DeathMatchPlus`) and Unreal Gold 226b
+(`UnrealShare.DeathMatchGame`). `bot_count` defaults to one.
 `per_bot_skills` and `requested_names` are optional, but when present each must
 contain exactly `bot_count` entries. Skills are integers from zero through
 seven. Names must be non-empty, trimmed, comma-free, and unique under the
 engine's ASCII case-insensitive comparison. Roster configuration is included
 in deterministic run and pair IDs.
 
-The current UT436 benchmark spectator does not expose the stock
-`AddBotNamed` command. Supplying `requested_names` is therefore parsed and
-recorded deterministically but the engine run deliberately fails instead of
-silently substituting random profiles. Omit names for runnable matrices until
-the named-spawn contract is independently verified.
+The current UT436 and Unreal Gold adapters do not expose a verified named-bot
+spawn contract. Supplying `requested_names` is therefore parsed and recorded
+deterministically but the engine run deliberately fails instead of silently
+substituting random profiles. Omit names for runnable matrices until a
+game-specific named-spawn contract is independently verified. Unreal Gold
+also accepts only its native external skill range, zero through three; the
+adapter disables random bot order and verifies the concrete `Bots` roster.
 All executables receive:
 
 ```text
@@ -123,6 +125,81 @@ python .\Tools\BotBenchmark\Analyze-BotQuality.py `
   .\botbench-output `
   --output .\bot-quality.json
 ```
+
+## Executable quality gates
+
+`Evaluate-BotQualityGate.py` applies explicit thresholds to an analyzer report
+and exits nonzero when evidence is missing or a gate fails:
+
+```powershell
+python .\Tools\BotBenchmark\Evaluate-BotQualityGate.py `
+  .\bot-quality.json .\bot-quality-gates.json `
+  --output .\bot-quality-gate-result.json
+```
+
+Example `surreal-bot-quality-gates-v1` configuration:
+
+```json
+{
+  "schema": "surreal-bot-quality-gates-v1",
+  "required_metrics": ["completion", "kills_exact", "deaths_exact"],
+  "required_runs": [
+    {"variant": "candidate", "map": "DM-Deck16][", "min": 2}
+  ],
+  "aggregate_gates": [
+    {"variant": "candidate", "metric": "kills_exact", "statistic": "mean", "min": 1}
+  ],
+  "per_run_gates": [
+    {"variant": "candidate", "metric": "completion", "equals": true},
+    {"variant": "candidate", "map": "DM-Deck16][", "metric": "deaths_exact", "max": 3}
+  ]
+}
+```
+
+Every reported run must be complete, successful, and structurally valid.
+Selectors matching no runs, missing metrics, and null metrics fail closed. Metric
+names are literal: the evaluator does not reinterpret `suicides_exact` as
+avoidable deaths or synthesize death attribution. Such a metric remains
+unavailable unless the analyzer report contains live telemetry evidence under
+that exact name.
+
+Per-run attributed-death safety is expressible as separate zero-tolerance
+gates. For example, a Deck16 candidate can require the live attribution fields
+and reject any run containing a direct self-kill, unassisted environmental
+death, recent-enemy-contributed environmental-death proxy, or ambiguous death:
+
+```json
+{
+  "schema": "surreal-bot-quality-gates-v1",
+  "required_metrics": [
+    "completion",
+    "deaths_exact",
+    "direct_self_kills",
+    "direct_enemy_kills",
+    "unassisted_environmental_deaths",
+    "recent_enemy_contributed_environmental_deaths_proxy",
+    "ambiguous_deaths",
+    "recent_enemy_momentum_contributed_environmental_deaths_proxy"
+  ],
+  "required_runs": [
+    {"variant": "candidate", "map": "DM-Deck16][", "min": 2}
+  ],
+  "aggregate_gates": [],
+  "per_run_gates": [
+    {"variant": "candidate", "map": "DM-Deck16][", "metric": "completion", "equals": true},
+    {"variant": "candidate", "map": "DM-Deck16][", "metric": "direct_self_kills", "max": 0},
+    {"variant": "candidate", "map": "DM-Deck16][", "metric": "unassisted_environmental_deaths", "max": 0},
+    {"variant": "candidate", "map": "DM-Deck16][", "metric": "recent_enemy_contributed_environmental_deaths_proxy", "max": 0},
+    {"variant": "candidate", "map": "DM-Deck16][", "metric": "ambiguous_deaths", "max": 0}
+  ]
+}
+```
+
+`direct_enemy_kills` is intentionally not an unsafe-death gate. The momentum
+counter is a subset of the recent-enemy-contributed proxy, not a sixth primary
+partition bucket. The analyzer rejects partial groups and requires the five
+primary counters to sum to `deaths_exact`; listing all six emitted fields in
+`required_metrics` also makes absence explicit at the gate boundary.
 
 Multiple runs may be passed. The output groups them by variant and describes:
 

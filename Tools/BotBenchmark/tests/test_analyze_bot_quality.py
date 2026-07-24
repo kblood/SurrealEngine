@@ -183,12 +183,382 @@ def upgrade_telemetry_v2(run: Path, *, counters: list[dict]) -> None:
                 "hazard_exposed_deaths_proxy": str(sample["hazard_exposed_deaths_proxy"]),
                 "hit_wall_events_exact": str(sample["hit_wall_events_exact"]),
             })
+            for name in QUALITY.OPTIONAL_EXACT_COUNTERS:
+                if name in sample:
+                    bot[name] = str(sample[name])
+            for name in QUALITY.OPTIONAL_CUMULATIVE_NUMBERS:
+                if name in sample:
+                    bot[name] = sample[name]
+            for name in QUALITY.OPTIONAL_DIAGNOSTIC_FIELDS:
+                if name in sample:
+                    bot[name] = sample[name]
     path.write_text(
         "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
         encoding="utf-8")
 
 
+def declare_death_attribution(run: Path) -> None:
+    path = run / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["death_attribution_recent_window_seconds"] = 2.0
+    manifest["suicides_exact_semantics"] = "legacy_scoreboard_self_or_nonplayer_killer"
+    path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+
 class BotQualityAnalysisTests(unittest.TestCase):
+    def test_causal_death_attribution_is_partitioned_monotonic_and_reported(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "suicides_exact": 0,
+            "environmental_deaths_exact": 0, "hazard_exposed_deaths_proxy": 0,
+            "hit_wall_events_exact": 0,
+        }
+        samples = [
+            {**common, "deaths_exact": 0, "direct_self_kills": 0,
+             "direct_enemy_kills": 0, "unassisted_environmental_deaths": 0,
+             "recent_enemy_contributed_environmental_deaths_proxy": 0,
+             "ambiguous_deaths": 0,
+             "recent_enemy_momentum_contributed_environmental_deaths_proxy": 0},
+            {**common, "deaths_exact": 1, "direct_self_kills": 0,
+             "direct_enemy_kills": 1, "unassisted_environmental_deaths": 0,
+             "recent_enemy_contributed_environmental_deaths_proxy": 0,
+             "ambiguous_deaths": 0,
+             "recent_enemy_momentum_contributed_environmental_deaths_proxy": 0},
+            {**common, "deaths_exact": 2, "direct_self_kills": 0,
+             "direct_enemy_kills": 1, "unassisted_environmental_deaths": 0,
+             "recent_enemy_contributed_environmental_deaths_proxy": 1,
+             "ambiguous_deaths": 0,
+             "recent_enemy_momentum_contributed_environmental_deaths_proxy": 1},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = write_v2_run(root, "valid")
+            declare_death_attribution(run)
+            upgrade_telemetry_v2(run, counters=samples)
+            report = QUALITY.analyze([run])
+            self.assertTrue(report["metric_availability"]["death_attribution_metrics_present"])
+            self.assertEqual(
+                report["runs"][0]["config"]["death_attribution_recent_window_seconds"], 2.0)
+            self.assertEqual(
+                report["runs"][0]["config"]["suicides_exact_semantics"],
+                "legacy_scoreboard_self_or_nonplayer_killer")
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual({name: metrics[name] for name in QUALITY.DEATH_ATTRIBUTION_COUNTERS}, {
+                "direct_self_kills": 0,
+                "direct_enemy_kills": 2,
+                "unassisted_environmental_deaths": 0,
+                "recent_enemy_contributed_environmental_deaths_proxy": 2,
+                "ambiguous_deaths": 0,
+                "recent_enemy_momentum_contributed_environmental_deaths_proxy": 2,
+            })
+
+            incomplete = write_v2_run(root, "incomplete")
+            declare_death_attribution(incomplete)
+            incomplete_samples = [{**sample} for sample in samples]
+            for sample in incomplete_samples:
+                sample.pop("ambiguous_deaths")
+            upgrade_telemetry_v2(incomplete, counters=incomplete_samples)
+            with self.assertRaisesRegex(QUALITY.QualityError, "complete group"):
+                QUALITY.analyze([incomplete])
+
+            mismatched = write_v2_run(root, "mismatched")
+            declare_death_attribution(mismatched)
+            mismatch_samples = [{**sample} for sample in samples]
+            mismatch_samples[-1]["ambiguous_deaths"] = 1
+            upgrade_telemetry_v2(mismatched, counters=mismatch_samples)
+            with self.assertRaisesRegex(QUALITY.QualityError, "do not equal deaths_exact"):
+                QUALITY.analyze([mismatched])
+
+            bad_momentum = write_v2_run(root, "bad-momentum")
+            declare_death_attribution(bad_momentum)
+            bad_momentum_samples = [{**sample} for sample in samples]
+            bad_momentum_samples[1][
+                "recent_enemy_momentum_contributed_environmental_deaths_proxy"] = 1
+            upgrade_telemetry_v2(bad_momentum, counters=bad_momentum_samples)
+            with self.assertRaisesRegex(QUALITY.QualityError, "momentum-contributed deaths exceed"):
+                QUALITY.analyze([bad_momentum])
+
+            regressed = write_v2_run(root, "regressed")
+            declare_death_attribution(regressed)
+            regressed_samples = [{**sample} for sample in samples]
+            regressed_samples[-1]["direct_enemy_kills"] = 0
+            regressed_samples[-1]["recent_enemy_contributed_environmental_deaths_proxy"] = 2
+            regressed_samples[-1][
+                "recent_enemy_momentum_contributed_environmental_deaths_proxy"] = 1
+            upgrade_telemetry_v2(regressed, counters=regressed_samples)
+            with self.assertRaisesRegex(QUALITY.QualityError, "direct_enemy_kills regressed"):
+                QUALITY.analyze([regressed])
+
+            undeclared = write_v2_run(root, "undeclared")
+            upgrade_telemetry_v2(undeclared, counters=samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "requires manifest.death_attribution_recent_window_seconds"):
+                QUALITY.analyze([undeclared])
+
+    def test_optional_diagnostics_and_recovery_counters_are_validated_and_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_run(Path(temporary), "run", [0.0, 0.0, 2.0, 3.0])
+            common = {
+                "score": 0, "pri_deaths": 0, "movement_intent": True,
+                "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+                "suicides_exact": 0, "environmental_deaths_exact": 0,
+                "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+                "physics_mode": "Walking", "latent_action": "MoveToward",
+                "acceleration": {"x": 100.0, "y": -25.0, "z": 0.0},
+                "destination": {"x": 512.0, "y": 256.0, "z": -32.0},
+                "move_timer": 0.75, "move_target_identity": "actor:PathNode3",
+                "move_target_name": "PathNode3",
+            }
+            optional_samples = [
+                {"pain_ledge_vetoes_exact": 0, "pain_ledge_repeat_vetoes_exact": 0,
+                 "pain_ledge_recovery_attempts_exact": 0, "pain_ledge_recovery_escapes_exact": 0,
+                 "wall_adjust_calls_exact": 0, "wall_adjust_repeats_exact": 0,
+                 "wall_adjust_recovery_attempts_exact": 0,
+                 "wall_adjust_recovery_successes_exact": 0,
+                 "wall_adjust_forced_replans_exact": 0,
+                 "move_stall_detections_exact": 0, "move_stall_episode_resets_exact": 0,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_navigation_forced_replans_exact": 0,
+                 "move_stall_targetless_move_to_timeouts_exact": 0,
+                 "move_stall_eligible_seconds": 0.0,
+                 "failed_navigation_avoidance_activations_exact": 0,
+                 "failed_navigation_safeguard_suppressions_exact": 0,
+                 "failed_navigation_route_penalty_applications_exact": 0},
+                {"pain_ledge_vetoes_exact": 2, "pain_ledge_repeat_vetoes_exact": 1,
+                 "pain_ledge_recovery_attempts_exact": 1, "pain_ledge_recovery_escapes_exact": 0,
+                 "wall_adjust_calls_exact": 3, "wall_adjust_repeats_exact": 2,
+                 "wall_adjust_recovery_attempts_exact": 1,
+                 "wall_adjust_recovery_successes_exact": 0,
+                 "wall_adjust_forced_replans_exact": 0,
+                 "move_stall_detections_exact": 0, "move_stall_episode_resets_exact": 0,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_navigation_forced_replans_exact": 0,
+                 "move_stall_targetless_move_to_timeouts_exact": 0,
+                 "move_stall_eligible_seconds": 1.0,
+                 "failed_navigation_avoidance_activations_exact": 0,
+                 "failed_navigation_safeguard_suppressions_exact": 1,
+                 "failed_navigation_route_penalty_applications_exact": 0},
+                {"pain_ledge_vetoes_exact": 3, "pain_ledge_repeat_vetoes_exact": 1,
+                 "pain_ledge_recovery_attempts_exact": 2, "pain_ledge_recovery_escapes_exact": 1,
+                 "wall_adjust_calls_exact": 7, "wall_adjust_repeats_exact": 5,
+                 "wall_adjust_recovery_attempts_exact": 2,
+                 "wall_adjust_recovery_successes_exact": 1,
+                 "wall_adjust_forced_replans_exact": 1,
+                 "move_stall_detections_exact": 1, "move_stall_episode_resets_exact": 1,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_navigation_forced_replans_exact": 0,
+                 "move_stall_targetless_move_to_timeouts_exact": 0,
+                 "move_stall_eligible_seconds": 2.5,
+                 "failed_navigation_avoidance_activations_exact": 1,
+                 "failed_navigation_safeguard_suppressions_exact": 1,
+                 "failed_navigation_route_penalty_applications_exact": 3},
+                {"pain_ledge_vetoes_exact": 4, "pain_ledge_repeat_vetoes_exact": 1,
+                 "pain_ledge_recovery_attempts_exact": 3, "pain_ledge_recovery_escapes_exact": 2,
+                 "wall_adjust_calls_exact": 9, "wall_adjust_repeats_exact": 6,
+                 "wall_adjust_recovery_attempts_exact": 3,
+                 "wall_adjust_recovery_successes_exact": 2,
+                 "wall_adjust_forced_replans_exact": 1,
+                 "move_stall_detections_exact": 2, "move_stall_episode_resets_exact": 1,
+                 "move_stall_forced_replans_exact": 1,
+                 "move_stall_navigation_forced_replans_exact": 1,
+                 "move_stall_targetless_move_to_timeouts_exact": 0,
+                 "move_stall_eligible_seconds": 4.25,
+                 "failed_navigation_avoidance_activations_exact": 1,
+                 "failed_navigation_safeguard_suppressions_exact": 2,
+                 "failed_navigation_route_penalty_applications_exact": 5},
+            ]
+            upgrade_telemetry_v2(
+                run, counters=[{**common, **sample} for sample in optional_samples])
+            analyzed = QUALITY.analyze([run])
+            metrics = analyzed["runs"][0]["metrics"]
+            self.assertEqual(metrics["pain_ledge_vetoes_exact"], 4)
+            self.assertEqual(metrics["pain_ledge_recovery_escapes_exact"], 2)
+            self.assertEqual(metrics["wall_adjust_calls_exact"], 9)
+            self.assertEqual(metrics["wall_adjust_recovery_attempts_exact"], 3)
+            self.assertEqual(metrics["wall_adjust_recovery_successes_exact"], 2)
+            self.assertEqual(metrics["wall_adjust_forced_replans_exact"], 1)
+            self.assertEqual(metrics["move_stall_detections_exact"], 2)
+            self.assertEqual(metrics["move_stall_episode_resets_exact"], 1)
+            self.assertEqual(metrics["move_stall_forced_replans_exact"], 1)
+            self.assertEqual(metrics["move_stall_navigation_forced_replans_exact"], 1)
+            self.assertEqual(metrics["move_stall_targetless_move_to_timeouts_exact"], 0)
+            self.assertEqual(metrics["move_stall_eligible_seconds"], 4.25)
+            self.assertEqual(metrics["failed_navigation_avoidance_activations_exact"], 1)
+            self.assertEqual(metrics["failed_navigation_safeguard_suppressions_exact"], 2)
+            self.assertEqual(metrics["failed_navigation_route_penalty_applications_exact"], 5)
+            validation = analyzed["runs"][0]["validation"]
+            self.assertIn("physics_mode", validation["optional_telemetry_fields"])
+            self.assertIn("wall_adjust_recovery_successes_exact",
+                          validation["optional_telemetry_fields"])
+            self.assertIn("move_stall_eligible_seconds",
+                          validation["optional_telemetry_fields"])
+            self.assertIn("move_stall_navigation_forced_replans_exact",
+                          validation["optional_telemetry_fields"])
+            self.assertIn("failed_navigation_avoidance_activations_exact",
+                          validation["optional_telemetry_fields"])
+            self.assertIs(
+                analyzed["metric_availability"]["optional_counter_metrics_present"]
+                ["wall_adjust_recovery_successes_exact"], True)
+            self.assertIs(
+                analyzed["metric_availability"]["optional_counter_metrics_present"]
+                ["move_stall_eligible_seconds"], True)
+            self.assertIs(
+                analyzed["metric_availability"]["optional_counter_metrics_present"]
+                ["failed_navigation_route_penalty_applications_exact"], True)
+            aggregate = analyzed["variant_aggregates"][0]["metrics"]
+            self.assertEqual(aggregate["wall_adjust_recovery_successes_exact"]["mean"], 2.0)
+            self.assertEqual(aggregate["move_stall_detections_exact"]["mean"], 2.0)
+            self.assertEqual(
+                aggregate["move_stall_navigation_forced_replans_exact"]["mean"], 1.0)
+            self.assertEqual(aggregate["move_stall_eligible_seconds"]["mean"], 4.25)
+            self.assertEqual(
+                aggregate["failed_navigation_route_penalty_applications_exact"]["mean"], 5.0)
+
+    def test_optional_counter_regression_and_malformed_diagnostics_are_rejected(self) -> None:
+        base = {
+            "score": 0, "pri_deaths": 0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            "pain_ledge_vetoes_exact": 0, "pain_ledge_repeat_vetoes_exact": 0,
+            "pain_ledge_recovery_attempts_exact": 0, "pain_ledge_recovery_escapes_exact": 0,
+            "wall_adjust_calls_exact": 2, "wall_adjust_repeats_exact": 1,
+            "wall_adjust_recovery_attempts_exact": 1,
+            "wall_adjust_recovery_successes_exact": 0,
+            "wall_adjust_forced_replans_exact": 0,
+            "physics_mode": "Walking", "latent_action": "MoveTo",
+            "acceleration": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "destination": {"x": 1.0, "y": 2.0, "z": 3.0}, "move_timer": 1.0,
+            "move_target_identity": "", "move_target_name": "",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            regressing = write_run(root, "regressing", [0.0, 1.0])
+            upgrade_telemetry_v2(
+                regressing, counters=[base, {**base, "wall_adjust_calls_exact": 1}])
+            with self.assertRaisesRegex(QUALITY.QualityError, "wall_adjust_calls_exact regressed"):
+                QUALITY.analyze_run(regressing)
+
+            malformed = write_run(root, "malformed", [0.0, 1.0])
+            upgrade_telemetry_v2(malformed, counters=[base, base])
+            path = malformed / "events.jsonl"
+            events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            events[1]["bots"][0]["move_timer"] = "nan"
+            path.write_text(
+                "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "move_timer must be a finite number"):
+                QUALITY.analyze_run(malformed)
+
+            stall_base = {
+                **base, "move_stall_detections_exact": 1,
+                "move_stall_episode_resets_exact": 1,
+                "move_stall_eligible_seconds": 2.0,
+            }
+            stall_regressing = write_run(root, "stall-regressing", [0.0, 1.0])
+            upgrade_telemetry_v2(stall_regressing, counters=[
+                stall_base, {**stall_base, "move_stall_detections_exact": 0}])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "move_stall_detections_exact regressed"):
+                QUALITY.analyze_run(stall_regressing)
+
+            stall_seconds_regressing = write_run(
+                root, "stall-seconds-regressing", [0.0, 1.0])
+            upgrade_telemetry_v2(stall_seconds_regressing, counters=[
+                stall_base, {**stall_base, "move_stall_eligible_seconds": 1.5}])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "move_stall_eligible_seconds regressed"):
+                QUALITY.analyze_run(stall_seconds_regressing)
+
+            stall_nonfinite = write_run(root, "stall-nonfinite", [0.0, 1.0])
+            upgrade_telemetry_v2(stall_nonfinite, counters=[stall_base, stall_base])
+            path = stall_nonfinite / "events.jsonl"
+            events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            events[1]["bots"][0]["move_stall_eligible_seconds"] = "nan"
+            path.write_text(
+                "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError,
+                    "move_stall_eligible_seconds must be a finite number"):
+                QUALITY.analyze_run(stall_nonfinite)
+
+            stall_incomplete = write_run(root, "stall-incomplete", [0.0, 1.0])
+            upgrade_telemetry_v2(stall_incomplete, counters=[
+                {**base, "move_stall_detections_exact": 0},
+                {**base, "move_stall_detections_exact": 0},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "move stall counters"):
+                QUALITY.analyze_run(stall_incomplete)
+
+            failed_navigation_base = {
+                **base, "failed_navigation_avoidance_activations_exact": 1,
+                "failed_navigation_safeguard_suppressions_exact": 1,
+                "failed_navigation_route_penalty_applications_exact": 2,
+            }
+            failed_navigation_regressing = write_run(
+                root, "failed-navigation-regressing", [0.0, 1.0])
+            upgrade_telemetry_v2(failed_navigation_regressing, counters=[
+                failed_navigation_base,
+                {**failed_navigation_base,
+                 "failed_navigation_route_penalty_applications_exact": 1},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError,
+                    "failed_navigation_route_penalty_applications_exact regressed"):
+                QUALITY.analyze_run(failed_navigation_regressing)
+
+            failed_navigation_incomplete = write_run(
+                root, "failed-navigation-incomplete", [0.0, 1.0])
+            upgrade_telemetry_v2(failed_navigation_incomplete, counters=[
+                {**base, "failed_navigation_avoidance_activations_exact": 0},
+                {**base, "failed_navigation_avoidance_activations_exact": 0},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "failed navigation counters"):
+                QUALITY.analyze_run(failed_navigation_incomplete)
+
+            current_stall = write_run(root, "current-stall", [0.0, 1.0])
+            upgrade_telemetry_v2(current_stall, counters=[
+                {**base, "move_stall_detections_exact": 0,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_eligible_seconds": 0.0},
+                {**base, "move_stall_detections_exact": 1,
+                 "move_stall_forced_replans_exact": 1,
+                 "move_stall_eligible_seconds": 2.0},
+            ])
+            current_metrics = QUALITY.analyze_run(current_stall)["metrics"]
+            self.assertEqual(current_metrics["move_stall_detections_exact"], 1)
+            self.assertEqual(current_metrics["move_stall_forced_replans_exact"], 1)
+            self.assertIsNone(current_metrics["move_stall_episode_resets_exact"])
+
+            excessive_replans = write_run(root, "excessive-replans", [0.0, 1.0])
+            upgrade_telemetry_v2(excessive_replans, counters=[
+                {**base, "move_stall_detections_exact": 0,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_eligible_seconds": 0.0},
+                {**base, "move_stall_detections_exact": 0,
+                 "move_stall_forced_replans_exact": 1,
+                 "move_stall_eligible_seconds": 2.0},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "move stall forced replans exceed detections"):
+                QUALITY.analyze_run(excessive_replans)
+
+            misattributed_replans = write_run(
+                root, "misattributed-replans", [0.0, 1.0])
+            attributed_stall = {
+                **base, "move_stall_detections_exact": 1,
+                "move_stall_episode_resets_exact": 0,
+                "move_stall_forced_replans_exact": 1,
+                "move_stall_navigation_forced_replans_exact": 0,
+                "move_stall_targetless_move_to_timeouts_exact": 0,
+                "move_stall_eligible_seconds": 2.0,
+            }
+            upgrade_telemetry_v2(
+                misattributed_replans, counters=[attributed_stall, attributed_stall])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError,
+                    "attributed move stall recoveries do not equal forced replans"):
+                QUALITY.analyze_run(misattributed_replans)
+
     def test_v2_exact_outcomes_and_intent_proxies_are_computed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             run = write_run(Path(temporary), "run", [0.0, 0.0, 0.0, 1.0])

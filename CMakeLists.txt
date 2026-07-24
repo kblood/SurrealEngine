@@ -74,6 +74,12 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/GameSupport.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.h
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttribution.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttribution.h
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionCoordinator.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionCoordinator.h
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionHookContract.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionHookContract.h
 	SurrealEngine/BotBenchmark/BotControlledMatch.cpp
 	SurrealEngine/BotBenchmark/BotControlledMatch.h
 	SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.cpp
@@ -100,6 +106,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/BotAI/BotPolicyShadow.h
 	SurrealEngine/BotAI/BotPolicyShadowTelemetry.cpp
 	SurrealEngine/BotAI/BotPolicyShadowTelemetry.h
+	SurrealEngine/BotAI/BotMovementSafety.cpp
+	SurrealEngine/BotAI/BotMovementSafety.h
 	SurrealEngine/BotAI/UtilityBotPolicy.cpp
 	SurrealEngine/BotAI/UtilityBotPolicy.h
 	SurrealEngine/BotAI/TacticalBotPolicy.cpp
@@ -513,6 +521,28 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/UMusic.cpp
 	SurrealEngine/UObject/UClient.cpp
 	SurrealEngine/UObject/UActor.cpp
+	SurrealEngine/UObject/PawnFailedNavigationMemory.cpp
+	SurrealEngine/UObject/PawnFailedNavigationMemory.h
+	SurrealEngine/UObject/PawnInventoryReachability.cpp
+	SurrealEngine/UObject/PawnInventoryReachability.h
+	SurrealEngine/UObject/PawnLedgeTransition.cpp
+	SurrealEngine/UObject/PawnLedgeTransition.h
+	SurrealEngine/UObject/PawnPainZoneFallPrediction.cpp
+	SurrealEngine/UObject/PawnPainZoneFallPrediction.h
+	SurrealEngine/UObject/PawnPainLedgeRecovery.cpp
+	SurrealEngine/UObject/PawnPainLedgeRecovery.h
+	SurrealEngine/UObject/PawnMoveStallWatchdog.cpp
+	SurrealEngine/UObject/PawnMoveStallWatchdog.h
+	SurrealEngine/UObject/PawnMovementArrival.cpp
+	SurrealEngine/UObject/PawnMovementArrival.h
+	SurrealEngine/UObject/PawnMoveToward.cpp
+	SurrealEngine/UObject/PawnMoveToward.h
+	SurrealEngine/UObject/PawnPathCost.cpp
+	SurrealEngine/UObject/PawnPathCost.h
+	SurrealEngine/UObject/PawnWallAdjustment.cpp
+	SurrealEngine/UObject/PawnWallAdjustment.h
+	SurrealEngine/UObject/PawnWallAdjustRecovery.cpp
+	SurrealEngine/UObject/PawnWallAdjustRecovery.h
 	SurrealEngine/UObject/ActorMovement.h
 	SurrealEngine/UObject/ULevel.h
 	SurrealEngine/UObject/UClass.cpp
@@ -1114,6 +1144,31 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	set_target_properties(BotBenchmarkTelemetryTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkTelemetry COMMAND BotBenchmarkTelemetryTests)
 
+	add_executable(BotBenchmarkDeathAttributionTests
+		Tests/BotBenchmarkDeathAttributionTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkDeathAttribution.cpp
+	)
+	target_include_directories(BotBenchmarkDeathAttributionTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkDeathAttributionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkDeathAttribution COMMAND BotBenchmarkDeathAttributionTests)
+
+	add_executable(BotBenchmarkDeathAttributionCoordinatorTests
+		Tests/BotBenchmarkDeathAttributionCoordinatorTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkDeathAttribution.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionCoordinator.cpp
+	)
+	target_include_directories(BotBenchmarkDeathAttributionCoordinatorTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkDeathAttributionCoordinatorTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkDeathAttributionCoordinator COMMAND BotBenchmarkDeathAttributionCoordinatorTests)
+
+	add_executable(BotBenchmarkDeathAttributionHookContractTests
+		Tests/BotBenchmarkDeathAttributionHookContractTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionHookContract.cpp
+	)
+	target_include_directories(BotBenchmarkDeathAttributionHookContractTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkDeathAttributionHookContractTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkDeathAttributionHookContract COMMAND BotBenchmarkDeathAttributionHookContractTests)
+
 	add_executable(BotBenchmarkGameProfileTests
 		Tests/BotBenchmarkGameProfileTests.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.cpp
@@ -1200,6 +1255,126 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(BotPolicyObservationBuilderTests PRIVATE SurrealEngine)
 	set_target_properties(BotPolicyObservationBuilderTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotPolicyObservationBuilder COMMAND BotPolicyObservationBuilderTests)
+
+	add_executable(BotMovementSafetyTests
+		Tests/BotMovementSafetyTests.cpp
+		SurrealEngine/BotAI/BotMovementSafety.cpp
+	)
+	target_include_directories(BotMovementSafetyTests PRIVATE SurrealEngine)
+	set_target_properties(BotMovementSafetyTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotMovementSafety COMMAND BotMovementSafetyTests)
+
+	add_executable(CollisionActorOrderTests Tests/CollisionActorOrderTests.cpp)
+	target_include_directories(CollisionActorOrderTests PRIVATE SurrealEngine)
+	set_target_properties(CollisionActorOrderTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME CollisionActorOrder COMMAND CollisionActorOrderTests)
+
+	add_executable(PawnMovementArrivalTests
+		Tests/PawnMovementArrivalTests.cpp
+		SurrealEngine/UObject/PawnMovementArrival.cpp
+	)
+	target_include_directories(PawnMovementArrivalTests PRIVATE SurrealEngine)
+	set_target_properties(PawnMovementArrivalTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnMovementArrival COMMAND PawnMovementArrivalTests)
+
+	add_executable(PawnFailedNavigationMemoryTests
+		Tests/PawnFailedNavigationMemoryTests.cpp
+		SurrealEngine/UObject/PawnFailedNavigationMemory.cpp
+	)
+	target_include_directories(PawnFailedNavigationMemoryTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFailedNavigationMemoryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFailedNavigationMemory COMMAND PawnFailedNavigationMemoryTests)
+
+	add_executable(PawnInventoryReachabilityTests
+		Tests/PawnInventoryReachabilityTests.cpp
+		SurrealEngine/UObject/PawnInventoryReachability.cpp
+	)
+	target_include_directories(PawnInventoryReachabilityTests PRIVATE SurrealEngine)
+	set_target_properties(PawnInventoryReachabilityTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnInventoryReachability COMMAND PawnInventoryReachabilityTests)
+
+	add_executable(PawnLedgeTransitionTests
+		Tests/PawnLedgeTransitionTests.cpp
+		SurrealEngine/UObject/PawnLedgeTransition.cpp
+	)
+	target_include_directories(PawnLedgeTransitionTests PRIVATE SurrealEngine)
+	set_target_properties(PawnLedgeTransitionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnLedgeTransition COMMAND PawnLedgeTransitionTests)
+
+	add_executable(PawnPainZoneFallPredictionTests
+		Tests/PawnPainZoneFallPredictionTests.cpp
+		SurrealEngine/UObject/PawnPainZoneFallPrediction.cpp
+	)
+	target_include_directories(PawnPainZoneFallPredictionTests PRIVATE SurrealEngine)
+	set_target_properties(PawnPainZoneFallPredictionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnPainZoneFallPrediction COMMAND PawnPainZoneFallPredictionTests)
+
+	add_executable(PawnFallingTwoPlaneContactTests
+		Tests/PawnFallingTwoPlaneContactTests.cpp
+		SurrealEngine/UObject/PawnFallingTwoPlaneContact.cpp
+	)
+	target_include_directories(PawnFallingTwoPlaneContactTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingTwoPlaneContactTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingTwoPlaneContact COMMAND PawnFallingTwoPlaneContactTests)
+
+	add_executable(PawnFallingTwoPlaneSafetyTests
+		Tests/PawnFallingTwoPlaneSafetyTests.cpp
+		SurrealEngine/UObject/PawnFallingTwoPlaneSafety.cpp
+		SurrealEngine/UObject/PawnFallingTwoPlaneContact.cpp
+		SurrealEngine/UObject/PawnPainZoneFallPrediction.cpp
+	)
+	target_include_directories(PawnFallingTwoPlaneSafetyTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingTwoPlaneSafetyTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingTwoPlaneSafety COMMAND PawnFallingTwoPlaneSafetyTests)
+
+	add_executable(PawnPainLedgeRecoveryTests
+		Tests/PawnPainLedgeRecoveryTests.cpp
+		SurrealEngine/UObject/PawnPainLedgeRecovery.cpp
+	)
+	target_include_directories(PawnPainLedgeRecoveryTests PRIVATE SurrealEngine)
+	set_target_properties(PawnPainLedgeRecoveryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnPainLedgeRecovery COMMAND PawnPainLedgeRecoveryTests)
+
+	add_executable(PawnMoveStallWatchdogTests
+		Tests/PawnMoveStallWatchdogTests.cpp
+		SurrealEngine/UObject/PawnMoveStallWatchdog.cpp
+	)
+	target_include_directories(PawnMoveStallWatchdogTests PRIVATE SurrealEngine)
+	set_target_properties(PawnMoveStallWatchdogTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnMoveStallWatchdog COMMAND PawnMoveStallWatchdogTests)
+
+	add_executable(PawnMoveTowardTests
+		Tests/PawnMoveTowardTests.cpp
+		SurrealEngine/UObject/PawnMoveToward.cpp
+	)
+	target_include_directories(PawnMoveTowardTests PRIVATE SurrealEngine)
+	set_target_properties(PawnMoveTowardTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnMoveToward COMMAND PawnMoveTowardTests)
+
+	add_executable(PawnPathCostTests
+		Tests/PawnPathCostTests.cpp
+		SurrealEngine/UObject/PawnPathCost.cpp
+	)
+	target_include_directories(PawnPathCostTests PRIVATE SurrealEngine)
+	set_target_properties(PawnPathCostTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnPathCost COMMAND PawnPathCostTests)
+
+	add_executable(PawnWallAdjustmentTests
+		Tests/PawnWallAdjustmentTests.cpp
+		SurrealEngine/UObject/PawnWallAdjustment.cpp
+		SurrealEngine/UObject/PawnPainZoneFallPrediction.cpp
+	)
+	target_include_directories(PawnWallAdjustmentTests PRIVATE SurrealEngine)
+	set_target_properties(PawnWallAdjustmentTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnWallAdjustment COMMAND PawnWallAdjustmentTests)
+
+	add_executable(PawnWallAdjustRecoveryTests
+		Tests/PawnWallAdjustRecoveryTests.cpp
+		SurrealEngine/UObject/PawnWallAdjustRecovery.cpp
+	)
+	target_include_directories(PawnWallAdjustRecoveryTests PRIVATE SurrealEngine)
+	set_target_properties(PawnWallAdjustRecoveryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnWallAdjustRecovery COMMAND PawnWallAdjustRecoveryTests)
 
 	add_executable(XRInputAdapterTests
 		Tests/XRInputAdapterTests.cpp
