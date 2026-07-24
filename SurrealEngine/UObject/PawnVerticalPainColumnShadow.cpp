@@ -62,11 +62,10 @@ namespace PawnMovement
 	{
 		if (!IsFinite(input.DropDistance) || !IsFinite(input.MaximumDropDistance)
 			|| !IsFinite(input.MaximumSampleSpacing) || !IsFinite(input.SupportNormalZ)
-			|| !IsFinite(input.WalkableNormalZ) || input.DropDistance <= 0.0f
+			|| input.DropDistance <= 0.0f
 			|| input.MaximumDropDistance <= 0.0f
 			|| input.DropDistance > input.MaximumDropDistance
 			|| input.MaximumSampleSpacing <= 0.0f
-			|| input.WalkableNormalZ < 0.0f || input.WalkableNormalZ > 1.0f
 			|| input.MaximumSamples == 0
 			|| input.MaximumSamples > VerticalPainColumnMaximumSamples
 			|| input.SampleCount > VerticalPainColumnMaximumSamples)
@@ -87,7 +86,7 @@ namespace PawnMovement
 				VerticalPainColumnReason::SupportCollisionUnknown,
 				VerticalPainColumnReason::NonStaticSupport));
 		}
-		if (input.SupportNormalZ < input.WalkableNormalZ)
+		if (input.SupportNormalZ <= FallingParityWalkableNormalZ)
 			return Unknown(VerticalPainColumnReason::NonWalkableSupport);
 		if (input.UnmodeledCallbackRequired)
 			return Unknown(VerticalPainColumnReason::UnmodeledCallbackRequired);
@@ -134,6 +133,9 @@ namespace PawnMovement
 					+ (sample.Head.PainZone ? 0.2f : 0.0f);
 				return result;
 			}
+			if (sample.Center.WaterZone || sample.Foot.WaterZone
+				|| sample.Head.WaterZone)
+				return Unknown(VerticalPainColumnReason::WaterPhysicsUnknown);
 		}
 
 		VerticalPainColumnResult result;

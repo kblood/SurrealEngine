@@ -1039,6 +1039,40 @@ This fixes a release-measurement blocker and remains behavior-neutral. It does
 not improve the candidate's kills, pain entries, or Morpheus wall cycles, so the
 bot-release judgment remains unchanged.
 
+## Iteration 53: falling-hazard causal audit and observer scope
+
+An exact repeat audit of iteration-51 candidate-3 traces shows that a fixed
+vertical pain column cannot be the sole hazard classifier. Deck seed 104729 has
+an ordinary support-loss fall whose forecast becomes unknown at a callback and
+then reaches pain after a short post-wall leg. Deck seed 314159 contains both a
+combat-momentum fall that never arms the walking observer and a later ordinary
+support-loss suicide redirected by repeated wall callbacks. Seed 271828 enters
+pain after a walking `HitWall` adjustment launches the pawn upward. Unreal
+DeathFan reaches pain after a long redirected fall, including 823 units of
+horizontal travel after its last callback. These are distinct causal classes,
+not one vertical-drop failure.
+
+The next behavior-neutral observer therefore arms on every committed stock-bot
+falling episode, records a typed transition source, and creates a new forecast
+generation after a script callback or external velocity/physics discontinuity.
+Each generation samples the predicted swept path at bounded spacing and
+correlates it with the same pawn life's actual segments until callback, pain
+entry, landing, death, or continuity loss. Static walkable support uses the
+retail strict `normal.z > 0.7` rule. Movers, dynamic actors, unknown zones,
+unreturned callbacks, water/physics-zone transitions that have not been
+integrated, and exhausted horizons remain explicit unknowns. A bounded
+`NoHarmfulPainObserved` result is evidence only for that generation, never a
+claim that the whole route is safe.
+
+Four same-life safe landings are frozen as negative controls, including a
+568-unit Deck fall with a late `HitWall` that still lands without pain. This
+rules out blanket callback, high-drop, and falling vetoes. The current telemetry
+also cannot distinguish an actual `MayFall` dispatch from a support-loss path
+where no authorization was produced; iteration 53 must add a transition-source
+mask and pre/post-callback state rather than infer that source after the fact.
+Live control remains disabled until the shadow demonstrates useful recall on
+the audited positives, preserves all safe negatives, and repeats exactly.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

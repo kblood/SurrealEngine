@@ -1,11 +1,20 @@
 #pragma once
 
+#include "PawnFallingParityForecast.h"
+
 #include <array>
 #include <cstddef>
 
 namespace PawnMovement
 {
-	constexpr size_t VerticalPainColumnMaximumSamples = 64;
+	constexpr float VerticalPainColumnMaximumDropDistance = 4096.0f;
+	constexpr float VerticalPainColumnMaximumSampleSpacing = 25.0f;
+	constexpr size_t VerticalPainColumnMaximumSamples = static_cast<size_t>(
+		VerticalPainColumnMaximumDropDistance
+		/ VerticalPainColumnMaximumSampleSpacing) + 1;
+	static_assert(VerticalPainColumnMaximumSamples
+		* VerticalPainColumnMaximumSampleSpacing
+		>= VerticalPainColumnMaximumDropDistance);
 
 	enum class VerticalPainColumnCollisionKind
 	{
@@ -46,13 +55,12 @@ namespace PawnMovement
 		float SupportNormalZ = 0.0f;
 		bool UnmodeledCallbackRequired = false;
 		float DropDistance = 0.0f;
-		float MaximumDropDistance = 4096.0f;
-		float MaximumSampleSpacing = 25.0f;
+		float MaximumDropDistance = VerticalPainColumnMaximumDropDistance;
+		float MaximumSampleSpacing = VerticalPainColumnMaximumSampleSpacing;
 		size_t MaximumSamples = VerticalPainColumnMaximumSamples;
 		bool SampleCapExhausted = false;
 		std::array<VerticalPainColumnSample, VerticalPainColumnMaximumSamples> Samples;
 		size_t SampleCount = 0;
-		float WalkableNormalZ = 0.7071f;
 	};
 
 	enum class VerticalPainColumnClassification
@@ -78,6 +86,7 @@ namespace PawnMovement
 		SampleCapExceeded,
 		IncompleteSampleCoverage,
 		UnknownZoneSample,
+		WaterPhysicsUnknown,
 		NoHarmfulPainObserved,
 		HarmfulFootPainObserved
 	};

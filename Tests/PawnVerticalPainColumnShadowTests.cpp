@@ -95,14 +95,14 @@ namespace
 	{
 		using namespace PawnMovement;
 		auto input = StaticColumn();
-		input.Samples[1].Center = PainZone(true);
-		input.Samples[1].Head = PainZone(true);
+		input.Samples[1].Center = PainZone(true, false);
+		input.Samples[1].Head = PainZone(true, false);
 		const auto result = ClassifyVerticalPainColumn(input);
 		Check(result.Classification ==
 			VerticalPainColumnClassification::NoHarmfulPainObserved,
 			"center or head pain alone is not reported as retail Pawn pain damage");
 
-		input.Samples[1].Foot = PainZone(false);
+		input.Samples[1].Foot = PainZone(false, false);
 		Check(ClassifyVerticalPainColumn(input).Classification ==
 			VerticalPainColumnClassification::NoHarmfulPainObserved,
 			"immune or non-damaging foot pain is not labeled harmful");
@@ -162,6 +162,16 @@ namespace
 			VerticalPainColumnReason::NonWalkableSupport,
 			"steep static BSP is not treated as a known landing");
 		input = StaticColumn();
+		input.SupportNormalZ = FallingParityWalkableNormalZ;
+		Check(ClassifyVerticalPainColumn(input).Reason ==
+			VerticalPainColumnReason::NonWalkableSupport,
+			"retail falling does not land at exactly normal.z 0.7");
+		input.SupportNormalZ = std::nextafter(
+			FallingParityWalkableNormalZ, 1.0f);
+		Check(ClassifyVerticalPainColumn(input).Classification ==
+			VerticalPainColumnClassification::NoHarmfulPainObserved,
+			"the first representable normal above 0.7 is walkable in retail falling");
+		input = StaticColumn();
 		input.VerticalCollision = VerticalPainColumnCollisionKind::Clear;
 		Check(ClassifyVerticalPainColumn(input).Reason ==
 			VerticalPainColumnReason::VerticalHorizonExhausted,
@@ -171,6 +181,40 @@ namespace
 		Check(ClassifyVerticalPainColumn(input).Reason ==
 			VerticalPainColumnReason::UnmodeledCallbackRequired,
 			"unmodeled script callbacks remain unknown");
+	}
+
+	void TestDefaultHorizonHasCompleteBoundedCapacity()
+	{
+		using namespace PawnMovement;
+		auto input = StaticColumn(VerticalPainColumnMaximumDropDistance);
+		Check(input.SampleCount == VerticalPainColumnMaximumSamples,
+			"the default 4096-unit horizon fits the bounded sample array");
+		Check(ClassifyVerticalPainColumn(input).Classification ==
+			VerticalPainColumnClassification::NoHarmfulPainObserved,
+			"the full default horizon can be classified with complete evidence");
+	}
+
+	void TestWaterPhysicsFailsClosedBeforeLaterPain()
+	{
+		using namespace PawnMovement;
+		auto input = StaticColumn(75.0f);
+		input.Samples[0].Foot = SafeZone(true);
+		input.Samples[1].Foot = PainZone(true);
+		Check(ClassifyVerticalPainColumn(input).Reason ==
+			VerticalPainColumnReason::WaterPhysicsUnknown,
+			"water physics before a later pain sample makes the trajectory unknown");
+
+		input = StaticColumn();
+		input.Samples[0].Center = SafeZone(true);
+		Check(ClassifyVerticalPainColumn(input).Reason ==
+			VerticalPainColumnReason::WaterPhysicsUnknown,
+			"center, foot, or head water evidence fails closed");
+
+		input = StaticColumn();
+		input.Samples[0].Foot = PainZone(true);
+		Check(ClassifyVerticalPainColumn(input).Reason ==
+			VerticalPainColumnReason::HarmfulFootPainObserved,
+			"direct harmful foot evidence is retained at the first water sample");
 	}
 
 	void TestOutcomeCorrelationRetainsLandingProgressAndDeath()
@@ -329,6 +373,8 @@ int main()
 	TestFootGatesPainDamage();
 	TestUnknownAndIncompleteSamplesFailClosed();
 	TestOnlyWalkableStaticWorldSupportIsClassified();
+	TestDefaultHorizonHasCompleteBoundedCapacity();
+	TestWaterPhysicsFailsClosedBeforeLaterPain();
 	TestOutcomeCorrelationRetainsLandingProgressAndDeath();
 	TestCorrelationReportsForecastOnlyActualOnlyAndNoHazard();
 	TestUnstableActualTrajectoriesRemainUnknown();
