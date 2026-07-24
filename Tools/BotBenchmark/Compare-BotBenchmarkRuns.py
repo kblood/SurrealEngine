@@ -39,6 +39,7 @@ SUPPORTED_SHADOW_ARTIFACTS = {"shadow-manifest.json", "shadow-decisions.jsonl"}
 PROTECTED_FIELDS = {
     "schema", "driver", "config_id", "benchmark_config_id", "url", "seed",
     "max_ticks", "fixed_delta", "difficulty", "bot_count", "telemetry_event_cap",
+    "harmful_zone_escape_enabled",
     "requested_roster", "actual_roster", "config", "index", "roster_index",
     "identity", "actor", "player_name", "class", "seq", "tick",
     "simulated_seconds", "type", "map", "status", "failure_reason", "exit_code",
@@ -221,6 +222,11 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
             manifest.get("requested_roster"), f"{run}/manifest.json.requested_roster", "roster_index")
         if len(requested) != bot_count:
             raise ComparisonError(f"{run}/manifest.json: bot_count differs from requested_roster length")
+        if "harmful_zone_escape_enabled" in manifest:
+            if not isinstance(manifest["harmful_zone_escape_enabled"], bool):
+                raise ComparisonError(
+                    f"{run}/manifest.json.harmful_zone_escape_enabled: expected a boolean")
+            config_fields += ("harmful_zone_escape_enabled",)
 
     if summary.get("status") != "complete" or _strict_int(
             summary.get("exit_code"), f"{run}/summary.json.exit_code") != 0:
@@ -242,6 +248,10 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
         summary_config.get("difficulty"), f"{run}/summary.json.config.difficulty", 0)
     if summary_difficulty > 7:
         raise ComparisonError(f"{run}/summary.json.config.difficulty: expected a value at most 7")
+    if "harmful_zone_escape_enabled" in config_fields and not isinstance(
+            summary_config.get("harmful_zone_escape_enabled"), bool):
+        raise ComparisonError(
+            f"{run}/summary.json.config.harmful_zone_escape_enabled: expected a boolean")
     for field in config_fields:
         if summary_config.get(field) != manifest.get(field):
             raise ComparisonError(f"{run}: summary.config.{field} differs from manifest.{field}")

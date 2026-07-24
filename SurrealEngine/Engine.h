@@ -114,6 +114,14 @@ public:
 	{
 		return botBenchmarkWalkingPreflightEnabled;
 	}
+	bool IsBotBenchmarkHarmfulZoneEscapeEnabled() const
+	{
+		return botBenchmarkHarmfulZoneEscapeEnabled;
+	}
+	void SetBotBenchmarkHarmfulZoneEscapeEnabled(bool enabled)
+	{
+		botBenchmarkHarmfulZoneEscapeEnabled = enabled;
+	}
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -284,6 +292,7 @@ private:
 	// place to consult `commandline` for anything a per-frame method needs.
 	bool avatarIkSyntheticRequested = false;
 	bool botBenchmarkWalkingPreflightEnabled = false;
+	bool botBenchmarkHarmfulZoneEscapeEnabled = false;
 	ViewFamily CreateDesktopViewFamily() const;
 
 	// Scratch properties used by PlayerCalcView during AdvanceGameFrame.

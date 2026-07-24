@@ -74,6 +74,17 @@ namespace
 		return "\"" + EscapeJson(value) + "\"";
 	}
 
+	bool ParseExactBoolean(const std::optional<std::string>& value, const char* name)
+	{
+		if (!value.has_value())
+			return false;
+		if (*value == "0")
+			return false;
+		if (*value == "1")
+			return true;
+		throw std::invalid_argument(std::string("invalid ") + name + ": expected 0 or 1");
+	}
+
 	std::string Fixed(double value, int precision)
 	{
 		if (!std::isfinite(value))
@@ -134,16 +145,18 @@ namespace
 }
 
 BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string outputDirectory,
-	uint64_t seed, uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster)
+	uint64_t seed, uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster,
+	bool harmfulZoneEscapeEnabled)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
-	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster))
+	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
+	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled)
 {
 }
 
 BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string outputDirectory,
 	std::string seed, std::string maxTicks, std::string fixedDelta, std::string difficulty,
 	std::optional<std::string> botCount, std::optional<std::string> perBotSkills,
-	std::optional<std::string> requestedNames)
+	std::optional<std::string> requestedNames, std::optional<std::string> harmfulZoneEscape)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -162,9 +175,11 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		throw std::invalid_argument("bot benchmark difficulty must be between 0 and 7");
 	BotBenchmarkRoster roster = BotBenchmarkRoster::Parse(
 		std::move(botCount), std::move(perBotSkills), std::move(requestedNames), parsedDifficulty);
+	const bool parsedHarmfulZoneEscape = ParseExactBoolean(
+		harmfulZoneEscape, "bot benchmark harmful-zone escape");
 
 	return BotBenchmarkRunConfig(std::move(url), std::move(outputDirectory), parsedSeed,
-		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster));
+		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster), parsedHarmfulZoneEscape);
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
@@ -206,7 +221,9 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< "    \"max_ticks\": \"" << config.GetMaxTicks() << "\",\n"
 		<< "    \"fixed_delta\": " << Fixed(config.GetFixedDelta(), 9) << ",\n"
 		<< "    \"difficulty\": " << config.GetDifficulty() << ",\n"
-		<< "    \"bot_count\": " << config.GetRoster().GetCount() << "\n"
+		<< "    \"bot_count\": " << config.GetRoster().GetCount() << ",\n"
+		<< "    \"harmful_zone_escape_enabled\": "
+		<< (config.IsHarmfulZoneEscapeEnabled() ? "true" : "false") << "\n"
 		<< "  }\n"
 		<< "}\n";
 	return out.str();

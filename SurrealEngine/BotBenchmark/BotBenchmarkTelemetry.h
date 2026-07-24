@@ -70,6 +70,13 @@ struct BotBenchmarkBotState
 	uint64_t FailedNavigationAvoidanceActivationsExact = 0;
 	uint64_t FailedNavigationSafeguardSuppressionsExact = 0;
 	uint64_t FailedNavigationRoutePenaltyApplicationsExact = 0;
+	uint64_t HarmfulZoneEscapeEpisodesExact = 0;
+	uint64_t HarmfulZoneEscapeCenterEntriesExact = 0;
+	uint64_t HarmfulZoneEscapeFootEntriesExact = 0;
+	uint64_t HarmfulZoneEscapeRecoveryAttemptsExact = 0;
+	uint64_t HarmfulZoneEscapeSuccessfulEscapesExact = 0;
+	uint64_t HarmfulZoneEscapeForcedReplansExact = 0;
+	uint64_t HarmfulZoneEscapeNoSafeCandidatesExact = 0;
 	uint64_t FallingSeamDetectionsExact = 0;
 	uint64_t HorizontalCornerCandidateProbesExact = 0;
 	uint64_t HorizontalCornerAuthorizedEscapesExact = 0;

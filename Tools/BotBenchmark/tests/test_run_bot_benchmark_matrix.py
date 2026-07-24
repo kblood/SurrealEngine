@@ -30,6 +30,7 @@ def write_manifest(
     bot_count: int | None = None,
     per_bot_skills: list[int] | None = None,
     requested_names: list[str] | None = None,
+    harmful_zone_escape_enabled: bool | None = None,
     release_provenance: bool = False,
 ) -> Path:
     game = root / "game"
@@ -72,6 +73,8 @@ def write_manifest(
         manifest["per_bot_skills"] = per_bot_skills
     if requested_names is not None:
         manifest["requested_names"] = requested_names
+    if harmful_zone_escape_enabled is not None:
+        manifest["harmful_zone_escape_enabled"] = harmful_zone_escape_enabled
     path = root / "matrix.json"
     path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
     return path
@@ -221,6 +224,7 @@ class MatrixRunnerTests(unittest.TestCase):
             default_command = MATRIX.command_for(
                 default_config, MATRIX.expand_cases(default_config)[0], root / "default")
             self.assertIn("--botbench-bots=1", default_command)
+            self.assertIn("--botbench-harmful-zone-escape=0", default_command)
             self.assertFalse(any(value.startswith("--botbench-skills=") for value in default_command))
             self.assertFalse(any(value.startswith("--botbench-names=") for value in default_command))
 
@@ -231,6 +235,30 @@ class MatrixRunnerTests(unittest.TestCase):
             self.assertIn("--botbench-bots=2", roster_command)
             self.assertIn("--botbench-skills=7,5", roster_command)
             self.assertIn("--botbench-names=Alpha,Bravo", roster_command)
+
+    def test_harmful_zone_escape_mode_is_strict_and_identity_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            default_config = MATRIX.load_matrix(write_manifest(root))
+            enabled_config = MATRIX.load_matrix(write_manifest(
+                root, harmful_zone_escape_enabled=True))
+            default_case = MATRIX.expand_cases(default_config)[0]
+            enabled_case = MATRIX.expand_cases(enabled_config)[0]
+            self.assertFalse(default_config.harmful_zone_escape_enabled)
+            self.assertTrue(enabled_config.harmful_zone_escape_enabled)
+            self.assertNotEqual(default_case.run_id, enabled_case.run_id)
+            self.assertNotEqual(default_case.pair_id, enabled_case.pair_id)
+            self.assertIn("--botbench-harmful-zone-escape=1", MATRIX.command_for(
+                enabled_config, enabled_case, root / "enabled"))
+
+            for value in (0, 1, "true", None):
+                with self.subTest(value=value):
+                    path = write_manifest(root)
+                    manifest = json.loads(path.read_text(encoding="utf-8"))
+                    manifest["harmful_zone_escape_enabled"] = value
+                    path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+                    with self.assertRaises(MATRIX.MatrixError):
+                        MATRIX.load_matrix(path)
 
     def test_roster_is_part_of_case_and_pair_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

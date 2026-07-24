@@ -18,6 +18,7 @@
 #include "PawnPathCost.h"
 #include "PawnWallAdjustment.h"
 #include "PawnWallAdjustRecovery.h"
+#include "BotAI/HarmfulZoneEscapeGate.h"
 #include "VM/ScriptCall.h"
 #include "VM/Frame.h"
 #include "Package/PackageManager.h"
@@ -39,6 +40,7 @@ namespace
 	constexpr float painLedgeRecoveryRadius = 96.0f;
 	constexpr float painLedgeDirectionAlignment = 0.5f;
 	constexpr float painLedgeRecoveryProbeDistance = 64.0f;
+	constexpr float harmfulZoneEscapeProbeDistance = 64.0f;
 	constexpr float wallAdjustRepeatWindow = 1.0f;
 	constexpr float wallAdjustRepeatRadius = 4.0f;
 	constexpr float wallAdjustMinimumSustainedTime = 0.25f;
@@ -98,6 +100,11 @@ namespace
 	bool IsHarmfulPainZone(UPawn* pawn, UZoneInfo* zone)
 	{
 		return zone && zone->bPainZone() && zone->DamageType() != pawn->ReducedDamageType();
+	}
+
+	bool IsExactHarmfulZone(UZoneInfo* zone)
+	{
+		return zone && zone->bPainZone() && zone->DamagePerSec() > 0;
 	}
 
 	bool IsAutonomousPlayerBot(UPawn* pawn)
@@ -774,6 +781,7 @@ void UActor::UpdateActorZone()
 	{
 		pawn->CommitPendingFallingHazardSweepAtCenterBoundary(
 			newregion, oldregion.Zone != nullptr);
+		pawn->ObserveHarmfulZoneEscapeBoundary(oldregion.Zone, newregion.Zone, false);
 	}
 
 	if (newregion.Zone && regionChanged)
@@ -4880,6 +4888,8 @@ void UPawn::UpdateActorZone()
 
 	// FootZoneChange reads FootRegion as the old region, so publish the new region afterward.
 	FootRegion() = newfootregion;
+	if (oldfootregion.Zone != newfootregion.Zone)
+		ObserveHarmfulZoneEscapeBoundary(oldfootregion.Zone, newfootregion.Zone, true);
 
 	PointRegion oldheadregion = HeadRegion();
 	PointRegion newheadregion = FindRegion({ 0.0f, 0.0f, EyeHeight() });
@@ -5131,6 +5141,139 @@ bool UPawn::TickRotateTo(const vec3& target)
 	return (std::abs(DesiredRotation().Yaw - (Rotation().Yaw & 0xffff)) < doneAngle) || (std::abs(DesiredRotation().Yaw - (Rotation().Yaw & 0xffff)) > 0xffff - doneAngle);
 }
 
+void UPawn::ObserveHarmfulZoneEscapeBoundary(UZoneInfo* oldZone, UZoneInfo* newZone,
+	bool footBoundary)
+{
+	const bool oldHarmful = IsExactHarmfulZone(oldZone);
+	const bool newHarmful = IsExactHarmfulZone(newZone);
+	if (!oldHarmful && newHarmful)
+	{
+		if (footBoundary)
+			HarmfulZoneEscapeFootEntryCountValue++;
+		else
+			HarmfulZoneEscapeCenterEntryCountValue++;
+	}
+
+	const bool wasHarmful = HarmfulZoneEscape.CenterHarmful
+		|| HarmfulZoneEscape.FootHarmful;
+	if (footBoundary)
+		HarmfulZoneEscape.FootHarmful = newHarmful;
+	else
+		HarmfulZoneEscape.CenterHarmful = newHarmful;
+	const bool isHarmful = HarmfulZoneEscape.CenterHarmful
+		|| HarmfulZoneEscape.FootHarmful;
+
+	if (!wasHarmful && isHarmful)
+	{
+		HarmfulZoneEscapeEpisodeId++;
+		const LatentRunState latentState = StateFrame
+			? StateFrame->LatentState : LatentRunState::Continue;
+		const bool liveMoveTowardTarget = latentState != LatentRunState::MoveToward
+			|| (MoveTarget() && !MoveTarget()->bDeleteMe());
+		vec2 incomingDirection = Velocity().xy();
+		if (!std::isfinite(incomingDirection.x) || !std::isfinite(incomingDirection.y)
+			|| dot(incomingDirection, incomingDirection) <= 0.0001f)
+			incomingDirection = Acceleration().xy();
+		const bool eligible = engine->IsBotBenchmarkHarmfulZoneEscapeEnabled()
+			&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
+			&& !bDeleteMe() && Health() > 0 && Physics() == PHYS_Walking
+			&& newZone && !newZone->bWaterZone() && StateFrame
+			&& IsMovementLatentState(latentState) && liveMoveTowardTarget
+			&& std::isfinite(incomingDirection.x) && std::isfinite(incomingDirection.y)
+			&& dot(incomingDirection, incomingDirection) > 0.0001f;
+		const BotAI::HarmfulZoneEscapeEligibility decision =
+			HarmfulZoneEscapeGate.Evaluate({ HarmfulZoneEscapeLifeId,
+				HarmfulZoneEscapeEpisodeId, newHarmful, newZone ? newZone->DamagePerSec() : 0.0 });
+		if (decision == BotAI::HarmfulZoneEscapeEligibility::Authorized && eligible)
+		{
+			HarmfulZoneEscape.Active = true;
+			HarmfulZoneEscape.RecoveryAttempted = false;
+			HarmfulZoneEscape.IncomingDirection = incomingDirection;
+			HarmfulZoneEscapeEpisodeCountValue++;
+		}
+	}
+	else if (wasHarmful && !isHarmful)
+	{
+		if (HarmfulZoneEscape.Active && HarmfulZoneEscape.RecoveryAttempted)
+		{
+			HarmfulZoneEscapeSuccessfulEscapeCountValue++;
+			Acceleration() = vec3(0.0f);
+			MoveTimer() = -1.0f;
+			MoveStallWatchdog = {};
+			HarmfulZoneEscapeForcedReplanCountValue++;
+		}
+		HarmfulZoneEscape.Active = false;
+		HarmfulZoneEscape.RecoveryAttempted = false;
+		HarmfulZoneEscapeGate.Reset();
+	}
+}
+
+bool UPawn::ApplyHarmfulZoneEscape()
+{
+	if (!HarmfulZoneEscape.Active)
+		return false;
+	if (!engine->IsBotBenchmarkHarmfulZoneEscapeEnabled()
+		|| !IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority
+		|| bDeleteMe() || Health() <= 0 || Physics() != PHYS_Walking)
+	{
+		HarmfulZoneEscape.Active = false;
+		return false;
+	}
+
+	if (!HarmfulZoneEscape.RecoveryAttempted)
+	{
+		HarmfulZoneEscape.RecoveryAttempted = true;
+		HarmfulZoneEscapeRecoveryAttemptCountValue++;
+	}
+
+	const auto directions = PawnMovement::PainLedgeRecoveryCandidateDirections(
+		HarmfulZoneEscape.IncomingDirection);
+	std::array<PawnMovement::PainLedgeRecoveryCandidateProbe, 3> probes;
+	const TraceFlags supportTraceFlags = {
+		.movers = false,
+		.world = true
+	};
+	const vec3 traceExtent(CollisionRadius(), CollisionRadius(), CollisionHeight());
+	const float supportDepth = std::max(MaxStepHeight() * stepDownDeltaFactor, 1.0f);
+	for (size_t index = 0; index < directions.size(); index++)
+	{
+		const vec3 candidateDelta(directions[index] * harmfulZoneEscapeProbeDistance, 0.0f);
+		PawnMovement::PainLedgeRecoveryCandidateProbe& probe = probes[index];
+		probe.SweepClear = TryMove(candidateDelta, true).Fraction == 1.0f;
+		if (!probe.SweepClear)
+			continue;
+
+		const vec3 candidate = Location() + candidateDelta;
+		const vec3 supportEnd = candidate - vec3(0.0f, 0.0f, supportDepth);
+		const CollisionHit support = XLevel()->Collision.TraceFirstHit(
+			candidate, supportEnd, this, traceExtent, supportTraceFlags);
+		probe.WalkableSupport = support.Fraction < 1.0f && support.Normal.z >= 0.7071f;
+		if (!probe.WalkableSupport)
+			continue;
+
+		const vec3 supportedCenter = candidate + (supportEnd - candidate) * support.Fraction;
+		UZoneInfo* footZone = XLevel()->Model->FindRegion(
+			supportedCenter - vec3(0.0f, 0.0f, CollisionHeight()), Level()).Zone;
+		probe.NonPainFootRegion = footZone && !footZone->bWaterZone()
+			&& !IsExactHarmfulZone(footZone);
+	}
+
+	const int selected = PawnMovement::SelectPainLedgeRecoveryCandidate(probes);
+	if (selected >= 0)
+	{
+		Acceleration() = vec3(directions[static_cast<size_t>(selected)] * AccelRate(), 0.0f);
+		return true;
+	}
+
+	HarmfulZoneEscape.Active = false;
+	Acceleration() = vec3(0.0f);
+	MoveTimer() = -1.0f;
+	MoveStallWatchdog = {};
+	HarmfulZoneEscapeForcedReplanCountValue++;
+	HarmfulZoneEscapeNoSafeCandidateCountValue++;
+	return true;
+}
+
 bool UPawn::TickMoveTo(const vec3& target, float elapsed, UActor* targetActor)
 {
 	if (MoveTimer() < 0.0f)
@@ -5141,6 +5284,8 @@ bool UPawn::TickMoveTo(const vec3& target, float elapsed, UActor* targetActor)
 
 	if (Physics() == PHYS_Walking)
 	{
+		if (ApplyHarmfulZoneEscape())
+			return MoveTimer() < 0.0f;
 		vec2 delta = target.xy() - Location().xy();
 		float distSqr = dot(delta, delta);
 		float velocitySqr = dot(Velocity().xy(), Velocity().xy());
@@ -6384,6 +6529,7 @@ std::vector<PawnMovement::FallingHazardDiagnosticRecord>
 
 void UPawn::EndWalkingStepPreflightLife()
 {
+	EndHarmfulZoneEscapeLife();
 	if (FallingHazardObserver)
 		FallingHazardObserver->EndLife();
 	FallingHazardPending = {};
@@ -6395,6 +6541,14 @@ void UPawn::EndWalkingStepPreflightLife()
 	WalkingStepPreflightEpisode = {};
 	FallingParityRealizedTrace = {};
 	WalkingStepPreflightLifeGeneration++;
+}
+
+void UPawn::EndHarmfulZoneEscapeLife()
+{
+	HarmfulZoneEscape = {};
+	HarmfulZoneEscapeGate.Reset();
+	HarmfulZoneEscapeLifeId++;
+	HarmfulZoneEscapeEpisodeId = 0;
 }
 
 std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>

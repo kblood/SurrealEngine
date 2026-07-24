@@ -40,6 +40,7 @@ namespace
 		BotBenchmarkDriver(Engine& engine, BotBenchmarkRunConfig config)
 			: EngineRef(engine), Config(std::move(config))
 		{
+			EngineRef.SetBotBenchmarkHarmfulZoneEscapeEnabled(Config.IsHarmfulZoneEscapeEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -480,6 +481,17 @@ namespace
 				pawn->FailedNavigationSafeguardSuppressionCount();
 			counters.FailedNavigationRoutePenaltyApplications =
 				pawn->FailedNavigationRoutePenaltyApplicationCount();
+			counters.HarmfulZoneEscapeEpisodes = pawn->HarmfulZoneEscapeEpisodeCount();
+			counters.HarmfulZoneEscapeCenterEntries = pawn->HarmfulZoneEscapeCenterEntryCount();
+			counters.HarmfulZoneEscapeFootEntries = pawn->HarmfulZoneEscapeFootEntryCount();
+			counters.HarmfulZoneEscapeRecoveryAttempts =
+				pawn->HarmfulZoneEscapeRecoveryAttemptCount();
+			counters.HarmfulZoneEscapeSuccessfulEscapes =
+				pawn->HarmfulZoneEscapeSuccessfulEscapeCount();
+			counters.HarmfulZoneEscapeForcedReplans =
+				pawn->HarmfulZoneEscapeForcedReplanCount();
+			counters.HarmfulZoneEscapeNoSafeCandidates =
+				pawn->HarmfulZoneEscapeNoSafeCandidateCount();
 			counters.FallingSeamDetections = pawn->FallingSeamDetectionCount();
 			counters.HorizontalCornerCandidateProbes =
 				pawn->HorizontalCornerCandidateProbeCount();
@@ -1170,6 +1182,17 @@ namespace
 					native.FailedNavigationSafeguardSuppressions;
 				bot.FailedNavigationRoutePenaltyApplicationsExact =
 					native.FailedNavigationRoutePenaltyApplications;
+				bot.HarmfulZoneEscapeEpisodesExact = native.HarmfulZoneEscapeEpisodes;
+				bot.HarmfulZoneEscapeCenterEntriesExact = native.HarmfulZoneEscapeCenterEntries;
+				bot.HarmfulZoneEscapeFootEntriesExact = native.HarmfulZoneEscapeFootEntries;
+				bot.HarmfulZoneEscapeRecoveryAttemptsExact =
+					native.HarmfulZoneEscapeRecoveryAttempts;
+				bot.HarmfulZoneEscapeSuccessfulEscapesExact =
+					native.HarmfulZoneEscapeSuccessfulEscapes;
+				bot.HarmfulZoneEscapeForcedReplansExact =
+					native.HarmfulZoneEscapeForcedReplans;
+				bot.HarmfulZoneEscapeNoSafeCandidatesExact =
+					native.HarmfulZoneEscapeNoSafeCandidates;
 				bot.FallingSeamDetectionsExact = native.FallingSeamDetections;
 				bot.HorizontalCornerCandidateProbesExact =
 					native.HorizontalCornerCandidateProbes;
@@ -1382,7 +1405,8 @@ namespace
 			commandline ? commandline->GetArg("", "--botbench-difficulty") : std::string(),
 			OptionalCommandLineArg("--botbench-bots"),
 			OptionalCommandLineArg("--botbench-skills"),
-			OptionalCommandLineArg("--botbench-names"));
+			OptionalCommandLineArg("--botbench-names"),
+			OptionalCommandLineArg("--botbench-harmful-zone-escape"));
 	}
 }
 

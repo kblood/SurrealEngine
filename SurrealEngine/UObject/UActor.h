@@ -14,6 +14,7 @@
 #include "PawnFallingHazardRuntimeObserver.h"
 #include "PawnWalkingStepPreflight.h"
 #include "PawnWallAdjustRecovery.h"
+#include "BotAI/HarmfulZoneEscapeGate.h"
 
 class UTexture;
 class UPrimitive;
@@ -1927,6 +1928,8 @@ public:
 
 	void InitActorZone() override;
 	void UpdateActorZone() override;
+	void ObserveHarmfulZoneEscapeBoundary(UZoneInfo* oldZone, UZoneInfo* newZone,
+		bool footBoundary);
 
 	void MoveTo(const vec3& newDestination, float speed);
 	void MoveToward(UActor* newTarget, float speed);
@@ -2033,6 +2036,13 @@ public:
 	uint64_t FailedNavigationAvoidanceActivationCount() const { return FailedNavigationAvoidanceActivationCountValue; }
 	uint64_t FailedNavigationSafeguardSuppressionCount() const { return FailedNavigationSafeguardSuppressionCountValue; }
 	uint64_t FailedNavigationRoutePenaltyApplicationCount() const { return FailedNavigationRoutePenaltyApplicationCountValue; }
+	uint64_t HarmfulZoneEscapeEpisodeCount() const { return HarmfulZoneEscapeEpisodeCountValue; }
+	uint64_t HarmfulZoneEscapeCenterEntryCount() const { return HarmfulZoneEscapeCenterEntryCountValue; }
+	uint64_t HarmfulZoneEscapeFootEntryCount() const { return HarmfulZoneEscapeFootEntryCountValue; }
+	uint64_t HarmfulZoneEscapeRecoveryAttemptCount() const { return HarmfulZoneEscapeRecoveryAttemptCountValue; }
+	uint64_t HarmfulZoneEscapeSuccessfulEscapeCount() const { return HarmfulZoneEscapeSuccessfulEscapeCountValue; }
+	uint64_t HarmfulZoneEscapeForcedReplanCount() const { return HarmfulZoneEscapeForcedReplanCountValue; }
+	uint64_t HarmfulZoneEscapeNoSafeCandidateCount() const { return HarmfulZoneEscapeNoSafeCandidateCountValue; }
 	uint64_t FallingSeamDetectionCount() const { return FallingSeamDetectionCountValue; }
 	uint64_t HorizontalCornerCandidateProbeCount() const { return HorizontalCornerCandidateProbeCountValue; }
 	uint64_t HorizontalCornerAuthorizedEscapeCount() const { return HorizontalCornerAuthorizedEscapeCountValue; }
@@ -2279,12 +2289,26 @@ private:
 	bool ApplyPainLedgeRecovery(const vec2& requestedDirection);
 	void AdvanceWallAdjustRecovery(float elapsed);
 	bool ApplyWallAdjustRecovery(const vec2& requestedDirection);
+	bool ApplyHarmfulZoneEscape();
+	void EndHarmfulZoneEscapeLife();
 
 	bool IsInPathSpecialHandling = false;
 	PawnMovement::FailedNavigationMemoryState FailedNavigationMemory;
 	PawnMovement::MoveStallWatchdogState MoveStallWatchdog;
 	PawnMovement::PainLedgeRecoveryState PainLedgeRecovery;
 	PawnMovement::WallAdjustRecoveryState WallAdjustRecovery;
+	struct HarmfulZoneEscapeState
+	{
+		bool CenterHarmful = false;
+		bool FootHarmful = false;
+		bool Active = false;
+		bool RecoveryAttempted = false;
+		vec2 IncomingDirection = vec2(0.0f);
+	};
+	HarmfulZoneEscapeState HarmfulZoneEscape;
+	BotAI::HarmfulZoneEscapeGate HarmfulZoneEscapeGate;
+	uint64_t HarmfulZoneEscapeLifeId = 1;
+	uint64_t HarmfulZoneEscapeEpisodeId = 0;
 	PawnMovement::FallingSeamEpisodeState FallingSeamEpisode;
 	PawnMovement::WalkingStepPreflightEpisodeState WalkingStepPreflightEpisode;
 	bool WalkingStepExplicitJumpRequested = false;
@@ -2306,6 +2330,13 @@ private:
 	uint64_t FailedNavigationAvoidanceActivationCountValue = 0;
 	uint64_t FailedNavigationSafeguardSuppressionCountValue = 0;
 	uint64_t FailedNavigationRoutePenaltyApplicationCountValue = 0;
+	uint64_t HarmfulZoneEscapeEpisodeCountValue = 0;
+	uint64_t HarmfulZoneEscapeCenterEntryCountValue = 0;
+	uint64_t HarmfulZoneEscapeFootEntryCountValue = 0;
+	uint64_t HarmfulZoneEscapeRecoveryAttemptCountValue = 0;
+	uint64_t HarmfulZoneEscapeSuccessfulEscapeCountValue = 0;
+	uint64_t HarmfulZoneEscapeForcedReplanCountValue = 0;
+	uint64_t HarmfulZoneEscapeNoSafeCandidateCountValue = 0;
 	uint64_t FallingSeamDetectionCountValue = 0;
 	uint64_t HorizontalCornerCandidateProbeCountValue = 0;
 	uint64_t HorizontalCornerAuthorizedEscapeCountValue = 0;

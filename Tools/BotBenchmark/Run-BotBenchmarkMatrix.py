@@ -24,7 +24,7 @@ RESULT_SCHEMA = "surreal-bot-benchmark-matrix-results-v1"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 INVOCATION_SCHEMA = "surreal-bot-benchmark-invocation-v1"
 PROVENANCE_SCHEMA = "surreal-bot-benchmark-provenance-v1"
-TOOL_VERSION = 3
+TOOL_VERSION = 4
 MAX_CONCURRENCY = 64
 MAX_BOT_COUNT = 16
 
@@ -55,6 +55,7 @@ class MatrixConfig:
     bot_count: int
     per_bot_skills: tuple[int, ...] | None
     requested_names: tuple[str, ...] | None
+    harmful_zone_escape_enabled: bool
     concurrency: int
     timeout_seconds: float
     repetitions: int
@@ -260,6 +261,10 @@ def load_matrix(path: Path) -> MatrixConfig:
             raise MatrixError("matrix.requested_names entries must be unique case-insensitively")
         requested_names = tuple(requested_names_raw)
 
+    harmful_zone_escape_enabled = raw.get("harmful_zone_escape_enabled", False)
+    if not isinstance(harmful_zone_escape_enabled, bool):
+        raise MatrixError("matrix.harmful_zone_escape_enabled must be a boolean")
+
     concurrency = _integer(raw.get("concurrency", 1), "matrix.concurrency", 1, MAX_CONCURRENCY)
     timeout_seconds = _number(raw.get("timeout_seconds", 120), "matrix.timeout_seconds", 0.0)
     if timeout_seconds == 0:
@@ -289,6 +294,7 @@ def load_matrix(path: Path) -> MatrixConfig:
         bot_count=bot_count,
         per_bot_skills=per_bot_skills,
         requested_names=requested_names,
+        harmful_zone_escape_enabled=harmful_zone_escape_enabled,
         concurrency=concurrency,
         timeout_seconds=timeout_seconds,
         repetitions=repetitions,
@@ -319,7 +325,8 @@ def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
             for repetition in range(config.repetitions):
                 shared = [config.game_family, map_index, map_url, seed, repetition,
                           config.max_ticks, config.fixed_delta, config.difficulty,
-                          config.bot_count, config.per_bot_skills, config.requested_names]
+                          config.bot_count, config.per_bot_skills, config.requested_names,
+                          config.harmful_zone_escape_enabled]
                 pair_id = f"case-{_digest(shared, 16)}" if paired else None
                 for variant in config.variants:
                     identity = [*shared, variant.id, str(variant.executable)]
@@ -348,6 +355,8 @@ def command_for(config: MatrixConfig, case: MatrixCase, run_directory: Path) -> 
         f"--botbench-fixed-delta={format(config.fixed_delta, '.17g')}",
         f"--botbench-difficulty={config.difficulty}",
         f"--botbench-bots={config.bot_count}",
+        "--botbench-harmful-zone-escape=" + (
+            "1" if config.harmful_zone_escape_enabled else "0"),
     ]
     if config.per_bot_skills is not None:
         command.append("--botbench-skills=" + ",".join(str(value) for value in config.per_bot_skills))
@@ -547,6 +556,7 @@ def _run_case(
         "bot_count": config.bot_count,
         "per_bot_skills": config.per_bot_skills,
         "requested_names": config.requested_names,
+        "harmful_zone_escape_enabled": config.harmful_zone_escape_enabled,
         "command": command,
     })
     launch = launcher(command, config.timeout_seconds, run_directory / "stdout.txt", run_directory / "stderr.txt")
@@ -580,6 +590,7 @@ def _run_case(
         "bot_count": config.bot_count,
         "per_bot_skills": config.per_bot_skills,
         "requested_names": config.requested_names,
+        "harmful_zone_escape_enabled": config.harmful_zone_escape_enabled,
         "exit_code": launch.exit_code,
         "timed_out": launch.timed_out,
         "wall_seconds": launch.wall_seconds,
@@ -610,6 +621,7 @@ def dry_run_plan(config: MatrixConfig, output: Path) -> dict[str, Any]:
             "bot_count": config.bot_count,
             "per_bot_skills": config.per_bot_skills,
             "requested_names": config.requested_names,
+            "harmful_zone_escape_enabled": config.harmful_zone_escape_enabled,
             "command": command_for(config, case, runs_directory / case.run_id),
         } for case in cases],
     }

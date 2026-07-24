@@ -369,6 +369,13 @@ namespace
 			<< ",\"failed_navigation_avoidance_activations_exact\":\"" << bot.FailedNavigationAvoidanceActivationsExact << "\""
 			<< ",\"failed_navigation_safeguard_suppressions_exact\":\"" << bot.FailedNavigationSafeguardSuppressionsExact << "\""
 			<< ",\"failed_navigation_route_penalty_applications_exact\":\"" << bot.FailedNavigationRoutePenaltyApplicationsExact << "\""
+			<< ",\"harmful_zone_escape_episodes_exact\":\"" << bot.HarmfulZoneEscapeEpisodesExact << "\""
+			<< ",\"harmful_zone_escape_center_entries_exact\":\"" << bot.HarmfulZoneEscapeCenterEntriesExact << "\""
+			<< ",\"harmful_zone_escape_foot_entries_exact\":\"" << bot.HarmfulZoneEscapeFootEntriesExact << "\""
+			<< ",\"harmful_zone_escape_recovery_attempts_exact\":\"" << bot.HarmfulZoneEscapeRecoveryAttemptsExact << "\""
+			<< ",\"harmful_zone_escape_successful_escapes_exact\":\"" << bot.HarmfulZoneEscapeSuccessfulEscapesExact << "\""
+			<< ",\"harmful_zone_escape_forced_replans_exact\":\"" << bot.HarmfulZoneEscapeForcedReplansExact << "\""
+			<< ",\"harmful_zone_escape_no_safe_candidates_exact\":\"" << bot.HarmfulZoneEscapeNoSafeCandidatesExact << "\""
 			<< ",\"falling_seam_detections_exact\":\"" << bot.FallingSeamDetectionsExact << "\""
 			<< ",\"horizontal_corner_candidate_probes_exact\":\"" << bot.HorizontalCornerCandidateProbesExact << "\""
 			<< ",\"horizontal_corner_authorized_escapes_exact\":\"" << bot.HorizontalCornerAuthorizedEscapesExact << "\""
@@ -504,7 +511,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "max_ticks=" << config.GetMaxTicks() << '\n'
 		<< "fixed_delta=" << Fixed(config.GetFixedDelta(), 9) << '\n'
 		<< "difficulty=" << config.GetDifficulty() << '\n'
-		<< "bot_count=" << config.GetRoster().GetCount() << '\n';
+		<< "bot_count=" << config.GetRoster().GetCount() << '\n'
+		<< "harmful_zone_escape_enabled="
+		<< (config.IsHarmfulZoneEscapeEnabled() ? "1" : "0") << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
 		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
@@ -530,6 +539,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 	WriteRequestedRoster(out, config.GetRoster());
 	out << ",\n"
 		<< "  \"telemetry_event_cap\": \"" << EventCap(config.GetMaxTicks()) << "\",\n"
+		<< "  \"harmful_zone_escape_enabled\": "
+		<< (config.IsHarmfulZoneEscapeEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";
