@@ -487,6 +487,20 @@ and E2/Unreal Gold. Exact identities are in
 `Docs/WEBXR_PHYSICAL_QUALIFICATION_DF90483C.md`. No headset was connected and
 the public website was not changed.
 
+Diagnostics and save-continuity candidate progress, 2026-07-24: clean
+executable-source commit `adf773aab1e97aaa6d36b8f74c41d7e260372b44`
+supersedes `df90483c` as build `adf773aab1e9-2c33259ba0d3e82d`. The native
+JavaScript and WASM payloads are byte-identical to the prior candidate. The
+packaged browser now measures actual immutable asset responses, streaming
+compile (with tested fallback), instantiation, runtime initialization, storage,
+renderer, and first WebGL 2 frame milestones. A one-origin Chrome test proves
+an allowlisted OPFS save survives canonical promotion to this manifest and
+rollback to `df90483c`. The rebuilt hardened Electron ZIP passes automatic and
+forced-OpenXR diagnostics; strict immersive detection fails as expected with
+no connected headset. Exact identities and the still-open seven physical rows
+are in `Docs/WEBXR_PHYSICAL_QUALIFICATION_ADF773AA.md`. The public website was
+not changed.
+
 ## Release gates for VR
 
 A candidate is not qualified until physical hardware passes all of these:

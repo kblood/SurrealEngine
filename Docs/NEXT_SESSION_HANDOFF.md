@@ -9,8 +9,8 @@ The active goal worktree is:
 ```text
 C:\Devstuff\QuestGames\SurrealEngine\repos\worktrees\active\webgl2-production
 branch: goal/webgl2-production
-release source: df90483cb0fd8b0a438962a1d954b4e0691ed53e
-release source tree: ef6f1a14145e37516aac8ac74613dbeb54b87858
+release source: adf773aab1e97aaa6d36b8f74c41d7e260372b44
+release source tree: fe366458a298a5024c722f672aa4e1fa3fca6ad5
 ```
 
 Push this goal branch only to `fork` (`kblood/SurrealEngine`), never to
@@ -18,10 +18,12 @@ Push this goal branch only to `fork` (`kblood/SurrealEngine`), never to
 an upstream-PR source.
 
 The current physical candidate is documented in
-`Docs/WEBXR_PHYSICAL_QUALIFICATION_DF90483C.md`. Its browser manifest is
-`f3372349b5da45cb9d6bddec99317851f13735521a44c5e4932e09d63e0a99af`.
-It supersedes `9aa65824`; the public website has not been changed to either
-candidate.
+`Docs/WEBXR_PHYSICAL_QUALIFICATION_ADF773AA.md`. Its browser manifest is
+`d6d606d114d2cea8edb09b2517579901fef3f249dc8680cb9ec1efd3559ae7b9`.
+It supersedes `df90483c`; the public website has not been changed to either
+candidate. Its local browser and Electron release directories are
+`SurrealEngine/out/web-release-production-adf773aa` and
+`SurrealEngine/out/electron-webxr-adf773aa`.
 
 The current browser release is live at the one stable public URL:
 
@@ -156,10 +158,10 @@ processes have stopped and the migration ledger is ready.
 
 ## Exact next checks
 
-1. Use the frozen `df90483c` artifacts and
-   `Docs/WEBXR_PHYSICAL_QUALIFICATION_DF90483C.md`; do not use `9aa65824` or
+1. Use the frozen `adf773aa` artifacts and
+   `Docs/WEBXR_PHYSICAL_QUALIFICATION_ADF773AA.md`; do not use `df90483c` or
    substitute a rebuild.
-2. Publish manifest `f3372349...a99af` as an immutable generation without
+2. Publish manifest `d6d606d1...ae7b9` as an immutable generation without
    changing the stable pointer, then use that exact URL for Q1. Use the pinned
    Electron ZIP for E1/E2.
 3. Import a locally supplied supported game folder and verify flat launch first,

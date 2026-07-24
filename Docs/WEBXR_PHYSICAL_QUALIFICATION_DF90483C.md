@@ -1,6 +1,7 @@
 # WebXR physical qualification card — `df90483c`
 
-This is the current data-free production candidate for flat browser play with
+This candidate is superseded by `adf773aa`; retain it only as prior automated
+and rollback evidence. It was the data-free production candidate for flat browser play with
 post-launch enter, exit, failure recovery, and re-entry to immersive WebXR. It
 supersedes `9aa65824`. Automated, synthetic-session, Electron, and actual
 Apache 2.4 gates pass; physical-headset qualification is still pending.
