@@ -51,9 +51,10 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFam
 		// when they share a stereo target so a later overlay pass cannot erase the
 		// world.  Single-view desktop rendering retains its established lifecycle.
 		const bool weaponPerView = ShouldRenderWeaponPerView(viewFamily);
+		const bool flashPerView = viewFamily.Views.size() > 1;
 		if (BeginPresentationLayer(viewFamily.Presentation, PresentationLayer::World))
 		{
-			DrawScene(viewFamily, weaponPerView);
+			DrawScene(viewFamily, weaponPerView, flashPerView);
 			EndPresentationLayer(viewFamily.Presentation, PresentationLayer::World);
 		}
 		if (!weaponPerView &&
@@ -64,12 +65,16 @@ void RenderSubsystem::DrawGame(float levelTimeElapsed, const ViewFamily& viewFam
 				PostRenderFlash();
 			EndPresentationLayer(viewFamily.Presentation, PresentationLayer::WeaponOverlay);
 		}
-		Device->EndFlash();
+		if (!flashPerView)
+			Device->EndFlash();
 	}
 
 	if (BeginPresentationLayer(viewFamily.Presentation, PresentationLayer::UserInterface))
 	{
-		if (DirectHudPresentationActive && !IsXRUIMenuActive())
+		// Direct framebuffer presentation has no separate UI texture
+		// compositor. Render both gameplay HUD and active menus into both eye
+		// viewports instead of falling back to one desktop-sized PostRender.
+		if (DirectHudPresentationActive)
 			PostRenderPerViewHud(viewFamily);
 		else
 			PostRender();

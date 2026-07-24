@@ -1,10 +1,14 @@
 (function (root) {
 	"use strict";
 
-	// Version 4 keeps the packed layout and persistent targets, but splits the
-	// Asyncify-capable simulation from the synchronous current-pose XR render.
+	// Version 4 splits Asyncify-capable simulation from the synchronous
+	// current-pose XR render. WebGPU modes retain persistent targets; direct
+	// WebGL2 renders into the compositor framebuffer without an intermediate.
 	const ABI = Object.freeze({ version: 4, headerBytes: 32, viewBytes: 128, maxViews: 2 });
-	const FRAME_FLAGS = Object.freeze({ projectionDepthZeroToOne: 1, sharedStereoAtlas: 2 });
+	const FRAME_FLAGS = Object.freeze({
+		projectionDepthZeroToOne: 1,
+		sharedStereoAtlas: 2,
+	});
 	const INPUT_ABI = Object.freeze({
 		version: 1, headerBytes: 24, sourceBytes: 112, maxSources: 2,
 		buttons: Object.freeze({ trigger: 0, squeeze: 1, primary: 2, secondary: 3, menu: 4, stickClick: 5 })
@@ -26,6 +30,8 @@
 	let binding = null;
 	let projectionLayer = null;
 	let webGLBridge = null;
+	let directWebGLContext = null;
+	let directWebGLLayer = null;
 	let presentationMode = null;
 	let configuredPresentationPreference = null;
 	let configuredBridgeBlockingTiming = null;
@@ -280,22 +286,21 @@
 		return root.surrealXRForceWebGLBridge === true ? "webgl-bridge" : "auto";
 	}
 
-	function selectPresentationMode(preference, directAvailable, bridgeAvailable) {
+	function selectPresentationMode(preference, directWebGLAvailable, directWebGPUAvailable, bridgeAvailable) {
 		if (preference === "webgl-bridge") return bridgeAvailable ? "webgl-bridge" : null;
-		return directAvailable ? "direct-webgpu" : (bridgeAvailable ? "webgl-bridge" : null);
+		if (directWebGLAvailable) return "direct-webgl2";
+		return directWebGPUAvailable && root.surrealXRExperimentalWebGPU === true ?
+			"direct-webgpu" : null;
 	}
 
-	function sessionHasWebGPUFeature(sessionObject) {
+	function resolveDirectWebGL2Context() {
+		if (typeof root.XRWebGLLayer !== "function" || !root.Module ||
+			!root.Module.canvas || typeof root.Module.canvas.getContext !== "function") return null;
 		try {
-			const enabledFeatures = sessionObject && sessionObject.enabledFeatures;
-			if (!enabledFeatures || typeof enabledFeatures === "string" ||
-				typeof enabledFeatures[Symbol.iterator] !== "function")
-				throw new TypeError("enabledFeatures is not iterable");
-			return Array.from(enabledFeatures).includes("webgpu");
-		} catch (_) {
-			throw providerError("feature-negotiation-unobservable", "negotiating-features",
-				"WebXR did not expose enabled session features; retry with Force WebGL compatibility bridge");
-		}
+			if (moduleCall("Surreal_GetWebGL2ContextState", "number") !== 1) return null;
+			if (moduleCall("Surreal_GetWebGL2ContextHandle", "number") <= 0) return null;
+			return root.Module.canvas.getContext("webgl2") || null;
+		} catch (_) { return null; }
 	}
 
 	function bridgeBlockingTimingPreference() {
@@ -712,6 +717,31 @@
 			views: destinations.map(item => ({ eye: item.eye, width: item.viewport.width, height: item.viewport.height })) };
 	}
 
+	function directWebGL2FrameDescription(pose) {
+		if (!directWebGLLayer || !directWebGLContext)
+			throw providerError("webgl2-layer-unavailable", "frame", "The direct WebGL2 XR layer is unavailable");
+		const width = positiveDimension(directWebGLLayer.framebufferWidth);
+		const height = positiveDimension(directWebGLLayer.framebufferHeight);
+		const views = pose && pose.views;
+		if (!width || !height || !views || views.length !== ABI.maxViews)
+			throw providerError("invalid-webgl2-layer", "frame", "XRWebGLLayer returned invalid stereo dimensions");
+		const destinations = Array.from(views, function (view) {
+			const viewport = directWebGLLayer.getViewport(view);
+			if (!viewport || ![viewport.x, viewport.y, viewport.width, viewport.height].every(Number.isInteger) ||
+				viewport.x < 0 || viewport.y < 0 || viewport.width <= 0 || viewport.height <= 0 ||
+				viewport.x + viewport.width > width || viewport.y + viewport.height > height)
+				throw providerError("invalid-webgl2-viewport", "frame", "XRWebGLLayer returned an invalid eye viewport");
+			// WebXR reports WebGL bottom-left coordinates. The renderer's provider-
+			// neutral ViewRect uses top-left coordinates and flips them at glViewport.
+			return { x: viewport.x, y: height - viewport.y - viewport.height,
+				width: viewport.width, height: viewport.height };
+		});
+		return { mode: "direct-webgl2", format: "rgba8-webgl2", width, height,
+			atlasViews: destinations, views: destinations.map((view, index) => ({
+				eye: views[index].eye, width: view.width, height: view.height,
+			})) };
+	}
+
 	function frameLayoutSignature(layout) {
 		return [layout.mode, layout.format].concat(layout.views.map(view =>
 			view.eye + ":" + view.width + "x" + view.height)).join("|");
@@ -810,21 +840,22 @@
 	}
 
 	function adoptLayout(description) {
-		const layout = description.mode === "webgl-bridge" ? {
+		const atlasLayout = description.mode === "webgl-bridge" || description.mode === "direct-webgl2";
+		const layout = atlasLayout ? {
 			mode: description.mode, format: description.format, width: description.width,
 			height: description.height, views: description.atlasViews.map((view, index) => ({
 				eye: index === 0 ? "left" : "right", width: view.width, height: view.height,
 			})),
 		} : { mode: description.mode, format: description.format,
 			views: description.views.map(view => Object.assign({}, view)) };
-		layout.signature = frameLayoutSignature(layout) + (layout.mode === "webgl-bridge" ?
+		layout.signature = frameLayoutSignature(layout) + (atlasLayout ?
 			("|" + layout.width + "x" + layout.height) : "");
 		if (targetLayout && targetLayout.signature === layout.signature) return true;
 		const oldTargets = persistentTargets;
 		const pending = nativeRenderPromise;
 		layoutEpoch++;
 		targetLayout = layout;
-		persistentTargets = createPersistentTargetSets(layout);
+		persistentTargets = layout.mode === "direct-webgl2" ? null : createPersistentTargetSets(layout);
 		frontTargetIndex = null;
 		latestFrameCapture = null;
 		retireTargetSets(oldTargets, pending);
@@ -857,6 +888,52 @@
 			capture.resetGeneration, flags);
 	}
 
+	function packDirectWebGL2Frame(capture) {
+		const packedViews = capture.views.map(function (view, index) {
+			return { view, textureIndex: 0, arrayLayer: 0,
+				width: targetLayout.width, height: targetLayout.height,
+				image: { viewport: capture.atlasViews[index] } };
+		});
+		return createFramePacket(capture.time, capture.views, packedViews, [{}],
+			capture.resetGeneration, FRAME_FLAGS.sharedStereoAtlas);
+	}
+
+	function packFrameForNative(capture, targetSet) {
+		return targetLayout.mode === "direct-webgl2" ?
+			packDirectWebGL2Frame(capture) : packPersistentFrame(capture, targetSet);
+	}
+
+	function renderDirectWebGL2(packed) {
+		const gl = directWebGLContext;
+		const layer = directWebGLLayer;
+		if (!gl || !layer || !layer.framebuffer)
+			throw providerError("webgl2-framebuffer-unavailable", "frame",
+				"XRWebGLLayer did not provide a compositor framebuffer");
+		let previousDraw = null;
+		let previousRead = null;
+		const separateBindings = typeof gl.DRAW_FRAMEBUFFER_BINDING === "number" &&
+			typeof gl.READ_FRAMEBUFFER_BINDING === "number" &&
+			typeof gl.DRAW_FRAMEBUFFER === "number" && typeof gl.READ_FRAMEBUFFER === "number";
+		try {
+			if (typeof gl.getParameter === "function") {
+				previousDraw = gl.getParameter(separateBindings ?
+					gl.DRAW_FRAMEBUFFER_BINDING : gl.FRAMEBUFFER_BINDING);
+				previousRead = separateBindings ?
+					gl.getParameter(gl.READ_FRAMEBUFFER_BINDING) : previousDraw;
+			}
+			gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+			return moduleCall("Surreal_RenderDirectWebGL2XRFrame", "number",
+				["array", "number"], [packed.packet, packed.packet.byteLength]);
+		} finally {
+			if (separateBindings && previousDraw !== previousRead) {
+				gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, previousDraw);
+				gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previousRead);
+			} else {
+				gl.bindFramebuffer(gl.FRAMEBUFFER, previousDraw);
+			}
+		}
+	}
+
 	function presentDirect(description) {
 		if (frontTargetIndex === null || !persistentTargets) return false;
 		const encoder = webGPUDevice().createCommandEncoder({ label: "Surreal WebXR late present" });
@@ -881,7 +958,7 @@
 
 	function pumpNativeRender(generation) {
 		if (generation !== activeGeneration || nativeRenderPromise ||
-			!persistentTargets || !targetLayout) return;
+			!targetLayout || (targetLayout.mode !== "direct-webgl2" && !persistentTargets)) return;
 		if (frameClockResetPending) requestNativeFrameClockReset();
 		if (inputQueueOverflow) {
 			fail(generation, providerError("input-transition-overflow", "frame",
@@ -915,8 +992,9 @@
 			if (!latestFrameCapture) return;
 			const capture = latestFrameCapture;
 			latestFrameCapture = null;
-			const target = persistentTargets[frontTargetIndex === 0 ? 1 : 0];
-			const packed = packPersistentFrame(capture, target);
+			const target = targetLayout.mode === "direct-webgl2" ? null :
+				persistentTargets[frontTargetIndex === 0 ? 1 : 0];
+			const packed = packFrameForNative(capture, target);
 			const prepared = await moduleCall("Surreal_PrepareWebXRFrame", "number",
 				["array", "number"], [packed.packet, packed.packet.byteLength], { async: true });
 			if (prepared !== 1) {
@@ -950,6 +1028,7 @@
 		const pendingRender = nativeRenderPromise;
 		const finishedTargets = persistentTargets;
 		const finishedBridge = webGLBridge;
+		const finishedDirectWebGLContext = directWebGLContext;
 		const ownedEngineLoop = engineLoopOwned;
 		const errorStage = error ? (error.stage || status.currentStage || status.phase) : null;
 		detachAudioGestureListener(finishedSession);
@@ -972,6 +1051,8 @@
 		binding = null;
 		projectionLayer = null;
 		webGLBridge = null;
+		directWebGLContext = null;
+		directWebGLLayer = null;
 		presentationMode = null;
 		persistentTargets = null;
 		targetLayout = null;
@@ -990,6 +1071,7 @@
 		setStage(status.phase);
 		status.active = false;
 		status.presentationMode = null;
+		status.projectionFormat = null;
 		status.layerWidth = null;
 		status.layerHeight = null;
 		status.atlasWidth = null;
@@ -1010,6 +1092,10 @@
 				} catch (_) {}
 			}
 			if (nativePresentationStarted) submitNeutralInput(0, false);
+			if (finishedDirectWebGLContext) {
+				try { finishedDirectWebGLContext.bindFramebuffer(
+					finishedDirectWebGLContext.FRAMEBUFFER, null); } catch (_) {}
+			}
 			if (ownedEngineLoop) {
 				try { setEngineLoop(false); } catch (_) {}
 			}
@@ -1133,6 +1219,12 @@
 				description = webGLBridge.describeFrame(pose);
 				description.mode = "webgl-bridge";
 				description.format = webGLBridge.textureFormat;
+			} else if (presentationMode === "direct-webgl2") {
+				description = directWebGL2FrameDescription(pose);
+				status.layerWidth = description.width;
+				status.layerHeight = description.height;
+				status.atlasWidth = description.width;
+				status.atlasHeight = description.height;
 			} else {
 				description = directFrameDescription(xrViews);
 			}
@@ -1143,25 +1235,32 @@
 			if (nativeFramePrepared && preparedFrame &&
 				preparedFrame.epoch === layoutEpoch &&
 				preparedFrame.resetGeneration === resetGeneration) {
-				const backIndex = frontTargetIndex === 0 ? 1 : 0;
-				const target = persistentTargets[backIndex];
-				const packed = packPersistentFrame(capture, target);
-				root.surrealWebXRFrameTextures = packed.textures;
+				const directWebGL = presentationMode === "direct-webgl2";
+				const backIndex = directWebGL ? null : (frontTargetIndex === 0 ? 1 : 0);
+				const target = directWebGL ? null : persistentTargets[backIndex];
+				const packed = packFrameForNative(capture, target);
 				let rendered;
-				try {
-					rendered = moduleCall("Surreal_RenderWebXRFrame", "number",
-						["array", "number"], [packed.packet, packed.packet.byteLength]);
-				} finally {
-					root.surrealWebXRFrameTextures = null;
+				if (directWebGL) {
+					rendered = renderDirectWebGL2(packed);
+				} else {
+					root.surrealWebXRFrameTextures = packed.textures;
+					try {
+						rendered = moduleCall("Surreal_RenderWebXRFrame", "number",
+							["array", "number"], [packed.packet, packed.packet.byteLength]);
+					} finally {
+						root.surrealWebXRFrameTextures = null;
+					}
 				}
 				if (rendered !== 1) {
 					const error = moduleCall("Surreal_GetWebXRFrameLastError", "number");
 					throw providerError("native-frame-render-rejected-" + error, "frame",
 						"native synchronous WebXR render failed (error=" + error + ")");
 				}
-				target.presentation.source = capturePresentationSource(capture);
-				target.presentation.count = 0;
-				frontTargetIndex = backIndex;
+				if (target) {
+					target.presentation.source = capturePresentationSource(capture);
+					target.presentation.count = 0;
+					frontTargetIndex = backIndex;
+				}
 				nativeFramePrepared = false;
 				nativeFrameRendered = true;
 				preparedFrame = null;
@@ -1176,7 +1275,7 @@
 					webGLBridge.present(description, target.textures[0], webGPUDevice(), metadata);
 					recordBridgePresentation(target, frameSequence, time);
 					setBridgeDiagnostics(webGLBridge.diagnostics());
-				} else {
+				} else if (!directWebGL) {
 					presentDirect(description);
 				}
 			}
@@ -1218,7 +1317,9 @@
 			legacyWebGPUBinding: hasLegacyBinding,
 			webGPUDevice: !!webGPUDevice(),
 			webGPUDeviceXRCompatible: root.surrealWebGPUDeviceXRCompatible === true,
+			directWebGL2: false,
 			directWebGPU: false,
+			experimentalWebGPU: root.surrealXRExperimentalWebGPU === true,
 			webGLBridge: false,
 			presentationPreference: preference,
 			preferredMode: null,
@@ -1227,25 +1328,29 @@
 		};
 		if (!result.secureContext) result.reasons.push("secure-context-required");
 		if (!result.webXR) result.reasons.push("webxr-unavailable");
-		if (!result.webGPUDevice) result.reasons.push("webgpu-device-not-ready");
 		if (result.webXR && typeof root.navigator.xr.isSessionSupported === "function") {
 			try { result.immersiveVR = await root.navigator.xr.isSessionSupported("immersive-vr"); }
 			catch (_) { result.reasons.push("immersive-vr-query-failed"); }
 		}
 		if (!result.immersiveVR && !result.reasons.includes("immersive-vr-query-failed"))
 			result.reasons.push("immersive-vr-unavailable");
-		result.directWebGPU = result.webGPUBinding && result.webGPUDevice && result.webGPUDeviceXRCompatible;
+		result.directWebGL2 = !!resolveDirectWebGL2Context();
+		result.directWebGPU = result.experimentalWebGPU && result.webGPUBinding &&
+			result.webGPUDevice && result.webGPUDeviceXRCompatible;
 		result.webGLBridge = !!(result.webGPUDevice && typeof root.XRWebGLLayer === "function" &&
 			root.SurrealWebXRWebGLBridge && root.SurrealWebXRWebGLBridge.canCreateWebGL2(root));
-		if (result.webGPUDevice && !result.webGPUDeviceXRCompatible && !result.webGLBridge)
+		if (result.experimentalWebGPU && result.webGPUDevice &&
+			!result.webGPUDeviceXRCompatible && !result.webGLBridge)
 			result.reasons.push("webgpu-device-not-xr-compatible");
-		result.preferredMode = selectPresentationMode(preference, result.directWebGPU, result.webGLBridge);
+		result.preferredMode = selectPresentationMode(preference, result.directWebGL2,
+			result.directWebGPU, result.webGLBridge);
 		if (preference === "webgl-bridge" && !result.webGLBridge)
 			result.reasons.push("webgl-bridge-unavailable");
-		if (!result.directWebGPU && !result.webGLBridge)
-			result.reasons.push(hasLegacyBinding ? "obsolete-webgpu-binding-api" : "no-webxr-presentation-backend");
+		if (!result.directWebGL2 && !result.directWebGPU && !result.webGLBridge)
+			result.reasons.push(hasLegacyBinding ? "obsolete-webgpu-binding-api" :
+				"no-webxr-presentation-backend");
 		result.supported = result.secureContext && result.webXR && result.immersiveVR &&
-			result.webGPUDevice && !!result.preferredMode;
+			!!result.preferredMode;
 		status.capabilities = Object.assign({}, result, { reasons: result.reasons.slice() });
 		return Object.assign({}, result, { reasons: result.reasons.slice() });
 	};
@@ -1365,29 +1470,26 @@
 			preflightError = providerError("secure-context-required", "preflight", "WebXR requires a secure context");
 		else if (!root.navigator || !root.navigator.xr)
 			preflightError = providerError("webxr-unavailable", "preflight", "WebXR is unavailable");
-		else if (!webGPUDevice())
-			preflightError = providerError("webgpu-device-not-ready", "preflight",
-				"SurrealEngine WebGPU device is not ready");
 		const preference = presentationPreference();
 		status.presentationPreference = preference;
 		status.bridgeBlockingTimingRequested = bridgeBlockingTimingPreference();
 		status.bridgeRotationReprojectionRequested = bridgeRotationReprojectionPreference();
 		const bridgeAvailable = typeof root.XRWebGLLayer === "function" && root.SurrealWebXRWebGLBridge &&
-			root.SurrealWebXRWebGLBridge.canCreateWebGL2(root);
-		const directAvailable = typeof root.XRGPUBinding === "function" &&
-			root.surrealWebGPUDeviceXRCompatible === true;
-		const negotiatePresentationMode = preference === "auto" && directAvailable && bridgeAvailable;
-		presentationMode = negotiatePresentationMode ? null :
-			selectPresentationMode(preference, directAvailable, bridgeAvailable);
-		if (!preflightError && !presentationMode && !negotiatePresentationMode) {
+			root.SurrealWebXRWebGLBridge.canCreateWebGL2(root) && !!webGPUDevice();
+		const directWebGLAvailable = !!resolveDirectWebGL2Context();
+		const directWebGPUAvailable = typeof root.XRGPUBinding === "function" &&
+			root.surrealWebGPUDeviceXRCompatible === true && !!webGPUDevice();
+		presentationMode = selectPresentationMode(preference, directWebGLAvailable,
+			directWebGPUAvailable, bridgeAvailable);
+		if (!preflightError && !presentationMode) {
 			if (preference === "webgl-bridge")
 				preflightError = providerError("webxr-webgl-bridge-unavailable", "preflight",
 					"WebGL compatibility bridge was requested but is unavailable");
 			else {
-				const missingBinding = typeof root.XRGPUBinding !== "function";
-				preflightError = providerError(missingBinding ? "webxr-webgpu-binding-unavailable" :
-					"no-webxr-presentation-backend", "preflight",
-					"Neither direct WebGPU WebXR layers nor the XRWebGLLayer compatibility bridge is available");
+				preflightError = providerError("no-webxr-presentation-backend", "preflight",
+					"The running renderer has no production direct WebGL2 WebXR path" +
+						(root.surrealXRExperimentalWebGPU === true ?
+							" and no experimental WebGPU path" : ""));
 			}
 		}
 		if (preflightError) {
@@ -1427,11 +1529,9 @@
 		let requestedSession = null;
 		try {
 			try {
-				const sessionOptions = negotiatePresentationMode ?
-					{ optionalFeatures: ["local-floor", "webgpu"] } :
-					(presentationMode === "direct-webgpu" ?
+				const sessionOptions = presentationMode === "direct-webgpu" ?
 						{ requiredFeatures: ["webgpu"], optionalFeatures: ["local-floor"] } :
-						{ optionalFeatures: ["local-floor"] });
+						{ optionalFeatures: ["local-floor"] };
 				requestedSession = await root.navigator.xr.requestSession("immersive-vr", sessionOptions);
 			} catch (error) {
 				throw providerError("session-request-failed", "requesting-session", error.message || String(error));
@@ -1442,11 +1542,6 @@
 			}
 			session = requestedSession;
 			sessionEndTracker = createSessionEndTracker(session, generation);
-			if (negotiatePresentationMode) {
-				setStage("negotiate-features");
-				presentationMode = sessionHasWebGPUFeature(session) ? "direct-webgpu" : "webgl-bridge";
-				status.presentationMode = presentationMode;
-			}
 			if (root.SurrealBrowserPointerLock) root.SurrealBrowserPointerLock.setXRActive(true);
 			enterPending = false;
 			status.phase = "session-reserved";
@@ -1474,7 +1569,39 @@
 				if (!isActionFocused(session)) submitCurrentInput(0);
 				else requestNativeFrameClockReset();
 			});
-			if (presentationMode === "direct-webgpu") {
+			if (presentationMode === "direct-webgl2") {
+				status.phase = "creating-webgl2-layer";
+				setStage("make-webgl2-xr-compatible");
+				directWebGLContext = resolveDirectWebGL2Context();
+				if (!directWebGLContext)
+					throw providerError("webgl2-context-unavailable", status.currentStage,
+						"The running WebGL2 renderer context is unavailable");
+				try {
+					if (typeof directWebGLContext.makeXRCompatible === "function")
+						await directWebGLContext.makeXRCompatible();
+				} catch (error) {
+					throw providerError("webgl2-xr-compatibility-failed", status.currentStage,
+						error.message || String(error));
+				}
+				if (generation !== activeGeneration || session !== activatingSession) return false;
+				setStage("create-webgl2-layer");
+				try {
+					directWebGLLayer = new root.XRWebGLLayer(session, directWebGLContext, {
+						alpha: false, antialias: false, depth: true, stencil: false,
+						framebufferScaleFactor: 1,
+					});
+					status.layerWidth = positiveDimension(directWebGLLayer.framebufferWidth);
+					status.layerHeight = positiveDimension(directWebGLLayer.framebufferHeight);
+					status.atlasWidth = status.layerWidth;
+					status.atlasHeight = status.layerHeight;
+					status.projectionFormat = "rgba8-webgl2";
+					setStage("update-render-state");
+					session.updateRenderState({ baseLayer: directWebGLLayer });
+				} catch (error) {
+					throw providerError("webgl2-layer-creation-failed", status.currentStage,
+						error.message || String(error));
+				}
+			} else if (presentationMode === "direct-webgpu") {
 				status.phase = "creating-binding";
 				setStage("create-binding");
 				try { binding = new root.XRGPUBinding(session, webGPUDevice()); }

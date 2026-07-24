@@ -116,6 +116,7 @@ namespace
 
 #ifdef __EMSCRIPTEN__
 #include "RenderDevice/WebGPU/WebGPURenderDevice.h"
+#include "RenderDevice/WebGL2/WebGL2RenderDevice.h"
 #include "Platform/WebXR/WebXRUICompositor.h"
 #include <emscripten.h>
 
@@ -428,6 +429,78 @@ extern "C"
 		WebXR::UnbindUISurfaceTargets(device);
 		ReleaseFrameResources(device, binding.Target, textures, frame.Header.TextureCount,
 			views, frame.Header.ViewCount, true);
+		WebXR::SetLastFrameError(WebXR::FrameError::None);
+		return 1;
+#else
+		WebXR::SetLastFrameError(WebXR::FrameError::RenderDeviceUnavailable);
+		return 0;
+#endif
+	}
+
+	int Surreal_RenderDirectWebGL2XRFrame(const void* frameData, uint32_t bufferBytes)
+	{
+		WebXR::DecodedFrame frame;
+		WebXR::FrameError error;
+		if (!WebXR::DecodeFrame(frameData, bufferBytes, frame, error))
+		{
+			WebXR::SetLastFrameError(error);
+			return 0;
+		}
+
+#ifdef __EMSCRIPTEN__
+		if (!engine || !engine->render ||
+			NativeFramePhase.Phase() != WebXR::FramePhase::Prepared)
+		{
+			WebXR::SetLastFrameError(!engine || !engine->render ?
+				WebXR::FrameError::RenderDeviceUnavailable : WebXR::FrameError::PhaseRejected);
+			return 0;
+		}
+		if ((frame.Header.Flags & WebXR::FrameSharedStereoAtlas) == 0)
+		{
+			WebXR::SetLastFrameError(WebXR::FrameError::PresentationRejected);
+			return 0;
+		}
+
+		auto* device = dynamic_cast<WebGL2RenderDevice*>(engine->render->Device);
+		const int width = static_cast<int>(frame.Views[0].TextureWidth);
+		const int height = static_cast<int>(frame.Views[0].TextureHeight);
+		if (!device || !device->BeginDirectWebXRFramebuffer(width, height))
+		{
+			WebXR::SetLastFrameError(WebXR::FrameError::RenderDeviceUnavailable);
+			return 0;
+		}
+		struct DirectFramebufferScope
+		{
+			WebGL2RenderDevice* Device;
+			~DirectFramebufferScope() { Device->EndDirectWebXRFramebuffer(); }
+		} framebufferScope = { device };
+
+		try
+		{
+			const WebXR::AdaptedInputSnapshot input =
+				WebXR::AdaptInputSnapshot(WebXR::GetInputSnapshot());
+			const Coords bodyRotation = Coords::Rotation(
+				Rotator(0, engine->CameraRotation.Yaw, 0));
+			ViewFamily family = WebXR::BuildViewFamily(frame, engine->CameraLocation,
+				bodyRotation, WorldUnitsPerMeter, Recenter, true);
+			XRUISurfaceEngineBinding& ui = engine->render->XRUISurfaces();
+			for (const XRUICanvasCaptureDescriptor& descriptor :
+				WebXR::BuildUICaptureDescriptors(WorldUnitsPerMeter))
+				ui.Configure(descriptor);
+			ui.SetViewerPose(WebXR::BuildUIViewerPose(family));
+			UIInput.Update(input, ui, engine->CameraLocation, bodyRotation,
+				WorldUnitsPerMeter, Recenter);
+			ResolveXRUIHapticFeedback(HapticFeedback, UIInput.Feedback(),
+				&WebXR::BrowserHapticSink());
+			engine->RenderGameFrame(PreparedLevelElapsed, family);
+			if (!NativeFramePhase.MarkRendered())
+				throw std::runtime_error("WebXR frame phase changed during direct WebGL2 rendering");
+		}
+		catch (...)
+		{
+			WebXR::SetLastFrameError(WebXR::FrameError::RenderFailed);
+			return 0;
+		}
 		WebXR::SetLastFrameError(WebXR::FrameError::None);
 		return 1;
 #else

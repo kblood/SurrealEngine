@@ -181,6 +181,16 @@ int main()
 		!NearlyEqual(atlasFamily.Views[0].Projection[8], 0.25f) ||
 		!NearlyEqual(atlasFamily.Views[1].Projection[8], -0.25f))
 		return 14;
+	WebXR::RecenterState directHudRecenter;
+	const ViewFamily directHudFamily = WebXR::BuildViewFamily(decoded, anchor,
+		Coords::Identity(), unitsPerMeter, directHudRecenter, true);
+	if (!directHudFamily.Hud.Enabled ||
+		!directHudFamily.Presentation.GetLayer(PresentationLayer::UserInterface).Enabled ||
+		directHudFamily.Presentation.GetLayer(PresentationLayer::UserInterface).Target.Slot != 1 ||
+		!directHudFamily.Views[0].HasProjectionTangents ||
+		!NearlyEqual(directHudFamily.Views[0].ProjectionTangents.Left, -1.25f) ||
+		!NearlyEqual(directHudFamily.Views[0].ProjectionTangents.Right, 0.75f))
+		return 23;
 
 	const std::array<float, 16> leftWebGLProjection = MakeWebGLProjection(
 		-1.17f, 0.97f, -1.08f, 1.12f, 0.1f, 1000.0f);

@@ -117,8 +117,9 @@ try {
 	assert.doesNotMatch(index, /data-launcher-presentation/,
 		"production release still required a pre-launch presentation choice");
 	assert.match(index, /data-xr-session-backend/);
-	assert.match(index, />Automatic</);
-	assert.match(index, />Force WebGL compatibility bridge</);
+	assert.match(index, />Direct WebGL 2 \(recommended\)</);
+	assert.match(index, />Diagnostic WebGPU-to-WebGL bridge</);
+	assert.match(index, /WebGL 2 \(VR-ready\)/);
 	assert.match(index, /data-xr-session-bridge-blocking-timing/);
 	assert.match(index, /data-xr-enter/);
 	assert.match(index, /data-xr-exit/);

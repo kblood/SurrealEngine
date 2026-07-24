@@ -195,7 +195,8 @@ XRWorldTransform WebXR::BuildWeaponWorldTransform(const vec3& cameraLocation,
 }
 
 ViewFamily WebXR::BuildViewFamily(const DecodedFrame& frame, const vec3& cameraLocation,
-	const Coords& bodyRotation, float worldUnitsPerMeter, RecenterState& recenter)
+	const Coords& bodyRotation, float worldUnitsPerMeter, RecenterState& recenter,
+	bool directHud)
 {
 	std::array<PoseAxes, MaxViews> poses = {};
 	vec3 center(0.0f);
@@ -241,6 +242,19 @@ ViewFamily WebXR::BuildViewFamily(const DecodedFrame& frame, const vec3& cameraL
 			Coords::Location(view.Location).ToMatrix();
 		view.HasProjection = true;
 		view.Projection = DecodeProjection(source, frame.Header.Flags, worldUnitsPerMeter);
+		// These four terms are unchanged by depth-range conversion. Preserve the
+		// provider's asymmetric optical bounds for the direct per-eye HUD.
+		if (std::abs(source.Projection[0]) > 0.000001f &&
+			std::abs(source.Projection[5]) > 0.000001f)
+		{
+			view.HasProjectionTangents = true;
+			view.ProjectionTangents = {
+				(source.Projection[8] - 1.0f) / source.Projection[0],
+				(source.Projection[8] + 1.0f) / source.Projection[0],
+				(source.Projection[9] + 1.0f) / source.Projection[5],
+				(source.Projection[9] - 1.0f) / source.Projection[5]
+			};
+		}
 		view.ApplyGameViewport = false;
 		family.Views.push_back(view);
 	}
@@ -250,8 +264,9 @@ ViewFamily WebXR::BuildViewFamily(const DecodedFrame& frame, const vec3& cameraL
 	// by the dedicated XR UI compositor.
 	family.Presentation.SetLayer(PresentationLayer::World, { 1 }, true);
 	family.Presentation.SetLayer(PresentationLayer::WeaponOverlay, { 1 }, true);
-	family.Presentation.SetLayer(PresentationLayer::UserInterface, { 1 }, false);
+	family.Presentation.SetLayer(PresentationLayer::UserInterface, { 1 }, directHud);
 	family.Presentation.SetLayer(PresentationLayer::Cinematic, { 1 }, false);
+	family.Hud.Enabled = directHud;
 	return family;
 }
 

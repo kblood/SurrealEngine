@@ -60,7 +60,8 @@ void RenderSubsystem::DrawScene()
 	DrawSceneView(view);
 }
 
-void RenderSubsystem::DrawScene(const ViewFamily& viewFamily, bool renderWeaponPerView)
+void RenderSubsystem::DrawScene(const ViewFamily& viewFamily,
+	bool renderWeaponPerView, bool endFlashPerView)
 {
 	if (!PrepareSceneViews())
 		return;
@@ -76,6 +77,11 @@ void RenderSubsystem::DrawScene(const ViewFamily& viewFamily, bool renderWeaponP
 				DrawSceneView(view);
 				if (renderWeaponPerView)
 					RenderXRWeaponOverlay();
+				// EndFlash draws a viewport-sized fullscreen overlay. Apply it
+				// while each stereo eye is still selected; calling it once after
+				// the loop would affect only the final eye.
+				if (endFlashPerView)
+					Device->EndFlash();
 				Device->EndPresentationView(target, viewIndex);
 			}
 		}

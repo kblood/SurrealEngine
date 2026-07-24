@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 globalThis.window = globalThis;
+globalThis.surrealXRExperimentalWebGPU = true;
 Object.defineProperty(globalThis, "navigator", {
 	configurable: true,
 	value: { xr: { isSessionSupported: async mode => mode === "immersive-vr" } },

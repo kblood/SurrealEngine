@@ -100,7 +100,8 @@ namespace WebXR
 		const vec3& cameraLocation, const Coords& bodyRotation, float worldUnitsPerMeter,
 		const RecenterState& recenter);
 	ViewFamily BuildViewFamily(const DecodedFrame& frame, const vec3& cameraLocation,
-		const Coords& bodyRotation, float worldUnitsPerMeter, RecenterState& recenter);
+		const Coords& bodyRotation, float worldUnitsPerMeter, RecenterState& recenter,
+		bool directHud = false);
 	XRWorldTransform BuildWeaponWorldTransform(const vec3& cameraLocation,
 		float engineYawRadians, float worldUnitsPerMeter,
 		const RecenterState& recenter);
@@ -118,6 +119,7 @@ extern "C"
 	int Surreal_GetWebXRFrameLastError();
 	int Surreal_PrepareWebXRFrame(const void* frameData, uint32_t bufferBytes);
 	int Surreal_RenderWebXRFrame(const void* frameData, uint32_t bufferBytes);
+	int Surreal_RenderDirectWebGL2XRFrame(const void* frameData, uint32_t bufferBytes);
 	int Surreal_CompleteWebXRFrame();
 	float Surreal_GetWebXRWorldUnitsPerMeter();
 	int Surreal_SetWebXRWorldUnitsPerMeter(float worldUnitsPerMeter);

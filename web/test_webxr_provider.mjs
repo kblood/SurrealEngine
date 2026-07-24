@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 globalThis.window = globalThis;
 globalThis.surrealWebGPUDeviceXRCompatible = true;
+globalThis.surrealXRExperimentalWebGPU = true;
 globalThis.GPUTextureUsage = { COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, RENDER_ATTACHMENT: 16 };
 const rootListeners = new Map();
 globalThis.addEventListener = (name, callback) => rootListeners.set(name, callback);

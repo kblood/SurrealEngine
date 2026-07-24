@@ -45,6 +45,12 @@ public:
 	void PrecacheTexture(FTextureInfo& Info, uint32_t PolyFlags) override;
 	bool SupportsTextureFormat(TextureFormat Format) override;
 	void UpdateTextureRect(FTextureInfo& Info, int U, int V, int UL, int VL) override;
+	bool BeginPresentationLayer(const PresentationLayerDescription& layer) override;
+	bool BeginPresentationView(PresentationTarget target, size_t viewIndex) override;
+
+	bool BeginDirectWebXRFramebuffer(int width, int height);
+	void EndDirectWebXRFramebuffer();
+	bool DirectWebXRFramebufferActive() const { return directWebXRFramebufferActive; }
 
 	WebGL2Context* GetContext() const { return context.get(); }
 	uint32_t FrameCount() const { return frameCount; }
@@ -135,6 +141,9 @@ private:
 	mat4 currentMatrix = mat4::identity();
 	bool resourcesReady = false;
 	bool locked = false;
+	bool directWebXRFramebufferActive = false;
+	int directWebXRFramebufferWidth = 0;
+	int directWebXRFramebufferHeight = 0;
 	std::vector<WebGL2SceneVertex> queuedVertices;
 	std::vector<uint32_t> queuedIndexes;
 	std::vector<QueuedDraw> queuedDraws;

@@ -123,7 +123,8 @@ private:
 	bool PrepareSceneViews();
 	void DrawSceneView(const ViewDescription& view);
 	void DrawScene();
-	void DrawScene(const ViewFamily& viewFamily, bool renderWeaponPerView = false);
+	void DrawScene(const ViewFamily& viewFamily, bool renderWeaponPerView = false,
+		bool endFlashPerView = false);
 	void DrawXRUIVisualOverlay(const ViewFamily& viewFamily);
 	bool BeginPresentationLayer(const PresentationPlan& presentation, PresentationLayer layer);
 	void EndPresentationLayer(const PresentationPlan& presentation, PresentationLayer layer);

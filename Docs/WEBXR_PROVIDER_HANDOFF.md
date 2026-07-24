@@ -2,9 +2,16 @@
 
 Date: 2026-07-24
 
-Integration status: implemented and automated through
-`integration/unified-engine` commit `078a6d2f`. Both presentation modes remain
-experimental. The first physical Quest 3/Virtual Desktop/VDXR Automatic attempt
+Current production direction: the browser now uses the same long-lived WebGL 2
+context for flat rendering and direct `XRWebGLLayer` presentation. Automatic
+mode is `direct-webgl2`; direct WebGPU requires an explicit experimental flag,
+and the WebGPU-to-WebGL bridge is forced-diagnostic only. The direct path is
+native-, deterministic-, and live-WASM-tested with a synthetic headless XR
+boundary, but still needs named physical Quest/VDXR and Quest Browser tests.
+
+Historical WebGPU integration status: implemented and automated through
+`integration/unified-engine` commit `078a6d2f`. Those two WebGPU presentation
+modes remain experimental. The first physical Quest 3/Virtual Desktop/VDXR Automatic attempt
 failed after consent and before confirmed presentation. A later candidate
 `173bf623` test explicitly forced the WebGL bridge and entered immersive VR,
 with its temporary blocking-timing QA option unchecked. Presentation and input
@@ -31,8 +38,8 @@ continuity testing; they do not expose game data.
 
 ## Scope
 
-The provider layers optional WebXR presentation on the flat Emscripten/WebGPU
-platform. It provides:
+The provider layers optional WebXR presentation on the flat Emscripten
+platform. Its production path provides:
 
 - generation-safe immersive session enter, exit, failure cleanup, and re-entry;
 - explicit transfer between the canvas requestAnimationFrame loop and the
@@ -40,7 +47,10 @@ platform. It provides:
 - a packed, versioned JavaScript/WASM frame ABI;
 - runtime asymmetric projection and tracked per-eye pose conversion into the
   shared `ViewFamily` abstraction;
-- opaque presentation-target binding to WebGPU texture views;
+- direct binding of the running renderer's WebGL 2 context to a session-owned
+  `XRWebGLLayer` framebuffer during the synchronous XR callback;
+- opaque presentation-target binding to WebGPU texture views in the
+  experimental direct-WebGPU path;
 - per-view selection of WebGPU projection texture array slices or distinct
   per-eye textures, using each `XRGPUSubImage`'s descriptor and viewport;
 - `bgra8unorm`, `rgba8unorm`, and `rgba16float` projection pipelines selected

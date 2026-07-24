@@ -316,6 +316,14 @@ native work is suspended, the reset is deferred until the native-call gate
 reopens. Deterministic tests cover immediate and deferred recovery without
 native re-entry.
 
+WP4 closed, 2026-07-24: clean commit `e752ac8cb347bab6ef90797bcdecc548076863e1`
+passed the live scheduler handoff gate. Flat RAF remained paused for one second
+while XR owned the loop (tick 133 stayed 133), then resumed at tick 148 with a
+maximum 17,655 microsecond delta rather than consuming teardown time as a game
+step. Runtime, level, player, renderer, audio, module, heap, WebGL generation,
+and texture identities remained stable. The hash-verified evidence manifest is
+`SurrealEngine/qa/runs/2026-07-24/e752ac8c/wp4-lifecycle-handoff/manifest.json`.
+
 ### WP5 — Production immersive renderer
 
 - Use the long-lived WebGL2 context with `makeXRCompatible()` and render directly
@@ -325,8 +333,31 @@ native re-entry.
 - Keep direct `XRGPUBinding` behind a named experimental runtime flag and a
   separate qualification result.
 
-Gate: physical hardware presents current-pose stereo frames without the
-cross-API full-frame copy; failed setup returns to uninterrupted flat play.
+Implementation gate: deterministic and live-engine tests prove that the shared
+context renders both current-pose eyes directly into one compositor framebuffer
+inside XR RAF, performs no cross-API copy, advances simulation only in the
+asynchronous prepare phase, restores the prior framebuffer, and resumes the
+same flat runtime after exit/failure. Physical presentation remains a separate
+WP7 promotion gate.
+
+Progress, 2026-07-24: production `auto` now selects `direct-webgl2` only when
+the running engine owns a live WebGL 2 context. Entry calls
+`makeXRCompatible()`, creates a fresh session-owned `XRWebGLLayer`, and uses its
+actual two eye viewports as a shared ABI-v4 atlas. The async phase performs the
+single game update; the current XR callback binds the opaque browser
+framebuffer, synchronously renders both views through the existing WebGL 2
+device, and restores the prior read/draw bindings before returning. Flash and
+direct HUD/menu passes are applied while each eye viewport is selected. WebGPU
+XR requires the explicit `surrealXRExperimentalWebGPU` flag; the
+WebGPU-to-WebGL copy bridge is available only when forced for diagnostics. A
+live UT99 demo test with only the headless browser
+session/layer/compatibility boundary mocked rendered a real 1024x512 stereo
+target: 846 native draws, eight submissions, 2,078,802 nonzero bytes split
+across both eyes (1,039,396 left and 1,039,406 right), zero WebGL errors, one
+update before the render boundary, no update during synchronous stereo
+rendering, stable engine/renderer identities, and successful return to
+advancing flat frames. This is strong implementation evidence, not
+physical-headset qualification.
 
 ### WP6 — Storage, recovery, and upgrade behavior
 

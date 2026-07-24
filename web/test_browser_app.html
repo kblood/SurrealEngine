@@ -421,7 +421,7 @@ window.browserAppTestPromise = (async () => {
 		const environment = {
 			isSecureContext: true,
 			navigator: { xr: { async isSessionSupported(mode) { return mode === "immersive-vr"; } } },
-			XRGPUBinding() {},
+			XRWebGLLayer() {},
 			async surrealXREnter() { return false; },
 			surrealXRGetState() { return { lastError: "headset declined" }; },
 		};

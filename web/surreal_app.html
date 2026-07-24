@@ -54,7 +54,7 @@
 		<form data-launcher-form>
 			<div class="fields">
 				<label>Map<select data-launcher-map></select></label>
-				<label>Renderer<select data-launcher-renderer><option value="webgpu">WebGPU</option><option value="null">No graphics (diagnostics)</option></select></label>
+				<label>Renderer<select data-launcher-renderer><option value="webgl2">WebGL 2 (VR-ready)</option><option value="webgpu">WebGPU (flat / experimental XR)</option><option value="null">No graphics (diagnostics)</option></select></label>
 				<label>XR dominant hand<select data-launcher-xr-dominant-hand><option value="right">Right</option><option value="left">Left</option></select></label>
 				<label class="check-field"><input type="checkbox" data-launcher-skip-intro checked>Skip startup intro and open the selected map</label>
 				<button type="submit">Play</button>
@@ -66,7 +66,7 @@
 		<h2>Virtual reality</h2>
 		<p data-xr-session-status>Start the game before entering VR.</p>
 		<div class="fields">
-			<label>WebXR backend<select data-xr-session-backend><option value="auto">Automatic</option><option value="webgl-bridge">Force WebGL compatibility bridge</option></select></label>
+			<label>WebXR backend<select data-xr-session-backend><option value="auto">Direct WebGL 2 (recommended)</option><option value="webgl-bridge">Diagnostic WebGPU-to-WebGL bridge</option></select></label>
 			<label class="check-field"><input type="checkbox" data-xr-session-bridge-blocking-timing disabled>Temporary QA: blocking bridge timing (slower)</label>
 			<label class="check-field"><input type="checkbox" data-xr-session-bridge-rotation-reprojection disabled>Experimental: rotation-only late reprojection</label>
 		</div>
@@ -78,8 +78,8 @@
 	</section>
 	<section id="browser-status" class="panel capability-panel" aria-live="polite">
 		<h1>SurrealEngine Web</h1>
-		<p>Run your own Unreal Tournament or Unreal Gold installation in a flat WebGPU window, with optional immersive WebXR when the browser supports it.</p>
-		<p data-release-notice><strong>Release status:</strong> Flat WebGPU is the tested browser mode. Quest/WebXR is an experimental preview and remains unverified on physical Quest hardware. No game or demo data is bundled or downloaded by this site; sanctioned Unreal and Unreal Tournament downloads are linked from the importer.</p>
+		<p>Play in a flat WebGL 2 browser window, then enter or leave immersive WebXR without restarting the game.</p>
+		<p data-release-notice><strong>Release status:</strong> Direct WebGL 2 is the production desktop-to-VR path. WebGPU XR and the copy bridge remain diagnostic/experimental, and physical Quest qualification is still required. No game or demo data is bundled or downloaded by this site; sanctioned Unreal and Unreal Tournament downloads are linked from the importer.</p>
 		<ul data-capability-list><li>Checking browser capabilities…</li></ul>
 		<p data-app-phase>Preparing launcher…</p>
 		<p data-app-error hidden role="alert"></p>

@@ -12,6 +12,9 @@
 		"secure-context-required", "session-end-rejected", "session-ended-before-activation",
 		"session-ended-before-first-frame", "session-request-failed",
 		"unsupported-color-format", "unsupported-view-configuration", "webgl-bridge-creation-failed",
+		"webgl2-context-unavailable", "webgl2-framebuffer-unavailable",
+		"webgl2-layer-creation-failed", "webgl2-layer-unavailable",
+		"webgl2-xr-compatibility-failed", "invalid-webgl2-layer", "invalid-webgl2-viewport",
 		"webgpu-device-not-ready", "webxr-provider-failed", "webxr-unavailable",
 		"webxr-webgl-bridge-unavailable", "webxr-webgpu-binding-unavailable",
 		"native-frame-rejected-0", "native-frame-rejected-1", "native-frame-rejected-2",
@@ -51,7 +54,8 @@
 	}
 
 	function knownPresentationMode(value) {
-		return value === "direct-webgpu" || value === "webgl-bridge" ? value : UNKNOWN;
+		return value === "direct-webgl2" || value === "direct-webgpu" ||
+			value === "webgl-bridge" ? value : UNKNOWN;
 	}
 
 	function knownPresentationPreference(value) {

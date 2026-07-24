@@ -12,11 +12,13 @@
 			return result(false, "insecure-context", "WebXR requires HTTPS or localhost.");
 		if (!host.navigator || !host.navigator.xr || typeof host.navigator.xr.isSessionSupported !== "function")
 			return result(false, "webxr-unavailable", "This browser does not expose WebXR.");
-		const direct = typeof host.XRGPUBinding === "function";
+		const directWebGL2 = typeof host.XRWebGLLayer === "function";
+		const directWebGPU = host.surrealXRExperimentalWebGPU === true &&
+			typeof host.XRGPUBinding === "function";
 		const bridge = typeof host.XRWebGLLayer === "function" && host.SurrealWebXRWebGLBridge &&
 			host.SurrealWebXRWebGLBridge.canCreateWebGL2(host);
-		if (!direct && !bridge)
-			return result(false, "webxr-presentation-unavailable", "No direct WebGPU or WebGL compatibility presentation path is available.");
+		if (!directWebGL2 && !directWebGPU && !bridge)
+			return result(false, "webxr-presentation-unavailable", "No WebXR presentation path is available.");
 		try {
 			return await host.navigator.xr.isSessionSupported("immersive-vr") ?
 				result(true, "ready", "Immersive WebXR is available.") :
@@ -92,6 +94,19 @@
 			this.engineRunning = true;
 			this._transition(SESSION_STATES.FLAT_RUNNING, null);
 			if (this.root) this.root.hidden = false;
+			this._refreshRuntimeCapability();
+		}
+
+		_refreshRuntimeCapability() {
+			if (typeof this.host.surrealXRGetCapabilities !== "function") return;
+			Promise.resolve(this.host.surrealXRGetCapabilities()).then(capabilities => {
+				if (!this.engineRunning || !capabilities) return;
+				this.updateCapability(result(capabilities.supported === true,
+					capabilities.supported === true ? "ready" : "runtime-backend-unavailable",
+					capabilities.supported === true ?
+						"Immersive WebXR is ready through the running WebGL 2 renderer." :
+						"Enter VR requires the WebGL 2 renderer in this production build."));
+			}).catch(() => {});
 		}
 
 		_preference() {

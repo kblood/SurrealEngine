@@ -59,6 +59,10 @@ assert.equal(direct.presentationMode, "direct-webgpu");
 assert.equal(direct.layerWidth, 2048);
 assert.equal(direct.bridgeSamples, 0);
 assert.equal(direct.bridgeP99Ms, "unknown");
+assert.equal(diagnostics.normalized({ presentationMode: "direct-webgl2" }).presentationMode,
+	"direct-webgl2");
+assert.equal(diagnostics.normalized({ lastErrorCode: "webgl2-layer-creation-failed" }).errorCode,
+	"webgl2-layer-creation-failed");
 assert.equal(diagnostics.normalized({ bridgeDiagnostics: { reprojectionMode: "disabled" } })
 	.bridgeReprojectionMode, "disabled");
 

@@ -6,6 +6,14 @@ Initial diagnostic candidate: `cef1e89b3bbccba4d041ce5d00cc09bd99358c06`
 
 Newest physical candidate: `802cfa62b7436a0c7f473d6292052812bae33b5f`
 
+Current-source note, 2026-07-24: this document records the historical
+WebGPU/direct and WebGPU-to-WebGL bridge candidates. Automatic mode has since
+been replaced by a production `direct-webgl2` implementation that reuses the
+flat renderer's context and removes the cross-API copy. Its live synthetic
+compositor test passes, but no named physical result exists yet. Nothing below
+qualifies the new path; the failed observations remain useful regression cases
+for the next Quest 3/VDXR and Quest Browser matrix.
+
 Public URL:
 `https://dionysus.dk/webxr/Ports/SurrealEngine-Candidate-cef1e89b/`
 

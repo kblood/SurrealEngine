@@ -478,7 +478,8 @@
 
 		_configureRenderers(preferred) {
 			if (!this.renderer) return;
-			const labels = { webgl2: "WebGL 2", webgpu: "WebGPU", null: "No graphics (diagnostics)" };
+			const labels = { webgl2: "WebGL 2 (VR-ready)", webgpu: "WebGPU (flat / experimental XR)",
+				null: "No graphics (diagnostics)" };
 			const renderers = Array.isArray(this.options.availableRenderers) && this.options.availableRenderers.length ?
 				this.options.availableRenderers : ["webgpu", "null"];
 			this.renderer.textContent = "";

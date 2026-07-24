@@ -41,14 +41,13 @@ out vec4 vertexColor;
 void main()
 {
 	gl_Position = objectToProjection * vec4(inPosition, 1.0);
-	// The flat engine matrices use D3D/Vulkan's top-left screen convention
-	// and zero-to-one clip depth. WebXR matrices already use WebGL clip space;
-	// the switch is present now so XR can reuse this exact draw path later.
+	// Engine matrices use zero-to-one clip depth for every provider. WebGL uses
+	// minus-one-to-one, so that conversion is unconditional. Direct WebXR view
+	// rectangles already account for WebGL's lower-left viewport convention;
+	// only the ordinary top-left flat presentation reflects Y here.
 	if (!webXRProjection)
-	{
 		gl_Position.y = -gl_Position.y;
-		gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;
-	}
+	gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;
 	flags = inFlags;
 	texCoord = inTexCoord;
 	texCoord2 = inTexCoord2;
@@ -283,7 +282,7 @@ void WebGL2RenderDevice::InitializeGeneration()
 	if (resourcesReady)
 	{
 		initializedGeneration = context->Generation();
-		UpdateSceneUniforms(currentMatrix);
+		UpdateSceneUniforms(currentMatrix, directWebXRFramebufferActive);
 	}
 	CountErrors();
 }
@@ -345,9 +344,11 @@ void WebGL2RenderDevice::Lock(vec4 inFlashScale, vec4 inFlashFog, vec4 screenCle
 		return;
 	}
 
-	int bufferWidth = 0;
-	int bufferHeight = 0;
-	if (!context->GetDrawingBufferSize(bufferWidth, bufferHeight) || bufferWidth <= 0 || bufferHeight <= 0)
+	int bufferWidth = directWebXRFramebufferActive ? directWebXRFramebufferWidth : 0;
+	int bufferHeight = directWebXRFramebufferActive ? directWebXRFramebufferHeight : 0;
+	if ((!directWebXRFramebufferActive &&
+		!context->GetDrawingBufferSize(bufferWidth, bufferHeight)) ||
+		bufferWidth <= 0 || bufferHeight <= 0)
 	{
 		suppressedFrameCount++;
 		return;
@@ -707,7 +708,7 @@ void WebGL2RenderDevice::EndFlash()
 		return;
 	SubmitQueuedDraws();
 	const mat4 savedMatrix = currentMatrix;
-	UpdateSceneUniforms(mat4::identity());
+	UpdateSceneUniforms(mat4::identity(), directWebXRFramebufferActive);
 	const vec4 color(flashFog.x, flashFog.y, flashFog.z, 1.0f - std::min(flashScale.x * 2.0f, 1.0f));
 	std::vector<WebGL2SceneVertex> vertices(4);
 	SetVertex(vertices[0], 0, vec3(-1.0f, -1.0f, 0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), vec2(0.0f), color);
@@ -717,7 +718,7 @@ void WebGL2RenderDevice::EndFlash()
 	std::vector<uint32_t> indexes = { 0, 1, 2, 0, 2, 3 };
 	DrawIndexed(GL_TRIANGLES, vertices, indexes, PF_Highlighted, nullptr, nullptr, nullptr, nullptr, false, nullptr, 0.0f, 0.1f);
 	SubmitQueuedDraws();
-	UpdateSceneUniforms(savedMatrix);
+	UpdateSceneUniforms(savedMatrix, directWebXRFramebufferActive);
 	if (currentFrame)
 		SetSceneNode(currentFrame);
 }
@@ -736,8 +737,40 @@ void WebGL2RenderDevice::SetSceneNode(FSceneNode* frame)
 	const int y = std::max(currentHeight - (frame->YB + frame->Y), 0);
 	glViewport(x, y, std::max(frame->X, 0), std::max(frame->Y, 0));
 	glDepthRangef(0.1f, 1.0f);
-	UpdateSceneUniforms(frame->Projection * frame->WorldToView * frame->ObjectToWorld);
+	UpdateSceneUniforms(frame->Projection * frame->WorldToView * frame->ObjectToWorld,
+		directWebXRFramebufferActive);
 	CountErrors();
+}
+
+bool WebGL2RenderDevice::BeginPresentationLayer(const PresentationLayerDescription& layer)
+{
+	return layer.Enabled && (layer.Target.IsDefault() ||
+		(directWebXRFramebufferActive && layer.Target.Slot == 1));
+}
+
+bool WebGL2RenderDevice::BeginPresentationView(PresentationTarget target, size_t)
+{
+	return target.IsDefault() || (directWebXRFramebufferActive && target.Slot == 1);
+}
+
+bool WebGL2RenderDevice::BeginDirectWebXRFramebuffer(int width, int height)
+{
+	if (directWebXRFramebufferActive || locked || width <= 0 || height <= 0 || !EnsureReady())
+		return false;
+	directWebXRFramebufferWidth = width;
+	directWebXRFramebufferHeight = height;
+	directWebXRFramebufferActive = true;
+	return true;
+}
+
+void WebGL2RenderDevice::EndDirectWebXRFramebuffer()
+{
+	if (!directWebXRFramebufferActive)
+		return;
+	SubmitQueuedDraws();
+	directWebXRFramebufferActive = false;
+	directWebXRFramebufferWidth = 0;
+	directWebXRFramebufferHeight = 0;
 }
 
 void WebGL2RenderDevice::PrecacheTexture(FTextureInfo& info, uint32_t polyFlags)
