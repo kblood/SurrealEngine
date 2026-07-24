@@ -42,7 +42,9 @@ int main()
 		"    {\"roster_index\": 0, \"requested_name\": \"Loque\", \"external_skill\": 7, \"identity_fragment\": \"participant-v1:index=0;external_skill=7;requested_name_hex=4c6f717565\"},\n"
 		"    {\"roster_index\": 1, \"requested_name\": \"Tamerlane\", \"external_skill\": 4, \"identity_fragment\": \"participant-v1:index=1;external_skill=4;requested_name_hex=54616d65726c616e65\"}\n"
 		"  ],\n"
-		"  \"telemetry_event_cap\": \"74\"\n"
+		"  \"telemetry_event_cap\": \"74\",\n"
+		"  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
+		"  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		"}\n";
 	if (BotBenchmarkTelemetryProtocol::ManifestJson(config) != expectedManifest)
 		return Fail("bot benchmark v2 manifest serialization was not exact");
@@ -73,6 +75,16 @@ int main()
 	second.PositionY = -2.5;
 	second.PositionZ = -0.0;
 	second.VelocityZ = 3.0;
+	second.PhysicsMode = "Walking";
+	second.LatentAction = "MoveToward";
+	second.AccelerationX = 100.0;
+	second.AccelerationY = -50.0;
+	second.DestinationX = 512.0;
+	second.DestinationY = 256.0;
+	second.DestinationZ = -32.0;
+	second.MoveTimer = 0.75;
+	second.MoveTargetIdentity = "actor:PathNode3";
+	second.MoveTargetName = "Path\"Node";
 	second.Health = 87;
 	second.Score = 2.5;
 	second.PriDeaths = 3.0;
@@ -83,7 +95,29 @@ int main()
 	second.SuicidesExact = 2;
 	second.EnvironmentalDeathsExact = 1;
 	second.HazardExposedDeathsProxy = 1;
+	second.DirectEnemyKills = 1;
+	second.UnassistedEnvironmentalDeaths = 1;
+	second.RecentEnemyContributedEnvironmentalDeathsProxy = 1;
+	second.RecentEnemyMomentumContributedEnvironmentalDeathsProxy = 1;
 	second.HitWallEventsExact = 9;
+	second.PainLedgeVetoesExact = 8;
+	second.PainLedgeRepeatVetoesExact = 6;
+	second.PainLedgeRecoveryAttemptsExact = 7;
+	second.PainLedgeRecoveryEscapesExact = 5;
+	second.WallAdjustCallsExact = 12;
+	second.WallAdjustRepeatsExact = 8;
+	second.WallAdjustRecoveryAttemptsExact = 7;
+	second.WallAdjustRecoverySuccessesExact = 6;
+	second.WallAdjustForcedReplansExact = 2;
+	second.MoveStallDetectionsExact = 3;
+	second.MoveStallEpisodeResetsExact = 1;
+	second.MoveStallForcedReplansExact = 2;
+	second.MoveStallNavigationForcedReplansExact = 1;
+	second.MoveStallTargetlessMoveToTimeoutsExact = 1;
+	second.MoveStallEligibleSeconds = 4.25;
+	second.FailedNavigationAvoidanceActivationsExact = 2;
+	second.FailedNavigationSafeguardSuppressionsExact = 3;
+	second.FailedNavigationRoutePenaltyApplicationsExact = 4;
 
 	BotBenchmarkBotState first;
 	first.Identity = "pri:1";
@@ -103,8 +137,8 @@ int main()
 	event.Bots = { second, first };
 	const std::string expectedEvent =
 		"{\"schema\":\"surreal-bot-benchmark-telemetry-v2\",\"seq\":\"5\",\"config_id\":\"fnv1a64:b998eb71db26e88f\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
-		"{\"identity\":\"pri:1\",\"actor\":\"Bot1\",\"player_name\":\"Line\\nBreak\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"health\":100,\"score\":0.000000,\"pri_deaths\":0.000000,\"movement_intent\":false,\"in_hazard_zone\":false,\"kills_exact\":\"0\",\"deaths_exact\":\"0\",\"suicides_exact\":\"0\",\"environmental_deaths_exact\":\"0\",\"hazard_exposed_deaths_proxy\":\"0\",\"hit_wall_events_exact\":\"0\",\"state\":\"Attacking\"},"
-		"{\"identity\":\"pri:2\",\"actor\":\"Bot2\",\"player_name\":\"B\\\"ot\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":1.250000,\"y\":-2.500000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":3.000000},\"health\":87,\"score\":2.500000,\"pri_deaths\":3.000000,\"movement_intent\":true,\"in_hazard_zone\":true,\"kills_exact\":\"4\",\"deaths_exact\":\"3\",\"suicides_exact\":\"2\",\"environmental_deaths_exact\":\"1\",\"hazard_exposed_deaths_proxy\":\"1\",\"hit_wall_events_exact\":\"9\",\"state\":\"Roaming\"}]}\n";
+		"{\"identity\":\"pri:1\",\"actor\":\"Bot1\",\"player_name\":\"Line\\nBreak\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"physics_mode\":\"\",\"latent_action\":\"\",\"acceleration\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"destination\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"move_timer\":0.000000,\"move_target_identity\":\"\",\"move_target_name\":\"\",\"health\":100,\"score\":0.000000,\"pri_deaths\":0.000000,\"movement_intent\":false,\"in_hazard_zone\":false,\"kills_exact\":\"0\",\"deaths_exact\":\"0\",\"suicides_exact\":\"0\",\"environmental_deaths_exact\":\"0\",\"hazard_exposed_deaths_proxy\":\"0\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"0\",\"unassisted_environmental_deaths\":\"0\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"0\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"0\",\"hit_wall_events_exact\":\"0\",\"pain_ledge_vetoes_exact\":\"0\",\"pain_ledge_repeat_vetoes_exact\":\"0\",\"pain_ledge_recovery_attempts_exact\":\"0\",\"pain_ledge_recovery_escapes_exact\":\"0\",\"wall_adjust_calls_exact\":\"0\",\"wall_adjust_repeats_exact\":\"0\",\"wall_adjust_recovery_attempts_exact\":\"0\",\"wall_adjust_recovery_successes_exact\":\"0\",\"wall_adjust_forced_replans_exact\":\"0\",\"move_stall_detections_exact\":\"0\",\"move_stall_episode_resets_exact\":\"0\",\"move_stall_forced_replans_exact\":\"0\",\"move_stall_navigation_forced_replans_exact\":\"0\",\"move_stall_targetless_move_to_timeouts_exact\":\"0\",\"move_stall_eligible_seconds\":0.000000000,\"failed_navigation_avoidance_activations_exact\":\"0\",\"failed_navigation_safeguard_suppressions_exact\":\"0\",\"failed_navigation_route_penalty_applications_exact\":\"0\",\"state\":\"Attacking\"},"
+		"{\"identity\":\"pri:2\",\"actor\":\"Bot2\",\"player_name\":\"B\\\"ot\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":1.250000,\"y\":-2.500000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":3.000000},\"physics_mode\":\"Walking\",\"latent_action\":\"MoveToward\",\"acceleration\":{\"x\":100.000000,\"y\":-50.000000,\"z\":0.000000},\"destination\":{\"x\":512.000000,\"y\":256.000000,\"z\":-32.000000},\"move_timer\":0.750000,\"move_target_identity\":\"actor:PathNode3\",\"move_target_name\":\"Path\\\"Node\",\"health\":87,\"score\":2.500000,\"pri_deaths\":3.000000,\"movement_intent\":true,\"in_hazard_zone\":true,\"kills_exact\":\"4\",\"deaths_exact\":\"3\",\"suicides_exact\":\"2\",\"environmental_deaths_exact\":\"1\",\"hazard_exposed_deaths_proxy\":\"1\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"1\",\"unassisted_environmental_deaths\":\"1\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"1\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"1\",\"hit_wall_events_exact\":\"9\",\"pain_ledge_vetoes_exact\":\"8\",\"pain_ledge_repeat_vetoes_exact\":\"6\",\"pain_ledge_recovery_attempts_exact\":\"7\",\"pain_ledge_recovery_escapes_exact\":\"5\",\"wall_adjust_calls_exact\":\"12\",\"wall_adjust_repeats_exact\":\"8\",\"wall_adjust_recovery_attempts_exact\":\"7\",\"wall_adjust_recovery_successes_exact\":\"6\",\"wall_adjust_forced_replans_exact\":\"2\",\"move_stall_detections_exact\":\"3\",\"move_stall_episode_resets_exact\":\"1\",\"move_stall_forced_replans_exact\":\"2\",\"move_stall_navigation_forced_replans_exact\":\"1\",\"move_stall_targetless_move_to_timeouts_exact\":\"1\",\"move_stall_eligible_seconds\":4.250000000,\"failed_navigation_avoidance_activations_exact\":\"2\",\"failed_navigation_safeguard_suppressions_exact\":\"3\",\"failed_navigation_route_penalty_applications_exact\":\"4\",\"state\":\"Roaming\"}]}\n";
 	if (BotBenchmarkTelemetryProtocol::EventJson(configId, event) != expectedEvent)
 		return Fail("v2 telemetry event ordering, formatting, or escaping changed");
 
@@ -120,6 +154,34 @@ int main()
 	}
 	if (!rejectedNonFinite)
 		return Fail("bot benchmark telemetry accepted a non-finite number");
+
+	rejectedNonFinite = false;
+	try
+	{
+		event.Bots.front().VelocityX = 0.0;
+		event.Bots.front().MoveTimer = std::numeric_limits<double>::quiet_NaN();
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	}
+	catch (const std::invalid_argument&)
+	{
+		rejectedNonFinite = true;
+	}
+	if (!rejectedNonFinite)
+		return Fail("bot benchmark telemetry accepted a non-finite diagnostic number");
+
+	rejectedNonFinite = false;
+	try
+	{
+		event.Bots.front().MoveTimer = 0.0;
+		event.Bots.front().MoveStallEligibleSeconds = std::numeric_limits<double>::infinity();
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	}
+	catch (const std::invalid_argument&)
+	{
+		rejectedNonFinite = true;
+	}
+	if (!rejectedNonFinite)
+		return Fail("bot benchmark telemetry accepted non-finite move-stall eligible seconds");
 
 	return 0;
 }

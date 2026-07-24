@@ -83,6 +83,19 @@ namespace
 			<< "\"x\":" << Fixed(bot.VelocityX, 6)
 			<< ",\"y\":" << Fixed(bot.VelocityY, 6)
 			<< ",\"z\":" << Fixed(bot.VelocityZ, 6) << "}"
+			<< ",\"physics_mode\":" << JsonString(bot.PhysicsMode)
+			<< ",\"latent_action\":" << JsonString(bot.LatentAction)
+			<< ",\"acceleration\":{"
+			<< "\"x\":" << Fixed(bot.AccelerationX, 6)
+			<< ",\"y\":" << Fixed(bot.AccelerationY, 6)
+			<< ",\"z\":" << Fixed(bot.AccelerationZ, 6) << "}"
+			<< ",\"destination\":{"
+			<< "\"x\":" << Fixed(bot.DestinationX, 6)
+			<< ",\"y\":" << Fixed(bot.DestinationY, 6)
+			<< ",\"z\":" << Fixed(bot.DestinationZ, 6) << "}"
+			<< ",\"move_timer\":" << Fixed(bot.MoveTimer, 6)
+			<< ",\"move_target_identity\":" << JsonString(bot.MoveTargetIdentity)
+			<< ",\"move_target_name\":" << JsonString(bot.MoveTargetName)
 			<< ",\"health\":" << bot.Health
 			<< ",\"score\":" << Fixed(bot.Score, 6)
 			<< ",\"pri_deaths\":" << Fixed(bot.PriDeaths, 6)
@@ -93,7 +106,31 @@ namespace
 			<< ",\"suicides_exact\":\"" << bot.SuicidesExact << "\""
 			<< ",\"environmental_deaths_exact\":\"" << bot.EnvironmentalDeathsExact << "\""
 			<< ",\"hazard_exposed_deaths_proxy\":\"" << bot.HazardExposedDeathsProxy << "\""
+			<< ",\"direct_self_kills\":\"" << bot.DirectSelfKills << "\""
+			<< ",\"direct_enemy_kills\":\"" << bot.DirectEnemyKills << "\""
+			<< ",\"unassisted_environmental_deaths\":\"" << bot.UnassistedEnvironmentalDeaths << "\""
+			<< ",\"recent_enemy_contributed_environmental_deaths_proxy\":\"" << bot.RecentEnemyContributedEnvironmentalDeathsProxy << "\""
+			<< ",\"ambiguous_deaths\":\"" << bot.AmbiguousDeaths << "\""
+			<< ",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"" << bot.RecentEnemyMomentumContributedEnvironmentalDeathsProxy << "\""
 			<< ",\"hit_wall_events_exact\":\"" << bot.HitWallEventsExact << "\""
+			<< ",\"pain_ledge_vetoes_exact\":\"" << bot.PainLedgeVetoesExact << "\""
+			<< ",\"pain_ledge_repeat_vetoes_exact\":\"" << bot.PainLedgeRepeatVetoesExact << "\""
+			<< ",\"pain_ledge_recovery_attempts_exact\":\"" << bot.PainLedgeRecoveryAttemptsExact << "\""
+			<< ",\"pain_ledge_recovery_escapes_exact\":\"" << bot.PainLedgeRecoveryEscapesExact << "\""
+			<< ",\"wall_adjust_calls_exact\":\"" << bot.WallAdjustCallsExact << "\""
+			<< ",\"wall_adjust_repeats_exact\":\"" << bot.WallAdjustRepeatsExact << "\""
+			<< ",\"wall_adjust_recovery_attempts_exact\":\"" << bot.WallAdjustRecoveryAttemptsExact << "\""
+			<< ",\"wall_adjust_recovery_successes_exact\":\"" << bot.WallAdjustRecoverySuccessesExact << "\""
+			<< ",\"wall_adjust_forced_replans_exact\":\"" << bot.WallAdjustForcedReplansExact << "\""
+			<< ",\"move_stall_detections_exact\":\"" << bot.MoveStallDetectionsExact << "\""
+			<< ",\"move_stall_episode_resets_exact\":\"" << bot.MoveStallEpisodeResetsExact << "\""
+			<< ",\"move_stall_forced_replans_exact\":\"" << bot.MoveStallForcedReplansExact << "\""
+			<< ",\"move_stall_navigation_forced_replans_exact\":\"" << bot.MoveStallNavigationForcedReplansExact << "\""
+			<< ",\"move_stall_targetless_move_to_timeouts_exact\":\"" << bot.MoveStallTargetlessMoveToTimeoutsExact << "\""
+			<< ",\"move_stall_eligible_seconds\":" << Fixed(bot.MoveStallEligibleSeconds, 9)
+			<< ",\"failed_navigation_avoidance_activations_exact\":\"" << bot.FailedNavigationAvoidanceActivationsExact << "\""
+			<< ",\"failed_navigation_safeguard_suppressions_exact\":\"" << bot.FailedNavigationSafeguardSuppressionsExact << "\""
+			<< ",\"failed_navigation_route_penalty_applications_exact\":\"" << bot.FailedNavigationRoutePenaltyApplicationsExact << "\""
 			<< ",\"state\":" << JsonString(bot.State) << "}";
 	}
 
@@ -155,7 +192,9 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< "  \"bot_count\": " << config.GetRoster().GetCount() << ",\n";
 	WriteRequestedRoster(out, config.GetRoster());
 	out << ",\n"
-		<< "  \"telemetry_event_cap\": \"" << EventCap(config.GetMaxTicks()) << "\"\n"
+		<< "  \"telemetry_event_cap\": \"" << EventCap(config.GetMaxTicks()) << "\",\n"
+		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
+		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";
 	return out.str();
 }

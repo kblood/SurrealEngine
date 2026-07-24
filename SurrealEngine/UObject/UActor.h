@@ -5,6 +5,10 @@
 #include "UObject.h"
 #include "UnrealURL.h"
 #include "Math/bbox.h"
+#include "PawnFailedNavigationMemory.h"
+#include "PawnMoveStallWatchdog.h"
+#include "PawnPainLedgeRecovery.h"
+#include "PawnWallAdjustRecovery.h"
 
 class UTexture;
 class UPrimitive;
@@ -1908,7 +1912,26 @@ public:
 	float GetSpeed();
 
 	bool TickRotateTo(const vec3& target);
-	bool TickMoveTo(const vec3& target);
+	bool TickMoveTo(const vec3& target, float elapsed, UActor* targetActor = nullptr);
+	void RecordPainLedgeVeto(const vec3& origin, const vec2& unsafeDirection);
+	uint64_t PainLedgeVetoCount() const { return PainLedgeVetoCountValue; }
+	uint64_t PainLedgeRepeatVetoCount() const { return PainLedgeRepeatVetoCountValue; }
+	uint64_t PainLedgeRecoveryAttemptCount() const { return PainLedgeRecoveryAttemptCountValue; }
+	uint64_t PainLedgeRecoveryEscapeCount() const { return PainLedgeRecoveryEscapeCountValue; }
+	uint64_t WallAdjustCallCount() const { return WallAdjustCallCountValue; }
+	uint64_t WallAdjustRepeatCount() const { return WallAdjustRepeatCountValue; }
+	uint64_t WallAdjustRecoveryAttemptCount() const { return WallAdjustRecoveryAttemptCountValue; }
+	uint64_t WallAdjustRecoverySuccessCount() const { return WallAdjustRecoverySuccessCountValue; }
+	uint64_t WallAdjustForcedReplanCount() const { return WallAdjustForcedReplanCountValue; }
+	uint64_t MoveStallDetectionCount() const { return MoveStallDetectionCountValue; }
+	uint64_t MoveStallEpisodeResetCount() const { return MoveStallEpisodeResetCountValue; }
+	uint64_t MoveStallForcedReplanCount() const { return MoveStallForcedReplanCountValue; }
+	uint64_t MoveStallNavigationForcedReplanCount() const { return MoveStallNavigationForcedReplanCountValue; }
+	uint64_t MoveStallTargetlessMoveToTimeoutCount() const { return MoveStallTargetlessMoveToTimeoutCountValue; }
+	double MoveStallEligibleSeconds() const { return MoveStallEligibleSecondsValue; }
+	uint64_t FailedNavigationAvoidanceActivationCount() const { return FailedNavigationAvoidanceActivationCountValue; }
+	uint64_t FailedNavigationSafeguardSuppressionCount() const { return FailedNavigationSafeguardSuppressionCountValue; }
+	uint64_t FailedNavigationRoutePenaltyApplicationCount() const { return FailedNavigationRoutePenaltyApplicationCountValue; }
 
 	// Returns true if any of the several points of other is visible (origin, top, bottom)
 	// ignoreDistance is a Deus Ex only parameter, it is always false on Unreal.
@@ -2113,7 +2136,36 @@ public:
 	Rotator& AIAddViewRotation() { return Value<Rotator>(PropOffsets_Pawn.AIAddViewRotation); }
 
 private:
+	void ObserveMoveStallWatchdog(float elapsed);
+	void RecordMoveStallCommand();
+	void AdvancePainLedgeRecovery(float elapsed);
+	bool ApplyPainLedgeRecovery(const vec2& requestedDirection);
+	void AdvanceWallAdjustRecovery(float elapsed);
+	bool ApplyWallAdjustRecovery(const vec2& requestedDirection);
+
 	bool IsInPathSpecialHandling = false;
+	PawnMovement::FailedNavigationMemoryState FailedNavigationMemory;
+	PawnMovement::MoveStallWatchdogState MoveStallWatchdog;
+	PawnMovement::PainLedgeRecoveryState PainLedgeRecovery;
+	PawnMovement::WallAdjustRecoveryState WallAdjustRecovery;
+	uint64_t PainLedgeVetoCountValue = 0;
+	uint64_t PainLedgeRepeatVetoCountValue = 0;
+	uint64_t PainLedgeRecoveryAttemptCountValue = 0;
+	uint64_t PainLedgeRecoveryEscapeCountValue = 0;
+	uint64_t WallAdjustCallCountValue = 0;
+	uint64_t WallAdjustRepeatCountValue = 0;
+	uint64_t WallAdjustRecoveryAttemptCountValue = 0;
+	uint64_t WallAdjustRecoverySuccessCountValue = 0;
+	uint64_t WallAdjustForcedReplanCountValue = 0;
+	uint64_t MoveStallDetectionCountValue = 0;
+	uint64_t MoveStallEpisodeResetCountValue = 0;
+	uint64_t MoveStallForcedReplanCountValue = 0;
+	uint64_t MoveStallNavigationForcedReplanCountValue = 0;
+	uint64_t MoveStallTargetlessMoveToTimeoutCountValue = 0;
+	double MoveStallEligibleSecondsValue = 0.0;
+	uint64_t FailedNavigationAvoidanceActivationCountValue = 0;
+	uint64_t FailedNavigationSafeguardSuppressionCountValue = 0;
+	uint64_t FailedNavigationRoutePenaltyApplicationCountValue = 0;
 };
 
 class UScout : public UPawn

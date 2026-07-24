@@ -2,6 +2,8 @@
 #include "BotBenchmarkDriver.h"
 #include "BotControlledMatch.h"
 #include "BotBenchmarkGameProfile.h"
+#include "BotBenchmarkDeathAttributionCoordinator.h"
+#include "BotBenchmarkDeathAttributionHookContract.h"
 #include "BotBenchmarkProtocol.h"
 #include "BotBenchmarkShadowTelemetry.h"
 #include "BotBenchmarkTelemetry.h"
@@ -16,6 +18,7 @@
 #include "Package/PackageManager.h"
 #include "UObject/ULevel.h"
 #include "UObject/UClient.h"
+#include "UObject/UProperty.h"
 #include "VM/Frame.h"
 #include "VM/ScriptCall.h"
 
@@ -25,8 +28,11 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 namespace
 {
+	constexpr double DeathAttributionRecentWindowSeconds = 2.0;
+
 	class BotBenchmarkDriver final : public HeadlessDriver
 	{
 	public:
@@ -171,7 +177,66 @@ namespace
 			uint64_t SuicidesExact = 0;
 			uint64_t EnvironmentalDeathsExact = 0;
 			uint64_t HazardExposedDeathsProxy = 0;
+			uint64_t DirectSelfKills = 0;
+			uint64_t DirectEnemyKills = 0;
+			uint64_t UnassistedEnvironmentalDeaths = 0;
+			uint64_t RecentEnemyContributedEnvironmentalDeathsProxy = 0;
+			uint64_t AmbiguousDeaths = 0;
+			uint64_t RecentEnemyMomentumContributedEnvironmentalDeathsProxy = 0;
 			uint64_t HitWallEventsExact = 0;
+			UPawn* PainLedgeCounterPawn = nullptr;
+			uint64_t PreviousPainLedgeVetoes = 0;
+			uint64_t PreviousPainLedgeRepeatVetoes = 0;
+			uint64_t PreviousPainLedgeRecoveryAttempts = 0;
+			uint64_t PreviousPainLedgeRecoveryEscapes = 0;
+			uint64_t PainLedgeVetoesExact = 0;
+			uint64_t PainLedgeRepeatVetoesExact = 0;
+			uint64_t PainLedgeRecoveryAttemptsExact = 0;
+			uint64_t PainLedgeRecoveryEscapesExact = 0;
+			uint64_t PreviousWallAdjustCalls = 0;
+			uint64_t PreviousWallAdjustRepeats = 0;
+			uint64_t PreviousWallAdjustRecoveryAttempts = 0;
+			uint64_t PreviousWallAdjustRecoverySuccesses = 0;
+			uint64_t PreviousWallAdjustForcedReplans = 0;
+			uint64_t WallAdjustCallsExact = 0;
+			uint64_t WallAdjustRepeatsExact = 0;
+			uint64_t WallAdjustRecoveryAttemptsExact = 0;
+			uint64_t WallAdjustRecoverySuccessesExact = 0;
+			uint64_t WallAdjustForcedReplansExact = 0;
+			uint64_t PreviousMoveStallDetections = 0;
+			uint64_t PreviousMoveStallEpisodeResets = 0;
+			uint64_t PreviousMoveStallForcedReplans = 0;
+			uint64_t PreviousMoveStallNavigationForcedReplans = 0;
+			uint64_t PreviousMoveStallTargetlessMoveToTimeouts = 0;
+			double PreviousMoveStallEligibleSeconds = 0.0;
+			uint64_t MoveStallDetectionsExact = 0;
+			uint64_t MoveStallEpisodeResetsExact = 0;
+			uint64_t MoveStallForcedReplansExact = 0;
+			uint64_t MoveStallNavigationForcedReplansExact = 0;
+			uint64_t MoveStallTargetlessMoveToTimeoutsExact = 0;
+			double MoveStallEligibleSeconds = 0.0;
+			uint64_t PreviousFailedNavigationAvoidanceActivations = 0;
+			uint64_t PreviousFailedNavigationSafeguardSuppressions = 0;
+			uint64_t PreviousFailedNavigationRoutePenaltyApplications = 0;
+			uint64_t FailedNavigationAvoidanceActivationsExact = 0;
+			uint64_t FailedNavigationSafeguardSuppressionsExact = 0;
+			uint64_t FailedNavigationRoutePenaltyApplicationsExact = 0;
+		};
+
+		enum class AttributionScopeKind
+		{
+			TakeDamage,
+			EnvironmentalSource,
+			Killed,
+		};
+
+		struct ActiveAttributionCall
+		{
+			UFunction* Function = nullptr;
+			UObject* Instance = nullptr;
+			std::string VictimIdentity;
+			BotBenchmarkDeathAttribution::ScopeToken Token;
+			AttributionScopeKind Kind = AttributionScopeKind::TakeDamage;
 		};
 
 		void ValidateGameProfile()
@@ -185,6 +250,7 @@ namespace
 			}
 			if (!profile.SupportsMode(BotBenchmarkGameMode::Deathmatch))
 				Fail("bot benchmark game profile has no verified deathmatch mode");
+			IsUnrealTournamentProfile = EngineRef.packages->IsUnrealTournament();
 		}
 
 		static std::string PawnIdentity(UPawn* pawn)
@@ -194,6 +260,55 @@ namespace
 			if (UPlayerReplicationInfo* pri = pawn->PlayerReplicationInfo())
 				return "pri:" + std::to_string(pri->PlayerID());
 			return "actor:" + pawn->Name.ToString();
+		}
+
+		static std::string ActorIdentity(UActor* actor)
+		{
+			if (!actor)
+				return {};
+			if (UPawn* pawn = UObject::TryCast<UPawn>(actor))
+				return PawnIdentity(pawn);
+			return "actor:" + actor->Name.ToString();
+		}
+
+		static std::string PhysicsModeName(uint8_t physics)
+		{
+			switch (static_cast<EPhysics>(physics))
+			{
+			case PHYS_None: return "None";
+			case PHYS_Walking: return "Walking";
+			case PHYS_Falling: return "Falling";
+			case PHYS_Swimming: return "Swimming";
+			case PHYS_Flying: return "Flying";
+			case PHYS_Rotating: return "Rotating";
+			case PHYS_Projectile: return "Projectile";
+			case PHYS_Rolling: return "Rolling";
+			case PHYS_Interpolating: return "Interpolating";
+			case PHYS_MovingBrush: return "MovingBrush";
+			case PHYS_Spider: return "Spider";
+			case PHYS_Trailer: return "Trailer";
+			default: return "Unknown";
+			}
+		}
+
+		static std::string LatentActionName(LatentRunState action)
+		{
+			switch (action)
+			{
+			case LatentRunState::Continue: return "Continue";
+			case LatentRunState::Stop: return "Stop";
+			case LatentRunState::Sleep: return "Sleep";
+			case LatentRunState::FinishAnim: return "FinishAnim";
+			case LatentRunState::FinishInterpolation: return "FinishInterpolation";
+			case LatentRunState::MoveTo: return "MoveTo";
+			case LatentRunState::MoveToward: return "MoveToward";
+			case LatentRunState::StrafeTo: return "StrafeTo";
+			case LatentRunState::StrafeFacing: return "StrafeFacing";
+			case LatentRunState::TurnTo: return "TurnTo";
+			case LatentRunState::TurnToward: return "TurnToward";
+			case LatentRunState::WaitForLanding: return "WaitForLanding";
+			default: return "Unknown";
+			}
 		}
 
 		static bool IsHazardZone(UZoneInfo* zone)
@@ -234,6 +349,157 @@ namespace
 			return acceleration.x * acceleration.x + acceleration.y * acceleration.y > 0.0625f;
 		}
 
+		static UFunction* FindClassFunction(UClass* cls, const NameString& name)
+		{
+			for (UClass* current = cls; current;
+				current = UObject::TryCast<UClass>(current->BaseStruct))
+			{
+				if (UFunction* function = current->GetFunction(name))
+					return function;
+			}
+			return nullptr;
+		}
+
+		static BotBenchmarkDeathAttribution::HookValueKind PropertyKind(UProperty* property)
+		{
+			using BotBenchmarkDeathAttribution::HookValueKind;
+			if (!property)
+				return HookValueKind::Unknown;
+			switch (property->ValueType)
+			{
+			case ExpressionValueType::ValueInt: return HookValueKind::Integer;
+			case ExpressionValueType::ValueObject: return HookValueKind::Object;
+			case ExpressionValueType::ValueVector: return HookValueKind::Vector;
+			case ExpressionValueType::ValueName: return HookValueKind::Name;
+			case ExpressionValueType::ValueBool: return HookValueKind::Boolean;
+			default: return HookValueKind::Unknown;
+			}
+		}
+
+		static BotBenchmarkDeathAttribution::HookSignatureShape SignatureShape(UFunction* function)
+		{
+			using namespace BotBenchmarkDeathAttribution;
+			HookSignatureShape signature;
+			if (!function)
+				return signature;
+			signature.FunctionName = function->Name.ToString();
+			for (UField* field = function->Children; field; field = field->Next)
+			{
+				UProperty* property = UObject::TryCast<UProperty>(field);
+				if (!property || !AllFlags(property->PropFlags, PropertyFlags::Parm))
+					continue;
+				HookParameterShape parameter;
+				parameter.Name = property->Name.ToString();
+				parameter.Kind = PropertyKind(property);
+				if (auto objectProperty = UObject::TryCast<UObjectProperty>(property);
+					objectProperty && objectProperty->ObjectClass)
+					parameter.ObjectClass = objectProperty->ObjectClass->Name.ToString();
+				if (AllFlags(property->PropFlags, PropertyFlags::ReturnParm))
+					signature.ReturnValue = std::move(parameter);
+				else
+					signature.Parameters.push_back(std::move(parameter));
+			}
+			return signature;
+		}
+
+		bool ValidateAttributionFunction(UFunction* function,
+			BotBenchmarkDeathAttribution::HookPoint point)
+		{
+			if (!function)
+			{
+				Fail("death attribution hook function is unavailable");
+				return false;
+			}
+			if (ValidatedAttributionFunctions.count(function) != 0)
+				return true;
+			const std::string error = BotBenchmarkDeathAttribution::ValidateHookContract(
+				point, SignatureShape(function));
+			if (!error.empty())
+			{
+				Fail("death attribution hook contract mismatch: " + error);
+				return false;
+			}
+			ValidatedAttributionFunctions.insert(function);
+			return true;
+		}
+
+		bool ValidateAttributionHookContracts()
+		{
+			using BotBenchmarkDeathAttribution::HookPoint;
+			Package* enginePackage = EngineRef.packages->GetPackage("Engine");
+			if (!enginePackage)
+			{
+				Fail("death attribution requires the Engine package");
+				return false;
+			}
+			UClass* pawnClass = enginePackage->GetClass("Pawn");
+			UClass* actorClass = enginePackage->GetClass("Actor");
+			UClass* gameInfoClass = enginePackage->GetClass("GameInfo");
+			UClass* moverClass = enginePackage->GetClass("Mover");
+			CanonicalTakeDamageFunction = FindClassFunction(pawnClass, "TakeDamage");
+			CanonicalAddVelocityFunction = FindClassFunction(pawnClass, "AddVelocity");
+			if (!ValidateAttributionFunction(CanonicalTakeDamageFunction, HookPoint::TakeDamage) ||
+				!ValidateAttributionFunction(CanonicalAddVelocityFunction, HookPoint::AddVelocity) ||
+				!ValidateAttributionFunction(FindClassFunction(gameInfoClass, "Killed"), HookPoint::Killed) ||
+				!ValidateAttributionFunction(FindClassFunction(pawnClass, "PainTimer"), HookPoint::PainTimer) ||
+				!ValidateAttributionFunction(FindClassFunction(actorClass, "FellOutOfWorld"), HookPoint::FellOutOfWorld) ||
+				!ValidateAttributionFunction(FindClassFunction(moverClass, "EncroachingOn"), HookPoint::MoverEncroachingOn) ||
+				!ValidateAttributionFunction(FindClassFunction(pawnClass, "Landed"), HookPoint::Landed))
+				return false;
+			if (IsUnrealTournamentProfile &&
+				!ValidateAttributionFunction(FindClassFunction(pawnClass, "TakeFallingDamage"),
+					HookPoint::TakeFallingDamage))
+				return false;
+			if (!EngineRef.GameInfo || !ValidateAttributionFunction(
+				FindClassFunction(EngineRef.GameInfo->Class, "Killed"), HookPoint::Killed))
+				return false;
+			return true;
+		}
+
+		double AttributionTimeSeconds()
+		{
+			if (!EngineRef.LevelInfo || !std::isfinite(EngineRef.LevelInfo->TimeSeconds()) ||
+				EngineRef.LevelInfo->TimeSeconds() < 0.0f)
+			{
+				Fail("death attribution observed an invalid Level.TimeSeconds value");
+				return 0.0;
+			}
+			return EngineRef.LevelInfo->TimeSeconds();
+		}
+
+		bool AcceptCoordinatorStatus(BotBenchmarkDeathAttribution::CoordinatorStatus status,
+			const char* operation)
+		{
+			using BotBenchmarkDeathAttribution::CoordinatorStatus;
+			if (status == CoordinatorStatus::Accepted || status == CoordinatorStatus::Ignored)
+				return true;
+			Fail(std::string("death attribution coordinator rejected ") + operation);
+			return false;
+		}
+
+		void ApplyAttribution(const std::string& victimIdentity,
+			const BotBenchmarkDeathAttribution::Decision& decision)
+		{
+			auto runtime = QualityParticipants.find(victimIdentity);
+			if (runtime == QualityParticipants.end())
+				return;
+			using BotBenchmarkDeathAttribution::Kind;
+			switch (decision.Attribution)
+			{
+			case Kind::DirectSelfKill: runtime->second.DirectSelfKills++; break;
+			case Kind::DirectEnemyKill: runtime->second.DirectEnemyKills++; break;
+			case Kind::UnassistedEnvironmentalDeath:
+				runtime->second.UnassistedEnvironmentalDeaths++;
+				break;
+			case Kind::RecentEnemyContributedEnvironmentalDeathProxy:
+				runtime->second.RecentEnemyContributedEnvironmentalDeathsProxy++;
+				if (decision.HadRecentEnemyMomentumContribution)
+					runtime->second.RecentEnemyMomentumContributedEnvironmentalDeathsProxy++;
+				break;
+			case Kind::AmbiguousDeath: runtime->second.AmbiguousDeaths++; break;
+			}
+		}
+
 		void RecordKilled(UPawn* killer, UPawn* victim)
 		{
 			const std::string victimIdentity = PawnIdentity(victim);
@@ -259,25 +525,203 @@ namespace
 			}
 		}
 
+		void FinishAttributionCall(UFunction* function, UObject* instance,
+			AttributionScopeKind expectedKind)
+		{
+			if (ActiveAttributionCalls.empty())
+			{
+				Fail("death attribution hook cleanup had no active call");
+				return;
+			}
+			const ActiveAttributionCall call = ActiveAttributionCalls.back();
+			if (call.Function != function || call.Instance != instance || call.Kind != expectedKind)
+			{
+				Fail("death attribution hook cleanup was out of order");
+				return;
+			}
+			ActiveAttributionCalls.pop_back();
+			using namespace BotBenchmarkDeathAttribution;
+			CoordinatorStatus status = CoordinatorStatus::InvalidToken;
+			switch (expectedKind)
+			{
+			case AttributionScopeKind::TakeDamage:
+				status = AttributionCoordinator.ExitTakeDamage(call.Token);
+				break;
+			case AttributionScopeKind::EnvironmentalSource:
+				status = AttributionCoordinator.ExitEnvironmentalSource(call.Token);
+				break;
+			case AttributionScopeKind::Killed:
+				status = AttributionCoordinator.ExitKilled(call.Token);
+				break;
+			}
+			AcceptCoordinatorStatus(status, "hook cleanup");
+		}
+
 		void RegisterQualityHooks()
 		{
+			using namespace BotBenchmarkDeathAttribution;
+			if (!ValidateAttributionHookContracts())
+				return;
 			VMCallHook hook;
 			hook.Enter = [this](UFunction* function, UObject* instance,
 				VMCallArguments& arguments) -> VMCallHookCleanup
 			{
+				using namespace BotBenchmarkDeathAttribution;
 				if (!function)
 					return {};
 				if (function->Name == "Killed" && instance == EngineRef.GameInfo)
 				{
 					const bool outermost = KilledHookDepth++ == 0;
-					if (outermost && arguments.Size() >= 2)
+					if (!ValidateAttributionFunction(function, HookPoint::Killed))
+						return [this]() { KilledHookDepth--; };
+					if (arguments.Size() != 3)
 					{
-						UPawn* killer = UObject::TryCast<UPawn>(arguments.Values()[0].ToObject());
-						UPawn* victim = UObject::TryCast<UPawn>(arguments.Values()[1].ToObject());
-						if (victim)
-							RecordKilled(killer, victim);
+						Fail("death attribution Killed call argument count does not match its contract");
+						return [this]() { KilledHookDepth--; };
 					}
-					return [this]() { KilledHookDepth--; };
+					UPawn* killer = UObject::TryCast<UPawn>(arguments.Values()[0].ToObject());
+					UPawn* victim = UObject::TryCast<UPawn>(arguments.Values()[1].ToObject());
+					if (outermost && victim)
+						RecordKilled(killer, victim);
+
+					const std::string victimIdentity = PawnIdentity(victim);
+					if (QualityParticipants.find(victimIdentity) == QualityParticipants.end())
+						return [this]() { KilledHookDepth--; };
+					DeathKiller relation = DeathKiller::None;
+					if (killer)
+					{
+						if (!killer->bIsPlayer()) relation = DeathKiller::NonPlayer;
+						else if (killer == victim) relation = DeathKiller::SelfPlayer;
+						else relation = DeathKiller::EnemyPlayer;
+					}
+					const auto entered = AttributionCoordinator.EnterKilled({ victimIdentity, relation,
+						AttributionTimeSeconds(), true });
+					if (!AcceptCoordinatorStatus(entered.Status, "Killed enter"))
+						return [this]() { KilledHookDepth--; };
+					ActiveAttributionCalls.push_back({ function, instance, victimIdentity, entered.Token,
+						AttributionScopeKind::Killed });
+					return [this, function, instance]()
+					{
+						FinishAttributionCall(function, instance, AttributionScopeKind::Killed);
+						KilledHookDepth--;
+					};
+				}
+				if (function->Name == "TakeDamage")
+				{
+					UPawn* victim = UObject::TryCast<UPawn>(instance);
+					const std::string victimIdentity = PawnIdentity(victim);
+					if (QualityParticipants.find(victimIdentity) == QualityParticipants.end())
+						return {};
+					if (!ValidateAttributionFunction(function, HookPoint::TakeDamage))
+						return {};
+					if (arguments.Size() != 5)
+					{
+						Fail("death attribution TakeDamage call argument count does not match its contract");
+						return {};
+					}
+					UPawn* instigator = UObject::TryCast<UPawn>(arguments.Values()[1].ToObject());
+					DamageInstigator relation = DamageInstigator::NoneOrNonPlayer;
+					if (instigator && instigator->bIsPlayer())
+						relation = instigator == victim ? DamageInstigator::SelfPlayer :
+							DamageInstigator::EnemyPlayer;
+					const auto entered = AttributionCoordinator.EnterTakeDamage({ victimIdentity,
+						relation, AttributionTimeSeconds(), victim->Health(),
+						function == CanonicalTakeDamageFunction ? DamageFrameKind::Canonical :
+							DamageFrameKind::Override, true });
+					if (!AcceptCoordinatorStatus(entered.Status, "TakeDamage enter"))
+						return {};
+					ActiveAttributionCalls.push_back({ function, instance, victimIdentity, entered.Token,
+						AttributionScopeKind::TakeDamage });
+					return [this, function, instance]()
+					{
+						FinishAttributionCall(function, instance, AttributionScopeKind::TakeDamage);
+					};
+				}
+				if (function == CanonicalAddVelocityFunction)
+				{
+					UPawn* victim = UObject::TryCast<UPawn>(instance);
+					const std::string victimIdentity = PawnIdentity(victim);
+					if (QualityParticipants.find(victimIdentity) == QualityParticipants.end())
+						return {};
+					if (!ValidateAttributionFunction(function, HookPoint::AddVelocity))
+						return {};
+					if (arguments.Size() != 1)
+					{
+						Fail("death attribution AddVelocity call argument count does not match its contract");
+						return {};
+					}
+					const vec3 velocity = arguments.Values()[0].ToVector();
+					if (!std::isfinite(velocity.x) || !std::isfinite(velocity.y) ||
+						!std::isfinite(velocity.z))
+					{
+						Fail("death attribution observed non-finite AddVelocity input");
+						return {};
+					}
+					AcceptCoordinatorStatus(AttributionCoordinator.ObserveAddVelocity(victimIdentity,
+						velocity.x != 0.0f || velocity.y != 0.0f || velocity.z != 0.0f),
+						"AddVelocity observation");
+					return {};
+				}
+
+				std::optional<EnvironmentalSource> source;
+				std::optional<HookPoint> point;
+				UPawn* environmentalVictim = UObject::TryCast<UPawn>(instance);
+				if (function->Name == "PainTimer")
+				{
+					source = EnvironmentalSource::PainTimer;
+					point = HookPoint::PainTimer;
+				}
+				else if (function->Name == "FellOutOfWorld")
+				{
+					source = EnvironmentalSource::FellOutOfWorld;
+					point = HookPoint::FellOutOfWorld;
+				}
+				else if (function->Name == "TakeFallingDamage")
+				{
+					source = EnvironmentalSource::TakeFallingDamage;
+					point = HookPoint::TakeFallingDamage;
+				}
+				else if (function->Name == "Landed")
+				{
+					source = EnvironmentalSource::Landed;
+					point = HookPoint::Landed;
+				}
+				else if (function->Name == "EncroachingOn" && UObject::TryCast<UMover>(instance))
+				{
+					source = EnvironmentalSource::MoverEncroachingOn;
+					point = HookPoint::MoverEncroachingOn;
+					if (arguments.Size() != 1)
+					{
+						Fail("death attribution EncroachingOn call argument count does not match its contract");
+						return {};
+					}
+					environmentalVictim = UObject::TryCast<UPawn>(arguments.Values()[0].ToObject());
+				}
+				if (source && point)
+				{
+					const std::string victimIdentity = PawnIdentity(environmentalVictim);
+					if (QualityParticipants.find(victimIdentity) == QualityParticipants.end())
+						return {};
+					if (!ValidateAttributionFunction(function, *point))
+						return {};
+					const size_t expectedArguments = *point == HookPoint::Landed ||
+						*point == HookPoint::MoverEncroachingOn ? 1 : 0;
+					if (arguments.Size() != expectedArguments)
+					{
+						Fail("death attribution environmental call argument count does not match its contract");
+						return {};
+					}
+					const auto entered = AttributionCoordinator.EnterEnvironmentalSource({
+						victimIdentity, *source, AttributionTimeSeconds(), true });
+					if (!AcceptCoordinatorStatus(entered.Status, "environmental source enter"))
+						return {};
+					ActiveAttributionCalls.push_back({ function, instance, victimIdentity, entered.Token,
+						AttributionScopeKind::EnvironmentalSource });
+					return [this, function, instance]()
+					{
+						FinishAttributionCall(function, instance,
+							AttributionScopeKind::EnvironmentalSource);
+					};
 				}
 				if (function->Name == "HitWall")
 				{
@@ -291,6 +735,36 @@ namespace
 					return [this]() { HitWallHookDepth--; };
 				}
 				return {};
+			};
+			hook.ObserveResult = [this](UFunction* function, UObject* instance,
+				const Array<ExpressionValue>&, const ExpressionValue&)
+			{
+				using namespace BotBenchmarkDeathAttribution;
+				auto call = std::find_if(ActiveAttributionCalls.rbegin(),
+					ActiveAttributionCalls.rend(), [function, instance](const auto& active)
+					{
+						return active.Function == function && active.Instance == instance;
+					});
+				if (call == ActiveAttributionCalls.rend())
+					return;
+				if (call->Kind == AttributionScopeKind::TakeDamage)
+				{
+					UPawn* victim = UObject::TryCast<UPawn>(instance);
+					if (!victim || !AcceptCoordinatorStatus(
+						AttributionCoordinator.ObserveTakeDamageResult(call->Token, victim->Health()),
+						"TakeDamage result"))
+						return;
+				}
+				else if (call->Kind == AttributionScopeKind::Killed)
+				{
+					const auto result = AttributionCoordinator.ObserveKilledResult(call->Token);
+					if (!AcceptCoordinatorStatus(result.Status, "Killed result"))
+						return;
+					if (result.Attribution)
+					{
+						ApplyAttribution(call->VictimIdentity, *result.Attribution);
+					}
+				}
 			};
 			QualityHookHandle = Frame::CallHooks().Register(std::move(hook));
 		}
@@ -486,8 +960,93 @@ namespace
 				bot.Actor = runtime.Actor;
 				bot.PlayerName = runtime.PlayerName;
 				bot.ClassName = runtime.ClassName;
+				bot.PhysicsMode.clear();
+				bot.LatentAction.clear();
+				bot.AccelerationX = bot.AccelerationY = bot.AccelerationZ = 0.0;
+				bot.DestinationX = bot.DestinationY = bot.DestinationZ = 0.0;
+				bot.MoveTimer = 0.0;
+				bot.MoveTargetIdentity.clear();
+				bot.MoveTargetName.clear();
 				if (pawn)
 				{
+					if (runtime.PainLedgeCounterPawn != pawn)
+					{
+						AttributionCoordinator.ResetLife(actual.Identity);
+						runtime.PainLedgeCounterPawn = pawn;
+						runtime.PreviousPainLedgeVetoes = 0;
+						runtime.PreviousPainLedgeRepeatVetoes = 0;
+						runtime.PreviousPainLedgeRecoveryAttempts = 0;
+						runtime.PreviousPainLedgeRecoveryEscapes = 0;
+						runtime.PreviousWallAdjustCalls = 0;
+						runtime.PreviousWallAdjustRepeats = 0;
+						runtime.PreviousWallAdjustRecoveryAttempts = 0;
+						runtime.PreviousWallAdjustRecoverySuccesses = 0;
+						runtime.PreviousWallAdjustForcedReplans = 0;
+						runtime.PreviousMoveStallDetections = 0;
+						runtime.PreviousMoveStallEpisodeResets = 0;
+						runtime.PreviousMoveStallForcedReplans = 0;
+						runtime.PreviousMoveStallNavigationForcedReplans = 0;
+						runtime.PreviousMoveStallTargetlessMoveToTimeouts = 0;
+						runtime.PreviousMoveStallEligibleSeconds = 0.0;
+						runtime.PreviousFailedNavigationAvoidanceActivations = 0;
+						runtime.PreviousFailedNavigationSafeguardSuppressions = 0;
+						runtime.PreviousFailedNavigationRoutePenaltyApplications = 0;
+					}
+					auto accumulatePawnCounter = [](uint64_t current, uint64_t& previous, uint64_t& total)
+					{
+						total += current >= previous ? current - previous : current;
+						previous = current;
+					};
+					accumulatePawnCounter(pawn->PainLedgeVetoCount(), runtime.PreviousPainLedgeVetoes,
+						runtime.PainLedgeVetoesExact);
+					accumulatePawnCounter(pawn->PainLedgeRepeatVetoCount(), runtime.PreviousPainLedgeRepeatVetoes,
+						runtime.PainLedgeRepeatVetoesExact);
+					accumulatePawnCounter(pawn->PainLedgeRecoveryAttemptCount(),
+						runtime.PreviousPainLedgeRecoveryAttempts, runtime.PainLedgeRecoveryAttemptsExact);
+					accumulatePawnCounter(pawn->PainLedgeRecoveryEscapeCount(),
+						runtime.PreviousPainLedgeRecoveryEscapes, runtime.PainLedgeRecoveryEscapesExact);
+					accumulatePawnCounter(pawn->WallAdjustCallCount(), runtime.PreviousWallAdjustCalls,
+						runtime.WallAdjustCallsExact);
+					accumulatePawnCounter(pawn->WallAdjustRepeatCount(), runtime.PreviousWallAdjustRepeats,
+						runtime.WallAdjustRepeatsExact);
+					accumulatePawnCounter(pawn->WallAdjustRecoveryAttemptCount(),
+						runtime.PreviousWallAdjustRecoveryAttempts, runtime.WallAdjustRecoveryAttemptsExact);
+					accumulatePawnCounter(pawn->WallAdjustRecoverySuccessCount(),
+						runtime.PreviousWallAdjustRecoverySuccesses, runtime.WallAdjustRecoverySuccessesExact);
+					accumulatePawnCounter(pawn->WallAdjustForcedReplanCount(),
+						runtime.PreviousWallAdjustForcedReplans, runtime.WallAdjustForcedReplansExact);
+					accumulatePawnCounter(pawn->MoveStallDetectionCount(),
+						runtime.PreviousMoveStallDetections, runtime.MoveStallDetectionsExact);
+					accumulatePawnCounter(pawn->MoveStallEpisodeResetCount(),
+						runtime.PreviousMoveStallEpisodeResets, runtime.MoveStallEpisodeResetsExact);
+					accumulatePawnCounter(pawn->MoveStallForcedReplanCount(),
+						runtime.PreviousMoveStallForcedReplans, runtime.MoveStallForcedReplansExact);
+					accumulatePawnCounter(pawn->MoveStallNavigationForcedReplanCount(),
+						runtime.PreviousMoveStallNavigationForcedReplans,
+						runtime.MoveStallNavigationForcedReplansExact);
+					accumulatePawnCounter(pawn->MoveStallTargetlessMoveToTimeoutCount(),
+						runtime.PreviousMoveStallTargetlessMoveToTimeouts,
+						runtime.MoveStallTargetlessMoveToTimeoutsExact);
+					accumulatePawnCounter(pawn->FailedNavigationAvoidanceActivationCount(),
+						runtime.PreviousFailedNavigationAvoidanceActivations,
+						runtime.FailedNavigationAvoidanceActivationsExact);
+					accumulatePawnCounter(pawn->FailedNavigationSafeguardSuppressionCount(),
+						runtime.PreviousFailedNavigationSafeguardSuppressions,
+						runtime.FailedNavigationSafeguardSuppressionsExact);
+					accumulatePawnCounter(pawn->FailedNavigationRoutePenaltyApplicationCount(),
+						runtime.PreviousFailedNavigationRoutePenaltyApplications,
+						runtime.FailedNavigationRoutePenaltyApplicationsExact);
+					auto accumulatePawnDuration = [](double current, double& previous, double& total)
+					{
+						if (!std::isfinite(current) || current < 0.0)
+							return;
+						const double delta = current >= previous ? current - previous : current;
+						if (std::isfinite(total + delta))
+							total += delta;
+						previous = current;
+					};
+					accumulatePawnDuration(pawn->MoveStallEligibleSeconds(),
+						runtime.PreviousMoveStallEligibleSeconds, runtime.MoveStallEligibleSeconds);
 					runtime.Pri = pawn->PlayerReplicationInfo();
 					bot.State = pawn->GetStateName().ToString();
 					bot.PositionX = pawn->Location().x;
@@ -496,6 +1055,29 @@ namespace
 					bot.VelocityX = pawn->Velocity().x;
 					bot.VelocityY = pawn->Velocity().y;
 					bot.VelocityZ = pawn->Velocity().z;
+					bot.PhysicsMode = pawn->HasProperty("Physics") ? PhysicsModeName(pawn->Physics()) : std::string();
+					bot.LatentAction = pawn->StateFrame
+						? LatentActionName(pawn->StateFrame->LatentState) : std::string();
+					if (pawn->HasProperty("Acceleration"))
+					{
+						bot.AccelerationX = pawn->Acceleration().x;
+						bot.AccelerationY = pawn->Acceleration().y;
+						bot.AccelerationZ = pawn->Acceleration().z;
+					}
+					if (pawn->HasProperty("Destination"))
+					{
+						bot.DestinationX = pawn->Destination().x;
+						bot.DestinationY = pawn->Destination().y;
+						bot.DestinationZ = pawn->Destination().z;
+					}
+					if (pawn->HasProperty("MoveTimer"))
+						bot.MoveTimer = pawn->MoveTimer();
+					if (pawn->HasProperty("MoveTarget"))
+					{
+						UActor* moveTarget = pawn->MoveTarget();
+						bot.MoveTargetIdentity = ActorIdentity(moveTarget);
+						bot.MoveTargetName = moveTarget ? moveTarget->Name.ToString() : std::string();
+					}
 					bot.Health = pawn->Health();
 					bot.MovementIntent = HasMovementIntent(pawn);
 					bot.InHazardZone = IsInHazardZone(pawn);
@@ -518,7 +1100,38 @@ namespace
 				bot.SuicidesExact = runtime.SuicidesExact;
 				bot.EnvironmentalDeathsExact = runtime.EnvironmentalDeathsExact;
 				bot.HazardExposedDeathsProxy = runtime.HazardExposedDeathsProxy;
+				bot.DirectSelfKills = runtime.DirectSelfKills;
+				bot.DirectEnemyKills = runtime.DirectEnemyKills;
+				bot.UnassistedEnvironmentalDeaths = runtime.UnassistedEnvironmentalDeaths;
+				bot.RecentEnemyContributedEnvironmentalDeathsProxy =
+					runtime.RecentEnemyContributedEnvironmentalDeathsProxy;
+				bot.AmbiguousDeaths = runtime.AmbiguousDeaths;
+				bot.RecentEnemyMomentumContributedEnvironmentalDeathsProxy =
+					runtime.RecentEnemyMomentumContributedEnvironmentalDeathsProxy;
 				bot.HitWallEventsExact = runtime.HitWallEventsExact;
+				bot.PainLedgeVetoesExact = runtime.PainLedgeVetoesExact;
+				bot.PainLedgeRepeatVetoesExact = runtime.PainLedgeRepeatVetoesExact;
+				bot.PainLedgeRecoveryAttemptsExact = runtime.PainLedgeRecoveryAttemptsExact;
+				bot.PainLedgeRecoveryEscapesExact = runtime.PainLedgeRecoveryEscapesExact;
+				bot.WallAdjustCallsExact = runtime.WallAdjustCallsExact;
+				bot.WallAdjustRepeatsExact = runtime.WallAdjustRepeatsExact;
+				bot.WallAdjustRecoveryAttemptsExact = runtime.WallAdjustRecoveryAttemptsExact;
+				bot.WallAdjustRecoverySuccessesExact = runtime.WallAdjustRecoverySuccessesExact;
+				bot.WallAdjustForcedReplansExact = runtime.WallAdjustForcedReplansExact;
+				bot.MoveStallDetectionsExact = runtime.MoveStallDetectionsExact;
+				bot.MoveStallEpisodeResetsExact = runtime.MoveStallEpisodeResetsExact;
+				bot.MoveStallForcedReplansExact = runtime.MoveStallForcedReplansExact;
+				bot.MoveStallNavigationForcedReplansExact =
+					runtime.MoveStallNavigationForcedReplansExact;
+				bot.MoveStallTargetlessMoveToTimeoutsExact =
+					runtime.MoveStallTargetlessMoveToTimeoutsExact;
+				bot.MoveStallEligibleSeconds = runtime.MoveStallEligibleSeconds;
+				bot.FailedNavigationAvoidanceActivationsExact =
+					runtime.FailedNavigationAvoidanceActivationsExact;
+				bot.FailedNavigationSafeguardSuppressionsExact =
+					runtime.FailedNavigationSafeguardSuppressionsExact;
+				bot.FailedNavigationRoutePenaltyApplicationsExact =
+					runtime.FailedNavigationRoutePenaltyApplicationsExact;
 				runtime.LastState = bot;
 				runtime.HasLastState = true;
 				bots.push_back(std::move(bot));
@@ -598,9 +1211,16 @@ namespace
 		std::vector<BotBenchmarkActualParticipant> ActualRoster;
 		std::map<std::string, QualityParticipantRuntime> QualityParticipants;
 		std::vector<std::unique_ptr<ShadowParticipantRuntime>> ShadowParticipants;
+		BotBenchmarkDeathAttribution::Coordinator AttributionCoordinator{
+			DeathAttributionRecentWindowSeconds };
+		std::vector<ActiveAttributionCall> ActiveAttributionCalls;
+		std::set<UFunction*> ValidatedAttributionFunctions;
+		UFunction* CanonicalTakeDamageFunction = nullptr;
+		UFunction* CanonicalAddVelocityFunction = nullptr;
 		VMCallHookHandle QualityHookHandle = 0;
 		uint32_t KilledHookDepth = 0;
 		uint32_t HitWallHookDepth = 0;
+		bool IsUnrealTournamentProfile = false;
 	};
 
 	std::optional<std::string> OptionalCommandLineArg(const char* name)

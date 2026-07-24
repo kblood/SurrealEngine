@@ -7,6 +7,15 @@
 #include "UConSys.h"
 #include "USubsystem.h"
 #include "ActorMovement.h"
+#include "PawnFailedNavigationMemory.h"
+#include "PawnLedgeTransition.h"
+#include "PawnPainZoneFallPrediction.h"
+#include "PawnPainLedgeRecovery.h"
+#include "PawnMovementArrival.h"
+#include "PawnMoveToward.h"
+#include "PawnPathCost.h"
+#include "PawnWallAdjustment.h"
+#include "PawnWallAdjustRecovery.h"
 #include "VM/ScriptCall.h"
 #include "VM/Frame.h"
 #include "Package/PackageManager.h"
@@ -17,6 +26,180 @@
 
 // TODO: Compare behavior more closely with original engine. Might differ depending on game.
 static constexpr float stepDownDeltaFactor = 1.3f;
+
+namespace
+{
+	constexpr int painZoneFallPredictionSteps = 24;
+	constexpr int painZoneFallMaxSamplesPerStep = 8;
+	constexpr float painZoneFallPredictionDelta = 1.0f / 16.0f;
+	constexpr float painLedgeRecoveryDuration = 0.5f;
+	constexpr float painLedgeRepeatRadius = 96.0f;
+	constexpr float painLedgeRecoveryRadius = 96.0f;
+	constexpr float painLedgeDirectionAlignment = 0.5f;
+	constexpr float painLedgeRecoveryProbeDistance = 64.0f;
+	constexpr float wallAdjustRepeatWindow = 1.0f;
+	constexpr float wallAdjustRepeatRadius = 4.0f;
+	constexpr float wallAdjustMinimumSustainedTime = 0.25f;
+	constexpr uint32_t wallAdjustMinimumObservations = 2;
+	constexpr float wallAdjustSteeringDuration = 0.5f;
+	constexpr float wallAdjustRecoveryDistance = 100.0f;
+	constexpr float wallAdjustRecoveryEscapeRadius = 96.0f;
+	constexpr float wallAdjustUnsafeAlignment = 0.5f;
+	constexpr float moveStallProgressRadius = 4.0f;
+	constexpr float moveStallDetectionSeconds = 2.0f;
+	constexpr float failedNavigationRepeatWindow = 6.0f;
+	constexpr float failedNavigationAvoidanceDuration = 4.0f;
+	constexpr float failedNavigationEscapeRadius = 96.0f;
+	// The move-stall watchdog already requires two seconds without progress, so
+	// one eligible detection is sufficient evidence for bounded avoidance.
+	constexpr uint8_t failedNavigationRequiredFailures = 1;
+	constexpr int32_t failedNavigationFirstHopCost = 4096;
+	constexpr float failedNavigationLiftExitLandingRadius = 400.0f;
+	constexpr float failedNavigationLiftExitLandingStepHeights = 2.0f;
+
+	std::vector<const void*> LiftExitLandingAdjacency(
+		ULiftExit* liftExit, const Array<LevelReachSpec>& reachSpecs)
+	{
+		std::vector<const void*> adjacent;
+		auto addNeighbor = [&](int specIndex, bool upstream)
+		{
+			if (specIndex < 0 || static_cast<size_t>(specIndex) >= reachSpecs.size())
+				return;
+			const LevelReachSpec& spec = reachSpecs[specIndex];
+			if (spec.bPruned)
+				return;
+			UNavigationPoint* neighbor = nullptr;
+			if (upstream && spec.endActor == liftExit)
+				neighbor = spec.startActor;
+			else if (!upstream && spec.startActor == liftExit)
+				neighbor = spec.endActor;
+			if (!neighbor || neighbor->bDeleteMe() || UObject::TryCast<ULiftExit>(neighbor)
+				|| UObject::TryCast<ULiftCenter>(neighbor))
+				return;
+			if (std::find(adjacent.begin(), adjacent.end(), neighbor) == adjacent.end())
+				adjacent.push_back(neighbor);
+		};
+
+		for (int specIndex : liftExit->Paths())
+			addNeighbor(specIndex, false);
+		for (int specIndex : liftExit->upstreamPaths())
+			addNeighbor(specIndex, true);
+		return adjacent;
+	}
+
+	bool IsHarmfulPainZone(UPawn* pawn, UZoneInfo* zone)
+	{
+		return zone && zone->bPainZone() && zone->DamageType() != pawn->ReducedDamageType();
+	}
+
+	bool IsAutonomousPlayerBot(UPawn* pawn)
+	{
+		UPlayerPawn* player = UObject::TryCast<UPlayerPawn>(pawn);
+		return pawn && PawnMovement::IsAIControlledPlayer(
+			pawn->bIsPlayer(), player != nullptr, player && player->Player() != nullptr);
+	}
+
+	bool IsStockAutonomousPlayerBot(UPawn* pawn)
+	{
+		if (!IsAutonomousPlayerBot(pawn))
+			return false;
+		return (engine->LaunchInfo.IsUnrealTournament() && pawn->IsA("Bot"))
+			|| (engine->LaunchInfo.IsUnreal1() && pawn->IsA("Bots"));
+	}
+
+	bool IsMovementLatentState(LatentRunState state)
+	{
+		return state == LatentRunState::MoveTo
+			|| state == LatentRunState::MoveToward
+			|| state == LatentRunState::StrafeTo
+			|| state == LatentRunState::StrafeFacing;
+	}
+
+	PawnMovement::MoveStallLatentMode MoveStallLatentModeFor(LatentRunState state)
+	{
+		switch (state)
+		{
+		case LatentRunState::MoveTo: return PawnMovement::MoveStallLatentMode::MoveTo;
+		case LatentRunState::MoveToward: return PawnMovement::MoveStallLatentMode::MoveToward;
+		case LatentRunState::StrafeTo: return PawnMovement::MoveStallLatentMode::StrafeTo;
+		case LatentRunState::StrafeFacing: return PawnMovement::MoveStallLatentMode::StrafeFacing;
+		default: return PawnMovement::MoveStallLatentMode::Other;
+		}
+	}
+
+	bool PredictedFallEntersHarmfulPainZone(
+		UPawn* pawn, const vec3& initialVelocity, const vec3& acceleration)
+	{
+		UZoneInfo* startZone = pawn->FootRegion().Zone;
+		UZoneInfo* physicsZone = pawn->Region().Zone;
+		if (!startZone || !physicsZone)
+			return false;
+
+		PawnMovement::FallPredictionState prediction = {
+			.Location = pawn->Location(),
+			.Velocity = initialVelocity
+		};
+		const PawnMovement::FallPredictionStep step = {
+			.Acceleration = acceleration,
+			.Gravity = physicsZone->ZoneGravity(),
+			.ZoneVelocity = physicsZone->ZoneVelocity(),
+			.GroundSpeed = pawn->GroundSpeed(),
+			.TerminalVelocity = physicsZone->ZoneTerminalVelocity(),
+			.Elapsed = painZoneFallPredictionDelta
+		};
+		const TraceFlags traceFlags = {
+			.movers = true,
+			.world = true
+		};
+		const vec3 traceExtent(pawn->CollisionRadius(), pawn->CollisionRadius(), pawn->CollisionHeight());
+		enum class SegmentZoneResult
+		{
+			Clear,
+			HarmfulPain,
+			Unknown
+		};
+		auto sampleSegment = [&](const vec3& origin, const vec3& segment)
+		{
+			const int sampleCount = PawnMovement::BoundedFallSegmentSampleCount(
+				length(segment), std::max(pawn->MaxStepHeight(), 1.0f),
+				painZoneFallMaxSamplesPerStep);
+			for (int sampleIndex = 1; sampleIndex <= sampleCount; sampleIndex++)
+			{
+				const vec3 sample = origin
+					+ segment * (static_cast<float>(sampleIndex) / sampleCount);
+				const vec3 foot = sample - vec3(0.0f, 0.0f, pawn->CollisionHeight());
+				UZoneInfo* sampleZone = pawn->XLevel()->Model->FindRegion(
+					foot, pawn->Level()).Zone;
+				if (IsHarmfulPainZone(pawn, sampleZone))
+					return SegmentZoneResult::HarmfulPain;
+				if (sampleZone != startZone)
+					return SegmentZoneResult::Unknown;
+			}
+			return SegmentZoneResult::Clear;
+		};
+
+		for (int index = 0; index < painZoneFallPredictionSteps; index++)
+		{
+			PawnMovement::FallPredictionState next = PawnMovement::PredictFallStep(prediction, step);
+			if (!next.Valid)
+				return false;
+
+			const CollisionHit hit = pawn->XLevel()->Collision.TraceFirstHit(
+				prediction.Location, next.Location, pawn, traceExtent, traceFlags);
+			const vec3 segment = (next.Location - prediction.Location) * hit.Fraction;
+			const SegmentZoneResult directZoneResult = sampleSegment(prediction.Location, segment);
+			if (directZoneResult == SegmentZoneResult::HarmfulPain)
+				return true;
+			if (directZoneResult == SegmentZoneResult::Unknown)
+				return false;
+			if (hit.Fraction < 1.0f)
+				return false;
+
+			prediction = next;
+		}
+		return false;
+	}
+}
 
 UActor* UActor::Spawn(UClass* SpawnClass, std::optional<UActor*> SpawnOwner, std::optional<NameString> SpawnTag, std::optional<vec3> SpawnLocation, std::optional<Rotator> SpawnRotation)
 {
@@ -550,6 +733,8 @@ void UActor::TickWalking(float elapsed)
 	{
 		for (int iteration = 0; timeLeft > 0.0f && iteration < 5; iteration++)
 		{
+			const vec3 iterationStartLocation = Location();
+			const float iterationStartTimeLeft = timeLeft;
 			vec3 moveDelta = vel * timeLeft;
 
 			// step up first so we can get past stairs going up
@@ -615,11 +800,68 @@ void UActor::TickWalking(float elapsed)
 			if (Physics() != PHYS_Walking)
 				return;
 
+			if (!MadeWalkingIterationProgress(
+				iterationStartLocation.x, iterationStartLocation.y, iterationStartLocation.z,
+				iterationStartTimeLeft, Location().x, Location().y, Location().z, timeLeft))
+				break;
+
 			// Can we reach the ground from here if we step down? (dry run)
 			CollisionHit floorHit = TryMove(stepDownDelta, true);
 			if (floorHit.Fraction == 1.0f || floorHit.Normal.z < 0.7071f)
 			{
-				// No we couldn't. We are falling
+				// UE1 gives walking Pawns that may jump one script callback before
+				// committing an unsupported step. Script can clear bCanJump to veto it.
+				if (PawnMovement::ShouldDispatchMayFall(pawn->bCanJump()))
+					CallEvent(pawn, EventName::MayFall);
+
+				// Short-circuit property reads after Destroy: it removes the Pawn from
+				// collision immediately, so no stale walking work may follow.
+				const bool deleteMe = pawn->bDeleteMe();
+				const bool stillWalking = !deleteMe && pawn->Physics() == PHYS_Walking;
+				const bool canJump = stillWalking && pawn->bCanJump();
+				const PawnMovement::LedgeTransition transition = PawnMovement::ResolveLedgeTransition(
+					deleteMe, stillWalking, canJump);
+				if (transition == PawnMovement::LedgeTransition::Abort)
+					return;
+
+				bool painZoneVeto = false;
+				bool restoreGrounded = transition == PawnMovement::LedgeTransition::RestoreGrounded;
+				if (transition == PawnMovement::LedgeTransition::BeginFalling)
+				{
+					vec3 fallAcceleration = Acceleration();
+					const float maxAirAcceleration = engine->LaunchInfo.ue1Version > 219
+						? pawn->AirControl() * pawn->AccelRate() : 0.0f;
+					const float fallAccelerationLength = length(fallAcceleration);
+					if (fallAccelerationLength > maxAirAcceleration)
+						fallAcceleration = normalize(fallAcceleration) * maxAirAcceleration;
+					UZoneInfo* footZone = pawn->FootRegion().Zone;
+					UZoneInfo* physicsZone = pawn->Region().Zone;
+					const bool predictedHarmfulPainZone = PredictedFallEntersHarmfulPainZone(
+						pawn, pawn->Velocity(), fallAcceleration);
+					painZoneVeto = PawnMovement::ShouldVetoPainZoneLedge(
+						IsAutonomousPlayerBot(pawn),
+						physicsZone && physicsZone->ZoneGravity().z < 0.0f,
+						footZone && footZone->bPainZone(), predictedHarmfulPainZone);
+					restoreGrounded = painZoneVeto;
+				}
+
+				if (restoreGrounded)
+				{
+					vec2 unsafeDirection = (Location() - iterationStartLocation).xy();
+					if (dot(unsafeDirection, unsafeDirection) <= 0.0001f)
+						unsafeDirection = Acceleration().xy();
+					// Backtrack along the movement we just completed so restoration is
+					// collision checked rather than teleporting through new obstructions.
+					TryMove(iterationStartLocation - Location());
+					if (painZoneVeto)
+						pawn->RecordPainLedgeVeto(Location(), unsafeDirection);
+					Velocity() = vec3(0.0f);
+					Acceleration() = vec3(0.0f);
+					if (painZoneVeto)
+						pawn->MoveTimer() = -1.0f;
+					return;
+				}
+
 				SetPhysics(PHYS_Falling);
 				SetBase(nullptr, true);
 				return;
@@ -3037,13 +3279,99 @@ bool UPawn::PointReachable(vec3 aPoint)
 
 bool UPawn::PickWallAdjust()
 {
+	if (IsAutonomousPlayerBot(this))
+	{
+		WallAdjustCallCountValue++;
+		if (WallAdjustRecovery.ReplanPending)
+		{
+			WallAdjustRecovery = {};
+			Acceleration() = vec3(0.0f);
+			MoveTimer() = -1.0f;
+			WallAdjustForcedReplanCountValue++;
+			return false;
+		}
+		const PawnMovement::WallAdjustObservation observation = PawnMovement::ObserveWallAdjust(
+			WallAdjustRecovery, Location(), wallAdjustRepeatWindow, wallAdjustRepeatRadius,
+			wallAdjustMinimumSustainedTime, wallAdjustMinimumObservations);
+		WallAdjustRecovery = observation.State;
+		if (observation.Repeated)
+			WallAdjustRepeatCountValue++;
+		if (observation.State.SteeringActive)
+			return true;
+		if (observation.Escalate)
+		{
+			vec2 approachDirection = Acceleration().xy();
+			if (dot(approachDirection, approachDirection) <= 0.0001f)
+				approachDirection = (Focus() - Location()).xy();
+			if (dot(approachDirection, approachDirection) <= 0.0001f)
+				approachDirection = (Destination() - Location()).xy();
+
+			const auto directions = PawnMovement::WallAdjustEscapeDirections(approachDirection);
+			std::array<PawnMovement::WallAdjustCandidateProbe, 3> probes;
+			const TraceFlags supportTraceFlags = {
+				.movers = true,
+				.world = true
+			};
+			const vec3 traceExtent(CollisionRadius(), CollisionRadius(), CollisionHeight());
+			const float supportDepth = std::max(MaxStepHeight() * stepDownDeltaFactor, 1.0f);
+			for (size_t index = 0; index < directions.size(); index++)
+			{
+				const vec3 candidateDelta(directions[index] * wallAdjustRecoveryDistance, 0.0f);
+				PawnMovement::WallAdjustCandidateProbe& probe = probes[index];
+				probe.SweepClear = TryMove(candidateDelta, true).Fraction == 1.0f;
+				if (!probe.SweepClear)
+					continue;
+
+				const vec3 candidate = Location() + candidateDelta;
+				const vec3 supportEnd = candidate - vec3(0.0f, 0.0f, supportDepth);
+				const CollisionHit support = XLevel()->Collision.TraceFirstHit(
+					candidate, supportEnd, this, traceExtent, supportTraceFlags);
+				probe.WalkableSupport = support.Fraction < 1.0f && support.Normal.z >= 0.7071f;
+				if (!probe.WalkableSupport)
+					continue;
+
+				const vec3 supportedCenter = candidate + (supportEnd - candidate) * support.Fraction;
+				UZoneInfo* footZone = XLevel()->Model->FindRegion(
+					supportedCenter - vec3(0.0f, 0.0f, CollisionHeight()), Level()).Zone;
+				probe.NonPainFootRegion = footZone && !footZone->bPainZone();
+			}
+
+			const int selected = PawnMovement::SelectWallAdjustCandidate(probes,
+				PawnMovement::WallAdjustCandidateOrder(observation.State.RepeatOrdinal));
+			if (selected >= 0)
+			{
+				WallAdjustRecovery = PawnMovement::BeginWallAdjustSteering(
+					WallAdjustRecovery, Location(), approachDirection,
+					directions[static_cast<size_t>(selected)], wallAdjustSteeringDuration);
+				if (!WallAdjustRecovery.SteeringActive)
+				{
+					Acceleration() = vec3(0.0f);
+					MoveTimer() = -1.0f;
+					WallAdjustForcedReplanCountValue++;
+					return false;
+				}
+				bFromWall() = true;
+				WallAdjustRecoveryAttemptCountValue++;
+				return true;
+			}
+
+			Acceleration() = vec3(0.0f);
+			MoveTimer() = -1.0f;
+			WallAdjustForcedReplanCountValue++;
+			return false;
+		}
+	}
+	else
+	{
+		WallAdjustRecovery = {};
+	}
+
 	auto kneeHeight = CollisionHeight() * 0.45f;
 
 	auto forwards = normalize(Acceleration().xy());
 
 	auto afterJumpCollisionHit = TryMove(vec3(forwards, kneeHeight), true);
-
-	if (afterJumpCollisionHit.Fraction == 1)
+	if (afterJumpCollisionHit.Fraction == 1.0f)
 	{
 		// Obstacle can be jumped over. Attempt jumping.
 		bFromWall() = false;
@@ -3054,34 +3382,61 @@ bool UPawn::PickWallAdjust()
 		return true;
 	}
 
-	// Obstacle cannot be jumped over. Try another direction
 	auto direction = Focus() - Location();
 	auto rightSideVec = normalize(cross(direction, vec3(0, 0, 1)));
-	auto rightSideTest = TryMove(rightSideVec, true);
+	auto rightSideDelta = PawnMovement::WallAdjustmentDelta(rightSideVec, CollisionRadius());
+	auto rightSideTest = TryMove(rightSideDelta, true);
 	if (rightSideTest.Fraction == 1)
 	{
 		// We can move to right instead
 		bFromWall() = true;
-		Destination() = Location() + rightSideVec;
-		// Focus() = Location() + rightSideVec;
+		Destination() = Location() + rightSideDelta;
 
 		return true;
 	}
 
-	auto leftSideVec = -rightSideVec;
-	auto leftSideTest = TryMove(leftSideVec, true);
+	auto leftSideDelta = -rightSideDelta;
+	auto leftSideTest = TryMove(leftSideDelta, true);
 	if (leftSideTest.Fraction >= 1)
 	{
 		// We can move to left instead
 		bFromWall() = true;
-		Destination() = Location() + leftSideVec;
-		// Focus() = Location() + leftSideVec;
+		Destination() = Location() + leftSideDelta;
 
 		return true;
 	}
 
 	// Cannot go anywhere from here
 	return false;
+}
+
+void UPawn::AdvanceWallAdjustRecovery(float elapsed)
+{
+	const bool validContext = IsAutonomousPlayerBot(this)
+		&& !bDeleteMe() && Health() > 0 && Physics() == PHYS_Walking;
+	const PawnMovement::WallAdjustRecoveryAdvance advance = PawnMovement::AdvanceWallAdjustRecovery(
+		WallAdjustRecovery, Location(), elapsed, wallAdjustRepeatRadius,
+		wallAdjustRecoveryEscapeRadius, validContext);
+	WallAdjustRecovery = advance.State;
+	if (advance.Escaped)
+		WallAdjustRecoverySuccessCountValue++;
+}
+
+bool UPawn::ApplyWallAdjustRecovery(const vec2& requestedDirection)
+{
+	const PawnMovement::WallAdjustSteeringRequest request =
+		PawnMovement::EvaluateWallAdjustSteeringRequest(
+			WallAdjustRecovery, requestedDirection, wallAdjustUnsafeAlignment);
+	if (request == PawnMovement::WallAdjustSteeringRequest::Inactive)
+		return false;
+	if (request == PawnMovement::WallAdjustSteeringRequest::Clear)
+	{
+		WallAdjustRecovery = {};
+		return false;
+	}
+
+	Acceleration() = vec3(WallAdjustRecovery.EscapeDirection * AccelRate(), 0.0f);
+	return true;
 }
 
 vec3 UPawn::EAdjustJump()
@@ -3393,10 +3748,12 @@ std::pair<Array<UNavigationPoint*>, int32_t> UPawn::FindPathToEndPoint(UNavigati
 
 				// To do: check reachFlags
 
-				// How far have we travelled so far?
-				int32_t distance = reachSpec.distance;
-				if (prevStep >= 0)
-					distance += steps[prevStep].distance;
+				// NavigationPoint.cost is populated by ClearPaths(), including a
+				// bSpecialCost node's UnrealScript SpecialCost result.
+				const int32_t accumulatedCost = prevStep >= 0 ? steps[prevStep].distance : 0;
+				const int32_t nodeCost = engine->LaunchInfo.IsKlingonHonorGuard() ? 0 : current->cost();
+				const int32_t distance = PawnPath::AccumulateCost(
+					accumulatedCost, reachSpec.distance, nodeCost);
 
 				// Is this distance shorter than last time we reached this point?
 				int32_t& pointDistance = shortestDistance[endActor];
@@ -3421,11 +3778,76 @@ std::pair<Array<UNavigationPoint*>, int32_t> UPawn::FindPathToEndPoint(UNavigati
 	if (stepEnds.empty())
 		return { {}, 0 };
 
-	std::sort(stepEnds.begin(), stepEnds.end(), [&](size_t a, size_t b) { return steps[a].distance < steps[b].distance; });
+	std::array<ULiftExit*, 2> avoidedLiftExits = {};
+	std::array<std::vector<const void*>, 2> avoidedLiftAdjacency;
+	for (size_t entryIndex = 0; entryIndex < FailedNavigationMemory.Entries.size(); entryIndex++)
+	{
+		const PawnMovement::FailedNavigationMemoryEntry& entry =
+			FailedNavigationMemory.Entries[entryIndex];
+		if (entry.AvoidanceRemaining <= 0.0f)
+			continue;
+		UActor* avoidedTarget = const_cast<UActor*>(
+			static_cast<const UActor*>(entry.Target));
+		avoidedLiftExits[entryIndex] = avoidedTarget && !avoidedTarget->bDeleteMe()
+			? UObject::TryCast<ULiftExit>(avoidedTarget) : nullptr;
+		if (avoidedLiftExits[entryIndex])
+			avoidedLiftAdjacency[entryIndex] = LiftExitLandingAdjacency(
+				avoidedLiftExits[entryIndex], reachSpecs);
+	}
+
+	std::vector<PawnMovement::FailedNavigationEndpointCandidate> endpointCandidates;
+	endpointCandidates.reserve(stepEnds.size());
+	for (size_t stepIndex : stepEnds)
+	{
+		ULiftExit* liftExit = UObject::TryCast<ULiftExit>(steps[stepIndex].navpoint);
+		std::array<bool, 2> avoidedEntries = {};
+		if (liftExit)
+		{
+			const std::vector<const void*> adjacency = LiftExitLandingAdjacency(liftExit, reachSpecs);
+			const PawnMovement::FailedNavigationLiftExitTopology candidateTopology = {
+				.Zone = liftExit->Region().Zone,
+				.X = liftExit->Location().x,
+				.Y = liftExit->Location().y,
+				.Z = liftExit->Location().z,
+				.AdjacentLandingNodes = adjacency
+			};
+			for (size_t entryIndex = 0; entryIndex < avoidedLiftExits.size(); entryIndex++)
+			{
+				ULiftExit* avoidedLiftExit = avoidedLiftExits[entryIndex];
+				if (!avoidedLiftExit)
+					continue;
+				const PawnMovement::FailedNavigationLiftExitTopology avoidedTopology = {
+					.Zone = avoidedLiftExit->Region().Zone,
+					.X = avoidedLiftExit->Location().x,
+					.Y = avoidedLiftExit->Location().y,
+					.Z = avoidedLiftExit->Location().z,
+					.AdjacentLandingNodes = avoidedLiftAdjacency[entryIndex]
+				};
+				avoidedEntries[entryIndex] =
+					PawnMovement::AreFailedNavigationLiftExitsOnSameLanding(
+						candidateTopology, avoidedTopology,
+						failedNavigationLiftExitLandingRadius,
+						failedNavigationLiftExitLandingStepHeights * MaxStepHeight());
+			}
+		}
+		endpointCandidates.push_back({
+			.Endpoint = steps[stepIndex].navpoint,
+			.AvoidedEntries = avoidedEntries,
+			.Cost = steps[stepIndex].distance,
+			.StableOrder = stepIndex
+		});
+	}
+	const PawnMovement::FailedNavigationEndpointSelection endpointSelection =
+		PawnMovement::SelectFailedNavigationEndpoint(
+			FailedNavigationMemory, endpointCandidates, failedNavigationFirstHopCost);
+	if (!endpointSelection.Found)
+		return { {}, 0 };
+	FailedNavigationRoutePenaltyApplicationCountValue += endpointSelection.PenaltyApplications;
+	const size_t selectedStep = stepEnds[endpointSelection.CandidateIndex];
 
 	// Extract the final path:
 	Array<UNavigationPoint*> path;
-	int currentStep = (int)stepEnds.front();
+	int currentStep = (int)selectedStep;
 	while (currentStep >= 0)
 	{
 		const Step& step = steps[currentStep];
@@ -3447,7 +3869,7 @@ std::pair<Array<UNavigationPoint*>, int32_t> UPawn::FindPathToEndPoint(UNavigati
 	}
 	path.push_back(start);
 
-	return { path, steps[stepEnds.front()].distance };
+	return { path, endpointSelection.AdjustedCost };
 }
 
 void UPawn::ClearPaths()
@@ -3745,6 +4167,20 @@ void UPawn::UpdateActorZone()
 
 void UPawn::Tick(float elapsed)
 {
+	std::array<bool, 2> rememberedNavigationTargetsLive = {};
+	for (size_t index = 0; index < FailedNavigationMemory.Entries.size(); index++)
+	{
+		UActor* rememberedNavigationTarget = const_cast<UActor*>(
+			static_cast<const UActor*>(FailedNavigationMemory.Entries[index].Target));
+		rememberedNavigationTargetsLive[index] =
+			rememberedNavigationTarget && !rememberedNavigationTarget->bDeleteMe();
+	}
+	FailedNavigationMemory = PawnMovement::AdvanceFailedNavigationMemory(
+		FailedNavigationMemory, elapsed, Location().x, Location().y,
+		rememberedNavigationTargetsLive, failedNavigationEscapeRadius);
+	ObserveMoveStallWatchdog(elapsed);
+	AdvancePainLedgeRecovery(elapsed);
+	AdvanceWallAdjustRecovery(elapsed);
 	MoveTimer() -= elapsed;
 
 	if (StateFrame)
@@ -3752,7 +4188,7 @@ void UPawn::Tick(float elapsed)
 		if (StateFrame->LatentState == LatentRunState::MoveTo)
 		{
 			TickRotateTo(Focus());
-			if (TickMoveTo(Destination()))
+			if (TickMoveTo(Destination(), elapsed))
 				StateFrame->LatentState = LatentRunState::Continue;
 		}
 		else if (StateFrame->LatentState == LatentRunState::MoveToward)
@@ -3760,9 +4196,43 @@ void UPawn::Tick(float elapsed)
 			if (MoveTarget())
 			{
 				Focus() = MoveTarget()->Location();
+				const bool advancedTactics = engine->LaunchInfo.ue1Version >= 436 && bAdvancedTactics();
+				const PawnMovement::MoveTowardPoll poll = PawnMovement::PrepareMoveTowardPoll(MoveTarget()->Location(), advancedTactics);
+				Destination() = poll.Destination;
+				if (poll.ApplyAdvancedTactics)
+				{
+					const vec3 unalteredDestination = Destination();
+					CallEvent(this, EventName::AlterDestination);
+					const bool targetUsable = MoveTarget() && !MoveTarget()->bDeleteMe();
+					if (PawnMovement::AbortMoveTowardAfterAlterDestination(bDeleteMe(), targetUsable))
+					{
+						StateFrame->LatentState = LatentRunState::Continue;
+						return;
+					}
+
+					const vec3 preferredDestination = Destination();
+					const vec3 oppositeDestination = PawnMovement::ReflectTacticalDestination(
+						unalteredDestination, preferredDestination);
+					auto clearForPawnExtent = [this](const vec3& candidate)
+					{
+						vec3 direction = candidate - Location();
+						direction.z = 0.0f;
+						const float distance = length(direction);
+						if (distance <= 0.0001f)
+							return true;
+						const vec3 lookahead = direction * (std::min(distance, 100.0f) / distance);
+						return TryMove(lookahead, true).Fraction == 1.0f;
+					};
+					const bool preferredClear = clearForPawnExtent(preferredDestination);
+					const bool oppositeClear = !preferredClear && clearForPawnExtent(oppositeDestination);
+					Destination() = PawnMovement::SelectTacticalDestination(unalteredDestination,
+						preferredDestination, preferredClear, oppositeClear);
+				}
 				TickRotateTo(Focus());
-				if (TickMoveTo(MoveTarget()->Location()))
+				if (TickMoveTo(Destination(), elapsed, MoveTarget()))
+				{
 					StateFrame->LatentState = LatentRunState::Continue;
+				}
 			}
 			else
 			{
@@ -3772,7 +4242,7 @@ void UPawn::Tick(float elapsed)
 		else if (StateFrame->LatentState == LatentRunState::StrafeTo)
 		{
 			TickRotateTo(Focus());
-			if (TickMoveTo(Destination()))
+			if (TickMoveTo(Destination(), elapsed))
 				StateFrame->LatentState = LatentRunState::Continue;
 		}
 		else if (StateFrame->LatentState == LatentRunState::StrafeFacing)
@@ -3781,7 +4251,7 @@ void UPawn::Tick(float elapsed)
 			{
 				TickRotateTo(Focus());
 				vec3 oldDest = Destination();
-				if (TickMoveTo(Destination()))
+				if (TickMoveTo(Destination(), elapsed))
 					StateFrame->LatentState = LatentRunState::Continue;
 				Destination() = oldDest;
 			}
@@ -3912,33 +4382,258 @@ bool UPawn::TickRotateTo(const vec3& target)
 	return (std::abs(DesiredRotation().Yaw - (Rotation().Yaw & 0xffff)) < doneAngle) || (std::abs(DesiredRotation().Yaw - (Rotation().Yaw & 0xffff)) > 0xffff - doneAngle);
 }
 
-bool UPawn::TickMoveTo(const vec3& target)
+bool UPawn::TickMoveTo(const vec3& target, float elapsed, UActor* targetActor)
 {
 	if (MoveTimer() < 0.0f)
+	{
+		Acceleration() = vec3(0.0f);
 		return true;
+	}
 
 	if (Physics() == PHYS_Walking)
 	{
 		vec2 delta = target.xy() - Location().xy();
 		float distSqr = dot(delta, delta);
-		float velocitySqr = dot(Velocity(), Velocity());
-		if (distSqr < 1.0f || distSqr < velocitySqr * 0.05f)
+		float velocitySqr = dot(Velocity().xy(), Velocity().xy());
+		float acceptanceRadius = 1.0f;
+		bool targetVerticallyReachable = true;
+		if (targetActor)
+		{
+			const float verticalSeparation = std::abs(targetActor->Location().z - Location().z);
+			const bool canTouchTarget = targetActor->bCollideActors();
+			const float verticalReach = canTouchTarget
+				? CollisionHeight() + targetActor->CollisionHeight() + MaxStepHeight()
+				: CollisionHeight();
+			targetVerticallyReachable = verticalSeparation <= verticalReach;
+			if (targetVerticallyReachable)
+				acceptanceRadius = canTouchTarget
+					? std::max(CollisionRadius() + targetActor->CollisionRadius(), 1.0f)
+					: std::max(CollisionRadius(), 1.0f);
+		}
+		if (PawnMovement::HasArrived({
+			.DistanceSquared = distSqr,
+			.SpeedSquared = velocitySqr,
+			.Elapsed = elapsed,
+			.AcceptanceRadius = acceptanceRadius,
+			.VerticallyReachable = targetVerticallyReachable }))
+		{
+			Acceleration() = vec3(0.0f);
 			return true;
+		}
 
-		Acceleration() = vec3(normalize(delta) * AccelRate(), 0.0f);
+		if (!ApplyPainLedgeRecovery(delta) && !ApplyWallAdjustRecovery(delta))
+			Acceleration() = vec3(normalize(delta) * AccelRate(), 0.0f);
 	}
 	else
 	{
 		vec3 delta = target - Location();
 		float distSqr = dot(delta, delta);
 		float velocitySqr = dot(Velocity(), Velocity());
-		if (distSqr < 1.0f || distSqr < velocitySqr * 0.05f)
+		float acceptanceRadius = targetActor
+			? (targetActor->bCollideActors()
+				? std::max(CollisionRadius() + targetActor->CollisionRadius(), 1.0f)
+				: std::max(CollisionRadius(), 1.0f))
+			: 1.0f;
+		if (PawnMovement::HasArrived({
+			.DistanceSquared = distSqr,
+			.SpeedSquared = velocitySqr,
+			.Elapsed = elapsed,
+			.AcceptanceRadius = acceptanceRadius }))
+		{
+			Acceleration() = vec3(0.0f);
 			return true;
+		}
 
 		Acceleration() = normalize(delta) * AccelRate();
 	}
 
 	return false;
+}
+
+void UPawn::ObserveMoveStallWatchdog(float elapsed)
+{
+	UZoneInfo* footZone = FootRegion().Zone;
+	UActor* actorBase = ActorBase();
+	UActor* moveTarget = MoveTarget();
+	UActor* faceTarget = engine->LaunchInfo.ue1Version > 219 ? FaceTarget() : nullptr;
+	const bool moverContext = (actorBase && actorBase->IsA("Mover"))
+		|| (moveTarget && moveTarget->IsA("Mover"))
+		|| (faceTarget && faceTarget->IsA("Mover"));
+	const bool eligibleContext = IsStockAutonomousPlayerBot(this)
+		&& Role() == ROLE_Authority && !bDeleteMe() && Health() > 0
+		&& Physics() == PHYS_Walking && footZone && !footZone->bPainZone()
+		&& !PainLedgeRecovery.Active && !WallAdjustRecovery.Active
+		&& !moverContext;
+	const bool latentMovementIntent = StateFrame
+		&& IsMovementLatentState(StateFrame->LatentState);
+	const LatentRunState latentState = StateFrame
+		? StateFrame->LatentState : LatentRunState::Continue;
+	const PawnMovement::MoveStallLatentMode latentMode = MoveStallLatentModeFor(latentState);
+	const bool moveTowardLatent = latentMode == PawnMovement::MoveStallLatentMode::MoveToward;
+	UNavigationPoint* navigationTarget = moveTowardLatent
+		? UObject::TryCast<UNavigationPoint>(moveTarget) : nullptr;
+	const bool liveNavigationTarget = navigationTarget && !navigationTarget->bDeleteMe();
+	const PawnMovement::MoveStallWatchdogObservation observation =
+		PawnMovement::ObserveMoveStall(MoveStallWatchdog, Location(), elapsed,
+			eligibleContext, latentMovementIntent, moveStallProgressRadius,
+			moveStallDetectionSeconds);
+	MoveStallWatchdog = observation.State;
+	MoveStallEligibleSecondsValue += observation.EligibleSeconds;
+	if (observation.EpisodeReset)
+		MoveStallEpisodeResetCountValue++;
+	if (observation.Detected)
+	{
+		MoveStallDetectionCountValue++;
+		const PawnMovement::MoveStallRecoveryDecision recovery =
+			PawnMovement::SelectMoveStallRecovery({
+				.Detected = observation.Detected,
+				.LatentMode = latentMode,
+				.LiveNavigationMoveToward = liveNavigationTarget,
+				.Targetless = moveTarget == nullptr,
+				.MoveTimer = MoveTimer(),
+				.Location = Location(),
+				.Destination = Destination(),
+				.AcceptanceRadius = 1.0f
+			});
+		if (recovery == PawnMovement::MoveStallRecoveryDecision::NavigationReplan)
+		{
+			UMover* lift = nullptr;
+			if (ULiftExit* liftExit = UObject::TryCast<ULiftExit>(navigationTarget))
+				lift = liftExit->MyLift();
+			const PawnMovement::FailedNavigationEligibility memoryEligibility = {
+				.TargetLive = liveNavigationTarget,
+				.LiftCenter = UObject::TryCast<ULiftCenter>(navigationTarget) != nullptr,
+				.SpecialGoalRedirected = SpecialGoal() && SpecialGoal() != navigationTarget,
+				.BasedOnLift = lift && actorBase == lift,
+				.LiftInterpolating = lift && lift->bInterpolating(),
+				.LiftDelaying = lift && lift->bDelaying(),
+				.LiftWaitingForPawn = lift && lift->WaitingPawn() == this
+			};
+			if (PawnMovement::CanRememberFailedNavigation(memoryEligibility))
+			{
+				const PawnMovement::FailedNavigationFailureRecord record =
+					PawnMovement::RecordFailedNavigation(
+						FailedNavigationMemory, navigationTarget, Location().x, Location().y,
+						failedNavigationRepeatWindow, failedNavigationAvoidanceDuration,
+						failedNavigationRequiredFailures);
+				FailedNavigationMemory = record.State;
+				if (record.AvoidanceActivated)
+					FailedNavigationAvoidanceActivationCountValue++;
+			}
+			else
+			{
+				FailedNavigationSafeguardSuppressionCountValue++;
+			}
+		}
+		if (recovery != PawnMovement::MoveStallRecoveryDecision::None)
+		{
+			Acceleration() = vec3(0.0f);
+			MoveTimer() = -1.0f;
+			MoveStallWatchdog = {};
+			MoveStallForcedReplanCountValue++;
+			if (recovery == PawnMovement::MoveStallRecoveryDecision::NavigationReplan)
+				MoveStallNavigationForcedReplanCountValue++;
+			else if (recovery == PawnMovement::MoveStallRecoveryDecision::TargetlessTimeout)
+				MoveStallTargetlessMoveToTimeoutCountValue++;
+		}
+	}
+}
+
+void UPawn::RecordMoveStallCommand()
+{
+	if (IsStockAutonomousPlayerBot(this))
+	{
+		const LatentRunState latentState = StateFrame
+			? StateFrame->LatentState : LatentRunState::Continue;
+		const PawnMovement::MoveStallLatentMode latentMode = MoveStallLatentModeFor(latentState);
+		const void* target = nullptr;
+		if (latentMode == PawnMovement::MoveStallLatentMode::MoveToward)
+			target = MoveTarget();
+		else if (latentMode == PawnMovement::MoveStallLatentMode::StrafeFacing
+			&& engine->LaunchInfo.ue1Version > 219)
+			target = FaceTarget();
+		MoveStallWatchdog = PawnMovement::RecordMoveStallCommand(
+			MoveStallWatchdog, { latentMode, target, Destination() });
+	}
+}
+
+void UPawn::RecordPainLedgeVeto(const vec3& origin, const vec2& unsafeDirection)
+{
+	PainLedgeVetoCountValue++;
+	const PawnMovement::PainLedgeVetoRecord record = PawnMovement::RecordPainLedgeVeto(
+		PainLedgeRecovery, origin, unsafeDirection, painLedgeRecoveryDuration,
+		painLedgeRepeatRadius, painLedgeDirectionAlignment);
+	PainLedgeRecovery = record.State;
+	if (record.Repeat)
+		PainLedgeRepeatVetoCountValue++;
+}
+
+void UPawn::AdvancePainLedgeRecovery(float elapsed)
+{
+	const bool validContext = !bDeleteMe() && Health() > 0 && Physics() == PHYS_Walking;
+	const PawnMovement::PainLedgeRecoveryAdvance advance = PawnMovement::AdvancePainLedgeRecovery(
+		PainLedgeRecovery, Location(), elapsed, painLedgeRecoveryRadius, validContext);
+	PainLedgeRecovery = advance.State;
+	if (advance.Escaped)
+		PainLedgeRecoveryEscapeCountValue++;
+}
+
+bool UPawn::ApplyPainLedgeRecovery(const vec2& requestedDirection)
+{
+	const PawnMovement::PainLedgeRecoveryRequest request =
+		PawnMovement::EvaluatePainLedgeRecoveryRequest(
+			PainLedgeRecovery, requestedDirection, painLedgeDirectionAlignment);
+	if (request == PawnMovement::PainLedgeRecoveryRequest::Inactive)
+		return false;
+	if (request == PawnMovement::PainLedgeRecoveryRequest::Clear)
+	{
+		PainLedgeRecovery = {};
+		return false;
+	}
+
+	if (!PainLedgeRecovery.RecoveryAttempted)
+	{
+		PainLedgeRecovery.RecoveryAttempted = true;
+		PainLedgeRecoveryAttemptCountValue++;
+	}
+
+	const auto directions = PawnMovement::PainLedgeRecoveryCandidateDirections(
+		PainLedgeRecovery.UnsafeDirection);
+	std::array<PawnMovement::PainLedgeRecoveryCandidateProbe, 3> probes;
+	const TraceFlags supportTraceFlags = {
+		.movers = true,
+		.world = true
+	};
+	const vec3 traceExtent(CollisionRadius(), CollisionRadius(), CollisionHeight());
+	const float supportDepth = std::max(MaxStepHeight() * stepDownDeltaFactor, 1.0f);
+
+	for (size_t index = 0; index < directions.size(); index++)
+	{
+		const vec3 candidateDelta(directions[index] * painLedgeRecoveryProbeDistance, 0.0f);
+		PawnMovement::PainLedgeRecoveryCandidateProbe& probe = probes[index];
+		probe.SweepClear = TryMove(candidateDelta, true).Fraction == 1.0f;
+		if (!probe.SweepClear)
+			continue;
+
+		const vec3 candidate = Location() + candidateDelta;
+		const vec3 supportEnd = candidate - vec3(0.0f, 0.0f, supportDepth);
+		const CollisionHit support = XLevel()->Collision.TraceFirstHit(
+			candidate, supportEnd, this, traceExtent, supportTraceFlags);
+		probe.WalkableSupport = support.Fraction < 1.0f && support.Normal.z >= 0.7071f;
+		if (!probe.WalkableSupport)
+			continue;
+
+		const vec3 supportedCenter = candidate + (supportEnd - candidate) * support.Fraction;
+		UZoneInfo* footZone = XLevel()->Model->FindRegion(
+			supportedCenter - vec3(0.0f, 0.0f, CollisionHeight()), Level()).Zone;
+		probe.NonPainFootRegion = footZone && !footZone->bPainZone();
+	}
+
+	const int selected = PawnMovement::SelectPainLedgeRecoveryCandidate(probes);
+	Acceleration() = selected >= 0
+		? vec3(directions[static_cast<size_t>(selected)] * AccelRate(), 0.0f)
+		: vec3(0.0f);
+	return true;
 }
 
 void UPawn::MoveTo(const vec3& newDestination, float speed)
@@ -3951,6 +4646,7 @@ void UPawn::MoveTo(const vec3& newDestination, float speed)
 	SetMoveDuration(newDestination - Location());
 	if (StateFrame)
 		StateFrame->LatentState = LatentRunState::MoveTo;
+	RecordMoveStallCommand();
 }
 
 void UPawn::MoveToward(UActor* newTarget, float speed)
@@ -3969,6 +4665,7 @@ void UPawn::MoveToward(UActor* newTarget, float speed)
 		SetMoveDuration(newTarget->Location() - Location());
 	if (StateFrame)
 		StateFrame->LatentState = LatentRunState::MoveToward;
+	RecordMoveStallCommand();
 }
 
 void UPawn::StrafeFacing(const vec3& newDestination, UActor* newTarget)
@@ -3982,6 +4679,7 @@ void UPawn::StrafeFacing(const vec3& newDestination, UActor* newTarget)
 	SetMoveDuration(newDestination - Location());
 	if (StateFrame)
 		StateFrame->LatentState = LatentRunState::StrafeFacing;
+	RecordMoveStallCommand();
 }
 
 void UPawn::StrafeTo(const vec3& newDestination, const vec3& newFocus)
@@ -3994,6 +4692,7 @@ void UPawn::StrafeTo(const vec3& newDestination, const vec3& newFocus)
 	SetMoveDuration(newDestination - Location());
 	if (StateFrame)
 		StateFrame->LatentState = LatentRunState::StrafeTo;
+	RecordMoveStallCommand();
 }
 
 void UPawn::TurnTo(const vec3& newFocus)

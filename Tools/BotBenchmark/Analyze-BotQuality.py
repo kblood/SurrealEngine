@@ -21,7 +21,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 3
+TOOL_VERSION = 10
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -40,9 +40,33 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "deaths_exact": "lower",
     "suicides_exact": "lower",
     "environmental_deaths_exact": "lower",
+    "direct_self_kills": "lower",
+    "direct_enemy_kills": None,
+    "unassisted_environmental_deaths": "lower",
+    "recent_enemy_contributed_environmental_deaths_proxy": "lower",
+    "ambiguous_deaths": "lower",
+    "recent_enemy_momentum_contributed_environmental_deaths_proxy": "lower",
     "suicide_to_kill_ratio": "lower",
     "match_score_delta": "higher",
     "hit_wall_events_exact": "lower",
+    "pain_ledge_vetoes_exact": None,
+    "pain_ledge_repeat_vetoes_exact": None,
+    "pain_ledge_recovery_attempts_exact": None,
+    "pain_ledge_recovery_escapes_exact": None,
+    "wall_adjust_calls_exact": None,
+    "wall_adjust_repeats_exact": None,
+    "wall_adjust_recovery_attempts_exact": None,
+    "wall_adjust_recovery_successes_exact": None,
+    "wall_adjust_forced_replans_exact": None,
+    "move_stall_detections_exact": None,
+    "move_stall_episode_resets_exact": None,
+    "move_stall_forced_replans_exact": None,
+    "move_stall_navigation_forced_replans_exact": None,
+    "move_stall_targetless_move_to_timeouts_exact": None,
+    "move_stall_eligible_seconds": None,
+    "failed_navigation_avoidance_activations_exact": None,
+    "failed_navigation_safeguard_suppressions_exact": None,
+    "failed_navigation_route_penalty_applications_exact": None,
     "hazard_exposure_seconds": "lower",
     "hazard_entries": "lower",
     "hazard_exposed_deaths_proxy": "lower",
@@ -57,6 +81,67 @@ FUTURE_METRICS = {
     "damage_dealt": "Attributed damage events are required.",
     "accuracy": "Attributed shot and finalized hit/miss events are required.",
     "objective_progress": "Mode-specific, attributed objective events are required.",
+}
+
+CORE_EXACT_COUNTERS = (
+    "kills_exact", "deaths_exact", "suicides_exact", "environmental_deaths_exact",
+    "hazard_exposed_deaths_proxy", "hit_wall_events_exact",
+)
+PAIN_LEDGE_EXACT_COUNTERS = (
+    "pain_ledge_vetoes_exact", "pain_ledge_repeat_vetoes_exact",
+    "pain_ledge_recovery_attempts_exact", "pain_ledge_recovery_escapes_exact",
+)
+WALL_ADJUST_EXACT_COUNTERS = (
+    "wall_adjust_calls_exact", "wall_adjust_repeats_exact",
+    "wall_adjust_recovery_attempts_exact", "wall_adjust_recovery_successes_exact",
+    "wall_adjust_forced_replans_exact",
+)
+MOVE_STALL_EXACT_COUNTERS = (
+    "move_stall_detections_exact", "move_stall_episode_resets_exact",
+    "move_stall_forced_replans_exact", "move_stall_navigation_forced_replans_exact",
+    "move_stall_targetless_move_to_timeouts_exact",
+)
+FAILED_NAVIGATION_EXACT_COUNTERS = (
+    "failed_navigation_avoidance_activations_exact",
+    "failed_navigation_safeguard_suppressions_exact",
+    "failed_navigation_route_penalty_applications_exact",
+)
+DEATH_ATTRIBUTION_COUNTERS = (
+    "direct_self_kills", "direct_enemy_kills", "unassisted_environmental_deaths",
+    "recent_enemy_contributed_environmental_deaths_proxy", "ambiguous_deaths",
+    "recent_enemy_momentum_contributed_environmental_deaths_proxy",
+)
+OPTIONAL_EXACT_COUNTERS = (
+    PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
+    + FAILED_NAVIGATION_EXACT_COUNTERS + DEATH_ATTRIBUTION_COUNTERS
+)
+OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
+OPTIONAL_CUMULATIVE_METRICS = OPTIONAL_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_NUMBERS
+MOVE_STALL_LEGACY_TELEMETRY_GROUP = (
+    "move_stall_detections_exact", "move_stall_episode_resets_exact",
+    "move_stall_eligible_seconds",
+)
+MOVE_STALL_TELEMETRY_GROUP = (
+    "move_stall_detections_exact", "move_stall_forced_replans_exact",
+    "move_stall_eligible_seconds",
+)
+MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP = (
+    "move_stall_detections_exact", "move_stall_episode_resets_exact",
+    "move_stall_forced_replans_exact", "move_stall_navigation_forced_replans_exact",
+    "move_stall_targetless_move_to_timeouts_exact", "move_stall_eligible_seconds",
+)
+OPTIONAL_DIAGNOSTIC_FIELDS = (
+    "physics_mode", "latent_action", "acceleration", "destination", "move_timer",
+    "move_target_identity", "move_target_name",
+)
+PHYSICS_MODES = {
+    "", "None", "Walking", "Falling", "Swimming", "Flying", "Rotating", "Projectile",
+    "Rolling", "Interpolating", "MovingBrush", "Spider", "Trailer", "Unknown",
+}
+LATENT_ACTIONS = {
+    "", "Continue", "Stop", "Sleep", "FinishAnim", "FinishInterpolation", "MoveTo",
+    "MoveToward", "StrafeTo", "StrafeFacing", "TurnTo", "TurnToward", "WaitForLanding",
+    "Unknown",
 }
 
 
@@ -253,10 +338,20 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     config_id = _string(raw, "config_id", "manifest", nonempty=True)
     bot_count = None
     requested_roster = None
+    death_attribution_recent_window_seconds = None
+    suicides_exact_semantics = None
     if schema == MANIFEST_SCHEMA_V2:
         bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
         requested_roster = _validate_requested_roster(raw.get("requested_roster"),
                                                       "manifest.requested_roster", bot_count)
+        if "death_attribution_recent_window_seconds" in raw:
+            death_attribution_recent_window_seconds = _number(
+                raw.get("death_attribution_recent_window_seconds"),
+                "manifest.death_attribution_recent_window_seconds", minimum=0.0)
+        if "suicides_exact_semantics" in raw:
+            suicides_exact_semantics = _string(raw, "suicides_exact_semantics", "manifest")
+            if suicides_exact_semantics != "legacy_scoreboard_self_or_nonplayer_killer":
+                raise QualityError(f"{path}: unsupported suicides_exact_semantics")
     expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count, requested_roster)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
@@ -272,6 +367,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "schema": schema,
         "bot_count": bot_count,
         "requested_roster": requested_roster,
+        "death_attribution_recent_window_seconds": death_attribution_recent_window_seconds,
+        "suicides_exact_semantics": suicides_exact_semantics,
     }
 
 
@@ -297,10 +394,82 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             "movement_intent": _boolean(bot.get("movement_intent"), f"{context}.movement_intent"),
             "in_hazard_zone": _boolean(bot.get("in_hazard_zone"), f"{context}.in_hazard_zone"),
         })
-        for name in ("kills_exact", "deaths_exact", "suicides_exact",
-                     "environmental_deaths_exact", "hazard_exposed_deaths_proxy",
-                     "hit_wall_events_exact"):
+        for name in CORE_EXACT_COUNTERS:
             result[name] = _integer(bot.get(name), f"{context}.{name}", minimum=0)
+        for name in OPTIONAL_EXACT_COUNTERS:
+            if name in bot:
+                result[name] = _integer(bot.get(name), f"{context}.{name}", minimum=0)
+        for name in OPTIONAL_CUMULATIVE_NUMBERS:
+            if name in bot:
+                result[name] = _number(bot.get(name), f"{context}.{name}", minimum=0.0)
+        for label, names in (
+                ("pain ledge", PAIN_LEDGE_EXACT_COUNTERS),
+                ("wall adjust", WALL_ADJUST_EXACT_COUNTERS),
+                ("failed navigation", FAILED_NAVIGATION_EXACT_COUNTERS),
+                ("death attribution", DEATH_ATTRIBUTION_COUNTERS)):
+            present = [name for name in names if name in result]
+            if present and len(present) != len(names):
+                raise QualityError(f"{context}: {label} counters must be provided as a complete group")
+        stall_field_names = set(
+            MOVE_STALL_LEGACY_TELEMETRY_GROUP + MOVE_STALL_TELEMETRY_GROUP
+            + MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP)
+        stall_present = {name for name in stall_field_names if name in result}
+        valid_stall_groups = (
+            set(), set(MOVE_STALL_LEGACY_TELEMETRY_GROUP), set(MOVE_STALL_TELEMETRY_GROUP),
+            set(MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP),
+        )
+        if stall_present not in valid_stall_groups:
+            raise QualityError(
+                f"{context}: move stall counters must be provided as the legacy or current complete group")
+        if "move_stall_forced_replans_exact" in result:
+            if result["move_stall_forced_replans_exact"] > result["move_stall_detections_exact"]:
+                raise QualityError(f"{context}: move stall forced replans exceed detections")
+        if "direct_self_kills" in result:
+            primary_attributions = sum(result[name] for name in DEATH_ATTRIBUTION_COUNTERS[:-1])
+            if primary_attributions != result["deaths_exact"]:
+                raise QualityError(
+                    f"{context}: primary death attribution counters do not equal deaths_exact")
+            if result["recent_enemy_momentum_contributed_environmental_deaths_proxy"] > \
+                    result["recent_enemy_contributed_environmental_deaths_proxy"]:
+                raise QualityError(
+                    f"{context}: momentum-contributed deaths exceed enemy-contributed deaths")
+        if "move_stall_navigation_forced_replans_exact" in result:
+            attributed_replans = (
+                result["move_stall_navigation_forced_replans_exact"]
+                + result["move_stall_targetless_move_to_timeouts_exact"])
+            if attributed_replans != result["move_stall_forced_replans_exact"]:
+                raise QualityError(
+                    f"{context}: attributed move stall recoveries do not equal forced replans")
+            if result["move_stall_episode_resets_exact"] > result["move_stall_detections_exact"]:
+                raise QualityError(f"{context}: move stall episode resets exceed detections")
+        if "physics_mode" in bot:
+            result["physics_mode"] = _string(bot, "physics_mode", context)
+            if result["physics_mode"] not in PHYSICS_MODES:
+                raise QualityError(f"{context}.physics_mode is not recognized")
+        if "latent_action" in bot:
+            result["latent_action"] = _string(bot, "latent_action", context)
+            if result["latent_action"] not in LATENT_ACTIONS:
+                raise QualityError(f"{context}.latent_action is not recognized")
+        for vector_name in ("acceleration", "destination"):
+            if vector_name in bot:
+                vector = _object(bot.get(vector_name), f"{context}.{vector_name}")
+                result[vector_name] = {
+                    axis: _number(vector.get(axis), f"{context}.{vector_name}.{axis}")
+                    for axis in "xyz"
+                }
+        if "move_timer" in bot:
+            result["move_timer"] = _number(bot.get("move_timer"), f"{context}.move_timer")
+        for name in ("move_target_identity", "move_target_name"):
+            if name in bot:
+                result[name] = _string(bot, name, context)
+        if ("move_target_identity" in result) != ("move_target_name" in result):
+            raise QualityError(f"{context}: move target identity and name must be provided together")
+        if "move_target_identity" in result:
+            identity, name = result["move_target_identity"], result["move_target_name"]
+            if bool(identity) != bool(name):
+                raise QualityError(f"{context}: move target identity and name must both be empty or non-empty")
+            if identity and not identity.startswith(("pri:", "actor:")):
+                raise QualityError(f"{context}.move_target_identity must start with pri: or actor:")
     return result
 
 
@@ -370,15 +539,21 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             raise QualityError(f"{path}: simulated time does not match tick * fixed_delta at sequence {index}")
     if events[0]["schema"] == TELEMETRY_SCHEMA_V2:
         previous: dict[str, dict[str, Any]] = {}
-        counters = ("kills_exact", "deaths_exact", "suicides_exact",
-                    "environmental_deaths_exact", "hazard_exposed_deaths_proxy",
-                    "hit_wall_events_exact")
+        counters = CORE_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_METRICS
+        optional_fields = OPTIONAL_CUMULATIVE_METRICS + OPTIONAL_DIAGNOSTIC_FIELDS
+        optional_presence: set[str] | None = None
         for event in events:
             for bot in event["bots"]:
+                present = {name for name in optional_fields if name in bot}
+                if optional_presence is None:
+                    optional_presence = present
+                elif present != optional_presence:
+                    raise QualityError(
+                        f"{path}: optional telemetry field availability changed at sequence {event['seq']}")
                 prior = previous.get(bot["identity"])
                 if prior:
                     for name in counters:
-                        if bot[name] < prior[name]:
+                        if name in bot and bot[name] < prior[name]:
                             raise QualityError(
                                 f"{path}: {name} regressed for {bot['identity']} at sequence {event['seq']}")
                 if bot["environmental_deaths_exact"] > bot["suicides_exact"]:
@@ -387,6 +562,21 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 if bot["suicides_exact"] > bot["deaths_exact"] or \
                         bot["hazard_exposed_deaths_proxy"] > bot["deaths_exact"]:
                     raise QualityError(f"{path}: death subcounter exceeds deaths_exact for {bot['identity']}")
+                if "pain_ledge_repeat_vetoes_exact" in bot and \
+                        bot["pain_ledge_repeat_vetoes_exact"] > bot["pain_ledge_vetoes_exact"]:
+                    raise QualityError(f"{path}: pain ledge repeats exceed vetoes for {bot['identity']}")
+                if "pain_ledge_recovery_attempts_exact" in bot and \
+                        bot["pain_ledge_recovery_attempts_exact"] > bot["pain_ledge_vetoes_exact"]:
+                    raise QualityError(f"{path}: pain ledge attempts exceed vetoes for {bot['identity']}")
+                if "pain_ledge_recovery_escapes_exact" in bot and \
+                        bot["pain_ledge_recovery_escapes_exact"] > bot["pain_ledge_recovery_attempts_exact"]:
+                    raise QualityError(f"{path}: pain ledge escapes exceed attempts for {bot['identity']}")
+                if "wall_adjust_repeats_exact" in bot and \
+                        bot["wall_adjust_repeats_exact"] > bot["wall_adjust_calls_exact"]:
+                    raise QualityError(f"{path}: wall adjust repeats exceed calls for {bot['identity']}")
+                if "wall_adjust_recovery_successes_exact" in bot and \
+                        bot["wall_adjust_recovery_successes_exact"] > bot["wall_adjust_recovery_attempts_exact"]:
+                    raise QualityError(f"{path}: wall adjust successes exceed attempts for {bot['identity']}")
                 previous[bot["identity"]] = bot
     if events[0]["type"] != "run_start" or events[0]["tick"] != 0:
         raise QualityError(f"{path}: first event must be run_start at tick zero")
@@ -582,18 +772,16 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                     intent_stuck_latched = False
         final = final_bots.get(identity)
         first = samples[0][2]
-        exact = {}
+        exact: dict[str, int | float | None] = {}
         if telemetry_v2:
-            for name in ("kills_exact", "deaths_exact", "suicides_exact",
-                         "environmental_deaths_exact", "hazard_exposed_deaths_proxy",
-                         "hit_wall_events_exact"):
-                exact[name] = final[name] - first[name] if final is not None else None
+            for name in CORE_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_METRICS:
+                exact[name] = (
+                    final[name] - first[name]
+                    if final is not None and name in first and name in final else None)
             kills = exact["kills_exact"]
             deaths = exact["deaths_exact"]
         else:
-            exact = {name: None for name in (
-                "kills_exact", "deaths_exact", "suicides_exact", "environmental_deaths_exact",
-                "hazard_exposed_deaths_proxy", "hit_wall_events_exact")}
+            exact = {name: None for name in CORE_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_METRICS}
             kills = deaths = None
         metrics[identity] = {
             "identity": identity,
@@ -646,7 +834,7 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
     deaths = sum_available("deaths_exact")
     suicides = sum_available("suicides_exact")
     hazard_deaths = sum_available("hazard_exposed_deaths_proxy")
-    return {
+    result = {
         "distance_traveled": sum(bot["distance_traveled"] for bot in values),
         "active_movement_seconds": active,
         "active_movement_fraction": active / observed if observed > 0 else None,
@@ -677,6 +865,8 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
         "survived_to_final_sample": all(survival) if survival and all(item is not None for item in survival) else None,
         "completion": completion,
     }
+    result.update({name: sum_available(name) for name in OPTIONAL_CUMULATIVE_METRICS})
+    return result
 
 
 def analyze_run(path: Path) -> dict[str, Any]:
@@ -685,6 +875,16 @@ def analyze_run(path: Path) -> dict[str, Any]:
         raise QualityError(f"run path is not a directory: {run_path}")
     manifest = _validate_manifest(run_path / "manifest.json")
     events = _load_events(run_path / "events.jsonl", manifest)
+    has_death_attribution = any(
+        "direct_self_kills" in bot for event in events for bot in event["bots"])
+    if has_death_attribution:
+        if manifest["death_attribution_recent_window_seconds"] is None:
+            raise QualityError(
+                f"{run_path}: attributed death telemetry requires "
+                "manifest.death_attribution_recent_window_seconds")
+        if manifest["suicides_exact_semantics"] is None:
+            raise QualityError(
+                f"{run_path}: attributed death telemetry requires manifest.suicides_exact_semantics")
     summary = _validate_summary(run_path / "summary.json", manifest, events)
     metadata = _load_metadata(run_path / "quality-metadata.json")
     bots = _bot_metrics(events)
@@ -699,11 +899,20 @@ def analyze_run(path: Path) -> dict[str, Any]:
             "fixed_delta": manifest["fixed_delta"], "difficulty": manifest["difficulty"],
             "map": summary["map"], "initial_bot_count": len(events[0]["bots"]),
             "requested_roster": manifest["requested_roster"],
+            "death_attribution_recent_window_seconds": (
+                manifest["death_attribution_recent_window_seconds"]),
+            "suicides_exact_semantics": manifest["suicides_exact_semantics"],
         },
         "result": summary,
         "metrics": metrics,
         "bots": [bots[key] for key in sorted(bots)],
-        "validation": {"status": "passed", "telemetry_events": len(events)},
+        "validation": {
+            "status": "passed",
+            "telemetry_events": len(events),
+            "optional_telemetry_fields": sorted(
+                name for name in OPTIONAL_CUMULATIVE_METRICS + OPTIONAL_DIAGNOSTIC_FIELDS
+                if any(name in bot for event in events for bot in event["bots"])),
+        },
     }
 
 
@@ -823,11 +1032,29 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
         "paired_comparisons": paired_comparisons(runs),
         "metric_availability": {
             "available": list(METRIC_DIRECTIONS),
+            "optional_counter_metrics_present": {
+                name: any(run["metrics"].get(name) is not None for run in runs)
+                for name in OPTIONAL_CUMULATIVE_METRICS
+            },
+            "death_attribution_metrics_present": all(
+                any(run["metrics"].get(name) is not None for run in runs)
+                for name in DEATH_ATTRIBUTION_COUNTERS
+            ),
             "unavailable_until_telemetry_is_extended": FUTURE_METRICS,
             "composite_quality_score": None,
         },
         "interpretation": (
-            "Telemetry-v2 combat counters come from authoritative Killed and HitWall script-call boundaries; "
+            "Telemetry-v2 combat counters come from authoritative Killed and HitWall script-call boundaries. "
+            "suicides_exact retains legacy scoreboard self-or-nonplayer-killer semantics. Optional causal death "
+            "attribution is a complete monotonic partition of deaths_exact; enemy and momentum environmental "
+            "contribution fields remain explicitly labeled proxies. "
+            "optional pain-ledge and wall-adjust counters are validated as monotonic and reported when present. "
+            "Optional move-stall detections, recovery counters, and cumulative eligible seconds are validated as "
+            "a legacy, aggregate-recovery, or attributed-recovery complete monotonic group and reported when present. "
+            "Optional failed-navigation activations, safeguard suppressions, and route-penalty applications are "
+            "validated as a complete monotonic group and reported when present. "
+            "Physics, latent-action, acceleration, destination, move-timer, and move-target diagnostics are "
+            "validated when present and remain available in the source event stream. "
             "PRI score/deaths are sampled persistent game counters. Hazard-exposed death and movement-intent "
             "stuck values remain explicitly labeled proxies. Distance and activity have no preferred direction. "
             "No composite quality score is emitted because damage attribution, accuracy, objectives, and calibrated "
