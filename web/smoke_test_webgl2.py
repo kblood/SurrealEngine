@@ -16,7 +16,10 @@ engine_base = os.environ.get("SURREAL_WEB_ENGINE_BASE", "/build-emscripten/")
 harness_path = os.environ.get("SURREAL_WEBGL2_HARNESS_PATH", "/web/index_webgl2.html")
 screenshot_path = os.environ.get("SURREAL_WEBGL2_SCREENSHOT", "web/webgl2_smoke_screenshot.png")
 result_path = os.environ.get("SURREAL_WEBGL2_RESULT")
+map_name = os.environ.get("SURREAL_WEB_MAP")
 url = f"{base_url}{harness_path}?engineBase={quote(engine_base, safe='/')}"
+if map_name:
+	url += "&map=" + quote(map_name, safe="-")
 
 
 def wait_until(page, expression, timeout=120):

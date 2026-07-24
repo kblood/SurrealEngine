@@ -222,6 +222,20 @@ recovery, and 99.8% nonblank frames before and after restoration. Reload,
 save/restore, broader-map, sustained-performance, and WebGPU comparison gates
 remain pending.
 
+Progress, 2026-07-24 (flat matrix increment): a repeatable Chrome matrix now
+creates a fresh WASM runtime across consecutive reloads, checkpoints an
+allowlisted mutable settings sentinel and verifies its exact bytes after a full
+page/runtime reload, captures multiple maps, and samples live frame/tick, WASM
+heap, texture, unsupported-draw, and GL-error counters. The exploratory UT demo
+run rendered both DM-TurbineDEMO and DOM-SesmarDEMO coherently (345 and 736
+draws per sampled frame), restored the sentinel, held the 256 MiB heap and
+texture count constant, and sustained roughly 31 frames/ticks per second in
+headless Chrome. Four other maps are explicitly classified as fixture
+exclusions because this standalone demo directory lacks `UnrealI.u`; they fail
+before renderer creation with `Could not find package UnrealI`, rather than
+being counted as renderer passes. A clean 10-reload/30-second run and the
+WebGPU comparison remain pending.
+
 ### WP3 — Post-launch Enter/Exit VR state machine
 
 - Change WebXR from a pre-launch presentation choice to a post-launch controller.
