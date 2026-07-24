@@ -131,6 +131,11 @@ namespace
 			<< ",\"failed_navigation_avoidance_activations_exact\":\"" << bot.FailedNavigationAvoidanceActivationsExact << "\""
 			<< ",\"failed_navigation_safeguard_suppressions_exact\":\"" << bot.FailedNavigationSafeguardSuppressionsExact << "\""
 			<< ",\"failed_navigation_route_penalty_applications_exact\":\"" << bot.FailedNavigationRoutePenaltyApplicationsExact << "\""
+			<< ",\"falling_seam_detections_exact\":\"" << bot.FallingSeamDetectionsExact << "\""
+			<< ",\"horizontal_corner_candidate_probes_exact\":\"" << bot.HorizontalCornerCandidateProbesExact << "\""
+			<< ",\"horizontal_corner_authorized_escapes_exact\":\"" << bot.HorizontalCornerAuthorizedEscapesExact << "\""
+			<< ",\"horizontal_corner_target_progress_rejects_exact\":\"" << bot.HorizontalCornerTargetProgressRejectsExact << "\""
+			<< ",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"" << bot.HorizontalCornerUnknownOrUnsafeSupportExact << "\""
 			<< ",\"state\":" << JsonString(bot.State) << "}";
 	}
 

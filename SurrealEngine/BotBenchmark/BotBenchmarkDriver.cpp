@@ -221,6 +221,16 @@ namespace
 			uint64_t FailedNavigationAvoidanceActivationsExact = 0;
 			uint64_t FailedNavigationSafeguardSuppressionsExact = 0;
 			uint64_t FailedNavigationRoutePenaltyApplicationsExact = 0;
+			uint64_t PreviousFallingSeamDetections = 0;
+			uint64_t PreviousHorizontalCornerCandidateProbes = 0;
+			uint64_t PreviousHorizontalCornerAuthorizedEscapes = 0;
+			uint64_t PreviousHorizontalCornerTargetProgressRejects = 0;
+			uint64_t PreviousHorizontalCornerUnknownOrUnsafeSupport = 0;
+			uint64_t FallingSeamDetectionsExact = 0;
+			uint64_t HorizontalCornerCandidateProbesExact = 0;
+			uint64_t HorizontalCornerAuthorizedEscapesExact = 0;
+			uint64_t HorizontalCornerTargetProgressRejectsExact = 0;
+			uint64_t HorizontalCornerUnknownOrUnsafeSupportExact = 0;
 		};
 
 		enum class AttributionScopeKind
@@ -991,6 +1001,11 @@ namespace
 						runtime.PreviousFailedNavigationAvoidanceActivations = 0;
 						runtime.PreviousFailedNavigationSafeguardSuppressions = 0;
 						runtime.PreviousFailedNavigationRoutePenaltyApplications = 0;
+						runtime.PreviousFallingSeamDetections = 0;
+						runtime.PreviousHorizontalCornerCandidateProbes = 0;
+						runtime.PreviousHorizontalCornerAuthorizedEscapes = 0;
+						runtime.PreviousHorizontalCornerTargetProgressRejects = 0;
+						runtime.PreviousHorizontalCornerUnknownOrUnsafeSupport = 0;
 					}
 					auto accumulatePawnCounter = [](uint64_t current, uint64_t& previous, uint64_t& total)
 					{
@@ -1036,6 +1051,21 @@ namespace
 					accumulatePawnCounter(pawn->FailedNavigationRoutePenaltyApplicationCount(),
 						runtime.PreviousFailedNavigationRoutePenaltyApplications,
 						runtime.FailedNavigationRoutePenaltyApplicationsExact);
+					accumulatePawnCounter(pawn->FallingSeamDetectionCount(),
+						runtime.PreviousFallingSeamDetections,
+						runtime.FallingSeamDetectionsExact);
+					accumulatePawnCounter(pawn->HorizontalCornerCandidateProbeCount(),
+						runtime.PreviousHorizontalCornerCandidateProbes,
+						runtime.HorizontalCornerCandidateProbesExact);
+					accumulatePawnCounter(pawn->HorizontalCornerAuthorizedEscapeCount(),
+						runtime.PreviousHorizontalCornerAuthorizedEscapes,
+						runtime.HorizontalCornerAuthorizedEscapesExact);
+					accumulatePawnCounter(pawn->HorizontalCornerTargetProgressRejectCount(),
+						runtime.PreviousHorizontalCornerTargetProgressRejects,
+						runtime.HorizontalCornerTargetProgressRejectsExact);
+					accumulatePawnCounter(pawn->HorizontalCornerUnknownOrUnsafeSupportCount(),
+						runtime.PreviousHorizontalCornerUnknownOrUnsafeSupport,
+						runtime.HorizontalCornerUnknownOrUnsafeSupportExact);
 					auto accumulatePawnDuration = [](double current, double& previous, double& total)
 					{
 						if (!std::isfinite(current) || current < 0.0)
@@ -1132,6 +1162,15 @@ namespace
 					runtime.FailedNavigationSafeguardSuppressionsExact;
 				bot.FailedNavigationRoutePenaltyApplicationsExact =
 					runtime.FailedNavigationRoutePenaltyApplicationsExact;
+				bot.FallingSeamDetectionsExact = runtime.FallingSeamDetectionsExact;
+				bot.HorizontalCornerCandidateProbesExact =
+					runtime.HorizontalCornerCandidateProbesExact;
+				bot.HorizontalCornerAuthorizedEscapesExact =
+					runtime.HorizontalCornerAuthorizedEscapesExact;
+				bot.HorizontalCornerTargetProgressRejectsExact =
+					runtime.HorizontalCornerTargetProgressRejectsExact;
+				bot.HorizontalCornerUnknownOrUnsafeSupportExact =
+					runtime.HorizontalCornerUnknownOrUnsafeSupportExact;
 				runtime.LastState = bot;
 				runtime.HasLastState = true;
 				bots.push_back(std::move(bot));

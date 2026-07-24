@@ -216,6 +216,44 @@ class QualityGateTests(unittest.TestCase):
             item["evidence"].get("metric") == "ambiguous_deaths"
             for item in missing_result["violations"]))
 
+    def test_falling_seam_shadow_acceptance_metrics_are_gateable_and_fail_closed(self) -> None:
+        shadow_metrics = {
+            "falling_seam_detections_exact": 2,
+            "horizontal_corner_candidate_probes_exact": 1,
+            "horizontal_corner_authorized_escapes_exact": 1,
+            "horizontal_corner_target_progress_rejects_exact": 0,
+            "horizontal_corner_unknown_or_unsafe_support_exact": 0,
+        }
+        safe_fixture = run("candidate-safe-corner", "candidate", "DM-SafeCorner", {
+            "completion": True, "kills_exact": 0, "deaths_exact": 0, **shadow_metrics,
+        })
+        required = list(shadow_metrics)
+        gate_config = config(
+            required_metrics=["completion", *required],
+            required_runs=[{"variant": "candidate", "map": "DM-SafeCorner", "min": 1}],
+            aggregate_gates=[],
+            per_run_gates=[
+                {"id": "candidate-probed", "variant": "candidate", "map": "DM-SafeCorner",
+                 "metric": "horizontal_corner_candidate_probes_exact", "min": 1},
+                {"id": "known-safe-authorization", "variant": "candidate",
+                 "map": "DM-SafeCorner",
+                 "metric": "horizontal_corner_authorized_escapes_exact", "min": 1},
+            ],
+        )
+        self.assertEqual(GATE.evaluate(report(safe_fixture), gate_config)["status"], "passed")
+
+        missing_metrics = {**safe_fixture["metrics"]}
+        missing_metrics.pop("horizontal_corner_unknown_or_unsafe_support_exact")
+        missing = run(
+            "candidate-safe-corner-missing", "candidate", "DM-SafeCorner", missing_metrics)
+        result = GATE.evaluate(report(missing), gate_config)
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue(any(
+            item["kind"] == "required_metric"
+            and item["evidence"].get("metric") ==
+            "horizontal_corner_unknown_or_unsafe_support_exact"
+            for item in result["violations"]))
+
     def test_cli_returns_nonzero_and_writes_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

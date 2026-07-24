@@ -538,6 +538,10 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnInventoryReachability.h
 	SurrealEngine/UObject/PawnLedgeTransition.cpp
 	SurrealEngine/UObject/PawnLedgeTransition.h
+	SurrealEngine/UObject/PawnFallingTwoPlaneContact.cpp
+	SurrealEngine/UObject/PawnFallingTwoPlaneContact.h
+	SurrealEngine/UObject/PawnFallingTwoPlaneSafety.cpp
+	SurrealEngine/UObject/PawnFallingTwoPlaneSafety.h
 	SurrealEngine/UObject/PawnPainZoneFallPrediction.cpp
 	SurrealEngine/UObject/PawnPainZoneFallPrediction.h
 	SurrealEngine/UObject/PawnPainLedgeRecovery.cpp

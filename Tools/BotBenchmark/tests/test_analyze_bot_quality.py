@@ -206,6 +206,110 @@ def declare_death_attribution(run: Path) -> None:
 
 
 class BotQualityAnalysisTests(unittest.TestCase):
+    def test_falling_seam_shadow_counters_are_complete_monotonic_and_reported(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        samples = [
+            {**common, "falling_seam_detections_exact": 0,
+             "horizontal_corner_candidate_probes_exact": 0,
+             "horizontal_corner_authorized_escapes_exact": 0,
+             "horizontal_corner_target_progress_rejects_exact": 0,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 0},
+            {**common, "falling_seam_detections_exact": 2,
+             "horizontal_corner_candidate_probes_exact": 1,
+             "horizontal_corner_authorized_escapes_exact": 0,
+             "horizontal_corner_target_progress_rejects_exact": 1,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 0},
+            {**common, "falling_seam_detections_exact": 3,
+             "horizontal_corner_candidate_probes_exact": 3,
+             "horizontal_corner_authorized_escapes_exact": 1,
+             "horizontal_corner_target_progress_rejects_exact": 1,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 1},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = write_v2_run(root, "valid")
+            upgrade_telemetry_v2(run, counters=samples)
+            report = QUALITY.analyze([run])
+
+            self.assertTrue(
+                report["metric_availability"]["falling_seam_shadow_metrics_present"])
+            per_bot = report["runs"][0]["bots"][0]
+            self.assertEqual(
+                {name: per_bot[name] for name in QUALITY.FALLING_SEAM_SHADOW_COUNTERS},
+                {
+                    "falling_seam_detections_exact": 3,
+                    "horizontal_corner_candidate_probes_exact": 3,
+                    "horizontal_corner_authorized_escapes_exact": 1,
+                    "horizontal_corner_target_progress_rejects_exact": 1,
+                    "horizontal_corner_unknown_or_unsafe_support_exact": 1,
+                })
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(metrics["falling_seam_detections_exact"], 6)
+            self.assertEqual(metrics["horizontal_corner_candidate_probes_exact"], 6)
+            self.assertEqual(metrics["horizontal_corner_authorized_escapes_exact"], 2)
+            aggregate = report["variant_aggregates"][0]["metrics"]
+            self.assertEqual(aggregate["falling_seam_detections_exact"]["mean"], 6.0)
+            self.assertEqual(
+                aggregate["horizontal_corner_authorized_escapes_exact"]["mean"], 2.0)
+
+            incomplete = write_v2_run(root, "incomplete")
+            incomplete_samples = [{**sample} for sample in samples]
+            for sample in incomplete_samples:
+                sample.pop("horizontal_corner_unknown_or_unsafe_support_exact")
+            upgrade_telemetry_v2(incomplete, counters=incomplete_samples)
+            with self.assertRaisesRegex(QUALITY.QualityError, "falling seam shadow.*complete group"):
+                QUALITY.analyze([incomplete])
+
+            regressed = write_v2_run(root, "regressed")
+            regressed_samples = [{**sample} for sample in samples]
+            regressed_samples[1]["horizontal_corner_authorized_escapes_exact"] = 1
+            regressed_samples[1]["horizontal_corner_target_progress_rejects_exact"] = 0
+            regressed_samples[2]["horizontal_corner_authorized_escapes_exact"] = 0
+            regressed_samples[2]["horizontal_corner_target_progress_rejects_exact"] = 2
+            upgrade_telemetry_v2(regressed, counters=regressed_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "horizontal_corner_authorized_escapes_exact regressed"):
+                QUALITY.analyze([regressed])
+
+            bad_subset = write_v2_run(root, "bad-subset")
+            bad_subset_samples = [{**sample} for sample in samples]
+            bad_subset_samples[1]["horizontal_corner_target_progress_rejects_exact"] = 0
+            upgrade_telemetry_v2(bad_subset, counters=bad_subset_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "classifications do not partition candidate probes"):
+                QUALITY.analyze([bad_subset])
+
+            candidates_without_detection = write_v2_run(root, "candidates-without-detection")
+            candidates_without_detection_samples = [{**sample} for sample in samples]
+            candidates_without_detection_samples[1]["falling_seam_detections_exact"] = 0
+            upgrade_telemetry_v2(
+                candidates_without_detection, counters=candidates_without_detection_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "candidates exceed falling seam detections"):
+                QUALITY.analyze([candidates_without_detection])
+
+    def test_older_telemetry_remains_valid_without_falling_seam_shadow_group(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "older-v2")
+            upgrade_telemetry_v2(run, counters=[common, common, common])
+            report = QUALITY.analyze([run])
+            self.assertFalse(
+                report["metric_availability"]["falling_seam_shadow_metrics_present"])
+            self.assertTrue(all(
+                report["runs"][0]["metrics"][name] is None
+                for name in QUALITY.FALLING_SEAM_SHADOW_COUNTERS))
+
     def test_causal_death_attribution_is_partitioned_monotonic_and_reported(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,
