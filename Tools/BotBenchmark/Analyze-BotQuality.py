@@ -16,11 +16,12 @@ from typing import Any, Iterable
 MANIFEST_SCHEMA = "surreal-bot-benchmark-manifest-v1"
 MANIFEST_SCHEMA_V2 = "surreal-bot-benchmark-manifest-v2"
 TELEMETRY_SCHEMA = "surreal-bot-benchmark-telemetry-v1"
+TELEMETRY_SCHEMA_V2 = "surreal-bot-benchmark-telemetry-v2"
 SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 2
+TOOL_VERSION = 3
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -32,6 +33,20 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "no_progress_seconds_proxy": "lower",
     "longest_no_progress_seconds_proxy": "lower",
     "stuck_events_proxy": "lower",
+    "movement_intent_no_progress_seconds_proxy": "lower",
+    "longest_movement_intent_no_progress_seconds_proxy": "lower",
+    "movement_intent_stuck_events_proxy": "lower",
+    "kills_exact": "higher",
+    "deaths_exact": "lower",
+    "suicides_exact": "lower",
+    "environmental_deaths_exact": "lower",
+    "suicide_to_kill_ratio": "lower",
+    "match_score_delta": "higher",
+    "hit_wall_events_exact": "lower",
+    "hazard_exposure_seconds": "lower",
+    "hazard_entries": "lower",
+    "hazard_exposed_deaths_proxy": "lower",
+    "hazard_exposed_death_fraction_proxy": "lower",
     "health_loss_observed": "lower",
     "minimum_health_observed": "higher",
     "survived_to_final_sample": "higher",
@@ -39,9 +54,6 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
 }
 
 FUTURE_METRICS = {
-    "kills": "An exact, attributed kill event or adjudicated kill counter is required.",
-    "deaths": "An exact death event or persistent PRI death counter is required.",
-    "score": "A per-participant score sample is required.",
     "damage_dealt": "Attributed damage events are required.",
     "accuracy": "Attributed shot and finalized hit/miss events are required.",
     "objective_progress": "Mode-specific, attributed objective events are required.",
@@ -105,6 +117,12 @@ def _number(value: Any, context: str, *, minimum: float | None = None) -> float:
     if minimum is not None and result < minimum:
         raise QualityError(f"{context} must be at least {minimum}")
     return result
+
+
+def _boolean(value: Any, context: str) -> bool:
+    if not isinstance(value, bool):
+        raise QualityError(f"{context} must be a boolean")
+    return value
 
 
 def _load_json(path: Path, context: str) -> dict[str, Any]:
@@ -257,7 +275,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     }
 
 
-def _validate_bot(raw: Any, context: str) -> dict[str, Any]:
+def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
     bot = _object(raw, context)
     result: dict[str, Any] = {
         "identity": _string(bot, "identity", context, nonempty=True),
@@ -272,6 +290,17 @@ def _validate_bot(raw: Any, context: str) -> dict[str, Any]:
         result[vector_name] = {
             axis: _number(vector.get(axis), f"{context}.{vector_name}.{axis}") for axis in "xyz"
         }
+    if schema == TELEMETRY_SCHEMA_V2:
+        result.update({
+            "score": _number(bot.get("score"), f"{context}.score"),
+            "pri_deaths": _number(bot.get("pri_deaths"), f"{context}.pri_deaths", minimum=0.0),
+            "movement_intent": _boolean(bot.get("movement_intent"), f"{context}.movement_intent"),
+            "in_hazard_zone": _boolean(bot.get("in_hazard_zone"), f"{context}.in_hazard_zone"),
+        })
+        for name in ("kills_exact", "deaths_exact", "suicides_exact",
+                     "environmental_deaths_exact", "hazard_exposed_deaths_proxy",
+                     "hit_wall_events_exact"):
+            result[name] = _integer(bot.get(name), f"{context}.{name}", minimum=0)
     return result
 
 
@@ -292,7 +321,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             except json.JSONDecodeError as exc:
                 raise QualityError(f"{path}:{line_number}: invalid JSON: {exc}") from exc
             context = f"{path}:{line_number}"
-            if raw.get("schema") != TELEMETRY_SCHEMA:
+            schema = raw.get("schema")
+            if schema not in (TELEMETRY_SCHEMA, TELEMETRY_SCHEMA_V2):
                 raise QualityError(f"{context}: unsupported telemetry schema {raw.get('schema')!r}")
             seq = _integer(raw.get("seq"), f"{context}.seq", minimum=0)
             tick = _integer(raw.get("tick"), f"{context}.tick", minimum=0)
@@ -307,7 +337,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 "map": _string(raw, "map", context),
                 "status": status,
                 "failure_reason": _string(raw, "failure_reason", context),
-                "bots": [_validate_bot(item, f"{context}.bots[{index}]")
+                "schema": schema,
+                "bots": [_validate_bot(item, f"{context}.bots[{index}]", schema)
                          for index, item in enumerate(raw.get("bots", []))],
             }
             if not isinstance(raw.get("bots"), list):
@@ -323,6 +354,9 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             events.append(event)
     if not events:
         raise QualityError(f"empty telemetry: {path}")
+    schemas = {event["schema"] for event in events}
+    if len(schemas) != 1:
+        raise QualityError(f"{path}: telemetry schema changed during the run")
     if len(events) > manifest["telemetry_event_cap"]:
         raise QualityError(f"{path}: telemetry exceeds the manifest event cap")
     for index, event in enumerate(events):
@@ -334,6 +368,26 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             raise QualityError(f"{path}: simulated time regressed at sequence {index}")
         if not _close(event["simulated_seconds"], event["tick"] * manifest["fixed_delta"]):
             raise QualityError(f"{path}: simulated time does not match tick * fixed_delta at sequence {index}")
+    if events[0]["schema"] == TELEMETRY_SCHEMA_V2:
+        previous: dict[str, dict[str, Any]] = {}
+        counters = ("kills_exact", "deaths_exact", "suicides_exact",
+                    "environmental_deaths_exact", "hazard_exposed_deaths_proxy",
+                    "hit_wall_events_exact")
+        for event in events:
+            for bot in event["bots"]:
+                prior = previous.get(bot["identity"])
+                if prior:
+                    for name in counters:
+                        if bot[name] < prior[name]:
+                            raise QualityError(
+                                f"{path}: {name} regressed for {bot['identity']} at sequence {event['seq']}")
+                if bot["environmental_deaths_exact"] > bot["suicides_exact"]:
+                    raise QualityError(
+                        f"{path}: environmental deaths exceed suicides for {bot['identity']}")
+                if bot["suicides_exact"] > bot["deaths_exact"] or \
+                        bot["hazard_exposed_deaths_proxy"] > bot["deaths_exact"]:
+                    raise QualityError(f"{path}: death subcounter exceeds deaths_exact for {bot['identity']}")
+                previous[bot["identity"]] = bot
     if events[0]["type"] != "run_start" or events[0]["tick"] != 0:
         raise QualityError(f"{path}: first event must be run_start at tick zero")
     if events[-1]["type"] != "run_result":
@@ -458,6 +512,7 @@ def _distance(left: dict[str, float], right: dict[str, float]) -> float:
 
 
 def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    telemetry_v2 = events[0]["schema"] == TELEMETRY_SCHEMA_V2
     identities = sorted({bot["identity"] for event in events for bot in event["bots"]})
     final_bots = {bot["identity"]: bot for bot in events[-1]["bots"]}
     metrics: dict[str, dict[str, Any]] = {}
@@ -466,23 +521,36 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                    for index, event in enumerate(events)
                    for bot in event["bots"] if bot["identity"] == identity]
         distance = active = no_progress = observed = health_loss = 0.0
+        intent_no_progress = hazard_exposure = 0.0
         longest_no_progress = current_no_progress = 0.0
+        longest_intent_no_progress = current_intent_no_progress = 0.0
         stuck_events = discontinuities = 0
+        intent_stuck_events = hazard_entries = 0
         stuck_latched = False
+        intent_stuck_latched = False
         health_values = [bot["health"] for _, _, bot in samples]
         for (previous_index, previous_time, previous), (index, now, current) in zip(samples, samples[1:]):
             if index != previous_index + 1 or current["actor"] != previous["actor"]:
                 current_no_progress = 0.0
+                current_intent_no_progress = 0.0
                 stuck_latched = False
+                intent_stuck_latched = False
                 discontinuities += 1
                 continue
             delta = now - previous_time
             if delta <= 0:
                 continue
             health_loss += max(0, previous["health"] - current["health"])
+            if telemetry_v2:
+                if previous["in_hazard_zone"]:
+                    hazard_exposure += delta
+                if not previous["in_hazard_zone"] and current["in_hazard_zone"]:
+                    hazard_entries += 1
             if previous["health"] <= 0 or current["health"] <= 0:
                 current_no_progress = 0.0
+                current_intent_no_progress = 0.0
                 stuck_latched = False
+                intent_stuck_latched = False
                 continue
             travelled = _distance(previous["position"], current["position"])
             distance += travelled
@@ -498,8 +566,35 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 if current_no_progress + 1e-12 >= STUCK_WINDOW_SECONDS and not stuck_latched:
                     stuck_events += 1
                     stuck_latched = True
+            if telemetry_v2:
+                movement_intent = previous["movement_intent"] or current["movement_intent"]
+                if movement_intent and travelled < DISTANCE_EPSILON:
+                    intent_no_progress += delta
+                    current_intent_no_progress += delta
+                    longest_intent_no_progress = max(
+                        longest_intent_no_progress, current_intent_no_progress)
+                    if (current_intent_no_progress + 1e-12 >= STUCK_WINDOW_SECONDS and
+                            not intent_stuck_latched):
+                        intent_stuck_events += 1
+                        intent_stuck_latched = True
+                else:
+                    current_intent_no_progress = 0.0
+                    intent_stuck_latched = False
         final = final_bots.get(identity)
         first = samples[0][2]
+        exact = {}
+        if telemetry_v2:
+            for name in ("kills_exact", "deaths_exact", "suicides_exact",
+                         "environmental_deaths_exact", "hazard_exposed_deaths_proxy",
+                         "hit_wall_events_exact"):
+                exact[name] = final[name] - first[name] if final is not None else None
+            kills = exact["kills_exact"]
+            deaths = exact["deaths_exact"]
+        else:
+            exact = {name: None for name in (
+                "kills_exact", "deaths_exact", "suicides_exact", "environmental_deaths_exact",
+                "hazard_exposed_deaths_proxy", "hit_wall_events_exact")}
+            kills = deaths = None
         metrics[identity] = {
             "identity": identity,
             "player_name": first["player_name"],
@@ -511,6 +606,24 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             "no_progress_seconds_proxy": no_progress,
             "longest_no_progress_seconds_proxy": longest_no_progress,
             "stuck_events_proxy": stuck_events,
+            "movement_intent_no_progress_seconds_proxy": intent_no_progress if telemetry_v2 else None,
+            "longest_movement_intent_no_progress_seconds_proxy": (
+                longest_intent_no_progress if telemetry_v2 else None),
+            "movement_intent_stuck_events_proxy": intent_stuck_events if telemetry_v2 else None,
+            **exact,
+            "suicide_to_kill_ratio": (
+                exact["suicides_exact"] / kills if telemetry_v2 and kills and kills > 0 else None),
+            "match_score_initial": first.get("score"),
+            "match_score_final": final.get("score") if telemetry_v2 and final is not None else None,
+            "match_score_delta": (
+                final["score"] - first["score"] if telemetry_v2 and final is not None else None),
+            "pri_deaths_delta": (
+                final["pri_deaths"] - first["pri_deaths"] if telemetry_v2 and final is not None else None),
+            "hazard_exposure_seconds": hazard_exposure if telemetry_v2 else None,
+            "hazard_entries": hazard_entries if telemetry_v2 else None,
+            "hazard_exposed_death_fraction_proxy": (
+                exact["hazard_exposed_deaths_proxy"] / deaths
+                if telemetry_v2 and deaths and deaths > 0 else None),
             "health_loss_observed": health_loss,
             "minimum_health_observed": min(health_values),
             "final_health_observed": final["health"] if final is not None else None,
@@ -525,6 +638,14 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
     observed = sum(bot["observed_alive_seconds"] for bot in values)
     active = sum(bot["active_movement_seconds"] for bot in values)
     survival = [bot["survived_to_final_sample"] for bot in values]
+    def sum_available(name: str) -> float | int | None:
+        materialized = [bot[name] for bot in values if bot[name] is not None]
+        return sum(materialized) if materialized else None
+
+    kills = sum_available("kills_exact")
+    deaths = sum_available("deaths_exact")
+    suicides = sum_available("suicides_exact")
+    hazard_deaths = sum_available("hazard_exposed_deaths_proxy")
     return {
         "distance_traveled": sum(bot["distance_traveled"] for bot in values),
         "active_movement_seconds": active,
@@ -533,6 +654,24 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
         "longest_no_progress_seconds_proxy": max(
             (bot["longest_no_progress_seconds_proxy"] for bot in values), default=0.0),
         "stuck_events_proxy": sum(bot["stuck_events_proxy"] for bot in values),
+        "movement_intent_no_progress_seconds_proxy": sum_available(
+            "movement_intent_no_progress_seconds_proxy"),
+        "longest_movement_intent_no_progress_seconds_proxy": max(
+            (bot["longest_movement_intent_no_progress_seconds_proxy"] for bot in values
+             if bot["longest_movement_intent_no_progress_seconds_proxy"] is not None), default=None),
+        "movement_intent_stuck_events_proxy": sum_available("movement_intent_stuck_events_proxy"),
+        "kills_exact": kills,
+        "deaths_exact": deaths,
+        "suicides_exact": suicides,
+        "environmental_deaths_exact": sum_available("environmental_deaths_exact"),
+        "suicide_to_kill_ratio": suicides / kills if kills and kills > 0 else None,
+        "match_score_delta": sum_available("match_score_delta"),
+        "hit_wall_events_exact": sum_available("hit_wall_events_exact"),
+        "hazard_exposure_seconds": sum_available("hazard_exposure_seconds"),
+        "hazard_entries": sum_available("hazard_entries"),
+        "hazard_exposed_deaths_proxy": hazard_deaths,
+        "hazard_exposed_death_fraction_proxy": (
+            hazard_deaths / deaths if deaths and deaths > 0 else None),
         "health_loss_observed": sum(bot["health_loss_observed"] for bot in values),
         "minimum_health_observed": min((bot["minimum_health_observed"] for bot in values), default=None),
         "survived_to_final_sample": all(survival) if survival and all(item is not None for item in survival) else None,
@@ -688,9 +827,11 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
             "composite_quality_score": None,
         },
         "interpretation": (
-            "Movement and health values are sampled proxies, not combat outcomes. Distance and activity have no "
-            "preferred direction. No composite quality score is emitted because telemetry-v1 has no score, kill, "
-            "damage-attribution, accuracy, objective, or opponent-strength fields."
+            "Telemetry-v2 combat counters come from authoritative Killed and HitWall script-call boundaries; "
+            "PRI score/deaths are sampled persistent game counters. Hazard-exposed death and movement-intent "
+            "stuck values remain explicitly labeled proxies. Distance and activity have no preferred direction. "
+            "No composite quality score is emitted because damage attribution, accuracy, objectives, and calibrated "
+            "opponent strength are still unavailable. Telemetry-v1 inputs remain supported with v2-only metrics null."
         ),
     }
 

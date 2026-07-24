@@ -16,10 +16,13 @@
 #include "Package/PackageManager.h"
 #include "UObject/ULevel.h"
 #include "UObject/UClient.h"
+#include "VM/Frame.h"
 #include "VM/ScriptCall.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 namespace
@@ -30,6 +33,12 @@ namespace
 		BotBenchmarkDriver(Engine& engine, BotBenchmarkRunConfig config)
 			: EngineRef(engine), Config(std::move(config))
 		{
+		}
+
+		~BotBenchmarkDriver() override
+		{
+			if (QualityHookHandle != 0)
+				Frame::CallHooks().Unregister(QualityHookHandle);
 		}
 
 		HeadlessDriverConfig GetConfig() const override
@@ -149,6 +158,22 @@ namespace
 			int PreviousHealth = 0;
 		};
 
+		struct QualityParticipantRuntime
+		{
+			std::string Actor;
+			std::string PlayerName;
+			std::string ClassName;
+			UPlayerReplicationInfo* Pri = nullptr;
+			BotBenchmarkBotState LastState;
+			bool HasLastState = false;
+			uint64_t KillsExact = 0;
+			uint64_t DeathsExact = 0;
+			uint64_t SuicidesExact = 0;
+			uint64_t EnvironmentalDeathsExact = 0;
+			uint64_t HazardExposedDeathsProxy = 0;
+			uint64_t HitWallEventsExact = 0;
+		};
+
 		void ValidateGameProfile()
 		{
 			const BotBenchmarkGameProfile profile = BotBenchmarkGameProfileResolver::Resolve(
@@ -171,6 +196,105 @@ namespace
 			return "actor:" + pawn->Name.ToString();
 		}
 
+		static bool IsHazardZone(UZoneInfo* zone)
+		{
+			return zone &&
+				((zone->HasProperty("bPainZone") && zone->GetBool("bPainZone")) ||
+				(zone->HasProperty("bKillZone") && zone->GetBool("bKillZone")) ||
+				(zone->HasProperty("DamagePerSec") && zone->GetInt("DamagePerSec") > 0));
+		}
+
+		static bool IsInHazardZone(UPawn* pawn)
+		{
+			return pawn &&
+				((pawn->HasProperty("Region") && IsHazardZone(pawn->Region().Zone)) ||
+				(pawn->HasProperty("FootRegion") && IsHazardZone(pawn->FootRegion().Zone)));
+		}
+
+		static bool HasMovementIntent(UPawn* pawn)
+		{
+			if (!pawn)
+				return false;
+			if (pawn->StateFrame)
+			{
+				switch (pawn->StateFrame->LatentState)
+				{
+				case LatentRunState::MoveTo:
+				case LatentRunState::MoveToward:
+				case LatentRunState::StrafeTo:
+				case LatentRunState::StrafeFacing:
+					return true;
+				default:
+					break;
+				}
+			}
+			if (!pawn->HasProperty("Acceleration"))
+				return false;
+			const vec3 acceleration = pawn->Acceleration();
+			return acceleration.x * acceleration.x + acceleration.y * acceleration.y > 0.0625f;
+		}
+
+		void RecordKilled(UPawn* killer, UPawn* victim)
+		{
+			const std::string victimIdentity = PawnIdentity(victim);
+			auto victimRuntime = QualityParticipants.find(victimIdentity);
+			if (victimRuntime != QualityParticipants.end())
+			{
+				QualityParticipantRuntime& counters = victimRuntime->second;
+				counters.DeathsExact++;
+				const bool environmental = !killer || !killer->bIsPlayer();
+				if (killer == victim || environmental)
+					counters.SuicidesExact++;
+				if (environmental)
+					counters.EnvironmentalDeathsExact++;
+				if (IsInHazardZone(victim))
+					counters.HazardExposedDeathsProxy++;
+			}
+
+			if (killer && killer != victim && killer->bIsPlayer())
+			{
+				auto killerRuntime = QualityParticipants.find(PawnIdentity(killer));
+				if (killerRuntime != QualityParticipants.end())
+					killerRuntime->second.KillsExact++;
+			}
+		}
+
+		void RegisterQualityHooks()
+		{
+			VMCallHook hook;
+			hook.Enter = [this](UFunction* function, UObject* instance,
+				VMCallArguments& arguments) -> VMCallHookCleanup
+			{
+				if (!function)
+					return {};
+				if (function->Name == "Killed" && instance == EngineRef.GameInfo)
+				{
+					const bool outermost = KilledHookDepth++ == 0;
+					if (outermost && arguments.Size() >= 2)
+					{
+						UPawn* killer = UObject::TryCast<UPawn>(arguments.Values()[0].ToObject());
+						UPawn* victim = UObject::TryCast<UPawn>(arguments.Values()[1].ToObject());
+						if (victim)
+							RecordKilled(killer, victim);
+					}
+					return [this]() { KilledHookDepth--; };
+				}
+				if (function->Name == "HitWall")
+				{
+					UPawn* pawn = UObject::TryCast<UPawn>(instance);
+					auto runtime = QualityParticipants.find(PawnIdentity(pawn));
+					if (runtime == QualityParticipants.end())
+						return {};
+					const bool outermost = HitWallHookDepth++ == 0;
+					if (outermost)
+						runtime->second.HitWallEventsExact++;
+					return [this]() { HitWallHookDepth--; };
+				}
+				return {};
+			};
+			QualityHookHandle = Frame::CallHooks().Register(std::move(hook));
+		}
+
 		std::vector<std::pair<std::string, UPawn*>> CaptureLiveControlledBots() const
 		{
 			std::vector<std::pair<std::string, UPawn*>> bots;
@@ -179,7 +303,7 @@ namespace
 			for (UActor* actor : EngineRef.Level->Actors)
 			{
 				UPawn* pawn = UObject::TryCast<UPawn>(actor);
-				if (!pawn || !pawn->IsA("Bot") || pawn->bDeleteMe())
+				if (!pawn || pawn->bDeleteMe())
 					continue;
 				const std::string identity = PawnIdentity(pawn);
 				const auto controlled = std::find_if(ActualRoster.begin(), ActualRoster.end(), [&](const auto& participant)
@@ -342,36 +466,61 @@ namespace
 			LogMessage("Bot benchmark telemetry: " + eventsPath.string());
 		}
 
-		std::vector<BotBenchmarkBotState> CaptureBotStates() const
+		std::vector<BotBenchmarkBotState> CaptureBotStates()
 		{
 			std::vector<BotBenchmarkBotState> bots;
-			if (!EngineRef.Level)
-				return bots;
-			for (UActor* actor : EngineRef.Level->Actors)
+			const auto liveBots = CaptureLiveControlledBots();
+			for (const BotBenchmarkActualParticipant& actual : ActualRoster)
 			{
-				UPawn* pawn = UObject::TryCast<UPawn>(actor);
-				if (!pawn || !pawn->IsA("Bot") || pawn->bDeleteMe())
+				auto runtimeEntry = QualityParticipants.find(actual.Identity);
+				if (runtimeEntry == QualityParticipants.end())
 					continue;
-				BotBenchmarkBotState bot;
-				bot.Actor = pawn->Name.ToString();
-				if (UPlayerReplicationInfo* pri = pawn->PlayerReplicationInfo())
+				QualityParticipantRuntime& runtime = runtimeEntry->second;
+				const auto live = std::find_if(liveBots.begin(), liveBots.end(), [&](const auto& item)
 				{
-					bot.Identity = "pri:" + std::to_string(pri->PlayerID());
-					bot.PlayerName = pri->PlayerName();
+					return item.first == actual.Identity;
+				});
+				UPawn* pawn = live == liveBots.end() ? nullptr : live->second;
+				BotBenchmarkBotState bot = runtime.HasLastState ? runtime.LastState : BotBenchmarkBotState{};
+				bot.Identity = actual.Identity;
+				bot.Actor = runtime.Actor;
+				bot.PlayerName = runtime.PlayerName;
+				bot.ClassName = runtime.ClassName;
+				if (pawn)
+				{
+					runtime.Pri = pawn->PlayerReplicationInfo();
+					bot.State = pawn->GetStateName().ToString();
+					bot.PositionX = pawn->Location().x;
+					bot.PositionY = pawn->Location().y;
+					bot.PositionZ = pawn->Location().z;
+					bot.VelocityX = pawn->Velocity().x;
+					bot.VelocityY = pawn->Velocity().y;
+					bot.VelocityZ = pawn->Velocity().z;
+					bot.Health = pawn->Health();
+					bot.MovementIntent = HasMovementIntent(pawn);
+					bot.InHazardZone = IsInHazardZone(pawn);
 				}
 				else
 				{
-					bot.Identity = "actor:" + bot.Actor;
+					bot.State = "Unavailable";
+					bot.Health = 0;
+					bot.VelocityX = bot.VelocityY = bot.VelocityZ = 0.0;
+					bot.MovementIntent = false;
+					bot.InHazardZone = false;
 				}
-				bot.ClassName = UObject::GetUClassFullName(pawn).ToString();
-				bot.State = pawn->GetStateName().ToString();
-				bot.PositionX = pawn->Location().x;
-				bot.PositionY = pawn->Location().y;
-				bot.PositionZ = pawn->Location().z;
-				bot.VelocityX = pawn->Velocity().x;
-				bot.VelocityY = pawn->Velocity().y;
-				bot.VelocityZ = pawn->Velocity().z;
-				bot.Health = pawn->Health();
+				if (runtime.Pri)
+				{
+					bot.Score = runtime.Pri->HasProperty("Score") ? runtime.Pri->GetFloat("Score") : 0.0;
+					bot.PriDeaths = runtime.Pri->HasProperty("Deaths") ? runtime.Pri->GetFloat("Deaths") : 0.0;
+				}
+				bot.KillsExact = runtime.KillsExact;
+				bot.DeathsExact = runtime.DeathsExact;
+				bot.SuicidesExact = runtime.SuicidesExact;
+				bot.EnvironmentalDeathsExact = runtime.EnvironmentalDeathsExact;
+				bot.HazardExposedDeathsProxy = runtime.HazardExposedDeathsProxy;
+				bot.HitWallEventsExact = runtime.HitWallEventsExact;
+				runtime.LastState = bot;
+				runtime.HasLastState = true;
 				bots.push_back(std::move(bot));
 			}
 			return bots;
@@ -412,7 +561,14 @@ namespace
 				actual.PlayerName = participant.PlayerName;
 				actual.ClassName = participant.ClassName;
 				ActualRoster.push_back(std::move(actual));
+				QualityParticipantRuntime runtime;
+				runtime.Actor = participant.Actor;
+				runtime.PlayerName = participant.PlayerName;
+				runtime.ClassName = participant.ClassName;
+				runtime.Pri = participant.Pawn ? participant.Pawn->PlayerReplicationInfo() : nullptr;
+				QualityParticipants.emplace(participant.Identity, std::move(runtime));
 			});
+			RegisterQualityHooks();
 		}
 
 		void Fail(std::string reason)
@@ -440,7 +596,11 @@ namespace
 		bool Complete = false;
 		std::string FailureReason;
 		std::vector<BotBenchmarkActualParticipant> ActualRoster;
+		std::map<std::string, QualityParticipantRuntime> QualityParticipants;
 		std::vector<std::unique_ptr<ShadowParticipantRuntime>> ShadowParticipants;
+		VMCallHookHandle QualityHookHandle = 0;
+		uint32_t KilledHookDepth = 0;
+		uint32_t HitWallHookDepth = 0;
 	};
 
 	std::optional<std::string> OptionalCommandLineArg(const char* name)

@@ -74,6 +74,16 @@ int main()
 	second.PositionZ = -0.0;
 	second.VelocityZ = 3.0;
 	second.Health = 87;
+	second.Score = 2.5;
+	second.PriDeaths = 3.0;
+	second.MovementIntent = true;
+	second.InHazardZone = true;
+	second.KillsExact = 4;
+	second.DeathsExact = 3;
+	second.SuicidesExact = 2;
+	second.EnvironmentalDeathsExact = 1;
+	second.HazardExposedDeathsProxy = 1;
+	second.HitWallEventsExact = 9;
 
 	BotBenchmarkBotState first;
 	first.Identity = "pri:1";
@@ -92,11 +102,11 @@ int main()
 	event.Status = "running";
 	event.Bots = { second, first };
 	const std::string expectedEvent =
-		"{\"schema\":\"surreal-bot-benchmark-telemetry-v1\",\"seq\":\"5\",\"config_id\":\"fnv1a64:b998eb71db26e88f\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
-		"{\"identity\":\"pri:1\",\"actor\":\"Bot1\",\"player_name\":\"Line\\nBreak\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"health\":100,\"state\":\"Attacking\"},"
-		"{\"identity\":\"pri:2\",\"actor\":\"Bot2\",\"player_name\":\"B\\\"ot\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":1.250000,\"y\":-2.500000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":3.000000},\"health\":87,\"state\":\"Roaming\"}]}\n";
+		"{\"schema\":\"surreal-bot-benchmark-telemetry-v2\",\"seq\":\"5\",\"config_id\":\"fnv1a64:b998eb71db26e88f\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
+		"{\"identity\":\"pri:1\",\"actor\":\"Bot1\",\"player_name\":\"Line\\nBreak\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"health\":100,\"score\":0.000000,\"pri_deaths\":0.000000,\"movement_intent\":false,\"in_hazard_zone\":false,\"kills_exact\":\"0\",\"deaths_exact\":\"0\",\"suicides_exact\":\"0\",\"environmental_deaths_exact\":\"0\",\"hazard_exposed_deaths_proxy\":\"0\",\"hit_wall_events_exact\":\"0\",\"state\":\"Attacking\"},"
+		"{\"identity\":\"pri:2\",\"actor\":\"Bot2\",\"player_name\":\"B\\\"ot\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":1.250000,\"y\":-2.500000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":3.000000},\"health\":87,\"score\":2.500000,\"pri_deaths\":3.000000,\"movement_intent\":true,\"in_hazard_zone\":true,\"kills_exact\":\"4\",\"deaths_exact\":\"3\",\"suicides_exact\":\"2\",\"environmental_deaths_exact\":\"1\",\"hazard_exposed_deaths_proxy\":\"1\",\"hit_wall_events_exact\":\"9\",\"state\":\"Roaming\"}]}\n";
 	if (BotBenchmarkTelemetryProtocol::EventJson(configId, event) != expectedEvent)
-		return Fail("v1 telemetry event ordering, formatting, or escaping changed");
+		return Fail("v2 telemetry event ordering, formatting, or escaping changed");
 
 	bool rejectedNonFinite = false;
 	try

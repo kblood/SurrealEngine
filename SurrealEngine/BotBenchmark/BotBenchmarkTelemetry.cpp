@@ -84,6 +84,16 @@ namespace
 			<< ",\"y\":" << Fixed(bot.VelocityY, 6)
 			<< ",\"z\":" << Fixed(bot.VelocityZ, 6) << "}"
 			<< ",\"health\":" << bot.Health
+			<< ",\"score\":" << Fixed(bot.Score, 6)
+			<< ",\"pri_deaths\":" << Fixed(bot.PriDeaths, 6)
+			<< ",\"movement_intent\":" << (bot.MovementIntent ? "true" : "false")
+			<< ",\"in_hazard_zone\":" << (bot.InHazardZone ? "true" : "false")
+			<< ",\"kills_exact\":\"" << bot.KillsExact << "\""
+			<< ",\"deaths_exact\":\"" << bot.DeathsExact << "\""
+			<< ",\"suicides_exact\":\"" << bot.SuicidesExact << "\""
+			<< ",\"environmental_deaths_exact\":\"" << bot.EnvironmentalDeathsExact << "\""
+			<< ",\"hazard_exposed_deaths_proxy\":\"" << bot.HazardExposedDeathsProxy << "\""
+			<< ",\"hit_wall_events_exact\":\"" << bot.HitWallEventsExact << "\""
 			<< ",\"state\":" << JsonString(bot.State) << "}";
 	}
 
@@ -161,7 +171,7 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 
 	std::ostringstream out;
 	out.imbue(std::locale::classic());
-	out << "{\"schema\":\"surreal-bot-benchmark-telemetry-v1\""
+	out << "{\"schema\":\"surreal-bot-benchmark-telemetry-v2\""
 		<< ",\"seq\":\"" << event.Sequence << "\""
 		<< ",\"config_id\":" << JsonString(configIdentity)
 		<< ",\"tick\":\"" << event.Tick << "\""

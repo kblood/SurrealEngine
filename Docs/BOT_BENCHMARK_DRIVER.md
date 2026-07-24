@@ -90,16 +90,22 @@ An opted-in run also creates two comparison inputs in the output directory:
   The output directory is recorded for provenance but excluded from the
   configuration identity because it cannot affect simulation. Bot count and
   every ordered canonical participant fragment are included in that identity.
-- `events.jsonl` uses `surreal-bot-benchmark-telemetry-v1`. It contains one
+- `events.jsonl` uses `surreal-bot-benchmark-telemetry-v2`. It contains one
   `run_start` record, at most one `tick` record for each simulated tick, and
   one `run_result` record. The hard cap is therefore `max_ticks + 2`; no bot or
   script event can expand it.
 
 Every record carries a decimal-string sequence and tick, fixed nine-decimal
 simulated time, configuration identity, resolved map, status, and failure
-reason. Each tick captures only state already observable by the driver: bot
-PRI-or-actor identity, actor/player/class names, state, position, velocity, and
-health. Bots are sorted by identity and actor name before serialization. JSON
+reason. Each bot sample carries roster-stable identity and actor/player/class
+names, state, position, velocity, health, persistent PRI score/deaths,
+movement-intent and hazard-zone flags, and cumulative kills, deaths, UT-style
+suicides, environmental deaths, hazard-exposed deaths, and `HitWall` calls.
+The cumulative combat/collision counters come from outermost UE1 `Killed` and
+`HitWall` script-call boundaries; they do not expand the bounded event stream.
+Hazard-exposed death is deliberately a proximity proxy, not causal attribution.
+Older games without a specific PRI or zone property emit its neutral sample.
+Bots are sorted by identity and actor name before serialization. JSON
 keys have a fixed order, strings are escaped explicitly, numbers use the
 classic locale, position and velocity use six fixed decimals, negative zero is
 normalized, and non-finite values fail the benchmark instead of entering the
