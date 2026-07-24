@@ -460,6 +460,25 @@ evidence intact. A combined UT/Unreal A/B on the two DeathFan timestep cases
 and Deck seed 271828 preserved gameplay, causal deaths, summaries, and repeated
 shadow streams exactly.
 
+Detailed episode telemetry confirms the raw-count interpretation. Historical
+DeathFan has two physical episodes and the nearby-timestep 141-detection Ash
+trace is one episode; every candidate in both cases lacks static walkable
+support. Deck seed 271828 has two episodes: two candidates occurred without an
+active movement target, six were finite true target regressions, and one lacked
+support. Deck seeds 104729/314159 have one/two episodes whose old target-
+rejection labels were actually Sleep/no-target outcomes. Morpheus has three
+episodes, two with invalid geometry; its valid probes are one blocked sweep and
+two missing-support outcomes. No measured episode is authorizable.
+
+The accepted pure walking-preflight model consequently does not reuse a seam
+escape. It requires known static support, axis-aligned step-up/down and
+horizontal forward/slide deltas, a bounded unsupported endpoint, at most two
+near-vertical static wall continuations, a walkable pain landing, and explicit
+knowledge that the pawn is not immune. Every incomplete or dynamic observation
+is a named no-decision. The remaining task is to populate those observations
+from explicit-origin traces before the real walking move and prove that the
+known Deck ledge is detected early.
+
 ## Wall callback and ledge-property parity audit
 
 Retail UT436 and Unreal 226b `Engine.Pawn` both define `MinHitWall` as a

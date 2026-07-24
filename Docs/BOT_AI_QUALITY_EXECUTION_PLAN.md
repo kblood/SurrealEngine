@@ -676,6 +676,36 @@ death attribution, and summaries exactly matched iteration 45. The diagnostic
 counters were also unchanged on these runs; focused fixtures provide the
 positive death-between-samples case that the maps did not happen to trigger.
 
+## Iteration 47: physical seam episodes and exact rejection causes
+
+Iteration 47 retains the raw seam rollups but adds a per-life episode identity
+from the unordered wall-normal pair and an 8-unit horizontal anchor. Vertical
+motion and elapsed gaps do not split an episode while the pawn remains falling
+in a known safe foot region. Detailed per-candidate outcomes distinguish
+blocked sweep, missing static walkable support, pain support, no active
+movement intent/target, known target regression, and unknown evidence. Invalid
+geometry remains per detection; only episode count and the first authorization
+within an episode are debounced.
+
+The Release candidate SHA-256 was
+`F7057226AF9C2CFF6362325E01A722563AF3F506F14BB98BC694BE8E8C01BB0C`.
+Two repeats for historical DeathFan, nearby-timestep DeathFan, and Deck seed
+271828 preserved gameplay and summaries exactly after removing only the new
+detailed fields, and repeated shadow streams remained exact. Historical
+DeathFan's 8 detections are 2 physical episodes (one each for Dante and Ash),
+with all 24 candidates lacking static walkable support. The nearby-timestep
+141-detection Ash jam is 1 episode with 423 missing-support candidates. Deck's
+3 detections are 2 episodes: 2 candidates had no active movement target, 6
+were true target regressions, and 1 lacked support.
+
+The tuning scan found Deck seeds 104729 and 314159 to contain 1 and 2 episodes;
+their former target-rejection rollups were Sleep/no-target cases, not true
+regressions. Morpheus's 3 detections are 3 episodes, including 2 invalid-
+geometry detections; its 3 valid candidates split into 1 blocked sweep and 2
+missing-support results. No known case produced an authorizable episode. This
+strengthens the decision to leave falling-seam translation disabled and move
+the next intervention to pre-commit walking support.
+
 ## Next behavior slice: pre-commit unsupported-step hazard shadow
 
 The next Deck intervention moves earlier in the walking transaction. Current
@@ -713,6 +743,15 @@ exact DeathFan failure is already falling and remains a separate seam case.
 After this slice, `MinHitWall` dispatch parity, native `bAvoidLedges` and
 `bStopAtLedges`, and direct-reach disagreement telemetry remain separate
 measured audits rather than bundled behavior changes.
+
+The pure preflight decision model is now implemented. It authorizes only a
+fully known stock-bot walking chain from static safe support through bounded
+step-up, forward, at most one slide, unsupported step-down, at most two
+near-vertical static-BSP fall continuations, and a walkable harmful pain-zone
+landing with known non-immunity. Zero, non-finite, misdirected, dynamic, mover,
+unknown, safe, human, ScriptedPawn, jumping, unusual-gravity, and out-of-bound
+observations remain disjoint no-decisions. Runtime integration remains shadow-
+only until it reproduces the implicated Deck trace.
 
 ## Frozen tuning and held-out maps
 
