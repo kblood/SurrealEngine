@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import datetime
 import hashlib
 import importlib.util
 import json
 import math
+import os
 import subprocess
 import sys
 import time
@@ -21,7 +23,8 @@ MATRIX_SCHEMA = "surreal-bot-benchmark-matrix-v1"
 RESULT_SCHEMA = "surreal-bot-benchmark-matrix-results-v1"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 INVOCATION_SCHEMA = "surreal-bot-benchmark-invocation-v1"
-TOOL_VERSION = 2
+PROVENANCE_SCHEMA = "surreal-bot-benchmark-provenance-v1"
+TOOL_VERSION = 3
 MAX_CONCURRENCY = 64
 MAX_BOT_COUNT = 16
 
@@ -35,6 +38,7 @@ class Variant:
     id: str
     executable: Path
     comparison_role: str | None
+    build_preset: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,10 @@ class MatrixConfig:
     concurrency: int
     timeout_seconds: float
     repetitions: int
+    provenance_mode: str
+    evidence_classification: str | None
+    environment_allowlist: tuple[str, ...]
+    game_manifest: Path | None
 
 
 @dataclass(frozen=True)
@@ -124,6 +132,15 @@ def _resolve_existing(path_text: str, base: Path, context: str, *, directory: bo
     return path
 
 
+def _optional_nonempty_string(fields: dict[str, Any], name: str, context: str) -> str | None:
+    value = fields.get(name)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise MatrixError(f"{context}.{name} must be a non-empty trimmed string when present")
+    return value
+
+
 def load_matrix(path: Path) -> MatrixConfig:
     source = path.resolve()
     try:
@@ -139,6 +156,41 @@ def load_matrix(path: Path) -> MatrixConfig:
     game_family = _string(game, "family", "matrix.game")
     game_root = _resolve_existing(_string(game, "root", "matrix.game"), source.parent, "matrix.game.root",
                                   directory=True)
+    game_manifest_text = _optional_nonempty_string(game, "manifest", "matrix.game")
+    game_manifest = None
+    if game_manifest_text is not None:
+        game_manifest = _resolve_existing(
+            game_manifest_text, source.parent, "matrix.game.manifest", directory=False)
+
+    provenance_raw = raw.get("provenance")
+    provenance_mode = "development"
+    evidence_classification = None
+    environment_allowlist: tuple[str, ...] = ()
+    environment_allowlist_present = False
+    if provenance_raw is not None:
+        provenance = _object(provenance_raw, "matrix.provenance")
+        unknown_provenance = sorted(
+            set(provenance) - {"mode", "classification", "environment_allowlist"})
+        if unknown_provenance:
+            raise MatrixError(
+                "matrix.provenance contains unknown fields: " + ", ".join(unknown_provenance))
+        provenance_mode = provenance.get("mode", "development")
+        if provenance_mode not in ("development", "release"):
+            raise MatrixError("matrix.provenance.mode must be development or release")
+        evidence_classification = _optional_nonempty_string(
+            provenance, "classification", "matrix.provenance")
+        if evidence_classification is not None and evidence_classification not in ("tuning", "heldout"):
+            raise MatrixError("matrix.provenance.classification must be tuning or heldout")
+        environment_allowlist_present = "environment_allowlist" in provenance
+        environment_raw = provenance.get("environment_allowlist", [])
+        if (not isinstance(environment_raw, list)
+                or any(not isinstance(value, str) or not value or value != value.strip()
+                       or "=" in value or "\x00" in value for value in environment_raw)):
+            raise MatrixError(
+                "matrix.provenance.environment_allowlist must be an array of non-empty environment names")
+        if len(environment_raw) != len(set(environment_raw)):
+            raise MatrixError("matrix.provenance.environment_allowlist contains duplicates")
+        environment_allowlist = tuple(environment_raw)
 
     variants_raw = raw.get("variants")
     if not isinstance(variants_raw, list) or not variants_raw:
@@ -153,7 +205,8 @@ def load_matrix(path: Path) -> MatrixConfig:
         role = fields.get("comparison_role")
         if role is not None and role not in ("baseline", "candidate"):
             raise MatrixError(f"matrix.variants[{index}].comparison_role must be baseline or candidate")
-        variants.append(Variant(variant_id, executable, role))
+        build_preset = _optional_nonempty_string(fields, "build_preset", f"matrix.variants[{index}]")
+        variants.append(Variant(variant_id, executable, role, build_preset))
     ids = [variant.id for variant in variants]
     if len(ids) != len(set(ids)):
         raise MatrixError("matrix variant IDs must be unique")
@@ -212,6 +265,17 @@ def load_matrix(path: Path) -> MatrixConfig:
     if timeout_seconds == 0:
         raise MatrixError("matrix.timeout_seconds must be positive")
     repetitions = _integer(raw.get("repetitions", 1), "matrix.repetitions", 1, 10_000)
+    if provenance_mode == "release":
+        if evidence_classification is None:
+            raise MatrixError("release provenance requires matrix.provenance.classification")
+        if not environment_allowlist_present:
+            raise MatrixError("release provenance requires matrix.provenance.environment_allowlist")
+        if game_manifest is None:
+            raise MatrixError("release provenance requires matrix.game.manifest")
+        missing_presets = [variant.id for variant in variants if variant.build_preset is None]
+        if missing_presets:
+            raise MatrixError(
+                "release provenance requires build_preset for variants: " + ", ".join(missing_presets))
     return MatrixConfig(
         source=source,
         game_family=game_family,
@@ -228,6 +292,10 @@ def load_matrix(path: Path) -> MatrixConfig:
         concurrency=concurrency,
         timeout_seconds=timeout_seconds,
         repetitions=repetitions,
+        provenance_mode=provenance_mode,
+        evidence_classification=evidence_classification,
+        environment_allowlist=environment_allowlist,
+        game_manifest=game_manifest,
     )
 
 
@@ -313,6 +381,143 @@ def _load_analyzer() -> Any:
 
 def _write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+
+
+def _utc_now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest().upper()
+
+
+def _file_provenance(path: Path) -> dict[str, Any]:
+    resolved = path.resolve()
+    return {
+        "path": str(resolved),
+        "size": resolved.stat().st_size,
+        "sha256": _sha256_file(resolved),
+    }
+
+
+def _git_output(repo: Path, *arguments: str) -> bytes:
+    try:
+        return subprocess.check_output(
+            ["git", "-C", str(repo), *arguments], stderr=subprocess.PIPE, shell=False)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        detail = ""
+        if isinstance(exc, subprocess.CalledProcessError):
+            detail = exc.stderr.decode("utf-8", errors="replace").strip()
+        raise MatrixError(f"could not capture Git source provenance: {detail or exc}") from exc
+
+
+def _source_provenance(start: Path, *, hash_untracked_contents: bool = True) -> dict[str, Any]:
+    repository = Path(_git_output(start, "rev-parse", "--show-toplevel").decode().strip()).resolve()
+    commit = _git_output(repository, "rev-parse", "HEAD").decode().strip()
+    tree = _git_output(repository, "rev-parse", "HEAD^{tree}").decode().strip()
+    branch_text = _git_output(repository, "branch", "--show-current").decode().strip()
+    status = _git_output(repository, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    diff = _git_output(repository, "diff", "--binary", "HEAD", "--")
+
+    state_digest = hashlib.sha256()
+    state_digest.update(b"git-status-v1\0")
+    state_digest.update(status)
+    state_digest.update(b"\0git-diff-head-binary\0")
+    state_digest.update(diff)
+    if hash_untracked_contents:
+        for entry in sorted(part for part in status.split(b"\0") if part.startswith(b"?? ")):
+            relative_bytes = entry[3:]
+            relative = Path(relative_bytes.decode("utf-8", errors="surrogateescape"))
+            untracked = repository / relative
+            state_digest.update(b"\0untracked\0")
+            state_digest.update(relative_bytes)
+            state_digest.update(b"\0")
+            if untracked.is_symlink():
+                state_digest.update(os.readlink(untracked).encode("utf-8", errors="surrogateescape"))
+            else:
+                with untracked.open("rb") as stream:
+                    for block in iter(lambda: stream.read(1024 * 1024), b""):
+                        state_digest.update(block)
+
+    return {
+        "repository": str(repository),
+        "branch": branch_text or None,
+        "commit": commit,
+        "tree": tree,
+        "dirty": bool(status),
+        "diff_sha256": state_digest.hexdigest().upper(),
+        "untracked_contents_hashed": hash_untracked_contents,
+    }
+
+
+def _preflight_provenance(
+    config: MatrixConfig,
+    invocation: list[str],
+    environment: dict[str, str],
+) -> dict[str, Any]:
+    utc_start = _utc_now()
+    tool_path = Path(__file__).resolve()
+    try:
+        source: dict[str, Any] = _source_provenance(
+            tool_path.parent,
+            hash_untracked_contents=config.provenance_mode == "release")
+        source["available"] = True
+    except (MatrixError, OSError) as exc:
+        if config.provenance_mode == "release":
+            raise MatrixError(f"release provenance requires Git source state: {exc}") from exc
+        source = {"available": False, "error": str(exc)}
+    if config.provenance_mode == "release" and source.get("branch") is None:
+        raise MatrixError("release provenance requires an attached Git branch")
+    variants = []
+    for variant in config.variants:
+        variants.append({
+            "id": variant.id,
+            "build_preset": variant.build_preset,
+            "executable": _file_provenance(variant.executable),
+        })
+    game_manifest = _file_provenance(config.game_manifest) if config.game_manifest else None
+    return {
+        "schema": PROVENANCE_SCHEMA,
+        "tool_version": TOOL_VERSION,
+        "mode": config.provenance_mode,
+        "classification": config.evidence_classification,
+        "utc_start": utc_start,
+        "utc_end": None,
+        "source": source,
+        "tool": _file_provenance(tool_path),
+        "runner_invocation": {
+            "working_directory": str(Path.cwd().resolve()),
+            "argv": invocation,
+            "environment_allowlist": list(config.environment_allowlist),
+            "environment": {
+                name: {"present": name in environment, "value": environment.get(name)}
+                for name in config.environment_allowlist
+            },
+        },
+        "scenario_manifest": _file_provenance(config.source),
+        "game_manifest": game_manifest,
+        "game": {"family": config.game_family, "root": str(config.game_root)},
+        "variants": variants,
+        "child_artifacts": [],
+    }
+
+
+def _artifact_provenance(output: Path) -> list[dict[str, Any]]:
+    excluded = {"provenance.json"}
+    artifacts = []
+    for path in sorted((item for item in output.rglob("*") if item.is_file()),
+                       key=lambda item: item.relative_to(output).as_posix()):
+        relative = path.relative_to(output).as_posix()
+        if relative in excluded:
+            continue
+        record = _file_provenance(path)
+        record["path"] = relative
+        artifacts.append(record)
+    return artifacts
 
 
 def _run_case(
@@ -415,10 +620,19 @@ def run_matrix(
     output: Path,
     *,
     analyze: bool = False,
+    invocation: list[str] | None = None,
+    environment: dict[str, str] | None = None,
     launcher: Callable[[list[str], float, Path, Path], LaunchResult] = _launch,
     validator: Callable[[Path], Any] | None = None,
     aggregate_analyzer: Callable[[list[Path]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    if config.provenance_mode == "release" and invocation is None:
+        raise MatrixError("release provenance requires an exact runner invocation")
+    invocation = list(invocation) if invocation is not None else [str(Path(__file__).resolve())]
+    if not invocation or any(not isinstance(value, str) or not value for value in invocation):
+        raise MatrixError("runner invocation must contain non-empty string arguments")
+    environment = dict(environment) if environment is not None else dict(os.environ)
+    provenance = _preflight_provenance(config, invocation, environment)
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     runs_directory = output / "runs"
@@ -446,6 +660,7 @@ def run_matrix(
         "passed": sum(row["status"] == "passed" for row in rows),
         "failed": sum(row["status"] == "failed" for row in rows),
         "quality_analysis": None,
+        "provenance": str(output / "provenance.json"),
         "runs": rows,
     }
     if analyze and passed:
@@ -459,6 +674,16 @@ def run_matrix(
             report["status"] = "failed"
             report["analysis_error"] = str(exc)
     _write_json(output / "matrix-results.json", report)
+    try:
+        provenance["child_artifacts"] = _artifact_provenance(output)
+    except OSError as exc:
+        report["status"] = "failed"
+        report["provenance_error"] = f"could not hash child artifacts: {exc}"
+        provenance["artifact_error"] = str(exc)
+        _write_json(output / "matrix-results.json", report)
+    provenance["matrix_status"] = report["status"]
+    provenance["utc_end"] = _utc_now()
+    _write_json(output / "provenance.json", provenance)
     return report
 
 
@@ -475,7 +700,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.dry_run:
             print(json.dumps(dry_run_plan(config, output), indent=2, allow_nan=False))
             return 0
-        report = run_matrix(config, output, analyze=args.analyze)
+        invocation_arguments = list(sys.argv[1:] if argv is None else argv)
+        invocation = [sys.executable, str(Path(__file__).resolve()), *invocation_arguments]
+        report = run_matrix(
+            config, output, analyze=args.analyze, invocation=invocation, environment=dict(os.environ))
         print(output.resolve() / "matrix-results.json")
         return 0 if report["status"] == "passed" else 1
     except (MatrixError, OSError) as exc:

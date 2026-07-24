@@ -104,6 +104,49 @@ Timeout, nonzero exit, missing output, structural-validation failure, or
 aggregate-analysis failure makes the matrix fail while preserving all run
 diagnostics and `matrix-results.json`.
 
+Every non-dry run also writes `provenance.json`. It records the matrix and
+optional game-manifest hashes, source repository/branch/commit/tree, dirty
+state and diff hash, runner invocation, only the explicitly
+allowlisted environment variables, per-variant executable path/size/SHA-256,
+UTC bounds, and hashes of the child run and analysis artifacts. Ordinary
+tuning manifests remain compatible and default to development provenance.
+Development mode hashes tracked changes and untracked paths without reading
+every untracked build artifact; release mode additionally hashes untracked file
+contents and records `untracked_contents_hashed: true`.
+
+Release evidence must opt in explicitly and supply every declaration before
+any benchmark process is launched:
+
+```json
+{
+  "game": {
+    "family": "ut99",
+    "root": "C:/Games/Unreal Tournament",
+    "manifest": "./ut99-fixture-manifest.json"
+  },
+  "provenance": {
+    "mode": "release",
+    "classification": "heldout",
+    "environment_allowlist": ["PYTHONHASHSEED"]
+  },
+  "variants": [
+    {
+      "id": "candidate",
+      "executable": "../../out/bot-candidate/Release/SurrealEngine.exe",
+      "build_preset": "bot-candidate"
+    }
+  ]
+}
+```
+
+`classification` is either `tuning` or `heldout`. Release mode also requires
+`game.manifest`, an explicitly present environment allowlist (which may be
+empty), and `build_preset` on every variant. It fails closed if Git source
+state on an attached branch, the exact runner invocation, or any required
+input hash cannot be captured. A dirty tree is recorded rather than silently
+presented as a clean build; release policy can reject it from the captured
+`source.dirty` field.
+
 `Analyze-BotQuality.py` is the initial quality-analysis lane for the unified
 engine's benchmark files. It reads legacy manifest/summary v1 runs and the
 roster-aware manifest/summary v2 schema; telemetry remains v1. It validates
