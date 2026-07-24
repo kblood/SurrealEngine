@@ -7,6 +7,15 @@ import time
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright
 
+
+def mime_matches(actual, expected):
+	actual = actual.split(";", 1)[0].strip().lower()
+	expected = expected.split(";", 1)[0].strip().lower()
+	if expected == "text/javascript":
+		return actual in ("text/javascript", "application/javascript")
+	return actual == expected
+
+
 base_url = next((arg.split("=", 1)[1].rstrip("/") for arg in sys.argv[1:] if arg.startswith("--base-url=")), os.environ.get("SURREAL_WEB_BASE_URL", "http://localhost:8091").rstrip("/"))
 with sync_playwright() as playwright:
 	browser = playwright.chromium.launch(channel="chrome", headless=True)
@@ -114,7 +123,7 @@ with sync_playwright() as playwright:
 			len(identity_response.body()) != record["bytes"] or
 			hashlib.sha256(identity_response.body()).hexdigest() != record["sha256"] or
 			identity_response.headers.get("cache-control") != "public, max-age=31536000, immutable" or
-			identity_response.headers.get("content-type", "").split(";", 1)[0] != record["expectedMime"].split(";", 1)[0]):
+			not mime_matches(identity_response.headers.get("content-type", ""), record["expectedMime"])):
 			print("FAIL: immutable engine identity or headers for " + asset_path, file=sys.stderr)
 			sys.exit(1)
 		brotli_response = context.request.get(urljoin(base_url + "/", asset_path),
