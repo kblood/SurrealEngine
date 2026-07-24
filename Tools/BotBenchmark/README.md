@@ -42,6 +42,7 @@ Example `surreal-bot-benchmark-matrix-v1` manifest:
   "difficulty": 7,
   "bot_count": 2,
   "per_bot_skills": [7, 7],
+  "harmful_zone_escape_enabled": false,
   "concurrency": 4,
   "timeout_seconds": 180,
   "repetitions": 1
@@ -57,7 +58,10 @@ retains its own game class and URL options. The implemented adapters are UT436
 contain exactly `bot_count` entries. Skills are integers from zero through
 seven. Names must be non-empty, trimmed, comma-free, and unique under the
 engine's ASCII case-insensitive comparison. Roster configuration is included
-in deterministic run and pair IDs.
+in deterministic run and pair IDs. `harmful_zone_escape_enabled` is an optional
+strict boolean that defaults to `false`; it selects the benchmark-only,
+default-off harmful-zone escape experiment and is included in deterministic run
+and pair IDs.
 
 The current UT436 and Unreal Gold adapters do not expose a verified named-bot
 spawn contract. Supplying `requested_names` is therefore parsed and recorded
@@ -72,7 +76,8 @@ All executables receive:
 --autoplay --headless-driver=bot-benchmark
 --botbench-url=... --botbench-output=... --botbench-seed=...
 --botbench-ticks=... --botbench-fixed-delta=... --botbench-difficulty=...
---botbench-bots=... [--botbench-skills=...] [--botbench-names=...]
+--botbench-bots=... --botbench-harmful-zone-escape=0|1
+[--botbench-skills=...] [--botbench-names=...]
 <game root>
 ```
 

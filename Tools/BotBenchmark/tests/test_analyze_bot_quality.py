@@ -312,6 +312,34 @@ def vertical_terminal(*, sequence: int = 2, life: int = 1, fall: int = 1,
 
 
 class BotQualityAnalysisTests(unittest.TestCase):
+    def test_harmful_zone_escape_mode_is_identity_bound_and_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "harmful-zone-control", bot_count=1)
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["harmful_zone_escape_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], True)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+
+            summary_path = run / "summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["config"]["harmful_zone_escape_enabled"] = True
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+
+            report = QUALITY.analyze([run])
+            self.assertIs(report["runs"][0]["config"]["harmful_zone_escape_enabled"], True)
+
     def test_falling_parity_and_vertical_column_counters_are_exclusive_and_reported(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,

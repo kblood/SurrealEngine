@@ -135,6 +135,15 @@ FAILED_NAVIGATION_EXACT_COUNTERS = (
     "failed_navigation_safeguard_suppressions_exact",
     "failed_navigation_route_penalty_applications_exact",
 )
+HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS = (
+    "harmful_zone_escape_episodes_exact",
+    "harmful_zone_escape_center_entries_exact",
+    "harmful_zone_escape_foot_entries_exact",
+    "harmful_zone_escape_recovery_attempts_exact",
+    "harmful_zone_escape_successful_escapes_exact",
+    "harmful_zone_escape_forced_replans_exact",
+    "harmful_zone_escape_no_safe_candidates_exact",
+)
 DEATH_ATTRIBUTION_COUNTERS = (
     "direct_self_kills", "direct_enemy_kills", "unassisted_environmental_deaths",
     "recent_enemy_contributed_environmental_deaths_proxy", "ambiguous_deaths",
@@ -248,7 +257,8 @@ METRIC_DIRECTIONS.update({
 })
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
-    + FAILED_NAVIGATION_EXACT_COUNTERS + DEATH_ATTRIBUTION_COUNTERS
+    + FAILED_NAVIGATION_EXACT_COUNTERS + HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS
+    + DEATH_ATTRIBUTION_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
     + VERTICAL_PAIN_COLUMN_COUNTERS
@@ -1424,13 +1434,17 @@ def _load_json(path: Path, context: str) -> dict[str, Any]:
 
 
 def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficulty: int,
-               bot_count: int | None = None, requested_roster: list[dict[str, Any]] | None = None) -> str:
+               bot_count: int | None = None, requested_roster: list[dict[str, Any]] | None = None,
+               harmful_zone_escape_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
     )
     if bot_count is not None:
         canonical_text += f"bot_count={bot_count}\n"
+        if harmful_zone_escape_enabled is not None:
+            canonical_text += "harmful_zone_escape_enabled=" + (
+                "1\n" if harmful_zone_escape_enabled else "0\n")
         assert requested_roster is not None
         canonical_text += "".join(f"roster={entry['identity_fragment']}\n" for entry in requested_roster)
     canonical = canonical_text.encode("utf-8")
@@ -1544,6 +1558,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     requested_roster = None
     death_attribution_recent_window_seconds = None
     suicides_exact_semantics = None
+    harmful_zone_escape_enabled = None
     if schema == MANIFEST_SCHEMA_V2:
         bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
         requested_roster = _validate_requested_roster(raw.get("requested_roster"),
@@ -1556,7 +1571,12 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             suicides_exact_semantics = _string(raw, "suicides_exact_semantics", "manifest")
             if suicides_exact_semantics != "legacy_scoreboard_self_or_nonplayer_killer":
                 raise QualityError(f"{path}: unsupported suicides_exact_semantics")
-    expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count, requested_roster)
+        if "harmful_zone_escape_enabled" in raw:
+            harmful_zone_escape_enabled = _boolean(
+                raw.get("harmful_zone_escape_enabled"),
+                "manifest.harmful_zone_escape_enabled")
+    expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count,
+                             requested_roster, harmful_zone_escape_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -1573,6 +1593,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "requested_roster": requested_roster,
         "death_attribution_recent_window_seconds": death_attribution_recent_window_seconds,
         "suicides_exact_semantics": suicides_exact_semantics,
+        "harmful_zone_escape_enabled": harmful_zone_escape_enabled,
     }
 
 
@@ -1615,6 +1636,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("pain ledge", PAIN_LEDGE_EXACT_COUNTERS),
                 ("wall adjust", WALL_ADJUST_EXACT_COUNTERS),
                 ("failed navigation", FAILED_NAVIGATION_EXACT_COUNTERS),
+                ("harmful-zone escape", HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS),
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
@@ -1659,6 +1681,13 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
         if "move_stall_forced_replans_exact" in result:
             if result["move_stall_forced_replans_exact"] > result["move_stall_detections_exact"]:
                 raise QualityError(f"{context}: move stall forced replans exceed detections")
+        if "harmful_zone_escape_episodes_exact" in result:
+            if result["harmful_zone_escape_successful_escapes_exact"] > \
+                    result["harmful_zone_escape_episodes_exact"]:
+                raise QualityError(f"{context}: harmful-zone escape successes exceed episodes")
+            if result["harmful_zone_escape_forced_replans_exact"] > \
+                    result["harmful_zone_escape_recovery_attempts_exact"]:
+                raise QualityError(f"{context}: harmful-zone escape replans exceed recovery attempts")
         if "direct_self_kills" in result:
             primary_attributions = sum(result[name] for name in DEATH_ATTRIBUTION_COUNTERS[:-1])
             if primary_attributions != result["deaths_exact"]:
@@ -2024,6 +2053,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         "fixed_delta": _number(config.get("fixed_delta"), "summary.config.fixed_delta", minimum=0.0),
         "difficulty": _integer(config.get("difficulty"), "summary.config.difficulty", minimum=0),
     }
+    if manifest["harmful_zone_escape_enabled"] is not None:
+        comparisons["harmful_zone_escape_enabled"] = _boolean(
+            config.get("harmful_zone_escape_enabled"),
+            "summary.config.harmful_zone_escape_enabled")
     requested_roster = None
     actual_roster = None
     if expected_schema == SUMMARY_SCHEMA_V2:
@@ -2473,6 +2506,7 @@ def analyze_run(path: Path) -> dict[str, Any]:
             "fixed_delta": manifest["fixed_delta"], "difficulty": manifest["difficulty"],
             "map": summary["map"], "initial_bot_count": len(events[0]["bots"]),
             "requested_roster": manifest["requested_roster"],
+            "harmful_zone_escape_enabled": manifest["harmful_zone_escape_enabled"],
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),
             "suicides_exact_semantics": manifest["suicides_exact_semantics"],

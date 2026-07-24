@@ -29,7 +29,8 @@ public:
 		std::string difficulty,
 		std::optional<std::string> botCount = {},
 		std::optional<std::string> perBotSkills = {},
-		std::optional<std::string> requestedNames = {});
+		std::optional<std::string> requestedNames = {},
+		std::optional<std::string> harmfulZoneEscape = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -38,10 +39,12 @@ public:
 	float GetFixedDelta() const { return FixedDelta; }
 	int GetDifficulty() const { return Difficulty; }
 	const BotBenchmarkRoster& GetRoster() const { return Roster; }
+	bool IsHarmfulZoneEscapeEnabled() const { return HarmfulZoneEscapeEnabled; }
 
 private:
 	BotBenchmarkRunConfig(std::string url, std::string outputDirectory, uint64_t seed,
-		uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster);
+		uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster,
+		bool harmfulZoneEscapeEnabled);
 
 	std::string URL;
 	std::string OutputDirectory;
@@ -50,6 +53,7 @@ private:
 	float FixedDelta = 0.0f;
 	int Difficulty = 0;
 	BotBenchmarkRoster Roster;
+	bool HarmfulZoneEscapeEnabled = false;
 };
 
 class BotBenchmarkRunSummary

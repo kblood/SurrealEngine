@@ -116,6 +116,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/BotAI/BotPolicyShadowTelemetry.h
 	SurrealEngine/BotAI/BotMovementSafety.cpp
 	SurrealEngine/BotAI/BotMovementSafety.h
+	SurrealEngine/BotAI/HarmfulZoneEscapeGate.cpp
+	SurrealEngine/BotAI/HarmfulZoneEscapeGate.h
 	SurrealEngine/BotAI/UtilityBotPolicy.cpp
 	SurrealEngine/BotAI/UtilityBotPolicy.h
 	SurrealEngine/BotAI/TacticalBotPolicy.cpp
@@ -1313,6 +1315,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(BotMovementSafetyTests PRIVATE SurrealEngine)
 	set_target_properties(BotMovementSafetyTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotMovementSafety COMMAND BotMovementSafetyTests)
+
+	add_executable(HarmfulZoneEscapeGateTests
+		Tests/HarmfulZoneEscapeGateTests.cpp
+		SurrealEngine/BotAI/HarmfulZoneEscapeGate.cpp
+	)
+	target_include_directories(HarmfulZoneEscapeGateTests PRIVATE SurrealEngine)
+	set_target_properties(HarmfulZoneEscapeGateTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME HarmfulZoneEscapeGate COMMAND HarmfulZoneEscapeGateTests)
 
 	add_executable(CollisionActorOrderTests Tests/CollisionActorOrderTests.cpp)
 	target_include_directories(CollisionActorOrderTests PRIVATE SurrealEngine)

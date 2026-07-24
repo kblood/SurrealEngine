@@ -31,6 +31,13 @@ namespace BotBenchmarkDriverDetail
 		uint64_t FailedNavigationAvoidanceActivations = 0;
 		uint64_t FailedNavigationSafeguardSuppressions = 0;
 		uint64_t FailedNavigationRoutePenaltyApplications = 0;
+		uint64_t HarmfulZoneEscapeEpisodes = 0;
+		uint64_t HarmfulZoneEscapeCenterEntries = 0;
+		uint64_t HarmfulZoneEscapeFootEntries = 0;
+		uint64_t HarmfulZoneEscapeRecoveryAttempts = 0;
+		uint64_t HarmfulZoneEscapeSuccessfulEscapes = 0;
+		uint64_t HarmfulZoneEscapeForcedReplans = 0;
+		uint64_t HarmfulZoneEscapeNoSafeCandidates = 0;
 		uint64_t FallingSeamDetections = 0;
 		uint64_t HorizontalCornerCandidateProbes = 0;
 		uint64_t HorizontalCornerAuthorizedEscapes = 0;
@@ -146,6 +153,24 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.FailedNavigationRoutePenaltyApplications,
 				Previous.FailedNavigationRoutePenaltyApplications,
 				totals.FailedNavigationRoutePenaltyApplications);
+			AccumulateCounter(current.HarmfulZoneEscapeEpisodes,
+				Previous.HarmfulZoneEscapeEpisodes, totals.HarmfulZoneEscapeEpisodes);
+			AccumulateCounter(current.HarmfulZoneEscapeCenterEntries,
+				Previous.HarmfulZoneEscapeCenterEntries, totals.HarmfulZoneEscapeCenterEntries);
+			AccumulateCounter(current.HarmfulZoneEscapeFootEntries,
+				Previous.HarmfulZoneEscapeFootEntries, totals.HarmfulZoneEscapeFootEntries);
+			AccumulateCounter(current.HarmfulZoneEscapeRecoveryAttempts,
+				Previous.HarmfulZoneEscapeRecoveryAttempts,
+				totals.HarmfulZoneEscapeRecoveryAttempts);
+			AccumulateCounter(current.HarmfulZoneEscapeSuccessfulEscapes,
+				Previous.HarmfulZoneEscapeSuccessfulEscapes,
+				totals.HarmfulZoneEscapeSuccessfulEscapes);
+			AccumulateCounter(current.HarmfulZoneEscapeForcedReplans,
+				Previous.HarmfulZoneEscapeForcedReplans,
+				totals.HarmfulZoneEscapeForcedReplans);
+			AccumulateCounter(current.HarmfulZoneEscapeNoSafeCandidates,
+				Previous.HarmfulZoneEscapeNoSafeCandidates,
+				totals.HarmfulZoneEscapeNoSafeCandidates);
 			AccumulateCounter(current.FallingSeamDetections, Previous.FallingSeamDetections,
 				totals.FallingSeamDetections);
 			AccumulateCounter(current.HorizontalCornerCandidateProbes,

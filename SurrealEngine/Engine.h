@@ -122,6 +122,14 @@ public:
 	{
 		return botBenchmarkWalkingPreflightEnabled;
 	}
+	bool IsBotBenchmarkHarmfulZoneEscapeEnabled() const
+	{
+		return botBenchmarkHarmfulZoneEscapeEnabled;
+	}
+	void SetBotBenchmarkHarmfulZoneEscapeEnabled(bool enabled)
+	{
+		botBenchmarkHarmfulZoneEscapeEnabled = enabled;
+	}
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -293,6 +301,7 @@ private:
 	bool xrAlternateFireKeyDown = false;
 	uint64_t xrWeaponCallHook = 0;
 	bool botBenchmarkWalkingPreflightEnabled = false;
+	bool botBenchmarkHarmfulZoneEscapeEnabled = false;
 	ViewFamily CreateDesktopViewFamily() const;
 	void InstallXRWeaponCallHook();
 	void UninstallXRWeaponCallHook();
