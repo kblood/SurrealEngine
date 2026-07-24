@@ -6,7 +6,7 @@
 //
 // Usage: node web/serve.mjs [port]     (default 8091)
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,15 +33,31 @@ createServer(async (req, res) => {
     const file = normalize(join(root, path));
 	const relativePath = relative(root, file);
 	if (isAbsolute(relativePath) || relativePath.startsWith('..')) { res.writeHead(403); res.end(); return; }
-    const body = await readFile(file);
-    res.writeHead(200, {
+    let servedFile = file;
+    let contentEncoding = null;
+    const accepted = String(req.headers['accept-encoding'] || '');
+    if (/\bbr\b/.test(accepted)) {
+      try { await access(file + '.br'); servedFile = file + '.br'; contentEncoding = 'br'; } catch {}
+    }
+    if (!contentEncoding && /\bgzip\b/.test(accepted)) {
+      try { await access(file + '.gz'); servedFile = file + '.gz'; contentEncoding = 'gzip'; } catch {}
+    }
+    const body = await readFile(servedFile);
+    const portable = relative(root, file).split('\\').join('/');
+    const immutable = /^(?:assets|engine)\/[^/]+\.[0-9a-f]{64}\.(?:css|js|wasm)$/.test(portable);
+    const responseHeaders = {
       'Content-Type': MIME[extname(file)] ?? 'application/octet-stream',
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
       'Cross-Origin-Resource-Policy': 'same-origin',
-      'Cache-Control': 'no-store',
+      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache, must-revalidate',
+      'Vary': 'Accept-Encoding',
+    };
+    if (contentEncoding) responseHeaders['Content-Encoding'] = contentEncoding;
+    res.writeHead(200, {
+      ...responseHeaders,
     });
-    res.end(body);
+    res.end(req.method === 'HEAD' ? undefined : body);
   } catch {
     res.writeHead(404); res.end('not found');
   }

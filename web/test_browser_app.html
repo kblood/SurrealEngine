@@ -357,6 +357,33 @@ window.browserAppTestPromise = (async () => {
 		});
 		assert(!SurrealBrowserRelease.canStart(noGPU) && !noGPU.webGPU.available);
 	});
+	await run("packaged release diagnostics reject mixed engine identities", async () => {
+		const javascript = "engine/SurrealEngine." + "a".repeat(64) + ".js";
+		const wasm = "engine/SurrealEngine." + "b".repeat(64) + ".wasm";
+		const manifest = { schema: "surrealengine-browser-release-v2", version: 2, buildId: "build-test",
+			entrypoints: { html: "index.html", javascript, wasm }, build: { profile: "diagnostic" },
+			sourceCompliance: {}, files: [
+				{ path: javascript, bytes: 1, sha256: "a".repeat(64), expectedMime: "text/javascript", cacheControl: "immutable" },
+				{ path: wasm, bytes: 1, sha256: "b".repeat(64), expectedMime: "application/wasm", cacheControl: "immutable" },
+			] };
+		const environment = {
+			document: { documentElement: { dataset: { engineScript: "./" + javascript, engineWasm: "./" + wasm } } },
+			performance: { now: () => 10, getEntriesByType: () => [] },
+			navigator: { userAgent: "synthetic", hardwareConcurrency: 4 }, location: { origin: "https://example.test" },
+			isSecureContext: true, crossOriginIsolated: true, SharedArrayBuffer: window.SharedArrayBuffer,
+			async fetch() { return { ok: true, status: 200, redirected: false,
+				headers: { get: () => null }, async json() { return manifest; } }; },
+		};
+		const diagnostics = new SurrealBrowserRelease.ReleaseDiagnostics(environment);
+		await diagnostics.loadIdentity();
+		assert(diagnostics.report().build.id === "build-test");
+		environment.document.documentElement.dataset.engineWasm = "./" + javascript;
+		const mixed = new SurrealBrowserRelease.ReleaseDiagnostics(environment);
+		let rejected = false;
+		try { await mixed.loadIdentity(); }
+		catch (error) { rejected = String(error).includes("different engine assets"); }
+		assert(rejected, "mixed engine identity was accepted");
+	});
 	await run("WebXR probe and failed entry report a flat fallback", async () => {
 		const environment = {
 			isSecureContext: true,

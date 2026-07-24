@@ -56,10 +56,12 @@ it for the same commit produces the same archive hash with the supported Git
 tooling.
 
 Every Emscripten build also writes `build-compliance-provenance.json` beside the
-WASM output. It records the source commit/tree, dirty state, Emscripten version
-and revision, underlying compiler identity/version, CMake version, and
-`static-wasm` linkage. The release packager
-rejects dirty provenance or a source/build identity mismatch.
+WASM output. Version 2 records the source commit/tree and dirty state; exact
+Emscripten/compiler/CMake versions; build type; diagnostic or production
+profile; assertion and stack-check levels; memory policy; pthread pool;
+WasmFS/Asyncify/proxy execution mode; browser entry point; and `static-wasm`
+linkage. The release packager rejects incomplete or contradictory provenance,
+dirty provenance, and source/build identity mismatches.
 
 ## Rebuild with a modified SurrealVideo
 
@@ -70,6 +72,7 @@ extracting it, use the compiler version recorded in `source-compliance.json`:
 & C:\path\to\emsdk\emsdk_env.ps1
 emcmake cmake -S . -B build-emscripten -G "MinGW Makefiles" `
   -DCMAKE_BUILD_TYPE=Release `
+  -DSURREAL_WEB_RELEASE_PROFILE=production `
   "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" `
   -DBUILD_TESTING=OFF `
   -DSURREAL_GAMEDATA_DIR=

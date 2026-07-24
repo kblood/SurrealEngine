@@ -1,6 +1,6 @@
 {
-  "schema": "surrealengine-browser-release-config-v1",
-  "version": 1,
+  "schema": "surrealengine-browser-release-config-v2",
+  "version": 2,
   "intendedBasePath": "/webxr/Ports/SurrealEngine/",
   "dependencies": [
     {

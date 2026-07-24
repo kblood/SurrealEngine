@@ -42,6 +42,8 @@ with sync_playwright() as playwright:
 		crossOriginIsolated,
 		booted: window.surrealBooted === true,
 		engineBase: document.documentElement.dataset.engineBase,
+		engineScript: document.documentElement.dataset.engineScript,
+		engineWasm: document.documentElement.dataset.engineWasm,
 		registeredPresentations: window.surrealApp && window.surrealApp.registry.available().map(provider => provider.id),
 		webXRAbsent: typeof navigator.xr === "undefined" && typeof XRGPUBinding === "undefined" &&
 			typeof XRWebGPUBinding === "undefined" && typeof XRWebGLLayer === "undefined",
@@ -59,6 +61,9 @@ with sync_playwright() as playwright:
 		pointerLockPromptVisible: SurrealBrowserPointerLock.status().promptVisible,
 		releaseNotice: document.querySelector('[data-release-notice]') &&
 			document.querySelector('[data-release-notice]').textContent,
+		startupDiagnostics: window.surrealReleaseDiagnostics && window.surrealReleaseDiagnostics.report(),
+		diagnosticsDownloadEnabled: !document.querySelector('[data-release-diagnostics-download]').disabled,
+		buildLabel: document.querySelector('[data-release-build-id]').textContent,
 		sourceUI: (() => {
 			const footer = document.querySelector('[data-source-compliance]');
 			const link = footer && footer.querySelector('a');
@@ -70,26 +75,54 @@ with sync_playwright() as playwright:
 	result["pageErrors"] = page_errors
 	result["manifestSchema"] = manifest.get("schema")
 	result["manifestGames"] = manifest.get("games")
+	result["manifestBuildId"] = manifest.get("buildId")
 	result["sourceArchiveSha256"] = compliance.get("archiveSha256")
 	print(json.dumps(result, indent=2))
 	failure = (not result["ready"] or result["state"] != "waiting-for-import" or result["booted"] or
 		not result["crossOriginIsolated"] or result["engineBase"] != "./engine/" or
+		result["engineScript"] != "./" + manifest.get("entrypoints", {}).get("javascript", "") or
+		result["engineWasm"] != "./" + manifest.get("entrypoints", {}).get("wasm", "") or
 		not result["webXRAbsent"] or result["adapterRequests"] != [None] or
 		result["registeredPresentations"] != ["flat"] or not result["pointerLockReady"] or
 		result["webXRBackends"] != ["auto", "webgl-bridge"] or not result["webXRBackendDisabled"] or
 		not result["bridgeTimingDisabled"] or result["bridgeTimingChecked"] or
 		result["pointerLockInteractive"] or result["pointerLockPromptVisible"] or
 		not result["sourceUI"]["visible"] or
+		not result["diagnosticsDownloadEnabled"] or result["buildLabel"].split(" ", 1)[0] != manifest.get("buildId") or
+		not result["startupDiagnostics"] or
+		result["startupDiagnostics"].get("schema") != "surrealengine-browser-startup-diagnostics-v1" or
+		result["startupDiagnostics"].get("build", {}).get("id") != manifest.get("buildId") or
+		len(result["startupDiagnostics"].get("criticalAssets", [])) != 2 or
+		"launcher-ready" not in [entry.get("stage") for entry in result["startupDiagnostics"].get("milestones", [])] or
 		"experimental preview" not in (result["releaseNotice"] or "") or
 		"unverified on physical Quest hardware" not in (result["releaseNotice"] or "") or
 		"No game or demo data is bundled or downloaded by this site" not in (result["releaseNotice"] or "") or
 		result["sourceUI"]["href"] != compliance.get("sourceUrl") or
 		compliance.get("archiveSha256") not in (result["sourceUI"]["text"] or "") or
-		result["manifestSchema"] != "surrealengine-browser-release-v1" or
+		result["manifestSchema"] != "surrealengine-browser-release-v2" or
+		not result["manifestBuildId"] or
 		result["manifestGames"] != ["ut99", "unreal-gold"] or result["pageErrors"])
 	if failure:
 		print("FAIL: staged browser release package", file=sys.stderr)
 		sys.exit(1)
+	for role in ["javascript", "wasm"]:
+		asset_path = manifest["entrypoints"][role]
+		record = next((item for item in manifest["files"] if item["path"] == asset_path), None)
+		identity_response = context.request.get(urljoin(base_url + "/", asset_path),
+			headers={"Accept-Encoding": "identity"})
+		if (not record or not identity_response.ok or
+			len(identity_response.body()) != record["bytes"] or
+			hashlib.sha256(identity_response.body()).hexdigest() != record["sha256"] or
+			identity_response.headers.get("cache-control") != "public, max-age=31536000, immutable" or
+			identity_response.headers.get("content-type", "").split(";", 1)[0] != record["expectedMime"].split(";", 1)[0]):
+			print("FAIL: immutable engine identity or headers for " + asset_path, file=sys.stderr)
+			sys.exit(1)
+		brotli_response = context.request.get(urljoin(base_url + "/", asset_path),
+			headers={"Accept-Encoding": "br"})
+		if (not brotli_response.ok or brotli_response.headers.get("content-encoding") != "br" or
+			"accept-encoding" not in brotli_response.headers.get("vary", "").lower()):
+			print("FAIL: Brotli negotiation for " + asset_path, file=sys.stderr)
+			sys.exit(1)
 	source_response = context.request.get(urljoin(base_url + "/", compliance["sourceUrl"]))
 	if (not source_response.ok or len(source_response.body()) != compliance["archiveBytes"] or
 		hashlib.sha256(source_response.body()).hexdigest() != compliance["archiveSha256"]):

@@ -6,6 +6,14 @@ include(CTest)
 
 option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS "Use the experimental on-demand WasmFS OPFS game-data mount" OFF)
 option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY "Use the experimental Window-owned Asyncify/WasmFS OPFS game-data mount" OFF)
+set(SURREAL_WEB_RELEASE_PROFILE "diagnostic" CACHE STRING "Browser build profile: diagnostic or production")
+set_property(CACHE SURREAL_WEB_RELEASE_PROFILE PROPERTY STRINGS diagnostic production)
+if(NOT SURREAL_WEB_RELEASE_PROFILE MATCHES "^(diagnostic|production)$")
+	message(FATAL_ERROR "SURREAL_WEB_RELEASE_PROFILE must be diagnostic or production")
+endif()
+if(EMSCRIPTEN AND SURREAL_WEB_RELEASE_PROFILE STREQUAL "production" AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+	message(FATAL_ERROR "The production browser profile requires CMAKE_BUILD_TYPE=Release")
+endif()
 if((SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS OR SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY) AND NOT EMSCRIPTEN)
 	message(FATAL_ERROR "The experimental WasmFS OPFS options are available only for Emscripten builds")
 endif()
@@ -72,6 +80,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Engine.h
 	SurrealEngine/GameSupport.cpp
 	SurrealEngine/GameSupport.h
+	SurrealEngine/Automation/AutomationProtocol.cpp
+	SurrealEngine/Automation/AutomationProtocol.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.h
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
@@ -1027,6 +1037,12 @@ if(EMSCRIPTEN)
 			-DCOMPILER_VERSION=${CMAKE_CXX_COMPILER_VERSION}
 			-DCMAKE_VERSION_VALUE=${CMAKE_VERSION}
 			-DBROWSER_ENTRY_POINT=${SURREAL_BROWSER_ENTRY_POINT}
+			-DBUILD_TYPE=${CMAKE_BUILD_TYPE}
+			-DRELEASE_PROFILE=${SURREAL_WEB_RELEASE_PROFILE}
+			-DUSE_PTHREADS=${SURREAL_WEB_USE_PTHREADS}
+			-DWASMFS_OPFS=${SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS}
+			-DWASMFS_OPFS_ASYNCIFY=${SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY}
+			-DPROXY_TO_PTHREAD=${SURREAL_WEB_EXPERIMENTAL_PROXY_TO_PTHREAD}
 			-P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteBrowserBuildProvenance.cmake
 		BYPRODUCTS ${SURREAL_BROWSER_BUILD_PROVENANCE}
 		VERBATIM)
@@ -1091,6 +1107,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(BotBenchmarkProtocolTests PRIVATE SurrealEngine)
 	set_target_properties(BotBenchmarkProtocolTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkProtocol COMMAND BotBenchmarkProtocolTests)
+
+	add_executable(AutomationProtocolTests
+		Tests/AutomationProtocolTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+	)
+	target_include_directories(AutomationProtocolTests PRIVATE SurrealEngine)
+	set_target_properties(AutomationProtocolTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME AutomationProtocol COMMAND AutomationProtocolTests)
 
 	add_executable(BotBenchmarkTelemetryTests
 		Tests/BotBenchmarkTelemetryTests.cpp
@@ -1248,11 +1272,15 @@ if(EMSCRIPTEN)
 		-sEXIT_RUNTIME=0
 		-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall
 		-sEXPORTED_FUNCTIONS=${SURREAL_BROWSER_EXPORTED_FUNCTIONS}
-		-sASSERTIONS=1
 		-sNO_DISABLE_EXCEPTION_CATCHING
 		-sUSE_SDL=2
 		--use-port=emdawnwebgpu
 	)
+	if(SURREAL_WEB_RELEASE_PROFILE STREQUAL "production")
+		target_link_options(SurrealEngine PRIVATE -O3 -sASSERTIONS=0 -sSTACK_OVERFLOW_CHECK=0)
+	else()
+		target_link_options(SurrealEngine PRIVATE -sASSERTIONS=2 -sSTACK_OVERFLOW_CHECK=2)
+	endif()
 	# Chrome rejects browser-API arguments backed by resizable ArrayBuffers.
 	# Keep Emscripten's ordinary Wasm buffers and refresh HEAP views after each
 	# growth, rather than exposing resizable views to TextDecoder, crypto, or

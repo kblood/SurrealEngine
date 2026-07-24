@@ -114,17 +114,17 @@ Create a no-data Emscripten build, then package it:
 
 ```powershell
 & C:\Devstuff\emsdk\emsdk_env.ps1
-emcmake cmake -S . -B build-emscripten -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" -DBUILD_TESTING=OFF
-cmake --build build-emscripten --target SurrealEngine --parallel 8
+emcmake cmake -S . -B build-emscripten-production -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DSURREAL_WEB_RELEASE_PROFILE=production "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" -DBUILD_TESTING=OFF -DSURREAL_GAMEDATA_DIR=
+cmake --build build-emscripten-production --target SurrealEngine --parallel 8
 node web/package_corresponding_source.mjs --source-root . --output C:\release-materials\SurrealEngine-corresponding-source.tar.gz
-node web/package_browser_release.mjs --engine-dir build-emscripten --corresponding-source C:\release-materials\SurrealEngine-corresponding-source.tar.gz.json --output C:\path\to\webxr\Ports\SurrealEngine
+node web/package_browser_release.mjs --engine-dir build-emscripten-production --corresponding-source C:\release-materials\SurrealEngine-corresponding-source.tar.gz.json --output C:\path\to\webxr\Ports\SurrealEngine
 ```
 
 For a non-public staging directory, keep the stable origin path explicit even
 when the filesystem output includes a commit-qualified staging directory:
 
 ```powershell
-node web/package_browser_release.mjs --engine-dir build-emscripten --corresponding-source C:\release-materials\SurrealEngine-corresponding-source.tar.gz.json --output C:\path\to\releases\staging\e9031169\SurrealEngine --intended-base-path /webxr/Ports/SurrealEngine/
+node web/package_browser_release.mjs --engine-dir build-emscripten-production --corresponding-source C:\release-materials\SurrealEngine-corresponding-source.tar.gz.json --output C:\path\to\releases\staging\<commit>\SurrealEngine --intended-base-path /webxr/Ports/SurrealEngine/
 ```
 
 The override must begin and end with `/` and use safe URL path segments. The
@@ -140,19 +140,17 @@ The output is self-contained and position-independent:
 ```text
 webxr/Ports/SurrealEngine/
   index.html
-  browser_app.css
-  browser_app.js
-  browser_data_bootstrap.js
-  browser_release.js
-  mutable_persistence.js
-  ut99_importer.js
-  webxr_browser_app_adapter.js
-  webxr_diagnostics.js
-  webxr_webgl_bridge.js
-  webxr_provider.js
+  assets/
+    browser_app.<full-sha256>.css
+    browser_app.<full-sha256>.js
+    ...each executable web asset plus .br and .gz sidecars
   engine/
-    SurrealEngine.js
-    SurrealEngine.wasm
+    SurrealEngine.<full-sha256>.js
+    SurrealEngine.<full-sha256>.js.br
+    SurrealEngine.<full-sha256>.js.gz
+    SurrealEngine.<full-sha256>.wasm
+    SurrealEngine.<full-sha256>.wasm.br
+    SurrealEngine.<full-sha256>.wasm.gz
   source/
     SurrealEngine-corresponding-source.tar.gz
   licenses/
@@ -169,16 +167,17 @@ webxr/Ports/SurrealEngine/
 
 All runtime URLs are relative, so the same directory can be hosted at the
 intended `/webxr/Ports/SurrealEngine/` location or another HTTPS base path.
-`_headers` and `.htaccess` provide examples for the COOP/COEP isolation needed
-by the threaded WASM build and the `application/wasm` MIME type. Hosts that do
-not consume either file must configure equivalent headers themselves.
+`_headers` and `.htaccess` provide COOP/COEP isolation and the
+`application/wasm` MIME type. Hosts that do not consume either file must
+configure equivalent headers themselves.
 
-Packaged CSS and JavaScript references carry a twelve-character content-hash
-query. The supplied hosting files also require revalidation. This prevents an
-updated `index.html` from running with a cached pre-fix importer or launcher;
-ETags can still make unchanged-file revalidation inexpensive. A deployment
-must keep the generated `index.html`, assets, and `release-manifest.json`
-together instead of copying individual files over an older package.
+Every executable CSS, JavaScript, and WASM filename contains its complete
+SHA-256. The entry HTML and manifest require revalidation; `assets/` and
+`engine/` are immutable for one year. Brotli and gzip sidecars are generated and
+recorded as representations of their source files. The server must negotiate
+them, preserve the source MIME type, set `Content-Encoding`, and return
+`Vary: Accept-Encoding`. A deployment must publish the complete generated
+directory atomically instead of copying individual files over an older package.
 
 ### Revisioned public candidate 54283bd8
 
@@ -235,8 +234,12 @@ mouse-look, audible output, and physical Quest presentation remain human gates.
 The packager fails unless `CMakeCache.txt` records an empty
 `SURREAL_GAMEDATA_DIR`, rejects every Emscripten `.data` payload, copies only a
 fixed shell/runtime allowlist, and audits the output for UE1 game extensions.
-`release-manifest.json` records dependency SHAs plus each file's length,
-SHA-256, and expected MIME type. It never enumerates browser-private imports.
+`release-manifest.json` records its build ID, diagnostic/production profile,
+toolchain and threading mode, immutable JS/WASM entrypoints, dependency SHAs,
+and each file's length, SHA-256, MIME, cache policy, and optional compression
+encoding/source relationship. A second audit rejects any file not present in
+the manifest and any missing, tampered, mixed-generation, or invalid compressed
+representation. It never enumerates browser-private imports.
 
 When the Emscripten build statically includes SurrealVideo, packaging is refused
 unless a clean, generated corresponding-source archive matches the build's

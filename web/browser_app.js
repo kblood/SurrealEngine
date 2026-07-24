@@ -495,6 +495,9 @@
 
 	async function start(options) {
 		options = options || {};
+		const runtimeMilestone = (stage, detail) => {
+			if (typeof options.onRuntimeMilestone === "function") options.onRuntimeMilestone(Object.freeze({ stage, detail: detail || null }));
+		};
 		const log = typeof options.log === "function" ? options.log : () => {};
 		const registry = options.presentationRegistry || new PresentationRegistry();
 		if (!registry.get("flat")) registry.register({ id: "flat", label: "Desktop window" });
@@ -504,12 +507,14 @@
 		const libraryUI = options.libraryUI || new GameLibraryUI(options.libraryRoot || null, library);
 		const xrProviders = registry.available().filter(provider =>
 			provider.requiresXRCompatibleAdapter || provider.prefersXRCompatibleAdapter);
+		runtimeMilestone("webgpu-device-requested");
 		const device = await acquireWebGPUDevice(log, {
 			xrCompatible: xrProviders.length > 0,
 			onXRCompatibility: (available, detail) => {
 				for (const provider of xrProviders) provider.setXRCompatibleAdapter(available, detail);
 			},
 		});
+		runtimeMilestone("webgpu-device-ready", { xrCompatible: global.surrealWebGPUDeviceXRCompatible === true });
 		global.surrealCrashed = null;
 		const unhandledRuntimeError = createUnhandledRuntimeErrorHandler(log, options.onRuntimeCrash, global);
 		if (typeof global.addEventListener === "function") {
@@ -517,14 +522,17 @@
 			global.addEventListener("unhandledrejection", unhandledRuntimeError);
 		}
 		return new Promise((resolve, reject) => {
+			const engineFiles = options.engineFiles && typeof options.engineFiles === "object" ? options.engineFiles : null;
 			const Module = {
 				canvas: options.canvas,
-				locateFile: path => (options.engineBase || "../build-emscripten/") + path,
+				locateFile: path => engineFiles && typeof engineFiles[path] === "string" ?
+					engineFiles[path] : (options.engineBase || "../build-emscripten/") + path,
 				print: log,
 				printErr: log,
 				preinitializedWebGPUDevice: device,
 				onAbort: createRuntimeAbortHandler(log, options.onRuntimeCrash, global),
 				onRuntimeInitialized: async () => {
+					runtimeMilestone("wasm-runtime-initialized");
 					try {
 						const importerOptions = Object.assign({}, options.importerOptions || {}, {
 							storage: library.storageProxy(),
@@ -542,6 +550,9 @@
 								onStartupStage: options.onStartupStage, environment: options.environment || global,
 								waitForPaint: options.waitForPaint }),
 						});
+						runtimeMilestone("persistent-storage-ready", {
+							state: started.result && started.result.import && started.result.import.state || null,
+						});
 						resolve(Object.freeze({ Module, launcher, registry, library, libraryUI, dataController: started.controller, result: started.result }));
 					} catch (error) { reject(error); }
 				},
@@ -550,7 +561,12 @@
 			if (options.audioController && typeof options.audioController.attachModule === "function") options.audioController.attachModule(Module);
 			const script = global.document.createElement("script");
 			script.src = options.engineScript || DEFAULT_ENGINE_SCRIPT;
-			script.onerror = () => reject(new LauncherError("ENGINE_SCRIPT", "The SurrealEngine browser module could not be loaded."));
+			script.onload = () => runtimeMilestone("engine-script-loaded");
+			script.onerror = () => {
+				runtimeMilestone("engine-script-failed");
+				reject(new LauncherError("ENGINE_SCRIPT", "The SurrealEngine browser module could not be loaded."));
+			};
+			runtimeMilestone("engine-script-requested", { url: script.src });
 			global.document.body.appendChild(script);
 		});
 	}

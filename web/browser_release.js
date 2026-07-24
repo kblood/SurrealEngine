@@ -41,6 +41,140 @@
 			capabilities.storage.available && capabilities.folderImport.available);
 	}
 
+	class ReleaseDiagnostics {
+		constructor(environment, rootElement) {
+			this.environment = environment || root;
+			this.rootElement = rootElement || null;
+			this.startedAt = this.now();
+			this.manifest = null;
+			this.manifestFetch = null;
+			this.platform = null;
+			this.webxr = null;
+			this.milestones = [];
+			this.mode = "development";
+			this.record("shell");
+			this.downloadButton = this.rootElement && this.rootElement.querySelector("[data-release-diagnostics-download]");
+			this.buildLabel = this.rootElement && this.rootElement.querySelector("[data-release-build-id]");
+			if (this.downloadButton) {
+				this.downloadButton.disabled = false;
+				this.downloadButton.addEventListener("click", () => this.download());
+			}
+		}
+
+		now() {
+			const performance = this.environment.performance;
+			return performance && typeof performance.now === "function" ? performance.now() : Date.now();
+		}
+
+		record(stage, detail) {
+			this.milestones.push(Object.freeze({ stage: String(stage), elapsedMs: Math.max(0, this.now() - this.startedAt),
+				detail: detail || null }));
+			if (this.milestones.length > 64) this.milestones.shift();
+		}
+
+		async loadIdentity() {
+			const document = this.environment.document;
+			const dataset = document && document.documentElement && document.documentElement.dataset || {};
+			if (!dataset.engineScript && !dataset.engineWasm) {
+				this.record("development-assets");
+				if (this.buildLabel) this.buildLabel.textContent = "development (unpackaged)";
+				return null;
+			}
+			if (!dataset.engineScript || !dataset.engineWasm || typeof this.environment.fetch !== "function")
+				throw new Error("Packaged release identity markers are incomplete.");
+			this.mode = "packaged";
+			this.record("manifest-requested");
+			const response = await this.environment.fetch("release-manifest.json", { cache: "no-cache", credentials: "same-origin" });
+			this.manifestFetch = Object.freeze({ status: response.status, redirected: response.redirected === true,
+				contentType: response.headers && response.headers.get("content-type") || null,
+				cacheControl: response.headers && response.headers.get("cache-control") || null });
+			if (!response.ok || response.redirected) throw new Error("Release manifest request failed or redirected.");
+			const manifest = await response.json();
+			const hashedEngine = /^engine\/SurrealEngine\.[0-9a-f]{64}\.(?:js|wasm)$/;
+			if (manifest.schema !== "surrealengine-browser-release-v2" || manifest.version !== 2 ||
+				!manifest.buildId || !manifest.entrypoints ||
+				!hashedEngine.test(manifest.entrypoints.javascript || "") ||
+				!hashedEngine.test(manifest.entrypoints.wasm || "") ||
+				dataset.engineScript !== "./" + manifest.entrypoints.javascript ||
+				dataset.engineWasm !== "./" + manifest.entrypoints.wasm)
+				throw new Error("Entry HTML and release manifest identify different engine assets.");
+			this.manifest = manifest;
+			this.record("manifest-verified", { buildId: manifest.buildId, profile: manifest.build && manifest.build.profile || null });
+			if (this.buildLabel) this.buildLabel.textContent = manifest.buildId + " (" + (manifest.build && manifest.build.profile || "unknown") + ")";
+			return manifest;
+		}
+
+		setCapabilities(platform, webxr) {
+			this.platform = platform;
+			this.webxr = webxr;
+			this.record("capabilities-ready", { webGPU: !!(platform && platform.webGPU && platform.webGPU.available),
+				immersiveVR: !!(webxr && webxr.available) });
+		}
+
+		criticalAssetRecords() {
+			if (!this.manifest || !Array.isArray(this.manifest.files)) return [];
+			const paths = new Set([this.manifest.entrypoints.javascript, this.manifest.entrypoints.wasm]);
+			return this.manifest.files.filter(file => paths.has(file.path)).map(file => ({
+				path: file.path, bytes: file.bytes, sha256: file.sha256, expectedMime: file.expectedMime,
+				cacheControl: file.cacheControl,
+			}));
+		}
+
+		resourceTimings() {
+			const performance = this.environment.performance;
+			if (!this.manifest || !performance || typeof performance.getEntriesByType !== "function") return [];
+			const paths = [this.manifest.entrypoints.javascript, this.manifest.entrypoints.wasm];
+			return performance.getEntriesByType("resource").filter(entry =>
+				paths.some(path => String(entry.name).endsWith(path))).map(entry => ({
+				name: paths.find(path => String(entry.name).endsWith(path)), durationMs: entry.duration,
+				transferBytes: entry.transferSize || null, encodedBytes: entry.encodedBodySize || null,
+				decodedBytes: entry.decodedBodySize || null,
+			}));
+		}
+
+		report() {
+			const host = this.environment;
+			const navigator = host.navigator || {};
+			return {
+				schema: "surrealengine-browser-startup-diagnostics-v1",
+				generatedAt: new Date().toISOString(),
+				mode: this.mode,
+				build: this.manifest ? { id: this.manifest.buildId, source: this.manifest.sourceCompliance,
+					configuration: this.manifest.build, entrypoints: this.manifest.entrypoints } : null,
+				manifestFetch: this.manifestFetch,
+				environment: {
+					origin: host.location && host.location.origin || null,
+					secureContext: host.isSecureContext !== false,
+					crossOriginIsolated: host.crossOriginIsolated === true,
+					sharedArrayBuffer: typeof host.SharedArrayBuffer === "function",
+					logicalProcessors: Number.isSafeInteger(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : null,
+					userAgent: navigator.userAgent || null,
+					serviceWorkerController: navigator.serviceWorker && navigator.serviceWorker.controller ?
+						String(navigator.serviceWorker.controller.scriptURL || "active") : null,
+				},
+				capabilities: this.platform ? Object.fromEntries(Object.entries(this.platform).map(([name, value]) =>
+					[name, { available: value.available, code: value.code }])) : null,
+				webxr: this.webxr ? { available: this.webxr.available, code: this.webxr.code } : null,
+				criticalAssets: this.criticalAssetRecords(),
+				resourceTimings: this.resourceTimings(),
+				milestones: this.milestones.slice(),
+			};
+		}
+
+		download() {
+			const document = this.environment.document;
+			if (!document || typeof this.environment.Blob !== "function" || !this.environment.URL) return false;
+			const blob = new this.environment.Blob([JSON.stringify(this.report(), null, 2) + "\n"], { type: "application/json" });
+			const url = this.environment.URL.createObjectURL(blob);
+			const anchor = document.createElement("a");
+			anchor.href = url;
+			anchor.download = `surrealengine-startup-${this.manifest && this.manifest.buildId || "development"}.json`;
+			anchor.click();
+			this.environment.setTimeout(() => this.environment.URL.revokeObjectURL(url), 0);
+			return true;
+		}
+	}
+
 	class StatusView {
 		constructor(rootElement) {
 			this.root = rootElement || null;
@@ -83,9 +217,19 @@
 	async function start(options) {
 		const settings = options || {};
 		const view = settings.statusView || new StatusView(settings.statusRoot || null);
+		const environment = settings.environment || root;
+		const diagnostics = settings.releaseDiagnostics || new ReleaseDiagnostics(environment, settings.statusRoot || null);
+		try { await diagnostics.loadIdentity(); }
+		catch (error) {
+			diagnostics.record("manifest-failed", { name: error && error.name || "Error" });
+			view.setError(error && error.message ? error.message : String(error));
+			view.setPhase("Startup stopped before loading the engine.");
+			throw error;
+		}
 		view.setPhase("Checking browser capabilities…");
-		const platform = await detectPlatformCapabilities(settings.environment || root);
-		let webxr = await root.SurrealWebXRBrowserProvider.probe(settings.environment || root);
+		const platform = await detectPlatformCapabilities(environment);
+		let webxr = await root.SurrealWebXRBrowserProvider.probe(environment);
+		diagnostics.setCapabilities(platform, webxr);
 		if (typeof root.dispatchEvent === "function" && typeof root.CustomEvent === "function") {
 			root.dispatchEvent(new root.CustomEvent("surrealwebxrcapability", { detail: webxr }));
 		}
@@ -102,8 +246,13 @@
 			view.setCapabilities(platform, webxr);
 			view.setPhase(webxr.message || "Immersive WebXR capability changed.");
 		});
-		const appOptions = Object.assign({}, settings.appOptions || {}, {
+		const suppliedAppOptions = settings.appOptions || {};
+		const appOptions = Object.assign({}, suppliedAppOptions, {
 			presentationProviders: [root.SurrealWebXRBrowserProvider.createProvider(webxr)],
+			onRuntimeMilestone: milestone => {
+				diagnostics.record(milestone.stage, milestone.detail);
+				if (typeof suppliedAppOptions.onRuntimeMilestone === "function") suppliedAppOptions.onRuntimeMilestone(milestone);
+			},
 		});
 		root.addEventListener("surrealwebxrpresentation", event => {
 			const detail = event.detail || {};
@@ -112,15 +261,17 @@
 		});
 		try {
 			const app = await root.SurrealBrowserApp.start(appOptions);
+			diagnostics.record("launcher-ready");
 			view.setPhase(app.result && app.result.import && app.result.import.state === "waiting-for-import" ?
 				"Choose a supported local game folder to continue." : "Choose launch options and press Play.");
-			return Object.freeze({ app, platform, webxr });
+			return Object.freeze({ app, platform, webxr, diagnostics });
 		} catch (error) {
+			diagnostics.record("startup-failed", { name: error && error.name || "Error" });
 			view.setError(error && error.message ? error.message : String(error));
 			view.setPhase("Startup stopped.");
 			throw error;
 		}
 	}
 
-	root.SurrealBrowserRelease = Object.freeze({ detectPlatformCapabilities, canStart, StatusView, start });
+	root.SurrealBrowserRelease = Object.freeze({ detectPlatformCapabilities, canStart, ReleaseDiagnostics, StatusView, start });
 })(typeof window !== "undefined" ? window : globalThis);

@@ -73,6 +73,8 @@
 		<ul data-capability-list><li>Checking browser capabilities…</li></ul>
 		<p data-app-phase>Preparing launcher…</p>
 		<p data-app-error hidden role="alert"></p>
+		<p>Build: <code data-release-build-id>checking…</code></p>
+		<div class="actions"><button type="button" data-release-diagnostics-download disabled>Download startup report</button></div>
 	</section>
 	<section id="browser-audio" class="panel" aria-live="polite">
 		<h2>Audio</h2>
@@ -126,6 +128,8 @@ const logLines = [];
 const logElement = document.getElementById("log");
 function log(line) { logLines.push(String(line)); logElement.textContent += line + "\n"; }
 const engineBase = document.documentElement.dataset.engineBase;
+const engineScript = document.documentElement.dataset.engineScript || engineBase + "SurrealEngine.js";
+const engineWasm = document.documentElement.dataset.engineWasm || null;
 window.surrealXRDiagnostics = SurrealWebXRDiagnostics.create(document.getElementById("webxr-diagnostics"));
 window.surrealBrowserAudio = SurrealBrowserAudio.create(document.getElementById("browser-audio"));
 SurrealBrowserPointerLock.setInteractive(false);
@@ -139,7 +143,8 @@ SurrealBrowserRelease.start({
 		hostBridge: window.SurrealHostBridge,
 		audioController: window.surrealBrowserAudio,
 		engineBase,
-		engineScript: engineBase + "SurrealEngine.js",
+		engineScript,
+		engineFiles: engineWasm ? { "SurrealEngine.wasm": engineWasm } : null,
 		log,
 		logSnapshot: () => logLines.join("\n") + "\n",
 		onStartupStage: status => {
@@ -169,7 +174,11 @@ SurrealBrowserRelease.start({
 			canvas.focus({ preventScroll: true });
 		},
 	},
-}).then(release => { window.surrealRelease = release; window.surrealApp = release.app; })
+}).then(release => {
+	window.surrealRelease = release;
+	window.surrealReleaseDiagnostics = release.diagnostics;
+	window.surrealApp = release.app;
+})
 	.catch(error => log("[launcher] " + (error.stack || error)));
 </script>
 </body>
