@@ -278,9 +278,9 @@ assert.equal(await globalThis.surrealXRActivateReservedSession(), true);
 assert.deepEqual(loopTransitions, [1]);
 const nativeCallsBeforeAudioGesture = nativeCalls.length;
 const inputPacketsBeforeAudioGesture = inputPackets.length;
-sessions[0].emit("selectstart", { isTrusted: false, inputSource: { privateProfile: "not-forwarded" } });
+sessions[0].emit("select", { isTrusted: false, inputSource: { privateProfile: "not-forwarded" } });
 assert.equal(audioGestureEvents, 0, "synthetic XR select events must not unlock browser audio");
-sessions[0].emit("selectstart", { isTrusted: true, inputSource: { privateProfile: "not-forwarded" } });
+sessions[0].emit("select", { isTrusted: true, inputSource: { privateProfile: "not-forwarded" } });
 assert.equal(audioGestureEvents, 1, "one trusted XR select publishes one bounded audio-unlock notification");
 assert.equal(lastAudioGesture.type, "surrealwebxraudiogesture");
 assert.equal("detail" in lastAudioGesture, false, "the audio notification must not carry raw XR event data");
@@ -450,7 +450,11 @@ assert.equal(renderedPackets.length, idleSafetyRenders,
 	"input-only safety release must not invent a simulation/render frame");
 let idleSafetyPacket = new DataView(inputPackets.at(-1).buffer);
 assert.equal(idleSafetyPacket.getUint32(12, true), 1);
+const idleClockResets = nativeCalls.filter(name => name === "Surreal_ResetBrowserFrameClock").length;
 sessions[0].visibilityState = "visible";
+sessions[0].listeners.get("visibilitychange")();
+assert.equal(nativeCalls.filter(name => name === "Surreal_ResetBrowserFrameClock").length,
+	idleClockResets + 1, "focus recovery did not reset the native frame clock");
 sessions[0].fireFrame(81, stereoFrame);
 await nextTask();
 
@@ -490,16 +494,21 @@ sessions[0].visibilityState = "visible-blurred";
 sessions[0].listeners.get("visibilitychange")();
 assert.equal(globalThis.surrealXRGetState().inputQueueDepth, 1,
 	"focus loss must retain only the neutral safety state");
+sessions[0].visibilityState = "visible";
+const blockedClockResets = nativeCalls.filter(name => name === "Surreal_ResetBrowserFrameClock").length;
+sessions[0].listeners.get("visibilitychange")();
+assert.equal(nativeCalls.filter(name => name === "Surreal_ResetBrowserFrameClock").length,
+	blockedClockResets, "focus recovery re-entered native code during suspended rendering");
 renderDeferred.resolve(1); renderDeferred = null;
 await nextTask();
+assert.equal(nativeCalls.filter(name => name === "Surreal_ResetBrowserFrameClock").length,
+	blockedClockResets + 1, "deferred focus recovery did not reset the clock after native work drained");
 const safetyPacket = new DataView(inputPackets.at(-1).buffer);
 assert.equal(inputPackets.length, safetyInputsBefore + 1);
 assert.equal(safetyPacket.getUint32(8, true), 1);
 assert.equal(safetyPacket.getUint32(12, true), 1);
 assert.equal(safetyPacket.getUint32(24 + 8, true), 0);
-sessions[0].visibilityState = "visible";
 sessions[0].inputSources = [stalledLeft, stalledRight];
-sessions[0].listeners.get("visibilitychange")();
 sessions[0].listeners.get("inputsourceschange")({ removed: [], added: [stalledLeft] });
 
 // A layout epoch change while rendering suppresses the old completion and waits for a correctly
@@ -533,9 +542,9 @@ rightGamepad.vibrationActuator = { playEffect() { return staleHapticResult.promi
 assert.equal(globalThis.surrealXRSubmitHaptic(1, .5, 20, 0), true);
 sessions[0].endDeferred = delayedEnd;
 assert.equal(globalThis.surrealXRExit(), true);
-assert.equal(sessions[0].listeners.has("selectstart"), false,
+assert.equal(sessions[0].listeners.has("select"), false,
 	"explicit exit removes the old session's audio gesture listener immediately");
-sessions[0].emit("selectstart", { isTrusted: true });
+sessions[0].emit("select", { isTrusted: true });
 assert.equal(audioGestureEvents, 1, "an exited session cannot retry browser audio");
 assert.equal(globalThis.surrealXRSubmitHaptic(1, .5, 20, 0), false,
 	"session exit must make browser haptics inactive immediately");
@@ -557,13 +566,13 @@ assert.deepEqual(globalThis.surrealXRGetState().inputDiagnostics, {
 	leftButtons: null, leftAxes: null, rightButtons: null, rightAxes: null,
 	nonzeroThumbstickSamples: 0,
 }, "input observations do not leak across XR session generations");
-assert.equal(sessions[1].listeners.has("selectstart"), true,
+assert.equal(sessions[1].listeners.has("select"), true,
 	"re-entry attaches one audio gesture listener to the new session");
-sessions[0].emit("selectstart", { isTrusted: true });
+sessions[0].emit("select", { isTrusted: true });
 assert.equal(audioGestureEvents, 1, "the old session remains detached after re-entry");
 const reentryNativeCallsBeforeAudioGesture = nativeCalls.length;
 const reentryInputPacketsBeforeAudioGesture = inputPackets.length;
-sessions[1].emit("selectstart", { isTrusted: true });
+sessions[1].emit("select", { isTrusted: true });
 assert.equal(audioGestureEvents, 2, "the new session publishes its own trusted audio gesture");
 assert.equal(nativeCalls.length, reentryNativeCallsBeforeAudioGesture);
 assert.equal(inputPackets.length, reentryInputPacketsBeforeAudioGesture);
@@ -608,7 +617,7 @@ delayedFailureSession.fireFrame(112, stereoFrame);
 await nextTask();
 assert.equal(globalThis.surrealXRGetState().phase, "error");
 assert.equal(globalThis.surrealXRGetState().active, false);
-assert.equal(delayedFailureSession.listeners.has("selectstart"), false,
+assert.equal(delayedFailureSession.listeners.has("select"), false,
 	"provider failure removes the session's audio gesture listener");
 assert.equal(delayedFailureSession.frames.size, 0,
 	"a failed session must cancel XR scheduling before its delayed end settles");
@@ -722,7 +731,7 @@ endedBeforeFirstFrame.emitEnd();
 assert.equal(globalThis.surrealXRGetState().phase, "error");
 assert.equal(globalThis.surrealXRGetState().lastErrorCode, "session-ended-before-first-frame");
 assert.equal(globalThis.surrealXRGetState().lastErrorStage, "frame");
-assert.equal(endedBeforeFirstFrame.listeners.has("selectstart"), false,
+assert.equal(endedBeforeFirstFrame.listeners.has("select"), false,
 	"a premature browser end removes the session's audio gesture listener");
 await nextTask();
 
@@ -736,7 +745,7 @@ normallyEndedSession.emitEnd();
 assert.equal(globalThis.surrealXRGetState().phase, "ended",
 	"a runtime end after presentation started remains a normal end");
 assert.equal(globalThis.surrealXRGetState().lastErrorCode, null);
-assert.equal(normallyEndedSession.listeners.has("selectstart"), false,
+assert.equal(normallyEndedSession.listeners.has("select"), false,
 	"a normal browser end removes the session's audio gesture listener");
 await nextTask();
 

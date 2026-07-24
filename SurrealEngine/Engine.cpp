@@ -158,6 +158,7 @@ extern "C"
 }
 
 static bool XRFrameLoopActive = false;
+static uint32_t BrowserMaximumFrameDeltaMicroseconds = 0;
 static std::atomic<bool> BrowserEscapeIntentPending = false;
 static BrowserRelativeMouseAccumulator BrowserRelativeMouseMotion;
 
@@ -272,6 +273,10 @@ extern "C"
 		const bool requested = active != 0;
 		if (requested == XRFrameLoopActive)
 			return 1;
+		// Both schedulers calculate elapsed time from this shared clock. Reset it
+		// before either takes ownership so setup or headset pauses cannot become
+		// a one-second simulation step on the first frame after handoff.
+		engine->lastTime = 0;
 		XRFrameLoopActive = requested;
 		// Merely returning early from EngineMainLoopCallback still re-enters Wasm
 		// on every browser rAF. A WebXR render can be Asyncify-suspended on OPFS,
@@ -281,6 +286,27 @@ extern "C"
 		else
 			emscripten_resume_main_loop();
 		return 1;
+	}
+
+	EMSCRIPTEN_KEEPALIVE void Surreal_ResetBrowserFrameClock()
+	{
+		if (engine)
+			engine->lastTime = 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE int Surreal_GetXRFrameLoopActive()
+	{
+		return XRFrameLoopActive ? 1 : 0;
+	}
+
+	EMSCRIPTEN_KEEPALIVE uint32_t Surreal_GetBrowserMaximumFrameDeltaMicroseconds()
+	{
+		return BrowserMaximumFrameDeltaMicroseconds;
+	}
+
+	EMSCRIPTEN_KEEPALIVE void Surreal_ResetBrowserFrameDeltaDiagnostics()
+	{
+		BrowserMaximumFrameDeltaMicroseconds = 0;
 	}
 }
 #endif
@@ -2108,6 +2134,10 @@ float Engine::CalcTimeElapsed()
 
 	uint64_t deltaTime = currentTime - lastTime;
 	lastTime = currentTime;
+	#ifdef __EMSCRIPTEN__
+	BrowserMaximumFrameDeltaMicroseconds = std::max(BrowserMaximumFrameDeltaMicroseconds,
+		static_cast<uint32_t>(std::min<uint64_t>(deltaTime, UINT32_MAX)));
+	#endif
 	return clamp(deltaTime / 1'000'000.0f, 0.0f, 1.0f);
 }
 

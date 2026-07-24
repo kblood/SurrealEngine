@@ -44,6 +44,10 @@ with sync_playwright() as playwright:
 		raise RuntimeError("timed out waiting for the live WebGL2 game")
 	if page.evaluate("window.surrealCrashed"):
 		raise RuntimeError(page.evaluate("window.surrealCrashed"))
+	if not wait_until(page,
+		"window.surrealGetTickCount() >= 10 && window.surrealGetWebGL2Diagnostics().textures >= 164",
+		timeout=30):
+		raise RuntimeError("live scene resources did not reach the stable continuity baseline")
 
 	page.add_script_tag(url=base_url + adapter_path)
 	page.evaluate("""() => {
@@ -127,6 +131,26 @@ with sync_playwright() as playwright:
 		requests: __xrControllerProbe.requests, activations: __xrControllerProbe.activations,
 		exits: __xrControllerProbe.exits })""")
 
+	# Exercise the real Emscripten scheduler handoff independently of the mocked
+	# headset layer. A one-second ownership pause must not become a one-second
+	# simulation delta when the ordinary browser RAF resumes.
+	scheduler_before = page.evaluate("""() => {
+		Module.ccall('Surreal_ResetBrowserFrameDeltaDiagnostics', null, [], []);
+		const tick = surrealGetTickCount();
+		const accepted = Module.ccall('Surreal_SetXRFrameLoopActive', 'number', ['number'], [1]);
+		return { tick, accepted, active: Module.ccall('Surreal_GetXRFrameLoopActive', 'number', [], []) };
+	}""")
+	time.sleep(1)
+	scheduler_paused = page.evaluate("""() => ({ tick: surrealGetTickCount(),
+		active: Module.ccall('Surreal_GetXRFrameLoopActive', 'number', [], []) })""")
+	page.evaluate("Module.ccall('Surreal_SetXRFrameLoopActive', 'number', ['number'], [0])")
+	if not wait_until(page, f"window.surrealGetTickCount() > {scheduler_paused['tick']}", timeout=10):
+		raise RuntimeError("flat RAF did not resume after scheduler handoff")
+	time.sleep(0.25)
+	scheduler_after = page.evaluate("""() => ({ tick: surrealGetTickCount(),
+		active: Module.ccall('Surreal_GetXRFrameLoopActive', 'number', [], []),
+		maximumDeltaMicroseconds: Module.ccall('Surreal_GetBrowserMaximumFrameDeltaMicroseconds', 'number', [], []) })""")
+
 	result = {
 		"schema": "surrealengine-webxr-controller-live-v1",
 		"scope": "live UE1/WASM state continuity with mocked browser XR session boundary; not headset rendering qualification",
@@ -136,6 +160,7 @@ with sync_playwright() as playwright:
 		"during": during,
 		"after": after,
 		"counts": counts,
+		"schedulerHandoff": {"before": scheduler_before, "paused": scheduler_paused, "after": scheduler_after},
 		"pageErrors": page_errors,
 	}
 	print(json.dumps(result, indent=2))
@@ -153,6 +178,10 @@ with sync_playwright() as playwright:
 		and before["gl"]["generation"] == during["gl"]["generation"] == after["gl"]["generation"]
 		and before["gl"]["textures"] == during["gl"]["textures"] == after["gl"]["textures"]
 		and counts == {"mainCalls": 0, "requests": 2, "activations": 2, "exits": 2}
+		and scheduler_before["accepted"] == 1 and scheduler_before["active"] == 1
+		and scheduler_paused["active"] == 1 and scheduler_paused["tick"] == scheduler_before["tick"]
+		and scheduler_after["active"] == 0 and scheduler_after["tick"] > scheduler_paused["tick"]
+		and scheduler_after["maximumDeltaMicroseconds"] < 100000
 		and not page_errors
 	)
 	page.evaluate("window.surrealRequestQuit()")

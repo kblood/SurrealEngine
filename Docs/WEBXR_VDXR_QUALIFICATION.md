@@ -52,7 +52,7 @@ documents suspended WebAudio, while return-to-visible and presentation changes
 only refreshed the UI. Commit `4dfceb0f` now best-effort resumes a started game
 after either transition. The explicit Enable audio button remains available if
 browser policy rejects that attempt, and a trusted active-session controller
-`selectstart` supplies an additional data-free retry. Physical recovery still
+completed `select` supplies an additional data-free retry. Physical recovery still
 needs retesting.
 
 An apparent WebXR fallback during this round was not a valid headset result:

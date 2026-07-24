@@ -259,7 +259,7 @@ deferred lifecycle reason and flush once the gate reopens; disposal removes
 the listener. Browser audio uses the same defer-and-flush rule. Once the engine
 has created its OpenAL/WebAudio context, startup, return-to-visible, and
 presentation transitions make a best-effort resume; hidden pages still
-suspend. A trusted `selectstart` on the currently active XR session forwards
+suspend. A trusted completed `select` on the currently active XR session forwards
 only a detail-free audio-unlock event, never controller or pose data. Central
 session cleanup removes that listener before allowing re-entry, while the DOM
 Enable audio button remains the explicit policy fallback.

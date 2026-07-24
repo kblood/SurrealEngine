@@ -116,7 +116,7 @@ floor offset should not silently modify the gameplay actor. Neutralize XR input
 on source loss, blur, hide, failure, and exit. Hidden XR sessions receive no
 animation frames; this is normal, not a hang. See the [WebXR visibility rules](https://www.w3.org/TR/webxr/#dom-xrsession-visibilitystate).
 
-The current audio retry listens to `selectstart`. Move it to a trusted `select`
+The prior audio retry listened to `selectstart`. Move it to a trusted `select`
 handler and resume audio synchronously there; the [WebXR input explainer](https://immersive-web.github.io/webxr/input-explainer.html#input-events)
 identifies completed `select` as the user-activating event.
 
@@ -307,6 +307,14 @@ physical headset presentation qualification.
 
 Gate: transition tests detect no duplicate tick, large time step, stuck input,
 audio restart, unwanted pointer capture, or stale XR render target.
+
+Progress, 2026-07-24: the provider now forwards audio retry only from a trusted
+completed XR `select`, removing its prior `selectstart` listener on every exit.
+Frame-loop ownership changes reset the native elapsed-time clock before either
+scheduler resumes. XR focus recovery requests the same reset; when Asyncify
+native work is suspended, the reset is deferred until the native-call gate
+reopens. Deterministic tests cover immediate and deferred recovery without
+native re-entry.
 
 ### WP5 — Production immersive renderer
 

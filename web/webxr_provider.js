@@ -50,6 +50,7 @@
 	let cleanupPending = Promise.resolve();
 	let cleanupInProgress = false;
 	let cleanupSequence = 0;
+	let frameClockResetPending = false;
 	let hapticStatus = null;
 	let audioGestureSession = null;
 	let audioGestureListener = null;
@@ -332,7 +333,7 @@
 		audioGestureListener = null;
 		if (!attachedSession || attachedSession !== sessionObject || !listener ||
 			typeof attachedSession.removeEventListener !== "function") return;
-		try { attachedSession.removeEventListener("selectstart", listener); } catch (_) {}
+		try { attachedSession.removeEventListener("select", listener); } catch (_) {}
 	}
 
 	function attachAudioGestureListener(sessionObject, generation) {
@@ -348,7 +349,7 @@
 			}
 		};
 		try {
-			sessionObject.addEventListener("selectstart", listener);
+			sessionObject.addEventListener("select", listener);
 			audioGestureSession = sessionObject;
 			audioGestureListener = listener;
 		} catch (_) {}
@@ -365,6 +366,16 @@
 
 	function resetNativePose() {
 		try { moduleCall("Surreal_ResetWebXRPose", null); } catch (_) {}
+	}
+
+	function requestNativeFrameClockReset() {
+		if (root.surrealXRNativeCallsBlocked === true || nativeRenderPromise) {
+			frameClockResetPending = true;
+			return false;
+		}
+		frameClockResetPending = false;
+		try { moduleCall("Surreal_ResetBrowserFrameClock", null); return true; }
+		catch (_) { return false; }
 	}
 
 	function writeArray(view, offset, values) {
@@ -871,6 +882,7 @@
 	function pumpNativeRender(generation) {
 		if (generation !== activeGeneration || nativeRenderPromise ||
 			!persistentTargets || !targetLayout) return;
+		if (frameClockResetPending) requestNativeFrameClockReset();
 		if (inputQueueOverflow) {
 			fail(generation, providerError("input-transition-overflow", "frame",
 				"WebXR input transition queue overflowed while native rendering was suspended"));
@@ -924,6 +936,7 @@
 		}).finally(function () {
 			if (nativeRenderPromise === promise) nativeRenderPromise = null;
 			setNativeCallsBlocked(false);
+			if (frameClockResetPending) requestNativeFrameClockReset();
 			if (generation === activeGeneration) scheduleRenderPump(generation);
 		});
 		nativeRenderPromise = promise;
@@ -1457,7 +1470,9 @@
 				if (generation === activeGeneration && event && event.removed && event.removed.length) submitCurrentInput(0);
 			});
 			session.addEventListener("visibilitychange", function () {
-				if (generation === activeGeneration && !isActionFocused(session)) submitCurrentInput(0);
+				if (generation !== activeGeneration) return;
+				if (!isActionFocused(session)) submitCurrentInput(0);
+				else requestNativeFrameClockReset();
 			});
 			if (presentationMode === "direct-webgpu") {
 				status.phase = "creating-binding";
