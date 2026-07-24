@@ -648,6 +648,44 @@ fixture. No seam movement is promoted. The next instrumentation slice must
 debounce repeated ticks into physical seam episodes and partition rejection
 causes more precisely before another live intervention is considered.
 
+## Next behavior slice: pre-commit unsupported-step hazard shadow
+
+The next Deck intervention moves earlier in the walking transaction. Current
+walking physics applies step-up, forward/slide, and step-down movement before
+the final support check. The existing fall predictor also stops at its first
+collision. In the accepted Deck seed 104729 trace, Necroth leaves support at
+tick 471 while moving toward `BulletBox4`, first hits the wall at tick 481, and
+enters pain at tick 503. The rejected post-move rollback iterations therefore
+began after the recoverable supported position had already been lost.
+
+Implementation is split into independently qualified stages:
+
+1. Extract the read-only blocking-hit selection behind `TryMove` into an
+   explicit-origin probe. At the pawn's current origin it must select exactly
+   the same fraction, normal, and actor as the existing dry run. It must not
+   mutate `Location`, callbacks, latent state, or RNG.
+2. From a known supported walking origin, shadow-simulate the bounded step-up,
+   forward/one-slide, and step-down endpoint. Only an unsupported endpoint may
+   enter the existing bounded fall forecast, extended across at most two
+   near-vertical static-BSP contacts. Movers, dynamic actors, unusual gravity,
+   unknown or water/pain origin zones, jumps, humans, and non-stock pawns fail
+   open with an explicit rejection reason.
+3. Debounce observations by pawn life, supported origin, and semantic movement
+   target. Prove the observer gameplay-neutral on the implicated Deck trace and
+   on the UT/Unreal tuning matrix.
+4. A live candidate may cancel at most one authorized step per episode while
+   the pawn is still on proven support, expire the latent move, and arm the
+   existing pain-ledge recovery. Promotion requires removing the implicated
+   hazard/death, productive movement or a semantic replan within one second,
+   and no survival, hazard, combat, wall, stall, or determinism regression.
+
+This is shared UE1 locomotion timing, not a UT-only tactical policy. Stock UT
+and Unreal bots both rely on native `MayFall`/`HitWall` timing, although the
+exact DeathFan failure is already falling and remains a separate seam case.
+After this slice, `MinHitWall` dispatch parity, native `bAvoidLedges` and
+`bStopAtLedges`, and direct-reach disagreement telemetry remain separate
+measured audits rather than bundled behavior changes.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
