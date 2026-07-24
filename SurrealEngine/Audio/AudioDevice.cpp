@@ -159,8 +159,17 @@ public:
 	{
 		if (sound->loopInfo.Looped)
 		{
+#ifdef __EMSCRIPTEN__
+			// Emscripten's Web Audio OpenAL shim can report a fractional sample
+			// position. Its alGetSourcei wrapper asserts before converting that
+			// value in diagnostic builds, so query the same offset as a float in
+			// browsers and keep the native integer path everywhere else.
+			ALfloat offset;
+			alGetSourcef(id, AL_SAMPLE_OFFSET, &offset);
+#else
 			ALint offset;
 			alGetSourcei(id, AL_SAMPLE_OFFSET, &offset);
+#endif
 			if (offset >= sound->loopInfo.LoopEnd)
 				alSourcei(id, AL_SAMPLE_OFFSET, (ALint)sound->loopInfo.LoopStart);
 		}

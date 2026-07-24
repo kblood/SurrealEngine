@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SurrealEngine WebGL2 development harness</title>
+<style>
+	body { margin: 0; background: #111; color: #eee; font: 14px system-ui, sans-serif; }
+	canvas { display: block; width: min(100vw, 1280px); height: auto; background: #000; }
+	#game-data-importer, pre { max-width: 72rem; padding: 1rem; }
+	.actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+	[data-game-files] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+</style>
+</head>
+<body>
+<canvas id="canvas" width="1280" height="720" tabindex="0"></canvas>
+<section id="game-data-importer" hidden aria-live="polite">
+	<h1>Import game data</h1>
+	<p data-game-status></p><p data-game-error hidden></p>
+	<div class="actions">
+		<button type="button" data-game-pick>Choose game folder</button>
+		<label>Choose folder<input type="file" data-game-files webkitdirectory directory multiple></label>
+		<button type="button" data-game-clear>Clear saved data</button>
+	</div>
+	<progress data-game-progress max="1" value="0"></progress>
+	<div data-game-progress-text></div><p data-game-storage></p>
+</section>
+<pre id="log"></pre>
+<script src="ut99_importer.js"></script>
+<script src="mutable_persistence.js"></script>
+<script src="browser_data_bootstrap.js"></script>
+<script src="pointer_lock_gesture.js"></script>
+<script>
+"use strict";
+const query = new URLSearchParams(location.search);
+const engineBase = query.get("engineBase") || "../build-emscripten/";
+const preferredMap = query.get("map") || undefined;
+const canvas = document.getElementById("canvas");
+const logElement = document.getElementById("log");
+window.surrealLog = [];
+window.surrealBooted = false;
+window.surrealCrashed = null;
+function appendLog(value) {
+	const line = String(value);
+	window.surrealLog.push(line);
+	logElement.textContent += line + "\n";
+}
+
+window.addEventListener("error", event => {
+	window.surrealCrashed = event.error && event.error.stack || event.message;
+	appendLog("[harness] window error: " + window.surrealCrashed);
+});
+window.addEventListener("unhandledrejection", event => {
+	window.surrealCrashed = String(event.reason);
+	appendLog("[harness] unhandled rejection: " + event.reason);
+});
+
+var Module = {
+	canvas,
+	locateFile: path => engineBase + path,
+	print: appendLog,
+	printErr: appendLog,
+	onRuntimeInitialized: () => {
+		appendLog("[harness] runtime initialized, preparing game data");
+		window.surrealDataBootPromise = SurrealBrowserData.start(Module, {
+			uiRoot: document.getElementById("game-data-importer"),
+			log: appendLog,
+			logSnapshot: () => window.surrealLog.join("\n") + "\n",
+			preferredMap,
+			launch: selection => {
+				Module.callMain(["--autoplay", "--url=" + selection.map, "--render=webgl2", "/gamedata"]);
+				window.surrealBooted = true;
+			},
+		}).then(started => {
+			window.surrealBrowserDataController = started.controller;
+			window.surrealDataBootResult = started.result;
+			return started.result;
+		}).catch(error => {
+			window.surrealCrashed = error && error.stack || String(error);
+			appendLog("[harness] data bootstrap failed: " + window.surrealCrashed);
+		});
+	},
+};
+
+function nativeCounter(name) { return Module.ccall(name, "number", [], []); }
+window.surrealGetTickCount = () => nativeCounter("Surreal_GetTickCount");
+window.surrealGetWebGL2Diagnostics = () => ({
+	state: nativeCounter("Surreal_GetWebGL2ContextState"),
+	generation: nativeCounter("Surreal_GetWebGL2ContextGeneration"),
+	losses: nativeCounter("Surreal_GetWebGL2ContextLossCount"),
+	frames: nativeCounter("Surreal_GetWebGL2FrameCount"),
+	suppressedFrames: nativeCounter("Surreal_GetWebGL2SuppressedFrameCount"),
+	unsupportedDraws: nativeCounter("Surreal_GetWebGL2UnsupportedDrawCount"),
+	errors: nativeCounter("Surreal_GetWebGL2ErrorCount"),
+	contextLossStatuses: nativeCounter("Surreal_GetWebGL2ContextLossStatusCount"),
+	drawCalls: nativeCounter("Surreal_GetWebGL2DrawCallCount"),
+	textures: nativeCounter("Surreal_GetWebGL2TextureCount"),
+});
+window.surrealLoseWebGL2Context = () => {
+	const gl = canvas.getContext("webgl2");
+	const extension = gl && gl.getExtension("WEBGL_lose_context");
+	if (!extension) throw new Error("WEBGL_lose_context is unavailable");
+	extension.loseContext();
+	return new Promise(resolve => setTimeout(() => { extension.restoreContext(); resolve(); }, 250));
+};
+window.surrealRequestQuit = () => Module.ccall("Surreal_RequestQuit", null, [], []);
+
+const script = document.createElement("script");
+script.src = engineBase + "SurrealEngine.js";
+script.onerror = () => { window.surrealCrashed = "failed to load " + script.src; appendLog(window.surrealCrashed); };
+document.body.appendChild(script);
+</script>
+</body>
+</html>

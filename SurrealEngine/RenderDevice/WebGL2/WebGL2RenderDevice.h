@@ -2,9 +2,24 @@
 
 #include "RenderDevice/RenderDevice.h"
 #include "WebGL2Context.h"
+#include "WebGL2TextureManager.h"
+#include "Math/mat.h"
 
+#include <GLES3/gl3.h>
 #include <cstdint>
 #include <memory>
+#include <vector>
+
+struct WebGL2SceneVertex
+{
+	uint32_t Flags = 0;
+	float Position[3] = {};
+	float TexCoord[2] = {};
+	float TexCoord2[2] = {};
+	float TexCoord3[2] = {};
+	float TexCoord4[2] = {};
+	float Color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+};
 
 class WebGL2RenderDevice : public RenderDevice
 {
@@ -36,22 +51,69 @@ public:
 	uint32_t SuppressedFrameCount() const { return suppressedFrameCount; }
 	uint32_t UnsupportedDrawCount() const { return unsupportedDrawCount; }
 	uint32_t ErrorCount() const { return errorCount; }
+	uint32_t ContextLossStatusCount() const { return contextLossStatusCount; }
+	uint32_t DrawCallCount() const { return drawCallCount; }
+	uint32_t TextureCount() const { return textures ? static_cast<uint32_t>(textures->TextureCount()) : 0; }
 	int DrawingBufferWidth() const { return currentWidth; }
 	int DrawingBufferHeight() const { return currentHeight; }
 
 private:
+	struct ComplexSurfaceInfo
+	{
+		FSurfaceFacet* Facet = nullptr;
+		WebGL2CachedTexture* Texture = nullptr;
+		WebGL2CachedTexture* Lightmap = nullptr;
+		WebGL2CachedTexture* MacroTexture = nullptr;
+		WebGL2CachedTexture* DetailTexture = nullptr;
+		WebGL2CachedTexture* FogMap = nullptr;
+	};
+
 	bool EnsureReady();
 	void InitializeGeneration();
+	bool CreateResources();
+	void ReleaseResources(bool deleteObjects);
+	GLuint CompileShader(GLenum type, const char* source);
+	void UpdateSceneUniforms(const mat4& matrix, bool webXRProjection = false);
+	void ApplyPipelineState(uint32_t polyFlags, const vec4* blendColor = nullptr);
+	void BindTextureUnit(int unit, WebGL2CachedTexture* texture, bool noSmooth, bool clamp);
+	void DrawIndexed(GLenum mode, const std::vector<WebGL2SceneVertex>& vertices, const std::vector<uint32_t>& indexes,
+		uint32_t polyFlags, WebGL2CachedTexture* texture = nullptr, WebGL2CachedTexture* lightmap = nullptr,
+		WebGL2CachedTexture* macroTexture = nullptr, WebGL2CachedTexture* detailTexture = nullptr,
+		bool clampTexture = false, const vec4* blendColor = nullptr, float minDepth = 0.1f, float maxDepth = 1.0f);
+	void DrawComplexSurfaceFaces(const ComplexSurfaceInfo& info, uint32_t polyFlags);
+	vec4 ApplyInverseGamma(vec4 color) const;
 	void CountErrors();
 	void CountUnsupportedDraw();
 
 	std::unique_ptr<WebGL2Context> context;
+	std::unique_ptr<WebGL2TextureManager> textures;
+	GLuint program = 0;
+	GLuint vertexShader = 0;
+	GLuint fragmentShader = 0;
+	GLuint vertexArray = 0;
+	GLuint vertexBuffer = 0;
+	GLuint indexBuffer = 0;
+	GLuint samplers[4] = {};
+	GLint matrixUniform = -1;
+	GLint alphaTestUniform = -1;
+	GLint xrProjectionUniform = -1;
 	uint32_t initializedGeneration = 0;
 	uint32_t frameCount = 0;
 	uint32_t suppressedFrameCount = 0;
 	uint32_t unsupportedDrawCount = 0;
 	uint32_t errorCount = 0;
+	uint32_t contextLossStatusCount = 0;
+	uint32_t drawCallCount = 0;
 	int currentWidth = 0;
 	int currentHeight = 0;
+	FSceneNode* currentFrame = nullptr;
+	float aspect = 0.0f;
+	float rProjZ = 0.0f;
+	float rfx2 = 0.0f;
+	float rfy2 = 0.0f;
+	vec4 flashScale = vec4(0.0f);
+	vec4 flashFog = vec4(0.0f);
+	mat4 currentMatrix = mat4::identity();
+	bool resourcesReady = false;
 	bool locked = false;
 };

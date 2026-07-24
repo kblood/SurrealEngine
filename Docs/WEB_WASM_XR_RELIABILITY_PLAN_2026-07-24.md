@@ -196,6 +196,17 @@ Gate: the same game data reaches a playable flat first frame in the supported
 WebGL2 baseline and WebGPU profile, including reload, resize, pointer lock, audio,
 save, and restore tests.
 
+Progress, 2026-07-24: the opt-in WebGL2 backend now renders the UT99 demo's
+DM-Turbine scene through the engine's real complex-surface, Gouraud, tile, line,
+texture, blend, depth, and lightmap paths. Automated Chrome evidence records
+345+ draws per frame, 150+ restored textures, zero unsupported draws, zero
+unexpected GL errors, and nonblank frames before and after forced context loss;
+the same WASM tick stream continued across generation 1 to 2. This satisfies the
+representative first-frame and resource-rebuild milestone, not the complete WP2
+gate: reload, resize, pointer-lock, audio-activation, save/restore, broader map,
+and WebGPU comparison qualification remain pending before WebGL2 is advertised
+or shipped as the production default.
+
 ### WP3 — Post-launch Enter/Exit VR state machine
 
 - Change WebXR from a pre-launch presentation choice to a post-launch controller.
