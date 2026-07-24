@@ -110,6 +110,10 @@ public:
 	void FinishGameFrame(float levelElapsed);
 	void Shutdown();
 	int GetRunExitCode() const { return m_RunExitCode; }
+	bool IsBotBenchmarkWalkingPreflightEnabled() const
+	{
+		return botBenchmarkWalkingPreflightEnabled;
+	}
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -279,6 +283,7 @@ private:
 	// still runs synchronously before that happens, so it is the last safe
 	// place to consult `commandline` for anything a per-frame method needs.
 	bool avatarIkSyntheticRequested = false;
+	bool botBenchmarkWalkingPreflightEnabled = false;
 	ViewFamily CreateDesktopViewFamily() const;
 
 	// Scratch properties used by PlayerCalcView during AdvanceGameFrame.

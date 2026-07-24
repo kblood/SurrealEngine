@@ -2,8 +2,51 @@
 
 #include <cmath>
 
+#include <array>
+
 namespace PawnMovement
 {
+	const char* WalkingStepPreflightReasonMetricName(WalkingStepPreflightReason reason)
+	{
+		static constexpr std::array<const char*, WalkingStepPreflightReasonCount> names = {
+			"walking_step_preflight_reason_ineligible_unknown_actor_exact",
+			"walking_step_preflight_reason_ineligible_human_player_exact",
+			"walking_step_preflight_reason_ineligible_scripted_pawn_exact",
+			"walking_step_preflight_reason_not_walking_exact",
+			"walking_step_preflight_reason_unknown_start_support_exact",
+			"walking_step_preflight_reason_non_static_start_support_exact",
+			"walking_step_preflight_reason_non_walkable_start_support_exact",
+			"walking_step_preflight_reason_unknown_start_zone_exact",
+			"walking_step_preflight_reason_unsafe_start_zone_exact",
+			"walking_step_preflight_reason_unknown_gravity_exact",
+			"walking_step_preflight_reason_non_axial_downward_gravity_exact",
+			"walking_step_preflight_reason_upward_jump_requested_exact",
+			"walking_step_preflight_reason_collision_callback_required_script_transition_unknown_exact",
+			"walking_step_preflight_reason_invalid_bounds_exact",
+			"walking_step_preflight_reason_invalid_step_delta_exact",
+			"walking_step_preflight_reason_unknown_step_evidence_exact",
+			"walking_step_preflight_reason_mover_step_evidence_exact",
+			"walking_step_preflight_reason_dynamic_step_evidence_exact",
+			"walking_step_preflight_reason_invalid_step_sequence_exact",
+			"walking_step_preflight_reason_supported_step_endpoint_exact",
+			"walking_step_preflight_reason_incomplete_fall_forecast_exact",
+			"walking_step_preflight_reason_fall_continuation_limit_exceeded_exact",
+			"walking_step_preflight_reason_invalid_fall_delta_exact",
+			"walking_step_preflight_reason_unknown_fall_evidence_exact",
+			"walking_step_preflight_reason_mover_fall_evidence_exact",
+			"walking_step_preflight_reason_dynamic_fall_evidence_exact",
+			"walking_step_preflight_reason_invalid_fall_continuation_exact",
+			"walking_step_preflight_reason_invalid_fall_landing_exact",
+			"walking_step_preflight_reason_unknown_landing_zone_exact",
+			"walking_step_preflight_reason_safe_fall_landing_exact",
+			"walking_step_preflight_reason_unknown_pain_damage_immunity_exact",
+			"walking_step_preflight_reason_pain_damage_immune_exact",
+			"walking_step_preflight_reason_harmful_pain_fall_exact"
+		};
+		const size_t index = static_cast<size_t>(reason);
+		return index < names.size() ? names[index] : nullptr;
+	}
+
 	namespace
 	{
 		WalkingStepPreflightResult NoDecision(WalkingStepPreflightReason reason)
@@ -96,6 +139,9 @@ namespace PawnMovement
 			return NoDecision(WalkingStepPreflightReason::NonAxialDownwardGravity);
 		if (input.UpwardJumpRequested)
 			return NoDecision(WalkingStepPreflightReason::UpwardJumpRequested);
+		if (input.CollisionCallbackRequired)
+			return NoDecision(
+				WalkingStepPreflightReason::CollisionCallbackRequiredScriptTransitionUnknown);
 
 		if (!std::isfinite(input.WalkableNormalZ) || input.WalkableNormalZ <= 0.0f
 			|| input.WalkableNormalZ > 1.0f
@@ -217,5 +263,58 @@ namespace PawnMovement
 			WalkingStepPreflightDecision::AuthorizeUnsafeStepVeto,
 			WalkingStepPreflightReason::HarmfulPainFall
 		};
+	}
+
+	WalkingStepPreflightEpisodeUpdate UpdateWalkingStepPreflightEpisode(
+		const WalkingStepPreflightEpisodeState& state,
+		const WalkingStepPreflightEpisodeObservation& observation)
+	{
+		WalkingStepPreflightEpisodeUpdate update;
+		if (!observation.Authorized)
+		{
+			update.State = state;
+			return update;
+		}
+
+		const bool finite = IsFinite(observation.SupportedOrigin)
+			&& IsFinite(observation.SemanticDestination)
+			&& std::isfinite(observation.OriginRadius) && observation.OriginRadius >= 0.0f
+			&& std::isfinite(observation.DestinationRadius)
+			&& observation.DestinationRadius >= 0.0f;
+		if (!finite || !observation.PawnLife || observation.PawnLifeGeneration == 0)
+			return update;
+
+		const bool sameLife = state.Active && state.PawnLife == observation.PawnLife
+			&& state.PawnLifeGeneration == observation.PawnLifeGeneration;
+		const vec3 originDelta = state.SupportedOrigin - observation.SupportedOrigin;
+		const bool sameOrigin = sameLife && dot(originDelta, originDelta)
+			<= observation.OriginRadius * observation.OriginRadius;
+		bool sameSemantic = false;
+		if (sameOrigin && state.SemanticTarget == observation.SemanticTarget)
+		{
+			if (observation.SemanticTarget)
+				sameSemantic = true;
+			else
+			{
+				const vec3 destinationDelta = state.SemanticDestination
+					- observation.SemanticDestination;
+				sameSemantic = dot(destinationDelta, destinationDelta)
+					<= observation.DestinationRadius * observation.DestinationRadius;
+			}
+		}
+		if (sameSemantic)
+		{
+			update.State = state;
+			return update;
+		}
+
+		update.State.Active = true;
+		update.State.PawnLife = observation.PawnLife;
+		update.State.PawnLifeGeneration = observation.PawnLifeGeneration;
+		update.State.SupportedOrigin = observation.SupportedOrigin;
+		update.State.SemanticTarget = observation.SemanticTarget;
+		update.State.SemanticDestination = observation.SemanticDestination;
+		update.AuthorizationStarted = true;
+		return update;
 	}
 }

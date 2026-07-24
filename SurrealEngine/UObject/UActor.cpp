@@ -11,6 +11,7 @@
 #include "PawnFallingTwoPlaneSafety.h"
 #include "PawnLedgeTransition.h"
 #include "PawnPainZoneFallPrediction.h"
+#include "PawnWalkingStepPreflight.h"
 #include "PawnPainLedgeRecovery.h"
 #include "PawnMovementArrival.h"
 #include "PawnMoveToward.h"
@@ -57,6 +58,11 @@ namespace
 	constexpr int32_t failedNavigationFirstHopCost = 4096;
 	constexpr float failedNavigationLiftExitLandingRadius = 400.0f;
 	constexpr float failedNavigationLiftExitLandingStepHeights = 2.0f;
+	constexpr float walkingStepWalkableNormalZ = 0.7071f;
+	constexpr float walkingStepVerticalWallNormalZ = 0.2f;
+	constexpr float walkingStepMaximumDelta = 96.0f;
+	constexpr float walkingStepMaximumFallSegmentDelta = 4096.0f;
+	constexpr float walkingStepMaximumForecastDrop = 4096.0f;
 
 	std::vector<const void*> LiftExitLandingAdjacency(
 		ULiftExit* liftExit, const Array<LevelReachSpec>& reachSpecs)
@@ -199,6 +205,150 @@ namespace
 			prediction = next;
 		}
 		return false;
+	}
+
+	bool IsFiniteVector(const vec3& value)
+	{
+		return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+	}
+
+	PawnMovement::WalkingStepCollisionKind ClassifyWalkingStepCollision(
+		UPawn* pawn, const CollisionHit& hit)
+	{
+		using PawnMovement::WalkingStepCollisionKind;
+		if (!std::isfinite(hit.Fraction) || hit.Fraction < 0.0f || hit.Fraction > 1.0f)
+			return WalkingStepCollisionKind::Unknown;
+		if (hit.Fraction == 1.0f)
+			return WalkingStepCollisionKind::Clear;
+		if (!hit.Actor || hit.Actor == pawn->Level())
+			return WalkingStepCollisionKind::StaticBsp;
+		if (UObject::TryCast<UMover>(hit.Actor))
+			return WalkingStepCollisionKind::Mover;
+		return WalkingStepCollisionKind::DynamicActor;
+	}
+
+	PawnMovement::WalkingStepZoneKind ClassifyWalkingStepZone(UZoneInfo* zone)
+	{
+		using PawnMovement::WalkingStepZoneKind;
+		if (!zone)
+			return WalkingStepZoneKind::Unknown;
+		if (zone->bPainZone())
+			return WalkingStepZoneKind::Pain;
+		if (zone->bWaterZone())
+			return WalkingStepZoneKind::Water;
+		return WalkingStepZoneKind::Safe;
+	}
+
+	PawnMovement::WalkingStepSweepObservation ProbeWalkingStepSweep(
+		UPawn* pawn, const vec3& origin, const vec3& delta,
+		CollisionHit* collisionHit = nullptr,
+		bool* scriptVisibleActorContact = nullptr)
+	{
+		PawnMovement::WalkingStepSweepObservation observation;
+		observation.Delta = delta;
+		if (!IsFiniteVector(origin) || !IsFiniteVector(delta))
+			return observation;
+		CollisionHitList tracedHits;
+		const CollisionHit hit = pawn->ProbeMoveCollision(
+			origin, delta, true, scriptVisibleActorContact ? &tracedHits : nullptr);
+		if (collisionHit)
+			*collisionHit = hit;
+		if (scriptVisibleActorContact)
+		{
+			*scriptVisibleActorContact = std::any_of(
+				tracedHits.begin(), tracedHits.end(), [pawn](const CollisionHit& traced)
+				{
+					return traced.Actor && traced.Actor != pawn
+						&& !traced.Actor->IsBasedOn(pawn)
+						&& !pawn->IsBasedOn(traced.Actor);
+				});
+		}
+		observation.Collision = ClassifyWalkingStepCollision(pawn, hit);
+		observation.HitNormal = hit.Normal;
+		return observation;
+	}
+
+	PawnMovement::WalkingFallForecastObservation ForecastWalkingStepFall(
+		UPawn* pawn, const vec3& start, const vec3& initialVelocity,
+		const vec3& acceleration, UZoneInfo* physicsZone,
+		PawnMovement::WalkingStepPreflightDiagnosticRecord* diagnostic)
+	{
+		using namespace PawnMovement;
+		WalkingFallForecastObservation forecast;
+		if (!physicsZone || !IsFiniteVector(start) || !IsFiniteVector(initialVelocity)
+			|| !IsFiniteVector(acceleration))
+			return forecast;
+
+		FallPredictionState prediction = { .Location = start, .Velocity = initialVelocity };
+		const FallPredictionStep step = {
+			.Acceleration = acceleration,
+			.Gravity = physicsZone->ZoneGravity(),
+			.ZoneVelocity = physicsZone->ZoneVelocity(),
+			.GroundSpeed = pawn->GroundSpeed(),
+			.TerminalVelocity = physicsZone->ZoneTerminalVelocity(),
+			.Elapsed = painZoneFallPredictionDelta
+		};
+		for (int stepIndex = 0; stepIndex < painZoneFallPredictionSteps; stepIndex++)
+		{
+			FallPredictionState next = PredictFallStep(prediction, step);
+			if (!next.Valid)
+				return forecast;
+			const vec3 segment = next.Location - prediction.Location;
+			if (!IsFiniteVector(segment) || dot(segment, segment) <= 0.0001f)
+				return forecast;
+
+			const CollisionHit hit = pawn->ProbeMoveCollision(
+				prediction.Location, segment, true);
+			const WalkingStepCollisionKind collision =
+				ClassifyWalkingStepCollision(pawn, hit);
+			if (collision == WalkingStepCollisionKind::Clear)
+			{
+				prediction = next;
+				continue;
+			}
+
+			const vec3 traveled = segment * hit.Fraction;
+			if (diagnostic && diagnostic->FallHitCount < diagnostic->FallHitFractions.size())
+				diagnostic->FallHitFractions[diagnostic->FallHitCount++] = hit.Fraction;
+			const vec3 hitCenter = prediction.Location + traveled;
+			forecast.TotalDrop = start.z - hitCenter.z;
+			if (collision == WalkingStepCollisionKind::StaticBsp
+				&& IsFiniteVector(hit.Normal)
+				&& std::abs(hit.Normal.z) <= walkingStepVerticalWallNormalZ)
+			{
+				if (forecast.ContinuationCount >= forecast.Continuations.size())
+					return forecast;
+				WalkingFallContinuationObservation& continuation =
+					forecast.Continuations[forecast.ContinuationCount++];
+				continuation.Collision = collision;
+				continuation.SegmentDelta = traveled;
+				continuation.HitNormal = hit.Normal;
+				prediction.Location = hitCenter;
+				prediction.Velocity = next.Velocity
+					- hit.Normal * dot(next.Velocity, hit.Normal);
+				continue;
+			}
+
+			forecast.Complete = true;
+			forecast.Landing.Collision = collision;
+			forecast.Landing.Normal = hit.Normal;
+			if (collision == WalkingStepCollisionKind::StaticBsp)
+			{
+				UZoneInfo* landingZone = pawn->XLevel()->Model->FindRegion(
+					hitCenter - vec3(0.0f, 0.0f, pawn->CollisionHeight()),
+					pawn->Level()).Zone;
+				forecast.Landing.Zone = ClassifyWalkingStepZone(landingZone);
+				if (landingZone)
+				{
+					forecast.PainDamageImmunityKnown = true;
+					forecast.PainDamageImmune = landingZone->bPainZone()
+						&& landingZone->DamageType() == pawn->ReducedDamageType();
+				}
+			}
+			return forecast;
+		}
+		forecast.TotalDrop = start.z - prediction.Location.z;
+		return forecast;
 	}
 }
 
@@ -732,11 +882,20 @@ void UActor::TickWalking(float elapsed)
 	bool isMoving = HasHorizontalMovement(vel.x, vel.y);
 	if (isMoving)
 	{
+		const bool walkingPreflightEnabled =
+			engine->IsBotBenchmarkWalkingPreflightEnabled();
+		const uint64_t preflightInvocation = walkingPreflightEnabled
+			? pawn->BeginWalkingStepPreflightInvocation() : 0;
 		for (int iteration = 0; timeLeft > 0.0f && iteration < 5; iteration++)
 		{
 			const vec3 iterationStartLocation = Location();
 			const float iterationStartTimeLeft = timeLeft;
 			vec3 moveDelta = vel * timeLeft;
+			if (walkingPreflightEnabled)
+			{
+				pawn->ObserveWalkingStepPreflightShadow(
+					stepUpDelta, moveDelta, stepDownDelta, iteration, preflightInvocation);
+			}
 
 			// step up first so we can get past stairs going up
 			TryMove(stepUpDelta);
@@ -822,6 +981,13 @@ void UActor::TickWalking(float elapsed)
 				const bool canJump = stillWalking && pawn->bCanJump();
 				const PawnMovement::LedgeTransition transition = PawnMovement::ResolveLedgeTransition(
 					deleteMe, stillWalking, canJump);
+				if (walkingPreflightEnabled
+					&& pawn->HasWalkingStepPreflightConfirmation(
+						iteration, preflightInvocation))
+				{
+					pawn->ConfirmWalkingStepPreflightShadow(
+						iteration, preflightInvocation, transition);
+				}
 				if (transition == PawnMovement::LedgeTransition::Abort)
 					return;
 
@@ -3471,6 +3637,7 @@ bool UPawn::ApplyWallAdjustRecovery(const vec2& requestedDirection)
 
 vec3 UPawn::EAdjustJump()
 {
+	WalkingStepExplicitJumpRequested = true;
 	UZoneInfo* zone = FootRegion().Zone;
 	vec3 gravity = zone ? zone->ZoneGravity() : vec3(0.0f, 0.0f, -980.0f);
 
@@ -4201,6 +4368,8 @@ void UPawn::Tick(float elapsed)
 	if (bDeleteMe() || Health() <= 0 || Physics() != PHYS_Falling
 		|| !seamFootZone || seamFootZone->bPainZone() || seamFootZone->bWaterZone())
 		FallingSeamEpisode = {};
+	if (bDeleteMe() || Health() <= 0)
+		WalkingStepPreflightEpisode = {};
 
 	std::array<bool, 2> rememberedNavigationTargetsLive = {};
 	for (size_t index = 0; index < FailedNavigationMemory.Entries.size(); index++)
@@ -4326,6 +4495,9 @@ void UPawn::Tick(float elapsed)
 	}
 
 	UActor::Tick(elapsed);
+	WalkingStepExplicitJumpRequested = false;
+	if (bDeleteMe() || Health() <= 0)
+		WalkingStepPreflightEpisode = {};
 
 	if (bIsPlayer() && Role() >= ROLE_AutonomousProxy)
 	{
@@ -4756,6 +4928,316 @@ void UPawn::ObserveFallingSeamEscapeShadow(const vec3& requestedRemainingDelta,
 			break;
 		}
 	}
+}
+
+void UPawn::ObserveWalkingStepPreflightShadow(const vec3& stepUpDelta,
+	const vec3& forwardDelta, const vec3& stepDownDelta, int walkingIteration,
+	uint64_t invocationToken)
+{
+	if (!IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority
+		|| bDeleteMe() || Health() <= 0 || Physics() != PHYS_Walking)
+	{
+		WalkingStepPreflightEpisode = {};
+		return;
+	}
+
+	using namespace PawnMovement;
+	WalkingStepPreflightInput input;
+	WalkingStepPreflightDiagnosticRecord diagnostic;
+	diagnostic.SourcePawnActor = Name.ToString();
+	diagnostic.WalkingIteration = walkingIteration;
+	diagnostic.LifeGeneration = WalkingStepPreflightLifeGeneration;
+	diagnostic.InvocationToken = invocationToken;
+	diagnostic.PrecommitOrigin = Location();
+	diagnostic.SemanticTarget = MoveTarget() && !MoveTarget()->bDeleteMe()
+		? MoveTarget()->Name.ToString() : std::string();
+	diagnostic.SemanticDestination = Destination();
+	auto recordProbe = [](WalkingStepPreflightProbeDiagnostic& target,
+		const WalkingStepSweepObservation& observation, const CollisionHit& hit)
+	{
+		target.Collision = observation.Collision;
+		target.Fraction = hit.Fraction;
+		target.Delta = observation.Delta;
+		target.Normal = hit.Normal;
+	};
+	input.Actor = WalkingStepActorKind::StockAutonomousPlayerBot;
+	input.Walking = true;
+	input.WalkableNormalZ = walkingStepWalkableNormalZ;
+	input.MaximumStepDelta = walkingStepMaximumDelta;
+	input.MaximumFallSegmentDelta = walkingStepMaximumFallSegmentDelta;
+	input.MaximumForecastDrop = walkingStepMaximumForecastDrop;
+	input.MaximumVerticalWallNormalZ = walkingStepVerticalWallNormalZ;
+	input.UpwardJumpRequested = WalkingStepExplicitJumpRequested;
+
+	UZoneInfo* startFootZone = FootRegion().Zone;
+	UZoneInfo* physicsZone = Region().Zone;
+	input.StartSupport.Zone = ClassifyWalkingStepZone(startFootZone);
+	if (physicsZone)
+	{
+		input.GravityKnown = true;
+		input.Gravity = physicsZone->ZoneGravity();
+	}
+	const CollisionHit startSupport = ProbeMoveCollision(Location(), stepDownDelta, true);
+	input.StartSupport.Collision = ClassifyWalkingStepCollision(this, startSupport);
+	input.StartSupport.Normal = startSupport.Normal;
+	diagnostic.StartSupport = {
+		.Collision = input.StartSupport.Collision,
+		.Fraction = startSupport.Fraction,
+		.Delta = stepDownDelta,
+		.Normal = startSupport.Normal
+	};
+
+	bool scriptVisibleActorContact = false;
+	CollisionHit stepUpHit;
+	input.StepUp = ProbeWalkingStepSweep(
+		this, Location(), stepUpDelta, &stepUpHit, &scriptVisibleActorContact);
+	recordProbe(diagnostic.StepUp, input.StepUp, stepUpHit);
+	input.CollisionCallbackRequired = scriptVisibleActorContact;
+	input.Forward.Delta = forwardDelta;
+	input.Forward.Collision = WalkingStepCollisionKind::Clear;
+	input.StepDown.Delta = stepDownDelta;
+	input.StepDown.Collision = WalkingStepCollisionKind::Clear;
+	bool unsupportedEndpoint = false;
+
+	if (input.StepUp.Collision == WalkingStepCollisionKind::Clear)
+	{
+		const vec3 forwardOrigin = Location() + stepUpDelta;
+		CollisionHit forwardHit;
+		input.Forward = ProbeWalkingStepSweep(this, forwardOrigin, forwardDelta,
+			&forwardHit, &scriptVisibleActorContact);
+		recordProbe(diagnostic.Forward, input.Forward, forwardHit);
+		input.CollisionCallbackRequired = input.CollisionCallbackRequired
+			|| scriptVisibleActorContact;
+		if (input.Forward.Collision != WalkingStepCollisionKind::Clear)
+			input.CollisionCallbackRequired = true;
+		else
+		{
+			const vec3 raisedEndpoint = forwardOrigin + forwardDelta;
+			CollisionHit actualStepDownHit;
+			const WalkingStepSweepObservation actualStepDown =
+				ProbeWalkingStepSweep(this, raisedEndpoint, -stepUpDelta,
+					&actualStepDownHit, &scriptVisibleActorContact);
+			recordProbe(diagnostic.ActualStepDown, actualStepDown, actualStepDownHit);
+			input.CollisionCallbackRequired = input.CollisionCallbackRequired
+				|| scriptVisibleActorContact;
+			if (actualStepDown.Collision == WalkingStepCollisionKind::Clear)
+			{
+				const vec3 endpoint = raisedEndpoint - stepUpDelta;
+				diagnostic.PredictedUnsupportedEndpoint = endpoint;
+				CollisionHit supportHit;
+				input.StepDown = ProbeWalkingStepSweep(
+					this, endpoint, stepDownDelta, &supportHit);
+				recordProbe(diagnostic.SupportProbe, input.StepDown, supportHit);
+				if (input.StepDown.Collision == WalkingStepCollisionKind::Clear)
+				{
+					unsupportedEndpoint = true;
+					WalkingStepPreflightUnsupportedEndpointCountValue++;
+					vec3 fallAcceleration = Acceleration();
+					const float maximumAirAcceleration = engine->LaunchInfo.ue1Version > 219
+						? AirControl() * AccelRate() : 0.0f;
+					const float accelerationLength = length(fallAcceleration);
+					if (accelerationLength > maximumAirAcceleration
+						&& accelerationLength > 0.0f)
+						fallAcceleration = normalize(fallAcceleration) * maximumAirAcceleration;
+					diagnostic.FallForecastAttempted = true;
+					diagnostic.FallForecastOrigin = endpoint;
+					diagnostic.FallForecastVelocity = Velocity();
+					diagnostic.FallForecastAcceleration = fallAcceleration;
+					diagnostic.FallForecastGravityKnown = physicsZone != nullptr;
+					diagnostic.FallForecastGravity = physicsZone
+						? physicsZone->ZoneGravity() : vec3(0.0f);
+					input.FallForecast = ForecastWalkingStepFall(this,
+						endpoint, Velocity(), fallAcceleration, physicsZone, &diagnostic);
+					diagnostic.FallForecast = input.FallForecast;
+				}
+			}
+			else
+			{
+				input.StepDown = actualStepDown;
+				input.StepDown.Delta = stepDownDelta;
+			}
+		}
+	}
+
+	const WalkingStepPreflightResult result = EvaluateWalkingStepPreflight(input);
+	diagnostic.Reason = result.Reason;
+	WalkingStepPreflightObservationCountValue++;
+	const size_t reasonIndex = static_cast<size_t>(result.Reason);
+	if (reasonIndex < WalkingStepPreflightReasonCountValues.size())
+		WalkingStepPreflightReasonCountValues[reasonIndex]++;
+	const bool authorized = result.Decision
+		== WalkingStepPreflightDecision::AuthorizeUnsafeStepVeto;
+	if (authorized)
+		WalkingStepPreflightProvisionalAuthorizationCountValue++;
+	else
+		WalkingStepPreflightNoDecisionCountValue++;
+	WalkingStepPreflightPendingConfirmation = authorized;
+	if (authorized)
+	{
+		WalkingStepPreflightPendingIteration = walkingIteration;
+		WalkingStepPreflightPendingInvocation = invocationToken;
+		WalkingStepPreflightPendingLifeGeneration = WalkingStepPreflightLifeGeneration;
+		WalkingStepPreflightPendingDiagnostic = diagnostic;
+		WalkingStepPreflightPendingInput = input;
+		const LatentRunState latentState = StateFrame
+			? StateFrame->LatentState : LatentRunState::Continue;
+		WalkingStepPreflightPendingSemanticTarget =
+			latentState == LatentRunState::MoveToward
+			&& MoveTarget() && !MoveTarget()->bDeleteMe() ? MoveTarget() : nullptr;
+	}
+
+	if (unsupportedEndpoint || authorized || result.Reason
+		== WalkingStepPreflightReason::CollisionCallbackRequiredScriptTransitionUnknown)
+	{
+		static constexpr size_t maximumQueuedDiagnostics = 1024;
+		diagnostic.Sequence = WalkingStepPreflightDiagnosticSequence++;
+		if (WalkingStepPreflightDiagnostics.size() < maximumQueuedDiagnostics)
+			WalkingStepPreflightDiagnostics.push_back(std::move(diagnostic));
+		else
+			WalkingStepPreflightDiagnosticOverflowCountValue++;
+	}
+}
+
+void UPawn::ConfirmWalkingStepPreflightShadow(int walkingIteration,
+	uint64_t invocationToken, PawnMovement::LedgeTransition transition)
+{
+	using namespace PawnMovement;
+	if (!WalkingStepPreflightPendingConfirmation
+		|| WalkingStepPreflightPendingIteration != walkingIteration
+		|| WalkingStepPreflightPendingInvocation != invocationToken)
+		return;
+
+	WalkingStepPreflightPendingConfirmation = false;
+	WalkingStepPreflightDiagnosticRecord diagnostic =
+		WalkingStepPreflightPendingDiagnostic;
+	diagnostic.Phase = "post_mayfall_confirmation";
+	auto queueDiagnostic = [this](WalkingStepPreflightDiagnosticRecord&& record)
+	{
+		static constexpr size_t maximumQueuedDiagnostics = 1024;
+		record.Sequence = WalkingStepPreflightDiagnosticSequence++;
+		if (WalkingStepPreflightDiagnostics.size() < maximumQueuedDiagnostics)
+			WalkingStepPreflightDiagnostics.push_back(std::move(record));
+		else
+			WalkingStepPreflightDiagnosticOverflowCountValue++;
+	};
+
+	bool confirmed = transition == LedgeTransition::BeginFalling;
+	if (transition == LedgeTransition::Abort)
+		diagnostic.TransitionOutcome = "abort";
+	else if (transition == LedgeTransition::RestoreGrounded)
+		diagnostic.TransitionOutcome = "restore_grounded";
+	else
+		diagnostic.TransitionOutcome = "begin_falling";
+	diagnostic.FallForecastAttempted = false;
+	diagnostic.FallForecastOrigin = vec3(0.0f);
+	diagnostic.FallForecastVelocity = vec3(0.0f);
+	diagnostic.FallForecastAcceleration = vec3(0.0f);
+	diagnostic.FallForecastGravityKnown = false;
+	diagnostic.FallForecastGravity = vec3(0.0f);
+	diagnostic.FallForecast = {};
+	diagnostic.FallHitFractions = {};
+	diagnostic.FallHitCount = 0;
+
+	if (transition == LedgeTransition::Abort || bDeleteMe())
+	{
+		diagnostic.ActualUnsupportedEndpoint = vec3(0.0f);
+		queueDiagnostic(std::move(diagnostic));
+		return;
+	}
+
+	diagnostic.ActualUnsupportedEndpoint = Location();
+
+	const vec3 endpointDelta = Location()
+		- diagnostic.PredictedUnsupportedEndpoint;
+	const bool endpointMatches = IsFiniteVector(endpointDelta)
+		&& dot(endpointDelta, endpointDelta) <= 0.25f * 0.25f;
+	const bool sameLife = WalkingStepPreflightPendingLifeGeneration
+		== WalkingStepPreflightLifeGeneration;
+	const bool aliveWalking = !bDeleteMe() && Health() > 0
+		&& Physics() == PHYS_Walking;
+	const LatentRunState latentState = StateFrame
+		? StateFrame->LatentState : LatentRunState::Continue;
+	const void* currentSemanticTarget = latentState == LatentRunState::MoveToward
+		&& MoveTarget() && !MoveTarget()->bDeleteMe() ? MoveTarget() : nullptr;
+	const vec3 destinationDelta = Destination()
+		- diagnostic.SemanticDestination;
+	const bool semanticMatches = currentSemanticTarget
+		== WalkingStepPreflightPendingSemanticTarget
+		&& IsFiniteVector(destinationDelta)
+		&& (currentSemanticTarget || dot(destinationDelta, destinationDelta) <= 0.25f * 0.25f);
+	confirmed = confirmed && endpointMatches && sameLife && aliveWalking && semanticMatches;
+	if (!confirmed && diagnostic.TransitionOutcome == "begin_falling")
+		diagnostic.TransitionOutcome = "post_callback_evidence_changed";
+
+	if (confirmed)
+	{
+		UZoneInfo* physicsZone = Region().Zone;
+		vec3 fallAcceleration = Acceleration();
+		const float maximumAirAcceleration = engine->LaunchInfo.ue1Version > 219
+			? AirControl() * AccelRate() : 0.0f;
+		const float accelerationLength = length(fallAcceleration);
+		if (accelerationLength > maximumAirAcceleration && accelerationLength > 0.0f)
+			fallAcceleration = normalize(fallAcceleration) * maximumAirAcceleration;
+		diagnostic.FallForecastOrigin = Location();
+		diagnostic.FallForecastVelocity = Velocity();
+		diagnostic.FallForecastAcceleration = fallAcceleration;
+		diagnostic.FallForecastGravityKnown = physicsZone != nullptr;
+		diagnostic.FallForecastGravity = physicsZone
+			? physicsZone->ZoneGravity() : vec3(0.0f);
+		WalkingStepPreflightInput revalidated = WalkingStepPreflightPendingInput;
+		revalidated.GravityKnown = physicsZone != nullptr;
+		revalidated.Gravity = physicsZone
+			? physicsZone->ZoneGravity() : vec3(0.0f);
+		diagnostic.FallForecastAttempted = physicsZone != nullptr;
+		revalidated.FallForecast = physicsZone
+			? ForecastWalkingStepFall(this, Location(), Velocity(),
+				fallAcceleration, physicsZone, &diagnostic)
+			: WalkingFallForecastObservation{};
+		diagnostic.FallForecast = revalidated.FallForecast;
+		const WalkingStepPreflightResult revalidatedResult =
+			EvaluateWalkingStepPreflight(revalidated);
+		diagnostic.Reason = revalidatedResult.Reason;
+		confirmed = revalidatedResult.Decision
+			== WalkingStepPreflightDecision::AuthorizeUnsafeStepVeto;
+		if (!confirmed)
+			diagnostic.TransitionOutcome = "post_callback_forecast_rejected";
+	}
+
+	if (confirmed)
+	{
+		WalkingStepPreflightAuthorizationCountValue++;
+		const WalkingStepPreflightEpisodeUpdate episode =
+			UpdateWalkingStepPreflightEpisode(WalkingStepPreflightEpisode, {
+				.Authorized = true,
+				.PawnLife = this,
+				.PawnLifeGeneration = WalkingStepPreflightLifeGeneration,
+				.SupportedOrigin = diagnostic.PrecommitOrigin,
+				.SemanticTarget = WalkingStepPreflightPendingSemanticTarget,
+				.SemanticDestination = diagnostic.SemanticDestination,
+				.OriginRadius = 8.0f,
+				.DestinationRadius = 8.0f
+			});
+		WalkingStepPreflightEpisode = episode.State;
+		if (episode.AuthorizationStarted)
+			WalkingStepPreflightAuthorizableEpisodeCountValue++;
+	}
+
+	queueDiagnostic(std::move(diagnostic));
+}
+
+void UPawn::EndWalkingStepPreflightLife()
+{
+	WalkingStepPreflightPendingConfirmation = false;
+	WalkingStepPreflightEpisode = {};
+	WalkingStepPreflightLifeGeneration++;
+}
+
+std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
+	UPawn::DrainWalkingStepPreflightDiagnostics()
+{
+	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord> diagnostics;
+	diagnostics.swap(WalkingStepPreflightDiagnostics);
+	return diagnostics;
 }
 
 void UPawn::AdvancePainLedgeRecovery(float elapsed)

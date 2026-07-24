@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -150,12 +151,87 @@ int main()
 	event.Map = "DM-\"Test";
 	event.Status = "running";
 	event.Bots = { second, first };
+	std::ostringstream walkingPreflightSuffix;
+	walkingPreflightSuffix
+		<< ",\"walking_step_preflight_observations_exact\":\"0\""
+		<< ",\"walking_step_preflight_unsupported_endpoints_exact\":\"0\""
+		<< ",\"walking_step_preflight_no_decisions_exact\":\"0\""
+		<< ",\"walking_step_preflight_provisional_authorizations_exact\":\"0\""
+		<< ",\"walking_step_preflight_post_mayfall_confirmed_authorizations_exact\":\"0\""
+		<< ",\"walking_step_preflight_authorizable_episodes_exact\":\"0\"";
+	for (size_t index = 0; index < PawnMovement::WalkingStepPreflightReasonCount; index++)
+	{
+		walkingPreflightSuffix << ",\""
+			<< PawnMovement::WalkingStepPreflightReasonMetricName(
+				static_cast<PawnMovement::WalkingStepPreflightReason>(index))
+			<< "\":\"0\"";
+	}
+	walkingPreflightSuffix
+		<< ",\"walking_step_preflight_diagnostic_overflows_exact\":\"0\""
+		<< ",\"walking_step_preflight_diagnostics\":[]";
+	const std::string expectedWalkingPreflightSuffix = walkingPreflightSuffix.str();
 	const std::string expectedEvent =
 		"{\"schema\":\"surreal-bot-benchmark-telemetry-v2\",\"seq\":\"5\",\"config_id\":\"fnv1a64:b998eb71db26e88f\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
-		"{\"identity\":\"pri:1\",\"actor\":\"Bot1\",\"player_name\":\"Line\\nBreak\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"physics_mode\":\"\",\"latent_action\":\"\",\"acceleration\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"destination\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"move_timer\":0.000000,\"move_target_identity\":\"\",\"move_target_name\":\"\",\"health\":100,\"score\":0.000000,\"pri_deaths\":0.000000,\"movement_intent\":false,\"in_hazard_zone\":false,\"kills_exact\":\"0\",\"deaths_exact\":\"0\",\"suicides_exact\":\"0\",\"environmental_deaths_exact\":\"0\",\"hazard_exposed_deaths_proxy\":\"0\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"0\",\"unassisted_environmental_deaths\":\"0\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"0\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"0\",\"hit_wall_events_exact\":\"0\",\"pain_ledge_vetoes_exact\":\"0\",\"pain_ledge_repeat_vetoes_exact\":\"0\",\"pain_ledge_recovery_attempts_exact\":\"0\",\"pain_ledge_recovery_escapes_exact\":\"0\",\"wall_adjust_calls_exact\":\"0\",\"wall_adjust_repeats_exact\":\"0\",\"wall_adjust_recovery_attempts_exact\":\"0\",\"wall_adjust_recovery_successes_exact\":\"0\",\"wall_adjust_forced_replans_exact\":\"0\",\"move_stall_detections_exact\":\"0\",\"move_stall_episode_resets_exact\":\"0\",\"move_stall_forced_replans_exact\":\"0\",\"move_stall_navigation_forced_replans_exact\":\"0\",\"move_stall_targetless_move_to_timeouts_exact\":\"0\",\"move_stall_eligible_seconds\":0.000000000,\"failed_navigation_avoidance_activations_exact\":\"0\",\"failed_navigation_safeguard_suppressions_exact\":\"0\",\"failed_navigation_route_penalty_applications_exact\":\"0\",\"falling_seam_detections_exact\":\"0\",\"horizontal_corner_candidate_probes_exact\":\"0\",\"horizontal_corner_authorized_escapes_exact\":\"0\",\"horizontal_corner_target_progress_rejects_exact\":\"0\",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"0\",\"falling_seam_episodes_exact\":\"0\",\"falling_seam_invalid_geometry_rejects_exact\":\"0\",\"falling_seam_authorizable_episodes_exact\":\"0\",\"horizontal_corner_authorized_candidates_exact\":\"0\",\"horizontal_corner_blocked_sweep_candidates_exact\":\"0\",\"horizontal_corner_no_static_walkable_support_candidates_exact\":\"0\",\"horizontal_corner_pain_support_candidates_exact\":\"0\",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"0\",\"horizontal_corner_true_target_regression_candidates_exact\":\"0\",\"horizontal_corner_unknown_evidence_candidates_exact\":\"0\",\"state\":\"Attacking\"},"
-		"{\"identity\":\"pri:2\",\"actor\":\"Bot2\",\"player_name\":\"B\\\"ot\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":1.250000,\"y\":-2.500000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":3.000000},\"physics_mode\":\"Walking\",\"latent_action\":\"MoveToward\",\"acceleration\":{\"x\":100.000000,\"y\":-50.000000,\"z\":0.000000},\"destination\":{\"x\":512.000000,\"y\":256.000000,\"z\":-32.000000},\"move_timer\":0.750000,\"move_target_identity\":\"actor:PathNode3\",\"move_target_name\":\"Path\\\"Node\",\"health\":87,\"score\":2.500000,\"pri_deaths\":3.000000,\"movement_intent\":true,\"in_hazard_zone\":true,\"kills_exact\":\"4\",\"deaths_exact\":\"3\",\"suicides_exact\":\"2\",\"environmental_deaths_exact\":\"1\",\"hazard_exposed_deaths_proxy\":\"1\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"1\",\"unassisted_environmental_deaths\":\"1\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"1\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"1\",\"hit_wall_events_exact\":\"9\",\"pain_ledge_vetoes_exact\":\"8\",\"pain_ledge_repeat_vetoes_exact\":\"6\",\"pain_ledge_recovery_attempts_exact\":\"7\",\"pain_ledge_recovery_escapes_exact\":\"5\",\"wall_adjust_calls_exact\":\"12\",\"wall_adjust_repeats_exact\":\"8\",\"wall_adjust_recovery_attempts_exact\":\"7\",\"wall_adjust_recovery_successes_exact\":\"6\",\"wall_adjust_forced_replans_exact\":\"2\",\"move_stall_detections_exact\":\"3\",\"move_stall_episode_resets_exact\":\"1\",\"move_stall_forced_replans_exact\":\"2\",\"move_stall_navigation_forced_replans_exact\":\"1\",\"move_stall_targetless_move_to_timeouts_exact\":\"1\",\"move_stall_eligible_seconds\":4.250000000,\"failed_navigation_avoidance_activations_exact\":\"2\",\"failed_navigation_safeguard_suppressions_exact\":\"3\",\"failed_navigation_route_penalty_applications_exact\":\"4\",\"falling_seam_detections_exact\":\"11\",\"horizontal_corner_candidate_probes_exact\":\"10\",\"horizontal_corner_authorized_escapes_exact\":\"3\",\"horizontal_corner_target_progress_rejects_exact\":\"4\",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"3\",\"falling_seam_episodes_exact\":\"4\",\"falling_seam_invalid_geometry_rejects_exact\":\"7\",\"falling_seam_authorizable_episodes_exact\":\"2\",\"horizontal_corner_authorized_candidates_exact\":\"3\",\"horizontal_corner_blocked_sweep_candidates_exact\":\"2\",\"horizontal_corner_no_static_walkable_support_candidates_exact\":\"1\",\"horizontal_corner_pain_support_candidates_exact\":\"1\",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"1\",\"horizontal_corner_true_target_regression_candidates_exact\":\"1\",\"horizontal_corner_unknown_evidence_candidates_exact\":\"1\",\"state\":\"Roaming\"}]}\n";
+		"{\"identity\":\"pri:1\",\"actor\":\"Bot1\",\"player_name\":\"Line\\nBreak\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"physics_mode\":\"\",\"latent_action\":\"\",\"acceleration\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"destination\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"move_timer\":0.000000,\"move_target_identity\":\"\",\"move_target_name\":\"\",\"health\":100,\"score\":0.000000,\"pri_deaths\":0.000000,\"movement_intent\":false,\"in_hazard_zone\":false,\"kills_exact\":\"0\",\"deaths_exact\":\"0\",\"suicides_exact\":\"0\",\"environmental_deaths_exact\":\"0\",\"hazard_exposed_deaths_proxy\":\"0\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"0\",\"unassisted_environmental_deaths\":\"0\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"0\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"0\",\"hit_wall_events_exact\":\"0\",\"pain_ledge_vetoes_exact\":\"0\",\"pain_ledge_repeat_vetoes_exact\":\"0\",\"pain_ledge_recovery_attempts_exact\":\"0\",\"pain_ledge_recovery_escapes_exact\":\"0\",\"wall_adjust_calls_exact\":\"0\",\"wall_adjust_repeats_exact\":\"0\",\"wall_adjust_recovery_attempts_exact\":\"0\",\"wall_adjust_recovery_successes_exact\":\"0\",\"wall_adjust_forced_replans_exact\":\"0\",\"move_stall_detections_exact\":\"0\",\"move_stall_episode_resets_exact\":\"0\",\"move_stall_forced_replans_exact\":\"0\",\"move_stall_navigation_forced_replans_exact\":\"0\",\"move_stall_targetless_move_to_timeouts_exact\":\"0\",\"move_stall_eligible_seconds\":0.000000000,\"failed_navigation_avoidance_activations_exact\":\"0\",\"failed_navigation_safeguard_suppressions_exact\":\"0\",\"failed_navigation_route_penalty_applications_exact\":\"0\",\"falling_seam_detections_exact\":\"0\",\"horizontal_corner_candidate_probes_exact\":\"0\",\"horizontal_corner_authorized_escapes_exact\":\"0\",\"horizontal_corner_target_progress_rejects_exact\":\"0\",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"0\",\"falling_seam_episodes_exact\":\"0\",\"falling_seam_invalid_geometry_rejects_exact\":\"0\",\"falling_seam_authorizable_episodes_exact\":\"0\",\"horizontal_corner_authorized_candidates_exact\":\"0\",\"horizontal_corner_blocked_sweep_candidates_exact\":\"0\",\"horizontal_corner_no_static_walkable_support_candidates_exact\":\"0\",\"horizontal_corner_pain_support_candidates_exact\":\"0\",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"0\",\"horizontal_corner_true_target_regression_candidates_exact\":\"0\",\"horizontal_corner_unknown_evidence_candidates_exact\":\"0\""
+		+ expectedWalkingPreflightSuffix + ",\"state\":\"Attacking\"},"
+		"{\"identity\":\"pri:2\",\"actor\":\"Bot2\",\"player_name\":\"B\\\"ot\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":1.250000,\"y\":-2.500000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":3.000000},\"physics_mode\":\"Walking\",\"latent_action\":\"MoveToward\",\"acceleration\":{\"x\":100.000000,\"y\":-50.000000,\"z\":0.000000},\"destination\":{\"x\":512.000000,\"y\":256.000000,\"z\":-32.000000},\"move_timer\":0.750000,\"move_target_identity\":\"actor:PathNode3\",\"move_target_name\":\"Path\\\"Node\",\"health\":87,\"score\":2.500000,\"pri_deaths\":3.000000,\"movement_intent\":true,\"in_hazard_zone\":true,\"kills_exact\":\"4\",\"deaths_exact\":\"3\",\"suicides_exact\":\"2\",\"environmental_deaths_exact\":\"1\",\"hazard_exposed_deaths_proxy\":\"1\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"1\",\"unassisted_environmental_deaths\":\"1\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"1\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"1\",\"hit_wall_events_exact\":\"9\",\"pain_ledge_vetoes_exact\":\"8\",\"pain_ledge_repeat_vetoes_exact\":\"6\",\"pain_ledge_recovery_attempts_exact\":\"7\",\"pain_ledge_recovery_escapes_exact\":\"5\",\"wall_adjust_calls_exact\":\"12\",\"wall_adjust_repeats_exact\":\"8\",\"wall_adjust_recovery_attempts_exact\":\"7\",\"wall_adjust_recovery_successes_exact\":\"6\",\"wall_adjust_forced_replans_exact\":\"2\",\"move_stall_detections_exact\":\"3\",\"move_stall_episode_resets_exact\":\"1\",\"move_stall_forced_replans_exact\":\"2\",\"move_stall_navigation_forced_replans_exact\":\"1\",\"move_stall_targetless_move_to_timeouts_exact\":\"1\",\"move_stall_eligible_seconds\":4.250000000,\"failed_navigation_avoidance_activations_exact\":\"2\",\"failed_navigation_safeguard_suppressions_exact\":\"3\",\"failed_navigation_route_penalty_applications_exact\":\"4\",\"falling_seam_detections_exact\":\"11\",\"horizontal_corner_candidate_probes_exact\":\"10\",\"horizontal_corner_authorized_escapes_exact\":\"3\",\"horizontal_corner_target_progress_rejects_exact\":\"4\",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"3\",\"falling_seam_episodes_exact\":\"4\",\"falling_seam_invalid_geometry_rejects_exact\":\"7\",\"falling_seam_authorizable_episodes_exact\":\"2\",\"horizontal_corner_authorized_candidates_exact\":\"3\",\"horizontal_corner_blocked_sweep_candidates_exact\":\"2\",\"horizontal_corner_no_static_walkable_support_candidates_exact\":\"1\",\"horizontal_corner_pain_support_candidates_exact\":\"1\",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"1\",\"horizontal_corner_true_target_regression_candidates_exact\":\"1\",\"horizontal_corner_unknown_evidence_candidates_exact\":\"1\""
+		+ expectedWalkingPreflightSuffix + ",\"state\":\"Roaming\"}]}\n";
 	if (BotBenchmarkTelemetryProtocol::EventJson(configId, event) != expectedEvent)
 		return Fail("v2 telemetry event ordering, formatting, or escaping changed");
+
+	PawnMovement::WalkingStepPreflightDiagnosticRecord diagnostic;
+	diagnostic.SourcePawnActor = "Bot\"17";
+	diagnostic.Sequence = 7;
+	diagnostic.LifeGeneration = 2;
+	diagnostic.InvocationToken = 9;
+	diagnostic.WalkingIteration = 1;
+	diagnostic.Phase = "post_mayfall_confirmation";
+	diagnostic.TransitionOutcome = "begin_falling";
+	diagnostic.Reason = PawnMovement::WalkingStepPreflightReason::HarmfulPainFall;
+	diagnostic.PrecommitOrigin = vec3(1.0f, 2.0f, 3.0f);
+	diagnostic.PredictedUnsupportedEndpoint = vec3(4.0f, 5.0f, 6.0f);
+	diagnostic.ActualUnsupportedEndpoint = vec3(4.0f, 5.0f, 6.0f);
+	diagnostic.SemanticTarget = "Bullet\"Box4";
+	diagnostic.FallForecastAttempted = true;
+	diagnostic.FallForecastOrigin = vec3(7.0f, 8.0f, 9.0f);
+	diagnostic.FallForecastVelocity = vec3(10.0f, 11.0f, 12.0f);
+	diagnostic.FallForecastAcceleration = vec3(13.0f, 14.0f, 15.0f);
+	diagnostic.FallForecastGravityKnown = true;
+	diagnostic.FallForecastGravity = vec3(0.0f, 0.0f, -950.0f);
+	diagnostic.FallForecast.Complete = true;
+	diagnostic.FallForecast.TotalDrop = 128.0f;
+	diagnostic.FallForecast.Landing.Collision =
+		PawnMovement::WalkingStepCollisionKind::StaticBsp;
+	diagnostic.FallForecast.Landing.Zone = PawnMovement::WalkingStepZoneKind::Pain;
+	diagnostic.FallHitFractions[0] = 0.5f;
+	diagnostic.FallHitCount = 1;
+	PawnMovement::WalkingStepPreflightDiagnosticRecord provisionalDiagnostic = diagnostic;
+	provisionalDiagnostic.Sequence = 6;
+	provisionalDiagnostic.Phase = "precommit_provisional";
+	event.Bots.front().WalkingStepPreflightDiagnostics.push_back(provisionalDiagnostic);
+	event.Bots.front().WalkingStepPreflightDiagnostics.push_back(diagnostic);
+	const std::string diagnosticEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	const std::string correlationKey =
+		"\"source_pawn_actor\":\"Bot\\\"17\",\"sequence\":";
+	const std::string transactionKey =
+		"\"life_generation\":\"2\",\"invocation_token\":\"9\",\"walking_iteration\":1";
+	const size_t firstCorrelation = diagnosticEvent.find(correlationKey);
+	const size_t secondCorrelation = firstCorrelation == std::string::npos
+		? std::string::npos : diagnosticEvent.find(correlationKey,
+			firstCorrelation + correlationKey.size());
+	const size_t firstTransaction = diagnosticEvent.find(transactionKey);
+	const size_t secondTransaction = firstTransaction == std::string::npos
+		? std::string::npos : diagnosticEvent.find(transactionKey,
+			firstTransaction + transactionKey.size());
+	if (firstCorrelation == std::string::npos || secondCorrelation == std::string::npos
+		|| firstTransaction == std::string::npos || secondTransaction == std::string::npos
+		|| diagnosticEvent.find("\"phase\":\"post_mayfall_confirmation\"") == std::string::npos
+		|| diagnosticEvent.find("\"semantic_target\":\"Bullet\\\"Box4\"") == std::string::npos
+		|| diagnosticEvent.find("\"fall_forecast\":{\"attempted\":true,\"origin\":{\"x\":7.000000,\"y\":8.000000,\"z\":9.000000},\"velocity\":{\"x\":10.000000,\"y\":11.000000,\"z\":12.000000},\"acceleration\":{\"x\":13.000000,\"y\":14.000000,\"z\":15.000000},\"gravity_known\":true,\"gravity\":{\"x\":0.000000,\"y\":0.000000,\"z\":-950.000000}") == std::string::npos
+		|| diagnosticEvent.find("\"hit_fractions\":[0.500000000]") == std::string::npos)
+		return Fail("walking-step preflight diagnostic serialization was incomplete or unstable");
+	event.Bots.front().WalkingStepPreflightDiagnostics.clear();
 
 	bool rejectedNonFinite = false;
 	try

@@ -753,6 +753,66 @@ unknown, safe, human, ScriptedPawn, jumping, unusual-gravity, and out-of-bound
 observations remain disjoint no-decisions. Runtime integration remains shadow-
 only until it reproduces the implicated Deck trace.
 
+## Iteration 48: benchmark-only walking preflight observer
+
+Iteration 48 connects the pure model to `TickWalking` only while the opt-in
+`bot-benchmark` headless driver is active. Before a real walking subiteration,
+the observer probes the supported origin, step-up, forward, actual
+step-down, and support endpoint without moving the pawn. If the endpoint is
+unsupported, it records a provisional fall forecast. The real stock movement
+and `MayFall` callback then run unchanged; a post-callback record is confirmed
+only when the same life, invocation, iteration, semantic target, endpoint, and
+fresh evidence still agree. It never vetoes a step, restores a position,
+changes acceleration or latent state, or calls script. Normal rendered UT and
+Unreal play do not run this observer.
+
+The Release candidate SHA-256 was
+`DEC5F63752639238D2CE1256CD8AB34BBFED95CC43FF8F1309B3AB7E4C974ADD`.
+For Deck seeds 104729, 271828, and 314159, each baseline/candidate comparison
+passed exact equivalence for all five artifacts after excluding only the new
+preflight exact fields, the preflight diagnostic payload, and output-directory
+provenance. Candidate `r0`/`r1` repeats for all three seeds also passed exact
+five-artifact equivalence while excluding only output-directory provenance.
+The observer is therefore behavior-neutral and deterministic on this matrix;
+that result does not establish that its forecast is correct enough to act.
+
+Across the three candidate seeds, the observer recorded 13,086 observations,
+669 unsupported endpoints, 12,643 no-decisions, 443 provisional harmful-pain
+predictions, 67 post-`MayFall` confirmations, 23 debounced authorizable
+episodes, and zero diagnostic overflows. The exact reason partition was 10,021
+supported endpoints, 1,671 callback-required/unknown-script-transition
+rejections, 524 non-static start supports, 166 invalid step deltas, 41 invalid
+step sequences, 101 incomplete fall forecasts, 119 safe fall landings, and 443
+harmful pain falls. These are observer classifications, not prevented falls or
+quality improvements.
+
+The motivating positive trace did not pass. At telemetry tick 471 in seed
+104729, Necroth left support while moving toward `BulletBox4`; the precommit
+record correctly starts from the prior supported position, but its forecast is
+incomplete after the maximum two wall continuations and therefore produces no
+authorization. It is not promotable. The negative trace at tick 55 in seed
+314159 is handled correctly: Visse's forward BSP contact requires the real
+`HitWall` callback, which performs `EAdjustJump` and changes script/physics
+state, so the observer returns the explicit callback-required unknown reason
+without forecasting or acting.
+
+The current fall forecast is not `TickFalling` parity. It uses different
+substep timing and residual-motion arithmetic, predicts velocity rather than
+deriving it from actual displacement/elapsed where native physics does so, and
+cannot reproduce script-visible `HitWall`, `Touch`/`UnTouch`/`Bump`, mover,
+dynamic-actor, or zone-transition effects. The minimum next helper design is
+to factor `BeginFallingParityStep`, `ResolveFallingDirectSweep`, and
+`ResolveFallingAlignedSweep`, then drive them with the exact bounded
+`TickPhysics` substeps of at most 0.02 seconds and explicit-origin
+`ProbeMoveCollision` sweeps. Any script-visible callback or mover, dynamic, or
+zone evidence must fail open. Before any later live restore is considered, a
+reverse move and static walkable non-pain support must also be proven from the
+post-callback state. These helpers are next work, not implemented.
+
+No live walking veto is enabled. Iteration 48 is useful instrumentation, but
+it neither prevents the known Deck fall nor improves bot results, and is
+therefore **not release-ready or merge-ready as a bot behavior change**.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

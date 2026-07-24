@@ -1,5 +1,8 @@
 #pragma once
 
+#include "UObject/PawnWalkingStepPreflight.h"
+
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -80,6 +83,17 @@ struct BotBenchmarkBotState
 	uint64_t HorizontalCornerNoActiveMovementIntentOrTargetCandidatesExact = 0;
 	uint64_t HorizontalCornerTrueTargetRegressionCandidatesExact = 0;
 	uint64_t HorizontalCornerUnknownEvidenceCandidatesExact = 0;
+	uint64_t WalkingStepPreflightObservationsExact = 0;
+	uint64_t WalkingStepPreflightUnsupportedEndpointsExact = 0;
+	uint64_t WalkingStepPreflightNoDecisionsExact = 0;
+	uint64_t WalkingStepPreflightProvisionalAuthorizationsExact = 0;
+	uint64_t WalkingStepPreflightAuthorizationsExact = 0;
+	uint64_t WalkingStepPreflightAuthorizableEpisodesExact = 0;
+	uint64_t WalkingStepPreflightDiagnosticOverflowsExact = 0;
+	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
+		WalkingStepPreflightDiagnostics;
+	std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>
+		WalkingStepPreflightReasonsExact = {};
 };
 
 struct BotBenchmarkTelemetryEvent

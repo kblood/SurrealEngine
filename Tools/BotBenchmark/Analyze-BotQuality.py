@@ -21,7 +21,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 13
+TOOL_VERSION = 14
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -145,10 +145,56 @@ FALLING_SEAM_DETAILED_COUNTERS = (
     "horizontal_corner_true_target_regression_candidates_exact",
     "horizontal_corner_unknown_evidence_candidates_exact",
 )
+WALKING_STEP_PREFLIGHT_REASON_COUNTERS = (
+    "walking_step_preflight_reason_ineligible_unknown_actor_exact",
+    "walking_step_preflight_reason_ineligible_human_player_exact",
+    "walking_step_preflight_reason_ineligible_scripted_pawn_exact",
+    "walking_step_preflight_reason_not_walking_exact",
+    "walking_step_preflight_reason_unknown_start_support_exact",
+    "walking_step_preflight_reason_non_static_start_support_exact",
+    "walking_step_preflight_reason_non_walkable_start_support_exact",
+    "walking_step_preflight_reason_unknown_start_zone_exact",
+    "walking_step_preflight_reason_unsafe_start_zone_exact",
+    "walking_step_preflight_reason_unknown_gravity_exact",
+    "walking_step_preflight_reason_non_axial_downward_gravity_exact",
+    "walking_step_preflight_reason_upward_jump_requested_exact",
+    "walking_step_preflight_reason_collision_callback_required_script_transition_unknown_exact",
+    "walking_step_preflight_reason_invalid_bounds_exact",
+    "walking_step_preflight_reason_invalid_step_delta_exact",
+    "walking_step_preflight_reason_unknown_step_evidence_exact",
+    "walking_step_preflight_reason_mover_step_evidence_exact",
+    "walking_step_preflight_reason_dynamic_step_evidence_exact",
+    "walking_step_preflight_reason_invalid_step_sequence_exact",
+    "walking_step_preflight_reason_supported_step_endpoint_exact",
+    "walking_step_preflight_reason_incomplete_fall_forecast_exact",
+    "walking_step_preflight_reason_fall_continuation_limit_exceeded_exact",
+    "walking_step_preflight_reason_invalid_fall_delta_exact",
+    "walking_step_preflight_reason_unknown_fall_evidence_exact",
+    "walking_step_preflight_reason_mover_fall_evidence_exact",
+    "walking_step_preflight_reason_dynamic_fall_evidence_exact",
+    "walking_step_preflight_reason_invalid_fall_continuation_exact",
+    "walking_step_preflight_reason_invalid_fall_landing_exact",
+    "walking_step_preflight_reason_unknown_landing_zone_exact",
+    "walking_step_preflight_reason_safe_fall_landing_exact",
+    "walking_step_preflight_reason_unknown_pain_damage_immunity_exact",
+    "walking_step_preflight_reason_pain_damage_immune_exact",
+    "walking_step_preflight_reason_harmful_pain_fall_exact",
+)
+WALKING_STEP_PREFLIGHT_COUNTERS = (
+    "walking_step_preflight_observations_exact",
+    "walking_step_preflight_unsupported_endpoints_exact",
+    "walking_step_preflight_no_decisions_exact",
+    "walking_step_preflight_provisional_authorizations_exact",
+    "walking_step_preflight_post_mayfall_confirmed_authorizations_exact",
+    "walking_step_preflight_authorizable_episodes_exact",
+    "walking_step_preflight_diagnostic_overflows_exact",
+) + WALKING_STEP_PREFLIGHT_REASON_COUNTERS
+METRIC_DIRECTIONS.update({name: None for name in WALKING_STEP_PREFLIGHT_COUNTERS})
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
     + FAILED_NAVIGATION_EXACT_COUNTERS + DEATH_ATTRIBUTION_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
+    + WALKING_STEP_PREFLIGHT_COUNTERS
 )
 OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
 OPTIONAL_CUMULATIVE_METRICS = OPTIONAL_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_NUMBERS
@@ -167,7 +213,7 @@ MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP = (
 )
 OPTIONAL_DIAGNOSTIC_FIELDS = (
     "physics_mode", "latent_action", "acceleration", "destination", "move_timer",
-    "move_target_identity", "move_target_name",
+    "move_target_identity", "move_target_name", "walking_step_preflight_diagnostics",
 )
 PHYSICS_MODES = {
     "", "None", "Walking", "Falling", "Swimming", "Flying", "Rotating", "Projectile",
@@ -177,6 +223,17 @@ LATENT_ACTIONS = {
     "", "Continue", "Stop", "Sleep", "FinishAnim", "FinishInterpolation", "MoveTo",
     "MoveToward", "StrafeTo", "StrafeFacing", "TurnTo", "TurnToward", "WaitForLanding",
     "Unknown",
+}
+WALKING_STEP_PREFLIGHT_COLLISIONS = {
+    "unknown", "clear", "static_bsp", "mover", "dynamic_actor",
+}
+WALKING_STEP_PREFLIGHT_ZONES = {"unknown", "safe", "pain", "water"}
+WALKING_STEP_PREFLIGHT_PHASES = {
+    "precommit_provisional", "post_mayfall_confirmation",
+}
+WALKING_STEP_PREFLIGHT_TRANSITIONS = {
+    "abort", "restore_grounded", "begin_falling", "post_callback_evidence_changed",
+    "post_callback_forecast_rejected",
 }
 
 
@@ -243,6 +300,283 @@ def _boolean(value: Any, context: str) -> bool:
     if not isinstance(value, bool):
         raise QualityError(f"{context} must be a boolean")
     return value
+
+
+def _exact_object(value: Any, context: str, fields: set[str]) -> dict[str, Any]:
+    result = _object(value, context)
+    missing = fields - result.keys()
+    unexpected = result.keys() - fields
+    if missing:
+        raise QualityError(f"{context} is missing fields: {', '.join(sorted(missing))}")
+    if unexpected:
+        raise QualityError(f"{context} has unexpected fields: {', '.join(sorted(unexpected))}")
+    return result
+
+
+def _diagnostic_vector(value: Any, context: str) -> dict[str, float]:
+    vector = _exact_object(value, context, {"x", "y", "z"})
+    return {axis: _number(vector.get(axis), f"{context}.{axis}") for axis in "xyz"}
+
+
+def _walking_step_preflight_probe(value: Any, context: str) -> dict[str, Any]:
+    probe = _exact_object(value, context, {"collision", "fraction", "delta", "normal"})
+    collision = _string(probe, "collision", context, nonempty=True)
+    if collision not in WALKING_STEP_PREFLIGHT_COLLISIONS:
+        raise QualityError(f"{context}.collision is not recognized")
+    fraction = _number(probe.get("fraction"), f"{context}.fraction", minimum=0.0)
+    if fraction > 1.0:
+        raise QualityError(f"{context}.fraction must be at most 1.0")
+    return {
+        "collision": collision,
+        "fraction": fraction,
+        "delta": _diagnostic_vector(probe.get("delta"), f"{context}.delta"),
+        "normal": _diagnostic_vector(probe.get("normal"), f"{context}.normal"),
+    }
+
+
+def _walking_step_preflight_forecast(value: Any, context: str) -> dict[str, Any]:
+    fields = _exact_object(value, context, {
+        "attempted", "origin", "velocity", "acceleration", "gravity_known", "gravity",
+        "complete", "total_drop", "continuation_count", "landing_collision",
+        "landing_normal", "landing_zone", "hit_fractions",
+    })
+    attempted = _boolean(fields.get("attempted"), f"{context}.attempted")
+    gravity_known = _boolean(fields.get("gravity_known"), f"{context}.gravity_known")
+    complete = _boolean(fields.get("complete"), f"{context}.complete")
+    continuation_count = _strict_integer(
+        fields.get("continuation_count"), f"{context}.continuation_count", minimum=0, maximum=2)
+    landing_collision = _string(fields, "landing_collision", context, nonempty=True)
+    if landing_collision not in WALKING_STEP_PREFLIGHT_COLLISIONS:
+        raise QualityError(f"{context}.landing_collision is not recognized")
+    landing_zone = _string(fields, "landing_zone", context, nonempty=True)
+    if landing_zone not in WALKING_STEP_PREFLIGHT_ZONES:
+        raise QualityError(f"{context}.landing_zone is not recognized")
+    fractions_raw = fields.get("hit_fractions")
+    if not isinstance(fractions_raw, list):
+        raise QualityError(f"{context}.hit_fractions must be an array")
+    if len(fractions_raw) > 3:
+        raise QualityError(f"{context}.hit_fractions must contain at most 3 values")
+    fractions = []
+    for index, raw_fraction in enumerate(fractions_raw):
+        fraction = _number(raw_fraction, f"{context}.hit_fractions[{index}]", minimum=0.0)
+        if fraction > 1.0:
+            raise QualityError(f"{context}.hit_fractions[{index}] must be at most 1.0")
+        fractions.append(fraction)
+    if len(fractions) < continuation_count or len(fractions) > continuation_count + 1:
+        raise QualityError(
+            f"{context}.hit_fractions do not match the continuation count")
+    if complete and len(fractions) != continuation_count + 1:
+        raise QualityError(
+            f"{context}.complete forecast requires one landing fraction after continuations")
+    if complete and not attempted:
+        raise QualityError(f"{context}.complete forecast must have been attempted")
+    if attempted and not gravity_known:
+        raise QualityError(f"{context}.attempted forecast requires known gravity")
+    if not attempted and (complete or continuation_count or fractions):
+        raise QualityError(f"{context}.unattempted forecast must not contain results")
+    return {
+        "attempted": attempted,
+        "origin": _diagnostic_vector(fields.get("origin"), f"{context}.origin"),
+        "velocity": _diagnostic_vector(fields.get("velocity"), f"{context}.velocity"),
+        "acceleration": _diagnostic_vector(
+            fields.get("acceleration"), f"{context}.acceleration"),
+        "gravity_known": gravity_known,
+        "gravity": _diagnostic_vector(fields.get("gravity"), f"{context}.gravity"),
+        "complete": complete,
+        "total_drop": _number(fields.get("total_drop"), f"{context}.total_drop"),
+        "continuation_count": continuation_count,
+        "landing_collision": landing_collision,
+        "landing_normal": _diagnostic_vector(
+            fields.get("landing_normal"), f"{context}.landing_normal"),
+        "landing_zone": landing_zone,
+        "hit_fractions": fractions,
+    }
+
+
+def _walking_step_preflight_diagnostic(value: Any, context: str) -> dict[str, Any]:
+    fields = _exact_object(value, context, {
+        "source_pawn_actor", "sequence", "life_generation", "invocation_token",
+        "walking_iteration", "phase",
+        "transition_outcome", "reason", "origin", "predicted_unsupported_endpoint",
+        "actual_unsupported_endpoint", "semantic_target", "semantic_destination",
+        "start_support", "step_up", "forward", "actual_step_down", "support_probe",
+        "fall_forecast",
+    })
+    phase = _string(fields, "phase", context, nonempty=True)
+    if phase not in WALKING_STEP_PREFLIGHT_PHASES:
+        raise QualityError(f"{context}.phase is not recognized")
+    transition = _string(fields, "transition_outcome", context)
+    if phase == "precommit_provisional" and transition:
+        raise QualityError(f"{context}.transition_outcome must be empty for provisional records")
+    if phase == "post_mayfall_confirmation" and transition not in \
+            WALKING_STEP_PREFLIGHT_TRANSITIONS:
+        raise QualityError(f"{context}.transition_outcome is not recognized")
+    reason = _string(fields, "reason", context, nonempty=True)
+    if reason not in WALKING_STEP_PREFLIGHT_REASON_COUNTERS:
+        raise QualityError(f"{context}.reason is not recognized")
+    if phase == "post_mayfall_confirmation":
+        harmful_reason = "walking_step_preflight_reason_harmful_pain_fall_exact"
+        if transition == "post_callback_forecast_rejected" and reason == harmful_reason:
+            raise QualityError(
+                f"{context}.reason must identify the rejected post-callback forecast")
+        if transition != "post_callback_forecast_rejected" and reason != harmful_reason:
+            raise QualityError(
+                f"{context}.reason must preserve the provisional authorization reason")
+    return {
+        "source_pawn_actor": _string(fields, "source_pawn_actor", context, nonempty=True),
+        "sequence": _integer(fields.get("sequence"), f"{context}.sequence", minimum=0),
+        "life_generation": _integer(
+            fields.get("life_generation"), f"{context}.life_generation", minimum=0),
+        "invocation_token": _integer(
+            fields.get("invocation_token"), f"{context}.invocation_token", minimum=0),
+        "walking_iteration": _strict_integer(
+            fields.get("walking_iteration"), f"{context}.walking_iteration", minimum=0,
+            maximum=4),
+        "phase": phase,
+        "transition_outcome": transition,
+        "reason": reason,
+        "origin": _diagnostic_vector(fields.get("origin"), f"{context}.origin"),
+        "predicted_unsupported_endpoint": _diagnostic_vector(
+            fields.get("predicted_unsupported_endpoint"),
+            f"{context}.predicted_unsupported_endpoint"),
+        "actual_unsupported_endpoint": _diagnostic_vector(
+            fields.get("actual_unsupported_endpoint"), f"{context}.actual_unsupported_endpoint"),
+        "semantic_target": _string(fields, "semantic_target", context),
+        "semantic_destination": _diagnostic_vector(
+            fields.get("semantic_destination"), f"{context}.semantic_destination"),
+        "start_support": _walking_step_preflight_probe(
+            fields.get("start_support"), f"{context}.start_support"),
+        "step_up": _walking_step_preflight_probe(fields.get("step_up"), f"{context}.step_up"),
+        "forward": _walking_step_preflight_probe(fields.get("forward"), f"{context}.forward"),
+        "actual_step_down": _walking_step_preflight_probe(
+            fields.get("actual_step_down"), f"{context}.actual_step_down"),
+        "support_probe": _walking_step_preflight_probe(
+            fields.get("support_probe"), f"{context}.support_probe"),
+        "fall_forecast": _walking_step_preflight_forecast(
+            fields.get("fall_forecast"), f"{context}.fall_forecast"),
+    }
+
+
+def _walking_step_preflight_diagnostics(value: Any, context: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise QualityError(f"{context} must be an array")
+    return [
+        _walking_step_preflight_diagnostic(item, f"{context}[{index}]")
+        for index, item in enumerate(value)
+    ]
+
+
+def _validate_walking_step_preflight_diagnostic_stream(
+        events: list[dict[str, Any]], path: Path) -> None:
+    stream_order: dict[tuple[str, str], tuple[int, int, int, int]] = {}
+    provisionals: dict[tuple[str, str, int, int, int], dict[str, Any]] = {}
+    emitted: defaultdict[str, int] = defaultdict(int)
+    provisional_records: defaultdict[str, int] = defaultdict(int)
+    post_records: defaultdict[str, int] = defaultdict(int)
+    missing_provisionals: defaultdict[str, int] = defaultdict(int)
+    final_overflows: dict[str, int] = {}
+    stable_pair_fields = (
+        "origin", "predicted_unsupported_endpoint", "semantic_target",
+        "semantic_destination", "start_support", "step_up", "forward", "actual_step_down",
+        "support_probe",
+    )
+
+    for event in events:
+        for bot in event["bots"]:
+            diagnostics = bot.get("walking_step_preflight_diagnostics")
+            if diagnostics is None:
+                continue
+            identity = bot["identity"]
+            for diagnostic in diagnostics:
+                actor = diagnostic["source_pawn_actor"]
+                stream = (identity, actor)
+                sequence = diagnostic["sequence"]
+                life = diagnostic["life_generation"]
+                invocation = diagnostic["invocation_token"]
+                iteration = diagnostic["walking_iteration"]
+                prior_order = stream_order.get(stream)
+                if prior_order is not None:
+                    prior_sequence, prior_life, prior_invocation, prior_iteration = prior_order
+                    if sequence <= prior_sequence:
+                        raise QualityError(
+                            f"{path}: walking step diagnostic sequence is not strictly increasing "
+                            f"for {identity}/{actor} at telemetry sequence {event['seq']}")
+                    if life < prior_life:
+                        raise QualityError(
+                            f"{path}: walking step diagnostic life generation regressed "
+                            f"for {identity}/{actor} at telemetry sequence {event['seq']}")
+                    if invocation < prior_invocation:
+                        raise QualityError(
+                            f"{path}: walking step diagnostic invocation regressed "
+                            f"for {identity}/{actor} at telemetry sequence {event['seq']}")
+                    if life == prior_life and invocation == prior_invocation \
+                            and iteration < prior_iteration:
+                        raise QualityError(
+                            f"{path}: walking step diagnostic iteration regressed within an invocation "
+                            f"for {identity}/{actor} at telemetry sequence {event['seq']}")
+                stream_order[stream] = (sequence, life, invocation, iteration)
+                key = (identity, actor, life, invocation, iteration)
+                phase = diagnostic["phase"]
+                if phase == "precommit_provisional":
+                    if key in provisionals:
+                        raise QualityError(
+                            f"{path}: duplicate walking step provisional diagnostic for "
+                            f"{identity}/{actor} life {life} invocation {invocation} iteration {iteration}")
+                    provisionals[key] = diagnostic
+                    if diagnostic["reason"] == \
+                            "walking_step_preflight_reason_harmful_pain_fall_exact":
+                        provisional_records[identity] += 1
+                else:
+                    post_records[identity] += 1
+                    provisional = provisionals.pop(key, None)
+                    if provisional is None:
+                        missing_provisionals[identity] += 1
+                    else:
+                        if provisional["reason"] != \
+                                "walking_step_preflight_reason_harmful_pain_fall_exact":
+                            raise QualityError(
+                                f"{path}: post-MayFall diagnostic does not follow an authorization "
+                                f"for {identity}/{actor}")
+                        if any(provisional[name] != diagnostic[name]
+                               for name in stable_pair_fields):
+                            raise QualityError(
+                                f"{path}: provisional and post-MayFall diagnostics do not correlate "
+                                f"for {identity}/{actor} life {life} invocation {invocation} "
+                                f"iteration {iteration}")
+                emitted[identity] += 1
+
+            observations = bot["walking_step_preflight_observations_exact"]
+            provisional_count = bot["walking_step_preflight_provisional_authorizations_exact"]
+            overflow_count = bot["walking_step_preflight_diagnostic_overflows_exact"]
+            final_overflows[identity] = overflow_count
+            if emitted[identity] + overflow_count > observations + provisional_count:
+                raise QualityError(
+                    f"{path}: walking step diagnostics and overflows exceed observation evidence "
+                    f"for {identity} at telemetry sequence {event['seq']}")
+            if provisional_records[identity] > provisional_count:
+                raise QualityError(
+                    f"{path}: provisional walking step diagnostics exceed authorization evidence "
+                    f"for {identity} at telemetry sequence {event['seq']}")
+            if post_records[identity] > provisional_count:
+                raise QualityError(
+                    f"{path}: post-MayFall diagnostics exceed provisional authorization evidence "
+                    f"for {identity} at telemetry sequence {event['seq']}")
+            if missing_provisionals[identity] > overflow_count:
+                raise QualityError(
+                    f"{path}: post-MayFall diagnostic has no correlatable provisional record "
+                    f"or overflow evidence for {identity} at telemetry sequence {event['seq']}")
+
+    unmatched_authorizations: defaultdict[str, int] = defaultdict(int)
+    for (identity, _actor, _life, _invocation, _iteration), diagnostic in provisionals.items():
+        if diagnostic["reason"] == \
+                "walking_step_preflight_reason_harmful_pain_fall_exact":
+            unmatched_authorizations[identity] += 1
+    for identity in set(missing_provisionals) | set(unmatched_authorizations):
+        uncorrelated = missing_provisionals[identity] + unmatched_authorizations[identity]
+        if uncorrelated > final_overflows.get(identity, 0):
+            raise QualityError(
+                f"{path}: walking step authorization diagnostics are not fully correlated "
+                f"for {identity} and overflow evidence is insufficient")
 
 
 def _load_json(path: Path, context: str) -> dict[str, Any]:
@@ -409,6 +743,9 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
 
 def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
     bot = _object(raw, context)
+    if schema != TELEMETRY_SCHEMA_V2 and "walking_step_preflight_diagnostics" in bot:
+        raise QualityError(
+            f"{context}.walking_step_preflight_diagnostics require telemetry v2")
     result: dict[str, Any] = {
         "identity": _string(bot, "identity", context, nonempty=True),
         "actor": _string(bot, "actor", context, nonempty=True),
@@ -443,7 +780,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("failed navigation", FAILED_NAVIGATION_EXACT_COUNTERS),
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
-                ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS)):
+                ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
+                ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS)):
             present = [name for name in names if name in result]
             if present and len(present) != len(names):
                 raise QualityError(f"{context}: {label} counters must be provided as a complete group")
@@ -540,6 +878,41 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if authorized_candidates > 0 and authorizable_episodes == 0:
                 raise QualityError(
                     f"{context}: authorized horizontal corner candidates require an authorizable episode")
+        if "walking_step_preflight_observations_exact" in result:
+            observations = result["walking_step_preflight_observations_exact"]
+            unsupported = result["walking_step_preflight_unsupported_endpoints_exact"]
+            no_decisions = result["walking_step_preflight_no_decisions_exact"]
+            provisional = result["walking_step_preflight_provisional_authorizations_exact"]
+            authorizations = result[
+                "walking_step_preflight_post_mayfall_confirmed_authorizations_exact"]
+            episodes = result["walking_step_preflight_authorizable_episodes_exact"]
+            if no_decisions + provisional != observations:
+                raise QualityError(
+                    f"{context}: walking step preflight decisions do not partition observations")
+            if sum(result[name] for name in WALKING_STEP_PREFLIGHT_REASON_COUNTERS) != observations:
+                raise QualityError(
+                    f"{context}: walking step preflight reasons do not partition observations")
+            harmful = result["walking_step_preflight_reason_harmful_pain_fall_exact"]
+            if harmful != provisional:
+                raise QualityError(
+                    f"{context}: walking step harmful-pain reasons do not equal provisional authorizations")
+            if authorizations > provisional:
+                raise QualityError(
+                    f"{context}: walking step confirmed authorizations exceed provisional authorizations")
+            if episodes > authorizations:
+                raise QualityError(
+                    f"{context}: walking step authorizable episodes exceed authorizations")
+            if authorizations > unsupported or unsupported > observations:
+                raise QualityError(
+                    f"{context}: walking step authorization/unsupported-endpoint bounds are invalid")
+        if "walking_step_preflight_diagnostics" in bot:
+            if "walking_step_preflight_observations_exact" not in result:
+                raise QualityError(
+                    f"{context}: walking step preflight diagnostics require the complete counter group")
+            result["walking_step_preflight_diagnostics"] = \
+                _walking_step_preflight_diagnostics(
+                    bot.get("walking_step_preflight_diagnostics"),
+                    f"{context}.walking_step_preflight_diagnostics")
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
@@ -685,6 +1058,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                         bot["wall_adjust_recovery_successes_exact"] > bot["wall_adjust_recovery_attempts_exact"]:
                     raise QualityError(f"{path}: wall adjust successes exceed attempts for {bot['identity']}")
                 previous[bot["identity"]] = bot
+        if optional_presence and "walking_step_preflight_diagnostics" in optional_presence:
+            _validate_walking_step_preflight_diagnostic_stream(events, path)
     if events[0]["type"] != "run_start" or events[0]["tick"] != 0:
         raise QualityError(f"{path}: first event must be run_start at tick zero")
     if events[-1]["type"] != "run_result":
@@ -1155,6 +1530,10 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
                 any(run["metrics"].get(name) is not None for run in runs)
                 for name in FALLING_SEAM_DETAILED_COUNTERS
             ),
+            "walking_step_preflight_shadow_metrics_present": all(
+                any(run["metrics"].get(name) is not None for run in runs)
+                for name in WALKING_STEP_PREFLIGHT_COUNTERS
+            ),
             "unavailable_until_telemetry_is_extended": FUTURE_METRICS,
             "composite_quality_score": None,
         },
@@ -1171,6 +1550,8 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
             "Optional falling-seam shadow v1 rollups and detailed v2 episode, geometry, and candidate outcome "
             "counters are validated as complete monotonic groups and reported when present; they describe a "
             "read-only policy probe and do not prove that any movement was applied. "
+            "Optional walking-step preflight observations, decisions, debounced authorizable episodes, and exact "
+            "reason counters are validated as a complete monotonic partition; this observer does not veto movement. "
             "Physics, latent-action, acceleration, destination, move-timer, and move-target diagnostics are "
             "validated when present and remain available in the source event stream. "
             "PRI score/deaths are sampled persistent game counters. Hazard-exposed death and movement-intent "

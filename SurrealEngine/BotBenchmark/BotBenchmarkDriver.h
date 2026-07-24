@@ -1,7 +1,9 @@
 #pragma once
 
 #include "BotBenchmarkDeathAttribution.h"
+#include "UObject/PawnWalkingStepPreflight.h"
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 
@@ -44,6 +46,15 @@ namespace BotBenchmarkDriverDetail
 		uint64_t HorizontalCornerNoActiveMovementIntentOrTargetCandidates = 0;
 		uint64_t HorizontalCornerTrueTargetRegressionCandidates = 0;
 		uint64_t HorizontalCornerUnknownEvidenceCandidates = 0;
+		uint64_t WalkingStepPreflightObservations = 0;
+		uint64_t WalkingStepPreflightUnsupportedEndpoints = 0;
+		uint64_t WalkingStepPreflightNoDecisions = 0;
+		uint64_t WalkingStepPreflightProvisionalAuthorizations = 0;
+		uint64_t WalkingStepPreflightAuthorizations = 0;
+		uint64_t WalkingStepPreflightAuthorizableEpisodes = 0;
+		uint64_t WalkingStepPreflightDiagnosticOverflows = 0;
+		std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>
+			WalkingStepPreflightReasons = {};
 	};
 
 	enum class NativePawnCounterSample
@@ -156,6 +167,33 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.HorizontalCornerUnknownEvidenceCandidates,
 				Previous.HorizontalCornerUnknownEvidenceCandidates,
 				totals.HorizontalCornerUnknownEvidenceCandidates);
+			AccumulateCounter(current.WalkingStepPreflightObservations,
+				Previous.WalkingStepPreflightObservations,
+				totals.WalkingStepPreflightObservations);
+			AccumulateCounter(current.WalkingStepPreflightUnsupportedEndpoints,
+				Previous.WalkingStepPreflightUnsupportedEndpoints,
+				totals.WalkingStepPreflightUnsupportedEndpoints);
+			AccumulateCounter(current.WalkingStepPreflightNoDecisions,
+				Previous.WalkingStepPreflightNoDecisions,
+				totals.WalkingStepPreflightNoDecisions);
+			AccumulateCounter(current.WalkingStepPreflightProvisionalAuthorizations,
+				Previous.WalkingStepPreflightProvisionalAuthorizations,
+				totals.WalkingStepPreflightProvisionalAuthorizations);
+			AccumulateCounter(current.WalkingStepPreflightAuthorizations,
+				Previous.WalkingStepPreflightAuthorizations,
+				totals.WalkingStepPreflightAuthorizations);
+			AccumulateCounter(current.WalkingStepPreflightAuthorizableEpisodes,
+				Previous.WalkingStepPreflightAuthorizableEpisodes,
+				totals.WalkingStepPreflightAuthorizableEpisodes);
+			AccumulateCounter(current.WalkingStepPreflightDiagnosticOverflows,
+				Previous.WalkingStepPreflightDiagnosticOverflows,
+				totals.WalkingStepPreflightDiagnosticOverflows);
+			for (size_t index = 0; index < current.WalkingStepPreflightReasons.size(); index++)
+			{
+				AccumulateCounter(current.WalkingStepPreflightReasons[index],
+					Previous.WalkingStepPreflightReasons[index],
+					totals.WalkingStepPreflightReasons[index]);
+			}
 		}
 
 	private:

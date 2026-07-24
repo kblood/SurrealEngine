@@ -479,6 +479,46 @@ is a named no-decision. The remaining task is to populate those observations
 from explicit-origin traces before the real walking move and prove that the
 known Deck ledge is detected early.
 
+## Iteration 48 walking-preflight result
+
+The runtime observer is restricted to the opt-in `bot-benchmark` headless
+driver and remains behavior-neutral. It probes before the real walking move,
+lets stock movement and `MayFall` execute unchanged, and correlates any fresh
+post-callback confirmation by pawn life, walking invocation/iteration,
+unsupported endpoint, and semantic target. It never vetoes movement or
+restores the pawn. The candidate executable SHA-256 was
+`DEC5F63752639238D2CE1256CD8AB34BBFED95CC43FF8F1309B3AB7E4C974ADD`.
+
+All three Deck baseline/candidate comparisons (seeds 104729, 271828, and
+314159) passed exact 5/5 artifact equivalence after excluding only the new
+observer payload, exact observer counters, and output-directory provenance.
+All three candidate `r0`/`r1` comparisons passed exact 5/5 equivalence with
+only output-directory provenance excluded. Aggregate observer counts were
+13,086 observations, 669 unsupported endpoints, 12,643 no-decisions, 443
+provisional harmful-pain predictions, 67 post-`MayFall` confirmations, 23
+debounced authorizable episodes, and zero diagnostic overflows.
+
+The known Necroth fall remains the decisive failure. At telemetry tick 471 of
+seed 104729, the observer reconstructs the unsupported endpoint from the prior
+supported origin while Necroth targets `BulletBox4`, but the fall forecast is
+still incomplete after two wall continuations. It records
+`walking_step_preflight_reason_incomplete_fall_forecast_exact`, not an
+authorization, so it cannot justify a live veto. Conversely, seed 314159 tick
+55 is a useful negative control: Visse's forward BSP collision is rejected as
+`collision_callback_required_script_transition_unknown`; the real `HitWall`
+then invokes `EAdjustJump` and changes the pawn to falling. A read-only
+preflight must not guess through that callback.
+
+The next work is a minimum native-parity helper set:
+`BeginFallingParityStep`, `ResolveFallingDirectSweep`, and
+`ResolveFallingAlignedSweep`, driven with exact bounded `TickPhysics` substeps
+of at most 0.02 seconds and explicit-origin `ProbeMoveCollision` sweeps. It
+must stop and fail open at script-visible `HitWall`, `Touch`/`UnTouch`/`Bump`,
+mover, dynamic-actor, or zone-transition boundaries. Any future restoration
+also requires a proven reverse move and static walkable non-pain support after
+the real callback. This design is not implemented. Iteration 48 enables no
+live veto and is not release-ready or merge-ready as bot behavior.
+
 ## Wall callback and ledge-property parity audit
 
 Retail UT436 and Unreal 226b `Engine.Pawn` both define `MinHitWall` as a
