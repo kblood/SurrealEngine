@@ -295,6 +295,143 @@
 		});
 	}
 
+	class WebGPUDeviceLossController {
+		constructor(options) {
+			const settings = options || {};
+			this.environment = settings.environment || global;
+			this.log = typeof settings.log === "function" ? settings.log : () => {};
+			this.onRuntimeCrash = typeof settings.onRuntimeCrash === "function" ? settings.onRuntimeCrash : null;
+			this.getDataController = typeof settings.getDataController === "function" ? settings.getDataController : () => null;
+			this.getActiveRenderer = typeof settings.getActiveRenderer === "function" ? settings.getActiveRenderer : () => null;
+			this.onDeviceUnavailable = typeof settings.onDeviceUnavailable === "function" ? settings.onDeviceUnavailable : () => {};
+			this.checkpointTimeoutMs = Number.isFinite(settings.checkpointTimeoutMs) ?
+				Math.max(0, settings.checkpointTimeoutMs) : 5000;
+			this.root = settings.root || null;
+			this.message = null;
+			this.restartButton = null;
+			this.phase = "ready";
+			this.checkpoint = "not-attempted";
+			this.reason = "unknown";
+			this.handling = null;
+			this.restartRequested = false;
+		}
+
+		_view() {
+			if (!this.root) {
+				const document = this.environment.document;
+				if (!document || typeof document.createElement !== "function") return;
+				this.root = document.createElement("section");
+				this.root.hidden = true;
+				this.root.setAttribute("role", "alert");
+				this.root.setAttribute("aria-live", "assertive");
+				this.root.dataset.webgpuDeviceLoss = "true";
+				const parent = document.querySelector &&
+					(document.querySelector("[data-app-error]")?.parentElement || document.querySelector("main"));
+				(parent || document.body)?.appendChild(this.root);
+			}
+			if (!this.message) {
+				this.message = this.root.querySelector && this.root.querySelector("[data-webgpu-device-loss-message]");
+				if (!this.message && this.environment.document) {
+					this.message = this.environment.document.createElement("p");
+					this.message.dataset.webgpuDeviceLossMessage = "true";
+					this.root.appendChild(this.message);
+				}
+			}
+			if (!this.restartButton) {
+				this.restartButton = this.root.querySelector && this.root.querySelector("[data-webgpu-device-loss-restart]");
+				if (!this.restartButton && this.environment.document) {
+					this.restartButton = this.environment.document.createElement("button");
+					this.restartButton.type = "button";
+					this.restartButton.dataset.webgpuDeviceLossRestart = "true";
+					this.restartButton.textContent = "Restart with WebGL 2";
+					this.root.appendChild(this.restartButton);
+				}
+				if (this.restartButton) this.restartButton.addEventListener("click", () => this.restartWithWebGL2());
+			}
+		}
+
+		_show(message, restartEnabled) {
+			this._view();
+			if (this.root) this.root.hidden = false;
+			if (this.message) this.message.textContent = message;
+			if (this.restartButton) this.restartButton.disabled = !restartEnabled;
+		}
+
+		async _checkpointMutableData() {
+			const controller = this.getDataController();
+			if (!controller || typeof controller.flush !== "function") return "unavailable";
+			let timeout = null;
+			try {
+				const save = Promise.resolve(controller.flush("webgpu-device-lost"));
+				if (!this.checkpointTimeoutMs || typeof this.environment.setTimeout !== "function") {
+					const result = await save;
+					if (result && ["not-started", "unavailable"].includes(result.state)) return "unavailable";
+					return result && result.deferredCheckpointReason ? "failed" : "saved";
+				}
+				const result = await Promise.race([save, new Promise((resolve, reject) => {
+					timeout = this.environment.setTimeout(() => reject(new Error("checkpoint timed out")), this.checkpointTimeoutMs);
+				})]);
+				if (result && ["not-started", "unavailable"].includes(result.state)) return "unavailable";
+				return result && result.deferredCheckpointReason ? "failed" : "saved";
+			} catch (_) {
+				return "failed";
+			} finally {
+				if (timeout !== null && typeof this.environment.clearTimeout === "function")
+					this.environment.clearTimeout(timeout);
+			}
+		}
+
+		handle(info) {
+			if (this.handling) return this.handling;
+			this.handling = this._handle(info);
+			return this.handling;
+		}
+
+		async _handle(info) {
+			this.reason = info && typeof info.reason === "string" ? info.reason : "unknown";
+			this.onDeviceUnavailable();
+			if (this.getActiveRenderer() !== "webgpu") {
+				this.phase = "inactive-device-lost";
+				this.log("[runtime] WebGPU device lost while WebGPU was not the active renderer.");
+				return this.status();
+			}
+			this.phase = "checkpointing";
+			this._show("WebGPU stopped unexpectedly. Preserving local saves before offering a safe WebGL 2 restart…", false);
+			this.checkpoint = await this._checkpointMutableData();
+			const reason = info && typeof info.message === "string" && info.message ? info.message : this.reason;
+			publishRuntimeFailure("WebGPU device lost", reason, this.log, this.onRuntimeCrash, this.environment);
+			this.phase = "failed";
+			const saveMessage = this.checkpoint === "saved" ? "Local mutable saves were checkpointed." :
+				(this.checkpoint === "unavailable" ? "No mutable save controller was available." :
+					"Local mutable saves could not be checkpointed; the last completed checkpoint remains intact.");
+			this._show("WebGPU stopped unexpectedly. " + saveMessage + " Restart with WebGL 2 to return to a supported graphics path.", true);
+			return this.status();
+		}
+
+		restartWithWebGL2() {
+			if (this.phase !== "failed" || this.restartRequested) return false;
+			this.restartRequested = true;
+			this.phase = "restarting";
+			try {
+				const storage = this.environment.localStorage;
+				const preferences = JSON.parse(storage && storage.getItem(PREFERENCE_KEY) || "{}");
+				preferences.renderer = "webgl2";
+				preferences.presentationId = "flat";
+				if (storage) storage.setItem(PREFERENCE_KEY, JSON.stringify(preferences));
+			} catch (_) { /* The restart still works when optional preferences are unavailable. */ }
+			if (this.restartButton) this.restartButton.disabled = true;
+			if (this.message) this.message.textContent = "Restarting with WebGL 2…";
+			const location = this.environment.location;
+			if (location && typeof location.reload === "function") location.reload();
+			return true;
+		}
+
+		status() {
+			return Object.freeze({ phase: this.phase, checkpoint: this.checkpoint,
+				reason: this.reason, restartRequested: this.restartRequested });
+		}
+	}
+
 	class BrowserViewportController {
 		constructor(canvas, options) {
 			const settings = options || {};
@@ -487,6 +624,13 @@
 			this.renderer.value = renderers.includes(preferred) ? preferred : renderers[0];
 		}
 
+		setAvailableRenderers(renderers) {
+			const current = this.renderer && this.renderer.value;
+			this.options.availableRenderers = Array.from(new Set((renderers || []).filter(renderer =>
+				["webgl2", "webgpu", "null"].includes(renderer))));
+			this._configureRenderers(current);
+		}
+
 		async selectLaunch(context) {
 			if (this.pending) throw new LauncherError("LAUNCH_PENDING", "A launch choice is already pending.");
 			this.context = context;
@@ -587,7 +731,15 @@
 		const requiredFeatures = ["texture-compression-bc", "float32-filterable"].filter(feature => adapter.features.has(feature));
 		const device = await adapter.requestDevice({ requiredFeatures });
 		global.surrealWebGPUDeviceXRCompatible = xrCompatibleAdapter;
-		device.lost.then(info => log("[runtime] WebGPU device lost: " + info.message));
+		device.lost.then(info => {
+			log("[runtime] WebGPU device lost: " + (info && info.message || info && info.reason || "unknown reason"));
+			if (typeof settings.onDeviceLost === "function") Promise.resolve(settings.onDeviceLost(info)).catch(error =>
+				log("[runtime] WebGPU device loss recovery failed: " + (error && error.message || String(error))));
+		}, error => {
+			log("[runtime] WebGPU device loss monitoring failed: " + (error && error.message || String(error)));
+			if (typeof settings.onDeviceLost === "function") Promise.resolve(settings.onDeviceLost(error)).catch(recoveryError =>
+				log("[runtime] WebGPU device loss recovery failed: " + (recoveryError && recoveryError.message || String(recoveryError))));
+		});
 		return device;
 	}
 
@@ -611,12 +763,29 @@
 		let availableRenderers = Array.isArray(options.availableRenderers) ?
 			options.availableRenderers.filter(renderer => ["webgl2", "webgpu", "null"].includes(renderer)) : ["webgpu", "null"];
 		availableRenderers = Array.from(new Set(availableRenderers));
+		let dataController = null;
+		let activeRenderer = null;
+		let launcher = null;
+		const deviceLossController = options.webGPUDeviceLossController || new WebGPUDeviceLossController({
+			environment: options.environment || global,
+			root: options.webGPUDeviceLossRoot || null,
+			log,
+			onRuntimeCrash: options.onRuntimeCrash,
+			getDataController: () => dataController,
+			getActiveRenderer: () => activeRenderer,
+			onDeviceUnavailable: () => {
+				availableRenderers = availableRenderers.filter(renderer => renderer !== "webgpu");
+				if (launcher) launcher.setAvailableRenderers(availableRenderers);
+				for (const provider of xrProviders) provider.setXRCompatibleAdapter(false, "WebGPU device lost");
+			},
+		});
 		let device = null;
 		if (availableRenderers.includes("webgpu")) {
 			runtimeMilestone("webgpu-device-requested");
 			try {
 				device = await acquireWebGPUDevice(log, {
 					xrCompatible: xrProviders.length > 0,
+					onDeviceLost: info => deviceLossController.handle(info),
 					onXRCompatibility: (available, detail) => {
 						for (const provider of xrProviders) provider.setXRCompatibleAdapter(available, detail);
 					},
@@ -632,7 +801,7 @@
 		if (!availableRenderers.length)
 			throw new LauncherError("RENDERER_UNAVAILABLE", "No renderer compiled in this build is available in this browser.");
 		const launcherOptions = Object.assign({}, options.launcherOptions || {}, { availableRenderers });
-		const launcher = options.launcher || new LauncherController(options.launcherRoot || null, registry, launcherOptions);
+		launcher = options.launcher || new LauncherController(options.launcherRoot || null, registry, launcherOptions);
 		global.surrealCrashed = null;
 		const unhandledRuntimeError = createUnhandledRuntimeErrorHandler(log, options.onRuntimeCrash, global);
 		if (typeof global.addEventListener === "function") {
@@ -656,25 +825,39 @@
 							storage: library.storageProxy(),
 							pickDirectoryEntries: createHostPicker(options.hostBridge || global.SurrealHostBridge),
 						});
-						const started = await global.SurrealBrowserData.start(Module, {
+						const browserDataOptions = {
 							uiRoot: options.importerRoot || null,
 							log,
 							logSnapshot: options.logSnapshot,
 							importerOptions,
 							mutableOptionsForGame: gameId => library.mutableOptions(gameId),
 							selectLaunch: context => { if (context.metadata) { library.register(context.metadata); libraryUI.refresh(); } return launcher.selectLaunch(context); },
-							launch: selection => runLaunchBoundary({ Module, selection, registry,
-								audioController: options.audioController, onLaunch: options.onLaunch,
-								viewportController, xrController: options.xrController,
-								onStartupStage: options.onStartupStage, environment: options.environment || global,
-								waitForPaint: options.waitForPaint }),
-						});
+							launch: selection => {
+								activeRenderer = selection.renderer;
+								return runLaunchBoundary({ Module, selection, registry,
+									audioController: options.audioController, onLaunch: options.onLaunch,
+									viewportController, xrController: options.xrController,
+									onStartupStage: options.onStartupStage, environment: options.environment || global,
+									waitForPaint: options.waitForPaint });
+							},
+						};
+						let started;
+						if (typeof global.SurrealBrowserData.BrowserDataController === "function") {
+							// Keep the controller reachable while native main owns the awaited launch.
+							// Mutable persistence is initialized before that boundary and can then be
+							// checkpointed if WebGPU is lost while the game is still running.
+							dataController = new global.SurrealBrowserData.BrowserDataController(Module, browserDataOptions);
+							started = { controller: dataController, result: await dataController.start() };
+						} else {
+							started = await global.SurrealBrowserData.start(Module, browserDataOptions);
+							dataController = started.controller;
+						}
 						runtimeMilestone("persistent-storage-ready", {
 							state: started.result && started.result.import && started.result.import.state || null,
 						});
 						resolve(Object.freeze({ Module, launcher, registry, library, libraryUI, viewportController,
 							xrController: options.xrController || null,
-							dataController: started.controller, result: started.result }));
+							dataController: started.controller, webGPUDeviceLossController, result: started.result }));
 					} catch (error) { reject(error); }
 				},
 			};
@@ -696,6 +879,7 @@
 
 	global.SurrealBrowserApp = Object.freeze({
 		LauncherError,
+		WebGPUDeviceLossController,
 		createRuntimeAbortHandler,
 		createUnhandledRuntimeErrorHandler,
 		PresentationRegistry,

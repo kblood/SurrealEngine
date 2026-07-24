@@ -1,8 +1,12 @@
 """Real-Chrome WebAudio/OpenAL graph-state smoke test using generated PCM."""
-import contextlib, http.server, pathlib, threading
+import contextlib, http.server, pathlib, sys, threading
 from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+BASE_URL = next(
+	(argument.split("=", 1)[1].rstrip("/") for argument in sys.argv[1:] if argument.startswith("--base-url=")),
+	None,
+)
 class Handler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
@@ -10,15 +14,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
     def log_message(self, *_): pass
 
-with contextlib.chdir(ROOT):
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+server = None
+if BASE_URL is None:
+	with contextlib.chdir(ROOT):
+		server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+	thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+	BASE_URL = f"http://127.0.0.1:{server.server_port}"
 errors = []
 try:
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome", headless=True, args=["--autoplay-policy=user-gesture-required"])
         page = browser.new_page(); page.on("pageerror", lambda error: errors.append(str(error)))
-        page.goto(f"http://127.0.0.1:{server.server_port}/web/browser_audio_probe.html")
+        page.goto(BASE_URL + "/web/browser_audio_probe.html")
         page.wait_for_function("window.probeReady === true")
         page.evaluate("audioController.suspend()")
         page.wait_for_function("audioController.diagnostics().state === 'suspended'")
@@ -52,4 +59,5 @@ try:
         browser.close()
         print("PASS: generated SFX/music graph, unlock, mute/volume, suspend/resume and XR continuity")
 finally:
-    server.shutdown(); server.server_close()
+	if server is not None:
+		server.shutdown(); server.server_close()

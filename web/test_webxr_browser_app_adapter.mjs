@@ -26,7 +26,8 @@ function makeHost() {
 	host.XRGPUBinding = globalThis.XRGPUBinding;
 	host.setTimeout = callback => { host.timer = callback; };
 	host.lifecycle = [];
-	host.providerState = { active: false, cleanupPending: false, sessionEndBlocked: false, lastError: null };
+	host.providerState = { active: false, cleanupPending: false, sessionEndBlocked: false,
+		frameLoopBlocked: false, lastError: null };
 	host.surrealXRGetState = () => ({ ...host.providerState });
 	host.surrealXRSetPresentationPreference = value => host.lifecycle.push("preference:" + value);
 	host.surrealXRSetBridgeBlockingTiming = value => host.lifecycle.push("blocking:" + value);
@@ -113,14 +114,73 @@ function makeHost() {
 {
 	const host = makeHost();
 	host.providerState.lastError = "headset permission denied";
-	host.surrealXRRequestSession = () => Promise.resolve(false);
+	let attempts = 0;
+	host.surrealXRRequestSession = () => Promise.resolve(++attempts > 1);
+	host.surrealXRActivateReservedSession = async () => true;
 	const controller = api.createSessionController(capability, null, host);
 	controller.attachModule({});
 	controller.engineStarted();
 	assert.equal(await controller.enter(), false);
 	assert.equal(controller.status().state, api.SESSION_STATES.FLAT_RUNNING);
 	assert.match(controller.status().lastError, /permission denied.*still running.*retry/i);
-	assert.equal(await controller.enter(), false, "a denied session made retry impossible");
+	const retry = controller.enter();
+	assert.equal(attempts, 2, "the retry did not request a session in the next entry call");
+	assert.equal(await retry, true, "a denied session made retry impossible");
+}
+
+{
+	const host = makeHost();
+	let requests = 0;
+	host.surrealXRRequestSession = async () => { requests++; return true; };
+	host.surrealXRActivateReservedSession = async () => {
+		host.providerState = { ...host.providerState, active: true, phase: "running" };
+		return true;
+	};
+	host.surrealXRExit = () => {
+		host.providerState = { ...host.providerState, active: false, cleanupPending: true };
+		return false;
+	};
+	const controller = api.createSessionController(capability, null, host);
+	controller.attachModule({});
+	controller.engineStarted();
+	assert.equal(await controller.enter(), true);
+	assert.equal(await controller.exit(), false);
+	assert.equal(controller.status().state, api.SESSION_STATES.ENDING_XR,
+		"a synchronous end throw was mislabeled as flat before cleanup");
+	assert.equal(await controller.enter(), false);
+	assert.equal(requests, 1, "a synchronous end throw exposed a retryable controller");
+	host.providerState = { ...host.providerState, cleanupPending: false,
+		sessionEndBlocked: true, lastError: "session end rejected" };
+	controller.refreshFromProvider();
+	assert.equal(controller.status().state, api.SESSION_STATES.ENDING_XR);
+	host.providerState = { ...host.providerState, sessionEndBlocked: false, phase: "ended" };
+	controller.refreshFromProvider();
+	assert.equal(controller.status().state, api.SESSION_STATES.FLAT_RUNNING);
+}
+
+{
+	const host = makeHost();
+	host.surrealXRRequestSession = async () => true;
+	host.surrealXRActivateReservedSession = async () => {
+		host.providerState = { ...host.providerState, active: true, phase: "running" };
+		return true;
+	};
+	host.surrealXRExit = () => {
+		host.providerState = { ...host.providerState, active: false, cleanupPending: true };
+		return true;
+	};
+	const controller = api.createSessionController(capability, null, host);
+	controller.attachModule({});
+	controller.engineStarted();
+	assert.equal(await controller.enter(), true);
+	assert.equal(await controller.exit(), true);
+	host.providerState = { ...host.providerState, cleanupPending: false, frameLoopBlocked: true,
+		phase: "error", lastError: "flat frame loop resume failed" };
+	controller.refreshFromProvider();
+	assert.equal(controller.status().state, api.SESSION_STATES.RUNTIME_FAILED);
+	assert.match(controller.status().lastError, /resume failed/);
+	assert.equal(await controller.enter(), false,
+		"a controller with a paused flat scheduler remained retryable");
 }
 
 {

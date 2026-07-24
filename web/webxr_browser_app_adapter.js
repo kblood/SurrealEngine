@@ -44,6 +44,7 @@
 		ACTIVATING_XR: "ActivatingXR",
 		IMMERSIVE_RUNNING: "ImmersiveRunning",
 		ENDING_XR: "EndingXR",
+		RUNTIME_FAILED: "RuntimeFailed",
 	});
 
 	function errorMessage(error, fallback) {
@@ -145,6 +146,7 @@
 				ActivatingXR: "Preparing immersive rendering without restarting the game…",
 				ImmersiveRunning: "Immersive WebXR session active.",
 				EndingXR: "Leaving VR and returning to the browser window…",
+				RuntimeFailed: this.lastError || "The browser frame loop could not resume. Reload the page to restart the game.",
 			};
 			return messages[this.currentState] || this.currentState;
 		}
@@ -213,6 +215,12 @@
 				return false;
 			}
 			if (!accepted) {
+				const state = typeof this.host.surrealXRGetState === "function" ?
+					this.host.surrealXRGetState() : null;
+				if (state && (state.cleanupPending || state.sessionEndBlocked || state.frameLoopBlocked)) {
+					this._settleFlatWhenProviderReady(operation);
+					return false;
+				}
 				this._transition(SESSION_STATES.FLAT_RUNNING,
 					this._providerError("The immersive session was already unavailable."));
 				return false;
@@ -229,6 +237,11 @@
 		_settleFlatWhenProviderReady(operation) {
 			const state = typeof this.host.surrealXRGetState === "function" ? this.host.surrealXRGetState() : null;
 			if (operation !== this.operation) return;
+			if (state && state.frameLoopBlocked) {
+				this._transition(SESSION_STATES.RUNTIME_FAILED,
+					state.lastError || "The browser frame loop could not resume. Reload the page to restart the game.");
+				return;
+			}
 			if (!state || (!state.active && !state.cleanupPending && !state.sessionEndBlocked)) {
 				this._transition(SESSION_STATES.FLAT_RUNNING, state && state.lastError || null);
 				return;
@@ -239,6 +252,14 @@
 
 		refreshFromProvider() {
 			const state = typeof this.host.surrealXRGetState === "function" ? this.host.surrealXRGetState() : null;
+			if (state && state.frameLoopBlocked) {
+				if (this.currentState !== SESSION_STATES.RUNTIME_FAILED) {
+					this.operation++;
+					this._transition(SESSION_STATES.RUNTIME_FAILED,
+						state.lastError || "The browser frame loop could not resume. Reload the page to restart the game.");
+				}
+				return this.status();
+			}
 			if ((this.currentState === SESSION_STATES.REQUESTING_SESSION ||
 				this.currentState === SESSION_STATES.ACTIVATING_XR) && state && !state.active &&
 				(state.phase === "error" || state.phase === "ended")) {

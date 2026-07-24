@@ -26,6 +26,7 @@
 	let session = null;
 	let sessionEndTracker = null;
 	let sessionEndBlocked = false;
+	let frameLoopBlocked = false;
 	let referenceSpace = null;
 	let binding = null;
 	let projectionLayer = null;
@@ -114,7 +115,7 @@
 			root.dispatchEvent(new root.CustomEvent("surrealwebxrproviderstate", { detail: Object.freeze({
 				phase: status.phase, stage: status.currentStage, active: status.active,
 				generation: status.generation, cleanupPending: cleanupInProgress,
-				sessionEndBlocked,
+				sessionEndBlocked, frameLoopBlocked,
 			}) }));
 		} catch (_) {}
 	}
@@ -1097,7 +1098,22 @@
 					finishedDirectWebGLContext.FRAMEBUFFER, null); } catch (_) {}
 			}
 			if (ownedEngineLoop) {
-				try { setEngineLoop(false); } catch (_) {}
+				let resumed = false;
+				let resumeError = null;
+				try { resumed = setEngineLoop(false); }
+				catch (error) { resumeError = error; }
+				if (!resumed) {
+					frameLoopBlocked = true;
+					status.phase = "error";
+					setStage("stopping-frame-loop");
+					status.lastError = resumeError ?
+						"Could not return rendering to the flat browser frame loop: " +
+							String(resumeError.message || resumeError) :
+						"The engine rejected return to the flat browser frame loop.";
+					status.lastErrorCode = "engine-loop-rejected";
+					status.lastErrorStage = status.currentStage;
+					recordTransition("frame-loop-resume-failed", generation, status.currentStage);
+				}
 			}
 			if (nativePresentationStarted) resetNativePose();
 			const device = webGPUDevice();
@@ -1131,8 +1147,10 @@
 				tracker.blocked = false;
 				sessionEndBlocked = false;
 				if (activeGeneration === 0) {
-					status.phase = "ended";
-					setStage("ended");
+					if (!frameLoopBlocked) {
+						status.phase = "ended";
+						setStage("ended");
+					}
 					recordTransition("session-end-confirmed", generation, status.currentStage);
 				}
 			}
@@ -1461,7 +1479,7 @@
 		// Admission is synchronous so navigator.xr.requestSession remains in the
 		// trusted button activation. The UI keeps entry disabled while cleanup is
 		// pending instead of consuming activation by awaiting cleanup here.
-		if (cleanupInProgress || sessionEndBlocked || session || enterPending) return false;
+		if (cleanupInProgress || sessionEndBlocked || frameLoopBlocked || session || enterPending) return false;
 		status.enterAttempts++;
 		setStage("preflight");
 		recordTransition("enter-requested", generationCounter + 1, status.currentStage);
@@ -1739,6 +1757,7 @@
 		result.bridgeDiagnostics = copyBridgeDiagnostics(status.bridgeDiagnostics);
 		result.inputDiagnostics = copyInputDiagnostics(status.inputDiagnostics);
 		result.sessionEndBlocked = sessionEndBlocked;
+		result.frameLoopBlocked = frameLoopBlocked;
 		result.cleanupPending = cleanupInProgress;
 		result.inputQueueDepth = queuedInputPackets.length;
 		result.inputQueueOverflow = inputQueueOverflow;

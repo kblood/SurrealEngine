@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><title>SurrealEngine browser launcher tests</title></head>
 <body>
 <section id="startup-test-surface" hidden><canvas width="64" height="36"></canvas><span>Starting</span></section>
+<section id="webgpu-loss-test" hidden></section>
 <section id="launcher" hidden>
 	<span data-launcher-game></span>
 	<form data-launcher-form>
@@ -371,6 +372,113 @@ window.browserAppTestPromise = (async () => {
 			assert(requests.length === 1 && requests[0] === undefined,
 				"flat mode requested an XR-compatible adapter");
 			assert(window.surrealWebGPUDeviceXRCompatible === false);
+		} finally {
+			Object.defineProperty(navigator, "gpu", { configurable: true, value: originalGPU });
+		}
+	});
+	await run("active WebGPU loss checkpoints once and waits for a trusted WebGL2 restart", async () => {
+		const events = [];
+		const logs = [];
+		const preferences = new Map([["surrealengine-browser-launcher-v1", JSON.stringify({
+			mapByGame: { ut99: "DM-Deck16" }, renderer: "webgpu", presentationId: "webxr",
+		})]]);
+		let reloads = 0;
+		let flushes = 0;
+		const environment = new EventTarget();
+		environment.CustomEvent = CustomEvent;
+		environment.document = document;
+		environment.setTimeout = window.setTimeout.bind(window);
+		environment.clearTimeout = window.clearTimeout.bind(window);
+		environment.localStorage = {
+			getItem: key => preferences.get(key) || null,
+			setItem: (key, value) => preferences.set(key, value),
+		};
+		environment.location = { reload: () => { reloads++; } };
+		environment.addEventListener("surrealruntimeabort", event => events.push(event.detail.message));
+		const root = document.getElementById("webgpu-loss-test");
+		root.hidden = true;
+		root.textContent = "";
+		const controller = new api.WebGPUDeviceLossController({
+			environment, root, log: value => logs.push(value),
+			onRuntimeCrash: value => events.push(value),
+			getActiveRenderer: () => "webgpu",
+			getDataController: () => ({ async flush(reason) {
+				assert(reason === "webgpu-device-lost"); flushes++; return { state: "ready" };
+			} }),
+		});
+		const first = controller.handle({ reason: "unknown", message: "test device reset" });
+		const duplicate = controller.handle({ reason: "unknown", message: "duplicate notification" });
+		assert(first === duplicate, "duplicate loss notification started a second recovery");
+		const status = await first;
+		assert(flushes === 1 && status.phase === "failed" && status.checkpoint === "saved");
+		assert(environment.surrealCrashed.includes("WebGPU device lost: test device reset"));
+		assert(events.length === 2 && logs.some(value => value.includes("WebGPU device lost")));
+		assert(!root.hidden && root.textContent.includes("Local mutable saves were checkpointed"));
+		const restart = root.querySelector("[data-webgpu-device-loss-restart]");
+		assert(restart && !restart.disabled && reloads === 0, "device loss reloaded without a user click");
+		restart.click();
+		const stored = JSON.parse(preferences.get("surrealengine-browser-launcher-v1"));
+		assert(reloads === 1 && stored.renderer === "webgl2" && stored.presentationId === "flat");
+		assert(stored.mapByGame.ut99 === "DM-Deck16", "controlled fallback discarded unrelated launch preferences");
+		assert(controller.status().phase === "restarting" && controller.status().restartRequested);
+		restart.click();
+		assert(reloads === 1, "restart action was not idempotent");
+	});
+	await run("WebGPU loss remains actionable when checkpointing fails", async () => {
+		let reloads = 0;
+		const environment = new EventTarget();
+		environment.CustomEvent = CustomEvent;
+		environment.document = document;
+		environment.localStorage = { getItem: () => "{}", setItem() {} };
+		environment.location = { reload: () => { reloads++; } };
+		const root = document.createElement("section");
+		root.hidden = true;
+		const controller = new api.WebGPUDeviceLossController({
+			environment, root, getActiveRenderer: () => "webgpu",
+			getDataController: () => ({ async flush() { throw new DOMException("quota", "QuotaExceededError"); } }),
+		});
+		const status = await controller.handle({ reason: "unknown" });
+		assert(status.phase === "failed" && status.checkpoint === "failed" && reloads === 0);
+		assert(root.textContent.includes("last completed checkpoint remains intact"));
+		assert(!root.querySelector("[data-webgpu-device-loss-restart]").disabled);
+	});
+	await run("inactive WebGPU loss removes the optional renderer without failing WebGL2", async () => {
+		let unavailable = 0;
+		const environment = new EventTarget();
+		environment.CustomEvent = CustomEvent;
+		const controller = new api.WebGPUDeviceLossController({
+			environment, getActiveRenderer: () => "webgl2", onDeviceUnavailable: () => { unavailable++; },
+		});
+		const status = await controller.handle({ reason: "unknown", message: "unused adapter reset" });
+		assert(status.phase === "inactive-device-lost" && unavailable === 1);
+		assert(!environment.surrealCrashed, "unused WebGPU device loss failed a healthy WebGL2 runtime");
+	});
+	await run("launcher renderer downgrade removes WebGPU from a pending choice", async () => {
+		const root = document.createElement("section");
+		root.innerHTML = "<form data-launcher-form><select data-launcher-renderer></select></form>";
+		const registry = new api.PresentationRegistry();
+		registry.register({ id: "flat", label: "Desktop" });
+		const controller = new api.LauncherController(root, registry,
+			{ availableRenderers: ["webgl2", "webgpu"] });
+		const renderer = root.querySelector("[data-launcher-renderer]");
+		renderer.value = "webgpu";
+		controller.setAvailableRenderers(["webgl2"]);
+		assert(renderer.options.length === 1 && renderer.value === "webgl2");
+	});
+	await run("WebGPU acquisition forwards the browser device-loss notification", async () => {
+		const originalGPU = navigator.gpu;
+		let resolveLoss = null;
+		let received = null;
+		const device = { lost: new Promise(resolve => { resolveLoss = resolve; }) };
+		const adapter = { features: new Set(), async requestDevice() { return device; } };
+		Object.defineProperty(navigator, "gpu", { configurable: true, value: {
+			async requestAdapter() { return adapter; },
+		} });
+		try {
+			await api.acquireWebGPUDevice(() => {}, { xrCompatible: false, onDeviceLost: info => { received = info; } });
+			resolveLoss({ reason: "unknown", message: "forwarded loss" });
+			await new Promise(resolve => setTimeout(resolve, 0));
+			assert(received && received.message === "forwarded loss");
 		} finally {
 			Object.defineProperty(navigator, "gpu", { configurable: true, value: originalGPU });
 		}

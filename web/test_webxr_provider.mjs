@@ -23,6 +23,7 @@ let submittedInput = null;
 let appliedInput = null;
 let xrCallbackActive = false;
 let poseSamplingWindow = false;
+let rejectLoopResume = false;
 const currentPoseOrdering = [];
 
 function deferred() {
@@ -62,7 +63,10 @@ globalThis.Module = {
 	_Surreal_GetWebXRFrameABIVersion: () => 4,
 	ccall(name, returnType, argumentTypes, args, options) {
 		nativeCalls.push(name);
-		if (name === "Surreal_SetXRFrameLoopActive") { loopTransitions.push(args[0]); return 1; }
+		if (name === "Surreal_SetXRFrameLoopActive") {
+			loopTransitions.push(args[0]);
+			return rejectLoopResume && args[0] === 0 ? 0 : 1;
+		}
 		if (name === "Surreal_ResetWebXRPose") { resetCalls++; return undefined; }
 		if (name === "Surreal_PrepareWebXRFrame") {
 			assert.deepEqual(options, { async: true });
@@ -106,6 +110,7 @@ class FakeSession {
 		this.listeners = new Map(); this.visibilityState = "visible"; this.inputSources = makeInputSources();
 		this.frames = new Map(); this.cancelledFrames = []; this.nextHandle = 1;
 		this.referenceSpace = new FakeReferenceSpace(); this.endDeferred = null; this.endError = null;
+		this.endThrowsSynchronously = false;
 	}
 	addEventListener(name, callback) { this.listeners.set(name, callback); }
 	removeEventListener(name, callback) { if (this.listeners.get(name) === callback) this.listeners.delete(name); }
@@ -122,10 +127,14 @@ class FakeSession {
 		try { pending[1](time, frame); }
 		finally { xrCallbackActive = false; }
 	}
-	async end() {
-		if (this.endDeferred) await this.endDeferred.promise;
-		if (this.endError) throw this.endError;
-		this.emitEnd();
+	end() {
+		if (this.endThrowsSynchronously)
+			throw this.endError || new Error("synthetic synchronous end failure");
+		return (async () => {
+			if (this.endDeferred) await this.endDeferred.promise;
+			if (this.endError) throw this.endError;
+			this.emitEnd();
+		})();
 	}
 	emitEnd() { const callback = this.listeners.get("end"); if (callback) callback(); }
 }
@@ -159,10 +168,16 @@ function makeInputSource(handedness, x) {
 function makeInputSources() { return [makeInputSource("left", -.25), makeInputSource("right", .25)]; }
 
 const sessions = [];
+let requestSessionError = null;
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: { xr: {
 	async isSessionSupported(mode) { return mode === "immersive-vr"; },
 	async requestSession(mode, options) {
 		assert.equal(mode, "immersive-vr"); assert.deepEqual(options.requiredFeatures, ["webgpu"]);
+		if (requestSessionError) {
+			const error = requestSessionError;
+			requestSessionError = null;
+			throw error;
+		}
 		const result = new FakeSession(); sessions.push(result); return result;
 	},
 } } });
@@ -265,6 +280,14 @@ assert.equal(capabilities.supported, true);
 assert.equal(capabilities.presentationPreference, "auto");
 assert.equal(capabilities.preferredMode, "direct-webgpu");
 assert.equal(globalThis.surrealXRFrameABI.version, 4);
+
+// A browser denial leaves the flat loop untouched and the next user-triggered request may retry.
+requestSessionError = new Error("synthetic permission denial");
+assert.equal(await globalThis.surrealXRRequestSession(), false);
+assert.equal(globalThis.surrealXRGetState().lastErrorCode, "session-request-failed");
+assert.deepEqual(loopTransitions, []);
+assert.equal(sessions.length, 0);
+await nextTask();
 
 // Reservation stays native-free until startup has returned and activation is explicit.
 assert.equal(await globalThis.surrealXRRequestSession(), true);
@@ -750,6 +773,25 @@ assert.equal(normallyEndedSession.listeners.has("select"), false,
 	"a normal browser end removes the session's audio gesture listener");
 await nextTask();
 
+// A synchronous end throw follows the same terminal admission gate as a rejected end Promise.
+assert.equal(await globalThis.surrealXREnter(), true);
+const synchronouslyRejectedEnd = sessions.at(-1);
+const sessionsBeforeSynchronousEndRetry = sessions.length;
+synchronouslyRejectedEnd.endError = new Error("synthetic synchronous end rejection");
+synchronouslyRejectedEnd.endThrowsSynchronously = true;
+assert.equal(globalThis.surrealXRExit(), false);
+assert.equal(globalThis.surrealXRGetState().cleanupPending, true);
+const synchronousEndRetry = globalThis.surrealXREnter();
+await nextTask();
+assert.equal(globalThis.surrealXRGetState().sessionEndBlocked, true);
+assert.equal(sessions.length, sessionsBeforeSynchronousEndRetry,
+	"a synchronous end throw must keep session admission closed");
+synchronouslyRejectedEnd.emitEnd();
+assert.equal(await synchronousEndRetry, true);
+assert.equal(sessions.length, sessionsBeforeSynchronousEndRetry + 1);
+assert.equal(globalThis.surrealXRExit(), true);
+await nextTask();
+
 // Input packing remains defensive and semantic.
 for (const profile of ["oculus-touch-v3", "meta-quest-touch-plus",
 	"generic-trigger-squeeze-thumbstick"]) {
@@ -780,4 +822,19 @@ assert.equal(compactPacket.getFloat32(24 + 40 + 12, true), 0,
 
 assert.ok(inputPackets.length >= 4);
 assert.ok(resetCalls >= 4);
+
+// Failure to return scheduler ownership is terminal: do not claim flat mode or admit another session.
+assert.equal(await globalThis.surrealXREnter(), true);
+const sessionsBeforeResumeFailure = sessions.length;
+rejectLoopResume = true;
+assert.equal(globalThis.surrealXRExit(), true);
+await nextTask();
+const resumeFailure = globalThis.surrealXRGetState();
+assert.equal(resumeFailure.phase, "error");
+assert.equal(resumeFailure.frameLoopBlocked, true);
+assert.equal(resumeFailure.lastErrorCode, "engine-loop-rejected");
+assert.equal(resumeFailure.lastErrorStage, "stopping-frame-loop");
+assert.equal(await globalThis.surrealXRRequestSession(), false);
+assert.equal(sessions.length, sessionsBeforeResumeFailure,
+	"a paused flat scheduler must not admit a misleading XR retry");
 console.log("WebXR current-pose render, async preparation, no-reentry, and lifecycle tests passed");
