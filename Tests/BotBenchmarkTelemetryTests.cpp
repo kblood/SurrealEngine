@@ -272,6 +272,8 @@ int main()
 	diagnostic.FallForecast.Landing.Collision =
 		PawnMovement::WalkingStepCollisionKind::StaticBsp;
 	diagnostic.FallForecast.Landing.Zone = PawnMovement::WalkingStepZoneKind::Pain;
+	diagnostic.FallForecast.PainDamagePerSecKnown = true;
+	diagnostic.FallForecast.PainDamagePerSec = 20.0f;
 	diagnostic.FallHitFractions[0] = 0.5f;
 	diagnostic.FallHitCount = 1;
 	PawnMovement::WalkingStepPreflightDiagnosticRecord provisionalDiagnostic = diagnostic;
@@ -298,8 +300,23 @@ int main()
 		|| diagnosticEvent.find("\"phase\":\"post_mayfall_confirmation\"") == std::string::npos
 		|| diagnosticEvent.find("\"semantic_target\":\"Bullet\\\"Box4\"") == std::string::npos
 		|| diagnosticEvent.find("\"fall_forecast\":{\"attempted\":true,\"origin\":{\"x\":7.000000,\"y\":8.000000,\"z\":9.000000},\"velocity\":{\"x\":10.000000,\"y\":11.000000,\"z\":12.000000},\"acceleration\":{\"x\":13.000000,\"y\":14.000000,\"z\":15.000000},\"gravity_known\":true,\"gravity\":{\"x\":0.000000,\"y\":0.000000,\"z\":-950.000000}") == std::string::npos
+		|| diagnosticEvent.find("\"landing_zone\":\"pain\",\"pain_damage_per_sec_known\":true,\"pain_damage_per_sec\":20.000000") == std::string::npos
 		|| diagnosticEvent.find("\"hit_fractions\":[0.500000000]") == std::string::npos)
 		return Fail("walking-step preflight diagnostic serialization was incomplete or unstable");
+	event.Bots.front().WalkingStepPreflightDiagnostics.clear();
+	diagnostic.Phase = "precommit_provisional";
+	diagnostic.TransitionOutcome.clear();
+	diagnostic.Reason = PawnMovement::WalkingStepPreflightReason::NonFinitePainDamagePerSec;
+	diagnostic.FallForecast.PainDamagePerSec = std::numeric_limits<float>::quiet_NaN();
+	event.Bots.front().WalkingStepPreflightDiagnostics.push_back(diagnostic);
+	const std::string nonFiniteDpsEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (nonFiniteDpsEvent.find(
+		"\"pain_damage_per_sec_known\":true,\"pain_damage_per_sec\":null")
+		== std::string::npos)
+	{
+		return Fail("non-finite preflight landing DPS was not serialized as JSON-safe null");
+	}
 	event.Bots.front().WalkingStepPreflightDiagnostics.clear();
 
 	PawnMovement::FallingParityRealizedRecord parityRecord;

@@ -56,6 +56,7 @@ class MatrixConfig:
     per_bot_skills: tuple[int, ...] | None
     requested_names: tuple[str, ...] | None
     harmful_zone_escape_enabled: bool
+    walking_preflight_positive_dps_veto_enabled: bool
     concurrency: int
     timeout_seconds: float
     repetitions: int
@@ -264,6 +265,10 @@ def load_matrix(path: Path) -> MatrixConfig:
     harmful_zone_escape_enabled = raw.get("harmful_zone_escape_enabled", False)
     if not isinstance(harmful_zone_escape_enabled, bool):
         raise MatrixError("matrix.harmful_zone_escape_enabled must be a boolean")
+    walking_preflight_positive_dps_veto_enabled = raw.get(
+        "walking_preflight_positive_dps_veto_enabled", False)
+    if not isinstance(walking_preflight_positive_dps_veto_enabled, bool):
+        raise MatrixError("matrix.walking_preflight_positive_dps_veto_enabled must be a boolean")
 
     concurrency = _integer(raw.get("concurrency", 1), "matrix.concurrency", 1, MAX_CONCURRENCY)
     timeout_seconds = _number(raw.get("timeout_seconds", 120), "matrix.timeout_seconds", 0.0)
@@ -295,6 +300,7 @@ def load_matrix(path: Path) -> MatrixConfig:
         per_bot_skills=per_bot_skills,
         requested_names=requested_names,
         harmful_zone_escape_enabled=harmful_zone_escape_enabled,
+        walking_preflight_positive_dps_veto_enabled=walking_preflight_positive_dps_veto_enabled,
         concurrency=concurrency,
         timeout_seconds=timeout_seconds,
         repetitions=repetitions,
@@ -326,7 +332,8 @@ def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
                 shared = [config.game_family, map_index, map_url, seed, repetition,
                           config.max_ticks, config.fixed_delta, config.difficulty,
                           config.bot_count, config.per_bot_skills, config.requested_names,
-                          config.harmful_zone_escape_enabled]
+                          config.harmful_zone_escape_enabled,
+                          config.walking_preflight_positive_dps_veto_enabled]
                 pair_id = f"case-{_digest(shared, 16)}" if paired else None
                 for variant in config.variants:
                     identity = [*shared, variant.id, str(variant.executable)]
@@ -357,6 +364,8 @@ def command_for(config: MatrixConfig, case: MatrixCase, run_directory: Path) -> 
         f"--botbench-bots={config.bot_count}",
         "--botbench-harmful-zone-escape=" + (
             "1" if config.harmful_zone_escape_enabled else "0"),
+        "--botbench-walking-preflight-positive-dps-veto=" + (
+            "1" if config.walking_preflight_positive_dps_veto_enabled else "0"),
     ]
     if config.per_bot_skills is not None:
         command.append("--botbench-skills=" + ",".join(str(value) for value in config.per_bot_skills))
@@ -557,6 +566,8 @@ def _run_case(
         "per_bot_skills": config.per_bot_skills,
         "requested_names": config.requested_names,
         "harmful_zone_escape_enabled": config.harmful_zone_escape_enabled,
+        "walking_preflight_positive_dps_veto_enabled": (
+            config.walking_preflight_positive_dps_veto_enabled),
         "command": command,
     })
     launch = launcher(command, config.timeout_seconds, run_directory / "stdout.txt", run_directory / "stderr.txt")
@@ -591,6 +602,8 @@ def _run_case(
         "per_bot_skills": config.per_bot_skills,
         "requested_names": config.requested_names,
         "harmful_zone_escape_enabled": config.harmful_zone_escape_enabled,
+        "walking_preflight_positive_dps_veto_enabled": (
+            config.walking_preflight_positive_dps_veto_enabled),
         "exit_code": launch.exit_code,
         "timed_out": launch.timed_out,
         "wall_seconds": launch.wall_seconds,
@@ -622,6 +635,8 @@ def dry_run_plan(config: MatrixConfig, output: Path) -> dict[str, Any]:
             "per_bot_skills": config.per_bot_skills,
             "requested_names": config.requested_names,
             "harmful_zone_escape_enabled": config.harmful_zone_escape_enabled,
+            "walking_preflight_positive_dps_veto_enabled": (
+                config.walking_preflight_positive_dps_veto_enabled),
             "command": command_for(config, case, runs_directory / case.run_id),
         } for case in cases],
     }

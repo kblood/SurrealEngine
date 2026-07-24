@@ -41,6 +41,8 @@ namespace
 			: EngineRef(engine), Config(std::move(config))
 		{
 			EngineRef.SetBotBenchmarkHarmfulZoneEscapeEnabled(Config.IsHarmfulZoneEscapeEnabled());
+			EngineRef.SetBotBenchmarkWalkingPreflightPositiveDpsVetoEnabled(
+				Config.IsWalkingPreflightPositiveDpsVetoEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -532,6 +534,16 @@ namespace
 				pawn->WalkingStepPreflightAuthorizationCount();
 			counters.WalkingStepPreflightAuthorizableEpisodes =
 				pawn->WalkingStepPreflightAuthorizableEpisodeCount();
+			counters.WalkingStepPreflightPositiveDpsVetoEligible =
+				pawn->WalkingStepPreflightPositiveDpsVetoEligibleCount();
+			counters.WalkingStepPreflightPositiveDpsVetoApplied =
+				pawn->WalkingStepPreflightPositiveDpsVetoAppliedCount();
+			counters.WalkingStepPreflightPositiveDpsVetoDebounced =
+				pawn->WalkingStepPreflightPositiveDpsVetoDebouncedCount();
+			counters.WalkingStepPreflightPositiveDpsVetoForcedReplans =
+				pawn->WalkingStepPreflightPositiveDpsVetoForcedReplanCount();
+			counters.WalkingStepPreflightPositiveDpsVetoRollbackRejected =
+				pawn->WalkingStepPreflightPositiveDpsVetoRollbackRejectedCount();
 			counters.WalkingStepPreflightDiagnosticOverflows =
 				pawn->WalkingStepPreflightDiagnosticOverflowCount();
 			counters.FallingParityRealizedEpisodes = pawn->FallingParityRealizedEpisodeCount();
@@ -1233,6 +1245,16 @@ namespace
 					native.WalkingStepPreflightAuthorizations;
 				bot.WalkingStepPreflightAuthorizableEpisodesExact =
 					native.WalkingStepPreflightAuthorizableEpisodes;
+				bot.WalkingStepPreflightPositiveDpsVetoEligibleExact =
+					native.WalkingStepPreflightPositiveDpsVetoEligible;
+				bot.WalkingStepPreflightPositiveDpsVetoAppliedExact =
+					native.WalkingStepPreflightPositiveDpsVetoApplied;
+				bot.WalkingStepPreflightPositiveDpsVetoDebouncedExact =
+					native.WalkingStepPreflightPositiveDpsVetoDebounced;
+				bot.WalkingStepPreflightPositiveDpsVetoForcedReplansExact =
+					native.WalkingStepPreflightPositiveDpsVetoForcedReplans;
+				bot.WalkingStepPreflightPositiveDpsVetoRollbackRejectedExact =
+					native.WalkingStepPreflightPositiveDpsVetoRollbackRejected;
 				bot.WalkingStepPreflightDiagnosticOverflowsExact =
 					native.WalkingStepPreflightDiagnosticOverflows;
 				bot.FallingParityRealizedEpisodesExact = native.FallingParityRealizedEpisodes;
@@ -1406,7 +1428,8 @@ namespace
 			OptionalCommandLineArg("--botbench-bots"),
 			OptionalCommandLineArg("--botbench-skills"),
 			OptionalCommandLineArg("--botbench-names"),
-			OptionalCommandLineArg("--botbench-harmful-zone-escape"));
+			OptionalCommandLineArg("--botbench-harmful-zone-escape"),
+			OptionalCommandLineArg("--botbench-walking-preflight-positive-dps-veto"));
 	}
 }
 

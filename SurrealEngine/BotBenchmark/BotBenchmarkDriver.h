@@ -59,6 +59,11 @@ namespace BotBenchmarkDriverDetail
 		uint64_t WalkingStepPreflightProvisionalAuthorizations = 0;
 		uint64_t WalkingStepPreflightAuthorizations = 0;
 		uint64_t WalkingStepPreflightAuthorizableEpisodes = 0;
+		uint64_t WalkingStepPreflightPositiveDpsVetoEligible = 0;
+		uint64_t WalkingStepPreflightPositiveDpsVetoApplied = 0;
+		uint64_t WalkingStepPreflightPositiveDpsVetoDebounced = 0;
+		uint64_t WalkingStepPreflightPositiveDpsVetoForcedReplans = 0;
+		uint64_t WalkingStepPreflightPositiveDpsVetoRollbackRejected = 0;
 		uint64_t WalkingStepPreflightDiagnosticOverflows = 0;
 		uint64_t FallingParityRealizedEpisodes = 0;
 		uint64_t FallingParityRealizedSteps = 0;
@@ -232,6 +237,21 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.WalkingStepPreflightAuthorizableEpisodes,
 				Previous.WalkingStepPreflightAuthorizableEpisodes,
 				totals.WalkingStepPreflightAuthorizableEpisodes);
+			AccumulateCounter(current.WalkingStepPreflightPositiveDpsVetoEligible,
+				Previous.WalkingStepPreflightPositiveDpsVetoEligible,
+				totals.WalkingStepPreflightPositiveDpsVetoEligible);
+			AccumulateCounter(current.WalkingStepPreflightPositiveDpsVetoApplied,
+				Previous.WalkingStepPreflightPositiveDpsVetoApplied,
+				totals.WalkingStepPreflightPositiveDpsVetoApplied);
+			AccumulateCounter(current.WalkingStepPreflightPositiveDpsVetoDebounced,
+				Previous.WalkingStepPreflightPositiveDpsVetoDebounced,
+				totals.WalkingStepPreflightPositiveDpsVetoDebounced);
+			AccumulateCounter(current.WalkingStepPreflightPositiveDpsVetoForcedReplans,
+				Previous.WalkingStepPreflightPositiveDpsVetoForcedReplans,
+				totals.WalkingStepPreflightPositiveDpsVetoForcedReplans);
+			AccumulateCounter(current.WalkingStepPreflightPositiveDpsVetoRollbackRejected,
+				Previous.WalkingStepPreflightPositiveDpsVetoRollbackRejected,
+				totals.WalkingStepPreflightPositiveDpsVetoRollbackRejected);
 			AccumulateCounter(current.WalkingStepPreflightDiagnosticOverflows,
 				Previous.WalkingStepPreflightDiagnosticOverflows,
 				totals.WalkingStepPreflightDiagnosticOverflows);

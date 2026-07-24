@@ -41,6 +41,9 @@ namespace PawnMovement
 			"walking_step_preflight_reason_safe_fall_landing_exact",
 			"walking_step_preflight_reason_unknown_pain_damage_immunity_exact",
 			"walking_step_preflight_reason_pain_damage_immune_exact",
+			"walking_step_preflight_reason_unknown_pain_damage_per_sec_exact",
+			"walking_step_preflight_reason_non_finite_pain_damage_per_sec_exact",
+			"walking_step_preflight_reason_non_harmful_pain_damage_per_sec_exact",
 			"walking_step_preflight_reason_harmful_pain_fall_exact"
 		};
 		const size_t index = static_cast<size_t>(reason);
@@ -258,6 +261,12 @@ namespace PawnMovement
 			return NoDecision(WalkingStepPreflightReason::UnknownPainDamageImmunity);
 		if (forecast.PainDamageImmune)
 			return NoDecision(WalkingStepPreflightReason::PainDamageImmune);
+		if (!forecast.PainDamagePerSecKnown)
+			return NoDecision(WalkingStepPreflightReason::UnknownPainDamagePerSec);
+		if (!std::isfinite(forecast.PainDamagePerSec))
+			return NoDecision(WalkingStepPreflightReason::NonFinitePainDamagePerSec);
+		if (forecast.PainDamagePerSec <= 0.0f)
+			return NoDecision(WalkingStepPreflightReason::NonHarmfulPainDamagePerSec);
 
 		return {
 			WalkingStepPreflightDecision::AuthorizeUnsafeStepVeto,

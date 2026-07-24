@@ -46,6 +46,8 @@ static PawnMovement::WalkingStepPreflightInput GenericPainFallInput()
 	input.FallForecast.Landing.Normal = vec3(0.0f, 0.0f, 1.0f);
 	input.FallForecast.Landing.Zone = WalkingStepZoneKind::Pain;
 	input.FallForecast.PainDamageImmunityKnown = true;
+	input.FallForecast.PainDamagePerSecKnown = true;
+	input.FallForecast.PainDamagePerSec = 20.0f;
 	return input;
 }
 
@@ -171,6 +173,26 @@ static void TestEligibilityAndImmunityRemainBehaviorNeutral()
 	input.FallForecast.PainDamageImmune = true;
 	CheckNoDecision(input, WalkingStepPreflightReason::PainDamageImmune,
 		"pain-zone immunity");
+
+	input = GenericPainFallInput();
+	input.FallForecast.PainDamagePerSecKnown = false;
+	CheckNoDecision(input, WalkingStepPreflightReason::UnknownPainDamagePerSec,
+		"an unknown pain-zone damage rate");
+
+	input = GenericPainFallInput();
+	input.FallForecast.PainDamagePerSec = std::numeric_limits<float>::quiet_NaN();
+	CheckNoDecision(input, WalkingStepPreflightReason::NonFinitePainDamagePerSec,
+		"a non-finite pain-zone damage rate");
+
+	input = GenericPainFallInput();
+	input.FallForecast.PainDamagePerSec = 0.0f;
+	CheckNoDecision(input, WalkingStepPreflightReason::NonHarmfulPainDamagePerSec,
+		"a zero pain-zone damage rate");
+
+	input = GenericPainFallInput();
+	input.FallForecast.PainDamagePerSec = -1.0f;
+	CheckNoDecision(input, WalkingStepPreflightReason::NonHarmfulPainDamagePerSec,
+		"a negative pain-zone damage rate");
 }
 
 static void TestStepAndForecastBoundsAreExplicit()

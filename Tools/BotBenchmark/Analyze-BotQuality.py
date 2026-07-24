@@ -201,6 +201,9 @@ WALKING_STEP_PREFLIGHT_REASON_COUNTERS = (
     "walking_step_preflight_reason_safe_fall_landing_exact",
     "walking_step_preflight_reason_unknown_pain_damage_immunity_exact",
     "walking_step_preflight_reason_pain_damage_immune_exact",
+    "walking_step_preflight_reason_unknown_pain_damage_per_sec_exact",
+    "walking_step_preflight_reason_non_finite_pain_damage_per_sec_exact",
+    "walking_step_preflight_reason_non_harmful_pain_damage_per_sec_exact",
     "walking_step_preflight_reason_harmful_pain_fall_exact",
 )
 WALKING_STEP_PREFLIGHT_COUNTERS = (
@@ -212,6 +215,13 @@ WALKING_STEP_PREFLIGHT_COUNTERS = (
     "walking_step_preflight_authorizable_episodes_exact",
     "walking_step_preflight_diagnostic_overflows_exact",
 ) + WALKING_STEP_PREFLIGHT_REASON_COUNTERS
+WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_COUNTERS = (
+    "walking_step_preflight_positive_dps_veto_eligible_exact",
+    "walking_step_preflight_positive_dps_veto_applied_exact",
+    "walking_step_preflight_positive_dps_veto_debounced_exact",
+    "walking_step_preflight_positive_dps_veto_forced_replans_exact",
+    "walking_step_preflight_positive_dps_veto_rollback_rejected_exact",
+)
 FALLING_PARITY_REALIZED_STEP_COUNTERS = (
     "falling_parity_realized_matched_steps_exact",
     "falling_parity_realized_matched_landing_steps_exact",
@@ -262,6 +272,7 @@ OPTIONAL_EXACT_COUNTERS = (
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
     + VERTICAL_PAIN_COLUMN_COUNTERS
+    + WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_COUNTERS
 )
 OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
 OPTIONAL_CUMULATIVE_METRICS = OPTIONAL_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_NUMBERS
@@ -442,7 +453,8 @@ def _walking_step_preflight_forecast(value: Any, context: str) -> dict[str, Any]
     fields = _exact_object(value, context, {
         "attempted", "origin", "velocity", "acceleration", "gravity_known", "gravity",
         "complete", "total_drop", "continuation_count", "landing_collision",
-        "landing_normal", "landing_zone", "hit_fractions",
+        "landing_normal", "landing_zone", "pain_damage_per_sec_known",
+        "pain_damage_per_sec", "hit_fractions",
     })
     attempted = _boolean(fields.get("attempted"), f"{context}.attempted")
     gravity_known = _boolean(fields.get("gravity_known"), f"{context}.gravity_known")
@@ -455,6 +467,17 @@ def _walking_step_preflight_forecast(value: Any, context: str) -> dict[str, Any]
     landing_zone = _string(fields, "landing_zone", context, nonempty=True)
     if landing_zone not in WALKING_STEP_PREFLIGHT_ZONES:
         raise QualityError(f"{context}.landing_zone is not recognized")
+    pain_damage_per_sec_known = _boolean(
+        fields.get("pain_damage_per_sec_known"), f"{context}.pain_damage_per_sec_known")
+    raw_pain_damage_per_sec = fields.get("pain_damage_per_sec")
+    if raw_pain_damage_per_sec is None:
+        pain_damage_per_sec = None
+    else:
+        pain_damage_per_sec = _number(
+            raw_pain_damage_per_sec, f"{context}.pain_damage_per_sec")
+    if not pain_damage_per_sec_known and pain_damage_per_sec is not None:
+        raise QualityError(
+            f"{context}.pain_damage_per_sec must be null when its value is unknown")
     fractions_raw = fields.get("hit_fractions")
     if not isinstance(fractions_raw, list):
         raise QualityError(f"{context}.hit_fractions must be an array")
@@ -493,6 +516,8 @@ def _walking_step_preflight_forecast(value: Any, context: str) -> dict[str, Any]
         "landing_normal": _diagnostic_vector(
             fields.get("landing_normal"), f"{context}.landing_normal"),
         "landing_zone": landing_zone,
+        "pain_damage_per_sec_known": pain_damage_per_sec_known,
+        "pain_damage_per_sec": pain_damage_per_sec,
         "hit_fractions": fractions,
     }
 
@@ -526,6 +551,33 @@ def _walking_step_preflight_diagnostic(value: Any, context: str) -> dict[str, An
         if transition != "post_callback_forecast_rejected" and reason != harmful_reason:
             raise QualityError(
                 f"{context}.reason must preserve the provisional authorization reason")
+    forecast = _walking_step_preflight_forecast(
+        fields.get("fall_forecast"), f"{context}.fall_forecast")
+    requires_exact_dps = phase == "precommit_provisional" \
+        or transition == "begin_falling" \
+        or transition == "post_callback_forecast_rejected"
+    if requires_exact_dps and reason == "walking_step_preflight_reason_unknown_pain_damage_per_sec_exact" \
+            and (forecast["pain_damage_per_sec_known"]
+                 or forecast["pain_damage_per_sec"] is not None):
+        raise QualityError(
+            f"{context}.unknown pain damage per sec reason requires an unknown DPS value")
+    if requires_exact_dps and reason == "walking_step_preflight_reason_non_finite_pain_damage_per_sec_exact" \
+            and (not forecast["pain_damage_per_sec_known"]
+                 or forecast["pain_damage_per_sec"] is not None):
+        raise QualityError(
+            f"{context}.non-finite pain damage per sec reason requires a known non-finite DPS value")
+    if requires_exact_dps and reason == "walking_step_preflight_reason_non_harmful_pain_damage_per_sec_exact" \
+            and (not forecast["pain_damage_per_sec_known"]
+                 or forecast["pain_damage_per_sec"] is None
+                 or forecast["pain_damage_per_sec"] > 0.0):
+        raise QualityError(
+            f"{context}.non-harmful pain damage per sec reason requires known non-positive DPS")
+    if requires_exact_dps and reason == "walking_step_preflight_reason_harmful_pain_fall_exact" \
+            and (not forecast["pain_damage_per_sec_known"]
+                 or forecast["pain_damage_per_sec"] is None
+                 or forecast["pain_damage_per_sec"] <= 0.0):
+        raise QualityError(
+            f"{context}.harmful pain fall reason requires known positive DPS")
     return {
         "source_pawn_actor": _string(fields, "source_pawn_actor", context, nonempty=True),
         "sequence": _integer(fields.get("sequence"), f"{context}.sequence", minimum=0),
@@ -556,8 +608,7 @@ def _walking_step_preflight_diagnostic(value: Any, context: str) -> dict[str, An
             fields.get("actual_step_down"), f"{context}.actual_step_down"),
         "support_probe": _walking_step_preflight_probe(
             fields.get("support_probe"), f"{context}.support_probe"),
-        "fall_forecast": _walking_step_preflight_forecast(
-            fields.get("fall_forecast"), f"{context}.fall_forecast"),
+        "fall_forecast": forecast,
     }
 
 
@@ -1435,7 +1486,8 @@ def _load_json(path: Path, context: str) -> dict[str, Any]:
 
 def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficulty: int,
                bot_count: int | None = None, requested_roster: list[dict[str, Any]] | None = None,
-               harmful_zone_escape_enabled: bool | None = None) -> str:
+               harmful_zone_escape_enabled: bool | None = None,
+               walking_preflight_positive_dps_veto_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -1445,6 +1497,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if harmful_zone_escape_enabled is not None:
             canonical_text += "harmful_zone_escape_enabled=" + (
                 "1\n" if harmful_zone_escape_enabled else "0\n")
+        if walking_preflight_positive_dps_veto_enabled is not None:
+            canonical_text += "walking_preflight_positive_dps_veto_enabled=" + (
+                "1\n" if walking_preflight_positive_dps_veto_enabled else "0\n")
         assert requested_roster is not None
         canonical_text += "".join(f"roster={entry['identity_fragment']}\n" for entry in requested_roster)
     canonical = canonical_text.encode("utf-8")
@@ -1559,6 +1614,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     death_attribution_recent_window_seconds = None
     suicides_exact_semantics = None
     harmful_zone_escape_enabled = None
+    walking_preflight_positive_dps_veto_enabled = None
     if schema == MANIFEST_SCHEMA_V2:
         bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
         requested_roster = _validate_requested_roster(raw.get("requested_roster"),
@@ -1575,8 +1631,13 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             harmful_zone_escape_enabled = _boolean(
                 raw.get("harmful_zone_escape_enabled"),
                 "manifest.harmful_zone_escape_enabled")
+        if "walking_preflight_positive_dps_veto_enabled" in raw:
+            walking_preflight_positive_dps_veto_enabled = _boolean(
+                raw.get("walking_preflight_positive_dps_veto_enabled"),
+                "manifest.walking_preflight_positive_dps_veto_enabled")
     expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count,
-                             requested_roster, harmful_zone_escape_enabled)
+                             requested_roster, harmful_zone_escape_enabled,
+                             walking_preflight_positive_dps_veto_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -1594,6 +1655,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "death_attribution_recent_window_seconds": death_attribution_recent_window_seconds,
         "suicides_exact_semantics": suicides_exact_semantics,
         "harmful_zone_escape_enabled": harmful_zone_escape_enabled,
+        "walking_preflight_positive_dps_veto_enabled": walking_preflight_positive_dps_veto_enabled,
     }
 
 
@@ -1794,6 +1856,23 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if authorizations > unsupported or unsupported > observations:
                 raise QualityError(
                     f"{context}: walking step authorization/unsupported-endpoint bounds are invalid")
+        if "walking_step_preflight_positive_dps_veto_eligible_exact" in result:
+            eligible = result["walking_step_preflight_positive_dps_veto_eligible_exact"]
+            applied = result["walking_step_preflight_positive_dps_veto_applied_exact"]
+            debounced = result["walking_step_preflight_positive_dps_veto_debounced_exact"]
+            forced_replans = result[
+                "walking_step_preflight_positive_dps_veto_forced_replans_exact"]
+            rollback_rejected = result[
+                "walking_step_preflight_positive_dps_veto_rollback_rejected_exact"]
+            if applied + debounced > eligible:
+                raise QualityError(
+                    f"{context}: positive-DPS veto applied/debounced counts exceed eligibility")
+            if forced_replans != applied:
+                raise QualityError(
+                    f"{context}: positive-DPS veto forced replans do not equal applied vetoes")
+            if rollback_rejected > eligible - debounced:
+                raise QualityError(
+                    f"{context}: positive-DPS veto rollback rejections exceed authorized attempts")
         if "falling_parity_realized_episodes_exact" in result:
             episodes = result["falling_parity_realized_episodes_exact"]
             realized_steps = result["falling_parity_realized_steps_exact"]
@@ -2057,6 +2136,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["harmful_zone_escape_enabled"] = _boolean(
             config.get("harmful_zone_escape_enabled"),
             "summary.config.harmful_zone_escape_enabled")
+    if manifest["walking_preflight_positive_dps_veto_enabled"] is not None:
+        comparisons["walking_preflight_positive_dps_veto_enabled"] = _boolean(
+            config.get("walking_preflight_positive_dps_veto_enabled"),
+            "summary.config.walking_preflight_positive_dps_veto_enabled")
     requested_roster = None
     actual_roster = None
     if expected_schema == SUMMARY_SCHEMA_V2:
@@ -2507,6 +2590,8 @@ def analyze_run(path: Path) -> dict[str, Any]:
             "map": summary["map"], "initial_bot_count": len(events[0]["bots"]),
             "requested_roster": manifest["requested_roster"],
             "harmful_zone_escape_enabled": manifest["harmful_zone_escape_enabled"],
+            "walking_preflight_positive_dps_veto_enabled": (
+                manifest["walking_preflight_positive_dps_veto_enabled"]),
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),
             "suicides_exact_semantics": manifest["suicides_exact_semantics"],

@@ -1317,7 +1317,8 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 "total_drop": 128.0, "continuation_count": 0,
                 "landing_collision": "static_bsp",
                 "landing_normal": {"x": 0.0, "y": 0.0, "z": 1.0},
-                "landing_zone": "pain", "hit_fractions": [0.5],
+                "landing_zone": "pain", "pain_damage_per_sec_known": True,
+                "pain_damage_per_sec": 20.0, "hit_fractions": [0.5],
             },
         }
         confirmation = json.loads(json.dumps(provisional))
@@ -1367,6 +1368,34 @@ class BotQualityAnalysisTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             analyze_mutation(root, "valid-diagnostics", lambda samples: None)
+
+            for reason, known, dps in (
+                    ("walking_step_preflight_reason_unknown_pain_damage_per_sec_exact",
+                     False, None),
+                    ("walking_step_preflight_reason_non_finite_pain_damage_per_sec_exact",
+                     True, None),
+                    ("walking_step_preflight_reason_non_harmful_pain_damage_per_sec_exact",
+                     True, 0.0)):
+                with self.subTest(reason=reason):
+                    def use_valid_dps_rejection(samples: list[dict], reason=reason,
+                                                known=known, dps=dps) -> None:
+                        diagnostic = samples[1]["walking_step_preflight_diagnostics"][0]
+                        diagnostic["reason"] = reason
+                        diagnostic["fall_forecast"].update(
+                            pain_damage_per_sec_known=known, pain_damage_per_sec=dps)
+                        for sample_item in samples[1:]:
+                            sample_item["walking_step_preflight_no_decisions_exact"] = 1
+                            sample_item[
+                                "walking_step_preflight_provisional_authorizations_exact"] = 0
+                            sample_item[
+                                "walking_step_preflight_post_mayfall_confirmed_authorizations_exact"] = 0
+                            sample_item["walking_step_preflight_authorizable_episodes_exact"] = 0
+                            for counter in QUALITY.WALKING_STEP_PREFLIGHT_REASON_COUNTERS:
+                                sample_item[counter] = 0
+                            sample_item[reason] = 1
+                        samples[1]["walking_step_preflight_diagnostics"] = [diagnostic]
+
+                    analyze_mutation(root, f"valid-{reason}", use_valid_dps_rejection)
 
             def use_rejected_confirmation(samples: list[dict]) -> None:
                 samples[1]["walking_step_preflight_diagnostics"][1] = \
@@ -1438,6 +1467,18 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 ("unattempted-results", lambda samples: samples[1]
                     ["walking_step_preflight_diagnostics"][1]["fall_forecast"]
                     .update(attempted=False), "complete forecast must have been attempted"),
+                ("unknown-dps-with-value", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0]["fall_forecast"]
+                    .update(pain_damage_per_sec_known=False),
+                    "must be null when its value is unknown"),
+                ("nonfinite-dps-with-number", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(
+                        reason="walking_step_preflight_reason_non_finite_pain_damage_per_sec_exact"),
+                    "requires a known non-finite DPS value"),
+                ("nonharmful-dps-positive", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(
+                        reason="walking_step_preflight_reason_non_harmful_pain_damage_per_sec_exact"),
+                    "requires known non-positive DPS"),
             )
             for name, mutate, message in malformed_cases:
                 with self.subTest(name=name):

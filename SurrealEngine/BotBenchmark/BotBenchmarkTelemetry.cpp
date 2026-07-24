@@ -179,6 +179,19 @@ namespace
 		WriteVector(out, diagnostic.FallForecast.Landing.Normal);
 		out << ",\"landing_zone\":"
 			<< JsonString(ZoneName(diagnostic.FallForecast.Landing.Zone))
+			<< ",\"pain_damage_per_sec_known\":"
+			<< (diagnostic.FallForecast.PainDamagePerSecKnown ? "true" : "false")
+			<< ",\"pain_damage_per_sec\":";
+		if (diagnostic.FallForecast.PainDamagePerSecKnown
+			&& std::isfinite(diagnostic.FallForecast.PainDamagePerSec))
+		{
+			out << Fixed(diagnostic.FallForecast.PainDamagePerSec, 6);
+		}
+		else
+		{
+			out << "null";
+		}
+		out
 			<< ",\"hit_fractions\":[";
 		for (size_t index = 0; index < diagnostic.FallHitCount; index++)
 		{
@@ -397,6 +410,16 @@ namespace
 			<< ",\"walking_step_preflight_provisional_authorizations_exact\":\"" << bot.WalkingStepPreflightProvisionalAuthorizationsExact << "\""
 			<< ",\"walking_step_preflight_post_mayfall_confirmed_authorizations_exact\":\"" << bot.WalkingStepPreflightAuthorizationsExact << "\""
 			<< ",\"walking_step_preflight_authorizable_episodes_exact\":\"" << bot.WalkingStepPreflightAuthorizableEpisodesExact << "\"";
+		out << ",\"walking_step_preflight_positive_dps_veto_eligible_exact\":\""
+			<< bot.WalkingStepPreflightPositiveDpsVetoEligibleExact << "\""
+			<< ",\"walking_step_preflight_positive_dps_veto_applied_exact\":\""
+			<< bot.WalkingStepPreflightPositiveDpsVetoAppliedExact << "\""
+			<< ",\"walking_step_preflight_positive_dps_veto_debounced_exact\":\""
+			<< bot.WalkingStepPreflightPositiveDpsVetoDebouncedExact << "\""
+			<< ",\"walking_step_preflight_positive_dps_veto_forced_replans_exact\":\""
+			<< bot.WalkingStepPreflightPositiveDpsVetoForcedReplansExact << "\""
+			<< ",\"walking_step_preflight_positive_dps_veto_rollback_rejected_exact\":\""
+			<< bot.WalkingStepPreflightPositiveDpsVetoRollbackRejectedExact << "\"";
 		for (size_t reasonIndex = 0;
 			reasonIndex < bot.WalkingStepPreflightReasonsExact.size(); reasonIndex++)
 		{
@@ -513,7 +536,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "difficulty=" << config.GetDifficulty() << '\n'
 		<< "bot_count=" << config.GetRoster().GetCount() << '\n'
 		<< "harmful_zone_escape_enabled="
-		<< (config.IsHarmfulZoneEscapeEnabled() ? "1" : "0") << '\n';
+		<< (config.IsHarmfulZoneEscapeEnabled() ? "1" : "0") << '\n'
+		<< "walking_preflight_positive_dps_veto_enabled="
+		<< (config.IsWalkingPreflightPositiveDpsVetoEnabled() ? "1" : "0") << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
 		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
@@ -541,6 +566,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< "  \"telemetry_event_cap\": \"" << EventCap(config.GetMaxTicks()) << "\",\n"
 		<< "  \"harmful_zone_escape_enabled\": "
 		<< (config.IsHarmfulZoneEscapeEnabled() ? "true" : "false") << ",\n"
+		<< "  \"walking_preflight_positive_dps_veto_enabled\": "
+		<< (config.IsWalkingPreflightPositiveDpsVetoEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";

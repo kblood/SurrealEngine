@@ -146,17 +146,19 @@ namespace
 
 BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string outputDirectory,
 	uint64_t seed, uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster,
-	bool harmfulZoneEscapeEnabled)
+	bool harmfulZoneEscapeEnabled, bool walkingPreflightPositiveDpsVetoEnabled)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
-	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled)
+	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled),
+	WalkingPreflightPositiveDpsVetoEnabled(walkingPreflightPositiveDpsVetoEnabled)
 {
 }
 
 BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string outputDirectory,
 	std::string seed, std::string maxTicks, std::string fixedDelta, std::string difficulty,
 	std::optional<std::string> botCount, std::optional<std::string> perBotSkills,
-	std::optional<std::string> requestedNames, std::optional<std::string> harmfulZoneEscape)
+	std::optional<std::string> requestedNames, std::optional<std::string> harmfulZoneEscape,
+	std::optional<std::string> walkingPreflightPositiveDpsVeto)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -177,9 +179,12 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		std::move(botCount), std::move(perBotSkills), std::move(requestedNames), parsedDifficulty);
 	const bool parsedHarmfulZoneEscape = ParseExactBoolean(
 		harmfulZoneEscape, "bot benchmark harmful-zone escape");
+	const bool parsedWalkingPreflightPositiveDpsVeto = ParseExactBoolean(
+		walkingPreflightPositiveDpsVeto, "bot benchmark walking-preflight positive-DPS veto");
 
 	return BotBenchmarkRunConfig(std::move(url), std::move(outputDirectory), parsedSeed,
-		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster), parsedHarmfulZoneEscape);
+		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster), parsedHarmfulZoneEscape,
+		parsedWalkingPreflightPositiveDpsVeto);
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
@@ -223,7 +228,9 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< "    \"difficulty\": " << config.GetDifficulty() << ",\n"
 		<< "    \"bot_count\": " << config.GetRoster().GetCount() << ",\n"
 		<< "    \"harmful_zone_escape_enabled\": "
-		<< (config.IsHarmfulZoneEscapeEnabled() ? "true" : "false") << "\n"
+		<< (config.IsHarmfulZoneEscapeEnabled() ? "true" : "false") << ",\n"
+		<< "    \"walking_preflight_positive_dps_veto_enabled\": "
+		<< (config.IsWalkingPreflightPositiveDpsVetoEnabled() ? "true" : "false") << "\n"
 		<< "  }\n"
 		<< "}\n";
 	return out.str();

@@ -1950,8 +1950,9 @@ public:
 	void ObserveWalkingStepPreflightShadow(const vec3& stepUpDelta,
 		const vec3& forwardDelta, const vec3& stepDownDelta, int walkingIteration,
 		uint64_t invocationToken);
-	void ConfirmWalkingStepPreflightShadow(int walkingIteration, uint64_t invocationToken,
+	bool ConfirmWalkingStepPreflightShadow(int walkingIteration, uint64_t invocationToken,
 		PawnMovement::LedgeTransition transition);
+	void RecordWalkingStepPreflightPositiveDpsVetoOutcome(bool applied);
 	void ArmFallingParityRealizedTrace(int walkingIteration, uint64_t invocationToken);
 	bool HasActiveFallingParityRealizedModel() const
 	{
@@ -2065,6 +2066,11 @@ public:
 	uint64_t WalkingStepPreflightAuthorizationCount() const { return WalkingStepPreflightAuthorizationCountValue; }
 	uint64_t WalkingStepPreflightAuthorizableEpisodeCount() const { return WalkingStepPreflightAuthorizableEpisodeCountValue; }
 	uint64_t WalkingStepPreflightDiagnosticOverflowCount() const { return WalkingStepPreflightDiagnosticOverflowCountValue; }
+	uint64_t WalkingStepPreflightPositiveDpsVetoEligibleCount() const { return WalkingStepPreflightPositiveDpsVetoEligibleCountValue; }
+	uint64_t WalkingStepPreflightPositiveDpsVetoAppliedCount() const { return WalkingStepPreflightPositiveDpsVetoAppliedCountValue; }
+	uint64_t WalkingStepPreflightPositiveDpsVetoDebouncedCount() const { return WalkingStepPreflightPositiveDpsVetoDebouncedCountValue; }
+	uint64_t WalkingStepPreflightPositiveDpsVetoForcedReplanCount() const { return WalkingStepPreflightPositiveDpsVetoForcedReplanCountValue; }
+	uint64_t WalkingStepPreflightPositiveDpsVetoRollbackRejectedCount() const { return WalkingStepPreflightPositiveDpsVetoRollbackRejectedCountValue; }
 	uint64_t FallingParityRealizedEpisodeCount() const { return FallingParityRealizedEpisodeCountValue; }
 	uint64_t FallingParityRealizedStepCount() const { return FallingParityRealizedStepCountValue; }
 	uint64_t FallingParityRealizedMatchedStepCount() const { return FallingParityRealizedMatchedStepCountValue; }
@@ -2359,6 +2365,11 @@ private:
 	uint64_t WalkingStepPreflightAuthorizationCountValue = 0;
 	uint64_t WalkingStepPreflightAuthorizableEpisodeCountValue = 0;
 	uint64_t WalkingStepPreflightDiagnosticOverflowCountValue = 0;
+	uint64_t WalkingStepPreflightPositiveDpsVetoEligibleCountValue = 0;
+	uint64_t WalkingStepPreflightPositiveDpsVetoAppliedCountValue = 0;
+	uint64_t WalkingStepPreflightPositiveDpsVetoDebouncedCountValue = 0;
+	uint64_t WalkingStepPreflightPositiveDpsVetoForcedReplanCountValue = 0;
+	uint64_t WalkingStepPreflightPositiveDpsVetoRollbackRejectedCountValue = 0;
 	uint64_t WalkingStepPreflightDiagnosticSequence = 0;
 	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 		WalkingStepPreflightDiagnostics;

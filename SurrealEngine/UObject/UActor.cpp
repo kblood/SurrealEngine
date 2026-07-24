@@ -525,6 +525,8 @@ namespace
 					forecast.PainDamageImmunityKnown = true;
 					forecast.PainDamageImmune = landingZone->bPainZone()
 						&& landingZone->DamageType() == pawn->ReducedDamageType();
+					forecast.PainDamagePerSecKnown = true;
+					forecast.PainDamagePerSec = static_cast<float>(landingZone->DamagePerSec());
 				}
 			}
 			return forecast;
@@ -1216,15 +1218,30 @@ void UActor::TickWalking(float elapsed)
 				const bool canJump = stillWalking && pawn->bCanJump();
 				const PawnMovement::LedgeTransition transition = PawnMovement::ResolveLedgeTransition(
 					deleteMe, stillWalking, canJump);
+				bool positiveDpsVetoAuthorized = false;
 				if (walkingPreflightEnabled
 					&& pawn->HasWalkingStepPreflightConfirmation(
 						iteration, preflightInvocation))
 				{
-					pawn->ConfirmWalkingStepPreflightShadow(
+					positiveDpsVetoAuthorized = pawn->ConfirmWalkingStepPreflightShadow(
 						iteration, preflightInvocation, transition);
 				}
 				if (transition == PawnMovement::LedgeTransition::Abort)
 					return;
+				if (positiveDpsVetoAuthorized)
+				{
+					const vec3 rollbackDelta = iterationStartLocation - Location();
+					const bool rollbackClear = TryMove(rollbackDelta, true).Fraction == 1.0f;
+					if (rollbackClear && TryMove(rollbackDelta).Fraction == 1.0f)
+					{
+						Velocity() = vec3(0.0f);
+						Acceleration() = vec3(0.0f);
+						pawn->MoveTimer() = -1.0f;
+						pawn->RecordWalkingStepPreflightPositiveDpsVetoOutcome(true);
+						return;
+					}
+					pawn->RecordWalkingStepPreflightPositiveDpsVetoOutcome(false);
+				}
 
 				bool painZoneVeto = false;
 				bool restoreGrounded = transition == PawnMovement::LedgeTransition::RestoreGrounded;
@@ -5796,14 +5813,14 @@ void UPawn::ObserveWalkingStepPreflightShadow(const vec3& stepUpDelta,
 	}
 }
 
-void UPawn::ConfirmWalkingStepPreflightShadow(int walkingIteration,
+bool UPawn::ConfirmWalkingStepPreflightShadow(int walkingIteration,
 	uint64_t invocationToken, PawnMovement::LedgeTransition transition)
 {
 	using namespace PawnMovement;
 	if (!WalkingStepPreflightPendingConfirmation
 		|| WalkingStepPreflightPendingIteration != walkingIteration
 		|| WalkingStepPreflightPendingInvocation != invocationToken)
-		return;
+		return false;
 
 	WalkingStepPreflightPendingConfirmation = false;
 	WalkingStepPreflightDiagnosticRecord diagnostic =
@@ -5840,7 +5857,7 @@ void UPawn::ConfirmWalkingStepPreflightShadow(int walkingIteration,
 	{
 		diagnostic.ActualUnsupportedEndpoint = vec3(0.0f);
 		queueDiagnostic(std::move(diagnostic));
-		return;
+		return false;
 	}
 
 	diagnostic.ActualUnsupportedEndpoint = Location();
@@ -5901,6 +5918,7 @@ void UPawn::ConfirmWalkingStepPreflightShadow(int walkingIteration,
 			diagnostic.TransitionOutcome = "post_callback_forecast_rejected";
 	}
 
+	bool positiveDpsVetoAuthorized = false;
 	if (confirmed)
 	{
 		WalkingStepPreflightAuthorizationCountValue++;
@@ -5918,9 +5936,31 @@ void UPawn::ConfirmWalkingStepPreflightShadow(int walkingIteration,
 		WalkingStepPreflightEpisode = episode.State;
 		if (episode.AuthorizationStarted)
 			WalkingStepPreflightAuthorizableEpisodeCountValue++;
+		if (engine->IsBotBenchmarkWalkingPreflightPositiveDpsVetoEnabled())
+		{
+			WalkingStepPreflightPositiveDpsVetoEligibleCountValue++;
+			if (episode.AuthorizationStarted)
+				positiveDpsVetoAuthorized = true;
+			else
+				WalkingStepPreflightPositiveDpsVetoDebouncedCountValue++;
+		}
 	}
 
 	queueDiagnostic(std::move(diagnostic));
+	return positiveDpsVetoAuthorized;
+}
+
+void UPawn::RecordWalkingStepPreflightPositiveDpsVetoOutcome(bool applied)
+{
+	if (applied)
+	{
+		WalkingStepPreflightPositiveDpsVetoAppliedCountValue++;
+		WalkingStepPreflightPositiveDpsVetoForcedReplanCountValue++;
+	}
+	else
+	{
+		WalkingStepPreflightPositiveDpsVetoRollbackRejectedCountValue++;
+	}
 }
 
 void UPawn::ArmFallingParityRealizedTrace(int walkingIteration,

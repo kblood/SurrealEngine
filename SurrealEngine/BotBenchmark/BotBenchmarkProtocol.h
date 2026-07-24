@@ -30,7 +30,8 @@ public:
 		std::optional<std::string> botCount = {},
 		std::optional<std::string> perBotSkills = {},
 		std::optional<std::string> requestedNames = {},
-		std::optional<std::string> harmfulZoneEscape = {});
+		std::optional<std::string> harmfulZoneEscape = {},
+		std::optional<std::string> walkingPreflightPositiveDpsVeto = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -40,11 +41,15 @@ public:
 	int GetDifficulty() const { return Difficulty; }
 	const BotBenchmarkRoster& GetRoster() const { return Roster; }
 	bool IsHarmfulZoneEscapeEnabled() const { return HarmfulZoneEscapeEnabled; }
+	bool IsWalkingPreflightPositiveDpsVetoEnabled() const
+	{
+		return WalkingPreflightPositiveDpsVetoEnabled;
+	}
 
 private:
 	BotBenchmarkRunConfig(std::string url, std::string outputDirectory, uint64_t seed,
 		uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster,
-		bool harmfulZoneEscapeEnabled);
+		bool harmfulZoneEscapeEnabled, bool walkingPreflightPositiveDpsVetoEnabled);
 
 	std::string URL;
 	std::string OutputDirectory;
@@ -54,6 +59,7 @@ private:
 	int Difficulty = 0;
 	BotBenchmarkRoster Roster;
 	bool HarmfulZoneEscapeEnabled = false;
+	bool WalkingPreflightPositiveDpsVetoEnabled = false;
 };
 
 class BotBenchmarkRunSummary

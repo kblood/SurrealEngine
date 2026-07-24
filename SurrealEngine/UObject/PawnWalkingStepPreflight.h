@@ -64,6 +64,8 @@ namespace PawnMovement
 		WalkingStepSupportObservation Landing;
 		bool PainDamageImmunityKnown = false;
 		bool PainDamageImmune = false;
+		bool PainDamagePerSecKnown = false;
+		float PainDamagePerSec = 0.0f;
 	};
 
 	struct WalkingStepPreflightInput
@@ -128,6 +130,9 @@ namespace PawnMovement
 		SafeFallLanding,
 		UnknownPainDamageImmunity,
 		PainDamageImmune,
+		UnknownPainDamagePerSec,
+		NonFinitePainDamagePerSec,
+		NonHarmfulPainDamagePerSec,
 		HarmfulPainFall,
 		Count
 	};
