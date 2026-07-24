@@ -1,0 +1,64 @@
+
+#include "Precomp.h"
+#include "NRuneActor.h"
+#include "VM/NativeFunc.h"
+#include "UObject/UActor.h"
+
+// Rune's licensed engine fork added a named-joint/skeletal-attachment system
+// (Skeletal/SkelMesh/SkelGroupSkins/SkelGroupFlags/JointChild) that this engine
+// does not implement (see Docs/RUNE_SUPPORT_PLAN.md M3). These natives are
+// stubbed to the coarsest behavior that keeps Rune's script code from crashing
+// or leaking actors, without pretending to model per-joint transforms.
+void NRuneActor::RegisterFunctions()
+{
+	RegisterVMNativeFunc_2("Actor", "AttachActorToJoint", &NRuneActor::AttachActorToJoint, 613);
+	RegisterVMNativeFunc_2("Actor", "JointNamed", &NRuneActor::JointNamed, 619);
+	RegisterVMNativeFunc_5("Actor", "TraceTexture", &NRuneActor::TraceTexture, 666);
+	RegisterVMNativeFunc_2("Actor", "GetJointPos", &NRuneActor::GetJointPos, 602);
+	RegisterVMNativeFunc_1("Actor", "ResetAnimationCache", &NRuneActor::ResetAnimationCache, 620);
+	RegisterVMNativeFunc_0("Actor", "SetDefaultPolygroups", &NRuneActor::SetDefaultPolygroups, 610);
+}
+
+void NRuneActor::AttachActorToJoint(UObject* Self, UObject* A, int j)
+{
+	// No joint offset table exists, so the attached actor is based on Self
+	// directly (follows Self's overall position) rather than a named joint.
+	UActor* attachee = UObject::TryCast<UActor>(A);
+	if (attachee)
+		attachee->SetBase(UObject::Cast<UActor>(Self), true);
+}
+
+void NRuneActor::JointNamed(UObject* Self, const NameString& jointname, int& ReturnValue)
+{
+	// -1 means "no such joint" to any caller checking the result, and is safe
+	// to pass straight into AttachActorToJoint above, which ignores it anyway.
+	ReturnValue = -1;
+}
+
+void NRuneActor::TraceTexture(UObject* Self, const vec3& TraceEnd, const vec3& TraceStart, int& Flags, vec3& ScrollDir, UObject*& ReturnValue)
+{
+	UActor* SelfActor = UObject::Cast<UActor>(Self);
+	vec3 hitLocation, hitNormal;
+	ReturnValue = SelfActor->Trace(hitLocation, hitNormal, TraceEnd, TraceStart, false, vec3(0.0f, 0.0f, 0.0f));
+	// Surface scroll/flag data (moving water, conveyors, etc.) isn't tracked by
+	// this engine's textures, so these report "no scroll" rather than fabricate a value.
+	Flags = 0;
+	ScrollDir = vec3(0.0f, 0.0f, 0.0f);
+}
+
+void NRuneActor::GetJointPos(UObject* Self, int joint, vec3& ReturnValue)
+{
+	// Falls back to the actor's own location since per-joint transforms aren't modeled.
+	ReturnValue = UObject::Cast<UActor>(Self)->Location();
+}
+
+void NRuneActor::ResetAnimationCache(UObject* Self, const NameString& seq)
+{
+	// No-op: there is no animation cache to invalidate.
+}
+
+void NRuneActor::SetDefaultPolygroups(UObject* Self)
+{
+	// No-op: cosmetic menu polygon-group setup (RuneMenu.Paint) with no
+	// gameplay effect once accepted as a harmless call.
+}

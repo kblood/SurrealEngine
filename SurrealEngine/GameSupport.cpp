@@ -30,6 +30,7 @@
 #include "Native/NPlayerPawnExt.h"
 #include "Native/NRadioBoxWindow.h"
 #include "Native/NRootWindow.h"
+#include "Native/NRuneActor.h"
 #include "Native/NScaleManagerWindow.h"
 #include "Native/NScaleWindow.h"
 #include "Native/NScriptedPawn.h"
@@ -63,8 +64,7 @@ namespace
 
 	void RegisterRuneNativeFunctions(const GameLaunchInfo&)
 	{
-		// No Rune-specific native classes exist yet; gap discovery against a
-		// real Rune install determines what belongs here.
+		NRuneActor::RegisterFunctions();
 	}
 
 	void RegisterDeusExNativeFunctions(const GameLaunchInfo&)
