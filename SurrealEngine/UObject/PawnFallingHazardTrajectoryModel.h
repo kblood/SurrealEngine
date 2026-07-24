@@ -6,7 +6,7 @@
 namespace PawnMovement
 {
 	constexpr size_t FallingHazardMaximumSweptSegments = 256;
-	constexpr uint32_t FallingHazardMaximumGenerationsPerLife = 1024;
+	constexpr uint32_t FallingHazardMaximumGenerationsPerLife = 4096;
 	constexpr uint32_t FallingHazardRegionCallback = 1u << 0;
 	constexpr uint32_t FallingHazardFootZoneCallback = 1u << 1;
 	constexpr uint32_t FallingHazardHeadZoneCallback = 1u << 2;
@@ -115,6 +115,9 @@ namespace PawnMovement
 		FallingHazardSweepLeg Leg = FallingHazardSweepLeg::Direct;
 		FallingHazardCollisionKind Collision = FallingHazardCollisionKind::Unknown;
 		float Elapsed = 0.0f;
+		bool HarmfulCenterZoneKnown = false;
+		bool InHarmfulCenterZone = false;
+		FallingHazardZoneId CenterZone;
 		bool HarmfulFootZoneKnown = false;
 		bool InHarmfulFootZone = false;
 		FallingHazardZoneId FootZone;
@@ -160,9 +163,12 @@ namespace PawnMovement
 		float ElapsedHorizon = 0.0f;
 		float ObservedElapsed = 0.0f;
 		bool HasPositiveElapsed = false;
+		bool HarmfulCenterEvidenceKnown = true;
 		bool HarmfulFootEvidenceKnown = true;
 		bool WaterEvidenceKnown = true;
+		bool EnteredHarmfulCenterZone = false;
 		bool EnteredHarmfulFootZone = false;
+		FallingHazardZoneId ObservedHarmfulCenterZone;
 		FallingHazardZoneId ObservedHarmfulFootZone;
 		bool ExpectedHarmfulPathMatched = false;
 		bool CausalAmbiguity = false;

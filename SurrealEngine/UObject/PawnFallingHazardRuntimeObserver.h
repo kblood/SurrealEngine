@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <optional>
 #include <vector>
 
 namespace PawnMovement
@@ -29,6 +30,9 @@ namespace PawnMovement
 	struct FallingHazardRuntimeSweepObservation
 	{
 		FallingHazardForecastExpectedSegment Segment;
+		bool HarmfulCenterZoneKnown = false;
+		bool InHarmfulCenterZone = false;
+		FallingHazardZoneId CenterZone;
 		bool HarmfulFootZoneKnown = false;
 		bool InHarmfulFootZone = false;
 		FallingHazardZoneId FootZone;
@@ -73,6 +77,16 @@ namespace PawnMovement
 		FallingHazardLifeId CurrentLife() const { return Life; }
 		FallingHazardFallEpisodeId CurrentFallEpisode() const { return FallEpisode; }
 		FallingHazardGenerationId CurrentGeneration() const;
+		std::optional<FallingHazardTerminal> LastCompletedTerminal() const
+		{
+			return HasLastCompletion
+				? std::optional<FallingHazardTerminal>(LastCompletionTerminal)
+				: std::nullopt;
+		}
+		bool GenerationCapacityExhaustedForLife() const
+		{
+			return TrajectoryModel.GenerationCapacityExceeded;
+		}
 		const FallingHazardRuntimeCounters& Counters() const { return CounterValues; }
 		const FallingHazardTrajectoryModel& Model() const { return TrajectoryModel; }
 		const FallingHazardForecastState* ActiveForecast() const;
@@ -101,6 +115,9 @@ namespace PawnMovement
 		size_t ActualSampleCount = 0;
 		uint64_t NextDiagnosticSequence = 1;
 		bool CapacityDiagnosticEmittedForLife = false;
+		bool HasLastCompletion = false;
+		FallingHazardTerminal LastCompletionTerminal =
+			FallingHazardTerminal::Active;
 		FallingHazardRuntimeCounters CounterValues;
 		std::vector<FallingHazardDiagnosticRecord> DiagnosticQueue;
 	};

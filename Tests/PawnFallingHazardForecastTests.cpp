@@ -186,6 +186,36 @@ namespace
 			"bPainZone without positive damage per second is not harmful truth");
 	}
 
+	void TestAlreadyHarmfulStartingCenterOrFoot()
+	{
+		using namespace PawnMovement;
+		for (const bool center : { true, false })
+		{
+			auto input = DefaultInput();
+			auto& harmful = center
+				? input.StartingZones.Center : input.StartingZones.Foot;
+			harmful.PainZone = true;
+			harmful.DamagePerSecond = 5;
+			const auto result = BeginFallingHazardForecast(input);
+			Check(result.Complete && !result.Probe.Valid
+				&& result.Result.Classification == FallingHazardForecast::Unknown
+				&& result.Result.Reason
+					== FallingHazardForecastReason::AlreadyInHarmfulPain
+				&& result.Result.SegmentCount == 0
+				&& result.State.ExpectedSegmentCount == 0,
+				center
+					? "positive-DPS starting center pain waits for a typed boundary"
+					: "positive-DPS starting foot pain waits for a typed boundary");
+		}
+
+		auto zeroDamage = DefaultInput();
+		zeroDamage.StartingZones.Center.PainZone = true;
+		zeroDamage.StartingZones.Center.DamagePerSecond = 0;
+		const auto zeroDamageResult = BeginFallingHazardForecast(zeroDamage);
+		Check(!zeroDamageResult.Complete && zeroDamageResult.Probe.Valid,
+			"zero-DPS starting center pain does not suppress forecasting");
+	}
+
 	void TestStrictStaticLandingThreshold()
 	{
 		using namespace PawnMovement;
@@ -619,6 +649,7 @@ namespace
 int main()
 {
 	TestHarmfulEndpointAndPainMetadata();
+	TestAlreadyHarmfulStartingCenterOrFoot();
 	TestStrictStaticLandingThreshold();
 	TestAlignedAndThirdContinuationSeeds();
 	TestDitchRequiresIndependentStaticWalkableSupport();

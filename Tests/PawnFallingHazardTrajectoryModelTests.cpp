@@ -66,6 +66,8 @@ namespace
 			.Ordinal = ordinal,
 			.Collision = PawnMovement::FallingHazardCollisionKind::Clear,
 			.Elapsed = elapsed,
+			.HarmfulCenterZoneKnown = true,
+			.CenterZone = Zone(100),
 			.HarmfulFootZoneKnown = true,
 			.FootZone = Zone(100),
 			.PhysicsZone = Zone(100),
@@ -93,6 +95,19 @@ namespace
 		segment.CallbackMask = PawnMovement::FallingHazardRegionCallback
 			| PawnMovement::FallingHazardFootZoneCallback
 			| PawnMovement::FallingHazardHeadZoneCallback;
+		return segment;
+	}
+
+	PawnMovement::FallingHazardSweptSegment HarmfulCenterSegment(
+		PawnMovement::FallingHazardGenerationId generation,
+		uint32_t zone = 42)
+	{
+		auto segment = SafeSegment(generation);
+		segment.Collision = PawnMovement::FallingHazardCollisionKind::StaticWorld;
+		segment.InHarmfulCenterZone = true;
+		segment.CenterZone = Zone(zone);
+		segment.PhysicsZone = Zone(zone);
+		segment.CallbackMask = PawnMovement::FallingHazardRegionCallback;
 		return segment;
 	}
 
@@ -144,6 +159,86 @@ namespace
 		Check(CorrelateFallingHazardGeneration(observed.CompletedGeneration)
 			== FallingHazardCorrelation::ActualOnly,
 			"known harmful water after a negative forecast is retained as a false negative");
+	}
+
+	void TestCenterOnlyHarmfulCorrelationAndInvalidIdentity()
+	{
+		using namespace PawnMovement;
+		auto armed = Arm({}, FallingHazardForecast::HarmfulPainObserved);
+		const auto predicted = ObserveFallingHazardSweptSegment(
+			armed.Model, HarmfulCenterSegment(armed.ArmedGeneration));
+		Check(predicted.HasCompletedGeneration
+			&& predicted.CompletedGeneration.EnteredHarmfulCenterZone
+			&& !predicted.CompletedGeneration.EnteredHarmfulFootZone
+			&& predicted.CompletedGeneration.ObservedHarmfulCenterZone.Known
+			&& predicted.CompletedGeneration.ObservedHarmfulCenterZone.ZoneActorId
+				== 42
+			&& CorrelateFallingHazardGeneration(predicted.CompletedGeneration)
+				== FallingHazardCorrelation::ConfirmedHarmfulForecast,
+			"a center-only harmful entry confirms a matching harmful forecast");
+
+		armed = Arm({}, FallingHazardForecast::NoHarmfulPainObserved);
+		const auto missed = ObserveFallingHazardSweptSegment(
+			armed.Model, HarmfulCenterSegment(armed.ArmedGeneration));
+		Check(missed.HasCompletedGeneration
+			&& missed.CompletedGeneration.EnteredHarmfulCenterZone
+			&& !missed.CompletedGeneration.EnteredHarmfulFootZone
+			&& CorrelateFallingHazardGeneration(missed.CompletedGeneration)
+				== FallingHazardCorrelation::ActualOnly,
+			"a center-only harmful entry is a false negative for a safe forecast");
+
+		armed = Arm({}, FallingHazardForecast::HarmfulPainObserved);
+		auto unknownFoot = HarmfulCenterSegment(armed.ArmedGeneration);
+		unknownFoot.HarmfulFootZoneKnown = false;
+		const auto centerWithUnknownFoot = ObserveFallingHazardSweptSegment(
+			armed.Model, unknownFoot);
+		Check(centerWithUnknownFoot.HasCompletedGeneration
+			&& centerWithUnknownFoot.CompletedGeneration.Terminal
+				== FallingHazardTerminal::HarmfulPainEntered
+			&& centerWithUnknownFoot.CompletedGeneration.EnteredHarmfulCenterZone
+			&& !centerWithUnknownFoot.CompletedGeneration.EnteredHarmfulFootZone
+			&& centerWithUnknownFoot.CompletedGeneration.HarmfulCenterEvidenceKnown
+			&& !centerWithUnknownFoot.CompletedGeneration.HarmfulFootEvidenceKnown
+			&& CorrelateFallingHazardGeneration(
+				centerWithUnknownFoot.CompletedGeneration)
+				== FallingHazardCorrelation::Unknown,
+			"a valid center entry with unclaimed unknown foot evidence remains unknown");
+
+		armed = Arm({}, FallingHazardForecast::HarmfulPainObserved);
+		auto invalid = HarmfulCenterSegment(armed.ArmedGeneration);
+		invalid.CenterZone = Zone(0);
+		const auto unknown = ObserveFallingHazardSweptSegment(
+			armed.Model, invalid);
+		Check(unknown.HasCompletedGeneration
+			&& unknown.CompletedGeneration.Terminal
+				== FallingHazardTerminal::ContinuityLost
+			&& !unknown.CompletedGeneration.HarmfulCenterEvidenceKnown
+			&& !unknown.CompletedGeneration.EnteredHarmfulCenterZone
+			&& !unknown.CompletedGeneration.EnteredHarmfulFootZone
+			&& !unknown.CompletedGeneration.ObservedHarmfulCenterZone.Known
+			&& unknown.CompletedGeneration.ObservedHarmfulCenterZone.ZoneActorId == 0
+			&& unknown.CompletedGeneration.ObservedHarmfulCenterZone.ZoneNumber == 0
+			&& CorrelateFallingHazardGeneration(unknown.CompletedGeneration)
+				== FallingHazardCorrelation::Unknown,
+			"an invalid-only harmful center fails closed without a harmful terminal");
+
+		armed = Arm({}, FallingHazardForecast::HarmfulPainObserved);
+		auto partial = HarmfulSegment(armed.ArmedGeneration, 42, false);
+		partial.InHarmfulCenterZone = true;
+		partial.CenterZone = Zone(0);
+		const auto partiallyKnown = ObserveFallingHazardSweptSegment(
+			armed.Model, partial);
+		Check(partiallyKnown.HasCompletedGeneration
+			&& partiallyKnown.CompletedGeneration.Terminal
+				== FallingHazardTerminal::HarmfulPainEntered
+			&& !partiallyKnown.CompletedGeneration.EnteredHarmfulCenterZone
+			&& partiallyKnown.CompletedGeneration.EnteredHarmfulFootZone
+			&& partiallyKnown.CompletedGeneration.ObservedHarmfulFootZone.ZoneActorId
+				== 42
+			&& CorrelateFallingHazardGeneration(
+				partiallyKnown.CompletedGeneration)
+				== FallingHazardCorrelation::Unknown,
+			"a valid foot entry preserves the harmful terminal while invalid center evidence makes correlation unknown");
 	}
 
 	void TestCausalUncertaintyIsAmbiguous()
@@ -430,14 +525,16 @@ namespace
 				"nonharmful mover, dynamic, and unknown contacts terminate fail-closed");
 		}
 
-		for (int mode = 0; mode < 2; mode++)
+		for (int mode = 0; mode < 3; mode++)
 		{
 			auto armed = Arm({}, FallingHazardForecast::NoHarmfulPainObserved);
 			auto segment = SafeSegment(armed.ArmedGeneration);
 			if (mode == 0)
 				segment.ForecastEndpointMatched = false;
-			else
+			else if (mode == 1)
 				segment.HarmfulFootZoneKnown = false;
+			else
+				segment.HarmfulCenterZoneKnown = false;
 			const auto observed = ObserveFallingHazardSweptSegment(
 				armed.Model, segment);
 			Check(observed.HasCompletedGeneration
@@ -446,7 +543,7 @@ namespace
 				&& CorrelateFallingHazardGeneration(
 					observed.CompletedGeneration)
 					== FallingHazardCorrelation::Unknown,
-				"endpoint mismatch and unknown foot-pain evidence terminate immediately");
+				"endpoint mismatch and unknown center or foot pain evidence terminate immediately");
 		}
 	}
 
@@ -595,6 +692,7 @@ int main()
 {
 	TestHarmfulEntryCompletesImmediately();
 	TestNegativeForecastHarmfulWaterIsActualOnly();
+	TestCenterOnlyHarmfulCorrelationAndInvalidIdentity();
 	TestCausalUncertaintyIsAmbiguous();
 	TestDeathIsCensored();
 	TestZeroElapsedSecondaryLegsAndSafeLanding();
