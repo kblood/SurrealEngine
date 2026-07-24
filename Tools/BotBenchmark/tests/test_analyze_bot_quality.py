@@ -220,15 +220,15 @@ class BotQualityAnalysisTests(unittest.TestCase):
              "horizontal_corner_target_progress_rejects_exact": 0,
              "horizontal_corner_unknown_or_unsafe_support_exact": 0},
             {**common, "falling_seam_detections_exact": 2,
-             "horizontal_corner_candidate_probes_exact": 1,
-             "horizontal_corner_authorized_escapes_exact": 0,
-             "horizontal_corner_target_progress_rejects_exact": 1,
-             "horizontal_corner_unknown_or_unsafe_support_exact": 0},
-            {**common, "falling_seam_detections_exact": 3,
-             "horizontal_corner_candidate_probes_exact": 3,
+             "horizontal_corner_candidate_probes_exact": 4,
              "horizontal_corner_authorized_escapes_exact": 1,
-             "horizontal_corner_target_progress_rejects_exact": 1,
+             "horizontal_corner_target_progress_rejects_exact": 2,
              "horizontal_corner_unknown_or_unsafe_support_exact": 1},
+            {**common, "falling_seam_detections_exact": 3,
+             "horizontal_corner_candidate_probes_exact": 6,
+             "horizontal_corner_authorized_escapes_exact": 2,
+             "horizontal_corner_target_progress_rejects_exact": 2,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 2},
         ]
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -243,19 +243,19 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 {name: per_bot[name] for name in QUALITY.FALLING_SEAM_SHADOW_COUNTERS},
                 {
                     "falling_seam_detections_exact": 3,
-                    "horizontal_corner_candidate_probes_exact": 3,
-                    "horizontal_corner_authorized_escapes_exact": 1,
-                    "horizontal_corner_target_progress_rejects_exact": 1,
-                    "horizontal_corner_unknown_or_unsafe_support_exact": 1,
+                    "horizontal_corner_candidate_probes_exact": 6,
+                    "horizontal_corner_authorized_escapes_exact": 2,
+                    "horizontal_corner_target_progress_rejects_exact": 2,
+                    "horizontal_corner_unknown_or_unsafe_support_exact": 2,
                 })
             metrics = report["runs"][0]["metrics"]
             self.assertEqual(metrics["falling_seam_detections_exact"], 6)
-            self.assertEqual(metrics["horizontal_corner_candidate_probes_exact"], 6)
-            self.assertEqual(metrics["horizontal_corner_authorized_escapes_exact"], 2)
+            self.assertEqual(metrics["horizontal_corner_candidate_probes_exact"], 12)
+            self.assertEqual(metrics["horizontal_corner_authorized_escapes_exact"], 4)
             aggregate = report["variant_aggregates"][0]["metrics"]
             self.assertEqual(aggregate["falling_seam_detections_exact"]["mean"], 6.0)
             self.assertEqual(
-                aggregate["horizontal_corner_authorized_escapes_exact"]["mean"], 2.0)
+                aggregate["horizontal_corner_authorized_escapes_exact"]["mean"], 4.0)
 
             incomplete = write_v2_run(root, "incomplete")
             incomplete_samples = [{**sample} for sample in samples]
@@ -267,10 +267,8 @@ class BotQualityAnalysisTests(unittest.TestCase):
 
             regressed = write_v2_run(root, "regressed")
             regressed_samples = [{**sample} for sample in samples]
-            regressed_samples[1]["horizontal_corner_authorized_escapes_exact"] = 1
-            regressed_samples[1]["horizontal_corner_target_progress_rejects_exact"] = 0
             regressed_samples[2]["horizontal_corner_authorized_escapes_exact"] = 0
-            regressed_samples[2]["horizontal_corner_target_progress_rejects_exact"] = 2
+            regressed_samples[2]["horizontal_corner_target_progress_rejects_exact"] = 4
             upgrade_telemetry_v2(regressed, counters=regressed_samples)
             with self.assertRaisesRegex(
                     QUALITY.QualityError, "horizontal_corner_authorized_escapes_exact regressed"):
@@ -278,7 +276,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
 
             bad_subset = write_v2_run(root, "bad-subset")
             bad_subset_samples = [{**sample} for sample in samples]
-            bad_subset_samples[1]["horizontal_corner_target_progress_rejects_exact"] = 0
+            bad_subset_samples[1]["horizontal_corner_target_progress_rejects_exact"] = 1
             upgrade_telemetry_v2(bad_subset, counters=bad_subset_samples)
             with self.assertRaisesRegex(
                     QUALITY.QualityError, "classifications do not partition candidate probes"):
@@ -290,8 +288,18 @@ class BotQualityAnalysisTests(unittest.TestCase):
             upgrade_telemetry_v2(
                 candidates_without_detection, counters=candidates_without_detection_samples)
             with self.assertRaisesRegex(
-                    QUALITY.QualityError, "candidates exceed falling seam detections"):
+                    QUALITY.QualityError, "candidates exceed three per falling seam detection"):
                 QUALITY.analyze([candidates_without_detection])
+
+            too_many_authorized = write_v2_run(root, "too-many-authorized")
+            too_many_authorized_samples = [{**sample} for sample in samples]
+            too_many_authorized_samples[1]["horizontal_corner_authorized_escapes_exact"] = 3
+            too_many_authorized_samples[1]["horizontal_corner_target_progress_rejects_exact"] = 0
+            upgrade_telemetry_v2(
+                too_many_authorized, counters=too_many_authorized_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "authorized escapes exceed falling seam detections"):
+                QUALITY.analyze([too_many_authorized])
 
     def test_older_telemetry_remains_valid_without_falling_seam_shadow_group(self) -> None:
         common = {

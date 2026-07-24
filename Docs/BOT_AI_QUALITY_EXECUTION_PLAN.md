@@ -616,6 +616,38 @@ retained because it safely disproves candidate availability on the known
 failures. No live horizontal translation is enabled, and held-out maps remain
 unopened.
 
+## Iteration 45: individual seam directions also fail safe authorization
+
+Iteration 45 expands only the behavior-neutral observer. For each eligible
+two-plane falling seam it probes, in deterministic order, the normalized
+outward bisector and then the two individual horizontal wall normals. Duplicate
+directions collapse, a near-opposed pair omits the unstable bisector, and at
+most three bounded 24-unit dry-run sweeps are classified. The observer stops
+after the first authorization but never applies a translation or changes
+movement state. Analyzer version 12 requires no more than three probes per
+detection, no more than one authorization per detection, and an exact
+partition of every probe into authorized, target-progress-rejected, or
+unknown/unsafe support.
+
+The candidate executable SHA-256 was
+`0ECF15DEF64692D55E4A8815B7E8A0682E7C8E5043E66E070D8CA3DC399643CB`.
+Two candidate repeats for each of historical DeathFan, nearby-timestep
+DeathFan, and Deck seed 271828 produced exact repeated shadow streams. After
+removing only the five seam observer counters, their gameplay events and
+summaries exactly matched the accepted iteration-44 baseline. Historical
+DeathFan produced 8 detections and 24 unsafe probes; nearby-timestep DeathFan
+produced 141 detections and 423 unsafe probes. Deck produced 3 detections and 9
+probes, split into 8 target-progress rejections and 1 unsafe-support result.
+All three scenarios authorized zero candidates.
+
+The additional tuning scan remained behavior-neutral on Deck seeds 104729 and
+314159 and Morpheus seed 424242. Those cases respectively produced 3, 6, and 3
+probes, with zero authorizations. The individual normals therefore broaden the
+diagnostic evidence but do not establish a safe live recovery on any known
+fixture. No seam movement is promoted. The next instrumentation slice must
+debounce repeated ticks into physical seam episodes and partition rejection
+causes more precisely before another live intervention is considered.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
@@ -630,7 +662,7 @@ The first tuning smoke completed on all four maps. UT Pressure had no hazard
 entry, UT Morpheus exposed two, Unreal HealPod had none, and Unreal DeathFan
 exposed one slime/environmental death. These are tuning observations only;
 held-out results remain unopened until parameters freeze. No iteration through
-44 is merge-ready: Deck still has avoidable hazard deaths, DeathFan remains an
+45 is merge-ready: Deck still has avoidable hazard deaths, DeathFan remains an
 Unreal safety/stall failure, and the required held-out evidence has deliberately
 not been opened. Live causal death attribution is available, but measurement
 truth does not make the observed behavior safe.

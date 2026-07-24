@@ -12,6 +12,55 @@ namespace PawnMovement
 			return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 		}
 
+		bool IsUnitNormal(const vec3& value)
+		{
+			const float lengthSquared = dot(value, value);
+			return IsFinite(value) && lengthSquared >= 0.99f && lengthSquared <= 1.01f;
+		}
+
+		bool IsValidHorizontalCornerEscapeInput(
+			const HorizontalCornerEscapeInput& input)
+		{
+			if (!input.Contact.AutonomousPlayerBot || !input.Contact.NormalDownwardGravity
+				|| !IsFinite(input.Contact.RequestedRemainingDelta)
+				|| !IsFinite(input.Contact.ActualDisplacement)
+				|| !IsUnitNormal(input.Contact.FirstHitNormal)
+				|| !IsUnitNormal(input.Contact.SecondHitNormal)
+				|| !std::isfinite(input.Contact.WalkableNormalZ)
+				|| input.Contact.WalkableNormalZ <= 0.0f
+				|| input.Contact.WalkableNormalZ > 1.0f
+				|| input.Contact.FirstHitNormal.z >= input.Contact.WalkableNormalZ
+				|| input.Contact.SecondHitNormal.z >= input.Contact.WalkableNormalZ
+				|| !std::isfinite(input.Contact.MaximumActualDisplacement)
+				|| input.Contact.MaximumActualDisplacement < 0.0f
+				|| !std::isfinite(input.Contact.MaximumRequestedDelta)
+				|| input.Contact.MaximumRequestedDelta <= 0.0f
+				|| !std::isfinite(input.SweepDistance) || input.SweepDistance <= 0.0f
+				|| !std::isfinite(input.MaximumSweepDistance)
+				|| input.MaximumSweepDistance <= 0.0f
+				|| input.SweepDistance > input.MaximumSweepDistance
+				|| !std::isfinite(input.MinimumHorizontalNormalMagnitude)
+				|| input.MinimumHorizontalNormalMagnitude <= 0.0f
+				|| input.MinimumHorizontalNormalMagnitude > 1.0f
+				|| !std::isfinite(input.MinimumBisectorMagnitude)
+				|| input.MinimumBisectorMagnitude <= 0.0f
+				|| input.MinimumBisectorMagnitude > 2.0f
+				|| !std::isfinite(input.DuplicateDirectionTolerance)
+				|| input.DuplicateDirectionTolerance < 0.0f
+				|| input.DuplicateDirectionTolerance >= 2.0f)
+				return false;
+
+			const float actualDistanceSquared = dot(
+				input.Contact.ActualDisplacement, input.Contact.ActualDisplacement);
+			const float requestedDistanceSquared = dot(
+				input.Contact.RequestedRemainingDelta, input.Contact.RequestedRemainingDelta);
+			return actualDistanceSquared <= input.Contact.MaximumActualDisplacement
+					* input.Contact.MaximumActualDisplacement
+				&& requestedDistanceSquared > 0.0f
+				&& requestedDistanceSquared <= input.Contact.MaximumRequestedDelta
+					* input.Contact.MaximumRequestedDelta;
+		}
+
 		float EstimateFallingDamage(float impactVelocityZ, float jumpZ,
 			bool fallingDamageDisabled)
 		{
@@ -146,6 +195,69 @@ namespace PawnMovement
 		result.SweepDelta = vec3(horizontalDelta, 0.0f);
 		result.Valid = IsFinite(result.SweepDelta)
 			&& dot(result.SweepDelta, result.SweepDelta) > 0.0f;
+		return result;
+	}
+
+	HorizontalCornerEscapeCandidates BuildHorizontalCornerEscapeCandidates(
+		const HorizontalCornerEscapeInput& input)
+	{
+		HorizontalCornerEscapeCandidates result;
+		if (!IsValidHorizontalCornerEscapeInput(input))
+			return result;
+
+		vec2 firstHorizontal = input.Contact.FirstHitNormal.xy();
+		vec2 secondHorizontal = input.Contact.SecondHitNormal.xy();
+		const float minimumHorizontalSquared = input.MinimumHorizontalNormalMagnitude
+			* input.MinimumHorizontalNormalMagnitude;
+		if (dot(firstHorizontal, firstHorizontal) < minimumHorizontalSquared
+			|| dot(secondHorizontal, secondHorizontal) < minimumHorizontalSquared)
+			return result;
+
+		firstHorizontal = normalize(firstHorizontal);
+		secondHorizontal = normalize(secondHorizontal);
+		if (secondHorizontal.x < firstHorizontal.x
+			|| (secondHorizontal.x == firstHorizontal.x
+				&& secondHorizontal.y < firstHorizontal.y))
+			std::swap(firstHorizontal, secondHorizontal);
+
+		const float duplicateToleranceSquared = input.DuplicateDirectionTolerance
+			* input.DuplicateDirectionTolerance;
+		std::array<vec2, 3> acceptedDirections;
+		auto appendDirection = [&](const vec2& direction)
+		{
+			if (!std::isfinite(direction.x) || !std::isfinite(direction.y)
+				|| result.Count >= result.Candidates.size())
+				return;
+			for (size_t index = 0; index < result.Count; index++)
+			{
+				const vec2 difference = direction - acceptedDirections[index];
+				if (dot(difference, difference) <= duplicateToleranceSquared)
+					return;
+			}
+
+			HorizontalCornerEscapeCandidate& candidate = result.Candidates[result.Count];
+			candidate.SweepDelta = vec3(direction * input.SweepDistance, 0.0f);
+			candidate.Valid = IsFinite(candidate.SweepDelta)
+				&& dot(candidate.SweepDelta, candidate.SweepDelta) > 0.0f
+				&& dot(candidate.SweepDelta, candidate.SweepDelta)
+					<= input.MaximumSweepDistance * input.MaximumSweepDistance;
+			if (candidate.Valid)
+			{
+				acceptedDirections[result.Count] = direction;
+				result.Count++;
+			}
+			else
+				candidate = {};
+		};
+
+		const vec2 outwardBisector = firstHorizontal + secondHorizontal;
+		const float bisectorMagnitudeSquared = dot(outwardBisector, outwardBisector);
+		if (std::isfinite(bisectorMagnitudeSquared)
+			&& bisectorMagnitudeSquared >= input.MinimumBisectorMagnitude
+				* input.MinimumBisectorMagnitude)
+			appendDirection(normalize(outwardBisector));
+		appendDirection(firstHorizontal);
+		appendDirection(secondHorizontal);
 		return result;
 	}
 

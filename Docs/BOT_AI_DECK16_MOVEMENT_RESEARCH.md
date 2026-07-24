@@ -393,6 +393,25 @@ candidate. The shadow instrumentation is retained as behavior-neutral causal
 evidence, but it does not justify live movement: the known seams still lack a
 proven supported escape, and held-out maps remain unopened.
 
+Iteration 45 tested whether the bisector was simply the wrong escape direction.
+The shadow observer now deterministically considers the bisector followed by
+each individual horizontal wall normal, with duplicate removal and a strict
+three-probe bound. It remains dry-run only. Historical DeathFan expanded from
+8 to 24 unsafe probes and its persistent nearby-timestep episode expanded from
+141 to 423 unsafe probes. Deck seed 271828 expanded from 3 to 9 probes; 8
+regressed the active destination and 1 lacked safe support. Deck seeds 104729
+and 314159 expanded to 3 and 6 probes, while Morpheus exposed 3 valid probes.
+None were authorized.
+
+Normalized gameplay events and summaries remained exact against iteration 44
+for every comparison, and repeated shadow streams were exact. This rejects the
+simple “try either wall normal” hypothesis on the measured failures without
+risking live bot behavior. The 141 raw nearby-timestep detections are still one
+long Ash seam episode rather than 141 independent navigation failures, so the
+next observer should count deterministic episodes and separate blocked sweep,
+missing support, pain support, true destination regression, and unknown intent
+instead of treating all non-authorizations alike.
+
 ## Quality measurement truth boundary
 
 The analyzer and executable gate evaluator now fail closed for missing runs,

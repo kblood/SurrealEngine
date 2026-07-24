@@ -21,7 +21,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 11
+TOOL_VERSION = 12
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -449,9 +449,13 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                     f"{context}: momentum-contributed deaths exceed enemy-contributed deaths")
         if "falling_seam_detections_exact" in result:
             candidates = result["horizontal_corner_candidate_probes_exact"]
-            if candidates > result["falling_seam_detections_exact"]:
+            detections = result["falling_seam_detections_exact"]
+            if candidates > 3 * detections:
                 raise QualityError(
-                    f"{context}: horizontal corner candidates exceed falling seam detections")
+                    f"{context}: horizontal corner candidates exceed three per falling seam detection")
+            if result["horizontal_corner_authorized_escapes_exact"] > detections:
+                raise QualityError(
+                    f"{context}: horizontal corner authorized escapes exceed falling seam detections")
             for name, label in (
                     ("horizontal_corner_authorized_escapes_exact", "authorized escapes"),
                     ("horizontal_corner_target_progress_rejects_exact", "target-progress rejects"),
