@@ -14,8 +14,15 @@ from typing import Any
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
 CONFIG_SCHEMA = "surreal-bot-quality-gates-v1"
 RESULT_SCHEMA = "surreal-bot-quality-gate-result-v1"
-TOOL_VERSION = 1
+TOOL_VERSION = 2
 AGGREGATE_STATISTICS = {"count", "mean", "median", "minimum", "maximum"}
+CONFIG_KEYS = {
+    "schema", "validity_only", "required_runs", "required_metrics",
+    "aggregate_gates", "per_run_gates",
+}
+REQUIRED_RUN_KEYS = {"id", "variant", "map", "min"}
+AGGREGATE_GATE_KEYS = {"id", "variant", "metric", "statistic", "min", "max", "equals"}
+PER_RUN_GATE_KEYS = {"id", "variant", "map", "metric", "min", "max", "equals"}
 
 
 class GateInputError(ValueError):
@@ -34,6 +41,19 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _reject_unknown_keys(document: dict[str, Any], accepted: set[str], context: str) -> None:
+    unknown = sorted(set(document) - accepted)
+    if unknown:
+        raise GateInputError(f"{context} contains unknown keys: {', '.join(unknown)}")
+
+
+def _entry_id(document: dict[str, Any], context: str) -> str:
+    value = document.get("id")
+    if not isinstance(value, str) or not value.strip():
+        raise GateInputError(f"{context} must define a non-empty string id")
+    return value
 
 
 def _selector(document: dict[str, Any], *, allow_map: bool) -> dict[str, str]:
@@ -74,7 +94,97 @@ def _thresholds(gate: dict[str, Any]) -> dict[str, Any]:
     for key in ("min", "max"):
         if key in thresholds and not _is_number(thresholds[key]):
             raise GateInputError(f"gate {key} must be a finite number")
+    if ("equals" in thresholds and isinstance(thresholds["equals"], (int, float))
+            and not isinstance(thresholds["equals"], bool) and not _is_number(thresholds["equals"])):
+        raise GateInputError("gate equals must be finite when numeric")
+    if "min" in thresholds and "max" in thresholds and thresholds["min"] > thresholds["max"]:
+        raise GateInputError("gate min cannot exceed max")
+    if "equals" in thresholds and ("min" in thresholds or "max" in thresholds):
+        expected = thresholds["equals"]
+        if not _is_number(expected):
+            raise GateInputError("gate equals must be a finite number when combined with min or max")
+        if "min" in thresholds and expected < thresholds["min"]:
+            raise GateInputError("gate equals is below min")
+        if "max" in thresholds and expected > thresholds["max"]:
+            raise GateInputError("gate equals is above max")
     return thresholds
+
+
+def _validate_config(config: dict[str, Any]) -> None:
+    _reject_unknown_keys(config, CONFIG_KEYS, "gate config")
+
+    validity_only = config.get("validity_only", False)
+    if not isinstance(validity_only, bool):
+        raise GateInputError("validity_only must be a boolean")
+
+    required_runs = config.get("required_runs", [])
+    required_metrics = config.get("required_metrics", [])
+    aggregate_gates = config.get("aggregate_gates", [])
+    per_run_gates = config.get("per_run_gates", [])
+    for name, value in (
+        ("required_runs", required_runs),
+        ("required_metrics", required_metrics),
+        ("aggregate_gates", aggregate_gates),
+        ("per_run_gates", per_run_gates),
+    ):
+        if not isinstance(value, list):
+            raise GateInputError(f"{name} must be an array")
+
+    substantive_count = sum(map(len, (
+        required_runs, required_metrics, aggregate_gates, per_run_gates,
+    )))
+    if validity_only:
+        if substantive_count:
+            raise GateInputError("validity_only cannot be combined with substantive gates")
+    elif not substantive_count:
+        raise GateInputError("gate config must define at least one substantive gate or validity_only true")
+
+    if any(not isinstance(item, str) or not item for item in required_metrics):
+        raise GateInputError("required_metrics must be an array of non-empty metric names")
+
+    ids: set[str] = set()
+
+    def register_id(value: str) -> None:
+        if value in ids:
+            raise GateInputError(f"duplicate gate id {value!r}")
+        ids.add(value)
+
+    for index, requirement in enumerate(required_runs):
+        if not isinstance(requirement, dict):
+            raise GateInputError("required run entries must be objects")
+        context = f"required_runs[{index}]"
+        _reject_unknown_keys(requirement, REQUIRED_RUN_KEYS, context)
+        register_id(_entry_id(requirement, context))
+        _selector(requirement, allow_map=True)
+        minimum = requirement.get("min")
+        if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum <= 0:
+            raise GateInputError("required run min must be a positive integer")
+
+    for index, gate in enumerate(aggregate_gates):
+        if not isinstance(gate, dict):
+            raise GateInputError("aggregate gates must be objects")
+        context = f"aggregate_gates[{index}]"
+        _reject_unknown_keys(gate, AGGREGATE_GATE_KEYS, context)
+        register_id(_entry_id(gate, context))
+        _selector(gate, allow_map=False)
+        metric = gate.get("metric")
+        statistic = gate.get("statistic", "mean")
+        if (not isinstance(metric, str) or not metric or not isinstance(statistic, str)
+                or statistic not in AGGREGATE_STATISTICS):
+            raise GateInputError("aggregate gates require a metric and valid statistic")
+        _thresholds(gate)
+
+    for index, gate in enumerate(per_run_gates):
+        if not isinstance(gate, dict):
+            raise GateInputError("per-run gates must be objects")
+        context = f"per_run_gates[{index}]"
+        _reject_unknown_keys(gate, PER_RUN_GATE_KEYS, context)
+        register_id(_entry_id(gate, context))
+        _selector(gate, allow_map=True)
+        metric = gate.get("metric")
+        if not isinstance(metric, str) or not metric:
+            raise GateInputError("per-run gates require a metric")
+        _thresholds(gate)
 
 
 def _equal(actual: Any, expected: Any) -> bool:
@@ -108,6 +218,7 @@ def evaluate(report: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
         raise GateInputError(f"quality report schema must be {REPORT_SCHEMA!r}")
     if config.get("schema") != CONFIG_SCHEMA:
         raise GateInputError(f"gate config schema must be {CONFIG_SCHEMA!r}")
+    _validate_config(config)
 
     runs = report.get("runs")
     aggregates = report.get("variant_aggregates")
@@ -161,7 +272,7 @@ def evaluate(report: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum <= 0:
             raise GateInputError("required run min must be a positive integer")
         matched = [run for run in runs if isinstance(run, dict) and _matches_run(run, selector)]
-        check_id = requirement.get("id", f"required-runs-{index}")
+        check_id = requirement["id"]
         passed = len(matched) >= minimum
         add_check("required_runs", check_id, passed,
                   {"selector": selector, "required_minimum": minimum, "observed_runs": len(matched)},
@@ -190,11 +301,12 @@ def evaluate(report: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
         selector = _selector(gate, allow_map=False)
         metric = gate.get("metric")
         statistic = gate.get("statistic", "mean")
-        if not isinstance(metric, str) or not metric or statistic not in AGGREGATE_STATISTICS:
+        if (not isinstance(metric, str) or not metric or not isinstance(statistic, str)
+                or statistic not in AGGREGATE_STATISTICS):
             raise GateInputError("aggregate gates require a metric and valid statistic")
         thresholds = _thresholds(gate)
         matched = [item for item in aggregates if isinstance(item, dict) and _matches_aggregate(item, selector)]
-        gate_id = gate.get("id", f"aggregate-{index}")
+        gate_id = gate["id"]
         if metric not in available_metrics:
             add_check("aggregate_gate", gate_id, False,
                       {"selector": selector, "metric": metric, "declared_available": False},
@@ -226,7 +338,7 @@ def evaluate(report: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
         thresholds = _thresholds(gate)
         matched = [(run_index, run) for run_index, run in enumerate(runs)
                    if isinstance(run, dict) and _matches_run(run, selector)]
-        gate_id = gate.get("id", f"per-run-{index}")
+        gate_id = gate["id"]
         if metric not in available_metrics:
             add_check("per_run_gate", gate_id, False,
                       {"selector": selector, "metric": metric, "declared_available": False},
