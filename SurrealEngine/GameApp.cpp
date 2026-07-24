@@ -22,6 +22,13 @@ int GameApp::main(Array<std::string> args)
 	InitWidgetResources();
 	WidgetTheme::SetTheme(std::make_unique<DarkWidgetTheme>());
 
+	bool autoplayMode = false;
+	for (const std::string& arg : args)
+	{
+		if (arg == "--autoplay")
+			autoplayMode = true;
+	}
+
 	try
 	{
 		CommandLine cmd(args);
@@ -66,7 +73,15 @@ int GameApp::main(Array<std::string> args)
 	}
 	catch (const std::exception& e)
 	{
-		ErrorWindow::ExecModal(e.what(), Logger::Get()->GetLog());
+		if (autoplayMode)
+		{
+			// Non-interactive runs must never block on a modal error dialog.
+			std::cerr << "Unhandled Exception: " << e.what() << std::endl;
+		}
+		else
+		{
+			ErrorWindow::ExecModal(e.what(), Logger::Get()->GetLog());
+		}
 	}
 
 	DeinitWidgetResources();
