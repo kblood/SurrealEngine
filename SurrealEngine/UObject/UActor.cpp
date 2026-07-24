@@ -213,6 +213,26 @@ namespace
 		return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 	}
 
+	float MaximumAbsoluteComponent(const vec3& value)
+	{
+		return std::max({ std::abs(value.x), std::abs(value.y), std::abs(value.z) });
+	}
+
+	PawnMovement::FallingParityCollisionKind ClassifyFallingParityCollision(
+		UPawn* pawn, const CollisionHit& hit)
+	{
+		using PawnMovement::FallingParityCollisionKind;
+		if (!std::isfinite(hit.Fraction) || hit.Fraction < 0.0f || hit.Fraction > 1.0f)
+			return FallingParityCollisionKind::Unknown;
+		if (hit.Fraction == 1.0f)
+			return FallingParityCollisionKind::Clear;
+		if (!hit.Actor || hit.Actor == pawn->Level())
+			return FallingParityCollisionKind::StaticWorld;
+		if (UObject::TryCast<UMover>(hit.Actor))
+			return FallingParityCollisionKind::Mover;
+		return FallingParityCollisionKind::DynamicActor;
+	}
+
 	PawnMovement::WalkingStepCollisionKind ClassifyWalkingStepCollision(
 		UPawn* pawn, const CollisionHit& hit)
 	{
@@ -771,6 +791,13 @@ void UActor::TickPhysics(float elapsed)
 	for (float timeLeft = elapsed; timeLeft > 0.0f && !bDeleteMe(); timeLeft -= 0.02f)
 	{
 		float physTimeElapsed = std::min(timeLeft, 0.02f);
+		UPawn* parityPawn = UObject::TryCast<UPawn>(this);
+		if (parityPawn && parityPawn->HasActiveFallingParityRealizedLifecycle()
+			&& !parityPawn->HasFallingParityRealizedContinuity())
+		{
+			parityPawn->FinishFallingParityRealizedTrace(
+				PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
+		}
 		int mode = Physics();
 		if (mode != PHYS_None)
 		{
@@ -804,6 +831,13 @@ void UActor::TickPhysics(float elapsed)
 					cur->PendingTouch() = nullptr;
 				}
 			}
+		}
+
+		if (parityPawn && parityPawn->HasActiveFallingParityRealizedLifecycle()
+			&& !parityPawn->HasFallingParityRealizedContinuity())
+		{
+			parityPawn->FinishFallingParityRealizedTrace(
+				PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
 		}
 	}
 }
@@ -959,7 +993,11 @@ void UActor::TickWalking(float elapsed)
 
 			// Check if unrealscript got us out of walking mode
 			if (Physics() != PHYS_Walking)
+			{
+				if (walkingPreflightEnabled && Physics() == PHYS_Falling)
+					pawn->ArmFallingParityRealizedTrace(iteration, preflightInvocation);
 				return;
+			}
 
 			if (!MadeWalkingIterationProgress(
 				iterationStartLocation.x, iterationStartLocation.y, iterationStartLocation.z,
@@ -978,6 +1016,10 @@ void UActor::TickWalking(float elapsed)
 				// Short-circuit property reads after Destroy: it removes the Pawn from
 				// collision immediately, so no stale walking work may follow.
 				const bool deleteMe = pawn->bDeleteMe();
+				const bool callbackBeganFalling = !deleteMe
+					&& pawn->Physics() == PHYS_Falling;
+				if (walkingPreflightEnabled && callbackBeganFalling)
+					pawn->ArmFallingParityRealizedTrace(iteration, preflightInvocation);
 				const bool stillWalking = !deleteMe && pawn->Physics() == PHYS_Walking;
 				const bool canJump = stillWalking && pawn->bCanJump();
 				const PawnMovement::LedgeTransition transition = PawnMovement::ResolveLedgeTransition(
@@ -1031,6 +1073,8 @@ void UActor::TickWalking(float elapsed)
 				}
 
 				SetPhysics(PHYS_Falling);
+				if (walkingPreflightEnabled && Physics() == PHYS_Falling)
+					pawn->ArmFallingParityRealizedTrace(iteration, preflightInvocation);
 				SetBase(nullptr, true);
 				return;
 			}
@@ -1098,6 +1142,37 @@ void UActor::TickFalling(float elapsed)
 		fluidFriction = pawn->FootRegion().Zone->ZoneFluidFriction();
 	}
 
+	PawnMovement::FallingParityTransition realizedParityStep;
+	bool observeRealizedParity = pawn
+		&& engine->IsBotBenchmarkWalkingPreflightEnabled()
+		&& pawn->HasActiveFallingParityRealizedModel();
+	if (observeRealizedParity)
+	{
+		realizedParityStep = PawnMovement::BeginFallingParityStep({
+			.Location = location,
+			.Velocity = velocity
+		}, {
+			.Acceleration = acceleration,
+			.Gravity = zone->ZoneGravity(),
+			.ZoneVelocity = zone->ZoneVelocity(),
+			.GroundSpeed = groundSpeed,
+			.TerminalVelocity = zone->ZoneTerminalVelocity(),
+			.Elapsed = elapsed,
+			.WaterPhysics = pawn->FootRegion().Zone
+				&& pawn->FootRegion().Zone->bWaterZone(),
+			.Bounce = bBounce()
+		});
+		if (realizedParityStep.Kind
+			== PawnMovement::FallingParityTransitionKind::Unknown)
+		{
+			PawnMovement::FallingParityRealizedRecord evidence;
+			evidence.Elapsed = elapsed;
+			pawn->RecordFallingParityRealizedStep(
+				PawnMovement::FallingParityRealizedOutcome::Unknown, evidence);
+			observeRealizedParity = false;
+		}
+	}
+
 	OldLocation() = Location();
 	bJustTeleported() = false;
 
@@ -1131,10 +1206,81 @@ void UActor::TickFalling(float elapsed)
 
 		vec3 moveDelta = (newVelocity + zone->ZoneVelocity() * elapsed * 25.0f) * timeLeft;
 		vec3 dirNormal = normalize(newVelocity);
+		float realizedVelocityError = 0.0f;
+		float realizedDeltaError = 0.0f;
+		if (observeRealizedParity)
+		{
+			realizedVelocityError = MaximumAbsoluteComponent(
+				newVelocity - realizedParityStep.State.Velocity);
+			realizedDeltaError = MaximumAbsoluteComponent(
+				moveDelta - realizedParityStep.DirectDelta);
+		}
 
 		const vec3 iterationStartLocation = location;
-		CollisionHit hit = TryMove(moveDelta);
+		MoveCallbackEvidence realizedMoveCallbacks;
+		CollisionHit hit = TryMove(moveDelta, false, true,
+			observeRealizedParity ? &realizedMoveCallbacks : nullptr);
 		timeLeft -= timeLeft * hit.Fraction;
+		bool realizedCallbackBarrier = false;
+		if (observeRealizedParity && pawn && !pawn->bDeleteMe())
+		{
+			PawnMovement::FallingParityRealizedRecord evidence;
+			evidence.Elapsed = elapsed;
+			evidence.Collision = ClassifyFallingParityCollision(pawn, hit);
+			evidence.HitFraction = hit.Fraction;
+			evidence.HitNormal = hit.Normal;
+			evidence.VelocityError = realizedVelocityError;
+			evidence.RequestedDeltaError = realizedDeltaError;
+			if (std::isfinite(hit.Fraction))
+			{
+				const vec3 expectedEndpoint = iterationStartLocation
+					+ moveDelta * hit.Fraction;
+				evidence.EndpointError = MaximumAbsoluteComponent(
+					location - expectedEndpoint);
+			}
+			else
+			{
+				evidence.EndpointError = std::numeric_limits<float>::infinity();
+			}
+			const PawnMovement::FallingParityTransition directResult =
+				PawnMovement::ResolveFallingParityDirectSweep(realizedParityStep, {
+					.Collision = evidence.Collision,
+					.Fraction = hit.Fraction,
+					.Normal = hit.Normal
+				});
+			const bool hitWallCallback = hit.Fraction < 1.0f
+				&& !(hit.Actor && hit.Actor->IsA("Pawn"));
+			if (hitWallCallback)
+				realizedMoveCallbacks.Mask |= MoveCallbackHitWall;
+			evidence.CallbackBarrierMask = realizedMoveCallbacks.Mask;
+			PawnMovement::FallingParityRealizedOutcome outcome =
+				PawnMovement::FallingParityRealizedOutcome::Unknown;
+			if (realizedMoveCallbacks.Any())
+			{
+				outcome = PawnMovement::FallingParityRealizedOutcome::CallbackBarrier;
+				realizedCallbackBarrier = true;
+			}
+			else if (directResult.Kind
+				== PawnMovement::FallingParityTransitionKind::Continue)
+			{
+				const float tolerance = 0.001f;
+				outcome = evidence.VelocityError <= tolerance
+					&& evidence.RequestedDeltaError <= tolerance
+					&& evidence.EndpointError <= tolerance
+					? PawnMovement::FallingParityRealizedOutcome::MatchedClear
+					: PawnMovement::FallingParityRealizedOutcome::Mismatch;
+			}
+			pawn->RecordFallingParityRealizedStep(outcome, evidence);
+		}
+		if (realizedCallbackBarrier && pawn
+			&& !pawn->HasFallingParityRealizedContinuity())
+		{
+			pawn->FinishFallingParityRealizedTrace(
+				PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
+		}
+		if (pawn && !pawn->bDeleteMe()
+			&& engine->IsBotBenchmarkWalkingPreflightEnabled())
+			pawn->ObserveFallingParityRealizedPain();
 
 		if (hit.Fraction < 1.0f)
 		{
@@ -1145,6 +1291,12 @@ void UActor::TickFalling(float elapsed)
 			else
 			{
 				CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
+				if (realizedCallbackBarrier && pawn
+					&& !pawn->HasFallingParityRealizedContinuity())
+				{
+					pawn->FinishFallingParityRealizedTrace(
+						PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
+				}
 			}
 
 			// Hit the level
@@ -1152,6 +1304,12 @@ void UActor::TickFalling(float elapsed)
 			{
 				vec3 reflectedDelta = reflect(moveDelta, hit.Normal);
 				hit = TryMove(reflectedDelta);
+				if (realizedCallbackBarrier && pawn
+					&& !pawn->HasFallingParityRealizedContinuity())
+				{
+					pawn->FinishFallingParityRealizedTrace(
+						PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
+				}
 			}
 			else
 			{
@@ -1163,6 +1321,15 @@ void UActor::TickFalling(float elapsed)
 					{
 						const CollisionHit firstHit = hit;
 						hit = TryMove(alignedDelta);
+						if (pawn && !pawn->bDeleteMe()
+							&& engine->IsBotBenchmarkWalkingPreflightEnabled())
+							pawn->ObserveFallingParityRealizedPain();
+						if (realizedCallbackBarrier && pawn
+							&& !pawn->HasFallingParityRealizedContinuity())
+						{
+							pawn->FinishFallingParityRealizedTrace(
+								PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
+						}
 						if (pawn && !firstHit.Actor && !hit.Actor && hit.Fraction < 1.0f
 							&& hit.Normal.z < 0.7071f)
 						{
@@ -1175,6 +1342,12 @@ void UActor::TickFalling(float elapsed)
 						if (hit.Fraction < 1.0f && hit.Normal.z > 0.7071f)
 						{
 							PhysLanded(hit.Actor, hit.Normal);
+							if (pawn && engine->IsBotBenchmarkWalkingPreflightEnabled()
+								&& pawn->HasActiveFallingParityRealizedLifecycle())
+							{
+								pawn->FinishFallingParityRealizedTrace(
+									PawnMovement::FallingParityRealizedOutcome::Landed);
+							}
 							return;
 						}
 					}
@@ -1188,6 +1361,12 @@ void UActor::TickFalling(float elapsed)
 				else
 				{
 					PhysLanded(hit.Actor, hit.Normal);
+					if (pawn && engine->IsBotBenchmarkWalkingPreflightEnabled()
+						&& pawn->HasActiveFallingParityRealizedLifecycle())
+					{
+						pawn->FinishFallingParityRealizedTrace(
+							PawnMovement::FallingParityRealizedOutcome::Landed);
+					}
 					timeLeft = 0.0f;
 				}
 			}
@@ -2059,8 +2238,11 @@ CollisionHit UActor::ProbeMoveCollision(const vec3& origin, const vec3& delta,
 	return blockingHit;
 }
 
-CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlocking)
+CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlocking,
+	MoveCallbackEvidence* callbackEvidence)
 {
+	if (callbackEvidence)
+		callbackEvidence->Mask = 0;
 	if (bStatic() || !bMovable())
 	{
 		CollisionHit hit;
@@ -2090,7 +2272,14 @@ CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlock
 	for (size_t i = 0; i < BasedActors.size(); )
 	{
 		UActor* basedActor = BasedActors[i];
-		basedActor->TryMove(actuallyMoved, false, false);
+		MoveCallbackEvidence basedActorCallbacks;
+		basedActor->TryMove(actuallyMoved, false, false,
+			callbackEvidence ? &basedActorCallbacks : nullptr);
+		if (callbackEvidence && basedActorCallbacks.Any())
+		{
+			callbackEvidence->Mask |= MoveCallbackBasedActor;
+			callbackEvidence->Mask |= basedActorCallbacks.Mask;
+		}
 		// UnrealScript events triggered in TryMove can call methods such as SetBase or Destroy, so need to guard while iterating.
 		if (i < BasedActors.size() && BasedActors[i] == basedActor)
 			i++;
@@ -2113,6 +2302,8 @@ CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlock
 
 			if (isBlocking)
 			{
+				if (callbackEvidence)
+					callbackEvidence->Mask |= MoveCallbackEncroachment;
 				bool stopMovement = CallEvent(this, EventName::EncroachingOn, { ExpressionValue::ObjectValue(actor) }).ToBool();
 				if (stopMovement)
 				{
@@ -2141,7 +2332,11 @@ CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlock
 				isBlocking = actor->bBlockActors() && bBlockActors();
 
 			if (isBlocking)
+			{
+				if (callbackEvidence)
+					callbackEvidence->Mask |= MoveCallbackEncroachment;
 				CallEvent(actor, EventName::EncroachedBy, { ExpressionValue::ObjectValue(this) }).ToBool();
+			}
 		}
 	}
 
@@ -2150,6 +2345,8 @@ CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlock
 	{
 		if (!blockingHit.Actor->IsBasedOn(this))
 		{
+			if (callbackEvidence)
+				callbackEvidence->Mask |= MoveCallbackBump;
 			CallEvent(blockingHit.Actor, EventName::Bump, { ExpressionValue::ObjectValue(this) });
 			CallEvent(this, EventName::Bump, { ExpressionValue::ObjectValue(blockingHit.Actor) });
 		}
@@ -2170,7 +2367,11 @@ CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlock
 			else
 				isBlocking = hit.Actor->bBlockActors() && bBlockActors();
 			if (!isBlocking)
+			{
+				if (callbackEvidence)
+					callbackEvidence->Mask |= MoveCallbackTouch;
 				Touch(hit.Actor);
+			}
 		}
 	}
 
@@ -2179,15 +2380,40 @@ CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlock
 	{
 		for (const auto actor : Touching_UT469())
 			if (actor && !IsOverlapping(actor))
+			{
+				if (callbackEvidence)
+					callbackEvidence->Mask |= MoveCallbackUnTouch;
 				UnTouch(actor);
+			}
 	}
 	else
 	{
 		for (const auto actor : Touching())
 			if (actor && !IsOverlapping(actor))
+			{
+				if (callbackEvidence)
+					callbackEvidence->Mask |= MoveCallbackUnTouch;
 				UnTouch(actor);
+			}
 	}
 
+	if (callbackEvidence)
+	{
+		const PointRegion nextRegion = FindRegion();
+		if (Region().Zone != nextRegion.Zone)
+			callbackEvidence->Mask |= MoveCallbackRegionChange;
+		if (UPawn* movingPawn = UObject::TryCast<UPawn>(this))
+		{
+			const PointRegion nextFoot = FindRegion({
+				0.0f, 0.0f, -movingPawn->CollisionHeight() });
+			const PointRegion nextHead = FindRegion({
+				0.0f, 0.0f, movingPawn->EyeHeight() });
+			if (movingPawn->FootRegion().Zone != nextFoot.Zone)
+				callbackEvidence->Mask |= MoveCallbackFootRegionChange;
+			if (movingPawn->HeadRegion().Zone != nextHead.Zone)
+				callbackEvidence->Mask |= MoveCallbackHeadRegionChange;
+		}
+	}
 	UpdateActorZone();
 
 	return blockingHit;
@@ -4923,6 +5149,7 @@ void UPawn::ObserveWalkingStepPreflightShadow(const vec3& stepUpDelta,
 	const vec3& forwardDelta, const vec3& stepDownDelta, int walkingIteration,
 	uint64_t invocationToken)
 {
+	WalkingStepPreflightObservedTransactionValid = false;
 	if (!IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority
 		|| bDeleteMe() || Health() <= 0 || Physics() != PHYS_Walking)
 	{
@@ -4941,6 +5168,15 @@ void UPawn::ObserveWalkingStepPreflightShadow(const vec3& stepUpDelta,
 	diagnostic.SemanticTarget = MoveTarget() && !MoveTarget()->bDeleteMe()
 		? MoveTarget()->Name.ToString() : std::string();
 	diagnostic.SemanticDestination = Destination();
+	WalkingStepPreflightObservedTransactionValid = true;
+	WalkingStepPreflightObservedIteration = walkingIteration;
+	WalkingStepPreflightObservedInvocation = invocationToken;
+	WalkingStepPreflightObservedCorrelation = {
+		.SourcePawnActor = diagnostic.SourcePawnActor,
+		.LifeGeneration = diagnostic.LifeGeneration,
+		.InvocationToken = diagnostic.InvocationToken,
+		.WalkingIteration = diagnostic.WalkingIteration
+	};
 	auto recordProbe = [](WalkingStepPreflightProbeDiagnostic& target,
 		const WalkingStepSweepObservation& observation, const CollisionHit& hit)
 	{
@@ -5214,10 +5450,123 @@ void UPawn::ConfirmWalkingStepPreflightShadow(int walkingIteration,
 	queueDiagnostic(std::move(diagnostic));
 }
 
+void UPawn::ArmFallingParityRealizedTrace(int walkingIteration,
+	uint64_t invocationToken)
+{
+	if (!WalkingStepPreflightObservedTransactionValid
+		|| WalkingStepPreflightObservedIteration != walkingIteration
+		|| WalkingStepPreflightObservedInvocation != invocationToken)
+		return;
+	const PawnMovement::FallingParityRealizedUpdate update =
+		PawnMovement::BeginFallingParityRealizedTrace(
+			engine->IsBotBenchmarkWalkingPreflightEnabled(),
+			IsStockAutonomousPlayerBot(this), true,
+			WalkingStepPreflightObservedCorrelation);
+	if (!update.EmitRecord)
+		return;
+	if (FallingParityRealizedTrace.LifecycleActive)
+	{
+		FinishFallingParityRealizedTrace(
+			PawnMovement::FallingParityRealizedOutcome::ContinuityLost);
+	}
+	FallingParityRealizedTrace = update.State;
+	FallingParityRealizedEpisodeCountValue++;
+	static constexpr size_t maximumQueuedRecords = 1024;
+	if (FallingParityRealizedRecords.size() < maximumQueuedRecords)
+		FallingParityRealizedRecords.push_back(update.Record);
+	else
+		FallingParityRealizedRecordOverflowCountValue++;
+}
+
+void UPawn::RecordFallingParityRealizedStep(
+	PawnMovement::FallingParityRealizedOutcome outcome,
+	const PawnMovement::FallingParityRealizedRecord& evidence)
+{
+	const PawnMovement::FallingParityRealizedUpdate update =
+		PawnMovement::AdvanceFallingParityRealizedTrace(
+			FallingParityRealizedTrace, outcome, evidence);
+	if (!update.EmitRecord)
+		return;
+	FallingParityRealizedTrace = update.State;
+	FallingParityRealizedStepCountValue++;
+	switch (update.Record.Outcome)
+	{
+	case PawnMovement::FallingParityRealizedOutcome::MatchedClear:
+		FallingParityRealizedMatchedStepCountValue++;
+		break;
+	case PawnMovement::FallingParityRealizedOutcome::Mismatch:
+		FallingParityRealizedMismatchCountValue++;
+		break;
+	case PawnMovement::FallingParityRealizedOutcome::CallbackBarrier:
+		FallingParityRealizedCallbackBarrierCountValue++;
+		break;
+	default:
+		FallingParityRealizedUnknownCountValue++;
+		break;
+	}
+	static constexpr size_t maximumQueuedRecords = 1024;
+	if (FallingParityRealizedRecords.size() < maximumQueuedRecords)
+		FallingParityRealizedRecords.push_back(update.Record);
+	else
+		FallingParityRealizedRecordOverflowCountValue++;
+}
+
+void UPawn::ObserveFallingParityRealizedPain()
+{
+	UZoneInfo* regionZone = Region().Zone;
+	UZoneInfo* footZone = FootRegion().Zone;
+	if ((!regionZone || !regionZone->bPainZone())
+		&& (!footZone || !footZone->bPainZone()))
+		return;
+	const PawnMovement::FallingParityRealizedUpdate update =
+		PawnMovement::ObserveFallingParityRealizedPain(FallingParityRealizedTrace);
+	if (!update.EmitRecord)
+		return;
+	FallingParityRealizedTrace = update.State;
+	FallingParityRealizedPainEntryCountValue++;
+	static constexpr size_t maximumQueuedRecords = 1024;
+	if (FallingParityRealizedRecords.size() < maximumQueuedRecords)
+		FallingParityRealizedRecords.push_back(update.Record);
+	else
+		FallingParityRealizedRecordOverflowCountValue++;
+}
+
+void UPawn::FinishFallingParityRealizedTrace(
+	PawnMovement::FallingParityRealizedOutcome outcome)
+{
+	const PawnMovement::FallingParityRealizedUpdate update =
+		PawnMovement::FinishFallingParityRealizedTrace(
+			FallingParityRealizedTrace, outcome);
+	if (!update.EmitRecord)
+		return;
+	FallingParityRealizedTrace = update.State;
+	if (outcome == PawnMovement::FallingParityRealizedOutcome::Died)
+		FallingParityRealizedDeathCountValue++;
+	else if (outcome == PawnMovement::FallingParityRealizedOutcome::Landed)
+		FallingParityRealizedLandingCountValue++;
+	else if (outcome == PawnMovement::FallingParityRealizedOutcome::ContinuityLost)
+		FallingParityRealizedContinuityLossCountValue++;
+	static constexpr size_t maximumQueuedRecords = 1024;
+	if (FallingParityRealizedRecords.size() < maximumQueuedRecords)
+		FallingParityRealizedRecords.push_back(update.Record);
+	else
+		FallingParityRealizedRecordOverflowCountValue++;
+}
+
+std::vector<PawnMovement::FallingParityRealizedRecord>
+	UPawn::DrainFallingParityRealizedRecords()
+{
+	std::vector<PawnMovement::FallingParityRealizedRecord> records;
+	records.swap(FallingParityRealizedRecords);
+	return records;
+}
+
 void UPawn::EndWalkingStepPreflightLife()
 {
 	WalkingStepPreflightPendingConfirmation = false;
+	WalkingStepPreflightObservedTransactionValid = false;
 	WalkingStepPreflightEpisode = {};
+	FallingParityRealizedTrace = {};
 	WalkingStepPreflightLifeGeneration++;
 }
 

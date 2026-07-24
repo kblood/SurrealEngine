@@ -88,6 +88,17 @@ namespace
 		counters.WalkingStepPreflightAuthorizableEpisodes = value;
 		counters.WalkingStepPreflightDiagnosticOverflows = 0;
 		counters.WalkingStepPreflightReasons.fill(value);
+		counters.FallingParityRealizedEpisodes = value;
+		counters.FallingParityRealizedSteps = value * 3;
+		counters.FallingParityRealizedMatchedSteps = value;
+		counters.FallingParityRealizedMismatches = value;
+		counters.FallingParityRealizedUnknowns = 0;
+		counters.FallingParityRealizedCallbackBarriers = value;
+		counters.FallingParityRealizedPainEntries = value;
+		counters.FallingParityRealizedDeaths = value;
+		counters.FallingParityRealizedLandings = value;
+		counters.FallingParityRealizedContinuityLosses = value;
+		counters.FallingParityRealizedRecordOverflows = 0;
 		return counters;
 	}
 
@@ -133,6 +144,17 @@ namespace
 			counters.WalkingStepPreflightAuthorizations == value &&
 			counters.WalkingStepPreflightAuthorizableEpisodes == value &&
 			counters.WalkingStepPreflightDiagnosticOverflows == 0 &&
+			counters.FallingParityRealizedEpisodes == value &&
+			counters.FallingParityRealizedSteps == value * 3 &&
+			counters.FallingParityRealizedMatchedSteps == value &&
+			counters.FallingParityRealizedMismatches == value &&
+			counters.FallingParityRealizedUnknowns == 0 &&
+			counters.FallingParityRealizedCallbackBarriers == value &&
+			counters.FallingParityRealizedPainEntries == value &&
+			counters.FallingParityRealizedDeaths == value &&
+			counters.FallingParityRealizedLandings == value &&
+			counters.FallingParityRealizedContinuityLosses == value &&
+			counters.FallingParityRealizedRecordOverflows == 0 &&
 			std::all_of(counters.WalkingStepPreflightReasons.begin(),
 				counters.WalkingStepPreflightReasons.end(),
 				[value](uint64_t reason) { return reason == value; });

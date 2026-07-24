@@ -857,6 +857,77 @@ overrides such as `FindAir.HeadZoneChange`, but it is not bot-release-ready by
 itself. The UT regressions make conservative pre-entry hazard classification
 and realized falling correlation the next blocking work.
 
+## Iteration 50: realized falling parity and pain-column groundwork
+
+The benchmark now correlates each real walking-to-falling transition with the
+actual bounded `TickFalling` moves. It compares the pure forecast with the
+real requested delta, collision, endpoint, and displacement-derived velocity.
+Script-visible `BasedActor`, encroachment, `Bump`, `Touch`, `UnTouch`, region,
+foot-region, head-region, and `HitWall` callbacks are explicit barriers rather
+than guessed-through observations. Pain entry, landing, death, continuity
+loss, life replacement, and the 96-step record budget have exact terminal
+accounting. This observer performs no extra move, callback, random draw, or
+gameplay mutation.
+
+The analyzer requires the complete counter and record group, a strict
+step-outcome partition, monotonic correlations, finite evidence, canonical
+integers, legal callback masks, exact record/counter reconciliation, and the
+runtime's 96-step bound. It derives completion, comparable coverage, match,
+mismatch, and unknown fractions. The comparator can ignore the bounded record
+group only by explicit audited field names. A future vertical pain-column
+classifier has the same fail-closed quality vocabulary: precision, recall,
+false-positive rate, labeled fraction, and exclusive TP/FP/FN/TN/ambiguous/
+unknown accounting.
+
+The final executable SHA-256 is
+`1C9DDE3EA29639EA07EC0A2E7CB0CAC33ACD1FE53DA698C893F107D78ADB52CE`.
+It is byte-identical to the executable used by the QA matrix. Candidate
+repeats were exactly equivalent across all five artifacts for UT Deck seeds
+104729 and 314159 and Unreal `DmDeck16` and `DmDeathFan`. Baseline/candidate
+comparisons were also exact after ignoring only `output_directory` and the
+new realized-parity counters/records.
+
+UT seed 104729 recorded 13 episodes and 90 steps: 77 comparable matches, 13
+callback barriers, no mismatch or unknown, 12 landings, one continuity loss,
+and 85.56% comparable coverage. Seed 314159 recorded 10 episodes and 152
+steps: 142 matches, 10 barriers, no mismatch or unknown, eight landings, one
+continuity loss, and 93.42% coverage. Its 90% completion is one live episode
+at the deliberately short run boundary. The known Necroth fall matches for
+nine clear steps before a real `HitWall` barrier, then enters pain and loses
+continuity in swimming. Visse's wall-adjusted jump is correctly barred at the
+first script callback rather than being misclassified as a predictable clear
+fall.
+
+Unreal `DmDeathFan` recorded six episodes and 105 steps: 99 matches, six
+barriers, no mismatch or unknown, six landings, 94.29% coverage, and complete
+terminal accounting. `DmDeck16` supplied only one callback-barrier step, so it
+proves deterministic lifecycle handling but not the per-fixture comparable
+coverage gate. More Unreal fixtures must supply non-callback clear falls before
+the observer itself is fully qualified.
+
+The pure vertical pain-column prototype requires a known unsupported endpoint,
+bounded static-world vertical collision, independent walkable support, and
+continuous center/foot/head zone evidence. Movers, dynamic actors, callbacks,
+sample gaps, horizon exhaustion, or evidence caps return unknown. Its negative
+result means only "no harmful pain observed," never "safe." It has focused
+unit coverage but is not connected to runtime telemetry or control.
+
+This slice is deterministic and behavior-neutral, and its numerical forecast
+agrees with every comparable sampled step. It does not yet prevent a suicide,
+repair a stall, or pass the vertical classifier's held-out gates. The bot
+release remains **not release-ready and not merge-ready**.
+
+Exact UT436 and Unreal 226b disassembly has now identified the next shared
+runtime correction. Both retail `physFalling` implementations use a strict
+`normal.z > 0.7` landing threshold, project the remainder after the first wall,
+perform a second move, call `TwoWallAdjust` and perform a third move after a
+second nonwalkable contact, preserve falling Z velocity while reconstructing
+horizontal velocity, and continue the bounded eight-iteration physics loop.
+Surreal currently stops after the second move, rebuilds all three velocity
+components, and discards remaining time. That defect exactly fits the frozen
+Athena and Ash BSP-crease traces. It will be implemented and A/B-qualified as
+a separate live iteration.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

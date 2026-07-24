@@ -415,6 +415,74 @@ class QualityGateTests(unittest.TestCase):
             "horizontal_corner_unknown_or_unsafe_support_exact"
             for item in result["violations"]))
 
+    def test_falling_parity_and_vertical_column_qualification_metrics_are_gateable(self) -> None:
+        qualification_metrics = {
+            "falling_parity_realized_episode_completion_fraction": 0.95,
+            "falling_parity_realized_comparable_step_fraction": 0.8,
+            "falling_parity_realized_mismatch_fraction": 0.0,
+            "falling_parity_realized_unknown_step_fraction": 0.0,
+            "vertical_pain_column_precision": 0.9,
+            "vertical_pain_column_recall": 0.8,
+            "vertical_pain_column_false_positive_rate": 0.1,
+            "vertical_pain_column_labeled_episode_fraction": 0.75,
+        }
+        candidate = run("candidate-parity-column", "candidate", "DM-Deck16][", {
+            "completion": True, **qualification_metrics,
+        })
+        gate_config = config(
+            required_metrics=["completion", *qualification_metrics],
+            required_runs=[{
+                "id": "candidate-deck", "variant": "candidate",
+                "map": "DM-Deck16][", "min": 1,
+            }],
+            aggregate_gates=[],
+            per_run_gates=[
+                {"id": "parity-complete", "variant": "candidate", "map": "DM-Deck16][",
+                 "metric": "falling_parity_realized_episode_completion_fraction",
+                 "min": 0.95},
+                {"id": "parity-comparable", "variant": "candidate", "map": "DM-Deck16][",
+                 "metric": "falling_parity_realized_comparable_step_fraction", "min": 0.8},
+                {"id": "parity-no-mismatch", "variant": "candidate", "map": "DM-Deck16][",
+                 "metric": "falling_parity_realized_mismatch_fraction", "max": 0.0},
+                {"id": "parity-no-unknown", "variant": "candidate", "map": "DM-Deck16][",
+                 "metric": "falling_parity_realized_unknown_step_fraction", "max": 0.0},
+                {"id": "column-precision", "variant": "candidate", "map": "DM-Deck16][",
+                 "metric": "vertical_pain_column_precision", "min": 0.9},
+                {"id": "column-recall", "variant": "candidate", "map": "DM-Deck16][",
+                 "metric": "vertical_pain_column_recall", "min": 0.8},
+                {"id": "column-false-positive-rate", "variant": "candidate",
+                 "map": "DM-Deck16][",
+                 "metric": "vertical_pain_column_false_positive_rate", "max": 0.1},
+                {"id": "column-labeled-support", "variant": "candidate",
+                 "map": "DM-Deck16][",
+                 "metric": "vertical_pain_column_labeled_episode_fraction", "min": 0.75},
+            ],
+        )
+        self.assertEqual(GATE.evaluate(report(candidate), gate_config)["status"], "passed")
+
+        degraded = run("candidate-parity-column-degraded", "candidate", "DM-Deck16][", {
+            "completion": True, **qualification_metrics,
+            "vertical_pain_column_precision": 0.5,
+        })
+        degraded_result = GATE.evaluate(report(degraded), gate_config)
+        self.assertEqual(degraded_result["status"], "failed")
+        self.assertTrue(any(
+            item["evidence"].get("metric") == "vertical_pain_column_precision"
+            for item in degraded_result["violations"]))
+
+        missing_metrics = {**qualification_metrics}
+        missing_metrics.pop("falling_parity_realized_mismatch_fraction")
+        missing = run("candidate-parity-column-missing", "candidate", "DM-Deck16][", {
+            "completion": True, **missing_metrics,
+        })
+        missing_result = GATE.evaluate(report(missing), gate_config)
+        self.assertEqual(missing_result["status"], "failed")
+        self.assertTrue(any(
+            item["kind"] == "required_metric"
+            and item["evidence"].get("metric")
+            == "falling_parity_realized_mismatch_fraction"
+            for item in missing_result["violations"]))
+
     def test_paired_gate_supports_equality_delta_and_ratio_thresholds(self) -> None:
         equal_report = paired_report((
             "deck-1", "DM-Deck16][", {"deaths_exact": 2}, {"deaths_exact": 2},

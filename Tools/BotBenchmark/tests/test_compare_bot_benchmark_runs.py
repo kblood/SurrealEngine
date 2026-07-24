@@ -304,9 +304,72 @@ class CompareBotBenchmarkRunsTests(unittest.TestCase):
         self.assertEqual(audit["first"]["line"], 1)
         self.assertIsInstance(audit["first"]["value"], list)
 
+    def test_parity_and_vertical_column_shadow_differences_require_explicit_ignores(self) -> None:
+        left, right = self.pair()
+        mutate_jsonl(right / "events.jsonl", lambda values: [
+            bot.update(
+                falling_parity_realized_matched_steps_exact=str(index + 1),
+                vertical_pain_column_true_positive_outcomes_exact=str(index),
+                falling_parity_realized_records=[{
+                    "source_pawn_actor": "BotA",
+                    "life_generation": str(index + 1),
+                    "invocation_token": "1",
+                    "walking_iteration": 0,
+                    "step_ordinal": "0",
+                    "outcome": "episode_started",
+                    "elapsed": 0.0,
+                    "collision": "unknown",
+                    "hit_fraction": 1.0,
+                    "hit_normal": {"x": 0.0, "y": 0.0, "z": 0.0},
+                    "velocity_error": 0.0,
+                    "requested_delta_error": 0.0,
+                    "endpoint_error": 0.0,
+                    "callback_barrier_mask": "0",
+                }],
+                vertical_pain_column_diagnostics=[{
+                    "episode": index, "prediction": "positive", "outcome": "harmful",
+                }],
+            )
+            for index, event in enumerate(values) for bot in event["bots"]])
+
+        mismatch = COMPARE.compare_runs(left, right, [])
+        self.assertFalse(mismatch["equivalent"])
+        self.assertEqual(mismatch["mismatch"]["artifact"], "events.jsonl")
+
+        diagnostic_mismatch = COMPARE.compare_runs(
+            left, right,
+            ["falling_parity_realized_matched_steps_exact",
+             "vertical_pain_column_true_positive_outcomes_exact"],
+        )
+        self.assertFalse(diagnostic_mismatch["equivalent"])
+        self.assertEqual(diagnostic_mismatch["mismatch"]["kind"], "object_fields")
+        self.assertEqual(diagnostic_mismatch["mismatch"]["right_only"], [
+            "falling_parity_realized_records",
+            "vertical_pain_column_diagnostics",
+        ])
+
+        report = COMPARE.compare_runs(
+            left, right,
+            ["falling_parity_realized_matched_steps_exact",
+             "vertical_pain_column_true_positive_outcomes_exact"],
+            ["falling_parity_realized_records", "vertical_pain_column_diagnostics"],
+        )
+        self.assertTrue(report["equivalent"])
+        events = next(item for item in report["artifacts"] if item["path"] == "events.jsonl")
+        ignored = events["right"]["ignored"]
+        for field in (
+                "falling_parity_realized_matched_steps_exact",
+                "vertical_pain_column_true_positive_outcomes_exact",
+                "falling_parity_realized_records",
+                "vertical_pain_column_diagnostics"):
+            self.assertEqual(ignored[field]["occurrences"], 2)
+            self.assertIn("occurrences_sha256", ignored[field])
+
     def test_diagnostic_ignore_names_are_strict_and_must_be_used(self) -> None:
         left, right = self.pair()
-        for field in ("health", "bad/name_diagnostics", "x-diagnostics", "participants"):
+        for field in (
+                "health", "bad/name_diagnostics", "x-diagnostics", "other_records",
+                "participants"):
             with self.subTest(field=field):
                 with self.assertRaisesRegex(COMPARE.ComparisonError, "protected|safe identifier ending"):
                     COMPARE.compare_runs(left, right, [], [field])

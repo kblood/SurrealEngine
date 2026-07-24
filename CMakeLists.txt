@@ -548,6 +548,10 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnPainZoneFallPrediction.h
 	SurrealEngine/UObject/PawnFallingParityForecast.cpp
 	SurrealEngine/UObject/PawnFallingParityForecast.h
+	SurrealEngine/UObject/PawnFallingParityRealizedTrace.cpp
+	SurrealEngine/UObject/PawnFallingParityRealizedTrace.h
+	SurrealEngine/UObject/PawnVerticalPainColumnShadow.cpp
+	SurrealEngine/UObject/PawnVerticalPainColumnShadow.h
 	SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
 	SurrealEngine/UObject/PawnWalkingStepPreflight.h
 	SurrealEngine/UObject/PawnPainLedgeRecovery.cpp
@@ -1177,6 +1181,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
 		SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
+		SurrealEngine/UObject/PawnFallingParityRealizedTrace.cpp
 	)
 	target_include_directories(BotBenchmarkTelemetryTests PRIVATE SurrealEngine)
 	set_target_properties(BotBenchmarkTelemetryTests PROPERTIES CXX_STANDARD 20)
@@ -1362,6 +1367,22 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PawnFallingParityForecastTests PRIVATE SurrealEngine)
 	set_target_properties(PawnFallingParityForecastTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnFallingParityForecast COMMAND PawnFallingParityForecastTests)
+
+	add_executable(PawnFallingParityRealizedTraceTests
+		Tests/PawnFallingParityRealizedTraceTests.cpp
+		SurrealEngine/UObject/PawnFallingParityRealizedTrace.cpp
+	)
+	target_include_directories(PawnFallingParityRealizedTraceTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingParityRealizedTraceTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingParityRealizedTrace COMMAND PawnFallingParityRealizedTraceTests)
+
+	add_executable(PawnVerticalPainColumnShadowTests
+		Tests/PawnVerticalPainColumnShadowTests.cpp
+		SurrealEngine/UObject/PawnVerticalPainColumnShadow.cpp
+	)
+	target_include_directories(PawnVerticalPainColumnShadowTests PRIVATE SurrealEngine)
+	set_target_properties(PawnVerticalPainColumnShadowTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnVerticalPainColumnShadow COMMAND PawnVerticalPainColumnShadowTests)
 
 	add_executable(PawnFallingTwoPlaneContactTests
 		Tests/PawnFallingTwoPlaneContactTests.cpp

@@ -82,6 +82,19 @@ namespace
 		}
 	}
 
+	const char* CollisionName(PawnMovement::FallingParityCollisionKind collision)
+	{
+		using PawnMovement::FallingParityCollisionKind;
+		switch (collision)
+		{
+		case FallingParityCollisionKind::Clear: return "clear";
+		case FallingParityCollisionKind::StaticWorld: return "static_world";
+		case FallingParityCollisionKind::Mover: return "mover";
+		case FallingParityCollisionKind::DynamicActor: return "dynamic_actor";
+		default: return "unknown";
+		}
+	}
+
 	const char* ZoneName(PawnMovement::WalkingStepZoneKind zone)
 	{
 		using PawnMovement::WalkingStepZoneKind;
@@ -173,6 +186,29 @@ namespace
 			out << Fixed(diagnostic.FallHitFractions[index], 9);
 		}
 		out << "]}}";
+	}
+
+	void WriteFallingParityRealizedRecord(std::ostringstream& out,
+		const PawnMovement::FallingParityRealizedRecord& record)
+	{
+		out << "{\"source_pawn_actor\":"
+			<< JsonString(record.Correlation.SourcePawnActor)
+			<< ",\"life_generation\":\"" << record.Correlation.LifeGeneration
+			<< "\",\"invocation_token\":\"" << record.Correlation.InvocationToken
+			<< "\",\"walking_iteration\":" << record.Correlation.WalkingIteration
+			<< ",\"step_ordinal\":\"" << record.StepOrdinal
+			<< "\",\"outcome\":" << JsonString(
+				PawnMovement::FallingParityRealizedOutcomeName(record.Outcome))
+			<< ",\"elapsed\":" << Fixed(record.Elapsed, 9)
+			<< ",\"collision\":" << JsonString(CollisionName(record.Collision))
+			<< ",\"hit_fraction\":" << Fixed(record.HitFraction, 9)
+			<< ",\"hit_normal\":";
+		WriteVector(out, record.HitNormal);
+		out << ",\"velocity_error\":" << Fixed(record.VelocityError, 9)
+			<< ",\"requested_delta_error\":" << Fixed(record.RequestedDeltaError, 9)
+			<< ",\"endpoint_error\":" << Fixed(record.EndpointError, 9)
+			<< ",\"callback_barrier_mask\":\"" << record.CallbackBarrierMask
+			<< "\"}";
 	}
 
 	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot)
@@ -274,6 +310,36 @@ namespace
 		{
 			if (index) out << ',';
 			WritePreflightDiagnostic(out, bot.WalkingStepPreflightDiagnostics[index]);
+		}
+		out << ']';
+		out << ",\"falling_parity_realized_episodes_exact\":\""
+			<< bot.FallingParityRealizedEpisodesExact << "\""
+			<< ",\"falling_parity_realized_steps_exact\":\""
+			<< bot.FallingParityRealizedStepsExact << "\""
+			<< ",\"falling_parity_realized_matched_steps_exact\":\""
+			<< bot.FallingParityRealizedMatchedStepsExact << "\""
+			<< ",\"falling_parity_realized_mismatches_exact\":\""
+			<< bot.FallingParityRealizedMismatchesExact << "\""
+			<< ",\"falling_parity_realized_unknowns_exact\":\""
+			<< bot.FallingParityRealizedUnknownsExact << "\""
+			<< ",\"falling_parity_realized_callback_barriers_exact\":\""
+			<< bot.FallingParityRealizedCallbackBarriersExact << "\""
+			<< ",\"falling_parity_realized_pain_entries_exact\":\""
+			<< bot.FallingParityRealizedPainEntriesExact << "\""
+			<< ",\"falling_parity_realized_deaths_exact\":\""
+			<< bot.FallingParityRealizedDeathsExact << "\""
+			<< ",\"falling_parity_realized_landings_exact\":\""
+			<< bot.FallingParityRealizedLandingsExact << "\""
+			<< ",\"falling_parity_realized_continuity_losses_exact\":\""
+			<< bot.FallingParityRealizedContinuityLossesExact << "\""
+			<< ",\"falling_parity_realized_record_overflows_exact\":\""
+			<< bot.FallingParityRealizedRecordOverflowsExact << "\""
+			<< ",\"falling_parity_realized_records\":[";
+		for (size_t index = 0; index < bot.FallingParityRealizedRecords.size(); index++)
+		{
+			if (index) out << ',';
+			WriteFallingParityRealizedRecord(out,
+				bot.FallingParityRealizedRecords[index]);
 		}
 		out << ']';
 		out << ",\"state\":" << JsonString(bot.State) << "}";

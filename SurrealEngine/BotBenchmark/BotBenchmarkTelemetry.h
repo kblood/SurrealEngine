@@ -1,6 +1,7 @@
 #pragma once
 
 #include "UObject/PawnWalkingStepPreflight.h"
+#include "UObject/PawnFallingParityRealizedTrace.h"
 
 #include <array>
 #include <cstdint>
@@ -94,6 +95,19 @@ struct BotBenchmarkBotState
 		WalkingStepPreflightDiagnostics;
 	std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>
 		WalkingStepPreflightReasonsExact = {};
+	uint64_t FallingParityRealizedEpisodesExact = 0;
+	uint64_t FallingParityRealizedStepsExact = 0;
+	uint64_t FallingParityRealizedMatchedStepsExact = 0;
+	uint64_t FallingParityRealizedMismatchesExact = 0;
+	uint64_t FallingParityRealizedUnknownsExact = 0;
+	uint64_t FallingParityRealizedCallbackBarriersExact = 0;
+	uint64_t FallingParityRealizedPainEntriesExact = 0;
+	uint64_t FallingParityRealizedDeathsExact = 0;
+	uint64_t FallingParityRealizedLandingsExact = 0;
+	uint64_t FallingParityRealizedContinuityLossesExact = 0;
+	uint64_t FallingParityRealizedRecordOverflowsExact = 0;
+	std::vector<PawnMovement::FallingParityRealizedRecord>
+		FallingParityRealizedRecords;
 };
 
 struct BotBenchmarkTelemetryEvent
