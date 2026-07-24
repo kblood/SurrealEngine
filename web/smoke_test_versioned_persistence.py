@@ -99,7 +99,7 @@ def read_sentinel(page):
 		mutable: surrealApp.dataController.mutableController.status(),
 		buildId: surrealReleaseDiagnostics.report().build.id,
 		url: location.pathname,
-	}))""")
+	})""")
 
 
 def reload_saved_generation(page):

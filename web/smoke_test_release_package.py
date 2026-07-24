@@ -118,6 +118,9 @@ with sync_playwright() as playwright:
 	result["manifestBuildId"] = manifest.get("buildId")
 	result["sourceArchiveSha256"] = compliance.get("archiveSha256")
 	print(json.dumps(result, indent=2))
+	diagnostic_milestones = {entry.get("stage"): entry.get("detail") or {}
+		for entry in (result.get("startupDiagnostics") or {}).get("milestones", [])}
+	asset_responses = (result.get("startupDiagnostics") or {}).get("assetResponses", [])
 	failure = (not result["ready"] or result["state"] != "waiting-for-import" or result["booted"] or
 		not result["crossOriginIsolated"] or result["engineBase"] != "./engine/" or
 		result["engineScript"] != "./" + manifest.get("entrypoints", {}).get("javascript", "") or
@@ -134,6 +137,16 @@ with sync_playwright() as playwright:
 		result["startupDiagnostics"].get("schema") != "surrealengine-browser-startup-diagnostics-v1" or
 		result["startupDiagnostics"].get("build", {}).get("id") != manifest.get("buildId") or
 		len(result["startupDiagnostics"].get("criticalAssets", [])) != 2 or
+		len(asset_responses) != 2 or
+		{entry.get("role") for entry in asset_responses} != {"javascript", "wasm"} or
+		any(entry.get("method") != "GET" or entry.get("status") != 200 or not entry.get("contentType")
+			for entry in asset_responses) or
+		diagnostic_milestones.get("wasm-compiled", {}).get("method") not in
+			("streaming", "array-buffer", "array-buffer-fallback") or
+		not isinstance(diagnostic_milestones.get("wasm-compiled", {}).get("durationMs"), (int, float)) or
+		not isinstance(diagnostic_milestones.get("wasm-instantiated", {}).get("durationMs"), (int, float)) or
+		not isinstance(diagnostic_milestones.get("wasm-runtime-initialized", {}).get("initializationMs"), (int, float)) or
+		diagnostic_milestones.get("import-storage-ready", {}).get("state") != "waiting-for-import" or
 		"launcher-ready" not in [entry.get("stage") for entry in result["startupDiagnostics"].get("milestones", [])] or
 		"Direct WebGL 2 is the production desktop-to-VR path" not in (result["releaseNotice"] or "") or
 		"physical Quest qualification is still required" not in (result["releaseNotice"] or "") or
@@ -203,6 +216,7 @@ with sync_playwright() as playwright:
 					window.syntheticDominantHands.push(args[0]);
 					return Promise.resolve(1);
 				}
+				if (name === 'Surreal_GetWebGL2FrameCount') return 1;
 				return originalCcall(name, returnType, argumentTypes, args, options);
 			};
 		}
@@ -259,9 +273,12 @@ with sync_playwright() as playwright:
 			enterDisabled: document.querySelector('[data-xr-enter]').disabled,
 			preLaunchPresentationControlAbsent: !document.querySelector('[data-launcher-presentation]'),
 		},
+		startupDiagnostics: window.surrealReleaseDiagnostics.report(),
 	})""")
 	expected_entry = "Surreal_StartBrowserGame" if compliance.get("buildProvenance", {}).get("browserEntryPoint") == "asyncify-opfs" else "callMain"
 	expected_renderer = "webgl2" if manifest.get("build", {}).get("webgl2Renderer") else "webgpu"
+	launch_milestones = {entry.get("stage"): entry.get("detail") or {}
+		for entry in integration["startupDiagnostics"].get("milestones", [])}
 	if (presentations != [] or integration["entry"] != expected_entry or
 		integration["args"] != ["--autoplay", "--url=Vortex2", "--render=" + expected_renderer, "/gamedata"] or
 		integration["dominantHands"] != [1] or
@@ -269,7 +286,11 @@ with sync_playwright() as playwright:
 			"presentationId": "flat", "xrDominantHand": "right"} or
 		integration["xr"]["panelHidden"] or not integration["xr"]["enterDisabled"] or
 		not integration["xr"]["preLaunchPresentationControlAbsent"] or
-		integration["xr"]["controllerState"] != "FlatRunning"):
+		integration["xr"]["controllerState"] != "FlatRunning" or
+		launch_milestones.get("persistent-storage-ready", {}).get("state") != "ready" or
+		not launch_milestones.get("persistent-storage-ready", {}).get("backend") or
+		launch_milestones.get("renderer-selected", {}).get("renderer") != expected_renderer or
+		(expected_renderer == "webgl2" and launch_milestones.get("first-frame-observed", {}).get("frames", 0) < 1)):
 		print(json.dumps({"presentations": presentations, "integration": integration}, indent=2), file=sys.stderr)
 		print("FAIL: staged package game detection or flat launch", file=sys.stderr)
 		sys.exit(1)
