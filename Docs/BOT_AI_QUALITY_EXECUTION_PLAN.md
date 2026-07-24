@@ -586,6 +586,36 @@ so they were not misreported as unassisted suicides; they still fail total
 survival, hazard, combat, and locomotion non-regression gates. The live replan
 is rejected and removed. Its pure projection fixtures remain available.
 
+## Iteration 44: supported horizontal escape retained in shadow only
+
+Iteration 44 observes the same bounded two-plane falling seam without changing
+movement. It constructs a 24-unit outward horizontal bisector, dry-runs the
+pawn sweep, and accepts support evidence only when the first downward
+full-extent hit is static world, walkable, in a known non-pain zone, and the
+hypothetical endpoint advances toward the active tactical destination. Unknown
+evidence, dynamic support, pain support, and non-positive destination progress
+remain rejections. The observer changes only attributed counters; it does not
+move the pawn, alter acceleration or latent state, or issue callbacks.
+
+The observer was exactly behavior-neutral against its rollback on Unreal
+`DmDeathFan` seed 424242 at both timestep spellings and on UT Deck seed 271828.
+After removing only the five new counter fields, gameplay telemetry and shadow
+records matched byte-for-byte. At historical `0.0166667`, DeathFan produced
+eight detections and eight candidate probes, all classified unknown or unsafe
+support. At `0.016666667`, it produced 141 detections and 141 probes, again all
+unknown or unsafe. Deck seed 271828 produced three probes: two destination-
+progress rejections and one unknown-or-unsafe-support result. No candidate was
+authorized in any of these comparisons.
+
+The tuning scan remained diagnostic rather than a promotion gate. Deck seeds
+104729 and 314159 registered one and two unknown-or-unsafe probes respectively;
+UT Morpheus registered three seam detections but only one valid probe, also
+unknown or unsafe. The other listed tuning cases authorized no escape, and the
+entire scan recorded zero authorized candidates. The shadow instrumentation is
+retained because it safely disproves candidate availability on the known
+failures. No live horizontal translation is enabled, and held-out maps remain
+unopened.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
@@ -600,7 +630,7 @@ The first tuning smoke completed on all four maps. UT Pressure had no hazard
 entry, UT Morpheus exposed two, Unreal HealPod had none, and Unreal DeathFan
 exposed one slime/environmental death. These are tuning observations only;
 held-out results remain unopened until parameters freeze. No iteration through
-42 is merge-ready: Deck still has avoidable hazard deaths, DeathFan remains an
+44 is merge-ready: Deck still has avoidable hazard deaths, DeathFan remains an
 Unreal safety/stall failure, and the required held-out evidence has deliberately
 not been opened. Live causal death attribution is available, but measurement
 truth does not make the observed behavior safe.

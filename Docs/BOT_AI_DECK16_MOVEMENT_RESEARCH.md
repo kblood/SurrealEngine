@@ -367,6 +367,32 @@ why the complete causal partition must be combined with total-death, hazard,
 combat, and movement gates. The live latent replan is removed. Only the pure
 eligibility/projection and evidence-gated supported-escape models remain.
 
+## Supported horizontal escape: iteration 44 shadow result
+
+Iteration 44 wired the evidence-gated model as an observer only. For an
+eligible static two-plane falling seam it builds a deterministic 24-unit
+outward horizontal bisector, dry-runs the pawn sweep, and probes downward with
+the full pawn extent. A candidate is merely classified as supportable when the
+first support hit is static world rather than a pawn, mover, or other actor; the
+normal is walkable; the supported foot region is known and non-pain; and the
+endpoint makes positive progress toward the active tactical destination. The
+observer never applies the candidate or changes movement state.
+
+Rollback A/B comparisons were exact on `DmDeathFan` seed 424242 at historical
+`0.0166667`, at nearby `0.016666667`, and on Deck seed 271828. DeathFan's
+historical run produced 8 detections and 8 probes, all unknown or unsafe; its
+nearby-timestep run produced 141/141 with the same classification. Deck
+produced three probes, split into two target-progress rejections and one
+unknown-or-unsafe-support result. All three comparisons authorized zero
+escapes.
+
+The tuning scan reinforced that result without opening held-outs. Deck seeds
+104729 and 314159 recorded one and two unsafe probes. Morpheus recorded three
+detections but only one valid, unsafe probe. No listed tuning case authorized a
+candidate. The shadow instrumentation is retained as behavior-neutral causal
+evidence, but it does not justify live movement: the known seams still lack a
+proven supported escape, and held-out maps remain unopened.
+
 ## Quality measurement truth boundary
 
 The analyzer and executable gate evaluator now fail closed for missing runs,
