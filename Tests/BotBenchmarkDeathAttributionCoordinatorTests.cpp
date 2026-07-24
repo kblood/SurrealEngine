@@ -1,4 +1,5 @@
 #include "BotBenchmark/BotBenchmarkDeathAttributionCoordinator.h"
+#include "BotBenchmark/BotBenchmarkDriver.h"
 
 #include <cmath>
 #include <iostream>
@@ -39,11 +40,124 @@ namespace
 			return { CoordinatorStatus::OutOfOrder };
 		return result;
 	}
+
+	BotBenchmarkDriverDetail::NativePawnCounters UniformNativeCounters(
+		uint64_t value, double seconds)
+	{
+		using BotBenchmarkDriverDetail::NativePawnCounters;
+		NativePawnCounters counters;
+		counters.PainLedgeVetoes = value;
+		counters.PainLedgeRepeatVetoes = value;
+		counters.PainLedgeRecoveryAttempts = value;
+		counters.PainLedgeRecoveryEscapes = value;
+		counters.WallAdjustCalls = value;
+		counters.WallAdjustRepeats = value;
+		counters.WallAdjustRecoveryAttempts = value;
+		counters.WallAdjustRecoverySuccesses = value;
+		counters.WallAdjustForcedReplans = value;
+		counters.MoveStallDetections = value;
+		counters.MoveStallEpisodeResets = value;
+		counters.MoveStallForcedReplans = value;
+		counters.MoveStallNavigationForcedReplans = value;
+		counters.MoveStallTargetlessMoveToTimeouts = value;
+		counters.MoveStallEligibleSeconds = seconds;
+		counters.FailedNavigationAvoidanceActivations = value;
+		counters.FailedNavigationSafeguardSuppressions = value;
+		counters.FailedNavigationRoutePenaltyApplications = value;
+		counters.FallingSeamDetections = value;
+		counters.HorizontalCornerCandidateProbes = value * 3;
+		counters.HorizontalCornerAuthorizedEscapes = value;
+		counters.HorizontalCornerTargetProgressRejects = value;
+		counters.HorizontalCornerUnknownOrUnsafeSupport = value;
+		return counters;
+	}
+
+	bool HasUniformNativeCounters(const BotBenchmarkDriverDetail::NativePawnCounters& counters,
+		uint64_t value, double seconds)
+	{
+		return counters.PainLedgeVetoes == value &&
+			counters.PainLedgeRepeatVetoes == value &&
+			counters.PainLedgeRecoveryAttempts == value &&
+			counters.PainLedgeRecoveryEscapes == value &&
+			counters.WallAdjustCalls == value && counters.WallAdjustRepeats == value &&
+			counters.WallAdjustRecoveryAttempts == value &&
+			counters.WallAdjustRecoverySuccesses == value &&
+			counters.WallAdjustForcedReplans == value &&
+			counters.MoveStallDetections == value &&
+			counters.MoveStallEpisodeResets == value &&
+			counters.MoveStallForcedReplans == value &&
+			counters.MoveStallNavigationForcedReplans == value &&
+			counters.MoveStallTargetlessMoveToTimeouts == value &&
+			counters.MoveStallEligibleSeconds == seconds &&
+			counters.FailedNavigationAvoidanceActivations == value &&
+			counters.FailedNavigationSafeguardSuppressions == value &&
+			counters.FailedNavigationRoutePenaltyApplications == value &&
+			counters.FallingSeamDetections == value &&
+			counters.HorizontalCornerCandidateProbes == value * 3 &&
+			counters.HorizontalCornerAuthorizedEscapes == value &&
+			counters.HorizontalCornerTargetProgressRejects == value &&
+			counters.HorizontalCornerUnknownOrUnsafeSupport == value;
+	}
 }
 
 int main()
 {
 	constexpr double windowSeconds = 2.0;
+	using namespace BotBenchmarkDriverDetail;
+
+	int firstPawn = 0;
+	int replacementPawn = 0;
+	NativePawnCounterEpoch sampledEpoch;
+	NativePawnCounters sampledTotals;
+	auto firstLive = sampledEpoch.BeginPawn(&firstPawn, NativePawnCounterSample::LivePawn);
+	if (!firstLive.BeganPawn || !firstLive.ResetLifeAttribution)
+		return Fail("first live pawn did not begin a resettable native counter epoch");
+	sampledEpoch.Accumulate(UniformNativeCounters(2, 0.5), sampledTotals);
+	if (sampledEpoch.BeginPawn(&firstPawn, NativePawnCounterSample::DeathFlush).BeganPawn)
+		return Fail("death flush replaced the already sampled pawn epoch");
+	sampledEpoch.Accumulate(UniformNativeCounters(5, 1.25), sampledTotals);
+	if (!HasUniformNativeCounters(sampledTotals, 5, 1.25))
+		return Fail("death flush lost native counter increments after the last tick sample");
+	sampledEpoch.Accumulate(UniformNativeCounters(5, 1.25), sampledTotals);
+	if (sampledEpoch.BeginPawn(&firstPawn, NativePawnCounterSample::LivePawn).BeganPawn)
+		return Fail("subsequent capture replaced the death-flushed pawn epoch");
+	sampledEpoch.Accumulate(UniformNativeCounters(5, 1.25), sampledTotals);
+	if (!HasUniformNativeCounters(sampledTotals, 5, 1.25))
+		return Fail("repeated death flush or capture double-counted native counters");
+
+	NativePawnCounterEpoch unsampledEpoch;
+	NativePawnCounters unsampledTotals;
+	auto firstDeath = unsampledEpoch.BeginPawn(&firstPawn, NativePawnCounterSample::DeathFlush);
+	if (!firstDeath.BeganPawn || firstDeath.ResetLifeAttribution)
+		return Fail("death before the first sample requested a life-attribution reset");
+	unsampledEpoch.Accumulate(UniformNativeCounters(7, 1.75), unsampledTotals);
+	if (!HasUniformNativeCounters(unsampledTotals, 7, 1.75))
+		return Fail("death before the first sample did not capture native counters");
+
+	auto respawn = sampledEpoch.BeginPawn(&replacementPawn, NativePawnCounterSample::LivePawn);
+	if (!respawn.BeganPawn || !respawn.ResetLifeAttribution)
+		return Fail("replacement pawn did not begin a new live counter epoch");
+	sampledEpoch.Accumulate(UniformNativeCounters(2, 0.5), sampledTotals);
+	if (!HasUniformNativeCounters(sampledTotals, 7, 1.75))
+		return Fail("replacement pawn with the same identity did not preserve prior totals");
+
+	DeathAttributionCounters partition;
+	for (Kind kind : { Kind::DirectSelfKill, Kind::DirectEnemyKill,
+		Kind::UnassistedEnvironmentalDeath,
+		Kind::RecentEnemyContributedEnvironmentalDeathProxy, Kind::AmbiguousDeath })
+	{
+		Decision decision;
+		decision.Attribution = kind;
+		decision.HadRecentEnemyMomentumContribution =
+			kind == Kind::RecentEnemyContributedEnvironmentalDeathProxy;
+		partition.Apply(decision);
+	}
+	if (partition.ClassifiedDeaths() != 5 || partition.DirectSelfKills != 1 ||
+		partition.DirectEnemyKills != 1 || partition.UnassistedEnvironmentalDeaths != 1 ||
+		partition.RecentEnemyContributedEnvironmentalDeathsProxy != 1 ||
+		partition.AmbiguousDeaths != 1 ||
+		partition.RecentEnemyMomentumContributedEnvironmentalDeathsProxy != 1)
+		return Fail("five-way death attribution partition or momentum subset was not preserved");
 
 	Coordinator nested(windowSeconds);
 	auto wrapper = nested.EnterTakeDamage({ "BotA", DamageInstigator::EnemyPlayer,
@@ -70,6 +184,31 @@ int main()
 	if (!impulseState || !impulseState->HasEnemyContribution ||
 		!impulseState->HasEnemyMomentumContribution)
 		return Fail("zero-damage AddVelocity impulse was not retained");
+
+	Coordinator deathFlushContribution(windowSeconds);
+	if (!EnterEnemyDamage(deathFlushContribution, "BotA", 9.0, 100, 90, true))
+		return Fail("death-flush contribution fixture failed");
+	NativePawnCounterEpoch deathFlushEpoch;
+	NativePawnCounters deathFlushTotals;
+	auto deathFlushBegin = deathFlushEpoch.BeginPawn(
+		&firstPawn, NativePawnCounterSample::DeathFlush);
+	if (deathFlushBegin.ResetLifeAttribution)
+		deathFlushContribution.ResetLife("BotA");
+	deathFlushEpoch.Accumulate(UniformNativeCounters(3, 0.75), deathFlushTotals);
+	const State* contributionAfterFlush = deathFlushContribution.FindLifeState("BotA");
+	if (!contributionAfterFlush || !contributionAfterFlush->HasEnemyContribution ||
+		!contributionAfterFlush->HasEnemyMomentumContribution)
+		return Fail("death-time native counter flush cleared recent enemy contribution");
+	auto flushSource = deathFlushContribution.EnterEnvironmentalSource({ "BotA",
+		EnvironmentalSource::PainTimer, 10.0, true });
+	KilledResult contributedAfterFlush = CompleteKilled(deathFlushContribution,
+		"BotA", DeathKiller::None, 10.0);
+	if (!contributedAfterFlush.Attribution ||
+		contributedAfterFlush.Attribution->Attribution !=
+			Kind::RecentEnemyContributedEnvironmentalDeathProxy ||
+		!contributedAfterFlush.Attribution->HadRecentEnemyMomentumContribution)
+		return Fail("enemy contribution did not survive through death classification after flush");
+	deathFlushContribution.ExitEnvironmentalSource(flushSource.Token);
 
 	Coordinator zeroEffect(windowSeconds);
 	if (!EnterEnemyDamage(zeroEffect, "BotA", 9.0, 100, 100, false) ||
@@ -153,6 +292,23 @@ int main()
 	if (nestedKilled.ExitEnvironmentalSource(painInner.Token) != CoordinatorStatus::Accepted ||
 		nestedKilled.ExitEnvironmentalSource(painOuter.Token) != CoordinatorStatus::Accepted)
 		return Fail("nested environmental source depths did not unwind");
+
+	Coordinator differentVictims(windowSeconds);
+	auto killedA = differentVictims.EnterKilled({ "BotA", DeathKiller::SelfPlayer,
+		10.0, true });
+	auto killedB = differentVictims.EnterKilled({ "BotB", DeathKiller::EnemyPlayer,
+		10.0, true });
+	if (!killedA.IsOutermost || !killedB.IsOutermost)
+		return Fail("synchronously nested Killed calls for different victims were conflated");
+	KilledResult resultB = differentVictims.ObserveKilledResult(killedB.Token);
+	if (!resultB.Attribution || resultB.Attribution->Attribution != Kind::DirectEnemyKill ||
+		differentVictims.ExitKilled(killedB.Token) != CoordinatorStatus::Accepted)
+		return Fail("nested different-victim Killed call was not classified");
+	KilledResult resultA = differentVictims.ObserveKilledResult(killedA.Token);
+	if (!resultA.Attribution || resultA.Attribution->Attribution != Kind::DirectSelfKill ||
+		differentVictims.ExitKilled(killedA.Token) != CoordinatorStatus::Accepted ||
+		differentVictims.HasActiveScopes())
+		return Fail("outer different-victim Killed call did not resume after nested classification");
 
 	Coordinator directPrecedence(windowSeconds);
 	auto fallSource = directPrecedence.EnterEnvironmentalSource({ "BotA",
