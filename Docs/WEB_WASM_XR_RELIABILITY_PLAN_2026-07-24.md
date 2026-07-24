@@ -182,6 +182,22 @@ ten fresh/warm starts with identical asset identities and no proprietary data.
 Gate: interrupted staging cannot affect live; cold and warm remote tests load one
 manifest generation; rollback restores the prior tested generation.
 
+Progress, 2026-07-24 (immutable hosting transaction): commit
+`fa4f61456aa08e520a5e10b93fb2e387004c3450` adds exact v2-manifest
+verification, durable scoped locks/journals/completion records, immutable public
+generations keyed by the full manifest SHA-256, and an atomic stable `.htaccess`
+redirect with pointer-only rollback. The first initialization retains the old
+unversioned payload for in-flight compatibility. Synthetic HTTP boundary tests
+prove that old A resources remain available while fresh navigation selects only
+complete A or B targets; Windows and native-Linux crash/recovery suites pass.
+The exact `ff89e9d1` candidate also passed the flat browser smoke through its
+expected manifest-hash redirect and was rolled back to the exact `8b93cf60`
+generation while the candidate remained addressable. Evidence is in
+`SurrealEngine/qa/runs/2026-07-24/fa4f6145/wp1-versioned-release/manifest.json`.
+The remaining WP1 gate is actual Apache 2.4 staging/remote validation of rewrite,
+headers, MIME, compression, permissions, and pointer rollback; the Node host is
+not accepted as a substitute.
+
 ### WP2 — Production flat renderer baseline
 
 - Keep existing flat WebGPU available, but remove `navigator.gpu` as a gate for

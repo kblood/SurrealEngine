@@ -33,6 +33,16 @@ Electron diagnostic candidate:
   `cd8731a87a797d86055f50f12482ad20c7326dc5ae6d372d3e0c1c0f32c25b75`
 - status: unsigned internal diagnostic package
 
+Release transaction:
+
+- implementation commit: `fa4f61456aa08e520a5e10b93fb2e387004c3450`
+- procedure: `Docs/WEB_VERSIONED_RELEASE.md`
+- local manifest-backed evidence:
+  `SurrealEngine/qa/runs/2026-07-24/fa4f6145/wp1-versioned-release/manifest.json`
+- status: immutable initialization, publication, expected-hash browser smoke,
+  pointer promotion, candidate retention, and rollback pass on the Node host
+  model; actual Apache staging is still required before any website mutation
+
 Do not substitute a newer checkout, rebuild, mutable website, old candidate,
 or a different ZIP without creating a new card.
 
