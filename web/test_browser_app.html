@@ -498,6 +498,37 @@ window.browserAppTestPromise = (async () => {
 		assert(SurrealBrowserRelease.canStart(noGPU) && !noGPU.webGPU.available,
 			"missing navigator.gpu blocked the data/import shell");
 	});
+	await run("browser startup exposes the constructed device-loss controller", async () => {
+		const originalBrowserData = window.SurrealBrowserData;
+		const originalAppendChild = document.body.appendChild;
+		class FakeBrowserDataController {
+			constructor(Module) { this.Module = Module; }
+			async start() { return { import: { state: "waiting-for-import" } }; }
+		}
+		window.SurrealBrowserData = { BrowserDataController: FakeBrowserDataController };
+		document.body.appendChild = function (node) {
+			if (node.tagName === "SCRIPT") queueMicrotask(() => {
+				if (typeof node.onload === "function") node.onload();
+				window.Module.onRuntimeInitialized();
+			});
+			return node;
+		};
+		try {
+			const started = await api.start({
+				availableRenderers: ["null"],
+				presentationRegistry: new api.PresentationRegistry(),
+				library: { storageProxy() { return {}; }, register() {} },
+				libraryUI: { refresh() {} },
+				launcher: { setAvailableRenderers() {} },
+				viewportController: { attachModule() {} },
+			});
+			assert(started.webGPUDeviceLossController instanceof api.WebGPUDeviceLossController);
+			assert(started.dataController instanceof FakeBrowserDataController);
+		} finally {
+			document.body.appendChild = originalAppendChild;
+			window.SurrealBrowserData = originalBrowserData;
+		}
+	});
 	await run("packaged release diagnostics reject mixed engine identities", async () => {
 		const javascript = "engine/SurrealEngine." + "a".repeat(64) + ".js";
 		const wasm = "engine/SurrealEngine." + "b".repeat(64) + ".wasm";

@@ -857,7 +857,8 @@
 						});
 						resolve(Object.freeze({ Module, launcher, registry, library, libraryUI, viewportController,
 							xrController: options.xrController || null,
-							dataController: started.controller, webGPUDeviceLossController, result: started.result }));
+							dataController: started.controller, webGPUDeviceLossController: deviceLossController,
+							result: started.result }));
 					} catch (error) { reject(error); }
 				},
 			};
