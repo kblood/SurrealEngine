@@ -4603,75 +4603,80 @@ void UPawn::ObserveFallingSeamEscapeShadow(const vec3& requestedRemainingDelta,
 		return;
 	FallingSeamDetectionCountValue++;
 
-	const PawnMovement::HorizontalCornerEscapeCandidate candidate =
-		PawnMovement::BuildHorizontalCornerEscapeCandidate(input);
-	if (!candidate.Valid)
-		return;
-	HorizontalCornerCandidateProbeCountValue++;
-
-	PawnMovement::FallingRecoveryAuthorizationEvidence evidence;
-	evidence.SweepResultKnown = true;
-	evidence.SweepClear = TryMove(candidate.SweepDelta, true).Fraction == 1.0f;
-	if (evidence.SweepClear)
+	const PawnMovement::HorizontalCornerEscapeCandidates candidates =
+		PawnMovement::BuildHorizontalCornerEscapeCandidates(input);
+	for (size_t candidateIndex = 0; candidateIndex < candidates.Count; candidateIndex++)
 	{
-		const TraceFlags supportTraceFlags = {
-			.pawns = true,
-			.movers = true,
-			.others = true,
-			.world = true
-		};
-		const vec3 candidateCenter = Location() + candidate.SweepDelta;
-		const float supportDepth = std::max(MaxStepHeight() * stepDownDeltaFactor, 1.0f);
-		const vec3 supportEnd = candidateCenter - vec3(0.0f, 0.0f, supportDepth);
-		const vec3 traceExtent(CollisionRadius(), CollisionRadius(), CollisionHeight());
-		const CollisionHit support = XLevel()->Collision.TraceFirstHit(
-			candidateCenter, supportEnd, this, traceExtent, supportTraceFlags);
-		evidence.SupportResultKnown = true;
-		evidence.WalkableShortSupport = support.Fraction < 1.0f
-			&& support.Actor == Level()
-			&& support.Normal.z >= input.Contact.WalkableNormalZ;
-		if (evidence.WalkableShortSupport)
+		const PawnMovement::HorizontalCornerEscapeCandidate& candidate =
+			candidates.Candidates[candidateIndex];
+		if (!candidate.Valid)
+			continue;
+		HorizontalCornerCandidateProbeCountValue++;
+
+		PawnMovement::FallingRecoveryAuthorizationEvidence evidence;
+		evidence.SweepResultKnown = true;
+		evidence.SweepClear = TryMove(candidate.SweepDelta, true).Fraction == 1.0f;
+		if (evidence.SweepClear)
 		{
-			const vec3 supportedCenter = candidateCenter
-				+ (supportEnd - candidateCenter) * support.Fraction;
-			UZoneInfo* supportZone = XLevel()->Model->FindRegion(
-				supportedCenter - vec3(0.0f, 0.0f, CollisionHeight()), Level()).Zone;
-			evidence.PainResultKnown = supportZone != nullptr;
-			evidence.SupportInPainZone = supportZone && supportZone->bPainZone();
+			const TraceFlags supportTraceFlags = {
+				.pawns = true,
+				.movers = true,
+				.others = true,
+				.world = true
+			};
+			const vec3 candidateCenter = Location() + candidate.SweepDelta;
+			const float supportDepth = std::max(MaxStepHeight() * stepDownDeltaFactor, 1.0f);
+			const vec3 supportEnd = candidateCenter - vec3(0.0f, 0.0f, supportDepth);
+			const vec3 traceExtent(CollisionRadius(), CollisionRadius(), CollisionHeight());
+			const CollisionHit support = XLevel()->Collision.TraceFirstHit(
+				candidateCenter, supportEnd, this, traceExtent, supportTraceFlags);
+			evidence.SupportResultKnown = true;
+			evidence.WalkableShortSupport = support.Fraction < 1.0f
+				&& support.Actor == Level()
+				&& support.Normal.z >= input.Contact.WalkableNormalZ;
+			if (evidence.WalkableShortSupport)
+			{
+				const vec3 supportedCenter = candidateCenter
+					+ (supportEnd - candidateCenter) * support.Fraction;
+				UZoneInfo* supportZone = XLevel()->Model->FindRegion(
+					supportedCenter - vec3(0.0f, 0.0f, CollisionHeight()), Level()).Zone;
+				evidence.PainResultKnown = supportZone != nullptr;
+				evidence.SupportInPainZone = supportZone && supportZone->bPainZone();
+			}
 		}
-	}
 
-	const LatentRunState latentState = StateFrame
-		? StateFrame->LatentState : LatentRunState::Continue;
-	const bool liveMoveTowardTarget = latentState != LatentRunState::MoveToward
-		|| (MoveTarget() && !MoveTarget()->bDeleteMe());
-	if (IsMovementLatentState(latentState) && liveMoveTowardTarget)
-	{
-		const vec3 target = Destination();
-		const vec3 currentTargetDelta = target - Location();
-		const vec3 candidateTargetDelta = target - (Location() + candidate.SweepDelta);
-		const float currentDistance = length(currentTargetDelta);
-		const float candidateDistance = length(candidateTargetDelta);
-		if (std::isfinite(currentDistance) && std::isfinite(candidateDistance))
+		const LatentRunState latentState = StateFrame
+			? StateFrame->LatentState : LatentRunState::Continue;
+		const bool liveMoveTowardTarget = latentState != LatentRunState::MoveToward
+			|| (MoveTarget() && !MoveTarget()->bDeleteMe());
+		if (IsMovementLatentState(latentState) && liveMoveTowardTarget)
 		{
-			evidence.TargetProgressKnown = true;
-			evidence.TargetProgress = currentDistance - candidateDistance;
+			const vec3 target = Destination();
+			const vec3 currentTargetDelta = target - Location();
+			const vec3 candidateTargetDelta = target - (Location() + candidate.SweepDelta);
+			const float currentDistance = length(currentTargetDelta);
+			const float candidateDistance = length(candidateTargetDelta);
+			if (std::isfinite(currentDistance) && std::isfinite(candidateDistance))
+			{
+				evidence.TargetProgressKnown = true;
+				evidence.TargetProgress = currentDistance - candidateDistance;
+			}
 		}
-	}
 
-	switch (PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence))
-	{
-	case PawnMovement::HorizontalCornerEscapeShadowClassification::Authorized:
-		HorizontalCornerAuthorizedEscapeCountValue++;
-		break;
-	case PawnMovement::HorizontalCornerEscapeShadowClassification::TargetProgressRejected:
-		HorizontalCornerTargetProgressRejectCountValue++;
-		break;
-	case PawnMovement::HorizontalCornerEscapeShadowClassification::UnknownOrUnsafeSupport:
-		HorizontalCornerUnknownOrUnsafeSupportCountValue++;
-		break;
-	case PawnMovement::HorizontalCornerEscapeShadowClassification::CandidateInvalid:
-		break;
+		switch (PawnMovement::ClassifyHorizontalCornerEscapeShadow(candidate, evidence))
+		{
+		case PawnMovement::HorizontalCornerEscapeShadowClassification::Authorized:
+			HorizontalCornerAuthorizedEscapeCountValue++;
+			return;
+		case PawnMovement::HorizontalCornerEscapeShadowClassification::TargetProgressRejected:
+			HorizontalCornerTargetProgressRejectCountValue++;
+			break;
+		case PawnMovement::HorizontalCornerEscapeShadowClassification::UnknownOrUnsafeSupport:
+			HorizontalCornerUnknownOrUnsafeSupportCountValue++;
+			break;
+		case PawnMovement::HorizontalCornerEscapeShadowClassification::CandidateInvalid:
+			break;
+		}
 	}
 }
 

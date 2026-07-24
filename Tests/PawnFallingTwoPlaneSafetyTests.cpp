@@ -227,6 +227,127 @@ static PawnMovement::FallingRecoveryAuthorizationEvidence AuthorizedEscapeEviden
 	return evidence;
 }
 
+static bool Near(float left, float right, float tolerance = 0.0001f)
+{
+	return std::abs(left - right) <= tolerance;
+}
+
+static bool Near(const vec3& left, const vec3& right, float tolerance = 0.0001f)
+{
+	return Near(left.x, right.x, tolerance)
+		&& Near(left.y, right.y, tolerance)
+		&& Near(left.z, right.z, tolerance);
+}
+
+static void CheckCandidateDistances(
+	const PawnMovement::HorizontalCornerEscapeCandidates& candidates,
+	const std::string& scenario)
+{
+	Check(candidates.Count <= candidates.Candidates.size(),
+		scenario + " produces at most three candidates");
+	for (size_t index = 0; index < candidates.Count; index++)
+	{
+		const auto& candidate = candidates.Candidates[index];
+		Check(candidate.Valid && std::isfinite(candidate.SweepDelta.x)
+			&& std::isfinite(candidate.SweepDelta.y)
+			&& candidate.SweepDelta.z == 0.0f
+			&& Near(length(candidate.SweepDelta), 24.0f),
+			scenario + " candidate " + std::to_string(index) + " is a finite bounded 24uu sweep");
+	}
+}
+
+static void TestHorizontalCornerEscapeCandidateSequence()
+{
+	PawnMovement::HorizontalCornerEscapeInput input;
+	input.Contact = VerticalSeamInput().Contact;
+	const auto perpendicular = PawnMovement::BuildHorizontalCornerEscapeCandidates(input);
+	Check(perpendicular.Count == 3,
+		"perpendicular walls produce the bisector and both individual wall-normal candidates");
+	const float diagonalComponent = 24.0f / std::sqrt(2.0f);
+	Check(Near(perpendicular.Candidates[0].SweepDelta,
+		vec3(diagonalComponent, diagonalComponent, 0.0f)),
+		"the outward bisector is always the first perpendicular-wall candidate");
+	Check(Near(perpendicular.Candidates[1].SweepDelta, vec3(0.0f, 24.0f, 0.0f))
+		&& Near(perpendicular.Candidates[2].SweepDelta, vec3(24.0f, 0.0f, 0.0f)),
+		"individual normals follow the bisector in lexicographic direction order");
+	CheckCandidateDistances(perpendicular, "perpendicular walls");
+
+	input.Contact.FirstHitNormal = vec3(1.0f, 0.0f, 0.0f);
+	input.Contact.SecondHitNormal = vec3(0.8f, 0.6f, 0.0f);
+	const auto acute = PawnMovement::BuildHorizontalCornerEscapeCandidates(input);
+	Check(acute.Count == 3, "acute walls retain three distinct escape directions");
+	Check(Near(acute.Candidates[0].SweepDelta,
+		vec3(normalize(vec2(1.8f, 0.6f)) * 24.0f, 0.0f)),
+		"an acute corner still starts with its normalized outward bisector");
+	Check(Near(acute.Candidates[1].SweepDelta, vec3(19.2f, 14.4f, 0.0f))
+		&& Near(acute.Candidates[2].SweepDelta, vec3(24.0f, 0.0f, 0.0f)),
+		"acute individual normals use the same stable ordering");
+	CheckCandidateDistances(acute, "acute walls");
+
+	input.Contact.SecondHitNormal = normalize(vec3(-1.0f, 0.075f, 0.0f));
+	const auto nearOpposed = PawnMovement::BuildHorizontalCornerEscapeCandidates(input);
+	Check(nearOpposed.Count == 2,
+		"near-opposed walls omit the unstable bisector but retain both wall-normal alternatives");
+	Check(nearOpposed.Candidates[0].SweepDelta.x < 0.0f
+		&& Near(nearOpposed.Candidates[1].SweepDelta, vec3(24.0f, 0.0f, 0.0f)),
+		"near-opposed alternatives remain in stable direction order");
+	CheckCandidateDistances(nearOpposed, "near-opposed walls");
+
+	input.Contact.SecondHitNormal = input.Contact.FirstHitNormal;
+	const auto duplicate = PawnMovement::BuildHorizontalCornerEscapeCandidates(input);
+	Check(duplicate.Count == 1
+		&& Near(duplicate.Candidates[0].SweepDelta, vec3(24.0f, 0.0f, 0.0f)),
+		"duplicate walls collapse the bisector and individual normals into one direction");
+	CheckCandidateDistances(duplicate, "duplicate walls");
+}
+
+static void TestHorizontalCornerEscapeCandidateOrderIsCallbackInvariant()
+{
+	PawnMovement::HorizontalCornerEscapeInput input;
+	input.Contact = VerticalSeamInput().Contact;
+	input.Contact.FirstHitNormal = vec3(0.8f, 0.6f, 0.0f);
+	input.Contact.SecondHitNormal = vec3(1.0f, 0.0f, 0.0f);
+	const auto forward = PawnMovement::BuildHorizontalCornerEscapeCandidates(input);
+	std::swap(input.Contact.FirstHitNormal, input.Contact.SecondHitNormal);
+	const auto reversed = PawnMovement::BuildHorizontalCornerEscapeCandidates(input);
+	Check(forward.Count == reversed.Count, "swapped callbacks preserve the candidate count");
+	for (size_t index = 0; index < forward.Count && index < reversed.Count; index++)
+	{
+		Check(forward.Candidates[index].Valid == reversed.Candidates[index].Valid
+			&& forward.Candidates[index].SweepDelta == reversed.Candidates[index].SweepDelta,
+			"swapped callbacks preserve candidate " + std::to_string(index) + " exactly");
+	}
+}
+
+static void TestHorizontalCornerEscapeCandidateGenerationFailsClosed()
+{
+	PawnMovement::HorizontalCornerEscapeInput input;
+	input.Contact = VerticalSeamInput().Contact;
+	input.Contact.FirstHitNormal = normalize(vec3(0.2f, 0.0f, -0.9797959f));
+	Check(PawnMovement::BuildHorizontalCornerEscapeCandidates(input).Count == 0,
+		"a low-horizontal contact produces no candidate list");
+
+	input.Contact = VerticalSeamInput().Contact;
+	input.SweepDistance = 65.0f;
+	Check(PawnMovement::BuildHorizontalCornerEscapeCandidates(input).Count == 0,
+		"an over-bound sweep produces no candidates");
+	input = {};
+	input.Contact = VerticalSeamInput().Contact;
+	input.Contact.FirstHitNormal.x = std::numeric_limits<float>::quiet_NaN();
+	Check(PawnMovement::BuildHorizontalCornerEscapeCandidates(input).Count == 0,
+		"a non-finite wall normal produces no candidates");
+	input = {};
+	input.Contact = VerticalSeamInput().Contact;
+	input.Contact.AutonomousPlayerBot = false;
+	Check(PawnMovement::BuildHorizontalCornerEscapeCandidates(input).Count == 0,
+		"an ineligible contact produces no candidates");
+	input = {};
+	input.Contact = VerticalSeamInput().Contact;
+	input.DuplicateDirectionTolerance = std::numeric_limits<float>::infinity();
+	Check(PawnMovement::BuildHorizontalCornerEscapeCandidates(input).Count == 0,
+		"an invalid direction tolerance produces no candidates");
+}
+
 static void TestSupportedHorizontalCornerEscapeIsSelected()
 {
 	PawnMovement::HorizontalCornerEscapeInput input;
@@ -374,6 +495,9 @@ int main()
 	TestInsufficientCollisionEvidenceUsesStockBehavior();
 	TestOnlyEligibleDownwardVerticalCreasesAreVetoed();
 	TestEveryDownwardCreaseRequiresTargetProgress();
+	TestHorizontalCornerEscapeCandidateSequence();
+	TestHorizontalCornerEscapeCandidateOrderIsCallbackInvariant();
+	TestHorizontalCornerEscapeCandidateGenerationFailsClosed();
 	TestSupportedHorizontalCornerEscapeIsSelected();
 	TestHorizontalCornerEscapeRequiresCompleteEvidence();
 	TestHorizontalCornerEscapeShadowClassificationIsDisjoint();

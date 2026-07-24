@@ -3,6 +3,9 @@
 #include "PawnFallingTwoPlaneContact.h"
 #include "PawnPainZoneFallPrediction.h"
 
+#include <array>
+#include <cstddef>
+
 namespace PawnMovement
 {
 	enum class FallingTwoPlaneSafetyDecision
@@ -64,6 +67,7 @@ namespace PawnMovement
 		float MaximumSweepDistance = 64.0f;
 		float MinimumHorizontalNormalMagnitude = 0.25f;
 		float MinimumBisectorMagnitude = 0.1f;
+		float DuplicateDirectionTolerance = 0.001f;
 	};
 
 	struct HorizontalCornerEscapeCandidate
@@ -73,6 +77,15 @@ namespace PawnMovement
 	};
 
 	HorizontalCornerEscapeCandidate BuildHorizontalCornerEscapeCandidate(
+		const HorizontalCornerEscapeInput& input);
+
+	struct HorizontalCornerEscapeCandidates
+	{
+		std::array<HorizontalCornerEscapeCandidate, 3> Candidates;
+		size_t Count = 0;
+	};
+
+	HorizontalCornerEscapeCandidates BuildHorizontalCornerEscapeCandidates(
 		const HorizontalCornerEscapeInput& input);
 	FallingTwoPlaneSafetyResult SelectHorizontalCornerEscape(
 		const HorizontalCornerEscapeCandidate& candidate,
