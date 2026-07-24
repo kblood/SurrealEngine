@@ -1174,6 +1174,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
+		SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
 	)
 	target_include_directories(BotBenchmarkTelemetryTests PRIVATE SurrealEngine)
 	set_target_properties(BotBenchmarkTelemetryTests PROPERTIES CXX_STANDARD 20)

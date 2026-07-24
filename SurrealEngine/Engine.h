@@ -118,6 +118,10 @@ public:
 	void FinishGameFrame(float levelElapsed);
 	void Shutdown();
 	int GetRunExitCode() const { return m_RunExitCode; }
+	bool IsBotBenchmarkWalkingPreflightEnabled() const
+	{
+		return botBenchmarkWalkingPreflightEnabled;
+	}
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -288,6 +292,7 @@ private:
 	bool xrManualSlaveFirePending = false;
 	bool xrAlternateFireKeyDown = false;
 	uint64_t xrWeaponCallHook = 0;
+	bool botBenchmarkWalkingPreflightEnabled = false;
 	ViewFamily CreateDesktopViewFamily() const;
 	void InstallXRWeaponCallHook();
 	void UninstallXRWeaponCallHook();

@@ -9,6 +9,8 @@
 #include "PawnFallingTwoPlaneSafety.h"
 #include "PawnMoveStallWatchdog.h"
 #include "PawnPainLedgeRecovery.h"
+#include "PawnLedgeTransition.h"
+#include "PawnWalkingStepPreflight.h"
 #include "PawnWallAdjustRecovery.h"
 
 class UTexture;
@@ -1920,6 +1922,25 @@ public:
 	void ObserveFallingSeamEscapeShadow(const vec3& requestedRemainingDelta,
 		const vec3& actualDisplacement, const vec3& firstHitNormal,
 		const vec3& secondHitNormal, bool normalDownwardGravity);
+	void ObserveWalkingStepPreflightShadow(const vec3& stepUpDelta,
+		const vec3& forwardDelta, const vec3& stepDownDelta, int walkingIteration,
+		uint64_t invocationToken);
+	void ConfirmWalkingStepPreflightShadow(int walkingIteration, uint64_t invocationToken,
+		PawnMovement::LedgeTransition transition);
+	uint64_t BeginWalkingStepPreflightInvocation()
+	{
+		return ++WalkingStepPreflightInvocationSequence;
+	}
+	bool HasWalkingStepPreflightConfirmation(int walkingIteration,
+		uint64_t invocationToken) const
+	{
+		return WalkingStepPreflightPendingConfirmation
+			&& WalkingStepPreflightPendingIteration == walkingIteration
+			&& WalkingStepPreflightPendingInvocation == invocationToken;
+	}
+	void EndWalkingStepPreflightLife();
+	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
+		DrainWalkingStepPreflightDiagnostics();
 	uint64_t PainLedgeVetoCount() const { return PainLedgeVetoCountValue; }
 	uint64_t PainLedgeRepeatVetoCount() const { return PainLedgeRepeatVetoCountValue; }
 	uint64_t PainLedgeRecoveryAttemptCount() const { return PainLedgeRecoveryAttemptCountValue; }
@@ -1953,6 +1974,15 @@ public:
 	uint64_t HorizontalCornerNoActiveMovementIntentOrTargetCandidateCount() const { return HorizontalCornerNoActiveMovementIntentOrTargetCandidateCountValue; }
 	uint64_t HorizontalCornerTrueTargetRegressionCandidateCount() const { return HorizontalCornerTrueTargetRegressionCandidateCountValue; }
 	uint64_t HorizontalCornerUnknownEvidenceCandidateCount() const { return HorizontalCornerUnknownEvidenceCandidateCountValue; }
+	uint64_t WalkingStepPreflightObservationCount() const { return WalkingStepPreflightObservationCountValue; }
+	uint64_t WalkingStepPreflightUnsupportedEndpointCount() const { return WalkingStepPreflightUnsupportedEndpointCountValue; }
+	uint64_t WalkingStepPreflightNoDecisionCount() const { return WalkingStepPreflightNoDecisionCountValue; }
+	uint64_t WalkingStepPreflightProvisionalAuthorizationCount() const { return WalkingStepPreflightProvisionalAuthorizationCountValue; }
+	uint64_t WalkingStepPreflightAuthorizationCount() const { return WalkingStepPreflightAuthorizationCountValue; }
+	uint64_t WalkingStepPreflightAuthorizableEpisodeCount() const { return WalkingStepPreflightAuthorizableEpisodeCountValue; }
+	uint64_t WalkingStepPreflightDiagnosticOverflowCount() const { return WalkingStepPreflightDiagnosticOverflowCountValue; }
+	const std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>&
+		WalkingStepPreflightReasonCounts() const { return WalkingStepPreflightReasonCountValues; }
 
 	// Returns true if any of the several points of other is visible (origin, top, bottom)
 	// ignoreDistance is a Deus Ex only parameter, it is always false on Unreal.
@@ -2170,6 +2200,8 @@ private:
 	PawnMovement::PainLedgeRecoveryState PainLedgeRecovery;
 	PawnMovement::WallAdjustRecoveryState WallAdjustRecovery;
 	PawnMovement::FallingSeamEpisodeState FallingSeamEpisode;
+	PawnMovement::WalkingStepPreflightEpisodeState WalkingStepPreflightEpisode;
+	bool WalkingStepExplicitJumpRequested = false;
 	uint64_t PainLedgeVetoCountValue = 0;
 	uint64_t PainLedgeRepeatVetoCountValue = 0;
 	uint64_t PainLedgeRecoveryAttemptCountValue = 0;
@@ -2203,6 +2235,28 @@ private:
 	uint64_t HorizontalCornerNoActiveMovementIntentOrTargetCandidateCountValue = 0;
 	uint64_t HorizontalCornerTrueTargetRegressionCandidateCountValue = 0;
 	uint64_t HorizontalCornerUnknownEvidenceCandidateCountValue = 0;
+	uint64_t WalkingStepPreflightObservationCountValue = 0;
+	uint64_t WalkingStepPreflightUnsupportedEndpointCountValue = 0;
+	uint64_t WalkingStepPreflightNoDecisionCountValue = 0;
+	uint64_t WalkingStepPreflightProvisionalAuthorizationCountValue = 0;
+	uint64_t WalkingStepPreflightAuthorizationCountValue = 0;
+	uint64_t WalkingStepPreflightAuthorizableEpisodeCountValue = 0;
+	uint64_t WalkingStepPreflightDiagnosticOverflowCountValue = 0;
+	uint64_t WalkingStepPreflightDiagnosticSequence = 0;
+	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
+		WalkingStepPreflightDiagnostics;
+	bool WalkingStepPreflightPendingConfirmation = false;
+	int WalkingStepPreflightPendingIteration = 0;
+	uint64_t WalkingStepPreflightPendingInvocation = 0;
+	uint64_t WalkingStepPreflightPendingLifeGeneration = 0;
+	PawnMovement::WalkingStepPreflightDiagnosticRecord
+		WalkingStepPreflightPendingDiagnostic;
+	const void* WalkingStepPreflightPendingSemanticTarget = nullptr;
+	PawnMovement::WalkingStepPreflightInput WalkingStepPreflightPendingInput;
+	uint64_t WalkingStepPreflightInvocationSequence = 0;
+	uint64_t WalkingStepPreflightLifeGeneration = 1;
+	std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>
+		WalkingStepPreflightReasonCountValues = {};
 };
 
 class UScout : public UPawn

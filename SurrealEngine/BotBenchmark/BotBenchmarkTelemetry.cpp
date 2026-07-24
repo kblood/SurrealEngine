@@ -69,6 +69,112 @@ namespace
 		return out.str();
 	}
 
+	const char* CollisionName(PawnMovement::WalkingStepCollisionKind collision)
+	{
+		using PawnMovement::WalkingStepCollisionKind;
+		switch (collision)
+		{
+		case WalkingStepCollisionKind::Clear: return "clear";
+		case WalkingStepCollisionKind::StaticBsp: return "static_bsp";
+		case WalkingStepCollisionKind::Mover: return "mover";
+		case WalkingStepCollisionKind::DynamicActor: return "dynamic_actor";
+		default: return "unknown";
+		}
+	}
+
+	const char* ZoneName(PawnMovement::WalkingStepZoneKind zone)
+	{
+		using PawnMovement::WalkingStepZoneKind;
+		switch (zone)
+		{
+		case WalkingStepZoneKind::Safe: return "safe";
+		case WalkingStepZoneKind::Pain: return "pain";
+		case WalkingStepZoneKind::Water: return "water";
+		default: return "unknown";
+		}
+	}
+
+	void WriteVector(std::ostringstream& out, const vec3& value)
+	{
+		out << "{\"x\":" << Fixed(value.x, 6)
+			<< ",\"y\":" << Fixed(value.y, 6)
+			<< ",\"z\":" << Fixed(value.z, 6) << "}";
+	}
+
+	void WriteProbe(std::ostringstream& out,
+		const PawnMovement::WalkingStepPreflightProbeDiagnostic& probe)
+	{
+		out << "{\"collision\":" << JsonString(CollisionName(probe.Collision))
+			<< ",\"fraction\":" << Fixed(probe.Fraction, 9) << ",\"delta\":";
+		WriteVector(out, probe.Delta);
+		out << ",\"normal\":";
+		WriteVector(out, probe.Normal);
+		out << "}";
+	}
+
+	void WritePreflightDiagnostic(std::ostringstream& out,
+		const PawnMovement::WalkingStepPreflightDiagnosticRecord& diagnostic)
+	{
+		const char* reason = PawnMovement::WalkingStepPreflightReasonMetricName(
+			diagnostic.Reason);
+		out << "{\"source_pawn_actor\":" << JsonString(diagnostic.SourcePawnActor)
+			<< ",\"sequence\":\"" << diagnostic.Sequence
+			<< "\",\"life_generation\":\"" << diagnostic.LifeGeneration
+			<< "\",\"invocation_token\":\"" << diagnostic.InvocationToken
+			<< "\",\"walking_iteration\":" << diagnostic.WalkingIteration
+			<< ",\"phase\":" << JsonString(diagnostic.Phase)
+			<< ",\"transition_outcome\":" << JsonString(diagnostic.TransitionOutcome)
+			<< ",\"reason\":"
+			<< JsonString(reason ? reason : "unknown") << ",\"origin\":";
+		WriteVector(out, diagnostic.PrecommitOrigin);
+		out << ",\"predicted_unsupported_endpoint\":";
+		WriteVector(out, diagnostic.PredictedUnsupportedEndpoint);
+		out << ",\"actual_unsupported_endpoint\":";
+		WriteVector(out, diagnostic.ActualUnsupportedEndpoint);
+		out << ",\"semantic_target\":" << JsonString(diagnostic.SemanticTarget)
+			<< ",\"semantic_destination\":";
+		WriteVector(out, diagnostic.SemanticDestination);
+		out << ",\"start_support\":";
+		WriteProbe(out, diagnostic.StartSupport);
+		out << ",\"step_up\":";
+		WriteProbe(out, diagnostic.StepUp);
+		out << ",\"forward\":";
+		WriteProbe(out, diagnostic.Forward);
+		out << ",\"actual_step_down\":";
+		WriteProbe(out, diagnostic.ActualStepDown);
+		out << ",\"support_probe\":";
+		WriteProbe(out, diagnostic.SupportProbe);
+		out << ",\"fall_forecast\":{\"attempted\":"
+			<< (diagnostic.FallForecastAttempted ? "true" : "false")
+			<< ",\"origin\":";
+		WriteVector(out, diagnostic.FallForecastOrigin);
+		out << ",\"velocity\":";
+		WriteVector(out, diagnostic.FallForecastVelocity);
+		out << ",\"acceleration\":";
+		WriteVector(out, diagnostic.FallForecastAcceleration);
+		out << ",\"gravity_known\":"
+			<< (diagnostic.FallForecastGravityKnown ? "true" : "false")
+			<< ",\"gravity\":";
+		WriteVector(out, diagnostic.FallForecastGravity);
+		out << ",\"complete\":"
+			<< (diagnostic.FallForecast.Complete ? "true" : "false")
+			<< ",\"total_drop\":" << Fixed(diagnostic.FallForecast.TotalDrop, 6)
+			<< ",\"continuation_count\":" << diagnostic.FallForecast.ContinuationCount
+			<< ",\"landing_collision\":"
+			<< JsonString(CollisionName(diagnostic.FallForecast.Landing.Collision))
+			<< ",\"landing_normal\":";
+		WriteVector(out, diagnostic.FallForecast.Landing.Normal);
+		out << ",\"landing_zone\":"
+			<< JsonString(ZoneName(diagnostic.FallForecast.Landing.Zone))
+			<< ",\"hit_fractions\":[";
+		for (size_t index = 0; index < diagnostic.FallHitCount; index++)
+		{
+			if (index) out << ',';
+			out << Fixed(diagnostic.FallHitFractions[index], 9);
+		}
+		out << "]}}";
+	}
+
 	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot)
 	{
 		out << "{\"identity\":" << JsonString(bot.Identity)
@@ -146,7 +252,31 @@ namespace
 			<< ",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"" << bot.HorizontalCornerNoActiveMovementIntentOrTargetCandidatesExact << "\""
 			<< ",\"horizontal_corner_true_target_regression_candidates_exact\":\"" << bot.HorizontalCornerTrueTargetRegressionCandidatesExact << "\""
 			<< ",\"horizontal_corner_unknown_evidence_candidates_exact\":\"" << bot.HorizontalCornerUnknownEvidenceCandidatesExact << "\""
-			<< ",\"state\":" << JsonString(bot.State) << "}";
+			<< ",\"walking_step_preflight_observations_exact\":\"" << bot.WalkingStepPreflightObservationsExact << "\""
+			<< ",\"walking_step_preflight_unsupported_endpoints_exact\":\"" << bot.WalkingStepPreflightUnsupportedEndpointsExact << "\""
+			<< ",\"walking_step_preflight_no_decisions_exact\":\"" << bot.WalkingStepPreflightNoDecisionsExact << "\""
+			<< ",\"walking_step_preflight_provisional_authorizations_exact\":\"" << bot.WalkingStepPreflightProvisionalAuthorizationsExact << "\""
+			<< ",\"walking_step_preflight_post_mayfall_confirmed_authorizations_exact\":\"" << bot.WalkingStepPreflightAuthorizationsExact << "\""
+			<< ",\"walking_step_preflight_authorizable_episodes_exact\":\"" << bot.WalkingStepPreflightAuthorizableEpisodesExact << "\"";
+		for (size_t reasonIndex = 0;
+			reasonIndex < bot.WalkingStepPreflightReasonsExact.size(); reasonIndex++)
+		{
+			const char* metric = PawnMovement::WalkingStepPreflightReasonMetricName(
+				static_cast<PawnMovement::WalkingStepPreflightReason>(reasonIndex));
+			if (metric)
+				out << ",\"" << metric << "\":\""
+					<< bot.WalkingStepPreflightReasonsExact[reasonIndex] << "\"";
+		}
+		out << ",\"walking_step_preflight_diagnostic_overflows_exact\":\""
+			<< bot.WalkingStepPreflightDiagnosticOverflowsExact << "\""
+			<< ",\"walking_step_preflight_diagnostics\":[";
+		for (size_t index = 0; index < bot.WalkingStepPreflightDiagnostics.size(); index++)
+		{
+			if (index) out << ',';
+			WritePreflightDiagnostic(out, bot.WalkingStepPreflightDiagnostics[index]);
+		}
+		out << ']';
+		out << ",\"state\":" << JsonString(bot.State) << "}";
 	}
 
 	void WriteRequestedRoster(std::ostringstream& out, const BotBenchmarkRoster& roster)

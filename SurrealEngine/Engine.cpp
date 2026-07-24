@@ -298,6 +298,7 @@ void Engine::Setup()
 	}
 
 	const std::string headlessDriverName = commandline ? commandline->GetArg("", "--headless-driver") : std::string();
+	botBenchmarkWalkingPreflightEnabled = headlessDriverName == "bot-benchmark";
 	if (!headlessDriverName.empty())
 	{
 		RegisterBotBenchmarkDriver(GetHeadlessDriverRegistry());

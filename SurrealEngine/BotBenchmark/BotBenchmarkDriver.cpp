@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
@@ -181,6 +182,8 @@ namespace
 			uint64_t HitWallEventsExact = 0;
 			BotBenchmarkDriverDetail::NativePawnCounterEpoch NativeCounterEpoch;
 			BotBenchmarkDriverDetail::NativePawnCounters NativeCounterTotals;
+			std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
+				PendingWalkingStepPreflightDiagnostics;
 		};
 
 		enum class AttributionScopeKind
@@ -501,6 +504,21 @@ namespace
 				pawn->HorizontalCornerTrueTargetRegressionCandidateCount();
 			counters.HorizontalCornerUnknownEvidenceCandidates =
 				pawn->HorizontalCornerUnknownEvidenceCandidateCount();
+			counters.WalkingStepPreflightObservations =
+				pawn->WalkingStepPreflightObservationCount();
+			counters.WalkingStepPreflightUnsupportedEndpoints =
+				pawn->WalkingStepPreflightUnsupportedEndpointCount();
+			counters.WalkingStepPreflightNoDecisions =
+				pawn->WalkingStepPreflightNoDecisionCount();
+			counters.WalkingStepPreflightProvisionalAuthorizations =
+				pawn->WalkingStepPreflightProvisionalAuthorizationCount();
+			counters.WalkingStepPreflightAuthorizations =
+				pawn->WalkingStepPreflightAuthorizationCount();
+			counters.WalkingStepPreflightAuthorizableEpisodes =
+				pawn->WalkingStepPreflightAuthorizableEpisodeCount();
+			counters.WalkingStepPreflightDiagnosticOverflows =
+				pawn->WalkingStepPreflightDiagnosticOverflowCount();
+			counters.WalkingStepPreflightReasons = pawn->WalkingStepPreflightReasonCounts();
 			return counters;
 		}
 
@@ -524,6 +542,12 @@ namespace
 				QualityParticipantRuntime& counters = victimRuntime->second;
 				AccumulateNativePawnCounters(victimIdentity, counters, victim,
 					BotBenchmarkDriverDetail::NativePawnCounterSample::DeathFlush);
+				auto diagnostics = victim->DrainWalkingStepPreflightDiagnostics();
+				victim->EndWalkingStepPreflightLife();
+				counters.PendingWalkingStepPreflightDiagnostics.insert(
+					counters.PendingWalkingStepPreflightDiagnostics.end(),
+					std::make_move_iterator(diagnostics.begin()),
+					std::make_move_iterator(diagnostics.end()));
 				counters.DeathsExact++;
 				const bool environmental = !killer || !killer->bIsPlayer();
 				if (killer == victim || environmental)
@@ -1126,6 +1150,32 @@ namespace
 					native.HorizontalCornerTrueTargetRegressionCandidates;
 				bot.HorizontalCornerUnknownEvidenceCandidatesExact =
 					native.HorizontalCornerUnknownEvidenceCandidates;
+				bot.WalkingStepPreflightObservationsExact =
+					native.WalkingStepPreflightObservations;
+				bot.WalkingStepPreflightUnsupportedEndpointsExact =
+					native.WalkingStepPreflightUnsupportedEndpoints;
+				bot.WalkingStepPreflightNoDecisionsExact =
+					native.WalkingStepPreflightNoDecisions;
+				bot.WalkingStepPreflightProvisionalAuthorizationsExact =
+					native.WalkingStepPreflightProvisionalAuthorizations;
+				bot.WalkingStepPreflightAuthorizationsExact =
+					native.WalkingStepPreflightAuthorizations;
+				bot.WalkingStepPreflightAuthorizableEpisodesExact =
+					native.WalkingStepPreflightAuthorizableEpisodes;
+				bot.WalkingStepPreflightDiagnosticOverflowsExact =
+					native.WalkingStepPreflightDiagnosticOverflows;
+				if (pawn)
+				{
+					auto diagnostics = pawn->DrainWalkingStepPreflightDiagnostics();
+					runtime.PendingWalkingStepPreflightDiagnostics.insert(
+						runtime.PendingWalkingStepPreflightDiagnostics.end(),
+						std::make_move_iterator(diagnostics.begin()),
+						std::make_move_iterator(diagnostics.end()));
+				}
+				bot.WalkingStepPreflightDiagnostics = std::move(
+					runtime.PendingWalkingStepPreflightDiagnostics);
+				runtime.PendingWalkingStepPreflightDiagnostics.clear();
+				bot.WalkingStepPreflightReasonsExact = native.WalkingStepPreflightReasons;
 				runtime.LastState = bot;
 				runtime.HasLastState = true;
 				bots.push_back(std::move(bot));

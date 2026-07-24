@@ -318,6 +318,241 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 report["runs"][0]["metrics"][name] is None
                 for name in QUALITY.FALLING_SEAM_SHADOW_COUNTERS))
 
+    def test_walking_step_preflight_shadow_is_complete_partitioned_and_debounced(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+
+        def sample(observations: int, authorizations: int, episodes: int) -> dict:
+            reasons = {name: 0 for name in QUALITY.WALKING_STEP_PREFLIGHT_REASON_COUNTERS}
+            reasons["walking_step_preflight_reason_supported_step_endpoint_exact"] = \
+                observations - authorizations
+            reasons["walking_step_preflight_reason_harmful_pain_fall_exact"] = authorizations
+            return {
+                **common,
+                "walking_step_preflight_observations_exact": observations,
+                "walking_step_preflight_unsupported_endpoints_exact": authorizations + 1
+                    if observations else 0,
+                "walking_step_preflight_no_decisions_exact": observations - authorizations,
+                "walking_step_preflight_provisional_authorizations_exact": authorizations,
+                "walking_step_preflight_post_mayfall_confirmed_authorizations_exact": authorizations,
+                "walking_step_preflight_authorizable_episodes_exact": episodes,
+                "walking_step_preflight_diagnostic_overflows_exact": 0,
+                **reasons,
+            }
+
+        samples = [sample(0, 0, 0), sample(10, 2, 1), sample(20, 5, 2)]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = write_v2_run(root, "walking-preflight")
+            upgrade_telemetry_v2(run, counters=samples)
+            report = QUALITY.analyze([run])
+            self.assertTrue(report["metric_availability"]
+                            ["walking_step_preflight_shadow_metrics_present"])
+            self.assertEqual(report["runs"][0]["bots"][0]
+                             ["walking_step_preflight_authorizable_episodes_exact"], 2)
+
+            incomplete = write_v2_run(root, "walking-preflight-incomplete")
+            incomplete_samples = [{**item} for item in samples]
+            for item in incomplete_samples:
+                item.pop("walking_step_preflight_reason_unknown_gravity_exact")
+            upgrade_telemetry_v2(incomplete, counters=incomplete_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "walking step preflight shadow.*complete group"):
+                QUALITY.analyze([incomplete])
+
+            bad_partition = write_v2_run(root, "walking-preflight-bad-partition")
+            bad_samples = [{**item} for item in samples]
+            bad_samples[2]["walking_step_preflight_reason_supported_step_endpoint_exact"] -= 1
+            upgrade_telemetry_v2(bad_partition, counters=bad_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "reasons do not partition observations"):
+                QUALITY.analyze([bad_partition])
+
+            excess_episode = write_v2_run(root, "walking-preflight-excess-episode")
+            excess_samples = [{**item} for item in samples]
+            excess_samples[2]["walking_step_preflight_authorizable_episodes_exact"] = 6
+            upgrade_telemetry_v2(excess_episode, counters=excess_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "authorizable episodes exceed authorizations"):
+                QUALITY.analyze([excess_episode])
+
+    def test_walking_step_preflight_diagnostics_are_strict_correlated_and_bounded(self) -> None:
+        vector = {"x": 0.0, "y": 0.0, "z": 0.0}
+
+        def probe(collision: str = "unknown", fraction: float = 1.0) -> dict:
+            return {
+                "collision": collision, "fraction": fraction,
+                "delta": {**vector}, "normal": {**vector},
+            }
+
+        provisional = {
+            "source_pawn_actor": "Bot1", "sequence": "0", "life_generation": "1",
+            "invocation_token": "5", "walking_iteration": 0,
+            "phase": "precommit_provisional", "transition_outcome": "",
+            "reason": "walking_step_preflight_reason_harmful_pain_fall_exact",
+            "origin": {"x": 10.0, "y": 20.0, "z": 30.0},
+            "predicted_unsupported_endpoint": {"x": 15.0, "y": 20.0, "z": 30.0},
+            "actual_unsupported_endpoint": {**vector}, "semantic_target": "BulletBox4",
+            "semantic_destination": {"x": 100.0, "y": 200.0, "z": 30.0},
+            "start_support": probe("static_bsp", 0.0), "step_up": probe("clear"),
+            "forward": probe("clear"), "actual_step_down": probe("clear"),
+            "support_probe": probe("clear"),
+            "fall_forecast": {
+                "attempted": True, "origin": {"x": 15.0, "y": 20.0, "z": 30.0},
+                "velocity": {"x": 100.0, "y": 0.0, "z": 0.0},
+                "acceleration": {**vector}, "gravity_known": True,
+                "gravity": {"x": 0.0, "y": 0.0, "z": -950.0}, "complete": True,
+                "total_drop": 128.0, "continuation_count": 0,
+                "landing_collision": "static_bsp",
+                "landing_normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+                "landing_zone": "pain", "hit_fractions": [0.5],
+            },
+        }
+        confirmation = json.loads(json.dumps(provisional))
+        confirmation.update({
+            "sequence": "1", "phase": "post_mayfall_confirmation",
+            "transition_outcome": "begin_falling",
+            "actual_unsupported_endpoint": {"x": 15.0, "y": 20.0, "z": 30.0},
+        })
+        rejected_confirmation = json.loads(json.dumps(confirmation))
+        rejected_confirmation.update({
+            "transition_outcome": "post_callback_forecast_rejected",
+            "reason": "walking_step_preflight_reason_safe_fall_landing_exact",
+        })
+        rejected_confirmation["fall_forecast"]["landing_zone"] = "safe"
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+
+        def sample(observations: int, diagnostics: list[dict]) -> dict:
+            reasons = {name: 0 for name in QUALITY.WALKING_STEP_PREFLIGHT_REASON_COUNTERS}
+            authorizations = 1 if observations else 0
+            reasons["walking_step_preflight_reason_harmful_pain_fall_exact"] = authorizations
+            return {
+                **common, "walking_step_preflight_observations_exact": observations,
+                "walking_step_preflight_unsupported_endpoints_exact": authorizations,
+                "walking_step_preflight_no_decisions_exact": 0,
+                "walking_step_preflight_provisional_authorizations_exact": authorizations,
+                "walking_step_preflight_post_mayfall_confirmed_authorizations_exact":
+                    authorizations,
+                "walking_step_preflight_authorizable_episodes_exact": authorizations,
+                "walking_step_preflight_diagnostic_overflows_exact": 0,
+                "walking_step_preflight_diagnostics": diagnostics, **reasons,
+            }
+
+        valid_samples = [sample(0, []), sample(1, [provisional, confirmation]), sample(1, [])]
+
+        def analyze_mutation(root: Path, name: str, mutate) -> None:
+            samples = json.loads(json.dumps(valid_samples))
+            mutate(samples)
+            run = write_v2_run(root, name)
+            upgrade_telemetry_v2(run, counters=samples)
+            QUALITY.analyze([run])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            analyze_mutation(root, "valid-diagnostics", lambda samples: None)
+
+            def use_rejected_confirmation(samples: list[dict]) -> None:
+                samples[1]["walking_step_preflight_diagnostics"][1] = \
+                    json.loads(json.dumps(rejected_confirmation))
+                for sample_item in samples[1:]:
+                    sample_item[
+                        "walking_step_preflight_post_mayfall_confirmed_authorizations_exact"] = 0
+                    sample_item["walking_step_preflight_authorizable_episodes_exact"] = 0
+
+            analyze_mutation(root, "valid-rejected-confirmation", use_rejected_confirmation)
+
+            malformed_cases = (
+                ("not-array", lambda samples: samples[1].update(
+                    walking_step_preflight_diagnostics={}), "must be an array"),
+                ("unexpected-field", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(extra=1),
+                    "unexpected fields"),
+                ("nonfinite-normal", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0]["support_probe"]["normal"]
+                    .update(z="nan"), "must be a finite number"),
+                ("bad-fraction", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0]["fall_forecast"]
+                    ["hit_fractions"].__setitem__(0, 1.5), "must be at most 1.0"),
+                ("bad-phase", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(phase="precommit"),
+                    "phase is not recognized"),
+                ("bad-transition", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1]
+                    .update(transition_outcome="fell"), "transition_outcome is not recognized"),
+                ("bad-reason", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(reason="harmful"),
+                    "reason is not recognized"),
+                ("non-authorizing-provisional", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(
+                        reason="walking_step_preflight_reason_safe_fall_landing_exact"),
+                    "does not follow an authorization"),
+                ("accepted-with-rejected-reason", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1].update(
+                        reason="walking_step_preflight_reason_safe_fall_landing_exact"),
+                    "must preserve the provisional authorization reason"),
+                ("rejected-with-authorizing-reason", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1].update(
+                        transition_outcome="post_callback_forecast_rejected"),
+                    "must identify the rejected post-callback forecast"),
+                ("bad-collision", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0]["forward"]
+                    .update(collision="world"), "collision is not recognized"),
+                ("negative-sequence", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(sequence="-1"),
+                    "must be at least 0"),
+                ("negative-life", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(life_generation="-1"),
+                    "must be at least 0"),
+                ("negative-invocation", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(invocation_token="-1"),
+                    "must be at least 0"),
+                ("negative-iteration", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(walking_iteration=-1),
+                    "must be at least 0"),
+                ("sequence-regression", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1].update(sequence="0"),
+                    "sequence is not strictly increasing"),
+                ("uncorrelated", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1]["semantic_destination"]
+                    .update(x=101.0), "do not correlate"),
+                ("orphan-post", lambda samples: samples[1].update(
+                    walking_step_preflight_diagnostics=[confirmation]),
+                    "no correlatable provisional"),
+                ("unattempted-results", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1]["fall_forecast"]
+                    .update(attempted=False), "complete forecast must have been attempted"),
+            )
+            for name, mutate, message in malformed_cases:
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(QUALITY.QualityError, message):
+                        analyze_mutation(root, name, mutate)
+
+            with self.assertRaisesRegex(QUALITY.QualityError, "exceed observation evidence"):
+                def add_excess(samples: list[dict]) -> None:
+                    extra = json.loads(json.dumps(provisional))
+                    extra.update({
+                        "sequence": "2", "invocation_token": "6",
+                        "reason": "walking_step_preflight_reason_supported_step_endpoint_exact",
+                    })
+                    samples[1]["walking_step_preflight_diagnostics"].append(extra)
+                analyze_mutation(root, "excess-evidence", add_excess)
+
+            incomplete = write_v2_run(root, "diagnostics-without-counters")
+            upgrade_telemetry_v2(incomplete, counters=[
+                {**common, "walking_step_preflight_diagnostics": []} for _ in range(3)])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "diagnostics require the complete counter group"):
+                QUALITY.analyze([incomplete])
+
     def test_detailed_falling_seam_episode_and_candidate_outcomes_fail_closed(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,

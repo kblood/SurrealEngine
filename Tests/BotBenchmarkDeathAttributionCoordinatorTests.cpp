@@ -1,6 +1,7 @@
 #include "BotBenchmark/BotBenchmarkDeathAttributionCoordinator.h"
 #include "BotBenchmark/BotBenchmarkDriver.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -79,6 +80,14 @@ namespace
 		counters.HorizontalCornerNoActiveMovementIntentOrTargetCandidates = 0;
 		counters.HorizontalCornerTrueTargetRegressionCandidates = value;
 		counters.HorizontalCornerUnknownEvidenceCandidates = value;
+		counters.WalkingStepPreflightObservations = value * 2;
+		counters.WalkingStepPreflightUnsupportedEndpoints = value;
+		counters.WalkingStepPreflightNoDecisions = value;
+		counters.WalkingStepPreflightProvisionalAuthorizations = value;
+		counters.WalkingStepPreflightAuthorizations = value;
+		counters.WalkingStepPreflightAuthorizableEpisodes = value;
+		counters.WalkingStepPreflightDiagnosticOverflows = 0;
+		counters.WalkingStepPreflightReasons.fill(value);
 		return counters;
 	}
 
@@ -116,7 +125,17 @@ namespace
 			counters.HorizontalCornerPainSupportCandidates == 0 &&
 			counters.HorizontalCornerNoActiveMovementIntentOrTargetCandidates == 0 &&
 			counters.HorizontalCornerTrueTargetRegressionCandidates == value &&
-			counters.HorizontalCornerUnknownEvidenceCandidates == value;
+			counters.HorizontalCornerUnknownEvidenceCandidates == value &&
+			counters.WalkingStepPreflightObservations == value * 2 &&
+			counters.WalkingStepPreflightUnsupportedEndpoints == value &&
+			counters.WalkingStepPreflightNoDecisions == value &&
+			counters.WalkingStepPreflightProvisionalAuthorizations == value &&
+			counters.WalkingStepPreflightAuthorizations == value &&
+			counters.WalkingStepPreflightAuthorizableEpisodes == value &&
+			counters.WalkingStepPreflightDiagnosticOverflows == 0 &&
+			std::all_of(counters.WalkingStepPreflightReasons.begin(),
+				counters.WalkingStepPreflightReasons.end(),
+				[value](uint64_t reason) { return reason == value; });
 	}
 }
 
