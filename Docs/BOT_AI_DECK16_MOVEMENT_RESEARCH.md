@@ -656,9 +656,9 @@ The final executable is
 Eight configurations ran twice with exact five-artifact repeats: three UT Deck
 seeds, UT Morpheus, Unreal DeathFan at two seeds, DmDeck16, and DmHealPod.
 All comparable falling steps remain exact and no record overflows occur. Direct
-walkable landings now produce a conservative `unknown` step followed by a
-`landed` terminal because the trace schema has no matched-landing outcome; this
-measurement gap must be closed before applying the zero-unknown release gate.
+walkable landings initially produced a conservative `unknown` step followed by
+a `landed` terminal; iteration 52 adds a distinct `matched_landing` step rather
+than mislabeling the collision as clear.
 
 Deck survival improves in all three seeds while unassisted environmental death
 counts do not increase. Seed 314159 changes K4/D5 to K1/D2, hazard deaths 2 to
@@ -682,6 +682,24 @@ classification to veto or replan harmful entries. Morpheus needs episode-
 debounced repeated-contact policy that distinguishes useful low-gravity motion
 from nonproductive wall cycling. Combat engagement must be measured and
 restored; lower deaths alone are not sufficient.
+
+## Iteration 52 matched-landing qualification
+
+The realized trace now counts direct partial static-world landings with strict
+`normal.z > 0.7` and <=0.001 numerical error as `matched_landing`. Mismatched
+landing geometry remains a mismatch, and `landed` remains the separate terminal
+record. This restores the exact step partition without hiding landing evidence
+inside `matched_clear`.
+
+The final observer executable is
+`72A3EE06650AC4D7F560E8BAB27C23FAC24AA3FED0329A901AA6F64AA07630F8`.
+Two exact repeats on Deck104729, Deck314159, Morpheus424242, and Unreal
+DeathFan424242 produce zero mismatches, unknowns, and overflows. Comparable
+coverage is respectively 92.14%, 94.58%, 97.73%, and 96.34%, with a 100%
+matched fraction in every case. Explicit baseline/candidate comparisons are
+gameplay-equivalent after excluding only the new landing/unknown diagnostic
+counters, bounded records, and output paths. The slice improves measurement,
+not bot behavior.
 
 ## Wall callback and ledge-property parity audit
 

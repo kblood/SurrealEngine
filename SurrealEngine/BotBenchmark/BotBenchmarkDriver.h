@@ -56,6 +56,7 @@ namespace BotBenchmarkDriverDetail
 		uint64_t FallingParityRealizedEpisodes = 0;
 		uint64_t FallingParityRealizedSteps = 0;
 		uint64_t FallingParityRealizedMatchedSteps = 0;
+		uint64_t FallingParityRealizedMatchedLandingSteps = 0;
 		uint64_t FallingParityRealizedMismatches = 0;
 		uint64_t FallingParityRealizedUnknowns = 0;
 		uint64_t FallingParityRealizedCallbackBarriers = 0;
@@ -208,6 +209,9 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.FallingParityRealizedMatchedSteps,
 				Previous.FallingParityRealizedMatchedSteps,
 				totals.FallingParityRealizedMatchedSteps);
+			AccumulateCounter(current.FallingParityRealizedMatchedLandingSteps,
+				Previous.FallingParityRealizedMatchedLandingSteps,
+				totals.FallingParityRealizedMatchedLandingSteps);
 			AccumulateCounter(current.FallingParityRealizedMismatches,
 				Previous.FallingParityRealizedMismatches,
 				totals.FallingParityRealizedMismatches);

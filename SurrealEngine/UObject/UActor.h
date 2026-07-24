@@ -2029,6 +2029,7 @@ public:
 	uint64_t FallingParityRealizedEpisodeCount() const { return FallingParityRealizedEpisodeCountValue; }
 	uint64_t FallingParityRealizedStepCount() const { return FallingParityRealizedStepCountValue; }
 	uint64_t FallingParityRealizedMatchedStepCount() const { return FallingParityRealizedMatchedStepCountValue; }
+	uint64_t FallingParityRealizedMatchedLandingStepCount() const { return FallingParityRealizedMatchedLandingStepCountValue; }
 	uint64_t FallingParityRealizedMismatchCount() const { return FallingParityRealizedMismatchCountValue; }
 	uint64_t FallingParityRealizedUnknownCount() const { return FallingParityRealizedUnknownCountValue; }
 	uint64_t FallingParityRealizedCallbackBarrierCount() const { return FallingParityRealizedCallbackBarrierCountValue; }
@@ -2324,6 +2325,7 @@ private:
 	uint64_t FallingParityRealizedEpisodeCountValue = 0;
 	uint64_t FallingParityRealizedStepCountValue = 0;
 	uint64_t FallingParityRealizedMatchedStepCountValue = 0;
+	uint64_t FallingParityRealizedMatchedLandingStepCountValue = 0;
 	uint64_t FallingParityRealizedMismatchCountValue = 0;
 	uint64_t FallingParityRealizedUnknownCountValue = 0;
 	uint64_t FallingParityRealizedCallbackBarrierCountValue = 0;

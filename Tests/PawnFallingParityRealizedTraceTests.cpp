@@ -43,6 +43,28 @@ int main()
 	Check(first.State.ModelActive && first.State.StepOrdinal == 1
 		&& first.State.RemainingStepBudget == 2,
 		"a matched realized step advances the bounded model");
+	FallingParityRealizedRecord landingEvidence;
+	landingEvidence.Elapsed = 1.0f / 60.0f;
+	landingEvidence.Collision = FallingParityCollisionKind::StaticWorld;
+	landingEvidence.HitFraction = 0.5f;
+	landingEvidence.HitNormal = vec3(0.0f, 0.0f, 1.0f);
+	auto matchedLanding = AdvanceFallingParityRealizedTrace(first.State,
+		FallingParityRealizedOutcome::MatchedLanding, landingEvidence);
+	Check(matchedLanding.EmitRecord && !matchedLanding.State.ModelActive
+		&& matchedLanding.State.LifecycleActive
+		&& matchedLanding.State.StepOrdinal == 2
+		&& matchedLanding.Record.Outcome
+			== FallingParityRealizedOutcome::MatchedLanding,
+		"a matched direct landing is a realized step that stops the model");
+	Check(std::string(FallingParityRealizedOutcomeName(
+		FallingParityRealizedOutcome::MatchedLanding)) == "matched_landing",
+		"a matched landing has vocabulary distinct from the terminal landing");
+	auto landed = FinishFallingParityRealizedTrace(matchedLanding.State,
+		FallingParityRealizedOutcome::Landed);
+	Check(landed.EmitRecord && !landed.State.LifecycleActive
+		&& landed.Record.Outcome == FallingParityRealizedOutcome::Landed
+		&& landed.Record.StepOrdinal == 2,
+		"the terminal landed record closes a matched landing lifecycle separately");
 	auto barrier = AdvanceFallingParityRealizedTrace(first.State,
 		FallingParityRealizedOutcome::CallbackBarrier, evidence);
 	Check(!barrier.State.ModelActive && barrier.State.LifecycleActive,

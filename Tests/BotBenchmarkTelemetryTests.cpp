@@ -172,6 +172,7 @@ int main()
 		<< ",\"falling_parity_realized_episodes_exact\":\"0\""
 		<< ",\"falling_parity_realized_steps_exact\":\"0\""
 		<< ",\"falling_parity_realized_matched_steps_exact\":\"0\""
+		<< ",\"falling_parity_realized_matched_landing_steps_exact\":\"0\""
 		<< ",\"falling_parity_realized_mismatches_exact\":\"0\""
 		<< ",\"falling_parity_realized_unknowns_exact\":\"0\""
 		<< ",\"falling_parity_realized_callback_barriers_exact\":\"0\""
@@ -265,6 +266,14 @@ int main()
 		|| parityEvent.find("\"collision\":\"static_world\",\"hit_fraction\":0.250000000") == std::string::npos
 		|| parityEvent.find("\"callback_barrier_mask\":\"256\"") == std::string::npos)
 		return Fail("falling parity realized record serialization was incomplete or unstable");
+	parityRecord.Outcome = PawnMovement::FallingParityRealizedOutcome::MatchedLanding;
+	parityRecord.HitNormal = vec3(0.0f, 0.0f, 1.0f);
+	event.Bots.front().FallingParityRealizedRecords.front() = parityRecord;
+	const std::string matchedLandingEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (matchedLandingEvent.find("\"outcome\":\"matched_landing\"")
+		== std::string::npos)
+		return Fail("matched landing step vocabulary was not serialized distinctly");
 	event.Bots.front().FallingParityRealizedRecords.clear();
 
 	bool rejectedNonFinite = false;

@@ -98,6 +98,7 @@ struct BotBenchmarkBotState
 	uint64_t FallingParityRealizedEpisodesExact = 0;
 	uint64_t FallingParityRealizedStepsExact = 0;
 	uint64_t FallingParityRealizedMatchedStepsExact = 0;
+	uint64_t FallingParityRealizedMatchedLandingStepsExact = 0;
 	uint64_t FallingParityRealizedMismatchesExact = 0;
 	uint64_t FallingParityRealizedUnknownsExact = 0;
 	uint64_t FallingParityRealizedCallbackBarriersExact = 0;

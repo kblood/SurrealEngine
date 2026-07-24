@@ -309,6 +309,7 @@ class CompareBotBenchmarkRunsTests(unittest.TestCase):
         mutate_jsonl(right / "events.jsonl", lambda values: [
             bot.update(
                 falling_parity_realized_matched_steps_exact=str(index + 1),
+                falling_parity_realized_matched_landing_steps_exact=str(index + 1),
                 vertical_pain_column_true_positive_outcomes_exact=str(index),
                 falling_parity_realized_records=[{
                     "source_pawn_actor": "BotA",
@@ -339,6 +340,7 @@ class CompareBotBenchmarkRunsTests(unittest.TestCase):
         diagnostic_mismatch = COMPARE.compare_runs(
             left, right,
             ["falling_parity_realized_matched_steps_exact",
+             "falling_parity_realized_matched_landing_steps_exact",
              "vertical_pain_column_true_positive_outcomes_exact"],
         )
         self.assertFalse(diagnostic_mismatch["equivalent"])
@@ -351,6 +353,7 @@ class CompareBotBenchmarkRunsTests(unittest.TestCase):
         report = COMPARE.compare_runs(
             left, right,
             ["falling_parity_realized_matched_steps_exact",
+             "falling_parity_realized_matched_landing_steps_exact",
              "vertical_pain_column_true_positive_outcomes_exact"],
             ["falling_parity_realized_records", "vertical_pain_column_diagnostics"],
         )
@@ -359,6 +362,7 @@ class CompareBotBenchmarkRunsTests(unittest.TestCase):
         ignored = events["right"]["ignored"]
         for field in (
                 "falling_parity_realized_matched_steps_exact",
+                "falling_parity_realized_matched_landing_steps_exact",
                 "vertical_pain_column_true_positive_outcomes_exact",
                 "falling_parity_realized_records",
                 "vertical_pain_column_diagnostics"):

@@ -523,6 +523,8 @@ namespace
 			counters.FallingParityRealizedEpisodes = pawn->FallingParityRealizedEpisodeCount();
 			counters.FallingParityRealizedSteps = pawn->FallingParityRealizedStepCount();
 			counters.FallingParityRealizedMatchedSteps = pawn->FallingParityRealizedMatchedStepCount();
+			counters.FallingParityRealizedMatchedLandingSteps =
+				pawn->FallingParityRealizedMatchedLandingStepCount();
 			counters.FallingParityRealizedMismatches = pawn->FallingParityRealizedMismatchCount();
 			counters.FallingParityRealizedUnknowns = pawn->FallingParityRealizedUnknownCount();
 			counters.FallingParityRealizedCallbackBarriers = pawn->FallingParityRealizedCallbackBarrierCount();
@@ -1187,6 +1189,8 @@ namespace
 				bot.FallingParityRealizedEpisodesExact = native.FallingParityRealizedEpisodes;
 				bot.FallingParityRealizedStepsExact = native.FallingParityRealizedSteps;
 				bot.FallingParityRealizedMatchedStepsExact = native.FallingParityRealizedMatchedSteps;
+				bot.FallingParityRealizedMatchedLandingStepsExact =
+					native.FallingParityRealizedMatchedLandingSteps;
 				bot.FallingParityRealizedMismatchesExact = native.FallingParityRealizedMismatches;
 				bot.FallingParityRealizedUnknownsExact = native.FallingParityRealizedUnknowns;
 				bot.FallingParityRealizedCallbackBarriersExact = native.FallingParityRealizedCallbackBarriers;

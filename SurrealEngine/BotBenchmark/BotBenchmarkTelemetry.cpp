@@ -318,6 +318,8 @@ namespace
 			<< bot.FallingParityRealizedStepsExact << "\""
 			<< ",\"falling_parity_realized_matched_steps_exact\":\""
 			<< bot.FallingParityRealizedMatchedStepsExact << "\""
+			<< ",\"falling_parity_realized_matched_landing_steps_exact\":\""
+			<< bot.FallingParityRealizedMatchedLandingStepsExact << "\""
 			<< ",\"falling_parity_realized_mismatches_exact\":\""
 			<< bot.FallingParityRealizedMismatchesExact << "\""
 			<< ",\"falling_parity_realized_unknowns_exact\":\""

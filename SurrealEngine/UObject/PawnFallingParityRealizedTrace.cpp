@@ -62,6 +62,7 @@ namespace PawnMovement
 		update.State.StepOrdinal++;
 		update.State.RemainingStepBudget--;
 		if (update.State.RemainingStepBudget == 0
+			|| outcome == FallingParityRealizedOutcome::MatchedLanding
 			|| outcome == FallingParityRealizedOutcome::Unknown
 			|| outcome == FallingParityRealizedOutcome::Mismatch
 			|| outcome == FallingParityRealizedOutcome::CallbackBarrier)
@@ -108,6 +109,7 @@ namespace PawnMovement
 		{
 		case FallingParityRealizedOutcome::EpisodeStarted: return "episode_started";
 		case FallingParityRealizedOutcome::MatchedClear: return "matched_clear";
+		case FallingParityRealizedOutcome::MatchedLanding: return "matched_landing";
 		case FallingParityRealizedOutcome::Mismatch: return "mismatch";
 		case FallingParityRealizedOutcome::Unknown: return "unknown";
 		case FallingParityRealizedOutcome::CallbackBarrier: return "callback_barrier";
