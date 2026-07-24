@@ -701,6 +701,35 @@ gameplay-equivalent after excluding only the new landing/unknown diagnostic
 counters, bounded records, and output paths. The slice improves measurement,
 not bot behavior.
 
+## Iteration 53 causal hazard-entry audit
+
+Exact candidate-3 repeats identify four different entry mechanisms. On Deck
+104729 Necroth leaves walking support, accumulates repeated falling wall
+callbacks, and reaches pain on a final 0.183-second leg of only 19 horizontal
+and 55 vertical units. On Deck 314159 Tamerlane first enters pain from a combat
+momentum impulse that never armed the walking-only trace; the later
+policy-relevant suicide is another support-loss fall redirected by walls. On
+Deck 271828 Alys is launched into falling by the walking `HitWall`/wall-adjust
+path and reaches pain after an upward arc. On Unreal DeathFan Dante's ordinary
+support-loss fall is redirected by callbacks and travels 823 horizontal units
+after the last wall contact before entering pain.
+
+The pure vertical-column prototype can plausibly describe only the short local
+post-wall legs. It structurally misses the upward and long redirected cases,
+and its 64 samples at 25-unit spacing cover only 1,600 units despite the current
+4,096-unit declared default. It also uses a 0.7071 non-strict support threshold,
+where retail falling requires `normal.z > 0.7`. Those contracts must be made
+truthful before runtime use.
+
+The runtime shadow will therefore follow bounded swept falling trajectories,
+arm for every committed stock-bot falling source, and re-arm after callbacks or
+external impulses. Forecast generations correlate against actual same-life
+segments and stop on callback, pain, landing, death, continuity loss, dynamic
+contact, or unavailable zone evidence. Four proven safe drops, including a
+568-unit fall with a late wall callback, remain negative controls. No live veto
+is authorized by this research: callbacks and large drops are not hazards by
+themselves.
+
 ## Wall callback and ledge-property parity audit
 
 Retail UT436 and Unreal 226b `Engine.Pawn` both define `MinHitWall` as a
