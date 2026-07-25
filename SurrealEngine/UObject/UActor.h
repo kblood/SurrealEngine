@@ -15,6 +15,7 @@
 #include "PawnHazardWaterEgressObserver.h"
 #include "PawnWalkingStepPreflight.h"
 #include "PawnInventoryReachability.h"
+#include "PawnDirectReachCommandProvenance.h"
 #include "PawnRoutePathCommitProvenance.h"
 #include "PawnWalkingHitWallDispatch.h"
 #include "PawnWallAdjustRecovery.h"
@@ -2083,6 +2084,18 @@ public:
 		PawnMovement::InventoryDirectReachSupportDiagnosticRecord record);
 	std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
 		DrainInventoryDirectReachSupportDiagnostics();
+	void RecordDirectReachCommandObservation(
+		PawnMovement::DirectReachCommandObservation record);
+	std::vector<PawnMovement::DirectReachCommandObservation>
+		DrainDirectReachCommandObservations();
+	uint64_t DirectReachCommandObservationCount() const
+	{
+		return DirectReachCommandObservationCountValue;
+	}
+	uint64_t DirectReachCommandSuccessCount() const { return DirectReachCommandSuccessCountValue; }
+	uint64_t DirectReachCommandFailureCount() const { return DirectReachCommandFailureCountValue; }
+	uint64_t DirectReachCommandOverflowCount() const { return DirectReachCommandOverflowCountValue; }
+	uint64_t DirectReachCommandLifeId() const { return MoveStallRecoveryLifeId; }
 	uint64_t PainLedgeVetoCount() const { return PainLedgeVetoCountValue; }
 	uint64_t PainLedgeRepeatVetoCount() const { return PainLedgeRepeatVetoCountValue; }
 	uint64_t PainLedgeRecoveryAttemptCount() const { return PainLedgeRecoveryAttemptCountValue; }
@@ -2785,6 +2798,13 @@ private:
 	uint64_t InventoryDirectReachSupportDiagnosticSequence = 0;
 	std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
 		InventoryDirectReachSupportDiagnostics;
+	uint64_t DirectReachCommandObservationCountValue = 0;
+	uint64_t DirectReachCommandSuccessCountValue = 0;
+	uint64_t DirectReachCommandFailureCountValue = 0;
+	uint64_t DirectReachCommandOverflowCountValue = 0;
+	uint64_t DirectReachCommandSequence = 0;
+	std::vector<PawnMovement::DirectReachCommandObservation>
+		DirectReachCommandObservations;
 	uint64_t RoutePathCommitSequence = 0;
 	uint64_t RoutePathCommitOverflowCountValue = 0;
 	std::vector<PawnMovement::RoutePathCommitRecord> RoutePathCommitRecords;

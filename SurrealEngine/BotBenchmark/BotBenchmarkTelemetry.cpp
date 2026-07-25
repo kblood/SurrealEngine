@@ -660,7 +660,8 @@ namespace
 
 	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot,
 		bool targetSelectionObserverRequested,
-		bool inventoryDirectReachSupportObserverRequested)
+		bool inventoryDirectReachSupportObserverRequested,
+		bool directReachCommandObserverRequested)
 	{
 		out << "{\"identity\":" << JsonString(bot.Identity)
 			<< ",\"actor\":" << JsonString(bot.Actor)
@@ -770,6 +771,43 @@ namespace
 					<< (record.HarmfulBelow ? "true" : "false")
 					<< ",\"outcome\":" << JsonString(
 						PawnMovement::InventoryDirectReachSupportOutcomeName(record.Outcome)) << '}';
+			}
+			out << ']';
+		}
+		if (directReachCommandObserverRequested)
+		{
+			out << ",\"direct_reach_command_observations_exact\":\""
+				<< bot.DirectReachCommandObservationsExact << "\""
+				<< ",\"direct_reach_command_successes_exact\":\""
+				<< bot.DirectReachCommandSuccessesExact << "\""
+				<< ",\"direct_reach_command_failures_exact\":\""
+				<< bot.DirectReachCommandFailuresExact << "\""
+				<< ",\"direct_reach_command_same_life_exact_exact\":\""
+				<< bot.DirectReachCommandSameLifeExactExact << "\""
+				<< ",\"direct_reach_command_unlinked_exact\":\""
+				<< bot.DirectReachCommandUnlinkedExact << "\""
+				<< ",\"direct_reach_command_overflows_exact\":\""
+				<< bot.DirectReachCommandOverflowsExact << "\""
+				<< ",\"direct_reach_command_records\":[";
+			for (size_t index = 0; index < bot.DirectReachCommandRecords.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& record = bot.DirectReachCommandRecords[index];
+				out << "{\"sequence\":\"" << record.Sequence
+					<< "\",\"life_id\":\"" << record.LifeId
+					<< "\",\"target_actor_index\":" << record.TargetActorIndex
+					<< ",\"target_name\":" << JsonString(record.TargetName)
+					<< ",\"target_class\":" << JsonString(record.TargetClass)
+					<< ",\"reached\":" << (record.Reached ? "true" : "false")
+					<< ",\"check_navpoint\":" << (record.CheckNavpoint ? "true" : "false")
+					<< ",\"resolved_wall_slide\":"
+					<< (record.ResolvedWallSlide ? "true" : "false")
+					<< ",\"walking_simulation_iterations\":"
+					<< record.WalkingSimulationIterations
+					<< ",\"latent_action\":" << JsonString(record.LatentAction)
+					<< ",\"route_head_present\":"
+					<< (record.RouteHeadPresent ? "true" : "false")
+					<< ",\"link_status\":" << JsonString(record.LinkStatus) << '}';
 			}
 			out << ']';
 		}
@@ -1206,7 +1244,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "inventory_direct_reach_support_observer_enabled="
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "1" : "0") << '\n'
 		<< "native_path_commit_observer_enabled="
-		<< (config.IsNativePathCommitObserverEnabled() ? "1" : "0") << '\n';
+		<< (config.IsNativePathCommitObserverEnabled() ? "1" : "0") << '\n'
+		<< "direct_reach_command_observer_enabled="
+		<< (config.IsDirectReachCommandObserverEnabled() ? "1" : "0") << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
 		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
@@ -1256,6 +1296,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"native_path_commit_observer_enabled\": "
 		<< (config.IsNativePathCommitObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"direct_reach_command_observer_enabled\": "
+		<< (config.IsDirectReachCommandObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";
@@ -1292,13 +1334,16 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 		out << ",\"inventory_direct_reach_support_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.NativePathCommitObserverRequested)
 		out << ",\"native_path_commit_observer\":{\"requested\":true,\"status\":\"active\"}";
+	if (event.DirectReachCommandObserverRequested)
+		out << ",\"direct_reach_command_observer\":{\"requested\":true,\"status\":\"active\"}";
 	out << ",\"bots\":[";
 	for (size_t index = 0; index < event.Bots.size(); index++)
 	{
 		if (index != 0)
 			out << ',';
 		WriteBot(out, event.Bots[index], event.TargetSelectionObserverRequested,
-			event.InventoryDirectReachSupportObserverRequested);
+			event.InventoryDirectReachSupportObserverRequested,
+			event.DirectReachCommandObserverRequested);
 	}
 	out << "]}\n";
 	return out.str();

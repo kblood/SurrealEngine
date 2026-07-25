@@ -43,6 +43,7 @@ PROTECTED_FIELDS = {
     "direct_actor_move_toward_timeout_enabled", "target_selection_observer_enabled",
     "inventory_direct_reach_support_observer_enabled",
     "native_path_commit_observer_enabled",
+    "direct_reach_command_observer_enabled",
     "requested_roster", "actual_roster", "config", "index", "roster_index",
     "identity", "actor", "player_name", "class", "seq", "tick",
     "simulated_seconds", "type", "map", "status", "failure_reason", "exit_code",
@@ -252,6 +253,11 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
                 raise ComparisonError(
                     f"{run}/manifest.json.native_path_commit_observer_enabled: expected a boolean")
             config_fields += ("native_path_commit_observer_enabled",)
+        if "direct_reach_command_observer_enabled" in manifest:
+            if not isinstance(manifest["direct_reach_command_observer_enabled"], bool):
+                raise ComparisonError(
+                    f"{run}/manifest.json.direct_reach_command_observer_enabled: expected a boolean")
+            config_fields += ("direct_reach_command_observer_enabled",)
 
     if summary.get("status") != "complete" or _strict_int(
             summary.get("exit_code"), f"{run}/summary.json.exit_code") != 0:
@@ -293,6 +299,10 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
             summary_config.get("native_path_commit_observer_enabled"), bool):
         raise ComparisonError(
             f"{run}/summary.json.config.native_path_commit_observer_enabled: expected a boolean")
+    if "direct_reach_command_observer_enabled" in config_fields and not isinstance(
+            summary_config.get("direct_reach_command_observer_enabled"), bool):
+        raise ComparisonError(
+            f"{run}/summary.json.config.direct_reach_command_observer_enabled: expected a boolean")
     for field in config_fields:
         if summary_config.get(field) != manifest.get(field):
             raise ComparisonError(f"{run}: summary.config.{field} differs from manifest.{field}")

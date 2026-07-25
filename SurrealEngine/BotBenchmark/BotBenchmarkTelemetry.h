@@ -58,6 +58,22 @@ struct BotBenchmarkTargetSelectionRecord
 	std::string Outcome;
 };
 
+struct BotBenchmarkDirectReachCommandRecord
+{
+	uint64_t Sequence = 0;
+	uint64_t LifeId = 0;
+	int32_t TargetActorIndex = -1;
+	std::string TargetName;
+	std::string TargetClass;
+	bool Reached = false;
+	bool CheckNavpoint = false;
+	bool ResolvedWallSlide = false;
+	int WalkingSimulationIterations = 0;
+	std::string LatentAction;
+	bool RouteHeadPresent = false;
+	std::string LinkStatus;
+};
+
 struct BotBenchmarkBotState
 {
 	std::string Identity;
@@ -110,6 +126,13 @@ struct BotBenchmarkBotState
 	uint64_t InventoryDirectReachSupportDiagnosticOverflowsExact = 0;
 	std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
 		InventoryDirectReachSupportDiagnostics;
+	uint64_t DirectReachCommandObservationsExact = 0;
+	uint64_t DirectReachCommandSuccessesExact = 0;
+	uint64_t DirectReachCommandFailuresExact = 0;
+	uint64_t DirectReachCommandSameLifeExactExact = 0;
+	uint64_t DirectReachCommandUnlinkedExact = 0;
+	uint64_t DirectReachCommandOverflowsExact = 0;
+	std::vector<BotBenchmarkDirectReachCommandRecord> DirectReachCommandRecords;
 	uint64_t EnvironmentalDeathsExact = 0;
 	uint64_t HazardExposedDeathsProxy = 0;
 	uint64_t DamageTakenExact = 0;
@@ -342,6 +365,7 @@ struct BotBenchmarkTelemetryEvent
 	std::string TargetSelectionObserverReason;
 	bool InventoryDirectReachSupportObserverRequested = false;
 	bool NativePathCommitObserverRequested = false;
+	bool DirectReachCommandObserverRequested = false;
 	std::vector<BotBenchmarkBotState> Bots;
 };
 

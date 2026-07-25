@@ -41,7 +41,8 @@ public:
 		std::optional<std::string> directActorMoveTowardTimeout = {},
 		std::optional<std::string> targetSelectionObserver = {},
 		std::optional<std::string> inventoryDirectReachSupportObserver = {},
-		std::optional<std::string> nativePathCommitObserver = {});
+		std::optional<std::string> nativePathCommitObserver = {},
+		std::optional<std::string> directReachCommandObserver = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -71,6 +72,7 @@ public:
 		return InventoryDirectReachSupportObserverEnabled;
 	}
 	bool IsNativePathCommitObserverEnabled() const { return NativePathCommitObserverEnabled; }
+	bool IsDirectReachCommandObserverEnabled() const { return DirectReachCommandObserverEnabled; }
 
 private:
 	BotBenchmarkRunConfig(std::string url, std::string outputDirectory, uint64_t seed,
@@ -80,7 +82,8 @@ private:
 		bool failedNavigationAvoidanceEnabled, bool fallingHazardRecoveryEnabled,
 		bool fallingHazardRecoveryLiveEnabled, bool targetlessMoveToTimeoutEnabled,
 		bool directActorMoveTowardTimeoutEnabled, bool targetSelectionObserverEnabled,
-		bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled);
+		bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
+		bool directReachCommandObserverEnabled);
 
 	std::string URL;
 	std::string OutputDirectory;
@@ -101,6 +104,7 @@ private:
 	bool TargetSelectionObserverEnabled = false;
 	bool InventoryDirectReachSupportObserverEnabled = false;
 	bool NativePathCommitObserverEnabled = false;
+	bool DirectReachCommandObserverEnabled = false;
 };
 
 class BotBenchmarkRunSummary

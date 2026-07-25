@@ -562,6 +562,7 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnFailedNavigationMemory.h
 	SurrealEngine/UObject/PawnInventoryReachability.cpp
 	SurrealEngine/UObject/PawnInventoryReachability.h
+	SurrealEngine/UObject/PawnDirectReachCommandProvenance.h
 	SurrealEngine/UObject/PawnLedgeTransition.cpp
 	SurrealEngine/UObject/PawnLedgeTransition.h
 	SurrealEngine/UObject/PawnFallingTwoPlaneContact.cpp

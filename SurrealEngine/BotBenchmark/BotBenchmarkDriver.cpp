@@ -89,6 +89,8 @@ namespace
 				Config.IsInventoryDirectReachSupportObserverEnabled());
 			EngineRef.SetBotBenchmarkNativePathCommitObserverEnabled(
 				Config.IsNativePathCommitObserverEnabled());
+			EngineRef.SetBotBenchmarkDirectReachCommandObserverEnabled(
+				Config.IsDirectReachCommandObserverEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -322,6 +324,8 @@ namespace
 				PendingWalkingStepPreflightDiagnostics;
 			std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
 				PendingInventoryDirectReachSupportDiagnostics;
+			std::vector<BotBenchmarkDirectReachCommandRecord>
+				PendingDirectReachCommandRecords;
 			std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
 				PendingWalkingHitWallDispatchDiagnostics;
 			std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
@@ -353,6 +357,13 @@ namespace
 			uint64_t TargetSelectionTrackerCapacityExceededExact = 0;
 			uint64_t TargetSelectionIntegrityFailuresExact = 0;
 			uint64_t NextTargetSelectionSequence = 1;
+			uint64_t NextDirectReachCommandSequence = 1;
+			uint64_t DirectReachCommandObservationsExact = 0;
+			uint64_t DirectReachCommandSuccessesExact = 0;
+			uint64_t DirectReachCommandFailuresExact = 0;
+			uint64_t DirectReachCommandSameLifeExactExact = 0;
+			uint64_t DirectReachCommandUnlinkedExact = 0;
+			uint64_t DirectReachCommandOverflowsExact = 0;
 		};
 
 		struct ActiveTargetSelectionCall
@@ -1185,6 +1196,10 @@ namespace
 				auto hazardDiagnostics = victim->DrainFallingHazardDiagnostics();
 				auto waterEgressDiagnostics = victim->DrainHazardWaterEgressDiagnostics();
 				auto routePathCommitRecords = victim->DrainRoutePathCommitRecords();
+				auto directReachCommandObservations = victim->DrainDirectReachCommandObservations();
+				counters.DirectReachCommandOverflowsExact = std::max(
+					counters.DirectReachCommandOverflowsExact,
+					victim->DirectReachCommandOverflowCount());
 				counters.RoutePathCommitOverflowExact = std::max(
 					counters.RoutePathCommitOverflowExact, victim->RoutePathCommitOverflowCount());
 				BotBenchmarkDeathAttribution::DeathKiller killerRelation =
@@ -1239,6 +1254,21 @@ namespace
 					counters.PendingRoutePathCommitRecords.end(),
 					std::make_move_iterator(routePathCommitRecords.begin()),
 					std::make_move_iterator(routePathCommitRecords.end()));
+				for (const auto& observation : directReachCommandObservations)
+				{
+					counters.PendingDirectReachCommandRecords.push_back({
+						counters.NextDirectReachCommandSequence++, observation.LifeId,
+						observation.TargetActorIndex, observation.TargetName,
+						observation.TargetClass, observation.Reached, observation.CheckNavpoint,
+						observation.ResolvedWallSlide, observation.WalkingSimulationIterations,
+						std::string(), false, "unavailable_life_boundary" });
+					counters.DirectReachCommandObservationsExact++;
+					if (observation.Reached)
+						counters.DirectReachCommandSuccessesExact++;
+					else
+						counters.DirectReachCommandFailuresExact++;
+					counters.DirectReachCommandUnlinkedExact++;
+				}
 				counters.DeathsExact++;
 				const bool environmental = !killer || !killer->bIsPlayer();
 				if (killer == victim || environmental)
@@ -2284,6 +2314,9 @@ namespace
 				bot.MoveTargetName.clear();
 				if (pawn)
 				{
+					bot.DirectReachCommandOverflowsExact = std::max(
+						runtime.DirectReachCommandOverflowsExact,
+						pawn->DirectReachCommandOverflowCount());
 					AccumulateNativePawnCounters(actual.Identity, runtime, pawn,
 						BotBenchmarkDriverDetail::NativePawnCounterSample::LivePawn);
 					runtime.Pri = pawn->PlayerReplicationInfo();
@@ -2687,6 +2720,11 @@ namespace
 					auto diagnostics = pawn->DrainWalkingStepPreflightDiagnostics();
 					auto inventoryDirectReachDiagnostics =
 						pawn->DrainInventoryDirectReachSupportDiagnostics();
+					auto directReachCommandObservations =
+						pawn->DrainDirectReachCommandObservations();
+					runtime.DirectReachCommandOverflowsExact = std::max(
+						runtime.DirectReachCommandOverflowsExact,
+						pawn->DirectReachCommandOverflowCount());
 					auto walkingHitWallDiagnostics =
 						pawn->DrainWalkingHitWallDispatchDiagnostics();
 					runtime.PendingWalkingStepPreflightDiagnostics.insert(
@@ -2697,6 +2735,46 @@ namespace
 						runtime.PendingInventoryDirectReachSupportDiagnostics.end(),
 						std::make_move_iterator(inventoryDirectReachDiagnostics.begin()),
 						std::make_move_iterator(inventoryDirectReachDiagnostics.end()));
+					const bool activeDirectCommand = bot.LatentAction == "MoveTo"
+						|| bot.LatentAction == "MoveToward";
+					const bool routeHeadPresent = EngineRef.LaunchInfo.ue1Version > 219
+						&& pawn->RouteCache()[0] != nullptr;
+					UActor* moveTarget = pawn->MoveTarget();
+					for (const auto& observation : directReachCommandObservations)
+					{
+						const bool targetMatches = moveTarget && !moveTarget->bDeleteMe()
+							&& moveTarget->Index == observation.TargetActorIndex
+							&& moveTarget == observation.TargetAddress;
+						std::string linkStatus;
+						if (!observation.Reached)
+							linkStatus = "not_reached";
+						else if (observation.LifeId != pawn->DirectReachCommandLifeId())
+							linkStatus = "unavailable_life_boundary";
+						else if (!activeDirectCommand)
+							linkStatus = "unavailable_no_active_direct_command";
+						else if (routeHeadPresent)
+							linkStatus = "unavailable_route_head";
+						else if (!targetMatches)
+							linkStatus = "unavailable_target_replaced";
+						else
+							linkStatus = "same_life_exact";
+						runtime.PendingDirectReachCommandRecords.push_back({
+							runtime.NextDirectReachCommandSequence++, observation.LifeId,
+							observation.TargetActorIndex, observation.TargetName,
+							observation.TargetClass, observation.Reached, observation.CheckNavpoint,
+							observation.ResolvedWallSlide, observation.WalkingSimulationIterations,
+							bot.LatentAction, routeHeadPresent, std::move(linkStatus) });
+						runtime.DirectReachCommandObservationsExact++;
+						if (observation.Reached)
+							runtime.DirectReachCommandSuccessesExact++;
+						else
+							runtime.DirectReachCommandFailuresExact++;
+						if (runtime.PendingDirectReachCommandRecords.back().LinkStatus
+							== "same_life_exact")
+							runtime.DirectReachCommandSameLifeExactExact++;
+						else
+							runtime.DirectReachCommandUnlinkedExact++;
+					}
 					runtime.PendingWalkingHitWallDispatchDiagnostics.insert(
 						runtime.PendingWalkingHitWallDispatchDiagnostics.end(),
 						std::make_move_iterator(walkingHitWallDiagnostics.begin()),
@@ -2738,6 +2816,14 @@ namespace
 				bot.InventoryDirectReachSupportDiagnostics = std::move(
 					runtime.PendingInventoryDirectReachSupportDiagnostics);
 				runtime.PendingInventoryDirectReachSupportDiagnostics.clear();
+				bot.DirectReachCommandRecords = std::move(runtime.PendingDirectReachCommandRecords);
+				runtime.PendingDirectReachCommandRecords.clear();
+				bot.DirectReachCommandObservationsExact = runtime.DirectReachCommandObservationsExact;
+				bot.DirectReachCommandSuccessesExact = runtime.DirectReachCommandSuccessesExact;
+				bot.DirectReachCommandFailuresExact = runtime.DirectReachCommandFailuresExact;
+				bot.DirectReachCommandSameLifeExactExact = runtime.DirectReachCommandSameLifeExactExact;
+				bot.DirectReachCommandUnlinkedExact = runtime.DirectReachCommandUnlinkedExact;
+				bot.DirectReachCommandOverflowsExact = runtime.DirectReachCommandOverflowsExact;
 				bot.WalkingHitWallDispatchDiagnostics = std::move(
 					runtime.PendingWalkingHitWallDispatchDiagnostics);
 				runtime.PendingWalkingHitWallDispatchDiagnostics.clear();
@@ -2795,6 +2881,8 @@ namespace
 				Config.IsInventoryDirectReachSupportObserverEnabled();
 			event.NativePathCommitObserverRequested =
 				Config.IsNativePathCommitObserverEnabled();
+			event.DirectReachCommandObserverRequested =
+				Config.IsDirectReachCommandObserverEnabled();
 			event.Bots = CaptureBotStates();
 			const std::string line = BotBenchmarkTelemetryProtocol::EventJson(TelemetryConfigIdentity, std::move(event));
 			TelemetryFile->write(line.data(), line.size());
@@ -2907,7 +2995,8 @@ namespace
 			OptionalCommandLineArg("--botbench-direct-actor-move-toward-timeout"),
 			OptionalCommandLineArg("--botbench-target-selection-observer"),
 			OptionalCommandLineArg("--botbench-inventory-direct-reach-support-observer"),
-			OptionalCommandLineArg("--botbench-native-path-commit-observer"));
+			OptionalCommandLineArg("--botbench-native-path-commit-observer"),
+			OptionalCommandLineArg("--botbench-direct-reach-command-observer"));
 	}
 }
 

@@ -4031,6 +4031,10 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 	int mode = Physics();
 	if (mode == PHYS_Walking)
 	{
+		const bool observeDirectReachCommand =
+			engine->IsBotBenchmarkDirectReachCommandObserverEnabled()
+			&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
+			&& !aPawn && !UObject::TryCast<UNavigationPoint>(anActor);
 		UInventory* inventoryTarget = UObject::TryCast<UInventory>(anActor);
 		const bool observeInventoryDirectReach =
 			engine->IsBotBenchmarkInventoryDirectReachSupportObserverEnabled()
@@ -4148,6 +4152,20 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 				.HarmfulFootZone = sample.HarmfulFootZone,
 				.HarmfulBelow = sample.HarmfulBelow,
 				.Outcome = PawnMovement::ClassifyInventoryDirectReachSupport(sample)
+			});
+		}
+		if (observeDirectReachCommand)
+		{
+			RecordDirectReachCommandObservation({
+				.LifeId = DirectReachCommandLifeId(),
+				.TargetActorIndex = anActor->Index,
+				.TargetAddress = anActor,
+				.TargetName = anActor->Name.ToString(),
+				.TargetClass = anActor->Class ? anActor->Class->Name.ToString() : std::string(),
+				.Reached = reached,
+				.CheckNavpoint = checkNavpoint,
+				.ResolvedWallSlide = resolvedWallSlide,
+				.WalkingSimulationIterations = completedWalkingSimulationIterations
 			});
 		}
 
@@ -8225,6 +8243,30 @@ std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
 	std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord> diagnostics;
 	diagnostics.swap(InventoryDirectReachSupportDiagnostics);
 	return diagnostics;
+}
+
+void UPawn::RecordDirectReachCommandObservation(
+	PawnMovement::DirectReachCommandObservation record)
+{
+	DirectReachCommandObservationCountValue++;
+	if (record.Reached)
+		DirectReachCommandSuccessCountValue++;
+	else
+		DirectReachCommandFailureCountValue++;
+	record.Sequence = ++DirectReachCommandSequence;
+	static constexpr size_t maximumQueuedRecords = 1024;
+	if (DirectReachCommandObservations.size() < maximumQueuedRecords)
+		DirectReachCommandObservations.push_back(std::move(record));
+	else
+		DirectReachCommandOverflowCountValue++;
+}
+
+std::vector<PawnMovement::DirectReachCommandObservation>
+	UPawn::DrainDirectReachCommandObservations()
+{
+	std::vector<PawnMovement::DirectReachCommandObservation> records;
+	records.swap(DirectReachCommandObservations);
+	return records;
 }
 
 bool UPawn::RecordWalkingHitWallDispatch(const CollisionHit& hit,
