@@ -2375,7 +2375,7 @@ def _validate_walking_step_preflight_diagnostic_stream(
     missing_provisionals: defaultdict[str, int] = defaultdict(int)
     final_overflows: dict[str, int] = {}
     stable_pair_fields = (
-        "origin", "predicted_unsupported_endpoint", "semantic_target",
+        "movement_command_token", "origin", "predicted_unsupported_endpoint", "semantic_target",
         "semantic_destination", "start_support", "step_up", "forward", "actual_step_down",
         "support_probe",
     )

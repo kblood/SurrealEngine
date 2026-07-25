@@ -6781,7 +6781,10 @@ bool UPawn::ConfirmWalkingStepPreflightShadow(int walkingIteration,
 		== WalkingStepPreflightPendingSemanticTarget
 		&& IsFiniteVector(destinationDelta)
 		&& (currentSemanticTarget || dot(destinationDelta, destinationDelta) <= 0.25f * 0.25f);
-	confirmed = confirmed && endpointMatches && sameLife && aliveWalking && semanticMatches;
+	const bool movementCommandMatches = diagnostic.MovementCommandToken != 0
+		&& FallingHazardMovementCommandToken == diagnostic.MovementCommandToken;
+	confirmed = confirmed && endpointMatches && sameLife && aliveWalking && semanticMatches
+		&& movementCommandMatches;
 	if (!confirmed && diagnostic.TransitionOutcome == "begin_falling")
 		diagnostic.TransitionOutcome = "post_callback_evidence_changed";
 

@@ -1935,6 +1935,9 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 ("negative-invocation", lambda samples: samples[1]
                     ["walking_step_preflight_diagnostics"][0].update(invocation_token="-1"),
                     "must be at least 0"),
+                ("negative-command-token", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(movement_command_token="-1"),
+                    "must be at least 0"),
                 ("negative-iteration", lambda samples: samples[1]
                     ["walking_step_preflight_diagnostics"][0].update(walking_iteration=-1),
                     "must be at least 0"),
@@ -1944,6 +1947,9 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 ("uncorrelated", lambda samples: samples[1]
                     ["walking_step_preflight_diagnostics"][1]["semantic_destination"]
                     .update(x=101.0), "do not correlate"),
+                ("changed-command-token", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1].update(movement_command_token="13"),
+                    "do not correlate"),
                 ("orphan-post", lambda samples: samples[1].update(
                     walking_step_preflight_diagnostics=[confirmation]),
                     "no correlatable provisional"),

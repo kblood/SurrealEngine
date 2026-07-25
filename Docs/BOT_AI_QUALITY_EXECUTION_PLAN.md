@@ -2084,6 +2084,18 @@ the witness transport only. It deliberately does not connect a token to a
 death, prove a safe alternative, or expose `avoidable_suicide_rate`; those are
 the next required terminal-reconciliation and safe-alternative work items.
 
+## Iteration 86: command-stable confirmation
+
+Post-`MayFall` confirmation now requires the same non-zero movement-command
+token captured at pre-commit, in addition to the existing endpoint, life,
+latent-state, target, and destination checks. A callback that silently issues
+a replacement movement command therefore changes the diagnostic outcome to
+`post_callback_evidence_changed`; it cannot be used as causal evidence merely
+because the replacement happens to reuse the same target or destination. The
+paired diagnostic validator applies the same invariant and rejects a changed
+token. This is observer bookkeeping only and has no movement, probe, callback,
+or policy action.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
