@@ -2374,6 +2374,33 @@ must explain why the forecast becomes harmful only after the falling sequence
 has progressed; do not weaken its fail-closed classification merely to create
 an intervention opportunity.
 
+## Iteration 99: ActorReachable support hypothesis and early-probe rejection
+
+The mixed launch provenance pointed upstream of route ownership. A read-only
+Opus review of `UPawn::ActorReachable` confirmed that its walking dry-run can
+advance horizontally across an unsupported drop without ever checking support
+beneath the resulting position. UnrealScript bot code uses this predicate to
+choose direct movement instead of `FindPathToward`, so this is a plausible
+common cause for DeathFan's mixed inventory, weapon, navigation-point, and
+targetless launch commands.
+
+The first local experiment was deliberately not retained. It probed support
+immediately after the forward dry move, while the simulated pawn was still
+raised by `stepUpDelta` and before wall-slide resolution. That leaves only
+`0.3 * MaxStepHeight` of downward tolerance instead of the walking physics
+path's `1.3 * MaxStepHeight`, and rejects valid downsteps. The deterministic
+DeathFan seed-271828 run regressed from K7/D29/S22 to K12/D38/S26; reject this
+placement and keep it out of commits.
+
+The next slice is observer-only and default-off: after wall-slide resolution
+and the return to walk height, dry-probe the existing `stepDownDelta` and
+record only the would-flip ActorReachable verdict. It must demonstrate
+unchanged stock behavior in shadow mode, identify the fatal high-platform
+launches as old-reachable/new-unreachable, and preserve a control set of
+ordinary downsteps. Only then may a separately gated live experiment return
+unreachable; no route rewrite, command override, random motion, or air steering
+is authorized.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:

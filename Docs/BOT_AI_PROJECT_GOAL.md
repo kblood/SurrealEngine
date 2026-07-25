@@ -111,3 +111,14 @@ diagnostics. In two byte-identical DeathFan seed-271828 runs it completed for
 all eleven upper-platform fatal launches but marked zero harmful. A rollback or
 replan based on that forecast would therefore miss every target incident and
 is not authorized.
+
+The current upstream-cause investigation is `ActorReachable`'s walking
+simulation. Independent code review found that it can classify an unsupported
+horizontal crossing as reachable because it does not check support under the
+new horizontal position. An early local probe was rejected immediately: placed
+before wall-slide resolution and before the return to walk height, it reduced
+the effective allowed downstep and regressed DeathFan from K7/D29/S22 to
+K12/D38/S26. The retained next step is a default-off, post-resolution shadow
+observer that records only verdict flips. It must identify the known fatal
+launches without changing stock behavior and must preserve normal downsteps
+before a live behavior experiment is allowed.
