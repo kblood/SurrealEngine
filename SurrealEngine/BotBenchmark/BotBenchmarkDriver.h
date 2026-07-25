@@ -83,6 +83,16 @@ namespace BotBenchmarkDriverDetail
 		uint64_t HazardSwimEgressLiveShadowProbeBlockedTerminals = 0;
 		uint64_t HazardSwimEgressDirectNavProbes = 0;
 		uint64_t HazardSwimEgressDirectNavSafeCandidates = 0;
+		uint64_t HazardResidenceEpisodes = 0;
+		uint64_t HazardResidenceCleared = 0;
+		uint64_t HazardResidenceDeaths = 0;
+		uint64_t HazardResidenceLifeBoundaryCensored = 0;
+		uint64_t HazardResidenceRunEndCensored = 0;
+		uint64_t HazardResidenceUnknown = 0;
+		uint64_t HazardResidenceReentries = 0;
+		uint64_t HazardResidenceCommandChanges = 0;
+		uint64_t HazardResidenceCandidatesObserved = 0;
+		uint64_t HazardResidenceCandidateOtherCommands = 0;
 		std::string HazardSwimEgressDirectNavBestCandidateName;
 		bool HazardSwimEgressAnchorKnown = false;
 		std::string HazardSwimEgressAnchorSource;
@@ -380,6 +390,31 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.HazardSwimEgressDirectNavSafeCandidates,
 				Previous.HazardSwimEgressDirectNavSafeCandidates,
 				totals.HazardSwimEgressDirectNavSafeCandidates);
+			AccumulateCounter(current.HazardResidenceEpisodes,
+				Previous.HazardResidenceEpisodes, totals.HazardResidenceEpisodes);
+			AccumulateCounter(current.HazardResidenceCleared,
+				Previous.HazardResidenceCleared, totals.HazardResidenceCleared);
+			AccumulateCounter(current.HazardResidenceDeaths,
+				Previous.HazardResidenceDeaths, totals.HazardResidenceDeaths);
+			AccumulateCounter(current.HazardResidenceLifeBoundaryCensored,
+				Previous.HazardResidenceLifeBoundaryCensored,
+				totals.HazardResidenceLifeBoundaryCensored);
+			AccumulateCounter(current.HazardResidenceRunEndCensored,
+				Previous.HazardResidenceRunEndCensored,
+				totals.HazardResidenceRunEndCensored);
+			AccumulateCounter(current.HazardResidenceUnknown,
+				Previous.HazardResidenceUnknown, totals.HazardResidenceUnknown);
+			AccumulateCounter(current.HazardResidenceReentries,
+				Previous.HazardResidenceReentries, totals.HazardResidenceReentries);
+			AccumulateCounter(current.HazardResidenceCommandChanges,
+				Previous.HazardResidenceCommandChanges,
+				totals.HazardResidenceCommandChanges);
+			AccumulateCounter(current.HazardResidenceCandidatesObserved,
+				Previous.HazardResidenceCandidatesObserved,
+				totals.HazardResidenceCandidatesObserved);
+			AccumulateCounter(current.HazardResidenceCandidateOtherCommands,
+				Previous.HazardResidenceCandidateOtherCommands,
+				totals.HazardResidenceCandidateOtherCommands);
 			if (!current.HazardSwimEgressDirectNavBestCandidateName.empty())
 			{
 				totals.HazardSwimEgressDirectNavBestCandidateName =

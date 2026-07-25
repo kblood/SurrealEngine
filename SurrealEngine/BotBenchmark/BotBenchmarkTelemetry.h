@@ -174,6 +174,16 @@ struct BotBenchmarkBotState
 	uint64_t HazardSwimEgressLiveShadowProbeBlockedTerminalsExact = 0;
 	uint64_t HazardSwimEgressDirectNavProbesExact = 0;
 	uint64_t HazardSwimEgressDirectNavSafeCandidatesExact = 0;
+	uint64_t HazardResidenceEpisodesExact = 0;
+	uint64_t HazardResidenceClearedExact = 0;
+	uint64_t HazardResidenceDeathsExact = 0;
+	uint64_t HazardResidenceLifeBoundaryCensoredExact = 0;
+	uint64_t HazardResidenceRunEndCensoredExact = 0;
+	uint64_t HazardResidenceUnknownExact = 0;
+	uint64_t HazardResidenceReentriesExact = 0;
+	uint64_t HazardResidenceCommandChangesExact = 0;
+	uint64_t HazardResidenceCandidatesObservedExact = 0;
+	uint64_t HazardResidenceCandidateOtherCommandsExact = 0;
 	std::string HazardSwimEgressDirectNavBestCandidateName;
 	bool HazardSwimEgressAnchorKnown = false;
 	std::string HazardSwimEgressAnchorSource;

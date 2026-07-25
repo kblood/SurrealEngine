@@ -393,6 +393,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
         zero = {name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_EXACT_COUNTERS}
         handoff_zero = {
             name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS}
+        residence_zero = {name: 0 for name in QUALITY.HAZARD_RESIDENCE_COUNTERS}
         final = {
             **zero,
             "hazard_swim_egress_episodes_exact": 3,
@@ -415,6 +416,47 @@ class BotQualityAnalysisTests(unittest.TestCase):
             self.assertIs(
                 report["metric_availability"]["optional_counter_metrics_present"]
                 ["hazard_swim_egress_died_before_exit_exact"], True)
+
+            residence = write_v2_run(root, "hazard-residence", bot_count=1)
+            residence_final = {
+                **residence_zero,
+                "hazard_residence_episodes_exact": 3,
+                "hazard_residence_cleared_exact": 1,
+                "hazard_residence_deaths_exact": 1,
+                "hazard_residence_run_end_censored_exact": 1,
+                "hazard_residence_reentries_exact": 2,
+                "hazard_residence_command_changes_exact": 4,
+                "hazard_residence_candidates_observed_exact": 2,
+                "hazard_residence_candidate_other_commands_exact": 1,
+            }
+            upgrade_telemetry_v2(residence, counters=[
+                {**common, **residence_zero},
+                {**common, **residence_final}, {**common, **residence_final},
+            ])
+            residence_report = QUALITY.analyze([residence])
+            self.assertEqual(residence_report["runs"][0]["metrics"]
+                ["hazard_residence_deaths_exact"], 1)
+
+            residence_partial = write_v2_run(root, "hazard-residence-partial", bot_count=1)
+            residence_partial_final = {**residence_final}
+            residence_partial_final.pop("hazard_residence_unknown_exact")
+            upgrade_telemetry_v2(residence_partial, counters=[
+                {**common, **residence_zero},
+                {**common, **residence_partial_final}, {**common, **residence_partial_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "hazard residence.*complete group"):
+                QUALITY.analyze_run(residence_partial)
+
+            residence_unpartitioned = write_v2_run(root, "hazard-residence-unpartitioned", bot_count=1)
+            residence_unpartitioned_final = {**residence_final,
+                "hazard_residence_run_end_censored_exact": 0}
+            upgrade_telemetry_v2(residence_unpartitioned, counters=[
+                {**common, **residence_zero},
+                {**common, **residence_unpartitioned_final},
+                {**common, **residence_unpartitioned_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "outcomes must partition"):
+                QUALITY.analyze_run(residence_unpartitioned)
 
             partial = write_v2_run(root, "hazard-swim-egress-partial", bot_count=1)
             partial_final = {**final}

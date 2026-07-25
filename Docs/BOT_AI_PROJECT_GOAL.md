@@ -57,6 +57,13 @@ Recovery-time thresholds may be evaluated only when a candidate campaign
 supplies a non-zero, complete opportunity set; the forced fixture qualifies the
 measurement path, not bot quality.
 
+The current observer slice records every autonomous stock-bot residence in a
+positive-DPS zone, its exclusive terminal outcome, re-entry count, native
+movement-command churn, and whether an already collision-probed direct
+navigation candidate was followed by another command. It does not write
+acceleration, destination, latent state, physics, or route state. Its purpose
+is to distinguish a missing safe option from an option stock code abandons.
+
 ## Current status
 
 The cross-game forced move-stall fixture passed twice on UT436 `DM-Deck16][`
@@ -67,3 +74,13 @@ a behavior improvement. No recent live behavior change has met the promotion
 bar. The targetless `MoveTo` timeout experiment remains default-off and
 rejected: it reduced a stuck proxy but regressed combat/score and did not
 reduce suicides. The project is not merge-ready as a BOT AI behavior change.
+
+The new UT436 Deck16-II 7,200-tick seed-271828 smoke retains K4/D9/S5 and five
+hazard entries while reporting five harmful residences: all ended in death,
+with 289 re-entries, two safe direct-navigation candidates observed, and two
+subsequent other native movement commands. Unreal Gold 226b DeathFan retains
+K7/D29/S22 and 33 entries while reporting 28 residences: three cleared and 25
+ended in death, with no direct-navigation candidate. This is discovery
+evidence, not a quality improvement or action authorization. The next policy
+candidate must explain UT's observed candidate abandonment and independently
+certify a controllable Unreal alternative.

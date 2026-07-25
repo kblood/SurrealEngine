@@ -720,6 +720,16 @@ namespace
 			<< ",\"hazard_swim_egress_live_shadow_probe_blocked_terminals_exact\":\"" << bot.HazardSwimEgressLiveShadowProbeBlockedTerminalsExact << "\""
 			<< ",\"hazard_swim_egress_direct_nav_probes_exact\":\"" << bot.HazardSwimEgressDirectNavProbesExact << "\""
 			<< ",\"hazard_swim_egress_direct_nav_safe_candidates_exact\":\"" << bot.HazardSwimEgressDirectNavSafeCandidatesExact << "\""
+			<< ",\"hazard_residence_episodes_exact\":\"" << bot.HazardResidenceEpisodesExact << "\""
+			<< ",\"hazard_residence_cleared_exact\":\"" << bot.HazardResidenceClearedExact << "\""
+			<< ",\"hazard_residence_deaths_exact\":\"" << bot.HazardResidenceDeathsExact << "\""
+			<< ",\"hazard_residence_life_boundary_censored_exact\":\"" << bot.HazardResidenceLifeBoundaryCensoredExact << "\""
+			<< ",\"hazard_residence_run_end_censored_exact\":\"" << bot.HazardResidenceRunEndCensoredExact << "\""
+			<< ",\"hazard_residence_unknown_exact\":\"" << bot.HazardResidenceUnknownExact << "\""
+			<< ",\"hazard_residence_reentries_exact\":\"" << bot.HazardResidenceReentriesExact << "\""
+			<< ",\"hazard_residence_command_changes_exact\":\"" << bot.HazardResidenceCommandChangesExact << "\""
+			<< ",\"hazard_residence_candidates_observed_exact\":\"" << bot.HazardResidenceCandidatesObservedExact << "\""
+			<< ",\"hazard_residence_candidate_other_commands_exact\":\"" << bot.HazardResidenceCandidateOtherCommandsExact << "\""
 			<< ",\"hazard_swim_egress_direct_nav_best_candidate_name\":" << JsonString(bot.HazardSwimEgressDirectNavBestCandidateName)
 			<< ",\"hazard_swim_egress_anchor_known\":" << (bot.HazardSwimEgressAnchorKnown ? "true" : "false")
 			<< ",\"hazard_swim_egress_anchor_source\":" << JsonString(bot.HazardSwimEgressAnchorSource)

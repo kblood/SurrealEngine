@@ -2298,6 +2298,23 @@ Unreal safety/stall failure, and the required held-out evidence has deliberately
 not been opened. Live causal death attribution is available, but measurement
 truth does not make the observed behavior safe.
 
+## Iteration 95: harmful-residence observer follow-up
+
+1. Run the optional exact residence group across UT436 and Unreal Gold
+   multi-seed discovery. Require final terminal partitions, no counter
+   overflow, and same-build repeats before interpreting command arbitration.
+2. For UT436, inspect only episodes with a collision-probed candidate followed
+   by another movement command. Establish whether the command is a combat
+   interruption, target replacement, or unsafe navigation reissue; totals
+   alone never authorize target redirection.
+3. For Unreal Gold, add a read-only external-impulse fall controllability
+   witness before considering any action. It must certify a collision-clear dry
+   support alternative inside the same forecast horizon and reconcile to a
+   same-life terminal outcome.
+4. Promote no behavior until it has a non-zero opportunity set in both games,
+   paired multi-seed safety improvement, unchanged-or-better combat and
+   navigation metrics, deterministic repeats, and held-out-map evidence.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:

@@ -162,6 +162,7 @@ namespace
 						continue;
 					pawn->EndMoveStallRecoveryRun();
 					pawn->EndHazardSwimEgressRun();
+					pawn->EndHazardResidenceRun();
 					AccumulateNativePawnCounters(identity, runtime->second, pawn,
 						BotBenchmarkDriverDetail::NativePawnCounterSample::LivePawn);
 				}
@@ -799,7 +800,17 @@ namespace
 				counters.HazardSwimEgressLiveShadowHazardClearedTerminals = pawn->HazardSwimEgressLiveShadowHazardClearedTerminalCount();
 				counters.HazardSwimEgressLiveShadowProbeBlockedTerminals = pawn->HazardSwimEgressLiveShadowProbeBlockedTerminalCount();
 				counters.HazardSwimEgressDirectNavProbes = pawn->HazardSwimEgressDirectNavProbeCount();
-				counters.HazardSwimEgressDirectNavSafeCandidates = pawn->HazardSwimEgressDirectNavSafeCandidateCount();
+			counters.HazardSwimEgressDirectNavSafeCandidates = pawn->HazardSwimEgressDirectNavSafeCandidateCount();
+			counters.HazardResidenceEpisodes = pawn->HazardResidenceEpisodeCount();
+			counters.HazardResidenceCleared = pawn->HazardResidenceClearedCount();
+			counters.HazardResidenceDeaths = pawn->HazardResidenceDeathCount();
+			counters.HazardResidenceLifeBoundaryCensored = pawn->HazardResidenceLifeBoundaryCensoredCount();
+			counters.HazardResidenceRunEndCensored = pawn->HazardResidenceRunEndCensoredCount();
+			counters.HazardResidenceUnknown = pawn->HazardResidenceUnknownCount();
+			counters.HazardResidenceReentries = pawn->HazardResidenceReentryCount();
+			counters.HazardResidenceCommandChanges = pawn->HazardResidenceCommandChangeCount();
+			counters.HazardResidenceCandidatesObserved = pawn->HazardResidenceCandidateObservedCount();
+			counters.HazardResidenceCandidateOtherCommands = pawn->HazardResidenceCandidateOtherCommandCount();
 				counters.HazardSwimEgressDirectNavBestCandidateName =
 					pawn->HazardSwimEgressDirectNavBestCandidateName();
 			counters.HazardSwimEgressAnchorKnown = pawn->HasHazardSwimEgressAnchor();
@@ -969,6 +980,7 @@ namespace
 			{
 				QualityParticipantRuntime& counters = victimRuntime->second;
 				victim->RecordHazardSwimEgressDeath();
+				victim->RecordHazardResidenceDeath();
 				victim->FinishFallingHazardDeath();
 				victim->FinishFallingParityRealizedTrace(
 					PawnMovement::FallingParityRealizedOutcome::Died);
@@ -1929,6 +1941,16 @@ namespace
 				bot.HazardSwimEgressLiveShadowProbeBlockedTerminalsExact = native.HazardSwimEgressLiveShadowProbeBlockedTerminals;
 				bot.HazardSwimEgressDirectNavProbesExact = native.HazardSwimEgressDirectNavProbes;
 				bot.HazardSwimEgressDirectNavSafeCandidatesExact = native.HazardSwimEgressDirectNavSafeCandidates;
+				bot.HazardResidenceEpisodesExact = native.HazardResidenceEpisodes;
+				bot.HazardResidenceClearedExact = native.HazardResidenceCleared;
+				bot.HazardResidenceDeathsExact = native.HazardResidenceDeaths;
+				bot.HazardResidenceLifeBoundaryCensoredExact = native.HazardResidenceLifeBoundaryCensored;
+				bot.HazardResidenceRunEndCensoredExact = native.HazardResidenceRunEndCensored;
+				bot.HazardResidenceUnknownExact = native.HazardResidenceUnknown;
+				bot.HazardResidenceReentriesExact = native.HazardResidenceReentries;
+				bot.HazardResidenceCommandChangesExact = native.HazardResidenceCommandChanges;
+				bot.HazardResidenceCandidatesObservedExact = native.HazardResidenceCandidatesObserved;
+				bot.HazardResidenceCandidateOtherCommandsExact = native.HazardResidenceCandidateOtherCommands;
 				bot.HazardSwimEgressDirectNavBestCandidateName = native.HazardSwimEgressDirectNavBestCandidateName;
 				bot.HazardSwimEgressAnchorKnown = native.HazardSwimEgressAnchorKnown;
 				bot.HazardSwimEgressAnchorSource = native.HazardSwimEgressAnchorSource;

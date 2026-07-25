@@ -20,6 +20,7 @@
 #include "BotAI/FallingHazardRecoveryGate.h"
 #include "BotAI/HazardSwimEgressGate.h"
 #include "BotAI/HazardSwimEgressLiveSteer.h"
+#include "PawnHazardResidenceObserver.h"
 
 class UTexture;
 class UPrimitive;
@@ -1946,6 +1947,8 @@ public:
 	void EndHazardSwimEgressSwimSession();
 	void EndHazardSwimEgressRun();
 	void RecordHazardSwimEgressDeath();
+	void EndHazardResidenceRun();
+	void RecordHazardResidenceDeath();
 
 	void MoveTo(const vec3& newDestination, float speed);
 	void MoveToward(UActor* newTarget, float speed);
@@ -2185,6 +2188,16 @@ public:
 	uint64_t HazardSwimEgressLiveShadowProbeBlockedTerminalCount() const { return HazardSwimEgressLiveShadowProbeBlockedTerminalCountValue; }
 	uint64_t HazardSwimEgressDirectNavProbeCount() const { return HazardSwimEgressDirectNavProbeCountValue; }
 	uint64_t HazardSwimEgressDirectNavSafeCandidateCount() const { return HazardSwimEgressDirectNavSafeCandidateCountValue; }
+	uint64_t HazardResidenceEpisodeCount() const { return HazardResidenceEpisodeCountValue; }
+	uint64_t HazardResidenceClearedCount() const { return HazardResidenceClearedCountValue; }
+	uint64_t HazardResidenceDeathCount() const { return HazardResidenceDeathCountValue; }
+	uint64_t HazardResidenceLifeBoundaryCensoredCount() const { return HazardResidenceLifeBoundaryCensoredCountValue; }
+	uint64_t HazardResidenceRunEndCensoredCount() const { return HazardResidenceRunEndCensoredCountValue; }
+	uint64_t HazardResidenceUnknownCount() const { return HazardResidenceUnknownCountValue; }
+	uint64_t HazardResidenceReentryCount() const { return HazardResidenceReentryCountValue; }
+	uint64_t HazardResidenceCommandChangeCount() const { return HazardResidenceCommandChangeCountValue; }
+	uint64_t HazardResidenceCandidateObservedCount() const { return HazardResidenceCandidateObservedCountValue; }
+	uint64_t HazardResidenceCandidateOtherCommandCount() const { return HazardResidenceCandidateOtherCommandCountValue; }
 	uint64_t FallingHazardRecoveryPromotionCount() const { return FallingHazardRecoveryPromotionCountValue; }
 	uint64_t FallingHazardRecoveryAdvanceCount() const { return FallingHazardRecoveryAdvanceCountValue; }
 	uint64_t FallingHazardRecoveryContextRejectedCount() const { return FallingHazardRecoveryContextRejectedCountValue; }
@@ -2478,6 +2491,11 @@ private:
 	void ObserveHazardSwimEgressPlannerHandoffMovementCommand();
 	void ObserveHazardSwimEgressDirectNavigationCandidates();
 	void ObserveHazardSwimEgressStaticWalkCertificate();
+	void AdvanceHazardResidence(float elapsed);
+	void AdvanceHazardResidenceSample(bool positiveDpsHazard, float elapsed);
+	void ObserveHazardResidenceCandidate(const std::string& candidateName);
+	void ObserveHazardResidenceMovementCommand();
+	void ResolveHazardResidence(PawnMovement::HazardResidenceTerminal terminal);
 
 	bool IsInPathSpecialHandling = false;
 	PawnMovement::FailedNavigationMemoryState FailedNavigationMemory;
@@ -2542,6 +2560,8 @@ private:
 		float DirectNavBestCandidateDistance = std::numeric_limits<float>::infinity();
 	};
 	HazardSwimEgressState HazardSwimEgress;
+	PawnMovement::HazardResidenceState HazardResidence;
+	std::string HazardResidenceCandidateName;
 	BotAI::HazardSwimEgressGate HazardSwimEgressGate;
 	std::unique_ptr<PawnMovement::HazardWaterEgressObserver>
 		HazardWaterEgressObserver;
@@ -2616,6 +2636,16 @@ private:
 	uint64_t HazardSwimEgressLiveShadowProbeBlockedTerminalCountValue = 0;
 	uint64_t HazardSwimEgressDirectNavProbeCountValue = 0;
 	uint64_t HazardSwimEgressDirectNavSafeCandidateCountValue = 0;
+	uint64_t HazardResidenceEpisodeCountValue = 0;
+	uint64_t HazardResidenceClearedCountValue = 0;
+	uint64_t HazardResidenceDeathCountValue = 0;
+	uint64_t HazardResidenceLifeBoundaryCensoredCountValue = 0;
+	uint64_t HazardResidenceRunEndCensoredCountValue = 0;
+	uint64_t HazardResidenceUnknownCountValue = 0;
+	uint64_t HazardResidenceReentryCountValue = 0;
+	uint64_t HazardResidenceCommandChangeCountValue = 0;
+	uint64_t HazardResidenceCandidateObservedCountValue = 0;
+	uint64_t HazardResidenceCandidateOtherCommandCountValue = 0;
 	uint64_t FallingHazardRecoveryPromotionCountValue = 0;
 	uint64_t FallingHazardRecoveryAdvanceCountValue = 0;
 	uint64_t FallingHazardRecoveryContextRejectedCountValue = 0;

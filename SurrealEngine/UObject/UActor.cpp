@@ -5198,6 +5198,7 @@ void UPawn::Tick(float elapsed)
 			PawnMovement::FallingHazardForecastSource::ExternalImpulseCommit);
 	}
 	UActor::Tick(elapsed);
+	AdvanceHazardResidence(elapsed);
 	WalkingStepExplicitJumpRequested = false;
 	if (bDeleteMe() || Health() <= 0)
 		WalkingStepPreflightEpisode = {};
@@ -5522,6 +5523,102 @@ void UPawn::EndHazardSwimEgressRun()
 		BotAI::HazardSwimEgressPlannerHandoffOutcome::RunEndCensored);
 }
 
+void UPawn::ResolveHazardResidence(PawnMovement::HazardResidenceTerminal terminal)
+{
+	switch (terminal)
+	{
+	case PawnMovement::HazardResidenceTerminal::Cleared:
+		HazardResidenceClearedCountValue++;
+		break;
+	case PawnMovement::HazardResidenceTerminal::Death:
+		HazardResidenceDeathCountValue++;
+		break;
+	case PawnMovement::HazardResidenceTerminal::LifeBoundary:
+		HazardResidenceLifeBoundaryCensoredCountValue++;
+		break;
+	case PawnMovement::HazardResidenceTerminal::RunEnd:
+		HazardResidenceRunEndCensoredCountValue++;
+		break;
+	case PawnMovement::HazardResidenceTerminal::Unknown:
+		HazardResidenceUnknownCountValue++;
+		break;
+	case PawnMovement::HazardResidenceTerminal::None:
+		return;
+	}
+	HazardResidence = {};
+	HazardResidenceCandidateName.clear();
+}
+
+void UPawn::AdvanceHazardResidence(float elapsed)
+{
+	const std::array<UZoneInfo*, 3> zones = {
+		Region().Zone, FootRegion().Zone, HeadRegion().Zone
+	};
+	const bool positiveDpsHazard = std::any_of(zones.begin(), zones.end(),
+		[](UZoneInfo* zone) { return IsExactHarmfulZone(zone); });
+	AdvanceHazardResidenceSample(positiveDpsHazard, elapsed);
+}
+
+void UPawn::AdvanceHazardResidenceSample(bool positiveDpsHazard, float elapsed)
+{
+	const bool eligibleBot = engine->IsBotBenchmarkHazardSwimEgressEnabled()
+		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority;
+	if (!eligibleBot)
+	{
+		HazardResidence = {};
+		HazardResidenceCandidateName.clear();
+		return;
+	}
+	const uint64_t priorReentries = HazardResidence.Reentries;
+	const auto update = PawnMovement::AdvanceHazardResidence(HazardResidence,
+		positiveDpsHazard, !bDeleteMe() && Health() > 0, elapsed, false, false, 0.25f);
+	HazardResidence = update.State;
+	if (update.Started)
+		HazardResidenceEpisodeCountValue++;
+	if (HazardResidence.Reentries > priorReentries)
+		HazardResidenceReentryCountValue += HazardResidence.Reentries - priorReentries;
+	ResolveHazardResidence(update.Terminal);
+}
+
+void UPawn::ObserveHazardResidenceCandidate(const std::string& candidateName)
+{
+	if (!HazardResidence.Active || candidateName.empty())
+		return;
+	if (!HazardResidence.CandidateObserved)
+		HazardResidenceCandidateObservedCountValue++;
+	HazardResidence = PawnMovement::ObserveHazardResidenceCandidate(HazardResidence);
+	HazardResidenceCandidateName = candidateName;
+}
+
+void UPawn::ObserveHazardResidenceMovementCommand()
+{
+	const bool targetsObservedCandidate = HazardResidence.CandidateObserved
+		&& MoveTarget() && MoveTarget()->Name.ToString() == HazardResidenceCandidateName;
+	const auto update = PawnMovement::ObserveHazardResidenceCommand(HazardResidence,
+		targetsObservedCandidate);
+	HazardResidence = update.State;
+	if (HazardResidence.Active)
+		HazardResidenceCommandChangeCountValue++;
+	if (update.CandidateSupersededNow)
+		HazardResidenceCandidateOtherCommandCountValue++;
+}
+
+void UPawn::RecordHazardResidenceDeath()
+{
+	const auto update = PawnMovement::AdvanceHazardResidence(HazardResidence,
+		true, false, 0.0f, false, false, 0.25f);
+	HazardResidence = update.State;
+	ResolveHazardResidence(update.Terminal);
+}
+
+void UPawn::EndHazardResidenceRun()
+{
+	const auto update = PawnMovement::AdvanceHazardResidence(HazardResidence,
+		false, true, 0.0f, false, true, 0.25f);
+	HazardResidence = update.State;
+	ResolveHazardResidence(update.Terminal);
+}
+
 void UPawn::BeginHazardSwimEgressFallingTick()
 {
 	ResolveHazardSwimEgressPlannerHandoff(
@@ -5655,6 +5752,10 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 	const bool staticWater = std::all_of(zones.begin(), zones.end(),
 		[](UZoneInfo* zone) { return zone && zone->bStatic() && zone->bWaterZone(); });
 	const bool exactHarmfulWater = staticWater && IsExactHarmfulZone(primaryZone);
+	// Physics has just updated the authoritative primary zone. Sampling it here
+	// closes the gap where an immediate water transition is resolved before the
+	// next pawn tick sees the new region.
+	AdvanceHazardResidenceSample(exactHarmfulWater, 0.0f);
 	if (!exactHarmfulWater)
 	{
 		const bool primaryHarmfulWater = primaryZone && primaryZone->bStatic()
@@ -5801,6 +5902,10 @@ void UPawn::ObserveHazardSwimEgressDirectNavigationCandidates()
 				HazardSwimEgress.DirectNavBestCandidateLocation = candidate->Location();
 			}
 		}
+	}
+	if (HazardSwimEgress.DirectNavBestCandidateLocationKnown)
+	{
+		ObserveHazardResidenceCandidate(HazardSwimEgress.DirectNavBestCandidateName);
 	}
 }
 
@@ -7554,6 +7659,7 @@ void UPawn::RecordFallingHazardMovementCommand()
 		PendingFallingHazardAlignedCommandWitness = {};
 	}
 	ObserveHazardSwimEgressPlannerHandoffMovementCommand();
+	ObserveHazardResidenceMovementCommand();
 }
 
 void UPawn::CaptureFallingHazardAlignedCommandWitness(bool staticWorldCollision)
@@ -7699,6 +7805,10 @@ void UPawn::EndWalkingStepPreflightLife()
 	EndMoveStallRecoveryLife();
 	EndHarmfulZoneEscapeLife();
 	ResetFallingHazardRecovery();
+	const auto hazardResidenceUpdate = PawnMovement::AdvanceHazardResidence(
+		HazardResidence, false, true, 0.0f, true, false, 0.25f);
+	HazardResidence = hazardResidenceUpdate.State;
+	ResolveHazardResidence(hazardResidenceUpdate.Terminal);
 	ResolveHazardSwimEgressPlannerHandoff(
 		BotAI::HazardSwimEgressPlannerHandoffOutcome::LifeBoundaryCensored);
 	if (HazardWaterEgressObserver && HazardWaterEgressObserver->HasActiveEpisode()

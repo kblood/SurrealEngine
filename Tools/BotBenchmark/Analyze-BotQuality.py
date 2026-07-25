@@ -221,6 +221,18 @@ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS = (
     "hazard_swim_egress_direct_nav_probes_exact",
     "hazard_swim_egress_direct_nav_safe_candidates_exact",
 )
+HAZARD_RESIDENCE_COUNTERS = (
+    "hazard_residence_episodes_exact",
+    "hazard_residence_cleared_exact",
+    "hazard_residence_deaths_exact",
+    "hazard_residence_life_boundary_censored_exact",
+    "hazard_residence_run_end_censored_exact",
+    "hazard_residence_unknown_exact",
+    "hazard_residence_reentries_exact",
+    "hazard_residence_command_changes_exact",
+    "hazard_residence_candidates_observed_exact",
+    "hazard_residence_candidate_other_commands_exact",
+)
 HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER = \
     "hazard_water_egress_diagnostic_overflows_exact"
 FALLING_HAZARD_RECOVERY_COUNTERS = (
@@ -429,6 +441,7 @@ METRIC_DIRECTIONS.update({
 		+ HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS
 		+ FALLING_PRE_MOVE_ANCHOR_COUNTERS + HAZARD_SWIM_EGRESS_LIVE_COUNTERS
 		+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
+		+ HAZARD_RESIDENCE_COUNTERS
 		+ (HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER,)
         + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS + FALLING_HAZARD_RECOVERY_COUNTERS
 		+ DIRECT_HARMFUL_WATER_ENTRY_COUNTERS
@@ -447,6 +460,7 @@ OPTIONAL_EXACT_COUNTERS = (
 	+ FALLING_PRE_MOVE_ANCHOR_COUNTERS
 	+ HAZARD_SWIM_EGRESS_LIVE_COUNTERS
 	+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS
+	+ HAZARD_RESIDENCE_COUNTERS
 	+ (HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER,)
 	+ FALLING_HAZARD_RECOVERY_COUNTERS
     + DEATH_ATTRIBUTION_COUNTERS + DAMAGE_COUNTERS
@@ -2878,6 +2892,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("falling pre-move anchor", FALLING_PRE_MOVE_ANCHOR_COUNTERS),
                 ("hazard swim egress live", HAZARD_SWIM_EGRESS_LIVE_COUNTERS),
                 ("hazard swim egress direct navigation", HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS),
+                ("hazard residence", HAZARD_RESIDENCE_COUNTERS),
                 ("falling hazard recovery", FALLING_HAZARD_RECOVERY_COUNTERS),
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("damage attribution", DAMAGE_COUNTERS),
@@ -3055,6 +3070,28 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                     result["hazard_swim_egress_direct_nav_probes_exact"]:
                 raise QualityError(
                     f"{context}: direct safe navigation candidates exceed probes")
+        if "hazard_residence_episodes_exact" in result:
+            episodes = result["hazard_residence_episodes_exact"]
+            terminals = (
+                result["hazard_residence_cleared_exact"]
+                + result["hazard_residence_deaths_exact"]
+                + result["hazard_residence_life_boundary_censored_exact"]
+                + result["hazard_residence_run_end_censored_exact"]
+                + result["hazard_residence_unknown_exact"])
+            if terminals > episodes:
+                raise QualityError(
+                    f"{context}: hazard residence terminal outcomes exceed episodes")
+            if result["hazard_residence_candidates_observed_exact"] > episodes:
+                raise QualityError(
+                    f"{context}: hazard residence candidates exceed episodes")
+            if result["hazard_residence_candidate_other_commands_exact"] > \
+                    result["hazard_residence_candidates_observed_exact"]:
+                raise QualityError(
+                    f"{context}: hazard residence other commands exceed candidates")
+            if result["hazard_residence_candidate_other_commands_exact"] > \
+                    result["hazard_residence_command_changes_exact"]:
+                raise QualityError(
+                    f"{context}: hazard residence other commands exceed command changes")
         if "falling_pre_move_anchor_captures_exact" in result:
             if result["falling_pre_move_anchor_uses_exact"] > \
                     result["falling_pre_move_anchor_captures_exact"]:
@@ -4351,14 +4388,18 @@ def analyze_run(path: Path) -> dict[str, Any]:
     causal_harmful_fall = _reconcile_post_mayfall_harmful_parity_deaths(events, run_path)
     bots = _bot_metrics(events, causal_harmful_fall)
     for identity, bot in bots.items():
-        if any(bot.get(name) is None for name in
-               HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS):
-            continue
-        outcomes = sum(bot[name] for name in
-            HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS)
-        if outcomes != bot["hazard_swim_egress_forced_replans_exact"]:
-            raise QualityError(
-                f"{run_path}: final planner-handoff outcomes must partition forced replans for {identity}")
+        if not any(bot.get(name) is None for name in
+                   HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS):
+            outcomes = sum(bot[name] for name in
+                HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS)
+            if outcomes != bot["hazard_swim_egress_forced_replans_exact"]:
+                raise QualityError(
+                    f"{run_path}: final planner-handoff outcomes must partition forced replans for {identity}")
+        if not any(bot.get(name) is None for name in HAZARD_RESIDENCE_COUNTERS):
+            terminals = sum(bot[name] for name in HAZARD_RESIDENCE_COUNTERS[1:6])
+            if terminals != bot["hazard_residence_episodes_exact"]:
+                raise QualityError(
+                    f"{run_path}: final hazard-residence outcomes must partition episodes for {identity}")
     completion = summary["status"] == "complete" and summary["exit_code"] == 0
     metrics = _run_metrics(bots, completion)
     return {
