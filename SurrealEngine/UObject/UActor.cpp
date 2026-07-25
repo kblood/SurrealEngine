@@ -1582,6 +1582,8 @@ void UActor::TickFalling(float elapsed)
 		{
 			if (wallHit.Actor && wallHit.Actor->IsA("Pawn"))
 				return std::nullopt;
+			if (pawn)
+				pawn->CaptureFallingHazardAlignedCommandWitness(!wallHit.Actor);
 			auto continuation = pawn
 				? pawn->FinishFallingHazardCallbackBoundary() : std::nullopt;
 			CallEvent(this, EventName::HitWall, {
@@ -7184,11 +7186,97 @@ void UPawn::ArmFallingHazardContinuation(
 	input.Continuation = continuation;
 	const FallingHazardForecastUpdate forecast =
 		CompleteFallingHazardForecast(this, input);
-	if (FallingHazardObserver->ArmGeneration(source, forecast))
+	const FallingHazardAlignedCommandProvenance commandProvenance = source
+		== FallingHazardForecastSource::AlignedContinuationCommit
+		? ConsumeFallingHazardAlignedCommandWitness()
+		: FallingHazardAlignedCommandProvenance::NotAlignedContinuation;
+	if (FallingHazardObserver->ArmGeneration(source, forecast, commandProvenance))
 	{
 		FallingHazardQueuedSource =
 			PawnMovement::FallingHazardForecastSource::Unknown;
 	}
+}
+
+void UPawn::RecordFallingHazardMovementCommand()
+{
+	if (FallingHazardMovementCommandToken
+		< std::numeric_limits<uint64_t>::max())
+	{
+		FallingHazardMovementCommandToken++;
+	}
+	else
+	{
+		FallingHazardMovementCommandToken = 0;
+		PendingFallingHazardAlignedCommandWitness = {};
+	}
+}
+
+void UPawn::CaptureFallingHazardAlignedCommandWitness(bool staticWorldCollision)
+{
+	PendingFallingHazardAlignedCommandWitness = {};
+	if (!IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority
+		|| !StateFrame || FallingHazardMovementCommandToken == 0)
+	{
+		return;
+	}
+	const LatentRunState latentState = StateFrame->LatentState;
+	if (!IsMovementLatentState(latentState) || !IsFiniteVector(Destination())
+		|| !IsFiniteVector(Acceleration()))
+	{
+		return;
+	}
+	if (latentState == LatentRunState::MoveToward
+		&& (!MoveTarget() || MoveTarget()->bDeleteMe()))
+	{
+		return;
+	}
+	PendingFallingHazardAlignedCommandWitness.Active = true;
+	PendingFallingHazardAlignedCommandWitness.StaticWorldCollision =
+		staticWorldCollision;
+	PendingFallingHazardAlignedCommandWitness.CommandToken =
+		FallingHazardMovementCommandToken;
+	PendingFallingHazardAlignedCommandWitness.LatentState =
+		static_cast<uint8_t>(latentState);
+	PendingFallingHazardAlignedCommandWitness.MoveTarget = MoveTarget();
+	PendingFallingHazardAlignedCommandWitness.Destination = Destination();
+	PendingFallingHazardAlignedCommandWitness.Acceleration = Acceleration();
+}
+
+PawnMovement::FallingHazardAlignedCommandProvenance
+	UPawn::ConsumeFallingHazardAlignedCommandWitness()
+{
+	const FallingHazardAlignedCommandWitness witness =
+		PendingFallingHazardAlignedCommandWitness;
+	PendingFallingHazardAlignedCommandWitness = {};
+	using namespace PawnMovement;
+	if (!witness.Active)
+		return FallingHazardAlignedCommandProvenance::NoCommandWitness;
+	if (!witness.StaticWorldCollision)
+		return FallingHazardAlignedCommandProvenance::NonStaticCollision;
+	if (!StateFrame || !IsMovementLatentState(StateFrame->LatentState)
+		|| !IsFiniteVector(Destination()) || !IsFiniteVector(Acceleration())
+		|| (StateFrame->LatentState == LatentRunState::MoveToward
+			&& (!MoveTarget() || MoveTarget()->bDeleteMe())))
+	{
+		return FallingHazardAlignedCommandProvenance::NoLiveMovementCommand;
+	}
+	if (FallingHazardMovementCommandToken != witness.CommandToken)
+		return FallingHazardAlignedCommandProvenance::CommandTokenChanged;
+	if (static_cast<uint8_t>(StateFrame->LatentState) != witness.LatentState)
+		return FallingHazardAlignedCommandProvenance::LatentStateChanged;
+	if (MoveTarget() != witness.MoveTarget)
+		return FallingHazardAlignedCommandProvenance::MoveTargetChanged;
+	if (MaximumAbsoluteComponent(Destination() - witness.Destination)
+		> FallingHazardForecastVectorTolerance)
+	{
+		return FallingHazardAlignedCommandProvenance::DestinationChanged;
+	}
+	if (MaximumAbsoluteComponent(Acceleration() - witness.Acceleration)
+		> FallingHazardForecastVectorTolerance)
+	{
+		return FallingHazardAlignedCommandProvenance::AccelerationChanged;
+	}
+	return FallingHazardAlignedCommandProvenance::IntactCommandButNoActionLead;
 }
 
 void UPawn::FinishFallingHazardLanding(const CollisionHit& hit,
@@ -7389,6 +7477,7 @@ void UPawn::MoveTo(const vec3& newDestination, float speed)
 	SetMoveDuration(newDestination - Location());
 	if (StateFrame)
 		StateFrame->LatentState = LatentRunState::MoveTo;
+	RecordFallingHazardMovementCommand();
 	RecordMoveStallCommand();
 }
 
@@ -7408,6 +7497,7 @@ void UPawn::MoveToward(UActor* newTarget, float speed)
 		SetMoveDuration(newTarget->Location() - Location());
 	if (StateFrame)
 		StateFrame->LatentState = LatentRunState::MoveToward;
+	RecordFallingHazardMovementCommand();
 	RecordMoveStallCommand();
 }
 
@@ -7422,6 +7512,7 @@ void UPawn::StrafeFacing(const vec3& newDestination, UActor* newTarget)
 	SetMoveDuration(newDestination - Location());
 	if (StateFrame)
 		StateFrame->LatentState = LatentRunState::StrafeFacing;
+	RecordFallingHazardMovementCommand();
 	RecordMoveStallCommand();
 }
 
@@ -7435,6 +7526,7 @@ void UPawn::StrafeTo(const vec3& newDestination, const vec3& newFocus)
 	SetMoveDuration(newDestination - Location());
 	if (StateFrame)
 		StateFrame->LatentState = LatentRunState::StrafeTo;
+	RecordFallingHazardMovementCommand();
 	RecordMoveStallCommand();
 }
 

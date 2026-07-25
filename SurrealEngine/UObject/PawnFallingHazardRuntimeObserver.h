@@ -80,7 +80,9 @@ namespace PawnMovement
 		void AbandonFallEpisode();
 
 		bool ArmGeneration(FallingHazardForecastSource source,
-			const FallingHazardForecastUpdate& forecast);
+			const FallingHazardForecastUpdate& forecast,
+			FallingHazardAlignedCommandProvenance alignedCommandProvenance =
+				FallingHazardAlignedCommandProvenance::NotAlignedContinuation);
 		bool ObserveSweep(const FallingHazardRuntimeSweepObservation& observation);
 		bool FinishGeneration(FallingHazardTerminal terminal,
 			FallingHazardCollisionKind landingCollision =
@@ -172,6 +174,8 @@ namespace PawnMovement
 		uint64_t NextDiagnosticSequence = 1;
 		bool CapacityDiagnosticEmittedForLife = false;
 		bool HasLastCompletion = false;
+		FallingHazardAlignedCommandProvenance ActiveAlignedCommandProvenance =
+			FallingHazardAlignedCommandProvenance::NotAlignedContinuation;
 		FallingHazardTerminal LastCompletionTerminal =
 			FallingHazardTerminal::Active;
 		struct PersistentHarmfulFallState

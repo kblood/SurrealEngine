@@ -314,6 +314,9 @@ namespace
 		}
 
 		WriteFallingHazardStartSummary(out, generation);
+		out << ",\"aligned_command_provenance\":" << JsonString(
+			PawnMovement::FallingHazardAlignedCommandProvenanceName(
+				diagnostic.AlignedCommandProvenance));
 		if (diagnostic.Kind == PawnMovement::FallingHazardDiagnosticKind::Start)
 		{
 			out << ",\"precharged_elapsed\":"

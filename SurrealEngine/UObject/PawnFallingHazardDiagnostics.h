@@ -14,12 +14,30 @@ namespace PawnMovement
 		GenerationCapacityExceeded
 	};
 
+	// This is command-continuity evidence only. In particular, an intact command
+	// still has no same-slice opportunity to change an aligned fall after HitWall.
+	enum class FallingHazardAlignedCommandProvenance
+	{
+		NotAlignedContinuation,
+		NoCommandWitness,
+		NonStaticCollision,
+		NoLiveMovementCommand,
+		CommandTokenChanged,
+		LatentStateChanged,
+		MoveTargetChanged,
+		DestinationChanged,
+		AccelerationChanged,
+		IntactCommandButNoActionLead,
+	};
+
 	struct FallingHazardDiagnosticRecord
 	{
 		FallingHazardDiagnosticKind Kind = FallingHazardDiagnosticKind::Start;
 		std::string SourcePawnActor;
 		uint64_t Sequence = 0;
 		float PrechargedElapsed = 0.0f;
+		FallingHazardAlignedCommandProvenance AlignedCommandProvenance =
+			FallingHazardAlignedCommandProvenance::NotAlignedContinuation;
 		FallingHazardGenerationState Generation;
 		FallingHazardCorrelation Correlation = FallingHazardCorrelation::Pending;
 	};
@@ -35,6 +53,35 @@ namespace PawnMovement
 			return "generation_capacity_exceeded";
 		}
 		return "unknown";
+	}
+
+	inline const char* FallingHazardAlignedCommandProvenanceName(
+		FallingHazardAlignedCommandProvenance provenance)
+	{
+		switch (provenance)
+		{
+		case FallingHazardAlignedCommandProvenance::NotAlignedContinuation:
+			return "not_aligned_continuation";
+		case FallingHazardAlignedCommandProvenance::NoCommandWitness:
+			return "no_command_witness";
+		case FallingHazardAlignedCommandProvenance::NonStaticCollision:
+			return "nonstatic_collision";
+		case FallingHazardAlignedCommandProvenance::NoLiveMovementCommand:
+			return "no_live_movement_command";
+		case FallingHazardAlignedCommandProvenance::CommandTokenChanged:
+			return "command_token_changed";
+		case FallingHazardAlignedCommandProvenance::LatentStateChanged:
+			return "latent_state_changed";
+		case FallingHazardAlignedCommandProvenance::MoveTargetChanged:
+			return "move_target_changed";
+		case FallingHazardAlignedCommandProvenance::DestinationChanged:
+			return "destination_changed";
+		case FallingHazardAlignedCommandProvenance::AccelerationChanged:
+			return "acceleration_changed";
+		case FallingHazardAlignedCommandProvenance::IntactCommandButNoActionLead:
+			return "intact_command_but_no_action_lead";
+		}
+		return "not_aligned_continuation";
 	}
 
 	inline const char* FallingHazardForecastSourceName(

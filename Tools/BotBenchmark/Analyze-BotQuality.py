@@ -506,6 +506,12 @@ VERTICAL_PAIN_COLUMN_MAX_SEGMENTS = 256
 HAZARD_WATER_EGRESS_TRANSITION_SOURCES = {
     "unknown", "falling_direct_sweep", "falling_non_direct_sweep", "swimming_motion",
 }
+VERTICAL_PAIN_COLUMN_ALIGNED_COMMAND_PROVENANCE = {
+    "not_aligned_continuation", "no_command_witness", "nonstatic_collision",
+    "no_live_movement_command", "command_token_changed", "latent_state_changed",
+    "move_target_changed", "destination_changed", "acceleration_changed",
+    "intact_command_but_no_action_lead",
+}
 HAZARD_WATER_EGRESS_TERMINALS = {
     "primary_zone_cleared", "death_before_exit", "life_reset", "episode_abandoned",
 }
@@ -1001,7 +1007,7 @@ def _vertical_pain_column_diagnostic(value: Any, context: str) -> dict[str, Any]
         "source", "forecast", "starting_physics_zone",
         "expected_harmful_foot_zone", "expected_harmful_physics_zone",
         "expected_harmful_water_entry", "swept_segment_budget",
-        "elapsed_horizon", "precharged_elapsed",
+        "elapsed_horizon", "precharged_elapsed", "aligned_command_provenance",
     }
     terminal_fields = common | {
         "source", "forecast", "terminal", "correlation",
@@ -1015,7 +1021,7 @@ def _vertical_pain_column_diagnostic(value: Any, context: str) -> dict[str, Any]
         "harmful_center_evidence_known", "water_evidence_known",
         "entered_harmful_foot_zone", "entered_harmful_center_zone",
         "expected_harmful_path_matched", "causal_ambiguity",
-        "actual_trajectory_unknown", "landing_collision",
+        "actual_trajectory_unknown", "landing_collision", "aligned_command_provenance",
     }
     capacity_fields = common | {"attempted_source"}
     expected_fields = {
@@ -1025,7 +1031,11 @@ def _vertical_pain_column_diagnostic(value: Any, context: str) -> dict[str, Any]
     }.get(kind)
     if expected_fields is None:
         raise QualityError(f"{context}.kind is not recognized")
-    fields = _exact_object(raw, context, expected_fields)
+    provenance_field = "aligned_command_provenance"
+    fields = _exact_object(
+        raw, context,
+        expected_fields if provenance_field in raw
+        else expected_fields - {provenance_field})
     record = {
         "source_pawn_actor": _string(
             fields, "source_pawn_actor", context, nonempty=True),
@@ -1088,6 +1098,24 @@ def _vertical_pain_column_diagnostic(value: Any, context: str) -> dict[str, Any]
         "swept_segment_budget": segment_budget,
         "elapsed_horizon": elapsed_horizon,
     })
+    aligned_command_provenance = fields.get("aligned_command_provenance")
+    if aligned_command_provenance is None:
+        # Pre-v25 telemetry had no command witness. Retain that fact rather
+        # than inferring bot controllability while keeping those artifacts
+        # analyzable.
+        aligned_command_provenance = (
+            "no_command_witness" if source == "aligned_continuation_commit"
+            else "not_aligned_continuation")
+    else:
+        aligned_command_provenance = _string(
+            fields, "aligned_command_provenance", context, nonempty=True)
+    if aligned_command_provenance not in VERTICAL_PAIN_COLUMN_ALIGNED_COMMAND_PROVENANCE:
+        raise QualityError(f"{context}.aligned_command_provenance is not recognized")
+    if (source == "aligned_continuation_commit") != (
+            aligned_command_provenance != "not_aligned_continuation"):
+        raise QualityError(
+            f"{context}.aligned_command_provenance does not match the forecast source")
+    record["aligned_command_provenance"] = aligned_command_provenance
     if kind == "start":
         precharged = _number(
             fields.get("precharged_elapsed"), f"{context}.precharged_elapsed", minimum=0.0)
@@ -1853,7 +1881,7 @@ def _validate_vertical_pain_column_diagnostic_stream(
                             "expected_harmful_foot_zone",
                             "expected_harmful_physics_zone",
                             "expected_harmful_water_entry", "swept_segment_budget",
-                            "elapsed_horizon",
+                            "elapsed_horizon", "aligned_command_provenance",
                         )
                         if any(record[name] != stream["active_start"][name]
                                for name in stable_fields):

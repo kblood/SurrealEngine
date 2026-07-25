@@ -752,6 +752,30 @@ namespace
 					DirectHarmfulWaterEntryCertificateResult::SourceNotEligible)] == 1,
 			"the source gate bypass is distinct from a certificate rejection");
 	}
+
+	void TestAlignedCommandProvenance()
+	{
+		FallingHazardRuntimeObserver observer("CommandProvenanceBot");
+		auto forecast = Forecast(FallingHazardForecast::NoHarmfulPainObserved,
+			FallingHazardForecastPhase::AlignedContinuation, 0.02f);
+		forecast.State.ExpectedSegments[0].Leg = FallingHazardSweepLeg::Aligned;
+		Check(observer.BeginFallEpisode() && observer.ArmGeneration(
+			FallingHazardForecastSource::AlignedContinuationCommit, forecast,
+			FallingHazardAlignedCommandProvenance::IntactCommandButNoActionLead),
+			"an aligned continuation accepts its shadow command provenance");
+		auto records = observer.DrainDiagnostics();
+		Check(records.size() == 1 && records[0].Kind == FallingHazardDiagnosticKind::Start
+			&& records[0].AlignedCommandProvenance
+				== FallingHazardAlignedCommandProvenance::IntactCommandButNoActionLead,
+			"the start diagnostic preserves the no-action-lead command result");
+		Check(observer.FinishCallbackBoundary(),
+			"the aligned command provenance resolves at its ordinary callback boundary");
+		records = observer.DrainDiagnostics();
+		Check(records.size() == 1 && records[0].Kind == FallingHazardDiagnosticKind::Terminal
+			&& records[0].AlignedCommandProvenance
+				== FallingHazardAlignedCommandProvenance::IntactCommandButNoActionLead,
+			"the terminal diagnostic retains the same command provenance");
+	}
 }
 
 int main()
@@ -769,6 +793,7 @@ int main()
 	TestPersistentHarmfulFallLatch();
 	TestSingleHarmfulFallPrefix();
 	TestDirectHarmfulWaterEntryPrediction();
+	TestAlignedCommandProvenance();
 	std::cout << "Pawn falling hazard runtime observer tests passed\n";
 	return 0;
 }

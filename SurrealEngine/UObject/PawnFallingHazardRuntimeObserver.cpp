@@ -45,7 +45,8 @@ namespace PawnMovement
 
 	bool FallingHazardRuntimeObserver::ArmGeneration(
 		FallingHazardForecastSource source,
-		const FallingHazardForecastUpdate& forecast)
+		const FallingHazardForecastUpdate& forecast,
+		FallingHazardAlignedCommandProvenance alignedCommandProvenance)
 	{
 		if (SourcePawnActor.empty() || !FallEpisodeActive || !forecast.Complete
 			|| forecast.State.Active || forecast.State.PendingProbe.Valid
@@ -110,6 +111,10 @@ namespace PawnMovement
 
 		ForecastState = forecast.State;
 		HasForecastState = true;
+		ActiveAlignedCommandProvenance = source
+			== FallingHazardForecastSource::AlignedContinuationCommit
+			? alignedCommandProvenance
+			: FallingHazardAlignedCommandProvenance::NotAlignedContinuation;
 		ActualSampleCount = 0;
 		CounterValues.EpisodesStarted++;
 		ObservePersistentHarmfulFallForecast(TrajectoryModel.ActiveGeneration);
@@ -335,6 +340,7 @@ namespace PawnMovement
 		record.Kind = FallingHazardDiagnosticKind::Terminal;
 		record.Generation = generation;
 		record.Correlation = correlation;
+		record.AlignedCommandProvenance = ActiveAlignedCommandProvenance;
 		QueueDiagnostic(std::move(record));
 	}
 
@@ -345,6 +351,7 @@ namespace PawnMovement
 		record.PrechargedElapsed = prechargedElapsed;
 		record.Generation = TrajectoryModel.ActiveGeneration;
 		record.Correlation = FallingHazardCorrelation::Pending;
+		record.AlignedCommandProvenance = ActiveAlignedCommandProvenance;
 		QueueDiagnostic(std::move(record));
 	}
 

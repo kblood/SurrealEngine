@@ -2010,6 +2010,9 @@ public:
 		PawnMovement::FallingHazardForecastSource source,
 		const PawnMovement::FallingHazardForecastContinuationSeed& continuation,
 		float physicsSliceElapsed, const vec3& acceleration);
+	void CaptureFallingHazardAlignedCommandWitness(bool staticWorldCollision);
+	PawnMovement::FallingHazardAlignedCommandProvenance
+		ConsumeFallingHazardAlignedCommandWitness();
 	void FinishFallingHazardLanding(const CollisionHit& hit,
 		bool ditchSupportUnknown = false);
 	void FinishFallingHazardDeath();
@@ -2569,6 +2572,19 @@ private:
 	void CommitPendingFallingHazardSweep(const PointRegion& center,
 		const PointRegion& foot, const PointRegion& head,
 		uint32_t zoneCallbackMask, bool callbackAlreadyDispatched);
+	void RecordFallingHazardMovementCommand();
+	struct FallingHazardAlignedCommandWitness
+	{
+		bool Active = false;
+		bool StaticWorldCollision = false;
+		uint64_t CommandToken = 0;
+		uint8_t LatentState = 0;
+		UActor* MoveTarget = nullptr;
+		vec3 Destination = vec3(0.0f);
+		vec3 Acceleration = vec3(0.0f);
+	};
+	uint64_t FallingHazardMovementCommandToken = 0;
+	FallingHazardAlignedCommandWitness PendingFallingHazardAlignedCommandWitness;
 	std::unique_ptr<PawnMovement::FallingHazardRuntimeObserver>
 		FallingHazardObserver;
 	FallingHazardPendingSweep FallingHazardPending;

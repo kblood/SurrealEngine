@@ -1551,6 +1551,38 @@ movement-controlled hypothesis, while external impulses require attribution
 and controllability evidence before any steering or avoidance intervention.
 No source gate is broadened and no live policy is authorized by this audit.
 
+## Iteration 69: aligned-continuation command-provenance audit
+
+Aligned continuations now carry source-specific command-provenance evidence in
+their paired start/terminal falling diagnostics. A monotonic native command
+token is created at the four movement latent commands. Immediately before the
+retail `HitWall` callback, the observer snapshots the live bot command, latent
+state, target, destination, acceleration, and whether the collision is static
+world geometry. The aligned continuation then reports one fail-closed result:
+no witness, non-static contact, no live command, a changed command token/state/
+target/destination/acceleration, or `intact_command_but_no_action_lead`.
+The latter is deliberately not an authorization: the aligned `TryMove` is
+inside the current falling physics slice after collision and callback handling,
+so the next bot tick cannot honestly prevent it.
+
+Fresh two-repetition control/observer matrices passed unchanged with the v25
+analyzer at `qa/runs/2026-07-25/command-provenance-audit/`. On every Deck
+artifact, 277 aligned continuations retained an intact command but no action
+lead and 110 had no command witness. Crucially, the repeatable harmful-water
+continuation remained in the latter group (`no_command_witness`), so it is not
+a bot-command-proven candidate. Every DeathFan harmful-water continuation
+remained an `external_impulse_commit` and therefore
+`not_aligned_continuation`; its external boundary has no live policy domain.
+All quality/death results remained identical between control and observer.
+
+This closes both currently observed failure sources as immediate steering
+targets. A future Deck intervention must predict a harmful collision
+continuation *before* the initial bot command is committed, with static-world
+geometry and a measured, nonzero pre-move action lead. A future DeathFan
+intervention needs a separate causal/controllability model for external
+impulses. Neither is approximated by the current observer, and no live policy
+is enabled.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

@@ -925,6 +925,19 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(QUALITY.QualityError, "unexpected fields"):
                 QUALITY.analyze_run(extra)
 
+            invalid_provenance = write_v2_run(
+                Path(temporary), "column-invalid-command-provenance", bot_count=1)
+            bad = {**vertical_start(),
+                   "aligned_command_provenance": "intact_command_but_no_action_lead"}
+            upgrade_telemetry_v2(invalid_provenance, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [bad]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "does not match the forecast source"):
+                QUALITY.analyze_run(invalid_provenance)
+
     def test_current_vertical_column_lifecycle_and_correlation_are_strict(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,

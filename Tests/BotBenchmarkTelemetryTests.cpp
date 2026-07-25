@@ -584,12 +584,16 @@ int main()
 	start.Generation.ExpectedHarmfulWaterEntry = true;
 	start.Generation.SweptSegmentBudget = 256;
 	start.Generation.ElapsedHorizon = 4.0f;
+	start.AlignedCommandProvenance =
+		FallingHazardAlignedCommandProvenance::NoCommandWitness;
 
 	FallingHazardDiagnosticRecord terminal = start;
 	terminal.Kind = FallingHazardDiagnosticKind::Terminal;
 	terminal.Sequence--;
 	terminal.Generation.Source =
 		FallingHazardForecastSource::ThirdMoveContinuationCommit;
+	terminal.AlignedCommandProvenance =
+		FallingHazardAlignedCommandProvenance::NotAlignedContinuation;
 	terminal.Generation.Terminal = FallingHazardTerminal::HarmfulPainEntered;
 	terminal.Generation.LastObservedPhysicsZone = knownZone(31, 0);
 	terminal.Generation.ObservedHarmfulFootZone = knownZone(37, 5);
@@ -641,6 +645,9 @@ int main()
 			"\"source\":\"aligned_continuation_commit\",\"forecast\":\"harmful_pain_observed\"")
 			== std::string::npos
 		|| hazardEvent.find("\"precharged_elapsed\":0.016666668")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"aligned_command_provenance\":\"no_command_witness\"")
 			== std::string::npos)
 		return Fail("falling hazard start diagnostic serialization was incomplete");
 	if (hazardEvent.find(
@@ -665,6 +672,9 @@ int main()
 			"\"entered_harmful_foot_zone\":true,\"entered_harmful_center_zone\":true,\"expected_harmful_path_matched\":false")
 			== std::string::npos
 		|| hazardEvent.find("\"causal_ambiguity\":true,\"actual_trajectory_unknown\":false")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"aligned_command_provenance\":\"not_aligned_continuation\"")
 			== std::string::npos)
 		return Fail("falling hazard terminal diagnostic serialization was incomplete");
 	if (hazardEvent.find(
