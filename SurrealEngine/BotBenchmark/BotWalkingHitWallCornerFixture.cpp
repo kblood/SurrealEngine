@@ -10,6 +10,7 @@
 #include "UObject/UActor.h"
 #include "UObject/UClass.h"
 #include "UObject/ULevel.h"
+#include "UObject/UProperty.h"
 #include "Utils/CommandLine.h"
 #include "Utils/File.h"
 #include "Utils/Logger.h"
@@ -106,6 +107,57 @@ namespace
 			&& !contact.PhysicsChangedByCallback && !contact.PawnDeletedByCallback;
 	}
 
+	bool NearlyEqual(const vec3& left, const vec3& right, float tolerance = 0.0001f)
+	{
+		return std::abs(left.x - right.x) <= tolerance
+			&& std::abs(left.y - right.y) <= tolerance
+			&& std::abs(left.z - right.z) <= tolerance;
+	}
+
+	struct FixtureStateHandler
+	{
+		UState* State = nullptr;
+		UFunction* Function = nullptr;
+	};
+
+	std::optional<FixtureStateHandler> FindFixtureStateHitWallHandler(
+		UPawn* pawn, const NameString& stateName)
+	{
+		for (UClass* cls = pawn ? pawn->Class : nullptr; cls != nullptr;
+			cls = static_cast<UClass*>(cls->BaseStruct))
+		{
+			UState* state = cls->GetState(stateName);
+			if (!state)
+				continue;
+			if (UFunction* function = state->GetFunction("HitWall"))
+				return FixtureStateHandler { state, function };
+		}
+		return {};
+	}
+
+	bool HasExpectedHitWallSignature(UFunction* function)
+	{
+		if (!function)
+			return false;
+		std::array<ExpressionValueType, 2> argumentTypes;
+		size_t argumentCount = 0;
+		for (UField* field = function->Children; field != nullptr; field = field->Next)
+		{
+			UProperty* property = UObject::TryCast<UProperty>(field);
+			if (!property || !AllFlags(property->PropFlags, PropertyFlags::Parm)
+				|| AllFlags(property->PropFlags, PropertyFlags::ReturnParm))
+			{
+				continue;
+			}
+			if (argumentCount >= argumentTypes.size())
+				return false;
+			argumentTypes[argumentCount++] = property->ValueType;
+		}
+		return argumentCount == argumentTypes.size()
+			&& argumentTypes[0] == ExpressionValueType::ValueVector
+			&& argumentTypes[1] == ExpressionValueType::ValueObject;
+	}
+
 	void Fail(BotWalkingHitWallCornerFixtureResult& result, std::string reason)
 	{
 		if (result.FailureReason.empty())
@@ -116,11 +168,22 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-walking-hitwall-corner-fixture-v2\n"
+		out << "schema=surreal-bot-walking-hitwall-corner-fixture-v3\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "flat_path_verified=" << (result.FlatPathVerified ? "true" : "false") << "\n"
 			<< "exact_blockers_verified=" << (result.ExactBlockersVerified ? "true" : "false") << "\n"
+			<< "stock_state_handler_resolved=" << (result.StockStateHandlerResolved ? "true" : "false") << "\n"
+			<< "script_hitwall_bodies_executed=" << (result.ScriptHitWallBodiesExecuted ? "true" : "false") << "\n"
+			<< "fixture_blockers_destroyed_after_second_return="
+			<< (result.FixtureBlockersDestroyedAfterSecondReturn ? "true" : "false") << "\n"
+			<< "entry_state=" << result.EntryState << "\n"
+			<< "fixture_state=" << result.FixtureState << "\n"
+			<< "resolved_hitwall_function=" << result.ResolvedHitWallFunction << "\n"
+			<< "start=" << result.Start.x << "," << result.Start.y << "," << result.Start.z << "\n"
+			<< "heading=" << result.Heading.x << "," << result.Heading.y << "," << result.Heading.z << "\n"
+			<< "first_blocker=" << result.FirstBlocker.x << "," << result.FirstBlocker.y << "," << result.FirstBlocker.z << "\n"
+			<< "second_blocker=" << result.SecondBlocker.x << "," << result.SecondBlocker.y << "," << result.SecondBlocker.z << "\n"
 			<< "playerstart_candidates=" << result.PlayerStartCandidates << "\n"
 			<< "flat_start_candidates=" << result.FlatStartCandidates << "\n"
 			<< "first_blocker_spawns=" << result.FirstBlockerSpawns << "\n"
@@ -133,7 +196,8 @@ namespace
 			<< "verified_corner_candidates=" << result.VerifiedCornerCandidates << "\n"
 			<< "hook_enter_calls=" << result.HookEnterCalls << "\n"
 			<< "intercepted_hitwall_vm_dispatches=" << result.InterceptedHitWallVMDispatches << "\n"
-			<< "script_hitwall_bodies_executed=0\n"
+			<< "normal_hitwall_vm_returns=" << result.NormalHitWallVMReturns << "\n"
+			<< "diagnostic_overflow_delta=" << result.DiagnosticOverflowDelta << "\n"
 			<< "hook_contact_count=" << result.HookContacts.size() << "\n"
 			<< "diagnostic_count=" << result.Diagnostics.size() << "\n"
 			<< "failure_reason=" << result.FailureReason << "\n";
@@ -176,6 +240,10 @@ namespace
 		{
 			BotWalkingHitWallCornerFixtureConfig config;
 			config.URL = commandline ? commandline->GetArg("", "--botbench-url") : std::string();
+			const std::string fixtureState = commandline
+				? commandline->GetArg("", "--botbench-fixture-state") : std::string();
+			if (!fixtureState.empty())
+				config.FixtureState = fixtureState;
 			const std::string difficulty = commandline
 				? commandline->GetArg("", "--botbench-difficulty") : std::string();
 			if (!difficulty.empty())
@@ -228,6 +296,11 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 		Fail(result, "corner fixture URL is required");
 		return result;
 	}
+	if (config.FixtureState.empty())
+	{
+		Fail(result, "corner fixture state is required");
+		return result;
+	}
 	if (!std::isfinite(config.ElapsedSeconds) || config.ElapsedSeconds <= 0.0f)
 	{
 		Fail(result, "corner fixture elapsed seconds must be finite and positive");
@@ -238,11 +311,15 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 	UActor* secondBlocker = nullptr;
 	VMCallHookHandle hookHandle = 0;
 	UPawn* fixturePawn = nullptr;
-	bool restorePawnBlocking = false;
+	bool originalPawnCollideActors = false;
 	bool originalPawnBlockActors = false;
 	bool originalPawnBlockPlayers = false;
 	float originalPawnAccelRate = 0.0f;
 	float originalPawnDesiredSpeed = 0.0f;
+	int originalPawnPhysics = PHYS_None;
+	vec3 originalPawnAcceleration;
+	vec3 originalPawnVelocity;
+	NameString originalPawnState;
 	bool originalHitWallEnabled = false;
 	bool originalBumpEnabled = false;
 	vec3 fixtureForward(0.0f);
@@ -256,16 +333,22 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 			|| match.Participants.front().Pawn->bDeleteMe())
 		{
 			Fail(result, "controlled corner fixture did not create exactly one live bot");
-			return result;
+			throw std::runtime_error(result.FailureReason);
 		}
 		UPawn* pawn = match.Participants.front().Pawn;
 		fixturePawn = pawn;
 		originalPawnAccelRate = pawn->AccelRate();
 		originalPawnDesiredSpeed = pawn->DesiredSpeed();
+		originalPawnPhysics = pawn->Physics();
+		originalPawnAcceleration = pawn->Acceleration();
+		originalPawnVelocity = pawn->Velocity();
+		originalPawnState = pawn->GetStateName();
+		result.EntryState = originalPawnState.ToString();
 		originalHitWallEnabled = pawn->IsEventEnabled(EventName::HitWall);
 		originalBumpEnabled = pawn->IsEventEnabled(EventName::Bump);
 		pawn->AccelRate() = FixtureAccelerationRate;
 		pawn->DesiredSpeed() = 1.0f;
+		originalPawnCollideActors = pawn->bCollideActors();
 		originalPawnBlockActors = pawn->bBlockActors();
 		originalPawnBlockPlayers = pawn->bBlockPlayers();
 		if (!originalPawnBlockActors || !originalPawnBlockPlayers)
@@ -274,18 +357,17 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 			// deliberately uses dynamic BlockAll contacts, so enable the symmetric
 			// actor-blocking rule only for its native walking invocation.
 			pawn->SetCollision(pawn->bCollideActors(), true, true);
-			restorePawnBlocking = true;
 		}
 		if (!engine.packages || !engine.Level)
 		{
 			Fail(result, "controlled corner fixture has no loaded level or package manager");
-			return result;
+			throw std::runtime_error(result.FailureReason);
 		}
 		UClass* blockerClass = engine.packages->FindClass("Engine.BlockAll");
 		if (!blockerClass)
 		{
 			Fail(result, "controlled corner fixture could not resolve Engine.BlockAll");
-			return result;
+			throw std::runtime_error(result.FailureReason);
 		}
 
 		const std::array<vec3, 8> headings = {
@@ -378,6 +460,7 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 					result.VerifiedCornerCandidates++;
 
 					result.Start = start;
+					result.Heading = forward;
 					result.FirstBlocker = firstBlocker->Location();
 					result.SecondBlocker = secondBlocker->Location();
 					result.FlatPathVerified = true;
@@ -395,34 +478,75 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 		if (!fixtureGeometryFound)
 		{
 			Fail(result, "could not construct a flat two-BlockAll forced-corner path");
-			DestroyFixtureActor(firstBlocker);
-			DestroyFixtureActor(secondBlocker);
-			return result;
+			throw std::runtime_error(result.FailureReason);
 		}
 		LogMessage("Walking HitWall corner fixture: forced-corner geometry complete");
+		const NameString fixtureStateName(config.FixtureState);
+		result.FixtureState = config.FixtureState;
+		const std::optional<FixtureStateHandler> fixtureHandler =
+			FindFixtureStateHitWallHandler(pawn, fixtureStateName);
+		if (!fixtureHandler)
+		{
+			Fail(result, "fixture state does not define a state-local HitWall handler: "
+				+ config.FixtureState);
+			throw std::runtime_error(result.FailureReason);
+		}
+		if (fixtureHandler->Function->StructParent != fixtureHandler->State ||
+			!HasExpectedHitWallSignature(fixtureHandler->Function) ||
+			AnyFlags(fixtureHandler->Function->FuncFlags, FunctionFlags::Native))
+		{
+			Fail(result, "fixture state HitWall handler has an unexpected script shape: "
+				+ config.FixtureState + " (state_parent="
+				+ (fixtureHandler->Function->StructParent == fixtureHandler->State ? "true" : "false")
+				+ ", expected_parameters="
+				+ (HasExpectedHitWallSignature(fixtureHandler->Function) ? "true" : "false")
+				+ ", native="
+				+ (AnyFlags(fixtureHandler->Function->FuncFlags, FunctionFlags::Native) ? "true" : "false")
+				+ ")");
+			throw std::runtime_error(result.FailureReason);
+		}
+		result.FixtureState = fixtureHandler->State->Name.ToString();
+		result.ResolvedHitWallFunction = fixtureHandler->Function->Name.ToString();
+		pawn->GotoState(fixtureHandler->State->Name, {});
+		if (pawn->GetStateName() != fixtureHandler->State->Name ||
+			!pawn->IsEventEnabled(EventName::HitWall) ||
+			FindEventFunction(pawn, ToNameString(EventName::HitWall)) != fixtureHandler->Function)
+		{
+			Fail(result, "could not enter the reflected stock FindAir HitWall handler state");
+			throw std::runtime_error(result.FailureReason);
+		}
+		result.StockStateHandlerResolved = true;
 
 		pawn->DrainWalkingHitWallDispatchDiagnostics();
+		const uint64_t diagnosticOverflowBaseline =
+			pawn->WalkingHitWallDispatchDiagnosticOverflowCount();
 		pawn->EnableEvent(ToNameString(EventName::HitWall));
+		pawn->DisableEvent(ToNameString(EventName::Bump));
+		pawn->SetWalkingHitWallFixtureContactLimit(2);
 		pawn->SetPhysics(PHYS_Walking);
 		pawn->Acceleration() = fixtureForward * pawn->AccelRate();
 		pawn->Velocity() = fixtureForward * pawn->GroundSpeed() * pawn->DesiredSpeed();
 
+		const std::string firstBlockerName = firstBlocker->Name.ToString();
+		const std::string secondBlockerName = secondBlocker->Name.ToString();
+		if (Frame::CallHooks().Size() != 0)
+		{
+			Fail(result, "corner fixture requires an empty VM hook registry");
+			throw std::runtime_error(result.FailureReason);
+		}
 		VMCallHook hook;
-		hook.Enter = [&result, pawn](UFunction* function, UObject* instance,
+		hook.Enter = [&result, pawn, handler = fixtureHandler->Function](UFunction* function, UObject* instance,
 			VMCallArguments& arguments) -> VMCallHookCleanup
 		{
-			result.HookEnterCalls++;
-			if (function)
-				result.HookFunctionNames.push_back(function->Name.ToString());
-			if (!function || instance != pawn)
+			if (function != handler || instance != pawn)
 				return {};
-			if (function->Name == "Bump")
+			result.HookEnterCalls++;
+			result.HookFunctionNames.push_back(function->Name.ToString());
+			if (arguments.DispatchSuppressed())
 			{
-				arguments.OverrideResult(ExpressionValue::NothingValue());
+				Fail(result, "corner fixture HitWall dispatch was suppressed before observation");
 				return {};
 			}
-			if (function->Name != "HitWall")
-				return {};
 			BotWalkingHitWallCornerFixtureHookContact contact;
 			if (arguments.Size() >= 2)
 			{
@@ -435,9 +559,23 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 				Fail(result, "forced corner HitWall hook received fewer than two arguments");
 			}
 			result.HookContacts.push_back(std::move(contact));
-			arguments.OverrideResult(ExpressionValue::NothingValue());
 			result.InterceptedHitWallVMDispatches++;
 			return {};
+		};
+		hook.ObserveResult = [&result, pawn, handler = fixtureHandler->Function,
+			&firstBlocker, &secondBlocker](
+			UFunction* function, UObject* instance, const Array<ExpressionValue>&,
+			const ExpressionValue&)
+		{
+			if (function != handler || instance != pawn)
+				return;
+			result.NormalHitWallVMReturns++;
+			if (result.NormalHitWallVMReturns == 2)
+			{
+				DestroyFixtureActor(firstBlocker);
+				DestroyFixtureActor(secondBlocker);
+				result.FixtureBlockersDestroyedAfterSecondReturn = true;
+			}
 		};
 		hookHandle = Frame::CallHooks().Register(std::move(hook));
 		LogMessage("Walking HitWall corner fixture: dispatching native walking tick");
@@ -448,8 +586,19 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 
 		result.Ran = true;
 		result.Diagnostics = pawn->DrainWalkingHitWallDispatchDiagnostics();
-		if (result.HookContacts.size() != 2 || result.InterceptedHitWallVMDispatches != 2)
+		result.DiagnosticOverflowDelta = pawn->WalkingHitWallDispatchDiagnosticOverflowCount()
+			- diagnosticOverflowBaseline;
+		result.ScriptHitWallBodiesExecuted = result.NormalHitWallVMReturns == 2;
+		if (!result.StockStateHandlerResolved || !result.ScriptHitWallBodiesExecuted)
+		{
+			Fail(result, "forced corner did not complete two normal stock HitWall script returns");
+		}
+		else if (result.HookContacts.size() != 2 || result.InterceptedHitWallVMDispatches != 2)
 			Fail(result, "forced corner did not intercept exactly two HitWall VM dispatch entries");
+		else if (result.NormalHitWallVMReturns != 2 || !result.FixtureBlockersDestroyedAfterSecondReturn)
+			Fail(result, "forced corner did not observe two normal HitWall returns before removing fixture blockers");
+		else if (result.DiagnosticOverflowDelta != 0)
+			Fail(result, "forced corner overflowed the per-contact diagnostic queue");
 		else if (result.Diagnostics.size() != 2)
 			Fail(result, "forced corner did not record exactly two per-contact walking diagnostics");
 		else if (!IsFixtureContact(result.Diagnostics[0],
@@ -459,14 +608,19 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 		{
 			Fail(result, "forced corner diagnostic phases or callback outcomes differ from the native contract");
 		}
-		else if (result.HookContacts[0].WallActor != firstBlocker->Name.ToString()
-			|| result.HookContacts[1].WallActor != secondBlocker->Name.ToString())
+		else if (result.HookContacts[0].WallActor != firstBlockerName
+			|| result.HookContacts[1].WallActor != secondBlockerName)
 		{
 			Fail(result, "forced corner callback contacts did not preserve first/second BlockAll identity");
 		}
+		else if (!NearlyEqual(result.HookContacts[0].Normal, result.Diagnostics[0].HitNormal)
+			|| !NearlyEqual(result.HookContacts[1].Normal, result.Diagnostics[1].HitNormal))
+		{
+			Fail(result, "forced corner callback normals did not preserve native contact order");
+		}
 		else if (pawn->Physics() != PHYS_Walking)
 		{
-			Fail(result, "suppressed forced-corner callback unexpectedly changed pawn physics");
+			Fail(result, "stock forced-corner HitWall callback unexpectedly changed pawn physics");
 		}
 		else
 		{
@@ -480,15 +634,17 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 
 	if (hookHandle != 0)
 		Frame::CallHooks().Unregister(hookHandle);
-	if (restorePawnBlocking && fixturePawn && !fixturePawn->bDeleteMe())
-	{
-		fixturePawn->SetCollision(fixturePawn->bCollideActors(),
-			originalPawnBlockActors, originalPawnBlockPlayers);
-	}
 	if (fixturePawn && !fixturePawn->bDeleteMe())
 	{
+		fixturePawn->ClearWalkingHitWallFixtureContactLimit();
+		fixturePawn->GotoState(originalPawnState, {});
+		fixturePawn->SetPhysics(originalPawnPhysics);
+		fixturePawn->Acceleration() = originalPawnAcceleration;
+		fixturePawn->Velocity() = originalPawnVelocity;
 		fixturePawn->AccelRate() = originalPawnAccelRate;
 		fixturePawn->DesiredSpeed() = originalPawnDesiredSpeed;
+		fixturePawn->SetCollision(originalPawnCollideActors,
+			originalPawnBlockActors, originalPawnBlockPlayers);
 		if (originalHitWallEnabled)
 			fixturePawn->EnableEvent(ToNameString(EventName::HitWall));
 		else

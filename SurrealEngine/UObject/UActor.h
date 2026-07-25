@@ -1967,11 +1967,21 @@ public:
 	bool ConfirmWalkingStepPreflightShadow(int walkingIteration, uint64_t invocationToken,
 		PawnMovement::LedgeTransition transition);
 	void RecordWalkingStepPreflightPositiveDpsVetoOutcome(bool applied);
-	void RecordWalkingHitWallDispatch(const CollisionHit& hit,
+	bool RecordWalkingHitWallDispatch(const CollisionHit& hit,
 		const vec3& velocityBeforeCollision, float minHitWallBeforeCallback,
 		int physicsBeforeCallback, PawnMovement::WalkingHitWallContactPhase contactPhase,
 		PawnMovement::WalkingHitWallBlockerKind blockerBeforeCallback,
 		bool callbackDispatched);
+	void SetWalkingHitWallFixtureContactLimit(uint32_t limit)
+	{
+		WalkingHitWallFixtureContactLimit = limit;
+		WalkingHitWallFixtureContactCount = 0;
+	}
+	void ClearWalkingHitWallFixtureContactLimit()
+	{
+		WalkingHitWallFixtureContactLimit = 0;
+		WalkingHitWallFixtureContactCount = 0;
+	}
 	std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
 		DrainWalkingHitWallDispatchDiagnostics();
 	void QueueWalkingStepPreflightPositiveDpsVetoAction(
@@ -2539,6 +2549,8 @@ private:
 	uint64_t WalkingHitWallDispatchCallbackCountValue = 0;
 	uint64_t WalkingHitWallDispatchDiagnosticOverflowCountValue = 0;
 	uint64_t WalkingHitWallDispatchDiagnosticSequence = 0;
+	uint32_t WalkingHitWallFixtureContactLimit = 0;
+	uint32_t WalkingHitWallFixtureContactCount = 0;
 	std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
 		WalkingHitWallDispatchDiagnostics;
 	uint64_t WalkingStepPreflightPositiveDpsVetoEligibleCountValue = 0;

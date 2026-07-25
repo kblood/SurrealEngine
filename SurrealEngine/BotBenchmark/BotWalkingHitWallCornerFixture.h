@@ -12,13 +12,14 @@ class Engine;
 class HeadlessDriverRegistry;
 
 // A deliberately narrow native fixture for the walking forward-contact / aligned-slide
-// contract. It uses an ordinary controlled bot match, then intercepts only the fixture
-// pawn's HitWall VM entries so native CallEvent ordering can be observed without stock
-// script state handlers changing the second contact. It does not claim that an
-// UnrealScript HitWall body executed.
+// contract. It uses an ordinary controlled bot match, enters a reflected stock state
+// with a real HitWall body, and observes only the fixture pawn's normal VM returns.
+// Bump is disabled only for the fixture tick so it cannot perturb the two HitWall
+// contacts.
 struct BotWalkingHitWallCornerFixtureConfig
 {
 	std::string URL;
+	std::string FixtureState = "FindAir";
 	int ExternalSkill = 3;
 	float ElapsedSeconds = 1.0f;
 };
@@ -35,11 +36,20 @@ struct BotWalkingHitWallCornerFixtureResult
 	bool Passed = false;
 	bool FlatPathVerified = false;
 	bool ExactBlockersVerified = false;
+	bool StockStateHandlerResolved = false;
+	bool ScriptHitWallBodiesExecuted = false;
+	bool FixtureBlockersDestroyedAfterSecondReturn = false;
 	std::string FailureReason;
+	std::string EntryState;
+	std::string FixtureState;
+	std::string ResolvedHitWallFunction;
 	vec3 Start;
+	vec3 Heading;
 	vec3 FirstBlocker;
 	vec3 SecondBlocker;
 	uint64_t InterceptedHitWallVMDispatches = 0;
+	uint64_t NormalHitWallVMReturns = 0;
+	uint64_t DiagnosticOverflowDelta = 0;
 	uint64_t HookEnterCalls = 0;
 	uint64_t PlayerStartCandidates = 0;
 	uint64_t FlatStartCandidates = 0;

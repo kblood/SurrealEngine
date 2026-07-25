@@ -1192,12 +1192,14 @@ void UActor::TickWalking(float elapsed)
 					// We hit a wall
 					walkingHitWallDispatched = true;
 					CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
-					pawn->RecordWalkingHitWallDispatch(initialHit,
+					const bool fixtureContactLimitReached = pawn->RecordWalkingHitWallDispatch(initialHit,
 						velocityBeforeCollision, minHitWallBeforeCallback,
 						physicsBeforeCallback,
 						PawnMovement::WalkingHitWallContactPhase::PrimaryForward,
 						initialBlockerBeforeCallback, true);
 					initialWalkingContactRecorded = true;
+					if (fixtureContactLimitReached)
+						return;
 
 					vec3 alignedDelta = (moveDelta - hit.Normal * dot(moveDelta, hit.Normal)) * (1.0f - hit.Fraction);
 					if (dot(moveDelta, alignedDelta) >= 0.0f) // Don't end up going backwards
@@ -1214,11 +1216,13 @@ void UActor::TickWalking(float elapsed)
 								ClassifyWalkingHitWallBlocker(pawn, secondHit);
 							walkingHitWallDispatched = true;
 							CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
-							pawn->RecordWalkingHitWallDispatch(secondHit,
+							const bool fixtureContactLimitReached = pawn->RecordWalkingHitWallDispatch(secondHit,
 								secondVelocityBeforeCollision, secondMinHitWallBeforeCallback,
 								secondPhysicsBeforeCallback,
 								PawnMovement::WalkingHitWallContactPhase::AlignedSlide,
 								secondBlockerBeforeCallback, true);
+							if (fixtureContactLimitReached)
+								return;
 						}
 					}
 					else
@@ -1228,12 +1232,14 @@ void UActor::TickWalking(float elapsed)
 				}
 				if (!initialWalkingContactRecorded)
 				{
-					pawn->RecordWalkingHitWallDispatch(initialHit,
+					const bool fixtureContactLimitReached = pawn->RecordWalkingHitWallDispatch(initialHit,
 						velocityBeforeCollision, minHitWallBeforeCallback,
 						physicsBeforeCallback,
 						PawnMovement::WalkingHitWallContactPhase::PrimaryForward,
 						initialBlockerBeforeCallback,
 						walkingHitWallDispatched);
+					if (fixtureContactLimitReached)
+						return;
 				}
 			}
 
@@ -7502,7 +7508,7 @@ std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 	return diagnostics;
 }
 
-void UPawn::RecordWalkingHitWallDispatch(const CollisionHit& hit,
+bool UPawn::RecordWalkingHitWallDispatch(const CollisionHit& hit,
 	const vec3& velocityBeforeCollision, float minHitWallBeforeCallback,
 	int physicsBeforeCallback, PawnMovement::WalkingHitWallContactPhase contactPhase,
 	PawnMovement::WalkingHitWallBlockerKind blockerBeforeCallback,
@@ -7544,6 +7550,11 @@ void UPawn::RecordWalkingHitWallDispatch(const CollisionHit& hit,
 		WalkingHitWallDispatchDiagnostics.push_back(std::move(diagnostic));
 	else
 		WalkingHitWallDispatchDiagnosticOverflowCountValue++;
+	if (WalkingHitWallFixtureContactLimit == 0)
+		return false;
+	if (WalkingHitWallFixtureContactCount < std::numeric_limits<uint32_t>::max())
+		WalkingHitWallFixtureContactCount++;
+	return WalkingHitWallFixtureContactCount >= WalkingHitWallFixtureContactLimit;
 }
 
 std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>

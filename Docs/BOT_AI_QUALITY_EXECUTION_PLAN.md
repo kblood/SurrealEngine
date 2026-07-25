@@ -1942,6 +1942,47 @@ Before reopening the candidate, reproduce the exact qualifying timeout in a
 small fixture and show non-regression in both UT and Unreal paired discovery
 runs; do not infer a quality gain from the lower stuck proxy alone.
 
+## Iteration 81: cross-game forced-corner walking `HitWall` fixture
+
+The `bot-walking-hitwall-corner-fixture` previously proved only that native
+walking attempted `CallEvent`: a valid UT436 corner produced six native
+diagnostics but no callable `HitWall` VM body because the freshly spawned bot
+was in `startup`; its hook also suppressed any body it might have reached. The
+fixture now reflects a state-local handler before changing state, requires a
+non-native `HitWall(vector, actor)` shape, enters the selected state, and then
+uses an observer-only VM hook. The portable default is `FindAir`, which the
+loaded UT436 `Botpack.Bot` and Unreal Gold 226b `UnrealShare.Bots` packages
+both resolve to a real script body. `Bump` is disabled only during the
+fixture's native tick; `HitWall` arguments and normal returns are never
+replaced or suppressed.
+
+The fixture-only contact budget is default-disabled and is armed only by this
+driver. It returns from that one native `TickWalking` invocation immediately
+after recording its second contact, after the second script return has
+destroyed the temporary `BlockAll` actors. This prevents a third recontact
+without changing any ordinary pawn tick. State, physics, velocity,
+acceleration, collision flags, event flags, the VM hook, and temporary actors
+are restored on every post-setup failure path.
+
+Release evidence at
+`qa/runs/2026-07-25/corner-fixture-v2` contains byte-identical repeats for
+UT436 `DM-Deck16][` and Unreal Gold 226b `DmDeck16`. Each successful run
+records a reflected `FindAir.HitWall` handler, exactly two VM entries and two
+normal script returns, exactly two diagnostics in `primary_forward` then
+`aligned_slide` order, exact first/second dynamic-blocker identities and
+normals, no physics change, and deterministic start/heading data. The
+cross-game `Attacking` negative control fails before ticking with zero entries,
+returns, and diagnostics because that state has no state-local `HitWall`
+handler. `PawnWalkingHitWallDispatchTests`, `ActorMovementTests`,
+`HeadlessDriverTests`, and `VMCallHookTests` also passed from the same Release
+build.
+
+This makes the fixture admissible evidence for the notification-contract work;
+it does not authorize a `TickWalking` predicate change. The exact
+`MinHitWall` boundary and glancing mover behavior remain unproven, and the
+required calibrated retail microthreshold bracket and quality telemetry work
+must still close before a shared runtime correction is proposed.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
