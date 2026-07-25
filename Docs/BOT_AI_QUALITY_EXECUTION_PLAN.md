@@ -2583,6 +2583,14 @@ compilation or a server case. Those failed attempts are not oracle evidence;
 the already-completed brackets remain valid and the runtime correction stays
 blocked.
 
+The retail runner now bounds its compile phase, requires the compiler's clean
+success record, and writes `compile-attempt-1.json` with process outcome,
+stdout/stderr hashes, and isolated INI hashes before admitting any server
+case. It makes no retry attempt: a timed out, faulted, or incomplete compile
+is fail-closed and cannot be confused with oracle evidence. A UT436 smoke
+compile and head-on case passed that guard with an unchanged retail inventory
+at `qa/runs/2026-07-25/retail-minhitwall-ut436-compile-guard-v1/`.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:

@@ -26,6 +26,9 @@ param(
     [ValidateRange(2, 30)]
     [int]$DurationSeconds = 6,
 
+    [ValidateRange(5, 300)]
+    [int]$CompileTimeoutSeconds = 60,
+
     [switch]$AllowMissingHitWall,
 
     [switch]$KeepRuntime
@@ -48,6 +51,18 @@ function Get-FileInventory([string]$Root) {
 
 function Write-Json([string]$Path, [object]$Value) {
     $Value | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $Path -Encoding utf8
+}
+
+function Get-ArtifactDigest([string]$Path) {
+    if (!(Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return [ordered]@{ exists = $false; length = $null; sha256 = $null }
+    }
+    $item = Get-Item -LiteralPath $Path
+    return [ordered]@{
+        exists = $true
+        length = $item.Length
+        sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+    }
 }
 
 function Assert-EqualInventory([object[]]$Before, [object[]]$After) {
@@ -425,7 +440,7 @@ function Set-IniValue([string]$IniPath, [string]$SectionName, [string]$Key, [str
     Set-Content -LiteralPath $IniPath -Value $lines -Encoding ascii
 }
 
-function Invoke-BoundedRetailServer([string]$Executable, [string[]]$Arguments,
+function Invoke-BoundedRetailProcess([string]$Executable, [string[]]$Arguments,
     [string]$WorkingDirectory, [string]$StandardOutput, [string]$StandardError,
     [int]$TimeoutSeconds) {
     $process = Start-Process -FilePath $Executable -ArgumentList $Arguments `
@@ -594,11 +609,45 @@ try {
 
     $compileLog = Join-Path $output 'compile.stdout.log'
     $compileError = Join-Path $output 'compile.stderr.log'
-    $compile = Start-Process -FilePath (Join-Path $runtimeSystem 'UCC.exe') `
-        -ArgumentList @('make') -WorkingDirectory $runtimeSystem `
-        -RedirectStandardOutput $compileLog -RedirectStandardError $compileError -Wait -PassThru
-    if ($compile.ExitCode -ne 0) {
-        throw "Retail UCC package compile failed with exit code $($compile.ExitCode)."
+    $compileArguments = @('make')
+    $compile = Invoke-BoundedRetailProcess -Executable (Join-Path $runtimeSystem 'UCC.exe') `
+        -Arguments $compileArguments -WorkingDirectory $runtimeSystem `
+        -StandardOutput $compileLog -StandardError $compileError -TimeoutSeconds $CompileTimeoutSeconds
+    $compileAttempt = [ordered]@{
+        schema = 'surreal-retail-minhitwall-compile-attempt-v1'
+        attempt = 1
+        executable = (Join-Path $runtimeSystem 'UCC.exe')
+        arguments = $compileArguments
+        working_directory = $runtimeSystem
+        profile = $Profile
+        server_ini = $profileConfig.server_ini
+        timeout_seconds = $compile.timeout_seconds
+        process_id = $compile.process_id
+        timed_out = $compile.timed_out
+        terminated_by_runner = $compile.terminated_by_runner
+        termination_method = $compile.termination_method
+        exit_code = $compile.exit_code
+        standard_output = Get-ArtifactDigest $compileLog
+        standard_error = Get-ArtifactDigest $compileError
+        runtime_ini_sha256 = [ordered]@{}
+    }
+    foreach ($iniName in $profileConfig.ini_names) {
+        $iniPath = Join-Path $runtimeSystem $iniName
+        $compileAttempt.runtime_ini_sha256[$iniName] = Get-ArtifactDigest $iniPath
+    }
+    $compileSucceeded = !$compile.timed_out -and !$compile.terminated_by_runner -and
+        $compile.exit_code -eq 0 -and (Test-Path -LiteralPath $compileLog -PathType Leaf) -and
+        ((Get-Content -LiteralPath $compileLog -Raw) -match '(?m)^Success - 0 error\(s\), 0 warnings\s*$')
+    $compileAttempt.success = $compileSucceeded
+    Write-Json (Join-Path $output 'compile-attempt-1.json') $compileAttempt
+    if (!$compileSucceeded) {
+        if ($compile.timed_out) {
+            throw "Retail UCC package compile timed out after $CompileTimeoutSeconds seconds."
+        }
+        if ($compile.exit_code -ne 0) {
+            throw "Retail UCC package compile failed with exit code $($compile.exit_code)."
+        }
+        throw 'Retail UCC package compile did not emit its required clean-success record.'
     }
 
     $runs = @()
@@ -623,7 +672,7 @@ try {
             $stdout = Join-Path $runDirectory 'server.stdout.log'
             $stderr = Join-Path $runDirectory 'server.stderr.log'
             $logsBefore = Get-RetailLogInventory (Join-Path $runtime 'Logs')
-            $server = Invoke-BoundedRetailServer -Executable (Join-Path $runtimeSystem 'UCC.exe') `
+            $server = Invoke-BoundedRetailProcess -Executable (Join-Path $runtimeSystem 'UCC.exe') `
                 -Arguments @('server', $url, "-ini=$($profileConfig.server_ini)", "-log=$runId.log") `
                 -WorkingDirectory $runtimeSystem -StandardOutput $stdout `
                 -StandardError $stderr -TimeoutSeconds ($DurationSeconds + 8)
