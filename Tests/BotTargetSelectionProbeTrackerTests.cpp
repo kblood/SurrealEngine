@@ -59,6 +59,15 @@ int main()
 	{
 		return Fail("changed target acquisition record did not preserve its validated observations");
 	}
+	if (tracker.Counters().OutermostCalls != 1 ||
+		tracker.Counters().AcceptedTargetChanges != 1 ||
+		tracker.Counters().AcceptedSameTargets != 0 ||
+		tracker.Counters().RejectedOrUnchanged != 0 ||
+		tracker.Counters().MissingResults != 0 ||
+		tracker.Counters().RecordCapacityExceeded != 0)
+	{
+		return Fail("changed target acquisition did not update exact counters");
+	}
 
 	auto same = ValidEnter();
 	same.PreviousTargetId = same.RequestedTargetId;
@@ -94,6 +103,8 @@ int main()
 	auto inner = nested.Enter(innerEnter);
 	if (!outer.IsOutermostForBot || inner.IsOutermostForBot)
 		return Fail("nested target acquisition was not collapsed");
+	if (nested.Counters().OutermostCalls != 1 || nested.Counters().NestedCalls != 1)
+		return Fail("nested target acquisition counters did not preserve outermost ownership");
 	if (nested.ObserveResult(inner.Token, true, "pawn:nested") != TrackerStatus::Accepted ||
 		nested.Exit(inner.Token) != TrackerStatus::Accepted || !nested.Records().empty())
 	{
@@ -122,6 +133,8 @@ int main()
 	{
 		return Fail("scope result handling did not remain fail-closed");
 	}
+	if (order.Counters().MissingResults != 1)
+		return Fail("missing result did not increment the outermost terminal counter");
 
 	Tracker capped({ 1, 1 });
 	auto capFirst = capped.Enter(ValidEnter());
@@ -131,6 +144,11 @@ int main()
 		capped.Enter(ValidEnter()).Status != TrackerStatus::RecordCapacityExceeded)
 	{
 		return Fail("tracker capacities did not fail closed");
+	}
+	if (capped.Counters().OutermostCalls != 2 || capped.Counters().AcceptedTargetChanges != 1 ||
+		capped.Counters().RecordCapacityExceeded != 1)
+	{
+		return Fail("record-capacity admission did not preserve completed target counters");
 	}
 
 	return 0;

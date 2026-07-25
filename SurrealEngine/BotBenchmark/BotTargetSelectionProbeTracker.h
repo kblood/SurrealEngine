@@ -69,6 +69,20 @@ namespace BotTargetSelectionProbe
 		AcquisitionOutcome Outcome = AcquisitionOutcome::RejectedOrUnchanged;
 	};
 
+	// Exact tracker-local counters. Runtime integration snapshots these alongside
+	// the bounded record stream, so a full record buffer never looks like an
+	// absence of target-selection activity.
+	struct TrackerCounters
+	{
+		uint64_t OutermostCalls = 0;
+		uint64_t NestedCalls = 0;
+		uint64_t AcceptedTargetChanges = 0;
+		uint64_t AcceptedSameTargets = 0;
+		uint64_t RejectedOrUnchanged = 0;
+		uint64_t MissingResults = 0;
+		uint64_t RecordCapacityExceeded = 0;
+	};
+
 	class Tracker
 	{
 	public:
@@ -81,6 +95,7 @@ namespace BotTargetSelectionProbe
 		TrackerStatus Exit(ScopeToken token);
 
 		const std::vector<AcquisitionRecord>& Records() const;
+		const TrackerCounters& Counters() const;
 		bool HasActiveScopes() const;
 
 	private:
@@ -102,5 +117,6 @@ namespace BotTargetSelectionProbe
 		uint64_t NextTokenValue = 1;
 		std::vector<Frame> Frames;
 		std::vector<AcquisitionRecord> CompletedRecords;
+		TrackerCounters CounterValues;
 	};
 }

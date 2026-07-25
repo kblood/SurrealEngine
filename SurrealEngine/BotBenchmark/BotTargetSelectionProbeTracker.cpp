@@ -38,12 +38,26 @@ namespace BotTargetSelectionProbe
 			return { TrackerStatus::InvalidIdentifier };
 		if (Frames.size() >= Config.MaxActiveCalls)
 			return { TrackerStatus::CapacityExceeded };
-		if (CompletedRecords.size() >= Config.MaxRecords)
-			return { TrackerStatus::RecordCapacityExceeded };
-
 		const bool outermost = !HasActiveCallForBot(observation.BotId);
+		if (CompletedRecords.size() >= Config.MaxRecords)
+		{
+			if (outermost)
+			{
+				CounterValues.OutermostCalls++;
+				CounterValues.RecordCapacityExceeded++;
+			}
+			else
+			{
+				CounterValues.NestedCalls++;
+			}
+			return { TrackerStatus::RecordCapacityExceeded };
+		}
 		const ScopeToken token = NextToken();
 		Frames.push_back({ token, std::move(observation), outermost });
+		if (outermost)
+			CounterValues.OutermostCalls++;
+		else
+			CounterValues.NestedCalls++;
 		return { TrackerStatus::Accepted, token, outermost };
 	}
 
@@ -86,13 +100,32 @@ namespace BotTargetSelectionProbe
 		Frame frame = std::move(Frames.back());
 		Frames.pop_back();
 		if (!frame.HasResult)
+		{
+			if (frame.IsOutermostForBot)
+				CounterValues.MissingResults++;
 			return TrackerStatus::MissingResult;
+		}
 		if (!frame.IsOutermostForBot)
 			return TrackerStatus::Accepted;
 
 		if (CompletedRecords.size() >= Config.MaxRecords)
+		{
+			CounterValues.RecordCapacityExceeded++;
 			return TrackerStatus::RecordCapacityExceeded;
+		}
 		const AcquisitionOutcome outcome = Classify(frame);
+		switch (outcome)
+		{
+		case AcquisitionOutcome::AcceptedTargetChange:
+			CounterValues.AcceptedTargetChanges++;
+			break;
+		case AcquisitionOutcome::AcceptedSameTarget:
+			CounterValues.AcceptedSameTargets++;
+			break;
+		case AcquisitionOutcome::RejectedOrUnchanged:
+			CounterValues.RejectedOrUnchanged++;
+			break;
+		}
 		CompletedRecords.push_back({
 			std::move(frame.Observation.ContractId),
 			std::move(frame.Observation.BotId),
@@ -107,6 +140,11 @@ namespace BotTargetSelectionProbe
 	const std::vector<AcquisitionRecord>& Tracker::Records() const
 	{
 		return CompletedRecords;
+	}
+
+	const TrackerCounters& Tracker::Counters() const
+	{
+		return CounterValues;
 	}
 
 	bool Tracker::HasActiveScopes() const
