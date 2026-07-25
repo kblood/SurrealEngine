@@ -2096,6 +2096,38 @@ paired diagnostic validator applies the same invariant and rejects a changed
 token. This is observer bookkeeping only and has no movement, probe, callback,
 or policy action.
 
+## Iteration 87: DeathFan swim-egress discovery
+
+A fresh 120-second, four-bot stock run reproduces the visible survival failure:
+UT436 `DM-Deck16][` records five suicides and four kills, while Unreal Gold
+226b `DmDeathFan` records 25 suicides, nine kills, and 22 unassisted
+environmental `PainTimer` deaths (21 while swimming). The DeathFan artifacts
+are in `qa/runs/2026-07-25/behavior-discovery-v1`.
+
+The default-off hazard-swim-egress experiment was then evaluated with the same
+DeathFan seed. Observer-only mode found 24 eligible/authorized egress episodes
+without changing the stock result. Live mode produced 27 eligible/authorized
+episodes, reduced suicides from 25 to 20, reduced unassisted environmental
+deaths from 22 to 16, and increased kills from nine to 12. It also increased
+hazard exposure from 141.88 to 144.47 seconds and 14 authorized episodes died
+before exit. Therefore this is a discovery signal, not a promotion: stock stays
+default, and repeats, UT cross-game qualification, causal attribution, and hazard
+exposure non-regression must all pass before the experiment can be reconsidered.
+
+The exact same experiment also changes UT436 Deck16-II, reducing suicides from
+five to one and hazard exposure from 33.65 to 7.58 seconds, but reducing kills
+from four to one. Both live runs were byte-identical per game, so this is a
+deterministic cross-game tradeoff rather than sample noise. It fails the combat
+non-regression requirement and remains rejected/default-off; a follow-up must
+find why egress steering suppresses engagement before another live-policy run.
+
+During that run, a valid authorization could steer and later hit a blocked
+re-probe. The analyzer previously treated those sequential observations as a
+disjoint authorization partition and rejected the artifact. It now bounds each
+counter independently by authorizations, while retaining all other exact
+counter checks; this makes the live telemetry structurally valid without
+weakening its quality gates.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

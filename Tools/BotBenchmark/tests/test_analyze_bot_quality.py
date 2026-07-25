@@ -803,7 +803,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 QUALITY.analyze_run(partial)
 
             excessive = write_v2_run(root, "hazard-swim-live-excess", bot_count=1)
-            excessive_final = {**final, "hazard_swim_egress_live_probe_rejected_exact": 2}
+            excessive_final = {**final, "hazard_swim_egress_live_probe_rejected_exact": 3}
             upgrade_telemetry_v2(excessive, counters=[
                 {**common, **zero}, {**common, **zero}, excessive_final,
             ])

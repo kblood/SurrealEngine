@@ -2977,9 +2977,13 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             live_active_ticks = result["hazard_swim_egress_live_active_ticks_exact"]
             live_probe_rejected = result["hazard_swim_egress_live_probe_rejected_exact"]
             live_successful_exits = result["hazard_swim_egress_live_successful_exits_exact"]
-            if live_applies + live_probe_rejected > result["hazard_swim_egress_authorized_exact"]:
+            # One authorized egress episode may first steer and later reject a
+            # blocked re-probe. These are sequential observations, not a
+            # disjoint partition of authorizations.
+            if live_applies > result["hazard_swim_egress_authorized_exact"] \
+                    or live_probe_rejected > result["hazard_swim_egress_authorized_exact"]:
                 raise QualityError(
-                    f"{context}: live swim egress applies/probe rejections exceed authorization")
+                    f"{context}: live swim egress applies or probe rejections exceed authorization")
             if live_active_ticks < live_applies:
                 raise QualityError(
                     f"{context}: live swim egress active ticks are fewer than applies")
