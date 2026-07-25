@@ -38,18 +38,21 @@ placement, and first trace normal `(0.917526, -0.397677, 0)`.
 
 | Game | Map | Suppressed twice | Dispatched twice | Resulting bracket |
 | --- | --- | --- | --- | --- |
-| UT436 | `DM-Deck16][` | -0.396000, -0.395000 | -0.394000 | (-0.395000, -0.394000] |
-| Unreal Gold 226b | `DmMorbias` | -0.398000, -0.397000 | -0.396000 | (-0.397000, -0.396000] |
+| UT436 | `DM-Deck16][` | -0.394750 | -0.394500 | (-0.394750, -0.394500] |
+| Unreal Gold 226b | `DmMorbias` | -0.396250 | -0.396000 | (-0.396250, -0.396000] |
 
 Authoritative artifacts are external QA evidence:
 
 - `qa/retail/minhitwall-oracle-v3/ut436-pinned-latched-r1/pinned-boundary-summary.json`
 - `qa/retail/minhitwall-oracle-v3/unreal226b-pinned-latched-r1/pinned-boundary-summary.json`
+- `qa/retail/minhitwall-oracle-v3/ut436-pinned-latched-bisect-r1/pinned-boundary-summary.json`
+- `qa/retail/minhitwall-oracle-v3/unreal226b-pinned-latched-bisect-r1/pinned-boundary-summary.json`
 
 These results prove a repeatable retail notification boundary in both games.
 They do **not** prove the equality comparator or the exact native operand: the
 pre-callback Bump trace normal/velocity is only a witness, and the retail
-boundary differs slightly from its reconstructed dot product. The current
+boundary differs both from its reconstructed dot product and by 0.0015 between
+the two games despite the nominal pinned contact signature. The current
 SurrealEngine `TickWalking` vertical Z-band predicate must therefore remain
 unchanged until the native corner fixture supplies an exact dispatch-time
 operand and the full behavior-quality gate is passed.

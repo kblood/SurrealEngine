@@ -2957,3 +2957,18 @@ product. Do not alter `TickWalking` yet. The next permitted slice is the
 native corner fixture with a genuine stock `HitWall` handler, exact
 dispatch-time values, and boundary cases; any later behavior change remains
 default-off and must preserve physical slide/retry behavior.
+
+## Iteration 116: stable retail `MinHitWall` midpoint bisection
+
+The stable-contact oracle was bisected once more with two repetitions at every
+point. UT436 now has a bounded transition from suppression at `-0.394750` to
+dispatch at `-0.394500`; Unreal Gold 226b transitions from `-0.396250` to
+`-0.396000`. The runs are at
+`qa/retail/minhitwall-oracle-v3/{ut436,unreal226b}-pinned-latched-bisect-r1/`.
+
+The nominal initial trace normal and movement direction remain identical across
+the two runs, while the brackets differ by `0.001500`. This narrows the retail
+observation but does not turn the trace witness into a dispatch-time operand or
+justify a game-agnostic threshold. Retain the existing `TickWalking` behavior;
+recover or bound the actual per-game native operand in the corner fixture
+before implementing any default-off notification gate.

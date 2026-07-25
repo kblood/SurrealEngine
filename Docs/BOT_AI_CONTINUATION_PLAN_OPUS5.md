@@ -551,17 +551,16 @@ the result), and the remaining oracle calibration.
 
 **Work items.**
 
-- Preserve the calibration boundary. Iteration 104 completed adjacent,
-  mixed-outcome two-repetition brackets: UT436 suppresses `-395000` and
-  dispatches `-394000`; Unreal Gold suppresses `-397000` and dispatches
-  `-396000`. In each game, the logged Bump normal/pre-handler velocity imply
-  a dot that would dispatch under the current observation-only comparison at
-  that game's suppressing threshold. That witness is therefore not the native
-  decision operand. The 0.002 bracket difference is not attributable to the
-  adapters because map, pawn speed, and contact geometry differ. The runner
-  must report empirical intervals, never proof of `<` versus `<=`; a runtime
-  correction remains blocked until finer bisection and geometry-controlled
-  evidence identify the dispatch-time physics operand or bound its absence.
+- Preserve the calibration boundary. Stable-contact midpoint bisection now
+  gives two-repetition brackets of UT436 `(-394750, -394500]` and Unreal Gold
+  `(-396250, -396000]`. In each game, the logged Bump normal/pre-handler
+  velocity imply a dot that would dispatch under the current observation-only
+  comparison at that game's suppressing threshold. That witness is therefore
+  not the native decision operand. The 0.0015 bracket difference remains even
+  with the nominal pinned contact signature, but still cannot be attributed to
+  an adapter constant. The runner must report empirical intervals, never proof
+  of `<` versus `<=`; a runtime correction remains blocked until native,
+  dispatch-time physics evidence identifies the operand or bounds its absence.
 - Implement the correction as notification-only. The generic walking path keeps
   its legacy Z-band aligned slide, second `TryMove`, time accounting, and
   no-backwards check even when a glancing contact is rejected for notification.
