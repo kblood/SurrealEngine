@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
@@ -157,6 +158,11 @@ namespace
 			name.find_first_of("\\/:*?\"<>|") == std::string::npos;
 	}
 
+	bool StartsWith(const std::string& value, const std::string& prefix)
+	{
+		return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
+	}
+
 	std::vector<std::string> ParsePackageList(const std::string& value)
 	{
 		std::vector<std::string> packages;
@@ -190,12 +196,15 @@ namespace
 				const std::string output = commandline->GetArg("", "--catalog-output");
 				const std::string exportScripts = commandline->GetArg("", "--catalog-export-scripts");
 				const std::string requestedPackages = commandline->GetArg("", "--catalog-script-packages");
+				const std::string gameConfig = commandline->GetArg("", "--catalog-game-config");
 				if (map.empty() || output.empty())
 					throw std::runtime_error("map catalog requires --catalog-map and --catalog-output");
 				if (!IsSafeOutputSegment(map))
 					throw std::runtime_error("--catalog-map must be a simple map identifier");
 				if (!exportScripts.empty() && exportScripts != "0" && exportScripts != "1")
 					throw std::runtime_error("--catalog-export-scripts must be 0 or 1");
+				if (!gameConfig.empty() && gameConfig != "0" && gameConfig != "1")
+					throw std::runtime_error("--catalog-game-config must be 0 or 1");
 				if (!requestedPackages.empty() && exportScripts != "1")
 					throw std::runtime_error("--catalog-script-packages requires --catalog-export-scripts=1");
 				const std::filesystem::path gameRoot = std::filesystem::absolute(
@@ -215,6 +224,8 @@ namespace
 				File::write_all_text(file.string(), Serialize(map));
 				if (exportScripts == "1")
 					ExportScripts(outputPath, requestedPackages);
+				if (gameConfig == "1")
+					ExportBotConfig(outputPath);
 				Output = file.string();
 			}
 			catch (const std::exception& error)
@@ -230,6 +241,95 @@ namespace
 		int Finish(const HeadlessRunSummary&) override { return Failure.empty() ? 0 : 1; }
 
 	private:
+		void ExportBotConfig(const std::filesystem::path& outputPath) const
+		{
+			struct ConfigSection
+			{
+				const char* Name;
+			};
+			constexpr ConfigSection sections[] = {
+				{ "Botpack.ChallengeBotInfo" },
+				{ "UnrealShare.BotInfo" },
+			};
+			std::set<std::string> rosterClasses;
+			std::ostringstream out;
+			out.imbue(std::locale::classic());
+			out << std::fixed << std::setprecision(6)
+				<< "{\n  \"schema\":\"surreal-bot-config-catalog-spike-v2\",\n"
+				<< "  \"ini_source\":\"loaded_user_ini\",\n  \"roster_sections\":[";
+			bool firstSection = true;
+			for (const ConfigSection& section : sections)
+			{
+				Array<NameString> keys = EngineRef.packages->GetIniKeysFromSection("user", section.Name);
+				if (keys.empty())
+					continue;
+				std::sort(keys.begin(), keys.end(), [](const NameString& left, const NameString& right)
+				{
+					return left.ToString() < right.ToString();
+				});
+				if (!firstSection)
+					out << ',';
+				firstSection = false;
+				out << "\n    {\"section\":" << JsonString(section.Name) << ",\"entries\":[";
+				bool firstEntry = true;
+				for (const NameString& key : keys)
+				{
+					const std::string keyName = key.ToString();
+					const std::string value = EngineRef.packages->GetIniValue("user", section.Name, key);
+					if (!firstEntry)
+						out << ',';
+					firstEntry = false;
+					out << "{\"key\":" << JsonString(keyName) << ",\"value\":" << JsonString(value) << '}';
+					if (StartsWith(keyName, "BotClasses[") && !value.empty())
+						rosterClasses.insert(value);
+				}
+				out << "]}";
+			}
+			if (rosterClasses.empty())
+			{
+				if (EngineRef.packages->HasPackage("Botpack"))
+					rosterClasses.insert("Botpack.Bot");
+				else if (EngineRef.packages->HasPackage("UnrealShare"))
+					rosterClasses.insert("UnrealShare.Bots");
+			}
+			out << "\n  ],\n  \"bot_classes\":[";
+			bool firstClass = true;
+			for (const std::string& className : rosterClasses)
+			{
+				UClass* cls = EngineRef.packages->FindClass(className);
+				if (!cls)
+					throw std::runtime_error("catalog roster bot class could not be resolved: " + className);
+				const char* requiredProperties[] = {
+					"GroundSpeed", "JumpZ", "MaxStepHeight", "AccelRate",
+					"bCanWalk", "bCanJump", "bCanSwim", "bCanFly", "bCanOpenDoors", "bCanDoSpecial",
+				};
+				for (const char* property : requiredProperties)
+				{
+					if (!cls->GetProperty(property))
+						throw std::runtime_error("catalog roster bot class is missing required pawn property: "
+							+ className + "." + property);
+				}
+				if (!firstClass)
+					out << ',';
+				firstClass = false;
+				out << "\n    {\"roster_class\":" << JsonString(className)
+					<< ",\"resolved_class\":" << JsonString(UObject::GetUClassFullName(cls).ToString())
+					<< ",\"movement\":{\"ground_speed\":" << cls->GetFloat("GroundSpeed")
+					<< ",\"jump_z\":" << cls->GetFloat("JumpZ")
+					<< ",\"max_step_height\":" << cls->GetFloat("MaxStepHeight")
+					<< ",\"accel_rate\":" << cls->GetFloat("AccelRate")
+					<< "},\"class_default_capabilities\":{\"walk\":" << (cls->GetBool("bCanWalk") ? "true" : "false")
+					<< ",\"jump\":" << (cls->GetBool("bCanJump") ? "true" : "false")
+					<< ",\"swim\":" << (cls->GetBool("bCanSwim") ? "true" : "false")
+					<< ",\"fly\":" << (cls->GetBool("bCanFly") ? "true" : "false")
+					<< ",\"open_doors\":" << (cls->GetBool("bCanOpenDoors") ? "true" : "false")
+					<< ",\"special\":" << (cls->GetBool("bCanDoSpecial") ? "true" : "false")
+					<< "},\"class_default_capabilities_realized_at_spawn\":false}";
+			}
+			out << "\n  ]\n}\n";
+			File::write_all_text((outputPath / "bot-config.json").string(), out.str());
+		}
+
 		void WriteTraversalActors(std::ostringstream& out,
 			const std::map<const UActor*, size_t>& actorIndexes) const
 		{

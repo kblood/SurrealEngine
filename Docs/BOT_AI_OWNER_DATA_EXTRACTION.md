@@ -161,10 +161,9 @@ only the first layer. The next extraction tranche remains read-only and should
 be delivered with synthetic validators before it is used to authorize bot
 behavior:
 
-1. Implement the separate bot-config catalog. It must record relevant class
-   defaults and roster/skill values from packages and `.ini`/`.int` inputs,
-   preserving each value's source. Capability and movement values cannot be
-   assumed equal across UT436 and Unreal Gold 226b.
+1. Add pinned live-spawn capability observations before treating a class-default
+   capability flag as usable traversal authorization. Stock bot initialization
+   can change those flags after class defaults load.
 2. Upgrade provenance to SHA-256 before treating the catalog identity as
    complete.
 
@@ -221,6 +220,25 @@ byte-identical v3 extractions per anchor: UT436 `DM-Deck16][` SHA-256
 Gold 226b `DmDeathFan` SHA-256
 `6A8A87A05D9D02E45BF5834AC6F667326D89DC0C495F4526C99DF1CF3E22017A`
 (683 actor slots, 44 traversal records, and 64 model zones).
+
+### Bot configuration evidence
+
+`--catalog-game-config=1` writes a separate
+`surreal-bot-config-catalog-spike-v2` artifact. It records every key/value in
+the recognized loaded user-INI roster section and resolves each configured
+`BotClasses[...]` entry to guarded class-default movement values. UT436's
+loaded `[Botpack.ChallengeBotInfo]` resolves its four configured tournament bot
+classes; the retained Unreal Gold fixture has no loaded `[UnrealShare.BotInfo]`
+roster section, so it explicitly reports the canonical `UnrealShare.Bots`
+class as a fallback rather than claiming a roster it cannot observe.
+
+Both anchor installations report class-default GroundSpeed 400, JumpZ 325,
+MaxStepHeight 25, and AccelRate 2048 for the observed bot classes. The catalog
+also records class-default capability bits, but marks them
+`class_default_capabilities_realized_at_spawn: false`: stock Pawn/Bot scripts
+enable traversal capabilities during initialization, so these values are not
+evidence that a live bot can or cannot use a reachspec. A pinned live-spawn
+observer is required before a capability-gated policy is considered.
 
 ## Non-goals
 
