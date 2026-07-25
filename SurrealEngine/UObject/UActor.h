@@ -50,6 +50,16 @@ struct MoveCallbackEvidence
 	uint32_t Mask = 0;
 	bool Any() const { return Mask != 0; }
 };
+
+struct PawnMoveStallRecoveryEpisodeRecord
+{
+	uint64_t Sequence = 0;
+	uint64_t LifeId = 0;
+	float SecondsSinceDetection = 0.0f;
+	PawnMovement::MoveStallRecoveryEpisodeOutcome Outcome =
+		PawnMovement::MoveStallRecoveryEpisodeOutcome::None;
+};
+
 class UMusic;
 class UGameReplicationInfo;
 class UPlayerReplicationInfo;
@@ -2077,6 +2087,44 @@ public:
 	uint64_t MoveStallNavigationForcedReplanCount() const { return MoveStallNavigationForcedReplanCountValue; }
 	uint64_t MoveStallTargetlessMoveToTimeoutCount() const { return MoveStallTargetlessMoveToTimeoutCountValue; }
 	double MoveStallEligibleSeconds() const { return MoveStallEligibleSecondsValue; }
+	uint64_t MoveStallRecoveryEpisodeStartCount() const { return MoveStallRecoveryEpisodeStartCountValue; }
+	uint64_t MoveStallRecoveryClearedWithin2SecondsCount() const
+	{
+		return MoveStallRecoveryClearedWithin2SecondsCountValue;
+	}
+	uint64_t MoveStallRecoveryClearedAfter2SecondsWithin5SecondsCount() const
+	{
+		return MoveStallRecoveryClearedAfter2SecondsWithin5SecondsCountValue;
+	}
+	uint64_t MoveStallRecoveryReplannedWithin5SecondsCount() const
+	{
+		return MoveStallRecoveryReplannedWithin5SecondsCountValue;
+	}
+	uint64_t MoveStallRecoveryMissed5SecondDeadlineCount() const
+	{
+		return MoveStallRecoveryMissed5SecondDeadlineCountValue;
+	}
+	uint64_t MoveStallRecoveryExcludedIntentionalStopCount() const
+	{
+		return MoveStallRecoveryExcludedIntentionalStopCountValue;
+	}
+	uint64_t MoveStallRecoveryCensoredLifeBoundaryCount() const
+	{
+		return MoveStallRecoveryCensoredLifeBoundaryCountValue;
+	}
+	uint64_t MoveStallRecoveryCensoredRunEndCount() const
+	{
+		return MoveStallRecoveryCensoredRunEndCountValue;
+	}
+	uint64_t MoveStallRecoveryUnknownCount() const { return MoveStallRecoveryUnknownCountValue; }
+	uint64_t MoveStallRecoveryEpisodeRecordOverflowCount() const
+	{
+		return MoveStallRecoveryEpisodeRecordOverflowCountValue;
+	}
+	std::vector<PawnMoveStallRecoveryEpisodeRecord>
+		DrainMoveStallRecoveryEpisodeRecords();
+	void EndMoveStallRecoveryLife();
+	void EndMoveStallRecoveryRun();
 	uint64_t FailedNavigationAvoidanceActivationCount() const { return FailedNavigationAvoidanceActivationCountValue; }
 	uint64_t FailedNavigationSafeguardSuppressionCount() const { return FailedNavigationSafeguardSuppressionCountValue; }
 	uint64_t FailedNavigationRoutePenaltyApplicationCount() const { return FailedNavigationRoutePenaltyApplicationCountValue; }
@@ -2387,6 +2435,10 @@ public:
 private:
 	void ObserveMoveStallWatchdog(float elapsed);
 	void RecordMoveStallCommand();
+	void AdvanceMoveStallRecoveryEpisode(float elapsed,
+		PawnMovement::MoveStallRecoveryEpisodeEvent event);
+	void RecordMoveStallRecoveryEpisodeOutcome(float secondsSinceDetection,
+		PawnMovement::MoveStallRecoveryEpisodeOutcome outcome);
 	void AdvancePainLedgeRecovery(float elapsed);
 	bool ApplyPainLedgeRecovery(const vec2& requestedDirection);
 	void AdvanceWallAdjustRecovery(float elapsed);
@@ -2401,6 +2453,9 @@ private:
 	bool IsInPathSpecialHandling = false;
 	PawnMovement::FailedNavigationMemoryState FailedNavigationMemory;
 	PawnMovement::MoveStallWatchdogState MoveStallWatchdog;
+	PawnMovement::MoveStallRecoveryEpisodeState MoveStallRecoveryEpisode;
+	PawnMovement::MoveStallCommandKey MoveStallRecoveryEpisodeCommand;
+	uint64_t MoveStallRecoveryLifeId = 1;
 	PawnMovement::PainLedgeRecoveryState PainLedgeRecovery;
 	PawnMovement::WallAdjustRecoveryState WallAdjustRecovery;
 	struct HarmfulZoneEscapeState
@@ -2476,6 +2531,18 @@ private:
 	uint64_t MoveStallNavigationForcedReplanCountValue = 0;
 	uint64_t MoveStallTargetlessMoveToTimeoutCountValue = 0;
 	double MoveStallEligibleSecondsValue = 0.0;
+	uint64_t MoveStallRecoveryEpisodeStartCountValue = 0;
+	uint64_t MoveStallRecoveryClearedWithin2SecondsCountValue = 0;
+	uint64_t MoveStallRecoveryClearedAfter2SecondsWithin5SecondsCountValue = 0;
+	uint64_t MoveStallRecoveryReplannedWithin5SecondsCountValue = 0;
+	uint64_t MoveStallRecoveryMissed5SecondDeadlineCountValue = 0;
+	uint64_t MoveStallRecoveryExcludedIntentionalStopCountValue = 0;
+	uint64_t MoveStallRecoveryCensoredLifeBoundaryCountValue = 0;
+	uint64_t MoveStallRecoveryCensoredRunEndCountValue = 0;
+	uint64_t MoveStallRecoveryUnknownCountValue = 0;
+	uint64_t MoveStallRecoveryEpisodeRecordOverflowCountValue = 0;
+	uint64_t MoveStallRecoveryEpisodeRecordSequence = 0;
+	std::vector<PawnMoveStallRecoveryEpisodeRecord> MoveStallRecoveryEpisodeRecords;
 	uint64_t FailedNavigationAvoidanceActivationCountValue = 0;
 	uint64_t FailedNavigationSafeguardSuppressionCountValue = 0;
 	uint64_t FailedNavigationRoutePenaltyApplicationCountValue = 0;

@@ -6154,6 +6154,18 @@ void UPawn::ObserveMoveStallWatchdog(float elapsed)
 	UNavigationPoint* navigationTarget = moveTowardLatent
 		? UObject::TryCast<UNavigationPoint>(moveTarget) : nullptr;
 	const bool liveNavigationTarget = navigationTarget && !navigationTarget->bDeleteMe();
+	if (MoveStallRecoveryEpisode.Active)
+	{
+		PawnMovement::MoveStallRecoveryEpisodeEvent episodeEvent =
+			PawnMovement::MoveStallRecoveryEpisodeEvent::None;
+		if (bDeleteMe() || Health() <= 0)
+			episodeEvent = PawnMovement::MoveStallRecoveryEpisodeEvent::LifeBoundary;
+		else if (StateFrame && !latentMovementIntent)
+			episodeEvent = PawnMovement::MoveStallRecoveryEpisodeEvent::IntentionalStop;
+		else if (!eligibleContext)
+			episodeEvent = PawnMovement::MoveStallRecoveryEpisodeEvent::Unknown;
+		AdvanceMoveStallRecoveryEpisode(elapsed, episodeEvent);
+	}
 	const PawnMovement::MoveStallWatchdogObservation observation =
 		PawnMovement::ObserveMoveStall(MoveStallWatchdog, Location(), elapsed,
 			eligibleContext, latentMovementIntent, moveStallProgressRadius,
@@ -6162,9 +6174,23 @@ void UPawn::ObserveMoveStallWatchdog(float elapsed)
 	MoveStallEligibleSecondsValue += observation.EligibleSeconds;
 	if (observation.EpisodeReset)
 		MoveStallEpisodeResetCountValue++;
+	if (MoveStallRecoveryEpisode.Active && eligibleContext && latentMovementIntent
+		&& observation.EpisodeReset)
+	{
+		AdvanceMoveStallRecoveryEpisode(0.0f,
+			PawnMovement::MoveStallRecoveryEpisodeEvent::Cleared);
+	}
 	if (observation.Detected)
 	{
 		MoveStallDetectionCountValue++;
+		if (!MoveStallRecoveryEpisode.Active)
+		{
+			const PawnMovement::MoveStallRecoveryEpisodeUpdate episode =
+				PawnMovement::StartMoveStallRecoveryEpisode();
+			MoveStallRecoveryEpisode = episode.State;
+			MoveStallRecoveryEpisodeCommand = MoveStallWatchdog.Command;
+			MoveStallRecoveryEpisodeStartCountValue++;
+		}
 		const PawnMovement::MoveStallRecoveryDecision recovery =
 			PawnMovement::SelectMoveStallRecovery({
 				.Detected = observation.Detected,
@@ -6235,9 +6261,109 @@ void UPawn::RecordMoveStallCommand()
 		else if (latentMode == PawnMovement::MoveStallLatentMode::StrafeFacing
 			&& engine->LaunchInfo.ue1Version > 219)
 			target = FaceTarget();
+		const PawnMovement::MoveStallCommandKey command = {
+			latentMode, target, Destination()
+		};
+		UNavigationPoint* navigationTarget = latentMode
+			== PawnMovement::MoveStallLatentMode::MoveToward
+			? UObject::TryCast<UNavigationPoint>(MoveTarget()) : nullptr;
+		if (MoveStallRecoveryEpisode.Active && navigationTarget
+			&& !navigationTarget->bDeleteMe()
+			&& !PawnMovement::SameMoveStallCommand(
+				MoveStallRecoveryEpisodeCommand, command))
+		{
+			AdvanceMoveStallRecoveryEpisode(0.0f,
+				PawnMovement::MoveStallRecoveryEpisodeEvent::QualifiedNavigationReplan);
+		}
 		MoveStallWatchdog = PawnMovement::RecordMoveStallCommand(
-			MoveStallWatchdog, { latentMode, target, Destination() });
+			MoveStallWatchdog, command);
 	}
+}
+
+void UPawn::AdvanceMoveStallRecoveryEpisode(float elapsed,
+	PawnMovement::MoveStallRecoveryEpisodeEvent event)
+{
+	if (!MoveStallRecoveryEpisode.Active)
+		return;
+	const float secondsSinceDetection = std::isfinite(elapsed) && elapsed >= 0.0f
+		? MoveStallRecoveryEpisode.SecondsSinceDetection + elapsed
+		: 0.0f;
+	const PawnMovement::MoveStallRecoveryEpisodeUpdate update =
+		PawnMovement::AdvanceMoveStallRecoveryEpisode(
+			MoveStallRecoveryEpisode, elapsed, event);
+	MoveStallRecoveryEpisode = update.State;
+	if (!update.Terminal)
+		return;
+	MoveStallRecoveryEpisodeCommand = {};
+	RecordMoveStallRecoveryEpisodeOutcome(secondsSinceDetection, update.Outcome);
+}
+
+void UPawn::RecordMoveStallRecoveryEpisodeOutcome(float secondsSinceDetection,
+	PawnMovement::MoveStallRecoveryEpisodeOutcome outcome)
+{
+	switch (outcome)
+	{
+	case PawnMovement::MoveStallRecoveryEpisodeOutcome::ClearedWithin2Seconds:
+		MoveStallRecoveryClearedWithin2SecondsCountValue++;
+		break;
+	case PawnMovement::MoveStallRecoveryEpisodeOutcome::ClearedAfter2SecondsWithin5Seconds:
+		MoveStallRecoveryClearedAfter2SecondsWithin5SecondsCountValue++;
+		break;
+	case PawnMovement::MoveStallRecoveryEpisodeOutcome::ReplannedWithin5Seconds:
+		MoveStallRecoveryReplannedWithin5SecondsCountValue++;
+		break;
+	case PawnMovement::MoveStallRecoveryEpisodeOutcome::Missed5SecondDeadline:
+		MoveStallRecoveryMissed5SecondDeadlineCountValue++;
+		break;
+	case PawnMovement::MoveStallRecoveryEpisodeOutcome::ExcludedIntentionalStop:
+		MoveStallRecoveryExcludedIntentionalStopCountValue++;
+		break;
+	case PawnMovement::MoveStallRecoveryEpisodeOutcome::CensoredLifeBoundary:
+		MoveStallRecoveryCensoredLifeBoundaryCountValue++;
+		break;
+	case PawnMovement::MoveStallRecoveryEpisodeOutcome::CensoredRunEnd:
+		MoveStallRecoveryCensoredRunEndCountValue++;
+		break;
+	case PawnMovement::MoveStallRecoveryEpisodeOutcome::Unknown:
+		MoveStallRecoveryUnknownCountValue++;
+		break;
+	case PawnMovement::MoveStallRecoveryEpisodeOutcome::None:
+		return;
+	}
+
+	static constexpr size_t maximumQueuedRecords = 1024;
+	PawnMoveStallRecoveryEpisodeRecord record;
+	record.Sequence = MoveStallRecoveryEpisodeRecordSequence++;
+	record.LifeId = MoveStallRecoveryLifeId;
+	record.SecondsSinceDetection = secondsSinceDetection;
+	record.Outcome = outcome;
+	if (MoveStallRecoveryEpisodeRecords.size() < maximumQueuedRecords)
+		MoveStallRecoveryEpisodeRecords.push_back(record);
+	else
+		MoveStallRecoveryEpisodeRecordOverflowCountValue++;
+}
+
+std::vector<PawnMoveStallRecoveryEpisodeRecord>
+	UPawn::DrainMoveStallRecoveryEpisodeRecords()
+{
+	std::vector<PawnMoveStallRecoveryEpisodeRecord> records;
+	records.swap(MoveStallRecoveryEpisodeRecords);
+	return records;
+}
+
+void UPawn::EndMoveStallRecoveryLife()
+{
+	AdvanceMoveStallRecoveryEpisode(0.0f,
+		PawnMovement::MoveStallRecoveryEpisodeEvent::LifeBoundary);
+	MoveStallWatchdog = {};
+	MoveStallRecoveryLifeId++;
+}
+
+void UPawn::EndMoveStallRecoveryRun()
+{
+	AdvanceMoveStallRecoveryEpisode(0.0f,
+		PawnMovement::MoveStallRecoveryEpisodeEvent::RunEnd);
+	MoveStallWatchdog = {};
 }
 
 void UPawn::RecordPainLedgeVeto(const vec3& origin, const vec2& unsafeDirection)
@@ -7468,6 +7594,7 @@ uint64_t UPawn::HazardWaterEgressDiagnosticOverflowCount() const
 
 void UPawn::EndWalkingStepPreflightLife()
 {
+	EndMoveStallRecoveryLife();
 	EndHarmfulZoneEscapeLife();
 	ResetFallingHazardRecovery();
 	if (HazardWaterEgressObserver && HazardWaterEgressObserver->HasActiveEpisode()
