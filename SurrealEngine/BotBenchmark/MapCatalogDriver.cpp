@@ -1,0 +1,232 @@
+#include "Precomp.h"
+#include "MapCatalogDriver.h"
+
+#include "Engine.h"
+#include "Package/PackageManager.h"
+#include "Runtime/HeadlessDriver.h"
+#include "UObject/UActor.h"
+#include "UObject/ULevel.h"
+#include "Utils/CommandLine.h"
+#include "Utils/File.h"
+#include "Utils/Logger.h"
+
+#include <filesystem>
+#include <iomanip>
+#include <map>
+#include <sstream>
+#include <stdexcept>
+
+namespace
+{
+	std::string JsonString(const std::string& value)
+	{
+		std::ostringstream out;
+		out << '"';
+		for (unsigned char character : value)
+		{
+			switch (character)
+			{
+			case '\\': out << "\\\\"; break;
+			case '"': out << "\\\""; break;
+			case '\n': out << "\\n"; break;
+			case '\r': out << "\\r"; break;
+			case '\t': out << "\\t"; break;
+			default:
+				if (character < 0x20)
+				{
+					out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+						<< static_cast<int>(character) << std::dec << std::setfill(' ');
+				}
+				else
+				{
+					out << static_cast<char>(character);
+				}
+				break;
+			}
+		}
+		out << '"';
+		return out.str();
+	}
+
+	void WriteVector(std::ostringstream& out, const vec3& value)
+	{
+		out << "{\"x\":" << value.x << ",\"y\":" << value.y
+			<< ",\"z\":" << value.z << '}';
+	}
+
+	bool IsWithin(const std::filesystem::path& child, const std::filesystem::path& parent)
+	{
+		auto childIt = child.begin();
+		for (auto parentIt = parent.begin(); parentIt != parent.end(); ++parentIt, ++childIt)
+		{
+			if (childIt == child.end() || *childIt != *parentIt)
+				return false;
+		}
+		return true;
+	}
+
+	class MapCatalogDriver final : public HeadlessDriver
+	{
+	public:
+		explicit MapCatalogDriver(Engine& engine) : EngineRef(engine) {}
+
+		HeadlessDriverConfig GetConfig() const override { return { .MaxTicks = 1 }; }
+
+		void Start() override
+		{
+			try
+			{
+				if (!commandline)
+					throw std::runtime_error("map catalog requires command-line arguments");
+				const std::string map = commandline->GetArg("", "--catalog-map");
+				const std::string output = commandline->GetArg("", "--catalog-output");
+				if (map.empty() || output.empty())
+					throw std::runtime_error("map catalog requires --catalog-map and --catalog-output");
+				const std::filesystem::path gameRoot = std::filesystem::absolute(
+					EngineRef.LaunchInfo.gameRootFolder).lexically_normal();
+				const std::filesystem::path outputPath = std::filesystem::absolute(output).lexically_normal();
+				if (IsWithin(outputPath, gameRoot))
+					throw std::runtime_error("map catalog output must not be inside the game root");
+
+				EngineRef.LaunchInfo.noEntryMap = true;
+				UnrealURL url(EngineRef.GetDefaultURL(
+					EngineRef.packages->GetIniValue("system", "URL", "LocalMap")), map);
+				EngineRef.LoadMap(url);
+				if (!EngineRef.Level || !EngineRef.LevelInfo)
+					throw std::runtime_error("map catalog did not load a level");
+				std::filesystem::create_directories(outputPath);
+				const std::filesystem::path file = outputPath / (map + ".json");
+				File::write_all_text(file.string(), Serialize(map));
+				Output = file.string();
+			}
+			catch (const std::exception& error)
+			{
+				Failure = error.what();
+				LogMessage("Map catalog failed: " + Failure);
+			}
+			Complete = true;
+		}
+
+		bool IsComplete() const override { return Complete; }
+		void Tick(const DeterministicFrameTime&) override {}
+		int Finish(const HeadlessRunSummary&) override { return Failure.empty() ? 0 : 1; }
+
+	private:
+		std::string Serialize(const std::string& map) const
+		{
+			std::map<const UActor*, size_t> actorIndexes;
+			for (size_t index = 0; index < EngineRef.Level->Actors.size(); index++)
+			{
+				if (UActor* actor = EngineRef.Level->Actors[index])
+					actorIndexes.emplace(actor, index);
+			}
+			std::ostringstream out;
+			out.imbue(std::locale::classic());
+			out << std::fixed << std::setprecision(6);
+			out << "{\n  \"schema\":\"surreal-map-catalog-spike-v1\",\n"
+				<< "  \"game\":{\"name\":" << JsonString(EngineRef.LaunchInfo.gameName)
+				<< ",\"version\":" << JsonString(EngineRef.LaunchInfo.gameVersionString) << "},\n"
+				<< "  \"map\":" << JsonString(map) << ",\n"
+				<< "  \"counts\":{\"actors_exact\":" << EngineRef.Level->Actors.size();
+			size_t navigationCount = 0;
+			size_t zoneCount = 0;
+			for (UActor* actor : EngineRef.Level->Actors)
+			{
+				navigationCount += UObject::TryCast<UNavigationPoint>(actor) ? 1 : 0;
+				zoneCount += UObject::TryCast<UZoneInfo>(actor) ? 1 : 0;
+			}
+			out << ",\"navigation_points_exact\":" << navigationCount
+				<< ",\"reachspecs_exact\":" << EngineRef.Level->ReachSpecs.size()
+				<< ",\"zones_exact\":" << zoneCount << "},\n  \"navigation_points\":[";
+			bool first = true;
+			for (size_t index = 0; index < EngineRef.Level->Actors.size(); index++)
+			{
+				UNavigationPoint* point = UObject::TryCast<UNavigationPoint>(EngineRef.Level->Actors[index]);
+				if (!point)
+					continue;
+				if (!first)
+					out << ',';
+				first = false;
+				out << "\n    {\"actor_index\":" << index << ",\"name\":"
+					<< JsonString(point->Name.ToString()) << ",\"class\":"
+					<< JsonString(UObject::GetUClassFullName(point).ToString()) << ",\"position\":";
+				WriteVector(out, point->Location());
+				out << ",\"collision_radius\":" << point->CollisionRadius()
+					<< ",\"collision_height\":" << point->CollisionHeight()
+					<< ",\"extra_cost\":" << point->ExtraCost()
+					<< ",\"end_point\":" << (point->HasProperty("bEndPoint") && point->GetBool("bEndPoint") ? "true" : "false")
+					<< ",\"end_point_only\":" << (point->HasProperty("bEndPointOnly") && point->GetBool("bEndPointOnly") ? "true" : "false")
+					<< ",\"never_use_strafing\":" << (point->HasProperty("bNeverUseStrafing") && point->GetBool("bNeverUseStrafing") ? "true" : "false")
+					<< ",\"one_way\":" << (point->HasProperty("bOneWayPath") && point->GetBool("bOneWayPath") ? "true" : "false")
+					<< ",\"player_only\":" << (point->HasProperty("bPlayerOnly") && point->GetBool("bPlayerOnly") ? "true" : "false")
+					<< ",\"special_cost\":" << (point->HasProperty("bSpecialCost") && point->GetBool("bSpecialCost") ? "true" : "false")
+					<< ",\"paths\":[";
+				for (size_t pathIndex = 0; pathIndex < point->Paths().size(); pathIndex++)
+				{
+					if (pathIndex)
+						out << ',';
+					out << point->Paths()[pathIndex];
+				}
+				out << "]}";
+			}
+			out << "\n  ],\n  \"reachspecs\":[";
+			for (size_t index = 0; index < EngineRef.Level->ReachSpecs.size(); index++)
+			{
+				if (index)
+					out << ',';
+				const LevelReachSpec& spec = EngineRef.Level->ReachSpecs[index];
+				auto findActor = [&](const UActor* actor)
+				{
+					auto it = actorIndexes.find(actor);
+					return it == actorIndexes.end() ? -1 : static_cast<int64_t>(it->second);
+				};
+				out << "\n    {\"index\":" << index << ",\"start_actor_index\":"
+					<< findActor(spec.startActor) << ",\"end_actor_index\":"
+					<< findActor(spec.endActor) << ",\"distance\":" << spec.distance
+					<< ",\"collision_radius\":" << spec.collisionRadius
+					<< ",\"collision_height\":" << spec.collisionHeight
+					<< ",\"reach_flags\":" << spec.reachFlags
+					<< ",\"pruned\":" << (spec.bPruned ? "true" : "false") << '}';
+			}
+			out << "\n  ],\n  \"zones\":[";
+			first = true;
+			for (size_t index = 0; index < EngineRef.Level->Actors.size(); index++)
+			{
+				UZoneInfo* zone = UObject::TryCast<UZoneInfo>(EngineRef.Level->Actors[index]);
+				if (!zone)
+					continue;
+				if (!first)
+					out << ',';
+				first = false;
+				out << "\n    {\"actor_index\":" << index << ",\"name\":"
+					<< JsonString(zone->Name.ToString()) << ",\"class\":"
+					<< JsonString(UObject::GetUClassFullName(zone).ToString())
+					<< ",\"pain\":" << (zone->bPainZone() ? "true" : "false")
+					<< ",\"water\":" << (zone->bWaterZone() ? "true" : "false")
+					<< ",\"kill\":" << (zone->bKillZone() ? "true" : "false")
+					<< ",\"damage_per_second\":" << zone->DamagePerSec()
+					<< ",\"gravity\":";
+				WriteVector(out, zone->ZoneGravity());
+				out << ",\"velocity\":";
+				WriteVector(out, zone->ZoneVelocity());
+				out << '}';
+			}
+			out << "\n  ]\n}\n";
+			return out.str();
+		}
+
+		Engine& EngineRef;
+		bool Complete = false;
+		std::string Failure;
+		std::string Output;
+	};
+}
+
+void RegisterMapCatalogDriver(HeadlessDriverRegistry& registry)
+{
+	if (!registry.Contains("map-catalog"))
+		registry.Register("map-catalog", [](Engine& engine)
+		{
+			return std::make_unique<MapCatalogDriver>(engine);
+		});
+}

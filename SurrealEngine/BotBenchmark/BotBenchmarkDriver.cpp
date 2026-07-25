@@ -9,6 +9,7 @@
 #include "BotBenchmarkHazardDeathPartition.h"
 #include "BotBenchmarkProtocol.h"
 #include "BotBenchmarkQualityObservation.h"
+#include "MapCatalogDriver.h"
 #include "BotBenchmarkShadowTelemetry.h"
 #include "BotBenchmarkTelemetry.h"
 #include "BotAI/BotPolicyObservationBuilder.h"
@@ -2314,4 +2315,5 @@ void RegisterBotBenchmarkDriver(HeadlessDriverRegistry& registry)
 	}
 	RegisterBotWalkingHitWallCornerFixtureDriver(registry);
 	RegisterBotMoveStallRecoveryFixtureDriver(registry);
+	RegisterMapCatalogDriver(registry);
 }

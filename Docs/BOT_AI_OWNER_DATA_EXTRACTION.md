@@ -109,6 +109,24 @@ per map. The extractor must refuse an output path inside the game root.
 4. Use verified catalogs to replace map-feature hypotheses with evidence and
    to generate focused bot navigation/survival fixtures.
 
+## Phase-zero evidence
+
+The static `map-catalog` headless-driver spike is implemented. It accepts
+`--catalog-map` and `--catalog-output`, refuses outputs within the game root,
+loads the requested map through the normal engine loader, and emits a
+`surreal-map-catalog-spike-v1` JSON document. The current spike contains the
+loaded actor count, navigation points with authored path indexes and flags,
+reachspecs, and zone inventory/properties. It deliberately does not claim the
+complete v1 schema or live zone membership yet.
+
+On 2026-07-25 it extracted UT436 `DM-Deck16][` with 251 navigation points,
+1,997 reachspecs, and four zones; it extracted Unreal Gold 226b `DmDeathFan`
+with 116 navigation points, 1,431 reachspecs, and four zones. Both outputs
+passed a referential-integrity check for every reachspec endpoint and every
+per-node path index. Two independent DeathFan extractions were byte-identical:
+SHA-256 `A14B5E9663C6CA2AB25CC37C7EEDEEEA8013B594351000AF03A5AFF3A656B679`.
+All real-map artifacts remain owner-local under `qa/runs/`.
+
 ## Non-goals
 
 Do not decode or redistribute meshes, textures, sounds, or compiled bytecode.
