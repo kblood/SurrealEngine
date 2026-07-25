@@ -1277,9 +1277,9 @@ Two UT436 `DM-Deck16][` seed-271828, four skill-7 observer-only runs are
 event-identical. They show one promoted and eligible Alys episode, no live
 application, and therefore preserve the stock run. The two corresponding live
 runs are also event-identical but are rejected: recovery applies once for 24
-ticks and avoids the tagged harmful entry, while total deaths and suicides rise
-deterministically from 1/1 to 2/2. Avoiding a local entry is not a quality win
-when the match outcome regresses. The live flag remains experimental and
+ticks, while total deaths and suicides rise deterministically from 1/1 to 2/2.
+The gate-local terminal label did not establish avoidance of the later generic
+harmful entry. The live flag remains experimental and
 default-off; it is not a merge candidate. Unreal Gold 226b `DmDeathFan` seed
 424242 observer smoke records zero recovery promotions/applications and retains
 K5/D8/S3, as expected for its callback-interrupted fall pattern.
@@ -1303,6 +1303,44 @@ rosters do not provide stable per-slot policy binding. A role-swap gate will be
 implemented only after a per-participant policy adapter can bind immutable
 roster indexes and prove balanced slot assignments in both UT436 and Unreal
 Gold 226b.
+
+## Iteration 61: resource and navigation coverage observation
+
+The benchmark now distinguishes an observed inventory transition from a useful
+but unproven script side effect. Only an unowned world `Inventory` source whose
+owner becomes the controlled pawn after its outermost `Touch` dispatch counts
+as `confirmed_pickups_exact`. Weapon, ammo, health, armor, and other categories
+are an exact partition of that total. A source destroyed during the same
+dispatch without this transfer is retained only as the separate
+`pickup_source_consumed_unconfirmed_exact` diagnostic; it is never added to
+resource acquisition. The implementation is shared UE1 `UInventory` logic, not
+package-specific item names, and it remains read-only.
+
+The same slice snapshots the shared `NavigationPointList` after controlled
+roster setup, rejects invalid/cyclic/oversized catalogs, and tracks a bot only
+when its collision cylinder overlaps a catalogued node. Per-bot visited and
+catalog counts plus the shared roster-union count are monotonic exact
+observations. The analyzer validates category partitioning, immutable catalog
+denominators, bounded counts, and a common union value before reporting
+fractions. These are coverage/resource measurements, not a quality score or
+release gate.
+
+Fresh 30-second observer smokes completed and structurally validated on both
+profiles. UT436 `DM-Deck16][` seed 271828 retained K0/D1/S1, had a 251-node
+catalog with 70 union nodes (27.89%), and observed no confirmed transfer.
+Unreal Gold 226b `DmDeathFan` seed 424242 retained K5/D8/S3, had a 116-node
+catalog with 72 union nodes (62.07%), and likewise observed no confirmed
+transfer. UT436 `DM-Morbias][` seed 104729 supplied the first positive witness:
+Nikita made one confirmed weapon transfer and one separate consumed-source
+diagnostic. Two 30-second runs had byte-identical event and shadow-decision
+streams; their only full-artifact differences were the configured output paths.
+
+The Deck causal audit also corrects the earlier live-recovery interpretation:
+the gate-local recovery counter did not establish avoidance of Alys' later
+water entry. Its 24-tick action had already stopped before the generic harmful
+entry, and Alys still died after failed egress; a later extra direct-self death
+made the live variant K0/D2/S2. The experiment remains rejected and no live
+behavior policy is promoted from this measurement slice.
 
 ## Frozen tuning and held-out maps
 

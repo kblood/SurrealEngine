@@ -5,6 +5,7 @@
 #include "BotBenchmarkDeathAttributionCoordinator.h"
 #include "BotBenchmarkDeathAttributionHookContract.h"
 #include "BotBenchmarkProtocol.h"
+#include "BotBenchmarkQualityObservation.h"
 #include "BotBenchmarkShadowTelemetry.h"
 #include "BotBenchmarkTelemetry.h"
 #include "BotAI/BotPolicyObservationBuilder.h"
@@ -129,6 +130,7 @@ namespace
 				}
 				EngineRef.Level->Tick(levelElapsed, false);
 				Ticks = frameTime.Tick;
+				ObserveNavigationCoverage();
 				WriteShadowTelemetry(frameTime.Tick, frameTime.RealElapsed);
 				WriteTelemetry("tick", "running", {}, frameTime.Tick, frameTime.TotalReal);
 			}
@@ -196,6 +198,15 @@ namespace
 			uint64_t DamageTakenFromSelfExact = 0;
 			uint64_t DamageTakenFromNonParticipantsExact = 0;
 			uint64_t DamageDealtToOtherParticipantsExact = 0;
+			uint64_t ConfirmedPickupsExact = 0;
+			uint64_t ConfirmedWeaponPickupsExact = 0;
+			uint64_t ConfirmedAmmoPickupsExact = 0;
+			uint64_t ConfirmedHealthPickupsExact = 0;
+			uint64_t ConfirmedArmorPickupsExact = 0;
+			uint64_t ConfirmedOtherPickupsExact = 0;
+			uint64_t PickupSourceConsumedUnconfirmedExact = 0;
+			std::unique_ptr<BotBenchmarkQualityObservation::NavigationCoverageAccumulator>
+				NavigationCoverage;
 			BotBenchmarkDriverDetail::DeathAttributionCounters DeathAttribution;
 			uint64_t HitWallEventsExact = 0;
 			BotBenchmarkDriverDetail::NativePawnCounterEpoch NativeCounterEpoch;
@@ -227,6 +238,23 @@ namespace
 			int PreHealth = 0;
 			bool CanonicalDamageFrame = false;
 			std::string InstigatorIdentity;
+		};
+
+		enum class PickupCategory
+		{
+			Weapon,
+			Ammo,
+			Health,
+			Armor,
+			Other,
+		};
+
+		struct ActivePickupTouch
+		{
+			UInventory* Source = nullptr;
+			std::string CollectorIdentity;
+			PickupCategory Category = PickupCategory::Other;
+			bool SourceWasUnowned = false;
 		};
 
 		void ValidateGameProfile()
@@ -765,16 +793,98 @@ namespace
 			AcceptCoordinatorStatus(status, "hook cleanup");
 		}
 
-		bool AddDamageCounter(uint64_t& counter, uint64_t amount,
+		bool AddQualityCounter(uint64_t& counter, uint64_t amount,
 			const char* name)
 		{
 			if (amount > std::numeric_limits<uint64_t>::max() - counter)
 			{
-				Fail(std::string("damage telemetry counter overflow: ") + name);
+				Fail(std::string("bot quality telemetry counter overflow: ") + name);
 				return false;
 			}
 			counter += amount;
 			return true;
+		}
+
+		bool AddDamageCounter(uint64_t& counter, uint64_t amount, const char* name)
+		{
+			return AddQualityCounter(counter, amount, name);
+		}
+
+		static PickupCategory ClassifyPickupCategory(UInventory* source)
+		{
+			if (UObject::TryCast<UWeapon>(source))
+				return PickupCategory::Weapon;
+			if (source && source->IsA("Ammo"))
+				return PickupCategory::Ammo;
+			if (source && source->IsA("Health"))
+				return PickupCategory::Health;
+			if (source && source->bIsAnArmor())
+				return PickupCategory::Armor;
+			return PickupCategory::Other;
+		}
+
+		void RecordPickupTouch(const ActivePickupTouch& touch)
+		{
+			auto collector = QualityParticipants.find(touch.CollectorIdentity);
+			if (collector == QualityParticipants.end() || !touch.Source)
+				return;
+			using namespace BotBenchmarkQualityObservation;
+			const PickupTransitionEvidence evidence = ClassifyPickupTransition({
+				touch.SourceWasUnowned,
+				touch.Source->Owner() && PawnIdentity(UObject::TryCast<UPawn>(touch.Source->Owner()))
+					== touch.CollectorIdentity,
+				touch.Source->bDeleteMe()
+			});
+			if (evidence == PickupTransitionEvidence::SourceConsumedUnconfirmed)
+			{
+				AddQualityCounter(collector->second.PickupSourceConsumedUnconfirmedExact, 1,
+					"pickup_source_consumed_unconfirmed_exact");
+				return;
+			}
+			if (!IsConfirmedPickupAcquisition(evidence))
+				return;
+			if (!AddQualityCounter(collector->second.ConfirmedPickupsExact, 1,
+				"confirmed_pickups_exact"))
+				return;
+			uint64_t* categoryCounter = &collector->second.ConfirmedOtherPickupsExact;
+			const char* categoryName = "confirmed_other_pickups_exact";
+			switch (touch.Category)
+			{
+			case PickupCategory::Weapon:
+				categoryCounter = &collector->second.ConfirmedWeaponPickupsExact;
+				categoryName = "confirmed_weapon_pickups_exact";
+				break;
+			case PickupCategory::Ammo:
+				categoryCounter = &collector->second.ConfirmedAmmoPickupsExact;
+				categoryName = "confirmed_ammo_pickups_exact";
+				break;
+			case PickupCategory::Health:
+				categoryCounter = &collector->second.ConfirmedHealthPickupsExact;
+				categoryName = "confirmed_health_pickups_exact";
+				break;
+			case PickupCategory::Armor:
+				categoryCounter = &collector->second.ConfirmedArmorPickupsExact;
+				categoryName = "confirmed_armor_pickups_exact";
+				break;
+			case PickupCategory::Other:
+				break;
+			}
+			AddQualityCounter(*categoryCounter, 1, categoryName);
+		}
+
+		void FinishPickupTouch(UInventory* source, const ActivePickupTouch& touch)
+		{
+			auto depth = PickupTouchDepths.find(source);
+			if (depth == PickupTouchDepths.end() || depth->second == 0)
+			{
+				Fail("pickup telemetry Touch cleanup had no active source");
+				return;
+			}
+			if (--depth->second != 0)
+				return;
+			PickupTouchDepths.erase(depth);
+			if (touch.SourceWasUnowned)
+				RecordPickupTouch(touch);
 		}
 
 		void RecordCanonicalDamage(const ActiveAttributionCall& call)
@@ -946,6 +1056,22 @@ namespace
 						"AddVelocity observation");
 					return {};
 				}
+				if (function->Name == "Touch")
+				{
+					UInventory* source = UObject::TryCast<UInventory>(instance);
+					UPawn* collector = arguments.Size() == 1
+						? UObject::TryCast<UPawn>(arguments.Values()[0].ToObject()) : nullptr;
+					const std::string collectorIdentity = PawnIdentity(collector);
+					if (!source || !collector ||
+						QualityParticipants.find(collectorIdentity) == QualityParticipants.end())
+						return {};
+					const uint32_t depth = PickupTouchDepths[source]++;
+					if (depth != 0 || source->Owner() != nullptr)
+						return [this, source]() { FinishPickupTouch(source, {}); };
+					const ActivePickupTouch touch{ source, collectorIdentity,
+						ClassifyPickupCategory(source), true };
+					return [this, source, touch]() { FinishPickupTouch(source, touch); };
+				}
 
 				std::optional<EnvironmentalSource> source;
 				std::optional<HookPoint> point;
@@ -1081,6 +1207,62 @@ namespace
 					throw std::runtime_error("multiple live controlled bots share identity '" + bots[index].first + "'");
 			}
 			return bots;
+		}
+
+		void InitializeNavigationCoverage()
+		{
+			using namespace BotBenchmarkQualityObservation;
+			if (!EngineRef.LevelInfo)
+				return;
+			std::vector<NavigationCoverageNode> nodes;
+			std::set<UNavigationPoint*> seen;
+			for (UNavigationPoint* point = EngineRef.LevelInfo->NavigationPointList(); point;
+				point = point->nextNavigationPoint())
+			{
+				if (!seen.insert(point).second || seen.size() > MaximumNavigationCoverageNodes)
+				{
+					LogMessage("Bot benchmark navigation coverage catalog is unavailable: "
+						"navigation list is cyclic or exceeds its fixed capacity");
+					return;
+				}
+				if (point->bDeleteMe())
+					continue;
+				nodes.push_back({ point->Name.ToString(), {
+					point->Location().x, point->Location().y, point->Location().z },
+					point->CollisionRadius(), point->CollisionHeight() });
+			}
+			std::sort(nodes.begin(), nodes.end(), [](const auto& left, const auto& right)
+			{
+				return left.StableId < right.StableId;
+			});
+			NavigationCoverageCatalog catalog = BuildNavigationCoverageCatalog(std::move(nodes));
+			if (!catalog.IsValid())
+			{
+				LogMessage("Bot benchmark navigation coverage catalog is unavailable: invalid "
+					"shared navigation snapshot");
+				return;
+			}
+			NavigationCoverageCatalogNodeCount = catalog.Nodes.size();
+			NavigationCoverageUnion = std::make_unique<NavigationCoverageAccumulator>(catalog);
+			for (auto& [identity, runtime] : QualityParticipants)
+				runtime.NavigationCoverage = std::make_unique<NavigationCoverageAccumulator>(catalog);
+		}
+
+		void ObserveNavigationCoverage()
+		{
+			using namespace BotBenchmarkQualityObservation;
+			if (!NavigationCoverageUnion)
+				return;
+			for (const auto& [identity, pawn] : CaptureLiveControlledBots())
+			{
+				auto runtime = QualityParticipants.find(identity);
+				if (runtime == QualityParticipants.end() || !runtime->second.NavigationCoverage)
+					continue;
+				const NavigationObserver observer{ { pawn->Location().x, pawn->Location().y,
+					pawn->Location().z }, pawn->CollisionRadius(), pawn->CollisionHeight() };
+				runtime->second.NavigationCoverage->Observe(observer);
+				NavigationCoverageUnion->Observe(observer);
+			}
 		}
 
 		BotAI::RuntimeObservationSnapshot CaptureShadowObservation(
@@ -1316,6 +1498,19 @@ namespace
 					runtime.DamageTakenFromNonParticipantsExact;
 				bot.DamageDealtToOtherParticipantsExact =
 					runtime.DamageDealtToOtherParticipantsExact;
+				bot.ConfirmedPickupsExact = runtime.ConfirmedPickupsExact;
+				bot.ConfirmedWeaponPickupsExact = runtime.ConfirmedWeaponPickupsExact;
+				bot.ConfirmedAmmoPickupsExact = runtime.ConfirmedAmmoPickupsExact;
+				bot.ConfirmedHealthPickupsExact = runtime.ConfirmedHealthPickupsExact;
+				bot.ConfirmedArmorPickupsExact = runtime.ConfirmedArmorPickupsExact;
+				bot.ConfirmedOtherPickupsExact = runtime.ConfirmedOtherPickupsExact;
+				bot.PickupSourceConsumedUnconfirmedExact =
+					runtime.PickupSourceConsumedUnconfirmedExact;
+				bot.NavigationCoverageCatalogNodesExact = NavigationCoverageCatalogNodeCount;
+				bot.NavigationCoverageVisitedNodesExact = runtime.NavigationCoverage
+					? runtime.NavigationCoverage->UniqueVisitedNodeCount() : 0;
+				bot.NavigationCoverageUnionVisitedNodesExact = NavigationCoverageUnion
+					? NavigationCoverageUnion->UniqueVisitedNodeCount() : 0;
 				bot.DirectSelfKills = runtime.DeathAttribution.DirectSelfKills;
 				bot.DirectEnemyKills = runtime.DeathAttribution.DirectEnemyKills;
 				bot.UnassistedEnvironmentalDeaths =
@@ -1600,6 +1795,7 @@ namespace
 				runtime.Pri = participant.Pawn ? participant.Pawn->PlayerReplicationInfo() : nullptr;
 				QualityParticipants.emplace(participant.Identity, std::move(runtime));
 			});
+			InitializeNavigationCoverage();
 			RegisterQualityHooks();
 		}
 
@@ -1638,6 +1834,10 @@ namespace
 		UFunction* CanonicalAddVelocityFunction = nullptr;
 		VMCallHookHandle QualityHookHandle = 0;
 		std::map<std::string, uint32_t> KilledHookDepths;
+		std::map<UInventory*, uint32_t> PickupTouchDepths;
+		std::unique_ptr<BotBenchmarkQualityObservation::NavigationCoverageAccumulator>
+			NavigationCoverageUnion;
+		size_t NavigationCoverageCatalogNodeCount = 0;
 		uint32_t HitWallHookDepth = 0;
 		bool IsUnrealTournamentProfile = false;
 	};

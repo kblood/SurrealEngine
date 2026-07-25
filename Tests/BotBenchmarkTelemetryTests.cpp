@@ -274,6 +274,16 @@ int main()
 		<< ",\"damage_taken_from_self_exact\":\"0\""
 		<< ",\"damage_taken_from_nonparticipants_exact\":\"0\""
 		<< ",\"damage_dealt_to_other_participants_exact\":\"0\""
+		<< ",\"confirmed_pickups_exact\":\"0\""
+		<< ",\"confirmed_weapon_pickups_exact\":\"0\""
+		<< ",\"confirmed_ammo_pickups_exact\":\"0\""
+		<< ",\"confirmed_health_pickups_exact\":\"0\""
+		<< ",\"confirmed_armor_pickups_exact\":\"0\""
+		<< ",\"confirmed_other_pickups_exact\":\"0\""
+		<< ",\"pickup_source_consumed_unconfirmed_exact\":\"0\""
+		<< ",\"navigation_coverage_visited_nodes_exact\":\"0\""
+		<< ",\"navigation_coverage_catalog_nodes_exact\":\"0\""
+		<< ",\"navigation_coverage_union_visited_nodes_exact\":\"0\""
 		<< ",\"vertical_pain_column_diagnostics\":[]";
 	const std::string expectedWalkingPreflightSuffix = walkingPreflightSuffix.str();
 	std::string expectedEvent =

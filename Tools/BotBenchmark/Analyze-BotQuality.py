@@ -22,7 +22,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 19
+TOOL_VERSION = 20
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -276,6 +276,20 @@ DAMAGE_COUNTERS = (
     "damage_taken_from_nonparticipants_exact",
     "damage_dealt_to_other_participants_exact",
 )
+CONFIRMED_PICKUP_COUNTERS = (
+    "confirmed_pickups_exact",
+    "confirmed_weapon_pickups_exact",
+    "confirmed_ammo_pickups_exact",
+    "confirmed_health_pickups_exact",
+    "confirmed_armor_pickups_exact",
+    "confirmed_other_pickups_exact",
+)
+PICKUP_SOURCE_CONSUMED_UNCONFIRMED_COUNTER = "pickup_source_consumed_unconfirmed_exact"
+NAVIGATION_COVERAGE_COUNTERS = (
+    "navigation_coverage_visited_nodes_exact",
+    "navigation_coverage_catalog_nodes_exact",
+    "navigation_coverage_union_visited_nodes_exact",
+)
 FALLING_PARITY_REALIZED_STEP_COUNTERS = (
     "falling_parity_realized_matched_steps_exact",
     "falling_parity_realized_matched_landing_steps_exact",
@@ -336,7 +350,10 @@ METRIC_DIRECTIONS.update({
 		+ VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
 		+ FALLING_PRE_MOVE_ANCHOR_COUNTERS + HAZARD_SWIM_EGRESS_LIVE_COUNTERS
 		+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
-        + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS + FALLING_HAZARD_RECOVERY_COUNTERS)
+        + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS + FALLING_HAZARD_RECOVERY_COUNTERS
+        + CONFIRMED_PICKUP_COUNTERS + (PICKUP_SOURCE_CONSUMED_UNCONFIRMED_COUNTER,)
+        + NAVIGATION_COVERAGE_COUNTERS + (
+            "navigation_coverage_fraction", "navigation_coverage_union_fraction"))
 })
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
@@ -352,9 +369,15 @@ OPTIONAL_EXACT_COUNTERS = (
     + VERTICAL_PAIN_COLUMN_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
     + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS
     + WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_COUNTERS
+    + CONFIRMED_PICKUP_COUNTERS + (PICKUP_SOURCE_CONSUMED_UNCONFIRMED_COUNTER,)
+    + (
+        "navigation_coverage_visited_nodes_exact",
+        "navigation_coverage_union_visited_nodes_exact",
+    )
 )
 OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
 OPTIONAL_CUMULATIVE_METRICS = OPTIONAL_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_NUMBERS
+OPTIONAL_STATIC_METRICS = ("navigation_coverage_catalog_nodes_exact",)
 MOVE_STALL_LEGACY_TELEMETRY_GROUP = (
     "move_stall_detections_exact", "move_stall_episode_resets_exact",
     "move_stall_eligible_seconds",
@@ -1940,6 +1963,9 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
         for name in OPTIONAL_CUMULATIVE_NUMBERS:
             if name in bot:
                 result[name] = _number(bot.get(name), f"{context}.{name}", minimum=0.0)
+        for name in OPTIONAL_STATIC_METRICS:
+            if name in bot:
+                result[name] = _integer(bot.get(name), f"{context}.{name}", minimum=0)
         for label, names in (
                 ("pain ledge", PAIN_LEDGE_EXACT_COUNTERS),
                 ("wall adjust", WALL_ADJUST_EXACT_COUNTERS),
@@ -1960,6 +1986,33 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             present = [name for name in names if name in result]
             if present and len(present) != len(names):
                 raise QualityError(f"{context}: {label} counters must be provided as a complete group")
+        confirmed_pickups_present = [
+            name for name in CONFIRMED_PICKUP_COUNTERS if name in result]
+        if confirmed_pickups_present and len(confirmed_pickups_present) != len(CONFIRMED_PICKUP_COUNTERS):
+            raise QualityError(
+                f"{context}: confirmed pickup counters must be provided as a complete group")
+        if confirmed_pickups_present and result["confirmed_pickups_exact"] != sum(
+                result[name] for name in CONFIRMED_PICKUP_COUNTERS[1:]):
+            raise QualityError(
+                f"{context}: confirmed pickup category counters do not partition confirmed pickups")
+        navigation_coverage_present = [
+            name for name in NAVIGATION_COVERAGE_COUNTERS if name in result]
+        if navigation_coverage_present and len(navigation_coverage_present) != len(
+                NAVIGATION_COVERAGE_COUNTERS):
+            raise QualityError(
+                f"{context}: navigation coverage counters must be provided as a complete group")
+        if navigation_coverage_present and (
+                result["navigation_coverage_visited_nodes_exact"] >
+                result["navigation_coverage_catalog_nodes_exact"] or
+                result["navigation_coverage_union_visited_nodes_exact"] >
+                result["navigation_coverage_catalog_nodes_exact"]):
+            raise QualityError(
+                f"{context}: navigation coverage visited nodes exceed catalog nodes")
+        if navigation_coverage_present and (
+                result["navigation_coverage_visited_nodes_exact"] >
+                result["navigation_coverage_union_visited_nodes_exact"]):
+            raise QualityError(
+                f"{context}: navigation coverage individual visited nodes exceed union visited nodes")
         falling_parity_present = {
             name for name in FALLING_PARITY_COUNTERS if name in result
         }
@@ -2423,11 +2476,14 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
     if events[0]["schema"] == TELEMETRY_SCHEMA_V2:
         previous: dict[str, dict[str, Any]] = {}
         counters = CORE_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_METRICS
-        optional_fields = OPTIONAL_CUMULATIVE_METRICS + OPTIONAL_DIAGNOSTIC_FIELDS
+        optional_fields = (
+            OPTIONAL_CUMULATIVE_METRICS + OPTIONAL_STATIC_METRICS
+            + OPTIONAL_DIAGNOSTIC_FIELDS)
         optional_presence: set[str] | None = None
         for event in events:
             participant_damage_dealt = 0
             participant_damage_taken = 0
+            navigation_coverage_union_values: set[int] = set()
             for bot in event["bots"]:
                 present = {name for name in optional_fields if name in bot}
                 if optional_presence is None:
@@ -2441,6 +2497,12 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                         if name in bot and bot[name] < prior[name]:
                             raise QualityError(
                                 f"{path}: {name} regressed for {bot['identity']} at sequence {event['seq']}")
+                    if ("navigation_coverage_catalog_nodes_exact" in bot and
+                            bot["navigation_coverage_catalog_nodes_exact"] !=
+                            prior["navigation_coverage_catalog_nodes_exact"]):
+                        raise QualityError(
+                            f"{path}: navigation coverage catalog changed for {bot['identity']} "
+                            f"at sequence {event['seq']}")
                 if bot["environmental_deaths_exact"] > bot["suicides_exact"]:
                     raise QualityError(
                         f"{path}: environmental deaths exceed suicides for {bot['identity']}")
@@ -2465,11 +2527,17 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 if "damage_taken_exact" in bot:
                     participant_damage_dealt += bot["damage_dealt_to_other_participants_exact"]
                     participant_damage_taken += bot["damage_taken_from_other_participants_exact"]
+                if "navigation_coverage_union_visited_nodes_exact" in bot:
+                    navigation_coverage_union_values.add(
+                        bot["navigation_coverage_union_visited_nodes_exact"])
                 previous[bot["identity"]] = bot
             if optional_presence and "damage_taken_exact" in optional_presence and \
                     participant_damage_dealt != participant_damage_taken:
                 raise QualityError(
                     f"{path}: inter-participant damage dealt/taken does not reconcile at sequence {event['seq']}")
+            if len(navigation_coverage_union_values) > 1:
+                raise QualityError(
+                    f"{path}: navigation coverage union differs between bots at sequence {event['seq']}")
         if optional_presence and "walking_step_preflight_diagnostics" in optional_presence:
             _validate_walking_step_preflight_diagnostic_stream(events, path)
         if optional_presence and "walking_step_preflight_positive_dps_veto_actions" in optional_presence:
@@ -2822,6 +2890,25 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 longest_intent_no_progress if telemetry_v2 else None),
             "movement_intent_stuck_events_proxy": intent_stuck_events if telemetry_v2 else None,
             **exact,
+            "navigation_coverage_visited_nodes_exact": (
+                final.get("navigation_coverage_visited_nodes_exact")
+                if telemetry_v2 and final is not None else None),
+            "navigation_coverage_catalog_nodes_exact": (
+                final.get("navigation_coverage_catalog_nodes_exact")
+                if telemetry_v2 and final is not None else None),
+            "navigation_coverage_union_visited_nodes_exact": (
+                final.get("navigation_coverage_union_visited_nodes_exact")
+                if telemetry_v2 and final is not None else None),
+            "navigation_coverage_fraction": _counter_fraction(
+                final.get("navigation_coverage_visited_nodes_exact")
+                if telemetry_v2 and final is not None else None,
+                final.get("navigation_coverage_catalog_nodes_exact")
+                if telemetry_v2 and final is not None else None),
+            "navigation_coverage_union_fraction": _counter_fraction(
+                final.get("navigation_coverage_union_visited_nodes_exact")
+                if telemetry_v2 and final is not None else None,
+                final.get("navigation_coverage_catalog_nodes_exact")
+                if telemetry_v2 and final is not None else None),
             "suicide_to_kill_ratio": (
                 exact["suicides_exact"] / kills if telemetry_v2 and kills and kills > 0 else None),
             "match_score_initial": first.get("score"),
@@ -2951,6 +3038,27 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
         "completion": completion,
     }
     result.update({name: sum_available(name) for name in OPTIONAL_CUMULATIVE_METRICS})
+    navigation_visited = sum_available("navigation_coverage_visited_nodes_exact")
+    navigation_catalog = sum_available("navigation_coverage_catalog_nodes_exact")
+    navigation_union_values = {
+        bot["navigation_coverage_union_visited_nodes_exact"] for bot in values
+        if bot["navigation_coverage_union_visited_nodes_exact"] is not None
+    }
+    navigation_catalog_values = {
+        bot["navigation_coverage_catalog_nodes_exact"] for bot in values
+        if bot["navigation_coverage_catalog_nodes_exact"] is not None
+    }
+    navigation_union = (
+        next(iter(navigation_union_values)) if len(navigation_union_values) == 1 else None)
+    navigation_union_catalog = (
+        next(iter(navigation_catalog_values)) if len(navigation_catalog_values) == 1 else None)
+    result.update({
+        "navigation_coverage_visited_nodes_exact": navigation_visited,
+        "navigation_coverage_catalog_nodes_exact": navigation_catalog,
+        "navigation_coverage_union_visited_nodes_exact": navigation_union,
+        "navigation_coverage_fraction": _counter_fraction(navigation_visited, navigation_catalog),
+        "navigation_coverage_union_fraction": _counter_fraction(navigation_union, navigation_union_catalog),
+    })
     parity_episodes = result.get("falling_parity_realized_episodes_exact")
     parity_steps = result.get("falling_parity_realized_steps_exact")
     parity_matched = result.get("falling_parity_realized_matched_steps_exact")
@@ -3121,7 +3229,9 @@ def analyze_run(path: Path) -> dict[str, Any]:
             "status": "passed",
             "telemetry_events": len(events),
             "optional_telemetry_fields": sorted(
-                name for name in OPTIONAL_CUMULATIVE_METRICS + OPTIONAL_DIAGNOSTIC_FIELDS
+                name for name in (
+                    OPTIONAL_CUMULATIVE_METRICS + OPTIONAL_STATIC_METRICS
+                    + OPTIONAL_DIAGNOSTIC_FIELDS)
                 if any(name in bot for event in events for bot in event["bots"])),
         },
     }
@@ -3249,7 +3359,7 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
             "available": list(METRIC_DIRECTIONS),
             "optional_counter_metrics_present": {
                 name: any(run["metrics"].get(name) is not None for run in runs)
-                for name in OPTIONAL_CUMULATIVE_METRICS
+                for name in OPTIONAL_CUMULATIVE_METRICS + OPTIONAL_STATIC_METRICS
             },
             "death_attribution_metrics_present": all(
                 any(run["metrics"].get(name) is not None for run in runs)
@@ -3292,6 +3402,11 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
             "a legacy, aggregate-recovery, or attributed-recovery complete monotonic group and reported when present. "
             "Optional failed-navigation activations, safeguard suppressions, and route-penalty applications are "
             "validated as a complete monotonic group and reported when present. "
+            "Optional confirmed pickups are ownership-transfer observations; their categories partition only "
+            "confirmed pickups, while consumed source items without a confirmed transfer remain a separate, "
+            "neutral diagnostic. Optional navigation coverage reports per-bot terminal visited/catalog node "
+            "counts and their weighted aggregate fraction, plus a shared terminal union count when every bot "
+            "reports the same catalog; these are observations, not gameplay-quality scores. "
             "Optional falling-seam shadow v1 rollups and detailed v2 episode, geometry, and candidate outcome "
             "counters are validated as complete monotonic groups and reported when present; they describe a "
             "read-only policy probe and do not prove that any movement was applied. "

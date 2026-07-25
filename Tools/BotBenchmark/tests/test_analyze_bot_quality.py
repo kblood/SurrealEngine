@@ -189,6 +189,9 @@ def upgrade_telemetry_v2(run: Path, *, counters: list[dict]) -> None:
             for name in QUALITY.OPTIONAL_CUMULATIVE_NUMBERS:
                 if name in sample:
                     bot[name] = sample[name]
+            for name in QUALITY.OPTIONAL_STATIC_METRICS:
+                if name in sample:
+                    bot[name] = str(sample[name])
             for name in QUALITY.OPTIONAL_DIAGNOSTIC_FIELDS:
                 if name in sample:
                     bot[name] = sample[name]
@@ -2255,6 +2258,125 @@ class BotQualityAnalysisTests(unittest.TestCase):
             self.assertEqual(metrics["hazard_entries"], 1)
             self.assertEqual(metrics["hazard_exposed_deaths_proxy"], 1)
             self.assertEqual(metrics["hazard_exposed_death_fraction_proxy"], 1.0 / 3.0)
+            self.assertIsNone(metrics["confirmed_pickups_exact"])
+            self.assertIsNone(metrics["pickup_source_consumed_unconfirmed_exact"])
+            self.assertIsNone(metrics["navigation_coverage_visited_nodes_exact"])
+
+    def test_optional_pickup_and_navigation_coverage_metrics_are_validated(self) -> None:
+        base = {
+            "score": 0, "pri_deaths": 0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        pickup_zero = {
+            "confirmed_pickups_exact": 0,
+            "confirmed_weapon_pickups_exact": 0,
+            "confirmed_ammo_pickups_exact": 0,
+            "confirmed_health_pickups_exact": 0,
+            "confirmed_armor_pickups_exact": 0,
+            "confirmed_other_pickups_exact": 0,
+            "pickup_source_consumed_unconfirmed_exact": 0,
+            "navigation_coverage_visited_nodes_exact": 1,
+            "navigation_coverage_catalog_nodes_exact": 10,
+            "navigation_coverage_union_visited_nodes_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = write_v2_run(root, "valid", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**base, **pickup_zero},
+                {**base, **pickup_zero,
+                 "confirmed_pickups_exact": 1,
+                 "confirmed_weapon_pickups_exact": 1,
+                 "pickup_source_consumed_unconfirmed_exact": 1,
+                 "navigation_coverage_visited_nodes_exact": 3,
+                 "navigation_coverage_union_visited_nodes_exact": 3},
+                {**base, **pickup_zero,
+                 "confirmed_pickups_exact": 3,
+                 "confirmed_weapon_pickups_exact": 1,
+                 "confirmed_ammo_pickups_exact": 1,
+                 "confirmed_health_pickups_exact": 1,
+                 "pickup_source_consumed_unconfirmed_exact": 2,
+                 "navigation_coverage_visited_nodes_exact": 5,
+                 "navigation_coverage_union_visited_nodes_exact": 5},
+            ])
+            report = QUALITY.analyze([run])
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(metrics["confirmed_pickups_exact"], 3)
+            self.assertEqual(metrics["confirmed_weapon_pickups_exact"], 1)
+            self.assertEqual(metrics["confirmed_ammo_pickups_exact"], 1)
+            self.assertEqual(metrics["confirmed_health_pickups_exact"], 1)
+            self.assertEqual(metrics["pickup_source_consumed_unconfirmed_exact"], 2)
+            self.assertEqual(metrics["navigation_coverage_visited_nodes_exact"], 5)
+            self.assertEqual(metrics["navigation_coverage_catalog_nodes_exact"], 10)
+            self.assertEqual(metrics["navigation_coverage_union_visited_nodes_exact"], 5)
+            self.assertEqual(metrics["navigation_coverage_fraction"], 0.5)
+            self.assertEqual(metrics["navigation_coverage_union_fraction"], 0.5)
+            self.assertIsNone(QUALITY.METRIC_DIRECTIONS["confirmed_pickups_exact"])
+            self.assertIsNone(QUALITY.METRIC_DIRECTIONS["navigation_coverage_fraction"])
+            self.assertIn("confirmed_pickups_exact",
+                          report["runs"][0]["validation"]["optional_telemetry_fields"])
+            self.assertIn("navigation_coverage_catalog_nodes_exact",
+                          report["runs"][0]["validation"]["optional_telemetry_fields"])
+            self.assertTrue(report["metric_availability"]["optional_counter_metrics_present"]
+                            ["confirmed_pickups_exact"])
+            self.assertTrue(report["metric_availability"]["optional_counter_metrics_present"]
+                            ["navigation_coverage_catalog_nodes_exact"])
+
+            incomplete = write_v2_run(root, "incomplete", bot_count=1)
+            upgrade_telemetry_v2(incomplete, counters=[
+                {**base, "confirmed_pickups_exact": 0},
+                {**base, "confirmed_pickups_exact": 0},
+                {**base, "confirmed_pickups_exact": 0},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "confirmed pickup counters"):
+                QUALITY.analyze_run(incomplete)
+
+            partition = write_v2_run(root, "partition", bot_count=1)
+            upgrade_telemetry_v2(partition, counters=[
+                {**base, **pickup_zero, "confirmed_pickups_exact": 1},
+                {**base, **pickup_zero, "confirmed_pickups_exact": 1},
+                {**base, **pickup_zero, "confirmed_pickups_exact": 1},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "do not partition"):
+                QUALITY.analyze_run(partition)
+
+            changing_catalog = write_v2_run(root, "changing-catalog", bot_count=1)
+            upgrade_telemetry_v2(changing_catalog, counters=[
+                {**base, **pickup_zero},
+                {**base, **pickup_zero, "navigation_coverage_catalog_nodes_exact": 11},
+                {**base, **pickup_zero, "navigation_coverage_catalog_nodes_exact": 11},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "navigation coverage catalog changed"):
+                QUALITY.analyze_run(changing_catalog)
+
+            union_mismatch = write_v2_run(root, "union-mismatch", bot_count=2)
+            upgrade_telemetry_v2(union_mismatch, counters=[
+                {**base, **pickup_zero},
+                {**base, **pickup_zero},
+                {**base, **pickup_zero},
+            ])
+            path = union_mismatch / "events.jsonl"
+            events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            events[1]["bots"][1]["navigation_coverage_union_visited_nodes_exact"] = "2"
+            path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "union differs between bots"):
+                QUALITY.analyze_run(union_mismatch)
+
+            excess = write_v2_run(root, "excess", bot_count=1)
+            upgrade_telemetry_v2(excess, counters=[
+                {**base, **pickup_zero,
+                 "navigation_coverage_visited_nodes_exact": 11},
+                {**base, **pickup_zero,
+                 "navigation_coverage_visited_nodes_exact": 11},
+                {**base, **pickup_zero,
+                 "navigation_coverage_visited_nodes_exact": 11},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "visited nodes exceed catalog"):
+                QUALITY.analyze_run(excess)
 
     def test_supported_metrics_are_computed_from_samples(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

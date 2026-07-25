@@ -82,6 +82,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/GameSupport.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.h
+	SurrealEngine/BotBenchmark/BotBenchmarkQualityObservation.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkQualityObservation.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttribution.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttribution.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionCoordinator.cpp

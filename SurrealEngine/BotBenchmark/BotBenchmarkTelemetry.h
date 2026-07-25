@@ -50,6 +50,16 @@ struct BotBenchmarkBotState
 	uint64_t DamageTakenFromSelfExact = 0;
 	uint64_t DamageTakenFromNonParticipantsExact = 0;
 	uint64_t DamageDealtToOtherParticipantsExact = 0;
+	uint64_t ConfirmedPickupsExact = 0;
+	uint64_t ConfirmedWeaponPickupsExact = 0;
+	uint64_t ConfirmedAmmoPickupsExact = 0;
+	uint64_t ConfirmedHealthPickupsExact = 0;
+	uint64_t ConfirmedArmorPickupsExact = 0;
+	uint64_t ConfirmedOtherPickupsExact = 0;
+	uint64_t PickupSourceConsumedUnconfirmedExact = 0;
+	uint64_t NavigationCoverageVisitedNodesExact = 0;
+	uint64_t NavigationCoverageCatalogNodesExact = 0;
+	uint64_t NavigationCoverageUnionVisitedNodesExact = 0;
 	uint64_t DirectSelfKills = 0;
 	uint64_t DirectEnemyKills = 0;
 	uint64_t UnassistedEnvironmentalDeaths = 0;
