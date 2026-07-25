@@ -235,8 +235,11 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.HazardSwimEgressDirectNavSafeCandidates,
 				Previous.HazardSwimEgressDirectNavSafeCandidates,
 				totals.HazardSwimEgressDirectNavSafeCandidates);
-			totals.HazardSwimEgressDirectNavBestCandidateName =
-				current.HazardSwimEgressDirectNavBestCandidateName;
+			if (!current.HazardSwimEgressDirectNavBestCandidateName.empty())
+			{
+				totals.HazardSwimEgressDirectNavBestCandidateName =
+					current.HazardSwimEgressDirectNavBestCandidateName;
+			}
 			totals.HazardSwimEgressAnchorKnown = current.HazardSwimEgressAnchorKnown;
 			totals.HazardSwimEgressAnchorSource = current.HazardSwimEgressAnchorSource;
 			AccumulateCounter(current.FallingSeamDetections, Previous.FallingSeamDetections,
