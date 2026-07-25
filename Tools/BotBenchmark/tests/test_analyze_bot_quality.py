@@ -462,6 +462,51 @@ class BotQualityAnalysisTests(unittest.TestCase):
             upgrade_telemetry_v2(absent, counters=[common, common, common])
             QUALITY.analyze_run(absent)
 
+    def test_live_hazard_swim_egress_counters_are_complete_and_bounded(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            **{name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_EXACT_COUNTERS},
+        }
+        final = {
+            **common,
+            "hazard_swim_egress_episodes_exact": 2,
+            "hazard_swim_egress_eligible_exact": 2,
+            "hazard_swim_egress_authorized_exact": 2,
+            "hazard_swim_egress_live_applies_exact": 1,
+            "hazard_swim_egress_live_active_ticks_exact": 7,
+            "hazard_swim_egress_live_probe_rejected_exact": 1,
+            "hazard_swim_egress_live_successful_exits_exact": 1,
+        }
+        zero = {name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_LIVE_COUNTERS}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "hazard-swim-live", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, **zero}, {**common, **zero}, final,
+            ])
+            metrics = QUALITY.analyze([valid])["runs"][0]["metrics"]
+            self.assertEqual(metrics["hazard_swim_egress_live_active_ticks_exact"], 7)
+
+            partial = write_v2_run(root, "hazard-swim-live-partial", bot_count=1)
+            partial_final = {**final}
+            partial_final.pop("hazard_swim_egress_live_active_ticks_exact")
+            upgrade_telemetry_v2(partial, counters=[
+                {**common, **zero}, {**common, **zero}, partial_final,
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "live counters must be provided"):
+                QUALITY.analyze_run(partial)
+
+            excessive = write_v2_run(root, "hazard-swim-live-excess", bot_count=1)
+            excessive_final = {**final, "hazard_swim_egress_live_probe_rejected_exact": 2}
+            upgrade_telemetry_v2(excessive, counters=[
+                {**common, **zero}, {**common, **zero}, excessive_final,
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "exceed authorization"):
+                QUALITY.analyze_run(excessive)
+
     def test_falling_parity_and_vertical_column_counters_are_exclusive_and_reported(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,

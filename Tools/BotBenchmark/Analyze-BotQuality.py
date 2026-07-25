@@ -155,8 +155,14 @@ HAZARD_SWIM_EGRESS_EXACT_COUNTERS = (
     "hazard_swim_egress_forced_replans_exact",
 )
 FALLING_PRE_MOVE_ANCHOR_COUNTERS = (
-    "falling_pre_move_anchor_captures_exact",
-    "falling_pre_move_anchor_uses_exact",
+	"falling_pre_move_anchor_captures_exact",
+	"falling_pre_move_anchor_uses_exact",
+)
+HAZARD_SWIM_EGRESS_LIVE_COUNTERS = (
+	"hazard_swim_egress_live_applies_exact",
+	"hazard_swim_egress_live_active_ticks_exact",
+	"hazard_swim_egress_live_probe_rejected_exact",
+	"hazard_swim_egress_live_successful_exits_exact",
 )
 DEATH_ATTRIBUTION_COUNTERS = (
     "direct_self_kills", "direct_enemy_kills", "unassisted_environmental_deaths",
@@ -276,16 +282,17 @@ VERTICAL_PAIN_COLUMN_COUNTERS = VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS + (
     "vertical_pain_column_generation_capacity_exhaustions_exact",
 )
 METRIC_DIRECTIONS.update({
-    name: None for name in (
-        WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
-        + VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
-        + FALLING_PRE_MOVE_ANCHOR_COUNTERS)
+	name: None for name in (
+		WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
+		+ VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
+		+ FALLING_PRE_MOVE_ANCHOR_COUNTERS + HAZARD_SWIM_EGRESS_LIVE_COUNTERS)
 })
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
     + FAILED_NAVIGATION_EXACT_COUNTERS + HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS
-    + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
-    + FALLING_PRE_MOVE_ANCHOR_COUNTERS
+	+ HAZARD_SWIM_EGRESS_EXACT_COUNTERS
+	+ FALLING_PRE_MOVE_ANCHOR_COUNTERS
+	+ HAZARD_SWIM_EGRESS_LIVE_COUNTERS
     + DEATH_ATTRIBUTION_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
@@ -1844,6 +1851,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("harmful-zone escape", HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS),
                 ("hazard swim egress", HAZARD_SWIM_EGRESS_EXACT_COUNTERS),
                 ("falling pre-move anchor", FALLING_PRE_MOVE_ANCHOR_COUNTERS),
+                ("hazard swim egress live", HAZARD_SWIM_EGRESS_LIVE_COUNTERS),
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
@@ -1919,6 +1927,20 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if forced_replans > authorized:
                 raise QualityError(
                     f"{context}: hazard swim egress forced replans exceed authorization")
+        if "hazard_swim_egress_live_applies_exact" in result:
+            live_applies = result["hazard_swim_egress_live_applies_exact"]
+            live_active_ticks = result["hazard_swim_egress_live_active_ticks_exact"]
+            live_probe_rejected = result["hazard_swim_egress_live_probe_rejected_exact"]
+            live_successful_exits = result["hazard_swim_egress_live_successful_exits_exact"]
+            if live_applies + live_probe_rejected > result["hazard_swim_egress_authorized_exact"]:
+                raise QualityError(
+                    f"{context}: live swim egress applies/probe rejections exceed authorization")
+            if live_active_ticks < live_applies:
+                raise QualityError(
+                    f"{context}: live swim egress active ticks are fewer than applies")
+            if live_successful_exits > live_applies:
+                raise QualityError(
+                    f"{context}: live swim egress successful exits exceed applies")
         if "falling_pre_move_anchor_captures_exact" in result:
             if result["falling_pre_move_anchor_uses_exact"] > \
                     result["falling_pre_move_anchor_captures_exact"]:
