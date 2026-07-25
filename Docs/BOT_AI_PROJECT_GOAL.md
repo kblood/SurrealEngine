@@ -41,9 +41,11 @@ qualification evidence.
 
 Use the qualified move-stall observer in owner-data discovery runs, while
 implementing the next missing release measurement: causal avoidable-suicide
-classification. Recovery-time thresholds may now be evaluated only when a
-candidate campaign supplies a non-zero, complete opportunity set; the forced
-fixture qualifies the measurement path, not bot quality.
+classification. The first delivered layer is a pure fail-closed classifier;
+live labels remain unavailable until a pre-commit witness is captured and
+reconciled with a terminal death. Recovery-time thresholds may now be evaluated
+only when a candidate campaign supplies a non-zero, complete opportunity set;
+the forced fixture qualifies the measurement path, not bot quality.
 
 ## Current status
 

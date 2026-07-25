@@ -2038,6 +2038,34 @@ opportunities or that any candidate bot policy improves them. Natural,
 complete campaign opportunities remain required before recovery fractions can
 pass a quality gate.
 
+## Iteration 84: causal avoidable-suicide classifier contract
+
+The existing five-way death attribution and hazard-death partition are retained
+as attribution evidence only. In particular, an unassisted environmental death
+is not silently relabeled "avoidable": the current live records contain only
+death-time state, terminal observer correlation, and recent-enemy proxies, not
+the decision that led into the hazard.
+
+`BotBenchmarkAvoidableSuicide` is a pure, cross-game, fail-closed classifier
+that establishes the required contract before live wiring. It permits an
+`avoidable` outcome only for an unassisted environmental death with a matching
+same-life actor/command witness, movement intent, a harmful forecast available
+before commitment, terminal/forecast agreement, a known safe alternative at
+that same commitment, and proof that no external intervention occurred. Enemy,
+ambiguous, direct-self, and external-impulse cases are excluded from the
+navigation avoidability denominator. Missing, mismatched, or overflowed witness
+data is unknown; a proven absent safe alternative or non-predictable outcome is
+unavoidable. The rate denominator is only `avoidable + unavoidable`, with an
+explicit unknown fraction.
+
+The pure fixture covers the positive control and each fail-closed branch. It
+does not make `avoidable_suicide_rate` available to campaigns yet: next, a
+read-only pre-commit observer must capture the command/life token, forecast,
+bounded safe alternative, and external-intervention evidence before movement
+commits, then reconcile the witness with the existing terminal record. The
+known Deck16-II and DeathFan deaths remain excluded or unknown until that
+evidence exists.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
