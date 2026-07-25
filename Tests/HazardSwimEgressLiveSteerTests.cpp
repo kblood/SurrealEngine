@@ -155,27 +155,6 @@ namespace
 			"unrun probe cannot steer");
 	}
 
-	void TestAccelerationOverlayRestorationOwnership()
-	{
-		HazardSwimEgressAccelerationOverlayRestoreInput input;
-		input.OverlayActive = true;
-		input.CurrentAcceleration = vec3(30.0f, 0.0f, 0.0f);
-		input.OverlayDirection = vec3(1.0f, 0.0f, 0.0f);
-		input.ExpectedMaximumAcceleration = 30.0f;
-		Check(ShouldRestoreHazardSwimEgressAccelerationOverlay(input),
-			"the unchanged one-tick egress overlay restores the prior command");
-		input.CurrentAcceleration = vec3(0.0f, 30.0f, 0.0f);
-		Check(!ShouldRestoreHazardSwimEgressAccelerationOverlay(input),
-			"a callback replacement command keeps ownership of acceleration");
-		input.CurrentAcceleration = vec3(60.0f, 0.0f, 0.0f);
-		Check(!ShouldRestoreHazardSwimEgressAccelerationOverlay(input),
-			"an acceleration outside the swim overlay bound is not restored");
-		input.OverlayActive = false;
-		input.CurrentAcceleration = vec3(30.0f, 0.0f, 0.0f);
-		Check(!ShouldRestoreHazardSwimEgressAccelerationOverlay(input),
-			"an inactive overlay cannot restore acceleration");
-	}
-
 	void TestStockPlannerReplan()
 	{
 		HazardSwimEgressLiveReplanInput input;
@@ -212,7 +191,6 @@ int main()
 	TestReadyCandidate();
 	TestExplicitTerminals();
 	TestFailsClosed();
-	TestAccelerationOverlayRestorationOwnership();
 	TestStockPlannerReplan();
 	if (Failures == 0)
 		std::cout << "Hazard swim egress live steer tests passed\n";

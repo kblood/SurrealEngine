@@ -3801,7 +3801,15 @@ def _reconcile_post_mayfall_harmful_parity_deaths(
             continue
         for key in witnesses[identity]:
             if key not in parity_started[identity]:
-                raise QualityError(f"{path}: causal harmful-fall witness has no parity episode start")
+                # Older v2 artifacts can carry the later command token while
+                # lacking the parity lifecycle stream. The causal answer is
+                # unknown, not a zero and not grounds to reject the complete
+                # non-causal benchmark artifact.
+                complete[identity] = False
+                break
+        if not complete[identity]:
+            result[identity] = None
+            continue
         for key in parity_died[identity]:
             claims = partition_claims[identity].get(key, [])
             if len(claims) != 1:

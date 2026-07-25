@@ -1824,7 +1824,6 @@ void UActor::TickSwimming(float elapsed)
 
 	if (Region().ZoneNumber == 0)
 	{
-		pawn->RestoreHazardSwimEgressAccelerationOverlay();
 		CallEvent(this, EventName::FellOutOfWorld);
 		return;
 	}
@@ -1925,7 +1924,6 @@ void UActor::TickSwimming(float elapsed)
 		Velocity() = (Location() - OldLocation()) / elapsed;
 
 	pawn->ObserveHazardSwimEgressAfterPhysicsMove();
-	pawn->RestoreHazardSwimEgressAccelerationOverlay();
 
 	if (!Region().Zone->bWaterZone())
 	{
@@ -5858,90 +5856,41 @@ void UPawn::AdvanceHazardSwimEgressLiveSteer()
 
 	const bool movementCommandActive = StateFrame
 		&& IsMovementLatentState(StateFrame->LatentState);
-	if (movementCommandActive)
+	if (!movementCommandActive)
 	{
-		const BotAI::HazardSwimEgressLiveReplanDecision replan =
-			BotAI::EvaluateHazardSwimEgressLiveReplan({
-				engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
-				IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
-				!bDeleteMe() && Health() > 0, Physics() == PHYS_Swimming,
-				HazardSwimEgress.HarmfulWaterEpisodeActive,
-				HazardSwimEgress.LiveActionAuthorized, true,
-				HazardSwimEgress.DirectNavBestCandidateLocationKnown,
-				HazardSwimEgress.LiveReplanIssued });
-		if (replan == BotAI::HazardSwimEgressLiveReplanDecision::Replan)
-		{
-			// This hands the next decision to the stock script instead of steering
-			// against its active combat/navigation command.
-			Acceleration() = vec3(0.0f);
-			MoveTimer() = -1.0f;
-			HazardSwimEgress.LiveReplanIssued = true;
-			HazardSwimEgressForcedReplanCountValue++;
-		}
-		ObserveHazardSwimEgressLiveSteerShadowDecision(
-			BotAI::EvaluateHazardSwimEgressLiveSteer({
-				engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
-				IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
-				!bDeleteMe() && Health() > 0, BotAI::HazardSwimEgressPhysics::Swimming,
-				HazardSwimEgress.HarmfulWaterEpisodeActive,
-				HazardSwimEgress.LiveActionAuthorized, true,
-				HazardSwimEgress.LiveProbeRejected,
-				HazardSwimEgress.AnchorKnown && IsFiniteVector(HazardSwimEgress.Anchor),
-				HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove,
-				exactHarmfulWater, true, distance, BotAI::HazardSwimEgressProbe::NotRun }));
 		HazardSwimEgress.ActionActive = false;
 		return;
 	}
-
-	const bool probeClear = TryMove(delta, true).Fraction == 1.0f;
-	const BotAI::HazardSwimEgressLiveSteerDecision decision =
+	const BotAI::HazardSwimEgressLiveReplanDecision replan =
+		BotAI::EvaluateHazardSwimEgressLiveReplan({
+			engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
+			IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
+			!bDeleteMe() && Health() > 0, Physics() == PHYS_Swimming,
+			HazardSwimEgress.HarmfulWaterEpisodeActive,
+			HazardSwimEgress.LiveActionAuthorized, true,
+			HazardSwimEgress.DirectNavBestCandidateLocationKnown,
+			HazardSwimEgress.LiveReplanIssued });
+	if (replan == BotAI::HazardSwimEgressLiveReplanDecision::Replan)
+	{
+		// This hands the next decision to the stock script instead of steering
+		// against its active combat/navigation command.
+		Acceleration() = vec3(0.0f);
+		MoveTimer() = -1.0f;
+		HazardSwimEgress.LiveReplanIssued = true;
+		HazardSwimEgressForcedReplanCountValue++;
+	}
+	ObserveHazardSwimEgressLiveSteerShadowDecision(
 		BotAI::EvaluateHazardSwimEgressLiveSteer({
 			engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
 			IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
 			!bDeleteMe() && Health() > 0, BotAI::HazardSwimEgressPhysics::Swimming,
 			HazardSwimEgress.HarmfulWaterEpisodeActive,
-			HazardSwimEgress.LiveActionAuthorized,
-			false,
+			HazardSwimEgress.LiveActionAuthorized, true,
 			HazardSwimEgress.LiveProbeRejected,
 			HazardSwimEgress.AnchorKnown && IsFiniteVector(HazardSwimEgress.Anchor),
 			HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove,
-			exactHarmfulWater, true, distance,
-			probeClear ? BotAI::HazardSwimEgressProbe::Clear
-				: BotAI::HazardSwimEgressProbe::Blocked });
-	ObserveHazardSwimEgressLiveSteerShadowDecision(decision);
-	if (!probeClear)
-	{
-		HazardSwimEgress.LiveProbeRejected = true;
-		HazardSwimEgress.ActionActive = false;
-		HazardSwimEgressLiveProbeRejectedCountValue++;
-		return;
-	}
-
-	if (decision.Transition != BotAI::HazardSwimEgressLiveSteerTransition::SteerCandidate)
-	{
-		HazardSwimEgress.ActionActive = false;
-		return;
-	}
-	HazardSwimEgress.AccelerationBeforeOverlay = Acceleration();
-	HazardSwimEgress.AccelerationOverlayDirection = normalize(delta);
-	HazardSwimEgress.AccelerationOverlayActive = true;
-	Acceleration() = HazardSwimEgress.AccelerationOverlayDirection * AccelRate();
-	if (!HazardSwimEgress.ActionActive)
-		HazardSwimEgressLiveApplyCountValue++;
-	HazardSwimEgress.ActionActive = true;
-	HazardSwimEgressLiveActiveTickCountValue++;
-}
-
-void UPawn::RestoreHazardSwimEgressAccelerationOverlay()
-{
-	if (!HazardSwimEgress.AccelerationOverlayActive)
-		return;
-	const vec3 acceleration = Acceleration();
-	if (BotAI::ShouldRestoreHazardSwimEgressAccelerationOverlay({
-			true, acceleration, HazardSwimEgress.AccelerationOverlayDirection,
-			AccelRate() * 0.3f }))
-		Acceleration() = HazardSwimEgress.AccelerationBeforeOverlay;
-	HazardSwimEgress.AccelerationOverlayActive = false;
+			exactHarmfulWater, true, distance, BotAI::HazardSwimEgressProbe::NotRun }));
+	HazardSwimEgress.ActionActive = false;
 }
 
 void UPawn::ObserveHazardSwimEgressLiveSteerShadowDecision(

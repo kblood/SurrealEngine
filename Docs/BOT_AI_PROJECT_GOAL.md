@@ -43,11 +43,14 @@ Use the qualified move-stall observer and causal suicide evidence in owner-data
 discovery runs. Command-stable harmful-fall terminal correlations are now
 available as nullable observer metrics, but avoidability remains unproven until
 safe alternatives and external-intervention exclusions are captured. The
-immediate behavior investigation is the rejected live hazard-swim-egress
-experiment: its command-safe, one-physics-step correction now needs paired
-UT436 and Unreal Gold qualification. Recovery-time thresholds may be evaluated
-only when a candidate campaign supplies a non-zero, complete opportunity set;
-the forced fixture qualifies the measurement path, not bot quality.
+immediate behavior investigation is the default-off, replan-only
+hazard-swim-egress experiment: it lowers UT436 Deck16-II hazard exposure without
+changing kills, deaths, or suicides, so it is retained only for measurement.
+The next slice must determine whether stock scripts reissue the same hazardous
+target after a handoff before any target-redirection policy is considered.
+Recovery-time thresholds may be evaluated only when a candidate campaign
+supplies a non-zero, complete opportunity set; the forced fixture qualifies the
+measurement path, not bot quality.
 
 ## Current status
 

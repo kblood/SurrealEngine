@@ -3017,9 +3017,23 @@ class BotQualityAnalysisTests(unittest.TestCase):
             })
         self.assertIsNone(QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
             event(overflow=1), Path("overflow"))["pri:1"])
-        with self.assertRaisesRegex(QUALITY.QualityError, "no parity episode start"):
-            QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
-                event(include_start=False), Path("missing-start"))
+        self.assertIsNone(QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(include_start=False), Path("missing-start"))["pri:1"])
+        mixed = event()
+        incomplete_bot = event(include_start=False)[0]["bots"][0]
+        incomplete_bot["identity"] = "pri:2"
+        incomplete_bot["actor"] = "Bot2"
+        for record_group in (
+                "walking_step_preflight_diagnostics",
+                "falling_parity_realized_records",
+                "hazard_death_partition_records"):
+            for record in incomplete_bot[record_group]:
+                record["source_pawn_actor"] = "Bot2"
+        mixed[0]["bots"].append(incomplete_bot)
+        mixed_result = QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            mixed, Path("mixed-completeness"))
+        self.assertEqual(mixed_result["pri:1"], positive)
+        self.assertIsNone(mixed_result["pri:2"])
         with self.assertRaisesRegex(QUALITY.QualityError, "exactly one partition claim"):
             QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
                 event(duplicate_claim=True), Path("duplicate-claim"))

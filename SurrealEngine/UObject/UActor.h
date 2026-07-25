@@ -1941,7 +1941,6 @@ public:
 	void CaptureHazardSwimEgressAnchorBeforePhysicsMove();
 	void ObserveHazardSwimEgressAfterPhysicsMove();
 	void AdvanceHazardSwimEgressLiveSteer();
-	void RestoreHazardSwimEgressAccelerationOverlay();
 	void ObserveHazardSwimEgressLiveSteerShadowDecision(
 		const BotAI::HazardSwimEgressLiveSteerDecision& decision);
 	void EndHazardSwimEgressSwimSession();
@@ -2493,9 +2492,6 @@ private:
 		bool LiveProbeRejected = false;
 		bool LiveReplanIssued = false;
 		bool ActionActive = false;
-		bool AccelerationOverlayActive = false;
-		vec3 AccelerationBeforeOverlay = vec3(0.0f);
-		vec3 AccelerationOverlayDirection = vec3(0.0f);
 		PawnMovement::HazardWaterEgressTransitionSource TransitionSource =
 			PawnMovement::HazardWaterEgressTransitionSource::Unknown;
 		std::string DirectNavBestCandidateName;

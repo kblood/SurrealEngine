@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Math/vec.h"
-
 namespace BotAI
 {
 	enum class HazardSwimEgressPhysics
@@ -90,14 +88,6 @@ namespace BotAI
 			HazardSwimEgressLiveSteerReason::PolicyDisabled;
 	};
 
-	struct HazardSwimEgressAccelerationOverlayRestoreInput
-	{
-		bool OverlayActive = false;
-		vec3 CurrentAcceleration = vec3(0.0f);
-		vec3 OverlayDirection = vec3(0.0f);
-		float ExpectedMaximumAcceleration = 0.0f;
-	};
-
 	struct HazardSwimEgressLiveReplanInput
 	{
 		bool PolicyEnabled = false;
@@ -113,8 +103,6 @@ namespace BotAI
 
 	HazardSwimEgressLiveSteerDecision EvaluateHazardSwimEgressLiveSteer(
 		const HazardSwimEgressLiveSteerInput& input);
-	bool ShouldRestoreHazardSwimEgressAccelerationOverlay(
-		const HazardSwimEgressAccelerationOverlayRestoreInput& input);
 	HazardSwimEgressLiveReplanDecision EvaluateHazardSwimEgressLiveReplan(
 		const HazardSwimEgressLiveReplanInput& input);
 }

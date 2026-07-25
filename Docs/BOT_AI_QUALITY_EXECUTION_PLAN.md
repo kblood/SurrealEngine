@@ -2170,32 +2170,55 @@ tests pass together with the full 123-test Python suite. Fresh owner-data
 campaigns must supply a non-zero complete opportunity set before these metrics
 can inform an avoidable-suicide gate.
 
-## Iteration 90: egress overlay ownership fixture
+## Iteration 90: egress overlay ownership fixture (superseded)
 
-The live egress unit test now covers the acceleration transaction itself, not
-only its eligibility policy. It proves that the one-physics-step overlay
-restores the saved stock acceleration when the swimming integrator still owns
-the vector, while a callback-issued replacement vector or an out-of-bound
-vector is retained. This makes the lifecycle correction deterministic and
-prevents a future refactor from silently restoring over a newer bot command.
-The focused test and the Release engine build pass. Runtime quality remains
-unproven until the owner-data cross-game campaign is available.
+The live egress unit test covered the acceleration transaction itself, not only
+its eligibility policy. It proved that the one-physics-step overlay restored the
+saved stock acceleration only when the swimming integrator still owned the
+vector. That ownership result remains historical evidence, but the overlay
+itself is now removed: even its command-safe form is not an acceptable way to
+own stock bot movement and it caused the earlier combat regression.
 
 ## Iteration 91: one-shot stock planner handoff
 
-The egress experiment now has a second live candidate for the case that the
-stock bot owns an active movement command. Instead of replacing that command’s
-acceleration, it may issue the engine’s established `MoveTimer = -1` completion
-signal exactly once, allowing the stock UnrealScript state to choose its next
-route. The handoff requires the existing authorized positive-DPS water episode
-and an already collision-probed safe navigation candidate; otherwise it does
-nothing. The pre-existing exact forced-replan counter records every such action.
+The egress experiment has a replan-only candidate for the case that the stock
+bot owns an active movement command. It never replaces acceleration. Instead,
+it clears acceleration and issues the engine’s established `MoveTimer = -1`
+completion signal exactly once, allowing the stock UnrealScript state to choose
+its next route. The handoff requires the existing authorized positive-DPS water
+episode and an already collision-probed safe navigation candidate; otherwise it
+does nothing. The pre-existing exact forced-replan counter records every such
+action.
 
 This is an opt-in experiment under the same default-off live flag, not a
-promotion. The Release engine and focused policy test pass. It must now be run
-against its prior acceleration-only baseline on UT436 Deck16-II and Unreal
-226b DeathFan, with repeat identity and safety/combat non-regression gates,
-before it can be retained as a bot behavior improvement.
+promotion. Two UT436 Deck16-II 7,200-tick, seed-271828 runs are byte-identical;
+relative to repaired stock, exposure falls from 33.6501 to 27.5334 seconds and
+entries from six to five, while kills remain four, deaths remain nine, and
+suicides remain five. It is therefore retained only as a disabled measurement
+experiment: the proxy improvement is not a survival improvement. It still lacks
+Unreal 226b evidence and seed diversity.
+
+## Iteration 92: independent Opus review and reissue-witness next slice
+
+The configured Claude Opus workflow independently reviewed the goal, execution
+plan, continuation plan, live egress code, and causal analyzer. It agreed that
+the replan-only candidate remains default-off: preserving combat while reducing
+exposure is useful evidence, but unchanged deaths and suicides prohibit
+promotion. It also confirmed that historical artifacts with an absent parity
+lifecycle should yield null causal metrics rather than a false zero or a
+structural rejection; a mixed-identity fixture now proves that one incomplete
+bot nulls only its own causal metrics and cannot erase another bot's complete
+evidence.
+
+Before any further movement policy, add observer-only witnesses for each forced
+replan: whether stock code reissues the same hazardous target or clears without
+reentry. Only if that evidence proves unsafe target reissue may a new,
+one-shot destination handoff be considered. It must run only in a navigation,
+disengaged state, use the already collision-probed candidate target through the
+stock latent command, respect a script replacement target, and never write
+acceleration. Promotion still requires deterministic paired UT436 and Unreal
+226b multi-seed evidence of fewer suicides or unassisted environmental deaths,
+with no combat, wall, hazard-entry, or determinism regression.
 
 ## Frozen tuning and held-out maps
 
