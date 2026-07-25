@@ -95,8 +95,6 @@ def analyze(catalog_path: Path, run: Path) -> dict[str, Any]:
                 raise PathCommitError("route participant identities do not match capability witness")
             for participant in participants:
                 identity = participant["identity"]
-                if participant.get("available") is not True:
-                    continue
                 overflow = _nonnegative(participant.get("native_path_commit_overflows_exact"),
                                         f"{identity}.native_path_commit_overflows_exact")
                 if overflow != 0:

@@ -2766,7 +2766,9 @@ altered, missing, or out-of-order evidence.
 Fresh 7,200-tick UT436 and Unreal Gold controls both pass the analyzer with
 positive committed paths and zero overflow. Their complete authoritative
 gameplay streams exactly match the pre-observer controls, proving this
-observer does not change measured bot behavior. This qualifies only observer
-plumbing; repeated qualification, terminal-life draining, and a causal
-hazard/route witness are still required before it can support a behavior
-candidate.
+observer does not change measured bot behavior. The death hook drains records
+into a participant-owned pending queue so terminal-life commits are retained
+even while the next route sample is unavailable; a fresh 25-death DeathFan
+run passes that strict path. This qualifies only observer plumbing; repeated
+qualification and a causal hazard/route witness are still required before it
+can support a behavior candidate.

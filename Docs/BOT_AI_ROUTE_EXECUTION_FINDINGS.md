@@ -136,9 +136,12 @@ pre-observer control: UT SHA-256
 Unreal SHA-256
 `7841DA2D734B176CC92CCCBBFE43EED20EB62AE4D2ACCD48FF93AFA9664AB646`.
 
-This is observer-only and is not yet a behavior result. Repeated
-qualification, terminal-life record draining, and a causal hazard/route
-witness remain required before any route correction is considered.
+Terminal-life records are drained by the death hook and serialized even when a
+participant is unavailable on the next route sample. A fresh DeathFan
+qualification observed all 25 deaths with the observer analyzer still passing
+and the gameplay stream unchanged. This is observer-only and is not yet a
+behavior result. Repeated qualification and a causal hazard/route witness
+remain required before any route correction is considered.
 
 ## Rejected direct-actor timeout experiment (2026-07-25)
 

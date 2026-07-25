@@ -60,4 +60,15 @@ class NativePathCommitTests(unittest.TestCase):
             with self.assertRaisesRegex(ANALYZE.PathCommitError, "reachspec index"):
                 ANALYZE.analyze(root / "catalog.json", run)
 
+    def test_rejects_missing_terminal_life_provenance_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root / "catalog.json").write_text(json.dumps(catalog()), encoding="utf-8")
+            run = root / "run"; run.mkdir(); write_run(run)
+            path = run / "route-execution.jsonl"; row = json.loads(path.read_text(encoding="utf-8"))
+            participant = row["participants"][0]; participant["available"] = False
+            del participant["native_path_commits"]
+            path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ANALYZE.PathCommitError, "native_path_commits"):
+                ANALYZE.analyze(root / "catalog.json", run)
+
 if __name__ == "__main__": unittest.main()

@@ -334,6 +334,9 @@ namespace
 				PendingMoveStallRecoveryEpisodeRecords;
 			std::vector<PawnMoveStallRecoveryDecisionRecord>
 				PendingMoveStallRecoveryDecisionRecords;
+			std::vector<PawnMovement::RoutePathCommitRecord>
+				PendingRoutePathCommitRecords;
+			uint64_t RoutePathCommitOverflowExact = 0;
 			std::optional<BotBenchmarkHazardDeathPartitionRecord>
 				StagedHazardDeathPartitionRecord;
 			std::optional<BotBenchmarkDeathAttribution::ScopeToken>
@@ -1179,6 +1182,9 @@ namespace
 				auto parityRecords = victim->DrainFallingParityRealizedRecords();
 				auto hazardDiagnostics = victim->DrainFallingHazardDiagnostics();
 				auto waterEgressDiagnostics = victim->DrainHazardWaterEgressDiagnostics();
+				auto routePathCommitRecords = victim->DrainRoutePathCommitRecords();
+				counters.RoutePathCommitOverflowExact = std::max(
+					counters.RoutePathCommitOverflowExact, victim->RoutePathCommitOverflowCount());
 				BotBenchmarkDeathAttribution::DeathKiller killerRelation =
 					BotBenchmarkDeathAttribution::DeathKiller::None;
 				if (killer)
@@ -1227,6 +1233,10 @@ namespace
 					counters.PendingMoveStallRecoveryDecisionRecords.end(),
 					std::make_move_iterator(moveStallDecisionRecords.begin()),
 					std::make_move_iterator(moveStallDecisionRecords.end()));
+				counters.PendingRoutePathCommitRecords.insert(
+					counters.PendingRoutePathCommitRecords.end(),
+					std::make_move_iterator(routePathCommitRecords.begin()),
+					std::make_move_iterator(routePathCommitRecords.end()));
 				counters.DeathsExact++;
 				const bool environmental = !killer || !killer->bIsPlayer();
 				if (killer == victim || environmental)
@@ -2168,6 +2178,26 @@ namespace
 					return item.first == actual.Identity;
 				});
 				UPawn* pawn = live == liveBots.end() ? nullptr : live->second;
+				auto runtime = QualityParticipants.find(actual.Identity);
+				std::vector<PawnMovement::RoutePathCommitRecord> pathCommits;
+				uint64_t pathCommitOverflow = 0;
+				if (runtime != QualityParticipants.end())
+				{
+					if (pawn)
+					{
+						runtime->second.RoutePathCommitOverflowExact = std::max(
+							runtime->second.RoutePathCommitOverflowExact,
+							pawn->RoutePathCommitOverflowCount());
+						auto drained = pawn->DrainRoutePathCommitRecords();
+						runtime->second.PendingRoutePathCommitRecords.insert(
+							runtime->second.PendingRoutePathCommitRecords.end(),
+							std::make_move_iterator(drained.begin()),
+							std::make_move_iterator(drained.end()));
+					}
+					pathCommits = std::move(runtime->second.PendingRoutePathCommitRecords);
+					runtime->second.PendingRoutePathCommitRecords.clear();
+					pathCommitOverflow = runtime->second.RoutePathCommitOverflowExact;
+				}
 				out << "{\"roster_index\":" << actual.RosterIndex << ",\"identity\":"
 					<< JsonString(actual.Identity) << ",\"available\":" << (pawn && pawn->Health() > 0 ? "true" : "false");
 				if (pawn && pawn->Health() > 0)
@@ -2211,11 +2241,10 @@ namespace
 						}
 					}
 					out << ']';
-					const auto pathCommits = pawn->DrainRoutePathCommitRecords();
-					out << ",\"native_path_commit_overflows_exact\":\""
-						<< pawn->RoutePathCommitOverflowCount() << "\",\"native_path_commits\":";
-					writeRoutePathCommits(pathCommits);
 				}
+				out << ",\"native_path_commit_overflows_exact\":\""
+					<< pathCommitOverflow << "\",\"native_path_commits\":";
+				writeRoutePathCommits(pathCommits);
 				out << '}';
 			}
 			out << "]}\n";
