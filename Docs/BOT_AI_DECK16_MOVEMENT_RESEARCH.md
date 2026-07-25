@@ -768,6 +768,71 @@ oracle must confirm the comparison sign before any callback predicate changes.
 Restoring these properties is important wall/ledge parity, but most known Deck
 slime entries occurred in `Roaming`, so it is not by itself the Deck fix.
 
+### Mover contacts: ordering audit and retail oracle
+
+The `MinHitWall` contract is an eligibility condition for a *physics-generated*
+`HitWall` notification, not a wall classification rule. The local maintained
+UT UnrealScript reference declares it at
+`C:\Devstuff\QuestGames\SurrealEngine\research\bots\sources\ut99-unrealscript-469b\Engine\Pawn.uc:87`:
+"Minimum HitNormal dot Velocity.Normal to get a HitWall from the physics." The
+corresponding local Unreal-family source at
+`C:\Devstuff\QuestGames\SurrealEngine\tools\reference\deusex-scripts\Engine\Classes\Pawn.uc:87`
+uses the same declaration. The public historical [UnrealWiki controller
+reference](https://beyondunrealwiki.github.io/pages/controller.html)
+independently reproduces the same contract. None of these sources
+names an actor-type or `Mover` exemption. They establish the likely general
+semantics, but they do not reveal the proprietary UT436 or Unreal 226b native
+comparison operator or a possible mover-specific native exception.
+
+The script consequences of a notification are unambiguous. The UT bot handler
+in the checked map-script export,
+`C:\Devstuff\QuestGames\SurrealEngine\qa\runs\2026-07-24\paincost-v2-deck16-morbias\map-inspection\scripts\Bots.uc:1791-1810`,
+and the maintained reference at
+`C:\Devstuff\QuestGames\SurrealEngine\research\bots\sources\ut99-unrealscript-469b\Botpack\Bot.uc:2985-3008`,
+both perform this order while walking:
+
+1. Return immediately when already falling.
+2. If `Wall` is a `Mover`, call `Mover(Wall).HandleDoor(self)` first.
+3. If `HandleDoor` returns true, enter special navigation and return; do not
+   run wall adjustment.
+4. Otherwise preserve the route goal with `Focus = Destination`, use
+   `PickWallAdjust`, and force `MoveTimer = -1` on failure.
+
+Unreal Gold's stock bot source follows the same mover-first shape at
+`C:\Devstuff\QuestGames\SurrealEngine\research\bots\sources\ut99-unrealscript-469b\UnrealShare\Bots.uc:1791-1814`.
+`C:\Devstuff\QuestGames\SurrealEngine\research\bots\sources\ut99-unrealscript-469b\Engine\Mover.uc:176-182`
+defines the base `HandleDoor` hook, and its mover states supply the concrete
+behavior (for example, `Engine\Mover.uc:679-682`). Consequently, the most
+defensible inferred order
+is `physical contact -> MinHitWall eligibility -> HitWall -> HandleDoor ->
+PickWallAdjust fallback`. A rejected mover contact must not invent a script
+callback: neither `HandleDoor` nor `PickWallAdjust` can run without that
+`HitWall`. Conversely, once a callback is eligible, native code must preserve
+the stock script's mover-first ordering exactly.
+
+This is not yet authorization to change dispatch. Current Surreal walking code
+at `SurrealEngine\UObject\UActor.cpp:1186-1203` conflates the legacy Z-band
+callback test, `CallEvent(HitWall, ...)`, and slide continuation. Replacing
+that test directly with `MinHitWall` could unintentionally change physical
+slide/collision response as well as notification delivery. The fresh paired
+DeathFan observer matrix also contains five mover contacts where the Z-band and
+inferred threshold predicates disagree. That is precisely the class for which
+the native ordering is still unproven.
+
+The required retail oracle is a controlled closed brush `Engine.Mover` profile
+on a pinned UT436 map, with a corresponding Unreal 226b profile where one is
+available. Run isolated head-on and glancing walking approaches at
+`MinHitWall = -0.5` and `-0.35`; record hit normal, normalized pre-contact
+velocity dot normal, threshold, whether `HitWall` fired, and whether collision
+slide/progress still occurred. The callback probe must record the same-call
+chain sequence: `HitWall`, `Mover.HandleDoor` entry/result, and whether
+`PickWallAdjust` was reached. Require a true door result to suppress
+`PickWallAdjust`, and a false result to retain the stock focus/adjust-or-replan
+fallback. Only after both retail profiles pin notification eligibility and
+ordering may a shared correction centralize event eligibility for non-player
+walking blockers, including movers, while leaving collision resolution
+independent and keeping `CallEvent` before script recovery.
+
 ## Quality measurement truth boundary
 
 The analyzer and executable gate evaluator now fail closed for missing runs,
