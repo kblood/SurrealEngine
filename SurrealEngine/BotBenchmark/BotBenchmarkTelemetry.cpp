@@ -508,6 +508,10 @@ namespace
 		WriteVector(out, certificate.FirstHopLocation);
 		out << ",\"static_walk_first_hop_distance_known\":"
 			<< (certificate.FirstHopDistanceKnown ? "true" : "false")
+			<< ",\"static_walk_current_first_hop_probe_known\":"
+			<< (certificate.CurrentFirstHopProbeKnown ? "true" : "false")
+			<< ",\"static_walk_current_first_hop_probe_clear\":"
+			<< (certificate.CurrentFirstHopProbeClear ? "true" : "false")
 			<< ",\"static_walk_first_hop_entry_distance\":"
 			<< Fixed(certificate.FirstHopEntryDistance, 6)
 			<< ",\"static_walk_minimum_first_hop_distance\":"

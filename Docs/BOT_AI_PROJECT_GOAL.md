@@ -134,3 +134,14 @@ it would have no observed authorization in Unreal and cannot be represented as
 a cross-game survival correction. The report is byte-identical on repeated
 UT and Unreal seed-271828 analysis. Keep the candidate path observer-only;
 the next live candidate needs its own non-zero, controllable Unreal witness.
+
+The current-position static-first-hop probe also rules out using the existing
+pre-fall route certificate as that witness. In two byte-identical 7,200-tick
+seed-271828 repetitions per game, no fatal water-residence diagnostic had a
+current-position collision-clear first hop: UT's certified records were either
+out of range or blocked, and Unreal's were out of range or had no eligible
+direct hop. This remains observer-only and is not a bot improvement. The
+next goal slice is owner-data completeness—reachspec semantics, zone joins,
+traversal actors, bot configuration, and strict catalog validation—so that a
+future candidate is derived from actual game constraints rather than inferred
+from a stale graph witness.

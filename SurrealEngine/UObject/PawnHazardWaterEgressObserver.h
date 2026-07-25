@@ -70,6 +70,8 @@ namespace PawnMovement
 		float FirstHopEntryDistance = 0.0f;
 		float MinimumFirstHopDistance = 0.0f;
 		float TerminalFirstHopDistance = 0.0f;
+		bool CurrentFirstHopProbeKnown = false;
+		bool CurrentFirstHopProbeClear = false;
 		uint64_t FirstHopProgressSamples = 0;
 		uint64_t FirstHopRegressionSamples = 0;
 		bool ContinuationKnown = false;

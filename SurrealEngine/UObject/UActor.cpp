@@ -5943,6 +5943,7 @@ void UPawn::ObserveHazardSwimEgressDirectNavigationCandidates()
 void UPawn::ObserveHazardSwimEgressStaticWalkCertificate()
 {
 	constexpr float maximumAnchorFirstHopDistance = 2048.0f;
+	constexpr float maximumCurrentFirstHopProbeDistance = 1024.0f;
 	constexpr size_t maximumNavigationSnapshotNodes = 512;
 	constexpr size_t maximumCertificateVisitedNodes = 64;
 	if (!HazardWaterEgressObserver || !HazardWaterEgressObserver->HasActiveEpisode()
@@ -6015,6 +6016,14 @@ void UPawn::ObserveHazardSwimEgressStaticWalkCertificate()
 		observation.FirstHopName = request.Nodes[certificate.FirstHopNode].Id;
 		observation.FirstHopLocationKnown = true;
 		observation.FirstHopLocation = navigationPoints[certificate.FirstHopNode]->Location();
+		const vec3 currentDelta = observation.FirstHopLocation - Location();
+		const float currentDistance = length(currentDelta);
+		if (IsFiniteVector(currentDelta) && std::isfinite(currentDistance)
+			&& currentDistance <= maximumCurrentFirstHopProbeDistance)
+		{
+			observation.CurrentFirstHopProbeKnown = true;
+			observation.CurrentFirstHopProbeClear = TryMove(currentDelta, true).Fraction == 1.0f;
+		}
 	}
 	observation.ContinuationKnown = certificate.ContinuationKnown
 		&& certificate.ContinuationNode < request.Nodes.size();

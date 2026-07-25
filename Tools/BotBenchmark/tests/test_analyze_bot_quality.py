@@ -590,6 +590,8 @@ class BotQualityAnalysisTests(unittest.TestCase):
             "static_walk_first_hop_location_known": True,
             "static_walk_first_hop_location": {"x": 1.0, "y": 2.0, "z": 3.0},
             "static_walk_first_hop_distance_known": True,
+            "static_walk_current_first_hop_probe_known": True,
+            "static_walk_current_first_hop_probe_clear": True,
             "static_walk_first_hop_entry_distance": 100.0,
             "static_walk_minimum_first_hop_distance": 80.0,
             "static_walk_terminal_first_hop_distance": 90.0,
@@ -679,6 +681,54 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(QUALITY.QualityError, "static-walk first-hop minimum distance"):
                 QUALITY.analyze_run(malformed_static_distance)
 
+            malformed_current_probe = write_v2_run(
+                root, "hazard-water-egress-current-first-hop-probe")
+            invalid_current_probe = {**diagnostic,
+                "static_walk_current_first_hop_probe_known": False,
+                "static_walk_current_first_hop_probe_clear": True}
+            upgrade_telemetry_v2(malformed_current_probe, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_current_probe]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "probe cannot be clear when unknown"):
+                QUALITY.analyze_run(malformed_current_probe)
+
+            malformed_current_probe_first_hop = write_v2_run(
+                root, "hazard-water-egress-current-first-hop-witness")
+            invalid_current_probe_first_hop = {**diagnostic,
+                "static_walk_certificate_result": "no_static_walk_continuation",
+                "static_walk_first_hop_known": False,
+                "static_walk_first_hop_name": "",
+                "static_walk_first_hop_location_known": False,
+                "static_walk_first_hop_distance_known": False,
+                "static_walk_first_hop_entry_distance": 0.0,
+                "static_walk_minimum_first_hop_distance": 0.0,
+                "static_walk_terminal_first_hop_distance": 0.0,
+                "static_walk_first_hop_progress_samples": "0",
+                "static_walk_first_hop_regression_samples": "0",
+                "static_walk_continuation_known": False,
+                "static_walk_continuation_name": "", "static_walk_cost": 0.0,
+                "static_walk_hops": "0", "static_walk_visited_nodes": "1",
+                "static_walk_current_first_hop_probe_known": True,
+                "static_walk_current_first_hop_probe_clear": False}
+            upgrade_telemetry_v2(malformed_current_probe_first_hop, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_current_probe_first_hop]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "probe requires a static-walk first hop"):
+                QUALITY.analyze_run(malformed_current_probe_first_hop)
+
+            malformed_current_probe_group = write_v2_run(
+                root, "hazard-water-egress-current-first-hop-probe-group")
+            partial_current_probe = {key: value for key, value in diagnostic.items()
+                                     if key != "static_walk_current_first_hop_probe_clear"}
+            upgrade_telemetry_v2(malformed_current_probe_group, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [partial_current_probe]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "missing fields: static_walk_current_first_hop_probe_clear"):
+                QUALITY.analyze_run(malformed_current_probe_group)
+
             malformed_anchor = write_v2_run(root, "hazard-water-egress-static-walk-anchor",
                                             bot_count=1)
             invalid_anchor = {**diagnostic,
@@ -687,6 +737,8 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 "static_walk_first_hop_location_known": False,
                 "static_walk_first_hop_location": {"x": 0.0, "y": 0.0, "z": 0.0},
                 "static_walk_first_hop_distance_known": False,
+                "static_walk_current_first_hop_probe_known": False,
+                "static_walk_current_first_hop_probe_clear": False,
                 "static_walk_first_hop_entry_distance": 0.0,
                 "static_walk_minimum_first_hop_distance": 0.0,
                 "static_walk_terminal_first_hop_distance": 0.0,

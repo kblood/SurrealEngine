@@ -66,6 +66,8 @@ namespace PawnMovement
 		if (certificate.FirstHopKnown != !certificate.FirstHopName.empty()
 			|| certificate.FirstHopLocationKnown != certificate.FirstHopKnown
 			|| (certificate.FirstHopLocationKnown && !IsFinite(certificate.FirstHopLocation))
+			|| (certificate.CurrentFirstHopProbeKnown && !certificate.FirstHopKnown)
+			|| (!certificate.CurrentFirstHopProbeKnown && certificate.CurrentFirstHopProbeClear)
 			|| certificate.ContinuationKnown != !certificate.ContinuationName.empty()
 			|| (!certificate.ContinuationKnown && (certificate.StaticWalkCost != 0.0f
 				|| certificate.StaticWalkHops != 0)))

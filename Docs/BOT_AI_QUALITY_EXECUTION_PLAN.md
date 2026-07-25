@@ -2427,6 +2427,35 @@ would be speculative. Preserve the observer and seek a separate controllable
 Unreal witness; do not relax candidate certification, infer a safe escape from
 a clear terminal, or use the existing UT signal as a cross-game quality pass.
 
+## Iteration 101: current-position static-first-hop probe rejection
+
+The static-walk certificate is computed from a pre-fall anchor, so its first
+hop is not an authorization for a later water-residence action. A new
+observer-only field pair records whether that retained first hop is within the
+bounded current-position probe radius and whether the identical dry collision
+sweep is clear from the pawn's *current* position. The pair is optional for
+historical artifacts but complete-or-failing when present. It makes no actor,
+route, target, acceleration, latent-action, or physics write.
+
+Two valid 7,200-tick seed-271828 repetitions are byte-identical on each game.
+UT436 `DM-Deck16][` at its verified external skill 7 has seven egress
+diagnostics and three fatal terminals: all three have a certified static
+continuation, but one is outside the current probe range and the other two
+are collision-blocked. Unreal Gold 226b `DmDeathFan` at its verified native
+external skill 3 has 27 diagnostics and 16 fatal terminals: ten have a
+certified static continuation but are outside the current probe range, while
+six have no eligible direct first hop. No fatal witness has a current-position
+collision-clear first hop.
+
+Therefore reject a first-hop steer, route pin, or target override. The result
+is diagnostic evidence only: a clear capsule sweep would still require support,
+capability, hazard-exit, and command-ownership certification before a live
+candidate could be considered. The next safe work is the read-only catalog
+tranche: decoded reach flags, node-zone joins, reverse/pruned paths, traversal
+actors, bot configuration, and validators. It will explain whether excluded
+assisted traversal or capability constraints account for the missing direct
+option without changing stock bot behavior.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:

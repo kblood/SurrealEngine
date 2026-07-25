@@ -1461,16 +1461,24 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         "external_impulse_launch_forecast_known",
         "external_impulse_launch_forecast_harmful",
     }
+    static_walk_current_first_hop_probe_fields = {
+        "static_walk_current_first_hop_probe_known",
+        "static_walk_current_first_hop_probe_clear",
+    }
     raw_fields = _object(value, context)
     present_external_impulse_fields = raw_fields.keys() & external_impulse_provenance_fields
     present_external_impulse_launch_forecast_fields = (
         raw_fields.keys() & external_impulse_launch_forecast_fields)
+    present_static_walk_current_first_hop_probe_fields = (
+        raw_fields.keys() & static_walk_current_first_hop_probe_fields)
     fields = _exact_object(
         raw_fields, context,
         required_fields | (external_impulse_provenance_fields
                            if present_external_impulse_fields else set())
         | (external_impulse_launch_forecast_fields
-           if present_external_impulse_launch_forecast_fields else set()))
+           if present_external_impulse_launch_forecast_fields else set())
+        | (static_walk_current_first_hop_probe_fields
+           if present_static_walk_current_first_hop_probe_fields else set()))
     transition_source = _string(fields, "transition_source", context, nonempty=True)
     if transition_source not in HAZARD_WATER_EGRESS_TRANSITION_SOURCES:
         raise QualityError(f"{context}.transition_source is not recognized")
@@ -1494,6 +1502,16 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
     static_walk_first_hop_distance_known = _boolean(
         fields.get("static_walk_first_hop_distance_known"),
         f"{context}.static_walk_first_hop_distance_known")
+    if present_static_walk_current_first_hop_probe_fields:
+        static_walk_current_first_hop_probe_known = _boolean(
+            fields.get("static_walk_current_first_hop_probe_known"),
+            f"{context}.static_walk_current_first_hop_probe_known")
+        static_walk_current_first_hop_probe_clear = _boolean(
+            fields.get("static_walk_current_first_hop_probe_clear"),
+            f"{context}.static_walk_current_first_hop_probe_clear")
+    else:
+        static_walk_current_first_hop_probe_known = False
+        static_walk_current_first_hop_probe_clear = False
     static_walk_first_hop_entry_distance = _number(
         fields.get("static_walk_first_hop_entry_distance"),
         f"{context}.static_walk_first_hop_entry_distance", minimum=0.0)
@@ -1525,6 +1543,11 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
     if static_walk_first_hop_location_known != static_walk_first_hop_known \
             or static_walk_first_hop_distance_known != static_walk_first_hop_known:
         raise QualityError(f"{context}: static-walk first-hop location and distance availability must match its name")
+    if static_walk_current_first_hop_probe_known and not static_walk_first_hop_known:
+        raise QualityError(f"{context}: current first-hop probe requires a static-walk first hop")
+    if not static_walk_current_first_hop_probe_known \
+            and static_walk_current_first_hop_probe_clear:
+        raise QualityError(f"{context}: current first-hop probe cannot be clear when unknown")
     if static_walk_first_hop_distance_known and (
             static_walk_minimum_first_hop_distance > static_walk_first_hop_entry_distance
             or static_walk_minimum_first_hop_distance > static_walk_terminal_first_hop_distance):
@@ -1669,6 +1692,8 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         "static_walk_first_hop_location_known": static_walk_first_hop_location_known,
         "static_walk_first_hop_location": static_walk_first_hop_location,
         "static_walk_first_hop_distance_known": static_walk_first_hop_distance_known,
+        "static_walk_current_first_hop_probe_known": static_walk_current_first_hop_probe_known,
+        "static_walk_current_first_hop_probe_clear": static_walk_current_first_hop_probe_clear,
         "static_walk_first_hop_entry_distance": static_walk_first_hop_entry_distance,
         "static_walk_minimum_first_hop_distance": static_walk_minimum_first_hop_distance,
         "static_walk_terminal_first_hop_distance": static_walk_terminal_first_hop_distance,

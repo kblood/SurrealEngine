@@ -41,12 +41,12 @@ int main()
 	Check(!observer.BeginEpisode(Entry(2)), "episodes cannot overlap");
 	Check(observer.ObserveStaticWalkCertificate({
 		"certified_static_walk_continuation", true, "PathNode12", true,
-		vec3(10.0f, 0.0f, 0.0f), false, 0.0f, 0.0f, 0.0f, 0, 0,
+		vec3(10.0f, 0.0f, 0.0f), false, 0.0f, 0.0f, 0.0f, true, true, 0, 0,
 		true, "PathNode13", 42.0f, 1, 2 }),
 		"a static-walk certificate must be retained once");
 	Check(!observer.ObserveStaticWalkCertificate({
 		"no_static_walk_continuation", false, "", false, vec3(0.0f), false,
-		0.0f, 0.0f, 0.0f, 0, 0, false, "", 0.0f, 0, 1 }),
+		0.0f, 0.0f, 0.0f, false, false, 0, 0, false, "", 0.0f, 0, 1 }),
 		"the certificate witness must remain immutable");
 	Check(observer.ObserveCandidate({ "PathNode12", vec3(10.0f, 0.0f, 0.0f), 10.0f }),
 		"first safe candidate must be retained");
@@ -71,9 +71,24 @@ int main()
 		"first candidate witness must be retained");
 	Check(exited.StaticWalkCertificate.Result == "certified_static_walk_continuation"
 		&& exited.StaticWalkCertificate.ContinuationName == "PathNode13"
+		&& exited.StaticWalkCertificate.CurrentFirstHopProbeKnown
+		&& exited.StaticWalkCertificate.CurrentFirstHopProbeClear
 		&& exited.StaticWalkCertificate.FirstHopProgressSamples == 1
 		&& exited.StaticWalkCertificate.FirstHopRegressionSamples == 3,
 		"static-walk certificate evidence must survive the terminal record");
+
+	HazardWaterEgressObserver invalidProbeObserver("InvalidProbeBot");
+	Check(invalidProbeObserver.BeginEpisode(Entry(2)), "invalid-probe episode must start");
+	HazardWaterEgressStaticWalkCertificate probeWithoutFirstHop;
+	probeWithoutFirstHop.Result = "no_static_walk_continuation";
+	probeWithoutFirstHop.CurrentFirstHopProbeKnown = true;
+	Check(!invalidProbeObserver.ObserveStaticWalkCertificate(probeWithoutFirstHop),
+		"a current first-hop probe requires a first-hop witness");
+	HazardWaterEgressStaticWalkCertificate clearUnknownProbe;
+	clearUnknownProbe.Result = "no_static_walk_continuation";
+	clearUnknownProbe.CurrentFirstHopProbeClear = true;
+	Check(!invalidProbeObserver.ObserveStaticWalkCertificate(clearUnknownProbe),
+		"an unknown current first-hop probe cannot claim clearance");
 	Check(exited.CandidateProgressSamples == 1
 		&& exited.CandidateRegressionSamples == 3,
 		"candidate progress signs must include terminal observation");

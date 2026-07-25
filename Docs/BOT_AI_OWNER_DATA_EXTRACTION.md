@@ -151,6 +151,40 @@ UnrealI and 359 UnrealShare scripts (including `Bots.uc`); it correctly did
 not require Botpack. These artifacts are analysis inputs only and are not
 committed or redistributed.
 
+## Next extraction tranche
+
+An independent read-only review of the implemented driver and owner-local
+artifacts confirmed that script export, raw reachspecs, and zone inventory are
+only the first layer. The next extraction tranche remains read-only and should
+be delivered with synthetic validators before it is used to authorize bot
+behavior:
+
+1. Decode each reachspec's `reach_flags` into required traversal capabilities,
+   while retaining the raw value. Export the navigation point's forward,
+   upstream, pruned, and visible-no-reach path arrays so the artifact can
+   reproduce the pathfinder's actual graph inputs rather than a forward-only
+   approximation.
+2. Join every navigation point to its static zone and, in explicitly pinned
+   live catalog mode, to its resolved runtime zone. Export the model zone graph
+   and label static and live values distinctly. This makes a dry or harmful
+   escape-node claim testable.
+3. Export traversal relationships: lift centers/exits and movers, teleporters,
+   warp-zone markers, player starts, inventory spots and their marked pickup.
+   An excluded lift or teleporter must be distinguishable from a genuinely
+   absent egress option.
+4. Implement the separate bot-config catalog. It must record relevant class
+   defaults and roster/skill values from packages and `.ini`/`.int` inputs,
+   preserving each value's source. Capability and movement values cannot be
+   assumed equal across UT436 and Unreal Gold 226b.
+5. Add the promised catalog schema, referential-integrity, and equal-input
+   repeatability validator. Upgrade provenance to SHA-256 before treating the
+   catalog identity as complete.
+
+These records select owner-local maps and deterministic fixture shapes; they
+do not themselves prove a navigation correction is safe. In particular, a
+pre-fall graph route or one collision sweep does not prove support, locomotion,
+hazard exit, or live command ownership from the pawn's later position.
+
 ## Non-goals
 
 Do not decode or redistribute meshes, textures, sounds, or compiled bytecode.
