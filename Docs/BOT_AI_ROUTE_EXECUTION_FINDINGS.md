@@ -85,6 +85,32 @@ three independent instances identify one mechanism and a deterministic
 counterfactual shows that the proposed recovery resolves those instances
 without unexplained decisions on stall-free frames.
 
+## Static-catalog route context correlation (2026-07-25)
+
+`Analyze-RouteExecutionContext.py` now validates and joins the existing
+per-tick route trace, v3 map catalog, and realized capability witness without
+calling into the engine. It reports an **observed post-tick route-cache first
+hop**, not a native path-selection decision: route-cache sampling can miss
+transient commits, and more than one reachspec can share a node pair.
+
+The initial 7,200-tick controls establish useful negative evidence:
+
+- UT436 Deck16-II (`104729`) had 10,783 resolved active first-hop samples.
+  Its one recorded death was in a hazard zone at tick 1,265 while latent action
+  was `Continue`; no active first hop existed at that tick.
+- Unreal Gold DeathFan (`271828`) had 5,170 resolved active first-hop samples
+  and 25 death-counter increments. Every death tick was inactive for this
+  screen (most were in a hazard zone), so no death may be attributed to its
+  current route-cache edge.
+
+These reports are context only and do not authorize a route, reach-flag, or
+hazard-policy change. The next observer must capture native provenance at the
+path commit: the selected reachspec index while `FindPathToEndPoint` unwinds,
+the bounded cache prefix written by `SetRouteCache`, and the phase before
+`SpecialHandling` can redirect the script target. It must record explicit
+coverage/overflow status and qualify positive native selections in both game
+families before it can be used for a behavior candidate.
+
 ## Rejected direct-actor timeout experiment (2026-07-25)
 
 The seed `104729` trace contains a real active `MoveToward` stall against the

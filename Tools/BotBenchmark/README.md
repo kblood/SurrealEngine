@@ -134,6 +134,19 @@ per-tick displacement. It does not call pathfinding, collision traces, or
 write route state; its purpose is to attribute stalls before any routing
 behavior is changed.
 
+`Analyze-RouteExecutionContext.py` joins that trace with a validated v3 map
+catalog and the realized bot-capability witness. It resolves only the observed
+post-tick route-cache first hop and reports death-adjacent context; it does not
+claim that the edge was the native search's selected reachspec or that it
+caused a death. It remains fail-closed on map/config, roster, tick, node, and
+edge mismatches:
+
+```powershell
+python .\Tools\BotBenchmark\Analyze-RouteExecutionContext.py `
+  C:\qa\map-catalog\deck16\DM-Deck16][.json `
+  C:\qa\benchmark\deck16-run --output C:\qa\reports\route-context.json
+```
+
 Move-stall detections additionally emit bounded decision-time records in each
 bot's telemetry event. `move_stall_recovery_decisions` records the selector
 input and result before a recovery can write movement state. The quality

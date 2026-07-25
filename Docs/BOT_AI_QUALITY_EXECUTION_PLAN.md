@@ -2722,3 +2722,31 @@ UT436 and
 `4f8dd2465a5768f7ce7988932a66cf07764c6aa61e6fd7855b0dc0b2038823ca` for
 Unreal Gold. The observer-off controls are the sibling
 `*-baseline-t7200/` directories in the same QA tranche.
+
+## Iteration 108: route-cache context correlation boundary
+
+The static map catalog, realized capability witness, and existing
+`route-execution.jsonl` can now be joined by the fail-closed offline
+`Analyze-RouteExecutionContext.py` utility. It validates catalog/manifest map
+identity, benchmark configuration identity, complete roster identity, one
+route record per tick telemetry record, contiguous route sequence, navigation
+node class/name references, and directed reachspec endpoints. Its output names
+the result an **observed route-cache first hop** deliberately: it does not
+mistake a post-tick cache sample for the native path search's selected
+reachspec.
+
+The fresh UT436 Deck16-II and Unreal Gold DeathFan anchor reports resolve
+10,783 and 5,170 active first-hop samples respectively. Death ticks are not
+an activating route-edge witness: the UT death and all 25 Unreal DeathFan
+death-counter increments were outside active `MoveToward` first-hop context at
+the terminal tick. No route policy is promoted from that correlation.
+
+The next permitted implementation is a default-off, behavior-neutral native
+path-commit provenance observer. It must preserve the actual selected
+reachspec index while `FindPathToEndPoint` unwinds the selected endpoint,
+record only the bounded prefix committed by `SetRouteCache` before
+`SpecialHandling`, distinguish cache clears from successful commits, and fail
+closed on any overflow or invalid edge reference. It must first demonstrate
+positive, repeatable coverage in UT436 and Unreal Gold; it cannot claim to
+cover direct movement, arbitrary script route writes, or later script target
+redirection.
