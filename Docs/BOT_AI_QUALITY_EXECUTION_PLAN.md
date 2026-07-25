@@ -2574,6 +2574,15 @@ empirical bracket rather than a `<` versus `<=` rule. Any later correction
 must still be notification-only and satisfy the pure fixtures, runtime
 collision fixture, and paired cross-game match matrix specified above.
 
+The first finer half-step batches retained their inventory guards and narrowed
+the intervals to UT436 `[-395000, -394500]` and Unreal Gold
+`[-396500, -396000]`, where each interval is `[highest suppressed, lowest
+dispatched]`. Further quarter-step batches did not run: both disposable retail
+compilers independently faulted during UCC driver-cache startup before package
+compilation or a server case. Those failed attempts are not oracle evidence;
+the already-completed brackets remain valid and the runtime correction stays
+blocked.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:
