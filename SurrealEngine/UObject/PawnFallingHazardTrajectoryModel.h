@@ -37,6 +37,7 @@ namespace PawnMovement
 		AlignedContinuationCommit,
 		ThirdMoveContinuationCommit,
 		CallbackReturnCommit,
+		ScriptTickTransitionCommit,
 		ExternalImpulseCommit,
 		HorizonContinuationCommit
 	};

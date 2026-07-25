@@ -609,6 +609,7 @@ VERTICAL_PAIN_COLUMN_SOURCES = {
     "unsupported_walk_commit", "existing_falling_commit",
     "post_wall_deflection_commit", "aligned_continuation_commit",
     "third_move_continuation_commit", "callback_return_commit",
+    "script_tick_transition_commit",
     "external_impulse_commit", "horizon_continuation_commit",
 }
 VERTICAL_PAIN_COLUMN_FORECASTS = {

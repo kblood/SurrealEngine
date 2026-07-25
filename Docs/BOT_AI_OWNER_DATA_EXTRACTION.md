@@ -115,10 +115,14 @@ per map. The extractor must refuse an output path inside the game root.
 The static `map-catalog` headless-driver spike is implemented. It accepts
 `--catalog-map` and `--catalog-output`, refuses outputs within the game root,
 loads the requested map through the normal engine loader, and emits a
-`surreal-map-catalog-spike-v3` JSON document. The current spike contains the
+`surreal-map-catalog-spike-v4` JSON document. The current spike contains the
 complete level actor-slot index, navigation points with authored path indexes
 and flags, reachspecs, traversal relationships, resolved navigation-point zone
-membership, model zone graph, and zone inventory/properties.
+membership, model zone graph, and zone inventory/properties. Schema v4 also
+records the finite loaded location of every present actor (or an explicit
+`null` when no finite location exists). This supports owner-local spatial
+correlation of a live bot observation with authored map objects; proximity is
+not evidence that the nearby object caused the observation.
 It deliberately does not claim the complete target catalog schema or live zone
 membership yet.
 
@@ -193,7 +197,7 @@ The Deck16 catalog has 251 navigation points, 1,997 reachspecs, and 1,370
 visible-no-reach links; DeathFan has 116 navigation points and 1,431
 reachspecs. These are owner-local evidence artifacts, not committed game data.
 
-### Traversal, zone, and validator evidence
+### Traversal, zone, location, and validator evidence
 
 The v3 spike adds a complete actor-slot index so every relationship is
 externally resolvable, including null slots preserved by UE1's level actor
@@ -209,7 +213,17 @@ zone graph records static connectivity and visibility masks. This is not a
 claim about a later gameplay transition; live membership remains a separately
 pinned catalog mode.
 
-`Tools/BotBenchmark/Validate-MapCatalog.py` validates schema v3, actor-slot
+Schema v4 extends the v3 actor-slot index with the actor locations described
+above. A fresh Unreal Gold `DmDeathFan` v4 extraction on 2026-07-26 validates
+with 683 present actors, 116 navigation points, 1,431 reachspecs, 44 traversal
+actors, 64 model-zone records, and four zones (SHA-256
+`CD3D79E2B6B354149D71689831FF120579752AE41459753355A9F140A588CFB7`). The
+first DeathFan launch context examined for the falling investigation is near
+the SuperHealth/PathNode region, not the `Fan0` decoration. That observation
+only rules out one tempting proximity story; no catalog location is promoted
+to causal evidence without a same-life command and transition witness.
+
+`Tools/BotBenchmark/Validate-MapCatalog.py` validates legacy schema v3 and current schema v4, actor-slot
 identity, reachspec endpoint and direction ownership, exact reach-flag decode,
 navigation/visible-no-reach references, traversal references, zones, and zone
 graph masks. Its synthetic tests include dangling relationships, wrong directed

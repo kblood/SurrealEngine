@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed validation for owner-local map-catalog v3 artifacts."""
+"""Fail-closed validation for owner-local map-catalog v3/v4 artifacts."""
 
 from __future__ import annotations
 
@@ -109,8 +109,9 @@ def validate_catalog(value: Any) -> dict[str, int]:
         "schema", "game", "map", "map_package", "counts", "actors",
         "navigation_points", "reachspecs", "traversal_actors", "zones", "zone_graph",
     })
-    if root["schema"] != "surreal-map-catalog-spike-v3":
-        raise CatalogError("catalog.schema must be surreal-map-catalog-spike-v3")
+    schema = _string(root["schema"], "catalog.schema")
+    if schema not in {"surreal-map-catalog-spike-v3", "surreal-map-catalog-spike-v4"}:
+        raise CatalogError("catalog.schema must be surreal-map-catalog-spike-v3 or surreal-map-catalog-spike-v4")
     game = _exact(root["game"], "catalog.game", {"name", "version"})
     _string(game["name"], "catalog.game.name")
     _string(game["version"], "catalog.game.version")
@@ -132,6 +133,8 @@ def validate_catalog(value: Any) -> dict[str, int]:
         expected = {"actor_index", "present"}
         if present:
             expected |= {"name", "class"}
+            if schema == "surreal-map-catalog-spike-v4":
+                expected.add("location")
         actor = _exact(actor, f"catalog.actors[{expected_index}]", expected)
         index = _integer(actor["actor_index"], f"catalog.actors[{expected_index}].actor_index", 0)
         if index != expected_index:
@@ -139,6 +142,8 @@ def validate_catalog(value: Any) -> dict[str, int]:
         if present:
             _string(actor["name"], f"catalog.actors[{expected_index}].name")
             _string(actor["class"], f"catalog.actors[{expected_index}].class")
+            if schema == "surreal-map-catalog-spike-v4" and actor["location"] is not None:
+                _vector(actor["location"], f"catalog.actors[{expected_index}].location")
         actors[index] = actor
 
     raw_specs = root["reachspecs"]

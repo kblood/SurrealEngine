@@ -102,6 +102,8 @@ namespace PawnMovement
 			return "third_move_continuation_commit";
 		case FallingHazardForecastSource::CallbackReturnCommit:
 			return "callback_return_commit";
+		case FallingHazardForecastSource::ScriptTickTransitionCommit:
+			return "script_tick_transition_commit";
 		case FallingHazardForecastSource::ExternalImpulseCommit:
 			return "external_impulse_commit";
 		case FallingHazardForecastSource::HorizonContinuationCommit:

@@ -3026,3 +3026,44 @@ them would violate its causal contract. Keep this experiment default-off and
 do not present the unchanged stock result as a bot improvement. Evidence is
 at `qa/runs/2026-07-26/falling-hazard-recovery-scout-v1/` and
 `qa/reports/bot-ai/falling-hazard-recovery-scout-v1.json`.
+
+## Iteration 119: script-transition source correction and actor-location evidence
+
+The falling observer previously labeled every transition to `PHYS_Falling`
+seen immediately after a Pawn or Actor UnrealScript state tick as an
+`external_impulse_commit`. That label was too broad: those sites establish a
+script-tick transition, not the mechanism that caused it. The observer now
+records `script_tick_transition_commit` separately, closes its pre-existing
+generation at a callback boundary, and leaves the actual discontinuity-based
+`external_impulse_commit` classification unchanged. This is a telemetry-only
+source correction; it does not change movement, steering, collision, or bot
+script behavior.
+
+The updated observer completed two 7,200-tick headless, no-UCC anchors with
+the live swim overlay disabled: UT436 `DM-Deck16][` (seed `104729`, difficulty
+7) and Unreal Gold `DmDeathFan` (seed `271828`, difficulty 3), two bots each.
+Their outcome metrics remain the stock anchors exactly: UT is K2/D3/S1, one
+environmental death, 5.85 seconds hazard exposure, 63.17 seconds of
+movement-intent no-progress, and four intent-stuck events; DeathFan is
+K1/D11/S10, ten environmental deaths, 43.40 seconds exposure, 0.72 seconds
+intent no-progress, and zero intent-stuck events. The resulting quality report
+is `qa/reports/bot-ai/script-transition-fall-audit-v1.json`.
+
+The corrected stream contains three UT and ten DeathFan script-tick falling
+episodes. All but one UT episode forecast `no_harmful_pain_observed`; the
+remaining UT episode is `unknown`. Every one closes at a callback boundary
+with unknown correlation, and none becomes a certified harmful landing. The
+DeathFan suicide problem therefore remains upstream of the currently observed
+script-tick transition class; it is not safe to add a generic response at that
+boundary. Continue to require an earlier, controllable, same-life launch or
+command witness with a certified safe alternative.
+
+The map-catalog spike is now schema v4. It adds an owner-local finite location
+to every present actor record while retaining v3 compatibility in the
+validator. A fresh DeathFan v4 catalog validates exactly (683 actors, 116
+navigation points, 1,431 reachspecs, 44 traversal actors, 64 zone-graph
+records, and four zones; SHA-256
+`CD3D79E2B6B354149D71689831FF120579752AE41459753355A9F140A588CFB7`). The
+first reviewed launch lies nearer the SuperHealth/PathNode region than `Fan0`;
+that merely rejects an unsupported decoration hypothesis. Actor proximity is
+not a cause, and it does not authorize a bot behavior change.

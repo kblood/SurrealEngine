@@ -93,10 +93,12 @@ python .\Tools\BotBenchmark\Validate-MapCatalog.py `
   C:\qa\map-catalog\deck16\DM-Deck16][.json
 ```
 
-`surreal-map-catalog-spike-v3` is intentionally owner-local. It records level
+`surreal-map-catalog-spike-v4` is intentionally owner-local. It records level
 actor slots, navigation/reachspec graph semantics, traversal relationships,
-resolved navigation-point zone membership, and model zone graph; it does not
-export game assets or authorize a behavior change.
+resolved navigation-point zone membership, model zone graph, and each present
+actor's finite loaded location (or explicit `null`). Locations support spatial
+correlation only; the catalog does not export game assets or authorize a
+behavior change.
 
 Every controlled benchmark run additionally writes
 `bot-realized-capabilities.json` after bot spawn and before tick zero. It is a

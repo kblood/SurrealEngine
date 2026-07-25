@@ -59,6 +59,7 @@ namespace PawnMovement
 			switch (source)
 			{
 			case FallingHazardForecastSource::CallbackReturnCommit:
+			case FallingHazardForecastSource::ScriptTickTransitionCommit:
 			case FallingHazardForecastSource::AlignedContinuationCommit:
 			case FallingHazardForecastSource::ThirdMoveContinuationCommit:
 				return FallingHazardTerminal::CallbackBoundary;

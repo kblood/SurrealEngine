@@ -589,6 +589,7 @@ namespace
 			FallingHazardForecastSource::AlignedContinuationCommit,
 			FallingHazardForecastSource::ThirdMoveContinuationCommit,
 			FallingHazardForecastSource::CallbackReturnCommit,
+			FallingHazardForecastSource::ScriptTickTransitionCommit,
 			FallingHazardForecastSource::ExternalImpulseCommit,
 			FallingHazardForecastSource::HorizonContinuationCommit })
 		{

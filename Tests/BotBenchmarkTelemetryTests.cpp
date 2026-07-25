@@ -782,6 +782,9 @@ int main()
 		|| std::string(FallingHazardForecastSourceName(
 			FallingHazardForecastSource::HorizonContinuationCommit))
 			!= "horizon_continuation_commit"
+		|| std::string(FallingHazardForecastSourceName(
+			FallingHazardForecastSource::ScriptTickTransitionCommit))
+			!= "script_tick_transition_commit"
 		|| std::string(FallingHazardTerminalName(
 			FallingHazardTerminal::HarmfulPainEntered)) != "harmful_pain_entered"
 		|| std::string(FallingHazardCorrelationName(

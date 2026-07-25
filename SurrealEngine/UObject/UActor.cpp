@@ -979,7 +979,7 @@ void UActor::Tick(float elapsed)
 		&& Physics() == PHYS_Falling)
 	{
 		pawn->QueueFallingHazardForecastSource(
-			PawnMovement::FallingHazardForecastSource::ExternalImpulseCommit);
+			PawnMovement::FallingHazardForecastSource::ScriptTickTransitionCommit);
 	}
 
 	TickPhysics(elapsed);
@@ -5351,7 +5351,7 @@ void UPawn::Tick(float elapsed)
 		&& Physics() == PHYS_Falling)
 	{
 		QueueFallingHazardForecastSource(
-			PawnMovement::FallingHazardForecastSource::ExternalImpulseCommit);
+			PawnMovement::FallingHazardForecastSource::ScriptTickTransitionCommit);
 	}
 	UActor::Tick(elapsed);
 	AdvanceHazardResidence(elapsed);
@@ -7620,6 +7620,12 @@ void UPawn::EnsureFallingHazardGeneration(float physicsSliceElapsed,
 	if (FallingHazardObserver->HasActiveGeneration()
 		&& FallingHazardQueuedSource
 			== PawnMovement::FallingHazardForecastSource::CallbackReturnCommit)
+	{
+		FallingHazardObserver->FinishCallbackBoundary();
+	}
+	else if (FallingHazardObserver->HasActiveGeneration()
+		&& FallingHazardQueuedSource
+			== PawnMovement::FallingHazardForecastSource::ScriptTickTransitionCommit)
 	{
 		FallingHazardObserver->FinishCallbackBoundary();
 	}

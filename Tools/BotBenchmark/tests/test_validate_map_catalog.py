@@ -89,6 +89,15 @@ class MapCatalogValidatorTests(unittest.TestCase):
         with self.assertRaisesRegex(VALIDATE.CatalogError, "unsigned decimal mask"):
             VALIDATE.validate_catalog(value)
 
+    def test_accepts_v4_actor_locations_and_rejects_non_vector_location(self) -> None:
+        value = copy.deepcopy(catalog())
+        value["schema"] = "surreal-map-catalog-spike-v4"
+        value["actors"][0]["location"] = {"x": 1.0, "y": 2.0, "z": 3.0}
+        self.assertEqual(VALIDATE.validate_catalog(value)["actors_exact"], 1)
+        value["actors"][0]["location"] = {"x": 1.0, "y": 2.0}
+        with self.assertRaisesRegex(VALIDATE.CatalogError, "location"):
+            VALIDATE.validate_catalog(value)
+
 
 if __name__ == "__main__":
     unittest.main()

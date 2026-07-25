@@ -15,6 +15,7 @@
 #include "Utils/SHA1Sum.h"
 
 #include <filesystem>
+#include <cmath>
 #include <iomanip>
 #include <map>
 #include <set>
@@ -58,6 +59,16 @@ namespace
 	{
 		out << "{\"x\":" << value.x << ",\"y\":" << value.y
 			<< ",\"z\":" << value.z << '}';
+	}
+
+	void WriteFiniteVectorOrNull(std::ostringstream& out, const vec3& value)
+	{
+		if (!std::isfinite(value.x) || !std::isfinite(value.y) || !std::isfinite(value.z))
+		{
+			out << "null";
+			return;
+		}
+		WriteVector(out, value);
 	}
 
 	void WriteReachSpecIndexes(std::ostringstream& out, const Array<LevelReachSpec>& specs,
@@ -507,7 +518,7 @@ namespace
 			std::ostringstream out;
 			out.imbue(std::locale::classic());
 			out << std::fixed << std::setprecision(6);
-			out << "{\n  \"schema\":\"surreal-map-catalog-spike-v3\",\n"
+			out << "{\n  \"schema\":\"surreal-map-catalog-spike-v4\",\n"
 				<< "  \"game\":{\"name\":" << JsonString(EngineRef.LaunchInfo.gameName)
 				<< ",\"version\":" << JsonString(EngineRef.LaunchInfo.gameVersionString) << "},\n"
 				<< "  \"map\":" << JsonString(map) << ",\n"
@@ -537,7 +548,9 @@ namespace
 				if (actor)
 				{
 					out << ",\"name\":" << JsonString(actor->Name.ToString())
-						<< ",\"class\":" << JsonString(UObject::GetUClassFullName(actor).ToString());
+						<< ",\"class\":" << JsonString(UObject::GetUClassFullName(actor).ToString())
+						<< ",\"location\":";
+					WriteFiniteVectorOrNull(out, actor->Location());
 				}
 				out << '}';
 			}
