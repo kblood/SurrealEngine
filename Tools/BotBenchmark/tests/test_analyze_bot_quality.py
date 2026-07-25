@@ -1997,6 +1997,36 @@ class BotQualityAnalysisTests(unittest.TestCase):
                     QUALITY.QualityError, "require an authorizable episode"):
                 QUALITY.analyze([missing_authorizable_episode])
 
+    def test_direct_harmful_water_prediction_counters_are_bounded(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.DIRECT_HARMFUL_WATER_ENTRY_COUNTERS}
+        final = {
+            **zero, "direct_harmful_water_entry_candidates_exact": 1,
+            "direct_harmful_water_entry_confirmed_exact": 1,
+            "direct_harmful_water_entry_lead_samples_exact": 1,
+            "direct_harmful_water_entry_lead_milliseconds_exact": 20,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "direct-harmful-water-prediction", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, **zero}, {**common, **final}, {**common, **final},
+            ])
+            QUALITY.analyze_run(valid)
+
+            invalid = write_v2_run(root, "direct-harmful-water-outcomes", bot_count=1)
+            bad = {**final, "direct_harmful_water_entry_confirmed_no_harm_exact": 1}
+            upgrade_telemetry_v2(invalid, counters=[
+                {**common, **zero}, {**common, **bad}, {**common, **bad},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "outcomes exceed candidates"):
+                QUALITY.analyze_run(invalid)
+
     def test_causal_death_attribution_is_partitioned_monotonic_and_reported(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,

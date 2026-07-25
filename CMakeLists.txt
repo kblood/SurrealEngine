@@ -1452,12 +1452,16 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_executable(PawnFallingHazardRuntimeObserverTests
 		Tests/PawnFallingHazardRuntimeObserverTests.cpp
 		SurrealEngine/UObject/PawnFallingHazardRuntimeObserver.cpp
+		SurrealEngine/UObject/PawnDirectHarmfulWaterEntryCertificate.cpp
 		SurrealEngine/UObject/PawnFallingHazardForecast.cpp
 		SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.cpp
 		SurrealEngine/UObject/PawnFallingParityForecast.cpp
 	)
 	target_include_directories(PawnFallingHazardRuntimeObserverTests PRIVATE SurrealEngine)
 	set_target_properties(PawnFallingHazardRuntimeObserverTests PROPERTIES CXX_STANDARD 20)
+	if (MSVC)
+		target_link_options(PawnFallingHazardRuntimeObserverTests PRIVATE "/STACK:8388608")
+	endif()
 	add_test(NAME PawnFallingHazardRuntimeObserver COMMAND PawnFallingHazardRuntimeObserverTests)
 
 	add_executable(PawnDirectHarmfulWaterEntryCertificateTests

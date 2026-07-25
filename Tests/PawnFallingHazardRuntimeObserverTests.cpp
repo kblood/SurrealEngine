@@ -688,6 +688,54 @@ namespace
 			&& reset.Counters().SingleHarmfulFallPrefixConfirmedHarmfulEntries == 0,
 			"any callback breaks the single-generation prefix before promotion");
 	}
+
+	void TestDirectHarmfulWaterEntryPrediction()
+	{
+		auto directForecast = []()
+		{
+			auto update = Forecast(FallingHazardForecast::HarmfulPainObserved);
+			update.Result.Reason =
+				FallingHazardForecastReason::HarmfulFootPainAtEndpoint;
+			update.Result.ExpectedHarmfulWaterEntry = true;
+			update.Result.ExpectedBotAvoidanceRelevant = true;
+			update.Result.Elapsed = 0.02f;
+			update.Result.PathDistance = length(update.State.ExpectedSegments[0].RequestedDelta);
+			update.Result.SampleCount = 1;
+			update.State.Result = update.Result;
+			return update;
+		};
+
+		FallingHazardRuntimeObserver observer("DirectPreentryBot");
+		const auto forecast = directForecast();
+		Check(observer.BeginFallEpisode() && observer.ArmGeneration(
+			FallingHazardForecastSource::ExistingFallingCommit, forecast),
+			"a direct certified harmful-water forecast arms a shadow candidate");
+		auto entry = HarmfulSweep();
+		entry.InRegionWater = true;
+		entry.InFootWater = true;
+		entry.InHeadWater = true;
+		Check(observer.ObserveSweep(entry),
+			"the exact harmful water sweep resolves the shadow candidate");
+		const auto& counters = observer.Counters();
+		Check(counters.DirectHarmfulWaterEntryCandidates == 1
+			&& counters.DirectHarmfulWaterEntryConfirmed == 1
+			&& counters.DirectHarmfulWaterEntryConfirmedNoHarm == 0
+			&& counters.DirectHarmfulWaterEntryUnresolved == 0
+			&& counters.DirectHarmfulWaterEntryLeadSamples == 1
+			&& counters.DirectHarmfulWaterEntryLeadMilliseconds == 20,
+			"only an exact same-generation water entry confirms the direct prediction");
+
+		FallingHazardRuntimeObserver unresolved("DirectPreentryUnresolvedBot");
+		Check(unresolved.BeginFallEpisode() && unresolved.ArmGeneration(
+			FallingHazardForecastSource::ExistingFallingCommit, directForecast()),
+			"the unresolved direct candidate starts");
+		Check(unresolved.FinishCallbackBoundary(),
+			"a callback boundary completes the candidate lifecycle");
+		Check(unresolved.Counters().DirectHarmfulWaterEntryCandidates == 1
+			&& unresolved.Counters().DirectHarmfulWaterEntryConfirmed == 0
+			&& unresolved.Counters().DirectHarmfulWaterEntryUnresolved == 1,
+			"unknown callback paths remain unresolved rather than false positives");
+	}
 }
 
 int main()
@@ -704,6 +752,7 @@ int main()
 	TestDrainAndSourceUpdate();
 	TestPersistentHarmfulFallLatch();
 	TestSingleHarmfulFallPrefix();
+	TestDirectHarmfulWaterEntryPrediction();
 	std::cout << "Pawn falling hazard runtime observer tests passed\n";
 	return 0;
 }

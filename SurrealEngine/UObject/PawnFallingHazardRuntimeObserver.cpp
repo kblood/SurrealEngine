@@ -115,6 +115,8 @@ namespace PawnMovement
 		ObservePersistentHarmfulFallForecast(TrajectoryModel.ActiveGeneration);
 		ArmSingleHarmfulFallPrefix(source, forecast,
 			TrajectoryModel.ActiveGeneration);
+		ArmDirectHarmfulWaterEntryPrediction(source, forecast,
+			TrajectoryModel.ActiveGeneration);
 		HasLastCompletion = false;
 		LastCompletionTerminal = FallingHazardTerminal::Active;
 		QueueStart(prechargedElapsed);
@@ -186,6 +188,7 @@ namespace PawnMovement
 			ObserveSingleHarmfulFallPrefix(active, observation, expectedKnown,
 				expectedMatched);
 		}
+		ObserveDirectHarmfulWaterEntryPrediction(active, observation);
 		if (sampleCountValid)
 			ActualSampleCount += observation.Segment.SampleCount;
 		if (update.HasCompletedGeneration)
@@ -312,6 +315,7 @@ namespace PawnMovement
 		CountCorrelation(correlation);
 		ObservePersistentHarmfulFallCompletion(generation, correlation);
 		ObserveSingleHarmfulFallPrefixCompletion(generation, correlation);
+		ResolveDirectHarmfulWaterEntryPrediction(generation);
 		FallingHazardDiagnosticRecord record;
 		record.Kind = FallingHazardDiagnosticKind::Terminal;
 		record.Generation = generation;
@@ -671,5 +675,84 @@ namespace PawnMovement
 		if (countReset && SingleHarmfulFallPrefix.CandidateActive)
 			CounterValues.SingleHarmfulFallPrefixResets++;
 		SingleHarmfulFallPrefix = {};
+	}
+
+	void FallingHazardRuntimeObserver::ArmDirectHarmfulWaterEntryPrediction(
+		FallingHazardForecastSource source, const FallingHazardForecastUpdate& forecast,
+		const FallingHazardGenerationState& generation)
+	{
+		if (source != FallingHazardForecastSource::ExistingFallingCommit)
+			return;
+		const DirectHarmfulWaterEntryCertificate certificate =
+			CertifyDirectHarmfulWaterEntry(forecast);
+		if (!certificate.IsCertified())
+			return;
+		DirectHarmfulWaterEntryPrediction =
+			std::make_unique<DirectHarmfulWaterEntryPredictionState>();
+		DirectHarmfulWaterEntryPrediction->Active = true;
+		DirectHarmfulWaterEntryPrediction->Life = generation.Life;
+		DirectHarmfulWaterEntryPrediction->FallEpisode = generation.FallEpisode;
+		DirectHarmfulWaterEntryPrediction->Generation = generation.Generation;
+		DirectHarmfulWaterEntryPrediction->StartObservedElapsed =
+			FallEpisodeObservedSweepElapsed;
+		CounterValues.DirectHarmfulWaterEntryCandidates++;
+	}
+
+	void FallingHazardRuntimeObserver::ObserveDirectHarmfulWaterEntryPrediction(
+		const FallingHazardGenerationState& generation,
+		const FallingHazardRuntimeSweepObservation& observation)
+	{
+		if (!DirectHarmfulWaterEntryPrediction
+			|| !DirectHarmfulWaterEntryPrediction->Active
+			|| DirectHarmfulWaterEntryPrediction->Life.Value != generation.Life.Value
+			|| DirectHarmfulWaterEntryPrediction->FallEpisode.Value != generation.FallEpisode.Value
+			|| DirectHarmfulWaterEntryPrediction->Generation.Value != generation.Generation.Value)
+		{
+			return;
+		}
+		DirectHarmfulWaterEntryPrediction->ObservedWaterEntry =
+			DirectHarmfulWaterEntryPrediction->ObservedWaterEntry
+			|| (observation.RegionWaterKnown && observation.InRegionWater
+				&& observation.FootWaterKnown && observation.InFootWater);
+	}
+
+	void FallingHazardRuntimeObserver::ResolveDirectHarmfulWaterEntryPrediction(
+		const FallingHazardGenerationState& generation)
+	{
+		if (!DirectHarmfulWaterEntryPrediction
+			|| !DirectHarmfulWaterEntryPrediction->Active
+			|| DirectHarmfulWaterEntryPrediction->Life.Value != generation.Life.Value
+			|| DirectHarmfulWaterEntryPrediction->FallEpisode.Value != generation.FallEpisode.Value
+			|| DirectHarmfulWaterEntryPrediction->Generation.Value != generation.Generation.Value)
+		{
+			return;
+		}
+		if (generation.Terminal == FallingHazardTerminal::HarmfulPainEntered
+			&& DirectHarmfulWaterEntryPrediction->ObservedWaterEntry)
+		{
+			CounterValues.DirectHarmfulWaterEntryConfirmed++;
+			const float lead = FallEpisodeObservedSweepElapsed
+				- DirectHarmfulWaterEntryPrediction->StartObservedElapsed;
+			if (std::isfinite(lead) && lead >= 0.0f)
+			{
+				const double milliseconds = std::round(static_cast<double>(lead) * 1000.0);
+				if (milliseconds <= static_cast<double>(std::numeric_limits<uint64_t>::max()
+					- CounterValues.DirectHarmfulWaterEntryLeadMilliseconds))
+				{
+					CounterValues.DirectHarmfulWaterEntryLeadSamples++;
+					CounterValues.DirectHarmfulWaterEntryLeadMilliseconds +=
+						static_cast<uint64_t>(milliseconds);
+				}
+			}
+		}
+		else if (generation.Terminal == FallingHazardTerminal::Landed)
+		{
+			CounterValues.DirectHarmfulWaterEntryConfirmedNoHarm++;
+		}
+		else
+		{
+			CounterValues.DirectHarmfulWaterEntryUnresolved++;
+		}
+		DirectHarmfulWaterEntryPrediction.reset();
 	}
 }

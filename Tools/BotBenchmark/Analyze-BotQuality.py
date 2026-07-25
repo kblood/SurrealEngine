@@ -346,6 +346,14 @@ SINGLE_HARMFUL_FALL_PREFIX_COUNTERS = (
     "single_harmful_fall_prefix_observed_lead_samples_exact",
     "single_harmful_fall_prefix_observed_lead_milliseconds_exact",
 )
+DIRECT_HARMFUL_WATER_ENTRY_COUNTERS = (
+    "direct_harmful_water_entry_candidates_exact",
+    "direct_harmful_water_entry_confirmed_exact",
+    "direct_harmful_water_entry_confirmed_no_harm_exact",
+    "direct_harmful_water_entry_unresolved_exact",
+    "direct_harmful_water_entry_lead_samples_exact",
+    "direct_harmful_water_entry_lead_milliseconds_exact",
+)
 METRIC_DIRECTIONS.update({
 	name: None for name in (
 		WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
@@ -354,6 +362,7 @@ METRIC_DIRECTIONS.update({
 		+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
 		+ (HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER,)
         + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS + FALLING_HAZARD_RECOVERY_COUNTERS
+		+ DIRECT_HARMFUL_WATER_ENTRY_COUNTERS
         + CONFIRMED_PICKUP_COUNTERS + (PICKUP_SOURCE_CONSUMED_UNCONFIRMED_COUNTER,)
         + NAVIGATION_COVERAGE_COUNTERS + (
             "navigation_coverage_fraction", "navigation_coverage_union_fraction"))
@@ -372,6 +381,7 @@ OPTIONAL_EXACT_COUNTERS = (
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
     + VERTICAL_PAIN_COLUMN_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
     + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS
+	+ DIRECT_HARMFUL_WATER_ENTRY_COUNTERS
     + WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_COUNTERS
     + CONFIRMED_PICKUP_COUNTERS + (PICKUP_SOURCE_CONSUMED_UNCONFIRMED_COUNTER,)
     + (
@@ -2495,7 +2505,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
                 ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS),
                 ("persistent harmful fall", PERSISTENT_HARMFUL_FALL_COUNTERS),
-                ("single harmful fall prefix", SINGLE_HARMFUL_FALL_PREFIX_COUNTERS)):
+                ("single harmful fall prefix", SINGLE_HARMFUL_FALL_PREFIX_COUNTERS),
+                ("direct harmful-water entry", DIRECT_HARMFUL_WATER_ENTRY_COUNTERS)):
             present = [name for name in names if name in result]
             if present and len(present) != len(names):
                 raise QualityError(f"{context}: {label} counters must be provided as a complete group")
@@ -2843,6 +2854,18 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if entries > promotions or samples > entries:
                 raise QualityError(
                     f"{context}: single harmful fall prefix entries/samples exceed promotions")
+        if "direct_harmful_water_entry_candidates_exact" in result:
+            candidates = result["direct_harmful_water_entry_candidates_exact"]
+            confirmed = result["direct_harmful_water_entry_confirmed_exact"]
+            no_harm = result["direct_harmful_water_entry_confirmed_no_harm_exact"]
+            unresolved = result["direct_harmful_water_entry_unresolved_exact"]
+            samples = result["direct_harmful_water_entry_lead_samples_exact"]
+            if confirmed + no_harm + unresolved > candidates:
+                raise QualityError(
+                    f"{context}: direct harmful-water entry outcomes exceed candidates")
+            if samples > confirmed:
+                raise QualityError(
+                    f"{context}: direct harmful-water entry lead samples exceed confirmations")
         if "walking_step_preflight_diagnostics" in bot:
             if "walking_step_preflight_observations_exact" not in result:
                 raise QualityError(

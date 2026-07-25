@@ -1,10 +1,12 @@
 #pragma once
 
 #include "PawnFallingHazardDiagnostics.h"
+#include "PawnDirectHarmfulWaterEntryCertificate.h"
 #include "PawnFallingHazardForecast.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <optional>
 #include <vector>
@@ -37,6 +39,12 @@ namespace PawnMovement
 		uint64_t SingleHarmfulFallPrefixConfirmedHarmfulEntries = 0;
 		uint64_t SingleHarmfulFallPrefixObservedLeadSamples = 0;
 		uint64_t SingleHarmfulFallPrefixObservedLeadMilliseconds = 0;
+		uint64_t DirectHarmfulWaterEntryCandidates = 0;
+		uint64_t DirectHarmfulWaterEntryConfirmed = 0;
+		uint64_t DirectHarmfulWaterEntryConfirmedNoHarm = 0;
+		uint64_t DirectHarmfulWaterEntryUnresolved = 0;
+		uint64_t DirectHarmfulWaterEntryLeadSamples = 0;
+		uint64_t DirectHarmfulWaterEntryLeadMilliseconds = 0;
 	};
 
 	struct FallingHazardRuntimeSweepObservation
@@ -140,6 +148,14 @@ namespace PawnMovement
 			const FallingHazardGenerationState& generation,
 			FallingHazardCorrelation correlation);
 		void ClearSingleHarmfulFallPrefix(bool countReset);
+		void ArmDirectHarmfulWaterEntryPrediction(FallingHazardForecastSource source,
+			const FallingHazardForecastUpdate& forecast,
+			const FallingHazardGenerationState& generation);
+		void ObserveDirectHarmfulWaterEntryPrediction(
+			const FallingHazardGenerationState& generation,
+			const FallingHazardRuntimeSweepObservation& observation);
+		void ResolveDirectHarmfulWaterEntryPrediction(
+			const FallingHazardGenerationState& generation);
 
 		std::string SourcePawnActor;
 		FallingHazardLifeId Life = { 1 };
@@ -180,6 +196,17 @@ namespace PawnMovement
 			float PromotedObservedSweepElapsed = 0.0f;
 		};
 		SingleHarmfulFallPrefixState SingleHarmfulFallPrefix;
+		struct DirectHarmfulWaterEntryPredictionState
+		{
+			bool Active = false;
+			bool ObservedWaterEntry = false;
+			FallingHazardLifeId Life;
+			FallingHazardFallEpisodeId FallEpisode;
+			FallingHazardGenerationId Generation;
+			float StartObservedElapsed = 0.0f;
+		};
+		std::unique_ptr<DirectHarmfulWaterEntryPredictionState>
+			DirectHarmfulWaterEntryPrediction;
 		float FallEpisodeObservedSweepElapsed = 0.0f;
 		FallingHazardRuntimeCounters CounterValues;
 		std::vector<FallingHazardDiagnosticRecord> DiagnosticQueue;

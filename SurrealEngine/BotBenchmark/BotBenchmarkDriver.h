@@ -133,6 +133,12 @@ namespace BotBenchmarkDriverDetail
 		uint64_t SingleHarmfulFallPrefixConfirmedHarmfulEntries = 0;
 		uint64_t SingleHarmfulFallPrefixObservedLeadSamples = 0;
 		uint64_t SingleHarmfulFallPrefixObservedLeadMilliseconds = 0;
+		uint64_t DirectHarmfulWaterEntryCandidates = 0;
+		uint64_t DirectHarmfulWaterEntryConfirmed = 0;
+		uint64_t DirectHarmfulWaterEntryConfirmedNoHarm = 0;
+		uint64_t DirectHarmfulWaterEntryUnresolved = 0;
+		uint64_t DirectHarmfulWaterEntryLeadSamples = 0;
+		uint64_t DirectHarmfulWaterEntryLeadMilliseconds = 0;
 		std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>
 			WalkingStepPreflightReasons = {};
 	};
@@ -489,6 +495,24 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.SingleHarmfulFallPrefixObservedLeadMilliseconds,
 				Previous.SingleHarmfulFallPrefixObservedLeadMilliseconds,
 				totals.SingleHarmfulFallPrefixObservedLeadMilliseconds);
+			AccumulateCounter(current.DirectHarmfulWaterEntryCandidates,
+				Previous.DirectHarmfulWaterEntryCandidates,
+				totals.DirectHarmfulWaterEntryCandidates);
+			AccumulateCounter(current.DirectHarmfulWaterEntryConfirmed,
+				Previous.DirectHarmfulWaterEntryConfirmed,
+				totals.DirectHarmfulWaterEntryConfirmed);
+			AccumulateCounter(current.DirectHarmfulWaterEntryConfirmedNoHarm,
+				Previous.DirectHarmfulWaterEntryConfirmedNoHarm,
+				totals.DirectHarmfulWaterEntryConfirmedNoHarm);
+			AccumulateCounter(current.DirectHarmfulWaterEntryUnresolved,
+				Previous.DirectHarmfulWaterEntryUnresolved,
+				totals.DirectHarmfulWaterEntryUnresolved);
+			AccumulateCounter(current.DirectHarmfulWaterEntryLeadSamples,
+				Previous.DirectHarmfulWaterEntryLeadSamples,
+				totals.DirectHarmfulWaterEntryLeadSamples);
+			AccumulateCounter(current.DirectHarmfulWaterEntryLeadMilliseconds,
+				Previous.DirectHarmfulWaterEntryLeadMilliseconds,
+				totals.DirectHarmfulWaterEntryLeadMilliseconds);
 			for (size_t index = 0; index < current.WalkingStepPreflightReasons.size(); index++)
 			{
 				AccumulateCounter(current.WalkingStepPreflightReasons[index],

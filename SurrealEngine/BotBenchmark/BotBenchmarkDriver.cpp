@@ -864,6 +864,18 @@ namespace
 				hazard.SingleHarmfulFallPrefixObservedLeadSamples;
 			counters.SingleHarmfulFallPrefixObservedLeadMilliseconds =
 				hazard.SingleHarmfulFallPrefixObservedLeadMilliseconds;
+			counters.DirectHarmfulWaterEntryCandidates =
+				hazard.DirectHarmfulWaterEntryCandidates;
+			counters.DirectHarmfulWaterEntryConfirmed =
+				hazard.DirectHarmfulWaterEntryConfirmed;
+			counters.DirectHarmfulWaterEntryConfirmedNoHarm =
+				hazard.DirectHarmfulWaterEntryConfirmedNoHarm;
+			counters.DirectHarmfulWaterEntryUnresolved =
+				hazard.DirectHarmfulWaterEntryUnresolved;
+			counters.DirectHarmfulWaterEntryLeadSamples =
+				hazard.DirectHarmfulWaterEntryLeadSamples;
+			counters.DirectHarmfulWaterEntryLeadMilliseconds =
+				hazard.DirectHarmfulWaterEntryLeadMilliseconds;
 			counters.WalkingStepPreflightReasons = pawn->WalkingStepPreflightReasonCounts();
 			return counters;
 		}
@@ -1924,6 +1936,18 @@ namespace
 					native.SingleHarmfulFallPrefixObservedLeadSamples;
 				bot.SingleHarmfulFallPrefixObservedLeadMillisecondsExact =
 					native.SingleHarmfulFallPrefixObservedLeadMilliseconds;
+				bot.DirectHarmfulWaterEntryCandidatesExact =
+					native.DirectHarmfulWaterEntryCandidates;
+				bot.DirectHarmfulWaterEntryConfirmedExact =
+					native.DirectHarmfulWaterEntryConfirmed;
+				bot.DirectHarmfulWaterEntryConfirmedNoHarmExact =
+					native.DirectHarmfulWaterEntryConfirmedNoHarm;
+				bot.DirectHarmfulWaterEntryUnresolvedExact =
+					native.DirectHarmfulWaterEntryUnresolved;
+				bot.DirectHarmfulWaterEntryLeadSamplesExact =
+					native.DirectHarmfulWaterEntryLeadSamples;
+				bot.DirectHarmfulWaterEntryLeadMillisecondsExact =
+					native.DirectHarmfulWaterEntryLeadMilliseconds;
 				if (pawn)
 				{
 					auto diagnostics = pawn->DrainWalkingStepPreflightDiagnostics();
