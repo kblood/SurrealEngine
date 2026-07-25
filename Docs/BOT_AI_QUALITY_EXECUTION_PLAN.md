@@ -2181,6 +2181,22 @@ prevents a future refactor from silently restoring over a newer bot command.
 The focused test and the Release engine build pass. Runtime quality remains
 unproven until the owner-data cross-game campaign is available.
 
+## Iteration 91: one-shot stock planner handoff
+
+The egress experiment now has a second live candidate for the case that the
+stock bot owns an active movement command. Instead of replacing that command’s
+acceleration, it may issue the engine’s established `MoveTimer = -1` completion
+signal exactly once, allowing the stock UnrealScript state to choose its next
+route. The handoff requires the existing authorized positive-DPS water episode
+and an already collision-probed safe navigation candidate; otherwise it does
+nothing. The pre-existing exact forced-replan counter records every such action.
+
+This is an opt-in experiment under the same default-off live flag, not a
+promotion. The Release engine and focused policy test pass. It must now be run
+against its prior acceleration-only baseline on UT436 Deck16-II and Unreal
+226b DeathFan, with repeat identity and safety/combat non-regression gates,
+before it can be retained as a bot behavior improvement.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

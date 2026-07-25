@@ -56,6 +56,12 @@ namespace BotAI
 		Ready,
 	};
 
+	enum class HazardSwimEgressLiveReplanDecision
+	{
+		NoAction,
+		Replan,
+	};
+
 	struct HazardSwimEgressLiveSteerInput
 	{
 		bool PolicyEnabled = false;
@@ -92,8 +98,23 @@ namespace BotAI
 		float ExpectedMaximumAcceleration = 0.0f;
 	};
 
+	struct HazardSwimEgressLiveReplanInput
+	{
+		bool PolicyEnabled = false;
+		bool EligibleActor = false;
+		bool Alive = false;
+		bool Swimming = false;
+		bool HarmfulWaterEpisodeActive = false;
+		bool LiveActionAuthorized = false;
+		bool MovementCommandActive = false;
+		bool SafeNavigationCandidateKnown = false;
+		bool ReplanAlreadyIssued = false;
+	};
+
 	HazardSwimEgressLiveSteerDecision EvaluateHazardSwimEgressLiveSteer(
 		const HazardSwimEgressLiveSteerInput& input);
 	bool ShouldRestoreHazardSwimEgressAccelerationOverlay(
 		const HazardSwimEgressAccelerationOverlayRestoreInput& input);
+	HazardSwimEgressLiveReplanDecision EvaluateHazardSwimEgressLiveReplan(
+		const HazardSwimEgressLiveReplanInput& input);
 }

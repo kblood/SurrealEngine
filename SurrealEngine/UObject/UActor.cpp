@@ -5860,6 +5860,24 @@ void UPawn::AdvanceHazardSwimEgressLiveSteer()
 		&& IsMovementLatentState(StateFrame->LatentState);
 	if (movementCommandActive)
 	{
+		const BotAI::HazardSwimEgressLiveReplanDecision replan =
+			BotAI::EvaluateHazardSwimEgressLiveReplan({
+				engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
+				IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
+				!bDeleteMe() && Health() > 0, Physics() == PHYS_Swimming,
+				HazardSwimEgress.HarmfulWaterEpisodeActive,
+				HazardSwimEgress.LiveActionAuthorized, true,
+				HazardSwimEgress.DirectNavBestCandidateLocationKnown,
+				HazardSwimEgress.LiveReplanIssued });
+		if (replan == BotAI::HazardSwimEgressLiveReplanDecision::Replan)
+		{
+			// This hands the next decision to the stock script instead of steering
+			// against its active combat/navigation command.
+			Acceleration() = vec3(0.0f);
+			MoveTimer() = -1.0f;
+			HazardSwimEgress.LiveReplanIssued = true;
+			HazardSwimEgressForcedReplanCountValue++;
+		}
 		ObserveHazardSwimEgressLiveSteerShadowDecision(
 			BotAI::EvaluateHazardSwimEgressLiveSteer({
 				engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),

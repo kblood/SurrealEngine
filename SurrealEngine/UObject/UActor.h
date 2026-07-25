@@ -2491,6 +2491,7 @@ private:
 		bool HarmfulWaterEpisodeActive = false;
 		bool LiveActionAuthorized = false;
 		bool LiveProbeRejected = false;
+		bool LiveReplanIssued = false;
 		bool ActionActive = false;
 		bool AccelerationOverlayActive = false;
 		vec3 AccelerationBeforeOverlay = vec3(0.0f);

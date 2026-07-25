@@ -81,4 +81,15 @@ namespace BotAI
 			&& accelerationLength <= input.ExpectedMaximumAcceleration * 1.001f
 			&& dot(normalize(acceleration), input.OverlayDirection) > 0.999f;
 	}
+
+	HazardSwimEgressLiveReplanDecision EvaluateHazardSwimEgressLiveReplan(
+		const HazardSwimEgressLiveReplanInput& input)
+	{
+		return input.PolicyEnabled && input.EligibleActor && input.Alive
+			&& input.Swimming && input.HarmfulWaterEpisodeActive
+			&& input.LiveActionAuthorized && input.MovementCommandActive
+			&& input.SafeNavigationCandidateKnown && !input.ReplanAlreadyIssued
+			? HazardSwimEgressLiveReplanDecision::Replan
+			: HazardSwimEgressLiveReplanDecision::NoAction;
+	}
 }

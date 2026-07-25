@@ -175,6 +175,36 @@ namespace
 		Check(!ShouldRestoreHazardSwimEgressAccelerationOverlay(input),
 			"an inactive overlay cannot restore acceleration");
 	}
+
+	void TestStockPlannerReplan()
+	{
+		HazardSwimEgressLiveReplanInput input;
+		input.PolicyEnabled = true;
+		input.EligibleActor = true;
+		input.Alive = true;
+		input.Swimming = true;
+		input.HarmfulWaterEpisodeActive = true;
+		input.LiveActionAuthorized = true;
+		input.MovementCommandActive = true;
+		input.SafeNavigationCandidateKnown = true;
+		Check(EvaluateHazardSwimEgressLiveReplan(input)
+			== HazardSwimEgressLiveReplanDecision::Replan,
+			"an authorized water entry with a safe candidate yields one stock replan");
+		input.ReplanAlreadyIssued = true;
+		Check(EvaluateHazardSwimEgressLiveReplan(input)
+			== HazardSwimEgressLiveReplanDecision::NoAction,
+			"a water episode cannot force the stock planner twice");
+		input.ReplanAlreadyIssued = false;
+		input.SafeNavigationCandidateKnown = false;
+		Check(EvaluateHazardSwimEgressLiveReplan(input)
+			== HazardSwimEgressLiveReplanDecision::NoAction,
+			"an unprobed escape candidate cannot force a stock replan");
+		input.SafeNavigationCandidateKnown = true;
+		input.MovementCommandActive = false;
+		Check(EvaluateHazardSwimEgressLiveReplan(input)
+			== HazardSwimEgressLiveReplanDecision::NoAction,
+			"without a stock movement command there is nothing to hand back");
+	}
 }
 
 int main()
@@ -183,6 +213,7 @@ int main()
 	TestExplicitTerminals();
 	TestFailsClosed();
 	TestAccelerationOverlayRestorationOwnership();
+	TestStockPlannerReplan();
 	if (Failures == 0)
 		std::cout << "Hazard swim egress live steer tests passed\n";
 	return Failures == 0 ? 0 : 1;
