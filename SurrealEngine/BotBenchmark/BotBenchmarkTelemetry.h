@@ -154,6 +154,14 @@ struct BotBenchmarkBotState
 	uint64_t HazardSwimEgressExitedExact = 0;
 	uint64_t HazardSwimEgressDeathsBeforeExitExact = 0;
 	uint64_t HazardSwimEgressForcedReplansExact = 0;
+	uint64_t HazardSwimEgressForcedReplanSameCommandReissuedExact = 0;
+	uint64_t HazardSwimEgressForcedReplanDifferentCommandIssuedExact = 0;
+	uint64_t HazardSwimEgressForcedReplanHazardClearedBeforeCommandExact = 0;
+	uint64_t HazardSwimEgressForcedReplanFellBeforeCommandExact = 0;
+	uint64_t HazardSwimEgressForcedReplanDiedBeforeCommandExact = 0;
+	uint64_t HazardSwimEgressForcedReplanLifeBoundaryCensoredExact = 0;
+	uint64_t HazardSwimEgressForcedReplanRunEndCensoredExact = 0;
+	uint64_t HazardSwimEgressForcedReplanEpisodeAbandonedExact = 0;
 	uint64_t HazardSwimEgressFallingPreMoveAnchorCapturesExact = 0;
 	uint64_t HazardSwimEgressFallingPreMoveAnchorUsesExact = 0;
 	uint64_t HazardSwimEgressLiveAppliesExact = 0;

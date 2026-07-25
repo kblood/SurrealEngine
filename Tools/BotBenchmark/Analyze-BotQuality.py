@@ -197,6 +197,16 @@ HAZARD_SWIM_EGRESS_EXACT_COUNTERS = (
     "hazard_swim_egress_died_before_exit_exact",
     "hazard_swim_egress_forced_replans_exact",
 )
+HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS = (
+    "hazard_swim_egress_forced_replan_same_command_reissued_exact",
+    "hazard_swim_egress_forced_replan_different_command_issued_exact",
+    "hazard_swim_egress_forced_replan_hazard_cleared_before_command_exact",
+    "hazard_swim_egress_forced_replan_fell_before_command_exact",
+    "hazard_swim_egress_forced_replan_died_before_command_exact",
+    "hazard_swim_egress_forced_replan_life_boundary_censored_exact",
+    "hazard_swim_egress_forced_replan_run_end_censored_exact",
+    "hazard_swim_egress_forced_replan_episode_abandoned_exact",
+)
 FALLING_PRE_MOVE_ANCHOR_COUNTERS = (
 	"falling_pre_move_anchor_captures_exact",
 	"falling_pre_move_anchor_uses_exact",
@@ -416,6 +426,7 @@ METRIC_DIRECTIONS.update({
 	name: None for name in (
 		WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
 		+ VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
+		+ HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS
 		+ FALLING_PRE_MOVE_ANCHOR_COUNTERS + HAZARD_SWIM_EGRESS_LIVE_COUNTERS
 		+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
 		+ (HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER,)
@@ -432,6 +443,7 @@ OPTIONAL_EXACT_COUNTERS = (
     + MOVE_STALL_RECOVERY_EXACT_COUNTERS
     + FAILED_NAVIGATION_EXACT_COUNTERS + HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS
 	+ HAZARD_SWIM_EGRESS_EXACT_COUNTERS
+	+ HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS
 	+ FALLING_PRE_MOVE_ANCHOR_COUNTERS
 	+ HAZARD_SWIM_EGRESS_LIVE_COUNTERS
 	+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS
@@ -2861,6 +2873,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("failed navigation", FAILED_NAVIGATION_EXACT_COUNTERS),
                 ("harmful-zone escape", HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS),
                 ("hazard swim egress", HAZARD_SWIM_EGRESS_EXACT_COUNTERS),
+				("hazard swim egress planner handoff",
+				 HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS),
                 ("falling pre-move anchor", FALLING_PRE_MOVE_ANCHOR_COUNTERS),
                 ("hazard swim egress live", HAZARD_SWIM_EGRESS_LIVE_COUNTERS),
                 ("hazard swim egress direct navigation", HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS),
@@ -2975,6 +2989,15 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if forced_replans > authorized:
                 raise QualityError(
                     f"{context}: hazard swim egress forced replans exceed authorization")
+        if "hazard_swim_egress_forced_replan_same_command_reissued_exact" in result:
+            if "hazard_swim_egress_forced_replans_exact" not in result:
+                raise QualityError(
+                    f"{context}: planner-handoff outcomes require forced-replan evidence")
+            outcomes = sum(result[name] for name in
+                HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS)
+            if outcomes > result["hazard_swim_egress_forced_replans_exact"]:
+                raise QualityError(
+                    f"{context}: planner-handoff outcomes exceed forced replans")
         if "hazard_swim_egress_live_applies_exact" in result:
             live_applies = result["hazard_swim_egress_live_applies_exact"]
             live_active_ticks = result["hazard_swim_egress_live_active_ticks_exact"]
@@ -4327,6 +4350,15 @@ def analyze_run(path: Path) -> dict[str, Any]:
             raise QualityError(f"{run_path}: observed initial-layout fingerprint differs from quality metadata")
     causal_harmful_fall = _reconcile_post_mayfall_harmful_parity_deaths(events, run_path)
     bots = _bot_metrics(events, causal_harmful_fall)
+    for identity, bot in bots.items():
+        if any(bot.get(name) is None for name in
+               HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS):
+            continue
+        outcomes = sum(bot[name] for name in
+            HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS)
+        if outcomes != bot["hazard_swim_egress_forced_replans_exact"]:
+            raise QualityError(
+                f"{run_path}: final planner-handoff outcomes must partition forced replans for {identity}")
     completion = summary["status"] == "complete" and summary["exit_code"] == 0
     metrics = _run_metrics(bots, completion)
     return {

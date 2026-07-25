@@ -391,6 +391,8 @@ class BotQualityAnalysisTests(unittest.TestCase):
             "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
         }
         zero = {name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_EXACT_COUNTERS}
+        handoff_zero = {
+            name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS}
         final = {
             **zero,
             "hazard_swim_egress_episodes_exact": 3,
@@ -423,6 +425,40 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(
                     QUALITY.QualityError, "hazard swim egress counters must be provided"):
                 QUALITY.analyze_run(partial)
+
+            planner_handoff = write_v2_run(root, "hazard-swim-egress-planner-handoff", bot_count=1)
+            planner_handoff_final = {
+                **final, **handoff_zero,
+                "hazard_swim_egress_forced_replan_same_command_reissued_exact": 1,
+                "hazard_swim_egress_forced_replan_hazard_cleared_before_command_exact": 1,
+            }
+            upgrade_telemetry_v2(planner_handoff, counters=[
+                {**common, **zero, **handoff_zero},
+                {**common, **planner_handoff_final}, {**common, **planner_handoff_final},
+            ])
+            planner_report = QUALITY.analyze([planner_handoff])
+            self.assertEqual(planner_report["runs"][0]["metrics"]
+                ["hazard_swim_egress_forced_replan_same_command_reissued_exact"], 1)
+
+            planner_partial = write_v2_run(root, "hazard-swim-egress-planner-handoff-partial", bot_count=1)
+            planner_partial_final = {**planner_handoff_final}
+            planner_partial_final.pop("hazard_swim_egress_forced_replan_episode_abandoned_exact")
+            upgrade_telemetry_v2(planner_partial, counters=[
+                {**common, **zero, **handoff_zero},
+                {**common, **planner_partial_final}, {**common, **planner_partial_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "planner handoff.*complete group"):
+                QUALITY.analyze_run(planner_partial)
+
+            planner_unpartitioned = write_v2_run(root, "hazard-swim-egress-planner-handoff-unpartitioned", bot_count=1)
+            planner_unpartitioned_final = {**final, **handoff_zero,
+                "hazard_swim_egress_forced_replan_same_command_reissued_exact": 1}
+            upgrade_telemetry_v2(planner_unpartitioned, counters=[
+                {**common, **zero, **handoff_zero},
+                {**common, **planner_unpartitioned_final}, {**common, **planner_unpartitioned_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "outcomes must partition"):
+                QUALITY.analyze_run(planner_unpartitioned)
 
             invalid_eligible = write_v2_run(root, "hazard-swim-egress-eligible", bot_count=1)
             invalid_eligible_final = {

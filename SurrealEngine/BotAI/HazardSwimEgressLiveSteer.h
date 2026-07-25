@@ -60,6 +60,21 @@ namespace BotAI
 		Replan,
 	};
 
+	// Observer-only disposition of a one-shot handoff to the stock planner.
+	// It never authorizes or changes movement.
+	enum class HazardSwimEgressPlannerHandoffOutcome
+	{
+		None,
+		SameCommandReissued,
+		DifferentCommandIssued,
+		HazardClearedBeforeCommand,
+		FellBeforeCommand,
+		DiedBeforeCommand,
+		LifeBoundaryCensored,
+		RunEndCensored,
+		EpisodeAbandoned,
+	};
+
 	struct HazardSwimEgressLiveSteerInput
 	{
 		bool PolicyEnabled = false;
@@ -101,8 +116,24 @@ namespace BotAI
 		bool ReplanAlreadyIssued = false;
 	};
 
+	struct HazardSwimEgressPlannerHandoffInput
+	{
+		bool Pending = false;
+		bool NextMovementCommandIssued = false;
+		bool SameMoveTarget = false;
+		bool SameDestination = false;
+		bool HazardCleared = false;
+		bool Fell = false;
+		bool Died = false;
+		bool LifeBoundary = false;
+		bool RunEnd = false;
+		bool EpisodeAbandoned = false;
+	};
+
 	HazardSwimEgressLiveSteerDecision EvaluateHazardSwimEgressLiveSteer(
 		const HazardSwimEgressLiveSteerInput& input);
 	HazardSwimEgressLiveReplanDecision EvaluateHazardSwimEgressLiveReplan(
 		const HazardSwimEgressLiveReplanInput& input);
+	HazardSwimEgressPlannerHandoffOutcome ClassifyHazardSwimEgressPlannerHandoff(
+		const HazardSwimEgressPlannerHandoffInput& input);
 }

@@ -1944,6 +1944,7 @@ public:
 	void ObserveHazardSwimEgressLiveSteerShadowDecision(
 		const BotAI::HazardSwimEgressLiveSteerDecision& decision);
 	void EndHazardSwimEgressSwimSession();
+	void EndHazardSwimEgressRun();
 	void RecordHazardSwimEgressDeath();
 
 	void MoveTo(const vec3& newDestination, float speed);
@@ -2134,6 +2135,38 @@ public:
 	uint64_t HazardSwimEgressExitCount() const { return HazardSwimEgressExitCountValue; }
 	uint64_t HazardSwimEgressDeathsBeforeExitCount() const { return HazardSwimEgressDeathsBeforeExitCountValue; }
 	uint64_t HazardSwimEgressForcedReplanCount() const { return HazardSwimEgressForcedReplanCountValue; }
+	uint64_t HazardSwimEgressForcedReplanSameCommandReissuedCount() const
+	{
+		return HazardSwimEgressForcedReplanSameCommandReissuedCountValue;
+	}
+	uint64_t HazardSwimEgressForcedReplanDifferentCommandIssuedCount() const
+	{
+		return HazardSwimEgressForcedReplanDifferentCommandIssuedCountValue;
+	}
+	uint64_t HazardSwimEgressForcedReplanHazardClearedBeforeCommandCount() const
+	{
+		return HazardSwimEgressForcedReplanHazardClearedBeforeCommandCountValue;
+	}
+	uint64_t HazardSwimEgressForcedReplanFellBeforeCommandCount() const
+	{
+		return HazardSwimEgressForcedReplanFellBeforeCommandCountValue;
+	}
+	uint64_t HazardSwimEgressForcedReplanDiedBeforeCommandCount() const
+	{
+		return HazardSwimEgressForcedReplanDiedBeforeCommandCountValue;
+	}
+	uint64_t HazardSwimEgressForcedReplanLifeBoundaryCensoredCount() const
+	{
+		return HazardSwimEgressForcedReplanLifeBoundaryCensoredCountValue;
+	}
+	uint64_t HazardSwimEgressForcedReplanRunEndCensoredCount() const
+	{
+		return HazardSwimEgressForcedReplanRunEndCensoredCountValue;
+	}
+	uint64_t HazardSwimEgressForcedReplanEpisodeAbandonedCount() const
+	{
+		return HazardSwimEgressForcedReplanEpisodeAbandonedCountValue;
+	}
 	uint64_t HazardSwimEgressFallingPreMoveAnchorCaptureCount() const
 	{
 		return HazardSwimEgressFallingPreMoveAnchorCaptureCountValue;
@@ -2437,7 +2470,12 @@ private:
 	bool ApplyHarmfulZoneEscape();
 	void EndHarmfulZoneEscapeLife();
 	void ResetFallingHazardRecovery();
-	void ResetHazardSwimEgressObservation();
+	void ResetHazardSwimEgressObservation(
+		BotAI::HazardSwimEgressPlannerHandoffOutcome outcome =
+			BotAI::HazardSwimEgressPlannerHandoffOutcome::EpisodeAbandoned);
+	void ResolveHazardSwimEgressPlannerHandoff(
+		BotAI::HazardSwimEgressPlannerHandoffOutcome outcome);
+	void ObserveHazardSwimEgressPlannerHandoffMovementCommand();
 	void ObserveHazardSwimEgressDirectNavigationCandidates();
 	void ObserveHazardSwimEgressStaticWalkCertificate();
 
@@ -2492,6 +2530,10 @@ private:
 		bool LiveProbeRejected = false;
 		bool LiveReplanIssued = false;
 		bool ActionActive = false;
+		bool PlannerHandoffWitnessPending = false;
+		uint64_t PlannerHandoffMovementCommandToken = 0;
+		UActor* PlannerHandoffMoveTarget = nullptr;
+		vec3 PlannerHandoffDestination = vec3(0.0f);
 		PawnMovement::HazardWaterEgressTransitionSource TransitionSource =
 			PawnMovement::HazardWaterEgressTransitionSource::Unknown;
 		std::string DirectNavBestCandidateName;
@@ -2554,6 +2596,14 @@ private:
 	uint64_t HazardSwimEgressExitCountValue = 0;
 	uint64_t HazardSwimEgressDeathsBeforeExitCountValue = 0;
 	uint64_t HazardSwimEgressForcedReplanCountValue = 0;
+	uint64_t HazardSwimEgressForcedReplanSameCommandReissuedCountValue = 0;
+	uint64_t HazardSwimEgressForcedReplanDifferentCommandIssuedCountValue = 0;
+	uint64_t HazardSwimEgressForcedReplanHazardClearedBeforeCommandCountValue = 0;
+	uint64_t HazardSwimEgressForcedReplanFellBeforeCommandCountValue = 0;
+	uint64_t HazardSwimEgressForcedReplanDiedBeforeCommandCountValue = 0;
+	uint64_t HazardSwimEgressForcedReplanLifeBoundaryCensoredCountValue = 0;
+	uint64_t HazardSwimEgressForcedReplanRunEndCensoredCountValue = 0;
+	uint64_t HazardSwimEgressForcedReplanEpisodeAbandonedCountValue = 0;
 	uint64_t HazardSwimEgressFallingPreMoveAnchorCaptureCountValue = 0;
 	uint64_t HazardSwimEgressFallingPreMoveAnchorUseCountValue = 0;
 	uint64_t HazardSwimEgressLiveApplyCountValue = 0;

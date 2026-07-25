@@ -2220,6 +2220,44 @@ acceleration. Promotion still requires deterministic paired UT436 and Unreal
 226b multi-seed evidence of fewer suicides or unassisted environmental deaths,
 with no combat, wall, hazard-entry, or determinism regression.
 
+## Iteration 93: exact planner-handoff outcome witness
+
+The default-off planner handoff now records one terminal, mutually exclusive
+outcome for every forced `MoveTimer = -1` handoff: the same stock command was
+reissued, a different stock command was issued, the primary hazard cleared
+before a command, the pawn fell, the pawn died, or the observation was censored
+at a life boundary, run end, or abandoned episode. The new observer snapshots
+only the pre-handoff semantic command and observes the next explicit native
+movement command; it changes neither target, route, latent state, acceleration,
+nor physics. The pre-existing default-off handoff remains the only live action:
+it clears acceleration and sets `MoveTimer = -1` once. The outcome counters
+must partition forced replans in the final run sample. Earlier in-flight
+samples may have unresolved handoffs, but can never claim more resolved
+outcomes than replans.
+
+`HazardSwimEgressLiveSteerTests`, `BotBenchmarkTelemetryTests`, the Release
+engine build, and the full 123-test Python analyzer suite pass. The new analyzer
+group is optional as a complete group, so historical artifacts remain valid;
+new handoff artifacts fail closed on a partial group, an outcome overflow, or a
+final non-partition.
+
+Two 7,200-tick UT436 Deck16-II seed-271828 runs are byte-identical (events
+SHA-256 `481F17DC9E25D364EFE50E671CD921ED493CAE9E6ED8679E06F057A46AC4DCC2`).
+They retain the known K4/D9/S5 result, 27.5334 seconds exposure, five entries,
+and two forced replans. One was followed by the same command and one by a
+different command; neither cleared, fell, or died before the replacement.
+Therefore there is no evidence yet that handoff failure is simply the stock
+script reselecting the same target, and no destination override is justified.
+
+The retained Unreal 226b DeathFan fixture also repeats byte-identically (events
+SHA-256 `6FFDAAEDA03230E6646ECEB592CB0D83474020DCFEA397498B3D0E7503F6DBF2`) at
+seed 271828, but has zero forced replans. A one-run Unreal `DmDeck16` discovery
+has zero hazard entries and zero handoffs. These are valid determinism and
+schema checks, not cross-game behavioral qualification: the opportunity set is
+zero. The next work is a bounded multi-seed owner-data discovery matrix to find
+an Unreal harmful-water/falling opportunity or to reject this shared candidate
+for lack of cross-game relevance.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

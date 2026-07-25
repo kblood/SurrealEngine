@@ -184,6 +184,55 @@ namespace
 			== HazardSwimEgressLiveReplanDecision::NoAction,
 			"without a stock movement command there is nothing to hand back");
 	}
+
+	void TestPlannerHandoffWitnessClassification()
+	{
+		HazardSwimEgressPlannerHandoffInput input;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::None,
+			"no pending handoff emits no outcome");
+		input.Pending = true;
+		input.NextMovementCommandIssued = true;
+		input.SameMoveTarget = true;
+		input.SameDestination = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::SameCommandReissued,
+			"an identical stock command is a same-command reissue");
+		input.SameDestination = false;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::DifferentCommandIssued,
+			"a changed destination is a different stock command");
+		input.NextMovementCommandIssued = false;
+		input.HazardCleared = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::HazardClearedBeforeCommand,
+			"clearance before a new command remains distinct from reissue");
+		input.HazardCleared = false;
+		input.Fell = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::FellBeforeCommand,
+			"falling is a separate terminal outcome");
+		input.Fell = false;
+		input.Died = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::DiedBeforeCommand,
+			"death before a command is terminal evidence");
+		input.Died = false;
+		input.LifeBoundary = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::LifeBoundaryCensored,
+			"a life boundary is explicitly censored");
+		input.LifeBoundary = false;
+		input.RunEnd = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::RunEndCensored,
+			"run end is explicitly censored");
+		input.RunEnd = false;
+		input.EpisodeAbandoned = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::EpisodeAbandoned,
+			"an abandoned episode is explicitly censored");
+	}
 }
 
 int main()
@@ -192,6 +241,7 @@ int main()
 	TestExplicitTerminals();
 	TestFailsClosed();
 	TestStockPlannerReplan();
+	TestPlannerHandoffWitnessClassification();
 	if (Failures == 0)
 		std::cout << "Hazard swim egress live steer tests passed\n";
 	return Failures == 0 ? 0 : 1;

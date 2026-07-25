@@ -73,4 +73,30 @@ namespace BotAI
 			? HazardSwimEgressLiveReplanDecision::Replan
 			: HazardSwimEgressLiveReplanDecision::NoAction;
 	}
+
+	HazardSwimEgressPlannerHandoffOutcome ClassifyHazardSwimEgressPlannerHandoff(
+		const HazardSwimEgressPlannerHandoffInput& input)
+	{
+		if (!input.Pending)
+			return HazardSwimEgressPlannerHandoffOutcome::None;
+		if (input.NextMovementCommandIssued)
+		{
+			return input.SameMoveTarget && input.SameDestination
+				? HazardSwimEgressPlannerHandoffOutcome::SameCommandReissued
+				: HazardSwimEgressPlannerHandoffOutcome::DifferentCommandIssued;
+		}
+		if (input.HazardCleared)
+			return HazardSwimEgressPlannerHandoffOutcome::HazardClearedBeforeCommand;
+		if (input.Fell)
+			return HazardSwimEgressPlannerHandoffOutcome::FellBeforeCommand;
+		if (input.Died)
+			return HazardSwimEgressPlannerHandoffOutcome::DiedBeforeCommand;
+		if (input.LifeBoundary)
+			return HazardSwimEgressPlannerHandoffOutcome::LifeBoundaryCensored;
+		if (input.RunEnd)
+			return HazardSwimEgressPlannerHandoffOutcome::RunEndCensored;
+		if (input.EpisodeAbandoned)
+			return HazardSwimEgressPlannerHandoffOutcome::EpisodeAbandoned;
+		return HazardSwimEgressPlannerHandoffOutcome::None;
+	}
 }

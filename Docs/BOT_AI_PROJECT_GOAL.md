@@ -46,8 +46,13 @@ safe alternatives and external-intervention exclusions are captured. The
 immediate behavior investigation is the default-off, replan-only
 hazard-swim-egress experiment: it lowers UT436 Deck16-II hazard exposure without
 changing kills, deaths, or suicides, so it is retained only for measurement.
-The next slice must determine whether stock scripts reissue the same hazardous
-target after a handoff before any target-redirection policy is considered.
+The next slice records an exact terminal disposition for every planner handoff:
+same stock command reissued, a changed stock command, clearance, falling,
+death, or an explicit life/run/abandon censor. Initial UT evidence contains one
+same-command and one changed-command reissue, neither with a survival result;
+Unreal discovery runs currently have no qualifying handoff opportunity. No
+target-redirection policy is authorized until a multi-seed opportunity set
+shows a causal target-reissue pattern.
 Recovery-time thresholds may be evaluated only when a candidate campaign
 supplies a non-zero, complete opportunity set; the forced fixture qualifies the
 measurement path, not bot quality.

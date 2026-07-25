@@ -161,6 +161,7 @@ namespace
 					if (runtime == QualityParticipants.end())
 						continue;
 					pawn->EndMoveStallRecoveryRun();
+					pawn->EndHazardSwimEgressRun();
 					AccumulateNativePawnCounters(identity, runtime->second, pawn,
 						BotBenchmarkDriverDetail::NativePawnCounterSample::LivePawn);
 				}
@@ -769,6 +770,22 @@ namespace
 			counters.HazardSwimEgressExited = pawn->HazardSwimEgressExitCount();
 			counters.HazardSwimEgressDeathsBeforeExit = pawn->HazardSwimEgressDeathsBeforeExitCount();
 			counters.HazardSwimEgressForcedReplans = pawn->HazardSwimEgressForcedReplanCount();
+			counters.HazardSwimEgressForcedReplanSameCommandReissued =
+				pawn->HazardSwimEgressForcedReplanSameCommandReissuedCount();
+			counters.HazardSwimEgressForcedReplanDifferentCommandIssued =
+				pawn->HazardSwimEgressForcedReplanDifferentCommandIssuedCount();
+			counters.HazardSwimEgressForcedReplanHazardClearedBeforeCommand =
+				pawn->HazardSwimEgressForcedReplanHazardClearedBeforeCommandCount();
+			counters.HazardSwimEgressForcedReplanFellBeforeCommand =
+				pawn->HazardSwimEgressForcedReplanFellBeforeCommandCount();
+			counters.HazardSwimEgressForcedReplanDiedBeforeCommand =
+				pawn->HazardSwimEgressForcedReplanDiedBeforeCommandCount();
+			counters.HazardSwimEgressForcedReplanLifeBoundaryCensored =
+				pawn->HazardSwimEgressForcedReplanLifeBoundaryCensoredCount();
+			counters.HazardSwimEgressForcedReplanRunEndCensored =
+				pawn->HazardSwimEgressForcedReplanRunEndCensoredCount();
+			counters.HazardSwimEgressForcedReplanEpisodeAbandoned =
+				pawn->HazardSwimEgressForcedReplanEpisodeAbandonedCount();
 			counters.HazardSwimEgressFallingPreMoveAnchorCaptures =
 				pawn->HazardSwimEgressFallingPreMoveAnchorCaptureCount();
 				counters.HazardSwimEgressFallingPreMoveAnchorUses =
@@ -1882,6 +1899,22 @@ namespace
 				bot.HazardSwimEgressExitedExact = native.HazardSwimEgressExited;
 				bot.HazardSwimEgressDeathsBeforeExitExact = native.HazardSwimEgressDeathsBeforeExit;
 				bot.HazardSwimEgressForcedReplansExact = native.HazardSwimEgressForcedReplans;
+				bot.HazardSwimEgressForcedReplanSameCommandReissuedExact =
+					native.HazardSwimEgressForcedReplanSameCommandReissued;
+				bot.HazardSwimEgressForcedReplanDifferentCommandIssuedExact =
+					native.HazardSwimEgressForcedReplanDifferentCommandIssued;
+				bot.HazardSwimEgressForcedReplanHazardClearedBeforeCommandExact =
+					native.HazardSwimEgressForcedReplanHazardClearedBeforeCommand;
+				bot.HazardSwimEgressForcedReplanFellBeforeCommandExact =
+					native.HazardSwimEgressForcedReplanFellBeforeCommand;
+				bot.HazardSwimEgressForcedReplanDiedBeforeCommandExact =
+					native.HazardSwimEgressForcedReplanDiedBeforeCommand;
+				bot.HazardSwimEgressForcedReplanLifeBoundaryCensoredExact =
+					native.HazardSwimEgressForcedReplanLifeBoundaryCensored;
+				bot.HazardSwimEgressForcedReplanRunEndCensoredExact =
+					native.HazardSwimEgressForcedReplanRunEndCensored;
+				bot.HazardSwimEgressForcedReplanEpisodeAbandonedExact =
+					native.HazardSwimEgressForcedReplanEpisodeAbandoned;
 				bot.HazardSwimEgressFallingPreMoveAnchorCapturesExact =
 					native.HazardSwimEgressFallingPreMoveAnchorCaptures;
 				bot.HazardSwimEgressFallingPreMoveAnchorUsesExact =

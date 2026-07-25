@@ -5292,8 +5292,10 @@ bool UPawn::TickRotateTo(const vec3& target)
 	return (std::abs(DesiredRotation().Yaw - (Rotation().Yaw & 0xffff)) < doneAngle) || (std::abs(DesiredRotation().Yaw - (Rotation().Yaw & 0xffff)) > 0xffff - doneAngle);
 }
 
-void UPawn::ResetHazardSwimEgressObservation()
+void UPawn::ResetHazardSwimEgressObservation(
+	BotAI::HazardSwimEgressPlannerHandoffOutcome outcome)
 {
+	ResolveHazardSwimEgressPlannerHandoff(outcome);
 	if (HazardWaterEgressObserver && HazardWaterEgressObserver->HasActiveEpisode()
 		&& IsFiniteVector(Location()) && IsFiniteVector(Destination()))
 	{
@@ -5302,6 +5304,59 @@ void UPawn::ResetHazardSwimEgressObservation()
 	}
 	HazardSwimEgress = {};
 	HazardSwimEgressGate.Reset();
+}
+
+void UPawn::ResolveHazardSwimEgressPlannerHandoff(
+	BotAI::HazardSwimEgressPlannerHandoffOutcome outcome)
+{
+	if (!HazardSwimEgress.PlannerHandoffWitnessPending
+		|| outcome == BotAI::HazardSwimEgressPlannerHandoffOutcome::None)
+	{
+		return;
+	}
+	switch (outcome)
+	{
+	case BotAI::HazardSwimEgressPlannerHandoffOutcome::SameCommandReissued:
+		HazardSwimEgressForcedReplanSameCommandReissuedCountValue++;
+		break;
+	case BotAI::HazardSwimEgressPlannerHandoffOutcome::DifferentCommandIssued:
+		HazardSwimEgressForcedReplanDifferentCommandIssuedCountValue++;
+		break;
+	case BotAI::HazardSwimEgressPlannerHandoffOutcome::HazardClearedBeforeCommand:
+		HazardSwimEgressForcedReplanHazardClearedBeforeCommandCountValue++;
+		break;
+	case BotAI::HazardSwimEgressPlannerHandoffOutcome::FellBeforeCommand:
+		HazardSwimEgressForcedReplanFellBeforeCommandCountValue++;
+		break;
+	case BotAI::HazardSwimEgressPlannerHandoffOutcome::DiedBeforeCommand:
+		HazardSwimEgressForcedReplanDiedBeforeCommandCountValue++;
+		break;
+	case BotAI::HazardSwimEgressPlannerHandoffOutcome::LifeBoundaryCensored:
+		HazardSwimEgressForcedReplanLifeBoundaryCensoredCountValue++;
+		break;
+	case BotAI::HazardSwimEgressPlannerHandoffOutcome::RunEndCensored:
+		HazardSwimEgressForcedReplanRunEndCensoredCountValue++;
+		break;
+	case BotAI::HazardSwimEgressPlannerHandoffOutcome::EpisodeAbandoned:
+		HazardSwimEgressForcedReplanEpisodeAbandonedCountValue++;
+		break;
+	default:
+		return;
+	}
+	HazardSwimEgress.PlannerHandoffWitnessPending = false;
+}
+
+void UPawn::ObserveHazardSwimEgressPlannerHandoffMovementCommand()
+{
+	const bool nextCommandIssued = HazardSwimEgress.PlannerHandoffWitnessPending
+		&& FallingHazardMovementCommandToken
+			!= HazardSwimEgress.PlannerHandoffMovementCommandToken;
+	ResolveHazardSwimEgressPlannerHandoff(
+		BotAI::ClassifyHazardSwimEgressPlannerHandoff({
+			HazardSwimEgress.PlannerHandoffWitnessPending, nextCommandIssued,
+			MoveTarget() == HazardSwimEgress.PlannerHandoffMoveTarget,
+			Destination() == HazardSwimEgress.PlannerHandoffDestination,
+			false, false, false, false, false }));
 }
 
 void UPawn::ResetFallingHazardRecovery()
@@ -5461,8 +5516,18 @@ void UPawn::EndHazardSwimEgressSwimSession()
 	ResetHazardSwimEgressObservation();
 }
 
+void UPawn::EndHazardSwimEgressRun()
+{
+	ResetHazardSwimEgressObservation(
+		BotAI::HazardSwimEgressPlannerHandoffOutcome::RunEndCensored);
+}
+
 void UPawn::BeginHazardSwimEgressFallingTick()
 {
+	ResolveHazardSwimEgressPlannerHandoff(
+		BotAI::ClassifyHazardSwimEgressPlannerHandoff({
+			HazardSwimEgress.PlannerHandoffWitnessPending,
+			false, false, false, false, true, false, false, false, false }));
 	if (HazardSwimEgress.HarmfulWaterEpisodeActive)
 	{
 		ObserveHazardSwimEgressLiveSteerShadowDecision(
@@ -5604,6 +5669,10 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 		}
 		if (HazardSwimEgress.HarmfulWaterEpisodeActive)
 		{
+			ResolveHazardSwimEgressPlannerHandoff(
+				BotAI::ClassifyHazardSwimEgressPlannerHandoff({
+					HazardSwimEgress.PlannerHandoffWitnessPending,
+					false, false, false, true, false, false, false, false, false }));
 			ObserveHazardSwimEgressLiveSteerShadowDecision(
 				BotAI::EvaluateHazardSwimEgressLiveSteer({
 				engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
@@ -5877,6 +5946,11 @@ void UPawn::AdvanceHazardSwimEgressLiveSteer()
 		Acceleration() = vec3(0.0f);
 		MoveTimer() = -1.0f;
 		HazardSwimEgress.LiveReplanIssued = true;
+		HazardSwimEgress.PlannerHandoffWitnessPending = true;
+		HazardSwimEgress.PlannerHandoffMovementCommandToken =
+			FallingHazardMovementCommandToken;
+		HazardSwimEgress.PlannerHandoffMoveTarget = MoveTarget();
+		HazardSwimEgress.PlannerHandoffDestination = Destination();
 		HazardSwimEgressForcedReplanCountValue++;
 	}
 	ObserveHazardSwimEgressLiveSteerShadowDecision(
@@ -5918,6 +5992,10 @@ void UPawn::ObserveHazardSwimEgressLiveSteerShadowDecision(
 
 void UPawn::RecordHazardSwimEgressDeath()
 {
+	ResolveHazardSwimEgressPlannerHandoff(
+		BotAI::ClassifyHazardSwimEgressPlannerHandoff({
+			HazardSwimEgress.PlannerHandoffWitnessPending,
+			false, false, false, false, false, true, false, false, false }));
 	if (HazardWaterEgressObserver && HazardWaterEgressObserver->HasActiveEpisode()
 		&& IsFiniteVector(Location()) && IsFiniteVector(Destination()))
 	{
@@ -7475,6 +7553,7 @@ void UPawn::RecordFallingHazardMovementCommand()
 		FallingHazardMovementCommandToken = 0;
 		PendingFallingHazardAlignedCommandWitness = {};
 	}
+	ObserveHazardSwimEgressPlannerHandoffMovementCommand();
 }
 
 void UPawn::CaptureFallingHazardAlignedCommandWitness(bool staticWorldCollision)
@@ -7620,6 +7699,8 @@ void UPawn::EndWalkingStepPreflightLife()
 	EndMoveStallRecoveryLife();
 	EndHarmfulZoneEscapeLife();
 	ResetFallingHazardRecovery();
+	ResolveHazardSwimEgressPlannerHandoff(
+		BotAI::HazardSwimEgressPlannerHandoffOutcome::LifeBoundaryCensored);
 	if (HazardWaterEgressObserver && HazardWaterEgressObserver->HasActiveEpisode()
 		&& IsFiniteVector(Location()) && IsFiniteVector(Destination()))
 	{

@@ -63,6 +63,14 @@ namespace BotBenchmarkDriverDetail
 		uint64_t HazardSwimEgressExited = 0;
 		uint64_t HazardSwimEgressDeathsBeforeExit = 0;
 		uint64_t HazardSwimEgressForcedReplans = 0;
+		uint64_t HazardSwimEgressForcedReplanSameCommandReissued = 0;
+		uint64_t HazardSwimEgressForcedReplanDifferentCommandIssued = 0;
+		uint64_t HazardSwimEgressForcedReplanHazardClearedBeforeCommand = 0;
+		uint64_t HazardSwimEgressForcedReplanFellBeforeCommand = 0;
+		uint64_t HazardSwimEgressForcedReplanDiedBeforeCommand = 0;
+		uint64_t HazardSwimEgressForcedReplanLifeBoundaryCensored = 0;
+		uint64_t HazardSwimEgressForcedReplanRunEndCensored = 0;
+		uint64_t HazardSwimEgressForcedReplanEpisodeAbandoned = 0;
 		uint64_t HazardSwimEgressFallingPreMoveAnchorCaptures = 0;
 		uint64_t HazardSwimEgressFallingPreMoveAnchorUses = 0;
 		uint64_t HazardSwimEgressLiveApplies = 0;
@@ -316,6 +324,30 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.HazardSwimEgressForcedReplans,
 				Previous.HazardSwimEgressForcedReplans,
 				totals.HazardSwimEgressForcedReplans);
+			AccumulateCounter(current.HazardSwimEgressForcedReplanSameCommandReissued,
+				Previous.HazardSwimEgressForcedReplanSameCommandReissued,
+				totals.HazardSwimEgressForcedReplanSameCommandReissued);
+			AccumulateCounter(current.HazardSwimEgressForcedReplanDifferentCommandIssued,
+				Previous.HazardSwimEgressForcedReplanDifferentCommandIssued,
+				totals.HazardSwimEgressForcedReplanDifferentCommandIssued);
+			AccumulateCounter(current.HazardSwimEgressForcedReplanHazardClearedBeforeCommand,
+				Previous.HazardSwimEgressForcedReplanHazardClearedBeforeCommand,
+				totals.HazardSwimEgressForcedReplanHazardClearedBeforeCommand);
+			AccumulateCounter(current.HazardSwimEgressForcedReplanFellBeforeCommand,
+				Previous.HazardSwimEgressForcedReplanFellBeforeCommand,
+				totals.HazardSwimEgressForcedReplanFellBeforeCommand);
+			AccumulateCounter(current.HazardSwimEgressForcedReplanDiedBeforeCommand,
+				Previous.HazardSwimEgressForcedReplanDiedBeforeCommand,
+				totals.HazardSwimEgressForcedReplanDiedBeforeCommand);
+			AccumulateCounter(current.HazardSwimEgressForcedReplanLifeBoundaryCensored,
+				Previous.HazardSwimEgressForcedReplanLifeBoundaryCensored,
+				totals.HazardSwimEgressForcedReplanLifeBoundaryCensored);
+			AccumulateCounter(current.HazardSwimEgressForcedReplanRunEndCensored,
+				Previous.HazardSwimEgressForcedReplanRunEndCensored,
+				totals.HazardSwimEgressForcedReplanRunEndCensored);
+			AccumulateCounter(current.HazardSwimEgressForcedReplanEpisodeAbandoned,
+				Previous.HazardSwimEgressForcedReplanEpisodeAbandoned,
+				totals.HazardSwimEgressForcedReplanEpisodeAbandoned);
 			AccumulateCounter(current.HazardSwimEgressFallingPreMoveAnchorCaptures,
 				Previous.HazardSwimEgressFallingPreMoveAnchorCaptures,
 				totals.HazardSwimEgressFallingPreMoveAnchorCaptures);
