@@ -1669,6 +1669,43 @@ Required gates for a future correction are:
 Until those gates pass, this remains a design constraint only: no live
 `MinHitWall` callback predicate or bot policy is enabled.
 
+## Iteration 72: isolated retail UT436 `MinHitWall` oracle
+
+The first disposable retail UT436 oracle is now source-controlled under
+`Tools/BotBenchmark/RetailHitWallOracle/UT/` and is run only through
+`Run-RetailMinHitWallOracle.ps1`. It preserves the stock
+`DeathMatchPlus` spawn path by selecting a concrete probe bot through a
+`ChallengeBotInfo` subclass; the bot then enters one dedicated probe state.
+That state is intentionally a physics-notification oracle rather than a claim
+about stock bot decision quality. It logs the live threshold, pre-handler
+velocity, normal, normalized dot, wall identity, and the local
+`HandleDoor`/`PickWallAdjust` ordering when a mover is actually contacted.
+
+Each invocation creates a new disposable runtime below the requested QA
+directory, copies only `System`, uses asset-directory junctions, compiles its
+package locally, records full before/after SHA-256 inventories of the installed
+retail root, and bounds the dedicated server process before terminating that
+local child. The runner explicitly recognizes the UTF-16 local stat log and
+rejects a callback-required case that emits no `hitwall_pre` record. The
+installed-file guard passed for the successful UT436 smoke.
+
+The first valid static-world observation is retained at
+`qa/runs/2026-07-25/retail-minhitwall-ut436-v12/`: the fixed Deck16-II
+corridor contact recorded `MinHitWall=-0.500000`, normal/velocity dot
+`-1.000000`, and one `HitWall` callback. This is positive evidence for the
+documented native gate, but it does not identify its exact comparison operator
+or boundary behavior. Attempts to reuse the adjacent lift as the glancing or
+mover oracle either fell through without a contact or struck a different
+static corridor face. Those are rejected setup results, not filtered-callback
+evidence and not mover ordering evidence.
+
+The next oracle slice must place a controlled collision object or a pinned
+closed brush mover where the same measured contact can be repeated on both
+sides of `-0.5` and `-0.35`. Unreal Gold remains separately required: its
+candidate is the DmHealPod north/east Main Hall lift, but the local owner map
+is not presently available to pin its actor identity and transform. No shared
+dispatch predicate changes on the basis of this one head-on UT observation.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
