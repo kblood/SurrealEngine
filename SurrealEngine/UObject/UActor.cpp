@@ -1824,6 +1824,7 @@ void UActor::TickSwimming(float elapsed)
 
 	if (Region().ZoneNumber == 0)
 	{
+		pawn->RestoreHazardSwimEgressAccelerationOverlay();
 		CallEvent(this, EventName::FellOutOfWorld);
 		return;
 	}
@@ -1924,6 +1925,7 @@ void UActor::TickSwimming(float elapsed)
 		Velocity() = (Location() - OldLocation()) / elapsed;
 
 	pawn->ObserveHazardSwimEgressAfterPhysicsMove();
+	pawn->RestoreHazardSwimEgressAccelerationOverlay();
 
 	if (!Region().Zone->bWaterZone())
 	{
@@ -5467,14 +5469,19 @@ void UPawn::BeginHazardSwimEgressFallingTick()
 	{
 		ObserveHazardSwimEgressLiveSteerShadowDecision(
 			BotAI::EvaluateHazardSwimEgressLiveSteer({
-				engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
-				IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
-				!bDeleteMe() && Health() > 0, BotAI::HazardSwimEgressPhysics::Falling,
-				true, HazardSwimEgress.LiveActionAuthorized,
-				HazardSwimEgress.LiveProbeRejected,
+			engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
+			IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
+			!bDeleteMe() && Health() > 0, BotAI::HazardSwimEgressPhysics::Falling,
+			true, HazardSwimEgress.LiveActionAuthorized,
+			false,
+			HazardSwimEgress.LiveProbeRejected,
 				HazardSwimEgress.AnchorKnown && IsFiniteVector(HazardSwimEgress.Anchor),
 				HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove,
 				true, false, 0.0, BotAI::HazardSwimEgressProbe::NotRun }));
+		// Falling terminates this authorization so a later swimming transition
+		// cannot resume an abandoned egress vector.
+		HazardSwimEgress.LiveActionAuthorized = false;
+		HazardSwimEgress.ActionActive = false;
 	}
 	const bool validContext = engine->IsBotBenchmarkHazardSwimEgressEnabled()
 		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
@@ -5601,11 +5608,12 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 		{
 			ObserveHazardSwimEgressLiveSteerShadowDecision(
 				BotAI::EvaluateHazardSwimEgressLiveSteer({
-					engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
-					IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
-					!bDeleteMe() && Health() > 0, BotAI::HazardSwimEgressPhysics::Swimming,
-					true, HazardSwimEgress.LiveActionAuthorized,
-					HazardSwimEgress.LiveProbeRejected,
+				engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
+				IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
+				!bDeleteMe() && Health() > 0, BotAI::HazardSwimEgressPhysics::Swimming,
+				true, HazardSwimEgress.LiveActionAuthorized,
+				false,
+				HazardSwimEgress.LiveProbeRejected,
 					HazardSwimEgress.AnchorKnown && IsFiniteVector(HazardSwimEgress.Anchor),
 					HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove,
 					false, false, 0.0, BotAI::HazardSwimEgressProbe::NotRun }));
@@ -5848,20 +5856,41 @@ void UPawn::AdvanceHazardSwimEgressLiveSteer()
 		return;
 	}
 
+	const bool movementCommandActive = StateFrame
+		&& IsMovementLatentState(StateFrame->LatentState);
+	if (movementCommandActive)
+	{
+		ObserveHazardSwimEgressLiveSteerShadowDecision(
+			BotAI::EvaluateHazardSwimEgressLiveSteer({
+				engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
+				IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
+				!bDeleteMe() && Health() > 0, BotAI::HazardSwimEgressPhysics::Swimming,
+				HazardSwimEgress.HarmfulWaterEpisodeActive,
+				HazardSwimEgress.LiveActionAuthorized, true,
+				HazardSwimEgress.LiveProbeRejected,
+				HazardSwimEgress.AnchorKnown && IsFiniteVector(HazardSwimEgress.Anchor),
+				HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove,
+				exactHarmfulWater, true, distance, BotAI::HazardSwimEgressProbe::NotRun }));
+		HazardSwimEgress.ActionActive = false;
+		return;
+	}
+
 	const bool probeClear = TryMove(delta, true).Fraction == 1.0f;
-	ObserveHazardSwimEgressLiveSteerShadowDecision(
+	const BotAI::HazardSwimEgressLiveSteerDecision decision =
 		BotAI::EvaluateHazardSwimEgressLiveSteer({
 			engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
 			IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
 			!bDeleteMe() && Health() > 0, BotAI::HazardSwimEgressPhysics::Swimming,
 			HazardSwimEgress.HarmfulWaterEpisodeActive,
 			HazardSwimEgress.LiveActionAuthorized,
+			false,
 			HazardSwimEgress.LiveProbeRejected,
 			HazardSwimEgress.AnchorKnown && IsFiniteVector(HazardSwimEgress.Anchor),
 			HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove,
 			exactHarmfulWater, true, distance,
 			probeClear ? BotAI::HazardSwimEgressProbe::Clear
-				: BotAI::HazardSwimEgressProbe::Blocked }));
+				: BotAI::HazardSwimEgressProbe::Blocked });
+	ObserveHazardSwimEgressLiveSteerShadowDecision(decision);
 	if (!probeClear)
 	{
 		HazardSwimEgress.LiveProbeRejected = true;
@@ -5870,11 +5899,37 @@ void UPawn::AdvanceHazardSwimEgressLiveSteer()
 		return;
 	}
 
-	Acceleration() = normalize(delta) * AccelRate();
+	if (decision.Transition != BotAI::HazardSwimEgressLiveSteerTransition::SteerCandidate)
+	{
+		HazardSwimEgress.ActionActive = false;
+		return;
+	}
+	HazardSwimEgress.AccelerationBeforeOverlay = Acceleration();
+	HazardSwimEgress.AccelerationOverlayDirection = normalize(delta);
+	HazardSwimEgress.AccelerationOverlayActive = true;
+	Acceleration() = HazardSwimEgress.AccelerationOverlayDirection * AccelRate();
 	if (!HazardSwimEgress.ActionActive)
 		HazardSwimEgressLiveApplyCountValue++;
 	HazardSwimEgress.ActionActive = true;
 	HazardSwimEgressLiveActiveTickCountValue++;
+}
+
+void UPawn::RestoreHazardSwimEgressAccelerationOverlay()
+{
+	if (!HazardSwimEgress.AccelerationOverlayActive)
+		return;
+	const vec3 acceleration = Acceleration();
+	const float accelerationLength = length(acceleration);
+	const float expectedLength = AccelRate() * 0.3f;
+	const bool overlayStillOwnsAcceleration = IsFiniteVector(acceleration)
+		&& IsFiniteVector(HazardSwimEgress.AccelerationOverlayDirection)
+		&& std::isfinite(accelerationLength) && std::isfinite(expectedLength)
+		&& expectedLength > 0.0f && accelerationLength <= expectedLength * 1.001f
+		&& accelerationLength > 0.0001f
+		&& dot(normalize(acceleration), HazardSwimEgress.AccelerationOverlayDirection) > 0.999f;
+	if (overlayStillOwnsAcceleration)
+		Acceleration() = HazardSwimEgress.AccelerationBeforeOverlay;
+	HazardSwimEgress.AccelerationOverlayActive = false;
 }
 
 void UPawn::ObserveHazardSwimEgressLiveSteerShadowDecision(

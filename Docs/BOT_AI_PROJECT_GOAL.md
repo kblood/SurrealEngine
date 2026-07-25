@@ -39,13 +39,14 @@ qualification evidence.
 
 ## Current milestone
 
-Use the qualified move-stall observer in owner-data discovery runs, while
-implementing the next missing release measurement: causal avoidable-suicide
-classification. The first delivered layer is a pure fail-closed classifier;
-live labels remain unavailable until a pre-commit witness is captured and
-reconciled with a terminal death. Recovery-time thresholds may now be evaluated
-only when a candidate campaign supplies a non-zero, complete opportunity set;
-the forced fixture qualifies the measurement path, not bot quality.
+Use the qualified move-stall observer and causal suicide evidence in owner-data
+discovery runs. The immediate behavior investigation is the rejected live
+hazard-swim-egress experiment: its command-safe, one-physics-step correction
+now needs paired UT436 and Unreal Gold qualification. Live causal labels remain
+unavailable until the pre-commit witness is reconciled with a terminal death.
+Recovery-time thresholds may be evaluated only when a candidate campaign
+supplies a non-zero, complete opportunity set; the forced fixture qualifies the
+measurement path, not bot quality.
 
 ## Current status
 

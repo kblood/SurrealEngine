@@ -122,6 +122,10 @@ namespace
 		checkNoAction(input, HazardSwimEgressLiveSteerReason::NotAuthorized,
 			"unauthorized episode cannot steer");
 		input = ReadyInput();
+		input.MovementCommandActive = true;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::MovementCommandActive,
+			"an active bot movement command keeps ownership of acceleration");
+		input = ReadyInput();
 		input.FiniteAnchorKnown = false;
 		checkNoAction(input, HazardSwimEgressLiveSteerReason::MissingAnchor,
 			"unknown anchor cannot steer");

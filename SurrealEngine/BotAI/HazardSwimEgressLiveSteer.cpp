@@ -42,6 +42,8 @@ namespace BotAI
 			return terminal(Terminal::HazardCleared, Reason::HazardCleared);
 		if (!input.LiveActionAuthorized)
 			return noAction(Reason::NotAuthorized);
+		if (input.MovementCommandActive)
+			return noAction(Reason::MovementCommandActive);
 		if (input.ProbePreviouslyRejected)
 			return terminal(Terminal::ProbeBlocked, Reason::ProbePreviouslyRejected);
 		if (!input.FiniteAnchorKnown)

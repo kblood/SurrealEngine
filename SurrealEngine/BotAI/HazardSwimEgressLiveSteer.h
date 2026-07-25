@@ -42,6 +42,7 @@ namespace BotAI
 		NotSwimming,
 		HazardCleared,
 		NotAuthorized,
+		MovementCommandActive,
 		ProbePreviouslyRejected,
 		MissingAnchor,
 		AnchorNotFromFallingPreMove,
@@ -61,6 +62,7 @@ namespace BotAI
 		HazardSwimEgressPhysics Physics = HazardSwimEgressPhysics::Unknown;
 		bool HarmfulWaterEpisodeActive = false;
 		bool LiveActionAuthorized = false;
+		bool MovementCommandActive = false;
 		bool ProbePreviouslyRejected = false;
 		bool FiniteAnchorKnown = false;
 		bool AnchorFromFallingPreMove = false;

@@ -2128,6 +2128,30 @@ counter independently by authorizations, while retaining all other exact
 counter checks; this makes the live telemetry structurally valid without
 weakening its quality gates.
 
+## Iteration 88: command-owned swim-egress correction
+
+The rejected live experiment was found to replace `Acceleration()` for every
+active swim tick (78 ticks in the UT run and 286 in the DeathFan run), with no
+arbitration against the bot's latent `MoveTo`, `MoveToward`, or strafe command
+and no restoration after swimming physics. That is a direct mechanism for the
+observed UT combat regression, but not proof that it is the only cause.
+
+The experiment now declines before collision probing whenever an active stock
+movement latent owns the pawn. Where the egress vector is permitted, it is a
+single-physics-step acceleration overlay: the pre-overlay acceleration is
+restored after swimming integration only if the overlay still owns it, so a
+callback-issued replacement command wins. Falling also terminates the existing
+live authorization, preventing a stale vector from resuming after a later water
+transition. `HazardSwimEgressLiveSteerTests` covers the fail-closed
+command-ownership decision; the Release engine and the full 122-test Python
+benchmark suite pass.
+
+This is a lifecycle correction to the rejected, default-off experiment, not a
+promotion. It requires fresh paired, fixed-seed UT436 Deck16-II and Unreal
+226b DeathFan owner-data runs, including repeat identity and the existing
+combat/survival/exposure gates, before it can be credited with any bot-quality
+improvement.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
