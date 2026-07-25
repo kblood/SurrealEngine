@@ -137,7 +137,9 @@ safe input to bot tuning.
 The same driver now has an explicit `--catalog-export-scripts=1` mode. It uses
 the engine's existing class exporter and writes only beneath the external
 catalog output directory. By default it attempts the available `Botpack`,
-`UnrealI`, and `UnrealShare` packages; a caller can instead provide an exact,
+`Engine`, `UnrealI`, and `UnrealShare` packages; `Engine` is required to trace
+the inherited Pawn movement, pain, and reachability contracts used by both
+games. A caller can instead provide an exact,
 comma-separated package list. The manifest records package version, loaded
 class count, and exported-script count. It also fingerprints each source
 package with its package-file name, UE1 package version, licensee mode, and

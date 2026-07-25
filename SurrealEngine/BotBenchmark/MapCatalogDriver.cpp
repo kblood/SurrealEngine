@@ -163,7 +163,7 @@ namespace
 		void ExportScripts(const std::filesystem::path& outputPath, const std::string& requestedPackages) const
 		{
 			std::vector<std::string> packageNames = requestedPackages.empty()
-				? std::vector<std::string>{ "Botpack", "UnrealI", "UnrealShare" }
+				? std::vector<std::string>{ "Botpack", "Engine", "UnrealI", "UnrealShare" }
 				: ParsePackageList(requestedPackages);
 			std::ostringstream manifest;
 			manifest << "{\n  \"schema\":\"surreal-script-export-spike-v1\",\n  \"packages\":[";
