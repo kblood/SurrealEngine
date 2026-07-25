@@ -493,6 +493,16 @@ def _load_analyzer() -> Any:
     return module
 
 
+def _load_quality_gate_evaluator() -> Any:
+    path = Path(__file__).with_name("Evaluate-BotQualityGate.py")
+    spec = importlib.util.spec_from_file_location("surreal_bot_quality_gate", path)
+    if spec is None or spec.loader is None:
+        raise MatrixError(f"could not load quality gate evaluator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
@@ -572,6 +582,7 @@ def _preflight_provenance(
     config: MatrixConfig,
     invocation: list[str],
     environment: dict[str, str],
+    quality_gates: Path | None = None,
 ) -> dict[str, Any]:
     utc_start = _utc_now()
     tool_path = Path(__file__).resolve()
@@ -616,6 +627,7 @@ def _preflight_provenance(
         },
         "scenario_manifest": _file_provenance(config.source),
         "game_manifest": game_manifest,
+        "quality_gates": _file_provenance(quality_gates) if quality_gates else None,
         "game": {"family": config.game_family, "root": str(config.game_root)},
         "variants": variants,
         "child_artifacts": [],
@@ -817,6 +829,7 @@ def run_matrix(
     output: Path,
     *,
     analyze: bool = False,
+    quality_gates: Path | None = None,
     invocation: list[str] | None = None,
     environment: dict[str, str] | None = None,
     launcher: Callable[[list[str], float, Path, Path], LaunchResult] = _launch,
@@ -829,13 +842,29 @@ def run_matrix(
     if not invocation or any(not isinstance(value, str) or not value for value in invocation):
         raise MatrixError("runner invocation must contain non-empty string arguments")
     environment = dict(environment) if environment is not None else dict(os.environ)
-    provenance = _preflight_provenance(config, invocation, environment)
+    gate_evaluator = None
+    gate_config = None
+    if quality_gates is not None:
+        quality_gates = quality_gates.resolve()
+        if not quality_gates.is_file():
+            raise MatrixError(f"quality gates is not an existing file: {quality_gates}")
+        try:
+            gate_evaluator = _load_quality_gate_evaluator()
+            gate_config = gate_evaluator._load_json(quality_gates)
+            if gate_config.get("schema") != gate_evaluator.CONFIG_SCHEMA:
+                raise gate_evaluator.GateInputError(
+                    f"gate config schema must be {gate_evaluator.CONFIG_SCHEMA!r}")
+            gate_evaluator._validate_config(gate_config)
+        except Exception as exc:
+            raise MatrixError(f"invalid quality gates {quality_gates}: {exc}") from exc
+    provenance = _preflight_provenance(config, invocation, environment, quality_gates)
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     runs_directory = output / "runs"
     runs_directory.mkdir()
     analyzer = None
-    if validator is None or (analyze and aggregate_analyzer is None):
+    analyze_quality = analyze or quality_gates is not None
+    if validator is None or (analyze_quality and aggregate_analyzer is None):
         analyzer = _load_analyzer()
     validator = validator or analyzer.analyze_run
     aggregate_analyzer = aggregate_analyzer or (analyzer.analyze if analyzer else None)
@@ -858,16 +887,28 @@ def run_matrix(
         "passed": sum(row["status"] == "passed" for row in rows),
         "failed": sum(row["status"] == "failed" for row in rows),
         "quality_analysis": None,
+        "quality_gate_config": str(quality_gates) if quality_gates else None,
+        "quality_gate_result": None,
+        "quality_gate_status": None,
         "provenance": str(output / "provenance.json"),
         "runs": rows,
     }
-    if analyze and passed:
+    if analyze_quality and passed:
         assert aggregate_analyzer is not None
         try:
             quality = aggregate_analyzer([Path(row["run_directory"]) for row in rows])
             quality_path = output / "quality-analysis.json"
             _write_json(quality_path, quality)
             report["quality_analysis"] = str(quality_path)
+            if gate_evaluator is not None:
+                assert gate_config is not None
+                gate_result = gate_evaluator.evaluate(quality, gate_config)
+                gate_result_path = output / "quality-gate-result.json"
+                _write_json(gate_result_path, gate_result)
+                report["quality_gate_result"] = str(gate_result_path)
+                report["quality_gate_status"] = gate_result["status"]
+                if gate_result["status"] != "passed":
+                    report["status"] = "failed"
         except Exception as exc:
             report["status"] = "failed"
             report["analysis_error"] = str(exc)
@@ -891,6 +932,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True, help="New matrix output directory")
     parser.add_argument("--dry-run", action="store_true", help="Print expanded commands without creating output")
     parser.add_argument("--analyze", action="store_true", help="Write quality-analysis.json after all runs validate")
+    parser.add_argument(
+        "--quality-gates", type=Path,
+        help="Evaluate this surreal-bot-quality-gates-v1 file after structural analysis; implies --analyze")
     args = parser.parse_args(argv)
     try:
         config = load_matrix(Path(args.manifest))
@@ -901,7 +945,8 @@ def main(argv: list[str] | None = None) -> int:
         invocation_arguments = list(sys.argv[1:] if argv is None else argv)
         invocation = [sys.executable, str(Path(__file__).resolve()), *invocation_arguments]
         report = run_matrix(
-            config, output, analyze=args.analyze, invocation=invocation, environment=dict(os.environ))
+            config, output, analyze=args.analyze, quality_gates=args.quality_gates,
+            invocation=invocation, environment=dict(os.environ))
         print(output.resolve() / "matrix-results.json")
         return 0 if report["status"] == "passed" else 1
     except (MatrixError, OSError) as exc:

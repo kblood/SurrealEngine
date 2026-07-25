@@ -1,0 +1,41 @@
+{
+  "schema": "surreal-bot-quality-gates-v1",
+  "required_metrics": [
+    "completion",
+    "kills_exact",
+    "direct_self_kills",
+    "unassisted_environmental_deaths",
+    "ambiguous_deaths",
+    "movement_intent_stuck_events_proxy",
+    "match_score_delta",
+    "damage_efficiency_to_other_participants",
+    "avoidable_suicide_rate",
+    "recoverable_movement_episode_clear_within_2s_fraction",
+    "recoverable_movement_episode_clear_or_replanned_within_5s_fraction",
+    "role_swapped_participant_policy_coverage",
+    "ai_frame_p95_ms"
+  ],
+  "required_runs": [
+    {"id": "ut436-deck16-candidate-runs", "variant": "enhanced-bot", "map": "DM-Deck16][", "min": 6},
+    {"id": "ut436-pressure-candidate-runs", "variant": "enhanced-bot", "map": "DM-Pressure", "min": 6},
+    {"id": "ut436-morpheus-candidate-runs", "variant": "enhanced-bot", "map": "DM-Morpheus", "min": 6}
+  ],
+  "aggregate_gates": [],
+  "per_run_gates": [
+    {"id": "ut436-candidate-completes", "variant": "enhanced-bot", "metric": "completion", "equals": true},
+    {"id": "ut436-candidate-no-direct-self-kills", "variant": "enhanced-bot", "metric": "direct_self_kills", "max": 0},
+    {"id": "ut436-candidate-no-unassisted-environmental-deaths", "variant": "enhanced-bot", "metric": "unassisted_environmental_deaths", "max": 0},
+    {"id": "ut436-candidate-no-ambiguous-deaths", "variant": "enhanced-bot", "metric": "ambiguous_deaths", "max": 0},
+    {"id": "ut436-avoidable-suicide-rate-below-kills", "variant": "enhanced-bot", "metric": "avoidable_suicide_rate", "max": 0.999999},
+    {"id": "ut436-recoverable-movement-clears-within-two-seconds", "variant": "enhanced-bot", "metric": "recoverable_movement_episode_clear_within_2s_fraction", "min": 0.95},
+    {"id": "ut436-recoverable-movement-clears-or-replans-within-five-seconds", "variant": "enhanced-bot", "metric": "recoverable_movement_episode_clear_or_replanned_within_5s_fraction", "equals": 1.0},
+    {"id": "ut436-role-swapped-policy-coverage", "variant": "enhanced-bot", "metric": "role_swapped_participant_policy_coverage", "equals": true},
+    {"id": "ut436-ai-frame-p95", "variant": "enhanced-bot", "metric": "ai_frame_p95_ms", "max": 2.0}
+  ],
+  "paired_gates": [
+    {"id": "ut436-deck16-suicide-non-regression", "baseline_variant": "repaired-stock", "candidate_variant": "enhanced-bot", "map": "DM-Deck16][", "metric": "suicides_exact", "comparison": "delta", "direction": "lower", "min_pairs": 6, "maximum_regression": 0},
+    {"id": "ut436-deck16-stuck-non-regression", "baseline_variant": "repaired-stock", "candidate_variant": "enhanced-bot", "map": "DM-Deck16][", "metric": "movement_intent_stuck_events_proxy", "comparison": "delta", "direction": "lower", "min_pairs": 6, "maximum_regression": 0},
+    {"id": "ut436-deck16-score-non-regression", "baseline_variant": "repaired-stock", "candidate_variant": "enhanced-bot", "map": "DM-Deck16][", "metric": "match_score_delta", "comparison": "delta", "direction": "higher", "min_pairs": 6, "maximum_regression": 0},
+    {"id": "ut436-deck16-damage-efficiency-non-regression", "baseline_variant": "repaired-stock", "candidate_variant": "enhanced-bot", "map": "DM-Deck16][", "metric": "damage_efficiency_to_other_participants", "comparison": "delta", "direction": "higher", "min_pairs": 6, "maximum_regression": 0}
+  ]
+}

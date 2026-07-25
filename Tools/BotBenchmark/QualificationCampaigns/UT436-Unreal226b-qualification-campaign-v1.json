@@ -1,0 +1,87 @@
+{
+  "schema": "surreal-bot-qualification-campaign-v1",
+  "id": "ut436-unreal226b-bot-quality-v1",
+  "runner_contract": {
+    "provenance_mode": "release",
+    "baseline_variant": "repaired-stock",
+    "candidate_variant": "enhanced-bot",
+    "bot_count": 16,
+    "start_layouts": 3,
+    "repetitions_per_layout": 2,
+    "required_gate_status": "passed"
+  },
+  "matrices": [
+    {
+      "id": "ut436-tuning",
+      "game_family": "ut99",
+      "classification": "tuning",
+      "map_urls": [
+        "DM-Deck16][?Game=Botpack.DeathMatchPlus",
+        "DM-Pressure?Game=Botpack.DeathMatchPlus",
+        "DM-Morpheus?Game=Botpack.DeathMatchPlus"
+      ],
+      "quality_gates": "UT436-tuning-quality-gates-v1.json"
+    },
+    {
+      "id": "unreal226b-tuning",
+      "game_family": "unreal",
+      "classification": "tuning",
+      "map_urls": [
+        "DmHealPod?Game=UnrealShare.DeathMatchGame",
+        "DmDeathFan?Game=UnrealShare.DeathMatchGame"
+      ],
+      "quality_gates": "Unreal226b-tuning-quality-gates-v1.json"
+    },
+    {
+      "id": "ut436-heldout",
+      "game_family": "ut99",
+      "classification": "heldout",
+      "requires": ["ut436-tuning"],
+      "map_urls": [
+        "DM-Fractal?Game=Botpack.DeathMatchPlus",
+        "DM-Phobos?Game=Botpack.DeathMatchPlus"
+      ],
+      "quality_gates": "UT436-heldout-quality-gates-v1.json"
+    },
+    {
+      "id": "unreal226b-heldout",
+      "game_family": "unreal",
+      "classification": "heldout",
+      "requires": ["unreal226b-tuning"],
+      "map_urls": [
+        "DmElsinore?Game=UnrealShare.DeathMatchGame",
+        "DmRadikus?Game=UnrealShare.DeathMatchGame"
+      ],
+      "quality_gates": "Unreal226b-heldout-quality-gates-v1.json"
+    }
+  ],
+  "unrepresented_release_requirements": [
+    {
+      "id": "role-swapped-participant-policy-evidence",
+      "required_metric": "role_swapped_participant_policy_coverage",
+      "reason": "The current adapters compare separate variant executables; they cannot yet prove per-participant role-swapped control.",
+      "status": "fail-closed"
+    },
+    {
+      "id": "avoidable-causal-suicide-rate",
+      "required_metric": "avoidable_suicide_rate",
+      "reason": "Current death telemetry has exact partitions and proxies, but does not prove avoidability for every environmental death.",
+      "status": "fail-closed"
+    },
+    {
+      "id": "recoverable-movement-clearance",
+      "required_metrics": [
+        "recoverable_movement_episode_clear_within_2s_fraction",
+        "recoverable_movement_episode_clear_or_replanned_within_5s_fraction"
+      ],
+      "reason": "Current telemetry counts a movement-intent stuck proxy, not recoverable episode clearance or replan timing.",
+      "status": "fail-closed"
+    },
+    {
+      "id": "sixteen-bot-ai-frame-budget",
+      "required_metric": "ai_frame_p95_ms",
+      "reason": "Launcher wall time is not in-engine AI frame timing and cannot certify the 2 ms p95 target.",
+      "status": "fail-closed"
+    }
+  ]
+}

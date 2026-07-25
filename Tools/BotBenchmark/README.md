@@ -185,6 +185,28 @@ python .\Tools\BotBenchmark\Evaluate-BotQualityGate.py `
   --output .\bot-quality-gate-result.json
 ```
 
+For a matrix run, prefer the runner's `--quality-gates` option instead of a
+separate manual evaluator invocation. It validates the named gate file before
+launching a match, implies `--analyze`, writes `quality-gate-result.json`,
+marks the matrix failed when that result fails, and hashes the exact gate file
+in `provenance.json`:
+
+```powershell
+python .\Tools\BotBenchmark\Run-BotBenchmarkMatrix.py `
+  --manifest .\owner-local-release-matrix.json `
+  --output .\bot-matrix-results `
+  --quality-gates .\Tools\BotBenchmark\QualificationCampaigns\UT436-tuning-quality-gates-v1.json
+```
+
+The checked-in UT436/Unreal 226b campaign authority is in
+`QualificationCampaigns/`. It freezes the map matrix and points at the
+per-game tuning and held-out gate files without committing game roots or
+executables. Its current gates intentionally require unavailable causal,
+role-swapped, recovery-time, and in-engine timing metrics, so they fail closed
+until those measurements are implemented. See
+`QualificationCampaigns/README.md` before treating any matrix as release
+evidence.
+
 Example `surreal-bot-quality-gates-v1` configuration:
 
 ```json

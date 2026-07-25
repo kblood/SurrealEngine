@@ -90,6 +90,122 @@ def output_from_command(command: list[str]) -> Path:
 
 
 class MatrixRunnerTests(unittest.TestCase):
+    def test_quality_gates_force_analysis_and_record_auditable_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = MATRIX.load_matrix(write_manifest(root))
+            gates = root / "quality-gates.json"
+            gates.write_text(json.dumps({
+                "schema": "surreal-bot-quality-gates-v1",
+                "required_metrics": ["completion", "deaths_exact"],
+                "required_runs": [{"id": "candidate", "variant": "candidate", "min": 1}],
+                "per_run_gates": [{
+                    "id": "candidate-complete", "variant": "candidate",
+                    "metric": "completion", "equals": True,
+                }],
+            }) + "\n", encoding="utf-8")
+
+            def launcher(command, timeout, stdout, stderr):
+                run = output_from_command(command)
+                for name in ("manifest.json", "events.jsonl", "summary.json"):
+                    (run / name).write_text(f"{{\"artifact\":\"{name}\"}}\n", encoding="utf-8")
+                stdout.write_text("synthetic stdout\n", encoding="utf-8")
+                stderr.write_text("", encoding="utf-8")
+                return MATRIX.LaunchResult(0, False, 0.01)
+
+            def aggregate(paths):
+                self.assertEqual(len(paths), 2)
+                return {
+                    "schema": "surreal-bot-quality-analysis-v1",
+                    "runs": [{
+                        "path": str(paths[0]), "variant": "candidate",
+                        "config": {"map": "DM-Morbias]["},
+                        "result": {"status": "complete", "exit_code": 0},
+                        "validation": {"status": "passed"},
+                        "metrics": {"completion": True, "deaths_exact": 0},
+                    }],
+                    "variant_aggregates": [],
+                    "metric_availability": {
+                        "available": ["completion", "deaths_exact"],
+                    },
+                }
+
+            output = root / "quality-gate-results"
+            report = MATRIX.run_matrix(
+                config, output, quality_gates=gates, launcher=launcher,
+                validator=lambda path: None, aggregate_analyzer=aggregate)
+            self.assertEqual(report["status"], "passed")
+            self.assertEqual(report["quality_gate_status"], "passed")
+            gate_result = Path(report["quality_gate_result"])
+            self.assertTrue(gate_result.is_file())
+            self.assertTrue((output / "quality-analysis.json").is_file())
+            provenance = json.loads((output / "provenance.json").read_text(encoding="utf-8"))
+            self.assertEqual(provenance["quality_gates"]["path"], str(gates.resolve()))
+            self.assertEqual(
+                provenance["quality_gates"]["sha256"],
+                hashlib.sha256(gates.read_bytes()).hexdigest().upper())
+            artifacts = {item["path"] for item in provenance["child_artifacts"]}
+            self.assertIn("quality-gate-result.json", artifacts)
+
+    def test_failed_quality_gate_fails_the_matrix_after_writing_its_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = MATRIX.load_matrix(write_manifest(root, paired=False))
+            gates = root / "quality-gates.json"
+            gates.write_text(json.dumps({
+                "schema": "surreal-bot-quality-gates-v1",
+                "required_metrics": ["completion", "deaths_exact"],
+                "per_run_gates": [{
+                    "id": "no-deaths", "variant": "stock", "metric": "deaths_exact", "max": 0,
+                }],
+            }) + "\n", encoding="utf-8")
+
+            def launcher(command, timeout, stdout, stderr):
+                run = output_from_command(command)
+                for name in ("manifest.json", "events.jsonl", "summary.json"):
+                    (run / name).write_text(f"{{\"artifact\":\"{name}\"}}\n", encoding="utf-8")
+                stdout.write_text("", encoding="utf-8")
+                stderr.write_text("", encoding="utf-8")
+                return MATRIX.LaunchResult(0, False, 0.01)
+
+            def aggregate(paths):
+                return {
+                    "schema": "surreal-bot-quality-analysis-v1",
+                    "runs": [{
+                        "path": str(paths[0]), "variant": "stock",
+                        "config": {"map": "DM-Morbias]["},
+                        "result": {"status": "complete", "exit_code": 0},
+                        "validation": {"status": "passed"},
+                        "metrics": {"completion": True, "deaths_exact": 1},
+                    }],
+                    "variant_aggregates": [],
+                    "metric_availability": {
+                        "available": ["completion", "deaths_exact"],
+                    },
+                }
+
+            output = root / "failed-quality-gate-results"
+            report = MATRIX.run_matrix(
+                config, output, quality_gates=gates, launcher=launcher,
+                validator=lambda path: None, aggregate_analyzer=aggregate)
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(report["quality_gate_status"], "failed")
+            result = json.loads(Path(report["quality_gate_result"]).read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], "failed")
+
+    def test_invalid_quality_gates_are_rejected_before_output_or_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = MATRIX.load_matrix(write_manifest(root, paired=False))
+            gates = root / "invalid-quality-gates.json"
+            gates.write_text('{"schema":"wrong"}\n', encoding="utf-8")
+            output = root / "must-not-exist"
+            with self.assertRaisesRegex(MATRIX.MatrixError, "invalid quality gates"):
+                MATRIX.run_matrix(
+                    config, output, quality_gates=gates,
+                    launcher=lambda *args: self.fail("launcher called"))
+            self.assertFalse(output.exists())
+
     def test_release_mode_requires_complete_declared_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
