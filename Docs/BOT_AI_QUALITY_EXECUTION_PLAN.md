@@ -2258,6 +2258,27 @@ zero. The next work is a bounded multi-seed owner-data discovery matrix to find
 an Unreal harmful-water/falling opportunity or to reject this shared candidate
 for lack of cross-game relevance.
 
+## Iteration 94: planner-handoff multi-seed discovery result
+
+The UT436 Deck16-II seed set is now complete at one deterministic discovery
+repetition per seed. Across seeds 104729, 271828, and 314159, six handoffs
+occurred: two reissued the same semantic stock command and four received a
+different command. No handoff cleared, fell, or died before that replacement.
+The `same` outcome is consequently neither dominant nor causally connected to
+a death; it does not justify overriding the script target. The seed metrics are
+respectively K6/D11/S5, K4/D9/S5, and K5/D7/S2, with 23.13, 27.53, and 22.48
+seconds of hazard exposure. These are discovery observations, not a quality
+claim or a replacement for paired repaired-stock comparison.
+
+The retained Unreal 226b DeathFan fixture was also run at all three seeds. It
+has substantial hazard exposure and entries (106.72/40, 116.95/33, and
+105.02/27 seconds/entries) but **zero forced handoffs in every run**. The
+candidate's required falling-pre-move authorization therefore has no observed
+Unreal opportunity here. The shared planner handoff remains default-off and is
+not eligible for destination-redirection follow-up or promotion. Continue from
+the independently attributable death trajectories rather than relaxing its
+authorization or using zero-opportunity Unreal evidence as support.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
