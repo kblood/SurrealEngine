@@ -32,6 +32,7 @@ public:
 
 	const NameString& GetName(int index) const;
 	int GetVersion() const { return Version; }
+	int GetLicenseeMode() const { return LicenseeMode; }
 	NameString GetPackageName() const { return Name; }
 	std::string GetPackageFileName() const { return FileName; }
 	std::string GetPackageFilePath() const { return FilePath; }

@@ -128,13 +128,21 @@ per-node path index. Two independent DeathFan extractions were byte-identical:
 SHA-256 `A14B5E9663C6CA2AB25CC37C7EEDEEEA8013B594351000AF03A5AFF3A656B679`.
 All real-map artifacts remain owner-local under `qa/runs/`.
 
+The current provenance fields distinguish UT436 `DM-Deck16][.unr` package
+version 68 from Unreal Gold 226b `DmDeathFan.unr` package version 60, while
+both installations' `UnrealI.u` and `UnrealShare.u` code packages report
+package version 68. This is exactly why game-label matching alone is not a
+safe input to bot tuning.
+
 The same driver now has an explicit `--catalog-export-scripts=1` mode. It uses
 the engine's existing class exporter and writes only beneath the external
 catalog output directory. By default it attempts the available `Botpack`,
 `UnrealI`, and `UnrealShare` packages; a caller can instead provide an exact,
 comma-separated package list. The manifest records package version, loaded
-class count, and exported-script count. Package, map, and class output names
-are validated as path segments before any file is written. On the same owner
+class count, and exported-script count. It also fingerprints each source
+package with its package-file name, UE1 package version, licensee mode, and
+SHA-1; the complete v1 schema will upgrade this to SHA-256. Package, map, and
+class output names are validated as path segments before any file is written. On the same owner
 installations, UT436 exported 505 Botpack scripts (including `Bot.uc`), 146
 UnrealI scripts, and 360 UnrealShare scripts. Unreal Gold 226b exported 146
 UnrealI and 359 UnrealShare scripts (including `Bots.uc`); it correctly did

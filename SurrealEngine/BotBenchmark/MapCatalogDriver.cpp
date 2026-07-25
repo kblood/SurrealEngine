@@ -12,6 +12,7 @@
 #include "Utils/CommandLine.h"
 #include "Utils/File.h"
 #include "Utils/Logger.h"
+#include "Utils/SHA1Sum.h"
 
 #include <filesystem>
 #include <iomanip>
@@ -56,6 +57,17 @@ namespace
 	{
 		out << "{\"x\":" << value.x << ",\"y\":" << value.y
 			<< ",\"z\":" << value.z << '}';
+	}
+
+	void WritePackageIdentity(std::ostringstream& out, const Package* package)
+	{
+		if (!package)
+			throw std::runtime_error("catalog package identity is unavailable");
+		out << "{\"name\":" << JsonString(package->GetPackageName().ToString())
+			<< ",\"file_name\":" << JsonString(package->GetPackageFileName())
+			<< ",\"package_version\":" << package->GetVersion()
+			<< ",\"licensee_mode\":" << package->GetLicenseeMode()
+			<< ",\"sha1\":" << JsonString(SHA1Sum::of_file(package->GetPackageFilePath())) << '}';
 	}
 
 	bool IsWithin(const std::filesystem::path& child, const std::filesystem::path& parent)
@@ -188,7 +200,9 @@ namespace
 					manifest << ',';
 				firstPackage = false;
 				manifest << "\n    {\"name\":" << JsonString(packageName)
-					<< ",\"package_version\":" << package->GetVersion()
+					<< ",\"identity\":";
+				WritePackageIdentity(manifest, package);
+				manifest
 					<< ",\"class_count\":" << classes.size()
 					<< ",\"script_class_count\":" << exportedClasses << '}';
 			}
@@ -211,6 +225,9 @@ namespace
 				<< "  \"game\":{\"name\":" << JsonString(EngineRef.LaunchInfo.gameName)
 				<< ",\"version\":" << JsonString(EngineRef.LaunchInfo.gameVersionString) << "},\n"
 				<< "  \"map\":" << JsonString(map) << ",\n"
+				<< "  \"map_package\":";
+			WritePackageIdentity(out, EngineRef.Level->package);
+			out << ",\n"
 				<< "  \"counts\":{\"actors_exact\":" << EngineRef.Level->Actors.size();
 			size_t navigationCount = 0;
 			size_t zoneCount = 0;
