@@ -12,9 +12,10 @@ class Engine;
 class HeadlessDriverRegistry;
 
 // A deliberately narrow native fixture for the walking forward-contact / aligned-slide
-// contract. It uses an ordinary controlled bot match, then suppresses only the fixture
-// pawn's UnrealScript HitWall body so native callback dispatch and collision ordering can
-// be observed without stock state handlers changing the second contact.
+// contract. It uses an ordinary controlled bot match, then intercepts only the fixture
+// pawn's HitWall VM entries so native CallEvent ordering can be observed without stock
+// script state handlers changing the second contact. It does not claim that an
+// UnrealScript HitWall body executed.
 struct BotWalkingHitWallCornerFixtureConfig
 {
 	std::string URL;
@@ -38,7 +39,7 @@ struct BotWalkingHitWallCornerFixtureResult
 	vec3 Start;
 	vec3 FirstBlocker;
 	vec3 SecondBlocker;
-	uint64_t SuppressedHitWallCalls = 0;
+	uint64_t InterceptedHitWallVMDispatches = 0;
 	uint64_t HookEnterCalls = 0;
 	uint64_t PlayerStartCandidates = 0;
 	uint64_t FlatStartCandidates = 0;

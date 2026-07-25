@@ -116,7 +116,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-walking-hitwall-corner-fixture-v1\n"
+		out << "schema=surreal-bot-walking-hitwall-corner-fixture-v2\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "flat_path_verified=" << (result.FlatPathVerified ? "true" : "false") << "\n"
@@ -132,7 +132,8 @@ namespace
 			<< "slide_length_candidates=" << result.SlideLengthCandidates << "\n"
 			<< "verified_corner_candidates=" << result.VerifiedCornerCandidates << "\n"
 			<< "hook_enter_calls=" << result.HookEnterCalls << "\n"
-			<< "suppressed_hitwall_calls=" << result.SuppressedHitWallCalls << "\n"
+			<< "intercepted_hitwall_vm_dispatches=" << result.InterceptedHitWallVMDispatches << "\n"
+			<< "script_hitwall_bodies_executed=0\n"
 			<< "hook_contact_count=" << result.HookContacts.size() << "\n"
 			<< "diagnostic_count=" << result.Diagnostics.size() << "\n"
 			<< "failure_reason=" << result.FailureReason << "\n";
@@ -143,6 +144,13 @@ namespace
 				<< PawnMovement::WalkingHitWallContactPhaseName(diagnostic.ContactPhase) << "\n"
 			<< "diagnostic_" << index << "_callback_dispatched="
 			<< (diagnostic.CallbackDispatched ? "true" : "false") << "\n";
+		}
+		for (size_t index = 0; index < result.HookContacts.size(); index++)
+		{
+			const auto& contact = result.HookContacts[index];
+			out << "hook_contact_" << index << "_normal="
+				<< contact.Normal.x << "," << contact.Normal.y << "," << contact.Normal.z << "\n"
+				<< "hook_contact_" << index << "_wall_actor=" << contact.WallActor << "\n";
 		}
 		for (size_t index = 0; index < result.HookFunctionNames.size(); index++)
 			out << "hook_function_" << index << "=" << result.HookFunctionNames[index] << "\n";
@@ -196,7 +204,7 @@ namespace
 			LogMessage("Walking HitWall corner fixture result: "
 				+ std::string(Result.Passed ? "passed" : "failed")
 				+ "; diagnostics=" + std::to_string(Result.Diagnostics.size())
-				+ "; callbacks=" + std::to_string(Result.SuppressedHitWallCalls));
+				+ "; hitwall_vm_entries=" + std::to_string(Result.InterceptedHitWallVMDispatches));
 			Complete = true;
 		}
 
@@ -428,7 +436,7 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 			}
 			result.HookContacts.push_back(std::move(contact));
 			arguments.OverrideResult(ExpressionValue::NothingValue());
-			result.SuppressedHitWallCalls++;
+			result.InterceptedHitWallVMDispatches++;
 			return {};
 		};
 		hookHandle = Frame::CallHooks().Register(std::move(hook));
@@ -440,8 +448,8 @@ BotWalkingHitWallCornerFixtureResult BotWalkingHitWallCornerFixture::Run(
 
 		result.Ran = true;
 		result.Diagnostics = pawn->DrainWalkingHitWallDispatchDiagnostics();
-		if (result.HookContacts.size() != 2 || result.SuppressedHitWallCalls != 2)
-			Fail(result, "forced corner did not dispatch exactly two suppressed HitWall callbacks");
+		if (result.HookContacts.size() != 2 || result.InterceptedHitWallVMDispatches != 2)
+			Fail(result, "forced corner did not intercept exactly two HitWall VM dispatch entries");
 		else if (result.Diagnostics.size() != 2)
 			Fail(result, "forced corner did not record exactly two per-contact walking diagnostics");
 		else if (!IsFixtureContact(result.Diagnostics[0],

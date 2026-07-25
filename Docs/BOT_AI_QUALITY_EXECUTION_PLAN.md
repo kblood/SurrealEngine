@@ -1904,12 +1904,12 @@ least one suppressed and one dispatched threshold. Its
 be treated as a proof of `<` versus `<=` or of the unprinted retail native
 floating-point operand.
 
-The first UT436 pinned run resolved `DM-Deck16][.PlayerStart20` at the exact
-map transform, fixed the direction to `+Y`, and passed two bounded repetitions
-per threshold with unchanged owner-install inventory. `-0.397` and `-0.395`
-both suppressed, while `-0.350` dispatched. This is a reproducible broad
-bracket, not a predicate change; an adjacent, mixed-outcome microthreshold
-bracket remains required.
+Fresh UT436 and Unreal Gold 226b pinned runs resolved exact map PlayerStarts
+and fixed their contact signatures to `+Y`; both owner-install inventories
+were byte-identical before and after. In each game, `-0.397` suppressed and
+`-0.350` dispatched across two bounded repetitions. This is a reproducible
+broad bracket, not a predicate change; an adjacent, mixed-outcome
+microthreshold bracket remains required.
 
 ## Frozen tuning and held-out maps
 
