@@ -114,6 +114,7 @@ class _Episode:
     entry_move_target: str
     counters: dict[str, int]
     last_harmful_seconds: float
+    entry_observed: bool = True
     terminal: str = "run_end_censored"
     terminal_tick: int = 0
     terminal_seconds: float = 0.0
@@ -173,6 +174,11 @@ class _Episode:
             "entry_state": self.entry_state,
             "entry_latent_action": self.entry_latent_action,
             "entry_move_target": self.entry_move_target,
+            # A damage callback can open and close a native residence between
+            # two telemetry samples.  Its terminal sample is still exact, but
+            # it must never be presented as an observed pre-death trajectory.
+            "entry_observed": self.entry_observed,
+            "terminal_only": not self.entry_observed,
             "harmful_seconds": max(0.0, self.last_harmful_seconds - self.entry_seconds),
             "hazard_samples": str(self.hazard_samples),
             "reentries": str(self.reentries),
@@ -203,6 +209,7 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
     active: dict[str, _Episode] = {}
     sequence: dict[str, int] = {}
     prior_deaths: dict[str, int] = {}
+    prior_counters: dict[str, dict[str, int]] = {}
     final_counters: dict[str, dict[str, int]] = {}
     completed: list[dict[str, Any]] = []
     prior_tick = -1
@@ -250,6 +257,30 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
             died = deaths > prior_deaths.get(identity, deaths)
             prior_deaths[identity] = deaths
             episode = active.get(identity)
+            previous_counters = prior_counters.get(identity, counters)
+            native_terminal_only_death = (
+                episode is None and died and harmful and health <= 0
+                and counters["hazard_residence_episodes_exact"]
+                    == previous_counters["hazard_residence_episodes_exact"] + 1
+                and counters["hazard_residence_deaths_exact"]
+                    == previous_counters["hazard_residence_deaths_exact"] + 1)
+            if native_terminal_only_death:
+                # The native observer started from the damaging transition and
+                # was resolved by death before any alive telemetry sample. Use
+                # the prior counter snapshot so candidate/command deltas stay
+                # attributable, and label the record as terminal-only.
+                episode_id = sequence.get(identity, 0) + 1
+                sequence[identity] = episode_id
+                terminal_only = _Episode(identity, actor, episode_id, tick, seconds,
+                    position, health, physics, state, latent, target, previous_counters,
+                    seconds, entry_observed=False, previous_target=target,
+                    previous_latent_action=latent)
+                terminal_only.observe(harmful=harmful, tick=tick, seconds=seconds,
+                    position=position, health=health, move_target=target,
+                    latent_action=latent)
+                terminal_only.observe_candidate_name(candidate_name)
+                terminal_only.terminal = "death"
+                completed.append(terminal_only.report(counters))
             if episode is None and harmful and health > 0:
                 episode_id = sequence.get(identity, 0) + 1
                 sequence[identity] = episode_id
@@ -258,6 +289,7 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
                     previous_target=target, previous_latent_action=latent)
                 active[identity] = episode
             if episode is None:
+                prior_counters[identity] = counters
                 continue
             episode.observe(harmful=harmful, tick=tick, seconds=seconds, position=position,
                 health=health, move_target=target, latent_action=latent)
@@ -270,6 +302,7 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
                 episode.terminal = terminal
                 completed.append(episode.report(counters))
                 del active[identity]
+            prior_counters[identity] = counters
 
     if not complete:
         raise ResidenceError("events stream has no successful complete run_result")

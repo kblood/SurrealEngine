@@ -2972,3 +2972,35 @@ observation but does not turn the trace witness into a dispatch-time operand or
 justify a game-agnostic threshold. Retain the existing `TickWalking` behavior;
 recover or bound the actual per-game native operand in the corner fixture
 before implementing any default-off notification gate.
+
+## Iteration 117: terminal-only harmful-residence reconciliation
+
+A fresh, observer-only Unreal Gold `DmDeathFan` anchor (seed `271828`,
+two bots, 7,200 ticks, native difficulty 3) completed with the live swim
+egress overlay disabled. It exposed an exact telemetry boundary: one bot died
+on the same physics tick that native damage observation opened and resolved a
+positive-DPS residence. The following tick correctly contains the terminal
+counter increments, but contains no alive pre-death sample from which the
+offline reconstruction could infer an entry. The prior analyzer correctly
+failed closed rather than silently discarding it.
+
+`Analyze-HazardResidence.py` now reconciles this narrow case only when one
+event simultaneously has an exact death increment, an exact residence and
+residence-death increment of one, a harmful-zone sample, and non-positive
+health, with no active reconstructed episode. It emits an explicit
+`terminal_only: true` / `entry_observed: false` death record, so terminal
+facts are retained without fabricating a movement trajectory, duration, or
+pre-death intent. All other counter mismatches remain errors. A focused unit
+fixture and the 77-test analyzer suite pass.
+
+The fresh report is
+`qa/reports/bot-ai/deathfan-egress-observer-refresh-v1.json`: it now
+reconciles 12 residences (11 deaths and one run-end censor) exactly. All
+entries are `Falling` at the first observable harmful sample; eleven have an
+alive observed entry and one is terminal-only. There are zero observed
+direct-navigation candidates or candidate supersessions. This further rejects
+the prior swim-egress target/route takeover and does not authorize the
+previously rejected live acceleration overlay. The next behavior hypothesis
+must be an earlier, separately certified falling/launch decision with a
+controllable safe alternative, or a game-specific Unreal intervention; no
+shared bot movement change is promoted by this result.

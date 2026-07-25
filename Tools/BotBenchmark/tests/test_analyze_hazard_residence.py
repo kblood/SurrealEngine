@@ -19,13 +19,15 @@ def event(tick: int, seconds: float, *, hazard: bool, deaths: int = 0,
           target: str = "Path1", latent: str = "MoveToward", candidate_name: str = "",
           status: str = "running", residence_episodes: int = 0,
           residence_cleared: int = 0, residence_deaths: int = 0,
-          residence_reentries: int = 0, residence_run_end: int = 0) -> dict:
+          residence_reentries: int = 0, residence_run_end: int = 0,
+          health: int | None = None) -> dict:
     return {
         "schema": "surreal-bot-benchmark-telemetry-v2", "tick": str(tick),
         "simulated_seconds": seconds, "type": "run_result" if status == "complete" else "tick",
         "status": status, "failure_reason": "", "bots": [{
             "identity": "pri:1", "actor": "Bot1", "in_hazard_zone": hazard,
-            "position": {"x": float(tick), "y": 0.0, "z": 0.0}, "health": 100 - deaths * 100,
+            "position": {"x": float(tick), "y": 0.0, "z": 0.0},
+            "health": 100 - deaths * 100 if health is None else health,
             "deaths_exact": str(deaths), "physics_mode": "Swimming", "state": "Roaming",
             "latent_action": latent, "move_target_name": target,
             "hazard_residence_episodes_exact": str(residence_episodes),
@@ -80,6 +82,18 @@ class HazardResidenceTests(unittest.TestCase):
         self.assertEqual(episode["terminal"], "cleared")
         self.assertEqual(episode["reentries"], "1")
         self.assertFalse(episode["candidate_observed"])
+
+    def test_native_terminal_only_hazard_death_is_reconciled_without_fake_entry(self) -> None:
+        report = RESIDENCE.analyze_events([
+            event(0, 0.0, hazard=False),
+            event(1, 0.1, hazard=True, deaths=1, health=-5,
+                  residence_episodes=1, residence_deaths=1, status="complete"),
+        ])
+        self.assertEqual(report["totals"]["episodes"], "1")
+        episode = report["episodes"][0]
+        self.assertEqual(episode["terminal"], "death")
+        self.assertFalse(episode["entry_observed"])
+        self.assertTrue(episode["terminal_only"])
 
     def test_incomplete_run_fails_closed(self) -> None:
         with self.assertRaisesRegex(RESIDENCE.ResidenceError, "successful complete"):
