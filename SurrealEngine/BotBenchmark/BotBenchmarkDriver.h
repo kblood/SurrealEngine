@@ -45,6 +45,7 @@ namespace BotBenchmarkDriverDetail
 		uint64_t MoveStallRecoveryCensoredRunEnd = 0;
 		uint64_t MoveStallRecoveryUnknown = 0;
 		uint64_t MoveStallRecoveryEpisodeRecordOverflows = 0;
+		uint64_t MoveStallRecoveryDecisionRecordOverflows = 0;
 		uint64_t FailedNavigationAvoidanceActivations = 0;
 		uint64_t FailedNavigationSafeguardSuppressions = 0;
 		uint64_t FailedNavigationRoutePenaltyApplications = 0;

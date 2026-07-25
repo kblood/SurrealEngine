@@ -136,6 +136,8 @@ struct BotBenchmarkBotState
 	uint64_t MoveStallRecoveryUnknownExact = 0;
 	uint64_t MoveStallRecoveryEpisodeRecordOverflowsExact = 0;
 	std::vector<PawnMoveStallRecoveryEpisodeRecord> MoveStallRecoveryEpisodes;
+	uint64_t MoveStallRecoveryDecisionRecordOverflowsExact = 0;
+	std::vector<PawnMoveStallRecoveryDecisionRecord> MoveStallRecoveryDecisions;
 	uint64_t FailedNavigationAvoidanceActivationsExact = 0;
 	uint64_t FailedNavigationSafeguardSuppressionsExact = 0;
 	uint64_t FailedNavigationRoutePenaltyApplicationsExact = 0;

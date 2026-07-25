@@ -322,6 +322,8 @@ namespace
 				PendingHazardWaterEgressDiagnostics;
 			std::vector<PawnMoveStallRecoveryEpisodeRecord>
 				PendingMoveStallRecoveryEpisodeRecords;
+			std::vector<PawnMoveStallRecoveryDecisionRecord>
+				PendingMoveStallRecoveryDecisionRecords;
 			std::optional<BotBenchmarkHazardDeathPartitionRecord>
 				StagedHazardDeathPartitionRecord;
 			std::optional<BotBenchmarkDeathAttribution::ScopeToken>
@@ -827,6 +829,8 @@ namespace
 			counters.MoveStallRecoveryUnknown = pawn->MoveStallRecoveryUnknownCount();
 			counters.MoveStallRecoveryEpisodeRecordOverflows =
 				pawn->MoveStallRecoveryEpisodeRecordOverflowCount();
+			counters.MoveStallRecoveryDecisionRecordOverflows =
+				pawn->MoveStallRecoveryDecisionRecordOverflowCount();
 			counters.FailedNavigationAvoidanceActivations =
 				pawn->FailedNavigationAvoidanceActivationCount();
 			counters.FailedNavigationSafeguardSuppressions =
@@ -1092,6 +1096,7 @@ namespace
 				AccumulateNativePawnCounters(victimIdentity, counters, victim,
 					BotBenchmarkDriverDetail::NativePawnCounterSample::DeathFlush);
 				auto moveStallRecoveryRecords = victim->DrainMoveStallRecoveryEpisodeRecords();
+				auto moveStallDecisionRecords = victim->DrainMoveStallRecoveryDecisionRecords();
 				counters.PendingWalkingStepPreflightDiagnostics.insert(
 					counters.PendingWalkingStepPreflightDiagnostics.end(),
 					std::make_move_iterator(diagnostics.begin()),
@@ -1120,6 +1125,10 @@ namespace
 					counters.PendingMoveStallRecoveryEpisodeRecords.end(),
 					std::make_move_iterator(moveStallRecoveryRecords.begin()),
 					std::make_move_iterator(moveStallRecoveryRecords.end()));
+				counters.PendingMoveStallRecoveryDecisionRecords.insert(
+					counters.PendingMoveStallRecoveryDecisionRecords.end(),
+					std::make_move_iterator(moveStallDecisionRecords.begin()),
+					std::make_move_iterator(moveStallDecisionRecords.end()));
 				counters.DeathsExact++;
 				const bool environmental = !killer || !killer->bIsPlayer();
 				if (killer == victim || environmental)
@@ -2056,6 +2065,8 @@ namespace
 				bot.MoveStallRecoveryUnknownExact = native.MoveStallRecoveryUnknown;
 				bot.MoveStallRecoveryEpisodeRecordOverflowsExact =
 					native.MoveStallRecoveryEpisodeRecordOverflows;
+				bot.MoveStallRecoveryDecisionRecordOverflowsExact =
+					native.MoveStallRecoveryDecisionRecordOverflows;
 				bot.FailedNavigationAvoidanceActivationsExact =
 					native.FailedNavigationAvoidanceActivations;
 				bot.FailedNavigationSafeguardSuppressionsExact =
@@ -2312,10 +2323,15 @@ namespace
 						std::make_move_iterator(waterEgressDiagnostics.begin()),
 						std::make_move_iterator(waterEgressDiagnostics.end()));
 					auto moveStallRecoveryRecords = pawn->DrainMoveStallRecoveryEpisodeRecords();
+					auto moveStallDecisionRecords = pawn->DrainMoveStallRecoveryDecisionRecords();
 					runtime.PendingMoveStallRecoveryEpisodeRecords.insert(
 						runtime.PendingMoveStallRecoveryEpisodeRecords.end(),
 						std::make_move_iterator(moveStallRecoveryRecords.begin()),
 						std::make_move_iterator(moveStallRecoveryRecords.end()));
+					runtime.PendingMoveStallRecoveryDecisionRecords.insert(
+						runtime.PendingMoveStallRecoveryDecisionRecords.end(),
+						std::make_move_iterator(moveStallDecisionRecords.begin()),
+						std::make_move_iterator(moveStallDecisionRecords.end()));
 				}
 				bot.WalkingStepPreflightDiagnostics = std::move(
 					runtime.PendingWalkingStepPreflightDiagnostics);
@@ -2338,6 +2354,9 @@ namespace
 				bot.MoveStallRecoveryEpisodes = std::move(
 					runtime.PendingMoveStallRecoveryEpisodeRecords);
 				runtime.PendingMoveStallRecoveryEpisodeRecords.clear();
+				bot.MoveStallRecoveryDecisions = std::move(
+					runtime.PendingMoveStallRecoveryDecisionRecords);
+				runtime.PendingMoveStallRecoveryDecisionRecords.clear();
 				bot.HazardDeathPartitionRecords = std::move(
 					runtime.PendingHazardDeathPartitionRecords);
 				runtime.PendingHazardDeathPartitionRecords.clear();

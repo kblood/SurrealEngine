@@ -6444,6 +6444,7 @@ void UPawn::ObserveMoveStallWatchdog(float elapsed)
 				.Destination = Destination(),
 				.AcceptanceRadius = 1.0f
 			});
+		RecordMoveStallRecoveryDecision(latentMode, recovery, moveTarget);
 		if (recovery == PawnMovement::MoveStallRecoveryDecision::NavigationReplan)
 		{
 			UMover* lift = nullptr;
@@ -6586,10 +6587,44 @@ void UPawn::RecordMoveStallRecoveryEpisodeOutcome(float secondsSinceDetection,
 }
 
 std::vector<PawnMoveStallRecoveryEpisodeRecord>
-	UPawn::DrainMoveStallRecoveryEpisodeRecords()
+UPawn::DrainMoveStallRecoveryEpisodeRecords()
 {
 	std::vector<PawnMoveStallRecoveryEpisodeRecord> records;
 	records.swap(MoveStallRecoveryEpisodeRecords);
+	return records;
+}
+
+void UPawn::RecordMoveStallRecoveryDecision(PawnMovement::MoveStallLatentMode latentMode,
+	PawnMovement::MoveStallRecoveryDecision decision, UActor* moveTarget)
+{
+	static constexpr size_t maximumQueuedRecords = 1024;
+	PawnMoveStallRecoveryDecisionRecord record;
+	record.SourcePawnActor = Name.ToString();
+	record.Sequence = ++MoveStallRecoveryDecisionRecordSequence;
+	record.LifeId = MoveStallRecoveryLifeId;
+	record.EpisodeId = MoveStallRecoveryEpisodeId;
+	record.LatentMode = latentMode;
+	record.Decision = decision;
+	record.MoveTargetKnown = moveTarget != nullptr;
+	record.MoveTargetLive = moveTarget && !moveTarget->bDeleteMe();
+	if (moveTarget)
+	{
+		record.MoveTargetName = moveTarget->Name.ToString();
+		if (moveTarget->Class)
+			record.MoveTargetClass = moveTarget->Class->Name.ToString();
+	}
+	record.MoveTimer = MoveTimer();
+	if (MoveStallRecoveryDecisionRecords.size() < maximumQueuedRecords)
+		MoveStallRecoveryDecisionRecords.push_back(std::move(record));
+	else
+		MoveStallRecoveryDecisionRecordOverflowCountValue++;
+}
+
+std::vector<PawnMoveStallRecoveryDecisionRecord>
+UPawn::DrainMoveStallRecoveryDecisionRecords()
+{
+	std::vector<PawnMoveStallRecoveryDecisionRecord> records;
+	records.swap(MoveStallRecoveryDecisionRecords);
 	return records;
 }
 

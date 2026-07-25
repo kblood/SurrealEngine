@@ -22,7 +22,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 26
+TOOL_VERSION = 27
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -78,6 +78,7 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "move_stall_recovery_censored_run_end_exact": None,
     "move_stall_recovery_unknown_exact": None,
     "move_stall_recovery_episode_record_overflows_exact": None,
+    "move_stall_recovery_decision_record_overflows_exact": None,
     "recoverable_movement_episode_clear_within_2s_fraction": "higher",
     "recoverable_movement_episode_clear_or_replanned_within_5s_fraction": "higher",
     "failed_navigation_avoidance_activations_exact": None,
@@ -485,8 +486,11 @@ OPTIONAL_EXACT_COUNTERS = (
     + (
         "navigation_coverage_visited_nodes_exact",
         "navigation_coverage_union_visited_nodes_exact",
+        "move_stall_recovery_decision_record_overflows_exact",
     )
 )
+MOVE_STALL_DECISION_RECORD_OVERFLOW_COUNTER = \
+    "move_stall_recovery_decision_record_overflows_exact"
 OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
 OPTIONAL_CUMULATIVE_METRICS = OPTIONAL_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_NUMBERS
 OPTIONAL_STATIC_METRICS = ("navigation_coverage_catalog_nodes_exact",)
@@ -509,7 +513,7 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "walking_step_preflight_positive_dps_veto_actions",
     "falling_parity_realized_records", "vertical_pain_column_diagnostics",
     "hazard_water_egress_diagnostics", "hazard_death_partition_records",
-    "move_stall_recovery_episodes",
+    "move_stall_recovery_episodes", "move_stall_recovery_decisions",
     "walking_hitwall_dispatch_diagnostics",
 )
 HAZARD_DEATH_KILLER_RELATIONS = {"none", "self_player", "enemy_player", "non_player"}
@@ -1795,6 +1799,52 @@ def _move_stall_recovery_episodes(value: Any, context: str) -> list[dict[str, An
     ]
 
 
+MOVE_STALL_DECISIONS = {"none", "navigation_replan", "targetless_timeout"}
+MOVE_STALL_LATENT_MODES = {"other", "move_to", "move_toward", "strafe_to", "strafe_facing"}
+
+
+def _move_stall_recovery_decision(value: Any, context: str) -> dict[str, Any]:
+    fields = _object(value, context)
+    latent_mode = _string(fields, "latent_mode", context)
+    decision = _string(fields, "decision", context)
+    if latent_mode not in MOVE_STALL_LATENT_MODES:
+        raise QualityError(f"{context}.latent_mode is not recognized")
+    if decision not in MOVE_STALL_DECISIONS:
+        raise QualityError(f"{context}.decision is not recognized")
+    target_known = _boolean(fields.get("move_target_known"), f"{context}.move_target_known")
+    target_live = _boolean(fields.get("move_target_live"), f"{context}.move_target_live")
+    target_name = fields.get("move_target_name")
+    target_class = fields.get("move_target_class")
+    if not isinstance(target_name, str) or not isinstance(target_class, str):
+        raise QualityError(f"{context}: move target name/class must be strings")
+    if target_live and not target_known:
+        raise QualityError(f"{context}: live move target requires known target")
+    timer = _number(fields.get("move_timer"), f"{context}.move_timer")
+    if decision == "navigation_replan":
+        if latent_mode != "move_toward" or not target_live or not target_class:
+            raise QualityError(f"{context}: navigation replan lacks a live MoveToward target")
+    if decision == "targetless_timeout":
+        if latent_mode != "move_to" or target_known or timer <= 0.0:
+            raise QualityError(f"{context}: targetless timeout lacks an armed targetless MoveTo")
+    return {
+        "source_pawn_actor": _string(fields, "source_pawn_actor", context, nonempty=True),
+        "sequence": _integer(fields.get("sequence"), f"{context}.sequence", minimum=1),
+        "life_id": _integer(fields.get("life_id"), f"{context}.life_id", minimum=1),
+        "episode_id": _integer(fields.get("episode_id"), f"{context}.episode_id", minimum=1),
+        "latent_mode": latent_mode, "decision": decision,
+        "move_target_known": target_known, "move_target_live": target_live,
+        "move_target_name": target_name, "move_target_class": target_class,
+        "move_timer": timer,
+    }
+
+
+def _move_stall_recovery_decisions(value: Any, context: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise QualityError(f"{context} must be an array")
+    return [_move_stall_recovery_decision(item, f"{context}[{index}]")
+            for index, item in enumerate(value)]
+
+
 def _hazard_death_partition_record(value: Any, context: str) -> dict[str, Any]:
     fields = _object(value, context)
     killer_relation = _string(fields, "killer_relation", context)
@@ -2403,6 +2453,63 @@ def _validate_move_stall_recovery_episode_stream(
                 f"episodes for {identity}")
 
 
+def _validate_move_stall_recovery_decision_stream(
+        events: list[dict[str, Any]], path: Path) -> None:
+    last_sequence: dict[tuple[str, str], int] = {}
+    observed: defaultdict[str, dict[str, int]] = defaultdict(
+        lambda: {"all": 0, "navigation_replan": 0, "targetless_timeout": 0})
+    finals: dict[str, dict[str, int]] = {}
+    for event in events:
+        for bot in event["bots"]:
+            records = bot.get("move_stall_recovery_decisions")
+            if records is None:
+                continue
+            identity = bot["identity"]
+            required = (
+                "move_stall_detections_exact", "move_stall_forced_replans_exact",
+                "move_stall_navigation_forced_replans_exact",
+                "move_stall_targetless_move_to_timeouts_exact",
+                MOVE_STALL_DECISION_RECORD_OVERFLOW_COUNTER,
+            )
+            if any(name not in bot for name in required):
+                raise QualityError(
+                    f"{path}: move-stall decision records require complete watchdog counters")
+            for record in records:
+                actor = record["source_pawn_actor"]
+                if actor != bot["actor"]:
+                    raise QualityError(
+                        f"{path}: move-stall decision actor does not match {identity} "
+                        f"at telemetry sequence {event['seq']}")
+                key = (identity, actor)
+                prior = last_sequence.get(key, 0)
+                if record["sequence"] <= prior:
+                    raise QualityError(
+                        f"{path}: move-stall decision sequence did not increase for "
+                        f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                last_sequence[key] = record["sequence"]
+                observed[identity]["all"] += 1
+                if record["decision"] != "none":
+                    observed[identity][record["decision"]] += 1
+            finals[identity] = {name: bot[name] for name in required}
+    for identity, counters in finals.items():
+        counts = observed[identity]
+        overflow = counters[MOVE_STALL_DECISION_RECORD_OVERFLOW_COUNTER]
+        if counts["all"] + overflow != counters["move_stall_detections_exact"]:
+            raise QualityError(
+                f"{path}: move-stall decision records and overflows do not partition "
+                f"detections for {identity}")
+        if counts["navigation_replan"] != counters["move_stall_navigation_forced_replans_exact"]:
+            raise QualityError(
+                f"{path}: navigation decision records do not reconcile for {identity}")
+        if counts["targetless_timeout"] != counters["move_stall_targetless_move_to_timeouts_exact"]:
+            raise QualityError(
+                f"{path}: targetless decision records do not reconcile for {identity}")
+        if counts["navigation_replan"] + counts["targetless_timeout"] \
+                != counters["move_stall_forced_replans_exact"]:
+            raise QualityError(
+                f"{path}: decision records do not partition forced replans for {identity}")
+
+
 def _validate_hazard_death_partition_stream(
         events: list[dict[str, Any]], path: Path) -> None:
     counter_for_attribution = {
@@ -2961,6 +3068,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             "walking_step_preflight_diagnostics", "falling_parity_realized_records",
             "vertical_pain_column_diagnostics", "hazard_water_egress_diagnostics",
             "hazard_death_partition_records", "move_stall_recovery_episodes",
+            "move_stall_recovery_decisions",
             "walking_hitwall_dispatch_diagnostics")):
         raise QualityError(
             f"{context}: observer record arrays require telemetry v2")
@@ -3513,6 +3621,16 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
         elif "move_stall_recovery_episodes_exact" in result:
             raise QualityError(
                 f"{context}: move-stall recovery counter group requires records")
+        if "move_stall_recovery_decisions" in bot:
+            if MOVE_STALL_DECISION_RECORD_OVERFLOW_COUNTER not in result:
+                raise QualityError(
+                    f"{context}: move-stall decision records require an overflow counter")
+            result["move_stall_recovery_decisions"] = _move_stall_recovery_decisions(
+                bot.get("move_stall_recovery_decisions"),
+                f"{context}.move_stall_recovery_decisions")
+        elif MOVE_STALL_DECISION_RECORD_OVERFLOW_COUNTER in result:
+            raise QualityError(
+                f"{context}: move-stall decision overflow counter requires records")
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
@@ -3701,6 +3819,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             _validate_hazard_water_egress_diagnostic_stream(events, path)
         if optional_presence and "move_stall_recovery_episodes" in optional_presence:
             _validate_move_stall_recovery_episode_stream(events, path)
+        if optional_presence and "move_stall_recovery_decisions" in optional_presence:
+            _validate_move_stall_recovery_decision_stream(events, path)
         if optional_presence and "hazard_death_partition_records" in optional_presence:
             _validate_hazard_death_partition_stream(events, path)
     if events[0]["type"] != "run_start" or events[0]["tick"] != 0:

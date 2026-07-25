@@ -134,6 +134,12 @@ per-tick displacement. It does not call pathfinding, collision traces, or
 write route state; its purpose is to attribute stalls before any routing
 behavior is changed.
 
+Move-stall detections additionally emit bounded decision-time records in each
+bot's telemetry event. `move_stall_recovery_decisions` records the selector
+input and result before a recovery can write movement state. The quality
+analyzer requires these records and their overflow counter to partition native
+detections and forced-replan counters exactly.
+
 The current UT436 and Unreal Gold adapters do not expose a verified named-bot
 spawn contract. Supplying `requested_names` is therefore parsed and recorded
 deterministically but the engine run deliberately fails instead of silently

@@ -332,6 +332,48 @@ namespace
 			<< JsonString(MoveStallRecoveryEpisodeOutcomeName(record.Outcome)) << '}';
 	}
 
+	const char* MoveStallLatentModeName(PawnMovement::MoveStallLatentMode mode)
+	{
+		using PawnMovement::MoveStallLatentMode;
+		switch (mode)
+		{
+		case MoveStallLatentMode::MoveTo: return "move_to";
+		case MoveStallLatentMode::MoveToward: return "move_toward";
+		case MoveStallLatentMode::StrafeTo: return "strafe_to";
+		case MoveStallLatentMode::StrafeFacing: return "strafe_facing";
+		case MoveStallLatentMode::Other: return "other";
+		}
+		return "other";
+	}
+
+	const char* MoveStallRecoveryDecisionName(PawnMovement::MoveStallRecoveryDecision decision)
+	{
+		using PawnMovement::MoveStallRecoveryDecision;
+		switch (decision)
+		{
+		case MoveStallRecoveryDecision::None: return "none";
+		case MoveStallRecoveryDecision::NavigationReplan: return "navigation_replan";
+		case MoveStallRecoveryDecision::TargetlessTimeout: return "targetless_timeout";
+		}
+		return "none";
+	}
+
+	void WriteMoveStallRecoveryDecision(std::ostringstream& out,
+		const PawnMoveStallRecoveryDecisionRecord& record)
+	{
+		out << "{\"source_pawn_actor\":" << JsonString(record.SourcePawnActor)
+			<< ",\"sequence\":\"" << record.Sequence
+			<< "\",\"life_id\":\"" << record.LifeId
+			<< "\",\"episode_id\":\"" << record.EpisodeId
+			<< "\",\"latent_mode\":" << JsonString(MoveStallLatentModeName(record.LatentMode))
+			<< ",\"decision\":" << JsonString(MoveStallRecoveryDecisionName(record.Decision))
+			<< ",\"move_target_known\":" << (record.MoveTargetKnown ? "true" : "false")
+			<< ",\"move_target_live\":" << (record.MoveTargetLive ? "true" : "false")
+			<< ",\"move_target_name\":" << JsonString(record.MoveTargetName)
+			<< ",\"move_target_class\":" << JsonString(record.MoveTargetClass)
+			<< ",\"move_timer\":" << Fixed(record.MoveTimer, 9) << '}';
+	}
+
 	void WritePositiveDpsVetoAction(std::ostringstream& out,
 		const PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord& action)
 	{
@@ -702,6 +744,15 @@ namespace
 		{
 			if (index) out << ',';
 			WriteMoveStallRecoveryEpisode(out, bot.MoveStallRecoveryEpisodes[index]);
+		}
+		out << ']'
+			<< ",\"move_stall_recovery_decision_record_overflows_exact\":\""
+			<< bot.MoveStallRecoveryDecisionRecordOverflowsExact << "\""
+			<< ",\"move_stall_recovery_decisions\":[";
+		for (size_t index = 0; index < bot.MoveStallRecoveryDecisions.size(); index++)
+		{
+			if (index) out << ',';
+			WriteMoveStallRecoveryDecision(out, bot.MoveStallRecoveryDecisions[index]);
 		}
 		out << ']'
 			<< ",\"failed_navigation_avoidance_activations_exact\":\"" << bot.FailedNavigationAvoidanceActivationsExact << "\""

@@ -130,3 +130,21 @@ struct PawnMoveStallRecoveryEpisodeRecord
 	PawnMovement::MoveStallRecoveryEpisodeOutcome Outcome =
 		PawnMovement::MoveStallRecoveryEpisodeOutcome::None;
 };
+
+// A bounded, detection-time witness. Unlike the terminal episode record, this
+// captures the exact selector input and decision before any recovery writes.
+struct PawnMoveStallRecoveryDecisionRecord
+{
+	std::string SourcePawnActor;
+	uint64_t Sequence = 0;
+	uint64_t LifeId = 0;
+	uint64_t EpisodeId = 0;
+	PawnMovement::MoveStallLatentMode LatentMode = PawnMovement::MoveStallLatentMode::Other;
+	PawnMovement::MoveStallRecoveryDecision Decision =
+		PawnMovement::MoveStallRecoveryDecision::None;
+	bool MoveTargetKnown = false;
+	bool MoveTargetLive = false;
+	std::string MoveTargetName;
+	std::string MoveTargetClass;
+	float MoveTimer = 0.0f;
+};

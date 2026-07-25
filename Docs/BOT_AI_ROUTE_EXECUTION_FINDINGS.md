@@ -101,3 +101,26 @@ The disabled paired run completed without that inconsistency.
 This is useful evidence, not a behavior result. The next candidate must first
 provide a deterministic, per-decision native record that partitions every
 watchdog action before it is allowed to change `MoveTimer` for direct actors.
+
+## Decision-time watchdog witness (v1)
+
+The required witness now exists in telemetry v2 as the bounded
+`move_stall_recovery_decisions` array. It emits exactly one record for every
+native move-stall detection before any recovery write. Each record binds the
+pawn life and episode to latent mode, target identity/class/liveness, timer,
+and selector result. The analyzer rejects a run unless records plus their
+explicit overflow counter partition detections, and `navigation_replan` and
+`targetless_timeout` records partition the aggregate forced-replan counters.
+
+Fresh 7,200-tick stock-equivalent qualification runs passed the quality gate:
+
+- UT436 Deck16-II, seed `104729`, difficulty 7: five decisions. Two were
+  normal navigation replans; three selected `none`, including direct
+  `enforcer13` at tick 5363 and direct `PAmmo1` at tick 7060.
+- Unreal Gold 226b DmDeathFan, seed `271828`, difficulty 3: three decisions,
+  all `none`; one was for `LiftExit2` and two had no current move target.
+
+The evidence confirms that direct actor targets are a real, narrow recovery
+gap in UT, but does not yet establish a safe recovery outcome. The next
+behavior candidate must extend this witness with a new explicit decision value
+and prove the same partition invariant on both game families.

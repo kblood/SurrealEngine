@@ -2117,8 +2117,14 @@ public:
 	{
 		return MoveStallRecoveryEpisodeRecordOverflowCountValue;
 	}
+	uint64_t MoveStallRecoveryDecisionRecordOverflowCount() const
+	{
+		return MoveStallRecoveryDecisionRecordOverflowCountValue;
+	}
 	std::vector<PawnMoveStallRecoveryEpisodeRecord>
 		DrainMoveStallRecoveryEpisodeRecords();
+	std::vector<PawnMoveStallRecoveryDecisionRecord>
+		DrainMoveStallRecoveryDecisionRecords();
 	void EndMoveStallRecoveryLife();
 	void EndMoveStallRecoveryRun();
 	uint64_t FailedNavigationAvoidanceActivationCount() const { return FailedNavigationAvoidanceActivationCountValue; }
@@ -2482,6 +2488,8 @@ private:
 		PawnMovement::MoveStallRecoveryEpisodeEvent event);
 	void RecordMoveStallRecoveryEpisodeOutcome(float secondsSinceDetection,
 		PawnMovement::MoveStallRecoveryEpisodeOutcome outcome);
+	void RecordMoveStallRecoveryDecision(PawnMovement::MoveStallLatentMode latentMode,
+		PawnMovement::MoveStallRecoveryDecision decision, UActor* moveTarget);
 	void AdvancePainLedgeRecovery(float elapsed);
 	bool ApplyPainLedgeRecovery(const vec2& requestedDirection);
 	void AdvanceWallAdjustRecovery(float elapsed);
@@ -2621,8 +2629,11 @@ private:
 	uint64_t MoveStallRecoveryUnknownCountValue = 0;
 	uint64_t MoveStallRecoveryEpisodeRecordOverflowCountValue = 0;
 	uint64_t MoveStallRecoveryEpisodeRecordSequence = 0;
+	uint64_t MoveStallRecoveryDecisionRecordOverflowCountValue = 0;
+	uint64_t MoveStallRecoveryDecisionRecordSequence = 0;
 	uint64_t MoveStallRecoveryEpisodeId = 0;
 	std::vector<PawnMoveStallRecoveryEpisodeRecord> MoveStallRecoveryEpisodeRecords;
+	std::vector<PawnMoveStallRecoveryDecisionRecord> MoveStallRecoveryDecisionRecords;
 	uint64_t FailedNavigationAvoidanceActivationCountValue = 0;
 	uint64_t FailedNavigationSafeguardSuppressionCountValue = 0;
 	uint64_t FailedNavigationRoutePenaltyApplicationCountValue = 0;

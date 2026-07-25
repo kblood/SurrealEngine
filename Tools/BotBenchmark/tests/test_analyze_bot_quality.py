@@ -2611,6 +2611,59 @@ class BotQualityAnalysisTests(unittest.TestCase):
             self.assertEqual(
                 aggregate["failed_navigation_route_penalty_applications_exact"]["mean"], 5.0)
 
+    def test_move_stall_decision_records_must_partition_native_detections(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_run(Path(temporary), "run", [0.0, 1.0])
+            common = {
+                "score": 0, "pri_deaths": 0, "movement_intent": True,
+                "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+                "suicides_exact": 0, "environmental_deaths_exact": 0,
+                "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+                "move_stall_episode_resets_exact": 0,
+                "move_stall_navigation_forced_replans_exact": 0,
+                "move_stall_targetless_move_to_timeouts_exact": 0,
+                "move_stall_eligible_seconds": 0.0,
+                "move_stall_recovery_decision_record_overflows_exact": 0,
+            }
+            counters = [
+                {**common, "move_stall_detections_exact": 0,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_recovery_decisions": []},
+                {**common, "move_stall_detections_exact": 1,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_recovery_decisions": [{
+                     "source_pawn_actor": "Bot", "sequence": 1, "life_id": 1,
+                     "episode_id": 1, "latent_mode": "move_toward", "decision": "none",
+                     "move_target_known": True, "move_target_live": True,
+                     "move_target_name": "Ammo0", "move_target_class": "Ammo",
+                     "move_timer": 0.5,
+                 }]},
+            ]
+            upgrade_telemetry_v2(run, counters=counters)
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                for bot in event["bots"]:
+                    if event["type"] == "run_result":
+                        bot["move_stall_recovery_decisions"] = []
+                    for record in bot.get("move_stall_recovery_decisions", []):
+                        record["source_pawn_actor"] = bot["actor"]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            QUALITY.analyze([run])
+
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                for bot in event["bots"]:
+                    for record in bot.get("move_stall_recovery_decisions", []):
+                        record["decision"] = "navigation_replan"
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "navigation decision records"):
+                QUALITY.analyze([run])
+
     def test_optional_counter_regression_and_malformed_diagnostics_are_rejected(self) -> None:
         base = {
             "score": 0, "pri_deaths": 0, "movement_intent": False,
