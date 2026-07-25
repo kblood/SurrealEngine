@@ -84,3 +84,20 @@ watchdog counters and recovery records. A change may be proposed only after
 three independent instances identify one mechanism and a deterministic
 counterfactual shows that the proposed recovery resolves those instances
 without unexplained decisions on stall-free frames.
+
+## Rejected direct-actor timeout experiment (2026-07-25)
+
+The seed `104729` trace contains a real active `MoveToward` stall against the
+direct `enforcer13` actor near tick 5363. A temporary, opt-in experiment
+ended that latent move by setting `MoveTimer` to `-1`, while excluding pawn
+combat targets and navigation points. It is **not retained**.
+
+Both 7,200-tick UT436 Deck16-II runs completed cleanly, but the enabled run
+failed the quality gate: its forced-replan counter increased while no recovery
+attribution counter reconciled with it. The reproducer is
+`qa/runs/2026-07-25/direct-actor-timeout-v1/ut436-deck16-s104729-t7200-candidate-r2`.
+The disabled paired run completed without that inconsistency.
+
+This is useful evidence, not a behavior result. The next candidate must first
+provide a deterministic, per-decision native record that partitions every
+watchdog action before it is allowed to change `MoveTimer` for direct actors.
