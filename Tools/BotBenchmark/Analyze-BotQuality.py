@@ -285,12 +285,20 @@ VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS = (
 VERTICAL_PAIN_COLUMN_COUNTERS = VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS + (
     "vertical_pain_column_generation_capacity_exhaustions_exact",
 )
+PERSISTENT_HARMFUL_FALL_COUNTERS = (
+    "persistent_harmful_fall_candidates_started_exact",
+    "persistent_harmful_fall_promotions_exact",
+    "persistent_harmful_fall_resets_exact",
+    "persistent_harmful_fall_confirmed_harmful_entries_exact",
+    "persistent_harmful_fall_observed_lead_samples_exact",
+    "persistent_harmful_fall_observed_lead_milliseconds_exact",
+)
 METRIC_DIRECTIONS.update({
 	name: None for name in (
 		WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
 		+ VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
 		+ FALLING_PRE_MOVE_ANCHOR_COUNTERS + HAZARD_SWIM_EGRESS_LIVE_COUNTERS
-        + HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS)
+		+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS)
 })
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
@@ -302,7 +310,7 @@ OPTIONAL_EXACT_COUNTERS = (
     + DEATH_ATTRIBUTION_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
-    + VERTICAL_PAIN_COLUMN_COUNTERS
+    + VERTICAL_PAIN_COLUMN_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
     + WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_COUNTERS
 )
 OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
@@ -1873,7 +1881,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
-                ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS)):
+                ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS),
+                ("persistent harmful fall", PERSISTENT_HARMFUL_FALL_COUNTERS)):
             present = [name for name in names if name in result]
             if present and len(present) != len(names):
                 raise QualityError(f"{context}: {label} counters must be provided as a complete group")
@@ -2129,6 +2138,18 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                         > episodes_started:
                     raise QualityError(
                         f"{context}: vertical pain column capacity exhaustions exceed starts")
+        if "persistent_harmful_fall_candidates_started_exact" in result:
+            candidates = result["persistent_harmful_fall_candidates_started_exact"]
+            promotions = result["persistent_harmful_fall_promotions_exact"]
+            resets = result["persistent_harmful_fall_resets_exact"]
+            entries = result["persistent_harmful_fall_confirmed_harmful_entries_exact"]
+            samples = result["persistent_harmful_fall_observed_lead_samples_exact"]
+            if promotions > candidates or resets > candidates:
+                raise QualityError(
+                    f"{context}: persistent harmful fall promotions/resets exceed candidates")
+            if entries > promotions or samples > entries:
+                raise QualityError(
+                    f"{context}: persistent harmful fall entries/samples exceed promotions")
         if "walking_step_preflight_diagnostics" in bot:
             if "walking_step_preflight_observations_exact" not in result:
                 raise QualityError(
@@ -2796,6 +2817,19 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
                  column_started, column_completed, column_capacity)) else None)),
         "vertical_pain_column_generation_capacity_exhaustion_rate":
             _counter_fraction(column_capacity, column_started),
+        "persistent_harmful_fall_promotion_fraction": _counter_fraction(
+            result.get("persistent_harmful_fall_promotions_exact"),
+            result.get("persistent_harmful_fall_candidates_started_exact")),
+        "persistent_harmful_fall_confirmed_entry_fraction": _counter_fraction(
+            result.get("persistent_harmful_fall_confirmed_harmful_entries_exact"),
+            result.get("persistent_harmful_fall_promotions_exact")),
+        "persistent_harmful_fall_mean_observed_lead_milliseconds": (
+            result["persistent_harmful_fall_observed_lead_milliseconds_exact"]
+            / result["persistent_harmful_fall_observed_lead_samples_exact"]
+            if result.get("persistent_harmful_fall_observed_lead_samples_exact") is not None
+            and result["persistent_harmful_fall_observed_lead_samples_exact"] > 0
+            and result.get("persistent_harmful_fall_observed_lead_milliseconds_exact")
+            is not None else None),
     })
     return result
 

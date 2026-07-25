@@ -25,6 +25,12 @@ namespace PawnMovement
 		uint64_t UnknownOutcomes = 0;
 		uint64_t DiagnosticOverflows = 0;
 		uint64_t GenerationCapacityExhaustions = 0;
+		uint64_t PersistentHarmfulFallCandidatesStarted = 0;
+		uint64_t PersistentHarmfulFallPromotions = 0;
+		uint64_t PersistentHarmfulFallResets = 0;
+		uint64_t PersistentHarmfulFallConfirmedHarmfulEntries = 0;
+		uint64_t PersistentHarmfulFallObservedLeadSamples = 0;
+		uint64_t PersistentHarmfulFallObservedLeadMilliseconds = 0;
 	};
 
 	struct FallingHazardRuntimeSweepObservation
@@ -103,6 +109,12 @@ namespace PawnMovement
 		void QueueDiagnostic(FallingHazardDiagnosticRecord record);
 		void CountCorrelation(FallingHazardCorrelation correlation);
 		void ClearGenerationForecast();
+		void ObservePersistentHarmfulFallForecast(
+			const FallingHazardGenerationState& generation);
+		void ObservePersistentHarmfulFallCompletion(
+			const FallingHazardGenerationState& generation,
+			FallingHazardCorrelation correlation);
+		void ClearPersistentHarmfulFall(bool countReset);
 
 		std::string SourcePawnActor;
 		FallingHazardLifeId Life = { 1 };
@@ -118,6 +130,20 @@ namespace PawnMovement
 		bool HasLastCompletion = false;
 		FallingHazardTerminal LastCompletionTerminal =
 			FallingHazardTerminal::Active;
+		struct PersistentHarmfulFallState
+		{
+			bool CandidateActive = false;
+			bool Latched = false;
+			uint32_t ConsecutiveForecasts = 0;
+			FallingHazardLifeId Life;
+			FallingHazardFallEpisodeId FallEpisode;
+			FallingHazardZoneId ExpectedHarmfulFootZone;
+			FallingHazardZoneId ExpectedHarmfulPhysicsZone;
+			bool ExpectedHarmfulWaterEntry = false;
+			float LatchedObservedSweepElapsed = 0.0f;
+		};
+		PersistentHarmfulFallState PersistentHarmfulFall;
+		float FallEpisodeObservedSweepElapsed = 0.0f;
 		FallingHazardRuntimeCounters CounterValues;
 		std::vector<FallingHazardDiagnosticRecord> DiagnosticQueue;
 	};

@@ -1,5 +1,6 @@
 #include "PawnFallingHazardRuntimeObserver.h"
 
+#include <cmath>
 #include <limits>
 #include <utility>
 
@@ -24,6 +25,8 @@ namespace PawnMovement
 			return false;
 		FallEpisode.Value = NextFallEpisodeValue++;
 		FallEpisodeActive = true;
+		FallEpisodeObservedSweepElapsed = 0.0f;
+		ClearPersistentHarmfulFall(false);
 		return true;
 	}
 
@@ -33,6 +36,8 @@ namespace PawnMovement
 			FinishGeneration(FallingHazardTerminal::ContinuityLost);
 		FallEpisodeActive = false;
 		FallEpisode = {};
+		FallEpisodeObservedSweepElapsed = 0.0f;
+		ClearPersistentHarmfulFall(true);
 		ClearGenerationForecast();
 	}
 
@@ -104,9 +109,10 @@ namespace PawnMovement
 		ForecastState = forecast.State;
 		HasForecastState = true;
 		ActualSampleCount = 0;
+		CounterValues.EpisodesStarted++;
+		ObservePersistentHarmfulFallForecast(TrajectoryModel.ActiveGeneration);
 		HasLastCompletion = false;
 		LastCompletionTerminal = FallingHazardTerminal::Active;
-		CounterValues.EpisodesStarted++;
 		QueueStart(prechargedElapsed);
 		return true;
 	}
@@ -165,6 +171,12 @@ namespace PawnMovement
 		const FallingHazardTrajectoryUpdate update =
 			ObserveFallingHazardSweptSegment(TrajectoryModel, segment);
 		TrajectoryModel = update.Model;
+		if (std::isfinite(observation.Segment.ElapsedContribution)
+			&& observation.Segment.ElapsedContribution >= 0.0f
+			&& std::isfinite(FallEpisodeObservedSweepElapsed))
+		{
+			FallEpisodeObservedSweepElapsed += observation.Segment.ElapsedContribution;
+		}
 		if (sampleCountValid)
 			ActualSampleCount += observation.Segment.SampleCount;
 		if (update.HasCompletedGeneration)
@@ -222,6 +234,8 @@ namespace PawnMovement
 			FallingHazardTerminal::Landed, collision);
 		FallEpisodeActive = false;
 		FallEpisode = {};
+		FallEpisodeObservedSweepElapsed = 0.0f;
+		ClearPersistentHarmfulFall(true);
 		return completed;
 	}
 
@@ -230,6 +244,8 @@ namespace PawnMovement
 		const bool completed = FinishGeneration(FallingHazardTerminal::Died);
 		FallEpisodeActive = false;
 		FallEpisode = {};
+		FallEpisodeObservedSweepElapsed = 0.0f;
+		ClearPersistentHarmfulFall(true);
 		return completed;
 	}
 
@@ -241,6 +257,8 @@ namespace PawnMovement
 		FallEpisode = {};
 		NextFallEpisodeValue = 1;
 		TrajectoryModel = {};
+		FallEpisodeObservedSweepElapsed = 0.0f;
+		ClearPersistentHarmfulFall(true);
 		ClearGenerationForecast();
 		CapacityDiagnosticEmittedForLife = false;
 		HasLastCompletion = false;
@@ -280,6 +298,7 @@ namespace PawnMovement
 			CorrelateFallingHazardGeneration(generation);
 		CounterValues.EpisodesCompleted++;
 		CountCorrelation(correlation);
+		ObservePersistentHarmfulFallCompletion(generation, correlation);
 		FallingHazardDiagnosticRecord record;
 		record.Kind = FallingHazardDiagnosticKind::Terminal;
 		record.Generation = generation;
@@ -359,5 +378,128 @@ namespace PawnMovement
 		ForecastState = {};
 		HasForecastState = false;
 		ActualSampleCount = 0;
+	}
+
+	void FallingHazardRuntimeObserver::ObservePersistentHarmfulFallForecast(
+		const FallingHazardGenerationState& generation)
+	{
+		const auto validZone = [](const FallingHazardZoneId& zone)
+		{
+			return zone.Known && zone.ZoneActorId != 0;
+		};
+		const bool harmful = generation.Forecast
+			== FallingHazardForecast::HarmfulPainObserved
+			&& validZone(generation.ExpectedHarmfulFootZone)
+			&& validZone(generation.ExpectedHarmfulPhysicsZone);
+		if (!harmful)
+		{
+			ClearPersistentHarmfulFall(true);
+			return;
+		}
+
+		const bool sameKey = PersistentHarmfulFall.CandidateActive
+			&& PersistentHarmfulFall.Life.Value == generation.Life.Value
+			&& PersistentHarmfulFall.FallEpisode.Value == generation.FallEpisode.Value
+			&& PersistentHarmfulFall.ExpectedHarmfulFootZone.Known
+				== generation.ExpectedHarmfulFootZone.Known
+			&& PersistentHarmfulFall.ExpectedHarmfulFootZone.ZoneActorId
+				== generation.ExpectedHarmfulFootZone.ZoneActorId
+			&& PersistentHarmfulFall.ExpectedHarmfulFootZone.ZoneNumber
+				== generation.ExpectedHarmfulFootZone.ZoneNumber
+			&& PersistentHarmfulFall.ExpectedHarmfulPhysicsZone.Known
+				== generation.ExpectedHarmfulPhysicsZone.Known
+			&& PersistentHarmfulFall.ExpectedHarmfulPhysicsZone.ZoneActorId
+				== generation.ExpectedHarmfulPhysicsZone.ZoneActorId
+			&& PersistentHarmfulFall.ExpectedHarmfulPhysicsZone.ZoneNumber
+				== generation.ExpectedHarmfulPhysicsZone.ZoneNumber
+			&& PersistentHarmfulFall.ExpectedHarmfulWaterEntry
+				== generation.ExpectedHarmfulWaterEntry;
+		const bool continuationBoundary = HasLastCompletion
+			&& (LastCompletionTerminal == FallingHazardTerminal::CallbackBoundary
+				|| LastCompletionTerminal
+					== FallingHazardTerminal::ExternalImpulseBoundary);
+		if (!sameKey || !continuationBoundary)
+		{
+			ClearPersistentHarmfulFall(true);
+			PersistentHarmfulFall.CandidateActive = true;
+			PersistentHarmfulFall.ConsecutiveForecasts = 1;
+			PersistentHarmfulFall.Life = generation.Life;
+			PersistentHarmfulFall.FallEpisode = generation.FallEpisode;
+			PersistentHarmfulFall.ExpectedHarmfulFootZone =
+				generation.ExpectedHarmfulFootZone;
+			PersistentHarmfulFall.ExpectedHarmfulPhysicsZone =
+				generation.ExpectedHarmfulPhysicsZone;
+			PersistentHarmfulFall.ExpectedHarmfulWaterEntry =
+				generation.ExpectedHarmfulWaterEntry;
+			CounterValues.PersistentHarmfulFallCandidatesStarted++;
+			return;
+		}
+
+		if (PersistentHarmfulFall.ConsecutiveForecasts
+			< std::numeric_limits<uint32_t>::max())
+		{
+			PersistentHarmfulFall.ConsecutiveForecasts++;
+		}
+		if (!PersistentHarmfulFall.Latched
+			&& PersistentHarmfulFall.ConsecutiveForecasts >= 2)
+		{
+			PersistentHarmfulFall.Latched = true;
+			PersistentHarmfulFall.LatchedObservedSweepElapsed =
+				FallEpisodeObservedSweepElapsed;
+			CounterValues.PersistentHarmfulFallPromotions++;
+		}
+	}
+
+	void FallingHazardRuntimeObserver::ObservePersistentHarmfulFallCompletion(
+		const FallingHazardGenerationState& generation,
+		FallingHazardCorrelation correlation)
+	{
+		const bool sameKey = PersistentHarmfulFall.CandidateActive
+			&& PersistentHarmfulFall.Life.Value == generation.Life.Value
+			&& PersistentHarmfulFall.FallEpisode.Value == generation.FallEpisode.Value
+			&& PersistentHarmfulFall.ExpectedHarmfulFootZone.ZoneActorId
+				== generation.ExpectedHarmfulFootZone.ZoneActorId
+			&& PersistentHarmfulFall.ExpectedHarmfulFootZone.ZoneNumber
+				== generation.ExpectedHarmfulFootZone.ZoneNumber
+			&& PersistentHarmfulFall.ExpectedHarmfulPhysicsZone.ZoneActorId
+				== generation.ExpectedHarmfulPhysicsZone.ZoneActorId
+			&& PersistentHarmfulFall.ExpectedHarmfulPhysicsZone.ZoneNumber
+				== generation.ExpectedHarmfulPhysicsZone.ZoneNumber
+			&& PersistentHarmfulFall.ExpectedHarmfulWaterEntry
+				== generation.ExpectedHarmfulWaterEntry;
+		if (generation.Terminal == FallingHazardTerminal::HarmfulPainEntered
+			&& correlation == FallingHazardCorrelation::ConfirmedHarmfulForecast
+			&& PersistentHarmfulFall.Latched && sameKey)
+		{
+			CounterValues.PersistentHarmfulFallConfirmedHarmfulEntries++;
+			const float lead = FallEpisodeObservedSweepElapsed
+				- PersistentHarmfulFall.LatchedObservedSweepElapsed;
+			if (std::isfinite(lead) && lead >= 0.0f)
+			{
+				const double milliseconds = std::round(static_cast<double>(lead) * 1000.0);
+				if (milliseconds <= static_cast<double>(std::numeric_limits<uint64_t>::max()
+					- CounterValues.PersistentHarmfulFallObservedLeadMilliseconds))
+				{
+					CounterValues.PersistentHarmfulFallObservedLeadSamples++;
+					CounterValues.PersistentHarmfulFallObservedLeadMilliseconds +=
+						static_cast<uint64_t>(milliseconds);
+				}
+			}
+			ClearPersistentHarmfulFall(false);
+			return;
+		}
+
+		if (generation.Terminal != FallingHazardTerminal::CallbackBoundary
+			&& generation.Terminal != FallingHazardTerminal::ExternalImpulseBoundary)
+		{
+			ClearPersistentHarmfulFall(true);
+		}
+	}
+
+	void FallingHazardRuntimeObserver::ClearPersistentHarmfulFall(bool countReset)
+	{
+		if (countReset && PersistentHarmfulFall.CandidateActive)
+			CounterValues.PersistentHarmfulFallResets++;
+		PersistentHarmfulFall = {};
 	}
 }

@@ -608,6 +608,17 @@ namespace
 				hazard.DiagnosticOverflows;
 			counters.VerticalPainColumnGenerationCapacityExhaustions =
 				hazard.GenerationCapacityExhaustions;
+			counters.PersistentHarmfulFallCandidatesStarted =
+				hazard.PersistentHarmfulFallCandidatesStarted;
+			counters.PersistentHarmfulFallPromotions =
+				hazard.PersistentHarmfulFallPromotions;
+			counters.PersistentHarmfulFallResets = hazard.PersistentHarmfulFallResets;
+			counters.PersistentHarmfulFallConfirmedHarmfulEntries =
+				hazard.PersistentHarmfulFallConfirmedHarmfulEntries;
+			counters.PersistentHarmfulFallObservedLeadSamples =
+				hazard.PersistentHarmfulFallObservedLeadSamples;
+			counters.PersistentHarmfulFallObservedLeadMilliseconds =
+				hazard.PersistentHarmfulFallObservedLeadMilliseconds;
 			counters.WalkingStepPreflightReasons = pawn->WalkingStepPreflightReasonCounts();
 			return counters;
 		}
@@ -1350,6 +1361,17 @@ namespace
 					native.VerticalPainColumnDiagnosticOverflows;
 				bot.VerticalPainColumnGenerationCapacityExhaustionsExact =
 					native.VerticalPainColumnGenerationCapacityExhaustions;
+				bot.PersistentHarmfulFallCandidatesStartedExact =
+					native.PersistentHarmfulFallCandidatesStarted;
+				bot.PersistentHarmfulFallPromotionsExact =
+					native.PersistentHarmfulFallPromotions;
+				bot.PersistentHarmfulFallResetsExact = native.PersistentHarmfulFallResets;
+				bot.PersistentHarmfulFallConfirmedHarmfulEntriesExact =
+					native.PersistentHarmfulFallConfirmedHarmfulEntries;
+				bot.PersistentHarmfulFallObservedLeadSamplesExact =
+					native.PersistentHarmfulFallObservedLeadSamples;
+				bot.PersistentHarmfulFallObservedLeadMillisecondsExact =
+					native.PersistentHarmfulFallObservedLeadMilliseconds;
 				if (pawn)
 				{
 					auto diagnostics = pawn->DrainWalkingStepPreflightDiagnostics();

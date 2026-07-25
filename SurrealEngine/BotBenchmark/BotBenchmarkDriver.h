@@ -107,6 +107,12 @@ namespace BotBenchmarkDriverDetail
 		uint64_t VerticalPainColumnUnknownOutcomes = 0;
 		uint64_t VerticalPainColumnDiagnosticOverflows = 0;
 		uint64_t VerticalPainColumnGenerationCapacityExhaustions = 0;
+		uint64_t PersistentHarmfulFallCandidatesStarted = 0;
+		uint64_t PersistentHarmfulFallPromotions = 0;
+		uint64_t PersistentHarmfulFallResets = 0;
+		uint64_t PersistentHarmfulFallConfirmedHarmfulEntries = 0;
+		uint64_t PersistentHarmfulFallObservedLeadSamples = 0;
+		uint64_t PersistentHarmfulFallObservedLeadMilliseconds = 0;
 		std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>
 			WalkingStepPreflightReasons = {};
 	};
@@ -391,6 +397,24 @@ namespace BotBenchmarkDriverDetail
 				current.VerticalPainColumnGenerationCapacityExhaustions,
 				Previous.VerticalPainColumnGenerationCapacityExhaustions,
 				totals.VerticalPainColumnGenerationCapacityExhaustions);
+			AccumulateCounter(current.PersistentHarmfulFallCandidatesStarted,
+				Previous.PersistentHarmfulFallCandidatesStarted,
+				totals.PersistentHarmfulFallCandidatesStarted);
+			AccumulateCounter(current.PersistentHarmfulFallPromotions,
+				Previous.PersistentHarmfulFallPromotions,
+				totals.PersistentHarmfulFallPromotions);
+			AccumulateCounter(current.PersistentHarmfulFallResets,
+				Previous.PersistentHarmfulFallResets,
+				totals.PersistentHarmfulFallResets);
+			AccumulateCounter(current.PersistentHarmfulFallConfirmedHarmfulEntries,
+				Previous.PersistentHarmfulFallConfirmedHarmfulEntries,
+				totals.PersistentHarmfulFallConfirmedHarmfulEntries);
+			AccumulateCounter(current.PersistentHarmfulFallObservedLeadSamples,
+				Previous.PersistentHarmfulFallObservedLeadSamples,
+				totals.PersistentHarmfulFallObservedLeadSamples);
+			AccumulateCounter(current.PersistentHarmfulFallObservedLeadMilliseconds,
+				Previous.PersistentHarmfulFallObservedLeadMilliseconds,
+				totals.PersistentHarmfulFallObservedLeadMilliseconds);
 			for (size_t index = 0; index < current.WalkingStepPreflightReasons.size(); index++)
 			{
 				AccumulateCounter(current.WalkingStepPreflightReasons[index],

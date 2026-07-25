@@ -572,6 +572,52 @@ namespace
 			&& oversized.Counters().UnknownOutcomes == 1,
 			"oversized actual sample counts complete unknown without overflow");
 	}
+
+	void TestPersistentHarmfulFallLatch()
+	{
+		FallingHazardRuntimeObserver observer("LatchBot");
+		Check(observer.BeginFallEpisode(), "latch fall begins");
+		Check(observer.ArmGeneration(
+			FallingHazardForecastSource::ExistingFallingCommit,
+			Forecast(FallingHazardForecast::HarmfulPainObserved)),
+			"the first harmful forecast arms the latch candidate");
+		Check(observer.FinishCallbackBoundary(),
+			"a callback boundary retains a pending latch candidate");
+		Check(observer.ArmGeneration(
+			FallingHazardForecastSource::CallbackReturnCommit,
+			Forecast(FallingHazardForecast::HarmfulPainObserved)),
+			"the matching callback continuation arms");
+		Check(observer.ObserveSweep(HarmfulSweep()),
+			"the matching harmful entry is observed");
+		const auto& counters = observer.Counters();
+		Check(counters.PersistentHarmfulFallCandidatesStarted == 1
+			&& counters.PersistentHarmfulFallPromotions == 1
+			&& counters.PersistentHarmfulFallConfirmedHarmfulEntries == 1,
+			"two matching harmful forecasts across a callback promote and confirm once");
+		Check(counters.PersistentHarmfulFallObservedLeadSamples == 1
+			&& counters.PersistentHarmfulFallObservedLeadMilliseconds == 20,
+			"confirmed entry records only the realized swept lead after the latch");
+
+		FallingHazardRuntimeObserver reset("LatchResetBot");
+		Check(reset.BeginFallEpisode(), "reset fall begins");
+		Check(reset.ArmGeneration(FallingHazardForecastSource::ExistingFallingCommit,
+			Forecast(FallingHazardForecast::HarmfulPainObserved)),
+			"reset candidate begins with a harmful forecast");
+		Check(reset.FinishExternalImpulseBoundary(),
+			"an impulse boundary retains the candidate until the next forecast");
+		Check(reset.ArmGeneration(FallingHazardForecastSource::ExternalImpulseCommit,
+			Forecast(FallingHazardForecast::NoHarmfulPainObserved)),
+			"a contradictory safe forecast arms normally");
+		Check(reset.FinishLanding(FallingHazardCollisionKind::StaticWorld),
+			"the contradictory path lands safely");
+		const auto& resetCounters = reset.Counters();
+		Check(resetCounters.PersistentHarmfulFallCandidatesStarted == 1
+			&& resetCounters.PersistentHarmfulFallPromotions == 0
+			&& resetCounters.PersistentHarmfulFallResets == 1
+			&& resetCounters.PersistentHarmfulFallConfirmedHarmfulEntries == 0
+			&& resetCounters.PersistentHarmfulFallObservedLeadSamples == 0,
+			"safe continuations reset the candidate and cannot create a harmful latch");
+	}
 }
 
 int main()
@@ -586,6 +632,7 @@ int main()
 	TestLifeAndFallIdentifiers();
 	TestCapacityAndBoundedDiagnostics();
 	TestDrainAndSourceUpdate();
+	TestPersistentHarmfulFallLatch();
 	std::cout << "Pawn falling hazard runtime observer tests passed\n";
 	return 0;
 }

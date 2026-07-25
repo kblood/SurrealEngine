@@ -1156,6 +1156,35 @@ boundary, or contradictory forecast. It remains read-only until this
 episode-level signal repeats on UT436 and Unreal Gold while preserving safe
 controls.
 
+## Iteration 56: persistent harmful-fall latch (observer only)
+
+The shared falling observer now has a default-off-policy, read-only persistent
+harmful-fall latch. It starts only from a valid known harmful forecast and
+promotes only when a second forecast has the same life, physical fall, harmful
+foot/physics zone identities, and water classification after an exact callback
+or external-impulse boundary. A changed key, safe forecast, non-boundary
+terminal, landing, death, abandonment, or life boundary clears it. A promoted
+latch becomes a confirmed entry only when the realized terminal is the same-key
+`confirmed_harmful_forecast`; it records a bounded observed-sweep lead time in
+milliseconds. No acceleration, path query, target, timer, physics, or script
+state is changed.
+
+The counter group is emitted as complete exact telemetry and fail-closed in the
+quality analyzer: candidates, promotions, resets, confirmed entries, lead
+samples, and summed lead milliseconds. Focused runtime lifecycle tests cover
+callback promotion/confirmation and a safe contradictory continuation. The
+benchmark protocol test, full executable build, and all 106 Python benchmark
+tests pass.
+
+On DeathFan seed 424242, the observer records six candidates, five promotions,
+five confirmed harmful entries, and five lead samples totaling 3,005 ms (601 ms
+mean). This proves the callback-split Unreal signal is measurable without
+changing play. The UT Deck16-II seed 271828 target instead records one candidate
+followed by a reset and zero promotions/entries; two runs are byte-equivalent.
+The latch is therefore deliberately **not** a shared live gate yet. The next
+observer iteration must explain the single-generation UT water entry or derive
+a separate, equally causal UT-safe signal before any recovery action is tested.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

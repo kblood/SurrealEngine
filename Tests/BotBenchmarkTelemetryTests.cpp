@@ -242,6 +242,12 @@ int main()
 		<< ",\"vertical_pain_column_unknown_outcomes_exact\":\"0\""
 		<< ",\"vertical_pain_column_diagnostic_overflows_exact\":\"0\""
 		<< ",\"vertical_pain_column_generation_capacity_exhaustions_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_candidates_started_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_promotions_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_resets_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_confirmed_harmful_entries_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_observed_lead_samples_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_observed_lead_milliseconds_exact\":\"0\""
 		<< ",\"vertical_pain_column_diagnostics\":[]";
 	const std::string expectedWalkingPreflightSuffix = walkingPreflightSuffix.str();
 	std::string expectedEvent =

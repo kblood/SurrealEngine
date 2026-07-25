@@ -557,6 +557,18 @@ namespace
 			<< bot.VerticalPainColumnDiagnosticOverflowsExact << "\""
 			<< ",\"vertical_pain_column_generation_capacity_exhaustions_exact\":\""
 			<< bot.VerticalPainColumnGenerationCapacityExhaustionsExact << "\""
+			<< ",\"persistent_harmful_fall_candidates_started_exact\":\""
+			<< bot.PersistentHarmfulFallCandidatesStartedExact << "\""
+			<< ",\"persistent_harmful_fall_promotions_exact\":\""
+			<< bot.PersistentHarmfulFallPromotionsExact << "\""
+			<< ",\"persistent_harmful_fall_resets_exact\":\""
+			<< bot.PersistentHarmfulFallResetsExact << "\""
+			<< ",\"persistent_harmful_fall_confirmed_harmful_entries_exact\":\""
+			<< bot.PersistentHarmfulFallConfirmedHarmfulEntriesExact << "\""
+			<< ",\"persistent_harmful_fall_observed_lead_samples_exact\":\""
+			<< bot.PersistentHarmfulFallObservedLeadSamplesExact << "\""
+			<< ",\"persistent_harmful_fall_observed_lead_milliseconds_exact\":\""
+			<< bot.PersistentHarmfulFallObservedLeadMillisecondsExact << "\""
 			<< ",\"vertical_pain_column_diagnostics\":[";
 		for (size_t index = 0; index < bot.VerticalPainColumnDiagnostics.size(); index++)
 		{
