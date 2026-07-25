@@ -2772,3 +2772,15 @@ even while the next route sample is unavailable; a fresh 25-death DeathFan
 run passes that strict path. This qualifies only observer plumbing; repeated
 qualification and a causal hazard/route witness are still required before it
 can support a behavior candidate.
+
+## Iteration 110: native commit versus active direct-command boundary
+
+Native provenance now streams a death and hazard-entry context. The repeated
+UT Deck16-II `PathNode121 -> PathNode123` lead is not a route-selection
+authorization: by the harmful entry the bot has switched to direct `BulletBox4`
+movement and the route cache merely retains the earlier path. DeathFan likewise
+has no short-latency native-route pattern across its 31 hazard entries. Reject
+a reachspec veto or cache-clear policy. The next permitted direct-reach work
+is an observer-only pickup/actor provenance witness that ties a successful
+native reachability result to the subsequently active direct command; it must
+remain behavior-neutral and fail closed on any missing life or command link.

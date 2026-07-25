@@ -143,6 +143,24 @@ and the gameplay stream unchanged. This is observer-only and is not yet a
 behavior result. Repeated qualification and a causal hazard/route witness
 remain required before any route correction is considered.
 
+## Native commit to hazard-entry correlation (2026-07-25)
+
+The native-commit analyzer now streams the matching tick telemetry and records
+the last exact native commit at every positive-DPS hazard entry and death. In
+DeathFan, only one of 31 hazard entries followed a nonempty commit within two
+seconds, and none did so within 12 ticks. Its 25 deaths have the same negative
+shape. A recent committed edge is therefore not a common Unreal hazard cause.
+
+Deck16-II seed `104729` repeats byte-identically in two terminal-complete
+runs. Both hazard entries, including the one death, appear 114–116 ticks after
+the same dry `PathNode121 -> PathNode123` commit. At entry the live target is
+instead direct `BulletBox4` movement while the old route cache is still
+present. The edge's endpoints are in the dry LevelInfo zone. This rejects a
+route-edge veto: the cache is historical context, not the active dangerous
+command. The next direct-reach observer may widen only to an explicit
+pickup/actor witness that can prove the `ActorReachable` decision and later
+direct command share one life and command provenance.
+
 ## Rejected direct-actor timeout experiment (2026-07-25)
 
 The seed `104729` trace contains a real active `MoveToward` stall against the

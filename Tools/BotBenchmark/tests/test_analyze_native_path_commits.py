@@ -45,6 +45,9 @@ def write_run(root: Path, bad_index: bool = False) -> None:
         "participants": [{"roster_index": 0, "identity": "bot-0", "available": True,
             "native_path_commit_overflows_exact": "0", "native_path_commits": [commit]}]}
     (root / "route-execution.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    event = {"type": "tick", "tick": "1", "bots": [{"identity": "bot-0", "deaths_exact": "0",
+             "in_hazard_zone": False, "latent_action": "MoveToward"}]}
+    (root / "events.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
 
 class NativePathCommitTests(unittest.TestCase):
     def test_accepts_exact_catalog_edge(self) -> None:

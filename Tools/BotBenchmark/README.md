@@ -152,7 +152,9 @@ emitted at the cache write itself. It verifies every committed bounded edge by
 its exact catalog reachspec index and rejects missing records, overflow,
 non-contiguous per-pawn sequences, cache-shape drift, pruned edges, and any
 catalog mismatch. This establishes what the shared native search committed;
-it does not yet justify a behavioral route policy.
+it does not yet justify a behavioral route policy. It also emits only
+contextual last-commit links at hazard-entry and death-counter transitions; a
+link is not a causal label or authorization for an intervention.
 
 Move-stall detections additionally emit bounded decision-time records in each
 bot's telemetry event. `move_stall_recovery_decisions` records the selector
