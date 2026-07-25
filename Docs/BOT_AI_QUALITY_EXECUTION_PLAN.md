@@ -1773,6 +1773,34 @@ dispatch, or infer mover ordering. Next: repeated calibrated neighboring
 thresholds on both games, a separately verified mover oracle, then the
 per-contact slide/callback separation gates from Iteration 71.
 
+## Iteration 75: repeated neighbor thresholds and flat-path admission
+
+Near-threshold repetitions exposed one invalid dynamic attempt: although the
+old probe required a walkable floor at five points, it allowed a small
+slope/drop and received a falling callback. That artifact is rejected; it is
+not walking-gate evidence. The path admission now requires each sampled floor
+normal to be at least `0.95` upward and every sampled floor height to stay
+within 16 units of the first sample. The first head-on UT re-smoke under that
+tighter admission remained a valid walking callback.
+
+With a stable flat UT contact (same preflight normal and observed callback dot
+`-0.397676`), `MinHitWall=-0.397000` produced bilateral contact and
+`MoveTo` return but no callback; `-0.395000` produced exactly one walking
+callback. The corresponding independent 226b DmMorbias repetitions showed the
+same no-callback / callback transition at `-0.397000` / `-0.395000` and the
+same observed callback dot. All retained runs have byte-identical installed
+before/after inventories.
+
+This narrows the retail transition interval on both targets to two
+millithresholds, but it does not identify the cause of the remaining gap
+(native precision, internal quantization, or a non-observed instantaneous
+contact value). Therefore it still cannot prove equality semantics. The oracle
+must report this interval honestly and keep the shared C++ predicate unchanged
+until calibrated contact-state capture or a boundary-specific retail proof is
+available. In parallel, mover ordering needs a separate dynamic mover target;
+the previously attempted Deck/HealPod map lifts remain rejected, unpinned
+profiles.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

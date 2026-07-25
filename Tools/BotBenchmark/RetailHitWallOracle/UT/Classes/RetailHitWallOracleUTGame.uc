@@ -72,6 +72,7 @@ function bool ConfigureProbeAtStart(RetailHitWallOracleUTBot Probe, vector Start
     local int Candidate;
     local int Sample;
     local float LateralOffset;
+    local float FloorReferenceZ;
 
     LateralOffset = 0.0;
     if (OracleCase == 1)
@@ -89,7 +90,11 @@ function bool ConfigureProbeAtStart(RetailHitWallOracleUTBot Probe, vector Start
             FloorActor = Trace(FloorLocation, FloorNormal,
                 SamplePosition - vect(0,0,256),
                 SamplePosition + vect(0,0,96), false);
-            if (FloorActor == None || FloorNormal.Z < 0.7)
+            if (FloorActor == None || FloorNormal.Z < 0.95)
+                break;
+            if (Sample == 0)
+                FloorReferenceZ = FloorLocation.Z;
+            else if (Abs(FloorLocation.Z - FloorReferenceZ) > 16.0)
                 break;
         }
         if (Sample <= 4)
