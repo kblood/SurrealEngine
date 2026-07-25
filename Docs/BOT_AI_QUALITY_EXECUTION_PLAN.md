@@ -3297,8 +3297,35 @@ That alternate-endpoint proof now exists in the v4 fixture run at
 `qa/runs/2026-07-26/inventory-route-handoff-fixture-v4-navigation-fallback/`.
 After normal endpoint discovery, the fixture excludes only `PathNode73` and
 invokes the unmodified native reverse graph search. It returns `PathNode71` as
-the finite first hop, while the original stock request still returns
+the finite reverse-search endpoint, while the original stock request still returns
 `PathNode73` directly. This is sufficient to test a separate, default-off
 navigation-direct-reach candidate; it is not evidence to enable one by
 default. The candidate must retain this fallback assertion and add an exact
 counter before any DeathFan A/B judgment.
+
+## Iteration 127: reject generic navigation endpoint filtering
+
+The v5 fixture at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v5-candidate-set-diagnostic/`
+adds an owner-local classification of the actual direct-endpoint candidate
+set at the `PathNode73` launch anchor. Of 49 navigation points within the
+native 1000-unit endpoint radius, 20 pass stock `ActorReachable`; all 20 have
+an unsupported sample and positive-DPS harmful space below, and none is a
+safe direct endpoint under the same positive-harm evidence rule. The v4
+reverse-search fallback endpoint, `PathNode71`, is itself stock-direct
+reachable and has the same unsupported/harmful corridor evidence.
+
+Accordingly, the default-off generic direct-navigation gate was discarded
+before any A/B run: it rejected the unsafe target but removed every available
+endpoint in normal `MarkReachableNavEndPoints` discovery. Its retained failed
+fixture artifact at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v5-navigation-safety/`
+records 23 rejections and no graph route. This is a fail-closed result, not a
+quality improvement, and no production behavior setting or telemetry field
+from that experiment remains in the tree.
+
+The next navigation candidate must therefore establish a demonstrably safe
+graph-entry transition (or another verified recovery action) before applying
+endpoint filtering. It must prove both movement progress and non-hazardous
+support for the selected entry; a direct-reach veto alone is disqualified for
+this DeathFan class.

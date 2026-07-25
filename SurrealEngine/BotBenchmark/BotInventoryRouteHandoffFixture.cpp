@@ -27,6 +27,12 @@ namespace
 	constexpr int CorridorSamples = 5;
 	constexpr int ZoneSamplesPerCorridorPoint = 64;
 
+	struct CorridorHazardEvidence
+	{
+		bool UnsupportedSample = false;
+		bool HarmfulZoneBelow = false;
+	};
+
 	void Fail(BotInventoryRouteHandoffFixtureResult& result, std::string reason)
 	{
 		if (result.FailureReason.empty())
@@ -75,11 +81,42 @@ namespace
 			&& std::isfinite(hit.Normal.z) && hit.Normal.z >= 0.7071f;
 	}
 
+	CorridorHazardEvidence CollectCorridorHazardEvidence(
+		UPawn* pawn, const vec3& start, const vec3& end)
+	{
+		CorridorHazardEvidence evidence;
+		if (!pawn || !pawn->XLevel() || !pawn->XLevel()->Model)
+			return evidence;
+		const vec3 corridor = end - start;
+		for (int index = 1; index <= CorridorSamples; index++)
+		{
+			const vec3 point = start + corridor
+				* (static_cast<float>(index) / static_cast<float>(CorridorSamples + 1));
+			const CollisionHit immediateSupport = pawn->ProbeMoveCollision(
+				point, vec3(0.0f, 0.0f, -ImmediateSupportDistance), true);
+			if (IsWalkableStaticSupport(pawn, immediateSupport))
+				continue;
+			evidence.UnsupportedSample = true;
+			for (int zoneIndex = 1; zoneIndex <= ZoneSamplesPerCorridorPoint; zoneIndex++)
+			{
+				const vec3 below = point + vec3(0.0f, 0.0f,
+					-DeepSupportDistance * static_cast<float>(zoneIndex) / ZoneSamplesPerCorridorPoint);
+				UZoneInfo* zone = pawn->XLevel()->Model->FindRegion(below, pawn->Level()).Zone;
+				if (zone && zone->bPainZone() && zone->DamagePerSec() > 0)
+				{
+					evidence.HarmfulZoneBelow = true;
+					break;
+				}
+			}
+		}
+		return evidence;
+	}
+
 	std::string ResultText(const BotInventoryRouteHandoffFixtureResult& result)
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v4\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v5\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -93,6 +130,9 @@ namespace
 			<< "direct_navigation_reachable=" << (result.DirectNavigationReachable ? "true" : "false") << "\n"
 			<< "navigation_graph_first_hop_selected=" << (result.NavigationGraphFirstHopSelected ? "true" : "false") << "\n"
 			<< "navigation_fallback_route_exists=" << (result.NavigationFallbackRouteExists ? "true" : "false") << "\n"
+			<< "navigation_fallback_endpoint_direct_reachable=" << (result.NavigationFallbackEndpointDirectReachable ? "true" : "false") << "\n"
+			<< "navigation_fallback_endpoint_unsupported_corridor_sample=" << (result.NavigationFallbackEndpointUnsupportedCorridorSample ? "true" : "false") << "\n"
+			<< "navigation_fallback_endpoint_harmful_zone_below_corridor=" << (result.NavigationFallbackEndpointHarmfulZoneBelowCorridor ? "true" : "false") << "\n"
 			<< "navigation_unsupported_corridor_sample=" << (result.NavigationUnsupportedCorridorSample ? "true" : "false") << "\n"
 			<< "navigation_harmful_zone_below_corridor=" << (result.NavigationHarmfulZoneBelowCorridor ? "true" : "false") << "\n"
 			<< "pawn_actor=" << result.PawnActor << "\n"
@@ -103,11 +143,18 @@ namespace
 			<< "navigation_actor=" << result.NavigationActor << "\n"
 			<< "navigation_first_hop_actor=" << result.NavigationFirstHopActor << "\n"
 			<< "navigation_fallback_first_hop_actor=" << result.NavigationFallbackFirstHopActor << "\n"
+			<< "navigation_fallback_endpoint_actor=" << result.NavigationFallbackEndpointActor << "\n"
 			<< "graph_edge_count=" << result.GraphEdgeCount << "\n"
 			<< "immediate_support_samples=" << result.ImmediateSupportSamples << "\n"
 			<< "unsupported_samples=" << result.UnsupportedSamples << "\n"
 			<< "harmful_below_samples=" << result.HarmfulBelowSamples << "\n"
 			<< "direct_marker_rejects=" << result.DirectMarkerRejects << "\n"
+			<< "navigation_candidate_count=" << result.NavigationCandidateCount << "\n"
+			<< "navigation_candidate_direct_reachable_count=" << result.NavigationCandidateDirectReachableCount << "\n"
+			<< "navigation_candidate_safe_direct_reachable_count=" << result.NavigationCandidateSafeDirectReachableCount << "\n"
+			<< "navigation_candidate_unsafe_direct_reachable_count=" << result.NavigationCandidateUnsafeDirectReachableCount << "\n"
+			<< "first_safe_navigation_candidate_actor=" << result.FirstSafeNavigationCandidateActor << "\n"
+			<< "first_unsafe_navigation_candidate_actor=" << result.FirstUnsafeNavigationCandidateActor << "\n"
 			<< "first_harmful_below_distance=" << result.FirstHarmfulBelowDistance << "\n"
 			<< "failure_reason=" << result.FailureReason << "\n";
 		return out.str();
@@ -316,6 +363,16 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 			result.NavigationFallbackRouteExists = true;
 			result.NavigationFallbackFirstHopActor =
 				navigationFallback.Points.front()->Name.ToString();
+			result.NavigationFallbackEndpointActor = result.NavigationFallbackFirstHopActor;
+			result.NavigationFallbackEndpointDirectReachable = pawn->ActorReachable(
+				navigationFallback.Points.front(), true);
+			const CorridorHazardEvidence fallbackEndpointEvidence = CollectCorridorHazardEvidence(
+				pawn, DeathFanPathNode73LaunchAnchor,
+				navigationFallback.Points.front()->Location());
+			result.NavigationFallbackEndpointUnsupportedCorridorSample =
+				fallbackEndpointEvidence.UnsupportedSample;
+			result.NavigationFallbackEndpointHarmfulZoneBelowCorridor =
+				fallbackEndpointEvidence.HarmfulZoneBelow;
 		}
 		if (!result.NavigationFallbackRouteExists)
 			throw std::runtime_error("excluding PathNode73 did not expose a finite graph fallback route");
@@ -343,6 +400,32 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		}
 		if (!result.NavigationUnsupportedCorridorSample || !result.NavigationHarmfulZoneBelowCorridor)
 			throw std::runtime_error("PathNode73 direct corridor lacks unsupported harmful-drop evidence");
+
+		for (UNavigationPoint* navPoint = pawn->Level()->NavigationPointList(); navPoint;
+			navPoint = navPoint->nextNavigationPoint())
+		{
+			const vec3 delta = navPoint->Location() - DeathFanPathNode73LaunchAnchor;
+			if (dot(delta, delta) > 1000.0f * 1000.0f)
+				continue;
+			result.NavigationCandidateCount++;
+			if (!pawn->ActorReachable(navPoint))
+				continue;
+			result.NavigationCandidateDirectReachableCount++;
+			const CorridorHazardEvidence evidence = CollectCorridorHazardEvidence(
+				pawn, DeathFanPathNode73LaunchAnchor, navPoint->Location());
+			if (evidence.UnsupportedSample && evidence.HarmfulZoneBelow)
+			{
+				result.NavigationCandidateUnsafeDirectReachableCount++;
+				if (result.FirstUnsafeNavigationCandidateActor.empty())
+					result.FirstUnsafeNavigationCandidateActor = navPoint->Name.ToString();
+			}
+			else
+			{
+				result.NavigationCandidateSafeDirectReachableCount++;
+				if (result.FirstSafeNavigationCandidateActor.empty())
+					result.FirstSafeNavigationCandidateActor = navPoint->Name.ToString();
+			}
+		}
 		result.Ran = true;
 		result.Passed = true;
 	}

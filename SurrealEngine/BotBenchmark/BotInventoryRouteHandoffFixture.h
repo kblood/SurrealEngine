@@ -30,6 +30,9 @@ struct BotInventoryRouteHandoffFixtureResult
 	bool DirectNavigationReachable = false;
 	bool NavigationGraphFirstHopSelected = false;
 	bool NavigationFallbackRouteExists = false;
+	bool NavigationFallbackEndpointDirectReachable = false;
+	bool NavigationFallbackEndpointUnsupportedCorridorSample = false;
+	bool NavigationFallbackEndpointHarmfulZoneBelowCorridor = false;
 	bool NavigationUnsupportedCorridorSample = false;
 	bool NavigationHarmfulZoneBelowCorridor = false;
 	std::string FailureReason;
@@ -41,12 +44,19 @@ struct BotInventoryRouteHandoffFixtureResult
 	std::string NavigationActor;
 	std::string NavigationFirstHopActor;
 	std::string NavigationFallbackFirstHopActor;
+	std::string NavigationFallbackEndpointActor;
 	uint64_t GraphEdgeCount = 0;
 	uint64_t ImmediateSupportSamples = 0;
 	uint64_t UnsupportedSamples = 0;
 	uint64_t HarmfulBelowSamples = 0;
 	uint64_t DirectMarkerRejects = 0;
+	uint64_t NavigationCandidateCount = 0;
+	uint64_t NavigationCandidateDirectReachableCount = 0;
+	uint64_t NavigationCandidateSafeDirectReachableCount = 0;
+	uint64_t NavigationCandidateUnsafeDirectReachableCount = 0;
 	float FirstHarmfulBelowDistance = 0.0f;
+	std::string FirstSafeNavigationCandidateActor;
+	std::string FirstUnsafeNavigationCandidateActor;
 };
 
 class BotInventoryRouteHandoffFixture
