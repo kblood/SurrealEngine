@@ -35,10 +35,31 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <set>
 namespace
 {
 	constexpr double DeathAttributionRecentWindowSeconds = 2.0;
+
+	std::string JsonString(const std::string& value)
+	{
+		std::ostringstream out;
+		out << '"';
+		for (unsigned char character : value)
+		{
+			switch (character)
+			{
+			case '\\': out << "\\\\"; break;
+			case '"': out << "\\\""; break;
+			case '\n': out << "\\n"; break;
+			case '\r': out << "\\r"; break;
+			case '\t': out << "\\t"; break;
+			default: out << static_cast<char>(character); break;
+			}
+		}
+		out << '"';
+		return out.str();
+	}
 
 	class BotBenchmarkDriver final : public HeadlessDriver
 	{
@@ -85,6 +106,8 @@ namespace
 				ValidateGameProfile();
 				if (!Complete)
 					SetupControlledMatch();
+				if (!Complete)
+					WriteRealizedBotCapabilities();
 				if (!Complete)
 					OpenShadowTelemetry();
 			}
@@ -188,6 +211,58 @@ namespace
 		}
 
 	private:
+		void WriteRealizedBotCapabilities()
+		{
+			const auto liveBots = CaptureLiveControlledBots();
+			std::ostringstream out;
+			out.imbue(std::locale::classic());
+			out << std::fixed << std::setprecision(6)
+				<< "{\n  \"schema\":\"surreal-bot-realized-capability-observation-v1\",\n"
+				<< "  \"sample\":\"post_spawn_pre_tick\",\n  \"participants\":[";
+			bool first = true;
+			for (const BotBenchmarkActualParticipant& actual : ActualRoster)
+			{
+				auto live = std::find_if(liveBots.begin(), liveBots.end(), [&](const auto& item)
+				{
+					return item.first == actual.Identity;
+				});
+				if (live == liveBots.end() || !live->second)
+					throw std::runtime_error("realized-capability observation is missing a controlled bot");
+				UPawn* pawn = live->second;
+				const char* requiredProperties[] = {
+					"GroundSpeed", "WaterSpeed", "AirSpeed", "JumpZ", "MaxStepHeight", "AccelRate",
+					"bCanWalk", "bCanJump", "bCanSwim", "bCanFly", "bCanOpenDoors", "bCanDoSpecial",
+				};
+				for (const char* property : requiredProperties)
+				{
+					if (!pawn->HasProperty(property))
+						throw std::runtime_error(std::string("realized-capability bot is missing property: ") + property);
+				}
+				if (!first)
+					out << ',';
+				first = false;
+				out << "\n    {\"identity\":" << JsonString(actual.Identity)
+					<< ",\"actor\":" << JsonString(actual.Actor)
+					<< ",\"class\":" << JsonString(actual.ClassName)
+					<< ",\"movement\":{\"ground_speed\":" << pawn->GroundSpeed()
+					<< ",\"water_speed\":" << pawn->WaterSpeed()
+					<< ",\"air_speed\":" << pawn->AirSpeed()
+					<< ",\"jump_z\":" << pawn->JumpZ()
+					<< ",\"max_step_height\":" << pawn->MaxStepHeight()
+					<< ",\"accel_rate\":" << pawn->AccelRate()
+					<< "},\"capabilities\":{\"walk\":" << (pawn->bCanWalk() ? "true" : "false")
+					<< ",\"jump\":" << (pawn->bCanJump() ? "true" : "false")
+					<< ",\"swim\":" << (pawn->bCanSwim() ? "true" : "false")
+					<< ",\"fly\":" << (pawn->bCanFly() ? "true" : "false")
+					<< ",\"open_doors\":" << (pawn->bCanOpenDoors() ? "true" : "false")
+					<< ",\"special\":" << (pawn->bCanDoSpecial() ? "true" : "false") << "}}";
+			}
+			out << "\n  ]\n}\n";
+			std::filesystem::create_directories(Config.GetOutputDirectory());
+			File::write_all_text((std::filesystem::path(Config.GetOutputDirectory())
+				/ "bot-realized-capabilities.json").string(), out.str());
+		}
+
 		struct ShadowParticipantRuntime
 		{
 			size_t RosterIndex = 0;

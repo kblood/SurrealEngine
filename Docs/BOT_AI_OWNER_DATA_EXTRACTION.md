@@ -240,6 +240,19 @@ enable traversal capabilities during initialization, so these values are not
 evidence that a live bot can or cannot use a reachspec. A pinned live-spawn
 observer is required before a capability-gated policy is considered.
 
+The bot benchmark now emits that separate immutable observer artifact at
+`bot-realized-capabilities.json` immediately after controlled bot spawn and
+before the first simulation tick. It records each actual participant's class,
+movement values, and realized capability bits without altering bot state or
+benchmark telemetry. Two byte-identical UT436 four-bot captures SHA-256
+`C2A729AF3F4608A59949287A298F0533EE2BA4D63454319CBE70738D922215B5`; two
+Unreal Gold captures SHA-256
+`45789E4D0F5D4943F237596F47AF50D8B3A64D37081DBDD39610ED9C6D45C8F0`.
+Every observed participant can walk, jump, swim, open doors, and use special
+traversal but cannot fly. Their realized JumpZ is 357.5, while class defaults
+are 325. Any future reachspec-capability decision must use this realized record
+for its exact participant/seed run, not a class-default approximation.
+
 ## Non-goals
 
 Do not decode or redistribute meshes, textures, sounds, or compiled bytecode.

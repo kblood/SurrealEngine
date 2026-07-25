@@ -98,6 +98,12 @@ actor slots, navigation/reachspec graph semantics, traversal relationships,
 resolved navigation-point zone membership, and model zone graph; it does not
 export game assets or authorize a behavior change.
 
+Every controlled benchmark run additionally writes
+`bot-realized-capabilities.json` after bot spawn and before tick zero. It is a
+read-only capability witness for the actual roster; it is not part of the
+telemetry stream and must be kept with its matching run identity when judging
+reachspec feasibility.
+
 The current UT436 and Unreal Gold adapters do not expose a verified named-bot
 spawn contract. Supplying `requested_names` is therefore parsed and recorded
 deterministically but the engine run deliberately fails instead of silently
