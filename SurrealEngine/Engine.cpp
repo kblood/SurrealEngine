@@ -2006,7 +2006,7 @@ void Engine::LoginPlayer()
 
 	CallEvent(pawn, EventName::TravelPreAccept);
 
-	Array<UActor*> acceptedActors;
+	Array<UObject*> acceptedObjects;
 	if (actorActuallySpawned && ClientTravelInfo.TravelType == ETravelType::TRAVEL_Relative)
 	{
 		std::string playerName = url.GetOption("Name");
@@ -2016,7 +2016,7 @@ void Engine::LoginPlayer()
 		auto it = travelInfo.find(playerName);
 		if (!playerName.empty() && it != travelInfo.end())
 		{
-			acceptedActors = ActorTravelInfo::Accept(pawn, it->second);
+			acceptedObjects = ActorTravelInfo::Accept(pawn, it->second);
 		}
 		else
 		{
@@ -2029,13 +2029,13 @@ void Engine::LoginPlayer()
 		}
 	}
 
-	for (UActor* actor : acceptedActors)
-		CallEvent(actor, EventName::TravelPreAccept);
+	for (UObject* object : acceptedObjects)
+		CallEvent(object, EventName::TravelPreAccept);
 
 	CallEvent(LevelInfo->Game(), EventName::AcceptInventory, { ExpressionValue::ObjectValue(pawn) });
 
-	for (UActor* actor : acceptedActors)
-		CallEvent(actor, EventName::TravelPostAccept);
+	for (UObject* object : acceptedObjects)
+		CallEvent(object, EventName::TravelPostAccept);
 
 	CallEvent(pawn, EventName::TravelPostAccept);
 	CallEvent(LevelInfo->Game(), EventName::PostLogin, { ExpressionValue::ObjectValue(pawn) });
