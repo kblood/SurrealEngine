@@ -87,6 +87,10 @@ struct BotBenchmarkBotState
 	uint64_t HazardSwimEgressForcedReplansExact = 0;
 	uint64_t HazardSwimEgressFallingPreMoveAnchorCapturesExact = 0;
 	uint64_t HazardSwimEgressFallingPreMoveAnchorUsesExact = 0;
+	uint64_t HazardSwimEgressLiveAppliesExact = 0;
+	uint64_t HazardSwimEgressLiveActiveTicksExact = 0;
+	uint64_t HazardSwimEgressLiveProbeRejectedExact = 0;
+	uint64_t HazardSwimEgressLiveSuccessfulExitsExact = 0;
 	bool HazardSwimEgressAnchorKnown = false;
 	std::string HazardSwimEgressAnchorSource;
 	uint64_t FallingSeamDetectionsExact = 0;

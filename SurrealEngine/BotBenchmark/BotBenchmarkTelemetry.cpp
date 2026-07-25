@@ -439,6 +439,10 @@ namespace
 			<< ",\"hazard_swim_egress_forced_replans_exact\":\"" << bot.HazardSwimEgressForcedReplansExact << "\""
 			<< ",\"hazard_swim_egress_falling_pre_move_anchor_captures_exact\":\"" << bot.HazardSwimEgressFallingPreMoveAnchorCapturesExact << "\""
 			<< ",\"hazard_swim_egress_falling_pre_move_anchor_uses_exact\":\"" << bot.HazardSwimEgressFallingPreMoveAnchorUsesExact << "\""
+			<< ",\"hazard_swim_egress_live_applies_exact\":\"" << bot.HazardSwimEgressLiveAppliesExact << "\""
+			<< ",\"hazard_swim_egress_live_active_ticks_exact\":\"" << bot.HazardSwimEgressLiveActiveTicksExact << "\""
+			<< ",\"hazard_swim_egress_live_probe_rejected_exact\":\"" << bot.HazardSwimEgressLiveProbeRejectedExact << "\""
+			<< ",\"hazard_swim_egress_live_successful_exits_exact\":\"" << bot.HazardSwimEgressLiveSuccessfulExitsExact << "\""
 			<< ",\"hazard_swim_egress_anchor_known\":" << (bot.HazardSwimEgressAnchorKnown ? "true" : "false")
 			<< ",\"hazard_swim_egress_anchor_source\":" << JsonString(bot.HazardSwimEgressAnchorSource)
 			<< ",\"falling_seam_detections_exact\":\"" << bot.FallingSeamDetectionsExact << "\""

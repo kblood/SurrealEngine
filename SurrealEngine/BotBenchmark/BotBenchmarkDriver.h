@@ -48,6 +48,10 @@ namespace BotBenchmarkDriverDetail
 		uint64_t HazardSwimEgressForcedReplans = 0;
 		uint64_t HazardSwimEgressFallingPreMoveAnchorCaptures = 0;
 		uint64_t HazardSwimEgressFallingPreMoveAnchorUses = 0;
+		uint64_t HazardSwimEgressLiveApplies = 0;
+		uint64_t HazardSwimEgressLiveActiveTicks = 0;
+		uint64_t HazardSwimEgressLiveProbeRejected = 0;
+		uint64_t HazardSwimEgressLiveSuccessfulExits = 0;
 		bool HazardSwimEgressAnchorKnown = false;
 		std::string HazardSwimEgressAnchorSource;
 		uint64_t FallingSeamDetections = 0;
@@ -214,6 +218,15 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.HazardSwimEgressFallingPreMoveAnchorUses,
 				Previous.HazardSwimEgressFallingPreMoveAnchorUses,
 				totals.HazardSwimEgressFallingPreMoveAnchorUses);
+			AccumulateCounter(current.HazardSwimEgressLiveApplies,
+				Previous.HazardSwimEgressLiveApplies, totals.HazardSwimEgressLiveApplies);
+			AccumulateCounter(current.HazardSwimEgressLiveActiveTicks,
+				Previous.HazardSwimEgressLiveActiveTicks, totals.HazardSwimEgressLiveActiveTicks);
+			AccumulateCounter(current.HazardSwimEgressLiveProbeRejected,
+				Previous.HazardSwimEgressLiveProbeRejected, totals.HazardSwimEgressLiveProbeRejected);
+			AccumulateCounter(current.HazardSwimEgressLiveSuccessfulExits,
+				Previous.HazardSwimEgressLiveSuccessfulExits,
+				totals.HazardSwimEgressLiveSuccessfulExits);
 			totals.HazardSwimEgressAnchorKnown = current.HazardSwimEgressAnchorKnown;
 			totals.HazardSwimEgressAnchorSource = current.HazardSwimEgressAnchorSource;
 			AccumulateCounter(current.FallingSeamDetections, Previous.FallingSeamDetections,

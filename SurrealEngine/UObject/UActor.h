@@ -1932,9 +1932,10 @@ public:
 	void ObserveHarmfulZoneEscapeBoundary(UZoneInfo* oldZone, UZoneInfo* newZone,
 		bool footBoundary);
 	void BeginHazardSwimEgressFallingTick();
-	void CaptureHazardSwimEgressFallingAnchorBeforePhysicsMove();
+	void CaptureHazardSwimEgressFallingAnchorBeforePhysicsMove(bool directMove = true);
 	void CaptureHazardSwimEgressAnchorBeforePhysicsMove();
 	void ObserveHazardSwimEgressAfterPhysicsMove();
+	void AdvanceHazardSwimEgressLiveSteer();
 	void EndHazardSwimEgressSwimSession();
 	void RecordHazardSwimEgressDeath();
 
@@ -2071,6 +2072,10 @@ public:
 	{
 		return HazardSwimEgressFallingPreMoveAnchorUseCountValue;
 	}
+	uint64_t HazardSwimEgressLiveApplyCount() const { return HazardSwimEgressLiveApplyCountValue; }
+	uint64_t HazardSwimEgressLiveActiveTickCount() const { return HazardSwimEgressLiveActiveTickCountValue; }
+	uint64_t HazardSwimEgressLiveProbeRejectedCount() const { return HazardSwimEgressLiveProbeRejectedCountValue; }
+	uint64_t HazardSwimEgressLiveSuccessfulExitCount() const { return HazardSwimEgressLiveSuccessfulExitCountValue; }
 	bool HasHazardSwimEgressAnchor() const { return HazardSwimEgress.AnchorKnown; }
 	const char* HazardSwimEgressAnchorSourceName() const;
 	uint64_t FallingSeamDetectionCount() const { return FallingSeamDetectionCountValue; }
@@ -2360,6 +2365,8 @@ private:
 		AnchorSource Source = AnchorSource::None;
 		bool SwimmingSessionObserved = false;
 		bool HarmfulWaterEpisodeActive = false;
+		bool LiveActionAuthorized = false;
+		bool LiveProbeRejected = false;
 		bool ActionActive = false;
 	};
 	HazardSwimEgressState HazardSwimEgress;
@@ -2404,6 +2411,10 @@ private:
 	uint64_t HazardSwimEgressForcedReplanCountValue = 0;
 	uint64_t HazardSwimEgressFallingPreMoveAnchorCaptureCountValue = 0;
 	uint64_t HazardSwimEgressFallingPreMoveAnchorUseCountValue = 0;
+	uint64_t HazardSwimEgressLiveApplyCountValue = 0;
+	uint64_t HazardSwimEgressLiveActiveTickCountValue = 0;
+	uint64_t HazardSwimEgressLiveProbeRejectedCountValue = 0;
+	uint64_t HazardSwimEgressLiveSuccessfulExitCountValue = 0;
 	uint64_t FallingSeamDetectionCountValue = 0;
 	uint64_t HorizontalCornerCandidateProbeCountValue = 0;
 	uint64_t HorizontalCornerAuthorizedEscapeCountValue = 0;

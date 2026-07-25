@@ -509,8 +509,12 @@ namespace
 			counters.HazardSwimEgressForcedReplans = pawn->HazardSwimEgressForcedReplanCount();
 			counters.HazardSwimEgressFallingPreMoveAnchorCaptures =
 				pawn->HazardSwimEgressFallingPreMoveAnchorCaptureCount();
-			counters.HazardSwimEgressFallingPreMoveAnchorUses =
-				pawn->HazardSwimEgressFallingPreMoveAnchorUseCount();
+				counters.HazardSwimEgressFallingPreMoveAnchorUses =
+					pawn->HazardSwimEgressFallingPreMoveAnchorUseCount();
+				counters.HazardSwimEgressLiveApplies = pawn->HazardSwimEgressLiveApplyCount();
+				counters.HazardSwimEgressLiveActiveTicks = pawn->HazardSwimEgressLiveActiveTickCount();
+				counters.HazardSwimEgressLiveProbeRejected = pawn->HazardSwimEgressLiveProbeRejectedCount();
+				counters.HazardSwimEgressLiveSuccessfulExits = pawn->HazardSwimEgressLiveSuccessfulExitCount();
 			counters.HazardSwimEgressAnchorKnown = pawn->HasHazardSwimEgressAnchor();
 			counters.HazardSwimEgressAnchorSource = pawn->HazardSwimEgressAnchorSourceName();
 			counters.FallingSeamDetections = pawn->FallingSeamDetectionCount();
@@ -1244,6 +1248,10 @@ namespace
 					native.HazardSwimEgressFallingPreMoveAnchorCaptures;
 				bot.HazardSwimEgressFallingPreMoveAnchorUsesExact =
 					native.HazardSwimEgressFallingPreMoveAnchorUses;
+				bot.HazardSwimEgressLiveAppliesExact = native.HazardSwimEgressLiveApplies;
+				bot.HazardSwimEgressLiveActiveTicksExact = native.HazardSwimEgressLiveActiveTicks;
+				bot.HazardSwimEgressLiveProbeRejectedExact = native.HazardSwimEgressLiveProbeRejected;
+				bot.HazardSwimEgressLiveSuccessfulExitsExact = native.HazardSwimEgressLiveSuccessfulExits;
 				bot.HazardSwimEgressAnchorKnown = native.HazardSwimEgressAnchorKnown;
 				bot.HazardSwimEgressAnchorSource = native.HazardSwimEgressAnchorSource;
 				bot.FallingSeamDetectionsExact = native.FallingSeamDetections;

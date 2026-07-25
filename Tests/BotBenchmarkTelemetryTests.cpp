@@ -259,6 +259,10 @@ int main()
 		",\"hazard_swim_egress_forced_replans_exact\":\"0\""
 		",\"hazard_swim_egress_falling_pre_move_anchor_captures_exact\":\"0\""
 		",\"hazard_swim_egress_falling_pre_move_anchor_uses_exact\":\"0\""
+		",\"hazard_swim_egress_live_applies_exact\":\"0\""
+		",\"hazard_swim_egress_live_active_ticks_exact\":\"0\""
+		",\"hazard_swim_egress_live_probe_rejected_exact\":\"0\""
+		",\"hazard_swim_egress_live_successful_exits_exact\":\"0\""
 		",\"hazard_swim_egress_anchor_known\":false"
 		",\"hazard_swim_egress_anchor_source\":\"\"";
 	for (const std::string controlCounterMarker : {
