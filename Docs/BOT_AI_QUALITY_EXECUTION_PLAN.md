@@ -1738,6 +1738,41 @@ absent. The next required oracle work is an equivalent Unreal Gold 226b
 dynamic-contact package, repeated boundary-neighbor measurements, and an
 independent mover ordering profile. The runtime bot policy remains unchanged.
 
+## Iteration 74: controlled dynamic-contact Unreal Gold 226b evidence
+
+The required 226b counterpart now exists under
+`Tools/BotBenchmark/RetailHitWallOracle/Unreal/`. It uses the retail-specific
+`UnrealShare.DeathMatchGame` / `UnrealShare.BotInfo.GetBotClass(int)` /
+`UnrealI.MaleOneBot` lifecycle rather than reusing UT's `DeathMatchPlus` or
+`ChallengeBotInfo` assumptions. The runner's `Unreal226b` profile copies only
+the installed `System` directory, creates isolated `Logs`, `Save`, and `Cache`
+directories, junctions the necessary asset roots, and patches only copied
+`Default.ini` and `Unreal.ini`. It records full installed-root inventories.
+
+Retail Unreal Gold 226b does not instantiate the old local stat logger for
+this dedicated UCC mode. The oracle therefore mirrors each tagged record into
+the one redirected standard-server stream for that isolated child, and the
+manifest labels the retained source `system-log`. This is a deliberate,
+per-run fallback—not a scan of ambient logs—and its terminal path emits a
+bounded flush filler so records are durable before process shutdown.
+
+Fresh `DmMorbias` results at
+`qa/runs/2026-07-25/retail-minhitwall-unreal226b-v7/` through `v9/` have
+byte-identical installed before/after inventories:
+
+| Case | Live `MinHitWall` | Contact evidence | Native callback result |
+| --- | ---: | --- | --- |
+| Head-on | `-0.500000` | preflight identity plus bilateral `Bump` | exactly one walking (`Physics=1`) callback, dot `-1.000000` |
+| Nominal glancing | `-0.500000` | preflight identity, bilateral `Bump`, and postflight identity | zero callbacks; `MoveTo` returned |
+| Nominal glancing | `-0.350000` | preflight identity plus bilateral `Bump` | exactly one walking callback, observed dot `-0.397680` |
+
+The independently controlled 226b result agrees with UT436 across this
+glancing interval, materially strengthening the shared dispatch hypothesis.
+It remains insufficient to claim equality behavior, change shared runtime
+dispatch, or infer mover ordering. Next: repeated calibrated neighboring
+thresholds on both games, a separately verified mover oracle, then the
+per-contact slide/callback separation gates from Iteration 71.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

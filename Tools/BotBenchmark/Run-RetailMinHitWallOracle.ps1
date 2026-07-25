@@ -8,6 +8,9 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$OutputRoot,
 
+    [ValidateSet('UT436', 'Unreal226b')]
+    [string]$Profile = 'UT436',
+
     [ValidateSet(0, 1)]
     [int[]]$Cases = @(0, 1),
 
@@ -120,9 +123,10 @@ function ConvertTo-OracleEvent([string]$Line) {
     }
 }
 
-function Read-OracleEvents([string]$LogPath, [string]$RunId) {
+function Read-OracleEvents([string]$LogPath, [string]$RunId, [bool]$UseUnicode) {
     $events = [System.Collections.Generic.List[object]]::new()
-    foreach ($line in Get-Content -LiteralPath $LogPath -Encoding Unicode) {
+    $encoding = if ($UseUnicode) { 'Unicode' } else { 'Default' }
+    foreach ($line in Get-Content -LiteralPath $LogPath -Encoding $encoding) {
         $event = ConvertTo-OracleEvent $line
         if ($null -eq $event) {
             continue
@@ -274,9 +278,31 @@ function Invoke-BoundedRetailServer([string]$Executable, [string[]]$Arguments,
 $retail = (Resolve-Path -LiteralPath $RetailRoot).Path
 $output = [System.IO.Path]::GetFullPath($OutputRoot)
 $scriptRoot = Split-Path -Parent $PSCommandPath
-$packageSource = Join-Path $scriptRoot 'RetailHitWallOracle\UT'
+$profileConfig = switch ($Profile) {
+    'UT436' {
+        [pscustomobject]@{
+            package_directory = 'UT'
+            package_name = 'RetailHitWallOracleUT'
+            map_name = 'DM-Deck16]['
+            game_class = 'RetailHitWallOracleUT.RetailHitWallOracleUTGame'
+            ini_names = @('Default.ini', 'UnrealTournament.ini', 'Server.ini')
+            server_ini = 'Server.ini'
+        }
+    }
+    'Unreal226b' {
+        [pscustomobject]@{
+            package_directory = 'Unreal'
+            package_name = 'RetailHitWallOracleUnreal'
+            map_name = 'DmMorbias'
+            game_class = 'RetailHitWallOracleUnreal.RetailHitWallOracleUnrealGame'
+            ini_names = @('Default.ini', 'Unreal.ini')
+            server_ini = 'Unreal.ini'
+        }
+    }
+}
+$packageSource = Join-Path $scriptRoot (Join-Path 'RetailHitWallOracle' $profileConfig.package_directory)
 $ucc = Join-Path $retail 'System\UCC.exe'
-$map = Join-Path $retail 'Maps\DM-Deck16][.unr'
+$map = Join-Path $retail (Join-Path 'Maps' ($profileConfig.map_name + '.unr'))
 foreach ($required in @($ucc, $map, $packageSource)) {
     if (!(Test-Path -LiteralPath $required)) {
         throw "Required oracle input is missing: $required"
@@ -300,6 +326,9 @@ Write-Json (Join-Path $output 'installed-files-before.json') $before
 
 try {
     Copy-Item -LiteralPath (Join-Path $retail 'System') -Destination (Join-Path $runtime 'System') -Recurse
+    foreach ($runtimeDirectory in @('Logs', 'Save', 'Cache')) {
+        New-Item -ItemType Directory -Path (Join-Path $runtime $runtimeDirectory) | Out-Null
+    }
     foreach ($assetDirectory in @('Maps', 'Music', 'Sounds', 'Textures')) {
         $source = Join-Path $retail $assetDirectory
         $destination = Join-Path $runtime $assetDirectory
@@ -307,18 +336,17 @@ try {
     }
     $runtimeSystem = Join-Path $runtime 'System'
     $runtimeLogs = Join-Path $runtime 'Logs'
-    New-Item -ItemType Directory -Path $runtimeLogs | Out-Null
-    $runtimePackage = Join-Path $runtime 'RetailHitWallOracleUT'
+    $runtimePackage = Join-Path $runtime $profileConfig.package_name
     Copy-Item -LiteralPath $packageSource -Destination $runtimePackage -Recurse
-    $packageLine = 'EditPackages=RetailHitWallOracleUT'
-    foreach ($iniName in @('Default.ini', 'UnrealTournament.ini', 'Server.ini')) {
+    $packageLine = 'EditPackages=' + $profileConfig.package_name
+    foreach ($iniName in $profileConfig.ini_names) {
         $ini = Join-Path $runtimeSystem $iniName
         if (Test-Path -LiteralPath $ini) {
             Add-EditPackage $ini $packageLine
         }
     }
     $runtimeLogsIniPath = $runtimeLogs.Replace('\', '/')
-    $serverIni = Join-Path $runtimeSystem 'Server.ini'
+    $serverIni = Join-Path $runtimeSystem $profileConfig.server_ini
     if (!(Test-Path -LiteralPath $serverIni)) {
         throw "Missing isolated server INI: $serverIni"
     }
@@ -342,24 +370,40 @@ try {
             $runId = "case-$caseId-min-$threshold-port-$port"
             $runDirectory = Join-Path $output $runId
             New-Item -ItemType Directory -Path $runDirectory | Out-Null
-            $url = "DM-Deck16][?Game=RetailHitWallOracleUT.RetailHitWallOracleUTGame?OracleCase=${caseId}?OracleMinHitWallMilli=${threshold}?OracleDurationSeconds=${DurationSeconds}?OracleRunId=${runId}?FragLimit=0?TimeLimit=0?LocalLog=true?Port=${port}"
+            $url = "$($profileConfig.map_name)?Game=$($profileConfig.game_class)?OracleCase=${caseId}?OracleMinHitWallMilli=${threshold}?OracleDurationSeconds=${DurationSeconds}?OracleRunId=${runId}?FragLimit=0?TimeLimit=0?LocalLog=true?Port=${port}"
             $stdout = Join-Path $runDirectory 'server.stdout.log'
             $stderr = Join-Path $runDirectory 'server.stderr.log'
             $logsBefore = Get-RetailLogInventory (Join-Path $runtime 'Logs')
             $server = Invoke-BoundedRetailServer -Executable (Join-Path $runtimeSystem 'UCC.exe') `
-                -Arguments @('server', $url, '-ini=Server.ini', "-log=$runId.log") `
+                -Arguments @('server', $url, "-ini=$($profileConfig.server_ini)", "-log=$runId.log") `
                 -WorkingDirectory $runtimeSystem -StandardOutput $stdout `
                 -StandardError $stderr -TimeoutSeconds ($DurationSeconds + 8)
             $logsAfter = Get-RetailLogInventory (Join-Path $runtime 'Logs')
             $changedLogs = @(Get-ChangedRetailLogs $logsBefore $logsAfter)
-            if ($changedLogs.Count -ne 1) {
+            $oracleLogSource = $null
+            $oracleLogIsUnicode = $true
+            if ($changedLogs.Count -eq 1) {
+                $oracleLogSource = $changedLogs[0].path
+            }
+            elseif ($Profile -eq 'Unreal226b' -and $changedLogs.Count -eq 0) {
+                # UE1 226b does not construct LocalLog in this UCC server
+                # mode. Script Log() records are synchronously mirrored to
+                # this per-child redirected stream, unlike its buffered file.
+                $fallbackLog = $stdout
+                if (Test-Path -LiteralPath $fallbackLog -PathType Leaf) {
+                    $oracleLogSource = $fallbackLog
+                    $oracleLogIsUnicode = $false
+                }
+            }
+            if ($null -eq $oracleLogSource) {
                 throw "Expected exactly one changed retail local log for $runId; found $($changedLogs.Count)."
             }
             $oracleLog = Join-Path $runDirectory 'oracle.local.log'
-            Copy-Item -LiteralPath $changedLogs[0].path -Destination $oracleLog
-            $oracleEvents = @(Read-OracleEvents $oracleLog $runId)
+            Copy-Item -LiteralPath $oracleLogSource -Destination $oracleLog
+            $oracleEvents = @(Read-OracleEvents $oracleLog $runId $oracleLogIsUnicode)
             $runRecord = [ordered]@{
                 id = $runId
+                profile = $Profile
                 url = $url
                 exit_code = $server.exit_code
                 process_id = $server.process_id
@@ -370,6 +414,7 @@ try {
                 stdout = [System.IO.Path]::GetRelativePath($output, $stdout)
                 stderr = [System.IO.Path]::GetRelativePath($output, $stderr)
                 oracle_log = [System.IO.Path]::GetRelativePath($output, $oracleLog)
+                oracle_log_encoding = if ($oracleLogIsUnicode) { 'utf-16le' } else { 'system-log' }
                 oracle_log_length = (Get-Item -LiteralPath $oracleLog).Length
                 oracle_log_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $oracleLog).Hash.ToLowerInvariant()
                 oracle_event_count = $oracleEvents.Count

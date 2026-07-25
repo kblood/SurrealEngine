@@ -1,12 +1,12 @@
 # Retail `MinHitWall` oracle
 
-This disposable UnrealScript package measures the retail UE1 physics gate that
+These disposable UnrealScript packages measure the retail UE1 physics gate that
 decides whether walking collision dispatches `HitWall`. It is intentionally
 separate from the normal all-bot benchmark: the custom bot uses a dedicated
 probe state, so a result proves native callback eligibility and not stock bot
 decision quality.
 
-The UT436 probe dynamically selects a level `PlayerStart` and a horizontal
+The UT436 and Unreal Gold probes dynamically select a level `PlayerStart` and a horizontal
 path with clear world geometry and walkable floor samples. It spawns a
 temporary `BlockAll` at the selected path, then requires an expanded actor
 trace to identify that exact blocker before the bot moves. Case `0` is a
@@ -41,6 +41,13 @@ directory, and parses only records bearing that case's unique run ID. The
 manifest records the copied log hash/size, exact parsed records, process ID,
 timeout, and termination method.
 
+Use `-Profile UT436` for `DM-Deck16][` or `-Profile Unreal226b` for
+`DmMorbias`. The Unreal Gold 226b UCC server does not construct the legacy
+local stat logger in this mode, so its package mirrors tagged events into the
+per-child redirected server stream. The runner explicitly labels that retained
+source as `system-log`; it is still unique to the isolated child/run ID and is
+not combined with logs from other cases.
+
 For example:
 
 ```powershell
@@ -65,8 +72,13 @@ The verified UT436 dynamic-contact runs are:
 These observations support the documented threshold gate and its expected
 direction, but do not prove its exact `<` versus `<=` comparator at the
 floating-point boundary. They also do not establish mover ordering. An Unreal
-Gold counterpart must use its own `Bots`/`BotInfo` package and dynamic blocker
-smoke before a shared engine dispatch correction is eligible.
+Gold counterpart now uses its own `Bots`/`BotInfo` package and passed the same
+initial dynamic-blocker matrix on DmMorbias: head-on `-0.500000` produced one
+walking callback at dot `-1.000000`; the nominal glancing contact was
+suppressed at `-0.500000` and dispatched at `-0.350000` with observed dot
+`-0.397680`. This cross-game agreement still requires repeated neighboring
+thresholds and a separate mover profile before a shared engine dispatch
+correction is eligible.
 
 Use `-AllowMissingHitWall` only for an explicitly expected filtered case; its
 run still requires preflight identity, a direct blocker-contact witness, and a
