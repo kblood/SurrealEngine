@@ -3004,3 +3004,25 @@ previously rejected live acceleration overlay. The next behavior hypothesis
 must be an earlier, separately certified falling/launch decision with a
 controllable safe alternative, or a game-specific Unreal intervention; no
 shared bot movement change is promoted by this result.
+
+## Iteration 118: falling-hazard recovery live-opportunity rejection
+
+The existing `--botbench-falling-hazard-recovery=1` /
+`--botbench-falling-hazard-recovery-live=1` experiment was rerun for 7,200
+ticks without UCC on the current anchors: UT436 `DM-Deck16][` (seed `104729`,
+difficulty 7, two bots) and Unreal Gold `DmDeathFan` (seed `271828`,
+difficulty 3, two bots). Both runs completed and reproduce their stock quality
+outcomes exactly: UT is K2/D3/S1 with one environmental death and 5.85 seconds
+of hazard exposure; DeathFan is K1/D11/S10 with ten environmental deaths and
+43.40 seconds of exposure.
+
+More importantly, all eight recovery opportunity/action counters are zero on
+both games: no promoted prefix, eligible recovery, live apply, active tick,
+safe landing, harmful entry, death, or timeout. This is expected for the
+current strict gate, which only accepts a bot-controlled aligned fall with a
+safe, collision-clear return-to-anchor proof. The observed DeathFan failures
+are external-transition falls and do not meet that proof; widening the gate to
+them would violate its causal contract. Keep this experiment default-off and
+do not present the unchanged stock result as a bot improvement. Evidence is
+at `qa/runs/2026-07-26/falling-hazard-recovery-scout-v1/` and
+`qa/reports/bot-ai/falling-hazard-recovery-scout-v1.json`.
