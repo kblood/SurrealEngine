@@ -241,6 +241,53 @@ namespace
 		return "unknown";
 	}
 
+	void WriteOptionalFinite(std::ostringstream& out, float value, int precision)
+	{
+		if (std::isfinite(value))
+			out << Fixed(value, precision);
+		else
+			out << "null";
+	}
+
+	void WriteOptionalVector(std::ostringstream& out, const vec3& value)
+	{
+		if (!std::isfinite(value.x) || !std::isfinite(value.y)
+			|| !std::isfinite(value.z))
+		{
+			out << "null";
+			return;
+		}
+		WriteVector(out, value);
+	}
+
+	void WriteWalkingHitWallDispatchDiagnostic(std::ostringstream& out,
+		const PawnMovement::WalkingHitWallDispatchDiagnosticRecord& diagnostic)
+	{
+		out << "{\"source_pawn_actor\":" << JsonString(diagnostic.SourcePawnActor)
+			<< ",\"sequence\":\"" << diagnostic.Sequence
+			<< "\",\"hit_normal\":";
+		WriteOptionalVector(out, diagnostic.HitNormal);
+		out << ",\"velocity\":";
+		WriteOptionalVector(out, diagnostic.Velocity);
+		out << ",\"min_hit_wall\":";
+		WriteOptionalFinite(out, diagnostic.MinHitWall, 6);
+		out << ",\"normal_velocity_dot\":";
+		WriteOptionalFinite(out, diagnostic.Decision.NormalVelocityDot, 6);
+		out << ",\"valid\":" << (diagnostic.Decision.Valid ? "true" : "false")
+			<< ",\"legacy_vertical_wall_band\":"
+			<< (diagnostic.Decision.LegacyVerticalWallBand ? "true" : "false")
+			<< ",\"min_hit_wall_dispatch\":"
+			<< (diagnostic.Decision.MinHitWallDispatch ? "true" : "false")
+			<< ",\"blocker\":" << JsonString(
+				PawnMovement::WalkingHitWallBlockerKindName(diagnostic.Blocker))
+			<< ",\"callback_dispatched\":"
+			<< (diagnostic.CallbackDispatched ? "true" : "false")
+			<< ",\"physics_changed_by_callback\":"
+			<< (diagnostic.PhysicsChangedByCallback ? "true" : "false")
+			<< ",\"pawn_deleted_by_callback\":"
+			<< (diagnostic.PawnDeletedByCallback ? "true" : "false") << '}';
+	}
+
 	void WritePositiveDpsVetoAction(std::ostringstream& out,
 		const PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord& action)
 	{
@@ -545,6 +592,20 @@ namespace
 			<< ",\"ambiguous_deaths\":\"" << bot.AmbiguousDeaths << "\""
 			<< ",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"" << bot.RecentEnemyMomentumContributedEnvironmentalDeathsProxy << "\""
 			<< ",\"hit_wall_events_exact\":\"" << bot.HitWallEventsExact << "\""
+			<< ",\"walking_hitwall_dispatch_observations_exact\":\"" << bot.WalkingHitWallDispatchObservationsExact << "\""
+			<< ",\"walking_hitwall_dispatch_legacy_z_band_exact\":\"" << bot.WalkingHitWallDispatchLegacyZBandExact << "\""
+			<< ",\"walking_hitwall_dispatch_minhitwall_exact\":\"" << bot.WalkingHitWallDispatchMinHitWallExact << "\""
+			<< ",\"walking_hitwall_dispatch_disagreements_exact\":\"" << bot.WalkingHitWallDispatchDisagreementsExact << "\""
+			<< ",\"walking_hitwall_dispatch_callbacks_exact\":\"" << bot.WalkingHitWallDispatchCallbacksExact << "\""
+			<< ",\"walking_hitwall_dispatch_diagnostic_overflows_exact\":\"" << bot.WalkingHitWallDispatchDiagnosticOverflowsExact << "\""
+			<< ",\"walking_hitwall_dispatch_diagnostics\":[";
+		for (size_t index = 0; index < bot.WalkingHitWallDispatchDiagnostics.size(); index++)
+		{
+			if (index) out << ',';
+			WriteWalkingHitWallDispatchDiagnostic(out,
+				bot.WalkingHitWallDispatchDiagnostics[index]);
+		}
+		out << ']'
 			<< ",\"pain_ledge_vetoes_exact\":\"" << bot.PainLedgeVetoesExact << "\""
 			<< ",\"pain_ledge_repeat_vetoes_exact\":\"" << bot.PainLedgeRepeatVetoesExact << "\""
 			<< ",\"pain_ledge_recovery_attempts_exact\":\"" << bot.PainLedgeRecoveryAttemptsExact << "\""

@@ -14,6 +14,7 @@
 #include "PawnFallingHazardRuntimeObserver.h"
 #include "PawnHazardWaterEgressObserver.h"
 #include "PawnWalkingStepPreflight.h"
+#include "PawnWalkingHitWallDispatch.h"
 #include "PawnWallAdjustRecovery.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
 #include "BotAI/FallingHazardRecoveryGate.h"
@@ -1963,6 +1964,11 @@ public:
 	bool ConfirmWalkingStepPreflightShadow(int walkingIteration, uint64_t invocationToken,
 		PawnMovement::LedgeTransition transition);
 	void RecordWalkingStepPreflightPositiveDpsVetoOutcome(bool applied);
+	void RecordWalkingHitWallDispatch(const CollisionHit& hit,
+		const vec3& velocityBeforeCollision, int physicsBeforeCallback,
+		bool callbackDispatched);
+	std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
+		DrainWalkingHitWallDispatchDiagnostics();
 	void QueueWalkingStepPreflightPositiveDpsVetoAction(
 		PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord record);
 	void ArmFallingParityRealizedTrace(int walkingIteration, uint64_t invocationToken);
@@ -2130,6 +2136,12 @@ public:
 	uint64_t WalkingStepPreflightAuthorizationCount() const { return WalkingStepPreflightAuthorizationCountValue; }
 	uint64_t WalkingStepPreflightAuthorizableEpisodeCount() const { return WalkingStepPreflightAuthorizableEpisodeCountValue; }
 	uint64_t WalkingStepPreflightDiagnosticOverflowCount() const { return WalkingStepPreflightDiagnosticOverflowCountValue; }
+	uint64_t WalkingHitWallDispatchObservationCount() const { return WalkingHitWallDispatchObservationCountValue; }
+	uint64_t WalkingHitWallDispatchLegacyZBandCount() const { return WalkingHitWallDispatchLegacyZBandCountValue; }
+	uint64_t WalkingHitWallDispatchMinHitWallCount() const { return WalkingHitWallDispatchMinHitWallCountValue; }
+	uint64_t WalkingHitWallDispatchDisagreementCount() const { return WalkingHitWallDispatchDisagreementCountValue; }
+	uint64_t WalkingHitWallDispatchCallbackCount() const { return WalkingHitWallDispatchCallbackCountValue; }
+	uint64_t WalkingHitWallDispatchDiagnosticOverflowCount() const { return WalkingHitWallDispatchDiagnosticOverflowCountValue; }
 	uint64_t WalkingStepPreflightPositiveDpsVetoEligibleCount() const { return WalkingStepPreflightPositiveDpsVetoEligibleCountValue; }
 	uint64_t WalkingStepPreflightPositiveDpsVetoAppliedCount() const { return WalkingStepPreflightPositiveDpsVetoAppliedCountValue; }
 	uint64_t WalkingStepPreflightPositiveDpsVetoDebouncedCount() const { return WalkingStepPreflightPositiveDpsVetoDebouncedCountValue; }
@@ -2507,6 +2519,15 @@ private:
 	uint64_t WalkingStepPreflightAuthorizationCountValue = 0;
 	uint64_t WalkingStepPreflightAuthorizableEpisodeCountValue = 0;
 	uint64_t WalkingStepPreflightDiagnosticOverflowCountValue = 0;
+	uint64_t WalkingHitWallDispatchObservationCountValue = 0;
+	uint64_t WalkingHitWallDispatchLegacyZBandCountValue = 0;
+	uint64_t WalkingHitWallDispatchMinHitWallCountValue = 0;
+	uint64_t WalkingHitWallDispatchDisagreementCountValue = 0;
+	uint64_t WalkingHitWallDispatchCallbackCountValue = 0;
+	uint64_t WalkingHitWallDispatchDiagnosticOverflowCountValue = 0;
+	uint64_t WalkingHitWallDispatchDiagnosticSequence = 0;
+	std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
+		WalkingHitWallDispatchDiagnostics;
 	uint64_t WalkingStepPreflightPositiveDpsVetoEligibleCountValue = 0;
 	uint64_t WalkingStepPreflightPositiveDpsVetoAppliedCountValue = 0;
 	uint64_t WalkingStepPreflightPositiveDpsVetoDebouncedCountValue = 0;

@@ -269,6 +269,22 @@ namespace
 		return FallingHazardCollisionKind::DynamicActor;
 	}
 
+	PawnMovement::WalkingHitWallBlockerKind ClassifyWalkingHitWallBlocker(
+		UPawn* pawn, const CollisionHit& hit)
+	{
+		using PawnMovement::WalkingHitWallBlockerKind;
+		if (!std::isfinite(hit.Fraction) || hit.Fraction < 0.0f
+			|| hit.Fraction > 1.0f)
+		{
+			return WalkingHitWallBlockerKind::Unknown;
+		}
+		if (!hit.Actor || hit.Actor == pawn->Level())
+			return WalkingHitWallBlockerKind::StaticWorld;
+		if (UObject::TryCast<UMover>(hit.Actor))
+			return WalkingHitWallBlockerKind::Mover;
+		return WalkingHitWallBlockerKind::DynamicActor;
+	}
+
 	PawnMovement::FallingHazardZoneId FallingHazardZoneIdentity(
 		const PointRegion& region)
 	{
@@ -1146,6 +1162,9 @@ void UActor::TickWalking(float elapsed)
 
 			if (hit.Fraction < 1.0f)
 			{
+				const CollisionHit initialHit = hit;
+				const vec3 velocityBeforeCollision = Velocity();
+				const int physicsBeforeCallback = static_cast<int>(Physics());
 				if (player && hit.Actor)
 				{
 					if (UObject::IsType<UDecoration>(hit.Actor) && UObject::Cast<UDecoration>(hit.Actor)->bPushable() && dot(hit.Normal, moveDelta) < -0.9f)
@@ -1185,6 +1204,12 @@ void UActor::TickWalking(float elapsed)
 					{
 						timeLeft = 0.0f;
 					}
+				}
+				if (pawn)
+				{
+					pawn->RecordWalkingHitWallDispatch(initialHit,
+						velocityBeforeCollision, physicsBeforeCallback,
+						walkingHitWallDispatched);
 				}
 			}
 
@@ -7388,6 +7413,55 @@ std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 {
 	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord> diagnostics;
 	diagnostics.swap(WalkingStepPreflightDiagnostics);
+	return diagnostics;
+}
+
+void UPawn::RecordWalkingHitWallDispatch(const CollisionHit& hit,
+	const vec3& velocityBeforeCollision, int physicsBeforeCallback,
+	bool callbackDispatched)
+{
+	using namespace PawnMovement;
+	WalkingHitWallDispatchDiagnosticRecord diagnostic;
+	diagnostic.SourcePawnActor = Name.ToString();
+	diagnostic.HitNormal = hit.Normal;
+	diagnostic.Velocity = velocityBeforeCollision;
+	diagnostic.MinHitWall = MinHitWall();
+	diagnostic.Decision = EvaluateWalkingHitWallDispatch(hit.Normal,
+		velocityBeforeCollision, diagnostic.MinHitWall);
+	diagnostic.Blocker = ClassifyWalkingHitWallBlocker(this, hit);
+	diagnostic.CallbackDispatched = callbackDispatched;
+	diagnostic.PhysicsChangedByCallback = callbackDispatched
+		&& static_cast<int>(Physics()) != physicsBeforeCallback;
+	diagnostic.PawnDeletedByCallback = callbackDispatched && bDeleteMe();
+	if (diagnostic.Decision.Valid)
+	{
+		WalkingHitWallDispatchObservationCountValue++;
+		if (diagnostic.Decision.LegacyVerticalWallBand)
+			WalkingHitWallDispatchLegacyZBandCountValue++;
+		if (diagnostic.Decision.MinHitWallDispatch)
+			WalkingHitWallDispatchMinHitWallCountValue++;
+		if (diagnostic.Decision.LegacyVerticalWallBand
+			!= diagnostic.Decision.MinHitWallDispatch)
+		{
+			WalkingHitWallDispatchDisagreementCountValue++;
+		}
+	}
+	if (callbackDispatched)
+		WalkingHitWallDispatchCallbackCountValue++;
+
+	static constexpr size_t maximumQueuedDiagnostics = 1024;
+	diagnostic.Sequence = WalkingHitWallDispatchDiagnosticSequence++;
+	if (WalkingHitWallDispatchDiagnostics.size() < maximumQueuedDiagnostics)
+		WalkingHitWallDispatchDiagnostics.push_back(std::move(diagnostic));
+	else
+		WalkingHitWallDispatchDiagnosticOverflowCountValue++;
+}
+
+std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
+	UPawn::DrainWalkingHitWallDispatchDiagnostics()
+{
+	std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord> diagnostics;
+	diagnostics.swap(WalkingHitWallDispatchDiagnostics);
 	return diagnostics;
 }
 

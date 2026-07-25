@@ -1612,6 +1612,20 @@ been independently observed, so no callback predicate or bot behavior changes
 in this iteration. Any later correction must first pin that boundary in pure
 fixtures and preserve the callback-before-stock-script-recovery ordering.
 
+The behavior-neutral observer now emits bounded per-collision records and
+monotonic exact counters. Fresh paired two-repetition artifacts at
+`qa/runs/2026-07-25/minhitwall-dispatch-audit/` are byte-identical between
+control and the existing non-live observer variant. Each Deck16-II artifact
+has 33 walking collisions: 27 satisfy both the old Z band and the inferred
+`MinHitWall` predicate, two satisfy neither, and four are legacy-only
+callbacks. All four disagreements are static-world contacts. Each DeathFan
+artifact has 12 collisions: five satisfy both predicates and seven are
+legacy-only callbacks; five of those disagreements are movers and two are
+static-world contacts. This establishes that the ignored property is exercised
+on both target games, but it does not prove the proprietary exact boundary or
+authorize a dispatch change. In particular, mover suppression needs a separate
+retail ordering oracle before a shared correction is considered.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

@@ -577,6 +577,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnVerticalPainColumnShadow.h
 	SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
 	SurrealEngine/UObject/PawnWalkingStepPreflight.h
+	SurrealEngine/UObject/PawnWalkingHitWallDispatch.cpp
+	SurrealEngine/UObject/PawnWalkingHitWallDispatch.h
 	SurrealEngine/UObject/PawnPainLedgeRecovery.cpp
 	SurrealEngine/UObject/PawnPainLedgeRecovery.h
 	SurrealEngine/UObject/PawnMoveStallWatchdog.cpp
@@ -1204,6 +1206,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
 		SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
+		SurrealEngine/UObject/PawnWalkingHitWallDispatch.cpp
 		SurrealEngine/UObject/PawnFallingParityRealizedTrace.cpp
 		SurrealEngine/UObject/PawnHazardWaterEgressObserver.cpp
 	)

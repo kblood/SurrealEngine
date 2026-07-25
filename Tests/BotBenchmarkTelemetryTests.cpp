@@ -353,6 +353,24 @@ int main()
 		",\"falling_hazard_recovery_harmful_entries_exact\":\"0\""
 		",\"falling_hazard_recovery_deaths_exact\":\"0\""
 		",\"falling_hazard_recovery_timeouts_exact\":\"0\"";
+	const std::string walkingHitWallDispatchSuffix =
+		",\"walking_hitwall_dispatch_observations_exact\":\"0\""
+		",\"walking_hitwall_dispatch_legacy_z_band_exact\":\"0\""
+		",\"walking_hitwall_dispatch_minhitwall_exact\":\"0\""
+		",\"walking_hitwall_dispatch_disagreements_exact\":\"0\""
+		",\"walking_hitwall_dispatch_callbacks_exact\":\"0\""
+		",\"walking_hitwall_dispatch_diagnostic_overflows_exact\":\"0\""
+		",\"walking_hitwall_dispatch_diagnostics\":[]";
+	for (const std::string hitWallMarker : {
+		std::string("\"hit_wall_events_exact\":\"0\""),
+		std::string("\"hit_wall_events_exact\":\"9\"") })
+	{
+		const size_t hitWallIndex = expectedEvent.find(hitWallMarker);
+		if (hitWallIndex == std::string::npos)
+			return Fail("walking HitWall dispatch fixture marker was missing");
+		expectedEvent.insert(hitWallIndex + hitWallMarker.size(),
+			walkingHitWallDispatchSuffix);
+	}
 	for (const std::string controlCounterMarker : {
 		std::string("\"failed_navigation_route_penalty_applications_exact\":\"0\""),
 		std::string("\"failed_navigation_route_penalty_applications_exact\":\"4\"") })
@@ -364,6 +382,29 @@ int main()
 	}
 	if (BotBenchmarkTelemetryProtocol::EventJson(configId, event) != expectedEvent)
 		return Fail("v2 telemetry event ordering, formatting, or escaping changed");
+
+	PawnMovement::WalkingHitWallDispatchDiagnosticRecord hitWallDiagnostic;
+	hitWallDiagnostic.SourcePawnActor = "Bot\"Wall";
+	hitWallDiagnostic.Sequence = 4;
+	hitWallDiagnostic.HitNormal = vec3(1.0f, 0.0f, 0.0f);
+	hitWallDiagnostic.Velocity = vec3(-300.0f, 0.0f, 0.0f);
+	hitWallDiagnostic.MinHitWall = -0.5f;
+	hitWallDiagnostic.Decision = PawnMovement::EvaluateWalkingHitWallDispatch(
+		hitWallDiagnostic.HitNormal, hitWallDiagnostic.Velocity,
+		hitWallDiagnostic.MinHitWall);
+	hitWallDiagnostic.Blocker = PawnMovement::WalkingHitWallBlockerKind::StaticWorld;
+	hitWallDiagnostic.CallbackDispatched = true;
+	hitWallDiagnostic.PhysicsChangedByCallback = true;
+	event.Bots.front().WalkingHitWallDispatchDiagnostics = { hitWallDiagnostic };
+	const std::string hitWallEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (hitWallEvent.find("\"source_pawn_actor\":\"Bot\\\"Wall\",\"sequence\":\"4\",\"hit_normal\":{\"x\":1.000000,\"y\":0.000000,\"z\":0.000000}")
+		== std::string::npos
+		|| hitWallEvent.find("\"normal_velocity_dot\":-1.000000,\"valid\":true,\"legacy_vertical_wall_band\":true,\"min_hit_wall_dispatch\":true,\"blocker\":\"static_world\",\"callback_dispatched\":true,\"physics_changed_by_callback\":true")
+			== std::string::npos)
+	{
+		return Fail("walking HitWall dispatch diagnostics were not serialized completely");
+	}
+	event.Bots.front().WalkingHitWallDispatchDiagnostics.clear();
 
 	PawnMovement::WalkingStepPreflightDiagnosticRecord diagnostic;
 	diagnostic.SourcePawnActor = "Bot\"17";

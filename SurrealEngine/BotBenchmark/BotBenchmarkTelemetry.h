@@ -1,6 +1,7 @@
 #pragma once
 
 #include "UObject/PawnWalkingStepPreflight.h"
+#include "UObject/PawnWalkingHitWallDispatch.h"
 #include "UObject/PawnFallingParityRealizedTrace.h"
 #include "UObject/PawnFallingHazardDiagnostics.h"
 #include "UObject/PawnDirectHarmfulWaterEntryCertificate.h"
@@ -100,6 +101,14 @@ struct BotBenchmarkBotState
 	uint64_t AmbiguousDeaths = 0;
 	uint64_t RecentEnemyMomentumContributedEnvironmentalDeathsProxy = 0;
 	uint64_t HitWallEventsExact = 0;
+	uint64_t WalkingHitWallDispatchObservationsExact = 0;
+	uint64_t WalkingHitWallDispatchLegacyZBandExact = 0;
+	uint64_t WalkingHitWallDispatchMinHitWallExact = 0;
+	uint64_t WalkingHitWallDispatchDisagreementsExact = 0;
+	uint64_t WalkingHitWallDispatchCallbacksExact = 0;
+	uint64_t WalkingHitWallDispatchDiagnosticOverflowsExact = 0;
+	std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
+		WalkingHitWallDispatchDiagnostics;
 	uint64_t PainLedgeVetoesExact = 0;
 	uint64_t PainLedgeRepeatVetoesExact = 0;
 	uint64_t PainLedgeRecoveryAttemptsExact = 0;

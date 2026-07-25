@@ -214,6 +214,8 @@ namespace
 			BotBenchmarkDriverDetail::NativePawnCounters NativeCounterTotals;
 			std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 				PendingWalkingStepPreflightDiagnostics;
+			std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
+				PendingWalkingHitWallDispatchDiagnostics;
 			std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
 				PendingWalkingStepPreflightPositiveDpsVetoActions;
 			std::vector<PawnMovement::FallingParityRealizedRecord>
@@ -689,6 +691,18 @@ namespace
 			counters.WallAdjustRecoveryAttempts = pawn->WallAdjustRecoveryAttemptCount();
 			counters.WallAdjustRecoverySuccesses = pawn->WallAdjustRecoverySuccessCount();
 			counters.WallAdjustForcedReplans = pawn->WallAdjustForcedReplanCount();
+			counters.WalkingHitWallDispatchObservations =
+				pawn->WalkingHitWallDispatchObservationCount();
+			counters.WalkingHitWallDispatchLegacyZBand =
+				pawn->WalkingHitWallDispatchLegacyZBandCount();
+			counters.WalkingHitWallDispatchMinHitWall =
+				pawn->WalkingHitWallDispatchMinHitWallCount();
+			counters.WalkingHitWallDispatchDisagreements =
+				pawn->WalkingHitWallDispatchDisagreementCount();
+			counters.WalkingHitWallDispatchCallbacks =
+				pawn->WalkingHitWallDispatchCallbackCount();
+			counters.WalkingHitWallDispatchDiagnosticOverflows =
+				pawn->WalkingHitWallDispatchDiagnosticOverflowCount();
 			counters.MoveStallDetections = pawn->MoveStallDetectionCount();
 			counters.MoveStallEpisodeResets = pawn->MoveStallEpisodeResetCount();
 			counters.MoveStallForcedReplans = pawn->MoveStallForcedReplanCount();
@@ -907,6 +921,8 @@ namespace
 				AccumulateNativePawnCounters(victimIdentity, counters, victim,
 					BotBenchmarkDriverDetail::NativePawnCounterSample::DeathFlush);
 				auto diagnostics = victim->DrainWalkingStepPreflightDiagnostics();
+				auto walkingHitWallDiagnostics =
+					victim->DrainWalkingHitWallDispatchDiagnostics();
 				auto vetoActions = victim->DrainWalkingStepPreflightPositiveDpsVetoActions();
 				auto parityRecords = victim->DrainFallingParityRealizedRecords();
 				auto hazardDiagnostics = victim->DrainFallingHazardDiagnostics();
@@ -927,6 +943,10 @@ namespace
 					counters.PendingWalkingStepPreflightDiagnostics.end(),
 					std::make_move_iterator(diagnostics.begin()),
 					std::make_move_iterator(diagnostics.end()));
+				counters.PendingWalkingHitWallDispatchDiagnostics.insert(
+					counters.PendingWalkingHitWallDispatchDiagnostics.end(),
+					std::make_move_iterator(walkingHitWallDiagnostics.begin()),
+					std::make_move_iterator(walkingHitWallDiagnostics.end()));
 				counters.PendingWalkingStepPreflightPositiveDpsVetoActions.insert(
 					counters.PendingWalkingStepPreflightPositiveDpsVetoActions.end(),
 					std::make_move_iterator(vetoActions.begin()),
@@ -1748,6 +1768,18 @@ namespace
 					runtime.DeathAttribution.RecentEnemyMomentumContributedEnvironmentalDeathsProxy;
 				bot.HitWallEventsExact = runtime.HitWallEventsExact;
 				const auto& native = runtime.NativeCounterTotals;
+				bot.WalkingHitWallDispatchObservationsExact =
+					native.WalkingHitWallDispatchObservations;
+				bot.WalkingHitWallDispatchLegacyZBandExact =
+					native.WalkingHitWallDispatchLegacyZBand;
+				bot.WalkingHitWallDispatchMinHitWallExact =
+					native.WalkingHitWallDispatchMinHitWall;
+				bot.WalkingHitWallDispatchDisagreementsExact =
+					native.WalkingHitWallDispatchDisagreements;
+				bot.WalkingHitWallDispatchCallbacksExact =
+					native.WalkingHitWallDispatchCallbacks;
+				bot.WalkingHitWallDispatchDiagnosticOverflowsExact =
+					native.WalkingHitWallDispatchDiagnosticOverflows;
 				bot.PainLedgeVetoesExact = native.PainLedgeVetoes;
 				bot.PainLedgeRepeatVetoesExact = native.PainLedgeRepeatVetoes;
 				bot.PainLedgeRecoveryAttemptsExact = native.PainLedgeRecoveryAttempts;
@@ -1955,10 +1987,16 @@ namespace
 				if (pawn)
 				{
 					auto diagnostics = pawn->DrainWalkingStepPreflightDiagnostics();
+					auto walkingHitWallDiagnostics =
+						pawn->DrainWalkingHitWallDispatchDiagnostics();
 					runtime.PendingWalkingStepPreflightDiagnostics.insert(
 						runtime.PendingWalkingStepPreflightDiagnostics.end(),
 						std::make_move_iterator(diagnostics.begin()),
 						std::make_move_iterator(diagnostics.end()));
+					runtime.PendingWalkingHitWallDispatchDiagnostics.insert(
+						runtime.PendingWalkingHitWallDispatchDiagnostics.end(),
+						std::make_move_iterator(walkingHitWallDiagnostics.begin()),
+						std::make_move_iterator(walkingHitWallDiagnostics.end()));
 					auto vetoActions = pawn->DrainWalkingStepPreflightPositiveDpsVetoActions();
 					runtime.PendingWalkingStepPreflightPositiveDpsVetoActions.insert(
 						runtime.PendingWalkingStepPreflightPositiveDpsVetoActions.end(),
@@ -1983,6 +2021,9 @@ namespace
 				bot.WalkingStepPreflightDiagnostics = std::move(
 					runtime.PendingWalkingStepPreflightDiagnostics);
 				runtime.PendingWalkingStepPreflightDiagnostics.clear();
+				bot.WalkingHitWallDispatchDiagnostics = std::move(
+					runtime.PendingWalkingHitWallDispatchDiagnostics);
+				runtime.PendingWalkingHitWallDispatchDiagnostics.clear();
 				bot.WalkingStepPreflightPositiveDpsVetoActions = std::move(
 					runtime.PendingWalkingStepPreflightPositiveDpsVetoActions);
 				runtime.PendingWalkingStepPreflightPositiveDpsVetoActions.clear();

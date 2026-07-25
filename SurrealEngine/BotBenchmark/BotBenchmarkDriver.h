@@ -23,6 +23,12 @@ namespace BotBenchmarkDriverDetail
 		uint64_t WallAdjustRecoveryAttempts = 0;
 		uint64_t WallAdjustRecoverySuccesses = 0;
 		uint64_t WallAdjustForcedReplans = 0;
+		uint64_t WalkingHitWallDispatchObservations = 0;
+		uint64_t WalkingHitWallDispatchLegacyZBand = 0;
+		uint64_t WalkingHitWallDispatchMinHitWall = 0;
+		uint64_t WalkingHitWallDispatchDisagreements = 0;
+		uint64_t WalkingHitWallDispatchCallbacks = 0;
+		uint64_t WalkingHitWallDispatchDiagnosticOverflows = 0;
 		uint64_t MoveStallDetections = 0;
 		uint64_t MoveStallEpisodeResets = 0;
 		uint64_t MoveStallForcedReplans = 0;
@@ -190,6 +196,24 @@ namespace BotBenchmarkDriverDetail
 				Previous.WallAdjustRecoverySuccesses, totals.WallAdjustRecoverySuccesses);
 			AccumulateCounter(current.WallAdjustForcedReplans, Previous.WallAdjustForcedReplans,
 				totals.WallAdjustForcedReplans);
+			AccumulateCounter(current.WalkingHitWallDispatchObservations,
+				Previous.WalkingHitWallDispatchObservations,
+				totals.WalkingHitWallDispatchObservations);
+			AccumulateCounter(current.WalkingHitWallDispatchLegacyZBand,
+				Previous.WalkingHitWallDispatchLegacyZBand,
+				totals.WalkingHitWallDispatchLegacyZBand);
+			AccumulateCounter(current.WalkingHitWallDispatchMinHitWall,
+				Previous.WalkingHitWallDispatchMinHitWall,
+				totals.WalkingHitWallDispatchMinHitWall);
+			AccumulateCounter(current.WalkingHitWallDispatchDisagreements,
+				Previous.WalkingHitWallDispatchDisagreements,
+				totals.WalkingHitWallDispatchDisagreements);
+			AccumulateCounter(current.WalkingHitWallDispatchCallbacks,
+				Previous.WalkingHitWallDispatchCallbacks,
+				totals.WalkingHitWallDispatchCallbacks);
+			AccumulateCounter(current.WalkingHitWallDispatchDiagnosticOverflows,
+				Previous.WalkingHitWallDispatchDiagnosticOverflows,
+				totals.WalkingHitWallDispatchDiagnosticOverflows);
 			AccumulateCounter(current.MoveStallDetections, Previous.MoveStallDetections,
 				totals.MoveStallDetections);
 			AccumulateCounter(current.MoveStallEpisodeResets, Previous.MoveStallEpisodeResets,
