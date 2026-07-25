@@ -13,6 +13,7 @@
 #include "PawnLedgeTransition.h"
 #include "PawnPainZoneFallPrediction.h"
 #include "PawnWalkingStepPreflight.h"
+#include "PawnInventoryReachability.h"
 #include "PawnPainLedgeRecovery.h"
 #include "PawnMovementArrival.h"
 #include "PawnMoveToward.h"
@@ -4030,6 +4031,15 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 	int mode = Physics();
 	if (mode == PHYS_Walking)
 	{
+		UInventory* inventoryTarget = UObject::TryCast<UInventory>(anActor);
+		const bool observeInventoryDirectReach =
+			engine->IsBotBenchmarkInventoryDirectReachSupportObserverEnabled()
+			&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
+			&& PawnMovement::ShouldPreflightInventoryDirectReach(true, true,
+				inventoryTarget != nullptr, anActor->IsA("Ammo"),
+				IsHarmfulPainZone(this, FootRegion().Zone));
+		bool resolvedWallSlide = false;
+		int completedWalkingSimulationIterations = 0;
 		// To do: take zone changes into account?
 
 		auto zone = Region().Zone;
@@ -4041,6 +4051,7 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 		bool reached = false;
 		for (int iteration = 0; iteration < 5; iteration++)
 		{
+			completedWalkingSimulationIterations = iteration + 1;
 			vec3 moveDelta = anActor->Location() - Location();
 			moveDelta.z = 0.0f;
 			float goalDist2 = dot(moveDelta, moveDelta);
@@ -4061,6 +4072,7 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 
 			if (hit.Fraction < 1.0f)
 			{
+				resolvedWallSlide = true;
 				moveDelta = anActor->Location() - Location();
 				vec3 alignedDelta = (moveDelta - hit.Normal * dot(moveDelta, hit.Normal)) * (1.0f - hit.Fraction);
 				if (dot(moveDelta, alignedDelta) >= 0.0f) // Don't end up going backwards
@@ -4099,6 +4111,44 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 
 			// Did we get there vertically too?
 			reached = std::abs(anActor->Location().z - Location().z) <= CollisionHeight();
+		}
+
+		if (observeInventoryDirectReach && reached && resolvedWallSlide)
+		{
+			const vec3 supportDelta = stepDownDelta;
+			const CollisionHit support = ProbeMoveCollision(Location(), supportDelta, true);
+			const bool finiteSupport = std::isfinite(support.Fraction)
+				&& support.Fraction >= 0.0f && support.Fraction <= 1.0f
+				&& std::isfinite(support.Normal.z);
+			const bool walkableSupport = finiteSupport && support.Fraction < 1.0f
+				&& support.Actor == Level()
+				&& support.Normal.z * -gravityDirection >= walkingStepWalkableNormalZ;
+			UZoneInfo* footZone = XLevel()->Model->FindRegion(
+				Location() + vec3(0.0f, 0.0f, gravityDirection * CollisionHeight()),
+				Level()).Zone;
+			UZoneInfo* belowZone = walkableSupport ? nullptr : XLevel()->Model->FindRegion(
+				Location() + supportDelta, Level()).Zone;
+			const bool evidenceAvailable = finiteSupport && footZone
+				&& (walkableSupport || belowZone);
+			const PawnMovement::InventoryReachabilitySample sample = {
+				.SweepProgress = 1.0f,
+				.WalkableSupport = walkableSupport,
+				.HarmfulFootZone = IsHarmfulPainZone(this, footZone),
+				.HarmfulBelow = IsHarmfulPainZone(this, belowZone),
+				.Valid = evidenceAvailable
+			};
+			RecordInventoryDirectReachSupportObservation({
+				.SourcePawnActor = Name.ToString(),
+				.TargetActor = anActor->Name.ToString(),
+				.TargetClass = anActor->Class ? anActor->Class->Name.ToString() : std::string(),
+				.WalkingSimulationIterations = completedWalkingSimulationIterations,
+				.SupportFraction = support.Fraction,
+				.SupportNormalZ = support.Normal.z,
+				.WalkableSupport = walkableSupport,
+				.HarmfulFootZone = sample.HarmfulFootZone,
+				.HarmfulBelow = sample.HarmfulBelow,
+				.Outcome = PawnMovement::ClassifyInventoryDirectReachSupport(sample)
+			});
 		}
 
 		Location() = oldLocation;
@@ -8051,6 +8101,46 @@ std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 {
 	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord> diagnostics;
 	diagnostics.swap(WalkingStepPreflightDiagnostics);
+	return diagnostics;
+}
+
+void UPawn::RecordInventoryDirectReachSupportObservation(
+	PawnMovement::InventoryDirectReachSupportDiagnosticRecord record)
+{
+	using namespace PawnMovement;
+	InventoryDirectReachSupportObservationCountValue++;
+	switch (record.Outcome)
+	{
+	case InventoryDirectReachSupportOutcome::SafeSupported:
+		InventoryDirectReachSupportSafeSupportedCountValue++;
+		break;
+	case InventoryDirectReachSupportOutcome::SafeUnsupportedNoObservedHazard:
+		InventoryDirectReachSupportSafeUnsupportedNoObservedHazardCountValue++;
+		break;
+	case InventoryDirectReachSupportOutcome::UnsafeHarmfulFootZone:
+		InventoryDirectReachSupportUnsafeHarmfulFootZoneCountValue++;
+		break;
+	case InventoryDirectReachSupportOutcome::UnsafeUnsupportedOverHarmful:
+		InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulCountValue++;
+		break;
+	case InventoryDirectReachSupportOutcome::Unavailable:
+	default:
+		InventoryDirectReachSupportUnavailableCountValue++;
+		break;
+	}
+	static constexpr size_t maximumQueuedDiagnostics = 1024;
+	record.Sequence = ++InventoryDirectReachSupportDiagnosticSequence;
+	if (InventoryDirectReachSupportDiagnostics.size() < maximumQueuedDiagnostics)
+		InventoryDirectReachSupportDiagnostics.push_back(std::move(record));
+	else
+		InventoryDirectReachSupportDiagnosticOverflowCountValue++;
+}
+
+std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
+	UPawn::DrainInventoryDirectReachSupportDiagnostics()
+{
+	std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord> diagnostics;
+	diagnostics.swap(InventoryDirectReachSupportDiagnostics);
 	return diagnostics;
 }
 

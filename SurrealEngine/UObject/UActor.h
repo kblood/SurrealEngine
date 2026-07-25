@@ -14,6 +14,7 @@
 #include "PawnFallingHazardRuntimeObserver.h"
 #include "PawnHazardWaterEgressObserver.h"
 #include "PawnWalkingStepPreflight.h"
+#include "PawnInventoryReachability.h"
 #include "PawnWalkingHitWallDispatch.h"
 #include "PawnWallAdjustRecovery.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
@@ -2068,6 +2069,10 @@ public:
 		DrainWalkingStepPreflightDiagnostics();
 	std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
 		DrainWalkingStepPreflightPositiveDpsVetoActions();
+	void RecordInventoryDirectReachSupportObservation(
+		PawnMovement::InventoryDirectReachSupportDiagnosticRecord record);
+	std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
+		DrainInventoryDirectReachSupportDiagnostics();
 	uint64_t PainLedgeVetoCount() const { return PainLedgeVetoCountValue; }
 	uint64_t PainLedgeRepeatVetoCount() const { return PainLedgeRepeatVetoCountValue; }
 	uint64_t PainLedgeRecoveryAttemptCount() const { return PainLedgeRecoveryAttemptCountValue; }
@@ -2268,6 +2273,13 @@ public:
 	uint64_t WalkingStepPreflightPositiveDpsVetoForcedReplanCount() const { return WalkingStepPreflightPositiveDpsVetoForcedReplanCountValue; }
 	uint64_t WalkingStepPreflightPositiveDpsVetoRollbackRejectedCount() const { return WalkingStepPreflightPositiveDpsVetoRollbackRejectedCountValue; }
 	uint64_t WalkingStepPreflightPositiveDpsVetoActionOverflowCount() const { return WalkingStepPreflightPositiveDpsVetoActionOverflowCountValue; }
+	uint64_t InventoryDirectReachSupportObservationCount() const { return InventoryDirectReachSupportObservationCountValue; }
+	uint64_t InventoryDirectReachSupportSafeSupportedCount() const { return InventoryDirectReachSupportSafeSupportedCountValue; }
+	uint64_t InventoryDirectReachSupportSafeUnsupportedNoObservedHazardCount() const { return InventoryDirectReachSupportSafeUnsupportedNoObservedHazardCountValue; }
+	uint64_t InventoryDirectReachSupportUnsafeHarmfulFootZoneCount() const { return InventoryDirectReachSupportUnsafeHarmfulFootZoneCountValue; }
+	uint64_t InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulCount() const { return InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulCountValue; }
+	uint64_t InventoryDirectReachSupportUnavailableCount() const { return InventoryDirectReachSupportUnavailableCountValue; }
+	uint64_t InventoryDirectReachSupportDiagnosticOverflowCount() const { return InventoryDirectReachSupportDiagnosticOverflowCountValue; }
 	uint64_t FallingParityRealizedEpisodeCount() const { return FallingParityRealizedEpisodeCountValue; }
 	uint64_t FallingParityRealizedStepCount() const { return FallingParityRealizedStepCountValue; }
 	uint64_t FallingParityRealizedMatchedStepCount() const { return FallingParityRealizedMatchedStepCountValue; }
@@ -2748,6 +2760,16 @@ private:
 	std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 		WalkingStepPreflightDiagnostics;
 	uint64_t WalkingStepPreflightPositiveDpsVetoActionOverflowCountValue = 0;
+	uint64_t InventoryDirectReachSupportObservationCountValue = 0;
+	uint64_t InventoryDirectReachSupportSafeSupportedCountValue = 0;
+	uint64_t InventoryDirectReachSupportSafeUnsupportedNoObservedHazardCountValue = 0;
+	uint64_t InventoryDirectReachSupportUnsafeHarmfulFootZoneCountValue = 0;
+	uint64_t InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulCountValue = 0;
+	uint64_t InventoryDirectReachSupportUnavailableCountValue = 0;
+	uint64_t InventoryDirectReachSupportDiagnosticOverflowCountValue = 0;
+	uint64_t InventoryDirectReachSupportDiagnosticSequence = 0;
+	std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
+		InventoryDirectReachSupportDiagnostics;
 	uint64_t WalkingStepPreflightPositiveDpsVetoActionSequence = 0;
 	std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
 		WalkingStepPreflightPositiveDpsVetoActions;

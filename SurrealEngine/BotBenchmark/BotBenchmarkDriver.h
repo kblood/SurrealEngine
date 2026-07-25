@@ -145,6 +145,13 @@ namespace BotBenchmarkDriverDetail
 		uint64_t WalkingStepPreflightPositiveDpsVetoRollbackRejected = 0;
 		uint64_t WalkingStepPreflightPositiveDpsVetoActionOverflows = 0;
 		uint64_t WalkingStepPreflightDiagnosticOverflows = 0;
+		uint64_t InventoryDirectReachSupportObservations = 0;
+		uint64_t InventoryDirectReachSupportSafeSupported = 0;
+		uint64_t InventoryDirectReachSupportSafeUnsupportedNoObservedHazard = 0;
+		uint64_t InventoryDirectReachSupportUnsafeHarmfulFootZone = 0;
+		uint64_t InventoryDirectReachSupportUnsafeUnsupportedOverHarmful = 0;
+		uint64_t InventoryDirectReachSupportUnavailable = 0;
+		uint64_t InventoryDirectReachSupportDiagnosticOverflows = 0;
 		uint64_t FallingParityRealizedEpisodes = 0;
 		uint64_t FallingParityRealizedSteps = 0;
 		uint64_t FallingParityRealizedMatchedSteps = 0;
@@ -565,6 +572,27 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.WalkingStepPreflightDiagnosticOverflows,
 				Previous.WalkingStepPreflightDiagnosticOverflows,
 				totals.WalkingStepPreflightDiagnosticOverflows);
+			AccumulateCounter(current.InventoryDirectReachSupportObservations,
+				Previous.InventoryDirectReachSupportObservations,
+				totals.InventoryDirectReachSupportObservations);
+			AccumulateCounter(current.InventoryDirectReachSupportSafeSupported,
+				Previous.InventoryDirectReachSupportSafeSupported,
+				totals.InventoryDirectReachSupportSafeSupported);
+			AccumulateCounter(current.InventoryDirectReachSupportSafeUnsupportedNoObservedHazard,
+				Previous.InventoryDirectReachSupportSafeUnsupportedNoObservedHazard,
+				totals.InventoryDirectReachSupportSafeUnsupportedNoObservedHazard);
+			AccumulateCounter(current.InventoryDirectReachSupportUnsafeHarmfulFootZone,
+				Previous.InventoryDirectReachSupportUnsafeHarmfulFootZone,
+				totals.InventoryDirectReachSupportUnsafeHarmfulFootZone);
+			AccumulateCounter(current.InventoryDirectReachSupportUnsafeUnsupportedOverHarmful,
+				Previous.InventoryDirectReachSupportUnsafeUnsupportedOverHarmful,
+				totals.InventoryDirectReachSupportUnsafeUnsupportedOverHarmful);
+			AccumulateCounter(current.InventoryDirectReachSupportUnavailable,
+				Previous.InventoryDirectReachSupportUnavailable,
+				totals.InventoryDirectReachSupportUnavailable);
+			AccumulateCounter(current.InventoryDirectReachSupportDiagnosticOverflows,
+				Previous.InventoryDirectReachSupportDiagnosticOverflows,
+				totals.InventoryDirectReachSupportDiagnosticOverflows);
 			AccumulateCounter(current.FallingParityRealizedEpisodes,
 				Previous.FallingParityRealizedEpisodes,
 				totals.FallingParityRealizedEpisodes);

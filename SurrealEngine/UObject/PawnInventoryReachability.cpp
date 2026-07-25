@@ -73,4 +73,41 @@ namespace PawnMovement
 
 		return InventoryReachabilityDecision::Continue;
 	}
+
+	InventoryDirectReachSupportOutcome ClassifyInventoryDirectReachSupport(
+		const InventoryReachabilitySample& sample)
+	{
+		if (!sample.Valid || !std::isfinite(sample.SweepProgress)
+			|| sample.SweepProgress < 0.0f || sample.SweepProgress > 1.0f)
+		{
+			return InventoryDirectReachSupportOutcome::Unavailable;
+		}
+		if (sample.HarmfulFootZone)
+			return InventoryDirectReachSupportOutcome::UnsafeHarmfulFootZone;
+		if (!sample.WalkableSupport && sample.HarmfulBelow)
+			return InventoryDirectReachSupportOutcome::UnsafeUnsupportedOverHarmful;
+		return sample.WalkableSupport
+			? InventoryDirectReachSupportOutcome::SafeSupported
+			: InventoryDirectReachSupportOutcome::SafeUnsupportedNoObservedHazard;
+	}
+
+	const char* InventoryDirectReachSupportOutcomeName(
+		InventoryDirectReachSupportOutcome outcome)
+	{
+		switch (outcome)
+		{
+		case InventoryDirectReachSupportOutcome::SafeSupported:
+			return "safe_supported";
+		case InventoryDirectReachSupportOutcome::SafeUnsupportedNoObservedHazard:
+			return "safe_unsupported_no_observed_hazard";
+		case InventoryDirectReachSupportOutcome::UnsafeHarmfulFootZone:
+			return "unsafe_harmful_foot_zone";
+		case InventoryDirectReachSupportOutcome::UnsafeUnsupportedOverHarmful:
+			return "unsafe_unsupported_over_harmful";
+		case InventoryDirectReachSupportOutcome::Unavailable:
+			return "unavailable";
+		default:
+			return "unavailable";
+		}
+	}
 }

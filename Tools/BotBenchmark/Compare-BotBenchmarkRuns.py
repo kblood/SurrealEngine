@@ -41,6 +41,7 @@ PROTECTED_FIELDS = {
     "max_ticks", "fixed_delta", "difficulty", "bot_count", "telemetry_event_cap",
     "harmful_zone_escape_enabled", "targetless_move_to_timeout_enabled",
     "direct_actor_move_toward_timeout_enabled", "target_selection_observer_enabled",
+    "inventory_direct_reach_support_observer_enabled",
     "requested_roster", "actual_roster", "config", "index", "roster_index",
     "identity", "actor", "player_name", "class", "seq", "tick",
     "simulated_seconds", "type", "map", "status", "failure_reason", "exit_code",

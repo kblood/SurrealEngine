@@ -2676,3 +2676,49 @@ known candidate. Do not widen its eligibility or promote it from these results.
 The next candidate must instead be derived from a causally attributable
 hazard/route witness with enough activation coverage for paired UT and Unreal
 qualification.
+
+## Iteration 107: post-resolution inventory direct-reach observer
+
+The previously rejected early `ActorReachable` support probe is now replaced
+with a separately gated, read-only observer. It is enabled only by
+`--botbench-inventory-direct-reach-support-observer=1`, is part of the run
+identity, manifests, summaries, matrix provenance, strict analyzer, and
+comparison configuration, and performs no write to the reachability result,
+location, route, target, acceleration, latent state, or physics.
+
+The observer is deliberately narrower than a behavior change: it observes a
+stock autonomous walking bot's direct ammo-inventory reach only after the
+native dry run has resolved a wall slide, returned to walking height, and
+already concluded the target is reachable. It dry-probes the existing
+`stepDownDelta` from that final simulated position and records a bounded,
+per-pawn exact outcome: safe supported, safe unsupported with no observed
+hazard, harmful foot zone, unsupported over a harmful zone, or unavailable.
+The analyzer requires the active status on every event, all seven counters,
+contiguous records, exact outcome reconciliation, and no record overflow.
+
+Fresh 7,200-tick anchor runs passed the structural analyzer with no overflow:
+
+- UT436 `DM-Deck16][`, seed `104729`, difficulty 7:
+  `qa/runs/2026-07-25/inventory-direct-reach-support-observer-v1/ut436-deck16-s104729-r2-t7200/`.
+  It recorded three post-slide eligible calls, all unsupported but with no
+  observed harmful zone below.
+- Unreal Gold 226b `DmDeathFan`, seed `271828`, difficulty 3:
+  `qa/runs/2026-07-25/inventory-direct-reach-support-observer-v1/unreal226b-dmdeathfan-s271828-r3-t7200/`.
+  It recorded four calls with the same safe-unsupported/no-observed-hazard
+  outcome.
+
+There are zero harmful-foot and unsupported-over-harmful witnesses in both
+anchors. This qualifies the observer implementation and rejects any
+`ActorReachable` return-value change from this evidence. The next direct-reach
+investigation must find a causal unsafe witness outside this sparse ammo-only
+tranche before widening eligibility or changing stock navigation.
+
+Observer-on and observer-off 7,200-tick runs are behaviorally identical after
+removing only `config_id`, the observer envelope, and the declared
+`inventory_direct_reach_support_*` counters/diagnostics. The canonical
+gameplay-stream SHA-256 is
+`6d0c0ea4358bce2c056f790d4e723932ae19faa41aba5b58ff676fc5de6e8f10` for
+UT436 and
+`4f8dd2465a5768f7ce7988932a66cf07764c6aa61e6fd7855b0dc0b2038823ca` for
+Unreal Gold. The observer-off controls are the sibling
+`*-baseline-t7200/` directories in the same QA tranche.

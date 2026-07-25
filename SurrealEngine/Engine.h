@@ -194,6 +194,14 @@ public:
 	{
 		botBenchmarkDirectActorMoveTowardTimeoutEnabled = enabled;
 	}
+	bool IsBotBenchmarkInventoryDirectReachSupportObserverEnabled() const
+	{
+		return botBenchmarkInventoryDirectReachSupportObserverEnabled;
+	}
+	void SetBotBenchmarkInventoryDirectReachSupportObserverEnabled(bool enabled)
+	{
+		botBenchmarkInventoryDirectReachSupportObserverEnabled = enabled;
+	}
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -374,6 +382,7 @@ private:
 	bool botBenchmarkFailedNavigationAvoidanceEnabled = false;
 	bool botBenchmarkTargetlessMoveToTimeoutEnabled = false;
 	bool botBenchmarkDirectActorMoveTowardTimeoutEnabled = false;
+	bool botBenchmarkInventoryDirectReachSupportObserverEnabled = false;
 	ViewFamily CreateDesktopViewFamily() const;
 	void InstallXRWeaponCallHook();
 	void UninstallXRWeaponCallHook();

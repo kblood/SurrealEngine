@@ -39,7 +39,8 @@ public:
 		std::optional<std::string> fallingHazardRecoveryLive = {},
 		std::optional<std::string> targetlessMoveToTimeout = {},
 		std::optional<std::string> directActorMoveTowardTimeout = {},
-		std::optional<std::string> targetSelectionObserver = {});
+		std::optional<std::string> targetSelectionObserver = {},
+		std::optional<std::string> inventoryDirectReachSupportObserver = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -64,6 +65,10 @@ public:
 		return DirectActorMoveTowardTimeoutEnabled;
 	}
 	bool IsTargetSelectionObserverEnabled() const { return TargetSelectionObserverEnabled; }
+	bool IsInventoryDirectReachSupportObserverEnabled() const
+	{
+		return InventoryDirectReachSupportObserverEnabled;
+	}
 
 private:
 	BotBenchmarkRunConfig(std::string url, std::string outputDirectory, uint64_t seed,
@@ -72,7 +77,8 @@ private:
 		bool hazardSwimEgressEnabled, bool hazardSwimEgressLiveEnabled,
 		bool failedNavigationAvoidanceEnabled, bool fallingHazardRecoveryEnabled,
 		bool fallingHazardRecoveryLiveEnabled, bool targetlessMoveToTimeoutEnabled,
-		bool directActorMoveTowardTimeoutEnabled, bool targetSelectionObserverEnabled);
+		bool directActorMoveTowardTimeoutEnabled, bool targetSelectionObserverEnabled,
+		bool inventoryDirectReachSupportObserverEnabled);
 
 	std::string URL;
 	std::string OutputDirectory;
@@ -91,6 +97,7 @@ private:
 	bool TargetlessMoveToTimeoutEnabled = false;
 	bool DirectActorMoveTowardTimeoutEnabled = false;
 	bool TargetSelectionObserverEnabled = false;
+	bool InventoryDirectReachSupportObserverEnabled = false;
 };
 
 class BotBenchmarkRunSummary

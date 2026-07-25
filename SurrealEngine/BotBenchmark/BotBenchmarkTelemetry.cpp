@@ -659,7 +659,8 @@ namespace
 	}
 
 	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot,
-		bool targetSelectionObserverRequested)
+		bool targetSelectionObserverRequested,
+		bool inventoryDirectReachSupportObserverRequested)
 	{
 		out << "{\"identity\":" << JsonString(bot.Identity)
 			<< ",\"actor\":" << JsonString(bot.Actor)
@@ -730,6 +731,46 @@ namespace
 				<< ",\"observed_target_id\":" << JsonString(record.ObservedTargetId)
 				<< ",\"outcome\":" << JsonString(record.Outcome) << '}';
 		}
+			out << ']';
+		}
+		if (inventoryDirectReachSupportObserverRequested)
+		{
+			out << ",\"inventory_direct_reach_support_observations_exact\":\""
+				<< bot.InventoryDirectReachSupportObservationsExact << "\""
+				<< ",\"inventory_direct_reach_support_safe_supported_exact\":\""
+				<< bot.InventoryDirectReachSupportSafeSupportedExact << "\""
+				<< ",\"inventory_direct_reach_support_safe_unsupported_no_observed_hazard_exact\":\""
+				<< bot.InventoryDirectReachSupportSafeUnsupportedNoObservedHazardExact << "\""
+				<< ",\"inventory_direct_reach_support_unsafe_harmful_foot_zone_exact\":\""
+				<< bot.InventoryDirectReachSupportUnsafeHarmfulFootZoneExact << "\""
+				<< ",\"inventory_direct_reach_support_unsafe_unsupported_over_harmful_exact\":\""
+				<< bot.InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulExact << "\""
+				<< ",\"inventory_direct_reach_support_unavailable_exact\":\""
+				<< bot.InventoryDirectReachSupportUnavailableExact << "\""
+				<< ",\"inventory_direct_reach_support_diagnostic_overflows_exact\":\""
+				<< bot.InventoryDirectReachSupportDiagnosticOverflowsExact << "\""
+				<< ",\"inventory_direct_reach_support_diagnostics\":[";
+			for (size_t index = 0; index < bot.InventoryDirectReachSupportDiagnostics.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& record = bot.InventoryDirectReachSupportDiagnostics[index];
+				out << "{\"source_pawn_actor\":" << JsonString(record.SourcePawnActor)
+					<< ",\"target_actor\":" << JsonString(record.TargetActor)
+					<< ",\"target_class\":" << JsonString(record.TargetClass)
+					<< ",\"sequence\":\"" << record.Sequence << "\""
+					<< ",\"walking_simulation_iterations\":"
+					<< record.WalkingSimulationIterations
+					<< ",\"support_fraction\":" << Fixed(record.SupportFraction, 6)
+					<< ",\"support_normal_z\":" << Fixed(record.SupportNormalZ, 6)
+					<< ",\"walkable_support\":"
+					<< (record.WalkableSupport ? "true" : "false")
+					<< ",\"harmful_foot_zone\":"
+					<< (record.HarmfulFootZone ? "true" : "false")
+					<< ",\"harmful_below\":"
+					<< (record.HarmfulBelow ? "true" : "false")
+					<< ",\"outcome\":" << JsonString(
+						PawnMovement::InventoryDirectReachSupportOutcomeName(record.Outcome)) << '}';
+			}
 			out << ']';
 		}
 		out << ",\"environmental_deaths_exact\":\"" << bot.EnvironmentalDeathsExact << "\""
@@ -1161,7 +1202,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "direct_actor_move_toward_timeout_enabled="
 		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "1" : "0") << '\n'
 		<< "target_selection_observer_enabled="
-		<< (config.IsTargetSelectionObserverEnabled() ? "1" : "0") << '\n';
+		<< (config.IsTargetSelectionObserverEnabled() ? "1" : "0") << '\n'
+		<< "inventory_direct_reach_support_observer_enabled="
+		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "1" : "0") << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
 		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
@@ -1207,6 +1250,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "true" : "false") << ",\n"
 		<< "  \"target_selection_observer_enabled\": "
 		<< (config.IsTargetSelectionObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"inventory_direct_reach_support_observer_enabled\": "
+		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";
@@ -1239,12 +1284,15 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 			<< ",\"status\":" << JsonString(event.TargetSelectionObserverStatus)
 			<< ",\"reason\":" << JsonString(event.TargetSelectionObserverReason) << '}';
 	}
+	if (event.InventoryDirectReachSupportObserverRequested)
+		out << ",\"inventory_direct_reach_support_observer\":{\"requested\":true,\"status\":\"active\"}";
 	out << ",\"bots\":[";
 	for (size_t index = 0; index < event.Bots.size(); index++)
 	{
 		if (index != 0)
 			out << ',';
-		WriteBot(out, event.Bots[index], event.TargetSelectionObserverRequested);
+		WriteBot(out, event.Bots[index], event.TargetSelectionObserverRequested,
+			event.InventoryDirectReachSupportObserverRequested);
 	}
 	out << "]}\n";
 	return out.str();

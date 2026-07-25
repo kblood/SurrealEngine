@@ -620,6 +620,8 @@ class MatrixRunnerTests(unittest.TestCase):
             ("targetless_move_to_timeout_enabled", "--botbench-targetless-move-to-timeout"),
             ("direct_actor_move_toward_timeout_enabled", "--botbench-direct-actor-move-toward-timeout"),
             ("target_selection_observer_enabled", "--botbench-target-selection-observer"),
+            ("inventory_direct_reach_support_observer_enabled",
+             "--botbench-inventory-direct-reach-support-observer"),
         )
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

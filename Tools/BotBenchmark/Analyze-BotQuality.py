@@ -504,6 +504,16 @@ TARGET_SELECTION_COUNTERS = (
     "target_selection_integrity_failures_exact",
 )
 OPTIONAL_EXACT_COUNTERS += TARGET_SELECTION_COUNTERS
+INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS = (
+    "inventory_direct_reach_support_observations_exact",
+    "inventory_direct_reach_support_safe_supported_exact",
+    "inventory_direct_reach_support_safe_unsupported_no_observed_hazard_exact",
+    "inventory_direct_reach_support_unsafe_harmful_foot_zone_exact",
+    "inventory_direct_reach_support_unsafe_unsupported_over_harmful_exact",
+    "inventory_direct_reach_support_unavailable_exact",
+    "inventory_direct_reach_support_diagnostic_overflows_exact",
+)
+OPTIONAL_EXACT_COUNTERS += INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS
 MOVE_STALL_DECISION_RECORD_OVERFLOW_COUNTER = \
     "move_stall_recovery_decision_record_overflows_exact"
 OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
@@ -534,6 +544,7 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "hazard_water_egress_diagnostics", "hazard_death_partition_records",
     "move_stall_recovery_episodes", "move_stall_recovery_decisions",
     "walking_hitwall_dispatch_diagnostics", "target_selection_records",
+    "inventory_direct_reach_support_diagnostics",
 )
 HAZARD_DEATH_KILLER_RELATIONS = {"none", "self_player", "enemy_player", "non_player"}
 HAZARD_DEATH_ATTRIBUTIONS = {
@@ -2854,7 +2865,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                falling_hazard_recovery_live_enabled: bool | None = None,
                targetless_move_to_timeout_enabled: bool | None = None,
                direct_actor_move_toward_timeout_enabled: bool | None = None,
-               target_selection_observer_enabled: bool | None = None) -> str:
+               target_selection_observer_enabled: bool | None = None,
+               inventory_direct_reach_support_observer_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -2891,6 +2903,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if target_selection_observer_enabled is not None:
             canonical_text += "target_selection_observer_enabled=" + (
                 "1\n" if target_selection_observer_enabled else "0\n")
+        if inventory_direct_reach_support_observer_enabled is not None:
+            canonical_text += "inventory_direct_reach_support_observer_enabled=" + (
+                "1\n" if inventory_direct_reach_support_observer_enabled else "0\n")
         assert requested_roster is not None
         canonical_text += "".join(f"roster={entry['identity_fragment']}\n" for entry in requested_roster)
     canonical = canonical_text.encode("utf-8")
@@ -3023,6 +3038,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     targetless_move_to_timeout_enabled = None
     direct_actor_move_toward_timeout_enabled = None
     target_selection_observer_enabled = None
+    inventory_direct_reach_support_observer_enabled = None
     if schema == MANIFEST_SCHEMA_V2:
         bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
         requested_roster = _validate_requested_roster(raw.get("requested_roster"),
@@ -3074,6 +3090,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             target_selection_observer_enabled = _boolean(
                 raw.get("target_selection_observer_enabled"),
                 "manifest.target_selection_observer_enabled")
+        if "inventory_direct_reach_support_observer_enabled" in raw:
+            inventory_direct_reach_support_observer_enabled = _boolean(
+                raw.get("inventory_direct_reach_support_observer_enabled"),
+                "manifest.inventory_direct_reach_support_observer_enabled")
     expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count,
                              requested_roster, harmful_zone_escape_enabled,
                              walking_preflight_positive_dps_veto_enabled,
@@ -3084,7 +3104,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              falling_hazard_recovery_live_enabled,
                              targetless_move_to_timeout_enabled,
                              direct_actor_move_toward_timeout_enabled,
-                             target_selection_observer_enabled)
+                             target_selection_observer_enabled,
+                             inventory_direct_reach_support_observer_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -3111,6 +3132,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "targetless_move_to_timeout_enabled": targetless_move_to_timeout_enabled,
         "direct_actor_move_toward_timeout_enabled": direct_actor_move_toward_timeout_enabled,
         "target_selection_observer_enabled": target_selection_observer_enabled,
+        "inventory_direct_reach_support_observer_enabled": (
+            inventory_direct_reach_support_observer_enabled),
     }
 
 
@@ -3121,7 +3144,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             "vertical_pain_column_diagnostics", "hazard_water_egress_diagnostics",
             "hazard_death_partition_records", "move_stall_recovery_episodes",
             "move_stall_recovery_decisions",
-            "walking_hitwall_dispatch_diagnostics")):
+            "walking_hitwall_dispatch_diagnostics",
+            "inventory_direct_reach_support_diagnostics")):
         raise QualityError(
             f"{context}: observer record arrays require telemetry v2")
     result: dict[str, Any] = {
@@ -3713,6 +3737,60 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             result["target_selection_records"] = parsed_records
         elif target_selection_present:
             raise QualityError(f"{context}: target-selection counter group requires records")
+        inventory_direct_reach_present = [name for name in INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS
+                                          if name in result]
+        if (inventory_direct_reach_present
+                and len(inventory_direct_reach_present)
+                != len(INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS)):
+            raise QualityError(
+                f"{context}: inventory direct-reach support counters must be a complete group")
+        if "inventory_direct_reach_support_diagnostics" in bot:
+            if len(inventory_direct_reach_present) != len(INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS):
+                raise QualityError(
+                    f"{context}: inventory direct-reach diagnostics require the complete counter group")
+            records = bot.get("inventory_direct_reach_support_diagnostics")
+            if not isinstance(records, list):
+                raise QualityError(
+                    f"{context}.inventory_direct_reach_support_diagnostics must be an array")
+            parsed_records = []
+            outcomes = {
+                "safe_supported", "safe_unsupported_no_observed_hazard",
+                "unsafe_harmful_foot_zone", "unsafe_unsupported_over_harmful", "unavailable",
+            }
+            for index, record in enumerate(records):
+                record_context = f"{context}.inventory_direct_reach_support_diagnostics[{index}]"
+                item = _object(record, record_context)
+                outcome = _string(item, "outcome", record_context, nonempty=True)
+                if outcome not in outcomes:
+                    raise QualityError(f"{record_context}.outcome is not recognized")
+                support_fraction = _number(item.get("support_fraction"),
+                                           f"{record_context}.support_fraction", minimum=0.0)
+                if support_fraction > 1.0:
+                    raise QualityError(f"{record_context}.support_fraction must be at most one")
+                parsed_records.append({
+                    "source_pawn_actor": _string(item, "source_pawn_actor", record_context,
+                                                   nonempty=True),
+                    "target_actor": _string(item, "target_actor", record_context, nonempty=True),
+                    "target_class": _string(item, "target_class", record_context, nonempty=True),
+                    "sequence": _integer(item.get("sequence"), f"{record_context}.sequence", minimum=1),
+                    "walking_simulation_iterations": _integer(
+                        item.get("walking_simulation_iterations"),
+                        f"{record_context}.walking_simulation_iterations", minimum=1),
+                    "support_fraction": support_fraction,
+                    "support_normal_z": _number(item.get("support_normal_z"),
+                                                f"{record_context}.support_normal_z"),
+                    "walkable_support": _boolean(item.get("walkable_support"),
+                                                  f"{record_context}.walkable_support"),
+                    "harmful_foot_zone": _boolean(item.get("harmful_foot_zone"),
+                                                   f"{record_context}.harmful_foot_zone"),
+                    "harmful_below": _boolean(item.get("harmful_below"),
+                                                f"{record_context}.harmful_below"),
+                    "outcome": outcome,
+                })
+            result["inventory_direct_reach_support_diagnostics"] = parsed_records
+        elif inventory_direct_reach_present:
+            raise QualityError(
+                f"{context}: inventory direct-reach support counter group requires diagnostics")
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
@@ -3815,6 +3893,23 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             elif "target_selection_observer" in raw:
                 raise QualityError(f"{context}: target-selection observer telemetry is present while disabled")
+            inventory_direct_reach_observer_requested = (
+                manifest.get("inventory_direct_reach_support_observer_enabled") is True)
+            if inventory_direct_reach_observer_requested:
+                observer = _object(raw.get("inventory_direct_reach_support_observer"),
+                                   f"{context}.inventory_direct_reach_support_observer")
+                if _boolean(observer.get("requested"),
+                            f"{context}.inventory_direct_reach_support_observer.requested") is not True:
+                    raise QualityError(
+                        f"{context}: inventory direct-reach support observer must be requested")
+                if _string(observer, "status", f"{context}.inventory_direct_reach_support_observer",
+                           nonempty=True) != "active":
+                    raise QualityError(
+                        f"{context}: inventory direct-reach support observer is not active")
+                event["inventory_direct_reach_support_observer"] = {"status": "active"}
+            elif "inventory_direct_reach_support_observer" in raw:
+                raise QualityError(
+                    f"{context}: inventory direct-reach support observer telemetry is present while disabled")
             if not isinstance(raw.get("bots"), list):
                 raise QualityError(f"{context}.bots must be an array")
             if raw.get("config_id") != manifest["config_id"]:
@@ -3888,6 +3983,61 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     raise QualityError(f"{path}: active target-selection observer has incomplete evidence")
         elif not observer_reason:
             raise QualityError(f"{path}: disabled target-selection observer has no reason")
+    if manifest.get("inventory_direct_reach_support_observer_enabled") is True:
+        totals: dict[str, dict[str, int]] = {}
+        sequences: dict[str, int] = {}
+        for event in events:
+            for bot in event["bots"]:
+                if any(name not in bot for name in INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS):
+                    raise QualityError(
+                        f"{path}: active inventory direct-reach observer lacks counters")
+                for record in bot["inventory_direct_reach_support_diagnostics"]:
+                    if record["source_pawn_actor"] != bot["actor"]:
+                        raise QualityError(
+                            f"{path}: inventory direct-reach record owner differs from bot actor")
+                    expected = sequences.get(bot["identity"], 0) + 1
+                    if record["sequence"] != expected:
+                        raise QualityError(
+                            f"{path}: inventory direct-reach record sequence is not contiguous")
+                    sequences[bot["identity"]] = expected
+                    bucket = totals.setdefault(bot["identity"], {
+                        "safe_supported": 0,
+                        "safe_unsupported_no_observed_hazard": 0,
+                        "unsafe_harmful_foot_zone": 0,
+                        "unsafe_unsupported_over_harmful": 0,
+                        "unavailable": 0,
+                    })
+                    bucket[record["outcome"]] += 1
+        for bot in events[-1]["bots"]:
+            counts = totals.get(bot["identity"], {
+                "safe_supported": 0,
+                "safe_unsupported_no_observed_hazard": 0,
+                "unsafe_harmful_foot_zone": 0,
+                "unsafe_unsupported_over_harmful": 0,
+                "unavailable": 0,
+            })
+            emitted = sum(counts.values())
+            if bot["inventory_direct_reach_support_observations_exact"] != (
+                    emitted + bot["inventory_direct_reach_support_diagnostic_overflows_exact"]):
+                raise QualityError(
+                    f"{path}: inventory direct-reach observations do not reconcile diagnostics")
+            expected_counters = {
+                "safe_supported": "inventory_direct_reach_support_safe_supported_exact",
+                "safe_unsupported_no_observed_hazard": (
+                    "inventory_direct_reach_support_safe_unsupported_no_observed_hazard_exact"),
+                "unsafe_harmful_foot_zone": (
+                    "inventory_direct_reach_support_unsafe_harmful_foot_zone_exact"),
+                "unsafe_unsupported_over_harmful": (
+                    "inventory_direct_reach_support_unsafe_unsupported_over_harmful_exact"),
+                "unavailable": "inventory_direct_reach_support_unavailable_exact",
+            }
+            for outcome, counter in expected_counters.items():
+                if counts[outcome] != bot[counter]:
+                    raise QualityError(
+                        f"{path}: inventory direct-reach diagnostics do not reconcile {outcome}")
+            if bot["inventory_direct_reach_support_diagnostic_overflows_exact"]:
+                raise QualityError(
+                    f"{path}: active inventory direct-reach observer overflowed its diagnostics")
     if events[0]["schema"] == TELEMETRY_SCHEMA_V2:
         previous: dict[str, dict[str, Any]] = {}
         counters = CORE_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_METRICS

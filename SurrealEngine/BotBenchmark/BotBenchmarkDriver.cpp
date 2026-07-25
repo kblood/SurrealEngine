@@ -85,6 +85,8 @@ namespace
 				Config.IsTargetlessMoveToTimeoutEnabled());
 			EngineRef.SetBotBenchmarkDirectActorMoveTowardTimeoutEnabled(
 				Config.IsDirectActorMoveTowardTimeoutEnabled());
+			EngineRef.SetBotBenchmarkInventoryDirectReachSupportObserverEnabled(
+				Config.IsInventoryDirectReachSupportObserverEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -316,6 +318,8 @@ namespace
 			BotBenchmarkDriverDetail::NativePawnCounters NativeCounterTotals;
 			std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 				PendingWalkingStepPreflightDiagnostics;
+			std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
+				PendingInventoryDirectReachSupportDiagnostics;
 			std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
 				PendingWalkingHitWallDispatchDiagnostics;
 			std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
@@ -1059,6 +1063,20 @@ namespace
 				pawn->WalkingStepPreflightPositiveDpsVetoActionOverflowCount();
 			counters.WalkingStepPreflightDiagnosticOverflows =
 				pawn->WalkingStepPreflightDiagnosticOverflowCount();
+			counters.InventoryDirectReachSupportObservations =
+				pawn->InventoryDirectReachSupportObservationCount();
+			counters.InventoryDirectReachSupportSafeSupported =
+				pawn->InventoryDirectReachSupportSafeSupportedCount();
+			counters.InventoryDirectReachSupportSafeUnsupportedNoObservedHazard =
+				pawn->InventoryDirectReachSupportSafeUnsupportedNoObservedHazardCount();
+			counters.InventoryDirectReachSupportUnsafeHarmfulFootZone =
+				pawn->InventoryDirectReachSupportUnsafeHarmfulFootZoneCount();
+			counters.InventoryDirectReachSupportUnsafeUnsupportedOverHarmful =
+				pawn->InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulCount();
+			counters.InventoryDirectReachSupportUnavailable =
+				pawn->InventoryDirectReachSupportUnavailableCount();
+			counters.InventoryDirectReachSupportDiagnosticOverflows =
+				pawn->InventoryDirectReachSupportDiagnosticOverflowCount();
 			counters.FallingParityRealizedEpisodes = pawn->FallingParityRealizedEpisodeCount();
 			counters.FallingParityRealizedSteps = pawn->FallingParityRealizedStepCount();
 			counters.FallingParityRealizedMatchedSteps = pawn->FallingParityRealizedMatchedStepCount();
@@ -2499,6 +2517,20 @@ namespace
 					native.WalkingStepPreflightPositiveDpsVetoActionOverflows;
 				bot.WalkingStepPreflightDiagnosticOverflowsExact =
 					native.WalkingStepPreflightDiagnosticOverflows;
+				bot.InventoryDirectReachSupportObservationsExact =
+					native.InventoryDirectReachSupportObservations;
+				bot.InventoryDirectReachSupportSafeSupportedExact =
+					native.InventoryDirectReachSupportSafeSupported;
+				bot.InventoryDirectReachSupportSafeUnsupportedNoObservedHazardExact =
+					native.InventoryDirectReachSupportSafeUnsupportedNoObservedHazard;
+				bot.InventoryDirectReachSupportUnsafeHarmfulFootZoneExact =
+					native.InventoryDirectReachSupportUnsafeHarmfulFootZone;
+				bot.InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulExact =
+					native.InventoryDirectReachSupportUnsafeUnsupportedOverHarmful;
+				bot.InventoryDirectReachSupportUnavailableExact =
+					native.InventoryDirectReachSupportUnavailable;
+				bot.InventoryDirectReachSupportDiagnosticOverflowsExact =
+					native.InventoryDirectReachSupportDiagnosticOverflows;
 				bot.FallingParityRealizedEpisodesExact = native.FallingParityRealizedEpisodes;
 				bot.FallingParityRealizedStepsExact = native.FallingParityRealizedSteps;
 				bot.FallingParityRealizedMatchedStepsExact = native.FallingParityRealizedMatchedSteps;
@@ -2572,12 +2604,18 @@ namespace
 				if (pawn)
 				{
 					auto diagnostics = pawn->DrainWalkingStepPreflightDiagnostics();
+					auto inventoryDirectReachDiagnostics =
+						pawn->DrainInventoryDirectReachSupportDiagnostics();
 					auto walkingHitWallDiagnostics =
 						pawn->DrainWalkingHitWallDispatchDiagnostics();
 					runtime.PendingWalkingStepPreflightDiagnostics.insert(
 						runtime.PendingWalkingStepPreflightDiagnostics.end(),
 						std::make_move_iterator(diagnostics.begin()),
 						std::make_move_iterator(diagnostics.end()));
+					runtime.PendingInventoryDirectReachSupportDiagnostics.insert(
+						runtime.PendingInventoryDirectReachSupportDiagnostics.end(),
+						std::make_move_iterator(inventoryDirectReachDiagnostics.begin()),
+						std::make_move_iterator(inventoryDirectReachDiagnostics.end()));
 					runtime.PendingWalkingHitWallDispatchDiagnostics.insert(
 						runtime.PendingWalkingHitWallDispatchDiagnostics.end(),
 						std::make_move_iterator(walkingHitWallDiagnostics.begin()),
@@ -2616,6 +2654,9 @@ namespace
 				bot.WalkingStepPreflightDiagnostics = std::move(
 					runtime.PendingWalkingStepPreflightDiagnostics);
 				runtime.PendingWalkingStepPreflightDiagnostics.clear();
+				bot.InventoryDirectReachSupportDiagnostics = std::move(
+					runtime.PendingInventoryDirectReachSupportDiagnostics);
+				runtime.PendingInventoryDirectReachSupportDiagnostics.clear();
 				bot.WalkingHitWallDispatchDiagnostics = std::move(
 					runtime.PendingWalkingHitWallDispatchDiagnostics);
 				runtime.PendingWalkingHitWallDispatchDiagnostics.clear();
@@ -2669,6 +2710,8 @@ namespace
 			event.TargetSelectionObserverRequested = Config.IsTargetSelectionObserverEnabled();
 			event.TargetSelectionObserverStatus = TargetSelectionObserverStatus;
 			event.TargetSelectionObserverReason = TargetSelectionObserverReason;
+			event.InventoryDirectReachSupportObserverRequested =
+				Config.IsInventoryDirectReachSupportObserverEnabled();
 			event.Bots = CaptureBotStates();
 			const std::string line = BotBenchmarkTelemetryProtocol::EventJson(TelemetryConfigIdentity, std::move(event));
 			TelemetryFile->write(line.data(), line.size());
@@ -2779,7 +2822,8 @@ namespace
 			OptionalCommandLineArg("--botbench-falling-hazard-recovery-live"),
 			OptionalCommandLineArg("--botbench-targetless-move-to-timeout"),
 			OptionalCommandLineArg("--botbench-direct-actor-move-toward-timeout"),
-			OptionalCommandLineArg("--botbench-target-selection-observer"));
+			OptionalCommandLineArg("--botbench-target-selection-observer"),
+			OptionalCommandLineArg("--botbench-inventory-direct-reach-support-observer"));
 	}
 }
 

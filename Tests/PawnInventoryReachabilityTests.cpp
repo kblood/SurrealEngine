@@ -170,6 +170,31 @@ static void TestInvalidSamplesFailOpen()
 		"out-of-range sweep progress fails open");
 }
 
+static void TestPostResolutionSupportClassification()
+{
+	using namespace PawnMovement;
+	Check(ClassifyInventoryDirectReachSupport({
+		.SweepProgress = 1.0f, .WalkableSupport = true
+	}) == InventoryDirectReachSupportOutcome::SafeSupported,
+		"a walkable post-resolution support probe is safe");
+	Check(ClassifyInventoryDirectReachSupport({
+		.SweepProgress = 1.0f, .WalkableSupport = false
+	}) == InventoryDirectReachSupportOutcome::SafeUnsupportedNoObservedHazard,
+		"unsupported space without observed harm stays diagnostic-only");
+	Check(ClassifyInventoryDirectReachSupport({
+		.SweepProgress = 1.0f, .WalkableSupport = true, .HarmfulFootZone = true
+	}) == InventoryDirectReachSupportOutcome::UnsafeHarmfulFootZone,
+		"a harmful resolved foot zone is an unsafe witness");
+	Check(ClassifyInventoryDirectReachSupport({
+		.SweepProgress = 1.0f, .WalkableSupport = false, .HarmfulBelow = true
+	}) == InventoryDirectReachSupportOutcome::UnsafeUnsupportedOverHarmful,
+		"unsupported space above a harmful zone is an unsafe witness");
+	Check(ClassifyInventoryDirectReachSupport({
+		.SweepProgress = std::numeric_limits<float>::quiet_NaN()
+	}) == InventoryDirectReachSupportOutcome::Unavailable,
+		"missing support evidence is explicitly unavailable");
+}
+
 int main()
 {
 	TestCorridorPlanUsesBoundedMaximumSpacing();
@@ -179,6 +204,7 @@ int main()
 	TestSupportedSamplesContinue();
 	TestObservedUnsafeSamplesReject();
 	TestInvalidSamplesFailOpen();
+	TestPostResolutionSupportClassification();
 	if (Failures == 0)
 		std::cout << "Pawn inventory reachability tests passed\n";
 	return Failures == 0 ? 0 : 1;

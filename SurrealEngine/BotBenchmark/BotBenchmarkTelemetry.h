@@ -1,6 +1,7 @@
 #pragma once
 
 #include "UObject/PawnWalkingStepPreflight.h"
+#include "UObject/PawnInventoryReachability.h"
 #include "UObject/PawnWalkingHitWallDispatch.h"
 #include "UObject/PawnFallingParityRealizedTrace.h"
 #include "UObject/PawnFallingHazardDiagnostics.h"
@@ -100,6 +101,15 @@ struct BotBenchmarkBotState
 	uint64_t TargetSelectionRecordOverflowsExact = 0;
 	uint64_t TargetSelectionIntegrityFailuresExact = 0;
 	std::vector<BotBenchmarkTargetSelectionRecord> TargetSelectionRecords;
+	uint64_t InventoryDirectReachSupportObservationsExact = 0;
+	uint64_t InventoryDirectReachSupportSafeSupportedExact = 0;
+	uint64_t InventoryDirectReachSupportSafeUnsupportedNoObservedHazardExact = 0;
+	uint64_t InventoryDirectReachSupportUnsafeHarmfulFootZoneExact = 0;
+	uint64_t InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulExact = 0;
+	uint64_t InventoryDirectReachSupportUnavailableExact = 0;
+	uint64_t InventoryDirectReachSupportDiagnosticOverflowsExact = 0;
+	std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
+		InventoryDirectReachSupportDiagnostics;
 	uint64_t EnvironmentalDeathsExact = 0;
 	uint64_t HazardExposedDeathsProxy = 0;
 	uint64_t DamageTakenExact = 0;
@@ -330,6 +340,7 @@ struct BotBenchmarkTelemetryEvent
 	bool TargetSelectionObserverRequested = false;
 	std::string TargetSelectionObserverStatus;
 	std::string TargetSelectionObserverReason;
+	bool InventoryDirectReachSupportObserverRequested = false;
 	std::vector<BotBenchmarkBotState> Bots;
 };
 

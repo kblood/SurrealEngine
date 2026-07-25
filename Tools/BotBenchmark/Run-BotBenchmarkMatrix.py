@@ -47,6 +47,7 @@ class Variant:
     targetless_move_to_timeout_enabled: bool = False
     direct_actor_move_toward_timeout_enabled: bool = False
     target_selection_observer_enabled: bool = False
+    inventory_direct_reach_support_observer_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -267,12 +268,17 @@ def load_matrix(path: Path) -> MatrixConfig:
         if not isinstance(target_selection_observer_enabled, bool):
             raise MatrixError(
                 f"matrix.variants[{index}].target_selection_observer_enabled must be a boolean")
+        inventory_direct_reach_support_observer_enabled = fields.get(
+            "inventory_direct_reach_support_observer_enabled", False)
+        if not isinstance(inventory_direct_reach_support_observer_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].inventory_direct_reach_support_observer_enabled must be a boolean")
         variants.append(Variant(
             variant_id, executable, role, build_preset, hazard_swim_egress_enabled,
             hazard_swim_egress_live_enabled, failed_navigation_avoidance_enabled,
             falling_hazard_recovery_enabled, falling_hazard_recovery_live_enabled,
             targetless_move_to_timeout_enabled, direct_actor_move_toward_timeout_enabled,
-            target_selection_observer_enabled))
+            target_selection_observer_enabled, inventory_direct_reach_support_observer_enabled))
     ids = [variant.id for variant in variants]
     if len(ids) != len(set(ids)):
         raise MatrixError("matrix variant IDs must be unique")
@@ -442,7 +448,8 @@ def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
                                 variant.falling_hazard_recovery_live_enabled,
                                 variant.targetless_move_to_timeout_enabled,
                                 variant.direct_actor_move_toward_timeout_enabled,
-                                variant.target_selection_observer_enabled]
+                                variant.target_selection_observer_enabled,
+                                variant.inventory_direct_reach_support_observer_enabled]
                     run_id = (
                         f"{ordinal:06d}-{_slug(variant.id)}-{_slug(map_url)}-"
                         f"s{seed}" + (f"-l{_slug(start_layout.id)}" if start_layout else "") +
@@ -489,6 +496,8 @@ def command_for(config: MatrixConfig, case: MatrixCase, run_directory: Path) -> 
             "1" if case.variant.direct_actor_move_toward_timeout_enabled else "0"),
         "--botbench-target-selection-observer=" + (
             "1" if case.variant.target_selection_observer_enabled else "0"),
+        "--botbench-inventory-direct-reach-support-observer=" + (
+            "1" if case.variant.inventory_direct_reach_support_observer_enabled else "0"),
     ]
     if config.per_bot_skills is not None:
         command.append("--botbench-skills=" + ",".join(str(value) for value in config.per_bot_skills))
@@ -645,6 +654,8 @@ def _preflight_provenance(
             "direct_actor_move_toward_timeout_enabled": (
                 variant.direct_actor_move_toward_timeout_enabled),
             "target_selection_observer_enabled": variant.target_selection_observer_enabled,
+            "inventory_direct_reach_support_observer_enabled": (
+                variant.inventory_direct_reach_support_observer_enabled),
             "executable": _file_provenance(variant.executable),
         })
     game_manifest = _file_provenance(config.game_manifest) if config.game_manifest else None
@@ -709,6 +720,8 @@ def _run_case(
         "direct_actor_move_toward_timeout_enabled": (
             case.variant.direct_actor_move_toward_timeout_enabled),
         "target_selection_observer_enabled": case.variant.target_selection_observer_enabled,
+        "inventory_direct_reach_support_observer_enabled": (
+            case.variant.inventory_direct_reach_support_observer_enabled),
     }
     if case.start_layout is not None:
         metadata.update({
@@ -747,6 +760,8 @@ def _run_case(
         "direct_actor_move_toward_timeout_enabled": (
             case.variant.direct_actor_move_toward_timeout_enabled),
         "target_selection_observer_enabled": case.variant.target_selection_observer_enabled,
+        "inventory_direct_reach_support_observer_enabled": (
+            case.variant.inventory_direct_reach_support_observer_enabled),
         "command": command,
     })
     launch = launcher(command, config.timeout_seconds, run_directory / "stdout.txt", run_directory / "stderr.txt")
@@ -814,6 +829,8 @@ def _run_case(
         "direct_actor_move_toward_timeout_enabled": (
             case.variant.direct_actor_move_toward_timeout_enabled),
         "target_selection_observer_enabled": case.variant.target_selection_observer_enabled,
+        "inventory_direct_reach_support_observer_enabled": (
+            case.variant.inventory_direct_reach_support_observer_enabled),
         "exit_code": launch.exit_code,
         "timed_out": launch.timed_out,
         "wall_seconds": launch.wall_seconds,
@@ -860,6 +877,8 @@ def dry_run_plan(config: MatrixConfig, output: Path) -> dict[str, Any]:
             "direct_actor_move_toward_timeout_enabled": (
                 case.variant.direct_actor_move_toward_timeout_enabled),
             "target_selection_observer_enabled": case.variant.target_selection_observer_enabled,
+            "inventory_direct_reach_support_observer_enabled": (
+                case.variant.inventory_direct_reach_support_observer_enabled),
             "command": command_for(config, case, runs_directory / case.run_id),
         } for case in cases],
     }
