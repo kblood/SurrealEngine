@@ -1376,6 +1376,26 @@ some stock movement toward a safe node, not evidence that the direct probe is
 an egress route or that it can be reached before drowning. No live policy is
 authorized from this result.
 
+## Iteration 63: multi-seed Deck egress falsification sweep
+
+A six-seed, 60-second UT436 `DM-Deck16][` observer sweep ran two identical
+observer variants for each seed (`271828`, `104729`, `424242`, `314159`,
+`161803`, and `8675309`) at
+`qa/runs/2026-07-25/hazard-water-egress-observer-sweep/`. The revalidated
+v21 analyzer accepted all twelve immutable run artifacts and their six paired
+comparisons. The baseline stream produced 22 terminal harmful-water episodes:
+16 `primary_zone_cleared` and 6 `death_before_exit`.
+
+Eight episodes selected a collision-safe navigation candidate. Five of those
+still cleared the primary water zone, while three died; importantly, several
+of the successful clearances retained candidate distances of 544–768 units at
+their terminal sample. The three candidate-backed deaths likewise retained
+373–575 units. The candidate is therefore neither an observed destination nor
+a causal explanation for either exit or death. This falsifies using the
+existing `TryMove(..., true)` candidate as a route certificate or direct live
+target. The next prerequisite for a candidate policy is a separate,
+read-only first-hop/route certification that does not mutate stock path state.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
