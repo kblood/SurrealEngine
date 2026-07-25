@@ -94,6 +94,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionHookContract.h
 	SurrealEngine/BotBenchmark/BotTargetSelectionHookContract.cpp
 	SurrealEngine/BotBenchmark/BotTargetSelectionHookContract.h
+	SurrealEngine/BotBenchmark/BotTargetSelectionProbeTracker.cpp
+	SurrealEngine/BotBenchmark/BotTargetSelectionProbeTracker.h
 	SurrealEngine/BotBenchmark/BotControlledMatch.cpp
 	SurrealEngine/BotBenchmark/BotControlledMatch.h
 	SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.cpp
@@ -1260,6 +1262,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(BotTargetSelectionHookContractTests PRIVATE SurrealEngine)
 	set_target_properties(BotTargetSelectionHookContractTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotTargetSelectionHookContract COMMAND BotTargetSelectionHookContractTests)
+
+	add_executable(BotTargetSelectionProbeTrackerTests
+		Tests/BotTargetSelectionProbeTrackerTests.cpp
+		SurrealEngine/BotBenchmark/BotTargetSelectionProbeTracker.cpp
+	)
+	target_include_directories(BotTargetSelectionProbeTrackerTests PRIVATE SurrealEngine)
+	set_target_properties(BotTargetSelectionProbeTrackerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotTargetSelectionProbeTracker COMMAND BotTargetSelectionProbeTrackerTests)
 
 	add_executable(BotBenchmarkGameProfileTests
 		Tests/BotBenchmarkGameProfileTests.cpp
