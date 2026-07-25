@@ -87,6 +87,8 @@ namespace
 				Config.IsDirectActorMoveTowardTimeoutEnabled());
 			EngineRef.SetBotBenchmarkInventoryDirectReachSupportObserverEnabled(
 				Config.IsInventoryDirectReachSupportObserverEnabled());
+			EngineRef.SetBotBenchmarkNativePathCommitObserverEnabled(
+				Config.IsNativePathCommitObserverEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -2791,6 +2793,8 @@ namespace
 			event.TargetSelectionObserverReason = TargetSelectionObserverReason;
 			event.InventoryDirectReachSupportObserverRequested =
 				Config.IsInventoryDirectReachSupportObserverEnabled();
+			event.NativePathCommitObserverRequested =
+				Config.IsNativePathCommitObserverEnabled();
 			event.Bots = CaptureBotStates();
 			const std::string line = BotBenchmarkTelemetryProtocol::EventJson(TelemetryConfigIdentity, std::move(event));
 			TelemetryFile->write(line.data(), line.size());
@@ -2902,7 +2906,8 @@ namespace
 			OptionalCommandLineArg("--botbench-targetless-move-to-timeout"),
 			OptionalCommandLineArg("--botbench-direct-actor-move-toward-timeout"),
 			OptionalCommandLineArg("--botbench-target-selection-observer"),
-			OptionalCommandLineArg("--botbench-inventory-direct-reach-support-observer"));
+			OptionalCommandLineArg("--botbench-inventory-direct-reach-support-observer"),
+			OptionalCommandLineArg("--botbench-native-path-commit-observer"));
 	}
 }
 

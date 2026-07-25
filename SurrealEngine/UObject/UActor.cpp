@@ -4608,7 +4608,7 @@ UNavigationPoint* UPawn::CommitRoutePathCache(const PawnPathEndPointResult& resu
 	PawnMovement::RoutePathCommitOrigin origin)
 {
 	UNavigationPoint* committed = SetRouteCache(result.Points);
-	if (!engine->IsBotBenchmarkWalkingPreflightEnabled())
+	if (!engine->IsBotBenchmarkNativePathCommitObserverEnabled())
 		return committed;
 
 	PawnMovement::RoutePathCommitRecord record;

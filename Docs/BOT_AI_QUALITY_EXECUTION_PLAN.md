@@ -2829,3 +2829,28 @@ all of those flags false at
 `qa/reports/bot-ai/stock-baseline-restoration-v1-smoke.json`. This verifies
 launch and telemetry structure only; full observer-on/off qualification remains
 required before the branch can be called merge-ready.
+
+## Iteration 112: independently gated native path-commit observer
+
+Native path-commit provenance no longer inherits the broad walking-preflight
+benchmark mode. It now requires the explicit default-off
+`--botbench-native-path-commit-observer=0|1` flag, which is bound into engine
+state, config identity, manifests, summaries, event telemetry, structural
+comparison protection, and the path-commit analyzer. The analyzer rejects a
+run unless that manifest flag is explicitly true, so an empty path-commit
+stream from a stock run cannot be interpreted as observer evidence.
+
+Fresh 120-tick paired controls on UT436 Deck16-II (skill 7, seed `104729`) and
+Unreal Gold DeathFan (skill 3, seed `271828`) pass the quality analyzer; their
+enabled runs also pass strict map-catalog provenance analysis with positive
+commits. After removing only `config_id` and the declared
+`native_path_commit_observer` event envelope, the full event streams match:
+
+- UT436: `99192C2DB6046C8B9ADAACE94A794B4C572790BF99CCC443AA0188895EB8E44E`
+- Unreal Gold: `C89070BFE2B6C568FFE5CA59F76F6DE563635DC41FB73456464DF34CA040E256`
+
+The runs and reports are under
+`qa/runs/2026-07-25/native-path-commit-observer-v2/` and
+`qa/reports/bot-ai/native-path-commit-observer-v2-*.json`. This is a smoke
+qualification only; retain full-duration two-repetition anchors before using
+the observer to choose the next direct-command provenance slice.

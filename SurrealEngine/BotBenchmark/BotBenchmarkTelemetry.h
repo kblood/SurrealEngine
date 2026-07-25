@@ -341,6 +341,7 @@ struct BotBenchmarkTelemetryEvent
 	std::string TargetSelectionObserverStatus;
 	std::string TargetSelectionObserverReason;
 	bool InventoryDirectReachSupportObserverRequested = false;
+	bool NativePathCommitObserverRequested = false;
 	std::vector<BotBenchmarkBotState> Bots;
 };
 

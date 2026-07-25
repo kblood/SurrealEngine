@@ -77,6 +77,8 @@ def analyze(catalog_path: Path, run: Path) -> dict[str, Any]:
     except (PathCommitError, map_validator.CatalogError, capabilities.CapabilityError) as exc:
         raise PathCommitError(str(exc)) from exc
     manifest = _json(run / "manifest.json")
+    if manifest.get("native_path_commit_observer_enabled") is not True:
+        raise PathCommitError("native path-commit observer must be explicitly enabled")
     config_id = manifest.get("config_id")
     if not isinstance(config_id, str) or not config_id:
         raise PathCommitError("manifest.config_id must be non-empty")

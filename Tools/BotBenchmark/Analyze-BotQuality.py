@@ -2866,7 +2866,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                targetless_move_to_timeout_enabled: bool | None = None,
                direct_actor_move_toward_timeout_enabled: bool | None = None,
                target_selection_observer_enabled: bool | None = None,
-               inventory_direct_reach_support_observer_enabled: bool | None = None) -> str:
+               inventory_direct_reach_support_observer_enabled: bool | None = None,
+               native_path_commit_observer_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -2906,6 +2907,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if inventory_direct_reach_support_observer_enabled is not None:
             canonical_text += "inventory_direct_reach_support_observer_enabled=" + (
                 "1\n" if inventory_direct_reach_support_observer_enabled else "0\n")
+        if native_path_commit_observer_enabled is not None:
+            canonical_text += "native_path_commit_observer_enabled=" + (
+                "1\n" if native_path_commit_observer_enabled else "0\n")
         assert requested_roster is not None
         canonical_text += "".join(f"roster={entry['identity_fragment']}\n" for entry in requested_roster)
     canonical = canonical_text.encode("utf-8")
@@ -3039,6 +3043,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     direct_actor_move_toward_timeout_enabled = None
     target_selection_observer_enabled = None
     inventory_direct_reach_support_observer_enabled = None
+    native_path_commit_observer_enabled = None
     if schema == MANIFEST_SCHEMA_V2:
         bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
         requested_roster = _validate_requested_roster(raw.get("requested_roster"),
@@ -3094,6 +3099,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             inventory_direct_reach_support_observer_enabled = _boolean(
                 raw.get("inventory_direct_reach_support_observer_enabled"),
                 "manifest.inventory_direct_reach_support_observer_enabled")
+        if "native_path_commit_observer_enabled" in raw:
+            native_path_commit_observer_enabled = _boolean(
+                raw.get("native_path_commit_observer_enabled"),
+                "manifest.native_path_commit_observer_enabled")
     expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count,
                              requested_roster, harmful_zone_escape_enabled,
                              walking_preflight_positive_dps_veto_enabled,
@@ -3105,7 +3114,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              targetless_move_to_timeout_enabled,
                              direct_actor_move_toward_timeout_enabled,
                              target_selection_observer_enabled,
-                             inventory_direct_reach_support_observer_enabled)
+                             inventory_direct_reach_support_observer_enabled,
+                             native_path_commit_observer_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -3134,6 +3144,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "target_selection_observer_enabled": target_selection_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             inventory_direct_reach_support_observer_enabled),
+        "native_path_commit_observer_enabled": native_path_commit_observer_enabled,
     }
 
 
@@ -4197,6 +4208,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["direct_actor_move_toward_timeout_enabled"] = _boolean(
             config.get("direct_actor_move_toward_timeout_enabled"),
             "summary.config.direct_actor_move_toward_timeout_enabled")
+    if manifest["native_path_commit_observer_enabled"] is not None:
+        comparisons["native_path_commit_observer_enabled"] = _boolean(
+            config.get("native_path_commit_observer_enabled"),
+            "summary.config.native_path_commit_observer_enabled")
     requested_roster = None
     actual_roster = None
     if expected_schema == SUMMARY_SCHEMA_V2:
@@ -4975,6 +4990,8 @@ def analyze_run(path: Path) -> dict[str, Any]:
                 manifest["targetless_move_to_timeout_enabled"]),
             "direct_actor_move_toward_timeout_enabled": (
                 manifest["direct_actor_move_toward_timeout_enabled"]),
+            "native_path_commit_observer_enabled": (
+                manifest["native_path_commit_observer_enabled"]),
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),
             "suicides_exact_semantics": manifest["suicides_exact_semantics"],

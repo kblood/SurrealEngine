@@ -1204,7 +1204,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "target_selection_observer_enabled="
 		<< (config.IsTargetSelectionObserverEnabled() ? "1" : "0") << '\n'
 		<< "inventory_direct_reach_support_observer_enabled="
-		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "1" : "0") << '\n';
+		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "1" : "0") << '\n'
+		<< "native_path_commit_observer_enabled="
+		<< (config.IsNativePathCommitObserverEnabled() ? "1" : "0") << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
 		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
@@ -1252,6 +1254,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsTargetSelectionObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"inventory_direct_reach_support_observer_enabled\": "
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"native_path_commit_observer_enabled\": "
+		<< (config.IsNativePathCommitObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";
@@ -1286,6 +1290,8 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 	}
 	if (event.InventoryDirectReachSupportObserverRequested)
 		out << ",\"inventory_direct_reach_support_observer\":{\"requested\":true,\"status\":\"active\"}";
+	if (event.NativePathCommitObserverRequested)
+		out << ",\"native_path_commit_observer\":{\"requested\":true,\"status\":\"active\"}";
 	out << ",\"bots\":[";
 	for (size_t index = 0; index < event.Bots.size(); index++)
 	{

@@ -1223,6 +1223,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
+		SurrealEngine/UObject/PawnInventoryReachability.cpp
 		SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
 		SurrealEngine/UObject/PawnWalkingHitWallDispatch.cpp
 		SurrealEngine/UObject/PawnFallingParityRealizedTrace.cpp

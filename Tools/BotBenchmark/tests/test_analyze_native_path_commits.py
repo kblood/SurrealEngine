@@ -32,7 +32,8 @@ def catalog() -> dict:
 
 def write_run(root: Path, bad_index: bool = False) -> None:
     manifest, summary, witness = CAP_FIXTURE.run_documents()
-    manifest.update(url="DM-Test?Game=Botpack.DeathMatchPlus", config_id="cfg")
+    manifest.update(url="DM-Test?Game=Botpack.DeathMatchPlus", config_id="cfg",
+                    native_path_commit_observer_enabled=True)
     CAP_FIXTURE.write_run(root, manifest, summary, witness)
     edge = {"reachspec_index": 4 if bad_index else 0, "start_node": "PathNode0", "end_node": "PathNode1",
         "distance": 1, "collision_radius": 40, "collision_height": 40, "reach_flags_raw": 1,
