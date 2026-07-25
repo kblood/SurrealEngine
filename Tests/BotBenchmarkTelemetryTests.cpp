@@ -694,6 +694,8 @@ int main()
 	waterEgress.Entry.Destination = vec3(10.0f, 11.0f, 12.0f);
 	waterEgress.Entry.ExternalImpulseNavigationCommitKnown = true;
 	waterEgress.Entry.ExternalImpulseNavigationCommitLifeId = 3;
+	waterEgress.Entry.ExternalImpulseMovementCommandActive = true;
+	waterEgress.Entry.ExternalImpulseMovementCommandToken = 11;
 	waterEgress.Entry.ExternalImpulseMoveTargetName = "PathNode144";
 	waterEgress.Entry.ExternalImpulseMoveTargetNavigation = true;
 	waterEgress.Entry.ExternalImpulseRouteHeadKnown = true;
@@ -728,7 +730,7 @@ int main()
 		return Fail("hazard-water egress identity serialization was incomplete");
 	if (waterEgressEvent.find("\"candidate_known\":true,\"candidate_name\":\"PathNode12\"") == std::string::npos)
 		return Fail("hazard-water egress candidate serialization was incomplete");
-	if (waterEgressEvent.find("\"falling_launch_snapshot_known\":true,\"falling_launch_life_id\":\"3\",\"falling_launch_move_target_name\":\"PathNode144\",\"falling_launch_move_target_navigation\":true,\"falling_launch_route_head_known\":true,\"falling_launch_route_head_name\":\"PathNode143\"") == std::string::npos)
+	if (waterEgressEvent.find("\"falling_launch_snapshot_known\":true,\"falling_launch_life_id\":\"3\",\"falling_launch_movement_command_active\":true,\"falling_launch_movement_command_token\":\"11\",\"falling_launch_move_target_name\":\"PathNode144\",\"falling_launch_move_target_navigation\":true,\"falling_launch_route_head_known\":true,\"falling_launch_route_head_name\":\"PathNode143\"") == std::string::npos)
 		return Fail("hazard-water egress falling-launch provenance serialization was incomplete");
 	if (waterEgressEvent.find("\"falling_launch_forecast_known\":true,\"falling_launch_forecast_harmful\":true") == std::string::npos)
 		return Fail("hazard-water egress launch-forecast serialization was incomplete");

@@ -525,6 +525,10 @@ namespace
 			<< (entry.ExternalImpulseNavigationCommitKnown ? "true" : "false")
 			<< ",\"falling_launch_life_id\":\""
 			<< entry.ExternalImpulseNavigationCommitLifeId
+			<< "\",\"falling_launch_movement_command_active\":"
+			<< (entry.ExternalImpulseMovementCommandActive ? "true" : "false")
+			<< ",\"falling_launch_movement_command_token\":\""
+			<< entry.ExternalImpulseMovementCommandToken
 			<< "\",\"falling_launch_move_target_name\":"
 			<< JsonString(entry.ExternalImpulseMoveTargetName)
 			<< ",\"falling_launch_move_target_navigation\":"

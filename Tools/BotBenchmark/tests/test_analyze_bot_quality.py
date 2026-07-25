@@ -637,6 +637,8 @@ class BotQualityAnalysisTests(unittest.TestCase):
             current_diagnostic.update({
                 "falling_launch_snapshot_known": True,
                 "falling_launch_life_id": "1",
+                "falling_launch_movement_command_active": True,
+                "falling_launch_movement_command_token": "7",
                 "falling_launch_move_target_name": "PathNode142",
                 "falling_launch_move_target_navigation": True,
                 "falling_launch_route_head_known": True,

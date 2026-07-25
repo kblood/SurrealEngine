@@ -1498,6 +1498,7 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
     }
     falling_launch_snapshot_fields = {
         "falling_launch_snapshot_known", "falling_launch_life_id",
+        "falling_launch_movement_command_active", "falling_launch_movement_command_token",
         "falling_launch_move_target_name", "falling_launch_move_target_navigation",
         "falling_launch_route_head_known", "falling_launch_route_head_name",
         "falling_launch_location", "falling_launch_velocity",
@@ -1634,6 +1635,12 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         falling_launch_life_id = _integer(
             fields.get("falling_launch_life_id"), f"{context}.falling_launch_life_id",
             minimum=0)
+        falling_launch_movement_command_active = _boolean(
+            fields.get("falling_launch_movement_command_active"),
+            f"{context}.falling_launch_movement_command_active")
+        falling_launch_movement_command_token = _integer(
+            fields.get("falling_launch_movement_command_token"),
+            f"{context}.falling_launch_movement_command_token", minimum=0)
         falling_launch_move_target_name = _string(
             fields, "falling_launch_move_target_name", context)
         falling_launch_move_target_navigation = _boolean(
@@ -1688,6 +1695,8 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
             f"{context}.external_impulse_commit_velocity")
         falling_launch_snapshot_known = external_impulse_navigation_commit_known
         falling_launch_life_id = 0
+        falling_launch_movement_command_active = False
+        falling_launch_movement_command_token = 0
         falling_launch_move_target_name = external_impulse_move_target_name
         falling_launch_move_target_navigation = external_impulse_move_target_navigation
         falling_launch_route_head_known = external_impulse_route_head_known
@@ -1706,6 +1715,8 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         external_impulse_commit_velocity = {"x": 0.0, "y": 0.0, "z": 0.0}
         falling_launch_snapshot_known = False
         falling_launch_life_id = 0
+        falling_launch_movement_command_active = False
+        falling_launch_movement_command_token = 0
         falling_launch_move_target_name = ""
         falling_launch_move_target_navigation = False
         falling_launch_route_head_known = False
@@ -1746,7 +1757,8 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         if falling_launch_snapshot_is_current and falling_launch_life_id != _integer(
                 fields.get("life_id"), f"{context}.life_id", minimum=1):
             raise QualityError(f"{context}: falling-launch snapshot must belong to the water episode life")
-    elif falling_launch_life_id != 0 or falling_launch_move_target_name \
+    elif falling_launch_life_id != 0 or falling_launch_movement_command_active \
+            or falling_launch_movement_command_token != 0 or falling_launch_move_target_name \
             or falling_launch_move_target_navigation or falling_launch_route_head_known \
             or falling_launch_route_head_name \
             or falling_launch_location != {"x": 0.0, "y": 0.0, "z": 0.0} \
@@ -1755,6 +1767,9 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         raise QualityError(f"{context}: unknown falling-launch snapshot must not claim provenance")
     if falling_launch_move_target_navigation and not falling_launch_move_target_name:
         raise QualityError(f"{context}: falling-launch navigation target requires a target name")
+    if falling_launch_movement_command_active \
+            != (falling_launch_movement_command_token != 0):
+        raise QualityError(f"{context}: falling-launch command availability must match its token")
     if falling_launch_route_head_known != bool(falling_launch_route_head_name):
         raise QualityError(f"{context}: falling-launch route-head availability must match its name")
     if falling_launch_forecast_harmful and not falling_launch_forecast_known:
@@ -1813,6 +1828,8 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
                                                   f"{context}.entry_destination"),
         "falling_launch_snapshot_known": falling_launch_snapshot_known,
         "falling_launch_life_id": falling_launch_life_id,
+        "falling_launch_movement_command_active": falling_launch_movement_command_active,
+        "falling_launch_movement_command_token": falling_launch_movement_command_token,
         "falling_launch_move_target_name": falling_launch_move_target_name,
         "falling_launch_move_target_navigation": falling_launch_move_target_navigation,
         "falling_launch_route_head_known": falling_launch_route_head_known,

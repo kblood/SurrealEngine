@@ -3100,3 +3100,28 @@ life IDs rather than inherited data. Those targets are contemporaneous launch
 context, not proven cause or a safe alternative. The next observer must bind
 the same-life movement-command token, latent command form, and a pre-launch
 safe alternative before a game-specific intervention can be tested.
+
+## Iteration 121: falling-launch command-token audit
+
+The same-life falling-launch snapshot now retains the exact monotonic native
+movement-command token only when a stock movement latent action is active at
+the launch boundary. It rejects a deleted `MoveToward` target and emits a
+zero token otherwise. The token is issued only by the engine's native
+`MoveTo`, `MoveToward`, `StrafeTo`, or `StrafeFacing` entry points, so paired
+with the launch life it distinguishes a live movement command from a merely
+retained `MoveTarget` pointer. This remains strictly observer-only.
+
+The 7,200-tick no-UCC Unreal Gold DeathFan audit (same seed, difficulty, and
+observer-only configuration as iteration 120) passes the quality analyzer at
+`qa/runs/2026-07-26/falling-launch-command-audit-v1/` and
+`qa/reports/bot-ai/falling-launch-command-audit-v1.json`. Of the nine recorded
+`death_before_exit` harmful-water episodes, six have a nonzero same-life launch
+command token and three do not. Crucially, the first fatal `SuperHealth0` /
+`InventorySpot23` context has token zero: its retained target is not an active
+movement command at the launch boundary. The active-token deaths span ammo,
+path-node, and lift contexts, so no single target class explains the failure.
+
+This rules out using target name, route head, or a generic water entry as a
+behavior trigger. The next bounded observer must record the exact active
+latent command form and its immutable issue-time target/destination, then test
+only a same-life command whose pre-launch path has a certified safe alternative.

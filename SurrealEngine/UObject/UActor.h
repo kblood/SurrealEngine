@@ -2634,6 +2634,8 @@ private:
 		bool Active = false;
 		bool FallingPhaseActive = false;
 		uint64_t LifeId = 0;
+		bool MovementCommandActive = false;
+		uint64_t MovementCommandToken = 0;
 		std::string MoveTargetName;
 		bool MoveTargetNavigation = false;
 		bool RouteHeadKnown = false;

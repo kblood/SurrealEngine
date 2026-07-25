@@ -45,6 +45,8 @@ namespace PawnMovement
 		// is not evidence that an external impulse caused that phase.
 		bool ExternalImpulseNavigationCommitKnown = false;
 		uint64_t ExternalImpulseNavigationCommitLifeId = 0;
+		bool ExternalImpulseMovementCommandActive = false;
+		uint64_t ExternalImpulseMovementCommandToken = 0;
 		std::string ExternalImpulseMoveTargetName;
 		bool ExternalImpulseMoveTargetNavigation = false;
 		bool ExternalImpulseRouteHeadKnown = false;

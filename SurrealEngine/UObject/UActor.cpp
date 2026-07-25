@@ -6009,6 +6009,10 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 	{
 		entry.ExternalImpulseNavigationCommitLifeId =
 			ExternalImpulseNavigationCommit.LifeId;
+		entry.ExternalImpulseMovementCommandActive =
+			ExternalImpulseNavigationCommit.MovementCommandActive;
+		entry.ExternalImpulseMovementCommandToken =
+			ExternalImpulseNavigationCommit.MovementCommandToken;
 		entry.ExternalImpulseMoveTargetName = ExternalImpulseNavigationCommit.MoveTargetName;
 		entry.ExternalImpulseMoveTargetNavigation =
 			ExternalImpulseNavigationCommit.MoveTargetNavigation;
@@ -7550,6 +7554,15 @@ void UPawn::CaptureExternalImpulseNavigationCommit()
 	}
 	ExternalImpulseNavigationCommit.Active = true;
 	ExternalImpulseNavigationCommit.LifeId = HazardSwimEgressLifeId;
+	const LatentRunState latentState = StateFrame
+		? StateFrame->LatentState : LatentRunState::Continue;
+	ExternalImpulseNavigationCommit.MovementCommandActive =
+		FallingHazardMovementCommandToken != 0 && IsMovementLatentState(latentState)
+		&& !(latentState == LatentRunState::MoveToward
+			&& (!MoveTarget() || MoveTarget()->bDeleteMe()));
+	ExternalImpulseNavigationCommit.MovementCommandToken =
+		ExternalImpulseNavigationCommit.MovementCommandActive
+			? FallingHazardMovementCommandToken : 0;
 	ExternalImpulseNavigationCommit.Location = Location();
 	ExternalImpulseNavigationCommit.Velocity = Velocity();
 	PawnMovement::FallingHazardForecastInput forecastInput;
