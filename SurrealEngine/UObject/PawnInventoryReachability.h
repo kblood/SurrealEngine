@@ -6,7 +6,7 @@
 namespace PawnMovement
 {
 	constexpr float MaximumInventoryDirectReachDistance = 1000.0f;
-	constexpr float MaximumInventoryHazardScanDepth = 512.0f;
+	constexpr float MaximumInventoryHazardScanDepth = 2048.0f;
 
 	struct InventoryReachabilityCorridorPlan
 	{
@@ -64,6 +64,8 @@ namespace PawnMovement
 		float scanDepth, float maximumSpacing, int maximumSamples);
 	bool ShouldPreflightInventoryDirectReach(bool stockAutonomousPlayerBot,
 		bool walking, bool inventoryTarget, bool ammoTarget, bool startingInHarmfulPain);
+	bool ShouldPreflightInventoryMarkerDirectReach(bool stockAutonomousPlayerBot,
+		bool walking, bool inventoryMarker, bool markedAmmoTarget, bool startingInHarmfulPain);
 	bool InventoryReachabilitySampleObservedUnsafe(
 		const InventoryReachabilitySample& sample);
 	InventoryReachabilityDecision EvaluateInventoryReachabilitySample(

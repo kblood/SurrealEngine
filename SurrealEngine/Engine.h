@@ -202,6 +202,14 @@ public:
 	{
 		botBenchmarkInventoryDirectReachSupportObserverEnabled = enabled;
 	}
+	bool IsBotBenchmarkInventoryMarkerDirectReachSafetyEnabled() const
+	{
+		return botBenchmarkInventoryMarkerDirectReachSafetyEnabled;
+	}
+	void SetBotBenchmarkInventoryMarkerDirectReachSafetyEnabled(bool enabled)
+	{
+		botBenchmarkInventoryMarkerDirectReachSafetyEnabled = enabled;
+	}
 	bool IsBotBenchmarkNativePathCommitObserverEnabled() const
 	{
 		return botBenchmarkNativePathCommitObserverEnabled;
@@ -399,6 +407,7 @@ private:
 	bool botBenchmarkTargetlessMoveToTimeoutEnabled = false;
 	bool botBenchmarkDirectActorMoveTowardTimeoutEnabled = false;
 	bool botBenchmarkInventoryDirectReachSupportObserverEnabled = false;
+	bool botBenchmarkInventoryMarkerDirectReachSafetyEnabled = false;
 	bool botBenchmarkNativePathCommitObserverEnabled = false;
 	bool botBenchmarkDirectReachCommandObserverEnabled = false;
 	ViewFamily CreateDesktopViewFamily() const;

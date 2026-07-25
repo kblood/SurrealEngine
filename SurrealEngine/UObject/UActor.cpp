@@ -75,6 +75,10 @@ namespace
 	constexpr float walkingStepMaximumDelta = 96.0f;
 	constexpr float walkingStepMaximumFallSegmentDelta = 4096.0f;
 	constexpr float walkingStepMaximumForecastDrop = 4096.0f;
+	constexpr float inventoryMarkerReachabilityCorridorSpacing = 64.0f;
+	constexpr int inventoryMarkerReachabilityMaximumCorridorSamples = 16;
+	constexpr float inventoryMarkerReachabilityHazardSpacing = 64.0f;
+	constexpr int inventoryMarkerReachabilityMaximumHazardSamples = 32;
 
 	std::vector<const void*> LiftExitLandingAdjacency(
 		ULiftExit* liftExit, const Array<LevelReachSpec>& reachSpecs)
@@ -106,9 +110,84 @@ namespace
 		return adjacent;
 	}
 
+	bool IsStockAutonomousPlayerBot(UPawn* pawn);
+
 	bool IsHarmfulPainZone(UPawn* pawn, UZoneInfo* zone)
 	{
 		return zone && zone->bPainZone() && zone->DamageType() != pawn->ReducedDamageType();
+	}
+
+	bool RejectUnsafeDirectInventoryMarkerReach(UPawn* pawn, UActor* target,
+		const vec3& start, float gravityDirection)
+	{
+		UInventorySpot* marker = UObject::TryCast<UInventorySpot>(target);
+		UInventory* markedItem = marker ? marker->markedItem() : nullptr;
+		if (!pawn || !target || !markedItem || !PawnMovement::ShouldPreflightInventoryMarkerDirectReach(
+				IsStockAutonomousPlayerBot(pawn), pawn->Physics() == PHYS_Walking, marker != nullptr,
+				markedItem->IsA("Ammo"), IsHarmfulPainZone(pawn, pawn->FootRegion().Zone)))
+		{
+			return false;
+		}
+
+		const vec3 corridor = target->Location() - start;
+		const PawnMovement::InventoryReachabilityCorridorPlan corridorPlan =
+			PawnMovement::PlanInventoryReachabilityCorridor(length(corridor),
+				inventoryMarkerReachabilityCorridorSpacing,
+				inventoryMarkerReachabilityMaximumCorridorSamples);
+		const PawnMovement::InventoryReachabilityCorridorPlan hazardPlan =
+			PawnMovement::PlanInventoryHazardScan(PawnMovement::MaximumInventoryHazardScanDepth,
+				inventoryMarkerReachabilityHazardSpacing,
+				inventoryMarkerReachabilityMaximumHazardSamples);
+		if (!corridorPlan.Valid || !hazardPlan.Valid || !pawn->XLevel()->Model)
+			return false;
+
+		const vec3 immediateSupportDelta(0.0f, 0.0f,
+			gravityDirection * pawn->MaxStepHeight() * stepDownDeltaFactor);
+		for (int corridorIndex = 1; corridorIndex <= corridorPlan.SampleCount; corridorIndex++)
+		{
+			const float progress = static_cast<float>(corridorIndex)
+				/ static_cast<float>(corridorPlan.SampleCount);
+			const vec3 samplePoint = start + corridor * progress;
+			const CollisionHit support = pawn->ProbeMoveCollision(samplePoint, immediateSupportDelta, true);
+			const bool finiteSupport = std::isfinite(support.Fraction)
+				&& support.Fraction >= 0.0f && support.Fraction <= 1.0f
+				&& std::isfinite(support.Normal.z);
+			const bool walkableSupport = finiteSupport && support.Fraction < 1.0f
+				&& support.Actor == pawn->Level()
+				&& support.Normal.z * -gravityDirection >= walkingStepWalkableNormalZ;
+			UZoneInfo* footZone = pawn->XLevel()->Model->FindRegion(samplePoint
+				+ vec3(0.0f, 0.0f, gravityDirection * pawn->CollisionHeight()), pawn->Level()).Zone;
+			PawnMovement::InventoryReachabilitySample sample = {
+				.SweepProgress = progress,
+				.WalkableSupport = walkableSupport,
+				.HarmfulFootZone = IsHarmfulPainZone(pawn, footZone),
+				.HarmfulBelow = false,
+				.Valid = finiteSupport && footZone != nullptr
+			};
+			if (PawnMovement::EvaluateInventoryReachabilitySample(sample)
+				== PawnMovement::InventoryReachabilityDecision::Reject)
+			{
+				return true;
+			}
+			if (walkableSupport)
+				continue;
+
+			for (int hazardIndex = 1; hazardIndex <= hazardPlan.SampleCount; hazardIndex++)
+			{
+				const vec3 below = samplePoint + vec3(0.0f, 0.0f, gravityDirection
+					* hazardPlan.SampleSpacing * static_cast<float>(hazardIndex));
+				UZoneInfo* belowZone = pawn->XLevel()->Model->FindRegion(below, pawn->Level()).Zone;
+				if (!IsHarmfulPainZone(pawn, belowZone))
+					continue;
+				sample.HarmfulBelow = true;
+				if (PawnMovement::EvaluateInventoryReachabilitySample(sample)
+					== PawnMovement::InventoryReachabilityDecision::Reject)
+				{
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	bool IsExactHarmfulZone(UZoneInfo* zone)
@@ -4165,6 +4244,13 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 				.HarmfulBelow = sample.HarmfulBelow,
 				.Outcome = PawnMovement::ClassifyInventoryDirectReachSupport(sample)
 			});
+		}
+		if (reached && engine->IsBotBenchmarkInventoryMarkerDirectReachSafetyEnabled()
+			&& RejectUnsafeDirectInventoryMarkerReach(this, anActor, oldLocation,
+			gravityDirection))
+		{
+			InventoryMarkerDirectReachRejectCountValue++;
+			reached = false;
 		}
 		if (observeDirectReachCommand)
 		{

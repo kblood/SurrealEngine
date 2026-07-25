@@ -58,12 +58,12 @@ static void TestCorridorPlanFailsOpenWhenItCannotHonorItsBounds()
 
 static void TestHazardScanPlanIsSeparatelyBounded()
 {
-	const auto plan = PawnMovement::PlanInventoryHazardScan(512.0f, 25.0f, 32);
-	Check(plan.Valid && plan.SampleCount == 21, "the full hazard scan fits within its sample bound");
-	Check(plan.SampleSpacing <= 25.0f, "hazard scan spacing does not exceed MaxStepHeight");
-	Check(!PawnMovement::PlanInventoryHazardScan(512.1f, 25.0f, 32).Valid,
-		"hazard scans deeper than 512 units fail open");
-	Check(!PawnMovement::PlanInventoryHazardScan(512.0f, 10.0f, 32).Valid,
+	const auto plan = PawnMovement::PlanInventoryHazardScan(2048.0f, 64.0f, 32);
+	Check(plan.Valid && plan.SampleCount == 32, "the full hazard scan fits within its sample bound");
+	Check(plan.SampleSpacing <= 64.0f, "hazard scan spacing does not exceed its requested bound");
+	Check(!PawnMovement::PlanInventoryHazardScan(2048.1f, 64.0f, 32).Valid,
+		"hazard scans deeper than 2048 units fail open");
+	Check(!PawnMovement::PlanInventoryHazardScan(2048.0f, 32.0f, 32).Valid,
 		"a hazard scan that exhausts its sample budget fails open");
 }
 
@@ -82,6 +82,16 @@ static void TestDirectReachPreflightIsAmmoOnly()
 		"non-walking movement preserves stock ActorReachable behavior");
 	Check(!ShouldPreflightInventoryDirectReach(true, true, true, true, true),
 		"bots already in harmful pain preserve their escape behavior");
+	Check(PawnMovement::ShouldPreflightInventoryMarkerDirectReach(true, true, true, true, false),
+		"stock walking bots preflight direct ammo inventory markers from a safe zone");
+	Check(!PawnMovement::ShouldPreflightInventoryMarkerDirectReach(true, true, true, false, false),
+		"non-ammo inventory markers preserve stock ActorReachable behavior");
+	Check(!PawnMovement::ShouldPreflightInventoryMarkerDirectReach(false, true, true, true, false),
+		"human and non-stock pawns preserve marker reachability behavior");
+	Check(!PawnMovement::ShouldPreflightInventoryMarkerDirectReach(true, false, true, true, false),
+		"non-walking marker reachability preserves stock behavior");
+	Check(!PawnMovement::ShouldPreflightInventoryMarkerDirectReach(true, true, true, true, true),
+		"bots in harmful pain preserve their marker escape behavior");
 }
 
 static void TestSupportedSamplesContinue()

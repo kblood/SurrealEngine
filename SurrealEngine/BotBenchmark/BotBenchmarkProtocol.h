@@ -41,6 +41,7 @@ public:
 		std::optional<std::string> directActorMoveTowardTimeout = {},
 		std::optional<std::string> targetSelectionObserver = {},
 		std::optional<std::string> inventoryDirectReachSupportObserver = {},
+		std::optional<std::string> inventoryMarkerDirectReachSafety = {},
 		std::optional<std::string> nativePathCommitObserver = {},
 		std::optional<std::string> directReachCommandObserver = {});
 
@@ -71,6 +72,10 @@ public:
 	{
 		return InventoryDirectReachSupportObserverEnabled;
 	}
+	bool IsInventoryMarkerDirectReachSafetyEnabled() const
+	{
+		return InventoryMarkerDirectReachSafetyEnabled;
+	}
 	bool IsNativePathCommitObserverEnabled() const { return NativePathCommitObserverEnabled; }
 	bool IsDirectReachCommandObserverEnabled() const { return DirectReachCommandObserverEnabled; }
 
@@ -83,7 +88,7 @@ private:
 		bool fallingHazardRecoveryLiveEnabled, bool targetlessMoveToTimeoutEnabled,
 		bool directActorMoveTowardTimeoutEnabled, bool targetSelectionObserverEnabled,
 		bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
-		bool directReachCommandObserverEnabled);
+		bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled);
 
 	std::string URL;
 	std::string OutputDirectory;
@@ -103,6 +108,7 @@ private:
 	bool DirectActorMoveTowardTimeoutEnabled = false;
 	bool TargetSelectionObserverEnabled = false;
 	bool InventoryDirectReachSupportObserverEnabled = false;
+	bool InventoryMarkerDirectReachSafetyEnabled = false;
 	bool NativePathCommitObserverEnabled = false;
 	bool DirectReachCommandObserverEnabled = false;
 };

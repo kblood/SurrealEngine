@@ -3227,3 +3227,40 @@ fixture that the direct endpoint is rejected and the graph first hop is
 selected, then run the normal deterministic Unreal and UT quality anchors.
 The previous broad corridor experiment remains removed; no generic movement
 steering or post-fall recovery policy is being restored.
+
+## Iteration 125: gated inventory-marker safety A/B
+
+The exact DeathFan fixture was extended from diagnosis to a fail-closed
+candidate correction. For a stock walking bot and an `InventorySpot` whose
+marked item is ammo, the candidate samples the direct marker corridor at a
+bounded 64-unit spacing. Only an unsupported sample with a positively observed
+harmful pain zone in a bounded 2,048-unit vertical scan rejects the direct
+endpoint. Missing collision/zone evidence, non-ammo markers, non-stock pawns,
+non-walking movement, and bots already in harmful pain preserve stock behavior.
+The new `inventory_marker_direct_reach_rejects_exact` counter is emitted with
+the existing inventory direct-reach observer evidence.
+
+The fixture is now schema v2 and passes at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v2-counter/`: one recorded
+DeathFan marker rejection, a non-marker graph first hop (`LiftExit0`) selected
+for the requested marker, the catalog-backed fallback route present, and a
+safe non-ammo inventory pickup still directly reachable. The fixture also
+records that the first harmful zone lies 1,728 units below the direct corridor;
+the former 512-unit observational scan could not have witnessed this failure.
+
+The correction is intentionally benchmark-gated by
+`--botbench-inventory-marker-direct-reach-safety=1` and defaults to off, so
+ordinary gameplay remains stock while it is evaluated. The deterministic
+same-binary, no-UCC Unreal Gold DeathFan A/B at
+`qa/runs/2026-07-26/inventory-marker-reachability-ab-v2/` gives exact counter
+evidence of 0 stock versus 186 safety rejections (88 for pri:1 and 98 for
+pri:2). It does **not** improve the aggregate outcome: both arms end
+K1/D11/S10 with ten environmental deaths. The safety arm merely redistributes
+the deaths (pri:1 D8/S7; pri:2 D3/S3), so it cannot be promoted or treated as
+a bot-quality improvement.
+
+Keep the default-off gate, fixture, and exact counter only as research
+infrastructure. The next candidate must use the retained same-life command
+and route context to select a still narrower causal class and must show an
+aggregate survival/combat improvement in repeated Unreal A/B runs before UT
+qualification or a default-on merge is considered.

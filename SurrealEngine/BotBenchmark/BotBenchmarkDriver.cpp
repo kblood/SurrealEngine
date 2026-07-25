@@ -88,6 +88,8 @@ namespace
 				Config.IsDirectActorMoveTowardTimeoutEnabled());
 			EngineRef.SetBotBenchmarkInventoryDirectReachSupportObserverEnabled(
 				Config.IsInventoryDirectReachSupportObserverEnabled());
+			EngineRef.SetBotBenchmarkInventoryMarkerDirectReachSafetyEnabled(
+				Config.IsInventoryMarkerDirectReachSafetyEnabled());
 			EngineRef.SetBotBenchmarkNativePathCommitObserverEnabled(
 				Config.IsNativePathCommitObserverEnabled());
 			EngineRef.SetBotBenchmarkDirectReachCommandObserverEnabled(
@@ -1103,6 +1105,8 @@ namespace
 				pawn->InventoryDirectReachSupportUnavailableCount();
 			counters.InventoryDirectReachSupportDiagnosticOverflows =
 				pawn->InventoryDirectReachSupportDiagnosticOverflowCount();
+			counters.InventoryMarkerDirectReachRejects =
+				pawn->InventoryMarkerDirectReachRejectCount();
 			counters.FallingParityRealizedEpisodes = pawn->FallingParityRealizedEpisodeCount();
 			counters.FallingParityRealizedSteps = pawn->FallingParityRealizedStepCount();
 			counters.FallingParityRealizedMatchedSteps = pawn->FallingParityRealizedMatchedStepCount();
@@ -2766,6 +2770,8 @@ namespace
 					native.InventoryDirectReachSupportUnavailable;
 				bot.InventoryDirectReachSupportDiagnosticOverflowsExact =
 					native.InventoryDirectReachSupportDiagnosticOverflows;
+				bot.InventoryMarkerDirectReachRejectsExact =
+					native.InventoryMarkerDirectReachRejects;
 				bot.FallingParityRealizedEpisodesExact = native.FallingParityRealizedEpisodes;
 				bot.FallingParityRealizedStepsExact = native.FallingParityRealizedSteps;
 				bot.FallingParityRealizedMatchedStepsExact = native.FallingParityRealizedMatchedSteps;
@@ -3163,6 +3169,7 @@ namespace
 			OptionalCommandLineArg("--botbench-direct-actor-move-toward-timeout"),
 			OptionalCommandLineArg("--botbench-target-selection-observer"),
 			OptionalCommandLineArg("--botbench-inventory-direct-reach-support-observer"),
+			OptionalCommandLineArg("--botbench-inventory-marker-direct-reach-safety"),
 			OptionalCommandLineArg("--botbench-native-path-commit-observer"),
 			OptionalCommandLineArg("--botbench-direct-reach-command-observer"));
 	}

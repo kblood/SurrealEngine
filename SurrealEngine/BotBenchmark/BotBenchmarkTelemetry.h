@@ -129,6 +129,7 @@ struct BotBenchmarkBotState
 	uint64_t InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulExact = 0;
 	uint64_t InventoryDirectReachSupportUnavailableExact = 0;
 	uint64_t InventoryDirectReachSupportDiagnosticOverflowsExact = 0;
+	uint64_t InventoryMarkerDirectReachRejectsExact = 0;
 	std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
 		InventoryDirectReachSupportDiagnostics;
 	uint64_t DirectReachCommandObservationsExact = 0;

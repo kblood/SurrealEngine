@@ -152,6 +152,7 @@ namespace BotBenchmarkDriverDetail
 		uint64_t InventoryDirectReachSupportUnsafeUnsupportedOverHarmful = 0;
 		uint64_t InventoryDirectReachSupportUnavailable = 0;
 		uint64_t InventoryDirectReachSupportDiagnosticOverflows = 0;
+		uint64_t InventoryMarkerDirectReachRejects = 0;
 		uint64_t FallingParityRealizedEpisodes = 0;
 		uint64_t FallingParityRealizedSteps = 0;
 		uint64_t FallingParityRealizedMatchedSteps = 0;
@@ -593,6 +594,9 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.InventoryDirectReachSupportDiagnosticOverflows,
 				Previous.InventoryDirectReachSupportDiagnosticOverflows,
 				totals.InventoryDirectReachSupportDiagnosticOverflows);
+			AccumulateCounter(current.InventoryMarkerDirectReachRejects,
+				Previous.InventoryMarkerDirectReachRejects,
+				totals.InventoryMarkerDirectReachRejects);
 			AccumulateCounter(current.FallingParityRealizedEpisodes,
 				Previous.FallingParityRealizedEpisodes,
 				totals.FallingParityRealizedEpisodes);

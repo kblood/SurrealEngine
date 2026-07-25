@@ -3012,6 +3012,7 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                direct_actor_move_toward_timeout_enabled: bool | None = None,
                target_selection_observer_enabled: bool | None = None,
                inventory_direct_reach_support_observer_enabled: bool | None = None,
+               inventory_marker_direct_reach_safety_enabled: bool | None = None,
                native_path_commit_observer_enabled: bool | None = None,
                direct_reach_command_observer_enabled: bool | None = None) -> str:
     canonical_text = (
@@ -3053,6 +3054,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if inventory_direct_reach_support_observer_enabled is not None:
             canonical_text += "inventory_direct_reach_support_observer_enabled=" + (
                 "1\n" if inventory_direct_reach_support_observer_enabled else "0\n")
+        if inventory_marker_direct_reach_safety_enabled is not None:
+            canonical_text += "inventory_marker_direct_reach_safety_enabled=" + (
+                "1\n" if inventory_marker_direct_reach_safety_enabled else "0\n")
         if native_path_commit_observer_enabled is not None:
             canonical_text += "native_path_commit_observer_enabled=" + (
                 "1\n" if native_path_commit_observer_enabled else "0\n")
@@ -3192,6 +3196,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     direct_actor_move_toward_timeout_enabled = None
     target_selection_observer_enabled = None
     inventory_direct_reach_support_observer_enabled = None
+    inventory_marker_direct_reach_safety_enabled = None
     native_path_commit_observer_enabled = None
     direct_reach_command_observer_enabled = None
     if schema == MANIFEST_SCHEMA_V2:
@@ -3249,6 +3254,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             inventory_direct_reach_support_observer_enabled = _boolean(
                 raw.get("inventory_direct_reach_support_observer_enabled"),
                 "manifest.inventory_direct_reach_support_observer_enabled")
+        if "inventory_marker_direct_reach_safety_enabled" in raw:
+            inventory_marker_direct_reach_safety_enabled = _boolean(
+                raw.get("inventory_marker_direct_reach_safety_enabled"),
+                "manifest.inventory_marker_direct_reach_safety_enabled")
         if "native_path_commit_observer_enabled" in raw:
             native_path_commit_observer_enabled = _boolean(
                 raw.get("native_path_commit_observer_enabled"),
@@ -3269,6 +3278,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              direct_actor_move_toward_timeout_enabled,
                              target_selection_observer_enabled,
                              inventory_direct_reach_support_observer_enabled,
+                             inventory_marker_direct_reach_safety_enabled,
                              native_path_commit_observer_enabled,
                              direct_reach_command_observer_enabled)
     if config_id != expected_id:
@@ -3299,6 +3309,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "target_selection_observer_enabled": target_selection_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             inventory_direct_reach_support_observer_enabled),
+        "inventory_marker_direct_reach_safety_enabled": (
+            inventory_marker_direct_reach_safety_enabled),
         "native_path_commit_observer_enabled": native_path_commit_observer_enabled,
         "direct_reach_command_observer_enabled": direct_reach_command_observer_enabled,
     }

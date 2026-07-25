@@ -52,6 +52,13 @@ namespace PawnMovement
 			&& !startingInHarmfulPain;
 	}
 
+	bool ShouldPreflightInventoryMarkerDirectReach(bool stockAutonomousPlayerBot,
+		bool walking, bool inventoryMarker, bool markedAmmoTarget, bool startingInHarmfulPain)
+	{
+		return stockAutonomousPlayerBot && walking && inventoryMarker && markedAmmoTarget
+			&& !startingInHarmfulPain;
+	}
+
 	bool InventoryReachabilitySampleObservedUnsafe(
 		const InventoryReachabilitySample& sample)
 	{

@@ -25,6 +25,7 @@ int main()
 		|| defaults.IsFailedNavigationAvoidanceEnabled()
 		|| defaults.IsTargetlessMoveToTimeoutEnabled()
 		|| defaults.IsTargetSelectionObserverEnabled()
+		|| defaults.IsInventoryMarkerDirectReachSafetyEnabled()
 		|| defaults.IsNativePathCommitObserverEnabled()
 		|| defaults.IsDirectReachCommandObserverEnabled())
 		return Fail("default bot benchmark configuration or roster was incorrect");
@@ -132,6 +133,7 @@ int main()
 		"    \"direct_actor_move_toward_timeout_enabled\": false,\n"
 		"    \"target_selection_observer_enabled\": false,\n"
 		"    \"inventory_direct_reach_support_observer_enabled\": false,\n"
+		"    \"inventory_marker_direct_reach_safety_enabled\": false,\n"
 		"    \"native_path_commit_observer_enabled\": false,\n"
 		"    \"direct_reach_command_observer_enabled\": false\n"
 		"  }\n"

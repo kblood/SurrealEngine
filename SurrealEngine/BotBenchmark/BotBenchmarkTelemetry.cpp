@@ -760,8 +760,10 @@ namespace
 				<< bot.InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulExact << "\""
 				<< ",\"inventory_direct_reach_support_unavailable_exact\":\""
 				<< bot.InventoryDirectReachSupportUnavailableExact << "\""
-				<< ",\"inventory_direct_reach_support_diagnostic_overflows_exact\":\""
+			<< ",\"inventory_direct_reach_support_diagnostic_overflows_exact\":\""
 				<< bot.InventoryDirectReachSupportDiagnosticOverflowsExact << "\""
+				<< ",\"inventory_marker_direct_reach_rejects_exact\":\""
+				<< bot.InventoryMarkerDirectReachRejectsExact << "\""
 				<< ",\"inventory_direct_reach_support_diagnostics\":[";
 			for (size_t index = 0; index < bot.InventoryDirectReachSupportDiagnostics.size(); index++)
 			{
@@ -1281,6 +1283,8 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< (config.IsTargetSelectionObserverEnabled() ? "1" : "0") << '\n'
 		<< "inventory_direct_reach_support_observer_enabled="
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "1" : "0") << '\n'
+		<< "inventory_marker_direct_reach_safety_enabled="
+		<< (config.IsInventoryMarkerDirectReachSafetyEnabled() ? "1" : "0") << '\n'
 		<< "native_path_commit_observer_enabled="
 		<< (config.IsNativePathCommitObserverEnabled() ? "1" : "0") << '\n'
 		<< "direct_reach_command_observer_enabled="
@@ -1332,6 +1336,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsTargetSelectionObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"inventory_direct_reach_support_observer_enabled\": "
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"inventory_marker_direct_reach_safety_enabled\": "
+		<< (config.IsInventoryMarkerDirectReachSafetyEnabled() ? "true" : "false") << ",\n"
 		<< "  \"native_path_commit_observer_enabled\": "
 		<< (config.IsNativePathCommitObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"direct_reach_command_observer_enabled\": "

@@ -2305,6 +2305,7 @@ public:
 	uint64_t InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulCount() const { return InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulCountValue; }
 	uint64_t InventoryDirectReachSupportUnavailableCount() const { return InventoryDirectReachSupportUnavailableCountValue; }
 	uint64_t InventoryDirectReachSupportDiagnosticOverflowCount() const { return InventoryDirectReachSupportDiagnosticOverflowCountValue; }
+	uint64_t InventoryMarkerDirectReachRejectCount() const { return InventoryMarkerDirectReachRejectCountValue; }
 	uint64_t FallingParityRealizedEpisodeCount() const { return FallingParityRealizedEpisodeCountValue; }
 	uint64_t FallingParityRealizedStepCount() const { return FallingParityRealizedStepCountValue; }
 	uint64_t FallingParityRealizedMatchedStepCount() const { return FallingParityRealizedMatchedStepCountValue; }
@@ -2805,6 +2806,7 @@ private:
 	uint64_t InventoryDirectReachSupportUnsafeUnsupportedOverHarmfulCountValue = 0;
 	uint64_t InventoryDirectReachSupportUnavailableCountValue = 0;
 	uint64_t InventoryDirectReachSupportDiagnosticOverflowCountValue = 0;
+	uint64_t InventoryMarkerDirectReachRejectCountValue = 0;
 	uint64_t InventoryDirectReachSupportDiagnosticSequence = 0;
 	std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
 		InventoryDirectReachSupportDiagnostics;

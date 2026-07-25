@@ -78,21 +78,27 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v1\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v2\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
-			<< "direct_marker_reachable=" << (result.DirectMarkerReachable ? "true" : "false") << "\n"
+			<< "direct_marker_rejected=" << (result.DirectMarkerRejected ? "true" : "false") << "\n"
+			<< "graph_first_hop_selected=" << (result.GraphFirstHopSelected ? "true" : "false") << "\n"
+			<< "safe_marker_reachable=" << (result.SafeMarkerReachable ? "true" : "false") << "\n"
 			<< "graph_fallback_exists=" << (result.GraphFallbackExists ? "true" : "false") << "\n"
 			<< "unsupported_corridor_sample=" << (result.UnsupportedCorridorSample ? "true" : "false") << "\n"
 			<< "harmful_zone_below_corridor=" << (result.HarmfulZoneBelowCorridor ? "true" : "false") << "\n"
 			<< "pawn_actor=" << result.PawnActor << "\n"
 			<< "marker_actor=" << result.MarkerActor << "\n"
 			<< "inventory_actor=" << result.InventoryActor << "\n"
+			<< "safe_marker_actor=" << result.SafeMarkerActor << "\n"
+			<< "selected_first_hop_actor=" << result.SelectedFirstHopActor << "\n"
 			<< "graph_edge_count=" << result.GraphEdgeCount << "\n"
 			<< "immediate_support_samples=" << result.ImmediateSupportSamples << "\n"
 			<< "unsupported_samples=" << result.UnsupportedSamples << "\n"
 			<< "harmful_below_samples=" << result.HarmfulBelowSamples << "\n"
+			<< "direct_marker_rejects=" << result.DirectMarkerRejects << "\n"
+			<< "first_harmful_below_distance=" << result.FirstHarmfulBelowDistance << "\n"
 			<< "failure_reason=" << result.FailureReason << "\n";
 		return out.str();
 	}
@@ -154,6 +160,7 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 	vec3 originalVelocity;
 	vec3 originalAcceleration;
 	uint8_t originalPhysics = PHYS_None;
+	bool originalInventoryMarkerSafetyEnabled = false;
 	try
 	{
 		if (config.URL.empty() || config.URL.find("DmDeathFan") == std::string::npos)
@@ -164,6 +171,8 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		if (match.Participants.size() != 1 || !match.Participants.front().Pawn)
 			throw std::runtime_error("controlled inventory fixture did not create one live bot");
 		pawn = match.Participants.front().Pawn;
+		originalInventoryMarkerSafetyEnabled = engine.IsBotBenchmarkInventoryMarkerDirectReachSafetyEnabled();
+		engine.SetBotBenchmarkInventoryMarkerDirectReachSafetyEnabled(true);
 		result.PawnActor = pawn->Name.ToString();
 		originalLocation = pawn->Location();
 		originalVelocity = pawn->Velocity();
@@ -172,13 +181,15 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 
 		UActor* inventory = FindActor(engine, "ASMDAmmo3");
 		UNavigationPoint* marker = UObject::TryCast<UNavigationPoint>(FindActor(engine, "InventorySpot43"));
+		UNavigationPoint* safeMarker = UObject::TryCast<UNavigationPoint>(FindActor(engine, "InventorySpot41"));
 		UNavigationPoint* pathNode27 = UObject::TryCast<UNavigationPoint>(FindActor(engine, "PathNode27"));
 		UNavigationPoint* pathNode55 = UObject::TryCast<UNavigationPoint>(FindActor(engine, "PathNode55"));
 		UNavigationPoint* pathNode54 = UObject::TryCast<UNavigationPoint>(FindActor(engine, "PathNode54"));
-		if (!inventory || !marker || !pathNode27 || !pathNode55 || !pathNode54)
+		if (!inventory || !marker || !safeMarker || !pathNode27 || !pathNode55 || !pathNode54)
 			throw std::runtime_error("fixture map is missing the expected DeathFan inventory route actors");
 		result.InventoryActor = inventory->Name.ToString();
 		result.MarkerActor = marker->Name.ToString();
+		result.SafeMarkerActor = safeMarker->Name.ToString();
 
 		if (!pawn->SetLocation(DeathFanAmmo3LaunchAnchor))
 			throw std::runtime_error("fixture could not set the recorded DeathFan launch anchor");
@@ -190,9 +201,19 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 			throw std::runtime_error("recorded DeathFan launch anchor is not a safe walking context");
 		result.SafeWalkingAnchor = true;
 
-		result.DirectMarkerReachable = pawn->ActorReachable(marker, true);
-		if (!result.DirectMarkerReachable)
-			throw std::runtime_error("fixture no longer reproduces direct marker reachability");
+		result.DirectMarkerRejected = !pawn->ActorReachable(marker, true);
+		result.DirectMarkerRejects = pawn->InventoryMarkerDirectReachRejectCount();
+		if (!result.DirectMarkerRejected)
+			throw std::runtime_error("fixture did not reject the unsupported harmful inventory marker");
+		if (result.DirectMarkerRejects != 1)
+			throw std::runtime_error("fixture did not record exactly one inventory marker direct-reach rejection");
+		UObject* selectedFirstHop = pawn->FindPathToward(marker, false);
+		result.SelectedFirstHopActor = selectedFirstHop
+			? selectedFirstHop->Name.ToString() : std::string();
+		result.GraphFirstHopSelected = selectedFirstHop && selectedFirstHop != marker
+			&& UObject::TryCast<UNavigationPoint>(selectedFirstHop) != nullptr;
+		if (!result.GraphFirstHopSelected)
+			throw std::runtime_error("fixture did not select a graph first hop after rejection");
 
 		const std::array<std::pair<UNavigationPoint*, UNavigationPoint*>, 3> route = {{
 			{ pathNode27, pathNode55 },
@@ -237,12 +258,22 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 				{
 					result.HarmfulBelowSamples++;
 					result.HarmfulZoneBelowCorridor = true;
+					const float distance = DeepSupportDistance
+						* static_cast<float>(zoneIndex) / ZoneSamplesPerCorridorPoint;
+					if (result.FirstHarmfulBelowDistance == 0.0f
+						|| distance < result.FirstHarmfulBelowDistance)
+					{
+						result.FirstHarmfulBelowDistance = distance;
+					}
 					break;
 				}
 			}
 		}
 		if (!result.UnsupportedCorridorSample || !result.HarmfulZoneBelowCorridor)
 			throw std::runtime_error("recorded direct corridor lacks the expected unsupported harmful drop evidence");
+		result.SafeMarkerReachable = pawn->ActorReachable(safeMarker, true);
+		if (!result.SafeMarkerReachable)
+			throw std::runtime_error("fixture could not preserve a safe direct inventory pickup");
 		result.Ran = true;
 		result.Passed = true;
 	}
@@ -259,6 +290,8 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		pawn->SetLocation(originalLocation);
 		pawn->UpdateActorZone();
 	}
+	engine.SetBotBenchmarkInventoryMarkerDirectReachSafetyEnabled(
+		originalInventoryMarkerSafetyEnabled);
 	return result;
 }
 

@@ -20,7 +20,9 @@ struct BotInventoryRouteHandoffFixtureResult
 	bool Ran = false;
 	bool Passed = false;
 	bool SafeWalkingAnchor = false;
-	bool DirectMarkerReachable = false;
+	bool DirectMarkerRejected = false;
+	bool GraphFirstHopSelected = false;
+	bool SafeMarkerReachable = false;
 	bool GraphFallbackExists = false;
 	bool UnsupportedCorridorSample = false;
 	bool HarmfulZoneBelowCorridor = false;
@@ -28,10 +30,14 @@ struct BotInventoryRouteHandoffFixtureResult
 	std::string PawnActor;
 	std::string MarkerActor;
 	std::string InventoryActor;
+	std::string SafeMarkerActor;
+	std::string SelectedFirstHopActor;
 	uint64_t GraphEdgeCount = 0;
 	uint64_t ImmediateSupportSamples = 0;
 	uint64_t UnsupportedSamples = 0;
 	uint64_t HarmfulBelowSamples = 0;
+	uint64_t DirectMarkerRejects = 0;
+	float FirstHarmfulBelowDistance = 0.0f;
 };
 
 class BotInventoryRouteHandoffFixture
