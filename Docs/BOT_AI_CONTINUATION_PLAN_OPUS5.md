@@ -52,7 +52,8 @@ These are constraints on every workstream below, not aspirations:
 - Default-off experiment flags (`failed_navigation_avoidance_enabled`,
   `harmful_zone_escape_enabled`, `hazard_swim_egress_*`,
   `falling_hazard_recovery_*`, `walking_preflight_positive_dps_veto_enabled`,
-  `targetless_move_to_timeout_enabled`) stay default-off and stay inside run
+  `targetless_move_to_timeout_enabled`,
+  `direct_actor_move_toward_timeout_enabled`) stay default-off and stay inside run
   identity, manifest, summary, matrix provenance, analyzer, and
   `Compare-BotBenchmarkRuns.py`. An enabled experiment is never compared as a
   stock-equivalent run.

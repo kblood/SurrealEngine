@@ -2515,6 +2515,29 @@ This qualifies the native/script fixture only. The `MinHitWall` dispatch
 predicate still needs the separately bracketed retail boundary oracle before
 any shared walking behavior correction can be promoted.
 
+## Iteration 103: direct-actor timeout record reconciliation
+
+The benchmark-only direct-actor `MoveToward` timeout experiment is recorded in
+the authoritative execution plan as **experimental**, not as a promoted bot
+behavior change. Its default-off configuration key,
+`direct_actor_move_toward_timeout_enabled`, is part of run identity, manifests,
+matrix provenance, the exact forced-replan partition, and
+`Compare-BotBenchmarkRuns.py`.
+
+The initial UT436 Deck16-II seed `104729` result is a single deterministic
+activation only: enabled changed aggregate K/D/S from `7/17/10` to `6/14/8`;
+Unreal Gold 226b DeathFan seed `271828` had zero activations and identical
+outcomes. Those results are insufficient to claim a survival or competence
+improvement. Promotion requires a reproducible activating fixture, a paired
+multi-seed matrix on Deck16-II and a second tuning map, the complete
+combat/resource/hazard/wall/stall panel, and a cross-game non-zero opportunity
+set or an explicit UT-only scope decision. The experiment remains disabled
+outside benchmark runs until that evidence exists.
+
+Repository-local `botbench-output/` and BotBenchmark Python bytecode are
+ignored so they cannot be mistaken for admissible central-QA evidence or be
+staged accidentally.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:
