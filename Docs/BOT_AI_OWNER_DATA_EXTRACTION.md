@@ -74,6 +74,7 @@ The proposed automation interface is:
 ```text
 SurrealEngine.exe --headless-driver=map-catalog
   --catalog-map=<map> --catalog-output=<external directory>
+  --catalog-export-scripts=0|1 --catalog-script-packages=<comma-separated packages>
   --catalog-mode=static|live --catalog-seed=<seed>
   --catalog-fixed-delta=<seconds> --catalog-warmup-ticks=<count>
   --catalog-game-config=0|1 <game root>
@@ -126,6 +127,19 @@ passed a referential-integrity check for every reachspec endpoint and every
 per-node path index. Two independent DeathFan extractions were byte-identical:
 SHA-256 `A14B5E9663C6CA2AB25CC37C7EEDEEEA8013B594351000AF03A5AFF3A656B679`.
 All real-map artifacts remain owner-local under `qa/runs/`.
+
+The same driver now has an explicit `--catalog-export-scripts=1` mode. It uses
+the engine's existing class exporter and writes only beneath the external
+catalog output directory. By default it attempts the available `Botpack`,
+`UnrealI`, and `UnrealShare` packages; a caller can instead provide an exact,
+comma-separated package list. The manifest records package version, loaded
+class count, and exported-script count. Package, map, and class output names
+are validated as path segments before any file is written. On the same owner
+installations, UT436 exported 505 Botpack scripts (including `Bot.uc`), 146
+UnrealI scripts, and 360 UnrealShare scripts. Unreal Gold 226b exported 146
+UnrealI and 359 UnrealShare scripts (including `Bots.uc`); it correctly did
+not require Botpack. These artifacts are analysis inputs only and are not
+committed or redistributed.
 
 ## Non-goals
 

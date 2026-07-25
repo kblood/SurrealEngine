@@ -1,10 +1,13 @@
 #include "Precomp.h"
 #include "MapCatalogDriver.h"
 
+#include "Editor/Export.h"
 #include "Engine.h"
+#include "Package/Package.h"
 #include "Package/PackageManager.h"
 #include "Runtime/HeadlessDriver.h"
 #include "UObject/UActor.h"
+#include "UObject/UClass.h"
 #include "UObject/ULevel.h"
 #include "Utils/CommandLine.h"
 #include "Utils/File.h"
@@ -15,6 +18,7 @@
 #include <map>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace
 {
@@ -65,6 +69,28 @@ namespace
 		return true;
 	}
 
+	bool IsSafeOutputSegment(const std::string& name)
+	{
+		return !name.empty() && name != "." && name != ".." &&
+			name.find_first_of("\\/:*?\"<>|") == std::string::npos;
+	}
+
+	std::vector<std::string> ParsePackageList(const std::string& value)
+	{
+		std::vector<std::string> packages;
+		std::istringstream input(value);
+		std::string package;
+		while (std::getline(input, package, ','))
+		{
+			if (!IsSafeOutputSegment(package))
+				throw std::runtime_error("catalog script package names must be simple package identifiers");
+			packages.push_back(package);
+		}
+		if (packages.empty())
+			throw std::runtime_error("catalog script package list is empty");
+		return packages;
+	}
+
 	class MapCatalogDriver final : public HeadlessDriver
 	{
 	public:
@@ -80,8 +106,16 @@ namespace
 					throw std::runtime_error("map catalog requires command-line arguments");
 				const std::string map = commandline->GetArg("", "--catalog-map");
 				const std::string output = commandline->GetArg("", "--catalog-output");
+				const std::string exportScripts = commandline->GetArg("", "--catalog-export-scripts");
+				const std::string requestedPackages = commandline->GetArg("", "--catalog-script-packages");
 				if (map.empty() || output.empty())
 					throw std::runtime_error("map catalog requires --catalog-map and --catalog-output");
+				if (!IsSafeOutputSegment(map))
+					throw std::runtime_error("--catalog-map must be a simple map identifier");
+				if (!exportScripts.empty() && exportScripts != "0" && exportScripts != "1")
+					throw std::runtime_error("--catalog-export-scripts must be 0 or 1");
+				if (!requestedPackages.empty() && exportScripts != "1")
+					throw std::runtime_error("--catalog-script-packages requires --catalog-export-scripts=1");
 				const std::filesystem::path gameRoot = std::filesystem::absolute(
 					EngineRef.LaunchInfo.gameRootFolder).lexically_normal();
 				const std::filesystem::path outputPath = std::filesystem::absolute(output).lexically_normal();
@@ -97,6 +131,8 @@ namespace
 				std::filesystem::create_directories(outputPath);
 				const std::filesystem::path file = outputPath / (map + ".json");
 				File::write_all_text(file.string(), Serialize(map));
+				if (exportScripts == "1")
+					ExportScripts(outputPath, requestedPackages);
 				Output = file.string();
 			}
 			catch (const std::exception& error)
@@ -112,6 +148,54 @@ namespace
 		int Finish(const HeadlessRunSummary&) override { return Failure.empty() ? 0 : 1; }
 
 	private:
+		void ExportScripts(const std::filesystem::path& outputPath, const std::string& requestedPackages) const
+		{
+			std::vector<std::string> packageNames = requestedPackages.empty()
+				? std::vector<std::string>{ "Botpack", "UnrealI", "UnrealShare" }
+				: ParsePackageList(requestedPackages);
+			std::ostringstream manifest;
+			manifest << "{\n  \"schema\":\"surreal-script-export-spike-v1\",\n  \"packages\":[";
+			bool firstPackage = true;
+			for (const std::string& packageName : packageNames)
+			{
+				if (!EngineRef.packages->HasPackage(NameString(packageName)))
+				{
+					if (requestedPackages.empty())
+						continue;
+					throw std::runtime_error("catalog script package was not found: " + packageName);
+				}
+				Package* package = EngineRef.packages->GetPackage(NameString(packageName));
+				Array<UClass*> classes = package->GetAllObjects<UClass>();
+				std::sort(classes.begin(), classes.end(), [](const UClass* left, const UClass* right)
+				{
+					return left->FriendlyName.ToString() < right->FriendlyName.ToString();
+				});
+				const std::filesystem::path classesPath = outputPath / "scripts" / packageName / "Classes";
+				size_t exportedClasses = 0;
+				for (UClass* cls : classes)
+				{
+					const std::string className = cls->FriendlyName.ToString();
+					if (!IsSafeOutputSegment(className))
+						throw std::runtime_error("catalog encountered a class name unsafe for external output");
+					MemoryStreamWriter script = Exporter::ExportClass(cls);
+					if (script.Size() == 0)
+						continue;
+					std::filesystem::create_directories(classesPath);
+					File::write_all_bytes((classesPath / (className + ".uc")).string(), script.Data(), script.Size());
+					exportedClasses++;
+				}
+				if (!firstPackage)
+					manifest << ',';
+				firstPackage = false;
+				manifest << "\n    {\"name\":" << JsonString(packageName)
+					<< ",\"package_version\":" << package->GetVersion()
+					<< ",\"class_count\":" << classes.size()
+					<< ",\"script_class_count\":" << exportedClasses << '}';
+			}
+			manifest << "\n  ]\n}\n";
+			File::write_all_text((outputPath / "script-export.json").string(), manifest.str());
+		}
+
 		std::string Serialize(const std::string& map) const
 		{
 			std::map<const UActor*, size_t> actorIndexes;
