@@ -6,16 +6,22 @@ separate from the normal all-bot benchmark: the custom bot uses a dedicated
 probe state, so a result proves native callback eligibility and not stock bot
 decision quality.
 
-The initial UT436 probe uses the static corridor face south of the pinned
-`DM-Deck16][` `Mover0` profile. Case `0` is a head-on move from
-`(1264,1550,-1222)` to `(1264,1900,-1222)`; case `1` targets a nominal
-`-0.4` glancing dot from `(1264,1550,-1222)` to `(1900,1820,-1222)`. The probe
-emits
-tab-separated `minhitwall_oracle` records through the normal local stat log:
+The UT436 probe dynamically selects a level `PlayerStart` and a horizontal
+path with clear world geometry and walkable floor samples. It spawns a
+temporary `BlockAll` at the selected path, then requires an expanded actor
+trace to identify that exact blocker before the bot moves. Case `0` is a
+head-on contact; case `1` applies an 89-unit lateral blocker offset, targeting
+a glancing contact close to `-0.4`. The actual callback normal and dot, when a
+callback is delivered, are the evidence; the nominal geometry is not treated
+as a measurement.
 
-- `move_begin` / `move_return` establish setup and completion;
+The probe emits tab-separated `minhitwall_oracle` records through the normal
+local stat log:
+
+- `preflight_blocker`, bilateral `*_bump`, `move_begin`, and
+  `postflight_blocker` establish blocker identity and physical contact;
 - `hitwall_pre` records the threshold, native pre-handler velocity, contact
-  normal, computed dot, wall, and active state;
+  normal, computed dot, wall, walking physics value, and active state;
 - `handle_door_pre` / `handle_door_post` and `pick_wall_adjust_*` establish
   mover callback ordering when a future mover-specific profile produces that
   collision; the static comparator run does not claim that coverage.
@@ -26,9 +32,16 @@ and use read-only links or copies for the retail asset folders. A before/after
 hash inventory of the installed retail root is mandatory. No package, INI, map,
 or log may be written into the installed game.
 
-`Run-RetailMinHitWallOracle.ps1` creates that isolated runtime, records a full
-before/after SHA-256 inventory of the installed root, compiles the package
-locally, and runs every requested case as a dedicated UCC process. For example:
+`Run-RetailMinHitWallOracle.ps1` creates that isolated runtime, redirects
+`Engine.StatLog` to its own `Logs` directory, records a full before/after
+SHA-256 inventory of the installed root, compiles the package locally, and
+runs every requested case as a dedicated UCC process. For each case it accepts
+exactly one new or changed UTF-16 local stat log, copies it to the case
+directory, and parses only records bearing that case's unique run ID. The
+manifest records the copied log hash/size, exact parsed records, process ID,
+timeout, and termination method.
+
+For example:
 
 ```powershell
 pwsh .\Tools\BotBenchmark\Run-RetailMinHitWallOracle.ps1 `
@@ -40,12 +53,22 @@ The runner refuses an existing output directory and fails if any installed
 retail file changes. Use `-KeepRuntime` only when retaining the otherwise
 disposable runtime is necessary to diagnose a failed compilation or process.
 
-The initial matrix is one process per case for head-on and glancing approaches
-at `OracleMinHitWallMilli=-500` and `-350`. It is not sufficient to claim the
-exact comparator at the floating point boundary; that requires boundary cases
-after the first runtime/compilation smoke passes. An Unreal Gold counterpart
-will use its own `Bots`/`BotInfo` package and a separately pinned mover profile.
+The verified UT436 dynamic-contact runs are:
+
+- `v23`: head-on `MinHitWall=-0.500000`, one walking (`Physics=1`)
+  `HitWall` callback, dot `-1.000000`;
+- `v24`: glancing `MinHitWall=-0.500000`, bilateral blocker contact and no
+  callback; and
+- `v25`: glancing `MinHitWall=-0.350000`, one walking callback at observed dot
+  `-0.397676`.
+
+These observations support the documented threshold gate and its expected
+direction, but do not prove its exact `<` versus `<=` comparator at the
+floating-point boundary. They also do not establish mover ordering. An Unreal
+Gold counterpart must use its own `Bots`/`BotInfo` package and dynamic blocker
+smoke before a shared engine dispatch correction is eligible.
 
 Use `-AllowMissingHitWall` only for an explicitly expected filtered case; its
-run record still includes the observed `hitwall_event_count` so a missing event
-is not silently converted into a pass for a callback-required case.
+run still requires preflight identity, a direct blocker-contact witness, and a
+single terminal observation, so a missed wall or fall is not silently accepted
+as filtered callback evidence.

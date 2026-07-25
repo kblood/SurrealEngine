@@ -1706,6 +1706,38 @@ candidate is the DmHealPod north/east Main Hall lift, but the local owner map
 is not presently available to pin its actor identity and transform. No shared
 dispatch predicate changes on the basis of this one head-on UT observation.
 
+## Iteration 73: controlled dynamic-contact UT436 threshold evidence
+
+The UT436 oracle has now replaced the rejected map-face/lift setup with a
+dynamic `BlockAll` contact. For every attempt it selects a `PlayerStart` path
+with clear world geometry and walkable floor samples, spawns the blocker,
+requires an expanded actor trace to return that exact blocker, and records a
+shared monotonic sequence number. The isolated runner rewrites only its copied
+`Server.ini` stat-log destination, snapshots the local UTF-16 logs before and
+after each process, accepts exactly one changed local log, copies it into the
+case directory, and parses only the unique run ID. Its manifest preserves the
+raw-log hash, structured sequence, child PID, timeout, and termination method.
+Installed retail before/after inventories remained byte-identical.
+
+Three fresh valid runs are retained outside version control under
+`qa/runs/2026-07-25/retail-minhitwall-ut436-v23/` through `v25/`:
+
+| Case | Live `MinHitWall` | Contact evidence | Native callback result |
+| --- | ---: | --- | --- |
+| Head-on | `-0.500000` | preflight identity plus bilateral `Bump` | exactly one walking (`Physics=1`) callback, dot `-1.000000` |
+| Nominal glancing | `-0.500000` | preflight identity, bilateral `Bump`, and postflight identity | zero callbacks; `MoveTo` returned |
+| Nominal glancing | `-0.350000` | preflight identity plus bilateral `Bump` | exactly one walking callback, observed dot `-0.397676` |
+
+This is the first controlled evidence that retail UT436 changes walking
+`HitWall` dispatch across the interval containing the observed glancing dot.
+It is consistent with the documented `dot < MinHitWall` interpretation; it
+does **not** prove `<` versus `<=` at equality, authorize a generic dispatch
+change, or cover mover ordering. A suppressed callback is only accepted when
+direct contact is separately observed, never merely because `HitWall` is
+absent. The next required oracle work is an equivalent Unreal Gold 226b
+dynamic-contact package, repeated boundary-neighbor measurements, and an
+independent mover ordering profile. The runtime bot policy remains unchanged.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

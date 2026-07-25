@@ -9,27 +9,66 @@ var vector OracleGoal;
 var int OracleCase;
 var int OracleHitCount;
 var bool bOracleConfigured;
+var Actor OracleBlocker;
+var string OracleRunId;
 
 function LogOracle(string EventName, string Detail)
 {
     if (Level.Game != None && Level.Game.LocalLog != None)
         Level.Game.LocalLog.LogEventString(
             Level.Game.LocalLog.GetTimeStamp() $ Chr(9) $ "minhitwall_oracle" $ Chr(9)
-            $ EventName $ Chr(9) $ Detail);
+            $ EventName $ Chr(9) $ "run=" $ OracleRunId $ ";seq="
+            $ RetailHitWallOracleUTGame(Level.Game).NextOracleSequence() $ ";" $ Detail);
 }
 
-function ConfigureOracle(float InMinHitWall, vector InStart, vector InGoal, int InCase)
+function ConfigureOracle(float InMinHitWall, vector InStart, vector InGoal,
+    int InCase, Actor InBlocker, string InRunId)
 {
     OracleMinHitWall = InMinHitWall;
     OracleStart = InStart;
     OracleGoal = InGoal;
     OracleCase = InCase;
+    OracleBlocker = InBlocker;
+    OracleRunId = InRunId;
     bOracleConfigured = True;
     GotoState('OracleProbe');
 }
 
+function LogPostflightBlocker()
+{
+    local vector PostHitLocation;
+    local vector PostHitNormal;
+    local vector PostExtent;
+    local Actor PostflightActor;
+
+    if (OracleBlocker == None)
+        return;
+
+    PostExtent.X = CollisionRadius;
+    PostExtent.Y = CollisionRadius;
+    PostExtent.Z = CollisionHeight;
+    PostflightActor = Trace(PostHitLocation, PostHitNormal, OracleBlocker.Location,
+        Location, True, PostExtent);
+    LogOracle("postflight_blocker", "actor=" $ PostflightActor
+        $ ";expected=" $ OracleBlocker $ ";normal=" $ PostHitNormal
+        $ ";location=" $ PostHitLocation);
+}
+
+function CompleteOracle(string Outcome)
+{
+    LogOracle("oracle_complete", "outcome=" $ Outcome);
+    if (RetailHitWallOracleUTGame(Level.Game) != None)
+        RetailHitWallOracleUTGame(Level.Game).MarkOracleComplete();
+}
+
 state OracleProbe
 {
+    function Bump(Actor Other)
+    {
+        if (Other == OracleBlocker)
+            LogOracle("probe_bump", "other=" $ Other $ ";location=" $ Location);
+    }
+
     function HitWall(vector HitNormal, actor Wall)
     {
         local float NormalVelocityDot;
@@ -46,7 +85,8 @@ state OracleProbe
             "case=" $ OracleCase $ ";count=" $ OracleHitCount
             $ ";min=" $ OracleMinHitWall $ ";dot=" $ NormalVelocityDot
             $ ";normal=" $ HitNormal $ ";velocity=" $ Velocity
-            $ ";location=" $ Location $ ";wall=" $ Wall $ ";state=" $ GetStateName());
+            $ ";location=" $ Location $ ";wall=" $ Wall $ ";physics=" $ Physics
+            $ ";state=" $ GetStateName());
 
         // One raw contact is the unit of evidence. Do not loop on the same
         // face while the dedicated server waits for its bounded shutdown.
@@ -55,6 +95,8 @@ state OracleProbe
         if (Physics == PHYS_Falling)
         {
             LogOracle("hitwall_falling_return", "case=" $ OracleCase);
+            CompleteOracle("falling_callback");
+            GotoState('OracleFinished');
             return;
         }
         if (Wall.IsA('Mover'))
@@ -67,6 +109,7 @@ state OracleProbe
             if (bDoorHandled)
             {
                 LogOracle("pick_wall_adjust_skipped", "case=" $ OracleCase);
+                CompleteOracle("mover_handled");
                 GotoState('OracleFinished');
                 return;
             }
@@ -79,6 +122,7 @@ state OracleProbe
             $ ";physics=" $ Physics $ ";move_timer=" $ MoveTimer);
         if (!bWallAdjusted)
             MoveTimer = -1.0;
+        CompleteOracle("callback");
         GotoState('OracleFinished');
     }
 
@@ -102,10 +146,13 @@ Begin:
         "case=" $ OracleCase $ ";min=" $ MinHitWall
         $ ";start=" $ Location $ ";goal=" $ Destination);
     MoveTo(Destination);
+    LogPostflightBlocker();
     LogOracle("move_return",
         "case=" $ OracleCase $ ";hits=" $ OracleHitCount
         $ ";location=" $ Location $ ";physics=" $ Physics
         $ ";move_timer=" $ MoveTimer);
+    CompleteOracle("move_return");
+    GotoState('OracleFinished');
 }
 
 state OracleFinished
