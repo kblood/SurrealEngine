@@ -1342,6 +1342,36 @@ entry, and Alys still died after failed egress; a later extra direct-self death
 made the live variant K0/D2/S2. The experiment remains rejected and no live
 behavior policy is promoted from this measurement slice.
 
+## Iteration 62: bounded harmful-water egress witness
+
+The remaining reproducible Deck16 failure now has a terminal, per-episode
+observer witness. It starts only after the existing exact static harmful-water
+classification, snapshots the pre-entry anchor and immediate movement target,
+records the nearest collision-probed safe navigation candidate as a candidate
+rather than a route, and finishes only on primary-zone clearance, death, or
+an explicit life/context reset. It is benchmark-only and does not alter
+acceleration, movement intent, path selection, or the default-off controls.
+
+The candidate's entry, minimum, and terminal distances are measured separately
+from the entry movement target, with strict progress/regression sample counts.
+This matters because the Deck witness had no movement target at the harmful
+entry: treating a later `MoveTarget` as if it caused the entry would be false.
+The bounded pure observer has focused lifecycle/overflow tests, and the
+telemetry fixture covers its JSON encoding.
+
+Fresh paired observer/control matrices (two repetitions each, recovery and
+live controls off) passed on UT436 `DM-Deck16][` seed 271828 and Unreal Gold
+226b `DmDeathFan` seed 424242 at
+`qa/runs/2026-07-25/hazard-swim-egress-v2-observer-pair/`. Both variants had
+zero deltas across the checked quality metrics. The Deck failure remained
+Alys's tick-644 `death_before_exit` episode from a `falling_direct_sweep`:
+the selected collision-safe `PathNode144` candidate was 619.46 units away at
+entry, reached a 488.18-unit minimum, and still had not been reached at death
+(52 progress versus 43 regression samples). Thus the candidate is evidence of
+some stock movement toward a safe node, not evidence that the direct probe is
+an egress route or that it can be reached before drowning. No live policy is
+authorized from this result.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

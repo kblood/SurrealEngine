@@ -219,6 +219,8 @@ namespace
 				PendingFallingParityRealizedRecords;
 			std::vector<PawnMovement::FallingHazardDiagnosticRecord>
 				PendingFallingHazardDiagnostics;
+			std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>
+				PendingHazardWaterEgressDiagnostics;
 		};
 
 		enum class AttributionScopeKind
@@ -724,6 +726,7 @@ namespace
 				auto vetoActions = victim->DrainWalkingStepPreflightPositiveDpsVetoActions();
 				auto parityRecords = victim->DrainFallingParityRealizedRecords();
 				auto hazardDiagnostics = victim->DrainFallingHazardDiagnostics();
+				auto waterEgressDiagnostics = victim->DrainHazardWaterEgressDiagnostics();
 				victim->EndWalkingStepPreflightLife();
 				counters.PendingWalkingStepPreflightDiagnostics.insert(
 					counters.PendingWalkingStepPreflightDiagnostics.end(),
@@ -741,6 +744,10 @@ namespace
 					counters.PendingFallingHazardDiagnostics.end(),
 					std::make_move_iterator(hazardDiagnostics.begin()),
 					std::make_move_iterator(hazardDiagnostics.end()));
+				counters.PendingHazardWaterEgressDiagnostics.insert(
+					counters.PendingHazardWaterEgressDiagnostics.end(),
+					std::make_move_iterator(waterEgressDiagnostics.begin()),
+					std::make_move_iterator(waterEgressDiagnostics.end()));
 				counters.DeathsExact++;
 				const bool environmental = !killer || !killer->bIsPlayer();
 				if (killer == victim || environmental)
@@ -1577,6 +1584,8 @@ namespace
 				bot.HazardSwimEgressDirectNavBestCandidateName = native.HazardSwimEgressDirectNavBestCandidateName;
 				bot.HazardSwimEgressAnchorKnown = native.HazardSwimEgressAnchorKnown;
 				bot.HazardSwimEgressAnchorSource = native.HazardSwimEgressAnchorSource;
+				bot.HazardWaterEgressDiagnosticOverflowsExact = pawn
+					? pawn->HazardWaterEgressDiagnosticOverflowCount() : 0;
 				bot.FallingHazardRecoveryPromotionsExact = native.FallingHazardRecoveryPromotions;
 				bot.FallingHazardRecoveryAdvanceCallsExact =
 					native.FallingHazardRecoveryAdvanceCalls;
@@ -1732,6 +1741,11 @@ namespace
 						runtime.PendingFallingHazardDiagnostics.end(),
 						std::make_move_iterator(hazardDiagnostics.begin()),
 						std::make_move_iterator(hazardDiagnostics.end()));
+					auto waterEgressDiagnostics = pawn->DrainHazardWaterEgressDiagnostics();
+					runtime.PendingHazardWaterEgressDiagnostics.insert(
+						runtime.PendingHazardWaterEgressDiagnostics.end(),
+						std::make_move_iterator(waterEgressDiagnostics.begin()),
+						std::make_move_iterator(waterEgressDiagnostics.end()));
 				}
 				bot.WalkingStepPreflightDiagnostics = std::move(
 					runtime.PendingWalkingStepPreflightDiagnostics);
@@ -1745,6 +1759,9 @@ namespace
 				bot.VerticalPainColumnDiagnostics = std::move(
 					runtime.PendingFallingHazardDiagnostics);
 				runtime.PendingFallingHazardDiagnostics.clear();
+				bot.HazardWaterEgressDiagnostics = std::move(
+					runtime.PendingHazardWaterEgressDiagnostics);
+				runtime.PendingHazardWaterEgressDiagnostics.clear();
 				bot.WalkingStepPreflightReasonsExact = native.WalkingStepPreflightReasons;
 				runtime.LastState = bot;
 				runtime.HasLastState = true;

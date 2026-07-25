@@ -319,6 +319,8 @@ int main()
 		",\"hazard_swim_egress_direct_nav_best_candidate_name\":\"\""
 		",\"hazard_swim_egress_anchor_known\":false"
 		",\"hazard_swim_egress_anchor_source\":\"\""
+		",\"hazard_water_egress_diagnostic_overflows_exact\":\"0\""
+		",\"hazard_water_egress_diagnostics\":[]"
 		",\"falling_hazard_recovery_promotions_exact\":\"0\""
 		",\"falling_hazard_recovery_advance_calls_exact\":\"0\""
 		",\"falling_hazard_recovery_context_rejected_exact\":\"0\""
@@ -445,6 +447,54 @@ int main()
 		== std::string::npos)
 		return Fail("matched landing step vocabulary was not serialized distinctly");
 	event.Bots.front().FallingParityRealizedRecords.clear();
+
+	PawnMovement::HazardWaterEgressDiagnosticRecord waterEgress;
+	waterEgress.SourcePawnActor = "Alys";
+	waterEgress.Sequence = 5;
+	waterEgress.Entry.LifeId = 3;
+	waterEgress.Entry.EpisodeId = 2;
+	waterEgress.Entry.TransitionSource =
+		PawnMovement::HazardWaterEgressTransitionSource::FallingDirectSweep;
+	waterEgress.Entry.AnchorKnown = true;
+	waterEgress.Entry.Anchor = vec3(1.0f, 2.0f, 3.0f);
+	waterEgress.Entry.EntryLocation = vec3(4.0f, 5.0f, 6.0f);
+	waterEgress.Entry.DamagePerSecond = 20.0f;
+	waterEgress.Entry.MoveTargetName = "PathNode144";
+	waterEgress.Entry.MoveTargetLocationKnown = true;
+	waterEgress.Entry.MoveTargetLocation = vec3(7.0f, 8.0f, 9.0f);
+	waterEgress.Entry.Destination = vec3(10.0f, 11.0f, 12.0f);
+	waterEgress.CandidateKnown = true;
+	waterEgress.Candidate = { "PathNode12", vec3(13.0f, 14.0f, 15.0f), 42.0f };
+	waterEgress.CandidateDistanceKnown = true;
+	waterEgress.MinimumCandidateDistance = 12.0f;
+	waterEgress.TerminalCandidateDistance = 13.0f;
+	waterEgress.CandidateProgressSamples = 4;
+	waterEgress.CandidateRegressionSamples = 3;
+	waterEgress.TargetDistanceKnown = true;
+	waterEgress.EntryTargetDistance = 10.0f;
+	waterEgress.MinimumTargetDistance = 4.0f;
+	waterEgress.TerminalTargetDistance = 5.0f;
+	waterEgress.TargetProgressSamples = 6;
+	waterEgress.TargetRegressionSamples = 2;
+	waterEgress.Terminal = PawnMovement::HazardWaterEgressTerminal::DeathBeforeExit;
+	waterEgress.TerminalLocation = vec3(16.0f, 17.0f, 18.0f);
+	waterEgress.TerminalMoveTargetName = "LiftExit6";
+	waterEgress.TerminalDestination = vec3(19.0f, 20.0f, 21.0f);
+	event.Bots.front().HazardWaterEgressDiagnosticOverflowsExact = 1;
+	event.Bots.front().HazardWaterEgressDiagnostics.push_back(waterEgress);
+	const std::string waterEgressEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (waterEgressEvent.find("\"source_pawn_actor\":\"Alys\",\"sequence\":\"5\",\"life_id\":\"3\",\"episode_id\":\"2\",\"transition_source\":\"falling_direct_sweep\"") == std::string::npos)
+		return Fail("hazard-water egress identity serialization was incomplete");
+	if (waterEgressEvent.find("\"candidate_known\":true,\"candidate_name\":\"PathNode12\"") == std::string::npos)
+		return Fail("hazard-water egress candidate serialization was incomplete");
+	if (waterEgressEvent.find("\"candidate_distance_known\":true,\"minimum_candidate_distance\":12.000000,\"terminal_candidate_distance\":13.000000,\"candidate_progress_samples\":\"4\",\"candidate_regression_samples\":\"3\"") == std::string::npos)
+		return Fail("hazard-water egress candidate-progress serialization was incomplete");
+	if (waterEgressEvent.find("\"target_progress_samples\":\"6\",\"target_regression_samples\":\"2\",\"terminal\":\"death_before_exit\"") == std::string::npos)
+	{
+		return Fail("hazard-water egress diagnostic serialization was incomplete or unstable");
+	}
+	event.Bots.front().HazardWaterEgressDiagnostics.clear();
+	event.Bots.front().HazardWaterEgressDiagnosticOverflowsExact = 0;
 
 	using namespace PawnMovement;
 	if (std::string(FallingHazardForecastSourceName(

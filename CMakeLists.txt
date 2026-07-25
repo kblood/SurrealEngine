@@ -563,6 +563,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnFallingHazardForecast.h
 	SurrealEngine/UObject/PawnFallingHazardRuntimeObserver.cpp
 	SurrealEngine/UObject/PawnFallingHazardRuntimeObserver.h
+	SurrealEngine/UObject/PawnHazardWaterEgressObserver.cpp
+	SurrealEngine/UObject/PawnHazardWaterEgressObserver.h
 	SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.cpp
 	SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.h
 	SurrealEngine/UObject/PawnVerticalPainColumnShadow.cpp
@@ -1197,6 +1199,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
 		SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
 		SurrealEngine/UObject/PawnFallingParityRealizedTrace.cpp
+		SurrealEngine/UObject/PawnHazardWaterEgressObserver.cpp
 	)
 	target_include_directories(BotBenchmarkTelemetryTests PRIVATE SurrealEngine)
 	set_target_properties(BotBenchmarkTelemetryTests PROPERTIES CXX_STANDARD 20)
@@ -1442,6 +1445,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PawnFallingHazardRuntimeObserverTests PRIVATE SurrealEngine)
 	set_target_properties(PawnFallingHazardRuntimeObserverTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnFallingHazardRuntimeObserver COMMAND PawnFallingHazardRuntimeObserverTests)
+
+	add_executable(PawnHazardWaterEgressObserverTests
+		Tests/PawnHazardWaterEgressObserverTests.cpp
+		SurrealEngine/UObject/PawnHazardWaterEgressObserver.cpp
+	)
+	target_include_directories(PawnHazardWaterEgressObserverTests PRIVATE SurrealEngine)
+	set_target_properties(PawnHazardWaterEgressObserverTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnHazardWaterEgressObserver COMMAND PawnHazardWaterEgressObserverTests)
 
 	add_executable(PawnFallingHazardTrajectoryModelTests
 		Tests/PawnFallingHazardTrajectoryModelTests.cpp

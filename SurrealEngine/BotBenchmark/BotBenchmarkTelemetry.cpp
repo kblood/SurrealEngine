@@ -360,6 +360,69 @@ namespace
 			<< '}';
 	}
 
+	void WriteHazardWaterEgressDiagnostic(std::ostringstream& out,
+		const PawnMovement::HazardWaterEgressDiagnosticRecord& diagnostic)
+	{
+		const auto& entry = diagnostic.Entry;
+		out << "{\"source_pawn_actor\":" << JsonString(diagnostic.SourcePawnActor)
+			<< ",\"sequence\":\"" << diagnostic.Sequence
+			<< "\",\"life_id\":\"" << entry.LifeId
+			<< "\",\"episode_id\":\"" << entry.EpisodeId
+			<< "\",\"transition_source\":" << JsonString(
+				PawnMovement::HazardWaterEgressTransitionSourceName(entry.TransitionSource))
+			<< ",\"anchor_known\":" << (entry.AnchorKnown ? "true" : "false")
+			<< ",\"anchor\":";
+		WriteVector(out, entry.Anchor);
+		out << ",\"entry_location\":";
+		WriteVector(out, entry.EntryLocation);
+		out << ",\"damage_per_second\":" << Fixed(entry.DamagePerSecond, 6)
+			<< ",\"entry_move_target_name\":" << JsonString(entry.MoveTargetName)
+			<< ",\"entry_move_target_location_known\":"
+			<< (entry.MoveTargetLocationKnown ? "true" : "false")
+			<< ",\"entry_move_target_location\":";
+		WriteVector(out, entry.MoveTargetLocation);
+		out << ",\"entry_destination\":";
+		WriteVector(out, entry.Destination);
+		out << ",\"candidate_known\":"
+			<< (diagnostic.CandidateKnown ? "true" : "false")
+			<< ",\"candidate_name\":" << JsonString(diagnostic.Candidate.Name)
+			<< ",\"candidate_location\":";
+		WriteVector(out, diagnostic.Candidate.Location);
+		out << ",\"candidate_entry_distance\":"
+			<< Fixed(diagnostic.Candidate.EntryDistance, 6)
+			<< ",\"candidate_distance_known\":"
+			<< (diagnostic.CandidateDistanceKnown ? "true" : "false")
+			<< ",\"minimum_candidate_distance\":"
+			<< Fixed(diagnostic.MinimumCandidateDistance, 6)
+			<< ",\"terminal_candidate_distance\":"
+			<< Fixed(diagnostic.TerminalCandidateDistance, 6)
+			<< ",\"candidate_progress_samples\":\""
+			<< diagnostic.CandidateProgressSamples
+			<< "\",\"candidate_regression_samples\":\""
+			<< diagnostic.CandidateRegressionSamples
+			<< "\",\"target_distance_known\":"
+			<< (diagnostic.TargetDistanceKnown ? "true" : "false")
+			<< ",\"entry_target_distance\":"
+			<< Fixed(diagnostic.EntryTargetDistance, 6)
+			<< ",\"minimum_target_distance\":"
+			<< Fixed(diagnostic.MinimumTargetDistance, 6)
+			<< ",\"terminal_target_distance\":"
+			<< Fixed(diagnostic.TerminalTargetDistance, 6)
+			<< ",\"target_progress_samples\":\""
+			<< diagnostic.TargetProgressSamples
+			<< "\",\"target_regression_samples\":\""
+			<< diagnostic.TargetRegressionSamples
+			<< "\",\"terminal\":" << JsonString(
+				PawnMovement::HazardWaterEgressTerminalName(diagnostic.Terminal))
+			<< ",\"terminal_location\":";
+		WriteVector(out, diagnostic.TerminalLocation);
+		out << ",\"terminal_move_target_name\":"
+			<< JsonString(diagnostic.TerminalMoveTargetName)
+			<< ",\"terminal_destination\":";
+		WriteVector(out, diagnostic.TerminalDestination);
+		out << '}';
+	}
+
 	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot)
 	{
 		out << "{\"identity\":" << JsonString(bot.Identity)
@@ -448,6 +511,15 @@ namespace
 			<< ",\"hazard_swim_egress_direct_nav_best_candidate_name\":" << JsonString(bot.HazardSwimEgressDirectNavBestCandidateName)
 			<< ",\"hazard_swim_egress_anchor_known\":" << (bot.HazardSwimEgressAnchorKnown ? "true" : "false")
 			<< ",\"hazard_swim_egress_anchor_source\":" << JsonString(bot.HazardSwimEgressAnchorSource)
+			<< ",\"hazard_water_egress_diagnostic_overflows_exact\":\""
+			<< bot.HazardWaterEgressDiagnosticOverflowsExact << "\""
+			<< ",\"hazard_water_egress_diagnostics\":[";
+		for (size_t index = 0; index < bot.HazardWaterEgressDiagnostics.size(); index++)
+		{
+			if (index) out << ',';
+			WriteHazardWaterEgressDiagnostic(out, bot.HazardWaterEgressDiagnostics[index]);
+		}
+		out << ']'
 			<< ",\"falling_hazard_recovery_promotions_exact\":\""
 			<< bot.FallingHazardRecoveryPromotionsExact << "\""
 			<< ",\"falling_hazard_recovery_advance_calls_exact\":\""

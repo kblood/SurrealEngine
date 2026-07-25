@@ -5234,6 +5234,12 @@ bool UPawn::TickRotateTo(const vec3& target)
 
 void UPawn::ResetHazardSwimEgressObservation()
 {
+	if (HazardWaterEgressObserver && HazardWaterEgressObserver->HasActiveEpisode()
+		&& IsFiniteVector(Location()) && IsFiniteVector(Destination()))
+	{
+		HazardWaterEgressObserver->Abandon(Location(),
+			MoveTarget() ? MoveTarget()->Name.ToString() : std::string(), Destination());
+	}
 	HazardSwimEgress = {};
 	HazardSwimEgressGate.Reset();
 }
@@ -5423,7 +5429,14 @@ void UPawn::CaptureHazardSwimEgressFallingAnchorBeforePhysicsMove(bool directMov
 		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
 		&& !bDeleteMe() && Health() > 0 && Physics() == PHYS_Falling;
 	if (!validContext || !directMove || bJustTeleported())
+	{
+		if (validContext && !bJustTeleported())
+			HazardSwimEgress.TransitionSource =
+				PawnMovement::HazardWaterEgressTransitionSource::FallingNonDirectSweep;
 		return;
+	}
+	HazardSwimEgress.TransitionSource =
+		PawnMovement::HazardWaterEgressTransitionSource::FallingDirectSweep;
 
 	const std::array<UZoneInfo*, 3> zones = {
 		Region().Zone, FootRegion().Zone, HeadRegion().Zone
@@ -5455,6 +5468,12 @@ void UPawn::CaptureHazardSwimEgressAnchorBeforePhysicsMove()
 	}
 	if (Physics() != PHYS_Swimming)
 		return;
+	if (HazardSwimEgress.TransitionSource
+		== PawnMovement::HazardWaterEgressTransitionSource::Unknown)
+	{
+		HazardSwimEgress.TransitionSource =
+			PawnMovement::HazardWaterEgressTransitionSource::SwimmingMotion;
+	}
 
 	const std::array<UZoneInfo*, 3> zones = {
 		Region().Zone, FootRegion().Zone, HeadRegion().Zone
@@ -5507,6 +5526,14 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 		}
 		if (HazardSwimEgress.HarmfulWaterEpisodeActive)
 		{
+			if (HazardWaterEgressObserver && IsFiniteVector(Location())
+				&& IsFiniteVector(Destination()))
+			{
+				HazardWaterEgressObserver->FinishEpisode(
+					PawnMovement::HazardWaterEgressTerminal::PrimaryZoneCleared,
+					Location(), MoveTarget() ? MoveTarget()->Name.ToString() : std::string(),
+					Destination());
+			}
 			HazardSwimEgressExitCountValue++;
 			if (HazardSwimEgress.ActionActive)
 				HazardSwimEgressLiveSuccessfulExitCountValue++;
@@ -5519,11 +5546,36 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 	}
 
 	if (HazardSwimEgress.HarmfulWaterEpisodeActive)
+	{
+		if (HazardWaterEgressObserver)
+			HazardWaterEgressObserver->ObservePosition(Location());
 		return;
+	}
 
 	HazardSwimEgress.HarmfulWaterEpisodeActive = true;
 	HazardSwimEgressEpisodeId++;
 	HazardSwimEgressEpisodeCountValue++;
+	if (!HazardWaterEgressObserver)
+	{
+		HazardWaterEgressObserver =
+			std::make_unique<PawnMovement::HazardWaterEgressObserver>(Name.ToString());
+	}
+	PawnMovement::HazardWaterEgressEntry entry;
+	entry.LifeId = HazardSwimEgressLifeId;
+	entry.EpisodeId = HazardSwimEgressEpisodeId;
+	entry.TransitionSource = HazardSwimEgress.TransitionSource;
+	entry.AnchorKnown = HazardSwimEgress.AnchorKnown;
+	entry.Anchor = HazardSwimEgress.Anchor;
+	entry.EntryLocation = Location();
+	entry.DamagePerSecond = static_cast<float>(primaryZone->DamagePerSec());
+	entry.Destination = Destination();
+	if (UActor* moveTarget = MoveTarget())
+	{
+		entry.MoveTargetName = moveTarget->Name.ToString();
+		entry.MoveTargetLocationKnown = IsFiniteVector(moveTarget->Location());
+		entry.MoveTargetLocation = moveTarget->Location();
+	}
+	HazardWaterEgressObserver->BeginEpisode(entry);
 	if (!HazardSwimEgress.AnchorKnown || !IsFiniteVector(HazardSwimEgress.Anchor))
 	{
 		HazardSwimEgressNoAnchorRejectedCountValue++;
@@ -5542,6 +5594,14 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 	{
 		HazardSwimEgressAuthorizedCountValue++;
 		ObserveHazardSwimEgressDirectNavigationCandidates();
+		if (HazardWaterEgressObserver
+			&& HazardSwimEgress.DirectNavBestCandidateLocationKnown)
+		{
+			HazardWaterEgressObserver->ObserveCandidate({
+				HazardSwimEgress.DirectNavBestCandidateName,
+				HazardSwimEgress.DirectNavBestCandidateLocation,
+				HazardSwimEgress.DirectNavBestCandidateDistance });
+		}
 		HazardSwimEgress.LiveActionAuthorized =
 			engine->IsBotBenchmarkHazardSwimEgressLiveEnabled()
 			&& HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove;
@@ -5578,6 +5638,8 @@ void UPawn::ObserveHazardSwimEgressDirectNavigationCandidates()
 			{
 				HazardSwimEgress.DirectNavBestCandidateDistance = distance;
 				HazardSwimEgress.DirectNavBestCandidateName = candidate->Name.ToString();
+				HazardSwimEgress.DirectNavBestCandidateLocationKnown = true;
+				HazardSwimEgress.DirectNavBestCandidateLocation = candidate->Location();
 			}
 		}
 	}
@@ -5633,6 +5695,13 @@ void UPawn::AdvanceHazardSwimEgressLiveSteer()
 
 void UPawn::RecordHazardSwimEgressDeath()
 {
+	if (HazardWaterEgressObserver && HazardWaterEgressObserver->HasActiveEpisode()
+		&& IsFiniteVector(Location()) && IsFiniteVector(Destination()))
+	{
+		HazardWaterEgressObserver->FinishEpisode(
+			PawnMovement::HazardWaterEgressTerminal::DeathBeforeExit, Location(),
+			MoveTarget() ? MoveTarget()->Name.ToString() : std::string(), Destination());
+	}
 	if (HazardSwimEgress.ActionActive && HazardSwimEgress.HarmfulWaterEpisodeActive
 		&& Physics() == PHYS_Swimming && !bDeleteMe())
 		HazardSwimEgressDeathsBeforeExitCountValue++;
@@ -7081,17 +7150,37 @@ const PawnMovement::FallingHazardRuntimeCounters&
 }
 
 std::vector<PawnMovement::FallingHazardDiagnosticRecord>
-	UPawn::DrainFallingHazardDiagnostics()
+UPawn::DrainFallingHazardDiagnostics()
 {
 	return FallingHazardObserver
 		? FallingHazardObserver->DrainDiagnostics()
 		: std::vector<PawnMovement::FallingHazardDiagnosticRecord>{};
 }
 
+std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>
+UPawn::DrainHazardWaterEgressDiagnostics()
+{
+	return HazardWaterEgressObserver
+		? HazardWaterEgressObserver->DrainDiagnostics()
+		: std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>{};
+}
+
+uint64_t UPawn::HazardWaterEgressDiagnosticOverflowCount() const
+{
+	return HazardWaterEgressObserver
+		? HazardWaterEgressObserver->OverflowCount() : 0;
+}
+
 void UPawn::EndWalkingStepPreflightLife()
 {
 	EndHarmfulZoneEscapeLife();
 	ResetFallingHazardRecovery();
+	if (HazardWaterEgressObserver && HazardWaterEgressObserver->HasActiveEpisode()
+		&& IsFiniteVector(Location()) && IsFiniteVector(Destination()))
+	{
+		HazardWaterEgressObserver->EndLife(Location(),
+			MoveTarget() ? MoveTarget()->Name.ToString() : std::string(), Destination());
+	}
 	ResetHazardSwimEgressObservation();
 	HazardSwimEgressLifeId++;
 	HazardSwimEgressEpisodeId = 0;

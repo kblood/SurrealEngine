@@ -12,6 +12,7 @@
 #include "PawnLedgeTransition.h"
 #include "PawnFallingParityRealizedTrace.h"
 #include "PawnFallingHazardRuntimeObserver.h"
+#include "PawnHazardWaterEgressObserver.h"
 #include "PawnWalkingStepPreflight.h"
 #include "PawnWallAdjustRecovery.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
@@ -2018,6 +2019,9 @@ public:
 		FallingHazardRuntimeCounterValues() const;
 	std::vector<PawnMovement::FallingHazardDiagnosticRecord>
 		DrainFallingHazardDiagnostics();
+	std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>
+		DrainHazardWaterEgressDiagnostics();
+	uint64_t HazardWaterEgressDiagnosticOverflowCount() const;
 	uint64_t BeginWalkingStepPreflightInvocation()
 	{
 		return ++WalkingStepPreflightInvocationSequence;
@@ -2406,11 +2410,17 @@ private:
 		bool LiveActionAuthorized = false;
 		bool LiveProbeRejected = false;
 		bool ActionActive = false;
+		PawnMovement::HazardWaterEgressTransitionSource TransitionSource =
+			PawnMovement::HazardWaterEgressTransitionSource::Unknown;
 		std::string DirectNavBestCandidateName;
+		bool DirectNavBestCandidateLocationKnown = false;
+		vec3 DirectNavBestCandidateLocation = vec3(0.0f);
 		float DirectNavBestCandidateDistance = std::numeric_limits<float>::infinity();
 	};
 	HazardSwimEgressState HazardSwimEgress;
 	BotAI::HazardSwimEgressGate HazardSwimEgressGate;
+	std::unique_ptr<PawnMovement::HazardWaterEgressObserver>
+		HazardWaterEgressObserver;
 	uint64_t HazardSwimEgressLifeId = 1;
 	uint64_t HazardSwimEgressEpisodeId = 0;
 	PawnMovement::FallingSeamEpisodeState FallingSeamEpisode;

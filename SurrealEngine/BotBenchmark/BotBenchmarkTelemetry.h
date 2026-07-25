@@ -3,6 +3,7 @@
 #include "UObject/PawnWalkingStepPreflight.h"
 #include "UObject/PawnFallingParityRealizedTrace.h"
 #include "UObject/PawnFallingHazardDiagnostics.h"
+#include "UObject/PawnHazardWaterEgressObserver.h"
 
 #include <array>
 #include <cstdint>
@@ -111,6 +112,9 @@ struct BotBenchmarkBotState
 	std::string HazardSwimEgressDirectNavBestCandidateName;
 	bool HazardSwimEgressAnchorKnown = false;
 	std::string HazardSwimEgressAnchorSource;
+	uint64_t HazardWaterEgressDiagnosticOverflowsExact = 0;
+	std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>
+		HazardWaterEgressDiagnostics;
 	uint64_t FallingHazardRecoveryPromotionsExact = 0;
 	uint64_t FallingHazardRecoveryAdvanceCallsExact = 0;
 	uint64_t FallingHazardRecoveryContextRejectedExact = 0;
