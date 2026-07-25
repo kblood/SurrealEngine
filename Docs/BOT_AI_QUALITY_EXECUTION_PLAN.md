@@ -1454,6 +1454,49 @@ candidate-target or generic acceleration policy is authorized. The next
 causal slice remains the separate pre-entry partition for the non-egress
 environmental deaths.
 
+## Iteration 66: exact same-death hazard co-observation
+
+The benchmark driver now stages terminal movement witnesses at the outermost
+`GameInfo.Killed` entry, binds that stage to the accepted attribution-scope
+token, and finalizes it only when the outer `Killed` result yields an
+attribution decision. The emitted `hazard_death_partition_records` stream has
+one ordered record per classified death, including killer relation, the exact
+five-way attribution, environmental callback source, movement intent/target,
+and optional terminal water-egress, falling-hazard, and falling-parity
+references. Abnormal or unfinalized outer scopes fail closed rather than
+leaking a staged witness into a later death.
+
+This is explicitly a *same-death co-observation*, not a causal label. Every
+death can finish an active water or falling observer: an enemy kill while a
+pawn is swimming must not be described as a water suicide. The analyzer
+therefore reconciles every emitted record exactly against the attribution
+partition and requires each claimed witness to match a `death_before_exit` or
+`died` terminal diagnostic from the same telemetry event. It rejects
+fabricated links, regressing sequences/times, partial or unavailable IDs,
+and unknown physics, attribution, source, or correlation vocabulary. Any
+future intervention hypothesis must filter to environmentally attributed
+deaths and must separately establish a controllable pre-entry cause.
+
+Fresh two-repetition observer/control matrices with the v24 analyzer completed
+on UT436 `DM-Deck16][` (seed 271828) and Unreal Gold 226b `DmDeathFan` (seed
+424242) at `qa/runs/2026-07-25/hazard-death-partition-pair/`. The Deck
+observer recorded the reproducible unassisted `PainTimer` death as a
+same-death water-egress terminal with movement intent and `LiftExit6` as its
+target. The observer-disabled control correctly has no water witness; this is
+observer availability, not evidence of a different death. On DeathFan, the
+new records distinguish two unassisted `PainTimer` deaths per run from direct
+enemy kills that happened while swimming: the latter do carry water terminals
+in the observer variant, proving why terminal water presence alone cannot
+authorize a policy. One unassisted witness has no active movement intent.
+All eight artifacts completed and passed strict schema/cross-reference
+validation. No behavior policy changed and no release gate is claimed.
+
+The next experiment is pre-entry only: use the existing falling transition,
+anchor, navigation target, and physics evidence to identify a bounded,
+environmentally-attributed harmful-water prefix before acceleration or routing
+is changed. It must reject direct-enemy deaths, targetless/no-intent states,
+unreachable candidates, and all unproven generic egress steering.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
