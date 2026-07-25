@@ -565,6 +565,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnFallingHazardRuntimeObserver.h
 	SurrealEngine/UObject/PawnHazardWaterEgressObserver.cpp
 	SurrealEngine/UObject/PawnHazardWaterEgressObserver.h
+	SurrealEngine/UObject/PawnHazardWaterEgressRouteCertificate.cpp
+	SurrealEngine/UObject/PawnHazardWaterEgressRouteCertificate.h
 	SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.cpp
 	SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.h
 	SurrealEngine/UObject/PawnVerticalPainColumnShadow.cpp
@@ -1453,6 +1455,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PawnHazardWaterEgressObserverTests PRIVATE SurrealEngine)
 	set_target_properties(PawnHazardWaterEgressObserverTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnHazardWaterEgressObserver COMMAND PawnHazardWaterEgressObserverTests)
+
+	add_executable(PawnHazardWaterEgressRouteCertificateTests
+		Tests/PawnHazardWaterEgressRouteCertificateTests.cpp
+		SurrealEngine/UObject/PawnHazardWaterEgressRouteCertificate.cpp
+	)
+	target_include_directories(PawnHazardWaterEgressRouteCertificateTests PRIVATE SurrealEngine)
+	set_target_properties(PawnHazardWaterEgressRouteCertificateTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnHazardWaterEgressRouteCertificate COMMAND PawnHazardWaterEgressRouteCertificateTests)
 
 	add_executable(PawnFallingHazardTrajectoryModelTests
 		Tests/PawnFallingHazardTrajectoryModelTests.cpp

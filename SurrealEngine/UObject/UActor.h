@@ -2362,6 +2362,7 @@ private:
 	void ResetFallingHazardRecovery();
 	void ResetHazardSwimEgressObservation();
 	void ObserveHazardSwimEgressDirectNavigationCandidates();
+	void ObserveHazardSwimEgressStaticWalkCertificate();
 
 	bool IsInPathSpecialHandling = false;
 	PawnMovement::FailedNavigationMemoryState FailedNavigationMemory;

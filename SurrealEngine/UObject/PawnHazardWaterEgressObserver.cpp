@@ -55,6 +55,25 @@ namespace PawnMovement
 		return true;
 	}
 
+	bool HazardWaterEgressObserver::ObserveStaticWalkCertificate(
+		const HazardWaterEgressStaticWalkCertificate& certificate)
+	{
+		if (!Active || Current.StaticWalkCertificate.Result != "not_attempted_missing_anchor"
+			|| certificate.Result.empty() || !std::isfinite(certificate.StaticWalkCost))
+		{
+			return false;
+		}
+		if (certificate.FirstHopKnown != !certificate.FirstHopName.empty()
+			|| certificate.ContinuationKnown != !certificate.ContinuationName.empty()
+			|| (!certificate.ContinuationKnown && (certificate.StaticWalkCost != 0.0f
+				|| certificate.StaticWalkHops != 0)))
+		{
+			return false;
+		}
+		Current.StaticWalkCertificate = certificate;
+		return true;
+	}
+
 	bool HazardWaterEgressObserver::ObserveCandidate(
 		const HazardWaterEgressCandidate& candidate)
 	{

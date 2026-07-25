@@ -1396,6 +1396,41 @@ existing `TryMove(..., true)` candidate as a route certificate or direct live
 target. The next prerequisite for a candidate policy is a separate,
 read-only first-hop/route certification that does not mutate stock path state.
 
+## Iteration 64: read-only static-walk certificate
+
+The next observer is deliberately narrower than a pathfinding replacement. At
+harmful-water entry it starts from the captured pre-water anchor, snapshots a
+bounded navigation graph, collision-probes a direct anchor-to-node first hop,
+and then accepts only an unpruned UE1 `R_WALK` continuation with adequate pawn
+cylinder dimensions. Water, harmful, dynamic, player-only, lift, teleport,
+jump, swim, fly, door, and special-path nodes or reachspecs are rejected. The
+snapshot traversal does not call `ActorReachable`, `FindPath*`,
+`MarkReachableNavEndPoints`, `ClearPaths`, `PathSpecialHandling`, or write a
+route cache, endpoint flag, pawn position, target, or acceleration.
+
+The resulting telemetry says only `certified_static_walk_continuation`,
+`no_eligible_direct_first_hop`, `no_static_walk_continuation`,
+`search_budget_exhausted`, or `not_attempted_missing_anchor`; it includes the
+selected first-hop and continuation names, static cost, hop count, and exact
+visited-node count. A certificate proves a collision-clear static first hop
+and one static graph continuation, not runtime reachability, traversal time,
+stock intent, or survival. Pure fixtures cover a valid route plus blocked
+first hop, pruned/undersized/jump edges, unsafe endpoints, and search budget
+exhaustion. The v22 analyzer validates all certificate availability and
+rejection invariants within the terminal egress record.
+
+Fresh two-repetition paired observer/control runs passed on UT436
+`DM-Deck16][` seed 271828 and Unreal Gold 226b `DmDeathFan` seed 424242 at
+`qa/runs/2026-07-25/hazard-static-walk-certificate-pair/`. Every checked
+quality delta was exactly zero. Deck's Alys death had a certified
+`InventorySpot192 -> PathNode29` continuation with static cost 274. DeathFan
+had a certified `PathNode65 -> PathNode19` continuation with static cost 180,
+yet four observed terminal episodes died and one cleared across each
+repetition. Certification therefore does not establish a causal escape route
+or authorize a live target. The next safety experiment must measure the
+pre-entry and post-entry causal prefix against these witnesses; direct egress
+steering remains rejected.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

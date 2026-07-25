@@ -383,6 +383,21 @@ namespace
 		WriteVector(out, entry.MoveTargetLocation);
 		out << ",\"entry_destination\":";
 		WriteVector(out, entry.Destination);
+		const auto& certificate = diagnostic.StaticWalkCertificate;
+		out << ",\"static_walk_certificate_result\":"
+			<< JsonString(certificate.Result)
+			<< ",\"static_walk_first_hop_known\":"
+			<< (certificate.FirstHopKnown ? "true" : "false")
+			<< ",\"static_walk_first_hop_name\":"
+			<< JsonString(certificate.FirstHopName)
+			<< ",\"static_walk_continuation_known\":"
+			<< (certificate.ContinuationKnown ? "true" : "false")
+			<< ",\"static_walk_continuation_name\":"
+			<< JsonString(certificate.ContinuationName)
+			<< ",\"static_walk_cost\":" << Fixed(certificate.StaticWalkCost, 6)
+			<< ",\"static_walk_hops\":\"" << certificate.StaticWalkHops
+			<< "\",\"static_walk_visited_nodes\":\"" << certificate.VisitedNodes
+			<< "\"";
 		out << ",\"candidate_known\":"
 			<< (diagnostic.CandidateKnown ? "true" : "false")
 			<< ",\"candidate_name\":" << JsonString(diagnostic.Candidate.Name)

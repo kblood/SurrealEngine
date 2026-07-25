@@ -50,11 +50,24 @@ namespace PawnMovement
 		float EntryDistance = 0.0f;
 	};
 
+	struct HazardWaterEgressStaticWalkCertificate
+	{
+		std::string Result = "not_attempted_missing_anchor";
+		bool FirstHopKnown = false;
+		std::string FirstHopName;
+		bool ContinuationKnown = false;
+		std::string ContinuationName;
+		float StaticWalkCost = 0.0f;
+		uint64_t StaticWalkHops = 0;
+		uint64_t VisitedNodes = 0;
+	};
+
 	struct HazardWaterEgressDiagnosticRecord
 	{
 		std::string SourcePawnActor;
 		uint64_t Sequence = 0;
 		HazardWaterEgressEntry Entry;
+		HazardWaterEgressStaticWalkCertificate StaticWalkCertificate;
 		bool CandidateKnown = false;
 		HazardWaterEgressCandidate Candidate;
 		bool CandidateDistanceKnown = false;
@@ -81,6 +94,8 @@ namespace PawnMovement
 		explicit HazardWaterEgressObserver(std::string sourcePawnActor = {});
 
 		bool BeginEpisode(const HazardWaterEgressEntry& entry);
+		bool ObserveStaticWalkCertificate(
+			const HazardWaterEgressStaticWalkCertificate& certificate);
 		bool ObserveCandidate(const HazardWaterEgressCandidate& candidate);
 		bool ObservePosition(const vec3& position);
 		bool FinishEpisode(HazardWaterEgressTerminal terminal,

@@ -19,6 +19,7 @@
 #include "PawnPathCost.h"
 #include "PawnWallAdjustment.h"
 #include "PawnWallAdjustRecovery.h"
+#include "PawnHazardWaterEgressRouteCertificate.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
 #include "BotAI/FallingHazardRecoveryGate.h"
 #include "BotAI/HazardSwimEgressGate.h"
@@ -29,6 +30,8 @@
 #include "Engine.h"
 #include "Render/RenderSubsystem.h"
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 
 // TODO: Compare behavior more closely with original engine. Might differ depending on game.
 static constexpr float stepDownDeltaFactor = 1.3f;
@@ -5576,6 +5579,7 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 		entry.MoveTargetLocation = moveTarget->Location();
 	}
 	HazardWaterEgressObserver->BeginEpisode(entry);
+	ObserveHazardSwimEgressStaticWalkCertificate();
 	if (!HazardSwimEgress.AnchorKnown || !IsFiniteVector(HazardSwimEgress.Anchor))
 	{
 		HazardSwimEgressNoAnchorRejectedCountValue++;
@@ -5643,6 +5647,88 @@ void UPawn::ObserveHazardSwimEgressDirectNavigationCandidates()
 			}
 		}
 	}
+}
+
+void UPawn::ObserveHazardSwimEgressStaticWalkCertificate()
+{
+	constexpr float maximumAnchorFirstHopDistance = 2048.0f;
+	constexpr size_t maximumNavigationSnapshotNodes = 512;
+	constexpr size_t maximumCertificateVisitedNodes = 64;
+	if (!HazardWaterEgressObserver || !HazardWaterEgressObserver->HasActiveEpisode()
+		|| !HazardSwimEgress.AnchorKnown || !IsFiniteVector(HazardSwimEgress.Anchor)
+		|| !Level())
+	{
+		return;
+	}
+
+	PawnMovement::HazardWaterEgressRouteCertificateRequest request;
+	request.PawnCollisionRadius = CollisionRadius();
+	request.PawnCollisionHeight = CollisionHeight();
+	request.MaximumVisitedNodes = maximumCertificateVisitedNodes;
+	std::vector<UNavigationPoint*> navigationPoints;
+	std::unordered_map<UNavigationPoint*, size_t> navigationIndexes;
+	std::unordered_set<UNavigationPoint*> seen;
+	for (UNavigationPoint* point = Level()->NavigationPointList(); point
+		&& navigationPoints.size() < maximumNavigationSnapshotNodes;
+		point = point->nextNavigationPoint())
+	{
+		if (!seen.insert(point).second)
+			break;
+		const vec3 delta = point->Location() - HazardSwimEgress.Anchor;
+		UZoneInfo* zone = point->Region().Zone;
+		const bool staticDry = zone && zone->bStatic() && !zone->bWaterZone()
+			&& !IsExactHarmfulZone(zone);
+		const bool liftOrTeleport = UObject::TryCast<ULiftExit>(point)
+			|| UObject::TryCast<ULiftCenter>(point) || point->IsA("Teleporter");
+		PawnMovement::HazardWaterEgressRouteNode node;
+		node.Id = point->Name.ToString();
+		node.StaticDry = staticDry;
+		node.PlayerOnly = point->bPlayerOnly();
+		node.LiftOrTeleport = liftOrTeleport;
+		node.DirectFirstHopSweepClear = staticDry && !node.PlayerOnly && !liftOrTeleport
+			&& IsFiniteVector(delta) && length(delta) <= maximumAnchorFirstHopDistance
+			&& ProbeMoveCollision(HazardSwimEgress.Anchor, delta, true).Fraction == 1.0f;
+		navigationIndexes[point] = navigationPoints.size();
+		navigationPoints.push_back(point);
+		request.Nodes.push_back(std::move(node));
+	}
+
+	const Array<LevelReachSpec>& reachSpecs = XLevel()->ReachSpecs;
+	for (size_t sourceIndex = 0; sourceIndex < navigationPoints.size(); sourceIndex++)
+	{
+		UNavigationPoint* source = navigationPoints[sourceIndex];
+		for (int reachSpecIndex : source->Paths())
+		{
+			if (reachSpecIndex < 0 || static_cast<size_t>(reachSpecIndex) >= reachSpecs.size())
+				break;
+			const LevelReachSpec& reachSpec = reachSpecs[reachSpecIndex];
+			auto destination = navigationIndexes.find(reachSpec.endActor);
+			if (reachSpec.startActor != source || destination == navigationIndexes.end())
+				continue;
+			request.Edges.push_back({ sourceIndex, destination->second,
+				static_cast<float>(reachSpec.distance), static_cast<float>(reachSpec.collisionRadius),
+				static_cast<float>(reachSpec.collisionHeight),
+				static_cast<uint32_t>(reachSpec.reachFlags), reachSpec.bPruned != 0 });
+		}
+	}
+
+	const auto certificate =
+		PawnMovement::CertifyHazardWaterEgressStaticWalkRoute(request);
+	PawnMovement::HazardWaterEgressStaticWalkCertificate observation;
+	observation.Result = PawnMovement::HazardWaterEgressRouteCertificateResultName(
+		certificate.Result);
+	observation.FirstHopKnown = certificate.FirstHopKnown
+		&& certificate.FirstHopNode < request.Nodes.size();
+	if (observation.FirstHopKnown)
+		observation.FirstHopName = request.Nodes[certificate.FirstHopNode].Id;
+	observation.ContinuationKnown = certificate.ContinuationKnown
+		&& certificate.ContinuationNode < request.Nodes.size();
+	if (observation.ContinuationKnown)
+		observation.ContinuationName = request.Nodes[certificate.ContinuationNode].Id;
+	observation.StaticWalkCost = certificate.StaticWalkCost;
+	observation.StaticWalkHops = certificate.StaticWalkHops;
+	observation.VisitedNodes = certificate.VisitedNodes;
+	HazardWaterEgressObserver->ObserveStaticWalkCertificate(observation);
 }
 
 void UPawn::AdvanceHazardSwimEgressLiveSteer()

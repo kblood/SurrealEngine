@@ -22,7 +22,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 21
+TOOL_VERSION = 22
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -467,6 +467,11 @@ HAZARD_WATER_EGRESS_TRANSITION_SOURCES = {
 }
 HAZARD_WATER_EGRESS_TERMINALS = {
     "primary_zone_cleared", "death_before_exit", "life_reset", "episode_abandoned",
+}
+HAZARD_WATER_EGRESS_STATIC_WALK_CERTIFICATES = {
+    "not_attempted_missing_anchor", "certified_static_walk_continuation",
+    "no_eligible_direct_first_hop", "no_static_walk_continuation",
+    "search_budget_exhausted",
 }
 
 
@@ -1190,7 +1195,11 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         "source_pawn_actor", "sequence", "life_id", "episode_id", "transition_source",
         "anchor_known", "anchor", "entry_location", "damage_per_second",
         "entry_move_target_name", "entry_move_target_location_known",
-        "entry_move_target_location", "entry_destination", "candidate_known",
+        "entry_move_target_location", "entry_destination",
+        "static_walk_certificate_result", "static_walk_first_hop_known",
+        "static_walk_first_hop_name", "static_walk_continuation_known",
+        "static_walk_continuation_name", "static_walk_cost", "static_walk_hops",
+        "static_walk_visited_nodes", "candidate_known",
         "candidate_name", "candidate_location", "candidate_entry_distance",
         "candidate_distance_known", "minimum_candidate_distance",
         "terminal_candidate_distance", "candidate_progress_samples",
@@ -1205,6 +1214,38 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
     terminal = _string(fields, "terminal", context, nonempty=True)
     if terminal not in HAZARD_WATER_EGRESS_TERMINALS:
         raise QualityError(f"{context}.terminal is not recognized")
+    static_walk_result = _string(fields, "static_walk_certificate_result", context,
+                                 nonempty=True)
+    if static_walk_result not in HAZARD_WATER_EGRESS_STATIC_WALK_CERTIFICATES:
+        raise QualityError(f"{context}.static_walk_certificate_result is not recognized")
+    static_walk_first_hop_known = _boolean(
+        fields.get("static_walk_first_hop_known"),
+        f"{context}.static_walk_first_hop_known")
+    static_walk_first_hop_name = _string(fields, "static_walk_first_hop_name", context)
+    static_walk_continuation_known = _boolean(
+        fields.get("static_walk_continuation_known"),
+        f"{context}.static_walk_continuation_known")
+    static_walk_continuation_name = _string(
+        fields, "static_walk_continuation_name", context)
+    static_walk_cost = _number(fields.get("static_walk_cost"),
+                                f"{context}.static_walk_cost", minimum=0.0)
+    static_walk_hops = _integer(fields.get("static_walk_hops"),
+                                f"{context}.static_walk_hops", minimum=0)
+    static_walk_visited_nodes = _integer(fields.get("static_walk_visited_nodes"),
+                                         f"{context}.static_walk_visited_nodes", minimum=0)
+    if static_walk_first_hop_known != bool(static_walk_first_hop_name):
+        raise QualityError(f"{context}: static-walk first-hop availability must match its name")
+    if static_walk_continuation_known != bool(static_walk_continuation_name):
+        raise QualityError(f"{context}: static-walk continuation availability must match its name")
+    if static_walk_result == "certified_static_walk_continuation":
+        if not static_walk_first_hop_known or not static_walk_continuation_known \
+                or static_walk_hops < 1:
+            raise QualityError(f"{context}: certified static walk requires first-hop and continuation evidence")
+    elif static_walk_continuation_known or static_walk_cost != 0.0 or static_walk_hops != 0:
+        raise QualityError(f"{context}: rejected static walk must not claim a continuation")
+    if static_walk_result == "not_attempted_missing_anchor" and (
+            static_walk_first_hop_known or static_walk_visited_nodes != 0):
+        raise QualityError(f"{context}: missing-anchor static walk must not claim a graph probe")
     candidate_known = _boolean(fields.get("candidate_known"), f"{context}.candidate_known")
     candidate_distance_known = _boolean(
         fields.get("candidate_distance_known"), f"{context}.candidate_distance_known")
@@ -1257,6 +1298,14 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
             fields.get("entry_move_target_location"), f"{context}.entry_move_target_location"),
         "entry_destination": _diagnostic_vector(fields.get("entry_destination"),
                                                   f"{context}.entry_destination"),
+        "static_walk_certificate_result": static_walk_result,
+        "static_walk_first_hop_known": static_walk_first_hop_known,
+        "static_walk_first_hop_name": static_walk_first_hop_name,
+        "static_walk_continuation_known": static_walk_continuation_known,
+        "static_walk_continuation_name": static_walk_continuation_name,
+        "static_walk_cost": static_walk_cost,
+        "static_walk_hops": static_walk_hops,
+        "static_walk_visited_nodes": static_walk_visited_nodes,
         "candidate_known": candidate_known,
         "candidate_name": candidate_name,
         "candidate_location": _diagnostic_vector(fields.get("candidate_location"),
