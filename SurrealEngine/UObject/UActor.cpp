@@ -5919,15 +5919,9 @@ void UPawn::RestoreHazardSwimEgressAccelerationOverlay()
 	if (!HazardSwimEgress.AccelerationOverlayActive)
 		return;
 	const vec3 acceleration = Acceleration();
-	const float accelerationLength = length(acceleration);
-	const float expectedLength = AccelRate() * 0.3f;
-	const bool overlayStillOwnsAcceleration = IsFiniteVector(acceleration)
-		&& IsFiniteVector(HazardSwimEgress.AccelerationOverlayDirection)
-		&& std::isfinite(accelerationLength) && std::isfinite(expectedLength)
-		&& expectedLength > 0.0f && accelerationLength <= expectedLength * 1.001f
-		&& accelerationLength > 0.0001f
-		&& dot(normalize(acceleration), HazardSwimEgress.AccelerationOverlayDirection) > 0.999f;
-	if (overlayStillOwnsAcceleration)
+	if (BotAI::ShouldRestoreHazardSwimEgressAccelerationOverlay({
+			true, acceleration, HazardSwimEgress.AccelerationOverlayDirection,
+			AccelRate() * 0.3f }))
 		Acceleration() = HazardSwimEgress.AccelerationBeforeOverlay;
 	HazardSwimEgress.AccelerationOverlayActive = false;
 }

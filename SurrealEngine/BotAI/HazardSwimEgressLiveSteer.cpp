@@ -62,4 +62,23 @@ namespace BotAI
 			return noAction(Reason::ProbeNotRun);
 		return { Transition::SteerCandidate, Terminal::None, Reason::Ready };
 	}
+
+	bool ShouldRestoreHazardSwimEgressAccelerationOverlay(
+		const HazardSwimEgressAccelerationOverlayRestoreInput& input)
+	{
+		const vec3 acceleration = input.CurrentAcceleration;
+		const float accelerationLength = length(acceleration);
+		return input.OverlayActive
+			&& std::isfinite(acceleration.x) && std::isfinite(acceleration.y)
+			&& std::isfinite(acceleration.z)
+			&& std::isfinite(input.OverlayDirection.x)
+			&& std::isfinite(input.OverlayDirection.y)
+			&& std::isfinite(input.OverlayDirection.z)
+			&& std::isfinite(accelerationLength)
+			&& std::isfinite(input.ExpectedMaximumAcceleration)
+			&& input.ExpectedMaximumAcceleration > 0.0f
+			&& accelerationLength > 0.0001f
+			&& accelerationLength <= input.ExpectedMaximumAcceleration * 1.001f
+			&& dot(normalize(acceleration), input.OverlayDirection) > 0.999f;
+	}
 }

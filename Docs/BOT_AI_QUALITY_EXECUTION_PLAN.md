@@ -2170,6 +2170,17 @@ tests pass together with the full 123-test Python suite. Fresh owner-data
 campaigns must supply a non-zero complete opportunity set before these metrics
 can inform an avoidable-suicide gate.
 
+## Iteration 90: egress overlay ownership fixture
+
+The live egress unit test now covers the acceleration transaction itself, not
+only its eligibility policy. It proves that the one-physics-step overlay
+restores the saved stock acceleration when the swimming integrator still owns
+the vector, while a callback-issued replacement vector or an out-of-bound
+vector is retained. This makes the lifecycle correction deterministic and
+prevents a future refactor from silently restoring over a newer bot command.
+The focused test and the Release engine build pass. Runtime quality remains
+unproven until the owner-data cross-game campaign is available.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
