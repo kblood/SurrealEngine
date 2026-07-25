@@ -7,6 +7,7 @@ var vector OracleStart;
 var vector OracleGoal;
 var int OracleCase;
 var int OracleHitCount;
+var int OracleProbeBumpCount;
 var bool bOracleConfigured;
 var Actor OracleBlocker;
 var string OracleRunId;
@@ -71,8 +72,28 @@ state OracleProbe
 {
     function Bump(Actor Other)
     {
+        local vector TraceLocation;
+        local vector TraceNormal;
+        local vector TraceExtent;
+        local Actor TraceActor;
+
         if (Other == OracleBlocker)
-            LogOracle("probe_bump", "other=" $ Other $ ";location=" $ Location);
+        {
+            OracleProbeBumpCount++;
+            TraceExtent.X = CollisionRadius;
+            TraceExtent.Y = CollisionRadius;
+            TraceExtent.Z = CollisionHeight;
+            TraceActor = Trace(TraceLocation, TraceNormal, Destination, Location, True, TraceExtent);
+            LogOracle("probe_bump", "bump_index=" $ OracleProbeBumpCount $ ";other=" $ Other $ ";min=" $ MinHitWall
+                $ ";velocity=" $ Velocity $ ";acceleration=" $ Acceleration
+                $ ";physics=" $ Physics $ ";location=" $ Location
+                $ ";blocker_location=" $ Other.Location
+                $ ";probe_radius=" $ CollisionRadius $ ";probe_height=" $ CollisionHeight
+                $ ";blocker_radius=" $ Other.CollisionRadius $ ";blocker_height=" $ Other.CollisionHeight
+                $ ";center_normal_reconstructed=" $ Normal(Location - Other.Location)
+                $ ";bump_trace_actor=" $ TraceActor $ ";bump_trace_normal=" $ TraceNormal
+                $ ";bump_trace_location=" $ TraceLocation);
+        }
     }
 
     function HitWall(vector HitNormal, actor Wall)

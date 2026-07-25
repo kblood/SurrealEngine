@@ -24,11 +24,32 @@ function ConfigureOracle(Actor InProbe, string InRunId)
 
 function Bump(Actor Other)
 {
+    local vector TraceLocation;
+    local vector TraceNormal;
+    local vector TraceExtent;
+    local Actor TraceActor;
+    local Pawn Probe;
+
     if (Other == OracleProbe)
     {
+        Probe = Pawn(OracleProbe);
+        if (Probe == None)
+            return;
         OracleBumpCount++;
-        LogOracle("blocker_bump", "count=" $ OracleBumpCount $ ";other=" $ Other
-            $ ";location=" $ Location);
+        TraceExtent.X = Probe.CollisionRadius;
+        TraceExtent.Y = Probe.CollisionRadius;
+        TraceExtent.Z = Probe.CollisionHeight;
+        TraceActor = Probe.Trace(TraceLocation, TraceNormal,
+            Probe.Destination, Probe.Location, True, TraceExtent);
+        LogOracle("blocker_bump", "bump_index=" $ OracleBumpCount $ ";other=" $ Other
+            $ ";min=" $ Probe.MinHitWall $ ";velocity=" $ Probe.Velocity
+            $ ";acceleration=" $ Probe.Acceleration $ ";physics=" $ Probe.Physics
+            $ ";location=" $ Location $ ";probe_location=" $ Probe.Location
+            $ ";probe_radius=" $ Probe.CollisionRadius $ ";probe_height=" $ Probe.CollisionHeight
+            $ ";blocker_radius=" $ CollisionRadius $ ";blocker_height=" $ CollisionHeight
+            $ ";center_normal_reconstructed=" $ Normal(Probe.Location - Location)
+            $ ";bump_trace_actor=" $ TraceActor $ ";bump_trace_normal=" $ TraceNormal
+            $ ";bump_trace_location=" $ TraceLocation);
     }
 }
 

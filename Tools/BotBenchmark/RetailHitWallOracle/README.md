@@ -25,6 +25,11 @@ local stat log:
   and an explicit skipped `PickWallAdjust` event;
 - `hitwall_pre` records the threshold, native pre-handler velocity, contact
   normal, computed dot, wall, walking physics value, and active state;
+- every paired `blocker_bump` / `probe_bump` records live threshold, velocity,
+  acceleration, physics, both collision extents, a center-derived reconstruction,
+  and an expanded Trace witness. The reconstruction is explicitly not the
+  native physics normal; the runner requires bilateral ordering and target
+  identity but does not compare it to the native callback predicate;
 - `handle_door_pre` / `handle_door_post` and `pick_wall_adjust_*` establish
   mover callback ordering when a future mover-specific profile produces that
   collision; the static comparator run does not claim that coverage.
@@ -43,6 +48,10 @@ exactly one new or changed UTF-16 local stat log, copies it to the case
 directory, and parses only records bearing that case's unique run ID. The
 manifest records the copied log hash/size, exact parsed records, process ID,
 timeout, and termination method.
+
+Some current GOG UT436 installs omit `System/Server.ini`. The runner seeds it
+from `UnrealTournament.ini` only inside the isolated runtime before configuring
+UCC; the installed-game inventory remains an enforced before/after invariant.
 
 Use `-Profile UT436` for `DM-Deck16][` or `-Profile Unreal226b` for
 `DmMorbias`. The Unreal Gold 226b UCC server does not construct the legacy

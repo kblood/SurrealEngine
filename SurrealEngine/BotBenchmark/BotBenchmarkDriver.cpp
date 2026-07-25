@@ -1,5 +1,6 @@
 #include "Precomp.h"
 #include "BotBenchmarkDriver.h"
+#include "BotWalkingHitWallCornerFixture.h"
 #include "BotControlledMatch.h"
 #include "BotBenchmarkGameProfile.h"
 #include "BotBenchmarkDeathAttributionCoordinator.h"
@@ -2174,4 +2175,5 @@ void RegisterBotBenchmarkDriver(HeadlessDriverRegistry& registry)
 			return std::make_unique<BotBenchmarkDriver>(engine, ConfigFromCommandLine());
 		});
 	}
+	RegisterBotWalkingHitWallCornerFixtureDriver(registry);
 }

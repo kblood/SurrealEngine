@@ -1847,6 +1847,37 @@ measurement attribution, not native dispatch behavior. Boundary calibration
 and a controlled forced-corner runtime fixture remain required before any
 predicate correction or merge decision.
 
+## Iteration 78: bilateral retail contact witnesses
+
+The retail oracle now records an ordered bilateral `Bump` stream for every
+static-blocker contact. Each pair carries the live threshold, velocity,
+acceleration, walking state, both collision extents, and an expanded trace
+witness. The runner verifies paired ordinal order, exact preflight blocker
+identity, live threshold retention, and that a delivered callback immediately
+follows the final probe-side witness. A missing retail `Server.ini` on current
+GOG UT436 installs is seeded from `UnrealTournament.ini` only in the disposable
+runtime; before/after installed inventories remain byte-identical.
+
+Fresh UT436 `v46` head-on evidence and Unreal Gold 226b `v14` head-on evidence
+both compile the disposable package and pass these stronger witness checks. In
+both games the expanded Bump-time trace normal matches the later head-on
+`HitWall` normal, while the center-derived normal has a nonzero vertical
+component and is different. This validates the trace as useful raw state but
+proves that the center reconstruction is not the native physics operand.
+
+The retained UT glancing observations remain intentionally unmerged as a
+boundary proof: `-0.397` suppressed the callback after six paired contacts,
+whereas `-0.395` dispatched after two; their dynamically selected corridors
+differed. The next oracle extension must pin PlayerStart and direction and
+repeat adjacent microthresholds before it can make any equality claim.
+
+A native forced-corner fixture is compiled into the headless driver and checks
+the actual two-contact `TickWalking` path, but its real-install execution is
+not yet evidence: the current UT desktop launch crashes while logging in its
+spectator because `SoldierSkins.sldr` fails to load from the owner install.
+That pre-existing runtime compatibility failure must be repaired or isolated
+before the fixture can close the shared-runtime gate.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

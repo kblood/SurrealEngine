@@ -211,6 +211,43 @@ function Assert-OracleRun([object[]]$Events, [string]$RunId, [int]$CaseId,
     if ($directContactEvents.Count -eq 0) {
         throw "Retail oracle has no direct blocker-contact witness for $RunId."
     }
+    if ($CaseId -ne 2) {
+        $blockerBumps = @($Events | Where-Object { $_.event -eq 'blocker_bump' })
+        $probeBumps = @($Events | Where-Object { $_.event -eq 'probe_bump' })
+        $expectedBlocker = $preflights[0].fields.blocker
+        if ($blockerBumps.Count -lt 1 -or $probeBumps.Count -lt 1 -or
+            $blockerBumps.Count -lt $probeBumps.Count -or !$expectedBlocker) {
+            throw "Retail oracle has no complete bilateral Bump witness stream for $RunId."
+        }
+        for ($index = 0; $index -lt $probeBumps.Count; $index++) {
+            $blockerBump = $blockerBumps[$index]
+            $probeBump = $probeBumps[$index]
+            $expectedBumpIndex = $index + 1
+            foreach ($bump in @($blockerBump, $probeBump)) {
+                if (!$bump.fields.ContainsKey('bump_index') -or
+                    [int]$bump.fields.bump_index -ne $expectedBumpIndex) {
+                    throw "Retail oracle Bump indices are not paired for $RunId."
+                }
+                if (!$bump.fields.ContainsKey('min') -or
+                    [Math]::Abs((Get-OracleFloat $bump.fields.min 'min') - $expectedMin) -ge 0.000001) {
+                    throw "Retail oracle Bump did not retain the live MinHitWall for $RunId."
+                }
+                if (!$bump.fields.ContainsKey('bump_trace_actor') -or
+                    $bump.fields.bump_trace_actor -ne $expectedBlocker -or
+                    !$bump.fields.ContainsKey('bump_trace_normal') -or
+                    !$bump.fields.ContainsKey('bump_trace_location')) {
+                    throw "Retail oracle Bump trace witness is incomplete for $RunId."
+                }
+            }
+            if ([int]$blockerBump.fields.seq -ge [int]$probeBump.fields.seq) {
+                throw "Retail oracle Bump pair ordering is invalid for $RunId."
+            }
+        }
+        if ($hitWalls.Count -eq 1 -and
+            [int]$hitWalls[0].fields.seq -ne [int]$probeBumps[$probeBumps.Count - 1].fields.seq + 1) {
+            throw "Retail oracle callback did not immediately follow its final Bump witness for $RunId."
+        }
+    }
     return [pscustomobject]@{
         valid = $true
         preflight_observed = $true
@@ -355,6 +392,17 @@ try {
     $runtimeLogs = Join-Path $runtime 'Logs'
     $runtimePackage = Join-Path $runtime $profileConfig.package_name
     Copy-Item -LiteralPath $packageSource -Destination $runtimePackage -Recurse
+    $serverIni = Join-Path $runtimeSystem $profileConfig.server_ini
+    if (!(Test-Path -LiteralPath $serverIni) -and $Profile -eq 'UT436') {
+        # Current GOG UT436 installs may omit the dedicated-server INI. Seed
+        # it only inside the disposable runtime so UCC receives an explicit
+        # server configuration without mutating owner data.
+        $serverIniTemplate = Join-Path $runtimeSystem 'UnrealTournament.ini'
+        if (!(Test-Path -LiteralPath $serverIniTemplate)) {
+            throw "Missing isolated UT server INI and template: $serverIni"
+        }
+        Copy-Item -LiteralPath $serverIniTemplate -Destination $serverIni
+    }
     $packageLine = 'EditPackages=' + $profileConfig.package_name
     foreach ($iniName in $profileConfig.ini_names) {
         $ini = Join-Path $runtimeSystem $iniName
@@ -363,7 +411,6 @@ try {
         }
     }
     $runtimeLogsIniPath = $runtimeLogs.Replace('\', '/')
-    $serverIni = Join-Path $runtimeSystem $profileConfig.server_ini
     if (!(Test-Path -LiteralPath $serverIni)) {
         throw "Missing isolated server INI: $serverIni"
     }
