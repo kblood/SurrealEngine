@@ -1104,6 +1104,28 @@ DeathFan intervals without assigning Morpheus's 9.5-to-15.7-second wall cycles
 to one causal forecast. The runtime retains only the active generation and
 emits completed summaries immediately, avoiding a large per-pawn history array.
 
+## Iteration 54: clean default-off Unreal repeat
+
+The clean bot branch was rerun on owner-installed Unreal Gold 226b using
+`DmDeathFan?Game=UnrealShare.DeathMatchGame`, seed `424242`, four skill-3 bots,
+and 1,800 fixed 1/60-second ticks. The failed-navigation route-cost experiment
+was explicitly disabled in the matrix identity. Both repetitions completed and
+were byte-equivalent across `events.jsonl`, `shadow-decisions.jsonl`,
+`shadow-manifest.json`, and the normalized manifest/summary (only each output
+directory differed). The generated matrix, analyzer, repeat-equivalence report,
+and provenance are retained locally under
+`qa/runs/2026-07-25/failed-navigation-default-off/`.
+
+This is a reproducibility and safety-boundary check, not a quality win. Each
+repeat records five kills, eight deaths, three suicides, three unassisted
+environmental deaths, 409 `HitWall` calls, and one 2.1-second
+movement-intent-no-progress event. The falling observer has five true positives
+and no labelled false positives or negatives, but 1,757 of 1,794 completed
+generations are `unknown` (97.94%). It therefore cannot authorize a general
+falling or callback intervention. The next policy must target a repeatedly
+observed, causally attributable hazard/stall segment, retain the existing
+script-owned timeout handoff, and qualify separately in UT436 and Unreal Gold.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
