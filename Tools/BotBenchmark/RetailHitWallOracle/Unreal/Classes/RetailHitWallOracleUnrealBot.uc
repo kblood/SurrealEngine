@@ -78,6 +78,7 @@ state OracleProbe
     function HitWall(vector HitNormal, actor Wall)
     {
         local float NormalVelocityDot;
+        local bool bDoorHandled;
         local bool bWallAdjusted;
 
         OracleHitCount++;
@@ -97,6 +98,20 @@ state OracleProbe
             CompleteOracle("falling_callback");
             GotoState('OracleFinished');
             return;
+        }
+        if (Wall.IsA('Mover'))
+        {
+            LogOracle("handle_door_pre", "case=" $ OracleCase $ ";wall=" $ Wall);
+            bDoorHandled = Mover(Wall).HandleDoor(self);
+            LogOracle("handle_door_post", "case=" $ OracleCase $ ";handled=" $ bDoorHandled
+                $ ";special_pause=" $ SpecialPause $ ";move_target=" $ MoveTarget);
+            if (bDoorHandled)
+            {
+                LogOracle("pick_wall_adjust_skipped", "case=" $ OracleCase);
+                CompleteOracle("mover_handled");
+                GotoState('OracleFinished');
+                return;
+            }
         }
         Focus = Destination;
         bWallAdjusted = PickWallAdjust();

@@ -1801,6 +1801,33 @@ available. In parallel, mover ordering needs a separate dynamic mover target;
 the previously attempted Deck/HealPod map lifts remain rejected, unpinned
 profiles.
 
+## Iteration 76: dynamic retail mover ordering oracle
+
+The map-lift limitation is now removed without fabricating a map profile. Both
+retail packages can spawn a hidden `TriggerOpenTimed` mover with collision,
+`bUseTriggered=True`, and a 60-second delay. Every case requires the expanded
+trace to return that exact spawned mover before moving; the mover overrides
+only `HandleDoor` to log around the inherited behavior. The runner's case `2`
+requires one walking callback, the expected bot/mover call chain, a handled
+return, `WaitingPawn` equal to the probe, a nonzero `SpecialPause`, an explicit
+`PickWallAdjust` skip, and no `PickWallAdjust` result.
+
+The fresh controlled UT436 run
+`retail-minhitwall-ut436-v35/` and Unreal Gold 226b run
+`retail-minhitwall-unreal226b-v13/` both passed with an exact sequence:
+
+`preflight_mover` → `move_begin` → walking `hitwall_pre` →
+`handle_door_pre` → `mover_handle_door_enter` →
+`mover_handle_door_return(handled=True)` → `handle_door_post` →
+`pick_wall_adjust_skipped` → `oracle_complete(mover_handled)`.
+
+The installs' before/after inventories were byte-identical. This closes the
+mover-ordering evidence gate for the controlled shared contract, while the
+old Deck/HealPod lifts remain unsuitable as map-specific evidence. The only
+remaining blocker to a shared walking dispatch correction is calibrated
+boundary semantics and the per-contact slide/notification implementation and
+fixture gates in Iteration 71.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

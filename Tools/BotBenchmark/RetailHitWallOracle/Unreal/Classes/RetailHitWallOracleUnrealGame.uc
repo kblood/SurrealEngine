@@ -86,7 +86,9 @@ function bool ConfigureProbeAtStart(RetailHitWallOracleUnrealBot Probe, vector S
     local Actor FloorActor;
     local Actor WorldActor;
     local Actor PreflightActor;
+    local Actor Target;
     local RetailHitWallOracleUnrealBlocker Blocker;
+    local RetailHitWallOracleUnrealMover MoverTarget;
     local int Candidate;
     local int Sample;
     local float LateralOffset;
@@ -121,33 +123,53 @@ function bool ConfigureProbeAtStart(RetailHitWallOracleUnrealBot Probe, vector S
         Perpendicular.Y = Direction.X;
         Perpendicular.Z = 0.0;
         BlockerLocation = Start + Direction * 256.0 + Perpendicular * LateralOffset;
-        Blocker = Spawn(class'RetailHitWallOracleUnrealBlocker',,, BlockerLocation);
-        if (Blocker == None)
-            continue;
-        Blocker.SetCollision(True, True, True);
-        if (Blocker.SetLocation(BlockerLocation) == False)
+        if (OracleCase == 2)
         {
-            Blocker.SetCollision(False, False, False);
-            Blocker.Destroy();
+            MoverTarget = Spawn(class'RetailHitWallOracleUnrealMover',,, BlockerLocation);
+            Target = MoverTarget;
+        }
+        else
+        {
+            Blocker = Spawn(class'RetailHitWallOracleUnrealBlocker',,, BlockerLocation);
+            Target = Blocker;
+        }
+        if (Target == None)
+            continue;
+        Target.SetCollision(True, True, True);
+        if (Target.SetLocation(BlockerLocation) == False)
+        {
+            Target.SetCollision(False, False, False);
+            Target.Destroy();
             continue;
         }
         ProbeExtent.X = Probe.CollisionRadius;
         ProbeExtent.Y = Probe.CollisionRadius;
         ProbeExtent.Z = Probe.CollisionHeight;
         PreflightActor = Probe.Trace(HitLocation, HitNormal, Goal, Start, True, ProbeExtent);
-        if (PreflightActor != Blocker)
+        if (PreflightActor != Target)
         {
-            Blocker.SetCollision(False, False, False);
-            Blocker.Destroy();
+            Target.SetCollision(False, False, False);
+            Target.Destroy();
             continue;
         }
-        Blocker.ConfigureOracle(Probe, OracleRunId);
-        LogOracle("preflight_blocker", "case=" $ OracleCase $ ";candidate=" $ Candidate
-            $ ";start=" $ Start $ ";goal=" $ Goal $ ";blocker=" $ Blocker
-            $ ";blocker_location=" $ Blocker.Location $ ";normal=" $ HitNormal
-            $ ";location=" $ HitLocation);
+        if (OracleCase == 2)
+        {
+            MoverTarget.ConfigureOracle(OracleRunId);
+            LogOracle("preflight_mover", "case=" $ OracleCase $ ";candidate=" $ Candidate
+                $ ";start=" $ Start $ ";goal=" $ Goal $ ";mover=" $ Target
+                $ ";mover_location=" $ Target.Location $ ";normal=" $ HitNormal
+                $ ";location=" $ HitLocation);
+        }
+        else
+        {
+            Blocker.ConfigureOracle(Probe, OracleRunId);
+            LogOracle("preflight_blocker", "case=" $ OracleCase $ ";candidate=" $ Candidate
+                $ ";start=" $ Start $ ";goal=" $ Goal $ ";blocker=" $ Target
+                $ ";blocker_location=" $ Target.Location $ ";normal=" $ HitNormal
+                $ ";location=" $ HitLocation);
+        }
         Probe.ConfigureOracle(float(OracleMinHitWallMilli) / 1000.0,
-            Start, Goal, OracleCase, Blocker, OracleRunId);
+            Start, Goal, OracleCase, Target, OracleRunId);
         return True;
     }
     return False;

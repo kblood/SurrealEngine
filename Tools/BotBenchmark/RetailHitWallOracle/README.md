@@ -20,6 +20,9 @@ local stat log:
 
 - `preflight_blocker`, bilateral `*_bump`, `move_begin`, and
   `postflight_blocker` establish blocker identity and physical contact;
+- case `2` instead creates a `TriggerOpenTimed` mover and requires its exact
+  trace identity, one walking callback, `HandleDoor` entry/handled return,
+  and an explicit skipped `PickWallAdjust` event;
 - `hitwall_pre` records the threshold, native pre-handler velocity, contact
   normal, computed dot, wall, walking physics value, and active state;
 - `handle_door_pre` / `handle_door_post` and `pick_wall_adjust_*` establish
@@ -79,6 +82,14 @@ suppressed at `-0.500000` and dispatched at `-0.350000` with observed dot
 `-0.397680`. This cross-game agreement still requires repeated neighboring
 thresholds and a separate mover profile before a shared engine dispatch
 correction is eligible.
+
+The mover-ordering gate also has a controlled result on both games, without
+claiming an unpinned map lift: case `2` spawns a custom, trace-verified
+`TriggerOpenTimed` mover. UT436 and Unreal Gold each recorded the same ordered
+chain: walking `HitWall` → bot `HandleDoor` → mover `HandleDoor` returning
+`True` with the probe as `WaitingPawn` and `SpecialPause=2.5` → bot skip of
+`PickWallAdjust` → `mover_handled` terminal. The runner rejects any case with
+a missing/reordered mover record or a `PickWallAdjust` result.
 
 Use `-AllowMissingHitWall` only for an explicitly expected filtered case; its
 run still requires preflight identity, a direct blocker-contact witness, and a

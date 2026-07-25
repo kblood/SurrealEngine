@@ -11,7 +11,7 @@ param(
     [ValidateSet('UT436', 'Unreal226b')]
     [string]$Profile = 'UT436',
 
-    [ValidateSet(0, 1)]
+    [ValidateSet(0, 1, 2)]
     [int[]]$Cases = @(0, 1),
 
     [int[]]$MinHitWallMilli = @(-500, -350),
@@ -91,8 +91,10 @@ function ConvertTo-OracleEvent([string]$Line) {
     $knownEvents = @(
         'blocker_bump', 'blocker_touch', 'configuration_missing', 'handle_door_post',
         'handle_door_pre', 'hitwall_falling_return', 'hitwall_pre', 'move_begin',
-        'move_return', 'oracle_complete', 'pick_wall_adjust_result',
+        'move_return', 'mover_handle_door_enter', 'mover_handle_door_return',
+        'oracle_complete', 'pick_wall_adjust_result',
         'pick_wall_adjust_skipped', 'postflight_blocker', 'preflight_blocker',
+        'preflight_mover',
         'probe_bump', 'probe_missing', 'setup_rejected', 'spawn_failed', 'start_rejected')
     if ($knownEvents -notcontains $columns[2]) {
         throw "Unrecognized retail oracle event: $($columns[2])"
@@ -162,7 +164,8 @@ function Assert-OracleRun([object[]]$Events, [string]$RunId, [int]$CaseId,
         $lastSequence = $sequence
     }
     $moveBegins = @($Events | Where-Object { $_.event -eq 'move_begin' })
-    $preflights = @($Events | Where-Object { $_.event -eq 'preflight_blocker' })
+    $preflightName = if ($CaseId -eq 2) { 'preflight_mover' } else { 'preflight_blocker' }
+    $preflights = @($Events | Where-Object { $_.event -eq $preflightName })
     $completions = @($Events | Where-Object { $_.event -eq 'oracle_complete' })
     $hitWalls = @($Events | Where-Object { $_.event -eq 'hitwall_pre' })
     if ($moveBegins.Count -ne 1 -or $preflights.Count -ne 1 -or $completions.Count -ne 1) {
@@ -187,6 +190,20 @@ function Assert-OracleRun([object[]]$Events, [string]$RunId, [int]$CaseId,
     }
     if (!$CanSuppressCallback -and $hitWalls.Count -ne 1) {
         throw "Retail oracle requires exactly one HitWall event for $RunId."
+    }
+    if ($CaseId -eq 2) {
+        $moverEnter = @($Events | Where-Object { $_.event -eq 'mover_handle_door_enter' })
+        $moverReturn = @($Events | Where-Object { $_.event -eq 'mover_handle_door_return' })
+        $moverTerminal = @($completions | Where-Object { $_.fields.outcome -eq 'mover_handled' })
+        $skippedAdjust = @($Events | Where-Object { $_.event -eq 'pick_wall_adjust_skipped' })
+        $adjustResults = @($Events | Where-Object { $_.event -eq 'pick_wall_adjust_result' })
+        if ($moverEnter.Count -ne 1 -or $moverReturn.Count -ne 1 -or
+            $moverTerminal.Count -ne 1 -or $skippedAdjust.Count -ne 1 -or $adjustResults.Count -ne 0) {
+            throw "Retail mover oracle ordering is incomplete for $RunId."
+        }
+        if (!$moverReturn[0].fields.ContainsKey('handled') -or $moverReturn[0].fields.handled -ne 'True') {
+            throw "Retail mover oracle did not report a handled door for $RunId."
+        }
     }
     $directContactEvents = @($Events | Where-Object {
         $_.event -eq 'hitwall_pre' -or $_.event -eq 'probe_bump' -or $_.event -eq 'blocker_bump'
