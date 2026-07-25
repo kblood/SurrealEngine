@@ -2076,6 +2076,8 @@ public:
 	uint64_t HazardSwimEgressLiveActiveTickCount() const { return HazardSwimEgressLiveActiveTickCountValue; }
 	uint64_t HazardSwimEgressLiveProbeRejectedCount() const { return HazardSwimEgressLiveProbeRejectedCountValue; }
 	uint64_t HazardSwimEgressLiveSuccessfulExitCount() const { return HazardSwimEgressLiveSuccessfulExitCountValue; }
+	uint64_t HazardSwimEgressDirectNavProbeCount() const { return HazardSwimEgressDirectNavProbeCountValue; }
+	uint64_t HazardSwimEgressDirectNavSafeCandidateCount() const { return HazardSwimEgressDirectNavSafeCandidateCountValue; }
 	bool HasHazardSwimEgressAnchor() const { return HazardSwimEgress.AnchorKnown; }
 	const char* HazardSwimEgressAnchorSourceName() const;
 	uint64_t FallingSeamDetectionCount() const { return FallingSeamDetectionCountValue; }
@@ -2333,6 +2335,7 @@ private:
 	bool ApplyHarmfulZoneEscape();
 	void EndHarmfulZoneEscapeLife();
 	void ResetHazardSwimEgressObservation();
+	void ObserveHazardSwimEgressDirectNavigationCandidates();
 
 	bool IsInPathSpecialHandling = false;
 	PawnMovement::FailedNavigationMemoryState FailedNavigationMemory;
@@ -2415,6 +2418,8 @@ private:
 	uint64_t HazardSwimEgressLiveActiveTickCountValue = 0;
 	uint64_t HazardSwimEgressLiveProbeRejectedCountValue = 0;
 	uint64_t HazardSwimEgressLiveSuccessfulExitCountValue = 0;
+	uint64_t HazardSwimEgressDirectNavProbeCountValue = 0;
+	uint64_t HazardSwimEgressDirectNavSafeCandidateCountValue = 0;
 	uint64_t FallingSeamDetectionCountValue = 0;
 	uint64_t HorizontalCornerCandidateProbeCountValue = 0;
 	uint64_t HorizontalCornerAuthorizedEscapeCountValue = 0;

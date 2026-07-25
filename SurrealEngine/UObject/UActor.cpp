@@ -5375,12 +5375,38 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 	if (decision == BotAI::HazardSwimEgressEligibility::Authorized)
 	{
 		HazardSwimEgressAuthorizedCountValue++;
+		ObserveHazardSwimEgressDirectNavigationCandidates();
 		HazardSwimEgress.LiveActionAuthorized =
 			engine->IsBotBenchmarkHazardSwimEgressLiveEnabled()
 			&& HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove;
 	}
 	else if (decision == BotAI::HazardSwimEgressEligibility::Debounced)
 		HazardSwimEgressDebouncedCountValue++;
+}
+
+void UPawn::ObserveHazardSwimEgressDirectNavigationCandidates()
+{
+	constexpr float maximumCandidateDistance = 1024.0f;
+	constexpr size_t maximumCandidates = 32;
+	if (!Level())
+		return;
+	for (UNavigationPoint* candidate = Level()->NavigationPointList(); candidate
+		&& HazardSwimEgressDirectNavProbeCountValue < maximumCandidates;
+		candidate = candidate->nextNavigationPoint())
+	{
+		if (candidate->bDeleteMe() || candidate->bPlayerOnly())
+			continue;
+		UZoneInfo* zone = candidate->Region().Zone;
+		const vec3 delta = candidate->Location() - Location();
+		if (!zone || !zone->bStatic() || zone->bWaterZone() || IsExactHarmfulZone(zone)
+			|| !IsFiniteVector(delta) || length(delta) > maximumCandidateDistance)
+		{
+			continue;
+		}
+		HazardSwimEgressDirectNavProbeCountValue++;
+		if (TryMove(delta, true).Fraction == 1.0f)
+			HazardSwimEgressDirectNavSafeCandidateCountValue++;
+	}
 }
 
 void UPawn::AdvanceHazardSwimEgressLiveSteer()

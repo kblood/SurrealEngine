@@ -164,6 +164,10 @@ HAZARD_SWIM_EGRESS_LIVE_COUNTERS = (
 	"hazard_swim_egress_live_probe_rejected_exact",
 	"hazard_swim_egress_live_successful_exits_exact",
 )
+HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS = (
+    "hazard_swim_egress_direct_nav_probes_exact",
+    "hazard_swim_egress_direct_nav_safe_candidates_exact",
+)
 DEATH_ATTRIBUTION_COUNTERS = (
     "direct_self_kills", "direct_enemy_kills", "unassisted_environmental_deaths",
     "recent_enemy_contributed_environmental_deaths_proxy", "ambiguous_deaths",
@@ -285,7 +289,8 @@ METRIC_DIRECTIONS.update({
 	name: None for name in (
 		WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
 		+ VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
-		+ FALLING_PRE_MOVE_ANCHOR_COUNTERS + HAZARD_SWIM_EGRESS_LIVE_COUNTERS)
+		+ FALLING_PRE_MOVE_ANCHOR_COUNTERS + HAZARD_SWIM_EGRESS_LIVE_COUNTERS
+        + HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS)
 })
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
@@ -293,6 +298,7 @@ OPTIONAL_EXACT_COUNTERS = (
 	+ HAZARD_SWIM_EGRESS_EXACT_COUNTERS
 	+ FALLING_PRE_MOVE_ANCHOR_COUNTERS
 	+ HAZARD_SWIM_EGRESS_LIVE_COUNTERS
+	+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS
     + DEATH_ATTRIBUTION_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
@@ -1852,6 +1858,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("hazard swim egress", HAZARD_SWIM_EGRESS_EXACT_COUNTERS),
                 ("falling pre-move anchor", FALLING_PRE_MOVE_ANCHOR_COUNTERS),
                 ("hazard swim egress live", HAZARD_SWIM_EGRESS_LIVE_COUNTERS),
+                ("hazard swim egress direct navigation", HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS),
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
@@ -1941,6 +1948,11 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if live_successful_exits > live_applies:
                 raise QualityError(
                     f"{context}: live swim egress successful exits exceed applies")
+        if "hazard_swim_egress_direct_nav_probes_exact" in result:
+            if result["hazard_swim_egress_direct_nav_safe_candidates_exact"] > \
+                    result["hazard_swim_egress_direct_nav_probes_exact"]:
+                raise QualityError(
+                    f"{context}: direct safe navigation candidates exceed probes")
         if "falling_pre_move_anchor_captures_exact" in result:
             if result["falling_pre_move_anchor_uses_exact"] > \
                     result["falling_pre_move_anchor_captures_exact"]:

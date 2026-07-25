@@ -443,6 +443,8 @@ namespace
 			<< ",\"hazard_swim_egress_live_active_ticks_exact\":\"" << bot.HazardSwimEgressLiveActiveTicksExact << "\""
 			<< ",\"hazard_swim_egress_live_probe_rejected_exact\":\"" << bot.HazardSwimEgressLiveProbeRejectedExact << "\""
 			<< ",\"hazard_swim_egress_live_successful_exits_exact\":\"" << bot.HazardSwimEgressLiveSuccessfulExitsExact << "\""
+			<< ",\"hazard_swim_egress_direct_nav_probes_exact\":\"" << bot.HazardSwimEgressDirectNavProbesExact << "\""
+			<< ",\"hazard_swim_egress_direct_nav_safe_candidates_exact\":\"" << bot.HazardSwimEgressDirectNavSafeCandidatesExact << "\""
 			<< ",\"hazard_swim_egress_anchor_known\":" << (bot.HazardSwimEgressAnchorKnown ? "true" : "false")
 			<< ",\"hazard_swim_egress_anchor_source\":" << JsonString(bot.HazardSwimEgressAnchorSource)
 			<< ",\"falling_seam_detections_exact\":\"" << bot.FallingSeamDetectionsExact << "\""
