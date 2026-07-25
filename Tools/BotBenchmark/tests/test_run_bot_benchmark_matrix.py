@@ -31,6 +31,7 @@ def write_manifest(
     per_bot_skills: list[int] | None = None,
     requested_names: list[str] | None = None,
     harmful_zone_escape_enabled: bool | None = None,
+    start_layouts: list[dict] | None = None,
     release_provenance: bool = False,
 ) -> Path:
     game = root / "game"
@@ -52,7 +53,6 @@ def write_manifest(
         "game": {"family": "ut99", "root": str(game)},
         "variants": variants,
         "map_urls": maps or ["DM-Morbias][?Game=Botpack.DeathMatchPlus"],
-        "seeds": seeds or [104729],
         "max_ticks": 60,
         "fixed_delta": 1.0 / 60.0,
         "difficulty": 7,
@@ -60,6 +60,10 @@ def write_manifest(
         "timeout_seconds": 10,
         "repetitions": repetitions,
     }
+    if start_layouts is None:
+        manifest["seeds"] = seeds or [104729]
+    else:
+        manifest["start_layouts"] = start_layouts
     if release_provenance:
         manifest["game"]["manifest"] = str(game_manifest)
         manifest["provenance"] = {
@@ -205,6 +209,90 @@ class MatrixRunnerTests(unittest.TestCase):
                 [("DM-A?Game=A", 2, 0, "stock"), ("DM-A?Game=A", 2, 0, "candidate"),
                  ("DM-A?Game=A", 2, 1, "stock"), ("DM-A?Game=A", 2, 1, "candidate")],
             )
+
+    def test_observed_start_layouts_are_identity_bound_and_backward_compatible(self) -> None:
+        fingerprint_a = "sha256:" + "a" * 64
+        fingerprint_b = "sha256:" + "b" * 64
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            legacy = MATRIX.load_matrix(write_manifest(root, seeds=[104729]))
+            self.assertIsNone(legacy.start_layouts)
+            self.assertIsNone(MATRIX.expand_cases(legacy)[0].start_layout)
+
+            config = MATRIX.load_matrix(write_manifest(root, start_layouts=[
+                {"id": "alpha", "seed": 104729, "expected_fingerprint": fingerprint_a},
+                {"id": "bravo", "seed": 271828, "expected_fingerprint": fingerprint_b},
+            ]))
+            cases = MATRIX.expand_cases(config)
+            self.assertEqual(len(cases), 4)
+            self.assertEqual(
+                [(case.start_layout.id, case.seed, case.variant.id) for case in cases],
+                [("alpha", 104729, "stock"), ("alpha", 104729, "candidate"),
+                 ("bravo", 271828, "stock"), ("bravo", 271828, "candidate")])
+            self.assertNotEqual(cases[0].pair_id, cases[2].pair_id)
+            self.assertIn("-lalpha-", cases[0].run_id)
+
+            for mutation in (
+                    lambda value: value.update(seeds=[104729]),
+                    lambda value: value["start_layouts"][0].update(id="bravo"),
+                    lambda value: value["start_layouts"][1].update(seed=104729),
+                    lambda value: value["start_layouts"][0].update(expected_fingerprint="sha256:ABC"),
+                    lambda value: value["start_layouts"][0].update(extra=True)):
+                with self.subTest(mutation=mutation):
+                    path = write_manifest(root, start_layouts=[
+                        {"id": "alpha", "seed": 104729, "expected_fingerprint": fingerprint_a},
+                        {"id": "bravo", "seed": 271828, "expected_fingerprint": fingerprint_b},
+                    ])
+                    document = json.loads(path.read_text(encoding="utf-8"))
+                    mutation(document)
+                    path.write_text(json.dumps(document) + "\n", encoding="utf-8")
+                    with self.assertRaises(MATRIX.MatrixError):
+                        MATRIX.load_matrix(path)
+
+    def test_observed_start_layout_is_recorded_and_mismatch_fails_closed(self) -> None:
+        expected = "sha256:" + "c" * 64
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = MATRIX.load_matrix(write_manifest(root, start_layouts=[{
+                "id": "alpha", "seed": 104729, "expected_fingerprint": expected,
+            }]))
+
+            def launcher(command, timeout, stdout, stderr):
+                run = output_from_command(command)
+                for name in ("manifest.json", "events.jsonl", "summary.json"):
+                    (run / name).write_text("{}\n", encoding="utf-8")
+                return MATRIX.LaunchResult(0, False, 0.01)
+
+            def validator(run):
+                metadata = json.loads((run / "quality-metadata.json").read_text(encoding="utf-8"))
+                self.assertEqual(metadata["start_layout_id"], "alpha")
+                self.assertEqual(metadata["expected_initial_layout_fingerprint"], expected)
+                return {"initial_layout": {"fingerprint": expected}}
+
+            report = MATRIX.run_matrix(config, root / "pass", launcher=launcher, validator=validator)
+            self.assertEqual(report["status"], "passed")
+            self.assertTrue(all(row["observed_initial_layout_fingerprint"] == expected
+                                for row in report["runs"]))
+
+            report = MATRIX.run_matrix(
+                config, root / "fail", launcher=launcher,
+                validator=lambda run: {"initial_layout": {"fingerprint": "sha256:" + "d" * 64}})
+            self.assertEqual(report["status"], "failed")
+            self.assertTrue(all("observed initial-layout fingerprint" in row["errors"][0]
+                                for row in report["runs"]))
+
+            rows = [
+                {"pair_id": "pair", "start_layout_id": "alpha",
+                 "expected_initial_layout_fingerprint": expected,
+                 "observed_initial_layout_fingerprint": expected,
+                 "status": "passed", "errors": []},
+                {"pair_id": "pair", "start_layout_id": "alpha",
+                 "expected_initial_layout_fingerprint": expected,
+                 "observed_initial_layout_fingerprint": "sha256:" + "e" * 64,
+                 "status": "passed", "errors": []},
+            ]
+            MATRIX._validate_paired_start_layouts(rows)
+            self.assertTrue(all(row["status"] == "failed" for row in rows))
 
     def test_cross_game_url_is_preserved_as_one_argument(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -408,6 +496,69 @@ class MatrixRunnerTests(unittest.TestCase):
                     path.write_text(json.dumps(invalid) + "\n", encoding="utf-8")
                     with self.assertRaises(MATRIX.MatrixError):
                         MATRIX.load_matrix(path)
+
+    def test_falling_hazard_recovery_controls_are_per_variant_and_provenanced(self) -> None:
+        controls = (
+            ("falling_hazard_recovery_enabled", "--botbench-falling-hazard-recovery"),
+            ("falling_hazard_recovery_live_enabled", "--botbench-falling-hazard-recovery-live"),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            disabled = MATRIX.load_matrix(write_manifest(root))
+            disabled_candidate = next(
+                case for case in MATRIX.expand_cases(disabled)
+                if case.variant.id == "candidate")
+
+            enabled_path = write_manifest(root)
+            manifest = json.loads(enabled_path.read_text(encoding="utf-8"))
+            for field, _ in controls:
+                manifest["variants"][1][field] = True
+            enabled_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            enabled = MATRIX.load_matrix(enabled_path)
+            enabled_cases = MATRIX.expand_cases(enabled)
+            baseline = next(case for case in enabled_cases if case.variant.id == "stock")
+            candidate = next(case for case in enabled_cases if case.variant.id == "candidate")
+
+            for field, flag in controls:
+                self.assertFalse(getattr(baseline.variant, field))
+                self.assertTrue(getattr(candidate.variant, field))
+                self.assertIn(f"{flag}=0", MATRIX.command_for(enabled, baseline, root / "baseline"))
+                self.assertIn(f"{flag}=1", MATRIX.command_for(enabled, candidate, root / "candidate"))
+            self.assertNotEqual(disabled_candidate.run_id, candidate.run_id)
+            self.assertEqual(baseline.pair_id, candidate.pair_id)
+
+            def launcher(command, timeout, stdout, stderr):
+                run = output_from_command(command)
+                for name in ("manifest.json", "events.jsonl", "summary.json"):
+                    (run / name).write_text("{}\n", encoding="utf-8")
+                return MATRIX.LaunchResult(0, False, 0.01)
+
+            result = MATRIX.run_matrix(
+                enabled, root / "results", launcher=launcher, validator=lambda path: None)
+            self.assertEqual(result["status"], "passed")
+            for row in result["runs"]:
+                expected = row["variant"] == "candidate"
+                metadata = json.loads((Path(row["run_directory"]) / "quality-metadata.json").read_text())
+                invocation = json.loads((Path(row["run_directory"]) / "invocation.json").read_text())
+                for field, _ in controls:
+                    self.assertEqual(row[field], expected)
+                    self.assertEqual(metadata[field], expected)
+                    self.assertEqual(invocation[field], expected)
+            provenance = json.loads((root / "results" / "provenance.json").read_text())
+            recorded = {item["id"]: item for item in provenance["variants"]}
+            for field, _ in controls:
+                self.assertFalse(recorded["stock"][field])
+                self.assertTrue(recorded["candidate"][field])
+
+            for field, _ in controls:
+                for value in (0, 1, "true", None):
+                    with self.subTest(field=field, value=value):
+                        path = write_manifest(root)
+                        invalid = json.loads(path.read_text(encoding="utf-8"))
+                        invalid["variants"][0][field] = value
+                        path.write_text(json.dumps(invalid) + "\n", encoding="utf-8")
+                        with self.assertRaises(MATRIX.MatrixError):
+                            MATRIX.load_matrix(path)
 
     def test_roster_is_part_of_case_and_pair_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

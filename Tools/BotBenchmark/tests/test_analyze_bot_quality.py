@@ -312,6 +312,46 @@ def vertical_terminal(*, sequence: int = 2, life: int = 1, fall: int = 1,
 
 
 class BotQualityAnalysisTests(unittest.TestCase):
+    def test_observed_initial_layout_is_canonical_and_metadata_bound(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "layout", bot_count=2)
+            upgrade_telemetry_v2(run, counters=[common, common, common])
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                for bot in event["bots"]:
+                    bot["physics_mode"] = "Walking"
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+
+            initial = QUALITY.analyze_run(run)["initial_layout"]
+            self.assertIsNotNone(initial)
+            assert initial is not None
+            self.assertTrue(initial["fingerprint"].startswith("sha256:"))
+            self.assertEqual([entry["roster_index"] for entry in initial["participants"]], [0, 1])
+
+            metadata_path = run / "quality-metadata.json"
+            metadata_path.write_text(json.dumps({
+                "schema": QUALITY.METADATA_SCHEMA,
+                "variant": "candidate",
+                "start_layout_id": "layout-a",
+                "expected_initial_layout_fingerprint": initial["fingerprint"],
+            }) + "\n", encoding="utf-8")
+            self.assertEqual(QUALITY.analyze_run(run)["initial_layout"]["fingerprint"], initial["fingerprint"])
+
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata["expected_initial_layout_fingerprint"] = "sha256:" + "0" * 64
+            metadata_path.write_text(json.dumps(metadata) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "observed initial-layout fingerprint"):
+                QUALITY.analyze_run(run)
+
     def test_harmful_zone_escape_mode_is_identity_bound_and_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             run = write_v2_run(Path(temporary), "harmful-zone-control", bot_count=1)

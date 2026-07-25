@@ -208,6 +208,26 @@ int main()
 	if (!HasUniformNativeCounters(sampledTotals, 5, 1.25))
 		return Fail("repeated death flush or capture double-counted native counters");
 
+	NativePawnCounterEpoch recoveryEpoch;
+	NativePawnCounters recoveryTotals;
+	recoveryEpoch.BeginPawn(&firstPawn, NativePawnCounterSample::LivePawn);
+	NativePawnCounters recoveryFirst;
+	recoveryFirst.FallingHazardRecoveryAdvanceCalls = 4;
+	recoveryFirst.FallingHazardRecoveryNoPrefix = 3;
+	recoveryEpoch.Accumulate(recoveryFirst, recoveryTotals);
+	NativePawnCounters recoverySecond = recoveryFirst;
+	recoverySecond.FallingHazardRecoveryAdvanceCalls = 7;
+	recoverySecond.FallingHazardRecoveryPromotions = 1;
+	recoverySecond.FallingHazardRecoveryEligible = 1;
+	recoverySecond.FallingHazardRecoveryLiveApplies = 1;
+	recoveryEpoch.Accumulate(recoverySecond, recoveryTotals);
+	if (recoveryTotals.FallingHazardRecoveryAdvanceCalls != 7
+		|| recoveryTotals.FallingHazardRecoveryNoPrefix != 3
+		|| recoveryTotals.FallingHazardRecoveryPromotions != 1
+		|| recoveryTotals.FallingHazardRecoveryEligible != 1
+		|| recoveryTotals.FallingHazardRecoveryLiveApplies != 1)
+		return Fail("falling-hazard recovery native counters did not accumulate across samples");
+
 	NativePawnCounterEpoch unsampledEpoch;
 	NativePawnCounters unsampledTotals;
 	auto firstDeath = unsampledEpoch.BeginPawn(&firstPawn, NativePawnCounterSample::DeathFlush);

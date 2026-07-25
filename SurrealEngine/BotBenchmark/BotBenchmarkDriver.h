@@ -57,6 +57,20 @@ namespace BotBenchmarkDriverDetail
 		std::string HazardSwimEgressDirectNavBestCandidateName;
 		bool HazardSwimEgressAnchorKnown = false;
 		std::string HazardSwimEgressAnchorSource;
+		uint64_t FallingHazardRecoveryPromotions = 0;
+		uint64_t FallingHazardRecoveryAdvanceCalls = 0;
+		uint64_t FallingHazardRecoveryContextRejected = 0;
+		uint64_t FallingHazardRecoveryNoActiveFallEpisode = 0;
+		uint64_t FallingHazardRecoveryNoPrefix = 0;
+		uint64_t FallingHazardRecoveryEligible = 0;
+		uint64_t FallingHazardRecoveryAnchorRejected = 0;
+		uint64_t FallingHazardRecoveryProbeRejected = 0;
+		uint64_t FallingHazardRecoveryLiveApplies = 0;
+		uint64_t FallingHazardRecoveryLiveActiveTicks = 0;
+		uint64_t FallingHazardRecoverySafeLandings = 0;
+		uint64_t FallingHazardRecoveryHarmfulEntries = 0;
+		uint64_t FallingHazardRecoveryDeaths = 0;
+		uint64_t FallingHazardRecoveryTimeouts = 0;
 		uint64_t FallingSeamDetections = 0;
 		uint64_t HorizontalCornerCandidateProbes = 0;
 		uint64_t HorizontalCornerAuthorizedEscapes = 0;
@@ -254,6 +268,42 @@ namespace BotBenchmarkDriverDetail
 			}
 			totals.HazardSwimEgressAnchorKnown = current.HazardSwimEgressAnchorKnown;
 			totals.HazardSwimEgressAnchorSource = current.HazardSwimEgressAnchorSource;
+			AccumulateCounter(current.FallingHazardRecoveryPromotions,
+				Previous.FallingHazardRecoveryPromotions, totals.FallingHazardRecoveryPromotions);
+			AccumulateCounter(current.FallingHazardRecoveryAdvanceCalls,
+				Previous.FallingHazardRecoveryAdvanceCalls, totals.FallingHazardRecoveryAdvanceCalls);
+			AccumulateCounter(current.FallingHazardRecoveryContextRejected,
+				Previous.FallingHazardRecoveryContextRejected,
+				totals.FallingHazardRecoveryContextRejected);
+			AccumulateCounter(current.FallingHazardRecoveryNoActiveFallEpisode,
+				Previous.FallingHazardRecoveryNoActiveFallEpisode,
+				totals.FallingHazardRecoveryNoActiveFallEpisode);
+			AccumulateCounter(current.FallingHazardRecoveryNoPrefix,
+				Previous.FallingHazardRecoveryNoPrefix, totals.FallingHazardRecoveryNoPrefix);
+			AccumulateCounter(current.FallingHazardRecoveryEligible,
+				Previous.FallingHazardRecoveryEligible, totals.FallingHazardRecoveryEligible);
+			AccumulateCounter(current.FallingHazardRecoveryAnchorRejected,
+				Previous.FallingHazardRecoveryAnchorRejected,
+				totals.FallingHazardRecoveryAnchorRejected);
+			AccumulateCounter(current.FallingHazardRecoveryProbeRejected,
+				Previous.FallingHazardRecoveryProbeRejected,
+				totals.FallingHazardRecoveryProbeRejected);
+			AccumulateCounter(current.FallingHazardRecoveryLiveApplies,
+				Previous.FallingHazardRecoveryLiveApplies,
+				totals.FallingHazardRecoveryLiveApplies);
+			AccumulateCounter(current.FallingHazardRecoveryLiveActiveTicks,
+				Previous.FallingHazardRecoveryLiveActiveTicks,
+				totals.FallingHazardRecoveryLiveActiveTicks);
+			AccumulateCounter(current.FallingHazardRecoverySafeLandings,
+				Previous.FallingHazardRecoverySafeLandings,
+				totals.FallingHazardRecoverySafeLandings);
+			AccumulateCounter(current.FallingHazardRecoveryHarmfulEntries,
+				Previous.FallingHazardRecoveryHarmfulEntries,
+				totals.FallingHazardRecoveryHarmfulEntries);
+			AccumulateCounter(current.FallingHazardRecoveryDeaths,
+				Previous.FallingHazardRecoveryDeaths, totals.FallingHazardRecoveryDeaths);
+			AccumulateCounter(current.FallingHazardRecoveryTimeouts,
+				Previous.FallingHazardRecoveryTimeouts, totals.FallingHazardRecoveryTimeouts);
 			AccumulateCounter(current.FallingSeamDetections, Previous.FallingSeamDetections,
 				totals.FallingSeamDetections);
 			AccumulateCounter(current.HorizontalCornerCandidateProbes,

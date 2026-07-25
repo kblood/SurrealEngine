@@ -653,6 +653,8 @@ namespace
 			Check(observer.ObserveSweep(SafeSweep(DirectSegment(index))),
 				"each exact dry prefix sweep is observed");
 		}
+		Check(observer.HasPromotedSingleHarmfulFallPrefix(),
+			"three exact sweeps expose the live recovery signal before harm");
 		auto entry = HarmfulSweep();
 		entry.Segment = DirectSegment(4);
 		entry.InRegionWater = true;
@@ -660,6 +662,8 @@ namespace
 		entry.InHeadWater = true;
 		Check(observer.ObserveSweep(entry),
 			"the matching harmful water entry is observed after the prefix");
+		Check(!observer.HasPromotedSingleHarmfulFallPrefix(),
+			"the recovery signal clears when the forecast reaches harmful water");
 		const auto& counters = observer.Counters();
 		Check(counters.SingleHarmfulFallPrefixCandidatesStarted == 1
 			&& counters.SingleHarmfulFallPrefixPromotions == 1

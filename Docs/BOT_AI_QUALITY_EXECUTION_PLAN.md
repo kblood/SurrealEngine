@@ -1253,6 +1253,57 @@ coverage, controlled role/start-layout swaps, a multi-map baseline, and a
 causally justified movement recovery candidate still need evidence before a
 bot behavior change can be considered for merge.
 
+## Iteration 59: pre-entry falling-hazard recovery trial (rejected live policy)
+
+An experimental, default-off falling-hazard recovery now measures the precise
+single-generation prefix from iteration 57 and can, only when its separate
+live flag is explicitly selected, apply bounded horizontal air control toward
+the first verified dry anchor of the same life and fall episode. It requires a
+promoted prefix, known finite safe anchor 8–256 units away, clear horizontal
+probe, autonomous authority pawn, falling physics, and a short duration bound.
+It leaves vertical motion unchanged and aborts on invalid context, unsafe
+zone, blocked probe, landing, water/pain entry, death, timeout, or flag
+withdrawal. Observer-only selection changes no acceleration.
+
+The telemetry group records calls, rejected context, missing active fall,
+missing prefix, promotions, eligibility, anchor/probe rejections, live starts,
+active ticks, and each terminal result. Native-counter accumulation is covered
+by the death-attribution coordinator fixture; pure recovery-gate, falling
+observer, telemetry serialization, and full executable tests pass. The
+analyzer requires the complete monotonic group and rejects impossible counter
+relationships.
+
+Two UT436 `DM-Deck16][` seed-271828, four skill-7 observer-only runs are
+event-identical. They show one promoted and eligible Alys episode, no live
+application, and therefore preserve the stock run. The two corresponding live
+runs are also event-identical but are rejected: recovery applies once for 24
+ticks and avoids the tagged harmful entry, while total deaths and suicides rise
+deterministically from 1/1 to 2/2. Avoiding a local entry is not a quality win
+when the match outcome regresses. The live flag remains experimental and
+default-off; it is not a merge candidate. Unreal Gold 226b `DmDeathFan` seed
+424242 observer smoke records zero recovery promotions/applications and retains
+K5/D8/S3, as expected for its callback-interrupted fall pattern.
+
+## Iteration 60: observed start-layout coverage
+
+The matrix runner can now use `start_layouts` instead of bare seeds. Each
+layout provides an ID, seed, and required SHA-256 fingerprint of the observed
+tick-zero participant state. The analyzer joins the immutable actual roster to
+the run-start telemetry and hashes ordered roster index, requested skill,
+actual class/name, exact position/velocity, physics mode, and state. A declared
+layout must match its expected fingerprint; paired baseline/candidate cases
+must match each other; and an asserted distinct-layout set fails if it collapses
+to one observed layout. This is truthful coverage of the engine's observed
+initial pawn state, not a claim that the runner can force a particular
+`PlayerStart`.
+
+Seed-only matrices remain compatible. True role swapping remains unavailable:
+the current enhanced-policy selection is process-wide and the verified stock
+rosters do not provide stable per-slot policy binding. A role-swap gate will be
+implemented only after a per-participant policy adapter can bind immutable
+roster indexes and prove balanced slot assignments in both UT436 and Unreal
+Gold 226b.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

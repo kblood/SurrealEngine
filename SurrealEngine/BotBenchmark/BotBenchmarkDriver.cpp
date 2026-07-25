@@ -47,6 +47,10 @@ namespace
 			EngineRef.SetBotBenchmarkHazardSwimEgressEnabled(Config.IsHazardSwimEgressEnabled());
 			EngineRef.SetBotBenchmarkHazardSwimEgressLiveEnabled(
 				Config.IsHazardSwimEgressLiveEnabled());
+			EngineRef.SetBotBenchmarkFallingHazardRecoveryEnabled(
+				Config.IsFallingHazardRecoveryEnabled());
+			EngineRef.SetBotBenchmarkFallingHazardRecoveryLiveEnabled(
+				Config.IsFallingHazardRecoveryLiveEnabled());
 			EngineRef.SetBotBenchmarkFailedNavigationAvoidanceEnabled(
 				Config.IsFailedNavigationAvoidanceEnabled());
 		}
@@ -532,6 +536,26 @@ namespace
 					pawn->HazardSwimEgressDirectNavBestCandidateName();
 			counters.HazardSwimEgressAnchorKnown = pawn->HasHazardSwimEgressAnchor();
 			counters.HazardSwimEgressAnchorSource = pawn->HazardSwimEgressAnchorSourceName();
+			counters.FallingHazardRecoveryPromotions = pawn->FallingHazardRecoveryPromotionCount();
+			counters.FallingHazardRecoveryAdvanceCalls = pawn->FallingHazardRecoveryAdvanceCount();
+			counters.FallingHazardRecoveryContextRejected =
+				pawn->FallingHazardRecoveryContextRejectedCount();
+			counters.FallingHazardRecoveryNoActiveFallEpisode =
+				pawn->FallingHazardRecoveryNoActiveFallEpisodeCount();
+			counters.FallingHazardRecoveryNoPrefix = pawn->FallingHazardRecoveryNoPrefixCount();
+			counters.FallingHazardRecoveryEligible = pawn->FallingHazardRecoveryEligibleCount();
+			counters.FallingHazardRecoveryAnchorRejected =
+				pawn->FallingHazardRecoveryAnchorRejectedCount();
+			counters.FallingHazardRecoveryProbeRejected =
+				pawn->FallingHazardRecoveryProbeRejectedCount();
+			counters.FallingHazardRecoveryLiveApplies = pawn->FallingHazardRecoveryLiveApplyCount();
+			counters.FallingHazardRecoveryLiveActiveTicks =
+				pawn->FallingHazardRecoveryLiveActiveTickCount();
+			counters.FallingHazardRecoverySafeLandings = pawn->FallingHazardRecoverySafeLandingCount();
+			counters.FallingHazardRecoveryHarmfulEntries =
+				pawn->FallingHazardRecoveryHarmfulEntryCount();
+			counters.FallingHazardRecoveryDeaths = pawn->FallingHazardRecoveryDeathCount();
+			counters.FallingHazardRecoveryTimeouts = pawn->FallingHazardRecoveryTimeoutCount();
 			counters.FallingSeamDetections = pawn->FallingSeamDetectionCount();
 			counters.HorizontalCornerCandidateProbes =
 				pawn->HorizontalCornerCandidateProbeCount();
@@ -1358,6 +1382,29 @@ namespace
 				bot.HazardSwimEgressDirectNavBestCandidateName = native.HazardSwimEgressDirectNavBestCandidateName;
 				bot.HazardSwimEgressAnchorKnown = native.HazardSwimEgressAnchorKnown;
 				bot.HazardSwimEgressAnchorSource = native.HazardSwimEgressAnchorSource;
+				bot.FallingHazardRecoveryPromotionsExact = native.FallingHazardRecoveryPromotions;
+				bot.FallingHazardRecoveryAdvanceCallsExact =
+					native.FallingHazardRecoveryAdvanceCalls;
+				bot.FallingHazardRecoveryContextRejectedExact =
+					native.FallingHazardRecoveryContextRejected;
+				bot.FallingHazardRecoveryNoActiveFallEpisodeExact =
+					native.FallingHazardRecoveryNoActiveFallEpisode;
+				bot.FallingHazardRecoveryNoPrefixExact = native.FallingHazardRecoveryNoPrefix;
+				bot.FallingHazardRecoveryEligibleExact = native.FallingHazardRecoveryEligible;
+				bot.FallingHazardRecoveryAnchorRejectedExact =
+					native.FallingHazardRecoveryAnchorRejected;
+				bot.FallingHazardRecoveryProbeRejectedExact =
+					native.FallingHazardRecoveryProbeRejected;
+				bot.FallingHazardRecoveryLiveAppliesExact =
+					native.FallingHazardRecoveryLiveApplies;
+				bot.FallingHazardRecoveryLiveActiveTicksExact =
+					native.FallingHazardRecoveryLiveActiveTicks;
+				bot.FallingHazardRecoverySafeLandingsExact =
+					native.FallingHazardRecoverySafeLandings;
+				bot.FallingHazardRecoveryHarmfulEntriesExact =
+					native.FallingHazardRecoveryHarmfulEntries;
+				bot.FallingHazardRecoveryDeathsExact = native.FallingHazardRecoveryDeaths;
+				bot.FallingHazardRecoveryTimeoutsExact = native.FallingHazardRecoveryTimeouts;
 				bot.FallingSeamDetectionsExact = native.FallingSeamDetections;
 				bot.HorizontalCornerCandidateProbesExact =
 					native.HorizontalCornerCandidateProbes;
@@ -1618,7 +1665,9 @@ namespace
 			OptionalCommandLineArg("--botbench-walking-preflight-positive-dps-veto"),
 			OptionalCommandLineArg("--botbench-hazard-swim-egress"),
 			OptionalCommandLineArg("--botbench-hazard-swim-egress-live"),
-			OptionalCommandLineArg("--botbench-failed-navigation-avoidance"));
+			OptionalCommandLineArg("--botbench-failed-navigation-avoidance"),
+			OptionalCommandLineArg("--botbench-falling-hazard-recovery"),
+			OptionalCommandLineArg("--botbench-falling-hazard-recovery-live"));
 	}
 }
 

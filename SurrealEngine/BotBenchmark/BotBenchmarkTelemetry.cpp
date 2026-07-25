@@ -448,6 +448,34 @@ namespace
 			<< ",\"hazard_swim_egress_direct_nav_best_candidate_name\":" << JsonString(bot.HazardSwimEgressDirectNavBestCandidateName)
 			<< ",\"hazard_swim_egress_anchor_known\":" << (bot.HazardSwimEgressAnchorKnown ? "true" : "false")
 			<< ",\"hazard_swim_egress_anchor_source\":" << JsonString(bot.HazardSwimEgressAnchorSource)
+			<< ",\"falling_hazard_recovery_promotions_exact\":\""
+			<< bot.FallingHazardRecoveryPromotionsExact << "\""
+			<< ",\"falling_hazard_recovery_advance_calls_exact\":\""
+			<< bot.FallingHazardRecoveryAdvanceCallsExact << "\""
+			<< ",\"falling_hazard_recovery_context_rejected_exact\":\""
+			<< bot.FallingHazardRecoveryContextRejectedExact << "\""
+			<< ",\"falling_hazard_recovery_no_active_fall_episode_exact\":\""
+			<< bot.FallingHazardRecoveryNoActiveFallEpisodeExact << "\""
+			<< ",\"falling_hazard_recovery_no_prefix_exact\":\""
+			<< bot.FallingHazardRecoveryNoPrefixExact << "\""
+			<< ",\"falling_hazard_recovery_eligible_exact\":\""
+			<< bot.FallingHazardRecoveryEligibleExact << "\""
+			<< ",\"falling_hazard_recovery_anchor_rejected_exact\":\""
+			<< bot.FallingHazardRecoveryAnchorRejectedExact << "\""
+			<< ",\"falling_hazard_recovery_probe_rejected_exact\":\""
+			<< bot.FallingHazardRecoveryProbeRejectedExact << "\""
+			<< ",\"falling_hazard_recovery_live_applies_exact\":\""
+			<< bot.FallingHazardRecoveryLiveAppliesExact << "\""
+			<< ",\"falling_hazard_recovery_live_active_ticks_exact\":\""
+			<< bot.FallingHazardRecoveryLiveActiveTicksExact << "\""
+			<< ",\"falling_hazard_recovery_safe_landings_exact\":\""
+			<< bot.FallingHazardRecoverySafeLandingsExact << "\""
+			<< ",\"falling_hazard_recovery_harmful_entries_exact\":\""
+			<< bot.FallingHazardRecoveryHarmfulEntriesExact << "\""
+			<< ",\"falling_hazard_recovery_deaths_exact\":\""
+			<< bot.FallingHazardRecoveryDeathsExact << "\""
+			<< ",\"falling_hazard_recovery_timeouts_exact\":\""
+			<< bot.FallingHazardRecoveryTimeoutsExact << "\""
 			<< ",\"falling_seam_detections_exact\":\"" << bot.FallingSeamDetectionsExact << "\""
 			<< ",\"horizontal_corner_candidate_probes_exact\":\"" << bot.HorizontalCornerCandidateProbesExact << "\""
 			<< ",\"horizontal_corner_authorized_escapes_exact\":\"" << bot.HorizontalCornerAuthorizedEscapesExact << "\""
@@ -644,7 +672,11 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "hazard_swim_egress_live_enabled="
 		<< (config.IsHazardSwimEgressLiveEnabled() ? "1" : "0") << '\n'
 		<< "failed_navigation_avoidance_enabled="
-		<< (config.IsFailedNavigationAvoidanceEnabled() ? "1" : "0") << '\n';
+		<< (config.IsFailedNavigationAvoidanceEnabled() ? "1" : "0") << '\n'
+		<< "falling_hazard_recovery_enabled="
+		<< (config.IsFallingHazardRecoveryEnabled() ? "1" : "0") << '\n'
+		<< "falling_hazard_recovery_live_enabled="
+		<< (config.IsFallingHazardRecoveryLiveEnabled() ? "1" : "0") << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
 		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
@@ -680,6 +712,10 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsHazardSwimEgressLiveEnabled() ? "true" : "false") << ",\n"
 		<< "  \"failed_navigation_avoidance_enabled\": "
 		<< (config.IsFailedNavigationAvoidanceEnabled() ? "true" : "false") << ",\n"
+		<< "  \"falling_hazard_recovery_enabled\": "
+		<< (config.IsFallingHazardRecoveryEnabled() ? "true" : "false") << ",\n"
+		<< "  \"falling_hazard_recovery_live_enabled\": "
+		<< (config.IsFallingHazardRecoveryLiveEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";

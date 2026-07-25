@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import statistics
@@ -21,7 +22,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 18
+TOOL_VERSION = 19
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -173,6 +174,22 @@ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS = (
     "hazard_swim_egress_direct_nav_probes_exact",
     "hazard_swim_egress_direct_nav_safe_candidates_exact",
 )
+FALLING_HAZARD_RECOVERY_COUNTERS = (
+    "falling_hazard_recovery_promotions_exact",
+    "falling_hazard_recovery_advance_calls_exact",
+    "falling_hazard_recovery_context_rejected_exact",
+    "falling_hazard_recovery_no_active_fall_episode_exact",
+    "falling_hazard_recovery_no_prefix_exact",
+    "falling_hazard_recovery_eligible_exact",
+    "falling_hazard_recovery_anchor_rejected_exact",
+    "falling_hazard_recovery_probe_rejected_exact",
+    "falling_hazard_recovery_live_applies_exact",
+    "falling_hazard_recovery_live_active_ticks_exact",
+    "falling_hazard_recovery_safe_landings_exact",
+    "falling_hazard_recovery_harmful_entries_exact",
+    "falling_hazard_recovery_deaths_exact",
+    "falling_hazard_recovery_timeouts_exact",
+)
 DEATH_ATTRIBUTION_COUNTERS = (
     "direct_self_kills", "direct_enemy_kills", "unassisted_environmental_deaths",
     "recent_enemy_contributed_environmental_deaths_proxy", "ambiguous_deaths",
@@ -319,7 +336,7 @@ METRIC_DIRECTIONS.update({
 		+ VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
 		+ FALLING_PRE_MOVE_ANCHOR_COUNTERS + HAZARD_SWIM_EGRESS_LIVE_COUNTERS
 		+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
-        + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS)
+        + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS + FALLING_HAZARD_RECOVERY_COUNTERS)
 })
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
@@ -328,6 +345,7 @@ OPTIONAL_EXACT_COUNTERS = (
 	+ FALLING_PRE_MOVE_ANCHOR_COUNTERS
 	+ HAZARD_SWIM_EGRESS_LIVE_COUNTERS
 	+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS
+	+ FALLING_HAZARD_RECOVERY_COUNTERS
     + DEATH_ATTRIBUTION_COUNTERS + DAMAGE_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
@@ -1655,7 +1673,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                walking_preflight_positive_dps_veto_enabled: bool | None = None,
                hazard_swim_egress_enabled: bool | None = None,
                hazard_swim_egress_live_enabled: bool | None = None,
-               failed_navigation_avoidance_enabled: bool | None = None) -> str:
+               failed_navigation_avoidance_enabled: bool | None = None,
+               falling_hazard_recovery_enabled: bool | None = None,
+               falling_hazard_recovery_live_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -1677,6 +1697,12 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if failed_navigation_avoidance_enabled is not None:
             canonical_text += "failed_navigation_avoidance_enabled=" + (
                 "1\n" if failed_navigation_avoidance_enabled else "0\n")
+        if falling_hazard_recovery_enabled is not None:
+            canonical_text += "falling_hazard_recovery_enabled=" + (
+                "1\n" if falling_hazard_recovery_enabled else "0\n")
+        if falling_hazard_recovery_live_enabled is not None:
+            canonical_text += "falling_hazard_recovery_live_enabled=" + (
+                "1\n" if falling_hazard_recovery_live_enabled else "0\n")
         assert requested_roster is not None
         canonical_text += "".join(f"roster={entry['identity_fragment']}\n" for entry in requested_roster)
     canonical = canonical_text.encode("utf-8")
@@ -1685,6 +1711,15 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         digest ^= byte
         digest = (digest * 1099511628211) & ((1 << 64) - 1)
     return f"fnv1a64:{digest:016x}"
+
+
+def _layout_fingerprint(value: Any, context: str) -> str:
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        raise QualityError(f"{context} must be a sha256: fingerprint")
+    digest = value.removeprefix("sha256:")
+    if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+        raise QualityError(f"{context} must be a lowercase sha256: fingerprint")
+    return value
 
 
 def _close(left: float, right: float) -> bool:
@@ -1795,6 +1830,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     hazard_swim_egress_enabled = None
     hazard_swim_egress_live_enabled = None
     failed_navigation_avoidance_enabled = None
+    falling_hazard_recovery_enabled = None
+    falling_hazard_recovery_live_enabled = None
     if schema == MANIFEST_SCHEMA_V2:
         bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
         requested_roster = _validate_requested_roster(raw.get("requested_roster"),
@@ -1826,12 +1863,22 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             failed_navigation_avoidance_enabled = _boolean(
                 raw.get("failed_navigation_avoidance_enabled"),
                 "manifest.failed_navigation_avoidance_enabled")
+        if "falling_hazard_recovery_enabled" in raw:
+            falling_hazard_recovery_enabled = _boolean(
+                raw.get("falling_hazard_recovery_enabled"),
+                "manifest.falling_hazard_recovery_enabled")
+        if "falling_hazard_recovery_live_enabled" in raw:
+            falling_hazard_recovery_live_enabled = _boolean(
+                raw.get("falling_hazard_recovery_live_enabled"),
+                "manifest.falling_hazard_recovery_live_enabled")
     expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count,
                              requested_roster, harmful_zone_escape_enabled,
                              walking_preflight_positive_dps_veto_enabled,
                              hazard_swim_egress_enabled,
                              hazard_swim_egress_live_enabled,
-                             failed_navigation_avoidance_enabled)
+                             failed_navigation_avoidance_enabled,
+                             falling_hazard_recovery_enabled,
+                             falling_hazard_recovery_live_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -1853,6 +1900,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "hazard_swim_egress_enabled": hazard_swim_egress_enabled,
         "hazard_swim_egress_live_enabled": hazard_swim_egress_live_enabled,
         "failed_navigation_avoidance_enabled": failed_navigation_avoidance_enabled,
+        "falling_hazard_recovery_enabled": falling_hazard_recovery_enabled,
+        "falling_hazard_recovery_live_enabled": falling_hazard_recovery_live_enabled,
     }
 
 
@@ -1900,6 +1949,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("falling pre-move anchor", FALLING_PRE_MOVE_ANCHOR_COUNTERS),
                 ("hazard swim egress live", HAZARD_SWIM_EGRESS_LIVE_COUNTERS),
                 ("hazard swim egress direct navigation", HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS),
+                ("falling hazard recovery", FALLING_HAZARD_RECOVERY_COUNTERS),
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("damage attribution", DAMAGE_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
@@ -1992,6 +2042,40 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if live_successful_exits > live_applies:
                 raise QualityError(
                     f"{context}: live swim egress successful exits exceed applies")
+        if "falling_hazard_recovery_promotions_exact" in result:
+            promotions = result["falling_hazard_recovery_promotions_exact"]
+            advance_calls = result["falling_hazard_recovery_advance_calls_exact"]
+            context_rejected = result["falling_hazard_recovery_context_rejected_exact"]
+            no_active_fall = result["falling_hazard_recovery_no_active_fall_episode_exact"]
+            no_prefix = result["falling_hazard_recovery_no_prefix_exact"]
+            eligible = result["falling_hazard_recovery_eligible_exact"]
+            anchor_rejected = result["falling_hazard_recovery_anchor_rejected_exact"]
+            probe_rejected = result["falling_hazard_recovery_probe_rejected_exact"]
+            live_applies = result["falling_hazard_recovery_live_applies_exact"]
+            active_ticks = result["falling_hazard_recovery_live_active_ticks_exact"]
+            terminals = (
+                result["falling_hazard_recovery_safe_landings_exact"]
+                + result["falling_hazard_recovery_harmful_entries_exact"]
+                + result["falling_hazard_recovery_deaths_exact"]
+                + result["falling_hazard_recovery_timeouts_exact"])
+            if eligible + anchor_rejected > promotions:
+                raise QualityError(
+                    f"{context}: falling-hazard recovery outcomes exceed promotions")
+            if context_rejected > advance_calls or no_active_fall > context_rejected:
+                raise QualityError(
+                    f"{context}: falling-hazard recovery context diagnostics exceed advance calls")
+            if no_prefix > advance_calls - context_rejected:
+                raise QualityError(
+                    f"{context}: falling-hazard recovery no-prefix diagnostics exceed valid contexts")
+            if live_applies + probe_rejected > eligible:
+                raise QualityError(
+                    f"{context}: falling-hazard recovery applies/probe rejections exceed eligibility")
+            if active_ticks < live_applies:
+                raise QualityError(
+                    f"{context}: falling-hazard recovery active ticks are fewer than applies")
+            if terminals > live_applies:
+                raise QualityError(
+                    f"{context}: falling-hazard recovery terminal outcomes exceed applies")
         if "hazard_swim_egress_direct_nav_probes_exact" in result:
             if result["hazard_swim_egress_direct_nav_safe_candidates_exact"] > \
                     result["hazard_swim_egress_direct_nav_probes_exact"]:
@@ -2454,6 +2538,14 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["failed_navigation_avoidance_enabled"] = _boolean(
             config.get("failed_navigation_avoidance_enabled"),
             "summary.config.failed_navigation_avoidance_enabled")
+    if manifest["falling_hazard_recovery_enabled"] is not None:
+        comparisons["falling_hazard_recovery_enabled"] = _boolean(
+            config.get("falling_hazard_recovery_enabled"),
+            "summary.config.falling_hazard_recovery_enabled")
+    if manifest["falling_hazard_recovery_live_enabled"] is not None:
+        comparisons["falling_hazard_recovery_live_enabled"] = _boolean(
+            config.get("falling_hazard_recovery_live_enabled"),
+            "summary.config.falling_hazard_recovery_live_enabled")
     requested_roster = None
     actual_roster = None
     if expected_schema == SUMMARY_SCHEMA_V2:
@@ -2514,6 +2606,43 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
     }
 
 
+def _initial_layout(summary: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    requested = summary["requested_roster"]
+    actual = summary["actual_roster"]
+    if requested is None or actual is None:
+        return None
+    if summary["status"] != "complete" or len(requested) != len(actual):
+        return None
+    start_bots = {bot["identity"]: bot for bot in events[0]["bots"]}
+    if len(start_bots) != len(events[0]["bots"]):
+        raise QualityError("initial telemetry contains duplicate participant identities")
+    requested_by_index = {entry["roster_index"]: entry for entry in requested}
+    participants = []
+    for participant in actual:
+        roster_index = participant["roster_index"]
+        bot = start_bots.get(participant["identity"])
+        if bot is None:
+            raise QualityError("initial telemetry is missing an actual roster participant")
+        if "physics_mode" not in bot:
+            return None
+        participants.append({
+            "roster_index": roster_index,
+            "external_skill": requested_by_index[roster_index]["external_skill"],
+            "class": participant["class"],
+            "player_name": participant["player_name"],
+            "position": bot["position"],
+            "velocity": bot["velocity"],
+            "physics_mode": bot["physics_mode"],
+            "state": bot["state"],
+        })
+    participants.sort(key=lambda item: item["roster_index"])
+    canonical = json.dumps(participants, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    return {
+        "fingerprint": "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "participants": participants,
+    }
+
+
 def _load_metadata(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
@@ -2530,7 +2659,23 @@ def _load_metadata(path: Path) -> dict[str, Any] | None:
             raise QualityError(f"{path}: pair_id must be a non-empty string")
         if role not in ("baseline", "candidate"):
             raise QualityError(f"{path}: comparison_role must be baseline or candidate")
-    return {"variant": variant, "pair_id": pair_id, "comparison_role": role}
+    layout_id = raw.get("start_layout_id")
+    expected_layout_fingerprint = raw.get("expected_initial_layout_fingerprint")
+    if (layout_id is None) != (expected_layout_fingerprint is None):
+        raise QualityError(
+            f"{path}: start_layout_id and expected_initial_layout_fingerprint must be provided together")
+    if layout_id is not None:
+        if not isinstance(layout_id, str) or not layout_id:
+            raise QualityError(f"{path}: start_layout_id must be a non-empty string")
+        expected_layout_fingerprint = _layout_fingerprint(
+            expected_layout_fingerprint, "quality metadata.expected_initial_layout_fingerprint")
+    return {
+        "variant": variant,
+        "pair_id": pair_id,
+        "comparison_role": role,
+        "start_layout_id": layout_id,
+        "expected_initial_layout_fingerprint": expected_layout_fingerprint,
+    }
 
 
 def _distance(left: dict[str, float], right: dict[str, float]) -> float:
@@ -2930,12 +3075,19 @@ def analyze_run(path: Path) -> dict[str, Any]:
                 f"{run_path}: attributed death telemetry requires manifest.suicides_exact_semantics")
     summary = _validate_summary(run_path / "summary.json", manifest, events)
     metadata = _load_metadata(run_path / "quality-metadata.json")
+    initial_layout = _initial_layout(summary, events)
+    if metadata and metadata["start_layout_id"] is not None:
+        if initial_layout is None:
+            raise QualityError(f"{run_path}: declared start layout requires a complete observed initial layout")
+        if initial_layout["fingerprint"] != metadata["expected_initial_layout_fingerprint"]:
+            raise QualityError(f"{run_path}: observed initial-layout fingerprint differs from quality metadata")
     bots = _bot_metrics(events)
     completion = summary["status"] == "complete" and summary["exit_code"] == 0
     metrics = _run_metrics(bots, completion)
     return {
         "path": str(run_path),
         "metadata": metadata,
+        "initial_layout": initial_layout,
         "variant": metadata["variant"] if metadata else run_path.name,
         "config": {
             "url": manifest["url"], "seed": manifest["seed"], "max_ticks": manifest["max_ticks"],
@@ -2949,9 +3101,18 @@ def analyze_run(path: Path) -> dict[str, Any]:
             "hazard_swim_egress_live_enabled": manifest["hazard_swim_egress_live_enabled"],
             "failed_navigation_avoidance_enabled": (
                 manifest["failed_navigation_avoidance_enabled"]),
+            "falling_hazard_recovery_enabled": manifest["falling_hazard_recovery_enabled"],
+            "falling_hazard_recovery_live_enabled": (
+                manifest["falling_hazard_recovery_live_enabled"]),
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),
             "suicides_exact_semantics": manifest["suicides_exact_semantics"],
+            "start_layout": {
+                "id": metadata["start_layout_id"] if metadata else None,
+                "expected_fingerprint": (
+                    metadata["expected_initial_layout_fingerprint"] if metadata else None),
+                "observed_fingerprint": initial_layout["fingerprint"] if initial_layout else None,
+            },
         },
         "result": summary,
         "metrics": metrics,
@@ -3029,6 +3190,10 @@ def paired_comparisons(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         baseline, candidate = roles["baseline"], roles["candidate"]
         if _comparison_signature(baseline) != _comparison_signature(candidate):
             raise QualityError(f"pair {pair_id!r} has incomparable run configurations")
+        baseline_layout = baseline["config"]["start_layout"]
+        candidate_layout = candidate["config"]["start_layout"]
+        if baseline_layout != candidate_layout:
+            raise QualityError(f"pair {pair_id!r} has mismatched declared or observed start layouts")
         deltas = {}
         for name in METRIC_DIRECTIONS:
             left, right = _numeric(baseline["metrics"].get(name)), _numeric(candidate["metrics"].get(name))

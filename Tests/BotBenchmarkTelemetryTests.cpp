@@ -22,13 +22,15 @@ int main()
 		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
 		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"));
 	const std::string configId = BotBenchmarkTelemetryProtocol::ConfigIdentity(config);
-	if (configId != "fnv1a64:5afe60418effde8e")
+	if (configId != "fnv1a64:dd3bba32ac6fbe9d")
 		return Fail("bot benchmark v2 roster configuration identity changed");
 	if (config.IsHarmfulZoneEscapeEnabled()
 		|| config.IsWalkingPreflightPositiveDpsVetoEnabled()
 		|| config.IsHazardSwimEgressEnabled()
 		|| config.IsHazardSwimEgressLiveEnabled()
-		|| config.IsFailedNavigationAvoidanceEnabled())
+		|| config.IsFailedNavigationAvoidanceEnabled()
+		|| config.IsFallingHazardRecoveryEnabled()
+		|| config.IsFallingHazardRecoveryLiveEnabled())
 		return Fail("bot benchmark experimental controls must default to disabled");
 	const BotBenchmarkRunConfig controlEnabled = BotBenchmarkRunConfig::Parse(
 		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
@@ -43,11 +45,22 @@ int main()
 	if (!avoidanceEnabled.IsFailedNavigationAvoidanceEnabled()
 		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(avoidanceEnabled) == configId)
 		return Fail("failed-navigation avoidance selection was not distinct and enabled");
+	const BotBenchmarkRunConfig fallingRecoveryEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), {}, {}, {}, {}, {},
+		std::string("1"), std::string("1"));
+	if (!fallingRecoveryEnabled.IsFallingHazardRecoveryEnabled()
+		|| !fallingRecoveryEnabled.IsFallingHazardRecoveryLiveEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(fallingRecoveryEnabled) == configId)
+		return Fail("falling-hazard recovery selection was not distinct and enabled");
 	const BotBenchmarkRunSummary summary("complete", 0, 72, 1.44, "Unreal Tournament",
 		"436", "DM-Test", "", {});
 	if (summary.ToJson(controlEnabled).find("\"harmful_zone_escape_enabled\": true")
 		== std::string::npos)
 		return Fail("bot benchmark summary did not retain the enabled control mode");
+	if (summary.ToJson(fallingRecoveryEnabled).find("\"falling_hazard_recovery_live_enabled\": true")
+		== std::string::npos)
+		return Fail("bot benchmark summary did not retain falling-hazard recovery mode");
 	bool rejectedInvalidControl = false;
 	try
 	{
@@ -66,7 +79,7 @@ int main()
 		"{\n"
 		"  \"schema\": \"surreal-bot-benchmark-manifest-v2\",\n"
 		"  \"driver\": \"bot-benchmark\",\n"
-		"  \"config_id\": \"fnv1a64:5afe60418effde8e\",\n"
+		"  \"config_id\": \"fnv1a64:dd3bba32ac6fbe9d\",\n"
 		"  \"url\": \"DM-Test?Game=Botpack.DeathMatchPlus\",\n"
 		"  \"output_directory\": \"evidence\",\n"
 		"  \"seed\": \"18446744073709551615\",\n"
@@ -84,6 +97,8 @@ int main()
 		"  \"hazard_swim_egress_enabled\": false,\n"
 		"  \"hazard_swim_egress_live_enabled\": false,\n"
 		"  \"failed_navigation_avoidance_enabled\": false,\n"
+		"  \"falling_hazard_recovery_enabled\": false,\n"
+		"  \"falling_hazard_recovery_live_enabled\": false,\n"
 		"  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		"  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		"}\n";
@@ -262,7 +277,7 @@ int main()
 		<< ",\"vertical_pain_column_diagnostics\":[]";
 	const std::string expectedWalkingPreflightSuffix = walkingPreflightSuffix.str();
 	std::string expectedEvent =
-		"{\"schema\":\"surreal-bot-benchmark-telemetry-v2\",\"seq\":\"5\",\"config_id\":\"fnv1a64:5afe60418effde8e\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
+		"{\"schema\":\"surreal-bot-benchmark-telemetry-v2\",\"seq\":\"5\",\"config_id\":\"fnv1a64:dd3bba32ac6fbe9d\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
 		"{\"identity\":\"pri:1\",\"actor\":\"Bot1\",\"player_name\":\"Line\\nBreak\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"physics_mode\":\"\",\"latent_action\":\"\",\"acceleration\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"destination\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"move_timer\":0.000000,\"move_target_identity\":\"\",\"move_target_name\":\"\",\"health\":100,\"score\":0.000000,\"pri_deaths\":0.000000,\"movement_intent\":false,\"in_hazard_zone\":false,\"kills_exact\":\"0\",\"deaths_exact\":\"0\",\"suicides_exact\":\"0\",\"environmental_deaths_exact\":\"0\",\"hazard_exposed_deaths_proxy\":\"0\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"0\",\"unassisted_environmental_deaths\":\"0\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"0\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"0\",\"hit_wall_events_exact\":\"0\",\"pain_ledge_vetoes_exact\":\"0\",\"pain_ledge_repeat_vetoes_exact\":\"0\",\"pain_ledge_recovery_attempts_exact\":\"0\",\"pain_ledge_recovery_escapes_exact\":\"0\",\"wall_adjust_calls_exact\":\"0\",\"wall_adjust_repeats_exact\":\"0\",\"wall_adjust_recovery_attempts_exact\":\"0\",\"wall_adjust_recovery_successes_exact\":\"0\",\"wall_adjust_forced_replans_exact\":\"0\",\"move_stall_detections_exact\":\"0\",\"move_stall_episode_resets_exact\":\"0\",\"move_stall_forced_replans_exact\":\"0\",\"move_stall_navigation_forced_replans_exact\":\"0\",\"move_stall_targetless_move_to_timeouts_exact\":\"0\",\"move_stall_eligible_seconds\":0.000000000,\"failed_navigation_avoidance_activations_exact\":\"0\",\"failed_navigation_safeguard_suppressions_exact\":\"0\",\"failed_navigation_route_penalty_applications_exact\":\"0\",\"falling_seam_detections_exact\":\"0\",\"horizontal_corner_candidate_probes_exact\":\"0\",\"horizontal_corner_authorized_escapes_exact\":\"0\",\"horizontal_corner_target_progress_rejects_exact\":\"0\",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"0\",\"falling_seam_episodes_exact\":\"0\",\"falling_seam_invalid_geometry_rejects_exact\":\"0\",\"falling_seam_authorizable_episodes_exact\":\"0\",\"horizontal_corner_authorized_candidates_exact\":\"0\",\"horizontal_corner_blocked_sweep_candidates_exact\":\"0\",\"horizontal_corner_no_static_walkable_support_candidates_exact\":\"0\",\"horizontal_corner_pain_support_candidates_exact\":\"0\",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"0\",\"horizontal_corner_true_target_regression_candidates_exact\":\"0\",\"horizontal_corner_unknown_evidence_candidates_exact\":\"0\""
 		+ expectedWalkingPreflightSuffix + ",\"state\":\"Attacking\"},"
 		"{\"identity\":\"pri:2\",\"actor\":\"Bot2\",\"player_name\":\"B\\\"ot\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":1.250000,\"y\":-2.500000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":3.000000},\"physics_mode\":\"Walking\",\"latent_action\":\"MoveToward\",\"acceleration\":{\"x\":100.000000,\"y\":-50.000000,\"z\":0.000000},\"destination\":{\"x\":512.000000,\"y\":256.000000,\"z\":-32.000000},\"move_timer\":0.750000,\"move_target_identity\":\"actor:PathNode3\",\"move_target_name\":\"Path\\\"Node\",\"health\":87,\"score\":2.500000,\"pri_deaths\":3.000000,\"movement_intent\":true,\"in_hazard_zone\":true,\"kills_exact\":\"4\",\"deaths_exact\":\"3\",\"suicides_exact\":\"2\",\"environmental_deaths_exact\":\"1\",\"hazard_exposed_deaths_proxy\":\"1\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"1\",\"unassisted_environmental_deaths\":\"1\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"1\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"1\",\"hit_wall_events_exact\":\"9\",\"pain_ledge_vetoes_exact\":\"8\",\"pain_ledge_repeat_vetoes_exact\":\"6\",\"pain_ledge_recovery_attempts_exact\":\"7\",\"pain_ledge_recovery_escapes_exact\":\"5\",\"wall_adjust_calls_exact\":\"12\",\"wall_adjust_repeats_exact\":\"8\",\"wall_adjust_recovery_attempts_exact\":\"7\",\"wall_adjust_recovery_successes_exact\":\"6\",\"wall_adjust_forced_replans_exact\":\"2\",\"move_stall_detections_exact\":\"3\",\"move_stall_episode_resets_exact\":\"1\",\"move_stall_forced_replans_exact\":\"2\",\"move_stall_navigation_forced_replans_exact\":\"1\",\"move_stall_targetless_move_to_timeouts_exact\":\"1\",\"move_stall_eligible_seconds\":4.250000000,\"failed_navigation_avoidance_activations_exact\":\"2\",\"failed_navigation_safeguard_suppressions_exact\":\"3\",\"failed_navigation_route_penalty_applications_exact\":\"4\",\"falling_seam_detections_exact\":\"11\",\"horizontal_corner_candidate_probes_exact\":\"10\",\"horizontal_corner_authorized_escapes_exact\":\"3\",\"horizontal_corner_target_progress_rejects_exact\":\"4\",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"3\",\"falling_seam_episodes_exact\":\"4\",\"falling_seam_invalid_geometry_rejects_exact\":\"7\",\"falling_seam_authorizable_episodes_exact\":\"2\",\"horizontal_corner_authorized_candidates_exact\":\"3\",\"horizontal_corner_blocked_sweep_candidates_exact\":\"2\",\"horizontal_corner_no_static_walkable_support_candidates_exact\":\"1\",\"horizontal_corner_pain_support_candidates_exact\":\"1\",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"1\",\"horizontal_corner_true_target_regression_candidates_exact\":\"1\",\"horizontal_corner_unknown_evidence_candidates_exact\":\"1\""
@@ -293,7 +308,21 @@ int main()
 		",\"hazard_swim_egress_direct_nav_safe_candidates_exact\":\"0\""
 		",\"hazard_swim_egress_direct_nav_best_candidate_name\":\"\""
 		",\"hazard_swim_egress_anchor_known\":false"
-		",\"hazard_swim_egress_anchor_source\":\"\"";
+		",\"hazard_swim_egress_anchor_source\":\"\""
+		",\"falling_hazard_recovery_promotions_exact\":\"0\""
+		",\"falling_hazard_recovery_advance_calls_exact\":\"0\""
+		",\"falling_hazard_recovery_context_rejected_exact\":\"0\""
+		",\"falling_hazard_recovery_no_active_fall_episode_exact\":\"0\""
+		",\"falling_hazard_recovery_no_prefix_exact\":\"0\""
+		",\"falling_hazard_recovery_eligible_exact\":\"0\""
+		",\"falling_hazard_recovery_anchor_rejected_exact\":\"0\""
+		",\"falling_hazard_recovery_probe_rejected_exact\":\"0\""
+		",\"falling_hazard_recovery_live_applies_exact\":\"0\""
+		",\"falling_hazard_recovery_live_active_ticks_exact\":\"0\""
+		",\"falling_hazard_recovery_safe_landings_exact\":\"0\""
+		",\"falling_hazard_recovery_harmful_entries_exact\":\"0\""
+		",\"falling_hazard_recovery_deaths_exact\":\"0\""
+		",\"falling_hazard_recovery_timeouts_exact\":\"0\"";
 	for (const std::string controlCounterMarker : {
 		std::string("\"failed_navigation_route_penalty_applications_exact\":\"0\""),
 		std::string("\"failed_navigation_route_penalty_applications_exact\":\"4\"") })

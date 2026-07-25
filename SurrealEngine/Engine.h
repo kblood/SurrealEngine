@@ -154,6 +154,22 @@ public:
 	{
 		botBenchmarkHazardSwimEgressLiveEnabled = enabled;
 	}
+	bool IsBotBenchmarkFallingHazardRecoveryEnabled() const
+	{
+		return botBenchmarkFallingHazardRecoveryEnabled;
+	}
+	void SetBotBenchmarkFallingHazardRecoveryEnabled(bool enabled)
+	{
+		botBenchmarkFallingHazardRecoveryEnabled = enabled;
+	}
+	bool IsBotBenchmarkFallingHazardRecoveryLiveEnabled() const
+	{
+		return botBenchmarkFallingHazardRecoveryLiveEnabled;
+	}
+	void SetBotBenchmarkFallingHazardRecoveryLiveEnabled(bool enabled)
+	{
+		botBenchmarkFallingHazardRecoveryLiveEnabled = enabled;
+	}
 	bool IsBotBenchmarkFailedNavigationAvoidanceEnabled() const
 	{
 		return botBenchmarkFailedNavigationAvoidanceEnabled;
@@ -337,6 +353,8 @@ private:
 	bool botBenchmarkWalkingPreflightPositiveDpsVetoEnabled = false;
 	bool botBenchmarkHazardSwimEgressEnabled = false;
 	bool botBenchmarkHazardSwimEgressLiveEnabled = false;
+	bool botBenchmarkFallingHazardRecoveryEnabled = false;
+	bool botBenchmarkFallingHazardRecoveryLiveEnabled = false;
 	bool botBenchmarkFailedNavigationAvoidanceEnabled = false;
 	ViewFamily CreateDesktopViewFamily() const;
 	void InstallXRWeaponCallHook();

@@ -20,6 +20,7 @@
 #include "PawnWallAdjustment.h"
 #include "PawnWallAdjustRecovery.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
+#include "BotAI/FallingHazardRecoveryGate.h"
 #include "BotAI/HazardSwimEgressGate.h"
 #include "VM/ScriptCall.h"
 #include "VM/Frame.h"
@@ -62,6 +63,7 @@ namespace
 	constexpr int32_t failedNavigationFirstHopCost = 4096;
 	constexpr float failedNavigationLiftExitLandingRadius = 400.0f;
 	constexpr float failedNavigationLiftExitLandingStepHeights = 2.0f;
+	constexpr float fallingHazardRecoveryMaximumDuration = 1.0f;
 	constexpr float fallingWalkableNormalZ = 0.7f;
 	constexpr float walkingStepWalkableNormalZ = 0.7071f;
 	constexpr float walkingStepVerticalWallNormalZ = 0.2f;
@@ -107,6 +109,12 @@ namespace
 	bool IsExactHarmfulZone(UZoneInfo* zone)
 	{
 		return zone && zone->bPainZone() && zone->DamagePerSec() > 0;
+	}
+
+	bool IsSafeFallingHazardRecoveryZone(UZoneInfo* zone)
+	{
+		return zone && zone->bStatic() && !zone->bWaterZone()
+			&& !IsExactHarmfulZone(zone);
 	}
 
 	bool IsAutonomousPlayerBot(UPawn* pawn)
@@ -1432,7 +1440,7 @@ void UActor::TickFalling(float elapsed)
 	OldLocation() = Location();
 	bJustTeleported() = false;
 
-	const vec3 accelVector = acceleration * 1.5f;
+	vec3 accelVector = acceleration * 1.5f;
 	const vec3 gravityVector = gravityScale * zone->ZoneGravity();
 
 	float timeLeft = elapsed;
@@ -1445,7 +1453,11 @@ void UActor::TickFalling(float elapsed)
 		const float timeTick = physicsSlice.Elapsed;
 		timeLeft = physicsSlice.RemainingTime;
 		if (pawn)
+		{
+			if (pawn->AdvanceFallingHazardRecovery(timeTick))
+				accelVector = acceleration * 1.5f;
 			pawn->EnsureFallingHazardGeneration(timeTick, acceleration);
+		}
 		const vec3 iterationOldVelocity = velocity;
 		const float fluidFactor = 1.0f - fluidFriction * timeTick;
 		vec3 newVelocity = iterationOldVelocity * fluidFactor
@@ -5226,6 +5238,158 @@ void UPawn::ResetHazardSwimEgressObservation()
 	HazardSwimEgressGate.Reset();
 }
 
+void UPawn::ResetFallingHazardRecovery()
+{
+	FallingHazardRecovery = {};
+	FallingHazardRecoveryGate.Reset();
+}
+
+bool UPawn::AdvanceFallingHazardRecovery(float elapsed)
+{
+	const bool recoveryEnabled = engine->IsBotBenchmarkFallingHazardRecoveryEnabled();
+	if (recoveryEnabled)
+		FallingHazardRecoveryAdvanceCountValue++;
+	const bool validContext = engine->IsBotBenchmarkFallingHazardRecoveryEnabled()
+		&& engine->IsBotBenchmarkWalkingPreflightEnabled()
+		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
+		&& !bDeleteMe() && Health() > 0 && Physics() == PHYS_Falling
+		&& FallingHazardObserver && FallingHazardObserver->HasActiveFallEpisode()
+		&& !bJustTeleported() && std::isfinite(elapsed) && elapsed > 0.0f;
+	if (!validContext)
+	{
+		if (recoveryEnabled)
+		{
+			FallingHazardRecoveryContextRejectedCountValue++;
+			if (!FallingHazardObserver
+				|| !FallingHazardObserver->HasActiveFallEpisode())
+			{
+				FallingHazardRecoveryNoActiveFallEpisodeCountValue++;
+			}
+		}
+		ResetFallingHazardRecovery();
+		return false;
+	}
+
+	const uint64_t lifeId = FallingHazardObserver->CurrentLife().Value;
+	const uint64_t fallEpisodeId = FallingHazardObserver->CurrentFallEpisode().Value;
+	if (lifeId == 0 || fallEpisodeId == 0)
+	{
+		ResetFallingHazardRecovery();
+		return false;
+	}
+	if (FallingHazardRecovery.AnchorKnown
+		&& (FallingHazardRecovery.LifeId != lifeId
+			|| FallingHazardRecovery.FallEpisodeId != fallEpisodeId))
+	{
+		ResetFallingHazardRecovery();
+	}
+
+	const std::array<UZoneInfo*, 3> zones = {
+		Region().Zone, FootRegion().Zone, HeadRegion().Zone
+	};
+	const bool safeCurrent = IsFiniteVector(Location())
+		&& std::all_of(zones.begin(), zones.end(),
+			[](UZoneInfo* zone) { return IsSafeFallingHazardRecoveryZone(zone); });
+	if (!FallingHazardRecovery.AnchorKnown && safeCurrent)
+	{
+		FallingHazardRecovery.AnchorKnown = true;
+		FallingHazardRecovery.Anchor = Location();
+		FallingHazardRecovery.LifeId = lifeId;
+		FallingHazardRecovery.FallEpisodeId = fallEpisodeId;
+	}
+
+	if (!FallingHazardRecovery.ActionActive)
+	{
+		if (!FallingHazardObserver->HasPromotedSingleHarmfulFallPrefix())
+		{
+			FallingHazardRecoveryNoPrefixCountValue++;
+			return false;
+		}
+		if (!FallingHazardRecovery.PromotionObserved)
+		{
+			FallingHazardRecovery.PromotionObserved = true;
+			FallingHazardRecoveryPromotionCountValue++;
+		}
+		const BotAI::FallingHazardRecoveryEntry entry = {
+			lifeId, fallEpisodeId, true, FallingHazardRecovery.AnchorKnown,
+			FallingHazardRecovery.Anchor.x, FallingHazardRecovery.Anchor.y,
+			Location().x, Location().y
+		};
+		const BotAI::FallingHazardRecoveryEligibility eligibility =
+			FallingHazardRecoveryGate.Evaluate(entry);
+		if (eligibility == BotAI::FallingHazardRecoveryEligibility::Ineligible)
+		{
+			if (!FallingHazardRecovery.AnchorRejectedObserved)
+			{
+				FallingHazardRecovery.AnchorRejectedObserved = true;
+				FallingHazardRecoveryAnchorRejectedCountValue++;
+			}
+			return false;
+		}
+		if (eligibility != BotAI::FallingHazardRecoveryEligibility::Authorized)
+			return false;
+		FallingHazardRecoveryEligibleCountValue++;
+		if (!engine->IsBotBenchmarkFallingHazardRecoveryLiveEnabled())
+			return false;
+		FallingHazardRecovery.ActionActive = true;
+		FallingHazardRecovery.ActiveSeconds = 0.0f;
+	}
+	if (!engine->IsBotBenchmarkFallingHazardRecoveryLiveEnabled())
+	{
+		FallingHazardRecovery.ActionActive = false;
+		return false;
+	}
+
+	if (!safeCurrent
+		|| FallingHazardRecovery.ActiveSeconds
+			>= fallingHazardRecoveryMaximumDuration)
+	{
+		if (FallingHazardRecovery.ActiveSeconds
+			>= fallingHazardRecoveryMaximumDuration)
+			FallingHazardRecoveryTimeoutCountValue++;
+		FallingHazardRecovery.ActionActive = false;
+		return false;
+	}
+	const vec3 delta(FallingHazardRecovery.Anchor.x - Location().x,
+		FallingHazardRecovery.Anchor.y - Location().y, 0.0f);
+	const float distance = length(delta);
+	if (!IsFiniteVector(delta) || !std::isfinite(distance)
+		|| distance < BotAI::FallingHazardRecoveryMinimumAnchorDistance
+		|| distance > BotAI::FallingHazardRecoveryMaximumAnchorDistance)
+	{
+		FallingHazardRecovery.ActionActive = false;
+		return false;
+	}
+	if (TryMove(delta, true).Fraction != 1.0f)
+	{
+		FallingHazardRecoveryProbeRejectedCountValue++;
+		FallingHazardRecovery.ActionActive = false;
+		return false;
+	}
+	if (FallingHazardRecovery.ActiveSeconds == 0.0f)
+		FallingHazardRecoveryLiveApplyCountValue++;
+	const float maxAccel = engine->LaunchInfo.ue1Version > 219
+		? AirControl() * AccelRate() : 0.0f;
+	if (!std::isfinite(maxAccel) || maxAccel <= 0.0f)
+	{
+		FallingHazardRecovery.ActionActive = false;
+		return false;
+	}
+	Acceleration() = normalize(delta) * maxAccel;
+	FallingHazardRecoveryLiveActiveTickCountValue++;
+	FallingHazardRecovery.ActiveSeconds += elapsed;
+	return true;
+}
+
+void UPawn::RecordFallingHazardRecoveryHarmfulEntry()
+{
+	if (FallingHazardRecovery.ActionActive)
+	{
+		FallingHazardRecoveryHarmfulEntryCountValue++;
+		FallingHazardRecovery.ActionActive = false;
+	}
+}
+
 void UPawn::EndHazardSwimEgressSwimSession()
 {
 	ResetHazardSwimEgressObservation();
@@ -5494,6 +5658,7 @@ void UPawn::ObserveHarmfulZoneEscapeBoundary(UZoneInfo* oldZone, UZoneInfo* newZ
 	const bool newHarmful = IsExactHarmfulZone(newZone);
 	if (!oldHarmful && newHarmful)
 	{
+		RecordFallingHazardRecoveryHarmfulEntry();
 		if (footBoundary)
 			HarmfulZoneEscapeFootEntryCountValue++;
 		else
@@ -6870,6 +7035,17 @@ void UPawn::ArmFallingHazardContinuation(
 void UPawn::FinishFallingHazardLanding(const CollisionHit& hit,
 	bool ditchSupportUnknown)
 {
+	if (FallingHazardRecovery.ActionActive)
+	{
+		const std::array<UZoneInfo*, 3> zones = {
+			Region().Zone, FootRegion().Zone, HeadRegion().Zone
+		};
+		const bool safeLanding = std::all_of(zones.begin(), zones.end(),
+			[](UZoneInfo* zone) { return IsSafeFallingHazardRecoveryZone(zone); });
+		if (safeLanding)
+			FallingHazardRecoverySafeLandingCountValue++;
+	}
+	ResetFallingHazardRecovery();
 	FallingHazardPending = {};
 	FallingHazardCallbackContinuation.reset();
 	FallingHazardQueuedSource =
@@ -6885,6 +7061,9 @@ void UPawn::FinishFallingHazardLanding(const CollisionHit& hit,
 
 void UPawn::FinishFallingHazardDeath()
 {
+	if (FallingHazardRecovery.ActionActive)
+		FallingHazardRecoveryDeathCountValue++;
+	ResetFallingHazardRecovery();
 	FallingHazardPending = {};
 	FallingHazardCallbackContinuation.reset();
 	FallingHazardQueuedSource =
@@ -6912,6 +7091,7 @@ std::vector<PawnMovement::FallingHazardDiagnosticRecord>
 void UPawn::EndWalkingStepPreflightLife()
 {
 	EndHarmfulZoneEscapeLife();
+	ResetFallingHazardRecovery();
 	ResetHazardSwimEgressObservation();
 	HazardSwimEgressLifeId++;
 	HazardSwimEgressEpisodeId = 0;

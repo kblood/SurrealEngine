@@ -15,6 +15,7 @@
 #include "PawnWalkingStepPreflight.h"
 #include "PawnWallAdjustRecovery.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
+#include "BotAI/FallingHazardRecoveryGate.h"
 #include "BotAI/HazardSwimEgressGate.h"
 
 class UTexture;
@@ -2011,6 +2012,8 @@ public:
 	void FinishFallingHazardLanding(const CollisionHit& hit,
 		bool ditchSupportUnknown = false);
 	void FinishFallingHazardDeath();
+	bool AdvanceFallingHazardRecovery(float elapsed);
+	void RecordFallingHazardRecoveryHarmfulEntry();
 	const PawnMovement::FallingHazardRuntimeCounters&
 		FallingHazardRuntimeCounterValues() const;
 	std::vector<PawnMovement::FallingHazardDiagnosticRecord>
@@ -2078,6 +2081,20 @@ public:
 	uint64_t HazardSwimEgressLiveSuccessfulExitCount() const { return HazardSwimEgressLiveSuccessfulExitCountValue; }
 	uint64_t HazardSwimEgressDirectNavProbeCount() const { return HazardSwimEgressDirectNavProbeCountValue; }
 	uint64_t HazardSwimEgressDirectNavSafeCandidateCount() const { return HazardSwimEgressDirectNavSafeCandidateCountValue; }
+	uint64_t FallingHazardRecoveryPromotionCount() const { return FallingHazardRecoveryPromotionCountValue; }
+	uint64_t FallingHazardRecoveryAdvanceCount() const { return FallingHazardRecoveryAdvanceCountValue; }
+	uint64_t FallingHazardRecoveryContextRejectedCount() const { return FallingHazardRecoveryContextRejectedCountValue; }
+	uint64_t FallingHazardRecoveryNoActiveFallEpisodeCount() const { return FallingHazardRecoveryNoActiveFallEpisodeCountValue; }
+	uint64_t FallingHazardRecoveryNoPrefixCount() const { return FallingHazardRecoveryNoPrefixCountValue; }
+	uint64_t FallingHazardRecoveryEligibleCount() const { return FallingHazardRecoveryEligibleCountValue; }
+	uint64_t FallingHazardRecoveryAnchorRejectedCount() const { return FallingHazardRecoveryAnchorRejectedCountValue; }
+	uint64_t FallingHazardRecoveryProbeRejectedCount() const { return FallingHazardRecoveryProbeRejectedCountValue; }
+	uint64_t FallingHazardRecoveryLiveApplyCount() const { return FallingHazardRecoveryLiveApplyCountValue; }
+	uint64_t FallingHazardRecoveryLiveActiveTickCount() const { return FallingHazardRecoveryLiveActiveTickCountValue; }
+	uint64_t FallingHazardRecoverySafeLandingCount() const { return FallingHazardRecoverySafeLandingCountValue; }
+	uint64_t FallingHazardRecoveryHarmfulEntryCount() const { return FallingHazardRecoveryHarmfulEntryCountValue; }
+	uint64_t FallingHazardRecoveryDeathCount() const { return FallingHazardRecoveryDeathCountValue; }
+	uint64_t FallingHazardRecoveryTimeoutCount() const { return FallingHazardRecoveryTimeoutCountValue; }
 	const std::string& HazardSwimEgressDirectNavBestCandidateName() const
 	{
 		return HazardSwimEgress.DirectNavBestCandidateName;
@@ -2338,6 +2355,7 @@ private:
 	bool ApplyWallAdjustRecovery(const vec2& requestedDirection);
 	bool ApplyHarmfulZoneEscape();
 	void EndHarmfulZoneEscapeLife();
+	void ResetFallingHazardRecovery();
 	void ResetHazardSwimEgressObservation();
 	void ObserveHazardSwimEgressDirectNavigationCandidates();
 
@@ -2358,6 +2376,19 @@ private:
 	BotAI::HarmfulZoneEscapeGate HarmfulZoneEscapeGate;
 	uint64_t HarmfulZoneEscapeLifeId = 1;
 	uint64_t HarmfulZoneEscapeEpisodeId = 0;
+	struct FallingHazardRecoveryState
+	{
+		bool AnchorKnown = false;
+		vec3 Anchor = vec3(0.0f);
+		uint64_t LifeId = 0;
+		uint64_t FallEpisodeId = 0;
+		bool PromotionObserved = false;
+		bool AnchorRejectedObserved = false;
+		bool ActionActive = false;
+		float ActiveSeconds = 0.0f;
+	};
+	FallingHazardRecoveryState FallingHazardRecovery;
+	BotAI::FallingHazardRecoveryGate FallingHazardRecoveryGate;
 	struct HazardSwimEgressState
 	{
 		enum class AnchorSource : uint8_t
@@ -2426,6 +2457,20 @@ private:
 	uint64_t HazardSwimEgressLiveSuccessfulExitCountValue = 0;
 	uint64_t HazardSwimEgressDirectNavProbeCountValue = 0;
 	uint64_t HazardSwimEgressDirectNavSafeCandidateCountValue = 0;
+	uint64_t FallingHazardRecoveryPromotionCountValue = 0;
+	uint64_t FallingHazardRecoveryAdvanceCountValue = 0;
+	uint64_t FallingHazardRecoveryContextRejectedCountValue = 0;
+	uint64_t FallingHazardRecoveryNoActiveFallEpisodeCountValue = 0;
+	uint64_t FallingHazardRecoveryNoPrefixCountValue = 0;
+	uint64_t FallingHazardRecoveryEligibleCountValue = 0;
+	uint64_t FallingHazardRecoveryAnchorRejectedCountValue = 0;
+	uint64_t FallingHazardRecoveryProbeRejectedCountValue = 0;
+	uint64_t FallingHazardRecoveryLiveApplyCountValue = 0;
+	uint64_t FallingHazardRecoveryLiveActiveTickCountValue = 0;
+	uint64_t FallingHazardRecoverySafeLandingCountValue = 0;
+	uint64_t FallingHazardRecoveryHarmfulEntryCountValue = 0;
+	uint64_t FallingHazardRecoveryDeathCountValue = 0;
+	uint64_t FallingHazardRecoveryTimeoutCountValue = 0;
 	uint64_t FallingSeamDetectionCountValue = 0;
 	uint64_t HorizontalCornerCandidateProbeCountValue = 0;
 	uint64_t HorizontalCornerAuthorizedEscapeCountValue = 0;

@@ -86,6 +86,13 @@ namespace PawnMovement
 		{
 			return TrajectoryModel.HasActiveGeneration;
 		}
+		bool HasPromotedSingleHarmfulFallPrefix() const
+		{
+			return SingleHarmfulFallPrefix.CandidateActive
+				&& SingleHarmfulFallPrefix.Promoted
+				&& SingleHarmfulFallPrefix.Life.Value == Life.Value
+				&& SingleHarmfulFallPrefix.FallEpisode.Value == FallEpisode.Value;
+		}
 		FallingHazardLifeId CurrentLife() const { return Life; }
 		FallingHazardFallEpisodeId CurrentFallEpisode() const { return FallEpisode; }
 		FallingHazardGenerationId CurrentGeneration() const;

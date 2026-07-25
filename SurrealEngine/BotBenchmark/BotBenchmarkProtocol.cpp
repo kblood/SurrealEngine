@@ -148,14 +148,17 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	uint64_t seed, uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster,
 	bool harmfulZoneEscapeEnabled, bool walkingPreflightPositiveDpsVetoEnabled,
 	bool hazardSwimEgressEnabled, bool hazardSwimEgressLiveEnabled,
-	bool failedNavigationAvoidanceEnabled)
+	bool failedNavigationAvoidanceEnabled, bool fallingHazardRecoveryEnabled,
+	bool fallingHazardRecoveryLiveEnabled)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
 	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled),
 	WalkingPreflightPositiveDpsVetoEnabled(walkingPreflightPositiveDpsVetoEnabled),
 	HazardSwimEgressEnabled(hazardSwimEgressEnabled),
 	HazardSwimEgressLiveEnabled(hazardSwimEgressLiveEnabled),
-	FailedNavigationAvoidanceEnabled(failedNavigationAvoidanceEnabled)
+	FailedNavigationAvoidanceEnabled(failedNavigationAvoidanceEnabled),
+	FallingHazardRecoveryEnabled(fallingHazardRecoveryEnabled),
+	FallingHazardRecoveryLiveEnabled(fallingHazardRecoveryLiveEnabled)
 {
 }
 
@@ -165,7 +168,9 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> requestedNames, std::optional<std::string> harmfulZoneEscape,
 	std::optional<std::string> walkingPreflightPositiveDpsVeto,
 	std::optional<std::string> hazardSwimEgress, std::optional<std::string> hazardSwimEgressLive,
-	std::optional<std::string> failedNavigationAvoidance)
+	std::optional<std::string> failedNavigationAvoidance,
+	std::optional<std::string> fallingHazardRecovery,
+	std::optional<std::string> fallingHazardRecoveryLive)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -194,11 +199,16 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		hazardSwimEgressLive, "bot benchmark hazard-swim egress live");
 	const bool parsedFailedNavigationAvoidance = ParseExactBoolean(
 		failedNavigationAvoidance, "bot benchmark failed-navigation avoidance");
+	const bool parsedFallingHazardRecovery = ParseExactBoolean(
+		fallingHazardRecovery, "bot benchmark falling-hazard recovery");
+	const bool parsedFallingHazardRecoveryLive = ParseExactBoolean(
+		fallingHazardRecoveryLive, "bot benchmark falling-hazard recovery live");
 
 	return BotBenchmarkRunConfig(std::move(url), std::move(outputDirectory), parsedSeed,
 		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster), parsedHarmfulZoneEscape,
 		parsedWalkingPreflightPositiveDpsVeto, parsedHazardSwimEgress,
-		parsedHazardSwimEgressLive, parsedFailedNavigationAvoidance);
+		parsedHazardSwimEgressLive, parsedFailedNavigationAvoidance,
+		parsedFallingHazardRecovery, parsedFallingHazardRecoveryLive);
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
@@ -250,7 +260,11 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< "    \"hazard_swim_egress_live_enabled\": "
 		<< (config.IsHazardSwimEgressLiveEnabled() ? "true" : "false") << ",\n"
 		<< "    \"failed_navigation_avoidance_enabled\": "
-		<< (config.IsFailedNavigationAvoidanceEnabled() ? "true" : "false") << "\n"
+		<< (config.IsFailedNavigationAvoidanceEnabled() ? "true" : "false") << ",\n"
+		<< "    \"falling_hazard_recovery_enabled\": "
+		<< (config.IsFallingHazardRecoveryEnabled() ? "true" : "false") << ",\n"
+		<< "    \"falling_hazard_recovery_live_enabled\": "
+		<< (config.IsFallingHazardRecoveryLiveEnabled() ? "true" : "false") << "\n"
 		<< "  }\n"
 		<< "}\n";
 	return out.str();

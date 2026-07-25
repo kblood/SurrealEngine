@@ -24,7 +24,7 @@ RESULT_SCHEMA = "surreal-bot-benchmark-matrix-results-v1"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 INVOCATION_SCHEMA = "surreal-bot-benchmark-invocation-v1"
 PROVENANCE_SCHEMA = "surreal-bot-benchmark-provenance-v1"
-TOOL_VERSION = 4
+TOOL_VERSION = 6
 MAX_CONCURRENCY = 64
 MAX_BOT_COUNT = 16
 
@@ -42,6 +42,15 @@ class Variant:
     hazard_swim_egress_enabled: bool = False
     hazard_swim_egress_live_enabled: bool = False
     failed_navigation_avoidance_enabled: bool = False
+    falling_hazard_recovery_enabled: bool = False
+    falling_hazard_recovery_live_enabled: bool = False
+
+
+@dataclass(frozen=True)
+class StartLayout:
+    id: str
+    seed: int
+    expected_fingerprint: str
 
 
 @dataclass(frozen=True)
@@ -52,6 +61,7 @@ class MatrixConfig:
     variants: tuple[Variant, ...]
     map_urls: tuple[str, ...]
     seeds: tuple[int, ...]
+    start_layouts: tuple[StartLayout, ...] | None
     max_ticks: int
     fixed_delta: float
     difficulty: int
@@ -78,6 +88,7 @@ class MatrixCase:
     map_url: str
     seed: int
     repetition: int
+    start_layout: StartLayout | None
 
 
 @dataclass(frozen=True)
@@ -143,6 +154,15 @@ def _optional_nonempty_string(fields: dict[str, Any], name: str, context: str) -
         return None
     if not isinstance(value, str) or not value or value != value.strip():
         raise MatrixError(f"{context}.{name} must be a non-empty trimmed string when present")
+    return value
+
+
+def _layout_fingerprint(value: Any, context: str) -> str:
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        raise MatrixError(f"{context} must be a sha256: fingerprint")
+    digest = value.removeprefix("sha256:")
+    if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+        raise MatrixError(f"{context} must be a lowercase sha256: fingerprint")
     return value
 
 
@@ -223,9 +243,18 @@ def load_matrix(path: Path) -> MatrixConfig:
         if not isinstance(failed_navigation_avoidance_enabled, bool):
             raise MatrixError(
                 f"matrix.variants[{index}].failed_navigation_avoidance_enabled must be a boolean")
+        falling_hazard_recovery_enabled = fields.get("falling_hazard_recovery_enabled", False)
+        if not isinstance(falling_hazard_recovery_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].falling_hazard_recovery_enabled must be a boolean")
+        falling_hazard_recovery_live_enabled = fields.get("falling_hazard_recovery_live_enabled", False)
+        if not isinstance(falling_hazard_recovery_live_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].falling_hazard_recovery_live_enabled must be a boolean")
         variants.append(Variant(
             variant_id, executable, role, build_preset, hazard_swim_egress_enabled,
-            hazard_swim_egress_live_enabled, failed_navigation_avoidance_enabled))
+            hazard_swim_egress_live_enabled, failed_navigation_avoidance_enabled,
+            falling_hazard_recovery_enabled, falling_hazard_recovery_live_enabled))
     ids = [variant.id for variant in variants]
     if len(ids) != len(set(ids)):
         raise MatrixError("matrix variant IDs must be unique")
@@ -239,12 +268,41 @@ def load_matrix(path: Path) -> MatrixConfig:
         raise MatrixError("matrix.map_urls must be a non-empty array of non-empty strings")
     if len(map_urls) != len(set(map_urls)):
         raise MatrixError("matrix.map_urls contains duplicates; use repetitions instead")
-    seeds = raw.get("seeds")
-    if not isinstance(seeds, list) or not seeds:
-        raise MatrixError("matrix.seeds must be a non-empty array")
-    parsed_seeds = tuple(_integer(value, f"matrix.seeds[{index}]", 0) for index, value in enumerate(seeds))
-    if len(parsed_seeds) != len(set(parsed_seeds)):
-        raise MatrixError("matrix.seeds contains duplicates; use repetitions instead")
+    start_layouts_raw = raw.get("start_layouts")
+    start_layouts: tuple[StartLayout, ...] | None = None
+    if start_layouts_raw is not None:
+        if "seeds" in raw:
+            raise MatrixError("matrix.start_layouts and matrix.seeds are mutually exclusive")
+        if not isinstance(start_layouts_raw, list) or not start_layouts_raw:
+            raise MatrixError("matrix.start_layouts must be a non-empty array")
+        parsed_layouts: list[StartLayout] = []
+        for index, item in enumerate(start_layouts_raw):
+            fields = _object(item, f"matrix.start_layouts[{index}]")
+            unknown = sorted(set(fields) - {"id", "seed", "expected_fingerprint"})
+            if unknown:
+                raise MatrixError(
+                    f"matrix.start_layouts[{index}] contains unknown fields: " + ", ".join(unknown))
+            parsed_layouts.append(StartLayout(
+                _string(fields, "id", f"matrix.start_layouts[{index}]"),
+                _integer(fields.get("seed"), f"matrix.start_layouts[{index}].seed", 0),
+                _layout_fingerprint(
+                    fields.get("expected_fingerprint"),
+                    f"matrix.start_layouts[{index}].expected_fingerprint")))
+        layout_ids = [layout.id for layout in parsed_layouts]
+        if len(layout_ids) != len(set(layout_ids)):
+            raise MatrixError("matrix.start_layouts contains duplicate ids")
+        layout_seeds = [layout.seed for layout in parsed_layouts]
+        if len(layout_seeds) != len(set(layout_seeds)):
+            raise MatrixError("matrix.start_layouts contains duplicate seeds")
+        start_layouts = tuple(parsed_layouts)
+        parsed_seeds = tuple(layout.seed for layout in start_layouts)
+    else:
+        seeds = raw.get("seeds")
+        if not isinstance(seeds, list) or not seeds:
+            raise MatrixError("matrix.seeds must be a non-empty array")
+        parsed_seeds = tuple(_integer(value, f"matrix.seeds[{index}]", 0) for index, value in enumerate(seeds))
+        if len(parsed_seeds) != len(set(parsed_seeds)):
+            raise MatrixError("matrix.seeds contains duplicates; use repetitions instead")
 
     max_ticks = _integer(raw.get("max_ticks"), "matrix.max_ticks", 1, 10_000_000)
     fixed_delta = _number(raw.get("fixed_delta"), "matrix.fixed_delta", 0.0, 1.0)
@@ -310,6 +368,7 @@ def load_matrix(path: Path) -> MatrixConfig:
         variants=tuple(variants),
         map_urls=tuple(map_urls),
         seeds=parsed_seeds,
+        start_layouts=start_layouts,
         max_ticks=max_ticks,
         fixed_delta=fixed_delta,
         difficulty=difficulty,
@@ -344,25 +403,32 @@ def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
     paired = any(variant.comparison_role for variant in config.variants)
     ordinal = 0
     for map_index, map_url in enumerate(config.map_urls):
-        for seed in config.seeds:
+        layouts = config.start_layouts or tuple(None for _ in config.seeds)
+        for layout_index, start_layout in enumerate(layouts):
+            seed = start_layout.seed if start_layout is not None else config.seeds[layout_index]
             for repetition in range(config.repetitions):
                 shared = [config.game_family, map_index, map_url, seed, repetition,
                           config.max_ticks, config.fixed_delta, config.difficulty,
                           config.bot_count, config.per_bot_skills, config.requested_names,
                           config.harmful_zone_escape_enabled,
                           config.walking_preflight_positive_dps_veto_enabled]
+                if start_layout is not None:
+                    shared.extend((start_layout.id, start_layout.expected_fingerprint))
                 pair_id = f"case-{_digest(shared, 16)}" if paired else None
                 for variant in config.variants:
                     identity = [*shared, variant.id, str(variant.executable),
                                 variant.hazard_swim_egress_enabled,
                                 variant.hazard_swim_egress_live_enabled,
-                                variant.failed_navigation_avoidance_enabled]
+                                variant.failed_navigation_avoidance_enabled,
+                                variant.falling_hazard_recovery_enabled,
+                                variant.falling_hazard_recovery_live_enabled]
                     run_id = (
                         f"{ordinal:06d}-{_slug(variant.id)}-{_slug(map_url)}-"
-                        f"s{seed}-r{repetition}-{_digest(identity)}"
+                        f"s{seed}" + (f"-l{_slug(start_layout.id)}" if start_layout else "") +
+                        f"-r{repetition}-{_digest(identity)}"
                     )
                     cases.append(MatrixCase(ordinal, run_id, pair_id if variant.comparison_role else None,
-                                            variant, map_url, seed, repetition))
+                                            variant, map_url, seed, repetition, start_layout))
                     ordinal += 1
     run_ids = [case.run_id for case in cases]
     if len(run_ids) != len(set(run_ids)):
@@ -392,6 +458,10 @@ def command_for(config: MatrixConfig, case: MatrixCase, run_directory: Path) -> 
             "1" if case.variant.hazard_swim_egress_live_enabled else "0"),
         "--botbench-failed-navigation-avoidance=" + (
             "1" if case.variant.failed_navigation_avoidance_enabled else "0"),
+        "--botbench-falling-hazard-recovery=" + (
+            "1" if case.variant.falling_hazard_recovery_enabled else "0"),
+        "--botbench-falling-hazard-recovery-live=" + (
+            "1" if case.variant.falling_hazard_recovery_live_enabled else "0"),
     ]
     if config.per_bot_skills is not None:
         command.append("--botbench-skills=" + ",".join(str(value) for value in config.per_bot_skills))
@@ -521,6 +591,8 @@ def _preflight_provenance(
         variants.append({
             "id": variant.id,
             "build_preset": variant.build_preset,
+            "falling_hazard_recovery_enabled": variant.falling_hazard_recovery_enabled,
+            "falling_hazard_recovery_live_enabled": variant.falling_hazard_recovery_live_enabled,
             "executable": _file_provenance(variant.executable),
         })
     game_manifest = _file_provenance(config.game_manifest) if config.game_manifest else None
@@ -574,7 +646,17 @@ def _run_case(
     run_directory = runs_directory / case.run_id
     run_directory.mkdir(parents=False, exist_ok=False)
     command = command_for(config, case, run_directory)
-    metadata: dict[str, Any] = {"schema": METADATA_SCHEMA, "variant": case.variant.id}
+    metadata: dict[str, Any] = {
+        "schema": METADATA_SCHEMA,
+        "variant": case.variant.id,
+        "falling_hazard_recovery_enabled": case.variant.falling_hazard_recovery_enabled,
+        "falling_hazard_recovery_live_enabled": case.variant.falling_hazard_recovery_live_enabled,
+    }
+    if case.start_layout is not None:
+        metadata.update({
+            "start_layout_id": case.start_layout.id,
+            "expected_initial_layout_fingerprint": case.start_layout.expected_fingerprint,
+        })
     if case.variant.comparison_role:
         metadata.update({"pair_id": case.pair_id, "comparison_role": case.variant.comparison_role})
     _write_json(run_directory / "quality-metadata.json", metadata)
@@ -588,6 +670,9 @@ def _run_case(
         "map_url": case.map_url,
         "seed": str(case.seed),
         "repetition": case.repetition,
+        "start_layout_id": case.start_layout.id if case.start_layout else None,
+        "expected_initial_layout_fingerprint": (
+            case.start_layout.expected_fingerprint if case.start_layout else None),
         "bot_count": config.bot_count,
         "per_bot_skills": config.per_bot_skills,
         "requested_names": config.requested_names,
@@ -598,6 +683,8 @@ def _run_case(
         "hazard_swim_egress_live_enabled": case.variant.hazard_swim_egress_live_enabled,
         "failed_navigation_avoidance_enabled": (
             case.variant.failed_navigation_avoidance_enabled),
+        "falling_hazard_recovery_enabled": case.variant.falling_hazard_recovery_enabled,
+        "falling_hazard_recovery_live_enabled": case.variant.falling_hazard_recovery_live_enabled,
         "command": command,
     })
     launch = launcher(command, config.timeout_seconds, run_directory / "stdout.txt", run_directory / "stderr.txt")
@@ -613,9 +700,23 @@ def _run_case(
     for name, present in required.items():
         if not present:
             errors.append(f"missing or empty {name}")
+    observed_initial_layout_fingerprint = None
     if not errors:
         try:
-            validator(run_directory)
+            validation = validator(run_directory)
+            if case.start_layout is not None:
+                if not isinstance(validation, dict):
+                    raise MatrixError("start-layout validation did not return an analysis object")
+                initial_layout = validation.get("initial_layout")
+                if not isinstance(initial_layout, dict):
+                    raise MatrixError("start-layout validation did not return initial_layout")
+                observed = initial_layout.get("fingerprint")
+                if not isinstance(observed, str):
+                    raise MatrixError("start-layout validation did not return an initial-layout fingerprint")
+                observed_initial_layout_fingerprint = observed
+                if observed != case.start_layout.expected_fingerprint:
+                    raise MatrixError(
+                        "observed initial-layout fingerprint differs from the declared layout")
         except Exception as exc:
             errors.append(f"structural validation failed: {exc}")
     return {
@@ -628,6 +729,10 @@ def _run_case(
         "map_url": case.map_url,
         "seed": str(case.seed),
         "repetition": case.repetition,
+        "start_layout_id": case.start_layout.id if case.start_layout else None,
+        "expected_initial_layout_fingerprint": (
+            case.start_layout.expected_fingerprint if case.start_layout else None),
+        "observed_initial_layout_fingerprint": observed_initial_layout_fingerprint,
         "bot_count": config.bot_count,
         "per_bot_skills": config.per_bot_skills,
         "requested_names": config.requested_names,
@@ -638,6 +743,8 @@ def _run_case(
         "hazard_swim_egress_live_enabled": case.variant.hazard_swim_egress_live_enabled,
         "failed_navigation_avoidance_enabled": (
             case.variant.failed_navigation_avoidance_enabled),
+        "falling_hazard_recovery_enabled": case.variant.falling_hazard_recovery_enabled,
+        "falling_hazard_recovery_live_enabled": case.variant.falling_hazard_recovery_live_enabled,
         "exit_code": launch.exit_code,
         "timed_out": launch.timed_out,
         "wall_seconds": launch.wall_seconds,
@@ -665,6 +772,9 @@ def dry_run_plan(config: MatrixConfig, output: Path) -> dict[str, Any]:
             "map_url": case.map_url,
             "seed": str(case.seed),
             "repetition": case.repetition,
+            "start_layout_id": case.start_layout.id if case.start_layout else None,
+            "expected_initial_layout_fingerprint": (
+                case.start_layout.expected_fingerprint if case.start_layout else None),
             "bot_count": config.bot_count,
             "per_bot_skills": config.per_bot_skills,
             "requested_names": config.requested_names,
@@ -675,9 +785,31 @@ def dry_run_plan(config: MatrixConfig, output: Path) -> dict[str, Any]:
             "hazard_swim_egress_live_enabled": case.variant.hazard_swim_egress_live_enabled,
             "failed_navigation_avoidance_enabled": (
                 case.variant.failed_navigation_avoidance_enabled),
+            "falling_hazard_recovery_enabled": case.variant.falling_hazard_recovery_enabled,
+            "falling_hazard_recovery_live_enabled": case.variant.falling_hazard_recovery_live_enabled,
             "command": command_for(config, case, runs_directory / case.run_id),
         } for case in cases],
     }
+
+
+def _validate_paired_start_layouts(rows: list[dict[str, Any]]) -> None:
+    paired: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        pair_id = row["pair_id"]
+        if pair_id is None or row["start_layout_id"] is None:
+            continue
+        paired.setdefault(pair_id, []).append(row)
+    for pair_id, pair_rows in paired.items():
+        if any(row["status"] != "passed" for row in pair_rows):
+            continue
+        layout_ids = {row["start_layout_id"] for row in pair_rows}
+        expected = {row["expected_initial_layout_fingerprint"] for row in pair_rows}
+        observed = {row["observed_initial_layout_fingerprint"] for row in pair_rows}
+        if len(layout_ids) != 1 or len(expected) != 1 or len(observed) != 1:
+            for row in pair_rows:
+                row["status"] = "failed"
+                row["errors"].append(
+                    f"paired start-layout mismatch for pair {pair_id}")
 
 
 def run_matrix(
@@ -714,6 +846,7 @@ def run_matrix(
         for future in concurrent.futures.as_completed(futures):
             rows.append(future.result())
     rows.sort(key=lambda row: row["ordinal"])
+    _validate_paired_start_layouts(rows)
     passed = all(row["status"] == "passed" for row in rows)
     report: dict[str, Any] = {
         "schema": RESULT_SCHEMA,
