@@ -4603,13 +4603,80 @@ UNavigationPoint* UPawn::SetRouteCache(const Array<UNavigationPoint*>& points)
 	return !points.empty() ? points.front() : nullptr;
 }
 
-UActor* UPawn::PathSpecialHandling(const Array<UNavigationPoint*>& bestPath)
+UNavigationPoint* UPawn::CommitRoutePathCache(const PawnPathEndPointResult& result,
+	PawnMovement::RoutePathCommitOrigin origin)
+{
+	UNavigationPoint* committed = SetRouteCache(result.Points);
+	if (!engine->IsBotBenchmarkWalkingPreflightEnabled())
+		return committed;
+
+	PawnMovement::RoutePathCommitRecord record;
+	record.Sequence = ++RoutePathCommitSequence;
+	record.Origin = origin;
+	record.RawEndpointCost = result.RawEndpointCost;
+	record.AdjustedEndpointCost = result.AdjustedEndpointCost;
+	record.FailedNavigationPenaltyApplications = result.FailedNavigationPenaltyApplications;
+	record.CacheClear = result.Points.empty();
+	const size_t cacheCapacity = engine->LaunchInfo.ue1Version > 219 ? RouteCache().size() : 0;
+	const size_t committedCount = std::min(result.Points.size(), cacheCapacity);
+	record.TruncatedByRouteCache = result.Points.size() > committedCount;
+	if (!record.CacheClear && result.EdgeReachSpecIndexes.size() + 1 != result.Points.size())
+	{
+		RoutePathCommitOverflowCountValue++;
+		return committed;
+	}
+	for (size_t index = 0; index < committedCount; index++)
+	{
+		UNavigationPoint* point = result.Points[index];
+		if (!point || point->bDeleteMe() || !point->Class)
+		{
+			RoutePathCommitOverflowCountValue++;
+			return committed;
+		}
+		record.Nodes.push_back({ point->Name.ToString(), point->Class->Name.ToString() });
+	}
+	const Array<LevelReachSpec>& reachSpecs = XLevel()->ReachSpecs;
+	for (size_t index = 0; index + 1 < committedCount; index++)
+	{
+		const int32_t specIndex = result.EdgeReachSpecIndexes[index];
+		if (specIndex < 0 || static_cast<size_t>(specIndex) >= reachSpecs.size())
+		{
+			RoutePathCommitOverflowCountValue++;
+			return committed;
+		}
+		const LevelReachSpec& spec = reachSpecs[specIndex];
+		if (spec.startActor != result.Points[index] || spec.endActor != result.Points[index + 1])
+		{
+			RoutePathCommitOverflowCountValue++;
+			return committed;
+		}
+		record.Edges.push_back({ specIndex, record.Nodes[index].Name, record.Nodes[index + 1].Name,
+			spec.distance, spec.collisionRadius, spec.collisionHeight, spec.reachFlags,
+			static_cast<uint32_t>(spec.reachFlags) & ~uint32_t(127), spec.bPruned != 0 });
+	}
+	static constexpr size_t maximumQueuedRecords = 1024;
+	if (RoutePathCommitRecords.size() < maximumQueuedRecords)
+		RoutePathCommitRecords.push_back(std::move(record));
+	else
+		RoutePathCommitOverflowCountValue++;
+	return committed;
+}
+
+std::vector<PawnMovement::RoutePathCommitRecord> UPawn::DrainRoutePathCommitRecords()
+{
+	std::vector<PawnMovement::RoutePathCommitRecord> records;
+	records.swap(RoutePathCommitRecords);
+	return records;
+}
+
+UActor* UPawn::PathSpecialHandling(const PawnPathEndPointResult& result,
+	PawnMovement::RoutePathCommitOrigin origin)
 {
 #if 0
-	return SetRouteCache(bestPath);
+	return CommitRoutePathCache(result, origin);
 #else
 	IsInPathSpecialHandling = true;
-	UActor* oldBestPoint = SetRouteCache(bestPath);
+	UActor* oldBestPoint = CommitRoutePathCache(result, origin);
 	if (!oldBestPoint)
 	{
 		IsInPathSpecialHandling = false;
@@ -4645,20 +4712,21 @@ UActor* UPawn::PathSpecialHandling(const Array<UNavigationPoint*>& bestPath)
 }
 
 
-std::pair<Array<UNavigationPoint*>, int32_t> UPawn::FindPathToEndPoint(UNavigationPoint* start, int maxNodes)
+PawnPathEndPointResult UPawn::FindPathToEndPoint(UNavigationPoint* start, int maxNodes)
 {
 	if ((start->bPlayerOnly() && !bIsPlayer()))
-		return { {}, 0 };
+		return {};
 
 	// If we can already reach the end point, just go there directly
 	if (start->bEndPoint())
-		return { { start }, 0 };
+		return { { start }, {}, 0, 0, 0 };
 
 	struct Step
 	{
 		UNavigationPoint* navpoint;
 		int prev;
 		int32_t distance;
+		int32_t reachSpecIndex;
 	};
 
 	std::unordered_map<UNavigationPoint*, int32_t> shortestDistance;
@@ -4710,7 +4778,8 @@ std::pair<Array<UNavigationPoint*>, int32_t> UPawn::FindPathToEndPoint(UNavigati
 					pointDistance = distance;
 					if (endActor->bEndPoint())
 						stepEnds.push_back(steps.size());
-					steps.push_back({ .navpoint = endActor, .prev = prevStep, .distance = distance });
+					steps.push_back({ .navpoint = endActor, .prev = prevStep, .distance = distance,
+						.reachSpecIndex = specIndex });
 				}
 			}
 		}
@@ -4723,7 +4792,7 @@ std::pair<Array<UNavigationPoint*>, int32_t> UPawn::FindPathToEndPoint(UNavigati
 	}
 
 	if (stepEnds.empty())
-		return { {}, 0 };
+		return {};
 
 	std::array<ULiftExit*, 2> avoidedLiftExits = {};
 	std::array<std::vector<const void*>, 2> avoidedLiftAdjacency;
@@ -4790,12 +4859,13 @@ std::pair<Array<UNavigationPoint*>, int32_t> UPawn::FindPathToEndPoint(UNavigati
 			engine->IsBotBenchmarkFailedNavigationAvoidanceEnabled()
 				? failedNavigationFirstHopCost : 0);
 	if (!endpointSelection.Found)
-		return { {}, 0 };
+		return {};
 	FailedNavigationRoutePenaltyApplicationCountValue += endpointSelection.PenaltyApplications;
 	const size_t selectedStep = stepEnds[endpointSelection.CandidateIndex];
 
 	// Extract the final path:
 	Array<UNavigationPoint*> path;
+	Array<int32_t> edgeReachSpecIndexes;
 	int currentStep = (int)selectedStep;
 	while (currentStep >= 0)
 	{
@@ -4808,17 +4878,20 @@ std::pair<Array<UNavigationPoint*>, int32_t> UPawn::FindPathToEndPoint(UNavigati
 		if (dot(d, d) < minDist * minDist && std::abs(heightDiff) < (float)height)
 		{
 			path.clear();
+			edgeReachSpecIndexes.clear();
 		}
 		else
 		{
 			path.push_back(step.navpoint);
+			edgeReachSpecIndexes.push_back(step.reachSpecIndex);
 		}
 
 		currentStep = step.prev;
 	}
 	path.push_back(start);
-
-	return { path, endpointSelection.AdjustedCost };
+	return { std::move(path), std::move(edgeReachSpecIndexes),
+		steps[selectedStep].distance, endpointSelection.AdjustedCost,
+		endpointSelection.PenaltyApplications };
 }
 
 void UPawn::ClearPaths()
@@ -4956,10 +5029,11 @@ UObject* UPawn::FindPathToward(UObject* anActor, bool singlePath)
 	if (auto aNavPoint = UObject::TryCast<UNavigationPoint>(anActor))
 	{
 		if (!MarkReachableNavEndPoints())
-			return SetRouteCache({});
+			return CommitRoutePathCache({}, PawnMovement::RoutePathCommitOrigin::FindPathToward);
 		if (!IsInPathSpecialHandling)
-			return PathSpecialHandling(FindPathToEndPoint(aNavPoint, 1000).first);
-		return SetRouteCache({});
+			return PathSpecialHandling(FindPathToEndPoint(aNavPoint, 1000),
+				PawnMovement::RoutePathCommitOrigin::FindPathToward);
+		return CommitRoutePathCache({}, PawnMovement::RoutePathCommitOrigin::FindPathToward);
 	}
 	else if (auto actor = UObject::TryCast<UActor>(anActor))
 	{
@@ -4967,7 +5041,7 @@ UObject* UPawn::FindPathToward(UObject* anActor, bool singlePath)
 	}
 	else
 	{
-		return SetRouteCache({});
+		return CommitRoutePathCache({}, PawnMovement::RoutePathCommitOrigin::FindPathToward);
 	}
 }
 
@@ -5010,12 +5084,12 @@ UObject* UPawn::FindBestInventoryPath(bool predictRespawns, float& outBestWeight
 	if (!MarkReachableNavEndPoints())
 	{
 		outBestWeight = 0.0f;
-		return SetRouteCache({});
+		return CommitRoutePathCache({}, PawnMovement::RoutePathCommitOrigin::FindBestInventoryPath);
 	}
 
 	float bestWeight = 0.0f;
 	UInventorySpot* bestSpot = nullptr;
-	Array<UNavigationPoint*> bestPath;
+	PawnPathEndPointResult bestPath;
 
 	for (UNavigationPoint* navPoint = Level()->NavigationPointList(); navPoint; navPoint = navPoint->nextNavigationPoint())
 	{
@@ -5032,14 +5106,14 @@ UObject* UPawn::FindBestInventoryPath(bool predictRespawns, float& outBestWeight
 		float desire = CallEvent(inv, "BotDesireability", { ExpressionValue::ObjectValue(this) }).ToFloat();
 		if (desire > 0.0f)
 		{
-			auto [path, pathDist] = FindPathToEndPoint(invSpot, 1000);
+			auto path = FindPathToEndPoint(invSpot, 1000);
 
 			// To do: how to take path costs into account?
 			//int cost = 0;
 			//for (auto nav : path)
 			//	cost += nav->cost();
 
-			float distance = std::max((float)pathDist, 1.0f);
+			float distance = std::max((float)path.AdjustedEndpointCost, 1.0f);
 			float weight = desire / distance;
 
 			if (!bestSpot || weight > bestWeight)
@@ -5054,12 +5128,12 @@ UObject* UPawn::FindBestInventoryPath(bool predictRespawns, float& outBestWeight
 	if (bestSpot)
 	{
 		outBestWeight = bestWeight;
-		return PathSpecialHandling(bestPath);
+		return PathSpecialHandling(bestPath, PawnMovement::RoutePathCommitOrigin::FindBestInventoryPath);
 	}
 	else
 	{
 		outBestWeight = 0.0f;
-		return SetRouteCache({});
+		return CommitRoutePathCache({}, PawnMovement::RoutePathCommitOrigin::FindBestInventoryPath);
 	}
 }
 

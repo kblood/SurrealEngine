@@ -111,6 +111,35 @@ the bounded cache prefix written by `SetRouteCache`, and the phase before
 coverage/overflow status and qualify positive native selections in both game
 families before it can be used for a behavior candidate.
 
+## Native path-commit provenance observer (in qualification)
+
+The shared `UPawn` path implementation now captures a bounded record only
+after `SetRouteCache` writes the native result and before `SpecialHandling`
+can redirect it. The record carries its origin, empty-cache outcome, bounded
+committed nodes, exact selected reachspec indexes and raw fields, cost
+before/after failed-navigation selection, and a strict queue-overflow count.
+`Analyze-NativePathCommits.py` rebinds every edge by index to the extracted
+catalog and rejects a missing, altered, pruned, out-of-order, or overflowed
+record.
+
+Full deterministic control evidence is positive in both target families with
+no overflow:
+
+- UT436 Deck16-II, seed `104729`, 7,200 ticks: 423 committed paths, 534 exact
+  committed edges, and 292 explicit cache clears.
+- Unreal Gold DeathFan, seed `271828`, 7,200 ticks: 165 committed paths, 296
+  exact committed edges, and 75 explicit cache clears.
+
+The authoritative `events.jsonl` stream is byte-identical to the respective
+pre-observer control: UT SHA-256
+`3EE15F927973EBF76BFDEDAF08CCED610FC107DF1BD8BD35CE270178DF020F8F` and
+Unreal SHA-256
+`7841DA2D734B176CC92CCCBBFE43EED20EB62AE4D2ACCD48FF93AFA9664AB646`.
+
+This is observer-only and is not yet a behavior result. Repeated
+qualification, terminal-life record draining, and a causal hazard/route
+witness remain required before any route correction is considered.
+
 ## Rejected direct-actor timeout experiment (2026-07-25)
 
 The seed `104729` trace contains a real active `MoveToward` stall against the

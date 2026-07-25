@@ -147,6 +147,13 @@ python .\Tools\BotBenchmark\Analyze-RouteExecutionContext.py `
   C:\qa\benchmark\deck16-run --output C:\qa\reports\route-context.json
 ```
 
+`Analyze-NativePathCommits.py` validates the narrower native provenance stream
+emitted at the cache write itself. It verifies every committed bounded edge by
+its exact catalog reachspec index and rejects missing records, overflow,
+non-contiguous per-pawn sequences, cache-shape drift, pruned edges, and any
+catalog mismatch. This establishes what the shared native search committed;
+it does not yet justify a behavioral route policy.
+
 Move-stall detections additionally emit bounded decision-time records in each
 bot's telemetry event. `move_stall_recovery_decisions` records the selector
 input and result before a recovery can write movement state. The quality

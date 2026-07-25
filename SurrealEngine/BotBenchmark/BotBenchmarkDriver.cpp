@@ -2106,6 +2106,52 @@ namespace
 				throw std::runtime_error("route-execution telemetry event cap reached");
 			const auto liveBots = CaptureLiveControlledBots();
 			std::ostringstream out;
+			auto writeRoutePathCommits = [&](const std::vector<PawnMovement::RoutePathCommitRecord>& records)
+			{
+				out << '[';
+				for (size_t recordIndex = 0; recordIndex < records.size(); recordIndex++)
+				{
+					if (recordIndex != 0)
+						out << ',';
+					const auto& record = records[recordIndex];
+					out << "{\"sequence\":\"" << record.Sequence << "\",\"origin\":"
+						<< JsonString(record.Origin == PawnMovement::RoutePathCommitOrigin::FindPathToward
+							? "find_path_toward" : "find_best_inventory_path")
+						<< ",\"phase\":\"pre_special_cache_commit\",\"raw_endpoint_cost\":"
+						<< record.RawEndpointCost << ",\"adjusted_endpoint_cost\":"
+						<< record.AdjustedEndpointCost
+						<< ",\"failed_navigation_penalty_applications\":"
+						<< record.FailedNavigationPenaltyApplications
+						<< ",\"cache_clear\":" << (record.CacheClear ? "true" : "false")
+						<< ",\"truncated_by_route_cache\":"
+						<< (record.TruncatedByRouteCache ? "true" : "false") << ",\"nodes\":[";
+					for (size_t nodeIndex = 0; nodeIndex < record.Nodes.size(); nodeIndex++)
+					{
+						if (nodeIndex != 0)
+							out << ',';
+						out << "{\"name\":" << JsonString(record.Nodes[nodeIndex].Name)
+							<< ",\"class\":" << JsonString(record.Nodes[nodeIndex].ClassName) << '}';
+					}
+					out << "],\"edges\":[";
+					for (size_t edgeIndex = 0; edgeIndex < record.Edges.size(); edgeIndex++)
+					{
+						if (edgeIndex != 0)
+							out << ',';
+						const auto& edge = record.Edges[edgeIndex];
+						out << "{\"reachspec_index\":" << edge.ReachSpecIndex
+							<< ",\"start_node\":" << JsonString(edge.StartNode)
+							<< ",\"end_node\":" << JsonString(edge.EndNode)
+							<< ",\"distance\":" << edge.Distance
+							<< ",\"collision_radius\":" << edge.CollisionRadius
+							<< ",\"collision_height\":" << edge.CollisionHeight
+							<< ",\"reach_flags_raw\":" << edge.ReachFlags
+							<< ",\"unknown_reach_flags\":" << edge.UnknownReachFlags
+							<< ",\"pruned\":" << (edge.Pruned ? "true" : "false") << '}';
+					}
+					out << "]}";
+				}
+				out << ']';
+			};
 			out.imbue(std::locale::classic());
 			out << std::fixed << std::setprecision(6)
 				<< "{\"schema\":\"surreal-bot-route-execution-observation-v1\",\"seq\":\""
@@ -2165,6 +2211,10 @@ namespace
 						}
 					}
 					out << ']';
+					const auto pathCommits = pawn->DrainRoutePathCommitRecords();
+					out << ",\"native_path_commit_overflows_exact\":\""
+						<< pawn->RoutePathCommitOverflowCount() << "\",\"native_path_commits\":";
+					writeRoutePathCommits(pathCommits);
 				}
 				out << '}';
 			}

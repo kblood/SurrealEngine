@@ -2750,3 +2750,23 @@ closed on any overflow or invalid edge reference. It must first demonstrate
 positive, repeatable coverage in UT436 and Unreal Gold; it cannot claim to
 cover direct movement, arbitrary script route writes, or later script target
 redirection.
+
+## Iteration 109: native path-commit provenance observer
+
+The native observer is now captured at the correct boundary: after the shared
+`SetRouteCache` write and before `SpecialHandling` can mutate the script goal.
+`FindPathToEndPoint` retains the exact reachspec index for each unwound edge,
+and the bounded committed route prefix serializes its nodes, exact raw
+reachspec fields, raw/adjusted endpoint cost, and failed-navigation penalty
+applications. A cache-clear is a distinct record, while an invalid reference
+or bounded-queue overflow is fail-closed. `Analyze-NativePathCommits.py`
+rebinds every record to the immutable map catalog by index and rejects pruned,
+altered, missing, or out-of-order evidence.
+
+Fresh 7,200-tick UT436 and Unreal Gold controls both pass the analyzer with
+positive committed paths and zero overflow. Their complete authoritative
+gameplay streams exactly match the pre-observer controls, proving this
+observer does not change measured bot behavior. This qualifies only observer
+plumbing; repeated qualification, terminal-life draining, and a causal
+hazard/route witness are still required before it can support a behavior
+candidate.

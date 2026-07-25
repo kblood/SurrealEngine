@@ -15,6 +15,7 @@
 #include "PawnHazardWaterEgressObserver.h"
 #include "PawnWalkingStepPreflight.h"
 #include "PawnInventoryReachability.h"
+#include "PawnRoutePathCommitProvenance.h"
 #include "PawnWalkingHitWallDispatch.h"
 #include "PawnWallAdjustRecovery.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
@@ -83,6 +84,15 @@ class UDynamicZoneInfo; // Unreal 227
 class U227AnimationNotify;
 class U227Projector;
 class U227SkeletalMeshInstance;
+
+struct PawnPathEndPointResult
+{
+	Array<class UNavigationPoint*> Points;
+	Array<int32_t> EdgeReachSpecIndexes;
+	int32_t RawEndpointCost = 0;
+	int32_t AdjustedEndpointCost = 0;
+	uint32_t FailedNavigationPenaltyApplications = 0;
+};
 
 struct PointRegion
 {
@@ -2316,9 +2326,14 @@ public:
 	UActor* PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, const vec3& projStart);
 	bool CheckIfBestTarget(UActor* actor, float& bestAim, float& bestDist, const vec3& FireDir, const vec3& projStart);
 
-	UActor* PathSpecialHandling(const Array<UNavigationPoint*>& points);
+	UActor* PathSpecialHandling(const PawnPathEndPointResult& result,
+		PawnMovement::RoutePathCommitOrigin origin);
 	UNavigationPoint* SetRouteCache(const Array<UNavigationPoint*>& points);
-	std::pair<Array<UNavigationPoint*>, int32_t> FindPathToEndPoint(UNavigationPoint* start, int maxNodes);
+	PawnPathEndPointResult FindPathToEndPoint(UNavigationPoint* start, int maxNodes);
+	UNavigationPoint* CommitRoutePathCache(const PawnPathEndPointResult& result,
+		PawnMovement::RoutePathCommitOrigin origin);
+	std::vector<PawnMovement::RoutePathCommitRecord> DrainRoutePathCommitRecords();
+	uint64_t RoutePathCommitOverflowCount() const { return RoutePathCommitOverflowCountValue; }
 
 	void ClearPaths();
 	UObject* FindRandomDest();
@@ -2770,6 +2785,9 @@ private:
 	uint64_t InventoryDirectReachSupportDiagnosticSequence = 0;
 	std::vector<PawnMovement::InventoryDirectReachSupportDiagnosticRecord>
 		InventoryDirectReachSupportDiagnostics;
+	uint64_t RoutePathCommitSequence = 0;
+	uint64_t RoutePathCommitOverflowCountValue = 0;
+	std::vector<PawnMovement::RoutePathCommitRecord> RoutePathCommitRecords;
 	uint64_t WalkingStepPreflightPositiveDpsVetoActionSequence = 0;
 	std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
 		WalkingStepPreflightPositiveDpsVetoActions;
