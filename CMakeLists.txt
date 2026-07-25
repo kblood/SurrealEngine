@@ -542,6 +542,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/UActor.cpp
 	SurrealEngine/UObject/ActorMoveCollisionProbe.cpp
 	SurrealEngine/UObject/ActorMoveCollisionProbe.h
+	SurrealEngine/BotBenchmark/BotBenchmarkHazardDeathPartition.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkHazardDeathPartition.h
 	SurrealEngine/UObject/PawnFailedNavigationMemory.cpp
 	SurrealEngine/UObject/PawnFailedNavigationMemory.h
 	SurrealEngine/UObject/PawnInventoryReachability.cpp
@@ -1214,6 +1216,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(BotBenchmarkDeathAttributionTests PRIVATE SurrealEngine)
 	set_target_properties(BotBenchmarkDeathAttributionTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkDeathAttribution COMMAND BotBenchmarkDeathAttributionTests)
+
+	add_executable(BotBenchmarkHazardDeathPartitionTests
+		Tests/BotBenchmarkHazardDeathPartitionTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkHazardDeathPartition.cpp
+	)
+	target_include_directories(BotBenchmarkHazardDeathPartitionTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkHazardDeathPartitionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkHazardDeathPartition COMMAND BotBenchmarkHazardDeathPartitionTests)
 
 	add_executable(BotBenchmarkDeathAttributionCoordinatorTests
 		Tests/BotBenchmarkDeathAttributionCoordinatorTests.cpp

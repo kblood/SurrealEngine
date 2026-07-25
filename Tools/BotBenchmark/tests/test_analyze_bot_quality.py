@@ -561,6 +561,85 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(QUALITY.QualityError, "duplicate hazard-water egress"):
                 QUALITY.analyze_run(excessive)
 
+    def test_hazard_death_partition_records_are_same_death_and_exact(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "suicides_exact": 0,
+            "environmental_deaths_exact": 0, "hazard_exposed_deaths_proxy": 0,
+            "hit_wall_events_exact": 0,
+            "direct_self_kills": 0, "direct_enemy_kills": 0,
+            "unassisted_environmental_deaths": 0,
+            "recent_enemy_contributed_environmental_deaths_proxy": 0,
+            "ambiguous_deaths": 0,
+            "recent_enemy_momentum_contributed_environmental_deaths_proxy": 0,
+            "hazard_death_partition_records": [],
+        }
+        record = {
+            "source_pawn_actor": "Bot1", "sequence": "1",
+            "death_time_seconds": 12.5, "killer_relation": "none",
+            "attribution": "unassisted_environmental_death",
+            "environmental_source": "pain_timer",
+            "had_recent_enemy_contribution": False,
+            "had_recent_enemy_momentum_contribution": False,
+            "hazard_prefix": "none", "move_target_known": False,
+            "move_target_name": "", "movement_intent": True, "physics_mode": "Swimming",
+            "water_egress_terminal_known": False, "water_egress_sequence": "0",
+            "water_egress_life_id": "0", "water_egress_episode_id": "0",
+            "falling_hazard_terminal_known": False, "falling_hazard_sequence": "0",
+            "falling_hazard_life_id": "0", "falling_hazard_fall_episode_id": "0",
+            "falling_hazard_generation_id": "0", "falling_hazard_correlation": "",
+            "falling_parity_terminal_known": False, "falling_parity_life_generation": "0",
+            "falling_parity_invocation_token": "0", "falling_parity_walking_iteration": 0,
+        }
+        final = {
+            **common, "deaths_exact": 1, "unassisted_environmental_deaths": 1,
+            "hazard_death_partition_records": [record],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "hazard-death-partition", bot_count=1)
+            declare_death_attribution(valid)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, "deaths_exact": 0}, final,
+                {**final, "hazard_death_partition_records": []},
+            ])
+            QUALITY.analyze_run(valid)
+
+            bad_witness = write_v2_run(root, "hazard-death-partition-bad-witness", bot_count=1)
+            declare_death_attribution(bad_witness)
+            invalid_record = {**record, "hazard_prefix": "water_egress_death",
+                              "water_egress_terminal_known": True,
+                              "water_egress_sequence": "1", "water_egress_life_id": "1",
+                              "water_egress_episode_id": "1"}
+            upgrade_telemetry_v2(bad_witness, counters=[
+                {**common, "deaths_exact": 0},
+                {**final, "hazard_death_partition_records": [invalid_record]},
+                {**final, "hazard_death_partition_records": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "same-event death_before_exit"):
+                QUALITY.analyze_run(bad_witness)
+
+            partial = write_v2_run(root, "hazard-death-partition-partial", bot_count=1)
+            declare_death_attribution(partial)
+            partial_record = {**record, "water_egress_sequence": "1"}
+            upgrade_telemetry_v2(partial, counters=[
+                {**common, "deaths_exact": 0},
+                {**final, "hazard_death_partition_records": [partial_record]},
+                {**final, "hazard_death_partition_records": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "unknown water terminal"):
+                QUALITY.analyze_run(partial)
+
+            missing = write_v2_run(root, "hazard-death-partition-missing", bot_count=1)
+            declare_death_attribution(missing)
+            upgrade_telemetry_v2(missing, counters=[
+                {**common, "deaths_exact": 0},
+                {**final, "hazard_death_partition_records": []},
+                {**final, "hazard_death_partition_records": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "do not reconcile with unassisted"):
+                QUALITY.analyze_run(missing)
+
     def test_falling_pre_move_anchor_counters_are_complete_and_bounded(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,

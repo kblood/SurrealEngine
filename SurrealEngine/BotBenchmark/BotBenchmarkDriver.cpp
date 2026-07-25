@@ -4,6 +4,7 @@
 #include "BotBenchmarkGameProfile.h"
 #include "BotBenchmarkDeathAttributionCoordinator.h"
 #include "BotBenchmarkDeathAttributionHookContract.h"
+#include "BotBenchmarkHazardDeathPartition.h"
 #include "BotBenchmarkProtocol.h"
 #include "BotBenchmarkQualityObservation.h"
 #include "BotBenchmarkShadowTelemetry.h"
@@ -221,6 +222,13 @@ namespace
 				PendingFallingHazardDiagnostics;
 			std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>
 				PendingHazardWaterEgressDiagnostics;
+			std::optional<BotBenchmarkHazardDeathPartitionRecord>
+				StagedHazardDeathPartitionRecord;
+			std::optional<BotBenchmarkDeathAttribution::ScopeToken>
+				StagedHazardDeathPartitionToken;
+			std::vector<BotBenchmarkHazardDeathPartitionRecord>
+				PendingHazardDeathPartitionRecords;
+			uint64_t NextHazardDeathPartitionSequence = 1;
 		};
 
 		enum class AttributionScopeKind
@@ -240,6 +248,7 @@ namespace
 			int PreHealth = 0;
 			bool CanonicalDamageFrame = false;
 			std::string InstigatorIdentity;
+			bool OutermostKilled = false;
 		};
 
 		enum class PickupCategory
@@ -506,6 +515,167 @@ namespace
 			runtime->second.DeathAttribution.Apply(decision);
 		}
 
+		static const char* KillerRelationName(BotBenchmarkDeathAttribution::DeathKiller relation)
+		{
+			using BotBenchmarkDeathAttribution::DeathKiller;
+			switch (relation)
+			{
+			case DeathKiller::SelfPlayer: return "self_player";
+			case DeathKiller::EnemyPlayer: return "enemy_player";
+			case DeathKiller::NonPlayer: return "non_player";
+			default: return "none";
+			}
+		}
+
+		static const char* AttributionName(BotBenchmarkDeathAttribution::Kind attribution)
+		{
+			using BotBenchmarkDeathAttribution::Kind;
+			switch (attribution)
+			{
+			case Kind::DirectSelfKill: return "direct_self_kill";
+			case Kind::DirectEnemyKill: return "direct_enemy_kill";
+			case Kind::UnassistedEnvironmentalDeath: return "unassisted_environmental_death";
+			case Kind::RecentEnemyContributedEnvironmentalDeathProxy:
+				return "recent_enemy_contributed_environmental_death_proxy";
+			default: return "ambiguous_death";
+			}
+		}
+
+		static const char* EnvironmentalSourceName(
+			BotBenchmarkDeathAttribution::EnvironmentalSource source)
+		{
+			using BotBenchmarkDeathAttribution::EnvironmentalSource;
+			switch (source)
+			{
+			case EnvironmentalSource::PainTimer: return "pain_timer";
+			case EnvironmentalSource::FellOutOfWorld: return "fell_out_of_world";
+			case EnvironmentalSource::TakeFallingDamage: return "take_falling_damage";
+			case EnvironmentalSource::MoverEncroachingOn: return "mover_encroaching_on";
+			default: return "landed";
+			}
+		}
+
+		void StageHazardDeathPartition(const std::string& victimIdentity,
+			QualityParticipantRuntime& runtime, UPawn* victim,
+			BotBenchmarkDeathAttribution::DeathKiller killerRelation,
+			const std::vector<PawnMovement::FallingParityRealizedRecord>& parityRecords,
+			const std::vector<PawnMovement::FallingHazardDiagnosticRecord>& hazardDiagnostics,
+			const std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>& waterDiagnostics)
+		{
+			if (runtime.StagedHazardDeathPartitionRecord)
+			{
+				Fail("hazard death partition already has a staged terminal witness for " + victimIdentity);
+				return;
+			}
+			BotBenchmarkHazardDeathPartitionRecord record;
+			record.SourcePawnActor = victim->Name.ToString();
+			record.DeathTimeSeconds = AttributionTimeSeconds();
+			record.KillerRelation = KillerRelationName(killerRelation);
+			record.MoveTargetKnown = victim->MoveTarget() && !victim->MoveTarget()->bDeleteMe();
+			if (record.MoveTargetKnown)
+				record.MoveTargetName = victim->MoveTarget()->Name.ToString();
+			record.MovementIntent = HasMovementIntent(victim);
+			record.PhysicsMode = victim->HasProperty("Physics")
+				? PhysicsModeName(victim->Physics()) : std::string();
+
+			const auto water = std::find_if(waterDiagnostics.begin(), waterDiagnostics.end(),
+				[](const auto& diagnostic)
+				{
+					return diagnostic.Terminal ==
+						PawnMovement::HazardWaterEgressTerminal::DeathBeforeExit;
+				});
+			if (water != waterDiagnostics.end())
+			{
+				record.WaterEgressTerminalKnown = true;
+				record.WaterEgressSequence = water->Sequence;
+				record.WaterEgressLifeId = water->Entry.LifeId;
+				record.WaterEgressEpisodeId = water->Entry.EpisodeId;
+			}
+			const auto falling = std::find_if(hazardDiagnostics.begin(), hazardDiagnostics.end(),
+				[](const auto& diagnostic)
+				{
+					return diagnostic.Kind == PawnMovement::FallingHazardDiagnosticKind::Terminal
+						&& diagnostic.Generation.Terminal == PawnMovement::FallingHazardTerminal::Died;
+				});
+			if (falling != hazardDiagnostics.end())
+			{
+				record.FallingHazardTerminalKnown = true;
+				record.FallingHazardSequence = falling->Sequence;
+				record.FallingHazardLifeId = falling->Generation.Life.Value;
+				record.FallingHazardFallEpisodeId = falling->Generation.FallEpisode.Value;
+				record.FallingHazardGenerationId = falling->Generation.Generation.Value;
+				record.FallingHazardCorrelation = PawnMovement::FallingHazardCorrelationName(
+					falling->Correlation);
+			}
+			const auto parity = std::find_if(parityRecords.begin(), parityRecords.end(),
+				[](const auto& record)
+				{
+					return record.Outcome == PawnMovement::FallingParityRealizedOutcome::Died;
+				});
+			if (parity != parityRecords.end())
+			{
+				record.FallingParityTerminalKnown = true;
+				record.FallingParityLifeGeneration = parity->Correlation.LifeGeneration;
+				record.FallingParityInvocationToken = parity->Correlation.InvocationToken;
+				record.FallingParityWalkingIteration = parity->Correlation.WalkingIteration;
+			}
+			record.HazardPrefix = BotBenchmarkHazardDeathPartition::HazardPrefixName(
+				BotBenchmarkHazardDeathPartition::ClassifyPrefix({
+					record.WaterEgressTerminalKnown, record.FallingHazardTerminalKnown }));
+			runtime.StagedHazardDeathPartitionRecord = std::move(record);
+			runtime.StagedHazardDeathPartitionToken.reset();
+		}
+
+		bool BindStagedHazardDeathPartition(const std::string& victimIdentity,
+			BotBenchmarkDeathAttribution::ScopeToken token)
+		{
+			auto runtime = QualityParticipants.find(victimIdentity);
+			if (runtime == QualityParticipants.end() || !runtime->second.StagedHazardDeathPartitionRecord
+				|| runtime->second.StagedHazardDeathPartitionToken || !token)
+			{
+				Fail("hazard death partition could not bind its staged witness to Killed scope for "
+					+ victimIdentity);
+				return false;
+			}
+			runtime->second.StagedHazardDeathPartitionToken = token;
+			return true;
+		}
+
+		void FinalizeHazardDeathPartition(const std::string& victimIdentity,
+			const BotBenchmarkDeathAttribution::Decision& decision,
+			const std::optional<BotBenchmarkDeathAttribution::EnvironmentalSource>& source,
+			BotBenchmarkDeathAttribution::ScopeToken token)
+		{
+			auto runtime = QualityParticipants.find(victimIdentity);
+			if (runtime == QualityParticipants.end() || !runtime->second.StagedHazardDeathPartitionRecord
+				|| !runtime->second.StagedHazardDeathPartitionToken
+				|| runtime->second.StagedHazardDeathPartitionToken->Value != token.Value)
+			{
+				Fail("hazard death partition has no staged terminal witness for " + victimIdentity);
+				return;
+			}
+			auto record = std::move(*runtime->second.StagedHazardDeathPartitionRecord);
+			runtime->second.StagedHazardDeathPartitionRecord.reset();
+			runtime->second.StagedHazardDeathPartitionToken.reset();
+			record.Sequence = runtime->second.NextHazardDeathPartitionSequence++;
+			record.Attribution = AttributionName(decision.Attribution);
+			record.HadRecentEnemyContribution = decision.HadRecentEnemyContribution;
+			record.HadRecentEnemyMomentumContribution = decision.HadRecentEnemyMomentumContribution;
+			if (source)
+				record.EnvironmentalSource = EnvironmentalSourceName(*source);
+			runtime->second.PendingHazardDeathPartitionRecords.push_back(std::move(record));
+		}
+
+		void DiscardStagedHazardDeathPartition(const std::string& victimIdentity)
+		{
+			auto runtime = QualityParticipants.find(victimIdentity);
+			if (runtime != QualityParticipants.end())
+			{
+				runtime->second.StagedHazardDeathPartitionRecord.reset();
+				runtime->second.StagedHazardDeathPartitionToken.reset();
+			}
+		}
+
 		static BotBenchmarkDriverDetail::NativePawnCounters CaptureNativePawnCounters(
 			UPawn* pawn)
 		{
@@ -727,6 +897,17 @@ namespace
 				auto parityRecords = victim->DrainFallingParityRealizedRecords();
 				auto hazardDiagnostics = victim->DrainFallingHazardDiagnostics();
 				auto waterEgressDiagnostics = victim->DrainHazardWaterEgressDiagnostics();
+				BotBenchmarkDeathAttribution::DeathKiller killerRelation =
+					BotBenchmarkDeathAttribution::DeathKiller::None;
+				if (killer)
+				{
+					killerRelation = !killer->bIsPlayer()
+						? BotBenchmarkDeathAttribution::DeathKiller::NonPlayer
+						: killer == victim ? BotBenchmarkDeathAttribution::DeathKiller::SelfPlayer
+						: BotBenchmarkDeathAttribution::DeathKiller::EnemyPlayer;
+				}
+				StageHazardDeathPartition(victimIdentity, counters, victim, killerRelation,
+					parityRecords, hazardDiagnostics, waterEgressDiagnostics);
 				victim->EndWalkingStepPreflightLife();
 				counters.PendingWalkingStepPreflightDiagnostics.insert(
 					counters.PendingWalkingStepPreflightDiagnostics.end(),
@@ -795,6 +976,18 @@ namespace
 				break;
 			case AttributionScopeKind::Killed:
 				status = AttributionCoordinator.ExitKilled(call.Token);
+				if (call.OutermostKilled)
+				{
+					auto runtime = QualityParticipants.find(call.VictimIdentity);
+					if (runtime != QualityParticipants.end()
+						&& (runtime->second.StagedHazardDeathPartitionRecord
+							|| runtime->second.StagedHazardDeathPartitionToken))
+					{
+						Fail("hazard death partition did not finalize the Killed attribution scope for "
+							+ call.VictimIdentity);
+						DiscardStagedHazardDeathPartition(call.VictimIdentity);
+					}
+				}
 				break;
 			}
 			AcceptCoordinatorStatus(status, "hook cleanup");
@@ -989,15 +1182,25 @@ namespace
 					const auto entered = AttributionCoordinator.EnterKilled({ victimIdentity, relation,
 						AttributionTimeSeconds(), true });
 					if (!AcceptCoordinatorStatus(entered.Status, "Killed enter"))
+					{
+						DiscardStagedHazardDeathPartition(victimIdentity);
 						return [this, victimIdentity]() { FinishKilledCall(victimIdentity); };
+					}
 					if (entered.IsOutermost != outermost)
 					{
 						Fail("death attribution Killed victim depth disagreed with coordinator");
 						AttributionCoordinator.ExitKilled(entered.Token);
+						DiscardStagedHazardDeathPartition(victimIdentity);
+						return [this, victimIdentity]() { FinishKilledCall(victimIdentity); };
+					}
+					if (outermost && !BindStagedHazardDeathPartition(victimIdentity, entered.Token))
+					{
+						AttributionCoordinator.ExitKilled(entered.Token);
+						DiscardStagedHazardDeathPartition(victimIdentity);
 						return [this, victimIdentity]() { FinishKilledCall(victimIdentity); };
 					}
 					ActiveAttributionCalls.push_back({ function, instance, victimIdentity, entered.Token,
-						AttributionScopeKind::Killed });
+						AttributionScopeKind::Killed, 0, false, {}, outermost });
 					return [this, function, instance, victimIdentity]()
 					{
 						FinishAttributionCall(function, instance, AttributionScopeKind::Killed);
@@ -1180,6 +1383,8 @@ namespace
 					if (result.Attribution)
 					{
 						ApplyAttribution(call->VictimIdentity, *result.Attribution);
+						FinalizeHazardDeathPartition(call->VictimIdentity,
+							*result.Attribution, result.Source, call->Token);
 					}
 				}
 			};
@@ -1762,6 +1967,9 @@ namespace
 				bot.HazardWaterEgressDiagnostics = std::move(
 					runtime.PendingHazardWaterEgressDiagnostics);
 				runtime.PendingHazardWaterEgressDiagnostics.clear();
+				bot.HazardDeathPartitionRecords = std::move(
+					runtime.PendingHazardDeathPartitionRecords);
+				runtime.PendingHazardDeathPartitionRecords.clear();
 				bot.WalkingStepPreflightReasonsExact = native.WalkingStepPreflightReasons;
 				runtime.LastState = bot;
 				runtime.HasLastState = true;

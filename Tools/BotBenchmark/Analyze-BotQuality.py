@@ -22,7 +22,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 23
+TOOL_VERSION = 24
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -400,8 +400,24 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "move_target_identity", "move_target_name", "walking_step_preflight_diagnostics",
     "walking_step_preflight_positive_dps_veto_actions",
     "falling_parity_realized_records", "vertical_pain_column_diagnostics",
-    "hazard_water_egress_diagnostics",
+    "hazard_water_egress_diagnostics", "hazard_death_partition_records",
 )
+HAZARD_DEATH_KILLER_RELATIONS = {"none", "self_player", "enemy_player", "non_player"}
+HAZARD_DEATH_ATTRIBUTIONS = {
+    "direct_self_kill", "direct_enemy_kill", "unassisted_environmental_death",
+    "recent_enemy_contributed_environmental_death_proxy", "ambiguous_death",
+}
+HAZARD_DEATH_ENVIRONMENTAL_SOURCES = {
+    "", "pain_timer", "fell_out_of_world", "take_falling_damage",
+    "mover_encroaching_on", "landed",
+}
+HAZARD_DEATH_PREFIXES = {
+    "none", "water_egress_death", "falling_death_without_water_egress",
+}
+FALLING_HAZARD_CORRELATIONS = {
+    "pending", "confirmed_harmful_forecast", "forecast_only", "actual_only",
+    "confirmed_no_harmful_observation", "ambiguous", "unknown",
+}
 PHYSICS_MODES = {
     "", "None", "Walking", "Falling", "Swimming", "Flying", "Rotating", "Projectile",
     "Rolling", "Interpolating", "MovingBrush", "Spider", "Trailer", "Unknown",
@@ -1398,6 +1414,126 @@ def _hazard_water_egress_diagnostics(value: Any, context: str) -> list[dict[str,
     ]
 
 
+def _hazard_death_partition_record(value: Any, context: str) -> dict[str, Any]:
+    fields = _object(value, context)
+    killer_relation = _string(fields, "killer_relation", context)
+    attribution = _string(fields, "attribution", context)
+    environmental_source = _string(fields, "environmental_source", context)
+    hazard_prefix = _string(fields, "hazard_prefix", context)
+    physics_mode = _string(fields, "physics_mode", context)
+    if killer_relation not in HAZARD_DEATH_KILLER_RELATIONS:
+        raise QualityError(f"{context}.killer_relation is not recognized")
+    if attribution not in HAZARD_DEATH_ATTRIBUTIONS:
+        raise QualityError(f"{context}.attribution is not recognized")
+    if environmental_source not in HAZARD_DEATH_ENVIRONMENTAL_SOURCES:
+        raise QualityError(f"{context}.environmental_source is not recognized")
+    if hazard_prefix not in HAZARD_DEATH_PREFIXES:
+        raise QualityError(f"{context}.hazard_prefix is not recognized")
+    if physics_mode not in PHYSICS_MODES:
+        raise QualityError(f"{context}.physics_mode is not recognized")
+    move_target_known = _boolean(fields.get("move_target_known"),
+                                 f"{context}.move_target_known")
+    move_target_name = _string(fields, "move_target_name", context)
+    if move_target_known != bool(move_target_name):
+        raise QualityError(f"{context}: move target availability must match its name")
+    water_known = _boolean(fields.get("water_egress_terminal_known"),
+                             f"{context}.water_egress_terminal_known")
+    water_sequence = _integer(fields.get("water_egress_sequence"),
+                              f"{context}.water_egress_sequence", minimum=0)
+    water_life = _integer(fields.get("water_egress_life_id"),
+                          f"{context}.water_egress_life_id", minimum=0)
+    water_episode = _integer(fields.get("water_egress_episode_id"),
+                             f"{context}.water_egress_episode_id", minimum=0)
+    falling_known = _boolean(fields.get("falling_hazard_terminal_known"),
+                               f"{context}.falling_hazard_terminal_known")
+    falling_sequence = _integer(fields.get("falling_hazard_sequence"),
+                                f"{context}.falling_hazard_sequence", minimum=0)
+    falling_life = _integer(fields.get("falling_hazard_life_id"),
+                            f"{context}.falling_hazard_life_id", minimum=0)
+    falling_episode = _integer(fields.get("falling_hazard_fall_episode_id"),
+                               f"{context}.falling_hazard_fall_episode_id", minimum=0)
+    falling_generation = _integer(fields.get("falling_hazard_generation_id"),
+                                  f"{context}.falling_hazard_generation_id", minimum=0)
+    falling_correlation = _string(fields, "falling_hazard_correlation", context)
+    parity_known = _boolean(fields.get("falling_parity_terminal_known"),
+                              f"{context}.falling_parity_terminal_known")
+    parity_life = _integer(fields.get("falling_parity_life_generation"),
+                           f"{context}.falling_parity_life_generation", minimum=0)
+    parity_invocation = _integer(fields.get("falling_parity_invocation_token"),
+                                 f"{context}.falling_parity_invocation_token", minimum=0)
+    parity_iteration = _integer(fields.get("falling_parity_walking_iteration"),
+                                f"{context}.falling_parity_walking_iteration", minimum=0)
+    if water_known and not all(value >= 1 for value in (
+            water_sequence, water_life, water_episode)):
+        raise QualityError(f"{context}: water terminal availability must match its identifiers")
+    if not water_known and any(value != 0 for value in (
+            water_sequence, water_life, water_episode)):
+        raise QualityError(f"{context}: unknown water terminal must not claim identifiers")
+    if falling_known and not all(value >= 1 for value in (
+            falling_sequence, falling_life, falling_episode, falling_generation)):
+        raise QualityError(f"{context}: falling terminal availability must match its identifiers")
+    if not falling_known and any(value != 0 for value in (
+            falling_sequence, falling_life, falling_episode, falling_generation)):
+        raise QualityError(f"{context}: unknown falling terminal must not claim identifiers")
+    if falling_known != bool(falling_correlation):
+        raise QualityError(f"{context}: falling terminal availability must match its correlation")
+    if falling_correlation and falling_correlation not in FALLING_HAZARD_CORRELATIONS:
+        raise QualityError(f"{context}.falling_hazard_correlation is not recognized")
+    if parity_known and not all(value >= 1 for value in (parity_life, parity_invocation)):
+        raise QualityError(f"{context}: falling parity availability must match its identifiers")
+    if not parity_known and any(value != 0 for value in (
+            parity_life, parity_invocation, parity_iteration)):
+        raise QualityError(f"{context}: unknown falling parity terminal must not claim identifiers")
+    expected_prefix = "water_egress_death" if water_known else (
+        "falling_death_without_water_egress" if falling_known else "none")
+    if hazard_prefix != expected_prefix:
+        raise QualityError(f"{context}: hazard prefix does not match same-death terminal evidence")
+    return {
+        "source_pawn_actor": _string(fields, "source_pawn_actor", context, nonempty=True),
+        "sequence": _integer(fields.get("sequence"), f"{context}.sequence", minimum=1),
+        "death_time_seconds": _number(fields.get("death_time_seconds"),
+                                       f"{context}.death_time_seconds", minimum=0.0),
+        "killer_relation": killer_relation,
+        "attribution": attribution,
+        "environmental_source": environmental_source,
+        "had_recent_enemy_contribution": _boolean(
+            fields.get("had_recent_enemy_contribution"),
+            f"{context}.had_recent_enemy_contribution"),
+        "had_recent_enemy_momentum_contribution": _boolean(
+            fields.get("had_recent_enemy_momentum_contribution"),
+            f"{context}.had_recent_enemy_momentum_contribution"),
+        "hazard_prefix": hazard_prefix,
+        "move_target_known": move_target_known,
+        "move_target_name": move_target_name,
+        "movement_intent": _boolean(fields.get("movement_intent"),
+                                      f"{context}.movement_intent"),
+        "physics_mode": physics_mode,
+        "water_egress_terminal_known": water_known,
+        "water_egress_sequence": water_sequence,
+        "water_egress_life_id": water_life,
+        "water_egress_episode_id": water_episode,
+        "falling_hazard_terminal_known": falling_known,
+        "falling_hazard_sequence": falling_sequence,
+        "falling_hazard_life_id": falling_life,
+        "falling_hazard_fall_episode_id": falling_episode,
+        "falling_hazard_generation_id": falling_generation,
+        "falling_hazard_correlation": falling_correlation,
+        "falling_parity_terminal_known": parity_known,
+        "falling_parity_life_generation": parity_life,
+        "falling_parity_invocation_token": parity_invocation,
+        "falling_parity_walking_iteration": parity_iteration,
+    }
+
+
+def _hazard_death_partition_records(value: Any, context: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise QualityError(f"{context} must be an array")
+    return [
+        _hazard_death_partition_record(item, f"{context}[{index}]")
+        for index, item in enumerate(value)
+    ]
+
+
 def _validate_falling_parity_realized_record_stream(
         events: list[dict[str, Any]], path: Path) -> None:
     primary_counters = (
@@ -1782,6 +1918,111 @@ def _validate_hazard_water_egress_diagnostic_stream(
             raise QualityError(
                 f"{path}: hazard-water egress diagnostics and overflows exceed "
                 f"observed episodes for {identity}")
+
+
+def _validate_hazard_death_partition_stream(
+        events: list[dict[str, Any]], path: Path) -> None:
+    counter_for_attribution = {
+        "direct_self_kill": "direct_self_kills",
+        "direct_enemy_kill": "direct_enemy_kills",
+        "unassisted_environmental_death": "unassisted_environmental_deaths",
+        "recent_enemy_contributed_environmental_death_proxy":
+            "recent_enemy_contributed_environmental_deaths_proxy",
+        "ambiguous_death": "ambiguous_deaths",
+    }
+    prior: dict[str, dict[str, int]] = {}
+    last_sequence: dict[tuple[str, str], int] = {}
+    last_death_time: dict[tuple[str, str], float] = {}
+    emitted: defaultdict[str, dict[str, int]] = defaultdict(
+        lambda: {name: 0 for name in DEATH_ATTRIBUTION_COUNTERS[:-1]})
+
+    for event in events:
+        for bot in event["bots"]:
+            records = bot.get("hazard_death_partition_records")
+            if records is None:
+                continue
+            identity = bot["identity"]
+            if any(name not in bot for name in DEATH_ATTRIBUTION_COUNTERS):
+                raise QualityError(
+                    f"{path}: hazard death partition records require the complete "
+                    f"death-attribution counter group")
+            current = {name: bot[name] for name in DEATH_ATTRIBUTION_COUNTERS[:-1]}
+            previous = prior.get(identity, {name: 0 for name in current})
+            deltas = {name: current[name] - previous[name] for name in current}
+            observed = {name: 0 for name in current}
+            water_terminals = {
+                (diagnostic["sequence"], diagnostic["life_id"], diagnostic["episode_id"])
+                for diagnostic in bot.get("hazard_water_egress_diagnostics", [])
+                if diagnostic["terminal"] == "death_before_exit"
+            }
+            falling_terminals = {
+                (diagnostic["sequence"], diagnostic["life_id"],
+                 diagnostic["fall_episode_id"], diagnostic["generation_id"])
+                for diagnostic in bot.get("vertical_pain_column_diagnostics", [])
+                if diagnostic["kind"] == "terminal" and diagnostic["terminal"] == "died"
+            }
+            parity_terminals = {
+                (diagnostic["life_generation"], diagnostic["invocation_token"],
+                 diagnostic["walking_iteration"])
+                for diagnostic in bot.get("falling_parity_realized_records", [])
+                if diagnostic["outcome"] == "died"
+            }
+            for record in records:
+                actor = record["source_pawn_actor"]
+                if actor != bot["actor"]:
+                    raise QualityError(
+                        f"{path}: hazard death partition actor does not match {identity} "
+                        f"at telemetry sequence {event['seq']}")
+                stream = (identity, actor)
+                sequence = record["sequence"]
+                if sequence <= last_sequence.get(stream, 0):
+                    raise QualityError(
+                        f"{path}: hazard death partition sequence did not increase for "
+                        f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                death_time = record["death_time_seconds"]
+                if death_time < last_death_time.get(stream, 0.0):
+                    raise QualityError(
+                        f"{path}: hazard death partition time regressed for {identity}/{actor} "
+                        f"at telemetry sequence {event['seq']}")
+                last_sequence[stream] = sequence
+                last_death_time[stream] = death_time
+                if record["water_egress_terminal_known"] and (
+                        record["water_egress_sequence"], record["water_egress_life_id"],
+                        record["water_egress_episode_id"]) not in water_terminals:
+                    raise QualityError(
+                        f"{path}: hazard death partition water witness has no same-event "
+                        f"death_before_exit diagnostic for {identity} at telemetry sequence "
+                        f"{event['seq']}")
+                if record["falling_hazard_terminal_known"] and (
+                        record["falling_hazard_sequence"], record["falling_hazard_life_id"],
+                        record["falling_hazard_fall_episode_id"],
+                        record["falling_hazard_generation_id"]) not in falling_terminals:
+                    raise QualityError(
+                        f"{path}: hazard death partition falling witness has no same-event died "
+                        f"diagnostic for {identity} at telemetry sequence {event['seq']}")
+                if record["falling_parity_terminal_known"] and (
+                        record["falling_parity_life_generation"],
+                        record["falling_parity_invocation_token"],
+                        record["falling_parity_walking_iteration"]) not in parity_terminals:
+                    raise QualityError(
+                        f"{path}: hazard death partition parity witness has no same-event died "
+                        f"record for {identity} at telemetry sequence {event['seq']}")
+                counter = counter_for_attribution[record["attribution"]]
+                observed[counter] += 1
+                emitted[identity][counter] += 1
+            for name in current:
+                if observed[name] != deltas[name]:
+                    raise QualityError(
+                        f"{path}: hazard death partition records do not reconcile with {name} "
+                        f"delta for {identity} at telemetry sequence {event['seq']}")
+            prior[identity] = current
+
+    for identity, current in prior.items():
+        for name, value in current.items():
+            if emitted[identity][name] != value:
+                raise QualityError(
+                    f"{path}: hazard death partition records do not reconcile with final "
+                    f"{name} for {identity}")
 
 
 def _validate_walking_step_preflight_diagnostic_stream(
@@ -2203,7 +2444,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
     bot = _object(raw, context)
     if schema != TELEMETRY_SCHEMA_V2 and any(name in bot for name in (
             "walking_step_preflight_diagnostics", "falling_parity_realized_records",
-            "vertical_pain_column_diagnostics", "hazard_water_egress_diagnostics")):
+            "vertical_pain_column_diagnostics", "hazard_water_egress_diagnostics",
+            "hazard_death_partition_records")):
         raise QualityError(
             f"{context}: observer record arrays require telemetry v2")
     result: dict[str, Any] = {
@@ -2652,6 +2894,15 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
         elif HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER in result:
             raise QualityError(
                 f"{context}: hazard-water egress overflow counter requires diagnostics")
+        if "hazard_death_partition_records" in bot:
+            if "direct_self_kills" not in result:
+                raise QualityError(
+                    f"{context}: hazard death partition records require the complete "
+                    "death-attribution counter group")
+            result["hazard_death_partition_records"] = \
+                _hazard_death_partition_records(
+                    bot.get("hazard_death_partition_records"),
+                    f"{context}.hazard_death_partition_records")
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
@@ -2831,6 +3082,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             _validate_vertical_pain_column_diagnostic_stream(events, path)
         if optional_presence and "hazard_water_egress_diagnostics" in optional_presence:
             _validate_hazard_water_egress_diagnostic_stream(events, path)
+        if optional_presence and "hazard_death_partition_records" in optional_presence:
+            _validate_hazard_death_partition_stream(events, path)
     if events[0]["type"] != "run_start" or events[0]["tick"] != 0:
         raise QualityError(f"{path}: first event must be run_start at tick zero")
     if events[-1]["type"] != "run_result":

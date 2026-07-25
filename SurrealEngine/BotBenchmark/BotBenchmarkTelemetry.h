@@ -12,6 +12,37 @@
 
 class BotBenchmarkRunConfig;
 
+struct BotBenchmarkHazardDeathPartitionRecord
+{
+	std::string SourcePawnActor;
+	uint64_t Sequence = 0;
+	double DeathTimeSeconds = 0.0;
+	std::string KillerRelation;
+	std::string Attribution;
+	std::string EnvironmentalSource;
+	bool HadRecentEnemyContribution = false;
+	bool HadRecentEnemyMomentumContribution = false;
+	std::string HazardPrefix;
+	bool MoveTargetKnown = false;
+	std::string MoveTargetName;
+	bool MovementIntent = false;
+	std::string PhysicsMode;
+	bool WaterEgressTerminalKnown = false;
+	uint64_t WaterEgressSequence = 0;
+	uint64_t WaterEgressLifeId = 0;
+	uint64_t WaterEgressEpisodeId = 0;
+	bool FallingHazardTerminalKnown = false;
+	uint64_t FallingHazardSequence = 0;
+	uint64_t FallingHazardLifeId = 0;
+	uint64_t FallingHazardFallEpisodeId = 0;
+	uint64_t FallingHazardGenerationId = 0;
+	std::string FallingHazardCorrelation;
+	bool FallingParityTerminalKnown = false;
+	uint64_t FallingParityLifeGeneration = 0;
+	uint64_t FallingParityInvocationToken = 0;
+	int FallingParityWalkingIteration = 0;
+};
+
 struct BotBenchmarkBotState
 {
 	std::string Identity;
@@ -115,6 +146,8 @@ struct BotBenchmarkBotState
 	uint64_t HazardWaterEgressDiagnosticOverflowsExact = 0;
 	std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>
 		HazardWaterEgressDiagnostics;
+	std::vector<BotBenchmarkHazardDeathPartitionRecord>
+		HazardDeathPartitionRecords;
 	uint64_t FallingHazardRecoveryPromotionsExact = 0;
 	uint64_t FallingHazardRecoveryAdvanceCallsExact = 0;
 	uint64_t FallingHazardRecoveryContextRejectedExact = 0;

@@ -454,6 +454,50 @@ namespace
 		out << '}';
 	}
 
+	void WriteHazardDeathPartitionRecord(std::ostringstream& out,
+		const BotBenchmarkHazardDeathPartitionRecord& record)
+	{
+		out << "{\"source_pawn_actor\":" << JsonString(record.SourcePawnActor)
+			<< ",\"sequence\":\"" << record.Sequence
+			<< "\",\"death_time_seconds\":" << Fixed(record.DeathTimeSeconds, 6)
+			<< ",\"killer_relation\":" << JsonString(record.KillerRelation)
+			<< ",\"attribution\":" << JsonString(record.Attribution)
+			<< ",\"environmental_source\":" << JsonString(record.EnvironmentalSource)
+			<< ",\"had_recent_enemy_contribution\":"
+			<< (record.HadRecentEnemyContribution ? "true" : "false")
+			<< ",\"had_recent_enemy_momentum_contribution\":"
+			<< (record.HadRecentEnemyMomentumContribution ? "true" : "false")
+			<< ",\"hazard_prefix\":" << JsonString(record.HazardPrefix)
+			<< ",\"move_target_known\":"
+			<< (record.MoveTargetKnown ? "true" : "false")
+			<< ",\"move_target_name\":" << JsonString(record.MoveTargetName)
+			<< ",\"movement_intent\":" << (record.MovementIntent ? "true" : "false")
+			<< ",\"physics_mode\":" << JsonString(record.PhysicsMode)
+			<< ",\"water_egress_terminal_known\":"
+			<< (record.WaterEgressTerminalKnown ? "true" : "false")
+			<< ",\"water_egress_sequence\":\"" << record.WaterEgressSequence
+			<< "\",\"water_egress_life_id\":\"" << record.WaterEgressLifeId
+			<< "\",\"water_egress_episode_id\":\"" << record.WaterEgressEpisodeId
+			<< "\",\"falling_hazard_terminal_known\":"
+			<< (record.FallingHazardTerminalKnown ? "true" : "false")
+			<< ",\"falling_hazard_sequence\":\"" << record.FallingHazardSequence
+			<< "\",\"falling_hazard_life_id\":\"" << record.FallingHazardLifeId
+			<< "\",\"falling_hazard_fall_episode_id\":\""
+			<< record.FallingHazardFallEpisodeId
+			<< "\",\"falling_hazard_generation_id\":\""
+			<< record.FallingHazardGenerationId
+			<< "\",\"falling_hazard_correlation\":"
+			<< JsonString(record.FallingHazardCorrelation)
+			<< ",\"falling_parity_terminal_known\":"
+			<< (record.FallingParityTerminalKnown ? "true" : "false")
+			<< ",\"falling_parity_life_generation\":\""
+			<< record.FallingParityLifeGeneration
+			<< "\",\"falling_parity_invocation_token\":\""
+			<< record.FallingParityInvocationToken
+			<< "\",\"falling_parity_walking_iteration\":"
+			<< record.FallingParityWalkingIteration << '}';
+	}
+
 	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot)
 	{
 		out << "{\"identity\":" << JsonString(bot.Identity)
@@ -549,6 +593,13 @@ namespace
 		{
 			if (index) out << ',';
 			WriteHazardWaterEgressDiagnostic(out, bot.HazardWaterEgressDiagnostics[index]);
+		}
+		out << ']'
+			<< ",\"hazard_death_partition_records\":[";
+		for (size_t index = 0; index < bot.HazardDeathPartitionRecords.size(); index++)
+		{
+			if (index) out << ',';
+			WriteHazardDeathPartitionRecord(out, bot.HazardDeathPartitionRecords[index]);
 		}
 		out << ']'
 			<< ",\"falling_hazard_recovery_promotions_exact\":\""

@@ -321,6 +321,7 @@ int main()
 		",\"hazard_swim_egress_anchor_source\":\"\""
 		",\"hazard_water_egress_diagnostic_overflows_exact\":\"0\""
 		",\"hazard_water_egress_diagnostics\":[]"
+		",\"hazard_death_partition_records\":[]"
 		",\"falling_hazard_recovery_promotions_exact\":\"0\""
 		",\"falling_hazard_recovery_advance_calls_exact\":\"0\""
 		",\"falling_hazard_recovery_context_rejected_exact\":\"0\""
@@ -495,6 +496,36 @@ int main()
 	}
 	event.Bots.front().HazardWaterEgressDiagnostics.clear();
 	event.Bots.front().HazardWaterEgressDiagnosticOverflowsExact = 0;
+
+	BotBenchmarkHazardDeathPartitionRecord deathPartition;
+	deathPartition.SourcePawnActor = "Bot1";
+	deathPartition.Sequence = 3;
+	deathPartition.DeathTimeSeconds = 12.5;
+	deathPartition.KillerRelation = "none";
+	deathPartition.Attribution = "unassisted_environmental_death";
+	deathPartition.EnvironmentalSource = "pain_timer";
+	deathPartition.HazardPrefix = "water_egress_death";
+	deathPartition.MovementIntent = true;
+	deathPartition.PhysicsMode = "Swimming";
+	deathPartition.WaterEgressTerminalKnown = true;
+	deathPartition.WaterEgressSequence = 5;
+	deathPartition.WaterEgressLifeId = 3;
+	deathPartition.WaterEgressEpisodeId = 2;
+	event.Bots.front().HazardDeathPartitionRecords.push_back(deathPartition);
+	const std::string deathPartitionEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (deathPartitionEvent.find(
+		"\"hazard_death_partition_records\":[{\"source_pawn_actor\":\"Bot1\",\"sequence\":\"3\",\"death_time_seconds\":12.500000,\"killer_relation\":\"none\",\"attribution\":\"unassisted_environmental_death\",\"environmental_source\":\"pain_timer\"")
+			== std::string::npos
+		|| deathPartitionEvent.find(
+			"\"water_egress_terminal_known\":true,\"water_egress_sequence\":\"5\",\"water_egress_life_id\":\"3\",\"water_egress_episode_id\":\"2\"")
+			== std::string::npos
+		|| deathPartitionEvent.find(
+			"\"falling_hazard_terminal_known\":false,\"falling_hazard_sequence\":\"0\",\"falling_hazard_life_id\":\"0\"")
+			== std::string::npos)
+	{
+		return Fail("hazard death partition serialization was incomplete or unstable");
+	}
+	event.Bots.front().HazardDeathPartitionRecords.clear();
 
 	using namespace PawnMovement;
 	if (std::string(FallingHazardForecastSourceName(
