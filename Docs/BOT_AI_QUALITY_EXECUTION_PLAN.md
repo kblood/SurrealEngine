@@ -1497,6 +1497,29 @@ environmentally-attributed harmful-water prefix before acceleration or routing
 is changed. It must reject direct-enemy deaths, targetless/no-intent states,
 unreachable candidates, and all unproven generic egress steering.
 
+## Iteration 67: direct pre-entry certificate falsification
+
+A new pure `DirectHarmfulWaterEntryCertificate` now accepts only a completed
+full-step falling forecast with known dry center/foot/head/physics start zones,
+an avoidance-relevant harmful-water foot endpoint, no reduced-damage exception,
+no transient harm, and an all-direct, clear, finite, contiguous predicted
+segment chain. It has no pawn, navigation target, death, attribution, or live
+movement dependency. The falling observer records only prospective outcomes:
+candidate, same-generation harmful-water confirmation, safe landing, or
+unresolved boundary; the metrics remain neutral counters and do not claim
+causality or prevention.
+
+Fresh two-repetition paired observer/control matrices at
+`qa/runs/2026-07-25/direct-harmful-water-prediction/` passed the v24 analyzer
+on Deck16 and DeathFan with zero checked quality deltas. The result rejects
+this certificate as the current policy predicate: all eight artifacts had zero
+candidates, including the repeatable Deck16 unassisted `PainTimer` water death
+and DeathFan's three unassisted environmental deaths per run. The strict
+certificate is therefore not an observed prefix for the actual failures; no
+opt-in steering policy is authorized. The next observer must count the
+certificate's fail-closed rejection reasons against the same pre-entry falling
+generations before broadening any predicate.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
