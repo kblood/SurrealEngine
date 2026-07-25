@@ -1583,6 +1583,35 @@ intervention needs a separate causal/controllability model for external
 impulses. Neither is approximated by the current observer, and no live policy
 is enabled.
 
+## Iteration 70: walking `MinHitWall` parity research
+
+The repeated Deck and DeathFan deaths do not currently supply a defensible
+bot-controlled pre-move intervention. A separate UE1 parity audit instead
+identified an unmeasured native dispatch contract that can materially change
+stock bot recovery: `Pawn.MinHitWall` is the minimum
+`HitNormal dot Velocity.Normal` value for physics to issue `HitWall`. The
+public Unreal-era Pawn declaration documents that contract, and recovered
+UT436 Botpack source sets it to `-0.5` in `PreSetMovement` and temporarily
+adjusts it by `+0.15` in `Wandering` and `TacticalMove`. Its `HitWall`
+handlers own the mover, `PickWallAdjust`, fall-state, and `MoveTimer = -1`
+replan behavior.
+
+The unified `TickWalking` currently gates the callback solely on the fixed
+`-0.2 < HitNormal.z < 0.2` band and never reads `MinHitWall`. This is therefore
+a plausible shared UT436/Unreal226b fidelity hypothesis, distinct from a new
+AI policy. The nearby unfinished non-movable-actor branch is not a bot cause:
+it is nested under `UPlayerPawn`, whereas UT `Bot` and Unreal `Bots` are Pawn
+subclasses and use the existing generic wall path.
+
+The next slice remains observer-only. It must record each walking collision's
+normalized movement dot normal, live `MinHitWall`, legacy Z-band decision,
+threshold decision, blocker kind, and script callback outcome; then compare
+the distributions and quality deltas in paired UT Deck16-II and Unreal
+DeathFan runs. The exact proprietary UT436 native comparison operator has not
+been independently observed, so no callback predicate or bot behavior changes
+in this iteration. Any later correction must first pin that boundary in pure
+fixtures and preserve the callback-before-stock-script-recovery ordering.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
