@@ -600,7 +600,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "walking_preflight_positive_dps_veto_enabled="
 		<< (config.IsWalkingPreflightPositiveDpsVetoEnabled() ? "1" : "0") << '\n'
 		<< "hazard_swim_egress_enabled="
-		<< (config.IsHazardSwimEgressEnabled() ? "1" : "0") << '\n';
+		<< (config.IsHazardSwimEgressEnabled() ? "1" : "0") << '\n'
+		<< "hazard_swim_egress_live_enabled="
+		<< (config.IsHazardSwimEgressLiveEnabled() ? "1" : "0") << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
 		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
@@ -632,6 +634,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsWalkingPreflightPositiveDpsVetoEnabled() ? "true" : "false") << ",\n"
 		<< "  \"hazard_swim_egress_enabled\": "
 		<< (config.IsHazardSwimEgressEnabled() ? "true" : "false") << ",\n"
+		<< "  \"hazard_swim_egress_live_enabled\": "
+		<< (config.IsHazardSwimEgressLiveEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";

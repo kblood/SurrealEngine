@@ -1610,7 +1610,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                bot_count: int | None = None, requested_roster: list[dict[str, Any]] | None = None,
                harmful_zone_escape_enabled: bool | None = None,
                walking_preflight_positive_dps_veto_enabled: bool | None = None,
-               hazard_swim_egress_enabled: bool | None = None) -> str:
+               hazard_swim_egress_enabled: bool | None = None,
+               hazard_swim_egress_live_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -1626,6 +1627,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if hazard_swim_egress_enabled is not None:
             canonical_text += "hazard_swim_egress_enabled=" + (
                 "1\n" if hazard_swim_egress_enabled else "0\n")
+        if hazard_swim_egress_live_enabled is not None:
+            canonical_text += "hazard_swim_egress_live_enabled=" + (
+                "1\n" if hazard_swim_egress_live_enabled else "0\n")
         assert requested_roster is not None
         canonical_text += "".join(f"roster={entry['identity_fragment']}\n" for entry in requested_roster)
     canonical = canonical_text.encode("utf-8")
@@ -1742,6 +1746,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     harmful_zone_escape_enabled = None
     walking_preflight_positive_dps_veto_enabled = None
     hazard_swim_egress_enabled = None
+    hazard_swim_egress_live_enabled = None
     if schema == MANIFEST_SCHEMA_V2:
         bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
         requested_roster = _validate_requested_roster(raw.get("requested_roster"),
@@ -1765,10 +1770,15 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         if "hazard_swim_egress_enabled" in raw:
             hazard_swim_egress_enabled = _boolean(
                 raw.get("hazard_swim_egress_enabled"), "manifest.hazard_swim_egress_enabled")
+        if "hazard_swim_egress_live_enabled" in raw:
+            hazard_swim_egress_live_enabled = _boolean(
+                raw.get("hazard_swim_egress_live_enabled"),
+                "manifest.hazard_swim_egress_live_enabled")
     expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count,
                              requested_roster, harmful_zone_escape_enabled,
                              walking_preflight_positive_dps_veto_enabled,
-                             hazard_swim_egress_enabled)
+                             hazard_swim_egress_enabled,
+                             hazard_swim_egress_live_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -1788,6 +1798,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "harmful_zone_escape_enabled": harmful_zone_escape_enabled,
         "walking_preflight_positive_dps_veto_enabled": walking_preflight_positive_dps_veto_enabled,
         "hazard_swim_egress_enabled": hazard_swim_egress_enabled,
+        "hazard_swim_egress_live_enabled": hazard_swim_egress_live_enabled,
     }
 
 
@@ -2317,6 +2328,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["hazard_swim_egress_enabled"] = _boolean(
             config.get("hazard_swim_egress_enabled"),
             "summary.config.hazard_swim_egress_enabled")
+    if manifest["hazard_swim_egress_live_enabled"] is not None:
+        comparisons["hazard_swim_egress_live_enabled"] = _boolean(
+            config.get("hazard_swim_egress_live_enabled"),
+            "summary.config.hazard_swim_egress_live_enabled")
     requested_roster = None
     actual_roster = None
     if expected_schema == SUMMARY_SCHEMA_V2:

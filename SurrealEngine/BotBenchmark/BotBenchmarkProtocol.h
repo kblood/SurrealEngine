@@ -32,7 +32,8 @@ public:
 		std::optional<std::string> requestedNames = {},
 		std::optional<std::string> harmfulZoneEscape = {},
 		std::optional<std::string> walkingPreflightPositiveDpsVeto = {},
-		std::optional<std::string> hazardSwimEgress = {});
+		std::optional<std::string> hazardSwimEgress = {},
+		std::optional<std::string> hazardSwimEgressLive = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -47,12 +48,13 @@ public:
 		return WalkingPreflightPositiveDpsVetoEnabled;
 	}
 	bool IsHazardSwimEgressEnabled() const { return HazardSwimEgressEnabled; }
+	bool IsHazardSwimEgressLiveEnabled() const { return HazardSwimEgressLiveEnabled; }
 
 private:
 	BotBenchmarkRunConfig(std::string url, std::string outputDirectory, uint64_t seed,
 		uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster,
 		bool harmfulZoneEscapeEnabled, bool walkingPreflightPositiveDpsVetoEnabled,
-		bool hazardSwimEgressEnabled);
+		bool hazardSwimEgressEnabled, bool hazardSwimEgressLiveEnabled);
 
 	std::string URL;
 	std::string OutputDirectory;
@@ -64,6 +66,7 @@ private:
 	bool HarmfulZoneEscapeEnabled = false;
 	bool WalkingPreflightPositiveDpsVetoEnabled = false;
 	bool HazardSwimEgressEnabled = false;
+	bool HazardSwimEgressLiveEnabled = false;
 };
 
 class BotBenchmarkRunSummary

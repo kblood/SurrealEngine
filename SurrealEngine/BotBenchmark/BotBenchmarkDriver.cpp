@@ -44,6 +44,8 @@ namespace
 			EngineRef.SetBotBenchmarkWalkingPreflightPositiveDpsVetoEnabled(
 				Config.IsWalkingPreflightPositiveDpsVetoEnabled());
 			EngineRef.SetBotBenchmarkHazardSwimEgressEnabled(Config.IsHazardSwimEgressEnabled());
+			EngineRef.SetBotBenchmarkHazardSwimEgressLiveEnabled(
+				Config.IsHazardSwimEgressLiveEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -1479,7 +1481,8 @@ namespace
 			OptionalCommandLineArg("--botbench-names"),
 			OptionalCommandLineArg("--botbench-harmful-zone-escape"),
 			OptionalCommandLineArg("--botbench-walking-preflight-positive-dps-veto"),
-			OptionalCommandLineArg("--botbench-hazard-swim-egress"));
+			OptionalCommandLineArg("--botbench-hazard-swim-egress"),
+			OptionalCommandLineArg("--botbench-hazard-swim-egress-live"));
 	}
 }
 

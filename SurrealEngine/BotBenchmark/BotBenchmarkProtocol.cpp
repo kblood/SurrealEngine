@@ -147,12 +147,13 @@ namespace
 BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string outputDirectory,
 	uint64_t seed, uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster,
 	bool harmfulZoneEscapeEnabled, bool walkingPreflightPositiveDpsVetoEnabled,
-	bool hazardSwimEgressEnabled)
+	bool hazardSwimEgressEnabled, bool hazardSwimEgressLiveEnabled)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
 	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled),
 	WalkingPreflightPositiveDpsVetoEnabled(walkingPreflightPositiveDpsVetoEnabled),
-	HazardSwimEgressEnabled(hazardSwimEgressEnabled)
+	HazardSwimEgressEnabled(hazardSwimEgressEnabled),
+	HazardSwimEgressLiveEnabled(hazardSwimEgressLiveEnabled)
 {
 }
 
@@ -161,7 +162,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> botCount, std::optional<std::string> perBotSkills,
 	std::optional<std::string> requestedNames, std::optional<std::string> harmfulZoneEscape,
 	std::optional<std::string> walkingPreflightPositiveDpsVeto,
-	std::optional<std::string> hazardSwimEgress)
+	std::optional<std::string> hazardSwimEgress, std::optional<std::string> hazardSwimEgressLive)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -186,10 +187,13 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		walkingPreflightPositiveDpsVeto, "bot benchmark walking-preflight positive-DPS veto");
 	const bool parsedHazardSwimEgress = ParseExactBoolean(
 		hazardSwimEgress, "bot benchmark hazard-swim egress");
+	const bool parsedHazardSwimEgressLive = ParseExactBoolean(
+		hazardSwimEgressLive, "bot benchmark hazard-swim egress live");
 
 	return BotBenchmarkRunConfig(std::move(url), std::move(outputDirectory), parsedSeed,
 		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster), parsedHarmfulZoneEscape,
-		parsedWalkingPreflightPositiveDpsVeto, parsedHazardSwimEgress);
+		parsedWalkingPreflightPositiveDpsVeto, parsedHazardSwimEgress,
+		parsedHazardSwimEgressLive);
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
@@ -237,7 +241,9 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< "    \"walking_preflight_positive_dps_veto_enabled\": "
 		<< (config.IsWalkingPreflightPositiveDpsVetoEnabled() ? "true" : "false") << ",\n"
 		<< "    \"hazard_swim_egress_enabled\": "
-		<< (config.IsHazardSwimEgressEnabled() ? "true" : "false") << "\n"
+		<< (config.IsHazardSwimEgressEnabled() ? "true" : "false") << ",\n"
+		<< "    \"hazard_swim_egress_live_enabled\": "
+		<< (config.IsHazardSwimEgressLiveEnabled() ? "true" : "false") << "\n"
 		<< "  }\n"
 		<< "}\n";
 	return out.str();
