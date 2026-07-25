@@ -3125,3 +3125,30 @@ This rules out using target name, route head, or a generic water entry as a
 behavior trigger. The next bounded observer must record the exact active
 latent command form and its immutable issue-time target/destination, then test
 only a same-life command whose pre-launch path has a certified safe alternative.
+
+## Iteration 122: immutable falling-command context audit
+
+The launch observer now captures an issue-time native command snapshot at every
+`MoveTo`, `MoveToward`, `StrafeTo`, or `StrafeFacing` entry. A falling record
+is marked active only if its command token, latent kind, target identity, and
+destination still exactly match the stored native issue record at launch. The
+observer clears that record on landing and life end. This is intentionally
+stricter than observing a token or target pointer alone: a changed command is
+unknown, not attributed to the old command.
+
+The new 7,200-tick no-UCC DeathFan audit is structurally accepted at
+`qa/runs/2026-07-26/falling-launch-command-context-audit-v1/` and
+`qa/reports/bot-ai/falling-launch-command-context-audit-v1.json`. Of nine
+harmful-water `death_before_exit` records, five retain an intact issue-time
+command. All five are `move_toward`: three target ASMD ammo instances
+(`ASMDAmmo3`, `ASMDAmmo4`, and `ASMDAmmo0`), one repeats `ASMDAmmo3`, and one
+targets `PathNode73`. The other four fatal launches have no intact native
+movement command, including the earlier SuperHealth context and the LiftExit2
+context; they remain outside any direct-command intervention.
+
+This is the first bounded, recurring causal class, but it still does not prove
+that suppressing or rerouting any of the five commands is safe. The next work
+is a read-only, issue-time route/support certificate for these exact
+`MoveToward` targets. It must establish a same-life dry, collision-clear
+alternative that preserves target progress; otherwise the class remains
+observer-only.

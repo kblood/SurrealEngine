@@ -271,6 +271,18 @@ namespace
 		return FallingHazardCollisionKind::DynamicActor;
 	}
 
+	const char* MovementLatentStateName(LatentRunState state)
+	{
+		switch (state)
+		{
+		case LatentRunState::MoveTo: return "move_to";
+		case LatentRunState::MoveToward: return "move_toward";
+		case LatentRunState::StrafeTo: return "strafe_to";
+		case LatentRunState::StrafeFacing: return "strafe_facing";
+		default: return "none";
+		}
+	}
+
 	PawnMovement::WalkingHitWallBlockerKind ClassifyWalkingHitWallBlocker(
 		UPawn* pawn, const CollisionHit& hit)
 	{
@@ -6013,6 +6025,12 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 			ExternalImpulseNavigationCommit.MovementCommandActive;
 		entry.ExternalImpulseMovementCommandToken =
 			ExternalImpulseNavigationCommit.MovementCommandToken;
+		entry.ExternalImpulseMovementCommandKind =
+			ExternalImpulseNavigationCommit.MovementCommandKind;
+		entry.ExternalImpulseMovementCommandTargetName =
+			ExternalImpulseNavigationCommit.MovementCommandTargetName;
+		entry.ExternalImpulseMovementCommandDestination =
+			ExternalImpulseNavigationCommit.MovementCommandDestination;
 		entry.ExternalImpulseMoveTargetName = ExternalImpulseNavigationCommit.MoveTargetName;
 		entry.ExternalImpulseMoveTargetNavigation =
 			ExternalImpulseNavigationCommit.MoveTargetNavigation;
@@ -7557,12 +7575,27 @@ void UPawn::CaptureExternalImpulseNavigationCommit()
 	const LatentRunState latentState = StateFrame
 		? StateFrame->LatentState : LatentRunState::Continue;
 	ExternalImpulseNavigationCommit.MovementCommandActive =
-		FallingHazardMovementCommandToken != 0 && IsMovementLatentState(latentState)
+		LastFallingHazardMovementCommand.Active
+		&& FallingHazardMovementCommandToken != 0 && IsMovementLatentState(latentState)
 		&& !(latentState == LatentRunState::MoveToward
-			&& (!MoveTarget() || MoveTarget()->bDeleteMe()));
+			&& (!MoveTarget() || MoveTarget()->bDeleteMe()))
+		&& LastFallingHazardMovementCommand.Token == FallingHazardMovementCommandToken
+		&& LastFallingHazardMovementCommand.LatentState
+			== static_cast<uint8_t>(latentState)
+		&& LastFallingHazardMovementCommand.MoveTarget == MoveTarget()
+		&& MaximumAbsoluteComponent(LastFallingHazardMovementCommand.Destination
+			- Destination()) <= PawnMovement::FallingHazardForecastVectorTolerance;
 	ExternalImpulseNavigationCommit.MovementCommandToken =
 		ExternalImpulseNavigationCommit.MovementCommandActive
 			? FallingHazardMovementCommandToken : 0;
+	if (ExternalImpulseNavigationCommit.MovementCommandActive)
+	{
+		ExternalImpulseNavigationCommit.MovementCommandKind =
+			MovementLatentStateName(latentState);
+		ExternalImpulseNavigationCommit.MovementCommandTargetName = MoveTarget()
+			? MoveTarget()->Name.ToString() : std::string();
+		ExternalImpulseNavigationCommit.MovementCommandDestination = Destination();
+	}
 	ExternalImpulseNavigationCommit.Location = Location();
 	ExternalImpulseNavigationCommit.Velocity = Velocity();
 	PawnMovement::FallingHazardForecastInput forecastInput;
@@ -8049,6 +8082,20 @@ void UPawn::RecordFallingHazardMovementCommand()
 		FallingHazardMovementCommandToken = 0;
 		PendingFallingHazardAlignedCommandWitness = {};
 	}
+	LastFallingHazardMovementCommand = {};
+	if (FallingHazardMovementCommandToken != 0 && StateFrame
+		&& IsMovementLatentState(StateFrame->LatentState)
+		&& IsFiniteVector(Destination())
+		&& !(StateFrame->LatentState == LatentRunState::MoveToward
+			&& (!MoveTarget() || MoveTarget()->bDeleteMe())))
+	{
+		LastFallingHazardMovementCommand.Active = true;
+		LastFallingHazardMovementCommand.Token = FallingHazardMovementCommandToken;
+		LastFallingHazardMovementCommand.LatentState =
+			static_cast<uint8_t>(StateFrame->LatentState);
+		LastFallingHazardMovementCommand.MoveTarget = MoveTarget();
+		LastFallingHazardMovementCommand.Destination = Destination();
+	}
 	ObserveHazardSwimEgressPlannerHandoffMovementCommand();
 	ObserveHazardResidenceMovementCommand();
 }
@@ -8136,6 +8183,7 @@ void UPawn::FinishFallingHazardLanding(const CollisionHit& hit,
 	}
 	ResetFallingHazardRecovery();
 	FallingHazardPending = {};
+	LastFallingHazardMovementCommand = {};
 	FallingHazardCallbackContinuation.reset();
 	FallingHazardQueuedSource =
 		PawnMovement::FallingHazardForecastSource::Unknown;
@@ -8218,6 +8266,7 @@ void UPawn::EndWalkingStepPreflightLife()
 	if (FallingHazardObserver)
 		FallingHazardObserver->EndLife();
 	FallingHazardPending = {};
+	LastFallingHazardMovementCommand = {};
 	FallingHazardCallbackContinuation.reset();
 	FallingHazardQueuedSource =
 		PawnMovement::FallingHazardForecastSource::Unknown;

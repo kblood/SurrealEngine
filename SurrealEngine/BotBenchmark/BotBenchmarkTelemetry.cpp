@@ -529,7 +529,13 @@ namespace
 			<< (entry.ExternalImpulseMovementCommandActive ? "true" : "false")
 			<< ",\"falling_launch_movement_command_token\":\""
 			<< entry.ExternalImpulseMovementCommandToken
-			<< "\",\"falling_launch_move_target_name\":"
+			<< "\",\"falling_launch_movement_command_kind\":"
+			<< JsonString(entry.ExternalImpulseMovementCommandKind)
+			<< ",\"falling_launch_movement_command_target_name\":"
+			<< JsonString(entry.ExternalImpulseMovementCommandTargetName)
+			<< ",\"falling_launch_movement_command_destination\":";
+		WriteVector(out, entry.ExternalImpulseMovementCommandDestination);
+		out << ",\"falling_launch_move_target_name\":"
 			<< JsonString(entry.ExternalImpulseMoveTargetName)
 			<< ",\"falling_launch_move_target_navigation\":"
 			<< (entry.ExternalImpulseMoveTargetNavigation ? "true" : "false")

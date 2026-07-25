@@ -47,6 +47,9 @@ namespace PawnMovement
 		uint64_t ExternalImpulseNavigationCommitLifeId = 0;
 		bool ExternalImpulseMovementCommandActive = false;
 		uint64_t ExternalImpulseMovementCommandToken = 0;
+		std::string ExternalImpulseMovementCommandKind;
+		std::string ExternalImpulseMovementCommandTargetName;
+		vec3 ExternalImpulseMovementCommandDestination = vec3(0.0f);
 		std::string ExternalImpulseMoveTargetName;
 		bool ExternalImpulseMoveTargetNavigation = false;
 		bool ExternalImpulseRouteHeadKnown = false;

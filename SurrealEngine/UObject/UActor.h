@@ -2636,6 +2636,9 @@ private:
 		uint64_t LifeId = 0;
 		bool MovementCommandActive = false;
 		uint64_t MovementCommandToken = 0;
+		std::string MovementCommandKind;
+		std::string MovementCommandTargetName;
+		vec3 MovementCommandDestination = vec3(0.0f);
 		std::string MoveTargetName;
 		bool MoveTargetNavigation = false;
 		bool RouteHeadKnown = false;
@@ -2882,7 +2885,16 @@ private:
 		vec3 Destination = vec3(0.0f);
 		vec3 Acceleration = vec3(0.0f);
 	};
+	struct FallingHazardLastMovementCommand
+	{
+		bool Active = false;
+		uint64_t Token = 0;
+		uint8_t LatentState = 0;
+		UActor* MoveTarget = nullptr;
+		vec3 Destination = vec3(0.0f);
+	};
 	uint64_t FallingHazardMovementCommandToken = 0;
+	FallingHazardLastMovementCommand LastFallingHazardMovementCommand;
 	FallingHazardAlignedCommandWitness PendingFallingHazardAlignedCommandWitness;
 	std::unique_ptr<PawnMovement::FallingHazardRuntimeObserver>
 		FallingHazardObserver;

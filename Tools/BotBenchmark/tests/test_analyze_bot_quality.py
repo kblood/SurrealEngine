@@ -639,6 +639,9 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 "falling_launch_life_id": "1",
                 "falling_launch_movement_command_active": True,
                 "falling_launch_movement_command_token": "7",
+                "falling_launch_movement_command_kind": "move_toward",
+                "falling_launch_movement_command_target_name": "PathNode142",
+                "falling_launch_movement_command_destination": {"x": 4.0, "y": 5.0, "z": 6.0},
                 "falling_launch_move_target_name": "PathNode142",
                 "falling_launch_move_target_navigation": True,
                 "falling_launch_route_head_known": True,
@@ -662,6 +665,17 @@ class BotQualityAnalysisTests(unittest.TestCase):
             ])
             with self.assertRaisesRegex(QUALITY.QualityError, "must belong to the water episode life"):
                 QUALITY.analyze_run(wrong_life)
+
+            invalid_command = write_v2_run(
+                root, "hazard-water-egress-falling-launch-command", bot_count=1)
+            invalid_command_diagnostic = {
+                **current_diagnostic, "falling_launch_movement_command_kind": "none"}
+            upgrade_telemetry_v2(invalid_command, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_command_diagnostic]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "active falling-launch command has an invalid kind"):
+                QUALITY.analyze_run(invalid_command)
 
             legacy = write_v2_run(root, "hazard-water-egress-legacy", bot_count=1)
             legacy_diagnostic = {
