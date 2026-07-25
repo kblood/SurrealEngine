@@ -72,6 +72,10 @@ struct BotBenchmarkDirectReachCommandRecord
 	std::string LatentAction;
 	bool RouteHeadPresent = false;
 	std::string LinkStatus;
+	uint64_t ActivationTick = 0;
+	uint64_t TerminalTick = 0;
+	std::string Terminal;
+	bool HazardTerminalExact = false;
 };
 
 struct BotBenchmarkBotState
@@ -132,6 +136,11 @@ struct BotBenchmarkBotState
 	uint64_t DirectReachCommandSameLifeExactExact = 0;
 	uint64_t DirectReachCommandUnlinkedExact = 0;
 	uint64_t DirectReachCommandOverflowsExact = 0;
+	uint64_t DirectReachCommandHazardousDeathsExact = 0;
+	uint64_t DirectReachCommandNonhazardDeathsExact = 0;
+	uint64_t DirectReachCommandClearedExact = 0;
+	uint64_t DirectReachCommandLifeBoundaryCensoredExact = 0;
+	uint64_t DirectReachCommandRunEndCensoredExact = 0;
 	std::vector<BotBenchmarkDirectReachCommandRecord> DirectReachCommandRecords;
 	uint64_t EnvironmentalDeathsExact = 0;
 	uint64_t HazardExposedDeathsProxy = 0;

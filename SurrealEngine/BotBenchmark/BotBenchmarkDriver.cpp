@@ -204,6 +204,7 @@ namespace
 					pawn->EndMoveStallRecoveryRun();
 					pawn->EndHazardSwimEgressRun();
 					pawn->EndHazardResidenceRun();
+					CensorAllOpenDirectReachCommands(runtime->second, "run_end_censor", Ticks);
 					AccumulateNativePawnCounters(identity, runtime->second, pawn,
 						BotBenchmarkDriverDetail::NativePawnCounterSample::LivePawn);
 				}
@@ -326,6 +327,8 @@ namespace
 				PendingInventoryDirectReachSupportDiagnostics;
 			std::vector<BotBenchmarkDirectReachCommandRecord>
 				PendingDirectReachCommandRecords;
+			std::vector<BotBenchmarkDirectReachCommandRecord>
+				OpenDirectReachCommandRecords;
 			std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
 				PendingWalkingHitWallDispatchDiagnostics;
 			std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
@@ -364,6 +367,11 @@ namespace
 			uint64_t DirectReachCommandSameLifeExactExact = 0;
 			uint64_t DirectReachCommandUnlinkedExact = 0;
 			uint64_t DirectReachCommandOverflowsExact = 0;
+			uint64_t DirectReachCommandHazardousDeathsExact = 0;
+			uint64_t DirectReachCommandNonhazardDeathsExact = 0;
+			uint64_t DirectReachCommandClearedExact = 0;
+			uint64_t DirectReachCommandLifeBoundaryCensoredExact = 0;
+			uint64_t DirectReachCommandRunEndCensoredExact = 0;
 		};
 
 		struct ActiveTargetSelectionCall
@@ -1176,6 +1184,82 @@ namespace
 				runtime.NativeCounterTotals);
 		}
 
+		void AccountDirectReachCommandTerminal(QualityParticipantRuntime& runtime,
+			const char* terminal)
+		{
+			const std::string value = terminal;
+			if (value == "hazardous_death")
+				runtime.DirectReachCommandHazardousDeathsExact++;
+			else if (value == "nonhazard_death")
+				runtime.DirectReachCommandNonhazardDeathsExact++;
+			else if (value == "cleared")
+				runtime.DirectReachCommandClearedExact++;
+			else if (value == "life_boundary_censor")
+				runtime.DirectReachCommandLifeBoundaryCensoredExact++;
+			else if (value == "run_end_censor")
+				runtime.DirectReachCommandRunEndCensoredExact++;
+			else
+				Fail(std::string("invalid direct-reach terminal: ") + value);
+		}
+
+		void ResolveOpenDirectReachCommands(QualityParticipantRuntime& runtime,
+			uint64_t lifeId, const char* terminal, bool hazardTerminalExact,
+			uint64_t terminalTick)
+		{
+			for (auto it = runtime.OpenDirectReachCommandRecords.begin();
+				it != runtime.OpenDirectReachCommandRecords.end();)
+			{
+				if (it->LifeId != lifeId)
+				{
+					++it;
+					continue;
+				}
+				it->TerminalTick = terminalTick;
+				it->Terminal = terminal;
+				it->HazardTerminalExact = hazardTerminalExact;
+				it->Sequence = runtime.NextDirectReachCommandSequence++;
+				runtime.PendingDirectReachCommandRecords.push_back(std::move(*it));
+				AccountDirectReachCommandTerminal(runtime, terminal);
+				it = runtime.OpenDirectReachCommandRecords.erase(it);
+			}
+		}
+
+		void CensorStaleOpenDirectReachCommands(QualityParticipantRuntime& runtime,
+			uint64_t liveLifeId, uint64_t terminalTick)
+		{
+			for (auto it = runtime.OpenDirectReachCommandRecords.begin();
+				it != runtime.OpenDirectReachCommandRecords.end();)
+			{
+				if (it->LifeId == liveLifeId)
+				{
+					++it;
+					continue;
+				}
+				it->TerminalTick = terminalTick;
+				it->Terminal = "life_boundary_censor";
+				it->HazardTerminalExact = false;
+				it->Sequence = runtime.NextDirectReachCommandSequence++;
+				runtime.PendingDirectReachCommandRecords.push_back(std::move(*it));
+				AccountDirectReachCommandTerminal(runtime, "life_boundary_censor");
+				it = runtime.OpenDirectReachCommandRecords.erase(it);
+			}
+		}
+
+		void CensorAllOpenDirectReachCommands(QualityParticipantRuntime& runtime,
+			const char* terminal, uint64_t terminalTick)
+		{
+			for (auto& record : runtime.OpenDirectReachCommandRecords)
+			{
+				record.TerminalTick = terminalTick;
+				record.Terminal = terminal;
+				record.HazardTerminalExact = false;
+				record.Sequence = runtime.NextDirectReachCommandSequence++;
+				runtime.PendingDirectReachCommandRecords.push_back(std::move(record));
+				AccountDirectReachCommandTerminal(runtime, terminal);
+			}
+			runtime.OpenDirectReachCommandRecords.clear();
+		}
+
 		void RecordKilled(UPawn* killer, UPawn* victim)
 		{
 			const std::string victimIdentity = PawnIdentity(victim);
@@ -1184,7 +1268,10 @@ namespace
 			{
 				QualityParticipantRuntime& counters = victimRuntime->second;
 				victim->RecordHazardSwimEgressDeath();
-				victim->RecordHazardResidenceDeath();
+				const bool directReachHazardTerminalExact = victim->RecordHazardResidenceDeath();
+				ResolveOpenDirectReachCommands(counters, victim->DirectReachCommandLifeId(),
+					directReachHazardTerminalExact ? "hazardous_death" : "nonhazard_death",
+					directReachHazardTerminalExact, Ticks + 1);
 				victim->FinishFallingHazardDeath();
 				victim->FinishFallingParityRealizedTrace(
 					PawnMovement::FallingParityRealizedOutcome::Died);
@@ -2717,6 +2804,33 @@ namespace
 					native.DirectHarmfulWaterEntryCertificateResults;
 				if (pawn)
 				{
+					CensorStaleOpenDirectReachCommands(runtime, pawn->DirectReachCommandLifeId(),
+						Ticks);
+					for (const auto& [lifeId, terminal] :
+						pawn->DrainDirectReachHazardResidenceTerminals())
+					{
+						switch (terminal)
+						{
+						case PawnMovement::HazardResidenceTerminal::Cleared:
+							ResolveOpenDirectReachCommands(runtime, lifeId, "cleared", false, Ticks);
+							break;
+						case PawnMovement::HazardResidenceTerminal::Death:
+							ResolveOpenDirectReachCommands(runtime, lifeId, "hazardous_death", true,
+								Ticks);
+							break;
+						case PawnMovement::HazardResidenceTerminal::LifeBoundary:
+							ResolveOpenDirectReachCommands(runtime, lifeId,
+								"life_boundary_censor", false, Ticks);
+							break;
+						case PawnMovement::HazardResidenceTerminal::RunEnd:
+							ResolveOpenDirectReachCommands(runtime, lifeId, "run_end_censor", false,
+								Ticks);
+							break;
+						case PawnMovement::HazardResidenceTerminal::None:
+						case PawnMovement::HazardResidenceTerminal::Unknown:
+							break;
+						}
+					}
 					auto diagnostics = pawn->DrainWalkingStepPreflightDiagnostics();
 					auto inventoryDirectReachDiagnostics =
 						pawn->DrainInventoryDirectReachSupportDiagnostics();
@@ -2758,22 +2872,29 @@ namespace
 							linkStatus = "unavailable_target_replaced";
 						else
 							linkStatus = "same_life_exact";
-						runtime.PendingDirectReachCommandRecords.push_back({
-							runtime.NextDirectReachCommandSequence++, observation.LifeId,
+						BotBenchmarkDirectReachCommandRecord record{
+							0, observation.LifeId,
 							observation.TargetActorIndex, observation.TargetName,
 							observation.TargetClass, observation.Reached, observation.CheckNavpoint,
 							observation.ResolvedWallSlide, observation.WalkingSimulationIterations,
-							bot.LatentAction, routeHeadPresent, std::move(linkStatus) });
+							bot.LatentAction, routeHeadPresent, std::move(linkStatus), Ticks, 0,
+							std::string(), false };
 						runtime.DirectReachCommandObservationsExact++;
 						if (observation.Reached)
 							runtime.DirectReachCommandSuccessesExact++;
 						else
 							runtime.DirectReachCommandFailuresExact++;
-						if (runtime.PendingDirectReachCommandRecords.back().LinkStatus
-							== "same_life_exact")
+						if (record.LinkStatus == "same_life_exact")
+						{
 							runtime.DirectReachCommandSameLifeExactExact++;
+							runtime.OpenDirectReachCommandRecords.push_back(std::move(record));
+						}
 						else
+						{
 							runtime.DirectReachCommandUnlinkedExact++;
+							record.Sequence = runtime.NextDirectReachCommandSequence++;
+							runtime.PendingDirectReachCommandRecords.push_back(std::move(record));
+						}
 					}
 					runtime.PendingWalkingHitWallDispatchDiagnostics.insert(
 						runtime.PendingWalkingHitWallDispatchDiagnostics.end(),
@@ -2824,6 +2945,15 @@ namespace
 				bot.DirectReachCommandSameLifeExactExact = runtime.DirectReachCommandSameLifeExactExact;
 				bot.DirectReachCommandUnlinkedExact = runtime.DirectReachCommandUnlinkedExact;
 				bot.DirectReachCommandOverflowsExact = runtime.DirectReachCommandOverflowsExact;
+				bot.DirectReachCommandHazardousDeathsExact =
+					runtime.DirectReachCommandHazardousDeathsExact;
+				bot.DirectReachCommandNonhazardDeathsExact =
+					runtime.DirectReachCommandNonhazardDeathsExact;
+				bot.DirectReachCommandClearedExact = runtime.DirectReachCommandClearedExact;
+				bot.DirectReachCommandLifeBoundaryCensoredExact =
+					runtime.DirectReachCommandLifeBoundaryCensoredExact;
+				bot.DirectReachCommandRunEndCensoredExact =
+					runtime.DirectReachCommandRunEndCensoredExact;
 				bot.WalkingHitWallDispatchDiagnostics = std::move(
 					runtime.PendingWalkingHitWallDispatchDiagnostics);
 				runtime.PendingWalkingHitWallDispatchDiagnostics.clear();

@@ -5701,6 +5701,8 @@ void UPawn::ResolveHazardResidence(PawnMovement::HazardResidenceTerminal termina
 	case PawnMovement::HazardResidenceTerminal::None:
 		return;
 	}
+	if (engine->IsBotBenchmarkDirectReachCommandObserverEnabled())
+		DirectReachHazardResidenceTerminals.emplace_back(DirectReachCommandLifeId(), terminal);
 	HazardResidence = {};
 	HazardResidenceCandidateName.clear();
 }
@@ -5717,7 +5719,8 @@ void UPawn::AdvanceHazardResidence(float elapsed)
 
 void UPawn::AdvanceHazardResidenceSample(bool positiveDpsHazard, float elapsed)
 {
-	const bool eligibleBot = engine->IsBotBenchmarkHazardSwimEgressEnabled()
+	const bool eligibleBot = (engine->IsBotBenchmarkHazardSwimEgressEnabled()
+		|| engine->IsBotBenchmarkDirectReachCommandObserverEnabled())
 		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority;
 	if (!eligibleBot)
 	{
@@ -5759,12 +5762,13 @@ void UPawn::ObserveHazardResidenceMovementCommand()
 		HazardResidenceCandidateOtherCommandCountValue++;
 }
 
-void UPawn::RecordHazardResidenceDeath()
+bool UPawn::RecordHazardResidenceDeath()
 {
 	const auto update = PawnMovement::AdvanceHazardResidence(HazardResidence,
 		true, false, 0.0f, false, false, 0.25f);
 	HazardResidence = update.State;
 	ResolveHazardResidence(update.Terminal);
+	return update.Terminal == PawnMovement::HazardResidenceTerminal::Death;
 }
 
 void UPawn::EndHazardResidenceRun()
@@ -5773,6 +5777,14 @@ void UPawn::EndHazardResidenceRun()
 		false, true, 0.0f, false, true, 0.25f);
 	HazardResidence = update.State;
 	ResolveHazardResidence(update.Terminal);
+}
+
+std::vector<std::pair<uint64_t, PawnMovement::HazardResidenceTerminal>>
+UPawn::DrainDirectReachHazardResidenceTerminals()
+{
+	std::vector<std::pair<uint64_t, PawnMovement::HazardResidenceTerminal>> terminals;
+	terminals.swap(DirectReachHazardResidenceTerminals);
+	return terminals;
 }
 
 void UPawn::BeginHazardSwimEgressFallingTick()

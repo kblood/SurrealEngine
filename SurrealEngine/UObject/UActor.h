@@ -1961,7 +1961,9 @@ public:
 	void EndHazardSwimEgressRun();
 	void RecordHazardSwimEgressDeath();
 	void EndHazardResidenceRun();
-	void RecordHazardResidenceDeath();
+	bool RecordHazardResidenceDeath();
+	std::vector<std::pair<uint64_t, PawnMovement::HazardResidenceTerminal>>
+		DrainDirectReachHazardResidenceTerminals();
 
 	void MoveTo(const vec3& newDestination, float speed);
 	void MoveToward(UActor* newTarget, float speed);
@@ -2625,6 +2627,8 @@ private:
 	HazardSwimEgressState HazardSwimEgress;
 	PawnMovement::HazardResidenceState HazardResidence;
 	std::string HazardResidenceCandidateName;
+	std::vector<std::pair<uint64_t, PawnMovement::HazardResidenceTerminal>>
+		DirectReachHazardResidenceTerminals;
 	struct ExternalImpulseNavigationCommitState
 	{
 		bool Active = false;

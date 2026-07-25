@@ -17,6 +17,11 @@ COUNTERS = (
     "direct_reach_command_same_life_exact_exact",
     "direct_reach_command_unlinked_exact",
     "direct_reach_command_overflows_exact",
+    "direct_reach_command_hazardous_deaths_exact",
+    "direct_reach_command_nonhazard_deaths_exact",
+    "direct_reach_command_cleared_exact",
+    "direct_reach_command_life_boundary_censored_exact",
+    "direct_reach_command_run_end_censored_exact",
 )
 LINK_STATUSES = {
     "same_life_exact",
@@ -26,6 +31,26 @@ LINK_STATUSES = {
     "unavailable_route_head",
     "unavailable_target_replaced",
 }
+TERMINALS = {
+    "hazardous_death",
+    "nonhazard_death",
+    "cleared",
+    "life_boundary_censor",
+    "run_end_censor",
+}
+TERMINAL_COUNTERS = {
+    "hazardous_death": "direct_reach_command_hazardous_deaths_exact",
+    "nonhazard_death": "direct_reach_command_nonhazard_deaths_exact",
+    "cleared": "direct_reach_command_cleared_exact",
+    "life_boundary_censor": "direct_reach_command_life_boundary_censored_exact",
+    "run_end_censor": "direct_reach_command_run_end_censored_exact",
+}
+TERMINAL_FIELDS = (
+    "activation_tick",
+    "terminal_tick",
+    "terminal",
+    "hazard_terminal_exact",
+)
 
 
 class DirectReachCommandError(Exception):
@@ -46,6 +71,24 @@ def _strict_count(value: Any, context: str) -> int:
     if not isinstance(value, str) or not value.isascii() or not value.isdecimal():
         raise DirectReachCommandError(f"{context}: expected a non-negative integer string")
     return int(value)
+
+
+def _validate_same_life_terminal(record: dict[str, Any], context: str) -> None:
+    activation_tick = _strict_count(record.get("activation_tick"),
+                                    f"{context}: activation_tick")
+    terminal_tick = _strict_count(record.get("terminal_tick"),
+                                  f"{context}: terminal_tick")
+    if terminal_tick < activation_tick:
+        raise DirectReachCommandError(f"{context}: terminal tick precedes activation tick")
+    terminal = record.get("terminal")
+    if terminal not in TERMINALS:
+        raise DirectReachCommandError(f"{context}: terminal is invalid")
+    hazard_terminal_exact = record.get("hazard_terminal_exact")
+    if not isinstance(hazard_terminal_exact, bool):
+        raise DirectReachCommandError(f"{context}: hazard terminal exact is invalid")
+    if hazard_terminal_exact != (terminal == "hazardous_death"):
+        raise DirectReachCommandError(
+            f"{context}: hazardous-death terminal does not match exact hazard evidence")
 
 
 def analyze(run: Path) -> dict[str, Any]:
@@ -108,6 +151,12 @@ def analyze(run: Path) -> dict[str, Any]:
                     raise DirectReachCommandError(f"events line {event_index} {identity}: record link status is invalid")
                 if record["link_status"] == "same_life_exact" and not record["reached"]:
                     raise DirectReachCommandError(f"events line {event_index} {identity}: false reach was linked")
+                if record["link_status"] == "same_life_exact":
+                    _validate_same_life_terminal(record,
+                        f"events line {event_index} {identity}: same-life record")
+                elif any(record.get(field) is not None for field in TERMINAL_FIELDS):
+                    raise DirectReachCommandError(
+                        f"events line {event_index} {identity}: unlinked record has terminal evidence")
                 records[identity].append(record)
         if seen != expected:
             raise DirectReachCommandError(f"events line {event_index}: participant set is incomplete")
@@ -119,7 +168,9 @@ def analyze(run: Path) -> dict[str, Any]:
         if final["direct_reach_command_observations_exact"] != len(emitted):
             raise DirectReachCommandError(f"{identity}: observation counter does not reconcile with records")
         successes = sum(record["reached"] for record in emitted)
-        matches = sum(record["link_status"] == "same_life_exact" for record in emitted)
+        same_life_records = [record for record in emitted
+                             if record["link_status"] == "same_life_exact"]
+        matches = len(same_life_records)
         if final["direct_reach_command_successes_exact"] != successes:
             raise DirectReachCommandError(f"{identity}: success counter does not reconcile")
         if final["direct_reach_command_failures_exact"] + successes != len(emitted):
@@ -130,6 +181,13 @@ def analyze(run: Path) -> dict[str, Any]:
             raise DirectReachCommandError(f"{identity}: link partition does not reconcile")
         if final["direct_reach_command_overflows_exact"] != 0:
             raise DirectReachCommandError(f"{identity}: observer record overflow")
+        if sum(final[counter] for counter in TERMINAL_COUNTERS.values()) != matches:
+            raise DirectReachCommandError(f"{identity}: terminal partition does not reconcile")
+        for terminal, counter in TERMINAL_COUNTERS.items():
+            observed = sum(record["terminal"] == terminal for record in same_life_records)
+            if final[counter] != observed:
+                raise DirectReachCommandError(
+                    f"{identity}: {terminal} terminal counter does not reconcile")
         matched += matches
         for counter in COUNTERS:
             totals[counter] += final[counter]

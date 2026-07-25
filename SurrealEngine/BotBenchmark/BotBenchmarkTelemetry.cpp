@@ -788,6 +788,16 @@ namespace
 				<< bot.DirectReachCommandUnlinkedExact << "\""
 				<< ",\"direct_reach_command_overflows_exact\":\""
 				<< bot.DirectReachCommandOverflowsExact << "\""
+				<< ",\"direct_reach_command_hazardous_deaths_exact\":\""
+				<< bot.DirectReachCommandHazardousDeathsExact << "\""
+				<< ",\"direct_reach_command_nonhazard_deaths_exact\":\""
+				<< bot.DirectReachCommandNonhazardDeathsExact << "\""
+				<< ",\"direct_reach_command_cleared_exact\":\""
+				<< bot.DirectReachCommandClearedExact << "\""
+				<< ",\"direct_reach_command_life_boundary_censored_exact\":\""
+				<< bot.DirectReachCommandLifeBoundaryCensoredExact << "\""
+				<< ",\"direct_reach_command_run_end_censored_exact\":\""
+				<< bot.DirectReachCommandRunEndCensoredExact << "\""
 				<< ",\"direct_reach_command_records\":[";
 			for (size_t index = 0; index < bot.DirectReachCommandRecords.size(); index++)
 			{
@@ -807,7 +817,21 @@ namespace
 					<< ",\"latent_action\":" << JsonString(record.LatentAction)
 					<< ",\"route_head_present\":"
 					<< (record.RouteHeadPresent ? "true" : "false")
-					<< ",\"link_status\":" << JsonString(record.LinkStatus) << '}';
+					<< ",\"link_status\":" << JsonString(record.LinkStatus);
+				if (record.LinkStatus == "same_life_exact")
+				{
+					out << ",\"activation_tick\":\"" << record.ActivationTick
+						<< "\",\"terminal_tick\":\"" << record.TerminalTick
+						<< "\",\"terminal\":" << JsonString(record.Terminal)
+						<< ",\"hazard_terminal_exact\":"
+						<< (record.HazardTerminalExact ? "true" : "false");
+				}
+				else
+				{
+					out << ",\"activation_tick\":null,\"terminal_tick\":null"
+						<< ",\"terminal\":null,\"hazard_terminal_exact\":null";
+				}
+				out << '}';
 			}
 			out << ']';
 		}
