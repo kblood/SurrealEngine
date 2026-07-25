@@ -5720,7 +5720,11 @@ void UPawn::ObserveHazardSwimEgressStaticWalkCertificate()
 	observation.FirstHopKnown = certificate.FirstHopKnown
 		&& certificate.FirstHopNode < request.Nodes.size();
 	if (observation.FirstHopKnown)
+	{
 		observation.FirstHopName = request.Nodes[certificate.FirstHopNode].Id;
+		observation.FirstHopLocationKnown = true;
+		observation.FirstHopLocation = navigationPoints[certificate.FirstHopNode]->Location();
+	}
 	observation.ContinuationKnown = certificate.ContinuationKnown
 		&& certificate.ContinuationNode < request.Nodes.size();
 	if (observation.ContinuationKnown)

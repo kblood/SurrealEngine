@@ -22,7 +22,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 22
+TOOL_VERSION = 23
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -1197,7 +1197,11 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         "entry_move_target_name", "entry_move_target_location_known",
         "entry_move_target_location", "entry_destination",
         "static_walk_certificate_result", "static_walk_first_hop_known",
-        "static_walk_first_hop_name", "static_walk_continuation_known",
+        "static_walk_first_hop_name", "static_walk_first_hop_location_known",
+        "static_walk_first_hop_location", "static_walk_first_hop_distance_known",
+        "static_walk_first_hop_entry_distance", "static_walk_minimum_first_hop_distance",
+        "static_walk_terminal_first_hop_distance", "static_walk_first_hop_progress_samples",
+        "static_walk_first_hop_regression_samples", "static_walk_continuation_known",
         "static_walk_continuation_name", "static_walk_cost", "static_walk_hops",
         "static_walk_visited_nodes", "candidate_known",
         "candidate_name", "candidate_location", "candidate_entry_distance",
@@ -1222,6 +1226,30 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         fields.get("static_walk_first_hop_known"),
         f"{context}.static_walk_first_hop_known")
     static_walk_first_hop_name = _string(fields, "static_walk_first_hop_name", context)
+    static_walk_first_hop_location_known = _boolean(
+        fields.get("static_walk_first_hop_location_known"),
+        f"{context}.static_walk_first_hop_location_known")
+    static_walk_first_hop_location = _diagnostic_vector(
+        fields.get("static_walk_first_hop_location"),
+        f"{context}.static_walk_first_hop_location")
+    static_walk_first_hop_distance_known = _boolean(
+        fields.get("static_walk_first_hop_distance_known"),
+        f"{context}.static_walk_first_hop_distance_known")
+    static_walk_first_hop_entry_distance = _number(
+        fields.get("static_walk_first_hop_entry_distance"),
+        f"{context}.static_walk_first_hop_entry_distance", minimum=0.0)
+    static_walk_minimum_first_hop_distance = _number(
+        fields.get("static_walk_minimum_first_hop_distance"),
+        f"{context}.static_walk_minimum_first_hop_distance", minimum=0.0)
+    static_walk_terminal_first_hop_distance = _number(
+        fields.get("static_walk_terminal_first_hop_distance"),
+        f"{context}.static_walk_terminal_first_hop_distance", minimum=0.0)
+    static_walk_first_hop_progress_samples = _integer(
+        fields.get("static_walk_first_hop_progress_samples"),
+        f"{context}.static_walk_first_hop_progress_samples", minimum=0)
+    static_walk_first_hop_regression_samples = _integer(
+        fields.get("static_walk_first_hop_regression_samples"),
+        f"{context}.static_walk_first_hop_regression_samples", minimum=0)
     static_walk_continuation_known = _boolean(
         fields.get("static_walk_continuation_known"),
         f"{context}.static_walk_continuation_known")
@@ -1235,6 +1263,20 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
                                          f"{context}.static_walk_visited_nodes", minimum=0)
     if static_walk_first_hop_known != bool(static_walk_first_hop_name):
         raise QualityError(f"{context}: static-walk first-hop availability must match its name")
+    if static_walk_first_hop_location_known != static_walk_first_hop_known \
+            or static_walk_first_hop_distance_known != static_walk_first_hop_known:
+        raise QualityError(f"{context}: static-walk first-hop location and distance availability must match its name")
+    if static_walk_first_hop_distance_known and (
+            static_walk_minimum_first_hop_distance > static_walk_first_hop_entry_distance
+            or static_walk_minimum_first_hop_distance > static_walk_terminal_first_hop_distance):
+        raise QualityError(f"{context}: static-walk first-hop minimum distance is inconsistent")
+    if not static_walk_first_hop_distance_known and (
+            static_walk_first_hop_entry_distance != 0.0
+            or static_walk_minimum_first_hop_distance != 0.0
+            or static_walk_terminal_first_hop_distance != 0.0
+            or static_walk_first_hop_progress_samples != 0
+            or static_walk_first_hop_regression_samples != 0):
+        raise QualityError(f"{context}: unknown static-walk first hop must not claim distance evidence")
     if static_walk_continuation_known != bool(static_walk_continuation_name):
         raise QualityError(f"{context}: static-walk continuation availability must match its name")
     if static_walk_result == "certified_static_walk_continuation":
@@ -1305,6 +1347,14 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         "static_walk_certificate_result": static_walk_result,
         "static_walk_first_hop_known": static_walk_first_hop_known,
         "static_walk_first_hop_name": static_walk_first_hop_name,
+        "static_walk_first_hop_location_known": static_walk_first_hop_location_known,
+        "static_walk_first_hop_location": static_walk_first_hop_location,
+        "static_walk_first_hop_distance_known": static_walk_first_hop_distance_known,
+        "static_walk_first_hop_entry_distance": static_walk_first_hop_entry_distance,
+        "static_walk_minimum_first_hop_distance": static_walk_minimum_first_hop_distance,
+        "static_walk_terminal_first_hop_distance": static_walk_terminal_first_hop_distance,
+        "static_walk_first_hop_progress_samples": static_walk_first_hop_progress_samples,
+        "static_walk_first_hop_regression_samples": static_walk_first_hop_regression_samples,
         "static_walk_continuation_known": static_walk_continuation_known,
         "static_walk_continuation_name": static_walk_continuation_name,
         "static_walk_cost": static_walk_cost,

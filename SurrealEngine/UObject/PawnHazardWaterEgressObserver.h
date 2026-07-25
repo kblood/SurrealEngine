@@ -55,6 +55,14 @@ namespace PawnMovement
 		std::string Result = "not_attempted_missing_anchor";
 		bool FirstHopKnown = false;
 		std::string FirstHopName;
+		bool FirstHopLocationKnown = false;
+		vec3 FirstHopLocation = vec3(0.0f);
+		bool FirstHopDistanceKnown = false;
+		float FirstHopEntryDistance = 0.0f;
+		float MinimumFirstHopDistance = 0.0f;
+		float TerminalFirstHopDistance = 0.0f;
+		uint64_t FirstHopProgressSamples = 0;
+		uint64_t FirstHopRegressionSamples = 0;
 		bool ContinuationKnown = false;
 		std::string ContinuationName;
 		float StaticWalkCost = 0.0f;
@@ -119,6 +127,7 @@ namespace PawnMovement
 		bool Active = false;
 		HazardWaterEgressDiagnosticRecord Current;
 		float LastCandidateDistance = 0.0f;
+		float LastStaticWalkFirstHopDistance = 0.0f;
 		float LastTargetDistance = 0.0f;
 		std::vector<HazardWaterEgressDiagnosticRecord> Diagnostics;
 	};

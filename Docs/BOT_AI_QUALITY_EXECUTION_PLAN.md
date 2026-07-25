@@ -1416,7 +1416,7 @@ visited-node count. A certificate proves a collision-clear static first hop
 and one static graph continuation, not runtime reachability, traversal time,
 stock intent, or survival. Pure fixtures cover a valid route plus blocked
 first hop, pruned/undersized/jump edges, unsafe endpoints, and search budget
-exhaustion. The v22 analyzer validates all certificate availability and
+exhaustion. The v23 analyzer validates all certificate availability and
 rejection invariants within the terminal egress record.
 
 Fresh two-repetition paired observer/control runs passed on UT436
@@ -1430,6 +1430,29 @@ repetition. Certification therefore does not establish a causal escape route
 or authorize a live target. The next safety experiment must measure the
 pre-entry and post-entry causal prefix against these witnesses; direct egress
 steering remains rejected.
+
+## Iteration 65: static-certificate first-hop progress falsification
+
+The static certificate now records its own first-hop position and exact
+entry/minimum/terminal distances, plus progress and regression samples. These
+are intentionally separate from the old in-water direct-nav candidate: the
+certificate starts from the safe falling anchor and can choose a different
+node. The observer owns the distances from immutable entry and terminal
+positions; the analyzer rejects missing or mismatched availability, impossible
+minimum distances, and impossible certificate/anchor combinations.
+
+Fresh two-repetition paired observer/control matrices again passed unchanged
+on Deck16 and DeathFan. Every checked quality delta remained zero. The added
+trace falsifies emergency use of the certificate: Deck's certified
+`InventorySpot192` first hop began 1206.71 units away, reached only 1202.34,
+and regressed to 1348.18 at death (43 progress / 52 regression samples).
+DeathFan's certified `PathNode65` first hops began 1740.70–1814.08 units away;
+the four terminal deaths never improved on their entry distance, while the one
+clearance ended essentially unchanged at 1741.13. A collision-clear long line
+and static continuation are therefore not a time-bounded swim escape. No
+candidate-target or generic acceleration policy is authorized. The next
+causal slice remains the separate pre-entry partition for the non-egress
+environmental deaths.
 
 ## Frozen tuning and held-out maps
 

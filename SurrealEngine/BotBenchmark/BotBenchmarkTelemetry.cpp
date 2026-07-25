@@ -390,6 +390,22 @@ namespace
 			<< (certificate.FirstHopKnown ? "true" : "false")
 			<< ",\"static_walk_first_hop_name\":"
 			<< JsonString(certificate.FirstHopName)
+			<< ",\"static_walk_first_hop_location_known\":"
+			<< (certificate.FirstHopLocationKnown ? "true" : "false")
+			<< ",\"static_walk_first_hop_location\":";
+		WriteVector(out, certificate.FirstHopLocation);
+		out << ",\"static_walk_first_hop_distance_known\":"
+			<< (certificate.FirstHopDistanceKnown ? "true" : "false")
+			<< ",\"static_walk_first_hop_entry_distance\":"
+			<< Fixed(certificate.FirstHopEntryDistance, 6)
+			<< ",\"static_walk_minimum_first_hop_distance\":"
+			<< Fixed(certificate.MinimumFirstHopDistance, 6)
+			<< ",\"static_walk_terminal_first_hop_distance\":"
+			<< Fixed(certificate.TerminalFirstHopDistance, 6)
+			<< ",\"static_walk_first_hop_progress_samples\":\""
+			<< certificate.FirstHopProgressSamples
+			<< "\",\"static_walk_first_hop_regression_samples\":\""
+			<< certificate.FirstHopRegressionSamples << "\""
 			<< ",\"static_walk_continuation_known\":"
 			<< (certificate.ContinuationKnown ? "true" : "false")
 			<< ",\"static_walk_continuation_name\":"

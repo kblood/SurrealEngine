@@ -469,6 +469,14 @@ class BotQualityAnalysisTests(unittest.TestCase):
             "entry_destination": {"x": 4.0, "y": 5.0, "z": 6.0},
             "static_walk_certificate_result": "certified_static_walk_continuation",
             "static_walk_first_hop_known": True, "static_walk_first_hop_name": "PathNode143",
+            "static_walk_first_hop_location_known": True,
+            "static_walk_first_hop_location": {"x": 1.0, "y": 2.0, "z": 3.0},
+            "static_walk_first_hop_distance_known": True,
+            "static_walk_first_hop_entry_distance": 100.0,
+            "static_walk_minimum_first_hop_distance": 80.0,
+            "static_walk_terminal_first_hop_distance": 90.0,
+            "static_walk_first_hop_progress_samples": "2",
+            "static_walk_first_hop_regression_samples": "1",
             "static_walk_continuation_known": True,
             "static_walk_continuation_name": "PathNode144",
             "static_walk_cost": 321.0, "static_walk_hops": "1",
@@ -510,11 +518,30 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(QUALITY.QualityError, "candidate distance availability"):
                 QUALITY.analyze_run(malformed)
 
+            malformed_static_distance = write_v2_run(
+                root, "hazard-water-egress-static-walk-distance", bot_count=1)
+            invalid_static_distance = {**diagnostic,
+                "static_walk_minimum_first_hop_distance": 101.0}
+            upgrade_telemetry_v2(malformed_static_distance, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_static_distance]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "static-walk first-hop minimum distance"):
+                QUALITY.analyze_run(malformed_static_distance)
+
             malformed_anchor = write_v2_run(root, "hazard-water-egress-static-walk-anchor",
                                             bot_count=1)
             invalid_anchor = {**diagnostic,
                 "static_walk_certificate_result": "not_attempted_missing_anchor",
                 "static_walk_first_hop_known": False, "static_walk_first_hop_name": "",
+                "static_walk_first_hop_location_known": False,
+                "static_walk_first_hop_location": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "static_walk_first_hop_distance_known": False,
+                "static_walk_first_hop_entry_distance": 0.0,
+                "static_walk_minimum_first_hop_distance": 0.0,
+                "static_walk_terminal_first_hop_distance": 0.0,
+                "static_walk_first_hop_progress_samples": "0",
+                "static_walk_first_hop_regression_samples": "0",
                 "static_walk_continuation_known": False,
                 "static_walk_continuation_name": "", "static_walk_cost": 0.0,
                 "static_walk_hops": "0", "static_walk_visited_nodes": "0"}

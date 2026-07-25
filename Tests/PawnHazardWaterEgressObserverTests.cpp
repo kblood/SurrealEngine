@@ -41,10 +41,12 @@ int main()
 	Check(!observer.BeginEpisode(Entry(2)), "episodes cannot overlap");
 	Check(observer.ObserveStaticWalkCertificate({
 		"certified_static_walk_continuation", true, "PathNode12", true,
-		"PathNode13", 42.0f, 1, 2 }),
+		vec3(10.0f, 0.0f, 0.0f), false, 0.0f, 0.0f, 0.0f, 0, 0,
+		true, "PathNode13", 42.0f, 1, 2 }),
 		"a static-walk certificate must be retained once");
 	Check(!observer.ObserveStaticWalkCertificate({
-		"no_static_walk_continuation", false, "", false, "", 0.0f, 0, 1 }),
+		"no_static_walk_continuation", false, "", false, vec3(0.0f), false,
+		0.0f, 0.0f, 0.0f, 0, 0, false, "", 0.0f, 0, 1 }),
 		"the certificate witness must remain immutable");
 	Check(observer.ObserveCandidate({ "PathNode12", vec3(10.0f, 0.0f, 0.0f), 10.0f }),
 		"first safe candidate must be retained");
@@ -68,7 +70,9 @@ int main()
 	Check(exited.CandidateKnown && exited.Candidate.Name == "PathNode12",
 		"first candidate witness must be retained");
 	Check(exited.StaticWalkCertificate.Result == "certified_static_walk_continuation"
-		&& exited.StaticWalkCertificate.ContinuationName == "PathNode13",
+		&& exited.StaticWalkCertificate.ContinuationName == "PathNode13"
+		&& exited.StaticWalkCertificate.FirstHopProgressSamples == 1
+		&& exited.StaticWalkCertificate.FirstHopRegressionSamples == 3,
 		"static-walk certificate evidence must survive the terminal record");
 	Check(exited.CandidateProgressSamples == 1
 		&& exited.CandidateRegressionSamples == 3,

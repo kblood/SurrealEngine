@@ -64,13 +64,28 @@ namespace PawnMovement
 			return false;
 		}
 		if (certificate.FirstHopKnown != !certificate.FirstHopName.empty()
+			|| certificate.FirstHopLocationKnown != certificate.FirstHopKnown
+			|| (certificate.FirstHopLocationKnown && !IsFinite(certificate.FirstHopLocation))
 			|| certificate.ContinuationKnown != !certificate.ContinuationName.empty()
 			|| (!certificate.ContinuationKnown && (certificate.StaticWalkCost != 0.0f
 				|| certificate.StaticWalkHops != 0)))
 		{
 			return false;
 		}
-		Current.StaticWalkCertificate = certificate;
+		auto observedCertificate = certificate;
+		if (observedCertificate.FirstHopLocationKnown)
+		{
+			const float distance = Distance(Current.Entry.EntryLocation,
+				observedCertificate.FirstHopLocation);
+			if (!std::isfinite(distance))
+				return false;
+			observedCertificate.FirstHopDistanceKnown = true;
+			observedCertificate.FirstHopEntryDistance = distance;
+			observedCertificate.MinimumFirstHopDistance = distance;
+			observedCertificate.TerminalFirstHopDistance = distance;
+			LastStaticWalkFirstHopDistance = distance;
+		}
+		Current.StaticWalkCertificate = std::move(observedCertificate);
 		return true;
 	}
 
@@ -114,6 +129,23 @@ namespace PawnMovement
 				observed = true;
 			}
 		}
+		if (Current.StaticWalkCertificate.FirstHopDistanceKnown)
+		{
+			const float distance = Distance(position,
+				Current.StaticWalkCertificate.FirstHopLocation);
+			if (std::isfinite(distance))
+			{
+				if (distance + significantDistanceChange < LastStaticWalkFirstHopDistance)
+					Current.StaticWalkCertificate.FirstHopProgressSamples++;
+				else if (distance > LastStaticWalkFirstHopDistance + significantDistanceChange)
+					Current.StaticWalkCertificate.FirstHopRegressionSamples++;
+				Current.StaticWalkCertificate.MinimumFirstHopDistance = std::min(
+					Current.StaticWalkCertificate.MinimumFirstHopDistance, distance);
+				Current.StaticWalkCertificate.TerminalFirstHopDistance = distance;
+				LastStaticWalkFirstHopDistance = distance;
+				observed = true;
+			}
+		}
 		if (Current.TargetDistanceKnown)
 		{
 			const float distance = Distance(position, Current.Entry.MoveTargetLocation);
@@ -147,6 +179,7 @@ namespace PawnMovement
 		Current = {};
 		Active = false;
 		LastCandidateDistance = 0.0f;
+		LastStaticWalkFirstHopDistance = 0.0f;
 		LastTargetDistance = 0.0f;
 		return true;
 	}
