@@ -2854,3 +2854,21 @@ The runs and reports are under
 `qa/reports/bot-ai/native-path-commit-observer-v2-*.json`. This is a smoke
 qualification only; retain full-duration two-repetition anchors before using
 the observer to choose the next direct-command provenance slice.
+
+The full-duration qualification is complete. Two 7,200-tick observer-on/off
+repetitions per anchor pass structural quality analysis and all four enabled
+runs pass strict map-catalog path-commit analysis. Canonical event streams are
+byte-identical after excluding only `config_id` and the declared
+`native_path_commit_observer` envelope:
+
+- UT436 Deck16-II, both repetitions:
+  `E40CC9D6A1818CC515ABA303F188C0E88BC0CB4FCF9B6DBCCF6791AC6696969F`
+- Unreal Gold DeathFan, both repetitions:
+  `802B9935A307984F6F3446F0AC104D66789965C53BD43937B6819A5C2A0F047D`
+
+The full aggregate is
+`qa/reports/bot-ai/native-path-commit-observer-v2-full.json`; per-run strict
+provenance reports are `native-path-commit-observer-v2-*-r[12].json`. Native
+path commits are therefore qualified as observer-only evidence. They still do
+not establish a causal direct-movement defect; proceed only with the separate
+same-life pickup/actor reachability-to-command witness.
