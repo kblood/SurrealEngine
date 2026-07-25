@@ -159,24 +159,19 @@ only the first layer. The next extraction tranche remains read-only and should
 be delivered with synthetic validators before it is used to authorize bot
 behavior:
 
-1. Decode each reachspec's `reach_flags` into required traversal capabilities,
-   while retaining the raw value. Export the navigation point's forward,
-   upstream, pruned, and visible-no-reach path arrays so the artifact can
-   reproduce the pathfinder's actual graph inputs rather than a forward-only
-   approximation.
-2. Join every navigation point to its static zone and, in explicitly pinned
+1. Join every navigation point to its static zone and, in explicitly pinned
    live catalog mode, to its resolved runtime zone. Export the model zone graph
    and label static and live values distinctly. This makes a dry or harmful
    escape-node claim testable.
-3. Export traversal relationships: lift centers/exits and movers, teleporters,
+2. Export traversal relationships: lift centers/exits and movers, teleporters,
    warp-zone markers, player starts, inventory spots and their marked pickup.
    An excluded lift or teleporter must be distinguishable from a genuinely
    absent egress option.
-4. Implement the separate bot-config catalog. It must record relevant class
+3. Implement the separate bot-config catalog. It must record relevant class
    defaults and roster/skill values from packages and `.ini`/`.int` inputs,
    preserving each value's source. Capability and movement values cannot be
    assumed equal across UT436 and Unreal Gold 226b.
-5. Add the promised catalog schema, referential-integrity, and equal-input
+4. Add the promised catalog schema, referential-integrity, and equal-input
    repeatability validator. Upgrade provenance to SHA-256 before treating the
    catalog identity as complete.
 
@@ -184,6 +179,27 @@ These records select owner-local maps and deterministic fixture shapes; they
 do not themselves prove a navigation correction is safe. In particular, a
 pre-fall graph route or one collision sweep does not prove support, locomotion,
 hazard exit, or live command ownership from the pawn's later position.
+
+### Reachspec graph evidence
+
+The first extension to the static spike is complete. Each reachspec now
+preserves its raw `reach_flags`, emits the known UE1 capability names
+(`walk`, `fly`, `swim`, `jump`, `door`, `special`, and `player_only`), and
+retains any unknown flag bits separately. Each navigation point exports the
+terminator-bounded forward `paths`, `upstream_paths`, `pruned_paths`, and
+`visible_no_reach_actor_indexes` arrays. Serialization fails if an array
+contains an out-of-range reachspec or one whose start/end owner disagrees with
+the array direction; a visible-no-reach reference must resolve to an actor in
+the loaded map.
+
+Two owner-local extractions on 2026-07-25 were byte-identical for each anchor:
+UT436 `DM-Deck16][` SHA-256
+`CBA4EF069EB12A31BB22B8E683F3531E5DFA64AE36E8F925749EDAFD18CDDDDE`, and
+Unreal Gold 226b `DmDeathFan` SHA-256
+`136709AF23C476EC8577EFEE1A600030ADAAD3400BEBFC8219D67E01867BEC05`.
+The Deck16 catalog has 251 navigation points, 1,997 reachspecs, and 1,370
+visible-no-reach links; DeathFan has 116 navigation points and 1,431
+reachspecs. These are owner-local evidence artifacts, not committed game data.
 
 ## Non-goals
 

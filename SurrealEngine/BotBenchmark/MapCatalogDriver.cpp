@@ -59,6 +59,60 @@ namespace
 			<< ",\"z\":" << value.z << '}';
 	}
 
+	void WriteReachSpecIndexes(std::ostringstream& out, const Array<LevelReachSpec>& specs,
+		const UNavigationPoint* point, FixedArrayView<int, 16> indexes,
+		bool pointIsStart, const char* relation)
+	{
+		out << '[';
+		bool first = true;
+		for (int index : indexes)
+		{
+			if (index == -1)
+				break;
+			if (index < 0 || static_cast<size_t>(index) >= specs.size())
+				throw std::runtime_error(std::string("catalog ") + relation
+					+ " reachspec index is outside the level reachspec array");
+			const LevelReachSpec& spec = specs[index];
+			if ((pointIsStart ? spec.startActor : spec.endActor) != point)
+				throw std::runtime_error(std::string("catalog ") + relation
+					+ " reachspec does not refer to its owning navigation point");
+			if (!first)
+				out << ',';
+			first = false;
+			out << index;
+		}
+		out << ']';
+	}
+
+	void WriteReachFlags(std::ostringstream& out, int32_t flags)
+	{
+		struct ReachFlagName
+		{
+			int32_t Flag;
+			const char* Name;
+		};
+		constexpr ReachFlagName names[] = {
+			{ R_WALK, "walk" }, { R_FLY, "fly" }, { R_SWIM, "swim" },
+			{ R_JUMP, "jump" }, { R_DOOR, "door" }, { R_SPECIAL, "special" },
+			{ R_PLAYERONLY, "player_only" },
+		};
+		const uint32_t rawFlags = static_cast<uint32_t>(flags);
+		uint32_t knownFlags = 0;
+		out << "\"reach_flags\":" << flags << ",\"reach_flag_names\":[";
+		bool first = true;
+		for (const ReachFlagName& entry : names)
+		{
+			knownFlags |= static_cast<uint32_t>(entry.Flag);
+			if ((rawFlags & static_cast<uint32_t>(entry.Flag)) == 0)
+				continue;
+			if (!first)
+				out << ',';
+			first = false;
+			out << JsonString(entry.Name);
+		}
+		out << "]" << ",\"unknown_reach_flags\":" << (rawFlags & ~knownFlags);
+	}
+
 	void WritePackageIdentity(std::ostringstream& out, const Package* package)
 	{
 		if (!package)
@@ -261,12 +315,28 @@ namespace
 					<< ",\"one_way\":" << (point->HasProperty("bOneWayPath") && point->GetBool("bOneWayPath") ? "true" : "false")
 					<< ",\"player_only\":" << (point->HasProperty("bPlayerOnly") && point->GetBool("bPlayerOnly") ? "true" : "false")
 					<< ",\"special_cost\":" << (point->HasProperty("bSpecialCost") && point->GetBool("bSpecialCost") ? "true" : "false")
-					<< ",\"paths\":[";
-				for (size_t pathIndex = 0; pathIndex < point->Paths().size(); pathIndex++)
+					<< ",\"paths\":";
+				WriteReachSpecIndexes(out, EngineRef.Level->ReachSpecs, point,
+					point->Paths(), true, "forward");
+				out << ",\"upstream_paths\":";
+				WriteReachSpecIndexes(out, EngineRef.Level->ReachSpecs, point,
+					point->upstreamPaths(), false, "upstream");
+				out << ",\"pruned_paths\":";
+				WriteReachSpecIndexes(out, EngineRef.Level->ReachSpecs, point,
+					point->PrunedPaths(), true, "pruned");
+				out << ",\"visible_no_reach_actor_indexes\":[";
+				bool firstVisibleNoReach = true;
+				for (UNavigationPoint* visible : point->VisNoReachPaths())
 				{
-					if (pathIndex)
+					if (!visible)
+						break;
+					auto visibleIt = actorIndexes.find(visible);
+					if (visibleIt == actorIndexes.end())
+						throw std::runtime_error("catalog visible-no-reach navigation point is absent from the level actor list");
+					if (!firstVisibleNoReach)
 						out << ',';
-					out << point->Paths()[pathIndex];
+					firstVisibleNoReach = false;
+					out << visibleIt->second;
 				}
 				out << "]}";
 			}
@@ -285,9 +355,9 @@ namespace
 					<< findActor(spec.startActor) << ",\"end_actor_index\":"
 					<< findActor(spec.endActor) << ",\"distance\":" << spec.distance
 					<< ",\"collision_radius\":" << spec.collisionRadius
-					<< ",\"collision_height\":" << spec.collisionHeight
-					<< ",\"reach_flags\":" << spec.reachFlags
-					<< ",\"pruned\":" << (spec.bPruned ? "true" : "false") << '}';
+					<< ",\"collision_height\":" << spec.collisionHeight << ',';
+				WriteReachFlags(out, spec.reachFlags);
+				out << ",\"pruned\":" << (spec.bPruned ? "true" : "false") << '}';
 			}
 			out << "\n  ],\n  \"zones\":[";
 			first = true;
