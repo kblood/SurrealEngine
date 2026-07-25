@@ -29,6 +29,7 @@ struct BotInventoryRouteHandoffFixtureResult
 	bool NavigationAnchorSafe = false;
 	bool DirectNavigationReachable = false;
 	bool NavigationGraphFirstHopSelected = false;
+	bool NavigationFallbackRouteExists = false;
 	bool NavigationUnsupportedCorridorSample = false;
 	bool NavigationHarmfulZoneBelowCorridor = false;
 	std::string FailureReason;
@@ -39,6 +40,7 @@ struct BotInventoryRouteHandoffFixtureResult
 	std::string SelectedFirstHopActor;
 	std::string NavigationActor;
 	std::string NavigationFirstHopActor;
+	std::string NavigationFallbackFirstHopActor;
 	uint64_t GraphEdgeCount = 0;
 	uint64_t ImmediateSupportSamples = 0;
 	uint64_t UnsupportedSamples = 0;

@@ -3292,3 +3292,13 @@ target is excluded, and the implementation must retain a target-progress
 certificate. Without that proof, returning false for a navigation point could
 leave a bot with no reachable endpoint and trade suicides for navigation
 stalls.
+
+That alternate-endpoint proof now exists in the v4 fixture run at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v4-navigation-fallback/`.
+After normal endpoint discovery, the fixture excludes only `PathNode73` and
+invokes the unmodified native reverse graph search. It returns `PathNode71` as
+the finite first hop, while the original stock request still returns
+`PathNode73` directly. This is sufficient to test a separate, default-off
+navigation-direct-reach candidate; it is not evidence to enable one by
+default. The candidate must retain this fallback assertion and add an exact
+counter before any DeathFan A/B judgment.

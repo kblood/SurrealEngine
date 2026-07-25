@@ -79,7 +79,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v3\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v4\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -92,6 +92,7 @@ namespace
 			<< "navigation_anchor_safe=" << (result.NavigationAnchorSafe ? "true" : "false") << "\n"
 			<< "direct_navigation_reachable=" << (result.DirectNavigationReachable ? "true" : "false") << "\n"
 			<< "navigation_graph_first_hop_selected=" << (result.NavigationGraphFirstHopSelected ? "true" : "false") << "\n"
+			<< "navigation_fallback_route_exists=" << (result.NavigationFallbackRouteExists ? "true" : "false") << "\n"
 			<< "navigation_unsupported_corridor_sample=" << (result.NavigationUnsupportedCorridorSample ? "true" : "false") << "\n"
 			<< "navigation_harmful_zone_below_corridor=" << (result.NavigationHarmfulZoneBelowCorridor ? "true" : "false") << "\n"
 			<< "pawn_actor=" << result.PawnActor << "\n"
@@ -101,6 +102,7 @@ namespace
 			<< "selected_first_hop_actor=" << result.SelectedFirstHopActor << "\n"
 			<< "navigation_actor=" << result.NavigationActor << "\n"
 			<< "navigation_first_hop_actor=" << result.NavigationFirstHopActor << "\n"
+			<< "navigation_fallback_first_hop_actor=" << result.NavigationFallbackFirstHopActor << "\n"
 			<< "graph_edge_count=" << result.GraphEdgeCount << "\n"
 			<< "immediate_support_samples=" << result.ImmediateSupportSamples << "\n"
 			<< "unsupported_samples=" << result.UnsupportedSamples << "\n"
@@ -302,6 +304,21 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 			? navigationFirstHop->Name.ToString() : std::string();
 		result.NavigationGraphFirstHopSelected = navigationFirstHop && navigationFirstHop != pathNode73
 			&& UObject::TryCast<UNavigationPoint>(navigationFirstHop) != nullptr;
+		if (!pawn->MarkReachableNavEndPoints())
+			throw std::runtime_error("fixture could not establish normal reachable endpoints for PathNode73");
+		const bool originalNavigationEndpoint = pathNode73->bEndPoint();
+		pathNode73->bEndPoint() = false;
+		const PawnPathEndPointResult navigationFallback = pawn->FindPathToEndPoint(pathNode73, 1000);
+		pathNode73->bEndPoint() = originalNavigationEndpoint;
+		if (!navigationFallback.Points.empty() && navigationFallback.Points.front()
+			&& navigationFallback.Points.front() != pathNode73)
+		{
+			result.NavigationFallbackRouteExists = true;
+			result.NavigationFallbackFirstHopActor =
+				navigationFallback.Points.front()->Name.ToString();
+		}
+		if (!result.NavigationFallbackRouteExists)
+			throw std::runtime_error("excluding PathNode73 did not expose a finite graph fallback route");
 		const vec3 navigationCorridor = pathNode73->Location() - DeathFanPathNode73LaunchAnchor;
 		for (int index = 1; index <= CorridorSamples; index++)
 		{
