@@ -33,16 +33,25 @@ def analyze(run: Path, *, minimum_ticks: int=120, progress_radius: float=4.0) ->
             active=(b.get("available") is True and live.get("latent_action")=="MoveToward" and bool(b.get("move_target")))
             traces[identity].append((tick,active,b,live))
     episodes=[]
+    native_detection_events=[]
     for identity, samples in sorted(traces.items()):
         start=None
+        previous_detections=0
         for tick, active, route_state, live in samples:
+            raw_detections=live.get("move_stall_detections_exact", "0")
+            try: detections=int(raw_detections)
+            except (TypeError,ValueError): raise RouteError(f"invalid native detection counter for {identity!r}")
+            if detections < previous_detections: raise RouteError(f"native detection counter regressed for {identity!r}")
+            if detections > previous_detections:
+                native_detection_events.append({"identity":identity,"tick":tick,"detections_exact":detections,"move_target":route_state.get("move_target"),"route_cache":route_state.get("route_cache",[]),"latent_action":live.get("latent_action"),"forced_replans_exact":live.get("move_stall_forced_replans_exact")})
+            previous_detections=detections
             stagnant=active and route_state.get("progress_known") is True and float(route_state.get("displacement_since_previous_tick",0.0)) < progress_radius
             if stagnant and start is None: start=(tick,route_state,live)
             if not stagnant and start is not None:
                 if tick-start[0]>=minimum_ticks:
                     episodes.append({"identity":identity,"start_tick":start[0],"end_tick":tick-1,"duration_ticks":tick-start[0],"move_target":start[1].get("move_target"),"route_cache":start[1].get("route_cache",[]),"watchdog_detections_at_start":start[2].get("move_stall_detections_exact")})
                 start=None
-    return {"schema":SCHEMA,"minimum_ticks":minimum_ticks,"progress_radius":progress_radius,"episodes":episodes,"selection_safe":False}
+    return {"schema":SCHEMA,"minimum_ticks":minimum_ticks,"progress_radius":progress_radius,"episodes":episodes,"native_detection_events":native_detection_events,"selection_safe":False}
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);p.add_argument("run",type=Path);p.add_argument("--minimum-ticks",type=int,default=120);a=p.parse_args(argv)
