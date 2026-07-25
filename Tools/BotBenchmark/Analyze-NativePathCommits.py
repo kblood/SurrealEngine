@@ -88,7 +88,12 @@ def analyze(catalog_path: Path, run: Path) -> dict[str, Any]:
     expected = {item["identity"] for item in witness["participants"]}
     specs = catalog["reachspecs"]
     nodes = {point["name"]: point for point in catalog["navigation_points"]}
-    counts: Counter[str] = Counter()
+    counts: Counter[str] = Counter({
+        "cache_clears_exact": 0,
+        "committed_edges_exact": 0,
+        "committed_paths_exact": 0,
+        "truncated_commits_exact": 0,
+    })
     sequences = {identity: 0 for identity in expected}
     previous_deaths = {identity: 0 for identity in expected}
     previous_hazard = {identity: False for identity in expected}
@@ -224,11 +229,18 @@ def analyze(catalog_path: Path, run: Path) -> dict[str, Any]:
             raise PathCommitError("tick events exceed route telemetry")
     finally:
         event_iter.close()
+    committed_paths = counts["committed_paths_exact"]
+    coverage = {
+        "criterion": "at_least_one_committed_path",
+        "committed_paths_exact": committed_paths,
+        "qualified": committed_paths >= 1,
+        "verdict": "qualified" if committed_paths >= 1 else "unqualified_no_committed_path",
+    }
     return {"schema": SCHEMA, "catalog": {"map": catalog["map"], "map_package_sha1": catalog["map_package"]["sha1"]},
             "benchmark": {"config_id": config_id, "map": _map_name(manifest["url"])},
             "counts": dict(sorted(counts.items())), "per_participant_final_sequence": sequences,
             "death_contexts": death_contexts, "hazard_entry_contexts": hazard_entry_contexts,
-            "qualified": True}
+            "coverage": coverage, "qualified": coverage["qualified"]}
 
 
 def main(argv: list[str] | None = None) -> int:
