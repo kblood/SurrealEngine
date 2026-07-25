@@ -1216,6 +1216,43 @@ observer-only as well; external-impulse repetition is not causal evidence for a
 future live recovery policy. No live bot experiment is authorized by this
 measurement slice.
 
+## Iteration 58: exact combat-damage telemetry (measurement only)
+
+The benchmark now records canonical `TakeDamage` health loss for each tracked
+participant without changing play. Every positive health reduction is counted
+once in `damage_taken_exact` and assigned to exactly one source: another
+benchmark participant, the victim itself, or a nonparticipant/environmental
+instigator. Only damage dealt to a different benchmark participant contributes
+to `damage_dealt_to_other_participants_exact`; self-inflicted splash is kept
+separate and cannot inflate combat effectiveness. Counters are monotonic and
+fail closed on overflow or a canonical damage frame that loses its tracked
+victim.
+
+The serializer emits the five-field group atomically. The analyzer requires
+the complete group for every v2 snapshot, checks each bot's source partition
+against total damage, checks that aggregate inter-participant dealt equals
+inter-participant taken at every sample, and exposes the resulting exact totals
+plus `damage_efficiency_to_other_participants`. This is an accounting ratio,
+not an aim/accuracy score and not a quality gate by itself.
+
+The full 107-test Python suite, telemetry serialization test, and the three
+death-attribution contract tests pass. Fresh default-policy repeats were run
+with the current schema: UT436 `DM-Deck16][`, seed 271828, four skill-7 bots,
+and Unreal Gold 226b `DmDeathFan`, seed 424242, four skill-3 bots. Each pair
+is byte-equivalent in its bot snapshots after excluding the output-directory
+path. Deck records 128 total damage, all nonparticipant/environmental, with no
+inter-participant damage. DeathFan records 1,182 total damage: 542 from other
+participants, 640 nonparticipant/environmental, zero self damage, and 542
+dealt to other participants (the accounting ratio is 1.0 by construction).
+The artifacts and analyzer reports remain local under
+`qa/runs/2026-07-25/damage-telemetry-smoke/`.
+
+This closes the prior missing *damage attribution* measurement, but not the
+match-competence gate. Accuracy, pickup/resource acquisition, useful map
+coverage, controlled role/start-layout swaps, a multi-map baseline, and a
+causally justified movement recovery candidate still need evidence before a
+bot behavior change can be considered for merge.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

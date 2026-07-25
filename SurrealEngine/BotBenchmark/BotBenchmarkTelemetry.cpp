@@ -581,6 +581,15 @@ namespace
 			<< bot.SingleHarmfulFallPrefixObservedLeadSamplesExact << "\""
 			<< ",\"single_harmful_fall_prefix_observed_lead_milliseconds_exact\":\""
 			<< bot.SingleHarmfulFallPrefixObservedLeadMillisecondsExact << "\""
+			<< ",\"damage_taken_exact\":\"" << bot.DamageTakenExact << "\""
+			<< ",\"damage_taken_from_other_participants_exact\":\""
+			<< bot.DamageTakenFromOtherParticipantsExact << "\""
+			<< ",\"damage_taken_from_self_exact\":\""
+			<< bot.DamageTakenFromSelfExact << "\""
+			<< ",\"damage_taken_from_nonparticipants_exact\":\""
+			<< bot.DamageTakenFromNonParticipantsExact << "\""
+			<< ",\"damage_dealt_to_other_participants_exact\":\""
+			<< bot.DamageDealtToOtherParticipantsExact << "\""
 			<< ",\"vertical_pain_column_diagnostics\":[";
 		for (size_t index = 0; index < bot.VerticalPainColumnDiagnostics.size(); index++)
 		{

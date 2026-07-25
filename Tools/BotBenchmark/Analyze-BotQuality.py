@@ -21,7 +21,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 17
+TOOL_VERSION = 18
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -86,6 +86,12 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "hazard_entries": "lower",
     "hazard_exposed_deaths_proxy": "lower",
     "hazard_exposed_death_fraction_proxy": "lower",
+    "damage_taken_exact": "lower",
+    "damage_taken_from_other_participants_exact": "lower",
+    "damage_taken_from_self_exact": "lower",
+    "damage_taken_from_nonparticipants_exact": "lower",
+    "damage_dealt_to_other_participants_exact": "higher",
+    "damage_efficiency_to_other_participants": "higher",
     "health_loss_observed": "lower",
     "minimum_health_observed": "higher",
     "survived_to_final_sample": "higher",
@@ -107,7 +113,6 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
 }
 
 FUTURE_METRICS = {
-    "damage_dealt": "Attributed damage events are required.",
     "accuracy": "Attributed shot and finalized hit/miss events are required.",
     "objective_progress": "Mode-specific, attributed objective events are required.",
 }
@@ -247,6 +252,13 @@ WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_COUNTERS = (
     "walking_step_preflight_positive_dps_veto_rollback_rejected_exact",
     "walking_step_preflight_positive_dps_veto_action_overflows_exact",
 )
+DAMAGE_COUNTERS = (
+    "damage_taken_exact",
+    "damage_taken_from_other_participants_exact",
+    "damage_taken_from_self_exact",
+    "damage_taken_from_nonparticipants_exact",
+    "damage_dealt_to_other_participants_exact",
+)
 FALLING_PARITY_REALIZED_STEP_COUNTERS = (
     "falling_parity_realized_matched_steps_exact",
     "falling_parity_realized_matched_landing_steps_exact",
@@ -316,7 +328,7 @@ OPTIONAL_EXACT_COUNTERS = (
 	+ FALLING_PRE_MOVE_ANCHOR_COUNTERS
 	+ HAZARD_SWIM_EGRESS_LIVE_COUNTERS
 	+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS
-    + DEATH_ATTRIBUTION_COUNTERS
+    + DEATH_ATTRIBUTION_COUNTERS + DAMAGE_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
     + VERTICAL_PAIN_COLUMN_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
@@ -1889,6 +1901,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("hazard swim egress live", HAZARD_SWIM_EGRESS_LIVE_COUNTERS),
                 ("hazard swim egress direct navigation", HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS),
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
+                ("damage attribution", DAMAGE_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
                 ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS),
@@ -1998,6 +2011,13 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                     result["recent_enemy_contributed_environmental_deaths_proxy"]:
                 raise QualityError(
                     f"{context}: momentum-contributed deaths exceed enemy-contributed deaths")
+        if "damage_taken_exact" in result:
+            if result["damage_taken_exact"] != (
+                    result["damage_taken_from_other_participants_exact"]
+                    + result["damage_taken_from_self_exact"]
+                    + result["damage_taken_from_nonparticipants_exact"]):
+                raise QualityError(
+                    f"{context}: damage source counters do not equal damage taken")
         if "falling_seam_detections_exact" in result:
             candidates = result["horizontal_corner_candidate_probes_exact"]
             detections = result["falling_seam_detections_exact"]
@@ -2322,6 +2342,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
         optional_fields = OPTIONAL_CUMULATIVE_METRICS + OPTIONAL_DIAGNOSTIC_FIELDS
         optional_presence: set[str] | None = None
         for event in events:
+            participant_damage_dealt = 0
+            participant_damage_taken = 0
             for bot in event["bots"]:
                 present = {name for name in optional_fields if name in bot}
                 if optional_presence is None:
@@ -2356,7 +2378,14 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 if "wall_adjust_recovery_successes_exact" in bot and \
                         bot["wall_adjust_recovery_successes_exact"] > bot["wall_adjust_recovery_attempts_exact"]:
                     raise QualityError(f"{path}: wall adjust successes exceed attempts for {bot['identity']}")
+                if "damage_taken_exact" in bot:
+                    participant_damage_dealt += bot["damage_dealt_to_other_participants_exact"]
+                    participant_damage_taken += bot["damage_taken_from_other_participants_exact"]
                 previous[bot["identity"]] = bot
+            if optional_presence and "damage_taken_exact" in optional_presence and \
+                    participant_damage_dealt != participant_damage_taken:
+                raise QualityError(
+                    f"{path}: inter-participant damage dealt/taken does not reconcile at sequence {event['seq']}")
         if optional_presence and "walking_step_preflight_diagnostics" in optional_presence:
             _validate_walking_step_preflight_diagnostic_stream(events, path)
         if optional_presence and "walking_step_preflight_positive_dps_veto_actions" in optional_presence:
@@ -2732,6 +2761,8 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
     deaths = sum_available("deaths_exact")
     suicides = sum_available("suicides_exact")
     hazard_deaths = sum_available("hazard_exposed_deaths_proxy")
+    participant_damage_dealt = sum_available("damage_dealt_to_other_participants_exact")
+    participant_damage_taken = sum_available("damage_taken_from_other_participants_exact")
     result = {
         "distance_traveled": sum(bot["distance_traveled"] for bot in values),
         "active_movement_seconds": active,
@@ -2758,6 +2789,17 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
         "hazard_exposed_deaths_proxy": hazard_deaths,
         "hazard_exposed_death_fraction_proxy": (
             hazard_deaths / deaths if deaths and deaths > 0 else None),
+        "damage_taken_exact": sum_available("damage_taken_exact"),
+        "damage_taken_from_other_participants_exact": participant_damage_taken,
+        "damage_taken_from_self_exact": sum_available("damage_taken_from_self_exact"),
+        "damage_taken_from_nonparticipants_exact": sum_available(
+            "damage_taken_from_nonparticipants_exact"),
+        "damage_dealt_to_other_participants_exact": participant_damage_dealt,
+        "damage_efficiency_to_other_participants": (
+            participant_damage_dealt / participant_damage_taken
+            if participant_damage_dealt is not None
+            and participant_damage_taken is not None
+            and participant_damage_taken > 0 else None),
         "health_loss_observed": sum(bot["health_loss_observed"] for bot in values),
         "minimum_health_observed": min((bot["minimum_health_observed"] for bot in values), default=None),
         "survived_to_final_sample": all(survival) if survival and all(item is not None for item in survival) else None,
@@ -3047,6 +3089,10 @@ def analyze(paths: list[Path]) -> dict[str, Any]:
             "death_attribution_metrics_present": all(
                 any(run["metrics"].get(name) is not None for run in runs)
                 for name in DEATH_ATTRIBUTION_COUNTERS
+            ),
+            "damage_attribution_metrics_present": all(
+                any(run["metrics"].get(name) is not None for run in runs)
+                for name in DAMAGE_COUNTERS
             ),
             "falling_seam_shadow_metrics_present": all(
                 any(run["metrics"].get(name) is not None for run in runs)

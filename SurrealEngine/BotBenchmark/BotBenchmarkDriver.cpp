@@ -26,6 +26,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -186,6 +187,11 @@ namespace
 			uint64_t SuicidesExact = 0;
 			uint64_t EnvironmentalDeathsExact = 0;
 			uint64_t HazardExposedDeathsProxy = 0;
+			uint64_t DamageTakenExact = 0;
+			uint64_t DamageTakenFromOtherParticipantsExact = 0;
+			uint64_t DamageTakenFromSelfExact = 0;
+			uint64_t DamageTakenFromNonParticipantsExact = 0;
+			uint64_t DamageDealtToOtherParticipantsExact = 0;
 			BotBenchmarkDriverDetail::DeathAttributionCounters DeathAttribution;
 			uint64_t HitWallEventsExact = 0;
 			BotBenchmarkDriverDetail::NativePawnCounterEpoch NativeCounterEpoch;
@@ -214,6 +220,9 @@ namespace
 			std::string VictimIdentity;
 			BotBenchmarkDeathAttribution::ScopeToken Token;
 			AttributionScopeKind Kind = AttributionScopeKind::TakeDamage;
+			int PreHealth = 0;
+			bool CanonicalDamageFrame = false;
+			std::string InstigatorIdentity;
 		};
 
 		void ValidateGameProfile()
@@ -713,6 +722,8 @@ namespace
 				return;
 			}
 			ActiveAttributionCalls.pop_back();
+			if (expectedKind == AttributionScopeKind::TakeDamage)
+				RecordCanonicalDamage(call);
 			using namespace BotBenchmarkDeathAttribution;
 			CoordinatorStatus status = CoordinatorStatus::InvalidToken;
 			switch (expectedKind)
@@ -728,6 +739,56 @@ namespace
 				break;
 			}
 			AcceptCoordinatorStatus(status, "hook cleanup");
+		}
+
+		bool AddDamageCounter(uint64_t& counter, uint64_t amount,
+			const char* name)
+		{
+			if (amount > std::numeric_limits<uint64_t>::max() - counter)
+			{
+				Fail(std::string("damage telemetry counter overflow: ") + name);
+				return false;
+			}
+			counter += amount;
+			return true;
+		}
+
+		void RecordCanonicalDamage(const ActiveAttributionCall& call)
+		{
+			if (!call.CanonicalDamageFrame || call.PreHealth <= 0)
+				return;
+			UPawn* victim = UObject::TryCast<UPawn>(call.Instance);
+			if (!victim || victim->Health() >= call.PreHealth)
+				return;
+			const uint64_t amount = static_cast<uint64_t>(
+				static_cast<int64_t>(call.PreHealth) - victim->Health());
+			auto victimRuntime = QualityParticipants.find(call.VictimIdentity);
+			if (victimRuntime == QualityParticipants.end())
+			{
+				Fail("canonical damage lost its benchmark victim");
+				return;
+			}
+			if (!AddDamageCounter(victimRuntime->second.DamageTakenExact, amount,
+				"damage_taken_exact"))
+				return;
+			auto instigatorRuntime = QualityParticipants.find(call.InstigatorIdentity);
+			if (instigatorRuntime == QualityParticipants.end())
+			{
+				AddDamageCounter(victimRuntime->second.DamageTakenFromNonParticipantsExact,
+					amount, "damage_taken_from_nonparticipants_exact");
+				return;
+			}
+			if (call.InstigatorIdentity == call.VictimIdentity)
+			{
+				AddDamageCounter(victimRuntime->second.DamageTakenFromSelfExact, amount,
+					"damage_taken_from_self_exact");
+				return;
+			}
+			if (!AddDamageCounter(victimRuntime->second.DamageTakenFromOtherParticipantsExact,
+				amount, "damage_taken_from_other_participants_exact"))
+				return;
+			AddDamageCounter(instigatorRuntime->second.DamageDealtToOtherParticipantsExact,
+				amount, "damage_dealt_to_other_participants_exact");
 		}
 
 		bool BeginKilledCall(const std::string& victimIdentity)
@@ -820,14 +881,17 @@ namespace
 					if (instigator && instigator->bIsPlayer())
 						relation = instigator == victim ? DamageInstigator::SelfPlayer :
 							DamageInstigator::EnemyPlayer;
+					const bool canonical = function == CanonicalTakeDamageFunction;
+					const int preHealth = victim->Health();
 					const auto entered = AttributionCoordinator.EnterTakeDamage({ victimIdentity,
 						relation, AttributionTimeSeconds(), victim->Health(),
-						function == CanonicalTakeDamageFunction ? DamageFrameKind::Canonical :
+						canonical ? DamageFrameKind::Canonical :
 							DamageFrameKind::Override, true });
 					if (!AcceptCoordinatorStatus(entered.Status, "TakeDamage enter"))
 						return {};
 					ActiveAttributionCalls.push_back({ function, instance, victimIdentity, entered.Token,
-						AttributionScopeKind::TakeDamage });
+						AttributionScopeKind::TakeDamage, preHealth, canonical,
+						PawnIdentity(instigator) });
 					return [this, function, instance]()
 					{
 						FinishAttributionCall(function, instance, AttributionScopeKind::TakeDamage);
@@ -1220,6 +1284,14 @@ namespace
 				bot.SuicidesExact = runtime.SuicidesExact;
 				bot.EnvironmentalDeathsExact = runtime.EnvironmentalDeathsExact;
 				bot.HazardExposedDeathsProxy = runtime.HazardExposedDeathsProxy;
+				bot.DamageTakenExact = runtime.DamageTakenExact;
+				bot.DamageTakenFromOtherParticipantsExact =
+					runtime.DamageTakenFromOtherParticipantsExact;
+				bot.DamageTakenFromSelfExact = runtime.DamageTakenFromSelfExact;
+				bot.DamageTakenFromNonParticipantsExact =
+					runtime.DamageTakenFromNonParticipantsExact;
+				bot.DamageDealtToOtherParticipantsExact =
+					runtime.DamageDealtToOtherParticipantsExact;
 				bot.DirectSelfKills = runtime.DeathAttribution.DirectSelfKills;
 				bot.DirectEnemyKills = runtime.DeathAttribution.DirectEnemyKills;
 				bot.UnassistedEnvironmentalDeaths =

@@ -1851,6 +1851,71 @@ class BotQualityAnalysisTests(unittest.TestCase):
                     QUALITY.QualityError, "requires manifest.death_attribution_recent_window_seconds"):
                 QUALITY.analyze([undeclared])
 
+    def test_damage_attribution_counters_reconcile_and_fail_closed(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.DAMAGE_COUNTERS}
+        final = {
+            "damage_taken_exact": 10,
+            "damage_taken_from_other_participants_exact": 10,
+            "damage_taken_from_self_exact": 0,
+            "damage_taken_from_nonparticipants_exact": 0,
+            "damage_dealt_to_other_participants_exact": 10,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "damage-valid", bot_count=2)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, **zero}, {**common, **final}, {**common, **final},
+            ])
+            report = QUALITY.analyze([valid])
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(metrics["damage_taken_exact"], 20)
+            self.assertEqual(metrics["damage_dealt_to_other_participants_exact"], 20)
+            self.assertEqual(metrics["damage_efficiency_to_other_participants"], 1.0)
+
+            partial = write_v2_run(root, "damage-partial", bot_count=1)
+            partial_final = {**final}
+            partial_final.pop("damage_dealt_to_other_participants_exact")
+            upgrade_telemetry_v2(partial, counters=[
+                {**common, **zero}, {**common, **partial_final},
+                {**common, **partial_final},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "damage attribution counters must be provided"):
+                QUALITY.analyze_run(partial)
+
+            invalid_source = write_v2_run(root, "damage-source", bot_count=1)
+            invalid_final = {**final, "damage_taken_from_nonparticipants_exact": 1}
+            upgrade_telemetry_v2(invalid_source, counters=[
+                {**common, **zero}, {**common, **invalid_final},
+                {**common, **invalid_final},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "damage source counters do not equal damage taken"):
+                QUALITY.analyze_run(invalid_source)
+
+            invalid_reconciliation = write_v2_run(root, "damage-reconciliation", bot_count=2)
+            upgrade_telemetry_v2(invalid_reconciliation, counters=[
+                {**common, **zero}, {**common, **final}, {**common, **final},
+            ])
+            reconciliation_events_path = invalid_reconciliation / "events.jsonl"
+            reconciliation_events = [
+                json.loads(line) for line in reconciliation_events_path.read_text(
+                    encoding="utf-8").splitlines()]
+            reconciliation_events[-1]["bots"][1][
+                "damage_dealt_to_other_participants_exact"] = "11"
+            reconciliation_events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n"
+                        for event in reconciliation_events), encoding="utf-8")
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "inter-participant damage dealt/taken does not reconcile"):
+                QUALITY.analyze_run(invalid_reconciliation)
+
     def test_optional_diagnostics_and_recovery_counters_are_validated_and_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             run = write_run(Path(temporary), "run", [0.0, 0.0, 2.0, 3.0])

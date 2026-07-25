@@ -45,6 +45,11 @@ struct BotBenchmarkBotState
 	uint64_t SuicidesExact = 0;
 	uint64_t EnvironmentalDeathsExact = 0;
 	uint64_t HazardExposedDeathsProxy = 0;
+	uint64_t DamageTakenExact = 0;
+	uint64_t DamageTakenFromOtherParticipantsExact = 0;
+	uint64_t DamageTakenFromSelfExact = 0;
+	uint64_t DamageTakenFromNonParticipantsExact = 0;
+	uint64_t DamageDealtToOtherParticipantsExact = 0;
 	uint64_t DirectSelfKills = 0;
 	uint64_t DirectEnemyKills = 0;
 	uint64_t UnassistedEnvironmentalDeaths = 0;
