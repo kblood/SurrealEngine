@@ -44,6 +44,7 @@ class Variant:
     failed_navigation_avoidance_enabled: bool = False
     falling_hazard_recovery_enabled: bool = False
     falling_hazard_recovery_live_enabled: bool = False
+    targetless_move_to_timeout_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -251,10 +252,15 @@ def load_matrix(path: Path) -> MatrixConfig:
         if not isinstance(falling_hazard_recovery_live_enabled, bool):
             raise MatrixError(
                 f"matrix.variants[{index}].falling_hazard_recovery_live_enabled must be a boolean")
+        targetless_move_to_timeout_enabled = fields.get("targetless_move_to_timeout_enabled", False)
+        if not isinstance(targetless_move_to_timeout_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].targetless_move_to_timeout_enabled must be a boolean")
         variants.append(Variant(
             variant_id, executable, role, build_preset, hazard_swim_egress_enabled,
             hazard_swim_egress_live_enabled, failed_navigation_avoidance_enabled,
-            falling_hazard_recovery_enabled, falling_hazard_recovery_live_enabled))
+            falling_hazard_recovery_enabled, falling_hazard_recovery_live_enabled,
+            targetless_move_to_timeout_enabled))
     ids = [variant.id for variant in variants]
     if len(ids) != len(set(ids)):
         raise MatrixError("matrix variant IDs must be unique")
@@ -421,7 +427,8 @@ def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
                                 variant.hazard_swim_egress_live_enabled,
                                 variant.failed_navigation_avoidance_enabled,
                                 variant.falling_hazard_recovery_enabled,
-                                variant.falling_hazard_recovery_live_enabled]
+                                variant.falling_hazard_recovery_live_enabled,
+                                variant.targetless_move_to_timeout_enabled]
                     run_id = (
                         f"{ordinal:06d}-{_slug(variant.id)}-{_slug(map_url)}-"
                         f"s{seed}" + (f"-l{_slug(start_layout.id)}" if start_layout else "") +
@@ -462,6 +469,8 @@ def command_for(config: MatrixConfig, case: MatrixCase, run_directory: Path) -> 
             "1" if case.variant.falling_hazard_recovery_enabled else "0"),
         "--botbench-falling-hazard-recovery-live=" + (
             "1" if case.variant.falling_hazard_recovery_live_enabled else "0"),
+        "--botbench-targetless-move-to-timeout=" + (
+            "1" if case.variant.targetless_move_to_timeout_enabled else "0"),
     ]
     if config.per_bot_skills is not None:
         command.append("--botbench-skills=" + ",".join(str(value) for value in config.per_bot_skills))
@@ -604,6 +613,7 @@ def _preflight_provenance(
             "build_preset": variant.build_preset,
             "falling_hazard_recovery_enabled": variant.falling_hazard_recovery_enabled,
             "falling_hazard_recovery_live_enabled": variant.falling_hazard_recovery_live_enabled,
+            "targetless_move_to_timeout_enabled": variant.targetless_move_to_timeout_enabled,
             "executable": _file_provenance(variant.executable),
         })
     game_manifest = _file_provenance(config.game_manifest) if config.game_manifest else None
@@ -663,6 +673,7 @@ def _run_case(
         "variant": case.variant.id,
         "falling_hazard_recovery_enabled": case.variant.falling_hazard_recovery_enabled,
         "falling_hazard_recovery_live_enabled": case.variant.falling_hazard_recovery_live_enabled,
+        "targetless_move_to_timeout_enabled": case.variant.targetless_move_to_timeout_enabled,
     }
     if case.start_layout is not None:
         metadata.update({
@@ -697,6 +708,7 @@ def _run_case(
             case.variant.failed_navigation_avoidance_enabled),
         "falling_hazard_recovery_enabled": case.variant.falling_hazard_recovery_enabled,
         "falling_hazard_recovery_live_enabled": case.variant.falling_hazard_recovery_live_enabled,
+        "targetless_move_to_timeout_enabled": case.variant.targetless_move_to_timeout_enabled,
         "command": command,
     })
     launch = launcher(command, config.timeout_seconds, run_directory / "stdout.txt", run_directory / "stderr.txt")
@@ -757,6 +769,7 @@ def _run_case(
             case.variant.failed_navigation_avoidance_enabled),
         "falling_hazard_recovery_enabled": case.variant.falling_hazard_recovery_enabled,
         "falling_hazard_recovery_live_enabled": case.variant.falling_hazard_recovery_live_enabled,
+        "targetless_move_to_timeout_enabled": case.variant.targetless_move_to_timeout_enabled,
         "exit_code": launch.exit_code,
         "timed_out": launch.timed_out,
         "wall_seconds": launch.wall_seconds,
@@ -799,6 +812,7 @@ def dry_run_plan(config: MatrixConfig, output: Path) -> dict[str, Any]:
                 case.variant.failed_navigation_avoidance_enabled),
             "falling_hazard_recovery_enabled": case.variant.falling_hazard_recovery_enabled,
             "falling_hazard_recovery_live_enabled": case.variant.falling_hazard_recovery_live_enabled,
+            "targetless_move_to_timeout_enabled": case.variant.targetless_move_to_timeout_enabled,
             "command": command_for(config, case, runs_directory / case.run_id),
         } for case in cases],
     }

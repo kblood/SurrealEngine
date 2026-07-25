@@ -27,6 +27,7 @@ namespace PawnMovement
 		bool Detected = false;
 		MoveStallLatentMode LatentMode = MoveStallLatentMode::Other;
 		bool LiveNavigationMoveToward = false;
+		bool TargetlessMoveToTimeoutEnabled = false;
 		bool Targetless = false;
 		float MoveTimer = 0.0f;
 		vec3 Location;

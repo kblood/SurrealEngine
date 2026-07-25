@@ -953,7 +953,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "falling_hazard_recovery_enabled="
 		<< (config.IsFallingHazardRecoveryEnabled() ? "1" : "0") << '\n'
 		<< "falling_hazard_recovery_live_enabled="
-		<< (config.IsFallingHazardRecoveryLiveEnabled() ? "1" : "0") << '\n';
+		<< (config.IsFallingHazardRecoveryLiveEnabled() ? "1" : "0") << '\n'
+		<< "targetless_move_to_timeout_enabled="
+		<< (config.IsTargetlessMoveToTimeoutEnabled() ? "1" : "0") << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
 		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
@@ -993,6 +995,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsFallingHazardRecoveryEnabled() ? "true" : "false") << ",\n"
 		<< "  \"falling_hazard_recovery_live_enabled\": "
 		<< (config.IsFallingHazardRecoveryLiveEnabled() ? "true" : "false") << ",\n"
+		<< "  \"targetless_move_to_timeout_enabled\": "
+		<< (config.IsTargetlessMoveToTimeoutEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";

@@ -149,7 +149,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	bool harmfulZoneEscapeEnabled, bool walkingPreflightPositiveDpsVetoEnabled,
 	bool hazardSwimEgressEnabled, bool hazardSwimEgressLiveEnabled,
 	bool failedNavigationAvoidanceEnabled, bool fallingHazardRecoveryEnabled,
-	bool fallingHazardRecoveryLiveEnabled)
+	bool fallingHazardRecoveryLiveEnabled, bool targetlessMoveToTimeoutEnabled)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
 	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled),
@@ -158,7 +158,8 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	HazardSwimEgressLiveEnabled(hazardSwimEgressLiveEnabled),
 	FailedNavigationAvoidanceEnabled(failedNavigationAvoidanceEnabled),
 	FallingHazardRecoveryEnabled(fallingHazardRecoveryEnabled),
-	FallingHazardRecoveryLiveEnabled(fallingHazardRecoveryLiveEnabled)
+	FallingHazardRecoveryLiveEnabled(fallingHazardRecoveryLiveEnabled),
+	TargetlessMoveToTimeoutEnabled(targetlessMoveToTimeoutEnabled)
 {
 }
 
@@ -170,7 +171,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> hazardSwimEgress, std::optional<std::string> hazardSwimEgressLive,
 	std::optional<std::string> failedNavigationAvoidance,
 	std::optional<std::string> fallingHazardRecovery,
-	std::optional<std::string> fallingHazardRecoveryLive)
+	std::optional<std::string> fallingHazardRecoveryLive,
+	std::optional<std::string> targetlessMoveToTimeout)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -203,12 +205,15 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		fallingHazardRecovery, "bot benchmark falling-hazard recovery");
 	const bool parsedFallingHazardRecoveryLive = ParseExactBoolean(
 		fallingHazardRecoveryLive, "bot benchmark falling-hazard recovery live");
+	const bool parsedTargetlessMoveToTimeout = ParseExactBoolean(
+		targetlessMoveToTimeout, "bot benchmark targetless MoveTo timeout");
 
 	return BotBenchmarkRunConfig(std::move(url), std::move(outputDirectory), parsedSeed,
 		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster), parsedHarmfulZoneEscape,
 		parsedWalkingPreflightPositiveDpsVeto, parsedHazardSwimEgress,
 		parsedHazardSwimEgressLive, parsedFailedNavigationAvoidance,
-		parsedFallingHazardRecovery, parsedFallingHazardRecoveryLive);
+		parsedFallingHazardRecovery, parsedFallingHazardRecoveryLive,
+		parsedTargetlessMoveToTimeout);
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
@@ -264,7 +269,9 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< "    \"falling_hazard_recovery_enabled\": "
 		<< (config.IsFallingHazardRecoveryEnabled() ? "true" : "false") << ",\n"
 		<< "    \"falling_hazard_recovery_live_enabled\": "
-		<< (config.IsFallingHazardRecoveryLiveEnabled() ? "true" : "false") << "\n"
+		<< (config.IsFallingHazardRecoveryLiveEnabled() ? "true" : "false") << ",\n"
+		<< "    \"targetless_move_to_timeout_enabled\": "
+		<< (config.IsTargetlessMoveToTimeoutEnabled() ? "true" : "false") << "\n"
 		<< "  }\n"
 		<< "}\n";
 	return out.str();

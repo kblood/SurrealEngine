@@ -45,7 +45,7 @@ int main()
 	const MoveStallCommandKey strafeFacingA = {
 		MoveStallLatentMode::StrafeFacing, &navigationTargetA, vec3(100.0f, 0.0f, 0.0f)
 	};
-	const MoveStallRecoveryContext targetlessMoveTo = {
+	MoveStallRecoveryContext targetlessMoveTo = {
 		.Detected = true,
 		.LatentMode = MoveStallLatentMode::MoveTo,
 		.Targetless = true,
@@ -55,8 +55,12 @@ int main()
 		.AcceptanceRadius = 1.0f
 	};
 	Check(SelectMoveStallRecovery(targetlessMoveTo)
+		== MoveStallRecoveryDecision::None,
+		"a detected targetless MoveTo remains inert until its timeout recovery is enabled");
+	targetlessMoveTo.TargetlessMoveToTimeoutEnabled = true;
+	Check(SelectMoveStallRecovery(targetlessMoveTo)
 		== MoveStallRecoveryDecision::TargetlessTimeout,
-		"a detected targetless MoveTo beyond its arrival radius requests a timeout");
+		"an enabled detected targetless MoveTo beyond its arrival radius requests a timeout");
 	MoveStallRecoveryContext targetlessStrafeTo = targetlessMoveTo;
 	targetlessStrafeTo.LatentMode = MoveStallLatentMode::StrafeTo;
 	Check(SelectMoveStallRecovery(targetlessStrafeTo)

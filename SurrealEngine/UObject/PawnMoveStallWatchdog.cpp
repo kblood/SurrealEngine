@@ -70,7 +70,8 @@ namespace PawnMovement
 			&& context.LiveNavigationMoveToward)
 			return MoveStallRecoveryDecision::NavigationReplan;
 
-		const bool targetlessPositionalMove = context.Targetless
+		const bool targetlessPositionalMove = context.TargetlessMoveToTimeoutEnabled
+			&& context.Targetless
 			&& context.LatentMode == MoveStallLatentMode::MoveTo;
 		const bool finitePosition = IsFinite(context.Location) && IsFinite(context.Destination);
 		const bool validTimer = std::isfinite(context.MoveTimer) && context.MoveTimer > 0.0f;

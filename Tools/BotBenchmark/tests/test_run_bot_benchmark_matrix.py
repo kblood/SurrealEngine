@@ -613,10 +613,11 @@ class MatrixRunnerTests(unittest.TestCase):
                     with self.assertRaises(MATRIX.MatrixError):
                         MATRIX.load_matrix(path)
 
-    def test_falling_hazard_recovery_controls_are_per_variant_and_provenanced(self) -> None:
+    def test_opt_in_recovery_controls_are_per_variant_and_provenanced(self) -> None:
         controls = (
             ("falling_hazard_recovery_enabled", "--botbench-falling-hazard-recovery"),
             ("falling_hazard_recovery_live_enabled", "--botbench-falling-hazard-recovery-live"),
+            ("targetless_move_to_timeout_enabled", "--botbench-targetless-move-to-timeout"),
         )
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

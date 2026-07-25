@@ -2372,7 +2372,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                hazard_swim_egress_live_enabled: bool | None = None,
                failed_navigation_avoidance_enabled: bool | None = None,
                falling_hazard_recovery_enabled: bool | None = None,
-               falling_hazard_recovery_live_enabled: bool | None = None) -> str:
+               falling_hazard_recovery_live_enabled: bool | None = None,
+               targetless_move_to_timeout_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -2400,6 +2401,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if falling_hazard_recovery_live_enabled is not None:
             canonical_text += "falling_hazard_recovery_live_enabled=" + (
                 "1\n" if falling_hazard_recovery_live_enabled else "0\n")
+        if targetless_move_to_timeout_enabled is not None:
+            canonical_text += "targetless_move_to_timeout_enabled=" + (
+                "1\n" if targetless_move_to_timeout_enabled else "0\n")
         assert requested_roster is not None
         canonical_text += "".join(f"roster={entry['identity_fragment']}\n" for entry in requested_roster)
     canonical = canonical_text.encode("utf-8")
@@ -2529,6 +2533,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     failed_navigation_avoidance_enabled = None
     falling_hazard_recovery_enabled = None
     falling_hazard_recovery_live_enabled = None
+    targetless_move_to_timeout_enabled = None
     if schema == MANIFEST_SCHEMA_V2:
         bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
         requested_roster = _validate_requested_roster(raw.get("requested_roster"),
@@ -2568,6 +2573,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             falling_hazard_recovery_live_enabled = _boolean(
                 raw.get("falling_hazard_recovery_live_enabled"),
                 "manifest.falling_hazard_recovery_live_enabled")
+        if "targetless_move_to_timeout_enabled" in raw:
+            targetless_move_to_timeout_enabled = _boolean(
+                raw.get("targetless_move_to_timeout_enabled"),
+                "manifest.targetless_move_to_timeout_enabled")
     expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count,
                              requested_roster, harmful_zone_escape_enabled,
                              walking_preflight_positive_dps_veto_enabled,
@@ -2575,7 +2584,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              hazard_swim_egress_live_enabled,
                              failed_navigation_avoidance_enabled,
                              falling_hazard_recovery_enabled,
-                             falling_hazard_recovery_live_enabled)
+                             falling_hazard_recovery_live_enabled,
+                             targetless_move_to_timeout_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -2599,6 +2609,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "failed_navigation_avoidance_enabled": failed_navigation_avoidance_enabled,
         "falling_hazard_recovery_enabled": falling_hazard_recovery_enabled,
         "falling_hazard_recovery_live_enabled": falling_hazard_recovery_live_enabled,
+        "targetless_move_to_timeout_enabled": targetless_move_to_timeout_enabled,
     }
 
 
@@ -3348,6 +3359,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["falling_hazard_recovery_live_enabled"] = _boolean(
             config.get("falling_hazard_recovery_live_enabled"),
             "summary.config.falling_hazard_recovery_live_enabled")
+    if manifest["targetless_move_to_timeout_enabled"] is not None:
+        comparisons["targetless_move_to_timeout_enabled"] = _boolean(
+            config.get("targetless_move_to_timeout_enabled"),
+            "summary.config.targetless_move_to_timeout_enabled")
     requested_roster = None
     actual_roster = None
     if expected_schema == SUMMARY_SCHEMA_V2:
@@ -3946,6 +3961,8 @@ def analyze_run(path: Path) -> dict[str, Any]:
             "falling_hazard_recovery_enabled": manifest["falling_hazard_recovery_enabled"],
             "falling_hazard_recovery_live_enabled": (
                 manifest["falling_hazard_recovery_live_enabled"]),
+            "targetless_move_to_timeout_enabled": (
+                manifest["targetless_move_to_timeout_enabled"]),
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),
             "suicides_exact_semantics": manifest["suicides_exact_semantics"],

@@ -56,6 +56,8 @@ namespace
 				Config.IsFallingHazardRecoveryLiveEnabled());
 			EngineRef.SetBotBenchmarkFailedNavigationAvoidanceEnabled(
 				Config.IsFailedNavigationAvoidanceEnabled());
+			EngineRef.SetBotBenchmarkTargetlessMoveToTimeoutEnabled(
+				Config.IsTargetlessMoveToTimeoutEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -2170,7 +2172,8 @@ namespace
 			OptionalCommandLineArg("--botbench-hazard-swim-egress-live"),
 			OptionalCommandLineArg("--botbench-failed-navigation-avoidance"),
 			OptionalCommandLineArg("--botbench-falling-hazard-recovery"),
-			OptionalCommandLineArg("--botbench-falling-hazard-recovery-live"));
+			OptionalCommandLineArg("--botbench-falling-hazard-recovery-live"),
+			OptionalCommandLineArg("--botbench-targetless-move-to-timeout"));
 	}
 }
 

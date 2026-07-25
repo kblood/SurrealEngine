@@ -6164,6 +6164,8 @@ void UPawn::ObserveMoveStallWatchdog(float elapsed)
 				.Detected = observation.Detected,
 				.LatentMode = latentMode,
 				.LiveNavigationMoveToward = liveNavigationTarget,
+				.TargetlessMoveToTimeoutEnabled =
+					engine->IsBotBenchmarkTargetlessMoveToTimeoutEnabled(),
 				.Targetless = moveTarget == nullptr,
 				.MoveTimer = MoveTimer(),
 				.Location = Location(),

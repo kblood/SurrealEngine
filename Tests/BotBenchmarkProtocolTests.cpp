@@ -22,7 +22,8 @@ int main()
 		|| defaults.GetRoster().GetCount() != 1
 		|| defaults.GetRoster().GetParticipants()[0].ExternalSkill != 3
 		|| !defaults.GetRoster().GetParticipants()[0].RequestedName.empty()
-		|| defaults.IsFailedNavigationAvoidanceEnabled())
+		|| defaults.IsFailedNavigationAvoidanceEnabled()
+		|| defaults.IsTargetlessMoveToTimeoutEnabled())
 		return Fail("default bot benchmark configuration or roster was incorrect");
 
 	const BotBenchmarkRunConfig parsed = BotBenchmarkRunConfig::Parse(
@@ -121,7 +122,10 @@ int main()
 		"    \"walking_preflight_positive_dps_veto_enabled\": false,\n"
 		"    \"hazard_swim_egress_enabled\": false,\n"
 		"    \"hazard_swim_egress_live_enabled\": false,\n"
-		"    \"failed_navigation_avoidance_enabled\": false\n"
+		"    \"failed_navigation_avoidance_enabled\": false,\n"
+		"    \"falling_hazard_recovery_enabled\": false,\n"
+		"    \"falling_hazard_recovery_live_enabled\": false,\n"
+		"    \"targetless_move_to_timeout_enabled\": false\n"
 		"  }\n"
 		"}\n";
 	if (summary.ToJson(parsed) != expectedSummary)
