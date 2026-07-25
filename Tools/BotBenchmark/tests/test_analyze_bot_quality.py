@@ -394,6 +394,8 @@ class BotQualityAnalysisTests(unittest.TestCase):
         handoff_zero = {
             name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS}
         residence_zero = {name: 0 for name in QUALITY.HAZARD_RESIDENCE_COUNTERS}
+        external_impulse_zero = {
+            name: 0 for name in QUALITY.EXTERNAL_IMPULSE_FALL_WITNESS_COUNTERS}
         final = {
             **zero,
             "hazard_swim_egress_episodes_exact": 3,
@@ -457,6 +459,35 @@ class BotQualityAnalysisTests(unittest.TestCase):
             ])
             with self.assertRaisesRegex(QUALITY.QualityError, "outcomes must partition"):
                 QUALITY.analyze_run(residence_unpartitioned)
+
+            external_impulse = write_v2_run(root, "external-impulse-fall", bot_count=1)
+            external_impulse_final = {
+                **external_impulse_zero,
+                "external_impulse_fall_harmful_witnesses_exact": 3,
+                "external_impulse_fall_no_air_control_exact": 1,
+                "external_impulse_fall_alternatives_tested_exact": 16,
+                "external_impulse_fall_certified_exact": 1,
+                "external_impulse_fall_uncertified_exact": 1,
+            }
+            upgrade_telemetry_v2(external_impulse, counters=[
+                {**common, **external_impulse_zero},
+                {**common, **external_impulse_final},
+                {**common, **external_impulse_final},
+            ])
+            external_report = QUALITY.analyze([external_impulse])
+            self.assertEqual(external_report["runs"][0]["metrics"]
+                ["external_impulse_fall_certified_exact"], 1)
+
+            external_invalid = write_v2_run(root, "external-impulse-fall-invalid", bot_count=1)
+            external_invalid_final = {**external_impulse_final,
+                "external_impulse_fall_uncertified_exact": 0}
+            upgrade_telemetry_v2(external_invalid, counters=[
+                {**common, **external_impulse_zero},
+                {**common, **external_invalid_final},
+                {**common, **external_invalid_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "must partition witnesses"):
+                QUALITY.analyze_run(external_invalid)
 
             partial = write_v2_run(root, "hazard-swim-egress-partial", bot_count=1)
             partial_final = {**final}

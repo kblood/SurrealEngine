@@ -21,6 +21,7 @@
 #include "BotAI/HazardSwimEgressGate.h"
 #include "BotAI/HazardSwimEgressLiveSteer.h"
 #include "PawnHazardResidenceObserver.h"
+#include "PawnExternalImpulseFallWitness.h"
 
 class UTexture;
 class UPrimitive;
@@ -2212,6 +2213,11 @@ public:
 	uint64_t FallingHazardRecoveryHarmfulEntryCount() const { return FallingHazardRecoveryHarmfulEntryCountValue; }
 	uint64_t FallingHazardRecoveryDeathCount() const { return FallingHazardRecoveryDeathCountValue; }
 	uint64_t FallingHazardRecoveryTimeoutCount() const { return FallingHazardRecoveryTimeoutCountValue; }
+	uint64_t ExternalImpulseFallHarmfulWitnessCount() const { return ExternalImpulseFallHarmfulWitnessCountValue; }
+	uint64_t ExternalImpulseFallNoAirControlCount() const { return ExternalImpulseFallNoAirControlCountValue; }
+	uint64_t ExternalImpulseFallAlternativesTestedCount() const { return ExternalImpulseFallAlternativesTestedCountValue; }
+	uint64_t ExternalImpulseFallCertifiedCount() const { return ExternalImpulseFallCertifiedCountValue; }
+	uint64_t ExternalImpulseFallUncertifiedCount() const { return ExternalImpulseFallUncertifiedCountValue; }
 	const std::string& HazardSwimEgressDirectNavBestCandidateName() const
 	{
 		return HazardSwimEgress.DirectNavBestCandidateName;
@@ -2496,6 +2502,10 @@ private:
 	void ObserveHazardResidenceCandidate(const std::string& candidateName);
 	void ObserveHazardResidenceMovementCommand();
 	void ResolveHazardResidence(PawnMovement::HazardResidenceTerminal terminal);
+	void ObserveExternalImpulseFallWitness(
+		PawnMovement::FallingHazardForecastSource source,
+		const PawnMovement::FallingHazardForecastInput& input,
+		const PawnMovement::FallingHazardForecastUpdate& forecast);
 
 	bool IsInPathSpecialHandling = false;
 	PawnMovement::FailedNavigationMemoryState FailedNavigationMemory;
@@ -2660,6 +2670,11 @@ private:
 	uint64_t FallingHazardRecoveryHarmfulEntryCountValue = 0;
 	uint64_t FallingHazardRecoveryDeathCountValue = 0;
 	uint64_t FallingHazardRecoveryTimeoutCountValue = 0;
+	uint64_t ExternalImpulseFallHarmfulWitnessCountValue = 0;
+	uint64_t ExternalImpulseFallNoAirControlCountValue = 0;
+	uint64_t ExternalImpulseFallAlternativesTestedCountValue = 0;
+	uint64_t ExternalImpulseFallCertifiedCountValue = 0;
+	uint64_t ExternalImpulseFallUncertifiedCountValue = 0;
 	uint64_t FallingSeamDetectionCountValue = 0;
 	uint64_t HorizontalCornerCandidateProbeCountValue = 0;
 	uint64_t HorizontalCornerAuthorizedEscapeCountValue = 0;

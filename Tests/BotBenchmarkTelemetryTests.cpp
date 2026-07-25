@@ -386,7 +386,12 @@ int main()
 		",\"falling_hazard_recovery_safe_landings_exact\":\"0\""
 		",\"falling_hazard_recovery_harmful_entries_exact\":\"0\""
 		",\"falling_hazard_recovery_deaths_exact\":\"0\""
-		",\"falling_hazard_recovery_timeouts_exact\":\"0\"";
+		",\"falling_hazard_recovery_timeouts_exact\":\"0\""
+		",\"external_impulse_fall_harmful_witnesses_exact\":\"0\""
+		",\"external_impulse_fall_no_air_control_exact\":\"0\""
+		",\"external_impulse_fall_alternatives_tested_exact\":\"0\""
+		",\"external_impulse_fall_certified_exact\":\"0\""
+		",\"external_impulse_fall_uncertified_exact\":\"0\"";
 	const std::string walkingHitWallDispatchSuffix =
 		",\"walking_hitwall_dispatch_observations_exact\":\"0\""
 		",\"walking_hitwall_dispatch_legacy_z_band_exact\":\"0\""

@@ -84,3 +84,14 @@ ended in death, with no direct-navigation candidate. This is discovery
 evidence, not a quality improvement or action authorization. The next policy
 candidate must explain UT's observed candidate abandonment and independently
 certify a controllable Unreal alternative.
+
+The external-impulse fall witness now provides that negative certification for
+the inspected Unreal DeathFan case: two byte-identical 7,200-tick seed-271828
+runs (events SHA-256
+`6761756157108FA7CF71E33D1323F15147FF9DC2705AAB951EBDBFAB74E3AD7E`) retain
+K7/D29/S22 and record 260 harmful avoidance-relevant external-impulse
+forecasts. All 2,080 bounded air-control counterfactuals fail to reach a
+static, dry landing inside the existing forecast horizon; zero alternatives
+are certified. Therefore air-control steering is rejected for this observed
+failure class. This is not a claim that the deaths are unavoidable in every
+game state: alternative recovery mechanisms need their own causal witness.

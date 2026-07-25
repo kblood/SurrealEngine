@@ -251,6 +251,13 @@ FALLING_HAZARD_RECOVERY_COUNTERS = (
     "falling_hazard_recovery_deaths_exact",
     "falling_hazard_recovery_timeouts_exact",
 )
+EXTERNAL_IMPULSE_FALL_WITNESS_COUNTERS = (
+    "external_impulse_fall_harmful_witnesses_exact",
+    "external_impulse_fall_no_air_control_exact",
+    "external_impulse_fall_alternatives_tested_exact",
+    "external_impulse_fall_certified_exact",
+    "external_impulse_fall_uncertified_exact",
+)
 DEATH_ATTRIBUTION_COUNTERS = (
     "direct_self_kills", "direct_enemy_kills", "unassisted_environmental_deaths",
     "recent_enemy_contributed_environmental_deaths_proxy", "ambiguous_deaths",
@@ -443,7 +450,8 @@ METRIC_DIRECTIONS.update({
 		+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
 		+ HAZARD_RESIDENCE_COUNTERS
 		+ (HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER,)
-        + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS + FALLING_HAZARD_RECOVERY_COUNTERS
+		+ SINGLE_HARMFUL_FALL_PREFIX_COUNTERS + FALLING_HAZARD_RECOVERY_COUNTERS
+		+ EXTERNAL_IMPULSE_FALL_WITNESS_COUNTERS
 		+ DIRECT_HARMFUL_WATER_ENTRY_COUNTERS
 		+ DIRECT_HARMFUL_WATER_ENTRY_CERTIFICATE_RESULT_COUNTERS
 		+ WALKING_HITWALL_DISPATCH_COUNTERS
@@ -463,6 +471,7 @@ OPTIONAL_EXACT_COUNTERS = (
 	+ HAZARD_RESIDENCE_COUNTERS
 	+ (HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER,)
 	+ FALLING_HAZARD_RECOVERY_COUNTERS
+	+ EXTERNAL_IMPULSE_FALL_WITNESS_COUNTERS
     + DEATH_ATTRIBUTION_COUNTERS + DAMAGE_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
@@ -2894,6 +2903,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("hazard swim egress direct navigation", HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS),
                 ("hazard residence", HAZARD_RESIDENCE_COUNTERS),
                 ("falling hazard recovery", FALLING_HAZARD_RECOVERY_COUNTERS),
+                ("external-impulse fall witness", EXTERNAL_IMPULSE_FALL_WITNESS_COUNTERS),
                 ("death attribution", DEATH_ATTRIBUTION_COUNTERS),
                 ("damage attribution", DAMAGE_COUNTERS),
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
@@ -3065,6 +3075,18 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if terminals > live_applies:
                 raise QualityError(
                     f"{context}: falling-hazard recovery terminal outcomes exceed applies")
+        if "external_impulse_fall_harmful_witnesses_exact" in result:
+            witnesses = result["external_impulse_fall_harmful_witnesses_exact"]
+            no_air_control = result["external_impulse_fall_no_air_control_exact"]
+            certified = result["external_impulse_fall_certified_exact"]
+            uncertified = result["external_impulse_fall_uncertified_exact"]
+            alternatives = result["external_impulse_fall_alternatives_tested_exact"]
+            if no_air_control + certified + uncertified != witnesses:
+                raise QualityError(
+                    f"{context}: external-impulse fall witness decisions must partition witnesses")
+            if alternatives < certified * 8 or alternatives < uncertified * 8:
+                raise QualityError(
+                    f"{context}: external-impulse fall alternatives are incomplete")
         if "hazard_swim_egress_direct_nav_probes_exact" in result:
             if result["hazard_swim_egress_direct_nav_safe_candidates_exact"] > \
                     result["hazard_swim_egress_direct_nav_probes_exact"]:

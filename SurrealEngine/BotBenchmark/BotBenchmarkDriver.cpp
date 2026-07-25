@@ -835,6 +835,11 @@ namespace
 				pawn->FallingHazardRecoveryHarmfulEntryCount();
 			counters.FallingHazardRecoveryDeaths = pawn->FallingHazardRecoveryDeathCount();
 			counters.FallingHazardRecoveryTimeouts = pawn->FallingHazardRecoveryTimeoutCount();
+			counters.ExternalImpulseFallHarmfulWitnesses = pawn->ExternalImpulseFallHarmfulWitnessCount();
+			counters.ExternalImpulseFallNoAirControl = pawn->ExternalImpulseFallNoAirControlCount();
+			counters.ExternalImpulseFallAlternativesTested = pawn->ExternalImpulseFallAlternativesTestedCount();
+			counters.ExternalImpulseFallCertified = pawn->ExternalImpulseFallCertifiedCount();
+			counters.ExternalImpulseFallUncertified = pawn->ExternalImpulseFallUncertifiedCount();
 			counters.FallingSeamDetections = pawn->FallingSeamDetectionCount();
 			counters.HorizontalCornerCandidateProbes =
 				pawn->HorizontalCornerCandidateProbeCount();
@@ -1979,6 +1984,11 @@ namespace
 					native.FallingHazardRecoveryHarmfulEntries;
 				bot.FallingHazardRecoveryDeathsExact = native.FallingHazardRecoveryDeaths;
 				bot.FallingHazardRecoveryTimeoutsExact = native.FallingHazardRecoveryTimeouts;
+				bot.ExternalImpulseFallHarmfulWitnessesExact = native.ExternalImpulseFallHarmfulWitnesses;
+				bot.ExternalImpulseFallNoAirControlExact = native.ExternalImpulseFallNoAirControl;
+				bot.ExternalImpulseFallAlternativesTestedExact = native.ExternalImpulseFallAlternativesTested;
+				bot.ExternalImpulseFallCertifiedExact = native.ExternalImpulseFallCertified;
+				bot.ExternalImpulseFallUncertifiedExact = native.ExternalImpulseFallUncertified;
 				bot.FallingSeamDetectionsExact = native.FallingSeamDetections;
 				bot.HorizontalCornerCandidateProbesExact =
 					native.HorizontalCornerCandidateProbes;

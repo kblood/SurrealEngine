@@ -110,6 +110,11 @@ namespace BotBenchmarkDriverDetail
 		uint64_t FallingHazardRecoveryHarmfulEntries = 0;
 		uint64_t FallingHazardRecoveryDeaths = 0;
 		uint64_t FallingHazardRecoveryTimeouts = 0;
+		uint64_t ExternalImpulseFallHarmfulWitnesses = 0;
+		uint64_t ExternalImpulseFallNoAirControl = 0;
+		uint64_t ExternalImpulseFallAlternativesTested = 0;
+		uint64_t ExternalImpulseFallCertified = 0;
+		uint64_t ExternalImpulseFallUncertified = 0;
 		uint64_t FallingSeamDetections = 0;
 		uint64_t HorizontalCornerCandidateProbes = 0;
 		uint64_t HorizontalCornerAuthorizedEscapes = 0;
@@ -458,6 +463,21 @@ namespace BotBenchmarkDriverDetail
 				Previous.FallingHazardRecoveryDeaths, totals.FallingHazardRecoveryDeaths);
 			AccumulateCounter(current.FallingHazardRecoveryTimeouts,
 				Previous.FallingHazardRecoveryTimeouts, totals.FallingHazardRecoveryTimeouts);
+			AccumulateCounter(current.ExternalImpulseFallHarmfulWitnesses,
+				Previous.ExternalImpulseFallHarmfulWitnesses,
+				totals.ExternalImpulseFallHarmfulWitnesses);
+			AccumulateCounter(current.ExternalImpulseFallNoAirControl,
+				Previous.ExternalImpulseFallNoAirControl,
+				totals.ExternalImpulseFallNoAirControl);
+			AccumulateCounter(current.ExternalImpulseFallAlternativesTested,
+				Previous.ExternalImpulseFallAlternativesTested,
+				totals.ExternalImpulseFallAlternativesTested);
+			AccumulateCounter(current.ExternalImpulseFallCertified,
+				Previous.ExternalImpulseFallCertified,
+				totals.ExternalImpulseFallCertified);
+			AccumulateCounter(current.ExternalImpulseFallUncertified,
+				Previous.ExternalImpulseFallUncertified,
+				totals.ExternalImpulseFallUncertified);
 			AccumulateCounter(current.FallingSeamDetections, Previous.FallingSeamDetections,
 				totals.FallingSeamDetections);
 			AccumulateCounter(current.HorizontalCornerCandidateProbes,

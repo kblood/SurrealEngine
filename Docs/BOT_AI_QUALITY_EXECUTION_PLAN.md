@@ -2315,6 +2315,23 @@ truth does not make the observed behavior safe.
    paired multi-seed safety improvement, unchanged-or-better combat and
    navigation metrics, deterministic repeats, and held-out-map evidence.
 
+## Iteration 96: external-impulse air-control rejection
+
+The existing falling parity forecast is now used as a read-only counterfactual
+witness. It only evaluates `external_impulse_commit` falls whose original
+forecast is complete, harmful, and bot-avoidance relevant. Eight bounded
+air-control directions are independently collision- and zone-forecasted. A
+certificate requires `NoHarmfulPainAtStaticLanding` inside the same configured
+horizon; dynamic collision, water, missing support, unknown state, and every
+other result fail closed. The exact decisions partition harmful witnesses.
+
+On Unreal Gold 226b DeathFan, seed 271828 has 260 qualifying witnesses and
+2,080 alternatives, with zero certificates in two byte-identical 7,200-tick
+runs. Reject air-control steering for that discovered external-impulse class.
+The next discovery slice should identify non-air-control mechanisms with a
+separate witness—such as an earlier navigation commitment, lift/edge route
+choice, or damage-residency arbitration—rather than weakening this certificate.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:

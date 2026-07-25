@@ -206,6 +206,11 @@ struct BotBenchmarkBotState
 	uint64_t FallingHazardRecoveryHarmfulEntriesExact = 0;
 	uint64_t FallingHazardRecoveryDeathsExact = 0;
 	uint64_t FallingHazardRecoveryTimeoutsExact = 0;
+	uint64_t ExternalImpulseFallHarmfulWitnessesExact = 0;
+	uint64_t ExternalImpulseFallNoAirControlExact = 0;
+	uint64_t ExternalImpulseFallAlternativesTestedExact = 0;
+	uint64_t ExternalImpulseFallCertifiedExact = 0;
+	uint64_t ExternalImpulseFallUncertifiedExact = 0;
 	uint64_t FallingSeamDetectionsExact = 0;
 	uint64_t HorizontalCornerCandidateProbesExact = 0;
 	uint64_t HorizontalCornerAuthorizedEscapesExact = 0;

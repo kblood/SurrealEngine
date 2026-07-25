@@ -7214,6 +7214,77 @@ void UPawn::QueueFallingHazardForecastSource(
 	FallingHazardQueuedSource = source;
 }
 
+void UPawn::ObserveExternalImpulseFallWitness(
+	PawnMovement::FallingHazardForecastSource source,
+	const PawnMovement::FallingHazardForecastInput& input,
+	const PawnMovement::FallingHazardForecastUpdate& forecast)
+{
+	using namespace PawnMovement;
+	if (source != FallingHazardForecastSource::ExternalImpulseCommit)
+		return;
+	const bool baselineHarmful = forecast.Complete
+		&& forecast.Result.Classification == FallingHazardForecast::HarmfulPainObserved
+		&& forecast.Result.ExpectedBotAvoidanceRelevant;
+	const float maximumAirAcceleration = engine->LaunchInfo.ue1Version > 219
+		? AirControl() * AccelRate() : 0.0f;
+	const bool airControlAvailable = std::isfinite(maximumAirAcceleration)
+		&& maximumAirAcceleration > 0.0f;
+	size_t alternativesTested = 0;
+	size_t staticDryAlternatives = 0;
+	if (baselineHarmful && airControlAvailable)
+	{
+		const std::array<vec2, 8> directions = {
+			vec2(1.0f, 0.0f), vec2(-1.0f, 0.0f), vec2(0.0f, 1.0f),
+			vec2(0.0f, -1.0f), normalize(vec2(1.0f, 1.0f)),
+			normalize(vec2(1.0f, -1.0f)), normalize(vec2(-1.0f, 1.0f)),
+			normalize(vec2(-1.0f, -1.0f))
+		};
+		for (const vec2& direction : directions)
+		{
+			FallingHazardForecastInput alternativeInput = input;
+			alternativeInput.Acceleration = vec3(direction * maximumAirAcceleration, 0.0f);
+			const FallingHazardForecastUpdate alternative =
+				CompleteFallingHazardForecast(this, alternativeInput);
+			alternativesTested++;
+			if (alternative.Complete
+				&& alternative.Result.Classification
+					== FallingHazardForecast::NoHarmfulPainObserved
+				&& alternative.Result.Reason
+					== FallingHazardForecastReason::NoHarmfulPainAtStaticLanding
+				&& std::isfinite(alternative.Result.Elapsed)
+				&& alternative.Result.Elapsed <= input.MaximumElapsed
+					+ FallingHazardForecastElapsedTolerance)
+			{
+				staticDryAlternatives++;
+			}
+		}
+	}
+	const ExternalImpulseFallWitnessResult result =
+		EvaluateExternalImpulseFallWitness({
+			source == FallingHazardForecastSource::ExternalImpulseCommit,
+			forecast.Complete,
+			baselineHarmful,
+			forecast.Result.ExpectedBotAvoidanceRelevant,
+			airControlAvailable, alternativesTested, staticDryAlternatives });
+	if (result.CountsHarmfulWitness)
+		ExternalImpulseFallHarmfulWitnessCountValue++;
+	ExternalImpulseFallAlternativesTestedCountValue += alternativesTested;
+	switch (result.Decision)
+	{
+	case ExternalImpulseFallWitnessDecision::NoAirControl:
+		ExternalImpulseFallNoAirControlCountValue++;
+		break;
+	case ExternalImpulseFallWitnessDecision::Certified:
+		ExternalImpulseFallCertifiedCountValue++;
+		break;
+	case ExternalImpulseFallWitnessDecision::Uncertified:
+		ExternalImpulseFallUncertifiedCountValue++;
+		break;
+	default:
+		break;
+	}
+}
+
 void UPawn::EnsureFallingHazardGeneration(float physicsSliceElapsed,
 	const vec3& acceleration)
 {
@@ -7357,6 +7428,7 @@ void UPawn::EnsureFallingHazardGeneration(float physicsSliceElapsed,
 		FallingHazardQueuedSource != FallingHazardForecastSource::Unknown
 			? FallingHazardQueuedSource
 			: FallingHazardForecastSource::ExistingFallingCommit;
+	ObserveExternalImpulseFallWitness(source, input, forecast);
 	FallingHazardObserver->ArmGeneration(source, forecast);
 	FallingHazardQueuedSource = FallingHazardForecastSource::Unknown;
 }
