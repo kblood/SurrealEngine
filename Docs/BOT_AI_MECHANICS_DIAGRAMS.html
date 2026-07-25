@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SurrealEngine UE1 Bot Mechanics</title>
+  <style>
+    :root { color-scheme: dark; --ink:#e8edf7; --muted:#aebad0; --card:#172033; --line:#30415f; --accent:#71d8c2; }
+    body { margin:0; font:16px/1.55 system-ui, sans-serif; color:var(--ink); background:#0d1320; }
+    main { max-width:1180px; margin:auto; padding:36px 24px 80px; }
+    h1 { font-size:2.35rem; line-height:1.15; margin:0 0 .3rem; }
+    h2 { margin-top:3rem; border-bottom:1px solid var(--line); padding-bottom:.35rem; }
+    p, li { color:var(--muted); } code { color:var(--accent); }
+    .note { border-left:4px solid var(--accent); background:var(--card); padding:14px 18px; border-radius:6px; }
+    .diagram { background:#fff; border-radius:10px; margin:1.25rem 0; overflow:auto; padding:16px; }
+    table { width:100%; border-collapse:collapse; background:var(--card); } th,td { padding:10px; text-align:left; border:1px solid var(--line); vertical-align:top; } th { color:var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>How UE1 bots work in SurrealEngine</h1>
+  <p>UT436 <code>Botpack.Bot</code> and Unreal Gold 226b <code>UnrealShare.Bots</code> use stock UnrealScript for decisions and native UE1 services for pathfinding, movement, collision, and callbacks.</p>
+  <div class="note">The diagrams show the actual compatibility boundary. An enhanced policy is optional; stock script remains the authority for normal bot intent.</div>
+
+  <h2>Bot decision and execution loop</h2>
+  <div class="diagram mermaid">
+flowchart TD
+  S[Stock UnrealScript state<br/>Roaming / Combat / Inventory / Recovery] --> G{Choose goal}
+  G -->|enemy| C[Combat target / firing decisions]
+  G -->|pickup or objective| R{Directly reachable?}
+  G -->|wander| P[FindRandomDest / FindPathTo]
+  R -->|yes| D[MoveToward actor<br/>or MoveTo position]
+  R -->|no| P
+  P --> N[Native graph search<br/>FindPath* / FindBestInventoryPath]
+  N --> RC[SetRouteCache<br/>first NavigationPoint target]
+  RC --> D
+  D --> M[Latent movement<br/>TickWalking / TickFalling / TickSwimming]
+  M --> E{Arrival, collision, zone,<br/>timer, target or state change?}
+  E -->|yes| S
+  E -->|no| M
+  C --> S
+  </div>
+
+  <h2>What is authored in a map</h2>
+  <div class="diagram mermaid">
+flowchart LR
+  L[ULevel] --> NL[NavigationPointList]
+  L --> RS[Directed ReachSpecs]
+  NL --> PN[PathNode / NavigationPoint]
+  NL --> IS[InventorySpot]
+  NL --> LS[LiftCenter / LiftExit]
+  NL --> TM[Teleporter / WarpZoneMarker]
+  NL --> PS[PlayerStart]
+  RS -->|start/end, distance, bounds, flags| PN
+  L --> Z[Zones<br/>water, pain, gravity, friction]
+  L --> T[Traversal actors<br/>Mover, door, lift, trigger, button]
+  L --> I[Inventory actors<br/>weapon, ammo, health, armor]
+  IS -. associates .-> I
+  LS -. runtime interaction .-> T
+  PN -. zone membership .-> Z
+  </div>
+
+  <h2>Path versus direct reach</h2>
+  <div class="diagram mermaid">
+sequenceDiagram
+  participant Script as Bot UnrealScript
+  participant Pawn as Native UPawn
+  participant Map as Nav graph / world collision
+  Script->>Pawn: ActorReachable(target) or PointReachable(point)
+  alt Direct answer accepted
+    Script->>Pawn: MoveToward(target) / MoveTo(point)
+  else Needs graph path
+    Script->>Pawn: FindPathToward / FindPathTo / FindBestInventoryPath
+    Pawn->>Map: search directed ReachSpecs
+    Map-->>Pawn: selected node chain
+    Pawn->>Pawn: SetRouteCache(prefix)
+    Pawn-->>Script: first NavigationPoint
+    Script->>Pawn: MoveToward(route head)
+  end
+  Pawn->>Map: sweep, step, slide, zone and mover checks each tick
+  Map-->>Pawn: collision / arrival / zone transition
+  Pawn-->>Script: HitWall, Bump, Touch, latent completion or state resume
+  </div>
+
+  <h2>Engine responsibilities</h2>
+  <div class="diagram mermaid">
+flowchart TB
+  Script[Game-owned UnrealScript<br/>intent and state transitions]
+  Native[SurrealEngine native Pawn services]
+  Physics[Movement, collision, physics modes]
+  World[Loaded map data and live actors]
+  Bench[Deterministic BotBenchmark<br/>read-only telemetry and analyzers]
+  Script <--> Native
+  Native <--> Physics
+  Native <--> World
+  Physics <--> World
+  Bench -. observes .-> Script
+  Bench -. observes .-> Native
+  Bench -. validates .-> World
+  </div>
+
+  <h2>Examples of map-aware behavior</h2>
+  <table>
+    <thead><tr><th>Situation</th><th>Stock bot asks for</th><th>Engine/map support</th></tr></thead>
+    <tbody>
+      <tr><td>Nearby weapon or health</td><td>Direct reach or inventory path</td><td>Collision reachability; InventorySpot; graph route; pickup ownership</td></tr>
+      <tr><td>Far route goal</td><td>FindPathToward / FindPathTo</td><td>ReachSpec graph, RouteCache, SpecialHandling</td></tr>
+      <tr><td>Wall or corner</td><td>HitWall script recovery</td><td>Walking sweep/slide, callback ordering, MinHitWall fidelity</td></tr>
+      <tr><td>Lift or door</td><td>Traversal state and node target</td><td>LiftCenter/LiftExit, mover/trigger/button relationships</td></tr>
+      <tr><td>Water, pain or fall</td><td>State transition/recovery decision</td><td>Zone properties, swimming/falling physics, damage and death attribution</td></tr>
+    </tbody>
+  </table>
+
+  <h2>How changes are kept safe</h2>
+  <div class="diagram mermaid">
+flowchart LR
+  O[Read-only observer] --> V[Fail-closed analyzer]
+  V --> W{Exact opportunity<br/>and causal witness?}
+  W -->|no| X[Reject hypothesis<br/>keep stock behavior]
+  W -->|yes| E[Default-off experiment]
+  E --> Q[Paired deterministic<br/>UT436 + Unreal 226b qualification]
+  Q --> P{Survival/navigation/combat<br/>improved without regression?}
+  P -->|no| X
+  P -->|yes| R[Promotion review]
+  </div>
+
+  <p>For source locations, map extraction details, and current evidence, read <code>Docs/BOT_AI_MECHANICS_REFERENCE.md</code>, <code>BOT_AI_OWNER_DATA_EXTRACTION.md</code>, and <code>BOT_AI_QUALITY_EXECUTION_PLAN.md</code>.</p>
+</main>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'strict' });
+</script>
+</body>
+</html>

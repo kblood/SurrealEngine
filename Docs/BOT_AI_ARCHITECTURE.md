@@ -1,5 +1,12 @@
 # Bot AI architecture
 
+For a source-oriented explanation of the current stock bot pipeline and map
+navigation data, see [BOT_AI_MECHANICS_REFERENCE.md](BOT_AI_MECHANICS_REFERENCE.md)
+and its Mermaid diagram companion
+[BOT_AI_MECHANICS_DIAGRAMS.html](BOT_AI_MECHANICS_DIAGRAMS.html). The
+map-authored graph and traversal inventory has its own
+[BOT_AI_MAP_NAVIGATION_REFERENCE.md](BOT_AI_MAP_NAVIGATION_REFERENCE.md).
+
 ## Product goals
 
 The first goal is maximum competent play, not artificial difficulty tiers or
