@@ -476,6 +476,7 @@ int main()
 	diagnostic.Sequence = 7;
 	diagnostic.LifeGeneration = 2;
 	diagnostic.InvocationToken = 9;
+	diagnostic.MovementCommandToken = 13;
 	diagnostic.WalkingIteration = 1;
 	diagnostic.Phase = "post_mayfall_confirmation";
 	diagnostic.TransitionOutcome = "begin_falling";
@@ -509,7 +510,7 @@ int main()
 	const std::string correlationKey =
 		"\"source_pawn_actor\":\"Bot\\\"17\",\"sequence\":";
 	const std::string transactionKey =
-		"\"life_generation\":\"2\",\"invocation_token\":\"9\",\"walking_iteration\":1";
+		"\"life_generation\":\"2\",\"invocation_token\":\"9\",\"movement_command_token\":\"13\",\"walking_iteration\":1";
 	const size_t firstCorrelation = diagnosticEvent.find(correlationKey);
 	const size_t secondCorrelation = firstCorrelation == std::string::npos
 		? std::string::npos : diagnosticEvent.find(correlationKey,

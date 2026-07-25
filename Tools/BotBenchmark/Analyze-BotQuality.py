@@ -817,9 +817,13 @@ def _walking_step_preflight_forecast(value: Any, context: str) -> dict[str, Any]
 
 
 def _walking_step_preflight_diagnostic(value: Any, context: str) -> dict[str, Any]:
+    # The command token was added after the initial v2 diagnostics. Normalize
+    # earlier artifacts before strict field validation; zero means unavailable.
+    if isinstance(value, dict) and "movement_command_token" not in value:
+        value = {**value, "movement_command_token": "0"}
     fields = _exact_object(value, context, {
         "source_pawn_actor", "sequence", "life_generation", "invocation_token",
-        "walking_iteration", "phase",
+        "movement_command_token", "walking_iteration", "phase",
         "transition_outcome", "reason", "origin", "predicted_unsupported_endpoint",
         "actual_unsupported_endpoint", "semantic_target", "semantic_destination",
         "start_support", "step_up", "forward", "actual_step_down", "support_probe",
@@ -879,6 +883,10 @@ def _walking_step_preflight_diagnostic(value: Any, context: str) -> dict[str, An
             fields.get("life_generation"), f"{context}.life_generation", minimum=0),
         "invocation_token": _integer(
             fields.get("invocation_token"), f"{context}.invocation_token", minimum=0),
+        # Pre-token v2 artifacts remain valid but cannot supply a causal witness.
+        "movement_command_token": _integer(
+            fields.get("movement_command_token"), f"{context}.movement_command_token",
+            minimum=0) if "movement_command_token" in fields else 0,
         "walking_iteration": _strict_integer(
             fields.get("walking_iteration"), f"{context}.walking_iteration", minimum=0,
             maximum=4),

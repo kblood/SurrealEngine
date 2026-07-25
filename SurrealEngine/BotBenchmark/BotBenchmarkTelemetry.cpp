@@ -134,6 +134,7 @@ namespace
 			<< ",\"sequence\":\"" << diagnostic.Sequence
 			<< "\",\"life_generation\":\"" << diagnostic.LifeGeneration
 			<< "\",\"invocation_token\":\"" << diagnostic.InvocationToken
+			<< "\",\"movement_command_token\":\"" << diagnostic.MovementCommandToken
 			<< "\",\"walking_iteration\":" << diagnostic.WalkingIteration
 			<< ",\"phase\":" << JsonString(diagnostic.Phase)
 			<< ",\"transition_outcome\":" << JsonString(diagnostic.TransitionOutcome)

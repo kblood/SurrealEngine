@@ -1782,7 +1782,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
 
         provisional = {
             "source_pawn_actor": "Bot1", "sequence": "0", "life_generation": "1",
-            "invocation_token": "5", "walking_iteration": 0,
+            "invocation_token": "5", "movement_command_token": "12", "walking_iteration": 0,
             "phase": "precommit_provisional", "transition_outcome": "",
             "reason": "walking_step_preflight_reason_harmful_pain_fall_exact",
             "origin": {"x": 10.0, "y": 20.0, "z": 30.0},

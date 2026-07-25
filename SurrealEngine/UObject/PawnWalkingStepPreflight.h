@@ -197,6 +197,8 @@ namespace PawnMovement
 		uint64_t Sequence = 0;
 		uint64_t LifeGeneration = 0;
 		uint64_t InvocationToken = 0;
+		// Zero means no stable native movement-command witness was available.
+		uint64_t MovementCommandToken = 0;
 		int WalkingIteration = 0;
 		std::string Phase = "precommit_provisional";
 		std::string TransitionOutcome;

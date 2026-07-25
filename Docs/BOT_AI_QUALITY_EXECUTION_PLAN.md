@@ -2066,6 +2066,24 @@ commits, then reconcile the witness with the existing terminal record. The
 known Deck16-II and DeathFan deaths remain excluded or unknown until that
 evidence exists.
 
+## Iteration 85: bounded pre-commit command witness
+
+The existing walking-step preflight diagnostic now snapshots the pawn's
+monotonic native movement-command token at its already read-only pre-commit
+boundary, before the first walking `TryMove`. The token is carried alongside
+the existing actor, life generation, invocation, iteration, semantic target,
+destination, and forecast evidence. This adds no probe, callback, movement,
+or policy action. Zero explicitly means that no native movement command was
+available; older telemetry-v2 artifacts normalize a missing field to zero and
+remain analyzable.
+
+A fresh Release UT436 `DM-Deck16][` smoke emitted 379 serialized command-token
+fields and passed the structural analyzer at
+`qa/runs/2026-07-25/precommit-command-token-smoke/ut436-deck16-r1`. This proves
+the witness transport only. It deliberately does not connect a token to a
+death, prove a safe alternative, or expose `avoidable_suicide_rate`; those are
+the next required terminal-reconciliation and safe-alternative work items.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

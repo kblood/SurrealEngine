@@ -6554,6 +6554,7 @@ void UPawn::ObserveWalkingStepPreflightShadow(const vec3& stepUpDelta,
 	diagnostic.WalkingIteration = walkingIteration;
 	diagnostic.LifeGeneration = WalkingStepPreflightLifeGeneration;
 	diagnostic.InvocationToken = invocationToken;
+	diagnostic.MovementCommandToken = FallingHazardMovementCommandToken;
 	diagnostic.PrecommitOrigin = Location();
 	diagnostic.SemanticTarget = MoveTarget() && !MoveTarget()->bDeleteMe()
 		? MoveTarget()->Name.ToString() : std::string();
