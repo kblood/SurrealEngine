@@ -618,6 +618,8 @@ int main()
 	waterEgress.Entry.ExternalImpulseRouteHeadName = "PathNode143";
 	waterEgress.Entry.ExternalImpulseCommitLocation = vec3(16.0f, 17.0f, 18.0f);
 	waterEgress.Entry.ExternalImpulseCommitVelocity = vec3(19.0f, 20.0f, 21.0f);
+	waterEgress.Entry.ExternalImpulseLaunchForecastKnown = true;
+	waterEgress.Entry.ExternalImpulseLaunchForecastHarmful = true;
 	waterEgress.CandidateKnown = true;
 	waterEgress.Candidate = { "PathNode12", vec3(13.0f, 14.0f, 15.0f), 42.0f };
 	waterEgress.CandidateDistanceKnown = true;
@@ -644,6 +646,8 @@ int main()
 		return Fail("hazard-water egress candidate serialization was incomplete");
 	if (waterEgressEvent.find("\"external_impulse_navigation_commit_known\":true,\"external_impulse_move_target_name\":\"PathNode144\",\"external_impulse_move_target_navigation\":true,\"external_impulse_route_head_known\":true,\"external_impulse_route_head_name\":\"PathNode143\"") == std::string::npos)
 		return Fail("hazard-water egress external-impulse provenance serialization was incomplete");
+	if (waterEgressEvent.find("\"external_impulse_launch_forecast_known\":true,\"external_impulse_launch_forecast_harmful\":true") == std::string::npos)
+		return Fail("hazard-water egress launch-forecast serialization was incomplete");
 	if (waterEgressEvent.find("\"candidate_distance_known\":true,\"minimum_candidate_distance\":12.000000,\"terminal_candidate_distance\":13.000000,\"candidate_progress_samples\":\"4\",\"candidate_regression_samples\":\"3\"") == std::string::npos)
 		return Fail("hazard-water egress candidate-progress serialization was incomplete");
 	if (waterEgressEvent.find("\"target_progress_samples\":\"6\",\"target_regression_samples\":\"2\",\"terminal\":\"death_before_exit\"") == std::string::npos)

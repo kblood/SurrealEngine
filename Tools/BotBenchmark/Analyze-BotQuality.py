@@ -1457,12 +1457,20 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         "external_impulse_route_head_name", "external_impulse_commit_location",
         "external_impulse_commit_velocity",
     }
+    external_impulse_launch_forecast_fields = {
+        "external_impulse_launch_forecast_known",
+        "external_impulse_launch_forecast_harmful",
+    }
     raw_fields = _object(value, context)
     present_external_impulse_fields = raw_fields.keys() & external_impulse_provenance_fields
+    present_external_impulse_launch_forecast_fields = (
+        raw_fields.keys() & external_impulse_launch_forecast_fields)
     fields = _exact_object(
         raw_fields, context,
         required_fields | (external_impulse_provenance_fields
-                           if present_external_impulse_fields else set()))
+                           if present_external_impulse_fields else set())
+        | (external_impulse_launch_forecast_fields
+           if present_external_impulse_launch_forecast_fields else set()))
     transition_source = _string(fields, "transition_source", context, nonempty=True)
     if transition_source not in HAZARD_WATER_EGRESS_TRANSITION_SOURCES:
         raise QualityError(f"{context}.transition_source is not recognized")
@@ -1581,6 +1589,19 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
             or external_impulse_commit_location != {"x": 0.0, "y": 0.0, "z": 0.0}
             or external_impulse_commit_velocity != {"x": 0.0, "y": 0.0, "z": 0.0}):
         raise QualityError(f"{context}: unknown external-impulse commit must not claim provenance")
+    if present_external_impulse_launch_forecast_fields:
+        external_impulse_launch_forecast_known = _boolean(
+            fields.get("external_impulse_launch_forecast_known"),
+            f"{context}.external_impulse_launch_forecast_known")
+        external_impulse_launch_forecast_harmful = _boolean(
+            fields.get("external_impulse_launch_forecast_harmful"),
+            f"{context}.external_impulse_launch_forecast_harmful")
+    else:
+        external_impulse_launch_forecast_known = False
+        external_impulse_launch_forecast_harmful = False
+    if external_impulse_launch_forecast_harmful \
+            and not external_impulse_launch_forecast_known:
+        raise QualityError(f"{context}: harmful external-impulse launch forecast must be known")
     candidate_known = _boolean(fields.get("candidate_known"), f"{context}.candidate_known")
     candidate_distance_known = _boolean(
         fields.get("candidate_distance_known"), f"{context}.candidate_distance_known")
@@ -1640,6 +1661,8 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         "external_impulse_route_head_name": external_impulse_route_head_name,
         "external_impulse_commit_location": external_impulse_commit_location,
         "external_impulse_commit_velocity": external_impulse_commit_velocity,
+        "external_impulse_launch_forecast_known": external_impulse_launch_forecast_known,
+        "external_impulse_launch_forecast_harmful": external_impulse_launch_forecast_harmful,
         "static_walk_certificate_result": static_walk_result,
         "static_walk_first_hop_known": static_walk_first_hop_known,
         "static_walk_first_hop_name": static_walk_first_hop_name,

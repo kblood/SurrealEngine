@@ -2583,6 +2583,8 @@ private:
 		std::string RouteHeadName;
 		vec3 Location = vec3(0.0f);
 		vec3 Velocity = vec3(0.0f);
+		bool LaunchForecastKnown = false;
+		bool LaunchForecastHarmful = false;
 	};
 	ExternalImpulseNavigationCommitState ExternalImpulseNavigationCommit;
 	BotAI::HazardSwimEgressGate HazardSwimEgressGate;

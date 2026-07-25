@@ -583,6 +583,8 @@ class BotQualityAnalysisTests(unittest.TestCase):
             "external_impulse_route_head_name": "PathNode143",
             "external_impulse_commit_location": {"x": 5.0, "y": 6.0, "z": 7.0},
             "external_impulse_commit_velocity": {"x": 8.0, "y": 9.0, "z": 10.0},
+            "external_impulse_launch_forecast_known": True,
+            "external_impulse_launch_forecast_harmful": True,
             "static_walk_certificate_result": "certified_static_walk_continuation",
             "static_walk_first_hop_known": True, "static_walk_first_hop_name": "PathNode143",
             "static_walk_first_hop_location_known": True,
@@ -645,6 +647,17 @@ class BotQualityAnalysisTests(unittest.TestCase):
             ])
             with self.assertRaisesRegex(QUALITY.QualityError, "route-head availability"):
                 QUALITY.analyze_run(malformed_provenance)
+
+            malformed_forecast = write_v2_run(
+                root, "hazard-water-egress-launch-forecast", bot_count=1)
+            invalid_forecast = {**diagnostic,
+                "external_impulse_launch_forecast_known": False}
+            upgrade_telemetry_v2(malformed_forecast, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_forecast]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "launch forecast must be known"):
+                QUALITY.analyze_run(malformed_forecast)
 
             malformed = write_v2_run(root, "hazard-water-egress-malformed", bot_count=1)
             invalid = {**diagnostic, "candidate_distance_known": False}

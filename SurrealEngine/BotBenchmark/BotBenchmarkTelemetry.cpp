@@ -491,6 +491,10 @@ namespace
 		WriteVector(out, entry.ExternalImpulseCommitLocation);
 		out << ",\"external_impulse_commit_velocity\":";
 		WriteVector(out, entry.ExternalImpulseCommitVelocity);
+		out << ",\"external_impulse_launch_forecast_known\":"
+			<< (entry.ExternalImpulseLaunchForecastKnown ? "true" : "false")
+			<< ",\"external_impulse_launch_forecast_harmful\":"
+			<< (entry.ExternalImpulseLaunchForecastHarmful ? "true" : "false");
 		const auto& certificate = diagnostic.StaticWalkCertificate;
 		out << ",\"static_walk_certificate_result\":"
 			<< JsonString(certificate.Result)

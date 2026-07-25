@@ -48,6 +48,8 @@ namespace PawnMovement
 		std::string ExternalImpulseRouteHeadName;
 		vec3 ExternalImpulseCommitLocation = vec3(0.0f);
 		vec3 ExternalImpulseCommitVelocity = vec3(0.0f);
+		bool ExternalImpulseLaunchForecastKnown = false;
+		bool ExternalImpulseLaunchForecastHarmful = false;
 	};
 
 	struct HazardWaterEgressCandidate

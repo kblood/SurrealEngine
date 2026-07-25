@@ -5854,6 +5854,10 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 		entry.ExternalImpulseRouteHeadName = ExternalImpulseNavigationCommit.RouteHeadName;
 		entry.ExternalImpulseCommitLocation = ExternalImpulseNavigationCommit.Location;
 		entry.ExternalImpulseCommitVelocity = ExternalImpulseNavigationCommit.Velocity;
+		entry.ExternalImpulseLaunchForecastKnown =
+			ExternalImpulseNavigationCommit.LaunchForecastKnown;
+		entry.ExternalImpulseLaunchForecastHarmful =
+			ExternalImpulseNavigationCommit.LaunchForecastHarmful;
 	}
 	if (UActor* moveTarget = MoveTarget())
 	{
@@ -7325,6 +7329,22 @@ void UPawn::CaptureExternalImpulseNavigationCommit()
 	ExternalImpulseNavigationCommit.Active = true;
 	ExternalImpulseNavigationCommit.Location = Location();
 	ExternalImpulseNavigationCommit.Velocity = Velocity();
+	PawnMovement::FallingHazardForecastInput forecastInput;
+	forecastInput.State.Location = Location();
+	forecastInput.State.Velocity = Velocity();
+	forecastInput.Acceleration = Acceleration();
+	forecastInput.GroundSpeed = GroundSpeed();
+	forecastInput.PhysicsSliceElapsed = 1.0f / 60.0f;
+	forecastInput.Bounce = bBounce();
+	forecastInput.StartingZones = BuildFallingHazardPointObservation(this, Location());
+	const PawnMovement::FallingHazardForecastUpdate forecast =
+		CompleteFallingHazardForecast(this, forecastInput);
+	ExternalImpulseNavigationCommit.LaunchForecastKnown = forecast.Complete;
+	ExternalImpulseNavigationCommit.LaunchForecastHarmful = forecast.Complete
+		&& forecast.Result.Classification
+			== PawnMovement::FallingHazardForecast::HarmfulPainObserved
+		&& forecast.Result.ExpectedHarmfulWaterEntry
+		&& forecast.Result.ExpectedBotAvoidanceRelevant;
 	if (UActor* target = MoveTarget())
 	{
 		ExternalImpulseNavigationCommit.MoveTargetName = target->Name.ToString();

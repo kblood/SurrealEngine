@@ -104,3 +104,10 @@ navigation-targeted, route-headed, and neither-target-nor-route cases. No
 route penalty, target override, or movement change is authorized from this
 mixed evidence. Continue with a separate witness for non-route ledge departure
 or combat/latent-command ownership, keeping every candidate default-off.
+
+The pre-launch pure forecast has also been rejected as a behavior gate. It is
+now recorded read-only at the first falling tick and attached to water-egress
+diagnostics. In two byte-identical DeathFan seed-271828 runs it completed for
+all eleven upper-platform fatal launches but marked zero harmful. A rollback or
+replan based on that forecast would therefore miss every target incident and
+is not authorized.

@@ -2353,6 +2353,27 @@ records include no route head or no navigation target, so route commitment is
 not a dominant sufficient cause. Reject the proposed shared route-hop veto at
 this point. This remains a diagnosis result, not a behavior-quality change.
 
+## Iteration 98: launch forecast rejection
+
+Following the independent Opus review, the existing pure bounded falling
+forecast is captured read-only at the first tick of each continuous fall and
+stored beside the bounded water-egress diagnostic. It runs only with the
+existing default-off hazard-egress benchmark instrumentation, performs no
+actor-state write, and distinguishes an unavailable forecast from a completed
+harmful forecast. Historical egress artifacts without the optional pair remain
+valid; a partial pair or a harmful unknown result fails closed.
+
+On Unreal Gold 226b DeathFan, two byte-identical 7,200-tick seed-271828 runs
+have events SHA-256
+`BDB1446059183AC2C657C0B3ED0B2B40A326326C453392204D30EA79DC583DC2`.
+They retain 27 egress episodes, 16 deaths before exit, and 11 fatal launches
+above z=1000. The forecast completes for all 11 but classifies zero as harmful.
+This fails the required pre-commit recall gate (at least 9 of 11) and rejects
+any forecast-driven rollback/replan candidate. The remaining investigation
+must explain why the forecast becomes harmful only after the falling sequence
+has progressed; do not weaken its fail-closed classification merely to create
+an intervention opportunity.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:
