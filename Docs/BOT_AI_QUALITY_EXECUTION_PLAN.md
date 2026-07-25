@@ -1626,6 +1626,49 @@ on both target games, but it does not prove the proprietary exact boundary or
 authorize a dispatch change. In particular, mover suppression needs a separate
 retail ordering oracle before a shared correction is considered.
 
+## Iteration 71: walking collision resolution and notification separation
+
+If a retail oracle validates the `MinHitWall` comparison, the correction must
+separate physical walking collision resolution from `HitWall` notification.
+The generic walking path must retain its current legacy-Z-band aligned slide,
+second `TryMove`, time accounting, and no-backwards check even when a glancing
+contact is rejected for script notification. In particular, nesting the slide
+inside the new threshold gate would make legacy-only glancing contacts stop
+sliding, which is a movement regression rather than a callback correction.
+
+For every raw generic contact, the eventual implementation should evaluate the
+live threshold solely to decide whether to call `HitWall`; accepted callbacks
+must still run before the pre-existing slide/recovery work. A threshold-accepted
+non-legacy contact must not acquire a new slide path merely because it now gets
+a callback. The distinct `UPlayerPawn` pushable-decoration path retains its
+mass, velocity, and teleport behavior unchanged pending a separate oracle.
+
+Telemetry must also become contact-accurate before measuring a live change.
+The current single initial-contact diagnostic plus an aggregate
+`callback_dispatched` flag can attribute a second-slide callback to an initial
+contact that did not satisfy the threshold. Each initial and second-slide
+collision therefore needs its own decision, callback outcome, callback-induced
+physics/deletion result, and monotonically ordered diagnostic record. No
+counter-to-record reconciliation is inferred until the driver can prove that
+the drain boundary preserves every raw contact or reports an overflow.
+
+Required gates for a future correction are:
+
+1. Pure fixtures for head-on vertical contact (notify and slide), glancing
+   vertical contact (no notify but unchanged slide), a threshold-accepted
+   non-legacy contact (notify but no newly added slide), exact threshold
+   boundary, state-adjusted threshold, and invalid geometry.
+2. A runtime fixture proving a rejected glancing collision preserves location,
+   remaining time, and second-slide outcome; accepted script callbacks occur
+   before slide and safely handle physics changes or deletion; and first/second
+   contacts emit independent telemetry.
+3. Paired UT436 Deck16-II and Unreal226b DeathFan matrices with the existing
+   deterministic, telemetry, and quality-delta checks, plus a retail ordering
+   oracle for movers before changing their callback eligibility.
+
+Until those gates pass, this remains a design constraint only: no live
+`MinHitWall` callback predicate or bot policy is enabled.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
