@@ -12,7 +12,7 @@ SPEC.loader.exec_module(VALIDATE)
 
 def catalog() -> dict:
     return {
-        "schema": "surreal-map-catalog-spike-v2",
+        "schema": "surreal-map-catalog-spike-v3",
         "game": {"name": "Unreal Tournament", "version": "436"},
         "map": "DM-Test",
         "map_package": {
@@ -25,7 +25,7 @@ def catalog() -> dict:
         "navigation_points": [{
             "actor_index": 0, "name": "PathNode0", "class": "Engine.PathNode",
             "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "collision_radius": 40.0,
-            "collision_height": 40.0, "extra_cost": 0, "end_point": False,
+            "collision_height": 40.0, "extra_cost": 0, "resolved_zone_actor_index": None, "end_point": False,
             "end_point_only": False, "never_use_strafing": False, "one_way": False,
             "player_only": False, "special_cost": False, "paths": [], "upstream_paths": [],
             "pruned_paths": [], "visible_no_reach_actor_indexes": [],
@@ -35,6 +35,7 @@ def catalog() -> dict:
             "actor_index": 0, "name": "PathNode0", "class": "Engine.PathNode", "kind": "player_start",
         }],
         "zones": [],
+        "zone_graph": [],
     }
 
 
@@ -77,6 +78,15 @@ class MapCatalogValidatorTests(unittest.TestCase):
             "pruned": False,
         }]
         with self.assertRaisesRegex(VALIDATE.CatalogError, "unknown_reach_flags do not reconcile"):
+            VALIDATE.validate_catalog(value)
+
+    def test_rejects_non_decimal_zone_graph_mask(self) -> None:
+        value = copy.deepcopy(catalog())
+        value["zone_graph"] = [{
+            "zone_index": 0, "zone_actor_index": 0,
+            "connectivity": "invalid", "visibility": "0",
+        }]
+        with self.assertRaisesRegex(VALIDATE.CatalogError, "unsigned decimal mask"):
             VALIDATE.validate_catalog(value)
 
 

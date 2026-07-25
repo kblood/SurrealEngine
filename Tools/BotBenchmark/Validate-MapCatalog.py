@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed validation for owner-local map-catalog v2 artifacts."""
+"""Fail-closed validation for owner-local map-catalog v3 artifacts."""
 
 from __future__ import annotations
 
@@ -107,10 +107,10 @@ def _actor_reference(value: Any, context: str, actors: dict[int, dict[str, Any]]
 def validate_catalog(value: Any) -> dict[str, int]:
     root = _exact(value, "catalog", {
         "schema", "game", "map", "map_package", "counts", "actors",
-        "navigation_points", "reachspecs", "traversal_actors", "zones",
+        "navigation_points", "reachspecs", "traversal_actors", "zones", "zone_graph",
     })
-    if root["schema"] != "surreal-map-catalog-spike-v2":
-        raise CatalogError("catalog.schema must be surreal-map-catalog-spike-v2")
+    if root["schema"] != "surreal-map-catalog-spike-v3":
+        raise CatalogError("catalog.schema must be surreal-map-catalog-spike-v3")
     game = _exact(root["game"], "catalog.game", {"name", "version"})
     _string(game["name"], "catalog.game.name")
     _string(game["version"], "catalog.game.version")
@@ -173,7 +173,7 @@ def validate_catalog(value: Any) -> dict[str, int]:
     points: dict[int, dict[str, Any]] = {}
     point_fields = {
         "actor_index", "name", "class", "position", "collision_radius", "collision_height",
-        "extra_cost", "end_point", "end_point_only", "never_use_strafing", "one_way",
+        "extra_cost", "resolved_zone_actor_index", "end_point", "end_point_only", "never_use_strafing", "one_way",
         "player_only", "special_cost", "paths", "upstream_paths", "pruned_paths",
         "visible_no_reach_actor_indexes",
     }
@@ -187,6 +187,8 @@ def validate_catalog(value: Any) -> dict[str, int]:
         _vector(point["position"], f"catalog.navigation_points[{offset}].position")
         for field in ("collision_radius", "collision_height", "extra_cost"):
             _number(point[field], f"catalog.navigation_points[{offset}].{field}")
+        _actor_reference(point["resolved_zone_actor_index"],
+                         f"catalog.navigation_points[{offset}].resolved_zone_actor_index", actors)
         for field in ("end_point", "end_point_only", "never_use_strafing", "one_way", "player_only", "special_cost"):
             _boolean(point[field], f"catalog.navigation_points[{offset}].{field}")
         points[index] = point
@@ -243,9 +245,25 @@ def validate_catalog(value: Any) -> dict[str, int]:
         _number(zone["damage_per_second"], f"catalog.zones[{offset}].damage_per_second")
         _vector(zone["gravity"], f"catalog.zones[{offset}].gravity")
         _vector(zone["velocity"], f"catalog.zones[{offset}].velocity")
+    raw_zone_graph = root["zone_graph"]
+    if not isinstance(raw_zone_graph, list):
+        raise CatalogError("catalog.zone_graph must be an array")
+    for expected_index, raw_zone in enumerate(raw_zone_graph):
+        zone = _exact(raw_zone, f"catalog.zone_graph[{expected_index}]", {
+            "zone_index", "zone_actor_index", "connectivity", "visibility",
+        })
+        if _integer(zone["zone_index"], f"catalog.zone_graph[{expected_index}].zone_index", 0) != expected_index:
+            raise CatalogError("catalog.zone_graph must be ordered by model zone index")
+        _actor_reference(zone["zone_actor_index"],
+                         f"catalog.zone_graph[{expected_index}].zone_actor_index", actors)
+        for field in ("connectivity", "visibility"):
+            raw_mask = _string(zone[field], f"catalog.zone_graph[{expected_index}].{field}")
+            if not raw_mask.isdecimal():
+                raise CatalogError(f"catalog.zone_graph[{expected_index}].{field} must be an unsigned decimal mask")
     return {
         "actors_exact": len(actors), "navigation_points_exact": len(points),
         "reachspecs_exact": len(specs), "traversal_actors_exact": len(raw_traversal),
+        "zone_graph_exact": len(raw_zone_graph),
         "zones_exact": len(raw_zones),
     }
 

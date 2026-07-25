@@ -115,9 +115,10 @@ per map. The extractor must refuse an output path inside the game root.
 The static `map-catalog` headless-driver spike is implemented. It accepts
 `--catalog-map` and `--catalog-output`, refuses outputs within the game root,
 loads the requested map through the normal engine loader, and emits a
-`surreal-map-catalog-spike-v2` JSON document. The current spike contains the
+`surreal-map-catalog-spike-v3` JSON document. The current spike contains the
 complete level actor-slot index, navigation points with authored path indexes
-and flags, reachspecs, traversal relationships, and zone inventory/properties.
+and flags, reachspecs, traversal relationships, resolved navigation-point zone
+membership, model zone graph, and zone inventory/properties.
 It deliberately does not claim the complete target catalog schema or live zone
 membership yet.
 
@@ -160,15 +161,11 @@ only the first layer. The next extraction tranche remains read-only and should
 be delivered with synthetic validators before it is used to authorize bot
 behavior:
 
-1. Join every navigation point to its static zone and, in explicitly pinned
-   live catalog mode, to its resolved runtime zone. Export the model zone graph
-   and label static and live values distinctly. This makes a dry or harmful
-   escape-node claim testable.
-2. Implement the separate bot-config catalog. It must record relevant class
+1. Implement the separate bot-config catalog. It must record relevant class
    defaults and roster/skill values from packages and `.ini`/`.int` inputs,
    preserving each value's source. Capability and movement values cannot be
    assumed equal across UT436 and Unreal Gold 226b.
-3. Upgrade provenance to SHA-256 before treating the catalog identity as
+2. Upgrade provenance to SHA-256 before treating the catalog identity as
    complete.
 
 These records select owner-local maps and deterministic fixture shapes; they
@@ -197,9 +194,9 @@ The Deck16 catalog has 251 navigation points, 1,997 reachspecs, and 1,370
 visible-no-reach links; DeathFan has 116 navigation points and 1,431
 reachspecs. These are owner-local evidence artifacts, not committed game data.
 
-### Traversal and validator evidence
+### Traversal, zone, and validator evidence
 
-The v2 spike adds a complete actor-slot index so every relationship is
+The v3 spike adds a complete actor-slot index so every relationship is
 externally resolvable, including null slots preserved by UE1's level actor
 array. It exports lift centers/exits, movers, teleporters, warp-zone markers
 and zones, inventory spots, and player starts. The records retain relevant
@@ -208,17 +205,22 @@ leader/follower, a teleporter's trigger and URL, and a marked pickup or warp
 target. A non-null relationship missing from the loaded actor index fails the
 extraction rather than being serialized as an ambiguous sentinel.
 
-`Tools/BotBenchmark/Validate-MapCatalog.py` validates schema v2, actor-slot
+Each navigation point now records its resolved loaded-zone actor, and the model
+zone graph records static connectivity and visibility masks. This is not a
+claim about a later gameplay transition; live membership remains a separately
+pinned catalog mode.
+
+`Tools/BotBenchmark/Validate-MapCatalog.py` validates schema v3, actor-slot
 identity, reachspec endpoint and direction ownership, exact reach-flag decode,
-navigation/visible-no-reach references, traversal references, and zones. Its
-synthetic tests include dangling relationships, wrong directed reachspecs, and
-flag-mask mismatch. It validated two byte-identical v2 extractions per anchor:
-UT436 `DM-Deck16][` SHA-256
-`0B3961FD144F3E6A2FF9B5A39B288F02F7B37D7814F1CC686D16839EB6A2E181`
-(1,989 actor slots and 103 traversal records), and Unreal Gold 226b
-`DmDeathFan` SHA-256
-`C52D5A0BE5CCADA0A0C6E342225092A3C073608E12506EF9E43E8A748B7B8D6B`
-(683 actor slots and 44 traversal records).
+navigation/visible-no-reach references, traversal references, zones, and zone
+graph masks. Its synthetic tests include dangling relationships, wrong directed
+reachspecs, flag-mask mismatch, and malformed zone masks. It validated two
+byte-identical v3 extractions per anchor: UT436 `DM-Deck16][` SHA-256
+`9CEA6430EAC67702E908C7B6C4C0F4E90EB9642B357EA46710764B1470F12C4F`
+(1,989 actor slots, 103 traversal records, and 64 model zones), and Unreal
+Gold 226b `DmDeathFan` SHA-256
+`6A8A87A05D9D02E45BF5834AC6F667326D89DC0C495F4526C99DF1CF3E22017A`
+(683 actor slots, 44 traversal records, and 64 model zones).
 
 ## Non-goals
 

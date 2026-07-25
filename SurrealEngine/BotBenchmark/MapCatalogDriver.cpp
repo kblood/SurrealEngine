@@ -407,7 +407,7 @@ namespace
 			std::ostringstream out;
 			out.imbue(std::locale::classic());
 			out << std::fixed << std::setprecision(6);
-			out << "{\n  \"schema\":\"surreal-map-catalog-spike-v2\",\n"
+			out << "{\n  \"schema\":\"surreal-map-catalog-spike-v3\",\n"
 				<< "  \"game\":{\"name\":" << JsonString(EngineRef.LaunchInfo.gameName)
 				<< ",\"version\":" << JsonString(EngineRef.LaunchInfo.gameVersionString) << "},\n"
 				<< "  \"map\":" << JsonString(map) << ",\n"
@@ -458,6 +458,10 @@ namespace
 				out << ",\"collision_radius\":" << point->CollisionRadius()
 					<< ",\"collision_height\":" << point->CollisionHeight()
 					<< ",\"extra_cost\":" << point->ExtraCost()
+					<< ",\"resolved_zone_actor_index\":";
+				WriteActorIndexOrNull(out, actorIndexes, point->Region().Zone,
+					"navigation-point resolved zone");
+				out
 					<< ",\"end_point\":" << (point->HasProperty("bEndPoint") && point->GetBool("bEndPoint") ? "true" : "false")
 					<< ",\"end_point_only\":" << (point->HasProperty("bEndPointOnly") && point->GetBool("bEndPointOnly") ? "true" : "false")
 					<< ",\"never_use_strafing\":" << (point->HasProperty("bNeverUseStrafing") && point->GetBool("bNeverUseStrafing") ? "true" : "false")
@@ -532,6 +536,19 @@ namespace
 				out << ",\"velocity\":";
 				WriteVector(out, zone->ZoneVelocity());
 				out << '}';
+			}
+			if (!EngineRef.Level->Model)
+				throw std::runtime_error("catalog level model is unavailable");
+			out << "\n  ],\n  \"zone_graph\":[";
+			for (size_t index = 0; index < EngineRef.Level->Model->Zones.size(); index++)
+			{
+				if (index)
+					out << ',';
+				const ZoneProperties& zone = EngineRef.Level->Model->Zones[index];
+				out << "\n    {\"zone_index\":" << index << ",\"zone_actor_index\":";
+				WriteActorIndexOrNull(out, actorIndexes, zone.ZoneActor, "model zone actor");
+				out << ",\"connectivity\":" << JsonString(std::to_string(zone.Connectivity))
+					<< ",\"visibility\":" << JsonString(std::to_string(zone.Visibility)) << '}';
 			}
 			out << "\n  ]\n}\n";
 			return out.str();

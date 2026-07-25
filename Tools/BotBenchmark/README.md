@@ -93,9 +93,10 @@ python .\Tools\BotBenchmark\Validate-MapCatalog.py `
   C:\qa\map-catalog\deck16\DM-Deck16][.json
 ```
 
-`surreal-map-catalog-spike-v2` is intentionally owner-local. It records level
+`surreal-map-catalog-spike-v3` is intentionally owner-local. It records level
 actor slots, navigation/reachspec graph semantics, traversal relationships,
-and zones; it does not export game assets or authorize a behavior change.
+resolved navigation-point zone membership, and model zone graph; it does not
+export game assets or authorize a behavior change.
 
 The current UT436 and Unreal Gold adapters do not expose a verified named-bot
 spawn contract. Supplying `requested_names` is therefore parsed and recorded
