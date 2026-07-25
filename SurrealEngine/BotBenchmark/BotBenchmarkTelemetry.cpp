@@ -265,7 +265,9 @@ namespace
 	{
 		out << "{\"source_pawn_actor\":" << JsonString(diagnostic.SourcePawnActor)
 			<< ",\"sequence\":\"" << diagnostic.Sequence
-			<< "\",\"hit_normal\":";
+			<< "\",\"contact_phase\":" << JsonString(
+				PawnMovement::WalkingHitWallContactPhaseName(diagnostic.ContactPhase))
+			<< ",\"hit_normal\":";
 		WriteOptionalVector(out, diagnostic.HitNormal);
 		out << ",\"velocity\":";
 		WriteOptionalVector(out, diagnostic.Velocity);

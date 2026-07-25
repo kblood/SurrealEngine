@@ -27,10 +27,18 @@ namespace PawnMovement
 		DynamicActor,
 	};
 
+	enum class WalkingHitWallContactPhase
+	{
+		PrimaryForward,
+		AlignedSlide,
+		ForwardRetryResult,
+	};
+
 	struct WalkingHitWallDispatchDiagnosticRecord
 	{
 		std::string SourcePawnActor;
 		uint64_t Sequence = 0;
+		WalkingHitWallContactPhase ContactPhase = WalkingHitWallContactPhase::PrimaryForward;
 		vec3 HitNormal;
 		vec3 Velocity;
 		float MinHitWall = 0.0f;
@@ -40,6 +48,18 @@ namespace PawnMovement
 		bool PhysicsChangedByCallback = false;
 		bool PawnDeletedByCallback = false;
 	};
+
+	inline const char* WalkingHitWallContactPhaseName(
+		WalkingHitWallContactPhase phase)
+	{
+		switch (phase)
+		{
+		case WalkingHitWallContactPhase::PrimaryForward: return "primary_forward";
+		case WalkingHitWallContactPhase::AlignedSlide: return "aligned_slide";
+		case WalkingHitWallContactPhase::ForwardRetryResult: return "forward_retry_result";
+		default: return "primary_forward";
+		}
+	}
 
 	inline const char* WalkingHitWallBlockerKindName(
 		WalkingHitWallBlockerKind kind)

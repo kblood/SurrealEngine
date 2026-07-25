@@ -470,6 +470,9 @@ WALKING_STEP_PREFLIGHT_ZONES = {"unknown", "safe", "pain", "water"}
 WALKING_HITWALL_DISPATCH_BLOCKERS = {
     "unknown", "static_world", "mover", "dynamic_actor",
 }
+WALKING_HITWALL_DISPATCH_CONTACT_PHASES = {
+    "primary_forward", "aligned_slide", "forward_retry_result",
+}
 WALKING_STEP_PREFLIGHT_PHASES = {
     "precommit_provisional", "post_mayfall_confirmation",
 }
@@ -631,7 +634,7 @@ def _nullable_number(value: Any, context: str) -> float | None:
 
 def _walking_hitwall_dispatch_diagnostic(value: Any, context: str) -> dict[str, Any]:
     fields = _exact_object(value, context, {
-        "source_pawn_actor", "sequence", "hit_normal", "velocity", "min_hit_wall",
+        "source_pawn_actor", "sequence", "contact_phase", "hit_normal", "velocity", "min_hit_wall",
         "normal_velocity_dot", "valid", "legacy_vertical_wall_band",
         "min_hit_wall_dispatch", "blocker", "callback_dispatched",
         "physics_changed_by_callback", "pawn_deleted_by_callback",
@@ -649,10 +652,14 @@ def _walking_hitwall_dispatch_diagnostic(value: Any, context: str) -> dict[str, 
     blocker = _string(fields, "blocker", context, nonempty=True)
     if blocker not in WALKING_HITWALL_DISPATCH_BLOCKERS:
         raise QualityError(f"{context}.blocker is not recognized")
+    contact_phase = _string(fields, "contact_phase", context, nonempty=True)
+    if contact_phase not in WALKING_HITWALL_DISPATCH_CONTACT_PHASES:
+        raise QualityError(f"{context}.contact_phase is not recognized")
     return {
         "source_pawn_actor": _string(fields, "source_pawn_actor", context, nonempty=True),
         "sequence": _integer(
             fields.get("sequence"), f"{context}.sequence", minimum=0),
+        "contact_phase": contact_phase,
         "hit_normal": hit_normal,
         "velocity": velocity,
         "min_hit_wall": min_hit_wall,

@@ -386,6 +386,7 @@ int main()
 	PawnMovement::WalkingHitWallDispatchDiagnosticRecord hitWallDiagnostic;
 	hitWallDiagnostic.SourcePawnActor = "Bot\"Wall";
 	hitWallDiagnostic.Sequence = 4;
+	hitWallDiagnostic.ContactPhase = PawnMovement::WalkingHitWallContactPhase::AlignedSlide;
 	hitWallDiagnostic.HitNormal = vec3(1.0f, 0.0f, 0.0f);
 	hitWallDiagnostic.Velocity = vec3(-300.0f, 0.0f, 0.0f);
 	hitWallDiagnostic.MinHitWall = -0.5f;
@@ -397,7 +398,7 @@ int main()
 	hitWallDiagnostic.PhysicsChangedByCallback = true;
 	event.Bots.front().WalkingHitWallDispatchDiagnostics = { hitWallDiagnostic };
 	const std::string hitWallEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
-	if (hitWallEvent.find("\"source_pawn_actor\":\"Bot\\\"Wall\",\"sequence\":\"4\",\"hit_normal\":{\"x\":1.000000,\"y\":0.000000,\"z\":0.000000}")
+	if (hitWallEvent.find("\"source_pawn_actor\":\"Bot\\\"Wall\",\"sequence\":\"4\",\"contact_phase\":\"aligned_slide\",\"hit_normal\":{\"x\":1.000000,\"y\":0.000000,\"z\":0.000000}")
 		== std::string::npos
 		|| hitWallEvent.find("\"normal_velocity_dot\":-1.000000,\"valid\":true,\"legacy_vertical_wall_band\":true,\"min_hit_wall_dispatch\":true,\"blocker\":\"static_world\",\"callback_dispatched\":true,\"physics_changed_by_callback\":true")
 			== std::string::npos)

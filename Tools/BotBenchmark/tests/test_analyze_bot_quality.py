@@ -2529,7 +2529,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
         counters = QUALITY.WALKING_HITWALL_DISPATCH_COUNTERS
         zero = {name: 0 for name in counters}
         valid = {
-            "source_pawn_actor": "Bot1", "sequence": "0",
+            "source_pawn_actor": "Bot1", "sequence": "0", "contact_phase": "primary_forward",
             "hit_normal": {"x": 0.0, "y": 1.0, "z": 0.0},
             "velocity": {"x": 1.0, "y": 0.0, "z": 0.0},
             "min_hit_wall": -0.5, "normal_velocity_dot": 0.0,
@@ -2539,7 +2539,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
             "pawn_deleted_by_callback": False,
         }
         invalid_geometry = {
-            "source_pawn_actor": "Bot1", "sequence": "1", "hit_normal": None,
+            "source_pawn_actor": "Bot1", "sequence": "1", "contact_phase": "aligned_slide", "hit_normal": None,
             "velocity": None, "min_hit_wall": None, "normal_velocity_dot": None,
             "valid": False, "legacy_vertical_wall_band": False,
             "min_hit_wall_dispatch": False, "blocker": "unknown",
@@ -2609,6 +2609,12 @@ class BotQualityAnalysisTests(unittest.TestCase):
                    ["walking_hitwall_dispatch_diagnostics"][0].update(blocker="wall"))
             with self.assertRaisesRegex(QUALITY.QualityError, "blocker is not recognized"):
                 QUALITY.analyze_run(bad_blocker)
+
+            bad_phase = create(root, "bad-phase")
+            mutate(bad_phase, lambda events: events[1]["bots"][0]
+                   ["walking_hitwall_dispatch_diagnostics"][0].update(contact_phase="wall"))
+            with self.assertRaisesRegex(QUALITY.QualityError, "contact_phase is not recognized"):
+                QUALITY.analyze_run(bad_phase)
 
             bad_boolean = create(root, "bad-boolean")
             mutate(bad_boolean, lambda events: events[1]["bots"][0]

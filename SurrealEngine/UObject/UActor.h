@@ -1965,7 +1965,9 @@ public:
 		PawnMovement::LedgeTransition transition);
 	void RecordWalkingStepPreflightPositiveDpsVetoOutcome(bool applied);
 	void RecordWalkingHitWallDispatch(const CollisionHit& hit,
-		const vec3& velocityBeforeCollision, int physicsBeforeCallback,
+		const vec3& velocityBeforeCollision, float minHitWallBeforeCallback,
+		int physicsBeforeCallback, PawnMovement::WalkingHitWallContactPhase contactPhase,
+		PawnMovement::WalkingHitWallBlockerKind blockerBeforeCallback,
 		bool callbackDispatched);
 	std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
 		DrainWalkingHitWallDispatchDiagnostics();

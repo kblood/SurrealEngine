@@ -1828,6 +1828,25 @@ remaining blocker to a shared walking dispatch correction is calibrated
 boundary semantics and the per-contact slide/notification implementation and
 fixture gates in Iteration 71.
 
+## Iteration 77: per-contact walking notification telemetry
+
+The shared runtime still preserves the historical `z`-band callback predicate;
+this iteration changes observation only. Each walking collision now records
+its own pre-callback velocity, `MinHitWall`, blocker classification, and
+callback outcome. Records name their contact phase as `primary_forward`,
+`aligned_slide`, or the reserved `forward_retry_result`, so a secondary
+aligned-slide callback cannot be attributed to the initial forward impact.
+Blocker classification is captured before UnrealScript executes, preventing a
+callback mutation from rewriting the observed contact provenance.
+
+Callback and movement ordering are unchanged: the primary `HitWall` remains
+before aligned slide movement, and a second callback remains after its blocked
+slide contact. The telemetry schema and analyzer require a recognized phase;
+the C++ serializer fixture and Python schema fixtures cover it. This fixes
+measurement attribution, not native dispatch behavior. Boundary calibration
+and a controlled forced-corner runtime fixture remain required before any
+predicate correction or merge decision.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

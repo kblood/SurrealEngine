@@ -1133,6 +1133,7 @@ void UActor::TickWalking(float elapsed)
 		for (int iteration = 0; timeLeft > 0.0f && iteration < 5; iteration++)
 		{
 			bool walkingHitWallDispatched = false;
+			bool initialWalkingContactRecorded = false;
 			const vec3 iterationStartLocation = Location();
 			const float iterationStartTimeLeft = timeLeft;
 			vec3 moveDelta = vel * timeLeft;
@@ -1164,7 +1165,9 @@ void UActor::TickWalking(float elapsed)
 			{
 				const CollisionHit initialHit = hit;
 				const vec3 velocityBeforeCollision = Velocity();
+				const float minHitWallBeforeCallback = pawn->MinHitWall();
 				const int physicsBeforeCallback = static_cast<int>(Physics());
+				const auto initialBlockerBeforeCallback = ClassifyWalkingHitWallBlocker(pawn, initialHit);
 				if (player && hit.Actor)
 				{
 					if (UObject::IsType<UDecoration>(hit.Actor) && UObject::Cast<UDecoration>(hit.Actor)->bPushable() && dot(hit.Normal, moveDelta) < -0.9f)
@@ -1188,6 +1191,12 @@ void UActor::TickWalking(float elapsed)
 					// We hit a wall
 					walkingHitWallDispatched = true;
 					CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
+					pawn->RecordWalkingHitWallDispatch(initialHit,
+						velocityBeforeCollision, minHitWallBeforeCallback,
+						physicsBeforeCallback,
+						PawnMovement::WalkingHitWallContactPhase::PrimaryForward,
+						initialBlockerBeforeCallback, true);
+					initialWalkingContactRecorded = true;
 
 					vec3 alignedDelta = (moveDelta - hit.Normal * dot(moveDelta, hit.Normal)) * (1.0f - hit.Fraction);
 					if (dot(moveDelta, alignedDelta) >= 0.0f) // Don't end up going backwards
@@ -1196,8 +1205,19 @@ void UActor::TickWalking(float elapsed)
 						timeLeft -= timeLeft * hit.Fraction;
 						if (hit.Fraction < 1.0f)
 						{
+							const CollisionHit secondHit = hit;
+							const vec3 secondVelocityBeforeCollision = Velocity();
+							const float secondMinHitWallBeforeCallback = pawn->MinHitWall();
+							const int secondPhysicsBeforeCallback = static_cast<int>(Physics());
+							const auto secondBlockerBeforeCallback =
+								ClassifyWalkingHitWallBlocker(pawn, secondHit);
 							walkingHitWallDispatched = true;
 							CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
+							pawn->RecordWalkingHitWallDispatch(secondHit,
+								secondVelocityBeforeCollision, secondMinHitWallBeforeCallback,
+								secondPhysicsBeforeCallback,
+								PawnMovement::WalkingHitWallContactPhase::AlignedSlide,
+								secondBlockerBeforeCallback, true);
 						}
 					}
 					else
@@ -1205,10 +1225,13 @@ void UActor::TickWalking(float elapsed)
 						timeLeft = 0.0f;
 					}
 				}
-				if (pawn)
+				if (!initialWalkingContactRecorded)
 				{
 					pawn->RecordWalkingHitWallDispatch(initialHit,
-						velocityBeforeCollision, physicsBeforeCallback,
+						velocityBeforeCollision, minHitWallBeforeCallback,
+						physicsBeforeCallback,
+						PawnMovement::WalkingHitWallContactPhase::PrimaryForward,
+						initialBlockerBeforeCallback,
 						walkingHitWallDispatched);
 				}
 			}
@@ -7417,18 +7440,21 @@ std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
 }
 
 void UPawn::RecordWalkingHitWallDispatch(const CollisionHit& hit,
-	const vec3& velocityBeforeCollision, int physicsBeforeCallback,
+	const vec3& velocityBeforeCollision, float minHitWallBeforeCallback,
+	int physicsBeforeCallback, PawnMovement::WalkingHitWallContactPhase contactPhase,
+	PawnMovement::WalkingHitWallBlockerKind blockerBeforeCallback,
 	bool callbackDispatched)
 {
 	using namespace PawnMovement;
 	WalkingHitWallDispatchDiagnosticRecord diagnostic;
 	diagnostic.SourcePawnActor = Name.ToString();
+	diagnostic.ContactPhase = contactPhase;
 	diagnostic.HitNormal = hit.Normal;
 	diagnostic.Velocity = velocityBeforeCollision;
-	diagnostic.MinHitWall = MinHitWall();
+	diagnostic.MinHitWall = minHitWallBeforeCallback;
 	diagnostic.Decision = EvaluateWalkingHitWallDispatch(hit.Normal,
 		velocityBeforeCollision, diagnostic.MinHitWall);
-	diagnostic.Blocker = ClassifyWalkingHitWallBlocker(this, hit);
+	diagnostic.Blocker = blockerBeforeCallback;
 	diagnostic.CallbackDispatched = callbackDispatched;
 	diagnostic.PhysicsChangedByCallback = callbackDispatched
 		&& static_cast<int>(Physics()) != physicsBeforeCallback;
