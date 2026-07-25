@@ -1344,6 +1344,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	set_target_properties(FallingHazardRecoveryGateTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME FallingHazardRecoveryGate COMMAND FallingHazardRecoveryGateTests)
 
+	add_executable(BotBenchmarkQualityObservationTests
+		Tests/BotBenchmarkQualityObservationTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkQualityObservation.cpp
+	)
+	target_include_directories(BotBenchmarkQualityObservationTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkQualityObservationTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkQualityObservation COMMAND BotBenchmarkQualityObservationTests)
+
 	add_executable(CollisionActorOrderTests Tests/CollisionActorOrderTests.cpp)
 	target_include_directories(CollisionActorOrderTests PRIVATE SurrealEngine)
 	set_target_properties(CollisionActorOrderTests PROPERTIES CXX_STANDARD 20)
