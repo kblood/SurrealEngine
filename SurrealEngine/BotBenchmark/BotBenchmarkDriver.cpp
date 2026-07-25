@@ -619,6 +619,18 @@ namespace
 				hazard.PersistentHarmfulFallObservedLeadSamples;
 			counters.PersistentHarmfulFallObservedLeadMilliseconds =
 				hazard.PersistentHarmfulFallObservedLeadMilliseconds;
+			counters.SingleHarmfulFallPrefixCandidatesStarted =
+				hazard.SingleHarmfulFallPrefixCandidatesStarted;
+			counters.SingleHarmfulFallPrefixPromotions =
+				hazard.SingleHarmfulFallPrefixPromotions;
+			counters.SingleHarmfulFallPrefixResets =
+				hazard.SingleHarmfulFallPrefixResets;
+			counters.SingleHarmfulFallPrefixConfirmedHarmfulEntries =
+				hazard.SingleHarmfulFallPrefixConfirmedHarmfulEntries;
+			counters.SingleHarmfulFallPrefixObservedLeadSamples =
+				hazard.SingleHarmfulFallPrefixObservedLeadSamples;
+			counters.SingleHarmfulFallPrefixObservedLeadMilliseconds =
+				hazard.SingleHarmfulFallPrefixObservedLeadMilliseconds;
 			counters.WalkingStepPreflightReasons = pawn->WalkingStepPreflightReasonCounts();
 			return counters;
 		}
@@ -1372,6 +1384,18 @@ namespace
 					native.PersistentHarmfulFallObservedLeadSamples;
 				bot.PersistentHarmfulFallObservedLeadMillisecondsExact =
 					native.PersistentHarmfulFallObservedLeadMilliseconds;
+				bot.SingleHarmfulFallPrefixCandidatesStartedExact =
+					native.SingleHarmfulFallPrefixCandidatesStarted;
+				bot.SingleHarmfulFallPrefixPromotionsExact =
+					native.SingleHarmfulFallPrefixPromotions;
+				bot.SingleHarmfulFallPrefixResetsExact =
+					native.SingleHarmfulFallPrefixResets;
+				bot.SingleHarmfulFallPrefixConfirmedHarmfulEntriesExact =
+					native.SingleHarmfulFallPrefixConfirmedHarmfulEntries;
+				bot.SingleHarmfulFallPrefixObservedLeadSamplesExact =
+					native.SingleHarmfulFallPrefixObservedLeadSamples;
+				bot.SingleHarmfulFallPrefixObservedLeadMillisecondsExact =
+					native.SingleHarmfulFallPrefixObservedLeadMilliseconds;
 				if (pawn)
 				{
 					auto diagnostics = pawn->DrainWalkingStepPreflightDiagnostics();

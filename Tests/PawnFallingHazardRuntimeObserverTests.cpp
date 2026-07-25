@@ -618,6 +618,72 @@ namespace
 			&& resetCounters.PersistentHarmfulFallObservedLeadSamples == 0,
 			"safe continuations reset the candidate and cannot create a harmful latch");
 	}
+
+	void TestSingleHarmfulFallPrefix()
+	{
+		auto prefixForecast = []()
+		{
+			auto update = Forecast(FallingHazardForecast::HarmfulPainObserved,
+				FallingHazardForecastPhase::AlignedContinuation, 0.02f);
+			update.Result.Reason =
+				FallingHazardForecastReason::HarmfulFootPainAtEndpoint;
+			update.Result.ExpectedHarmfulWaterEntry = true;
+			update.Result.ExpectedBotAvoidanceRelevant = true;
+			update.Result.SegmentCount = 5;
+			update.State.ExpectedSegmentCount = 5;
+			update.State.ExpectedSegments[0] = DirectSegment(0, 0.0f);
+			update.State.ExpectedSegments[0].Leg = FallingHazardSweepLeg::Aligned;
+			for (size_t index = 1; index < update.State.ExpectedSegmentCount; index++)
+				update.State.ExpectedSegments[index] = DirectSegment(index, 0.02f);
+			update.State.Result = update.Result;
+			return update;
+		};
+
+		FallingHazardRuntimeObserver observer("PrefixBot");
+		const auto forecast = prefixForecast();
+		Check(observer.BeginFallEpisode()
+			&& observer.ArmGeneration(
+				FallingHazardForecastSource::AlignedContinuationCommit,
+				forecast),
+			"an aligned harmful water forecast starts the prefix candidate");
+		Check(observer.ObserveSweep(SafeSweep(forecast.State.ExpectedSegments[0])),
+			"the initial aligned setup sweep is observed without counting as prefix time");
+		for (size_t index = 1; index < 4; index++)
+		{
+			Check(observer.ObserveSweep(SafeSweep(DirectSegment(index))),
+				"each exact dry prefix sweep is observed");
+		}
+		auto entry = HarmfulSweep();
+		entry.Segment = DirectSegment(4);
+		entry.InRegionWater = true;
+		entry.InFootWater = true;
+		entry.InHeadWater = true;
+		Check(observer.ObserveSweep(entry),
+			"the matching harmful water entry is observed after the prefix");
+		const auto& counters = observer.Counters();
+		Check(counters.SingleHarmfulFallPrefixCandidatesStarted == 1
+			&& counters.SingleHarmfulFallPrefixPromotions == 1
+			&& counters.SingleHarmfulFallPrefixConfirmedHarmfulEntries == 1
+			&& counters.SingleHarmfulFallPrefixObservedLeadSamples == 1
+			&& counters.SingleHarmfulFallPrefixObservedLeadMilliseconds == 20,
+			"three exact sweeps promote and one later confirmed entry records lead");
+
+		FallingHazardRuntimeObserver reset("PrefixResetBot");
+		Check(reset.BeginFallEpisode()
+			&& reset.ArmGeneration(
+				FallingHazardForecastSource::AlignedContinuationCommit,
+				prefixForecast()),
+			"the reset prefix candidate begins");
+		auto callback = SafeSweep(DirectSegment());
+		callback.CallbackMask = FallingHazardHitWallCallback;
+		Check(reset.ObserveSweep(callback),
+			"a callback-marked prefix sweep is observed");
+		Check(reset.Counters().SingleHarmfulFallPrefixCandidatesStarted == 1
+			&& reset.Counters().SingleHarmfulFallPrefixPromotions == 0
+			&& reset.Counters().SingleHarmfulFallPrefixResets == 1
+			&& reset.Counters().SingleHarmfulFallPrefixConfirmedHarmfulEntries == 0,
+			"any callback breaks the single-generation prefix before promotion");
+	}
 }
 
 int main()
@@ -633,6 +699,7 @@ int main()
 	TestCapacityAndBoundedDiagnostics();
 	TestDrainAndSourceUpdate();
 	TestPersistentHarmfulFallLatch();
+	TestSingleHarmfulFallPrefix();
 	std::cout << "Pawn falling hazard runtime observer tests passed\n";
 	return 0;
 }

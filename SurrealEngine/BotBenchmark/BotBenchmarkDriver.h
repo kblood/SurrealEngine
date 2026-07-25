@@ -113,6 +113,12 @@ namespace BotBenchmarkDriverDetail
 		uint64_t PersistentHarmfulFallConfirmedHarmfulEntries = 0;
 		uint64_t PersistentHarmfulFallObservedLeadSamples = 0;
 		uint64_t PersistentHarmfulFallObservedLeadMilliseconds = 0;
+		uint64_t SingleHarmfulFallPrefixCandidatesStarted = 0;
+		uint64_t SingleHarmfulFallPrefixPromotions = 0;
+		uint64_t SingleHarmfulFallPrefixResets = 0;
+		uint64_t SingleHarmfulFallPrefixConfirmedHarmfulEntries = 0;
+		uint64_t SingleHarmfulFallPrefixObservedLeadSamples = 0;
+		uint64_t SingleHarmfulFallPrefixObservedLeadMilliseconds = 0;
 		std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>
 			WalkingStepPreflightReasons = {};
 	};
@@ -415,6 +421,24 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.PersistentHarmfulFallObservedLeadMilliseconds,
 				Previous.PersistentHarmfulFallObservedLeadMilliseconds,
 				totals.PersistentHarmfulFallObservedLeadMilliseconds);
+			AccumulateCounter(current.SingleHarmfulFallPrefixCandidatesStarted,
+				Previous.SingleHarmfulFallPrefixCandidatesStarted,
+				totals.SingleHarmfulFallPrefixCandidatesStarted);
+			AccumulateCounter(current.SingleHarmfulFallPrefixPromotions,
+				Previous.SingleHarmfulFallPrefixPromotions,
+				totals.SingleHarmfulFallPrefixPromotions);
+			AccumulateCounter(current.SingleHarmfulFallPrefixResets,
+				Previous.SingleHarmfulFallPrefixResets,
+				totals.SingleHarmfulFallPrefixResets);
+			AccumulateCounter(current.SingleHarmfulFallPrefixConfirmedHarmfulEntries,
+				Previous.SingleHarmfulFallPrefixConfirmedHarmfulEntries,
+				totals.SingleHarmfulFallPrefixConfirmedHarmfulEntries);
+			AccumulateCounter(current.SingleHarmfulFallPrefixObservedLeadSamples,
+				Previous.SingleHarmfulFallPrefixObservedLeadSamples,
+				totals.SingleHarmfulFallPrefixObservedLeadSamples);
+			AccumulateCounter(current.SingleHarmfulFallPrefixObservedLeadMilliseconds,
+				Previous.SingleHarmfulFallPrefixObservedLeadMilliseconds,
+				totals.SingleHarmfulFallPrefixObservedLeadMilliseconds);
 			for (size_t index = 0; index < current.WalkingStepPreflightReasons.size(); index++)
 			{
 				AccumulateCounter(current.WalkingStepPreflightReasons[index],

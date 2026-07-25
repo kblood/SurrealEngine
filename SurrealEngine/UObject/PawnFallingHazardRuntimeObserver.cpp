@@ -27,6 +27,7 @@ namespace PawnMovement
 		FallEpisodeActive = true;
 		FallEpisodeObservedSweepElapsed = 0.0f;
 		ClearPersistentHarmfulFall(false);
+		ClearSingleHarmfulFallPrefix(false);
 		return true;
 	}
 
@@ -38,6 +39,7 @@ namespace PawnMovement
 		FallEpisode = {};
 		FallEpisodeObservedSweepElapsed = 0.0f;
 		ClearPersistentHarmfulFall(true);
+		ClearSingleHarmfulFallPrefix(true);
 		ClearGenerationForecast();
 	}
 
@@ -111,6 +113,8 @@ namespace PawnMovement
 		ActualSampleCount = 0;
 		CounterValues.EpisodesStarted++;
 		ObservePersistentHarmfulFallForecast(TrajectoryModel.ActiveGeneration);
+		ArmSingleHarmfulFallPrefix(source, forecast,
+			TrajectoryModel.ActiveGeneration);
 		HasLastCompletion = false;
 		LastCompletionTerminal = FallingHazardTerminal::Active;
 		QueueStart(prechargedElapsed);
@@ -123,7 +127,7 @@ namespace PawnMovement
 		if (!TrajectoryModel.HasActiveGeneration || !HasForecastState)
 			return false;
 
-		const FallingHazardGenerationState& active =
+		const FallingHazardGenerationState active =
 			TrajectoryModel.ActiveGeneration;
 		const size_t ordinal = active.SweptSegmentCount;
 		FallingHazardForecastExpectedSegment actual = observation.Segment;
@@ -176,6 +180,11 @@ namespace PawnMovement
 			&& std::isfinite(FallEpisodeObservedSweepElapsed))
 		{
 			FallEpisodeObservedSweepElapsed += observation.Segment.ElapsedContribution;
+		}
+		if (!update.HasCompletedGeneration)
+		{
+			ObserveSingleHarmfulFallPrefix(active, observation, expectedKnown,
+				expectedMatched);
 		}
 		if (sampleCountValid)
 			ActualSampleCount += observation.Segment.SampleCount;
@@ -236,6 +245,7 @@ namespace PawnMovement
 		FallEpisode = {};
 		FallEpisodeObservedSweepElapsed = 0.0f;
 		ClearPersistentHarmfulFall(true);
+		ClearSingleHarmfulFallPrefix(true);
 		return completed;
 	}
 
@@ -246,6 +256,7 @@ namespace PawnMovement
 		FallEpisode = {};
 		FallEpisodeObservedSweepElapsed = 0.0f;
 		ClearPersistentHarmfulFall(true);
+		ClearSingleHarmfulFallPrefix(true);
 		return completed;
 	}
 
@@ -259,6 +270,7 @@ namespace PawnMovement
 		TrajectoryModel = {};
 		FallEpisodeObservedSweepElapsed = 0.0f;
 		ClearPersistentHarmfulFall(true);
+		ClearSingleHarmfulFallPrefix(true);
 		ClearGenerationForecast();
 		CapacityDiagnosticEmittedForLife = false;
 		HasLastCompletion = false;
@@ -299,6 +311,7 @@ namespace PawnMovement
 		CounterValues.EpisodesCompleted++;
 		CountCorrelation(correlation);
 		ObservePersistentHarmfulFallCompletion(generation, correlation);
+		ObserveSingleHarmfulFallPrefixCompletion(generation, correlation);
 		FallingHazardDiagnosticRecord record;
 		record.Kind = FallingHazardDiagnosticKind::Terminal;
 		record.Generation = generation;
@@ -501,5 +514,162 @@ namespace PawnMovement
 		if (countReset && PersistentHarmfulFall.CandidateActive)
 			CounterValues.PersistentHarmfulFallResets++;
 		PersistentHarmfulFall = {};
+	}
+
+	void FallingHazardRuntimeObserver::ArmSingleHarmfulFallPrefix(
+		FallingHazardForecastSource source,
+		const FallingHazardForecastUpdate& forecast,
+		const FallingHazardGenerationState& generation)
+	{
+		const auto validZone = [](const FallingHazardZoneId& zone)
+		{
+			return zone.Known && zone.ZoneActorId != 0;
+		};
+		bool expectedSegmentsClear = forecast.State.ExpectedSegmentCount > 0;
+		for (size_t index = 0; index < forecast.State.ExpectedSegmentCount; index++)
+		{
+			const FallingHazardForecastExpectedSegment& segment =
+				forecast.State.ExpectedSegments[index];
+			const bool alignedStart = index == 0
+				&& segment.Leg == FallingHazardSweepLeg::Aligned
+				&& segment.ElapsedContribution == 0.0f;
+			expectedSegmentsClear = expectedSegmentsClear
+				&& (alignedStart || segment.Leg == FallingHazardSweepLeg::Direct)
+				&& segment.Collision == FallingHazardCollisionKind::Clear;
+		}
+		const bool eligible = source
+			== FallingHazardForecastSource::AlignedContinuationCommit
+			&& forecast.Result.Classification
+				== FallingHazardForecast::HarmfulPainObserved
+			&& forecast.Result.Reason
+				== FallingHazardForecastReason::HarmfulFootPainAtEndpoint
+			&& forecast.Result.ExpectedHarmfulWaterEntry
+			&& forecast.Result.ExpectedBotAvoidanceRelevant
+			&& validZone(generation.ExpectedHarmfulFootZone)
+			&& validZone(generation.ExpectedHarmfulPhysicsZone)
+			&& expectedSegmentsClear;
+		ClearSingleHarmfulFallPrefix(true);
+		if (!eligible)
+			return;
+
+		SingleHarmfulFallPrefix.CandidateActive = true;
+		SingleHarmfulFallPrefix.Life = generation.Life;
+		SingleHarmfulFallPrefix.FallEpisode = generation.FallEpisode;
+		SingleHarmfulFallPrefix.Generation = generation.Generation;
+		CounterValues.SingleHarmfulFallPrefixCandidatesStarted++;
+	}
+
+	void FallingHazardRuntimeObserver::ObserveSingleHarmfulFallPrefix(
+		const FallingHazardGenerationState& generation,
+		const FallingHazardRuntimeSweepObservation& observation,
+		bool expectedKnown, bool expectedMatched)
+	{
+		if (!SingleHarmfulFallPrefix.CandidateActive)
+			return;
+
+		const bool sameGeneration = SingleHarmfulFallPrefix.Life.Value
+			== generation.Life.Value
+			&& SingleHarmfulFallPrefix.FallEpisode.Value
+				== generation.FallEpisode.Value
+			&& SingleHarmfulFallPrefix.Generation.Value
+				== generation.Generation.Value;
+		const bool stablePhysicsZone = observation.PhysicsZone.Known
+			== generation.StartingPhysicsZone.Known
+			&& observation.PhysicsZone.ZoneActorId
+				== generation.StartingPhysicsZone.ZoneActorId
+			&& observation.PhysicsZone.ZoneNumber
+				== generation.StartingPhysicsZone.ZoneNumber;
+		const bool drySafeZones = observation.HarmfulCenterZoneKnown
+			&& !observation.InHarmfulCenterZone
+			&& observation.HarmfulFootZoneKnown
+			&& !observation.InHarmfulFootZone
+			&& observation.RegionWaterKnown && !observation.InRegionWater
+			&& observation.FootWaterKnown && !observation.InFootWater
+			&& observation.HeadWaterKnown && !observation.InHeadWater;
+		const bool clearMatchedEvidence = sameGeneration && expectedKnown
+			&& expectedMatched
+			&& observation.Segment.Collision == FallingHazardCollisionKind::Clear
+			&& observation.CallbackMaskKnown && observation.CallbackMask == 0
+			&& stablePhysicsZone && drySafeZones;
+		const bool alignedStart = clearMatchedEvidence
+			&& !SingleHarmfulFallPrefix.AlignedStartObserved
+			&& SingleHarmfulFallPrefix.MatchingSweeps == 0
+			&& observation.Segment.Leg == FallingHazardSweepLeg::Aligned
+			&& observation.Segment.ElapsedContribution == 0.0f;
+		const bool directSweep = clearMatchedEvidence
+			&& observation.Segment.Leg == FallingHazardSweepLeg::Direct
+			&& std::isfinite(observation.Segment.ElapsedContribution)
+			&& observation.Segment.ElapsedContribution > 0.0f;
+		if (!alignedStart && !directSweep)
+		{
+			ClearSingleHarmfulFallPrefix(true);
+			return;
+		}
+		if (alignedStart)
+		{
+			SingleHarmfulFallPrefix.AlignedStartObserved = true;
+			return;
+		}
+
+		if (SingleHarmfulFallPrefix.MatchingSweeps
+			< std::numeric_limits<uint32_t>::max())
+		{
+			SingleHarmfulFallPrefix.MatchingSweeps++;
+		}
+		if (!SingleHarmfulFallPrefix.Promoted
+			&& SingleHarmfulFallPrefix.MatchingSweeps >= 3)
+		{
+			SingleHarmfulFallPrefix.Promoted = true;
+			SingleHarmfulFallPrefix.PromotedObservedSweepElapsed =
+				FallEpisodeObservedSweepElapsed;
+			CounterValues.SingleHarmfulFallPrefixPromotions++;
+		}
+	}
+
+	void FallingHazardRuntimeObserver::ObserveSingleHarmfulFallPrefixCompletion(
+		const FallingHazardGenerationState& generation,
+		FallingHazardCorrelation correlation)
+	{
+		if (!SingleHarmfulFallPrefix.CandidateActive)
+			return;
+
+		const bool sameGeneration = SingleHarmfulFallPrefix.Life.Value
+			== generation.Life.Value
+			&& SingleHarmfulFallPrefix.FallEpisode.Value
+				== generation.FallEpisode.Value
+			&& SingleHarmfulFallPrefix.Generation.Value
+				== generation.Generation.Value;
+		if (sameGeneration
+			&& generation.Terminal == FallingHazardTerminal::HarmfulPainEntered
+			&& correlation == FallingHazardCorrelation::ConfirmedHarmfulForecast
+			&& SingleHarmfulFallPrefix.Promoted)
+		{
+			CounterValues.SingleHarmfulFallPrefixConfirmedHarmfulEntries++;
+			const float lead = FallEpisodeObservedSweepElapsed
+				- SingleHarmfulFallPrefix.PromotedObservedSweepElapsed;
+			if (std::isfinite(lead) && lead >= 0.0f)
+			{
+				const double milliseconds = std::round(static_cast<double>(lead) * 1000.0);
+				if (milliseconds <= static_cast<double>(std::numeric_limits<uint64_t>::max()
+					- CounterValues.SingleHarmfulFallPrefixObservedLeadMilliseconds))
+				{
+					CounterValues.SingleHarmfulFallPrefixObservedLeadSamples++;
+					CounterValues.SingleHarmfulFallPrefixObservedLeadMilliseconds +=
+						static_cast<uint64_t>(milliseconds);
+				}
+			}
+			ClearSingleHarmfulFallPrefix(false);
+			return;
+		}
+
+		ClearSingleHarmfulFallPrefix(true);
+	}
+
+	void FallingHazardRuntimeObserver::ClearSingleHarmfulFallPrefix(
+		bool countReset)
+	{
+		if (countReset && SingleHarmfulFallPrefix.CandidateActive)
+			CounterValues.SingleHarmfulFallPrefixResets++;
+		SingleHarmfulFallPrefix = {};
 	}
 }

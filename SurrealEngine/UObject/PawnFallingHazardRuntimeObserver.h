@@ -31,6 +31,12 @@ namespace PawnMovement
 		uint64_t PersistentHarmfulFallConfirmedHarmfulEntries = 0;
 		uint64_t PersistentHarmfulFallObservedLeadSamples = 0;
 		uint64_t PersistentHarmfulFallObservedLeadMilliseconds = 0;
+		uint64_t SingleHarmfulFallPrefixCandidatesStarted = 0;
+		uint64_t SingleHarmfulFallPrefixPromotions = 0;
+		uint64_t SingleHarmfulFallPrefixResets = 0;
+		uint64_t SingleHarmfulFallPrefixConfirmedHarmfulEntries = 0;
+		uint64_t SingleHarmfulFallPrefixObservedLeadSamples = 0;
+		uint64_t SingleHarmfulFallPrefixObservedLeadMilliseconds = 0;
 	};
 
 	struct FallingHazardRuntimeSweepObservation
@@ -115,6 +121,18 @@ namespace PawnMovement
 			const FallingHazardGenerationState& generation,
 			FallingHazardCorrelation correlation);
 		void ClearPersistentHarmfulFall(bool countReset);
+		void ArmSingleHarmfulFallPrefix(
+			FallingHazardForecastSource source,
+			const FallingHazardForecastUpdate& forecast,
+			const FallingHazardGenerationState& generation);
+		void ObserveSingleHarmfulFallPrefix(
+			const FallingHazardGenerationState& generation,
+			const FallingHazardRuntimeSweepObservation& observation,
+			bool expectedKnown, bool expectedMatched);
+		void ObserveSingleHarmfulFallPrefixCompletion(
+			const FallingHazardGenerationState& generation,
+			FallingHazardCorrelation correlation);
+		void ClearSingleHarmfulFallPrefix(bool countReset);
 
 		std::string SourcePawnActor;
 		FallingHazardLifeId Life = { 1 };
@@ -143,6 +161,18 @@ namespace PawnMovement
 			float LatchedObservedSweepElapsed = 0.0f;
 		};
 		PersistentHarmfulFallState PersistentHarmfulFall;
+		struct SingleHarmfulFallPrefixState
+		{
+			bool CandidateActive = false;
+			bool Promoted = false;
+			bool AlignedStartObserved = false;
+			uint32_t MatchingSweeps = 0;
+			FallingHazardLifeId Life;
+			FallingHazardFallEpisodeId FallEpisode;
+			FallingHazardGenerationId Generation;
+			float PromotedObservedSweepElapsed = 0.0f;
+		};
+		SingleHarmfulFallPrefixState SingleHarmfulFallPrefix;
 		float FallEpisodeObservedSweepElapsed = 0.0f;
 		FallingHazardRuntimeCounters CounterValues;
 		std::vector<FallingHazardDiagnosticRecord> DiagnosticQueue;

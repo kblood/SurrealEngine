@@ -1185,6 +1185,37 @@ The latch is therefore deliberately **not** a shared live gate yet. The next
 observer iteration must explain the single-generation UT water entry or derive
 a separate, equally causal UT-safe signal before any recovery action is tested.
 
+## Iteration 57: single-generation harmful-fall prefix (observer only)
+
+The shared observer now separately measures the UT-style case that has one
+harmful aligned-continuation forecast followed by a long, unbroken realized
+prefix. It starts only for an avoidance-relevant harmful water endpoint with
+known foot and physics zones. A single exact, clear zero-time aligned setup
+sweep is allowed but does not count; promotion then requires three exact,
+positive-time, direct, clear, dry, callback-free sweeps in the same life, fall,
+generation, and starting physics zone. Any mismatch, unknown evidence, water or
+pain entry, callback, impulse, zone change, terminal, life boundary, or
+replacement generation clears the candidate. A promotion confirms only on that
+same generation's `confirmed_harmful_forecast` terminal. This is telemetry only:
+it changes no bot movement, timing, target, physics, or script state.
+
+The new six-field exact telemetry group (candidates, promotions, resets,
+confirmed entries, lead samples, summed lead milliseconds) is serialized,
+validated as a complete group, and exposed with derived fractions/mean lead in
+the analyzer. Focused observer and telemetry tests pass, as does the full
+executable build and the 106-test Python benchmark suite.
+
+Two UT436 `DM-Deck16][` seed-271828, four skill-7 bot runs are exactly
+equivalent after normalizing only `output_directory`. Each records the same
+single candidate, promotion, confirmed entry, and 1,027 ms observed lead for
+Alys, while gameplay remains K0/D1/S1. Unreal Gold `DmDeathFan` seed 424242,
+four skill-3 bots, remains K5/D8/S3 and records zero candidates: its relevant
+falls are interrupted rather than an unbroken single generation. This is the
+intended separation. The earlier two-forecast persistent latch remains
+observer-only as well; external-impulse repetition is not causal evidence for a
+future live recovery policy. No live bot experiment is authorized by this
+measurement slice.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

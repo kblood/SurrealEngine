@@ -293,12 +293,21 @@ PERSISTENT_HARMFUL_FALL_COUNTERS = (
     "persistent_harmful_fall_observed_lead_samples_exact",
     "persistent_harmful_fall_observed_lead_milliseconds_exact",
 )
+SINGLE_HARMFUL_FALL_PREFIX_COUNTERS = (
+    "single_harmful_fall_prefix_candidates_started_exact",
+    "single_harmful_fall_prefix_promotions_exact",
+    "single_harmful_fall_prefix_resets_exact",
+    "single_harmful_fall_prefix_confirmed_harmful_entries_exact",
+    "single_harmful_fall_prefix_observed_lead_samples_exact",
+    "single_harmful_fall_prefix_observed_lead_milliseconds_exact",
+)
 METRIC_DIRECTIONS.update({
 	name: None for name in (
 		WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
 		+ VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
 		+ FALLING_PRE_MOVE_ANCHOR_COUNTERS + HAZARD_SWIM_EGRESS_LIVE_COUNTERS
-		+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS)
+		+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
+        + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS)
 })
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
@@ -311,6 +320,7 @@ OPTIONAL_EXACT_COUNTERS = (
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
     + WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
     + VERTICAL_PAIN_COLUMN_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
+    + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS
     + WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_COUNTERS
 )
 OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
@@ -1882,7 +1892,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
                 ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS),
-                ("persistent harmful fall", PERSISTENT_HARMFUL_FALL_COUNTERS)):
+                ("persistent harmful fall", PERSISTENT_HARMFUL_FALL_COUNTERS),
+                ("single harmful fall prefix", SINGLE_HARMFUL_FALL_PREFIX_COUNTERS)):
             present = [name for name in names if name in result]
             if present and len(present) != len(names):
                 raise QualityError(f"{context}: {label} counters must be provided as a complete group")
@@ -2150,6 +2161,18 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if entries > promotions or samples > entries:
                 raise QualityError(
                     f"{context}: persistent harmful fall entries/samples exceed promotions")
+        if "single_harmful_fall_prefix_candidates_started_exact" in result:
+            candidates = result["single_harmful_fall_prefix_candidates_started_exact"]
+            promotions = result["single_harmful_fall_prefix_promotions_exact"]
+            resets = result["single_harmful_fall_prefix_resets_exact"]
+            entries = result["single_harmful_fall_prefix_confirmed_harmful_entries_exact"]
+            samples = result["single_harmful_fall_prefix_observed_lead_samples_exact"]
+            if promotions > candidates or resets > candidates:
+                raise QualityError(
+                    f"{context}: single harmful fall prefix promotions/resets exceed candidates")
+            if entries > promotions or samples > entries:
+                raise QualityError(
+                    f"{context}: single harmful fall prefix entries/samples exceed promotions")
         if "walking_step_preflight_diagnostics" in bot:
             if "walking_step_preflight_observations_exact" not in result:
                 raise QualityError(
@@ -2829,6 +2852,19 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
             if result.get("persistent_harmful_fall_observed_lead_samples_exact") is not None
             and result["persistent_harmful_fall_observed_lead_samples_exact"] > 0
             and result.get("persistent_harmful_fall_observed_lead_milliseconds_exact")
+            is not None else None),
+        "single_harmful_fall_prefix_promotion_fraction": _counter_fraction(
+            result.get("single_harmful_fall_prefix_promotions_exact"),
+            result.get("single_harmful_fall_prefix_candidates_started_exact")),
+        "single_harmful_fall_prefix_confirmed_entry_fraction": _counter_fraction(
+            result.get("single_harmful_fall_prefix_confirmed_harmful_entries_exact"),
+            result.get("single_harmful_fall_prefix_promotions_exact")),
+        "single_harmful_fall_prefix_mean_observed_lead_milliseconds": (
+            result["single_harmful_fall_prefix_observed_lead_milliseconds_exact"]
+            / result["single_harmful_fall_prefix_observed_lead_samples_exact"]
+            if result.get("single_harmful_fall_prefix_observed_lead_samples_exact") is not None
+            and result["single_harmful_fall_prefix_observed_lead_samples_exact"] > 0
+            and result.get("single_harmful_fall_prefix_observed_lead_milliseconds_exact")
             is not None else None),
     })
     return result

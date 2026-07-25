@@ -160,6 +160,12 @@ struct BotBenchmarkBotState
 	uint64_t PersistentHarmfulFallConfirmedHarmfulEntriesExact = 0;
 	uint64_t PersistentHarmfulFallObservedLeadSamplesExact = 0;
 	uint64_t PersistentHarmfulFallObservedLeadMillisecondsExact = 0;
+	uint64_t SingleHarmfulFallPrefixCandidatesStartedExact = 0;
+	uint64_t SingleHarmfulFallPrefixPromotionsExact = 0;
+	uint64_t SingleHarmfulFallPrefixResetsExact = 0;
+	uint64_t SingleHarmfulFallPrefixConfirmedHarmfulEntriesExact = 0;
+	uint64_t SingleHarmfulFallPrefixObservedLeadSamplesExact = 0;
+	uint64_t SingleHarmfulFallPrefixObservedLeadMillisecondsExact = 0;
 	std::vector<PawnMovement::FallingHazardDiagnosticRecord>
 		VerticalPainColumnDiagnostics;
 };

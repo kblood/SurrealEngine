@@ -248,6 +248,12 @@ int main()
 		<< ",\"persistent_harmful_fall_confirmed_harmful_entries_exact\":\"0\""
 		<< ",\"persistent_harmful_fall_observed_lead_samples_exact\":\"0\""
 		<< ",\"persistent_harmful_fall_observed_lead_milliseconds_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_candidates_started_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_promotions_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_resets_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_confirmed_harmful_entries_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_observed_lead_samples_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_observed_lead_milliseconds_exact\":\"0\""
 		<< ",\"vertical_pain_column_diagnostics\":[]";
 	const std::string expectedWalkingPreflightSuffix = walkingPreflightSuffix.str();
 	std::string expectedEvent =
