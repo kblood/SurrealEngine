@@ -1126,6 +1126,36 @@ falling or callback intervention. The next policy must target a repeatedly
 observed, causally attributable hazard/stall segment, retain the existing
 script-owned timeout handoff, and qualify separately in UT436 and Unreal Gold.
 
+## Iteration 55: DeathFan water-egress live candidate rejection
+
+The swim-egress observer was then enabled for the same DeathFan configuration.
+It authorizes the falling pre-move anchor for all observed harmful-water
+episodes, including the three unassisted deaths. The existing live candidate
+was run as a paired, two-repeat observer-versus-live matrix. Both observer
+repeats and both live repeats are exactly deterministic after normalizing their
+output directory. The matrix, analysis, repeat-equivalence reports, and
+provenance are retained locally under
+`qa/runs/2026-07-25/hazard-swim-egress-deathfan-live/`.
+
+The live acceleration overlay is rejected. It applies three times for 286
+ticks but records zero successful exits. Relative to the observer baseline,
+kills fall by three, suicides and environmental deaths each rise by one, and
+no-progress time rises by 17.62 seconds. Reduced total deaths and wall calls
+do not offset those deterministic combat, suicide, and permanent-stall
+regressions. The experiment remains benchmark-only and default-off.
+
+Trace review identifies the next safe measurement slice. Rhiannon and Dante
+enter the same harmful water at ticks 778, 978, and 1438 respectively and die
+2.75 seconds later; each has a known harmful forecast 28 ticks (about 0.467
+seconds) beforehand. Callback and impulse generation boundaries fragment that
+single physical fall into mostly `unknown` individual generations. A new
+observer must therefore latch only after two consecutive same-life,
+same-fall, same-known-zone harmful forecasts across such a boundary, record
+lead time to actual entry, and reset on a safe landing, zone change, life
+boundary, or contradictory forecast. It remains read-only until this
+episode-level signal repeats on UT436 and Unreal Gold while preserving safe
+controls.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact
