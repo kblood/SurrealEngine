@@ -1572,6 +1572,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	set_target_properties(PawnWallAdjustmentTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnWallAdjustment COMMAND PawnWallAdjustmentTests)
 
+	add_executable(PawnWalkingHitWallDispatchTests
+		Tests/PawnWalkingHitWallDispatchTests.cpp
+		SurrealEngine/UObject/PawnWalkingHitWallDispatch.cpp
+	)
+	target_include_directories(PawnWalkingHitWallDispatchTests PRIVATE SurrealEngine)
+	set_target_properties(PawnWalkingHitWallDispatchTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnWalkingHitWallDispatch COMMAND PawnWalkingHitWallDispatchTests)
+
 	add_executable(PawnWallAdjustRecoveryTests
 		Tests/PawnWallAdjustRecoveryTests.cpp
 		SurrealEngine/UObject/PawnWallAdjustRecovery.cpp
