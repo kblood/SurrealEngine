@@ -2621,3 +2621,38 @@ Enhanced AI stays explicitly selectable until its full matrix is release-ready.
 The current branch is **not ready to merge**; retain only independently proven
 helpers/corrections and keep rejected live wall-jump and inventory enforcement
 out of the release candidate.
+
+## Iteration 105: read-only target-selection coverage
+
+The benchmark now has an opt-in `--botbench-target-selection-observer=0|1`
+observer for reflected `SetEnemy(Pawn NewEnemy) -> bool` dispatch. It discovers
+the global and state-local implementations in every controlled bot class
+hierarchy, validates every reflected signature before registering a VM hook,
+and never replaces arguments, overrides returns, writes `Enemy`, or makes a
+movement decision. Unsupported declarations disable the observer with a stable
+contract reason instead of changing the match.
+
+When active, the telemetry emits bounded, one-shot target-selection records
+and exact per-bot counters for outermost/nested calls, accepted target changes,
+accepted same-target calls, rejected-or-unchanged calls, missing results,
+identifier rejects, capacities, and integrity failures. The analyzer requires
+the observer state to remain constant, record sequences to be contiguous,
+records to reconcile exactly with outcome counters, and active evidence to
+have zero missing-result, overflow, or integrity-failure counters.
+
+Fresh observer runs passed this strict validation:
+
+- UT436 `DM-Deck16][`, seed `104729`, difficulty 7, four bots:
+  `qa/runs/2026-07-25/target-selection-observer-ut436-deck16-s104729-v2/`.
+  It includes accepted target changes, accepted same-target calls,
+  rejected-or-unchanged calls, and nested state/global dispatches.
+- Unreal Gold 226b `DmDeathFan`, seed `271828`, native difficulty 3, four
+  bots: `qa/runs/2026-07-25/target-selection-observer-unreal226b-dmdeathfan-s271828-v2/`.
+  It likewise has positive accepted/rejected/nested coverage with no observer
+  integrity failure.
+
+`DmDeck16` on Unreal Gold had a healthy active observer but zero `SetEnemy`
+dispatches for this deterministic setup, so it is recorded as zero coverage,
+not as target-selection evidence. This tranche improves measurement only; it
+does not promote a target-selection behavior change or make the branch
+merge-ready.

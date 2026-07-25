@@ -150,7 +150,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	bool hazardSwimEgressEnabled, bool hazardSwimEgressLiveEnabled,
 	bool failedNavigationAvoidanceEnabled, bool fallingHazardRecoveryEnabled,
 	bool fallingHazardRecoveryLiveEnabled, bool targetlessMoveToTimeoutEnabled,
-	bool directActorMoveTowardTimeoutEnabled)
+	bool directActorMoveTowardTimeoutEnabled, bool targetSelectionObserverEnabled)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
 	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled),
@@ -161,7 +161,8 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	FallingHazardRecoveryEnabled(fallingHazardRecoveryEnabled),
 	FallingHazardRecoveryLiveEnabled(fallingHazardRecoveryLiveEnabled),
 	TargetlessMoveToTimeoutEnabled(targetlessMoveToTimeoutEnabled),
-	DirectActorMoveTowardTimeoutEnabled(directActorMoveTowardTimeoutEnabled)
+	DirectActorMoveTowardTimeoutEnabled(directActorMoveTowardTimeoutEnabled),
+	TargetSelectionObserverEnabled(targetSelectionObserverEnabled)
 {
 }
 
@@ -175,7 +176,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> fallingHazardRecovery,
 	std::optional<std::string> fallingHazardRecoveryLive,
 	std::optional<std::string> targetlessMoveToTimeout,
-	std::optional<std::string> directActorMoveTowardTimeout)
+	std::optional<std::string> directActorMoveTowardTimeout,
+	std::optional<std::string> targetSelectionObserver)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -212,13 +214,16 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		targetlessMoveToTimeout, "bot benchmark targetless MoveTo timeout");
 	const bool parsedDirectActorMoveTowardTimeout = ParseExactBoolean(
 		directActorMoveTowardTimeout, "bot benchmark direct-actor MoveToward timeout");
+	const bool parsedTargetSelectionObserver = ParseExactBoolean(
+		targetSelectionObserver, "bot benchmark target-selection observer");
 
 	return BotBenchmarkRunConfig(std::move(url), std::move(outputDirectory), parsedSeed,
 		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster), parsedHarmfulZoneEscape,
 		parsedWalkingPreflightPositiveDpsVeto, parsedHazardSwimEgress,
 		parsedHazardSwimEgressLive, parsedFailedNavigationAvoidance,
 		parsedFallingHazardRecovery, parsedFallingHazardRecoveryLive,
-		parsedTargetlessMoveToTimeout, parsedDirectActorMoveTowardTimeout);
+		parsedTargetlessMoveToTimeout, parsedDirectActorMoveTowardTimeout,
+		parsedTargetSelectionObserver);
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
@@ -278,7 +283,9 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< "    \"targetless_move_to_timeout_enabled\": "
 		<< (config.IsTargetlessMoveToTimeoutEnabled() ? "true" : "false") << ",\n"
 		<< "    \"direct_actor_move_toward_timeout_enabled\": "
-		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "true" : "false") << "\n"
+		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "true" : "false") << ",\n"
+		<< "    \"target_selection_observer_enabled\": "
+		<< (config.IsTargetSelectionObserverEnabled() ? "true" : "false") << "\n"
 		<< "  }\n"
 		<< "}\n";
 	return out.str();

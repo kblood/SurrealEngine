@@ -491,6 +491,19 @@ OPTIONAL_EXACT_COUNTERS = (
         "move_stall_recovery_decision_record_overflows_exact",
     )
 )
+TARGET_SELECTION_COUNTERS = (
+    "target_selection_outermost_calls_exact",
+    "target_selection_nested_calls_exact",
+    "target_selection_accepted_target_changes_exact",
+    "target_selection_accepted_same_target_exact",
+    "target_selection_rejected_or_unchanged_exact",
+    "target_selection_missing_results_exact",
+    "target_selection_invalid_identifier_exact",
+    "target_selection_tracker_capacity_exceeded_exact",
+    "target_selection_record_overflows_exact",
+    "target_selection_integrity_failures_exact",
+)
+OPTIONAL_EXACT_COUNTERS += TARGET_SELECTION_COUNTERS
 MOVE_STALL_DECISION_RECORD_OVERFLOW_COUNTER = \
     "move_stall_recovery_decision_record_overflows_exact"
 OPTIONAL_CUMULATIVE_NUMBERS = ("move_stall_eligible_seconds",)
@@ -520,7 +533,7 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "falling_parity_realized_records", "vertical_pain_column_diagnostics",
     "hazard_water_egress_diagnostics", "hazard_death_partition_records",
     "move_stall_recovery_episodes", "move_stall_recovery_decisions",
-    "walking_hitwall_dispatch_diagnostics",
+    "walking_hitwall_dispatch_diagnostics", "target_selection_records",
 )
 HAZARD_DEATH_KILLER_RELATIONS = {"none", "self_player", "enemy_player", "non_player"}
 HAZARD_DEATH_ATTRIBUTIONS = {
@@ -2840,7 +2853,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                falling_hazard_recovery_enabled: bool | None = None,
                falling_hazard_recovery_live_enabled: bool | None = None,
                targetless_move_to_timeout_enabled: bool | None = None,
-               direct_actor_move_toward_timeout_enabled: bool | None = None) -> str:
+               direct_actor_move_toward_timeout_enabled: bool | None = None,
+               target_selection_observer_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -2874,6 +2888,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if direct_actor_move_toward_timeout_enabled is not None:
             canonical_text += "direct_actor_move_toward_timeout_enabled=" + (
                 "1\n" if direct_actor_move_toward_timeout_enabled else "0\n")
+        if target_selection_observer_enabled is not None:
+            canonical_text += "target_selection_observer_enabled=" + (
+                "1\n" if target_selection_observer_enabled else "0\n")
         assert requested_roster is not None
         canonical_text += "".join(f"roster={entry['identity_fragment']}\n" for entry in requested_roster)
     canonical = canonical_text.encode("utf-8")
@@ -3005,6 +3022,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     falling_hazard_recovery_live_enabled = None
     targetless_move_to_timeout_enabled = None
     direct_actor_move_toward_timeout_enabled = None
+    target_selection_observer_enabled = None
     if schema == MANIFEST_SCHEMA_V2:
         bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
         requested_roster = _validate_requested_roster(raw.get("requested_roster"),
@@ -3052,6 +3070,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             direct_actor_move_toward_timeout_enabled = _boolean(
                 raw.get("direct_actor_move_toward_timeout_enabled"),
                 "manifest.direct_actor_move_toward_timeout_enabled")
+        if "target_selection_observer_enabled" in raw:
+            target_selection_observer_enabled = _boolean(
+                raw.get("target_selection_observer_enabled"),
+                "manifest.target_selection_observer_enabled")
     expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count,
                              requested_roster, harmful_zone_escape_enabled,
                              walking_preflight_positive_dps_veto_enabled,
@@ -3061,7 +3083,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              falling_hazard_recovery_enabled,
                              falling_hazard_recovery_live_enabled,
                              targetless_move_to_timeout_enabled,
-                             direct_actor_move_toward_timeout_enabled)
+                             direct_actor_move_toward_timeout_enabled,
+                             target_selection_observer_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -3087,6 +3110,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "falling_hazard_recovery_live_enabled": falling_hazard_recovery_live_enabled,
         "targetless_move_to_timeout_enabled": targetless_move_to_timeout_enabled,
         "direct_actor_move_toward_timeout_enabled": direct_actor_move_toward_timeout_enabled,
+        "target_selection_observer_enabled": target_selection_observer_enabled,
     }
 
 
@@ -3660,6 +3684,35 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
         elif MOVE_STALL_DECISION_RECORD_OVERFLOW_COUNTER in result:
             raise QualityError(
                 f"{context}: move-stall decision overflow counter requires records")
+        target_selection_present = [name for name in TARGET_SELECTION_COUNTERS if name in result]
+        if target_selection_present and len(target_selection_present) != len(TARGET_SELECTION_COUNTERS):
+            raise QualityError(f"{context}: target-selection counters must be provided as a complete group")
+        if "target_selection_records" in bot:
+            if len(target_selection_present) != len(TARGET_SELECTION_COUNTERS):
+                raise QualityError(f"{context}: target-selection records require the complete counter group")
+            records = bot.get("target_selection_records")
+            if not isinstance(records, list):
+                raise QualityError(f"{context}.target_selection_records must be an array")
+            parsed_records = []
+            for index, record in enumerate(records):
+                record_context = f"{context}.target_selection_records[{index}]"
+                item = _object(record, record_context)
+                outcome = _string(item, "outcome", record_context, nonempty=True)
+                if outcome not in ("accepted_target_change", "accepted_same_target",
+                                   "rejected_or_unchanged"):
+                    raise QualityError(f"{record_context}.outcome is not recognized")
+                parsed_records.append({
+                    "sequence": _integer(item.get("sequence"), f"{record_context}.sequence", minimum=1),
+                    "contract_id": _string(item, "contract_id", record_context, nonempty=True),
+                    "bot_id": _string(item, "bot_id", record_context, nonempty=True),
+                    "previous_target_id": _string(item, "previous_target_id", record_context),
+                    "requested_target_id": _string(item, "requested_target_id", record_context, nonempty=True),
+                    "observed_target_id": _string(item, "observed_target_id", record_context),
+                    "outcome": outcome,
+                })
+            result["target_selection_records"] = parsed_records
+        elif target_selection_present:
+            raise QualityError(f"{context}: target-selection counter group requires records")
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
@@ -3743,6 +3796,25 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 "bots": [_validate_bot(item, f"{context}.bots[{index}]", schema)
                          for index, item in enumerate(raw.get("bots", []))],
             }
+            observer_requested = manifest.get("target_selection_observer_enabled") is True
+            if observer_requested:
+                observer = _object(raw.get("target_selection_observer"),
+                                   f"{context}.target_selection_observer")
+                if _boolean(observer.get("requested"),
+                            f"{context}.target_selection_observer.requested") is not True:
+                    raise QualityError(f"{context}: target-selection observer must be requested")
+                observer_status = _string(observer, "status",
+                                          f"{context}.target_selection_observer", nonempty=True)
+                if observer_status not in ("active", "disabled_contract_mismatch",
+                                           "disabled_integrity_failure"):
+                    raise QualityError(f"{context}: target-selection observer status is not recognized")
+                event["target_selection_observer"] = {
+                    "status": observer_status,
+                    "reason": _string(observer, "reason",
+                                      f"{context}.target_selection_observer"),
+                }
+            elif "target_selection_observer" in raw:
+                raise QualityError(f"{context}: target-selection observer telemetry is present while disabled")
             if not isinstance(raw.get("bots"), list):
                 raise QualityError(f"{context}.bots must be an array")
             if raw.get("config_id") != manifest["config_id"]:
@@ -3770,6 +3842,52 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             raise QualityError(f"{path}: simulated time regressed at sequence {index}")
         if not _close(event["simulated_seconds"], event["tick"] * manifest["fixed_delta"]):
             raise QualityError(f"{path}: simulated time does not match tick * fixed_delta at sequence {index}")
+    if manifest.get("target_selection_observer_enabled") is True:
+        observer_values = {(event["target_selection_observer"]["status"],
+                            event["target_selection_observer"]["reason"])
+                           for event in events}
+        if len(observer_values) != 1:
+            raise QualityError(f"{path}: target-selection observer state changed during the run")
+        observer_status, observer_reason = next(iter(observer_values))
+        if observer_status == "active":
+            if observer_reason:
+                raise QualityError(f"{path}: active target-selection observer has a reason")
+            totals: dict[str, dict[str, int]] = {}
+            sequences: dict[str, int] = {}
+            for event in events:
+                for bot in event["bots"]:
+                    if any(name not in bot for name in TARGET_SELECTION_COUNTERS):
+                        raise QualityError(f"{path}: active target-selection observer lacks counters")
+                    for record in bot["target_selection_records"]:
+                        if record["bot_id"] != bot["identity"]:
+                            raise QualityError(f"{path}: target-selection record bot identity differs from owner")
+                        expected = sequences.get(bot["identity"], 0) + 1
+                        if record["sequence"] != expected:
+                            raise QualityError(f"{path}: target-selection record sequence is not contiguous")
+                        sequences[bot["identity"]] = expected
+                        bucket = totals.setdefault(bot["identity"], {
+                            "accepted_target_change": 0, "accepted_same_target": 0,
+                            "rejected_or_unchanged": 0})
+                        bucket[record["outcome"]] += 1
+            for bot in events[-1]["bots"]:
+                counts = totals.get(bot["identity"], {
+                    "accepted_target_change": 0, "accepted_same_target": 0,
+                    "rejected_or_unchanged": 0})
+                outcome_total = sum(counts.values())
+                if outcome_total != (bot["target_selection_accepted_target_changes_exact"]
+                                     + bot["target_selection_accepted_same_target_exact"]
+                                     + bot["target_selection_rejected_or_unchanged_exact"]):
+                    raise QualityError(f"{path}: target-selection records do not reconcile outcomes")
+                if bot["target_selection_outermost_calls_exact"] != (
+                        outcome_total + bot["target_selection_missing_results_exact"]
+                        + bot["target_selection_record_overflows_exact"]):
+                    raise QualityError(f"{path}: target-selection outermost calls do not reconcile")
+                if (bot["target_selection_missing_results_exact"]
+                        or bot["target_selection_record_overflows_exact"]
+                        or bot["target_selection_integrity_failures_exact"]):
+                    raise QualityError(f"{path}: active target-selection observer has incomplete evidence")
+        elif not observer_reason:
+            raise QualityError(f"{path}: disabled target-selection observer has no reason")
     if events[0]["schema"] == TELEMETRY_SCHEMA_V2:
         previous: dict[str, dict[str, Any]] = {}
         counters = CORE_EXACT_COUNTERS + OPTIONAL_CUMULATIVE_METRICS

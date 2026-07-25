@@ -658,7 +658,8 @@ namespace
 			<< record.FallingParityWalkingIteration << '}';
 	}
 
-	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot)
+	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot,
+		bool targetSelectionObserverRequested)
 	{
 		out << "{\"identity\":" << JsonString(bot.Identity)
 			<< ",\"actor\":" << JsonString(bot.Actor)
@@ -693,7 +694,45 @@ namespace
 			<< ",\"kills_exact\":\"" << bot.KillsExact << "\""
 			<< ",\"deaths_exact\":\"" << bot.DeathsExact << "\""
 			<< ",\"suicides_exact\":\"" << bot.SuicidesExact << "\""
-			<< ",\"environmental_deaths_exact\":\"" << bot.EnvironmentalDeathsExact << "\""
+		;
+		if (targetSelectionObserverRequested)
+		{
+			out << ",\"target_selection_outermost_calls_exact\":\""
+			<< bot.TargetSelectionOutermostCallsExact << "\""
+			<< ",\"target_selection_nested_calls_exact\":\""
+			<< bot.TargetSelectionNestedCallsExact << "\""
+			<< ",\"target_selection_accepted_target_changes_exact\":\""
+			<< bot.TargetSelectionAcceptedTargetChangesExact << "\""
+			<< ",\"target_selection_accepted_same_target_exact\":\""
+			<< bot.TargetSelectionAcceptedSameTargetExact << "\""
+			<< ",\"target_selection_rejected_or_unchanged_exact\":\""
+			<< bot.TargetSelectionRejectedOrUnchangedExact << "\""
+			<< ",\"target_selection_missing_results_exact\":\""
+			<< bot.TargetSelectionMissingResultsExact << "\""
+			<< ",\"target_selection_invalid_identifier_exact\":\""
+			<< bot.TargetSelectionInvalidIdentifierExact << "\""
+			<< ",\"target_selection_tracker_capacity_exceeded_exact\":\""
+			<< bot.TargetSelectionTrackerCapacityExceededExact << "\""
+			<< ",\"target_selection_record_overflows_exact\":\""
+			<< bot.TargetSelectionRecordOverflowsExact << "\""
+			<< ",\"target_selection_integrity_failures_exact\":\""
+			<< bot.TargetSelectionIntegrityFailuresExact << "\""
+			<< ",\"target_selection_records\":[";
+		for (size_t index = 0; index < bot.TargetSelectionRecords.size(); index++)
+		{
+			if (index) out << ',';
+			const auto& record = bot.TargetSelectionRecords[index];
+			out << "{\"sequence\":\"" << record.Sequence
+				<< "\",\"contract_id\":" << JsonString(record.ContractId)
+				<< ",\"bot_id\":" << JsonString(record.BotId)
+				<< ",\"previous_target_id\":" << JsonString(record.PreviousTargetId)
+				<< ",\"requested_target_id\":" << JsonString(record.RequestedTargetId)
+				<< ",\"observed_target_id\":" << JsonString(record.ObservedTargetId)
+				<< ",\"outcome\":" << JsonString(record.Outcome) << '}';
+		}
+			out << ']';
+		}
+		out << ",\"environmental_deaths_exact\":\"" << bot.EnvironmentalDeathsExact << "\""
 			<< ",\"hazard_exposed_deaths_proxy\":\"" << bot.HazardExposedDeathsProxy << "\""
 			<< ",\"direct_self_kills\":\"" << bot.DirectSelfKills << "\""
 			<< ",\"direct_enemy_kills\":\"" << bot.DirectEnemyKills << "\""
@@ -1120,7 +1159,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "targetless_move_to_timeout_enabled="
 		<< (config.IsTargetlessMoveToTimeoutEnabled() ? "1" : "0") << '\n'
 		<< "direct_actor_move_toward_timeout_enabled="
-		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "1" : "0") << '\n';
+		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "1" : "0") << '\n'
+		<< "target_selection_observer_enabled="
+		<< (config.IsTargetSelectionObserverEnabled() ? "1" : "0") << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
 		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
@@ -1164,6 +1205,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsTargetlessMoveToTimeoutEnabled() ? "true" : "false") << ",\n"
 		<< "  \"direct_actor_move_toward_timeout_enabled\": "
 		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "true" : "false") << ",\n"
+		<< "  \"target_selection_observer_enabled\": "
+		<< (config.IsTargetSelectionObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";
@@ -1189,13 +1232,19 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 		<< ",\"type\":" << JsonString(event.Type)
 		<< ",\"map\":" << JsonString(event.Map)
 		<< ",\"status\":" << JsonString(event.Status)
-		<< ",\"failure_reason\":" << JsonString(event.FailureReason)
-		<< ",\"bots\":[";
+		<< ",\"failure_reason\":" << JsonString(event.FailureReason);
+	if (event.TargetSelectionObserverRequested)
+	{
+		out << ",\"target_selection_observer\":{\"requested\":true"
+			<< ",\"status\":" << JsonString(event.TargetSelectionObserverStatus)
+			<< ",\"reason\":" << JsonString(event.TargetSelectionObserverReason) << '}';
+	}
+	out << ",\"bots\":[";
 	for (size_t index = 0; index < event.Bots.size(); index++)
 	{
 		if (index != 0)
 			out << ',';
-		WriteBot(out, event.Bots[index]);
+		WriteBot(out, event.Bots[index], event.TargetSelectionObserverRequested);
 	}
 	out << "]}\n";
 	return out.str();

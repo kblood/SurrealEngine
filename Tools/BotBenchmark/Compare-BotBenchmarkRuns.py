@@ -40,7 +40,7 @@ PROTECTED_FIELDS = {
     "schema", "driver", "config_id", "benchmark_config_id", "url", "seed",
     "max_ticks", "fixed_delta", "difficulty", "bot_count", "telemetry_event_cap",
     "harmful_zone_escape_enabled", "targetless_move_to_timeout_enabled",
-    "direct_actor_move_toward_timeout_enabled",
+    "direct_actor_move_toward_timeout_enabled", "target_selection_observer_enabled",
     "requested_roster", "actual_roster", "config", "index", "roster_index",
     "identity", "actor", "player_name", "class", "seq", "tick",
     "simulated_seconds", "type", "map", "status", "failure_reason", "exit_code",
@@ -49,7 +49,9 @@ PROTECTED_FIELDS = {
 INTEGER_STRING = re.compile(r"-?(?:0|[1-9][0-9]*)\Z")
 COUNTER_FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*_exact\Z")
 DIAGNOSTIC_FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*_diagnostics\Z")
-KNOWN_RECORD_DIAGNOSTIC_FIELDS = {"falling_parity_realized_records"}
+KNOWN_RECORD_DIAGNOSTIC_FIELDS = {
+    "falling_parity_realized_records", "target_selection_records",
+}
 
 
 class ComparisonError(Exception):
@@ -238,6 +240,11 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
                 raise ComparisonError(
                     f"{run}/manifest.json.direct_actor_move_toward_timeout_enabled: expected a boolean")
             config_fields += ("direct_actor_move_toward_timeout_enabled",)
+        if "target_selection_observer_enabled" in manifest:
+            if not isinstance(manifest["target_selection_observer_enabled"], bool):
+                raise ComparisonError(
+                    f"{run}/manifest.json.target_selection_observer_enabled: expected a boolean")
+            config_fields += ("target_selection_observer_enabled",)
 
     if summary.get("status") != "complete" or _strict_int(
             summary.get("exit_code"), f"{run}/summary.json.exit_code") != 0:
@@ -271,6 +278,10 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
             summary_config.get("direct_actor_move_toward_timeout_enabled"), bool):
         raise ComparisonError(
             f"{run}/summary.json.config.direct_actor_move_toward_timeout_enabled: expected a boolean")
+    if "target_selection_observer_enabled" in config_fields and not isinstance(
+            summary_config.get("target_selection_observer_enabled"), bool):
+        raise ComparisonError(
+            f"{run}/summary.json.config.target_selection_observer_enabled: expected a boolean")
     for field in config_fields:
         if summary_config.get(field) != manifest.get(field):
             raise ComparisonError(f"{run}: summary.config.{field} differs from manifest.{field}")

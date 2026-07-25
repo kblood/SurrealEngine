@@ -46,6 +46,17 @@ struct BotBenchmarkHazardDeathPartitionRecord
 	int FallingParityWalkingIteration = 0;
 };
 
+struct BotBenchmarkTargetSelectionRecord
+{
+	uint64_t Sequence = 0;
+	std::string ContractId;
+	std::string BotId;
+	std::string PreviousTargetId;
+	std::string RequestedTargetId;
+	std::string ObservedTargetId;
+	std::string Outcome;
+};
+
 struct BotBenchmarkBotState
 {
 	std::string Identity;
@@ -78,6 +89,17 @@ struct BotBenchmarkBotState
 	uint64_t KillsExact = 0;
 	uint64_t DeathsExact = 0;
 	uint64_t SuicidesExact = 0;
+	uint64_t TargetSelectionOutermostCallsExact = 0;
+	uint64_t TargetSelectionNestedCallsExact = 0;
+	uint64_t TargetSelectionAcceptedTargetChangesExact = 0;
+	uint64_t TargetSelectionAcceptedSameTargetExact = 0;
+	uint64_t TargetSelectionRejectedOrUnchangedExact = 0;
+	uint64_t TargetSelectionMissingResultsExact = 0;
+	uint64_t TargetSelectionInvalidIdentifierExact = 0;
+	uint64_t TargetSelectionTrackerCapacityExceededExact = 0;
+	uint64_t TargetSelectionRecordOverflowsExact = 0;
+	uint64_t TargetSelectionIntegrityFailuresExact = 0;
+	std::vector<BotBenchmarkTargetSelectionRecord> TargetSelectionRecords;
 	uint64_t EnvironmentalDeathsExact = 0;
 	uint64_t HazardExposedDeathsProxy = 0;
 	uint64_t DamageTakenExact = 0;
@@ -305,6 +327,9 @@ struct BotBenchmarkTelemetryEvent
 	std::string Map;
 	std::string Status;
 	std::string FailureReason;
+	bool TargetSelectionObserverRequested = false;
+	std::string TargetSelectionObserverStatus;
+	std::string TargetSelectionObserverReason;
 	std::vector<BotBenchmarkBotState> Bots;
 };
 

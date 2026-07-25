@@ -7,6 +7,8 @@
 #include "BotBenchmarkDeathAttributionCoordinator.h"
 #include "BotBenchmarkDeathAttributionHookContract.h"
 #include "BotBenchmarkHazardDeathPartition.h"
+#include "BotTargetSelectionHookContract.h"
+#include "BotTargetSelectionProbeTracker.h"
 #include "BotBenchmarkProtocol.h"
 #include "BotBenchmarkQualityObservation.h"
 #include "MapCatalogDriver.h"
@@ -89,6 +91,8 @@ namespace
 		{
 			if (QualityHookHandle != 0)
 				Frame::CallHooks().Unregister(QualityHookHandle);
+			if (TargetSelectionHookHandle != 0)
+				Frame::CallHooks().Unregister(TargetSelectionHookHandle);
 		}
 
 		HeadlessDriverConfig GetConfig() const override
@@ -333,6 +337,21 @@ namespace
 			std::vector<BotBenchmarkHazardDeathPartitionRecord>
 				PendingHazardDeathPartitionRecords;
 			uint64_t NextHazardDeathPartitionSequence = 1;
+			BotTargetSelectionProbe::Tracker TargetSelectionTracker;
+			size_t CapturedTargetSelectionRecords = 0;
+			std::vector<BotBenchmarkTargetSelectionRecord> PendingTargetSelectionRecords;
+			uint64_t TargetSelectionInvalidIdentifierExact = 0;
+			uint64_t TargetSelectionTrackerCapacityExceededExact = 0;
+			uint64_t TargetSelectionIntegrityFailuresExact = 0;
+			uint64_t NextTargetSelectionSequence = 1;
+		};
+
+		struct ActiveTargetSelectionCall
+		{
+			UFunction* Function = nullptr;
+			UObject* Instance = nullptr;
+			std::string BotIdentity;
+			BotTargetSelectionProbe::ScopeToken Token;
 		};
 
 		enum class AttributionScopeKind
@@ -533,6 +552,63 @@ namespace
 					signature.Parameters.push_back(std::move(parameter));
 			}
 			return signature;
+		}
+
+		static BotTargetSelectionHookContract::ValueKind TargetSelectionPropertyKind(UProperty* property)
+		{
+			using BotTargetSelectionHookContract::ValueKind;
+			if (!property)
+				return ValueKind::Unknown;
+			switch (property->ValueType)
+			{
+			case ExpressionValueType::ValueObject: return ValueKind::Object;
+			case ExpressionValueType::ValueBool: return ValueKind::Boolean;
+			default: return ValueKind::Unknown;
+			}
+		}
+
+		static BotTargetSelectionHookContract::SignatureShape TargetSelectionSignatureShape(
+			UFunction* function)
+		{
+			using namespace BotTargetSelectionHookContract;
+			BotTargetSelectionHookContract::SignatureShape signature;
+			if (!function)
+				return signature;
+			signature.FunctionName = function->Name.ToString();
+			for (UField* field = function->Children; field; field = field->Next)
+			{
+				UProperty* property = UObject::TryCast<UProperty>(field);
+				if (!property || !AllFlags(property->PropFlags, PropertyFlags::Parm))
+					continue;
+				ParameterShape parameter;
+				parameter.Name = property->Name.ToString();
+				parameter.Kind = TargetSelectionPropertyKind(property);
+				if (auto objectProperty = UObject::TryCast<UObjectProperty>(property);
+					objectProperty && objectProperty->ObjectClass)
+				{
+					parameter.ObjectClass = objectProperty->ObjectClass->Name.ToString();
+				}
+				if (AllFlags(property->PropFlags, PropertyFlags::ReturnParm))
+					signature.ReturnValue = std::move(parameter);
+				else
+					signature.Parameters.push_back(std::move(parameter));
+			}
+			return signature;
+		}
+
+		static std::string TargetSelectionOutcomeName(
+			BotTargetSelectionProbe::AcquisitionOutcome outcome)
+		{
+			switch (outcome)
+			{
+			case BotTargetSelectionProbe::AcquisitionOutcome::AcceptedTargetChange:
+				return "accepted_target_change";
+			case BotTargetSelectionProbe::AcquisitionOutcome::AcceptedSameTarget:
+				return "accepted_same_target";
+			case BotTargetSelectionProbe::AcquisitionOutcome::RejectedOrUnchanged:
+				return "rejected_or_unchanged";
+			}
+			return "unknown";
 		}
 
 		bool ValidateAttributionFunction(UFunction* function,
@@ -1595,6 +1671,180 @@ namespace
 			QualityHookHandle = Frame::CallHooks().Register(std::move(hook));
 		}
 
+		void DisableTargetSelectionObserver(std::string status, std::string reason)
+		{
+			TargetSelectionObserverStatus = std::move(status);
+			TargetSelectionObserverReason = std::move(reason);
+			if (TargetSelectionHookHandle != 0)
+			{
+				Frame::CallHooks().Unregister(TargetSelectionHookHandle);
+				TargetSelectionHookHandle = 0;
+			}
+		}
+
+		void FinishTargetSelectionCall(UFunction* function, UObject* instance,
+			BotTargetSelectionProbe::ScopeToken token)
+		{
+			if (ActiveTargetSelectionCalls.empty() || !token)
+				return;
+			const ActiveTargetSelectionCall call = ActiveTargetSelectionCalls.back();
+			if (call.Function != function || call.Instance != instance || call.Token.Value != token.Value)
+			{
+				auto runtime = QualityParticipants.find(call.BotIdentity);
+				if (runtime != QualityParticipants.end())
+					runtime->second.TargetSelectionIntegrityFailuresExact++;
+				DisableTargetSelectionObserver("disabled_integrity_failure",
+					"target-selection call lifecycle was not stack ordered");
+				return;
+			}
+			ActiveTargetSelectionCalls.pop_back();
+			auto runtime = QualityParticipants.find(call.BotIdentity);
+			if (runtime == QualityParticipants.end())
+				return;
+			const auto status = runtime->second.TargetSelectionTracker.Exit(token);
+			if (status != BotTargetSelectionProbe::TrackerStatus::Accepted &&
+				status != BotTargetSelectionProbe::TrackerStatus::MissingResult)
+			{
+				runtime->second.TargetSelectionIntegrityFailuresExact++;
+				DisableTargetSelectionObserver("disabled_integrity_failure",
+					"target-selection tracker cleanup failed");
+			}
+		}
+
+		void ObserveTargetSelectionResult(UFunction* function, UObject* instance,
+			const ExpressionValue& result)
+		{
+			if (ActiveTargetSelectionCalls.empty())
+				return;
+			const ActiveTargetSelectionCall& call = ActiveTargetSelectionCalls.back();
+			if (call.Function != function || call.Instance != instance)
+				return;
+			auto runtime = QualityParticipants.find(call.BotIdentity);
+			if (runtime == QualityParticipants.end())
+				return;
+			UPawn* pawn = UObject::TryCast<UPawn>(instance);
+			if (!pawn || result.GetType() != ExpressionValueType::ValueBool)
+			{
+				runtime->second.TargetSelectionIntegrityFailuresExact++;
+				DisableTargetSelectionObserver("disabled_integrity_failure",
+					"target-selection result did not match the validated contract");
+				return;
+			}
+			const auto status = runtime->second.TargetSelectionTracker.ObserveResult(
+				call.Token, result.ToBool(), PawnIdentity(pawn->Enemy()));
+			if (status != BotTargetSelectionProbe::TrackerStatus::Accepted)
+			{
+				runtime->second.TargetSelectionIntegrityFailuresExact++;
+				DisableTargetSelectionObserver("disabled_integrity_failure",
+					"target-selection tracker result failed");
+			}
+		}
+
+		void RegisterTargetSelectionObserver()
+		{
+			if (!Config.IsTargetSelectionObserverEnabled())
+				return;
+			TargetSelectionObserverStatus = "disabled_contract_mismatch";
+			TargetSelectionObserverReason.clear();
+			std::map<UFunction*, std::string> discovered;
+			for (const auto& [identity, pawn] : CaptureLiveControlledBots())
+			{
+				for (UClass* cls = pawn->Class; cls;
+					cls = UObject::TryCast<UClass>(cls->BaseStruct))
+				{
+					auto inspect = [&](UState* owner)
+					{
+						for (const auto& [name, function] : owner->Functions)
+						{
+							if (!function || function->Name != "SetEnemy")
+								continue;
+							const std::string contractId = "setenemy-v1:" +
+								owner->Name.ToString();
+							auto [it, inserted] = discovered.emplace(function, contractId);
+							if (!inserted && it->second != contractId)
+							{
+								TargetSelectionObserverReason =
+									"SetEnemy has inconsistent declaring identities";
+							}
+						}
+					};
+					inspect(cls);
+					for (const auto& [name, state] : cls->States)
+						if (state) inspect(state);
+				}
+			}
+			if (!TargetSelectionObserverReason.empty() || discovered.empty())
+			{
+				if (TargetSelectionObserverReason.empty())
+					TargetSelectionObserverReason = "no SetEnemy implementation was discovered";
+				return;
+			}
+			for (const auto& [function, contractId] : discovered)
+			{
+				const std::string error = BotTargetSelectionHookContract::ValidateSetEnemySignature(
+					TargetSelectionSignatureShape(function));
+				if (!error.empty())
+				{
+					TargetSelectionObserverReason = "SetEnemy contract mismatch: " + error;
+					return;
+				}
+			}
+			ValidatedTargetSelectionFunctions = std::move(discovered);
+			TargetSelectionObserverStatus = "active";
+			VMCallHook hook;
+			hook.Enter = [this](UFunction* function, UObject* instance,
+				VMCallArguments& arguments) -> VMCallHookCleanup
+			{
+				auto known = ValidatedTargetSelectionFunctions.find(function);
+				UPawn* pawn = UObject::TryCast<UPawn>(instance);
+				const std::string botId = PawnIdentity(pawn);
+				auto runtime = QualityParticipants.find(botId);
+				if (known == ValidatedTargetSelectionFunctions.end() || !pawn ||
+					runtime == QualityParticipants.end())
+					return {};
+				if (arguments.Size() != 1)
+				{
+					runtime->second.TargetSelectionIntegrityFailuresExact++;
+					DisableTargetSelectionObserver("disabled_integrity_failure",
+						"target-selection call arguments did not match the validated contract");
+					return {};
+				}
+				UPawn* requested = UObject::TryCast<UPawn>(arguments.Values()[0].ToObject());
+				const std::string requestedId = PawnIdentity(requested);
+				if (!requested || requested->bDeleteMe() || requestedId.empty())
+				{
+					runtime->second.TargetSelectionInvalidIdentifierExact++;
+					return {};
+				}
+				auto entered = runtime->second.TargetSelectionTracker.Enter({ true, known->second,
+					botId, PawnIdentity(pawn->Enemy()), requestedId });
+				if (entered.Status == BotTargetSelectionProbe::TrackerStatus::CapacityExceeded ||
+					entered.Status == BotTargetSelectionProbe::TrackerStatus::RecordCapacityExceeded)
+				{
+					runtime->second.TargetSelectionTrackerCapacityExceededExact++;
+					return {};
+				}
+				if (entered.Status != BotTargetSelectionProbe::TrackerStatus::Accepted)
+				{
+					runtime->second.TargetSelectionIntegrityFailuresExact++;
+					DisableTargetSelectionObserver("disabled_integrity_failure",
+						"target-selection tracker rejected a validated call");
+					return {};
+				}
+				ActiveTargetSelectionCalls.push_back({ function, instance, botId, entered.Token });
+				return [this, function, instance, token = entered.Token]()
+				{
+					FinishTargetSelectionCall(function, instance, token);
+				};
+			};
+			hook.ObserveResult = [this](UFunction* function, UObject* instance,
+				const Array<ExpressionValue>&, const ExpressionValue& result)
+			{
+				ObserveTargetSelectionResult(function, instance, result);
+			};
+			TargetSelectionHookHandle = Frame::CallHooks().Register(std::move(hook));
+		}
+
 		std::vector<std::pair<std::string, UPawn*>> CaptureLiveControlledBots() const
 		{
 			std::vector<std::pair<std::string, UPawn*>> bots;
@@ -1988,6 +2238,30 @@ namespace
 				bot.KillsExact = runtime.KillsExact;
 				bot.DeathsExact = runtime.DeathsExact;
 				bot.SuicidesExact = runtime.SuicidesExact;
+				const auto& targetSelection = runtime.TargetSelectionTracker.Counters();
+				bot.TargetSelectionOutermostCallsExact = targetSelection.OutermostCalls;
+				bot.TargetSelectionNestedCallsExact = targetSelection.NestedCalls;
+				bot.TargetSelectionAcceptedTargetChangesExact = targetSelection.AcceptedTargetChanges;
+				bot.TargetSelectionAcceptedSameTargetExact = targetSelection.AcceptedSameTargets;
+				bot.TargetSelectionRejectedOrUnchangedExact = targetSelection.RejectedOrUnchanged;
+				bot.TargetSelectionMissingResultsExact = targetSelection.MissingResults;
+				bot.TargetSelectionInvalidIdentifierExact =
+					runtime.TargetSelectionInvalidIdentifierExact;
+				bot.TargetSelectionTrackerCapacityExceededExact =
+					runtime.TargetSelectionTrackerCapacityExceededExact;
+				bot.TargetSelectionRecordOverflowsExact = targetSelection.RecordCapacityExceeded;
+				bot.TargetSelectionIntegrityFailuresExact =
+					runtime.TargetSelectionIntegrityFailuresExact;
+				const auto& targetSelectionRecords = runtime.TargetSelectionTracker.Records();
+				while (runtime.CapturedTargetSelectionRecords < targetSelectionRecords.size())
+				{
+					const auto& record = targetSelectionRecords[runtime.CapturedTargetSelectionRecords++];
+					runtime.PendingTargetSelectionRecords.push_back({
+						runtime.NextTargetSelectionSequence++, record.ContractId, record.BotId,
+						record.PreviousTargetId, record.RequestedTargetId, record.ObservedTargetId,
+						TargetSelectionOutcomeName(record.Outcome) });
+				}
+				bot.TargetSelectionRecords = runtime.PendingTargetSelectionRecords;
 				bot.EnvironmentalDeathsExact = runtime.EnvironmentalDeathsExact;
 				bot.HazardExposedDeathsProxy = runtime.HazardExposedDeathsProxy;
 				bot.DamageTakenExact = runtime.DamageTakenExact;
@@ -2363,6 +2637,8 @@ namespace
 				bot.MoveStallRecoveryDecisions = std::move(
 					runtime.PendingMoveStallRecoveryDecisionRecords);
 				runtime.PendingMoveStallRecoveryDecisionRecords.clear();
+				bot.TargetSelectionRecords = std::move(runtime.PendingTargetSelectionRecords);
+				runtime.PendingTargetSelectionRecords.clear();
 				bot.HazardDeathPartitionRecords = std::move(
 					runtime.PendingHazardDeathPartitionRecords);
 				runtime.PendingHazardDeathPartitionRecords.clear();
@@ -2390,6 +2666,9 @@ namespace
 			event.Map = EngineRef.LevelInfo ? EngineRef.LevelInfo->URL.Map : std::string();
 			event.Status = status;
 			event.FailureReason = failureReason;
+			event.TargetSelectionObserverRequested = Config.IsTargetSelectionObserverEnabled();
+			event.TargetSelectionObserverStatus = TargetSelectionObserverStatus;
+			event.TargetSelectionObserverReason = TargetSelectionObserverReason;
 			event.Bots = CaptureBotStates();
 			const std::string line = BotBenchmarkTelemetryProtocol::EventJson(TelemetryConfigIdentity, std::move(event));
 			TelemetryFile->write(line.data(), line.size());
@@ -2417,6 +2696,7 @@ namespace
 				QualityParticipants.emplace(participant.Identity, std::move(runtime));
 			});
 			InitializeNavigationCoverage();
+			RegisterTargetSelectionObserver();
 			RegisterQualityHooks();
 		}
 
@@ -2457,6 +2737,11 @@ namespace
 		UFunction* CanonicalTakeDamageFunction = nullptr;
 		UFunction* CanonicalAddVelocityFunction = nullptr;
 		VMCallHookHandle QualityHookHandle = 0;
+		VMCallHookHandle TargetSelectionHookHandle = 0;
+		std::map<UFunction*, std::string> ValidatedTargetSelectionFunctions;
+		std::vector<ActiveTargetSelectionCall> ActiveTargetSelectionCalls;
+		std::string TargetSelectionObserverStatus;
+		std::string TargetSelectionObserverReason;
 		std::map<std::string, uint32_t> KilledHookDepths;
 		std::map<UInventory*, uint32_t> PickupTouchDepths;
 		std::unique_ptr<BotBenchmarkQualityObservation::NavigationCoverageAccumulator>
@@ -2493,7 +2778,8 @@ namespace
 			OptionalCommandLineArg("--botbench-falling-hazard-recovery"),
 			OptionalCommandLineArg("--botbench-falling-hazard-recovery-live"),
 			OptionalCommandLineArg("--botbench-targetless-move-to-timeout"),
-			OptionalCommandLineArg("--botbench-direct-actor-move-toward-timeout"));
+			OptionalCommandLineArg("--botbench-direct-actor-move-toward-timeout"),
+			OptionalCommandLineArg("--botbench-target-selection-observer"));
 	}
 }
 
