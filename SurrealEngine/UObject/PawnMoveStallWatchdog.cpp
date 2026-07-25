@@ -68,7 +68,8 @@ namespace PawnMovement
 		if (!context.Detected)
 			return MoveStallRecoveryDecision::None;
 		if (context.LatentMode == MoveStallLatentMode::MoveToward
-			&& context.LiveNavigationMoveToward)
+			&& context.LiveNavigationMoveToward
+			&& context.NavigationReplanEnabled)
 			return MoveStallRecoveryDecision::NavigationReplan;
 		if (context.LatentMode == MoveStallLatentMode::MoveToward
 			&& context.LiveDirectActorMoveToward

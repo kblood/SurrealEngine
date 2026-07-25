@@ -4225,7 +4225,8 @@ bool UPawn::PointReachable(vec3 aPoint)
 
 bool UPawn::PickWallAdjust()
 {
-	if (IsAutonomousPlayerBot(this))
+	if (IsAutonomousPlayerBot(this)
+		&& engine->IsBotBenchmarkFailedNavigationAvoidanceEnabled())
 	{
 		WallAdjustCallCountValue++;
 		if (WallAdjustRecovery.ReplanPending)
@@ -4307,7 +4308,7 @@ bool UPawn::PickWallAdjust()
 			return false;
 		}
 	}
-	else
+	else if (!IsAutonomousPlayerBot(this))
 	{
 		WallAdjustRecovery = {};
 	}
@@ -6469,7 +6470,13 @@ bool UPawn::TickMoveTo(const vec3& target, float elapsed, UActor* targetActor)
 			return true;
 		}
 
-		if (!ApplyPainLedgeRecovery(delta) && !ApplyWallAdjustRecovery(delta))
+		const bool painLedgeRecoveryApplied =
+			engine->IsBotBenchmarkHarmfulZoneEscapeEnabled()
+			&& ApplyPainLedgeRecovery(delta);
+		const bool wallAdjustRecoveryApplied =
+			engine->IsBotBenchmarkFailedNavigationAvoidanceEnabled()
+			&& ApplyWallAdjustRecovery(delta);
+		if (!painLedgeRecoveryApplied && !wallAdjustRecoveryApplied)
 			Acceleration() = vec3(normalize(delta) * AccelRate(), 0.0f);
 	}
 	else
@@ -6568,6 +6575,8 @@ void UPawn::ObserveMoveStallWatchdog(float elapsed)
 				.LatentMode = latentMode,
 				.LiveNavigationMoveToward = liveNavigationTarget,
 				.LiveDirectActorMoveToward = liveDirectActorMoveToward,
+				.NavigationReplanEnabled =
+					engine->IsBotBenchmarkFailedNavigationAvoidanceEnabled(),
 				.TargetlessMoveToTimeoutEnabled =
 					engine->IsBotBenchmarkTargetlessMoveToTimeoutEnabled(),
 				.DirectActorMoveTowardTimeoutEnabled =

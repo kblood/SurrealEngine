@@ -30,6 +30,7 @@ namespace PawnMovement
 		MoveStallLatentMode LatentMode = MoveStallLatentMode::Other;
 		bool LiveNavigationMoveToward = false;
 		bool LiveDirectActorMoveToward = false;
+		bool NavigationReplanEnabled = false;
 		bool TargetlessMoveToTimeoutEnabled = false;
 		bool DirectActorMoveTowardTimeoutEnabled = false;
 		bool Targetless = false;

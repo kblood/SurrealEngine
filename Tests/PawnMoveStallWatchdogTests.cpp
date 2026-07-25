@@ -72,6 +72,10 @@ int main()
 	navigationMove.LiveNavigationMoveToward = true;
 	navigationMove.Targetless = false;
 	Check(SelectMoveStallRecovery(navigationMove)
+		== MoveStallRecoveryDecision::None,
+		"a detected navigation MoveToward remains inert until replan recovery is enabled");
+	navigationMove.NavigationReplanEnabled = true;
+	Check(SelectMoveStallRecovery(navigationMove)
 		== MoveStallRecoveryDecision::NavigationReplan,
 		"a detected MoveToward with a live navigation target requests a navigation replan");
 	Check(SelectMoveStallRecovery(navigationMove)

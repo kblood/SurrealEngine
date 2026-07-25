@@ -2784,3 +2784,48 @@ a reachspec veto or cache-clear policy. The next permitted direct-reach work
 is an observer-only pickup/actor provenance witness that ties a successful
 native reachability result to the subsequently active direct command; it must
 remain behavior-neutral and fail closed on any missing life or command link.
+
+## Iteration 111: independent source audit and stock-baseline restoration
+
+An independent read-only source audit confirms that the native path-commit
+observer is captured after `SetRouteCache`, before `SpecialHandling`, and its
+offline catalog binding is a valid integrity check. It also confirms the
+negative causal conclusion: the observed Deck16-II route cache is historical
+when direct `BulletBox4` movement begins, and DeathFan has no short-latency
+route-commit pattern. A reachspec veto, cache clear, route pin, or
+`ActorReachable` return-value change remains rejected.
+
+The audit found a separate merge blocker: several earlier BOT AI recovery
+paths write pawn state for ordinary autonomous player bots without a declared,
+default-off benchmark experiment flag. This means the current branch is not
+yet an observation-only stock baseline, irrespective of the soundness of the
+new provenance observer. The first corrective slice is therefore to either
+remove those writes or place each behind an explicit default-off flag that is
+part of run identity, manifests, matrix provenance, and comparison rejection.
+The affected paths are the `PickWallAdjust` prepend, move-stall navigation
+replan, pain-ledge recovery, and wall-adjust recovery. Mutating helpers must
+not retain an `Observe*` name.
+
+Before expanding direct-reach provenance, also give native path-commit capture
+its own default-off switch instead of inheriting the general walking-preflight
+benchmark mode. Re-qualify it with observer-on/off byte-equivalence on both
+anchors, ignoring only its declared telemetry envelope. Extend the path-commit
+analyzer tests to exercise death context, hazard rising edge, respawn sequence,
+overflow, cache clear, and a base-rate/null comparison. Only after the stock
+baseline is restored may the next permitted observer tie a successful native
+reachability result to a same-life, same-target active direct command. Missing
+life or command linkage is a fail-closed unavailable result, never inference.
+
+The immediate baseline restoration is complete. `PickWallAdjust`, wall-adjust
+steering, and the move-stall navigation replan now require the existing
+default-off `failed_navigation_avoidance_enabled` experiment; pain-ledge
+steering requires the existing default-off `harmful_zone_escape_enabled`
+experiment. The move-stall selector has an explicit navigation-replan enable
+input and a focused unit assertion that a detected navigation move remains
+inert until it is enabled. Fresh 120-tick UT436 Deck16-II (skill 7) and Unreal
+Gold DeathFan (skill 3) smokes completed and passed structural analysis with
+all of those flags false at
+`qa/runs/2026-07-25/stock-baseline-restoration-v1/` and
+`qa/reports/bot-ai/stock-baseline-restoration-v1-smoke.json`. This verifies
+launch and telemetry structure only; full observer-on/off qualification remains
+required before the branch can be called merge-ready.
