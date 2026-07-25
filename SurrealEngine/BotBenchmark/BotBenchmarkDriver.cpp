@@ -517,6 +517,8 @@ namespace
 				counters.HazardSwimEgressLiveSuccessfulExits = pawn->HazardSwimEgressLiveSuccessfulExitCount();
 				counters.HazardSwimEgressDirectNavProbes = pawn->HazardSwimEgressDirectNavProbeCount();
 				counters.HazardSwimEgressDirectNavSafeCandidates = pawn->HazardSwimEgressDirectNavSafeCandidateCount();
+				counters.HazardSwimEgressDirectNavBestCandidateName =
+					pawn->HazardSwimEgressDirectNavBestCandidateName();
 			counters.HazardSwimEgressAnchorKnown = pawn->HasHazardSwimEgressAnchor();
 			counters.HazardSwimEgressAnchorSource = pawn->HazardSwimEgressAnchorSourceName();
 			counters.FallingSeamDetections = pawn->FallingSeamDetectionCount();
@@ -1256,6 +1258,7 @@ namespace
 				bot.HazardSwimEgressLiveSuccessfulExitsExact = native.HazardSwimEgressLiveSuccessfulExits;
 				bot.HazardSwimEgressDirectNavProbesExact = native.HazardSwimEgressDirectNavProbes;
 				bot.HazardSwimEgressDirectNavSafeCandidatesExact = native.HazardSwimEgressDirectNavSafeCandidates;
+				bot.HazardSwimEgressDirectNavBestCandidateName = native.HazardSwimEgressDirectNavBestCandidateName;
 				bot.HazardSwimEgressAnchorKnown = native.HazardSwimEgressAnchorKnown;
 				bot.HazardSwimEgressAnchorSource = native.HazardSwimEgressAnchorSource;
 				bot.FallingSeamDetectionsExact = native.FallingSeamDetections;

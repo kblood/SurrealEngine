@@ -2078,6 +2078,10 @@ public:
 	uint64_t HazardSwimEgressLiveSuccessfulExitCount() const { return HazardSwimEgressLiveSuccessfulExitCountValue; }
 	uint64_t HazardSwimEgressDirectNavProbeCount() const { return HazardSwimEgressDirectNavProbeCountValue; }
 	uint64_t HazardSwimEgressDirectNavSafeCandidateCount() const { return HazardSwimEgressDirectNavSafeCandidateCountValue; }
+	const std::string& HazardSwimEgressDirectNavBestCandidateName() const
+	{
+		return HazardSwimEgress.DirectNavBestCandidateName;
+	}
 	bool HasHazardSwimEgressAnchor() const { return HazardSwimEgress.AnchorKnown; }
 	const char* HazardSwimEgressAnchorSourceName() const;
 	uint64_t FallingSeamDetectionCount() const { return FallingSeamDetectionCountValue; }
@@ -2371,6 +2375,8 @@ private:
 		bool LiveActionAuthorized = false;
 		bool LiveProbeRejected = false;
 		bool ActionActive = false;
+		std::string DirectNavBestCandidateName;
+		float DirectNavBestCandidateDistance = std::numeric_limits<float>::infinity();
 	};
 	HazardSwimEgressState HazardSwimEgress;
 	BotAI::HazardSwimEgressGate HazardSwimEgressGate;

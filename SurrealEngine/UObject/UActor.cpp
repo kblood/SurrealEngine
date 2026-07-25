@@ -5405,7 +5405,15 @@ void UPawn::ObserveHazardSwimEgressDirectNavigationCandidates()
 		}
 		HazardSwimEgressDirectNavProbeCountValue++;
 		if (TryMove(delta, true).Fraction == 1.0f)
+		{
 			HazardSwimEgressDirectNavSafeCandidateCountValue++;
+			const float distance = length(delta);
+			if (distance < HazardSwimEgress.DirectNavBestCandidateDistance)
+			{
+				HazardSwimEgress.DirectNavBestCandidateDistance = distance;
+				HazardSwimEgress.DirectNavBestCandidateName = candidate->Name.ToString();
+			}
+		}
 	}
 }
 

@@ -54,6 +54,7 @@ namespace BotBenchmarkDriverDetail
 		uint64_t HazardSwimEgressLiveSuccessfulExits = 0;
 		uint64_t HazardSwimEgressDirectNavProbes = 0;
 		uint64_t HazardSwimEgressDirectNavSafeCandidates = 0;
+		std::string HazardSwimEgressDirectNavBestCandidateName;
 		bool HazardSwimEgressAnchorKnown = false;
 		std::string HazardSwimEgressAnchorSource;
 		uint64_t FallingSeamDetections = 0;
@@ -234,6 +235,8 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.HazardSwimEgressDirectNavSafeCandidates,
 				Previous.HazardSwimEgressDirectNavSafeCandidates,
 				totals.HazardSwimEgressDirectNavSafeCandidates);
+			totals.HazardSwimEgressDirectNavBestCandidateName =
+				current.HazardSwimEgressDirectNavBestCandidateName;
 			totals.HazardSwimEgressAnchorKnown = current.HazardSwimEgressAnchorKnown;
 			totals.HazardSwimEgressAnchorSource = current.HazardSwimEgressAnchorSource;
 			AccumulateCounter(current.FallingSeamDetections, Previous.FallingSeamDetections,
