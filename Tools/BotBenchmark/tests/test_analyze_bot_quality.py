@@ -448,6 +448,71 @@ class BotQualityAnalysisTests(unittest.TestCase):
                     QUALITY.QualityError, "terminal outcomes exceed episodes"):
                 QUALITY.analyze_run(invalid_terminal)
 
+    def test_hazard_water_egress_diagnostics_are_structural_and_bounded(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            **{name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_EXACT_COUNTERS},
+            QUALITY.HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER: 0,
+            "hazard_water_egress_diagnostics": [],
+        }
+        diagnostic = {
+            "source_pawn_actor": "Bot1", "sequence": "1", "life_id": "1",
+            "episode_id": "1", "transition_source": "falling_direct_sweep",
+            "anchor_known": True, "anchor": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "entry_location": {"x": 1.0, "y": 2.0, "z": 3.0},
+            "damage_per_second": 40.0, "entry_move_target_name": "",
+            "entry_move_target_location_known": False,
+            "entry_move_target_location": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "entry_destination": {"x": 4.0, "y": 5.0, "z": 6.0},
+            "candidate_known": True, "candidate_name": "PathNode144",
+            "candidate_location": {"x": 7.0, "y": 8.0, "z": 9.0},
+            "candidate_entry_distance": 620.0, "candidate_distance_known": True,
+            "minimum_candidate_distance": 488.0,
+            "terminal_candidate_distance": 488.0,
+            "candidate_progress_samples": "52", "candidate_regression_samples": "43",
+            "target_distance_known": False, "entry_target_distance": 0.0,
+            "minimum_target_distance": 0.0, "terminal_target_distance": 0.0,
+            "target_progress_samples": "0", "target_regression_samples": "0",
+            "terminal": "death_before_exit",
+            "terminal_location": {"x": 10.0, "y": 11.0, "z": 12.0},
+            "terminal_move_target_name": "LiftExit6",
+            "terminal_destination": {"x": 13.0, "y": 14.0, "z": 15.0},
+        }
+        final = {
+            **common, "hazard_swim_egress_episodes_exact": 1,
+            "hazard_swim_egress_eligible_exact": 1,
+            "hazard_swim_egress_authorized_exact": 1,
+            "hazard_water_egress_diagnostics": [diagnostic],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "hazard-water-egress", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                common, final, {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            QUALITY.analyze_run(valid)
+
+            malformed = write_v2_run(root, "hazard-water-egress-malformed", bot_count=1)
+            invalid = {**diagnostic, "candidate_distance_known": False}
+            upgrade_telemetry_v2(malformed, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "candidate distance availability"):
+                QUALITY.analyze_run(malformed)
+
+            excessive = write_v2_run(root, "hazard-water-egress-excessive", bot_count=1)
+            duplicate = {**diagnostic, "sequence": "2"}
+            upgrade_telemetry_v2(excessive, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [diagnostic, duplicate]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "duplicate hazard-water egress"):
+                QUALITY.analyze_run(excessive)
+
     def test_falling_pre_move_anchor_counters_are_complete_and_bounded(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,

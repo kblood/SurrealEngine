@@ -22,7 +22,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 20
+TOOL_VERSION = 21
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -174,6 +174,8 @@ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS = (
     "hazard_swim_egress_direct_nav_probes_exact",
     "hazard_swim_egress_direct_nav_safe_candidates_exact",
 )
+HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER = \
+    "hazard_water_egress_diagnostic_overflows_exact"
 FALLING_HAZARD_RECOVERY_COUNTERS = (
     "falling_hazard_recovery_promotions_exact",
     "falling_hazard_recovery_advance_calls_exact",
@@ -350,6 +352,7 @@ METRIC_DIRECTIONS.update({
 		+ VERTICAL_PAIN_COLUMN_COUNTERS + HAZARD_SWIM_EGRESS_EXACT_COUNTERS
 		+ FALLING_PRE_MOVE_ANCHOR_COUNTERS + HAZARD_SWIM_EGRESS_LIVE_COUNTERS
 		+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
+		+ (HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER,)
         + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS + FALLING_HAZARD_RECOVERY_COUNTERS
         + CONFIRMED_PICKUP_COUNTERS + (PICKUP_SOURCE_CONSUMED_UNCONFIRMED_COUNTER,)
         + NAVIGATION_COVERAGE_COUNTERS + (
@@ -362,6 +365,7 @@ OPTIONAL_EXACT_COUNTERS = (
 	+ FALLING_PRE_MOVE_ANCHOR_COUNTERS
 	+ HAZARD_SWIM_EGRESS_LIVE_COUNTERS
 	+ HAZARD_SWIM_EGRESS_DIRECT_NAV_COUNTERS
+	+ (HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER,)
 	+ FALLING_HAZARD_RECOVERY_COUNTERS
     + DEATH_ATTRIBUTION_COUNTERS + DAMAGE_COUNTERS
     + FALLING_SEAM_SHADOW_COUNTERS + FALLING_SEAM_DETAILED_COUNTERS
@@ -396,6 +400,7 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "move_target_identity", "move_target_name", "walking_step_preflight_diagnostics",
     "walking_step_preflight_positive_dps_veto_actions",
     "falling_parity_realized_records", "vertical_pain_column_diagnostics",
+    "hazard_water_egress_diagnostics",
 )
 PHYSICS_MODES = {
     "", "None", "Walking", "Falling", "Swimming", "Flying", "Rotating", "Projectile",
@@ -457,6 +462,12 @@ VERTICAL_PAIN_COLUMN_COLLISIONS = {
     "unknown", "clear", "static_world", "mover", "dynamic_actor",
 }
 VERTICAL_PAIN_COLUMN_MAX_SEGMENTS = 256
+HAZARD_WATER_EGRESS_TRANSITION_SOURCES = {
+    "unknown", "falling_direct_sweep", "falling_non_direct_sweep", "swimming_motion",
+}
+HAZARD_WATER_EGRESS_TERMINALS = {
+    "primary_zone_cleared", "death_before_exit", "life_reset", "episode_abandoned",
+}
 
 
 class QualityError(ValueError):
@@ -1174,6 +1185,116 @@ def _vertical_pain_column_diagnostics(value: Any, context: str) -> list[dict[str
     ]
 
 
+def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
+    fields = _exact_object(value, context, {
+        "source_pawn_actor", "sequence", "life_id", "episode_id", "transition_source",
+        "anchor_known", "anchor", "entry_location", "damage_per_second",
+        "entry_move_target_name", "entry_move_target_location_known",
+        "entry_move_target_location", "entry_destination", "candidate_known",
+        "candidate_name", "candidate_location", "candidate_entry_distance",
+        "candidate_distance_known", "minimum_candidate_distance",
+        "terminal_candidate_distance", "candidate_progress_samples",
+        "candidate_regression_samples", "target_distance_known", "entry_target_distance",
+        "minimum_target_distance", "terminal_target_distance",
+        "target_progress_samples", "target_regression_samples", "terminal",
+        "terminal_location", "terminal_move_target_name", "terminal_destination",
+    })
+    transition_source = _string(fields, "transition_source", context, nonempty=True)
+    if transition_source not in HAZARD_WATER_EGRESS_TRANSITION_SOURCES:
+        raise QualityError(f"{context}.transition_source is not recognized")
+    terminal = _string(fields, "terminal", context, nonempty=True)
+    if terminal not in HAZARD_WATER_EGRESS_TERMINALS:
+        raise QualityError(f"{context}.terminal is not recognized")
+    candidate_known = _boolean(fields.get("candidate_known"), f"{context}.candidate_known")
+    candidate_distance_known = _boolean(
+        fields.get("candidate_distance_known"), f"{context}.candidate_distance_known")
+    if candidate_known != candidate_distance_known:
+        raise QualityError(f"{context}: candidate distance availability must match candidate availability")
+    candidate_name = _string(fields, "candidate_name", context)
+    if candidate_known != bool(candidate_name):
+        raise QualityError(f"{context}: candidate name availability must match candidate availability")
+    target_distance_known = _boolean(
+        fields.get("target_distance_known"), f"{context}.target_distance_known")
+    target_name = _string(fields, "entry_move_target_name", context)
+    target_location_known = _boolean(fields.get("entry_move_target_location_known"),
+                                     f"{context}.entry_move_target_location_known")
+    if target_distance_known and (not target_name or not target_location_known):
+        raise QualityError(f"{context}: target distance requires an entry target location")
+    entry_candidate_distance = _number(fields.get("candidate_entry_distance"),
+                                       f"{context}.candidate_entry_distance", minimum=0.0)
+    minimum_candidate_distance = _number(fields.get("minimum_candidate_distance"),
+                                         f"{context}.minimum_candidate_distance", minimum=0.0)
+    terminal_candidate_distance = _number(fields.get("terminal_candidate_distance"),
+                                          f"{context}.terminal_candidate_distance", minimum=0.0)
+    if candidate_distance_known and (
+            minimum_candidate_distance > entry_candidate_distance
+            or minimum_candidate_distance > terminal_candidate_distance):
+        raise QualityError(f"{context}: candidate minimum distance is inconsistent")
+    entry_target_distance = _number(fields.get("entry_target_distance"),
+                                    f"{context}.entry_target_distance", minimum=0.0)
+    minimum_target_distance = _number(fields.get("minimum_target_distance"),
+                                      f"{context}.minimum_target_distance", minimum=0.0)
+    terminal_target_distance = _number(fields.get("terminal_target_distance"),
+                                       f"{context}.terminal_target_distance", minimum=0.0)
+    if target_distance_known and (
+            minimum_target_distance > entry_target_distance
+            or minimum_target_distance > terminal_target_distance):
+        raise QualityError(f"{context}: target minimum distance is inconsistent")
+    return {
+        "source_pawn_actor": _string(fields, "source_pawn_actor", context, nonempty=True),
+        "sequence": _integer(fields.get("sequence"), f"{context}.sequence", minimum=1),
+        "life_id": _integer(fields.get("life_id"), f"{context}.life_id", minimum=1),
+        "episode_id": _integer(fields.get("episode_id"), f"{context}.episode_id", minimum=1),
+        "transition_source": transition_source,
+        "anchor_known": _boolean(fields.get("anchor_known"), f"{context}.anchor_known"),
+        "anchor": _diagnostic_vector(fields.get("anchor"), f"{context}.anchor"),
+        "entry_location": _diagnostic_vector(fields.get("entry_location"), f"{context}.entry_location"),
+        "damage_per_second": _number(fields.get("damage_per_second"),
+                                      f"{context}.damage_per_second", minimum=0.0),
+        "entry_move_target_name": target_name,
+        "entry_move_target_location_known": target_location_known,
+        "entry_move_target_location": _diagnostic_vector(
+            fields.get("entry_move_target_location"), f"{context}.entry_move_target_location"),
+        "entry_destination": _diagnostic_vector(fields.get("entry_destination"),
+                                                  f"{context}.entry_destination"),
+        "candidate_known": candidate_known,
+        "candidate_name": candidate_name,
+        "candidate_location": _diagnostic_vector(fields.get("candidate_location"),
+                                                   f"{context}.candidate_location"),
+        "candidate_entry_distance": entry_candidate_distance,
+        "candidate_distance_known": candidate_distance_known,
+        "minimum_candidate_distance": minimum_candidate_distance,
+        "terminal_candidate_distance": terminal_candidate_distance,
+        "candidate_progress_samples": _integer(fields.get("candidate_progress_samples"),
+                                                  f"{context}.candidate_progress_samples", minimum=0),
+        "candidate_regression_samples": _integer(fields.get("candidate_regression_samples"),
+                                                    f"{context}.candidate_regression_samples", minimum=0),
+        "target_distance_known": target_distance_known,
+        "entry_target_distance": entry_target_distance,
+        "minimum_target_distance": minimum_target_distance,
+        "terminal_target_distance": terminal_target_distance,
+        "target_progress_samples": _integer(fields.get("target_progress_samples"),
+                                               f"{context}.target_progress_samples", minimum=0),
+        "target_regression_samples": _integer(fields.get("target_regression_samples"),
+                                                 f"{context}.target_regression_samples", minimum=0),
+        "terminal": terminal,
+        "terminal_location": _diagnostic_vector(fields.get("terminal_location"),
+                                                  f"{context}.terminal_location"),
+        "terminal_move_target_name": _string(fields, "terminal_move_target_name", context),
+        "terminal_destination": _diagnostic_vector(fields.get("terminal_destination"),
+                                                     f"{context}.terminal_destination"),
+    }
+
+
+def _hazard_water_egress_diagnostics(value: Any, context: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise QualityError(f"{context} must be an array")
+    return [
+        _hazard_water_egress_diagnostic(item, f"{context}[{index}]")
+        for index, item in enumerate(value)
+    ]
+
+
 def _validate_falling_parity_realized_record_stream(
         events: list[dict[str, Any]], path: Path) -> None:
     primary_counters = (
@@ -1511,6 +1632,53 @@ def _validate_vertical_pain_column_diagnostic_stream(
             previous[identity] = {
                 name: bot[name] for name in reconciled_counters + (overflow_name,)
             }
+
+
+def _validate_hazard_water_egress_diagnostic_stream(
+        events: list[dict[str, Any]], path: Path) -> None:
+    streams: dict[tuple[str, str], dict[str, Any]] = {}
+    final_counts: dict[str, tuple[int, int]] = {}
+    overflow_name = HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER
+    for event in events:
+        for bot in event["bots"]:
+            records = bot.get("hazard_water_egress_diagnostics")
+            if records is None:
+                continue
+            identity = bot["identity"]
+            if overflow_name not in bot or "hazard_swim_egress_episodes_exact" not in bot:
+                raise QualityError(
+                    f"{path}: hazard-water egress diagnostics require episode and overflow counters")
+            final_counts[identity] = (
+                bot["hazard_swim_egress_episodes_exact"], bot[overflow_name])
+            for record in records:
+                actor = record["source_pawn_actor"]
+                if actor != bot["actor"]:
+                    raise QualityError(
+                        f"{path}: hazard-water egress diagnostic actor does not match "
+                        f"{identity} at telemetry sequence {event['seq']}")
+                stream = streams.setdefault((identity, actor), {
+                    "sequence": 0, "keys": set(), "count": 0,
+                })
+                if record["sequence"] <= stream["sequence"]:
+                    raise QualityError(
+                        f"{path}: hazard-water egress diagnostic sequence did not increase "
+                        f"for {identity}/{actor} at telemetry sequence {event['seq']}")
+                key = (record["life_id"], record["episode_id"])
+                if key in stream["keys"]:
+                    raise QualityError(
+                        f"{path}: duplicate hazard-water egress terminal record for "
+                        f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                stream["sequence"] = record["sequence"]
+                stream["keys"].add(key)
+                stream["count"] += 1
+    by_identity: defaultdict[str, int] = defaultdict(int)
+    for (identity, _), stream in streams.items():
+        by_identity[identity] += stream["count"]
+    for identity, (episodes, overflows) in final_counts.items():
+        if by_identity[identity] + overflows > episodes:
+            raise QualityError(
+                f"{path}: hazard-water egress diagnostics and overflows exceed "
+                f"observed episodes for {identity}")
 
 
 def _validate_walking_step_preflight_diagnostic_stream(
@@ -1932,7 +2100,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
     bot = _object(raw, context)
     if schema != TELEMETRY_SCHEMA_V2 and any(name in bot for name in (
             "walking_step_preflight_diagnostics", "falling_parity_realized_records",
-            "vertical_pain_column_diagnostics")):
+            "vertical_pain_column_diagnostics", "hazard_water_egress_diagnostics")):
         raise QualityError(
             f"{context}: observer record arrays require telemetry v2")
     result: dict[str, Any] = {
@@ -2369,6 +2537,18 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             raise QualityError(
                 f"{context}: current vertical pain column counters require "
                 "vertical_pain_column_diagnostics")
+        if "hazard_water_egress_diagnostics" in bot:
+            if "hazard_swim_egress_episodes_exact" not in result \
+                    or HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER not in result:
+                raise QualityError(
+                    f"{context}: hazard-water egress diagnostics require episode and overflow counters")
+            result["hazard_water_egress_diagnostics"] = \
+                _hazard_water_egress_diagnostics(
+                    bot.get("hazard_water_egress_diagnostics"),
+                    f"{context}.hazard_water_egress_diagnostics")
+        elif HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER in result:
+            raise QualityError(
+                f"{context}: hazard-water egress overflow counter requires diagnostics")
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
@@ -2546,6 +2726,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             _validate_falling_parity_realized_record_stream(events, path)
         if optional_presence and "vertical_pain_column_diagnostics" in optional_presence:
             _validate_vertical_pain_column_diagnostic_stream(events, path)
+        if optional_presence and "hazard_water_egress_diagnostics" in optional_presence:
+            _validate_hazard_water_egress_diagnostic_stream(events, path)
     if events[0]["type"] != "run_start" or events[0]["tick"] != 0:
         raise QualityError(f"{path}: first event must be run_start at tick zero")
     if events[-1]["type"] != "run_result":

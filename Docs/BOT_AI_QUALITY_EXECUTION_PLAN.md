@@ -1357,7 +1357,11 @@ from the entry movement target, with strict progress/regression sample counts.
 This matters because the Deck witness had no movement target at the harmful
 entry: treating a later `MoveTarget` as if it caused the entry would be false.
 The bounded pure observer has focused lifecycle/overflow tests, and the
-telemetry fixture covers its JSON encoding.
+telemetry fixture covers its JSON encoding. The quality analyzer validates the
+bounded terminal stream's exact schema, actor/sequence/episode uniqueness,
+candidate/target distance consistency, and the final record-plus-overflow
+bound against observed egress episodes. These diagnostics remain neutral
+evidence rather than a score or release gate.
 
 Fresh paired observer/control matrices (two repetitions each, recovery and
 live controls off) passed on UT436 `DM-Deck16][` seed 271828 and Unreal Gold
