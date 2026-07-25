@@ -2872,3 +2872,37 @@ provenance reports are `native-path-commit-observer-v2-*-r[12].json`. Native
 path commits are therefore qualified as observer-only evidence. They still do
 not establish a causal direct-movement defect; proceed only with the separate
 same-life pickup/actor reachability-to-command witness.
+
+## Iteration 113: direct-reach command provenance observer
+
+The separate default-off `--botbench-direct-reach-command-observer=0|1`
+observer now captures eligible native walking `ActorReachable` simulation
+outcomes and links a successful result only when the next active stock command
+is the same live actor slot, in the same move-stall life, with `MoveTo` or
+`MoveToward` and an empty route-cache head. Every other outcome is explicit:
+not reached, life boundary, no active direct command, retained route head, or
+replaced target. The dedicated analyzer rejects an inactive manifest/envelope,
+counter or record discontinuity, partition mismatch, and any queue overflow;
+coverage requires at least one exact same-life link.
+
+Two full 7,200-tick observer-on/off repetitions per anchor are complete and
+their normalized gameplay streams are identical after excluding only
+`config_id`, the declared direct-reach observer envelope, and its declared
+per-bot counters/records:
+
+- UT436 Deck16-II (seed `104729`, skill 7):
+  `E40CC9D6A1818CC515ABA303F188C0E88BC0CB4FCF9B6DBCCF6791AC6696969F`.
+  Each enabled repetition reports 55 observations, 54 successful simulations,
+  12 exact same-life links, 43 explicit unlinked records, and zero overflow.
+- Unreal Gold DeathFan (seed `271828`, skill 3):
+  `802B9935A307984F6F3446F0AC104D66789965C53BD43937B6819A5C2A0F047D`.
+  Each enabled repetition reports 85 observations, 83 successful simulations,
+  22 exact same-life links, 63 explicit unlinked records, and zero overflow.
+
+The exact linked targets are ordinary pickup and weapon actors; this run does
+not establish that any direct command caused a harmful-zone entry or terminal
+death. It therefore qualifies the provenance plumbing but authorizes no
+`ActorReachable` return-value change. The next discovery slice must attach an
+exact terminal disposition to a same-life direct command (hazard clear, harmful
+entry/death, life boundary, target change, or run-end censor) before considering
+any behavior gate.
