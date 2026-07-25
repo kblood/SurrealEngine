@@ -51,15 +51,6 @@ struct MoveCallbackEvidence
 	bool Any() const { return Mask != 0; }
 };
 
-struct PawnMoveStallRecoveryEpisodeRecord
-{
-	uint64_t Sequence = 0;
-	uint64_t LifeId = 0;
-	float SecondsSinceDetection = 0.0f;
-	PawnMovement::MoveStallRecoveryEpisodeOutcome Outcome =
-		PawnMovement::MoveStallRecoveryEpisodeOutcome::None;
-};
-
 class UMusic;
 class UGameReplicationInfo;
 class UPlayerReplicationInfo;
@@ -2542,6 +2533,7 @@ private:
 	uint64_t MoveStallRecoveryUnknownCountValue = 0;
 	uint64_t MoveStallRecoveryEpisodeRecordOverflowCountValue = 0;
 	uint64_t MoveStallRecoveryEpisodeRecordSequence = 0;
+	uint64_t MoveStallRecoveryEpisodeId = 0;
 	std::vector<PawnMoveStallRecoveryEpisodeRecord> MoveStallRecoveryEpisodeRecords;
 	uint64_t FailedNavigationAvoidanceActivationCountValue = 0;
 	uint64_t FailedNavigationSafeguardSuppressionCountValue = 0;

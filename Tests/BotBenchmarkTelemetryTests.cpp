@@ -377,6 +377,18 @@ int main()
 		",\"walking_hitwall_dispatch_callbacks_exact\":\"0\""
 		",\"walking_hitwall_dispatch_diagnostic_overflows_exact\":\"0\""
 		",\"walking_hitwall_dispatch_diagnostics\":[]";
+	const std::string moveStallRecoverySuffix =
+		",\"move_stall_recovery_episodes_exact\":\"0\""
+		",\"move_stall_recovery_cleared_within_2_seconds_exact\":\"0\""
+		",\"move_stall_recovery_cleared_after_2_seconds_within_5_seconds_exact\":\"0\""
+		",\"move_stall_recovery_replanned_within_5_seconds_exact\":\"0\""
+		",\"move_stall_recovery_missed_5_second_deadline_exact\":\"0\""
+		",\"move_stall_recovery_excluded_intentional_stops_exact\":\"0\""
+		",\"move_stall_recovery_censored_life_boundaries_exact\":\"0\""
+		",\"move_stall_recovery_censored_run_end_exact\":\"0\""
+		",\"move_stall_recovery_unknown_exact\":\"0\""
+		",\"move_stall_recovery_episode_record_overflows_exact\":\"0\""
+		",\"move_stall_recovery_episodes\":[]";
 	for (const std::string hitWallMarker : {
 		std::string("\"hit_wall_events_exact\":\"0\""),
 		std::string("\"hit_wall_events_exact\":\"9\"") })
@@ -396,8 +408,44 @@ int main()
 			return Fail("telemetry control counter fixture marker was missing");
 		expectedEvent.insert(controlCounterIndex + controlCounterMarker.size(), controlCounterSuffix);
 	}
+	for (const std::string moveStallRecoveryMarker : {
+		std::string("\"move_stall_eligible_seconds\":0.000000000"),
+		std::string("\"move_stall_eligible_seconds\":4.250000000") })
+	{
+		const size_t moveStallRecoveryIndex = expectedEvent.find(moveStallRecoveryMarker);
+		if (moveStallRecoveryIndex == std::string::npos)
+			return Fail("move-stall recovery fixture marker was missing");
+		expectedEvent.insert(moveStallRecoveryIndex + moveStallRecoveryMarker.size(),
+			moveStallRecoverySuffix);
+	}
 	if (BotBenchmarkTelemetryProtocol::EventJson(configId, event) != expectedEvent)
 		return Fail("v2 telemetry event ordering, formatting, or escaping changed");
+
+	PawnMoveStallRecoveryEpisodeRecord recoveryEpisode;
+	recoveryEpisode.SourcePawnActor = "Bot\"Recovery";
+	recoveryEpisode.Sequence = 8;
+	recoveryEpisode.LifeId = 3;
+	recoveryEpisode.EpisodeId = 5;
+	recoveryEpisode.SecondsSinceDetection = 2.5f;
+	recoveryEpisode.Outcome =
+		PawnMovement::MoveStallRecoveryEpisodeOutcome::ReplannedWithin5Seconds;
+	event.Bots.front().MoveStallRecoveryEpisodes = { recoveryEpisode };
+	event.Bots.front().MoveStallRecoveryEpisodesExact = 1;
+	event.Bots.front().MoveStallRecoveryReplannedWithin5SecondsExact = 1;
+	const std::string recoveryEpisodeEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (recoveryEpisodeEvent.find(
+		"\"move_stall_recovery_episodes_exact\":\"1\",\"move_stall_recovery_cleared_within_2_seconds_exact\":\"0\"")
+			== std::string::npos
+		|| recoveryEpisodeEvent.find(
+			"\"source_pawn_actor\":\"Bot\\\"Recovery\",\"sequence\":\"8\",\"life_id\":\"3\",\"episode_id\":\"5\",\"seconds_since_detection\":2.500000000,\"outcome\":\"replanned_within_5_seconds\"")
+			== std::string::npos)
+	{
+		return Fail("move-stall recovery telemetry was not serialized completely");
+	}
+	event.Bots.front().MoveStallRecoveryEpisodes.clear();
+	event.Bots.front().MoveStallRecoveryEpisodesExact = 0;
+	event.Bots.front().MoveStallRecoveryReplannedWithin5SecondsExact = 0;
 
 	PawnMovement::WalkingHitWallDispatchDiagnosticRecord hitWallDiagnostic;
 	hitWallDiagnostic.SourcePawnActor = "Bot\"Wall";

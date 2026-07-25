@@ -35,6 +35,16 @@ namespace BotBenchmarkDriverDetail
 		uint64_t MoveStallNavigationForcedReplans = 0;
 		uint64_t MoveStallTargetlessMoveToTimeouts = 0;
 		double MoveStallEligibleSeconds = 0.0;
+		uint64_t MoveStallRecoveryEpisodes = 0;
+		uint64_t MoveStallRecoveryClearedWithin2Seconds = 0;
+		uint64_t MoveStallRecoveryClearedAfter2SecondsWithin5Seconds = 0;
+		uint64_t MoveStallRecoveryReplannedWithin5Seconds = 0;
+		uint64_t MoveStallRecoveryMissed5SecondDeadline = 0;
+		uint64_t MoveStallRecoveryExcludedIntentionalStops = 0;
+		uint64_t MoveStallRecoveryCensoredLifeBoundaries = 0;
+		uint64_t MoveStallRecoveryCensoredRunEnd = 0;
+		uint64_t MoveStallRecoveryUnknown = 0;
+		uint64_t MoveStallRecoveryEpisodeRecordOverflows = 0;
 		uint64_t FailedNavigationAvoidanceActivations = 0;
 		uint64_t FailedNavigationSafeguardSuppressions = 0;
 		uint64_t FailedNavigationRoutePenaltyApplications = 0;
@@ -232,6 +242,34 @@ namespace BotBenchmarkDriverDetail
 				totals.MoveStallTargetlessMoveToTimeouts);
 			AccumulateDuration(current.MoveStallEligibleSeconds,
 				Previous.MoveStallEligibleSeconds, totals.MoveStallEligibleSeconds);
+			AccumulateCounter(current.MoveStallRecoveryEpisodes,
+				Previous.MoveStallRecoveryEpisodes, totals.MoveStallRecoveryEpisodes);
+			AccumulateCounter(current.MoveStallRecoveryClearedWithin2Seconds,
+				Previous.MoveStallRecoveryClearedWithin2Seconds,
+				totals.MoveStallRecoveryClearedWithin2Seconds);
+			AccumulateCounter(current.MoveStallRecoveryClearedAfter2SecondsWithin5Seconds,
+				Previous.MoveStallRecoveryClearedAfter2SecondsWithin5Seconds,
+				totals.MoveStallRecoveryClearedAfter2SecondsWithin5Seconds);
+			AccumulateCounter(current.MoveStallRecoveryReplannedWithin5Seconds,
+				Previous.MoveStallRecoveryReplannedWithin5Seconds,
+				totals.MoveStallRecoveryReplannedWithin5Seconds);
+			AccumulateCounter(current.MoveStallRecoveryMissed5SecondDeadline,
+				Previous.MoveStallRecoveryMissed5SecondDeadline,
+				totals.MoveStallRecoveryMissed5SecondDeadline);
+			AccumulateCounter(current.MoveStallRecoveryExcludedIntentionalStops,
+				Previous.MoveStallRecoveryExcludedIntentionalStops,
+				totals.MoveStallRecoveryExcludedIntentionalStops);
+			AccumulateCounter(current.MoveStallRecoveryCensoredLifeBoundaries,
+				Previous.MoveStallRecoveryCensoredLifeBoundaries,
+				totals.MoveStallRecoveryCensoredLifeBoundaries);
+			AccumulateCounter(current.MoveStallRecoveryCensoredRunEnd,
+				Previous.MoveStallRecoveryCensoredRunEnd,
+				totals.MoveStallRecoveryCensoredRunEnd);
+			AccumulateCounter(current.MoveStallRecoveryUnknown,
+				Previous.MoveStallRecoveryUnknown, totals.MoveStallRecoveryUnknown);
+			AccumulateCounter(current.MoveStallRecoveryEpisodeRecordOverflows,
+				Previous.MoveStallRecoveryEpisodeRecordOverflows,
+				totals.MoveStallRecoveryEpisodeRecordOverflows);
 			AccumulateCounter(current.FailedNavigationAvoidanceActivations,
 				Previous.FailedNavigationAvoidanceActivations,
 				totals.FailedNavigationAvoidanceActivations);

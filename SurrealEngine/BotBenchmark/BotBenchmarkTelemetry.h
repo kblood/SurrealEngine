@@ -6,6 +6,7 @@
 #include "UObject/PawnFallingHazardDiagnostics.h"
 #include "UObject/PawnDirectHarmfulWaterEntryCertificate.h"
 #include "UObject/PawnHazardWaterEgressObserver.h"
+#include "UObject/PawnMoveStallWatchdog.h"
 
 #include <array>
 #include <cstdint>
@@ -124,6 +125,17 @@ struct BotBenchmarkBotState
 	uint64_t MoveStallNavigationForcedReplansExact = 0;
 	uint64_t MoveStallTargetlessMoveToTimeoutsExact = 0;
 	double MoveStallEligibleSeconds = 0.0;
+	uint64_t MoveStallRecoveryEpisodesExact = 0;
+	uint64_t MoveStallRecoveryClearedWithin2SecondsExact = 0;
+	uint64_t MoveStallRecoveryClearedAfter2SecondsWithin5SecondsExact = 0;
+	uint64_t MoveStallRecoveryReplannedWithin5SecondsExact = 0;
+	uint64_t MoveStallRecoveryMissed5SecondDeadlineExact = 0;
+	uint64_t MoveStallRecoveryExcludedIntentionalStopsExact = 0;
+	uint64_t MoveStallRecoveryCensoredLifeBoundariesExact = 0;
+	uint64_t MoveStallRecoveryCensoredRunEndExact = 0;
+	uint64_t MoveStallRecoveryUnknownExact = 0;
+	uint64_t MoveStallRecoveryEpisodeRecordOverflowsExact = 0;
+	std::vector<PawnMoveStallRecoveryEpisodeRecord> MoveStallRecoveryEpisodes;
 	uint64_t FailedNavigationAvoidanceActivationsExact = 0;
 	uint64_t FailedNavigationSafeguardSuppressionsExact = 0;
 	uint64_t FailedNavigationRoutePenaltyApplicationsExact = 0;

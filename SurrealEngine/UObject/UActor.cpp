@@ -6189,6 +6189,7 @@ void UPawn::ObserveMoveStallWatchdog(float elapsed)
 				PawnMovement::StartMoveStallRecoveryEpisode();
 			MoveStallRecoveryEpisode = episode.State;
 			MoveStallRecoveryEpisodeCommand = MoveStallWatchdog.Command;
+			MoveStallRecoveryEpisodeId++;
 			MoveStallRecoveryEpisodeStartCountValue++;
 		}
 		const PawnMovement::MoveStallRecoveryDecision recovery =
@@ -6333,8 +6334,10 @@ void UPawn::RecordMoveStallRecoveryEpisodeOutcome(float secondsSinceDetection,
 
 	static constexpr size_t maximumQueuedRecords = 1024;
 	PawnMoveStallRecoveryEpisodeRecord record;
-	record.Sequence = MoveStallRecoveryEpisodeRecordSequence++;
+	record.SourcePawnActor = Name.ToString();
+	record.Sequence = ++MoveStallRecoveryEpisodeRecordSequence;
 	record.LifeId = MoveStallRecoveryLifeId;
+	record.EpisodeId = MoveStallRecoveryEpisodeId;
 	record.SecondsSinceDetection = secondsSinceDetection;
 	record.Outcome = outcome;
 	if (MoveStallRecoveryEpisodeRecords.size() < maximumQueuedRecords)

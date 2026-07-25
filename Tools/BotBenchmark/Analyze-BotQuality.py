@@ -65,6 +65,18 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "move_stall_navigation_forced_replans_exact": None,
     "move_stall_targetless_move_to_timeouts_exact": None,
     "move_stall_eligible_seconds": None,
+    "move_stall_recovery_episodes_exact": None,
+    "move_stall_recovery_cleared_within_2_seconds_exact": None,
+    "move_stall_recovery_cleared_after_2_seconds_within_5_seconds_exact": None,
+    "move_stall_recovery_replanned_within_5_seconds_exact": None,
+    "move_stall_recovery_missed_5_second_deadline_exact": None,
+    "move_stall_recovery_excluded_intentional_stops_exact": None,
+    "move_stall_recovery_censored_life_boundaries_exact": None,
+    "move_stall_recovery_censored_run_end_exact": None,
+    "move_stall_recovery_unknown_exact": None,
+    "move_stall_recovery_episode_record_overflows_exact": None,
+    "recoverable_movement_episode_clear_within_2s_fraction": "higher",
+    "recoverable_movement_episode_clear_or_replanned_within_5s_fraction": "higher",
     "failed_navigation_avoidance_activations_exact": None,
     "failed_navigation_safeguard_suppressions_exact": None,
     "failed_navigation_route_penalty_applications_exact": None,
@@ -149,6 +161,28 @@ HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS = (
     "harmful_zone_escape_successful_escapes_exact",
     "harmful_zone_escape_forced_replans_exact",
     "harmful_zone_escape_no_safe_candidates_exact",
+)
+MOVE_STALL_RECOVERY_EXACT_COUNTERS = (
+    "move_stall_recovery_episodes_exact",
+    "move_stall_recovery_cleared_within_2_seconds_exact",
+    "move_stall_recovery_cleared_after_2_seconds_within_5_seconds_exact",
+    "move_stall_recovery_replanned_within_5_seconds_exact",
+    "move_stall_recovery_missed_5_second_deadline_exact",
+    "move_stall_recovery_excluded_intentional_stops_exact",
+    "move_stall_recovery_censored_life_boundaries_exact",
+    "move_stall_recovery_censored_run_end_exact",
+    "move_stall_recovery_unknown_exact",
+    "move_stall_recovery_episode_record_overflows_exact",
+)
+MOVE_STALL_RECOVERY_OUTCOME_COUNTERS = (
+    "move_stall_recovery_cleared_within_2_seconds_exact",
+    "move_stall_recovery_cleared_after_2_seconds_within_5_seconds_exact",
+    "move_stall_recovery_replanned_within_5_seconds_exact",
+    "move_stall_recovery_missed_5_second_deadline_exact",
+    "move_stall_recovery_excluded_intentional_stops_exact",
+    "move_stall_recovery_censored_life_boundaries_exact",
+    "move_stall_recovery_censored_run_end_exact",
+    "move_stall_recovery_unknown_exact",
 )
 HAZARD_SWIM_EGRESS_EXACT_COUNTERS = (
     "hazard_swim_egress_episodes_exact",
@@ -392,6 +426,7 @@ METRIC_DIRECTIONS.update({
 })
 OPTIONAL_EXACT_COUNTERS = (
     PAIN_LEDGE_EXACT_COUNTERS + WALL_ADJUST_EXACT_COUNTERS + MOVE_STALL_EXACT_COUNTERS
+    + MOVE_STALL_RECOVERY_EXACT_COUNTERS
     + FAILED_NAVIGATION_EXACT_COUNTERS + HARMFUL_ZONE_ESCAPE_EXACT_COUNTERS
 	+ HAZARD_SWIM_EGRESS_EXACT_COUNTERS
 	+ FALLING_PRE_MOVE_ANCHOR_COUNTERS
@@ -436,6 +471,7 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "walking_step_preflight_positive_dps_veto_actions",
     "falling_parity_realized_records", "vertical_pain_column_diagnostics",
     "hazard_water_egress_diagnostics", "hazard_death_partition_records",
+    "move_stall_recovery_episodes",
     "walking_hitwall_dispatch_diagnostics",
 )
 HAZARD_DEATH_KILLER_RELATIONS = {"none", "self_player", "enemy_player", "non_player"}
@@ -1555,6 +1591,59 @@ def _hazard_water_egress_diagnostics(value: Any, context: str) -> list[dict[str,
     ]
 
 
+MOVE_STALL_RECOVERY_OUTCOMES = {
+    "cleared_within_2_seconds":
+        "move_stall_recovery_cleared_within_2_seconds_exact",
+    "cleared_after_2_seconds_within_5_seconds":
+        "move_stall_recovery_cleared_after_2_seconds_within_5_seconds_exact",
+    "replanned_within_5_seconds":
+        "move_stall_recovery_replanned_within_5_seconds_exact",
+    "missed_5_second_deadline":
+        "move_stall_recovery_missed_5_second_deadline_exact",
+    "excluded_intentional_stop":
+        "move_stall_recovery_excluded_intentional_stops_exact",
+    "censored_life_boundary":
+        "move_stall_recovery_censored_life_boundaries_exact",
+    "censored_run_end":
+        "move_stall_recovery_censored_run_end_exact",
+    "unknown": "move_stall_recovery_unknown_exact",
+}
+
+
+def _move_stall_recovery_episode(value: Any, context: str) -> dict[str, Any]:
+    fields = _object(value, context)
+    outcome = _string(fields, "outcome", context)
+    if outcome not in MOVE_STALL_RECOVERY_OUTCOMES:
+        raise QualityError(f"{context}.outcome is not recognized")
+    seconds = _number(fields.get("seconds_since_detection"),
+                      f"{context}.seconds_since_detection", minimum=0.0)
+    if outcome == "cleared_within_2_seconds" and seconds > 2.0:
+        raise QualityError(f"{context}: cleared-within-2 outcome exceeds two seconds")
+    if outcome == "cleared_after_2_seconds_within_5_seconds" and not (2.0 < seconds <= 5.0):
+        raise QualityError(f"{context}: cleared-after-2 outcome is outside (2, 5] seconds")
+    if outcome == "replanned_within_5_seconds" and seconds > 5.0:
+        raise QualityError(f"{context}: replanned-within-5 outcome exceeds five seconds")
+    if outcome == "missed_5_second_deadline" and seconds <= 5.0:
+        raise QualityError(f"{context}: missed-deadline outcome must exceed five seconds")
+    return {
+        "source_pawn_actor": _string(fields, "source_pawn_actor", context, nonempty=True),
+        "sequence": _integer(fields.get("sequence"), f"{context}.sequence", minimum=1),
+        "life_id": _integer(fields.get("life_id"), f"{context}.life_id", minimum=1),
+        "episode_id": _integer(fields.get("episode_id"), f"{context}.episode_id", minimum=1),
+        "seconds_since_detection": seconds,
+        "outcome": outcome,
+    }
+
+
+def _move_stall_recovery_episodes(value: Any, context: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise QualityError(f"{context} must be an array")
+    return [
+        _move_stall_recovery_episode(item, f"{context}[{index}]")
+        for index, item in enumerate(value)
+    ]
+
+
 def _hazard_death_partition_record(value: Any, context: str) -> dict[str, Any]:
     fields = _object(value, context)
     killer_relation = _string(fields, "killer_relation", context)
@@ -2059,6 +2148,108 @@ def _validate_hazard_water_egress_diagnostic_stream(
             raise QualityError(
                 f"{path}: hazard-water egress diagnostics and overflows exceed "
                 f"observed episodes for {identity}")
+
+
+def _validate_move_stall_recovery_episode_stream(
+        events: list[dict[str, Any]], path: Path) -> None:
+    overflow_name = "move_stall_recovery_episode_record_overflows_exact"
+    previous: dict[str, dict[str, int]] = {}
+    streams: dict[tuple[str, str], dict[str, Any]] = {}
+    history_tainted: defaultdict[str, bool] = defaultdict(bool)
+    final_counts: dict[str, dict[str, int]] = {}
+    for event in events:
+        for bot in event["bots"]:
+            records = bot.get("move_stall_recovery_episodes")
+            if records is None:
+                continue
+            identity = bot["identity"]
+            if any(name not in bot for name in MOVE_STALL_RECOVERY_EXACT_COUNTERS):
+                raise QualityError(
+                    f"{path}: move-stall recovery records require the complete counter group")
+            prior = previous.get(identity, {
+                name: 0 for name in MOVE_STALL_RECOVERY_EXACT_COUNTERS
+            })
+            deltas = {
+                name: bot[name] - prior[name] for name in MOVE_STALL_RECOVERY_EXACT_COUNTERS
+            }
+            overflow_delta = deltas[overflow_name]
+            observed: defaultdict[str, int] = defaultdict(int)
+            for record in records:
+                actor = record["source_pawn_actor"]
+                if actor != bot["actor"]:
+                    raise QualityError(
+                        f"{path}: move-stall recovery record actor does not match {identity} "
+                        f"at telemetry sequence {event['seq']}")
+                stream = streams.setdefault((identity, actor), {
+                    "last_sequence": None,
+                    "last_life": None,
+                    "last_episode": None,
+                    "keys": set(),
+                    "tainted": history_tainted[identity],
+                })
+                sequence = record["sequence"]
+                if stream["last_sequence"] is not None:
+                    if sequence <= stream["last_sequence"]:
+                        raise QualityError(
+                            f"{path}: move-stall recovery record sequence did not increase for "
+                            f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                    if not stream["tainted"] and overflow_delta == 0 \
+                            and sequence != stream["last_sequence"] + 1:
+                        raise QualityError(
+                            f"{path}: move-stall recovery record sequence is not consecutive for "
+                            f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                elif sequence != 1 and not stream["tainted"] and overflow_delta == 0:
+                    raise QualityError(
+                        f"{path}: first move-stall recovery record sequence must be one for "
+                        f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                key = (record["life_id"], record["episode_id"])
+                if key in stream["keys"]:
+                    raise QualityError(
+                        f"{path}: duplicate move-stall recovery terminal record for "
+                        f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                last_life = stream["last_life"]
+                last_episode = stream["last_episode"]
+                if last_life is not None and (
+                        record["life_id"] < last_life or
+                        record["episode_id"] <= last_episode):
+                    raise QualityError(
+                        f"{path}: move-stall recovery life or episode id regressed for "
+                        f"{identity}/{actor} at telemetry sequence {event['seq']}")
+                stream["last_sequence"] = sequence
+                stream["last_life"] = record["life_id"]
+                stream["last_episode"] = record["episode_id"]
+                stream["keys"].add(key)
+                observed[MOVE_STALL_RECOVERY_OUTCOMES[record["outcome"]]] += 1
+            for name in MOVE_STALL_RECOVERY_OUTCOME_COUNTERS:
+                if observed[name] > deltas[name]:
+                    raise QualityError(
+                        f"{path}: move-stall recovery records exceed {name} delta for "
+                        f"{identity} at telemetry sequence {event['seq']}")
+                if overflow_delta == 0 and observed[name] != deltas[name]:
+                    raise QualityError(
+                        f"{path}: move-stall recovery records do not reconcile with {name} "
+                        f"delta for {identity} at telemetry sequence {event['seq']}")
+            terminal_delta = sum(deltas[name] for name in MOVE_STALL_RECOVERY_OUTCOME_COUNTERS)
+            if terminal_delta != len(records) + overflow_delta:
+                raise QualityError(
+                    f"{path}: move-stall recovery records and overflows do not reconcile "
+                    f"with terminal outcome deltas for {identity} at telemetry sequence "
+                    f"{event['seq']}")
+            if overflow_delta:
+                history_tainted[identity] = True
+                for (stream_identity, _actor), stream in streams.items():
+                    if stream_identity == identity:
+                        stream["tainted"] = True
+            previous[identity] = {
+                name: bot[name] for name in MOVE_STALL_RECOVERY_EXACT_COUNTERS
+            }
+            final_counts[identity] = previous[identity]
+    for identity, counters in final_counts.items():
+        terminals = sum(counters[name] for name in MOVE_STALL_RECOVERY_OUTCOME_COUNTERS)
+        if terminals != counters["move_stall_recovery_episodes_exact"]:
+            raise QualityError(
+                f"{path}: move-stall recovery terminal outcomes do not partition all "
+                f"episodes for {identity}")
 
 
 def _validate_hazard_death_partition_stream(
@@ -2618,7 +2809,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
     if schema != TELEMETRY_SCHEMA_V2 and any(name in bot for name in (
             "walking_step_preflight_diagnostics", "falling_parity_realized_records",
             "vertical_pain_column_diagnostics", "hazard_water_egress_diagnostics",
-            "hazard_death_partition_records", "walking_hitwall_dispatch_diagnostics")):
+            "hazard_death_partition_records", "move_stall_recovery_episodes",
+            "walking_hitwall_dispatch_diagnostics")):
         raise QualityError(
             f"{context}: observer record arrays require telemetry v2")
     result: dict[str, Any] = {
@@ -2668,6 +2860,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
                 ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS),
                 ("walking HitWall dispatch", WALKING_HITWALL_DISPATCH_COUNTERS),
+                ("move-stall recovery", MOVE_STALL_RECOVERY_EXACT_COUNTERS),
                 ("persistent harmful fall", PERSISTENT_HARMFUL_FALL_COUNTERS),
                 ("single harmful fall prefix", SINGLE_HARMFUL_FALL_PREFIX_COUNTERS),
                 ("direct harmful-water entry", DIRECT_HARMFUL_WATER_ENTRY_COUNTERS),
@@ -3108,6 +3301,16 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 _hazard_death_partition_records(
                     bot.get("hazard_death_partition_records"),
                     f"{context}.hazard_death_partition_records")
+        if "move_stall_recovery_episodes" in bot:
+            if "move_stall_recovery_episodes_exact" not in result:
+                raise QualityError(
+                    f"{context}: move-stall recovery records require the complete counter group")
+            result["move_stall_recovery_episodes"] = _move_stall_recovery_episodes(
+                bot.get("move_stall_recovery_episodes"),
+                f"{context}.move_stall_recovery_episodes")
+        elif "move_stall_recovery_episodes_exact" in result:
+            raise QualityError(
+                f"{context}: move-stall recovery counter group requires records")
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
@@ -3117,6 +3320,11 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                     f"{context}: attributed move stall recoveries do not equal forced replans")
             if result["move_stall_episode_resets_exact"] > result["move_stall_detections_exact"]:
                 raise QualityError(f"{context}: move stall episode resets exceed detections")
+        if "move_stall_recovery_episodes_exact" in result:
+            terminals = sum(result[name] for name in MOVE_STALL_RECOVERY_OUTCOME_COUNTERS)
+            if terminals > result["move_stall_recovery_episodes_exact"]:
+                raise QualityError(
+                    f"{context}: move-stall recovery terminal outcomes exceed episodes")
         if "physics_mode" in bot:
             result["physics_mode"] = _string(bot, "physics_mode", context)
             if result["physics_mode"] not in PHYSICS_MODES:
@@ -3289,6 +3497,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             _validate_vertical_pain_column_diagnostic_stream(events, path)
         if optional_presence and "hazard_water_egress_diagnostics" in optional_presence:
             _validate_hazard_water_egress_diagnostic_stream(events, path)
+        if optional_presence and "move_stall_recovery_episodes" in optional_presence:
+            _validate_move_stall_recovery_episode_stream(events, path)
         if optional_presence and "hazard_death_partition_records" in optional_presence:
             _validate_hazard_death_partition_stream(events, path)
     if events[0]["type"] != "run_start" or events[0]["tick"] != 0:
@@ -3623,6 +3833,21 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             if all(value is not None for value in (
                 column_true_positive, column_false_positive,
                 column_false_negative, column_true_negative)) else None)
+        recovery_episodes = exact.get("move_stall_recovery_episodes_exact")
+        recovery_excluded = exact.get(
+            "move_stall_recovery_excluded_intentional_stops_exact")
+        recovery_overflows = exact.get(
+            "move_stall_recovery_episode_record_overflows_exact")
+        recovery_denominator = (
+            recovery_episodes - recovery_excluded
+            if recovery_episodes is not None and recovery_excluded is not None
+            and recovery_overflows == 0 else None)
+        recovery_clear_within_2 = exact.get(
+            "move_stall_recovery_cleared_within_2_seconds_exact")
+        recovery_clear_after_2 = exact.get(
+            "move_stall_recovery_cleared_after_2_seconds_within_5_seconds_exact")
+        recovery_replanned = exact.get(
+            "move_stall_recovery_replanned_within_5_seconds_exact")
         metrics[identity] = {
             "identity": identity,
             "player_name": first["player_name"],
@@ -3676,6 +3901,15 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             "final_health_observed": final["health"] if final is not None else None,
             "survived_to_final_sample": final["health"] > 0 if final is not None else None,
             "actor_or_observation_discontinuities": discontinuities,
+            "recoverable_movement_episode_clear_within_2s_fraction": _counter_fraction(
+                recovery_clear_within_2, recovery_denominator),
+            "recoverable_movement_episode_clear_or_replanned_within_5s_fraction": (
+                _counter_fraction(
+                    recovery_clear_within_2 + recovery_clear_after_2 + recovery_replanned
+                    if all(value is not None for value in (
+                        recovery_clear_within_2, recovery_clear_after_2, recovery_replanned))
+                    else None,
+                    recovery_denominator)),
             "falling_parity_realized_episode_completion_fraction": _counter_fraction(
                 (exact.get("falling_parity_realized_deaths_exact")
                  + exact.get("falling_parity_realized_landings_exact")
@@ -3787,6 +4021,32 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
         "completion": completion,
     }
     result.update({name: sum_available(name) for name in OPTIONAL_CUMULATIVE_METRICS})
+    recovery_episodes = result.get("move_stall_recovery_episodes_exact")
+    recovery_excluded = result.get(
+        "move_stall_recovery_excluded_intentional_stops_exact")
+    recovery_overflows = result.get(
+        "move_stall_recovery_episode_record_overflows_exact")
+    recovery_denominator = (
+        recovery_episodes - recovery_excluded
+        if recovery_episodes is not None and recovery_excluded is not None
+        and recovery_overflows == 0 else None)
+    recovery_clear_within_2 = result.get(
+        "move_stall_recovery_cleared_within_2_seconds_exact")
+    recovery_clear_after_2 = result.get(
+        "move_stall_recovery_cleared_after_2_seconds_within_5_seconds_exact")
+    recovery_replanned = result.get(
+        "move_stall_recovery_replanned_within_5_seconds_exact")
+    result.update({
+        "recoverable_movement_episode_clear_within_2s_fraction": _counter_fraction(
+            recovery_clear_within_2, recovery_denominator),
+        "recoverable_movement_episode_clear_or_replanned_within_5s_fraction": (
+            _counter_fraction(
+                recovery_clear_within_2 + recovery_clear_after_2 + recovery_replanned
+                if all(value is not None for value in (
+                    recovery_clear_within_2, recovery_clear_after_2, recovery_replanned))
+                else None,
+                recovery_denominator)),
+    })
     navigation_visited = sum_available("navigation_coverage_visited_nodes_exact")
     navigation_catalog = sum_available("navigation_coverage_catalog_nodes_exact")
     navigation_union_values = {

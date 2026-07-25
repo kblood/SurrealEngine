@@ -22,11 +22,13 @@ The gate result is therefore attributable to both the exact matrix input and
 the exact checked-in policy.
 
 The current campaign is deliberately not passable. Its gate files require the
-four metrics recorded under `unrepresented_release_requirements`; current
+three metrics recorded under `unrepresented_release_requirements`; current
 telemetry does not emit them. This prevents exact death partitions, wall-time,
 or separate-executable A/B comparisons from being misrepresented as causal
-avoidable-suicide evidence, role-swapped participant control, recovery-time
-evidence, or 16-bot in-engine p95 timing. Add those authoritative metrics and
+avoidable-suicide evidence, role-swapped participant control, or 16-bot
+in-engine p95 timing. Recovery-time evidence is now emitted separately, but
+remains fail-closed for an incomplete group, record overflow, or a run without
+a qualifying recoverable episode. Add the remaining authoritative metrics and
 their tests before changing the gate files; do not relax or remove them to
 obtain a passing result.
 

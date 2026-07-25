@@ -290,6 +290,47 @@ namespace
 			<< (diagnostic.PawnDeletedByCallback ? "true" : "false") << '}';
 	}
 
+	const char* MoveStallRecoveryEpisodeOutcomeName(
+		PawnMovement::MoveStallRecoveryEpisodeOutcome outcome)
+	{
+		using PawnMovement::MoveStallRecoveryEpisodeOutcome;
+		switch (outcome)
+		{
+		case MoveStallRecoveryEpisodeOutcome::ClearedWithin2Seconds:
+			return "cleared_within_2_seconds";
+		case MoveStallRecoveryEpisodeOutcome::ClearedAfter2SecondsWithin5Seconds:
+			return "cleared_after_2_seconds_within_5_seconds";
+		case MoveStallRecoveryEpisodeOutcome::ReplannedWithin5Seconds:
+			return "replanned_within_5_seconds";
+		case MoveStallRecoveryEpisodeOutcome::Missed5SecondDeadline:
+			return "missed_5_second_deadline";
+		case MoveStallRecoveryEpisodeOutcome::ExcludedIntentionalStop:
+			return "excluded_intentional_stop";
+		case MoveStallRecoveryEpisodeOutcome::CensoredLifeBoundary:
+			return "censored_life_boundary";
+		case MoveStallRecoveryEpisodeOutcome::CensoredRunEnd:
+			return "censored_run_end";
+		case MoveStallRecoveryEpisodeOutcome::Unknown:
+			return "unknown";
+		case MoveStallRecoveryEpisodeOutcome::None:
+			return "none";
+		}
+		return "unknown";
+	}
+
+	void WriteMoveStallRecoveryEpisode(std::ostringstream& out,
+		const PawnMoveStallRecoveryEpisodeRecord& record)
+	{
+		out << "{\"source_pawn_actor\":" << JsonString(record.SourcePawnActor)
+			<< ",\"sequence\":\"" << record.Sequence
+			<< "\",\"life_id\":\"" << record.LifeId
+			<< "\",\"episode_id\":\"" << record.EpisodeId
+			<< "\",\"seconds_since_detection\":"
+			<< Fixed(record.SecondsSinceDetection, 9)
+			<< ",\"outcome\":"
+			<< JsonString(MoveStallRecoveryEpisodeOutcomeName(record.Outcome)) << '}';
+	}
+
 	void WritePositiveDpsVetoAction(std::ostringstream& out,
 		const PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord& action)
 	{
@@ -623,6 +664,23 @@ namespace
 			<< ",\"move_stall_navigation_forced_replans_exact\":\"" << bot.MoveStallNavigationForcedReplansExact << "\""
 			<< ",\"move_stall_targetless_move_to_timeouts_exact\":\"" << bot.MoveStallTargetlessMoveToTimeoutsExact << "\""
 			<< ",\"move_stall_eligible_seconds\":" << Fixed(bot.MoveStallEligibleSeconds, 9)
+			<< ",\"move_stall_recovery_episodes_exact\":\"" << bot.MoveStallRecoveryEpisodesExact << "\""
+			<< ",\"move_stall_recovery_cleared_within_2_seconds_exact\":\"" << bot.MoveStallRecoveryClearedWithin2SecondsExact << "\""
+			<< ",\"move_stall_recovery_cleared_after_2_seconds_within_5_seconds_exact\":\"" << bot.MoveStallRecoveryClearedAfter2SecondsWithin5SecondsExact << "\""
+			<< ",\"move_stall_recovery_replanned_within_5_seconds_exact\":\"" << bot.MoveStallRecoveryReplannedWithin5SecondsExact << "\""
+			<< ",\"move_stall_recovery_missed_5_second_deadline_exact\":\"" << bot.MoveStallRecoveryMissed5SecondDeadlineExact << "\""
+			<< ",\"move_stall_recovery_excluded_intentional_stops_exact\":\"" << bot.MoveStallRecoveryExcludedIntentionalStopsExact << "\""
+			<< ",\"move_stall_recovery_censored_life_boundaries_exact\":\"" << bot.MoveStallRecoveryCensoredLifeBoundariesExact << "\""
+			<< ",\"move_stall_recovery_censored_run_end_exact\":\"" << bot.MoveStallRecoveryCensoredRunEndExact << "\""
+			<< ",\"move_stall_recovery_unknown_exact\":\"" << bot.MoveStallRecoveryUnknownExact << "\""
+			<< ",\"move_stall_recovery_episode_record_overflows_exact\":\"" << bot.MoveStallRecoveryEpisodeRecordOverflowsExact << "\""
+			<< ",\"move_stall_recovery_episodes\":[";
+		for (size_t index = 0; index < bot.MoveStallRecoveryEpisodes.size(); index++)
+		{
+			if (index) out << ',';
+			WriteMoveStallRecoveryEpisode(out, bot.MoveStallRecoveryEpisodes[index]);
+		}
+		out << ']'
 			<< ",\"failed_navigation_avoidance_activations_exact\":\"" << bot.FailedNavigationAvoidanceActivationsExact << "\""
 			<< ",\"failed_navigation_safeguard_suppressions_exact\":\"" << bot.FailedNavigationSafeguardSuppressionsExact << "\""
 			<< ",\"failed_navigation_route_penalty_applications_exact\":\"" << bot.FailedNavigationRoutePenaltyApplicationsExact << "\""

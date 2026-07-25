@@ -154,6 +154,15 @@ namespace
 			const double simulatedSeconds = static_cast<double>(Ticks) * Config.GetFixedDelta();
 			try
 			{
+				for (const auto& [identity, pawn] : CaptureLiveControlledBots())
+				{
+					auto runtime = QualityParticipants.find(identity);
+					if (runtime == QualityParticipants.end())
+						continue;
+					pawn->EndMoveStallRecoveryRun();
+					AccumulateNativePawnCounters(identity, runtime->second, pawn,
+						BotBenchmarkDriverDetail::NativePawnCounterSample::LivePawn);
+				}
 				WriteTelemetry("run_result", ExitCode == 0 ? "complete" : "failed",
 					FailureReason, Ticks, simulatedSeconds);
 			}
@@ -227,6 +236,8 @@ namespace
 				PendingFallingHazardDiagnostics;
 			std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>
 				PendingHazardWaterEgressDiagnostics;
+			std::vector<PawnMoveStallRecoveryEpisodeRecord>
+				PendingMoveStallRecoveryEpisodeRecords;
 			std::optional<BotBenchmarkHazardDeathPartitionRecord>
 				StagedHazardDeathPartitionRecord;
 			std::optional<BotBenchmarkDeathAttribution::ScopeToken>
@@ -714,6 +725,24 @@ namespace
 			counters.MoveStallTargetlessMoveToTimeouts =
 				pawn->MoveStallTargetlessMoveToTimeoutCount();
 			counters.MoveStallEligibleSeconds = pawn->MoveStallEligibleSeconds();
+			counters.MoveStallRecoveryEpisodes = pawn->MoveStallRecoveryEpisodeStartCount();
+			counters.MoveStallRecoveryClearedWithin2Seconds =
+				pawn->MoveStallRecoveryClearedWithin2SecondsCount();
+			counters.MoveStallRecoveryClearedAfter2SecondsWithin5Seconds =
+				pawn->MoveStallRecoveryClearedAfter2SecondsWithin5SecondsCount();
+			counters.MoveStallRecoveryReplannedWithin5Seconds =
+				pawn->MoveStallRecoveryReplannedWithin5SecondsCount();
+			counters.MoveStallRecoveryMissed5SecondDeadline =
+				pawn->MoveStallRecoveryMissed5SecondDeadlineCount();
+			counters.MoveStallRecoveryExcludedIntentionalStops =
+				pawn->MoveStallRecoveryExcludedIntentionalStopCount();
+			counters.MoveStallRecoveryCensoredLifeBoundaries =
+				pawn->MoveStallRecoveryCensoredLifeBoundaryCount();
+			counters.MoveStallRecoveryCensoredRunEnd =
+				pawn->MoveStallRecoveryCensoredRunEndCount();
+			counters.MoveStallRecoveryUnknown = pawn->MoveStallRecoveryUnknownCount();
+			counters.MoveStallRecoveryEpisodeRecordOverflows =
+				pawn->MoveStallRecoveryEpisodeRecordOverflowCount();
 			counters.FailedNavigationAvoidanceActivations =
 				pawn->FailedNavigationAvoidanceActivationCount();
 			counters.FailedNavigationSafeguardSuppressions =
@@ -925,8 +954,6 @@ namespace
 				victim->FinishFallingHazardDeath();
 				victim->FinishFallingParityRealizedTrace(
 					PawnMovement::FallingParityRealizedOutcome::Died);
-				AccumulateNativePawnCounters(victimIdentity, counters, victim,
-					BotBenchmarkDriverDetail::NativePawnCounterSample::DeathFlush);
 				auto diagnostics = victim->DrainWalkingStepPreflightDiagnostics();
 				auto walkingHitWallDiagnostics =
 					victim->DrainWalkingHitWallDispatchDiagnostics();
@@ -946,6 +973,9 @@ namespace
 				StageHazardDeathPartition(victimIdentity, counters, victim, killerRelation,
 					parityRecords, hazardDiagnostics, waterEgressDiagnostics);
 				victim->EndWalkingStepPreflightLife();
+				AccumulateNativePawnCounters(victimIdentity, counters, victim,
+					BotBenchmarkDriverDetail::NativePawnCounterSample::DeathFlush);
+				auto moveStallRecoveryRecords = victim->DrainMoveStallRecoveryEpisodeRecords();
 				counters.PendingWalkingStepPreflightDiagnostics.insert(
 					counters.PendingWalkingStepPreflightDiagnostics.end(),
 					std::make_move_iterator(diagnostics.begin()),
@@ -970,6 +1000,10 @@ namespace
 					counters.PendingHazardWaterEgressDiagnostics.end(),
 					std::make_move_iterator(waterEgressDiagnostics.begin()),
 					std::make_move_iterator(waterEgressDiagnostics.end()));
+				counters.PendingMoveStallRecoveryEpisodeRecords.insert(
+					counters.PendingMoveStallRecoveryEpisodeRecords.end(),
+					std::make_move_iterator(moveStallRecoveryRecords.begin()),
+					std::make_move_iterator(moveStallRecoveryRecords.end()));
 				counters.DeathsExact++;
 				const bool environmental = !killer || !killer->bIsPlayer();
 				if (killer == victim || environmental)
@@ -1804,6 +1838,24 @@ namespace
 				bot.MoveStallTargetlessMoveToTimeoutsExact =
 					native.MoveStallTargetlessMoveToTimeouts;
 				bot.MoveStallEligibleSeconds = native.MoveStallEligibleSeconds;
+				bot.MoveStallRecoveryEpisodesExact = native.MoveStallRecoveryEpisodes;
+				bot.MoveStallRecoveryClearedWithin2SecondsExact =
+					native.MoveStallRecoveryClearedWithin2Seconds;
+				bot.MoveStallRecoveryClearedAfter2SecondsWithin5SecondsExact =
+					native.MoveStallRecoveryClearedAfter2SecondsWithin5Seconds;
+				bot.MoveStallRecoveryReplannedWithin5SecondsExact =
+					native.MoveStallRecoveryReplannedWithin5Seconds;
+				bot.MoveStallRecoveryMissed5SecondDeadlineExact =
+					native.MoveStallRecoveryMissed5SecondDeadline;
+				bot.MoveStallRecoveryExcludedIntentionalStopsExact =
+					native.MoveStallRecoveryExcludedIntentionalStops;
+				bot.MoveStallRecoveryCensoredLifeBoundariesExact =
+					native.MoveStallRecoveryCensoredLifeBoundaries;
+				bot.MoveStallRecoveryCensoredRunEndExact =
+					native.MoveStallRecoveryCensoredRunEnd;
+				bot.MoveStallRecoveryUnknownExact = native.MoveStallRecoveryUnknown;
+				bot.MoveStallRecoveryEpisodeRecordOverflowsExact =
+					native.MoveStallRecoveryEpisodeRecordOverflows;
 				bot.FailedNavigationAvoidanceActivationsExact =
 					native.FailedNavigationAvoidanceActivations;
 				bot.FailedNavigationSafeguardSuppressionsExact =
@@ -2028,6 +2080,11 @@ namespace
 						runtime.PendingHazardWaterEgressDiagnostics.end(),
 						std::make_move_iterator(waterEgressDiagnostics.begin()),
 						std::make_move_iterator(waterEgressDiagnostics.end()));
+					auto moveStallRecoveryRecords = pawn->DrainMoveStallRecoveryEpisodeRecords();
+					runtime.PendingMoveStallRecoveryEpisodeRecords.insert(
+						runtime.PendingMoveStallRecoveryEpisodeRecords.end(),
+						std::make_move_iterator(moveStallRecoveryRecords.begin()),
+						std::make_move_iterator(moveStallRecoveryRecords.end()));
 				}
 				bot.WalkingStepPreflightDiagnostics = std::move(
 					runtime.PendingWalkingStepPreflightDiagnostics);
@@ -2047,6 +2104,9 @@ namespace
 				bot.HazardWaterEgressDiagnostics = std::move(
 					runtime.PendingHazardWaterEgressDiagnostics);
 				runtime.PendingHazardWaterEgressDiagnostics.clear();
+				bot.MoveStallRecoveryEpisodes = std::move(
+					runtime.PendingMoveStallRecoveryEpisodeRecords);
+				runtime.PendingMoveStallRecoveryEpisodeRecords.clear();
 				bot.HazardDeathPartitionRecords = std::move(
 					runtime.PendingHazardDeathPartitionRecords);
 				runtime.PendingHazardDeathPartitionRecords.clear();

@@ -39,7 +39,6 @@ class QualificationCampaignTests(unittest.TestCase):
             {
                 "role-swapped-participant-policy-evidence",
                 "avoidable-causal-suicide-rate",
-                "recoverable-movement-clearance",
                 "sixteen-bot-ai-frame-budget",
             },
         )

@@ -3,6 +3,7 @@
 #include "Math/vec.h"
 
 #include <cstdint>
+#include <string>
 
 namespace PawnMovement
 {
@@ -116,3 +117,16 @@ namespace PawnMovement
 		const vec3& location, float elapsed, bool eligibleContext, bool latentMovementIntent,
 		float progressRadius, float detectionSeconds);
 }
+
+// Telemetry-facing terminal record. Keep this independent of UPawn so the
+// isolated telemetry target does not need to include the full object runtime.
+struct PawnMoveStallRecoveryEpisodeRecord
+{
+	std::string SourcePawnActor;
+	uint64_t Sequence = 0;
+	uint64_t LifeId = 0;
+	uint64_t EpisodeId = 0;
+	float SecondsSinceDetection = 0.0f;
+	PawnMovement::MoveStallRecoveryEpisodeOutcome Outcome =
+		PawnMovement::MoveStallRecoveryEpisodeOutcome::None;
+};

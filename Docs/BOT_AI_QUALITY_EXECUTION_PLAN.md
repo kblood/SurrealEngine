@@ -1983,6 +1983,38 @@ it does not authorize a `TickWalking` predicate change. The exact
 required calibrated retail microthreshold bracket and quality telemetry work
 must still close before a shared runtime correction is proposed.
 
+## Iteration 82: fail-closed move-stall recovery timing evidence
+
+The watchdog now treats each one-shot persistent-movement detection as a
+separate recovery episode, starting its clock at detection rather than at the
+original no-progress anchor. It records exactly one terminal outcome: cleared
+within two seconds, cleared after two but within five seconds, qualified new
+navigation replan within five seconds, missed five-second deadline, intentional
+stop exclusion, life-boundary censor, run-end censor, or unknown. Reissuing an
+equivalent latent command never qualifies as a replan; only a changed live
+`MoveToward` navigation target may do so. The observer does not call native
+reachability probes, because those probes simulate movement and would change
+the behavior under measurement.
+
+Each terminal record has a stable source pawn actor, sequence, life ID,
+episode ID, elapsed seconds, and outcome. The benchmark accumulates the exact
+counter partition across pawn respawns, drains death records after the life
+boundary has been recorded, and explicitly flushes live episodes as run-end
+censors before final telemetry. Bounded queues expose overflow counters; an
+analyzer must reject an incomplete field group, overflow, malformed records,
+or a disagreement between counters and records. These metrics are evidence
+only: no live recovery policy has been promoted, and the targetless `MoveTo`
+candidate remains default-off and rejected pending a fresh cross-game fixture.
+
+Fresh Release observer smokes from the current build completed and passed the
+structural analyzer on UT436 `DM-Deck16][` and Unreal Gold 226b `DmDeathFan`
+(four bots, 900 and 1,800 ticks each). All four runs emitted the complete
+zeroed counter/record group with no overflow; neither short deterministic
+sample contained a qualifying detection, so both derived fractions are null.
+That is the intended fail-closed result, not a pass. The next evidence task is
+a deterministic cross-game forced-stall fixture that produces at least one
+terminal episode per game before any recovery threshold is judged.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

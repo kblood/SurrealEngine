@@ -561,6 +561,74 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(QUALITY.QualityError, "duplicate hazard-water egress"):
                 QUALITY.analyze_run(excessive)
 
+    def test_move_stall_recovery_episodes_are_exact_and_fail_closed(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            **{name: 0 for name in QUALITY.MOVE_STALL_RECOVERY_EXACT_COUNTERS},
+            "move_stall_recovery_episodes": [],
+        }
+        record = {
+            "source_pawn_actor": "Bot1", "sequence": "1", "life_id": "1",
+            "episode_id": "1", "seconds_since_detection": 1.5,
+            "outcome": "cleared_within_2_seconds",
+        }
+        final = {
+            **common, "move_stall_recovery_episodes_exact": 1,
+            "move_stall_recovery_cleared_within_2_seconds_exact": 1,
+            "move_stall_recovery_episodes": [record],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "move-stall-recovery", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                common, final, {**final, "move_stall_recovery_episodes": []},
+            ])
+            analyzed = QUALITY.analyze_run(valid)
+            self.assertEqual(
+                analyzed["metrics"]["recoverable_movement_episode_clear_within_2s_fraction"],
+                1.0)
+            self.assertEqual(
+                analyzed["metrics"][
+                    "recoverable_movement_episode_clear_or_replanned_within_5s_fraction"],
+                1.0)
+
+            malformed = write_v2_run(root, "move-stall-recovery-incomplete", bot_count=1)
+            incomplete = dict(common)
+            incomplete.pop("move_stall_recovery_unknown_exact")
+            upgrade_telemetry_v2(malformed, counters=[incomplete, incomplete, incomplete])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "move-stall recovery counters must be provided"):
+                QUALITY.analyze_run(malformed)
+
+            unreconciled = write_v2_run(root, "move-stall-recovery-unreconciled", bot_count=1)
+            no_terminal = {
+                **common, "move_stall_recovery_episodes_exact": 1,
+                "move_stall_recovery_episodes": [],
+            }
+            upgrade_telemetry_v2(unreconciled, counters=[common, no_terminal, no_terminal])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "do not partition all episodes"):
+                QUALITY.analyze_run(unreconciled)
+
+            overflowed = write_v2_run(root, "move-stall-recovery-overflow", bot_count=1)
+            overflow_final = {
+                **final, "move_stall_recovery_episodes_exact": 2,
+                "move_stall_recovery_cleared_within_2_seconds_exact": 2,
+                "move_stall_recovery_episode_record_overflows_exact": 1,
+            }
+            upgrade_telemetry_v2(overflowed, counters=[
+                common, overflow_final,
+                {**overflow_final, "move_stall_recovery_episodes": []},
+            ])
+            overflow_metrics = QUALITY.analyze_run(overflowed)["metrics"]
+            self.assertIsNone(
+                overflow_metrics["recoverable_movement_episode_clear_within_2s_fraction"])
+            self.assertIsNone(overflow_metrics[
+                "recoverable_movement_episode_clear_or_replanned_within_5s_fraction"])
+
     def test_hazard_death_partition_records_are_same_death_and_exact(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,

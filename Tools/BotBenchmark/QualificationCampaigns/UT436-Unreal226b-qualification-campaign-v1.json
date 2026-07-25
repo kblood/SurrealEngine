@@ -69,15 +69,6 @@
       "status": "fail-closed"
     },
     {
-      "id": "recoverable-movement-clearance",
-      "required_metrics": [
-        "recoverable_movement_episode_clear_within_2s_fraction",
-        "recoverable_movement_episode_clear_or_replanned_within_5s_fraction"
-      ],
-      "reason": "Current telemetry counts a movement-intent stuck proxy, not recoverable episode clearance or replan timing.",
-      "status": "fail-closed"
-    },
-    {
       "id": "sixteen-bot-ai-frame-budget",
       "required_metric": "ai_frame_p95_ms",
       "reason": "Launcher wall time is not in-engine AI frame timing and cannot certify the 2 ms p95 target.",

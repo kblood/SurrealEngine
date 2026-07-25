@@ -30,8 +30,9 @@ change**, and nothing in this plan changes that judgment.
   timeout) regressed combat while improving a stuck proxy.
 - The checked-in campaign
   `Tools/BotBenchmark/QualificationCampaigns/UT436-Unreal226b-qualification-campaign-v1.json`
-  is deliberately unpassable: its four `unrepresented_release_requirements`
-  name metrics the engine does not emit.
+  is deliberately unpassable: its three `unrepresented_release_requirements`
+  name metrics the engine does not emit. Recovery-time telemetry is now
+  implemented but still needs fresh cross-game runtime evidence.
 - Held-out maps (`DM-Fractal`, `DM-Phobos`, `DmElsinore`, `DmRadikus`) remain
   unopened and must stay unopened until tuning parameters freeze.
 - The one shared correction with independent retail evidence — walking
@@ -308,7 +309,13 @@ contract description.
 `recoverable_movement_episode_clear_within_2s_fraction` and
 `recoverable_movement_episode_clear_or_replanned_within_5s_fraction`.
 
-**Why now.** These are two of the four fail-closed release requirements, they
+**Implementation status.** The native episode model, exact terminal counters,
+bounded terminal records, benchmark lifecycle flushing, telemetry serialization,
+and fail-closed analyzer validation are implemented. The campaign continues to
+require the two derived metrics; a run with no qualifying episode, incomplete
+telemetry, or a record overflow reports null and fails its gate.
+
+**Why now.** These were two of the four fail-closed release requirements, they
 correspond directly to the plan's stated navigation-safety gate, and the stall
 watchdog already owns the episode identity they need.
 
