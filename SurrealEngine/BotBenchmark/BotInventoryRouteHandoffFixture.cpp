@@ -1,0 +1,274 @@
+#include "Precomp.h"
+#include "BotInventoryRouteHandoffFixture.h"
+
+#include "BotBenchmarkRoster.h"
+#include "BotControlledMatch.h"
+#include "Collision/TopLevel/CollisionHit.h"
+#include "Engine.h"
+#include "Runtime/HeadlessDriver.h"
+#include "UObject/UActor.h"
+#include "UObject/ULevel.h"
+#include "UObject/UMesh.h"
+#include "Utils/CommandLine.h"
+#include "Utils/File.h"
+#include "Utils/Logger.h"
+
+#include <array>
+#include <cmath>
+#include <filesystem>
+#include <sstream>
+
+namespace
+{
+	const vec3 DeathFanAmmo3LaunchAnchor(-148.983383f, -602.711670f, 1384.0f);
+	constexpr float ImmediateSupportDistance = 64.0f;
+	constexpr float DeepSupportDistance = 2048.0f;
+	constexpr int CorridorSamples = 5;
+	constexpr int ZoneSamplesPerCorridorPoint = 64;
+
+	void Fail(BotInventoryRouteHandoffFixtureResult& result, std::string reason)
+	{
+		if (result.FailureReason.empty())
+			result.FailureReason = std::move(reason);
+	}
+
+	bool IsSafeWalkingPawn(UPawn* pawn)
+	{
+		UZoneInfo* zone = pawn ? pawn->FootRegion().Zone : nullptr;
+		return pawn && !pawn->bDeleteMe() && pawn->Health() > 0
+			&& pawn->Role() == ROLE_Authority && pawn->Physics() == PHYS_Walking
+			&& pawn->StateFrame && zone && !zone->bPainZone() && !zone->bWaterZone()
+			&& length(zone->ZoneVelocity()) <= 0.001f;
+	}
+
+	UActor* FindActor(Engine& engine, const char* name)
+	{
+		for (UActor* actor : engine.Level->Actors)
+		{
+			if (actor && !actor->bDeleteMe() && actor->Name.ToString() == name)
+				return actor;
+		}
+		return nullptr;
+	}
+
+	bool HasTraversableEdge(UPawn* pawn, UNavigationPoint* start, UNavigationPoint* end)
+	{
+		if (!pawn || !start || !end)
+			return false;
+		for (const LevelReachSpec& spec : pawn->XLevel()->ReachSpecs)
+		{
+			if (spec.startActor == start && spec.endActor == end && !spec.bPruned
+				&& spec.collisionRadius >= pawn->CollisionRadius()
+				&& spec.collisionHeight >= pawn->CollisionHeight())
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool IsWalkableStaticSupport(UPawn* pawn, const CollisionHit& hit)
+	{
+		return pawn && std::isfinite(hit.Fraction) && hit.Fraction >= 0.0f
+			&& hit.Fraction < 1.0f && hit.Actor == pawn->Level()
+			&& std::isfinite(hit.Normal.z) && hit.Normal.z >= 0.7071f;
+	}
+
+	std::string ResultText(const BotInventoryRouteHandoffFixtureResult& result)
+	{
+		std::ostringstream out;
+		out.imbue(std::locale::classic());
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v1\n"
+			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
+			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
+			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
+			<< "direct_marker_reachable=" << (result.DirectMarkerReachable ? "true" : "false") << "\n"
+			<< "graph_fallback_exists=" << (result.GraphFallbackExists ? "true" : "false") << "\n"
+			<< "unsupported_corridor_sample=" << (result.UnsupportedCorridorSample ? "true" : "false") << "\n"
+			<< "harmful_zone_below_corridor=" << (result.HarmfulZoneBelowCorridor ? "true" : "false") << "\n"
+			<< "pawn_actor=" << result.PawnActor << "\n"
+			<< "marker_actor=" << result.MarkerActor << "\n"
+			<< "inventory_actor=" << result.InventoryActor << "\n"
+			<< "graph_edge_count=" << result.GraphEdgeCount << "\n"
+			<< "immediate_support_samples=" << result.ImmediateSupportSamples << "\n"
+			<< "unsupported_samples=" << result.UnsupportedSamples << "\n"
+			<< "harmful_below_samples=" << result.HarmfulBelowSamples << "\n"
+			<< "failure_reason=" << result.FailureReason << "\n";
+		return out.str();
+	}
+
+	class BotInventoryRouteHandoffFixtureDriver final : public HeadlessDriver
+	{
+	public:
+		explicit BotInventoryRouteHandoffFixtureDriver(Engine& engine) : EngineRef(engine) {}
+
+		HeadlessDriverConfig GetConfig() const override { return { .MaxTicks = 1 }; }
+
+		void Start() override
+		{
+			BotInventoryRouteHandoffFixtureConfig config;
+			config.URL = commandline ? commandline->GetArg("", "--botbench-url") : std::string();
+			const std::string difficulty = commandline
+				? commandline->GetArg("", "--botbench-difficulty") : std::string();
+			if (!difficulty.empty())
+			{
+				try { config.ExternalSkill = std::stoi(difficulty); }
+				catch (const std::exception&)
+				{
+					Result.FailureReason = "inventory route fixture difficulty must be an integer";
+					Complete = true;
+					return;
+				}
+			}
+			Result = BotInventoryRouteHandoffFixture::Run(EngineRef, config);
+			const std::string output = commandline
+				? commandline->GetArg("", "--botbench-output") : std::string();
+			if (!output.empty())
+			{
+				std::filesystem::create_directories(output);
+				File::write_all_text((std::filesystem::path(output)
+					/ "inventory-route-handoff-fixture-result.txt").string(), ResultText(Result));
+			}
+			LogMessage("Inventory route handoff fixture result: "
+				+ std::string(Result.Passed ? "passed" : "failed"));
+			Complete = true;
+		}
+
+		bool IsComplete() const override { return Complete; }
+		void Tick(const DeterministicFrameTime&) override {}
+		int Finish(const HeadlessRunSummary&) override { return Result.Passed ? 0 : 1; }
+
+	private:
+		Engine& EngineRef;
+		BotInventoryRouteHandoffFixtureResult Result;
+		bool Complete = false;
+	};
+}
+
+BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
+	Engine& engine, const BotInventoryRouteHandoffFixtureConfig& config)
+{
+	BotInventoryRouteHandoffFixtureResult result;
+	UPawn* pawn = nullptr;
+	vec3 originalLocation;
+	vec3 originalVelocity;
+	vec3 originalAcceleration;
+	uint8_t originalPhysics = PHYS_None;
+	try
+	{
+		if (config.URL.empty() || config.URL.find("DmDeathFan") == std::string::npos)
+			throw std::runtime_error("inventory route fixture requires a DmDeathFan URL");
+		const BotBenchmarkRoster roster = BotBenchmarkRoster::Parse(
+			std::string("1"), {}, {}, config.ExternalSkill);
+		const BotControlledMatchResult match = BotControlledMatch::Setup(engine, config.URL, roster);
+		if (match.Participants.size() != 1 || !match.Participants.front().Pawn)
+			throw std::runtime_error("controlled inventory fixture did not create one live bot");
+		pawn = match.Participants.front().Pawn;
+		result.PawnActor = pawn->Name.ToString();
+		originalLocation = pawn->Location();
+		originalVelocity = pawn->Velocity();
+		originalAcceleration = pawn->Acceleration();
+		originalPhysics = pawn->Physics();
+
+		UActor* inventory = FindActor(engine, "ASMDAmmo3");
+		UNavigationPoint* marker = UObject::TryCast<UNavigationPoint>(FindActor(engine, "InventorySpot43"));
+		UNavigationPoint* pathNode27 = UObject::TryCast<UNavigationPoint>(FindActor(engine, "PathNode27"));
+		UNavigationPoint* pathNode55 = UObject::TryCast<UNavigationPoint>(FindActor(engine, "PathNode55"));
+		UNavigationPoint* pathNode54 = UObject::TryCast<UNavigationPoint>(FindActor(engine, "PathNode54"));
+		if (!inventory || !marker || !pathNode27 || !pathNode55 || !pathNode54)
+			throw std::runtime_error("fixture map is missing the expected DeathFan inventory route actors");
+		result.InventoryActor = inventory->Name.ToString();
+		result.MarkerActor = marker->Name.ToString();
+
+		if (!pawn->SetLocation(DeathFanAmmo3LaunchAnchor))
+			throw std::runtime_error("fixture could not set the recorded DeathFan launch anchor");
+		pawn->Velocity() = vec3(0.0f);
+		pawn->Acceleration() = vec3(0.0f);
+		pawn->UpdateActorZone();
+		pawn->SetPhysics(PHYS_Walking);
+		if (!IsSafeWalkingPawn(pawn))
+			throw std::runtime_error("recorded DeathFan launch anchor is not a safe walking context");
+		result.SafeWalkingAnchor = true;
+
+		result.DirectMarkerReachable = pawn->ActorReachable(marker, true);
+		if (!result.DirectMarkerReachable)
+			throw std::runtime_error("fixture no longer reproduces direct marker reachability");
+
+		const std::array<std::pair<UNavigationPoint*, UNavigationPoint*>, 3> route = {{
+			{ pathNode27, pathNode55 },
+			{ pathNode55, pathNode54 },
+			{ pathNode54, marker }
+		}};
+		for (const auto& edge : route)
+		{
+			if (HasTraversableEdge(pawn, edge.first, edge.second))
+				result.GraphEdgeCount++;
+		}
+		result.GraphFallbackExists = result.GraphEdgeCount == route.size();
+		if (!result.GraphFallbackExists)
+			throw std::runtime_error("fixture map no longer has the recorded three-edge fallback route");
+
+		const vec3 corridor = marker->Location() - DeathFanAmmo3LaunchAnchor;
+		TraceFlags flags;
+		flags.world = true;
+		for (int index = 1; index <= CorridorSamples; index++)
+		{
+			const vec3 point = DeathFanAmmo3LaunchAnchor
+				+ corridor * (static_cast<float>(index) / static_cast<float>(CorridorSamples + 1));
+			const CollisionHit immediateSupport = pawn->ProbeMoveCollision(
+				point, vec3(0.0f, 0.0f, -ImmediateSupportDistance), true);
+			if (IsWalkableStaticSupport(pawn, immediateSupport))
+			{
+				result.ImmediateSupportSamples++;
+				continue;
+			}
+			result.UnsupportedSamples++;
+			const CollisionHit deepSupport = pawn->XLevel()->Collision.TraceFirstHit(
+				point, point + vec3(0.0f, 0.0f, -DeepSupportDistance), pawn,
+				vec3(pawn->CollisionRadius(), pawn->CollisionRadius(), pawn->CollisionHeight()), flags);
+			if (IsWalkableStaticSupport(pawn, deepSupport))
+				result.UnsupportedCorridorSample = true;
+			for (int zoneIndex = 1; zoneIndex <= ZoneSamplesPerCorridorPoint; zoneIndex++)
+			{
+				const vec3 below = point + vec3(0.0f, 0.0f,
+					-DeepSupportDistance * static_cast<float>(zoneIndex) / ZoneSamplesPerCorridorPoint);
+				UZoneInfo* zone = pawn->XLevel()->Model->FindRegion(below, pawn->Level()).Zone;
+				if (zone && zone->bPainZone() && zone->DamagePerSec() > 0)
+				{
+					result.HarmfulBelowSamples++;
+					result.HarmfulZoneBelowCorridor = true;
+					break;
+				}
+			}
+		}
+		if (!result.UnsupportedCorridorSample || !result.HarmfulZoneBelowCorridor)
+			throw std::runtime_error("recorded direct corridor lacks the expected unsupported harmful drop evidence");
+		result.Ran = true;
+		result.Passed = true;
+	}
+	catch (const std::exception& error)
+	{
+		Fail(result, error.what());
+	}
+
+	if (pawn && !pawn->bDeleteMe())
+	{
+		pawn->Velocity() = originalVelocity;
+		pawn->Acceleration() = originalAcceleration;
+		pawn->SetPhysics(originalPhysics);
+		pawn->SetLocation(originalLocation);
+		pawn->UpdateActorZone();
+	}
+	return result;
+}
+
+void RegisterBotInventoryRouteHandoffFixtureDriver(HeadlessDriverRegistry& registry)
+{
+	if (!registry.Contains("bot-inventory-route-handoff-fixture"))
+	{
+		registry.Register("bot-inventory-route-handoff-fixture", [](Engine& engine)
+		{
+			return std::make_unique<BotInventoryRouteHandoffFixtureDriver>(engine);
+		});
+	}
+}

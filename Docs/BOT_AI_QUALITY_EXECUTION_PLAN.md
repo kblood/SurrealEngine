@@ -3194,3 +3194,36 @@ reachable graph route remains available, then demonstrate that rejecting only
 that false direct endpoint selects the graph route without suppressing a safe
 pickup. Until that fixture and cross-game quality evidence exist, behavior
 remains stock.
+
+## Iteration 124: exact DeathFan direct-endpoint fixture
+
+`bot-inventory-route-handoff-fixture` is a new no-UCC, engine-headless
+reproduction fixture for the repeated `ASMDAmmo3`/`InventorySpot43` DeathFan
+failure. It does not enable a policy or issue a bot movement command. It places
+one controlled Unreal Gold bot at the captured safe walking launch anchor,
+then checks the native direct-reach result and independently checks the
+map-owned fallback topology. The expected fallback is the unpruned,
+pawn-sized three-edge route `PathNode27 -> PathNode55 -> PathNode54 ->
+InventorySpot43`.
+
+The fixture run at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v1/` passes against
+`DmDeathFan?Game=UnrealShare.DeathMatchGame` (difficulty 3). It proves all of
+the following at the one recorded anchor: the bot is safely walking, native
+`ActorReachable(InventorySpot43, true)` returns true, all three graph fallback
+edges exist, and five evenly spaced direct-corridor probes have no immediate
+walkable support. Each unsupported sample observes a positive-DPS pain zone
+within a bounded vertical scan below it. Thus the existing straight-line
+walking simulation can declare the marker reachable without accounting for the
+unsupported harmful drop, while the map supplies a route that avoids treating
+the pickup as a direct endpoint.
+
+This fixture is intentionally map-specific and diagnostic: it establishes the
+owner-data precondition needed for a focused `ActorReachable` correction, but
+does not yet prove that the corrected endpoint set preserves all safe pickup
+choices. The next iteration should add a fail-closed, inventory-marker-only
+support/harm check to the endpoint discovery path, first assert in this
+fixture that the direct endpoint is rejected and the graph first hop is
+selected, then run the normal deterministic Unreal and UT quality anchors.
+The previous broad corridor experiment remains removed; no generic movement
+steering or post-fall recovery policy is being restored.
