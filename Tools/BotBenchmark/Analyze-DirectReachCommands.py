@@ -22,6 +22,7 @@ COUNTERS = (
     "direct_reach_command_cleared_exact",
     "direct_reach_command_life_boundary_censored_exact",
     "direct_reach_command_run_end_censored_exact",
+    "direct_reach_command_command_replaced_exact",
 )
 LINK_STATUSES = {
     "same_life_exact",
@@ -37,6 +38,7 @@ TERMINALS = {
     "cleared",
     "life_boundary_censor",
     "run_end_censor",
+    "command_replaced",
 }
 TERMINAL_COUNTERS = {
     "hazardous_death": "direct_reach_command_hazardous_deaths_exact",
@@ -44,6 +46,7 @@ TERMINAL_COUNTERS = {
     "cleared": "direct_reach_command_cleared_exact",
     "life_boundary_censor": "direct_reach_command_life_boundary_censored_exact",
     "run_end_censor": "direct_reach_command_run_end_censored_exact",
+    "command_replaced": "direct_reach_command_command_replaced_exact",
 }
 TERMINAL_FIELDS = (
     "activation_tick",

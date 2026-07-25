@@ -63,6 +63,7 @@ struct BotBenchmarkDirectReachCommandRecord
 	uint64_t Sequence = 0;
 	uint64_t LifeId = 0;
 	int32_t TargetActorIndex = -1;
+	const void* TargetAddress = nullptr;
 	std::string TargetName;
 	std::string TargetClass;
 	bool Reached = false;
@@ -141,6 +142,7 @@ struct BotBenchmarkBotState
 	uint64_t DirectReachCommandClearedExact = 0;
 	uint64_t DirectReachCommandLifeBoundaryCensoredExact = 0;
 	uint64_t DirectReachCommandRunEndCensoredExact = 0;
+	uint64_t DirectReachCommandCommandReplacedExact = 0;
 	std::vector<BotBenchmarkDirectReachCommandRecord> DirectReachCommandRecords;
 	uint64_t EnvironmentalDeathsExact = 0;
 	uint64_t HazardExposedDeathsProxy = 0;

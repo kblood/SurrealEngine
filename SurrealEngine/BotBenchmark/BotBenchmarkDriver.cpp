@@ -372,6 +372,7 @@ namespace
 			uint64_t DirectReachCommandClearedExact = 0;
 			uint64_t DirectReachCommandLifeBoundaryCensoredExact = 0;
 			uint64_t DirectReachCommandRunEndCensoredExact = 0;
+			uint64_t DirectReachCommandCommandReplacedExact = 0;
 		};
 
 		struct ActiveTargetSelectionCall
@@ -1198,6 +1199,8 @@ namespace
 				runtime.DirectReachCommandLifeBoundaryCensoredExact++;
 			else if (value == "run_end_censor")
 				runtime.DirectReachCommandRunEndCensoredExact++;
+			else if (value == "command_replaced")
+				runtime.DirectReachCommandCommandReplacedExact++;
 			else
 				Fail(std::string("invalid direct-reach terminal: ") + value);
 		}
@@ -1258,6 +1261,35 @@ namespace
 				AccountDirectReachCommandTerminal(runtime, terminal);
 			}
 			runtime.OpenDirectReachCommandRecords.clear();
+		}
+
+		void CloseReplacedDirectReachCommands(QualityParticipantRuntime& runtime,
+			UPawn* pawn, const BotBenchmarkBotState& state, bool routeHeadPresent,
+			uint64_t terminalTick)
+		{
+			const bool activeDirectCommand = state.LatentAction == "MoveTo"
+				|| state.LatentAction == "MoveToward";
+			UActor* moveTarget = pawn->MoveTarget();
+			for (auto it = runtime.OpenDirectReachCommandRecords.begin();
+				it != runtime.OpenDirectReachCommandRecords.end();)
+			{
+				const bool targetMatches = moveTarget && !moveTarget->bDeleteMe()
+					&& moveTarget->Index == it->TargetActorIndex
+					&& moveTarget == it->TargetAddress;
+				if (it->LifeId == pawn->DirectReachCommandLifeId() && activeDirectCommand
+					&& !routeHeadPresent && targetMatches)
+				{
+					++it;
+					continue;
+				}
+				it->TerminalTick = terminalTick;
+				it->Terminal = "command_replaced";
+				it->HazardTerminalExact = false;
+				it->Sequence = runtime.NextDirectReachCommandSequence++;
+				runtime.PendingDirectReachCommandRecords.push_back(std::move(*it));
+				AccountDirectReachCommandTerminal(runtime, "command_replaced");
+				it = runtime.OpenDirectReachCommandRecords.erase(it);
+			}
 		}
 
 		void RecordKilled(UPawn* killer, UPawn* victim)
@@ -1345,7 +1377,8 @@ namespace
 				{
 					counters.PendingDirectReachCommandRecords.push_back({
 						counters.NextDirectReachCommandSequence++, observation.LifeId,
-						observation.TargetActorIndex, observation.TargetName,
+						observation.TargetActorIndex, observation.TargetAddress,
+						observation.TargetName,
 						observation.TargetClass, observation.Reached, observation.CheckNavpoint,
 						observation.ResolvedWallSlide, observation.WalkingSimulationIterations,
 						std::string(), false, "unavailable_life_boundary" });
@@ -2854,6 +2887,7 @@ namespace
 					const bool routeHeadPresent = EngineRef.LaunchInfo.ue1Version > 219
 						&& pawn->RouteCache()[0] != nullptr;
 					UActor* moveTarget = pawn->MoveTarget();
+					CloseReplacedDirectReachCommands(runtime, pawn, bot, routeHeadPresent, Ticks);
 					for (const auto& observation : directReachCommandObservations)
 					{
 						const bool targetMatches = moveTarget && !moveTarget->bDeleteMe()
@@ -2874,7 +2908,8 @@ namespace
 							linkStatus = "same_life_exact";
 						BotBenchmarkDirectReachCommandRecord record{
 							0, observation.LifeId,
-							observation.TargetActorIndex, observation.TargetName,
+							observation.TargetActorIndex, observation.TargetAddress,
+							observation.TargetName,
 							observation.TargetClass, observation.Reached, observation.CheckNavpoint,
 							observation.ResolvedWallSlide, observation.WalkingSimulationIterations,
 							bot.LatentAction, routeHeadPresent, std::move(linkStatus), Ticks, 0,
@@ -2954,6 +2989,8 @@ namespace
 					runtime.DirectReachCommandLifeBoundaryCensoredExact;
 				bot.DirectReachCommandRunEndCensoredExact =
 					runtime.DirectReachCommandRunEndCensoredExact;
+				bot.DirectReachCommandCommandReplacedExact =
+					runtime.DirectReachCommandCommandReplacedExact;
 				bot.WalkingHitWallDispatchDiagnostics = std::move(
 					runtime.PendingWalkingHitWallDispatchDiagnostics);
 				runtime.PendingWalkingHitWallDispatchDiagnostics.clear();

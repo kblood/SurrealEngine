@@ -26,6 +26,7 @@ COUNTERS = {
     "direct_reach_command_cleared_exact": "1",
     "direct_reach_command_life_boundary_censored_exact": "0",
     "direct_reach_command_run_end_censored_exact": "0",
+    "direct_reach_command_command_replaced_exact": "0",
 }
 
 

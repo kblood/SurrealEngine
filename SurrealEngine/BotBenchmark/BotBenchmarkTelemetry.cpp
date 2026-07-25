@@ -798,6 +798,8 @@ namespace
 				<< bot.DirectReachCommandLifeBoundaryCensoredExact << "\""
 				<< ",\"direct_reach_command_run_end_censored_exact\":\""
 				<< bot.DirectReachCommandRunEndCensoredExact << "\""
+				<< ",\"direct_reach_command_command_replaced_exact\":\""
+				<< bot.DirectReachCommandCommandReplacedExact << "\""
 				<< ",\"direct_reach_command_records\":[";
 			for (size_t index = 0; index < bot.DirectReachCommandRecords.size(); index++)
 			{
