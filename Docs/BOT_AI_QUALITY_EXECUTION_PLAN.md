@@ -2152,6 +2152,24 @@ promotion. It requires fresh paired, fixed-seed UT436 Deck16-II and Unreal
 combat/survival/exposure gates, before it can be credited with any bot-quality
 improvement.
 
+## Iteration 89: command-stable harmful-fall terminal reconciliation
+
+The analyzer now derives three observer-only, nullable metrics from complete
+record streams: command-stable post-MayFall harmful `begin_falling` witnesses;
+the subset that has the same actor/life/invocation/iteration parity `died`
+record and exactly one matching death partition; and the unassisted
+environmental subset. This is deliberately not named “avoidable”: it does not
+yet prove a safe alternative or exclude all external intervention.
+
+Any absent witness/parity/death stream, a preflight or parity record overflow,
+or an inconsistent parity/partition claim produces null evidence or a
+fail-closed analyzer error. Enemy-attributed terminals remain counted as a
+terminal correlation but never enter the unassisted subset. Focused positive,
+enemy, landed, legacy-token, overflow, missing-start, and duplicate-claim
+tests pass together with the full 123-test Python suite. Fresh owner-data
+campaigns must supply a non-zero complete opportunity set before these metrics
+can inform an avoidable-suicide gate.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

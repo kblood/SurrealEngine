@@ -47,6 +47,9 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "recent_enemy_contributed_environmental_deaths_proxy": "lower",
     "ambiguous_deaths": "lower",
     "recent_enemy_momentum_contributed_environmental_deaths_proxy": "lower",
+    "post_mayfall_harmful_begin_falling_command_witnesses_exact": None,
+    "post_mayfall_harmful_begin_falling_command_witness_parity_deaths_exact": None,
+    "post_mayfall_harmful_begin_falling_command_witness_unassisted_environmental_deaths_exact": None,
     "suicide_to_kill_ratio": "lower",
     "match_score_delta": "higher",
     "hit_wall_events_exact": "lower",
@@ -3728,7 +3731,99 @@ def _counter_fraction(numerator: int | float | None,
     return numerator / denominator
 
 
-def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def _reconcile_post_mayfall_harmful_parity_deaths(
+        events: list[dict[str, Any]], path: Path) -> dict[str, dict[str, int] | None]:
+    """Return only exact command-stable harmful-fall/death correlations.
+
+    This deliberately is not an avoidable-suicide metric: it lacks proof of a
+    safe alternative and of no external intervention.  Missing arrays or either
+    bounded record stream overflowing produce null metrics rather than zero.
+    """
+    witnesses: defaultdict[str, set[tuple[str, int, int, int]]] = defaultdict(set)
+    parity_started: defaultdict[str, set[tuple[str, int, int, int]]] = defaultdict(set)
+    parity_died: defaultdict[str, set[tuple[str, int, int, int]]] = defaultdict(set)
+    partition_claims: defaultdict[
+        str, defaultdict[tuple[str, int, int, int], list[str]]] = defaultdict(
+            lambda: defaultdict(list))
+    complete: dict[str, bool] = {}
+
+    for event in events:
+        for bot in event["bots"]:
+            identity, actor = bot["identity"], bot["actor"]
+            required = (
+                "walking_step_preflight_diagnostics",
+                "falling_parity_realized_records",
+                "hazard_death_partition_records",
+                "walking_step_preflight_diagnostic_overflows_exact",
+                "falling_parity_realized_record_overflows_exact",
+            )
+            if any(name not in bot for name in required) \
+                    or bot["walking_step_preflight_diagnostic_overflows_exact"] != 0 \
+                    or bot["falling_parity_realized_record_overflows_exact"] != 0:
+                complete[identity] = False
+                continue
+            complete.setdefault(identity, True)
+            for diagnostic in bot["walking_step_preflight_diagnostics"]:
+                if diagnostic["source_pawn_actor"] != actor:
+                    raise QualityError(f"{path}: causal preflight witness actor differs from {identity}")
+                if diagnostic["phase"] != "post_mayfall_confirmation" \
+                        or diagnostic["transition_outcome"] != "begin_falling" \
+                        or diagnostic["reason"] \
+                        != "walking_step_preflight_reason_harmful_pain_fall_exact" \
+                        or diagnostic["movement_command_token"] == 0:
+                    continue
+                witnesses[identity].add((actor, diagnostic["life_generation"],
+                                         diagnostic["invocation_token"],
+                                         diagnostic["walking_iteration"]))
+            for parity in bot["falling_parity_realized_records"]:
+                if parity["source_pawn_actor"] != actor:
+                    raise QualityError(f"{path}: causal parity record actor differs from {identity}")
+                key = (actor, parity["life_generation"], parity["invocation_token"],
+                       parity["walking_iteration"])
+                if parity["outcome"] == "episode_started":
+                    parity_started[identity].add(key)
+                elif parity["outcome"] == "died":
+                    parity_died[identity].add(key)
+            for partition in bot["hazard_death_partition_records"]:
+                if partition["source_pawn_actor"] != actor:
+                    raise QualityError(f"{path}: causal death partition actor differs from {identity}")
+                if partition["falling_parity_terminal_known"]:
+                    key = (actor, partition["falling_parity_life_generation"],
+                           partition["falling_parity_invocation_token"],
+                           partition["falling_parity_walking_iteration"])
+                    partition_claims[identity][key].append(partition["attribution"])
+
+    result: dict[str, dict[str, int] | None] = {}
+    identities = {bot["identity"] for event in events for bot in event["bots"]}
+    for identity in identities:
+        if not complete.get(identity, False):
+            result[identity] = None
+            continue
+        for key in witnesses[identity]:
+            if key not in parity_started[identity]:
+                raise QualityError(f"{path}: causal harmful-fall witness has no parity episode start")
+        for key in parity_died[identity]:
+            claims = partition_claims[identity].get(key, [])
+            if len(claims) != 1:
+                raise QualityError(f"{path}: causal parity death must have exactly one partition claim")
+        for key, claims in partition_claims[identity].items():
+            if key not in parity_died[identity] or len(claims) != 1:
+                raise QualityError(f"{path}: causal partition claim must match exactly one parity death")
+        died = witnesses[identity] & parity_died[identity]
+        result[identity] = {
+            "post_mayfall_harmful_begin_falling_command_witnesses_exact": len(
+                witnesses[identity]),
+            "post_mayfall_harmful_begin_falling_command_witness_parity_deaths_exact": len(died),
+            "post_mayfall_harmful_begin_falling_command_witness_unassisted_environmental_deaths_exact": sum(
+                partition_claims[identity][key][0] == "unassisted_environmental_death"
+                for key in died),
+        }
+    return result
+
+
+def _bot_metrics(events: list[dict[str, Any]],
+                 causal_harmful_fall: dict[str, dict[str, int] | None] | None = None) \
+        -> dict[str, dict[str, Any]]:
     telemetry_v2 = events[0]["schema"] == TELEMETRY_SCHEMA_V2
     identities = sorted({bot["identity"] for event in events for bot in event["bots"]})
     final_bots = {bot["identity"]: bot for bot in events[-1]["bots"]}
@@ -3875,6 +3970,12 @@ def _bot_metrics(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             "longest_movement_intent_no_progress_seconds_proxy": (
                 longest_intent_no_progress if telemetry_v2 else None),
             "movement_intent_stuck_events_proxy": intent_stuck_events if telemetry_v2 else None,
+            **(causal_harmful_fall.get(identity) if causal_harmful_fall
+               and causal_harmful_fall.get(identity) is not None else {
+                   "post_mayfall_harmful_begin_falling_command_witnesses_exact": None,
+                   "post_mayfall_harmful_begin_falling_command_witness_parity_deaths_exact": None,
+                   "post_mayfall_harmful_begin_falling_command_witness_unassisted_environmental_deaths_exact": None,
+               }),
             **exact,
             "navigation_coverage_visited_nodes_exact": (
                 final.get("navigation_coverage_visited_nodes_exact")
@@ -4031,6 +4132,12 @@ def _run_metrics(bots: dict[str, dict[str, Any]], completion: bool) -> dict[str,
         "minimum_health_observed": min((bot["minimum_health_observed"] for bot in values), default=None),
         "survived_to_final_sample": all(survival) if survival and all(item is not None for item in survival) else None,
         "completion": completion,
+        "post_mayfall_harmful_begin_falling_command_witnesses_exact": sum_available(
+            "post_mayfall_harmful_begin_falling_command_witnesses_exact"),
+        "post_mayfall_harmful_begin_falling_command_witness_parity_deaths_exact": sum_available(
+            "post_mayfall_harmful_begin_falling_command_witness_parity_deaths_exact"),
+        "post_mayfall_harmful_begin_falling_command_witness_unassisted_environmental_deaths_exact": sum_available(
+            "post_mayfall_harmful_begin_falling_command_witness_unassisted_environmental_deaths_exact"),
     }
     result.update({name: sum_available(name) for name in OPTIONAL_CUMULATIVE_METRICS})
     recovery_episodes = result.get("move_stall_recovery_episodes_exact")
@@ -4210,7 +4317,8 @@ def analyze_run(path: Path) -> dict[str, Any]:
             raise QualityError(f"{run_path}: declared start layout requires a complete observed initial layout")
         if initial_layout["fingerprint"] != metadata["expected_initial_layout_fingerprint"]:
             raise QualityError(f"{run_path}: observed initial-layout fingerprint differs from quality metadata")
-    bots = _bot_metrics(events)
+    causal_harmful_fall = _reconcile_post_mayfall_harmful_parity_deaths(events, run_path)
+    bots = _bot_metrics(events, causal_harmful_fall)
     completion = summary["status"] == "complete" and summary["exit_code"] == 0
     metrics = _run_metrics(bots, completion)
     return {

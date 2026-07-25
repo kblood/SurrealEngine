@@ -2954,6 +2954,76 @@ class BotQualityAnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(QUALITY.QualityError, "at most 1"):
             QUALITY._walking_step_preflight_positive_dps_veto_action(invalid, "action")
 
+    def test_post_mayfall_harmful_parity_death_reconciliation_is_fail_closed(self) -> None:
+        key = ("Bot1", 2, 7, 1)
+
+        def event(attribution="unassisted_environmental_death", parity_outcome="died",
+                  include_start=True, token=9, overflow=0, duplicate_claim=False):
+            diagnostics = [{
+                "source_pawn_actor": key[0], "life_generation": key[1],
+                "invocation_token": key[2], "walking_iteration": key[3],
+                "movement_command_token": token,
+                "phase": "post_mayfall_confirmation", "transition_outcome": "begin_falling",
+                "reason": "walking_step_preflight_reason_harmful_pain_fall_exact",
+            }]
+            parity = []
+            if include_start:
+                parity.append({"source_pawn_actor": key[0], "life_generation": key[1],
+                               "invocation_token": key[2], "walking_iteration": key[3],
+                               "outcome": "episode_started"})
+            parity.append({"source_pawn_actor": key[0], "life_generation": key[1],
+                           "invocation_token": key[2], "walking_iteration": key[3],
+                           "outcome": parity_outcome})
+            partitions = []
+            if parity_outcome == "died":
+                partition = {
+                    "source_pawn_actor": key[0], "falling_parity_terminal_known": True,
+                    "falling_parity_life_generation": key[1],
+                    "falling_parity_invocation_token": key[2],
+                    "falling_parity_walking_iteration": key[3], "attribution": attribution,
+                }
+                partitions.append(partition)
+                if duplicate_claim:
+                    partitions.append({**partition})
+            return [{"bots": [{
+                "identity": "pri:1", "actor": key[0],
+                "walking_step_preflight_diagnostics": diagnostics,
+                "falling_parity_realized_records": parity,
+                "hazard_death_partition_records": partitions,
+                "walking_step_preflight_diagnostic_overflows_exact": overflow,
+                "falling_parity_realized_record_overflows_exact": 0,
+            }]}]
+
+        positive = QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(), Path("positive"))["pri:1"]
+        self.assertEqual(positive, {
+            "post_mayfall_harmful_begin_falling_command_witnesses_exact": 1,
+            "post_mayfall_harmful_begin_falling_command_witness_parity_deaths_exact": 1,
+            "post_mayfall_harmful_begin_falling_command_witness_unassisted_environmental_deaths_exact": 1,
+        })
+        enemy = QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(attribution="direct_enemy_kill"), Path("enemy"))["pri:1"]
+        self.assertEqual(
+            enemy["post_mayfall_harmful_begin_falling_command_witness_unassisted_environmental_deaths_exact"], 0)
+        landed = QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(parity_outcome="landed"), Path("landed"))["pri:1"]
+        self.assertEqual(
+            landed["post_mayfall_harmful_begin_falling_command_witness_parity_deaths_exact"], 0)
+        self.assertEqual(QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(token=0), Path("old-token"))["pri:1"], {
+                "post_mayfall_harmful_begin_falling_command_witnesses_exact": 0,
+                "post_mayfall_harmful_begin_falling_command_witness_parity_deaths_exact": 0,
+                "post_mayfall_harmful_begin_falling_command_witness_unassisted_environmental_deaths_exact": 0,
+            })
+        self.assertIsNone(QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(overflow=1), Path("overflow"))["pri:1"])
+        with self.assertRaisesRegex(QUALITY.QualityError, "no parity episode start"):
+            QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+                event(include_start=False), Path("missing-start"))
+        with self.assertRaisesRegex(QUALITY.QualityError, "exactly one partition claim"):
+            QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+                event(duplicate_claim=True), Path("duplicate-claim"))
+
 
 if __name__ == "__main__":
     unittest.main()

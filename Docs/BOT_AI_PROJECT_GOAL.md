@@ -40,13 +40,14 @@ qualification evidence.
 ## Current milestone
 
 Use the qualified move-stall observer and causal suicide evidence in owner-data
-discovery runs. The immediate behavior investigation is the rejected live
-hazard-swim-egress experiment: its command-safe, one-physics-step correction
-now needs paired UT436 and Unreal Gold qualification. Live causal labels remain
-unavailable until the pre-commit witness is reconciled with a terminal death.
-Recovery-time thresholds may be evaluated only when a candidate campaign
-supplies a non-zero, complete opportunity set; the forced fixture qualifies the
-measurement path, not bot quality.
+discovery runs. Command-stable harmful-fall terminal correlations are now
+available as nullable observer metrics, but avoidability remains unproven until
+safe alternatives and external-intervention exclusions are captured. The
+immediate behavior investigation is the rejected live hazard-swim-egress
+experiment: its command-safe, one-physics-step correction now needs paired
+UT436 and Unreal Gold qualification. Recovery-time thresholds may be evaluated
+only when a candidate campaign supplies a non-zero, complete opportunity set;
+the forced fixture qualifies the measurement path, not bot quality.
 
 ## Current status
 
