@@ -2656,3 +2656,23 @@ dispatches for this deterministic setup, so it is recorded as zero coverage,
 not as target-selection evidence. This tranche improves measurement only; it
 does not promote a target-selection behavior change or make the branch
 merge-ready.
+
+## Iteration 106: direct-actor timeout reachability scan
+
+The experimental direct-actor `MoveToward` timeout remains too sparsely
+reachable for a behavior promotion. Its known UT436 Deck16-II seed `104729`
+activation occurs only at telemetry tick 5,363; the candidate retains the
+earlier mixed K/D/S result of `6/14/8` versus stock `7/17/10`. Three new
+full-duration candidate-only UT436 scouts at seed `424242` had no activation:
+Deck16-II (`9/15/6` K/D/S), Morpheus (`2/12/10`), and Turbine (`6/7/1`).
+Their structurally valid aggregate report is
+`qa/reports/bot-ai/direct-actor-timeout-v4-scout.json`.
+
+The current Deck16-II stock seed `104729` terminal state also shows why a
+single latent timeout is not the required fix: 8 of 17 deaths are classified
+as unassisted environmental deaths and 8 as hazard-exposed deaths, distributed
+across all four bots. The timeout reaches only one direct-actor stall in the
+known candidate. Do not widen its eligibility or promote it from these results.
+The next candidate must instead be derived from a causally attributable
+hazard/route witness with enough activation coverage for paired UT and Unreal
+qualification.
