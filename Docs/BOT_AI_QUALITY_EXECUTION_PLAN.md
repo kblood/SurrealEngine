@@ -2486,6 +2486,35 @@ actors, bot configuration, and validators. It will explain whether excluded
 assisted traversal or capability constraints account for the missing direct
 option without changing stock bot behavior.
 
+## Iteration 102: cross-game walking HitWall corner fixture qualification
+
+The `bot-walking-hitwall-corner-fixture` now has owner-data qualification in
+both adapters. Its invocation requires the normal headless `--autoplay` launch
+contract, creates a controlled one-bot match, reflects a real state-local
+`FindAir.HitWall` body, and uses two temporary `BlockAll` actors to force one
+primary-forward contact followed by one aligned-slide contact. The fixture
+removes the blockers only after the second normal script return, so it rejects
+both a missing callback and an uncontrolled third contact.
+
+Two repetitions pass in each game with byte-identical result text:
+
+- UT436 `DM-Deck16][`, external skill 7: SHA-256
+  `2f45dac3a962367a5315ffb904b6b29797f48776723c6c85a28b3b03ec4fea8e`.
+- Unreal Gold 226b `DmDeathFan`, external skill 3: SHA-256
+  `eab62f18ccee25427a95107c3d5b777750c266066bb524faaf0c15a7369c82e5`.
+
+Every passing result has exactly two intercepted VM entries, two normal script
+returns, no diagnostic overflow, `primary_forward` then `aligned_slide`
+diagnostics, preserved first/second blocker identity, and unchanged walking
+physics. A UT negative control selecting `Startup` fails with the explicit
+`fixture state does not define a state-local HitWall handler: Startup` reason;
+it cannot pass by observing zero callbacks. Evidence is in
+`qa/runs/2026-07-25/walking-hitwall-corner-v3-crossgame/`.
+
+This qualifies the native/script fixture only. The `MinHitWall` dispatch
+predicate still needs the separately bracketed retail boundary oracle before
+any shared walking behavior correction can be promoted.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:
