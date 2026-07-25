@@ -29,12 +29,14 @@ function Bump(Actor Other)
     local vector TraceExtent;
     local Actor TraceActor;
     local Pawn Probe;
+    local RetailHitWallOracleUTBot OracleProbeBot;
 
     if (Other == OracleProbe)
     {
         Probe = Pawn(OracleProbe);
         if (Probe == None)
             return;
+        OracleProbeBot = RetailHitWallOracleUTBot(OracleProbe);
         OracleBumpCount++;
         TraceExtent.X = Probe.CollisionRadius;
         TraceExtent.Y = Probe.CollisionRadius;
@@ -49,7 +51,8 @@ function Bump(Actor Other)
             $ ";blocker_radius=" $ CollisionRadius $ ";blocker_height=" $ CollisionHeight
             $ ";center_normal_reconstructed=" $ Normal(Probe.Location - Location)
             $ ";bump_trace_actor=" $ TraceActor $ ";bump_trace_normal=" $ TraceNormal
-            $ ";bump_trace_location=" $ TraceLocation);
+            $ ";bump_trace_location=" $ TraceLocation
+            $ OracleProbeBot.OracleThresholdDetail());
     }
 }
 

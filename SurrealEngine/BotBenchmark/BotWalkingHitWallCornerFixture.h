@@ -19,7 +19,7 @@ struct BotWalkingHitWallCornerFixtureConfig
 {
 	std::string URL;
 	int ExternalSkill = 3;
-	float ElapsedSeconds = 0.5f;
+	float ElapsedSeconds = 1.0f;
 };
 
 struct BotWalkingHitWallCornerFixtureHookContact
@@ -39,7 +39,19 @@ struct BotWalkingHitWallCornerFixtureResult
 	vec3 FirstBlocker;
 	vec3 SecondBlocker;
 	uint64_t SuppressedHitWallCalls = 0;
+	uint64_t HookEnterCalls = 0;
+	uint64_t PlayerStartCandidates = 0;
+	uint64_t FlatStartCandidates = 0;
+	uint64_t FirstBlockerSpawns = 0;
+	uint64_t PrimaryContactCandidates = 0;
+	uint64_t PrimaryClearCandidates = 0;
+	uint64_t PrimaryOtherContactCandidates = 0;
+	float LastPrimaryFraction = 1.0f;
+	float LastPrimaryNormalZ = 0.0f;
+	uint64_t SlideLengthCandidates = 0;
+	uint64_t VerifiedCornerCandidates = 0;
 	std::vector<BotWalkingHitWallCornerFixtureHookContact> HookContacts;
+	std::vector<std::string> HookFunctionNames;
 	std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord> Diagnostics;
 };
 

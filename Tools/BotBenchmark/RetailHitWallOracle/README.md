@@ -72,6 +72,33 @@ The runner refuses an existing output directory and fails if any installed
 retail file changes. Use `-KeepRuntime` only when retaining the otherwise
 disposable runtime is necessary to diagnose a failed compilation or process.
 
+## Pinned microthreshold calibration
+
+The normal runner intentionally retains its historical dynamic PlayerStart and
+direction search. Boundary calibration is a separate opt-in mode, so an
+unavailable pinned contact never silently falls back to another corridor:
+
+```powershell
+pwsh .\Tools\BotBenchmark\Run-RetailMinHitWallOracle.ps1 `
+  -RetailRoot 'C:\Program Files (x86)\GOG Galaxy\Games\Unreal Tournament GOTY' `
+  -OutputRoot .\qa\runs\2026-07-25\retail-minhitwall-ut436-pinned-micro `
+  -Profile UT436 -Cases 1 -PinnedMicrothreshold `
+  -MinHitWallMicro @(-397682, -397676, -397668) -Repetitions 2
+```
+
+This mode accepts only case `1`, requires at least three unique thresholds and
+two repetitions, and uses profile-local PlayerStart coordinates and one
+candidate direction. The package resolves exactly one map `PlayerStart` near
+the requested transform, records that actor and the selected static-contact
+signature, and rejects absent or ambiguous coordinates. The runner requires
+identical signatures and deterministic, monotonic callback outcomes across
+the repetitions before writing `pinned-boundary-summary.json`.
+
+`-MinHitWallMicro` is integer millionths and is deliberately separate from
+the existing `-MinHitWallMilli` path. The summary reports a reproducible
+suppressed/dispatched bracket only; six-decimal script records are not proof
+of the retail equality comparator or its exact native floating-point operand.
+
 The verified UT436 dynamic-contact runs are:
 
 - `v23`: head-on `MinHitWall=-0.500000`, one walking (`Physics=1`)

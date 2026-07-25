@@ -3,12 +3,22 @@ class RetailHitWallOracleUnrealGame extends UnrealShare.DeathMatchGame
     config(RetailHitWallOracleUnreal);
 
 var config int OracleMinHitWallMilli;
+var config int OracleMinHitWallMicro;
+var config int OracleUseMinHitWallMicro;
 var config int OracleCase;
 var config int OracleDurationSeconds;
+var config int OraclePinnedCalibration;
+var config int OraclePinnedStartXMilli;
+var config int OraclePinnedStartYMilli;
+var config int OraclePinnedStartZMilli;
+var config int OraclePinnedDirection;
 var bool bOracleStarted;
 var bool bOracleSetupAttempted;
 var bool bOracleCompleted;
+var bool bOracleUseMinHitWallMicro;
+var bool bOraclePinnedCalibration;
 var RetailHitWallOracleUnrealBot OracleProbe;
+var PlayerStart OraclePinnedPlayerStart;
 var string OracleRunId;
 var int OracleSequence;
 
@@ -31,8 +41,17 @@ event InitGame(string Options, out string Error)
     bWorldLog = False;
     Super.InitGame(Options, Error);
     OracleMinHitWallMilli = GetIntOption(Options, "OracleMinHitWallMilli", OracleMinHitWallMilli);
+    OracleMinHitWallMicro = GetIntOption(Options, "OracleMinHitWallMicro", OracleMinHitWallMicro);
+    OracleUseMinHitWallMicro = GetIntOption(Options, "OracleUseMinHitWallMicro", OracleUseMinHitWallMicro);
     OracleCase = GetIntOption(Options, "OracleCase", OracleCase);
     OracleDurationSeconds = GetIntOption(Options, "OracleDurationSeconds", OracleDurationSeconds);
+    OraclePinnedCalibration = GetIntOption(Options, "OraclePinnedCalibration", OraclePinnedCalibration);
+    OraclePinnedStartXMilli = GetIntOption(Options, "OraclePinnedStartXMilli", OraclePinnedStartXMilli);
+    OraclePinnedStartYMilli = GetIntOption(Options, "OraclePinnedStartYMilli", OraclePinnedStartYMilli);
+    OraclePinnedStartZMilli = GetIntOption(Options, "OraclePinnedStartZMilli", OraclePinnedStartZMilli);
+    OraclePinnedDirection = GetIntOption(Options, "OraclePinnedDirection", OraclePinnedDirection);
+    bOracleUseMinHitWallMicro = OracleUseMinHitWallMicro != 0;
+    bOraclePinnedCalibration = OraclePinnedCalibration != 0;
     OracleRunId = ParseOption(Options, "OracleRunId");
     if (OracleRunId == "")
         OracleRunId = "missing-run-id";
@@ -71,6 +90,71 @@ function vector CandidateDirection(int Candidate)
     return Normal(vect(1,-1,0));
 }
 
+function float OracleThresholdValue()
+{
+    if (bOracleUseMinHitWallMicro)
+        return float(OracleMinHitWallMicro) / 1000000.0;
+    return float(OracleMinHitWallMilli) / 1000.0;
+}
+
+function string OracleThresholdDetail()
+{
+    if (bOracleUseMinHitWallMicro)
+        return ";threshold_unit=micro;threshold_micro=" $ OracleMinHitWallMicro;
+    return ";threshold_unit=milli;threshold_milli=" $ OracleMinHitWallMilli;
+}
+
+function vector OraclePinnedStartLocation()
+{
+    local vector Result;
+
+    Result.X = float(OraclePinnedStartXMilli) / 1000.0;
+    Result.Y = float(OraclePinnedStartYMilli) / 1000.0;
+    Result.Z = float(OraclePinnedStartZMilli) / 1000.0;
+    return Result;
+}
+
+function bool FindPinnedPlayerStart()
+{
+    local PlayerStart CandidateStart;
+    local PlayerStart NearestStart;
+    local vector RequestedStart;
+    local int MatchCount;
+    local float Distance;
+    local float NearestDistance;
+
+    RequestedStart = OraclePinnedStartLocation();
+    OraclePinnedPlayerStart = None;
+    foreach AllActors(class'PlayerStart', CandidateStart)
+    {
+        Distance = VSize(CandidateStart.Location - RequestedStart);
+        if (NearestStart == None || Distance < NearestDistance)
+        {
+            NearestStart = CandidateStart;
+            NearestDistance = Distance;
+        }
+        if (Distance <= 1.0)
+        {
+            MatchCount++;
+            OraclePinnedPlayerStart = CandidateStart;
+        }
+    }
+    if (MatchCount != 1)
+    {
+        LogOracle("pinned_start_rejected", "requested_start=" $ RequestedStart
+            $ ";match_count=" $ MatchCount $ ";nearest_start=" $ NearestStart
+            $ ";nearest_location=" $ NearestStart.Location
+            $ ";nearest_distance=" $ NearestDistance
+            $ ";direction=" $ OraclePinnedDirection);
+        return False;
+    }
+    LogOracle("pinned_start_selected", "requested_start=" $ RequestedStart
+        $ ";playerstart=" $ OraclePinnedPlayerStart
+        $ ";playerstart_location=" $ OraclePinnedPlayerStart.Location
+        $ ";direction=" $ OraclePinnedDirection);
+    return True;
+}
+
 function bool ConfigureProbeAtStart(RetailHitWallOracleUnrealBot Probe, vector Start)
 {
     local vector Goal;
@@ -90,6 +174,8 @@ function bool ConfigureProbeAtStart(RetailHitWallOracleUnrealBot Probe, vector S
     local RetailHitWallOracleUnrealBlocker Blocker;
     local RetailHitWallOracleUnrealMover MoverTarget;
     local int Candidate;
+    local int CandidateBegin;
+    local int CandidateEnd;
     local int Sample;
     local float LateralOffset;
     local float FloorReferenceZ;
@@ -97,7 +183,19 @@ function bool ConfigureProbeAtStart(RetailHitWallOracleUnrealBot Probe, vector S
     LateralOffset = 0.0;
     if (OracleCase == 1)
         LateralOffset = 89.0;
-    for (Candidate = 0; Candidate < 8; Candidate++)
+    CandidateBegin = 0;
+    CandidateEnd = 8;
+    if (bOraclePinnedCalibration)
+    {
+        if (OraclePinnedDirection < 0 || OraclePinnedDirection >= 8)
+        {
+            LogOracle("pinned_direction_rejected", "direction=" $ OraclePinnedDirection);
+            return False;
+        }
+        CandidateBegin = OraclePinnedDirection;
+        CandidateEnd = CandidateBegin + 1;
+    }
+    for (Candidate = CandidateBegin; Candidate < CandidateEnd; Candidate++)
     {
         Direction = CandidateDirection(Candidate);
         Goal = Start + Direction * 512.0;
@@ -166,10 +264,17 @@ function bool ConfigureProbeAtStart(RetailHitWallOracleUnrealBot Probe, vector S
             LogOracle("preflight_blocker", "case=" $ OracleCase $ ";candidate=" $ Candidate
                 $ ";start=" $ Start $ ";goal=" $ Goal $ ";blocker=" $ Target
                 $ ";blocker_location=" $ Target.Location $ ";normal=" $ HitNormal
-                $ ";location=" $ HitLocation);
+                $ ";location=" $ HitLocation $ ";direction=" $ Direction
+                $ ";lateral_offset=" $ LateralOffset $ OracleThresholdDetail());
         }
-        Probe.ConfigureOracle(float(OracleMinHitWallMilli) / 1000.0,
-            Start, Goal, OracleCase, Target, OracleRunId);
+        if (bOraclePinnedCalibration)
+            LogOracle("pinned_contact_selected", "case=" $ OracleCase
+                $ ";playerstart=" $ OraclePinnedPlayerStart
+                $ ";playerstart_location=" $ OraclePinnedPlayerStart.Location
+                $ ";candidate=" $ Candidate $ ";direction=" $ Direction
+                $ ";lateral_offset=" $ LateralOffset);
+        Probe.ConfigureOracle(OracleThresholdValue(), Start, Goal, OracleCase, Target,
+            OracleRunId, OracleMinHitWallMicro, bOracleUseMinHitWallMicro);
         return True;
     }
     return False;
@@ -180,6 +285,17 @@ function bool ConfigureProbe(RetailHitWallOracleUnrealBot Probe)
     local vector InitialStart;
     local PlayerStart CandidateStart;
 
+    if (bOraclePinnedCalibration)
+    {
+        if (OracleCase != 1)
+        {
+            LogOracle("setup_rejected", "case=" $ OracleCase $ ";reason=pinned_requires_glancing_case");
+            return False;
+        }
+        if (!FindPinnedPlayerStart())
+            return False;
+        return ConfigureProbeAtStart(Probe, OraclePinnedPlayerStart.Location);
+    }
     InitialStart = Probe.Location;
     if (ConfigureProbeAtStart(Probe, InitialStart))
         return True;
@@ -249,8 +365,15 @@ defaultproperties
 {
     BotConfigType=class'RetailHitWallOracleUnrealBotConfig'
     OracleMinHitWallMilli=-500
+    OracleMinHitWallMicro=0
+    OracleUseMinHitWallMicro=0
     OracleCase=0
     OracleDurationSeconds=6
+    OraclePinnedCalibration=0
+    OraclePinnedStartXMilli=0
+    OraclePinnedStartYMilli=0
+    OraclePinnedStartZMilli=0
+    OraclePinnedDirection=-1
     FragLimit=0
     TimeLimit=0
     bDontRestart=True

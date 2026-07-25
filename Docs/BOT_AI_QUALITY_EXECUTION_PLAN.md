@@ -1871,12 +1871,45 @@ whereas `-0.395` dispatched after two; their dynamically selected corridors
 differed. The next oracle extension must pin PlayerStart and direction and
 repeat adjacent microthresholds before it can make any equality claim.
 
-A native forced-corner fixture is compiled into the headless driver and checks
-the actual two-contact `TickWalking` path, but its real-install execution is
-not yet evidence: the current UT desktop launch crashes while logging in its
-spectator because `SoldierSkins.sldr` fails to load from the owner install.
-That pre-existing runtime compatibility failure must be repaired or isolated
-before the fixture can close the shared-runtime gate.
+A native forced-corner fixture is compiled into the headless driver. Its first
+owner-install run exposed an iterator invalidation bug in the fixture itself:
+it spawned and destroyed `BlockAll` actors while iterating the live level actor
+array. The fixture now snapshots `PlayerStart` locations before any mutation;
+it reaches the actual Deck16][ geometry and records a dynamic primary-forward
+contact followed by an aligned-slide contact. This is still not a release
+gate: the newly spawned stock bot has no callable `HitWall` handler in that
+state, and the untouched native walking loop recontacts the blocked geometry
+after the first pair. The result remains fail-closed while the fixture is
+reduced to a two-contact native observation without inventing script dispatch.
+
+## Iteration 79: pinned microthreshold retail calibration
+
+The retail oracle now has a separate `-PinnedMicrothreshold` mode for the
+static glancing blocker. It does not change the default dynamic PlayerStart /
+direction search used by the existing milli-threshold matrix. Instead, each
+profile supplies a requested PlayerStart transform and candidate direction;
+the retail package must resolve exactly one map `PlayerStart`, validate the
+same flat path and trace-identified spawned blocker, and use only that one
+direction. An absent, ambiguous, blocked, or falling setup is rejected rather
+than searching for a different corridor.
+
+Thresholds in this mode are integer millionths (`OracleMinHitWallMicro`) and
+are logged alongside the existing float representation. At least three unique
+thresholds and two fresh server repetitions are required. The runner compares
+the actor identity, PlayerStart transform, preflight path, blocker transform,
+normal, direction, and lateral offset across all repetitions; it then requires
+one deterministic result per threshold, monotonic callback admission, and at
+least one suppressed and one dispatched threshold. Its
+`pinned-boundary-summary.json` reports only the observed bracket. It must not
+be treated as a proof of `<` versus `<=` or of the unprinted retail native
+floating-point operand.
+
+The first UT436 pinned run resolved `DM-Deck16][.PlayerStart20` at the exact
+map transform, fixed the direction to `+Y`, and passed two bounded repetitions
+per threshold with unchanged owner-install inventory. `-0.397` and `-0.395`
+both suppressed, while `-0.350` dispatched. This is a reproducible broad
+bracket, not a predicate change; an adjacent, mixed-outcome microthreshold
+bracket remains required.
 
 ## Frozen tuning and held-out maps
 
