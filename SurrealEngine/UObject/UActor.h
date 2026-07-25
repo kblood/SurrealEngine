@@ -2506,6 +2506,7 @@ private:
 		PawnMovement::FallingHazardForecastSource source,
 		const PawnMovement::FallingHazardForecastInput& input,
 		const PawnMovement::FallingHazardForecastUpdate& forecast);
+	void CaptureExternalImpulseNavigationCommit();
 
 	bool IsInPathSpecialHandling = false;
 	PawnMovement::FailedNavigationMemoryState FailedNavigationMemory;
@@ -2572,6 +2573,18 @@ private:
 	HazardSwimEgressState HazardSwimEgress;
 	PawnMovement::HazardResidenceState HazardResidence;
 	std::string HazardResidenceCandidateName;
+	struct ExternalImpulseNavigationCommitState
+	{
+		bool Active = false;
+		bool FallingPhaseActive = false;
+		std::string MoveTargetName;
+		bool MoveTargetNavigation = false;
+		bool RouteHeadKnown = false;
+		std::string RouteHeadName;
+		vec3 Location = vec3(0.0f);
+		vec3 Velocity = vec3(0.0f);
+	};
+	ExternalImpulseNavigationCommitState ExternalImpulseNavigationCommit;
 	BotAI::HazardSwimEgressGate HazardSwimEgressGate;
 	std::unique_ptr<PawnMovement::HazardWaterEgressObserver>
 		HazardWaterEgressObserver;

@@ -2332,6 +2332,27 @@ The next discovery slice should identify non-air-control mechanisms with a
 separate witness—such as an earlier navigation commitment, lift/edge route
 choice, or damage-residency arbitration—rather than weakening this certificate.
 
+## Iteration 97: launch-navigation provenance and route-veto rejection
+
+Claude Opus independently recommended this as the final diagnostic necessary
+before a route-edge policy: capture whether a route head exists, distinguish a
+navigation-point target from another target, and require a dominant fatal
+provenance class before authorizing a launch-tick veto. The new observer-only
+fields are attached to the bounded existing water-egress record. They are
+optional as one complete group for legacy artifact compatibility; partial new
+groups fail closed, and unavailable provenance is prohibited from claiming
+names, route state, or vectors.
+
+On Unreal Gold 226b DeathFan, two byte-identical 7,200-tick seed-271828 runs
+have events SHA-256
+`8A3EDE441B38BA85BD4EB2AFCA8448B59BC144598E753F17928E573AD53E77F3` and
+retain 27 egress episodes: 16 deaths before exit and 11 primary-zone clears.
+All 16 fatal records have a launch snapshot; 11 have a route head, five have a
+navigation-point move target, and 11 begin above z=1000. The remaining fatal
+records include no route head or no navigation target, so route commitment is
+not a dominant sufficient cause. Reject the proposed shared route-hop veto at
+this point. This remains a diagnosis result, not a behavior-quality change.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:

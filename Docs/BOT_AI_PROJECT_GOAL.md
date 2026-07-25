@@ -95,3 +95,12 @@ static, dry landing inside the existing forecast horizon; zero alternatives
 are certified. Therefore air-control steering is rejected for this observed
 failure class. This is not a claim that the deaths are unavoidable in every
 game state: alternative recovery mechanisms need their own causal witness.
+
+The next causal slice is complete: harmful-water egress diagnostics retain the
+navigation provenance from the start of the continuous falling phase, including
+target type, route-head presence, and launch location/velocity. The evidence
+rejects a route-only launch veto for DeathFan: fatal falls are mixed between
+navigation-targeted, route-headed, and neither-target-nor-route cases. No
+route penalty, target override, or movement change is authorized from this
+mixed evidence. Continue with a separate witness for non-route ledge departure
+or combat/latent-command ownership, keeping every candidate default-off.

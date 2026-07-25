@@ -576,6 +576,13 @@ class BotQualityAnalysisTests(unittest.TestCase):
             "entry_move_target_location_known": False,
             "entry_move_target_location": {"x": 0.0, "y": 0.0, "z": 0.0},
             "entry_destination": {"x": 4.0, "y": 5.0, "z": 6.0},
+            "external_impulse_navigation_commit_known": True,
+            "external_impulse_move_target_name": "PathNode142",
+            "external_impulse_move_target_navigation": True,
+            "external_impulse_route_head_known": True,
+            "external_impulse_route_head_name": "PathNode143",
+            "external_impulse_commit_location": {"x": 5.0, "y": 6.0, "z": 7.0},
+            "external_impulse_commit_velocity": {"x": 8.0, "y": 9.0, "z": 10.0},
             "static_walk_certificate_result": "certified_static_walk_continuation",
             "static_walk_first_hop_known": True, "static_walk_first_hop_name": "PathNode143",
             "static_walk_first_hop_location_known": True,
@@ -617,6 +624,27 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 common, final, {**final, "hazard_water_egress_diagnostics": []},
             ])
             QUALITY.analyze_run(valid)
+
+            legacy = write_v2_run(root, "hazard-water-egress-legacy", bot_count=1)
+            legacy_diagnostic = {
+                key: value for key, value in diagnostic.items()
+                if not key.startswith("external_impulse_")
+            }
+            upgrade_telemetry_v2(legacy, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [legacy_diagnostic]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            QUALITY.analyze_run(legacy)
+
+            malformed_provenance = write_v2_run(
+                root, "hazard-water-egress-provenance", bot_count=1)
+            invalid_provenance = {**diagnostic, "external_impulse_route_head_known": False}
+            upgrade_telemetry_v2(malformed_provenance, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_provenance]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "route-head availability"):
+                QUALITY.analyze_run(malformed_provenance)
 
             malformed = write_v2_run(root, "hazard-water-egress-malformed", bot_count=1)
             invalid = {**diagnostic, "candidate_distance_known": False}

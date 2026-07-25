@@ -5061,6 +5061,19 @@ void UPawn::UpdateActorZone()
 void UPawn::Tick(float elapsed)
 {
 	const uint8_t physicsAtPawnTickEntry = Physics();
+	if (physicsAtPawnTickEntry == PHYS_Falling)
+	{
+		if (!ExternalImpulseNavigationCommit.FallingPhaseActive)
+			CaptureExternalImpulseNavigationCommit();
+		ExternalImpulseNavigationCommit.FallingPhaseActive = true;
+	}
+	else
+	{
+		// Preserve the most recent fall's snapshot through a Swimming tick: the
+		// egress observer may report the water transition after physics changes.
+		// A later falling phase overwrites it before any new fall is reported.
+		ExternalImpulseNavigationCommit.FallingPhaseActive = false;
+	}
 	UZoneInfo* seamFootZone = FootRegion().Zone;
 	if (bDeleteMe() || Health() <= 0 || Physics() != PHYS_Falling
 		|| !seamFootZone || seamFootZone->bPainZone() || seamFootZone->bWaterZone())
@@ -5828,6 +5841,20 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 	entry.EntryLocation = Location();
 	entry.DamagePerSecond = static_cast<float>(primaryZone->DamagePerSec());
 	entry.Destination = Destination();
+	entry.ExternalImpulseNavigationCommitKnown =
+		entry.TransitionSource
+			== PawnMovement::HazardWaterEgressTransitionSource::FallingDirectSweep
+		&& ExternalImpulseNavigationCommit.Active;
+	if (entry.ExternalImpulseNavigationCommitKnown)
+	{
+		entry.ExternalImpulseMoveTargetName = ExternalImpulseNavigationCommit.MoveTargetName;
+		entry.ExternalImpulseMoveTargetNavigation =
+			ExternalImpulseNavigationCommit.MoveTargetNavigation;
+		entry.ExternalImpulseRouteHeadKnown = ExternalImpulseNavigationCommit.RouteHeadKnown;
+		entry.ExternalImpulseRouteHeadName = ExternalImpulseNavigationCommit.RouteHeadName;
+		entry.ExternalImpulseCommitLocation = ExternalImpulseNavigationCommit.Location;
+		entry.ExternalImpulseCommitVelocity = ExternalImpulseNavigationCommit.Velocity;
+	}
 	if (UActor* moveTarget = MoveTarget())
 	{
 		entry.MoveTargetName = moveTarget->Name.ToString();
@@ -7282,6 +7309,36 @@ void UPawn::ObserveExternalImpulseFallWitness(
 		break;
 	default:
 		break;
+	}
+}
+
+void UPawn::CaptureExternalImpulseNavigationCommit()
+{
+	ExternalImpulseNavigationCommit = {};
+	if (!engine->IsBotBenchmarkHazardSwimEgressEnabled()
+		|| !IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority
+		|| bDeleteMe() || Health() <= 0 || !IsFiniteVector(Location())
+		|| !IsFiniteVector(Velocity()))
+	{
+		return;
+	}
+	ExternalImpulseNavigationCommit.Active = true;
+	ExternalImpulseNavigationCommit.Location = Location();
+	ExternalImpulseNavigationCommit.Velocity = Velocity();
+	if (UActor* target = MoveTarget())
+	{
+		ExternalImpulseNavigationCommit.MoveTargetName = target->Name.ToString();
+		ExternalImpulseNavigationCommit.MoveTargetNavigation =
+			UObject::TryCast<UNavigationPoint>(target) != nullptr;
+	}
+	for (UNavigationPoint* routeNode : RouteCache())
+	{
+		if (routeNode && !routeNode->bDeleteMe())
+		{
+			ExternalImpulseNavigationCommit.RouteHeadKnown = true;
+			ExternalImpulseNavigationCommit.RouteHeadName = routeNode->Name.ToString();
+			break;
+		}
 	}
 }
 

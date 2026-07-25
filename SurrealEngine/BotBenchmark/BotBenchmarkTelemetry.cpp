@@ -477,6 +477,20 @@ namespace
 		WriteVector(out, entry.MoveTargetLocation);
 		out << ",\"entry_destination\":";
 		WriteVector(out, entry.Destination);
+		out << ",\"external_impulse_navigation_commit_known\":"
+			<< (entry.ExternalImpulseNavigationCommitKnown ? "true" : "false")
+			<< ",\"external_impulse_move_target_name\":"
+			<< JsonString(entry.ExternalImpulseMoveTargetName)
+			<< ",\"external_impulse_move_target_navigation\":"
+			<< (entry.ExternalImpulseMoveTargetNavigation ? "true" : "false")
+			<< ",\"external_impulse_route_head_known\":"
+			<< (entry.ExternalImpulseRouteHeadKnown ? "true" : "false")
+			<< ",\"external_impulse_route_head_name\":"
+			<< JsonString(entry.ExternalImpulseRouteHeadName)
+			<< ",\"external_impulse_commit_location\":";
+		WriteVector(out, entry.ExternalImpulseCommitLocation);
+		out << ",\"external_impulse_commit_velocity\":";
+		WriteVector(out, entry.ExternalImpulseCommitVelocity);
 		const auto& certificate = diagnostic.StaticWalkCertificate;
 		out << ",\"static_walk_certificate_result\":"
 			<< JsonString(certificate.Result)
