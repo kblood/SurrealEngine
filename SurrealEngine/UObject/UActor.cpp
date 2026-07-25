@@ -5765,10 +5765,14 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 	const bool staticWater = std::all_of(zones.begin(), zones.end(),
 		[](UZoneInfo* zone) { return zone && zone->bStatic() && zone->bWaterZone(); });
 	const bool exactHarmfulWater = staticWater && IsExactHarmfulZone(primaryZone);
+	const bool positiveDpsHazard = std::any_of(zones.begin(), zones.end(),
+		[](UZoneInfo* zone) { return IsExactHarmfulZone(zone); });
 	// Physics has just updated the authoritative primary zone. Sampling it here
-	// closes the gap where an immediate water transition is resolved before the
-	// next pawn tick sees the new region.
-	AdvanceHazardResidenceSample(exactHarmfulWater, 0.0f);
+	// closes the gap where an immediate transition is resolved before the next
+	// pawn tick sees the new region. Preserve the all-region positive-DPS
+	// definition used by the normal tick; a water-only sample must not create a
+	// false clearance while another pawn region remains harmful.
+	AdvanceHazardResidenceSample(positiveDpsHazard, 0.0f);
 	if (!exactHarmfulWater)
 	{
 		const bool primaryHarmfulWater = primaryZone && primaryZone->bStatic()

@@ -2427,6 +2427,36 @@ would be speculative. Preserve the observer and seek a separate controllable
 Unreal witness; do not relax candidate certification, infer a safe escape from
 a clear terminal, or use the existing UT signal as a cross-game quality pass.
 
+### Cross-certification correction (2026-07-25)
+
+The residence analyzer now certifies its independently reconstructed episode
+partition against the engine's exact per-participant counters: episodes,
+clears, deaths, run-end censors, command changes, observed candidates, and
+candidate supersessions. Native life-boundary and unknown terminals remain
+fail-closed because the sample stream cannot reconstruct them. This exposed
+and corrected two lifecycle defects before any bot behavior was considered:
+
+- the analyzer could begin a new residence from a dead pawn's final harmful
+  sample after the engine had already recorded its death terminal; and
+- the post-physics water-only sample could transiently clear a residence while
+  another pawn region remained in a positive-DPS zone, inflating native
+  re-entry counts.
+
+Fresh 7,200-tick observer-only runs now pass both the normal quality gate and
+the cross-certificate in UT436 `DM-Deck16][` (seed `271828`, difficulty 7) and
+Unreal Gold 226b `DmDeathFan` (same seed, difficulty 3). The UT stream reports
+six residences, six deaths, two observed candidates, and two supersessions;
+the Unreal stream reports 28 residences, 25 deaths, three clears, and no
+candidate/supersession. For both games, enabling the observer with the live
+egress overlay disabled produced a behaviorally identical event stream after
+removing only configuration and `hazard_*` telemetry fields. Evidence is in
+`qa/runs/2026-07-25/hazard-residence-cross-certification-v3/` and
+`qa/reports/bot-ai/hazard-residence-cross-certification-v3/`.
+
+This certifies the diagnostic witness, not a route pin, target override, or
+movement intervention. The cross-game evidence still rejects a shared live
+policy: UT has witnessed supersession, while Unreal has no certified candidate.
+
 ## Iteration 101: current-position static-first-hop probe rejection
 
 The static-walk certificate is computed from a pre-fall anchor, so its first

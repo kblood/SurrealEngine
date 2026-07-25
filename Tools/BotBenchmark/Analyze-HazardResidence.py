@@ -24,10 +24,23 @@ TELEMETRY_SCHEMAS = {
     "surreal-bot-benchmark-telemetry-v2",
 }
 COUNTERS = (
+    "hazard_residence_episodes_exact",
+    "hazard_residence_cleared_exact",
+    "hazard_residence_deaths_exact",
+    "hazard_residence_life_boundary_censored_exact",
+    "hazard_residence_run_end_censored_exact",
+    "hazard_residence_unknown_exact",
+    "hazard_residence_reentries_exact",
+    "hazard_residence_command_changes_exact",
     "hazard_residence_candidates_observed_exact",
     "hazard_residence_candidate_other_commands_exact",
-    "hazard_residence_command_changes_exact",
 )
+
+TERMINAL_COUNTERS = {
+    "cleared": "hazard_residence_cleared_exact",
+    "death": "hazard_residence_deaths_exact",
+    "run_end_censored": "hazard_residence_run_end_censored_exact",
+}
 
 
 class ResidenceError(ValueError):
@@ -165,10 +178,13 @@ class _Episode:
             "reentries": str(self.reentries),
             "target_changes": str(self.target_changes),
             "latent_action_changes": str(self.latent_action_changes),
-            "candidate_observed": deltas[COUNTERS[0]] > 0,
-            "candidate_superseded": deltas[COUNTERS[1]] > 0,
+            "candidate_observed": deltas[
+                "hazard_residence_candidates_observed_exact"] > 0,
+            "candidate_superseded": deltas[
+                "hazard_residence_candidate_other_commands_exact"] > 0,
             "candidate_names": sorted(self.candidate_names),
-            "command_change_counter_delta": str(deltas[COUNTERS[2]]),
+            "command_change_counter_delta": str(deltas[
+                "hazard_residence_command_changes_exact"]),
             "terminal": self.terminal,
             "terminal_tick": str(self.terminal_tick),
             "terminal_seconds": self.terminal_seconds,
@@ -187,6 +203,7 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
     active: dict[str, _Episode] = {}
     sequence: dict[str, int] = {}
     prior_deaths: dict[str, int] = {}
+    final_counters: dict[str, dict[str, int]] = {}
     completed: list[dict[str, Any]] = []
     prior_tick = -1
     prior_seconds = -1.0
@@ -225,6 +242,7 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
             latent = _string(bot.get("latent_action"), f"{bot_context}.latent_action")
             target = _string(bot.get("move_target_name"), f"{bot_context}.move_target_name")
             counters = _counter_snapshot(bot, bot_context)
+            final_counters[identity] = counters
             candidate_name = _string(bot.get("hazard_swim_egress_direct_nav_best_candidate_name"),
                 f"{bot_context}.hazard_swim_egress_direct_nav_best_candidate_name")
             if deaths < prior_deaths.get(identity, deaths):
@@ -232,7 +250,7 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
             died = deaths > prior_deaths.get(identity, deaths)
             prior_deaths[identity] = deaths
             episode = active.get(identity)
-            if episode is None and harmful:
+            if episode is None and harmful and health > 0:
                 episode_id = sequence.get(identity, 0) + 1
                 sequence[identity] = episode_id
                 episode = _Episode(identity, actor, episode_id, tick, seconds, position, health,
@@ -257,7 +275,8 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
         raise ResidenceError("events stream has no successful complete run_result")
     for identity, episode in active.items():
         episode.terminal = "run_end_censored"
-        completed.append(episode.report(episode.counters))
+        completed.append(episode.report(final_counters[identity]))
+    _certify_native_reconstruction(completed, final_counters)
     totals = {
         "episodes": str(len(completed)),
         "deaths": str(sum(item["terminal"] == "death" for item in completed)),
@@ -269,6 +288,48 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
     }
     return {"schema": REPORT_SCHEMA, "clearance_grace_seconds": clearance_grace_seconds,
             "totals": totals, "episodes": completed}
+
+
+def _certify_native_reconstruction(episodes: list[dict[str, Any]],
+                                   final_counters: dict[str, dict[str, int]]) -> None:
+    """Require the independent Python reconstruction to partition native totals."""
+    reconstructed: dict[str, dict[str, int]] = {}
+    for episode in episodes:
+        identity = _string(episode.get("identity"), "episode.identity")
+        totals = reconstructed.setdefault(identity, {name: 0 for name in COUNTERS})
+        totals["hazard_residence_episodes_exact"] += 1
+        terminal = _string(episode.get("terminal"), f"{identity}.terminal")
+        counter = TERMINAL_COUNTERS.get(terminal)
+        if counter is None:
+            raise ResidenceError(f"{identity}: unsupported reconstructed terminal {terminal!r}")
+        totals[counter] += 1
+        totals["hazard_residence_reentries_exact"] += _integer(
+            episode.get("reentries"), f"{identity}.reentries")
+        totals["hazard_residence_command_changes_exact"] += _integer(
+            episode.get("command_change_counter_delta"),
+            f"{identity}.command_change_counter_delta")
+        if _boolean(episode.get("candidate_observed"), f"{identity}.candidate_observed"):
+            totals["hazard_residence_candidates_observed_exact"] += 1
+        if _boolean(episode.get("candidate_superseded"), f"{identity}.candidate_superseded"):
+            totals["hazard_residence_candidate_other_commands_exact"] += 1
+
+    for identity, counters in final_counters.items():
+        actual = reconstructed.get(identity, {name: 0 for name in COUNTERS})
+        for unsupported in (
+                "hazard_residence_life_boundary_censored_exact",
+                "hazard_residence_unknown_exact"):
+            if counters[unsupported] != 0:
+                raise ResidenceError(
+                    f"{identity}: native {unsupported} is not reconstructable from telemetry")
+        for name in COUNTERS:
+            if name in (
+                    "hazard_residence_life_boundary_censored_exact",
+                    "hazard_residence_unknown_exact"):
+                continue
+            if actual[name] != counters[name]:
+                raise ResidenceError(
+                    f"{identity}: reconstructed {name}={actual[name]} does not match "
+                    f"native {counters[name]}")
 
 
 def _read_events(path: Path) -> list[dict[str, Any]]:
