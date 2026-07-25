@@ -2933,3 +2933,27 @@ dispatch-time operand, so replacing the legacy vertical-wall predicate with
 the reconstructed `MinHitWall` predicate would be unsafe. First repair the
 controlled retail-oracle operand witness and the cross-game corner fixture;
 only then may a default-off notification-only experiment be considered.
+
+## Iteration 115: stable retail `MinHitWall` boundary oracle
+
+The controlled retail oracle no longer accepts a glancing pawn sliding around
+its dynamic round blocker after its first contact. In both UT and Unreal
+packages, the pinned microthreshold probe now records a one-time first-contact
+latch that ends the latent `MoveTo` before a later walking step can change the
+normal or velocity. The runner rejects a missing/duplicate latch and any
+retained Bump witness that differs from the selected first contact.
+
+With two repetitions per threshold, the hardened retail fixtures produce these
+stable callback brackets: UT436 `DM-Deck16][` suppresses at `-0.396000` and
+`-0.395000` and dispatches at `-0.394000`; Unreal Gold 226b `DmMorbias`
+suppresses at `-0.398000` and `-0.397000` and dispatches at `-0.396000`.
+The isolated-run summaries are at
+`qa/retail/minhitwall-oracle-v3/{ut436,unreal226b}-pinned-latched-r1/`.
+
+This establishes a cross-game retail boundary but does not identify the exact
+native operand or equality semantics. The Bump trace is not the engine's
+dispatch-time input, and the brackets differ from its reconstructed dot
+product. Do not alter `TickWalking` yet. The next permitted slice is the
+native corner fixture with a genuine stock `HitWall` handler, exact
+dispatch-time values, and boundary cases; any later behavior change remains
+default-off and must preserve physical slide/retry behavior.

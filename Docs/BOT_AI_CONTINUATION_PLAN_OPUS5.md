@@ -35,10 +35,11 @@ change**, and nothing in this plan changes that judgment.
   implemented but still needs fresh cross-game runtime evidence.
 - Held-out maps (`DM-Fractal`, `DM-Phobos`, `DmElsinore`, `DmRadikus`) remain
   unopened and must stay unopened until tuning parameters freeze.
-- The one shared correction with independent retail evidence — walking
-  `HitWall` dispatch against `Pawn.MinHitWall` — is still blocked on a repaired
-  native fixture and on boundary semantics that the oracle has bracketed but
-  not proven.
+- The retail `HitWall` oracle now has a stable first-contact fixture and has
+  bracketed a repeatable boundary in both games. The one shared correction —
+  walking `HitWall` dispatch against `Pawn.MinHitWall` — remains blocked on the
+  native corner fixture and on exact operand/equality semantics, neither of
+  which the retail bracket proves.
 
 ### Fail-closed rules this plan preserves
 

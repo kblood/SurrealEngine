@@ -117,7 +117,7 @@ function ConvertTo-OracleEvent([string]$Line) {
         'oracle_complete', 'pick_wall_adjust_result',
         'pick_wall_adjust_skipped', 'postflight_blocker', 'preflight_blocker',
         'preflight_mover', 'pinned_contact_selected', 'pinned_direction_rejected',
-        'pinned_start_rejected', 'pinned_start_selected',
+        'pinned_contact_latched', 'pinned_start_rejected', 'pinned_start_selected',
         'probe_bump', 'probe_missing', 'setup_rejected', 'spawn_failed', 'start_rejected')
     if ($knownEvents -notcontains $columns[2]) {
         throw "Unrecognized retail oracle event: $($columns[2])"
@@ -171,6 +171,24 @@ function Get-OracleFloat([string]$Value, [string]$FieldName) {
         throw "Retail oracle field '$FieldName' is not an invariant floating-point value: $Value"
     }
     return $parsed
+}
+
+function Get-OracleVector([string]$Value, [string]$FieldName) {
+    $parts = @($Value.Split(','))
+    if ($parts.Count -ne 3) {
+        throw "Retail oracle field '$FieldName' is not a three-component vector: $Value"
+    }
+    return [pscustomobject]@{
+        x = Get-OracleFloat $parts[0] "$FieldName.x"
+        y = Get-OracleFloat $parts[1] "$FieldName.y"
+        z = Get-OracleFloat $parts[2] "$FieldName.z"
+    }
+}
+
+function Test-OracleVectorNear([object]$Actual, [object]$Expected, [double]$Tolerance) {
+    return [Math]::Abs($Actual.x - $Expected.x) -le $Tolerance -and
+        [Math]::Abs($Actual.y - $Expected.y) -le $Tolerance -and
+        [Math]::Abs($Actual.z - $Expected.z) -le $Tolerance
 }
 
 function Assert-OracleRun([object[]]$Events, [string]$RunId, [int]$CaseId,
@@ -264,6 +282,30 @@ function Assert-OracleRun([object[]]$Events, [string]$RunId, [int]$CaseId,
             }
             if ([int]$blockerBump.fields.seq -ge [int]$probeBump.fields.seq) {
                 throw "Retail oracle Bump pair ordering is invalid for $RunId."
+            }
+        }
+        $pinnedContactSelected = @($Events | Where-Object { $_.event -eq 'pinned_contact_selected' })
+        if ($pinnedContactSelected.Count -ne 0) {
+            $pinnedContactLatched = @($Events | Where-Object { $_.event -eq 'pinned_contact_latched' })
+            if ($pinnedContactSelected.Count -ne 1 -or $pinnedContactLatched.Count -ne 1) {
+                throw "Pinned retail oracle has no unique stable-contact latch for $RunId."
+            }
+            $expectedNormal = Get-OracleVector $preflights[0].fields.normal 'preflight.normal'
+            $expectedVelocity = Get-OracleVector $probeBumps[0].fields.velocity 'probe_bump.velocity'
+            foreach ($event in @($blockerBumps + $probeBumps)) {
+                $normal = Get-OracleVector $event.fields.bump_trace_normal 'bump_trace_normal'
+                $velocity = Get-OracleVector $event.fields.velocity 'velocity'
+                if (!(Test-OracleVectorNear $normal $expectedNormal 0.00001) -or
+                    !(Test-OracleVectorNear $velocity $expectedVelocity 0.00001)) {
+                    throw "Pinned retail oracle contact drifted after its selected witness for $RunId."
+                }
+            }
+            $latch = $pinnedContactLatched[0]
+            if (!$latch.fields.ContainsKey('bump_index') -or [int]$latch.fields.bump_index -ne 1 -or
+                [int]$latch.fields.seq -ne [int]$probeBumps[0].fields.seq + 1 -or
+                !(Test-OracleVectorNear (Get-OracleVector $latch.fields.normal 'latch.normal') $expectedNormal 0.00001) -or
+                !(Test-OracleVectorNear (Get-OracleVector $latch.fields.velocity 'latch.velocity') $expectedVelocity 0.00001)) {
+                throw "Pinned retail oracle latch does not describe its first stable contact for $RunId."
             }
         }
         if ($hitWalls.Count -eq 1 -and

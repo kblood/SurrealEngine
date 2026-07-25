@@ -11,6 +11,7 @@ var int OracleHitCount;
 var int OracleProbeBumpCount;
 var bool bOracleConfigured;
 var bool bOracleUsesMicroThreshold;
+var bool bOraclePinnedContactLatched;
 var Actor OracleBlocker;
 var string OracleRunId;
 
@@ -105,6 +106,19 @@ state OracleProbe
                 $ ";center_normal_reconstructed=" $ Normal(Location - Other.Location)
                 $ ";bump_trace_actor=" $ TraceActor $ ";bump_trace_normal=" $ TraceNormal
                 $ ";bump_trace_location=" $ TraceLocation $ OracleThresholdDetail());
+
+            // A pinned microthreshold run measures one stable native contact.
+            // Let the current walking step finish, but end its latent MoveTo
+            // before a later step can slide around this round test blocker.
+            if (bOracleUsesMicroThreshold && OracleCase == 1 && !bOraclePinnedContactLatched)
+            {
+                bOraclePinnedContactLatched = True;
+                MoveTimer = -1.0;
+                LogOracle("pinned_contact_latched", "case=" $ OracleCase
+                    $ ";bump_index=" $ OracleProbeBumpCount
+                    $ ";normal=" $ TraceNormal $ ";velocity=" $ Velocity
+                    $ OracleThresholdDetail());
+            }
         }
     }
 
