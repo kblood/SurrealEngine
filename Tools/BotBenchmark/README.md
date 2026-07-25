@@ -127,6 +127,13 @@ capabilities. It intentionally sets `selection_safe: false`: reach-flag
 combination semantics, player-only eligibility, dynamic collision, current
 anchor, and traversal state require a subsequent route-execution observer.
 
+Each current benchmark run also writes `route-execution.jsonl`. It is a
+read-only, one-record-per-tick witness of each controlled bot's position,
+velocity, `MoveTarget`, ordered pawn `RouteCache`, resolved zone, and
+per-tick displacement. It does not call pathfinding, collision traces, or
+write route state; its purpose is to attribute stalls before any routing
+behavior is changed.
+
 The current UT436 and Unreal Gold adapters do not expose a verified named-bot
 spawn contract. Supplying `requested_names` is therefore parsed and recorded
 deterministically but the engine run deliberately fails instead of silently

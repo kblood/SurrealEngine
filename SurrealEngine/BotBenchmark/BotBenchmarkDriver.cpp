@@ -110,6 +110,8 @@ namespace
 					WriteRealizedBotCapabilities();
 				if (!Complete)
 					OpenShadowTelemetry();
+				if (!Complete)
+					OpenRouteExecutionTelemetry();
 			}
 			catch (const std::exception& e)
 			{
@@ -161,6 +163,7 @@ namespace
 				Ticks = frameTime.Tick;
 				ObserveNavigationCoverage();
 				WriteShadowTelemetry(frameTime.Tick, frameTime.RealElapsed);
+				WriteRouteExecutionTelemetry(frameTime.Tick);
 				WriteTelemetry("tick", "running", {}, frameTime.Tick, frameTime.TotalReal);
 			}
 			catch (const std::exception& e)
@@ -175,6 +178,8 @@ namespace
 				Fail("headless runner reached its tick limit before driver completion");
 			if (ExitCode == 0 && ShadowTelemetryFile && ShadowTelemetryEventCount != Ticks)
 				Fail("shadow telemetry did not produce exactly one record per simulated tick");
+			if (ExitCode == 0 && RouteExecutionTelemetryFile && RouteExecutionTelemetryEventCount != Ticks)
+				Fail("route-execution telemetry did not produce exactly one record per simulated tick");
 
 			const double simulatedSeconds = static_cast<double>(Ticks) * Config.GetFixedDelta();
 			try
@@ -1804,6 +1809,90 @@ namespace
 			LogMessage("Bot benchmark telemetry: " + eventsPath.string());
 		}
 
+		void OpenRouteExecutionTelemetry()
+		{
+			const std::filesystem::path outputDirectory(Config.GetOutputDirectory());
+			const std::filesystem::path eventsPath = outputDirectory / "route-execution.jsonl";
+			RouteExecutionTelemetryFile = File::create_always(eventsPath.string());
+			LogMessage("Bot benchmark route execution: " + eventsPath.string());
+		}
+
+		void WriteRouteExecutionTelemetry(uint64_t tick)
+		{
+			if (!RouteExecutionTelemetryFile)
+				return;
+			if (RouteExecutionTelemetryEventCount >= Config.GetMaxTicks())
+				throw std::runtime_error("route-execution telemetry event cap reached");
+			const auto liveBots = CaptureLiveControlledBots();
+			std::ostringstream out;
+			out.imbue(std::locale::classic());
+			out << std::fixed << std::setprecision(6)
+				<< "{\"schema\":\"surreal-bot-route-execution-observation-v1\",\"seq\":\""
+				<< RouteExecutionTelemetryEventCount << "\",\"benchmark_config_id\":"
+				<< JsonString(TelemetryConfigIdentity) << ",\"tick\":\"" << tick << "\",\"participants\":[";
+			bool first = true;
+			for (const auto& actual : ActualRoster)
+			{
+				if (!first)
+					out << ',';
+				first = false;
+				auto live = std::find_if(liveBots.begin(), liveBots.end(), [&](const auto& item)
+				{
+					return item.first == actual.Identity;
+				});
+				UPawn* pawn = live == liveBots.end() ? nullptr : live->second;
+				out << "{\"roster_index\":" << actual.RosterIndex << ",\"identity\":"
+					<< JsonString(actual.Identity) << ",\"available\":" << (pawn && pawn->Health() > 0 ? "true" : "false");
+				if (pawn && pawn->Health() > 0)
+				{
+					const vec3 location = pawn->Location();
+					const auto previous = RouteExecutionPreviousLocations.find(actual.Identity);
+					const bool progressKnown = previous != RouteExecutionPreviousLocations.end();
+					const double displacement = progressKnown ? length(location - previous->second) : 0.0;
+					RouteExecutionPreviousLocations[actual.Identity] = location;
+					out << ",\"position\":{\"x\":" << location.x << ",\"y\":" << location.y
+						<< ",\"z\":" << location.z << "},\"velocity\":{\"x\":" << pawn->Velocity().x
+						<< ",\"y\":" << pawn->Velocity().y << ",\"z\":" << pawn->Velocity().z
+						<< "},\"progress_known\":" << (progressKnown ? "true" : "false")
+						<< ",\"displacement_since_previous_tick\":" << displacement;
+					UActor* target = pawn->HasProperty("MoveTarget") ? pawn->MoveTarget() : nullptr;
+					out << ",\"move_target\":";
+					if (target && !target->bDeleteMe())
+						out << "{\"name\":" << JsonString(target->Name.ToString()) << ",\"class\":"
+							<< JsonString(target->Class->Name.ToString()) << '}';
+					else
+						out << "null";
+					out << ",\"zone\":";
+					if (pawn->Region().Zone && !pawn->Region().Zone->bDeleteMe())
+						out << "{\"name\":" << JsonString(pawn->Region().Zone->Name.ToString())
+							<< ",\"zone_number\":" << static_cast<unsigned int>(pawn->Region().ZoneNumber) << '}';
+					else
+						out << "null";
+					out << ",\"route_cache\":[";
+					bool firstRoute = true;
+					if (pawn->HasProperty("RouteCache"))
+					{
+						for (UNavigationPoint* point : pawn->RouteCache())
+						{
+							if (!point || point->bDeleteMe())
+								break;
+							if (!firstRoute)
+								out << ',';
+							firstRoute = false;
+							out << "{\"name\":" << JsonString(point->Name.ToString()) << ",\"class\":"
+								<< JsonString(point->Class->Name.ToString()) << '}';
+						}
+					}
+					out << ']';
+				}
+				out << '}';
+			}
+			out << "]}\n";
+			const std::string line = out.str();
+			RouteExecutionTelemetryFile->write(line.data(), line.size());
+			RouteExecutionTelemetryEventCount++;
+		}
+
 		std::vector<BotBenchmarkBotState> CaptureBotStates()
 		{
 			std::vector<BotBenchmarkBotState> bots;
@@ -2324,8 +2413,11 @@ namespace
 		const uint64_t ShadowTelemetryEventCap = BotBenchmarkShadowTelemetry::EventCap(Config.GetMaxTicks());
 		std::shared_ptr<File> TelemetryFile;
 		std::shared_ptr<File> ShadowTelemetryFile;
+		std::shared_ptr<File> RouteExecutionTelemetryFile;
 		uint64_t TelemetryEventCount = 0;
 		uint64_t ShadowTelemetryEventCount = 0;
+		uint64_t RouteExecutionTelemetryEventCount = 0;
+		std::map<std::string, vec3> RouteExecutionPreviousLocations;
 		uint64_t Ticks = 0;
 		int ExitCode = 0;
 		bool Complete = false;
