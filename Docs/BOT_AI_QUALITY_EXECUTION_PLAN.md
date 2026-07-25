@@ -1911,6 +1911,37 @@ were byte-identical before and after. In each game, `-0.397` suppressed and
 broad bracket, not a predicate change; an adjacent, mixed-outcome
 microthreshold bracket remains required.
 
+## Iteration 80: bounded targetless `MoveTo` timeout experiment
+
+The existing targetless `MoveTo` watchdog timeout had been live without an
+explicit experiment selection, making a repaired-stock baseline ambiguous. It
+is now default-off and is part of the benchmark command line, run identity,
+manifest, summary, matrix provenance, analyzer, and run-comparison contract.
+When enabled, it remains deliberately narrow: only a detected, targetless
+walking `MoveTo` with finite state and a positive timer may clear acceleration
+and set the existing latent `MoveTimer` timeout. It does not steer, choose a
+route, alter physics, or run for `MoveToward`, strafing, falling, swimming,
+pain-zone, or mover contexts.
+
+The first valid Release pair used four UT436 Deck16][ bots for 30 seconds,
+three seeds, and two repetitions per seed. All twelve runs completed. The
+enabled variant executed four targetless timeouts across six paired cases and
+reduced movement-intent stuck events from 0.67 to 0.00 per run (four pair wins,
+two ties); movement-intent no-progress time fell by 0.71 seconds per pair on
+average. It did not reduce the one suicide or one unassisted environmental
+death per run. It also regressed combat/route indicators: kills and score each
+fell by 0.67 per pair on average, while `HitWall` rose by 0.67 and hazard
+exposure rose by 0.28 seconds. This is insufficient and mixed evidence, so
+the flag stays default-off and is not promoted to the repaired-stock baseline.
+
+The first Debug matrix is retained only as invalid-harness evidence: it wrote
+startup telemetry but exited 255 before summaries in both variants. The
+Release matrix is the admissible result at
+`qa/runs/2026-07-25/targetless-move-to-timeout-v1/ut-deck16-discovery-release-results`.
+Before reopening the candidate, reproduce the exact qualifying timeout in a
+small fixture and show non-regression in both UT and Unreal paired discovery
+runs; do not infer a quality gain from the lower stuck proxy alone.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

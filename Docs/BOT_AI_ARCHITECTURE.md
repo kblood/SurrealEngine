@@ -105,6 +105,15 @@ foundation. Extensions should be small topics: richer observation, event
 attribution, multi-bot roster control, policy selection, scenario fixtures,
 analysis, then behavior changes.
 
+Target selection has an additional cross-game boundary. UT436 `Botpack.Bot`
+and Unreal Gold `UnrealShare.Bots` expose `SetEnemy(Pawn NewEnemy) -> bool`;
+state overrides can recursively call the global implementation. A portable
+adapter must first prove that exact reflected signature for every dispatched
+implementation, then use a read-only, bounded outermost-call probe that records
+candidate, return value, and before/after enemy identity. It must not replace
+arguments, write `Enemy`, synthesize perception events, or select a live policy
+until observer-on/off equivalence succeeds for both games.
+
 The experimental integration branch may compare complete candidate stacks.
 Any upstream proposal must be reconstructed as one understandable correctness
 fix with a reproduction and focused test, following `CLAUDE.md`.
