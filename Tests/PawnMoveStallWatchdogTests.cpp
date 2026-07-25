@@ -114,6 +114,64 @@ int main()
 		"an already-reported episode does not request another forced replan");
 	Check(!ShouldForceMoveStallReplan(true, false),
 		"MoveTo, strafes, and unusable MoveToward targets remain shadow-only");
+	Check(SameMoveStallCommand(moveTowardA, moveTowardAAfterTargetMoved),
+		"a MoveToward command key follows its live target rather than its destination");
+	Check(!SameMoveStallCommand(moveTowardA, moveTowardB),
+		"a different MoveToward target is a semantic command change");
+	Check(!SameMoveStallCommand(moveToA, moveToB),
+		"a changed positional destination is a semantic command change");
+
+	MoveStallRecoveryEpisodeUpdate recovery = StartMoveStallRecoveryEpisode();
+	Check(recovery.Started && recovery.State.Active
+		&& Near(recovery.State.SecondsSinceDetection, 0.0f),
+		"recovery timing starts exactly at the one-shot stall detection");
+	recovery = AdvanceMoveStallRecoveryEpisode(recovery.State, 2.0f,
+		MoveStallRecoveryEpisodeEvent::Cleared);
+	Check(recovery.Terminal && recovery.Outcome
+		== MoveStallRecoveryEpisodeOutcome::ClearedWithin2Seconds,
+		"clearance at the two-second boundary earns the strict recovery outcome");
+
+	recovery = StartMoveStallRecoveryEpisode();
+	recovery = AdvanceMoveStallRecoveryEpisode(recovery.State, 2.01f,
+		MoveStallRecoveryEpisodeEvent::Cleared);
+	Check(recovery.Terminal && recovery.Outcome
+		== MoveStallRecoveryEpisodeOutcome::ClearedAfter2SecondsWithin5Seconds,
+		"a late but timely clearance is distinct from the two-second outcome");
+
+	recovery = StartMoveStallRecoveryEpisode();
+	recovery = AdvanceMoveStallRecoveryEpisode(recovery.State, 5.0f,
+		MoveStallRecoveryEpisodeEvent::QualifiedNavigationReplan);
+	Check(recovery.Terminal && recovery.Outcome
+		== MoveStallRecoveryEpisodeOutcome::ReplannedWithin5Seconds,
+		"only an explicit qualified replan earns the five-second outcome");
+
+	recovery = StartMoveStallRecoveryEpisode();
+	recovery = AdvanceMoveStallRecoveryEpisode(recovery.State, 5.01f,
+		MoveStallRecoveryEpisodeEvent::Cleared);
+	Check(recovery.Terminal && recovery.Outcome
+		== MoveStallRecoveryEpisodeOutcome::Missed5SecondDeadline,
+		"a recovery after the five-second deadline remains a miss");
+
+	recovery = StartMoveStallRecoveryEpisode();
+	recovery = AdvanceMoveStallRecoveryEpisode(recovery.State, 0.0f,
+		MoveStallRecoveryEpisodeEvent::IntentionalStop);
+	Check(recovery.Terminal && recovery.Outcome
+		== MoveStallRecoveryEpisodeOutcome::ExcludedIntentionalStop,
+		"an evidenced intentional stop is explicitly excluded");
+
+	recovery = StartMoveStallRecoveryEpisode();
+	recovery = AdvanceMoveStallRecoveryEpisode(recovery.State, 0.0f,
+		MoveStallRecoveryEpisodeEvent::LifeBoundary);
+	Check(recovery.Terminal && recovery.Outcome
+		== MoveStallRecoveryEpisodeOutcome::CensoredLifeBoundary,
+		"death or a life boundary is censored rather than counted as a recovery");
+
+	recovery = StartMoveStallRecoveryEpisode();
+	recovery = AdvanceMoveStallRecoveryEpisode(recovery.State, std::nanf(""),
+		MoveStallRecoveryEpisodeEvent::None);
+	Check(recovery.Terminal && recovery.Outcome
+		== MoveStallRecoveryEpisodeOutcome::Unknown,
+		"invalid timing fails closed as an unknown recovery episode");
 
 	MoveStallWatchdogState progressing = RecordMoveStallCommand({}, moveToA);
 	MoveStallWatchdogObservation progressObservation = ObserveMoveStall(progressing,

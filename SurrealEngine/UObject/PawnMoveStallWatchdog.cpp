@@ -16,25 +16,6 @@ namespace PawnMovement
 			return left.x == right.x && left.y == right.y && left.z == right.z;
 		}
 
-		bool SameCommand(const MoveStallCommandKey& left, const MoveStallCommandKey& right)
-		{
-			if (left.LatentMode != right.LatentMode)
-				return false;
-			switch (left.LatentMode)
-			{
-			case MoveStallLatentMode::MoveToward:
-				return left.Target && left.Target == right.Target;
-			case MoveStallLatentMode::MoveTo:
-			case MoveStallLatentMode::StrafeTo:
-				return SameDestination(left.Destination, right.Destination);
-			case MoveStallLatentMode::StrafeFacing:
-				return left.Target == right.Target
-					&& SameDestination(left.Destination, right.Destination);
-			default:
-				return false;
-			}
-		}
-
 		MoveStallWatchdogState BeginEpisode(const vec3& location, float elapsed,
 			const MoveStallCommandKey& command)
 		{
@@ -50,11 +31,31 @@ namespace PawnMovement
 	MoveStallWatchdogState RecordMoveStallCommand(const MoveStallWatchdogState& state,
 		const MoveStallCommandKey& command)
 	{
-		MoveStallWatchdogState result = SameCommand(state.Command, command)
+		MoveStallWatchdogState result = SameMoveStallCommand(state.Command, command)
 			? state : MoveStallWatchdogState{};
 		result.Command = command;
 		result.CommandSeenSinceObservation = true;
 		return result;
+	}
+
+	bool SameMoveStallCommand(const MoveStallCommandKey& left,
+		const MoveStallCommandKey& right)
+	{
+		if (left.LatentMode != right.LatentMode)
+			return false;
+		switch (left.LatentMode)
+		{
+		case MoveStallLatentMode::MoveToward:
+			return left.Target && left.Target == right.Target;
+		case MoveStallLatentMode::MoveTo:
+		case MoveStallLatentMode::StrafeTo:
+			return SameDestination(left.Destination, right.Destination);
+		case MoveStallLatentMode::StrafeFacing:
+			return left.Target == right.Target
+				&& SameDestination(left.Destination, right.Destination);
+		default:
+			return false;
+		}
 	}
 
 	bool ShouldForceMoveStallReplan(bool detected, bool liveNavigationMoveToward)
@@ -85,6 +86,79 @@ namespace PawnMovement
 			<= context.AcceptanceRadius * context.AcceptanceRadius)
 			return MoveStallRecoveryDecision::None;
 		return MoveStallRecoveryDecision::TargetlessTimeout;
+	}
+
+	MoveStallRecoveryEpisodeUpdate StartMoveStallRecoveryEpisode()
+	{
+		MoveStallRecoveryEpisodeUpdate update;
+		update.State.Active = true;
+		update.Started = true;
+		return update;
+	}
+
+	MoveStallRecoveryEpisodeUpdate AdvanceMoveStallRecoveryEpisode(
+		const MoveStallRecoveryEpisodeState& state, float elapsed,
+		MoveStallRecoveryEpisodeEvent event)
+	{
+		MoveStallRecoveryEpisodeUpdate update;
+		if (!state.Active)
+			return update;
+		if (!std::isfinite(elapsed) || elapsed < 0.0f)
+		{
+			update.Terminal = true;
+			update.Outcome = MoveStallRecoveryEpisodeOutcome::Unknown;
+			return update;
+		}
+
+		const float seconds = state.SecondsSinceDetection + elapsed;
+		if (!std::isfinite(seconds))
+		{
+			update.Terminal = true;
+			update.Outcome = MoveStallRecoveryEpisodeOutcome::Unknown;
+			return update;
+		}
+		update.State = state;
+		update.State.SecondsSinceDetection = seconds;
+		auto terminal = [&update](MoveStallRecoveryEpisodeOutcome outcome)
+		{
+			update.State = {};
+			update.Terminal = true;
+			update.Outcome = outcome;
+		};
+
+		switch (event)
+		{
+		case MoveStallRecoveryEpisodeEvent::Cleared:
+			if (seconds <= 2.0f)
+				terminal(MoveStallRecoveryEpisodeOutcome::ClearedWithin2Seconds);
+			else if (seconds <= 5.0f)
+				terminal(MoveStallRecoveryEpisodeOutcome::ClearedAfter2SecondsWithin5Seconds);
+			else
+				terminal(MoveStallRecoveryEpisodeOutcome::Missed5SecondDeadline);
+			return update;
+		case MoveStallRecoveryEpisodeEvent::QualifiedNavigationReplan:
+			terminal(seconds <= 5.0f
+				? MoveStallRecoveryEpisodeOutcome::ReplannedWithin5Seconds
+				: MoveStallRecoveryEpisodeOutcome::Missed5SecondDeadline);
+			return update;
+		case MoveStallRecoveryEpisodeEvent::IntentionalStop:
+			terminal(MoveStallRecoveryEpisodeOutcome::ExcludedIntentionalStop);
+			return update;
+		case MoveStallRecoveryEpisodeEvent::LifeBoundary:
+			terminal(MoveStallRecoveryEpisodeOutcome::CensoredLifeBoundary);
+			return update;
+		case MoveStallRecoveryEpisodeEvent::RunEnd:
+			terminal(MoveStallRecoveryEpisodeOutcome::CensoredRunEnd);
+			return update;
+		case MoveStallRecoveryEpisodeEvent::Unknown:
+			terminal(MoveStallRecoveryEpisodeOutcome::Unknown);
+			return update;
+		case MoveStallRecoveryEpisodeEvent::None:
+			break;
+		}
+		if (seconds > 5.0f)
+			terminal(MoveStallRecoveryEpisodeOutcome::Missed5SecondDeadline);
+		return update;
 	}
 
 	MoveStallWatchdogObservation ObserveMoveStall(const MoveStallWatchdogState& state,

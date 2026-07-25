@@ -61,10 +61,57 @@ namespace PawnMovement
 		float EligibleSeconds = 0.0f;
 	};
 
+	// These outcomes start at the watchdog's one-shot detection, not its original
+	// no-progress anchor. They deliberately distinguish an actual new navigation
+	// command from a same-key reissue, which is not a recovery.
+	enum class MoveStallRecoveryEpisodeEvent : uint8_t
+	{
+		None,
+		Cleared,
+		QualifiedNavigationReplan,
+		IntentionalStop,
+		LifeBoundary,
+		RunEnd,
+		Unknown
+	};
+
+	enum class MoveStallRecoveryEpisodeOutcome : uint8_t
+	{
+		None,
+		ClearedWithin2Seconds,
+		ClearedAfter2SecondsWithin5Seconds,
+		ReplannedWithin5Seconds,
+		Missed5SecondDeadline,
+		ExcludedIntentionalStop,
+		CensoredLifeBoundary,
+		CensoredRunEnd,
+		Unknown
+	};
+
+	struct MoveStallRecoveryEpisodeState
+	{
+		bool Active = false;
+		float SecondsSinceDetection = 0.0f;
+	};
+
+	struct MoveStallRecoveryEpisodeUpdate
+	{
+		MoveStallRecoveryEpisodeState State;
+		bool Started = false;
+		bool Terminal = false;
+		MoveStallRecoveryEpisodeOutcome Outcome = MoveStallRecoveryEpisodeOutcome::None;
+	};
+
 	MoveStallWatchdogState RecordMoveStallCommand(const MoveStallWatchdogState& state,
 		const MoveStallCommandKey& command);
+	bool SameMoveStallCommand(const MoveStallCommandKey& left,
+		const MoveStallCommandKey& right);
 	bool ShouldForceMoveStallReplan(bool detected, bool liveNavigationMoveToward);
 	MoveStallRecoveryDecision SelectMoveStallRecovery(const MoveStallRecoveryContext& context);
+	MoveStallRecoveryEpisodeUpdate StartMoveStallRecoveryEpisode();
+	MoveStallRecoveryEpisodeUpdate AdvanceMoveStallRecoveryEpisode(
+		const MoveStallRecoveryEpisodeState& state, float elapsed,
+		MoveStallRecoveryEpisodeEvent event);
 	MoveStallWatchdogObservation ObserveMoveStall(const MoveStallWatchdogState& state,
 		const vec3& location, float elapsed, bool eligibleContext, bool latentMovementIntent,
 		float progressRadius, float detectionSeconds);
