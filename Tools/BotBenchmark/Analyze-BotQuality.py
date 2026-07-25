@@ -1239,13 +1239,17 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         raise QualityError(f"{context}: static-walk continuation availability must match its name")
     if static_walk_result == "certified_static_walk_continuation":
         if not static_walk_first_hop_known or not static_walk_continuation_known \
-                or static_walk_hops < 1:
+                or static_walk_hops < 1 or static_walk_visited_nodes < 2:
             raise QualityError(f"{context}: certified static walk requires first-hop and continuation evidence")
     elif static_walk_continuation_known or static_walk_cost != 0.0 or static_walk_hops != 0:
         raise QualityError(f"{context}: rejected static walk must not claim a continuation")
     if static_walk_result == "not_attempted_missing_anchor" and (
-            static_walk_first_hop_known or static_walk_visited_nodes != 0):
+            fields.get("anchor_known") or static_walk_first_hop_known
+            or static_walk_visited_nodes != 0):
         raise QualityError(f"{context}: missing-anchor static walk must not claim a graph probe")
+    if static_walk_result == "no_eligible_direct_first_hop" and (
+            static_walk_first_hop_known or static_walk_visited_nodes != 0):
+        raise QualityError(f"{context}: no-first-hop static walk must not claim a graph probe")
     candidate_known = _boolean(fields.get("candidate_known"), f"{context}.candidate_known")
     candidate_distance_known = _boolean(
         fields.get("candidate_distance_known"), f"{context}.candidate_distance_known")

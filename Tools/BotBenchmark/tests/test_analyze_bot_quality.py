@@ -510,6 +510,21 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(QUALITY.QualityError, "candidate distance availability"):
                 QUALITY.analyze_run(malformed)
 
+            malformed_anchor = write_v2_run(root, "hazard-water-egress-static-walk-anchor",
+                                            bot_count=1)
+            invalid_anchor = {**diagnostic,
+                "static_walk_certificate_result": "not_attempted_missing_anchor",
+                "static_walk_first_hop_known": False, "static_walk_first_hop_name": "",
+                "static_walk_continuation_known": False,
+                "static_walk_continuation_name": "", "static_walk_cost": 0.0,
+                "static_walk_hops": "0", "static_walk_visited_nodes": "0"}
+            upgrade_telemetry_v2(malformed_anchor, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_anchor]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "missing-anchor static walk"):
+                QUALITY.analyze_run(malformed_anchor)
+
             excessive = write_v2_run(root, "hazard-water-egress-excessive", bot_count=1)
             duplicate = {**diagnostic, "sequence": "2"}
             upgrade_telemetry_v2(excessive, counters=[
