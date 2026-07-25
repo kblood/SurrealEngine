@@ -3152,3 +3152,45 @@ is a read-only, issue-time route/support certificate for these exact
 `MoveToward` targets. It must establish a same-life dry, collision-clear
 alternative that preserves target progress; otherwise the class remains
 observer-only.
+
+## Iteration 123: inventory-route handoff provenance
+
+The next no-UCC DeathFan capture enables both independently qualified
+observer-only streams: native path-cache commits and same-life direct-reach
+command provenance. It completes successfully at
+`qa/runs/2026-07-26/inventory-route-handoff-provenance-v2/`; its strict
+reports are `qa/reports/bot-ai/inventory-route-handoff-provenance-v2-native-path.json`
+and `qa/reports/bot-ai/inventory-route-handoff-provenance-v2-direct-reach.json`.
+The source-level and runtime handoff are now clear: `Bots.uc` calls
+`FindBestInventoryPath`, receives an `InventorySpot`, then intentionally
+replaces that script target with its marked pickup before calling native
+`MoveToward`. The engine retains the marker in `RouteCache`, but latent
+movement follows the substituted pickup location directly.
+
+The capture validates 89 non-empty native cache commits (136 catalog-bound
+reachspec edges, zero truncation) and 29 direct `ActorReachable` observations
+(14 exact same-life command links, zero overflow). The direct-reach stream by
+itself closes every linked command as replaced rather than as a hazardous
+death; it therefore remains insufficient to change `ActorReachable` globally.
+The independent falling snapshots supply the narrower terminal witness: four
+of the nine DeathFan harmful-water deaths retain an active direct ammo
+`MoveToward` while the route-cache head is an inventory marker. The repeated
+`ASMDAmmo3` cases retain `InventorySpot43`, and the `ASMDAmmo4` case retains
+`InventorySpot27`; the v4 owner map catalog binds those markers to those exact
+items. The `ASMDAmmo0` case retains the same local `InventorySpot27` cluster
+head, whose marked ammo is only about 40 units from that target. Each launch
+begins more than 500 units from its pickup/marker cluster and subsequently
+falls into the lower harmful water.
+
+This establishes a real route-handoff defect class, but not a safe generic
+intervention. The retained cache head is not by itself a traversable fallback,
+and the earlier broad inventory-corridor experiment regressed combat and wall
+contacts. A fresh four-variant DeathFan scout also records zero live
+applications for the existing hazard-swim, falling-recovery, and harmful-zone
+experiments, so none can be promoted as a fix for this class. The next change
+must be a focused direct-walking reachability fixture: it must prove that a
+direct inventory/marker corridor crosses unsupported harmful space while a
+reachable graph route remains available, then demonstrate that rejecting only
+that false direct endpoint selects the graph route without suppressing a safe
+pickup. Until that fixture and cross-game quality evidence exist, behavior
+remains stock.
