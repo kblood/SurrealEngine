@@ -1,5 +1,6 @@
 #include "Precomp.h"
 #include "BotBenchmarkDriver.h"
+#include "BotMoveStallRecoveryFixture.h"
 #include "BotWalkingHitWallCornerFixture.h"
 #include "BotControlledMatch.h"
 #include "BotBenchmarkGameProfile.h"
@@ -2247,4 +2248,5 @@ void RegisterBotBenchmarkDriver(HeadlessDriverRegistry& registry)
 		});
 	}
 	RegisterBotWalkingHitWallCornerFixtureDriver(registry);
+	RegisterBotMoveStallRecoveryFixtureDriver(registry);
 }

@@ -39,14 +39,19 @@ qualification evidence.
 
 ## Current milestone
 
-Build and run a deterministic cross-game forced move-stall fixture. It must
-produce and validate a real terminal recovery episode in both UT436 and Unreal
-Gold 226b before recovery-time thresholds are used to judge bot behavior.
+Use the qualified move-stall observer in owner-data discovery runs, while
+implementing the next missing release measurement: causal avoidable-suicide
+classification. Recovery-time thresholds may now be evaluated only when a
+candidate campaign supplies a non-zero, complete opportunity set; the forced
+fixture qualifies the measurement path, not bot quality.
 
 ## Current status
 
-Measurement infrastructure is progressing, but no recent live behavior change
-has met the promotion bar. The targetless `MoveTo` timeout experiment remains
-default-off and rejected: it reduced a stuck proxy but regressed combat/score
-and did not reduce suicides. The project is not merge-ready as a BOT AI
-behavior change.
+The cross-game forced move-stall fixture passed twice on UT436 `DM-Deck16][`
+and Unreal Gold 226b `DmDeathFan`: each run emitted exactly one stationary
+targetless `MoveTo` detection and one genuine clearance in 0.25 seconds, with
+no overflow or other terminal outcome. This validates observer accounting, not
+a behavior improvement. No recent live behavior change has met the promotion
+bar. The targetless `MoveTo` timeout experiment remains default-off and
+rejected: it reduced a stuck proxy but regressed combat/score and did not
+reduce suicides. The project is not merge-ready as a BOT AI behavior change.

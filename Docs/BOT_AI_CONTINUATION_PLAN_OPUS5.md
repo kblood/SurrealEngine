@@ -311,7 +311,10 @@ contract description.
 
 **Implementation status.** The native episode model, exact terminal counters,
 bounded terminal records, benchmark lifecycle flushing, telemetry serialization,
-and fail-closed analyzer validation are implemented. The campaign continues to
+fail-closed analyzer validation, and a native cross-game forced-stall fixture
+are implemented. The fixture passed twice on both UT436 `DM-Deck16][` and
+Unreal Gold 226b `DmDeathFan`, producing one detection and one
+`ClearedWithin2Seconds` terminal record per run. The campaign continues to
 require the two derived metrics; a run with no qualifying episode, incomplete
 telemetry, or a record overflow reports null and fails its gate.
 
@@ -352,9 +355,12 @@ with workstream 2 and should be built alongside it.
 
 - Pure fixtures for clearance, same-key reissue, genuine replan, permanent
   stall, censored run boundary, and each intentional-stop classification.
-- Both metrics present and reconciled in fresh UT436 and Unreal 226b runs, with
-  the known Deck16-II `LiftExit3`-style stall and the known DeathFan stall each
-  landing in the expected bucket.
+- The native forced-stall fixture passes twice in each game with one detection,
+  one clearance, a reconciled terminal record, and no overflow. This is now
+  satisfied on Deck16-II and DeathFan.
+- Both metrics present and reconciled in fresh natural-opportunity UT436 and
+  Unreal 226b runs, with the known Deck16-II `LiftExit3`-style stall and the
+  known DeathFan stall each landing in the expected bucket.
 - Observer neutrality proven by paired equivalence ignoring only the new
   fields.
 

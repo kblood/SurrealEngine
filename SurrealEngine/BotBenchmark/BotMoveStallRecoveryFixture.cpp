@@ -1,0 +1,315 @@
+#include "Precomp.h"
+#include "BotMoveStallRecoveryFixture.h"
+
+#include "BotBenchmarkRoster.h"
+#include "BotControlledMatch.h"
+#include "Engine.h"
+#include "Runtime/HeadlessDriver.h"
+#include "UObject/UActor.h"
+#include "UObject/ULevel.h"
+#include "Utils/CommandLine.h"
+#include "Utils/File.h"
+#include "Utils/Logger.h"
+#include "VM/Frame.h"
+#include "VM/ScriptCall.h"
+
+#include <array>
+#include <cmath>
+#include <filesystem>
+#include <sstream>
+
+namespace
+{
+	constexpr float FixtureTickSeconds = 0.25f;
+	constexpr int StallTicks = 8;
+	constexpr float MinimumRecoveryDisplacement = 8.0f;
+	constexpr float MaximumStallDisplacement = 4.0f;
+	constexpr float DestinationDistance = 2048.0f;
+
+	void Fail(BotMoveStallRecoveryFixtureResult& result, std::string reason)
+	{
+		if (result.FailureReason.empty())
+			result.FailureReason = std::move(reason);
+	}
+
+	bool IsSafeWalkingPawn(UPawn* pawn)
+	{
+		UZoneInfo* zone = pawn ? pawn->FootRegion().Zone : nullptr;
+		return pawn && !pawn->bDeleteMe() && pawn->Health() > 0
+			&& pawn->Role() == ROLE_Authority && pawn->Physics() == PHYS_Walking
+			&& pawn->StateFrame && zone && !zone->bPainZone() && !zone->bWaterZone()
+			&& length(zone->ZoneVelocity()) <= 0.001f;
+	}
+
+	bool MoveSafeRecoveryDistance(UPawn* pawn, const vec3& origin)
+	{
+		const std::array<vec3, 8> directions = {
+			vec3(1.0f, 0.0f, 0.0f), vec3(-1.0f, 0.0f, 0.0f),
+			vec3(0.0f, 1.0f, 0.0f), vec3(0.0f, -1.0f, 0.0f),
+			normalize(vec3(1.0f, 1.0f, 0.0f)), normalize(vec3(1.0f, -1.0f, 0.0f)),
+			normalize(vec3(-1.0f, 1.0f, 0.0f)), normalize(vec3(-1.0f, -1.0f, 0.0f)) };
+		for (float distance : { 8.0f, 16.0f, 24.0f, 32.0f })
+		{
+			for (const vec3& direction : directions)
+			{
+				if (!pawn->SetLocation(origin + direction * distance))
+					continue;
+				pawn->UpdateActorZone();
+				if (IsSafeWalkingPawn(pawn)
+					&& length(pawn->Location().xy() - origin.xy()) > MaximumStallDisplacement)
+					return true;
+			}
+		}
+		return false;
+	}
+
+	std::string ResultText(const BotMoveStallRecoveryFixtureResult& result)
+	{
+		std::ostringstream out;
+		out.imbue(std::locale::classic());
+		out << "schema=surreal-bot-move-stall-recovery-fixture-v1\n"
+			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
+			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
+			<< "safe_walking_start=" << (result.SafeWalkingStart ? "true" : "false") << "\n"
+			<< "targetless_move_to_armed=" << (result.TargetlessMoveToArmed ? "true" : "false") << "\n"
+			<< "stalled_without_displacement=" << (result.StalledWithoutDisplacement ? "true" : "false") << "\n"
+			<< "safe_recovery_relocation=" << (result.SafeRecoveryRelocation ? "true" : "false") << "\n"
+			<< "pawn_actor=" << result.PawnActor << "\n"
+			<< "detections=" << result.Detections << "\n"
+			<< "episode_starts=" << result.EpisodeStarts << "\n"
+			<< "episode_resets=" << result.EpisodeResets << "\n"
+			<< "cleared_within_2_seconds=" << result.ClearedWithin2Seconds << "\n"
+			<< "cleared_after_2_seconds_within_5_seconds="
+			<< result.ClearedAfter2SecondsWithin5Seconds << "\n"
+			<< "replanned_within_5_seconds=" << result.ReplannedWithin5Seconds << "\n"
+			<< "missed_5_second_deadline=" << result.Missed5SecondDeadline << "\n"
+			<< "excluded_intentional_stops=" << result.ExcludedIntentionalStops << "\n"
+			<< "censored_life_boundaries=" << result.CensoredLifeBoundaries << "\n"
+			<< "censored_run_end=" << result.CensoredRunEnd << "\n"
+			<< "unknown=" << result.Unknown << "\n"
+			<< "record_overflows=" << result.RecordOverflows << "\n"
+			<< "record_count=" << result.Records.size() << "\n"
+			<< "failure_reason=" << result.FailureReason << "\n";
+		for (size_t index = 0; index < result.Records.size(); index++)
+		{
+			const auto& record = result.Records[index];
+			out << "record_" << index << "_actor=" << record.SourcePawnActor << "\n"
+				<< "record_" << index << "_sequence=" << record.Sequence << "\n"
+				<< "record_" << index << "_life_id=" << record.LifeId << "\n"
+				<< "record_" << index << "_episode_id=" << record.EpisodeId << "\n"
+				<< "record_" << index << "_seconds=" << record.SecondsSinceDetection << "\n"
+				<< "record_" << index << "_outcome=" << static_cast<int>(record.Outcome) << "\n";
+		}
+		return out.str();
+	}
+
+	class BotMoveStallRecoveryFixtureDriver final : public HeadlessDriver
+	{
+	public:
+		explicit BotMoveStallRecoveryFixtureDriver(Engine& engine) : EngineRef(engine) {}
+
+		HeadlessDriverConfig GetConfig() const override { return { .MaxTicks = 1 }; }
+
+		void Start() override
+		{
+			BotMoveStallRecoveryFixtureConfig config;
+			config.URL = commandline ? commandline->GetArg("", "--botbench-url") : std::string();
+			const std::string difficulty = commandline
+				? commandline->GetArg("", "--botbench-difficulty") : std::string();
+			if (!difficulty.empty())
+			{
+				try { config.ExternalSkill = std::stoi(difficulty); }
+				catch (const std::exception&) { Result.FailureReason = "move-stall fixture difficulty must be an integer"; Complete = true; return; }
+			}
+			Result = BotMoveStallRecoveryFixture::Run(EngineRef, config);
+			const std::string output = commandline
+				? commandline->GetArg("", "--botbench-output") : std::string();
+			if (!output.empty())
+			{
+				std::filesystem::create_directories(output);
+				File::write_all_text((std::filesystem::path(output)
+					/ "move-stall-recovery-fixture-result.txt").string(), ResultText(Result));
+			}
+			LogMessage("Move-stall recovery fixture result: "
+				+ std::string(Result.Passed ? "passed" : "failed"));
+			Complete = true;
+		}
+
+		bool IsComplete() const override { return Complete; }
+		void Tick(const DeterministicFrameTime&) override {}
+		int Finish(const HeadlessRunSummary&) override { return Result.Passed ? 0 : 1; }
+
+	private:
+		Engine& EngineRef;
+		BotMoveStallRecoveryFixtureResult Result;
+		bool Complete = false;
+	};
+}
+
+BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
+	Engine& engine, const BotMoveStallRecoveryFixtureConfig& config)
+{
+	BotMoveStallRecoveryFixtureResult result;
+	UPawn* pawn = nullptr;
+	float originalAccelRate = 0.0f;
+	float originalDesiredSpeed = 0.0f;
+	float originalTimerRate = 0.0f;
+	float originalTimerCounter = 0.0f;
+	vec3 originalLocation;
+	vec3 originalVelocity;
+	vec3 originalAcceleration;
+	int originalPhysics = PHYS_None;
+	LatentRunState originalLatentState = LatentRunState::Continue;
+	vec3 originalDestination;
+	vec3 originalFocus;
+	UActor* originalMoveTarget = nullptr;
+	float originalMoveTimer = 0.0f;
+	bool originalTickEnabled = false;
+	bool originalUpdateTacticsEnabled = false;
+	vec3 fixtureOrigin;
+	try
+	{
+		if (config.URL.empty())
+			throw std::runtime_error("move-stall fixture URL is required");
+		if (engine.IsBotBenchmarkTargetlessMoveToTimeoutEnabled())
+			throw std::runtime_error("move-stall fixture requires the targetless MoveTo timeout experiment to be disabled");
+		const BotBenchmarkRoster roster = BotBenchmarkRoster::Parse(
+			std::string("1"), {}, {}, config.ExternalSkill);
+		const BotControlledMatchResult match = BotControlledMatch::Setup(engine, config.URL, roster);
+		if (match.Participants.size() != 1 || !match.Participants.front().Pawn)
+			throw std::runtime_error("controlled move-stall fixture did not create one live bot");
+		pawn = match.Participants.front().Pawn;
+		result.PawnActor = pawn->Name.ToString();
+		originalAccelRate = pawn->AccelRate();
+		originalDesiredSpeed = pawn->DesiredSpeed();
+		originalTimerRate = pawn->TimerRate();
+		originalTimerCounter = pawn->TimerCounter();
+		originalLocation = pawn->Location();
+		originalVelocity = pawn->Velocity();
+		originalAcceleration = pawn->Acceleration();
+		originalPhysics = pawn->Physics();
+		originalLatentState = pawn->StateFrame
+			? pawn->StateFrame->LatentState : LatentRunState::Continue;
+		originalDestination = pawn->Destination();
+		originalFocus = pawn->Focus();
+		originalMoveTarget = pawn->MoveTarget();
+		originalMoveTimer = pawn->MoveTimer();
+		originalTickEnabled = pawn->IsEventEnabled(EventName::Tick);
+		originalUpdateTacticsEnabled = pawn->IsEventEnabled(EventName::UpdateTactics);
+		bool foundSafeStart = false;
+		for (UActor* actor : engine.Level->Actors)
+		{
+			if (!actor || actor->bDeleteMe() || !actor->IsA("PlayerStart"))
+				continue;
+			if (!pawn->SetLocation(actor->Location()))
+				continue;
+			pawn->UpdateActorZone();
+			pawn->SetPhysics(PHYS_Walking);
+			if (IsSafeWalkingPawn(pawn))
+			{
+				foundSafeStart = true;
+				break;
+			}
+		}
+		if (!foundSafeStart)
+			throw std::runtime_error("fixture could not establish a safe walking PlayerStart context");
+		result.SafeWalkingStart = true;
+		fixtureOrigin = pawn->Location();
+		pawn->DisableEvent(ToNameString(EventName::Tick));
+		pawn->DisableEvent(ToNameString(EventName::UpdateTactics));
+		pawn->TimerRate() = 0.0f;
+		pawn->TimerCounter() = 0.0f;
+		pawn->AccelRate() = 0.0f;
+		pawn->Velocity() = vec3(0.0f);
+		pawn->Acceleration() = vec3(0.0f);
+		pawn->MoveTo(fixtureOrigin + vec3(DestinationDistance, 0.0f, 0.0f), 1.0f);
+		if (!pawn->StateFrame || pawn->StateFrame->LatentState != LatentRunState::MoveTo
+			|| pawn->MoveTarget() || pawn->MoveTimer() <= 2.0f)
+			throw std::runtime_error("fixture failed to arm a finite targetless MoveTo latent command");
+		result.TargetlessMoveToArmed = true;
+
+		for (int index = 0; index < StallTicks; index++)
+			pawn->Tick(FixtureTickSeconds);
+		const float stallDistance = length(pawn->Location().xy() - fixtureOrigin.xy());
+		result.StalledWithoutDisplacement = stallDistance <= MaximumStallDisplacement;
+		if (!result.StalledWithoutDisplacement || pawn->MoveStallDetectionCount() != 1
+			|| pawn->MoveStallRecoveryEpisodeStartCount() != 1)
+			throw std::runtime_error("fixture did not produce exactly one stationary move-stall detection");
+
+		result.SafeRecoveryRelocation = MoveSafeRecoveryDistance(pawn, fixtureOrigin);
+		if (!result.SafeRecoveryRelocation)
+			throw std::runtime_error("fixture could not make a safe recovery displacement");
+		pawn->Tick(FixtureTickSeconds);
+		result.Ran = true;
+		result.Detections = pawn->MoveStallDetectionCount();
+		result.EpisodeStarts = pawn->MoveStallRecoveryEpisodeStartCount();
+		result.EpisodeResets = pawn->MoveStallEpisodeResetCount();
+		result.ClearedWithin2Seconds = pawn->MoveStallRecoveryClearedWithin2SecondsCount();
+		result.ClearedAfter2SecondsWithin5Seconds = pawn->MoveStallRecoveryClearedAfter2SecondsWithin5SecondsCount();
+		result.ReplannedWithin5Seconds = pawn->MoveStallRecoveryReplannedWithin5SecondsCount();
+		result.Missed5SecondDeadline = pawn->MoveStallRecoveryMissed5SecondDeadlineCount();
+		result.ExcludedIntentionalStops = pawn->MoveStallRecoveryExcludedIntentionalStopCount();
+		result.CensoredLifeBoundaries = pawn->MoveStallRecoveryCensoredLifeBoundaryCount();
+		result.CensoredRunEnd = pawn->MoveStallRecoveryCensoredRunEndCount();
+		result.Unknown = pawn->MoveStallRecoveryUnknownCount();
+		result.RecordOverflows = pawn->MoveStallRecoveryEpisodeRecordOverflowCount();
+		result.Records = pawn->DrainMoveStallRecoveryEpisodeRecords();
+		const bool exactCounters = result.Detections == 1 && result.EpisodeStarts == 1
+			&& result.EpisodeResets == 1 && result.ClearedWithin2Seconds == 1
+			&& result.ClearedAfter2SecondsWithin5Seconds == 0 && result.ReplannedWithin5Seconds == 0
+			&& result.Missed5SecondDeadline == 0 && result.ExcludedIntentionalStops == 0
+			&& result.CensoredLifeBoundaries == 0 && result.CensoredRunEnd == 0
+			&& result.Unknown == 0 && result.RecordOverflows == 0;
+		const bool exactRecord = result.Records.size() == 1
+			&& result.Records[0].SourcePawnActor == result.PawnActor
+			&& result.Records[0].Sequence > 0 && result.Records[0].LifeId > 0
+			&& result.Records[0].EpisodeId > 0
+			&& std::isfinite(result.Records[0].SecondsSinceDetection)
+			&& result.Records[0].SecondsSinceDetection > 0.0f
+			&& result.Records[0].SecondsSinceDetection <= 2.0f
+			&& result.Records[0].Outcome
+				== PawnMovement::MoveStallRecoveryEpisodeOutcome::ClearedWithin2Seconds;
+		if (!exactCounters || !exactRecord)
+			throw std::runtime_error("fixture terminal recovery counters and record did not reconcile");
+		result.Passed = true;
+	}
+	catch (const std::exception& error)
+	{
+		Fail(result, error.what());
+	}
+
+	if (pawn && !pawn->bDeleteMe())
+	{
+		pawn->AccelRate() = originalAccelRate;
+		pawn->DesiredSpeed() = originalDesiredSpeed;
+		pawn->Velocity() = originalVelocity;
+		pawn->Acceleration() = originalAcceleration;
+		pawn->TimerRate() = originalTimerRate;
+		pawn->TimerCounter() = originalTimerCounter;
+		pawn->SetPhysics(originalPhysics);
+		pawn->Destination() = originalDestination;
+		pawn->Focus() = originalFocus;
+		pawn->MoveTarget() = originalMoveTarget;
+		pawn->MoveTimer() = originalMoveTimer;
+		if (pawn->StateFrame)
+			pawn->StateFrame->LatentState = originalLatentState;
+		if (originalTickEnabled) pawn->EnableEvent(ToNameString(EventName::Tick));
+		else pawn->DisableEvent(ToNameString(EventName::Tick));
+		if (originalUpdateTacticsEnabled) pawn->EnableEvent(ToNameString(EventName::UpdateTactics));
+		else pawn->DisableEvent(ToNameString(EventName::UpdateTactics));
+		pawn->SetLocation(originalLocation);
+		pawn->UpdateActorZone();
+	}
+	return result;
+}
+
+void RegisterBotMoveStallRecoveryFixtureDriver(HeadlessDriverRegistry& registry)
+{
+	if (!registry.Contains("bot-move-stall-recovery-fixture"))
+	{
+		registry.Register("bot-move-stall-recovery-fixture", [](Engine& engine)
+		{
+			return std::make_unique<BotMoveStallRecoveryFixtureDriver>(engine);
+		});
+	}
+}

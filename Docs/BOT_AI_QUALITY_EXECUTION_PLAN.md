@@ -2011,9 +2011,32 @@ structural analyzer on UT436 `DM-Deck16][` and Unreal Gold 226b `DmDeathFan`
 (four bots, 900 and 1,800 ticks each). All four runs emitted the complete
 zeroed counter/record group with no overflow; neither short deterministic
 sample contained a qualifying detection, so both derived fractions are null.
-That is the intended fail-closed result, not a pass. The next evidence task is
-a deterministic cross-game forced-stall fixture that produces at least one
-terminal episode per game before any recovery threshold is judged.
+That is the intended fail-closed result, not a pass.
+
+## Iteration 83: cross-game forced move-stall recovery fixture
+
+`bot-move-stall-recovery-fixture` now drives the production watchdog directly
+without changing a game script or enabling the rejected targetless-timeout
+experiment. It creates one ordinary controlled bot at a safe walking
+`PlayerStart`, disables only that fixture bot's script tick/timer/tactics,
+arms a finite targetless native `MoveTo` with zero acceleration, and ticks it
+for eight 0.25-second slices. The fixture then makes one verified safe
+horizontal relocation and ticks once more. It requires exactly one detection,
+one episode start, one reset, one `ClearedWithin2Seconds` terminal record, no
+other outcome, no queue overflow, and a record whose actor/IDs/timing reconcile
+with the counters. A fixture fails rather than silently enabling the default-off
+targetless `MoveTo` timeout experiment.
+
+Release runs passed twice per game: UT436 `DM-Deck16][` artifacts
+`qa/runs/2026-07-25/move-stall-fixture-v1/ut436-deck16-r3` and `-r4`, and
+Unreal Gold 226b `DmDeathFan` artifacts
+`qa/runs/2026-07-25/move-stall-fixture-v1/unreal226b-deathfan-r1` and `-r2`.
+Every run has one terminal record with a 0.25-second clearance and no overflow.
+This qualifies cross-game measurement and lifecycle accounting, not bot
+behavior: it does not show that natural play produces enough recovery
+opportunities or that any candidate bot policy improves them. Natural,
+complete campaign opportunities remain required before recovery fractions can
+pass a quality gate.
 
 ## Frozen tuning and held-out maps
 
