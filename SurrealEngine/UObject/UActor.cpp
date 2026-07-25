@@ -5329,6 +5329,16 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 	const bool exactHarmfulWater = staticWater && IsExactHarmfulZone(primaryZone);
 	if (!exactHarmfulWater)
 	{
+		const bool primaryHarmfulWater = primaryZone && primaryZone->bStatic()
+			&& primaryZone->bWaterZone() && IsExactHarmfulZone(primaryZone);
+		if (HazardSwimEgress.ActionActive && HazardSwimEgress.LiveActionAuthorized
+			&& primaryHarmfulWater)
+		{
+			// A pawn extent may straddle the water boundary while its primary region remains
+			// damaging water. This is not an egress: preserve the already-authorized,
+			// collision-probed acceleration overlay until the primary hazard actually clears.
+			return;
+		}
 		if (HazardSwimEgress.HarmfulWaterEpisodeActive)
 		{
 			HazardSwimEgressExitCountValue++;
@@ -5395,9 +5405,8 @@ void UPawn::AdvanceHazardSwimEgressLiveSteer()
 		Region().Zone, FootRegion().Zone, HeadRegion().Zone
 	};
 	UZoneInfo* primaryZone = Region().Zone;
-	const bool exactHarmfulWater = std::all_of(zones.begin(), zones.end(),
-		[](UZoneInfo* zone) { return zone && zone->bStatic() && zone->bWaterZone(); })
-		&& IsExactHarmfulZone(primaryZone);
+	const bool exactHarmfulWater = primaryZone && primaryZone->bStatic()
+		&& primaryZone->bWaterZone() && IsExactHarmfulZone(primaryZone);
 	const vec3 delta = HazardSwimEgress.Anchor - Location();
 	const float distance = length(delta);
 	if (!exactHarmfulWater || !IsFiniteVector(delta) || !std::isfinite(distance)
