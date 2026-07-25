@@ -502,6 +502,16 @@ def _load_analyzer() -> Any:
     return module
 
 
+def _load_realized_capability_validator() -> Any:
+    path = Path(__file__).with_name("Validate-RealizedBotCapabilities.py")
+    spec = importlib.util.spec_from_file_location("surreal_bot_realized_capabilities", path)
+    if spec is None or spec.loader is None:
+        raise MatrixError(f"could not load realized-capability validator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _load_quality_gate_evaluator() -> Any:
     path = Path(__file__).with_name("Evaluate-BotQualityGate.py")
     spec = importlib.util.spec_from_file_location("surreal_bot_quality_gate", path)
@@ -664,6 +674,7 @@ def _run_case(
     runs_directory: Path,
     launcher: Callable[[list[str], float, Path, Path], LaunchResult],
     validator: Callable[[Path], Any],
+    require_realized_capabilities: bool,
 ) -> dict[str, Any]:
     run_directory = runs_directory / case.run_id
     run_directory.mkdir(parents=False, exist_ok=False)
@@ -712,8 +723,11 @@ def _run_case(
         "command": command,
     })
     launch = launcher(command, config.timeout_seconds, run_directory / "stdout.txt", run_directory / "stderr.txt")
+    required_names = ("manifest.json", "events.jsonl", "summary.json")
+    if require_realized_capabilities:
+        required_names += ("bot-realized-capabilities.json",)
     required = {name: (run_directory / name).is_file() and (run_directory / name).stat().st_size > 0
-                for name in ("manifest.json", "events.jsonl", "summary.json")}
+                for name in required_names}
     errors: list[str] = []
     if launch.error:
         errors.append(launch.error)
@@ -877,15 +891,27 @@ def run_matrix(
     runs_directory = output / "runs"
     runs_directory.mkdir()
     analyzer = None
+    default_validator = validator is None
     analyze_quality = analyze or quality_gates is not None
     if validator is None or (analyze_quality and aggregate_analyzer is None):
         analyzer = _load_analyzer()
-    validator = validator or analyzer.analyze_run
+    if validator is None:
+        capability_validator = _load_realized_capability_validator()
+
+        def validator(run: Path) -> Any:
+            analysis = analyzer.analyze_run(run)
+            witness = capability_validator.validate_run(run)
+            if not isinstance(analysis, dict):
+                raise MatrixError("quality analysis did not return an object")
+            analysis["realized_capabilities"] = witness
+            return analysis
     aggregate_analyzer = aggregate_analyzer or (analyzer.analyze if analyzer else None)
     cases = expand_cases(config)
     rows: list[dict[str, Any]] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=config.concurrency) as executor:
-        futures = [executor.submit(_run_case, config, case, runs_directory, launcher, validator) for case in cases]
+        futures = [executor.submit(
+            _run_case, config, case, runs_directory, launcher, validator, default_validator)
+            for case in cases]
         for future in concurrent.futures.as_completed(futures):
             rows.append(future.result())
     rows.sort(key=lambda row: row["ordinal"])

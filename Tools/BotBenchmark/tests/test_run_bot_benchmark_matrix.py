@@ -834,6 +834,25 @@ class MatrixRunnerTests(unittest.TestCase):
             self.assertTrue(all("structural validation failed" in row["errors"][0]
                                 for row in report["runs"]))
 
+    def test_default_gate_requires_realized_capability_witness(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = MATRIX.load_matrix(write_manifest(root, paired=False))
+            case = MATRIX.expand_cases(config)[0]
+            runs = root / "runs"
+            runs.mkdir()
+
+            def launcher(command, timeout, stdout, stderr):
+                run = output_from_command(command)
+                for name in ("manifest.json", "events.jsonl", "summary.json"):
+                    (run / name).write_text("{}\n", encoding="utf-8")
+                return MATRIX.LaunchResult(0, False, 0.01)
+
+            result = MATRIX._run_case(
+                config, case, runs, launcher, lambda path: self.fail("validator called"), True)
+            self.assertEqual(result["status"], "failed")
+            self.assertIn("missing or empty bot-realized-capabilities.json", result["errors"])
+
 
 if __name__ == "__main__":
     unittest.main()

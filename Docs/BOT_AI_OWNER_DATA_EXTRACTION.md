@@ -253,6 +253,16 @@ traversal but cannot fly. Their realized JumpZ is 357.5, while class defaults
 are 325. Any future reachspec-capability decision must use this realized record
 for its exact participant/seed run, not a class-default approximation.
 
+`Tools/BotBenchmark/Validate-RealizedBotCapabilities.py` makes that linkage
+fail closed. It accepts only a complete roster-aware benchmark v2 run, requires
+one ordered witness participant for every `summary.json.actual_roster` entry,
+and requires exact identity, actor, and class agreement. It rejects unknown
+fields, non-boolean capabilities, and non-finite or negative movement values.
+The default matrix runner now requires this artifact and invokes the validator
+alongside the normal quality analyzer. This establishes a trustworthy witness;
+it does **not** yet make a reachspec-capability policy safe. A future policy
+still needs a deterministic join to the catalog and route-execution evidence.
+
 ## Non-goals
 
 Do not decode or redistribute meshes, textures, sounds, or compiled bytecode.

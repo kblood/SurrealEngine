@@ -104,6 +104,15 @@ read-only capability witness for the actual roster; it is not part of the
 telemetry stream and must be kept with its matching run identity when judging
 reachspec feasibility.
 
+`Validate-RealizedBotCapabilities.py <run-directory>` binds that witness to a
+complete v2 `manifest.json`/`summary.json` pair. It rejects missing witnesses,
+schema drift, non-finite or negative movement values, unknown capability
+fields, and any participant identity, actor, class, order, or count that does
+not exactly match `summary.json.actual_roster`. The standard matrix runner
+invokes this validator by default and requires the fourth non-empty artifact;
+an explicitly injected validator is test-only plumbing and is responsible for
+its own structural gates.
+
 The current UT436 and Unreal Gold adapters do not expose a verified named-bot
 spawn contract. Supplying `requested_names` is therefore parsed and recorded
 deterministically but the engine run deliberately fails instead of silently
@@ -130,7 +139,7 @@ python .\Tools\BotBenchmark\Run-BotBenchmarkMatrix.py `
 ```
 
 Run the matrix and produce a quality report only if every process exits zero,
-writes all three required non-empty artifacts, and passes the structural
+writes all four required non-empty artifacts, and passes the structural
 analyzer:
 
 ```powershell
