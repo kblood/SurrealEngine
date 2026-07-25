@@ -2538,6 +2538,42 @@ Repository-local `botbench-output/` and BotBenchmark Python bytecode are
 ignored so they cannot be mistaken for admissible central-QA evidence or be
 staged accidentally.
 
+## Iteration 104: bilateral retail `MinHitWall` adjacent-boundary result
+
+Fresh pinned retail calibration closes the adjacent-threshold observation, but
+does not authorize a shared runtime predicate change. Every threshold had two
+matching repetitions, retained its own pinned start, direction, blocker, and
+logged contact signature, and each retail batch's installed inventory was
+byte-identical before and after execution.
+
+- UT436 `DM-Deck16][`:
+  `retail-minhitwall-ut436-pinned-micro-v8-boundary/` suppresses at
+  `-395000` and dispatches at `-394000` and `-393000`.
+- Unreal Gold 226b `DmMorbias`:
+  `retail-minhitwall-unreal226b-pinned-micro-v2-adjacent/` suppresses at
+  `-397000` and dispatches at `-396000` and `-395000`.
+
+Each game independently contradicts the current observation-only comparison:
+the logged Bump/trace normal and pre-handler velocity imply a dot near
+`-0.397676`, which is already less than a suppressing `-0.395000` threshold
+in UT436 and a suppressing `-0.397000` threshold in Unreal Gold. The two
+retail brackets also differ by 2,000 microthreshold units (`0.002`), with
+UT436 suppressing at `-0.395000` where Unreal Gold dispatches. The samples do
+not establish that this difference belongs to the adapters: the maps, pawn
+speeds, floor geometry, and reconstructed center normals differ too. Instead,
+they prove that the logged Bump/trace witness is not the exact native operand
+of the retail callback decision. The current C++ comparison must therefore
+not be promoted as a reconstruction of retail semantics, and no shared
+`MinHitWall` behavior correction is enabled.
+
+The next permitted fidelity slice is finer bisection on each identical pinned
+contact followed by geometry-controlled cross-runs, using the existing trace,
+center-normal, and velocity witnesses to identify or bound the instantaneous
+physics operand. If that operand cannot be observed, the result remains an
+empirical bracket rather than a `<` versus `<=` rule. Any later correction
+must still be notification-only and satisfy the pure fixtures, runtime
+collision fixture, and paired cross-game match matrix specified above.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:
