@@ -65,6 +65,32 @@ These are constraints on every workstream below, not aspirations:
   output remains inadmissible.
 - Same-seed repeats are determinism checks, never independent samples.
 
+## Revised execution order, 2026-07-25
+
+The later native path-commit work supersedes this document's original
+workstream ordering. The immediate sequence is now:
+
+1. Add a default-off, behavior-neutral direct-reach-to-command provenance
+   observer. It must bind successful `ActorReachable` calls to an exact active
+   direct command only when participant, pawn life, and target identity match.
+   Missing linkage is unavailable evidence, never inference.
+2. In parallel, complete the native path-commit analyzer backfill: explicit
+   coverage verdicts, zero-coverage rejection, and tests for death, hazard
+   entry, respawn, overflow, cache clear, and base-rate handling.
+3. Add in-engine `ai_frame_p95_ms`, then qualify recovery clearance and replan
+   fractions on natural opportunities. These are required campaign metrics and
+   do not authorize a behavior change.
+4. Resume the `HitWall` fixture and `SetEnemy` observer only after those
+   higher-value evidence and telemetry slices. The unresolved `HitWall`
+   dispatch operand remains blocked; it is not a prerequisite for the direct
+   reachability provenance slice.
+5. Keep the remaining live-policy workstreams in their existing order and
+   retain every candidate default-off until a cross-game causal witness exists.
+
+`Docs/BOT_AI_OPUS5_REVIEW_2026-07-25.md` records the source review, exact
+record contract, test matrix, qualification gates, and prohibited behavior
+changes behind this revision.
+
 ## What the newest evidence actually says
 
 The admissible iteration-80 Release matrix at
