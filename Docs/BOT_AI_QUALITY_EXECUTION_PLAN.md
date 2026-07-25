@@ -2401,6 +2401,32 @@ ordinary downsteps. Only then may a separately gated live experiment return
 unreachable; no route rewrite, command override, random motion, or air steering
 is authorized.
 
+## Iteration 100: exact harmful-residence arbitration result
+
+`Analyze-HazardResidence.py` is a separate, fail-closed analysis of the exact
+benchmark event stream. It requires the current complete residence counter
+group, positive-DPS samples, non-regressing time/death counters, and a
+successful run result; missing legacy fields are an error rather than a zero.
+It reconstructs positive-DPS episodes with a 0.25-second clear grace period,
+then records entry physics/state/target, target and latent-action churn,
+candidate-observed and candidate-superseded deltas, re-entry, and a death,
+clear, or run-end-censored terminal.
+
+The current observer-only three-seed rerun deliberately disables the rejected
+live egress overlay. UT436 Deck16-II has 42 episodes: 19 deaths, 23 clears,
+six observed direct-navigation candidates, and six supersessions. Five of
+those six supersessions terminate in death (`PathNode144` or `PathNode145` in
+five fatal episodes; `PathNode30` in the one cleared episode). Unreal Gold
+DeathFan has 160 episodes: 70 deaths, 87 clears, three run-end censors, and no
+observed direct-navigation candidate or supersession. Repeated analysis of
+the matched seed-271828 UT and Unreal streams is byte-identical.
+
+This rejects a shared route pin or target override. UT has a real arbitration
+signal, but Unreal has no authorization opportunity, so a common behavior
+would be speculative. Preserve the observer and seek a separate controllable
+Unreal witness; do not relax candidate certification, infer a safe escape from
+a clear terminal, or use the existing UT signal as a cross-game quality pass.
+
 ## Iteration and parallel ownership
 
 Each iteration has four lanes:

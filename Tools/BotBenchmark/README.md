@@ -63,6 +63,21 @@ strict boolean that defaults to `false`; it selects the benchmark-only,
 default-off harmful-zone escape experiment and is included in deterministic run
 and pair IDs.
 
+## Harmful-residence attribution
+
+For observer-enabled owner-local runs, reconstruct harmful-zone episodes with
+the strict offline analyzer:
+
+```powershell
+python .\Tools\BotBenchmark\Analyze-HazardResidence.py `
+  .\qa\runs\owner-local-run `
+  --output .\qa\runs\owner-local-run\hazard-residence-analysis.json
+```
+
+It fails if the benchmark stream is incomplete or lacks the complete current
+residence counter group. A reported candidate is an observation only; neither
+candidate presence nor a zone-clear terminal authorizes movement control.
+
 The current UT436 and Unreal Gold adapters do not expose a verified named-bot
 spawn contract. Supplying `requested_names` is therefore parsed and recorded
 deterministically but the engine run deliberately fails instead of silently

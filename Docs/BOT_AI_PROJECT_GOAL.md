@@ -122,3 +122,15 @@ K12/D38/S26. The retained next step is a default-off, post-resolution shadow
 observer that records only verdict flips. It must identify the known fatal
 launches without changing stock behavior and must preserve normal downsteps
 before a live behavior experiment is allowed.
+
+The latest observer-only residence rerun uses the same three seeds on UT436
+Deck16-II and Unreal Gold DeathFan with the previously rejected live egress
+overlay disabled. Its external, fail-closed analyzer reports 42 UT residences:
+six collision-probed candidates were observed and then superseded, with five
+of those episodes ending in death. The corresponding Unreal set has 160
+residences (70 deaths, 87 clears, three run-end censors) and **zero** certified
+candidates. A shared route-pin/target-override policy is therefore rejected:
+it would have no observed authorization in Unreal and cannot be represented as
+a cross-game survival correction. The report is byte-identical on repeated
+UT and Unreal seed-271828 analysis. Keep the candidate path observer-only;
+the next live candidate needs its own non-zero, controllable Unreal witness.
