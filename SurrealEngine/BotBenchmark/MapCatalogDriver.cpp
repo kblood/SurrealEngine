@@ -113,6 +113,22 @@ namespace
 		out << "]" << ",\"unknown_reach_flags\":" << (rawFlags & ~knownFlags);
 	}
 
+	void WriteActorIndexOrNull(std::ostringstream& out,
+		const std::map<const UActor*, size_t>& actorIndexes, const UActor* actor,
+		const char* relationship)
+	{
+		if (!actor)
+		{
+			out << "null";
+			return;
+		}
+		auto it = actorIndexes.find(actor);
+		if (it == actorIndexes.end())
+			throw std::runtime_error(std::string("catalog ") + relationship
+				+ " actor is absent from the level actor list");
+		out << it->second;
+	}
+
 	void WritePackageIdentity(std::ostringstream& out, const Package* package)
 	{
 		if (!package)
@@ -214,6 +230,122 @@ namespace
 		int Finish(const HeadlessRunSummary&) override { return Failure.empty() ? 0 : 1; }
 
 	private:
+		void WriteTraversalActors(std::ostringstream& out,
+			const std::map<const UActor*, size_t>& actorIndexes) const
+		{
+			out << "\"traversal_actors\":[";
+			bool first = true;
+			for (size_t index = 0; index < EngineRef.Level->Actors.size(); index++)
+			{
+				UActor* actor = EngineRef.Level->Actors[index];
+				if (!actor)
+					continue;
+				const char* kind = nullptr;
+				if (UObject::TryCast<ULiftCenter>(actor))
+					kind = "lift_center";
+				else if (UObject::TryCast<ULiftExit>(actor))
+					kind = "lift_exit";
+				else if (UObject::TryCast<UMover>(actor))
+					kind = "mover";
+				else if (UObject::TryCast<UTeleporter>(actor))
+					kind = "teleporter";
+				else if (UObject::TryCast<UWarpZoneMarker>(actor))
+					kind = "warp_zone_marker";
+				else if (UObject::TryCast<UWarpZoneInfo>(actor))
+					kind = "warp_zone_info";
+				else if (UObject::TryCast<UInventorySpot>(actor))
+					kind = "inventory_spot";
+				else if (UObject::TryCast<UPlayerStart>(actor))
+					kind = "player_start";
+				if (!kind)
+					continue;
+				if (!first)
+					out << ',';
+				first = false;
+				out << "\n    {\"actor_index\":" << index << ",\"name\":"
+					<< JsonString(actor->Name.ToString()) << ",\"class\":"
+					<< JsonString(UObject::GetUClassFullName(actor).ToString())
+					<< ",\"kind\":" << JsonString(kind);
+				if (ULiftCenter* liftCenter = UObject::TryCast<ULiftCenter>(actor))
+				{
+					out << ",\"mover_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, liftCenter->MyLift(), "lift-center mover");
+					out << ",\"recommended_trigger_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, liftCenter->RecommendedTrigger(), "lift-center recommended trigger");
+					out << ",\"lift_tag\":" << JsonString(liftCenter->LiftTag().ToString())
+						<< ",\"lift_trigger\":" << JsonString(liftCenter->LiftTrigger().ToString());
+				}
+				else if (ULiftExit* liftExit = UObject::TryCast<ULiftExit>(actor))
+				{
+					out << ",\"mover_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, liftExit->MyLift(), "lift-exit mover");
+					out << ",\"recommended_trigger_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, liftExit->RecommendedTrigger(), "lift-exit recommended trigger");
+					out << ",\"lift_tag\":" << JsonString(liftExit->LiftTag().ToString())
+						<< ",\"lift_trigger\":" << JsonString(liftExit->LiftTrigger().ToString());
+				}
+				else if (UMover* mover = UObject::TryCast<UMover>(actor))
+				{
+					out << ",\"marker_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, mover->myMarker(), "mover marker");
+					out << ",\"recommended_trigger_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, mover->RecommendedTrigger(), "mover recommended trigger");
+					out << ",\"trigger_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, mover->TriggerActor(), "mover trigger");
+					out << ",\"trigger_actor2_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, mover->TriggerActor2(), "mover second trigger");
+					out << ",\"leader_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, mover->Leader(), "mover leader");
+					out << ",\"follower_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, mover->Follower(), "mover follower");
+					out << ",\"move_time\":" << mover->MoveTime()
+						<< ",\"stay_open_time\":" << mover->StayOpenTime()
+						<< ",\"num_keys\":" << static_cast<int>(mover->NumKeys());
+				}
+				else if (UTeleporter* teleporter = UObject::TryCast<UTeleporter>(actor))
+				{
+					out << ",\"trigger_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, teleporter->TriggerActor(), "teleporter trigger");
+					out << ",\"trigger_actor2_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, teleporter->TriggerActor2(), "teleporter second trigger");
+					out << ",\"url\":" << JsonString(teleporter->URL())
+						<< ",\"enabled\":" << (teleporter->bEnabled() ? "true" : "false")
+						<< ",\"changes_velocity\":" << (teleporter->bChangesVelocity() ? "true" : "false")
+						<< ",\"changes_yaw\":" << (teleporter->bChangesYaw() ? "true" : "false");
+				}
+				else if (UWarpZoneMarker* marker = UObject::TryCast<UWarpZoneMarker>(actor))
+				{
+					out << ",\"marked_warp_zone_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, marker->markedWarpZone(), "warp-zone marker");
+					out << ",\"trigger_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, marker->TriggerActor(), "warp-zone marker trigger");
+					out << ",\"trigger_actor2_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, marker->TriggerActor2(), "warp-zone marker second trigger");
+				}
+				else if (UWarpZoneInfo* zone = UObject::TryCast<UWarpZoneInfo>(actor))
+				{
+					out << ",\"other_side_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, zone->OtherSideActor(), "warp-zone other side");
+					out << ",\"this_tag\":" << JsonString(zone->ThisTag().ToString())
+						<< ",\"other_side_url\":" << JsonString(zone->OtherSideURL());
+				}
+				else if (UInventorySpot* spot = UObject::TryCast<UInventorySpot>(actor))
+				{
+					out << ",\"marked_item_actor_index\":";
+					WriteActorIndexOrNull(out, actorIndexes, spot->markedItem(), "inventory-spot marked item");
+				}
+				else if (UPlayerStart* start = UObject::TryCast<UPlayerStart>(actor))
+				{
+					out << ",\"team_number\":" << static_cast<int>(start->TeamNumber())
+						<< ",\"enabled\":" << (start->bEnabled() ? "true" : "false")
+						<< ",\"coop_start\":" << (start->bCoopStart() ? "true" : "false")
+						<< ",\"single_player_start\":" << (start->bSinglePlayerStart() ? "true" : "false");
+				}
+				out << '}';
+			}
+			out << "\n  ]";
+		}
+
 		void ExportScripts(const std::filesystem::path& outputPath, const std::string& requestedPackages) const
 		{
 			std::vector<std::string> packageNames = requestedPackages.empty()
@@ -275,7 +407,7 @@ namespace
 			std::ostringstream out;
 			out.imbue(std::locale::classic());
 			out << std::fixed << std::setprecision(6);
-			out << "{\n  \"schema\":\"surreal-map-catalog-spike-v1\",\n"
+			out << "{\n  \"schema\":\"surreal-map-catalog-spike-v2\",\n"
 				<< "  \"game\":{\"name\":" << JsonString(EngineRef.LaunchInfo.gameName)
 				<< ",\"version\":" << JsonString(EngineRef.LaunchInfo.gameVersionString) << "},\n"
 				<< "  \"map\":" << JsonString(map) << ",\n"
@@ -292,7 +424,24 @@ namespace
 			}
 			out << ",\"navigation_points_exact\":" << navigationCount
 				<< ",\"reachspecs_exact\":" << EngineRef.Level->ReachSpecs.size()
-				<< ",\"zones_exact\":" << zoneCount << "},\n  \"navigation_points\":[";
+				<< ",\"zones_exact\":" << zoneCount << "},\n  \"actors\":[";
+			bool firstActor = true;
+			for (size_t index = 0; index < EngineRef.Level->Actors.size(); index++)
+			{
+				UActor* actor = EngineRef.Level->Actors[index];
+				if (!firstActor)
+					out << ',';
+				firstActor = false;
+				out << "\n    {\"actor_index\":" << index << ",\"present\":"
+					<< (actor ? "true" : "false");
+				if (actor)
+				{
+					out << ",\"name\":" << JsonString(actor->Name.ToString())
+						<< ",\"class\":" << JsonString(UObject::GetUClassFullName(actor).ToString());
+				}
+				out << '}';
+			}
+			out << "\n  ],\n  \"navigation_points\":[";
 			bool first = true;
 			for (size_t index = 0; index < EngineRef.Level->Actors.size(); index++)
 			{
@@ -359,7 +508,9 @@ namespace
 				WriteReachFlags(out, spec.reachFlags);
 				out << ",\"pruned\":" << (spec.bPruned ? "true" : "false") << '}';
 			}
-			out << "\n  ],\n  \"zones\":[";
+			out << "\n  ],\n  ";
+			WriteTraversalActors(out, actorIndexes);
+			out << ",\n  \"zones\":[";
 			first = true;
 			for (size_t index = 0; index < EngineRef.Level->Actors.size(); index++)
 			{

@@ -78,6 +78,25 @@ It fails if the benchmark stream is incomplete or lacks the complete current
 residence counter group. A reported candidate is an observation only; neither
 candidate presence nor a zone-clear terminal authorizes movement control.
 
+## Owner-local map catalog
+
+Extract a read-only map catalog outside the game root, then validate it before
+using it to choose bot fixtures or diagnose traversal:
+
+```powershell
+SurrealEngine.exe --autoplay --headless-driver=map-catalog `
+  --catalog-map=DM-Deck16][ `
+  --catalog-output=C:\qa\map-catalog\deck16 `
+  "C:\Games\Unreal Tournament"
+
+python .\Tools\BotBenchmark\Validate-MapCatalog.py `
+  C:\qa\map-catalog\deck16\DM-Deck16][.json
+```
+
+`surreal-map-catalog-spike-v2` is intentionally owner-local. It records level
+actor slots, navigation/reachspec graph semantics, traversal relationships,
+and zones; it does not export game assets or authorize a behavior change.
+
 The current UT436 and Unreal Gold adapters do not expose a verified named-bot
 spawn contract. Supplying `requested_names` is therefore parsed and recorded
 deterministically but the engine run deliberately fails instead of silently
