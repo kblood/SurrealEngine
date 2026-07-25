@@ -21,6 +21,7 @@
 namespace
 {
 	const vec3 DeathFanAmmo3LaunchAnchor(-148.983383f, -602.711670f, 1384.0f);
+	const vec3 DeathFanPathNode73LaunchAnchor(-146.546677f, 743.832153f, 1384.0f);
 	constexpr float ImmediateSupportDistance = 64.0f;
 	constexpr float DeepSupportDistance = 2048.0f;
 	constexpr int CorridorSamples = 5;
@@ -78,7 +79,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v2\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v3\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -88,11 +89,18 @@ namespace
 			<< "graph_fallback_exists=" << (result.GraphFallbackExists ? "true" : "false") << "\n"
 			<< "unsupported_corridor_sample=" << (result.UnsupportedCorridorSample ? "true" : "false") << "\n"
 			<< "harmful_zone_below_corridor=" << (result.HarmfulZoneBelowCorridor ? "true" : "false") << "\n"
+			<< "navigation_anchor_safe=" << (result.NavigationAnchorSafe ? "true" : "false") << "\n"
+			<< "direct_navigation_reachable=" << (result.DirectNavigationReachable ? "true" : "false") << "\n"
+			<< "navigation_graph_first_hop_selected=" << (result.NavigationGraphFirstHopSelected ? "true" : "false") << "\n"
+			<< "navigation_unsupported_corridor_sample=" << (result.NavigationUnsupportedCorridorSample ? "true" : "false") << "\n"
+			<< "navigation_harmful_zone_below_corridor=" << (result.NavigationHarmfulZoneBelowCorridor ? "true" : "false") << "\n"
 			<< "pawn_actor=" << result.PawnActor << "\n"
 			<< "marker_actor=" << result.MarkerActor << "\n"
 			<< "inventory_actor=" << result.InventoryActor << "\n"
 			<< "safe_marker_actor=" << result.SafeMarkerActor << "\n"
 			<< "selected_first_hop_actor=" << result.SelectedFirstHopActor << "\n"
+			<< "navigation_actor=" << result.NavigationActor << "\n"
+			<< "navigation_first_hop_actor=" << result.NavigationFirstHopActor << "\n"
 			<< "graph_edge_count=" << result.GraphEdgeCount << "\n"
 			<< "immediate_support_samples=" << result.ImmediateSupportSamples << "\n"
 			<< "unsupported_samples=" << result.UnsupportedSamples << "\n"
@@ -185,11 +193,13 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		UNavigationPoint* pathNode27 = UObject::TryCast<UNavigationPoint>(FindActor(engine, "PathNode27"));
 		UNavigationPoint* pathNode55 = UObject::TryCast<UNavigationPoint>(FindActor(engine, "PathNode55"));
 		UNavigationPoint* pathNode54 = UObject::TryCast<UNavigationPoint>(FindActor(engine, "PathNode54"));
-		if (!inventory || !marker || !safeMarker || !pathNode27 || !pathNode55 || !pathNode54)
+		UNavigationPoint* pathNode73 = UObject::TryCast<UNavigationPoint>(FindActor(engine, "PathNode73"));
+		if (!inventory || !marker || !safeMarker || !pathNode27 || !pathNode55 || !pathNode54 || !pathNode73)
 			throw std::runtime_error("fixture map is missing the expected DeathFan inventory route actors");
 		result.InventoryActor = inventory->Name.ToString();
 		result.MarkerActor = marker->Name.ToString();
 		result.SafeMarkerActor = safeMarker->Name.ToString();
+		result.NavigationActor = pathNode73->Name.ToString();
 
 		if (!pawn->SetLocation(DeathFanAmmo3LaunchAnchor))
 			throw std::runtime_error("fixture could not set the recorded DeathFan launch anchor");
@@ -274,6 +284,48 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		result.SafeMarkerReachable = pawn->ActorReachable(safeMarker, true);
 		if (!result.SafeMarkerReachable)
 			throw std::runtime_error("fixture could not preserve a safe direct inventory pickup");
+
+		if (!pawn->SetLocation(DeathFanPathNode73LaunchAnchor))
+			throw std::runtime_error("fixture could not set the recorded PathNode73 launch anchor");
+		pawn->Velocity() = vec3(0.0f);
+		pawn->Acceleration() = vec3(0.0f);
+		pawn->UpdateActorZone();
+		pawn->SetPhysics(PHYS_Walking);
+		if (!IsSafeWalkingPawn(pawn))
+			throw std::runtime_error("recorded PathNode73 launch anchor is not a safe walking context");
+		result.NavigationAnchorSafe = true;
+		result.DirectNavigationReachable = pawn->ActorReachable(pathNode73, true);
+		if (!result.DirectNavigationReachable)
+			throw std::runtime_error("fixture does not reproduce direct PathNode73 reachability");
+		UObject* navigationFirstHop = pawn->FindPathToward(pathNode73, false);
+		result.NavigationFirstHopActor = navigationFirstHop
+			? navigationFirstHop->Name.ToString() : std::string();
+		result.NavigationGraphFirstHopSelected = navigationFirstHop && navigationFirstHop != pathNode73
+			&& UObject::TryCast<UNavigationPoint>(navigationFirstHop) != nullptr;
+		const vec3 navigationCorridor = pathNode73->Location() - DeathFanPathNode73LaunchAnchor;
+		for (int index = 1; index <= CorridorSamples; index++)
+		{
+			const vec3 point = DeathFanPathNode73LaunchAnchor + navigationCorridor
+				* (static_cast<float>(index) / static_cast<float>(CorridorSamples + 1));
+			const CollisionHit immediateSupport = pawn->ProbeMoveCollision(
+				point, vec3(0.0f, 0.0f, -ImmediateSupportDistance), true);
+			if (IsWalkableStaticSupport(pawn, immediateSupport))
+				continue;
+			result.NavigationUnsupportedCorridorSample = true;
+			for (int zoneIndex = 1; zoneIndex <= ZoneSamplesPerCorridorPoint; zoneIndex++)
+			{
+				const vec3 below = point + vec3(0.0f, 0.0f,
+					-DeepSupportDistance * static_cast<float>(zoneIndex) / ZoneSamplesPerCorridorPoint);
+				UZoneInfo* zone = pawn->XLevel()->Model->FindRegion(below, pawn->Level()).Zone;
+				if (zone && zone->bPainZone() && zone->DamagePerSec() > 0)
+				{
+					result.NavigationHarmfulZoneBelowCorridor = true;
+					break;
+				}
+			}
+		}
+		if (!result.NavigationUnsupportedCorridorSample || !result.NavigationHarmfulZoneBelowCorridor)
+			throw std::runtime_error("PathNode73 direct corridor lacks unsupported harmful-drop evidence");
 		result.Ran = true;
 		result.Passed = true;
 	}

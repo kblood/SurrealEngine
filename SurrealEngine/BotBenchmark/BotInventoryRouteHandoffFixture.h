@@ -6,9 +6,9 @@
 class Engine;
 class HeadlessDriverRegistry;
 
-// A map-owned reproduction fixture for the DeathFan inventory handoff. It
-// verifies the specific direct-reach decision that replaces a safe navigation
-// route with a direct MoveToward target, without enabling a behavior policy.
+// A map-owned reproduction fixture for the DeathFan inventory handoff and its
+// remaining direct-navigation false-positive class. It verifies those direct
+// reach decisions without enabling a production behavior policy.
 struct BotInventoryRouteHandoffFixtureConfig
 {
 	std::string URL;
@@ -26,12 +26,19 @@ struct BotInventoryRouteHandoffFixtureResult
 	bool GraphFallbackExists = false;
 	bool UnsupportedCorridorSample = false;
 	bool HarmfulZoneBelowCorridor = false;
+	bool NavigationAnchorSafe = false;
+	bool DirectNavigationReachable = false;
+	bool NavigationGraphFirstHopSelected = false;
+	bool NavigationUnsupportedCorridorSample = false;
+	bool NavigationHarmfulZoneBelowCorridor = false;
 	std::string FailureReason;
 	std::string PawnActor;
 	std::string MarkerActor;
 	std::string InventoryActor;
 	std::string SafeMarkerActor;
 	std::string SelectedFirstHopActor;
+	std::string NavigationActor;
+	std::string NavigationFirstHopActor;
 	uint64_t GraphEdgeCount = 0;
 	uint64_t ImmediateSupportSamples = 0;
 	uint64_t UnsupportedSamples = 0;

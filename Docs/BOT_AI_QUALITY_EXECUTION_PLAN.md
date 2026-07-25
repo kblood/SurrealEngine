@@ -3264,3 +3264,31 @@ infrastructure. The next candidate must use the retained same-life command
 and route context to select a still narrower causal class and must show an
 aggregate survival/combat improvement in repeated Unreal A/B runs before UT
 qualification or a default-on merge is considered.
+
+## Iteration 126: remaining direct-navigation endpoint evidence
+
+The gated inventory-marker A/B changes the route choice but does not change
+the aggregate DeathFan score, so its residual death records were reviewed
+instead of widening that experiment. Six of the ten safety-arm water deaths
+retain a known high-platform launch target. The recurring active-command class
+is navigation, not inventory: `PathNode73` (two deaths), `PathNode75`, and a
+lift exit; the other episodes either retain no active command or are already
+below the normal route plane. This makes a generic inventory policy the wrong
+next intervention.
+
+The same owner-local fixture now includes the captured `PathNode73` launch
+anchor (`-146.547, 743.832, 1384`). Its v3 evidence run at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v3-navigation-evidence/`
+passes all precondition checks: the anchor is safe walking, native
+`ActorReachable(PathNode73, true)` returns true, and the direct corridor has
+unsupported samples with a positive-DPS pain zone below. `FindPathToward`
+returns `PathNode73` itself because the faulty direct result marks the target
+as an endpoint, rather than choosing the graph first hop.
+
+This establishes a second false-direct-reach class but does not authorize a
+generic navigation rejection yet. Before adding a new gated candidate, the
+fixture must directly demonstrate a safe alternate endpoint/path when the
+target is excluded, and the implementation must retain a target-progress
+certificate. Without that proof, returning false for a navigation point could
+leave a bot with no reachable endpoint and trade suicides for navigation
+stalls.
