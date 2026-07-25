@@ -22,7 +22,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 25
+TOOL_VERSION = 26
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -271,6 +271,14 @@ WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_COUNTERS = (
     "walking_step_preflight_positive_dps_veto_rollback_rejected_exact",
     "walking_step_preflight_positive_dps_veto_action_overflows_exact",
 )
+WALKING_HITWALL_DISPATCH_COUNTERS = (
+    "walking_hitwall_dispatch_observations_exact",
+    "walking_hitwall_dispatch_legacy_z_band_exact",
+    "walking_hitwall_dispatch_minhitwall_exact",
+    "walking_hitwall_dispatch_disagreements_exact",
+    "walking_hitwall_dispatch_callbacks_exact",
+    "walking_hitwall_dispatch_diagnostic_overflows_exact",
+)
 DAMAGE_COUNTERS = (
     "damage_taken_exact",
     "damage_taken_from_other_participants_exact",
@@ -377,6 +385,7 @@ METRIC_DIRECTIONS.update({
         + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS + FALLING_HAZARD_RECOVERY_COUNTERS
 		+ DIRECT_HARMFUL_WATER_ENTRY_COUNTERS
 		+ DIRECT_HARMFUL_WATER_ENTRY_CERTIFICATE_RESULT_COUNTERS
+		+ WALKING_HITWALL_DISPATCH_COUNTERS
         + CONFIRMED_PICKUP_COUNTERS + (PICKUP_SOURCE_CONSUMED_UNCONFIRMED_COUNTER,)
         + NAVIGATION_COVERAGE_COUNTERS + (
             "navigation_coverage_fraction", "navigation_coverage_union_fraction"))
@@ -397,6 +406,7 @@ OPTIONAL_EXACT_COUNTERS = (
     + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS
 	+ DIRECT_HARMFUL_WATER_ENTRY_COUNTERS
 	+ DIRECT_HARMFUL_WATER_ENTRY_CERTIFICATE_RESULT_COUNTERS
+    + WALKING_HITWALL_DISPATCH_COUNTERS
     + WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_COUNTERS
     + CONFIRMED_PICKUP_COUNTERS + (PICKUP_SOURCE_CONSUMED_UNCONFIRMED_COUNTER,)
     + (
@@ -426,6 +436,7 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "walking_step_preflight_positive_dps_veto_actions",
     "falling_parity_realized_records", "vertical_pain_column_diagnostics",
     "hazard_water_egress_diagnostics", "hazard_death_partition_records",
+    "walking_hitwall_dispatch_diagnostics",
 )
 HAZARD_DEATH_KILLER_RELATIONS = {"none", "self_player", "enemy_player", "non_player"}
 HAZARD_DEATH_ATTRIBUTIONS = {
@@ -456,6 +467,9 @@ WALKING_STEP_PREFLIGHT_COLLISIONS = {
     "unknown", "clear", "static_bsp", "mover", "dynamic_actor",
 }
 WALKING_STEP_PREFLIGHT_ZONES = {"unknown", "safe", "pain", "water"}
+WALKING_HITWALL_DISPATCH_BLOCKERS = {
+    "unknown", "static_world", "mover", "dynamic_actor",
+}
 WALKING_STEP_PREFLIGHT_PHASES = {
     "precommit_provisional", "post_mayfall_confirmation",
 }
@@ -601,6 +615,73 @@ def _exact_object(value: Any, context: str, fields: set[str]) -> dict[str, Any]:
 def _diagnostic_vector(value: Any, context: str) -> dict[str, float]:
     vector = _exact_object(value, context, {"x", "y", "z"})
     return {axis: _number(vector.get(axis), f"{context}.{axis}") for axis in "xyz"}
+
+
+def _nullable_diagnostic_vector(value: Any, context: str) -> dict[str, float] | None:
+    if value is None:
+        return None
+    return _diagnostic_vector(value, context)
+
+
+def _nullable_number(value: Any, context: str) -> float | None:
+    if value is None:
+        return None
+    return _number(value, context)
+
+
+def _walking_hitwall_dispatch_diagnostic(value: Any, context: str) -> dict[str, Any]:
+    fields = _exact_object(value, context, {
+        "source_pawn_actor", "sequence", "hit_normal", "velocity", "min_hit_wall",
+        "normal_velocity_dot", "valid", "legacy_vertical_wall_band",
+        "min_hit_wall_dispatch", "blocker", "callback_dispatched",
+        "physics_changed_by_callback", "pawn_deleted_by_callback",
+    })
+    valid = _boolean(fields.get("valid"), f"{context}.valid")
+    hit_normal = _nullable_diagnostic_vector(
+        fields.get("hit_normal"), f"{context}.hit_normal")
+    velocity = _nullable_diagnostic_vector(fields.get("velocity"), f"{context}.velocity")
+    min_hit_wall = _nullable_number(fields.get("min_hit_wall"), f"{context}.min_hit_wall")
+    normal_velocity_dot = _nullable_number(
+        fields.get("normal_velocity_dot"), f"{context}.normal_velocity_dot")
+    if valid and any(item is None for item in (
+            hit_normal, velocity, min_hit_wall, normal_velocity_dot)):
+        raise QualityError(f"{context}: valid observation requires finite geometry")
+    blocker = _string(fields, "blocker", context, nonempty=True)
+    if blocker not in WALKING_HITWALL_DISPATCH_BLOCKERS:
+        raise QualityError(f"{context}.blocker is not recognized")
+    return {
+        "source_pawn_actor": _string(fields, "source_pawn_actor", context, nonempty=True),
+        "sequence": _integer(
+            fields.get("sequence"), f"{context}.sequence", minimum=0),
+        "hit_normal": hit_normal,
+        "velocity": velocity,
+        "min_hit_wall": min_hit_wall,
+        "normal_velocity_dot": normal_velocity_dot,
+        "valid": valid,
+        "legacy_vertical_wall_band": _boolean(
+            fields.get("legacy_vertical_wall_band"),
+            f"{context}.legacy_vertical_wall_band"),
+        "min_hit_wall_dispatch": _boolean(
+            fields.get("min_hit_wall_dispatch"), f"{context}.min_hit_wall_dispatch"),
+        "blocker": blocker,
+        "callback_dispatched": _boolean(
+            fields.get("callback_dispatched"), f"{context}.callback_dispatched"),
+        "physics_changed_by_callback": _boolean(
+            fields.get("physics_changed_by_callback"),
+            f"{context}.physics_changed_by_callback"),
+        "pawn_deleted_by_callback": _boolean(
+            fields.get("pawn_deleted_by_callback"),
+            f"{context}.pawn_deleted_by_callback"),
+    }
+
+
+def _walking_hitwall_dispatch_diagnostics(value: Any, context: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise QualityError(f"{context} must be an array")
+    return [
+        _walking_hitwall_dispatch_diagnostic(item, f"{context}[{index}]")
+        for index, item in enumerate(value)
+    ]
 
 
 def _walking_step_preflight_probe(value: Any, context: str) -> dict[str, Any]:
@@ -2191,6 +2272,27 @@ def _validate_walking_step_preflight_diagnostic_stream(
                 f"for {identity} and overflow evidence is insufficient")
 
 
+def _validate_walking_hitwall_dispatch_diagnostic_stream(
+        events: list[dict[str, Any]], path: Path) -> None:
+    previous_sequence: dict[tuple[str, str], int] = {}
+    for event in events:
+        for bot in event["bots"]:
+            identity = bot["identity"]
+            for diagnostic in bot.get("walking_hitwall_dispatch_diagnostics", []):
+                actor = diagnostic["source_pawn_actor"]
+                if actor != bot["actor"]:
+                    raise QualityError(
+                        f"{path}: walking HitWall diagnostic actor does not match "
+                        f"{identity} at telemetry sequence {event['seq']}")
+                stream = (identity, actor)
+                previous = previous_sequence.get(stream)
+                if previous is not None and diagnostic["sequence"] <= previous:
+                    raise QualityError(
+                        f"{path}: walking HitWall diagnostic sequence is not strictly increasing "
+                        f"for {identity}/{actor} at telemetry sequence {event['seq']}")
+                previous_sequence[stream] = diagnostic["sequence"]
+
+
 def _load_json(path: Path, context: str) -> dict[str, Any]:
     try:
         return _object(json.loads(path.read_text(encoding="utf-8-sig")), context)
@@ -2498,7 +2600,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
     if schema != TELEMETRY_SCHEMA_V2 and any(name in bot for name in (
             "walking_step_preflight_diagnostics", "falling_parity_realized_records",
             "vertical_pain_column_diagnostics", "hazard_water_egress_diagnostics",
-            "hazard_death_partition_records")):
+            "hazard_death_partition_records", "walking_hitwall_dispatch_diagnostics")):
         raise QualityError(
             f"{context}: observer record arrays require telemetry v2")
     result: dict[str, Any] = {
@@ -2547,6 +2649,7 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("falling seam shadow v1", FALLING_SEAM_SHADOW_COUNTERS),
                 ("falling seam shadow detailed v2", FALLING_SEAM_DETAILED_COUNTERS),
                 ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS),
+                ("walking HitWall dispatch", WALKING_HITWALL_DISPATCH_COUNTERS),
                 ("persistent harmful fall", PERSISTENT_HARMFUL_FALL_COUNTERS),
                 ("single harmful fall prefix", SINGLE_HARMFUL_FALL_PREFIX_COUNTERS),
                 ("direct harmful-water entry", DIRECT_HARMFUL_WATER_ENTRY_COUNTERS),
@@ -2924,6 +3027,17 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 _walking_step_preflight_diagnostics(
                     bot.get("walking_step_preflight_diagnostics"),
                     f"{context}.walking_step_preflight_diagnostics")
+        if "walking_hitwall_dispatch_diagnostics" in bot:
+            if "walking_hitwall_dispatch_observations_exact" not in result:
+                raise QualityError(
+                    f"{context}: walking HitWall dispatch diagnostics require the complete counter group")
+            result["walking_hitwall_dispatch_diagnostics"] = \
+                _walking_hitwall_dispatch_diagnostics(
+                    bot.get("walking_hitwall_dispatch_diagnostics"),
+                    f"{context}.walking_hitwall_dispatch_diagnostics")
+        elif "walking_hitwall_dispatch_observations_exact" in result:
+            raise QualityError(
+                f"{context}: walking HitWall dispatch counters require diagnostics")
         if "walking_step_preflight_positive_dps_veto_actions" in bot:
             if "walking_step_preflight_positive_dps_veto_action_overflows_exact" not in result:
                 raise QualityError(
@@ -3147,6 +3261,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     f"{path}: navigation coverage union differs between bots at sequence {event['seq']}")
         if optional_presence and "walking_step_preflight_diagnostics" in optional_presence:
             _validate_walking_step_preflight_diagnostic_stream(events, path)
+        if optional_presence and "walking_hitwall_dispatch_diagnostics" in optional_presence:
+            _validate_walking_hitwall_dispatch_diagnostic_stream(events, path)
         if optional_presence and "walking_step_preflight_positive_dps_veto_actions" in optional_presence:
             _validate_positive_dps_veto_action_stream(events, path)
         if optional_presence and "falling_parity_realized_records" in optional_presence:

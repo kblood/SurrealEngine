@@ -2519,6 +2519,109 @@ class BotQualityAnalysisTests(unittest.TestCase):
             self.assertIsNone(metrics["pickup_source_consumed_unconfirmed_exact"])
             self.assertIsNone(metrics["navigation_coverage_visited_nodes_exact"])
 
+    def test_walking_hitwall_dispatch_telemetry_is_optional_and_structural(self) -> None:
+        base = {
+            "score": 0, "pri_deaths": 0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        counters = QUALITY.WALKING_HITWALL_DISPATCH_COUNTERS
+        zero = {name: 0 for name in counters}
+        valid = {
+            "source_pawn_actor": "Bot1", "sequence": "0",
+            "hit_normal": {"x": 0.0, "y": 1.0, "z": 0.0},
+            "velocity": {"x": 1.0, "y": 0.0, "z": 0.0},
+            "min_hit_wall": -0.5, "normal_velocity_dot": 0.0,
+            "valid": True, "legacy_vertical_wall_band": True,
+            "min_hit_wall_dispatch": False, "blocker": "static_world",
+            "callback_dispatched": False, "physics_changed_by_callback": False,
+            "pawn_deleted_by_callback": False,
+        }
+        invalid_geometry = {
+            "source_pawn_actor": "Bot1", "sequence": "1", "hit_normal": None,
+            "velocity": None, "min_hit_wall": None, "normal_velocity_dot": None,
+            "valid": False, "legacy_vertical_wall_band": False,
+            "min_hit_wall_dispatch": False, "blocker": "unknown",
+            "callback_dispatched": False, "physics_changed_by_callback": False,
+            "pawn_deleted_by_callback": False,
+        }
+
+        def create(root: Path, name: str) -> Path:
+            run = write_v2_run(root, name, bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**base, **zero, "walking_hitwall_dispatch_diagnostics": []},
+                {**base, **zero,
+                 "walking_hitwall_dispatch_observations_exact": 1,
+                 "walking_hitwall_dispatch_legacy_z_band_exact": 1,
+                 "walking_hitwall_dispatch_disagreements_exact": 1,
+                 "walking_hitwall_dispatch_diagnostics": [valid]},
+                {**base, **zero,
+                 "walking_hitwall_dispatch_observations_exact": 1,
+                 "walking_hitwall_dispatch_legacy_z_band_exact": 1,
+                 "walking_hitwall_dispatch_disagreements_exact": 1,
+                 "walking_hitwall_dispatch_diagnostics": [invalid_geometry]},
+            ])
+            path = run / "events.jsonl"
+            events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            events[-1]["bots"][0]["walking_hitwall_dispatch_diagnostics"] = []
+            path.write_text(
+                "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+            return run
+
+        def mutate(run: Path, edit) -> None:
+            path = run / "events.jsonl"
+            events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            edit(events)
+            path.write_text(
+                "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = create(root, "valid")
+            report = QUALITY.analyze([run])
+            self.assertEqual(
+                report["runs"][0]["metrics"]["walking_hitwall_dispatch_observations_exact"], 1)
+            self.assertIn(
+                "walking_hitwall_dispatch_diagnostics",
+                report["runs"][0]["validation"]["optional_telemetry_fields"])
+            self.assertTrue(report["metric_availability"]["optional_counter_metrics_present"]
+                            ["walking_hitwall_dispatch_callbacks_exact"])
+
+            incomplete = create(root, "incomplete")
+            mutate(incomplete, lambda events: [
+                event["bots"][0].pop("walking_hitwall_dispatch_callbacks_exact")
+                for event in events])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "walking HitWall dispatch counters"):
+                QUALITY.analyze_run(incomplete)
+
+            missing_array = create(root, "missing-array")
+            mutate(missing_array, lambda events: [
+                event["bots"][0].pop("walking_hitwall_dispatch_diagnostics")
+                for event in events])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "walking HitWall dispatch counters require diagnostics"):
+                QUALITY.analyze_run(missing_array)
+
+            bad_blocker = create(root, "bad-blocker")
+            mutate(bad_blocker, lambda events: events[1]["bots"][0]
+                   ["walking_hitwall_dispatch_diagnostics"][0].update(blocker="wall"))
+            with self.assertRaisesRegex(QUALITY.QualityError, "blocker is not recognized"):
+                QUALITY.analyze_run(bad_blocker)
+
+            bad_boolean = create(root, "bad-boolean")
+            mutate(bad_boolean, lambda events: events[1]["bots"][0]
+                   ["walking_hitwall_dispatch_diagnostics"][0].update(valid="true"))
+            with self.assertRaisesRegex(QUALITY.QualityError, "valid must be a boolean"):
+                QUALITY.analyze_run(bad_boolean)
+
+            repeated = create(root, "repeated")
+            mutate(repeated, lambda events: events[2]["bots"][0]
+                   ["walking_hitwall_dispatch_diagnostics"][0].update(sequence="0"))
+            with self.assertRaisesRegex(QUALITY.QualityError, "sequence is not strictly increasing"):
+                QUALITY.analyze_run(repeated)
+
     def test_optional_pickup_and_navigation_coverage_metrics_are_validated(self) -> None:
         base = {
             "score": 0, "pri_deaths": 0, "movement_intent": False,
