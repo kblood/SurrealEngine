@@ -186,6 +186,14 @@ public:
 	{
 		botBenchmarkTargetlessMoveToTimeoutEnabled = enabled;
 	}
+	bool IsBotBenchmarkDirectActorMoveTowardTimeoutEnabled() const
+	{
+		return botBenchmarkDirectActorMoveTowardTimeoutEnabled;
+	}
+	void SetBotBenchmarkDirectActorMoveTowardTimeoutEnabled(bool enabled)
+	{
+		botBenchmarkDirectActorMoveTowardTimeoutEnabled = enabled;
+	}
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -365,6 +373,7 @@ private:
 	bool botBenchmarkFallingHazardRecoveryLiveEnabled = false;
 	bool botBenchmarkFailedNavigationAvoidanceEnabled = false;
 	bool botBenchmarkTargetlessMoveToTimeoutEnabled = false;
+	bool botBenchmarkDirectActorMoveTowardTimeoutEnabled = false;
 	ViewFamily CreateDesktopViewFamily() const;
 	void InstallXRWeaponCallHook();
 	void UninstallXRWeaponCallHook();

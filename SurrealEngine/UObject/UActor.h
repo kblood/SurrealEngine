@@ -2082,6 +2082,10 @@ public:
 	uint64_t MoveStallForcedReplanCount() const { return MoveStallForcedReplanCountValue; }
 	uint64_t MoveStallNavigationForcedReplanCount() const { return MoveStallNavigationForcedReplanCountValue; }
 	uint64_t MoveStallTargetlessMoveToTimeoutCount() const { return MoveStallTargetlessMoveToTimeoutCountValue; }
+	uint64_t MoveStallDirectActorMoveTowardTimeoutCount() const
+	{
+		return MoveStallDirectActorMoveTowardTimeoutCountValue;
+	}
 	double MoveStallEligibleSeconds() const { return MoveStallEligibleSecondsValue; }
 	uint64_t MoveStallRecoveryEpisodeStartCount() const { return MoveStallRecoveryEpisodeStartCountValue; }
 	uint64_t MoveStallRecoveryClearedWithin2SecondsCount() const
@@ -2617,6 +2621,7 @@ private:
 	uint64_t MoveStallForcedReplanCountValue = 0;
 	uint64_t MoveStallNavigationForcedReplanCountValue = 0;
 	uint64_t MoveStallTargetlessMoveToTimeoutCountValue = 0;
+	uint64_t MoveStallDirectActorMoveTowardTimeoutCountValue = 0;
 	double MoveStallEligibleSecondsValue = 0.0;
 	uint64_t MoveStallRecoveryEpisodeStartCountValue = 0;
 	uint64_t MoveStallRecoveryClearedWithin2SecondsCountValue = 0;

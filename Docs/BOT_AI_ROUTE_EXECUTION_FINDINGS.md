@@ -109,8 +109,9 @@ The required witness now exists in telemetry v2 as the bounded
 native move-stall detection before any recovery write. Each record binds the
 pawn life and episode to latent mode, target identity/class/liveness, timer,
 and selector result. The analyzer rejects a run unless records plus their
-explicit overflow counter partition detections, and `navigation_replan` and
-`targetless_timeout` records partition the aggregate forced-replan counters.
+explicit overflow counter partition detections, and `navigation_replan`,
+`targetless_timeout`, and `direct_actor_move_toward_timeout` records partition
+the aggregate forced-replan counters.
 
 Fresh 7,200-tick stock-equivalent qualification runs passed the quality gate:
 
@@ -124,3 +125,37 @@ The evidence confirms that direct actor targets are a real, narrow recovery
 gap in UT, but does not yet establish a safe recovery outcome. The next
 behavior candidate must extend this witness with a new explicit decision value
 and prove the same partition invariant on both game families.
+
+## Opt-in direct-actor MoveToward timeout (v2, 2026-07-25)
+
+The v2 experiment is now implemented behind the benchmark-only
+`--botbench-direct-actor-move-toward-timeout=1` switch. It is disabled by
+default. On a watchdog detection it may end only a live, non-navigation,
+non-pawn `MoveToward` whose `MoveTimer` is finite and positive. Mover context
+remains excluded. The action uses the existing stock recovery handoff
+(`Acceleration = 0`, `MoveTimer = -1`) rather than injecting motion or
+rewriting a route.
+
+The telemetry has a distinct native
+`move_stall_direct_actor_move_toward_timeouts_exact` counter and decision
+value. The quality analyzer requires the exact invariant:
+
+```text
+forced replans = navigation replans + targetless timeouts + direct-actor timeouts
+```
+
+Qualification to date passed the quality gate:
+
+- UT436 `DM-Deck16][`, seed `104729`, difficulty 7, 7,200 ticks: the disabled
+  run had zero direct-actor timeouts; the enabled run had exactly one. Aggregate
+  kills changed from 7 to 6, deaths from 17 to 14, and suicides from 10 to 8.
+  The enabled repeat emitted a byte-identical `events.jsonl` with SHA-256
+  `D5C265108A2BDBECADDA359D230DFB55F65B26221A5060B75568B41038814BB8`.
+- Unreal Gold 226b `DmDeathFan`, seed `271828`, difficulty 3, 7,200 ticks:
+  enabled and disabled runs had identical measured kill/death/suicide metrics
+  and zero direct-actor timeouts.
+
+This is a qualified, deterministic test hook, not a release-ready bot behavior
+change. It still needs activating evidence from at least two additional
+independent map/seed cases and paired combat/resource telemetry before it can
+be enabled outside benchmark experiments or proposed as an improvement.

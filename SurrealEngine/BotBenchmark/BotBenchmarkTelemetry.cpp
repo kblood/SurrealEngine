@@ -354,6 +354,8 @@ namespace
 		case MoveStallRecoveryDecision::None: return "none";
 		case MoveStallRecoveryDecision::NavigationReplan: return "navigation_replan";
 		case MoveStallRecoveryDecision::TargetlessTimeout: return "targetless_timeout";
+		case MoveStallRecoveryDecision::DirectActorMoveTowardTimeout:
+			return "direct_actor_move_toward_timeout";
 		}
 		return "none";
 	}
@@ -728,6 +730,7 @@ namespace
 			<< ",\"move_stall_forced_replans_exact\":\"" << bot.MoveStallForcedReplansExact << "\""
 			<< ",\"move_stall_navigation_forced_replans_exact\":\"" << bot.MoveStallNavigationForcedReplansExact << "\""
 			<< ",\"move_stall_targetless_move_to_timeouts_exact\":\"" << bot.MoveStallTargetlessMoveToTimeoutsExact << "\""
+			<< ",\"move_stall_direct_actor_move_toward_timeouts_exact\":\"" << bot.MoveStallDirectActorMoveTowardTimeoutsExact << "\""
 			<< ",\"move_stall_eligible_seconds\":" << Fixed(bot.MoveStallEligibleSeconds, 9)
 			<< ",\"move_stall_recovery_episodes_exact\":\"" << bot.MoveStallRecoveryEpisodesExact << "\""
 			<< ",\"move_stall_recovery_cleared_within_2_seconds_exact\":\"" << bot.MoveStallRecoveryClearedWithin2SecondsExact << "\""
@@ -1115,7 +1118,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "falling_hazard_recovery_live_enabled="
 		<< (config.IsFallingHazardRecoveryLiveEnabled() ? "1" : "0") << '\n'
 		<< "targetless_move_to_timeout_enabled="
-		<< (config.IsTargetlessMoveToTimeoutEnabled() ? "1" : "0") << '\n';
+		<< (config.IsTargetlessMoveToTimeoutEnabled() ? "1" : "0") << '\n'
+		<< "direct_actor_move_toward_timeout_enabled="
+		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "1" : "0") << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
 		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
@@ -1157,6 +1162,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsFallingHazardRecoveryLiveEnabled() ? "true" : "false") << ",\n"
 		<< "  \"targetless_move_to_timeout_enabled\": "
 		<< (config.IsTargetlessMoveToTimeoutEnabled() ? "true" : "false") << ",\n"
+		<< "  \"direct_actor_move_toward_timeout_enabled\": "
+		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";

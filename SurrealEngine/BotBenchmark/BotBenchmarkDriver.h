@@ -34,6 +34,7 @@ namespace BotBenchmarkDriverDetail
 		uint64_t MoveStallForcedReplans = 0;
 		uint64_t MoveStallNavigationForcedReplans = 0;
 		uint64_t MoveStallTargetlessMoveToTimeouts = 0;
+		uint64_t MoveStallDirectActorMoveTowardTimeouts = 0;
 		double MoveStallEligibleSeconds = 0.0;
 		uint64_t MoveStallRecoveryEpisodes = 0;
 		uint64_t MoveStallRecoveryClearedWithin2Seconds = 0;
@@ -264,6 +265,9 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.MoveStallTargetlessMoveToTimeouts,
 				Previous.MoveStallTargetlessMoveToTimeouts,
 				totals.MoveStallTargetlessMoveToTimeouts);
+			AccumulateCounter(current.MoveStallDirectActorMoveTowardTimeouts,
+				Previous.MoveStallDirectActorMoveTowardTimeouts,
+				totals.MoveStallDirectActorMoveTowardTimeouts);
 			AccumulateDuration(current.MoveStallEligibleSeconds,
 				Previous.MoveStallEligibleSeconds, totals.MoveStallEligibleSeconds);
 			AccumulateCounter(current.MoveStallRecoveryEpisodes,

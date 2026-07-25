@@ -20,7 +20,8 @@ namespace PawnMovement
 	{
 		None,
 		NavigationReplan,
-		TargetlessTimeout
+		TargetlessTimeout,
+		DirectActorMoveTowardTimeout
 	};
 
 	struct MoveStallRecoveryContext
@@ -28,7 +29,9 @@ namespace PawnMovement
 		bool Detected = false;
 		MoveStallLatentMode LatentMode = MoveStallLatentMode::Other;
 		bool LiveNavigationMoveToward = false;
+		bool LiveDirectActorMoveToward = false;
 		bool TargetlessMoveToTimeoutEnabled = false;
+		bool DirectActorMoveTowardTimeoutEnabled = false;
 		bool Targetless = false;
 		float MoveTimer = 0.0f;
 		vec3 Location;

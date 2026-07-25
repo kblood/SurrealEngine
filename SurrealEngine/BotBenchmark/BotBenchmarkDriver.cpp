@@ -81,6 +81,8 @@ namespace
 				Config.IsFailedNavigationAvoidanceEnabled());
 			EngineRef.SetBotBenchmarkTargetlessMoveToTimeoutEnabled(
 				Config.IsTargetlessMoveToTimeoutEnabled());
+			EngineRef.SetBotBenchmarkDirectActorMoveTowardTimeoutEnabled(
+				Config.IsDirectActorMoveTowardTimeoutEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -810,6 +812,8 @@ namespace
 				pawn->MoveStallNavigationForcedReplanCount();
 			counters.MoveStallTargetlessMoveToTimeouts =
 				pawn->MoveStallTargetlessMoveToTimeoutCount();
+			counters.MoveStallDirectActorMoveTowardTimeouts =
+				pawn->MoveStallDirectActorMoveTowardTimeoutCount();
 			counters.MoveStallEligibleSeconds = pawn->MoveStallEligibleSeconds();
 			counters.MoveStallRecoveryEpisodes = pawn->MoveStallRecoveryEpisodeStartCount();
 			counters.MoveStallRecoveryClearedWithin2Seconds =
@@ -2046,6 +2050,8 @@ namespace
 					native.MoveStallNavigationForcedReplans;
 				bot.MoveStallTargetlessMoveToTimeoutsExact =
 					native.MoveStallTargetlessMoveToTimeouts;
+				bot.MoveStallDirectActorMoveTowardTimeoutsExact =
+					native.MoveStallDirectActorMoveTowardTimeouts;
 				bot.MoveStallEligibleSeconds = native.MoveStallEligibleSeconds;
 				bot.MoveStallRecoveryEpisodesExact = native.MoveStallRecoveryEpisodes;
 				bot.MoveStallRecoveryClearedWithin2SecondsExact =
@@ -2486,7 +2492,8 @@ namespace
 			OptionalCommandLineArg("--botbench-failed-navigation-avoidance"),
 			OptionalCommandLineArg("--botbench-falling-hazard-recovery"),
 			OptionalCommandLineArg("--botbench-falling-hazard-recovery-live"),
-			OptionalCommandLineArg("--botbench-targetless-move-to-timeout"));
+			OptionalCommandLineArg("--botbench-targetless-move-to-timeout"),
+			OptionalCommandLineArg("--botbench-direct-actor-move-toward-timeout"));
 	}
 }
 

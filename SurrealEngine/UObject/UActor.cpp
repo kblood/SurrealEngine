@@ -6393,6 +6393,9 @@ void UPawn::ObserveMoveStallWatchdog(float elapsed)
 	UNavigationPoint* navigationTarget = moveTowardLatent
 		? UObject::TryCast<UNavigationPoint>(moveTarget) : nullptr;
 	const bool liveNavigationTarget = navigationTarget && !navigationTarget->bDeleteMe();
+	const bool liveDirectActorMoveToward = moveTowardLatent && moveTarget
+		&& !moveTarget->bDeleteMe() && !liveNavigationTarget
+		&& !UObject::TryCast<UPawn>(moveTarget);
 	if (MoveStallRecoveryEpisode.Active)
 	{
 		PawnMovement::MoveStallRecoveryEpisodeEvent episodeEvent =
@@ -6436,8 +6439,11 @@ void UPawn::ObserveMoveStallWatchdog(float elapsed)
 				.Detected = observation.Detected,
 				.LatentMode = latentMode,
 				.LiveNavigationMoveToward = liveNavigationTarget,
+				.LiveDirectActorMoveToward = liveDirectActorMoveToward,
 				.TargetlessMoveToTimeoutEnabled =
 					engine->IsBotBenchmarkTargetlessMoveToTimeoutEnabled(),
+				.DirectActorMoveTowardTimeoutEnabled =
+					engine->IsBotBenchmarkDirectActorMoveTowardTimeoutEnabled(),
 				.Targetless = moveTarget == nullptr,
 				.MoveTimer = MoveTimer(),
 				.Location = Location(),
@@ -6485,6 +6491,8 @@ void UPawn::ObserveMoveStallWatchdog(float elapsed)
 				MoveStallNavigationForcedReplanCountValue++;
 			else if (recovery == PawnMovement::MoveStallRecoveryDecision::TargetlessTimeout)
 				MoveStallTargetlessMoveToTimeoutCountValue++;
+			else if (recovery == PawnMovement::MoveStallRecoveryDecision::DirectActorMoveTowardTimeout)
+				MoveStallDirectActorMoveTowardTimeoutCountValue++;
 		}
 	}
 }

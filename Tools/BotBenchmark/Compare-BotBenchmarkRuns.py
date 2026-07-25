@@ -40,6 +40,7 @@ PROTECTED_FIELDS = {
     "schema", "driver", "config_id", "benchmark_config_id", "url", "seed",
     "max_ticks", "fixed_delta", "difficulty", "bot_count", "telemetry_event_cap",
     "harmful_zone_escape_enabled", "targetless_move_to_timeout_enabled",
+    "direct_actor_move_toward_timeout_enabled",
     "requested_roster", "actual_roster", "config", "index", "roster_index",
     "identity", "actor", "player_name", "class", "seq", "tick",
     "simulated_seconds", "type", "map", "status", "failure_reason", "exit_code",
@@ -232,6 +233,11 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
                 raise ComparisonError(
                     f"{run}/manifest.json.targetless_move_to_timeout_enabled: expected a boolean")
             config_fields += ("targetless_move_to_timeout_enabled",)
+        if "direct_actor_move_toward_timeout_enabled" in manifest:
+            if not isinstance(manifest["direct_actor_move_toward_timeout_enabled"], bool):
+                raise ComparisonError(
+                    f"{run}/manifest.json.direct_actor_move_toward_timeout_enabled: expected a boolean")
+            config_fields += ("direct_actor_move_toward_timeout_enabled",)
 
     if summary.get("status") != "complete" or _strict_int(
             summary.get("exit_code"), f"{run}/summary.json.exit_code") != 0:
@@ -261,6 +267,10 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
             summary_config.get("targetless_move_to_timeout_enabled"), bool):
         raise ComparisonError(
             f"{run}/summary.json.config.targetless_move_to_timeout_enabled: expected a boolean")
+    if "direct_actor_move_toward_timeout_enabled" in config_fields and not isinstance(
+            summary_config.get("direct_actor_move_toward_timeout_enabled"), bool):
+        raise ComparisonError(
+            f"{run}/summary.json.config.direct_actor_move_toward_timeout_enabled: expected a boolean")
     for field in config_fields:
         if summary_config.get(field) != manifest.get(field):
             raise ComparisonError(f"{run}: summary.config.{field} differs from manifest.{field}")

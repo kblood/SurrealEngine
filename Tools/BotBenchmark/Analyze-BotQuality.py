@@ -67,6 +67,7 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "move_stall_forced_replans_exact": None,
     "move_stall_navigation_forced_replans_exact": None,
     "move_stall_targetless_move_to_timeouts_exact": None,
+    "move_stall_direct_actor_move_toward_timeouts_exact": None,
     "move_stall_eligible_seconds": None,
     "move_stall_recovery_episodes_exact": None,
     "move_stall_recovery_cleared_within_2_seconds_exact": None,
@@ -151,6 +152,7 @@ MOVE_STALL_EXACT_COUNTERS = (
     "move_stall_detections_exact", "move_stall_episode_resets_exact",
     "move_stall_forced_replans_exact", "move_stall_navigation_forced_replans_exact",
     "move_stall_targetless_move_to_timeouts_exact",
+    "move_stall_direct_actor_move_toward_timeouts_exact",
 )
 FAILED_NAVIGATION_EXACT_COUNTERS = (
     "failed_navigation_avoidance_activations_exact",
@@ -506,6 +508,10 @@ MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP = (
     "move_stall_detections_exact", "move_stall_episode_resets_exact",
     "move_stall_forced_replans_exact", "move_stall_navigation_forced_replans_exact",
     "move_stall_targetless_move_to_timeouts_exact", "move_stall_eligible_seconds",
+)
+MOVE_STALL_DIRECT_ACTOR_ATTRIBUTED_TELEMETRY_GROUP = (
+    *MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP,
+    "move_stall_direct_actor_move_toward_timeouts_exact",
 )
 OPTIONAL_DIAGNOSTIC_FIELDS = (
     "physics_mode", "latent_action", "acceleration", "destination", "move_timer",
@@ -1799,7 +1805,8 @@ def _move_stall_recovery_episodes(value: Any, context: str) -> list[dict[str, An
     ]
 
 
-MOVE_STALL_DECISIONS = {"none", "navigation_replan", "targetless_timeout"}
+MOVE_STALL_DECISIONS = {
+    "none", "navigation_replan", "targetless_timeout", "direct_actor_move_toward_timeout"}
 MOVE_STALL_LATENT_MODES = {"other", "move_to", "move_toward", "strafe_to", "strafe_facing"}
 
 
@@ -1826,6 +1833,9 @@ def _move_stall_recovery_decision(value: Any, context: str) -> dict[str, Any]:
     if decision == "targetless_timeout":
         if latent_mode != "move_to" or target_known or timer <= 0.0:
             raise QualityError(f"{context}: targetless timeout lacks an armed targetless MoveTo")
+    if decision == "direct_actor_move_toward_timeout":
+        if latent_mode != "move_toward" or not target_live or not target_class or timer <= 0.0:
+            raise QualityError(f"{context}: direct-actor timeout lacks a live armed MoveToward target")
     return {
         "source_pawn_actor": _string(fields, "source_pawn_actor", context, nonempty=True),
         "sequence": _integer(fields.get("sequence"), f"{context}.sequence", minimum=1),
@@ -2457,7 +2467,8 @@ def _validate_move_stall_recovery_decision_stream(
         events: list[dict[str, Any]], path: Path) -> None:
     last_sequence: dict[tuple[str, str], int] = {}
     observed: defaultdict[str, dict[str, int]] = defaultdict(
-        lambda: {"all": 0, "navigation_replan": 0, "targetless_timeout": 0})
+        lambda: {"all": 0, "navigation_replan": 0, "targetless_timeout": 0,
+                 "direct_actor_move_toward_timeout": 0})
     finals: dict[str, dict[str, int]] = {}
     for event in events:
         for bot in event["bots"]:
@@ -2469,6 +2480,7 @@ def _validate_move_stall_recovery_decision_stream(
                 "move_stall_detections_exact", "move_stall_forced_replans_exact",
                 "move_stall_navigation_forced_replans_exact",
                 "move_stall_targetless_move_to_timeouts_exact",
+                "move_stall_direct_actor_move_toward_timeouts_exact",
                 MOVE_STALL_DECISION_RECORD_OVERFLOW_COUNTER,
             )
             if any(name not in bot for name in required):
@@ -2504,7 +2516,12 @@ def _validate_move_stall_recovery_decision_stream(
         if counts["targetless_timeout"] != counters["move_stall_targetless_move_to_timeouts_exact"]:
             raise QualityError(
                 f"{path}: targetless decision records do not reconcile for {identity}")
+        if counts["direct_actor_move_toward_timeout"] != \
+                counters["move_stall_direct_actor_move_toward_timeouts_exact"]:
+            raise QualityError(
+                f"{path}: direct-actor decision records do not reconcile for {identity}")
         if counts["navigation_replan"] + counts["targetless_timeout"] \
+                + counts["direct_actor_move_toward_timeout"] \
                 != counters["move_stall_forced_replans_exact"]:
             raise QualityError(
                 f"{path}: decision records do not partition forced replans for {identity}")
@@ -2822,7 +2839,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                failed_navigation_avoidance_enabled: bool | None = None,
                falling_hazard_recovery_enabled: bool | None = None,
                falling_hazard_recovery_live_enabled: bool | None = None,
-               targetless_move_to_timeout_enabled: bool | None = None) -> str:
+               targetless_move_to_timeout_enabled: bool | None = None,
+               direct_actor_move_toward_timeout_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -2853,6 +2871,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if targetless_move_to_timeout_enabled is not None:
             canonical_text += "targetless_move_to_timeout_enabled=" + (
                 "1\n" if targetless_move_to_timeout_enabled else "0\n")
+        if direct_actor_move_toward_timeout_enabled is not None:
+            canonical_text += "direct_actor_move_toward_timeout_enabled=" + (
+                "1\n" if direct_actor_move_toward_timeout_enabled else "0\n")
         assert requested_roster is not None
         canonical_text += "".join(f"roster={entry['identity_fragment']}\n" for entry in requested_roster)
     canonical = canonical_text.encode("utf-8")
@@ -2983,6 +3004,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     falling_hazard_recovery_enabled = None
     falling_hazard_recovery_live_enabled = None
     targetless_move_to_timeout_enabled = None
+    direct_actor_move_toward_timeout_enabled = None
     if schema == MANIFEST_SCHEMA_V2:
         bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
         requested_roster = _validate_requested_roster(raw.get("requested_roster"),
@@ -3026,6 +3048,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             targetless_move_to_timeout_enabled = _boolean(
                 raw.get("targetless_move_to_timeout_enabled"),
                 "manifest.targetless_move_to_timeout_enabled")
+        if "direct_actor_move_toward_timeout_enabled" in raw:
+            direct_actor_move_toward_timeout_enabled = _boolean(
+                raw.get("direct_actor_move_toward_timeout_enabled"),
+                "manifest.direct_actor_move_toward_timeout_enabled")
     expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count,
                              requested_roster, harmful_zone_escape_enabled,
                              walking_preflight_positive_dps_veto_enabled,
@@ -3034,7 +3060,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              failed_navigation_avoidance_enabled,
                              falling_hazard_recovery_enabled,
                              falling_hazard_recovery_live_enabled,
-                             targetless_move_to_timeout_enabled)
+                             targetless_move_to_timeout_enabled,
+                             direct_actor_move_toward_timeout_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -3059,6 +3086,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "falling_hazard_recovery_enabled": falling_hazard_recovery_enabled,
         "falling_hazard_recovery_live_enabled": falling_hazard_recovery_live_enabled,
         "targetless_move_to_timeout_enabled": targetless_move_to_timeout_enabled,
+        "direct_actor_move_toward_timeout_enabled": direct_actor_move_toward_timeout_enabled,
     }
 
 
@@ -3184,11 +3212,12 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 "legacy or current complete group")
         stall_field_names = set(
             MOVE_STALL_LEGACY_TELEMETRY_GROUP + MOVE_STALL_TELEMETRY_GROUP
-            + MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP)
+            + MOVE_STALL_DIRECT_ACTOR_ATTRIBUTED_TELEMETRY_GROUP)
         stall_present = {name for name in stall_field_names if name in result}
         valid_stall_groups = (
             set(), set(MOVE_STALL_LEGACY_TELEMETRY_GROUP), set(MOVE_STALL_TELEMETRY_GROUP),
             set(MOVE_STALL_ATTRIBUTED_TELEMETRY_GROUP),
+            set(MOVE_STALL_DIRECT_ACTOR_ATTRIBUTED_TELEMETRY_GROUP),
         )
         if stall_present not in valid_stall_groups:
             raise QualityError(
@@ -3634,7 +3663,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
         if "move_stall_navigation_forced_replans_exact" in result:
             attributed_replans = (
                 result["move_stall_navigation_forced_replans_exact"]
-                + result["move_stall_targetless_move_to_timeouts_exact"])
+                + result["move_stall_targetless_move_to_timeouts_exact"]
+                + result.get("move_stall_direct_actor_move_toward_timeouts_exact", 0))
             if attributed_replans != result["move_stall_forced_replans_exact"]:
                 raise QualityError(
                     f"{context}: attributed move stall recoveries do not equal forced replans")
@@ -3895,6 +3925,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["targetless_move_to_timeout_enabled"] = _boolean(
             config.get("targetless_move_to_timeout_enabled"),
             "summary.config.targetless_move_to_timeout_enabled")
+    if manifest["direct_actor_move_toward_timeout_enabled"] is not None:
+        comparisons["direct_actor_move_toward_timeout_enabled"] = _boolean(
+            config.get("direct_actor_move_toward_timeout_enabled"),
+            "summary.config.direct_actor_move_toward_timeout_enabled")
     requested_roster = None
     actual_roster = None
     if expected_schema == SUMMARY_SCHEMA_V2:
@@ -4671,6 +4705,8 @@ def analyze_run(path: Path) -> dict[str, Any]:
                 manifest["falling_hazard_recovery_live_enabled"]),
             "targetless_move_to_timeout_enabled": (
                 manifest["targetless_move_to_timeout_enabled"]),
+            "direct_actor_move_toward_timeout_enabled": (
+                manifest["direct_actor_move_toward_timeout_enabled"]),
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),
             "suicides_exact_semantics": manifest["suicides_exact_semantics"],

@@ -2622,6 +2622,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 "move_stall_episode_resets_exact": 0,
                 "move_stall_navigation_forced_replans_exact": 0,
                 "move_stall_targetless_move_to_timeouts_exact": 0,
+                "move_stall_direct_actor_move_toward_timeouts_exact": 0,
                 "move_stall_eligible_seconds": 0.0,
                 "move_stall_recovery_decision_record_overflows_exact": 0,
             }
@@ -2657,11 +2658,11 @@ class BotQualityAnalysisTests(unittest.TestCase):
             for event in events:
                 for bot in event["bots"]:
                     for record in bot.get("move_stall_recovery_decisions", []):
-                        record["decision"] = "navigation_replan"
+                        record["decision"] = "direct_actor_move_toward_timeout"
             events_path.write_text(
                 "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
                 encoding="utf-8")
-            with self.assertRaisesRegex(QUALITY.QualityError, "navigation decision records"):
+            with self.assertRaisesRegex(QUALITY.QualityError, "direct-actor decision records"):
                 QUALITY.analyze([run])
 
     def test_optional_counter_regression_and_malformed_diagnostics_are_rejected(self) -> None:

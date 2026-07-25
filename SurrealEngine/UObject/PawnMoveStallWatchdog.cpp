@@ -70,6 +70,11 @@ namespace PawnMovement
 		if (context.LatentMode == MoveStallLatentMode::MoveToward
 			&& context.LiveNavigationMoveToward)
 			return MoveStallRecoveryDecision::NavigationReplan;
+		if (context.LatentMode == MoveStallLatentMode::MoveToward
+			&& context.LiveDirectActorMoveToward
+			&& context.DirectActorMoveTowardTimeoutEnabled
+			&& std::isfinite(context.MoveTimer) && context.MoveTimer > 0.0f)
+			return MoveStallRecoveryDecision::DirectActorMoveTowardTimeout;
 
 		const bool targetlessPositionalMove = context.TargetlessMoveToTimeoutEnabled
 			&& context.Targetless

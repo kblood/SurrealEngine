@@ -124,6 +124,7 @@ struct BotBenchmarkBotState
 	uint64_t MoveStallForcedReplansExact = 0;
 	uint64_t MoveStallNavigationForcedReplansExact = 0;
 	uint64_t MoveStallTargetlessMoveToTimeoutsExact = 0;
+	uint64_t MoveStallDirectActorMoveTowardTimeoutsExact = 0;
 	double MoveStallEligibleSeconds = 0.0;
 	uint64_t MoveStallRecoveryEpisodesExact = 0;
 	uint64_t MoveStallRecoveryClearedWithin2SecondsExact = 0;

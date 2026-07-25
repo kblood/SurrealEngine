@@ -37,7 +37,8 @@ public:
 		std::optional<std::string> failedNavigationAvoidance = {},
 		std::optional<std::string> fallingHazardRecovery = {},
 		std::optional<std::string> fallingHazardRecoveryLive = {},
-		std::optional<std::string> targetlessMoveToTimeout = {});
+		std::optional<std::string> targetlessMoveToTimeout = {},
+		std::optional<std::string> directActorMoveTowardTimeout = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -57,6 +58,10 @@ public:
 	bool IsFallingHazardRecoveryEnabled() const { return FallingHazardRecoveryEnabled; }
 	bool IsFallingHazardRecoveryLiveEnabled() const { return FallingHazardRecoveryLiveEnabled; }
 	bool IsTargetlessMoveToTimeoutEnabled() const { return TargetlessMoveToTimeoutEnabled; }
+	bool IsDirectActorMoveTowardTimeoutEnabled() const
+	{
+		return DirectActorMoveTowardTimeoutEnabled;
+	}
 
 private:
 	BotBenchmarkRunConfig(std::string url, std::string outputDirectory, uint64_t seed,
@@ -64,7 +69,8 @@ private:
 		bool harmfulZoneEscapeEnabled, bool walkingPreflightPositiveDpsVetoEnabled,
 		bool hazardSwimEgressEnabled, bool hazardSwimEgressLiveEnabled,
 		bool failedNavigationAvoidanceEnabled, bool fallingHazardRecoveryEnabled,
-		bool fallingHazardRecoveryLiveEnabled, bool targetlessMoveToTimeoutEnabled);
+		bool fallingHazardRecoveryLiveEnabled, bool targetlessMoveToTimeoutEnabled,
+		bool directActorMoveTowardTimeoutEnabled);
 
 	std::string URL;
 	std::string OutputDirectory;
@@ -81,6 +87,7 @@ private:
 	bool FallingHazardRecoveryEnabled = false;
 	bool FallingHazardRecoveryLiveEnabled = false;
 	bool TargetlessMoveToTimeoutEnabled = false;
+	bool DirectActorMoveTowardTimeoutEnabled = false;
 };
 
 class BotBenchmarkRunSummary
