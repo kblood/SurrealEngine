@@ -19,6 +19,7 @@
 #include "BotAI/HarmfulZoneEscapeGate.h"
 #include "BotAI/FallingHazardRecoveryGate.h"
 #include "BotAI/HazardSwimEgressGate.h"
+#include "BotAI/HazardSwimEgressLiveSteer.h"
 
 class UTexture;
 class UPrimitive;
@@ -1939,6 +1940,8 @@ public:
 	void CaptureHazardSwimEgressAnchorBeforePhysicsMove();
 	void ObserveHazardSwimEgressAfterPhysicsMove();
 	void AdvanceHazardSwimEgressLiveSteer();
+	void ObserveHazardSwimEgressLiveSteerShadowDecision(
+		const BotAI::HazardSwimEgressLiveSteerDecision& decision);
 	void EndHazardSwimEgressSwimSession();
 	void RecordHazardSwimEgressDeath();
 
@@ -2094,6 +2097,10 @@ public:
 	uint64_t HazardSwimEgressLiveActiveTickCount() const { return HazardSwimEgressLiveActiveTickCountValue; }
 	uint64_t HazardSwimEgressLiveProbeRejectedCount() const { return HazardSwimEgressLiveProbeRejectedCountValue; }
 	uint64_t HazardSwimEgressLiveSuccessfulExitCount() const { return HazardSwimEgressLiveSuccessfulExitCountValue; }
+	uint64_t HazardSwimEgressLiveShadowCandidateCount() const { return HazardSwimEgressLiveShadowCandidateCountValue; }
+	uint64_t HazardSwimEgressLiveShadowFallingTerminalCount() const { return HazardSwimEgressLiveShadowFallingTerminalCountValue; }
+	uint64_t HazardSwimEgressLiveShadowHazardClearedTerminalCount() const { return HazardSwimEgressLiveShadowHazardClearedTerminalCountValue; }
+	uint64_t HazardSwimEgressLiveShadowProbeBlockedTerminalCount() const { return HazardSwimEgressLiveShadowProbeBlockedTerminalCountValue; }
 	uint64_t HazardSwimEgressDirectNavProbeCount() const { return HazardSwimEgressDirectNavProbeCountValue; }
 	uint64_t HazardSwimEgressDirectNavSafeCandidateCount() const { return HazardSwimEgressDirectNavSafeCandidateCountValue; }
 	uint64_t FallingHazardRecoveryPromotionCount() const { return FallingHazardRecoveryPromotionCountValue; }
@@ -2483,6 +2490,10 @@ private:
 	uint64_t HazardSwimEgressLiveActiveTickCountValue = 0;
 	uint64_t HazardSwimEgressLiveProbeRejectedCountValue = 0;
 	uint64_t HazardSwimEgressLiveSuccessfulExitCountValue = 0;
+	uint64_t HazardSwimEgressLiveShadowCandidateCountValue = 0;
+	uint64_t HazardSwimEgressLiveShadowFallingTerminalCountValue = 0;
+	uint64_t HazardSwimEgressLiveShadowHazardClearedTerminalCountValue = 0;
+	uint64_t HazardSwimEgressLiveShadowProbeBlockedTerminalCountValue = 0;
 	uint64_t HazardSwimEgressDirectNavProbeCountValue = 0;
 	uint64_t HazardSwimEgressDirectNavSafeCandidateCountValue = 0;
 	uint64_t FallingHazardRecoveryPromotionCountValue = 0;

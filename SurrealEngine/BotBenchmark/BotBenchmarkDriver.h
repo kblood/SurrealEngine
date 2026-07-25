@@ -59,6 +59,10 @@ namespace BotBenchmarkDriverDetail
 		uint64_t HazardSwimEgressLiveActiveTicks = 0;
 		uint64_t HazardSwimEgressLiveProbeRejected = 0;
 		uint64_t HazardSwimEgressLiveSuccessfulExits = 0;
+		uint64_t HazardSwimEgressLiveShadowCandidates = 0;
+		uint64_t HazardSwimEgressLiveShadowFallingTerminals = 0;
+		uint64_t HazardSwimEgressLiveShadowHazardClearedTerminals = 0;
+		uint64_t HazardSwimEgressLiveShadowProbeBlockedTerminals = 0;
 		uint64_t HazardSwimEgressDirectNavProbes = 0;
 		uint64_t HazardSwimEgressDirectNavSafeCandidates = 0;
 		std::string HazardSwimEgressDirectNavBestCandidateName;
@@ -289,6 +293,18 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.HazardSwimEgressLiveSuccessfulExits,
 				Previous.HazardSwimEgressLiveSuccessfulExits,
 				totals.HazardSwimEgressLiveSuccessfulExits);
+			AccumulateCounter(current.HazardSwimEgressLiveShadowCandidates,
+				Previous.HazardSwimEgressLiveShadowCandidates,
+				totals.HazardSwimEgressLiveShadowCandidates);
+			AccumulateCounter(current.HazardSwimEgressLiveShadowFallingTerminals,
+				Previous.HazardSwimEgressLiveShadowFallingTerminals,
+				totals.HazardSwimEgressLiveShadowFallingTerminals);
+			AccumulateCounter(current.HazardSwimEgressLiveShadowHazardClearedTerminals,
+				Previous.HazardSwimEgressLiveShadowHazardClearedTerminals,
+				totals.HazardSwimEgressLiveShadowHazardClearedTerminals);
+			AccumulateCounter(current.HazardSwimEgressLiveShadowProbeBlockedTerminals,
+				Previous.HazardSwimEgressLiveShadowProbeBlockedTerminals,
+				totals.HazardSwimEgressLiveShadowProbeBlockedTerminals);
 			AccumulateCounter(current.HazardSwimEgressDirectNavProbes,
 				Previous.HazardSwimEgressDirectNavProbes, totals.HazardSwimEgressDirectNavProbes);
 			AccumulateCounter(current.HazardSwimEgressDirectNavSafeCandidates,

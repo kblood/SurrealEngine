@@ -126,6 +126,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/BotAI/FallingHazardRecoveryGate.h
 	SurrealEngine/BotAI/HazardSwimEgressGate.cpp
 	SurrealEngine/BotAI/HazardSwimEgressGate.h
+	SurrealEngine/BotAI/HazardSwimEgressLiveSteer.cpp
+	SurrealEngine/BotAI/HazardSwimEgressLiveSteer.h
 	SurrealEngine/BotAI/UtilityBotPolicy.cpp
 	SurrealEngine/BotAI/UtilityBotPolicy.h
 	SurrealEngine/BotAI/TacticalBotPolicy.cpp
@@ -1359,6 +1361,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(HazardSwimEgressGateTests PRIVATE SurrealEngine)
 	set_target_properties(HazardSwimEgressGateTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME HazardSwimEgressGate COMMAND HazardSwimEgressGateTests)
+
+	add_executable(HazardSwimEgressLiveSteerTests
+		Tests/HazardSwimEgressLiveSteerTests.cpp
+		SurrealEngine/BotAI/HazardSwimEgressLiveSteer.cpp
+	)
+	target_include_directories(HazardSwimEgressLiveSteerTests PRIVATE SurrealEngine)
+	set_target_properties(HazardSwimEgressLiveSteerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME HazardSwimEgressLiveSteer COMMAND HazardSwimEgressLiveSteerTests)
 
 	add_executable(FallingHazardRecoveryGateTests
 		Tests/FallingHazardRecoveryGateTests.cpp

@@ -1,0 +1,85 @@
+#pragma once
+
+namespace BotAI
+{
+	enum class HazardSwimEgressPhysics
+	{
+		Unknown,
+		Swimming,
+		Falling,
+		Other,
+	};
+
+	enum class HazardSwimEgressProbe
+	{
+		NotRun,
+		Clear,
+		Blocked,
+	};
+
+	enum class HazardSwimEgressLiveSteerTransition
+	{
+		NoAction,
+		SteerCandidate,
+		Terminal,
+	};
+
+	enum class HazardSwimEgressLiveSteerTerminal
+	{
+		None,
+		Falling,
+		HazardCleared,
+		ProbeBlocked,
+	};
+
+	enum class HazardSwimEgressLiveSteerReason
+	{
+		PolicyDisabled,
+		IneligibleActor,
+		NotAlive,
+		NoActiveEpisode,
+		Falling,
+		NotSwimming,
+		HazardCleared,
+		NotAuthorized,
+		ProbePreviouslyRejected,
+		MissingAnchor,
+		AnchorNotFromFallingPreMove,
+		AnchorDistanceUnknown,
+		AnchorTooNear,
+		AnchorTooFar,
+		ProbeNotRun,
+		ProbeBlocked,
+		Ready,
+	};
+
+	struct HazardSwimEgressLiveSteerInput
+	{
+		bool PolicyEnabled = false;
+		bool EligibleActor = false;
+		bool Alive = false;
+		HazardSwimEgressPhysics Physics = HazardSwimEgressPhysics::Unknown;
+		bool HarmfulWaterEpisodeActive = false;
+		bool LiveActionAuthorized = false;
+		bool ProbePreviouslyRejected = false;
+		bool FiniteAnchorKnown = false;
+		bool AnchorFromFallingPreMove = false;
+		bool ExactHarmfulWater = false;
+		bool AnchorDistanceKnown = false;
+		double AnchorDistance = 0.0;
+		HazardSwimEgressProbe Probe = HazardSwimEgressProbe::NotRun;
+	};
+
+	struct HazardSwimEgressLiveSteerDecision
+	{
+		HazardSwimEgressLiveSteerTransition Transition =
+			HazardSwimEgressLiveSteerTransition::NoAction;
+		HazardSwimEgressLiveSteerTerminal Terminal =
+			HazardSwimEgressLiveSteerTerminal::None;
+		HazardSwimEgressLiveSteerReason Reason =
+			HazardSwimEgressLiveSteerReason::PolicyDisabled;
+	};
+
+	HazardSwimEgressLiveSteerDecision EvaluateHazardSwimEgressLiveSteer(
+		const HazardSwimEgressLiveSteerInput& input);
+}

@@ -23,6 +23,7 @@
 #include "BotAI/HarmfulZoneEscapeGate.h"
 #include "BotAI/FallingHazardRecoveryGate.h"
 #include "BotAI/HazardSwimEgressGate.h"
+#include "BotAI/HazardSwimEgressLiveSteer.h"
 #include "VM/ScriptCall.h"
 #include "VM/Frame.h"
 #include "Package/PackageManager.h"
@@ -5456,6 +5457,19 @@ void UPawn::EndHazardSwimEgressSwimSession()
 
 void UPawn::BeginHazardSwimEgressFallingTick()
 {
+	if (HazardSwimEgress.HarmfulWaterEpisodeActive)
+	{
+		ObserveHazardSwimEgressLiveSteerShadowDecision(
+			BotAI::EvaluateHazardSwimEgressLiveSteer({
+				engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
+				IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
+				!bDeleteMe() && Health() > 0, BotAI::HazardSwimEgressPhysics::Falling,
+				true, HazardSwimEgress.LiveActionAuthorized,
+				HazardSwimEgress.LiveProbeRejected,
+				HazardSwimEgress.AnchorKnown && IsFiniteVector(HazardSwimEgress.Anchor),
+				HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove,
+				true, false, 0.0, BotAI::HazardSwimEgressProbe::NotRun }));
+	}
 	const bool validContext = engine->IsBotBenchmarkHazardSwimEgressEnabled()
 		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
 		&& !bDeleteMe() && Health() > 0 && Physics() == PHYS_Falling;
@@ -5579,6 +5593,16 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 		}
 		if (HazardSwimEgress.HarmfulWaterEpisodeActive)
 		{
+			ObserveHazardSwimEgressLiveSteerShadowDecision(
+				BotAI::EvaluateHazardSwimEgressLiveSteer({
+					engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
+					IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
+					!bDeleteMe() && Health() > 0, BotAI::HazardSwimEgressPhysics::Swimming,
+					true, HazardSwimEgress.LiveActionAuthorized,
+					HazardSwimEgress.LiveProbeRejected,
+					HazardSwimEgress.AnchorKnown && IsFiniteVector(HazardSwimEgress.Anchor),
+					HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove,
+					false, false, 0.0, BotAI::HazardSwimEgressProbe::NotRun }));
 			if (HazardWaterEgressObserver && IsFiniteVector(Location())
 				&& IsFiniteVector(Destination()))
 			{
@@ -5818,7 +5842,21 @@ void UPawn::AdvanceHazardSwimEgressLiveSteer()
 		return;
 	}
 
-	if (TryMove(delta, true).Fraction != 1.0f)
+	const bool probeClear = TryMove(delta, true).Fraction == 1.0f;
+	ObserveHazardSwimEgressLiveSteerShadowDecision(
+		BotAI::EvaluateHazardSwimEgressLiveSteer({
+			engine->IsBotBenchmarkHazardSwimEgressLiveEnabled(),
+			IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority,
+			!bDeleteMe() && Health() > 0, BotAI::HazardSwimEgressPhysics::Swimming,
+			HazardSwimEgress.HarmfulWaterEpisodeActive,
+			HazardSwimEgress.LiveActionAuthorized,
+			HazardSwimEgress.LiveProbeRejected,
+			HazardSwimEgress.AnchorKnown && IsFiniteVector(HazardSwimEgress.Anchor),
+			HazardSwimEgress.Source == HazardSwimEgressState::AnchorSource::FallingPreMove,
+			exactHarmfulWater, true, distance,
+			probeClear ? BotAI::HazardSwimEgressProbe::Clear
+				: BotAI::HazardSwimEgressProbe::Blocked }));
+	if (!probeClear)
 	{
 		HazardSwimEgress.LiveProbeRejected = true;
 		HazardSwimEgress.ActionActive = false;
@@ -5831,6 +5869,29 @@ void UPawn::AdvanceHazardSwimEgressLiveSteer()
 		HazardSwimEgressLiveApplyCountValue++;
 	HazardSwimEgress.ActionActive = true;
 	HazardSwimEgressLiveActiveTickCountValue++;
+}
+
+void UPawn::ObserveHazardSwimEgressLiveSteerShadowDecision(
+	const BotAI::HazardSwimEgressLiveSteerDecision& decision)
+{
+	if (decision.Transition == BotAI::HazardSwimEgressLiveSteerTransition::SteerCandidate)
+		HazardSwimEgressLiveShadowCandidateCountValue++;
+	if (decision.Transition != BotAI::HazardSwimEgressLiveSteerTransition::Terminal)
+		return;
+	switch (decision.Terminal)
+	{
+	case BotAI::HazardSwimEgressLiveSteerTerminal::Falling:
+		HazardSwimEgressLiveShadowFallingTerminalCountValue++;
+		break;
+	case BotAI::HazardSwimEgressLiveSteerTerminal::HazardCleared:
+		HazardSwimEgressLiveShadowHazardClearedTerminalCountValue++;
+		break;
+	case BotAI::HazardSwimEgressLiveSteerTerminal::ProbeBlocked:
+		HazardSwimEgressLiveShadowProbeBlockedTerminalCountValue++;
+		break;
+	default:
+		break;
+	}
 }
 
 void UPawn::RecordHazardSwimEgressDeath()

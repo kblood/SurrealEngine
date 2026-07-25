@@ -148,6 +148,10 @@ struct BotBenchmarkBotState
 	uint64_t HazardSwimEgressLiveActiveTicksExact = 0;
 	uint64_t HazardSwimEgressLiveProbeRejectedExact = 0;
 	uint64_t HazardSwimEgressLiveSuccessfulExitsExact = 0;
+	uint64_t HazardSwimEgressLiveShadowCandidatesExact = 0;
+	uint64_t HazardSwimEgressLiveShadowFallingTerminalsExact = 0;
+	uint64_t HazardSwimEgressLiveShadowHazardClearedTerminalsExact = 0;
+	uint64_t HazardSwimEgressLiveShadowProbeBlockedTerminalsExact = 0;
 	uint64_t HazardSwimEgressDirectNavProbesExact = 0;
 	uint64_t HazardSwimEgressDirectNavSafeCandidatesExact = 0;
 	std::string HazardSwimEgressDirectNavBestCandidateName;

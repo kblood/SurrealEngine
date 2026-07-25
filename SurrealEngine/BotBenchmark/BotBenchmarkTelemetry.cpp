@@ -647,6 +647,10 @@ namespace
 			<< ",\"hazard_swim_egress_live_active_ticks_exact\":\"" << bot.HazardSwimEgressLiveActiveTicksExact << "\""
 			<< ",\"hazard_swim_egress_live_probe_rejected_exact\":\"" << bot.HazardSwimEgressLiveProbeRejectedExact << "\""
 			<< ",\"hazard_swim_egress_live_successful_exits_exact\":\"" << bot.HazardSwimEgressLiveSuccessfulExitsExact << "\""
+			<< ",\"hazard_swim_egress_live_shadow_candidates_exact\":\"" << bot.HazardSwimEgressLiveShadowCandidatesExact << "\""
+			<< ",\"hazard_swim_egress_live_shadow_falling_terminals_exact\":\"" << bot.HazardSwimEgressLiveShadowFallingTerminalsExact << "\""
+			<< ",\"hazard_swim_egress_live_shadow_hazard_cleared_terminals_exact\":\"" << bot.HazardSwimEgressLiveShadowHazardClearedTerminalsExact << "\""
+			<< ",\"hazard_swim_egress_live_shadow_probe_blocked_terminals_exact\":\"" << bot.HazardSwimEgressLiveShadowProbeBlockedTerminalsExact << "\""
 			<< ",\"hazard_swim_egress_direct_nav_probes_exact\":\"" << bot.HazardSwimEgressDirectNavProbesExact << "\""
 			<< ",\"hazard_swim_egress_direct_nav_safe_candidates_exact\":\"" << bot.HazardSwimEgressDirectNavSafeCandidatesExact << "\""
 			<< ",\"hazard_swim_egress_direct_nav_best_candidate_name\":" << JsonString(bot.HazardSwimEgressDirectNavBestCandidateName)

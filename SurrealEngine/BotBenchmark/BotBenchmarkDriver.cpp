@@ -745,6 +745,10 @@ namespace
 				counters.HazardSwimEgressLiveActiveTicks = pawn->HazardSwimEgressLiveActiveTickCount();
 				counters.HazardSwimEgressLiveProbeRejected = pawn->HazardSwimEgressLiveProbeRejectedCount();
 				counters.HazardSwimEgressLiveSuccessfulExits = pawn->HazardSwimEgressLiveSuccessfulExitCount();
+				counters.HazardSwimEgressLiveShadowCandidates = pawn->HazardSwimEgressLiveShadowCandidateCount();
+				counters.HazardSwimEgressLiveShadowFallingTerminals = pawn->HazardSwimEgressLiveShadowFallingTerminalCount();
+				counters.HazardSwimEgressLiveShadowHazardClearedTerminals = pawn->HazardSwimEgressLiveShadowHazardClearedTerminalCount();
+				counters.HazardSwimEgressLiveShadowProbeBlockedTerminals = pawn->HazardSwimEgressLiveShadowProbeBlockedTerminalCount();
 				counters.HazardSwimEgressDirectNavProbes = pawn->HazardSwimEgressDirectNavProbeCount();
 				counters.HazardSwimEgressDirectNavSafeCandidates = pawn->HazardSwimEgressDirectNavSafeCandidateCount();
 				counters.HazardSwimEgressDirectNavBestCandidateName =
@@ -1831,6 +1835,10 @@ namespace
 				bot.HazardSwimEgressLiveActiveTicksExact = native.HazardSwimEgressLiveActiveTicks;
 				bot.HazardSwimEgressLiveProbeRejectedExact = native.HazardSwimEgressLiveProbeRejected;
 				bot.HazardSwimEgressLiveSuccessfulExitsExact = native.HazardSwimEgressLiveSuccessfulExits;
+				bot.HazardSwimEgressLiveShadowCandidatesExact = native.HazardSwimEgressLiveShadowCandidates;
+				bot.HazardSwimEgressLiveShadowFallingTerminalsExact = native.HazardSwimEgressLiveShadowFallingTerminals;
+				bot.HazardSwimEgressLiveShadowHazardClearedTerminalsExact = native.HazardSwimEgressLiveShadowHazardClearedTerminals;
+				bot.HazardSwimEgressLiveShadowProbeBlockedTerminalsExact = native.HazardSwimEgressLiveShadowProbeBlockedTerminals;
 				bot.HazardSwimEgressDirectNavProbesExact = native.HazardSwimEgressDirectNavProbes;
 				bot.HazardSwimEgressDirectNavSafeCandidatesExact = native.HazardSwimEgressDirectNavSafeCandidates;
 				bot.HazardSwimEgressDirectNavBestCandidateName = native.HazardSwimEgressDirectNavBestCandidateName;

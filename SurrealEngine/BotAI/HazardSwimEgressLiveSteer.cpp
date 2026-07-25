@@ -1,0 +1,63 @@
+#include "HazardSwimEgressLiveSteer.h"
+
+#include <cmath>
+
+namespace
+{
+	constexpr double MinimumAnchorDistance = 8.0;
+	constexpr double MaximumAnchorDistance = 512.0;
+}
+
+namespace BotAI
+{
+	HazardSwimEgressLiveSteerDecision EvaluateHazardSwimEgressLiveSteer(
+		const HazardSwimEgressLiveSteerInput& input)
+	{
+		using Decision = HazardSwimEgressLiveSteerDecision;
+		using Reason = HazardSwimEgressLiveSteerReason;
+		using Terminal = HazardSwimEgressLiveSteerTerminal;
+		using Transition = HazardSwimEgressLiveSteerTransition;
+		auto noAction = [](Reason reason)
+		{
+			return Decision{ Transition::NoAction, Terminal::None, reason };
+		};
+		auto terminal = [](Terminal value, Reason reason)
+		{
+			return Decision{ Transition::Terminal, value, reason };
+		};
+
+		if (!input.PolicyEnabled)
+			return noAction(Reason::PolicyDisabled);
+		if (!input.EligibleActor)
+			return noAction(Reason::IneligibleActor);
+		if (!input.Alive)
+			return noAction(Reason::NotAlive);
+		if (!input.HarmfulWaterEpisodeActive)
+			return noAction(Reason::NoActiveEpisode);
+		if (input.Physics == HazardSwimEgressPhysics::Falling)
+			return terminal(Terminal::Falling, Reason::Falling);
+		if (input.Physics != HazardSwimEgressPhysics::Swimming)
+			return noAction(Reason::NotSwimming);
+		if (!input.ExactHarmfulWater)
+			return terminal(Terminal::HazardCleared, Reason::HazardCleared);
+		if (!input.LiveActionAuthorized)
+			return noAction(Reason::NotAuthorized);
+		if (input.ProbePreviouslyRejected)
+			return terminal(Terminal::ProbeBlocked, Reason::ProbePreviouslyRejected);
+		if (!input.FiniteAnchorKnown)
+			return noAction(Reason::MissingAnchor);
+		if (!input.AnchorFromFallingPreMove)
+			return noAction(Reason::AnchorNotFromFallingPreMove);
+		if (!input.AnchorDistanceKnown || !std::isfinite(input.AnchorDistance))
+			return noAction(Reason::AnchorDistanceUnknown);
+		if (input.AnchorDistance < MinimumAnchorDistance)
+			return noAction(Reason::AnchorTooNear);
+		if (input.AnchorDistance > MaximumAnchorDistance)
+			return noAction(Reason::AnchorTooFar);
+		if (input.Probe == HazardSwimEgressProbe::Blocked)
+			return terminal(Terminal::ProbeBlocked, Reason::ProbeBlocked);
+		if (input.Probe != HazardSwimEgressProbe::Clear)
+			return noAction(Reason::ProbeNotRun);
+		return { Transition::SteerCandidate, Terminal::None, Reason::Ready };
+	}
+}
