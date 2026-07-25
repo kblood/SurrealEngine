@@ -137,10 +137,12 @@ namespace PawnMovement
 	{
 		switch (result)
 		{
+		case DirectHarmfulWaterEntryCertificateResult::SourceNotEligible:
+			return "source_not_eligible";
 		case DirectHarmfulWaterEntryCertificateResult::Certified:
-			return "certified_direct_harmful_water_entry";
+			return "certified";
 		case DirectHarmfulWaterEntryCertificateResult::ForecastIncompleteOrInconsistent:
-			return "forecast_incomplete";
+			return "forecast_incomplete_or_inconsistent";
 		case DirectHarmfulWaterEntryCertificateResult::NotFullStep:
 			return "not_full_step";
 		case DirectHarmfulWaterEntryCertificateResult::NotHarmfulWaterEndpoint:
@@ -153,8 +155,10 @@ namespace PawnMovement
 			return "unsafe_or_unknown_start";
 		case DirectHarmfulWaterEntryCertificateResult::NoDirectClearPath:
 			return "no_direct_clear_path";
-		default:
+		case DirectHarmfulWaterEntryCertificateResult::InvalidPredictionAccounting:
 			return "invalid_prediction_accounting";
+		default:
+			return "invalid_certificate_result";
 		}
 	}
 }

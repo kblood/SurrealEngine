@@ -22,7 +22,7 @@ SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 24
+TOOL_VERSION = 25
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -354,6 +354,19 @@ DIRECT_HARMFUL_WATER_ENTRY_COUNTERS = (
     "direct_harmful_water_entry_lead_samples_exact",
     "direct_harmful_water_entry_lead_milliseconds_exact",
 )
+DIRECT_HARMFUL_WATER_ENTRY_CERTIFICATE_RESULT_COUNTERS = (
+    "direct_harmful_water_entry_certificate_source_not_eligible_exact",
+    "direct_harmful_water_entry_certificate_certified_exact",
+    "direct_harmful_water_entry_certificate_forecast_incomplete_or_inconsistent_exact",
+    "direct_harmful_water_entry_certificate_not_full_step_exact",
+    "direct_harmful_water_entry_certificate_not_harmful_water_endpoint_exact",
+    "direct_harmful_water_entry_certificate_damage_not_avoidance_relevant_exact",
+    "direct_harmful_water_entry_certificate_invalid_expected_harmful_zones_exact",
+    "direct_harmful_water_entry_certificate_unsafe_or_unknown_start_exact",
+    "direct_harmful_water_entry_certificate_intermediate_hazard_observed_exact",
+    "direct_harmful_water_entry_certificate_no_direct_clear_path_exact",
+    "direct_harmful_water_entry_certificate_invalid_prediction_accounting_exact",
+)
 METRIC_DIRECTIONS.update({
 	name: None for name in (
 		WALKING_STEP_PREFLIGHT_COUNTERS + FALLING_PARITY_COUNTERS
@@ -363,6 +376,7 @@ METRIC_DIRECTIONS.update({
 		+ (HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER,)
         + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS + FALLING_HAZARD_RECOVERY_COUNTERS
 		+ DIRECT_HARMFUL_WATER_ENTRY_COUNTERS
+		+ DIRECT_HARMFUL_WATER_ENTRY_CERTIFICATE_RESULT_COUNTERS
         + CONFIRMED_PICKUP_COUNTERS + (PICKUP_SOURCE_CONSUMED_UNCONFIRMED_COUNTER,)
         + NAVIGATION_COVERAGE_COUNTERS + (
             "navigation_coverage_fraction", "navigation_coverage_union_fraction"))
@@ -382,6 +396,7 @@ OPTIONAL_EXACT_COUNTERS = (
     + VERTICAL_PAIN_COLUMN_COUNTERS + PERSISTENT_HARMFUL_FALL_COUNTERS
     + SINGLE_HARMFUL_FALL_PREFIX_COUNTERS
 	+ DIRECT_HARMFUL_WATER_ENTRY_COUNTERS
+	+ DIRECT_HARMFUL_WATER_ENTRY_CERTIFICATE_RESULT_COUNTERS
     + WALKING_STEP_PREFLIGHT_POSITIVE_DPS_VETO_COUNTERS
     + CONFIRMED_PICKUP_COUNTERS + (PICKUP_SOURCE_CONSUMED_UNCONFIRMED_COUNTER,)
     + (
@@ -2506,7 +2521,9 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 ("walking step preflight shadow", WALKING_STEP_PREFLIGHT_COUNTERS),
                 ("persistent harmful fall", PERSISTENT_HARMFUL_FALL_COUNTERS),
                 ("single harmful fall prefix", SINGLE_HARMFUL_FALL_PREFIX_COUNTERS),
-                ("direct harmful-water entry", DIRECT_HARMFUL_WATER_ENTRY_COUNTERS)):
+                ("direct harmful-water entry", DIRECT_HARMFUL_WATER_ENTRY_COUNTERS),
+                ("direct harmful-water entry certificate result",
+                 DIRECT_HARMFUL_WATER_ENTRY_CERTIFICATE_RESULT_COUNTERS)):
             present = [name for name in names if name in result]
             if present and len(present) != len(names):
                 raise QualityError(f"{context}: {label} counters must be provided as a complete group")
@@ -2866,6 +2883,11 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             if samples > confirmed:
                 raise QualityError(
                     f"{context}: direct harmful-water entry lead samples exceed confirmations")
+            if ("direct_harmful_water_entry_certificate_certified_exact" in result
+                    and result["direct_harmful_water_entry_certificate_certified_exact"]
+                    != candidates):
+                raise QualityError(
+                    f"{context}: direct harmful-water certificate certifications do not equal candidates")
         if "walking_step_preflight_diagnostics" in bot:
             if "walking_step_preflight_observations_exact" not in result:
                 raise QualityError(

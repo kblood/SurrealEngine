@@ -3,6 +3,7 @@
 #include "UObject/PawnWalkingStepPreflight.h"
 #include "UObject/PawnFallingParityRealizedTrace.h"
 #include "UObject/PawnFallingHazardDiagnostics.h"
+#include "UObject/PawnDirectHarmfulWaterEntryCertificate.h"
 #include "UObject/PawnHazardWaterEgressObserver.h"
 
 #include <array>
@@ -238,6 +239,8 @@ struct BotBenchmarkBotState
 	uint64_t DirectHarmfulWaterEntryUnresolvedExact = 0;
 	uint64_t DirectHarmfulWaterEntryLeadSamplesExact = 0;
 	uint64_t DirectHarmfulWaterEntryLeadMillisecondsExact = 0;
+	std::array<uint64_t, PawnMovement::DirectHarmfulWaterEntryCertificateResultCount>
+		DirectHarmfulWaterEntryCertificateResultsExact = {};
 	std::vector<PawnMovement::FallingHazardDiagnosticRecord>
 		VerticalPainColumnDiagnostics;
 };

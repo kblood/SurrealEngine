@@ -724,6 +724,11 @@ namespace
 			&& counters.DirectHarmfulWaterEntryLeadSamples == 1
 			&& counters.DirectHarmfulWaterEntryLeadMilliseconds == 20,
 			"only an exact same-generation water entry confirms the direct prediction");
+		Check(counters.DirectHarmfulWaterEntryCertificateResults[
+			static_cast<size_t>(DirectHarmfulWaterEntryCertificateResult::SourceNotEligible)] == 0
+			&& counters.DirectHarmfulWaterEntryCertificateResults[
+				static_cast<size_t>(DirectHarmfulWaterEntryCertificateResult::Certified)] == 1,
+			"the direct prediction records the certificate result separately from its outcome");
 
 		FallingHazardRuntimeObserver unresolved("DirectPreentryUnresolvedBot");
 		Check(unresolved.BeginFallEpisode() && unresolved.ArmGeneration(
@@ -735,6 +740,17 @@ namespace
 			&& unresolved.Counters().DirectHarmfulWaterEntryConfirmed == 0
 			&& unresolved.Counters().DirectHarmfulWaterEntryUnresolved == 1,
 			"unknown callback paths remain unresolved rather than false positives");
+
+		FallingHazardRuntimeObserver sourceBypass("DirectPreentrySourceBypassBot");
+		Check(sourceBypass.BeginFallEpisode()
+			&& sourceBypass.ArmGeneration(
+				FallingHazardForecastSource::CallbackReturnCommit, directForecast()),
+			"an accepted non-direct commit reaches the explicit source gate");
+		Check(sourceBypass.Counters().DirectHarmfulWaterEntryCandidates == 0
+			&& sourceBypass.Counters().DirectHarmfulWaterEntryCertificateResults[
+				static_cast<size_t>(
+					DirectHarmfulWaterEntryCertificateResult::SourceNotEligible)] == 1,
+			"the source gate bypass is distinct from a certificate rejection");
 	}
 }
 

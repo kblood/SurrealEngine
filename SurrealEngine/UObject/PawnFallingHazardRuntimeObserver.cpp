@@ -115,8 +115,23 @@ namespace PawnMovement
 		ObservePersistentHarmfulFallForecast(TrajectoryModel.ActiveGeneration);
 		ArmSingleHarmfulFallPrefix(source, forecast,
 			TrajectoryModel.ActiveGeneration);
-		ArmDirectHarmfulWaterEntryPrediction(source, forecast,
-			TrajectoryModel.ActiveGeneration);
+		DirectHarmfulWaterEntryCertificate certificate;
+		if (source == FallingHazardForecastSource::ExistingFallingCommit)
+		{
+			certificate = CertifyDirectHarmfulWaterEntry(forecast);
+		}
+		else
+		{
+			certificate.Result =
+				DirectHarmfulWaterEntryCertificateResult::SourceNotEligible;
+		}
+		const size_t resultIndex = static_cast<size_t>(certificate.Result);
+		if (resultIndex < CounterValues.DirectHarmfulWaterEntryCertificateResults.size())
+		{
+			CounterValues.DirectHarmfulWaterEntryCertificateResults[resultIndex]++;
+			ArmDirectHarmfulWaterEntryPrediction(source, certificate,
+				TrajectoryModel.ActiveGeneration);
+		}
 		HasLastCompletion = false;
 		LastCompletionTerminal = FallingHazardTerminal::Active;
 		QueueStart(prechargedElapsed);
@@ -678,13 +693,12 @@ namespace PawnMovement
 	}
 
 	void FallingHazardRuntimeObserver::ArmDirectHarmfulWaterEntryPrediction(
-		FallingHazardForecastSource source, const FallingHazardForecastUpdate& forecast,
+		FallingHazardForecastSource source,
+		const DirectHarmfulWaterEntryCertificate& certificate,
 		const FallingHazardGenerationState& generation)
 	{
 		if (source != FallingHazardForecastSource::ExistingFallingCommit)
 			return;
-		const DirectHarmfulWaterEntryCertificate certificate =
-			CertifyDirectHarmfulWaterEntry(forecast);
 		if (!certificate.IsCertified())
 			return;
 		DirectHarmfulWaterEntryPrediction =

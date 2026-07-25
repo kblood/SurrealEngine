@@ -1520,6 +1520,37 @@ opt-in steering policy is authorized. The next observer must count the
 certificate's fail-closed rejection reasons against the same pre-entry falling
 generations before broadening any predicate.
 
+## Iteration 68: certificate source-gate audit
+
+The direct-entry observer now emits one exact result for every accepted falling
+generation: either `source_not_eligible` (the certificate was deliberately not
+evaluated) or its single fail-closed certificate result. The result stream is
+complete and non-negative, and the analyzer requires the `certified` result to
+equal the prospective candidate count. This keeps a source-gated bypass
+separate from a rejected forecast; neither outcome is a death-causality claim
+or a live control authorization.
+
+Fresh two-repetition control/observer matrices passed the v25 analyzer at
+`qa/runs/2026-07-25/certificate-rejection-audit/` on Deck16 and DeathFan.
+Each Deck artifact reports 1,091 source-gate bypasses, four eligible forecasts
+rejected solely because their endpoint was not harmful water, and zero
+certifications. Each DeathFan artifact reports 1,787 source-gate bypasses,
+nine non-harmful-water endpoint rejections, and zero certifications. Quality
+and death counts remain exactly unchanged between control and observer because
+this is measurement only.
+
+The exact terminal records identify the repeatable Deck harmful-water forecast
+as `aligned_continuation_commit`, while the repeatable DeathFan harmful-water
+forecasts are `external_impulse_commit`; both are intentionally bypassed by
+the current `existing_falling_commit` certificate. Thus the prior zero result
+was not evidence that the endpoint checks rejected the observed harmful
+forecasts. It instead falsifies this certificate's source domain as a useful
+policy predicate. The next work must model source-specific, prospective
+evidence: aligned continuations may be explored only as a separate
+movement-controlled hypothesis, while external impulses require attribution
+and controllability evidence before any steering or avoidance intervention.
+No source gate is broadened and no live policy is authorized by this audit.
+
 ## Frozen tuning and held-out maps
 
 Installed owner-data packages were verified before expanding the matrix. Exact

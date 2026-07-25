@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <memory>
 #include <string>
 #include <optional>
@@ -45,6 +46,8 @@ namespace PawnMovement
 		uint64_t DirectHarmfulWaterEntryUnresolved = 0;
 		uint64_t DirectHarmfulWaterEntryLeadSamples = 0;
 		uint64_t DirectHarmfulWaterEntryLeadMilliseconds = 0;
+		std::array<uint64_t, DirectHarmfulWaterEntryCertificateResultCount>
+			DirectHarmfulWaterEntryCertificateResults = {};
 	};
 
 	struct FallingHazardRuntimeSweepObservation
@@ -149,7 +152,7 @@ namespace PawnMovement
 			FallingHazardCorrelation correlation);
 		void ClearSingleHarmfulFallPrefix(bool countReset);
 		void ArmDirectHarmfulWaterEntryPrediction(FallingHazardForecastSource source,
-			const FallingHazardForecastUpdate& forecast,
+			const DirectHarmfulWaterEntryCertificate& certificate,
 			const FallingHazardGenerationState& generation);
 		void ObserveDirectHarmfulWaterEntryPrediction(
 			const FallingHazardGenerationState& generation,

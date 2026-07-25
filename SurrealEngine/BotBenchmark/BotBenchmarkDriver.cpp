@@ -876,6 +876,8 @@ namespace
 				hazard.DirectHarmfulWaterEntryLeadSamples;
 			counters.DirectHarmfulWaterEntryLeadMilliseconds =
 				hazard.DirectHarmfulWaterEntryLeadMilliseconds;
+			counters.DirectHarmfulWaterEntryCertificateResults =
+				hazard.DirectHarmfulWaterEntryCertificateResults;
 			counters.WalkingStepPreflightReasons = pawn->WalkingStepPreflightReasonCounts();
 			return counters;
 		}
@@ -1948,6 +1950,8 @@ namespace
 					native.DirectHarmfulWaterEntryLeadSamples;
 				bot.DirectHarmfulWaterEntryLeadMillisecondsExact =
 					native.DirectHarmfulWaterEntryLeadMilliseconds;
+				bot.DirectHarmfulWaterEntryCertificateResultsExact =
+					native.DirectHarmfulWaterEntryCertificateResults;
 				if (pawn)
 				{
 					auto diagnostics = pawn->DrainWalkingStepPreflightDiagnostics();

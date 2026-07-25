@@ -2005,27 +2005,49 @@ class BotQualityAnalysisTests(unittest.TestCase):
             "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
         }
         zero = {name: 0 for name in QUALITY.DIRECT_HARMFUL_WATER_ENTRY_COUNTERS}
+        certificate_zero = {
+            name: 0
+            for name in QUALITY.DIRECT_HARMFUL_WATER_ENTRY_CERTIFICATE_RESULT_COUNTERS
+        }
         final = {
-            **zero, "direct_harmful_water_entry_candidates_exact": 1,
+            **zero, **certificate_zero,
+            "direct_harmful_water_entry_candidates_exact": 1,
             "direct_harmful_water_entry_confirmed_exact": 1,
             "direct_harmful_water_entry_lead_samples_exact": 1,
             "direct_harmful_water_entry_lead_milliseconds_exact": 20,
+            "direct_harmful_water_entry_certificate_certified_exact": 1,
         }
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             valid = write_v2_run(root, "direct-harmful-water-prediction", bot_count=1)
             upgrade_telemetry_v2(valid, counters=[
-                {**common, **zero}, {**common, **final}, {**common, **final},
+                {**common, **zero, **certificate_zero},
+                {**common, **final}, {**common, **final},
             ])
             QUALITY.analyze_run(valid)
 
             invalid = write_v2_run(root, "direct-harmful-water-outcomes", bot_count=1)
             bad = {**final, "direct_harmful_water_entry_confirmed_no_harm_exact": 1}
             upgrade_telemetry_v2(invalid, counters=[
-                {**common, **zero}, {**common, **bad}, {**common, **bad},
+                {**common, **zero, **certificate_zero},
+                {**common, **bad}, {**common, **bad},
             ])
             with self.assertRaisesRegex(QUALITY.QualityError, "outcomes exceed candidates"):
                 QUALITY.analyze_run(invalid)
+
+            invalid_certificate = write_v2_run(
+                root, "direct-harmful-water-certificate", bot_count=1)
+            bad_certificate = {
+                **final,
+                "direct_harmful_water_entry_certificate_certified_exact": 0,
+                "direct_harmful_water_entry_certificate_source_not_eligible_exact": 1,
+            }
+            upgrade_telemetry_v2(invalid_certificate, counters=[
+                {**common, **certificate_zero, **zero},
+                {**common, **bad_certificate}, {**common, **bad_certificate},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "certifications do not equal candidates"):
+                QUALITY.analyze_run(invalid_certificate)
 
     def test_causal_death_attribution_is_partitioned_monotonic_and_reported(self) -> None:
         common = {

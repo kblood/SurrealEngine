@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BotBenchmarkDeathAttribution.h"
+#include "UObject/PawnDirectHarmfulWaterEntryCertificate.h"
 #include "UObject/PawnWalkingStepPreflight.h"
 
 #include <array>
@@ -139,6 +140,8 @@ namespace BotBenchmarkDriverDetail
 		uint64_t DirectHarmfulWaterEntryUnresolved = 0;
 		uint64_t DirectHarmfulWaterEntryLeadSamples = 0;
 		uint64_t DirectHarmfulWaterEntryLeadMilliseconds = 0;
+		std::array<uint64_t, PawnMovement::DirectHarmfulWaterEntryCertificateResultCount>
+			DirectHarmfulWaterEntryCertificateResults = {};
 		std::array<uint64_t, PawnMovement::WalkingStepPreflightReasonCount>
 			WalkingStepPreflightReasons = {};
 	};
@@ -513,6 +516,13 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.DirectHarmfulWaterEntryLeadMilliseconds,
 				Previous.DirectHarmfulWaterEntryLeadMilliseconds,
 				totals.DirectHarmfulWaterEntryLeadMilliseconds);
+			for (size_t index = 0;
+				index < current.DirectHarmfulWaterEntryCertificateResults.size(); index++)
+			{
+				AccumulateCounter(current.DirectHarmfulWaterEntryCertificateResults[index],
+					Previous.DirectHarmfulWaterEntryCertificateResults[index],
+					totals.DirectHarmfulWaterEntryCertificateResults[index]);
+			}
 			for (size_t index = 0; index < current.WalkingStepPreflightReasons.size(); index++)
 			{
 				AccumulateCounter(current.WalkingStepPreflightReasons[index],
