@@ -483,6 +483,19 @@ bounded and qualified after rollback is proven on Deck.
 | 30-31 | hazardous direct-inventory corridor | Necroth saved; K2→0 and walls 291→568 | remove live, retain helper |
 | 32-33 | honor `bCanJump` in wall-jump branch | invalid jump prevented; K3→2, S2→3, score +1→-1 | remove live, retain helper |
 
+### Failed-navigation policy safety boundary
+
+The normal latent timeout remains the retained, script-owned recovery: it
+sets `MoveTimer` negative and lets the existing bot state choose its next
+route. The failed-navigation route penalty is different: the fixed Deck
+evidence reduced the `LiftExit3` stall but caused broad endpoint-cost
+applications and match-level regressions. It is therefore benchmark-opt-in and
+default-off. The observer still records failed segments, activations, and
+penalty applications; only an explicitly identified comparison run may apply
+the cost. Manifest, summary, telemetry identity, matrix variant identity, and
+quality comparison all carry `failed_navigation_avoidance_enabled`, preventing
+an enabled experiment from being compared as a stock-equivalent run.
+
 ## Iterations 34 through 41: lift topology, determinism, and rejected wall-jump guards
 
 Iterations 34 through 36 narrowed failed-navigation avoidance from actor

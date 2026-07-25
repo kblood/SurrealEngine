@@ -374,6 +374,41 @@ class MatrixRunnerTests(unittest.TestCase):
                     with self.assertRaises(MATRIX.MatrixError):
                         MATRIX.load_matrix(path)
 
+    def test_failed_navigation_avoidance_is_per_variant_and_pairable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            disabled = MATRIX.load_matrix(write_manifest(root))
+            disabled_candidate = next(
+                case for case in MATRIX.expand_cases(disabled)
+                if case.variant.id == "candidate")
+
+            enabled_path = write_manifest(root)
+            manifest = json.loads(enabled_path.read_text(encoding="utf-8"))
+            manifest["variants"][1]["failed_navigation_avoidance_enabled"] = True
+            enabled_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            enabled = MATRIX.load_matrix(enabled_path)
+            enabled_cases = MATRIX.expand_cases(enabled)
+            baseline = next(case for case in enabled_cases if case.variant.id == "stock")
+            candidate = next(case for case in enabled_cases if case.variant.id == "candidate")
+
+            self.assertFalse(baseline.variant.failed_navigation_avoidance_enabled)
+            self.assertTrue(candidate.variant.failed_navigation_avoidance_enabled)
+            self.assertNotEqual(disabled_candidate.run_id, candidate.run_id)
+            self.assertEqual(baseline.pair_id, candidate.pair_id)
+            self.assertIn("--botbench-failed-navigation-avoidance=0", MATRIX.command_for(
+                enabled, baseline, root / "baseline"))
+            self.assertIn("--botbench-failed-navigation-avoidance=1", MATRIX.command_for(
+                enabled, candidate, root / "candidate"))
+
+            for value in (0, 1, "true", None):
+                with self.subTest(value=value):
+                    path = write_manifest(root)
+                    invalid = json.loads(path.read_text(encoding="utf-8"))
+                    invalid["variants"][0]["failed_navigation_avoidance_enabled"] = value
+                    path.write_text(json.dumps(invalid) + "\n", encoding="utf-8")
+                    with self.assertRaises(MATRIX.MatrixError):
+                        MATRIX.load_matrix(path)
+
     def test_roster_is_part_of_case_and_pair_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

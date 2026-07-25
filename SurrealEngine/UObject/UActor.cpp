@@ -4664,7 +4664,9 @@ std::pair<Array<UNavigationPoint*>, int32_t> UPawn::FindPathToEndPoint(UNavigati
 	}
 	const PawnMovement::FailedNavigationEndpointSelection endpointSelection =
 		PawnMovement::SelectFailedNavigationEndpoint(
-			FailedNavigationMemory, endpointCandidates, failedNavigationFirstHopCost);
+			FailedNavigationMemory, endpointCandidates,
+			engine->IsBotBenchmarkFailedNavigationAvoidanceEnabled()
+				? failedNavigationFirstHopCost : 0);
 	if (!endpointSelection.Found)
 		return { {}, 0 };
 	FailedNavigationRoutePenaltyApplicationCountValue += endpointSelection.PenaltyApplications;
