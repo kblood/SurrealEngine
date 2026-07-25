@@ -2906,3 +2906,30 @@ death. It therefore qualifies the provenance plumbing but authorizes no
 exact terminal disposition to a same-life direct command (hazard clear, harmful
 entry/death, life boundary, target change, or run-end censor) before considering
 any behavior gate.
+
+## Iteration 114: bounded direct-command terminal correlation
+
+The direct-command terminal observer now closes a same-life activation as soon
+as stock replaces its exact active command: a different/deleted target, a
+non-direct latent action, or a route-cache head is an explicit
+`command_replaced` terminal. This prevents a pickup check early in a long life
+from being mislabeled as the cause of a later hazard death. The analyzer
+requires one terminal for every exact activation and validates its complete
+partition, terminal ordering, exact-hazard proof, sequence continuity, and
+zero overflow.
+
+On the new full Unreal Gold DeathFan anchor (seed `271828`, skill 3), all 22
+same-life activations resolve as 21 `command_replaced` and one run-end censor;
+none remains active through a hazardous death. UT436 Deck16-II's 120-tick
+smoke records five exact activations, all `command_replaced`, with zero
+overflow. The prior broad 15-death DeathFan correlation was therefore a
+life-long association, not command ownership. Reject an `ActorReachable`
+behavior change for this failure class.
+
+The next independent locomotion hypothesis is shared walking `HitWall`
+notification fidelity. It remains observer-only: retail microthreshold
+brackets prove the current logged normal/velocity is not the native
+dispatch-time operand, so replacing the legacy vertical-wall predicate with
+the reconstructed `MinHitWall` predicate would be unsafe. First repair the
+controlled retail-oracle operand witness and the cross-game corner fixture;
+only then may a default-off notification-only experiment be considered.
