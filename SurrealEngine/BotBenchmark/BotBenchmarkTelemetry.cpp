@@ -521,23 +521,25 @@ namespace
 		WriteVector(out, entry.MoveTargetLocation);
 		out << ",\"entry_destination\":";
 		WriteVector(out, entry.Destination);
-		out << ",\"external_impulse_navigation_commit_known\":"
+		out << ",\"falling_launch_snapshot_known\":"
 			<< (entry.ExternalImpulseNavigationCommitKnown ? "true" : "false")
-			<< ",\"external_impulse_move_target_name\":"
+			<< ",\"falling_launch_life_id\":\""
+			<< entry.ExternalImpulseNavigationCommitLifeId
+			<< "\",\"falling_launch_move_target_name\":"
 			<< JsonString(entry.ExternalImpulseMoveTargetName)
-			<< ",\"external_impulse_move_target_navigation\":"
+			<< ",\"falling_launch_move_target_navigation\":"
 			<< (entry.ExternalImpulseMoveTargetNavigation ? "true" : "false")
-			<< ",\"external_impulse_route_head_known\":"
+			<< ",\"falling_launch_route_head_known\":"
 			<< (entry.ExternalImpulseRouteHeadKnown ? "true" : "false")
-			<< ",\"external_impulse_route_head_name\":"
+			<< ",\"falling_launch_route_head_name\":"
 			<< JsonString(entry.ExternalImpulseRouteHeadName)
-			<< ",\"external_impulse_commit_location\":";
+			<< ",\"falling_launch_location\":";
 		WriteVector(out, entry.ExternalImpulseCommitLocation);
-		out << ",\"external_impulse_commit_velocity\":";
+		out << ",\"falling_launch_velocity\":";
 		WriteVector(out, entry.ExternalImpulseCommitVelocity);
-		out << ",\"external_impulse_launch_forecast_known\":"
+		out << ",\"falling_launch_forecast_known\":"
 			<< (entry.ExternalImpulseLaunchForecastKnown ? "true" : "false")
-			<< ",\"external_impulse_launch_forecast_harmful\":"
+			<< ",\"falling_launch_forecast_harmful\":"
 			<< (entry.ExternalImpulseLaunchForecastHarmful ? "true" : "false");
 		const auto& certificate = diagnostic.StaticWalkCertificate;
 		out << ",\"static_walk_certificate_result\":"

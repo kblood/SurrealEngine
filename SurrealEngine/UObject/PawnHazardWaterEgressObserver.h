@@ -41,7 +41,10 @@ namespace PawnMovement
 		bool MoveTargetLocationKnown = false;
 		vec3 MoveTargetLocation = vec3(0.0f);
 		vec3 Destination = vec3(0.0f);
+		// This is a snapshot taken at the start of a physical falling phase. It
+		// is not evidence that an external impulse caused that phase.
 		bool ExternalImpulseNavigationCommitKnown = false;
+		uint64_t ExternalImpulseNavigationCommitLifeId = 0;
 		std::string ExternalImpulseMoveTargetName;
 		bool ExternalImpulseMoveTargetNavigation = false;
 		bool ExternalImpulseRouteHeadKnown = false;

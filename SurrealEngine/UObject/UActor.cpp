@@ -6003,9 +6003,12 @@ void UPawn::ObserveHazardSwimEgressAfterPhysicsMove()
 	entry.ExternalImpulseNavigationCommitKnown =
 		entry.TransitionSource
 			== PawnMovement::HazardWaterEgressTransitionSource::FallingDirectSweep
-		&& ExternalImpulseNavigationCommit.Active;
+		&& ExternalImpulseNavigationCommit.Active
+		&& ExternalImpulseNavigationCommit.LifeId == entry.LifeId;
 	if (entry.ExternalImpulseNavigationCommitKnown)
 	{
+		entry.ExternalImpulseNavigationCommitLifeId =
+			ExternalImpulseNavigationCommit.LifeId;
 		entry.ExternalImpulseMoveTargetName = ExternalImpulseNavigationCommit.MoveTargetName;
 		entry.ExternalImpulseMoveTargetNavigation =
 			ExternalImpulseNavigationCommit.MoveTargetNavigation;
@@ -7546,6 +7549,7 @@ void UPawn::CaptureExternalImpulseNavigationCommit()
 		return;
 	}
 	ExternalImpulseNavigationCommit.Active = true;
+	ExternalImpulseNavigationCommit.LifeId = HazardSwimEgressLifeId;
 	ExternalImpulseNavigationCommit.Location = Location();
 	ExternalImpulseNavigationCommit.Velocity = Velocity();
 	PawnMovement::FallingHazardForecastInput forecastInput;
@@ -8192,6 +8196,10 @@ void UPawn::EndWalkingStepPreflightLife()
 			MoveTarget() ? MoveTarget()->Name.ToString() : std::string(), Destination());
 	}
 	ResetHazardSwimEgressObservation();
+	// A falling-launch snapshot is meaningful only within its captured bot
+	// life. Never let an old target or route be attached to a respawned pawn's
+	// later water episode.
+	ExternalImpulseNavigationCommit = {};
 	HazardSwimEgressLifeId++;
 	HazardSwimEgressEpisodeId = 0;
 	if (FallingHazardObserver)

@@ -3067,3 +3067,36 @@ records, and four zones; SHA-256
 first reviewed launch lies nearer the SuperHealth/PathNode region than `Fan0`;
 that merely rejects an unsupported decoration hypothesis. Actor proximity is
 not a cause, and it does not authorize a bot behavior change.
+
+## Iteration 120: same-life falling-launch snapshot integrity
+
+Review of the new DeathFan falling-water records found a telemetry defect, not
+a bot behavior defect. The snapshot attached to a `falling_direct_sweep`
+episode was taken at the start of a physical falling phase, but the old field
+name called it an external-impulse commit and the snapshot was not explicitly
+cleared at a death/life boundary. That permitted a later life to inherit a
+previous life’s target and route context. Such a record cannot support a
+command-causality claim.
+
+The snapshot is now tied to `HazardSwimEgressLifeId`, cleared on the life
+boundary, and attached only when its exact life ID matches the water episode.
+New telemetry calls it `falling_launch_*`; it records a generic launch
+snapshot rather than asserting an impulse cause. The quality analyzer accepts
+the legacy spelling for old owner-local artifacts, requires the complete new
+field group when present, rejects mixed groups, and rejects a known new snapshot
+whose launch life differs from the harmful-water episode. Focused telemetry and
+analyzer fixtures cover the new current format, legacy compatibility, and a
+wrong-life rejection.
+
+A fresh 7,200-tick headless Unreal Gold `DmDeathFan` run (seed `271828`,
+difficulty 3, two bots, no UCC, egress observer on and live overlay off)
+completed with unchanged stock gameplay and structurally passes the quality
+analyzer at `qa/runs/2026-07-26/falling-launch-lifecycle-audit-v1/` and
+`qa/reports/bot-ai/falling-launch-lifecycle-audit-v1.json`. All twelve emitted
+water episodes now carry either no snapshot or a snapshot with the same life
+ID; the first fatal `SuperHealth0`/`InventorySpot23` case is life 1, and the
+later `ASMDAmmo3`, `PathNode73`, `ASMDAmmo4`, and lift cases carry their own
+life IDs rather than inherited data. Those targets are contemporaneous launch
+context, not proven cause or a safe alternative. The next observer must bind
+the same-life movement-command token, latent command form, and a pre-launch
+safe alternative before a game-specific intervention can be tested.

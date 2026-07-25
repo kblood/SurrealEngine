@@ -629,6 +629,38 @@ class BotQualityAnalysisTests(unittest.TestCase):
             ])
             QUALITY.analyze_run(valid)
 
+            current = write_v2_run(root, "hazard-water-egress-falling-launch", bot_count=1)
+            current_diagnostic = {
+                key: value for key, value in diagnostic.items()
+                if not key.startswith("external_impulse_")
+            }
+            current_diagnostic.update({
+                "falling_launch_snapshot_known": True,
+                "falling_launch_life_id": "1",
+                "falling_launch_move_target_name": "PathNode142",
+                "falling_launch_move_target_navigation": True,
+                "falling_launch_route_head_known": True,
+                "falling_launch_route_head_name": "PathNode143",
+                "falling_launch_location": {"x": 5.0, "y": 6.0, "z": 7.0},
+                "falling_launch_velocity": {"x": 8.0, "y": 9.0, "z": 10.0},
+                "falling_launch_forecast_known": True,
+                "falling_launch_forecast_harmful": True,
+            })
+            upgrade_telemetry_v2(current, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [current_diagnostic]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            QUALITY.analyze_run(current)
+
+            wrong_life = write_v2_run(root, "hazard-water-egress-falling-launch-life", bot_count=1)
+            wrong_life_diagnostic = {**current_diagnostic, "falling_launch_life_id": "2"}
+            upgrade_telemetry_v2(wrong_life, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [wrong_life_diagnostic]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "must belong to the water episode life"):
+                QUALITY.analyze_run(wrong_life)
+
             legacy = write_v2_run(root, "hazard-water-egress-legacy", bot_count=1)
             legacy_diagnostic = {
                 key: value for key, value in diagnostic.items()

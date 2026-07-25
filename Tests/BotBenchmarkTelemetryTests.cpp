@@ -693,6 +693,7 @@ int main()
 	waterEgress.Entry.MoveTargetLocation = vec3(7.0f, 8.0f, 9.0f);
 	waterEgress.Entry.Destination = vec3(10.0f, 11.0f, 12.0f);
 	waterEgress.Entry.ExternalImpulseNavigationCommitKnown = true;
+	waterEgress.Entry.ExternalImpulseNavigationCommitLifeId = 3;
 	waterEgress.Entry.ExternalImpulseMoveTargetName = "PathNode144";
 	waterEgress.Entry.ExternalImpulseMoveTargetNavigation = true;
 	waterEgress.Entry.ExternalImpulseRouteHeadKnown = true;
@@ -727,9 +728,9 @@ int main()
 		return Fail("hazard-water egress identity serialization was incomplete");
 	if (waterEgressEvent.find("\"candidate_known\":true,\"candidate_name\":\"PathNode12\"") == std::string::npos)
 		return Fail("hazard-water egress candidate serialization was incomplete");
-	if (waterEgressEvent.find("\"external_impulse_navigation_commit_known\":true,\"external_impulse_move_target_name\":\"PathNode144\",\"external_impulse_move_target_navigation\":true,\"external_impulse_route_head_known\":true,\"external_impulse_route_head_name\":\"PathNode143\"") == std::string::npos)
-		return Fail("hazard-water egress external-impulse provenance serialization was incomplete");
-	if (waterEgressEvent.find("\"external_impulse_launch_forecast_known\":true,\"external_impulse_launch_forecast_harmful\":true") == std::string::npos)
+	if (waterEgressEvent.find("\"falling_launch_snapshot_known\":true,\"falling_launch_life_id\":\"3\",\"falling_launch_move_target_name\":\"PathNode144\",\"falling_launch_move_target_navigation\":true,\"falling_launch_route_head_known\":true,\"falling_launch_route_head_name\":\"PathNode143\"") == std::string::npos)
+		return Fail("hazard-water egress falling-launch provenance serialization was incomplete");
+	if (waterEgressEvent.find("\"falling_launch_forecast_known\":true,\"falling_launch_forecast_harmful\":true") == std::string::npos)
 		return Fail("hazard-water egress launch-forecast serialization was incomplete");
 	if (waterEgressEvent.find("\"static_walk_current_first_hop_probe_known\":true,\"static_walk_current_first_hop_probe_clear\":true") == std::string::npos)
 		return Fail("hazard-water egress current first-hop probe serialization was incomplete");

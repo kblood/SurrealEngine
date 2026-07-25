@@ -1496,6 +1496,13 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         "external_impulse_launch_forecast_known",
         "external_impulse_launch_forecast_harmful",
     }
+    falling_launch_snapshot_fields = {
+        "falling_launch_snapshot_known", "falling_launch_life_id",
+        "falling_launch_move_target_name", "falling_launch_move_target_navigation",
+        "falling_launch_route_head_known", "falling_launch_route_head_name",
+        "falling_launch_location", "falling_launch_velocity",
+        "falling_launch_forecast_known", "falling_launch_forecast_harmful",
+    }
     static_walk_current_first_hop_probe_fields = {
         "static_walk_current_first_hop_probe_known",
         "static_walk_current_first_hop_probe_clear",
@@ -1504,6 +1511,15 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
     present_external_impulse_fields = raw_fields.keys() & external_impulse_provenance_fields
     present_external_impulse_launch_forecast_fields = (
         raw_fields.keys() & external_impulse_launch_forecast_fields)
+    present_falling_launch_snapshot_fields = (
+        raw_fields.keys() & falling_launch_snapshot_fields)
+    falling_launch_snapshot_is_current = bool(present_falling_launch_snapshot_fields)
+    if present_falling_launch_snapshot_fields and present_external_impulse_fields:
+        raise QualityError(f"{context}: falling-launch and legacy external-impulse provenance cannot mix")
+    if present_falling_launch_snapshot_fields \
+            and present_falling_launch_snapshot_fields != falling_launch_snapshot_fields:
+        missing = sorted(falling_launch_snapshot_fields - present_falling_launch_snapshot_fields)
+        raise QualityError(f"{context}: incomplete falling-launch snapshot fields: {', '.join(missing)}")
     present_static_walk_current_first_hop_probe_fields = (
         raw_fields.keys() & static_walk_current_first_hop_probe_fields)
     fields = _exact_object(
@@ -1512,6 +1528,8 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
                            if present_external_impulse_fields else set())
         | (external_impulse_launch_forecast_fields
            if present_external_impulse_launch_forecast_fields else set())
+        | (falling_launch_snapshot_fields
+           if present_falling_launch_snapshot_fields else set())
         | (static_walk_current_first_hop_probe_fields
            if present_static_walk_current_first_hop_probe_fields else set()))
     transition_source = _string(fields, "transition_source", context, nonempty=True)
@@ -1609,7 +1627,46 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
     if static_walk_result == "no_eligible_direct_first_hop" and (
             static_walk_first_hop_known or static_walk_visited_nodes != 0):
         raise QualityError(f"{context}: no-first-hop static walk must not claim a graph probe")
-    if present_external_impulse_fields:
+    if present_falling_launch_snapshot_fields:
+        falling_launch_snapshot_known = _boolean(
+            fields.get("falling_launch_snapshot_known"),
+            f"{context}.falling_launch_snapshot_known")
+        falling_launch_life_id = _integer(
+            fields.get("falling_launch_life_id"), f"{context}.falling_launch_life_id",
+            minimum=0)
+        falling_launch_move_target_name = _string(
+            fields, "falling_launch_move_target_name", context)
+        falling_launch_move_target_navigation = _boolean(
+            fields.get("falling_launch_move_target_navigation"),
+            f"{context}.falling_launch_move_target_navigation")
+        falling_launch_route_head_known = _boolean(
+            fields.get("falling_launch_route_head_known"),
+            f"{context}.falling_launch_route_head_known")
+        falling_launch_route_head_name = _string(
+            fields, "falling_launch_route_head_name", context)
+        falling_launch_location = _diagnostic_vector(
+            fields.get("falling_launch_location"), f"{context}.falling_launch_location")
+        falling_launch_velocity = _diagnostic_vector(
+            fields.get("falling_launch_velocity"), f"{context}.falling_launch_velocity")
+        falling_launch_forecast_known = _boolean(
+            fields.get("falling_launch_forecast_known"),
+            f"{context}.falling_launch_forecast_known")
+        falling_launch_forecast_harmful = _boolean(
+            fields.get("falling_launch_forecast_harmful"),
+            f"{context}.falling_launch_forecast_harmful")
+        # The generic spelling supersedes the legacy external-impulse fields.
+        # Keep their internal variables neutral so the legacy compatibility
+        # checks below remain safe for either representation.
+        external_impulse_navigation_commit_known = False
+        external_impulse_move_target_name = ""
+        external_impulse_move_target_navigation = False
+        external_impulse_route_head_known = False
+        external_impulse_route_head_name = ""
+        external_impulse_commit_location = {"x": 0.0, "y": 0.0, "z": 0.0}
+        external_impulse_commit_velocity = {"x": 0.0, "y": 0.0, "z": 0.0}
+        external_impulse_launch_forecast_known = False
+        external_impulse_launch_forecast_harmful = False
+    elif present_external_impulse_fields:
         external_impulse_navigation_commit_known = _boolean(
             fields.get("external_impulse_navigation_commit_known"),
             f"{context}.external_impulse_navigation_commit_known")
@@ -1629,6 +1686,16 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         external_impulse_commit_velocity = _diagnostic_vector(
             fields.get("external_impulse_commit_velocity"),
             f"{context}.external_impulse_commit_velocity")
+        falling_launch_snapshot_known = external_impulse_navigation_commit_known
+        falling_launch_life_id = 0
+        falling_launch_move_target_name = external_impulse_move_target_name
+        falling_launch_move_target_navigation = external_impulse_move_target_navigation
+        falling_launch_route_head_known = external_impulse_route_head_known
+        falling_launch_route_head_name = external_impulse_route_head_name
+        falling_launch_location = external_impulse_commit_location
+        falling_launch_velocity = external_impulse_commit_velocity
+        falling_launch_forecast_known = False
+        falling_launch_forecast_harmful = False
     else:
         external_impulse_navigation_commit_known = False
         external_impulse_move_target_name = ""
@@ -1637,6 +1704,16 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
         external_impulse_route_head_name = ""
         external_impulse_commit_location = {"x": 0.0, "y": 0.0, "z": 0.0}
         external_impulse_commit_velocity = {"x": 0.0, "y": 0.0, "z": 0.0}
+        falling_launch_snapshot_known = False
+        falling_launch_life_id = 0
+        falling_launch_move_target_name = ""
+        falling_launch_move_target_navigation = False
+        falling_launch_route_head_known = False
+        falling_launch_route_head_name = ""
+        falling_launch_location = {"x": 0.0, "y": 0.0, "z": 0.0}
+        falling_launch_velocity = {"x": 0.0, "y": 0.0, "z": 0.0}
+        falling_launch_forecast_known = False
+        falling_launch_forecast_harmful = False
     if external_impulse_move_target_navigation and not external_impulse_move_target_name:
         raise QualityError(f"{context}: external-impulse navigation target requires a target name")
     if external_impulse_route_head_known != bool(external_impulse_route_head_name):
@@ -1647,7 +1724,9 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
             or external_impulse_commit_location != {"x": 0.0, "y": 0.0, "z": 0.0}
             or external_impulse_commit_velocity != {"x": 0.0, "y": 0.0, "z": 0.0}):
         raise QualityError(f"{context}: unknown external-impulse commit must not claim provenance")
-    if present_external_impulse_launch_forecast_fields:
+    if present_falling_launch_snapshot_fields:
+        pass
+    elif present_external_impulse_launch_forecast_fields:
         external_impulse_launch_forecast_known = _boolean(
             fields.get("external_impulse_launch_forecast_known"),
             f"{context}.external_impulse_launch_forecast_known")
@@ -1660,6 +1739,26 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
     if external_impulse_launch_forecast_harmful \
             and not external_impulse_launch_forecast_known:
         raise QualityError(f"{context}: harmful external-impulse launch forecast must be known")
+    if not falling_launch_snapshot_is_current and present_external_impulse_fields:
+        falling_launch_forecast_known = external_impulse_launch_forecast_known
+        falling_launch_forecast_harmful = external_impulse_launch_forecast_harmful
+    if falling_launch_snapshot_known:
+        if falling_launch_snapshot_is_current and falling_launch_life_id != _integer(
+                fields.get("life_id"), f"{context}.life_id", minimum=1):
+            raise QualityError(f"{context}: falling-launch snapshot must belong to the water episode life")
+    elif falling_launch_life_id != 0 or falling_launch_move_target_name \
+            or falling_launch_move_target_navigation or falling_launch_route_head_known \
+            or falling_launch_route_head_name \
+            or falling_launch_location != {"x": 0.0, "y": 0.0, "z": 0.0} \
+            or falling_launch_velocity != {"x": 0.0, "y": 0.0, "z": 0.0} \
+            or falling_launch_forecast_known or falling_launch_forecast_harmful:
+        raise QualityError(f"{context}: unknown falling-launch snapshot must not claim provenance")
+    if falling_launch_move_target_navigation and not falling_launch_move_target_name:
+        raise QualityError(f"{context}: falling-launch navigation target requires a target name")
+    if falling_launch_route_head_known != bool(falling_launch_route_head_name):
+        raise QualityError(f"{context}: falling-launch route-head availability must match its name")
+    if falling_launch_forecast_harmful and not falling_launch_forecast_known:
+        raise QualityError(f"{context}: harmful falling-launch forecast must be known")
     candidate_known = _boolean(fields.get("candidate_known"), f"{context}.candidate_known")
     candidate_distance_known = _boolean(
         fields.get("candidate_distance_known"), f"{context}.candidate_distance_known")
@@ -1712,15 +1811,16 @@ def _hazard_water_egress_diagnostic(value: Any, context: str) -> dict[str, Any]:
             fields.get("entry_move_target_location"), f"{context}.entry_move_target_location"),
         "entry_destination": _diagnostic_vector(fields.get("entry_destination"),
                                                   f"{context}.entry_destination"),
-        "external_impulse_navigation_commit_known": external_impulse_navigation_commit_known,
-        "external_impulse_move_target_name": external_impulse_move_target_name,
-        "external_impulse_move_target_navigation": external_impulse_move_target_navigation,
-        "external_impulse_route_head_known": external_impulse_route_head_known,
-        "external_impulse_route_head_name": external_impulse_route_head_name,
-        "external_impulse_commit_location": external_impulse_commit_location,
-        "external_impulse_commit_velocity": external_impulse_commit_velocity,
-        "external_impulse_launch_forecast_known": external_impulse_launch_forecast_known,
-        "external_impulse_launch_forecast_harmful": external_impulse_launch_forecast_harmful,
+        "falling_launch_snapshot_known": falling_launch_snapshot_known,
+        "falling_launch_life_id": falling_launch_life_id,
+        "falling_launch_move_target_name": falling_launch_move_target_name,
+        "falling_launch_move_target_navigation": falling_launch_move_target_navigation,
+        "falling_launch_route_head_known": falling_launch_route_head_known,
+        "falling_launch_route_head_name": falling_launch_route_head_name,
+        "falling_launch_location": falling_launch_location,
+        "falling_launch_velocity": falling_launch_velocity,
+        "falling_launch_forecast_known": falling_launch_forecast_known,
+        "falling_launch_forecast_harmful": falling_launch_forecast_harmful,
         "static_walk_certificate_result": static_walk_result,
         "static_walk_first_hop_known": static_walk_first_hop_known,
         "static_walk_first_hop_name": static_walk_first_hop_name,
