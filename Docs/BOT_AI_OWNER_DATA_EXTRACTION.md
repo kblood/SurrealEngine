@@ -263,6 +263,27 @@ alongside the normal quality analyzer. This establishes a trustworthy witness;
 it does **not** yet make a reachspec-capability policy safe. A future policy
 still needs a deterministic join to the catalog and route-execution evidence.
 
+`Tools/BotBenchmark/Analyze-ReachspecCapabilities.py` is that first join. It
+validates the v3 catalog and exact live witness, requires the catalog map to
+match the benchmark URL, then reports raw reach-flag incidence together with
+each actual bot's capability bits. It maps only the engine-defined direct
+names `walk`, `fly`, `swim`, `jump`, `door`, and `special` to their observed
+capability bits; `player_only` and unknown bits remain opaque. Its output is
+explicitly `selection_safe: false` because a static audit cannot establish
+reach-flag combination semantics, player eligibility, collision clearance,
+current anchor, or dynamic mover state.
+
+The anchor audits are negative evidence against a capability-filter change:
+UT436 `DM-Deck16][` has 1,976 walk, 448 jump, and 21 special incidences across
+1,997 reachspecs; Unreal Gold `DmDeathFan` has 1,415 walk, 324 jump, and 16
+special incidences across 1,431. Neither map has fly, swim, door, player-only,
+or unknown incidences, and no observed live participant lacks a capability
+named by a reachspec. Therefore the current suicide/navigation failures cannot
+be attributed to a visible static capability mismatch on these fixtures; do
+not add a reachspec capability filter. The next useful evidence is a pinned
+route-execution observer that records the actual current anchor, selected
+reachspec, progress/stall window, and capability-compatible candidate set.
+
 ## Non-goals
 
 Do not decode or redistribute meshes, textures, sounds, or compiled bytecode.

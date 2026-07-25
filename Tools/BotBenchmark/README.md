@@ -113,6 +113,20 @@ invokes this validator by default and requires the fourth non-empty artifact;
 an explicitly injected validator is test-only plumbing and is responsible for
 its own structural gates.
 
+Use the catalog and matching witness only through the read-only static audit:
+
+```powershell
+python .\Tools\BotBenchmark\Analyze-ReachspecCapabilities.py `
+  C:\qa\map-catalog\deck16\DM-Deck16][.json `
+  C:\qa\benchmark\deck16-run
+```
+
+The audit verifies both inputs, requires the catalog map to match the benchmark
+URL, and reports every observed reach-flag incidence against each live bot's
+capabilities. It intentionally sets `selection_safe: false`: reach-flag
+combination semantics, player-only eligibility, dynamic collision, current
+anchor, and traversal state require a subsequent route-execution observer.
+
 The current UT436 and Unreal Gold adapters do not expose a verified named-bot
 spawn contract. Supplying `requested_names` is therefore parsed and recorded
 deterministically but the engine run deliberately fails instead of silently
