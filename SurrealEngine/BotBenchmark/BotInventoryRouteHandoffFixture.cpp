@@ -23,7 +23,7 @@
 namespace
 {
 	const vec3 DeathFanAmmo3LaunchAnchor(-148.983383f, -602.711670f, 1384.0f);
-	const vec3 DeathFanPathNode73LaunchAnchor(-146.546677f, 743.832153f, 1384.0f);
+	const vec3 DeathFanPathNode73LaunchAnchor(32.213860f, 881.516113f, 1384.0f);
 	constexpr float ImmediateSupportDistance = 64.0f;
 	constexpr float DeepSupportDistance = 2048.0f;
 	constexpr float FixtureTickSeconds = 0.05f;
@@ -120,7 +120,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v7\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v8\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -453,6 +453,8 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		pawn->SetPhysics(PHYS_Walking);
 		pawn->Tick(FixtureTickSeconds);
 		result.StationaryNavigationAnchorFallingObserved = pawn->Physics() == PHYS_Falling;
+		if (result.StationaryNavigationAnchorFallingObserved)
+			throw std::runtime_error("recorded real PathNode73 launch anchor is not stationary-supported");
 		if (!pawn->SetLocation(DeathFanPathNode73LaunchAnchor))
 			throw std::runtime_error("fixture could not restore the PathNode73 launch anchor for live movement");
 		pawn->Velocity() = vec3(0.0f);

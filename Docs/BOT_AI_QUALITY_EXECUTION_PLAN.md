@@ -3348,3 +3348,21 @@ not introduce a move-issue guard from this fixture. The remaining problem is
 upstream: the falling-launch data must be reproduced from a genuinely
 supported, same-life pre-launch location before a navigation command can be
 changed safely.
+
+## Iteration 129: real supported PathNode73 command witness
+
+The v8 fixture replaces the synthetic anchor with the same-life owner telemetry
+position from the full DeathFan run: at tick 4250, `MaleThreeBot0` was walking
+at `(32.214, 881.516, 1384)` with a static-BSP start-support witness and an
+active `MoveToward(PathNode73)`. The stationary 0.05-second control remains
+walking. After reset to that exact position, native `MoveToward(PathNode73,
+1.0)` enters `PHYS_Falling` after 18 fixed ticks. The run at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v8-real-launch-control/`
+therefore supplies a supported, command-specific falling witness.
+
+The same anchor has 19 stock-direct-reachable navigation candidates within the
+native endpoint radius; all have unsupported/harmful corridor evidence. The
+rejected generic endpoint filter remains disqualified. The next candidate may
+act only after the witnessed fall begins and must use the real pre-move anchor
+or another independently proven safe recovery trajectory; it may not cancel
+the issue-time command without a replacement-progress certificate.
