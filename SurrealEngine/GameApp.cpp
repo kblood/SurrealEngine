@@ -39,7 +39,7 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--exec=<consolecommand>] [Path to game folder]\n";
 			return 0;
 		}
 

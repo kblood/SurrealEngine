@@ -13,4 +13,5 @@ public:
 	static void GetJointPos(UObject* Self, int joint, vec3& ReturnValue);
 	static void ResetAnimationCache(UObject* Self, const NameString& seq);
 	static void SetDefaultPolygroups(UObject* Self);
+	static void SkeletonLook(UObject* Self, float DeltaTime);
 };

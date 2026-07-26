@@ -17,6 +17,7 @@ void NRuneActor::RegisterFunctions()
 	RegisterVMNativeFunc_2("Actor", "GetJointPos", &NRuneActor::GetJointPos, 602);
 	RegisterVMNativeFunc_1("Actor", "ResetAnimationCache", &NRuneActor::ResetAnimationCache, 620);
 	RegisterVMNativeFunc_0("Actor", "SetDefaultPolygroups", &NRuneActor::SetDefaultPolygroups, 610);
+	RegisterVMNativeFunc_1("Pawn", "SkeletonLook", &NRuneActor::SkeletonLook, 670);
 }
 
 void NRuneActor::AttachActorToJoint(UObject* Self, UObject* A, int j)
@@ -61,4 +62,11 @@ void NRuneActor::SetDefaultPolygroups(UObject* Self)
 {
 	// No-op: cosmetic menu polygon-group setup (RuneMenu.Paint) with no
 	// gameplay effect once accepted as a harmless call.
+}
+
+void NRuneActor::SkeletonLook(UObject* Self, float DeltaTime)
+{
+	// No-op: per-tick head/bone look-at update (RunePlayer.Tick calls this
+	// every frame). Without a joint offset table there is nothing to rotate,
+	// consistent with GetJointPos/AttachActorToJoint above.
 }

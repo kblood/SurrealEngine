@@ -129,6 +129,16 @@ void Engine::Run()
 
 	LoginPlayer();
 
+	if (commandline->HasArg("", "--exec"))
+	{
+		// Non-interactive hook for scripted verification: run a single console
+		// command right after boot, exactly as an in-game menu action would,
+		// without needing to drive the GUI. Queued travel (e.g. ClientTravel)
+		// is picked up by the first main-loop iteration below.
+		ExpressionValue found = ExpressionValue::BoolValue(false);
+		ConsoleCommand(nullptr, commandline->GetArg("", "--exec"), found.ToType<BitfieldBool&>());
+	}
+
 	auto objprop = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	auto vecprop = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	auto rotprop = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
@@ -1157,6 +1167,44 @@ std::string Engine::ConsoleCommand(UObject* context, const std::string& commandl
 				ClientTravel(url.ToString(), ETravelType::TRAVEL_Absolute, false);
 				return {};
 			}	
+		}
+
+		LogMessage("Couldn't find map " + maparg);
+	}
+	else if (command == "relaunch" && args.size() == 2 && LaunchInfo.IsRune())
+	{
+		// Rune's own menu scripts (RMenu.u) issue "RELAUNCH rune://<map>?<options>"
+		// to leave "Classic Mode" instead of a plain open/start URL. Strip the
+		// "rune://" scheme prefix and travel exactly like open/start does.
+		std::string maparg = args[1];
+		const std::string scheme = "rune://";
+		if (maparg.size() >= scheme.size() && StrTools::equals_ignore_case(maparg.substr(0, scheme.size()), scheme))
+			maparg = maparg.substr(scheme.size());
+
+		// Unlike open/start's bare map name convention, Rune's RELAUNCH url
+		// includes the literal map file extension (e.g. "intro.run?video=.") -
+		// strip it so it matches the stemmed names in packages->GetMaps().
+		{
+			size_t queryPos = maparg.find('?');
+			std::string mapPart = maparg.substr(0, queryPos);
+			std::string rest = (queryPos != std::string::npos) ? maparg.substr(queryPos) : std::string();
+			size_t extPos = mapPart.find_last_of('.');
+			if (extPos != std::string::npos)
+				mapPart = mapPart.substr(0, extPos);
+			maparg = mapPart + rest;
+		}
+
+		UnrealURL url(maparg);
+
+		for (auto& map : packages->GetMaps())
+		{
+			std::string mapname = fs::path(map).stem().string();
+
+			if (StrTools::equals_ignore_case(mapname, url.Map))
+			{
+				ClientTravel(url.ToString(), ETravelType::TRAVEL_Absolute, false);
+				return {};
+			}
 		}
 
 		LogMessage("Couldn't find map " + maparg);
