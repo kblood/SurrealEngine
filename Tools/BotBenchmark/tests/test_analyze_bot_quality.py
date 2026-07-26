@@ -496,6 +496,39 @@ class BotQualityAnalysisTests(unittest.TestCase):
                                         "manifest.vector_nonfinite_observer_enabled"):
                 QUALITY._validate_manifest(manifest_path)
 
+    def test_movement_command_provenance_is_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "movement-command-provenance")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            manifest["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            manifest["native_path_commit_observer_enabled"] = True
+            manifest["movement_command_provenance_observer_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], native_path_commit_observer_enabled=True,
+                movement_command_provenance_observer_enabled=True,
+                shadow_policy_set=manifest["shadow_policy_set"])
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+            parsed = QUALITY._validate_manifest(manifest_path)
+            self.assertTrue(parsed["movement_command_provenance_observer_enabled"])
+            self.assertTrue(parsed["native_path_commit_observer_enabled"])
+
+            manifest["movement_command_provenance_observer_enabled"] = False
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
+            manifest["movement_command_provenance_observer_enabled"] = "1"
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "manifest.movement_command_provenance_observer_enabled"):
+                QUALITY._validate_manifest(manifest_path)
+
     def test_pick_reg_destination_zero_divide_guard_is_bound_into_manifest_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             run = write_v2_run(Path(temporary), "pick-reg-destination-zero-divide")
