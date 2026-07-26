@@ -3654,3 +3654,23 @@ Unreal 226b runs. The seed-`271828` 16-bot Deck16-II live check has zero direct
 timeouts and is gameplay-identical to control, so it is a clean inert anchor;
 promotion still requires repeated live activating outcomes without a safety,
 collision, or combat regression.
+
+## Iteration 144: direct-actor timeout activates without a quality regression
+
+The current-binary UT436 Deck16-II four-bot, difficulty-7, seed-`104729`
+120-second baseline/candidate pair now qualifies an activating live anchor for
+the direct-actor `MoveToward` timeout. The candidate executes exactly one
+direct-actor timeout and one corresponding forced replan. It is exactly
+gameplay-neutral on this anchor: K9/D12/S3, three environmental deaths, five
+hazard-exposed deaths, 919 `HitWall` callbacks, 158.250 seconds of
+movement-intent no-progress, nine movement-intent stuck episodes, and 49%
+union navigation coverage in both runs.
+
+The candidate was repeated with an exact deterministic equivalence result for
+events, shadow decisions, and route execution (except output directory).
+This is a safe activated non-regression, rather than proof of an improvement:
+the timeout's stock-script handoff changes neither aggregate outcome nor
+collision totals in this sample. Retain it default-off and extend the matrix to
+additional independently activating UT seeds/maps before considering
+promotion; Unreal remains a fixture-qualified, live-inert non-regression
+anchor.
