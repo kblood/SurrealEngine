@@ -3755,3 +3755,20 @@ candidates; Unreal Gold DeathFan seed-`104729` preserves K12/D19/S7, five
 environmental deaths, and 188 contacts across exact r1/r2 repeats. This is
 baseline observer evidence only—not qualification of the new residence fields
 or a live egress policy.
+
+## Iteration 148: activating causal-residence capture is deterministic
+
+The new observer was exercised on UT436 Deck16-II, 16 bots, seed `271828`,
+with hazardous-water observation enabled and live steering disabled. It emits
+four verified `PainTimer` harmful-residence deaths, and the complete causal
+analysis report is byte-identical across two independent captures. The report
+correctly records zero cases with exact command ownership.
+
+Two witnesses observed `PathNode144` as a direct-safe candidate, but both mark
+that candidate superseded before death; the other two have no direct-safe
+candidate. Entry health is respectively 100, 115, 28, and 100, with residence
+durations around 1.03--3.08 seconds. These are valid causal death witnesses,
+but none supplies authority for a movement intervention. The required next
+evidence is a low-health, unassisted, non-combat residence that retains exact
+command ownership through the terminal; do not infer it from candidate geometry
+or aggregate death totals.
