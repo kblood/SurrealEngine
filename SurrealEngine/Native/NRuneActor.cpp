@@ -18,6 +18,7 @@ void NRuneActor::RegisterFunctions()
 	RegisterVMNativeFunc_1("Actor", "ResetAnimationCache", &NRuneActor::ResetAnimationCache, 620);
 	RegisterVMNativeFunc_0("Actor", "SetDefaultPolygroups", &NRuneActor::SetDefaultPolygroups, 610);
 	RegisterVMNativeFunc_1("Pawn", "SkeletonLook", &NRuneActor::SkeletonLook, 670);
+	RegisterVMNativeFunc_2("Actor", "SetJointRot", &NRuneActor::SetJointRot, 621);
 }
 
 void NRuneActor::AttachActorToJoint(UObject* Self, UObject* A, int j)
@@ -69,4 +70,11 @@ void NRuneActor::SkeletonLook(UObject* Self, float DeltaTime)
 	// No-op: per-tick head/bone look-at update (RunePlayer.Tick calls this
 	// every frame). Without a joint offset table there is nothing to rotate,
 	// consistent with GetJointPos/AttachActorToJoint above.
+}
+
+void NRuneActor::SetJointRot(UObject* Self, int joint, const Rotator& Rot)
+{
+	// No-op: per-tick jaw/joint rotation (Pawn.Jaw calls this every tick while
+	// talking). Without a joint offset table there is nothing to rotate,
+	// consistent with GetJointPos/SkeletonLook above.
 }

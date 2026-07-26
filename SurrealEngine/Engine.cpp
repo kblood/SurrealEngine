@@ -1202,6 +1202,11 @@ std::string Engine::ConsoleCommand(UObject* context, const std::string& commandl
 
 			if (StrTools::equals_ignore_case(mapname, url.Map))
 			{
+				// A real Rune.exe restarted the whole process to leave Classic Mode,
+				// which implicitly resets bNoDrawWorld to its default (false) and
+				// never recreates the menu. This in-process approximation has to
+				// clear it explicitly or the 3D world stays hidden behind the menu.
+				console->bNoDrawWorld() = false;
 				ClientTravel(url.ToString(), ETravelType::TRAVEL_Absolute, false);
 				return {};
 			}
