@@ -4,6 +4,33 @@ project(SurrealEngine)
 
 include(CTest)
 
+# Capture the source identity at configure time so the benchmark can attest the
+# binary it actually runs. A non-Git source build remains buildable, but the
+# benchmark driver will fail closed rather than emit an unqualified run.
+set(SURREAL_BUILD_IDENTITY_AVAILABLE 0)
+set(SURREAL_BUILD_IDENTITY_COMMIT "")
+set(SURREAL_BUILD_IDENTITY_TREE "")
+set(SURREAL_BUILD_IDENTITY_DIRTY 0)
+find_program(SURREAL_BUILD_IDENTITY_GIT_EXECUTABLE git)
+if(SURREAL_BUILD_IDENTITY_GIT_EXECUTABLE)
+	execute_process(COMMAND ${SURREAL_BUILD_IDENTITY_GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD
+		OUTPUT_VARIABLE SURREAL_BUILD_IDENTITY_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE SURREAL_BUILD_IDENTITY_COMMIT_RESULT)
+	execute_process(COMMAND ${SURREAL_BUILD_IDENTITY_GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD^{tree}
+		OUTPUT_VARIABLE SURREAL_BUILD_IDENTITY_TREE OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE SURREAL_BUILD_IDENTITY_TREE_RESULT)
+	execute_process(COMMAND ${SURREAL_BUILD_IDENTITY_GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} status --porcelain=v1 --untracked-files=all
+		OUTPUT_VARIABLE SURREAL_BUILD_IDENTITY_STATUS RESULT_VARIABLE SURREAL_BUILD_IDENTITY_STATUS_RESULT)
+	if(SURREAL_BUILD_IDENTITY_COMMIT_RESULT EQUAL 0 AND SURREAL_BUILD_IDENTITY_TREE_RESULT EQUAL 0 AND SURREAL_BUILD_IDENTITY_STATUS_RESULT EQUAL 0
+		AND SURREAL_BUILD_IDENTITY_COMMIT MATCHES "^[0-9a-f]{40}$" AND SURREAL_BUILD_IDENTITY_TREE MATCHES "^[0-9a-f]{40}$")
+		set(SURREAL_BUILD_IDENTITY_AVAILABLE 1)
+		if(NOT SURREAL_BUILD_IDENTITY_STATUS STREQUAL "")
+			set(SURREAL_BUILD_IDENTITY_DIRTY 1)
+		endif()
+	endif()
+endif()
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
+configure_file(cmake/SurrealBuildIdentityGenerated.h.in
+	${CMAKE_CURRENT_BINARY_DIR}/generated/SurrealBuildIdentityGenerated.h @ONLY)
+
 option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS "Use the experimental on-demand WasmFS OPFS game-data mount" OFF)
 option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY "Use the experimental Window-owned Asyncify/WasmFS OPFS game-data mount" OFF)
 set(SURREAL_WEB_RELEASE_PROFILE "diagnostic" CACHE STRING "Browser build profile: diagnostic or production")
@@ -82,6 +109,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/GameSupport.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.h
+	SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.h
 	SurrealEngine/BotBenchmark/MapCatalogDriver.cpp
 	SurrealEngine/BotBenchmark/MapCatalogDriver.h
 	SurrealEngine/BotBenchmark/BotWalkingHitWallCornerFixture.cpp
@@ -1052,6 +1081,7 @@ endif()
 
 add_library(SurrealCommon STATIC ${SURREALCOMMON_SOURCES} ${THIRDPARTY_SOURCES})
 set_target_properties(SurrealCommon PROPERTIES CXX_STANDARD 20)
+target_include_directories(SurrealCommon PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 if(EMSCRIPTEN)
 	target_include_directories(SurrealCommon PRIVATE SurrealVideo)
 endif()
@@ -1230,15 +1260,25 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_executable(BotBenchmarkProtocolTests
 		Tests/BotBenchmarkProtocolTests.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkAiFrameTiming.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 	)
-	target_include_directories(BotBenchmarkProtocolTests PRIVATE SurrealEngine)
+	target_include_directories(BotBenchmarkProtocolTests PRIVATE SurrealEngine ${CMAKE_CURRENT_BINARY_DIR}/generated)
 	set_target_properties(BotBenchmarkProtocolTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkProtocol COMMAND BotBenchmarkProtocolTests)
 
+	add_executable(BotBenchmarkBuildIdentityTests
+		Tests/BotBenchmarkBuildIdentityTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.cpp
+	)
+	target_include_directories(BotBenchmarkBuildIdentityTests PRIVATE SurrealEngine ${CMAKE_CURRENT_BINARY_DIR}/generated)
+	set_target_properties(BotBenchmarkBuildIdentityTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkBuildIdentity COMMAND BotBenchmarkBuildIdentityTests)
+
 	add_executable(BotBenchmarkTelemetryTests
 		Tests/BotBenchmarkTelemetryTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
@@ -1248,7 +1288,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		SurrealEngine/UObject/PawnFallingParityRealizedTrace.cpp
 		SurrealEngine/UObject/PawnHazardWaterEgressObserver.cpp
 	)
-	target_include_directories(BotBenchmarkTelemetryTests PRIVATE SurrealEngine)
+	target_include_directories(BotBenchmarkTelemetryTests PRIVATE SurrealEngine ${CMAKE_CURRENT_BINARY_DIR}/generated)
 	set_target_properties(BotBenchmarkTelemetryTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkTelemetry COMMAND BotBenchmarkTelemetryTests)
 

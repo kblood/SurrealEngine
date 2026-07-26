@@ -16,8 +16,16 @@ namespace
 	}
 }
 
-int main()
+int main(int argc, char** argv)
 {
+	if (argc < 1)
+		return Fail("test executable path was unavailable");
+	std::string buildIdentityError;
+	const auto buildIdentity = BotBenchmarkBuildIdentity::TryCreate(
+		"0123456789abcdef0123456789abcdef01234567",
+		"89abcdef0123456789abcdef0123456789abcdef", false, argv[0], buildIdentityError);
+	if (!buildIdentity)
+		return Fail("test build identity was unavailable");
 	const BotBenchmarkRunConfig config = BotBenchmarkRunConfig::Parse(
 		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
 		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"));
@@ -104,7 +112,7 @@ int main()
 		return Fail("PickTarget observer predicate provenance was not bound into configuration identity");
 	}
 	const BotBenchmarkRunSummary summary("complete", 0, 72, 1.44, "Unreal Tournament",
-		"436", "DM-Test", "", {});
+		"436", "DM-Test", "", {}, {}, {}, *buildIdentity);
 	if (summary.ToJson(controlEnabled).find("\"harmful_zone_escape_enabled\": true")
 		== std::string::npos)
 		return Fail("bot benchmark summary did not retain the enabled control mode");
@@ -125,7 +133,7 @@ int main()
 		return Fail("bot benchmark summary did not retain direct-reach command observer mode");
 	if (summary.ToJson(pickTargetObserverEnabled).find(
 		"\"pick_target_predicate_mode\": \"stock\"") == std::string::npos
-		|| BotBenchmarkTelemetryProtocol::ManifestJson(pickTargetObserverEnabled).find(
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(pickTargetObserverEnabled, *buildIdentity).find(
 			"\"pick_target_predicate_mode\": \"stock\"") == std::string::npos)
 	{
 		return Fail("PickTarget observer predicate provenance was not serialized");
@@ -180,7 +188,18 @@ int main()
 		"  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		"  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		"}\n";
-	if (BotBenchmarkTelemetryProtocol::ManifestJson(config) != expectedManifest)
+	std::string manifest = BotBenchmarkTelemetryProtocol::ManifestJson(config, *buildIdentity);
+	const std::string buildIdentityLine = "  \"build_identity\": " + buildIdentity->ToJson() + ",\n";
+	const size_t buildIdentityOffset = manifest.find(buildIdentityLine);
+	if (buildIdentityOffset == std::string::npos)
+		return Fail("bot benchmark manifest omitted build identity");
+	manifest.erase(buildIdentityOffset, buildIdentityLine.size());
+	const std::string v3Schema = "surreal-bot-benchmark-manifest-v3";
+	const size_t schemaOffset = manifest.find(v3Schema);
+	if (schemaOffset == std::string::npos)
+		return Fail("bot benchmark manifest schema was not v3");
+	manifest.replace(schemaOffset, v3Schema.size(), "surreal-bot-benchmark-manifest-v2");
+	if (manifest != expectedManifest)
 		return Fail("bot benchmark v2 manifest serialization was not exact");
 	if (summary.ToJson(config).find("\"harmful_zone_escape_enabled\": false")
 		== std::string::npos)

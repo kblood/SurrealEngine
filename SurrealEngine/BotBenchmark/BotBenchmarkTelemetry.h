@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BotBenchmark/BotBenchmarkBuildIdentity.h"
 #include "UObject/PawnWalkingStepPreflight.h"
 #include "UObject/PawnInventoryReachability.h"
 #include "UObject/PawnWalkingHitWallDispatch.h"
@@ -551,6 +552,7 @@ class BotBenchmarkTelemetryProtocol
 public:
 	static uint64_t EventCap(uint64_t maxTicks);
 	static std::string ConfigIdentity(const BotBenchmarkRunConfig& config);
-	static std::string ManifestJson(const BotBenchmarkRunConfig& config);
+	static std::string ManifestJson(const BotBenchmarkRunConfig& config,
+		const BotBenchmarkBuildIdentity& buildIdentity);
 	static std::string EventJson(const std::string& configIdentity, BotBenchmarkTelemetryEvent event);
 };

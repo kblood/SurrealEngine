@@ -14,6 +14,7 @@
 #include "BotWarningDodgeContinuityContract.h"
 #include "BotTargetSelectionProbeTracker.h"
 #include "BotBenchmarkProtocol.h"
+#include "BotBenchmarkBuildIdentity.h"
 #include "BotBenchmarkQualityObservation.h"
 #include "MapCatalogDriver.h"
 #include "BotBenchmarkShadowTelemetry.h"
@@ -125,6 +126,13 @@ namespace
 		{
 			try
 			{
+				std::string buildIdentityError;
+				BuildIdentity = BotBenchmarkBuildIdentity::TryCurrent(buildIdentityError);
+				if (!BuildIdentity)
+				{
+					Fail("benchmark build identity unavailable: " + buildIdentityError);
+					return;
+				}
 				OpenTelemetry();
 				ValidateGameProfile();
 				if (!Complete)
@@ -205,6 +213,8 @@ namespace
 
 		int Finish(const HeadlessRunSummary& summary) override
 		{
+			if (!BuildIdentity)
+				return ExitCode == 0 ? 2 : ExitCode;
 			if (summary.TickLimitReached && ExitCode == 0)
 				Fail("headless runner reached its tick limit before driver completion");
 			if (ExitCode == 0 && ShadowTelemetryFile && ShadowTelemetryEventCount != Ticks)
@@ -251,7 +261,7 @@ namespace
 				FailureReason, ActualRoster, AiFrameTiming.GetSummary(), {
 					NavigationCoverageAiFrameTiming.GetSummary(),
 					ShadowObservationAndPolicyAiFrameTiming.GetSummary(),
-					StateSamplingAiFrameTiming.GetSummary() });
+					StateSamplingAiFrameTiming.GetSummary() }, *BuildIdentity);
 			std::filesystem::create_directories(Config.GetOutputDirectory());
 			const std::filesystem::path summaryPath = std::filesystem::path(Config.GetOutputDirectory()) / "summary.json";
 			File::write_all_text(summaryPath.string(), runSummary.ToJson(Config));
@@ -2905,7 +2915,10 @@ namespace
 			std::filesystem::create_directories(Config.GetOutputDirectory());
 			const std::filesystem::path outputDirectory(Config.GetOutputDirectory());
 			const std::filesystem::path manifestPath = outputDirectory / "manifest.json";
-			File::write_all_text(manifestPath.string(), BotBenchmarkTelemetryProtocol::ManifestJson(Config));
+			if (!BuildIdentity)
+				throw std::runtime_error("benchmark build identity is unavailable");
+			File::write_all_text(manifestPath.string(),
+				BotBenchmarkTelemetryProtocol::ManifestJson(Config, *BuildIdentity));
 			const std::filesystem::path eventsPath = outputDirectory / "events.jsonl";
 			TelemetryFile = File::create_always(eventsPath.string());
 			LogMessage("Bot benchmark manifest: " + manifestPath.string());
@@ -3908,6 +3921,7 @@ namespace
 
 		Engine& EngineRef;
 		const BotBenchmarkRunConfig Config;
+		std::optional<BotBenchmarkBuildIdentity> BuildIdentity;
 		const std::string TelemetryConfigIdentity = BotBenchmarkTelemetryProtocol::ConfigIdentity(Config);
 		const uint64_t TelemetryEventCap = BotBenchmarkTelemetryProtocol::EventCap(Config.GetMaxTicks());
 		const uint64_t ShadowTelemetryEventCap = BotBenchmarkShadowTelemetry::EventCap(Config.GetMaxTicks());

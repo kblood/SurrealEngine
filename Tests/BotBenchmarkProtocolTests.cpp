@@ -108,12 +108,17 @@ int main()
 		{ 1, "pri:2", "Bot2", "Tamer\"lane", "Botpack.Bot" },
 		{ 0, "pri:1", "Bot1", "Line\nBreak", "Botpack.Bot" }
 	};
+	const BotBenchmarkBuildIdentity buildIdentity{
+		"0123456789abcdef0123456789abcdef01234567",
+		"89abcdef0123456789abcdef0123456789abcdef",
+		false, "SurrealEngine.exe", 123, std::string(64, 'A'),
+		"sha256:" + std::string(64, 'B') };
 	const BotBenchmarkRunSummary summary("failed", 2, 12, 0.24,
 		"UT\n99", "436", "DM-Test", "controlled failure", std::move(actualRoster),
-		{ 12, 0, 2400, 800, 1900, 2300 });
+		{ 12, 0, 2400, 800, 1900, 2300 }, {}, buildIdentity);
 	const std::string expectedSummary =
 		"{\n"
-		"  \"schema\": \"surreal-bot-benchmark-summary-v3\",\n"
+		"  \"schema\": \"surreal-bot-benchmark-summary-v4\",\n"
 		"  \"status\": \"failed\",\n"
 		"  \"exit_code\": 2,\n"
 		"  \"ticks\": \"12\",\n"
@@ -195,7 +200,14 @@ int main()
 		"    \"direct_reach_command_observer_enabled\": false\n"
 		"  }\n"
 		"}\n";
-	if (summary.ToJson(parsed) != expectedSummary)
+	std::string serializedSummary = summary.ToJson(parsed);
+	const size_t identityBegin = serializedSummary.find("  \"build_identity\": ");
+	const size_t identityEnd = serializedSummary.find("  \"requested_roster\": ", identityBegin);
+	if (identityBegin == std::string::npos || identityEnd == std::string::npos
+		|| serializedSummary.find("surreal-engine-build-identity-v1", identityBegin) == std::string::npos)
+		return Fail("summary build identity was not serialized");
+	serializedSummary.erase(identityBegin, identityEnd - identityBegin);
+	if (serializedSummary != expectedSummary)
 		return Fail("v3 summary serialization, roster ordering, or escaping was not exact");
 
 	bool rejectedDuplicateActualIndex = false;

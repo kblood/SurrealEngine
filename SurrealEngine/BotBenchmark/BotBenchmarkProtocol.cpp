@@ -290,11 +290,12 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
 	double simulatedSeconds, std::string game, std::string version, std::string map, std::string failureReason,
 	std::vector<BotBenchmarkActualParticipant> actualRoster, BotBenchmarkAiFrameTimingSummary aiFrameTiming,
-	BotBenchmarkAiFrameTimingComponents aiFrameTimingComponents)
+	BotBenchmarkAiFrameTimingComponents aiFrameTimingComponents, BotBenchmarkBuildIdentity buildIdentity)
 	: Status(std::move(status)), ExitCode(exitCode), Ticks(ticks), SimulatedSeconds(simulatedSeconds),
 	Game(std::move(game)), Version(std::move(version)), Map(std::move(map)),
 	FailureReason(std::move(failureReason)), ActualRoster(std::move(actualRoster)),
-	AiFrameTiming(std::move(aiFrameTiming)), AiFrameTimingComponents(std::move(aiFrameTimingComponents))
+	AiFrameTiming(std::move(aiFrameTiming)), AiFrameTimingComponents(std::move(aiFrameTimingComponents)),
+	BuildIdentity(std::move(buildIdentity))
 {
 }
 
@@ -308,7 +309,7 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 	std::ostringstream out;
 	out.imbue(std::locale::classic());
 	out << "{\n"
-		<< "  \"schema\": \"surreal-bot-benchmark-summary-v3\",\n"
+		<< "  \"schema\": \"surreal-bot-benchmark-summary-v4\",\n"
 		<< "  \"status\": " << JsonString(Status) << ",\n"
 		<< "  \"exit_code\": " << ExitCode << ",\n"
 		<< "  \"ticks\": \"" << Ticks << "\",\n"
@@ -317,6 +318,7 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< "  \"version\": " << JsonString(Version) << ",\n"
 		<< "  \"map\": " << JsonString(Map) << ",\n"
 		<< "  \"failure_reason\": " << JsonString(FailureReason) << ",\n";
+	out << "  \"build_identity\": " << BuildIdentity.ToJson() << ",\n";
 	WriteRequestedRoster(out, config.GetRoster(), "  ");
 	out << ",\n";
 	WriteActualRoster(out, ActualRoster);

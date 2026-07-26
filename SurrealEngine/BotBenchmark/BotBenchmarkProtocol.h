@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BotBenchmarkAiFrameTiming.h"
+#include "BotBenchmarkBuildIdentity.h"
 
 #include "BotPickTargetPredicateContract.h"
 
@@ -146,7 +147,8 @@ public:
 		std::string map, std::string failureReason,
 		std::vector<BotBenchmarkActualParticipant> actualRoster,
 		BotBenchmarkAiFrameTimingSummary aiFrameTiming = {},
-		BotBenchmarkAiFrameTimingComponents aiFrameTimingComponents = {});
+		BotBenchmarkAiFrameTimingComponents aiFrameTimingComponents = {},
+		BotBenchmarkBuildIdentity buildIdentity = {});
 
 	std::string ToJson(const BotBenchmarkRunConfig& config) const;
 
@@ -162,4 +164,5 @@ private:
 	std::vector<BotBenchmarkActualParticipant> ActualRoster;
 	BotBenchmarkAiFrameTimingSummary AiFrameTiming;
 	BotBenchmarkAiFrameTimingComponents AiFrameTimingComponents;
+	BotBenchmarkBuildIdentity BuildIdentity;
 };

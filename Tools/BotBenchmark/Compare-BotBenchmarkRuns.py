@@ -20,6 +20,7 @@ SUPPORTED_SCHEMAS = {
     "manifest.json": {
         "surreal-bot-benchmark-manifest-v1",
         "surreal-bot-benchmark-manifest-v2",
+        "surreal-bot-benchmark-manifest-v3",
     },
     "events.jsonl": {
         "surreal-bot-benchmark-telemetry-v1",
@@ -29,6 +30,7 @@ SUPPORTED_SCHEMAS = {
         "surreal-bot-benchmark-summary-v1",
         "surreal-bot-benchmark-summary-v2",
         "surreal-bot-benchmark-summary-v3",
+        "surreal-bot-benchmark-summary-v4",
     },
     "shadow-manifest.json": {"surreal-bot-benchmark-shadow-manifest-v1"},
     "shadow-decisions.jsonl": {"surreal-bot-benchmark-shadow-event-v1"},
@@ -48,7 +50,7 @@ PROTECTED_FIELDS = {
     "requested_roster", "actual_roster", "config", "index", "roster_index",
     "identity", "actor", "player_name", "class", "seq", "tick",
     "simulated_seconds", "type", "map", "status", "failure_reason", "exit_code",
-    "bots", "participants",
+    "bots", "participants", "build_identity",
 }
 INTEGER_STRING = re.compile(r"-?(?:0|[1-9][0-9]*)\Z")
 COUNTER_FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*_exact\Z")
@@ -76,6 +78,36 @@ def _sha256(data: bytes) -> str:
 def _canonical(value: Any) -> bytes:
     return (json.dumps(value, ensure_ascii=False, sort_keys=True,
                        separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+
+
+def _build_identity(value: Any, context: str) -> dict[str, Any]:
+    identity = _object(value, context)
+    if set(identity) != {"schema", "id", "source", "executable"}:
+        raise ComparisonError(f"{context}: build identity fields differ")
+    if identity["schema"] != "surreal-engine-build-identity-v1":
+        raise ComparisonError(f"{context}.schema: unsupported build identity")
+    if not re.fullmatch(r"sha256:[0-9A-F]{64}", _string(identity["id"], f"{context}.id")):
+        raise ComparisonError(f"{context}.id: invalid build identity digest")
+    source = _object(identity["source"], f"{context}.source")
+    if set(source) != {"commit", "tree", "dirty"}:
+        raise ComparisonError(f"{context}.source: fields differ")
+    for field in ("commit", "tree"):
+        if not re.fullmatch(r"[0-9a-f]{40}", _string(source[field], f"{context}.source.{field}")):
+            raise ComparisonError(f"{context}.source.{field}: invalid Git object ID")
+    if not isinstance(source["dirty"], bool):
+        raise ComparisonError(f"{context}.source.dirty: expected boolean")
+    executable = _object(identity["executable"], f"{context}.executable")
+    if set(executable) != {"name", "size_bytes", "sha256"}:
+        raise ComparisonError(f"{context}.executable: fields differ")
+    name = _string(executable["name"], f"{context}.executable.name")
+    if "/" in name or "\\\\" in name:
+        raise ComparisonError(f"{context}.executable.name: expected filename only")
+    size = executable["size_bytes"]
+    if not isinstance(size, str) or not size.isdecimal() or int(size) < 1:
+        raise ComparisonError(f"{context}.executable.size_bytes: invalid size")
+    if not re.fullmatch(r"[0-9A-F]{64}", _string(executable["sha256"], f"{context}.executable.sha256")):
+        raise ComparisonError(f"{context}.executable.sha256: invalid SHA-256")
+    return identity
 
 
 def _pointer_token(value: str) -> str:
@@ -255,8 +287,17 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
     expected_summary = manifest_schema.replace("manifest", "summary")
     if summary_schema != expected_summary and not (
             manifest_schema == "surreal-bot-benchmark-manifest-v2"
-            and summary_schema == "surreal-bot-benchmark-summary-v3"):
+            and summary_schema == "surreal-bot-benchmark-summary-v3") and not (
+            manifest_schema == "surreal-bot-benchmark-manifest-v3"
+            and summary_schema == "surreal-bot-benchmark-summary-v4"):
         raise ComparisonError(f"{run}: manifest and summary schema versions differ")
+
+    manifest_identity = None
+    if manifest_schema == "surreal-bot-benchmark-manifest-v3":
+        manifest_identity = _build_identity(manifest.get("build_identity"),
+                                            f"{run}/manifest.json.build_identity")
+        if summary_schema != "surreal-bot-benchmark-summary-v4":
+            raise ComparisonError(f"{run}: manifest v3 requires summary v4")
 
     if manifest.get("driver") != "bot-benchmark":
         raise ComparisonError(f"{run}/manifest.json: driver must be 'bot-benchmark'")
@@ -323,10 +364,13 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
     if summary.get("failure_reason") != "":
         raise ComparisonError(f"{run}/summary.json: complete run has a failure reason")
     _string(summary.get("map"), f"{run}/summary.json.map")
-    if summary_schema == "surreal-bot-benchmark-summary-v3":
+    if summary_schema in ("surreal-bot-benchmark-summary-v3", "surreal-bot-benchmark-summary-v4"):
         _validate_ai_frame_timing(summary.get("ai_frame_timing"),
                                   f"{run}/summary.json.ai_frame_timing")
     summary_config = _object(summary.get("config"), f"{run}/summary.json.config")
+    if manifest_identity is not None and _build_identity(
+            summary.get("build_identity"), f"{run}/summary.json.build_identity") != manifest_identity:
+        raise ComparisonError(f"{run}: manifest and summary build identities differ")
     _string(summary_config.get("url"), f"{run}/summary.json.config.url")
     _strict_int(summary_config.get("seed"), f"{run}/summary.json.config.seed", 0)
     _strict_int(summary_config.get("max_ticks"), f"{run}/summary.json.config.max_ticks", 1)
@@ -366,7 +410,7 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
         raise ComparisonError(f"{run}: summary.config.output_directory differs from manifest")
 
     actual_identities: list[str] | None = None
-    if manifest_schema.endswith("v2"):
+    if manifest_schema in ("surreal-bot-benchmark-manifest-v2", "surreal-bot-benchmark-manifest-v3"):
         if summary.get("requested_roster") != manifest.get("requested_roster"):
             raise ComparisonError(f"{run}: summary requested_roster differs from manifest")
         if summary_config.get("bot_count") != manifest.get("bot_count"):
@@ -379,7 +423,9 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
         actual_identities = [_string(item.get("identity"), "actual_roster.identity") for item in actual]
 
     event_schema: str | None = None
-    expected_event_schema = "surreal-bot-benchmark-telemetry-" + manifest_schema.rsplit("-", 1)[-1]
+    expected_event_schema = ("surreal-bot-benchmark-telemetry-v2"
+                             if manifest_schema == "surreal-bot-benchmark-manifest-v3" else
+                             "surreal-bot-benchmark-telemetry-" + manifest_schema.rsplit("-", 1)[-1])
     previous_tick = -1
     if len(events) > event_cap:
         raise ComparisonError(f"{run}/events.jsonl: line count exceeds telemetry_event_cap")

@@ -1,6 +1,6 @@
 # ReachSpec native-commit capability evidence
 
-Date: 2026-07-26  
+Date: 2026-07-26
 Scope: read-only stock-map evidence for `DM-Deck16][` (UT436) and
 `DmDeathFan` (Unreal Gold 226b). No route-selection code, benchmark settings,
 or UCC execution was used for this pass.

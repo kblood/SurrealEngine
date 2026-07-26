@@ -9,6 +9,7 @@ import json
 import math
 import statistics
 import sys
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
@@ -16,17 +17,51 @@ from typing import Any, Iterable
 
 MANIFEST_SCHEMA = "surreal-bot-benchmark-manifest-v1"
 MANIFEST_SCHEMA_V2 = "surreal-bot-benchmark-manifest-v2"
+MANIFEST_SCHEMA_V3 = "surreal-bot-benchmark-manifest-v3"
 TELEMETRY_SCHEMA = "surreal-bot-benchmark-telemetry-v1"
 TELEMETRY_SCHEMA_V2 = "surreal-bot-benchmark-telemetry-v2"
 SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
 SUMMARY_SCHEMA_V3 = "surreal-bot-benchmark-summary-v3"
+SUMMARY_SCHEMA_V4 = "surreal-bot-benchmark-summary-v4"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
 TOOL_VERSION = 28
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
+BUILD_ID_HEX = re.compile(r"[0-9a-f]{40}\\Z")
+BUILD_SHA256 = re.compile(r"[0-9A-F]{64}\\Z")
+
+
+def _validate_build_identity(raw: Any, context: str) -> dict[str, Any]:
+    value = _object(raw, context)
+    if set(value) != {"schema", "id", "source", "executable"}:
+        raise QualityError(f"{context}: build identity fields are not exact")
+    if value["schema"] != "surreal-engine-build-identity-v1":
+        raise QualityError(f"{context}.schema: unsupported build identity")
+    identity_id = _string(value, "id", context, nonempty=True)
+    if not re.fullmatch(r"sha256:[0-9A-F]{64}", identity_id):
+        raise QualityError(f"{context}.id: invalid build identity digest")
+    source = _object(value["source"], f"{context}.source")
+    if set(source) != {"commit", "tree", "dirty"}:
+        raise QualityError(f"{context}.source: build source fields are not exact")
+    for field in ("commit", "tree"):
+        text = _string(source, field, f"{context}.source", nonempty=True)
+        if not BUILD_ID_HEX.fullmatch(text):
+            raise QualityError(f"{context}.source.{field}: expected lowercase 40-hex Git ID")
+    _boolean(source["dirty"], f"{context}.source.dirty")
+    executable = _object(value["executable"], f"{context}.executable")
+    if set(executable) != {"name", "size_bytes", "sha256"}:
+        raise QualityError(f"{context}.executable: executable fields are not exact")
+    name = _string(executable, "name", f"{context}.executable", nonempty=True)
+    if "/" in name or "\\\\" in name:
+        raise QualityError(f"{context}.executable.name: must be a filename")
+    _integer(executable["size_bytes"], f"{context}.executable.size_bytes", minimum=1)
+    digest = _string(executable, "sha256", f"{context}.executable", nonempty=True)
+    if not BUILD_SHA256.fullmatch(digest):
+        raise QualityError(f"{context}.executable.sha256: expected uppercase SHA-256")
+    return value
 
 METRIC_DIRECTIONS: dict[str, str | None] = {
     "distance_traveled": None,
@@ -3212,7 +3247,7 @@ def _validate_actual_roster(raw: Any, context: str, bot_count: int, *, complete:
 def _validate_manifest(path: Path) -> dict[str, Any]:
     raw = _load_json(path, "manifest")
     schema = raw.get("schema")
-    if schema not in (MANIFEST_SCHEMA, MANIFEST_SCHEMA_V2):
+    if schema not in (MANIFEST_SCHEMA, MANIFEST_SCHEMA_V2, MANIFEST_SCHEMA_V3):
         raise QualityError(f"{path}: unsupported manifest schema {raw.get('schema')!r}")
     if raw.get("driver") != "bot-benchmark":
         raise QualityError(f"{path}: manifest driver must be 'bot-benchmark'")
@@ -3251,7 +3286,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     inventory_marker_direct_reach_safety_enabled = None
     native_path_commit_observer_enabled = None
     direct_reach_command_observer_enabled = None
-    if schema == MANIFEST_SCHEMA_V2:
+    build_identity = None
+    if schema == MANIFEST_SCHEMA_V3:
+        build_identity = _validate_build_identity(raw.get("build_identity"), "manifest.build_identity")
+    if schema in (MANIFEST_SCHEMA_V2, MANIFEST_SCHEMA_V3):
         bot_count = _strict_integer(raw.get("bot_count"), "manifest.bot_count", minimum=1, maximum=16)
         requested_roster = _validate_requested_roster(raw.get("requested_roster"),
                                                       "manifest.requested_roster", bot_count)
@@ -3365,6 +3403,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "fixed_delta": fixed_delta,
         "difficulty": difficulty,
         "telemetry_event_cap": event_cap,
+        "build_identity": build_identity,
         "schema": schema,
         "bot_count": bot_count,
         "requested_roster": requested_roster,
@@ -5006,9 +5045,11 @@ def _validate_ai_frame_timing(raw: Any, context: str) -> dict[str, Any]:
 
 def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
     raw = _load_json(path, "summary")
-    expected_schema = SUMMARY_SCHEMA_V2 if manifest["schema"] == MANIFEST_SCHEMA_V2 else SUMMARY_SCHEMA
+    expected_schema = (SUMMARY_SCHEMA_V4 if manifest["schema"] == MANIFEST_SCHEMA_V3 else
+                       SUMMARY_SCHEMA_V2 if manifest["schema"] == MANIFEST_SCHEMA_V2 else SUMMARY_SCHEMA)
     allowed_schemas = ((SUMMARY_SCHEMA_V2, SUMMARY_SCHEMA_V3)
-                       if expected_schema == SUMMARY_SCHEMA_V2 else (SUMMARY_SCHEMA,))
+                       if expected_schema == SUMMARY_SCHEMA_V2 else (SUMMARY_SCHEMA_V4,)
+                       if expected_schema == SUMMARY_SCHEMA_V4 else (SUMMARY_SCHEMA,))
     if raw.get("schema") not in allowed_schemas:
         raise QualityError(f"{path}: unsupported summary schema {raw.get('schema')!r}")
     status = _string(raw, "status", "summary", nonempty=True)
@@ -5074,7 +5115,7 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
             config, "pick_target_predicate_mode", "summary.config", nonempty=True)
     requested_roster = None
     actual_roster = None
-    if expected_schema == SUMMARY_SCHEMA_V2:
+    if expected_schema in (SUMMARY_SCHEMA_V2, SUMMARY_SCHEMA_V4):
         summary_bot_count = _strict_integer(config.get("bot_count"), "summary.config.bot_count",
                                             minimum=1, maximum=16)
         if summary_bot_count != manifest["bot_count"]:
@@ -5094,7 +5135,7 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
     final = events[-1]
     failure_reason = _string(raw, "failure_reason", "summary")
     map_name = _string(raw, "map", "summary")
-    summary_strings = ("game", "version") if expected_schema == SUMMARY_SCHEMA_V2 else (
+    summary_strings = ("game", "version") if expected_schema in (SUMMARY_SCHEMA_V2, SUMMARY_SCHEMA_V4) else (
         "game", "version", "bot_class", "bot_name")
     for name in summary_strings:
         _string(raw, name, "summary")
@@ -5121,7 +5162,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         if status == "complete" and {bot["identity"] for bot in events[0]["bots"]} != set(actual_by_identity):
             raise QualityError(f"{path}: initial telemetry bot identities differ from actual_roster")
     ai_frame_timing = (_validate_ai_frame_timing(raw.get("ai_frame_timing"), "summary.ai_frame_timing")
-                       if raw.get("schema") == SUMMARY_SCHEMA_V3 else None)
+                       if raw.get("schema") in (SUMMARY_SCHEMA_V3, SUMMARY_SCHEMA_V4) else None)
+    if manifest["schema"] == MANIFEST_SCHEMA_V3:
+        if _validate_build_identity(raw.get("build_identity"), "summary.build_identity") != manifest["build_identity"]:
+            raise QualityError(f"{path}: summary build identity differs from manifest")
     if ai_frame_timing is not None and ai_frame_timing["sample_count"] > ticks:
         raise QualityError(f"{path}: timing sample count exceeds simulated tick count")
     return {

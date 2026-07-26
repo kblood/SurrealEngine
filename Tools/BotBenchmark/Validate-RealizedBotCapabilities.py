@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,8 @@ V3_COMPONENT_FIELDS = (
     "sample_count", "histogram_bucket_overflows_exact", "p50_microseconds",
     "p95_microseconds", "p99_microseconds", "max_microseconds",
 )
+BUILD_ID_HEX = re.compile(r"[0-9a-f]{40}\\Z")
+BUILD_SHA256 = re.compile(r"[0-9A-F]{64}\\Z")
 
 
 class CapabilityError(ValueError):
@@ -117,6 +120,34 @@ def _exact_keys(value: dict[str, Any], expected: tuple[str, ...], context: str) 
         raise CapabilityError(f"{context}: fields differ (missing={missing}, extra={extra})")
 
 
+def _build_identity(value: Any, context: str) -> dict[str, Any]:
+    identity = _object(value, context)
+    _exact_keys(identity, ("schema", "id", "source", "executable"), context)
+    if identity["schema"] != "surreal-engine-build-identity-v1":
+        raise CapabilityError(f"{context}.schema: unexpected build identity schema")
+    identity_id = _string(identity["id"], f"{context}.id")
+    if not re.fullmatch(r"sha256:[0-9A-F]{64}", identity_id):
+        raise CapabilityError(f"{context}.id: invalid build identity digest")
+    source = _object(identity["source"], f"{context}.source")
+    _exact_keys(source, ("commit", "tree", "dirty"), f"{context}.source")
+    for field in ("commit", "tree"):
+        if not BUILD_ID_HEX.fullmatch(_string(source[field], f"{context}.source.{field}")):
+            raise CapabilityError(f"{context}.source.{field}: invalid Git object ID")
+    if not isinstance(source["dirty"], bool):
+        raise CapabilityError(f"{context}.source.dirty: expected boolean")
+    executable = _object(identity["executable"], f"{context}.executable")
+    _exact_keys(executable, ("name", "size_bytes", "sha256"), f"{context}.executable")
+    name = _string(executable["name"], f"{context}.executable.name")
+    if "/" in name or "\\\\" in name:
+        raise CapabilityError(f"{context}.executable.name: expected filename only")
+    if (not isinstance(executable["size_bytes"], str)
+            or not executable["size_bytes"].isdecimal() or int(executable["size_bytes"]) < 1):
+        raise CapabilityError(f"{context}.executable.size_bytes: invalid size")
+    if not BUILD_SHA256.fullmatch(_string(executable["sha256"], f"{context}.executable.sha256")):
+        raise CapabilityError(f"{context}.executable.sha256: invalid SHA-256")
+    return identity
+
+
 def _actual_roster(summary: dict[str, Any], context: str) -> list[dict[str, str]]:
     if summary.get("schema") not in SUMMARY_SCHEMAS:
         raise CapabilityError(f"{context}: requires a supported bot-benchmark summary schema")
@@ -185,12 +216,19 @@ def validate_run(run: Path) -> dict[str, Any]:
     if not run.is_dir():
         raise CapabilityError(f"run directory does not exist: {run}")
     manifest = _load(run / "manifest.json")
-    if manifest.get("schema") != "surreal-bot-benchmark-manifest-v2" or manifest.get("driver") != "bot-benchmark":
-        raise CapabilityError(f"{run}/manifest.json: requires bot-benchmark manifest v2")
+    if manifest.get("schema") not in ("surreal-bot-benchmark-manifest-v2", "surreal-bot-benchmark-manifest-v3") or manifest.get("driver") != "bot-benchmark":
+        raise CapabilityError(f"{run}/manifest.json: requires bot-benchmark manifest v2 or v3")
+    manifest_identity = (_build_identity(manifest.get("build_identity"), f"{run}/manifest.json.build_identity")
+                         if manifest.get("schema") == "surreal-bot-benchmark-manifest-v3" else None)
     bot_count = _integer(manifest.get("bot_count"), f"{run}/manifest.json.bot_count", 1)
     summary = _load(run / "summary.json")
-    if summary.get("schema") == "surreal-bot-benchmark-summary-v3":
+    if summary.get("schema") in ("surreal-bot-benchmark-summary-v3", "surreal-bot-benchmark-summary-v4"):
         _validate_v3_timing(summary, f"{run}/summary.json")
+    if manifest_identity is not None:
+        if summary.get("schema") != "surreal-bot-benchmark-summary-v4":
+            raise CapabilityError(f"{run}/summary.json: manifest v3 requires summary v4")
+        if _build_identity(summary.get("build_identity"), f"{run}/summary.json.build_identity") != manifest_identity:
+            raise CapabilityError(f"{run}: manifest and summary build identities differ")
     roster = _actual_roster(summary, f"{run}/summary.json")
     if len(roster) != bot_count:
         raise CapabilityError(f"{run}: manifest bot_count differs from actual_roster length")

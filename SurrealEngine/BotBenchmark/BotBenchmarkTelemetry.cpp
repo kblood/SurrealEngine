@@ -1526,14 +1526,16 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 	return "fnv1a64:" + Hex64(digest);
 }
 
-std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunConfig& config)
+std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunConfig& config,
+	const BotBenchmarkBuildIdentity& buildIdentity)
 {
 	std::ostringstream out;
 	out.imbue(std::locale::classic());
 	out << "{\n"
-		<< "  \"schema\": \"surreal-bot-benchmark-manifest-v2\",\n"
+		<< "  \"schema\": \"surreal-bot-benchmark-manifest-v3\",\n"
 		<< "  \"driver\": \"bot-benchmark\",\n"
 		<< "  \"config_id\": " << JsonString(ConfigIdentity(config)) << ",\n"
+		<< "  \"build_identity\": " << buildIdentity.ToJson() << ",\n"
 		<< "  \"url\": " << JsonString(config.GetURL()) << ",\n"
 		<< "  \"output_directory\": " << JsonString(config.GetOutputDirectory()) << ",\n"
 		<< "  \"seed\": \"" << config.GetSeed() << "\",\n"
