@@ -3815,6 +3815,57 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(QUALITY.QualityError, "stock PickTarget predicate must skip"):
                 QUALITY.analyze([run])
 
+    def test_finite_move_command_guard_rejects_any_contained_invalid_command(self) -> None:
+        zero = {
+            "score": 0.0, "pri_deaths": 0.0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            "finite_move_command_guard_rejections_exact": 0,
+            "finite_move_command_guard_diagnostic_overflows_exact": 0,
+            "finite_move_command_guard_diagnostics": [],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "finite-move-guard", bot_count=1)
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            manifest["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            manifest["finite_move_command_guard_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], shadow_policy_set=manifest["shadow_policy_set"],
+                finite_move_command_guard_enabled=True)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            upgrade_telemetry_v2(run, counters=[zero, zero, zero])
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+            events[1]["bots"][0].update({
+                "finite_move_command_guard_rejections_exact": "1",
+                "finite_move_command_guard_diagnostic_overflows_exact": "0",
+                "finite_move_command_guard_diagnostics": [{
+                    "sequence": "1", "observer_tick": "1", "life_id": "1", "actor_index": 1,
+                    "requested_x_class": "nan", "requested_y_class": "finite",
+                    "requested_z_class": "finite", "prior_destination_finite": True,
+                    "prior_focus_finite": True,
+                }],
+            })
+            for event in events[2:]:
+                event["bots"][0].update({
+                    "finite_move_command_guard_rejections_exact": "1",
+                    "finite_move_command_guard_diagnostic_overflows_exact": "0",
+                    "finite_move_command_guard_diagnostics": [],
+                })
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "rejected an invalid command"):
+                QUALITY.analyze([run])
+
 
 if __name__ == "__main__":
     unittest.main()

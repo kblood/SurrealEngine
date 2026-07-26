@@ -20,6 +20,7 @@
 #include "PawnRoutePathCommitProvenance.h"
 #include "PawnPickTargetObserver.h"
 #include "PawnCanSeeObserver.h"
+#include "PawnFiniteMoveCommandGuard.h"
 #include "PawnWalkingHitWallDispatch.h"
 #include "PawnWallAdjustRecovery.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
@@ -2378,6 +2379,17 @@ public:
 	{
 		return PawnCanSeeObservationIntegrityFailureCountValue;
 	}
+	void RecordFiniteMoveCommandGuardRejection(const vec3& requestedDestination);
+	std::vector<PawnMovement::FiniteMoveCommandGuardDiagnosticRecord>
+		DrainFiniteMoveCommandGuardDiagnostics();
+	uint64_t FiniteMoveCommandGuardRejectionCount() const
+	{
+		return FiniteMoveCommandGuardRejectionCountValue;
+	}
+	uint64_t FiniteMoveCommandGuardDiagnosticOverflowCount() const
+	{
+		return FiniteMoveCommandGuardDiagnosticOverflowCountValue;
+	}
 	bool CheckIfBestTarget(UActor* actor, float& bestAim, float& bestDist, const vec3& FireDir, const vec3& projStart);
 
 	UActor* PathSpecialHandling(const PawnPathEndPointResult& result,
@@ -2868,6 +2880,11 @@ private:
 	uint64_t PawnCanSeeObservationOverflowCountValue = 0;
 	uint64_t PawnCanSeeObservationIntegrityFailureCountValue = 0;
 	std::vector<PawnMovement::PawnCanSeeObservation> PawnCanSeeObservations;
+	uint64_t FiniteMoveCommandGuardRejectionCountValue = 0;
+	uint64_t FiniteMoveCommandGuardDiagnosticOverflowCountValue = 0;
+	uint64_t FiniteMoveCommandGuardDiagnosticSequence = 0;
+	std::vector<PawnMovement::FiniteMoveCommandGuardDiagnosticRecord>
+		FiniteMoveCommandGuardDiagnostics;
 	uint64_t WalkingStepPreflightPositiveDpsVetoActionSequence = 0;
 	std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
 		WalkingStepPreflightPositiveDpsVetoActions;

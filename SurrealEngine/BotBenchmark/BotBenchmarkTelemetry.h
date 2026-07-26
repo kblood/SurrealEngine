@@ -9,6 +9,7 @@
 #include "UObject/PawnDirectHarmfulWaterEntryCertificate.h"
 #include "UObject/PawnHazardWaterEgressObserver.h"
 #include "UObject/PawnMoveStallWatchdog.h"
+#include "UObject/PawnFiniteMoveCommandGuard.h"
 
 #include <array>
 #include <cstdint>
@@ -231,6 +232,19 @@ struct BotBenchmarkDirectReachCommandRecord
 	std::string MarkerClass;
 };
 
+struct BotBenchmarkFiniteMoveCommandGuardRecord
+{
+	uint64_t Sequence = 0;
+	uint64_t ObserverTick = 0;
+	uint64_t LifeId = 0;
+	int32_t ActorIndex = -1;
+	std::string RequestedXClass;
+	std::string RequestedYClass;
+	std::string RequestedZClass;
+	bool PriorDestinationFinite = false;
+	bool PriorFocusFinite = false;
+};
+
 struct BotBenchmarkBotState
 {
 	std::string Identity;
@@ -329,6 +343,9 @@ struct BotBenchmarkBotState
 	uint64_t DirectReachCommandRunEndCensoredExact = 0;
 	uint64_t DirectReachCommandCommandReplacedExact = 0;
 	std::vector<BotBenchmarkDirectReachCommandRecord> DirectReachCommandRecords;
+	uint64_t FiniteMoveCommandGuardRejectionsExact = 0;
+	uint64_t FiniteMoveCommandGuardDiagnosticOverflowsExact = 0;
+	std::vector<BotBenchmarkFiniteMoveCommandGuardRecord> FiniteMoveCommandGuardDiagnostics;
 	uint64_t EnvironmentalDeathsExact = 0;
 	uint64_t HazardExposedDeathsProxy = 0;
 	uint64_t DamageTakenExact = 0;
@@ -573,6 +590,7 @@ struct BotBenchmarkTelemetryEvent
 	bool InventoryDirectReachSupportObserverRequested = false;
 	bool NativePathCommitObserverRequested = false;
 	bool DirectReachCommandObserverRequested = false;
+	bool FiniteMoveCommandGuardRequested = false;
 	std::vector<BotBenchmarkBotState> Bots;
 };
 

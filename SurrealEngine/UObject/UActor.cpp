@@ -18,6 +18,7 @@
 #include "PawnMovementArrival.h"
 #include "PawnMoveToward.h"
 #include "PawnPathCost.h"
+#include "PawnFiniteMoveCommandGuard.h"
 #include "PawnVisionCone.h"
 #include "PawnWallAdjustment.h"
 #include "PawnWallAdjustRecovery.h"
@@ -4840,6 +4841,36 @@ std::vector<PawnMovement::PawnCanSeeObservation> UPawn::DrainPawnCanSeeObservati
 	return observations;
 }
 
+void UPawn::RecordFiniteMoveCommandGuardRejection(const vec3& requestedDestination)
+{
+	FiniteMoveCommandGuardRejectionCountValue++;
+	static constexpr size_t maximumQueuedRecords = 256;
+	if (FiniteMoveCommandGuardDiagnostics.size() >= maximumQueuedRecords)
+	{
+		FiniteMoveCommandGuardDiagnosticOverflowCountValue++;
+		return;
+	}
+	PawnMovement::FiniteMoveCommandGuardDiagnosticRecord record;
+	record.Sequence = ++FiniteMoveCommandGuardDiagnosticSequence;
+	record.ObserverTick = engine ? engine->BotBenchmarkObserverTick() : 0;
+	record.LifeId = DirectReachCommandLifeId();
+	record.ActorIndex = Index;
+	record.RequestedX = PawnMovement::ClassifyMoveCommandComponent(requestedDestination.x);
+	record.RequestedY = PawnMovement::ClassifyMoveCommandComponent(requestedDestination.y);
+	record.RequestedZ = PawnMovement::ClassifyMoveCommandComponent(requestedDestination.z);
+	record.PriorDestinationFinite = PawnMovement::IsFiniteMoveCommandDestination(Destination());
+	record.PriorFocusFinite = PawnMovement::IsFiniteMoveCommandDestination(Focus());
+	FiniteMoveCommandGuardDiagnostics.push_back(record);
+}
+
+std::vector<PawnMovement::FiniteMoveCommandGuardDiagnosticRecord>
+	UPawn::DrainFiniteMoveCommandGuardDiagnostics()
+{
+	std::vector<PawnMovement::FiniteMoveCommandGuardDiagnosticRecord> diagnostics;
+	diagnostics.swap(FiniteMoveCommandGuardDiagnostics);
+	return diagnostics;
+}
+
 bool UPawn::CanHearNoise(UActor* source, float loudness)
 {
 	UPawn* noisePawn = UObject::Cast<UPawn>(source->Instigator());
@@ -8994,6 +9025,16 @@ bool UPawn::ApplyPainLedgeRecovery(const vec2& requestedDirection)
 
 void UPawn::MoveTo(const vec3& newDestination, float speed)
 {
+	if (engine && engine->IsBotBenchmarkFiniteMoveCommandGuardEnabled()
+		&& !PawnMovement::IsFiniteMoveCommandDestination(newDestination))
+	{
+		RecordFiniteMoveCommandGuardRejection(newDestination);
+		Acceleration() = vec3(0.0f);
+		MoveTimer() = -1.0f;
+		if (StateFrame)
+			StateFrame->LatentState = LatentRunState::Continue;
+		return;
+	}
 	MoveTarget() = nullptr;
 	bReducedSpeed() = false;
 	DesiredSpeed() = clamp(speed, 0.0f, MaxDesiredSpeed());

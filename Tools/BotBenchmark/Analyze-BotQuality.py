@@ -567,6 +567,11 @@ PAWN_CAN_SEE_COUNTERS = (
     "pawn_can_see_integrity_failures_exact",
 )
 OPTIONAL_EXACT_COUNTERS += PAWN_CAN_SEE_COUNTERS
+FINITE_MOVE_COMMAND_GUARD_COUNTERS = (
+    "finite_move_command_guard_rejections_exact",
+    "finite_move_command_guard_diagnostic_overflows_exact",
+)
+OPTIONAL_EXACT_COUNTERS += FINITE_MOVE_COMMAND_GUARD_COUNTERS
 WARN_TARGET_COUNTERS = (
     "warn_target_observations_exact",
     "try_to_duck_observations_exact",
@@ -626,6 +631,7 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "move_stall_recovery_episodes", "move_stall_recovery_decisions",
     "walking_hitwall_dispatch_diagnostics", "target_selection_records", "pick_target_records",
     "pawn_can_see_records",
+    "finite_move_command_guard_diagnostics",
     "inventory_direct_reach_support_diagnostics",
 )
 HAZARD_DEATH_KILLER_RELATIONS = {"none", "self_player", "enemy_player", "non_player"}
@@ -3103,7 +3109,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                direct_reach_command_observer_enabled: bool | None = None,
                pawn_vision_cone_enabled: bool | None = None,
                pawn_vision_observer_enabled: bool | None = None,
-               shadow_policy_set: list[str] | None = None) -> str:
+               shadow_policy_set: list[str] | None = None,
+               finite_move_command_guard_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -3169,6 +3176,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if pawn_vision_observer_enabled is not None:
             canonical_text += "pawn_vision_observer_enabled=" + (
                 "1\n" if pawn_vision_observer_enabled else "0\n")
+        if finite_move_command_guard_enabled is not None:
+            canonical_text += "finite_move_command_guard_enabled=" + (
+                "1\n" if finite_move_command_guard_enabled else "0\n")
         if shadow_policy_set is not None:
             canonical_text += "".join(f"shadow_policy={policy}\n" for policy in shadow_policy_set)
         assert requested_roster is not None
@@ -3330,6 +3340,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     direct_reach_command_observer_enabled = None
     pawn_vision_cone_enabled = None
     pawn_vision_observer_enabled = None
+    finite_move_command_guard_enabled = None
     shadow_policy_set = None
     build_identity = None
     if schema == MANIFEST_SCHEMA_V3:
@@ -3430,6 +3441,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             pawn_vision_observer_enabled = _boolean(
                 raw.get("pawn_vision_observer_enabled"),
                 "manifest.pawn_vision_observer_enabled")
+        if "finite_move_command_guard_enabled" in raw:
+            finite_move_command_guard_enabled = _boolean(
+                raw.get("finite_move_command_guard_enabled"),
+                "manifest.finite_move_command_guard_enabled")
         if schema == MANIFEST_SCHEMA_V3:
             shadow_policy_set = _validate_shadow_policy_set(
                 raw.get("shadow_policy_set"), "manifest.shadow_policy_set")
@@ -3456,7 +3471,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              direct_reach_command_observer_enabled,
                              pawn_vision_cone_enabled,
                              pawn_vision_observer_enabled,
-                             shadow_policy_set)
+                             shadow_policy_set,
+                             finite_move_command_guard_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -3496,6 +3512,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "direct_reach_command_observer_enabled": direct_reach_command_observer_enabled,
         "pawn_vision_cone_enabled": pawn_vision_cone_enabled,
         "pawn_vision_observer_enabled": pawn_vision_observer_enabled,
+        "finite_move_command_guard_enabled": finite_move_command_guard_enabled,
         "shadow_policy_set": shadow_policy_set,
     }
 
@@ -4273,6 +4290,52 @@ def _validate_bot(raw: Any, context: str, schema: str,
             result["pawn_can_see_records"] = parsed_records
         elif pawn_can_see_present:
             raise QualityError(f"{context}: Pawn.CanSee counter group requires records")
+        finite_move_guard_present = [
+            name for name in FINITE_MOVE_COMMAND_GUARD_COUNTERS if name in result]
+        if finite_move_guard_present and len(finite_move_guard_present) != len(
+                FINITE_MOVE_COMMAND_GUARD_COUNTERS):
+            raise QualityError(
+                f"{context}: finite MoveTo command guard counters must be provided as a complete group")
+        if "finite_move_command_guard_diagnostics" in bot:
+            if len(finite_move_guard_present) != len(FINITE_MOVE_COMMAND_GUARD_COUNTERS):
+                raise QualityError(
+                    f"{context}: finite MoveTo command guard diagnostics require the complete counter group")
+            records = bot.get("finite_move_command_guard_diagnostics")
+            if not isinstance(records, list):
+                raise QualityError(
+                    f"{context}.finite_move_command_guard_diagnostics must be an array")
+            parsed_records = []
+            for index, record in enumerate(records):
+                record_context = f"{context}.finite_move_command_guard_diagnostics[{index}]"
+                item = _object(record, record_context)
+                classes = {
+                    axis: _string(item, f"requested_{axis}_class", record_context, nonempty=True)
+                    for axis in "xyz"
+                }
+                if any(value not in ("finite", "nan", "negative_infinity", "positive_infinity")
+                       for value in classes.values()):
+                    raise QualityError(f"{record_context}: requested component classification is not recognized")
+                if all(value == "finite" for value in classes.values()):
+                    raise QualityError(f"{record_context}: guard diagnostic has no invalid component")
+                parsed_records.append({
+                    "sequence": _integer(item.get("sequence"), f"{record_context}.sequence", minimum=1),
+                    "observer_tick": _integer(item.get("observer_tick"),
+                                              f"{record_context}.observer_tick", minimum=0),
+                    "life_id": _integer(item.get("life_id"), f"{record_context}.life_id", minimum=0),
+                    "actor_index": _strict_integer(item.get("actor_index"),
+                                                   f"{record_context}.actor_index", minimum=0),
+                    "requested_x_class": classes["x"],
+                    "requested_y_class": classes["y"],
+                    "requested_z_class": classes["z"],
+                    "prior_destination_finite": _boolean(item.get("prior_destination_finite"),
+                                                          f"{record_context}.prior_destination_finite"),
+                    "prior_focus_finite": _boolean(item.get("prior_focus_finite"),
+                                                    f"{record_context}.prior_focus_finite"),
+                })
+            result["finite_move_command_guard_diagnostics"] = parsed_records
+        elif finite_move_guard_present:
+            raise QualityError(
+                f"{context}: finite MoveTo command guard counter group requires diagnostics")
         warn_target_present = [name for name in WARN_TARGET_COUNTERS if name in result]
         if warn_target_present and len(warn_target_present) != len(WARN_TARGET_COUNTERS):
             raise QualityError(f"{context}: WarnTarget counters must be provided as a complete group")
@@ -4888,6 +4951,40 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     raise QualityError(f"{path}: Pawn.CanSee records do not reconcile {counter}")
             if records and sequences[bot["identity"]] != records:
                 raise QualityError(f"{path}: Pawn.CanSee record sequence is not contiguous")
+    finite_move_guard_enabled = manifest.get("finite_move_command_guard_enabled") is True
+    for event in events:
+        for bot in event["bots"]:
+            fields_present = any(name in bot for name in FINITE_MOVE_COMMAND_GUARD_COUNTERS) \
+                or "finite_move_command_guard_diagnostics" in bot
+            if finite_move_guard_enabled:
+                if any(name not in bot for name in FINITE_MOVE_COMMAND_GUARD_COUNTERS) \
+                        or "finite_move_command_guard_diagnostics" not in bot:
+                    raise QualityError(f"{path}: enabled finite MoveTo command guard lacks complete evidence")
+            elif fields_present:
+                raise QualityError(f"{path}: finite MoveTo command guard telemetry is present while disabled")
+    if finite_move_guard_enabled:
+        sequences: dict[str, int] = {}
+        record_counts: dict[str, int] = {}
+        for event in events:
+            for bot in event["bots"]:
+                for record in bot["finite_move_command_guard_diagnostics"]:
+                    prior = sequences.get(bot["identity"], 0)
+                    if record["sequence"] <= prior:
+                        raise QualityError(
+                            f"{path}: finite MoveTo command guard record sequence did not increase")
+                    sequences[bot["identity"]] = record["sequence"]
+                    record_counts[bot["identity"]] = record_counts.get(bot["identity"], 0) + 1
+                    if not record["prior_destination_finite"] or not record["prior_focus_finite"]:
+                        raise QualityError(
+                            f"{path}: finite MoveTo command guard did not preserve finite state")
+        for bot in events[-1]["bots"]:
+            records = record_counts.get(bot["identity"], 0)
+            overflow = bot["finite_move_command_guard_diagnostic_overflows_exact"]
+            rejections = bot["finite_move_command_guard_rejections_exact"]
+            if rejections != records + overflow:
+                raise QualityError(f"{path}: finite MoveTo command guard diagnostics do not reconcile")
+            if rejections or overflow:
+                raise QualityError(f"{path}: finite MoveTo command guard rejected an invalid command")
     if manifest.get("warn_target_observer_enabled") is True:
         observer_values = {(event["warn_target_observer"]["status"],
                             event["warn_target_observer"]["reason"])
@@ -5305,6 +5402,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["pawn_vision_observer_enabled"] = _boolean(
             config.get("pawn_vision_observer_enabled"),
             "summary.config.pawn_vision_observer_enabled")
+    if manifest["finite_move_command_guard_enabled"] is not None:
+        comparisons["finite_move_command_guard_enabled"] = _boolean(
+            config.get("finite_move_command_guard_enabled"),
+            "summary.config.finite_move_command_guard_enabled")
     if manifest["pick_target_predicate_mode"] is not None:
         comparisons["pick_target_predicate_mode"] = _string(
             config, "pick_target_predicate_mode", "summary.config", nonempty=True)

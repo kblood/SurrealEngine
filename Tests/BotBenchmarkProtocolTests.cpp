@@ -32,7 +32,8 @@ int main()
 		|| defaults.IsReachSpecCapabilityObserverEnabled()
 		|| defaults.IsDirectReachCommandObserverEnabled()
 		|| defaults.IsPawnVisionConeEnabled()
-		|| defaults.IsPawnVisionObserverEnabled())
+		|| defaults.IsPawnVisionObserverEnabled()
+		|| defaults.IsFiniteMoveCommandGuardEnabled())
 		return Fail("default bot benchmark configuration or roster was incorrect");
 	if (defaults.GetShadowPolicySet() != std::vector<std::string>{ "tactical-state", "utility-arena" })
 		return Fail("default shadow policy set was not stable and canonical");
@@ -223,7 +224,8 @@ int main()
 		"    \"reachspec_capability_observer_enabled\": false,\n"
 		"    \"direct_reach_command_observer_enabled\": false,\n"
 		"    \"pawn_vision_cone_enabled\": false,\n"
-		"    \"pawn_vision_observer_enabled\": false\n"
+		"    \"pawn_vision_observer_enabled\": false,\n"
+		"    \"finite_move_command_guard_enabled\": false\n"
 		"  }\n"
 		"}\n";
 	std::string serializedSummary = summary.ToJson(parsed);

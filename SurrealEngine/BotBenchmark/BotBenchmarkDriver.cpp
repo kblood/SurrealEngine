@@ -105,6 +105,8 @@ namespace
 				Config.IsDirectReachCommandObserverEnabled());
 			EngineRef.SetBotBenchmarkPawnVisionConeEnabled(Config.IsPawnVisionConeEnabled());
 			EngineRef.SetBotBenchmarkPawnVisionObserverEnabled(Config.IsPawnVisionObserverEnabled());
+			EngineRef.SetBotBenchmarkFiniteMoveCommandGuardEnabled(
+				Config.IsFiniteMoveCommandGuardEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -425,6 +427,8 @@ namespace
 			std::vector<BotBenchmarkTargetSelectionRecord> PendingTargetSelectionRecords;
 			std::vector<BotBenchmarkPickTargetRecord> PendingPickTargetRecords;
 			std::vector<BotBenchmarkPawnCanSeeRecord> PendingPawnCanSeeRecords;
+			std::vector<BotBenchmarkFiniteMoveCommandGuardRecord>
+				PendingFiniteMoveCommandGuardDiagnostics;
 			uint64_t TargetSelectionInvalidIdentifierExact = 0;
 			uint64_t TargetSelectionTrackerCapacityExceededExact = 0;
 			uint64_t TargetSelectionIntegrityFailuresExact = 0;
@@ -447,6 +451,8 @@ namespace
 			uint64_t PawnCanSeeLegacyCorrectedDivergencesExact = 0;
 			uint64_t PawnCanSeeObservationOverflowsExact = 0;
 			uint64_t PawnCanSeeIntegrityFailuresExact = 0;
+			uint64_t FiniteMoveCommandGuardRejectionsExact = 0;
+			uint64_t FiniteMoveCommandGuardDiagnosticOverflowsExact = 0;
 			uint64_t WarnTargetObservationsExact = 0;
 			uint64_t TryToDuckObservationsExact = 0;
 			uint64_t WarnTargetExactNestedTryToDuckLinksExact = 0;
@@ -3270,6 +3276,25 @@ namespace
 								std::move(observation.TargetClass) });
 						}
 					}
+					if (Config.IsFiniteMoveCommandGuardEnabled())
+					{
+						runtime.FiniteMoveCommandGuardRejectionsExact = std::max(
+							runtime.FiniteMoveCommandGuardRejectionsExact,
+							pawn->FiniteMoveCommandGuardRejectionCount());
+						runtime.FiniteMoveCommandGuardDiagnosticOverflowsExact = std::max(
+							runtime.FiniteMoveCommandGuardDiagnosticOverflowsExact,
+							pawn->FiniteMoveCommandGuardDiagnosticOverflowCount());
+						for (auto& diagnostic : pawn->DrainFiniteMoveCommandGuardDiagnostics())
+						{
+							runtime.PendingFiniteMoveCommandGuardDiagnostics.push_back({
+								diagnostic.Sequence, diagnostic.ObserverTick, diagnostic.LifeId,
+								diagnostic.ActorIndex,
+								PawnMovement::MoveCommandComponentClassName(diagnostic.RequestedX),
+								PawnMovement::MoveCommandComponentClassName(diagnostic.RequestedY),
+								PawnMovement::MoveCommandComponentClassName(diagnostic.RequestedZ),
+								diagnostic.PriorDestinationFinite, diagnostic.PriorFocusFinite });
+						}
+					}
 				}
 				else
 				{
@@ -3347,6 +3372,16 @@ namespace
 					bot.PawnCanSeeIntegrityFailuresExact = runtime.PawnCanSeeIntegrityFailuresExact;
 					bot.PawnCanSeeRecords = std::move(runtime.PendingPawnCanSeeRecords);
 					runtime.PendingPawnCanSeeRecords.clear();
+				}
+				if (Config.IsFiniteMoveCommandGuardEnabled())
+				{
+					bot.FiniteMoveCommandGuardRejectionsExact =
+						runtime.FiniteMoveCommandGuardRejectionsExact;
+					bot.FiniteMoveCommandGuardDiagnosticOverflowsExact =
+						runtime.FiniteMoveCommandGuardDiagnosticOverflowsExact;
+					bot.FiniteMoveCommandGuardDiagnostics = std::move(
+						runtime.PendingFiniteMoveCommandGuardDiagnostics);
+					runtime.PendingFiniteMoveCommandGuardDiagnostics.clear();
 				}
 				if (Config.IsWarnTargetObserverEnabled())
 				{
@@ -3950,6 +3985,7 @@ namespace
 			event.TargetSelectionObserverReason = TargetSelectionObserverReason;
 			event.PickTargetObserverRequested = Config.IsPickTargetObserverEnabled();
 			event.PawnVisionObserverRequested = Config.IsPawnVisionObserverEnabled();
+			event.FiniteMoveCommandGuardRequested = Config.IsFiniteMoveCommandGuardEnabled();
 			event.WarnTargetObserverRequested = Config.IsWarnTargetObserverEnabled();
 			event.WarnTargetObserverStatus = WarnTargetObserverStatus;
 			event.WarnTargetObserverReason = WarnTargetObserverReason;
@@ -4123,7 +4159,8 @@ namespace
 			OptionalCommandLineArg("--botbench-reachspec-capability-observer"),
 			OptionalCommandLineArg("--botbench-shadow-policy-set"),
 			OptionalCommandLineArg("--botbench-pawn-vision-cone"),
-			OptionalCommandLineArg("--botbench-pawn-vision-observer"));
+			OptionalCommandLineArg("--botbench-pawn-vision-observer"),
+			OptionalCommandLineArg("--botbench-finite-move-command-guard"));
 	}
 }
 
