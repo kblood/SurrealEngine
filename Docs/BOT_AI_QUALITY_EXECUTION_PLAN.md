@@ -3607,3 +3607,18 @@ navigation coverage declines from 46.61% to 46.22%. The small reduction in
 deaths does not offset the unproductive contact escalation. Reject this control
 for the current candidate matrix; keep it default-off and do not combine it
 with pain-ledge recovery.
+
+## Iteration 142: positive-DPS veto and reduced-roster controls are inert
+
+The isolated UT436 Deck16-II seed-`271828` walking preflight positive-DPS veto
+observes 129 eligible cases but applies zero actions (123 are debounced), so
+all gameplay quality totals remain exactly equal to the control. It is useful
+read-only safety instrumentation in this run, not a live improvement.
+
+A four-bot Deck16-II control at the same seed also has zero pain-ledge recovery
+attempts and is exactly behavior-neutral with the gate on: K0/D1/S1, 218 wall
+contacts, 2.350 movement-intent no-progress seconds, and 21.12% union
+coverage. Consequently the 16-bot contact trade-off begins only after actual
+recovery interventions perturb the coupled match trajectory; it is not an
+always-on regression from merely enabling the gate. Keep the gate default-off
+until a higher-population collision budget and outcome partition are qualified.
