@@ -3850,7 +3850,8 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 "finite_move_command_guard_diagnostics": [{
                     "sequence": "1", "observer_tick": "1", "life_id": "1", "actor_index": 1,
                     "requested_x_class": "nan", "requested_y_class": "finite",
-                    "requested_z_class": "finite", "prior_destination_finite": True,
+                    "requested_z_class": "finite", "source": "tick_post_script_destination",
+                    "terminal": "recovered_from_finite_location", "prior_destination_finite": False,
                     "prior_focus_finite": True,
                 }],
             })

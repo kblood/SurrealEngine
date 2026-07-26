@@ -629,11 +629,12 @@ int main(int argc, char** argv)
 	event.FiniteMoveCommandGuardRequested = true;
 	event.Bots.front().FiniteMoveCommandGuardRejectionsExact = 1;
 	event.Bots.front().FiniteMoveCommandGuardDiagnostics = {
-		{ 1, 4, 3, 7, "nan", "finite", "positive_infinity", true, true }
+		{ 1, 4, 3, 7, "nan", "finite", "positive_infinity", "tick_pre_latent_destination",
+			"recovered_from_finite_location", false, true }
 	};
 	const std::string finiteMoveGuardEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
 	if (finiteMoveGuardEvent.find(
-		"\"finite_move_command_guard_rejections_exact\":\"1\",\"finite_move_command_guard_diagnostic_overflows_exact\":\"0\",\"finite_move_command_guard_diagnostics\":[{\"sequence\":\"1\",\"observer_tick\":\"4\",\"life_id\":\"3\",\"actor_index\":7,\"requested_x_class\":\"nan\",\"requested_y_class\":\"finite\",\"requested_z_class\":\"positive_infinity\",\"prior_destination_finite\":true,\"prior_focus_finite\":true}]")
+		"\"finite_move_command_guard_rejections_exact\":\"1\",\"finite_move_command_guard_diagnostic_overflows_exact\":\"0\",\"finite_move_command_guard_diagnostics\":[{\"sequence\":\"1\",\"observer_tick\":\"4\",\"life_id\":\"3\",\"actor_index\":7,\"requested_x_class\":\"nan\",\"requested_y_class\":\"finite\",\"requested_z_class\":\"positive_infinity\",\"source\":\"tick_pre_latent_destination\",\"terminal\":\"recovered_from_finite_location\",\"prior_destination_finite\":false,\"prior_focus_finite\":true}]")
 		== std::string::npos)
 	{
 		return Fail("finite MoveTo command guard telemetry was not JSON-safe and exact");

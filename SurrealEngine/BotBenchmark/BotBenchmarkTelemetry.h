@@ -241,6 +241,8 @@ struct BotBenchmarkFiniteMoveCommandGuardRecord
 	std::string RequestedXClass;
 	std::string RequestedYClass;
 	std::string RequestedZClass;
+	std::string Source;
+	std::string Terminal;
 	bool PriorDestinationFinite = false;
 	bool PriorFocusFinite = false;
 };

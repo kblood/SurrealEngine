@@ -4317,6 +4317,20 @@ def _validate_bot(raw: Any, context: str, schema: str,
                     raise QualityError(f"{record_context}: requested component classification is not recognized")
                 if all(value == "finite" for value in classes.values()):
                     raise QualityError(f"{record_context}: guard diagnostic has no invalid component")
+                source = _string(item, "source", record_context, nonempty=True)
+                terminal = _string(item, "terminal", record_context, nonempty=True)
+                if source not in ("move_to_input", "strafe_facing_input",
+                                  "tick_pre_latent_destination", "tick_post_script_destination"):
+                    raise QualityError(f"{record_context}: guard source is not recognized")
+                if terminal not in ("latent_continue", "recovered_from_finite_location",
+                                    "unrecoverable_nonfinite_location"):
+                    raise QualityError(f"{record_context}: guard terminal is not recognized")
+                if source in ("tick_pre_latent_destination", "tick_post_script_destination"):
+                    if terminal not in ("recovered_from_finite_location",
+                                        "unrecoverable_nonfinite_location"):
+                        raise QualityError(f"{record_context}: tick recovery terminal is inconsistent")
+                elif terminal != "latent_continue":
+                    raise QualityError(f"{record_context}: command-input terminal is inconsistent")
                 parsed_records.append({
                     "sequence": _integer(item.get("sequence"), f"{record_context}.sequence", minimum=1),
                     "observer_tick": _integer(item.get("observer_tick"),
@@ -4327,6 +4341,8 @@ def _validate_bot(raw: Any, context: str, schema: str,
                     "requested_x_class": classes["x"],
                     "requested_y_class": classes["y"],
                     "requested_z_class": classes["z"],
+                    "source": source,
+                    "terminal": terminal,
                     "prior_destination_finite": _boolean(item.get("prior_destination_finite"),
                                                           f"{record_context}.prior_destination_finite"),
                     "prior_focus_finite": _boolean(item.get("prior_focus_finite"),
@@ -4974,7 +4990,10 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                             f"{path}: finite MoveTo command guard record sequence did not increase")
                     sequences[bot["identity"]] = record["sequence"]
                     record_counts[bot["identity"]] = record_counts.get(bot["identity"], 0) + 1
-                    if not record["prior_destination_finite"] or not record["prior_focus_finite"]:
+                    if record["source"] not in ("tick_pre_latent_destination",
+                                                "tick_post_script_destination") and (
+                            not record["prior_destination_finite"]
+                            or not record["prior_focus_finite"]):
                         raise QualityError(
                             f"{path}: finite MoveTo command guard did not preserve finite state")
         for bot in events[-1]["bots"]:

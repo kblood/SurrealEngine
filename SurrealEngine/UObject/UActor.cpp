@@ -4841,7 +4841,9 @@ std::vector<PawnMovement::PawnCanSeeObservation> UPawn::DrainPawnCanSeeObservati
 	return observations;
 }
 
-void UPawn::RecordFiniteMoveCommandGuardRejection(const vec3& requestedDestination)
+void UPawn::RecordFiniteMoveCommandGuardRejection(const vec3& requestedDestination,
+	PawnMovement::FiniteMoveCommandGuardSource source,
+	PawnMovement::FiniteMoveCommandGuardTerminal terminal)
 {
 	FiniteMoveCommandGuardRejectionCountValue++;
 	static constexpr size_t maximumQueuedRecords = 256;
@@ -4858,6 +4860,8 @@ void UPawn::RecordFiniteMoveCommandGuardRejection(const vec3& requestedDestinati
 	record.RequestedX = PawnMovement::ClassifyMoveCommandComponent(requestedDestination.x);
 	record.RequestedY = PawnMovement::ClassifyMoveCommandComponent(requestedDestination.y);
 	record.RequestedZ = PawnMovement::ClassifyMoveCommandComponent(requestedDestination.z);
+	record.Source = source;
+	record.Terminal = terminal;
 	record.PriorDestinationFinite = PawnMovement::IsFiniteMoveCommandDestination(Destination());
 	record.PriorFocusFinite = PawnMovement::IsFiniteMoveCommandDestination(Focus());
 	FiniteMoveCommandGuardDiagnostics.push_back(record);
@@ -5677,6 +5681,25 @@ void UPawn::UpdateActorZone()
 
 void UPawn::Tick(float elapsed)
 {
+	if (engine && engine->IsBotBenchmarkFiniteMoveCommandGuardEnabled()
+		&& !PawnMovement::IsFiniteMoveCommandDestination(Destination()))
+	{
+		const bool locationFinite = PawnMovement::IsFiniteMoveCommandDestination(Location());
+		RecordFiniteMoveCommandGuardRejection(Destination(),
+			PawnMovement::FiniteMoveCommandGuardSource::TickPreLatentDestination,
+			locationFinite ? PawnMovement::FiniteMoveCommandGuardTerminal::RecoveredFromFiniteLocation
+				: PawnMovement::FiniteMoveCommandGuardTerminal::UnrecoverableNonFiniteLocation);
+		if (locationFinite)
+		{
+			Destination() = Location();
+			if (!PawnMovement::IsFiniteMoveCommandDestination(Focus()))
+				Focus() = Location();
+			Acceleration() = vec3(0.0f);
+			MoveTimer() = -1.0f;
+			if (StateFrame)
+				StateFrame->LatentState = LatentRunState::Continue;
+		}
+	}
 	const uint8_t physicsAtPawnTickEntry = Physics();
 	if (physicsAtPawnTickEntry == PHYS_Falling)
 	{
@@ -5863,6 +5886,29 @@ void UPawn::Tick(float elapsed)
 		}
 		if (engine->LaunchInfo.ue1Version >= 436 && bAdvancedTactics())
 			CallEvent(this, EventName::UpdateTactics, { ExpressionValue::FloatValue(elapsed) });
+	}
+
+	// Script-state execution is part of UActor::Tick and can assign Destination
+	// directly, bypassing the native latent command entry points.  This is the
+	// final pawn-local boundary before benchmark observation for this frame.
+	if (engine && engine->IsBotBenchmarkFiniteMoveCommandGuardEnabled()
+		&& !PawnMovement::IsFiniteMoveCommandDestination(Destination()))
+	{
+		const bool locationFinite = PawnMovement::IsFiniteMoveCommandDestination(Location());
+		RecordFiniteMoveCommandGuardRejection(Destination(),
+			PawnMovement::FiniteMoveCommandGuardSource::TickPostScriptDestination,
+			locationFinite ? PawnMovement::FiniteMoveCommandGuardTerminal::RecoveredFromFiniteLocation
+				: PawnMovement::FiniteMoveCommandGuardTerminal::UnrecoverableNonFiniteLocation);
+		if (locationFinite)
+		{
+			Destination() = Location();
+			if (!PawnMovement::IsFiniteMoveCommandDestination(Focus()))
+				Focus() = Location();
+			Acceleration() = vec3(0.0f);
+			MoveTimer() = -1.0f;
+			if (StateFrame)
+				StateFrame->LatentState = LatentRunState::Continue;
+		}
 	}
 }
 
@@ -9026,9 +9072,13 @@ bool UPawn::ApplyPainLedgeRecovery(const vec2& requestedDirection)
 void UPawn::MoveTo(const vec3& newDestination, float speed)
 {
 	if (engine && engine->IsBotBenchmarkFiniteMoveCommandGuardEnabled()
-		&& !PawnMovement::IsFiniteMoveCommandDestination(newDestination))
+		&& !PawnMovement::IsFiniteMoveCommandDestination(newDestination)
+		&& PawnMovement::IsFiniteMoveCommandDestination(Destination())
+		&& PawnMovement::IsFiniteMoveCommandDestination(Focus()))
 	{
-		RecordFiniteMoveCommandGuardRejection(newDestination);
+		RecordFiniteMoveCommandGuardRejection(newDestination,
+			PawnMovement::FiniteMoveCommandGuardSource::MoveToInput,
+			PawnMovement::FiniteMoveCommandGuardTerminal::LatentContinue);
 		Acceleration() = vec3(0.0f);
 		MoveTimer() = -1.0f;
 		if (StateFrame)
@@ -9071,6 +9121,20 @@ void UPawn::StrafeFacing(const vec3& newDestination, UActor* newTarget)
 {
 	if (!newTarget)
 		return;
+	if (engine && engine->IsBotBenchmarkFiniteMoveCommandGuardEnabled()
+		&& !PawnMovement::IsFiniteMoveCommandDestination(newDestination)
+		&& PawnMovement::IsFiniteMoveCommandDestination(Destination())
+		&& PawnMovement::IsFiniteMoveCommandDestination(Focus()))
+	{
+		RecordFiniteMoveCommandGuardRejection(newDestination,
+			PawnMovement::FiniteMoveCommandGuardSource::StrafeFacingInput,
+			PawnMovement::FiniteMoveCommandGuardTerminal::LatentContinue);
+		Acceleration() = vec3(0.0f);
+		MoveTimer() = -1.0f;
+		if (StateFrame)
+			StateFrame->LatentState = LatentRunState::Continue;
+		return;
+	}
 
 	Destination() = newDestination;
 	if (engine->LaunchInfo.ue1Version > 219)

@@ -31,4 +31,31 @@ namespace PawnMovement
 		}
 		return "unknown";
 	}
+
+	const char* FiniteMoveCommandGuardSourceName(FiniteMoveCommandGuardSource value)
+	{
+		switch (value)
+		{
+		case FiniteMoveCommandGuardSource::MoveToInput: return "move_to_input";
+		case FiniteMoveCommandGuardSource::StrafeFacingInput: return "strafe_facing_input";
+		case FiniteMoveCommandGuardSource::TickPreLatentDestination:
+			return "tick_pre_latent_destination";
+		case FiniteMoveCommandGuardSource::TickPostScriptDestination:
+			return "tick_post_script_destination";
+		}
+		return "unknown";
+	}
+
+	const char* FiniteMoveCommandGuardTerminalName(FiniteMoveCommandGuardTerminal value)
+	{
+		switch (value)
+		{
+		case FiniteMoveCommandGuardTerminal::LatentContinue: return "latent_continue";
+		case FiniteMoveCommandGuardTerminal::RecoveredFromFiniteLocation:
+			return "recovered_from_finite_location";
+		case FiniteMoveCommandGuardTerminal::UnrecoverableNonFiniteLocation:
+			return "unrecoverable_nonfinite_location";
+		}
+		return "unknown";
+	}
 }

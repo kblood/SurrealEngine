@@ -3292,6 +3292,8 @@ namespace
 								PawnMovement::MoveCommandComponentClassName(diagnostic.RequestedX),
 								PawnMovement::MoveCommandComponentClassName(diagnostic.RequestedY),
 								PawnMovement::MoveCommandComponentClassName(diagnostic.RequestedZ),
+								PawnMovement::FiniteMoveCommandGuardSourceName(diagnostic.Source),
+								PawnMovement::FiniteMoveCommandGuardTerminalName(diagnostic.Terminal),
 								diagnostic.PriorDestinationFinite, diagnostic.PriorFocusFinite });
 						}
 					}

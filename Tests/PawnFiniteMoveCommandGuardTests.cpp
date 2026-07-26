@@ -30,5 +30,20 @@ int main()
 	if (std::string(MoveCommandComponentClassName(
 		ClassifyMoveCommandComponent(std::numeric_limits<float>::infinity()))) != "positive_infinity")
 		return Fail("positive infinity classification was not JSON-safe");
+	if (std::string(FiniteMoveCommandGuardSourceName(
+		FiniteMoveCommandGuardSource::TickPreLatentDestination)) != "tick_pre_latent_destination")
+	{
+		return Fail("tick recovery source was not JSON-safe");
+	}
+	if (std::string(FiniteMoveCommandGuardSourceName(
+		FiniteMoveCommandGuardSource::TickPostScriptDestination)) != "tick_post_script_destination")
+	{
+		return Fail("post-script tick recovery source was not JSON-safe");
+	}
+	if (std::string(FiniteMoveCommandGuardTerminalName(
+		FiniteMoveCommandGuardTerminal::RecoveredFromFiniteLocation)) != "recovered_from_finite_location")
+	{
+		return Fail("tick recovery terminal was not JSON-safe");
+	}
 	return 0;
 }

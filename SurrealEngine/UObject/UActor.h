@@ -2379,7 +2379,9 @@ public:
 	{
 		return PawnCanSeeObservationIntegrityFailureCountValue;
 	}
-	void RecordFiniteMoveCommandGuardRejection(const vec3& requestedDestination);
+	void RecordFiniteMoveCommandGuardRejection(const vec3& requestedDestination,
+		PawnMovement::FiniteMoveCommandGuardSource source,
+		PawnMovement::FiniteMoveCommandGuardTerminal terminal);
 	std::vector<PawnMovement::FiniteMoveCommandGuardDiagnosticRecord>
 		DrainFiniteMoveCommandGuardDiagnostics();
 	uint64_t FiniteMoveCommandGuardRejectionCount() const

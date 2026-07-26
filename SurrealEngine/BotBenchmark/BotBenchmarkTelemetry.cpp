@@ -934,6 +934,8 @@ namespace
 					<< ",\"requested_x_class\":" << JsonString(record.RequestedXClass)
 					<< ",\"requested_y_class\":" << JsonString(record.RequestedYClass)
 					<< ",\"requested_z_class\":" << JsonString(record.RequestedZClass)
+					<< ",\"source\":" << JsonString(record.Source)
+					<< ",\"terminal\":" << JsonString(record.Terminal)
 					<< ",\"prior_destination_finite\":"
 					<< (record.PriorDestinationFinite ? "true" : "false")
 					<< ",\"prior_focus_finite\":"
