@@ -3596,3 +3596,14 @@ events, zero movement-intent stuck events, 12.567 no-progress seconds, and
 this map. This adds a clean cross-map inert/non-regression anchor, but does not
 resolve the active Deck16 collision trade-off and is not a reason to promote
 the gate from default-off.
+
+## Iteration 141: failed-navigation avoidance is rejected on Deck16-II
+
+The isolated UT436 Deck16-II seed-`271828` failed-navigation-avoidance control
+is worse than the pain-ledge candidate. It records 511 wall-adjust calls, only
+three recovery attempts, zero successful recoveries, and five forced replans.
+`HitWall` rises from 403 to 877, while K/D changes from 8/12 to 7/10 and union
+navigation coverage declines from 46.61% to 46.22%. The small reduction in
+deaths does not offset the unproductive contact escalation. Reject this control
+for the current candidate matrix; keep it default-off and do not combine it
+with pain-ledge recovery.
