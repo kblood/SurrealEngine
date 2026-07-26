@@ -12,6 +12,8 @@
 #include "Utils/CommandLine.h"
 #include "Utils/File.h"
 #include "Utils/Logger.h"
+#include "VM/Frame.h"
+#include "VM/ScriptCall.h"
 
 #include <array>
 #include <cmath>
@@ -24,6 +26,8 @@ namespace
 	const vec3 DeathFanPathNode73LaunchAnchor(-146.546677f, 743.832153f, 1384.0f);
 	constexpr float ImmediateSupportDistance = 64.0f;
 	constexpr float DeepSupportDistance = 2048.0f;
+	constexpr float FixtureTickSeconds = 0.05f;
+	constexpr int LiveNavigationTickLimit = 120;
 	constexpr int CorridorSamples = 5;
 	constexpr int ZoneSamplesPerCorridorPoint = 64;
 
@@ -116,7 +120,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v5\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v6\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -135,6 +139,9 @@ namespace
 			<< "navigation_fallback_endpoint_harmful_zone_below_corridor=" << (result.NavigationFallbackEndpointHarmfulZoneBelowCorridor ? "true" : "false") << "\n"
 			<< "navigation_unsupported_corridor_sample=" << (result.NavigationUnsupportedCorridorSample ? "true" : "false") << "\n"
 			<< "navigation_harmful_zone_below_corridor=" << (result.NavigationHarmfulZoneBelowCorridor ? "true" : "false") << "\n"
+			<< "live_navigation_move_toward_armed=" << (result.LiveNavigationMoveTowardArmed ? "true" : "false") << "\n"
+			<< "live_navigation_falling_observed=" << (result.LiveNavigationFallingObserved ? "true" : "false") << "\n"
+			<< "live_navigation_harmful_entry_observed=" << (result.LiveNavigationHarmfulEntryObserved ? "true" : "false") << "\n"
 			<< "pawn_actor=" << result.PawnActor << "\n"
 			<< "marker_actor=" << result.MarkerActor << "\n"
 			<< "inventory_actor=" << result.InventoryActor << "\n"
@@ -153,6 +160,7 @@ namespace
 			<< "navigation_candidate_direct_reachable_count=" << result.NavigationCandidateDirectReachableCount << "\n"
 			<< "navigation_candidate_safe_direct_reachable_count=" << result.NavigationCandidateSafeDirectReachableCount << "\n"
 			<< "navigation_candidate_unsafe_direct_reachable_count=" << result.NavigationCandidateUnsafeDirectReachableCount << "\n"
+			<< "live_navigation_ticks=" << result.LiveNavigationTicks << "\n"
 			<< "first_safe_navigation_candidate_actor=" << result.FirstSafeNavigationCandidateActor << "\n"
 			<< "first_unsafe_navigation_candidate_actor=" << result.FirstUnsafeNavigationCandidateActor << "\n"
 			<< "first_harmful_below_distance=" << result.FirstHarmfulBelowDistance << "\n"
@@ -218,6 +226,11 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 	vec3 originalAcceleration;
 	uint8_t originalPhysics = PHYS_None;
 	bool originalInventoryMarkerSafetyEnabled = false;
+	bool originalTickEnabled = false;
+	bool originalUpdateTacticsEnabled = false;
+	LatentRunState originalLatentState = LatentRunState::Continue;
+	UActor* originalMoveTarget = nullptr;
+	float originalMoveTimer = 0.0f;
 	try
 	{
 		if (config.URL.empty() || config.URL.find("DmDeathFan") == std::string::npos)
@@ -235,6 +248,11 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		originalVelocity = pawn->Velocity();
 		originalAcceleration = pawn->Acceleration();
 		originalPhysics = pawn->Physics();
+		originalTickEnabled = pawn->IsEventEnabled(EventName::Tick);
+		originalUpdateTacticsEnabled = pawn->IsEventEnabled(EventName::UpdateTactics);
+		originalLatentState = pawn->StateFrame->LatentState;
+		originalMoveTarget = pawn->MoveTarget();
+		originalMoveTimer = pawn->MoveTimer();
 
 		UActor* inventory = FindActor(engine, "ASMDAmmo3");
 		UNavigationPoint* marker = UObject::TryCast<UNavigationPoint>(FindActor(engine, "InventorySpot43"));
@@ -426,6 +444,35 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 					result.FirstSafeNavigationCandidateActor = navPoint->Name.ToString();
 			}
 		}
+
+		pawn->DisableEvent(ToNameString(EventName::Tick));
+		pawn->DisableEvent(ToNameString(EventName::UpdateTactics));
+		pawn->Velocity() = vec3(0.0f);
+		pawn->Acceleration() = vec3(0.0f);
+		pawn->SetPhysics(PHYS_Walking);
+		pawn->MoveToward(pathNode73, 1.0f);
+		result.LiveNavigationMoveTowardArmed = pawn->StateFrame
+			&& pawn->StateFrame->LatentState == LatentRunState::MoveToward
+			&& pawn->MoveTarget() == pathNode73;
+		if (!result.LiveNavigationMoveTowardArmed)
+			throw std::runtime_error("fixture could not arm a direct live PathNode73 MoveToward command");
+		for (int tick = 0; tick < LiveNavigationTickLimit; tick++)
+		{
+			pawn->Tick(FixtureTickSeconds);
+			result.LiveNavigationTicks++;
+			if (pawn->Physics() == PHYS_Falling)
+				result.LiveNavigationFallingObserved = true;
+			UZoneInfo* footZone = pawn->FootRegion().Zone;
+			if (footZone && footZone->bPainZone() && footZone->DamagePerSec() > 0)
+			{
+				result.LiveNavigationHarmfulEntryObserved = true;
+				break;
+			}
+			if (result.LiveNavigationFallingObserved)
+				break;
+		}
+		if (!result.LiveNavigationFallingObserved)
+			throw std::runtime_error("direct live PathNode73 MoveToward did not enter falling physics");
 		result.Ran = true;
 		result.Passed = true;
 	}
@@ -439,6 +486,18 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		pawn->Velocity() = originalVelocity;
 		pawn->Acceleration() = originalAcceleration;
 		pawn->SetPhysics(originalPhysics);
+		pawn->MoveTarget() = originalMoveTarget;
+		pawn->MoveTimer() = originalMoveTimer;
+		if (pawn->StateFrame)
+			pawn->StateFrame->LatentState = originalLatentState;
+		if (originalTickEnabled)
+			pawn->EnableEvent(ToNameString(EventName::Tick));
+		else
+			pawn->DisableEvent(ToNameString(EventName::Tick));
+		if (originalUpdateTacticsEnabled)
+			pawn->EnableEvent(ToNameString(EventName::UpdateTactics));
+		else
+			pawn->DisableEvent(ToNameString(EventName::UpdateTactics));
 		pawn->SetLocation(originalLocation);
 		pawn->UpdateActorZone();
 	}
