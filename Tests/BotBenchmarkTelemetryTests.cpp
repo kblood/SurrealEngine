@@ -372,6 +372,7 @@ int main()
 		",\"harmful_zone_escape_center_entries_exact\":\"0\""
 		",\"harmful_zone_escape_foot_entries_exact\":\"0\""
 		",\"harmful_zone_escape_recovery_attempts_exact\":\"0\""
+		",\"pain_ledge_recovery_active_hitwall_events_exact\":\"0\""
 		",\"harmful_zone_escape_successful_escapes_exact\":\"0\""
 		",\"harmful_zone_escape_forced_replans_exact\":\"0\""
 		",\"harmful_zone_escape_no_safe_candidates_exact\":\"0\""

@@ -927,6 +927,7 @@ namespace
 			<< ",\"harmful_zone_escape_center_entries_exact\":\"" << bot.HarmfulZoneEscapeCenterEntriesExact << "\""
 			<< ",\"harmful_zone_escape_foot_entries_exact\":\"" << bot.HarmfulZoneEscapeFootEntriesExact << "\""
 			<< ",\"harmful_zone_escape_recovery_attempts_exact\":\"" << bot.HarmfulZoneEscapeRecoveryAttemptsExact << "\""
+			<< ",\"pain_ledge_recovery_active_hitwall_events_exact\":\"" << bot.PainLedgeRecoveryActiveHitWallEventsExact << "\""
 			<< ",\"harmful_zone_escape_successful_escapes_exact\":\"" << bot.HarmfulZoneEscapeSuccessfulEscapesExact << "\""
 			<< ",\"harmful_zone_escape_forced_replans_exact\":\"" << bot.HarmfulZoneEscapeForcedReplansExact << "\""
 			<< ",\"harmful_zone_escape_no_safe_candidates_exact\":\"" << bot.HarmfulZoneEscapeNoSafeCandidatesExact << "\""

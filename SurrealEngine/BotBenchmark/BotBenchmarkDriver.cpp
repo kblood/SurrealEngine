@@ -352,6 +352,7 @@ namespace
 				NavigationCoverage;
 			BotBenchmarkDriverDetail::DeathAttributionCounters DeathAttribution;
 			uint64_t HitWallEventsExact = 0;
+			uint64_t PainLedgeRecoveryActiveHitWallEventsExact = 0;
 			BotBenchmarkDriverDetail::NativePawnCounterEpoch NativeCounterEpoch;
 			BotBenchmarkDriverDetail::NativePawnCounters NativeCounterTotals;
 			std::vector<PawnMovement::WalkingStepPreflightDiagnosticRecord>
@@ -1855,7 +1856,11 @@ namespace
 						return {};
 					const bool outermost = HitWallHookDepth++ == 0;
 					if (outermost)
+					{
 						runtime->second.HitWallEventsExact++;
+						if (pawn->IsPainLedgeRecoveryActive())
+							runtime->second.PainLedgeRecoveryActiveHitWallEventsExact++;
+					}
 					return [this]() { HitWallHookDepth--; };
 				}
 				return {};
@@ -2658,6 +2663,8 @@ namespace
 				bot.HarmfulZoneEscapeFootEntriesExact = native.HarmfulZoneEscapeFootEntries;
 				bot.HarmfulZoneEscapeRecoveryAttemptsExact =
 					native.HarmfulZoneEscapeRecoveryAttempts;
+				bot.PainLedgeRecoveryActiveHitWallEventsExact =
+					runtime.PainLedgeRecoveryActiveHitWallEventsExact;
 				bot.HarmfulZoneEscapeSuccessfulEscapesExact =
 					native.HarmfulZoneEscapeSuccessfulEscapes;
 				bot.HarmfulZoneEscapeForcedReplansExact =

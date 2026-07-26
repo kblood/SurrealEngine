@@ -383,6 +383,35 @@ class BotQualityAnalysisTests(unittest.TestCase):
             report = QUALITY.analyze([run])
             self.assertIs(report["runs"][0]["config"]["harmful_zone_escape_enabled"], True)
 
+    def test_pain_ledge_recovery_contacts_are_bounded_by_hitwall_events(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.PAIN_LEDGE_EXACT_COUNTERS}
+        final = {
+            **zero,
+            "pain_ledge_vetoes_exact": 1,
+            "pain_ledge_recovery_attempts_exact": 1,
+            "pain_ledge_recovery_escapes_exact": 1,
+            "pain_ledge_recovery_active_hitwall_events_exact": 2,
+            "hit_wall_events_exact": 2,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "pain-ledge-recovery-contact", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[common | zero, common | zero, common | final])
+            QUALITY.analyze_run(valid)
+
+            invalid = write_v2_run(root, "pain-ledge-recovery-contact-invalid", bot_count=1)
+            invalid_final = {**final, "hit_wall_events_exact": 1}
+            upgrade_telemetry_v2(
+                invalid, counters=[common | zero, common | zero, common | invalid_final])
+            with self.assertRaisesRegex(QUALITY.QualityError, "recovery contacts exceed HitWall"):
+                QUALITY.analyze_run(invalid)
+
     def test_hazard_swim_egress_counters_are_complete_and_consistent(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": True,
@@ -2557,6 +2586,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
             optional_samples = [
                 {"pain_ledge_vetoes_exact": 0, "pain_ledge_repeat_vetoes_exact": 0,
                  "pain_ledge_recovery_attempts_exact": 0, "pain_ledge_recovery_escapes_exact": 0,
+                 "pain_ledge_recovery_active_hitwall_events_exact": 0,
                  "wall_adjust_calls_exact": 0, "wall_adjust_repeats_exact": 0,
                  "wall_adjust_recovery_attempts_exact": 0,
                  "wall_adjust_recovery_successes_exact": 0,
@@ -2571,6 +2601,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
                  "failed_navigation_route_penalty_applications_exact": 0},
                 {"pain_ledge_vetoes_exact": 2, "pain_ledge_repeat_vetoes_exact": 1,
                  "pain_ledge_recovery_attempts_exact": 1, "pain_ledge_recovery_escapes_exact": 0,
+                 "pain_ledge_recovery_active_hitwall_events_exact": 0,
                  "wall_adjust_calls_exact": 3, "wall_adjust_repeats_exact": 2,
                  "wall_adjust_recovery_attempts_exact": 1,
                  "wall_adjust_recovery_successes_exact": 0,
@@ -2585,6 +2616,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
                  "failed_navigation_route_penalty_applications_exact": 0},
                 {"pain_ledge_vetoes_exact": 3, "pain_ledge_repeat_vetoes_exact": 1,
                  "pain_ledge_recovery_attempts_exact": 2, "pain_ledge_recovery_escapes_exact": 1,
+                 "pain_ledge_recovery_active_hitwall_events_exact": 0,
                  "wall_adjust_calls_exact": 7, "wall_adjust_repeats_exact": 5,
                  "wall_adjust_recovery_attempts_exact": 2,
                  "wall_adjust_recovery_successes_exact": 1,
@@ -2599,6 +2631,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
                  "failed_navigation_route_penalty_applications_exact": 3},
                 {"pain_ledge_vetoes_exact": 4, "pain_ledge_repeat_vetoes_exact": 1,
                  "pain_ledge_recovery_attempts_exact": 3, "pain_ledge_recovery_escapes_exact": 2,
+                 "pain_ledge_recovery_active_hitwall_events_exact": 0,
                  "wall_adjust_calls_exact": 9, "wall_adjust_repeats_exact": 6,
                  "wall_adjust_recovery_attempts_exact": 3,
                  "wall_adjust_recovery_successes_exact": 2,
@@ -2618,6 +2651,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
             metrics = analyzed["runs"][0]["metrics"]
             self.assertEqual(metrics["pain_ledge_vetoes_exact"], 4)
             self.assertEqual(metrics["pain_ledge_recovery_escapes_exact"], 2)
+            self.assertEqual(metrics["pain_ledge_recovery_active_hitwall_events_exact"], 0)
             self.assertEqual(metrics["wall_adjust_calls_exact"], 9)
             self.assertEqual(metrics["wall_adjust_recovery_attempts_exact"], 3)
             self.assertEqual(metrics["wall_adjust_recovery_successes_exact"], 2)
@@ -2721,6 +2755,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
             "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
             "pain_ledge_vetoes_exact": 0, "pain_ledge_repeat_vetoes_exact": 0,
             "pain_ledge_recovery_attempts_exact": 0, "pain_ledge_recovery_escapes_exact": 0,
+            "pain_ledge_recovery_active_hitwall_events_exact": 0,
             "wall_adjust_calls_exact": 2, "wall_adjust_repeats_exact": 1,
             "wall_adjust_recovery_attempts_exact": 1,
             "wall_adjust_recovery_successes_exact": 0,

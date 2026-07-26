@@ -2178,6 +2178,10 @@ public:
 	uint64_t HarmfulZoneEscapeSuccessfulEscapeCount() const { return HarmfulZoneEscapeSuccessfulEscapeCountValue; }
 	uint64_t HarmfulZoneEscapeForcedReplanCount() const { return HarmfulZoneEscapeForcedReplanCountValue; }
 	uint64_t HarmfulZoneEscapeNoSafeCandidateCount() const { return HarmfulZoneEscapeNoSafeCandidateCountValue; }
+	bool IsPainLedgeRecoveryActive() const
+	{
+		return PainLedgeRecovery.Active && PainLedgeRecovery.RecoveryAttempted;
+	}
 	uint64_t HazardSwimEgressEpisodeCount() const { return HazardSwimEgressEpisodeCountValue; }
 	uint64_t HazardSwimEgressEligibleCount() const { return HazardSwimEgressEligibleCountValue; }
 	uint64_t HazardSwimEgressAuthorizedCount() const { return HazardSwimEgressAuthorizedCountValue; }

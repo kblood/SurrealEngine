@@ -217,6 +217,7 @@ struct BotBenchmarkBotState
 	uint64_t HarmfulZoneEscapeCenterEntriesExact = 0;
 	uint64_t HarmfulZoneEscapeFootEntriesExact = 0;
 	uint64_t HarmfulZoneEscapeRecoveryAttemptsExact = 0;
+	uint64_t PainLedgeRecoveryActiveHitWallEventsExact = 0;
 	uint64_t HarmfulZoneEscapeSuccessfulEscapesExact = 0;
 	uint64_t HarmfulZoneEscapeForcedReplansExact = 0;
 	uint64_t HarmfulZoneEscapeNoSafeCandidatesExact = 0;

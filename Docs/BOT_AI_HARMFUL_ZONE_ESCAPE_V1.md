@@ -26,6 +26,13 @@ Per-pawn telemetry reports exact harmful-zone escape episodes, center and foot
 entries, recovery attempts, successful exits, forced replans, and no-safe-
 candidate outcomes.  The analyzer rejects impossible success/replan counts.
 
+The adjacent `pain_ledge_recovery_active_hitwall_events_exact` counter is a
+benchmark-observer partition only: it counts outermost UnrealScript `HitWall`
+callbacks while the pain-ledge recovery lifecycle is active and an attempt has
+already begun. It is not a claim that recovery wrote the acceleration on that
+same tick, nor that the recovery caused the contact; it is required to remain a
+bounded subset of total `hit_wall_events_exact`.
+
 ## First result
 
 The first controlled matrix is preserved under

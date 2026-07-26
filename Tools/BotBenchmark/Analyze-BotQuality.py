@@ -144,6 +144,7 @@ CORE_EXACT_COUNTERS = (
 PAIN_LEDGE_EXACT_COUNTERS = (
     "pain_ledge_vetoes_exact", "pain_ledge_repeat_vetoes_exact",
     "pain_ledge_recovery_attempts_exact", "pain_ledge_recovery_escapes_exact",
+    "pain_ledge_recovery_active_hitwall_events_exact",
 )
 WALL_ADJUST_EXACT_COUNTERS = (
     "wall_adjust_calls_exact", "wall_adjust_repeats_exact",
@@ -4264,6 +4265,10 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 if "pain_ledge_recovery_escapes_exact" in bot and \
                         bot["pain_ledge_recovery_escapes_exact"] > bot["pain_ledge_recovery_attempts_exact"]:
                     raise QualityError(f"{path}: pain ledge escapes exceed attempts for {bot['identity']}")
+                if "pain_ledge_recovery_active_hitwall_events_exact" in bot and \
+                        bot["pain_ledge_recovery_active_hitwall_events_exact"] > bot["hit_wall_events_exact"]:
+                    raise QualityError(
+                        f"{path}: pain-ledge recovery contacts exceed HitWall events")
                 if "wall_adjust_repeats_exact" in bot and \
                         bot["wall_adjust_repeats_exact"] > bot["wall_adjust_calls_exact"]:
                     raise QualityError(f"{path}: wall adjust repeats exceed calls for {bot['identity']}")
