@@ -90,6 +90,19 @@ struct BotBenchmarkPickTargetRecord
 	std::string SelectedClass;
 };
 
+struct BotBenchmarkWarnTargetRecord
+{
+	uint64_t Sequence = 0;
+	uint64_t NestedWarnTargetSequence = 0;
+	std::string Event;
+	std::string ContractId;
+	std::string ReceiverId;
+	std::string ReceiverState;
+	std::string ShooterId;
+	bool NestedWarnTargetExact = false;
+	bool IntegrityValid = true;
+};
+
 struct BotBenchmarkDirectReachCommandRecord
 {
 	uint64_t Sequence = 0;
@@ -179,6 +192,12 @@ struct BotBenchmarkBotState
 	uint64_t PickTargetObservationOverflowsExact = 0;
 	uint64_t PickTargetIntegrityFailuresExact = 0;
 	std::vector<BotBenchmarkPickTargetRecord> PickTargetRecords;
+	uint64_t WarnTargetObservationsExact = 0;
+	uint64_t TryToDuckObservationsExact = 0;
+	uint64_t WarnTargetExactNestedTryToDuckLinksExact = 0;
+	uint64_t WarnTargetObservationOverflowsExact = 0;
+	uint64_t WarnTargetIntegrityFailuresExact = 0;
+	std::vector<BotBenchmarkWarnTargetRecord> WarnTargetRecords;
 	uint64_t InventoryDirectReachSupportObservationsExact = 0;
 	uint64_t InventoryDirectReachSupportSafeSupportedExact = 0;
 	uint64_t InventoryDirectReachSupportSafeUnsupportedNoObservedHazardExact = 0;
@@ -434,6 +453,9 @@ struct BotBenchmarkTelemetryEvent
 	std::string TargetSelectionObserverStatus;
 	std::string TargetSelectionObserverReason;
 	bool PickTargetObserverRequested = false;
+	bool WarnTargetObserverRequested = false;
+	std::string WarnTargetObserverStatus;
+	std::string WarnTargetObserverReason;
 	bool InventoryDirectReachSupportObserverRequested = false;
 	bool NativePathCommitObserverRequested = false;
 	bool DirectReachCommandObserverRequested = false;

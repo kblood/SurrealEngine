@@ -179,7 +179,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	bool directActorMoveTowardTimeoutEnabled, bool targetSelectionObserverEnabled,
 	bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
 	bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled,
-	bool pickTargetObserverEnabled)
+	bool pickTargetObserverEnabled, bool warnTargetObserverEnabled)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
 	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled),
@@ -196,7 +196,8 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	NativePathCommitObserverEnabled(nativePathCommitObserverEnabled),
 	InventoryMarkerDirectReachSafetyEnabled(inventoryMarkerDirectReachSafetyEnabled),
 	DirectReachCommandObserverEnabled(directReachCommandObserverEnabled),
-	PickTargetObserverEnabled(pickTargetObserverEnabled)
+	PickTargetObserverEnabled(pickTargetObserverEnabled),
+	WarnTargetObserverEnabled(warnTargetObserverEnabled)
 {
 }
 
@@ -216,7 +217,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> inventoryMarkerDirectReachSafety,
 	std::optional<std::string> nativePathCommitObserver,
 	std::optional<std::string> directReachCommandObserver,
-	std::optional<std::string> pickTargetObserver)
+	std::optional<std::string> pickTargetObserver,
+	std::optional<std::string> warnTargetObserver)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -257,6 +259,13 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		targetSelectionObserver, "bot benchmark target-selection observer");
 	const bool parsedPickTargetObserver = ParseExactBoolean(
 		pickTargetObserver, "bot benchmark PickTarget observer");
+	const bool parsedWarnTargetObserver = ParseExactBoolean(
+		warnTargetObserver, "bot benchmark WarnTarget observer");
+	if (parsedWarnTargetObserver && !parsedPickTargetObserver)
+	{
+		throw std::invalid_argument(
+			"bot benchmark WarnTarget observer requires the PickTarget observer");
+	}
 	const bool parsedInventoryDirectReachSupportObserver = ParseExactBoolean(
 		inventoryDirectReachSupportObserver,
 		"bot benchmark inventory direct-reach support observer");
@@ -275,7 +284,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		parsedTargetlessMoveToTimeout, parsedDirectActorMoveTowardTimeout,
 		parsedTargetSelectionObserver, parsedInventoryDirectReachSupportObserver,
 		parsedNativePathCommitObserver, parsedInventoryMarkerDirectReachSafety,
-		parsedDirectReachCommandObserver, parsedPickTargetObserver);
+		parsedDirectReachCommandObserver, parsedPickTargetObserver, parsedWarnTargetObserver);
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
@@ -377,6 +386,8 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< (config.IsTargetSelectionObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"pick_target_observer_enabled\": "
 		<< (config.IsPickTargetObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"warn_target_observer_enabled\": "
+		<< (config.IsWarnTargetObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"inventory_direct_reach_support_observer_enabled\": "
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"inventory_marker_direct_reach_safety_enabled\": "

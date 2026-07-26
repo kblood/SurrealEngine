@@ -524,6 +524,14 @@ PICK_TARGET_COUNTERS = (
     "pick_target_integrity_failures_exact",
 )
 OPTIONAL_EXACT_COUNTERS += PICK_TARGET_COUNTERS
+WARN_TARGET_COUNTERS = (
+    "warn_target_observations_exact",
+    "try_to_duck_observations_exact",
+    "warn_target_exact_nested_try_to_duck_links_exact",
+    "warn_target_observation_overflows_exact",
+    "warn_target_integrity_failures_exact",
+)
+OPTIONAL_EXACT_COUNTERS += WARN_TARGET_COUNTERS
 INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS = (
     "inventory_direct_reach_support_observations_exact",
     "inventory_direct_reach_support_safe_supported_exact",
@@ -3032,6 +3040,7 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                direct_actor_move_toward_timeout_enabled: bool | None = None,
                target_selection_observer_enabled: bool | None = None,
                pick_target_observer_enabled: bool | None = None,
+               warn_target_observer_enabled: bool | None = None,
                inventory_direct_reach_support_observer_enabled: bool | None = None,
                inventory_marker_direct_reach_safety_enabled: bool | None = None,
                native_path_commit_observer_enabled: bool | None = None,
@@ -3075,6 +3084,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if pick_target_observer_enabled is not None:
             canonical_text += "pick_target_observer_enabled=" + (
                 "1\n" if pick_target_observer_enabled else "0\n")
+        if warn_target_observer_enabled is not None:
+            canonical_text += "warn_target_observer_enabled=" + (
+                "1\n" if warn_target_observer_enabled else "0\n")
         if inventory_direct_reach_support_observer_enabled is not None:
             canonical_text += "inventory_direct_reach_support_observer_enabled=" + (
                 "1\n" if inventory_direct_reach_support_observer_enabled else "0\n")
@@ -3220,6 +3232,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     direct_actor_move_toward_timeout_enabled = None
     target_selection_observer_enabled = None
     pick_target_observer_enabled = None
+    warn_target_observer_enabled = None
     inventory_direct_reach_support_observer_enabled = None
     inventory_marker_direct_reach_safety_enabled = None
     native_path_commit_observer_enabled = None
@@ -3279,6 +3292,12 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             pick_target_observer_enabled = _boolean(
                 raw.get("pick_target_observer_enabled"),
                 "manifest.pick_target_observer_enabled")
+        if "warn_target_observer_enabled" in raw:
+            warn_target_observer_enabled = _boolean(
+                raw.get("warn_target_observer_enabled"),
+                "manifest.warn_target_observer_enabled")
+            if warn_target_observer_enabled and pick_target_observer_enabled is not True:
+                raise QualityError(f"{path}: WarnTarget observer requires PickTarget observer")
         if "inventory_direct_reach_support_observer_enabled" in raw:
             inventory_direct_reach_support_observer_enabled = _boolean(
                 raw.get("inventory_direct_reach_support_observer_enabled"),
@@ -3307,6 +3326,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              direct_actor_move_toward_timeout_enabled,
                              target_selection_observer_enabled,
                              pick_target_observer_enabled,
+                             warn_target_observer_enabled,
                              inventory_direct_reach_support_observer_enabled,
                              inventory_marker_direct_reach_safety_enabled,
                              native_path_commit_observer_enabled,
@@ -3338,6 +3358,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "direct_actor_move_toward_timeout_enabled": direct_actor_move_toward_timeout_enabled,
         "target_selection_observer_enabled": target_selection_observer_enabled,
         "pick_target_observer_enabled": pick_target_observer_enabled,
+        "warn_target_observer_enabled": warn_target_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             inventory_direct_reach_support_observer_enabled),
         "inventory_marker_direct_reach_safety_enabled": (
@@ -4023,6 +4044,45 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             result["pick_target_records"] = parsed_records
         elif pick_target_present:
             raise QualityError(f"{context}: PickTarget counter group requires records")
+        warn_target_present = [name for name in WARN_TARGET_COUNTERS if name in result]
+        if warn_target_present and len(warn_target_present) != len(WARN_TARGET_COUNTERS):
+            raise QualityError(f"{context}: WarnTarget counters must be provided as a complete group")
+        if "warn_target_records" in bot:
+            if len(warn_target_present) != len(WARN_TARGET_COUNTERS):
+                raise QualityError(f"{context}: WarnTarget records require the complete counter group")
+            records = bot.get("warn_target_records")
+            if not isinstance(records, list):
+                raise QualityError(f"{context}.warn_target_records must be an array")
+            parsed_records = []
+            for index, record in enumerate(records):
+                record_context = f"{context}.warn_target_records[{index}]"
+                item = _object(record, record_context)
+                event = _string(item, "event", record_context, nonempty=True)
+                if event not in ("warn_target", "try_to_duck"):
+                    raise QualityError(f"{record_context}.event is not recognized")
+                nested = _integer(item.get("nested_warn_target_sequence"),
+                                  f"{record_context}.nested_warn_target_sequence", minimum=0)
+                nested_exact = _boolean(item.get("nested_warn_target_exact"),
+                                        f"{record_context}.nested_warn_target_exact")
+                if nested_exact != (nested != 0):
+                    raise QualityError(f"{record_context}: nested WarnTarget link is inconsistent")
+                if event == "warn_target" and (nested != 0 or nested_exact):
+                    raise QualityError(f"{record_context}: WarnTarget must not link to itself")
+                parsed_records.append({
+                    "sequence": _integer(item.get("sequence"), f"{record_context}.sequence", minimum=1),
+                    "nested_warn_target_sequence": nested,
+                    "event": event,
+                    "contract_id": _string(item, "contract_id", record_context, nonempty=True),
+                    "receiver_id": _string(item, "receiver_id", record_context, nonempty=True),
+                    "receiver_state": _string(item, "receiver_state", record_context),
+                    "shooter_id": _string(item, "shooter_id", record_context),
+                    "nested_warn_target_exact": nested_exact,
+                    "integrity_valid": _boolean(item.get("integrity_valid"),
+                                                f"{record_context}.integrity_valid"),
+                })
+            result["warn_target_records"] = parsed_records
+        elif warn_target_present:
+            raise QualityError(f"{context}: WarnTarget counter group requires records")
         inventory_direct_reach_present = [name for name in INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS
                                           if name in result]
         if (inventory_direct_reach_present
@@ -4192,6 +4252,24 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 event["pick_target_observer"] = {"status": "active"}
             elif "pick_target_observer" in raw:
                 raise QualityError(f"{context}: PickTarget observer telemetry is present while disabled")
+            warn_target_observer_requested = manifest.get("warn_target_observer_enabled") is True
+            if warn_target_observer_requested:
+                observer = _object(raw.get("warn_target_observer"),
+                                   f"{context}.warn_target_observer")
+                if _boolean(observer.get("requested"),
+                            f"{context}.warn_target_observer.requested") is not True:
+                    raise QualityError(f"{context}: WarnTarget observer must be requested")
+                observer_status = _string(observer, "status", f"{context}.warn_target_observer",
+                                          nonempty=True)
+                if observer_status not in ("active", "disabled_contract_mismatch",
+                                           "disabled_integrity_failure"):
+                    raise QualityError(f"{context}: WarnTarget observer status is not recognized")
+                event["warn_target_observer"] = {
+                    "status": observer_status,
+                    "reason": _string(observer, "reason", f"{context}.warn_target_observer"),
+                }
+            elif "warn_target_observer" in raw:
+                raise QualityError(f"{context}: WarnTarget observer telemetry is present while disabled")
             inventory_direct_reach_observer_requested = (
                 manifest.get("inventory_direct_reach_support_observer_enabled") is True)
             if inventory_direct_reach_observer_requested:
@@ -4345,6 +4423,58 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     raise QualityError(f"{path}: PickTarget records do not reconcile {counter}")
             if records and sequences[bot["identity"]] != records:
                 raise QualityError(f"{path}: PickTarget record sequence is not contiguous")
+    if manifest.get("warn_target_observer_enabled") is True:
+        observer_values = {(event["warn_target_observer"]["status"],
+                            event["warn_target_observer"]["reason"])
+                           for event in events}
+        if len(observer_values) != 1:
+            raise QualityError(f"{path}: WarnTarget observer state changed during the run")
+        observer_status, observer_reason = next(iter(observer_values))
+        if observer_status != "active":
+            if not observer_reason:
+                raise QualityError(f"{path}: disabled WarnTarget observer has no reason")
+        else:
+            if observer_reason:
+                raise QualityError(f"{path}: active WarnTarget observer has a reason")
+            counts: dict[str, dict[str, int]] = {}
+            sequences: dict[str, int] = {}
+            warns: dict[str, set[int]] = {}
+            for event in events:
+                for bot in event["bots"]:
+                    if any(name not in bot for name in WARN_TARGET_COUNTERS):
+                        raise QualityError(f"{path}: active WarnTarget observer lacks counters")
+                    for record in bot["warn_target_records"]:
+                        expected = sequences.get(bot["identity"], 0) + 1
+                        if record["sequence"] != expected:
+                            raise QualityError(f"{path}: WarnTarget record sequence is not contiguous")
+                        if record["receiver_id"] != bot["identity"]:
+                            raise QualityError(f"{path}: WarnTarget record receiver differs from owner")
+                        sequences[bot["identity"]] = expected
+                        bucket = counts.setdefault(bot["identity"], {"warn_target": 0, "try_to_duck": 0,
+                                                                       "nested": 0, "invalid": 0})
+                        bucket[record["event"]] += 1
+                        if not record["integrity_valid"]:
+                            bucket["invalid"] += 1
+                        if record["event"] == "warn_target":
+                            warns.setdefault(bot["identity"], set()).add(record["sequence"])
+                        elif record["nested_warn_target_exact"]:
+                            if record["nested_warn_target_sequence"] not in warns.get(bot["identity"], set()):
+                                raise QualityError(f"{path}: TryToDuck link lacks its retained WarnTarget record")
+                            bucket["nested"] += 1
+            for bot in events[-1]["bots"]:
+                bucket = counts.get(bot["identity"], {"warn_target": 0, "try_to_duck": 0,
+                                                        "nested": 0, "invalid": 0})
+                records = sequences.get(bot["identity"], 0)
+                if bot["warn_target_observations_exact"] != bucket["warn_target"] or \
+                        bot["try_to_duck_observations_exact"] != bucket["try_to_duck"] or \
+                        bot["warn_target_exact_nested_try_to_duck_links_exact"] != bucket["nested"]:
+                    raise QualityError(f"{path}: WarnTarget records do not reconcile counters")
+                if records + bot["warn_target_observation_overflows_exact"] != \
+                        bot["warn_target_observations_exact"] + bot["try_to_duck_observations_exact"]:
+                    raise QualityError(f"{path}: WarnTarget observations do not reconcile records")
+                if bot["warn_target_observation_overflows_exact"] or \
+                        bot["warn_target_integrity_failures_exact"] or bucket["invalid"]:
+                    raise QualityError(f"{path}: active WarnTarget observer has incomplete evidence")
     if manifest.get("inventory_direct_reach_support_observer_enabled") is True:
         totals: dict[str, dict[str, int]] = {}
         sequences: dict[str, int] = {}

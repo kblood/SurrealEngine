@@ -86,6 +86,35 @@ SurrealEngine.exe --autoplay --headless-driver=bot-pick-target-fixture `
 The fixture writes `pick-target-fixture-result.txt`, including the two actors,
 visible-candidate result, selected actor, and failure reason.
 
+## WarnTarget / TryToDuck observer
+
+`--botbench-warn-target-observer=1` is a default-off, read-only VM observer for
+the stock `Pawn.WarnTarget(Pawn,float,vector)` and
+`TryToDuck(vector,bool)` script paths. It requires
+`--botbench-pick-target-observer=1`; requesting it alone fails before match
+setup. At setup it discovers the two functions across each live controlled
+bot's class and state ancestry, validates their exact retail signatures, and
+otherwise emits a stable disabled-contract status with a reason.
+
+When active, it records only participant receivers, with bounded per-bot
+records, event type, declaring contract, receiver/state, warning shooter, and
+an exact active-call nesting link from `TryToDuck` to `WarnTarget`. It never
+replaces VM arguments or results and never writes movement, weapon, or target
+state. A missing signature, argument mismatch, non-finite vector, lifecycle
+mismatch, record overflow, or integrity failure makes analyzer evidence
+incomplete. The link is local VM nesting only: it does not claim a causal
+connection to a prior native `PickTarget` call or a later death.
+
+For example:
+
+```powershell
+SurrealEngine.exe --autoplay --headless-driver=bot-benchmark `
+  --botbench-url="DM-Deck16][?Game=Botpack.DeathMatchPlus" `
+  --botbench-output="C:\qa\ut-warn-target" --botbench-bots=16 `
+  --botbench-pick-target-observer=1 --botbench-warn-target-observer=1 `
+  "C:\Games\Unreal Tournament"
+```
+
 The immutable configuration is parsed once from `--botbench-url`,
 `--botbench-output`, `--botbench-seed`, `--botbench-ticks`,
 `--botbench-fixed-delta`, and `--botbench-difficulty`. The optional roster

@@ -3944,3 +3944,28 @@ prove that selection led to evasion. Do not steer by geometry, suppress the
 weapon timers, or alter `WarnTarget`. A future candidate must first retain a
 bounded same-life chain from selected target through warning/evasion, exact
 owned command, harmful-water entry, and terminal outcome.
+
+## Iteration 157: observe warning-to-evasion nesting without changing behavior
+
+The benchmark now has an opt-in, fail-closed VM observer for the downstream
+weapon callbacks that were identified in the `PickTarget` provenance review.
+`--botbench-warn-target-observer=1` is accepted only alongside the existing
+`--botbench-pick-target-observer=1` switch. It discovers the controlled bot's
+class/state ancestry and hooks only exact, validated `WarnTarget(Pawn,float,
+vector)` and `TryToDuck(vector,bool)` contracts. No script is replaced and the
+feature is off by default.
+
+Each controlled receiver has a bounded pending-record queue; the active
+`WarnTarget` stack is independently bounded. The trace records receiver,
+shooter, state, sequence and an exact nested `WarnTarget` to `TryToDuck` link.
+Overflow, a bad contract, or an integrity mismatch disables the observer and
+makes quality analysis reject the run. It deliberately does not claim a link
+to a `PickTarget` query, a command, water entry, or a death.
+
+Headless no-UCC smoke evidence confirms the observer activates and reconciles
+in both adapters: UT436 Deck16-II (16 bots, 600 ticks, seed `271828`) emitted
+one `WarnTarget`; Unreal Gold DeathFan (16 bots, 1,200 ticks, seed `104729`)
+emitted 122. Both runs had zero `TryToDuck` calls, nested links, overflows, and
+integrity failures. This validates collection, not the causal hypothesis; the
+next evidence must join the same-life warning/evasion record to an owned move
+and hazard terminal.

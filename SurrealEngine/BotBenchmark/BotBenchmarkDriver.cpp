@@ -10,6 +10,7 @@
 #include "BotBenchmarkDeathAttributionHookContract.h"
 #include "BotBenchmarkHazardDeathPartition.h"
 #include "BotTargetSelectionHookContract.h"
+#include "BotWarnTargetHookContract.h"
 #include "BotTargetSelectionProbeTracker.h"
 #include "BotBenchmarkProtocol.h"
 #include "BotBenchmarkQualityObservation.h"
@@ -106,6 +107,8 @@ namespace
 				Frame::CallHooks().Unregister(QualityHookHandle);
 			if (TargetSelectionHookHandle != 0)
 				Frame::CallHooks().Unregister(TargetSelectionHookHandle);
+			if (WarnTargetHookHandle != 0)
+				Frame::CallHooks().Unregister(WarnTargetHookHandle);
 		}
 
 		HeadlessDriverConfig GetConfig() const override
@@ -413,6 +416,13 @@ namespace
 			uint64_t PickTargetNoResultWithLivingLineOfSightCandidateExact = 0;
 			uint64_t PickTargetObservationOverflowsExact = 0;
 			uint64_t PickTargetIntegrityFailuresExact = 0;
+			uint64_t WarnTargetObservationsExact = 0;
+			uint64_t TryToDuckObservationsExact = 0;
+			uint64_t WarnTargetExactNestedTryToDuckLinksExact = 0;
+			uint64_t WarnTargetObservationOverflowsExact = 0;
+			uint64_t WarnTargetIntegrityFailuresExact = 0;
+			uint64_t NextWarnTargetSequence = 1;
+			std::vector<BotBenchmarkWarnTargetRecord> PendingWarnTargetRecords;
 			uint64_t NextTargetSelectionSequence = 1;
 			uint64_t NextDirectReachCommandSequence = 1;
 			uint64_t DirectReachCommandObservationsExact = 0;
@@ -435,6 +445,14 @@ namespace
 			UObject* Instance = nullptr;
 			std::string BotIdentity;
 			BotTargetSelectionProbe::ScopeToken Token;
+		};
+
+		struct ActiveWarnTargetCall
+		{
+			UFunction* Function = nullptr;
+			UObject* Instance = nullptr;
+			std::string BotIdentity;
+			uint64_t Sequence = 0;
 		};
 
 		enum class AttributionScopeKind
@@ -2143,6 +2161,233 @@ namespace
 			TargetSelectionHookHandle = Frame::CallHooks().Register(std::move(hook));
 		}
 
+		static BotWarnTargetHookContract::ValueKind WarnTargetPropertyKind(UProperty* property)
+		{
+			using BotWarnTargetHookContract::ValueKind;
+			if (!property)
+				return ValueKind::Unknown;
+			switch (property->ValueType)
+			{
+			case ExpressionValueType::ValueObject: return ValueKind::Object;
+			case ExpressionValueType::ValueFloat: return ValueKind::Float;
+			case ExpressionValueType::ValueVector: return ValueKind::Vector;
+			case ExpressionValueType::ValueBool: return ValueKind::Boolean;
+			default: return ValueKind::Unknown;
+			}
+		}
+
+		static BotWarnTargetHookContract::SignatureShape WarnTargetSignatureShape(UFunction* function)
+		{
+			BotWarnTargetHookContract::SignatureShape signature;
+			if (!function)
+				return signature;
+			signature.FunctionName = function->Name.ToString();
+			for (UField* field = function->Children; field; field = field->Next)
+			{
+				UProperty* property = UObject::TryCast<UProperty>(field);
+				if (!property || !AllFlags(property->PropFlags, PropertyFlags::Parm))
+					continue;
+				BotWarnTargetHookContract::ParameterShape parameter;
+				parameter.Name = property->Name.ToString();
+				parameter.Kind = WarnTargetPropertyKind(property);
+				if (auto objectProperty = UObject::TryCast<UObjectProperty>(property);
+					objectProperty && objectProperty->ObjectClass)
+				{
+					parameter.ObjectClass = objectProperty->ObjectClass->Name.ToString();
+				}
+				if (AllFlags(property->PropFlags, PropertyFlags::ReturnParm))
+					signature.ReturnValue = std::move(parameter);
+				else
+					signature.Parameters.push_back(std::move(parameter));
+			}
+			return signature;
+		}
+
+		void DisableWarnTargetObserver(std::string status, std::string reason)
+		{
+			WarnTargetObserverStatus = std::move(status);
+			WarnTargetObserverReason = std::move(reason);
+			if (WarnTargetHookHandle != 0)
+			{
+				Frame::CallHooks().Unregister(WarnTargetHookHandle);
+				WarnTargetHookHandle = 0;
+			}
+		}
+
+		void AppendWarnTargetRecord(QualityParticipantRuntime& runtime,
+			BotBenchmarkWarnTargetRecord record)
+		{
+			static constexpr size_t maximumQueuedRecords = 1024;
+			if (runtime.PendingWarnTargetRecords.size() < maximumQueuedRecords)
+				runtime.PendingWarnTargetRecords.push_back(std::move(record));
+			else
+				runtime.WarnTargetObservationOverflowsExact++;
+		}
+
+		void FinishWarnTargetCall(UFunction* function, UObject* instance, uint64_t sequence)
+		{
+			if (ActiveWarnTargetCalls.empty())
+				return;
+			const ActiveWarnTargetCall& call = ActiveWarnTargetCalls.back();
+			if (call.Function != function || call.Instance != instance || call.Sequence != sequence)
+			{
+				auto runtime = QualityParticipants.find(call.BotIdentity);
+				if (runtime != QualityParticipants.end())
+					runtime->second.WarnTargetIntegrityFailuresExact++;
+				DisableWarnTargetObserver("disabled_integrity_failure",
+					"WarnTarget call lifecycle was not stack ordered");
+				return;
+			}
+			ActiveWarnTargetCalls.pop_back();
+		}
+
+		void RegisterWarnTargetObserver()
+		{
+			if (!Config.IsWarnTargetObserverEnabled())
+				return;
+			WarnTargetObserverStatus = "disabled_contract_mismatch";
+			WarnTargetObserverReason.clear();
+			std::map<UFunction*, std::string> warnFunctions;
+			std::map<UFunction*, std::string> duckFunctions;
+			for (const auto& [identity, pawn] : CaptureLiveControlledBots())
+			{
+				for (UClass* cls = pawn->Class; cls;
+					cls = UObject::TryCast<UClass>(cls->BaseStruct))
+				{
+					auto inspect = [&](UState* owner)
+					{
+						for (const auto& [name, function] : owner->Functions)
+						{
+							if (!function)
+								continue;
+							if (function->Name == "WarnTarget")
+								warnFunctions.emplace(function, "warn-target-v1:" + owner->Name.ToString());
+							else if (function->Name == "TryToDuck")
+								duckFunctions.emplace(function, "try-to-duck-v1:" + owner->Name.ToString());
+						}
+					};
+					inspect(cls);
+					for (const auto& [name, state] : cls->States)
+						if (state) inspect(state);
+				}
+			}
+			if (warnFunctions.empty() || duckFunctions.empty())
+			{
+				WarnTargetObserverReason = warnFunctions.empty()
+					? "no WarnTarget implementation was discovered"
+					: "no TryToDuck implementation was discovered";
+				return;
+			}
+			for (const auto& [function, contractId] : warnFunctions)
+			{
+				const std::string error = BotWarnTargetHookContract::ValidateWarnTargetSignature(
+					WarnTargetSignatureShape(function));
+				if (!error.empty())
+				{
+					WarnTargetObserverReason = "WarnTarget contract mismatch: " + error;
+					return;
+				}
+			}
+			for (const auto& [function, contractId] : duckFunctions)
+			{
+				const std::string error = BotWarnTargetHookContract::ValidateTryToDuckSignature(
+					WarnTargetSignatureShape(function));
+				if (!error.empty())
+				{
+					WarnTargetObserverReason = "TryToDuck contract mismatch: " + error;
+					return;
+				}
+			}
+			ValidatedWarnTargetFunctions = std::move(warnFunctions);
+			ValidatedTryToDuckFunctions = std::move(duckFunctions);
+			WarnTargetObserverStatus = "active";
+			VMCallHook hook;
+			hook.Enter = [this](UFunction* function, UObject* instance,
+				VMCallArguments& arguments) -> VMCallHookCleanup
+			{
+				UPawn* pawn = UObject::TryCast<UPawn>(instance);
+				const std::string botId = PawnIdentity(pawn);
+				auto runtime = QualityParticipants.find(botId);
+				if (!pawn || runtime == QualityParticipants.end())
+					return {};
+				if (auto warn = ValidatedWarnTargetFunctions.find(function);
+					warn != ValidatedWarnTargetFunctions.end())
+				{
+					runtime->second.WarnTargetObservationsExact++;
+					if (arguments.Size() != 3 || arguments.Values()[0].GetType() != ExpressionValueType::ValueObject ||
+						arguments.Values()[1].GetType() != ExpressionValueType::ValueFloat ||
+						arguments.Values()[2].GetType() != ExpressionValueType::ValueVector)
+					{
+						runtime->second.WarnTargetIntegrityFailuresExact++;
+						DisableWarnTargetObserver("disabled_integrity_failure",
+							"WarnTarget call arguments did not match the validated contract");
+						return {};
+					}
+					const vec3 fireDir = arguments.Values()[2].ToVector();
+					if (!std::isfinite(arguments.Values()[1].ToFloat()) || !std::isfinite(fireDir.x) ||
+						!std::isfinite(fireDir.y) || !std::isfinite(fireDir.z))
+					{
+						runtime->second.WarnTargetIntegrityFailuresExact++;
+						DisableWarnTargetObserver("disabled_integrity_failure",
+							"WarnTarget observed non-finite arguments");
+						return {};
+					}
+					static constexpr size_t maximumActiveWarnTargetCalls = 64;
+					if (ActiveWarnTargetCalls.size() >= maximumActiveWarnTargetCalls)
+					{
+						runtime->second.WarnTargetIntegrityFailuresExact++;
+						DisableWarnTargetObserver("disabled_integrity_failure",
+							"WarnTarget active-call stack capacity was exceeded");
+						return {};
+					}
+					const uint64_t sequence = runtime->second.NextWarnTargetSequence++;
+					AppendWarnTargetRecord(runtime->second, { sequence, 0, "warn_target", warn->second,
+						botId, pawn->GetStateName().ToString(),
+						ActorIdentity(UObject::TryCast<UActor>(arguments.Values()[0].ToObject())), false, true });
+					ActiveWarnTargetCalls.push_back({ function, instance, botId, sequence });
+					return [this, function, instance, sequence]()
+					{
+						FinishWarnTargetCall(function, instance, sequence);
+					};
+				}
+				auto duck = ValidatedTryToDuckFunctions.find(function);
+				if (duck == ValidatedTryToDuckFunctions.end())
+					return {};
+				runtime->second.TryToDuckObservationsExact++;
+				if (arguments.Size() != 2 || arguments.Values()[0].GetType() != ExpressionValueType::ValueVector ||
+					arguments.Values()[1].GetType() != ExpressionValueType::ValueBool)
+				{
+					runtime->second.WarnTargetIntegrityFailuresExact++;
+					DisableWarnTargetObserver("disabled_integrity_failure",
+						"TryToDuck call arguments did not match the validated contract");
+					return {};
+				}
+				const vec3 duckDir = arguments.Values()[0].ToVector();
+				if (!std::isfinite(duckDir.x) || !std::isfinite(duckDir.y) || !std::isfinite(duckDir.z))
+				{
+					runtime->second.WarnTargetIntegrityFailuresExact++;
+					DisableWarnTargetObserver("disabled_integrity_failure", "TryToDuck observed non-finite arguments");
+					return {};
+				}
+				uint64_t nestedWarnSequence = 0;
+				for (auto it = ActiveWarnTargetCalls.rbegin(); it != ActiveWarnTargetCalls.rend(); ++it)
+				{
+					if (it->Instance == instance && it->BotIdentity == botId)
+					{
+						nestedWarnSequence = it->Sequence;
+						break;
+					}
+				}
+				if (nestedWarnSequence != 0)
+					runtime->second.WarnTargetExactNestedTryToDuckLinksExact++;
+				const uint64_t sequence = runtime->second.NextWarnTargetSequence++;
+				AppendWarnTargetRecord(runtime->second, { sequence, nestedWarnSequence, "try_to_duck", duck->second,
+					botId, pawn->GetStateName().ToString(), {}, nestedWarnSequence != 0, true });
+				return {};
+			};
+			WarnTargetHookHandle = Frame::CallHooks().Register(std::move(hook));
+		}
+
 		std::vector<std::pair<std::string, UPawn*>> CaptureLiveControlledBots() const
 		{
 			std::vector<std::pair<std::string, UPawn*>> bots;
@@ -2703,6 +2948,17 @@ namespace
 					bot.PickTargetIntegrityFailuresExact = runtime.PickTargetIntegrityFailuresExact;
 					bot.PickTargetRecords = std::move(runtime.PendingPickTargetRecords);
 					runtime.PendingPickTargetRecords.clear();
+				}
+				if (Config.IsWarnTargetObserverEnabled())
+				{
+					bot.WarnTargetObservationsExact = runtime.WarnTargetObservationsExact;
+					bot.TryToDuckObservationsExact = runtime.TryToDuckObservationsExact;
+					bot.WarnTargetExactNestedTryToDuckLinksExact =
+						runtime.WarnTargetExactNestedTryToDuckLinksExact;
+					bot.WarnTargetObservationOverflowsExact = runtime.WarnTargetObservationOverflowsExact;
+					bot.WarnTargetIntegrityFailuresExact = runtime.WarnTargetIntegrityFailuresExact;
+					bot.WarnTargetRecords = std::move(runtime.PendingWarnTargetRecords);
+					runtime.PendingWarnTargetRecords.clear();
 				}
 				bot.EnvironmentalDeathsExact = runtime.EnvironmentalDeathsExact;
 				bot.HazardExposedDeathsProxy = runtime.HazardExposedDeathsProxy;
@@ -3276,6 +3532,9 @@ namespace
 			event.TargetSelectionObserverStatus = TargetSelectionObserverStatus;
 			event.TargetSelectionObserverReason = TargetSelectionObserverReason;
 			event.PickTargetObserverRequested = Config.IsPickTargetObserverEnabled();
+			event.WarnTargetObserverRequested = Config.IsWarnTargetObserverEnabled();
+			event.WarnTargetObserverStatus = WarnTargetObserverStatus;
+			event.WarnTargetObserverReason = WarnTargetObserverReason;
 			event.InventoryDirectReachSupportObserverRequested =
 				Config.IsInventoryDirectReachSupportObserverEnabled();
 			event.NativePathCommitObserverRequested =
@@ -3318,6 +3577,7 @@ namespace
 			});
 			InitializeNavigationCoverage();
 			RegisterTargetSelectionObserver();
+			RegisterWarnTargetObserver();
 			RegisterQualityHooks();
 		}
 
@@ -3363,10 +3623,16 @@ namespace
 		UFunction* CanonicalAddVelocityFunction = nullptr;
 		VMCallHookHandle QualityHookHandle = 0;
 		VMCallHookHandle TargetSelectionHookHandle = 0;
+		VMCallHookHandle WarnTargetHookHandle = 0;
 		std::map<UFunction*, std::string> ValidatedTargetSelectionFunctions;
 		std::vector<ActiveTargetSelectionCall> ActiveTargetSelectionCalls;
 		std::string TargetSelectionObserverStatus;
 		std::string TargetSelectionObserverReason;
+		std::map<UFunction*, std::string> ValidatedWarnTargetFunctions;
+		std::map<UFunction*, std::string> ValidatedTryToDuckFunctions;
+		std::vector<ActiveWarnTargetCall> ActiveWarnTargetCalls;
+		std::string WarnTargetObserverStatus;
+		std::string WarnTargetObserverReason;
 		std::map<std::string, uint32_t> KilledHookDepths;
 		std::map<UInventory*, uint32_t> PickupTouchDepths;
 		std::unique_ptr<BotBenchmarkQualityObservation::NavigationCoverageAccumulator>
@@ -3409,7 +3675,8 @@ namespace
 			OptionalCommandLineArg("--botbench-inventory-marker-direct-reach-safety"),
 			OptionalCommandLineArg("--botbench-native-path-commit-observer"),
 			OptionalCommandLineArg("--botbench-direct-reach-command-observer"),
-			OptionalCommandLineArg("--botbench-pick-target-observer"));
+			OptionalCommandLineArg("--botbench-pick-target-observer"),
+			OptionalCommandLineArg("--botbench-warn-target-observer"));
 	}
 }
 

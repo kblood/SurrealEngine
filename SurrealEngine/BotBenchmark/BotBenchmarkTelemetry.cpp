@@ -707,6 +707,7 @@ namespace
 	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot,
 		bool targetSelectionObserverRequested,
 		bool pickTargetObserverRequested,
+		bool warnTargetObserverRequested,
 		bool inventoryDirectReachSupportObserverRequested,
 		bool directReachCommandObserverRequested)
 	{
@@ -833,6 +834,34 @@ namespace
 					<< ",\"caller_function\":" << JsonString(record.CallerFunction)
 					<< ",\"selected_actor\":" << JsonString(record.SelectedActor)
 					<< ",\"selected_class\":" << JsonString(record.SelectedClass) << '}';
+			}
+			out << ']';
+		}
+		if (warnTargetObserverRequested)
+		{
+			out << ",\"warn_target_observations_exact\":\"" << bot.WarnTargetObservationsExact << "\""
+				<< ",\"try_to_duck_observations_exact\":\"" << bot.TryToDuckObservationsExact << "\""
+				<< ",\"warn_target_exact_nested_try_to_duck_links_exact\":\""
+				<< bot.WarnTargetExactNestedTryToDuckLinksExact << "\""
+				<< ",\"warn_target_observation_overflows_exact\":\""
+				<< bot.WarnTargetObservationOverflowsExact << "\""
+				<< ",\"warn_target_integrity_failures_exact\":\""
+				<< bot.WarnTargetIntegrityFailuresExact << "\""
+				<< ",\"warn_target_records\":[";
+			for (size_t index = 0; index < bot.WarnTargetRecords.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& record = bot.WarnTargetRecords[index];
+				out << "{\"sequence\":\"" << record.Sequence
+					<< "\",\"nested_warn_target_sequence\":\"" << record.NestedWarnTargetSequence
+					<< "\",\"event\":" << JsonString(record.Event)
+					<< ",\"contract_id\":" << JsonString(record.ContractId)
+					<< ",\"receiver_id\":" << JsonString(record.ReceiverId)
+					<< ",\"receiver_state\":" << JsonString(record.ReceiverState)
+					<< ",\"shooter_id\":" << JsonString(record.ShooterId)
+					<< ",\"nested_warn_target_exact\":"
+					<< (record.NestedWarnTargetExact ? "true" : "false")
+					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false") << '}';
 			}
 			out << ']';
 		}
@@ -1385,6 +1414,8 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< (config.IsTargetSelectionObserverEnabled() ? "1" : "0") << '\n'
 		<< "pick_target_observer_enabled="
 		<< (config.IsPickTargetObserverEnabled() ? "1" : "0") << '\n'
+		<< "warn_target_observer_enabled="
+		<< (config.IsWarnTargetObserverEnabled() ? "1" : "0") << '\n'
 		<< "inventory_direct_reach_support_observer_enabled="
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "1" : "0") << '\n'
 		<< "inventory_marker_direct_reach_safety_enabled="
@@ -1440,6 +1471,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsTargetSelectionObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"pick_target_observer_enabled\": "
 		<< (config.IsPickTargetObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"warn_target_observer_enabled\": "
+		<< (config.IsWarnTargetObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"inventory_direct_reach_support_observer_enabled\": "
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"inventory_marker_direct_reach_safety_enabled\": "
@@ -1482,6 +1515,12 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 	}
 	if (event.PickTargetObserverRequested)
 		out << ",\"pick_target_observer\":{\"requested\":true,\"status\":\"active\"}";
+	if (event.WarnTargetObserverRequested)
+	{
+		out << ",\"warn_target_observer\":{\"requested\":true"
+			<< ",\"status\":" << JsonString(event.WarnTargetObserverStatus)
+			<< ",\"reason\":" << JsonString(event.WarnTargetObserverReason) << '}';
+	}
 	if (event.InventoryDirectReachSupportObserverRequested)
 		out << ",\"inventory_direct_reach_support_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.NativePathCommitObserverRequested)
@@ -1495,6 +1534,7 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 			out << ',';
 		WriteBot(out, event.Bots[index], event.TargetSelectionObserverRequested,
 			event.PickTargetObserverRequested,
+			event.WarnTargetObserverRequested,
 			event.InventoryDirectReachSupportObserverRequested,
 			event.DirectReachCommandObserverRequested);
 	}

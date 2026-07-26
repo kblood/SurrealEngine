@@ -26,6 +26,7 @@ int main()
 		|| defaults.IsTargetlessMoveToTimeoutEnabled()
 		|| defaults.IsTargetSelectionObserverEnabled()
 		|| defaults.IsPickTargetObserverEnabled()
+		|| defaults.IsWarnTargetObserverEnabled()
 		|| defaults.IsInventoryMarkerDirectReachSafetyEnabled()
 		|| defaults.IsNativePathCommitObserverEnabled()
 		|| defaults.IsDirectReachCommandObserverEnabled())
@@ -89,6 +90,19 @@ int main()
 	}
 	if (!rejectedRosterMismatch)
 		return Fail("run configuration accepted a roster/list mismatch");
+
+	bool rejectedUncoupledWarnTargetObserver = false;
+	try
+	{
+		BotBenchmarkRunConfig::Parse({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+			{}, {}, {}, {}, {}, {}, {}, {}, std::string("1"));
+	}
+	catch (const std::invalid_argument&)
+	{
+		rejectedUncoupledWarnTargetObserver = true;
+	}
+	if (!rejectedUncoupledWarnTargetObserver)
+		return Fail("WarnTarget observer was accepted without PickTarget observer");
 
 	std::vector<BotBenchmarkActualParticipant> actualRoster = {
 		{ 1, "pri:2", "Bot2", "Tamer\"lane", "Botpack.Bot" },
@@ -174,6 +188,7 @@ int main()
 		"    \"direct_actor_move_toward_timeout_enabled\": false,\n"
 		"    \"target_selection_observer_enabled\": false,\n"
 		"    \"pick_target_observer_enabled\": false,\n"
+		"    \"warn_target_observer_enabled\": false,\n"
 		"    \"inventory_direct_reach_support_observer_enabled\": false,\n"
 		"    \"inventory_marker_direct_reach_safety_enabled\": false,\n"
 		"    \"native_path_commit_observer_enabled\": false,\n"
