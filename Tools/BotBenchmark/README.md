@@ -78,6 +78,26 @@ It fails if the benchmark stream is incomplete or lacks the complete current
 residence counter group. A reported candidate is an observation only; neither
 candidate presence nor a zone-clear terminal authorizes movement control.
 
+## Collision episode attribution
+
+For telemetry-v2 benchmark runs, partition cumulative `HitWall` increments into
+same-sample recovery transitions, falling/landing, ordinary walking, and other
+contacts without changing gameplay:
+
+```powershell
+python .\Tools\BotBenchmark\Analyze-CollisionEpisodes.py `
+  .\qa\runs\owner-local-run `
+  --output .\qa\runs\owner-local-run\collision-episodes-analysis.json
+```
+
+The report is streaming, bounded to its top 256 records by default, and rejects
+an incomplete stream, counter regression, or an escape without a preceding
+observed recovery attempt. Recovery-lifecycle windows are explicitly temporal
+association, not causal attribution. A wall-loop candidate is deliberately
+strict: a targetless walking `Continue` contact run with at least three contact
+samples and at most 16 units of horizontal displacement. It is a triage signal,
+not proof of a script loop.
+
 ## Owner-local map catalog
 
 Extract a read-only map catalog outside the game root, then validate it before
