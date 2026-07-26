@@ -2032,6 +2032,8 @@ public:
 		DrainFallingParityRealizedRecords();
 	void QueueFallingHazardForecastSource(
 		PawnMovement::FallingHazardForecastSource source);
+	PawnMovement::FallingHazardForecastUpdate PredictFallingHazardTrajectory(
+		const vec3& acceleration);
 	void EnsureFallingHazardGeneration(float physicsSliceElapsed,
 		const vec3& acceleration);
 	bool PrepareFallingHazardSweep(PawnMovement::FallingHazardSweepLeg leg,

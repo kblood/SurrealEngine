@@ -21,6 +21,7 @@
 #include "PawnWallAdjustment.h"
 #include "PawnWallAdjustRecovery.h"
 #include "PawnHazardWaterEgressRouteCertificate.h"
+#include "PawnFallingAirRecoverySelector.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
 #include "BotAI/FallingHazardRecoveryGate.h"
 #include "BotAI/HazardSwimEgressGate.h"
@@ -7554,6 +7555,26 @@ std::vector<PawnMovement::FallingParityRealizedRecord>
 	return records;
 }
 
+PawnMovement::FallingHazardForecastUpdate UPawn::PredictFallingHazardTrajectory(
+	const vec3& acceleration)
+{
+	using namespace PawnMovement;
+	FallingHazardForecastInput input;
+	if (Physics() != PHYS_Falling || !IsFiniteVector(Location()) || !IsFiniteVector(Velocity())
+		|| !IsFiniteVector(acceleration))
+	{
+		return BeginFallingHazardForecast(input);
+	}
+	input.State.Location = Location();
+	input.State.Velocity = Velocity();
+	input.Acceleration = acceleration;
+	input.GroundSpeed = GroundSpeed();
+	input.PhysicsSliceElapsed = 1.0f / 60.0f;
+	input.Bounce = bBounce();
+	input.StartingZones = BuildFallingHazardPointObservation(this, Location());
+	return CompleteFallingHazardForecast(this, input);
+}
+
 void UPawn::QueueFallingHazardForecastSource(
 	PawnMovement::FallingHazardForecastSource source)
 {
@@ -7592,6 +7613,8 @@ void UPawn::ObserveExternalImpulseFallWitness(
 		&& maximumAirAcceleration > 0.0f;
 	size_t alternativesTested = 0;
 	size_t staticDryAlternatives = 0;
+	std::array<FallingAirRecoveryCandidate,
+		FallingAirRecoveryMaximumCandidates> alternatives = {};
 	if (baselineHarmful && airControlAvailable)
 	{
 		const std::array<vec2, 8> directions = {
@@ -7606,19 +7629,11 @@ void UPawn::ObserveExternalImpulseFallWitness(
 			alternativeInput.Acceleration = vec3(direction * maximumAirAcceleration, 0.0f);
 			const FallingHazardForecastUpdate alternative =
 				CompleteFallingHazardForecast(this, alternativeInput);
-			alternativesTested++;
-			if (alternative.Complete
-				&& alternative.Result.Classification
-					== FallingHazardForecast::NoHarmfulPainObserved
-				&& alternative.Result.Reason
-					== FallingHazardForecastReason::NoHarmfulPainAtStaticLanding
-				&& std::isfinite(alternative.Result.Elapsed)
-				&& alternative.Result.Elapsed <= input.MaximumElapsed
-					+ FallingHazardForecastElapsedTolerance)
-			{
-				staticDryAlternatives++;
-			}
+			alternatives[alternativesTested++] = { direction, alternative };
 		}
+		const FallingAirRecoverySelection selection =
+			SelectFallingAirRecoveryTrajectory(alternatives, alternativesTested);
+		staticDryAlternatives = selection.CertifiedLandingCount;
 	}
 	const ExternalImpulseFallWitnessResult result =
 		EvaluateExternalImpulseFallWitness({

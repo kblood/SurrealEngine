@@ -3398,3 +3398,29 @@ pre-move anchor: that vector differs from the viable direction and the anchor
 experiment entered harmful water. Any implementation must predict the landing
 without mutating live state, require a safe landing certificate, preserve
 default stock behavior, and then pass repeated Unreal and UT qualification.
+
+## Iteration 132: safe live trajectory is not yet forecast-certifiable
+
+The v12 fixture calls the existing collision-and-zone-complete falling forecast
+from the exact v8 fall snapshot for the same eight bounded air-control
+directions, then passes the results through a new pure selector. The selector
+accepts only a finite, unit-direction candidate that ends in
+`NoHarmfulPainAtStaticLanding`, without transient harmful pain; it makes no
+movement writes and is covered by a dedicated unit test. It is also used by the
+existing external-impulse observer so the safety contract is not fixture-only.
+
+The correct outcome here is **no selection**. All eight candidate forecasts
+complete as `Unknown` with `HitWallCallbackRequired` after 15 or 16 forecast
+segments (0.25 or 0.266667 seconds), including northeast. The same fixture's
+live, bounded physics sweep still finds northeast safe. This is a verified
+forecast-parity gap, not evidence that the northeast direction is safe to
+enable. Artifact:
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v12-forecast-selector-diagnostics/`.
+
+Consequently no runtime recovery behavior is enabled or changed. The direct
+anchor maneuver remains rejected. The next permitted implementation step is a
+fail-closed callback/parity investigation: capture the relevant static-world
+hit and callback boundary for the northeast trajectory, then either extend the
+predictor with a demonstrably exact callback model or retain the no-action
+result. A generic `HitWall` approximation, an anchor heuristic, and any
+navigation-endpoint veto remain disallowed.

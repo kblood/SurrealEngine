@@ -580,6 +580,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnFallingHazardDiagnostics.h
 	SurrealEngine/UObject/PawnFallingHazardForecast.cpp
 	SurrealEngine/UObject/PawnFallingHazardForecast.h
+	SurrealEngine/UObject/PawnFallingAirRecoverySelector.cpp
+	SurrealEngine/UObject/PawnFallingAirRecoverySelector.h
 	SurrealEngine/UObject/PawnFallingHazardRuntimeObserver.cpp
 	SurrealEngine/UObject/PawnFallingHazardRuntimeObserver.h
 	SurrealEngine/UObject/PawnDirectHarmfulWaterEntryCertificate.cpp
@@ -1505,6 +1507,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PawnFallingHazardForecastTests PRIVATE SurrealEngine)
 	set_target_properties(PawnFallingHazardForecastTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnFallingHazardForecast COMMAND PawnFallingHazardForecastTests)
+
+	add_executable(PawnFallingAirRecoverySelectorTests
+		Tests/PawnFallingAirRecoverySelectorTests.cpp
+		SurrealEngine/UObject/PawnFallingAirRecoverySelector.cpp
+	)
+	target_include_directories(PawnFallingAirRecoverySelectorTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingAirRecoverySelectorTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingAirRecoverySelector COMMAND PawnFallingAirRecoverySelectorTests)
 
 	add_executable(PawnFallingHazardRuntimeObserverTests
 		Tests/PawnFallingHazardRuntimeObserverTests.cpp

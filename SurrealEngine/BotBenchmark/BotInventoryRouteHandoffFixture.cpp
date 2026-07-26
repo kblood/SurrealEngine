@@ -7,6 +7,7 @@
 #include "Engine.h"
 #include "Runtime/HeadlessDriver.h"
 #include "UObject/UActor.h"
+#include "UObject/PawnFallingAirRecoverySelector.h"
 #include "UObject/ULevel.h"
 #include "UObject/UMesh.h"
 #include "Utils/CommandLine.h"
@@ -121,7 +122,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v11\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v12\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -147,6 +148,8 @@ namespace
 			<< "live_navigation_anchor_recovery_attempted=" << (result.LiveNavigationAnchorRecoveryAttempted ? "true" : "false") << "\n"
 			<< "live_navigation_anchor_recovery_safe_landing=" << (result.LiveNavigationAnchorRecoverySafeLanding ? "true" : "false") << "\n"
 			<< "live_navigation_anchor_recovery_harmful_entry=" << (result.LiveNavigationAnchorRecoveryHarmfulEntry ? "true" : "false") << "\n"
+			<< "live_navigation_forecast_selected=" << (result.LiveNavigationForecastSelected ? "true" : "false") << "\n"
+			<< "live_navigation_forecast_selected_direction_live_safe=" << (result.LiveNavigationForecastSelectedDirectionLiveSafe ? "true" : "false") << "\n"
 			<< "pawn_actor=" << result.PawnActor << "\n"
 			<< "marker_actor=" << result.MarkerActor << "\n"
 			<< "inventory_actor=" << result.InventoryActor << "\n"
@@ -169,7 +172,10 @@ namespace
 			<< "live_navigation_anchor_recovery_ticks=" << result.LiveNavigationAnchorRecoveryTicks << "\n"
 			<< "live_navigation_air_recovery_directions_tested=" << result.LiveNavigationAirRecoveryDirectionsTested << "\n"
 			<< "live_navigation_air_recovery_safe_landings=" << result.LiveNavigationAirRecoverySafeLandings << "\n"
+			<< "live_navigation_forecast_certified_landings=" << result.LiveNavigationForecastCertifiedLandings << "\n"
 			<< "first_live_navigation_air_recovery_safe_direction=" << result.FirstLiveNavigationAirRecoverySafeDirection << "\n"
+			<< "live_navigation_forecast_selected_direction=" << result.LiveNavigationForecastSelectedDirection << "\n"
+			<< "live_navigation_forecast_outcomes=" << result.LiveNavigationForecastOutcomes << "\n"
 			<< "live_navigation_fall_location=" << result.LiveNavigationFallLocation << "\n"
 			<< "first_live_navigation_air_recovery_safe_landing_location=" << result.FirstLiveNavigationAirRecoverySafeLandingLocation << "\n"
 			<< "first_safe_navigation_candidate_actor=" << result.FirstSafeNavigationCandidateActor << "\n"
@@ -505,6 +511,45 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		const float recoveryAccelerationMagnitude = pawn->AirControl() * pawn->AccelRate();
 		if (std::isfinite(recoveryAccelerationMagnitude) && recoveryAccelerationMagnitude > 0.0f)
 		{
+			const std::array<vec2, PawnMovement::FallingAirRecoveryMaximumCandidates>
+				directions = {
+					vec2(1.0f, 0.0f), vec2(-1.0f, 0.0f), vec2(0.0f, 1.0f), vec2(0.0f, -1.0f),
+					normalize(vec2(1.0f, 1.0f)), normalize(vec2(1.0f, -1.0f)),
+					normalize(vec2(-1.0f, 1.0f)), normalize(vec2(-1.0f, -1.0f)) };
+			std::array<PawnMovement::FallingAirRecoveryCandidate,
+				PawnMovement::FallingAirRecoveryMaximumCandidates> candidates = {};
+			for (size_t index = 0; index < directions.size(); index++)
+			{
+				candidates[index].Direction = directions[index];
+				candidates[index].Forecast = pawn->PredictFallingHazardTrajectory(
+					vec3(directions[index] * recoveryAccelerationMagnitude, 0.0f));
+				if (index != 0)
+					result.LiveNavigationForecastOutcomes += ";";
+				const PawnMovement::FallingHazardForecastResult& forecast =
+					candidates[index].Forecast.Result;
+				std::ostringstream outcome;
+				outcome.imbue(std::locale::classic());
+				outcome << index << "," << (candidates[index].Forecast.Complete ? 1 : 0)
+					<< "," << static_cast<int>(forecast.Classification)
+					<< "," << static_cast<int>(forecast.Reason)
+					<< "," << forecast.Elapsed << "," << forecast.SegmentCount;
+				result.LiveNavigationForecastOutcomes += outcome.str();
+			}
+			const PawnMovement::FallingAirRecoverySelection forecastSelection =
+				PawnMovement::SelectFallingAirRecoveryTrajectory(candidates, candidates.size());
+			result.LiveNavigationForecastCertifiedLandings =
+				forecastSelection.CertifiedLandingCount;
+			result.LiveNavigationForecastSelected = forecastSelection.Decision
+				== PawnMovement::FallingAirRecoverySelectionDecision::Selected;
+			if (result.LiveNavigationForecastSelected)
+			{
+				std::ostringstream directionText;
+				directionText.imbue(std::locale::classic());
+				directionText << forecastSelection.Direction.x << ","
+					<< forecastSelection.Direction.y;
+				result.LiveNavigationForecastSelectedDirection = directionText.str();
+			}
+
 			result.LiveNavigationAnchorRecoveryAttempted = true;
 			pawn->MoveTarget() = nullptr;
 			pawn->MoveTimer() = 0.0f;
@@ -532,10 +577,6 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 					break;
 				}
 			}
-			const std::array<vec2, 8> directions = {
-				vec2(1.0f, 0.0f), vec2(-1.0f, 0.0f), vec2(0.0f, 1.0f), vec2(0.0f, -1.0f),
-				normalize(vec2(1.0f, 1.0f)), normalize(vec2(1.0f, -1.0f)),
-				normalize(vec2(-1.0f, 1.0f)), normalize(vec2(-1.0f, -1.0f)) };
 			for (const vec2& direction : directions)
 			{
 				if (!pawn->SetLocation(fallLocation))
@@ -557,6 +598,11 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 						&& !footZone->bWaterZone())
 					{
 						result.LiveNavigationAirRecoverySafeLandings++;
+						if (result.LiveNavigationForecastSelected
+							&& dot(direction, forecastSelection.Direction) > 0.999f)
+						{
+							result.LiveNavigationForecastSelectedDirectionLiveSafe = true;
+						}
 						if (result.FirstLiveNavigationAirRecoverySafeDirection.empty())
 						{
 							std::ostringstream directionText;
