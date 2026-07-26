@@ -3729,3 +3729,29 @@ outcome. Only a low-health, unassisted, non-combat episode with a certified
 causal exit can authorize a future bounded waypoint candidate. Qualification
 must retain exact death partitions, contacts, coverage, combat, exposure, and
 per-episode outcomes across the UT seed matrix and held-out Unreal anchors.
+
+## Iteration 147: certify harmful-residence PainTimer evidence
+
+The hazard-residence observer now creates one bounded native terminal witness
+immediately before its residence-death resolution. It preserves the health at
+harmful entry, harmful duration, direct-safe candidate state, and command-life
+ownership. The driver finalizes that witness only when the existing scoped VM
+death attribution resolves to `PainTimer`; the offline analyzer rejects a
+missing, ambiguous, or mismatched terminal. A generic death sampled near water
+therefore remains non-causal, rather than becoming a claimed drowning.
+
+The observer slice is behavior-neutral and passes its native observer and
+telemetry tests, 51 Python analyzer/quality tests, and a headless UT smoke with
+zero qualifying deaths/zero causal claims. It does not authorize a route or
+movement write. Use the next activating capture to find an unassisted,
+low-health, command-owned PainTimer episode before proposing a corrective
+policy.
+
+Separately, the pre-existing egress observer was qualified as deterministic and
+behavior-neutral on its own pre-change binary: UT436 Deck16-II seed-`271828`
+observer r1/r2 preserve K8/D12/S4, four environmental deaths, 403 contacts,
+and record six authorized episodes with 160 direct-nav probes/11 safe
+candidates; Unreal Gold DeathFan seed-`104729` preserves K12/D19/S7, five
+environmental deaths, and 188 contacts across exact r1/r2 repeats. This is
+baseline observer evidence only—not qualification of the new residence fields
+or a live egress policy.
