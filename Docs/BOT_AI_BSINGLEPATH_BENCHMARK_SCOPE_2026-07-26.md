@@ -1,6 +1,6 @@
 # `bSinglePath` benchmark-scope audit
 
-Date: 2026-07-26  
+Date: 2026-07-26
 Scope: stock UT436 and Unreal Gold 226b bot matches only; static review of the
 retail script exports and retained controlled-map evidence. No game was
 launched and no UCC tool was used.
