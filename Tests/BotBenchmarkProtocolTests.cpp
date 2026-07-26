@@ -32,6 +32,8 @@ int main()
 		|| defaults.IsReachSpecCapabilityObserverEnabled()
 		|| defaults.IsDirectReachCommandObserverEnabled())
 		return Fail("default bot benchmark configuration or roster was incorrect");
+	if (defaults.GetShadowPolicySet() != std::vector<std::string>{ "tactical-state", "utility-arena" })
+		return Fail("default shadow policy set was not stable and canonical");
 
 	const BotBenchmarkRunConfig parsed = BotBenchmarkRunConfig::Parse(
 		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
@@ -200,6 +202,7 @@ int main()
 		"    \"fixed_delta\": 0.020000000,\n"
 		"    \"difficulty\": 7,\n"
 		"    \"bot_count\": 2,\n"
+		"    \"shadow_policy_set\": [\"tactical-state\", \"utility-arena\"],\n"
 		"    \"harmful_zone_escape_enabled\": false,\n"
 		"    \"walking_preflight_positive_dps_veto_enabled\": false,\n"
 		"    \"hazard_swim_egress_enabled\": false,\n"
