@@ -3834,3 +3834,54 @@ components and the analyzer validates their contract. The golden JSON now
 includes the zero-sample/null-percentile default component values, and the
 rebuilt Release `BotBenchmarkProtocol` CTest passes. This restores the exact
 protocol check without changing benchmark behavior or telemetry semantics.
+
+## Iteration 153: repair native `PickTarget` living-pawn selection
+
+`UPawn::PickTarget` was shared native code used by both adapters, but its
+predicate skipped `Health() > 0` despite the adjacent comment saying to skip
+dead pawns. Consequently, every living candidate was rejected before the
+geometry and line-of-sight checks. The correction is the semantic inverse of
+that typo: reject `Health() <= 0` instead.
+
+The bounded, default-off observer first established the live failure on UT436
+Deck16-II: in the 1,200-tick seed-`271828` run it saw 13 native queries,
+179 living candidates skipped, two living line-of-sight-eligible candidates,
+and two no-result cases. The Unreal Gold DeathFan probe exercised the same
+native function (six queries and 57 living candidates skipped), though that
+particular short fixture contained no line-of-sight-eligible candidate.
+
+The no-UCC `bot-pick-target-fixture` directly invokes the real native call
+against two visible bots. With the repair, it selects the living opponent in
+both UT436 Deck16-II and Unreal Gold 226b DeathFan. Release compilation and
+the focused protocol, telemetry, and analyzer tests pass.
+
+An organic UT436 Deck16-II 16-bot seed-`271828` 7,200-tick probe now records
+119 native queries, 1,603 living candidates, 16 living line-of-sight-eligible
+candidates, and 16 returned living targets. It has zero skipped-living,
+no-result-with-eligible, overflow, or integrity-failure counters. A second
+independent run reproduces those exact counters and its combat totals
+(27 kills, 50 deaths, 23 suicides, and 4,287 opponent damage). The complete
+large-trace comparator exceeded its 184-second host limit, so only the exact
+analyzer counters are currently claimed as repeat evidence.
+
+An isolated executable built at the immediate pre-fix commit supplies the
+first causal before/after pair. On that UT seed, stock has 66 calls, 870
+living candidates skipped, ten LOS-eligible no-result cases, 33 kills, 51
+deaths, 18 suicides, and 4,606 opponent damage. The repair removes all ten
+missed selections but produces 27 kills, 50 deaths, 23 suicides, and 4,287
+damage. It is therefore a genuine selection correction but a quality
+regression on this UT fixture.
+
+The matched Unreal Gold 226b DeathFan 16-bot seed-`104729` pair moves in the
+opposite direction. Stock skips 660 living candidates and misses 23 of 30
+LOS-eligible queries; the repair returns all 17 eligible living targets it
+observes. Aggregate outcomes improve from 50 kills, 113 deaths, 63 suicides,
+6,749 damage, and 107/116 route nodes to 59 kills, 107 deaths, 48 suicides,
+7,504 damage, and 109/116 nodes.
+
+Do not merge this unconditional shared-engine change as a bot-quality
+improvement yet: the UT regression and Unreal improvement make its effect
+adapter/map dependent. The next gate is a wider UT seed/map matrix plus
+additional Unreal anchors, followed by an adapter-scoped integration decision
+if the regression persists. Preserve the semantic fixture and observer; they
+are the exact evidence needed to evaluate a compatibility-gated design.
