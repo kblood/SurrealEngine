@@ -3969,3 +3969,30 @@ emitted 122. Both runs had zero `TryToDuck` calls, nested links, overflows, and
 integrity failures. This validates collection, not the causal hypothesis; the
 next evidence must join the same-life warning/evasion record to an owned move
 and hazard terminal.
+
+## Iteration 158: retain causal identity while keeping handoff unknown
+
+The default-off PickTarget/WarnTarget observer envelope now records an
+observer tick, actor index, life ID, and lazily assigned VM-frame invocation
+token. Serialization and the quality analyzer require these fields as a
+complete group whenever the new record form is emitted. The direct-reach
+command records are also parsed with their exact life, activation, and terminal
+provenance so later analysis can reject partial or contradictory joins.
+
+This does **not** create a causal score or authorize a behavior change. Native
+`PickTarget` returns before the later script warning path, and the available
+streams still do not retain an exact, behavior-neutral selection-to-command
+handoff. Any missing or ambiguous relation therefore remains unknown rather
+than being inferred from time alone. A live Unreal Gold DeathFan 16-bot,
+1,200-tick seed-`104729` no-UCC run exercised the new format: the observer was
+active and a `WarnTarget` record at tick 39 retained invocation token 2,
+receiver/shooter actor identities, and receiver life 1. The no-UCC Release
+build, focused CTests, and 45 analyzer tests passed.
+
+The new held-out one-repeat comparisons further disqualify a universal merge
+of the predicate repair: on UT436 Pressure it raises coverage but also stalls
+and lowers kills; on Unreal Gold Tundra it improves kills/stalls but lowers
+coverage and raises deaths. See
+`BOT_AI_PICKTARGET_HELDOUT_EVIDENCE_2026-07-26.md`. Retain stock behavior as
+the release recommendation while seeking a command-handoff witness or a
+separately qualified, bounded corrective candidate.
