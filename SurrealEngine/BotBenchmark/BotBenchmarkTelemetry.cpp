@@ -910,7 +910,8 @@ namespace
 			{
 				if (index) out << ',';
 				const auto& record = bot.WarningDodgeLaunchRecords[index];
-				out << "{\"sequence\":\"" << record.Sequence
+				out << "{\"launch_token\":\"" << record.LaunchToken
+					<< "\",\"sequence\":\"" << record.Sequence
 					<< "\",\"nested_warn_target_sequence\":\"" << record.NestedWarnTargetSequence
 					<< "\",\"observer_tick\":\"" << record.ObserverTick
 					<< "\",\"caller_invocation_token\":\"" << record.CallerInvocationToken
@@ -930,6 +931,29 @@ namespace
 					<< ",\"post_state\":" << JsonString(record.PostState)
 					<< ",\"post_latent_action\":" << JsonString(record.PostLatentAction)
 					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false") << '}';
+			}
+			out << ']'
+				<< ",\"warning_dodge_terminal_outcomes_exact\":\""
+				<< bot.WarningDodgeTerminalOutcomesExact << "\""
+				<< ",\"warning_dodge_terminal_unknown_exact\":\""
+				<< bot.WarningDodgeTerminalUnknownExact << "\""
+				<< ",\"warning_dodge_terminal_overflows_exact\":\""
+				<< bot.WarningDodgeTerminalOverflowsExact << "\""
+				<< ",\"warning_dodge_terminal_records\":[";
+			for (size_t index = 0; index < bot.WarningDodgeTerminalRecords.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& record = bot.WarningDodgeTerminalRecords[index];
+				out << "{\"launch_token\":\"" << record.LaunchToken
+					<< "\",\"launch_sequence\":\"" << record.LaunchSequence
+					<< "\",\"receiver_life_id\":\"" << record.ReceiverLifeId
+					<< "\",\"receiver_actor_index\":" << record.ReceiverActorIndex
+					<< ",\"terminal_tick\":\"" << record.TerminalTick
+					<< "\",\"water_egress_sequence\":\"" << record.WaterEgressSequence
+					<< "\",\"outcome\":" << JsonString(record.Outcome)
+					<< ",\"unknown_reason\":" << JsonString(record.UnknownReason)
+					<< ",\"integrity_valid\":"
+					<< (record.IntegrityValid ? "true" : "false") << '}';
 			}
 			out << ']';
 		}

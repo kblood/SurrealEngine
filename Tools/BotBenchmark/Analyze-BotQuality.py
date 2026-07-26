@@ -535,7 +535,13 @@ WARNING_DODGE_LAUNCH_COUNTERS = (
     "warning_dodge_launches_exact",
     "warning_dodge_launch_overflows_exact",
 )
-OPTIONAL_EXACT_COUNTERS += WARN_TARGET_COUNTERS + WARNING_DODGE_LAUNCH_COUNTERS
+WARNING_DODGE_TERMINAL_COUNTERS = (
+    "warning_dodge_terminal_outcomes_exact",
+    "warning_dodge_terminal_unknown_exact",
+    "warning_dodge_terminal_overflows_exact",
+)
+OPTIONAL_EXACT_COUNTERS += (WARN_TARGET_COUNTERS + WARNING_DODGE_LAUNCH_COUNTERS
+                            + WARNING_DODGE_TERMINAL_COUNTERS)
 INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS = (
     "inventory_direct_reach_support_observations_exact",
     "inventory_direct_reach_support_safe_supported_exact",
@@ -4207,6 +4213,7 @@ def _validate_bot(raw: Any, context: str, schema: str,
                     velocity = _object(item.get("launch_velocity"), f"{record_context}.launch_velocity")
                     acceleration = _object(item.get("launch_acceleration"), f"{record_context}.launch_acceleration")
                     parsed_launches.append({
+                        "launch_token": _integer(item.get("launch_token"), f"{record_context}.launch_token", minimum=1),
                         "sequence": _integer(item.get("sequence"), f"{record_context}.sequence", minimum=1),
                         "nested_warn_target_sequence": _integer(item.get("nested_warn_target_sequence"), f"{record_context}.nested_warn_target_sequence", minimum=1),
                         "observer_tick": _integer(item.get("observer_tick"), f"{record_context}.observer_tick", minimum=0),
@@ -4229,6 +4236,54 @@ def _validate_bot(raw: Any, context: str, schema: str,
                     bot.get("warning_dodge_launch_overflows_exact"),
                     f"{context}.warning_dodge_launch_overflows_exact", minimum=0)
                 result["warning_dodge_launch_records"] = parsed_launches
+            if "warning_dodge_terminal_records" in bot:
+                terminal_counter_present = [name for name in WARNING_DODGE_TERMINAL_COUNTERS
+                                            if name in result]
+                if len(terminal_counter_present) != len(WARNING_DODGE_TERMINAL_COUNTERS):
+                    raise QualityError(f"{context}: warning-dodge terminal counters must be provided as a complete group")
+                records = bot.get("warning_dodge_terminal_records")
+                if not isinstance(records, list):
+                    raise QualityError(f"{context}.warning_dodge_terminal_records must be an array")
+                parsed_terminals = []
+                for index, record in enumerate(records):
+                    record_context = f"{context}.warning_dodge_terminal_records[{index}]"
+                    item = _object(record, record_context)
+                    outcome = _string(item, "outcome", record_context, nonempty=True)
+                    reason = _string(item, "unknown_reason", record_context)
+                    if outcome not in ("harmful_water_exit", "harmful_water_death", "unknown"):
+                        raise QualityError(f"{record_context}.outcome is not recognized")
+                    if outcome == "unknown":
+                        if reason not in ("life_boundary", "physics_transition", "command_transition",
+                                          "superseded_launch", "timeout", "run_end",
+                                          "unproven_water_terminal"):
+                            raise QualityError(f"{record_context}.unknown_reason is not recognized")
+                    elif reason:
+                        raise QualityError(f"{record_context}: known warning-dodge terminal must not have an unknown reason")
+                    water_sequence = _integer(item.get("water_egress_sequence"),
+                                              f"{record_context}.water_egress_sequence", minimum=0)
+                    if (outcome != "unknown") != (water_sequence != 0):
+                        raise QualityError(f"{record_context}: water terminal linkage is inconsistent")
+                    parsed_terminals.append({
+                        "launch_token": _integer(item.get("launch_token"), f"{record_context}.launch_token", minimum=1),
+                        "launch_sequence": _integer(item.get("launch_sequence"), f"{record_context}.launch_sequence", minimum=1),
+                        "receiver_life_id": _integer(item.get("receiver_life_id"), f"{record_context}.receiver_life_id", minimum=1),
+                        "receiver_actor_index": _strict_integer(item.get("receiver_actor_index"), f"{record_context}.receiver_actor_index", minimum=0),
+                        "terminal_tick": _integer(item.get("terminal_tick"), f"{record_context}.terminal_tick", minimum=0),
+                        "water_egress_sequence": water_sequence,
+                        "outcome": outcome,
+                        "unknown_reason": reason,
+                        "integrity_valid": _boolean(item.get("integrity_valid"), f"{record_context}.integrity_valid"),
+                    })
+                result["warning_dodge_terminal_outcomes_exact"] = _integer(
+                    bot.get("warning_dodge_terminal_outcomes_exact"),
+                    f"{context}.warning_dodge_terminal_outcomes_exact", minimum=0)
+                result["warning_dodge_terminal_unknown_exact"] = _integer(
+                    bot.get("warning_dodge_terminal_unknown_exact"),
+                    f"{context}.warning_dodge_terminal_unknown_exact", minimum=0)
+                result["warning_dodge_terminal_overflows_exact"] = _integer(
+                    bot.get("warning_dodge_terminal_overflows_exact"),
+                    f"{context}.warning_dodge_terminal_overflows_exact", minimum=0)
+                result["warning_dodge_terminal_records"] = parsed_terminals
         elif warn_target_present:
             raise QualityError(f"{context}: WarnTarget counter group requires records")
         if "direct_reach_command_records" in bot:
@@ -4629,6 +4684,10 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             tries: dict[str, dict[int, dict[str, Any]]] = {}
             outcome_counts: dict[str, int] = {}
             launch_counts: dict[str, int] = {}
+            launches_by_token: dict[str, dict[int, dict[str, Any]]] = {}
+            terminal_counts: dict[str, dict[str, int]] = {}
+            terminal_tokens: dict[str, set[int]] = {}
+            water_terminals: dict[str, set[tuple[int, int, str]]] = {}
             for event in events:
                 for bot in event["bots"]:
                     if any(name not in bot for name in WARN_TARGET_COUNTERS):
@@ -4679,7 +4738,48 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                                     "caller_invocation_token", "receiver_life_id",
                                     "receiver_actor_index")):
                                 raise QualityError(f"{path}: warning-dodge launch provenance differs from TryToDuck")
+                            tokens = launches_by_token.setdefault(bot["identity"], {})
+                            if launch["launch_token"] in tokens:
+                                raise QualityError(f"{path}: warning-dodge launch token was reused")
+                            tokens[launch["launch_token"]] = launch
                             launch_counts[bot["identity"]] = launch_counts.get(bot["identity"], 0) + 1
+                    if "warning_dodge_terminal_records" not in bot:
+                        raise QualityError(f"{path}: active WarnTarget observer lacks warning-dodge terminal records")
+                    if bot.get("warning_dodge_terminal_overflows_exact", 0) != 0:
+                        raise QualityError(f"{path}: warning-dodge terminal evidence overflowed")
+                    for diagnostic in bot.get("hazard_water_egress_diagnostics", []):
+                        if diagnostic["terminal"] in ("primary_zone_cleared", "death_before_exit") \
+                                and diagnostic["damage_per_second"] > 0.0:
+                            water_terminals.setdefault(bot["identity"], set()).add(
+                                (diagnostic["sequence"], diagnostic["life_id"], diagnostic["terminal"]))
+                    for terminal in bot["warning_dodge_terminal_records"]:
+                        launch = launches_by_token.get(bot["identity"], {}).get(terminal["launch_token"])
+                        if launch is None or not terminal["integrity_valid"]:
+                            raise QualityError(f"{path}: warning-dodge terminal lacks a valid retained launch")
+                        if any(terminal[name] != launch[mapped] for name, mapped in (
+                                ("launch_sequence", "sequence"),
+                                ("receiver_life_id", "receiver_life_id"),
+                                ("receiver_actor_index", "receiver_actor_index"))):
+                            raise QualityError(f"{path}: warning-dodge terminal provenance differs from launch")
+                        if terminal["terminal_tick"] < launch["observer_tick"]:
+                            raise QualityError(f"{path}: warning-dodge terminal predates its launch")
+                        used = terminal_tokens.setdefault(bot["identity"], set())
+                        if terminal["launch_token"] in used:
+                            raise QualityError(f"{path}: warning-dodge launch has multiple terminals")
+                        used.add(terminal["launch_token"])
+                        if terminal["outcome"] == "harmful_water_exit":
+                            expected_water = (terminal["water_egress_sequence"],
+                                              terminal["receiver_life_id"], "primary_zone_cleared")
+                            if expected_water not in water_terminals.get(bot["identity"], set()):
+                                raise QualityError(f"{path}: warning-dodge water exit lacks a harmful-water witness")
+                        elif terminal["outcome"] == "harmful_water_death":
+                            expected_water = (terminal["water_egress_sequence"],
+                                              terminal["receiver_life_id"], "death_before_exit")
+                            if expected_water not in water_terminals.get(bot["identity"], set()):
+                                raise QualityError(f"{path}: warning-dodge water death lacks a harmful-water witness")
+                        counts_for_bot = terminal_counts.setdefault(bot["identity"], {
+                            "known": 0, "unknown": 0})
+                        counts_for_bot["unknown" if terminal["outcome"] == "unknown" else "known"] += 1
             for bot in events[-1]["bots"]:
                 bucket = counts.get(bot["identity"], {"warn_target": 0, "try_to_duck": 0,
                                                         "nested": 0, "invalid": 0})
@@ -4699,6 +4799,13 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 if "warning_dodge_launch_records" in bot and \
                         bot["warning_dodge_launches_exact"] != launch_counts.get(bot["identity"], 0):
                     raise QualityError(f"{path}: warning-dodge launch records do not reconcile counters")
+                terminal_bucket = terminal_counts.get(bot["identity"], {"known": 0, "unknown": 0})
+                if bot["warning_dodge_terminal_outcomes_exact"] != terminal_bucket["known"] \
+                        or bot["warning_dodge_terminal_unknown_exact"] != terminal_bucket["unknown"]:
+                    raise QualityError(f"{path}: warning-dodge terminal records do not reconcile counters")
+                if (terminal_bucket["known"] + terminal_bucket["unknown"]
+                        != launch_counts.get(bot["identity"], 0)):
+                    raise QualityError(f"{path}: every warning-dodge launch requires exactly one terminal")
     if manifest.get("inventory_direct_reach_support_observer_enabled") is True:
         totals: dict[str, dict[str, int]] = {}
         sequences: dict[str, int] = {}

@@ -141,6 +141,7 @@ struct BotBenchmarkTryToDuckOutcomeRecord
 // handoff and the state that script left for native physics.
 struct BotBenchmarkWarningDodgeLaunchRecord
 {
+	uint64_t LaunchToken = 0;
 	uint64_t Sequence = 0;
 	uint64_t NestedWarnTargetSequence = 0;
 	uint64_t ObserverTick = 0;
@@ -160,6 +161,19 @@ struct BotBenchmarkWarningDodgeLaunchRecord
 	std::string RouteHeadName;
 	std::string PostState;
 	std::string PostLatentAction;
+	bool IntegrityValid = true;
+};
+
+struct BotBenchmarkWarningDodgeTerminalRecord
+{
+	uint64_t LaunchToken = 0;
+	uint64_t LaunchSequence = 0;
+	uint64_t ReceiverLifeId = 0;
+	int32_t ReceiverActorIndex = -1;
+	uint64_t TerminalTick = 0;
+	uint64_t WaterEgressSequence = 0;
+	std::string Outcome;
+	std::string UnknownReason;
 	bool IntegrityValid = true;
 };
 
@@ -404,6 +418,11 @@ struct BotBenchmarkBotState
 		HazardWaterEgressDiagnostics;
 	std::vector<BotBenchmarkHazardDeathPartitionRecord>
 		HazardDeathPartitionRecords;
+	uint64_t WarningDodgeTerminalOutcomesExact = 0;
+	uint64_t WarningDodgeTerminalUnknownExact = 0;
+	uint64_t WarningDodgeTerminalOverflowsExact = 0;
+	std::vector<BotBenchmarkWarningDodgeTerminalRecord>
+		WarningDodgeTerminalRecords;
 	uint64_t FallingHazardRecoveryPromotionsExact = 0;
 	uint64_t FallingHazardRecoveryAdvanceCallsExact = 0;
 	uint64_t FallingHazardRecoveryContextRejectedExact = 0;

@@ -566,8 +566,12 @@ int main()
 		};
 		bot.WarningDodgeLaunchesExact = 1;
 		bot.WarningDodgeLaunchRecords = {
-			{ 2, 1, 18, 71, 3, 8, 10.0, 11.0, 12.0, 4.0, 5.0, 6.0,
+			{ 91, 2, 1, 18, 71, 3, 8, 10.0, 11.0, 12.0, 4.0, 5.0, 6.0,
 				0.0, 0.0, 0.0, "PathNode7", "PathNode8", "Ducking", "None", true },
+		};
+		bot.WarningDodgeTerminalOutcomesExact = 1;
+		bot.WarningDodgeTerminalRecords = {
+			{ 91, 2, 3, 8, 24, 5, "harmful_water_exit", {}, true },
 		};
 	}
 	const std::string warnTargetEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
@@ -578,7 +582,10 @@ int main()
 		|| warnTargetEvent.find("\"requested_duck_dir\":{\"x\":1.000000000,\"y\":2.000000000,\"z\":3.000000000}")
 			== std::string::npos
 		|| warnTargetEvent.find("\"warning_dodge_launches_exact\":\"1\"") == std::string::npos
+		|| warnTargetEvent.find("\"launch_token\":\"91\"") == std::string::npos
 		|| warnTargetEvent.find("\"launch_location\":{\"x\":10.000000000,\"y\":11.000000000,\"z\":12.000000000}")
+			== std::string::npos
+		|| warnTargetEvent.find("\"warning_dodge_terminal_outcomes_exact\":\"1\"")
 			== std::string::npos)
 	{
 		return Fail("WarnTarget observer telemetry serialization was incomplete");
@@ -589,6 +596,7 @@ int main()
 		bot.WarnTargetRecords.clear();
 		bot.TryToDuckOutcomeRecords.clear();
 		bot.WarningDodgeLaunchRecords.clear();
+		bot.WarningDodgeTerminalRecords.clear();
 	}
 	event.PickTargetObserverRequested = true;
 	for (auto& bot : event.Bots)

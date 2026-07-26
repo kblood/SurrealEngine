@@ -11,6 +11,7 @@
 #include "BotBenchmarkHazardDeathPartition.h"
 #include "BotTargetSelectionHookContract.h"
 #include "BotWarnTargetHookContract.h"
+#include "BotWarningDodgeContinuityContract.h"
 #include "BotTargetSelectionProbeTracker.h"
 #include "BotBenchmarkProtocol.h"
 #include "BotBenchmarkQualityObservation.h"
@@ -226,6 +227,15 @@ namespace
 					AccumulateNativePawnCounters(identity, runtime->second, pawn,
 						BotBenchmarkDriverDetail::NativePawnCounterSample::LivePawn);
 				}
+				if (Config.IsWarnTargetObserverEnabled())
+				{
+					for (auto& [identity, runtime] : QualityParticipants)
+					{
+						ResolveWarningDodgeContinuity(runtime,
+							BotWarningDodgeContinuityContract::TerminalOutcome::Unknown,
+							BotWarningDodgeContinuityContract::UnknownReason::RunEnd, Ticks);
+					}
+				}
 				WriteTelemetry("run_result", ExitCode == 0 ? "complete" : "failed",
 					FailureReason, Ticks, simulatedSeconds);
 			}
@@ -428,6 +438,25 @@ namespace
 			uint64_t WarningDodgeLaunchesExact = 0;
 			uint64_t WarningDodgeLaunchOverflowsExact = 0;
 			std::vector<BotBenchmarkWarningDodgeLaunchRecord> PendingWarningDodgeLaunchRecords;
+			uint64_t NextWarningDodgeLaunchToken = 1;
+			struct ActiveWarningDodgeContinuity
+			{
+				uint64_t LaunchToken = 0;
+				uint64_t LaunchSequence = 0;
+				uint64_t ReceiverLifeId = 0;
+				int32_t ReceiverActorIndex = -1;
+				uint64_t LaunchTick = 0;
+				std::string MoveTargetName;
+				std::string RouteHeadName;
+				std::string LatentAction;
+				bool SwimmingObserved = false;
+			};
+			std::optional<ActiveWarningDodgeContinuity> ActiveWarningDodge;
+			uint64_t WarningDodgeTerminalOutcomesExact = 0;
+			uint64_t WarningDodgeTerminalUnknownExact = 0;
+			uint64_t WarningDodgeTerminalOverflowsExact = 0;
+			std::vector<BotBenchmarkWarningDodgeTerminalRecord>
+				PendingWarningDodgeTerminalRecords;
 			uint64_t NextTargetSelectionSequence = 1;
 			uint64_t NextDirectReachCommandSequence = 1;
 			uint64_t DirectReachCommandObservationsExact = 0;
@@ -1437,6 +1466,28 @@ namespace
 				auto parityRecords = victim->DrainFallingParityRealizedRecords();
 				auto hazardDiagnostics = victim->DrainFallingHazardDiagnostics();
 				auto waterEgressDiagnostics = victim->DrainHazardWaterEgressDiagnostics();
+				if (Config.IsWarnTargetObserverEnabled() && counters.ActiveWarningDodge)
+				{
+					for (const auto& diagnostic : waterEgressDiagnostics)
+					{
+						if (diagnostic.Entry.LifeId != counters.ActiveWarningDodge->ReceiverLifeId
+							|| diagnostic.Terminal
+								!= PawnMovement::HazardWaterEgressTerminal::DeathBeforeExit)
+						{
+							continue;
+						}
+						const bool proven = BotWarningDodgeContinuityContract::IsProvenHarmfulWaterTerminal(
+							true, counters.ActiveWarningDodge->SwimmingObserved,
+							diagnostic.Entry.DamagePerSecond > 0.0f, true);
+						ResolveWarningDodgeContinuity(counters,
+							proven ? BotWarningDodgeContinuityContract::TerminalOutcome::HarmfulWaterDeath
+								: BotWarningDodgeContinuityContract::TerminalOutcome::Unknown,
+							proven ? BotWarningDodgeContinuityContract::UnknownReason::None
+								: BotWarningDodgeContinuityContract::UnknownReason::UnprovenWaterTerminal,
+							Ticks, diagnostic.Sequence);
+						break;
+					}
+				}
 				auto routePathCommitRecords = victim->DrainRoutePathCommitRecords();
 				auto directReachCommandObservations = victim->DrainDirectReachCommandObservations();
 				counters.DirectReachCommandOverflowsExact = std::max(
@@ -2249,6 +2300,142 @@ namespace
 				runtime.WarningDodgeLaunchOverflowsExact++;
 		}
 
+		void AppendWarningDodgeTerminalRecord(QualityParticipantRuntime& runtime,
+			BotBenchmarkWarningDodgeTerminalRecord record)
+		{
+			static constexpr size_t maximumQueuedRecords = 1024;
+			if (runtime.PendingWarningDodgeTerminalRecords.size() < maximumQueuedRecords)
+				runtime.PendingWarningDodgeTerminalRecords.push_back(std::move(record));
+			else
+				runtime.WarningDodgeTerminalOverflowsExact++;
+		}
+
+		void ResolveWarningDodgeContinuity(QualityParticipantRuntime& runtime,
+			BotWarningDodgeContinuityContract::TerminalOutcome outcome,
+			BotWarningDodgeContinuityContract::UnknownReason unknownReason,
+			uint64_t terminalTick, uint64_t waterEgressSequence = 0)
+		{
+			if (!runtime.ActiveWarningDodge)
+				return;
+			const auto active = std::move(*runtime.ActiveWarningDodge);
+			runtime.ActiveWarningDodge.reset();
+			BotBenchmarkWarningDodgeTerminalRecord record;
+			record.LaunchToken = active.LaunchToken;
+			record.LaunchSequence = active.LaunchSequence;
+			record.ReceiverLifeId = active.ReceiverLifeId;
+			record.ReceiverActorIndex = active.ReceiverActorIndex;
+			record.TerminalTick = terminalTick;
+			record.WaterEgressSequence = waterEgressSequence;
+			record.Outcome = BotWarningDodgeContinuityContract::TerminalOutcomeName(outcome);
+			record.UnknownReason = BotWarningDodgeContinuityContract::UnknownReasonName(unknownReason);
+			record.IntegrityValid = active.LaunchToken != 0 && active.LaunchSequence != 0
+				&& active.ReceiverLifeId != 0 && active.ReceiverActorIndex >= 0
+				&& ((outcome == BotWarningDodgeContinuityContract::TerminalOutcome::Unknown)
+					== (unknownReason != BotWarningDodgeContinuityContract::UnknownReason::None));
+			if (outcome == BotWarningDodgeContinuityContract::TerminalOutcome::Unknown)
+				runtime.WarningDodgeTerminalUnknownExact++;
+			else
+				runtime.WarningDodgeTerminalOutcomesExact++;
+			AppendWarningDodgeTerminalRecord(runtime, std::move(record));
+		}
+
+		std::string WarningDodgeRouteHeadName(UPawn* pawn) const
+		{
+			if (!pawn)
+				return {};
+			for (UNavigationPoint* routeNode : pawn->RouteCache())
+			{
+				if (routeNode && !routeNode->bDeleteMe())
+					return routeNode->Name.ToString();
+			}
+			return {};
+		}
+
+		void StartWarningDodgeContinuity(QualityParticipantRuntime& runtime,
+			const BotBenchmarkWarningDodgeLaunchRecord& launch)
+		{
+			if (runtime.ActiveWarningDodge)
+			{
+				ResolveWarningDodgeContinuity(runtime,
+					BotWarningDodgeContinuityContract::TerminalOutcome::Unknown,
+					BotWarningDodgeContinuityContract::UnknownReason::SupersededLaunch,
+					launch.ObserverTick);
+			}
+			runtime.ActiveWarningDodge = QualityParticipantRuntime::ActiveWarningDodgeContinuity{
+				launch.LaunchToken, launch.Sequence, launch.ReceiverLifeId,
+				launch.ReceiverActorIndex, launch.ObserverTick, launch.MoveTargetName,
+				launch.RouteHeadName, launch.PostLatentAction, false };
+		}
+
+		void AdvanceWarningDodgeContinuity(QualityParticipantRuntime& runtime, UPawn* pawn,
+			const BotBenchmarkBotState& bot,
+			const std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>& waterDiagnostics,
+			uint64_t tick)
+		{
+			if (!runtime.ActiveWarningDodge || !pawn)
+				return;
+			const auto& active = *runtime.ActiveWarningDodge;
+			const bool sameLife = pawn->DirectReachCommandLifeId() == active.ReceiverLifeId;
+			const bool sameActor = pawn->Index == active.ReceiverActorIndex;
+			const bool commandUnchanged = bot.MoveTargetName == active.MoveTargetName
+				&& bot.LatentAction == active.LatentAction
+				&& WarningDodgeRouteHeadName(pawn) == active.RouteHeadName;
+			if (!sameLife || !sameActor)
+			{
+				ResolveWarningDodgeContinuity(runtime,
+					BotWarningDodgeContinuityContract::TerminalOutcome::Unknown,
+					BotWarningDodgeContinuityContract::UnknownReason::LifeBoundary, tick);
+				return;
+			}
+			if (!commandUnchanged)
+			{
+				ResolveWarningDodgeContinuity(runtime,
+					BotWarningDodgeContinuityContract::TerminalOutcome::Unknown,
+					BotWarningDodgeContinuityContract::UnknownReason::CommandTransition, tick);
+				return;
+			}
+			for (const auto& diagnostic : waterDiagnostics)
+			{
+				const bool terminal = diagnostic.Terminal
+					== PawnMovement::HazardWaterEgressTerminal::PrimaryZoneCleared
+					|| diagnostic.Terminal == PawnMovement::HazardWaterEgressTerminal::DeathBeforeExit;
+				if (diagnostic.Entry.LifeId != active.ReceiverLifeId || !terminal)
+					continue;
+				const bool proven = BotWarningDodgeContinuityContract::IsProvenHarmfulWaterTerminal(
+					true, active.SwimmingObserved, diagnostic.Entry.DamagePerSecond > 0.0f, true);
+				ResolveWarningDodgeContinuity(runtime,
+					proven && diagnostic.Terminal
+						== PawnMovement::HazardWaterEgressTerminal::PrimaryZoneCleared
+						? BotWarningDodgeContinuityContract::TerminalOutcome::HarmfulWaterExit
+						: proven ? BotWarningDodgeContinuityContract::TerminalOutcome::HarmfulWaterDeath
+						: BotWarningDodgeContinuityContract::TerminalOutcome::Unknown,
+					proven ? BotWarningDodgeContinuityContract::UnknownReason::None
+						: BotWarningDodgeContinuityContract::UnknownReason::UnprovenWaterTerminal,
+					tick, diagnostic.Sequence);
+				return;
+			}
+			const bool physicsFallingOrSwimming = bot.PhysicsMode == "Falling"
+				|| bot.PhysicsMode == "Swimming";
+			if (!BotWarningDodgeContinuityContract::IsContinuousSnapshot(
+				sameLife, sameActor, commandUnchanged, physicsFallingOrSwimming))
+			{
+				ResolveWarningDodgeContinuity(runtime,
+					BotWarningDodgeContinuityContract::TerminalOutcome::Unknown,
+					BotWarningDodgeContinuityContract::UnknownReason::PhysicsTransition, tick);
+				return;
+			}
+			if (bot.PhysicsMode == "Swimming")
+				runtime.ActiveWarningDodge->SwimmingObserved = true;
+			if (tick > active.LaunchTick
+				&& tick - active.LaunchTick
+					> BotWarningDodgeContinuityContract::MaximumObservedContinuityTicks)
+			{
+				ResolveWarningDodgeContinuity(runtime,
+					BotWarningDodgeContinuityContract::TerminalOutcome::Unknown,
+					BotWarningDodgeContinuityContract::UnknownReason::Timeout, tick);
+			}
+		}
+
 		void FinishWarnTargetCall(UFunction* function, UObject* instance, uint64_t sequence)
 		{
 			if (ActiveWarnTargetCalls.empty())
@@ -2462,6 +2649,7 @@ namespace
 							&& std::isfinite(acceleration.z) }))
 					{
 						BotBenchmarkWarningDodgeLaunchRecord launch;
+						launch.LaunchToken = current->second.NextWarningDodgeLaunchToken++;
 						launch.Sequence = outcome.Sequence;
 						launch.NestedWarnTargetSequence = outcome.NestedWarnTargetSequence;
 						launch.ObserverTick = outcome.ObserverTick;
@@ -2479,18 +2667,12 @@ namespace
 						launch.AccelerationZ = acceleration.z;
 						launch.MoveTargetName = pawn->MoveTarget()
 							? pawn->MoveTarget()->Name.ToString() : std::string();
-						for (UNavigationPoint* routeNode : pawn->RouteCache())
-						{
-							if (routeNode && !routeNode->bDeleteMe())
-							{
-								launch.RouteHeadName = routeNode->Name.ToString();
-								break;
-							}
-						}
+						launch.RouteHeadName = WarningDodgeRouteHeadName(pawn);
 						launch.PostState = outcome.PostState;
 						launch.PostLatentAction = outcome.PostLatentAction;
 						launch.IntegrityValid = true;
 						current->second.WarningDodgeLaunchesExact++;
+						StartWarningDodgeContinuity(current->second, launch);
 						AppendWarningDodgeLaunchRecord(current->second, std::move(launch));
 					}
 					AppendTryToDuckOutcomeRecord(current->second, std::move(outcome));
@@ -3080,6 +3262,12 @@ namespace
 					bot.WarningDodgeLaunchOverflowsExact = runtime.WarningDodgeLaunchOverflowsExact;
 					bot.WarningDodgeLaunchRecords = std::move(runtime.PendingWarningDodgeLaunchRecords);
 					runtime.PendingWarningDodgeLaunchRecords.clear();
+					bot.WarningDodgeTerminalOutcomesExact = runtime.WarningDodgeTerminalOutcomesExact;
+					bot.WarningDodgeTerminalUnknownExact = runtime.WarningDodgeTerminalUnknownExact;
+					bot.WarningDodgeTerminalOverflowsExact = runtime.WarningDodgeTerminalOverflowsExact;
+					bot.WarningDodgeTerminalRecords = std::move(
+						runtime.PendingWarningDodgeTerminalRecords);
+					runtime.PendingWarningDodgeTerminalRecords.clear();
 				}
 				bot.EnvironmentalDeathsExact = runtime.EnvironmentalDeathsExact;
 				bot.HazardExposedDeathsProxy = runtime.HazardExposedDeathsProxy;
@@ -3557,6 +3745,11 @@ namespace
 						std::make_move_iterator(hazardDiagnostics.begin()),
 						std::make_move_iterator(hazardDiagnostics.end()));
 					auto waterEgressDiagnostics = pawn->DrainHazardWaterEgressDiagnostics();
+					if (Config.IsWarnTargetObserverEnabled())
+					{
+						AdvanceWarningDodgeContinuity(runtime, pawn, bot,
+							waterEgressDiagnostics, Ticks);
+					}
 					runtime.PendingHazardWaterEgressDiagnostics.insert(
 						runtime.PendingHazardWaterEgressDiagnostics.end(),
 						std::make_move_iterator(waterEgressDiagnostics.begin()),
