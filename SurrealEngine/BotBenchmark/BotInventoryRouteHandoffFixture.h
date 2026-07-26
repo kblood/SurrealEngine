@@ -63,6 +63,11 @@ struct BotInventoryRouteHandoffFixtureResult
 	uint64_t NavigationCandidateUnsafeDirectReachableCount = 0;
 	uint64_t LiveNavigationTicks = 0;
 	uint64_t LiveNavigationAnchorRecoveryTicks = 0;
+	uint64_t LiveNavigationAirRecoveryDirectionsTested = 0;
+	uint64_t LiveNavigationAirRecoverySafeLandings = 0;
+	std::string FirstLiveNavigationAirRecoverySafeDirection;
+	std::string LiveNavigationFallLocation;
+	std::string FirstLiveNavigationAirRecoverySafeLandingLocation;
 	float FirstHarmfulBelowDistance = 0.0f;
 	std::string FirstSafeNavigationCandidateActor;
 	std::string FirstUnsafeNavigationCandidateActor;

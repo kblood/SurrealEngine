@@ -121,7 +121,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v9\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v11\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -167,6 +167,11 @@ namespace
 			<< "navigation_candidate_unsafe_direct_reachable_count=" << result.NavigationCandidateUnsafeDirectReachableCount << "\n"
 			<< "live_navigation_ticks=" << result.LiveNavigationTicks << "\n"
 			<< "live_navigation_anchor_recovery_ticks=" << result.LiveNavigationAnchorRecoveryTicks << "\n"
+			<< "live_navigation_air_recovery_directions_tested=" << result.LiveNavigationAirRecoveryDirectionsTested << "\n"
+			<< "live_navigation_air_recovery_safe_landings=" << result.LiveNavigationAirRecoverySafeLandings << "\n"
+			<< "first_live_navigation_air_recovery_safe_direction=" << result.FirstLiveNavigationAirRecoverySafeDirection << "\n"
+			<< "live_navigation_fall_location=" << result.LiveNavigationFallLocation << "\n"
+			<< "first_live_navigation_air_recovery_safe_landing_location=" << result.FirstLiveNavigationAirRecoverySafeLandingLocation << "\n"
 			<< "first_safe_navigation_candidate_actor=" << result.FirstSafeNavigationCandidateActor << "\n"
 			<< "first_unsafe_navigation_candidate_actor=" << result.FirstUnsafeNavigationCandidateActor << "\n"
 			<< "first_harmful_below_distance=" << result.FirstHarmfulBelowDistance << "\n"
@@ -489,6 +494,14 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		}
 		if (!result.LiveNavigationFallingObserved)
 			throw std::runtime_error("direct live PathNode73 MoveToward did not enter falling physics");
+		const vec3 fallLocation = pawn->Location();
+		const vec3 fallVelocity = pawn->Velocity();
+		{
+			std::ostringstream locationText;
+			locationText.imbue(std::locale::classic());
+			locationText << fallLocation.x << "," << fallLocation.y << "," << fallLocation.z;
+			result.LiveNavigationFallLocation = locationText.str();
+		}
 		const float recoveryAccelerationMagnitude = pawn->AirControl() * pawn->AccelRate();
 		if (std::isfinite(recoveryAccelerationMagnitude) && recoveryAccelerationMagnitude > 0.0f)
 		{
@@ -517,6 +530,47 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 				{
 					result.LiveNavigationAnchorRecoverySafeLanding = true;
 					break;
+				}
+			}
+			const std::array<vec2, 8> directions = {
+				vec2(1.0f, 0.0f), vec2(-1.0f, 0.0f), vec2(0.0f, 1.0f), vec2(0.0f, -1.0f),
+				normalize(vec2(1.0f, 1.0f)), normalize(vec2(1.0f, -1.0f)),
+				normalize(vec2(-1.0f, 1.0f)), normalize(vec2(-1.0f, -1.0f)) };
+			for (const vec2& direction : directions)
+			{
+				if (!pawn->SetLocation(fallLocation))
+					continue;
+				pawn->UpdateActorZone();
+				pawn->SetPhysics(PHYS_Falling);
+				pawn->Velocity() = fallVelocity;
+				pawn->Acceleration() = vec3(0.0f);
+				result.LiveNavigationAirRecoveryDirectionsTested++;
+				for (int tick = 0; tick < LiveNavigationRecoveryTickLimit; tick++)
+				{
+					pawn->Acceleration() = vec3(direction.x, direction.y, 0.0f)
+						* recoveryAccelerationMagnitude;
+					pawn->Tick(FixtureTickSeconds);
+					UZoneInfo* footZone = pawn->FootRegion().Zone;
+					if (footZone && footZone->bPainZone() && footZone->DamagePerSec() > 0)
+						break;
+					if (pawn->Physics() == PHYS_Walking && footZone && !footZone->bPainZone()
+						&& !footZone->bWaterZone())
+					{
+						result.LiveNavigationAirRecoverySafeLandings++;
+						if (result.FirstLiveNavigationAirRecoverySafeDirection.empty())
+						{
+							std::ostringstream directionText;
+							directionText.imbue(std::locale::classic());
+							directionText << direction.x << "," << direction.y;
+							result.FirstLiveNavigationAirRecoverySafeDirection = directionText.str();
+							std::ostringstream landingText;
+							landingText.imbue(std::locale::classic());
+							landingText << pawn->Location().x << "," << pawn->Location().y
+								<< "," << pawn->Location().z;
+							result.FirstLiveNavigationAirRecoverySafeLandingLocation = landingText.str();
+						}
+						break;
+					}
 				}
 			}
 		}

@@ -3382,3 +3382,19 @@ They cannot provide a safe recovery trajectory at the witnessed launch. The
 next candidate must either select a different, collision-validated landing
 trajectory before water entry or fix the earlier route/command cause with a
 demonstrable progress replacement.
+
+## Iteration 131: finite air-recovery trajectory viability
+
+The v10/v11 fixture begins from the exact v8 falling state and evaluates eight
+fixed horizontal air-control directions for the same bounded duration. One
+direction is viable: northeast `(0.707107, 0.707107)` lands safely at
+`(-178.48, 866.26, 1588)`; the other sampled trajectories do not. The fall
+snapshot is `(-147.716, 611.400, 1383.910)`. Evidence is at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v11-air-recovery-geometry/`.
+
+This authorizes a *research* candidate for a finite, collision-validated
+falling trajectory selector. It does not authorize steering directly to the
+pre-move anchor: that vector differs from the viable direction and the anchor
+experiment entered harmful water. Any implementation must predict the landing
+without mutating live state, require a safe landing certificate, preserve
+default stock behavior, and then pass repeated Unreal and UT qualification.
