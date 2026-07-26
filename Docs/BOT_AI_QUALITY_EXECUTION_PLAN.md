@@ -3622,3 +3622,35 @@ coverage. Consequently the 16-bot contact trade-off begins only after actual
 recovery interventions perturb the coupled match trajectory; it is not an
 always-on regression from merely enabling the gate. Keep the gate default-off
 until a higher-population collision budget and outcome partition are qualified.
+
+## Iteration 143: collision attribution rejects a direct recovery-contact theory
+
+The fail-closed collision-episode replay partitions every exact `HitWall`
+counter delta into falling/landing, ordinary walking, recovery-transition, and
+strict low-displacement wall-loop candidates. On the 16-bot Deck16-II
+seed-`271828` pair, the stock run has 403 contacts (282 falling/landing and
+121 ordinary walking) while the pain-ledge candidate has 646 (346 and 300).
+Neither run has a strict stationary wall-loop candidate. The candidate has
+eight recovery lifecycles, zero recovery-transition contacts, and only one
+temporally associated contact in a run-end-censored lifecycle; temporal
+association is explicitly not causal attribution.
+
+The runtime now separately counts outermost UnrealScript `HitWall` callbacks
+while a pain-ledge recovery lifecycle is active. This observer does not write
+movement or bot state, and the quality analyzer rejects impossible values above
+the total contact count. An activating UT436 Deck16-II seed-`104729` run
+records 16 attempts, 12 escapes, and zero active-lifecycle contacts out of 155
+total; Unreal Gold DeathFan is inert with zero active-lifecycle contacts out of
+188. Thus the added candidate contacts are not direct recovery contacts. Keep
+the pain-ledge experiment default-off because the coupled-match collision
+increase remains a real outcome regression, but do not attribute it to a
+recovery wall loop.
+
+The next promotion candidate is the narrower, default-off direct-actor
+`MoveToward` timeout. Its new no-UCC fixture creates a safe walking stock bot
+with a live `BlockAll` target and proves the exact decision, counter,
+pre-write positive timer, and stock replan write on repeatable UT436 and
+Unreal 226b runs. The seed-`271828` 16-bot Deck16-II live check has zero direct
+timeouts and is gameplay-identical to control, so it is a clean inert anchor;
+promotion still requires repeated live activating outcomes without a safety,
+collision, or combat regression.
