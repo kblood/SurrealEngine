@@ -71,3 +71,34 @@ Relevant artifacts:
 
 - `qa/runs/2026-07-26/ut436-deck16-pawn-vision-attribution-preflight`
 - `Tools/BotBenchmark/QualificationCampaigns/UT436-tuning-quality-gates-v1.json`
+
+## Fresh-seed result and disposition
+
+The required fresh pair completed at seed `271828`, with both structural
+validations passing. It does **not** support advancing this vision candidate:
+
+| Metric | Stock | Candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Kills | 33 | 33 | 0 |
+| Deaths | 51 | 51 | 0 |
+| Suicides | 18 | 18 | 0 |
+| Unassisted environmental deaths | 12 | 12 | 0 |
+| Hit-wall events | 2,464 | 9,535 | +7,071 |
+| Movement-intent stuck events proxy | 17 | 22 | +5 |
+| Movement-intent no-progress seconds | 184.67 | 162.68 | -21.98 |
+| Longest movement-intent no-progress seconds | 28.43 | 13.37 | -15.07 |
+
+The candidate has no combat or survival benefit in this seed, while exact
+hit-wall contacts and the intent-stuck proxy regress sharply. The missed
+five-second recovery count is tied at two, so the specific `HealthVial6`
+episode does not generalize as a unique causal defect; the broader wall-contact
+regression is sufficient to reject the current cone correction as a UT99
+quality candidate.
+
+Keep the implementation default-off as a tested diagnostic experiment. Do not
+enable it for release or proceed to the UT99 map qualification matrix without a
+new, separately evidenced candidate.
+
+Additional artifact:
+
+- `qa/runs/2026-07-26/ut436-deck16-pawn-vision-fresh-seed-s271828`
