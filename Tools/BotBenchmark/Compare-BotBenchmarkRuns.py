@@ -322,6 +322,13 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
     if "output_directory" in manifest and not isinstance(manifest["output_directory"], str):
         raise ComparisonError(f"{run}/manifest.json.output_directory: expected a string")
     config_fields = ("url", "seed", "max_ticks", "fixed_delta", "difficulty")
+    if "shadow_policy_set" in manifest:
+        policy_set = manifest["shadow_policy_set"]
+        if (not isinstance(policy_set, list) or not policy_set or
+                any(not isinstance(policy, str) or not policy for policy in policy_set) or
+                policy_set != sorted(policy_set) or len(policy_set) != len(set(policy_set))):
+            raise ComparisonError(f"{run}/manifest.json.shadow_policy_set: expected non-empty sorted unique strings")
+        config_fields += ("shadow_policy_set",)
     if manifest_schema.endswith("v2"):
         bot_count = _strict_int(manifest.get("bot_count"), f"{run}/manifest.json.bot_count", 1)
         if bot_count > 16:

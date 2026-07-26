@@ -51,7 +51,8 @@ public:
 		std::optional<std::string> directReachCommandObserver = {},
 		std::optional<std::string> pickTargetObserver = {},
 		std::optional<std::string> warnTargetObserver = {},
-		std::optional<std::string> reachSpecCapabilityObserver = {});
+		std::optional<std::string> reachSpecCapabilityObserver = {},
+		std::optional<std::string> shadowPolicySet = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -96,6 +97,7 @@ public:
 		return ReachSpecCapabilityObserverEnabled;
 	}
 	bool IsDirectReachCommandObserverEnabled() const { return DirectReachCommandObserverEnabled; }
+	const std::vector<std::string>& GetShadowPolicySet() const { return ShadowPolicySet; }
 
 private:
 	BotBenchmarkRunConfig(std::string url, std::string outputDirectory, uint64_t seed,
@@ -108,7 +110,7 @@ private:
 		bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
 		bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled,
 		bool pickTargetObserverEnabled, bool warnTargetObserverEnabled,
-		bool reachSpecCapabilityObserverEnabled);
+		bool reachSpecCapabilityObserverEnabled, std::vector<std::string> shadowPolicySet);
 
 	std::string URL;
 	std::string OutputDirectory;
@@ -134,6 +136,7 @@ private:
 	bool NativePathCommitObserverEnabled = false;
 	bool ReachSpecCapabilityObserverEnabled = false;
 	bool DirectReachCommandObserverEnabled = false;
+	std::vector<std::string> ShadowPolicySet;
 };
 
 // Each component is measured inside the benchmark-only AI timing scope. The

@@ -97,6 +97,27 @@ namespace
 		return out.str();
 	}
 
+	std::vector<std::string> ParseShadowPolicySet(const std::optional<std::string>& value)
+	{
+		const std::string text = value.value_or("tactical-state,utility-arena");
+		std::vector<std::string> ids;
+		for (size_t begin = 0; begin <= text.size();)
+		{
+			const size_t end = text.find(',', begin);
+			const std::string id = text.substr(begin, end == std::string::npos ? end : end - begin);
+			if (id.empty() || id.find_first_of(" \t\r\n") != std::string::npos)
+				throw std::invalid_argument("invalid bot benchmark shadow policy set");
+			ids.push_back(id);
+			if (end == std::string::npos)
+				break;
+			begin = end + 1;
+		}
+		std::sort(ids.begin(), ids.end());
+		if (std::adjacent_find(ids.begin(), ids.end()) != ids.end())
+			throw std::invalid_argument("bot benchmark shadow policy set contains a duplicate ID");
+		return ids;
+	}
+
 	void WriteAiFrameTimingSummary(std::ostringstream& out,
 		const BotBenchmarkAiFrameTimingSummary& timing, const std::string& indent)
 	{
@@ -180,7 +201,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
 	bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled,
 	bool pickTargetObserverEnabled, bool warnTargetObserverEnabled,
-	bool reachSpecCapabilityObserverEnabled)
+	bool reachSpecCapabilityObserverEnabled, std::vector<std::string> shadowPolicySet)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
 	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled),
@@ -199,7 +220,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	InventoryMarkerDirectReachSafetyEnabled(inventoryMarkerDirectReachSafetyEnabled),
 	DirectReachCommandObserverEnabled(directReachCommandObserverEnabled),
 	PickTargetObserverEnabled(pickTargetObserverEnabled),
-	WarnTargetObserverEnabled(warnTargetObserverEnabled)
+	WarnTargetObserverEnabled(warnTargetObserverEnabled), ShadowPolicySet(std::move(shadowPolicySet))
 {
 }
 
@@ -221,7 +242,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> directReachCommandObserver,
 	std::optional<std::string> pickTargetObserver,
 	std::optional<std::string> warnTargetObserver,
-	std::optional<std::string> reachSpecCapabilityObserver)
+	std::optional<std::string> reachSpecCapabilityObserver, std::optional<std::string> shadowPolicySet)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -285,6 +306,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	}
 	const bool parsedDirectReachCommandObserver = ParseExactBoolean(
 		directReachCommandObserver, "bot benchmark direct-reach command observer");
+	const std::vector<std::string> parsedShadowPolicySet = ParseShadowPolicySet(shadowPolicySet);
 
 	return BotBenchmarkRunConfig(std::move(url), std::move(outputDirectory), parsedSeed,
 		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster), parsedHarmfulZoneEscape,
@@ -295,7 +317,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		parsedTargetSelectionObserver, parsedInventoryDirectReachSupportObserver,
 		parsedNativePathCommitObserver, parsedInventoryMarkerDirectReachSafety,
 		parsedDirectReachCommandObserver, parsedPickTargetObserver, parsedWarnTargetObserver,
-		parsedReachSpecCapabilityObserver);
+		parsedReachSpecCapabilityObserver, parsedShadowPolicySet);
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
@@ -377,6 +399,10 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< "    \"fixed_delta\": " << Fixed(config.GetFixedDelta(), 9) << ",\n"
 		<< "    \"difficulty\": " << config.GetDifficulty() << ",\n"
 		<< "    \"bot_count\": " << config.GetRoster().GetCount() << ",\n"
+		<< "    \"shadow_policy_set\": [";
+	for (size_t index = 0; index < config.GetShadowPolicySet().size(); index++)
+		out << (index == 0 ? "" : ", ") << JsonString(config.GetShadowPolicySet()[index]);
+	out << "],\n"
 		<< "    \"harmful_zone_escape_enabled\": "
 		<< (config.IsHarmfulZoneEscapeEnabled() ? "true" : "false") << ",\n"
 		<< "    \"walking_preflight_positive_dps_veto_enabled\": "

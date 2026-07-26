@@ -274,6 +274,19 @@ class CompareBotBenchmarkRunsTests(unittest.TestCase):
         self.assertEqual(report["mismatch"]["artifact"], "shadow-decisions.jsonl")
         self.assertEqual(report["mismatch"]["line"], 2)
 
+    def test_shadow_policy_set_is_sorted_and_joined_to_summary(self) -> None:
+        left, right = self.pair()
+        for run in (left, right):
+            mutate_json(run / "manifest.json", lambda value: value.update(
+                shadow_policy_set=["tactical-state", "utility-arena"]))
+            mutate_json(run / "summary.json", lambda value: value["config"].update(
+                shadow_policy_set=["tactical-state", "utility-arena"]))
+        self.assertTrue(COMPARE.compare_runs(left, right, [])["equivalent"])
+        mutate_json(right / "summary.json", lambda value: value["config"].update(
+            shadow_policy_set=["utility-arena"]))
+        with self.assertRaisesRegex(COMPARE.ComparisonError, "shadow_policy_set"):
+            COMPARE.compare_runs(left, right, [])
+
     def test_route_execution_is_compared_when_present_and_required_for_native_observers(self) -> None:
         left, right = self.pair(route=True, native_path_observer=True)
         self.assertTrue(COMPARE.compare_runs(left, right, [])["equivalent"])

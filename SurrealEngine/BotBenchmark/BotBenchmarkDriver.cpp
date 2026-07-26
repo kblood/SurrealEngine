@@ -2849,7 +2849,14 @@ namespace
 			std::vector<BotBenchmarkShadowParticipantDescriptor> participants;
 			participants.reserve(ActualRoster.size());
 			ShadowParticipants.reserve(ActualRoster.size());
-			const auto& policies = BotAI::PolicyRegistry::Enumerate();
+			std::vector<BotAI::PolicyDescriptor> policies;
+			for (const std::string& id : Config.GetShadowPolicySet())
+			{
+				auto created = BotAI::PolicyRegistry::Create(id);
+				if (!created)
+					throw std::runtime_error("unknown or script-owned shadow policy '" + id + "'");
+				policies.push_back({ created.Instance->GetId(), created.Instance->GetVersion() });
+			}
 			for (const auto& actual : ActualRoster)
 			{
 				auto runtime = std::make_unique<ShadowParticipantRuntime>();
@@ -4063,7 +4070,8 @@ namespace
 			OptionalCommandLineArg("--botbench-direct-reach-command-observer"),
 			OptionalCommandLineArg("--botbench-pick-target-observer"),
 			OptionalCommandLineArg("--botbench-warn-target-observer"),
-			OptionalCommandLineArg("--botbench-reachspec-capability-observer"));
+			OptionalCommandLineArg("--botbench-reachspec-capability-observer"),
+			OptionalCommandLineArg("--botbench-shadow-policy-set"));
 	}
 }
 

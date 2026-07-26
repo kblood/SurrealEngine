@@ -1521,6 +1521,8 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< (config.IsReachSpecCapabilityObserverEnabled() ? "1" : "0") << '\n'
 		<< "direct_reach_command_observer_enabled="
 		<< (config.IsDirectReachCommandObserverEnabled() ? "1" : "0") << '\n';
+	for (const std::string& policy : config.GetShadowPolicySet())
+		canonical << "shadow_policy=" << policy << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
 		canonical << "roster=" << participant.CanonicalIdentityFragment << '\n';
 	uint64_t digest = 1469598103934665603ULL;
@@ -1545,6 +1547,10 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< "  \"fixed_delta\": " << Fixed(config.GetFixedDelta(), 9) << ",\n"
 		<< "  \"difficulty\": " << config.GetDifficulty() << ",\n"
 		<< "  \"bot_count\": " << config.GetRoster().GetCount() << ",\n";
+	out << "  \"shadow_policy_set\": [";
+	for (size_t index = 0; index < config.GetShadowPolicySet().size(); index++)
+		out << (index == 0 ? "" : ", ") << JsonString(config.GetShadowPolicySet()[index]);
+	out << "],\n";
 	WriteRequestedRoster(out, config.GetRoster());
 	out << ",\n"
 		<< "  \"telemetry_event_cap\": \"" << EventCap(config.GetMaxTicks()) << "\",\n"
