@@ -4828,11 +4828,49 @@ UActor* UPawn::PickAnyTarget(float& bestAim, float& bestDist, const vec3& FireDi
 
 UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, const vec3& projStart)
 {
+	const bool observe = engine && engine->IsBotBenchmarkPickTargetObserverEnabled();
+	PawnMovement::PickTargetObservation observation;
+	if (observe)
+	{
+		observation.Sequence = ++PickTargetObservationSequence;
+		observation.IntegrityValid = std::isfinite(bestAim) && std::isfinite(bestDist) &&
+			std::isfinite(FireDir.x) && std::isfinite(FireDir.y) && std::isfinite(FireDir.z) &&
+			std::isfinite(projStart.x) && std::isfinite(projStart.y) && std::isfinite(projStart.z);
+	}
 	UActor* bestActor = nullptr;
 	UPlayerReplicationInfo* ourPlayerInfo = engine->LaunchInfo.ue1Version > 219 ? PlayerReplicationInfo() : nullptr;
 	bool teamGame = ourPlayerInfo && Level()->Game()->bTeamGame();
 	for (UPawn* pawn = Level()->PawnList(); pawn != nullptr; pawn = pawn->nextPawn())
 	{
+		if (observe)
+		{
+			observation.CandidatePawns++;
+			if (pawn == this)
+				observation.SelfRejects++;
+			else if (pawn->Health() <= 0)
+				observation.DeadRejects++;
+			else
+			{
+				observation.LivingSkippedByCurrentPredicate++;
+				auto pawnPlayerInfo = engine->LaunchInfo.ue1Version > 219 ?
+					pawn->PlayerReplicationInfo() : nullptr;
+				if (teamGame && pawnPlayerInfo && ourPlayerInfo->Team() == pawnPlayerInfo->Team())
+					observation.TeamRejects++;
+				else
+				{
+					const vec3 delta = pawn->Location() - projStart;
+					const float distance = length(delta);
+					const float forward = dot(FireDir, delta);
+					if (forward >= 0.0f && distance > 0.0f && distance <= 2500.0f &&
+						forward / distance >= bestAim)
+					{
+						observation.LivingGeometryEligible++;
+						if (LineOfSightTo(pawn, false))
+							observation.LivingLineOfSightEligible++;
+					}
+				}
+			}
+		}
 		// Skip dead pawns or ourselves
 		if (pawn == this || pawn->Health() > 0)
 			continue;
@@ -4848,7 +4886,36 @@ UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, 
 		if (CheckIfBestTarget(pawn, bestAim, bestDist, FireDir, projStart))
 			bestActor = pawn;
 	}
+	if (observe)
+	{
+		observation.ReturnedTarget = bestActor != nullptr;
+		UPawn* returnedPawn = UObject::TryCast<UPawn>(bestActor);
+		observation.ReturnedLivingTarget = returnedPawn && returnedPawn->Health() > 0;
+		observation.NoResultWithLivingLineOfSightCandidate = !bestActor &&
+			observation.LivingLineOfSightEligible != 0;
+		if (bestActor)
+		{
+			observation.IntegrityValid = observation.IntegrityValid && returnedPawn && !bestActor->bDeleteMe() &&
+				bestActor->Class != nullptr;
+			observation.SelectedActor = bestActor->Name.ToString();
+			observation.SelectedClass = bestActor->Class ? bestActor->Class->Name.ToString() : std::string();
+		}
+		if (!observation.IntegrityValid)
+			PickTargetObservationIntegrityFailureCountValue++;
+		static constexpr size_t maximumQueuedRecords = 1024;
+		if (PickTargetObservations.size() < maximumQueuedRecords)
+			PickTargetObservations.push_back(std::move(observation));
+		else
+			PickTargetObservationOverflowCountValue++;
+	}
 	return bestActor;
+}
+
+std::vector<PawnMovement::PickTargetObservation> UPawn::DrainPickTargetObservations()
+{
+	std::vector<PawnMovement::PickTargetObservation> observations;
+	observations.swap(PickTargetObservations);
+	return observations;
 }
 
 bool UPawn::CheckIfBestTarget(UActor* actor, float& bestAim, float& bestDist, const vec3& FireDir, const vec3& projStart)

@@ -507,6 +507,22 @@ TARGET_SELECTION_COUNTERS = (
     "target_selection_integrity_failures_exact",
 )
 OPTIONAL_EXACT_COUNTERS += TARGET_SELECTION_COUNTERS
+PICK_TARGET_COUNTERS = (
+    "pick_target_observations_exact",
+    "pick_target_candidates_exact",
+    "pick_target_self_rejects_exact",
+    "pick_target_dead_rejects_exact",
+    "pick_target_living_skipped_by_current_predicate_exact",
+    "pick_target_team_rejects_exact",
+    "pick_target_living_geometry_eligible_exact",
+    "pick_target_living_line_of_sight_eligible_exact",
+    "pick_target_returned_targets_exact",
+    "pick_target_returned_living_targets_exact",
+    "pick_target_no_result_with_living_line_of_sight_candidate_exact",
+    "pick_target_observation_overflows_exact",
+    "pick_target_integrity_failures_exact",
+)
+OPTIONAL_EXACT_COUNTERS += PICK_TARGET_COUNTERS
 INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS = (
     "inventory_direct_reach_support_observations_exact",
     "inventory_direct_reach_support_safe_supported_exact",
@@ -546,7 +562,7 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "falling_parity_realized_records", "vertical_pain_column_diagnostics",
     "hazard_water_egress_diagnostics", "hazard_death_partition_records",
     "move_stall_recovery_episodes", "move_stall_recovery_decisions",
-    "walking_hitwall_dispatch_diagnostics", "target_selection_records",
+    "walking_hitwall_dispatch_diagnostics", "target_selection_records", "pick_target_records",
     "inventory_direct_reach_support_diagnostics",
 )
 HAZARD_DEATH_KILLER_RELATIONS = {"none", "self_player", "enemy_player", "non_player"}
@@ -3014,6 +3030,7 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                targetless_move_to_timeout_enabled: bool | None = None,
                direct_actor_move_toward_timeout_enabled: bool | None = None,
                target_selection_observer_enabled: bool | None = None,
+               pick_target_observer_enabled: bool | None = None,
                inventory_direct_reach_support_observer_enabled: bool | None = None,
                inventory_marker_direct_reach_safety_enabled: bool | None = None,
                native_path_commit_observer_enabled: bool | None = None,
@@ -3054,6 +3071,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if target_selection_observer_enabled is not None:
             canonical_text += "target_selection_observer_enabled=" + (
                 "1\n" if target_selection_observer_enabled else "0\n")
+        if pick_target_observer_enabled is not None:
+            canonical_text += "pick_target_observer_enabled=" + (
+                "1\n" if pick_target_observer_enabled else "0\n")
         if inventory_direct_reach_support_observer_enabled is not None:
             canonical_text += "inventory_direct_reach_support_observer_enabled=" + (
                 "1\n" if inventory_direct_reach_support_observer_enabled else "0\n")
@@ -3198,6 +3218,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     targetless_move_to_timeout_enabled = None
     direct_actor_move_toward_timeout_enabled = None
     target_selection_observer_enabled = None
+    pick_target_observer_enabled = None
     inventory_direct_reach_support_observer_enabled = None
     inventory_marker_direct_reach_safety_enabled = None
     native_path_commit_observer_enabled = None
@@ -3253,6 +3274,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             target_selection_observer_enabled = _boolean(
                 raw.get("target_selection_observer_enabled"),
                 "manifest.target_selection_observer_enabled")
+        if "pick_target_observer_enabled" in raw:
+            pick_target_observer_enabled = _boolean(
+                raw.get("pick_target_observer_enabled"),
+                "manifest.pick_target_observer_enabled")
         if "inventory_direct_reach_support_observer_enabled" in raw:
             inventory_direct_reach_support_observer_enabled = _boolean(
                 raw.get("inventory_direct_reach_support_observer_enabled"),
@@ -3280,6 +3305,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              targetless_move_to_timeout_enabled,
                              direct_actor_move_toward_timeout_enabled,
                              target_selection_observer_enabled,
+                             pick_target_observer_enabled,
                              inventory_direct_reach_support_observer_enabled,
                              inventory_marker_direct_reach_safety_enabled,
                              native_path_commit_observer_enabled,
@@ -3310,6 +3336,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "targetless_move_to_timeout_enabled": targetless_move_to_timeout_enabled,
         "direct_actor_move_toward_timeout_enabled": direct_actor_move_toward_timeout_enabled,
         "target_selection_observer_enabled": target_selection_observer_enabled,
+        "pick_target_observer_enabled": pick_target_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             inventory_direct_reach_support_observer_enabled),
         "inventory_marker_direct_reach_safety_enabled": (
@@ -3919,6 +3946,75 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             result["target_selection_records"] = parsed_records
         elif target_selection_present:
             raise QualityError(f"{context}: target-selection counter group requires records")
+        pick_target_present = [name for name in PICK_TARGET_COUNTERS if name in result]
+        if pick_target_present and len(pick_target_present) != len(PICK_TARGET_COUNTERS):
+            raise QualityError(f"{context}: PickTarget counters must be provided as a complete group")
+        if "pick_target_records" in bot:
+            if len(pick_target_present) != len(PICK_TARGET_COUNTERS):
+                raise QualityError(f"{context}: PickTarget records require the complete counter group")
+            records = bot.get("pick_target_records")
+            if not isinstance(records, list):
+                raise QualityError(f"{context}.pick_target_records must be an array")
+            parsed_records = []
+            for index, record in enumerate(records):
+                record_context = f"{context}.pick_target_records[{index}]"
+                item = _object(record, record_context)
+                parsed = {
+                    "sequence": _integer(item.get("sequence"),
+                                         f"{record_context}.sequence", minimum=1),
+                    "candidate_pawns": _strict_integer(item.get("candidate_pawns"),
+                                                        f"{record_context}.candidate_pawns", minimum=0),
+                    "self_rejects": _strict_integer(item.get("self_rejects"),
+                                                     f"{record_context}.self_rejects", minimum=0),
+                    "dead_rejects": _strict_integer(item.get("dead_rejects"),
+                                                     f"{record_context}.dead_rejects", minimum=0),
+                    "living_skipped_by_current_predicate": _strict_integer(
+                        item.get("living_skipped_by_current_predicate"),
+                        f"{record_context}.living_skipped_by_current_predicate", minimum=0),
+                    "team_rejects": _strict_integer(item.get("team_rejects"),
+                                                     f"{record_context}.team_rejects", minimum=0),
+                    "living_geometry_eligible": _strict_integer(
+                        item.get("living_geometry_eligible"),
+                        f"{record_context}.living_geometry_eligible", minimum=0),
+                    "living_line_of_sight_eligible": _strict_integer(
+                        item.get("living_line_of_sight_eligible"),
+                        f"{record_context}.living_line_of_sight_eligible", minimum=0),
+                    "returned_target": _boolean(item.get("returned_target"),
+                                                f"{record_context}.returned_target"),
+                    "returned_living_target": _boolean(item.get("returned_living_target"),
+                                                       f"{record_context}.returned_living_target"),
+                    "no_result_with_living_line_of_sight_candidate": _boolean(
+                        item.get("no_result_with_living_line_of_sight_candidate"),
+                        f"{record_context}.no_result_with_living_line_of_sight_candidate"),
+                    "integrity_valid": _boolean(item.get("integrity_valid"),
+                                                f"{record_context}.integrity_valid"),
+                    "selected_actor": _string(item, "selected_actor", record_context),
+                    "selected_class": _string(item, "selected_class", record_context),
+                }
+                if parsed["self_rejects"] + parsed["dead_rejects"] + \
+                        parsed["living_skipped_by_current_predicate"] != parsed["candidate_pawns"]:
+                    raise QualityError(f"{record_context}: candidate partition does not reconcile")
+                if parsed["team_rejects"] > parsed["living_skipped_by_current_predicate"] \
+                        or parsed["living_geometry_eligible"] > \
+                        parsed["living_skipped_by_current_predicate"] - parsed["team_rejects"] \
+                        or parsed["living_line_of_sight_eligible"] > parsed["living_geometry_eligible"]:
+                    raise QualityError(f"{record_context}: living-candidate eligibility is inconsistent")
+                if parsed["returned_living_target"] and not parsed["returned_target"]:
+                    raise QualityError(f"{record_context}: a living result requires a result")
+                if parsed["returned_living_target"]:
+                    raise QualityError(
+                        f"{record_context}: current PickTarget predicate cannot return a living pawn")
+                if parsed["no_result_with_living_line_of_sight_candidate"] and \
+                        (parsed["returned_target"] or parsed["living_line_of_sight_eligible"] == 0):
+                    raise QualityError(f"{record_context}: no-result witness is inconsistent")
+                if not parsed["returned_target"] and (parsed["selected_actor"] or parsed["selected_class"]):
+                    raise QualityError(f"{record_context}: absent result must not identify a selection")
+                if parsed["returned_target"] and (not parsed["selected_actor"] or not parsed["selected_class"]):
+                    raise QualityError(f"{record_context}: result requires actor and class")
+                parsed_records.append(parsed)
+            result["pick_target_records"] = parsed_records
+        elif pick_target_present:
+            raise QualityError(f"{context}: PickTarget counter group requires records")
         inventory_direct_reach_present = [name for name in INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS
                                           if name in result]
         if (inventory_direct_reach_present
@@ -4075,6 +4171,19 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             elif "target_selection_observer" in raw:
                 raise QualityError(f"{context}: target-selection observer telemetry is present while disabled")
+            pick_target_observer_requested = manifest.get("pick_target_observer_enabled") is True
+            if pick_target_observer_requested:
+                observer = _object(raw.get("pick_target_observer"),
+                                   f"{context}.pick_target_observer")
+                if _boolean(observer.get("requested"),
+                            f"{context}.pick_target_observer.requested") is not True:
+                    raise QualityError(f"{context}: PickTarget observer must be requested")
+                if _string(observer, "status", f"{context}.pick_target_observer", nonempty=True) \
+                        != "active":
+                    raise QualityError(f"{context}: PickTarget observer is not active")
+                event["pick_target_observer"] = {"status": "active"}
+            elif "pick_target_observer" in raw:
+                raise QualityError(f"{context}: PickTarget observer telemetry is present while disabled")
             inventory_direct_reach_observer_requested = (
                 manifest.get("inventory_direct_reach_support_observer_enabled") is True)
             if inventory_direct_reach_observer_requested:
@@ -4165,6 +4274,66 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     raise QualityError(f"{path}: active target-selection observer has incomplete evidence")
         elif not observer_reason:
             raise QualityError(f"{path}: disabled target-selection observer has no reason")
+    if manifest.get("pick_target_observer_enabled") is True:
+        totals: dict[str, dict[str, int]] = {}
+        sequences: dict[str, int] = {}
+        record_count: dict[str, int] = {}
+        for event in events:
+            for bot in event["bots"]:
+                if any(name not in bot for name in PICK_TARGET_COUNTERS):
+                    raise QualityError(f"{path}: active PickTarget observer lacks counters")
+                for record in bot["pick_target_records"]:
+                    prior = sequences.get(bot["identity"], 0)
+                    if record["sequence"] <= prior:
+                        raise QualityError(f"{path}: PickTarget record sequence did not increase")
+                    sequences[bot["identity"]] = record["sequence"]
+                    record_count[bot["identity"]] = record_count.get(bot["identity"], 0) + 1
+                    bucket = totals.setdefault(bot["identity"], {
+                        "pick_target_candidates_exact": 0,
+                        "pick_target_self_rejects_exact": 0,
+                        "pick_target_dead_rejects_exact": 0,
+                        "pick_target_living_skipped_by_current_predicate_exact": 0,
+                        "pick_target_team_rejects_exact": 0,
+                        "pick_target_living_geometry_eligible_exact": 0,
+                        "pick_target_living_line_of_sight_eligible_exact": 0,
+                        "pick_target_returned_targets_exact": 0,
+                        "pick_target_returned_living_targets_exact": 0,
+                        "pick_target_no_result_with_living_line_of_sight_candidate_exact": 0,
+                        "pick_target_integrity_failures_exact": 0,
+                    })
+                    bucket["pick_target_candidates_exact"] += record["candidate_pawns"]
+                    bucket["pick_target_self_rejects_exact"] += record["self_rejects"]
+                    bucket["pick_target_dead_rejects_exact"] += record["dead_rejects"]
+                    bucket["pick_target_living_skipped_by_current_predicate_exact"] += \
+                        record["living_skipped_by_current_predicate"]
+                    bucket["pick_target_team_rejects_exact"] += record["team_rejects"]
+                    bucket["pick_target_living_geometry_eligible_exact"] += \
+                        record["living_geometry_eligible"]
+                    bucket["pick_target_living_line_of_sight_eligible_exact"] += \
+                        record["living_line_of_sight_eligible"]
+                    bucket["pick_target_returned_targets_exact"] += int(record["returned_target"])
+                    bucket["pick_target_returned_living_targets_exact"] += \
+                        int(record["returned_living_target"])
+                    bucket["pick_target_no_result_with_living_line_of_sight_candidate_exact"] += \
+                        int(record["no_result_with_living_line_of_sight_candidate"])
+                    bucket["pick_target_integrity_failures_exact"] += int(not record["integrity_valid"])
+        for bot in events[-1]["bots"]:
+            counts = totals.get(bot["identity"], {
+                name: 0 for name in PICK_TARGET_COUNTERS
+                if name not in ("pick_target_observations_exact",
+                                "pick_target_observation_overflows_exact")
+            })
+            records = record_count.get(bot["identity"], 0)
+            overflow = bot["pick_target_observation_overflows_exact"]
+            if bot["pick_target_observations_exact"] != records + overflow:
+                raise QualityError(f"{path}: PickTarget observations do not reconcile records")
+            if overflow or bot["pick_target_integrity_failures_exact"]:
+                raise QualityError(f"{path}: active PickTarget observer has incomplete evidence")
+            for counter, observed in counts.items():
+                if bot[counter] != observed:
+                    raise QualityError(f"{path}: PickTarget records do not reconcile {counter}")
+            if records and sequences[bot["identity"]] != records:
+                raise QualityError(f"{path}: PickTarget record sequence is not contiguous")
     if manifest.get("inventory_direct_reach_support_observer_enabled") is True:
         totals: dict[str, dict[str, int]] = {}
         sequences: dict[str, int] = {}

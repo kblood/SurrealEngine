@@ -706,6 +706,7 @@ namespace
 
 	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot,
 		bool targetSelectionObserverRequested,
+		bool pickTargetObserverRequested,
 		bool inventoryDirectReachSupportObserverRequested,
 		bool directReachCommandObserverRequested)
 	{
@@ -778,6 +779,56 @@ namespace
 				<< ",\"observed_target_id\":" << JsonString(record.ObservedTargetId)
 				<< ",\"outcome\":" << JsonString(record.Outcome) << '}';
 		}
+			out << ']';
+		}
+		if (pickTargetObserverRequested)
+		{
+			out << ",\"pick_target_observations_exact\":\""
+				<< bot.PickTargetObservationsExact << "\""
+				<< ",\"pick_target_candidates_exact\":\"" << bot.PickTargetCandidatesExact << "\""
+				<< ",\"pick_target_self_rejects_exact\":\"" << bot.PickTargetSelfRejectsExact << "\""
+				<< ",\"pick_target_dead_rejects_exact\":\"" << bot.PickTargetDeadRejectsExact << "\""
+				<< ",\"pick_target_living_skipped_by_current_predicate_exact\":\""
+				<< bot.PickTargetLivingSkippedByCurrentPredicateExact << "\""
+				<< ",\"pick_target_team_rejects_exact\":\"" << bot.PickTargetTeamRejectsExact << "\""
+				<< ",\"pick_target_living_geometry_eligible_exact\":\""
+				<< bot.PickTargetLivingGeometryEligibleExact << "\""
+				<< ",\"pick_target_living_line_of_sight_eligible_exact\":\""
+				<< bot.PickTargetLivingLineOfSightEligibleExact << "\""
+				<< ",\"pick_target_returned_targets_exact\":\""
+				<< bot.PickTargetReturnedTargetsExact << "\""
+				<< ",\"pick_target_returned_living_targets_exact\":\""
+				<< bot.PickTargetReturnedLivingTargetsExact << "\""
+				<< ",\"pick_target_no_result_with_living_line_of_sight_candidate_exact\":\""
+				<< bot.PickTargetNoResultWithLivingLineOfSightCandidateExact << "\""
+				<< ",\"pick_target_observation_overflows_exact\":\""
+				<< bot.PickTargetObservationOverflowsExact << "\""
+				<< ",\"pick_target_integrity_failures_exact\":\""
+				<< bot.PickTargetIntegrityFailuresExact << "\""
+				<< ",\"pick_target_records\":[";
+			for (size_t index = 0; index < bot.PickTargetRecords.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& record = bot.PickTargetRecords[index];
+				out << "{\"sequence\":\"" << record.Sequence
+					<< "\",\"candidate_pawns\":" << record.CandidatePawns
+					<< ",\"self_rejects\":" << record.SelfRejects
+					<< ",\"dead_rejects\":" << record.DeadRejects
+					<< ",\"living_skipped_by_current_predicate\":"
+					<< record.LivingSkippedByCurrentPredicate
+					<< ",\"team_rejects\":" << record.TeamRejects
+					<< ",\"living_geometry_eligible\":" << record.LivingGeometryEligible
+					<< ",\"living_line_of_sight_eligible\":"
+					<< record.LivingLineOfSightEligible
+					<< ",\"returned_target\":" << (record.ReturnedTarget ? "true" : "false")
+					<< ",\"returned_living_target\":"
+					<< (record.ReturnedLivingTarget ? "true" : "false")
+					<< ",\"no_result_with_living_line_of_sight_candidate\":"
+					<< (record.NoResultWithLivingLineOfSightCandidate ? "true" : "false")
+					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false")
+					<< ",\"selected_actor\":" << JsonString(record.SelectedActor)
+					<< ",\"selected_class\":" << JsonString(record.SelectedClass) << '}';
+			}
 			out << ']';
 		}
 		if (inventoryDirectReachSupportObserverRequested)
@@ -1327,6 +1378,8 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "1" : "0") << '\n'
 		<< "target_selection_observer_enabled="
 		<< (config.IsTargetSelectionObserverEnabled() ? "1" : "0") << '\n'
+		<< "pick_target_observer_enabled="
+		<< (config.IsPickTargetObserverEnabled() ? "1" : "0") << '\n'
 		<< "inventory_direct_reach_support_observer_enabled="
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "1" : "0") << '\n'
 		<< "inventory_marker_direct_reach_safety_enabled="
@@ -1380,6 +1433,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "true" : "false") << ",\n"
 		<< "  \"target_selection_observer_enabled\": "
 		<< (config.IsTargetSelectionObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"pick_target_observer_enabled\": "
+		<< (config.IsPickTargetObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"inventory_direct_reach_support_observer_enabled\": "
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"inventory_marker_direct_reach_safety_enabled\": "
@@ -1420,6 +1475,8 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 			<< ",\"status\":" << JsonString(event.TargetSelectionObserverStatus)
 			<< ",\"reason\":" << JsonString(event.TargetSelectionObserverReason) << '}';
 	}
+	if (event.PickTargetObserverRequested)
+		out << ",\"pick_target_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.InventoryDirectReachSupportObserverRequested)
 		out << ",\"inventory_direct_reach_support_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.NativePathCommitObserverRequested)
@@ -1432,6 +1489,7 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 		if (index != 0)
 			out << ',';
 		WriteBot(out, event.Bots[index], event.TargetSelectionObserverRequested,
+			event.PickTargetObserverRequested,
 			event.InventoryDirectReachSupportObserverRequested,
 			event.DirectReachCommandObserverRequested);
 	}

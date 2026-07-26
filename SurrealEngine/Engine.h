@@ -202,6 +202,14 @@ public:
 	{
 		botBenchmarkDirectActorMoveTowardTimeoutEnabled = enabled;
 	}
+	bool IsBotBenchmarkPickTargetObserverEnabled() const
+	{
+		return botBenchmarkPickTargetObserverEnabled;
+	}
+	void SetBotBenchmarkPickTargetObserverEnabled(bool enabled)
+	{
+		botBenchmarkPickTargetObserverEnabled = enabled;
+	}
 	bool IsBotBenchmarkInventoryDirectReachSupportObserverEnabled() const
 	{
 		return botBenchmarkInventoryDirectReachSupportObserverEnabled;
@@ -417,6 +425,7 @@ private:
 	bool botBenchmarkFailedNavigationAvoidanceEnabled = false;
 	bool botBenchmarkTargetlessMoveToTimeoutEnabled = false;
 	bool botBenchmarkDirectActorMoveTowardTimeoutEnabled = false;
+	bool botBenchmarkPickTargetObserverEnabled = false;
 	bool botBenchmarkInventoryDirectReachSupportObserverEnabled = false;
 	bool botBenchmarkInventoryMarkerDirectReachSafetyEnabled = false;
 	bool botBenchmarkNativePathCommitObserverEnabled = false;

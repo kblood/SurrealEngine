@@ -69,6 +69,24 @@ struct BotBenchmarkTargetSelectionRecord
 	std::string Outcome;
 };
 
+struct BotBenchmarkPickTargetRecord
+{
+	uint64_t Sequence = 0;
+	uint32_t CandidatePawns = 0;
+	uint32_t SelfRejects = 0;
+	uint32_t DeadRejects = 0;
+	uint32_t LivingSkippedByCurrentPredicate = 0;
+	uint32_t TeamRejects = 0;
+	uint32_t LivingGeometryEligible = 0;
+	uint32_t LivingLineOfSightEligible = 0;
+	bool ReturnedTarget = false;
+	bool ReturnedLivingTarget = false;
+	bool NoResultWithLivingLineOfSightCandidate = false;
+	bool IntegrityValid = true;
+	std::string SelectedActor;
+	std::string SelectedClass;
+};
+
 struct BotBenchmarkDirectReachCommandRecord
 {
 	uint64_t Sequence = 0;
@@ -143,6 +161,20 @@ struct BotBenchmarkBotState
 	uint64_t TargetSelectionRecordOverflowsExact = 0;
 	uint64_t TargetSelectionIntegrityFailuresExact = 0;
 	std::vector<BotBenchmarkTargetSelectionRecord> TargetSelectionRecords;
+	uint64_t PickTargetObservationsExact = 0;
+	uint64_t PickTargetCandidatesExact = 0;
+	uint64_t PickTargetSelfRejectsExact = 0;
+	uint64_t PickTargetDeadRejectsExact = 0;
+	uint64_t PickTargetLivingSkippedByCurrentPredicateExact = 0;
+	uint64_t PickTargetTeamRejectsExact = 0;
+	uint64_t PickTargetLivingGeometryEligibleExact = 0;
+	uint64_t PickTargetLivingLineOfSightEligibleExact = 0;
+	uint64_t PickTargetReturnedTargetsExact = 0;
+	uint64_t PickTargetReturnedLivingTargetsExact = 0;
+	uint64_t PickTargetNoResultWithLivingLineOfSightCandidateExact = 0;
+	uint64_t PickTargetObservationOverflowsExact = 0;
+	uint64_t PickTargetIntegrityFailuresExact = 0;
+	std::vector<BotBenchmarkPickTargetRecord> PickTargetRecords;
 	uint64_t InventoryDirectReachSupportObservationsExact = 0;
 	uint64_t InventoryDirectReachSupportSafeSupportedExact = 0;
 	uint64_t InventoryDirectReachSupportSafeUnsupportedNoObservedHazardExact = 0;
@@ -397,6 +429,7 @@ struct BotBenchmarkTelemetryEvent
 	bool TargetSelectionObserverRequested = false;
 	std::string TargetSelectionObserverStatus;
 	std::string TargetSelectionObserverReason;
+	bool PickTargetObserverRequested = false;
 	bool InventoryDirectReachSupportObserverRequested = false;
 	bool NativePathCommitObserverRequested = false;
 	bool DirectReachCommandObserverRequested = false;

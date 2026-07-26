@@ -18,6 +18,7 @@
 #include "PawnInventoryReachability.h"
 #include "PawnDirectReachCommandProvenance.h"
 #include "PawnRoutePathCommitProvenance.h"
+#include "PawnPickTargetObserver.h"
 #include "PawnWalkingHitWallDispatch.h"
 #include "PawnWallAdjustRecovery.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
@@ -2355,6 +2356,16 @@ public:
 
 	UActor* PickAnyTarget(float& bestAim, float& bestDist, const vec3& FireDir, const vec3& projStart);
 	UActor* PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, const vec3& projStart);
+	std::vector<PawnMovement::PickTargetObservation> DrainPickTargetObservations();
+	uint64_t PickTargetObservationOverflowCount() const
+	{
+		return PickTargetObservationOverflowCountValue;
+	}
+	uint64_t PickTargetObservationCount() const { return PickTargetObservationSequence; }
+	uint64_t PickTargetObservationIntegrityFailureCount() const
+	{
+		return PickTargetObservationIntegrityFailureCountValue;
+	}
 	bool CheckIfBestTarget(UActor* actor, float& bestAim, float& bestDist, const vec3& FireDir, const vec3& projStart);
 
 	UActor* PathSpecialHandling(const PawnPathEndPointResult& result,
@@ -2837,6 +2848,10 @@ private:
 	uint64_t RoutePathCommitSequence = 0;
 	uint64_t RoutePathCommitOverflowCountValue = 0;
 	std::vector<PawnMovement::RoutePathCommitRecord> RoutePathCommitRecords;
+	uint64_t PickTargetObservationSequence = 0;
+	uint64_t PickTargetObservationOverflowCountValue = 0;
+	uint64_t PickTargetObservationIntegrityFailureCountValue = 0;
+	std::vector<PawnMovement::PickTargetObservation> PickTargetObservations;
 	uint64_t WalkingStepPreflightPositiveDpsVetoActionSequence = 0;
 	std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
 		WalkingStepPreflightPositiveDpsVetoActions;

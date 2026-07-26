@@ -25,6 +25,7 @@ int main()
 		|| defaults.IsFailedNavigationAvoidanceEnabled()
 		|| defaults.IsTargetlessMoveToTimeoutEnabled()
 		|| defaults.IsTargetSelectionObserverEnabled()
+		|| defaults.IsPickTargetObserverEnabled()
 		|| defaults.IsInventoryMarkerDirectReachSafetyEnabled()
 		|| defaults.IsNativePathCommitObserverEnabled()
 		|| defaults.IsDirectReachCommandObserverEnabled())
@@ -172,6 +173,7 @@ int main()
 		"    \"targetless_move_to_timeout_enabled\": false,\n"
 		"    \"direct_actor_move_toward_timeout_enabled\": false,\n"
 		"    \"target_selection_observer_enabled\": false,\n"
+		"    \"pick_target_observer_enabled\": false,\n"
 		"    \"inventory_direct_reach_support_observer_enabled\": false,\n"
 		"    \"inventory_marker_direct_reach_safety_enabled\": false,\n"
 		"    \"native_path_commit_observer_enabled\": false,\n"

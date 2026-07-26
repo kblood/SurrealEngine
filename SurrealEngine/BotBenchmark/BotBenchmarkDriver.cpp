@@ -87,6 +87,8 @@ namespace
 				Config.IsTargetlessMoveToTimeoutEnabled());
 			EngineRef.SetBotBenchmarkDirectActorMoveTowardTimeoutEnabled(
 				Config.IsDirectActorMoveTowardTimeoutEnabled());
+			EngineRef.SetBotBenchmarkPickTargetObserverEnabled(
+				Config.IsPickTargetObserverEnabled());
 			EngineRef.SetBotBenchmarkInventoryDirectReachSupportObserverEnabled(
 				Config.IsInventoryDirectReachSupportObserverEnabled());
 			EngineRef.SetBotBenchmarkInventoryMarkerDirectReachSafetyEnabled(
@@ -392,9 +394,23 @@ namespace
 			BotTargetSelectionProbe::Tracker TargetSelectionTracker;
 			size_t CapturedTargetSelectionRecords = 0;
 			std::vector<BotBenchmarkTargetSelectionRecord> PendingTargetSelectionRecords;
+			std::vector<BotBenchmarkPickTargetRecord> PendingPickTargetRecords;
 			uint64_t TargetSelectionInvalidIdentifierExact = 0;
 			uint64_t TargetSelectionTrackerCapacityExceededExact = 0;
 			uint64_t TargetSelectionIntegrityFailuresExact = 0;
+			uint64_t PickTargetCandidatesExact = 0;
+			uint64_t PickTargetObservationsExact = 0;
+			uint64_t PickTargetSelfRejectsExact = 0;
+			uint64_t PickTargetDeadRejectsExact = 0;
+			uint64_t PickTargetLivingSkippedByCurrentPredicateExact = 0;
+			uint64_t PickTargetTeamRejectsExact = 0;
+			uint64_t PickTargetLivingGeometryEligibleExact = 0;
+			uint64_t PickTargetLivingLineOfSightEligibleExact = 0;
+			uint64_t PickTargetReturnedTargetsExact = 0;
+			uint64_t PickTargetReturnedLivingTargetsExact = 0;
+			uint64_t PickTargetNoResultWithLivingLineOfSightCandidateExact = 0;
+			uint64_t PickTargetObservationOverflowsExact = 0;
+			uint64_t PickTargetIntegrityFailuresExact = 0;
 			uint64_t NextTargetSelectionSequence = 1;
 			uint64_t NextDirectReachCommandSequence = 1;
 			uint64_t DirectReachCommandObservationsExact = 0;
@@ -2577,6 +2593,46 @@ namespace
 					bot.Health = pawn->Health();
 					bot.MovementIntent = HasMovementIntent(pawn);
 					bot.InHazardZone = IsInHazardZone(pawn);
+					if (Config.IsPickTargetObserverEnabled())
+					{
+						runtime.PickTargetObservationsExact = std::max(
+							runtime.PickTargetObservationsExact, pawn->PickTargetObservationCount());
+						runtime.PickTargetObservationOverflowsExact = std::max(
+							runtime.PickTargetObservationOverflowsExact,
+							pawn->PickTargetObservationOverflowCount());
+						runtime.PickTargetIntegrityFailuresExact = std::max(
+							runtime.PickTargetIntegrityFailuresExact,
+							pawn->PickTargetObservationIntegrityFailureCount());
+						for (auto& observation : pawn->DrainPickTargetObservations())
+						{
+							runtime.PickTargetCandidatesExact += observation.CandidatePawns;
+							runtime.PickTargetSelfRejectsExact += observation.SelfRejects;
+							runtime.PickTargetDeadRejectsExact += observation.DeadRejects;
+							runtime.PickTargetLivingSkippedByCurrentPredicateExact +=
+								observation.LivingSkippedByCurrentPredicate;
+							runtime.PickTargetTeamRejectsExact += observation.TeamRejects;
+							runtime.PickTargetLivingGeometryEligibleExact +=
+								observation.LivingGeometryEligible;
+							runtime.PickTargetLivingLineOfSightEligibleExact +=
+								observation.LivingLineOfSightEligible;
+							runtime.PickTargetReturnedTargetsExact +=
+								observation.ReturnedTarget ? 1 : 0;
+							runtime.PickTargetReturnedLivingTargetsExact +=
+								observation.ReturnedLivingTarget ? 1 : 0;
+							runtime.PickTargetNoResultWithLivingLineOfSightCandidateExact +=
+								observation.NoResultWithLivingLineOfSightCandidate ? 1 : 0;
+							runtime.PendingPickTargetRecords.push_back({ observation.Sequence,
+								observation.CandidatePawns, observation.SelfRejects,
+								observation.DeadRejects,
+								observation.LivingSkippedByCurrentPredicate, observation.TeamRejects,
+								observation.LivingGeometryEligible,
+								observation.LivingLineOfSightEligible, observation.ReturnedTarget,
+								observation.ReturnedLivingTarget,
+								observation.NoResultWithLivingLineOfSightCandidate,
+								observation.IntegrityValid, std::move(observation.SelectedActor),
+								std::move(observation.SelectedClass) });
+						}
+					}
 				}
 				else
 				{
@@ -2618,6 +2674,30 @@ namespace
 						TargetSelectionOutcomeName(record.Outcome) });
 				}
 				bot.TargetSelectionRecords = runtime.PendingTargetSelectionRecords;
+				if (Config.IsPickTargetObserverEnabled())
+				{
+					bot.PickTargetObservationsExact = runtime.PickTargetObservationsExact;
+					bot.PickTargetCandidatesExact = runtime.PickTargetCandidatesExact;
+					bot.PickTargetSelfRejectsExact = runtime.PickTargetSelfRejectsExact;
+					bot.PickTargetDeadRejectsExact = runtime.PickTargetDeadRejectsExact;
+					bot.PickTargetLivingSkippedByCurrentPredicateExact =
+						runtime.PickTargetLivingSkippedByCurrentPredicateExact;
+					bot.PickTargetTeamRejectsExact = runtime.PickTargetTeamRejectsExact;
+					bot.PickTargetLivingGeometryEligibleExact =
+						runtime.PickTargetLivingGeometryEligibleExact;
+					bot.PickTargetLivingLineOfSightEligibleExact =
+						runtime.PickTargetLivingLineOfSightEligibleExact;
+					bot.PickTargetReturnedTargetsExact = runtime.PickTargetReturnedTargetsExact;
+					bot.PickTargetReturnedLivingTargetsExact =
+						runtime.PickTargetReturnedLivingTargetsExact;
+					bot.PickTargetNoResultWithLivingLineOfSightCandidateExact =
+						runtime.PickTargetNoResultWithLivingLineOfSightCandidateExact;
+					bot.PickTargetObservationOverflowsExact =
+						runtime.PickTargetObservationOverflowsExact;
+					bot.PickTargetIntegrityFailuresExact = runtime.PickTargetIntegrityFailuresExact;
+					bot.PickTargetRecords = std::move(runtime.PendingPickTargetRecords);
+					runtime.PendingPickTargetRecords.clear();
+				}
 				bot.EnvironmentalDeathsExact = runtime.EnvironmentalDeathsExact;
 				bot.HazardExposedDeathsProxy = runtime.HazardExposedDeathsProxy;
 				bot.DamageTakenExact = runtime.DamageTakenExact;
@@ -3189,6 +3269,7 @@ namespace
 			event.TargetSelectionObserverRequested = Config.IsTargetSelectionObserverEnabled();
 			event.TargetSelectionObserverStatus = TargetSelectionObserverStatus;
 			event.TargetSelectionObserverReason = TargetSelectionObserverReason;
+			event.PickTargetObserverRequested = Config.IsPickTargetObserverEnabled();
 			event.InventoryDirectReachSupportObserverRequested =
 				Config.IsInventoryDirectReachSupportObserverEnabled();
 			event.NativePathCommitObserverRequested =
@@ -3321,7 +3402,8 @@ namespace
 			OptionalCommandLineArg("--botbench-inventory-direct-reach-support-observer"),
 			OptionalCommandLineArg("--botbench-inventory-marker-direct-reach-safety"),
 			OptionalCommandLineArg("--botbench-native-path-commit-observer"),
-			OptionalCommandLineArg("--botbench-direct-reach-command-observer"));
+			OptionalCommandLineArg("--botbench-direct-reach-command-observer"),
+			OptionalCommandLineArg("--botbench-pick-target-observer"));
 	}
 }
 

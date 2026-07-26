@@ -3400,6 +3400,84 @@ class BotQualityAnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(QUALITY.QualityError, "benchmark-only"):
             QUALITY._validate_ai_frame_timing(timing, "timing")
 
+    def test_pick_target_observer_rejects_living_result_under_current_predicate(self) -> None:
+        zero = {
+            "score": 0.0, "pri_deaths": 0.0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            **{name: 0 for name in QUALITY.PICK_TARGET_COUNTERS},
+            "pick_target_records": [],
+        }
+        witness = {
+            "sequence": "1", "candidate_pawns": 4, "self_rejects": 1,
+            "dead_rejects": 0, "living_skipped_by_current_predicate": 3,
+            "team_rejects": 0, "living_geometry_eligible": 1,
+            "living_line_of_sight_eligible": 1, "returned_target": False,
+            "returned_living_target": False,
+            "no_result_with_living_line_of_sight_candidate": True,
+            "integrity_valid": True, "selected_actor": "", "selected_class": "",
+        }
+        final = {
+            **zero,
+            "pick_target_observations_exact": 1,
+            "pick_target_candidates_exact": 4,
+            "pick_target_self_rejects_exact": 1,
+            "pick_target_living_skipped_by_current_predicate_exact": 3,
+            "pick_target_living_geometry_eligible_exact": 1,
+            "pick_target_living_line_of_sight_eligible_exact": 1,
+            "pick_target_no_result_with_living_line_of_sight_candidate_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "pick-target", bot_count=1)
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["pick_target_observer_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], pick_target_observer_enabled=True)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            upgrade_telemetry_v2(run, counters=[zero, final, final])
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+                event["pick_target_observer"] = {"requested": True, "status": "active"}
+                for bot in event["bots"]:
+                    bot["pick_target_records"] = []
+            events[1]["bots"][0]["pick_target_records"] = [witness]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            QUALITY.analyze([run])
+
+            invalid = json.loads(json.dumps(witness))
+            invalid.update({
+                "returned_target": True, "returned_living_target": True,
+                "no_result_with_living_line_of_sight_candidate": False,
+                "selected_actor": "Bot2", "selected_class": "Botpack.Bot",
+            })
+            invalid_final = {
+                **final,
+                "pick_target_returned_targets_exact": 1,
+                "pick_target_returned_living_targets_exact": 1,
+                "pick_target_no_result_with_living_line_of_sight_candidate_exact": 0,
+            }
+            upgrade_telemetry_v2(run, counters=[zero, invalid_final, invalid_final])
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+                event["pick_target_observer"] = {"requested": True, "status": "active"}
+                for bot in event["bots"]:
+                    bot["pick_target_records"] = []
+            events[1]["bots"][0]["pick_target_records"] = [invalid]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "cannot return a living pawn"):
+                QUALITY.analyze([run])
+
 
 if __name__ == "__main__":
     unittest.main()
