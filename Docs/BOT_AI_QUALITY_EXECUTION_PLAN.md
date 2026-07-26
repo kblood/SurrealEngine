@@ -3808,6 +3808,23 @@ stock-route criteria. Keep the direct timeout default-off and do not derive a
 cooldown or reachability veto from this event. Search for a genuine qualifying
 chain through observer-only matrices before implementing any retry policy.
 
+## Iteration 152: the strongest water witness still fails ownership
+
+A 7,200-tick, four-bot UT436 Deck16-II seed-`271828` pair provides one clean,
+exactly repeatable unassisted swimming death: `TFemale2Bot1` reaches a
+`PainTimer` harmful-residence terminal at tick 623 after 3.043338 seconds,
+with health 100 to -4 and a non-superseded direct-safe `PathNode144` candidate.
+It has no recent enemy or momentum contribution, so it is a genuine bot safety
+failure rather than a combat proxy.
+
+It still cannot authorize a live egress action. The command life is known, but
+there is no live `MoveTarget` at death and exact residence command ownership is
+false. The same run has 13 same-life exact direct-reach commands and 731
+observations, so this is not missing observer instrumentation. Together with
+the 16-bot repeat (four verified deaths, zero owned), the evidence requires
+stock command ownership as a hard precondition. Do not aim at `PathNode144` or
+write acceleration based on geometry alone.
+
 ## Iteration 151: restore the benchmark protocol snapshot
 
 The previously failing `BotBenchmarkProtocol` CTest was stale rather than
