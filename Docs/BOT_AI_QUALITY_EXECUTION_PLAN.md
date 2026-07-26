@@ -3904,3 +3904,26 @@ Keep both the correction and the observer as experimental branch evidence; do
 not merge the unconditional form. The viable next design must preserve UT's
 stock behavior while separately qualifying the demonstrably beneficial Unreal
 Gold behavior, or find a narrower call-context rule that improves both.
+
+## Iteration 155: identify the UT native-call provenance
+
+The repaired engine now records the immediate UnrealScript caller class and
+function in each bounded, read-only `PickTarget` observer record. This field
+comes from the VM frame below native 531 and is parser-required whenever a
+record is present; it cannot participate in target selection. The Release
+engine, protocol/telemetry CTests, and 45 analyzer tests pass with the schema
+extension.
+
+The fresh UT436 Deck16-II 16-bot seed-`271828` 1,200-tick capture resolves all
+15 observed calls: `Botpack.SniperRifle.Timer` accounts for 11 and
+`Botpack.ShockRifle.Timer` for four. This verifies the targeted weapon-timer
+path directly, rather than inferring it from aggregate match outcomes. The
+package review in `BOT_AI_PICKTARGET_UT_COMPAT_REVIEW.md` finds those timers
+call `WarnTarget` after a returned pawn; that later evasive-movement effect is
+still a hypothesis until a bounded `WarnTarget` receiver/transition observer
+correlates it within the same life and command timeline.
+
+Do not introduce a game-name predicate branch. The predicate's native contract
+is shared; the next candidate must quantify the downstream warning transition
+and must preserve stock behavior until its own cross-game quality evidence is
+positive.

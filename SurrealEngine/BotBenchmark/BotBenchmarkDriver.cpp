@@ -2633,7 +2633,8 @@ namespace
 								observation.LivingLineOfSightEligible, observation.ReturnedTarget,
 								observation.ReturnedLivingTarget,
 								observation.NoResultWithLivingLineOfSightCandidate,
-								observation.IntegrityValid, std::move(observation.SelectedActor),
+								observation.IntegrityValid, std::move(observation.CallerClass),
+								std::move(observation.CallerFunction), std::move(observation.SelectedActor),
 								std::move(observation.SelectedClass) });
 						}
 					}

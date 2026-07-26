@@ -3991,6 +3991,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                         f"{record_context}.no_result_with_living_line_of_sight_candidate"),
                     "integrity_valid": _boolean(item.get("integrity_valid"),
                                                 f"{record_context}.integrity_valid"),
+                    "caller_class": _string(item, "caller_class", record_context),
+                    "caller_function": _string(item, "caller_function", record_context),
                     "selected_actor": _string(item, "selected_actor", record_context),
                     "selected_class": _string(item, "selected_class", record_context),
                 }

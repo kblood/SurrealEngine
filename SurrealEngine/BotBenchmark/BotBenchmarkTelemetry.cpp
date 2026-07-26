@@ -829,6 +829,8 @@ namespace
 					<< ",\"no_result_with_living_line_of_sight_candidate\":"
 					<< (record.NoResultWithLivingLineOfSightCandidate ? "true" : "false")
 					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false")
+					<< ",\"caller_class\":" << JsonString(record.CallerClass)
+					<< ",\"caller_function\":" << JsonString(record.CallerFunction)
 					<< ",\"selected_actor\":" << JsonString(record.SelectedActor)
 					<< ",\"selected_class\":" << JsonString(record.SelectedClass) << '}';
 			}

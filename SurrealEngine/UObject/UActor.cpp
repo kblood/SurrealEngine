@@ -4836,6 +4836,14 @@ UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, 
 		observation.IntegrityValid = std::isfinite(bestAim) && std::isfinite(bestDist) &&
 			std::isfinite(FireDir.x) && std::isfinite(FireDir.y) && std::isfinite(FireDir.z) &&
 			std::isfinite(projStart.x) && std::isfinite(projStart.y) && std::isfinite(projStart.z);
+		if (Frame::Callstack.size() >= 2)
+		{
+			Frame* caller = Frame::Callstack[Frame::Callstack.size() - 2];
+			if (caller && caller->Object)
+				observation.CallerClass = UObject::GetUClassFullName(caller->Object).ToString();
+			if (caller && caller->Func)
+				observation.CallerFunction = caller->Func->Name.ToString();
+		}
 	}
 	UActor* bestActor = nullptr;
 	UPlayerReplicationInfo* ourPlayerInfo = engine->LaunchInfo.ue1Version > 219 ? PlayerReplicationInfo() : nullptr;

@@ -23,6 +23,8 @@ namespace PawnMovement
 		bool ReturnedLivingTarget = false;
 		bool NoResultWithLivingLineOfSightCandidate = false;
 		bool IntegrityValid = true;
+		std::string CallerClass;
+		std::string CallerFunction;
 		std::string SelectedActor;
 		std::string SelectedClass;
 	};

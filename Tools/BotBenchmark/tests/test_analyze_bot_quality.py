@@ -3417,7 +3417,8 @@ class BotQualityAnalysisTests(unittest.TestCase):
             "living_line_of_sight_eligible": 1, "returned_target": True,
             "returned_living_target": True,
             "no_result_with_living_line_of_sight_candidate": False,
-            "integrity_valid": True, "selected_actor": "Bot2", "selected_class": "Botpack.Bot",
+            "integrity_valid": True, "caller_class": "Botpack.Bot",
+            "caller_function": "AdjustAim", "selected_actor": "Bot2", "selected_class": "Botpack.Bot",
         }
         final = {
             **zero,
