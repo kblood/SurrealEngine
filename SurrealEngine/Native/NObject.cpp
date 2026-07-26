@@ -4,6 +4,9 @@
 #include "VM/NativeFunc.h"
 #include "VM/Frame.h"
 #include "UObject/PawnVectorNonFiniteObserver.h"
+#include "UObject/PawnPickRegDestinationZeroDivideGuard.h"
+#include "UObject/UClass.h"
+#include "UObject/UActor.h"
 #include "Package/PackageManager.h"
 #include "Engine.h"
 #include "Math/quaternion.h"
@@ -645,7 +648,30 @@ void NObject::Divide_RotatorFloat(const Rotator& A, float B, Rotator& ReturnValu
 
 void NObject::Divide_VectorFloat(const vec3& A, float B, vec3& ReturnValue)
 {
-	ReturnValue = A / B;
+	bool substituteZeroDirection = false;
+	if (engine && engine->IsBotBenchmarkPickRegDestinationZeroDivideGuardEnabled()
+		&& Frame::Callstack.size() >= 2)
+	{
+		Frame* caller = Frame::Callstack[Frame::Callstack.size() - 2];
+		UPawn* pawn = caller ? UObject::TryCast<UPawn>(caller->Object) : nullptr;
+		if (caller && caller->Func && pawn)
+		{
+			std::vector<std::string> ancestry;
+			for (UClass* current = caller->Object->Class; current;
+				current = dynamic_cast<UClass*>(current->BaseStruct))
+			{
+				if (current->package)
+					ancestry.push_back(current->package->GetPackageName().ToString()
+						+ "." + current->Name.ToString());
+			}
+			substituteZeroDirection = PawnMovement::ShouldSubstitutePickRegDestinationZeroDivide(
+				true, caller->Func->Name.ToString(), ancestry, A, B);
+			if (substituteZeroDirection)
+				pawn->RecordPickRegDestinationZeroDivideGuardActivation(
+					engine->BotBenchmarkObserverTick(), caller->EnsureInvocationToken());
+		}
+	}
+	ReturnValue = substituteZeroDirection ? vec3(0.0f) : A / B;
 	PawnMovement::ObserveUnrealScriptVectorOperation(
 		PawnMovement::UnrealScriptVectorOperation::DivideVectorFloat, A, nullptr, &B, ReturnValue);
 }

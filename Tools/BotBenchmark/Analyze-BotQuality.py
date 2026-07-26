@@ -3118,7 +3118,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                pawn_vision_observer_enabled: bool | None = None,
                vector_nonfinite_observer_enabled: bool | None = None,
                shadow_policy_set: list[str] | None = None,
-               finite_move_command_guard_enabled: bool | None = None) -> str:
+               finite_move_command_guard_enabled: bool | None = None,
+               pick_reg_destination_zero_divide_guard_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -3190,6 +3191,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if finite_move_command_guard_enabled is not None:
             canonical_text += "finite_move_command_guard_enabled=" + (
                 "1\n" if finite_move_command_guard_enabled else "0\n")
+        if pick_reg_destination_zero_divide_guard_enabled is not None:
+            canonical_text += "pick_reg_destination_zero_divide_guard_enabled=" + (
+                "1\n" if pick_reg_destination_zero_divide_guard_enabled else "0\n")
         if shadow_policy_set is not None:
             canonical_text += "".join(f"shadow_policy={policy}\n" for policy in shadow_policy_set)
         assert requested_roster is not None
@@ -3353,6 +3357,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     pawn_vision_observer_enabled = None
     vector_nonfinite_observer_enabled = None
     finite_move_command_guard_enabled = None
+    pick_reg_destination_zero_divide_guard_enabled = None
     shadow_policy_set = None
     build_identity = None
     if schema == MANIFEST_SCHEMA_V3:
@@ -3461,6 +3466,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             finite_move_command_guard_enabled = _boolean(
                 raw.get("finite_move_command_guard_enabled"),
                 "manifest.finite_move_command_guard_enabled")
+        if "pick_reg_destination_zero_divide_guard_enabled" in raw:
+            pick_reg_destination_zero_divide_guard_enabled = _boolean(
+                raw.get("pick_reg_destination_zero_divide_guard_enabled"),
+                "manifest.pick_reg_destination_zero_divide_guard_enabled")
         if schema == MANIFEST_SCHEMA_V3:
             shadow_policy_set = _validate_shadow_policy_set(
                 raw.get("shadow_policy_set"), "manifest.shadow_policy_set")
@@ -3489,7 +3498,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              pawn_vision_observer_enabled,
                              vector_nonfinite_observer_enabled,
                              shadow_policy_set,
-                             finite_move_command_guard_enabled)
+                             finite_move_command_guard_enabled,
+                             pick_reg_destination_zero_divide_guard_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -3531,6 +3541,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "pawn_vision_observer_enabled": pawn_vision_observer_enabled,
         "vector_nonfinite_observer_enabled": vector_nonfinite_observer_enabled,
         "finite_move_command_guard_enabled": finite_move_command_guard_enabled,
+        "pick_reg_destination_zero_divide_guard_enabled": (
+            pick_reg_destination_zero_divide_guard_enabled),
         "shadow_policy_set": shadow_policy_set,
     }
 
@@ -5579,6 +5591,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["finite_move_command_guard_enabled"] = _boolean(
             config.get("finite_move_command_guard_enabled"),
             "summary.config.finite_move_command_guard_enabled")
+    if manifest["pick_reg_destination_zero_divide_guard_enabled"] is not None:
+        comparisons["pick_reg_destination_zero_divide_guard_enabled"] = _boolean(
+            config.get("pick_reg_destination_zero_divide_guard_enabled"),
+            "summary.config.pick_reg_destination_zero_divide_guard_enabled")
     if manifest["pick_target_predicate_mode"] is not None:
         comparisons["pick_target_predicate_mode"] = _string(
             config, "pick_target_predicate_mode", "summary.config", nonempty=True)
@@ -6384,6 +6400,8 @@ def analyze_run(path: Path) -> dict[str, Any]:
             "pawn_vision_observer_enabled": manifest["pawn_vision_observer_enabled"],
             "vector_nonfinite_observer_enabled": (
                 manifest["vector_nonfinite_observer_enabled"]),
+            "pick_reg_destination_zero_divide_guard_enabled": (
+                manifest["pick_reg_destination_zero_divide_guard_enabled"]),
             "shadow_policy_set": manifest["shadow_policy_set"],
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),

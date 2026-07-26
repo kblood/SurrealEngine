@@ -710,6 +710,7 @@ namespace
 		bool pawnVisionObserverRequested,
 		bool vectorNonFiniteObserverRequested,
 		bool finiteMoveCommandGuardRequested,
+		bool pickRegDestinationZeroDivideGuardRequested,
 		bool warnTargetObserverRequested,
 		bool inventoryDirectReachSupportObserverRequested,
 		bool directReachCommandObserverRequested)
@@ -973,6 +974,25 @@ namespace
 					<< (record.PriorDestinationFinite ? "true" : "false")
 					<< ",\"prior_focus_finite\":"
 					<< (record.PriorFocusFinite ? "true" : "false") << '}';
+			}
+			out << ']';
+		}
+		if (pickRegDestinationZeroDivideGuardRequested)
+		{
+			out << ",\"pick_reg_destination_zero_divide_guard_activations_exact\":\""
+				<< bot.PickRegDestinationZeroDivideGuardActivationsExact << "\""
+				<< ",\"pick_reg_destination_zero_divide_guard_activation_overflows_exact\":\""
+				<< bot.PickRegDestinationZeroDivideGuardActivationOverflowsExact << "\""
+				<< ",\"pick_reg_destination_zero_divide_guard_activations\":[";
+			for (size_t index = 0; index < bot.PickRegDestinationZeroDivideGuardActivations.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& record = bot.PickRegDestinationZeroDivideGuardActivations[index];
+				out << "{\"sequence\":\"" << record.Sequence
+					<< "\",\"observer_tick\":\"" << record.ObserverTick
+					<< "\",\"caller_invocation_token\":\"" << record.CallerInvocationToken
+					<< "\",\"source_life_id\":\"" << record.SourceLifeId
+					<< "\",\"source_actor_index\":" << record.SourceActorIndex << '}';
 			}
 			out << ']';
 		}
@@ -1661,7 +1681,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "vector_nonfinite_observer_enabled="
 		<< (config.IsVectorNonFiniteObserverEnabled() ? "1" : "0") << '\n'
 		<< "finite_move_command_guard_enabled="
-		<< (config.IsFiniteMoveCommandGuardEnabled() ? "1" : "0") << '\n';
+		<< (config.IsFiniteMoveCommandGuardEnabled() ? "1" : "0") << '\n'
+		<< "pick_reg_destination_zero_divide_guard_enabled="
+		<< (config.IsPickRegDestinationZeroDivideGuardEnabled() ? "1" : "0") << '\n';
 	for (const std::string& policy : config.GetShadowPolicySet())
 		canonical << "shadow_policy=" << policy << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
@@ -1741,6 +1763,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsVectorNonFiniteObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"finite_move_command_guard_enabled\": "
 		<< (config.IsFiniteMoveCommandGuardEnabled() ? "true" : "false") << ",\n"
+		<< "  \"pick_reg_destination_zero_divide_guard_enabled\": "
+		<< (config.IsPickRegDestinationZeroDivideGuardEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";
@@ -1779,6 +1803,8 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 		out << ",\"pawn_vision_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.VectorNonFiniteObserverRequested)
 		out << ",\"vector_nonfinite_observer\":{\"requested\":true,\"status\":\"active\"}";
+	if (event.PickRegDestinationZeroDivideGuardRequested)
+		out << ",\"pick_reg_destination_zero_divide_guard\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.WarnTargetObserverRequested)
 	{
 		out << ",\"warn_target_observer\":{\"requested\":true"
@@ -1803,6 +1829,7 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 				 event.PawnVisionObserverRequested,
 				 event.VectorNonFiniteObserverRequested,
 				 event.FiniteMoveCommandGuardRequested,
+				 event.PickRegDestinationZeroDivideGuardRequested,
 				event.WarnTargetObserverRequested,
 				event.InventoryDirectReachSupportObserverRequested,
 				event.DirectReachCommandObserverRequested);

@@ -21,6 +21,7 @@
 #include "PawnPickTargetObserver.h"
 #include "PawnCanSeeObserver.h"
 #include "PawnFiniteMoveCommandGuard.h"
+#include "PawnPickRegDestinationZeroDivideGuard.h"
 #include "PawnVectorNonFiniteObserver.h"
 #include "PawnWalkingHitWallDispatch.h"
 #include "PawnWallAdjustRecovery.h"
@@ -2409,6 +2410,18 @@ public:
 	{
 		return FiniteMoveCommandGuardDiagnosticOverflowCountValue;
 	}
+	void RecordPickRegDestinationZeroDivideGuardActivation(uint64_t observerTick,
+		uint64_t callerInvocationToken);
+	std::vector<PawnMovement::PickRegDestinationZeroDivideGuardRecord>
+		DrainPickRegDestinationZeroDivideGuardActivations();
+	uint64_t PickRegDestinationZeroDivideGuardActivationCount() const
+	{
+		return PickRegDestinationZeroDivideGuardActivationCountValue;
+	}
+	uint64_t PickRegDestinationZeroDivideGuardActivationOverflowCount() const
+	{
+		return PickRegDestinationZeroDivideGuardActivationOverflowCountValue;
+	}
 	bool CheckIfBestTarget(UActor* actor, float& bestAim, float& bestDist, const vec3& FireDir, const vec3& projStart);
 
 	UActor* PathSpecialHandling(const PawnPathEndPointResult& result,
@@ -2909,6 +2922,11 @@ private:
 	uint64_t FiniteMoveCommandGuardDiagnosticSequence = 0;
 	std::vector<PawnMovement::FiniteMoveCommandGuardDiagnosticRecord>
 		FiniteMoveCommandGuardDiagnostics;
+	uint64_t PickRegDestinationZeroDivideGuardActivationCountValue = 0;
+	uint64_t PickRegDestinationZeroDivideGuardActivationOverflowCountValue = 0;
+	uint64_t PickRegDestinationZeroDivideGuardActivationSequence = 0;
+	std::vector<PawnMovement::PickRegDestinationZeroDivideGuardRecord>
+		PickRegDestinationZeroDivideGuardActivations;
 	uint64_t WalkingStepPreflightPositiveDpsVetoActionSequence = 0;
 	std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
 		WalkingStepPreflightPositiveDpsVetoActions;

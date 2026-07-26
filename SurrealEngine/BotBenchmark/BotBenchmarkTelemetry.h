@@ -267,6 +267,15 @@ struct BotBenchmarkVectorNonFiniteRecord
 	std::string CallerFunction;
 };
 
+struct BotBenchmarkPickRegDestinationZeroDivideGuardRecord
+{
+	uint64_t Sequence = 0;
+	uint64_t ObserverTick = 0;
+	uint64_t CallerInvocationToken = 0;
+	uint64_t SourceLifeId = 0;
+	int32_t SourceActorIndex = -1;
+};
+
 struct BotBenchmarkBotState
 {
 	std::string Identity;
@@ -372,6 +381,10 @@ struct BotBenchmarkBotState
 	uint64_t FiniteMoveCommandGuardRejectionsExact = 0;
 	uint64_t FiniteMoveCommandGuardDiagnosticOverflowsExact = 0;
 	std::vector<BotBenchmarkFiniteMoveCommandGuardRecord> FiniteMoveCommandGuardDiagnostics;
+	uint64_t PickRegDestinationZeroDivideGuardActivationsExact = 0;
+	uint64_t PickRegDestinationZeroDivideGuardActivationOverflowsExact = 0;
+	std::vector<BotBenchmarkPickRegDestinationZeroDivideGuardRecord>
+		PickRegDestinationZeroDivideGuardActivations;
 	uint64_t EnvironmentalDeathsExact = 0;
 	uint64_t HazardExposedDeathsProxy = 0;
 	uint64_t DamageTakenExact = 0;
@@ -618,6 +631,7 @@ struct BotBenchmarkTelemetryEvent
 	bool NativePathCommitObserverRequested = false;
 	bool DirectReachCommandObserverRequested = false;
 	bool FiniteMoveCommandGuardRequested = false;
+	bool PickRegDestinationZeroDivideGuardRequested = false;
 	std::vector<BotBenchmarkBotState> Bots;
 };
 

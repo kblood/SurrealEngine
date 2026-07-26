@@ -4898,6 +4898,29 @@ std::vector<PawnMovement::FiniteMoveCommandGuardDiagnosticRecord>
 	return diagnostics;
 }
 
+void UPawn::RecordPickRegDestinationZeroDivideGuardActivation(uint64_t observerTick,
+	uint64_t callerInvocationToken)
+{
+	PickRegDestinationZeroDivideGuardActivationCountValue++;
+	static constexpr size_t maximumQueuedRecords = 64;
+	if (PickRegDestinationZeroDivideGuardActivations.size() >= maximumQueuedRecords)
+	{
+		PickRegDestinationZeroDivideGuardActivationOverflowCountValue++;
+		return;
+	}
+	PickRegDestinationZeroDivideGuardActivations.push_back({
+		++PickRegDestinationZeroDivideGuardActivationSequence, observerTick,
+		callerInvocationToken, DirectReachCommandLifeId(), Index });
+}
+
+std::vector<PawnMovement::PickRegDestinationZeroDivideGuardRecord>
+UPawn::DrainPickRegDestinationZeroDivideGuardActivations()
+{
+	std::vector<PawnMovement::PickRegDestinationZeroDivideGuardRecord> activations;
+	activations.swap(PickRegDestinationZeroDivideGuardActivations);
+	return activations;
+}
+
 bool UPawn::CanHearNoise(UActor* source, float loudness)
 {
 	UPawn* noisePawn = UObject::Cast<UPawn>(source->Instigator());

@@ -56,7 +56,8 @@ public:
 		std::optional<std::string> pawnVisionCone = {},
 		std::optional<std::string> pawnVisionObserver = {},
 		std::optional<std::string> vectorNonFiniteObserver = {},
-		std::optional<std::string> finiteMoveCommandGuard = {});
+		std::optional<std::string> finiteMoveCommandGuard = {},
+		std::optional<std::string> pickRegDestinationZeroDivideGuard = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -105,6 +106,10 @@ public:
 	bool IsPawnVisionObserverEnabled() const { return PawnVisionObserverEnabled; }
 	bool IsVectorNonFiniteObserverEnabled() const { return VectorNonFiniteObserverEnabled; }
 	bool IsFiniteMoveCommandGuardEnabled() const { return FiniteMoveCommandGuardEnabled; }
+	bool IsPickRegDestinationZeroDivideGuardEnabled() const
+	{
+		return PickRegDestinationZeroDivideGuardEnabled;
+	}
 	const std::vector<std::string>& GetShadowPolicySet() const { return ShadowPolicySet; }
 
 private:
@@ -120,7 +125,7 @@ private:
 		bool pickTargetObserverEnabled, bool warnTargetObserverEnabled,
 		bool reachSpecCapabilityObserverEnabled, bool pawnVisionConeEnabled,
 		bool pawnVisionObserverEnabled, bool vectorNonFiniteObserverEnabled,
-		bool finiteMoveCommandGuardEnabled,
+		bool finiteMoveCommandGuardEnabled, bool pickRegDestinationZeroDivideGuardEnabled,
 		std::vector<std::string> shadowPolicySet);
 
 	std::string URL;
@@ -151,6 +156,7 @@ private:
 	bool PawnVisionObserverEnabled = false;
 	bool VectorNonFiniteObserverEnabled = false;
 	bool FiniteMoveCommandGuardEnabled = false;
+	bool PickRegDestinationZeroDivideGuardEnabled = false;
 	std::vector<std::string> ShadowPolicySet;
 };
 

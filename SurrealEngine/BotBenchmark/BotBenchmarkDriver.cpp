@@ -109,6 +109,8 @@ namespace
 				Config.IsVectorNonFiniteObserverEnabled());
 			EngineRef.SetBotBenchmarkFiniteMoveCommandGuardEnabled(
 				Config.IsFiniteMoveCommandGuardEnabled());
+			EngineRef.SetBotBenchmarkPickRegDestinationZeroDivideGuardEnabled(
+				Config.IsPickRegDestinationZeroDivideGuardEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -432,6 +434,8 @@ namespace
 			std::vector<BotBenchmarkVectorNonFiniteRecord> PendingVectorNonFiniteRecords;
 			std::vector<BotBenchmarkFiniteMoveCommandGuardRecord>
 				PendingFiniteMoveCommandGuardDiagnostics;
+			std::vector<BotBenchmarkPickRegDestinationZeroDivideGuardRecord>
+				PendingPickRegDestinationZeroDivideGuardActivations;
 			uint64_t TargetSelectionInvalidIdentifierExact = 0;
 			uint64_t TargetSelectionTrackerCapacityExceededExact = 0;
 			uint64_t TargetSelectionIntegrityFailuresExact = 0;
@@ -459,6 +463,8 @@ namespace
 			uint64_t VectorNonFiniteIntegrityFailuresExact = 0;
 			uint64_t FiniteMoveCommandGuardRejectionsExact = 0;
 			uint64_t FiniteMoveCommandGuardDiagnosticOverflowsExact = 0;
+			uint64_t PickRegDestinationZeroDivideGuardActivationsExact = 0;
+			uint64_t PickRegDestinationZeroDivideGuardActivationOverflowsExact = 0;
 			uint64_t WarnTargetObservationsExact = 0;
 			uint64_t TryToDuckObservationsExact = 0;
 			uint64_t WarnTargetExactNestedTryToDuckLinksExact = 0;
@@ -3329,6 +3335,22 @@ namespace
 								diagnostic.PriorDestinationFinite, diagnostic.PriorFocusFinite });
 						}
 					}
+					if (Config.IsPickRegDestinationZeroDivideGuardEnabled())
+					{
+						runtime.PickRegDestinationZeroDivideGuardActivationsExact = std::max(
+							runtime.PickRegDestinationZeroDivideGuardActivationsExact,
+							pawn->PickRegDestinationZeroDivideGuardActivationCount());
+						runtime.PickRegDestinationZeroDivideGuardActivationOverflowsExact = std::max(
+							runtime.PickRegDestinationZeroDivideGuardActivationOverflowsExact,
+							pawn->PickRegDestinationZeroDivideGuardActivationOverflowCount());
+						for (const auto& activation : pawn->DrainPickRegDestinationZeroDivideGuardActivations())
+						{
+							runtime.PendingPickRegDestinationZeroDivideGuardActivations.push_back({
+								activation.Sequence, activation.ObserverTick,
+								activation.CallerInvocationToken, activation.SourceLifeId,
+								activation.SourceActorIndex });
+						}
+					}
 				}
 				else
 				{
@@ -3426,6 +3448,16 @@ namespace
 					bot.FiniteMoveCommandGuardDiagnostics = std::move(
 						runtime.PendingFiniteMoveCommandGuardDiagnostics);
 					runtime.PendingFiniteMoveCommandGuardDiagnostics.clear();
+				}
+				if (Config.IsPickRegDestinationZeroDivideGuardEnabled())
+				{
+					bot.PickRegDestinationZeroDivideGuardActivationsExact =
+						runtime.PickRegDestinationZeroDivideGuardActivationsExact;
+					bot.PickRegDestinationZeroDivideGuardActivationOverflowsExact =
+						runtime.PickRegDestinationZeroDivideGuardActivationOverflowsExact;
+					bot.PickRegDestinationZeroDivideGuardActivations = std::move(
+						runtime.PendingPickRegDestinationZeroDivideGuardActivations);
+					runtime.PendingPickRegDestinationZeroDivideGuardActivations.clear();
 				}
 				if (Config.IsWarnTargetObserverEnabled())
 				{
@@ -4031,6 +4063,8 @@ namespace
 			event.PawnVisionObserverRequested = Config.IsPawnVisionObserverEnabled();
 			event.VectorNonFiniteObserverRequested = Config.IsVectorNonFiniteObserverEnabled();
 			event.FiniteMoveCommandGuardRequested = Config.IsFiniteMoveCommandGuardEnabled();
+			event.PickRegDestinationZeroDivideGuardRequested =
+				Config.IsPickRegDestinationZeroDivideGuardEnabled();
 			event.WarnTargetObserverRequested = Config.IsWarnTargetObserverEnabled();
 			event.WarnTargetObserverStatus = WarnTargetObserverStatus;
 			event.WarnTargetObserverReason = WarnTargetObserverReason;
@@ -4206,7 +4240,8 @@ namespace
 			OptionalCommandLineArg("--botbench-pawn-vision-cone"),
 			OptionalCommandLineArg("--botbench-pawn-vision-observer"),
 			OptionalCommandLineArg("--botbench-vector-nonfinite-observer"),
-			OptionalCommandLineArg("--botbench-finite-move-command-guard"));
+			OptionalCommandLineArg("--botbench-finite-move-command-guard"),
+			OptionalCommandLineArg("--botbench-pick-reg-destination-zero-divide-guard"));
 	}
 }
 

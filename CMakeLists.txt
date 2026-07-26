@@ -664,6 +664,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnVectorNonFiniteObserver.cpp
 	SurrealEngine/UObject/PawnVectorNonFiniteClassification.cpp
 	SurrealEngine/UObject/PawnVectorNonFiniteObserver.h
+	SurrealEngine/UObject/PawnPickRegDestinationZeroDivideGuard.cpp
+	SurrealEngine/UObject/PawnPickRegDestinationZeroDivideGuard.h
 	SurrealEngine/UObject/PawnVisionCone.cpp
 	SurrealEngine/UObject/PawnVisionCone.h
 	SurrealEngine/UObject/PawnWallAdjustment.cpp
@@ -1808,6 +1810,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PawnVectorNonFiniteObserverTests PRIVATE SurrealEngine)
 	set_target_properties(PawnVectorNonFiniteObserverTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnVectorNonFiniteObserver COMMAND PawnVectorNonFiniteObserverTests)
+
+	add_executable(PawnPickRegDestinationZeroDivideGuardTests
+		Tests/PawnPickRegDestinationZeroDivideGuardTests.cpp
+		SurrealEngine/UObject/PawnPickRegDestinationZeroDivideGuard.cpp
+	)
+	target_include_directories(PawnPickRegDestinationZeroDivideGuardTests PRIVATE SurrealEngine)
+	set_target_properties(PawnPickRegDestinationZeroDivideGuardTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnPickRegDestinationZeroDivideGuard COMMAND PawnPickRegDestinationZeroDivideGuardTests)
 
 	add_executable(PawnWallAdjustRecoveryTests
 		Tests/PawnWallAdjustRecoveryTests.cpp

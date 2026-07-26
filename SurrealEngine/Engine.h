@@ -282,6 +282,14 @@ public:
 	{
 		botBenchmarkFiniteMoveCommandGuardEnabled = enabled;
 	}
+	bool IsBotBenchmarkPickRegDestinationZeroDivideGuardEnabled() const
+	{
+		return botBenchmarkPickRegDestinationZeroDivideGuardEnabled;
+	}
+	void SetBotBenchmarkPickRegDestinationZeroDivideGuardEnabled(bool enabled)
+	{
+		botBenchmarkPickRegDestinationZeroDivideGuardEnabled = enabled;
+	}
 	uint64_t BotBenchmarkObserverTick() const { return botBenchmarkObserverTick; }
 	void SetBotBenchmarkObserverTick(uint64_t tick) { botBenchmarkObserverTick = tick; }
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
@@ -475,6 +483,7 @@ private:
 	bool botBenchmarkPawnVisionObserverEnabled = false;
 	bool botBenchmarkVectorNonFiniteObserverEnabled = false;
 	bool botBenchmarkFiniteMoveCommandGuardEnabled = false;
+	bool botBenchmarkPickRegDestinationZeroDivideGuardEnabled = false;
 	uint64_t botBenchmarkObserverTick = 0;
 	ViewFamily CreateDesktopViewFamily() const;
 	void InstallXRWeaponCallHook();

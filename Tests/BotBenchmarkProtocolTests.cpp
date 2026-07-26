@@ -227,7 +227,8 @@ int main()
 		"    \"pawn_vision_cone_enabled\": false,\n"
 		"    \"pawn_vision_observer_enabled\": false,\n"
 		"    \"vector_nonfinite_observer_enabled\": false,\n"
-		"    \"finite_move_command_guard_enabled\": false\n"
+		"    \"finite_move_command_guard_enabled\": false,\n"
+		"    \"pick_reg_destination_zero_divide_guard_enabled\": false\n"
 		"  }\n"
 		"}\n";
 	std::string serializedSummary = summary.ToJson(parsed);

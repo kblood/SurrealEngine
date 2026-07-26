@@ -52,6 +52,7 @@ class Variant:
     pawn_vision_observer_enabled: bool = False
     vector_nonfinite_observer_enabled: bool = False
     finite_move_command_guard_enabled: bool = False
+    pick_reg_destination_zero_divide_guard_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -293,6 +294,11 @@ def load_matrix(path: Path) -> MatrixConfig:
         if not isinstance(finite_move_command_guard_enabled, bool):
             raise MatrixError(
                 f"matrix.variants[{index}].finite_move_command_guard_enabled must be a boolean")
+        pick_reg_destination_zero_divide_guard_enabled = fields.get(
+            "pick_reg_destination_zero_divide_guard_enabled", False)
+        if not isinstance(pick_reg_destination_zero_divide_guard_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].pick_reg_destination_zero_divide_guard_enabled must be a boolean")
         variants.append(Variant(
             variant_id, executable, role, build_preset, hazard_swim_egress_enabled,
             hazard_swim_egress_live_enabled, failed_navigation_avoidance_enabled,
@@ -301,7 +307,8 @@ def load_matrix(path: Path) -> MatrixConfig:
             target_selection_observer_enabled, inventory_direct_reach_support_observer_enabled,
             pawn_vision_cone_enabled, pawn_vision_observer_enabled,
             vector_nonfinite_observer_enabled,
-            finite_move_command_guard_enabled))
+            finite_move_command_guard_enabled,
+            pick_reg_destination_zero_divide_guard_enabled))
     ids = [variant.id for variant in variants]
     if len(ids) != len(set(ids)):
         raise MatrixError("matrix variant IDs must be unique")
@@ -476,7 +483,8 @@ def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
                                  variant.pawn_vision_cone_enabled,
                                  variant.pawn_vision_observer_enabled,
                                  variant.vector_nonfinite_observer_enabled,
-                                 variant.finite_move_command_guard_enabled]
+                                 variant.finite_move_command_guard_enabled,
+                                 variant.pick_reg_destination_zero_divide_guard_enabled]
                     run_id = (
                         f"{ordinal:06d}-{_slug(variant.id)}-{_slug(map_url)}-"
                         f"s{seed}" + (f"-l{_slug(start_layout.id)}" if start_layout else "") +
@@ -533,6 +541,8 @@ def command_for(config: MatrixConfig, case: MatrixCase, run_directory: Path) -> 
             "1" if case.variant.vector_nonfinite_observer_enabled else "0"),
         "--botbench-finite-move-command-guard=" + (
             "1" if case.variant.finite_move_command_guard_enabled else "0"),
+        "--botbench-pick-reg-destination-zero-divide-guard=" + (
+            "1" if case.variant.pick_reg_destination_zero_divide_guard_enabled else "0"),
     ]
     if config.per_bot_skills is not None:
         command.append("--botbench-skills=" + ",".join(str(value) for value in config.per_bot_skills))
@@ -695,6 +705,8 @@ def _preflight_provenance(
             "pawn_vision_observer_enabled": variant.pawn_vision_observer_enabled,
             "vector_nonfinite_observer_enabled": variant.vector_nonfinite_observer_enabled,
             "finite_move_command_guard_enabled": variant.finite_move_command_guard_enabled,
+            "pick_reg_destination_zero_divide_guard_enabled": (
+                variant.pick_reg_destination_zero_divide_guard_enabled),
             "executable": _file_provenance(variant.executable),
         })
     game_manifest = _file_provenance(config.game_manifest) if config.game_manifest else None
@@ -765,6 +777,8 @@ def _run_case(
         "vector_nonfinite_observer_enabled": case.variant.vector_nonfinite_observer_enabled,
         "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
         "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
+        "pick_reg_destination_zero_divide_guard_enabled": (
+            case.variant.pick_reg_destination_zero_divide_guard_enabled),
     }
     if case.start_layout is not None:
         metadata.update({
@@ -809,6 +823,8 @@ def _run_case(
         "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
         "vector_nonfinite_observer_enabled": case.variant.vector_nonfinite_observer_enabled,
         "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
+        "pick_reg_destination_zero_divide_guard_enabled": (
+            case.variant.pick_reg_destination_zero_divide_guard_enabled),
         "command": command,
     })
     launch = launcher(command, config.timeout_seconds, run_directory / "stdout.txt", run_directory / "stderr.txt")
@@ -882,6 +898,8 @@ def _run_case(
         "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
         "vector_nonfinite_observer_enabled": case.variant.vector_nonfinite_observer_enabled,
         "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
+        "pick_reg_destination_zero_divide_guard_enabled": (
+            case.variant.pick_reg_destination_zero_divide_guard_enabled),
         "exit_code": launch.exit_code,
         "timed_out": launch.timed_out,
         "wall_seconds": launch.wall_seconds,
@@ -934,6 +952,8 @@ def dry_run_plan(config: MatrixConfig, output: Path) -> dict[str, Any]:
             "vector_nonfinite_observer_enabled": case.variant.vector_nonfinite_observer_enabled,
             "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
             "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
+            "pick_reg_destination_zero_divide_guard_enabled": (
+                case.variant.pick_reg_destination_zero_divide_guard_enabled),
             "command": command_for(config, case, runs_directory / case.run_id),
         } for case in cases],
     }
