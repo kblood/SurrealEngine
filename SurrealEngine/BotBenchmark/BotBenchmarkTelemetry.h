@@ -283,6 +283,39 @@ struct BotBenchmarkPickRegDestinationZeroDivideGuardRecord
 	int32_t SourceActorIndex = -1;
 };
 
+struct BotBenchmarkCanFireAtEnemyRecord
+{
+	uint64_t Sequence = 0;
+	uint64_t ObserverTick = 0;
+	uint64_t CallerInvocationToken = 0;
+	uint64_t SourceLifeId = 0;
+	uint64_t EnemyLifeId = 0;
+	int32_t SourceActorIndex = -1;
+	int32_t EnemyActorIndex = -1;
+	bool InstantHit = false;
+	bool ActualHit = false;
+	bool ShadowHit = false;
+	bool ShadowEarlierNonEnemyBlocker = false;
+	bool ReturnedFireable = false;
+	bool PostFire = false;
+	bool PostAltFire = false;
+	double MuzzleX = 0.0;
+	double MuzzleY = 0.0;
+	double MuzzleZ = 0.0;
+	double EndX = 0.0;
+	double EndY = 0.0;
+	double EndZ = 0.0;
+	std::string ContractId;
+	std::string WeaponClass;
+	std::string EnemyActor;
+	std::string EnemyClass;
+	std::string ActualActor;
+	std::string ActualClass;
+	std::string ShadowActor;
+	std::string ShadowClass;
+	bool IntegrityValid = true;
+};
+
 struct BotBenchmarkBotState
 {
 	std::string Identity;
@@ -357,6 +390,10 @@ struct BotBenchmarkBotState
 	uint64_t WarnTargetObservationOverflowsExact = 0;
 	uint64_t WarnTargetIntegrityFailuresExact = 0;
 	std::vector<BotBenchmarkWarnTargetRecord> WarnTargetRecords;
+	uint64_t CanFireAtEnemyObservationsExact = 0;
+	uint64_t CanFireAtEnemyObservationOverflowsExact = 0;
+	uint64_t CanFireAtEnemyIntegrityFailuresExact = 0;
+	std::vector<BotBenchmarkCanFireAtEnemyRecord> CanFireAtEnemyRecords;
 	uint64_t TryToDuckOutcomeOverflowsExact = 0;
 	std::vector<BotBenchmarkTryToDuckOutcomeRecord> TryToDuckOutcomeRecords;
 	uint64_t WarningDodgeLaunchesExact = 0;
@@ -647,6 +684,9 @@ struct BotBenchmarkTelemetryEvent
 	bool WarnTargetObserverRequested = false;
 	std::string WarnTargetObserverStatus;
 	std::string WarnTargetObserverReason;
+	bool CanFireAtEnemyObserverRequested = false;
+	std::string CanFireAtEnemyObserverStatus;
+	std::string CanFireAtEnemyObserverReason;
 	bool InventoryDirectReachSupportObserverRequested = false;
 	bool NativePathCommitObserverRequested = false;
 	bool DirectReachCommandObserverRequested = false;

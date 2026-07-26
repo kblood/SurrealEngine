@@ -51,6 +51,7 @@ public:
 		std::optional<std::string> directReachCommandObserver = {},
 		std::optional<std::string> pickTargetObserver = {},
 		std::optional<std::string> warnTargetObserver = {},
+		std::optional<std::string> canFireAtEnemyObserver = {},
 		std::optional<std::string> reachSpecCapabilityObserver = {},
 		std::optional<std::string> shadowPolicySet = {},
 		std::optional<std::string> pawnVisionCone = {},
@@ -92,6 +93,7 @@ public:
 		return BotPickTargetPredicateContract::ModeName(BotPickTargetPredicateContract::CurrentMode);
 	}
 	bool IsWarnTargetObserverEnabled() const { return WarnTargetObserverEnabled; }
+	bool IsCanFireAtEnemyObserverEnabled() const { return CanFireAtEnemyObserverEnabled; }
 	bool IsInventoryDirectReachSupportObserverEnabled() const
 	{
 		return InventoryDirectReachSupportObserverEnabled;
@@ -143,6 +145,7 @@ private:
 		bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
 		bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled,
 		bool pickTargetObserverEnabled, bool warnTargetObserverEnabled,
+		bool canFireAtEnemyObserverEnabled,
 		bool reachSpecCapabilityObserverEnabled, bool pawnVisionConeEnabled,
 		bool pawnVisionObserverEnabled, bool vectorNonFiniteObserverEnabled,
 		bool finiteMoveCommandGuardEnabled, bool pickRegDestinationZeroDivideGuardEnabled,
@@ -171,6 +174,7 @@ private:
 	bool TargetSelectionObserverEnabled = false;
 	bool PickTargetObserverEnabled = false;
 	bool WarnTargetObserverEnabled = false;
+	bool CanFireAtEnemyObserverEnabled = false;
 	bool InventoryDirectReachSupportObserverEnabled = false;
 	bool InventoryMarkerDirectReachSafetyEnabled = false;
 	bool NativePathCommitObserverEnabled = false;

@@ -591,6 +591,11 @@ WARN_TARGET_COUNTERS = (
     "warn_target_observation_overflows_exact",
     "warn_target_integrity_failures_exact",
 )
+CAN_FIRE_AT_ENEMY_COUNTERS = (
+    "can_fire_at_enemy_observations_exact",
+    "can_fire_at_enemy_observation_overflows_exact",
+    "can_fire_at_enemy_integrity_failures_exact",
+)
 WARNING_DODGE_LAUNCH_COUNTERS = (
     "warning_dodge_launches_exact",
     "warning_dodge_launch_overflows_exact",
@@ -601,7 +606,7 @@ WARNING_DODGE_TERMINAL_COUNTERS = (
     "warning_dodge_terminal_overflows_exact",
 )
 OPTIONAL_EXACT_COUNTERS += (WARN_TARGET_COUNTERS + WARNING_DODGE_LAUNCH_COUNTERS
-                            + WARNING_DODGE_TERMINAL_COUNTERS)
+                            + WARNING_DODGE_TERMINAL_COUNTERS + CAN_FIRE_AT_ENEMY_COUNTERS)
 INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS = (
     "inventory_direct_reach_support_observations_exact",
     "inventory_direct_reach_support_safe_supported_exact",
@@ -3127,6 +3132,7 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                pick_target_observer_enabled: bool | None = None,
                pick_target_predicate_mode: str | None = None,
                warn_target_observer_enabled: bool | None = None,
+               can_fire_at_enemy_observer_enabled: bool | None = None,
                inventory_direct_reach_support_observer_enabled: bool | None = None,
                inventory_marker_direct_reach_safety_enabled: bool | None = None,
                native_path_commit_observer_enabled: bool | None = None,
@@ -3186,6 +3192,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if warn_target_observer_enabled is not None:
             canonical_text += "warn_target_observer_enabled=" + (
                 "1\n" if warn_target_observer_enabled else "0\n")
+        if can_fire_at_enemy_observer_enabled is not None:
+            canonical_text += "can_fire_at_enemy_observer_enabled=" + (
+                "1\n" if can_fire_at_enemy_observer_enabled else "0\n")
         if inventory_direct_reach_support_observer_enabled is not None:
             canonical_text += "inventory_direct_reach_support_observer_enabled=" + (
                 "1\n" if inventory_direct_reach_support_observer_enabled else "0\n")
@@ -3382,6 +3391,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     pick_target_observer_enabled = None
     pick_target_predicate_mode = None
     warn_target_observer_enabled = None
+    can_fire_at_enemy_observer_enabled = None
     inventory_direct_reach_support_observer_enabled = None
     inventory_marker_direct_reach_safety_enabled = None
     native_path_commit_observer_enabled = None
@@ -3469,6 +3479,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                 "manifest.warn_target_observer_enabled")
             if warn_target_observer_enabled and pick_target_observer_enabled is not True:
                 raise QualityError(f"{path}: WarnTarget observer requires PickTarget observer")
+        if "can_fire_at_enemy_observer_enabled" in raw:
+            can_fire_at_enemy_observer_enabled = _boolean(
+                raw.get("can_fire_at_enemy_observer_enabled"),
+                "manifest.can_fire_at_enemy_observer_enabled")
         if "inventory_direct_reach_support_observer_enabled" in raw:
             inventory_direct_reach_support_observer_enabled = _boolean(
                 raw.get("inventory_direct_reach_support_observer_enabled"),
@@ -3543,6 +3557,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              pick_target_observer_enabled,
                              pick_target_predicate_mode,
                              warn_target_observer_enabled,
+                             can_fire_at_enemy_observer_enabled,
                              inventory_direct_reach_support_observer_enabled,
                              inventory_marker_direct_reach_safety_enabled,
                              native_path_commit_observer_enabled,
@@ -3588,6 +3603,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "pick_target_observer_enabled": pick_target_observer_enabled,
         "pick_target_predicate_mode": pick_target_predicate_mode,
         "warn_target_observer_enabled": warn_target_observer_enabled,
+        "can_fire_at_enemy_observer_enabled": can_fire_at_enemy_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             inventory_direct_reach_support_observer_enabled),
         "inventory_marker_direct_reach_safety_enabled": (
@@ -4554,6 +4570,45 @@ def _validate_bot(raw: Any, context: str, schema: str,
         elif pick_reg_zero_divide_guard_present:
             raise QualityError(
                 f"{context}: PickRegDestination zero divide guard counter group requires records")
+        can_fire_present = [name for name in CAN_FIRE_AT_ENEMY_COUNTERS if name in result]
+        if can_fire_present and len(can_fire_present) != len(CAN_FIRE_AT_ENEMY_COUNTERS):
+            raise QualityError(f"{context}: CanFireAtEnemy counters must be provided as a complete group")
+        if "can_fire_at_enemy_records" in bot:
+            if len(can_fire_present) != len(CAN_FIRE_AT_ENEMY_COUNTERS):
+                raise QualityError(f"{context}: CanFireAtEnemy records require the complete counter group")
+            records = bot.get("can_fire_at_enemy_records")
+            if not isinstance(records, list):
+                raise QualityError(f"{context}.can_fire_at_enemy_records must be an array")
+            parsed_records = []
+            for index, record in enumerate(records):
+                record_context = f"{context}.can_fire_at_enemy_records[{index}]"
+                item = _object(record, record_context)
+                muzzle = _object(item.get("muzzle"), f"{record_context}.muzzle")
+                end = _object(item.get("end"), f"{record_context}.end")
+                parsed_records.append({
+                    "sequence": _integer(item.get("sequence"), f"{record_context}.sequence", minimum=1),
+                    "observer_tick": _integer(item.get("observer_tick"), f"{record_context}.observer_tick", minimum=0),
+                    "caller_invocation_token": _integer(item.get("caller_invocation_token"), f"{record_context}.caller_invocation_token", minimum=1),
+                    "source_life_id": _integer(item.get("source_life_id"), f"{record_context}.source_life_id", minimum=1),
+                    "enemy_life_id": _integer(item.get("enemy_life_id"), f"{record_context}.enemy_life_id", minimum=1),
+                    "source_actor_index": _strict_integer(item.get("source_actor_index"), f"{record_context}.source_actor_index", minimum=0),
+                    "enemy_actor_index": _strict_integer(item.get("enemy_actor_index"), f"{record_context}.enemy_actor_index", minimum=0),
+                    "actual_hit": _boolean(item.get("actual_hit"), f"{record_context}.actual_hit"),
+                    "shadow_hit": _boolean(item.get("shadow_hit"), f"{record_context}.shadow_hit"),
+                    "shadow_earlier_non_enemy_blocker": _boolean(item.get("shadow_earlier_non_enemy_blocker"), f"{record_context}.shadow_earlier_non_enemy_blocker"),
+                    "muzzle": {axis: _number(muzzle.get(axis), f"{record_context}.muzzle.{axis}") for axis in "xyz"},
+                    "end": {axis: _number(end.get(axis), f"{record_context}.end.{axis}") for axis in "xyz"},
+                    "contract_id": _string(item, "contract_id", record_context, nonempty=True),
+                    "weapon_class": _string(item, "weapon_class", record_context, nonempty=True),
+                    "enemy_actor": _string(item, "enemy_actor", record_context, nonempty=True),
+                    "enemy_class": _string(item, "enemy_class", record_context, nonempty=True),
+                    "actual_actor": _string(item, "actual_actor", record_context),
+                    "shadow_actor": _string(item, "shadow_actor", record_context),
+                    "integrity_valid": _boolean(item.get("integrity_valid"), f"{record_context}.integrity_valid"),
+                })
+            result["can_fire_at_enemy_records"] = parsed_records
+        elif can_fire_present:
+            raise QualityError(f"{context}: CanFireAtEnemy counter group requires records")
         warn_target_present = [name for name in WARN_TARGET_COUNTERS if name in result]
         if warn_target_present and len(warn_target_present) != len(WARN_TARGET_COUNTERS):
             raise QualityError(f"{context}: WarnTarget counters must be provided as a complete group")
@@ -4986,6 +5041,22 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             elif "warn_target_observer" in raw:
                 raise QualityError(f"{context}: WarnTarget observer telemetry is present while disabled")
+            can_fire_at_enemy_observer_requested = (
+                manifest.get("can_fire_at_enemy_observer_enabled") is True)
+            if can_fire_at_enemy_observer_requested:
+                observer = _object(raw.get("can_fire_at_enemy_observer"),
+                                   f"{context}.can_fire_at_enemy_observer")
+                if _boolean(observer.get("requested"),
+                            f"{context}.can_fire_at_enemy_observer.requested") is not True:
+                    raise QualityError(f"{context}: CanFireAtEnemy observer must be requested")
+                if _string(observer, "status", f"{context}.can_fire_at_enemy_observer",
+                           nonempty=True) != "active":
+                    raise QualityError(f"{context}: CanFireAtEnemy observer is not active")
+                if _string(observer, "reason", f"{context}.can_fire_at_enemy_observer"):
+                    raise QualityError(f"{context}: active CanFireAtEnemy observer has a reason")
+                event["can_fire_at_enemy_observer"] = {"status": "active"}
+            elif "can_fire_at_enemy_observer" in raw:
+                raise QualityError(f"{context}: CanFireAtEnemy observer telemetry is present while disabled")
             inventory_direct_reach_observer_requested = (
                 manifest.get("inventory_direct_reach_support_observer_enabled") is True)
             if inventory_direct_reach_observer_requested:
@@ -5354,6 +5425,28 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             if not walking_hitwall_candidate_enabled and activations:
                 raise QualityError(
                     f"{path}: MinHitWall candidate activations are present while disabled")
+    if manifest.get("can_fire_at_enemy_observer_enabled") is True:
+        counts: dict[str, int] = {}
+        sequences: dict[str, int] = {}
+        for event in events:
+            for bot in event["bots"]:
+                if any(name not in bot for name in CAN_FIRE_AT_ENEMY_COUNTERS):
+                    raise QualityError(f"{path}: active CanFireAtEnemy observer lacks counters")
+                for record in bot["can_fire_at_enemy_records"]:
+                    expected = sequences.get(bot["identity"], 0) + 1
+                    if record["sequence"] != expected or not record["integrity_valid"]:
+                        raise QualityError(f"{path}: CanFireAtEnemy record sequence or integrity is invalid")
+                    if record["contract_id"] != "botpack-can-fire-at-enemy-v1":
+                        raise QualityError(f"{path}: CanFireAtEnemy record has an unexpected contract")
+                    if record["shadow_earlier_non_enemy_blocker"] and not record["shadow_hit"]:
+                        raise QualityError(f"{path}: CanFireAtEnemy blocker requires a shadow hit")
+                    sequences[bot["identity"]] = expected
+                    counts[bot["identity"]] = counts.get(bot["identity"], 0) + 1
+        for bot in events[-1]["bots"]:
+            if bot["can_fire_at_enemy_observation_overflows_exact"] or \
+                    bot["can_fire_at_enemy_integrity_failures_exact"] or \
+                    bot["can_fire_at_enemy_observations_exact"] != counts.get(bot["identity"], 0):
+                raise QualityError(f"{path}: CanFireAtEnemy observer evidence does not reconcile")
     if manifest.get("warn_target_observer_enabled") is True:
         observer_values = {(event["warn_target_observer"]["status"],
                             event["warn_target_observer"]["reason"])

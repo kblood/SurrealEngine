@@ -47,6 +47,7 @@ class Variant:
     targetless_move_to_timeout_enabled: bool = False
     direct_actor_move_toward_timeout_enabled: bool = False
     target_selection_observer_enabled: bool = False
+    can_fire_at_enemy_observer_enabled: bool = False
     inventory_direct_reach_support_observer_enabled: bool = False
     native_path_commit_observer_enabled: bool = False
     pawn_vision_cone_enabled: bool = False
@@ -278,6 +279,10 @@ def load_matrix(path: Path) -> MatrixConfig:
         if not isinstance(target_selection_observer_enabled, bool):
             raise MatrixError(
                 f"matrix.variants[{index}].target_selection_observer_enabled must be a boolean")
+        can_fire_at_enemy_observer_enabled = fields.get("can_fire_at_enemy_observer_enabled", False)
+        if not isinstance(can_fire_at_enemy_observer_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].can_fire_at_enemy_observer_enabled must be a boolean")
         inventory_direct_reach_support_observer_enabled = fields.get(
             "inventory_direct_reach_support_observer_enabled", False)
         if not isinstance(inventory_direct_reach_support_observer_enabled, bool):
@@ -347,7 +352,8 @@ def load_matrix(path: Path) -> MatrixConfig:
             hazard_swim_egress_live_enabled, failed_navigation_avoidance_enabled,
             falling_hazard_recovery_enabled, falling_hazard_recovery_live_enabled,
             targetless_move_to_timeout_enabled, direct_actor_move_toward_timeout_enabled,
-            target_selection_observer_enabled, inventory_direct_reach_support_observer_enabled,
+            target_selection_observer_enabled, can_fire_at_enemy_observer_enabled,
+            inventory_direct_reach_support_observer_enabled,
             native_path_commit_observer_enabled,
             pawn_vision_cone_enabled, pawn_vision_observer_enabled,
             vector_nonfinite_observer_enabled,
@@ -527,6 +533,7 @@ def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
                                  variant.targetless_move_to_timeout_enabled,
                                  variant.direct_actor_move_toward_timeout_enabled,
                                  variant.target_selection_observer_enabled,
+                                 variant.can_fire_at_enemy_observer_enabled,
                                   variant.inventory_direct_reach_support_observer_enabled,
                                   variant.native_path_commit_observer_enabled,
                                  variant.pawn_vision_cone_enabled,
@@ -584,6 +591,8 @@ def command_for(config: MatrixConfig, case: MatrixCase, run_directory: Path) -> 
             "1" if case.variant.direct_actor_move_toward_timeout_enabled else "0"),
         "--botbench-target-selection-observer=" + (
             "1" if case.variant.target_selection_observer_enabled else "0"),
+        "--botbench-can-fire-at-enemy-observer=" + (
+            "1" if case.variant.can_fire_at_enemy_observer_enabled else "0"),
         "--botbench-inventory-direct-reach-support-observer=" + (
             "1" if case.variant.inventory_direct_reach_support_observer_enabled else "0"),
         "--botbench-native-path-commit-observer=" + (
@@ -762,6 +771,7 @@ def _preflight_provenance(
             "direct_actor_move_toward_timeout_enabled": (
                 variant.direct_actor_move_toward_timeout_enabled),
             "target_selection_observer_enabled": variant.target_selection_observer_enabled,
+            "can_fire_at_enemy_observer_enabled": variant.can_fire_at_enemy_observer_enabled,
             "inventory_direct_reach_support_observer_enabled": (
                 variant.inventory_direct_reach_support_observer_enabled),
             "native_path_commit_observer_enabled": variant.native_path_commit_observer_enabled,
@@ -843,6 +853,7 @@ def _run_case(
         "direct_actor_move_toward_timeout_enabled": (
             case.variant.direct_actor_move_toward_timeout_enabled),
         "target_selection_observer_enabled": case.variant.target_selection_observer_enabled,
+        "can_fire_at_enemy_observer_enabled": case.variant.can_fire_at_enemy_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             case.variant.inventory_direct_reach_support_observer_enabled),
         "native_path_commit_observer_enabled": case.variant.native_path_commit_observer_enabled,
@@ -898,6 +909,7 @@ def _run_case(
         "direct_actor_move_toward_timeout_enabled": (
             case.variant.direct_actor_move_toward_timeout_enabled),
         "target_selection_observer_enabled": case.variant.target_selection_observer_enabled,
+        "can_fire_at_enemy_observer_enabled": case.variant.can_fire_at_enemy_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             case.variant.inventory_direct_reach_support_observer_enabled),
         "native_path_commit_observer_enabled": case.variant.native_path_commit_observer_enabled,
@@ -982,6 +994,7 @@ def _run_case(
         "direct_actor_move_toward_timeout_enabled": (
             case.variant.direct_actor_move_toward_timeout_enabled),
         "target_selection_observer_enabled": case.variant.target_selection_observer_enabled,
+        "can_fire_at_enemy_observer_enabled": case.variant.can_fire_at_enemy_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             case.variant.inventory_direct_reach_support_observer_enabled),
         "native_path_commit_observer_enabled": case.variant.native_path_commit_observer_enabled,

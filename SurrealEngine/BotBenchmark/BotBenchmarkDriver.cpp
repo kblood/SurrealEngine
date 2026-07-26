@@ -11,6 +11,7 @@
 #include "BotBenchmarkHazardDeathPartition.h"
 #include "BotTargetSelectionHookContract.h"
 #include "BotWarnTargetHookContract.h"
+#include "BotCanFireAtEnemyHookContract.h"
 #include "BotWarningDodgeContinuityContract.h"
 #include "BotTargetSelectionProbeTracker.h"
 #include "BotBenchmarkProtocol.h"
@@ -31,6 +32,7 @@
 #include "UObject/ULevel.h"
 #include "UObject/UClient.h"
 #include "UObject/UProperty.h"
+#include "Collision/TopLevel/CollisionSystem.h"
 #include "VM/Frame.h"
 #include "VM/ScriptCall.h"
 
@@ -129,6 +131,10 @@ namespace
 				Frame::CallHooks().Unregister(TargetSelectionHookHandle);
 			if (WarnTargetHookHandle != 0)
 				Frame::CallHooks().Unregister(WarnTargetHookHandle);
+			if (CanFireAtEnemyHookHandle != 0)
+				Frame::CallHooks().Unregister(CanFireAtEnemyHookHandle);
+			if (CanFireAtEnemyTraceHookHandle != 0)
+				Frame::CallHooks().Unregister(CanFireAtEnemyTraceHookHandle);
 		}
 
 		HeadlessDriverConfig GetConfig() const override
@@ -492,6 +498,11 @@ namespace
 			uint64_t WarnTargetIntegrityFailuresExact = 0;
 			uint64_t NextWarnTargetSequence = 1;
 			std::vector<BotBenchmarkWarnTargetRecord> PendingWarnTargetRecords;
+			uint64_t CanFireAtEnemyObservationsExact = 0;
+			uint64_t CanFireAtEnemyObservationOverflowsExact = 0;
+			uint64_t CanFireAtEnemyIntegrityFailuresExact = 0;
+			uint64_t NextCanFireAtEnemySequence = 1;
+			std::vector<BotBenchmarkCanFireAtEnemyRecord> PendingCanFireAtEnemyRecords;
 			uint64_t TryToDuckOutcomeOverflowsExact = 0;
 			std::vector<BotBenchmarkTryToDuckOutcomeRecord> PendingTryToDuckOutcomeRecords;
 			uint64_t WarningDodgeLaunchesExact = 0;
@@ -546,6 +557,17 @@ namespace
 			UObject* Instance = nullptr;
 			std::string BotIdentity;
 			uint64_t Sequence = 0;
+		};
+
+		struct ActiveCanFireAtEnemyCall
+		{
+			UFunction* Function = nullptr;
+			UObject* Instance = nullptr;
+			std::string BotIdentity;
+			BotBenchmarkCanFireAtEnemyRecord Record;
+			bool TraceObserved = false;
+			UObject* ExpectedActualTraceActor = nullptr;
+			UObject* ShadowTraceActor = nullptr;
 		};
 
 		enum class AttributionScopeKind
@@ -2522,6 +2544,270 @@ namespace
 			ActiveWarnTargetCalls.pop_back();
 		}
 
+		void DisableCanFireAtEnemyObserver(std::string status, std::string reason)
+		{
+			CanFireAtEnemyObserverStatus = std::move(status);
+			CanFireAtEnemyObserverReason = std::move(reason);
+			if (CanFireAtEnemyHookHandle != 0)
+			{
+				Frame::CallHooks().Unregister(CanFireAtEnemyHookHandle);
+				CanFireAtEnemyHookHandle = 0;
+			}
+			if (CanFireAtEnemyTraceHookHandle != 0)
+			{
+				Frame::CallHooks().Unregister(CanFireAtEnemyTraceHookHandle);
+				CanFireAtEnemyTraceHookHandle = 0;
+			}
+		}
+
+		void AppendCanFireAtEnemyRecord(QualityParticipantRuntime& runtime,
+			BotBenchmarkCanFireAtEnemyRecord record)
+		{
+			static constexpr size_t maximumQueuedRecords = 1024;
+			if (runtime.PendingCanFireAtEnemyRecords.size() >= maximumQueuedRecords)
+				runtime.CanFireAtEnemyObservationOverflowsExact++;
+			else
+				runtime.PendingCanFireAtEnemyRecords.push_back(std::move(record));
+		}
+
+		bool IsBotpackBot(UClass* cls) const
+		{
+			for (; cls; cls = UObject::TryCast<UClass>(cls->BaseStruct))
+			{
+				if (cls->package && cls->package->GetPackageName() == "Botpack" && cls->Name == "Bot")
+					return true;
+			}
+			return false;
+		}
+
+		void RegisterCanFireAtEnemyObserver()
+		{
+			if (!Config.IsCanFireAtEnemyObserverEnabled()) return;
+			CanFireAtEnemyObserverStatus = "disabled_contract_mismatch";
+			CanFireAtEnemyObserverReason.clear();
+			std::map<UFunction*, std::string> functions;
+			for (const auto& [identity, pawn] : CaptureLiveControlledBots())
+			{
+				if (!IsBotpackBot(pawn->Class))
+				{
+					CanFireAtEnemyObserverReason = "participant is not a Botpack.Bot descendant";
+					return;
+				}
+				for (UClass* cls = pawn->Class; cls; cls = UObject::TryCast<UClass>(cls->BaseStruct))
+				{
+					if (!cls->package || cls->package->GetPackageName() != "Botpack" || cls->Name != "Bot")
+						continue;
+					for (const auto& [name, function] : cls->Functions)
+						if (function && function->Name == "CanFireAtEnemy")
+							functions.emplace(function, "botpack-can-fire-at-enemy-v1");
+				}
+			}
+			if (functions.size() != 1)
+			{
+				CanFireAtEnemyObserverReason = "expected exactly one Botpack.Bot CanFireAtEnemy implementation";
+				return;
+			}
+			UFunction* canFire = functions.begin()->first;
+			BotCanFireAtEnemyHookContract::SignatureShape signature;
+			signature.FunctionName = canFire->Name.ToString();
+			for (UField* field = canFire->Children; field; field = field->Next)
+			{
+				UProperty* property = UObject::TryCast<UProperty>(field);
+				if (!property || !AllFlags(property->PropFlags, PropertyFlags::Parm)) continue;
+				if (AllFlags(property->PropFlags, PropertyFlags::ReturnParm))
+					signature.ReturnsBoolean = property->ValueType == ExpressionValueType::ValueBool;
+				else signature.Parameters.push_back(property->Name.ToString());
+			}
+			if (const std::string error = BotCanFireAtEnemyHookContract::ValidateCanFireAtEnemySignature(signature); !error.empty())
+			{
+				CanFireAtEnemyObserverReason = error;
+				return;
+			}
+			// CanFireAtEnemy is declared by Botpack.Bot.  Resolve the inherited
+			// Actor native from a live controlled participant, rather than assuming
+			// the script function's outer owns the native declaration.
+			const auto liveBots = CaptureLiveControlledBots();
+			UFunction* trace = liveBots.empty() ? nullptr
+				: FindClassFunction(liveBots.front().second->Class, "Trace");
+			BotCanFireAtEnemyHookContract::TraceSignatureShape traceSignature;
+			if (trace)
+			{
+				traceSignature.FunctionName = trace->Name.ToString();
+				for (UField* field = trace->Children; field; field = field->Next)
+				{
+					UProperty* property = UObject::TryCast<UProperty>(field);
+					if (!property || !AllFlags(property->PropFlags, PropertyFlags::Parm)) continue;
+					const char* kind = property->ValueType == ExpressionValueType::ValueVector ? "vector"
+						: property->ValueType == ExpressionValueType::ValueBool ? "bool"
+						: property->ValueType == ExpressionValueType::ValueObject ? "object" : "other";
+					if (AllFlags(property->PropFlags, PropertyFlags::ReturnParm))
+						traceSignature.ReturnsObject = property->ValueType == ExpressionValueType::ValueObject;
+					else traceSignature.Parameters.emplace_back(kind);
+				}
+			}
+			if (const std::string error = BotCanFireAtEnemyHookContract::ValidateTraceSignature(traceSignature); !error.empty())
+			{
+				CanFireAtEnemyObserverReason = "nested Trace contract mismatch: " + error;
+				return;
+			}
+			CanFireAtEnemyObserverStatus = "active";
+			VMCallHook hook;
+			hook.Enter = [this, canFire](UFunction* function, UObject* instance, VMCallArguments& arguments) -> VMCallHookCleanup
+			{
+				if (function != canFire) return {};
+				UPawn* pawn = UObject::TryCast<UPawn>(instance);
+				const std::string botId = PawnIdentity(pawn);
+				auto runtime = QualityParticipants.find(botId);
+				if (!pawn || runtime == QualityParticipants.end()) return {};
+				if (arguments.Size() != 0 || !pawn->Enemy() || pawn->Enemy()->bDeleteMe() || !pawn->Weapon())
+				{
+					runtime->second.CanFireAtEnemyIntegrityFailuresExact++;
+					DisableCanFireAtEnemyObserver("disabled_integrity_failure", "CanFireAtEnemy lacks a finite live enemy/weapon contract");
+					return {};
+				}
+				if (ActiveCanFireAtEnemyCalls.size() >= 32)
+				{
+					runtime->second.CanFireAtEnemyIntegrityFailuresExact++;
+					DisableCanFireAtEnemyObserver("disabled_integrity_failure", "CanFireAtEnemy active-call capacity exceeded");
+					return {};
+				}
+				BotBenchmarkCanFireAtEnemyRecord record;
+				record.Sequence = runtime->second.NextCanFireAtEnemySequence++;
+				record.ObserverTick = EngineRef.BotBenchmarkObserverTick();
+				record.CallerInvocationToken = Frame::Callstack.empty() ? 0 : Frame::Callstack.back()->EnsureInvocationToken();
+				record.SourceLifeId = pawn->DirectReachCommandLifeId();
+				record.EnemyLifeId = pawn->Enemy()->DirectReachCommandLifeId();
+				record.SourceActorIndex = pawn->Index; record.EnemyActorIndex = pawn->Enemy()->Index;
+				record.ContractId = "botpack-can-fire-at-enemy-v1";
+				record.WeaponClass = pawn->Weapon()->Class ? pawn->Weapon()->Class->Name.ToString() : std::string();
+				record.EnemyActor = pawn->Enemy()->Name.ToString();
+				record.EnemyClass = pawn->Enemy()->Class ? pawn->Enemy()->Class->Name.ToString() : std::string();
+				record.IntegrityValid = record.CallerInvocationToken != 0 && record.SourceLifeId != 0 && record.EnemyLifeId != 0 && !record.WeaponClass.empty() && !record.EnemyClass.empty();
+				if (!record.IntegrityValid)
+				{
+					runtime->second.CanFireAtEnemyIntegrityFailuresExact++;
+					DisableCanFireAtEnemyObserver("disabled_integrity_failure", "CanFireAtEnemy provenance was incomplete");
+					return {};
+				}
+				ActiveCanFireAtEnemyCalls.push_back({ function, instance, botId, std::move(record), false });
+				return [this, function, instance]()
+				{
+					if (ActiveCanFireAtEnemyCalls.empty() || ActiveCanFireAtEnemyCalls.back().Function != function || ActiveCanFireAtEnemyCalls.back().Instance != instance)
+						DisableCanFireAtEnemyObserver("disabled_integrity_failure", "CanFireAtEnemy call lifecycle was not stack ordered");
+					else ActiveCanFireAtEnemyCalls.pop_back();
+				};
+			};
+			hook.ObserveResult = [this, canFire](UFunction* function, UObject* instance, const Array<ExpressionValue>&, const ExpressionValue& result)
+			{
+				if (function != canFire || ActiveCanFireAtEnemyCalls.empty()) return;
+				auto& active = ActiveCanFireAtEnemyCalls.back();
+				auto runtime = QualityParticipants.find(active.BotIdentity);
+				if (runtime == QualityParticipants.end()) return;
+				if (result.GetType() != ExpressionValueType::ValueBool || !active.TraceObserved)
+				{
+					runtime->second.CanFireAtEnemyIntegrityFailuresExact++;
+					DisableCanFireAtEnemyObserver("disabled_integrity_failure", "CanFireAtEnemy result or nested Trace witness was missing");
+					return;
+				}
+				UPawn* pawn = UObject::TryCast<UPawn>(instance);
+				active.Record.ReturnedFireable = result.ToBool();
+				active.Record.PostFire = pawn && pawn->bFire() != 0;
+				active.Record.PostAltFire = pawn && pawn->bAltFire() != 0;
+				runtime->second.CanFireAtEnemyObservationsExact++;
+				AppendCanFireAtEnemyRecord(runtime->second, active.Record);
+			};
+			CanFireAtEnemyHookHandle = Frame::CallHooks().Register(std::move(hook));
+
+			VMCallHook traceHook;
+			traceHook.Enter = [this, trace](UFunction* function, UObject* instance,
+				VMCallArguments& arguments) -> VMCallHookCleanup
+			{
+				if (function != trace || ActiveCanFireAtEnemyCalls.empty()) return {};
+				auto& active = ActiveCanFireAtEnemyCalls.back();
+				if (active.Instance != instance) return {};
+				auto runtime = QualityParticipants.find(active.BotIdentity);
+				if (runtime == QualityParticipants.end()) return {};
+				if (active.TraceObserved || arguments.Size() != 6 ||
+					arguments.Values()[0].GetType() != ExpressionValueType::ValueVector ||
+					arguments.Values()[1].GetType() != ExpressionValueType::ValueVector ||
+					arguments.Values()[2].GetType() != ExpressionValueType::ValueVector ||
+					arguments.Values()[3].GetType() != ExpressionValueType::ValueVector ||
+					arguments.Values()[4].GetType() != ExpressionValueType::ValueBool ||
+					(arguments.Values()[5].GetType() != ExpressionValueType::ValueVector &&
+						arguments.Values()[5].GetType() != ExpressionValueType::Nothing))
+				{
+					runtime->second.CanFireAtEnemyIntegrityFailuresExact++;
+					DisableCanFireAtEnemyObserver("disabled_integrity_failure",
+						"nested Trace arguments did not match the validated UT99 contract");
+					return {};
+				}
+				const vec3 end = arguments.Values()[2].ToVector();
+				const vec3 start = arguments.Values()[3].ToVector();
+				const vec3 extent = arguments.Values()[5].GetType() == ExpressionValueType::ValueVector
+					? arguments.Values()[5].ToVector() : vec3(0.0f);
+				if (!arguments.Values()[4].ToBool() || !std::isfinite(start.x) || !std::isfinite(start.y) ||
+					!std::isfinite(start.z) || !std::isfinite(end.x) || !std::isfinite(end.y) ||
+					!std::isfinite(end.z) || !std::isfinite(extent.x) || !std::isfinite(extent.y) ||
+					!std::isfinite(extent.z))
+				{
+					runtime->second.CanFireAtEnemyIntegrityFailuresExact++;
+					DisableCanFireAtEnemyObserver("disabled_integrity_failure",
+						"nested Trace was non-actor or had non-finite geometry");
+					return {};
+				}
+				UActor* actor = UObject::TryCast<UActor>(instance);
+				if (!actor || !actor->XLevel())
+				{
+					runtime->second.CanFireAtEnemyIntegrityFailuresExact++;
+					DisableCanFireAtEnemyObserver("disabled_integrity_failure", "nested Trace actor had no level");
+					return {};
+				}
+				TraceFlags actualFlags;
+				actualFlags.movers = true; actualFlags.world = true; actualFlags.pawns = true;
+				actualFlags.others = true; actualFlags.onlyProjectiles = true;
+				TraceFlags shadowFlags = actualFlags;
+				shadowFlags.onlyProjectiles = false;
+				const CollisionHit actual = actor->XLevel()->Collision.TraceFirstHit(start, end, actor, extent, actualFlags);
+				const CollisionHit shadow = actor->XLevel()->Collision.TraceFirstHit(start, end, actor, extent, shadowFlags);
+				active.Record.MuzzleX = start.x; active.Record.MuzzleY = start.y; active.Record.MuzzleZ = start.z;
+				active.Record.EndX = end.x; active.Record.EndY = end.y; active.Record.EndZ = end.z;
+				UPawn* pawn = UObject::TryCast<UPawn>(instance);
+				active.Record.InstantHit = pawn && pawn->Weapon() && pawn->Weapon()->bInstantHit();
+				active.ExpectedActualTraceActor = actual.Actor;
+				active.ShadowTraceActor = shadow.Actor;
+				active.TraceObserved = true;
+				return {};
+			};
+			traceHook.ObserveResult = [this, trace](UFunction* function, UObject* instance,
+				const Array<ExpressionValue>&, const ExpressionValue& result)
+			{
+				if (function != trace || ActiveCanFireAtEnemyCalls.empty()) return;
+				auto& active = ActiveCanFireAtEnemyCalls.back();
+				if (active.Instance != instance || !active.TraceObserved) return;
+				auto runtime = QualityParticipants.find(active.BotIdentity);
+				if (runtime == QualityParticipants.end()) return;
+				if (result.GetType() != ExpressionValueType::ValueObject ||
+					result.ToObject() != active.ExpectedActualTraceActor)
+				{
+					runtime->second.CanFireAtEnemyIntegrityFailuresExact++;
+					DisableCanFireAtEnemyObserver("disabled_integrity_failure",
+						"native Trace result differed from the read-only actual collision witness");
+					return;
+				}
+				UActor* actual = UObject::TryCast<UActor>(active.ExpectedActualTraceActor);
+				UActor* shadow = UObject::TryCast<UActor>(active.ShadowTraceActor);
+				active.Record.ActualHit = actual != nullptr;
+				active.Record.ShadowHit = shadow != nullptr;
+				UPawn* pawn = UObject::TryCast<UPawn>(instance);
+				active.Record.ShadowEarlierNonEnemyBlocker = shadow && pawn && shadow != pawn->Enemy();
+				active.Record.ActualActor = ActorIdentity(actual);
+				active.Record.ActualClass = actual && actual->Class ? actual->Class->Name.ToString() : std::string();
+				active.Record.ShadowActor = ActorIdentity(shadow);
+				active.Record.ShadowClass = shadow && shadow->Class ? shadow->Class->Name.ToString() : std::string();
+			};
+			CanFireAtEnemyTraceHookHandle = Frame::CallHooks().Register(std::move(traceHook));
+		}
+
 		void RegisterWarnTargetObserver()
 		{
 			if (!Config.IsWarnTargetObserverEnabled())
@@ -3513,6 +3799,14 @@ namespace
 						runtime.PendingWarningDodgeTerminalRecords);
 					runtime.PendingWarningDodgeTerminalRecords.clear();
 				}
+				if (Config.IsCanFireAtEnemyObserverEnabled())
+				{
+					bot.CanFireAtEnemyObservationsExact = runtime.CanFireAtEnemyObservationsExact;
+					bot.CanFireAtEnemyObservationOverflowsExact = runtime.CanFireAtEnemyObservationOverflowsExact;
+					bot.CanFireAtEnemyIntegrityFailuresExact = runtime.CanFireAtEnemyIntegrityFailuresExact;
+					bot.CanFireAtEnemyRecords = std::move(runtime.PendingCanFireAtEnemyRecords);
+					runtime.PendingCanFireAtEnemyRecords.clear();
+				}
 				bot.EnvironmentalDeathsExact = runtime.EnvironmentalDeathsExact;
 				bot.HazardExposedDeathsProxy = runtime.HazardExposedDeathsProxy;
 				bot.DamageTakenExact = runtime.DamageTakenExact;
@@ -4154,6 +4448,9 @@ namespace
 			event.WarnTargetObserverRequested = Config.IsWarnTargetObserverEnabled();
 			event.WarnTargetObserverStatus = WarnTargetObserverStatus;
 			event.WarnTargetObserverReason = WarnTargetObserverReason;
+			event.CanFireAtEnemyObserverRequested = Config.IsCanFireAtEnemyObserverEnabled();
+			event.CanFireAtEnemyObserverStatus = CanFireAtEnemyObserverStatus;
+			event.CanFireAtEnemyObserverReason = CanFireAtEnemyObserverReason;
 			event.InventoryDirectReachSupportObserverRequested =
 				Config.IsInventoryDirectReachSupportObserverEnabled();
 			event.NativePathCommitObserverRequested =
@@ -4203,6 +4500,7 @@ namespace
 			InitializeNavigationCoverage();
 			RegisterTargetSelectionObserver();
 			RegisterWarnTargetObserver();
+			RegisterCanFireAtEnemyObserver();
 			RegisterQualityHooks();
 		}
 
@@ -4274,6 +4572,8 @@ namespace
 		VMCallHookHandle QualityHookHandle = 0;
 		VMCallHookHandle TargetSelectionHookHandle = 0;
 		VMCallHookHandle WarnTargetHookHandle = 0;
+		VMCallHookHandle CanFireAtEnemyHookHandle = 0;
+		VMCallHookHandle CanFireAtEnemyTraceHookHandle = 0;
 		std::map<UFunction*, std::string> ValidatedTargetSelectionFunctions;
 		std::vector<ActiveTargetSelectionCall> ActiveTargetSelectionCalls;
 		std::string TargetSelectionObserverStatus;
@@ -4283,6 +4583,9 @@ namespace
 		std::vector<ActiveWarnTargetCall> ActiveWarnTargetCalls;
 		std::string WarnTargetObserverStatus;
 		std::string WarnTargetObserverReason;
+		std::string CanFireAtEnemyObserverStatus;
+		std::string CanFireAtEnemyObserverReason;
+		std::vector<ActiveCanFireAtEnemyCall> ActiveCanFireAtEnemyCalls;
 		std::map<std::string, uint32_t> KilledHookDepths;
 		std::map<UInventory*, uint32_t> PickupTouchDepths;
 		std::unique_ptr<BotBenchmarkQualityObservation::NavigationCoverageAccumulator>
@@ -4327,6 +4630,7 @@ namespace
 			OptionalCommandLineArg("--botbench-direct-reach-command-observer"),
 			OptionalCommandLineArg("--botbench-pick-target-observer"),
 			OptionalCommandLineArg("--botbench-warn-target-observer"),
+			OptionalCommandLineArg("--botbench-can-fire-at-enemy-observer"),
 			OptionalCommandLineArg("--botbench-reachspec-capability-observer"),
 			OptionalCommandLineArg("--botbench-shadow-policy-set"),
 			OptionalCommandLineArg("--botbench-pawn-vision-cone"),

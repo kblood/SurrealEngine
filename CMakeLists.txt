@@ -137,6 +137,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/BotBenchmark/BotTargetSelectionHookContract.h
 	SurrealEngine/BotBenchmark/BotWarnTargetHookContract.cpp
 	SurrealEngine/BotBenchmark/BotWarnTargetHookContract.h
+	SurrealEngine/BotBenchmark/BotCanFireAtEnemyHookContract.cpp
+	SurrealEngine/BotBenchmark/BotCanFireAtEnemyHookContract.h
 	SurrealEngine/BotBenchmark/BotWarningDodgeContinuityContract.cpp
 	SurrealEngine/BotBenchmark/BotWarningDodgeContinuityContract.h
 	SurrealEngine/BotBenchmark/BotTargetSelectionProbeTracker.cpp
@@ -1373,6 +1375,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(BotWarnTargetHookContractTests PRIVATE SurrealEngine)
 	set_target_properties(BotWarnTargetHookContractTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotWarnTargetHookContract COMMAND BotWarnTargetHookContractTests)
+
+	add_executable(BotCanFireAtEnemyHookContractTests
+		Tests/BotCanFireAtEnemyHookContractTests.cpp
+		SurrealEngine/BotBenchmark/BotCanFireAtEnemyHookContract.cpp)
+	target_include_directories(BotCanFireAtEnemyHookContractTests PRIVATE SurrealEngine)
+	set_target_properties(BotCanFireAtEnemyHookContractTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotCanFireAtEnemyHookContract COMMAND BotCanFireAtEnemyHookContractTests)
 
 	add_executable(BotWarningDodgeContinuityContractTests
 		Tests/BotWarningDodgeContinuityContractTests.cpp

@@ -90,6 +90,22 @@ def output_from_command(command: list[str]) -> Path:
 
 
 class MatrixRunnerTests(unittest.TestCase):
+    def test_can_fire_at_enemy_observer_is_bound_to_variant_identity_and_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = write_manifest(root)
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["variants"][1]["can_fire_at_enemy_observer_enabled"] = True
+            path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+            config = MATRIX.load_matrix(path)
+            cases = MATRIX.expand_cases(config)
+            stock, candidate = cases
+            self.assertNotEqual(stock.run_id, candidate.run_id)
+            self.assertFalse(stock.variant.can_fire_at_enemy_observer_enabled)
+            self.assertTrue(candidate.variant.can_fire_at_enemy_observer_enabled)
+            command = MATRIX.command_for(config, candidate, root / "run")
+            self.assertIn("--botbench-can-fire-at-enemy-observer=1", command)
+
     def test_quality_gates_force_analysis_and_record_auditable_result(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

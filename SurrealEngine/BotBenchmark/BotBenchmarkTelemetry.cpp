@@ -722,6 +722,7 @@ namespace
 		bool finiteMoveCommandGuardRequested,
 		bool pickRegDestinationZeroDivideGuardRequested,
 		bool warnTargetObserverRequested,
+		bool canFireAtEnemyObserverRequested,
 		bool inventoryDirectReachSupportObserverRequested,
 		bool directReachCommandObserverRequested,
 		bool movementCommandProvenanceObserverRequested,
@@ -960,6 +961,34 @@ namespace
 					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false")
 					<< ",\"caller_class\":" << JsonString(record.CallerClass)
 					<< ",\"caller_function\":" << JsonString(record.CallerFunction) << '}';
+			}
+			out << ']';
+		}
+		if (canFireAtEnemyObserverRequested)
+		{
+			out << ",\"can_fire_at_enemy_observations_exact\":\"" << bot.CanFireAtEnemyObservationsExact
+				<< "\",\"can_fire_at_enemy_observation_overflows_exact\":\"" << bot.CanFireAtEnemyObservationOverflowsExact
+				<< "\",\"can_fire_at_enemy_integrity_failures_exact\":\"" << bot.CanFireAtEnemyIntegrityFailuresExact
+				<< "\",\"can_fire_at_enemy_records\":[";
+			for (size_t index = 0; index < bot.CanFireAtEnemyRecords.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& r = bot.CanFireAtEnemyRecords[index];
+				out << "{\"sequence\":\"" << r.Sequence << "\",\"observer_tick\":\"" << r.ObserverTick
+					<< "\",\"caller_invocation_token\":\"" << r.CallerInvocationToken
+					<< "\",\"source_life_id\":\"" << r.SourceLifeId << "\",\"enemy_life_id\":\"" << r.EnemyLifeId
+					<< "\",\"source_actor_index\":" << r.SourceActorIndex << ",\"enemy_actor_index\":" << r.EnemyActorIndex
+					<< ",\"instant_hit\":" << (r.InstantHit ? "true" : "false") << ",\"actual_hit\":" << (r.ActualHit ? "true" : "false")
+					<< ",\"shadow_hit\":" << (r.ShadowHit ? "true" : "false") << ",\"shadow_earlier_non_enemy_blocker\":" << (r.ShadowEarlierNonEnemyBlocker ? "true" : "false")
+					<< ",\"returned_fireable\":" << (r.ReturnedFireable ? "true" : "false") << ",\"post_fire\":" << (r.PostFire ? "true" : "false")
+					<< ",\"post_alt_fire\":" << (r.PostAltFire ? "true" : "false")
+					<< ",\"muzzle\":{\"x\":" << Fixed(r.MuzzleX, 6) << ",\"y\":" << Fixed(r.MuzzleY, 6) << ",\"z\":" << Fixed(r.MuzzleZ, 6) << "}"
+					<< ",\"end\":{\"x\":" << Fixed(r.EndX, 6) << ",\"y\":" << Fixed(r.EndY, 6) << ",\"z\":" << Fixed(r.EndZ, 6) << "}"
+					<< ",\"contract_id\":" << JsonString(r.ContractId) << ",\"weapon_class\":" << JsonString(r.WeaponClass)
+					<< ",\"enemy_actor\":" << JsonString(r.EnemyActor) << ",\"enemy_class\":" << JsonString(r.EnemyClass)
+					<< ",\"actual_actor\":" << JsonString(r.ActualActor) << ",\"actual_class\":" << JsonString(r.ActualClass)
+					<< ",\"shadow_actor\":" << JsonString(r.ShadowActor) << ",\"shadow_class\":" << JsonString(r.ShadowClass)
+					<< ",\"integrity_valid\":" << (r.IntegrityValid ? "true" : "false") << '}';
 			}
 			out << ']';
 		}
@@ -1904,6 +1933,8 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		canonical << "pick_target_predicate_mode=" << config.GetPickTargetPredicateMode() << '\n';
 	canonical << "warn_target_observer_enabled="
 		<< (config.IsWarnTargetObserverEnabled() ? "1" : "0") << '\n'
+		<< "can_fire_at_enemy_observer_enabled="
+		<< (config.IsCanFireAtEnemyObserverEnabled() ? "1" : "0") << '\n'
 		<< "inventory_direct_reach_support_observer_enabled="
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "1" : "0") << '\n'
 		<< "inventory_marker_direct_reach_safety_enabled="
@@ -1993,6 +2024,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 			<< JsonString(config.GetPickTargetPredicateMode()) << ",\n";
 	out << "  \"warn_target_observer_enabled\": "
 		<< (config.IsWarnTargetObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"can_fire_at_enemy_observer_enabled\": "
+		<< (config.IsCanFireAtEnemyObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"inventory_direct_reach_support_observer_enabled\": "
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"inventory_marker_direct_reach_safety_enabled\": "
@@ -2067,6 +2100,10 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 			<< ",\"status\":" << JsonString(event.WarnTargetObserverStatus)
 			<< ",\"reason\":" << JsonString(event.WarnTargetObserverReason) << '}';
 	}
+	if (event.CanFireAtEnemyObserverRequested)
+		out << ",\"can_fire_at_enemy_observer\":{\"requested\":true,\"status\":"
+			<< JsonString(event.CanFireAtEnemyObserverStatus) << ",\"reason\":"
+			<< JsonString(event.CanFireAtEnemyObserverReason) << '}';
 	if (event.InventoryDirectReachSupportObserverRequested)
 		out << ",\"inventory_direct_reach_support_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.NativePathCommitObserverRequested)
@@ -2093,6 +2130,7 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 				 event.FiniteMoveCommandGuardRequested,
 				 event.PickRegDestinationZeroDivideGuardRequested,
 				event.WarnTargetObserverRequested,
+				event.CanFireAtEnemyObserverRequested,
 				event.InventoryDirectReachSupportObserverRequested,
 				event.DirectReachCommandObserverRequested,
 				event.MovementCommandProvenanceObserverRequested,

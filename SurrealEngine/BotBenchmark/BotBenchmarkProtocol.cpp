@@ -201,6 +201,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
 	bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled,
 	bool pickTargetObserverEnabled, bool warnTargetObserverEnabled,
+	bool canFireAtEnemyObserverEnabled,
 	bool reachSpecCapabilityObserverEnabled, bool pawnVisionConeEnabled,
 	bool pawnVisionObserverEnabled, bool vectorNonFiniteObserverEnabled,
 	bool finiteMoveCommandGuardEnabled, bool pickRegDestinationZeroDivideGuardEnabled,
@@ -231,6 +232,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	HazardResidencePreentryCausalSliceObserverEnabled(hazardResidencePreentryCausalSliceObserverEnabled),
 	PickTargetObserverEnabled(pickTargetObserverEnabled),
 	WarnTargetObserverEnabled(warnTargetObserverEnabled),
+	CanFireAtEnemyObserverEnabled(canFireAtEnemyObserverEnabled),
 	PawnVisionConeEnabled(pawnVisionConeEnabled), PawnVisionObserverEnabled(pawnVisionObserverEnabled),
 	VectorNonFiniteObserverEnabled(vectorNonFiniteObserverEnabled),
 	FiniteMoveCommandGuardEnabled(finiteMoveCommandGuardEnabled),
@@ -258,6 +260,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> directReachCommandObserver,
 	std::optional<std::string> pickTargetObserver,
 	std::optional<std::string> warnTargetObserver,
+	std::optional<std::string> canFireAtEnemyObserver,
 	std::optional<std::string> reachSpecCapabilityObserver, std::optional<std::string> shadowPolicySet,
 	std::optional<std::string> pawnVisionCone, std::optional<std::string> pawnVisionObserver,
 	std::optional<std::string> vectorNonFiniteObserver,
@@ -309,6 +312,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		pickTargetObserver, "bot benchmark PickTarget observer");
 	const bool parsedWarnTargetObserver = ParseExactBoolean(
 		warnTargetObserver, "bot benchmark WarnTarget observer");
+	const bool parsedCanFireAtEnemyObserver = ParseExactBoolean(
+		canFireAtEnemyObserver, "bot benchmark CanFireAtEnemy observer");
 	if (parsedWarnTargetObserver && !parsedPickTargetObserver)
 	{
 		throw std::invalid_argument(
@@ -379,6 +384,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		parsedTargetSelectionObserver, parsedInventoryDirectReachSupportObserver,
 		parsedNativePathCommitObserver, parsedInventoryMarkerDirectReachSafety,
 		parsedDirectReachCommandObserver, parsedPickTargetObserver, parsedWarnTargetObserver,
+		parsedCanFireAtEnemyObserver,
 		parsedReachSpecCapabilityObserver, parsedPawnVisionCone, parsedPawnVisionObserver,
 		parsedVectorNonFiniteObserver,
 		parsedFiniteMoveCommandGuard,
@@ -500,6 +506,8 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 			<< JsonString(config.GetPickTargetPredicateMode()) << ",\n";
 	out << "    \"warn_target_observer_enabled\": "
 		<< (config.IsWarnTargetObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"can_fire_at_enemy_observer_enabled\": "
+		<< (config.IsCanFireAtEnemyObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"inventory_direct_reach_support_observer_enabled\": "
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"inventory_marker_direct_reach_safety_enabled\": "
