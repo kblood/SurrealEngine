@@ -28,6 +28,7 @@ namespace
 	constexpr float DeepSupportDistance = 2048.0f;
 	constexpr float FixtureTickSeconds = 0.05f;
 	constexpr int LiveNavigationTickLimit = 120;
+	constexpr int LiveNavigationRecoveryTickLimit = 120;
 	constexpr int CorridorSamples = 5;
 	constexpr int ZoneSamplesPerCorridorPoint = 64;
 
@@ -120,7 +121,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v8\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v9\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -143,6 +144,9 @@ namespace
 			<< "live_navigation_move_toward_armed=" << (result.LiveNavigationMoveTowardArmed ? "true" : "false") << "\n"
 			<< "live_navigation_falling_observed=" << (result.LiveNavigationFallingObserved ? "true" : "false") << "\n"
 			<< "live_navigation_harmful_entry_observed=" << (result.LiveNavigationHarmfulEntryObserved ? "true" : "false") << "\n"
+			<< "live_navigation_anchor_recovery_attempted=" << (result.LiveNavigationAnchorRecoveryAttempted ? "true" : "false") << "\n"
+			<< "live_navigation_anchor_recovery_safe_landing=" << (result.LiveNavigationAnchorRecoverySafeLanding ? "true" : "false") << "\n"
+			<< "live_navigation_anchor_recovery_harmful_entry=" << (result.LiveNavigationAnchorRecoveryHarmfulEntry ? "true" : "false") << "\n"
 			<< "pawn_actor=" << result.PawnActor << "\n"
 			<< "marker_actor=" << result.MarkerActor << "\n"
 			<< "inventory_actor=" << result.InventoryActor << "\n"
@@ -162,6 +166,7 @@ namespace
 			<< "navigation_candidate_safe_direct_reachable_count=" << result.NavigationCandidateSafeDirectReachableCount << "\n"
 			<< "navigation_candidate_unsafe_direct_reachable_count=" << result.NavigationCandidateUnsafeDirectReachableCount << "\n"
 			<< "live_navigation_ticks=" << result.LiveNavigationTicks << "\n"
+			<< "live_navigation_anchor_recovery_ticks=" << result.LiveNavigationAnchorRecoveryTicks << "\n"
 			<< "first_safe_navigation_candidate_actor=" << result.FirstSafeNavigationCandidateActor << "\n"
 			<< "first_unsafe_navigation_candidate_actor=" << result.FirstUnsafeNavigationCandidateActor << "\n"
 			<< "first_harmful_below_distance=" << result.FirstHarmfulBelowDistance << "\n"
@@ -484,6 +489,37 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		}
 		if (!result.LiveNavigationFallingObserved)
 			throw std::runtime_error("direct live PathNode73 MoveToward did not enter falling physics");
+		const float recoveryAccelerationMagnitude = pawn->AirControl() * pawn->AccelRate();
+		if (std::isfinite(recoveryAccelerationMagnitude) && recoveryAccelerationMagnitude > 0.0f)
+		{
+			result.LiveNavigationAnchorRecoveryAttempted = true;
+			pawn->MoveTarget() = nullptr;
+			pawn->MoveTimer() = 0.0f;
+			pawn->StateFrame->LatentState = LatentRunState::Continue;
+			for (int tick = 0; tick < LiveNavigationRecoveryTickLimit; tick++)
+			{
+				const vec3 recoveryDelta(DeathFanPathNode73LaunchAnchor.x - pawn->Location().x,
+					DeathFanPathNode73LaunchAnchor.y - pawn->Location().y, 0.0f);
+				if (length(recoveryDelta) > 0.001f)
+					pawn->Acceleration() = normalize(recoveryDelta) * recoveryAccelerationMagnitude;
+				else
+					pawn->Acceleration() = vec3(0.0f);
+				pawn->Tick(FixtureTickSeconds);
+				result.LiveNavigationAnchorRecoveryTicks++;
+				UZoneInfo* footZone = pawn->FootRegion().Zone;
+				if (footZone && footZone->bPainZone() && footZone->DamagePerSec() > 0)
+				{
+					result.LiveNavigationAnchorRecoveryHarmfulEntry = true;
+					break;
+				}
+				if (pawn->Physics() == PHYS_Walking && footZone && !footZone->bPainZone()
+					&& !footZone->bWaterZone())
+				{
+					result.LiveNavigationAnchorRecoverySafeLanding = true;
+					break;
+				}
+			}
+		}
 		result.Ran = true;
 		result.Passed = true;
 	}

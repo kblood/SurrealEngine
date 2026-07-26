@@ -3366,3 +3366,19 @@ rejected generic endpoint filter remains disqualified. The next candidate may
 act only after the witnessed fall begins and must use the real pre-move anchor
 or another independently proven safe recovery trajectory; it may not cancel
 the issue-time command without a replacement-progress certificate.
+
+## Iteration 130: pre-move-anchor air-control recovery rejected
+
+The v9 fixture evaluates the existing recovery-shaped maneuver at the v8
+supported fall witness: once the command has entered falling physics, clear
+the direct target and apply the bot's own `AirControl * AccelRate` toward the
+recorded pre-move anchor for up to 120 fixed ticks. The attempt is physically
+valid but does not land safely; it enters harmful water after 40 ticks. The
+negative result is retained at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v9-anchor-recovery-scout/`.
+
+Do not widen the current falling-hazard or swim-egress overlays to this class.
+They cannot provide a safe recovery trajectory at the witnessed launch. The
+next candidate must either select a different, collision-validated landing
+trajectory before water entry or fix the earlier route/command cause with a
+demonstrable progress replacement.
