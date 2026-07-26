@@ -3567,3 +3567,21 @@ progress improve, but the additional collision volume needs episode-level
 provenance. The next work must partition those `HitWall` events into recovery
 probe contacts versus ordinary navigation contacts, and reject the candidate
 if it creates repeat wall-loop or harmful-side-effect episodes.
+
+## Iteration 139: contact partition rejects the targetless-timeout explanation
+
+Per-tick cumulative telemetry was replayed to partition `HitWall` increments
+by physics and latent state for the seed-`271828` Deck16-II pair. The candidate
+has 340 falling and 306 walking contacts, versus the control's 276 falling and
+127 walking contacts. The added walking volume is predominantly
+`PHYS_Walking`/`Continue` with no move target (287 contacts), while the added
+falling volume includes `WaitForLanding`. The highest-contact candidate pawn
+has zero pain-ledge recovery attempts, so these contacts cannot be counted as
+the recovery probe itself; the recovery changes the coupled match trajectory.
+
+The independently enabled targetless `MoveTo` timeout has zero activations and
+is behavior-neutral on the same seed (K8/D12/S4, 403 wall hits, 22.317
+no-progress seconds, and 46.61% coverage—the exact control values). It is not
+the explanation or remedy for this contact pattern. Keep both gates default-off
+and investigate falling and route-transition contacts directly before combining
+any control with pain-ledge recovery.
