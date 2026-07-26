@@ -1517,6 +1517,8 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< (config.IsInventoryMarkerDirectReachSafetyEnabled() ? "1" : "0") << '\n'
 		<< "native_path_commit_observer_enabled="
 		<< (config.IsNativePathCommitObserverEnabled() ? "1" : "0") << '\n'
+		<< "reachspec_capability_observer_enabled="
+		<< (config.IsReachSpecCapabilityObserverEnabled() ? "1" : "0") << '\n'
 		<< "direct_reach_command_observer_enabled="
 		<< (config.IsDirectReachCommandObserverEnabled() ? "1" : "0") << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
@@ -1580,6 +1582,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsInventoryMarkerDirectReachSafetyEnabled() ? "true" : "false") << ",\n"
 		<< "  \"native_path_commit_observer_enabled\": "
 		<< (config.IsNativePathCommitObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"reachspec_capability_observer_enabled\": "
+		<< (config.IsReachSpecCapabilityObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"direct_reach_command_observer_enabled\": "
 		<< (config.IsDirectReachCommandObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"

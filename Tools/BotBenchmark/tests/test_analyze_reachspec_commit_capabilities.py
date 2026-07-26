@@ -35,6 +35,11 @@ def write_run(root: Path) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["reachspec_capability_observer_enabled"] = True
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    summary_path = root / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["config"] = {"native_path_commit_observer_enabled": True,
+                         "reachspec_capability_observer_enabled": True}
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
     route_path = root / "route-execution.jsonl"
     route = json.loads(route_path.read_text(encoding="utf-8"))
     commit = route["participants"][0]["native_path_commits"][0]
@@ -97,6 +102,16 @@ class ReachSpecCommitCapabilityTests(unittest.TestCase):
             manifest["reachspec_capability_observer_enabled"] = False
             path.write_text(json.dumps(manifest), encoding="utf-8")
             with self.assertRaisesRegex(ANALYZE.ReachSpecCommitCapabilityError, "explicitly enabled"):
+                ANALYZE.analyze(root / "catalog.json", run)
+
+    def test_rejects_summary_manifest_observer_parity_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root / "catalog.json").write_text(json.dumps(NATIVE_FIXTURE.catalog()), encoding="utf-8")
+            run = root / "run"; run.mkdir(); write_run(run)
+            path = run / "summary.json"; summary = json.loads(path.read_text(encoding="utf-8"))
+            summary["config"]["reachspec_capability_observer_enabled"] = False
+            path.write_text(json.dumps(summary), encoding="utf-8")
+            with self.assertRaisesRegex(ANALYZE.ReachSpecCommitCapabilityError, "does not match manifest"):
                 ANALYZE.analyze(root / "catalog.json", run)
 
 

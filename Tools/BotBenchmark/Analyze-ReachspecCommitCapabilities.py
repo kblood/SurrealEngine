@@ -123,6 +123,15 @@ def analyze(catalog: Path, run: Path) -> dict[str, Any]:
     config_id = manifest.get("config_id")
     if not isinstance(config_id, str) or not config_id:
         raise ReachSpecCommitCapabilityError("manifest.config_id must be non-empty")
+    summary = _load(run / "summary.json")
+    summary_config = summary.get("config")
+    if not isinstance(summary_config, dict):
+        raise ReachSpecCommitCapabilityError("summary.config must be an object")
+    for field in ("native_path_commit_observer_enabled", "reachspec_capability_observer_enabled"):
+        if not isinstance(summary_config.get(field), bool):
+            raise ReachSpecCommitCapabilityError(f"summary.config.{field} must be boolean")
+        if summary_config[field] != manifest.get(field):
+            raise ReachSpecCommitCapabilityError(f"summary.config.{field} does not match manifest")
 
     counts: Counter[str] = Counter()
     try:
