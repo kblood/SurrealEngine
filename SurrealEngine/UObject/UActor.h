@@ -2127,6 +2127,7 @@ public:
 		return MoveStallDirectActorMoveTowardTimeoutCountValue;
 	}
 	double MoveStallEligibleSeconds() const { return MoveStallEligibleSecondsValue; }
+	double MoveStallNoProgressSeconds() const { return MoveStallWatchdog.Active ? MoveStallWatchdog.NoProgressSeconds : 0.0; }
 	uint64_t MoveStallRecoveryEpisodeStartCount() const { return MoveStallRecoveryEpisodeStartCountValue; }
 	uint64_t MoveStallRecoveryClearedWithin2SecondsCount() const
 	{

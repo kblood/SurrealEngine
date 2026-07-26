@@ -69,7 +69,7 @@ int main()
 		"    {\"roster_index\": 0, \"identity\": \"pri:1\"},\n"
 		"    {\"roster_index\": 1, \"identity\": \"pri:2\"}\n"
 		"  ],\n"
-		"  \"observation_limits\": {\"items\": false, \"armor\": false, \"stuck_time\": false}\n"
+		"  \"observation_limits\": {\"items\": false, \"armor\": false, \"stuck_time\": true}\n"
 		"}\n";
 	Check(manifest == expectedManifest, "shadow manifest is exact, sorted, bounded, and non-controlling");
 	Check(BotBenchmarkShadowTelemetry::EventCap(600) == 600, "shadow output is capped at one record per tick");

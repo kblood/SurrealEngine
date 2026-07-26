@@ -2793,6 +2793,7 @@ namespace
 			snapshot.Self.StableIdentity = runtime.Identity;
 			snapshot.Self.Position = { self->Location().x, self->Location().y, self->Location().z };
 			snapshot.Self.HealthFraction = static_cast<double>(self->Health()) / 100.0;
+			snapshot.Self.StuckSeconds = self->MoveStallNoProgressSeconds();
 
 			if (runtime.HasPreviousHealth && self->Health() < runtime.PreviousHealth)
 				snapshot.Self.RecentIncomingDamage =

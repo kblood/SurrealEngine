@@ -129,7 +129,7 @@ std::string BotBenchmarkShadowTelemetry::ManifestJson(const std::string& benchma
 			<< (index + 1 == participants.size() ? "\n" : ",\n");
 	}
 	output << "  ],\n"
-		<< "  \"observation_limits\": {\"items\": false, \"armor\": false, \"stuck_time\": false}\n"
+		<< "  \"observation_limits\": {\"items\": false, \"armor\": false, \"stuck_time\": true}\n"
 		<< "}\n";
 	return output.str();
 }
