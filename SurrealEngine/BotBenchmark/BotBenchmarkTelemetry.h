@@ -12,6 +12,7 @@
 #include "UObject/PawnFiniteMoveCommandGuard.h"
 #include "UObject/PawnVectorNonFiniteObserver.h"
 #include "UObject/PawnMovementCommandProvenance.h"
+#include "UObject/PawnHazardResidenceCommandTransitionLedger.h"
 
 #include <array>
 #include <cstdint>
@@ -387,6 +388,10 @@ struct BotBenchmarkBotState
 	uint64_t MovementCommandProvenanceOverflowsExact = 0;
 	std::vector<PawnMovement::MovementCommandProvenanceObservation>
 		MovementCommandProvenanceRecords;
+	uint64_t HazardResidenceCommandTransitionLedgerEpisodesExact = 0;
+	uint64_t HazardResidenceCommandTransitionLedgerOverflowsExact = 0;
+	std::vector<PawnMovement::HazardResidenceCommandTransitionLedgerRecord>
+		HazardResidenceCommandTransitionLedgerRecords;
 	uint64_t FiniteMoveCommandGuardRejectionsExact = 0;
 	uint64_t FiniteMoveCommandGuardDiagnosticOverflowsExact = 0;
 	std::vector<BotBenchmarkFiniteMoveCommandGuardRecord> FiniteMoveCommandGuardDiagnostics;
@@ -641,6 +646,7 @@ struct BotBenchmarkTelemetryEvent
 	bool NativePathCommitObserverRequested = false;
 	bool DirectReachCommandObserverRequested = false;
 	bool MovementCommandProvenanceObserverRequested = false;
+	bool HazardResidenceCommandTransitionLedgerObserverRequested = false;
 	bool FiniteMoveCommandGuardRequested = false;
 	bool PickRegDestinationZeroDivideGuardRequested = false;
 	std::vector<BotBenchmarkBotState> Bots;

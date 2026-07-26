@@ -6293,6 +6293,7 @@ void UPawn::ResolveHazardResidence(PawnMovement::HazardResidenceTerminal termina
 	}
 	if (engine->IsBotBenchmarkDirectReachCommandObserverEnabled())
 		DirectReachHazardResidenceTerminals.emplace_back(DirectReachCommandLifeId(), terminal);
+	FinishHazardResidenceCommandTransitionLedger(terminal);
 	HazardResidence = {};
 	HazardResidenceCandidateName.clear();
 }
@@ -6311,7 +6312,8 @@ void UPawn::AdvanceHazardResidenceSample(bool positiveDpsHazard, float elapsed)
 {
 	const bool eligibleBot = (engine->IsBotBenchmarkHazardSwimEgressEnabled()
 		|| engine->IsBotBenchmarkDirectReachCommandObserverEnabled()
-		|| engine->IsBotBenchmarkMovementCommandProvenanceObserverEnabled())
+		|| engine->IsBotBenchmarkMovementCommandProvenanceObserverEnabled()
+		|| engine->IsBotBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled())
 		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority;
 	if (!eligibleBot)
 	{
@@ -6328,6 +6330,7 @@ void UPawn::AdvanceHazardResidenceSample(bool positiveDpsHazard, float elapsed)
 	{
 		HazardResidenceEpisodeCountValue++;
 		HazardResidenceMovementCommand = ActiveMovementCommandProvenance;
+		BeginHazardResidenceCommandTransitionLedger();
 	}
 	if (HazardResidence.Reentries > priorReentries)
 		HazardResidenceReentryCountValue += HazardResidence.Reentries - priorReentries;
@@ -6419,11 +6422,85 @@ void UPawn::RecordMovementCommandProvenance(const char* kind)
 		&& !observation.CallerClass.empty() && !observation.CallerFunction.empty()
 		&& (observation.Kind == "move_to" || observation.TargetKnown);
 	ActiveMovementCommandProvenance = observation;
+	ObserveHazardResidenceCommandTransition(observation);
 	static constexpr size_t maximumQueuedRecords = 2048;
 	if (MovementCommandProvenanceObservations.size() < maximumQueuedRecords)
 		MovementCommandProvenanceObservations.push_back(std::move(observation));
 	else
 		MovementCommandProvenanceOverflowCountValue++;
+}
+
+void UPawn::BeginHazardResidenceCommandTransitionLedger()
+{
+	if (!engine || !engine->IsBotBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled())
+		return;
+	HazardResidenceCommandTransitionLedger = {};
+	HazardResidenceCommandTransitionLedger.Active = true;
+	HazardResidenceCommandTransitionLedger.EpisodeId = HazardResidenceEpisodeCountValue;
+	HazardResidenceCommandTransitionLedger.LifeId = DirectReachCommandLifeId();
+	HazardResidenceCommandTransitionLedger.Entries.push_back({
+		1, true, 0, ActiveMovementCommandProvenance
+	});
+}
+
+void UPawn::ObserveHazardResidenceCommandTransition(
+	const PawnMovement::MovementCommandProvenanceObservation& observation)
+{
+	if (!HazardResidenceCommandTransitionLedger.Active
+		|| observation.LifeId != HazardResidenceCommandTransitionLedger.LifeId)
+		return;
+	static constexpr size_t maximumEntries = 64;
+	if (HazardResidenceCommandTransitionLedger.Entries.size() >= maximumEntries)
+	{
+		HazardResidenceCommandTransitionLedger.Overflowed = true;
+		HazardResidenceCommandTransitionLedgerOverflowCountValue++;
+		return;
+	}
+	const uint64_t prior = HazardResidenceCommandTransitionLedger.Entries.empty()
+		? 0
+		: HazardResidenceCommandTransitionLedger.Entries.back().Command.CommandToken;
+	HazardResidenceCommandTransitionLedger.Entries.push_back({
+		static_cast<uint64_t>(HazardResidenceCommandTransitionLedger.Entries.size() + 1),
+		false, prior, observation
+	});
+}
+
+void UPawn::FinishHazardResidenceCommandTransitionLedger(
+	PawnMovement::HazardResidenceTerminal terminal)
+{
+	if (!HazardResidenceCommandTransitionLedger.Active)
+		return;
+	PawnMovement::HazardResidenceCommandTransitionLedgerRecord record;
+	record.Sequence = ++HazardResidenceCommandTransitionLedgerSequence;
+	record.EpisodeId = HazardResidenceCommandTransitionLedger.EpisodeId;
+	record.LifeId = HazardResidenceCommandTransitionLedger.LifeId;
+	record.Terminal = terminal;
+	record.Entries = std::move(HazardResidenceCommandTransitionLedger.Entries);
+	if (!record.Entries.empty())
+	{
+		record.EntryCommandToken = record.Entries.front().Command.CommandToken;
+		record.TerminalCommandToken = record.Entries.back().Command.CommandToken;
+		record.EntryIntegrityValid = record.Entries.front().IsEntry
+			&& record.Entries.front().Command.IntegrityValid;
+		record.TerminalIntegrityValid = terminal != PawnMovement::HazardResidenceTerminal::None
+			&& terminal != PawnMovement::HazardResidenceTerminal::Unknown
+			&& !HazardResidenceCommandTransitionLedger.Overflowed
+			&& record.Entries.back().Command.IntegrityValid;
+	}
+	static constexpr size_t maximumQueuedRecords = 512;
+	if (HazardResidenceCommandTransitionLedgerRecords.size() < maximumQueuedRecords)
+		HazardResidenceCommandTransitionLedgerRecords.push_back(std::move(record));
+	else
+		HazardResidenceCommandTransitionLedgerOverflowCountValue++;
+	HazardResidenceCommandTransitionLedger = {};
+}
+
+std::vector<PawnMovement::HazardResidenceCommandTransitionLedgerRecord>
+UPawn::DrainHazardResidenceCommandTransitionLedgerRecords()
+{
+	std::vector<PawnMovement::HazardResidenceCommandTransitionLedgerRecord> records;
+	records.swap(HazardResidenceCommandTransitionLedgerRecords);
+	return records;
 }
 
 std::vector<PawnMovement::MovementCommandProvenanceObservation>

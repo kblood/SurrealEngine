@@ -724,7 +724,8 @@ namespace
 		bool warnTargetObserverRequested,
 		bool inventoryDirectReachSupportObserverRequested,
 		bool directReachCommandObserverRequested,
-		bool movementCommandProvenanceObserverRequested)
+		bool movementCommandProvenanceObserverRequested,
+		bool hazardResidenceCommandTransitionLedgerObserverRequested)
 	{
 		// Keep the telemetry's fail-closed finite-number contract, but attach
 		// enough provenance for a failed deterministic run to identify the live
@@ -997,6 +998,60 @@ namespace
 					<< record.LastNativePathCommitFirstReachSpecIndex
 					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false")
 					<< '}';
+			}
+			out << ']';
+		}
+		if (hazardResidenceCommandTransitionLedgerObserverRequested)
+		{
+			out << ",\"hazard_residence_command_transition_ledger_episodes_exact\":\""
+				<< bot.HazardResidenceCommandTransitionLedgerEpisodesExact << "\""
+				<< ",\"hazard_residence_command_transition_ledger_overflows_exact\":\""
+				<< bot.HazardResidenceCommandTransitionLedgerOverflowsExact << "\""
+				<< ",\"hazard_residence_command_transition_ledger_records\":[";
+			for (size_t index = 0; index < bot.HazardResidenceCommandTransitionLedgerRecords.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& ledger = bot.HazardResidenceCommandTransitionLedgerRecords[index];
+				out << "{\"sequence\":\"" << ledger.Sequence
+					<< "\",\"episode_id\":\"" << ledger.EpisodeId
+					<< "\",\"life_id\":\"" << ledger.LifeId
+					<< "\",\"terminal\":" << JsonString(PawnMovement::HazardResidenceTerminalName(ledger.Terminal))
+					<< ",\"entry_command_token\":\"" << ledger.EntryCommandToken
+					<< "\",\"terminal_command_token\":\"" << ledger.TerminalCommandToken
+					<< "\",\"entry_integrity_valid\":" << (ledger.EntryIntegrityValid ? "true" : "false")
+					<< ",\"terminal_integrity_valid\":" << (ledger.TerminalIntegrityValid ? "true" : "false")
+					<< ",\"entries\":[";
+				for (size_t entryIndex = 0; entryIndex < ledger.Entries.size(); entryIndex++)
+				{
+					if (entryIndex) out << ',';
+					const auto& entry = ledger.Entries[entryIndex];
+					const auto& record = entry.Command;
+					out << "{\"sequence\":\"" << entry.Sequence
+						<< "\",\"role\":" << JsonString(entry.IsEntry ? "entry" : "replacement")
+						<< ",\"prior_command_token\":\"" << entry.PriorCommandToken
+						<< "\",\"command\":{\"sequence\":\"" << record.Sequence
+						<< "\",\"command_token\":\"" << record.CommandToken
+						<< "\",\"life_id\":\"" << record.LifeId
+						<< "\",\"native_tick\":\"" << record.NativeTick
+						<< "\",\"source_actor_index\":" << record.SourceActorIndex
+						<< ",\"caller_invocation_token\":\"" << record.CallerInvocationToken
+						<< "\",\"caller_class\":" << JsonString(record.CallerClass)
+						<< ",\"caller_function\":" << JsonString(record.CallerFunction)
+						<< ",\"kind\":" << JsonString(record.Kind)
+						<< ",\"target_known\":" << (record.TargetKnown ? "true" : "false")
+						<< ",\"target_actor_index\":" << record.TargetActorIndex
+						<< ",\"target_name\":" << JsonString(record.TargetName)
+						<< ",\"target_class\":" << JsonString(record.TargetClass)
+						<< ",\"route_head_known\":" << (record.RouteHeadKnown ? "true" : "false")
+						<< ",\"route_head_actor_index\":" << record.RouteHeadActorIndex
+						<< ",\"route_head_name\":" << JsonString(record.RouteHeadName)
+						<< ",\"route_head_class\":" << JsonString(record.RouteHeadClass)
+						<< ",\"last_native_path_commit_known\":" << (record.LastNativePathCommitKnown ? "true" : "false")
+						<< ",\"last_native_path_commit_sequence\":\"" << record.LastNativePathCommitSequence
+						<< "\",\"last_native_path_commit_first_reachspec_index\":" << record.LastNativePathCommitFirstReachSpecIndex
+						<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false") << "}}";
+				}
+				out << "]}";
 			}
 			out << ']';
 		}
@@ -1727,6 +1782,8 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< (config.IsDirectReachCommandObserverEnabled() ? "1" : "0") << '\n'
 		<< "movement_command_provenance_observer_enabled="
 		<< (config.IsMovementCommandProvenanceObserverEnabled() ? "1" : "0") << '\n'
+		<< "hazard_residence_command_transition_ledger_observer_enabled="
+		<< (config.IsHazardResidenceCommandTransitionLedgerObserverEnabled() ? "1" : "0") << '\n'
 		<< "pawn_vision_cone_enabled="
 		<< (config.IsPawnVisionConeEnabled() ? "1" : "0") << '\n'
 		<< "pawn_vision_observer_enabled="
@@ -1812,6 +1869,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsDirectReachCommandObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"movement_command_provenance_observer_enabled\": "
 		<< (config.IsMovementCommandProvenanceObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"hazard_residence_command_transition_ledger_observer_enabled\": "
+		<< (config.IsHazardResidenceCommandTransitionLedgerObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"pawn_vision_cone_enabled\": "
 		<< (config.IsPawnVisionConeEnabled() ? "true" : "false") << ",\n"
 		<< "  \"pawn_vision_observer_enabled\": "
@@ -1878,6 +1937,8 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 		out << ",\"direct_reach_command_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.MovementCommandProvenanceObserverRequested)
 		out << ",\"movement_command_provenance_observer\":{\"requested\":true,\"status\":\"active\"}";
+	if (event.HazardResidenceCommandTransitionLedgerObserverRequested)
+		out << ",\"hazard_residence_command_transition_ledger_observer\":{\"requested\":true,\"status\":\"active\"}";
 	out << ",\"bots\":[";
 	for (size_t index = 0; index < event.Bots.size(); index++)
 	{
@@ -1894,7 +1955,8 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 				event.WarnTargetObserverRequested,
 				event.InventoryDirectReachSupportObserverRequested,
 				event.DirectReachCommandObserverRequested,
-				event.MovementCommandProvenanceObserverRequested);
+				event.MovementCommandProvenanceObserverRequested,
+				event.HazardResidenceCommandTransitionLedgerObserverRequested);
 		}
 		catch (const std::invalid_argument& error)
 		{

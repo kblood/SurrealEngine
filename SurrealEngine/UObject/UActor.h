@@ -18,6 +18,7 @@
 #include "PawnInventoryReachability.h"
 #include "PawnDirectReachCommandProvenance.h"
 #include "PawnMovementCommandProvenance.h"
+#include "PawnHazardResidenceCommandTransitionLedger.h"
 #include "PawnRoutePathCommitProvenance.h"
 #include "PawnPickTargetObserver.h"
 #include "PawnCanSeeObserver.h"
@@ -1975,6 +1976,12 @@ public:
 		DrainDirectReachHazardResidenceTerminals();
 	std::vector<PawnMovement::MovementCommandProvenanceObservation>
 		DrainMovementCommandProvenanceObservations();
+	std::vector<PawnMovement::HazardResidenceCommandTransitionLedgerRecord>
+		DrainHazardResidenceCommandTransitionLedgerRecords();
+	uint64_t HazardResidenceCommandTransitionLedgerOverflowCount() const
+	{
+		return HazardResidenceCommandTransitionLedgerOverflowCountValue;
+	}
 	uint64_t MovementCommandProvenanceOverflowCount() const
 	{
 		return MovementCommandProvenanceOverflowCountValue;
@@ -2647,6 +2654,11 @@ private:
 	void ObserveHazardResidenceCandidate(const std::string& candidateName);
 	void ObserveHazardResidenceMovementCommand();
 	void RecordMovementCommandProvenance(const char* kind);
+	void BeginHazardResidenceCommandTransitionLedger();
+	void ObserveHazardResidenceCommandTransition(
+		const PawnMovement::MovementCommandProvenanceObservation& observation);
+	void FinishHazardResidenceCommandTransitionLedger(
+		PawnMovement::HazardResidenceTerminal terminal);
 	void ResolveHazardResidence(PawnMovement::HazardResidenceTerminal terminal);
 	void ObserveExternalImpulseFallWitness(
 		PawnMovement::FallingHazardForecastSource source,
@@ -2719,6 +2731,15 @@ private:
 	HazardSwimEgressState HazardSwimEgress;
 	PawnMovement::HazardResidenceState HazardResidence;
 	PawnMovement::MovementCommandProvenanceObservation HazardResidenceMovementCommand;
+	struct HazardResidenceCommandTransitionLedgerState
+	{
+		bool Active = false;
+		bool Overflowed = false;
+		uint64_t EpisodeId = 0;
+		uint64_t LifeId = 0;
+		std::vector<PawnMovement::HazardResidenceCommandTransitionLedgerEntry> Entries;
+	};
+	HazardResidenceCommandTransitionLedgerState HazardResidenceCommandTransitionLedger;
 	std::string HazardResidenceCandidateName;
 	std::optional<PawnMovement::HazardResidenceDeathWitness>
 		HazardResidenceDeathWitness;
@@ -2918,6 +2939,10 @@ private:
 	std::vector<PawnMovement::MovementCommandProvenanceObservation>
 		MovementCommandProvenanceObservations;
 	PawnMovement::MovementCommandProvenanceObservation ActiveMovementCommandProvenance;
+	uint64_t HazardResidenceCommandTransitionLedgerSequence = 0;
+	uint64_t HazardResidenceCommandTransitionLedgerOverflowCountValue = 0;
+	std::vector<PawnMovement::HazardResidenceCommandTransitionLedgerRecord>
+		HazardResidenceCommandTransitionLedgerRecords;
 	struct LastNativePathCommitProvenance
 	{
 		bool Known = false;

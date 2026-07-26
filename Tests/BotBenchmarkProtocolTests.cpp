@@ -227,6 +227,7 @@ int main()
 		"    \"reachspec_capability_observer_enabled\": false,\n"
 		"    \"direct_reach_command_observer_enabled\": false,\n"
 		"    \"movement_command_provenance_observer_enabled\": false,\n"
+		"    \"hazard_residence_command_transition_ledger_observer_enabled\": false,\n"
 		"    \"pawn_vision_cone_enabled\": false,\n"
 		"    \"pawn_vision_observer_enabled\": false,\n"
 		"    \"vector_nonfinite_observer_enabled\": false,\n"

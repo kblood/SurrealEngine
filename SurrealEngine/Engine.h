@@ -258,6 +258,14 @@ public:
 	{
 		botBenchmarkMovementCommandProvenanceObserverEnabled = enabled;
 	}
+	bool IsBotBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled() const
+	{
+		return botBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled;
+	}
+	void SetBotBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled(bool enabled)
+	{
+		botBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled = enabled;
+	}
 	bool IsBotBenchmarkPawnVisionConeEnabled() const
 	{
 		return botBenchmarkPawnVisionConeEnabled;
@@ -496,6 +504,7 @@ private:
 	bool botBenchmarkReachSpecCapabilityObserverEnabled = false;
 	bool botBenchmarkDirectReachCommandObserverEnabled = false;
 	bool botBenchmarkMovementCommandProvenanceObserverEnabled = false;
+	bool botBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled = false;
 	bool botBenchmarkPawnVisionConeEnabled = false;
 	bool botBenchmarkPawnVisionObserverEnabled = false;
 	bool botBenchmarkVectorNonFiniteObserverEnabled = false;

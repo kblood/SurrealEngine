@@ -206,6 +206,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	bool finiteMoveCommandGuardEnabled, bool pickRegDestinationZeroDivideGuardEnabled,
 	bool walkingHitWallMinHitWallCandidateEnabled,
 	bool movementCommandProvenanceObserverEnabled,
+	bool hazardResidenceCommandTransitionLedgerObserverEnabled,
 	std::vector<std::string> shadowPolicySet)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
@@ -225,6 +226,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	InventoryMarkerDirectReachSafetyEnabled(inventoryMarkerDirectReachSafetyEnabled),
 	DirectReachCommandObserverEnabled(directReachCommandObserverEnabled),
 	MovementCommandProvenanceObserverEnabled(movementCommandProvenanceObserverEnabled),
+	HazardResidenceCommandTransitionLedgerObserverEnabled(hazardResidenceCommandTransitionLedgerObserverEnabled),
 	PickTargetObserverEnabled(pickTargetObserverEnabled),
 	WarnTargetObserverEnabled(warnTargetObserverEnabled),
 	PawnVisionConeEnabled(pawnVisionConeEnabled), PawnVisionObserverEnabled(pawnVisionObserverEnabled),
@@ -260,7 +262,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> finiteMoveCommandGuard,
 	std::optional<std::string> pickRegDestinationZeroDivideGuard,
 	std::optional<std::string> walkingHitWallMinHitWallCandidate,
-	std::optional<std::string> movementCommandProvenanceObserver)
+	std::optional<std::string> movementCommandProvenanceObserver,
+	std::optional<std::string> hazardResidenceCommandTransitionLedgerObserver)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -331,6 +334,15 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		throw std::invalid_argument(
 			"bot benchmark movement-command provenance observer requires the native path-commit observer");
 	}
+	const bool parsedHazardResidenceCommandTransitionLedgerObserver = ParseExactBoolean(
+		hazardResidenceCommandTransitionLedgerObserver,
+		"bot benchmark hazard-residence command-transition ledger observer");
+	if (parsedHazardResidenceCommandTransitionLedgerObserver
+		&& !parsedMovementCommandProvenanceObserver)
+	{
+		throw std::invalid_argument(
+			"bot benchmark hazard-residence command-transition ledger observer requires the movement-command provenance observer");
+	}
 	const std::vector<std::string> parsedShadowPolicySet = ParseShadowPolicySet(shadowPolicySet);
 	const bool parsedPawnVisionCone = ParseExactBoolean(
 		pawnVisionCone, "bot benchmark pawn vision cone");
@@ -359,6 +371,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		parsedFiniteMoveCommandGuard,
 		parsedPickRegDestinationZeroDivideGuard,
 		parsedWalkingHitWallMinHitWallCandidate, parsedMovementCommandProvenanceObserver,
+		parsedHazardResidenceCommandTransitionLedgerObserver,
 		parsedShadowPolicySet);
 }
 
@@ -485,6 +498,8 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< (config.IsDirectReachCommandObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"movement_command_provenance_observer_enabled\": "
 		<< (config.IsMovementCommandProvenanceObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"hazard_residence_command_transition_ledger_observer_enabled\": "
+		<< (config.IsHazardResidenceCommandTransitionLedgerObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"pawn_vision_cone_enabled\": "
 		<< (config.IsPawnVisionConeEnabled() ? "true" : "false") << ",\n"
 		<< "    \"pawn_vision_observer_enabled\": "
