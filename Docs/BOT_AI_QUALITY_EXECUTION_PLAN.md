@@ -4121,3 +4121,23 @@ harmful or persistent outcomes; only then may the bounded live-adapter design
 be exercised through deterministic fixtures and an attested cross-game matrix.
 The exact runs and joins are documented in
 `BOT_AI_SHADOW_STUCK_RECOVERY_FOLLOWUP_2026-07-26.md`.
+
+## Iteration 164: UT99 movement-command terminal joins stop at real supersession boundaries
+
+The first attested UT436 Deck16-II movement-command provenance run did not
+expose a retention defect. Its strict analyzer rejected `pri:15` because all
+three terminal PainTimer hazard residences had a valid entry command that was
+superseded by later native `MoveTo`/`MoveToward` issues in the same life before
+death. The capture retains `50` exact command observations with zero overflow;
+the terminal records retain the entry token and caller, so neither a cleared
+token nor a missing movement issue can explain the inexact joins. The exact
+ticks and token chains are recorded in
+`BOT_AI_UT99_MOVEMENT_COMMAND_PROVENANCE_R3_EVIDENCE_2026-07-26.md`.
+
+Do not weaken the terminal analyzer or reinterpret an entry command as the
+death owner after supersession. The next observer-only boundary is a bounded
+hazard-residence command-transition ledger that records each replacement
+command while residence remains active and reports ordered transition context
+at death. It must classify superseded episodes as non-causal and preserve the
+existing default-off, no-movement-mutation contract. No water, route, target,
+or recovery behavior change is authorized by this result.
