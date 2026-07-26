@@ -614,6 +614,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnPainLedgeRecovery.h
 	SurrealEngine/UObject/PawnMoveStallWatchdog.cpp
 	SurrealEngine/UObject/PawnMoveStallWatchdog.h
+	SurrealEngine/UObject/PawnLatentMoveTerminal.cpp
+	SurrealEngine/UObject/PawnLatentMoveTerminal.h
 	SurrealEngine/UObject/PawnMovementArrival.cpp
 	SurrealEngine/UObject/PawnMovementArrival.h
 	SurrealEngine/UObject/PawnMoveToward.cpp
@@ -1660,6 +1662,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PawnMoveStallWatchdogTests PRIVATE SurrealEngine)
 	set_target_properties(PawnMoveStallWatchdogTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnMoveStallWatchdog COMMAND PawnMoveStallWatchdogTests)
+
+	add_executable(PawnLatentMoveTerminalTests
+		Tests/PawnLatentMoveTerminalTests.cpp
+		SurrealEngine/UObject/PawnLatentMoveTerminal.cpp
+	)
+	target_include_directories(PawnLatentMoveTerminalTests PRIVATE SurrealEngine)
+	set_target_properties(PawnLatentMoveTerminalTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnLatentMoveTerminal COMMAND PawnLatentMoveTerminalTests)
 
 	add_executable(PawnMoveTowardTests
 		Tests/PawnMoveTowardTests.cpp
