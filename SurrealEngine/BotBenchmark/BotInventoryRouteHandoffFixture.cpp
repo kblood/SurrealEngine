@@ -122,7 +122,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v13\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v14\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -151,6 +151,8 @@ namespace
 			<< "live_navigation_forecast_selected=" << (result.LiveNavigationForecastSelected ? "true" : "false") << "\n"
 			<< "live_navigation_forecast_selected_direction_live_safe=" << (result.LiveNavigationForecastSelectedDirectionLiveSafe ? "true" : "false") << "\n"
 			<< "live_navigation_northeast_safe_landing=" << (result.LiveNavigationNortheastSafeLanding ? "true" : "false") << "\n"
+			<< "live_navigation_northeast_post_callback_forecast_captured=" << (result.LiveNavigationNortheastPostCallbackForecastCaptured ? "true" : "false") << "\n"
+			<< "live_navigation_northeast_post_callback_forecast_safe_landing=" << (result.LiveNavigationNortheastPostCallbackForecastSafeLanding ? "true" : "false") << "\n"
 			<< "pawn_actor=" << result.PawnActor << "\n"
 			<< "marker_actor=" << result.MarkerActor << "\n"
 			<< "inventory_actor=" << result.InventoryActor << "\n"
@@ -177,6 +179,8 @@ namespace
 			<< "live_navigation_northeast_static_hitwall_callback_witnesses=" << result.LiveNavigationNortheastStaticHitWallCallbackWitnesses << "\n"
 			<< "live_navigation_northeast_static_hitwall_callback_exact_noops=" << result.LiveNavigationNortheastStaticHitWallCallbackExactNoOps << "\n"
 			<< "live_navigation_northeast_static_hitwall_callback_mutations=" << result.LiveNavigationNortheastStaticHitWallCallbackMutations << "\n"
+			<< "live_navigation_northeast_post_callback_forecast_classification=" << result.LiveNavigationNortheastPostCallbackForecastClassification << "\n"
+			<< "live_navigation_northeast_post_callback_forecast_reason=" << result.LiveNavigationNortheastPostCallbackForecastReason << "\n"
 			<< "first_live_navigation_air_recovery_safe_direction=" << result.FirstLiveNavigationAirRecoverySafeDirection << "\n"
 			<< "live_navigation_forecast_selected_direction=" << result.LiveNavigationForecastSelectedDirection << "\n"
 			<< "live_navigation_forecast_outcomes=" << result.LiveNavigationForecastOutcomes << "\n"
@@ -598,11 +602,39 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 				pawn->Velocity() = fallVelocity;
 				pawn->Acceleration() = vec3(0.0f);
 				result.LiveNavigationAirRecoveryDirectionsTested++;
+				std::vector<PawnMovement::FallingHitWallCallbackWitness> callbackWitnesses;
 				for (int tick = 0; tick < LiveNavigationRecoveryTickLimit; tick++)
 				{
 					pawn->Acceleration() = vec3(direction.x, direction.y, 0.0f)
 						* recoveryAccelerationMagnitude;
 					pawn->Tick(FixtureTickSeconds);
+					std::vector<PawnMovement::FallingHitWallCallbackWitness>
+						tickWitnesses = pawn->DrainFallingHitWallCallbackWitnesses();
+					const bool exactNoOpObserved = std::any_of(tickWitnesses.begin(),
+						tickWitnesses.end(), [](const auto& witness)
+						{
+							return witness.StaticWorldCollision && witness.Decision
+								== PawnMovement::FallingHitWallCallbackWitnessDecision::ExactNoOp;
+						});
+					callbackWitnesses.insert(callbackWitnesses.end(),
+						std::make_move_iterator(tickWitnesses.begin()),
+						std::make_move_iterator(tickWitnesses.end()));
+					if (northeastDirection && exactNoOpObserved
+						&& !result.LiveNavigationNortheastPostCallbackForecastCaptured
+						&& pawn->Physics() == PHYS_Falling)
+					{
+						const PawnMovement::FallingHazardForecastUpdate postCallbackForecast =
+							pawn->PredictFallingHazardTrajectory(
+								vec3(direction * recoveryAccelerationMagnitude, 0.0f));
+						result.LiveNavigationNortheastPostCallbackForecastCaptured = true;
+						result.LiveNavigationNortheastPostCallbackForecastClassification =
+							static_cast<uint64_t>(postCallbackForecast.Result.Classification);
+						result.LiveNavigationNortheastPostCallbackForecastReason =
+							static_cast<uint64_t>(postCallbackForecast.Result.Reason);
+						result.LiveNavigationNortheastPostCallbackForecastSafeLanding =
+							PawnMovement::IsCertifiedFallingAirRecoveryCandidate({ direction,
+								postCallbackForecast });
+					}
 					UZoneInfo* footZone = pawn->FootRegion().Zone;
 					if (footZone && footZone->bPainZone() && footZone->DamagePerSec() > 0)
 						break;
@@ -632,8 +664,6 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 						break;
 					}
 				}
-				const std::vector<PawnMovement::FallingHitWallCallbackWitness>
-					callbackWitnesses = pawn->DrainFallingHitWallCallbackWitnesses();
 				if (northeastDirection)
 				{
 					for (const PawnMovement::FallingHitWallCallbackWitness& witness

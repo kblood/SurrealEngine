@@ -3448,3 +3448,19 @@ trajectory. It does **not** authorize a generic no-op rule, a UT rule, or live
 recovery steering. The next work must identify a scoped callback certificate
 that can be established before committing a maneuver, then test its predicted
 and realized trajectories on both target games.
+
+## Iteration 134: one no-op callback does not close the trajectory
+
+The v14 fixture continues the northeast live path until it observes the exact
+no-op static callback, then asks the existing read-only predictor about the
+remaining path from that real post-callback falling state. The predictor again
+ends as `Unknown` with `HitWallCallbackRequired`; it does not certify the
+landing in two repetitions:
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v14-post-callback-forecast/r1/`
+and `.../r2/`.
+
+This rejects a one-callback continuation model. The viable path has at least
+one further callback-sensitive boundary, so any implementation would need a
+bounded chain with exact evidence at *every* callback or a stronger
+pre-established stock-handler certificate. No runtime recovery behavior is
+enabled.
