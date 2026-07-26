@@ -4051,3 +4051,27 @@ deterministic fixture must separately verify the action semantics before this
 mechanism can be used again as a controlled investigative tool; any future
 promotion still requires observed activation and a repeatable positive
 cross-game quality delta.
+
+## Iteration 161: reject apparent latent-move timeout opportunity
+
+The standalone terminal classifier is now available for future runtime
+observation, but the initial stock scan does not identify a route-timeout
+failure. The apparent near-expiry counts (`21` on UT436 Deck16-II and `10` on
+Unreal Gold DeathFan) are normal strafe completions, not `MoveTo` or
+`MoveToward` route commands: UT samples are `TacticalMove` `StrafeFacing`
+combat moves, while Unreal samples are targetless `StrafeTo` calls from
+`Hunting` or `Roaming` `AdjustFromWall`. In both adapters `Tick` deliberately
+decrements `MoveTimer` before polling the latent action.
+
+Consequently, a generic timeout/replan policy would be based on a false
+mechanism and is not authorized. The exact native IDs, script callers, and
+future evidence requirements are retained in
+`BOT_AI_MOVEMENT_LATENT_PATHS_2026-07-26.md`. The classifier remains
+behavior-neutral; runtime integration is deferred until stock evidence shows a
+real `MoveTo`/`MoveToward` terminal outside its acceptance envelope with a
+harmful same-command follow-up.
+
+The cross-game qualification harness is no longer blocked on summary schema:
+commit `92c59bc5` validates summary-v3 capability timing fail-closed and was
+checked against saved UT and Unreal artifacts. This restores the mandatory
+realization-witness gate; it does not qualify any behavior by itself.

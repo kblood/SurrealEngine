@@ -56,10 +56,11 @@ Before comparing quality values, every repetition must have:
   and direct-command links for the claimed mechanism. Static graph data or an
   old RouteCache entry never proves route causation.
 
-Current hard blocker: `Validate-RealizedBotCapabilities.py` requires summary
-v2 and rejects current summary-v3 artifacts. Until it is schema-compatible and
-passes here, the realization-witness gate is unmet and this matrix is **not**
-qualification evidence. Do not waive that gate.
+The former summary-v3 compatibility blocker is resolved by commit `92c59bc5`:
+`Validate-RealizedBotCapabilities.py` now validates the required v3
+`ai_frame_timing` structure fail-closed while preserving v2 support. Its
+focused tests and saved 16-bot UT/Unreal artifacts pass. The realization-witness
+gate remains mandatory for every new matrix cell; do not waive it.
 
 ## Outcome criteria after validity passes
 
