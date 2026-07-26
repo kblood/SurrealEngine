@@ -115,6 +115,16 @@ private:
 	bool DirectReachCommandObserverEnabled = false;
 };
 
+// Each component is measured inside the benchmark-only AI timing scope. The
+// aggregate remains the release-gate value; components make an over-budget
+// observation run actionable without timing game simulation or file I/O.
+struct BotBenchmarkAiFrameTimingComponents
+{
+	BotBenchmarkAiFrameTimingSummary NavigationCoverage;
+	BotBenchmarkAiFrameTimingSummary ShadowObservationAndPolicy;
+	BotBenchmarkAiFrameTimingSummary StateSampling;
+};
+
 class BotBenchmarkRunSummary
 {
 public:
@@ -122,7 +132,8 @@ public:
 		double simulatedSeconds, std::string game, std::string version,
 		std::string map, std::string failureReason,
 		std::vector<BotBenchmarkActualParticipant> actualRoster,
-		BotBenchmarkAiFrameTimingSummary aiFrameTiming = {});
+		BotBenchmarkAiFrameTimingSummary aiFrameTiming = {},
+		BotBenchmarkAiFrameTimingComponents aiFrameTimingComponents = {});
 
 	std::string ToJson(const BotBenchmarkRunConfig& config) const;
 
@@ -137,4 +148,5 @@ private:
 	std::string FailureReason;
 	std::vector<BotBenchmarkActualParticipant> ActualRoster;
 	BotBenchmarkAiFrameTimingSummary AiFrameTiming;
+	BotBenchmarkAiFrameTimingComponents AiFrameTimingComponents;
 };

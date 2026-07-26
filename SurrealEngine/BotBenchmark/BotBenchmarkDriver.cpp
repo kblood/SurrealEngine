@@ -179,14 +179,15 @@ namespace
 				EngineRef.Level->Tick(levelElapsed, false);
 				Ticks = frameTime.Tick;
 				uint64_t aiFrameScopeMicroseconds = 0;
-				MeasureAiFrameScope(aiFrameScopeMicroseconds, [&]
+				MeasureAiFrameScope(aiFrameScopeMicroseconds, NavigationCoverageAiFrameTiming, [&]
 				{
 					ObserveNavigationCoverage();
 				});
-				WriteShadowTelemetry(frameTime.Tick, frameTime.RealElapsed, aiFrameScopeMicroseconds);
+				WriteShadowTelemetry(frameTime.Tick, frameTime.RealElapsed, aiFrameScopeMicroseconds,
+					ShadowObservationAndPolicyAiFrameTiming);
 				WriteRouteExecutionTelemetry(frameTime.Tick);
 				WriteTelemetry("tick", "running", {}, frameTime.Tick, frameTime.TotalReal,
-					&aiFrameScopeMicroseconds);
+					&aiFrameScopeMicroseconds, &StateSamplingAiFrameTiming);
 				AiFrameTiming.AddSampleMicroseconds(aiFrameScopeMicroseconds);
 			}
 			catch (const std::exception& e)
@@ -231,7 +232,10 @@ namespace
 			BotBenchmarkRunSummary runSummary(status, ExitCode, Ticks, simulatedSeconds,
 				EngineRef.LaunchInfo.gameName, EngineRef.LaunchInfo.gameVersionString,
 				EngineRef.LevelInfo ? EngineRef.LevelInfo->URL.Map : std::string(),
-				FailureReason, ActualRoster, AiFrameTiming.GetSummary());
+				FailureReason, ActualRoster, AiFrameTiming.GetSummary(), {
+					NavigationCoverageAiFrameTiming.GetSummary(),
+					ShadowObservationAndPolicyAiFrameTiming.GetSummary(),
+					StateSamplingAiFrameTiming.GetSummary() });
 			std::filesystem::create_directories(Config.GetOutputDirectory());
 			const std::filesystem::path summaryPath = std::filesystem::path(Config.GetOutputDirectory()) / "summary.json";
 			File::write_all_text(summaryPath.string(), runSummary.ToJson(Config));
@@ -241,14 +245,21 @@ namespace
 
 	private:
 		template <typename Callback>
-		static void MeasureAiFrameScope(uint64_t& totalMicroseconds, Callback&& callback)
+		static void MeasureAiFrameScope(uint64_t& totalMicroseconds,
+			BotBenchmarkAiFrameTiming& componentTiming, Callback&& callback)
 		{
 			const auto began = std::chrono::steady_clock::now();
 			callback();
 			const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
 				std::chrono::steady_clock::now() - began).count();
 			if (elapsed > 0)
-				totalMicroseconds += static_cast<uint64_t>(elapsed);
+			{
+				const uint64_t microseconds = static_cast<uint64_t>(elapsed);
+				totalMicroseconds += microseconds;
+				componentTiming.AddSampleMicroseconds(microseconds);
+			}
+			else
+				componentTiming.AddSampleMicroseconds(0);
 		}
 
 		void WriteRealizedBotCapabilities()
@@ -2240,7 +2251,8 @@ namespace
 			LogMessage("Bot benchmark shadow decisions: " + eventsPath.string());
 		}
 
-		void WriteShadowTelemetry(uint64_t tick, double deltaSeconds, uint64_t& aiFrameScopeMicroseconds)
+		void WriteShadowTelemetry(uint64_t tick, double deltaSeconds, uint64_t& aiFrameScopeMicroseconds,
+			BotBenchmarkAiFrameTiming& componentTiming)
 		{
 			if (!ShadowTelemetryFile)
 				return;
@@ -2248,7 +2260,7 @@ namespace
 				throw std::runtime_error("bot benchmark shadow telemetry event cap reached");
 
 			std::vector<BotBenchmarkShadowParticipantState> states;
-			MeasureAiFrameScope(aiFrameScopeMicroseconds, [&]
+			MeasureAiFrameScope(aiFrameScopeMicroseconds, componentTiming, [&]
 			{
 				const auto liveBots = CaptureLiveControlledBots();
 				states.reserve(ShadowParticipants.size());
@@ -3094,7 +3106,8 @@ namespace
 
 		void WriteTelemetry(const std::string& type, const std::string& status,
 			const std::string& failureReason, uint64_t tick, double simulatedSeconds,
-			uint64_t* aiFrameScopeMicroseconds = nullptr)
+			uint64_t* aiFrameScopeMicroseconds = nullptr,
+			BotBenchmarkAiFrameTiming* componentTiming = nullptr)
 		{
 			if (!TelemetryFile)
 				return;
@@ -3118,9 +3131,9 @@ namespace
 				Config.IsNativePathCommitObserverEnabled();
 			event.DirectReachCommandObserverRequested =
 				Config.IsDirectReachCommandObserverEnabled();
-			if (aiFrameScopeMicroseconds)
+			if (aiFrameScopeMicroseconds && componentTiming)
 			{
-				MeasureAiFrameScope(*aiFrameScopeMicroseconds, [&]
+				MeasureAiFrameScope(*aiFrameScopeMicroseconds, *componentTiming, [&]
 				{
 					event.Bots = CaptureBotStates();
 				});
@@ -3181,6 +3194,9 @@ namespace
 		uint64_t RouteExecutionTelemetryEventCount = 0;
 		std::map<std::string, vec3> RouteExecutionPreviousLocations;
 		BotBenchmarkAiFrameTiming AiFrameTiming;
+		BotBenchmarkAiFrameTiming NavigationCoverageAiFrameTiming;
+		BotBenchmarkAiFrameTiming ShadowObservationAndPolicyAiFrameTiming;
+		BotBenchmarkAiFrameTiming StateSamplingAiFrameTiming;
 		uint64_t Ticks = 0;
 		int ExitCode = 0;
 		bool Complete = false;

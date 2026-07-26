@@ -3504,3 +3504,46 @@ forecast's zone warning. The stock-handler callback certificate remains useful
 prediction infrastructure, but it authorizes no recovery steering. Future
 recovery work must start from a deterministic live-physics trajectory that is
 safe under the benchmark's target tick regime, then prove forecast parity.
+
+## Iteration 137: component timing and qualified pain-ledge recovery candidate
+
+The benchmark summary now retains its existing aggregate, host-only
+`ai_frame_timing` value and additionally reports three per-tick components:
+navigation coverage, shadow observation/policy evaluation, and state sampling.
+This does not time engine simulation or file I/O and is not behavioral
+determinism evidence. The comparison tool now accepts summary v3, validates
+that timing contract fail-closed, and excludes only this expressly host-varying
+field when comparing deterministic artifacts. It also validates each event's
+bot identity set against the actual roster; the event's stable actor-order is
+left to the byte/semantic artifact comparison rather than incorrectly requiring
+the numeric roster order.
+
+The fresh UT436 Deck16-II 16-bot, 1,200-tick seed `104729` timing run showed
+that the prior 2.564 ms aggregate p95 is dominated by shadow
+observation/policy p95 (2.088 ms), versus 0.294 ms navigation coverage and
+0.252 ms state sampling. A conservative axis-based visibility prefilter was
+tested and then removed: deterministic event, route, and shadow output was
+unchanged, but its single-run timing did not improve. Do not claim an observer
+performance fix from that experiment.
+
+The same controlled UT run identified three environmental deaths across four
+hazard-residence episodes. Enabling the already-default-off
+`--botbench-harmful-zone-escape=1` gate also enables the qualified walking
+pain-ledge recovery path. It produced 16 recovery attempts and 12 recorded
+escapes, reduced `HitWall` events from 405 to 155, and reduced deaths from
+13 to 9 (environmental deaths/suicides from 3 to 2); kills also fell from 10
+to 7, so this is a safety candidate rather than a general combat win. Two
+candidate repetitions are semantically and byte-identically equivalent for
+events, shadow output, and route execution (apart from the explicitly audited
+output directory):
+`qa/runs/2026-07-26/ut436-deck16-16bot-harmful-zone-escape-r1/` and `-r2/`.
+
+The matching Unreal Gold 226b DeathFan 16-bot anchor completed twice at the
+same seed and remained deterministic with the gate on. It had zero
+pain-ledge recovery attempts and identical quality totals to its gate-off
+control (K12/D19/S7, 188 wall hits). This is a cross-adapter non-regression
+result, not proof of an Unreal improvement. Keep the gate default-off. Before
+any promotion beyond the benchmark flag, require a multi-seed, multi-map UT
+matrix that preserves or improves combat efficacy while reducing hazardous
+deaths, plus a separate Unreal matrix that either observes safe activation or
+establishes inert behavior across representative maps.

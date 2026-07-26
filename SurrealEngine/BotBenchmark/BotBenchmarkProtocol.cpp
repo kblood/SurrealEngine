@@ -97,6 +97,32 @@ namespace
 		return out.str();
 	}
 
+	void WriteAiFrameTimingSummary(std::ostringstream& out,
+		const BotBenchmarkAiFrameTimingSummary& timing, const std::string& indent)
+	{
+		out << "{\n"
+			<< indent << "  \"sample_count\": \"" << timing.SampleCount << "\",\n"
+			<< indent << "  \"histogram_bucket_overflows_exact\": \""
+			<< timing.HistogramBucketOverflowsExact << "\",\n"
+			<< indent << "  \"p50_microseconds\": ";
+		if (timing.P50Microseconds)
+			out << *timing.P50Microseconds;
+		else
+			out << "null";
+		out << ",\n" << indent << "  \"p95_microseconds\": ";
+		if (timing.P95Microseconds)
+			out << *timing.P95Microseconds;
+		else
+			out << "null";
+		out << ",\n" << indent << "  \"p99_microseconds\": ";
+		if (timing.P99Microseconds)
+			out << *timing.P99Microseconds;
+		else
+			out << "null";
+		out << ",\n" << indent << "  \"max_microseconds\": \""
+			<< timing.MaxMicroseconds << "\"\n" << indent << '}';
+	}
+
 	void WriteRequestedRoster(std::ostringstream& out, const BotBenchmarkRoster& roster, const std::string& indent)
 	{
 		out << indent << "\"requested_roster\": [";
@@ -249,11 +275,12 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
 	double simulatedSeconds, std::string game, std::string version, std::string map, std::string failureReason,
-	std::vector<BotBenchmarkActualParticipant> actualRoster, BotBenchmarkAiFrameTimingSummary aiFrameTiming)
+	std::vector<BotBenchmarkActualParticipant> actualRoster, BotBenchmarkAiFrameTimingSummary aiFrameTiming,
+	BotBenchmarkAiFrameTimingComponents aiFrameTimingComponents)
 	: Status(std::move(status)), ExitCode(exitCode), Ticks(ticks), SimulatedSeconds(simulatedSeconds),
 	Game(std::move(game)), Version(std::move(version)), Map(std::move(map)),
 	FailureReason(std::move(failureReason)), ActualRoster(std::move(actualRoster)),
-	AiFrameTiming(std::move(aiFrameTiming))
+	AiFrameTiming(std::move(aiFrameTiming)), AiFrameTimingComponents(std::move(aiFrameTimingComponents))
 {
 }
 
@@ -305,8 +332,15 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		out << *AiFrameTiming.P99Microseconds;
 	else
 		out << "null";
-	out << ",\n    \"max_microseconds\": \"" << AiFrameTiming.MaxMicroseconds << "\"\n"
-		<< "  },\n";
+	out << ",\n    \"max_microseconds\": \"" << AiFrameTiming.MaxMicroseconds << "\",\n"
+		<< "    \"components\": {\n"
+		<< "      \"navigation_coverage\": ";
+	WriteAiFrameTimingSummary(out, AiFrameTimingComponents.NavigationCoverage, "      ");
+	out << ",\n      \"shadow_observation_and_policy\": ";
+	WriteAiFrameTimingSummary(out, AiFrameTimingComponents.ShadowObservationAndPolicy, "      ");
+	out << ",\n      \"state_sampling\": ";
+	WriteAiFrameTimingSummary(out, AiFrameTimingComponents.StateSampling, "      ");
+	out << "\n    }\n  },\n";
 	out
 		<< "  \"config\": {\n"
 		<< "    \"url\": " << JsonString(config.GetURL()) << ",\n"

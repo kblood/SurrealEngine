@@ -117,6 +117,41 @@ class CompareBotBenchmarkRunsTests(unittest.TestCase):
         self.assertEqual(manifest["left"]["normalized_sha256"],
                          manifest["right"]["normalized_sha256"])
 
+    def test_v3_summary_accepts_host_timing_variation_but_validates_its_contract(self) -> None:
+        left, right = self.pair()
+
+        def add_timing(summary: dict, p95: int) -> None:
+            summary["schema"] = "surreal-bot-benchmark-summary-v3"
+            component = {
+                "sample_count": "1", "histogram_bucket_overflows_exact": "0",
+                "p50_microseconds": p95, "p95_microseconds": p95,
+                "p99_microseconds": p95, "max_microseconds": str(p95),
+            }
+            summary["ai_frame_timing"] = {
+                "schema": "surreal-bot-ai-frame-timing-v1",
+                "scope": "benchmark_observation_policy_driver_sampling",
+                "clock": "host_steady_clock_performance_only",
+                "behavioral_determinism": "not_behavioral_evidence",
+                "sample_count": "1", "histogram_bucket_overflows_exact": "0",
+                "bucket_max_microseconds": "10000",
+                "p50_microseconds": p95, "p95_microseconds": p95,
+                "p99_microseconds": p95, "max_microseconds": str(p95),
+                "components": {
+                    "navigation_coverage": copy.deepcopy(component),
+                    "shadow_observation_and_policy": copy.deepcopy(component),
+                    "state_sampling": copy.deepcopy(component),
+                },
+            }
+
+        mutate_json(left / "summary.json", lambda summary: add_timing(summary, 100))
+        mutate_json(right / "summary.json", lambda summary: add_timing(summary, 900))
+        self.assertTrue(COMPARE.compare_runs(left, right, [])["equivalent"])
+
+        mutate_json(right / "summary.json", lambda summary: summary["ai_frame_timing"].update(
+            {"scope": "whole_engine_frame"}))
+        with self.assertRaisesRegex(COMPARE.ComparisonError, "benchmark-only"):
+            COMPARE.compare_runs(left, right, [])
+
     def test_explicit_one_sided_integer_counter_can_be_ignored_with_audit(self) -> None:
         left, right = self.pair()
         mutate_jsonl(right / "events.jsonl", lambda events: [

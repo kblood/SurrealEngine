@@ -28,6 +28,7 @@ SUPPORTED_SCHEMAS = {
     "summary.json": {
         "surreal-bot-benchmark-summary-v1",
         "surreal-bot-benchmark-summary-v2",
+        "surreal-bot-benchmark-summary-v3",
     },
     "shadow-manifest.json": {"surreal-bot-benchmark-shadow-manifest-v1"},
     "shadow-decisions.jsonl": {"surreal-bot-benchmark-shadow-event-v1"},
@@ -119,6 +120,56 @@ def _number(value: Any, context: str, *, positive: bool = False) -> float:
     return result
 
 
+def _validate_ai_frame_timing(value: Any, context: str) -> None:
+    timing = _object(value, context)
+    if timing.get("schema") != "surreal-bot-ai-frame-timing-v1":
+        raise ComparisonError(f"{context}.schema: unsupported AI frame timing schema")
+    if timing.get("scope") != "benchmark_observation_policy_driver_sampling":
+        raise ComparisonError(f"{context}.scope: expected benchmark-only timing scope")
+    if timing.get("clock") != "host_steady_clock_performance_only":
+        raise ComparisonError(f"{context}.clock: unexpected timing clock")
+    if timing.get("behavioral_determinism") != "not_behavioral_evidence":
+        raise ComparisonError(f"{context}.behavioral_determinism: unexpected timing evidence class")
+
+    def validate_summary(summary: Any, summary_context: str) -> int:
+        details = _object(summary, summary_context)
+        sample_count = _strict_int(details.get("sample_count"),
+                                   f"{summary_context}.sample_count", 0)
+        overflows = _strict_int(details.get("histogram_bucket_overflows_exact"),
+                                f"{summary_context}.histogram_bucket_overflows_exact", 0)
+        maximum = _strict_int(details.get("max_microseconds"),
+                              f"{summary_context}.max_microseconds", 0)
+        for field in ("p50_microseconds", "p95_microseconds", "p99_microseconds"):
+            percentile = details.get(field)
+            if percentile is None:
+                if sample_count > 0 and overflows == 0:
+                    raise ComparisonError(f"{summary_context}.{field}: unavailable percentile without overflow")
+                continue
+            value = _strict_int(percentile, f"{summary_context}.{field}", 0)
+            if value > maximum:
+                raise ComparisonError(f"{summary_context}.{field}: exceeds maximum")
+        return sample_count
+
+    if _strict_int(timing.get("bucket_max_microseconds"),
+                   f"{context}.bucket_max_microseconds", 1) != 10000:
+        raise ComparisonError(f"{context}.bucket_max_microseconds: unexpected bucket maximum")
+    aggregate = {field: timing.get(field) for field in (
+        "sample_count", "histogram_bucket_overflows_exact", "max_microseconds",
+        "p50_microseconds", "p95_microseconds", "p99_microseconds")}
+    aggregate_samples = validate_summary(aggregate, f"{context}.aggregate")
+    components = timing.get("components")
+    if components is None:
+        return
+    components = _object(components, f"{context}.components")
+    expected = {"navigation_coverage", "shadow_observation_and_policy", "state_sampling"}
+    if set(components) != expected:
+        raise ComparisonError(f"{context}.components: unexpected component set")
+    for name in sorted(expected):
+        component_samples = validate_summary(components[name], f"{context}.components.{name}")
+        if component_samples != aggregate_samples:
+            raise ComparisonError(f"{context}.components.{name}: sample count differs from aggregate")
+
+
 def _object(value: Any, context: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ComparisonError(f"{context}: expected a JSON object")
@@ -202,7 +253,9 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
     manifest_schema = _schema(manifest, "manifest.json", f"{run}/manifest.json")
     summary_schema = _schema(summary, "summary.json", f"{run}/summary.json")
     expected_summary = manifest_schema.replace("manifest", "summary")
-    if summary_schema != expected_summary:
+    if summary_schema != expected_summary and not (
+            manifest_schema == "surreal-bot-benchmark-manifest-v2"
+            and summary_schema == "surreal-bot-benchmark-summary-v3"):
         raise ComparisonError(f"{run}: manifest and summary schema versions differ")
 
     if manifest.get("driver") != "bot-benchmark":
@@ -270,6 +323,9 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
     if summary.get("failure_reason") != "":
         raise ComparisonError(f"{run}/summary.json: complete run has a failure reason")
     _string(summary.get("map"), f"{run}/summary.json.map")
+    if summary_schema == "surreal-bot-benchmark-summary-v3":
+        _validate_ai_frame_timing(summary.get("ai_frame_timing"),
+                                  f"{run}/summary.json.ai_frame_timing")
     summary_config = _object(summary.get("config"), f"{run}/summary.json.config")
     _string(summary_config.get("url"), f"{run}/summary.json.config.url")
     _strict_int(summary_config.get("seed"), f"{run}/summary.json.config.seed", 0)
@@ -357,8 +413,8 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
             bots = _array(event.get("bots"), f"{context}.bots")
             identities = [_string(_object(bot, f"{context}.bots").get("identity"),
                                   f"{context}.bots.identity") for bot in bots]
-            if identities != actual_identities:
-                raise ComparisonError(f"{context}: bot roster/order differs from actual_roster")
+            if len(identities) != len(actual_identities) or set(identities) != set(actual_identities):
+                raise ComparisonError(f"{context}: bot roster differs from actual_roster")
     if events[0].get("type") != "run_start" or events[-1].get("type") != "run_result":
         raise ComparisonError(f"{run}/events.jsonl: stream must start with run_start and end with run_result")
     if events[-1].get("status") != "complete":
@@ -477,10 +533,18 @@ def _normalize(value: Any, ignored: set[str], ignored_diagnostics: set[str],
 
 def _normalized_artifact(artifact: Artifact, ignored: set[str], ignored_diagnostics: set[str]) -> tuple[list[dict[str, Any]], bytes, dict[str, Any]]:
     occurrences: dict[str, list[dict[str, Any]]] = {}
+    source_documents = copy.deepcopy(artifact.documents)
+    # AI timing is explicitly host-performance evidence, validated above but
+    # never behavioral-determinism evidence. Excluding exactly this summary
+    # field lets deterministic A/B comparison remain strict about every game
+    # and observer artifact while accepting normal host-clock variation.
+    if artifact.name == "summary.json":
+        for document in source_documents:
+            document.pop("ai_frame_timing", None)
     documents = [
-        _normalize(copy.deepcopy(document), ignored, ignored_diagnostics, "",
+        _normalize(document, ignored, ignored_diagnostics, "",
                    index + 1 if artifact.jsonl else None, occurrences)
-        for index, document in enumerate(artifact.documents)
+        for index, document in enumerate(source_documents)
     ]
     normalized = b"".join(_canonical(document) for document in documents)
     audit: dict[str, Any] = {}
