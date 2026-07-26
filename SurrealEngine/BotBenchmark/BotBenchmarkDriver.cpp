@@ -104,6 +104,7 @@ namespace
 			EngineRef.SetBotBenchmarkDirectReachCommandObserverEnabled(
 				Config.IsDirectReachCommandObserverEnabled());
 			EngineRef.SetBotBenchmarkPawnVisionConeEnabled(Config.IsPawnVisionConeEnabled());
+			EngineRef.SetBotBenchmarkPawnVisionObserverEnabled(Config.IsPawnVisionObserverEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -423,6 +424,7 @@ namespace
 			size_t CapturedTargetSelectionRecords = 0;
 			std::vector<BotBenchmarkTargetSelectionRecord> PendingTargetSelectionRecords;
 			std::vector<BotBenchmarkPickTargetRecord> PendingPickTargetRecords;
+			std::vector<BotBenchmarkPawnCanSeeRecord> PendingPawnCanSeeRecords;
 			uint64_t TargetSelectionInvalidIdentifierExact = 0;
 			uint64_t TargetSelectionTrackerCapacityExceededExact = 0;
 			uint64_t TargetSelectionIntegrityFailuresExact = 0;
@@ -440,6 +442,11 @@ namespace
 			uint64_t PickTargetNoResultWithLivingLineOfSightCandidateExact = 0;
 			uint64_t PickTargetObservationOverflowsExact = 0;
 			uint64_t PickTargetIntegrityFailuresExact = 0;
+			uint64_t PawnCanSeeObservationsExact = 0;
+			uint64_t PawnCanSeeReturnedVisibleExact = 0;
+			uint64_t PawnCanSeeLegacyCorrectedDivergencesExact = 0;
+			uint64_t PawnCanSeeObservationOverflowsExact = 0;
+			uint64_t PawnCanSeeIntegrityFailuresExact = 0;
 			uint64_t WarnTargetObservationsExact = 0;
 			uint64_t TryToDuckObservationsExact = 0;
 			uint64_t WarnTargetExactNestedTryToDuckLinksExact = 0;
@@ -3235,6 +3242,34 @@ namespace
 								std::move(observation.SelectedClass) });
 						}
 					}
+					if (Config.IsPawnVisionObserverEnabled())
+					{
+						runtime.PawnCanSeeObservationsExact = std::max(
+							runtime.PawnCanSeeObservationsExact, pawn->PawnCanSeeObservationCount());
+						runtime.PawnCanSeeObservationOverflowsExact = std::max(
+							runtime.PawnCanSeeObservationOverflowsExact,
+							pawn->PawnCanSeeObservationOverflowCount());
+						runtime.PawnCanSeeIntegrityFailuresExact = std::max(
+							runtime.PawnCanSeeIntegrityFailuresExact,
+							pawn->PawnCanSeeObservationIntegrityFailureCount());
+						for (auto& observation : pawn->DrainPawnCanSeeObservations())
+						{
+							runtime.PawnCanSeeReturnedVisibleExact +=
+								observation.ReturnedVisible ? 1 : 0;
+							runtime.PawnCanSeeLegacyCorrectedDivergencesExact +=
+								observation.LegacyConeAccepted != observation.CorrectedConeAccepted ? 1 : 0;
+							runtime.PendingPawnCanSeeRecords.push_back({ observation.Sequence,
+								observation.ObserverTick, observation.CallerInvocationToken,
+								observation.SourceLifeId, observation.TargetLifeId,
+								observation.SourceActorIndex, observation.TargetActorIndex,
+								observation.PeripheralVision, observation.SightRadiusAccepted,
+								observation.LegacyConeAccepted, observation.CorrectedConeAccepted,
+								observation.CorrectedConeSelected, observation.ReturnedVisible,
+								observation.IntegrityValid, std::move(observation.CallerClass),
+								std::move(observation.CallerFunction), std::move(observation.TargetActor),
+								std::move(observation.TargetClass) });
+						}
+					}
 				}
 				else
 				{
@@ -3300,6 +3335,18 @@ namespace
 					bot.PickTargetIntegrityFailuresExact = runtime.PickTargetIntegrityFailuresExact;
 					bot.PickTargetRecords = std::move(runtime.PendingPickTargetRecords);
 					runtime.PendingPickTargetRecords.clear();
+				}
+				if (Config.IsPawnVisionObserverEnabled())
+				{
+					bot.PawnCanSeeObservationsExact = runtime.PawnCanSeeObservationsExact;
+					bot.PawnCanSeeReturnedVisibleExact = runtime.PawnCanSeeReturnedVisibleExact;
+					bot.PawnCanSeeLegacyCorrectedDivergencesExact =
+						runtime.PawnCanSeeLegacyCorrectedDivergencesExact;
+					bot.PawnCanSeeObservationOverflowsExact =
+						runtime.PawnCanSeeObservationOverflowsExact;
+					bot.PawnCanSeeIntegrityFailuresExact = runtime.PawnCanSeeIntegrityFailuresExact;
+					bot.PawnCanSeeRecords = std::move(runtime.PendingPawnCanSeeRecords);
+					runtime.PendingPawnCanSeeRecords.clear();
 				}
 				if (Config.IsWarnTargetObserverEnabled())
 				{
@@ -3902,6 +3949,7 @@ namespace
 			event.TargetSelectionObserverStatus = TargetSelectionObserverStatus;
 			event.TargetSelectionObserverReason = TargetSelectionObserverReason;
 			event.PickTargetObserverRequested = Config.IsPickTargetObserverEnabled();
+			event.PawnVisionObserverRequested = Config.IsPawnVisionObserverEnabled();
 			event.WarnTargetObserverRequested = Config.IsWarnTargetObserverEnabled();
 			event.WarnTargetObserverStatus = WarnTargetObserverStatus;
 			event.WarnTargetObserverReason = WarnTargetObserverReason;
@@ -4074,7 +4122,8 @@ namespace
 			OptionalCommandLineArg("--botbench-warn-target-observer"),
 			OptionalCommandLineArg("--botbench-reachspec-capability-observer"),
 			OptionalCommandLineArg("--botbench-shadow-policy-set"),
-			OptionalCommandLineArg("--botbench-pawn-vision-cone"));
+			OptionalCommandLineArg("--botbench-pawn-vision-cone"),
+			OptionalCommandLineArg("--botbench-pawn-vision-observer"));
 	}
 }
 

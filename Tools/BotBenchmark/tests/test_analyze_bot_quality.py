@@ -466,6 +466,95 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(QUALITY.QualityError, "manifest.pawn_vision_cone_enabled"):
                 QUALITY._validate_manifest(manifest_path)
 
+    def test_pawn_vision_observer_is_bound_and_requires_complete_witnesses(self) -> None:
+        zero = {
+            "score": 0.0, "pri_deaths": 0.0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            **{name: 0 for name in QUALITY.PAWN_CAN_SEE_COUNTERS},
+            "pawn_can_see_records": [],
+        }
+        record = {
+            "sequence": 1, "observer_tick": 1, "caller_invocation_token": 9,
+            "source_life_id": 1, "target_life_id": 2,
+            "source_actor_index": 3, "target_actor_index": 4,
+            "peripheral_vision": 0.7, "sight_radius_accepted": True,
+            "legacy_cone_accepted": False, "corrected_cone_accepted": True,
+            "corrected_cone_selected": True, "returned_visible": True,
+            "integrity_valid": True, "caller_class": "Botpack.Bot",
+            "caller_function": "Follow", "target_actor": "Bot2",
+            "target_class": "Botpack.Bot",
+        }
+        one = {
+            **zero,
+            "pawn_can_see_observations_exact": 1,
+            "pawn_can_see_returned_visible_exact": 1,
+            "pawn_can_see_legacy_corrected_divergences_exact": 1,
+            "pawn_can_see_records": [record],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "pawn-vision-observer", bot_count=1)
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            manifest["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            manifest["pawn_vision_cone_enabled"] = True
+            manifest["pawn_vision_observer_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], pawn_vision_cone_enabled=True,
+                pawn_vision_observer_enabled=True,
+                shadow_policy_set=manifest["shadow_policy_set"])
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            upgrade_telemetry_v2(run, counters=[zero, one, one])
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for index, event in enumerate(events):
+                event["config_id"] = manifest["config_id"]
+                event["pawn_vision_observer"] = {"requested": True, "status": "active"}
+                for bot in event["bots"]:
+                    bot["pawn_can_see_records"] = ([record] if index == 1 else [])
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            parsed = QUALITY._validate_manifest(manifest_path)
+            loaded_events = QUALITY._load_events(events_path, parsed)
+            summary_path = run / "summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["schema"] = QUALITY.SUMMARY_SCHEMA_V4
+            summary["build_identity"] = manifest["build_identity"]
+            summary["config"]["shadow_policy_set"] = manifest["shadow_policy_set"]
+            summary["config"]["pawn_vision_cone_enabled"] = True
+            summary["config"]["pawn_vision_observer_enabled"] = True
+            summary["ai_frame_timing"] = {
+                "schema": "surreal-bot-ai-frame-timing-v1",
+                "scope": "benchmark_observation_policy_driver_sampling",
+                "clock": "host_steady_clock_performance_only",
+                "behavioral_determinism": "not_behavioral_evidence",
+                "sample_count": 0, "histogram_bucket_overflows_exact": 0,
+                "bucket_max_microseconds": 1, "max_microseconds": 0,
+                "p50_microseconds": None, "p95_microseconds": None,
+                "p99_microseconds": None,
+            }
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            QUALITY._validate_summary(summary_path, parsed, loaded_events)
+            summary["config"]["pawn_vision_observer_enabled"] = False
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "pawn_vision_observer_enabled differs"):
+                QUALITY._validate_summary(summary_path, parsed, loaded_events)
+
+            events[1]["bots"][0]["pawn_can_see_records"][0]["corrected_cone_selected"] = False
+
+            events[1]["bots"][0]["pawn_can_see_records"][0]["legacy_cone_accepted"] = True
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "cone mode differs"):
+                QUALITY._load_events(events_path, parsed)
+
     def test_reachspec_capability_observer_is_bound_into_manifest_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             run = write_v2_run(Path(temporary), "reachspec-capability")

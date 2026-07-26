@@ -559,6 +559,14 @@ PICK_TARGET_COUNTERS = (
     "pick_target_integrity_failures_exact",
 )
 OPTIONAL_EXACT_COUNTERS += PICK_TARGET_COUNTERS
+PAWN_CAN_SEE_COUNTERS = (
+    "pawn_can_see_observations_exact",
+    "pawn_can_see_returned_visible_exact",
+    "pawn_can_see_legacy_corrected_divergences_exact",
+    "pawn_can_see_observation_overflows_exact",
+    "pawn_can_see_integrity_failures_exact",
+)
+OPTIONAL_EXACT_COUNTERS += PAWN_CAN_SEE_COUNTERS
 WARN_TARGET_COUNTERS = (
     "warn_target_observations_exact",
     "try_to_duck_observations_exact",
@@ -617,6 +625,7 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "hazard_water_egress_diagnostics", "hazard_death_partition_records",
     "move_stall_recovery_episodes", "move_stall_recovery_decisions",
     "walking_hitwall_dispatch_diagnostics", "target_selection_records", "pick_target_records",
+    "pawn_can_see_records",
     "inventory_direct_reach_support_diagnostics",
 )
 HAZARD_DEATH_KILLER_RELATIONS = {"none", "self_player", "enemy_player", "non_player"}
@@ -3093,6 +3102,7 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                reachspec_capability_observer_enabled: bool | None = None,
                direct_reach_command_observer_enabled: bool | None = None,
                pawn_vision_cone_enabled: bool | None = None,
+               pawn_vision_observer_enabled: bool | None = None,
                shadow_policy_set: list[str] | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
@@ -3156,6 +3166,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if pawn_vision_cone_enabled is not None:
             canonical_text += "pawn_vision_cone_enabled=" + (
                 "1\n" if pawn_vision_cone_enabled else "0\n")
+        if pawn_vision_observer_enabled is not None:
+            canonical_text += "pawn_vision_observer_enabled=" + (
+                "1\n" if pawn_vision_observer_enabled else "0\n")
         if shadow_policy_set is not None:
             canonical_text += "".join(f"shadow_policy={policy}\n" for policy in shadow_policy_set)
         assert requested_roster is not None
@@ -3316,6 +3329,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     reachspec_capability_observer_enabled = None
     direct_reach_command_observer_enabled = None
     pawn_vision_cone_enabled = None
+    pawn_vision_observer_enabled = None
     shadow_policy_set = None
     build_identity = None
     if schema == MANIFEST_SCHEMA_V3:
@@ -3412,6 +3426,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         if "pawn_vision_cone_enabled" in raw:
             pawn_vision_cone_enabled = _boolean(
                 raw.get("pawn_vision_cone_enabled"), "manifest.pawn_vision_cone_enabled")
+        if "pawn_vision_observer_enabled" in raw:
+            pawn_vision_observer_enabled = _boolean(
+                raw.get("pawn_vision_observer_enabled"),
+                "manifest.pawn_vision_observer_enabled")
         if schema == MANIFEST_SCHEMA_V3:
             shadow_policy_set = _validate_shadow_policy_set(
                 raw.get("shadow_policy_set"), "manifest.shadow_policy_set")
@@ -3437,6 +3455,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              reachspec_capability_observer_enabled,
                              direct_reach_command_observer_enabled,
                              pawn_vision_cone_enabled,
+                             pawn_vision_observer_enabled,
                              shadow_policy_set)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
@@ -3476,6 +3495,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "reachspec_capability_observer_enabled": reachspec_capability_observer_enabled,
         "direct_reach_command_observer_enabled": direct_reach_command_observer_enabled,
         "pawn_vision_cone_enabled": pawn_vision_cone_enabled,
+        "pawn_vision_observer_enabled": pawn_vision_observer_enabled,
         "shadow_policy_set": shadow_policy_set,
     }
 
@@ -4196,6 +4216,63 @@ def _validate_bot(raw: Any, context: str, schema: str,
             result["pick_target_records"] = parsed_records
         elif pick_target_present:
             raise QualityError(f"{context}: PickTarget counter group requires records")
+        pawn_can_see_present = [name for name in PAWN_CAN_SEE_COUNTERS if name in result]
+        if pawn_can_see_present and len(pawn_can_see_present) != len(PAWN_CAN_SEE_COUNTERS):
+            raise QualityError(f"{context}: Pawn.CanSee counters must be provided as a complete group")
+        if "pawn_can_see_records" in bot:
+            if len(pawn_can_see_present) != len(PAWN_CAN_SEE_COUNTERS):
+                raise QualityError(f"{context}: Pawn.CanSee records require the complete counter group")
+            records = bot.get("pawn_can_see_records")
+            if not isinstance(records, list):
+                raise QualityError(f"{context}.pawn_can_see_records must be an array")
+            parsed_records = []
+            for index, record in enumerate(records):
+                record_context = f"{context}.pawn_can_see_records[{index}]"
+                item = _object(record, record_context)
+                parsed = {
+                    "sequence": _integer(item.get("sequence"),
+                                         f"{record_context}.sequence", minimum=1),
+                    "observer_tick": _integer(item.get("observer_tick"),
+                                              f"{record_context}.observer_tick", minimum=0),
+                    "caller_invocation_token": _integer(item.get("caller_invocation_token"),
+                                                         f"{record_context}.caller_invocation_token", minimum=0),
+                    "source_life_id": _integer(item.get("source_life_id"),
+                                               f"{record_context}.source_life_id", minimum=0),
+                    "target_life_id": _integer(item.get("target_life_id"),
+                                               f"{record_context}.target_life_id", minimum=0),
+                    "source_actor_index": _strict_integer(item.get("source_actor_index"),
+                                                          f"{record_context}.source_actor_index", minimum=0),
+                    "target_actor_index": _strict_integer(item.get("target_actor_index"),
+                                                          f"{record_context}.target_actor_index", minimum=0),
+                    "peripheral_vision": _number(item.get("peripheral_vision"),
+                                                   f"{record_context}.peripheral_vision"),
+                    "sight_radius_accepted": _boolean(item.get("sight_radius_accepted"),
+                                                       f"{record_context}.sight_radius_accepted"),
+                    "legacy_cone_accepted": _boolean(item.get("legacy_cone_accepted"),
+                                                       f"{record_context}.legacy_cone_accepted"),
+                    "corrected_cone_accepted": _boolean(item.get("corrected_cone_accepted"),
+                                                          f"{record_context}.corrected_cone_accepted"),
+                    "corrected_cone_selected": _boolean(item.get("corrected_cone_selected"),
+                                                          f"{record_context}.corrected_cone_selected"),
+                    "returned_visible": _boolean(item.get("returned_visible"),
+                                                f"{record_context}.returned_visible"),
+                    "integrity_valid": _boolean(item.get("integrity_valid"),
+                                                f"{record_context}.integrity_valid"),
+                    "caller_class": _string(item, "caller_class", record_context),
+                    "caller_function": _string(item, "caller_function", record_context),
+                    "target_actor": _string(item, "target_actor", record_context, nonempty=True),
+                    "target_class": _string(item, "target_class", record_context, nonempty=True),
+                }
+                if parsed["returned_visible"] and not parsed["sight_radius_accepted"]:
+                    raise QualityError(f"{record_context}: visible result exceeds sight radius")
+                if parsed["returned_visible"] and not (
+                        parsed["corrected_cone_accepted"] if parsed["corrected_cone_selected"]
+                        else parsed["legacy_cone_accepted"]):
+                    raise QualityError(f"{record_context}: visible result conflicts with selected cone")
+                parsed_records.append(parsed)
+            result["pawn_can_see_records"] = parsed_records
+        elif pawn_can_see_present:
+            raise QualityError(f"{context}: Pawn.CanSee counter group requires records")
         warn_target_present = [name for name in WARN_TARGET_COUNTERS if name in result]
         if warn_target_present and len(warn_target_present) != len(WARN_TARGET_COUNTERS):
             raise QualityError(f"{context}: WarnTarget counters must be provided as a complete group")
@@ -4582,6 +4659,19 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 event["pick_target_observer"] = {"status": "active"}
             elif "pick_target_observer" in raw:
                 raise QualityError(f"{context}: PickTarget observer telemetry is present while disabled")
+            pawn_vision_observer_requested = manifest.get("pawn_vision_observer_enabled") is True
+            if pawn_vision_observer_requested:
+                observer = _object(raw.get("pawn_vision_observer"),
+                                   f"{context}.pawn_vision_observer")
+                if _boolean(observer.get("requested"),
+                            f"{context}.pawn_vision_observer.requested") is not True:
+                    raise QualityError(f"{context}: Pawn.CanSee observer must be requested")
+                if _string(observer, "status", f"{context}.pawn_vision_observer", nonempty=True) \
+                        != "active":
+                    raise QualityError(f"{context}: Pawn.CanSee observer is not active")
+                event["pawn_vision_observer"] = {"status": "active"}
+            elif "pawn_vision_observer" in raw:
+                raise QualityError(f"{context}: Pawn.CanSee observer telemetry is present while disabled")
             warn_target_observer_requested = manifest.get("warn_target_observer_enabled") is True
             if warn_target_observer_requested:
                 observer = _object(raw.get("warn_target_observer"),
@@ -4753,6 +4843,51 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     raise QualityError(f"{path}: PickTarget records do not reconcile {counter}")
             if records and sequences[bot["identity"]] != records:
                 raise QualityError(f"{path}: PickTarget record sequence is not contiguous")
+    if manifest.get("pawn_vision_observer_enabled") is True:
+        totals: dict[str, dict[str, int]] = {}
+        sequences: dict[str, int] = {}
+        record_count: dict[str, int] = {}
+        selected_cone = manifest.get("pawn_vision_cone_enabled")
+        if selected_cone is None:
+            raise QualityError(f"{path}: Pawn.CanSee observer requires pawn vision cone provenance")
+        for event in events:
+            for bot in event["bots"]:
+                if any(name not in bot for name in PAWN_CAN_SEE_COUNTERS):
+                    raise QualityError(f"{path}: active Pawn.CanSee observer lacks counters")
+                for record in bot["pawn_can_see_records"]:
+                    prior = sequences.get(bot["identity"], 0)
+                    if record["sequence"] <= prior:
+                        raise QualityError(f"{path}: Pawn.CanSee record sequence did not increase")
+                    if record["corrected_cone_selected"] is not selected_cone:
+                        raise QualityError(f"{path}: Pawn.CanSee record cone mode differs from manifest")
+                    sequences[bot["identity"]] = record["sequence"]
+                    record_count[bot["identity"]] = record_count.get(bot["identity"], 0) + 1
+                    bucket = totals.setdefault(bot["identity"], {
+                        "pawn_can_see_returned_visible_exact": 0,
+                        "pawn_can_see_legacy_corrected_divergences_exact": 0,
+                        "pawn_can_see_integrity_failures_exact": 0,
+                    })
+                    bucket["pawn_can_see_returned_visible_exact"] += int(record["returned_visible"])
+                    bucket["pawn_can_see_legacy_corrected_divergences_exact"] += int(
+                        record["legacy_cone_accepted"] != record["corrected_cone_accepted"])
+                    bucket["pawn_can_see_integrity_failures_exact"] += int(not record["integrity_valid"])
+        for bot in events[-1]["bots"]:
+            counts = totals.get(bot["identity"], {
+                "pawn_can_see_returned_visible_exact": 0,
+                "pawn_can_see_legacy_corrected_divergences_exact": 0,
+                "pawn_can_see_integrity_failures_exact": 0,
+            })
+            records = record_count.get(bot["identity"], 0)
+            overflow = bot["pawn_can_see_observation_overflows_exact"]
+            if bot["pawn_can_see_observations_exact"] != records + overflow:
+                raise QualityError(f"{path}: Pawn.CanSee observations do not reconcile records")
+            if overflow or bot["pawn_can_see_integrity_failures_exact"]:
+                raise QualityError(f"{path}: active Pawn.CanSee observer has incomplete evidence")
+            for counter, observed in counts.items():
+                if bot[counter] != observed:
+                    raise QualityError(f"{path}: Pawn.CanSee records do not reconcile {counter}")
+            if records and sequences[bot["identity"]] != records:
+                raise QualityError(f"{path}: Pawn.CanSee record sequence is not contiguous")
     if manifest.get("warn_target_observer_enabled") is True:
         observer_values = {(event["warn_target_observer"]["status"],
                             event["warn_target_observer"]["reason"])
@@ -5166,6 +5301,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
     if manifest["pawn_vision_cone_enabled"] is not None:
         comparisons["pawn_vision_cone_enabled"] = _boolean(
             config.get("pawn_vision_cone_enabled"), "summary.config.pawn_vision_cone_enabled")
+    if manifest["pawn_vision_observer_enabled"] is not None:
+        comparisons["pawn_vision_observer_enabled"] = _boolean(
+            config.get("pawn_vision_observer_enabled"),
+            "summary.config.pawn_vision_observer_enabled")
     if manifest["pick_target_predicate_mode"] is not None:
         comparisons["pick_target_predicate_mode"] = _string(
             config, "pick_target_predicate_mode", "summary.config", nonempty=True)
@@ -5968,6 +6107,7 @@ def analyze_run(path: Path) -> dict[str, Any]:
             "reachspec_capability_observer_enabled": (
                 manifest["reachspec_capability_observer_enabled"]),
             "pawn_vision_cone_enabled": manifest["pawn_vision_cone_enabled"],
+            "pawn_vision_observer_enabled": manifest["pawn_vision_observer_enabled"],
             "shadow_policy_set": manifest["shadow_policy_set"],
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),

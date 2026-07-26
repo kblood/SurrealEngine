@@ -97,6 +97,28 @@ struct BotBenchmarkPickTargetRecord
 	std::string SelectedClass;
 };
 
+struct BotBenchmarkPawnCanSeeRecord
+{
+	uint64_t Sequence = 0;
+	uint64_t ObserverTick = 0;
+	uint64_t CallerInvocationToken = 0;
+	uint64_t SourceLifeId = 0;
+	uint64_t TargetLifeId = 0;
+	int32_t SourceActorIndex = -1;
+	int32_t TargetActorIndex = -1;
+	float PeripheralVision = 0.0f;
+	bool SightRadiusAccepted = false;
+	bool LegacyConeAccepted = false;
+	bool CorrectedConeAccepted = false;
+	bool CorrectedConeSelected = false;
+	bool ReturnedVisible = false;
+	bool IntegrityValid = true;
+	std::string CallerClass;
+	std::string CallerFunction;
+	std::string TargetActor;
+	std::string TargetClass;
+};
+
 struct BotBenchmarkWarnTargetRecord
 {
 	uint64_t Sequence = 0;
@@ -267,6 +289,12 @@ struct BotBenchmarkBotState
 	uint64_t PickTargetObservationOverflowsExact = 0;
 	uint64_t PickTargetIntegrityFailuresExact = 0;
 	std::vector<BotBenchmarkPickTargetRecord> PickTargetRecords;
+	uint64_t PawnCanSeeObservationsExact = 0;
+	uint64_t PawnCanSeeReturnedVisibleExact = 0;
+	uint64_t PawnCanSeeLegacyCorrectedDivergencesExact = 0;
+	uint64_t PawnCanSeeObservationOverflowsExact = 0;
+	uint64_t PawnCanSeeIntegrityFailuresExact = 0;
+	std::vector<BotBenchmarkPawnCanSeeRecord> PawnCanSeeRecords;
 	uint64_t WarnTargetObservationsExact = 0;
 	uint64_t TryToDuckObservationsExact = 0;
 	uint64_t WarnTargetExactNestedTryToDuckLinksExact = 0;
@@ -538,6 +566,7 @@ struct BotBenchmarkTelemetryEvent
 	std::string TargetSelectionObserverStatus;
 	std::string TargetSelectionObserverReason;
 	bool PickTargetObserverRequested = false;
+	bool PawnVisionObserverRequested = false;
 	bool WarnTargetObserverRequested = false;
 	std::string WarnTargetObserverStatus;
 	std::string WarnTargetObserverReason;

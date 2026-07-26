@@ -4738,8 +4738,43 @@ bool UPawn::LineOfSightTo(UActor* other, bool ignoreDistance)
 
 bool UPawn::CanSee(UActor* other)
 {
+	const bool observe = engine && engine->IsBotBenchmarkPawnVisionObserverEnabled();
+	PawnMovement::PawnCanSeeObservation observation;
+	if (observe)
+	{
+		observation.Sequence = ++PawnCanSeeObservationSequence;
+		observation.ObserverTick = engine->BotBenchmarkObserverTick();
+		observation.SourceLifeId = DirectReachCommandLifeId();
+		observation.SourceActorIndex = Index;
+		observation.CorrectedConeSelected = engine->IsBotBenchmarkPawnVisionConeEnabled();
+		if (!Frame::Callstack.empty())
+			observation.CallerInvocationToken = Frame::Callstack.back()->EnsureInvocationToken();
+		if (Frame::Callstack.size() >= 2)
+		{
+			Frame* caller = Frame::Callstack[Frame::Callstack.size() - 2];
+			if (caller && caller->Object)
+				observation.CallerClass = UObject::GetUClassFullName(caller->Object).ToString();
+			if (caller && caller->Func)
+				observation.CallerFunction = caller->Func->Name.ToString();
+		}
+	}
+	auto finish = [&](bool visible)
+	{
+		if (observe)
+		{
+			observation.ReturnedVisible = visible;
+			if (!observation.IntegrityValid)
+				PawnCanSeeObservationIntegrityFailureCountValue++;
+			static constexpr size_t maximumQueuedRecords = 1024;
+			if (PawnCanSeeObservations.size() < maximumQueuedRecords)
+				PawnCanSeeObservations.push_back(std::move(observation));
+			else
+				PawnCanSeeObservationOverflowCountValue++;
+		}
+		return visible;
+	};
 	if (!other)
-		return false;
+		return finish(false);
 
 	// Two fields to keep in mind of:
 	// float SightRadius: Maximum seeing distance
@@ -4751,17 +4786,38 @@ bool UPawn::CanSee(UActor* other)
 
 	vec3 eye_pos = Location();
 	eye_pos.z += BaseEyeHeight();
+	if (observe)
+	{
+		observation.TargetActorIndex = other->Index;
+		observation.TargetActor = other->Name.ToString();
+		observation.TargetClass = other->Class ? other->Class->Name.ToString() : std::string();
+		if (UPawn* targetPawn = UObject::TryCast<UPawn>(other))
+			observation.TargetLifeId = targetPawn->DirectReachCommandLifeId();
+		const vec3 forward = Coords::Rotation(Rotation()).XAxis;
+		const float peripheralVision = PeripheralVision();
+		const float legacyCosine = dot(normalize(forward), normalize(origin));
+		observation.PeripheralVision = peripheralVision;
+		observation.SightRadiusAccepted = length(origin - eye_pos) <= SightRadius();
+		observation.LegacyConeAccepted = peripheralVision <= 0.0f ||
+			!(std::abs(legacyCosine) > peripheralVision);
+		observation.CorrectedConeAccepted = PawnMovement::IsWithinPawnVisionCone(
+			Location(), forward, origin, peripheralVision);
+		observation.IntegrityValid = std::isfinite(origin.x) && std::isfinite(origin.y) &&
+			std::isfinite(origin.z) && std::isfinite(eye_pos.x) && std::isfinite(eye_pos.y) &&
+			std::isfinite(eye_pos.z) && std::isfinite(forward.x) && std::isfinite(forward.y) &&
+			std::isfinite(forward.z) && std::isfinite(peripheralVision) && other->Class;
+	}
 
 	// Cannot see if the actor is too far away from the sight radius
 	if (length(origin - eye_pos) > SightRadius())
-		return false;
+		return finish(false);
 
 	if (engine && engine->IsBotBenchmarkPawnVisionConeEnabled())
 	{
 		if (!PawnMovement::IsWithinPawnVisionCone(Location(), Coords::Rotation(Rotation()).XAxis,
 			origin, PeripheralVision()))
 		{
-			return false;
+			return finish(false);
 		}
 	}
 	else
@@ -4771,10 +4827,17 @@ bool UPawn::CanSee(UActor* other)
 		float cosine = dot(normalize(orientation), normalize(origin));
 		const float peripheralVision = PeripheralVision();
 		if (peripheralVision > 0.0f && std::abs(cosine) > peripheralVision)
-			return false;
+			return finish(false);
 	}
 
-	return FastTrace(origin, eye_pos) || FastTrace(top, eye_pos) || FastTrace(bottom, eye_pos);
+	return finish(FastTrace(origin, eye_pos) || FastTrace(top, eye_pos) || FastTrace(bottom, eye_pos));
+}
+
+std::vector<PawnMovement::PawnCanSeeObservation> UPawn::DrainPawnCanSeeObservations()
+{
+	std::vector<PawnMovement::PawnCanSeeObservation> observations;
+	observations.swap(PawnCanSeeObservations);
+	return observations;
 }
 
 bool UPawn::CanHearNoise(UActor* source, float loudness)

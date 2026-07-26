@@ -707,6 +707,7 @@ namespace
 	void WriteBot(std::ostringstream& out, const BotBenchmarkBotState& bot,
 		bool targetSelectionObserverRequested,
 		bool pickTargetObserverRequested,
+		bool pawnVisionObserverRequested,
 		bool warnTargetObserverRequested,
 		bool inventoryDirectReachSupportObserverRequested,
 		bool directReachCommandObserverRequested)
@@ -867,6 +868,50 @@ namespace
 					<< ",\"caller_function\":" << JsonString(record.CallerFunction)
 					<< ",\"selected_actor\":" << JsonString(record.SelectedActor)
 					<< ",\"selected_class\":" << JsonString(record.SelectedClass) << '}';
+			}
+			out << ']';
+		}
+		if (pawnVisionObserverRequested)
+		{
+			out << ",\"pawn_can_see_observations_exact\":\""
+				<< bot.PawnCanSeeObservationsExact << "\""
+				<< ",\"pawn_can_see_returned_visible_exact\":\""
+				<< bot.PawnCanSeeReturnedVisibleExact << "\""
+				<< ",\"pawn_can_see_legacy_corrected_divergences_exact\":\""
+				<< bot.PawnCanSeeLegacyCorrectedDivergencesExact << "\""
+				<< ",\"pawn_can_see_observation_overflows_exact\":\""
+				<< bot.PawnCanSeeObservationOverflowsExact << "\""
+				<< ",\"pawn_can_see_integrity_failures_exact\":\""
+				<< bot.PawnCanSeeIntegrityFailuresExact << "\""
+				<< ",\"pawn_can_see_records\":[";
+			for (size_t index = 0; index < bot.PawnCanSeeRecords.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& record = bot.PawnCanSeeRecords[index];
+				out << "{\"sequence\":\"" << record.Sequence
+					<< "\",\"observer_tick\":\"" << record.ObserverTick
+					<< "\",\"caller_invocation_token\":\"" << record.CallerInvocationToken
+					<< "\",\"source_life_id\":\"" << record.SourceLifeId
+					<< "\",\"target_life_id\":\"" << record.TargetLifeId
+					<< "\",\"source_actor_index\":" << record.SourceActorIndex
+					<< ",\"target_actor_index\":" << record.TargetActorIndex
+					<< ",\"peripheral_vision\":" << Fixed(record.PeripheralVision, 9)
+					<< ",\"sight_radius_accepted\":"
+					<< (record.SightRadiusAccepted ? "true" : "false")
+					<< ",\"legacy_cone_accepted\":"
+					<< (record.LegacyConeAccepted ? "true" : "false")
+					<< ",\"corrected_cone_accepted\":"
+					<< (record.CorrectedConeAccepted ? "true" : "false")
+					<< ",\"corrected_cone_selected\":"
+					<< (record.CorrectedConeSelected ? "true" : "false")
+					<< ",\"returned_visible\":"
+					<< (record.ReturnedVisible ? "true" : "false")
+					<< ",\"integrity_valid\":"
+					<< (record.IntegrityValid ? "true" : "false")
+					<< ",\"caller_class\":" << JsonString(record.CallerClass)
+					<< ",\"caller_function\":" << JsonString(record.CallerFunction)
+					<< ",\"target_actor\":" << JsonString(record.TargetActor)
+					<< ",\"target_class\":" << JsonString(record.TargetClass) << '}';
 			}
 			out << ']';
 		}
@@ -1549,7 +1594,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "direct_reach_command_observer_enabled="
 		<< (config.IsDirectReachCommandObserverEnabled() ? "1" : "0") << '\n'
 		<< "pawn_vision_cone_enabled="
-		<< (config.IsPawnVisionConeEnabled() ? "1" : "0") << '\n';
+		<< (config.IsPawnVisionConeEnabled() ? "1" : "0") << '\n'
+		<< "pawn_vision_observer_enabled="
+		<< (config.IsPawnVisionObserverEnabled() ? "1" : "0") << '\n';
 	for (const std::string& policy : config.GetShadowPolicySet())
 		canonical << "shadow_policy=" << policy << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
@@ -1623,6 +1670,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsDirectReachCommandObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"pawn_vision_cone_enabled\": "
 		<< (config.IsPawnVisionConeEnabled() ? "true" : "false") << ",\n"
+		<< "  \"pawn_vision_observer_enabled\": "
+		<< (config.IsPawnVisionObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";
@@ -1657,6 +1706,8 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 	}
 	if (event.PickTargetObserverRequested)
 		out << ",\"pick_target_observer\":{\"requested\":true,\"status\":\"active\"}";
+	if (event.PawnVisionObserverRequested)
+		out << ",\"pawn_vision_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.WarnTargetObserverRequested)
 	{
 		out << ",\"warn_target_observer\":{\"requested\":true"
@@ -1678,6 +1729,7 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 		{
 			WriteBot(out, event.Bots[index], event.TargetSelectionObserverRequested,
 				event.PickTargetObserverRequested,
+				event.PawnVisionObserverRequested,
 				event.WarnTargetObserverRequested,
 				event.InventoryDirectReachSupportObserverRequested,
 				event.DirectReachCommandObserverRequested);
