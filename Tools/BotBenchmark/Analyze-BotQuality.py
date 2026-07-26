@@ -578,6 +578,11 @@ FINITE_MOVE_COMMAND_GUARD_COUNTERS = (
     "finite_move_command_guard_diagnostic_overflows_exact",
 )
 OPTIONAL_EXACT_COUNTERS += FINITE_MOVE_COMMAND_GUARD_COUNTERS
+PICK_REG_DESTINATION_ZERO_DIVIDE_GUARD_COUNTERS = (
+    "pick_reg_destination_zero_divide_guard_activations_exact",
+    "pick_reg_destination_zero_divide_guard_activation_overflows_exact",
+)
+OPTIONAL_EXACT_COUNTERS += PICK_REG_DESTINATION_ZERO_DIVIDE_GUARD_COUNTERS
 WARN_TARGET_COUNTERS = (
     "warn_target_observations_exact",
     "try_to_duck_observations_exact",
@@ -639,6 +644,7 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "pawn_can_see_records",
     "vector_nonfinite_records",
     "finite_move_command_guard_diagnostics",
+    "pick_reg_destination_zero_divide_guard_activations",
     "inventory_direct_reach_support_diagnostics",
 )
 HAZARD_DEATH_KILLER_RELATIONS = {"none", "self_player", "enemy_player", "non_player"}
@@ -4450,6 +4456,44 @@ def _validate_bot(raw: Any, context: str, schema: str,
         elif finite_move_guard_present:
             raise QualityError(
                 f"{context}: finite MoveTo command guard counter group requires diagnostics")
+        pick_reg_zero_divide_guard_present = [
+            name for name in PICK_REG_DESTINATION_ZERO_DIVIDE_GUARD_COUNTERS if name in result]
+        if pick_reg_zero_divide_guard_present and len(pick_reg_zero_divide_guard_present) != len(
+                PICK_REG_DESTINATION_ZERO_DIVIDE_GUARD_COUNTERS):
+            raise QualityError(
+                f"{context}: PickRegDestination zero divide guard counters must be provided as a complete group")
+        if "pick_reg_destination_zero_divide_guard_activations" in bot:
+            if len(pick_reg_zero_divide_guard_present) != len(
+                    PICK_REG_DESTINATION_ZERO_DIVIDE_GUARD_COUNTERS):
+                raise QualityError(
+                    f"{context}: PickRegDestination zero divide guard records require the complete counter group")
+            records = bot.get("pick_reg_destination_zero_divide_guard_activations")
+            if not isinstance(records, list):
+                raise QualityError(
+                    f"{context}.pick_reg_destination_zero_divide_guard_activations must be an array")
+            parsed_records = []
+            for index, record in enumerate(records):
+                record_context = (
+                    f"{context}.pick_reg_destination_zero_divide_guard_activations[{index}]")
+                item = _object(record, record_context)
+                parsed_records.append({
+                    "sequence": _integer(item.get("sequence"),
+                                         f"{record_context}.sequence", minimum=1),
+                    "observer_tick": _integer(item.get("observer_tick"),
+                                              f"{record_context}.observer_tick", minimum=0),
+                    "caller_invocation_token": _integer(item.get("caller_invocation_token"),
+                                                         f"{record_context}.caller_invocation_token",
+                                                         minimum=1),
+                    "source_life_id": _integer(item.get("source_life_id"),
+                                               f"{record_context}.source_life_id", minimum=0),
+                    "source_actor_index": _strict_integer(item.get("source_actor_index"),
+                                                          f"{record_context}.source_actor_index",
+                                                          minimum=0),
+                })
+            result["pick_reg_destination_zero_divide_guard_activations"] = parsed_records
+        elif pick_reg_zero_divide_guard_present:
+            raise QualityError(
+                f"{context}: PickRegDestination zero divide guard counter group requires records")
         warn_target_present = [name for name in WARN_TARGET_COUNTERS if name in result]
         if warn_target_present and len(warn_target_present) != len(WARN_TARGET_COUNTERS):
             raise QualityError(f"{context}: WarnTarget counters must be provided as a complete group")
@@ -5166,6 +5210,60 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 raise QualityError(f"{path}: finite MoveTo command guard diagnostics do not reconcile")
             if rejections or overflow:
                 raise QualityError(f"{path}: finite MoveTo command guard rejected an invalid command")
+    pick_reg_zero_divide_guard_enabled = (
+        manifest.get("pick_reg_destination_zero_divide_guard_enabled") is True)
+    for event in events:
+        for bot in event["bots"]:
+            fields_present = any(
+                name in bot for name in PICK_REG_DESTINATION_ZERO_DIVIDE_GUARD_COUNTERS) \
+                or "pick_reg_destination_zero_divide_guard_activations" in bot
+            if pick_reg_zero_divide_guard_enabled:
+                if any(name not in bot for name in PICK_REG_DESTINATION_ZERO_DIVIDE_GUARD_COUNTERS) \
+                        or "pick_reg_destination_zero_divide_guard_activations" not in bot:
+                    raise QualityError(
+                        f"{path}: enabled PickRegDestination zero divide guard lacks complete evidence")
+            elif fields_present:
+                raise QualityError(
+                    f"{path}: PickRegDestination zero divide guard telemetry is present while disabled")
+    if pick_reg_zero_divide_guard_enabled:
+        sequences: dict[str, int] = {}
+        record_counts: dict[str, int] = {}
+        prior_activations: dict[str, int] = {}
+        prior_overflows: dict[str, int] = {}
+        for event in events:
+            for bot in event["bots"]:
+                identity = bot["identity"]
+                activations = bot["pick_reg_destination_zero_divide_guard_activations_exact"]
+                overflow = bot["pick_reg_destination_zero_divide_guard_activation_overflows_exact"]
+                if activations < prior_activations.get(identity, 0) \
+                        or overflow < prior_overflows.get(identity, 0):
+                    raise QualityError(
+                        f"{path}: PickRegDestination zero divide guard counters decreased")
+                prior_activations[identity] = activations
+                prior_overflows[identity] = overflow
+                for record in bot["pick_reg_destination_zero_divide_guard_activations"]:
+                    if record["observer_tick"] > event["tick"]:
+                        raise QualityError(
+                            f"{path}: PickRegDestination zero divide guard record exceeds event tick")
+                    prior = sequences.get(identity, 0)
+                    if record["sequence"] <= prior:
+                        raise QualityError(
+                            f"{path}: PickRegDestination zero divide guard record sequence did not increase")
+                    sequences[identity] = record["sequence"]
+                    record_counts[identity] = record_counts.get(identity, 0) + 1
+        for bot in events[-1]["bots"]:
+            records = record_counts.get(bot["identity"], 0)
+            activations = bot["pick_reg_destination_zero_divide_guard_activations_exact"]
+            overflow = bot["pick_reg_destination_zero_divide_guard_activation_overflows_exact"]
+            if activations != records + overflow:
+                raise QualityError(
+                    f"{path}: PickRegDestination zero divide guard activations do not reconcile records")
+            if overflow:
+                raise QualityError(
+                    f"{path}: PickRegDestination zero divide guard evidence overflowed")
+            if records and sequences[bot["identity"]] != records:
+                raise QualityError(
+                    f"{path}: PickRegDestination zero divide guard record sequence is not contiguous")
     if manifest.get("warn_target_observer_enabled") is True:
         observer_values = {(event["warn_target_observer"]["status"],
                             event["warn_target_observer"]["reason"])

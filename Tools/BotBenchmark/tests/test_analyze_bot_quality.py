@@ -3922,6 +3922,90 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(QUALITY.QualityError, "rejected an invalid command"):
                 QUALITY.analyze([run])
 
+    def test_pick_reg_destination_zero_divide_guard_requires_reconciled_activation_evidence(self) -> None:
+        zero = {
+            "score": 0.0, "pri_deaths": 0.0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            "pick_reg_destination_zero_divide_guard_activations_exact": 0,
+            "pick_reg_destination_zero_divide_guard_activation_overflows_exact": 0,
+            "pick_reg_destination_zero_divide_guard_activations": [],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "pick-reg-zero-divide-guard", bot_count=1)
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            manifest["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            manifest["pick_reg_destination_zero_divide_guard_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], shadow_policy_set=manifest["shadow_policy_set"],
+                pick_reg_destination_zero_divide_guard_enabled=True)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            summary_path = run / "summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["schema"] = QUALITY.SUMMARY_SCHEMA_V4
+            summary["config"]["shadow_policy_set"] = manifest["shadow_policy_set"]
+            summary["config"]["pick_reg_destination_zero_divide_guard_enabled"] = True
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            upgrade_telemetry_v2(run, counters=[zero, zero, zero])
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+
+            missing = [json.loads(json.dumps(event)) for event in events]
+            for event in missing:
+                event["bots"][0].pop("pick_reg_destination_zero_divide_guard_activations")
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in missing),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "requires records"):
+                QUALITY.analyze([run])
+
+            activation = {
+                "sequence": "1", "observer_tick": "1", "caller_invocation_token": "9",
+                "source_life_id": "1", "source_actor_index": 1,
+            }
+            events[1]["bots"][0].update({
+                "pick_reg_destination_zero_divide_guard_activations_exact": "1",
+                "pick_reg_destination_zero_divide_guard_activation_overflows_exact": "0",
+                "pick_reg_destination_zero_divide_guard_activations": [activation],
+            })
+            for event in events[2:]:
+                event["bots"][0].update({
+                    "pick_reg_destination_zero_divide_guard_activations_exact": "1",
+                    "pick_reg_destination_zero_divide_guard_activation_overflows_exact": "0",
+                    "pick_reg_destination_zero_divide_guard_activations": [],
+                })
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "summary.ai_frame_timing"):
+                QUALITY.analyze([run])
+
+            unreconciled = [json.loads(json.dumps(event)) for event in events]
+            for event in unreconciled[1:]:
+                event["bots"][0]["pick_reg_destination_zero_divide_guard_activations_exact"] = "2"
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in unreconciled),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "activations do not reconcile"):
+                QUALITY.analyze([run])
+
+            invalid = [json.loads(json.dumps(event)) for event in events]
+            invalid[1]["bots"][0]["pick_reg_destination_zero_divide_guard_activations"][0][
+                "observer_tick"] = "99"
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in invalid),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "exceeds event tick"):
+                QUALITY.analyze([run])
+
 
 if __name__ == "__main__":
     unittest.main()
