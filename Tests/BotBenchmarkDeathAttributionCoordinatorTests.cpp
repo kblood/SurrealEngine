@@ -56,6 +56,7 @@ namespace
 		counters.WallAdjustRecoveryAttempts = value;
 		counters.WallAdjustRecoverySuccesses = value;
 		counters.WallAdjustForcedReplans = value;
+		counters.WalkingHitWallDispatchMinHitWallCandidateActivations = value;
 		counters.MoveStallDetections = value;
 		counters.MoveStallEpisodeResets = value;
 		counters.MoveStallForcedReplans = value;
@@ -124,6 +125,7 @@ namespace
 			counters.WallAdjustRecoveryAttempts == value &&
 			counters.WallAdjustRecoverySuccesses == value &&
 			counters.WallAdjustForcedReplans == value &&
+			counters.WalkingHitWallDispatchMinHitWallCandidateActivations == value &&
 			counters.MoveStallDetections == value &&
 			counters.MoveStallEpisodeResets == value &&
 			counters.MoveStallForcedReplans == value &&

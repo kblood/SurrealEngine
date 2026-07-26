@@ -253,6 +253,9 @@ namespace BotBenchmarkDriverDetail
 			AccumulateCounter(current.WalkingHitWallDispatchMinHitWall,
 				Previous.WalkingHitWallDispatchMinHitWall,
 				totals.WalkingHitWallDispatchMinHitWall);
+			AccumulateCounter(current.WalkingHitWallDispatchMinHitWallCandidateActivations,
+				Previous.WalkingHitWallDispatchMinHitWallCandidateActivations,
+				totals.WalkingHitWallDispatchMinHitWallCandidateActivations);
 			AccumulateCounter(current.WalkingHitWallDispatchDisagreements,
 				Previous.WalkingHitWallDispatchDisagreements,
 				totals.WalkingHitWallDispatchDisagreements);
