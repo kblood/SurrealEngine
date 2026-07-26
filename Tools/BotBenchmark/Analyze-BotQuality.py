@@ -531,7 +531,11 @@ WARN_TARGET_COUNTERS = (
     "warn_target_observation_overflows_exact",
     "warn_target_integrity_failures_exact",
 )
-OPTIONAL_EXACT_COUNTERS += WARN_TARGET_COUNTERS
+WARNING_DODGE_LAUNCH_COUNTERS = (
+    "warning_dodge_launches_exact",
+    "warning_dodge_launch_overflows_exact",
+)
+OPTIONAL_EXACT_COUNTERS += WARN_TARGET_COUNTERS + WARNING_DODGE_LAUNCH_COUNTERS
 INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS = (
     "inventory_direct_reach_support_observations_exact",
     "inventory_direct_reach_support_safe_supported_exact",
@@ -4159,6 +4163,43 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                     bot.get("try_to_duck_outcome_overflows_exact"),
                     f"{context}.try_to_duck_outcome_overflows_exact", minimum=0)
                 result["try_to_duck_outcome_records"] = parsed_outcomes
+            if "warning_dodge_launch_records" in bot:
+                launch_counter_present = [name for name in WARNING_DODGE_LAUNCH_COUNTERS if name in result]
+                if len(launch_counter_present) != len(WARNING_DODGE_LAUNCH_COUNTERS):
+                    raise QualityError(f"{context}: warning-dodge launch counters must be provided as a complete group")
+                records = bot.get("warning_dodge_launch_records")
+                if not isinstance(records, list):
+                    raise QualityError(f"{context}.warning_dodge_launch_records must be an array")
+                parsed_launches = []
+                for index, record in enumerate(records):
+                    record_context = f"{context}.warning_dodge_launch_records[{index}]"
+                    item = _object(record, record_context)
+                    location = _object(item.get("launch_location"), f"{record_context}.launch_location")
+                    velocity = _object(item.get("launch_velocity"), f"{record_context}.launch_velocity")
+                    acceleration = _object(item.get("launch_acceleration"), f"{record_context}.launch_acceleration")
+                    parsed_launches.append({
+                        "sequence": _integer(item.get("sequence"), f"{record_context}.sequence", minimum=1),
+                        "nested_warn_target_sequence": _integer(item.get("nested_warn_target_sequence"), f"{record_context}.nested_warn_target_sequence", minimum=1),
+                        "observer_tick": _integer(item.get("observer_tick"), f"{record_context}.observer_tick", minimum=0),
+                        "caller_invocation_token": _integer(item.get("caller_invocation_token"), f"{record_context}.caller_invocation_token", minimum=0),
+                        "receiver_life_id": _integer(item.get("receiver_life_id"), f"{record_context}.receiver_life_id", minimum=0),
+                        "receiver_actor_index": _strict_integer(item.get("receiver_actor_index"), f"{record_context}.receiver_actor_index", minimum=-1),
+                        "launch_location": {axis: _number(location.get(axis), f"{record_context}.launch_location.{axis}") for axis in "xyz"},
+                        "launch_velocity": {axis: _number(velocity.get(axis), f"{record_context}.launch_velocity.{axis}") for axis in "xyz"},
+                        "launch_acceleration": {axis: _number(acceleration.get(axis), f"{record_context}.launch_acceleration.{axis}") for axis in "xyz"},
+                        "move_target_name": _string(item, "move_target_name", record_context),
+                        "route_head_name": _string(item, "route_head_name", record_context),
+                        "post_state": _string(item, "post_state", record_context),
+                        "post_latent_action": _string(item, "post_latent_action", record_context),
+                        "integrity_valid": _boolean(item.get("integrity_valid"), f"{record_context}.integrity_valid"),
+                    })
+                result["warning_dodge_launches_exact"] = _integer(
+                    bot.get("warning_dodge_launches_exact"),
+                    f"{context}.warning_dodge_launches_exact", minimum=0)
+                result["warning_dodge_launch_overflows_exact"] = _integer(
+                    bot.get("warning_dodge_launch_overflows_exact"),
+                    f"{context}.warning_dodge_launch_overflows_exact", minimum=0)
+                result["warning_dodge_launch_records"] = parsed_launches
         elif warn_target_present:
             raise QualityError(f"{context}: WarnTarget counter group requires records")
         if "direct_reach_command_records" in bot:
@@ -4557,6 +4598,7 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             warns: dict[str, set[int]] = {}
             tries: dict[str, dict[int, dict[str, Any]]] = {}
             outcome_counts: dict[str, int] = {}
+            launch_counts: dict[str, int] = {}
             for event in events:
                 for bot in event["bots"]:
                     if any(name not in bot for name in WARN_TARGET_COUNTERS):
@@ -4595,6 +4637,19 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                                 "receiver_actor_index")):
                             raise QualityError(f"{path}: TryToDuck outcome provenance differs from its call")
                         outcome_counts[bot["identity"]] = outcome_counts.get(bot["identity"], 0) + 1
+                    if "warning_dodge_launch_records" in bot:
+                        if bot.get("warning_dodge_launch_overflows_exact", 0) != 0:
+                            raise QualityError(f"{path}: warning-dodge launch evidence overflowed")
+                        for launch in bot["warning_dodge_launch_records"]:
+                            linked = tries.get(bot["identity"], {}).get(launch["sequence"])
+                            if linked is None or not launch["integrity_valid"]:
+                                raise QualityError(f"{path}: warning-dodge launch lacks a valid retained TryToDuck call")
+                            if any(launch[name] != linked[name] for name in (
+                                    "nested_warn_target_sequence", "observer_tick",
+                                    "caller_invocation_token", "receiver_life_id",
+                                    "receiver_actor_index")):
+                                raise QualityError(f"{path}: warning-dodge launch provenance differs from TryToDuck")
+                            launch_counts[bot["identity"]] = launch_counts.get(bot["identity"], 0) + 1
             for bot in events[-1]["bots"]:
                 bucket = counts.get(bot["identity"], {"warn_target": 0, "try_to_duck": 0,
                                                         "nested": 0, "invalid": 0})
@@ -4611,6 +4666,9 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     raise QualityError(f"{path}: active WarnTarget observer has incomplete evidence")
                 if outcome_counts.get(bot["identity"], 0) != bucket["try_to_duck"]:
                     raise QualityError(f"{path}: TryToDuck calls do not reconcile outcome records")
+                if "warning_dodge_launch_records" in bot and \
+                        bot["warning_dodge_launches_exact"] != launch_counts.get(bot["identity"], 0):
+                    raise QualityError(f"{path}: warning-dodge launch records do not reconcile counters")
     if manifest.get("inventory_direct_reach_support_observer_enabled") is True:
         totals: dict[str, dict[str, int]] = {}
         sequences: dict[str, int] = {}

@@ -425,6 +425,9 @@ namespace
 			std::vector<BotBenchmarkWarnTargetRecord> PendingWarnTargetRecords;
 			uint64_t TryToDuckOutcomeOverflowsExact = 0;
 			std::vector<BotBenchmarkTryToDuckOutcomeRecord> PendingTryToDuckOutcomeRecords;
+			uint64_t WarningDodgeLaunchesExact = 0;
+			uint64_t WarningDodgeLaunchOverflowsExact = 0;
+			std::vector<BotBenchmarkWarningDodgeLaunchRecord> PendingWarningDodgeLaunchRecords;
 			uint64_t NextTargetSelectionSequence = 1;
 			uint64_t NextDirectReachCommandSequence = 1;
 			uint64_t DirectReachCommandObservationsExact = 0;
@@ -2236,6 +2239,16 @@ namespace
 				runtime.TryToDuckOutcomeOverflowsExact++;
 		}
 
+		void AppendWarningDodgeLaunchRecord(QualityParticipantRuntime& runtime,
+			BotBenchmarkWarningDodgeLaunchRecord record)
+		{
+			static constexpr size_t maximumQueuedRecords = 1024;
+			if (runtime.PendingWarningDodgeLaunchRecords.size() < maximumQueuedRecords)
+				runtime.PendingWarningDodgeLaunchRecords.push_back(std::move(record));
+			else
+				runtime.WarningDodgeLaunchOverflowsExact++;
+		}
+
 		void FinishWarnTargetCall(UFunction* function, UObject* instance, uint64_t sequence)
 		{
 			if (ActiveWarnTargetCalls.empty())
@@ -2423,15 +2436,62 @@ namespace
 					outcome.PostState = pawn->GetStateName().ToString();
 					outcome.PostLatentAction = pawn->StateFrame
 						? LatentActionName(pawn->StateFrame->LatentState) : std::string();
+					const vec3 location = pawn->Location();
+					const vec3 acceleration = pawn->Acceleration();
 					outcome.IntegrityValid = std::isfinite(outcome.PostVelocityX) &&
 						std::isfinite(outcome.PostVelocityY) && std::isfinite(outcome.PostVelocityZ) &&
-						!outcome.PostPhysicsMode.empty();
+						std::isfinite(location.x) && std::isfinite(location.y) && std::isfinite(location.z) &&
+						std::isfinite(acceleration.x) && std::isfinite(acceleration.y) &&
+						std::isfinite(acceleration.z) && !outcome.PostPhysicsMode.empty();
 					if (!outcome.IntegrityValid)
 					{
 						current->second.WarnTargetIntegrityFailuresExact++;
 						DisableWarnTargetObserver("disabled_integrity_failure",
 							"TryToDuck post-call snapshot was invalid");
 						return;
+					}
+					// This is the exact post-script handoff to native falling physics. It
+					// deliberately has no terminal attribution: a later water or wall event
+					// without an immutable physics-continuity token remains unknown.
+					if (BotWarnTargetHookContract::IsQualifiedWarningDodgeLaunch({
+						outcome.NestedWarnTargetSequence != 0, outcome.ReceiverLifeId,
+						outcome.ReceiverActorIndex, pawn->Physics() == PHYS_Falling,
+						std::isfinite(location.x) && std::isfinite(location.y) && std::isfinite(location.z),
+						std::isfinite(velocity.x) && std::isfinite(velocity.y) && std::isfinite(velocity.z),
+						std::isfinite(acceleration.x) && std::isfinite(acceleration.y)
+							&& std::isfinite(acceleration.z) }))
+					{
+						BotBenchmarkWarningDodgeLaunchRecord launch;
+						launch.Sequence = outcome.Sequence;
+						launch.NestedWarnTargetSequence = outcome.NestedWarnTargetSequence;
+						launch.ObserverTick = outcome.ObserverTick;
+						launch.CallerInvocationToken = outcome.CallerInvocationToken;
+						launch.ReceiverLifeId = outcome.ReceiverLifeId;
+						launch.ReceiverActorIndex = outcome.ReceiverActorIndex;
+						launch.LocationX = location.x;
+						launch.LocationY = location.y;
+						launch.LocationZ = location.z;
+						launch.VelocityX = velocity.x;
+						launch.VelocityY = velocity.y;
+						launch.VelocityZ = velocity.z;
+						launch.AccelerationX = acceleration.x;
+						launch.AccelerationY = acceleration.y;
+						launch.AccelerationZ = acceleration.z;
+						launch.MoveTargetName = pawn->MoveTarget()
+							? pawn->MoveTarget()->Name.ToString() : std::string();
+						for (UNavigationPoint* routeNode : pawn->RouteCache())
+						{
+							if (routeNode && !routeNode->bDeleteMe())
+							{
+								launch.RouteHeadName = routeNode->Name.ToString();
+								break;
+							}
+						}
+						launch.PostState = outcome.PostState;
+						launch.PostLatentAction = outcome.PostLatentAction;
+						launch.IntegrityValid = true;
+						current->second.WarningDodgeLaunchesExact++;
+						AppendWarningDodgeLaunchRecord(current->second, std::move(launch));
 					}
 					AppendTryToDuckOutcomeRecord(current->second, std::move(outcome));
 				};
@@ -3016,6 +3076,10 @@ namespace
 					bot.TryToDuckOutcomeOverflowsExact = runtime.TryToDuckOutcomeOverflowsExact;
 					bot.TryToDuckOutcomeRecords = std::move(runtime.PendingTryToDuckOutcomeRecords);
 					runtime.PendingTryToDuckOutcomeRecords.clear();
+					bot.WarningDodgeLaunchesExact = runtime.WarningDodgeLaunchesExact;
+					bot.WarningDodgeLaunchOverflowsExact = runtime.WarningDodgeLaunchOverflowsExact;
+					bot.WarningDodgeLaunchRecords = std::move(runtime.PendingWarningDodgeLaunchRecords);
+					runtime.PendingWarningDodgeLaunchRecords.clear();
 				}
 				bot.EnvironmentalDeathsExact = runtime.EnvironmentalDeathsExact;
 				bot.HazardExposedDeathsProxy = runtime.HazardExposedDeathsProxy;

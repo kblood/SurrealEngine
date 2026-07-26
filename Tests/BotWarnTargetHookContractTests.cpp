@@ -59,5 +59,28 @@ int main()
 	duck.Parameters.push_back({ "extra", ValueKind::Float, {} });
 	if (ValidateTryToDuckSignature(duck).empty())
 		return Fail("TryToDuck accepted an extra parameter");
+
+	WarningDodgeLaunchEligibility launch = {
+		.NestedWarnTargetExact = true,
+		.ReceiverLifeId = 3,
+		.ReceiverActorIndex = 8,
+		.PostPhysicsFalling = true,
+		.FiniteLocation = true,
+		.FiniteVelocity = true,
+		.FiniteAcceleration = true,
+	};
+	if (!IsQualifiedWarningDodgeLaunch(launch))
+		return Fail("exact nested falling TryToDuck handoff was not qualified as a launch");
+	launch.PostPhysicsFalling = false;
+	if (IsQualifiedWarningDodgeLaunch(launch))
+		return Fail("non-falling TryToDuck outcome was incorrectly qualified as a launch");
+	launch.PostPhysicsFalling = true;
+	launch.NestedWarnTargetExact = false;
+	if (IsQualifiedWarningDodgeLaunch(launch))
+		return Fail("unlinked TryToDuck outcome was incorrectly qualified as a launch");
+	launch.NestedWarnTargetExact = true;
+	launch.FiniteVelocity = false;
+	if (IsQualifiedWarningDodgeLaunch(launch))
+		return Fail("non-finite TryToDuck outcome was incorrectly qualified as a launch");
 	return 0;
 }

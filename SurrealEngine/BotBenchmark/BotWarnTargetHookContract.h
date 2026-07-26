@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -35,4 +36,19 @@ namespace BotWarnTargetHookContract
 	// The benchmark observer must remain disabled for every other script contract.
 	std::string ValidateWarnTargetSignature(const SignatureShape& signature);
 	std::string ValidateTryToDuckSignature(const SignatureShape& signature);
+
+	// Qualification deliberately requires the exact nested callback handoff and
+	// a finite post-call falling snapshot. It does not infer any later terminal.
+	struct WarningDodgeLaunchEligibility
+	{
+		bool NestedWarnTargetExact = false;
+		uint64_t ReceiverLifeId = 0;
+		int32_t ReceiverActorIndex = -1;
+		bool PostPhysicsFalling = false;
+		bool FiniteLocation = false;
+		bool FiniteVelocity = false;
+		bool FiniteAcceleration = false;
+	};
+
+	bool IsQualifiedWarningDodgeLaunch(const WarningDodgeLaunchEligibility& eligibility);
 }

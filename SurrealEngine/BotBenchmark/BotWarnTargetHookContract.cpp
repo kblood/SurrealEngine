@@ -65,4 +65,12 @@ namespace BotWarnTargetHookContract
 			{ "bReversed", ValueKind::Boolean, {} },
 		});
 	}
+
+	bool IsQualifiedWarningDodgeLaunch(const WarningDodgeLaunchEligibility& eligibility)
+	{
+		return eligibility.NestedWarnTargetExact && eligibility.ReceiverLifeId != 0
+			&& eligibility.ReceiverActorIndex >= 0 && eligibility.PostPhysicsFalling
+			&& eligibility.FiniteLocation && eligibility.FiniteVelocity
+			&& eligibility.FiniteAcceleration;
+	}
 }

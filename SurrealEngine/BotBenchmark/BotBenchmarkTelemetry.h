@@ -136,6 +136,33 @@ struct BotBenchmarkTryToDuckOutcomeRecord
 	bool IntegrityValid = true;
 };
 
+// A qualified post-call launch is intentionally narrower than a later hazard
+// or wall terminal. It proves only the exact nested WarnTarget -> TryToDuck
+// handoff and the state that script left for native physics.
+struct BotBenchmarkWarningDodgeLaunchRecord
+{
+	uint64_t Sequence = 0;
+	uint64_t NestedWarnTargetSequence = 0;
+	uint64_t ObserverTick = 0;
+	uint64_t CallerInvocationToken = 0;
+	uint64_t ReceiverLifeId = 0;
+	int32_t ReceiverActorIndex = -1;
+	double LocationX = 0.0;
+	double LocationY = 0.0;
+	double LocationZ = 0.0;
+	double VelocityX = 0.0;
+	double VelocityY = 0.0;
+	double VelocityZ = 0.0;
+	double AccelerationX = 0.0;
+	double AccelerationY = 0.0;
+	double AccelerationZ = 0.0;
+	std::string MoveTargetName;
+	std::string RouteHeadName;
+	std::string PostState;
+	std::string PostLatentAction;
+	bool IntegrityValid = true;
+};
+
 struct BotBenchmarkDirectReachCommandRecord
 {
 	uint64_t Sequence = 0;
@@ -233,6 +260,9 @@ struct BotBenchmarkBotState
 	std::vector<BotBenchmarkWarnTargetRecord> WarnTargetRecords;
 	uint64_t TryToDuckOutcomeOverflowsExact = 0;
 	std::vector<BotBenchmarkTryToDuckOutcomeRecord> TryToDuckOutcomeRecords;
+	uint64_t WarningDodgeLaunchesExact = 0;
+	uint64_t WarningDodgeLaunchOverflowsExact = 0;
+	std::vector<BotBenchmarkWarningDodgeLaunchRecord> WarningDodgeLaunchRecords;
 	uint64_t InventoryDirectReachSupportObservationsExact = 0;
 	uint64_t InventoryDirectReachSupportSafeSupportedExact = 0;
 	uint64_t InventoryDirectReachSupportSafeUnsupportedNoObservedHazardExact = 0;

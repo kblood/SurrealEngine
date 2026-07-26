@@ -900,6 +900,37 @@ namespace
 					<< ",\"post_latent_action\":" << JsonString(record.PostLatentAction)
 					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false") << '}';
 			}
+			out << ']'
+				<< ",\"warning_dodge_launches_exact\":\""
+				<< bot.WarningDodgeLaunchesExact << "\""
+				<< ",\"warning_dodge_launch_overflows_exact\":\""
+				<< bot.WarningDodgeLaunchOverflowsExact << "\""
+				<< ",\"warning_dodge_launch_records\":[";
+			for (size_t index = 0; index < bot.WarningDodgeLaunchRecords.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& record = bot.WarningDodgeLaunchRecords[index];
+				out << "{\"sequence\":\"" << record.Sequence
+					<< "\",\"nested_warn_target_sequence\":\"" << record.NestedWarnTargetSequence
+					<< "\",\"observer_tick\":\"" << record.ObserverTick
+					<< "\",\"caller_invocation_token\":\"" << record.CallerInvocationToken
+					<< "\",\"receiver_life_id\":\"" << record.ReceiverLifeId
+					<< "\",\"receiver_actor_index\":" << record.ReceiverActorIndex
+					<< ",\"launch_location\":{\"x\":" << Fixed(record.LocationX, 9)
+					<< ",\"y\":" << Fixed(record.LocationY, 9)
+					<< ",\"z\":" << Fixed(record.LocationZ, 9) << '}'
+					<< ",\"launch_velocity\":{\"x\":" << Fixed(record.VelocityX, 9)
+					<< ",\"y\":" << Fixed(record.VelocityY, 9)
+					<< ",\"z\":" << Fixed(record.VelocityZ, 9) << '}'
+					<< ",\"launch_acceleration\":{\"x\":" << Fixed(record.AccelerationX, 9)
+					<< ",\"y\":" << Fixed(record.AccelerationY, 9)
+					<< ",\"z\":" << Fixed(record.AccelerationZ, 9) << '}'
+					<< ",\"move_target_name\":" << JsonString(record.MoveTargetName)
+					<< ",\"route_head_name\":" << JsonString(record.RouteHeadName)
+					<< ",\"post_state\":" << JsonString(record.PostState)
+					<< ",\"post_latent_action\":" << JsonString(record.PostLatentAction)
+					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false") << '}';
+			}
 			out << ']';
 		}
 		if (inventoryDirectReachSupportObserverRequested)
