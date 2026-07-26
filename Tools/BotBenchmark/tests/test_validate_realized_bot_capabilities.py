@@ -48,6 +48,19 @@ class RealizedCapabilityValidatorTests(unittest.TestCase):
             self.assertEqual(result["participants"], 1)
             self.assertEqual(len(result["participants_sha256"]), 64)
 
+    def test_accepts_matching_complete_v3_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, summary, witness = run_documents()
+            summary["schema"] = "surreal-bot-benchmark-summary-v3"
+            summary["ai_frame_timing"] = {
+                "schema": "surreal-bot-ai-frame-timing-v1",
+                "scope": "benchmark_observation_policy_driver_sampling",
+            }
+            write_run(root, manifest, summary, witness)
+            result = VALIDATE.validate_run(root)
+            self.assertEqual(result["participants"], 1)
+
     def test_rejects_mismatched_actor(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

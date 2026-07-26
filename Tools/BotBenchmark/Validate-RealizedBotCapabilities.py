@@ -15,6 +15,10 @@ from typing import Any
 ARTIFACT_NAME = "bot-realized-capabilities.json"
 SCHEMA = "surreal-bot-realized-capability-observation-v1"
 SAMPLE = "post_spawn_pre_tick"
+SUMMARY_SCHEMAS = (
+    "surreal-bot-benchmark-summary-v2",
+    "surreal-bot-benchmark-summary-v3",
+)
 MOVEMENT_FIELDS = (
     "ground_speed", "water_speed", "air_speed", "jump_z", "max_step_height", "accel_rate",
 )
@@ -94,8 +98,8 @@ def _exact_keys(value: dict[str, Any], expected: tuple[str, ...], context: str) 
 
 
 def _actual_roster(summary: dict[str, Any], context: str) -> list[dict[str, str]]:
-    if summary.get("schema") != "surreal-bot-benchmark-summary-v2":
-        raise CapabilityError(f"{context}: requires surreal-bot-benchmark-summary-v2")
+    if summary.get("schema") not in SUMMARY_SCHEMAS:
+        raise CapabilityError(f"{context}: requires a supported bot-benchmark summary schema")
     if summary.get("status") != "complete" or summary.get("exit_code") != 0:
         raise CapabilityError(f"{context}: requires a complete successful benchmark")
     raw = _array(summary.get("actual_roster"), f"{context}.actual_roster")
