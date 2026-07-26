@@ -3807,3 +3807,13 @@ same run cannot prove an inventory retry chain under exact target/marker and
 stock-route criteria. Keep the direct timeout default-off and do not derive a
 cooldown or reachability veto from this event. Search for a genuine qualifying
 chain through observer-only matrices before implementing any retry policy.
+
+## Iteration 151: restore the benchmark protocol snapshot
+
+The previously failing `BotBenchmarkProtocol` CTest was stale rather than
+unrelated: the exact v3 summary expectation predated the three scoped
+AI-frame-timing component summaries. The serializer already emitted those
+components and the analyzer validates their contract. The golden JSON now
+includes the zero-sample/null-percentile default component values, and the
+rebuilt Release `BotBenchmarkProtocol` CTest passes. This restores the exact
+protocol check without changing benchmark behavior or telemetry semantics.
