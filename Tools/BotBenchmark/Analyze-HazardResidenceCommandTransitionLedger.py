@@ -74,7 +74,7 @@ def _validate_command(record: Any, identity: str, *, expected_sequence: int | No
     if not isinstance(record.get("target_known"), bool):
         raise LedgerError(f"{identity}: target-known state is malformed")
     _signed_integer(record.get("target_actor_index"), f"{identity}.target_actor_index", -1)
-    for field in ("target_address", "target_name", "target_class", "route_head_name", "route_head_class"):
+    for field in ("target_name", "target_class", "route_head_name", "route_head_class"):
         if not isinstance(record.get(field), str):
             raise LedgerError(f"{identity}: {field} is malformed")
     if not isinstance(record.get("route_head_known"), bool):

@@ -19,7 +19,7 @@ def command(token: int = 1, sequence: int = 1, tick: int = 41) -> dict:
         "sequence": str(sequence), "command_token": str(token), "life_id": "3", "native_tick": str(tick),
         "source_actor_index": 7, "caller_invocation_token": "12",
         "caller_class": "Botpack.Bot", "caller_function": "PickDestination", "kind": "move_toward",
-        "target_known": True, "target_actor_index": 8, "target_address": "0000000000000001",
+        "target_known": True, "target_actor_index": 8,
         "target_name": "PathNode12", "target_class": "Engine.PathNode",
         "route_head_known": True, "route_head_actor_index": 8, "route_head_name": "PathNode12",
         "route_head_class": "Engine.PathNode", "last_native_path_commit_known": True,
