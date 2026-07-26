@@ -31,6 +31,7 @@ int main()
 		|| defaults.IsNativePathCommitObserverEnabled()
 		|| defaults.IsReachSpecCapabilityObserverEnabled()
 		|| defaults.IsDirectReachCommandObserverEnabled()
+		|| defaults.IsMovementCommandProvenanceObserverEnabled()
 		|| defaults.IsPawnVisionConeEnabled()
 		|| defaults.IsPawnVisionObserverEnabled()
 		|| defaults.IsVectorNonFiniteObserverEnabled()
@@ -225,6 +226,7 @@ int main()
 		"    \"native_path_commit_observer_enabled\": false,\n"
 		"    \"reachspec_capability_observer_enabled\": false,\n"
 		"    \"direct_reach_command_observer_enabled\": false,\n"
+		"    \"movement_command_provenance_observer_enabled\": false,\n"
 		"    \"pawn_vision_cone_enabled\": false,\n"
 		"    \"pawn_vision_observer_enabled\": false,\n"
 		"    \"vector_nonfinite_observer_enabled\": false,\n"

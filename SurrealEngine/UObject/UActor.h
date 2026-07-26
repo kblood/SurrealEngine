@@ -17,6 +17,7 @@
 #include "PawnWalkingStepPreflight.h"
 #include "PawnInventoryReachability.h"
 #include "PawnDirectReachCommandProvenance.h"
+#include "PawnMovementCommandProvenance.h"
 #include "PawnRoutePathCommitProvenance.h"
 #include "PawnPickTargetObserver.h"
 #include "PawnCanSeeObserver.h"
@@ -1972,6 +1973,12 @@ public:
 		DrainHazardResidenceDeathWitness();
 	std::vector<std::pair<uint64_t, PawnMovement::HazardResidenceTerminal>>
 		DrainDirectReachHazardResidenceTerminals();
+	std::vector<PawnMovement::MovementCommandProvenanceObservation>
+		DrainMovementCommandProvenanceObservations();
+	uint64_t MovementCommandProvenanceOverflowCount() const
+	{
+		return MovementCommandProvenanceOverflowCountValue;
+	}
 
 	void MoveTo(const vec3& newDestination, float speed);
 	void MoveToward(UActor* newTarget, float speed);
@@ -2639,6 +2646,7 @@ private:
 	void AdvanceHazardResidenceSample(bool positiveDpsHazard, float elapsed);
 	void ObserveHazardResidenceCandidate(const std::string& candidateName);
 	void ObserveHazardResidenceMovementCommand();
+	void RecordMovementCommandProvenance(const char* kind);
 	void ResolveHazardResidence(PawnMovement::HazardResidenceTerminal terminal);
 	void ObserveExternalImpulseFallWitness(
 		PawnMovement::FallingHazardForecastSource source,
@@ -2710,6 +2718,7 @@ private:
 	};
 	HazardSwimEgressState HazardSwimEgress;
 	PawnMovement::HazardResidenceState HazardResidence;
+	PawnMovement::MovementCommandProvenanceObservation HazardResidenceMovementCommand;
 	std::string HazardResidenceCandidateName;
 	std::optional<PawnMovement::HazardResidenceDeathWitness>
 		HazardResidenceDeathWitness;
@@ -2903,6 +2912,20 @@ private:
 	uint64_t DirectReachCommandSequence = 0;
 	std::vector<PawnMovement::DirectReachCommandObservation>
 		DirectReachCommandObservations;
+	uint64_t MovementCommandProvenanceSequence = 0;
+	uint64_t MovementCommandProvenanceToken = 0;
+	uint64_t MovementCommandProvenanceOverflowCountValue = 0;
+	std::vector<PawnMovement::MovementCommandProvenanceObservation>
+		MovementCommandProvenanceObservations;
+	PawnMovement::MovementCommandProvenanceObservation ActiveMovementCommandProvenance;
+	struct LastNativePathCommitProvenance
+	{
+		bool Known = false;
+		uint64_t LifeId = 0;
+		uint64_t Sequence = 0;
+		int32_t FirstReachSpecIndex = -1;
+	};
+	LastNativePathCommitProvenance LastMovementCommandPathCommit;
 	uint64_t RoutePathCommitSequence = 0;
 	uint64_t RoutePathCommitOverflowCountValue = 0;
 	std::vector<PawnMovement::RoutePathCommitRecord> RoutePathCommitRecords;

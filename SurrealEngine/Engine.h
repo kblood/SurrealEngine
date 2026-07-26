@@ -250,6 +250,14 @@ public:
 	{
 		botBenchmarkDirectReachCommandObserverEnabled = enabled;
 	}
+	bool IsBotBenchmarkMovementCommandProvenanceObserverEnabled() const
+	{
+		return botBenchmarkMovementCommandProvenanceObserverEnabled;
+	}
+	void SetBotBenchmarkMovementCommandProvenanceObserverEnabled(bool enabled)
+	{
+		botBenchmarkMovementCommandProvenanceObserverEnabled = enabled;
+	}
 	bool IsBotBenchmarkPawnVisionConeEnabled() const
 	{
 		return botBenchmarkPawnVisionConeEnabled;
@@ -487,6 +495,7 @@ private:
 	bool botBenchmarkNativePathCommitObserverEnabled = false;
 	bool botBenchmarkReachSpecCapabilityObserverEnabled = false;
 	bool botBenchmarkDirectReachCommandObserverEnabled = false;
+	bool botBenchmarkMovementCommandProvenanceObserverEnabled = false;
 	bool botBenchmarkPawnVisionConeEnabled = false;
 	bool botBenchmarkPawnVisionObserverEnabled = false;
 	bool botBenchmarkVectorNonFiniteObserverEnabled = false;

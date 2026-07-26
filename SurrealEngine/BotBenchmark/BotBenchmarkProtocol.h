@@ -58,7 +58,8 @@ public:
 		std::optional<std::string> vectorNonFiniteObserver = {},
 		std::optional<std::string> finiteMoveCommandGuard = {},
 		std::optional<std::string> pickRegDestinationZeroDivideGuard = {},
-		std::optional<std::string> walkingHitWallMinHitWallCandidate = {});
+		std::optional<std::string> walkingHitWallMinHitWallCandidate = {},
+		std::optional<std::string> movementCommandProvenanceObserver = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -103,6 +104,10 @@ public:
 		return ReachSpecCapabilityObserverEnabled;
 	}
 	bool IsDirectReachCommandObserverEnabled() const { return DirectReachCommandObserverEnabled; }
+	bool IsMovementCommandProvenanceObserverEnabled() const
+	{
+		return MovementCommandProvenanceObserverEnabled;
+	}
 	bool IsPawnVisionConeEnabled() const { return PawnVisionConeEnabled; }
 	bool IsPawnVisionObserverEnabled() const { return PawnVisionObserverEnabled; }
 	bool IsVectorNonFiniteObserverEnabled() const { return VectorNonFiniteObserverEnabled; }
@@ -132,6 +137,7 @@ private:
 		bool pawnVisionObserverEnabled, bool vectorNonFiniteObserverEnabled,
 		bool finiteMoveCommandGuardEnabled, bool pickRegDestinationZeroDivideGuardEnabled,
 		bool walkingHitWallMinHitWallCandidateEnabled,
+		bool movementCommandProvenanceObserverEnabled,
 		std::vector<std::string> shadowPolicySet);
 
 	std::string URL;
@@ -158,6 +164,7 @@ private:
 	bool NativePathCommitObserverEnabled = false;
 	bool ReachSpecCapabilityObserverEnabled = false;
 	bool DirectReachCommandObserverEnabled = false;
+	bool MovementCommandProvenanceObserverEnabled = false;
 	bool PawnVisionConeEnabled = false;
 	bool PawnVisionObserverEnabled = false;
 	bool VectorNonFiniteObserverEnabled = false;

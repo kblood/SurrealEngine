@@ -78,6 +78,35 @@ It fails if the benchmark stream is incomplete or lacks the complete current
 residence counter group. A reported candidate is an observation only; neither
 candidate presence nor a zone-clear terminal authorizes movement control.
 
+## Movement-command provenance
+
+For an opt-in, read-only UT99 capture, enable both the native path-commit and
+movement-command provenance observers. The second observer records each native
+`MoveTo`/`MoveToward` issue with its per-life token, script caller, target,
+route head, and most recent native path commit. It also requires every
+terminal PainTimer hazard-residence death to reconcile to that exact command
+token and caller:
+
+```powershell
+SurrealEngine.exe --autoplay --headless-driver=bot-benchmark `
+  --botbench-url=DM-Deck16][?Game=Botpack.DeathMatchPlus `
+  --botbench-output=C:\qa\ut99-movement-provenance `
+  --botbench-seed=104729 --botbench-ticks=1200 --botbench-fixed-delta=0.016666667 `
+  --botbench-difficulty=7 --botbench-bots=16 `
+  --botbench-native-path-commit-observer=1 `
+  --botbench-movement-command-provenance-observer=1 `
+  "C:\Games\Unreal Tournament"
+
+python .\Tools\BotBenchmark\Analyze-MovementCommandProvenance.py `
+  C:\qa\ut99-movement-provenance `
+  --output C:\qa\ut99-movement-provenance\movement-command-provenance-analysis.json
+```
+
+The analyzer fails closed on an incomplete stream, malformed command identity,
+observer overflow, or a terminal PainTimer death without an exact matching
+command record. It supplies attribution evidence only and never changes a bot
+movement decision.
+
 ## Collision episode attribution
 
 For telemetry-v2 benchmark runs, partition cumulative `HitWall` increments into

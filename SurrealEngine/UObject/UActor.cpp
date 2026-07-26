@@ -5217,6 +5217,12 @@ UNavigationPoint* UPawn::CommitRoutePathCache(const PawnPathEndPointResult& resu
 		RoutePathCommitRecords.push_back(std::move(record));
 	else
 		RoutePathCommitOverflowCountValue++;
+	if (engine->IsBotBenchmarkMovementCommandProvenanceObserverEnabled())
+	{
+		LastMovementCommandPathCommit = { true, DirectReachCommandLifeId(),
+			RoutePathCommitSequence, result.EdgeReachSpecIndexes.empty()
+				? -1 : result.EdgeReachSpecIndexes.front() };
+	}
 	return committed;
 }
 
@@ -6304,7 +6310,8 @@ void UPawn::AdvanceHazardResidence(float elapsed)
 void UPawn::AdvanceHazardResidenceSample(bool positiveDpsHazard, float elapsed)
 {
 	const bool eligibleBot = (engine->IsBotBenchmarkHazardSwimEgressEnabled()
-		|| engine->IsBotBenchmarkDirectReachCommandObserverEnabled())
+		|| engine->IsBotBenchmarkDirectReachCommandObserverEnabled()
+		|| engine->IsBotBenchmarkMovementCommandProvenanceObserverEnabled())
 		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority;
 	if (!eligibleBot)
 	{
@@ -6318,7 +6325,10 @@ void UPawn::AdvanceHazardResidenceSample(bool positiveDpsHazard, float elapsed)
 		false, false, 0.25f);
 	HazardResidence = update.State;
 	if (update.Started)
+	{
 		HazardResidenceEpisodeCountValue++;
+		HazardResidenceMovementCommand = ActiveMovementCommandProvenance;
+	}
 	if (HazardResidence.Reentries > priorReentries)
 		HazardResidenceReentryCountValue += HazardResidence.Reentries - priorReentries;
 	ResolveHazardResidence(update.Terminal);
@@ -6347,6 +6357,83 @@ void UPawn::ObserveHazardResidenceMovementCommand()
 		HazardResidenceCandidateOtherCommandCountValue++;
 }
 
+void UPawn::RecordMovementCommandProvenance(const char* kind)
+{
+	if (!engine || !engine->IsBotBenchmarkMovementCommandProvenanceObserverEnabled()
+		|| !IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority)
+	{
+		return;
+	}
+	PawnMovement::MovementCommandProvenanceObservation observation;
+	observation.Sequence = ++MovementCommandProvenanceSequence;
+	if (MovementCommandProvenanceToken == std::numeric_limits<uint64_t>::max())
+	{
+		MovementCommandProvenanceOverflowCountValue++;
+		MovementCommandProvenanceToken = 0;
+	}
+	else
+	{
+		observation.CommandToken = ++MovementCommandProvenanceToken;
+	}
+	observation.LifeId = DirectReachCommandLifeId();
+	observation.NativeTick = engine->BotBenchmarkObserverTick();
+	observation.SourceActorIndex = Index;
+	observation.Kind = kind;
+	if (MoveTarget() && !MoveTarget()->bDeleteMe() && MoveTarget()->Class)
+	{
+		observation.TargetKnown = true;
+		observation.TargetActorIndex = MoveTarget()->Index;
+		observation.TargetAddress = MoveTarget();
+		observation.TargetName = MoveTarget()->Name.ToString();
+		observation.TargetClass = MoveTarget()->Class->Name.ToString();
+	}
+	if (engine->LaunchInfo.ue1Version > 219 && RouteCache()[0]
+		&& !RouteCache()[0]->bDeleteMe() && RouteCache()[0]->Class)
+	{
+		observation.RouteHeadKnown = true;
+		observation.RouteHeadActorIndex = RouteCache()[0]->Index;
+		observation.RouteHeadName = RouteCache()[0]->Name.ToString();
+		observation.RouteHeadClass = RouteCache()[0]->Class->Name.ToString();
+	}
+	if (LastMovementCommandPathCommit.Known
+		&& LastMovementCommandPathCommit.LifeId == observation.LifeId)
+	{
+		observation.LastNativePathCommitKnown = true;
+		observation.LastNativePathCommitSequence = LastMovementCommandPathCommit.Sequence;
+		observation.LastNativePathCommitFirstReachSpecIndex =
+			LastMovementCommandPathCommit.FirstReachSpecIndex;
+	}
+	if (Frame::Callstack.size() >= 2)
+	{
+		Frame* caller = Frame::Callstack[Frame::Callstack.size() - 2];
+		if (caller && caller->Object && caller->Func && caller->Object == this)
+		{
+			observation.CallerInvocationToken = caller->EnsureInvocationToken();
+			observation.CallerClass = UObject::GetUClassFullName(caller->Object).ToString();
+			observation.CallerFunction = caller->Func->Name.ToString();
+		}
+	}
+	observation.IntegrityValid = observation.CommandToken != 0
+		&& observation.LifeId != 0 && observation.SourceActorIndex >= 0
+		&& !observation.Kind.empty() && observation.CallerInvocationToken != 0
+		&& !observation.CallerClass.empty() && !observation.CallerFunction.empty()
+		&& (observation.Kind == "move_to" || observation.TargetKnown);
+	ActiveMovementCommandProvenance = observation;
+	static constexpr size_t maximumQueuedRecords = 2048;
+	if (MovementCommandProvenanceObservations.size() < maximumQueuedRecords)
+		MovementCommandProvenanceObservations.push_back(std::move(observation));
+	else
+		MovementCommandProvenanceOverflowCountValue++;
+}
+
+std::vector<PawnMovement::MovementCommandProvenanceObservation>
+UPawn::DrainMovementCommandProvenanceObservations()
+{
+	std::vector<PawnMovement::MovementCommandProvenanceObservation> records;
+	records.swap(MovementCommandProvenanceObservations);
+	return records;
+}
+
 bool UPawn::RecordHazardResidenceDeath()
 {
 	HazardResidenceDeathWitness.reset();
@@ -6360,6 +6447,14 @@ bool UPawn::RecordHazardResidenceDeath()
 			HazardResidence.CandidateSuperseded,
 			HazardResidenceCandidateName,
 			DirectReachCommandLifeId(),
+			HazardResidenceMovementCommand.CommandToken,
+			HazardResidenceMovementCommand.IntegrityValid
+				&& HazardResidenceMovementCommand.LifeId == DirectReachCommandLifeId()
+				&& HazardResidenceMovementCommand.CommandToken != 0
+				&& ActiveMovementCommandProvenance.CommandToken
+				== HazardResidenceMovementCommand.CommandToken,
+			HazardResidenceMovementCommand.CallerClass,
+			HazardResidenceMovementCommand.CallerFunction,
 		};
 	}
 	const auto update = PawnMovement::AdvanceHazardResidence(HazardResidence,
@@ -8904,6 +8999,10 @@ void UPawn::EndWalkingStepPreflightLife()
 	// life. Never let an old target or route be attached to a respawned pawn's
 	// later water episode.
 	ExternalImpulseNavigationCommit = {};
+	ActiveMovementCommandProvenance = {};
+	HazardResidenceMovementCommand = {};
+	MovementCommandProvenanceToken = 0;
+	LastMovementCommandPathCommit = {};
 	HazardSwimEgressLifeId++;
 	HazardSwimEgressEpisodeId = 0;
 	if (FallingHazardObserver)
@@ -9161,6 +9260,7 @@ void UPawn::MoveTo(const vec3& newDestination, float speed)
 	if (StateFrame)
 		StateFrame->LatentState = LatentRunState::MoveTo;
 	RecordFallingHazardMovementCommand();
+	RecordMovementCommandProvenance("move_to");
 	RecordMoveStallCommand();
 }
 
@@ -9181,6 +9281,7 @@ void UPawn::MoveToward(UActor* newTarget, float speed)
 	if (StateFrame)
 		StateFrame->LatentState = LatentRunState::MoveToward;
 	RecordFallingHazardMovementCommand();
+	RecordMovementCommandProvenance("move_toward");
 	RecordMoveStallCommand();
 }
 

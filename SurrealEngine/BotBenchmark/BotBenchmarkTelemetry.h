@@ -11,6 +11,7 @@
 #include "UObject/PawnMoveStallWatchdog.h"
 #include "UObject/PawnFiniteMoveCommandGuard.h"
 #include "UObject/PawnVectorNonFiniteObserver.h"
+#include "UObject/PawnMovementCommandProvenance.h"
 
 #include <array>
 #include <cstdint>
@@ -41,6 +42,10 @@ struct BotBenchmarkHazardDeathPartitionRecord
 	uint64_t HazardResidenceCommandOwnershipLifeId = 0;
 	bool HazardResidenceCommandOwnershipExact = false;
 	std::string HazardResidenceCommandOwnershipTargetName;
+	uint64_t HazardResidenceMovementCommandToken = 0;
+	bool HazardResidenceMovementCommandProvenanceExact = false;
+	std::string HazardResidenceMovementCommandCallerClass;
+	std::string HazardResidenceMovementCommandCallerFunction;
 	bool MoveTargetKnown = false;
 	std::string MoveTargetName;
 	bool MovementIntent = false;
@@ -378,6 +383,10 @@ struct BotBenchmarkBotState
 	uint64_t DirectReachCommandRunEndCensoredExact = 0;
 	uint64_t DirectReachCommandCommandReplacedExact = 0;
 	std::vector<BotBenchmarkDirectReachCommandRecord> DirectReachCommandRecords;
+	uint64_t MovementCommandProvenanceObservationsExact = 0;
+	uint64_t MovementCommandProvenanceOverflowsExact = 0;
+	std::vector<PawnMovement::MovementCommandProvenanceObservation>
+		MovementCommandProvenanceRecords;
 	uint64_t FiniteMoveCommandGuardRejectionsExact = 0;
 	uint64_t FiniteMoveCommandGuardDiagnosticOverflowsExact = 0;
 	std::vector<BotBenchmarkFiniteMoveCommandGuardRecord> FiniteMoveCommandGuardDiagnostics;
@@ -631,6 +640,7 @@ struct BotBenchmarkTelemetryEvent
 	bool InventoryDirectReachSupportObserverRequested = false;
 	bool NativePathCommitObserverRequested = false;
 	bool DirectReachCommandObserverRequested = false;
+	bool MovementCommandProvenanceObserverRequested = false;
 	bool FiniteMoveCommandGuardRequested = false;
 	bool PickRegDestinationZeroDivideGuardRequested = false;
 	std::vector<BotBenchmarkBotState> Bots;

@@ -676,6 +676,14 @@ namespace
 			<< (record.HazardResidenceCommandOwnershipExact ? "true" : "false")
 			<< ",\"hazard_residence_command_ownership_target_name\":"
 			<< JsonString(record.HazardResidenceCommandOwnershipTargetName)
+			<< ",\"hazard_residence_movement_command_token\":\""
+			<< record.HazardResidenceMovementCommandToken
+			<< "\",\"hazard_residence_movement_command_provenance_exact\":"
+			<< (record.HazardResidenceMovementCommandProvenanceExact ? "true" : "false")
+			<< ",\"hazard_residence_movement_command_caller_class\":"
+			<< JsonString(record.HazardResidenceMovementCommandCallerClass)
+			<< ",\"hazard_residence_movement_command_caller_function\":"
+			<< JsonString(record.HazardResidenceMovementCommandCallerFunction)
 			<< ",\"move_target_known\":"
 			<< (record.MoveTargetKnown ? "true" : "false")
 			<< ",\"move_target_name\":" << JsonString(record.MoveTargetName)
@@ -715,7 +723,8 @@ namespace
 		bool pickRegDestinationZeroDivideGuardRequested,
 		bool warnTargetObserverRequested,
 		bool inventoryDirectReachSupportObserverRequested,
-		bool directReachCommandObserverRequested)
+		bool directReachCommandObserverRequested,
+		bool movementCommandProvenanceObserverRequested)
 	{
 		// Keep the telemetry's fail-closed finite-number contract, but attach
 		// enough provenance for a failed deterministic run to identify the live
@@ -949,6 +958,45 @@ namespace
 					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false")
 					<< ",\"caller_class\":" << JsonString(record.CallerClass)
 					<< ",\"caller_function\":" << JsonString(record.CallerFunction) << '}';
+			}
+			out << ']';
+		}
+		if (movementCommandProvenanceObserverRequested)
+		{
+			out << ",\"movement_command_provenance_observations_exact\":\""
+				<< bot.MovementCommandProvenanceObservationsExact << "\""
+				<< ",\"movement_command_provenance_overflows_exact\":\""
+				<< bot.MovementCommandProvenanceOverflowsExact << "\""
+				<< ",\"movement_command_provenance_records\":[";
+			for (size_t index = 0; index < bot.MovementCommandProvenanceRecords.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& record = bot.MovementCommandProvenanceRecords[index];
+				out << "{\"sequence\":\"" << record.Sequence
+					<< "\",\"command_token\":\"" << record.CommandToken
+					<< "\",\"life_id\":\"" << record.LifeId
+					<< "\",\"native_tick\":\"" << record.NativeTick
+					<< "\",\"source_actor_index\":" << record.SourceActorIndex
+					<< ",\"caller_invocation_token\":\"" << record.CallerInvocationToken
+					<< "\",\"caller_class\":" << JsonString(record.CallerClass)
+					<< ",\"caller_function\":" << JsonString(record.CallerFunction)
+					<< ",\"kind\":" << JsonString(record.Kind)
+					<< ",\"target_known\":" << (record.TargetKnown ? "true" : "false")
+					<< ",\"target_actor_index\":" << record.TargetActorIndex
+					<< ",\"target_name\":" << JsonString(record.TargetName)
+					<< ",\"target_class\":" << JsonString(record.TargetClass)
+					<< ",\"route_head_known\":" << (record.RouteHeadKnown ? "true" : "false")
+					<< ",\"route_head_actor_index\":" << record.RouteHeadActorIndex
+					<< ",\"route_head_name\":" << JsonString(record.RouteHeadName)
+					<< ",\"route_head_class\":" << JsonString(record.RouteHeadClass)
+					<< ",\"last_native_path_commit_known\":"
+					<< (record.LastNativePathCommitKnown ? "true" : "false")
+					<< ",\"last_native_path_commit_sequence\":\""
+					<< record.LastNativePathCommitSequence
+					<< "\",\"last_native_path_commit_first_reachspec_index\":"
+					<< record.LastNativePathCommitFirstReachSpecIndex
+					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false")
+					<< '}';
 			}
 			out << ']';
 		}
@@ -1824,6 +1872,8 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 		out << ",\"native_path_commit_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.DirectReachCommandObserverRequested)
 		out << ",\"direct_reach_command_observer\":{\"requested\":true,\"status\":\"active\"}";
+	if (event.MovementCommandProvenanceObserverRequested)
+		out << ",\"movement_command_provenance_observer\":{\"requested\":true,\"status\":\"active\"}";
 	out << ",\"bots\":[";
 	for (size_t index = 0; index < event.Bots.size(); index++)
 	{
@@ -1839,7 +1889,8 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 				 event.PickRegDestinationZeroDivideGuardRequested,
 				event.WarnTargetObserverRequested,
 				event.InventoryDirectReachSupportObserverRequested,
-				event.DirectReachCommandObserverRequested);
+				event.DirectReachCommandObserverRequested,
+				event.MovementCommandProvenanceObserverRequested);
 		}
 		catch (const std::invalid_argument& error)
 		{

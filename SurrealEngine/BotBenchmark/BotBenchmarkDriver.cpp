@@ -103,6 +103,8 @@ namespace
 				Config.IsReachSpecCapabilityObserverEnabled());
 			EngineRef.SetBotBenchmarkDirectReachCommandObserverEnabled(
 				Config.IsDirectReachCommandObserverEnabled());
+			EngineRef.SetBotBenchmarkMovementCommandProvenanceObserverEnabled(
+				Config.IsMovementCommandProvenanceObserverEnabled());
 			EngineRef.SetBotBenchmarkPawnVisionConeEnabled(Config.IsPawnVisionConeEnabled());
 			EngineRef.SetBotBenchmarkPawnVisionObserverEnabled(Config.IsPawnVisionObserverEnabled());
 			EngineRef.SetBotBenchmarkVectorNonFiniteObserverEnabled(
@@ -404,6 +406,10 @@ namespace
 				OpenDirectReachCommandRecords;
 			std::vector<PawnMovement::DirectReachCommandObservation>
 				PendingDirectReachCommandObservations;
+			std::vector<PawnMovement::MovementCommandProvenanceObservation>
+				PendingMovementCommandProvenanceRecords;
+			uint64_t MovementCommandProvenanceObservationsExact = 0;
+			uint64_t MovementCommandProvenanceOverflowsExact = 0;
 			std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
 				PendingWalkingHitWallDispatchDiagnostics;
 			std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
@@ -949,6 +955,14 @@ namespace
 				residenceWitness->DirectSafeCandidateName;
 				record.HazardResidenceCommandOwnershipLifeId =
 				residenceWitness->CommandOwnershipLifeId;
+				record.HazardResidenceMovementCommandToken =
+				residenceWitness->MovementCommandToken;
+				record.HazardResidenceMovementCommandProvenanceExact =
+				residenceWitness->MovementCommandProvenanceExact;
+				record.HazardResidenceMovementCommandCallerClass =
+				residenceWitness->MovementCommandCallerClass;
+				record.HazardResidenceMovementCommandCallerFunction =
+				residenceWitness->MovementCommandCallerFunction;
 			if (EngineRef.IsBotBenchmarkDirectReachCommandObserverEnabled())
 			{
 				auto owner = runtime.OpenDirectReachCommandRecords.end();
@@ -3848,6 +3862,17 @@ namespace
 						pawn->DrainInventoryDirectReachSupportDiagnostics();
 					auto directReachCommandObservations =
 						pawn->DrainDirectReachCommandObservations();
+					auto movementCommandProvenanceRecords =
+						pawn->DrainMovementCommandProvenanceObservations();
+					runtime.MovementCommandProvenanceObservationsExact +=
+						movementCommandProvenanceRecords.size();
+					runtime.MovementCommandProvenanceOverflowsExact = std::max(
+						runtime.MovementCommandProvenanceOverflowsExact,
+						pawn->MovementCommandProvenanceOverflowCount());
+					runtime.PendingMovementCommandProvenanceRecords.insert(
+						runtime.PendingMovementCommandProvenanceRecords.end(),
+						std::make_move_iterator(movementCommandProvenanceRecords.begin()),
+						std::make_move_iterator(movementCommandProvenanceRecords.end()));
 					runtime.DirectReachCommandOverflowsExact = std::max(
 						runtime.DirectReachCommandOverflowsExact,
 						pawn->DirectReachCommandOverflowCount());
@@ -4010,6 +4035,13 @@ namespace
 					runtime.DirectReachCommandRunEndCensoredExact;
 				bot.DirectReachCommandCommandReplacedExact =
 					runtime.DirectReachCommandCommandReplacedExact;
+				bot.MovementCommandProvenanceRecords = std::move(
+					runtime.PendingMovementCommandProvenanceRecords);
+				runtime.PendingMovementCommandProvenanceRecords.clear();
+				bot.MovementCommandProvenanceObservationsExact =
+					runtime.MovementCommandProvenanceObservationsExact;
+				bot.MovementCommandProvenanceOverflowsExact =
+					runtime.MovementCommandProvenanceOverflowsExact;
 				bot.WalkingHitWallDispatchDiagnostics = std::move(
 					runtime.PendingWalkingHitWallDispatchDiagnostics);
 				runtime.PendingWalkingHitWallDispatchDiagnostics.clear();
@@ -4080,6 +4112,8 @@ namespace
 				Config.IsNativePathCommitObserverEnabled();
 			event.DirectReachCommandObserverRequested =
 				Config.IsDirectReachCommandObserverEnabled();
+			event.MovementCommandProvenanceObserverRequested =
+				Config.IsMovementCommandProvenanceObserverEnabled();
 			if (aiFrameScopeMicroseconds && componentTiming)
 			{
 				MeasureAiFrameScope(*aiFrameScopeMicroseconds, *componentTiming, [&]
@@ -4248,7 +4282,8 @@ namespace
 			OptionalCommandLineArg("--botbench-vector-nonfinite-observer"),
 			OptionalCommandLineArg("--botbench-finite-move-command-guard"),
 			OptionalCommandLineArg("--botbench-pick-reg-destination-zero-divide-guard"),
-			OptionalCommandLineArg("--botbench-walking-hitwall-minhitwall-candidate"));
+			OptionalCommandLineArg("--botbench-walking-hitwall-minhitwall-candidate"),
+			OptionalCommandLineArg("--botbench-movement-command-provenance-observer"));
 	}
 }
 

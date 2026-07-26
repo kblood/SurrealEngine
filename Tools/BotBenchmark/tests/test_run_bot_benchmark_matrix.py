@@ -689,6 +689,29 @@ class MatrixRunnerTests(unittest.TestCase):
                         with self.assertRaises(MATRIX.MatrixError):
                             MATRIX.load_matrix(path)
 
+    def test_movement_command_provenance_requires_native_commits_and_is_provenanced(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = write_manifest(root)
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            manifest["variants"][1]["movement_command_provenance_observer_enabled"] = True
+            path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(MATRIX.MatrixError, "requires native_path_commit"):
+                MATRIX.load_matrix(path)
+
+            manifest["variants"][1]["native_path_commit_observer_enabled"] = True
+            path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            config = MATRIX.load_matrix(path)
+            candidate = next(case for case in MATRIX.expand_cases(config)
+                             if case.variant.id == "candidate")
+            command = MATRIX.command_for(config, candidate, root / "candidate")
+            self.assertIn("--botbench-native-path-commit-observer=1", command)
+            self.assertIn("--botbench-movement-command-provenance-observer=1", command)
+            plan = MATRIX.dry_run_plan(config, root / "plan")
+            row = next(item for item in plan["cases"] if item["variant"] == "candidate")
+            self.assertTrue(row["native_path_commit_observer_enabled"])
+            self.assertTrue(row["movement_command_provenance_observer_enabled"])
+
     def test_roster_is_part_of_case_and_pair_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

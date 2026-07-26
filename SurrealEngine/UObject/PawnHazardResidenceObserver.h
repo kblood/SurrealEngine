@@ -43,6 +43,10 @@ namespace PawnMovement
 		bool DirectSafeCandidateSuperseded = false;
 		std::string DirectSafeCandidateName;
 		uint64_t CommandOwnershipLifeId = 0;
+		uint64_t MovementCommandToken = 0;
+		bool MovementCommandProvenanceExact = false;
+		std::string MovementCommandCallerClass;
+		std::string MovementCommandCallerFunction;
 	};
 
 	struct HazardResidenceUpdate
