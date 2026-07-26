@@ -3133,6 +3133,7 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                reachspec_capability_observer_enabled: bool | None = None,
                direct_reach_command_observer_enabled: bool | None = None,
                movement_command_provenance_observer_enabled: bool | None = None,
+               hazard_residence_command_transition_ledger_observer_enabled: bool | None = None,
                pawn_vision_cone_enabled: bool | None = None,
                pawn_vision_observer_enabled: bool | None = None,
                vector_nonfinite_observer_enabled: bool | None = None,
@@ -3202,6 +3203,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if movement_command_provenance_observer_enabled is not None:
             canonical_text += "movement_command_provenance_observer_enabled=" + (
                 "1\n" if movement_command_provenance_observer_enabled else "0\n")
+        if hazard_residence_command_transition_ledger_observer_enabled is not None:
+            canonical_text += "hazard_residence_command_transition_ledger_observer_enabled=" + (
+                "1\n" if hazard_residence_command_transition_ledger_observer_enabled else "0\n")
         if pawn_vision_cone_enabled is not None:
             canonical_text += "pawn_vision_cone_enabled=" + (
                 "1\n" if pawn_vision_cone_enabled else "0\n")
@@ -3380,6 +3384,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     reachspec_capability_observer_enabled = None
     direct_reach_command_observer_enabled = None
     movement_command_provenance_observer_enabled = None
+    hazard_residence_command_transition_ledger_observer_enabled = None
     pawn_vision_cone_enabled = None
     pawn_vision_observer_enabled = None
     vector_nonfinite_observer_enabled = None
@@ -3483,6 +3488,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             movement_command_provenance_observer_enabled = _boolean(
                 raw.get("movement_command_provenance_observer_enabled"),
                 "manifest.movement_command_provenance_observer_enabled")
+        if "hazard_residence_command_transition_ledger_observer_enabled" in raw:
+            hazard_residence_command_transition_ledger_observer_enabled = _boolean(
+                raw.get("hazard_residence_command_transition_ledger_observer_enabled"),
+                "manifest.hazard_residence_command_transition_ledger_observer_enabled")
         if "pawn_vision_cone_enabled" in raw:
             pawn_vision_cone_enabled = _boolean(
                 raw.get("pawn_vision_cone_enabled"), "manifest.pawn_vision_cone_enabled")
@@ -3531,6 +3540,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              reachspec_capability_observer_enabled,
                              direct_reach_command_observer_enabled,
                              movement_command_provenance_observer_enabled,
+                             hazard_residence_command_transition_ledger_observer_enabled,
                              pawn_vision_cone_enabled,
                              pawn_vision_observer_enabled,
                              vector_nonfinite_observer_enabled,
@@ -3577,6 +3587,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "direct_reach_command_observer_enabled": direct_reach_command_observer_enabled,
         "movement_command_provenance_observer_enabled": (
             movement_command_provenance_observer_enabled),
+        "hazard_residence_command_transition_ledger_observer_enabled": (
+            hazard_residence_command_transition_ledger_observer_enabled),
         "pawn_vision_cone_enabled": pawn_vision_cone_enabled,
         "pawn_vision_observer_enabled": pawn_vision_observer_enabled,
         "vector_nonfinite_observer_enabled": vector_nonfinite_observer_enabled,
@@ -5744,6 +5756,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["movement_command_provenance_observer_enabled"] = _boolean(
             config.get("movement_command_provenance_observer_enabled"),
             "summary.config.movement_command_provenance_observer_enabled")
+    if manifest["hazard_residence_command_transition_ledger_observer_enabled"] is not None:
+        comparisons["hazard_residence_command_transition_ledger_observer_enabled"] = _boolean(
+            config.get("hazard_residence_command_transition_ledger_observer_enabled"),
+            "summary.config.hazard_residence_command_transition_ledger_observer_enabled")
     if manifest["pawn_vision_cone_enabled"] is not None:
         comparisons["pawn_vision_cone_enabled"] = _boolean(
             config.get("pawn_vision_cone_enabled"), "summary.config.pawn_vision_cone_enabled")
@@ -6570,6 +6586,8 @@ def analyze_run(path: Path) -> dict[str, Any]:
                 manifest["reachspec_capability_observer_enabled"]),
             "movement_command_provenance_observer_enabled": (
                 manifest["movement_command_provenance_observer_enabled"]),
+            "hazard_residence_command_transition_ledger_observer_enabled": (
+                manifest["hazard_residence_command_transition_ledger_observer_enabled"]),
             "pawn_vision_cone_enabled": manifest["pawn_vision_cone_enabled"],
             "pawn_vision_observer_enabled": manifest["pawn_vision_observer_enabled"],
             "vector_nonfinite_observer_enabled": (

@@ -466,6 +466,34 @@ class BotQualityAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(QUALITY.QualityError, "manifest.pawn_vision_cone_enabled"):
                 QUALITY._validate_manifest(manifest_path)
 
+    def test_hazard_residence_command_transition_ledger_is_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "hazard-command-ledger")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            policies = ["tactical-state", "utility-arena"]
+            manifest["shadow_policy_set"] = policies
+            manifest["native_path_commit_observer_enabled"] = True
+            manifest["movement_command_provenance_observer_enabled"] = True
+            manifest["hazard_residence_command_transition_ledger_observer_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], shadow_policy_set=policies,
+                native_path_commit_observer_enabled=True,
+                movement_command_provenance_observer_enabled=True,
+                hazard_residence_command_transition_ledger_observer_enabled=True)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            parsed = QUALITY._validate_manifest(manifest_path)
+            self.assertTrue(parsed["hazard_residence_command_transition_ledger_observer_enabled"])
+
+            manifest["hazard_residence_command_transition_ledger_observer_enabled"] = False
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
     def test_vector_nonfinite_observer_is_default_off_and_bound_into_manifest_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             run = write_v2_run(Path(temporary), "vector-nonfinite-observer")
