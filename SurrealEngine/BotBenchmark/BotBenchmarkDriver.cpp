@@ -1471,6 +1471,12 @@ namespace
 						observation.CallerOrigin);
 					record.RejectReason = PawnMovement::DirectReachCommandRejectReasonName(
 						observation.RejectReason);
+					record.TargetIsInventory = observation.TargetIsInventory;
+					record.MarkerKnown = observation.MarkerKnown;
+					record.MarkerLive = observation.MarkerLive;
+					record.MarkerActorIndex = observation.MarkerActorIndex;
+					record.MarkerName = observation.MarkerName;
+					record.MarkerClass = observation.MarkerClass;
 					counters.PendingDirectReachCommandRecords.push_back(std::move(record));
 					counters.DirectReachCommandObservationsExact++;
 					if (observation.Reached)
@@ -3045,6 +3051,12 @@ namespace
 							observation.CallerOrigin);
 						record.RejectReason = PawnMovement::DirectReachCommandRejectReasonName(
 							observation.RejectReason);
+						record.TargetIsInventory = observation.TargetIsInventory;
+						record.MarkerKnown = observation.MarkerKnown;
+						record.MarkerLive = observation.MarkerLive;
+						record.MarkerActorIndex = observation.MarkerActorIndex;
+						record.MarkerName = observation.MarkerName;
+						record.MarkerClass = observation.MarkerClass;
 						runtime.DirectReachCommandObservationsExact++;
 						if (observation.Reached)
 							runtime.DirectReachCommandSuccessesExact++;

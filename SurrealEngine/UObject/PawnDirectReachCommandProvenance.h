@@ -70,6 +70,13 @@ namespace PawnMovement
 		const void* TargetAddress = nullptr;
 		std::string TargetName;
 		std::string TargetClass;
+		bool TargetIsInventory = false;
+		bool MarkerKnown = false;
+		bool MarkerLive = false;
+		int32_t MarkerActorIndex = -1;
+		const void* MarkerAddress = nullptr;
+		std::string MarkerName;
+		std::string MarkerClass;
 		bool Reached = false;
 		bool CheckNavpoint = false;
 		DirectReachCommandCallerOrigin CallerOrigin =

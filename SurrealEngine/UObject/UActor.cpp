@@ -4132,6 +4132,8 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint,
 	{
 		if (!observeDirectReachCommand)
 			return;
+		UInventory* inventoryTarget = UObject::TryCast<UInventory>(anActor);
+		UNavigationPoint* marker = inventoryTarget ? inventoryTarget->myMarker() : nullptr;
 		RecordDirectReachCommandObservation({
 			.LifeId = DirectReachCommandLifeId(),
 			.NativeTick = engine->BotBenchmarkObserverTick(),
@@ -4139,6 +4141,13 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint,
 			.TargetAddress = anActor,
 			.TargetName = anActor ? anActor->Name.ToString() : std::string(),
 			.TargetClass = anActor && anActor->Class ? anActor->Class->Name.ToString() : std::string(),
+			.TargetIsInventory = inventoryTarget != nullptr,
+			.MarkerKnown = marker != nullptr,
+			.MarkerLive = marker && !marker->bDeleteMe(),
+			.MarkerActorIndex = marker ? marker->Index : -1,
+			.MarkerAddress = marker,
+			.MarkerName = marker ? marker->Name.ToString() : std::string(),
+			.MarkerClass = marker && marker->Class ? marker->Class->Name.ToString() : std::string(),
 			.Reached = reached,
 			.CheckNavpoint = checkNavpoint,
 			.CallerOrigin = callerOrigin,
@@ -7077,16 +7086,32 @@ void UPawn::RecordMoveStallRecoveryDecision(PawnMovement::MoveStallLatentMode la
 	record.Sequence = ++MoveStallRecoveryDecisionRecordSequence;
 	record.LifeId = MoveStallRecoveryLifeId;
 	record.EpisodeId = MoveStallRecoveryEpisodeId;
+	record.NativeTick = engine->BotBenchmarkObserverTick();
 	record.LatentMode = latentMode;
 	record.Decision = decision;
+	record.NoProgressSeconds = MoveStallWatchdog.NoProgressSeconds;
+	record.ProgressRadius = moveStallProgressRadius;
+	const vec2 noProgressDelta = Location().xy() - MoveStallWatchdog.Anchor.xy();
+	record.NoProgressDisplacement = length(noProgressDelta);
 	record.MoveTargetKnown = moveTarget != nullptr;
 	record.MoveTargetLive = moveTarget && !moveTarget->bDeleteMe();
 	if (moveTarget)
 	{
+		record.MoveTargetActorIndex = moveTarget->Index;
+		record.MoveTargetAddress = moveTarget;
 		record.MoveTargetName = moveTarget->Name.ToString();
 		if (moveTarget->Class)
 			record.MoveTargetClass = moveTarget->Class->Name.ToString();
 	}
+	UInventory* inventoryTarget = UObject::TryCast<UInventory>(moveTarget);
+	UNavigationPoint* marker = inventoryTarget ? inventoryTarget->myMarker() : nullptr;
+	record.MoveTargetIsInventory = inventoryTarget != nullptr;
+	record.MarkerKnown = marker != nullptr;
+	record.MarkerLive = marker && !marker->bDeleteMe();
+	record.MarkerActorIndex = marker ? marker->Index : -1;
+	record.MarkerAddress = marker;
+	record.MarkerName = marker ? marker->Name.ToString() : std::string();
+	record.MarkerClass = marker && marker->Class ? marker->Class->Name.ToString() : std::string();
 	record.MoveTimer = MoveTimer();
 	if (MoveStallRecoveryDecisionRecords.size() < maximumQueuedRecords)
 		MoveStallRecoveryDecisionRecords.push_back(std::move(record));

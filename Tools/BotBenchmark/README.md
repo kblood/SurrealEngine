@@ -178,6 +178,20 @@ it does not yet justify a behavioral route policy. It also emits only
 contextual last-commit links at hazard-entry and death-counter transitions; a
 link is not a causal label or authorization for an intervention.
 
+`Analyze-DirectInventoryRetryChains.py` requires both direct-reach and native
+path-commit observers, zero record overflows, and one same-life chain: a
+successful script `ActorReachable` verdict for a live inventory target, a full
+no-progress watchdog stall for that exact target and marker, a same-target
+reissue within one deterministic tick, and a non-truncated native route commit
+ending at the marker on the reissue tick. It is evidence only; it never
+authorizes a direct-reach rejection, cooldown, or routing change.
+
+```powershell
+python .\Tools\BotBenchmark\Analyze-DirectInventoryRetryChains.py `
+  .\qa\runs\owner-local-run `
+  --output .\qa\runs\owner-local-run\direct-inventory-retry-chain.json
+```
+
 Move-stall detections additionally emit bounded decision-time records in each
 bot's telemetry event. `move_stall_recovery_decisions` records the selector
 input and result before a recovery can write movement state. The quality

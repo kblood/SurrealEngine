@@ -92,6 +92,12 @@ struct BotBenchmarkDirectReachCommandRecord
 	uint64_t NativeTick = 0;
 	std::string CallerOrigin;
 	std::string RejectReason;
+	bool TargetIsInventory = false;
+	bool MarkerKnown = false;
+	bool MarkerLive = false;
+	int32_t MarkerActorIndex = -1;
+	std::string MarkerName;
+	std::string MarkerClass;
 };
 
 struct BotBenchmarkBotState

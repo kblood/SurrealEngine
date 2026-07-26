@@ -143,12 +143,25 @@ struct PawnMoveStallRecoveryDecisionRecord
 	uint64_t Sequence = 0;
 	uint64_t LifeId = 0;
 	uint64_t EpisodeId = 0;
+	uint64_t NativeTick = 0;
 	PawnMovement::MoveStallLatentMode LatentMode = PawnMovement::MoveStallLatentMode::Other;
 	PawnMovement::MoveStallRecoveryDecision Decision =
 		PawnMovement::MoveStallRecoveryDecision::None;
+	float NoProgressSeconds = 0.0f;
+	float NoProgressDisplacement = 0.0f;
+	float ProgressRadius = 0.0f;
 	bool MoveTargetKnown = false;
 	bool MoveTargetLive = false;
+	int32_t MoveTargetActorIndex = -1;
+	const void* MoveTargetAddress = nullptr;
 	std::string MoveTargetName;
 	std::string MoveTargetClass;
+	bool MoveTargetIsInventory = false;
+	bool MarkerKnown = false;
+	bool MarkerLive = false;
+	int32_t MarkerActorIndex = -1;
+	const void* MarkerAddress = nullptr;
+	std::string MarkerName;
+	std::string MarkerClass;
 	float MoveTimer = 0.0f;
 };

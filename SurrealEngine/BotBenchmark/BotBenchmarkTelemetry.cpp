@@ -367,12 +367,24 @@ namespace
 			<< ",\"sequence\":\"" << record.Sequence
 			<< "\",\"life_id\":\"" << record.LifeId
 			<< "\",\"episode_id\":\"" << record.EpisodeId
+			<< "\",\"native_tick\":\"" << record.NativeTick
 			<< "\",\"latent_mode\":" << JsonString(MoveStallLatentModeName(record.LatentMode))
 			<< ",\"decision\":" << JsonString(MoveStallRecoveryDecisionName(record.Decision))
+			<< ",\"no_progress_seconds\":" << Fixed(record.NoProgressSeconds, 9)
+			<< ",\"no_progress_displacement\":" << Fixed(record.NoProgressDisplacement, 9)
+			<< ",\"progress_radius\":" << Fixed(record.ProgressRadius, 9)
 			<< ",\"move_target_known\":" << (record.MoveTargetKnown ? "true" : "false")
 			<< ",\"move_target_live\":" << (record.MoveTargetLive ? "true" : "false")
+			<< ",\"move_target_actor_index\":" << record.MoveTargetActorIndex
 			<< ",\"move_target_name\":" << JsonString(record.MoveTargetName)
 			<< ",\"move_target_class\":" << JsonString(record.MoveTargetClass)
+			<< ",\"move_target_is_inventory\":"
+			<< (record.MoveTargetIsInventory ? "true" : "false")
+			<< ",\"marker_known\":" << (record.MarkerKnown ? "true" : "false")
+			<< ",\"marker_live\":" << (record.MarkerLive ? "true" : "false")
+			<< ",\"marker_actor_index\":" << record.MarkerActorIndex
+			<< ",\"marker_name\":" << JsonString(record.MarkerName)
+			<< ",\"marker_class\":" << JsonString(record.MarkerClass)
 			<< ",\"move_timer\":" << Fixed(record.MoveTimer, 9) << '}';
 	}
 
@@ -848,6 +860,13 @@ namespace
 					<< "\",\"target_actor_index\":" << record.TargetActorIndex
 					<< ",\"target_name\":" << JsonString(record.TargetName)
 					<< ",\"target_class\":" << JsonString(record.TargetClass)
+					<< ",\"target_is_inventory\":"
+					<< (record.TargetIsInventory ? "true" : "false")
+					<< ",\"marker_known\":" << (record.MarkerKnown ? "true" : "false")
+					<< ",\"marker_live\":" << (record.MarkerLive ? "true" : "false")
+					<< ",\"marker_actor_index\":" << record.MarkerActorIndex
+					<< ",\"marker_name\":" << JsonString(record.MarkerName)
+					<< ",\"marker_class\":" << JsonString(record.MarkerClass)
 					<< ",\"reached\":" << (record.Reached ? "true" : "false")
 					<< ",\"check_navpoint\":" << (record.CheckNavpoint ? "true" : "false")
 					<< ",\"caller_origin\":" << JsonString(record.CallerOrigin)
