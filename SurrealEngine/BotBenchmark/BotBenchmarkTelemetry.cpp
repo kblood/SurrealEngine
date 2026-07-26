@@ -821,11 +821,15 @@ namespace
 				const auto& record = bot.DirectReachCommandRecords[index];
 				out << "{\"sequence\":\"" << record.Sequence
 					<< "\",\"life_id\":\"" << record.LifeId
+					<< "\",\"reach_sequence\":\"" << record.ReachSequence
+					<< "\",\"native_tick\":\"" << record.NativeTick
 					<< "\",\"target_actor_index\":" << record.TargetActorIndex
 					<< ",\"target_name\":" << JsonString(record.TargetName)
 					<< ",\"target_class\":" << JsonString(record.TargetClass)
 					<< ",\"reached\":" << (record.Reached ? "true" : "false")
 					<< ",\"check_navpoint\":" << (record.CheckNavpoint ? "true" : "false")
+					<< ",\"caller_origin\":" << JsonString(record.CallerOrigin)
+					<< ",\"reject_reason\":" << JsonString(record.RejectReason)
 					<< ",\"resolved_wall_slide\":"
 					<< (record.ResolvedWallSlide ? "true" : "false")
 					<< ",\"walking_simulation_iterations\":"

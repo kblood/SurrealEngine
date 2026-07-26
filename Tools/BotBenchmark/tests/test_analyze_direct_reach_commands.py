@@ -32,13 +32,18 @@ COUNTERS = {
 
 def record(status: str = "same_life_exact", reached: bool = True, sequence: str = "1",
            terminal: str = "cleared", hazard_terminal_exact: bool = False,
-           activation_tick: str = "5", terminal_tick: str = "6") -> dict:
+           activation_tick: str = "5", terminal_tick: str = "6",
+           native_tick: str = "4", caller_origin: str = "script_actor_reachable",
+           reject_reason: str | None = None) -> dict:
     result = {
-        "sequence": sequence, "life_id": "1", "target_actor_index": 7,
+        "sequence": sequence, "life_id": "1", "reach_sequence": sequence,
+        "native_tick": native_tick, "target_actor_index": 7,
         "target_name": "PAmmo1", "target_class": "Botpack.Ammo", "reached": reached,
         "check_navpoint": False, "resolved_wall_slide": False,
         "walking_simulation_iterations": 1, "latent_action": "MoveToward",
         "route_head_present": False, "link_status": status,
+        "caller_origin": caller_origin,
+        "reject_reason": reject_reason or ("reached" if reached else "walk_simulation"),
     }
     if status == "same_life_exact":
         result.update(activation_tick=activation_tick, terminal_tick=terminal_tick,
@@ -144,6 +149,16 @@ class DirectReachCommandTests(unittest.TestCase):
             root = Path(temp)
             write_run(root, records=[record(activation_tick="7", terminal_tick="6")])
             with self.assertRaisesRegex(ANALYZE.DirectReachCommandError, "precedes activation"):
+                ANALYZE.analyze(root)
+
+    def test_rejects_same_tick_activation_or_non_script_origin(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_run(root, records=[record(native_tick="5")])
+            with self.assertRaisesRegex(ANALYZE.DirectReachCommandError, "later benchmark sample"):
+                ANALYZE.analyze(root)
+            write_run(root, records=[record(caller_origin="unknown")])
+            with self.assertRaisesRegex(ANALYZE.DirectReachCommandError, "non-script caller origin"):
                 ANALYZE.analyze(root)
 
     def test_rejects_terminal_counter_partition_mismatch(self) -> None:

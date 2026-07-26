@@ -28,9 +28,29 @@ LINK_STATUSES = {
     "same_life_exact",
     "not_reached",
     "unavailable_life_boundary",
+    "unavailable_caller_origin",
     "unavailable_no_active_direct_command",
     "unavailable_route_head",
     "unavailable_target_replaced",
+}
+CALLER_ORIGINS = {
+    "script_actor_reachable",
+    "path_special_handling",
+    "find_path_to_end_point",
+    "find_random_dest",
+    "unknown",
+}
+REJECT_REASONS = {
+    "null_actor",
+    "distance",
+    "navpoint_reachspec",
+    "pain_zone",
+    "water",
+    "trace",
+    "check_location",
+    "walk_simulation",
+    "unsupported_physics",
+    "reached",
 }
 TERMINALS = {
     "hazardous_death",
@@ -77,8 +97,14 @@ def _strict_count(value: Any, context: str) -> int:
 
 
 def _validate_same_life_terminal(record: dict[str, Any], context: str) -> None:
+    if record.get("caller_origin") != "script_actor_reachable":
+        raise DirectReachCommandError(f"{context}: same-life link has a non-script caller origin")
+    native_tick = _strict_count(record.get("native_tick"), f"{context}: native_tick")
     activation_tick = _strict_count(record.get("activation_tick"),
                                     f"{context}: activation_tick")
+    if activation_tick <= native_tick:
+        raise DirectReachCommandError(
+            f"{context}: activation is not from a later benchmark sample")
     terminal_tick = _strict_count(record.get("terminal_tick"),
                                   f"{context}: terminal_tick")
     if terminal_tick < activation_tick:
@@ -148,10 +174,19 @@ def analyze(run: Path) -> dict[str, Any]:
                 if sequence != sequences[identity] + 1:
                     raise DirectReachCommandError(f"events line {event_index} {identity}: record sequence is not contiguous")
                 sequences[identity] = sequence
+                _strict_count(record.get("reach_sequence"), "record reach_sequence")
+                _strict_count(record.get("native_tick"), "record native_tick")
                 if not isinstance(record.get("reached"), bool):
                     raise DirectReachCommandError(f"events line {event_index} {identity}: record reached is invalid")
                 if record.get("link_status") not in LINK_STATUSES:
                     raise DirectReachCommandError(f"events line {event_index} {identity}: record link status is invalid")
+                if record.get("caller_origin") not in CALLER_ORIGINS:
+                    raise DirectReachCommandError(f"events line {event_index} {identity}: caller origin is invalid")
+                if record.get("reject_reason") not in REJECT_REASONS:
+                    raise DirectReachCommandError(f"events line {event_index} {identity}: reject reason is invalid")
+                if record["reached"] != (record["reject_reason"] == "reached"):
+                    raise DirectReachCommandError(
+                        f"events line {event_index} {identity}: result and reject reason disagree")
                 if record["link_status"] == "same_life_exact" and not record["reached"]:
                     raise DirectReachCommandError(f"events line {event_index} {identity}: false reach was linked")
                 if record["link_status"] == "same_life_exact":

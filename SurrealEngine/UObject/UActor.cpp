@@ -4043,10 +4043,43 @@ bool UActor::IsOSVer2kOrXP()
 
 /////////////////////////////////////////////////////////////////////////////
 
-bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
+bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint,
+	PawnMovement::DirectReachCommandCallerOrigin callerOrigin)
 {
+	const int mode = Physics();
+	const bool observeDirectReachCommand =
+		engine->IsBotBenchmarkDirectReachCommandObserverEnabled()
+		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
+		&& mode == PHYS_Walking
+		&& (!anActor || (!UObject::TryCast<UPawn>(anActor)
+			&& !UObject::TryCast<UNavigationPoint>(anActor)));
+	auto recordDirectReachCommand = [&](bool reached,
+		PawnMovement::DirectReachCommandRejectReason rejectReason,
+		bool resolvedWallSlide = false, int walkingSimulationIterations = 0)
+	{
+		if (!observeDirectReachCommand)
+			return;
+		RecordDirectReachCommandObservation({
+			.LifeId = DirectReachCommandLifeId(),
+			.NativeTick = engine->BotBenchmarkObserverTick(),
+			.TargetActorIndex = anActor ? anActor->Index : -1,
+			.TargetAddress = anActor,
+			.TargetName = anActor ? anActor->Name.ToString() : std::string(),
+			.TargetClass = anActor && anActor->Class ? anActor->Class->Name.ToString() : std::string(),
+			.Reached = reached,
+			.CheckNavpoint = checkNavpoint,
+			.CallerOrigin = callerOrigin,
+			.RejectReason = rejectReason,
+			.ResolvedWallSlide = resolvedWallSlide,
+			.WalkingSimulationIterations = walkingSimulationIterations
+		});
+	};
 	if (!anActor)
+	{
+		recordDirectReachCommand(false,
+			PawnMovement::DirectReachCommandRejectReason::NullActor);
 		return false;
+	}
 
 	UPawn* aPawn = UObject::TryCast<UPawn>(anActor);
 
@@ -4056,7 +4089,11 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 		vec3 delta = anActor->Location() - Location();
 		float dist2 = dot(delta, delta);
 		if (dist2 > 1000.0f * 1000.0f)
+		{
+			recordDirectReachCommand(false,
+				PawnMovement::DirectReachCommandRejectReason::Distance);
 			return false;
+		}
 	}
 
 	// Navpoints may not be reachable at all according to reachspecs
@@ -4127,7 +4164,11 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 			}
 
 			if (!couldBeReachable)
+			{
+				recordDirectReachCommand(false,
+					PawnMovement::DirectReachCommandRejectReason::NavpointReachSpec);
 				return false;
+			}
 		}
 	}
 
@@ -4135,37 +4176,52 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 	if (aPawn)
 	{
 		if (aPawn->FootRegion().Zone->bPainZone() && aPawn->FootRegion().Zone->DamageType() != ReducedDamageType())
+		{
+			recordDirectReachCommand(false,
+				PawnMovement::DirectReachCommandRejectReason::PainZone);
 			return false;
+		}
 	}
 	else
 	{
 		if (anActor->Region().Zone->bPainZone() && anActor->Region().Zone->DamageType() != ReducedDamageType())
+		{
+			recordDirectReachCommand(false,
+				PawnMovement::DirectReachCommandRejectReason::PainZone);
 			return false;
+		}
 	}
 
 	// If the actor is in the water and we can't swim we can't go there
 	if (anActor->Region().Zone->bWaterZone() && !bCanSwim())
+	{
+		recordDirectReachCommand(false,
+			PawnMovement::DirectReachCommandRejectReason::Water);
 		return false;
+	}
 
 	vec3 eyePos = Location();
 	eyePos.z += BaseEyeHeight();
 
 	// If we can't see the actor we can't go there
 	if (!FastTrace(anActor->Location(), eyePos))
+	{
+		recordDirectReachCommand(false,
+			PawnMovement::DirectReachCommandRejectReason::Trace);
 		return false;
+	}
 
 	// If we can't stand at the actor location we can't go there
 	if (!CheckLocation(anActor->Location(), CollisionRadius(), CollisionHeight(), bCollideWorld() || bCollideWhenPlacing()).first)
+	{
+		recordDirectReachCommand(false,
+			PawnMovement::DirectReachCommandRejectReason::CheckLocation);
 		return false;
+	}
 
 	// Try simulate movement to see if we can get to the actor
-	int mode = Physics();
 	if (mode == PHYS_Walking)
 	{
-		const bool observeDirectReachCommand =
-			engine->IsBotBenchmarkDirectReachCommandObserverEnabled()
-			&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority
-			&& !aPawn && !UObject::TryCast<UNavigationPoint>(anActor);
 		UInventory* inventoryTarget = UObject::TryCast<UInventory>(anActor);
 		const bool observeInventoryDirectReach =
 			engine->IsBotBenchmarkInventoryDirectReachSupportObserverEnabled()
@@ -4292,20 +4348,10 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 			InventoryMarkerDirectReachRejectCountValue++;
 			reached = false;
 		}
-		if (observeDirectReachCommand)
-		{
-			RecordDirectReachCommandObservation({
-				.LifeId = DirectReachCommandLifeId(),
-				.TargetActorIndex = anActor->Index,
-				.TargetAddress = anActor,
-				.TargetName = anActor->Name.ToString(),
-				.TargetClass = anActor->Class ? anActor->Class->Name.ToString() : std::string(),
-				.Reached = reached,
-				.CheckNavpoint = checkNavpoint,
-				.ResolvedWallSlide = resolvedWallSlide,
-				.WalkingSimulationIterations = completedWalkingSimulationIterations
-			});
-		}
+		recordDirectReachCommand(reached, reached
+			? PawnMovement::DirectReachCommandRejectReason::Reached
+			: PawnMovement::DirectReachCommandRejectReason::WalkSimulation,
+			resolvedWallSlide, completedWalkingSimulationIterations);
 
 		Location() = oldLocation;
 		return reached;
@@ -4358,6 +4404,8 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 	{
 		// Hopefully not a physics mode the bots use when calling ActorReachable
 		LogUnimplemented("ActorReachable called for unsupported physics mode");
+		recordDirectReachCommand(false,
+			PawnMovement::DirectReachCommandRejectReason::UnsupportedPhysics);
 		return false;
 	}
 }
@@ -4851,7 +4899,8 @@ UActor* UPawn::PathSpecialHandling(const PawnPathEndPointResult& result,
 
 		if (bestPoint && bestPoint != oldBestPoint)
 		{
-			if (!ActorReachable(bestPoint))
+			if (!ActorReachable(bestPoint, false,
+				PawnMovement::DirectReachCommandCallerOrigin::PathSpecialHandling))
 			{
 				bestPoint = UObject::Cast<UActor>(FindPathToward(bestPoint, false));
 			}
@@ -5083,7 +5132,8 @@ UObject* UPawn::FindRandomDest()
 		if (dot(d, d) > maxDist * maxDist)
 			continue; // Ignore things too far away
 
-		if (!ActorReachable(navPoint))
+		if (!ActorReachable(navPoint, false,
+			PawnMovement::DirectReachCommandCallerOrigin::FindPathToEndPoint))
 			continue;
 
 		navPoint->bEndPoint() = true;
@@ -5152,7 +5202,8 @@ bool UPawn::MarkReachableNavEndPoints()
 			if (dot(d, d) > maxDist * maxDist)
 				continue; // Ignore things too far away
 
-			if (!ActorReachable(navPoint))
+			if (!ActorReachable(navPoint, false,
+				PawnMovement::DirectReachCommandCallerOrigin::FindPathToEndPoint))
 				continue;
 
 			navPoint->bEndPoint() = true;

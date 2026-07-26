@@ -77,6 +77,10 @@ struct BotBenchmarkDirectReachCommandRecord
 	uint64_t TerminalTick = 0;
 	std::string Terminal;
 	bool HazardTerminalExact = false;
+	uint64_t ReachSequence = 0;
+	uint64_t NativeTick = 0;
+	std::string CallerOrigin;
+	std::string RejectReason;
 };
 
 struct BotBenchmarkBotState

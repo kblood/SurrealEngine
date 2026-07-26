@@ -168,6 +168,7 @@ namespace
 				EngineRef.LevelInfo->Millisecond() = wallClock.Millisecond;
 
 				EngineRef.SetPause(false);
+				EngineRef.SetBotBenchmarkObserverTick(frameTime.Tick);
 				CallEvent(EngineRef.console, EventName::Tick, { ExpressionValue::FloatValue(levelElapsed) });
 				if (EngineRef.LaunchInfo.ue1Version >= 436)
 				{
@@ -332,6 +333,8 @@ namespace
 				PendingDirectReachCommandRecords;
 			std::vector<BotBenchmarkDirectReachCommandRecord>
 				OpenDirectReachCommandRecords;
+			std::vector<PawnMovement::DirectReachCommandObservation>
+				PendingDirectReachCommandObservations;
 			std::vector<PawnMovement::WalkingHitWallDispatchDiagnosticRecord>
 				PendingWalkingHitWallDispatchDiagnostics;
 			std::vector<PawnMovement::WalkingStepPreflightPositiveDpsVetoActionRecord>
@@ -1380,13 +1383,20 @@ namespace
 					std::make_move_iterator(routePathCommitRecords.end()));
 				for (const auto& observation : directReachCommandObservations)
 				{
-					counters.PendingDirectReachCommandRecords.push_back({
+					BotBenchmarkDirectReachCommandRecord record{
 						counters.NextDirectReachCommandSequence++, observation.LifeId,
 						observation.TargetActorIndex, observation.TargetAddress,
 						observation.TargetName,
 						observation.TargetClass, observation.Reached, observation.CheckNavpoint,
 						observation.ResolvedWallSlide, observation.WalkingSimulationIterations,
-						std::string(), false, "unavailable_life_boundary" });
+						std::string(), false, "unavailable_life_boundary" };
+					record.ReachSequence = observation.Sequence;
+					record.NativeTick = observation.NativeTick;
+					record.CallerOrigin = PawnMovement::DirectReachCommandCallerOriginName(
+						observation.CallerOrigin);
+					record.RejectReason = PawnMovement::DirectReachCommandRejectReasonName(
+						observation.RejectReason);
+					counters.PendingDirectReachCommandRecords.push_back(std::move(record));
 					counters.DirectReachCommandObservationsExact++;
 					if (observation.Reached)
 						counters.DirectReachCommandSuccessesExact++;
@@ -2895,7 +2905,27 @@ namespace
 						&& pawn->RouteCache()[0] != nullptr;
 					UActor* moveTarget = pawn->MoveTarget();
 					CloseReplacedDirectReachCommands(runtime, pawn, bot, routeHeadPresent, Ticks);
-					for (const auto& observation : directReachCommandObservations)
+					std::vector<PawnMovement::DirectReachCommandObservation>
+						directReachCommandObservationsReady;
+					std::vector<PawnMovement::DirectReachCommandObservation>
+						stillPendingDirectReachCommandObservations;
+					for (auto& observation : runtime.PendingDirectReachCommandObservations)
+					{
+						if (observation.NativeTick < Ticks)
+							directReachCommandObservationsReady.push_back(std::move(observation));
+						else
+							stillPendingDirectReachCommandObservations.push_back(std::move(observation));
+					}
+					runtime.PendingDirectReachCommandObservations =
+						std::move(stillPendingDirectReachCommandObservations);
+					for (auto& observation : directReachCommandObservations)
+					{
+						if (observation.NativeTick < Ticks)
+							directReachCommandObservationsReady.push_back(std::move(observation));
+						else
+							runtime.PendingDirectReachCommandObservations.push_back(std::move(observation));
+					}
+					for (const auto& observation : directReachCommandObservationsReady)
 					{
 						const bool targetMatches = moveTarget && !moveTarget->bDeleteMe()
 							&& moveTarget->Index == observation.TargetActorIndex
@@ -2905,6 +2935,9 @@ namespace
 							linkStatus = "not_reached";
 						else if (observation.LifeId != pawn->DirectReachCommandLifeId())
 							linkStatus = "unavailable_life_boundary";
+						else if (observation.CallerOrigin !=
+							PawnMovement::DirectReachCommandCallerOrigin::ScriptActorReachable)
+							linkStatus = "unavailable_caller_origin";
 						else if (!activeDirectCommand)
 							linkStatus = "unavailable_no_active_direct_command";
 						else if (routeHeadPresent)
@@ -2921,6 +2954,12 @@ namespace
 							observation.ResolvedWallSlide, observation.WalkingSimulationIterations,
 							bot.LatentAction, routeHeadPresent, std::move(linkStatus), Ticks, 0,
 							std::string(), false };
+						record.ReachSequence = observation.Sequence;
+						record.NativeTick = observation.NativeTick;
+						record.CallerOrigin = PawnMovement::DirectReachCommandCallerOriginName(
+							observation.CallerOrigin);
+						record.RejectReason = PawnMovement::DirectReachCommandRejectReasonName(
+							observation.RejectReason);
 						runtime.DirectReachCommandObservationsExact++;
 						if (observation.Reached)
 							runtime.DirectReachCommandSuccessesExact++;

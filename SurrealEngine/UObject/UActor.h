@@ -2334,7 +2334,9 @@ public:
 	// Similar to LineOfSightTo() but takes the Pawn's peripheral vision into account (SightRadius and PeripheralVision)
 	bool CanSee(UActor* other);
 	bool CanHearNoise(UActor* source, float loudness);
-	bool ActorReachable(UActor* anActor, bool checkNavpoint = false);
+	bool ActorReachable(UActor* anActor, bool checkNavpoint = false,
+		PawnMovement::DirectReachCommandCallerOrigin callerOrigin =
+			PawnMovement::DirectReachCommandCallerOrigin::Unknown);
 	bool PointReachable(vec3 aPoint);
 
 	void ClientHearSound(UActor* actor, int id, USound* sound, const vec3& soundLocation, const vec3& parameters);

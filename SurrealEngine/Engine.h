@@ -234,6 +234,8 @@ public:
 	{
 		botBenchmarkDirectReachCommandObserverEnabled = enabled;
 	}
+	uint64_t BotBenchmarkObserverTick() const { return botBenchmarkObserverTick; }
+	void SetBotBenchmarkObserverTick(uint64_t tick) { botBenchmarkObserverTick = tick; }
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -419,6 +421,7 @@ private:
 	bool botBenchmarkInventoryMarkerDirectReachSafetyEnabled = false;
 	bool botBenchmarkNativePathCommitObserverEnabled = false;
 	bool botBenchmarkDirectReachCommandObserverEnabled = false;
+	uint64_t botBenchmarkObserverTick = 0;
 	ViewFamily CreateDesktopViewFamily() const;
 	void InstallXRWeaponCallHook();
 	void UninstallXRWeaponCallHook();
