@@ -711,6 +711,33 @@ namespace
 		bool inventoryDirectReachSupportObserverRequested,
 		bool directReachCommandObserverRequested)
 	{
+		// Keep the telemetry's fail-closed finite-number contract, but attach
+		// enough provenance for a failed deterministic run to identify the live
+		// pawn field that first became invalid.  This is diagnostics only: the
+		// state has already been sampled and no game state is changed here.
+		const auto requireFinite = [&](double value, const char* field)
+		{
+			if (!std::isfinite(value))
+			{
+				throw std::invalid_argument("bot benchmark telemetry observed non-finite "
+					+ std::string(field) + " for " + bot.Identity + " (" + bot.Actor + ")");
+			}
+		};
+		requireFinite(bot.PositionX, "position.x");
+		requireFinite(bot.PositionY, "position.y");
+		requireFinite(bot.PositionZ, "position.z");
+		requireFinite(bot.VelocityX, "velocity.x");
+		requireFinite(bot.VelocityY, "velocity.y");
+		requireFinite(bot.VelocityZ, "velocity.z");
+		requireFinite(bot.AccelerationX, "acceleration.x");
+		requireFinite(bot.AccelerationY, "acceleration.y");
+		requireFinite(bot.AccelerationZ, "acceleration.z");
+		requireFinite(bot.DestinationX, "destination.x");
+		requireFinite(bot.DestinationY, "destination.y");
+		requireFinite(bot.DestinationZ, "destination.z");
+		requireFinite(bot.MoveTimer, "move_timer");
+		requireFinite(bot.Score, "score");
+		requireFinite(bot.PriDeaths, "pri_deaths");
 		out << "{\"identity\":" << JsonString(bot.Identity)
 			<< ",\"actor\":" << JsonString(bot.Actor)
 			<< ",\"player_name\":" << JsonString(bot.PlayerName)
@@ -1647,11 +1674,23 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 	{
 		if (index != 0)
 			out << ',';
-		WriteBot(out, event.Bots[index], event.TargetSelectionObserverRequested,
-			event.PickTargetObserverRequested,
-			event.WarnTargetObserverRequested,
-			event.InventoryDirectReachSupportObserverRequested,
-			event.DirectReachCommandObserverRequested);
+		try
+		{
+			WriteBot(out, event.Bots[index], event.TargetSelectionObserverRequested,
+				event.PickTargetObserverRequested,
+				event.WarnTargetObserverRequested,
+				event.InventoryDirectReachSupportObserverRequested,
+				event.DirectReachCommandObserverRequested);
+		}
+		catch (const std::invalid_argument& error)
+		{
+			// Nested diagnostic records are also subject to Fixed().  They do not
+			// all have a direct field name at this layer, but their participant
+			// provenance is still required to reproduce the failing bot life.
+			throw std::invalid_argument(std::string(error.what())
+				+ " while serializing " + event.Bots[index].Identity
+				+ " (" + event.Bots[index].Actor + ")");
+		}
 	}
 	out << "]}\n";
 	return out.str();

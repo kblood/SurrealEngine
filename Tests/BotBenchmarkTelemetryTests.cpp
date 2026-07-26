@@ -1084,12 +1084,13 @@ int main(int argc, char** argv)
 		event.Bots.front().VerticalPainColumnDiagnostics = { start };
 		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
 	}
-	catch (const std::invalid_argument&)
+	catch (const std::invalid_argument& error)
 	{
-		rejectedHazardNonFinite = true;
+		rejectedHazardNonFinite = std::string(error.what()).find(event.Bots.front().Identity)
+			!= std::string::npos;
 	}
 	if (!rejectedHazardNonFinite)
-		return Fail("falling hazard diagnostics accepted non-finite elapsed evidence");
+		return Fail("falling hazard diagnostics omitted bot provenance for non-finite elapsed evidence");
 	event.Bots.front().VerticalPainColumnDiagnostics.clear();
 
 	bool rejectedNonFinite = false;
@@ -1098,12 +1099,13 @@ int main(int argc, char** argv)
 		event.Bots.front().VelocityX = std::numeric_limits<double>::infinity();
 		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
 	}
-	catch (const std::invalid_argument&)
+	catch (const std::invalid_argument& error)
 	{
-		rejectedNonFinite = true;
+		rejectedNonFinite = std::string(error.what()).find("velocity.x") != std::string::npos
+			&& std::string(error.what()).find(event.Bots.front().Identity) != std::string::npos;
 	}
 	if (!rejectedNonFinite)
-		return Fail("bot benchmark telemetry accepted a non-finite number");
+		return Fail("bot benchmark telemetry did not identify a non-finite bot field");
 
 	rejectedNonFinite = false;
 	try
