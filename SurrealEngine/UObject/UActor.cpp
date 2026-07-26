@@ -23,6 +23,7 @@
 #include "PawnHazardWaterEgressRouteCertificate.h"
 #include "PawnFallingAirRecoverySelector.h"
 #include "PawnFallingHitWallCallbackWitness.h"
+#include "BotBenchmark/BotPickTargetPredicateContract.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
 #include "BotAI/FallingHazardRecoveryGate.h"
 #include "BotAI/HazardSwimEgressGate.h"
@@ -4855,17 +4856,21 @@ UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, 
 	bool teamGame = ourPlayerInfo && Level()->Game()->bTeamGame();
 	for (UPawn* pawn = Level()->PawnList(); pawn != nullptr; pawn = pawn->nextPawn())
 	{
+		const bool living = pawn->Health() > 0;
+		const bool rejectedByCurrentPredicate =
+			BotPickTargetPredicateContract::ShouldRejectPawn(pawn == this, living);
 		if (observe)
 		{
 			observation.CandidatePawns++;
 			if (pawn == this)
 				observation.SelfRejects++;
-			else if (pawn->Health() <= 0)
+			else if (!living)
 				observation.DeadRejects++;
 			else
 			{
 				observation.LivingCandidates++;
-				observation.LivingSkippedByCurrentPredicate++;
+				if (rejectedByCurrentPredicate)
+					observation.LivingSkippedByCurrentPredicate++;
 				auto pawnPlayerInfo = engine->LaunchInfo.ue1Version > 219 ?
 					pawn->PlayerReplicationInfo() : nullptr;
 				if (teamGame && pawnPlayerInfo && ourPlayerInfo->Team() == pawnPlayerInfo->Team())
@@ -4885,8 +4890,7 @@ UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, 
 				}
 			}
 		}
-		// Skip dead pawns or ourselves
-		if (pawn == this || pawn->Health() > 0)
+		if (rejectedByCurrentPredicate)
 			continue;
 
 		// Skip team mates

@@ -2,6 +2,8 @@
 
 #include "BotBenchmarkAiFrameTiming.h"
 
+#include "BotPickTargetPredicateContract.h"
+
 #include "BotBenchmarkRoster.h"
 
 #include <cstddef>
@@ -73,6 +75,10 @@ public:
 	}
 	bool IsTargetSelectionObserverEnabled() const { return TargetSelectionObserverEnabled; }
 	bool IsPickTargetObserverEnabled() const { return PickTargetObserverEnabled; }
+	const char* GetPickTargetPredicateMode() const
+	{
+		return BotPickTargetPredicateContract::ModeName(BotPickTargetPredicateContract::CurrentMode);
+	}
 	bool IsWarnTargetObserverEnabled() const { return WarnTargetObserverEnabled; }
 	bool IsInventoryDirectReachSupportObserverEnabled() const
 	{

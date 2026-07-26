@@ -3044,6 +3044,7 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                direct_actor_move_toward_timeout_enabled: bool | None = None,
                target_selection_observer_enabled: bool | None = None,
                pick_target_observer_enabled: bool | None = None,
+               pick_target_predicate_mode: str | None = None,
                warn_target_observer_enabled: bool | None = None,
                inventory_direct_reach_support_observer_enabled: bool | None = None,
                inventory_marker_direct_reach_safety_enabled: bool | None = None,
@@ -3088,6 +3089,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if pick_target_observer_enabled is not None:
             canonical_text += "pick_target_observer_enabled=" + (
                 "1\n" if pick_target_observer_enabled else "0\n")
+        if pick_target_predicate_mode is not None:
+            canonical_text += f"pick_target_predicate_mode={pick_target_predicate_mode}\n"
         if warn_target_observer_enabled is not None:
             canonical_text += "warn_target_observer_enabled=" + (
                 "1\n" if warn_target_observer_enabled else "0\n")
@@ -3236,6 +3239,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     direct_actor_move_toward_timeout_enabled = None
     target_selection_observer_enabled = None
     pick_target_observer_enabled = None
+    pick_target_predicate_mode = None
     warn_target_observer_enabled = None
     inventory_direct_reach_support_observer_enabled = None
     inventory_marker_direct_reach_safety_enabled = None
@@ -3296,6 +3300,14 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             pick_target_observer_enabled = _boolean(
                 raw.get("pick_target_observer_enabled"),
                 "manifest.pick_target_observer_enabled")
+        if pick_target_observer_enabled is True:
+            pick_target_predicate_mode = _string(
+                raw, "pick_target_predicate_mode", "manifest", nonempty=True)
+            if pick_target_predicate_mode not in ("stock", "fixed"):
+                raise QualityError(f"{path}: PickTarget predicate mode is not recognized")
+        elif "pick_target_predicate_mode" in raw:
+            raise QualityError(
+                f"{path}: PickTarget predicate mode requires the PickTarget observer")
         if "warn_target_observer_enabled" in raw:
             warn_target_observer_enabled = _boolean(
                 raw.get("warn_target_observer_enabled"),
@@ -3330,6 +3342,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              direct_actor_move_toward_timeout_enabled,
                              target_selection_observer_enabled,
                              pick_target_observer_enabled,
+                             pick_target_predicate_mode,
                              warn_target_observer_enabled,
                              inventory_direct_reach_support_observer_enabled,
                              inventory_marker_direct_reach_safety_enabled,
@@ -3362,6 +3375,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "direct_actor_move_toward_timeout_enabled": direct_actor_move_toward_timeout_enabled,
         "target_selection_observer_enabled": target_selection_observer_enabled,
         "pick_target_observer_enabled": pick_target_observer_enabled,
+        "pick_target_predicate_mode": pick_target_predicate_mode,
         "warn_target_observer_enabled": warn_target_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             inventory_direct_reach_support_observer_enabled),
@@ -3372,7 +3386,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     }
 
 
-def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
+def _validate_bot(raw: Any, context: str, schema: str,
+                  pick_target_predicate_mode: str | None = None) -> dict[str, Any]:
     bot = _object(raw, context)
     if schema != TELEMETRY_SCHEMA_V2 and any(name in bot for name in (
             "walking_step_preflight_diagnostics", "falling_parity_realized_records",
@@ -4049,9 +4064,9 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                 if parsed["self_rejects"] + parsed["dead_rejects"] + \
                         parsed["living_candidates"] != parsed["candidate_pawns"]:
                     raise QualityError(f"{record_context}: candidate partition does not reconcile")
-                if parsed["living_skipped_by_current_predicate"] != 0:
+                if pick_target_predicate_mode is None:
                     raise QualityError(
-                        f"{record_context}: fixed PickTarget predicate must not skip living pawns")
+                        f"{record_context}: PickTarget records require declared predicate mode provenance")
                 if parsed["team_rejects"] > parsed["living_candidates"] \
                         or parsed["living_geometry_eligible"] > \
                         parsed["living_candidates"] - parsed["team_rejects"] \
@@ -4059,12 +4074,26 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                     raise QualityError(f"{record_context}: living-candidate eligibility is inconsistent")
                 if parsed["returned_living_target"] and not parsed["returned_target"]:
                     raise QualityError(f"{record_context}: a living result requires a result")
-                if parsed["returned_target"] and not parsed["returned_living_target"]:
+                if pick_target_predicate_mode == "fixed":
+                    if parsed["living_skipped_by_current_predicate"] != 0:
+                        raise QualityError(
+                            f"{record_context}: fixed PickTarget predicate must not skip living pawns")
+                    if parsed["returned_target"] and not parsed["returned_living_target"]:
+                        raise QualityError(
+                            f"{record_context}: fixed PickTarget predicate must return a living pawn")
+                    if parsed["no_result_with_living_line_of_sight_candidate"]:
+                        raise QualityError(
+                            f"{record_context}: fixed PickTarget predicate missed a living LOS candidate")
+                elif pick_target_predicate_mode == "stock":
+                    if parsed["living_skipped_by_current_predicate"] != parsed["living_candidates"]:
+                        raise QualityError(
+                            f"{record_context}: stock PickTarget predicate must skip every living pawn")
+                    if parsed["returned_living_target"]:
+                        raise QualityError(
+                            f"{record_context}: stock PickTarget predicate must not return a living pawn")
+                else:
                     raise QualityError(
-                        f"{record_context}: fixed PickTarget predicate must return a living pawn")
-                if parsed["no_result_with_living_line_of_sight_candidate"]:
-                    raise QualityError(
-                        f"{record_context}: fixed PickTarget predicate missed a living LOS candidate")
+                        f"{record_context}: PickTarget predicate mode is not recognized")
                 if not parsed["returned_target"] and (parsed["selected_actor"] or parsed["selected_class"]):
                     raise QualityError(f"{record_context}: absent result must not identify a selection")
                 if parsed["returned_target"] and (not parsed["selected_actor"] or not parsed["selected_class"]):
@@ -4374,7 +4403,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 "status": status,
                 "failure_reason": _string(raw, "failure_reason", context),
                 "schema": schema,
-                "bots": [_validate_bot(item, f"{context}.bots[{index}]", schema)
+                "bots": [_validate_bot(item, f"{context}.bots[{index}]", schema,
+                                       manifest.get("pick_target_predicate_mode"))
                          for index, item in enumerate(raw.get("bots", []))],
             }
             observer_requested = manifest.get("target_selection_observer_enabled") is True
@@ -4932,6 +4962,9 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["direct_reach_command_observer_enabled"] = _boolean(
             config.get("direct_reach_command_observer_enabled"),
             "summary.config.direct_reach_command_observer_enabled")
+    if manifest["pick_target_predicate_mode"] is not None:
+        comparisons["pick_target_predicate_mode"] = _string(
+            config, "pick_target_predicate_mode", "summary.config", nonempty=True)
     requested_roster = None
     actual_roster = None
     if expected_schema == SUMMARY_SCHEMA_V2:

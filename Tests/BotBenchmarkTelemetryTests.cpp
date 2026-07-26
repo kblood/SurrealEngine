@@ -94,6 +94,15 @@ int main()
 	{
 		return Fail("direct-reach command observer selection was not distinct and enabled");
 	}
+	const BotBenchmarkRunConfig pickTargetObserverEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), {}, {}, {}, {}, {},
+		{}, {}, {}, {}, {}, {}, {}, {}, {}, std::string("1"));
+	if (!pickTargetObserverEnabled.IsPickTargetObserverEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(pickTargetObserverEnabled) == configId)
+	{
+		return Fail("PickTarget observer predicate provenance was not bound into configuration identity");
+	}
 	const BotBenchmarkRunSummary summary("complete", 0, 72, 1.44, "Unreal Tournament",
 		"436", "DM-Test", "", {});
 	if (summary.ToJson(controlEnabled).find("\"harmful_zone_escape_enabled\": true")
@@ -114,6 +123,13 @@ int main()
 	if (summary.ToJson(directReachCommandObserverEnabled).find(
 		"\"direct_reach_command_observer_enabled\": true") == std::string::npos)
 		return Fail("bot benchmark summary did not retain direct-reach command observer mode");
+	if (summary.ToJson(pickTargetObserverEnabled).find(
+		"\"pick_target_predicate_mode\": \"stock\"") == std::string::npos
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(pickTargetObserverEnabled).find(
+			"\"pick_target_predicate_mode\": \"stock\"") == std::string::npos)
+	{
+		return Fail("PickTarget observer predicate provenance was not serialized");
+	}
 	bool rejectedInvalidControl = false;
 	try
 	{

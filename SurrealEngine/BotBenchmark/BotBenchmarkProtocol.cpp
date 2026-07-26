@@ -386,7 +386,11 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< (config.IsTargetSelectionObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"pick_target_observer_enabled\": "
 		<< (config.IsPickTargetObserverEnabled() ? "true" : "false") << ",\n"
-		<< "    \"warn_target_observer_enabled\": "
+		;
+	if (config.IsPickTargetObserverEnabled())
+		out << "    \"pick_target_predicate_mode\": "
+			<< JsonString(config.GetPickTargetPredicateMode()) << ",\n";
+	out << "    \"warn_target_observer_enabled\": "
 		<< (config.IsWarnTargetObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"inventory_direct_reach_support_observer_enabled\": "
 		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "true" : "false") << ",\n"

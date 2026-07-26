@@ -3436,10 +3436,27 @@ class BotQualityAnalysisTests(unittest.TestCase):
             manifest_path = run / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["pick_target_observer_enabled"] = True
+            manifest["pick_target_predicate_mode"] = "fixed"
             manifest["config_id"] = QUALITY._config_id(
                 manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
                 manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
-                manifest["requested_roster"], pick_target_observer_enabled=True)
+                manifest["requested_roster"], pick_target_observer_enabled=True,
+                pick_target_predicate_mode="fixed")
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            summary_path = run / "summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["config"]["pick_target_predicate_mode"] = "fixed"
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+
+            missing_mode = dict(manifest)
+            missing_mode.pop("pick_target_predicate_mode")
+            manifest_path.write_text(json.dumps(missing_mode) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "predicate_mode"):
+                QUALITY.analyze([run])
+            unknown_mode = {**manifest, "pick_target_predicate_mode": "unknown"}
+            manifest_path.write_text(json.dumps(unknown_mode) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "predicate mode is not recognized"):
+                QUALITY.analyze([run])
             manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
             upgrade_telemetry_v2(run, counters=[zero, final, final])
             events_path = run / "events.jsonl"
@@ -3479,6 +3496,64 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
                 encoding="utf-8")
             with self.assertRaisesRegex(QUALITY.QualityError, "missed a living LOS candidate"):
+                QUALITY.analyze([run])
+
+            stock_witness = {
+                **witness,
+                "living_skipped_by_current_predicate": 3,
+                "returned_target": False,
+                "returned_living_target": False,
+                "no_result_with_living_line_of_sight_candidate": True,
+                "selected_actor": "",
+                "selected_class": "",
+            }
+            stock_final = {
+                **final,
+                "pick_target_living_skipped_by_current_predicate_exact": 3,
+                "pick_target_returned_targets_exact": 0,
+                "pick_target_returned_living_targets_exact": 0,
+                "pick_target_no_result_with_living_line_of_sight_candidate_exact": 1,
+            }
+            manifest["pick_target_predicate_mode"] = "stock"
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], pick_target_observer_enabled=True,
+                pick_target_predicate_mode="stock")
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["config"]["pick_target_predicate_mode"] = "stock"
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            upgrade_telemetry_v2(run, counters=[zero, stock_final, stock_final])
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+                event["pick_target_observer"] = {"requested": True, "status": "active"}
+                for bot in event["bots"]:
+                    bot["pick_target_records"] = []
+            events[1]["bots"][0]["pick_target_records"] = [stock_witness]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            QUALITY.analyze([run])
+
+            invalid_stock = {**stock_witness, "living_skipped_by_current_predicate": 2}
+            invalid_stock_final = {
+                **stock_final,
+                "pick_target_living_skipped_by_current_predicate_exact": 2,
+            }
+            upgrade_telemetry_v2(run, counters=[zero, invalid_stock_final, invalid_stock_final])
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+                event["pick_target_observer"] = {"requested": True, "status": "active"}
+                for bot in event["bots"]:
+                    bot["pick_target_records"] = []
+            events[1]["bots"][0]["pick_target_records"] = [invalid_stock]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "stock PickTarget predicate must skip"):
                 QUALITY.analyze([run])
 
 
