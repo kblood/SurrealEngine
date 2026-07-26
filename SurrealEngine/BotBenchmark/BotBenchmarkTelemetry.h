@@ -75,6 +75,7 @@ struct BotBenchmarkPickTargetRecord
 	uint32_t CandidatePawns = 0;
 	uint32_t SelfRejects = 0;
 	uint32_t DeadRejects = 0;
+	uint32_t LivingCandidates = 0;
 	uint32_t LivingSkippedByCurrentPredicate = 0;
 	uint32_t TeamRejects = 0;
 	uint32_t LivingGeometryEligible = 0;
@@ -165,6 +166,7 @@ struct BotBenchmarkBotState
 	uint64_t PickTargetCandidatesExact = 0;
 	uint64_t PickTargetSelfRejectsExact = 0;
 	uint64_t PickTargetDeadRejectsExact = 0;
+	uint64_t PickTargetLivingCandidatesExact = 0;
 	uint64_t PickTargetLivingSkippedByCurrentPredicateExact = 0;
 	uint64_t PickTargetTeamRejectsExact = 0;
 	uint64_t PickTargetLivingGeometryEligibleExact = 0;

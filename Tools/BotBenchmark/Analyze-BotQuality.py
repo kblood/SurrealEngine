@@ -512,6 +512,7 @@ PICK_TARGET_COUNTERS = (
     "pick_target_candidates_exact",
     "pick_target_self_rejects_exact",
     "pick_target_dead_rejects_exact",
+    "pick_target_living_candidates_exact",
     "pick_target_living_skipped_by_current_predicate_exact",
     "pick_target_team_rejects_exact",
     "pick_target_living_geometry_eligible_exact",
@@ -3968,6 +3969,8 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                                                      f"{record_context}.self_rejects", minimum=0),
                     "dead_rejects": _strict_integer(item.get("dead_rejects"),
                                                      f"{record_context}.dead_rejects", minimum=0),
+                    "living_candidates": _strict_integer(item.get("living_candidates"),
+                                                          f"{record_context}.living_candidates", minimum=0),
                     "living_skipped_by_current_predicate": _strict_integer(
                         item.get("living_skipped_by_current_predicate"),
                         f"{record_context}.living_skipped_by_current_predicate", minimum=0),
@@ -3992,21 +3995,24 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                     "selected_class": _string(item, "selected_class", record_context),
                 }
                 if parsed["self_rejects"] + parsed["dead_rejects"] + \
-                        parsed["living_skipped_by_current_predicate"] != parsed["candidate_pawns"]:
+                        parsed["living_candidates"] != parsed["candidate_pawns"]:
                     raise QualityError(f"{record_context}: candidate partition does not reconcile")
-                if parsed["team_rejects"] > parsed["living_skipped_by_current_predicate"] \
+                if parsed["living_skipped_by_current_predicate"] != 0:
+                    raise QualityError(
+                        f"{record_context}: fixed PickTarget predicate must not skip living pawns")
+                if parsed["team_rejects"] > parsed["living_candidates"] \
                         or parsed["living_geometry_eligible"] > \
-                        parsed["living_skipped_by_current_predicate"] - parsed["team_rejects"] \
+                        parsed["living_candidates"] - parsed["team_rejects"] \
                         or parsed["living_line_of_sight_eligible"] > parsed["living_geometry_eligible"]:
                     raise QualityError(f"{record_context}: living-candidate eligibility is inconsistent")
                 if parsed["returned_living_target"] and not parsed["returned_target"]:
                     raise QualityError(f"{record_context}: a living result requires a result")
-                if parsed["returned_living_target"]:
+                if parsed["returned_target"] and not parsed["returned_living_target"]:
                     raise QualityError(
-                        f"{record_context}: current PickTarget predicate cannot return a living pawn")
-                if parsed["no_result_with_living_line_of_sight_candidate"] and \
-                        (parsed["returned_target"] or parsed["living_line_of_sight_eligible"] == 0):
-                    raise QualityError(f"{record_context}: no-result witness is inconsistent")
+                        f"{record_context}: fixed PickTarget predicate must return a living pawn")
+                if parsed["no_result_with_living_line_of_sight_candidate"]:
+                    raise QualityError(
+                        f"{record_context}: fixed PickTarget predicate missed a living LOS candidate")
                 if not parsed["returned_target"] and (parsed["selected_actor"] or parsed["selected_class"]):
                     raise QualityError(f"{record_context}: absent result must not identify a selection")
                 if parsed["returned_target"] and (not parsed["selected_actor"] or not parsed["selected_class"]):
@@ -4292,6 +4298,7 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                         "pick_target_candidates_exact": 0,
                         "pick_target_self_rejects_exact": 0,
                         "pick_target_dead_rejects_exact": 0,
+                        "pick_target_living_candidates_exact": 0,
                         "pick_target_living_skipped_by_current_predicate_exact": 0,
                         "pick_target_team_rejects_exact": 0,
                         "pick_target_living_geometry_eligible_exact": 0,
@@ -4304,6 +4311,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     bucket["pick_target_candidates_exact"] += record["candidate_pawns"]
                     bucket["pick_target_self_rejects_exact"] += record["self_rejects"]
                     bucket["pick_target_dead_rejects_exact"] += record["dead_rejects"]
+                    bucket["pick_target_living_candidates_exact"] += \
+                        record["living_candidates"]
                     bucket["pick_target_living_skipped_by_current_predicate_exact"] += \
                         record["living_skipped_by_current_predicate"]
                     bucket["pick_target_team_rejects_exact"] += record["team_rejects"]

@@ -788,6 +788,8 @@ namespace
 				<< ",\"pick_target_candidates_exact\":\"" << bot.PickTargetCandidatesExact << "\""
 				<< ",\"pick_target_self_rejects_exact\":\"" << bot.PickTargetSelfRejectsExact << "\""
 				<< ",\"pick_target_dead_rejects_exact\":\"" << bot.PickTargetDeadRejectsExact << "\""
+				<< ",\"pick_target_living_candidates_exact\":\""
+				<< bot.PickTargetLivingCandidatesExact << "\""
 				<< ",\"pick_target_living_skipped_by_current_predicate_exact\":\""
 				<< bot.PickTargetLivingSkippedByCurrentPredicateExact << "\""
 				<< ",\"pick_target_team_rejects_exact\":\"" << bot.PickTargetTeamRejectsExact << "\""
@@ -814,6 +816,7 @@ namespace
 					<< "\",\"candidate_pawns\":" << record.CandidatePawns
 					<< ",\"self_rejects\":" << record.SelfRejects
 					<< ",\"dead_rejects\":" << record.DeadRejects
+					<< ",\"living_candidates\":" << record.LivingCandidates
 					<< ",\"living_skipped_by_current_predicate\":"
 					<< record.LivingSkippedByCurrentPredicate
 					<< ",\"team_rejects\":" << record.TeamRejects

@@ -63,6 +63,29 @@ determinism. Use it for visual inspection, debugging, exhibition matches, and
 recording external video. Use `--headless-driver=bot-benchmark` for fast,
 fixed-step, machine-comparable quality runs.
 
+## PickTarget regression fixture
+
+`--headless-driver=bot-pick-target-fixture` is a separate, no-UCC regression
+fixture for the shared native `UPawn::PickTarget` path. It creates two
+controlled deathmatch bots, relocates them to visible `PlayerStart` positions,
+and passes only when the caller selects the other living bot with the native
+routine. It leaves ordinary benchmark and gameplay runs unchanged.
+
+Run it against each verified adapter with its native deathmatch map:
+
+```powershell
+SurrealEngine.exe --autoplay --headless-driver=bot-pick-target-fixture `
+  --botbench-url="DM-Deck16][?Game=Botpack.DeathMatchPlus" `
+  --botbench-output="C:\qa\ut-pick-target" "C:\Games\Unreal Tournament"
+
+SurrealEngine.exe --autoplay --headless-driver=bot-pick-target-fixture `
+  --botbench-url="DmDeathFan?Game=UnrealShare.DeathMatchGame" `
+  --botbench-output="C:\qa\unreal-pick-target" "C:\Games\Unreal Gold"
+```
+
+The fixture writes `pick-target-fixture-result.txt`, including the two actors,
+visible-candidate result, selected actor, and failure reason.
+
 The immutable configuration is parsed once from `--botbench-url`,
 `--botbench-output`, `--botbench-seed`, `--botbench-ticks`,
 `--botbench-fixed-delta`, and `--botbench-difficulty`. The optional roster

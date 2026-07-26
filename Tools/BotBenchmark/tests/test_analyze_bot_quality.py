@@ -3400,7 +3400,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(QUALITY.QualityError, "benchmark-only"):
             QUALITY._validate_ai_frame_timing(timing, "timing")
 
-    def test_pick_target_observer_rejects_living_result_under_current_predicate(self) -> None:
+    def test_pick_target_observer_requires_living_result_for_visible_candidate(self) -> None:
         zero = {
             "score": 0.0, "pri_deaths": 0.0, "movement_intent": False,
             "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
@@ -3411,22 +3411,24 @@ class BotQualityAnalysisTests(unittest.TestCase):
         }
         witness = {
             "sequence": "1", "candidate_pawns": 4, "self_rejects": 1,
-            "dead_rejects": 0, "living_skipped_by_current_predicate": 3,
+            "dead_rejects": 0, "living_candidates": 3,
+            "living_skipped_by_current_predicate": 0,
             "team_rejects": 0, "living_geometry_eligible": 1,
-            "living_line_of_sight_eligible": 1, "returned_target": False,
-            "returned_living_target": False,
-            "no_result_with_living_line_of_sight_candidate": True,
-            "integrity_valid": True, "selected_actor": "", "selected_class": "",
+            "living_line_of_sight_eligible": 1, "returned_target": True,
+            "returned_living_target": True,
+            "no_result_with_living_line_of_sight_candidate": False,
+            "integrity_valid": True, "selected_actor": "Bot2", "selected_class": "Botpack.Bot",
         }
         final = {
             **zero,
             "pick_target_observations_exact": 1,
             "pick_target_candidates_exact": 4,
             "pick_target_self_rejects_exact": 1,
-            "pick_target_living_skipped_by_current_predicate_exact": 3,
+            "pick_target_living_candidates_exact": 3,
             "pick_target_living_geometry_eligible_exact": 1,
             "pick_target_living_line_of_sight_eligible_exact": 1,
-            "pick_target_no_result_with_living_line_of_sight_candidate_exact": 1,
+            "pick_target_returned_targets_exact": 1,
+            "pick_target_returned_living_targets_exact": 1,
         }
         with tempfile.TemporaryDirectory() as temporary:
             run = write_v2_run(Path(temporary), "pick-target", bot_count=1)
@@ -3454,15 +3456,15 @@ class BotQualityAnalysisTests(unittest.TestCase):
 
             invalid = json.loads(json.dumps(witness))
             invalid.update({
-                "returned_target": True, "returned_living_target": True,
-                "no_result_with_living_line_of_sight_candidate": False,
-                "selected_actor": "Bot2", "selected_class": "Botpack.Bot",
+                "returned_target": False, "returned_living_target": False,
+                "no_result_with_living_line_of_sight_candidate": True,
+                "selected_actor": "", "selected_class": "",
             })
             invalid_final = {
                 **final,
-                "pick_target_returned_targets_exact": 1,
-                "pick_target_returned_living_targets_exact": 1,
-                "pick_target_no_result_with_living_line_of_sight_candidate_exact": 0,
+                "pick_target_returned_targets_exact": 0,
+                "pick_target_returned_living_targets_exact": 0,
+                "pick_target_no_result_with_living_line_of_sight_candidate_exact": 1,
             }
             upgrade_telemetry_v2(run, counters=[zero, invalid_final, invalid_final])
             events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
@@ -3475,7 +3477,7 @@ class BotQualityAnalysisTests(unittest.TestCase):
             events_path.write_text(
                 "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
                 encoding="utf-8")
-            with self.assertRaisesRegex(QUALITY.QualityError, "cannot return a living pawn"):
+            with self.assertRaisesRegex(QUALITY.QualityError, "missed a living LOS candidate"):
                 QUALITY.analyze([run])
 
 

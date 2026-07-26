@@ -14,6 +14,7 @@ namespace PawnMovement
 		uint32_t CandidatePawns = 0;
 		uint32_t SelfRejects = 0;
 		uint32_t DeadRejects = 0;
+		uint32_t LivingCandidates = 0;
 		uint32_t LivingSkippedByCurrentPredicate = 0;
 		uint32_t TeamRejects = 0;
 		uint32_t LivingGeometryEligible = 0;

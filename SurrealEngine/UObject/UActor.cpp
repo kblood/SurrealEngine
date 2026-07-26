@@ -4851,7 +4851,7 @@ UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, 
 				observation.DeadRejects++;
 			else
 			{
-				observation.LivingSkippedByCurrentPredicate++;
+				observation.LivingCandidates++;
 				auto pawnPlayerInfo = engine->LaunchInfo.ue1Version > 219 ?
 					pawn->PlayerReplicationInfo() : nullptr;
 				if (teamGame && pawnPlayerInfo && ourPlayerInfo->Team() == pawnPlayerInfo->Team())
@@ -4872,7 +4872,7 @@ UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, 
 			}
 		}
 		// Skip dead pawns or ourselves
-		if (pawn == this || pawn->Health() > 0)
+		if (pawn == this || pawn->Health() <= 0)
 			continue;
 
 		// Skip team mates
@@ -4893,6 +4893,9 @@ UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, 
 		observation.ReturnedLivingTarget = returnedPawn && returnedPawn->Health() > 0;
 		observation.NoResultWithLivingLineOfSightCandidate = !bestActor &&
 			observation.LivingLineOfSightEligible != 0;
+		observation.IntegrityValid = observation.IntegrityValid &&
+			(!observation.ReturnedTarget || observation.ReturnedLivingTarget) &&
+			!observation.NoResultWithLivingLineOfSightCandidate;
 		if (bestActor)
 		{
 			observation.IntegrityValid = observation.IntegrityValid && returnedPawn && !bestActor->bDeleteMe() &&

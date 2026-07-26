@@ -90,6 +90,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/BotBenchmark/BotInventoryRouteHandoffFixture.h
 	SurrealEngine/BotBenchmark/BotMoveStallRecoveryFixture.cpp
 	SurrealEngine/BotBenchmark/BotMoveStallRecoveryFixture.h
+	SurrealEngine/BotBenchmark/BotPickTargetFixture.cpp
+	SurrealEngine/BotBenchmark/BotPickTargetFixture.h
 	SurrealEngine/BotBenchmark/BotBenchmarkQualityObservation.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkQualityObservation.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttribution.cpp

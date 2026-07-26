@@ -2,6 +2,7 @@
 #include "BotBenchmarkDriver.h"
 #include "BotInventoryRouteHandoffFixture.h"
 #include "BotMoveStallRecoveryFixture.h"
+#include "BotPickTargetFixture.h"
 #include "BotWalkingHitWallCornerFixture.h"
 #include "BotControlledMatch.h"
 #include "BotBenchmarkGameProfile.h"
@@ -402,6 +403,7 @@ namespace
 			uint64_t PickTargetObservationsExact = 0;
 			uint64_t PickTargetSelfRejectsExact = 0;
 			uint64_t PickTargetDeadRejectsExact = 0;
+			uint64_t PickTargetLivingCandidatesExact = 0;
 			uint64_t PickTargetLivingSkippedByCurrentPredicateExact = 0;
 			uint64_t PickTargetTeamRejectsExact = 0;
 			uint64_t PickTargetLivingGeometryEligibleExact = 0;
@@ -2608,6 +2610,7 @@ namespace
 							runtime.PickTargetCandidatesExact += observation.CandidatePawns;
 							runtime.PickTargetSelfRejectsExact += observation.SelfRejects;
 							runtime.PickTargetDeadRejectsExact += observation.DeadRejects;
+							runtime.PickTargetLivingCandidatesExact += observation.LivingCandidates;
 							runtime.PickTargetLivingSkippedByCurrentPredicateExact +=
 								observation.LivingSkippedByCurrentPredicate;
 							runtime.PickTargetTeamRejectsExact += observation.TeamRejects;
@@ -2624,6 +2627,7 @@ namespace
 							runtime.PendingPickTargetRecords.push_back({ observation.Sequence,
 								observation.CandidatePawns, observation.SelfRejects,
 								observation.DeadRejects,
+								observation.LivingCandidates,
 								observation.LivingSkippedByCurrentPredicate, observation.TeamRejects,
 								observation.LivingGeometryEligible,
 								observation.LivingLineOfSightEligible, observation.ReturnedTarget,
@@ -2680,6 +2684,7 @@ namespace
 					bot.PickTargetCandidatesExact = runtime.PickTargetCandidatesExact;
 					bot.PickTargetSelfRejectsExact = runtime.PickTargetSelfRejectsExact;
 					bot.PickTargetDeadRejectsExact = runtime.PickTargetDeadRejectsExact;
+					bot.PickTargetLivingCandidatesExact = runtime.PickTargetLivingCandidatesExact;
 					bot.PickTargetLivingSkippedByCurrentPredicateExact =
 						runtime.PickTargetLivingSkippedByCurrentPredicateExact;
 					bot.PickTargetTeamRejectsExact = runtime.PickTargetTeamRejectsExact;
@@ -3418,6 +3423,7 @@ void RegisterBotBenchmarkDriver(HeadlessDriverRegistry& registry)
 	}
 	RegisterBotWalkingHitWallCornerFixtureDriver(registry);
 	RegisterBotMoveStallRecoveryFixtureDriver(registry);
+	RegisterBotPickTargetFixtureDriver(registry);
 	RegisterBotInventoryRouteHandoffFixtureDriver(registry);
 	RegisterMapCatalogDriver(registry);
 }
