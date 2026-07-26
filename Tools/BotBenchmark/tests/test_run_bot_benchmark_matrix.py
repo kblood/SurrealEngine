@@ -32,6 +32,7 @@ def write_manifest(
     requested_names: list[str] | None = None,
     harmful_zone_escape_enabled: bool | None = None,
     start_layouts: list[dict] | None = None,
+    map_start_layouts: list[dict] | None = None,
     release_provenance: bool = False,
 ) -> Path:
     game = root / "game"
@@ -60,7 +61,9 @@ def write_manifest(
         "timeout_seconds": 10,
         "repetitions": repetitions,
     }
-    if start_layouts is None:
+    if map_start_layouts is not None:
+        manifest["map_start_layouts"] = map_start_layouts
+    elif start_layouts is None:
         manifest["seeds"] = seeds or [104729]
     else:
         manifest["start_layouts"] = start_layouts
@@ -381,6 +384,93 @@ class MatrixRunnerTests(unittest.TestCase):
                     with self.assertRaises(MATRIX.MatrixError):
                         MATRIX.load_matrix(path)
 
+    def test_map_scoped_start_layouts_require_exact_complete_coverage_and_bind_identity(self) -> None:
+        map_a = "DM-A?Game=Botpack.DeathMatchPlus"
+        map_b = "DM-B?Game=Botpack.DeathMatchPlus"
+        fingerprint_a = "sha256:" + "a" * 64
+        fingerprint_b = "sha256:" + "b" * 64
+        fingerprint_c = "sha256:" + "c" * 64
+        layouts = [
+            {"map_url": map_a, "start_layouts": [
+                {"id": "opening", "seed": 104729, "expected_fingerprint": fingerprint_a},
+            ]},
+            {"map_url": map_b, "start_layouts": [
+                {"id": "opening", "seed": 104729, "expected_fingerprint": fingerprint_b},
+                {"id": "alternate", "seed": 271828, "expected_fingerprint": fingerprint_c},
+            ]},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = MATRIX.load_matrix(write_manifest(
+                root, maps=[map_a, map_b], map_start_layouts=layouts))
+            self.assertIsNone(config.start_layouts)
+            self.assertEqual([entry.map_url for entry in config.map_start_layouts or ()], [map_a, map_b])
+            cases = MATRIX.expand_cases(config)
+            self.assertEqual(len(cases), 6)
+            self.assertEqual(
+                [(case.map_url, case.start_layout.id, case.seed, case.variant.id) for case in cases],
+                [(map_a, "opening", 104729, "stock"),
+                 (map_a, "opening", 104729, "candidate"),
+                 (map_b, "opening", 104729, "stock"),
+                 (map_b, "opening", 104729, "candidate"),
+                 (map_b, "alternate", 271828, "stock"),
+                 (map_b, "alternate", 271828, "candidate")])
+            self.assertNotEqual(cases[0].pair_id, cases[2].pair_id)
+            self.assertNotEqual(cases[0].run_id, cases[2].run_id)
+
+            changed_layouts = json.loads(json.dumps(layouts))
+            changed_layouts[1]["start_layouts"][0]["expected_fingerprint"] = "sha256:" + "d" * 64
+            changed = MATRIX.load_matrix(write_manifest(
+                root, maps=[map_a, map_b], map_start_layouts=changed_layouts))
+            changed_cases = MATRIX.expand_cases(changed)
+            self.assertEqual(cases[0].pair_id, changed_cases[0].pair_id)
+            self.assertEqual(cases[0].run_id, changed_cases[0].run_id)
+            self.assertNotEqual(cases[2].pair_id, changed_cases[2].pair_id)
+            self.assertNotEqual(cases[2].run_id, changed_cases[2].run_id)
+
+            def launcher(command, timeout, stdout, stderr):
+                run = output_from_command(command)
+                for name in ("manifest.json", "events.jsonl", "summary.json"):
+                    (run / name).write_text("{}\n", encoding="utf-8")
+                return MATRIX.LaunchResult(0, False, 0.01)
+
+            def validator(run):
+                metadata = json.loads((run / "quality-metadata.json").read_text(encoding="utf-8"))
+                self.assertIn(metadata["map_url"], (map_a, map_b))
+                return {"initial_layout": {
+                    "fingerprint": metadata["expected_initial_layout_fingerprint"]}}
+
+            report = MATRIX.run_matrix(
+                config, root / "run", launcher=launcher, validator=validator)
+            self.assertEqual(report["status"], "passed")
+            self.assertEqual(
+                {(row["map_url"], row["start_layout_id"],
+                  row["expected_initial_layout_fingerprint"]) for row in report["runs"]},
+                {(map_a, "opening", fingerprint_a), (map_b, "opening", fingerprint_b),
+                 (map_b, "alternate", fingerprint_c)})
+
+            invalid_mutations = (
+                lambda document: document["map_start_layouts"][0].update(extra=True),
+                lambda document: document["map_start_layouts"][0].update(map_url="DM-Unknown"),
+                lambda document: document["map_start_layouts"].append(
+                    json.loads(json.dumps(document["map_start_layouts"][0]))),
+                lambda document: document["map_start_layouts"].pop(),
+                lambda document: document["map_start_layouts"][1]["start_layouts"][1].update(
+                    id="opening"),
+                lambda document: document.update(seeds=[104729]),
+                lambda document: document.update(start_layouts=[
+                    {"id": "global", "seed": 1,
+                     "expected_fingerprint": "sha256:" + "e" * 64}]),
+            )
+            for mutation in invalid_mutations:
+                with self.subTest(mutation=mutation):
+                    path = write_manifest(root, maps=[map_a, map_b], map_start_layouts=layouts)
+                    document = json.loads(path.read_text(encoding="utf-8"))
+                    mutation(document)
+                    path.write_text(json.dumps(document) + "\n", encoding="utf-8")
+                    with self.assertRaises(MATRIX.MatrixError):
+                        MATRIX.load_matrix(path)
+
     def test_observed_start_layout_is_recorded_and_mismatch_fails_closed(self) -> None:
         expected = "sha256:" + "c" * 64
         with tempfile.TemporaryDirectory() as temporary:
@@ -414,11 +504,11 @@ class MatrixRunnerTests(unittest.TestCase):
                                 for row in report["runs"]))
 
             rows = [
-                {"pair_id": "pair", "start_layout_id": "alpha",
+                {"pair_id": "pair", "map_url": "DM-A", "start_layout_id": "alpha",
                  "expected_initial_layout_fingerprint": expected,
                  "observed_initial_layout_fingerprint": expected,
                  "status": "passed", "errors": []},
-                {"pair_id": "pair", "start_layout_id": "alpha",
+                {"pair_id": "pair", "map_url": "DM-A", "start_layout_id": "alpha",
                  "expected_initial_layout_fingerprint": expected,
                  "observed_initial_layout_fingerprint": "sha256:" + "e" * 64,
                  "status": "passed", "errors": []},

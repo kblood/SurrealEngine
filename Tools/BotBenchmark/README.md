@@ -63,6 +63,34 @@ strict boolean that defaults to `false`; it selects the benchmark-only,
 default-off harmful-zone escape experiment and is included in deterministic run
 and pair IDs.
 
+`start_layouts` remains a global layout set and is applied to every map, which
+is appropriate only when each map has independently verified the same exact
+seed/fingerprint pairs. For multi-map qualification with map-specific observed
+starts, use `map_start_layouts` instead of both `seeds` and `start_layouts`:
+
+```json
+"map_start_layouts": [
+  {
+    "map_url": "DM-Morbias][?Game=Botpack.DeathMatchPlus",
+    "start_layouts": [
+      {"id": "primary", "seed": 104729, "expected_fingerprint": "sha256:<64 lowercase hex characters>"}
+    ]
+  },
+  {
+    "map_url": "DM-Deck16][?Game=Botpack.DeathMatchPlus",
+    "start_layouts": [
+      {"id": "primary", "seed": 271828, "expected_fingerprint": "sha256:<64 lowercase hex characters>"}
+    ]
+  }
+]
+```
+
+Every `map_start_layouts.map_url` must exactly match one `map_urls` entry, each
+map must appear exactly once, and IDs/seeds must be unique within that map. The
+map URL, layout ID, and expected fingerprint are all included in run and pair
+identity; a missing, unknown, duplicate, or mixed global/scoped declaration is
+rejected before any benchmark process is launched.
+
 ## Harmful-residence attribution
 
 For observer-enabled owner-local runs, reconstruct harmful-zone episodes with

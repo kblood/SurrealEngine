@@ -24,7 +24,7 @@ RESULT_SCHEMA = "surreal-bot-benchmark-matrix-results-v1"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 INVOCATION_SCHEMA = "surreal-bot-benchmark-invocation-v1"
 PROVENANCE_SCHEMA = "surreal-bot-benchmark-provenance-v1"
-TOOL_VERSION = 7
+TOOL_VERSION = 8
 MAX_CONCURRENCY = 64
 MAX_BOT_COUNT = 16
 
@@ -69,6 +69,12 @@ class StartLayout:
 
 
 @dataclass(frozen=True)
+class MapStartLayouts:
+    map_url: str
+    layouts: tuple[StartLayout, ...]
+
+
+@dataclass(frozen=True)
 class MatrixConfig:
     source: Path
     game_family: str
@@ -77,6 +83,7 @@ class MatrixConfig:
     map_urls: tuple[str, ...]
     seeds: tuple[int, ...]
     start_layouts: tuple[StartLayout, ...] | None
+    map_start_layouts: tuple[MapStartLayouts, ...] | None
     max_ticks: int
     fixed_delta: float
     difficulty: int
@@ -179,6 +186,31 @@ def _layout_fingerprint(value: Any, context: str) -> str:
     if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
         raise MatrixError(f"{context} must be a lowercase sha256: fingerprint")
     return value
+
+
+def _parse_start_layouts(value: Any, context: str) -> tuple[StartLayout, ...]:
+    if not isinstance(value, list) or not value:
+        raise MatrixError(f"{context} must be a non-empty array")
+    parsed_layouts: list[StartLayout] = []
+    for index, item in enumerate(value):
+        fields = _object(item, f"{context}[{index}]")
+        unknown = sorted(set(fields) - {"id", "seed", "expected_fingerprint"})
+        if unknown:
+            raise MatrixError(
+                f"{context}[{index}] contains unknown fields: " + ", ".join(unknown))
+        parsed_layouts.append(StartLayout(
+            _string(fields, "id", f"{context}[{index}]"),
+            _integer(fields.get("seed"), f"{context}[{index}].seed", 0),
+            _layout_fingerprint(
+                fields.get("expected_fingerprint"),
+                f"{context}[{index}].expected_fingerprint")))
+    layout_ids = [layout.id for layout in parsed_layouts]
+    if len(layout_ids) != len(set(layout_ids)):
+        raise MatrixError(f"{context} contains duplicate ids")
+    layout_seeds = [layout.seed for layout in parsed_layouts]
+    if len(layout_seeds) != len(set(layout_seeds)):
+        raise MatrixError(f"{context} contains duplicate seeds")
+    return tuple(parsed_layouts)
 
 
 def load_matrix(path: Path) -> MatrixConfig:
@@ -377,32 +409,42 @@ def load_matrix(path: Path) -> MatrixConfig:
     if len(map_urls) != len(set(map_urls)):
         raise MatrixError("matrix.map_urls contains duplicates; use repetitions instead")
     start_layouts_raw = raw.get("start_layouts")
+    map_start_layouts_raw = raw.get("map_start_layouts")
     start_layouts: tuple[StartLayout, ...] | None = None
-    if start_layouts_raw is not None:
+    map_start_layouts: tuple[MapStartLayouts, ...] | None = None
+    if sum(value is not None for value in (start_layouts_raw, map_start_layouts_raw)) > 1:
+        raise MatrixError("matrix.start_layouts and matrix.map_start_layouts are mutually exclusive")
+    if map_start_layouts_raw is not None:
+        if "seeds" in raw:
+            raise MatrixError("matrix.map_start_layouts and matrix.seeds are mutually exclusive")
+        if not isinstance(map_start_layouts_raw, list) or not map_start_layouts_raw:
+            raise MatrixError("matrix.map_start_layouts must be a non-empty array")
+        parsed_map_layouts: list[MapStartLayouts] = []
+        for index, item in enumerate(map_start_layouts_raw):
+            context = f"matrix.map_start_layouts[{index}]"
+            fields = _object(item, context)
+            unknown = sorted(set(fields) - {"map_url", "start_layouts"})
+            if unknown:
+                raise MatrixError(f"{context} contains unknown fields: " + ", ".join(unknown))
+            map_url = _string(fields, "map_url", context)
+            if map_url not in map_urls:
+                raise MatrixError(f"{context}.map_url is not an exact matrix.map_urls entry: {map_url!r}")
+            parsed_map_layouts.append(MapStartLayouts(
+                map_url, _parse_start_layouts(fields.get("start_layouts"), f"{context}.start_layouts")))
+        scoped_urls = [entry.map_url for entry in parsed_map_layouts]
+        if len(scoped_urls) != len(set(scoped_urls)):
+            raise MatrixError("matrix.map_start_layouts contains duplicate map_url entries")
+        missing_urls = [map_url for map_url in map_urls if map_url not in set(scoped_urls)]
+        if missing_urls:
+            raise MatrixError(
+                "matrix.map_start_layouts must declare every matrix.map_urls entry; missing: "
+                + ", ".join(repr(map_url) for map_url in missing_urls))
+        map_start_layouts = tuple(parsed_map_layouts)
+        parsed_seeds = ()
+    elif start_layouts_raw is not None:
         if "seeds" in raw:
             raise MatrixError("matrix.start_layouts and matrix.seeds are mutually exclusive")
-        if not isinstance(start_layouts_raw, list) or not start_layouts_raw:
-            raise MatrixError("matrix.start_layouts must be a non-empty array")
-        parsed_layouts: list[StartLayout] = []
-        for index, item in enumerate(start_layouts_raw):
-            fields = _object(item, f"matrix.start_layouts[{index}]")
-            unknown = sorted(set(fields) - {"id", "seed", "expected_fingerprint"})
-            if unknown:
-                raise MatrixError(
-                    f"matrix.start_layouts[{index}] contains unknown fields: " + ", ".join(unknown))
-            parsed_layouts.append(StartLayout(
-                _string(fields, "id", f"matrix.start_layouts[{index}]"),
-                _integer(fields.get("seed"), f"matrix.start_layouts[{index}].seed", 0),
-                _layout_fingerprint(
-                    fields.get("expected_fingerprint"),
-                    f"matrix.start_layouts[{index}].expected_fingerprint")))
-        layout_ids = [layout.id for layout in parsed_layouts]
-        if len(layout_ids) != len(set(layout_ids)):
-            raise MatrixError("matrix.start_layouts contains duplicate ids")
-        layout_seeds = [layout.seed for layout in parsed_layouts]
-        if len(layout_seeds) != len(set(layout_seeds)):
-            raise MatrixError("matrix.start_layouts contains duplicate seeds")
-        start_layouts = tuple(parsed_layouts)
+        start_layouts = _parse_start_layouts(start_layouts_raw, "matrix.start_layouts")
         parsed_seeds = tuple(layout.seed for layout in start_layouts)
     else:
         seeds = raw.get("seeds")
@@ -477,6 +519,7 @@ def load_matrix(path: Path) -> MatrixConfig:
         map_urls=tuple(map_urls),
         seeds=parsed_seeds,
         start_layouts=start_layouts,
+        map_start_layouts=map_start_layouts,
         max_ticks=max_ticks,
         fixed_delta=fixed_delta,
         difficulty=difficulty,
@@ -506,12 +549,23 @@ def _digest(fields: list[Any], length: int = 12) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:length]
 
 
+def _layouts_for_map(config: MatrixConfig, map_url: str) -> tuple[StartLayout | None, ...]:
+    if config.map_start_layouts is not None:
+        for entry in config.map_start_layouts:
+            if entry.map_url == map_url:
+                return entry.layouts
+        raise MatrixError(f"no map-scoped start layouts declared for {map_url!r}")
+    if config.start_layouts is not None:
+        return config.start_layouts
+    return tuple(None for _ in config.seeds)
+
+
 def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
     cases: list[MatrixCase] = []
     paired = any(variant.comparison_role for variant in config.variants)
     ordinal = 0
     for map_index, map_url in enumerate(config.map_urls):
-        layouts = config.start_layouts or tuple(None for _ in config.seeds)
+        layouts = _layouts_for_map(config, map_url)
         for layout_index, start_layout in enumerate(layouts):
             seed = start_layout.seed if start_layout is not None else config.seeds[layout_index]
             for repetition in range(config.repetitions):
@@ -847,6 +901,7 @@ def _run_case(
     metadata: dict[str, Any] = {
         "schema": METADATA_SCHEMA,
         "variant": case.variant.id,
+        "map_url": case.map_url,
         "falling_hazard_recovery_enabled": case.variant.falling_hazard_recovery_enabled,
         "falling_hazard_recovery_live_enabled": case.variant.falling_hazard_recovery_live_enabled,
         "targetless_move_to_timeout_enabled": case.variant.targetless_move_to_timeout_enabled,
@@ -1091,9 +1146,10 @@ def _validate_paired_start_layouts(rows: list[dict[str, Any]]) -> None:
         if any(row["status"] != "passed" for row in pair_rows):
             continue
         layout_ids = {row["start_layout_id"] for row in pair_rows}
+        map_urls = {row["map_url"] for row in pair_rows}
         expected = {row["expected_initial_layout_fingerprint"] for row in pair_rows}
         observed = {row["observed_initial_layout_fingerprint"] for row in pair_rows}
-        if len(layout_ids) != 1 or len(expected) != 1 or len(observed) != 1:
+        if len(map_urls) != 1 or len(layout_ids) != 1 or len(expected) != 1 or len(observed) != 1:
             for row in pair_rows:
                 row["status"] = "failed"
                 row["errors"].append(
