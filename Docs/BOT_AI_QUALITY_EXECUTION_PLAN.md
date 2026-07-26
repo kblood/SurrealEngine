@@ -3424,3 +3424,27 @@ hit and callback boundary for the northeast trajectory, then either extend the
 predictor with a demonstrably exact callback model or retain the no-action
 result. A generic `HitWall` approximation, an anchor heuristic, and any
 navigation-endpoint veto remain disallowed.
+
+## Iteration 133: viable trajectory has a measured no-op callback boundary
+
+The v13 fixture records a bounded snapshot immediately before and after each
+static-world falling `HitWall` callback. A witness is certifiable only when both
+states remain falling and have finite location, velocity, acceleration,
+destination, focus, and move timer; it compares those fields plus
+`bJustTeleported`, latent state, and movement target. The record is disabled by
+default and exists only while the fixture enables its observer flag. Its pure
+decision rule has dedicated unit coverage.
+
+On two independent DeathFan repetitions, the viable northeast direction has
+one static-world callback, exactly one `ExactNoOp` witness, and zero observed
+mutations. The fixture now fails if a northeast safe landing lacks that complete
+witness. Both runs remain forecast-unselected because the predictor correctly
+does not assume callback semantics:
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v13-hitwall-callback-witness/r1/`
+and `.../r2/`.
+
+This proves a callback fact only for this exact Unreal Gold 226b stock-bot
+trajectory. It does **not** authorize a generic no-op rule, a UT rule, or live
+recovery steering. The next work must identify a scoped callback certificate
+that can be established before committing a maneuver, then test its predicted
+and realized trajectories on both target games.

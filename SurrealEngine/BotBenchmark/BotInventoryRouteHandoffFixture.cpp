@@ -122,7 +122,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v12\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v13\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -150,6 +150,7 @@ namespace
 			<< "live_navigation_anchor_recovery_harmful_entry=" << (result.LiveNavigationAnchorRecoveryHarmfulEntry ? "true" : "false") << "\n"
 			<< "live_navigation_forecast_selected=" << (result.LiveNavigationForecastSelected ? "true" : "false") << "\n"
 			<< "live_navigation_forecast_selected_direction_live_safe=" << (result.LiveNavigationForecastSelectedDirectionLiveSafe ? "true" : "false") << "\n"
+			<< "live_navigation_northeast_safe_landing=" << (result.LiveNavigationNortheastSafeLanding ? "true" : "false") << "\n"
 			<< "pawn_actor=" << result.PawnActor << "\n"
 			<< "marker_actor=" << result.MarkerActor << "\n"
 			<< "inventory_actor=" << result.InventoryActor << "\n"
@@ -173,6 +174,9 @@ namespace
 			<< "live_navigation_air_recovery_directions_tested=" << result.LiveNavigationAirRecoveryDirectionsTested << "\n"
 			<< "live_navigation_air_recovery_safe_landings=" << result.LiveNavigationAirRecoverySafeLandings << "\n"
 			<< "live_navigation_forecast_certified_landings=" << result.LiveNavigationForecastCertifiedLandings << "\n"
+			<< "live_navigation_northeast_static_hitwall_callback_witnesses=" << result.LiveNavigationNortheastStaticHitWallCallbackWitnesses << "\n"
+			<< "live_navigation_northeast_static_hitwall_callback_exact_noops=" << result.LiveNavigationNortheastStaticHitWallCallbackExactNoOps << "\n"
+			<< "live_navigation_northeast_static_hitwall_callback_mutations=" << result.LiveNavigationNortheastStaticHitWallCallbackMutations << "\n"
 			<< "first_live_navigation_air_recovery_safe_direction=" << result.FirstLiveNavigationAirRecoverySafeDirection << "\n"
 			<< "live_navigation_forecast_selected_direction=" << result.LiveNavigationForecastSelectedDirection << "\n"
 			<< "live_navigation_forecast_outcomes=" << result.LiveNavigationForecastOutcomes << "\n"
@@ -243,6 +247,7 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 	vec3 originalAcceleration;
 	uint8_t originalPhysics = PHYS_None;
 	bool originalInventoryMarkerSafetyEnabled = false;
+	bool originalFallingHitWallCallbackWitnessEnabled = false;
 	bool originalTickEnabled = false;
 	bool originalUpdateTacticsEnabled = false;
 	LatentRunState originalLatentState = LatentRunState::Continue;
@@ -260,6 +265,9 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		pawn = match.Participants.front().Pawn;
 		originalInventoryMarkerSafetyEnabled = engine.IsBotBenchmarkInventoryMarkerDirectReachSafetyEnabled();
 		engine.SetBotBenchmarkInventoryMarkerDirectReachSafetyEnabled(true);
+		originalFallingHitWallCallbackWitnessEnabled =
+			engine.IsBotBenchmarkFallingHitWallCallbackWitnessEnabled();
+		engine.SetBotBenchmarkFallingHitWallCallbackWitnessEnabled(true);
 		result.PawnActor = pawn->Name.ToString();
 		originalLocation = pawn->Location();
 		originalVelocity = pawn->Velocity();
@@ -577,8 +585,12 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 					break;
 				}
 			}
+			pawn->DrainFallingHitWallCallbackWitnesses();
 			for (const vec2& direction : directions)
 			{
+				const bool northeastDirection =
+					dot(direction, normalize(vec2(1.0f, 1.0f))) > 0.999f;
+				pawn->DrainFallingHitWallCallbackWitnesses();
 				if (!pawn->SetLocation(fallLocation))
 					continue;
 				pawn->UpdateActorZone();
@@ -598,6 +610,8 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 						&& !footZone->bWaterZone())
 					{
 						result.LiveNavigationAirRecoverySafeLandings++;
+						if (northeastDirection)
+							result.LiveNavigationNortheastSafeLanding = true;
 						if (result.LiveNavigationForecastSelected
 							&& dot(direction, forecastSelection.Direction) > 0.999f)
 						{
@@ -618,6 +632,36 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 						break;
 					}
 				}
+				const std::vector<PawnMovement::FallingHitWallCallbackWitness>
+					callbackWitnesses = pawn->DrainFallingHitWallCallbackWitnesses();
+				if (northeastDirection)
+				{
+					for (const PawnMovement::FallingHitWallCallbackWitness& witness
+						: callbackWitnesses)
+					{
+						if (!witness.StaticWorldCollision)
+							continue;
+						result.LiveNavigationNortheastStaticHitWallCallbackWitnesses++;
+						if (witness.Decision
+							== PawnMovement::FallingHitWallCallbackWitnessDecision::ExactNoOp)
+						{
+							result.LiveNavigationNortheastStaticHitWallCallbackExactNoOps++;
+						}
+						else if (witness.Decision
+							== PawnMovement::FallingHitWallCallbackWitnessDecision::MutationObserved)
+						{
+							result.LiveNavigationNortheastStaticHitWallCallbackMutations++;
+						}
+					}
+				}
+			}
+			if (result.LiveNavigationNortheastSafeLanding
+				&& (result.LiveNavigationNortheastStaticHitWallCallbackWitnesses == 0
+					|| result.LiveNavigationNortheastStaticHitWallCallbackExactNoOps
+						!= result.LiveNavigationNortheastStaticHitWallCallbackWitnesses
+					|| result.LiveNavigationNortheastStaticHitWallCallbackMutations != 0))
+			{
+				throw std::runtime_error("viable northeast recovery lacks an exact no-op static HitWall callback witness");
 			}
 		}
 		result.Ran = true;
@@ -650,6 +694,8 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 	}
 	engine.SetBotBenchmarkInventoryMarkerDirectReachSafetyEnabled(
 		originalInventoryMarkerSafetyEnabled);
+	engine.SetBotBenchmarkFallingHitWallCallbackWitnessEnabled(
+		originalFallingHitWallCallbackWitnessEnabled);
 	return result;
 }
 

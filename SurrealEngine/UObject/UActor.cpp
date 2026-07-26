@@ -22,6 +22,7 @@
 #include "PawnWallAdjustRecovery.h"
 #include "PawnHazardWaterEgressRouteCertificate.h"
 #include "PawnFallingAirRecoverySelector.h"
+#include "PawnFallingHitWallCallbackWitness.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
 #include "BotAI/FallingHazardRecoveryGate.h"
 #include "BotAI/HazardSwimEgressGate.h"
@@ -313,6 +314,27 @@ namespace
 	bool IsFiniteVector(const vec3& value)
 	{
 		return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+	}
+
+	PawnMovement::FallingHitWallCallbackState
+		CaptureFallingHitWallCallbackState(UPawn* pawn)
+	{
+		PawnMovement::FallingHitWallCallbackState state;
+		if (!pawn || pawn->bDeleteMe())
+			return state;
+		state.Physics = pawn->Physics();
+		state.HasStateFrame = pawn->StateFrame != nullptr;
+		state.JustTeleported = pawn->bJustTeleported();
+		state.Location = pawn->Location();
+		state.Velocity = pawn->Velocity();
+		state.Acceleration = pawn->Acceleration();
+		state.Destination = pawn->Destination();
+		state.Focus = pawn->Focus();
+		state.MoveTarget = pawn->MoveTarget();
+		state.MoveTimer = pawn->MoveTimer();
+		if (pawn->StateFrame)
+			state.LatentState = static_cast<uint8_t>(pawn->StateFrame->LatentState);
+		return state;
 	}
 
 	float MaximumAbsoluteComponent(const vec3& value)
@@ -1734,10 +1756,27 @@ void UActor::TickFalling(float elapsed)
 				pawn->CaptureFallingHazardAlignedCommandWitness(!wallHit.Actor);
 			auto continuation = pawn
 				? pawn->FinishFallingHazardCallbackBoundary() : std::nullopt;
+			const bool staticWorldCollision = pawn
+				&& (!wallHit.Actor || wallHit.Actor == pawn->Level());
+			const bool observeCallbackWitness = staticWorldCollision
+				&& engine->IsBotBenchmarkFallingHitWallCallbackWitnessEnabled();
+			const PawnMovement::FallingHitWallCallbackState callbackBefore =
+				observeCallbackWitness ? CaptureFallingHitWallCallbackState(pawn)
+				: PawnMovement::FallingHitWallCallbackState{};
 			CallEvent(this, EventName::HitWall, {
 				ExpressionValue::VectorValue(wallHit.Normal),
 				ExpressionValue::ObjectValue(wallHit.Actor ? wallHit.Actor : Level())
 			});
+			if (observeCallbackWitness)
+			{
+				PawnMovement::FallingHitWallCallbackWitness witness;
+				witness.StaticWorldCollision = staticWorldCollision;
+				witness.Before = callbackBefore;
+				witness.After = CaptureFallingHitWallCallbackState(pawn);
+				witness.Decision = PawnMovement::EvaluateFallingHitWallCallbackWitness(
+					witness.StaticWorldCollision, witness.Before, witness.After);
+				pawn->RecordFallingHitWallCallbackWitness(std::move(witness));
+			}
 			if (pawn)
 				pawn->RecoverFallingHazardCallbackReturn();
 			if (pawn && pawn->HasActiveFallingParityRealizedLifecycle()
@@ -8324,6 +8363,22 @@ UPawn::DrainFallingHazardDiagnostics()
 	return FallingHazardObserver
 		? FallingHazardObserver->DrainDiagnostics()
 		: std::vector<PawnMovement::FallingHazardDiagnosticRecord>{};
+}
+
+void UPawn::RecordFallingHitWallCallbackWitness(
+	PawnMovement::FallingHitWallCallbackWitness witness)
+{
+	static constexpr size_t maximumQueuedWitnesses = 1024;
+	if (FallingHitWallCallbackWitnesses.size() < maximumQueuedWitnesses)
+		FallingHitWallCallbackWitnesses.push_back(std::move(witness));
+}
+
+std::vector<PawnMovement::FallingHitWallCallbackWitness>
+UPawn::DrainFallingHitWallCallbackWitnesses()
+{
+	std::vector<PawnMovement::FallingHitWallCallbackWitness> witnesses;
+	witnesses.swap(FallingHitWallCallbackWitnesses);
+	return witnesses;
 }
 
 std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>

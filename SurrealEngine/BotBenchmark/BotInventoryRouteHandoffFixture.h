@@ -44,6 +44,7 @@ struct BotInventoryRouteHandoffFixtureResult
 	bool LiveNavigationAnchorRecoveryHarmfulEntry = false;
 	bool LiveNavigationForecastSelected = false;
 	bool LiveNavigationForecastSelectedDirectionLiveSafe = false;
+	bool LiveNavigationNortheastSafeLanding = false;
 	std::string FailureReason;
 	std::string PawnActor;
 	std::string MarkerActor;
@@ -68,6 +69,9 @@ struct BotInventoryRouteHandoffFixtureResult
 	uint64_t LiveNavigationAirRecoveryDirectionsTested = 0;
 	uint64_t LiveNavigationAirRecoverySafeLandings = 0;
 	uint64_t LiveNavigationForecastCertifiedLandings = 0;
+	uint64_t LiveNavigationNortheastStaticHitWallCallbackWitnesses = 0;
+	uint64_t LiveNavigationNortheastStaticHitWallCallbackExactNoOps = 0;
+	uint64_t LiveNavigationNortheastStaticHitWallCallbackMutations = 0;
 	std::string FirstLiveNavigationAirRecoverySafeDirection;
 	std::string LiveNavigationForecastSelectedDirection;
 	std::string LiveNavigationForecastOutcomes;

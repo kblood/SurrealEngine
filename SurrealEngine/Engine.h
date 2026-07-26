@@ -122,6 +122,14 @@ public:
 	{
 		return botBenchmarkWalkingPreflightEnabled;
 	}
+	bool IsBotBenchmarkFallingHitWallCallbackWitnessEnabled() const
+	{
+		return botBenchmarkFallingHitWallCallbackWitnessEnabled;
+	}
+	void SetBotBenchmarkFallingHitWallCallbackWitnessEnabled(bool enabled)
+	{
+		botBenchmarkFallingHitWallCallbackWitnessEnabled = enabled;
+	}
 	bool IsBotBenchmarkHarmfulZoneEscapeEnabled() const
 	{
 		return botBenchmarkHarmfulZoneEscapeEnabled;
@@ -397,6 +405,7 @@ private:
 	bool xrAlternateFireKeyDown = false;
 	uint64_t xrWeaponCallHook = 0;
 	bool botBenchmarkWalkingPreflightEnabled = false;
+	bool botBenchmarkFallingHitWallCallbackWitnessEnabled = false;
 	bool botBenchmarkHarmfulZoneEscapeEnabled = false;
 	bool botBenchmarkWalkingPreflightPositiveDpsVetoEnabled = false;
 	bool botBenchmarkHazardSwimEgressEnabled = false;

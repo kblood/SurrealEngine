@@ -11,6 +11,7 @@
 #include "PawnPainLedgeRecovery.h"
 #include "PawnLedgeTransition.h"
 #include "PawnFallingParityRealizedTrace.h"
+#include "PawnFallingHitWallCallbackWitness.h"
 #include "PawnFallingHazardRuntimeObserver.h"
 #include "PawnHazardWaterEgressObserver.h"
 #include "PawnWalkingStepPreflight.h"
@@ -2065,6 +2066,10 @@ public:
 		FallingHazardRuntimeCounterValues() const;
 	std::vector<PawnMovement::FallingHazardDiagnosticRecord>
 		DrainFallingHazardDiagnostics();
+	void RecordFallingHitWallCallbackWitness(
+		PawnMovement::FallingHitWallCallbackWitness witness);
+	std::vector<PawnMovement::FallingHitWallCallbackWitness>
+		DrainFallingHitWallCallbackWitnesses();
 	std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>
 		DrainHazardWaterEgressDiagnostics();
 	uint64_t HazardWaterEgressDiagnosticOverflowCount() const;
@@ -2903,6 +2908,8 @@ private:
 	std::unique_ptr<PawnMovement::FallingHazardRuntimeObserver>
 		FallingHazardObserver;
 	FallingHazardPendingSweep FallingHazardPending;
+	std::vector<PawnMovement::FallingHitWallCallbackWitness>
+		FallingHitWallCallbackWitnesses;
 	uint32_t FallingHazardTryMoveDepth = 0;
 	PawnMovement::FallingHazardForecastSource FallingHazardQueuedSource =
 		PawnMovement::FallingHazardForecastSource::Unknown;
