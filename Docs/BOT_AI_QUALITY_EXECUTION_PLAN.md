@@ -3487,3 +3487,20 @@ post-callback northeast forecast reports the same reason. Therefore the next
 parity task is to capture and compare the predicted path samples with the
 realized zone transitions; the transient-pain result is not safe to dismiss or
 override. Recovery steering remains disabled pending that evidence.
+
+## Iteration 136: the apparent northeast recovery is fixture-step dependent
+
+The inventory-route fixture now accepts a bounded explicit physics tick while
+preserving its six-second experiment duration. This is fixture-only control
+data, not a game setting. At its retained 0.05-second tick, northeast reaches
+the previous dry landing. At a 60 Hz-scale `0.016666667` tick, it does not land
+safely within the same bound. Two 60 Hz repetitions are byte-identical at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v16-tick-parity/r1-60hz/`
+and `.../r2-60hz/`; both retain the forecast's `TransientHarmfulPain` result.
+
+The live result therefore is not a time-step-invariant recovery certificate.
+Retire northeast as a candidate action rather than attempting to suppress the
+forecast's zone warning. The stock-handler callback certificate remains useful
+prediction infrastructure, but it authorizes no recovery steering. Future
+recovery work must start from a deterministic live-physics trajectory that is
+safe under the benchmark's target tick regime, then prove forecast parity.

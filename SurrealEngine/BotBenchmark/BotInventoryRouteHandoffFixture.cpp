@@ -27,9 +27,9 @@ namespace
 	const vec3 DeathFanPathNode73LaunchAnchor(32.213860f, 881.516113f, 1384.0f);
 	constexpr float ImmediateSupportDistance = 64.0f;
 	constexpr float DeepSupportDistance = 2048.0f;
-	constexpr float FixtureTickSeconds = 0.05f;
-	constexpr int LiveNavigationTickLimit = 120;
-	constexpr int LiveNavigationRecoveryTickLimit = 120;
+	constexpr float FixtureMaximumDurationSeconds = 6.0f;
+	constexpr float FixtureMinimumTickSeconds = 1.0f / 120.0f;
+	constexpr float FixtureMaximumTickSeconds = 0.05f;
 	constexpr int CorridorSamples = 5;
 	constexpr int ZoneSamplesPerCorridorPoint = 64;
 
@@ -122,7 +122,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v14\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v15\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -153,6 +153,7 @@ namespace
 			<< "live_navigation_northeast_safe_landing=" << (result.LiveNavigationNortheastSafeLanding ? "true" : "false") << "\n"
 			<< "live_navigation_northeast_post_callback_forecast_captured=" << (result.LiveNavigationNortheastPostCallbackForecastCaptured ? "true" : "false") << "\n"
 			<< "live_navigation_northeast_post_callback_forecast_safe_landing=" << (result.LiveNavigationNortheastPostCallbackForecastSafeLanding ? "true" : "false") << "\n"
+			<< "physics_tick_seconds=" << result.PhysicsTickSeconds << "\n"
 			<< "pawn_actor=" << result.PawnActor << "\n"
 			<< "marker_actor=" << result.MarkerActor << "\n"
 			<< "inventory_actor=" << result.InventoryActor << "\n"
@@ -216,6 +217,18 @@ namespace
 					return;
 				}
 			}
+			const std::string tickSeconds = commandline
+				? commandline->GetArg("", "--botbench-fixture-tick-seconds") : std::string();
+			if (!tickSeconds.empty())
+			{
+				try { config.PhysicsTickSeconds = std::stof(tickSeconds); }
+				catch (const std::exception&)
+				{
+					Result.FailureReason = "inventory route fixture tick seconds must be a float";
+					Complete = true;
+					return;
+				}
+			}
 			Result = BotInventoryRouteHandoffFixture::Run(EngineRef, config);
 			const std::string output = commandline
 				? commandline->GetArg("", "--botbench-output") : std::string();
@@ -259,6 +272,17 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 	float originalMoveTimer = 0.0f;
 	try
 	{
+		if (!std::isfinite(config.PhysicsTickSeconds)
+			|| config.PhysicsTickSeconds < FixtureMinimumTickSeconds
+			|| config.PhysicsTickSeconds > FixtureMaximumTickSeconds)
+		{
+			throw std::runtime_error("inventory route fixture tick seconds must be within [1/120, 0.05]");
+		}
+		const int liveNavigationTickLimit = static_cast<int>(std::ceil(
+			FixtureMaximumDurationSeconds / config.PhysicsTickSeconds));
+		if (liveNavigationTickLimit <= 0)
+			throw std::runtime_error("inventory route fixture tick limit is invalid");
+		result.PhysicsTickSeconds = config.PhysicsTickSeconds;
 		if (config.URL.empty() || config.URL.find("DmDeathFan") == std::string::npos)
 			throw std::runtime_error("inventory route fixture requires a DmDeathFan URL");
 		const BotBenchmarkRoster roster = BotBenchmarkRoster::Parse(
@@ -479,7 +503,7 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		pawn->Velocity() = vec3(0.0f);
 		pawn->Acceleration() = vec3(0.0f);
 		pawn->SetPhysics(PHYS_Walking);
-		pawn->Tick(FixtureTickSeconds);
+		pawn->Tick(config.PhysicsTickSeconds);
 		result.StationaryNavigationAnchorFallingObserved = pawn->Physics() == PHYS_Falling;
 		if (result.StationaryNavigationAnchorFallingObserved)
 			throw std::runtime_error("recorded real PathNode73 launch anchor is not stationary-supported");
@@ -495,9 +519,9 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 			&& pawn->MoveTarget() == pathNode73;
 		if (!result.LiveNavigationMoveTowardArmed)
 			throw std::runtime_error("fixture could not arm a direct live PathNode73 MoveToward command");
-		for (int tick = 0; tick < LiveNavigationTickLimit; tick++)
+		for (int tick = 0; tick < liveNavigationTickLimit; tick++)
 		{
-			pawn->Tick(FixtureTickSeconds);
+			pawn->Tick(config.PhysicsTickSeconds);
 			result.LiveNavigationTicks++;
 			if (pawn->Physics() == PHYS_Falling)
 				result.LiveNavigationFallingObserved = true;
@@ -566,7 +590,7 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 			pawn->MoveTarget() = nullptr;
 			pawn->MoveTimer() = 0.0f;
 			pawn->StateFrame->LatentState = LatentRunState::Continue;
-			for (int tick = 0; tick < LiveNavigationRecoveryTickLimit; tick++)
+			for (int tick = 0; tick < liveNavigationTickLimit; tick++)
 			{
 				const vec3 recoveryDelta(DeathFanPathNode73LaunchAnchor.x - pawn->Location().x,
 					DeathFanPathNode73LaunchAnchor.y - pawn->Location().y, 0.0f);
@@ -574,7 +598,7 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 					pawn->Acceleration() = normalize(recoveryDelta) * recoveryAccelerationMagnitude;
 				else
 					pawn->Acceleration() = vec3(0.0f);
-				pawn->Tick(FixtureTickSeconds);
+				pawn->Tick(config.PhysicsTickSeconds);
 				result.LiveNavigationAnchorRecoveryTicks++;
 				UZoneInfo* footZone = pawn->FootRegion().Zone;
 				if (footZone && footZone->bPainZone() && footZone->DamagePerSec() > 0)
@@ -603,11 +627,11 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 				pawn->Acceleration() = vec3(0.0f);
 				result.LiveNavigationAirRecoveryDirectionsTested++;
 				std::vector<PawnMovement::FallingHitWallCallbackWitness> callbackWitnesses;
-				for (int tick = 0; tick < LiveNavigationRecoveryTickLimit; tick++)
+				for (int tick = 0; tick < liveNavigationTickLimit; tick++)
 				{
 					pawn->Acceleration() = vec3(direction.x, direction.y, 0.0f)
 						* recoveryAccelerationMagnitude;
-					pawn->Tick(FixtureTickSeconds);
+					pawn->Tick(config.PhysicsTickSeconds);
 					std::vector<PawnMovement::FallingHitWallCallbackWitness>
 						tickWitnesses = pawn->DrainFallingHitWallCallbackWitnesses();
 					const bool exactNoOpObserved = std::any_of(tickWitnesses.begin(),

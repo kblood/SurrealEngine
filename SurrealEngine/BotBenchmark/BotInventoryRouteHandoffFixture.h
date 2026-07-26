@@ -13,6 +13,7 @@ struct BotInventoryRouteHandoffFixtureConfig
 {
 	std::string URL;
 	int ExternalSkill = 3;
+	float PhysicsTickSeconds = 0.05f;
 };
 
 struct BotInventoryRouteHandoffFixtureResult
@@ -82,6 +83,7 @@ struct BotInventoryRouteHandoffFixtureResult
 	std::string LiveNavigationFallLocation;
 	std::string FirstLiveNavigationAirRecoverySafeLandingLocation;
 	float FirstHarmfulBelowDistance = 0.0f;
+	float PhysicsTickSeconds = 0.0f;
 	std::string FirstSafeNavigationCandidateActor;
 	std::string FirstUnsafeNavigationCandidateActor;
 };
