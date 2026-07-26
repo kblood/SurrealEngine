@@ -40,6 +40,7 @@ SUPPORTED_SHADOW_ARTIFACTS = {"shadow-manifest.json", "shadow-decisions.jsonl"}
 ROUTE_EXECUTION_ARTIFACT = "route-execution.jsonl"
 ROUTE_EXECUTION_REQUIRED_FLAGS = (
     "native_path_commit_observer_enabled",
+    "reachspec_capability_observer_enabled",
     "direct_reach_command_observer_enabled",
 )
 
@@ -52,6 +53,7 @@ PROTECTED_FIELDS = {
     "direct_actor_move_toward_timeout_enabled", "target_selection_observer_enabled",
     "inventory_direct_reach_support_observer_enabled",
     "native_path_commit_observer_enabled",
+    "reachspec_capability_observer_enabled",
     "direct_reach_command_observer_enabled",
     "requested_roster", "actual_roster", "config", "index", "roster_index",
     "identity", "actor", "player_name", "class", "seq", "tick",
@@ -353,6 +355,11 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
                 raise ComparisonError(
                     f"{run}/manifest.json.native_path_commit_observer_enabled: expected a boolean")
             config_fields += ("native_path_commit_observer_enabled",)
+        if "reachspec_capability_observer_enabled" in manifest:
+            if not isinstance(manifest["reachspec_capability_observer_enabled"], bool):
+                raise ComparisonError(
+                    f"{run}/manifest.json.reachspec_capability_observer_enabled: expected a boolean")
+            config_fields += ("reachspec_capability_observer_enabled",)
         if "direct_reach_command_observer_enabled" in manifest:
             if not isinstance(manifest["direct_reach_command_observer_enabled"], bool):
                 raise ComparisonError(
@@ -405,6 +412,10 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
             summary_config.get("native_path_commit_observer_enabled"), bool):
         raise ComparisonError(
             f"{run}/summary.json.config.native_path_commit_observer_enabled: expected a boolean")
+    if "reachspec_capability_observer_enabled" in config_fields and not isinstance(
+            summary_config.get("reachspec_capability_observer_enabled"), bool):
+        raise ComparisonError(
+            f"{run}/summary.json.config.reachspec_capability_observer_enabled: expected a boolean")
     if "direct_reach_command_observer_enabled" in config_fields and not isinstance(
             summary_config.get("direct_reach_command_observer_enabled"), bool):
         raise ComparisonError(

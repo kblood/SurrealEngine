@@ -161,6 +161,24 @@ def write_v2_run(root: Path, name: str, *, bot_count: int = 2) -> Path:
     return run
 
 
+def set_reachspec_capability_observer(run: Path, enabled: bool) -> None:
+    manifest_path = run / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["native_path_commit_observer_enabled"] = enabled
+    manifest["reachspec_capability_observer_enabled"] = enabled
+    manifest["config_id"] = QUALITY._config_id(
+        manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]), manifest["fixed_delta"],
+        manifest["difficulty"], manifest["bot_count"], manifest["requested_roster"],
+        native_path_commit_observer_enabled=enabled,
+        reachspec_capability_observer_enabled=enabled)
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    summary_path = run / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["config"]["native_path_commit_observer_enabled"] = enabled
+    summary["config"]["reachspec_capability_observer_enabled"] = enabled
+    summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+
+
 def upgrade_telemetry_v2(run: Path, *, counters: list[dict]) -> None:
     path = run / "events.jsonl"
     events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
@@ -315,6 +333,25 @@ def vertical_terminal(*, sequence: int = 2, life: int = 1, fall: int = 1,
 
 
 class BotQualityAnalysisTests(unittest.TestCase):
+    def test_reachspec_capability_observer_is_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "reachspec-capability")
+            set_reachspec_capability_observer(run, True)
+            parsed = QUALITY._validate_manifest(run / "manifest.json")
+            self.assertTrue(parsed["native_path_commit_observer_enabled"])
+            self.assertTrue(parsed["reachspec_capability_observer_enabled"])
+
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], native_path_commit_observer_enabled=True,
+                reachspec_capability_observer_enabled=False)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
     def test_observed_initial_layout_is_canonical_and_metadata_bound(self) -> None:
         common = {
             "score": 0, "pri_deaths": 0, "movement_intent": False,

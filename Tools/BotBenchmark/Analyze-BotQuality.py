@@ -3090,6 +3090,7 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                inventory_direct_reach_support_observer_enabled: bool | None = None,
                inventory_marker_direct_reach_safety_enabled: bool | None = None,
                native_path_commit_observer_enabled: bool | None = None,
+               reachspec_capability_observer_enabled: bool | None = None,
                direct_reach_command_observer_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
@@ -3144,6 +3145,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if native_path_commit_observer_enabled is not None:
             canonical_text += "native_path_commit_observer_enabled=" + (
                 "1\n" if native_path_commit_observer_enabled else "0\n")
+        if reachspec_capability_observer_enabled is not None:
+            canonical_text += "reachspec_capability_observer_enabled=" + (
+                "1\n" if reachspec_capability_observer_enabled else "0\n")
         if direct_reach_command_observer_enabled is not None:
             canonical_text += "direct_reach_command_observer_enabled=" + (
                 "1\n" if direct_reach_command_observer_enabled else "0\n")
@@ -3285,6 +3289,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     inventory_direct_reach_support_observer_enabled = None
     inventory_marker_direct_reach_safety_enabled = None
     native_path_commit_observer_enabled = None
+    reachspec_capability_observer_enabled = None
     direct_reach_command_observer_enabled = None
     build_identity = None
     if schema == MANIFEST_SCHEMA_V3:
@@ -3370,6 +3375,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             native_path_commit_observer_enabled = _boolean(
                 raw.get("native_path_commit_observer_enabled"),
                 "manifest.native_path_commit_observer_enabled")
+        if "reachspec_capability_observer_enabled" in raw:
+            reachspec_capability_observer_enabled = _boolean(
+                raw.get("reachspec_capability_observer_enabled"),
+                "manifest.reachspec_capability_observer_enabled")
         if "direct_reach_command_observer_enabled" in raw:
             direct_reach_command_observer_enabled = _boolean(
                 raw.get("direct_reach_command_observer_enabled"),
@@ -3391,6 +3400,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              inventory_direct_reach_support_observer_enabled,
                              inventory_marker_direct_reach_safety_enabled,
                              native_path_commit_observer_enabled,
+                             reachspec_capability_observer_enabled,
                              direct_reach_command_observer_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
@@ -3427,6 +3437,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "inventory_marker_direct_reach_safety_enabled": (
             inventory_marker_direct_reach_safety_enabled),
         "native_path_commit_observer_enabled": native_path_commit_observer_enabled,
+        "reachspec_capability_observer_enabled": reachspec_capability_observer_enabled,
         "direct_reach_command_observer_enabled": direct_reach_command_observer_enabled,
     }
 
@@ -5106,6 +5117,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["native_path_commit_observer_enabled"] = _boolean(
             config.get("native_path_commit_observer_enabled"),
             "summary.config.native_path_commit_observer_enabled")
+    if manifest["reachspec_capability_observer_enabled"] is not None:
+        comparisons["reachspec_capability_observer_enabled"] = _boolean(
+            config.get("reachspec_capability_observer_enabled"),
+            "summary.config.reachspec_capability_observer_enabled")
     if manifest["direct_reach_command_observer_enabled"] is not None:
         comparisons["direct_reach_command_observer_enabled"] = _boolean(
             config.get("direct_reach_command_observer_enabled"),
@@ -5906,6 +5921,8 @@ def analyze_run(path: Path) -> dict[str, Any]:
                 manifest["direct_actor_move_toward_timeout_enabled"]),
             "native_path_commit_observer_enabled": (
                 manifest["native_path_commit_observer_enabled"]),
+            "reachspec_capability_observer_enabled": (
+                manifest["reachspec_capability_observer_enabled"]),
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),
             "suicides_exact_semantics": manifest["suicides_exact_semantics"],

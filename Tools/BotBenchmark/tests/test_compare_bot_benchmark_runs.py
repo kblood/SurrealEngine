@@ -23,6 +23,7 @@ def _write_json(path: Path, value: object, *, compact: bool = False) -> None:
 
 def write_run(root: Path, *, shadow: bool = True, compact: bool = True,
               route: bool = False, native_path_observer: bool = False,
+              reachspec_observer: bool = False,
               direct_reach_observer: bool = False) -> Path:
     root.mkdir()
     config_id = "fnv1a64:1234567890abcdef"
@@ -39,6 +40,8 @@ def write_run(root: Path, *, shadow: bool = True, compact: bool = True,
     }
     if native_path_observer:
         manifest["native_path_commit_observer_enabled"] = True
+    if reachspec_observer:
+        manifest["reachspec_capability_observer_enabled"] = True
     if direct_reach_observer:
         manifest["direct_reach_command_observer_enabled"] = True
     bot = {"identity": "pri:1", "actor": "TMale2Bot0", "player_name": "Dante",
@@ -64,6 +67,8 @@ def write_run(root: Path, *, shadow: bool = True, compact: bool = True,
     }
     if native_path_observer:
         summary["config"]["native_path_commit_observer_enabled"] = True
+    if reachspec_observer:
+        summary["config"]["reachspec_capability_observer_enabled"] = True
     if direct_reach_observer:
         summary["config"]["direct_reach_command_observer_enabled"] = True
     _write_json(root / "manifest.json", manifest, compact=compact)
@@ -205,6 +210,14 @@ class CompareBotBenchmarkRunsTests(unittest.TestCase):
         self.assertFalse(report["equivalent"])
         self.assertEqual(report["mismatch"]["artifact"], "manifest.json")
         self.assertEqual(report["mismatch"]["location"], "/seed")
+
+    def test_reachspec_observer_is_protected_and_requires_summary_parity(self) -> None:
+        left, right = self.pair(route=True, native_path_observer=True, reachspec_observer=True)
+        self.assertTrue(COMPARE.compare_runs(left, right, [])["equivalent"])
+        mutate_json(right / "summary.json", lambda value: value["config"].update(
+            reachspec_capability_observer_enabled=False))
+        with self.assertRaisesRegex(COMPARE.ComparisonError, "reachspec_capability_observer_enabled"):
+            COMPARE.compare_runs(left, right, [])
 
     def test_schema_difference_is_rejected_before_comparison(self) -> None:
         left, right = self.pair()
