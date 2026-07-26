@@ -63,6 +63,13 @@ def _inventory_target(record: dict[str, Any], context: str) -> tuple[int, int, s
             marker_name, marker_class)
 
 
+def _inventory_flag(record: dict[str, Any], key: str, context: str) -> bool:
+    value = record.get(key)
+    if not isinstance(value, bool):
+        raise RetryChainError(f"{context}: inventory classification is invalid")
+    return value
+
+
 def _same_target(left: tuple[int, int, str, str, str, str],
                  right: tuple[int, int, str, str, str, str]) -> bool:
     return left == right
@@ -150,8 +157,10 @@ def analyze(run: Path) -> dict[str, Any]:
                     continue
                 if record.get("reached") is not True or record.get("link_status") != "same_life_exact":
                     continue
+                if not _inventory_flag(record, "target_is_inventory", "direct record"):
+                    continue
                 key = _inventory_target(record, "direct record")
-                if not all((record["target_is_inventory"], record["marker_known"], record["marker_live"])):
+                if not all((record["marker_known"], record["marker_live"])):
                     continue
                 direct[identity].append({"native_tick": native_tick, "life_id": life, "target": key})
                 inventory_direct_verdicts_seen += 1
@@ -166,9 +175,10 @@ def analyze(run: Path) -> dict[str, Any]:
                     continue
                 if decision.get("move_target_live") is not True:
                     continue
+                if not _inventory_flag(decision, "move_target_is_inventory", "stall decision"):
+                    continue
                 target = _inventory_target(decision, "stall decision")
-                if decision.get("move_target_is_inventory") is not True or not all(
-                        (decision["marker_known"], decision["marker_live"])):
+                if not all((decision["marker_known"], decision["marker_live"])):
                     continue
                 seconds = _finite(decision.get("no_progress_seconds"), "stall no-progress seconds")
                 displacement = _finite(decision.get("no_progress_displacement"), "stall displacement")

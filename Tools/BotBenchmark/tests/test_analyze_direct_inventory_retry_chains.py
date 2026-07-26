@@ -111,6 +111,15 @@ class DirectInventoryRetryChainTests(unittest.TestCase):
             with self.assertRaisesRegex(ANALYZE.RetryChainError, "overflow"):
                 ANALYZE.analyze(Path(temp))
 
+    def test_ignores_non_inventory_stall_with_blank_marker_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            events, routes = self.valid(); non_inventory = copy.deepcopy(stall())
+            non_inventory.update({"sequence": "2", "move_target_is_inventory": False,
+                                  "marker_known": False, "marker_live": False,
+                                  "marker_actor_index": -1, "marker_name": "", "marker_class": ""})
+            events[1] = event([], [stall(), non_inventory]); write_run(Path(temp), events, routes)
+            self.assertTrue(ANALYZE.analyze(Path(temp))["qualified"])
+
     def test_rejects_non_inventory_identity_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             events, routes = self.valid(); bad = copy.deepcopy(events)
