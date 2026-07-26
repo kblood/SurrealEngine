@@ -21,7 +21,9 @@ def _write_json(path: Path, value: object, *, compact: bool = False) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def write_run(root: Path, *, shadow: bool = True, compact: bool = True) -> Path:
+def write_run(root: Path, *, shadow: bool = True, compact: bool = True,
+              route: bool = False, native_path_observer: bool = False,
+              direct_reach_observer: bool = False) -> Path:
     root.mkdir()
     config_id = "fnv1a64:1234567890abcdef"
     requested = [{"roster_index": 0, "class": "Botpack.TMale2Bot", "skill": 7,
@@ -35,6 +37,10 @@ def write_run(root: Path, *, shadow: bool = True, compact: bool = True) -> Path:
         "fixed_delta": 1.0 / 60.0, "difficulty": 7, "bot_count": 1,
         "requested_roster": requested, "telemetry_event_cap": 4,
     }
+    if native_path_observer:
+        manifest["native_path_commit_observer_enabled"] = True
+    if direct_reach_observer:
+        manifest["direct_reach_command_observer_enabled"] = True
     bot = {"identity": "pri:1", "actor": "TMale2Bot0", "player_name": "Dante",
            "class": "Botpack.TMale2Bot", "kills_exact": "1"}
     events = [
@@ -56,11 +62,25 @@ def write_run(root: Path, *, shadow: bool = True, compact: bool = True) -> Path:
                    "seed": 104729, "max_ticks": 2, "fixed_delta": 1.0 / 60.0,
                    "difficulty": 7, "bot_count": 1},
     }
+    if native_path_observer:
+        summary["config"]["native_path_commit_observer_enabled"] = True
+    if direct_reach_observer:
+        summary["config"]["direct_reach_command_observer_enabled"] = True
     _write_json(root / "manifest.json", manifest, compact=compact)
     (root / "events.jsonl").write_text(
         "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
         encoding="utf-8")
     _write_json(root / "summary.json", summary, compact=compact)
+    if route:
+        route_events = [{
+            "schema": "surreal-bot-route-execution-observation-v1", "seq": "0",
+            "benchmark_config_id": config_id, "tick": "1",
+            "participants": [{"roster_index": 0, "identity": "pri:1",
+                              "available": True, "native_path_commits": []}],
+        }]
+        (root / "route-execution.jsonl").write_text(
+            "".join(json.dumps(event, separators=(",", ":")) + "\n"
+                    for event in route_events), encoding="utf-8")
     if shadow:
         shadow_manifest = {
             "schema": "surreal-bot-benchmark-shadow-manifest-v1",
@@ -240,6 +260,53 @@ class CompareBotBenchmarkRunsTests(unittest.TestCase):
         self.assertFalse(report["equivalent"])
         self.assertEqual(report["mismatch"]["artifact"], "shadow-decisions.jsonl")
         self.assertEqual(report["mismatch"]["line"], 2)
+
+    def test_route_execution_is_compared_when_present_and_required_for_native_observers(self) -> None:
+        left, right = self.pair(route=True, native_path_observer=True)
+        self.assertTrue(COMPARE.compare_runs(left, right, [])["equivalent"])
+
+        mutate_jsonl(right / "route-execution.jsonl", lambda values: values[0]["participants"][0].update(
+            native_path_commits=[{"sequence": "1"}]))
+        report = COMPARE.compare_runs(left, right, [])
+        self.assertFalse(report["equivalent"])
+        self.assertEqual(report["mismatch"]["artifact"], "route-execution.jsonl")
+        self.assertEqual(report["mismatch"]["line"], 1)
+
+        (right / "route-execution.jsonl").unlink()
+        with self.assertRaisesRegex(COMPARE.ComparisonError, "is required when"):
+            COMPARE.compare_runs(left, right, [])
+
+    def test_route_execution_identity_and_record_order_fail_closed(self) -> None:
+        left, right = self.pair(route=True, direct_reach_observer=True)
+        mutate_jsonl(right / "route-execution.jsonl",
+                     lambda values: values[0].update(benchmark_config_id="wrong"))
+        with self.assertRaisesRegex(COMPARE.ComparisonError, "benchmark_config_id differs"):
+            COMPARE.compare_runs(left, right, [])
+
+        self.temporary.cleanup()
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        left, right = self.pair(route=True)
+        mutate_jsonl(right / "route-execution.jsonl", lambda values: values[0].update(seq="1"))
+        with self.assertRaisesRegex(COMPARE.ComparisonError, "seq does not match line order"):
+            COMPARE.compare_runs(left, right, [])
+
+        mutate_jsonl(right / "route-execution.jsonl", lambda values: values[0].update(seq="0", tick="2"))
+        with self.assertRaisesRegex(COMPARE.ComparisonError, "tick does not match route record order"):
+            COMPARE.compare_runs(left, right, [])
+
+    def test_route_execution_remains_optional_without_route_or_native_observers(self) -> None:
+        left, right = self.pair()
+        self.assertTrue(COMPARE.compare_runs(left, right, [])["equivalent"])
+
+        self.temporary.cleanup()
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        left, right = self.pair(route=True)
+        (right / "route-execution.jsonl").unlink()
+        report = COMPARE.compare_runs(left, right, [])
+        self.assertFalse(report["equivalent"])
+        self.assertEqual(report["mismatch"]["kind"], "artifact_set")
 
     def test_duplicate_json_fields_and_nonfinite_numbers_fail_closed(self) -> None:
         left, right = self.pair()

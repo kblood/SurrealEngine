@@ -26,6 +26,7 @@ SUPPORTED_SCHEMAS = {
         "surreal-bot-benchmark-telemetry-v1",
         "surreal-bot-benchmark-telemetry-v2",
     },
+    "route-execution.jsonl": {"surreal-bot-route-execution-observation-v1"},
     "summary.json": {
         "surreal-bot-benchmark-summary-v1",
         "surreal-bot-benchmark-summary-v2",
@@ -36,6 +37,11 @@ SUPPORTED_SCHEMAS = {
     "shadow-decisions.jsonl": {"surreal-bot-benchmark-shadow-event-v1"},
 }
 SUPPORTED_SHADOW_ARTIFACTS = {"shadow-manifest.json", "shadow-decisions.jsonl"}
+ROUTE_EXECUTION_ARTIFACT = "route-execution.jsonl"
+ROUTE_EXECUTION_REQUIRED_FLAGS = (
+    "native_path_commit_observer_enabled",
+    "direct_reach_command_observer_enabled",
+)
 
 # These fields define structure, configuration, ordering, or participant identity.
 # Letting an ignore option remove any of them would turn a mismatch into a false pass.
@@ -476,6 +482,35 @@ def _validate_run(run: Path, artifacts: dict[str, Artifact]) -> None:
                         summary_seconds, rel_tol=1.0e-6, abs_tol=1.0e-6):
         raise ComparisonError(f"{run}: summary time differs from final telemetry time")
 
+    route_execution = artifacts.get(ROUTE_EXECUTION_ARTIFACT)
+    route_execution_required = any(manifest.get(flag) is True
+                                   for flag in ROUTE_EXECUTION_REQUIRED_FLAGS)
+    if route_execution_required and route_execution is None:
+        raise ComparisonError(
+            f"{run}: {ROUTE_EXECUTION_ARTIFACT} is required when "
+            "a route/native-path observer is enabled")
+    if route_execution is not None:
+        if len(route_execution.documents) != summary_ticks:
+            raise ComparisonError(
+                f"{run}/{ROUTE_EXECUTION_ARTIFACT}: line count must equal summary ticks")
+        for index, event in enumerate(route_execution.documents):
+            context = f"{run}/{ROUTE_EXECUTION_ARTIFACT}:line {index + 1}"
+            _schema(event, ROUTE_EXECUTION_ARTIFACT, context)
+            if event.get("benchmark_config_id") != config_id:
+                raise ComparisonError(
+                    f"{context}: benchmark_config_id differs from manifest")
+            if _strict_int(event.get("seq"), f"{context}.seq", 0) != index:
+                raise ComparisonError(f"{context}: seq does not match line order")
+            if _strict_int(event.get("tick"), f"{context}.tick", 1) != index + 1:
+                raise ComparisonError(f"{context}: tick does not match route record order")
+            participants = _validate_roster(
+                event.get("participants"), f"{context}.participants", "roster_index")
+            identities = [_string(item.get("identity"), "route participant identity")
+                          for item in participants]
+            if actual_identities is not None and identities != actual_identities:
+                raise ComparisonError(
+                    f"{context}: participant roster/order differs from actual_roster")
+
     shadow_manifest = artifacts.get("shadow-manifest.json")
     shadow_events = artifacts.get("shadow-decisions.jsonl")
     if (shadow_manifest is None) != (shadow_events is None):
@@ -520,6 +555,9 @@ def _discover(run: Path) -> dict[str, Artifact]:
         raise ComparisonError(f"run path is not a directory: {resolved}")
     names = set(REQUIRED_ARTIFACTS)
     for child in resolved.iterdir():
+        if child.is_file() and child.name == ROUTE_EXECUTION_ARTIFACT:
+            names.add(child.name)
+            continue
         if child.is_file() and child.name.startswith("shadow-"):
             if child.suffix not in {".json", ".jsonl"}:
                 raise ComparisonError(f"{child}: unsupported shadow artifact extension")
