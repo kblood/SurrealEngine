@@ -4075,3 +4075,26 @@ The cross-game qualification harness is no longer blocked on summary schema:
 commit `92c59bc5` validates summary-v3 capability timing fail-closed and was
 checked against saved UT and Unreal artifacts. This restores the mandatory
 realization-witness gate; it does not qualify any behavior by itself.
+
+## Iteration 162: ReachSpec capability gap is real but inactive in anchors
+
+Source comparison established that route/reachability searches currently omit
+the UE1 `ReachSpec.reachFlags` capability gate. A pure, fail-closed UE1
+capability model now has deterministic UT436/Unreal profiles and does not
+change routing. The native-commit observer then joined stock anchors to their
+exact map ReachSpecs: UT436 Deck16-II has `417` committed edges (`102` unique
+specs) and Unreal Gold DeathFan has `136` (`12` unique specs), with zero
+unsupported requirements in either set. See
+`BOT_AI_REACHSPEC_NATIVE_COMMIT_CAPABILITY_EVIDENCE_2026-07-26.md`.
+
+Thus the omitted source gate is not evidence for filtering current anchor
+routes. `44` UT jump edges retain only a post-spawn capability profile, so a
+future per-commit dynamic-capability observer may revisit that narrow gap; no
+route behavior is authorized now. The `bSinglePath` loss and `MinHitWall`
+predicate remain separately oracle-required differentials.
+
+The benchmark also now attests its build identity (Git state plus runtime
+executable hash/size) in manifest and summary and validates it fail-closed
+through analyzer/comparer/capability tooling. This repairs the earlier
+same-config provenance ambiguity, but the comparer must still include
+route-execution evidence before it can certify a navigation mechanism.
