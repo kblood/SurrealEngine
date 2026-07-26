@@ -3330,21 +3330,21 @@ endpoint filtering. It must prove both movement progress and non-hazardous
 support for the selected entry; a direct-reach veto alone is disqualified for
 this DeathFan class.
 
-## Iteration 128: live direct-navigation fall reproduction
+## Iteration 128: stationary control rejects the live-navigation attribution
 
-The v6 fixture extends the same owner-local `PathNode73` reproduction from
+The v6 fixture extended the same owner-local `PathNode73` reproduction from
 simulation evidence to live physics. With bot script `Tick` and
-`UpdateTactics` paused, it arms the exact native
-`MoveToward(PathNode73, 1.0)` command from the safe recorded anchor and ticks
-walking at a fixed 0.05 seconds. The command arms successfully and enters
-`PHYS_Falling` on the first tick, before a harmful-zone boundary is reached.
-The result is retained at
-`qa/runs/2026-07-26/inventory-route-handoff-fixture-v6-live-pathnode73/`.
+`UpdateTactics` paused, it armed native `MoveToward(PathNode73, 1.0)` and
+entered `PHYS_Falling` on the first 0.05-second tick. That was an observation,
+not yet a command-causality proof.
 
-This proves that the candidate-set failure is not merely a speculative static
-corridor classification: the stock direct navigation command itself creates
-the falling transition. It still does not prove that cancelling that command
-will preserve gameplay progress. Any move-issue experiment must be default
-off, narrowly bind the same direct-path hazard certificate, and demonstrate
-both a replacement command/progress outcome and an aggregate quality win
-before it can be promoted.
+The v7 stationary control at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v7-stationary-control/`
+resets the same anchor, applies no movement command, and ticks once under the
+same conditions. It also enters `PHYS_Falling` immediately. The anchor is
+therefore not physically supported despite its non-harmful zone and initial
+walking state. Withdraw the earlier direct-`MoveToward` attribution and do
+not introduce a move-issue guard from this fixture. The remaining problem is
+upstream: the falling-launch data must be reproduced from a genuinely
+supported, same-life pre-launch location before a navigation command can be
+changed safely.

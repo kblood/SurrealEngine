@@ -120,7 +120,7 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-inventory-route-handoff-fixture-v6\n"
+		out << "schema=surreal-bot-inventory-route-handoff-fixture-v7\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
 			<< "safe_walking_anchor=" << (result.SafeWalkingAnchor ? "true" : "false") << "\n"
@@ -139,6 +139,7 @@ namespace
 			<< "navigation_fallback_endpoint_harmful_zone_below_corridor=" << (result.NavigationFallbackEndpointHarmfulZoneBelowCorridor ? "true" : "false") << "\n"
 			<< "navigation_unsupported_corridor_sample=" << (result.NavigationUnsupportedCorridorSample ? "true" : "false") << "\n"
 			<< "navigation_harmful_zone_below_corridor=" << (result.NavigationHarmfulZoneBelowCorridor ? "true" : "false") << "\n"
+			<< "stationary_navigation_anchor_falling_observed=" << (result.StationaryNavigationAnchorFallingObserved ? "true" : "false") << "\n"
 			<< "live_navigation_move_toward_armed=" << (result.LiveNavigationMoveTowardArmed ? "true" : "false") << "\n"
 			<< "live_navigation_falling_observed=" << (result.LiveNavigationFallingObserved ? "true" : "false") << "\n"
 			<< "live_navigation_harmful_entry_observed=" << (result.LiveNavigationHarmfulEntryObserved ? "true" : "false") << "\n"
@@ -449,6 +450,14 @@ BotInventoryRouteHandoffFixtureResult BotInventoryRouteHandoffFixture::Run(
 		pawn->DisableEvent(ToNameString(EventName::UpdateTactics));
 		pawn->Velocity() = vec3(0.0f);
 		pawn->Acceleration() = vec3(0.0f);
+		pawn->SetPhysics(PHYS_Walking);
+		pawn->Tick(FixtureTickSeconds);
+		result.StationaryNavigationAnchorFallingObserved = pawn->Physics() == PHYS_Falling;
+		if (!pawn->SetLocation(DeathFanPathNode73LaunchAnchor))
+			throw std::runtime_error("fixture could not restore the PathNode73 launch anchor for live movement");
+		pawn->Velocity() = vec3(0.0f);
+		pawn->Acceleration() = vec3(0.0f);
+		pawn->UpdateActorZone();
 		pawn->SetPhysics(PHYS_Walking);
 		pawn->MoveToward(pathNode73, 1.0f);
 		result.LiveNavigationMoveTowardArmed = pawn->StateFrame

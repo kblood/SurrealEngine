@@ -35,6 +35,7 @@ struct BotInventoryRouteHandoffFixtureResult
 	bool NavigationFallbackEndpointHarmfulZoneBelowCorridor = false;
 	bool NavigationUnsupportedCorridorSample = false;
 	bool NavigationHarmfulZoneBelowCorridor = false;
+	bool StationaryNavigationAnchorFallingObserved = false;
 	bool LiveNavigationMoveTowardArmed = false;
 	bool LiveNavigationFallingObserved = false;
 	bool LiveNavigationHarmfulEntryObserved = false;
