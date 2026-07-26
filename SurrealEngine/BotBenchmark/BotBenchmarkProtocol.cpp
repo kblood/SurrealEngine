@@ -207,6 +207,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	bool walkingHitWallMinHitWallCandidateEnabled,
 	bool movementCommandProvenanceObserverEnabled,
 	bool hazardResidenceCommandTransitionLedgerObserverEnabled,
+	bool hazardResidencePreentryCausalSliceObserverEnabled,
 	std::vector<std::string> shadowPolicySet)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
@@ -227,6 +228,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	DirectReachCommandObserverEnabled(directReachCommandObserverEnabled),
 	MovementCommandProvenanceObserverEnabled(movementCommandProvenanceObserverEnabled),
 	HazardResidenceCommandTransitionLedgerObserverEnabled(hazardResidenceCommandTransitionLedgerObserverEnabled),
+	HazardResidencePreentryCausalSliceObserverEnabled(hazardResidencePreentryCausalSliceObserverEnabled),
 	PickTargetObserverEnabled(pickTargetObserverEnabled),
 	WarnTargetObserverEnabled(warnTargetObserverEnabled),
 	PawnVisionConeEnabled(pawnVisionConeEnabled), PawnVisionObserverEnabled(pawnVisionObserverEnabled),
@@ -263,7 +265,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> pickRegDestinationZeroDivideGuard,
 	std::optional<std::string> walkingHitWallMinHitWallCandidate,
 	std::optional<std::string> movementCommandProvenanceObserver,
-	std::optional<std::string> hazardResidenceCommandTransitionLedgerObserver)
+	std::optional<std::string> hazardResidenceCommandTransitionLedgerObserver,
+	std::optional<std::string> hazardResidencePreentryCausalSliceObserver)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -343,6 +346,15 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		throw std::invalid_argument(
 			"bot benchmark hazard-residence command-transition ledger observer requires the movement-command provenance observer");
 	}
+	const bool parsedHazardResidencePreentryCausalSliceObserver = ParseExactBoolean(
+		hazardResidencePreentryCausalSliceObserver,
+		"bot benchmark hazard-residence pre-entry causal-slice observer");
+	if (parsedHazardResidencePreentryCausalSliceObserver
+		&& !parsedHazardResidenceCommandTransitionLedgerObserver)
+	{
+		throw std::invalid_argument(
+			"bot benchmark hazard-residence pre-entry causal-slice observer requires the hazard-residence command-transition ledger observer");
+	}
 	const std::vector<std::string> parsedShadowPolicySet = ParseShadowPolicySet(shadowPolicySet);
 	const bool parsedPawnVisionCone = ParseExactBoolean(
 		pawnVisionCone, "bot benchmark pawn vision cone");
@@ -372,6 +384,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		parsedPickRegDestinationZeroDivideGuard,
 		parsedWalkingHitWallMinHitWallCandidate, parsedMovementCommandProvenanceObserver,
 		parsedHazardResidenceCommandTransitionLedgerObserver,
+		parsedHazardResidencePreentryCausalSliceObserver,
 		parsedShadowPolicySet);
 }
 
@@ -500,6 +513,8 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< (config.IsMovementCommandProvenanceObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"hazard_residence_command_transition_ledger_observer_enabled\": "
 		<< (config.IsHazardResidenceCommandTransitionLedgerObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"hazard_residence_preentry_causal_slice_observer_enabled\": "
+		<< (config.IsHazardResidencePreentryCausalSliceObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"pawn_vision_cone_enabled\": "
 		<< (config.IsPawnVisionConeEnabled() ? "true" : "false") << ",\n"
 		<< "    \"pawn_vision_observer_enabled\": "

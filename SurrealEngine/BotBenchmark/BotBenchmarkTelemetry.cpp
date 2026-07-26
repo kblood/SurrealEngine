@@ -725,7 +725,8 @@ namespace
 		bool inventoryDirectReachSupportObserverRequested,
 		bool directReachCommandObserverRequested,
 		bool movementCommandProvenanceObserverRequested,
-		bool hazardResidenceCommandTransitionLedgerObserverRequested)
+		bool hazardResidenceCommandTransitionLedgerObserverRequested,
+		bool hazardResidencePreentryCausalSliceObserverRequested)
 	{
 		// Keep the telemetry's fail-closed finite-number contract, but attach
 		// enough provenance for a failed deterministic run to identify the live
@@ -1050,6 +1051,69 @@ namespace
 						<< ",\"last_native_path_commit_sequence\":\"" << record.LastNativePathCommitSequence
 						<< "\",\"last_native_path_commit_first_reachspec_index\":" << record.LastNativePathCommitFirstReachSpecIndex
 						<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false") << "}}";
+				}
+				out << "]}";
+			}
+			out << ']';
+		}
+		if (hazardResidencePreentryCausalSliceObserverRequested)
+		{
+			out << ",\"hazard_residence_preentry_causal_slice_episodes_exact\":\""
+				<< bot.HazardResidencePreentryCausalSliceEpisodesExact << "\""
+				<< ",\"hazard_residence_preentry_causal_slice_overflows_exact\":\""
+				<< bot.HazardResidencePreentryCausalSliceOverflowsExact << "\""
+				<< ",\"hazard_residence_preentry_causal_slice_records\":[";
+			for (size_t index = 0; index < bot.HazardResidencePreentryCausalSliceRecords.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& record = bot.HazardResidencePreentryCausalSliceRecords[index];
+				out << "{\"sequence\":\"" << record.Sequence
+					<< "\",\"episode_id\":\"" << record.EpisodeId
+					<< "\",\"life_id\":\"" << record.LifeId
+					<< "\",\"terminal\":"
+					<< JsonString(PawnMovement::HazardResidenceTerminalName(record.Terminal))
+					<< ",\"zone_actor_index\":" << record.ZoneActorIndex
+					<< ",\"zone_name\":" << JsonString(record.ZoneName)
+					<< ",\"zone_class\":" << JsonString(record.ZoneClass)
+					<< ",\"entry_location\":{\"x\":" << Fixed(record.EntryX, 9)
+					<< ",\"y\":" << Fixed(record.EntryY, 9)
+					<< ",\"z\":" << Fixed(record.EntryZ, 9) << '}'
+					<< ",\"pre_entry_physics\":" << JsonString(record.PreEntryPhysics)
+					<< ",\"entry_physics\":" << JsonString(record.EntryPhysics)
+					<< ",\"support_known\":" << (record.SupportKnown ? "true" : "false")
+					<< ",\"support_actor_index\":" << record.SupportActorIndex
+					<< ",\"support_class\":" << JsonString(record.SupportClass)
+					<< ",\"transition\":" << JsonString(record.Transition);
+				const auto writeBoundary = [&](const PawnMovement::HazardResidencePreentryCausalSliceBoundary& boundary)
+				{
+					out << "{\"observed\":" << (boundary.Observed ? "true" : "false")
+						<< ",\"native_tick\":\"" << boundary.NativeTick
+						<< "\",\"physics\":" << JsonString(boundary.Physics) << '}';
+				};
+				out << ",\"mayfall_boundary\":";
+				writeBoundary(record.MayFallBoundary);
+				out << ",\"hitwall_boundary\":";
+				writeBoundary(record.HitWallBoundary);
+				out << ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false")
+					<< ",\"entry_integrity_valid\":"
+					<< (record.EntryIntegrityValid ? "true" : "false")
+					<< ",\"terminal_integrity_valid\":"
+					<< (record.TerminalIntegrityValid ? "true" : "false")
+					<< ",\"command_lineage\":[";
+				uint64_t priorToken = 0;
+				for (size_t commandIndex = 0; commandIndex < record.CommandLineage.size(); commandIndex++)
+				{
+					if (commandIndex) out << ',';
+					const auto& command = record.CommandLineage[commandIndex];
+					out << "{\"sequence\":\"" << (commandIndex + 1)
+						<< "\",\"role\":" << JsonString(commandIndex == 0 ? "entry" : "replacement")
+						<< ",\"prior_command_token\":\"" << priorToken
+						<< "\",\"command_token\":\"" << command.CommandToken
+						<< "\",\"native_tick\":\"" << command.NativeTick
+						<< "\",\"caller_class\":" << JsonString(command.CallerClass)
+						<< ",\"caller_function\":" << JsonString(command.CallerFunction)
+						<< ",\"kind\":" << JsonString(command.Kind) << '}';
+					priorToken = command.CommandToken;
 				}
 				out << "]}";
 			}
@@ -1784,6 +1848,8 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< (config.IsMovementCommandProvenanceObserverEnabled() ? "1" : "0") << '\n'
 		<< "hazard_residence_command_transition_ledger_observer_enabled="
 		<< (config.IsHazardResidenceCommandTransitionLedgerObserverEnabled() ? "1" : "0") << '\n'
+		<< "hazard_residence_preentry_causal_slice_observer_enabled="
+		<< (config.IsHazardResidencePreentryCausalSliceObserverEnabled() ? "1" : "0") << '\n'
 		<< "pawn_vision_cone_enabled="
 		<< (config.IsPawnVisionConeEnabled() ? "1" : "0") << '\n'
 		<< "pawn_vision_observer_enabled="
@@ -1871,6 +1937,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsMovementCommandProvenanceObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"hazard_residence_command_transition_ledger_observer_enabled\": "
 		<< (config.IsHazardResidenceCommandTransitionLedgerObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"hazard_residence_preentry_causal_slice_observer_enabled\": "
+		<< (config.IsHazardResidencePreentryCausalSliceObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"pawn_vision_cone_enabled\": "
 		<< (config.IsPawnVisionConeEnabled() ? "true" : "false") << ",\n"
 		<< "  \"pawn_vision_observer_enabled\": "
@@ -1939,6 +2007,8 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 		out << ",\"movement_command_provenance_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.HazardResidenceCommandTransitionLedgerObserverRequested)
 		out << ",\"hazard_residence_command_transition_ledger_observer\":{\"requested\":true,\"status\":\"active\"}";
+	if (event.HazardResidencePreentryCausalSliceObserverRequested)
+		out << ",\"hazard_residence_preentry_causal_slice_observer\":{\"requested\":true,\"status\":\"active\"}";
 	out << ",\"bots\":[";
 	for (size_t index = 0; index < event.Bots.size(); index++)
 	{
@@ -1956,7 +2026,8 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 				event.InventoryDirectReachSupportObserverRequested,
 				event.DirectReachCommandObserverRequested,
 				event.MovementCommandProvenanceObserverRequested,
-				event.HazardResidenceCommandTransitionLedgerObserverRequested);
+				event.HazardResidenceCommandTransitionLedgerObserverRequested,
+				event.HazardResidencePreentryCausalSliceObserverRequested);
 		}
 		catch (const std::invalid_argument& error)
 		{

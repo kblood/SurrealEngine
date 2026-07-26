@@ -712,6 +712,31 @@ class MatrixRunnerTests(unittest.TestCase):
             self.assertTrue(row["native_path_commit_observer_enabled"])
             self.assertTrue(row["movement_command_provenance_observer_enabled"])
 
+    def test_preentry_causal_slice_requires_ledger_and_is_provenanced(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = write_manifest(root)
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            candidate = manifest["variants"][1]
+            candidate["hazard_residence_preentry_causal_slice_observer_enabled"] = True
+            path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(MATRIX.MatrixError, "pre-entry causal slice requires"):
+                MATRIX.load_matrix(path)
+
+            candidate["native_path_commit_observer_enabled"] = True
+            candidate["movement_command_provenance_observer_enabled"] = True
+            candidate["hazard_residence_command_transition_ledger_observer_enabled"] = True
+            path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            config = MATRIX.load_matrix(path)
+            case = next(case for case in MATRIX.expand_cases(config)
+                        if case.variant.id == "candidate")
+            command = MATRIX.command_for(config, case, root / "candidate")
+            self.assertIn(
+                "--botbench-hazard-residence-preentry-causal-slice-observer=1", command)
+            plan = MATRIX.dry_run_plan(config, root / "plan")
+            row = next(item for item in plan["cases"] if item["variant"] == "candidate")
+            self.assertTrue(row["hazard_residence_preentry_causal_slice_observer_enabled"])
+
     def test_roster_is_part_of_case_and_pair_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

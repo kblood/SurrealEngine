@@ -202,6 +202,26 @@ namespace
 		return zone && zone->bPainZone() && zone->DamagePerSec() > 0;
 	}
 
+	std::string HazardResidencePhysicsName(int physics)
+	{
+		switch (physics)
+		{
+		case PHYS_None: return "none";
+		case PHYS_Walking: return "walking";
+		case PHYS_Falling: return "falling";
+		case PHYS_Swimming: return "swimming";
+		case PHYS_Flying: return "flying";
+		case PHYS_Rotating: return "rotating";
+		case PHYS_Projectile: return "projectile";
+		case PHYS_Rolling: return "rolling";
+		case PHYS_Interpolating: return "interpolating";
+		case PHYS_MovingBrush: return "moving_brush";
+		case PHYS_Spider: return "spider";
+		case PHYS_Trailer: return "trailer";
+		}
+		return "other_" + std::to_string(physics);
+	}
+
 	bool IsSafeFallingHazardRecoveryZone(UZoneInfo* zone)
 	{
 		return zone && zone->bStatic() && !zone->bWaterZone()
@@ -1377,6 +1397,7 @@ void UActor::TickWalking(float elapsed)
 						bJustTeleported() = true;
 						vel = Velocity() = Velocity() * Mass() / (Mass() + hit.Actor->Mass());
 						walkingHitWallDispatched = true;
+						pawn->ObserveHazardResidenceHitWallBoundary();
 						CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
 						timeLeft = 0.0f;
 					}
@@ -1390,6 +1411,7 @@ void UActor::TickWalking(float elapsed)
 				{
 					// We hit a wall
 					walkingHitWallDispatched = true;
+					pawn->ObserveHazardResidenceHitWallBoundary();
 					CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
 					const bool fixtureContactLimitReached = pawn->RecordWalkingHitWallDispatch(initialHit,
 						velocityBeforeCollision, minHitWallBeforeCallback,
@@ -1423,6 +1445,7 @@ void UActor::TickWalking(float elapsed)
 							if (secondHitWallDispatch)
 							{
 								walkingHitWallDispatched = true;
+								pawn->ObserveHazardResidenceHitWallBoundary();
 								CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
 							}
 							const bool fixtureContactLimitReached = pawn->RecordWalkingHitWallDispatch(secondHit,
@@ -1477,7 +1500,10 @@ void UActor::TickWalking(float elapsed)
 				// UE1 gives walking Pawns that may jump one script callback before
 				// committing an unsupported step. Script can clear bCanJump to veto it.
 				if (PawnMovement::ShouldDispatchMayFall(pawn->bCanJump()))
+				{
+					pawn->ObserveHazardResidenceMayFallBoundary();
 					CallEvent(pawn, EventName::MayFall);
+				}
 
 				// Short-circuit property reads after Destroy: it removes the Pawn from
 				// collision immediately, so no stale walking work may follow.
@@ -6294,6 +6320,7 @@ void UPawn::ResolveHazardResidence(PawnMovement::HazardResidenceTerminal termina
 	if (engine->IsBotBenchmarkDirectReachCommandObserverEnabled())
 		DirectReachHazardResidenceTerminals.emplace_back(DirectReachCommandLifeId(), terminal);
 	FinishHazardResidenceCommandTransitionLedger(terminal);
+	FinishHazardResidencePreentryCausalSlice(terminal);
 	HazardResidence = {};
 	HazardResidenceCandidateName.clear();
 }
@@ -6313,12 +6340,18 @@ void UPawn::AdvanceHazardResidenceSample(bool positiveDpsHazard, float elapsed)
 	const bool eligibleBot = (engine->IsBotBenchmarkHazardSwimEgressEnabled()
 		|| engine->IsBotBenchmarkDirectReachCommandObserverEnabled()
 		|| engine->IsBotBenchmarkMovementCommandProvenanceObserverEnabled()
-		|| engine->IsBotBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled())
+		|| engine->IsBotBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled()
+		|| engine->IsBotBenchmarkHazardResidencePreentryCausalSliceObserverEnabled())
 		&& IsStockAutonomousPlayerBot(this) && Role() == ROLE_Authority;
 	if (!eligibleBot)
 	{
 		HazardResidence = {};
 		HazardResidenceCandidateName.clear();
+		HazardResidencePreentryCausalSlice = {};
+		HazardResidencePreentryCausalSliceActive = false;
+		HazardResidencePreentryPriorPhysics = -1;
+		HazardResidencePreentryPendingMayFallBoundary = {};
+		HazardResidencePreentryPendingHitWallBoundary = {};
 		return;
 	}
 	const uint64_t priorReentries = HazardResidence.Reentries;
@@ -6331,10 +6364,12 @@ void UPawn::AdvanceHazardResidenceSample(bool positiveDpsHazard, float elapsed)
 		HazardResidenceEpisodeCountValue++;
 		HazardResidenceMovementCommand = ActiveMovementCommandProvenance;
 		BeginHazardResidenceCommandTransitionLedger();
+		CaptureHazardResidencePreentryCausalSlice();
 	}
 	if (HazardResidence.Reentries > priorReentries)
 		HazardResidenceReentryCountValue += HazardResidence.Reentries - priorReentries;
 	ResolveHazardResidence(update.Terminal);
+	HazardResidencePreentryPriorPhysics = static_cast<int32_t>(Physics());
 }
 
 void UPawn::ObserveHazardResidenceCandidate(const std::string& candidateName)
@@ -6500,6 +6535,125 @@ UPawn::DrainHazardResidenceCommandTransitionLedgerRecords()
 {
 	std::vector<PawnMovement::HazardResidenceCommandTransitionLedgerRecord> records;
 	records.swap(HazardResidenceCommandTransitionLedgerRecords);
+	return records;
+}
+
+void UPawn::CaptureHazardResidencePreentryCausalSlice()
+{
+	if (!engine || !engine->IsBotBenchmarkHazardResidencePreentryCausalSliceObserverEnabled())
+		return;
+	HazardResidencePreentryCausalSlice = {};
+	HazardResidencePreentryCausalSliceActive = true;
+	auto& record = HazardResidencePreentryCausalSlice;
+	record.EpisodeId = HazardResidenceEpisodeCountValue;
+	record.LifeId = DirectReachCommandLifeId();
+	record.EntryX = Location().x;
+	record.EntryY = Location().y;
+	record.EntryZ = Location().z;
+	record.PreEntryPhysics = HazardResidencePhysicsName(
+		HazardResidencePreentryPriorPhysics >= 0
+			? HazardResidencePreentryPriorPhysics : static_cast<int32_t>(Physics()));
+	record.EntryPhysics = HazardResidencePhysicsName(static_cast<int32_t>(Physics()));
+	record.Transition = "harmful_zone_entry";
+	const std::array<UZoneInfo*, 3> zones = {
+		Region().Zone, FootRegion().Zone, HeadRegion().Zone
+	};
+	UZoneInfo* harmfulZone = nullptr;
+	for (UZoneInfo* zone : zones)
+	{
+		if (IsExactHarmfulZone(zone))
+		{
+			harmfulZone = zone;
+			break;
+		}
+	}
+	if (harmfulZone && !harmfulZone->bDeleteMe() && harmfulZone->Class)
+	{
+		record.ZoneActorIndex = harmfulZone->Index;
+		record.ZoneName = harmfulZone->Name.ToString();
+		record.ZoneClass = UObject::GetUClassFullName(harmfulZone).ToString();
+	}
+	UActor* support = ActorBase();
+	if (support && !support->bDeleteMe() && support->Class)
+	{
+		record.SupportKnown = true;
+		record.SupportActorIndex = support->Index;
+		record.SupportClass = UObject::GetUClassFullName(support).ToString();
+	}
+	const uint64_t tick = engine->BotBenchmarkObserverTick();
+	if (HazardResidencePreentryPendingMayFallBoundary.NativeTick == tick)
+		record.MayFallBoundary = HazardResidencePreentryPendingMayFallBoundary;
+	if (HazardResidencePreentryPendingHitWallBoundary.NativeTick == tick)
+		record.HitWallBoundary = HazardResidencePreentryPendingHitWallBoundary;
+	HazardResidencePreentryPendingMayFallBoundary = {};
+	HazardResidencePreentryPendingHitWallBoundary = {};
+}
+
+void UPawn::FinishHazardResidencePreentryCausalSlice(
+	PawnMovement::HazardResidenceTerminal terminal)
+{
+	if (!HazardResidencePreentryCausalSliceActive)
+		return;
+	auto record = std::move(HazardResidencePreentryCausalSlice);
+	HazardResidencePreentryCausalSlice = {};
+	HazardResidencePreentryCausalSliceActive = false;
+	record.Sequence = ++HazardResidencePreentryCausalSliceSequence;
+	record.Terminal = terminal;
+	if (!HazardResidenceCommandTransitionLedgerRecords.empty())
+	{
+		const auto& ledger = HazardResidenceCommandTransitionLedgerRecords.back();
+		if (ledger.Sequence == record.Sequence && ledger.EpisodeId == record.EpisodeId
+			&& ledger.LifeId == record.LifeId)
+		{
+			record.EntryIntegrityValid = ledger.EntryIntegrityValid;
+			record.TerminalIntegrityValid = ledger.TerminalIntegrityValid;
+			record.CommandLineage.reserve(ledger.Entries.size());
+			for (const auto& entry : ledger.Entries)
+				record.CommandLineage.push_back(entry.Command);
+		}
+	}
+	record.IntegrityValid = record.EntryIntegrityValid && record.TerminalIntegrityValid
+		&& record.ZoneActorIndex >= 0 && !record.ZoneName.empty() && !record.ZoneClass.empty()
+		&& !record.PreEntryPhysics.empty() && !record.EntryPhysics.empty()
+		&& !record.Transition.empty() && !record.CommandLineage.empty();
+	static constexpr size_t maximumQueuedRecords = 512;
+	if (HazardResidencePreentryCausalSliceRecords.size() < maximumQueuedRecords)
+		HazardResidencePreentryCausalSliceRecords.push_back(std::move(record));
+	else
+		HazardResidencePreentryCausalSliceOverflowCountValue++;
+}
+
+void UPawn::ObserveHazardResidenceMayFallBoundary()
+{
+	if (!engine || !engine->IsBotBenchmarkHazardResidencePreentryCausalSliceObserverEnabled()
+		|| !IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority)
+	{
+		return;
+	}
+	HazardResidencePreentryPendingMayFallBoundary = {
+		true, engine->BotBenchmarkObserverTick(),
+		HazardResidencePhysicsName(static_cast<int32_t>(Physics()))
+	};
+}
+
+void UPawn::ObserveHazardResidenceHitWallBoundary()
+{
+	if (!engine || !engine->IsBotBenchmarkHazardResidencePreentryCausalSliceObserverEnabled()
+		|| !IsStockAutonomousPlayerBot(this) || Role() != ROLE_Authority)
+	{
+		return;
+	}
+	HazardResidencePreentryPendingHitWallBoundary = {
+		true, engine->BotBenchmarkObserverTick(),
+		HazardResidencePhysicsName(static_cast<int32_t>(Physics()))
+	};
+}
+
+std::vector<PawnMovement::HazardResidencePreentryCausalSliceRecord>
+UPawn::DrainHazardResidencePreentryCausalSliceRecords()
+{
+	std::vector<PawnMovement::HazardResidencePreentryCausalSliceRecord> records;
+	records.swap(HazardResidencePreentryCausalSliceRecords);
 	return records;
 }
 

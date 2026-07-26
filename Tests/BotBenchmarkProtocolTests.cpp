@@ -32,6 +32,8 @@ int main()
 		|| defaults.IsReachSpecCapabilityObserverEnabled()
 		|| defaults.IsDirectReachCommandObserverEnabled()
 		|| defaults.IsMovementCommandProvenanceObserverEnabled()
+		|| defaults.IsHazardResidenceCommandTransitionLedgerObserverEnabled()
+		|| defaults.IsHazardResidencePreentryCausalSliceObserverEnabled()
 		|| defaults.IsPawnVisionConeEnabled()
 		|| defaults.IsPawnVisionObserverEnabled()
 		|| defaults.IsVectorNonFiniteObserverEnabled()
@@ -228,6 +230,7 @@ int main()
 		"    \"direct_reach_command_observer_enabled\": false,\n"
 		"    \"movement_command_provenance_observer_enabled\": false,\n"
 		"    \"hazard_residence_command_transition_ledger_observer_enabled\": false,\n"
+		"    \"hazard_residence_preentry_causal_slice_observer_enabled\": false,\n"
 		"    \"pawn_vision_cone_enabled\": false,\n"
 		"    \"pawn_vision_observer_enabled\": false,\n"
 		"    \"vector_nonfinite_observer_enabled\": false,\n"

@@ -60,7 +60,8 @@ public:
 		std::optional<std::string> pickRegDestinationZeroDivideGuard = {},
 		std::optional<std::string> walkingHitWallMinHitWallCandidate = {},
 		std::optional<std::string> movementCommandProvenanceObserver = {},
-		std::optional<std::string> hazardResidenceCommandTransitionLedgerObserver = {});
+		std::optional<std::string> hazardResidenceCommandTransitionLedgerObserver = {},
+		std::optional<std::string> hazardResidencePreentryCausalSliceObserver = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -113,6 +114,10 @@ public:
 	{
 		return HazardResidenceCommandTransitionLedgerObserverEnabled;
 	}
+	bool IsHazardResidencePreentryCausalSliceObserverEnabled() const
+	{
+		return HazardResidencePreentryCausalSliceObserverEnabled;
+	}
 	bool IsPawnVisionConeEnabled() const { return PawnVisionConeEnabled; }
 	bool IsPawnVisionObserverEnabled() const { return PawnVisionObserverEnabled; }
 	bool IsVectorNonFiniteObserverEnabled() const { return VectorNonFiniteObserverEnabled; }
@@ -144,6 +149,7 @@ private:
 		bool walkingHitWallMinHitWallCandidateEnabled,
 		bool movementCommandProvenanceObserverEnabled,
 		bool hazardResidenceCommandTransitionLedgerObserverEnabled,
+		bool hazardResidencePreentryCausalSliceObserverEnabled,
 		std::vector<std::string> shadowPolicySet);
 
 	std::string URL;
@@ -172,6 +178,7 @@ private:
 	bool DirectReachCommandObserverEnabled = false;
 	bool MovementCommandProvenanceObserverEnabled = false;
 	bool HazardResidenceCommandTransitionLedgerObserverEnabled = false;
+	bool HazardResidencePreentryCausalSliceObserverEnabled = false;
 	bool PawnVisionConeEnabled = false;
 	bool PawnVisionObserverEnabled = false;
 	bool VectorNonFiniteObserverEnabled = false;

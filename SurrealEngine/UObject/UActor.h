@@ -19,6 +19,7 @@
 #include "PawnDirectReachCommandProvenance.h"
 #include "PawnMovementCommandProvenance.h"
 #include "PawnHazardResidenceCommandTransitionLedger.h"
+#include "PawnHazardResidencePreentryCausalSlice.h"
 #include "PawnRoutePathCommitProvenance.h"
 #include "PawnPickTargetObserver.h"
 #include "PawnCanSeeObserver.h"
@@ -1982,6 +1983,14 @@ public:
 	{
 		return HazardResidenceCommandTransitionLedgerOverflowCountValue;
 	}
+	std::vector<PawnMovement::HazardResidencePreentryCausalSliceRecord>
+		DrainHazardResidencePreentryCausalSliceRecords();
+	uint64_t HazardResidencePreentryCausalSliceOverflowCount() const
+	{
+		return HazardResidencePreentryCausalSliceOverflowCountValue;
+	}
+	void ObserveHazardResidenceMayFallBoundary();
+	void ObserveHazardResidenceHitWallBoundary();
 	uint64_t MovementCommandProvenanceOverflowCount() const
 	{
 		return MovementCommandProvenanceOverflowCountValue;
@@ -2659,6 +2668,8 @@ private:
 		const PawnMovement::MovementCommandProvenanceObservation& observation);
 	void FinishHazardResidenceCommandTransitionLedger(
 		PawnMovement::HazardResidenceTerminal terminal);
+	void CaptureHazardResidencePreentryCausalSlice();
+	void FinishHazardResidencePreentryCausalSlice(PawnMovement::HazardResidenceTerminal terminal);
 	void ResolveHazardResidence(PawnMovement::HazardResidenceTerminal terminal);
 	void ObserveExternalImpulseFallWitness(
 		PawnMovement::FallingHazardForecastSource source,
@@ -2740,6 +2751,14 @@ private:
 		std::vector<PawnMovement::HazardResidenceCommandTransitionLedgerEntry> Entries;
 	};
 	HazardResidenceCommandTransitionLedgerState HazardResidenceCommandTransitionLedger;
+	PawnMovement::HazardResidencePreentryCausalSliceRecord HazardResidencePreentryCausalSlice;
+	bool HazardResidencePreentryCausalSliceActive = false;
+	int32_t HazardResidencePreentryPriorPhysics = -1;
+	PawnMovement::HazardResidencePreentryCausalSliceBoundary
+		HazardResidencePreentryPendingMayFallBoundary,
+		HazardResidencePreentryPendingHitWallBoundary;
+	std::vector<PawnMovement::HazardResidencePreentryCausalSliceRecord> HazardResidencePreentryCausalSliceRecords;
+	uint64_t HazardResidencePreentryCausalSliceSequence = 0, HazardResidencePreentryCausalSliceOverflowCountValue = 0;
 	std::string HazardResidenceCandidateName;
 	std::optional<PawnMovement::HazardResidenceDeathWitness>
 		HazardResidenceDeathWitness;

@@ -266,6 +266,14 @@ public:
 	{
 		botBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled = enabled;
 	}
+	bool IsBotBenchmarkHazardResidencePreentryCausalSliceObserverEnabled() const
+	{
+		return botBenchmarkHazardResidencePreentryCausalSliceObserverEnabled;
+	}
+	void SetBotBenchmarkHazardResidencePreentryCausalSliceObserverEnabled(bool enabled)
+	{
+		botBenchmarkHazardResidencePreentryCausalSliceObserverEnabled = enabled;
+	}
 	bool IsBotBenchmarkPawnVisionConeEnabled() const
 	{
 		return botBenchmarkPawnVisionConeEnabled;
@@ -505,6 +513,7 @@ private:
 	bool botBenchmarkDirectReachCommandObserverEnabled = false;
 	bool botBenchmarkMovementCommandProvenanceObserverEnabled = false;
 	bool botBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled = false;
+	bool botBenchmarkHazardResidencePreentryCausalSliceObserverEnabled = false;
 	bool botBenchmarkPawnVisionConeEnabled = false;
 	bool botBenchmarkPawnVisionObserverEnabled = false;
 	bool botBenchmarkVectorNonFiniteObserverEnabled = false;
