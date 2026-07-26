@@ -3091,7 +3091,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                inventory_marker_direct_reach_safety_enabled: bool | None = None,
                native_path_commit_observer_enabled: bool | None = None,
                reachspec_capability_observer_enabled: bool | None = None,
-               direct_reach_command_observer_enabled: bool | None = None) -> str:
+               direct_reach_command_observer_enabled: bool | None = None,
+               shadow_policy_set: list[str] | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -3151,6 +3152,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if direct_reach_command_observer_enabled is not None:
             canonical_text += "direct_reach_command_observer_enabled=" + (
                 "1\n" if direct_reach_command_observer_enabled else "0\n")
+        if shadow_policy_set is not None:
+            canonical_text += "".join(f"shadow_policy={policy}\n" for policy in shadow_policy_set)
         assert requested_roster is not None
         canonical_text += "".join(f"roster={entry['identity_fragment']}\n" for entry in requested_roster)
     canonical = canonical_text.encode("utf-8")
@@ -3177,6 +3180,23 @@ def _close(left: float, right: float) -> bool:
 def _ascii_lower(value: str) -> str:
     return "".join(chr(ord(character) + 32) if "A" <= character <= "Z" else character
                    for character in value)
+
+
+def _validate_shadow_policy_set(value: Any, context: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise QualityError(f"{context} must be a non-empty array")
+    policies: list[str] = []
+    for index, policy in enumerate(value):
+        if not isinstance(policy, str) or not policy:
+            raise QualityError(f"{context}[{index}] must be a non-empty string")
+        if any(character in " \t\r\n" for character in policy):
+            raise QualityError(f"{context}[{index}] contains whitespace")
+        policies.append(policy)
+    if policies != sorted(policies):
+        raise QualityError(f"{context} must be sorted")
+    if len(policies) != len(set(policies)):
+        raise QualityError(f"{context} must not contain duplicates")
+    return policies
 
 
 def _validate_requested_roster(raw: Any, context: str, bot_count: int) -> list[dict[str, Any]]:
@@ -3291,6 +3311,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     native_path_commit_observer_enabled = None
     reachspec_capability_observer_enabled = None
     direct_reach_command_observer_enabled = None
+    shadow_policy_set = None
     build_identity = None
     if schema == MANIFEST_SCHEMA_V3:
         build_identity = _validate_build_identity(raw.get("build_identity"), "manifest.build_identity")
@@ -3383,6 +3404,11 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             direct_reach_command_observer_enabled = _boolean(
                 raw.get("direct_reach_command_observer_enabled"),
                 "manifest.direct_reach_command_observer_enabled")
+        if schema == MANIFEST_SCHEMA_V3:
+            shadow_policy_set = _validate_shadow_policy_set(
+                raw.get("shadow_policy_set"), "manifest.shadow_policy_set")
+        elif "shadow_policy_set" in raw:
+            raise QualityError(f"{path}: shadow_policy_set requires manifest v3")
     expected_id = _config_id(url, seed, max_ticks, fixed_delta, difficulty, bot_count,
                              requested_roster, harmful_zone_escape_enabled,
                              walking_preflight_positive_dps_veto_enabled,
@@ -3401,7 +3427,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              inventory_marker_direct_reach_safety_enabled,
                              native_path_commit_observer_enabled,
                              reachspec_capability_observer_enabled,
-                             direct_reach_command_observer_enabled)
+                             direct_reach_command_observer_enabled,
+                             shadow_policy_set)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -3439,6 +3466,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "native_path_commit_observer_enabled": native_path_commit_observer_enabled,
         "reachspec_capability_observer_enabled": reachspec_capability_observer_enabled,
         "direct_reach_command_observer_enabled": direct_reach_command_observer_enabled,
+        "shadow_policy_set": shadow_policy_set,
     }
 
 
@@ -5128,6 +5156,9 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
     if manifest["pick_target_predicate_mode"] is not None:
         comparisons["pick_target_predicate_mode"] = _string(
             config, "pick_target_predicate_mode", "summary.config", nonempty=True)
+    if manifest["shadow_policy_set"] is not None:
+        comparisons["shadow_policy_set"] = _validate_shadow_policy_set(
+            config.get("shadow_policy_set"), "summary.config.shadow_policy_set")
     requested_roster = None
     actual_roster = None
     if expected_schema in (SUMMARY_SCHEMA_V2, SUMMARY_SCHEMA_V4):
@@ -5923,6 +5954,7 @@ def analyze_run(path: Path) -> dict[str, Any]:
                 manifest["native_path_commit_observer_enabled"]),
             "reachspec_capability_observer_enabled": (
                 manifest["reachspec_capability_observer_enabled"]),
+            "shadow_policy_set": manifest["shadow_policy_set"],
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),
             "suicides_exact_semantics": manifest["suicides_exact_semantics"],

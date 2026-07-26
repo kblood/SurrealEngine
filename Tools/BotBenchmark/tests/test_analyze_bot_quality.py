@@ -161,6 +161,23 @@ def write_v2_run(root: Path, name: str, *, bot_count: int = 2) -> Path:
     return run
 
 
+def build_identity_fixture() -> dict:
+    return {
+        "schema": "surreal-engine-build-identity-v1",
+        "id": "sha256:" + "A" * 64,
+        "source": {
+            "commit": "a" * 40,
+            "tree": "b" * 40,
+            "dirty": False,
+        },
+        "executable": {
+            "name": "SurrealEngine.exe",
+            "size_bytes": 1,
+            "sha256": "B" * 64,
+        },
+    }
+
+
 def set_reachspec_capability_observer(run: Path, enabled: bool) -> None:
     manifest_path = run / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -333,6 +350,84 @@ def vertical_terminal(*, sequence: int = 2, life: int = 1, fall: int = 1,
 
 
 class BotQualityAnalysisTests(unittest.TestCase):
+    def test_shadow_policy_set_is_canonical_and_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "shadow-policy")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            policies = ["utility-arena"]
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            manifest["shadow_policy_set"] = policies
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], shadow_policy_set=policies)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            events_path = run / "events.jsonl"
+            raw_events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in raw_events:
+                event["config_id"] = manifest["config_id"]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in raw_events),
+                encoding="utf-8")
+
+            parsed = QUALITY._validate_manifest(manifest_path)
+            self.assertEqual(parsed["shadow_policy_set"], policies)
+
+            summary_path = run / "summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["schema"] = QUALITY.SUMMARY_SCHEMA_V4
+            summary["build_identity"] = manifest["build_identity"]
+            summary["config"]["shadow_policy_set"] = policies
+            summary["ai_frame_timing"] = {
+                "schema": "surreal-bot-ai-frame-timing-v1",
+                "scope": "benchmark_observation_policy_driver_sampling",
+                "clock": "host_steady_clock_performance_only",
+                "behavioral_determinism": "not_behavioral_evidence",
+                "sample_count": 0,
+                "histogram_bucket_overflows_exact": 0,
+                "bucket_max_microseconds": 1,
+                "max_microseconds": 0,
+                "p50_microseconds": None,
+                "p95_microseconds": None,
+                "p99_microseconds": None,
+            }
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            events = QUALITY._load_events(run / "events.jsonl", parsed)
+            QUALITY._validate_summary(summary_path, parsed, events)
+
+            summary["config"]["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "shadow_policy_set differs"):
+                QUALITY._validate_summary(summary_path, parsed, events)
+
+            manifest["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
+    def test_shadow_policy_set_rejects_noncanonical_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "shadow-policy-invalid")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            for policies, error in (
+                    ([], "non-empty array"),
+                    (["utility-arena", "tactical-state"], "must be sorted"),
+                    (["utility-arena", "utility-arena"], "must not contain duplicates"),
+                    (["utility arena"], "contains whitespace")):
+                manifest["shadow_policy_set"] = policies
+                manifest["config_id"] = QUALITY._config_id(
+                    manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                    manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                    manifest["requested_roster"], shadow_policy_set=policies)
+                manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+                with self.assertRaisesRegex(QUALITY.QualityError, error):
+                    QUALITY._validate_manifest(manifest_path)
+
     def test_reachspec_capability_observer_is_bound_into_manifest_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             run = write_v2_run(Path(temporary), "reachspec-capability")
