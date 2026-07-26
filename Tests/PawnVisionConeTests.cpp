@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <string>
 
 namespace
@@ -68,6 +69,27 @@ namespace
 			vec3(-100.0f, 0.0f, 0.0f), -0.5f),
 			"negative peripheral vision disables the cone rejection");
 	}
+
+	void TestZeroLengthForwardFailsClosedWhenVisionIsEnabled()
+	{
+		Check(!PawnMovement::IsWithinPawnVisionCone(vec3(0.0f), vec3(0.0f),
+			vec3(100.0f, 0.0f, 0.0f), 0.5f),
+			"an enabled vision cone rejects a target when forward direction is undefined");
+	}
+
+	void TestNonFiniteInputsFailClosed()
+	{
+		const float nan = std::numeric_limits<float>::quiet_NaN();
+		Check(!PawnMovement::IsWithinPawnVisionCone(vec3(nan, 0.0f, 0.0f),
+			vec3(1.0f, 0.0f, 0.0f), vec3(100.0f, 0.0f, 0.0f), 0.5f),
+			"a non-finite observer location fails closed");
+		Check(!PawnMovement::IsWithinPawnVisionCone(vec3(0.0f), vec3(1.0f, 0.0f, 0.0f),
+			vec3(nan, 0.0f, 0.0f), 0.5f),
+			"a non-finite target location fails closed");
+		Check(!PawnMovement::IsWithinPawnVisionCone(vec3(0.0f), vec3(1.0f, 0.0f, 0.0f),
+			vec3(100.0f, 0.0f, 0.0f), nan),
+			"a non-finite peripheral-vision threshold fails closed");
+	}
 }
 
 int main()
@@ -78,6 +100,8 @@ int main()
 	TestTranslationDoesNotChangeConeResult();
 	TestZeroLengthTargetIsVisible();
 	TestDisabledPeripheralVisionDoesNotRejectDirection();
+	TestZeroLengthForwardFailsClosedWhenVisionIsEnabled();
+	TestNonFiniteInputsFailClosed();
 	if (Failures == 0)
 		std::cout << "Pawn vision cone tests passed\n";
 	return Failures == 0 ? 0 : 1;
