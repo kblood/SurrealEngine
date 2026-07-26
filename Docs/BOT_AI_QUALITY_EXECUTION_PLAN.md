@@ -3547,3 +3547,23 @@ any promotion beyond the benchmark flag, require a multi-seed, multi-map UT
 matrix that preserves or improves combat efficacy while reducing hazardous
 deaths, plus a separate Unreal matrix that either observes safe activation or
 establishes inert behavior across representative maps.
+
+## Iteration 138: second UT seed confirms safety benefit and collision trade-off
+
+The second deterministic UT436 Deck16-II 16-bot anchor, seed `271828`, gives
+the same safety direction as seed `104729`. With the candidate off it records
+K8/D12/S4, four environmental deaths, 22.317 movement-intent no-progress
+seconds, and 46.61% union navigation coverage. With the gate on it records
+K8/D9/S1, one environmental death, 15.317 no-progress seconds, and 51.00%
+coverage. The gate performed eight pain-ledge recovery attempts and three
+recorded escapes.
+
+The candidate repetition is deterministic for events, shadow output, and
+route execution at
+`qa/runs/2026-07-26/ut436-deck16-16bot-s271828-harmful-zone-escape-r1/` and
+`-r2/`. However, `HitWall` rises from 403 to 646 in this seed (where it fell
+on seed `104729`). This prevents promotion: hazardous deaths and lack of
+progress improve, but the additional collision volume needs episode-level
+provenance. The next work must partition those `HitWall` events into recovery
+probe contacts versus ordinary navigation contacts, and reject the candidate
+if it creates repeat wall-loop or harmful-side-effect episodes.
