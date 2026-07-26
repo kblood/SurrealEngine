@@ -120,13 +120,13 @@ classic locale, position and velocity use six fixed decimals, negative zero is
 normalized, and non-finite values fail the benchmark instead of entering the
 trace.
 
-`summary.json` uses `surreal-bot-benchmark-summary-v2`. It contains the exact
+`summary.json` uses `surreal-bot-benchmark-summary-v3`. It contains the exact
 requested roster and the successfully created portion of the actual roster.
 Actual participants are serialized by roster index, not PRI or actor sort
 order. Failed setup can therefore retain partial spawn evidence. A successful
 run has one actual participant for every requested index.
 
-## Version 2 JSON contract
+## Version 2 roster and version 3 timing contract
 
 The manifest adds `bot_count` and `requested_roster` to the original
 configuration fields:
@@ -153,11 +153,12 @@ hashing, not as the runtime pawn identity. The existing top-level `difficulty`
 remains the uniform fallback and is still identity-bound when explicit skills
 are supplied.
 
-The v2 summary retains the lifecycle and game fields, then adds:
+The v3 summary retains the v2 lifecycle, game, and roster fields, then adds a
+performance-only `ai_frame_timing` group:
 
 ```json
 {
-  "schema": "surreal-bot-benchmark-summary-v2",
+  "schema": "surreal-bot-benchmark-summary-v3",
   "requested_roster": [
     {
       "roster_index": 0,
@@ -175,6 +176,19 @@ The v2 summary retains the lifecycle and game fields, then adds:
       "class": "Botpack.Bot"
     }
   ],
+  "ai_frame_timing": {
+    "schema": "surreal-bot-ai-frame-timing-v1",
+    "scope": "benchmark_observation_policy_driver_sampling",
+    "clock": "host_steady_clock_performance_only",
+    "behavioral_determinism": "not_behavioral_evidence",
+    "sample_count": "600",
+    "histogram_bucket_overflows_exact": "0",
+    "bucket_max_microseconds": "10000",
+    "p50_microseconds": 410,
+    "p95_microseconds": 970,
+    "p99_microseconds": 1200,
+    "max_microseconds": "1520"
+  },
   "config": {
     "url": "DM-Morbias][?Game=Botpack.DeathMatchPlus",
     "output_directory": "botbench-output",
@@ -192,7 +206,16 @@ singular `bot_class` and `bot_name`; consumers must use `actual_roster`. Seed
 and tick counts remain decimal strings. Fixed delta and simulated time use
 fixed nine-decimal, classic-locale formatting. Telemetry remains v1 because its
 existing sorted `bots` vector already supports multiple actors. Consumers must
-use the v2 summary when roster-slot identity matters.
+use the v2-or-later summary when roster-slot identity matters. The v3 timing
+scope deliberately excludes `Level->Tick`, renderer/audio/package work, JSON
+serialization, telemetry file writes, UCC, and launcher wall time. It includes
+only benchmark-owned navigation coverage observation, shadow observation
+building/policy evaluation, and per-tick driver state sampling. Durations are
+host performance observations, never deterministic behavior evidence. A fixed
+10 ms, 1 us histogram bounds storage; a percentile whose rank falls in the
+explicit overflow bucket is `null`, never clamped. `ai_frame_p95_ms` is only
+available to the quality analyzer for a complete run with exactly one timing
+sample per simulated tick.
 
 Setup and tick failures are repeated in `run_start` or `run_result` when the
 telemetry stream remains writable and always remain in `summary.json`. Failure

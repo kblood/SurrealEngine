@@ -108,6 +108,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.h
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.h
+	SurrealEngine/BotBenchmark/BotBenchmarkAiFrameTiming.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkAiFrameTiming.h
 	SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkRoster.h
 	SurrealEngine/BotBenchmark/BotBenchmarkShadowTelemetry.cpp
@@ -1219,6 +1221,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_executable(BotBenchmarkProtocolTests
 		Tests/BotBenchmarkProtocolTests.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkAiFrameTiming.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 	)
 	target_include_directories(BotBenchmarkProtocolTests PRIVATE SurrealEngine)
@@ -1239,6 +1242,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(BotBenchmarkTelemetryTests PRIVATE SurrealEngine)
 	set_target_properties(BotBenchmarkTelemetryTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkTelemetry COMMAND BotBenchmarkTelemetryTests)
+
+	add_executable(BotBenchmarkAiFrameTimingTests
+		Tests/BotBenchmarkAiFrameTimingTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkAiFrameTiming.cpp
+	)
+	target_include_directories(BotBenchmarkAiFrameTimingTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkAiFrameTimingTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkAiFrameTiming COMMAND BotBenchmarkAiFrameTimingTests)
 
 	add_executable(BotBenchmarkDeathAttributionTests
 		Tests/BotBenchmarkDeathAttributionTests.cpp

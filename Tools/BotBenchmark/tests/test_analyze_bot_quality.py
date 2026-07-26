@@ -3343,5 +3343,28 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 event(duplicate_claim=True), Path("duplicate-claim"))
 
 
+    def test_ai_frame_timing_is_scoped_and_fails_closed_on_overflow_percentile(self) -> None:
+        timing = {
+            "schema": "surreal-bot-ai-frame-timing-v1",
+            "scope": "benchmark_observation_policy_driver_sampling",
+            "clock": "host_steady_clock_performance_only",
+            "behavioral_determinism": "not_behavioral_evidence",
+            "sample_count": "10",
+            "histogram_bucket_overflows_exact": "1",
+            "bucket_max_microseconds": "10000",
+            "p50_microseconds": 500,
+            "p95_microseconds": None,
+            "p99_microseconds": None,
+            "max_microseconds": "12000",
+        }
+        parsed = QUALITY._validate_ai_frame_timing(timing, "timing")
+        self.assertEqual(parsed["sample_count"], 10)
+        self.assertIsNone(parsed["p95_microseconds"])
+
+        timing["scope"] = "whole_engine_frame"
+        with self.assertRaisesRegex(QUALITY.QualityError, "benchmark-only"):
+            QUALITY._validate_ai_frame_timing(timing, "timing")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,9 +20,10 @@ TELEMETRY_SCHEMA = "surreal-bot-benchmark-telemetry-v1"
 TELEMETRY_SCHEMA_V2 = "surreal-bot-benchmark-telemetry-v2"
 SUMMARY_SCHEMA = "surreal-bot-benchmark-summary-v1"
 SUMMARY_SCHEMA_V2 = "surreal-bot-benchmark-summary-v2"
+SUMMARY_SCHEMA_V3 = "surreal-bot-benchmark-summary-v3"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 REPORT_SCHEMA = "surreal-bot-quality-analysis-v1"
-TOOL_VERSION = 27
+TOOL_VERSION = 28
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
@@ -128,6 +129,7 @@ METRIC_DIRECTIONS: dict[str, str | None] = {
     "vertical_pain_column_ambiguous_outcome_fraction": "lower",
     "vertical_pain_column_diagnostic_coverage_fraction": "higher",
     "vertical_pain_column_generation_capacity_exhaustion_rate": "lower",
+    "ai_frame_p95_ms": "lower",
 }
 
 FUTURE_METRICS = {
@@ -4321,10 +4323,47 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
     return events
 
 
+def _validate_ai_frame_timing(raw: Any, context: str) -> dict[str, Any]:
+    timing = _object(raw, context)
+    if _string(timing, "schema", context, nonempty=True) != "surreal-bot-ai-frame-timing-v1":
+        raise QualityError(f"{context}: unsupported timing schema")
+    if _string(timing, "scope", context, nonempty=True) != "benchmark_observation_policy_driver_sampling":
+        raise QualityError(f"{context}: timing scope is not the benchmark-only scope")
+    if _string(timing, "clock", context, nonempty=True) != "host_steady_clock_performance_only":
+        raise QualityError(f"{context}: timing clock is not the scoped in-engine performance clock")
+    if (_string(timing, "behavioral_determinism", context, nonempty=True)
+            != "not_behavioral_evidence"):
+        raise QualityError(f"{context}: timing must not claim behavioral determinism")
+    result = {
+        "sample_count": _integer(timing.get("sample_count"), f"{context}.sample_count", minimum=0),
+        "histogram_bucket_overflows_exact": _integer(
+            timing.get("histogram_bucket_overflows_exact"),
+            f"{context}.histogram_bucket_overflows_exact", minimum=0),
+        "bucket_max_microseconds": _integer(
+            timing.get("bucket_max_microseconds"), f"{context}.bucket_max_microseconds", minimum=1),
+        "max_microseconds": _integer(
+            timing.get("max_microseconds"), f"{context}.max_microseconds", minimum=0),
+    }
+    for name in ("p50_microseconds", "p95_microseconds", "p99_microseconds"):
+        value = timing.get(name)
+        result[name] = None if value is None else _integer(value, f"{context}.{name}", minimum=0)
+        if result[name] is not None and result[name] > result["max_microseconds"]:
+            raise QualityError(f"{context}.{name} exceeds max_microseconds")
+    if result["sample_count"] == 0:
+        if any(result[name] is not None for name in
+               ("p50_microseconds", "p95_microseconds", "p99_microseconds")):
+            raise QualityError(f"{context}: empty timing sample has a percentile")
+    elif result["p50_microseconds"] is None:
+        raise QualityError(f"{context}: populated timing sample lacks p50")
+    return result
+
+
 def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
     raw = _load_json(path, "summary")
     expected_schema = SUMMARY_SCHEMA_V2 if manifest["schema"] == MANIFEST_SCHEMA_V2 else SUMMARY_SCHEMA
-    if raw.get("schema") != expected_schema:
+    allowed_schemas = ((SUMMARY_SCHEMA_V2, SUMMARY_SCHEMA_V3)
+                       if expected_schema == SUMMARY_SCHEMA_V2 else (SUMMARY_SCHEMA,))
+    if raw.get("schema") not in allowed_schemas:
         raise QualityError(f"{path}: unsupported summary schema {raw.get('schema')!r}")
     status = _string(raw, "status", "summary", nonempty=True)
     if status not in ("complete", "failed"):
@@ -4432,6 +4471,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
                             f"{path}: telemetry event {event_index} bot {field} differs from actual_roster")
         if status == "complete" and {bot["identity"] for bot in events[0]["bots"]} != set(actual_by_identity):
             raise QualityError(f"{path}: initial telemetry bot identities differ from actual_roster")
+    ai_frame_timing = (_validate_ai_frame_timing(raw.get("ai_frame_timing"), "summary.ai_frame_timing")
+                       if raw.get("schema") == SUMMARY_SCHEMA_V3 else None)
+    if ai_frame_timing is not None and ai_frame_timing["sample_count"] > ticks:
+        raise QualityError(f"{path}: timing sample count exceeds simulated tick count")
     return {
         "status": status,
         "exit_code": exit_code,
@@ -4441,6 +4484,7 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         "failure_reason": failure_reason,
         "requested_roster": requested_roster,
         "actual_roster": actual_roster,
+        "ai_frame_timing": ai_frame_timing,
     }
 
 
@@ -5138,6 +5182,11 @@ def analyze_run(path: Path) -> dict[str, Any]:
                     f"{run_path}: final hazard-residence outcomes must partition episodes for {identity}")
     completion = summary["status"] == "complete" and summary["exit_code"] == 0
     metrics = _run_metrics(bots, completion)
+    timing = summary["ai_frame_timing"]
+    metrics["ai_frame_p95_ms"] = (
+        timing["p95_microseconds"] / 1000.0
+        if completion and timing is not None and timing["sample_count"] == summary["ticks"]
+        and timing["p95_microseconds"] is not None else None)
     return {
         "path": str(run_path),
         "metadata": metadata,

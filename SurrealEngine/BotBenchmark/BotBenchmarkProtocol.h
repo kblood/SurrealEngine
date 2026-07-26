@@ -1,5 +1,7 @@
 #pragma once
 
+#include "BotBenchmarkAiFrameTiming.h"
+
 #include "BotBenchmarkRoster.h"
 
 #include <cstddef>
@@ -119,7 +121,8 @@ public:
 	BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
 		double simulatedSeconds, std::string game, std::string version,
 		std::string map, std::string failureReason,
-		std::vector<BotBenchmarkActualParticipant> actualRoster);
+		std::vector<BotBenchmarkActualParticipant> actualRoster,
+		BotBenchmarkAiFrameTimingSummary aiFrameTiming = {});
 
 	std::string ToJson(const BotBenchmarkRunConfig& config) const;
 
@@ -133,4 +136,5 @@ private:
 	std::string Map;
 	std::string FailureReason;
 	std::vector<BotBenchmarkActualParticipant> ActualRoster;
+	BotBenchmarkAiFrameTimingSummary AiFrameTiming;
 };

@@ -31,6 +31,7 @@
 #include "VM/ScriptCall.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <iterator>
@@ -177,10 +178,16 @@ namespace
 				}
 				EngineRef.Level->Tick(levelElapsed, false);
 				Ticks = frameTime.Tick;
-				ObserveNavigationCoverage();
-				WriteShadowTelemetry(frameTime.Tick, frameTime.RealElapsed);
+				uint64_t aiFrameScopeMicroseconds = 0;
+				MeasureAiFrameScope(aiFrameScopeMicroseconds, [&]
+				{
+					ObserveNavigationCoverage();
+				});
+				WriteShadowTelemetry(frameTime.Tick, frameTime.RealElapsed, aiFrameScopeMicroseconds);
 				WriteRouteExecutionTelemetry(frameTime.Tick);
-				WriteTelemetry("tick", "running", {}, frameTime.Tick, frameTime.TotalReal);
+				WriteTelemetry("tick", "running", {}, frameTime.Tick, frameTime.TotalReal,
+					&aiFrameScopeMicroseconds);
+				AiFrameTiming.AddSampleMicroseconds(aiFrameScopeMicroseconds);
 			}
 			catch (const std::exception& e)
 			{
@@ -224,7 +231,7 @@ namespace
 			BotBenchmarkRunSummary runSummary(status, ExitCode, Ticks, simulatedSeconds,
 				EngineRef.LaunchInfo.gameName, EngineRef.LaunchInfo.gameVersionString,
 				EngineRef.LevelInfo ? EngineRef.LevelInfo->URL.Map : std::string(),
-				FailureReason, ActualRoster);
+				FailureReason, ActualRoster, AiFrameTiming.GetSummary());
 			std::filesystem::create_directories(Config.GetOutputDirectory());
 			const std::filesystem::path summaryPath = std::filesystem::path(Config.GetOutputDirectory()) / "summary.json";
 			File::write_all_text(summaryPath.string(), runSummary.ToJson(Config));
@@ -233,6 +240,17 @@ namespace
 		}
 
 	private:
+		template <typename Callback>
+		static void MeasureAiFrameScope(uint64_t& totalMicroseconds, Callback&& callback)
+		{
+			const auto began = std::chrono::steady_clock::now();
+			callback();
+			const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+				std::chrono::steady_clock::now() - began).count();
+			if (elapsed > 0)
+				totalMicroseconds += static_cast<uint64_t>(elapsed);
+		}
+
 		void WriteRealizedBotCapabilities()
 		{
 			const auto liveBots = CaptureLiveControlledBots();
@@ -2222,32 +2240,35 @@ namespace
 			LogMessage("Bot benchmark shadow decisions: " + eventsPath.string());
 		}
 
-		void WriteShadowTelemetry(uint64_t tick, double deltaSeconds)
+		void WriteShadowTelemetry(uint64_t tick, double deltaSeconds, uint64_t& aiFrameScopeMicroseconds)
 		{
 			if (!ShadowTelemetryFile)
 				return;
 			if (ShadowTelemetryEventCount >= ShadowTelemetryEventCap)
 				throw std::runtime_error("bot benchmark shadow telemetry event cap reached");
 
-			const auto liveBots = CaptureLiveControlledBots();
 			std::vector<BotBenchmarkShadowParticipantState> states;
-			states.reserve(ShadowParticipants.size());
-			for (auto& runtime : ShadowParticipants)
+			MeasureAiFrameScope(aiFrameScopeMicroseconds, [&]
 			{
-				const auto live = std::find_if(liveBots.begin(), liveBots.end(), [&](const auto& bot)
+				const auto liveBots = CaptureLiveControlledBots();
+				states.reserve(ShadowParticipants.size());
+				for (auto& runtime : ShadowParticipants)
 				{
-					return bot.first == runtime->Identity;
-				});
-				const bool available = live != liveBots.end() && live->second->Health() > 0;
-				if (available)
-				{
-					BotAI::RuntimeObservationSnapshot snapshot = CaptureShadowObservation(
-						*runtime, live->second, liveBots, tick, deltaSeconds);
-					runtime->Evaluator->Evaluate(BotAI::PolicyObservationBuilder::Build(snapshot));
+					const auto live = std::find_if(liveBots.begin(), liveBots.end(), [&](const auto& bot)
+					{
+						return bot.first == runtime->Identity;
+					});
+					const bool available = live != liveBots.end() && live->second->Health() > 0;
+					if (available)
+					{
+						BotAI::RuntimeObservationSnapshot snapshot = CaptureShadowObservation(
+							*runtime, live->second, liveBots, tick, deltaSeconds);
+						runtime->Evaluator->Evaluate(BotAI::PolicyObservationBuilder::Build(snapshot));
+					}
+					states.push_back({ runtime->RosterIndex, runtime->Identity, available,
+						runtime->Evaluator->GetSnapshots() });
 				}
-				states.push_back({ runtime->RosterIndex, runtime->Identity, available,
-					runtime->Evaluator->GetSnapshots() });
-			}
+			});
 
 			const std::string line = BotBenchmarkShadowTelemetry::EventJson(
 				TelemetryConfigIdentity, ShadowTelemetryEventCount, tick, std::move(states));
@@ -3072,7 +3093,8 @@ namespace
 		}
 
 		void WriteTelemetry(const std::string& type, const std::string& status,
-			const std::string& failureReason, uint64_t tick, double simulatedSeconds)
+			const std::string& failureReason, uint64_t tick, double simulatedSeconds,
+			uint64_t* aiFrameScopeMicroseconds = nullptr)
 		{
 			if (!TelemetryFile)
 				return;
@@ -3096,7 +3118,15 @@ namespace
 				Config.IsNativePathCommitObserverEnabled();
 			event.DirectReachCommandObserverRequested =
 				Config.IsDirectReachCommandObserverEnabled();
-			event.Bots = CaptureBotStates();
+			if (aiFrameScopeMicroseconds)
+			{
+				MeasureAiFrameScope(*aiFrameScopeMicroseconds, [&]
+				{
+					event.Bots = CaptureBotStates();
+				});
+			}
+			else
+				event.Bots = CaptureBotStates();
 			const std::string line = BotBenchmarkTelemetryProtocol::EventJson(TelemetryConfigIdentity, std::move(event));
 			TelemetryFile->write(line.data(), line.size());
 			TelemetryEventCount++;
@@ -3150,6 +3180,7 @@ namespace
 		uint64_t ShadowTelemetryEventCount = 0;
 		uint64_t RouteExecutionTelemetryEventCount = 0;
 		std::map<std::string, vec3> RouteExecutionPreviousLocations;
+		BotBenchmarkAiFrameTiming AiFrameTiming;
 		uint64_t Ticks = 0;
 		int ExitCode = 0;
 		bool Complete = false;

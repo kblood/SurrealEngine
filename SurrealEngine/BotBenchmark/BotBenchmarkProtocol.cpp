@@ -249,10 +249,11 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
 	double simulatedSeconds, std::string game, std::string version, std::string map, std::string failureReason,
-	std::vector<BotBenchmarkActualParticipant> actualRoster)
+	std::vector<BotBenchmarkActualParticipant> actualRoster, BotBenchmarkAiFrameTimingSummary aiFrameTiming)
 	: Status(std::move(status)), ExitCode(exitCode), Ticks(ticks), SimulatedSeconds(simulatedSeconds),
 	Game(std::move(game)), Version(std::move(version)), Map(std::move(map)),
-	FailureReason(std::move(failureReason)), ActualRoster(std::move(actualRoster))
+	FailureReason(std::move(failureReason)), ActualRoster(std::move(actualRoster)),
+	AiFrameTiming(std::move(aiFrameTiming))
 {
 }
 
@@ -266,7 +267,7 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 	std::ostringstream out;
 	out.imbue(std::locale::classic());
 	out << "{\n"
-		<< "  \"schema\": \"surreal-bot-benchmark-summary-v2\",\n"
+		<< "  \"schema\": \"surreal-bot-benchmark-summary-v3\",\n"
 		<< "  \"status\": " << JsonString(Status) << ",\n"
 		<< "  \"exit_code\": " << ExitCode << ",\n"
 		<< "  \"ticks\": \"" << Ticks << "\",\n"
@@ -279,6 +280,34 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 	out << ",\n";
 	WriteActualRoster(out, ActualRoster);
 	out << ",\n"
+		<< "  \"ai_frame_timing\": {\n"
+		<< "    \"schema\": \"surreal-bot-ai-frame-timing-v1\",\n"
+		<< "    \"scope\": \"benchmark_observation_policy_driver_sampling\",\n"
+		<< "    \"clock\": \"host_steady_clock_performance_only\",\n"
+		<< "    \"behavioral_determinism\": \"not_behavioral_evidence\",\n"
+		<< "    \"sample_count\": \"" << AiFrameTiming.SampleCount << "\",\n"
+		<< "    \"histogram_bucket_overflows_exact\": \""
+		<< AiFrameTiming.HistogramBucketOverflowsExact << "\",\n"
+		<< "    \"bucket_max_microseconds\": \""
+		<< BotBenchmarkAiFrameTiming::MaximumTrackedMicroseconds << "\",\n"
+		<< "    \"p50_microseconds\": ";
+	if (AiFrameTiming.P50Microseconds)
+		out << *AiFrameTiming.P50Microseconds;
+	else
+		out << "null";
+	out << ",\n    \"p95_microseconds\": ";
+	if (AiFrameTiming.P95Microseconds)
+		out << *AiFrameTiming.P95Microseconds;
+	else
+		out << "null";
+	out << ",\n    \"p99_microseconds\": ";
+	if (AiFrameTiming.P99Microseconds)
+		out << *AiFrameTiming.P99Microseconds;
+	else
+		out << "null";
+	out << ",\n    \"max_microseconds\": \"" << AiFrameTiming.MaxMicroseconds << "\"\n"
+		<< "  },\n";
+	out
 		<< "  \"config\": {\n"
 		<< "    \"url\": " << JsonString(config.GetURL()) << ",\n"
 		<< "    \"output_directory\": " << JsonString(config.GetOutputDirectory()) << ",\n"

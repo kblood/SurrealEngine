@@ -94,10 +94,11 @@ int main()
 		{ 0, "pri:1", "Bot1", "Line\nBreak", "Botpack.Bot" }
 	};
 	const BotBenchmarkRunSummary summary("failed", 2, 12, 0.24,
-		"UT\n99", "436", "DM-Test", "controlled failure", std::move(actualRoster));
+		"UT\n99", "436", "DM-Test", "controlled failure", std::move(actualRoster),
+		{ 12, 0, 2400, 800, 1900, 2300 });
 	const std::string expectedSummary =
 		"{\n"
-		"  \"schema\": \"surreal-bot-benchmark-summary-v2\",\n"
+		"  \"schema\": \"surreal-bot-benchmark-summary-v3\",\n"
 		"  \"status\": \"failed\",\n"
 		"  \"exit_code\": 2,\n"
 		"  \"ticks\": \"12\",\n"
@@ -114,6 +115,19 @@ int main()
 		"    {\"roster_index\": 0, \"identity\": \"pri:1\", \"actor\": \"Bot1\", \"player_name\": \"Line\\nBreak\", \"class\": \"Botpack.Bot\"},\n"
 		"    {\"roster_index\": 1, \"identity\": \"pri:2\", \"actor\": \"Bot2\", \"player_name\": \"Tamer\\\"lane\", \"class\": \"Botpack.Bot\"}\n"
 		"  ],\n"
+		"  \"ai_frame_timing\": {\n"
+		"    \"schema\": \"surreal-bot-ai-frame-timing-v1\",\n"
+		"    \"scope\": \"benchmark_observation_policy_driver_sampling\",\n"
+		"    \"clock\": \"host_steady_clock_performance_only\",\n"
+		"    \"behavioral_determinism\": \"not_behavioral_evidence\",\n"
+		"    \"sample_count\": \"12\",\n"
+		"    \"histogram_bucket_overflows_exact\": \"0\",\n"
+		"    \"bucket_max_microseconds\": \"10000\",\n"
+		"    \"p50_microseconds\": 800,\n"
+		"    \"p95_microseconds\": 1900,\n"
+		"    \"p99_microseconds\": 2300,\n"
+		"    \"max_microseconds\": \"2400\"\n"
+		"  },\n"
 		"  \"config\": {\n"
 		"    \"url\": \"DM-Test?Game=Botpack.DeathMatchPlus\",\n"
 		"    \"output_directory\": \"evidence\",\n"
@@ -139,7 +153,7 @@ int main()
 		"  }\n"
 		"}\n";
 	if (summary.ToJson(parsed) != expectedSummary)
-		return Fail("v2 summary serialization, roster ordering, or escaping was not exact");
+		return Fail("v3 summary serialization, roster ordering, or escaping was not exact");
 
 	bool rejectedDuplicateActualIndex = false;
 	try
