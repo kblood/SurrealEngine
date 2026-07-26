@@ -20,11 +20,19 @@ Frame* Frame::StepFrame = nullptr;
 Expression* Frame::StepExpression = nullptr;
 std::string Frame::ExceptionText;
 std::unique_ptr<Iterator> Frame::CreatedIterator;
+uint64_t Frame::NextInvocationToken = 0;
 
 Frame::Frame(UObject* instance, UStruct* func)
 {
 	Object = instance;
 	SetState(func);
+}
+
+uint64_t Frame::EnsureInvocationToken()
+{
+	if (InvocationToken == 0)
+		InvocationToken = ++NextInvocationToken;
+	return InvocationToken;
 }
 
 void Frame::SetState(UStruct* func)

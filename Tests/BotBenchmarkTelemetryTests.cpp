@@ -539,16 +539,16 @@ int main()
 		bot.TryToDuckObservationsExact = 1;
 		bot.WarnTargetExactNestedTryToDuckLinksExact = 1;
 		bot.WarnTargetRecords = {
-			{ 1, 0, "warn_target", "warn-target-v1:Bot", bot.Identity, "Attacking",
+			{ 1, 0, 18, 71, 3, 8, 9, "warn_target", "warn-target-v1:Bot", bot.Identity, "Attacking",
 				"pri:2", false, true },
-			{ 2, 1, "try_to_duck", "try-to-duck-v1:Bot", bot.Identity, "Attacking",
+			{ 2, 1, 18, 71, 3, 8, -1, "try_to_duck", "try-to-duck-v1:Bot", bot.Identity, "Attacking",
 				{}, true, true },
 		};
 	}
 	const std::string warnTargetEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
 	if (warnTargetEvent.find("\"warn_target_observer\":{\"requested\":true,\"status\":\"active\",\"reason\":\"\"}")
 			== std::string::npos
-		|| warnTargetEvent.find("\"nested_warn_target_sequence\":\"1\",\"event\":\"try_to_duck\"")
+		|| warnTargetEvent.find("\"nested_warn_target_sequence\":\"1\",\"observer_tick\":\"18\",\"caller_invocation_token\":\"71\"")
 			== std::string::npos)
 	{
 		return Fail("WarnTarget observer telemetry serialization was incomplete");
@@ -556,6 +556,25 @@ int main()
 	event.WarnTargetObserverRequested = false;
 	for (auto& bot : event.Bots)
 		bot.WarnTargetRecords.clear();
+	event.PickTargetObserverRequested = true;
+	for (auto& bot : event.Bots)
+	{
+		bot.PickTargetRecords = {
+			{ 1, 17, 70, 3, 4, 8, 9, 2, 0, 0, 2, 0, 0, 2, 2, true, true,
+				false, true, "Botpack.Bot", "PickTarget", "Bot2", "Botpack.Bot" },
+		};
+	}
+	const std::string pickTargetEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (pickTargetEvent.find("\"observer_tick\":\"17\",\"caller_invocation_token\":\"70\"")
+			== std::string::npos
+		|| pickTargetEvent.find("\"source_life_id\":\"3\",\"selected_life_id\":\"4\"")
+			== std::string::npos)
+	{
+		return Fail("PickTarget provenance telemetry serialization was incomplete");
+	}
+	event.PickTargetObserverRequested = false;
+	for (auto& bot : event.Bots)
+		bot.PickTargetRecords.clear();
 
 	PawnMoveStallRecoveryEpisodeRecord recoveryEpisode;
 	recoveryEpisode.SourcePawnActor = "Bot\"Recovery";

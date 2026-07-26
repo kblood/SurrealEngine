@@ -96,8 +96,11 @@ public:
 	std::unique_ptr<LocalVariables> Variables;
 	UObject* Object = nullptr;
 	UStruct* Func = nullptr;
+	uint64_t InvocationToken = 0;
+	uint64_t EnsureInvocationToken();
 	size_t StatementIndex = 0;
 	Array<std::unique_ptr<Iterator>> Iterators;
+	static uint64_t NextInvocationToken;
 
 private:
 	ExpressionEvalResult Run();

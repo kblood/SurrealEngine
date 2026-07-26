@@ -3981,6 +3981,13 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             for index, record in enumerate(records):
                 record_context = f"{context}.pick_target_records[{index}]"
                 item = _object(record, record_context)
+                provenance_fields = (
+                    "observer_tick", "caller_invocation_token", "source_life_id",
+                    "selected_life_id", "source_actor_index", "selected_actor_index",
+                )
+                provenance_present = [name in item for name in provenance_fields]
+                if any(provenance_present) and not all(provenance_present):
+                    raise QualityError(f"{record_context}: PickTarget provenance must be complete")
                 parsed = {
                     "sequence": _integer(item.get("sequence"),
                                          f"{record_context}.sequence", minimum=1),
@@ -4016,6 +4023,24 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                     "caller_function": _string(item, "caller_function", record_context),
                     "selected_actor": _string(item, "selected_actor", record_context),
                     "selected_class": _string(item, "selected_class", record_context),
+                    "observer_tick": (_integer(item.get("observer_tick"),
+                                                 f"{record_context}.observer_tick", minimum=0)
+                                      if all(provenance_present) else None),
+                    "caller_invocation_token": (_integer(item.get("caller_invocation_token"),
+                                                           f"{record_context}.caller_invocation_token", minimum=0)
+                                                if all(provenance_present) else None),
+                    "source_life_id": (_integer(item.get("source_life_id"),
+                                                  f"{record_context}.source_life_id", minimum=0)
+                                       if all(provenance_present) else None),
+                    "selected_life_id": (_integer(item.get("selected_life_id"),
+                                                    f"{record_context}.selected_life_id", minimum=0)
+                                         if all(provenance_present) else None),
+                    "source_actor_index": (_strict_integer(item.get("source_actor_index"),
+                                                             f"{record_context}.source_actor_index", minimum=-1)
+                                           if all(provenance_present) else None),
+                    "selected_actor_index": (_strict_integer(item.get("selected_actor_index"),
+                                                               f"{record_context}.selected_actor_index", minimum=-1)
+                                             if all(provenance_present) else None),
                 }
                 if parsed["self_rejects"] + parsed["dead_rejects"] + \
                         parsed["living_candidates"] != parsed["candidate_pawns"]:
@@ -4057,6 +4082,13 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
             for index, record in enumerate(records):
                 record_context = f"{context}.warn_target_records[{index}]"
                 item = _object(record, record_context)
+                provenance_fields = (
+                    "observer_tick", "caller_invocation_token", "receiver_life_id",
+                    "receiver_actor_index", "shooter_actor_index",
+                )
+                provenance_present = [name in item for name in provenance_fields]
+                if any(provenance_present) and not all(provenance_present):
+                    raise QualityError(f"{record_context}: WarnTarget provenance must be complete")
                 event = _string(item, "event", record_context, nonempty=True)
                 if event not in ("warn_target", "try_to_duck"):
                     raise QualityError(f"{record_context}.event is not recognized")
@@ -4079,10 +4111,63 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                     "nested_warn_target_exact": nested_exact,
                     "integrity_valid": _boolean(item.get("integrity_valid"),
                                                 f"{record_context}.integrity_valid"),
+                    "observer_tick": (_integer(item.get("observer_tick"),
+                                                 f"{record_context}.observer_tick", minimum=0)
+                                      if all(provenance_present) else None),
+                    "caller_invocation_token": (_integer(item.get("caller_invocation_token"),
+                                                           f"{record_context}.caller_invocation_token", minimum=0)
+                                                if all(provenance_present) else None),
+                    "receiver_life_id": (_integer(item.get("receiver_life_id"),
+                                                    f"{record_context}.receiver_life_id", minimum=0)
+                                         if all(provenance_present) else None),
+                    "receiver_actor_index": (_strict_integer(item.get("receiver_actor_index"),
+                                                               f"{record_context}.receiver_actor_index", minimum=-1)
+                                             if all(provenance_present) else None),
+                    "shooter_actor_index": (_strict_integer(item.get("shooter_actor_index"),
+                                                              f"{record_context}.shooter_actor_index", minimum=-1)
+                                            if all(provenance_present) else None),
                 })
             result["warn_target_records"] = parsed_records
         elif warn_target_present:
             raise QualityError(f"{context}: WarnTarget counter group requires records")
+        if "direct_reach_command_records" in bot:
+            records = bot.get("direct_reach_command_records")
+            if not isinstance(records, list):
+                raise QualityError(f"{context}.direct_reach_command_records must be an array")
+            parsed_records = []
+            for index, record in enumerate(records):
+                record_context = f"{context}.direct_reach_command_records[{index}]"
+                item = _object(record, record_context)
+                link_status = _string(item, "link_status", record_context, nonempty=True)
+                activation_tick = item.get("activation_tick")
+                terminal = item.get("terminal")
+                hazard_terminal = item.get("hazard_terminal_exact")
+                if link_status == "same_life_exact":
+                    parsed_activation_tick = _integer(
+                        activation_tick, f"{record_context}.activation_tick", minimum=0)
+                    parsed_terminal = _string(item, "terminal", record_context, nonempty=True)
+                    parsed_hazard_terminal = _boolean(
+                        hazard_terminal, f"{record_context}.hazard_terminal_exact")
+                else:
+                    if activation_tick is not None or terminal is not None or hazard_terminal is not None:
+                        raise QualityError(
+                            f"{record_context}: unlinked command must not carry terminal provenance")
+                    parsed_activation_tick = None
+                    parsed_terminal = None
+                    parsed_hazard_terminal = None
+                parsed_records.append({
+                    "sequence": _integer(item.get("sequence"),
+                                         f"{record_context}.sequence", minimum=1),
+                    "life_id": _integer(item.get("life_id"),
+                                        f"{record_context}.life_id", minimum=0),
+                    "target_actor_index": _strict_integer(item.get("target_actor_index"),
+                                                            f"{record_context}.target_actor_index", minimum=-1),
+                    "link_status": link_status,
+                    "activation_tick": parsed_activation_tick,
+                    "terminal": parsed_terminal,
+                    "hazard_terminal_exact": parsed_hazard_terminal,
+                })
+            result["direct_reach_command_records"] = parsed_records
         inventory_direct_reach_present = [name for name in INVENTORY_DIRECT_REACH_SUPPORT_COUNTERS
                                           if name in result]
         if (inventory_direct_reach_present

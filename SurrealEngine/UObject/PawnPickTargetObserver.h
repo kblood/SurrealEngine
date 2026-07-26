@@ -10,7 +10,13 @@ namespace PawnMovement
 	// selection.
 	struct PickTargetObservation
 	{
-		uint64_t Sequence = 0;
+	uint64_t Sequence = 0;
+	uint64_t ObserverTick = 0;
+	uint64_t CallerInvocationToken = 0;
+	uint64_t SourceLifeId = 0;
+	uint64_t SelectedLifeId = 0;
+	int32_t SourceActorIndex = -1;
+	int32_t SelectedActorIndex = -1;
 		uint32_t CandidatePawns = 0;
 		uint32_t SelfRejects = 0;
 		uint32_t DeadRejects = 0;

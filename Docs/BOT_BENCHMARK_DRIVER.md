@@ -105,6 +105,14 @@ mismatch, record overflow, or integrity failure makes analyzer evidence
 incomplete. The link is local VM nesting only: it does not claim a causal
 connection to a prior native `PickTarget` call or a later death.
 
+The PickTarget and warning records additionally carry observer tick, participant
+actor index, life id, and a lazy VM-frame invocation token. These are a
+bounded, default-off provenance envelope for offline investigation; they are
+not a causal metric. In particular, the engine currently has no behavior-
+neutral, exact handoff record proving that a target selection caused a later
+movement command. Analysis must therefore treat a missing or ambiguous join as
+unknown, never as a bot-caused death.
+
 For example:
 
 ```powershell

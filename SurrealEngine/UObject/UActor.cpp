@@ -4833,6 +4833,11 @@ UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, 
 	if (observe)
 	{
 		observation.Sequence = ++PickTargetObservationSequence;
+		observation.ObserverTick = engine->BotBenchmarkObserverTick();
+		observation.SourceLifeId = DirectReachCommandLifeId();
+		observation.SourceActorIndex = Index;
+		if (!Frame::Callstack.empty())
+			observation.CallerInvocationToken = Frame::Callstack.back()->EnsureInvocationToken();
 		observation.IntegrityValid = std::isfinite(bestAim) && std::isfinite(bestDist) &&
 			std::isfinite(FireDir.x) && std::isfinite(FireDir.y) && std::isfinite(FireDir.z) &&
 			std::isfinite(projStart.x) && std::isfinite(projStart.y) && std::isfinite(projStart.z);
@@ -4910,6 +4915,8 @@ UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, 
 				bestActor->Class != nullptr;
 			observation.SelectedActor = bestActor->Name.ToString();
 			observation.SelectedClass = bestActor->Class ? bestActor->Class->Name.ToString() : std::string();
+			observation.SelectedActorIndex = bestActor->Index;
+			observation.SelectedLifeId = returnedPawn ? returnedPawn->DirectReachCommandLifeId() : 0;
 		}
 		if (!observation.IntegrityValid)
 			PickTargetObservationIntegrityFailureCountValue++;

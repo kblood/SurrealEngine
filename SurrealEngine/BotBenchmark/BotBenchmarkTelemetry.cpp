@@ -814,7 +814,13 @@ namespace
 				if (index) out << ',';
 				const auto& record = bot.PickTargetRecords[index];
 				out << "{\"sequence\":\"" << record.Sequence
-					<< "\",\"candidate_pawns\":" << record.CandidatePawns
+					<< "\",\"observer_tick\":\"" << record.ObserverTick
+					<< "\",\"caller_invocation_token\":\"" << record.CallerInvocationToken
+					<< "\",\"source_life_id\":\"" << record.SourceLifeId
+					<< "\",\"selected_life_id\":\"" << record.SelectedLifeId
+					<< "\",\"source_actor_index\":" << record.SourceActorIndex
+					<< ",\"selected_actor_index\":" << record.SelectedActorIndex
+					<< ",\"candidate_pawns\":" << record.CandidatePawns
 					<< ",\"self_rejects\":" << record.SelfRejects
 					<< ",\"dead_rejects\":" << record.DeadRejects
 					<< ",\"living_candidates\":" << record.LivingCandidates
@@ -854,7 +860,12 @@ namespace
 				const auto& record = bot.WarnTargetRecords[index];
 				out << "{\"sequence\":\"" << record.Sequence
 					<< "\",\"nested_warn_target_sequence\":\"" << record.NestedWarnTargetSequence
-					<< "\",\"event\":" << JsonString(record.Event)
+					<< "\",\"observer_tick\":\"" << record.ObserverTick
+					<< "\",\"caller_invocation_token\":\"" << record.CallerInvocationToken
+					<< "\",\"receiver_life_id\":\"" << record.ReceiverLifeId
+					<< "\",\"receiver_actor_index\":" << record.ReceiverActorIndex
+					<< ",\"shooter_actor_index\":" << record.ShooterActorIndex
+					<< ",\"event\":" << JsonString(record.Event)
 					<< ",\"contract_id\":" << JsonString(record.ContractId)
 					<< ",\"receiver_id\":" << JsonString(record.ReceiverId)
 					<< ",\"receiver_state\":" << JsonString(record.ReceiverState)

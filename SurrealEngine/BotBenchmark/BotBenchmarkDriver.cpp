@@ -2341,9 +2341,14 @@ namespace
 						return {};
 					}
 					const uint64_t sequence = runtime->second.NextWarnTargetSequence++;
-					AppendWarnTargetRecord(runtime->second, { sequence, 0, "warn_target", warn->second,
-						botId, pawn->GetStateName().ToString(),
-						ActorIdentity(UObject::TryCast<UActor>(arguments.Values()[0].ToObject())), false, true });
+					UActor* shooter = UObject::TryCast<UActor>(arguments.Values()[0].ToObject());
+					const uint64_t callerInvocationToken = Frame::Callstack.empty()
+						? 0 : Frame::Callstack.back()->EnsureInvocationToken();
+					AppendWarnTargetRecord(runtime->second, { sequence, 0,
+						EngineRef.BotBenchmarkObserverTick(), callerInvocationToken,
+						pawn->DirectReachCommandLifeId(), pawn->Index, shooter ? shooter->Index : -1,
+						"warn_target", warn->second, botId, pawn->GetStateName().ToString(),
+						ActorIdentity(shooter), false, true });
 					ActiveWarnTargetCalls.push_back({ function, instance, botId, sequence });
 					return [this, function, instance, sequence]()
 					{
@@ -2381,8 +2386,13 @@ namespace
 				if (nestedWarnSequence != 0)
 					runtime->second.WarnTargetExactNestedTryToDuckLinksExact++;
 				const uint64_t sequence = runtime->second.NextWarnTargetSequence++;
-				AppendWarnTargetRecord(runtime->second, { sequence, nestedWarnSequence, "try_to_duck", duck->second,
-					botId, pawn->GetStateName().ToString(), {}, nestedWarnSequence != 0, true });
+				const uint64_t callerInvocationToken = Frame::Callstack.empty()
+					? 0 : Frame::Callstack.back()->EnsureInvocationToken();
+				AppendWarnTargetRecord(runtime->second, { sequence, nestedWarnSequence,
+					EngineRef.BotBenchmarkObserverTick(), callerInvocationToken,
+					pawn->DirectReachCommandLifeId(), pawn->Index, -1,
+					"try_to_duck", duck->second, botId, pawn->GetStateName().ToString(), {},
+					nestedWarnSequence != 0, true });
 				return {};
 			};
 			WarnTargetHookHandle = Frame::CallHooks().Register(std::move(hook));
@@ -2870,6 +2880,9 @@ namespace
 							runtime.PickTargetNoResultWithLivingLineOfSightCandidateExact +=
 								observation.NoResultWithLivingLineOfSightCandidate ? 1 : 0;
 							runtime.PendingPickTargetRecords.push_back({ observation.Sequence,
+								observation.ObserverTick, observation.CallerInvocationToken,
+								observation.SourceLifeId, observation.SelectedLifeId,
+								observation.SourceActorIndex, observation.SelectedActorIndex,
 								observation.CandidatePawns, observation.SelfRejects,
 								observation.DeadRejects,
 								observation.LivingCandidates,
