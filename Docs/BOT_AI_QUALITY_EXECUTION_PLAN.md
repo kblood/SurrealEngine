@@ -3791,3 +3791,19 @@ telemetry/watchdog tests and 26 relevant Python tests pass. The broad
 `BotBenchmarkProtocol` CTest has an unrelated stale exact-summary snapshot
 mismatch; no protocol source was changed, so it is recorded as a test-hygiene
 follow-up and not counted as validation of this observer.
+
+## Iteration 150: targeted retry capture remains unqualified
+
+The known Deck16-II `HealthVial11` timeout scenario was recaptured with the
+direct-reach and native-path-commit observers enabled. After strict
+non-inventory record handling was repaired, the analyzer accepts the capture
+and reports three inventory direct-reach verdicts, but zero full watchdog
+stalls, zero immediate same-target reissues, zero marker route commits, and
+zero qualifying chains. It therefore returns
+`unqualified_no_exact_retry_chain`.
+
+This result supersedes the tempting interpretation of the timeout write: the
+same run cannot prove an inventory retry chain under exact target/marker and
+stock-route criteria. Keep the direct timeout default-off and do not derive a
+cooldown or reachability veto from this event. Search for a genuine qualifying
+chain through observer-only matrices before implementing any retry policy.
