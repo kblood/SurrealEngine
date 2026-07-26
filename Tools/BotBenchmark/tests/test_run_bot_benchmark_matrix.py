@@ -622,6 +622,9 @@ class MatrixRunnerTests(unittest.TestCase):
             ("target_selection_observer_enabled", "--botbench-target-selection-observer"),
             ("inventory_direct_reach_support_observer_enabled",
              "--botbench-inventory-direct-reach-support-observer"),
+            ("pawn_vision_cone_enabled", "--botbench-pawn-vision-cone"),
+            ("pawn_vision_observer_enabled", "--botbench-pawn-vision-observer"),
+            ("finite_move_command_guard_enabled", "--botbench-finite-move-command-guard"),
         )
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

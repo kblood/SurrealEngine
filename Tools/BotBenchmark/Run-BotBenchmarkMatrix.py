@@ -24,7 +24,7 @@ RESULT_SCHEMA = "surreal-bot-benchmark-matrix-results-v1"
 METADATA_SCHEMA = "surreal-bot-quality-run-metadata-v1"
 INVOCATION_SCHEMA = "surreal-bot-benchmark-invocation-v1"
 PROVENANCE_SCHEMA = "surreal-bot-benchmark-provenance-v1"
-TOOL_VERSION = 6
+TOOL_VERSION = 7
 MAX_CONCURRENCY = 64
 MAX_BOT_COUNT = 16
 
@@ -48,6 +48,9 @@ class Variant:
     direct_actor_move_toward_timeout_enabled: bool = False
     target_selection_observer_enabled: bool = False
     inventory_direct_reach_support_observer_enabled: bool = False
+    pawn_vision_cone_enabled: bool = False
+    pawn_vision_observer_enabled: bool = False
+    finite_move_command_guard_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -273,12 +276,26 @@ def load_matrix(path: Path) -> MatrixConfig:
         if not isinstance(inventory_direct_reach_support_observer_enabled, bool):
             raise MatrixError(
                 f"matrix.variants[{index}].inventory_direct_reach_support_observer_enabled must be a boolean")
+        pawn_vision_cone_enabled = fields.get("pawn_vision_cone_enabled", False)
+        if not isinstance(pawn_vision_cone_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].pawn_vision_cone_enabled must be a boolean")
+        pawn_vision_observer_enabled = fields.get("pawn_vision_observer_enabled", False)
+        if not isinstance(pawn_vision_observer_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].pawn_vision_observer_enabled must be a boolean")
+        finite_move_command_guard_enabled = fields.get("finite_move_command_guard_enabled", False)
+        if not isinstance(finite_move_command_guard_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].finite_move_command_guard_enabled must be a boolean")
         variants.append(Variant(
             variant_id, executable, role, build_preset, hazard_swim_egress_enabled,
             hazard_swim_egress_live_enabled, failed_navigation_avoidance_enabled,
             falling_hazard_recovery_enabled, falling_hazard_recovery_live_enabled,
             targetless_move_to_timeout_enabled, direct_actor_move_toward_timeout_enabled,
-            target_selection_observer_enabled, inventory_direct_reach_support_observer_enabled))
+            target_selection_observer_enabled, inventory_direct_reach_support_observer_enabled,
+            pawn_vision_cone_enabled, pawn_vision_observer_enabled,
+            finite_move_command_guard_enabled))
     ids = [variant.id for variant in variants]
     if len(ids) != len(set(ids)):
         raise MatrixError("matrix variant IDs must be unique")
@@ -445,11 +462,14 @@ def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
                                 variant.hazard_swim_egress_live_enabled,
                                 variant.failed_navigation_avoidance_enabled,
                                 variant.falling_hazard_recovery_enabled,
-                                variant.falling_hazard_recovery_live_enabled,
-                                variant.targetless_move_to_timeout_enabled,
-                                variant.direct_actor_move_toward_timeout_enabled,
-                                variant.target_selection_observer_enabled,
-                                variant.inventory_direct_reach_support_observer_enabled]
+                                 variant.falling_hazard_recovery_live_enabled,
+                                 variant.targetless_move_to_timeout_enabled,
+                                 variant.direct_actor_move_toward_timeout_enabled,
+                                 variant.target_selection_observer_enabled,
+                                 variant.inventory_direct_reach_support_observer_enabled,
+                                 variant.pawn_vision_cone_enabled,
+                                 variant.pawn_vision_observer_enabled,
+                                 variant.finite_move_command_guard_enabled]
                     run_id = (
                         f"{ordinal:06d}-{_slug(variant.id)}-{_slug(map_url)}-"
                         f"s{seed}" + (f"-l{_slug(start_layout.id)}" if start_layout else "") +
@@ -498,6 +518,12 @@ def command_for(config: MatrixConfig, case: MatrixCase, run_directory: Path) -> 
             "1" if case.variant.target_selection_observer_enabled else "0"),
         "--botbench-inventory-direct-reach-support-observer=" + (
             "1" if case.variant.inventory_direct_reach_support_observer_enabled else "0"),
+        "--botbench-pawn-vision-cone=" + (
+            "1" if case.variant.pawn_vision_cone_enabled else "0"),
+        "--botbench-pawn-vision-observer=" + (
+            "1" if case.variant.pawn_vision_observer_enabled else "0"),
+        "--botbench-finite-move-command-guard=" + (
+            "1" if case.variant.finite_move_command_guard_enabled else "0"),
     ]
     if config.per_bot_skills is not None:
         command.append("--botbench-skills=" + ",".join(str(value) for value in config.per_bot_skills))
@@ -656,6 +682,9 @@ def _preflight_provenance(
             "target_selection_observer_enabled": variant.target_selection_observer_enabled,
             "inventory_direct_reach_support_observer_enabled": (
                 variant.inventory_direct_reach_support_observer_enabled),
+            "pawn_vision_cone_enabled": variant.pawn_vision_cone_enabled,
+            "pawn_vision_observer_enabled": variant.pawn_vision_observer_enabled,
+            "finite_move_command_guard_enabled": variant.finite_move_command_guard_enabled,
             "executable": _file_provenance(variant.executable),
         })
     game_manifest = _file_provenance(config.game_manifest) if config.game_manifest else None
@@ -722,6 +751,9 @@ def _run_case(
         "target_selection_observer_enabled": case.variant.target_selection_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             case.variant.inventory_direct_reach_support_observer_enabled),
+        "pawn_vision_cone_enabled": case.variant.pawn_vision_cone_enabled,
+        "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
+        "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
     }
     if case.start_layout is not None:
         metadata.update({
@@ -762,6 +794,9 @@ def _run_case(
         "target_selection_observer_enabled": case.variant.target_selection_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             case.variant.inventory_direct_reach_support_observer_enabled),
+        "pawn_vision_cone_enabled": case.variant.pawn_vision_cone_enabled,
+        "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
+        "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
         "command": command,
     })
     launch = launcher(command, config.timeout_seconds, run_directory / "stdout.txt", run_directory / "stderr.txt")
@@ -831,6 +866,9 @@ def _run_case(
         "target_selection_observer_enabled": case.variant.target_selection_observer_enabled,
         "inventory_direct_reach_support_observer_enabled": (
             case.variant.inventory_direct_reach_support_observer_enabled),
+        "pawn_vision_cone_enabled": case.variant.pawn_vision_cone_enabled,
+        "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
+        "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
         "exit_code": launch.exit_code,
         "timed_out": launch.timed_out,
         "wall_seconds": launch.wall_seconds,
@@ -879,6 +917,9 @@ def dry_run_plan(config: MatrixConfig, output: Path) -> dict[str, Any]:
             "target_selection_observer_enabled": case.variant.target_selection_observer_enabled,
             "inventory_direct_reach_support_observer_enabled": (
                 case.variant.inventory_direct_reach_support_observer_enabled),
+            "pawn_vision_cone_enabled": case.variant.pawn_vision_cone_enabled,
+            "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
+            "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
             "command": command_for(config, case, runs_directory / case.run_id),
         } for case in cases],
     }
