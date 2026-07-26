@@ -3674,3 +3674,58 @@ collision totals in this sample. Retain it default-off and extend the matrix to
 additional independently activating UT seeds/maps before considering
 promotion; Unreal remains a fixture-qualified, live-inert non-regression
 anchor.
+
+## Iteration 145: reject latent-expiry timeout as a live improvement
+
+The activating direct-actor timeout is not a meaningful replan. In the
+120-second Deck16-II seed-`104729` candidate, the precise record is a stall on
+`HealthVial11` with only `0.033720843` seconds left on its current `MoveToward`
+timer. The benchmark watchdog runs before the latent move consumes that final
+fraction. Stock script then immediately reissues `MoveToward(HealthVial11)`
+with an approximately 2.03-second timer while the pawn remains stationary, and
+the episode misses its five-second recovery deadline. The exact forced-replan
+counter is therefore a write witness, not proof that a new route was selected.
+
+Do not widen or earlier-fire this timeout: it would accelerate the same
+direct-target retry loop. Keep it default-off and fixture-qualified only. A
+future direct-target retry experiment must first observe, in one same-life
+chain, an `ActorReachable` direct verdict for a static inventory target, a full
+watchdog stall with no meaningful displacement, an immediate same-target
+reissue, and an available graph-marker route. Only then may a bounded,
+default-off cooldown reject that exact direct verdict and return target choice
+to stock marker routing.
+
+The independent Deck16 water analysis identifies a deterministic swimmer
+episode but rejects the existing anchor-vector live steer as a fix: a falling
+bot can have certified dry direct-navigation candidates (for example,
+`PathNode144`) yet the current steer follows the old falling anchor and still
+dies in water at the stock tick. Before any route candidate is made live, add a
+fixture/observer that partitions anchor-vector and direct-nav endpoint choices,
+stock command ownership, and terminal outcomes. Never write a navigation point
+or acceleration directly merely because it is geometrically dry.
+
+## Iteration 146: reject the current hazard-egress replan on causal evidence
+
+The exact UT436 Deck16-II 16-bot seed-`271828` baseline has four PainTimer
+environmental deaths while swimming. Death partitioning identifies only two as
+unassisted navigation-safety failures; the other two carry recent enemy
+contribution/momentum and cannot be counted as bot-only suicides. The
+observer-only hazardous-water run is exactly behavior-neutral and records six
+static-water episodes, but its short primary-zone terminal does not causally
+cover the later lethal residence.
+
+The existing default-off egress replan lane was repeated deterministically on
+that exact seed. It changes aggregate K/D/S from 8/12/4 to 7/9/2 and reduces
+environmental deaths from four to two, but increases `HitWall` contacts from
+403 to 420. More importantly, both directly intervened bots (Alys and Cryss)
+still die—Alys with enemy contribution and Cryss unassisted—so the aggregate
+death reduction is a coupled-match result, not a causal saved episode. Reject
+the lane for promotion.
+
+The next water-safety work is an observer extension, not a new live steer: tie
+each PainTimer death to its harmful-residence episode and record health at
+entry, movement-command ownership, the direct-safe candidate, and terminal
+outcome. Only a low-health, unassisted, non-combat episode with a certified
+causal exit can authorize a future bounded waypoint candidate. Qualification
+must retain exact death partitions, contacts, coverage, combat, exposure, and
+per-episode outcomes across the UT seed matrix and held-out Unreal anchors.
