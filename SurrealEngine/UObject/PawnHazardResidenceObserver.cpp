@@ -5,7 +5,7 @@
 namespace PawnMovement
 {
 	HazardResidenceUpdate AdvanceHazardResidence(const HazardResidenceState& state,
-		bool positiveDpsHazard, bool alive, float elapsed, bool lifeBoundary,
+		bool positiveDpsHazard, bool alive, int health, float elapsed, bool lifeBoundary,
 		bool runEnd, float clearanceGraceSeconds)
 	{
 		HazardResidenceUpdate update;
@@ -21,6 +21,7 @@ namespace PawnMovement
 			if (!positiveDpsHazard || !alive || lifeBoundary || runEnd)
 				return update;
 			update.State.Active = true;
+			update.State.EntryHealth = health;
 			update.State.HarmfulSeconds = elapsed;
 			update.Started = true;
 			return update;

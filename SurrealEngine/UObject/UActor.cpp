@@ -5992,7 +5992,8 @@ void UPawn::AdvanceHazardResidenceSample(bool positiveDpsHazard, float elapsed)
 	}
 	const uint64_t priorReentries = HazardResidence.Reentries;
 	const auto update = PawnMovement::AdvanceHazardResidence(HazardResidence,
-		positiveDpsHazard, !bDeleteMe() && Health() > 0, elapsed, false, false, 0.25f);
+		positiveDpsHazard, !bDeleteMe() && Health() > 0, Health(), elapsed,
+		false, false, 0.25f);
 	HazardResidence = update.State;
 	if (update.Started)
 		HazardResidenceEpisodeCountValue++;
@@ -6026,17 +6027,40 @@ void UPawn::ObserveHazardResidenceMovementCommand()
 
 bool UPawn::RecordHazardResidenceDeath()
 {
+	HazardResidenceDeathWitness.reset();
+	if (HazardResidence.Active)
+	{
+		HazardResidenceDeathWitness = {
+			HazardResidence.EntryHealth,
+			HazardResidence.HarmfulSeconds,
+			HazardResidence.CommandChanges,
+			HazardResidence.CandidateObserved,
+			HazardResidence.CandidateSuperseded,
+			HazardResidenceCandidateName,
+			DirectReachCommandLifeId(),
+		};
+	}
 	const auto update = PawnMovement::AdvanceHazardResidence(HazardResidence,
-		true, false, 0.0f, false, false, 0.25f);
+		true, false, Health(), 0.0f, false, false, 0.25f);
 	HazardResidence = update.State;
 	ResolveHazardResidence(update.Terminal);
+	if (update.Terminal != PawnMovement::HazardResidenceTerminal::Death)
+		HazardResidenceDeathWitness.reset();
 	return update.Terminal == PawnMovement::HazardResidenceTerminal::Death;
+}
+
+std::optional<PawnMovement::HazardResidenceDeathWitness>
+UPawn::DrainHazardResidenceDeathWitness()
+{
+	auto witness = std::move(HazardResidenceDeathWitness);
+	HazardResidenceDeathWitness.reset();
+	return witness;
 }
 
 void UPawn::EndHazardResidenceRun()
 {
 	const auto update = PawnMovement::AdvanceHazardResidence(HazardResidence,
-		false, true, 0.0f, false, true, 0.25f);
+		false, true, Health(), 0.0f, false, true, 0.25f);
 	HazardResidence = update.State;
 	ResolveHazardResidence(update.Terminal);
 }
@@ -8526,7 +8550,7 @@ void UPawn::EndWalkingStepPreflightLife()
 	EndHarmfulZoneEscapeLife();
 	ResetFallingHazardRecovery();
 	const auto hazardResidenceUpdate = PawnMovement::AdvanceHazardResidence(
-		HazardResidence, false, true, 0.0f, true, false, 0.25f);
+		HazardResidence, false, true, Health(), 0.0f, true, false, 0.25f);
 	HazardResidence = hazardResidenceUpdate.State;
 	ResolveHazardResidence(hazardResidenceUpdate.Terminal);
 	ResolveHazardSwimEgressPlannerHandoff(

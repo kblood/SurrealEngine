@@ -27,6 +27,17 @@ struct BotBenchmarkHazardDeathPartitionRecord
 	bool HadRecentEnemyContribution = false;
 	bool HadRecentEnemyMomentumContribution = false;
 	std::string HazardPrefix;
+	bool HazardResidenceTerminalExact = false;
+	std::string HazardResidenceTerminal;
+	int HazardResidenceEntryHealth = 0;
+	float HazardResidenceHarmfulSeconds = 0.0f;
+	uint64_t HazardResidenceCommandChanges = 0;
+	bool HazardResidenceDirectSafeCandidateObserved = false;
+	bool HazardResidenceDirectSafeCandidateSuperseded = false;
+	std::string HazardResidenceDirectSafeCandidateName;
+	uint64_t HazardResidenceCommandOwnershipLifeId = 0;
+	bool HazardResidenceCommandOwnershipExact = false;
+	std::string HazardResidenceCommandOwnershipTargetName;
 	bool MoveTargetKnown = false;
 	std::string MoveTargetName;
 	bool MovementIntent = false;

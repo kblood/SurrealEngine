@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace PawnMovement
 {
@@ -23,10 +24,25 @@ namespace PawnMovement
 		bool ClearancePending = false;
 		bool CandidateObserved = false;
 		bool CandidateSuperseded = false;
+		int EntryHealth = 0;
 		float HarmfulSeconds = 0.0f;
 		float ClearanceSeconds = 0.0f;
 		uint64_t CommandChanges = 0;
 		uint64_t Reentries = 0;
+	};
+
+	// Captured immediately before an active residence is resolved as a death.
+	// The benchmark binds it to the VM death-source scope before reporting it;
+	// this value alone never attributes a death to PainTimer.
+	struct HazardResidenceDeathWitness
+	{
+		int EntryHealth = 0;
+		float HarmfulSeconds = 0.0f;
+		uint64_t CommandChanges = 0;
+		bool DirectSafeCandidateObserved = false;
+		bool DirectSafeCandidateSuperseded = false;
+		std::string DirectSafeCandidateName;
+		uint64_t CommandOwnershipLifeId = 0;
 	};
 
 	struct HazardResidenceUpdate
@@ -38,7 +54,7 @@ namespace PawnMovement
 	};
 
 	HazardResidenceUpdate AdvanceHazardResidence(const HazardResidenceState& state,
-		bool positiveDpsHazard, bool alive, float elapsed, bool lifeBoundary,
+		bool positiveDpsHazard, bool alive, int health, float elapsed, bool lifeBoundary,
 		bool runEnd, float clearanceGraceSeconds);
 	HazardResidenceState ObserveHazardResidenceCandidate(
 		const HazardResidenceState& state);

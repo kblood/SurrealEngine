@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 
-REPORT_SCHEMA = "surreal-hazard-residence-analysis-v1"
+REPORT_SCHEMA = "surreal-hazard-residence-analysis-v2"
 TELEMETRY_SCHEMAS = {
     "surreal-bot-benchmark-telemetry-v1",
     "surreal-bot-benchmark-telemetry-v2",
@@ -45,6 +45,92 @@ TERMINAL_COUNTERS = {
 
 class ResidenceError(ValueError):
     """The input is incomplete, malformed, or cannot support an attribution."""
+
+
+def _causal_pain_timer_death(episode: "_Episode", bot: dict[str, Any],
+                             counters: dict[str, int], context: str) -> dict[str, Any] | None:
+    """Return only an exact PainTimer-to-residence terminal witness.
+
+    A generic death while sampled in a hazard is not evidence that PainTimer
+    killed the bot.  The native driver stages a residence witness before Killed
+    and finalizes it only after the scoped VM attribution names PainTimer.  This
+    reader intentionally emits nothing unless that one record and the native
+    residence-death counter agree at the same telemetry terminal.
+    """
+    if counters["hazard_residence_deaths_exact"] - episode.counters[
+            "hazard_residence_deaths_exact"] != 1:
+        return None
+    records = bot.get("hazard_death_partition_records", [])
+    if not isinstance(records, list):
+        raise ResidenceError(f"{context}.hazard_death_partition_records must be an array")
+    matches: list[dict[str, Any]] = []
+    for index, record in enumerate(records):
+        record_context = f"{context}.hazard_death_partition_records[{index}]"
+        if not isinstance(record, dict):
+            raise ResidenceError(f"{record_context} must be an object")
+        if _string(record.get("environmental_source"),
+                   f"{record_context}.environmental_source") != "pain_timer":
+            continue
+        if not _boolean(record.get("hazard_residence_terminal_exact"),
+                        f"{record_context}.hazard_residence_terminal_exact"):
+            continue
+        if _string(record.get("hazard_residence_terminal"),
+                   f"{record_context}.hazard_residence_terminal") != "death":
+            continue
+        matches.append(record)
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ResidenceError(f"{context}: PainTimer residence terminal is ambiguous")
+    record = matches[0]
+    entry_health = _signed_integer(record.get("hazard_residence_entry_health"),
+                                   f"{context}.hazard_residence_entry_health")
+    harmful_seconds = _number(record.get("hazard_residence_harmful_seconds"),
+                              f"{context}.hazard_residence_harmful_seconds")
+    if harmful_seconds < 0.0:
+        raise ResidenceError(f"{context}.hazard_residence_harmful_seconds must be non-negative")
+    command_changes = _integer(record.get("hazard_residence_command_changes"),
+                               f"{context}.hazard_residence_command_changes")
+    candidate_observed = _boolean(record.get("hazard_residence_direct_safe_candidate_observed"),
+                                  f"{context}.hazard_residence_direct_safe_candidate_observed")
+    candidate_superseded = _boolean(
+        record.get("hazard_residence_direct_safe_candidate_superseded"),
+        f"{context}.hazard_residence_direct_safe_candidate_superseded")
+    candidate_name = _string(record.get("hazard_residence_direct_safe_candidate_name"),
+                             f"{context}.hazard_residence_direct_safe_candidate_name")
+    if candidate_observed != bool(candidate_name):
+        raise ResidenceError(f"{context}: direct-safe candidate evidence is incomplete")
+    if candidate_superseded and not candidate_observed:
+        raise ResidenceError(f"{context}: an unobserved direct-safe candidate cannot be superseded")
+    ownership_exact = _boolean(record.get("hazard_residence_command_ownership_exact"),
+                               f"{context}.hazard_residence_command_ownership_exact")
+    ownership_life = _integer(record.get("hazard_residence_command_ownership_life_id"),
+                              f"{context}.hazard_residence_command_ownership_life_id")
+    ownership_target = _string(record.get("hazard_residence_command_ownership_target_name"),
+                               f"{context}.hazard_residence_command_ownership_target_name")
+    if ownership_exact and (ownership_life == 0 or not ownership_target):
+        raise ResidenceError(f"{context}: exact command ownership is incomplete")
+    return {
+        "identity": episode.identity,
+        "episode_id": str(episode.episode_id),
+        "proof": "pain_timer_killed_scope_and_active_harmful_residence",
+        "terminal": "death",
+        "entry_health_exact": entry_health,
+        "harmful_seconds_exact": harmful_seconds,
+        "command_changes_exact": str(command_changes),
+        "direct_safe_candidate": {
+            "observed": candidate_observed,
+            "name": candidate_name,
+            "superseded": candidate_superseded,
+        },
+        "command_ownership": {
+            "exact": ownership_exact,
+            "life_id": str(ownership_life),
+            "target_name": ownership_target,
+        },
+        "terminal_health_observed": episode.terminal_health,
+        "entry_observed": episode.entry_observed,
+    }
 
 
 def _integer(value: Any, context: str) -> int:
@@ -212,6 +298,7 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
     prior_counters: dict[str, dict[str, int]] = {}
     final_counters: dict[str, dict[str, int]] = {}
     completed: list[dict[str, Any]] = []
+    causal_pain_timer_deaths: list[dict[str, Any]] = []
     prior_tick = -1
     prior_seconds = -1.0
     complete = False
@@ -281,6 +368,9 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
                 terminal_only.observe_candidate_name(candidate_name)
                 terminal_only.terminal = "death"
                 completed.append(terminal_only.report(counters))
+                witness = _causal_pain_timer_death(terminal_only, bot, counters, bot_context)
+                if witness is not None:
+                    causal_pain_timer_deaths.append(witness)
             if episode is None and harmful and health > 0:
                 episode_id = sequence.get(identity, 0) + 1
                 sequence[identity] = episode_id
@@ -301,6 +391,10 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
             if terminal:
                 episode.terminal = terminal
                 completed.append(episode.report(counters))
+                if terminal == "death":
+                    witness = _causal_pain_timer_death(episode, bot, counters, bot_context)
+                    if witness is not None:
+                        causal_pain_timer_deaths.append(witness)
                 del active[identity]
             prior_counters[identity] = counters
 
@@ -320,7 +414,13 @@ def analyze_events(events: list[dict[str, Any]], clearance_grace_seconds: float 
         "no_candidate": str(sum(not item["candidate_observed"] for item in completed)),
     }
     return {"schema": REPORT_SCHEMA, "clearance_grace_seconds": clearance_grace_seconds,
-            "totals": totals, "episodes": completed}
+            "totals": totals, "episodes": completed,
+            "causal_pain_timer_death_totals": {
+                "verified": str(len(causal_pain_timer_deaths)),
+                "with_exact_command_ownership": str(sum(
+                    item["command_ownership"]["exact"] for item in causal_pain_timer_deaths)),
+            },
+            "causal_pain_timer_deaths": causal_pain_timer_deaths}
 
 
 def _certify_native_reconstruction(episodes: list[dict[str, Any]],

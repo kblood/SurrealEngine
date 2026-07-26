@@ -640,6 +640,28 @@ namespace
 			<< ",\"had_recent_enemy_momentum_contribution\":"
 			<< (record.HadRecentEnemyMomentumContribution ? "true" : "false")
 			<< ",\"hazard_prefix\":" << JsonString(record.HazardPrefix)
+			<< ",\"hazard_residence_terminal_exact\":"
+			<< (record.HazardResidenceTerminalExact ? "true" : "false")
+			<< ",\"hazard_residence_terminal\":"
+			<< JsonString(record.HazardResidenceTerminal)
+			<< ",\"hazard_residence_entry_health\":"
+			<< record.HazardResidenceEntryHealth
+			<< ",\"hazard_residence_harmful_seconds\":"
+			<< Fixed(record.HazardResidenceHarmfulSeconds, 6)
+			<< ",\"hazard_residence_command_changes\":\""
+			<< record.HazardResidenceCommandChanges
+			<< "\",\"hazard_residence_direct_safe_candidate_observed\":"
+			<< (record.HazardResidenceDirectSafeCandidateObserved ? "true" : "false")
+			<< ",\"hazard_residence_direct_safe_candidate_superseded\":"
+			<< (record.HazardResidenceDirectSafeCandidateSuperseded ? "true" : "false")
+			<< ",\"hazard_residence_direct_safe_candidate_name\":"
+			<< JsonString(record.HazardResidenceDirectSafeCandidateName)
+			<< ",\"hazard_residence_command_ownership_life_id\":\""
+			<< record.HazardResidenceCommandOwnershipLifeId
+			<< "\",\"hazard_residence_command_ownership_exact\":"
+			<< (record.HazardResidenceCommandOwnershipExact ? "true" : "false")
+			<< ",\"hazard_residence_command_ownership_target_name\":"
+			<< JsonString(record.HazardResidenceCommandOwnershipTargetName)
 			<< ",\"move_target_known\":"
 			<< (record.MoveTargetKnown ? "true" : "false")
 			<< ",\"move_target_name\":" << JsonString(record.MoveTargetName)

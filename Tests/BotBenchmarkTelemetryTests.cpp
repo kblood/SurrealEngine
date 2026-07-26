@@ -759,6 +759,16 @@ int main()
 	deathPartition.Attribution = "unassisted_environmental_death";
 	deathPartition.EnvironmentalSource = "pain_timer";
 	deathPartition.HazardPrefix = "water_egress_death";
+	deathPartition.HazardResidenceTerminalExact = true;
+	deathPartition.HazardResidenceTerminal = "death";
+	deathPartition.HazardResidenceEntryHealth = 73;
+	deathPartition.HazardResidenceHarmfulSeconds = 1.25f;
+	deathPartition.HazardResidenceCommandChanges = 2;
+	deathPartition.HazardResidenceDirectSafeCandidateObserved = true;
+	deathPartition.HazardResidenceDirectSafeCandidateName = "PathNode144";
+	deathPartition.HazardResidenceCommandOwnershipLifeId = 3;
+	deathPartition.HazardResidenceCommandOwnershipExact = true;
+	deathPartition.HazardResidenceCommandOwnershipTargetName = "PathNode144";
 	deathPartition.MovementIntent = true;
 	deathPartition.PhysicsMode = "Swimming";
 	deathPartition.WaterEgressTerminalKnown = true;
@@ -775,6 +785,9 @@ int main()
 			== std::string::npos
 		|| deathPartitionEvent.find(
 			"\"falling_hazard_terminal_known\":false,\"falling_hazard_sequence\":\"0\",\"falling_hazard_life_id\":\"0\"")
+			== std::string::npos
+		|| deathPartitionEvent.find(
+			"\"hazard_residence_terminal_exact\":true,\"hazard_residence_terminal\":\"death\",\"hazard_residence_entry_health\":73,\"hazard_residence_harmful_seconds\":1.250000,\"hazard_residence_command_changes\":\"2\",\"hazard_residence_direct_safe_candidate_observed\":true,\"hazard_residence_direct_safe_candidate_superseded\":false,\"hazard_residence_direct_safe_candidate_name\":\"PathNode144\",\"hazard_residence_command_ownership_life_id\":\"3\",\"hazard_residence_command_ownership_exact\":true,\"hazard_residence_command_ownership_target_name\":\"PathNode144\"")
 			== std::string::npos)
 	{
 		return Fail("hazard death partition serialization was incomplete or unstable");

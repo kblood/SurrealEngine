@@ -803,6 +803,7 @@ namespace
 		void StageHazardDeathPartition(const std::string& victimIdentity,
 			QualityParticipantRuntime& runtime, UPawn* victim,
 			BotBenchmarkDeathAttribution::DeathKiller killerRelation,
+			const std::optional<PawnMovement::HazardResidenceDeathWitness>& residenceWitness,
 			const std::vector<PawnMovement::FallingParityRealizedRecord>& parityRecords,
 			const std::vector<PawnMovement::FallingHazardDiagnosticRecord>& hazardDiagnostics,
 			const std::vector<PawnMovement::HazardWaterEgressDiagnosticRecord>& waterDiagnostics)
@@ -822,6 +823,48 @@ namespace
 			record.MovementIntent = HasMovementIntent(victim);
 			record.PhysicsMode = victim->HasProperty("Physics")
 				? PhysicsModeName(victim->Physics()) : std::string();
+			if (residenceWitness)
+			{
+				record.HazardResidenceTerminalExact = true;
+				record.HazardResidenceTerminal = "death";
+				record.HazardResidenceEntryHealth = residenceWitness->EntryHealth;
+				record.HazardResidenceHarmfulSeconds = residenceWitness->HarmfulSeconds;
+				record.HazardResidenceCommandChanges = residenceWitness->CommandChanges;
+				record.HazardResidenceDirectSafeCandidateObserved =
+				residenceWitness->DirectSafeCandidateObserved;
+				record.HazardResidenceDirectSafeCandidateSuperseded =
+				residenceWitness->DirectSafeCandidateSuperseded;
+				record.HazardResidenceDirectSafeCandidateName =
+				residenceWitness->DirectSafeCandidateName;
+				record.HazardResidenceCommandOwnershipLifeId =
+				residenceWitness->CommandOwnershipLifeId;
+			if (EngineRef.IsBotBenchmarkDirectReachCommandObserverEnabled())
+			{
+				auto owner = runtime.OpenDirectReachCommandRecords.end();
+				for (auto candidate = runtime.OpenDirectReachCommandRecords.begin();
+					candidate != runtime.OpenDirectReachCommandRecords.end(); ++candidate)
+				{
+					if (candidate->LifeId != residenceWitness->CommandOwnershipLifeId)
+						continue;
+					if (owner != runtime.OpenDirectReachCommandRecords.end())
+					{
+						owner = runtime.OpenDirectReachCommandRecords.end();
+						break;
+					}
+					owner = candidate;
+				}
+				UActor* currentTarget = victim->MoveTarget();
+				const bool ownerStillCurrent = owner != runtime.OpenDirectReachCommandRecords.end()
+					&& currentTarget && !currentTarget->bDeleteMe()
+					&& owner->TargetActorIndex == currentTarget->Index
+					&& owner->TargetAddress == currentTarget;
+				if (ownerStillCurrent)
+				{
+					record.HazardResidenceCommandOwnershipExact = true;
+					record.HazardResidenceCommandOwnershipTargetName = owner->TargetName;
+				}
+			}
+			}
 
 			const auto water = std::find_if(waterDiagnostics.begin(), waterDiagnostics.end(),
 				[](const auto& diagnostic)
@@ -1339,6 +1382,7 @@ namespace
 				QualityParticipantRuntime& counters = victimRuntime->second;
 				victim->RecordHazardSwimEgressDeath();
 				const bool directReachHazardTerminalExact = victim->RecordHazardResidenceDeath();
+				auto residenceWitness = victim->DrainHazardResidenceDeathWitness();
 				ResolveOpenDirectReachCommands(counters, victim->DirectReachCommandLifeId(),
 					directReachHazardTerminalExact ? "hazardous_death" : "nonhazard_death",
 					directReachHazardTerminalExact, Ticks + 1);
@@ -1369,6 +1413,7 @@ namespace
 						: BotBenchmarkDeathAttribution::DeathKiller::EnemyPlayer;
 				}
 				StageHazardDeathPartition(victimIdentity, counters, victim, killerRelation,
+					residenceWitness,
 					parityRecords, hazardDiagnostics, waterEgressDiagnostics);
 				victim->EndWalkingStepPreflightLife();
 				AccumulateNativePawnCounters(victimIdentity, counters, victim,

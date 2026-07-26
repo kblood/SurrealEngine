@@ -20,7 +20,7 @@ def event(tick: int, seconds: float, *, hazard: bool, deaths: int = 0,
           status: str = "running", residence_episodes: int = 0,
           residence_cleared: int = 0, residence_deaths: int = 0,
           residence_reentries: int = 0, residence_run_end: int = 0,
-          health: int | None = None) -> dict:
+          health: int | None = None, partition_records: list[dict] | None = None) -> dict:
     return {
         "schema": "surreal-bot-benchmark-telemetry-v2", "tick": str(tick),
         "simulated_seconds": seconds, "type": "run_result" if status == "complete" else "tick",
@@ -41,6 +41,7 @@ def event(tick: int, seconds: float, *, hazard: bool, deaths: int = 0,
             "hazard_residence_candidates_observed_exact": str(candidate),
             "hazard_residence_candidate_other_commands_exact": str(superseded),
             "hazard_swim_egress_direct_nav_best_candidate_name": candidate_name,
+            "hazard_death_partition_records": partition_records or [],
         }],
     }
 
@@ -94,6 +95,45 @@ class HazardResidenceTests(unittest.TestCase):
         self.assertEqual(episode["terminal"], "death")
         self.assertFalse(episode["entry_observed"])
         self.assertTrue(episode["terminal_only"])
+
+    def test_pain_timer_scope_requires_an_exact_residence_terminal_witness(self) -> None:
+        record = {
+            "environmental_source": "pain_timer",
+            "hazard_residence_terminal_exact": True,
+            "hazard_residence_terminal": "death",
+            "hazard_residence_entry_health": 73,
+            "hazard_residence_harmful_seconds": 0.3,
+            "hazard_residence_command_changes": "2",
+            "hazard_residence_direct_safe_candidate_observed": True,
+            "hazard_residence_direct_safe_candidate_superseded": False,
+            "hazard_residence_direct_safe_candidate_name": "Path144",
+            "hazard_residence_command_ownership_exact": True,
+            "hazard_residence_command_ownership_life_id": "9",
+            "hazard_residence_command_ownership_target_name": "Path144",
+        }
+        report = RESIDENCE.analyze_events([
+            event(0, 0.0, hazard=True, health=73, residence_episodes=1),
+            event(1, 0.3, hazard=True, deaths=1, health=-1, residence_episodes=1,
+                  residence_deaths=1, status="complete", partition_records=[record]),
+        ])
+        self.assertEqual(report["causal_pain_timer_death_totals"], {
+            "verified": "1", "with_exact_command_ownership": "1"})
+        witness = report["causal_pain_timer_deaths"][0]
+        self.assertEqual(witness["entry_health_exact"], 73)
+        self.assertEqual(witness["direct_safe_candidate"]["name"], "Path144")
+        self.assertTrue(witness["command_ownership"]["exact"])
+
+    def test_pain_timer_without_native_residence_terminal_is_not_claimed(self) -> None:
+        report = RESIDENCE.analyze_events([
+            event(0, 0.0, hazard=True, health=73, residence_episodes=1),
+            event(1, 0.3, hazard=True, deaths=1, health=-1, residence_episodes=1,
+			  residence_deaths=1, status="complete", partition_records=[{
+                      "environmental_source": "pain_timer",
+                      "hazard_residence_terminal_exact": False,
+                      "hazard_residence_terminal": "",
+                  }]),
+        ])
+        self.assertEqual(report["causal_pain_timer_death_totals"]["verified"], "0")
 
     def test_incomplete_run_fails_closed(self) -> None:
         with self.assertRaisesRegex(RESIDENCE.ResidenceError, "successful complete"):

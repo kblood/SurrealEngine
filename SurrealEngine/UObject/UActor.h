@@ -1963,6 +1963,8 @@ public:
 	void RecordHazardSwimEgressDeath();
 	void EndHazardResidenceRun();
 	bool RecordHazardResidenceDeath();
+	std::optional<PawnMovement::HazardResidenceDeathWitness>
+		DrainHazardResidenceDeathWitness();
 	std::vector<std::pair<uint64_t, PawnMovement::HazardResidenceTerminal>>
 		DrainDirectReachHazardResidenceTerminals();
 
@@ -2641,6 +2643,8 @@ private:
 	HazardSwimEgressState HazardSwimEgress;
 	PawnMovement::HazardResidenceState HazardResidence;
 	std::string HazardResidenceCandidateName;
+	std::optional<PawnMovement::HazardResidenceDeathWitness>
+		HazardResidenceDeathWitness;
 	std::vector<std::pair<uint64_t, PawnMovement::HazardResidenceTerminal>>
 		DirectReachHazardResidenceTerminals;
 	struct ExternalImpulseNavigationCommitState
