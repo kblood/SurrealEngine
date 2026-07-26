@@ -4864,6 +4864,7 @@ UActor* UPawn::PickTarget(float& bestAim, float& bestDist, const vec3& FireDir, 
 				observation.DeadRejects++;
 			else
 			{
+				observation.LivingCandidates++;
 				observation.LivingSkippedByCurrentPredicate++;
 				auto pawnPlayerInfo = engine->LaunchInfo.ue1Version > 219 ?
 					pawn->PlayerReplicationInfo() : nullptr;
