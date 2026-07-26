@@ -4747,11 +4747,11 @@ bool UPawn::CanSee(UActor* other)
 		observation.SourceLifeId = DirectReachCommandLifeId();
 		observation.SourceActorIndex = Index;
 		observation.CorrectedConeSelected = engine->IsBotBenchmarkPawnVisionConeEnabled();
-		if (!Frame::Callstack.empty())
-			observation.CallerInvocationToken = Frame::Callstack.back()->EnsureInvocationToken();
 		if (Frame::Callstack.size() >= 2)
 		{
 			Frame* caller = Frame::Callstack[Frame::Callstack.size() - 2];
+			if (caller)
+				observation.CallerInvocationToken = caller->EnsureInvocationToken();
 			if (caller && caller->Object)
 				observation.CallerClass = UObject::GetUClassFullName(caller->Object).ToString();
 			if (caller && caller->Func)
