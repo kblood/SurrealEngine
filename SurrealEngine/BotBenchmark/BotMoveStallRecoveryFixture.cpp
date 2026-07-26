@@ -4,8 +4,10 @@
 #include "BotBenchmarkRoster.h"
 #include "BotControlledMatch.h"
 #include "Engine.h"
+#include "Package/PackageManager.h"
 #include "Runtime/HeadlessDriver.h"
 #include "UObject/UActor.h"
+#include "UObject/UClass.h"
 #include "UObject/ULevel.h"
 #include "Utils/CommandLine.h"
 #include "Utils/File.h"
@@ -67,14 +69,24 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-move-stall-recovery-fixture-v1\n"
+		out << "schema=surreal-bot-move-stall-recovery-fixture-v2\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
+			<< "direct_actor_move_toward_timeout_mode="
+			<< (result.DirectActorFixtureMode ? "true" : "false") << "\n"
 			<< "safe_walking_start=" << (result.SafeWalkingStart ? "true" : "false") << "\n"
 			<< "targetless_move_to_armed=" << (result.TargetlessMoveToArmed ? "true" : "false") << "\n"
+			<< "direct_actor_move_toward_armed="
+			<< (result.DirectActorMoveTowardArmed ? "true" : "false") << "\n"
+			<< "direct_actor_timeout_applied="
+			<< (result.DirectActorTimeoutApplied ? "true" : "false") << "\n"
+			<< "direct_actor_target_destroy_requested="
+			<< (result.DirectActorTargetDestroyRequested ? "true" : "false") << "\n"
 			<< "stalled_without_displacement=" << (result.StalledWithoutDisplacement ? "true" : "false") << "\n"
 			<< "safe_recovery_relocation=" << (result.SafeRecoveryRelocation ? "true" : "false") << "\n"
 			<< "pawn_actor=" << result.PawnActor << "\n"
+			<< "direct_actor_target=" << result.DirectActorTarget << "\n"
+			<< "direct_actor_target_class=" << result.DirectActorTargetClass << "\n"
 			<< "detections=" << result.Detections << "\n"
 			<< "episode_starts=" << result.EpisodeStarts << "\n"
 			<< "episode_resets=" << result.EpisodeResets << "\n"
@@ -100,6 +112,21 @@ namespace
 				<< "record_" << index << "_seconds=" << record.SecondsSinceDetection << "\n"
 				<< "record_" << index << "_outcome=" << static_cast<int>(record.Outcome) << "\n";
 		}
+		for (size_t index = 0; index < result.DecisionRecords.size(); index++)
+		{
+			const auto& record = result.DecisionRecords[index];
+			out << "decision_" << index << "_actor=" << record.SourcePawnActor << "\n"
+				<< "decision_" << index << "_sequence=" << record.Sequence << "\n"
+				<< "decision_" << index << "_life_id=" << record.LifeId << "\n"
+				<< "decision_" << index << "_episode_id=" << record.EpisodeId << "\n"
+				<< "decision_" << index << "_latent_mode=" << static_cast<int>(record.LatentMode) << "\n"
+				<< "decision_" << index << "_decision=" << static_cast<int>(record.Decision) << "\n"
+				<< "decision_" << index << "_target_live="
+				<< (record.MoveTargetLive ? "true" : "false") << "\n"
+				<< "decision_" << index << "_target_name=" << record.MoveTargetName << "\n"
+				<< "decision_" << index << "_target_class=" << record.MoveTargetClass << "\n"
+				<< "decision_" << index << "_move_timer=" << record.MoveTimer << "\n";
+		}
 		return out.str();
 	}
 
@@ -120,6 +147,18 @@ namespace
 			{
 				try { config.ExternalSkill = std::stoi(difficulty); }
 				catch (const std::exception&) { Result.FailureReason = "move-stall fixture difficulty must be an integer"; Complete = true; return; }
+			}
+			const std::string directActorMode = commandline
+				? commandline->GetArg("", "--botbench-fixture-direct-actor-timeout") : std::string();
+			if (!directActorMode.empty())
+			{
+				if (directActorMode != "0" && directActorMode != "1")
+				{
+					Result.FailureReason = "direct-actor fixture mode must be 0 or 1";
+					Complete = true;
+					return;
+				}
+				config.DirectActorMoveTowardTimeout = directActorMode == "1";
 			}
 			Result = BotMoveStallRecoveryFixture::Run(EngineRef, config);
 			const std::string output = commandline
@@ -150,6 +189,7 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 	Engine& engine, const BotMoveStallRecoveryFixtureConfig& config)
 {
 	BotMoveStallRecoveryFixtureResult result;
+	result.DirectActorFixtureMode = config.DirectActorMoveTowardTimeout;
 	UPawn* pawn = nullptr;
 	float originalAccelRate = 0.0f;
 	float originalDesiredSpeed = 0.0f;
@@ -166,6 +206,8 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 	float originalMoveTimer = 0.0f;
 	bool originalTickEnabled = false;
 	bool originalUpdateTacticsEnabled = false;
+	bool originalDirectActorTimeoutEnabled = false;
+	UActor* directActorTarget = nullptr;
 	vec3 fixtureOrigin;
 	try
 	{
@@ -173,6 +215,9 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 			throw std::runtime_error("move-stall fixture URL is required");
 		if (engine.IsBotBenchmarkTargetlessMoveToTimeoutEnabled())
 			throw std::runtime_error("move-stall fixture requires the targetless MoveTo timeout experiment to be disabled");
+		originalDirectActorTimeoutEnabled = engine.IsBotBenchmarkDirectActorMoveTowardTimeoutEnabled();
+		engine.SetBotBenchmarkDirectActorMoveTowardTimeoutEnabled(
+			config.DirectActorMoveTowardTimeout);
 		const BotBenchmarkRoster roster = BotBenchmarkRoster::Parse(
 			std::string("1"), {}, {}, config.ExternalSkill);
 		const BotControlledMatchResult match = BotControlledMatch::Setup(engine, config.URL, roster);
@@ -222,11 +267,36 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 		pawn->AccelRate() = 0.0f;
 		pawn->Velocity() = vec3(0.0f);
 		pawn->Acceleration() = vec3(0.0f);
-		pawn->MoveTo(fixtureOrigin + vec3(DestinationDistance, 0.0f, 0.0f), 1.0f);
-		if (!pawn->StateFrame || pawn->StateFrame->LatentState != LatentRunState::MoveTo
-			|| pawn->MoveTarget() || pawn->MoveTimer() <= 2.0f)
-			throw std::runtime_error("fixture failed to arm a finite targetless MoveTo latent command");
-		result.TargetlessMoveToArmed = true;
+		if (config.DirectActorMoveTowardTimeout)
+		{
+			if (!engine.packages)
+				throw std::runtime_error("direct-actor fixture has no package manager");
+			UClass* targetClass = engine.packages->FindClass("Engine.BlockAll");
+			if (!targetClass)
+				throw std::runtime_error("direct-actor fixture could not resolve Engine.BlockAll");
+			directActorTarget = pawn->Spawn(targetClass, {}, {},
+				fixtureOrigin + vec3(DestinationDistance, 0.0f, 0.0f), Rotator());
+			if (!directActorTarget || directActorTarget->bDeleteMe())
+				throw std::runtime_error("direct-actor fixture could not spawn its target");
+			result.DirectActorTarget = directActorTarget->Name.ToString();
+			result.DirectActorTargetClass = directActorTarget->Class
+				? directActorTarget->Class->Name.ToString() : std::string();
+			pawn->MoveToward(directActorTarget, 1.0f);
+			if (!pawn->StateFrame || pawn->StateFrame->LatentState != LatentRunState::MoveToward
+				|| pawn->MoveTarget() != directActorTarget || pawn->MoveTimer() <= 2.0f)
+			{
+				throw std::runtime_error("fixture failed to arm a finite direct-actor MoveToward command");
+			}
+			result.DirectActorMoveTowardArmed = true;
+		}
+		else
+		{
+			pawn->MoveTo(fixtureOrigin + vec3(DestinationDistance, 0.0f, 0.0f), 1.0f);
+			if (!pawn->StateFrame || pawn->StateFrame->LatentState != LatentRunState::MoveTo
+				|| pawn->MoveTarget() || pawn->MoveTimer() <= 2.0f)
+				throw std::runtime_error("fixture failed to arm a finite targetless MoveTo latent command");
+			result.TargetlessMoveToArmed = true;
+		}
 
 		for (int index = 0; index < StallTicks; index++)
 			pawn->Tick(FixtureTickSeconds);
@@ -236,10 +306,39 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 			|| pawn->MoveStallRecoveryEpisodeStartCount() != 1)
 			throw std::runtime_error("fixture did not produce exactly one stationary move-stall detection");
 
-		result.SafeRecoveryRelocation = MoveSafeRecoveryDistance(pawn, fixtureOrigin);
-		if (!result.SafeRecoveryRelocation)
-			throw std::runtime_error("fixture could not make a safe recovery displacement");
-		pawn->Tick(FixtureTickSeconds);
+		if (config.DirectActorMoveTowardTimeout)
+		{
+			result.DecisionRecords = pawn->DrainMoveStallRecoveryDecisionRecords();
+			result.DirectActorTimeoutApplied = pawn->MoveStallDirectActorMoveTowardTimeoutCount() == 1
+				&& pawn->MoveStallForcedReplanCount() == 1 && pawn->MoveTimer() < 0.0f
+				&& pawn->Acceleration() == vec3(0.0f);
+			const bool exactDirectActorDecision = result.DecisionRecords.size() == 1
+				&& result.DecisionRecords[0].SourcePawnActor == result.PawnActor
+				&& result.DecisionRecords[0].Sequence > 0
+				&& result.DecisionRecords[0].LifeId > 0
+				&& result.DecisionRecords[0].EpisodeId > 0
+				&& result.DecisionRecords[0].LatentMode
+					== PawnMovement::MoveStallLatentMode::MoveToward
+				&& result.DecisionRecords[0].Decision
+					== PawnMovement::MoveStallRecoveryDecision::DirectActorMoveTowardTimeout
+				&& result.DecisionRecords[0].MoveTargetLive
+				&& result.DecisionRecords[0].MoveTargetName == result.DirectActorTarget
+				&& result.DecisionRecords[0].MoveTargetClass == result.DirectActorTargetClass
+				&& result.DecisionRecords[0].MoveTimer > 0.0f;
+			if (!result.DirectActorTimeoutApplied || !exactDirectActorDecision
+				|| pawn->MoveStallNavigationForcedReplanCount() != 0
+				|| pawn->MoveStallTargetlessMoveToTimeoutCount() != 0)
+			{
+				throw std::runtime_error("fixture direct-actor timeout counters or decision record did not reconcile");
+			}
+		}
+		else
+		{
+			result.SafeRecoveryRelocation = MoveSafeRecoveryDistance(pawn, fixtureOrigin);
+			if (!result.SafeRecoveryRelocation)
+				throw std::runtime_error("fixture could not make a safe recovery displacement");
+			pawn->Tick(FixtureTickSeconds);
+		}
 		result.Ran = true;
 		result.Detections = pawn->MoveStallDetectionCount();
 		result.EpisodeStarts = pawn->MoveStallRecoveryEpisodeStartCount();
@@ -254,23 +353,26 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 		result.Unknown = pawn->MoveStallRecoveryUnknownCount();
 		result.RecordOverflows = pawn->MoveStallRecoveryEpisodeRecordOverflowCount();
 		result.Records = pawn->DrainMoveStallRecoveryEpisodeRecords();
-		const bool exactCounters = result.Detections == 1 && result.EpisodeStarts == 1
-			&& result.EpisodeResets == 1 && result.ClearedWithin2Seconds == 1
-			&& result.ClearedAfter2SecondsWithin5Seconds == 0 && result.ReplannedWithin5Seconds == 0
-			&& result.Missed5SecondDeadline == 0 && result.ExcludedIntentionalStops == 0
-			&& result.CensoredLifeBoundaries == 0 && result.CensoredRunEnd == 0
-			&& result.Unknown == 0 && result.RecordOverflows == 0;
-		const bool exactRecord = result.Records.size() == 1
-			&& result.Records[0].SourcePawnActor == result.PawnActor
-			&& result.Records[0].Sequence > 0 && result.Records[0].LifeId > 0
-			&& result.Records[0].EpisodeId > 0
-			&& std::isfinite(result.Records[0].SecondsSinceDetection)
-			&& result.Records[0].SecondsSinceDetection > 0.0f
-			&& result.Records[0].SecondsSinceDetection <= 2.0f
-			&& result.Records[0].Outcome
-				== PawnMovement::MoveStallRecoveryEpisodeOutcome::ClearedWithin2Seconds;
-		if (!exactCounters || !exactRecord)
-			throw std::runtime_error("fixture terminal recovery counters and record did not reconcile");
+		if (!config.DirectActorMoveTowardTimeout)
+		{
+			const bool exactCounters = result.Detections == 1 && result.EpisodeStarts == 1
+				&& result.EpisodeResets == 1 && result.ClearedWithin2Seconds == 1
+				&& result.ClearedAfter2SecondsWithin5Seconds == 0 && result.ReplannedWithin5Seconds == 0
+				&& result.Missed5SecondDeadline == 0 && result.ExcludedIntentionalStops == 0
+				&& result.CensoredLifeBoundaries == 0 && result.CensoredRunEnd == 0
+				&& result.Unknown == 0 && result.RecordOverflows == 0;
+			const bool exactRecord = result.Records.size() == 1
+				&& result.Records[0].SourcePawnActor == result.PawnActor
+				&& result.Records[0].Sequence > 0 && result.Records[0].LifeId > 0
+				&& result.Records[0].EpisodeId > 0
+				&& std::isfinite(result.Records[0].SecondsSinceDetection)
+				&& result.Records[0].SecondsSinceDetection > 0.0f
+				&& result.Records[0].SecondsSinceDetection <= 2.0f
+				&& result.Records[0].Outcome
+					== PawnMovement::MoveStallRecoveryEpisodeOutcome::ClearedWithin2Seconds;
+			if (!exactCounters || !exactRecord)
+				throw std::runtime_error("fixture terminal recovery counters and record did not reconcile");
+		}
 		result.Passed = true;
 	}
 	catch (const std::exception& error)
@@ -300,6 +402,12 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 		pawn->SetLocation(originalLocation);
 		pawn->UpdateActorZone();
 	}
+	if (directActorTarget && !directActorTarget->bDeleteMe())
+	{
+		directActorTarget->Destroy();
+		result.DirectActorTargetDestroyRequested = true;
+	}
+	engine.SetBotBenchmarkDirectActorMoveTowardTimeoutEnabled(originalDirectActorTimeoutEnabled);
 	return result;
 }
 

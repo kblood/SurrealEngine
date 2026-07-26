@@ -9,25 +9,34 @@
 class Engine;
 class HeadlessDriverRegistry;
 
-// A narrow cross-game fixture for the production move-stall watchdog. It uses
-// one ordinary controlled bot, creates a targetless native MoveTo with zero
-// acceleration, and then supplies one safe measured displacement.
+// A narrow cross-game fixture for the production move-stall watchdog. Its
+// default mode creates a targetless native MoveTo with zero acceleration and
+// supplies one safe measured displacement. The explicit direct-actor mode
+// instead verifies the default-off MoveToward timeout against a live, non-pawn,
+// non-navigation actor.
 struct BotMoveStallRecoveryFixtureConfig
 {
 	std::string URL;
 	int ExternalSkill = 3;
+	bool DirectActorMoveTowardTimeout = false;
 };
 
 struct BotMoveStallRecoveryFixtureResult
 {
 	bool Ran = false;
 	bool Passed = false;
+	bool DirectActorFixtureMode = false;
 	bool SafeWalkingStart = false;
 	bool TargetlessMoveToArmed = false;
+	bool DirectActorMoveTowardArmed = false;
+	bool DirectActorTimeoutApplied = false;
+	bool DirectActorTargetDestroyRequested = false;
 	bool StalledWithoutDisplacement = false;
 	bool SafeRecoveryRelocation = false;
 	std::string FailureReason;
 	std::string PawnActor;
+	std::string DirectActorTarget;
+	std::string DirectActorTargetClass;
 	uint64_t Detections = 0;
 	uint64_t EpisodeStarts = 0;
 	uint64_t EpisodeResets = 0;
@@ -41,6 +50,7 @@ struct BotMoveStallRecoveryFixtureResult
 	uint64_t Unknown = 0;
 	uint64_t RecordOverflows = 0;
 	std::vector<PawnMoveStallRecoveryEpisodeRecord> Records;
+	std::vector<PawnMoveStallRecoveryDecisionRecord> DecisionRecords;
 };
 
 class BotMoveStallRecoveryFixture
