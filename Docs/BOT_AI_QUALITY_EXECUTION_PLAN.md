@@ -3772,3 +3772,22 @@ but none supplies authority for a movement intervention. The required next
 evidence is a low-health, unassisted, non-combat residence that retains exact
 command ownership through the terminal; do not infer it from candidate geometry
 or aggregate death totals.
+
+## Iteration 149: direct-inventory retry provenance is observer-only
+
+The direct-inventory retry lane now records the existing direct-reach verdict,
+full watchdog decision, same-target reissue, and native path-commit boundaries
+without issuing a trace, reachability call, path search, or movement write.
+The fail-closed chain analyzer requires both observer flags, no bounded-record
+overflow, same-life exact target/marker identity, a full two-second
+no-progress stall, a same-target reissue within one tick, and a non-truncated
+stock route commit ending at that marker on the reissue tick. It reports
+evidence only and cannot authorize a cooldown or route change.
+
+The initial UT436 Deck16-II four-bot observer smoke sees six inventory verdicts
+and zero full stalls, hence zero qualifying chains. That is the expected
+unavailable result, not an implicit candidate. Release engine plus focused
+telemetry/watchdog tests and 26 relevant Python tests pass. The broad
+`BotBenchmarkProtocol` CTest has an unrelated stale exact-summary snapshot
+mismatch; no protocol source was changed, so it is recorded as a test-hygiene
+follow-up and not counted as validation of this observer.
