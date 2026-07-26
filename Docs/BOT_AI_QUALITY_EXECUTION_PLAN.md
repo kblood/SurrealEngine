@@ -3885,3 +3885,22 @@ adapter/map dependent. The next gate is a wider UT seed/map matrix plus
 additional Unreal anchors, followed by an adapter-scoped integration decision
 if the regression persists. Preserve the semantic fixture and observer; they
 are the exact evidence needed to evaluate a compatibility-gated design.
+
+## Iteration 154: UT regression reproduces on a second seed
+
+The UT436 Deck16-II 16-bot seed-`104729` 7,200-tick historical pair confirms
+that the previous UT result is not a single-seed quality promotion. Stock
+records 68 `PickTarget` queries, skips 918 living candidates, and has 14
+no-result cases despite 19 LOS-eligible living candidates. The correction
+removes those misses (78 queries, zero living skips, 24 returned living
+targets, zero no-result witnesses), but aggregate behavior worsens: kills
+fall from 35 to 28, deaths rise from 49 to 50, suicides/environmental deaths
+rise from 14 to 22, opponent damage falls from 5,175 to 4,335, and union route
+coverage falls from 199/251 to 188/251 nodes.
+
+Two independent UT seeds therefore show the same quality direction even though
+they prove the native predicate is semantically inconsistent with its comment.
+Keep both the correction and the observer as experimental branch evidence; do
+not merge the unconditional form. The viable next design must preserve UT's
+stock behavior while separately qualifying the demonstrably beneficial Unreal
+Gold behavior, or find a narrower call-context rule that improves both.
