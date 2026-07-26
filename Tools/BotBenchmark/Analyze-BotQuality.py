@@ -30,8 +30,8 @@ TOOL_VERSION = 28
 
 DISTANCE_EPSILON = 0.25
 STUCK_WINDOW_SECONDS = 2.0
-BUILD_ID_HEX = re.compile(r"[0-9a-f]{40}\\Z")
-BUILD_SHA256 = re.compile(r"[0-9A-F]{64}\\Z")
+BUILD_ID_HEX = re.compile(r"[0-9a-f]{40}\Z")
+BUILD_SHA256 = re.compile(r"[0-9A-F]{64}\Z")
 
 
 def _validate_build_identity(raw: Any, context: str) -> dict[str, Any]:

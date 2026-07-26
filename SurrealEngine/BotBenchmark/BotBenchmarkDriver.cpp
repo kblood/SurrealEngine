@@ -133,6 +133,7 @@ namespace
 				if (!BuildIdentity)
 				{
 					Fail("benchmark build identity unavailable: " + buildIdentityError);
+					WriteAttestationFailureArtifact();
 					return;
 				}
 				OpenTelemetry();
@@ -3950,6 +3951,30 @@ namespace
 				LogMessage("Bot benchmark failed: " + FailureReason);
 			}
 			Complete = true;
+		}
+
+		void WriteAttestationFailureArtifact()
+		{
+			try
+			{
+				std::filesystem::create_directories(Config.GetOutputDirectory());
+				const std::filesystem::path path = std::filesystem::path(Config.GetOutputDirectory())
+					/ "attestation-failure.json";
+				std::ostringstream out;
+				out << "{\n"
+					<< "  \"schema\": \"surreal-bot-benchmark-attestation-failure-v1\",\n"
+					<< "  \"status\": \"failed\",\n"
+					<< "  \"config_id\": " << JsonString(TelemetryConfigIdentity) << ",\n"
+					<< "  \"failure_reason\": " << JsonString(FailureReason) << "\n"
+					<< "}\n";
+				File::write_all_text(path.string(), out.str());
+				LogMessage("Bot benchmark attestation failure: " + path.string());
+			}
+			catch (const std::exception& error)
+			{
+				LogMessage(std::string("Bot benchmark attestation failure artifact write failed: ")
+					+ error.what());
+			}
 		}
 
 		Engine& EngineRef;

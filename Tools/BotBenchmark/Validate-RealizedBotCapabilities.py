@@ -19,6 +19,7 @@ SAMPLE = "post_spawn_pre_tick"
 SUMMARY_SCHEMAS = (
     "surreal-bot-benchmark-summary-v2",
     "surreal-bot-benchmark-summary-v3",
+    "surreal-bot-benchmark-summary-v4",
 )
 MOVEMENT_FIELDS = (
     "ground_speed", "water_speed", "air_speed", "jump_z", "max_step_height", "accel_rate",
@@ -34,8 +35,8 @@ V3_COMPONENT_FIELDS = (
     "sample_count", "histogram_bucket_overflows_exact", "p50_microseconds",
     "p95_microseconds", "p99_microseconds", "max_microseconds",
 )
-BUILD_ID_HEX = re.compile(r"[0-9a-f]{40}\\Z")
-BUILD_SHA256 = re.compile(r"[0-9A-F]{64}\\Z")
+BUILD_ID_HEX = re.compile(r"[0-9a-f]{40}\Z")
+BUILD_SHA256 = re.compile(r"[0-9A-F]{64}\Z")
 
 
 class CapabilityError(ValueError):

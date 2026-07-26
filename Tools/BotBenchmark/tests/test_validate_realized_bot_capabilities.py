@@ -66,6 +66,20 @@ def make_v3(summary: dict) -> None:
     summary["ai_frame_timing"] = valid_v3_timing()
 
 
+def make_v4(manifest: dict, summary: dict) -> None:
+    identity = {
+        "schema": "surreal-engine-build-identity-v1",
+        "id": "sha256:" + "A" * 64,
+        "source": {"commit": "a" * 40, "tree": "b" * 40, "dirty": False},
+        "executable": {"name": "SurrealEngine.exe", "size_bytes": "1", "sha256": "B" * 64},
+    }
+    manifest["schema"] = "surreal-bot-benchmark-manifest-v3"
+    manifest["build_identity"] = identity
+    summary["schema"] = "surreal-bot-benchmark-summary-v4"
+    summary["ai_frame_timing"] = valid_v3_timing()
+    summary["build_identity"] = copy.deepcopy(identity)
+
+
 class RealizedCapabilityValidatorTests(unittest.TestCase):
     def test_accepts_matching_complete_v2_run(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -80,6 +94,15 @@ class RealizedCapabilityValidatorTests(unittest.TestCase):
             root = Path(temporary)
             manifest, summary, witness = run_documents()
             make_v3(summary)
+            write_run(root, manifest, summary, witness)
+            result = VALIDATE.validate_run(root)
+            self.assertEqual(result["participants"], 1)
+
+    def test_accepts_matching_complete_v4_attested_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, summary, witness = run_documents()
+            make_v4(manifest, summary)
             write_run(root, manifest, summary, witness)
             result = VALIDATE.validate_run(root)
             self.assertEqual(result["participants"], 1)
