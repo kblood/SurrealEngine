@@ -3996,3 +3996,25 @@ coverage and raises deaths. See
 `BOT_AI_PICKTARGET_HELDOUT_EVIDENCE_2026-07-26.md`. Retain stock behavior as
 the release recommendation while seeking a command-handoff witness or a
 separately qualified, bounded corrective candidate.
+
+## Iteration 159: reject and remove the unqualified PickTarget behavior change
+
+An instrumented stock baseline was built from the current observer stack with
+only the old predicate restored, so stock/fixed runs could retain identical
+telemetry. The UT436 Deck16 seed-`104729` pair favors the repaired predicate
+(K/D/S `37/54/17` to `44/53/9`, coverage `0.6773` to `0.7888`). However, the
+same matched seed-`271828` pair regresses (K/D/S `33/51/18` to `27/50/23`,
+damage `4606` to `4287`, environmental deaths `17` to `23`, coverage
+`0.7888` to `0.7849`). Unreal Gold DeathFan seed-`104729` also regresses
+(`53/110/57` to `50/117/67`, with environmental deaths `53` to `64`).
+
+Both UT matrices retain zero `TryToDuck` outcomes, so the warning/dodge route
+does not explain either result. The full matched cross-game evidence is in
+`BOT_AI_PICKTARGET_INSTRUMENTED_CROSS_GAME_MATRIX_2026-07-26.md`.
+
+The native predicate repair is real, but it fails the required consistent
+bot-quality qualification. Its behavior change is therefore removed from the
+active branch; observers remain. A UT436-only gate is not authorized merely
+because one seed improves: a second UT seed regresses. Future work must start
+from stock behavior and prove another bounded candidate through a seed/map
+matrix before it can be promoted.
