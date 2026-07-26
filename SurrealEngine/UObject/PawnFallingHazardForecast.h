@@ -101,6 +101,10 @@ namespace PawnMovement
 		float GroundSpeed = 0.0f;
 		float PhysicsSliceElapsed = 0.0f;
 		bool Bounce = false;
+		// A caller may set this only after proving that the currently resolved
+		// static-world HitWall handler cannot mutate a falling pawn. The default
+		// remains fail-closed at every script callback boundary.
+		bool CertifiedStaticHitWallCallbackNoOp = false;
 		FallingHazardForecastPointObservation StartingZones;
 		FallingHazardForecastContinuationSeed Continuation;
 		float MaximumElapsed = FallingHazardForecastMaximumElapsed;

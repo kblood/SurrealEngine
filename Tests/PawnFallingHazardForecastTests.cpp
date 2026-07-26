@@ -246,6 +246,50 @@ namespace
 			"a static normal above 0.7 is the only ordinary landing proof");
 	}
 
+	void TestCertifiedStaticHitWallNoOpContinuation()
+	{
+		using namespace PawnMovement;
+		auto input = DefaultInput();
+		input.CertifiedStaticHitWallCallbackNoOp = true;
+		const auto begun = BeginFallingHazardForecast(input);
+		const auto first = ObserveFallingHazardForecastSweep(begun.State,
+			Observation(begun.Probe, FallingHazardCollisionKind::StaticWorld,
+				0.25f, vec3(0.0f, 1.0f, 0.0f)));
+		Check(!first.Complete && first.Probe.Valid
+			&& first.Probe.Leg == FallingHazardSweepLeg::Aligned
+			&& first.State.ExpectedSegmentCount == 1
+			&& first.State.Continuation.Phase
+				== FallingHazardForecastPhase::AlignedContinuation,
+			"only a certified static no-op callback continues into the aligned sweep");
+
+		const auto second = ObserveFallingHazardForecastSweep(first.State,
+			Observation(first.Probe, FallingHazardCollisionKind::StaticWorld,
+				0.5f, vec3(1.0f, 0.0f, 0.0f)));
+		Check(!second.Complete && second.Probe.Valid
+			&& second.Probe.Leg == FallingHazardSweepLeg::TwoWallAdjusted
+			&& second.State.ExpectedSegmentCount == 2
+			&& second.State.Continuation.Phase
+				== FallingHazardForecastPhase::ThirdContinuation,
+			"the certificate must cover every static callback boundary, including the second wall");
+
+		const auto third = ObserveFallingHazardForecastSweep(second.State,
+			Observation(second.Probe));
+		Check(!third.Complete && third.Probe.Valid
+			&& third.Probe.Leg == FallingHazardSweepLeg::Direct
+			&& third.State.ExpectedSegmentCount == 3,
+			"a certified two-wall continuation reconstructs retail velocity before the next direct step");
+
+		auto uncertified = input;
+		uncertified.CertifiedStaticHitWallCallbackNoOp = false;
+		const auto failClosedBegin = BeginFallingHazardForecast(uncertified);
+		const auto failClosed = ObserveFallingHazardForecastSweep(failClosedBegin.State,
+			Observation(failClosedBegin.Probe, FallingHazardCollisionKind::StaticWorld,
+				0.25f, vec3(0.0f, 1.0f, 0.0f)));
+		Check(failClosed.Complete && failClosed.Result.Reason
+			== FallingHazardForecastReason::HitWallCallbackRequired,
+			"the default certificate bit remains fail-closed at the first callback");
+	}
+
 	void TestAlignedAndThirdContinuationSeeds()
 	{
 		using namespace PawnMovement;
@@ -651,6 +695,7 @@ int main()
 	TestHarmfulEndpointAndPainMetadata();
 	TestAlreadyHarmfulStartingCenterOrFoot();
 	TestStrictStaticLandingThreshold();
+	TestCertifiedStaticHitWallNoOpContinuation();
 	TestAlignedAndThirdContinuationSeeds();
 	TestDitchRequiresIndependentStaticWalkableSupport();
 	TestTransientWaterAndZoneChangesFailOpen();

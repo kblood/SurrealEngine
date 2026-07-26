@@ -157,6 +157,34 @@ UnrealI and 359 UnrealShare scripts (including `Bots.uc`); it correctly did
 not require Botpack. These artifacts are analysis inputs only and are not
 committed or redistributed.
 
+### Falling `HitWall` certificate evidence (2026-07-26)
+
+The no-UCC `map-catalog` exporter was run again against the owner-local anchor
+installations and wrote only under
+`qa/runs/2026-07-26/script-export-hitwall-certificate/`. Its manifests identify
+UT436 `Botpack.u` as package version 69, SHA-1
+`b1365300c9b4111d30159f64e57628257fffd172`, and Unreal Gold 226b
+`UnrealShare.u` as package version 68, SHA-1
+`2bd91ab92544dab22d353d3b64e47581090e8c14`.
+
+In those exact packages, the state-local `HitWall` handlers for ordinary stock
+bot movement states begin by returning when the pawn is `PHYS_Falling`:
+
+- UT436 `Botpack.Bot`: `Hold`, `Roaming`, `Wandering`, `Retreating`,
+  `Fallback`, `Charging`, `TacticalMove`, and `Hunting`.
+- Unreal Gold 226b `UnrealShare.Bots`: `Roaming`, `Wandering`, `Retreating`,
+  `Fallback`, `Charging`, `TacticalMove`, and `Hunting`.
+
+Both packages' `FallingState` also ignores `HitWall`, so the VM suppresses the
+event entirely there. `FindAir` has a different handler that changes
+`Destination`; it is expressly not certified. The engine certificate therefore
+requires the live resolved state-local function to be the matching stock
+handler, the matching package version and SHA-1, and falling physics; an
+ignored event is accepted only because the VM performs no dispatch. Unknown
+states, package revisions, native handlers, movers, dynamic collisions, and
+all other callbacks remain fail-closed. This establishes a bounded *prediction*
+input only; it does not by itself enable live recovery steering.
+
 ## Next extraction tranche
 
 An independent read-only review of the implemented driver and owner-local

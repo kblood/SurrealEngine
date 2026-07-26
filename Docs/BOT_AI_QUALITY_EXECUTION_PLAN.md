@@ -3464,3 +3464,26 @@ one further callback-sensitive boundary, so any implementation would need a
 bounded chain with exact evidence at *every* callback or a stronger
 pre-established stock-handler certificate. No runtime recovery behavior is
 enabled.
+
+## Iteration 135: exact stock-state certificate clears callbacks, exposes zone parity gap
+
+The owner-local, no-UCC script exporter identified exact, package-fingerprinted
+stock handlers that are no-ops while falling: the UT436 `Botpack.Bot` and
+Unreal Gold 226b `UnrealShare.Bots` ordinary movement states return before
+mutating on `PHYS_Falling`; their `FallingState` suppresses `HitWall` entirely.
+`FindAir` changes destination and is intentionally excluded. The engine now
+allows the read-only trajectory predictor to cross a static callback only when
+the live resolved state-local handler, package version, and package SHA-1 all
+match that certificate. The pure model tests both one- and two-wall chains and
+prove that the default remains `HitWallCallbackRequired` without it. This does
+not alter live bot motion.
+
+Two independent DeathFan v15 repetitions are byte-identical at
+`qa/runs/2026-07-26/inventory-route-handoff-fixture-v15-stock-hitwall-certificate/`.
+They show that the previous callback barrier is gone, but still select no
+direction: every candidate now ends `Unknown` with `TransientHarmfulPain`
+after 96–108 segments. Live northeast remains the sole safe landing. The
+post-callback northeast forecast reports the same reason. Therefore the next
+parity task is to capture and compare the predicted path samples with the
+realized zone transitions; the transient-pain result is not safe to dismiss or
+override. Recovery steering remains disabled pending that evidence.

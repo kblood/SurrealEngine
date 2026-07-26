@@ -29,8 +29,10 @@
 #include "BotAI/HazardSwimEgressLiveSteer.h"
 #include "VM/ScriptCall.h"
 #include "VM/Frame.h"
+#include "Package/Package.h"
 #include "Package/PackageManager.h"
 #include "Package/IniProperty.h"
+#include "Utils/SHA1Sum.h"
 #include "Engine.h"
 #include "Render/RenderSubsystem.h"
 #include <set>
@@ -216,6 +218,77 @@ namespace
 			return false;
 		return (engine->LaunchInfo.IsUnrealTournament() && pawn->IsA("Bot"))
 			|| (engine->LaunchInfo.IsUnreal1() && pawn->IsA("Bots"));
+	}
+
+	// This certificate is deliberately narrower than a class-name check. It
+	// accepts an ignored HitWall event (which the VM will not dispatch), or the
+	// exact state-local handler exported from the supported stock bot package.
+	// Any unknown state, package, version, native handler, or dynamic actor
+	// contact stays on the forecast's fail-closed callback boundary.
+	bool HasCertifiedFallingHitWallNoOp(UPawn* pawn)
+	{
+		if (!pawn || pawn->Physics() != PHYS_Falling || !pawn->StateFrame)
+			return false;
+		if (!pawn->IsEventEnabled(EventName::HitWall))
+			return true;
+		UFunction* resolved = FindEventFunction(pawn, ToNameString(EventName::HitWall));
+		if (!resolved || AnyFlags(resolved->FuncFlags, FunctionFlags::Native))
+			return false;
+
+		const NameString stateName = pawn->GetStateName();
+		struct StockStateCertificate
+		{
+			const char* Package;
+			const char* Class;
+			int PackageVersion;
+			const char* PackageSHA1;
+			const char* State;
+		};
+		static constexpr StockStateCertificate certificates[] = {
+			{ "Botpack", "Bot", 69, "b1365300c9b4111d30159f64e57628257fffd172", "Hold" },
+			{ "Botpack", "Bot", 69, "b1365300c9b4111d30159f64e57628257fffd172", "Roaming" },
+			{ "Botpack", "Bot", 69, "b1365300c9b4111d30159f64e57628257fffd172", "Wandering" },
+			{ "Botpack", "Bot", 69, "b1365300c9b4111d30159f64e57628257fffd172", "Retreating" },
+			{ "Botpack", "Bot", 69, "b1365300c9b4111d30159f64e57628257fffd172", "Fallback" },
+			{ "Botpack", "Bot", 69, "b1365300c9b4111d30159f64e57628257fffd172", "Charging" },
+			{ "Botpack", "Bot", 69, "b1365300c9b4111d30159f64e57628257fffd172", "TacticalMove" },
+			{ "Botpack", "Bot", 69, "b1365300c9b4111d30159f64e57628257fffd172", "Hunting" },
+			{ "UnrealShare", "Bots", 68, "2bd91ab92544dab22d353d3b64e47581090e8c14", "Roaming" },
+			{ "UnrealShare", "Bots", 68, "2bd91ab92544dab22d353d3b64e47581090e8c14", "Wandering" },
+			{ "UnrealShare", "Bots", 68, "2bd91ab92544dab22d353d3b64e47581090e8c14", "Retreating" },
+			{ "UnrealShare", "Bots", 68, "2bd91ab92544dab22d353d3b64e47581090e8c14", "Fallback" },
+			{ "UnrealShare", "Bots", 68, "2bd91ab92544dab22d353d3b64e47581090e8c14", "Charging" },
+			{ "UnrealShare", "Bots", 68, "2bd91ab92544dab22d353d3b64e47581090e8c14", "TacticalMove" },
+			{ "UnrealShare", "Bots", 68, "2bd91ab92544dab22d353d3b64e47581090e8c14", "Hunting" },
+		};
+		static std::unordered_map<Package*, std::string> packageSha1s;
+		for (UClass* cls = pawn->Class; cls != nullptr;
+			cls = static_cast<UClass*>(cls->BaseStruct))
+		{
+			if (!cls->package)
+				continue;
+			auto [hashIt, inserted] = packageSha1s.try_emplace(cls->package);
+			if (inserted)
+				hashIt->second = SHA1Sum::of_file(cls->package->GetPackageFilePath());
+			for (const StockStateCertificate& certificate : certificates)
+			{
+				if (cls->Name != certificate.Class
+					|| cls->package->GetPackageName() != certificate.Package
+					|| cls->package->GetVersion() != certificate.PackageVersion
+					|| hashIt->second != certificate.PackageSHA1
+					|| stateName != certificate.State)
+				{
+					continue;
+				}
+				UState* state = cls->GetState(stateName);
+				if (state && state->GetFunction(ToNameString(EventName::HitWall)) == resolved
+					&& resolved->StructParent == state)
+				{
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	bool IsMovementLatentState(LatentRunState state)
@@ -7661,6 +7734,7 @@ PawnMovement::FallingHazardForecastUpdate UPawn::PredictFallingHazardTrajectory(
 	input.GroundSpeed = GroundSpeed();
 	input.PhysicsSliceElapsed = 1.0f / 60.0f;
 	input.Bounce = bBounce();
+	input.CertifiedStaticHitWallCallbackNoOp = HasCertifiedFallingHitWallNoOp(this);
 	input.StartingZones = BuildFallingHazardPointObservation(this, Location());
 	return CompleteFallingHazardForecast(this, input);
 }

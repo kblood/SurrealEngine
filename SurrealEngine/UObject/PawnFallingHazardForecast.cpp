@@ -574,6 +574,17 @@ namespace PawnMovement
 				state.Result.Continuation.DesiredDirection =
 					normalize(state.ActiveParityStep.DirectDelta);
 				state.Result.Continuation.FirstHitNormal = observation.Normal;
+				if (state.Input.CertifiedStaticHitWallCallbackNoOp)
+				{
+					state.Continuation = state.Result.Continuation;
+					if (!ScheduleProbe(state, FallingHazardSweepLeg::Aligned,
+						expected.Endpoint, resolved.AlignedDelta, 0.0f))
+					{
+						return Complete(state, FallingHazardForecast::Unknown,
+							FallingHazardForecastReason::InvalidProbe);
+					}
+					return Pending(state);
+				}
 				return Complete(state, FallingHazardForecast::Unknown,
 					FallingHazardForecastReason::HitWallCallbackRequired);
 			}
@@ -599,6 +610,23 @@ namespace PawnMovement
 					expected.Endpoint;
 				state.Result.Continuation.SecondHitNormal = observation.Normal;
 				state.Result.Continuation.SecondHitFraction = observation.Fraction;
+				if (state.Input.CertifiedStaticHitWallCallbackNoOp)
+				{
+					state.Continuation = state.Result.Continuation;
+					state.ThirdAdjustment = BuildFallingTwoWallAdjustment(
+						state.Continuation.DesiredDirection,
+						state.Continuation.PendingDelta,
+						state.Continuation.SecondHitNormal,
+						state.Continuation.FirstHitNormal,
+						state.Continuation.SecondHitFraction);
+					if (!ScheduleProbe(state, FallingHazardSweepLeg::TwoWallAdjusted,
+						expected.Endpoint, state.ThirdAdjustment.Delta, 0.0f))
+					{
+						return Complete(state, FallingHazardForecast::Unknown,
+							FallingHazardForecastReason::InvalidProbe);
+					}
+					return Pending(state);
+				}
 				return Complete(state, FallingHazardForecast::Unknown,
 					FallingHazardForecastReason::HitWallCallbackRequired);
 			}
