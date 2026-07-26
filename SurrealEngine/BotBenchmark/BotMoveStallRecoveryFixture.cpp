@@ -69,13 +69,19 @@ namespace
 	{
 		std::ostringstream out;
 		out.imbue(std::locale::classic());
-		out << "schema=surreal-bot-move-stall-recovery-fixture-v2\n"
+		out << "schema=surreal-bot-move-stall-recovery-fixture-v3\n"
 			<< "ran=" << (result.Ran ? "true" : "false") << "\n"
 			<< "passed=" << (result.Passed ? "true" : "false") << "\n"
+			<< "targetless_move_to_timeout_mode="
+			<< (result.TargetlessTimeoutFixtureMode ? "true" : "false") << "\n"
 			<< "direct_actor_move_toward_timeout_mode="
 			<< (result.DirectActorFixtureMode ? "true" : "false") << "\n"
 			<< "safe_walking_start=" << (result.SafeWalkingStart ? "true" : "false") << "\n"
 			<< "targetless_move_to_armed=" << (result.TargetlessMoveToArmed ? "true" : "false") << "\n"
+			<< "targetless_timeout_pre_write_state_valid="
+			<< (result.TargetlessTimeoutPreWriteStateValid ? "true" : "false") << "\n"
+			<< "targetless_timeout_applied="
+			<< (result.TargetlessTimeoutApplied ? "true" : "false") << "\n"
 			<< "direct_actor_move_toward_armed="
 			<< (result.DirectActorMoveTowardArmed ? "true" : "false") << "\n"
 			<< "direct_actor_timeout_applied="
@@ -150,6 +156,18 @@ namespace
 			}
 			const std::string directActorMode = commandline
 				? commandline->GetArg("", "--botbench-fixture-direct-actor-timeout") : std::string();
+			const std::string targetlessMode = commandline
+				? commandline->GetArg("", "--botbench-fixture-targetless-timeout") : std::string();
+			if (!targetlessMode.empty())
+			{
+				if (targetlessMode != "0" && targetlessMode != "1")
+				{
+					Result.FailureReason = "targetless fixture mode must be 0 or 1";
+					Complete = true;
+					return;
+				}
+				config.TargetlessMoveToTimeout = targetlessMode == "1";
+			}
 			if (!directActorMode.empty())
 			{
 				if (directActorMode != "0" && directActorMode != "1")
@@ -159,6 +177,12 @@ namespace
 					return;
 				}
 				config.DirectActorMoveTowardTimeout = directActorMode == "1";
+			}
+			if (config.TargetlessMoveToTimeout && config.DirectActorMoveTowardTimeout)
+			{
+				Result.FailureReason = "move-stall fixture action modes are mutually exclusive";
+				Complete = true;
+				return;
 			}
 			Result = BotMoveStallRecoveryFixture::Run(EngineRef, config);
 			const std::string output = commandline
@@ -189,6 +213,7 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 	Engine& engine, const BotMoveStallRecoveryFixtureConfig& config)
 {
 	BotMoveStallRecoveryFixtureResult result;
+	result.TargetlessTimeoutFixtureMode = config.TargetlessMoveToTimeout;
 	result.DirectActorFixtureMode = config.DirectActorMoveTowardTimeout;
 	UPawn* pawn = nullptr;
 	float originalAccelRate = 0.0f;
@@ -206,16 +231,21 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 	float originalMoveTimer = 0.0f;
 	bool originalTickEnabled = false;
 	bool originalUpdateTacticsEnabled = false;
+	bool originalTargetlessTimeoutEnabled = false;
 	bool originalDirectActorTimeoutEnabled = false;
 	UActor* directActorTarget = nullptr;
 	vec3 fixtureOrigin;
 	try
 	{
+		originalTargetlessTimeoutEnabled = engine.IsBotBenchmarkTargetlessMoveToTimeoutEnabled();
+		originalDirectActorTimeoutEnabled = engine.IsBotBenchmarkDirectActorMoveTowardTimeoutEnabled();
 		if (config.URL.empty())
 			throw std::runtime_error("move-stall fixture URL is required");
-		if (engine.IsBotBenchmarkTargetlessMoveToTimeoutEnabled())
+		if (config.TargetlessMoveToTimeout && config.DirectActorMoveTowardTimeout)
+			throw std::runtime_error("move-stall fixture action modes are mutually exclusive");
+		if (originalTargetlessTimeoutEnabled)
 			throw std::runtime_error("move-stall fixture requires the targetless MoveTo timeout experiment to be disabled");
-		originalDirectActorTimeoutEnabled = engine.IsBotBenchmarkDirectActorMoveTowardTimeoutEnabled();
+		engine.SetBotBenchmarkTargetlessMoveToTimeoutEnabled(config.TargetlessMoveToTimeout);
 		engine.SetBotBenchmarkDirectActorMoveTowardTimeoutEnabled(
 			config.DirectActorMoveTowardTimeout);
 		const BotBenchmarkRoster roster = BotBenchmarkRoster::Parse(
@@ -298,15 +328,65 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 			result.TargetlessMoveToArmed = true;
 		}
 
+		bool targetlessActionObserved = false;
 		for (int index = 0; index < StallTicks; index++)
+		{
+			if (config.TargetlessMoveToTimeout)
+			{
+				// The native latent command must still be live immediately before the
+				// watchdog tick. Together with disabled script Tick/Timer callbacks this
+				// rules out natural or script expiry as the source of the timeout.
+				if (!pawn->StateFrame || pawn->StateFrame->LatentState != LatentRunState::MoveTo
+					|| pawn->MoveTarget() || !std::isfinite(pawn->MoveTimer())
+					|| pawn->MoveTimer() <= 0.0f)
+				{
+					throw std::runtime_error("targetless timeout fixture observed natural or script expiry before watchdog action");
+				}
+			}
 			pawn->Tick(FixtureTickSeconds);
+			if (config.TargetlessMoveToTimeout
+				&& pawn->MoveStallTargetlessMoveToTimeoutCount() == 1)
+			{
+				targetlessActionObserved = true;
+				break;
+			}
+		}
 		const float stallDistance = length(pawn->Location().xy() - fixtureOrigin.xy());
 		result.StalledWithoutDisplacement = stallDistance <= MaximumStallDisplacement;
 		if (!result.StalledWithoutDisplacement || pawn->MoveStallDetectionCount() != 1
 			|| pawn->MoveStallRecoveryEpisodeStartCount() != 1)
 			throw std::runtime_error("fixture did not produce exactly one stationary move-stall detection");
 
-		if (config.DirectActorMoveTowardTimeout)
+		if (config.TargetlessMoveToTimeout)
+		{
+			if (!targetlessActionObserved)
+				throw std::runtime_error("fixture did not observe the targetless MoveTo timeout action");
+			result.DecisionRecords = pawn->DrainMoveStallRecoveryDecisionRecords();
+			const bool exactTargetlessDecision = result.DecisionRecords.size() == 1
+				&& result.DecisionRecords[0].SourcePawnActor == result.PawnActor
+				&& result.DecisionRecords[0].Sequence > 0
+				&& result.DecisionRecords[0].LifeId > 0
+				&& result.DecisionRecords[0].EpisodeId > 0
+				&& result.DecisionRecords[0].LatentMode
+					== PawnMovement::MoveStallLatentMode::MoveTo
+				&& result.DecisionRecords[0].Decision
+					== PawnMovement::MoveStallRecoveryDecision::TargetlessTimeout
+				&& !result.DecisionRecords[0].MoveTargetKnown
+				&& !result.DecisionRecords[0].MoveTargetLive
+				&& std::isfinite(result.DecisionRecords[0].MoveTimer)
+				&& result.DecisionRecords[0].MoveTimer > 0.0f;
+			result.TargetlessTimeoutPreWriteStateValid = exactTargetlessDecision;
+			result.TargetlessTimeoutApplied = pawn->MoveStallTargetlessMoveToTimeoutCount() == 1
+				&& pawn->MoveStallForcedReplanCount() == 1 && pawn->MoveTimer() < 0.0f
+				&& pawn->Acceleration() == vec3(0.0f);
+			if (!result.TargetlessTimeoutPreWriteStateValid || !result.TargetlessTimeoutApplied
+				|| pawn->MoveStallNavigationForcedReplanCount() != 0
+				|| pawn->MoveStallDirectActorMoveTowardTimeoutCount() != 0)
+			{
+				throw std::runtime_error("fixture targetless timeout counters or pre-write decision record did not reconcile");
+			}
+		}
+		else if (config.DirectActorMoveTowardTimeout)
 		{
 			result.DecisionRecords = pawn->DrainMoveStallRecoveryDecisionRecords();
 			result.DirectActorTimeoutApplied = pawn->MoveStallDirectActorMoveTowardTimeoutCount() == 1
@@ -353,7 +433,7 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 		result.Unknown = pawn->MoveStallRecoveryUnknownCount();
 		result.RecordOverflows = pawn->MoveStallRecoveryEpisodeRecordOverflowCount();
 		result.Records = pawn->DrainMoveStallRecoveryEpisodeRecords();
-		if (!config.DirectActorMoveTowardTimeout)
+		if (!config.TargetlessMoveToTimeout && !config.DirectActorMoveTowardTimeout)
 		{
 			const bool exactCounters = result.Detections == 1 && result.EpisodeStarts == 1
 				&& result.EpisodeResets == 1 && result.ClearedWithin2Seconds == 1
@@ -408,6 +488,7 @@ BotMoveStallRecoveryFixtureResult BotMoveStallRecoveryFixture::Run(
 		result.DirectActorTargetDestroyRequested = true;
 	}
 	engine.SetBotBenchmarkDirectActorMoveTowardTimeoutEnabled(originalDirectActorTimeoutEnabled);
+	engine.SetBotBenchmarkTargetlessMoveToTimeoutEnabled(originalTargetlessTimeoutEnabled);
 	return result;
 }
 

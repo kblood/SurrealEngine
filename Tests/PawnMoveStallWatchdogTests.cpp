@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 
 namespace
 {
@@ -94,6 +95,10 @@ int main()
 	ineligible.MoveTimer = 0.0f;
 	Check(SelectMoveStallRecovery(ineligible) == MoveStallRecoveryDecision::None,
 		"a positional move whose timer has expired finishes normally");
+	ineligible = targetlessMoveTo;
+	ineligible.MoveTimer = std::numeric_limits<float>::infinity();
+	Check(SelectMoveStallRecovery(ineligible) == MoveStallRecoveryDecision::None,
+		"a positional move with a non-finite timer cannot request a timeout action");
 	ineligible = targetlessMoveTo;
 	ineligible.Destination.x = std::nanf("");
 	Check(SelectMoveStallRecovery(ineligible) == MoveStallRecoveryDecision::None,

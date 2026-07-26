@@ -11,13 +11,13 @@ class HeadlessDriverRegistry;
 
 // A narrow cross-game fixture for the production move-stall watchdog. Its
 // default mode creates a targetless native MoveTo with zero acceleration and
-// supplies one safe measured displacement. The explicit direct-actor mode
-// instead verifies the default-off MoveToward timeout against a live, non-pawn,
-// non-navigation actor.
+// supplies one safe measured displacement. Its two explicit action modes verify
+// the default-off targetless MoveTo and direct-actor MoveToward timeouts.
 struct BotMoveStallRecoveryFixtureConfig
 {
 	std::string URL;
 	int ExternalSkill = 3;
+	bool TargetlessMoveToTimeout = false;
 	bool DirectActorMoveTowardTimeout = false;
 };
 
@@ -25,9 +25,12 @@ struct BotMoveStallRecoveryFixtureResult
 {
 	bool Ran = false;
 	bool Passed = false;
+	bool TargetlessTimeoutFixtureMode = false;
 	bool DirectActorFixtureMode = false;
 	bool SafeWalkingStart = false;
 	bool TargetlessMoveToArmed = false;
+	bool TargetlessTimeoutPreWriteStateValid = false;
+	bool TargetlessTimeoutApplied = false;
 	bool DirectActorMoveTowardArmed = false;
 	bool DirectActorTimeoutApplied = false;
 	bool DirectActorTargetDestroyRequested = false;
