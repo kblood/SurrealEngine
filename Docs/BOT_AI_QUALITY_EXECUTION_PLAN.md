@@ -4098,3 +4098,26 @@ executable hash/size) in manifest and summary and validates it fail-closed
 through analyzer/comparer/capability tooling. This repairs the earlier
 same-config provenance ambiguity, but the comparer must still include
 route-execution evidence before it can certify a navigation mechanism.
+
+## Iteration 163: stuck-time shadow action activates, but stock outcomes reject a live adapter
+
+Commit `a8768ab1` adds the already-existing active watchdog no-progress time
+to the read-only shadow observation. Its first cross-game no-UCC probes prove
+that `utility-arena` chooses `recover-from-stuck` before every native
+two-second detection (six UT436 Deck16-II and four Unreal Gold DeathFan
+detections in the 3,600-tick seed-`104729` lanes). The shadow manifest remains
+explicitly non-controlling.
+
+This is an observation-quality improvement, not a bot behavior improvement.
+The exact stock follow-up for all ten joins is five UT intentional stops, one
+UT run-end censor, and four Unreal intentional stops. The policy also lacks a
+safe direction, destination, probe, and permitted actuator. Consequently a
+generic lateral nudge would preempt valid stock `MoveToward` or `StrafeFacing`
+work without a demonstrated failure to repair.
+
+The recovery action stays shadow-only. The next candidate must retain a
+same-life safe-probe/admission report and first find repeated non-intentional,
+harmful or persistent outcomes; only then may the bounded live-adapter design
+be exercised through deterministic fixtures and an attested cross-game matrix.
+The exact runs and joins are documented in
+`BOT_AI_SHADOW_STUCK_RECOVERY_FOLLOWUP_2026-07-26.md`.
