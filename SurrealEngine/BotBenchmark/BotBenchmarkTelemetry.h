@@ -114,6 +114,28 @@ struct BotBenchmarkWarnTargetRecord
 	bool IntegrityValid = true;
 };
 
+// Read-only post-call evidence for the retail TryToDuck outcome path.
+struct BotBenchmarkTryToDuckOutcomeRecord
+{
+	uint64_t Sequence = 0;
+	uint64_t NestedWarnTargetSequence = 0;
+	uint64_t ObserverTick = 0;
+	uint64_t CallerInvocationToken = 0;
+	uint64_t ReceiverLifeId = 0;
+	int32_t ReceiverActorIndex = -1;
+	double RequestedDuckDirX = 0.0;
+	double RequestedDuckDirY = 0.0;
+	double RequestedDuckDirZ = 0.0;
+	bool RequestedReversed = false;
+	double PostVelocityX = 0.0;
+	double PostVelocityY = 0.0;
+	double PostVelocityZ = 0.0;
+	std::string PostPhysicsMode;
+	std::string PostState;
+	std::string PostLatentAction;
+	bool IntegrityValid = true;
+};
+
 struct BotBenchmarkDirectReachCommandRecord
 {
 	uint64_t Sequence = 0;
@@ -209,6 +231,8 @@ struct BotBenchmarkBotState
 	uint64_t WarnTargetObservationOverflowsExact = 0;
 	uint64_t WarnTargetIntegrityFailuresExact = 0;
 	std::vector<BotBenchmarkWarnTargetRecord> WarnTargetRecords;
+	uint64_t TryToDuckOutcomeOverflowsExact = 0;
+	std::vector<BotBenchmarkTryToDuckOutcomeRecord> TryToDuckOutcomeRecords;
 	uint64_t InventoryDirectReachSupportObservationsExact = 0;
 	uint64_t InventoryDirectReachSupportSafeSupportedExact = 0;
 	uint64_t InventoryDirectReachSupportSafeUnsupportedNoObservedHazardExact = 0;

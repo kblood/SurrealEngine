@@ -423,6 +423,8 @@ namespace
 			uint64_t WarnTargetIntegrityFailuresExact = 0;
 			uint64_t NextWarnTargetSequence = 1;
 			std::vector<BotBenchmarkWarnTargetRecord> PendingWarnTargetRecords;
+			uint64_t TryToDuckOutcomeOverflowsExact = 0;
+			std::vector<BotBenchmarkTryToDuckOutcomeRecord> PendingTryToDuckOutcomeRecords;
 			uint64_t NextTargetSelectionSequence = 1;
 			uint64_t NextDirectReachCommandSequence = 1;
 			uint64_t DirectReachCommandObservationsExact = 0;
@@ -2224,6 +2226,16 @@ namespace
 				runtime.WarnTargetObservationOverflowsExact++;
 		}
 
+		void AppendTryToDuckOutcomeRecord(QualityParticipantRuntime& runtime,
+			BotBenchmarkTryToDuckOutcomeRecord record)
+		{
+			static constexpr size_t maximumQueuedRecords = 1024;
+			if (runtime.PendingTryToDuckOutcomeRecords.size() < maximumQueuedRecords)
+				runtime.PendingTryToDuckOutcomeRecords.push_back(std::move(record));
+			else
+				runtime.TryToDuckOutcomeOverflowsExact++;
+		}
+
 		void FinishWarnTargetCall(UFunction* function, UObject* instance, uint64_t sequence)
 		{
 			if (ActiveWarnTargetCalls.empty())
@@ -2393,7 +2405,36 @@ namespace
 					pawn->DirectReachCommandLifeId(), pawn->Index, -1,
 					"try_to_duck", duck->second, botId, pawn->GetStateName().ToString(), {},
 					nestedWarnSequence != 0, true });
-				return {};
+				BotBenchmarkTryToDuckOutcomeRecord outcome { sequence, nestedWarnSequence,
+					EngineRef.BotBenchmarkObserverTick(), callerInvocationToken,
+					pawn->DirectReachCommandLifeId(), pawn->Index,
+					duckDir.x, duckDir.y, duckDir.z, arguments.Values()[1].ToBool(),
+					0.0, 0.0, 0.0, {}, {}, {}, true };
+				return [this, pawn, botId, outcome = std::move(outcome)]() mutable
+				{
+					auto current = QualityParticipants.find(botId);
+					if (current == QualityParticipants.end()) return;
+					const vec3 velocity = pawn->Velocity();
+					outcome.PostVelocityX = velocity.x;
+					outcome.PostVelocityY = velocity.y;
+					outcome.PostVelocityZ = velocity.z;
+					outcome.PostPhysicsMode = pawn->HasProperty("Physics")
+						? PhysicsModeName(pawn->Physics()) : std::string();
+					outcome.PostState = pawn->GetStateName().ToString();
+					outcome.PostLatentAction = pawn->StateFrame
+						? LatentActionName(pawn->StateFrame->LatentState) : std::string();
+					outcome.IntegrityValid = std::isfinite(outcome.PostVelocityX) &&
+						std::isfinite(outcome.PostVelocityY) && std::isfinite(outcome.PostVelocityZ) &&
+						!outcome.PostPhysicsMode.empty();
+					if (!outcome.IntegrityValid)
+					{
+						current->second.WarnTargetIntegrityFailuresExact++;
+						DisableWarnTargetObserver("disabled_integrity_failure",
+							"TryToDuck post-call snapshot was invalid");
+						return;
+					}
+					AppendTryToDuckOutcomeRecord(current->second, std::move(outcome));
+				};
 			};
 			WarnTargetHookHandle = Frame::CallHooks().Register(std::move(hook));
 		}
@@ -2972,6 +3013,9 @@ namespace
 					bot.WarnTargetIntegrityFailuresExact = runtime.WarnTargetIntegrityFailuresExact;
 					bot.WarnTargetRecords = std::move(runtime.PendingWarnTargetRecords);
 					runtime.PendingWarnTargetRecords.clear();
+					bot.TryToDuckOutcomeOverflowsExact = runtime.TryToDuckOutcomeOverflowsExact;
+					bot.TryToDuckOutcomeRecords = std::move(runtime.PendingTryToDuckOutcomeRecords);
+					runtime.PendingTryToDuckOutcomeRecords.clear();
 				}
 				bot.EnvironmentalDeathsExact = runtime.EnvironmentalDeathsExact;
 				bot.HazardExposedDeathsProxy = runtime.HazardExposedDeathsProxy;

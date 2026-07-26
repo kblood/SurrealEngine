@@ -544,18 +544,27 @@ int main()
 			{ 2, 1, 18, 71, 3, 8, -1, "try_to_duck", "try-to-duck-v1:Bot", bot.Identity, "Attacking",
 				{}, true, true },
 		};
+		bot.TryToDuckOutcomeRecords = {
+			{ 2, 1, 18, 71, 3, 8, 1.0, 2.0, 3.0, false, 4.0, 5.0, 6.0,
+				"Falling", "Attacking", "None", true },
+		};
 	}
 	const std::string warnTargetEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
 	if (warnTargetEvent.find("\"warn_target_observer\":{\"requested\":true,\"status\":\"active\",\"reason\":\"\"}")
 			== std::string::npos
 		|| warnTargetEvent.find("\"nested_warn_target_sequence\":\"1\",\"observer_tick\":\"18\",\"caller_invocation_token\":\"71\"")
+			== std::string::npos
+		|| warnTargetEvent.find("\"requested_duck_dir\":{\"x\":1.000000000,\"y\":2.000000000,\"z\":3.000000000}")
 			== std::string::npos)
 	{
 		return Fail("WarnTarget observer telemetry serialization was incomplete");
 	}
 	event.WarnTargetObserverRequested = false;
 	for (auto& bot : event.Bots)
+	{
 		bot.WarnTargetRecords.clear();
+		bot.TryToDuckOutcomeRecords.clear();
+	}
 	event.PickTargetObserverRequested = true;
 	for (auto& bot : event.Bots)
 	{

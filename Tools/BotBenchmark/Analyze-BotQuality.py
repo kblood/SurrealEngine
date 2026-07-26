@@ -4128,6 +4128,37 @@ def _validate_bot(raw: Any, context: str, schema: str) -> dict[str, Any]:
                                             if all(provenance_present) else None),
                 })
             result["warn_target_records"] = parsed_records
+            if "try_to_duck_outcome_records" in bot:
+                records = bot.get("try_to_duck_outcome_records")
+                if not isinstance(records, list):
+                    raise QualityError(f"{context}.try_to_duck_outcome_records must be an array")
+                if "warn_target_observation_overflows_exact" not in result:
+                    raise QualityError(f"{context}: TryToDuck outcome records require WarnTarget counters")
+                parsed_outcomes = []
+                for index, record in enumerate(records):
+                    record_context = f"{context}.try_to_duck_outcome_records[{index}]"
+                    item = _object(record, record_context)
+                    requested = _object(item.get("requested_duck_dir"), f"{record_context}.requested_duck_dir")
+                    velocity = _object(item.get("post_velocity"), f"{record_context}.post_velocity")
+                    parsed_outcomes.append({
+                        "sequence": _integer(item.get("sequence"), f"{record_context}.sequence", minimum=1),
+                        "nested_warn_target_sequence": _integer(item.get("nested_warn_target_sequence"), f"{record_context}.nested_warn_target_sequence", minimum=1),
+                        "observer_tick": _integer(item.get("observer_tick"), f"{record_context}.observer_tick", minimum=0),
+                        "caller_invocation_token": _integer(item.get("caller_invocation_token"), f"{record_context}.caller_invocation_token", minimum=0),
+                        "receiver_life_id": _integer(item.get("receiver_life_id"), f"{record_context}.receiver_life_id", minimum=0),
+                        "receiver_actor_index": _strict_integer(item.get("receiver_actor_index"), f"{record_context}.receiver_actor_index", minimum=-1),
+                        "requested_duck_dir": {axis: _number(requested.get(axis), f"{record_context}.requested_duck_dir.{axis}") for axis in "xyz"},
+                        "requested_reversed": _boolean(item.get("requested_reversed"), f"{record_context}.requested_reversed"),
+                        "post_velocity": {axis: _number(velocity.get(axis), f"{record_context}.post_velocity.{axis}") for axis in "xyz"},
+                        "post_physics_mode": _string(item, "post_physics_mode", record_context, nonempty=True),
+                        "post_state": _string(item, "post_state", record_context),
+                        "post_latent_action": _string(item, "post_latent_action", record_context),
+                        "integrity_valid": _boolean(item.get("integrity_valid"), f"{record_context}.integrity_valid"),
+                    })
+                result["try_to_duck_outcome_overflows_exact"] = _integer(
+                    bot.get("try_to_duck_outcome_overflows_exact"),
+                    f"{context}.try_to_duck_outcome_overflows_exact", minimum=0)
+                result["try_to_duck_outcome_records"] = parsed_outcomes
         elif warn_target_present:
             raise QualityError(f"{context}: WarnTarget counter group requires records")
         if "direct_reach_command_records" in bot:
@@ -4524,6 +4555,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             counts: dict[str, dict[str, int]] = {}
             sequences: dict[str, int] = {}
             warns: dict[str, set[int]] = {}
+            tries: dict[str, dict[int, dict[str, Any]]] = {}
+            outcome_counts: dict[str, int] = {}
             for event in events:
                 for bot in event["bots"]:
                     if any(name not in bot for name in WARN_TARGET_COUNTERS):
@@ -4546,6 +4579,22 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                             if record["nested_warn_target_sequence"] not in warns.get(bot["identity"], set()):
                                 raise QualityError(f"{path}: TryToDuck link lacks its retained WarnTarget record")
                             bucket["nested"] += 1
+                        if record["event"] == "try_to_duck":
+                            tries.setdefault(bot["identity"], {})[record["sequence"]] = record
+                    if "try_to_duck_outcome_records" not in bot:
+                        raise QualityError(f"{path}: active WarnTarget observer lacks TryToDuck outcomes")
+                    if bot.get("try_to_duck_outcome_overflows_exact", 0) != 0:
+                        raise QualityError(f"{path}: TryToDuck outcome evidence overflowed")
+                    for outcome in bot["try_to_duck_outcome_records"]:
+                        linked = tries.get(bot["identity"], {}).get(outcome["sequence"])
+                        if linked is None or not outcome["integrity_valid"]:
+                            raise QualityError(f"{path}: TryToDuck outcome lacks a valid retained call")
+                        if any(outcome[name] != linked[name] for name in (
+                                "nested_warn_target_sequence", "observer_tick",
+                                "caller_invocation_token", "receiver_life_id",
+                                "receiver_actor_index")):
+                            raise QualityError(f"{path}: TryToDuck outcome provenance differs from its call")
+                        outcome_counts[bot["identity"]] = outcome_counts.get(bot["identity"], 0) + 1
             for bot in events[-1]["bots"]:
                 bucket = counts.get(bot["identity"], {"warn_target": 0, "try_to_duck": 0,
                                                         "nested": 0, "invalid": 0})
@@ -4560,6 +4609,8 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 if bot["warn_target_observation_overflows_exact"] or \
                         bot["warn_target_integrity_failures_exact"] or bucket["invalid"]:
                     raise QualityError(f"{path}: active WarnTarget observer has incomplete evidence")
+                if outcome_counts.get(bot["identity"], 0) != bucket["try_to_duck"]:
+                    raise QualityError(f"{path}: TryToDuck calls do not reconcile outcome records")
     if manifest.get("inventory_direct_reach_support_observer_enabled") is True:
         totals: dict[str, dict[str, int]] = {}
         sequences: dict[str, int] = {}

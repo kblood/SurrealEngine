@@ -105,6 +105,13 @@ mismatch, record overflow, or integrity failure makes analyzer evidence
 incomplete. The link is local VM nesting only: it does not claim a causal
 connection to a prior native `PickTarget` call or a later death.
 
+Each retained `TryToDuck` call also has one bounded, post-call outcome record:
+the requested finite duck vector/reverse flag plus resulting velocity, physics,
+state, and latent action. It shares the exact nested WarnTarget sequence,
+tick, life, invocation, and receiver identity. This observes the stock
+`TryToDuck`→fall/velocity/dodge/state path without modifying it; missing,
+overflowed, or non-finite outcomes make the evidence incomplete.
+
 The PickTarget and warning records additionally carry observer tick, participant
 actor index, life id, and a lazy VM-frame invocation token. These are a
 bounded, default-off provenance envelope for offline investigation; they are
