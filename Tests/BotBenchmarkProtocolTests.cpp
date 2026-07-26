@@ -29,6 +29,7 @@ int main()
 		|| defaults.IsWarnTargetObserverEnabled()
 		|| defaults.IsInventoryMarkerDirectReachSafetyEnabled()
 		|| defaults.IsNativePathCommitObserverEnabled()
+		|| defaults.IsReachSpecCapabilityObserverEnabled()
 		|| defaults.IsDirectReachCommandObserverEnabled())
 		return Fail("default bot benchmark configuration or roster was incorrect");
 
@@ -103,6 +104,23 @@ int main()
 	}
 	if (!rejectedUncoupledWarnTargetObserver)
 		return Fail("WarnTarget observer was accepted without PickTarget observer");
+
+	bool rejectedUncoupledReachSpecCapabilityObserver = false;
+	try
+	{
+		BotBenchmarkRunConfig::Parse(
+			{}, {}, {}, {}, {}, {},
+			{}, {}, {},
+			{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+			{}, {}, {}, {},
+			std::string("1"));
+	}
+	catch (const std::invalid_argument&)
+	{
+		rejectedUncoupledReachSpecCapabilityObserver = true;
+	}
+	if (!rejectedUncoupledReachSpecCapabilityObserver)
+		return Fail("ReachSpec capability observer was accepted without native path commits");
 
 	std::vector<BotBenchmarkActualParticipant> actualRoster = {
 		{ 1, "pri:2", "Bot2", "Tamer\"lane", "Botpack.Bot" },
@@ -197,6 +215,7 @@ int main()
 		"    \"inventory_direct_reach_support_observer_enabled\": false,\n"
 		"    \"inventory_marker_direct_reach_safety_enabled\": false,\n"
 		"    \"native_path_commit_observer_enabled\": false,\n"
+		"    \"reachspec_capability_observer_enabled\": false,\n"
 		"    \"direct_reach_command_observer_enabled\": false\n"
 		"  }\n"
 		"}\n";

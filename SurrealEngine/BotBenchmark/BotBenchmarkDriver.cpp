@@ -99,6 +99,8 @@ namespace
 				Config.IsInventoryMarkerDirectReachSafetyEnabled());
 			EngineRef.SetBotBenchmarkNativePathCommitObserverEnabled(
 				Config.IsNativePathCommitObserverEnabled());
+			EngineRef.SetBotBenchmarkReachSpecCapabilityObserverEnabled(
+				Config.IsReachSpecCapabilityObserverEnabled());
 			EngineRef.SetBotBenchmarkDirectReachCommandObserverEnabled(
 				Config.IsDirectReachCommandObserverEnabled());
 		}
@@ -2981,9 +2983,40 @@ namespace
 							<< ",\"collision_height\":" << edge.CollisionHeight
 							<< ",\"reach_flags_raw\":" << edge.ReachFlags
 							<< ",\"unknown_reach_flags\":" << edge.UnknownReachFlags
-							<< ",\"pruned\":" << (edge.Pruned ? "true" : "false") << '}';
+							<< ",\"pruned\":" << (edge.Pruned ? "true" : "false");
+						if (record.CapabilitySnapshotKnown)
+						{
+							const auto& eligibility = edge.CapabilityEligibility;
+							out << ",\"reachspec_eligibility\":{\"eligible\":"
+								<< (eligibility.Eligible ? "true" : "false")
+								<< ",\"required_flags\":" << eligibility.RequiredFlags
+								<< ",\"capability_flags\":" << eligibility.CapabilityFlags
+								<< ",\"missing_flags\":" << eligibility.MissingFlags
+								<< ",\"invalid_flags\":" << eligibility.InvalidFlags
+								<< ",\"disposition\":" << JsonString(
+									PawnMovement::ReachSpecEligibilityDispositionName(
+										eligibility.Disposition)) << '}';
+						}
+						out << '}';
 					}
-					out << "]}";
+					out << ']';
+					if (record.CapabilitySnapshotKnown)
+					{
+						const auto& snapshot = record.CapabilitySnapshot;
+						const auto& profile = snapshot.Profile;
+						out << ",\"reachspec_capability\":{\"native_tick\":\""
+							<< snapshot.NativeTick << "\",\"life_id\":\"" << snapshot.LifeId
+							<< "\",\"capability_flags\":" << snapshot.CapabilityFlags
+							<< ",\"capabilities\":{\"walk\":"
+							<< (profile.CanWalk ? "true" : "false") << ",\"fly\":"
+							<< (profile.CanFly ? "true" : "false") << ",\"swim\":"
+							<< (profile.CanSwim ? "true" : "false") << ",\"jump\":"
+							<< (profile.CanJump ? "true" : "false") << ",\"open_doors\":"
+							<< (profile.CanOpenDoors ? "true" : "false") << ",\"special\":"
+							<< (profile.CanDoSpecial ? "true" : "false") << ",\"is_player\":"
+							<< (profile.IsPlayer ? "true" : "false") << "}}";
+					}
+					out << '}';
 				}
 				out << ']';
 			};
@@ -4004,7 +4037,8 @@ namespace
 			OptionalCommandLineArg("--botbench-native-path-commit-observer"),
 			OptionalCommandLineArg("--botbench-direct-reach-command-observer"),
 			OptionalCommandLineArg("--botbench-pick-target-observer"),
-			OptionalCommandLineArg("--botbench-warn-target-observer"));
+			OptionalCommandLineArg("--botbench-warn-target-observer"),
+			OptionalCommandLineArg("--botbench-reachspec-capability-observer"));
 	}
 }
 

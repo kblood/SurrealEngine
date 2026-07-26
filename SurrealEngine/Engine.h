@@ -234,6 +234,14 @@ public:
 	{
 		botBenchmarkNativePathCommitObserverEnabled = enabled;
 	}
+	bool IsBotBenchmarkReachSpecCapabilityObserverEnabled() const
+	{
+		return botBenchmarkReachSpecCapabilityObserverEnabled;
+	}
+	void SetBotBenchmarkReachSpecCapabilityObserverEnabled(bool enabled)
+	{
+		botBenchmarkReachSpecCapabilityObserverEnabled = enabled;
+	}
 	bool IsBotBenchmarkDirectReachCommandObserverEnabled() const
 	{
 		return botBenchmarkDirectReachCommandObserverEnabled;
@@ -429,6 +437,7 @@ private:
 	bool botBenchmarkInventoryDirectReachSupportObserverEnabled = false;
 	bool botBenchmarkInventoryMarkerDirectReachSafetyEnabled = false;
 	bool botBenchmarkNativePathCommitObserverEnabled = false;
+	bool botBenchmarkReachSpecCapabilityObserverEnabled = false;
 	bool botBenchmarkDirectReachCommandObserverEnabled = false;
 	uint64_t botBenchmarkObserverTick = 0;
 	ViewFamily CreateDesktopViewFamily() const;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "PawnReachSpecEligibility.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -29,6 +31,15 @@ namespace PawnMovement
 		int32_t ReachFlags = 0;
 		uint32_t UnknownReachFlags = 0;
 		bool Pruned = false;
+		ReachSpecEligibility CapabilityEligibility;
+	};
+
+	struct RoutePathCommitCapabilitySnapshot
+	{
+		uint64_t NativeTick = 0;
+		uint64_t LifeId = 0;
+		ReachSpecCapabilityProfile Profile;
+		uint32_t CapabilityFlags = 0;
 	};
 
 	// This is provenance for the route cache written by native path search. It
@@ -42,6 +53,8 @@ namespace PawnMovement
 		uint32_t FailedNavigationPenaltyApplications = 0;
 		bool CacheClear = false;
 		bool TruncatedByRouteCache = false;
+		bool CapabilitySnapshotKnown = false;
+		RoutePathCommitCapabilitySnapshot CapabilitySnapshot;
 		std::vector<RoutePathCommitNode> Nodes;
 		std::vector<RoutePathCommitEdge> Edges;
 	};

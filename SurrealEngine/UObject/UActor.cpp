@@ -4991,6 +4991,19 @@ UNavigationPoint* UPawn::CommitRoutePathCache(const PawnPathEndPointResult& resu
 	record.AdjustedEndpointCost = result.AdjustedEndpointCost;
 	record.FailedNavigationPenaltyApplications = result.FailedNavigationPenaltyApplications;
 	record.CacheClear = result.Points.empty();
+	record.CapabilitySnapshotKnown = engine->IsBotBenchmarkReachSpecCapabilityObserverEnabled();
+	if (record.CapabilitySnapshotKnown)
+	{
+		record.CapabilitySnapshot.NativeTick = engine->BotBenchmarkObserverTick();
+		record.CapabilitySnapshot.LifeId = DirectReachCommandLifeId();
+		record.CapabilitySnapshot.Profile = {
+			static_cast<bool>(bCanWalk()), static_cast<bool>(bCanFly()),
+			static_cast<bool>(bCanSwim()), static_cast<bool>(bCanJump()),
+			static_cast<bool>(bCanOpenDoors()), static_cast<bool>(bCanDoSpecial()),
+			static_cast<bool>(bIsPlayer()) };
+		record.CapabilitySnapshot.CapabilityFlags = PawnMovement::UE1ReachSpecCapabilityMask(
+			record.CapabilitySnapshot.Profile);
+	}
 	const size_t cacheCapacity = engine->LaunchInfo.ue1Version > 219 ? RouteCache().size() : 0;
 	const size_t committedCount = std::min(result.Points.size(), cacheCapacity);
 	record.TruncatedByRouteCache = result.Points.size() > committedCount;
@@ -5024,9 +5037,13 @@ UNavigationPoint* UPawn::CommitRoutePathCache(const PawnPathEndPointResult& resu
 			RoutePathCommitOverflowCountValue++;
 			return committed;
 		}
-		record.Edges.push_back({ specIndex, record.Nodes[index].Name, record.Nodes[index + 1].Name,
+		PawnMovement::RoutePathCommitEdge edge{ specIndex, record.Nodes[index].Name, record.Nodes[index + 1].Name,
 			spec.distance, spec.collisionRadius, spec.collisionHeight, spec.reachFlags,
-			static_cast<uint32_t>(spec.reachFlags) & ~uint32_t(127), spec.bPruned != 0 });
+			static_cast<uint32_t>(spec.reachFlags) & ~uint32_t(127), spec.bPruned != 0 };
+		if (record.CapabilitySnapshotKnown)
+			edge.CapabilityEligibility = PawnMovement::EvaluateReachSpecEligibility(
+				static_cast<uint32_t>(spec.reachFlags), record.CapabilitySnapshot.Profile);
+		record.Edges.push_back(std::move(edge));
 	}
 	static constexpr size_t maximumQueuedRecords = 1024;
 	if (RoutePathCommitRecords.size() < maximumQueuedRecords)

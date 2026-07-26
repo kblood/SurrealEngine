@@ -66,6 +66,19 @@ namespace PawnMovement
 	ReachSpecEligibility EvaluateReachSpecEligibility(
 		uint32_t reachFlags, const ReachSpecCapabilityProfile& profile);
 
+	inline const char* ReachSpecEligibilityDispositionName(
+		ReachSpecEligibilityDisposition disposition)
+	{
+		switch (disposition)
+		{
+		case ReachSpecEligibilityDisposition::Eligible: return "eligible";
+		case ReachSpecEligibilityDisposition::NoRequirements: return "no_requirements";
+		case ReachSpecEligibilityDisposition::InvalidFlags: return "invalid_flags";
+		case ReachSpecEligibilityDisposition::MissingCapabilities: return "missing_capabilities";
+		}
+		return "invalid_flags";
+	}
+
 	// Deterministic test presets reconstructed from Botpack/Bot.uc
 	// PreSetMovement and UnrealShare/Bots.uc PreSetMovement. These are fixtures,
 	// not live Pawn defaults: bCanJump may change while a bot is executing.

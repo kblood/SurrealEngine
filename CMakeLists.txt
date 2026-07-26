@@ -602,6 +602,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnFailedNavigationMemory.h
 	SurrealEngine/UObject/PawnInventoryReachability.cpp
 	SurrealEngine/UObject/PawnInventoryReachability.h
+	SurrealEngine/UObject/PawnReachSpecEligibility.cpp
+	SurrealEngine/UObject/PawnReachSpecEligibility.h
 	SurrealEngine/UObject/PawnDirectReachCommandProvenance.h
 	SurrealEngine/UObject/PawnLedgeTransition.cpp
 	SurrealEngine/UObject/PawnLedgeTransition.h
@@ -1551,6 +1553,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PawnInventoryReachabilityTests PRIVATE SurrealEngine)
 	set_target_properties(PawnInventoryReachabilityTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnInventoryReachability COMMAND PawnInventoryReachabilityTests)
+
+	add_executable(PawnReachSpecEligibilityTests
+		Tests/PawnReachSpecEligibilityTests.cpp
+		SurrealEngine/UObject/PawnReachSpecEligibility.cpp
+	)
+	target_include_directories(PawnReachSpecEligibilityTests PRIVATE SurrealEngine)
+	set_target_properties(PawnReachSpecEligibilityTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnReachSpecEligibility COMMAND PawnReachSpecEligibilityTests)
 
 	add_executable(PawnLedgeTransitionTests
 		Tests/PawnLedgeTransitionTests.cpp

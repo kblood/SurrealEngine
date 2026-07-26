@@ -179,7 +179,8 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	bool directActorMoveTowardTimeoutEnabled, bool targetSelectionObserverEnabled,
 	bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
 	bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled,
-	bool pickTargetObserverEnabled, bool warnTargetObserverEnabled)
+	bool pickTargetObserverEnabled, bool warnTargetObserverEnabled,
+	bool reachSpecCapabilityObserverEnabled)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
 	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled),
@@ -194,6 +195,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	TargetSelectionObserverEnabled(targetSelectionObserverEnabled),
 	InventoryDirectReachSupportObserverEnabled(inventoryDirectReachSupportObserverEnabled),
 	NativePathCommitObserverEnabled(nativePathCommitObserverEnabled),
+	ReachSpecCapabilityObserverEnabled(reachSpecCapabilityObserverEnabled),
 	InventoryMarkerDirectReachSafetyEnabled(inventoryMarkerDirectReachSafetyEnabled),
 	DirectReachCommandObserverEnabled(directReachCommandObserverEnabled),
 	PickTargetObserverEnabled(pickTargetObserverEnabled),
@@ -218,7 +220,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> nativePathCommitObserver,
 	std::optional<std::string> directReachCommandObserver,
 	std::optional<std::string> pickTargetObserver,
-	std::optional<std::string> warnTargetObserver)
+	std::optional<std::string> warnTargetObserver,
+	std::optional<std::string> reachSpecCapabilityObserver)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -273,6 +276,13 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		inventoryMarkerDirectReachSafety, "bot benchmark inventory-marker direct-reach safety");
 	const bool parsedNativePathCommitObserver = ParseExactBoolean(
 		nativePathCommitObserver, "bot benchmark native path-commit observer");
+	const bool parsedReachSpecCapabilityObserver = ParseExactBoolean(
+		reachSpecCapabilityObserver, "bot benchmark ReachSpec capability observer");
+	if (parsedReachSpecCapabilityObserver && !parsedNativePathCommitObserver)
+	{
+		throw std::invalid_argument(
+			"bot benchmark ReachSpec capability observer requires the native path-commit observer");
+	}
 	const bool parsedDirectReachCommandObserver = ParseExactBoolean(
 		directReachCommandObserver, "bot benchmark direct-reach command observer");
 
@@ -284,7 +294,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		parsedTargetlessMoveToTimeout, parsedDirectActorMoveTowardTimeout,
 		parsedTargetSelectionObserver, parsedInventoryDirectReachSupportObserver,
 		parsedNativePathCommitObserver, parsedInventoryMarkerDirectReachSafety,
-		parsedDirectReachCommandObserver, parsedPickTargetObserver, parsedWarnTargetObserver);
+		parsedDirectReachCommandObserver, parsedPickTargetObserver, parsedWarnTargetObserver,
+		parsedReachSpecCapabilityObserver);
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
@@ -400,6 +411,8 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< (config.IsInventoryMarkerDirectReachSafetyEnabled() ? "true" : "false") << ",\n"
 		<< "    \"native_path_commit_observer_enabled\": "
 		<< (config.IsNativePathCommitObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"reachspec_capability_observer_enabled\": "
+		<< (config.IsReachSpecCapabilityObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"direct_reach_command_observer_enabled\": "
 		<< (config.IsDirectReachCommandObserverEnabled() ? "true" : "false") << "\n"
 		<< "  }\n"
