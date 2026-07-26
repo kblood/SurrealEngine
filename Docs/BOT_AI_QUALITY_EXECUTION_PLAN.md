@@ -4018,3 +4018,36 @@ active branch; observers remain. A UT436-only gate is not authorized merely
 because one seed improves: a second UT seed regresses. Future work must start
 from stock behavior and prove another bounded candidate through a seed/map
 matrix before it can be promoted.
+
+## Iteration 160: reject inactive targetless MoveTo timeout recovery
+
+The existing opt-in `--botbench-targetless-move-to-timeout=1` experiment was
+re-evaluated from the restored stock branch in a matched no-UCC, 16-bot,
+7,200-tick seed-`104729` pair for each adapter. It does not activate in either
+case, so it supplies no corrective-effect evidence and remains disabled by
+default.
+
+On UT436 Deck16-II, the baseline and enabled lanes are exact-equivalent:
+K/D/S `35/49/14`, environmental/unassisted environmental deaths `14/11`,
+opponent damage `5175`, active-movement fraction `0.5616516012`, `24`
+intent-no-progress events, `5629` `HitWall` events, and `20` hazard entries.
+Each has `10` stall detections and recovery episodes, zero targetless timeout
+actions, zero forced/navigation replans, and no telemetry integrity failure.
+The artifacts are
+`qa/runs/2026-07-26/ut436-deck16-stock-s104729-targetless-timeout-baseline-7200-r1/`
+and
+`qa/runs/2026-07-26/ut436-deck16-stock-s104729-targetless-timeout-enabled-7200-r1/`.
+
+Unreal Gold DeathFan is likewise exact-equivalent: K/D/S `50/113/63`,
+environmental deaths `59`, movement-intent stuck `8`, coverage
+`0.9224137931`, pickups `3`, and `9` stall detections/recovery episodes. Both
+lanes have zero targetless timeout actions, forced/navigation replans,
+overflows, or analyzer failure. The artifacts are under
+`qa/runs/2026-07-26/deathfan-targetless-timeout-closeout-v1/`.
+
+These paired runs prove only non-perturbation for this configuration, not
+recovery quality. Keep the behavior switch off and do not promote it. The
+deterministic fixture must separately verify the action semantics before this
+mechanism can be used again as a controlled investigative tool; any future
+promotion still requires observed activation and a repeatable positive
+cross-game quality delta.
