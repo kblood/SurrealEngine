@@ -1999,7 +1999,7 @@ public:
 		const vec3& velocityBeforeCollision, float minHitWallBeforeCallback,
 		int physicsBeforeCallback, PawnMovement::WalkingHitWallContactPhase contactPhase,
 		PawnMovement::WalkingHitWallBlockerKind blockerBeforeCallback,
-		bool callbackDispatched);
+		bool callbackDispatched, bool callbackSelectedByMinHitWallCandidate);
 	void SetWalkingHitWallFixtureContactLimit(uint32_t limit)
 	{
 		WalkingHitWallFixtureContactLimit = limit;
@@ -2308,6 +2308,7 @@ public:
 	uint64_t WalkingHitWallDispatchObservationCount() const { return WalkingHitWallDispatchObservationCountValue; }
 	uint64_t WalkingHitWallDispatchLegacyZBandCount() const { return WalkingHitWallDispatchLegacyZBandCountValue; }
 	uint64_t WalkingHitWallDispatchMinHitWallCount() const { return WalkingHitWallDispatchMinHitWallCountValue; }
+	uint64_t WalkingHitWallDispatchMinHitWallCandidateActivationCount() const { return WalkingHitWallDispatchMinHitWallCandidateActivationCountValue; }
 	uint64_t WalkingHitWallDispatchDisagreementCount() const { return WalkingHitWallDispatchDisagreementCountValue; }
 	uint64_t WalkingHitWallDispatchCallbackCount() const { return WalkingHitWallDispatchCallbackCountValue; }
 	uint64_t WalkingHitWallDispatchDiagnosticOverflowCount() const { return WalkingHitWallDispatchDiagnosticOverflowCountValue; }
@@ -2866,6 +2867,7 @@ private:
 	uint64_t WalkingHitWallDispatchObservationCountValue = 0;
 	uint64_t WalkingHitWallDispatchLegacyZBandCountValue = 0;
 	uint64_t WalkingHitWallDispatchMinHitWallCountValue = 0;
+	uint64_t WalkingHitWallDispatchMinHitWallCandidateActivationCountValue = 0;
 	uint64_t WalkingHitWallDispatchDisagreementCountValue = 0;
 	uint64_t WalkingHitWallDispatchCallbackCountValue = 0;
 	uint64_t WalkingHitWallDispatchDiagnosticOverflowCountValue = 0;

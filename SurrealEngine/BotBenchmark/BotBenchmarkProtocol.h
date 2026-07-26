@@ -57,7 +57,8 @@ public:
 		std::optional<std::string> pawnVisionObserver = {},
 		std::optional<std::string> vectorNonFiniteObserver = {},
 		std::optional<std::string> finiteMoveCommandGuard = {},
-		std::optional<std::string> pickRegDestinationZeroDivideGuard = {});
+		std::optional<std::string> pickRegDestinationZeroDivideGuard = {},
+		std::optional<std::string> walkingHitWallMinHitWallCandidate = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -110,6 +111,10 @@ public:
 	{
 		return PickRegDestinationZeroDivideGuardEnabled;
 	}
+	bool IsWalkingHitWallMinHitWallCandidateEnabled() const
+	{
+		return WalkingHitWallMinHitWallCandidateEnabled;
+	}
 	const std::vector<std::string>& GetShadowPolicySet() const { return ShadowPolicySet; }
 
 private:
@@ -126,6 +131,7 @@ private:
 		bool reachSpecCapabilityObserverEnabled, bool pawnVisionConeEnabled,
 		bool pawnVisionObserverEnabled, bool vectorNonFiniteObserverEnabled,
 		bool finiteMoveCommandGuardEnabled, bool pickRegDestinationZeroDivideGuardEnabled,
+		bool walkingHitWallMinHitWallCandidateEnabled,
 		std::vector<std::string> shadowPolicySet);
 
 	std::string URL;
@@ -157,6 +163,7 @@ private:
 	bool VectorNonFiniteObserverEnabled = false;
 	bool FiniteMoveCommandGuardEnabled = false;
 	bool PickRegDestinationZeroDivideGuardEnabled = false;
+	bool WalkingHitWallMinHitWallCandidateEnabled = false;
 	std::vector<std::string> ShadowPolicySet;
 };
 

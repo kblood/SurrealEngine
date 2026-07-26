@@ -35,4 +35,12 @@ namespace PawnMovement
 		decision.MinHitWallDispatch = decision.NormalVelocityDot < minHitWall;
 		return decision;
 	}
+
+	bool SelectWalkingHitWallDispatch(const WalkingHitWallDispatchDecision& decision,
+		bool minHitWallCandidateEnabled)
+	{
+		if (minHitWallCandidateEnabled)
+			return decision.Valid && decision.MinHitWallDispatch;
+		return decision.LegacyVerticalWallBand;
+	}
 }

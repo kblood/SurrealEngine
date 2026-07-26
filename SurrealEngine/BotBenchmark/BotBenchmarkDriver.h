@@ -26,6 +26,7 @@ namespace BotBenchmarkDriverDetail
 		uint64_t WalkingHitWallDispatchObservations = 0;
 		uint64_t WalkingHitWallDispatchLegacyZBand = 0;
 		uint64_t WalkingHitWallDispatchMinHitWall = 0;
+		uint64_t WalkingHitWallDispatchMinHitWallCandidateActivations = 0;
 		uint64_t WalkingHitWallDispatchDisagreements = 0;
 		uint64_t WalkingHitWallDispatchCallbacks = 0;
 		uint64_t WalkingHitWallDispatchDiagnosticOverflows = 0;

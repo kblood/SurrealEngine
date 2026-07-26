@@ -412,6 +412,7 @@ struct BotBenchmarkBotState
 	uint64_t WalkingHitWallDispatchObservationsExact = 0;
 	uint64_t WalkingHitWallDispatchLegacyZBandExact = 0;
 	uint64_t WalkingHitWallDispatchMinHitWallExact = 0;
+	uint64_t WalkingHitWallDispatchMinHitWallCandidateActivationsExact = 0;
 	uint64_t WalkingHitWallDispatchDisagreementsExact = 0;
 	uint64_t WalkingHitWallDispatchCallbacksExact = 0;
 	uint64_t WalkingHitWallDispatchDiagnosticOverflowsExact = 0;

@@ -111,6 +111,8 @@ namespace
 				Config.IsFiniteMoveCommandGuardEnabled());
 			EngineRef.SetBotBenchmarkPickRegDestinationZeroDivideGuardEnabled(
 				Config.IsPickRegDestinationZeroDivideGuardEnabled());
+			EngineRef.SetBotBenchmarkWalkingHitWallMinHitWallCandidateEnabled(
+				Config.IsWalkingHitWallMinHitWallCandidateEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -1092,6 +1094,8 @@ namespace
 				pawn->WalkingHitWallDispatchLegacyZBandCount();
 			counters.WalkingHitWallDispatchMinHitWall =
 				pawn->WalkingHitWallDispatchMinHitWallCount();
+			counters.WalkingHitWallDispatchMinHitWallCandidateActivations =
+				pawn->WalkingHitWallDispatchMinHitWallCandidateActivationCount();
 			counters.WalkingHitWallDispatchDisagreements =
 				pawn->WalkingHitWallDispatchDisagreementCount();
 			counters.WalkingHitWallDispatchCallbacks =
@@ -3523,6 +3527,8 @@ namespace
 					native.WalkingHitWallDispatchLegacyZBand;
 				bot.WalkingHitWallDispatchMinHitWallExact =
 					native.WalkingHitWallDispatchMinHitWall;
+				bot.WalkingHitWallDispatchMinHitWallCandidateActivationsExact =
+					native.WalkingHitWallDispatchMinHitWallCandidateActivations;
 				bot.WalkingHitWallDispatchDisagreementsExact =
 					native.WalkingHitWallDispatchDisagreements;
 				bot.WalkingHitWallDispatchCallbacksExact =
@@ -4241,7 +4247,8 @@ namespace
 			OptionalCommandLineArg("--botbench-pawn-vision-observer"),
 			OptionalCommandLineArg("--botbench-vector-nonfinite-observer"),
 			OptionalCommandLineArg("--botbench-finite-move-command-guard"),
-			OptionalCommandLineArg("--botbench-pick-reg-destination-zero-divide-guard"));
+			OptionalCommandLineArg("--botbench-pick-reg-destination-zero-divide-guard"),
+			OptionalCommandLineArg("--botbench-walking-hitwall-minhitwall-candidate"));
 	}
 }
 

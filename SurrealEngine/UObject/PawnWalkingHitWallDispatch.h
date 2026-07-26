@@ -45,6 +45,7 @@ namespace PawnMovement
 		WalkingHitWallDispatchDecision Decision;
 		WalkingHitWallBlockerKind Blocker = WalkingHitWallBlockerKind::Unknown;
 		bool CallbackDispatched = false;
+		bool CallbackSelectedByMinHitWallCandidate = false;
 		bool PhysicsChangedByCallback = false;
 		bool PawnDeletedByCallback = false;
 	};
@@ -76,4 +77,7 @@ namespace PawnMovement
 
 	WalkingHitWallDispatchDecision EvaluateWalkingHitWallDispatch(
 		const vec3& hitNormal, const vec3& velocity, float minHitWall);
+
+	bool SelectWalkingHitWallDispatch(const WalkingHitWallDispatchDecision& decision,
+		bool minHitWallCandidateEnabled);
 }

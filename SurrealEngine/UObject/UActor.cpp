@@ -1358,6 +1358,14 @@ void UActor::TickWalking(float elapsed)
 				const CollisionHit initialHit = hit;
 				const vec3 velocityBeforeCollision = Velocity();
 				const float minHitWallBeforeCallback = pawn->MinHitWall();
+				const bool minHitWallCandidateEnabled =
+					engine->IsBotBenchmarkWalkingHitWallMinHitWallCandidateEnabled();
+				const auto initialHitWallDecision = PawnMovement::EvaluateWalkingHitWallDispatch(
+					initialHit.Normal, velocityBeforeCollision, minHitWallBeforeCallback);
+				const bool initialCandidateDispatch = minHitWallCandidateEnabled
+					&& initialHitWallDecision.Valid && initialHitWallDecision.MinHitWallDispatch;
+				const bool initialHitWallDispatch = PawnMovement::SelectWalkingHitWallDispatch(
+					initialHitWallDecision, minHitWallCandidateEnabled);
 				const int physicsBeforeCallback = static_cast<int>(Physics());
 				const auto initialBlockerBeforeCallback = ClassifyWalkingHitWallBlocker(pawn, initialHit);
 				if (player && hit.Actor)
@@ -1378,7 +1386,7 @@ void UActor::TickWalking(float elapsed)
 
 					}
 				}
-				else if (hit.Normal.z < 0.2f && hit.Normal.z > -0.2f)
+				else if (initialHitWallDispatch)
 				{
 					// We hit a wall
 					walkingHitWallDispatched = true;
@@ -1387,7 +1395,7 @@ void UActor::TickWalking(float elapsed)
 						velocityBeforeCollision, minHitWallBeforeCallback,
 						physicsBeforeCallback,
 						PawnMovement::WalkingHitWallContactPhase::PrimaryForward,
-						initialBlockerBeforeCallback, true);
+						initialBlockerBeforeCallback, true, initialCandidateDispatch);
 					initialWalkingContactRecorded = true;
 					if (fixtureContactLimitReached)
 						return;
@@ -1402,16 +1410,26 @@ void UActor::TickWalking(float elapsed)
 							const CollisionHit secondHit = hit;
 							const vec3 secondVelocityBeforeCollision = Velocity();
 							const float secondMinHitWallBeforeCallback = pawn->MinHitWall();
+							const auto secondHitWallDecision =
+								PawnMovement::EvaluateWalkingHitWallDispatch(secondHit.Normal,
+									secondVelocityBeforeCollision, secondMinHitWallBeforeCallback);
+							const bool secondCandidateDispatch = minHitWallCandidateEnabled
+								&& secondHitWallDecision.Valid && secondHitWallDecision.MinHitWallDispatch;
+							const bool secondHitWallDispatch = PawnMovement::SelectWalkingHitWallDispatch(
+								secondHitWallDecision, minHitWallCandidateEnabled);
 							const int secondPhysicsBeforeCallback = static_cast<int>(Physics());
 							const auto secondBlockerBeforeCallback =
 								ClassifyWalkingHitWallBlocker(pawn, secondHit);
-							walkingHitWallDispatched = true;
-							CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
+							if (secondHitWallDispatch)
+							{
+								walkingHitWallDispatched = true;
+								CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
+							}
 							const bool fixtureContactLimitReached = pawn->RecordWalkingHitWallDispatch(secondHit,
 								secondVelocityBeforeCollision, secondMinHitWallBeforeCallback,
 								secondPhysicsBeforeCallback,
 								PawnMovement::WalkingHitWallContactPhase::AlignedSlide,
-								secondBlockerBeforeCallback, true);
+								secondBlockerBeforeCallback, secondHitWallDispatch, secondCandidateDispatch);
 							if (fixtureContactLimitReached)
 								return;
 						}
@@ -1428,7 +1446,7 @@ void UActor::TickWalking(float elapsed)
 						physicsBeforeCallback,
 						PawnMovement::WalkingHitWallContactPhase::PrimaryForward,
 						initialBlockerBeforeCallback,
-						walkingHitWallDispatched);
+						walkingHitWallDispatched, false);
 					if (fixtureContactLimitReached)
 						return;
 				}
@@ -8986,7 +9004,7 @@ bool UPawn::RecordWalkingHitWallDispatch(const CollisionHit& hit,
 	const vec3& velocityBeforeCollision, float minHitWallBeforeCallback,
 	int physicsBeforeCallback, PawnMovement::WalkingHitWallContactPhase contactPhase,
 	PawnMovement::WalkingHitWallBlockerKind blockerBeforeCallback,
-	bool callbackDispatched)
+	bool callbackDispatched, bool callbackSelectedByMinHitWallCandidate)
 {
 	using namespace PawnMovement;
 	WalkingHitWallDispatchDiagnosticRecord diagnostic;
@@ -8999,6 +9017,7 @@ bool UPawn::RecordWalkingHitWallDispatch(const CollisionHit& hit,
 		velocityBeforeCollision, diagnostic.MinHitWall);
 	diagnostic.Blocker = blockerBeforeCallback;
 	diagnostic.CallbackDispatched = callbackDispatched;
+	diagnostic.CallbackSelectedByMinHitWallCandidate = callbackSelectedByMinHitWallCandidate;
 	diagnostic.PhysicsChangedByCallback = callbackDispatched
 		&& static_cast<int>(Physics()) != physicsBeforeCallback;
 	diagnostic.PawnDeletedByCallback = callbackDispatched && bDeleteMe();
@@ -9017,6 +9036,8 @@ bool UPawn::RecordWalkingHitWallDispatch(const CollisionHit& hit,
 	}
 	if (callbackDispatched)
 		WalkingHitWallDispatchCallbackCountValue++;
+	if (callbackSelectedByMinHitWallCandidate)
+		WalkingHitWallDispatchMinHitWallCandidateActivationCountValue++;
 
 	static constexpr size_t maximumQueuedDiagnostics = 1024;
 	diagnostic.Sequence = WalkingHitWallDispatchDiagnosticSequence++;

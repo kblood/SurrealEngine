@@ -29,6 +29,8 @@ namespace
 			"a vertical wall belongs to the historical Z-band");
 		Check(result.MinHitWallDispatch,
 			"head-on collision crosses Botpack's -0.5 MinHitWall threshold");
+		Check(PawnMovement::SelectWalkingHitWallDispatch(result, true),
+			"the enabled candidate selects a threshold-crossing contact");
 	}
 
 	void TestGlancingContactIsFilteredByMinHitWall()
@@ -41,6 +43,10 @@ namespace
 			"glancing contact is less opposing than the stock threshold");
 		Check(!result.MinHitWallDispatch,
 			"MinHitWall filters the glancing contact");
+		Check(PawnMovement::SelectWalkingHitWallDispatch(result, false),
+			"the disabled candidate preserves the legacy vertical-wall band");
+		Check(!PawnMovement::SelectWalkingHitWallDispatch(result, true),
+			"the enabled candidate filters the glancing contact");
 	}
 
 	void TestStateAdjustedThreshold()
@@ -63,6 +69,8 @@ namespace
 			vec3(1.0f, 0.0f, 0.0f), vec3(-100.0f, 0.0f, 0.0f), -1.0f);
 		Check(!result.MinHitWallDispatch,
 			"the observer keeps the unverified exact boundary fail-closed");
+		Check(!PawnMovement::SelectWalkingHitWallDispatch(result, true),
+			"the enabled candidate also rejects the exact threshold boundary");
 	}
 
 	void TestInvalidInputsFailClosed()
@@ -78,6 +86,8 @@ namespace
 			vec3(1.0f, 0.0f, 0.0f), vec3(-1.0f, 0.0f, 0.0f),
 			std::numeric_limits<float>::infinity());
 		Check(!nonFiniteThreshold.Valid, "non-finite MinHitWall fails closed");
+		Check(!PawnMovement::SelectWalkingHitWallDispatch(nonFiniteThreshold, true),
+			"the enabled candidate rejects non-finite inputs");
 	}
 }
 

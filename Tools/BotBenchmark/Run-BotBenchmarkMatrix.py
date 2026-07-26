@@ -53,6 +53,7 @@ class Variant:
     vector_nonfinite_observer_enabled: bool = False
     finite_move_command_guard_enabled: bool = False
     pick_reg_destination_zero_divide_guard_enabled: bool = False
+    walking_hitwall_minhitwall_candidate_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -299,6 +300,11 @@ def load_matrix(path: Path) -> MatrixConfig:
         if not isinstance(pick_reg_destination_zero_divide_guard_enabled, bool):
             raise MatrixError(
                 f"matrix.variants[{index}].pick_reg_destination_zero_divide_guard_enabled must be a boolean")
+        walking_hitwall_minhitwall_candidate_enabled = fields.get(
+            "walking_hitwall_minhitwall_candidate_enabled", False)
+        if not isinstance(walking_hitwall_minhitwall_candidate_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].walking_hitwall_minhitwall_candidate_enabled must be a boolean")
         variants.append(Variant(
             variant_id, executable, role, build_preset, hazard_swim_egress_enabled,
             hazard_swim_egress_live_enabled, failed_navigation_avoidance_enabled,
@@ -308,7 +314,8 @@ def load_matrix(path: Path) -> MatrixConfig:
             pawn_vision_cone_enabled, pawn_vision_observer_enabled,
             vector_nonfinite_observer_enabled,
             finite_move_command_guard_enabled,
-            pick_reg_destination_zero_divide_guard_enabled))
+            pick_reg_destination_zero_divide_guard_enabled,
+            walking_hitwall_minhitwall_candidate_enabled))
     ids = [variant.id for variant in variants]
     if len(ids) != len(set(ids)):
         raise MatrixError("matrix variant IDs must be unique")
@@ -482,9 +489,10 @@ def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
                                  variant.inventory_direct_reach_support_observer_enabled,
                                  variant.pawn_vision_cone_enabled,
                                  variant.pawn_vision_observer_enabled,
-                                 variant.vector_nonfinite_observer_enabled,
-                                 variant.finite_move_command_guard_enabled,
-                                 variant.pick_reg_destination_zero_divide_guard_enabled]
+                                  variant.vector_nonfinite_observer_enabled,
+                                  variant.finite_move_command_guard_enabled,
+                                  variant.pick_reg_destination_zero_divide_guard_enabled,
+                                  variant.walking_hitwall_minhitwall_candidate_enabled]
                     run_id = (
                         f"{ordinal:06d}-{_slug(variant.id)}-{_slug(map_url)}-"
                         f"s{seed}" + (f"-l{_slug(start_layout.id)}" if start_layout else "") +
@@ -543,6 +551,8 @@ def command_for(config: MatrixConfig, case: MatrixCase, run_directory: Path) -> 
             "1" if case.variant.finite_move_command_guard_enabled else "0"),
         "--botbench-pick-reg-destination-zero-divide-guard=" + (
             "1" if case.variant.pick_reg_destination_zero_divide_guard_enabled else "0"),
+        "--botbench-walking-hitwall-minhitwall-candidate=" + (
+            "1" if case.variant.walking_hitwall_minhitwall_candidate_enabled else "0"),
     ]
     if config.per_bot_skills is not None:
         command.append("--botbench-skills=" + ",".join(str(value) for value in config.per_bot_skills))
@@ -707,6 +717,8 @@ def _preflight_provenance(
             "finite_move_command_guard_enabled": variant.finite_move_command_guard_enabled,
             "pick_reg_destination_zero_divide_guard_enabled": (
                 variant.pick_reg_destination_zero_divide_guard_enabled),
+            "walking_hitwall_minhitwall_candidate_enabled": (
+                variant.walking_hitwall_minhitwall_candidate_enabled),
             "executable": _file_provenance(variant.executable),
         })
     game_manifest = _file_provenance(config.game_manifest) if config.game_manifest else None
@@ -779,6 +791,8 @@ def _run_case(
         "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
         "pick_reg_destination_zero_divide_guard_enabled": (
             case.variant.pick_reg_destination_zero_divide_guard_enabled),
+        "walking_hitwall_minhitwall_candidate_enabled": (
+            case.variant.walking_hitwall_minhitwall_candidate_enabled),
     }
     if case.start_layout is not None:
         metadata.update({
@@ -825,6 +839,8 @@ def _run_case(
         "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
         "pick_reg_destination_zero_divide_guard_enabled": (
             case.variant.pick_reg_destination_zero_divide_guard_enabled),
+        "walking_hitwall_minhitwall_candidate_enabled": (
+            case.variant.walking_hitwall_minhitwall_candidate_enabled),
         "command": command,
     })
     launch = launcher(command, config.timeout_seconds, run_directory / "stdout.txt", run_directory / "stderr.txt")
@@ -900,6 +916,8 @@ def _run_case(
         "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
         "pick_reg_destination_zero_divide_guard_enabled": (
             case.variant.pick_reg_destination_zero_divide_guard_enabled),
+        "walking_hitwall_minhitwall_candidate_enabled": (
+            case.variant.walking_hitwall_minhitwall_candidate_enabled),
         "exit_code": launch.exit_code,
         "timed_out": launch.timed_out,
         "wall_seconds": launch.wall_seconds,
@@ -952,8 +970,10 @@ def dry_run_plan(config: MatrixConfig, output: Path) -> dict[str, Any]:
             "vector_nonfinite_observer_enabled": case.variant.vector_nonfinite_observer_enabled,
             "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
             "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
-            "pick_reg_destination_zero_divide_guard_enabled": (
+        "pick_reg_destination_zero_divide_guard_enabled": (
                 case.variant.pick_reg_destination_zero_divide_guard_enabled),
+            "walking_hitwall_minhitwall_candidate_enabled": (
+                case.variant.walking_hitwall_minhitwall_candidate_enabled),
             "command": command_for(config, case, runs_directory / case.run_id),
         } for case in cases],
     }

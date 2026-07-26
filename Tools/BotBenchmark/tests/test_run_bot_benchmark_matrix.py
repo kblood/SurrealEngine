@@ -628,6 +628,8 @@ class MatrixRunnerTests(unittest.TestCase):
             ("finite_move_command_guard_enabled", "--botbench-finite-move-command-guard"),
             ("pick_reg_destination_zero_divide_guard_enabled",
              "--botbench-pick-reg-destination-zero-divide-guard"),
+            ("walking_hitwall_minhitwall_candidate_enabled",
+             "--botbench-walking-hitwall-minhitwall-candidate"),
         )
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

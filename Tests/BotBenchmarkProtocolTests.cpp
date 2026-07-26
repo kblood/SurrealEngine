@@ -34,7 +34,8 @@ int main()
 		|| defaults.IsPawnVisionConeEnabled()
 		|| defaults.IsPawnVisionObserverEnabled()
 		|| defaults.IsVectorNonFiniteObserverEnabled()
-		|| defaults.IsFiniteMoveCommandGuardEnabled())
+		|| defaults.IsFiniteMoveCommandGuardEnabled()
+		|| defaults.IsWalkingHitWallMinHitWallCandidateEnabled())
 		return Fail("default bot benchmark configuration or roster was incorrect");
 	if (defaults.GetShadowPolicySet() != std::vector<std::string>{ "tactical-state", "utility-arena" })
 		return Fail("default shadow policy set was not stable and canonical");
@@ -228,7 +229,8 @@ int main()
 		"    \"pawn_vision_observer_enabled\": false,\n"
 		"    \"vector_nonfinite_observer_enabled\": false,\n"
 		"    \"finite_move_command_guard_enabled\": false,\n"
-		"    \"pick_reg_destination_zero_divide_guard_enabled\": false\n"
+		"    \"pick_reg_destination_zero_divide_guard_enabled\": false,\n"
+		"    \"walking_hitwall_minhitwall_candidate_enabled\": false\n"
 		"  }\n"
 		"}\n";
 	std::string serializedSummary = summary.ToJson(parsed);

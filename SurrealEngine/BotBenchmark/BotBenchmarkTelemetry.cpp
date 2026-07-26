@@ -281,6 +281,8 @@ namespace
 			<< (diagnostic.Decision.LegacyVerticalWallBand ? "true" : "false")
 			<< ",\"min_hit_wall_dispatch\":"
 			<< (diagnostic.Decision.MinHitWallDispatch ? "true" : "false")
+			<< ",\"callback_selected_by_minhitwall_candidate\":"
+			<< (diagnostic.CallbackSelectedByMinHitWallCandidate ? "true" : "false")
 			<< ",\"blocker\":" << JsonString(
 				PawnMovement::WalkingHitWallBlockerKindName(diagnostic.Blocker))
 			<< ",\"callback_dispatched\":"
@@ -1238,6 +1240,7 @@ namespace
 			<< ",\"walking_hitwall_dispatch_observations_exact\":\"" << bot.WalkingHitWallDispatchObservationsExact << "\""
 			<< ",\"walking_hitwall_dispatch_legacy_z_band_exact\":\"" << bot.WalkingHitWallDispatchLegacyZBandExact << "\""
 			<< ",\"walking_hitwall_dispatch_minhitwall_exact\":\"" << bot.WalkingHitWallDispatchMinHitWallExact << "\""
+			<< ",\"walking_hitwall_dispatch_minhitwall_candidate_activations_exact\":\"" << bot.WalkingHitWallDispatchMinHitWallCandidateActivationsExact << "\""
 			<< ",\"walking_hitwall_dispatch_disagreements_exact\":\"" << bot.WalkingHitWallDispatchDisagreementsExact << "\""
 			<< ",\"walking_hitwall_dispatch_callbacks_exact\":\"" << bot.WalkingHitWallDispatchCallbacksExact << "\""
 			<< ",\"walking_hitwall_dispatch_diagnostic_overflows_exact\":\"" << bot.WalkingHitWallDispatchDiagnosticOverflowsExact << "\""
@@ -1683,7 +1686,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "finite_move_command_guard_enabled="
 		<< (config.IsFiniteMoveCommandGuardEnabled() ? "1" : "0") << '\n'
 		<< "pick_reg_destination_zero_divide_guard_enabled="
-		<< (config.IsPickRegDestinationZeroDivideGuardEnabled() ? "1" : "0") << '\n';
+		<< (config.IsPickRegDestinationZeroDivideGuardEnabled() ? "1" : "0") << '\n'
+		<< "walking_hitwall_minhitwall_candidate_enabled="
+		<< (config.IsWalkingHitWallMinHitWallCandidateEnabled() ? "1" : "0") << '\n';
 	for (const std::string& policy : config.GetShadowPolicySet())
 		canonical << "shadow_policy=" << policy << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
@@ -1765,6 +1770,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsFiniteMoveCommandGuardEnabled() ? "true" : "false") << ",\n"
 		<< "  \"pick_reg_destination_zero_divide_guard_enabled\": "
 		<< (config.IsPickRegDestinationZeroDivideGuardEnabled() ? "true" : "false") << ",\n"
+		<< "  \"walking_hitwall_minhitwall_candidate_enabled\": "
+		<< (config.IsWalkingHitWallMinHitWallCandidateEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";

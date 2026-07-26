@@ -204,6 +204,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	bool reachSpecCapabilityObserverEnabled, bool pawnVisionConeEnabled,
 	bool pawnVisionObserverEnabled, bool vectorNonFiniteObserverEnabled,
 	bool finiteMoveCommandGuardEnabled, bool pickRegDestinationZeroDivideGuardEnabled,
+	bool walkingHitWallMinHitWallCandidateEnabled,
 	std::vector<std::string> shadowPolicySet)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
@@ -228,6 +229,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	VectorNonFiniteObserverEnabled(vectorNonFiniteObserverEnabled),
 	FiniteMoveCommandGuardEnabled(finiteMoveCommandGuardEnabled),
 	PickRegDestinationZeroDivideGuardEnabled(pickRegDestinationZeroDivideGuardEnabled),
+	WalkingHitWallMinHitWallCandidateEnabled(walkingHitWallMinHitWallCandidateEnabled),
 	ShadowPolicySet(std::move(shadowPolicySet))
 {
 }
@@ -254,7 +256,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> pawnVisionCone, std::optional<std::string> pawnVisionObserver,
 	std::optional<std::string> vectorNonFiniteObserver,
 	std::optional<std::string> finiteMoveCommandGuard,
-	std::optional<std::string> pickRegDestinationZeroDivideGuard)
+	std::optional<std::string> pickRegDestinationZeroDivideGuard,
+	std::optional<std::string> walkingHitWallMinHitWallCandidate)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -329,6 +332,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		finiteMoveCommandGuard, "bot benchmark finite MoveTo command guard");
 	const bool parsedPickRegDestinationZeroDivideGuard = ParseExactBoolean(
 		pickRegDestinationZeroDivideGuard, "bot benchmark PickRegDestination zero divide guard");
+	const bool parsedWalkingHitWallMinHitWallCandidate = ParseExactBoolean(
+		walkingHitWallMinHitWallCandidate, "bot benchmark walking HitWall MinHitWall candidate");
 
 	return BotBenchmarkRunConfig(std::move(url), std::move(outputDirectory), parsedSeed,
 		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster), parsedHarmfulZoneEscape,
@@ -343,6 +348,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		parsedVectorNonFiniteObserver,
 		parsedFiniteMoveCommandGuard,
 		parsedPickRegDestinationZeroDivideGuard,
+		parsedWalkingHitWallMinHitWallCandidate,
 		parsedShadowPolicySet);
 }
 
@@ -476,7 +482,9 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< "    \"finite_move_command_guard_enabled\": "
 		<< (config.IsFiniteMoveCommandGuardEnabled() ? "true" : "false") << ",\n"
 		<< "    \"pick_reg_destination_zero_divide_guard_enabled\": "
-		<< (config.IsPickRegDestinationZeroDivideGuardEnabled() ? "true" : "false") << "\n"
+		<< (config.IsPickRegDestinationZeroDivideGuardEnabled() ? "true" : "false") << ",\n"
+		<< "    \"walking_hitwall_minhitwall_candidate_enabled\": "
+		<< (config.IsWalkingHitWallMinHitWallCandidateEnabled() ? "true" : "false") << "\n"
 		<< "  }\n"
 		<< "}\n";
 	return out.str();

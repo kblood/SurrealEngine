@@ -382,6 +382,7 @@ WALKING_HITWALL_DISPATCH_COUNTERS = (
     "walking_hitwall_dispatch_observations_exact",
     "walking_hitwall_dispatch_legacy_z_band_exact",
     "walking_hitwall_dispatch_minhitwall_exact",
+    "walking_hitwall_dispatch_minhitwall_candidate_activations_exact",
     "walking_hitwall_dispatch_disagreements_exact",
     "walking_hitwall_dispatch_callbacks_exact",
     "walking_hitwall_dispatch_diagnostic_overflows_exact",
@@ -843,12 +844,20 @@ def _nullable_number(value: Any, context: str) -> float | None:
 
 
 def _walking_hitwall_dispatch_diagnostic(value: Any, context: str) -> dict[str, Any]:
-    fields = _exact_object(value, context, {
+    expected_fields = {
         "source_pawn_actor", "sequence", "contact_phase", "hit_normal", "velocity", "min_hit_wall",
-        "normal_velocity_dot", "valid", "legacy_vertical_wall_band",
-        "min_hit_wall_dispatch", "blocker", "callback_dispatched",
+        "normal_velocity_dot", "valid", "legacy_vertical_wall_band", "min_hit_wall_dispatch", "blocker", "callback_dispatched",
         "physics_changed_by_callback", "pawn_deleted_by_callback",
-    })
+    }
+    candidate_field = "callback_selected_by_minhitwall_candidate"
+    fields = _object(value, context)
+    accepted = expected_fields | {candidate_field}
+    unknown = set(fields) - accepted
+    missing = expected_fields - set(fields)
+    if unknown:
+        raise QualityError(f"{context} has unknown fields: {', '.join(sorted(unknown))}")
+    if missing:
+        raise QualityError(f"{context} is missing fields: {', '.join(sorted(missing))}")
     valid = _boolean(fields.get("valid"), f"{context}.valid")
     hit_normal = _nullable_diagnostic_vector(
         fields.get("hit_normal"), f"{context}.hit_normal")
@@ -880,6 +889,9 @@ def _walking_hitwall_dispatch_diagnostic(value: Any, context: str) -> dict[str, 
             f"{context}.legacy_vertical_wall_band"),
         "min_hit_wall_dispatch": _boolean(
             fields.get("min_hit_wall_dispatch"), f"{context}.min_hit_wall_dispatch"),
+        "callback_selected_by_minhitwall_candidate": _boolean(
+            fields.get(candidate_field), f"{context}.{candidate_field}")
+            if candidate_field in fields else False,
         "blocker": blocker,
         "callback_dispatched": _boolean(
             fields.get("callback_dispatched"), f"{context}.callback_dispatched"),
@@ -3125,7 +3137,8 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                vector_nonfinite_observer_enabled: bool | None = None,
                shadow_policy_set: list[str] | None = None,
                finite_move_command_guard_enabled: bool | None = None,
-               pick_reg_destination_zero_divide_guard_enabled: bool | None = None) -> str:
+                pick_reg_destination_zero_divide_guard_enabled: bool | None = None,
+                walking_hitwall_minhitwall_candidate_enabled: bool | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
         f"fixed_delta={fixed_delta:.9f}\ndifficulty={difficulty}\n"
@@ -3200,6 +3213,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if pick_reg_destination_zero_divide_guard_enabled is not None:
             canonical_text += "pick_reg_destination_zero_divide_guard_enabled=" + (
                 "1\n" if pick_reg_destination_zero_divide_guard_enabled else "0\n")
+        if walking_hitwall_minhitwall_candidate_enabled is not None:
+            canonical_text += "walking_hitwall_minhitwall_candidate_enabled=" + (
+                "1\n" if walking_hitwall_minhitwall_candidate_enabled else "0\n")
         if shadow_policy_set is not None:
             canonical_text += "".join(f"shadow_policy={policy}\n" for policy in shadow_policy_set)
         assert requested_roster is not None
@@ -3364,6 +3380,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     vector_nonfinite_observer_enabled = None
     finite_move_command_guard_enabled = None
     pick_reg_destination_zero_divide_guard_enabled = None
+    walking_hitwall_minhitwall_candidate_enabled = None
     shadow_policy_set = None
     build_identity = None
     if schema == MANIFEST_SCHEMA_V3:
@@ -3476,6 +3493,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             pick_reg_destination_zero_divide_guard_enabled = _boolean(
                 raw.get("pick_reg_destination_zero_divide_guard_enabled"),
                 "manifest.pick_reg_destination_zero_divide_guard_enabled")
+        if "walking_hitwall_minhitwall_candidate_enabled" in raw:
+            walking_hitwall_minhitwall_candidate_enabled = _boolean(
+                raw.get("walking_hitwall_minhitwall_candidate_enabled"),
+                "manifest.walking_hitwall_minhitwall_candidate_enabled")
         if schema == MANIFEST_SCHEMA_V3:
             shadow_policy_set = _validate_shadow_policy_set(
                 raw.get("shadow_policy_set"), "manifest.shadow_policy_set")
@@ -3503,9 +3524,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              pawn_vision_cone_enabled,
                              pawn_vision_observer_enabled,
                              vector_nonfinite_observer_enabled,
-                             shadow_policy_set,
-                             finite_move_command_guard_enabled,
-                             pick_reg_destination_zero_divide_guard_enabled)
+                              shadow_policy_set,
+                              finite_move_command_guard_enabled,
+                              pick_reg_destination_zero_divide_guard_enabled,
+                              walking_hitwall_minhitwall_candidate_enabled)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
     return {
@@ -3549,6 +3571,8 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "finite_move_command_guard_enabled": finite_move_command_guard_enabled,
         "pick_reg_destination_zero_divide_guard_enabled": (
             pick_reg_destination_zero_divide_guard_enabled),
+        "walking_hitwall_minhitwall_candidate_enabled": (
+            walking_hitwall_minhitwall_candidate_enabled),
         "shadow_policy_set": shadow_policy_set,
     }
 
@@ -5264,6 +5288,36 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
             if records and sequences[bot["identity"]] != records:
                 raise QualityError(
                     f"{path}: PickRegDestination zero divide guard record sequence is not contiguous")
+    walking_hitwall_candidate_config = manifest.get(
+        "walking_hitwall_minhitwall_candidate_enabled")
+    if walking_hitwall_candidate_config is not None:
+        walking_hitwall_candidate_enabled = walking_hitwall_candidate_config is True
+        candidate_selected_counts: dict[str, int] = {}
+        for event in events:
+            for bot in event["bots"]:
+                if "walking_hitwall_dispatch_minhitwall_candidate_activations_exact" not in bot:
+                    raise QualityError(
+                        f"{path}: MinHitWall candidate configuration lacks activation telemetry")
+                for diagnostic in bot.get("walking_hitwall_dispatch_diagnostics", []):
+                    selected = diagnostic["callback_selected_by_minhitwall_candidate"]
+                    if selected:
+                        if not walking_hitwall_candidate_enabled:
+                            raise QualityError(
+                                f"{path}: MinHitWall candidate selected a callback while disabled")
+                        if not diagnostic["callback_dispatched"] \
+                                or not diagnostic["min_hit_wall_dispatch"]:
+                            raise QualityError(
+                                f"{path}: MinHitWall candidate selection lacks its callback predicate")
+                        candidate_selected_counts[bot["identity"]] = (
+                            candidate_selected_counts.get(bot["identity"], 0) + 1)
+        for bot in events[-1]["bots"]:
+            activations = bot["walking_hitwall_dispatch_minhitwall_candidate_activations_exact"]
+            if activations != candidate_selected_counts.get(bot["identity"], 0):
+                raise QualityError(
+                    f"{path}: MinHitWall candidate activations do not reconcile diagnostics")
+            if not walking_hitwall_candidate_enabled and activations:
+                raise QualityError(
+                    f"{path}: MinHitWall candidate activations are present while disabled")
     if manifest.get("warn_target_observer_enabled") is True:
         observer_values = {(event["warn_target_observer"]["status"],
                             event["warn_target_observer"]["reason"])
@@ -5693,6 +5747,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["pick_reg_destination_zero_divide_guard_enabled"] = _boolean(
             config.get("pick_reg_destination_zero_divide_guard_enabled"),
             "summary.config.pick_reg_destination_zero_divide_guard_enabled")
+    if manifest["walking_hitwall_minhitwall_candidate_enabled"] is not None:
+        comparisons["walking_hitwall_minhitwall_candidate_enabled"] = _boolean(
+            config.get("walking_hitwall_minhitwall_candidate_enabled"),
+            "summary.config.walking_hitwall_minhitwall_candidate_enabled")
     if manifest["pick_target_predicate_mode"] is not None:
         comparisons["pick_target_predicate_mode"] = _string(
             config, "pick_target_predicate_mode", "summary.config", nonempty=True)
