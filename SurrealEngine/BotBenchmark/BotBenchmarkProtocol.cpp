@@ -202,7 +202,8 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled,
 	bool pickTargetObserverEnabled, bool warnTargetObserverEnabled,
 	bool reachSpecCapabilityObserverEnabled, bool pawnVisionConeEnabled,
-	bool pawnVisionObserverEnabled, bool finiteMoveCommandGuardEnabled,
+	bool pawnVisionObserverEnabled, bool vectorNonFiniteObserverEnabled,
+	bool finiteMoveCommandGuardEnabled,
 	std::vector<std::string> shadowPolicySet)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
@@ -224,6 +225,7 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	PickTargetObserverEnabled(pickTargetObserverEnabled),
 	WarnTargetObserverEnabled(warnTargetObserverEnabled),
 	PawnVisionConeEnabled(pawnVisionConeEnabled), PawnVisionObserverEnabled(pawnVisionObserverEnabled),
+	VectorNonFiniteObserverEnabled(vectorNonFiniteObserverEnabled),
 	FiniteMoveCommandGuardEnabled(finiteMoveCommandGuardEnabled),
 	ShadowPolicySet(std::move(shadowPolicySet))
 {
@@ -249,6 +251,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> warnTargetObserver,
 	std::optional<std::string> reachSpecCapabilityObserver, std::optional<std::string> shadowPolicySet,
 	std::optional<std::string> pawnVisionCone, std::optional<std::string> pawnVisionObserver,
+	std::optional<std::string> vectorNonFiniteObserver,
 	std::optional<std::string> finiteMoveCommandGuard)
 {
 	if (url.empty())
@@ -318,6 +321,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		pawnVisionCone, "bot benchmark pawn vision cone");
 	const bool parsedPawnVisionObserver = ParseExactBoolean(
 		pawnVisionObserver, "bot benchmark pawn vision observer");
+	const bool parsedVectorNonFiniteObserver = ParseExactBoolean(
+		vectorNonFiniteObserver, "bot benchmark vector non-finite observer");
 	const bool parsedFiniteMoveCommandGuard = ParseExactBoolean(
 		finiteMoveCommandGuard, "bot benchmark finite MoveTo command guard");
 
@@ -331,6 +336,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		parsedNativePathCommitObserver, parsedInventoryMarkerDirectReachSafety,
 		parsedDirectReachCommandObserver, parsedPickTargetObserver, parsedWarnTargetObserver,
 		parsedReachSpecCapabilityObserver, parsedPawnVisionCone, parsedPawnVisionObserver,
+		parsedVectorNonFiniteObserver,
 		parsedFiniteMoveCommandGuard,
 		parsedShadowPolicySet);
 }
@@ -460,6 +466,8 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< (config.IsPawnVisionConeEnabled() ? "true" : "false") << ",\n"
 		<< "    \"pawn_vision_observer_enabled\": "
 		<< (config.IsPawnVisionObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"vector_nonfinite_observer_enabled\": "
+		<< (config.IsVectorNonFiniteObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"finite_move_command_guard_enabled\": "
 		<< (config.IsFiniteMoveCommandGuardEnabled() ? "true" : "false") << "\n"
 		<< "  }\n"

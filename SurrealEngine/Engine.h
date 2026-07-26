@@ -266,6 +266,14 @@ public:
 	{
 		botBenchmarkPawnVisionObserverEnabled = enabled;
 	}
+	bool IsBotBenchmarkVectorNonFiniteObserverEnabled() const
+	{
+		return botBenchmarkVectorNonFiniteObserverEnabled;
+	}
+	void SetBotBenchmarkVectorNonFiniteObserverEnabled(bool enabled)
+	{
+		botBenchmarkVectorNonFiniteObserverEnabled = enabled;
+	}
 	bool IsBotBenchmarkFiniteMoveCommandGuardEnabled() const
 	{
 		return botBenchmarkFiniteMoveCommandGuardEnabled;
@@ -465,6 +473,7 @@ private:
 	bool botBenchmarkDirectReachCommandObserverEnabled = false;
 	bool botBenchmarkPawnVisionConeEnabled = false;
 	bool botBenchmarkPawnVisionObserverEnabled = false;
+	bool botBenchmarkVectorNonFiniteObserverEnabled = false;
 	bool botBenchmarkFiniteMoveCommandGuardEnabled = false;
 	uint64_t botBenchmarkObserverTick = 0;
 	ViewFamily CreateDesktopViewFamily() const;

@@ -708,6 +708,7 @@ namespace
 		bool targetSelectionObserverRequested,
 		bool pickTargetObserverRequested,
 		bool pawnVisionObserverRequested,
+		bool vectorNonFiniteObserverRequested,
 		bool finiteMoveCommandGuardRequested,
 		bool warnTargetObserverRequested,
 		bool inventoryDirectReachSupportObserverRequested,
@@ -913,6 +914,38 @@ namespace
 					<< ",\"caller_function\":" << JsonString(record.CallerFunction)
 					<< ",\"target_actor\":" << JsonString(record.TargetActor)
 					<< ",\"target_class\":" << JsonString(record.TargetClass) << '}';
+			}
+			out << ']';
+		}
+		if (vectorNonFiniteObserverRequested)
+		{
+			out << ",\"vector_nonfinite_observations_exact\":\""
+				<< bot.VectorNonFiniteObservationsExact << "\""
+				<< ",\"vector_nonfinite_observation_overflows_exact\":\""
+				<< bot.VectorNonFiniteObservationOverflowsExact << "\""
+				<< ",\"vector_nonfinite_integrity_failures_exact\":\""
+				<< bot.VectorNonFiniteIntegrityFailuresExact << "\""
+				<< ",\"vector_nonfinite_records\":[";
+			for (size_t index = 0; index < bot.VectorNonFiniteRecords.size(); index++)
+			{
+				if (index) out << ',';
+				const auto& record = bot.VectorNonFiniteRecords[index];
+				out << "{\"sequence\":\"" << record.Sequence
+					<< "\",\"observer_tick\":\"" << record.ObserverTick
+					<< "\",\"caller_invocation_token\":\"" << record.CallerInvocationToken
+					<< "\",\"source_life_id\":\"" << record.SourceLifeId
+					<< "\",\"source_actor_index\":" << record.SourceActorIndex
+					<< ",\"operation\":" << JsonString(record.Operation)
+					<< ",\"left_vector_class\":" << JsonString(record.LeftVectorClass)
+					<< ",\"right_vector_class\":" << JsonString(record.RightVectorClass)
+					<< ",\"scalar_class\":" << JsonString(record.ScalarClass)
+					<< ",\"result_vector_class\":" << JsonString(record.ResultVectorClass)
+					<< ",\"right_vector_present\":"
+					<< (record.RightVectorPresent ? "true" : "false")
+					<< ",\"scalar_present\":" << (record.ScalarPresent ? "true" : "false")
+					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false")
+					<< ",\"caller_class\":" << JsonString(record.CallerClass)
+					<< ",\"caller_function\":" << JsonString(record.CallerFunction) << '}';
 			}
 			out << ']';
 		}
@@ -1625,6 +1658,8 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< (config.IsPawnVisionConeEnabled() ? "1" : "0") << '\n'
 		<< "pawn_vision_observer_enabled="
 		<< (config.IsPawnVisionObserverEnabled() ? "1" : "0") << '\n'
+		<< "vector_nonfinite_observer_enabled="
+		<< (config.IsVectorNonFiniteObserverEnabled() ? "1" : "0") << '\n'
 		<< "finite_move_command_guard_enabled="
 		<< (config.IsFiniteMoveCommandGuardEnabled() ? "1" : "0") << '\n';
 	for (const std::string& policy : config.GetShadowPolicySet())
@@ -1702,6 +1737,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsPawnVisionConeEnabled() ? "true" : "false") << ",\n"
 		<< "  \"pawn_vision_observer_enabled\": "
 		<< (config.IsPawnVisionObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"vector_nonfinite_observer_enabled\": "
+		<< (config.IsVectorNonFiniteObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"finite_move_command_guard_enabled\": "
 		<< (config.IsFiniteMoveCommandGuardEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
@@ -1740,6 +1777,8 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 		out << ",\"pick_target_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.PawnVisionObserverRequested)
 		out << ",\"pawn_vision_observer\":{\"requested\":true,\"status\":\"active\"}";
+	if (event.VectorNonFiniteObserverRequested)
+		out << ",\"vector_nonfinite_observer\":{\"requested\":true,\"status\":\"active\"}";
 	if (event.WarnTargetObserverRequested)
 	{
 		out << ",\"warn_target_observer\":{\"requested\":true"
@@ -1760,9 +1799,10 @@ std::string BotBenchmarkTelemetryProtocol::EventJson(const std::string& configId
 		try
 		{
 			WriteBot(out, event.Bots[index], event.TargetSelectionObserverRequested,
-				event.PickTargetObserverRequested,
-				event.PawnVisionObserverRequested,
-				event.FiniteMoveCommandGuardRequested,
+				 event.PickTargetObserverRequested,
+				 event.PawnVisionObserverRequested,
+				 event.VectorNonFiniteObserverRequested,
+				 event.FiniteMoveCommandGuardRequested,
 				event.WarnTargetObserverRequested,
 				event.InventoryDirectReachSupportObserverRequested,
 				event.DirectReachCommandObserverRequested);

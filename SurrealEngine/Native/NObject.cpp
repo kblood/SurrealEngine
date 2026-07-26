@@ -3,6 +3,7 @@
 #include "NObject.h"
 #include "VM/NativeFunc.h"
 #include "VM/Frame.h"
+#include "UObject/PawnVectorNonFiniteObserver.h"
 #include "Package/PackageManager.h"
 #include "Engine.h"
 #include "Math/quaternion.h"
@@ -354,7 +355,11 @@ void NObject::AddEqual_RotatorRotator(Rotator& A, const Rotator& B, Rotator& Ret
 
 void NObject::AddEqual_VectorVector(vec3& A, const vec3& B, vec3& ReturnValue)
 {
+	const vec3 input = A;
 	ReturnValue = A += B;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::AddEqualVectorVector,
+		input, &B, nullptr, ReturnValue);
 }
 
 void NObject::AddEqual_QuatQuat_U227(quaternion& A, quaternion& B, quaternion& ReturnValue)
@@ -380,6 +385,8 @@ void NObject::Add_RotatorRotator(const Rotator& A, const Rotator& B, Rotator& Re
 void NObject::Add_VectorVector(const vec3& A, const vec3& B, vec3& ReturnValue)
 {
 	ReturnValue = A + B;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::AddVectorVector, A, &B, nullptr, ReturnValue);
 }
 
 void NObject::Add_QuatQuat_U227(quaternion& A, quaternion& B, quaternion& ReturnValue)
@@ -609,7 +616,11 @@ void NObject::DivideEqual_RotatorFloat(Rotator& A, float B, Rotator& ReturnValue
 
 void NObject::DivideEqual_VectorFloat(vec3& A, float B, vec3& ReturnValue)
 {
+	const vec3 input = A;
 	ReturnValue = A /= B;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::DivideEqualVectorFloat,
+		input, nullptr, &B, ReturnValue);
 }
 
 void NObject::DivideEqual_QuatFloat_U227(quaternion& A, float B, quaternion& ReturnValue)
@@ -635,6 +646,8 @@ void NObject::Divide_RotatorFloat(const Rotator& A, float B, Rotator& ReturnValu
 void NObject::Divide_VectorFloat(const vec3& A, float B, vec3& ReturnValue)
 {
 	ReturnValue = A / B;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::DivideVectorFloat, A, nullptr, &B, ReturnValue);
 }
 
 void NObject::Dot_VectorVector(const vec3& A, const vec3& B, float& ReturnValue)
@@ -1157,12 +1170,20 @@ void NObject::MultiplyEqual_VectorCoords_U227(vec3& A, Coords& B, vec3& ReturnVa
 
 void NObject::MultiplyEqual_VectorFloat(vec3& A, float B, vec3& ReturnValue)
 {
+	const vec3 input = A;
 	ReturnValue = A *= B;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::MultiplyEqualVectorFloat,
+		input, nullptr, &B, ReturnValue);
 }
 
 void NObject::MultiplyEqual_VectorVector(vec3& A, const vec3& B, vec3& ReturnValue)
 {
+	const vec3 input = A;
 	ReturnValue = A *= B;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::MultiplyEqualVectorVector,
+		input, &B, nullptr, ReturnValue);
 }
 
 void NObject::MultiplyMultiply_FloatFloat(float A, float B, float& ReturnValue)
@@ -1193,6 +1214,8 @@ void NObject::Multiply_FloatRotator(float A, const Rotator& B, Rotator& ReturnVa
 void NObject::Multiply_FloatVector(float A, const vec3& B, vec3& ReturnValue)
 {
 	ReturnValue = A * B;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::MultiplyFloatVector, B, nullptr, &A, ReturnValue);
 }
 
 void NObject::Multiply_IntInt(int A, int B, int& ReturnValue)
@@ -1218,16 +1241,23 @@ void NObject::Multiply_RotatorFloat(const Rotator& A, float B, Rotator& ReturnVa
 void NObject::Multiply_VectorFloat(const vec3& A, float B, vec3& ReturnValue)
 {
 	ReturnValue = A * B;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::MultiplyVectorFloat, A, nullptr, &B, ReturnValue);
 }
 
 void NObject::Multiply_VectorVector(const vec3& A, const vec3& B, vec3& ReturnValue)
 {
 	ReturnValue = A * B;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::MultiplyVectorVector,
+		A, &B, nullptr, ReturnValue);
 }
 
 void NObject::Normal(const vec3& A, vec3& ReturnValue)
 {
 	ReturnValue = normalize(A);
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::Normal, A, nullptr, nullptr, ReturnValue);
 }
 
 void NObject::Normal2D_U227(const vec3& A, vec3& ReturnValue)
@@ -1518,7 +1548,11 @@ void NObject::SubtractEqual_RotatorRotator(Rotator& A, const Rotator& B, Rotator
 
 void NObject::SubtractEqual_VectorVector(vec3& A, const vec3& B, vec3& ReturnValue)
 {
+	const vec3 input = A;
 	ReturnValue = A -= B;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::SubtractEqualVectorVector,
+		input, &B, nullptr, ReturnValue);
 }
 
 void NObject::SubtractEqual_QuatQuat_U227(quaternion& A, quaternion& B, quaternion& ReturnValue)
@@ -1569,6 +1603,8 @@ void NObject::Subtract_PreInt(int A, int& ReturnValue)
 void NObject::Subtract_PreVector(const vec3& A, vec3& ReturnValue)
 {
 	ReturnValue = vec3(0.0f) - A;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::SubtractPreVector, A, nullptr, nullptr, ReturnValue);
 }
 
 void NObject::Subtract_RotatorRotator(const Rotator& A, const Rotator& B, Rotator& ReturnValue)
@@ -1579,6 +1615,9 @@ void NObject::Subtract_RotatorRotator(const Rotator& A, const Rotator& B, Rotato
 void NObject::Subtract_VectorVector(const vec3& A, const vec3& B, vec3& ReturnValue)
 {
 	ReturnValue = A - B;
+	PawnMovement::ObserveUnrealScriptVectorOperation(
+		PawnMovement::UnrealScriptVectorOperation::SubtractVectorVector,
+		A, &B, nullptr, ReturnValue);
 }
 
 void NObject::Subtract_QuatQuat_U227(quaternion& A, quaternion& B, quaternion& ReturnValue)

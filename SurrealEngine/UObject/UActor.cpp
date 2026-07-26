@@ -4841,6 +4841,29 @@ std::vector<PawnMovement::PawnCanSeeObservation> UPawn::DrainPawnCanSeeObservati
 	return observations;
 }
 
+void UPawn::RecordUnrealScriptVectorNonFiniteObservation(
+	PawnMovement::UnrealScriptVectorNonFiniteObservation observation)
+{
+	static constexpr size_t maximumQueuedRecords = 256;
+	if (!observation.IntegrityValid)
+		UnrealScriptVectorNonFiniteObservationIntegrityFailureCountValue++;
+	if (UnrealScriptVectorNonFiniteObservations.size() >= maximumQueuedRecords)
+	{
+		UnrealScriptVectorNonFiniteObservationOverflowCountValue++;
+		return;
+	}
+	observation.Sequence = ++UnrealScriptVectorNonFiniteObservationSequence;
+	UnrealScriptVectorNonFiniteObservations.push_back(std::move(observation));
+}
+
+std::vector<PawnMovement::UnrealScriptVectorNonFiniteObservation>
+	UPawn::DrainUnrealScriptVectorNonFiniteObservations()
+{
+	std::vector<PawnMovement::UnrealScriptVectorNonFiniteObservation> observations;
+	observations.swap(UnrealScriptVectorNonFiniteObservations);
+	return observations;
+}
+
 void UPawn::RecordFiniteMoveCommandGuardRejection(const vec3& requestedDestination,
 	PawnMovement::FiniteMoveCommandGuardSource source,
 	PawnMovement::FiniteMoveCommandGuardTerminal terminal)

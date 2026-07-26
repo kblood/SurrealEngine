@@ -21,6 +21,7 @@
 #include "PawnPickTargetObserver.h"
 #include "PawnCanSeeObserver.h"
 #include "PawnFiniteMoveCommandGuard.h"
+#include "PawnVectorNonFiniteObserver.h"
 #include "PawnWalkingHitWallDispatch.h"
 #include "PawnWallAdjustRecovery.h"
 #include "BotAI/HarmfulZoneEscapeGate.h"
@@ -2379,6 +2380,22 @@ public:
 	{
 		return PawnCanSeeObservationIntegrityFailureCountValue;
 	}
+	void RecordUnrealScriptVectorNonFiniteObservation(
+		PawnMovement::UnrealScriptVectorNonFiniteObservation observation);
+	std::vector<PawnMovement::UnrealScriptVectorNonFiniteObservation>
+		DrainUnrealScriptVectorNonFiniteObservations();
+	uint64_t UnrealScriptVectorNonFiniteObservationCount() const
+	{
+		return UnrealScriptVectorNonFiniteObservationSequence;
+	}
+	uint64_t UnrealScriptVectorNonFiniteObservationOverflowCount() const
+	{
+		return UnrealScriptVectorNonFiniteObservationOverflowCountValue;
+	}
+	uint64_t UnrealScriptVectorNonFiniteObservationIntegrityFailureCount() const
+	{
+		return UnrealScriptVectorNonFiniteObservationIntegrityFailureCountValue;
+	}
 	void RecordFiniteMoveCommandGuardRejection(const vec3& requestedDestination,
 		PawnMovement::FiniteMoveCommandGuardSource source,
 		PawnMovement::FiniteMoveCommandGuardTerminal terminal);
@@ -2882,6 +2899,11 @@ private:
 	uint64_t PawnCanSeeObservationOverflowCountValue = 0;
 	uint64_t PawnCanSeeObservationIntegrityFailureCountValue = 0;
 	std::vector<PawnMovement::PawnCanSeeObservation> PawnCanSeeObservations;
+	uint64_t UnrealScriptVectorNonFiniteObservationSequence = 0;
+	uint64_t UnrealScriptVectorNonFiniteObservationOverflowCountValue = 0;
+	uint64_t UnrealScriptVectorNonFiniteObservationIntegrityFailureCountValue = 0;
+	std::vector<PawnMovement::UnrealScriptVectorNonFiniteObservation>
+		UnrealScriptVectorNonFiniteObservations;
 	uint64_t FiniteMoveCommandGuardRejectionCountValue = 0;
 	uint64_t FiniteMoveCommandGuardDiagnosticOverflowCountValue = 0;
 	uint64_t FiniteMoveCommandGuardDiagnosticSequence = 0;

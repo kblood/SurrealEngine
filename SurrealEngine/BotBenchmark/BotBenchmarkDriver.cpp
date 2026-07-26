@@ -105,6 +105,8 @@ namespace
 				Config.IsDirectReachCommandObserverEnabled());
 			EngineRef.SetBotBenchmarkPawnVisionConeEnabled(Config.IsPawnVisionConeEnabled());
 			EngineRef.SetBotBenchmarkPawnVisionObserverEnabled(Config.IsPawnVisionObserverEnabled());
+			EngineRef.SetBotBenchmarkVectorNonFiniteObserverEnabled(
+				Config.IsVectorNonFiniteObserverEnabled());
 			EngineRef.SetBotBenchmarkFiniteMoveCommandGuardEnabled(
 				Config.IsFiniteMoveCommandGuardEnabled());
 		}
@@ -427,6 +429,7 @@ namespace
 			std::vector<BotBenchmarkTargetSelectionRecord> PendingTargetSelectionRecords;
 			std::vector<BotBenchmarkPickTargetRecord> PendingPickTargetRecords;
 			std::vector<BotBenchmarkPawnCanSeeRecord> PendingPawnCanSeeRecords;
+			std::vector<BotBenchmarkVectorNonFiniteRecord> PendingVectorNonFiniteRecords;
 			std::vector<BotBenchmarkFiniteMoveCommandGuardRecord>
 				PendingFiniteMoveCommandGuardDiagnostics;
 			uint64_t TargetSelectionInvalidIdentifierExact = 0;
@@ -451,6 +454,9 @@ namespace
 			uint64_t PawnCanSeeLegacyCorrectedDivergencesExact = 0;
 			uint64_t PawnCanSeeObservationOverflowsExact = 0;
 			uint64_t PawnCanSeeIntegrityFailuresExact = 0;
+			uint64_t VectorNonFiniteObservationsExact = 0;
+			uint64_t VectorNonFiniteObservationOverflowsExact = 0;
+			uint64_t VectorNonFiniteIntegrityFailuresExact = 0;
 			uint64_t FiniteMoveCommandGuardRejectionsExact = 0;
 			uint64_t FiniteMoveCommandGuardDiagnosticOverflowsExact = 0;
 			uint64_t WarnTargetObservationsExact = 0;
@@ -3276,6 +3282,32 @@ namespace
 								std::move(observation.TargetClass) });
 						}
 					}
+					if (Config.IsVectorNonFiniteObserverEnabled())
+					{
+						runtime.VectorNonFiniteObservationsExact = std::max(
+							runtime.VectorNonFiniteObservationsExact,
+							pawn->UnrealScriptVectorNonFiniteObservationCount());
+						runtime.VectorNonFiniteObservationOverflowsExact = std::max(
+							runtime.VectorNonFiniteObservationOverflowsExact,
+							pawn->UnrealScriptVectorNonFiniteObservationOverflowCount());
+						runtime.VectorNonFiniteIntegrityFailuresExact = std::max(
+							runtime.VectorNonFiniteIntegrityFailuresExact,
+							pawn->UnrealScriptVectorNonFiniteObservationIntegrityFailureCount());
+						for (auto& observation : pawn->DrainUnrealScriptVectorNonFiniteObservations())
+						{
+							runtime.PendingVectorNonFiniteRecords.push_back({ observation.Sequence,
+								observation.ObserverTick, observation.CallerInvocationToken,
+								observation.SourceLifeId, observation.SourceActorIndex,
+								PawnMovement::UnrealScriptVectorOperationName(observation.Operation),
+								PawnMovement::VectorNonFiniteClassName(observation.LeftVector),
+								PawnMovement::VectorNonFiniteClassName(observation.RightVector),
+								PawnMovement::VectorNonFiniteClassName(observation.Scalar),
+								PawnMovement::VectorNonFiniteClassName(observation.ResultVector),
+								observation.RightVectorPresent, observation.ScalarPresent,
+								observation.IntegrityValid, std::move(observation.CallerClass),
+								std::move(observation.CallerFunction) });
+						}
+					}
 					if (Config.IsFiniteMoveCommandGuardEnabled())
 					{
 						runtime.FiniteMoveCommandGuardRejectionsExact = std::max(
@@ -3374,6 +3406,16 @@ namespace
 					bot.PawnCanSeeIntegrityFailuresExact = runtime.PawnCanSeeIntegrityFailuresExact;
 					bot.PawnCanSeeRecords = std::move(runtime.PendingPawnCanSeeRecords);
 					runtime.PendingPawnCanSeeRecords.clear();
+				}
+				if (Config.IsVectorNonFiniteObserverEnabled())
+				{
+					bot.VectorNonFiniteObservationsExact = runtime.VectorNonFiniteObservationsExact;
+					bot.VectorNonFiniteObservationOverflowsExact =
+						runtime.VectorNonFiniteObservationOverflowsExact;
+					bot.VectorNonFiniteIntegrityFailuresExact =
+						runtime.VectorNonFiniteIntegrityFailuresExact;
+					bot.VectorNonFiniteRecords = std::move(runtime.PendingVectorNonFiniteRecords);
+					runtime.PendingVectorNonFiniteRecords.clear();
 				}
 				if (Config.IsFiniteMoveCommandGuardEnabled())
 				{
@@ -3987,6 +4029,7 @@ namespace
 			event.TargetSelectionObserverReason = TargetSelectionObserverReason;
 			event.PickTargetObserverRequested = Config.IsPickTargetObserverEnabled();
 			event.PawnVisionObserverRequested = Config.IsPawnVisionObserverEnabled();
+			event.VectorNonFiniteObserverRequested = Config.IsVectorNonFiniteObserverEnabled();
 			event.FiniteMoveCommandGuardRequested = Config.IsFiniteMoveCommandGuardEnabled();
 			event.WarnTargetObserverRequested = Config.IsWarnTargetObserverEnabled();
 			event.WarnTargetObserverStatus = WarnTargetObserverStatus;
@@ -4162,6 +4205,7 @@ namespace
 			OptionalCommandLineArg("--botbench-shadow-policy-set"),
 			OptionalCommandLineArg("--botbench-pawn-vision-cone"),
 			OptionalCommandLineArg("--botbench-pawn-vision-observer"),
+			OptionalCommandLineArg("--botbench-vector-nonfinite-observer"),
 			OptionalCommandLineArg("--botbench-finite-move-command-guard"));
 	}
 }

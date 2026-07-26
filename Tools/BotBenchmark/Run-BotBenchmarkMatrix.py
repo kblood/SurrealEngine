@@ -50,6 +50,7 @@ class Variant:
     inventory_direct_reach_support_observer_enabled: bool = False
     pawn_vision_cone_enabled: bool = False
     pawn_vision_observer_enabled: bool = False
+    vector_nonfinite_observer_enabled: bool = False
     finite_move_command_guard_enabled: bool = False
 
 
@@ -284,6 +285,10 @@ def load_matrix(path: Path) -> MatrixConfig:
         if not isinstance(pawn_vision_observer_enabled, bool):
             raise MatrixError(
                 f"matrix.variants[{index}].pawn_vision_observer_enabled must be a boolean")
+        vector_nonfinite_observer_enabled = fields.get("vector_nonfinite_observer_enabled", False)
+        if not isinstance(vector_nonfinite_observer_enabled, bool):
+            raise MatrixError(
+                f"matrix.variants[{index}].vector_nonfinite_observer_enabled must be a boolean")
         finite_move_command_guard_enabled = fields.get("finite_move_command_guard_enabled", False)
         if not isinstance(finite_move_command_guard_enabled, bool):
             raise MatrixError(
@@ -295,6 +300,7 @@ def load_matrix(path: Path) -> MatrixConfig:
             targetless_move_to_timeout_enabled, direct_actor_move_toward_timeout_enabled,
             target_selection_observer_enabled, inventory_direct_reach_support_observer_enabled,
             pawn_vision_cone_enabled, pawn_vision_observer_enabled,
+            vector_nonfinite_observer_enabled,
             finite_move_command_guard_enabled))
     ids = [variant.id for variant in variants]
     if len(ids) != len(set(ids)):
@@ -469,6 +475,7 @@ def expand_cases(config: MatrixConfig) -> list[MatrixCase]:
                                  variant.inventory_direct_reach_support_observer_enabled,
                                  variant.pawn_vision_cone_enabled,
                                  variant.pawn_vision_observer_enabled,
+                                 variant.vector_nonfinite_observer_enabled,
                                  variant.finite_move_command_guard_enabled]
                     run_id = (
                         f"{ordinal:06d}-{_slug(variant.id)}-{_slug(map_url)}-"
@@ -522,6 +529,8 @@ def command_for(config: MatrixConfig, case: MatrixCase, run_directory: Path) -> 
             "1" if case.variant.pawn_vision_cone_enabled else "0"),
         "--botbench-pawn-vision-observer=" + (
             "1" if case.variant.pawn_vision_observer_enabled else "0"),
+        "--botbench-vector-nonfinite-observer=" + (
+            "1" if case.variant.vector_nonfinite_observer_enabled else "0"),
         "--botbench-finite-move-command-guard=" + (
             "1" if case.variant.finite_move_command_guard_enabled else "0"),
     ]
@@ -684,6 +693,7 @@ def _preflight_provenance(
                 variant.inventory_direct_reach_support_observer_enabled),
             "pawn_vision_cone_enabled": variant.pawn_vision_cone_enabled,
             "pawn_vision_observer_enabled": variant.pawn_vision_observer_enabled,
+            "vector_nonfinite_observer_enabled": variant.vector_nonfinite_observer_enabled,
             "finite_move_command_guard_enabled": variant.finite_move_command_guard_enabled,
             "executable": _file_provenance(variant.executable),
         })
@@ -752,6 +762,7 @@ def _run_case(
         "inventory_direct_reach_support_observer_enabled": (
             case.variant.inventory_direct_reach_support_observer_enabled),
         "pawn_vision_cone_enabled": case.variant.pawn_vision_cone_enabled,
+        "vector_nonfinite_observer_enabled": case.variant.vector_nonfinite_observer_enabled,
         "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
         "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
     }
@@ -796,6 +807,7 @@ def _run_case(
             case.variant.inventory_direct_reach_support_observer_enabled),
         "pawn_vision_cone_enabled": case.variant.pawn_vision_cone_enabled,
         "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
+        "vector_nonfinite_observer_enabled": case.variant.vector_nonfinite_observer_enabled,
         "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
         "command": command,
     })
@@ -868,6 +880,7 @@ def _run_case(
             case.variant.inventory_direct_reach_support_observer_enabled),
         "pawn_vision_cone_enabled": case.variant.pawn_vision_cone_enabled,
         "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
+        "vector_nonfinite_observer_enabled": case.variant.vector_nonfinite_observer_enabled,
         "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
         "exit_code": launch.exit_code,
         "timed_out": launch.timed_out,
@@ -918,6 +931,7 @@ def dry_run_plan(config: MatrixConfig, output: Path) -> dict[str, Any]:
             "inventory_direct_reach_support_observer_enabled": (
                 case.variant.inventory_direct_reach_support_observer_enabled),
             "pawn_vision_cone_enabled": case.variant.pawn_vision_cone_enabled,
+            "vector_nonfinite_observer_enabled": case.variant.vector_nonfinite_observer_enabled,
             "pawn_vision_observer_enabled": case.variant.pawn_vision_observer_enabled,
             "finite_move_command_guard_enabled": case.variant.finite_move_command_guard_enabled,
             "command": command_for(config, case, runs_directory / case.run_id),

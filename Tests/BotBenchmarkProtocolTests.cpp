@@ -33,6 +33,7 @@ int main()
 		|| defaults.IsDirectReachCommandObserverEnabled()
 		|| defaults.IsPawnVisionConeEnabled()
 		|| defaults.IsPawnVisionObserverEnabled()
+		|| defaults.IsVectorNonFiniteObserverEnabled()
 		|| defaults.IsFiniteMoveCommandGuardEnabled())
 		return Fail("default bot benchmark configuration or roster was incorrect");
 	if (defaults.GetShadowPolicySet() != std::vector<std::string>{ "tactical-state", "utility-arena" })
@@ -225,6 +226,7 @@ int main()
 		"    \"direct_reach_command_observer_enabled\": false,\n"
 		"    \"pawn_vision_cone_enabled\": false,\n"
 		"    \"pawn_vision_observer_enabled\": false,\n"
+		"    \"vector_nonfinite_observer_enabled\": false,\n"
 		"    \"finite_move_command_guard_enabled\": false\n"
 		"  }\n"
 		"}\n";

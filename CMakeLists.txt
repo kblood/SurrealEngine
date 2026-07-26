@@ -661,6 +661,9 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnPathCost.h
 	SurrealEngine/UObject/PawnFiniteMoveCommandGuard.cpp
 	SurrealEngine/UObject/PawnFiniteMoveCommandGuard.h
+	SurrealEngine/UObject/PawnVectorNonFiniteObserver.cpp
+	SurrealEngine/UObject/PawnVectorNonFiniteClassification.cpp
+	SurrealEngine/UObject/PawnVectorNonFiniteObserver.h
 	SurrealEngine/UObject/PawnVisionCone.cpp
 	SurrealEngine/UObject/PawnVisionCone.h
 	SurrealEngine/UObject/PawnWallAdjustment.cpp
@@ -1797,6 +1800,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PawnFiniteMoveCommandGuardTests PRIVATE SurrealEngine)
 	set_target_properties(PawnFiniteMoveCommandGuardTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnFiniteMoveCommandGuard COMMAND PawnFiniteMoveCommandGuardTests)
+
+	add_executable(PawnVectorNonFiniteObserverTests
+		Tests/PawnVectorNonFiniteObserverTests.cpp
+		SurrealEngine/UObject/PawnVectorNonFiniteClassification.cpp
+	)
+	target_include_directories(PawnVectorNonFiniteObserverTests PRIVATE SurrealEngine)
+	set_target_properties(PawnVectorNonFiniteObserverTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnVectorNonFiniteObserver COMMAND PawnVectorNonFiniteObserverTests)
 
 	add_executable(PawnWallAdjustRecoveryTests
 		Tests/PawnWallAdjustRecoveryTests.cpp

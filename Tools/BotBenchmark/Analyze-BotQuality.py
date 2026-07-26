@@ -567,6 +567,12 @@ PAWN_CAN_SEE_COUNTERS = (
     "pawn_can_see_integrity_failures_exact",
 )
 OPTIONAL_EXACT_COUNTERS += PAWN_CAN_SEE_COUNTERS
+VECTOR_NONFINITE_COUNTERS = (
+    "vector_nonfinite_observations_exact",
+    "vector_nonfinite_observation_overflows_exact",
+    "vector_nonfinite_integrity_failures_exact",
+)
+OPTIONAL_EXACT_COUNTERS += VECTOR_NONFINITE_COUNTERS
 FINITE_MOVE_COMMAND_GUARD_COUNTERS = (
     "finite_move_command_guard_rejections_exact",
     "finite_move_command_guard_diagnostic_overflows_exact",
@@ -631,6 +637,7 @@ OPTIONAL_DIAGNOSTIC_FIELDS = (
     "move_stall_recovery_episodes", "move_stall_recovery_decisions",
     "walking_hitwall_dispatch_diagnostics", "target_selection_records", "pick_target_records",
     "pawn_can_see_records",
+    "vector_nonfinite_records",
     "finite_move_command_guard_diagnostics",
     "inventory_direct_reach_support_diagnostics",
 )
@@ -3109,6 +3116,7 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                direct_reach_command_observer_enabled: bool | None = None,
                pawn_vision_cone_enabled: bool | None = None,
                pawn_vision_observer_enabled: bool | None = None,
+               vector_nonfinite_observer_enabled: bool | None = None,
                shadow_policy_set: list[str] | None = None,
                finite_move_command_guard_enabled: bool | None = None) -> str:
     canonical_text = (
@@ -3176,6 +3184,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if pawn_vision_observer_enabled is not None:
             canonical_text += "pawn_vision_observer_enabled=" + (
                 "1\n" if pawn_vision_observer_enabled else "0\n")
+        if vector_nonfinite_observer_enabled is not None:
+            canonical_text += "vector_nonfinite_observer_enabled=" + (
+                "1\n" if vector_nonfinite_observer_enabled else "0\n")
         if finite_move_command_guard_enabled is not None:
             canonical_text += "finite_move_command_guard_enabled=" + (
                 "1\n" if finite_move_command_guard_enabled else "0\n")
@@ -3340,6 +3351,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     direct_reach_command_observer_enabled = None
     pawn_vision_cone_enabled = None
     pawn_vision_observer_enabled = None
+    vector_nonfinite_observer_enabled = None
     finite_move_command_guard_enabled = None
     shadow_policy_set = None
     build_identity = None
@@ -3441,6 +3453,10 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             pawn_vision_observer_enabled = _boolean(
                 raw.get("pawn_vision_observer_enabled"),
                 "manifest.pawn_vision_observer_enabled")
+        if "vector_nonfinite_observer_enabled" in raw:
+            vector_nonfinite_observer_enabled = _boolean(
+                raw.get("vector_nonfinite_observer_enabled"),
+                "manifest.vector_nonfinite_observer_enabled")
         if "finite_move_command_guard_enabled" in raw:
             finite_move_command_guard_enabled = _boolean(
                 raw.get("finite_move_command_guard_enabled"),
@@ -3471,6 +3487,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              direct_reach_command_observer_enabled,
                              pawn_vision_cone_enabled,
                              pawn_vision_observer_enabled,
+                             vector_nonfinite_observer_enabled,
                              shadow_policy_set,
                              finite_move_command_guard_enabled)
     if config_id != expected_id:
@@ -3512,6 +3529,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "direct_reach_command_observer_enabled": direct_reach_command_observer_enabled,
         "pawn_vision_cone_enabled": pawn_vision_cone_enabled,
         "pawn_vision_observer_enabled": pawn_vision_observer_enabled,
+        "vector_nonfinite_observer_enabled": vector_nonfinite_observer_enabled,
         "finite_move_command_guard_enabled": finite_move_command_guard_enabled,
         "shadow_policy_set": shadow_policy_set,
     }
@@ -4290,6 +4308,74 @@ def _validate_bot(raw: Any, context: str, schema: str,
             result["pawn_can_see_records"] = parsed_records
         elif pawn_can_see_present:
             raise QualityError(f"{context}: Pawn.CanSee counter group requires records")
+        vector_nonfinite_present = [
+            name for name in VECTOR_NONFINITE_COUNTERS if name in result]
+        if vector_nonfinite_present and len(vector_nonfinite_present) != len(
+                VECTOR_NONFINITE_COUNTERS):
+            raise QualityError(
+                f"{context}: vector non-finite observer counters must be provided as a complete group")
+        if "vector_nonfinite_records" in bot:
+            if len(vector_nonfinite_present) != len(VECTOR_NONFINITE_COUNTERS):
+                raise QualityError(
+                    f"{context}: vector non-finite observer records require the complete counter group")
+            records = bot.get("vector_nonfinite_records")
+            if not isinstance(records, list):
+                raise QualityError(f"{context}.vector_nonfinite_records must be an array")
+            parsed_records = []
+            operations = {
+                "add_vector_vector", "add_equal_vector_vector", "subtract_vector_vector",
+                "subtract_equal_vector_vector", "subtract_pre_vector", "multiply_vector_float",
+                "multiply_float_vector", "multiply_vector_vector", "multiply_equal_vector_float",
+                "multiply_equal_vector_vector", "divide_vector_float",
+                "divide_equal_vector_float", "normal",
+            }
+            classes = {"finite", "nan", "negative_infinity", "positive_infinity", "mixed"}
+            for index, record in enumerate(records):
+                record_context = f"{context}.vector_nonfinite_records[{index}]"
+                item = _object(record, record_context)
+                operation = _string(item, "operation", record_context, nonempty=True)
+                if operation not in operations:
+                    raise QualityError(f"{record_context}: vector operation is not recognized")
+                values = {
+                    name: _string(item, name, record_context, nonempty=True)
+                    for name in ("left_vector_class", "right_vector_class", "scalar_class",
+                                 "result_vector_class")
+                }
+                if any(value not in classes for value in values.values()):
+                    raise QualityError(f"{record_context}: vector finite classification is not recognized")
+                right_present = _boolean(item.get("right_vector_present"),
+                                         f"{record_context}.right_vector_present")
+                scalar_present = _boolean(item.get("scalar_present"),
+                                          f"{record_context}.scalar_present")
+                if not right_present and values["right_vector_class"] != "finite":
+                    raise QualityError(f"{record_context}: absent right vector must be finite")
+                if not scalar_present and values["scalar_class"] != "finite":
+                    raise QualityError(f"{record_context}: absent scalar must be finite")
+                if all(value == "finite" for value in values.values()):
+                    raise QualityError(f"{record_context}: observer record has no non-finite value")
+                parsed_records.append({
+                    "sequence": _integer(item.get("sequence"), f"{record_context}.sequence", minimum=1),
+                    "observer_tick": _integer(item.get("observer_tick"),
+                                              f"{record_context}.observer_tick", minimum=0),
+                    "caller_invocation_token": _integer(item.get("caller_invocation_token"),
+                                                         f"{record_context}.caller_invocation_token", minimum=1),
+                    "source_life_id": _integer(item.get("source_life_id"),
+                                               f"{record_context}.source_life_id", minimum=0),
+                    "source_actor_index": _strict_integer(item.get("source_actor_index"),
+                                                          f"{record_context}.source_actor_index", minimum=0),
+                    "operation": operation,
+                    **values,
+                    "right_vector_present": right_present,
+                    "scalar_present": scalar_present,
+                    "integrity_valid": _boolean(item.get("integrity_valid"),
+                                                f"{record_context}.integrity_valid"),
+                    "caller_class": _string(item, "caller_class", record_context, nonempty=True),
+                    "caller_function": _string(item, "caller_function", record_context, nonempty=True),
+                })
+            result["vector_nonfinite_records"] = parsed_records
+        elif vector_nonfinite_present:
+            raise QualityError(
+                f"{context}: vector non-finite observer counter group requires records")
         finite_move_guard_present = [
             name for name in FINITE_MOVE_COMMAND_GUARD_COUNTERS if name in result]
         if finite_move_guard_present and len(finite_move_guard_present) != len(
@@ -4751,6 +4837,21 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 event["pawn_vision_observer"] = {"status": "active"}
             elif "pawn_vision_observer" in raw:
                 raise QualityError(f"{context}: Pawn.CanSee observer telemetry is present while disabled")
+            vector_nonfinite_observer_requested = (
+                manifest.get("vector_nonfinite_observer_enabled") is True)
+            if vector_nonfinite_observer_requested:
+                observer = _object(raw.get("vector_nonfinite_observer"),
+                                   f"{context}.vector_nonfinite_observer")
+                if _boolean(observer.get("requested"),
+                            f"{context}.vector_nonfinite_observer.requested") is not True:
+                    raise QualityError(f"{context}: vector non-finite observer must be requested")
+                if _string(observer, "status", f"{context}.vector_nonfinite_observer",
+                           nonempty=True) != "active":
+                    raise QualityError(f"{context}: vector non-finite observer is not active")
+                event["vector_nonfinite_observer"] = {"status": "active"}
+            elif "vector_nonfinite_observer" in raw:
+                raise QualityError(
+                    f"{context}: vector non-finite observer telemetry is present while disabled")
             warn_target_observer_requested = manifest.get("warn_target_observer_enabled") is True
             if warn_target_observer_requested:
                 observer = _object(raw.get("warn_target_observer"),
@@ -4967,6 +5068,55 @@ def _load_events(path: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
                     raise QualityError(f"{path}: Pawn.CanSee records do not reconcile {counter}")
             if records and sequences[bot["identity"]] != records:
                 raise QualityError(f"{path}: Pawn.CanSee record sequence is not contiguous")
+    vector_nonfinite_observer_enabled = (
+        manifest.get("vector_nonfinite_observer_enabled") is True)
+    for event in events:
+        for bot in event["bots"]:
+            fields_present = any(name in bot for name in VECTOR_NONFINITE_COUNTERS) \
+                or "vector_nonfinite_records" in bot
+            if vector_nonfinite_observer_enabled:
+                if any(name not in bot for name in VECTOR_NONFINITE_COUNTERS) \
+                        or "vector_nonfinite_records" not in bot:
+                    raise QualityError(
+                        f"{path}: enabled vector non-finite observer lacks complete evidence")
+            elif fields_present:
+                raise QualityError(
+                    f"{path}: vector non-finite observer telemetry is present while disabled")
+    if vector_nonfinite_observer_enabled:
+        sequences: dict[str, int] = {}
+        record_counts: dict[str, int] = {}
+        integrity_failures: dict[str, int] = {}
+        for event in events:
+            for bot in event["bots"]:
+                for record in bot["vector_nonfinite_records"]:
+                    prior = sequences.get(bot["identity"], 0)
+                    if record["sequence"] <= prior:
+                        raise QualityError(
+                            f"{path}: vector non-finite observer record sequence did not increase")
+                    sequences[bot["identity"]] = record["sequence"]
+                    record_counts[bot["identity"]] = record_counts.get(bot["identity"], 0) + 1
+                    integrity_failures[bot["identity"]] = (
+                        integrity_failures.get(bot["identity"], 0)
+                        + int(not record["integrity_valid"]))
+        for bot in events[-1]["bots"]:
+            records = record_counts.get(bot["identity"], 0)
+            overflow = bot["vector_nonfinite_observation_overflows_exact"]
+            if bot["vector_nonfinite_observations_exact"] != records + overflow:
+                raise QualityError(
+                    f"{path}: vector non-finite observations do not reconcile records")
+            if overflow or bot["vector_nonfinite_integrity_failures_exact"]:
+                raise QualityError(
+                    f"{path}: active vector non-finite observer has incomplete evidence")
+            if bot["vector_nonfinite_integrity_failures_exact"] != \
+                    integrity_failures.get(bot["identity"], 0):
+                raise QualityError(
+                    f"{path}: vector non-finite observer integrity failures do not reconcile")
+            if records and sequences[bot["identity"]] != records:
+                raise QualityError(
+                    f"{path}: vector non-finite observer record sequence is not contiguous")
+            if records:
+                raise QualityError(
+                    f"{path}: vector non-finite observer detected UnrealScript arithmetic")
     finite_move_guard_enabled = manifest.get("finite_move_command_guard_enabled") is True
     for event in events:
         for bot in event["bots"]:
@@ -5421,6 +5571,10 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["pawn_vision_observer_enabled"] = _boolean(
             config.get("pawn_vision_observer_enabled"),
             "summary.config.pawn_vision_observer_enabled")
+    if manifest["vector_nonfinite_observer_enabled"] is not None:
+        comparisons["vector_nonfinite_observer_enabled"] = _boolean(
+            config.get("vector_nonfinite_observer_enabled"),
+            "summary.config.vector_nonfinite_observer_enabled")
     if manifest["finite_move_command_guard_enabled"] is not None:
         comparisons["finite_move_command_guard_enabled"] = _boolean(
             config.get("finite_move_command_guard_enabled"),
@@ -6228,6 +6382,8 @@ def analyze_run(path: Path) -> dict[str, Any]:
                 manifest["reachspec_capability_observer_enabled"]),
             "pawn_vision_cone_enabled": manifest["pawn_vision_cone_enabled"],
             "pawn_vision_observer_enabled": manifest["pawn_vision_observer_enabled"],
+            "vector_nonfinite_observer_enabled": (
+                manifest["vector_nonfinite_observer_enabled"]),
             "shadow_policy_set": manifest["shadow_policy_set"],
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),

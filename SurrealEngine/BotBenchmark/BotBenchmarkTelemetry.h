@@ -10,6 +10,7 @@
 #include "UObject/PawnHazardWaterEgressObserver.h"
 #include "UObject/PawnMoveStallWatchdog.h"
 #include "UObject/PawnFiniteMoveCommandGuard.h"
+#include "UObject/PawnVectorNonFiniteObserver.h"
 
 #include <array>
 #include <cstdint>
@@ -247,6 +248,25 @@ struct BotBenchmarkFiniteMoveCommandGuardRecord
 	bool PriorFocusFinite = false;
 };
 
+struct BotBenchmarkVectorNonFiniteRecord
+{
+	uint64_t Sequence = 0;
+	uint64_t ObserverTick = 0;
+	uint64_t CallerInvocationToken = 0;
+	uint64_t SourceLifeId = 0;
+	int32_t SourceActorIndex = -1;
+	std::string Operation;
+	std::string LeftVectorClass;
+	std::string RightVectorClass;
+	std::string ScalarClass;
+	std::string ResultVectorClass;
+	bool RightVectorPresent = false;
+	bool ScalarPresent = false;
+	bool IntegrityValid = true;
+	std::string CallerClass;
+	std::string CallerFunction;
+};
+
 struct BotBenchmarkBotState
 {
 	std::string Identity;
@@ -311,6 +331,10 @@ struct BotBenchmarkBotState
 	uint64_t PawnCanSeeObservationOverflowsExact = 0;
 	uint64_t PawnCanSeeIntegrityFailuresExact = 0;
 	std::vector<BotBenchmarkPawnCanSeeRecord> PawnCanSeeRecords;
+	uint64_t VectorNonFiniteObservationsExact = 0;
+	uint64_t VectorNonFiniteObservationOverflowsExact = 0;
+	uint64_t VectorNonFiniteIntegrityFailuresExact = 0;
+	std::vector<BotBenchmarkVectorNonFiniteRecord> VectorNonFiniteRecords;
 	uint64_t WarnTargetObservationsExact = 0;
 	uint64_t TryToDuckObservationsExact = 0;
 	uint64_t WarnTargetExactNestedTryToDuckLinksExact = 0;
@@ -586,6 +610,7 @@ struct BotBenchmarkTelemetryEvent
 	std::string TargetSelectionObserverReason;
 	bool PickTargetObserverRequested = false;
 	bool PawnVisionObserverRequested = false;
+	bool VectorNonFiniteObserverRequested = false;
 	bool WarnTargetObserverRequested = false;
 	std::string WarnTargetObserverStatus;
 	std::string WarnTargetObserverReason;
