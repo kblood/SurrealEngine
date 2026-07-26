@@ -1057,7 +1057,7 @@ void PackageManager::RegisterNativeClasses()
 		RegisterNativeClass<UDeusExLevelInfo>(deusExPackage, "DeusExLevelInfo", "Info");
 		RegisterNativeClass<UDXTextParser>(deusExTextPackage, "DeusExTextParser", "Object");
 		RegisterNativeClass<UDXSaveInfo>(deusExPackage, "DeusExSaveInfo", "Object");
-		RegisterNativeClass<UGC>(enginePackage, "GC", "ExtensionObject");
+		RegisterNativeClass<UGC>(extensionPackage, "GC", "ExtensionObject");
 		RegisterNativeClass<UWindow>(extensionPackage, "Window", "ExtensionObject");
 		RegisterNativeClass<UViewportWindow>(extensionPackage, "ViewportWindow", "Window");
 		RegisterNativeClass<UToggleWindow>(extensionPackage, "ToggleWindow", "ButtonWindow");
