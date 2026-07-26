@@ -3092,6 +3092,7 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
                native_path_commit_observer_enabled: bool | None = None,
                reachspec_capability_observer_enabled: bool | None = None,
                direct_reach_command_observer_enabled: bool | None = None,
+               pawn_vision_cone_enabled: bool | None = None,
                shadow_policy_set: list[str] | None = None) -> str:
     canonical_text = (
         f"url={url}\nseed={seed}\nmax_ticks={max_ticks}\n"
@@ -3152,6 +3153,9 @@ def _config_id(url: str, seed: int, max_ticks: int, fixed_delta: float, difficul
         if direct_reach_command_observer_enabled is not None:
             canonical_text += "direct_reach_command_observer_enabled=" + (
                 "1\n" if direct_reach_command_observer_enabled else "0\n")
+        if pawn_vision_cone_enabled is not None:
+            canonical_text += "pawn_vision_cone_enabled=" + (
+                "1\n" if pawn_vision_cone_enabled else "0\n")
         if shadow_policy_set is not None:
             canonical_text += "".join(f"shadow_policy={policy}\n" for policy in shadow_policy_set)
         assert requested_roster is not None
@@ -3311,6 +3315,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
     native_path_commit_observer_enabled = None
     reachspec_capability_observer_enabled = None
     direct_reach_command_observer_enabled = None
+    pawn_vision_cone_enabled = None
     shadow_policy_set = None
     build_identity = None
     if schema == MANIFEST_SCHEMA_V3:
@@ -3404,6 +3409,9 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
             direct_reach_command_observer_enabled = _boolean(
                 raw.get("direct_reach_command_observer_enabled"),
                 "manifest.direct_reach_command_observer_enabled")
+        if "pawn_vision_cone_enabled" in raw:
+            pawn_vision_cone_enabled = _boolean(
+                raw.get("pawn_vision_cone_enabled"), "manifest.pawn_vision_cone_enabled")
         if schema == MANIFEST_SCHEMA_V3:
             shadow_policy_set = _validate_shadow_policy_set(
                 raw.get("shadow_policy_set"), "manifest.shadow_policy_set")
@@ -3428,6 +3436,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
                              native_path_commit_observer_enabled,
                              reachspec_capability_observer_enabled,
                              direct_reach_command_observer_enabled,
+                             pawn_vision_cone_enabled,
                              shadow_policy_set)
     if config_id != expected_id:
         raise QualityError(f"{path}: config_id does not match the manifest configuration")
@@ -3466,6 +3475,7 @@ def _validate_manifest(path: Path) -> dict[str, Any]:
         "native_path_commit_observer_enabled": native_path_commit_observer_enabled,
         "reachspec_capability_observer_enabled": reachspec_capability_observer_enabled,
         "direct_reach_command_observer_enabled": direct_reach_command_observer_enabled,
+        "pawn_vision_cone_enabled": pawn_vision_cone_enabled,
         "shadow_policy_set": shadow_policy_set,
     }
 
@@ -5153,6 +5163,9 @@ def _validate_summary(path: Path, manifest: dict[str, Any], events: list[dict[st
         comparisons["direct_reach_command_observer_enabled"] = _boolean(
             config.get("direct_reach_command_observer_enabled"),
             "summary.config.direct_reach_command_observer_enabled")
+    if manifest["pawn_vision_cone_enabled"] is not None:
+        comparisons["pawn_vision_cone_enabled"] = _boolean(
+            config.get("pawn_vision_cone_enabled"), "summary.config.pawn_vision_cone_enabled")
     if manifest["pick_target_predicate_mode"] is not None:
         comparisons["pick_target_predicate_mode"] = _string(
             config, "pick_target_predicate_mode", "summary.config", nonempty=True)
@@ -5954,6 +5967,7 @@ def analyze_run(path: Path) -> dict[str, Any]:
                 manifest["native_path_commit_observer_enabled"]),
             "reachspec_capability_observer_enabled": (
                 manifest["reachspec_capability_observer_enabled"]),
+            "pawn_vision_cone_enabled": manifest["pawn_vision_cone_enabled"],
             "shadow_policy_set": manifest["shadow_policy_set"],
             "death_attribution_recent_window_seconds": (
                 manifest["death_attribution_recent_window_seconds"]),

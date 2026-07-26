@@ -30,7 +30,8 @@ int main()
 		|| defaults.IsInventoryMarkerDirectReachSafetyEnabled()
 		|| defaults.IsNativePathCommitObserverEnabled()
 		|| defaults.IsReachSpecCapabilityObserverEnabled()
-		|| defaults.IsDirectReachCommandObserverEnabled())
+		|| defaults.IsDirectReachCommandObserverEnabled()
+		|| defaults.IsPawnVisionConeEnabled())
 		return Fail("default bot benchmark configuration or roster was incorrect");
 	if (defaults.GetShadowPolicySet() != std::vector<std::string>{ "tactical-state", "utility-arena" })
 		return Fail("default shadow policy set was not stable and canonical");
@@ -219,7 +220,8 @@ int main()
 		"    \"inventory_marker_direct_reach_safety_enabled\": false,\n"
 		"    \"native_path_commit_observer_enabled\": false,\n"
 		"    \"reachspec_capability_observer_enabled\": false,\n"
-		"    \"direct_reach_command_observer_enabled\": false\n"
+		"    \"direct_reach_command_observer_enabled\": false,\n"
+		"    \"pawn_vision_cone_enabled\": false\n"
 		"  }\n"
 		"}\n";
 	std::string serializedSummary = summary.ToJson(parsed);

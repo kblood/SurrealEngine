@@ -1520,7 +1520,9 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< "reachspec_capability_observer_enabled="
 		<< (config.IsReachSpecCapabilityObserverEnabled() ? "1" : "0") << '\n'
 		<< "direct_reach_command_observer_enabled="
-		<< (config.IsDirectReachCommandObserverEnabled() ? "1" : "0") << '\n';
+		<< (config.IsDirectReachCommandObserverEnabled() ? "1" : "0") << '\n'
+		<< "pawn_vision_cone_enabled="
+		<< (config.IsPawnVisionConeEnabled() ? "1" : "0") << '\n';
 	for (const std::string& policy : config.GetShadowPolicySet())
 		canonical << "shadow_policy=" << policy << '\n';
 	for (const auto& participant : config.GetRoster().GetParticipants())
@@ -1592,6 +1594,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsReachSpecCapabilityObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"direct_reach_command_observer_enabled\": "
 		<< (config.IsDirectReachCommandObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"pawn_vision_cone_enabled\": "
+		<< (config.IsPawnVisionConeEnabled() ? "true" : "false") << ",\n"
 		<< "  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
 		<< "  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		<< "}\n";

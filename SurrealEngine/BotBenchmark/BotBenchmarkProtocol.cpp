@@ -201,7 +201,8 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
 	bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled,
 	bool pickTargetObserverEnabled, bool warnTargetObserverEnabled,
-	bool reachSpecCapabilityObserverEnabled, std::vector<std::string> shadowPolicySet)
+	bool reachSpecCapabilityObserverEnabled, bool pawnVisionConeEnabled,
+	std::vector<std::string> shadowPolicySet)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
 	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
 	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled),
@@ -220,7 +221,8 @@ BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string output
 	InventoryMarkerDirectReachSafetyEnabled(inventoryMarkerDirectReachSafetyEnabled),
 	DirectReachCommandObserverEnabled(directReachCommandObserverEnabled),
 	PickTargetObserverEnabled(pickTargetObserverEnabled),
-	WarnTargetObserverEnabled(warnTargetObserverEnabled), ShadowPolicySet(std::move(shadowPolicySet))
+	WarnTargetObserverEnabled(warnTargetObserverEnabled),
+	PawnVisionConeEnabled(pawnVisionConeEnabled), ShadowPolicySet(std::move(shadowPolicySet))
 {
 }
 
@@ -242,7 +244,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	std::optional<std::string> directReachCommandObserver,
 	std::optional<std::string> pickTargetObserver,
 	std::optional<std::string> warnTargetObserver,
-	std::optional<std::string> reachSpecCapabilityObserver, std::optional<std::string> shadowPolicySet)
+	std::optional<std::string> reachSpecCapabilityObserver, std::optional<std::string> shadowPolicySet,
+	std::optional<std::string> pawnVisionCone)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -307,6 +310,8 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 	const bool parsedDirectReachCommandObserver = ParseExactBoolean(
 		directReachCommandObserver, "bot benchmark direct-reach command observer");
 	const std::vector<std::string> parsedShadowPolicySet = ParseShadowPolicySet(shadowPolicySet);
+	const bool parsedPawnVisionCone = ParseExactBoolean(
+		pawnVisionCone, "bot benchmark pawn vision cone");
 
 	return BotBenchmarkRunConfig(std::move(url), std::move(outputDirectory), parsedSeed,
 		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster), parsedHarmfulZoneEscape,
@@ -317,7 +322,7 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		parsedTargetSelectionObserver, parsedInventoryDirectReachSupportObserver,
 		parsedNativePathCommitObserver, parsedInventoryMarkerDirectReachSafety,
 		parsedDirectReachCommandObserver, parsedPickTargetObserver, parsedWarnTargetObserver,
-		parsedReachSpecCapabilityObserver, parsedShadowPolicySet);
+		parsedReachSpecCapabilityObserver, parsedPawnVisionCone, parsedShadowPolicySet);
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
@@ -440,7 +445,9 @@ std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) 
 		<< "    \"reachspec_capability_observer_enabled\": "
 		<< (config.IsReachSpecCapabilityObserverEnabled() ? "true" : "false") << ",\n"
 		<< "    \"direct_reach_command_observer_enabled\": "
-		<< (config.IsDirectReachCommandObserverEnabled() ? "true" : "false") << "\n"
+		<< (config.IsDirectReachCommandObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"pawn_vision_cone_enabled\": "
+		<< (config.IsPawnVisionConeEnabled() ? "true" : "false") << "\n"
 		<< "  }\n"
 		<< "}\n";
 	return out.str();

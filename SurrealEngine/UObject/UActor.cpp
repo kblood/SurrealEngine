@@ -4756,9 +4756,23 @@ bool UPawn::CanSee(UActor* other)
 	if (length(origin - eye_pos) > SightRadius())
 		return false;
 
-	if (!PawnMovement::IsWithinPawnVisionCone(Location(), Coords::Rotation(Rotation()).XAxis,
-		origin, PeripheralVision()))
-		return false;
+	if (engine && engine->IsBotBenchmarkPawnVisionConeEnabled())
+	{
+		if (!PawnMovement::IsWithinPawnVisionCone(Location(), Coords::Rotation(Rotation()).XAxis,
+			origin, PeripheralVision()))
+		{
+			return false;
+		}
+	}
+	else
+	{
+		// Preserve the stock vision-cone behavior unless the benchmark explicitly opts in.
+		vec3 orientation = Coords::Rotation(Rotation()).XAxis;
+		float cosine = dot(normalize(orientation), normalize(origin));
+		const float peripheralVision = PeripheralVision();
+		if (peripheralVision > 0.0f && std::abs(cosine) > peripheralVision)
+			return false;
+	}
 
 	return FastTrace(origin, eye_pos) || FastTrace(top, eye_pos) || FastTrace(bottom, eye_pos);
 }

@@ -103,6 +103,7 @@ namespace
 				Config.IsReachSpecCapabilityObserverEnabled());
 			EngineRef.SetBotBenchmarkDirectReachCommandObserverEnabled(
 				Config.IsDirectReachCommandObserverEnabled());
+			EngineRef.SetBotBenchmarkPawnVisionConeEnabled(Config.IsPawnVisionConeEnabled());
 		}
 
 		~BotBenchmarkDriver() override
@@ -4072,7 +4073,8 @@ namespace
 			OptionalCommandLineArg("--botbench-pick-target-observer"),
 			OptionalCommandLineArg("--botbench-warn-target-observer"),
 			OptionalCommandLineArg("--botbench-reachspec-capability-observer"),
-			OptionalCommandLineArg("--botbench-shadow-policy-set"));
+			OptionalCommandLineArg("--botbench-shadow-policy-set"),
+			OptionalCommandLineArg("--botbench-pawn-vision-cone"));
 	}
 }
 

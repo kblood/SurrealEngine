@@ -52,7 +52,8 @@ public:
 		std::optional<std::string> pickTargetObserver = {},
 		std::optional<std::string> warnTargetObserver = {},
 		std::optional<std::string> reachSpecCapabilityObserver = {},
-		std::optional<std::string> shadowPolicySet = {});
+		std::optional<std::string> shadowPolicySet = {},
+		std::optional<std::string> pawnVisionCone = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -97,6 +98,7 @@ public:
 		return ReachSpecCapabilityObserverEnabled;
 	}
 	bool IsDirectReachCommandObserverEnabled() const { return DirectReachCommandObserverEnabled; }
+	bool IsPawnVisionConeEnabled() const { return PawnVisionConeEnabled; }
 	const std::vector<std::string>& GetShadowPolicySet() const { return ShadowPolicySet; }
 
 private:
@@ -110,7 +112,8 @@ private:
 		bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
 		bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled,
 		bool pickTargetObserverEnabled, bool warnTargetObserverEnabled,
-		bool reachSpecCapabilityObserverEnabled, std::vector<std::string> shadowPolicySet);
+		bool reachSpecCapabilityObserverEnabled, bool pawnVisionConeEnabled,
+		std::vector<std::string> shadowPolicySet);
 
 	std::string URL;
 	std::string OutputDirectory;
@@ -136,6 +139,7 @@ private:
 	bool NativePathCommitObserverEnabled = false;
 	bool ReachSpecCapabilityObserverEnabled = false;
 	bool DirectReachCommandObserverEnabled = false;
+	bool PawnVisionConeEnabled = false;
 	std::vector<std::string> ShadowPolicySet;
 };
 

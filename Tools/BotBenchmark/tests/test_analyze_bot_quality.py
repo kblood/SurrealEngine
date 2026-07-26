@@ -359,10 +359,12 @@ class BotQualityAnalysisTests(unittest.TestCase):
             manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
             manifest["build_identity"] = build_identity_fixture()
             manifest["shadow_policy_set"] = policies
+            manifest["pawn_vision_cone_enabled"] = False
             manifest["config_id"] = QUALITY._config_id(
                 manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
                 manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
-                manifest["requested_roster"], shadow_policy_set=policies)
+                manifest["requested_roster"], pawn_vision_cone_enabled=False,
+                shadow_policy_set=policies)
             manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
             events_path = run / "events.jsonl"
             raw_events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
@@ -374,12 +376,14 @@ class BotQualityAnalysisTests(unittest.TestCase):
 
             parsed = QUALITY._validate_manifest(manifest_path)
             self.assertEqual(parsed["shadow_policy_set"], policies)
+            self.assertFalse(parsed["pawn_vision_cone_enabled"])
 
             summary_path = run / "summary.json"
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
             summary["schema"] = QUALITY.SUMMARY_SCHEMA_V4
             summary["build_identity"] = manifest["build_identity"]
             summary["config"]["shadow_policy_set"] = policies
+            summary["config"]["pawn_vision_cone_enabled"] = False
             summary["ai_frame_timing"] = {
                 "schema": "surreal-bot-ai-frame-timing-v1",
                 "scope": "benchmark_observation_policy_driver_sampling",
@@ -400,6 +404,12 @@ class BotQualityAnalysisTests(unittest.TestCase):
             summary["config"]["shadow_policy_set"] = ["tactical-state", "utility-arena"]
             summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(QUALITY.QualityError, "shadow_policy_set differs"):
+                QUALITY._validate_summary(summary_path, parsed, events)
+
+            summary["config"]["shadow_policy_set"] = policies
+            summary["config"]["pawn_vision_cone_enabled"] = True
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "pawn_vision_cone_enabled differs"):
                 QUALITY._validate_summary(summary_path, parsed, events)
 
             manifest["shadow_policy_set"] = ["tactical-state", "utility-arena"]
@@ -427,6 +437,34 @@ class BotQualityAnalysisTests(unittest.TestCase):
                 manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
                 with self.assertRaisesRegex(QUALITY.QualityError, error):
                     QUALITY._validate_manifest(manifest_path)
+
+    def test_pawn_vision_cone_is_default_off_and_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "pawn-vision-cone")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            policies = ["tactical-state", "utility-arena"]
+            manifest["shadow_policy_set"] = policies
+            manifest["pawn_vision_cone_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], pawn_vision_cone_enabled=True,
+                shadow_policy_set=policies)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            self.assertTrue(QUALITY._validate_manifest(manifest_path)["pawn_vision_cone_enabled"])
+
+            manifest["pawn_vision_cone_enabled"] = False
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
+            manifest["pawn_vision_cone_enabled"] = "1"
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "manifest.pawn_vision_cone_enabled"):
+                QUALITY._validate_manifest(manifest_path)
 
     def test_reachspec_capability_observer_is_bound_into_manifest_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
