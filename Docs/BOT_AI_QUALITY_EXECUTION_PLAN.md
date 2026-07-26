@@ -3585,3 +3585,14 @@ no-progress seconds, and 46.61% coverage—the exact control values). It is not
 the explanation or remedy for this contact pattern. Keep both gates default-off
 and investigate falling and route-transition contacts directly before combining
 any control with pain-ledge recovery.
+
+## Iteration 140: Morbias cross-map non-regression
+
+The UT436 `DM-Morbias][` 16-bot, 1,200-tick seed-`271828` baseline and
+pain-ledge-gate candidate both complete with identical quality totals:
+K18/D18/S0, zero environmental and hazard-exposed deaths, 60 `HitWall`
+events, zero movement-intent stuck events, 12.567 no-progress seconds, and
+67.74% union navigation coverage. The gate performs zero recovery attempts on
+this map. This adds a clean cross-map inert/non-regression anchor, but does not
+resolve the active Deck16 collision trade-off and is not a reason to promote
+the gate from default-off.
