@@ -659,6 +659,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/PawnMoveToward.h
 	SurrealEngine/UObject/PawnPathCost.cpp
 	SurrealEngine/UObject/PawnPathCost.h
+	SurrealEngine/UObject/PawnVisionCone.cpp
+	SurrealEngine/UObject/PawnVisionCone.h
 	SurrealEngine/UObject/PawnWallAdjustment.cpp
 	SurrealEngine/UObject/PawnWallAdjustment.h
 	SurrealEngine/UObject/PawnWallAdjustRecovery.cpp
@@ -1777,6 +1779,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(PawnWalkingHitWallDispatchTests PRIVATE SurrealEngine)
 	set_target_properties(PawnWalkingHitWallDispatchTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME PawnWalkingHitWallDispatch COMMAND PawnWalkingHitWallDispatchTests)
+
+	add_executable(PawnVisionConeTests
+		Tests/PawnVisionConeTests.cpp
+		SurrealEngine/UObject/PawnVisionCone.cpp
+	)
+	target_include_directories(PawnVisionConeTests PRIVATE SurrealEngine)
+	set_target_properties(PawnVisionConeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnVisionCone COMMAND PawnVisionConeTests)
 
 	add_executable(PawnWallAdjustRecoveryTests
 		Tests/PawnWallAdjustRecoveryTests.cpp
