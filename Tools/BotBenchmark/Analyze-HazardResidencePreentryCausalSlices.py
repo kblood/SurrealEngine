@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 
-REPORT_SCHEMA = "surreal-bot-benchmark-hazard-residence-preentry-causal-slices-v1"
+REPORT_SCHEMA = "surreal-bot-benchmark-hazard-residence-preentry-causal-slices-v2"
 _FLAGS = (
     "native_path_commit_observer_enabled",
     "movement_command_provenance_observer_enabled",
@@ -95,7 +95,131 @@ def _validate_boundary(value: Any, context: str) -> tuple[bool, int]:
     return observed, tick
 
 
-def _ledger_lineage(record: Any, identity: str) -> tuple[int, int, int, str, list[dict[str, Any]]]:
+def _validate_identity(known: Any, actor_index: Any, name: Any, class_name: Any,
+                       context: str) -> tuple[bool, int, str, str]:
+    if not isinstance(known, bool):
+        raise CausalSliceError(f"{context}.known must be boolean")
+    index = _signed_integer(actor_index, f"{context}.actor_index", -1)
+    if not isinstance(name, str) or not isinstance(class_name, str):
+        raise CausalSliceError(f"{context} identity strings must be strings")
+    if known:
+        if index < 0:
+            raise CausalSliceError(f"{context} known identity has no actor index")
+        _known_string(name, f"{context}.name")
+        _known_string(class_name, f"{context}.class")
+    elif index != -1 or name or class_name:
+        raise CausalSliceError(f"{context} unknown identity has evidence")
+    return known, index, name, class_name
+
+
+def _validate_zone_identity(known: Any, actor_index: Any, zone_number: Any,
+                            context: str) -> tuple[bool, int, int]:
+    if not isinstance(known, bool):
+        raise CausalSliceError(f"{context}.known must be boolean")
+    index = _signed_integer(actor_index, f"{context}.actor_index", -1)
+    number = _signed_integer(zone_number, f"{context}.number", -1)
+    if known and (index < 0 or number < 0):
+        raise CausalSliceError(f"{context} known zone is incomplete")
+    if not known and (index != -1 or number != -1):
+        raise CausalSliceError(f"{context} unknown zone has evidence")
+    return known, index, number
+
+
+def _validate_route_trajectory(record: dict[str, Any], entry_command: dict[str, Any],
+                               identity: str) -> None:
+    path_known = record.get("preceding_path_commit_known")
+    if path_known is not True:
+        raise CausalSliceError(f"{identity}: preceding path commit is incomplete")
+    path_cache_clear = record.get("preceding_path_commit_cache_clear")
+    if not isinstance(path_cache_clear, bool):
+        raise CausalSliceError(f"{identity}.slice.preceding_path_commit_cache_clear must be boolean")
+    path_sequence = _integer(record.get("preceding_path_commit_sequence"),
+                             f"{identity}.slice.preceding_path_commit_sequence", 1)
+    path_reachspec = _signed_integer(record.get("preceding_path_commit_first_reachspec_index"),
+                                     f"{identity}.slice.preceding_path_commit_first_reachspec_index", -1)
+    if entry_command.get("last_native_path_commit_known") is not True or \
+            entry_command.get("last_native_path_commit_cache_clear") is not path_cache_clear or \
+            _integer(entry_command.get("last_native_path_commit_sequence"),
+                     f"{identity}.ledger.entry.last_native_path_commit_sequence", 1) != path_sequence or \
+            _signed_integer(entry_command.get("last_native_path_commit_first_reachspec_index"),
+                            f"{identity}.ledger.entry.last_native_path_commit_first_reachspec_index", -1) != path_reachspec:
+        raise CausalSliceError(f"{identity}: preceding path commit does not exactly join entry command")
+    route = _validate_identity(record.get("route_head_known"), record.get("route_head_actor_index"),
+                               record.get("route_head_name"), record.get("route_head_class"),
+                               f"{identity}.slice.route_head")
+    command_route = _validate_identity(entry_command.get("route_head_known"),
+                                       entry_command.get("route_head_actor_index"),
+                                       entry_command.get("route_head_name"),
+                                       entry_command.get("route_head_class"),
+                                       f"{identity}.ledger.entry.route_head")
+    path_route = _validate_identity(entry_command.get("last_native_path_commit_route_head_known"),
+                                    entry_command.get("last_native_path_commit_route_head_actor_index"),
+                                    entry_command.get("last_native_path_commit_route_head_name"),
+                                    entry_command.get("last_native_path_commit_route_head_class"),
+                                    f"{identity}.ledger.entry.last_native_path_commit_route_head")
+    route_from_path_commit = record.get("route_head_from_preceding_path_commit")
+    if not isinstance(route_from_path_commit, bool):
+        raise CausalSliceError(f"{identity}.slice.route_head_from_preceding_path_commit must be boolean")
+    expected_route = path_route if route_from_path_commit else command_route
+    if path_cache_clear:
+        if route[0] or route_from_path_commit:
+            raise CausalSliceError(f"{identity}: cache-clearing path commit retained a route head")
+    elif route != expected_route or not route[0]:
+        raise CausalSliceError(f"{identity}: route head does not exactly join its declared entry source")
+    if route_from_path_commit and command_route[0]:
+        raise CausalSliceError(f"{identity}: path-commit route head was selected despite a live entry route head")
+    target = _validate_identity(record.get("command_target_known"),
+                                record.get("command_target_actor_index"),
+                                record.get("command_target_name"), record.get("command_target_class"),
+                                f"{identity}.slice.command_target")
+    command_target = _validate_identity(entry_command.get("target_known"),
+                                        entry_command.get("target_actor_index"),
+                                        entry_command.get("target_name"), entry_command.get("target_class"),
+                                        f"{identity}.ledger.entry.target")
+    if target != command_target:
+        raise CausalSliceError(f"{identity}: command target does not exactly join entry command")
+    velocity = record.get("entry_velocity")
+    direction = record.get("entry_direction")
+    _validate_location(velocity, f"{identity}.slice.entry_velocity")
+    _validate_location(direction, f"{identity}.slice.entry_direction")
+    direction_known = record.get("entry_direction_known")
+    if not isinstance(direction_known, bool):
+        raise CausalSliceError(f"{identity}.slice.entry_direction_known must be boolean")
+    direction_squared = sum(float(direction[axis]) ** 2 for axis in ("x", "y", "z"))
+    if direction_known and not math.isclose(direction_squared, 1.0, abs_tol=1e-5):
+        raise CausalSliceError(f"{identity}: known entry direction is not normalized")
+    if not direction_known and direction_squared != 0.0:
+        raise CausalSliceError(f"{identity}: unknown entry direction has evidence")
+    if record.get("trajectory_input_finite") is not True or record.get("trajectory_complete") is not True \
+            or record.get("trajectory_result_finite") is not True:
+        raise CausalSliceError(f"{identity}: bounded trajectory is incomplete or non-finite")
+    classification = _integer(record.get("trajectory_classification"),
+                              f"{identity}.slice.trajectory_classification")
+    reason = _integer(record.get("trajectory_reason"), f"{identity}.slice.trajectory_reason")
+    if classification > 2 or reason > 20:
+        raise CausalSliceError(f"{identity}: trajectory enum is outside the declared model")
+    _number(record.get("trajectory_elapsed"), f"{identity}.slice.trajectory_elapsed")
+    _number(record.get("trajectory_path_distance"), f"{identity}.slice.trajectory_path_distance")
+    _integer(record.get("trajectory_segment_count"), f"{identity}.slice.trajectory_segment_count")
+    _integer(record.get("trajectory_sample_count"), f"{identity}.slice.trajectory_sample_count")
+    entry_zone = _validate_zone_identity(record.get("trajectory_entry_zone_known"),
+                                         record.get("trajectory_entry_zone_actor_index"),
+                                         record.get("trajectory_entry_zone_number"),
+                                         f"{identity}.slice.trajectory_entry_zone")
+    if not entry_zone[0] or entry_zone[1] != _signed_integer(record.get("zone_actor_index"),
+                                                               f"{identity}.slice.zone_actor_index", 0):
+        raise CausalSliceError(f"{identity}: trajectory entry zone does not join harmful entry zone")
+    _validate_zone_identity(record.get("trajectory_expected_harmful_foot_zone_known"),
+                            record.get("trajectory_expected_harmful_foot_zone_actor_index"),
+                            record.get("trajectory_expected_harmful_foot_zone_number"),
+                            f"{identity}.slice.trajectory_expected_harmful_foot_zone")
+    _validate_zone_identity(record.get("trajectory_expected_harmful_physics_zone_known"),
+                            record.get("trajectory_expected_harmful_physics_zone_actor_index"),
+                            record.get("trajectory_expected_harmful_physics_zone_number"),
+                            f"{identity}.slice.trajectory_expected_harmful_physics_zone")
+
+
+def _ledger_lineage(record: Any, identity: str) -> tuple[int, int, int, str, list[dict[str, Any]], dict[str, Any]]:
     if not isinstance(record, dict):
         raise CausalSliceError(f"{identity}: terminal ledger record is not an object")
     sequence = _integer(record.get("sequence"), f"{identity}.ledger.sequence", 1)
@@ -149,14 +273,14 @@ def _ledger_lineage(record: Any, identity: str) -> tuple[int, int, int, str, lis
         raise CausalSliceError(f"{identity}: terminal ledger entry token does not join")
     if _integer(record.get("terminal_command_token"), f"{identity}.ledger.terminal_command_token", 1) != prior_token:
         raise CausalSliceError(f"{identity}: terminal ledger terminal token does not join")
-    return sequence, episode_id, life_id, terminal, projected
+    return sequence, episode_id, life_id, terminal, projected, entries[0]["command"]
 
 
 def _validate_slice(record: Any, identity: str, expected_sequence: int,
                     ledger: tuple[int, int, int, str, list[dict[str, Any]]]) -> str:
     if not isinstance(record, dict):
         raise CausalSliceError(f"{identity}: causal slice record is not an object")
-    sequence, episode_id, life_id, terminal, ledger_lineage = ledger
+    sequence, episode_id, life_id, terminal, ledger_lineage, entry_command = ledger
     for field, expected in (("sequence", sequence), ("episode_id", episode_id), ("life_id", life_id)):
         if _integer(record.get(field), f"{identity}.slice.{field}", 1) != expected:
             raise CausalSliceError(f"{identity}: causal slice does not reconcile with terminal ledger {field}")
@@ -194,6 +318,7 @@ def _validate_slice(record: Any, identity: str, expected_sequence: int,
         raise CausalSliceError(f"{identity}: causal slice command lineage is missing")
     if lineage != ledger_lineage:
         raise CausalSliceError(f"{identity}: causal slice command lineage does not exactly reconcile with terminal ledger")
+    _validate_route_trajectory(record, entry_command, identity)
     return terminal
 
 

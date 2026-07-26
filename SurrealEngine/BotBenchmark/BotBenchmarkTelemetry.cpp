@@ -993,10 +993,20 @@ namespace
 					<< ",\"route_head_class\":" << JsonString(record.RouteHeadClass)
 					<< ",\"last_native_path_commit_known\":"
 					<< (record.LastNativePathCommitKnown ? "true" : "false")
+					<< ",\"last_native_path_commit_cache_clear\":"
+					<< (record.LastNativePathCommitCacheClear ? "true" : "false")
 					<< ",\"last_native_path_commit_sequence\":\""
 					<< record.LastNativePathCommitSequence
 					<< "\",\"last_native_path_commit_first_reachspec_index\":"
 					<< record.LastNativePathCommitFirstReachSpecIndex
+					<< ",\"last_native_path_commit_route_head_known\":"
+					<< (record.LastNativePathCommitRouteHeadKnown ? "true" : "false")
+					<< ",\"last_native_path_commit_route_head_actor_index\":"
+					<< record.LastNativePathCommitRouteHeadActorIndex
+					<< ",\"last_native_path_commit_route_head_name\":"
+					<< JsonString(record.LastNativePathCommitRouteHeadName)
+					<< ",\"last_native_path_commit_route_head_class\":"
+					<< JsonString(record.LastNativePathCommitRouteHeadClass)
 					<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false")
 					<< '}';
 			}
@@ -1048,8 +1058,18 @@ namespace
 						<< ",\"route_head_name\":" << JsonString(record.RouteHeadName)
 						<< ",\"route_head_class\":" << JsonString(record.RouteHeadClass)
 						<< ",\"last_native_path_commit_known\":" << (record.LastNativePathCommitKnown ? "true" : "false")
+						<< ",\"last_native_path_commit_cache_clear\":"
+						<< (record.LastNativePathCommitCacheClear ? "true" : "false")
 						<< ",\"last_native_path_commit_sequence\":\"" << record.LastNativePathCommitSequence
 						<< "\",\"last_native_path_commit_first_reachspec_index\":" << record.LastNativePathCommitFirstReachSpecIndex
+						<< ",\"last_native_path_commit_route_head_known\":"
+						<< (record.LastNativePathCommitRouteHeadKnown ? "true" : "false")
+						<< ",\"last_native_path_commit_route_head_actor_index\":"
+						<< record.LastNativePathCommitRouteHeadActorIndex
+						<< ",\"last_native_path_commit_route_head_name\":"
+						<< JsonString(record.LastNativePathCommitRouteHeadName)
+						<< ",\"last_native_path_commit_route_head_class\":"
+						<< JsonString(record.LastNativePathCommitRouteHeadClass)
 						<< ",\"integrity_valid\":" << (record.IntegrityValid ? "true" : "false") << "}}";
 				}
 				out << "]}";
@@ -1083,7 +1103,57 @@ namespace
 					<< ",\"support_known\":" << (record.SupportKnown ? "true" : "false")
 					<< ",\"support_actor_index\":" << record.SupportActorIndex
 					<< ",\"support_class\":" << JsonString(record.SupportClass)
-					<< ",\"transition\":" << JsonString(record.Transition);
+					<< ",\"transition\":" << JsonString(record.Transition)
+					<< ",\"preceding_path_commit_known\":"
+					<< (record.PrecedingPathCommitKnown ? "true" : "false")
+					<< ",\"preceding_path_commit_cache_clear\":"
+					<< (record.PrecedingPathCommitCacheClear ? "true" : "false")
+					<< ",\"preceding_path_commit_sequence\":\""
+					<< record.PrecedingPathCommitSequence
+					<< "\",\"preceding_path_commit_first_reachspec_index\":"
+					<< record.PrecedingPathCommitFirstReachSpecIndex
+					<< ",\"route_head_known\":" << (record.RouteHeadKnown ? "true" : "false")
+					<< ",\"route_head_from_preceding_path_commit\":"
+					<< (record.RouteHeadFromPrecedingPathCommit ? "true" : "false")
+					<< ",\"route_head_actor_index\":" << record.RouteHeadActorIndex
+					<< ",\"route_head_name\":" << JsonString(record.RouteHeadName)
+					<< ",\"route_head_class\":" << JsonString(record.RouteHeadClass)
+					<< ",\"command_target_known\":" << (record.CommandTargetKnown ? "true" : "false")
+					<< ",\"command_target_actor_index\":" << record.CommandTargetActorIndex
+					<< ",\"command_target_name\":" << JsonString(record.CommandTargetName)
+					<< ",\"command_target_class\":" << JsonString(record.CommandTargetClass)
+					<< ",\"entry_velocity\":{\"x\":" << Fixed(record.EntryVelocityX, 9)
+					<< ",\"y\":" << Fixed(record.EntryVelocityY, 9)
+					<< ",\"z\":" << Fixed(record.EntryVelocityZ, 9) << '}'
+					<< ",\"entry_direction_known\":" << (record.EntryDirectionKnown ? "true" : "false")
+					<< ",\"entry_direction\":{\"x\":" << Fixed(record.EntryDirectionX, 9)
+					<< ",\"y\":" << Fixed(record.EntryDirectionY, 9)
+					<< ",\"z\":" << Fixed(record.EntryDirectionZ, 9) << '}'
+					<< ",\"trajectory_input_finite\":" << (record.TrajectoryInputFinite ? "true" : "false")
+					<< ",\"trajectory_complete\":" << (record.TrajectoryComplete ? "true" : "false")
+					<< ",\"trajectory_result_finite\":" << (record.TrajectoryResultFinite ? "true" : "false")
+					<< ",\"trajectory_classification\":" << JsonString(record.TrajectoryClassification)
+					<< ",\"trajectory_reason\":" << JsonString(record.TrajectoryReason)
+					<< ",\"trajectory_elapsed\":" << Fixed(record.TrajectoryElapsed, 9)
+					<< ",\"trajectory_path_distance\":" << Fixed(record.TrajectoryPathDistance, 9)
+					<< ",\"trajectory_segment_count\":\"" << record.TrajectorySegmentCount
+					<< "\",\"trajectory_sample_count\":\"" << record.TrajectorySampleCount
+					<< "\",\"trajectory_entry_zone_known\":"
+					<< (record.TrajectoryEntryZoneKnown ? "true" : "false")
+					<< ",\"trajectory_entry_zone_actor_index\":" << record.TrajectoryEntryZoneActorIndex
+					<< ",\"trajectory_entry_zone_number\":" << record.TrajectoryEntryZoneNumber
+					<< ",\"trajectory_expected_harmful_foot_zone_known\":"
+					<< (record.TrajectoryExpectedHarmfulFootZoneKnown ? "true" : "false")
+					<< ",\"trajectory_expected_harmful_foot_zone_actor_index\":"
+					<< record.TrajectoryExpectedHarmfulFootZoneActorIndex
+					<< ",\"trajectory_expected_harmful_foot_zone_number\":"
+					<< record.TrajectoryExpectedHarmfulFootZoneNumber
+					<< ",\"trajectory_expected_harmful_physics_zone_known\":"
+					<< (record.TrajectoryExpectedHarmfulPhysicsZoneKnown ? "true" : "false")
+					<< ",\"trajectory_expected_harmful_physics_zone_actor_index\":"
+					<< record.TrajectoryExpectedHarmfulPhysicsZoneActorIndex
+					<< ",\"trajectory_expected_harmful_physics_zone_number\":"
+					<< record.TrajectoryExpectedHarmfulPhysicsZoneNumber;
 				const auto writeBoundary = [&](const PawnMovement::HazardResidencePreentryCausalSliceBoundary& boundary)
 				{
 					out << "{\"observed\":" << (boundary.Observed ? "true" : "false")

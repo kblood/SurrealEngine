@@ -23,7 +23,12 @@ def command(token: int = 1, sequence: int = 1, tick: int = 41) -> dict:
         "target_name": "PathNode12", "target_class": "Engine.PathNode",
         "route_head_known": True, "route_head_actor_index": 8, "route_head_name": "PathNode12",
         "route_head_class": "Engine.PathNode", "last_native_path_commit_known": True,
+        "last_native_path_commit_cache_clear": False,
         "last_native_path_commit_sequence": "4", "last_native_path_commit_first_reachspec_index": 13,
+        "last_native_path_commit_route_head_known": True,
+        "last_native_path_commit_route_head_actor_index": 8,
+        "last_native_path_commit_route_head_name": "PathNode12",
+        "last_native_path_commit_route_head_class": "Engine.PathNode",
         "integrity_valid": True,
     }
 
@@ -60,6 +65,27 @@ def slice_record(record: dict | None = None) -> dict:
         "zone_class": "Engine.ZoneInfo", "entry_location": {"x": 1.0, "y": 2.0, "z": 3.0},
         "pre_entry_physics": "Falling", "entry_physics": "Swimming", "support_known": False,
         "support_actor_index": -1, "support_class": "", "transition": "entered_hazard_zone",
+        "preceding_path_commit_known": True, "preceding_path_commit_cache_clear": False,
+        "preceding_path_commit_sequence": "4",
+        "preceding_path_commit_first_reachspec_index": 13,
+        "route_head_known": True, "route_head_from_preceding_path_commit": False, "route_head_actor_index": 8,
+        "route_head_name": "PathNode12", "route_head_class": "Engine.PathNode",
+        "command_target_known": True, "command_target_actor_index": 8,
+        "command_target_name": "PathNode12", "command_target_class": "Engine.PathNode",
+        "entry_velocity": {"x": 1.0, "y": 0.0, "z": 0.0},
+        "entry_direction_known": True, "entry_direction": {"x": 1.0, "y": 0.0, "z": 0.0},
+        "trajectory_input_finite": True, "trajectory_complete": True, "trajectory_result_finite": True,
+        "trajectory_classification": "0", "trajectory_reason": "6",
+        "trajectory_elapsed": 0.0, "trajectory_path_distance": 0.0,
+        "trajectory_segment_count": "0", "trajectory_sample_count": "0",
+        "trajectory_entry_zone_known": True, "trajectory_entry_zone_actor_index": 14,
+        "trajectory_entry_zone_number": 0,
+        "trajectory_expected_harmful_foot_zone_known": False,
+        "trajectory_expected_harmful_foot_zone_actor_index": -1,
+        "trajectory_expected_harmful_foot_zone_number": -1,
+        "trajectory_expected_harmful_physics_zone_known": False,
+        "trajectory_expected_harmful_physics_zone_actor_index": -1,
+        "trajectory_expected_harmful_physics_zone_number": -1,
         "command_lineage": lineage(record),
         "mayfall_boundary": {"observed": True, "native_tick": "39", "physics": "Falling"},
         "hitwall_boundary": {"observed": True, "native_tick": "40", "physics": "Falling"},
@@ -150,6 +176,51 @@ class HazardResidencePreentryCausalSliceTests(unittest.TestCase):
             write_run(root, causal=causal)
             with self.assertRaisesRegex(SLICES.CausalSliceError, "terminal does not"):
                 SLICES.analyze(root)
+
+    def test_rejects_route_head_that_does_not_join_entry_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); causal = slice_record(); causal["route_head_name"] = "OtherNode"
+            write_run(root, causal=causal)
+            with self.assertRaisesRegex(SLICES.CausalSliceError, "route head does not exactly"):
+                SLICES.analyze(root)
+
+    def test_rejects_nonfinite_or_incomplete_trajectory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); causal = slice_record(); causal["trajectory_complete"] = False
+            write_run(root, causal=causal)
+            with self.assertRaisesRegex(SLICES.CausalSliceError, "trajectory is incomplete"):
+                SLICES.analyze(root)
+
+    def test_accepts_path_commit_route_head_when_entry_route_cache_was_cleared(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); terminal = ledger()
+            terminal["entries"][0]["command"].update({
+                "route_head_known": False, "route_head_actor_index": -1,
+                "route_head_name": "", "route_head_class": ""})
+            causal = slice_record(terminal)
+            causal["route_head_from_preceding_path_commit"] = True
+            write_run(root, terminal=terminal, causal=causal)
+            self.assertEqual(SLICES.analyze(root)["episodes_exact"], "1")
+
+    def test_accepts_exact_cache_clearing_path_commit_without_route_head(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); terminal = ledger()
+            terminal["entries"][0]["command"].update({
+                "route_head_known": False, "route_head_actor_index": -1,
+                "route_head_name": "", "route_head_class": "",
+                "last_native_path_commit_cache_clear": True,
+                "last_native_path_commit_route_head_known": False,
+                "last_native_path_commit_route_head_actor_index": -1,
+                "last_native_path_commit_route_head_name": "",
+                "last_native_path_commit_route_head_class": ""})
+            causal = slice_record(terminal)
+            causal.update({"preceding_path_commit_cache_clear": True,
+                           "route_head_known": False,
+                           "route_head_from_preceding_path_commit": False,
+                           "route_head_actor_index": -1,
+                           "route_head_name": "", "route_head_class": ""})
+            write_run(root, terminal=terminal, causal=causal)
+            self.assertEqual(SLICES.analyze(root)["episodes_exact"], "1")
 
 
 if __name__ == "__main__":

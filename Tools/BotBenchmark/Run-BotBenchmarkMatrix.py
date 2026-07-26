@@ -338,9 +338,10 @@ def load_matrix(path: Path) -> MatrixConfig:
             raise MatrixError(
                 f"matrix.variants[{index}].hazard_residence_preentry_causal_slice_observer_enabled must be a boolean")
         if (hazard_residence_preentry_causal_slice_observer_enabled
-                and not hazard_residence_command_transition_ledger_observer_enabled):
+                and (not hazard_residence_command_transition_ledger_observer_enabled
+                     or not native_path_commit_observer_enabled)):
             raise MatrixError(
-                f"matrix.variants[{index}].hazard-residence pre-entry causal slice requires hazard_residence_command_transition_ledger_observer_enabled")
+                f"matrix.variants[{index}].hazard-residence pre-entry causal slice requires native_path_commit_observer_enabled and hazard_residence_command_transition_ledger_observer_enabled")
         variants.append(Variant(
             variant_id, executable, role, build_preset, hazard_swim_egress_enabled,
             hazard_swim_egress_live_enabled, failed_navigation_avoidance_enabled,

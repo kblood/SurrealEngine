@@ -440,6 +440,57 @@ int main(int argc, char** argv)
 	event.Map = "DM-\"Test";
 	event.Status = "running";
 	event.Bots = { second, first };
+	PawnMovement::HazardResidencePreentryCausalSliceRecord preentrySlice;
+	preentrySlice.Sequence = 1;
+	preentrySlice.EpisodeId = 2;
+	preentrySlice.LifeId = 3;
+	preentrySlice.Terminal = PawnMovement::HazardResidenceTerminal::Death;
+	preentrySlice.ZoneActorIndex = 14;
+	preentrySlice.ZoneName = "SlimeZone0";
+	preentrySlice.ZoneClass = "Engine.ZoneInfo";
+	preentrySlice.EntryX = 1.0f;
+	preentrySlice.EntryY = 2.0f;
+	preentrySlice.EntryZ = 3.0f;
+	preentrySlice.PreEntryPhysics = "Falling";
+	preentrySlice.EntryPhysics = "Falling";
+	preentrySlice.Transition = "harmful_zone_entry";
+	preentrySlice.PrecedingPathCommitKnown = true;
+	preentrySlice.PrecedingPathCommitSequence = 4;
+	preentrySlice.PrecedingPathCommitFirstReachSpecIndex = 13;
+	preentrySlice.RouteHeadKnown = true;
+	preentrySlice.RouteHeadActorIndex = 8;
+	preentrySlice.RouteHeadName = "PathNode12";
+	preentrySlice.RouteHeadClass = "Engine.PathNode";
+	preentrySlice.CommandTargetKnown = true;
+	preentrySlice.CommandTargetActorIndex = 8;
+	preentrySlice.CommandTargetName = "PathNode12";
+	preentrySlice.CommandTargetClass = "Engine.PathNode";
+	preentrySlice.EntryVelocityX = 1.0f;
+	preentrySlice.EntryDirectionKnown = true;
+	preentrySlice.EntryDirectionX = 1.0f;
+	preentrySlice.TrajectoryInputFinite = true;
+	preentrySlice.TrajectoryComplete = true;
+	preentrySlice.TrajectoryResultFinite = true;
+	preentrySlice.TrajectoryClassification = "0";
+	preentrySlice.TrajectoryReason = "6";
+	preentrySlice.TrajectoryEntryZoneKnown = true;
+	preentrySlice.TrajectoryEntryZoneActorIndex = 14;
+	preentrySlice.TrajectoryEntryZoneNumber = 0;
+	event.Bots.front().HazardResidencePreentryCausalSliceEpisodesExact = 1;
+	event.Bots.front().HazardResidencePreentryCausalSliceRecords = { preentrySlice };
+	event.HazardResidencePreentryCausalSliceObserverRequested = true;
+	const std::string preentryEvent = BotBenchmarkTelemetryProtocol::EventJson(
+		BotBenchmarkTelemetryProtocol::ConfigIdentity(movementCommandProvenanceObserverEnabled), event);
+	if (preentryEvent.find("\"preceding_path_commit_sequence\":\"4\"") == std::string::npos
+		|| preentryEvent.find("\"route_head_name\":\"PathNode12\"") == std::string::npos
+		|| preentryEvent.find("\"trajectory_entry_zone_actor_index\":14") == std::string::npos
+		|| preentryEvent.find("\"trajectory_result_finite\":true") == std::string::npos)
+	{
+		return Fail("hazard-residence pre-entry route trajectory serialization was incomplete");
+	}
+	event.Bots.front().HazardResidencePreentryCausalSliceEpisodesExact = 0;
+	event.Bots.front().HazardResidencePreentryCausalSliceRecords.clear();
+	event.HazardResidencePreentryCausalSliceObserverRequested = false;
 	std::ostringstream walkingPreflightSuffix;
 	walkingPreflightSuffix
 		<< ",\"walking_step_preflight_observations_exact\":\"0\""

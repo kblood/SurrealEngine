@@ -28,8 +28,13 @@ namespace PawnMovement
 		std::string RouteHeadName;
 		std::string RouteHeadClass;
 		bool LastNativePathCommitKnown = false;
+		bool LastNativePathCommitCacheClear = false;
 		uint64_t LastNativePathCommitSequence = 0;
 		int32_t LastNativePathCommitFirstReachSpecIndex = -1;
+		bool LastNativePathCommitRouteHeadKnown = false;
+		int32_t LastNativePathCommitRouteHeadActorIndex = -1;
+		std::string LastNativePathCommitRouteHeadName;
+		std::string LastNativePathCommitRouteHeadClass;
 		bool IntegrityValid = false;
 	};
 }

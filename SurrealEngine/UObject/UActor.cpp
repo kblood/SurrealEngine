@@ -5245,9 +5245,16 @@ UNavigationPoint* UPawn::CommitRoutePathCache(const PawnPathEndPointResult& resu
 		RoutePathCommitOverflowCountValue++;
 	if (engine->IsBotBenchmarkMovementCommandProvenanceObserverEnabled())
 	{
+		UNavigationPoint* firstRouteHead = !result.Points.empty()
+			? result.Points.front() : nullptr;
+		const bool firstRouteHeadKnown = firstRouteHead && !firstRouteHead->bDeleteMe()
+			&& static_cast<bool>(firstRouteHead->Class);
 		LastMovementCommandPathCommit = { true, DirectReachCommandLifeId(),
 			RoutePathCommitSequence, result.EdgeReachSpecIndexes.empty()
-				? -1 : result.EdgeReachSpecIndexes.front() };
+				? -1 : result.EdgeReachSpecIndexes.front(), result.Points.empty(), firstRouteHeadKnown,
+			firstRouteHeadKnown ? firstRouteHead->Index : -1,
+			firstRouteHeadKnown ? firstRouteHead->Name.ToString() : std::string(),
+			firstRouteHeadKnown ? firstRouteHead->Class->Name.ToString() : std::string() };
 	}
 	return committed;
 }
@@ -6437,9 +6444,19 @@ void UPawn::RecordMovementCommandProvenance(const char* kind)
 		&& LastMovementCommandPathCommit.LifeId == observation.LifeId)
 	{
 		observation.LastNativePathCommitKnown = true;
+		observation.LastNativePathCommitCacheClear =
+			LastMovementCommandPathCommit.CacheClear;
 		observation.LastNativePathCommitSequence = LastMovementCommandPathCommit.Sequence;
 		observation.LastNativePathCommitFirstReachSpecIndex =
 			LastMovementCommandPathCommit.FirstReachSpecIndex;
+		observation.LastNativePathCommitRouteHeadKnown =
+			LastMovementCommandPathCommit.FirstRouteHeadKnown;
+		observation.LastNativePathCommitRouteHeadActorIndex =
+			LastMovementCommandPathCommit.FirstRouteHeadActorIndex;
+		observation.LastNativePathCommitRouteHeadName =
+			LastMovementCommandPathCommit.FirstRouteHeadName;
+		observation.LastNativePathCommitRouteHeadClass =
+			LastMovementCommandPathCommit.FirstRouteHeadClass;
 	}
 	if (Frame::Callstack.size() >= 2)
 	{
@@ -6555,6 +6572,50 @@ void UPawn::CaptureHazardResidencePreentryCausalSlice()
 			? HazardResidencePreentryPriorPhysics : static_cast<int32_t>(Physics()));
 	record.EntryPhysics = HazardResidencePhysicsName(static_cast<int32_t>(Physics()));
 	record.Transition = "harmful_zone_entry";
+	record.PrecedingPathCommitKnown = ActiveMovementCommandProvenance.LastNativePathCommitKnown;
+	record.PrecedingPathCommitCacheClear =
+		ActiveMovementCommandProvenance.LastNativePathCommitCacheClear;
+	record.PrecedingPathCommitSequence =
+		ActiveMovementCommandProvenance.LastNativePathCommitSequence;
+	record.PrecedingPathCommitFirstReachSpecIndex =
+		ActiveMovementCommandProvenance.LastNativePathCommitFirstReachSpecIndex;
+	record.RouteHeadKnown = ActiveMovementCommandProvenance.RouteHeadKnown;
+	record.RouteHeadActorIndex = ActiveMovementCommandProvenance.RouteHeadActorIndex;
+	record.RouteHeadName = ActiveMovementCommandProvenance.RouteHeadName;
+	record.RouteHeadClass = ActiveMovementCommandProvenance.RouteHeadClass;
+	if (!record.RouteHeadKnown
+		&& ActiveMovementCommandProvenance.LastNativePathCommitRouteHeadKnown)
+	{
+		record.RouteHeadFromPrecedingPathCommit = true;
+		record.RouteHeadKnown = true;
+		record.RouteHeadActorIndex =
+			ActiveMovementCommandProvenance.LastNativePathCommitRouteHeadActorIndex;
+		record.RouteHeadName =
+			ActiveMovementCommandProvenance.LastNativePathCommitRouteHeadName;
+		record.RouteHeadClass =
+			ActiveMovementCommandProvenance.LastNativePathCommitRouteHeadClass;
+	}
+	record.CommandTargetKnown = ActiveMovementCommandProvenance.TargetKnown;
+	record.CommandTargetActorIndex = ActiveMovementCommandProvenance.TargetActorIndex;
+	record.CommandTargetName = ActiveMovementCommandProvenance.TargetName;
+	record.CommandTargetClass = ActiveMovementCommandProvenance.TargetClass;
+	const vec3 entryVelocity = Velocity();
+	record.EntryVelocityX = entryVelocity.x;
+	record.EntryVelocityY = entryVelocity.y;
+	record.EntryVelocityZ = entryVelocity.z;
+	const float entrySpeed = length(entryVelocity);
+	if (IsFiniteVector(entryVelocity) && std::isfinite(entrySpeed)
+		&& entrySpeed > PawnMovement::FallingHazardForecastVectorTolerance)
+	{
+		const vec3 entryDirection = entryVelocity / entrySpeed;
+		record.EntryDirectionKnown = IsFiniteVector(entryDirection);
+		if (record.EntryDirectionKnown)
+		{
+			record.EntryDirectionX = entryDirection.x;
+			record.EntryDirectionY = entryDirection.y;
+			record.EntryDirectionZ = entryDirection.z;
+		}
+	}
 	const std::array<UZoneInfo*, 3> zones = {
 		Region().Zone, FootRegion().Zone, HeadRegion().Zone
 	};
@@ -6573,6 +6634,54 @@ void UPawn::CaptureHazardResidencePreentryCausalSlice()
 		record.ZoneName = harmfulZone->Name.ToString();
 		record.ZoneClass = UObject::GetUClassFullName(harmfulZone).ToString();
 	}
+	const vec3 entryAcceleration = Acceleration();
+	record.TrajectoryInputFinite = IsFiniteVector(Location())
+		&& IsFiniteVector(entryVelocity) && IsFiniteVector(entryAcceleration);
+	const PawnMovement::FallingHazardForecastUpdate trajectory =
+		PredictFallingHazardTrajectory(entryAcceleration);
+	record.TrajectoryComplete = trajectory.Complete;
+	record.TrajectoryClassification = std::to_string(
+		static_cast<int>(trajectory.Result.Classification));
+	record.TrajectoryReason = std::to_string(static_cast<int>(trajectory.Result.Reason));
+	record.TrajectoryElapsed = trajectory.Result.Elapsed;
+	record.TrajectoryPathDistance = trajectory.Result.PathDistance;
+	record.TrajectorySegmentCount = trajectory.Result.SegmentCount;
+	record.TrajectorySampleCount = trajectory.Result.SampleCount;
+	record.TrajectoryResultFinite = std::isfinite(record.TrajectoryElapsed)
+		&& std::isfinite(record.TrajectoryPathDistance);
+	const auto captureTrajectoryZone = [](const PawnMovement::FallingHazardZoneId& zone,
+		bool& known, int32_t& actorIndex, int32_t& zoneNumber)
+	{
+		known = zone.Known && zone.ZoneActorId != 0;
+		actorIndex = known ? static_cast<int32_t>(zone.ZoneActorId - 1) : -1;
+		zoneNumber = known ? static_cast<int32_t>(zone.ZoneNumber) : -1;
+	};
+	const PawnMovement::FallingHazardForecastPointObservation& startingZones =
+		trajectory.State.Input.StartingZones;
+	const PawnMovement::FallingHazardForecastZoneObservation* entryZone = nullptr;
+	for (const auto* candidate : { &startingZones.Center, &startingZones.Foot,
+		&startingZones.Head })
+	{
+		if (candidate->Identity.Known && harmfulZone
+			&& candidate->Identity.ZoneActorId == static_cast<uint32_t>(harmfulZone->Index + 1))
+		{
+			entryZone = candidate;
+			break;
+		}
+	}
+	if (entryZone)
+	{
+		captureTrajectoryZone(entryZone->Identity, record.TrajectoryEntryZoneKnown,
+			record.TrajectoryEntryZoneActorIndex, record.TrajectoryEntryZoneNumber);
+	}
+	captureTrajectoryZone(trajectory.Result.ExpectedHarmfulFootZone,
+		record.TrajectoryExpectedHarmfulFootZoneKnown,
+		record.TrajectoryExpectedHarmfulFootZoneActorIndex,
+		record.TrajectoryExpectedHarmfulFootZoneNumber);
+	captureTrajectoryZone(trajectory.Result.ExpectedHarmfulPhysicsZone,
+		record.TrajectoryExpectedHarmfulPhysicsZoneKnown,
+		record.TrajectoryExpectedHarmfulPhysicsZoneActorIndex,
+		record.TrajectoryExpectedHarmfulPhysicsZoneNumber);
 	UActor* support = ActorBase();
 	if (support && !support->bDeleteMe() && support->Class)
 	{
@@ -6615,7 +6724,14 @@ void UPawn::FinishHazardResidencePreentryCausalSlice(
 	record.IntegrityValid = record.EntryIntegrityValid && record.TerminalIntegrityValid
 		&& record.ZoneActorIndex >= 0 && !record.ZoneName.empty() && !record.ZoneClass.empty()
 		&& !record.PreEntryPhysics.empty() && !record.EntryPhysics.empty()
-		&& !record.Transition.empty() && !record.CommandLineage.empty();
+		&& !record.Transition.empty() && !record.CommandLineage.empty()
+		&& record.PrecedingPathCommitKnown && record.PrecedingPathCommitSequence != 0
+		&& (record.PrecedingPathCommitCacheClear || (record.RouteHeadKnown
+			&& record.RouteHeadActorIndex >= 0 && !record.RouteHeadName.empty()
+			&& !record.RouteHeadClass.empty()))
+		&& record.TrajectoryInputFinite && record.TrajectoryComplete
+		&& record.TrajectoryResultFinite && record.TrajectoryEntryZoneKnown
+		&& record.TrajectoryEntryZoneActorIndex == record.ZoneActorIndex;
 	static constexpr size_t maximumQueuedRecords = 512;
 	if (HazardResidencePreentryCausalSliceRecords.size() < maximumQueuedRecords)
 		HazardResidencePreentryCausalSliceRecords.push_back(std::move(record));

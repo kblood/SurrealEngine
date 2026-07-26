@@ -350,10 +350,11 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		hazardResidencePreentryCausalSliceObserver,
 		"bot benchmark hazard-residence pre-entry causal-slice observer");
 	if (parsedHazardResidencePreentryCausalSliceObserver
-		&& !parsedHazardResidenceCommandTransitionLedgerObserver)
+		&& (!parsedHazardResidenceCommandTransitionLedgerObserver
+			|| !parsedNativePathCommitObserver))
 	{
 		throw std::invalid_argument(
-			"bot benchmark hazard-residence pre-entry causal-slice observer requires the hazard-residence command-transition ledger observer");
+			"bot benchmark hazard-residence pre-entry causal-slice observer requires the native path-commit and hazard-residence command-transition ledger observers");
 	}
 	const std::vector<std::string> parsedShadowPolicySet = ParseShadowPolicySet(shadowPolicySet);
 	const bool parsedPawnVisionCone = ParseExactBoolean(

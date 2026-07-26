@@ -2968,6 +2968,10 @@ private:
 		uint64_t LifeId = 0;
 		uint64_t Sequence = 0;
 		int32_t FirstReachSpecIndex = -1;
+		bool CacheClear = false;
+		bool FirstRouteHeadKnown = false;
+		int32_t FirstRouteHeadActorIndex = -1;
+		std::string FirstRouteHeadName, FirstRouteHeadClass;
 	};
 	LastNativePathCommitProvenance LastMovementCommandPathCommit;
 	uint64_t RoutePathCommitSequence = 0;
