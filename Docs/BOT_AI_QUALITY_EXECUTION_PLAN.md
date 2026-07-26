@@ -3927,3 +3927,20 @@ Do not introduce a game-name predicate branch. The predicate's native contract
 is shared; the next candidate must quantify the downstream warning transition
 and must preserve stock behavior until its own cross-game quality evidence is
 positive.
+
+## Iteration 156: terminal water samples do not prove a selection cause
+
+The bounded UT436 Deck16-II seed-`104729` episode note records three exact
+fixed-run, unassisted `PainTimer` swimming deaths (ticks 297, 741, and 801).
+Each pawn has movement intent and an active destination at the terminal, but
+none retains a `PickTarget` record, weapon caller, warning transition, or
+exact engine-command ownership witness. The full terminal data and its strict
+interpretation boundary are in
+`BOT_AI_UT_PICK_TARGET_SAFETY_EPISODE_EVIDENCE_2026-07-26.md`.
+
+These deaths justify investigation, not a safety write: terminal water and an
+aggregate post-fix regression do not identify the move that caused entry or
+prove that selection led to evasion. Do not steer by geometry, suppress the
+weapon timers, or alter `WarnTarget`. A future candidate must first retain a
+bounded same-life chain from selected target through warning/evasion, exact
+owned command, harmful-water entry, and terminal outcome.
