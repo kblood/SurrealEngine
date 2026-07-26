@@ -23,6 +23,16 @@ MOVEMENT_FIELDS = (
     "ground_speed", "water_speed", "air_speed", "jump_z", "max_step_height", "accel_rate",
 )
 CAPABILITY_FIELDS = ("walk", "jump", "swim", "fly", "open_doors", "special")
+V3_TIMING_FIELDS = (
+    "schema", "scope", "clock", "behavioral_determinism", "sample_count",
+    "histogram_bucket_overflows_exact", "bucket_max_microseconds", "p50_microseconds",
+    "p95_microseconds", "p99_microseconds", "max_microseconds", "components",
+)
+V3_TIMING_COMPONENTS = ("navigation_coverage", "shadow_observation_and_policy", "state_sampling")
+V3_COMPONENT_FIELDS = (
+    "sample_count", "histogram_bucket_overflows_exact", "p50_microseconds",
+    "p95_microseconds", "p99_microseconds", "max_microseconds",
+)
 
 
 class CapabilityError(ValueError):
@@ -88,6 +98,16 @@ def _nonnegative_number(value: Any, context: str) -> float:
     return result
 
 
+def _counter_string(value: Any, context: str) -> None:
+    if not isinstance(value, str) or not value or not value.isdecimal():
+        raise CapabilityError(f"{context}: expected a non-negative decimal counter string")
+
+
+def _nullable_nonnegative_number(value: Any, context: str) -> None:
+    if value is not None:
+        _nonnegative_number(value, context)
+
+
 def _exact_keys(value: dict[str, Any], expected: tuple[str, ...], context: str) -> None:
     actual = set(value)
     wanted = set(expected)
@@ -124,6 +144,36 @@ def _actual_roster(summary: dict[str, Any], context: str) -> list[dict[str, str]
     return result
 
 
+def _validate_v3_timing(summary: dict[str, Any], context: str) -> None:
+    timing = _object(summary.get("ai_frame_timing"), f"{context}.ai_frame_timing")
+    _exact_keys(timing, V3_TIMING_FIELDS, f"{context}.ai_frame_timing")
+    if timing["schema"] != "surreal-bot-ai-frame-timing-v1":
+        raise CapabilityError(f"{context}.ai_frame_timing.schema: unexpected schema")
+    if timing["scope"] != "benchmark_observation_policy_driver_sampling":
+        raise CapabilityError(f"{context}.ai_frame_timing.scope: unexpected scope")
+    if timing["clock"] != "host_steady_clock_performance_only":
+        raise CapabilityError(f"{context}.ai_frame_timing.clock: unexpected clock")
+    if timing["behavioral_determinism"] != "not_behavioral_evidence":
+        raise CapabilityError(f"{context}.ai_frame_timing.behavioral_determinism: unexpected value")
+    for field in ("sample_count", "histogram_bucket_overflows_exact", "bucket_max_microseconds",
+                  "max_microseconds"):
+        _counter_string(timing[field], f"{context}.ai_frame_timing.{field}")
+    for field in ("p50_microseconds", "p95_microseconds", "p99_microseconds"):
+        _nullable_nonnegative_number(timing[field], f"{context}.ai_frame_timing.{field}")
+    components = _object(timing["components"], f"{context}.ai_frame_timing.components")
+    _exact_keys(components, V3_TIMING_COMPONENTS, f"{context}.ai_frame_timing.components")
+    for name in V3_TIMING_COMPONENTS:
+        component = _object(components[name], f"{context}.ai_frame_timing.components.{name}")
+        _exact_keys(component, V3_COMPONENT_FIELDS,
+                    f"{context}.ai_frame_timing.components.{name}")
+        for field in ("sample_count", "histogram_bucket_overflows_exact", "max_microseconds"):
+            _counter_string(component[field],
+                            f"{context}.ai_frame_timing.components.{name}.{field}")
+        for field in ("p50_microseconds", "p95_microseconds", "p99_microseconds"):
+            _nullable_nonnegative_number(component[field],
+                                         f"{context}.ai_frame_timing.components.{name}.{field}")
+
+
 def validate_run(run: Path) -> dict[str, Any]:
     """Validate a witness and return its stable identity summary.
 
@@ -139,6 +189,8 @@ def validate_run(run: Path) -> dict[str, Any]:
         raise CapabilityError(f"{run}/manifest.json: requires bot-benchmark manifest v2")
     bot_count = _integer(manifest.get("bot_count"), f"{run}/manifest.json.bot_count", 1)
     summary = _load(run / "summary.json")
+    if summary.get("schema") == "surreal-bot-benchmark-summary-v3":
+        _validate_v3_timing(summary, f"{run}/summary.json")
     roster = _actual_roster(summary, f"{run}/summary.json")
     if len(roster) != bot_count:
         raise CapabilityError(f"{run}: manifest bot_count differs from actual_roster length")

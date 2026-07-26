@@ -39,6 +39,33 @@ def write_run(root: Path, manifest: dict, summary: dict, witness: dict) -> None:
         (root / name).write_text(json.dumps(value) + "\n", encoding="utf-8")
 
 
+def valid_v3_timing() -> dict:
+    component = {
+        "sample_count": "0", "histogram_bucket_overflows_exact": "0",
+        "p50_microseconds": None, "p95_microseconds": None, "p99_microseconds": None,
+        "max_microseconds": "0",
+    }
+    return {
+        "schema": "surreal-bot-ai-frame-timing-v1",
+        "scope": "benchmark_observation_policy_driver_sampling",
+        "clock": "host_steady_clock_performance_only",
+        "behavioral_determinism": "not_behavioral_evidence",
+        "sample_count": "0", "histogram_bucket_overflows_exact": "0",
+        "bucket_max_microseconds": "10000", "p50_microseconds": None,
+        "p95_microseconds": None, "p99_microseconds": None, "max_microseconds": "0",
+        "components": {
+            "navigation_coverage": copy.deepcopy(component),
+            "shadow_observation_and_policy": copy.deepcopy(component),
+            "state_sampling": copy.deepcopy(component),
+        },
+    }
+
+
+def make_v3(summary: dict) -> None:
+    summary["schema"] = "surreal-bot-benchmark-summary-v3"
+    summary["ai_frame_timing"] = valid_v3_timing()
+
+
 class RealizedCapabilityValidatorTests(unittest.TestCase):
     def test_accepts_matching_complete_v2_run(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -52,14 +79,30 @@ class RealizedCapabilityValidatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             manifest, summary, witness = run_documents()
-            summary["schema"] = "surreal-bot-benchmark-summary-v3"
-            summary["ai_frame_timing"] = {
-                "schema": "surreal-bot-ai-frame-timing-v1",
-                "scope": "benchmark_observation_policy_driver_sampling",
-            }
+            make_v3(summary)
             write_run(root, manifest, summary, witness)
             result = VALIDATE.validate_run(root)
             self.assertEqual(result["participants"], 1)
+
+    def test_rejects_malformed_v3_timing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, summary, witness = run_documents()
+            make_v3(summary)
+            summary["ai_frame_timing"]["components"]["state_sampling"]["p50_microseconds"] = "0"
+            write_run(root, manifest, summary, witness)
+            with self.assertRaisesRegex(VALIDATE.CapabilityError, "p50_microseconds"):
+                VALIDATE.validate_run(root)
+
+    def test_rejects_mismatched_actor_in_v3_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, summary, witness = run_documents()
+            make_v3(summary)
+            witness["participants"][0]["actor"] = "Other"
+            write_run(root, manifest, summary, witness)
+            with self.assertRaisesRegex(VALIDATE.CapabilityError, "actor differs"):
+                VALIDATE.validate_run(root)
 
     def test_rejects_mismatched_actor(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
