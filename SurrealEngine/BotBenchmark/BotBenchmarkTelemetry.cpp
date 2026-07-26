@@ -1725,6 +1725,8 @@ std::string BotBenchmarkTelemetryProtocol::ConfigIdentity(const BotBenchmarkRunC
 		<< (config.IsReachSpecCapabilityObserverEnabled() ? "1" : "0") << '\n'
 		<< "direct_reach_command_observer_enabled="
 		<< (config.IsDirectReachCommandObserverEnabled() ? "1" : "0") << '\n'
+		<< "movement_command_provenance_observer_enabled="
+		<< (config.IsMovementCommandProvenanceObserverEnabled() ? "1" : "0") << '\n'
 		<< "pawn_vision_cone_enabled="
 		<< (config.IsPawnVisionConeEnabled() ? "1" : "0") << '\n'
 		<< "pawn_vision_observer_enabled="
@@ -1808,6 +1810,8 @@ std::string BotBenchmarkTelemetryProtocol::ManifestJson(const BotBenchmarkRunCon
 		<< (config.IsReachSpecCapabilityObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"direct_reach_command_observer_enabled\": "
 		<< (config.IsDirectReachCommandObserverEnabled() ? "true" : "false") << ",\n"
+		<< "  \"movement_command_provenance_observer_enabled\": "
+		<< (config.IsMovementCommandProvenanceObserverEnabled() ? "true" : "false") << ",\n"
 		<< "  \"pawn_vision_cone_enabled\": "
 		<< (config.IsPawnVisionConeEnabled() ? "true" : "false") << ",\n"
 		<< "  \"pawn_vision_observer_enabled\": "

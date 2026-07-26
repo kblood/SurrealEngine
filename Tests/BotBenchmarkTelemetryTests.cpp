@@ -30,7 +30,7 @@ int main(int argc, char** argv)
 		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
 		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"));
 	const std::string configId = BotBenchmarkTelemetryProtocol::ConfigIdentity(config);
-	if (configId != "fnv1a64:7f43cb1fef19e7b8")
+	if (configId != "fnv1a64:06e8da64db0c4e91")
 		return Fail("bot benchmark configuration identity changed");
 	if (config.IsHarmfulZoneEscapeEnabled()
 		|| config.IsWalkingPreflightPositiveDpsVetoEnabled()
@@ -47,6 +47,7 @@ int main(int argc, char** argv)
 		|| config.IsNativePathCommitObserverEnabled()
 		|| config.IsReachSpecCapabilityObserverEnabled()
 		|| config.IsDirectReachCommandObserverEnabled()
+		|| config.IsMovementCommandProvenanceObserverEnabled()
 		|| config.IsPawnVisionConeEnabled()
 		|| config.IsPawnVisionObserverEnabled()
 		|| config.IsVectorNonFiniteObserverEnabled()
@@ -149,6 +150,44 @@ int main(int argc, char** argv)
 	{
 		return Fail("direct-reach command observer selection was not distinct and enabled");
 	}
+	const BotBenchmarkRunConfig movementCommandProvenanceObserverEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), // bot count
+		std::string("7,4"), // per-bot skills
+		std::string("Loque,Tamerlane"), // requested names
+		{}, // harmful-zone escape
+		{}, // walking-preflight positive-DPS veto
+		{}, // hazard-swim egress
+		{}, // hazard-swim egress live
+		{}, // failed-navigation avoidance
+		{}, // falling-hazard recovery
+		{}, // falling-hazard recovery live
+		{}, // targetless MoveTo timeout
+		{}, // direct-actor MoveToward timeout
+		{}, // target-selection observer
+		{}, // inventory direct-reach support observer
+		{}, // inventory-marker direct-reach safety
+		std::string("1"), // native path-commit observer
+		{}, // direct-reach command observer
+		{}, // PickTarget observer
+		{}, // WarnTarget observer
+		{}, // ReachSpec capability observer
+		{}, // shadow policy set
+		{}, // pawn vision cone
+		{}, // pawn vision observer
+		{}, // vector non-finite observer
+		{}, // finite MoveTo command guard
+		{}, // PickRegDestination zero-divide guard
+		{}, // walking HitWall candidate
+		std::string("1")); // movement-command provenance observer
+	if (!movementCommandProvenanceObserverEnabled.IsNativePathCommitObserverEnabled()
+		|| !movementCommandProvenanceObserverEnabled.IsMovementCommandProvenanceObserverEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(movementCommandProvenanceObserverEnabled) == configId
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(movementCommandProvenanceObserverEnabled, *buildIdentity).find(
+			"\"movement_command_provenance_observer_enabled\": true") == std::string::npos)
+	{
+		return Fail("movement-command provenance observer was not attested distinctly in the manifest");
+	}
 	const BotBenchmarkRunConfig pickTargetObserverEnabled = BotBenchmarkRunConfig::Parse(
 		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
 		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), {}, {}, {}, {}, {},
@@ -185,6 +224,9 @@ int main(int argc, char** argv)
 	if (summary.ToJson(directReachCommandObserverEnabled).find(
 		"\"direct_reach_command_observer_enabled\": true") == std::string::npos)
 		return Fail("bot benchmark summary did not retain direct-reach command observer mode");
+	if (summary.ToJson(movementCommandProvenanceObserverEnabled).find(
+		"\"movement_command_provenance_observer_enabled\": true") == std::string::npos)
+		return Fail("bot benchmark summary did not retain movement-command provenance observer mode");
 	if (summary.ToJson(config).find("\"pawn_vision_cone_enabled\": false") == std::string::npos
 		|| summary.ToJson(config).find("\"pawn_vision_observer_enabled\": false") == std::string::npos
 		|| summary.ToJson(config).find("\"vector_nonfinite_observer_enabled\": false") == std::string::npos
@@ -225,7 +267,7 @@ int main(int argc, char** argv)
 		"{\n"
 		"  \"schema\": \"surreal-bot-benchmark-manifest-v2\",\n"
 		"  \"driver\": \"bot-benchmark\",\n"
-		"  \"config_id\": \"fnv1a64:7f43cb1fef19e7b8\",\n"
+		"  \"config_id\": \"fnv1a64:06e8da64db0c4e91\",\n"
 		"  \"url\": \"DM-Test?Game=Botpack.DeathMatchPlus\",\n"
 		"  \"output_directory\": \"evidence\",\n"
 		"  \"seed\": \"18446744073709551615\",\n"
@@ -256,6 +298,7 @@ int main(int argc, char** argv)
 		"  \"native_path_commit_observer_enabled\": false,\n"
 		"  \"reachspec_capability_observer_enabled\": false,\n"
 		"  \"direct_reach_command_observer_enabled\": false,\n"
+		"  \"movement_command_provenance_observer_enabled\": false,\n"
 		"  \"pawn_vision_cone_enabled\": false,\n"
 		"  \"pawn_vision_observer_enabled\": false,\n"
 		"  \"vector_nonfinite_observer_enabled\": false,\n"
@@ -478,7 +521,7 @@ int main(int argc, char** argv)
 		<< ",\"vertical_pain_column_diagnostics\":[]";
 	const std::string expectedWalkingPreflightSuffix = walkingPreflightSuffix.str();
 	std::string expectedEvent =
-		"{\"schema\":\"surreal-bot-benchmark-telemetry-v2\",\"seq\":\"5\",\"config_id\":\"fnv1a64:7f43cb1fef19e7b8\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
+		"{\"schema\":\"surreal-bot-benchmark-telemetry-v2\",\"seq\":\"5\",\"config_id\":\"fnv1a64:06e8da64db0c4e91\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
 		"{\"identity\":\"pri:1\",\"actor\":\"Bot1\",\"player_name\":\"Line\\nBreak\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"physics_mode\":\"\",\"latent_action\":\"\",\"acceleration\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"destination\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"move_timer\":0.000000,\"move_target_identity\":\"\",\"move_target_name\":\"\",\"health\":100,\"score\":0.000000,\"pri_deaths\":0.000000,\"movement_intent\":false,\"in_hazard_zone\":false,\"kills_exact\":\"0\",\"deaths_exact\":\"0\",\"suicides_exact\":\"0\",\"environmental_deaths_exact\":\"0\",\"hazard_exposed_deaths_proxy\":\"0\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"0\",\"unassisted_environmental_deaths\":\"0\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"0\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"0\",\"hit_wall_events_exact\":\"0\",\"pain_ledge_vetoes_exact\":\"0\",\"pain_ledge_repeat_vetoes_exact\":\"0\",\"pain_ledge_recovery_attempts_exact\":\"0\",\"pain_ledge_recovery_escapes_exact\":\"0\",\"wall_adjust_calls_exact\":\"0\",\"wall_adjust_repeats_exact\":\"0\",\"wall_adjust_recovery_attempts_exact\":\"0\",\"wall_adjust_recovery_successes_exact\":\"0\",\"wall_adjust_forced_replans_exact\":\"0\",\"move_stall_detections_exact\":\"0\",\"move_stall_episode_resets_exact\":\"0\",\"move_stall_forced_replans_exact\":\"0\",\"move_stall_navigation_forced_replans_exact\":\"0\",\"move_stall_targetless_move_to_timeouts_exact\":\"0\",\"move_stall_eligible_seconds\":0.000000000,\"failed_navigation_avoidance_activations_exact\":\"0\",\"failed_navigation_safeguard_suppressions_exact\":\"0\",\"failed_navigation_route_penalty_applications_exact\":\"0\",\"falling_seam_detections_exact\":\"0\",\"horizontal_corner_candidate_probes_exact\":\"0\",\"horizontal_corner_authorized_escapes_exact\":\"0\",\"horizontal_corner_target_progress_rejects_exact\":\"0\",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"0\",\"falling_seam_episodes_exact\":\"0\",\"falling_seam_invalid_geometry_rejects_exact\":\"0\",\"falling_seam_authorizable_episodes_exact\":\"0\",\"horizontal_corner_authorized_candidates_exact\":\"0\",\"horizontal_corner_blocked_sweep_candidates_exact\":\"0\",\"horizontal_corner_no_static_walkable_support_candidates_exact\":\"0\",\"horizontal_corner_pain_support_candidates_exact\":\"0\",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"0\",\"horizontal_corner_true_target_regression_candidates_exact\":\"0\",\"horizontal_corner_unknown_evidence_candidates_exact\":\"0\""
 		+ expectedWalkingPreflightSuffix + ",\"state\":\"Attacking\"},"
 		"{\"identity\":\"pri:2\",\"actor\":\"Bot2\",\"player_name\":\"B\\\"ot\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":1.250000,\"y\":-2.500000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":3.000000},\"physics_mode\":\"Walking\",\"latent_action\":\"MoveToward\",\"acceleration\":{\"x\":100.000000,\"y\":-50.000000,\"z\":0.000000},\"destination\":{\"x\":512.000000,\"y\":256.000000,\"z\":-32.000000},\"move_timer\":0.750000,\"move_target_identity\":\"actor:PathNode3\",\"move_target_name\":\"Path\\\"Node\",\"health\":87,\"score\":2.500000,\"pri_deaths\":3.000000,\"movement_intent\":true,\"in_hazard_zone\":true,\"kills_exact\":\"4\",\"deaths_exact\":\"3\",\"suicides_exact\":\"2\",\"environmental_deaths_exact\":\"1\",\"hazard_exposed_deaths_proxy\":\"1\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"1\",\"unassisted_environmental_deaths\":\"1\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"1\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"1\",\"hit_wall_events_exact\":\"9\",\"pain_ledge_vetoes_exact\":\"8\",\"pain_ledge_repeat_vetoes_exact\":\"6\",\"pain_ledge_recovery_attempts_exact\":\"7\",\"pain_ledge_recovery_escapes_exact\":\"5\",\"wall_adjust_calls_exact\":\"12\",\"wall_adjust_repeats_exact\":\"8\",\"wall_adjust_recovery_attempts_exact\":\"7\",\"wall_adjust_recovery_successes_exact\":\"6\",\"wall_adjust_forced_replans_exact\":\"2\",\"move_stall_detections_exact\":\"3\",\"move_stall_episode_resets_exact\":\"1\",\"move_stall_forced_replans_exact\":\"2\",\"move_stall_navigation_forced_replans_exact\":\"1\",\"move_stall_targetless_move_to_timeouts_exact\":\"1\",\"move_stall_eligible_seconds\":4.250000000,\"failed_navigation_avoidance_activations_exact\":\"2\",\"failed_navigation_safeguard_suppressions_exact\":\"3\",\"failed_navigation_route_penalty_applications_exact\":\"4\",\"falling_seam_detections_exact\":\"11\",\"horizontal_corner_candidate_probes_exact\":\"10\",\"horizontal_corner_authorized_escapes_exact\":\"3\",\"horizontal_corner_target_progress_rejects_exact\":\"4\",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"3\",\"falling_seam_episodes_exact\":\"4\",\"falling_seam_invalid_geometry_rejects_exact\":\"7\",\"falling_seam_authorizable_episodes_exact\":\"2\",\"horizontal_corner_authorized_candidates_exact\":\"3\",\"horizontal_corner_blocked_sweep_candidates_exact\":\"2\",\"horizontal_corner_no_static_walkable_support_candidates_exact\":\"1\",\"horizontal_corner_pain_support_candidates_exact\":\"1\",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"1\",\"horizontal_corner_true_target_regression_candidates_exact\":\"1\",\"horizontal_corner_unknown_evidence_candidates_exact\":\"1\""
