@@ -333,6 +333,79 @@ bool TraceActorsIterator::Next()
 
 /////////////////////////////////////////////////////////////////////////////
 
+SweepActorsIterator::SweepActorsIterator(UActor* SelfActor, UObject* BaseClass, UObject** Actor,
+	const vec3& Start1, const vec3& Stop1, const vec3& Start2, const vec3& Stop2,
+	float ExtentRadius, vec3* HitLoc, vec3* HitNorm, int* LowJointMask, int* HighJointMask)
+	: OutActor(Actor), OutHitLoc(HitLoc), OutHitNorm(HitNorm),
+	OutLowJointMask(LowJointMask), OutHighJointMask(HighJointMask)
+{
+	const float radius = std::max(ExtentRadius, 0.0f);
+
+	auto traceEdge = [&](const vec3& from, const vec3& to)
+	{
+		for (const CollisionHit& hit : SelfActor->XLevel()->Collision.Trace(from, to, radius, radius, true, true, false))
+		{
+			UActor* hitActor = hit.Actor;
+			if (!hitActor && hit.Node)
+				hitActor = SelfActor->Level();
+
+			if (!hitActor || hitActor == SelfActor || hitActor == SelfActor->Owner())
+				continue;
+			if (BaseClass && !hitActor->IsA(BaseClass->Name))
+				continue;
+
+			bool alreadyFound = false;
+			for (const SweepInfo& existing : Hits)
+			{
+				if (existing.Actor == hitActor)
+				{
+					alreadyFound = true;
+					break;
+				}
+			}
+			if (alreadyFound)
+				continue;
+
+			Hits.push_back({ hitActor, mix(from, to, hit.Fraction), hit.Normal });
+		}
+	};
+
+	// Approximate Rune's swept weapon quadrilateral using the collision system's
+	// capsule traces. Boundary and diagonal traces cover the area while duplicate
+	// actors are coalesced. Joint masks remain zero until joint geometry exists.
+	traceEdge(Start1, Stop1);
+	traceEdge(Start2, Stop2);
+	traceEdge(Start1, Start2);
+	traceEdge(Stop1, Stop2);
+	traceEdge(Start1, Stop2);
+	traceEdge(Stop1, Start2);
+
+	Current = Hits.begin();
+}
+
+bool SweepActorsIterator::Next()
+{
+	if (Current == Hits.end())
+	{
+		*OutActor = nullptr;
+		*OutHitLoc = vec3(0.0f);
+		*OutHitNorm = vec3(0.0f);
+		*OutLowJointMask = 0;
+		*OutHighJointMask = 0;
+		return false;
+	}
+
+	*OutActor = Current->Actor;
+	*OutHitLoc = Current->HitLoc;
+	*OutHitNorm = Current->HitNorm;
+	*OutLowJointMask = 0;
+	*OutHighJointMask = 0;
+	++Current;
+	return true;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
 VisibleActorsIterator::VisibleActorsIterator(UActor* Caller, UObject* BaseClass, UObject** Actor, float Radius, const vec3& Location) : BaseClass(BaseClass), Actor(Actor), Radius(Radius), Location(Location)
 {
 	for (auto levelActor : engine->Level->Actors)
