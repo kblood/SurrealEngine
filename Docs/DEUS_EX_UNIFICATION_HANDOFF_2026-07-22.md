@@ -15,17 +15,16 @@ plan.
 
 ## Remote preservation
 
-The commit remains local. No push was attempted because the only configured
-remote is:
+The branch is preserved on the user's fork:
 
 ```text
-origin  https://github.com/dpjudas/SurrealEngine.git (fetch)
-origin  https://github.com/dpjudas/SurrealEngine.git (push)
+fork  https://github.com/kblood/SurrealEngine.git
+ref   refs/heads/deus-ex-support
 ```
 
-That remote is upstream and is prohibited for preservation. No separately
-configured `kblood/SurrealEngine` fork remote exists in this clone. Configure
-and verify that fork before pushing, then push `deus-ex-support` without force.
+The fork remote was added to the migrated legacy clone and the branch was
+pushed without force on 2026-07-27. `origin` remains the read-only upstream
+identity for contribution comparison and was not pushed.
 
 ## Git status
 
