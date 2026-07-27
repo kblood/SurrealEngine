@@ -116,6 +116,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.h
 	SurrealEngine/BotBenchmark/MapCatalogDriver.cpp
 	SurrealEngine/BotBenchmark/MapCatalogDriver.h
+	SurrealEngine/BotBenchmark/TraceCorpusDriver.cpp
+	SurrealEngine/BotBenchmark/TraceCorpusDriver.h
 	SurrealEngine/BotBenchmark/BotWalkingHitWallCornerFixture.cpp
 	SurrealEngine/BotBenchmark/BotWalkingHitWallCornerFixture.h
 	SurrealEngine/BotBenchmark/BotInventoryRouteHandoffFixture.cpp

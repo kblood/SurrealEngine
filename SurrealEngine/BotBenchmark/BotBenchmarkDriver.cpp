@@ -18,6 +18,7 @@
 #include "BotBenchmarkBuildIdentity.h"
 #include "BotBenchmarkQualityObservation.h"
 #include "MapCatalogDriver.h"
+#include "TraceCorpusDriver.h"
 #include "BotBenchmarkShadowTelemetry.h"
 #include "BotBenchmarkTelemetry.h"
 #include "BotAI/BotPolicyObservationBuilder.h"
@@ -4659,4 +4660,5 @@ void RegisterBotBenchmarkDriver(HeadlessDriverRegistry& registry)
 	RegisterBotPickTargetFixtureDriver(registry);
 	RegisterBotInventoryRouteHandoffFixtureDriver(registry);
 	RegisterMapCatalogDriver(registry);
+	RegisterTraceCorpusDriver(registry);
 }
