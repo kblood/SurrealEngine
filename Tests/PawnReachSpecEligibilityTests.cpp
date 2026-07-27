@@ -125,6 +125,45 @@ namespace
 		CheckMissing(UE1ReachSpecFlagMask(UE1ReachSpecFlag::Fly), unreal,
 			UE1ReachSpecFlagMask(UE1ReachSpecFlag::Fly), "Unreal bot fixture rejects fly specs");
 	}
+	void TestRouteSearchSupportRule()
+	{
+		// The route-search rule is FReachSpec::supports(), which differs from the
+		// diagnostic evaluator above on the zero-requirement case.
+		const uint32_t botMask = PawnMovement::UE1ReachSpecCapabilityMask(
+			PawnMovement::UT436BotReachSpecProfile());
+
+		Check(PawnMovement::ReachSpecSupportedByCapabilities(0u, botMask),
+			"an edge requiring nothing is traversable");
+		Check(PawnMovement::EvaluateReachSpecEligibility(0u,
+			PawnMovement::UT436BotReachSpecProfile()).Disposition
+				== PawnMovement::ReachSpecEligibilityDisposition::NoRequirements,
+			"the diagnostic evaluator still reports a zero requirement separately");
+
+		Check(PawnMovement::ReachSpecSupportedByCapabilities(
+			UE1ReachSpecFlagMask(UE1ReachSpecFlag::Walk) |
+			UE1ReachSpecFlagMask(UE1ReachSpecFlag::Jump), botMask),
+			"a walk plus jump edge is traversable by a standard bot");
+		Check(!PawnMovement::ReachSpecSupportedByCapabilities(
+			UE1ReachSpecFlagMask(UE1ReachSpecFlag::Fly), botMask),
+			"a fly-only edge is not traversable by a non-flying bot");
+		Check(!PawnMovement::ReachSpecSupportedByCapabilities(
+			UE1ReachSpecFlagMask(UE1ReachSpecFlag::Walk) |
+			UE1ReachSpecFlagMask(UE1ReachSpecFlag::Fly), botMask),
+			"one unsupported flag is enough to reject an otherwise walkable edge");
+
+		// A bit outside the seven known flags can never occur in a movement mask.
+		Check(!PawnMovement::ReachSpecSupportedByCapabilities(128u, botMask),
+			"an unknown reach flag makes the edge unusable");
+		Check(!PawnMovement::ReachSpecSupportedByCapabilities(
+			UE1ReachSpecFlagMask(UE1ReachSpecFlag::Walk) | 128u, botMask),
+			"an unknown bit rejects even alongside a supported flag");
+
+		const uint32_t nonPlayerMask = PawnMovement::UE1ReachSpecCapabilityMask(
+			{ true, false, false, false, false, false, false });
+		Check(!PawnMovement::ReachSpecSupportedByCapabilities(
+			UE1ReachSpecFlagMask(UE1ReachSpecFlag::PlayerOnly), nonPlayerMask),
+			"a player-only edge is not traversable by a non-player pawn");
+	}
 }
 
 int main()
@@ -132,6 +171,7 @@ int main()
 	TestCapabilityRequirements();
 	TestInvalidRequirementsFailClosed();
 	TestRetailBotFixtures();
+	TestRouteSearchSupportRule();
 	if (Failures == 0)
 		std::cout << "Pawn ReachSpec eligibility tests passed\n";
 	return Failures == 0 ? 0 : 1;

@@ -18,6 +18,7 @@
 #include "PawnMovementArrival.h"
 #include "PawnMoveToward.h"
 #include "PawnPathCost.h"
+#include "PawnReachSpecCapabilityFilterCandidate.h"
 #include "PawnFiniteMoveCommandGuard.h"
 #include "PawnVisionCone.h"
 #include "PawnWallAdjustment.h"
@@ -4258,7 +4259,10 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint,
 					if ((reachSpec.endActor->bPlayerOnly() && !bIsPlayer()) || (reachSpec.endActor->bPlayerOnly() && !bIsPlayer()))
 						continue; // Skip nav nodes only for the player if we aren't one
 
-					// To do: check reachFlags
+					// UnReach.h FReachSpec::supports(): every flag the edge requires must be in
+					// the pawn's movement mask.
+					if (!ReachSpecTraversable(reachSpec))
+						continue;
 
 					couldBeReachable = true;
 					break;
@@ -4282,7 +4286,10 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint,
 					if ((reachSpec.endActor->bPlayerOnly() && !bIsPlayer()) || (reachSpec.endActor->bPlayerOnly() && !bIsPlayer()))
 						continue; // Skip nav nodes only for the player if we aren't one
 
-					// To do: check reachFlags
+					// UnReach.h FReachSpec::supports(): every flag the edge requires must be in
+					// the pawn's movement mask.
+					if (!ReachSpecTraversable(reachSpec))
+						continue;
 
 					couldBeReachable = true;
 					break;
@@ -5303,6 +5310,26 @@ UActor* UPawn::PathSpecialHandling(const PawnPathEndPointResult& result,
 }
 
 
+PawnMovement::ReachSpecCapabilityProfile UPawn::ReachSpecCapabilities()
+{
+	// bCanJump in particular is not constant for a bot's lifetime, so this is read at
+	// the point of the query rather than cached.
+	return {
+		static_cast<bool>(bCanWalk()), static_cast<bool>(bCanFly()),
+		static_cast<bool>(bCanSwim()), static_cast<bool>(bCanJump()),
+		static_cast<bool>(bCanOpenDoors()), static_cast<bool>(bCanDoSpecial()),
+		static_cast<bool>(bIsPlayer()) };
+}
+
+bool UPawn::ReachSpecTraversable(const LevelReachSpec& spec)
+{
+	if (!PawnReachSpecCapabilityFilterCandidateEnabled())
+		return true;
+	return PawnMovement::ReachSpecSupportedByCapabilities(
+		static_cast<uint32_t>(spec.reachFlags),
+		PawnMovement::UE1ReachSpecCapabilityMask(ReachSpecCapabilities()));
+}
+
 PawnPathEndPointResult UPawn::FindPathToEndPoint(UNavigationPoint* start, int maxNodes)
 {
 	if ((start->bPlayerOnly() && !bIsPlayer()))
@@ -5352,7 +5379,10 @@ PawnPathEndPointResult UPawn::FindPathToEndPoint(UNavigationPoint* start, int ma
 				if ((endActor->bPlayerOnly() && !bIsPlayer()) || (endActor->bPlayerOnly() && !bIsPlayer()))
 					continue; // Skip nav nodes only for the player if we aren't one
 
-				// To do: check reachFlags
+				// UnReach.h FReachSpec::supports(): every flag the edge requires must be in
+				// the pawn's movement mask.
+				if (!ReachSpecTraversable(reachSpec))
+					continue;
 
 				// NavigationPoint.cost is populated by ClearPaths(), including a
 				// bSpecialCost node's UnrealScript SpecialCost result.
@@ -5551,7 +5581,10 @@ UObject* UPawn::FindRandomDest()
 			if ((reachSpec.endActor->bPlayerOnly() && !bIsPlayer()) || (reachSpec.endActor->bPlayerOnly() && !bIsPlayer()))
 				continue; // Skip nav nodes only for the player if we aren't one
 
-			// To do: check reachFlags
+			// UnReach.h FReachSpec::supports(): every flag the edge requires must be in
+			// the pawn's movement mask.
+			if (!ReachSpecTraversable(reachSpec))
+				continue;
 
 			reachSpec.endActor->bEndPoint() = true;
 			reachablePoints.push_back(reachSpec.endActor);

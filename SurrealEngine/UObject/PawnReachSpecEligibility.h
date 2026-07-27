@@ -66,6 +66,17 @@ namespace PawnMovement
 	ReachSpecEligibility EvaluateReachSpecEligibility(
 		uint32_t reachFlags, const ReachSpecCapabilityProfile& profile);
 
+	// FReachSpec::supports(): (reachFlags & moveFlags) == reachFlags. An edge that
+	// requires nothing is traversable by anyone, and a bit outside the seven known
+	// flags can never appear in a movement mask, so it makes the edge unusable.
+	// This is the route-search rule; EvaluateReachSpecEligibility above reports the
+	// same comparison in more detail for diagnostics, where a zero requirement is
+	// deliberately not reported as eligible.
+	constexpr bool ReachSpecSupportedByCapabilities(uint32_t reachFlags, uint32_t capabilityMask)
+	{
+		return (reachFlags & ~capabilityMask) == 0u;
+	}
+
 	inline const char* ReachSpecEligibilityDispositionName(
 		ReachSpecEligibilityDisposition disposition)
 	{

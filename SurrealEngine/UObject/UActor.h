@@ -67,6 +67,7 @@ struct MoveCallbackEvidence
 
 class UMusic;
 class UGameReplicationInfo;
+class LevelReachSpec;
 class UPlayerReplicationInfo;
 class UMutator;
 class UMenu;
@@ -2452,6 +2453,8 @@ public:
 		PawnMovement::RoutePathCommitOrigin origin);
 	UNavigationPoint* SetRouteCache(const Array<UNavigationPoint*>& points);
 	PawnPathEndPointResult FindPathToEndPoint(UNavigationPoint* start, int maxNodes);
+	PawnMovement::ReachSpecCapabilityProfile ReachSpecCapabilities();
+	bool ReachSpecTraversable(const LevelReachSpec& spec);
 	UNavigationPoint* CommitRoutePathCache(const PawnPathEndPointResult& result,
 		PawnMovement::RoutePathCommitOrigin origin);
 	std::vector<PawnMovement::RoutePathCommitRecord> DrainRoutePathCommitRecords();
