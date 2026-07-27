@@ -7,8 +7,8 @@
 
 void NDecal::RegisterFunctions()
 {
-	if (engine->LaunchInfo.IsDeusEx())
-		RegisterVMNativeFunc_3("Decal", "AttachDecal", &NDecal::AttachDecal_Deus, 0);
+	if (engine->LaunchInfo.IsDeusEx() || engine->LaunchInfo.IsRune())
+		RegisterVMNativeFunc_3("Decal", "AttachDecal", &NDecal::AttachDecal_Bool, 0);
 	else
 		RegisterVMNativeFunc_3("Decal", "AttachDecal", &NDecal::AttachDecal, 0);
 	RegisterVMNativeFunc_0("Decal", "DetachDecal", &NDecal::DetachDecal, 0);
@@ -19,7 +19,7 @@ void NDecal::AttachDecal(UObject* Self, float TraceDistance, std::optional<vec3>
 	ReturnValue = UObject::TryCast<UDecal>(Self)->AttachDecal(TraceDistance, DecalDir ? *DecalDir : vec3(0.0f));
 }
 
-void NDecal::AttachDecal_Deus(UObject* Self, float TraceDistance, std::optional<vec3> DecalDir, BitfieldBool& ReturnValue)
+void NDecal::AttachDecal_Bool(UObject* Self, float TraceDistance, std::optional<vec3> DecalDir, BitfieldBool& ReturnValue)
 {
 	UObject* Decal = UObject::TryCast<UDecal>(Self)->AttachDecal(TraceDistance, DecalDir ? *DecalDir : vec3(0.0f));
 	ReturnValue = Decal != nullptr;
