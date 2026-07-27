@@ -204,7 +204,7 @@ void PackageManager::ScanFolder(const std::string& packagedir, const std::string
 			// Do not add the package again if it exists
 			// This is useful for example when you have HD textures installed in a different folder
 			// And you wish to load them instead of the original ones
-			if (dir_entry.is_regular_file() && dir_entry.path().extension() == searchExt)
+			if (dir_entry.is_regular_file() && StrTools::equals_ignore_case(dir_entry.path().extension().string(), searchExt.string()))
 			{
 				NameString fileNameString(dir_entry.path().stem().string());
 				auto it = packageFilenames.find(fileNameString);
