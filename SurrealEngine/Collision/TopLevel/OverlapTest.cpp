@@ -4,6 +4,7 @@
 #include "CollisionActorOrder.h"
 #include "Collision/BottomLevel/OverlapAABBModel.h"
 #include "UObject/UActor.h"
+#include "UObject/MoverActorCollisionFidelityCandidate.h"
 
 CollisionHitList OverlapTester::TestOverlap(const vec3& location, float height, float radius, bool testActors, bool testWorld, bool visibilityOnly)
 {
@@ -241,11 +242,27 @@ Array<UActor*> OverlapTester::EncroachingActors(UActor* actor)
 				{
 					for (UActor* testActor : GetActors(x, y, z))
 					{
-						if (actor->Collision.CheckCounter != checkCounter)
 						{
-							actor->Collision.CheckCounter = checkCounter;
-							if (testActor == actor || testActor->Brush())
-								continue;
+							if (MoverActorCollisionFidelityCandidateEnabled())
+							{
+								// The counter must be keyed on the candidate being tested, not on the
+								// mover itself: keying it on 'actor' made the mover's own counter get
+								// stamped by the first candidate in the bucket, so every later candidate
+								// in the same call was skipped as "already visited" and never reported.
+								if (testActor == actor || testActor->Brush())
+									continue;
+								if (testActor->Collision.CheckCounter == checkCounter)
+									continue;
+								testActor->Collision.CheckCounter = checkCounter;
+							}
+							else
+							{
+								if (actor->Collision.CheckCounter == checkCounter)
+									continue;
+								actor->Collision.CheckCounter = checkCounter;
+								if (testActor == actor || testActor->Brush())
+									continue;
+							}
 
 							vec3 localOrigin = (rotateWorldToObj * vec4(testActor->Location() - origin, 1.0f)).xyz() / mainScale + prePivot;
 

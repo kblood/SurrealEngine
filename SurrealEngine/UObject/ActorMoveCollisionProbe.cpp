@@ -10,12 +10,23 @@ namespace ActorMoveCollisionProbe
 			return true;
 		if (!hit.HasActor)
 			return true;
+		if (hit.IsPenetratingSeparation)
+			return false;
 
-		const bool usePlayerBlocking = rules.MovingActorUsesPlayerBlocking
-			|| hit.HitActorUsesPlayerBlocking;
-		const bool isBlocking = usePlayerBlocking
-			? hit.HitActorBlocksPlayers && rules.MovingActorBlocksPlayers
-			: hit.HitActorBlocksActors && rules.MovingActorBlocksActors;
+		bool isBlocking;
+		if (hit.HitActorIsBrush)
+		{
+			isBlocking = rules.MovingActorBlocksWorld
+				&& (rules.MovingActorUsesPlayerBlocking ? hit.HitActorBlocksPlayers : hit.HitActorBlocksActors);
+		}
+		else
+		{
+			const bool usePlayerBlocking = rules.MovingActorUsesPlayerBlocking
+				|| hit.HitActorUsesPlayerBlocking;
+			isBlocking = usePlayerBlocking
+				? hit.HitActorBlocksPlayers && rules.MovingActorBlocksPlayers
+				: hit.HitActorBlocksActors && rules.MovingActorBlocksActors;
+		}
 
 		return isBlocking
 			&& (rules.OwnBaseIsBlocking || !hit.HitActorIsBasedOnMovingActor)

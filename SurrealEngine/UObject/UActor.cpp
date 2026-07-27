@@ -8,6 +8,8 @@
 #include "USubsystem.h"
 #include "ActorMovement.h"
 #include "ActorMoveCollisionProbe.h"
+#include "MoverActorCollisionFidelityCandidate.h"
+#include "PawnReachSpecCapabilityFilterCandidate.h"
 #include "PawnFailedNavigationMemory.h"
 #include "PawnFallingTwoPlaneSafety.h"
 #include "PawnLedgeTransition.h"
@@ -18,7 +20,6 @@
 #include "PawnMovementArrival.h"
 #include "PawnMoveToward.h"
 #include "PawnPathCost.h"
-#include "PawnReachSpecCapabilityFilterCandidate.h"
 #include "PawnFiniteMoveCommandGuard.h"
 #include "PawnVisionCone.h"
 #include "PawnWallAdjustment.h"
@@ -1391,7 +1392,10 @@ void UActor::TickWalking(float elapsed)
 					initialHitWallDecision, minHitWallCandidateEnabled);
 				const int physicsBeforeCallback = static_cast<int>(Physics());
 				const auto initialBlockerBeforeCallback = ClassifyWalkingHitWallBlocker(pawn, initialHit);
-				if (player && hit.Actor)
+				const bool moverActorCollisionFidelityCandidate = MoverActorCollisionFidelityCandidateEnabled();
+				// A mover is a wall that happens to be an actor: it has no collision cylinder to
+				// slide around, so a mover hit belongs in the wall branch below rather than here.
+				if (player && hit.Actor && (!moverActorCollisionFidelityCandidate || !hit.Actor->Brush()))
 				{
 					if (UObject::IsType<UDecoration>(hit.Actor) && UObject::Cast<UDecoration>(hit.Actor)->bPushable() && dot(hit.Normal, moveDelta) < -0.9f)
 					{
@@ -1404,10 +1408,35 @@ void UActor::TickWalking(float elapsed)
 						CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
 						timeLeft = 0.0f;
 					}
-					else if (hit.Actor->bCollideActors() && hit.Actor->CollisionHeight() > 0.0f && hit.Actor->CollisionRadius() > 0.0f)
+					else if (hit.Actor->bCollideActors() && hit.Actor->CollisionHeight() > 0.0f && hit.Actor->CollisionRadius() > 0.0f
+						&& (!moverActorCollisionFidelityCandidate || (hit.Normal.z < 0.2f && hit.Normal.z > -0.2f)))
 					{
 						// TODO: We hit a non-movable actor
-
+						if (moverActorCollisionFidelityCandidate)
+						{
+							// We hit the side of an actor we can't push. Slide along it rather than
+							// stopping dead, the same way we slide along a wall - otherwise the pawn
+							// jams against crates and other pawns and re-collides every tick. No
+							// HitWall here: TryMove has already raised Bump on both actors, which is
+							// what UE1 reports for actor-to-actor contact.
+							vec3 alignedDelta = (moveDelta - hit.Normal * dot(moveDelta, hit.Normal)) * (1.0f - hit.Fraction);
+							if (dot(moveDelta, alignedDelta) >= 0.0f) // Don't end up going backwards
+							{
+								hit = TryMove(alignedDelta);
+								timeLeft -= timeLeft * hit.Fraction;
+							}
+							else
+							{
+								timeLeft = 0.0f;
+							}
+						}
+					}
+					else if (moverActorCollisionFidelityCandidate)
+					{
+						// An actor we can neither push nor slide along (including a steep-normal
+						// actor contact). Stop, rather than spending the remaining iterations
+						// re-running the same blocked move and going nowhere.
+						timeLeft = 0.0f;
 					}
 				}
 				else if (initialHitWallDispatch)
@@ -2284,7 +2313,11 @@ void UActor::TickFlying(float elapsed)
 
 	if (!bJustTeleported())
 		Velocity() = (Location() - OldLocation()) / elapsed;
-	Velocity().z = 0.0f;
+	// PHYS_Flying has no gravity and a full 3D velocity; zeroing Z here (copied from the
+	// walking tick, where it belongs) stopped a flying pawn from ever accumulating vertical
+	// speed. Swimming, the neighbouring case, correctly does not do this either.
+	if (!MoverActorCollisionFidelityCandidateEnabled())
+		Velocity().z = 0.0f;
 }
 
 void UActor::TickRotating(float elapsed)
@@ -2351,7 +2384,12 @@ void UActor::TickProjectile(float elapsed)
 
 	CollisionHit hit = TryMove(Velocity() * elapsed);
 
-	if (hit.Fraction < 1.0f && !hit.Actor && !bDeleteMe() && !bJustTeleported())
+	// A mover counts as a wall here: without this, a projectile stopped by a door or lift
+	// simply halts in mid-air and never detonates, since HitWall was only raised for a hit
+	// with no actor at all.
+	const bool moverBlocksProjectile = MoverActorCollisionFidelityCandidateEnabled()
+		&& hit.Actor && hit.Actor->Brush();
+	if (hit.Fraction < 1.0f && (!hit.Actor || moverBlocksProjectile) && !bDeleteMe() && !bJustTeleported())
 	{
 		CallEvent(this, EventName::HitWall, { ExpressionValue::VectorValue(hit.Normal), ExpressionValue::ObjectValue(hit.Actor ? hit.Actor : Level()) });
 	}
@@ -2553,23 +2591,9 @@ void UActor::TickMovingBrush(float elapsed)
 			if (PhysRate() <= 0.0f)
 				break;
 
-			float physAlpha = PhysAlpha();
+			float startAlpha = PhysAlpha();
+			float physAlpha = startAlpha;
 			float physRate = PhysRate();
-
-			physAlpha += physRate * timeLeft;
-			if (physAlpha > 1.0f)
-			{
-				timeLeft = (physAlpha - 1.0f) / physRate;
-				physAlpha = 1.0f;
-			}
-			else
-			{
-				timeLeft = 0.0f;
-			}
-
-			float t = physAlpha;
-			if (mover->MoverGlideType() == 1/*MV_GlideByTime*/)
-				t = smoothstep(0.0f, 1.0f, t);
 
 			int keyIndex = clamp((int)mover->KeyNum(), 0, 7);
 			vec3 oldpos = mover->OldPos();
@@ -2580,13 +2604,86 @@ void UActor::TickMovingBrush(float elapsed)
 			Rotator keyrot = mover->KeyRot()[keyIndex];
 
 			vec3 deltapos = basepos + keypos - oldpos;
+
+			if (MoverActorCollisionFidelityCandidateEnabled())
+			{
+				// TryMove does not sweep a brush - it moves the whole delta at once and then asks
+				// who ended up inside it - so a mover covering more ground in a frame than an actor
+				// is wide can step clean over that actor without ever overlapping it. Advancing in
+				// bounded increments keeps the encroachment test dense enough that nobody is skipped.
+				const float maxStepDistance = 16.0f;
+				float maxAlphaStep = 1.0f;
+				float travel = length(deltapos) * 1.5f; // 1.5 is the steepest slope of the glide curve
+				if (travel > maxStepDistance)
+					maxAlphaStep = std::max(maxStepDistance / travel, 1.0f / 64.0f);
+
+				physAlpha = startAlpha + physRate * timeLeft;
+				float usedTime = timeLeft;
+				if (physAlpha > 1.0f)
+				{
+					physAlpha = 1.0f;
+					usedTime = (1.0f - startAlpha) / physRate;
+				}
+				if (physAlpha - startAlpha > maxAlphaStep)
+				{
+					physAlpha = startAlpha + maxAlphaStep;
+					usedTime = maxAlphaStep / physRate;
+				}
+				if (usedTime <= 0.0f) // Already at the end of the leg - nothing left to spend the time on
+					break;
+				timeLeft = std::max(timeLeft - usedTime, 0.0f);
+			}
+			else
+			{
+				physAlpha += physRate * timeLeft;
+				if (physAlpha > 1.0f)
+				{
+					timeLeft = (physAlpha - 1.0f) / physRate;
+					physAlpha = 1.0f;
+				}
+				else
+				{
+					timeLeft = 0.0f;
+				}
+			}
+
+			float t = physAlpha;
+			if (mover->MoverGlideType() == 1/*MV_GlideByTime*/)
+				t = smoothstep(0.0f, 1.0f, t);
+
 			vec3 targetPos = oldpos + deltapos * t;
 
 			Rotator targetRotation = oldrot + (baserot + keyrot - oldrot) * t;
 
 			// LogMessage("Moving brush: " + std::to_string(t) + " key=" + std::to_string(keyIndex) +" keypos=(" + std::to_string(keypos.x) + "," + std::to_string(keypos.y) + "," + std::to_string(keypos.z) + ")");
 
-			if (TryMove(targetPos - Location()).Fraction == 1.0f)
+			if (MoverActorCollisionFidelityCandidateEnabled())
+			{
+				// Turn before moving, so the encroachment test inside TryMove sees the orientation
+				// we are actually asking for - otherwise a turning door sweeps through whoever is
+				// standing in its arc without ever asking.
+				Rotator oldRotation = Rotation();
+				SetRotation(targetRotation);
+
+				if (TryMove(targetPos - Location()).Fraction == 1.0f)
+				{
+					PhysAlpha() = physAlpha;
+
+					if (physAlpha == 1.0f)
+					{
+						bInterpolating() = false;
+						CallEvent(this, EventName::InterpolateEnd, { ExpressionValue::ObjectValue(nullptr) });
+					}
+				}
+				else
+				{
+					// Blocked. TryMove has already put the location back, so undo the turn as
+					// well and leave PhysAlpha where it was.
+					SetRotation(oldRotation);
+					break;
+				}
+			}
+			else if (TryMove(targetPos - Location()).Fraction == 1.0f)
 			{
 				SetRotation(targetRotation);
 				PhysAlpha() = physAlpha;
@@ -2885,6 +2982,29 @@ bool UActor::IsOverlapping(UActor* other)
 	return XLevel()->Collision.IsOverlapping(this, other);
 }
 
+// True if moving by delta takes us out of an actor we are currently penetrating. Separation is
+// measured horizontally: these are cylinders, and a vertical push-out would launch the pawn.
+bool UActor::IsSeparatingFrom(UActor* other, const vec3& delta)
+{
+	if (!other || other->Brush() || !IsOverlapping(other))
+		return false;
+
+	vec3 separation = Location() - other->Location();
+	separation.z = 0.0f;
+	float sepLength2 = dot(separation, separation);
+
+	// Exactly concentric: every horizontal direction separates equally well, so don't block any of them.
+	if (sepLength2 < 0.0001f)
+		return true;
+
+	vec3 move = delta;
+	move.z = 0.0f;
+	if (dot(move, move) < 0.0001f)
+		return false;
+
+	return dot(normalize(move), separation / std::sqrt(sepLength2)) >= 0.0f;
+}
+
 CollisionHit UActor::ProbeMoveCollision(const vec3& origin, const vec3& delta,
 	bool isOwnBaseBlocking, CollisionHitList* tracedHits)
 {
@@ -2895,7 +3015,10 @@ CollisionHit UActor::ProbeMoveCollision(const vec3& origin, const vec3& delta,
 		return hit;
 	}
 
-	if (dot(delta, delta) < 0.00000001f)
+	// Brushes are exempt: a mover that only rotates asks to move nowhere, and bailing out here
+	// would skip the encroachment test in TryMove below - the only thing that ever asks whether
+	// there is room for it.
+	if ((!MoverActorCollisionFidelityCandidateEnabled() || !Brush()) && dot(delta, delta) < 0.00000001f)
 		return {};
 
 	CollisionHit blockingHit;
@@ -2906,16 +3029,18 @@ CollisionHit UActor::ProbeMoveCollision(const vec3& origin, const vec3& delta,
 	CollisionHitList& hits = tracedHits ? *tracedHits : localHits;
 	hits = XLevel()->Collision.Trace(
 		origin, origin + delta, CollisionHeight(), CollisionRadius(), bCollideActors(), bCollideWorld(), false);
+	const bool moverActorCollisionFidelityCandidate = MoverActorCollisionFidelityCandidateEnabled();
 	ActorMoveCollisionProbe::BlockingRules rules;
 	rules.ConsiderBlocking = bCollideWorld() || bBlockActors() || bBlockPlayers();
 	rules.MovingActorUsesPlayerBlocking = UObject::TryCast<UPlayerPawn>(this)
 		|| UObject::TryCast<UProjectile>(this);
 	rules.MovingActorBlocksActors = bBlockActors();
 	rules.MovingActorBlocksPlayers = bBlockPlayers();
+	rules.MovingActorBlocksWorld = moverActorCollisionFidelityCandidate && bCollideWorld();
 	rules.OwnBaseIsBlocking = isOwnBaseBlocking;
 
 	auto selected = ActorMoveCollisionProbe::SelectFirstBlockingHit(
-		hits.begin(), hits.end(), rules, [this](const CollisionHit& hit)
+		hits.begin(), hits.end(), rules, [this, &delta, moverActorCollisionFidelityCandidate](const CollisionHit& hit)
 		{
 			ActorMoveCollisionProbe::HitProperties properties;
 			properties.IsWorld = hit.Actor == nullptr;
@@ -2928,6 +3053,12 @@ CollisionHit UActor::ProbeMoveCollision(const vec3& origin, const vec3& delta,
 				properties.HitActorBlocksPlayers = hit.Actor->bBlockPlayers();
 				properties.HitActorIsBasedOnMovingActor = hit.Actor->IsBasedOn(this);
 				properties.MovingActorIsBasedOnHitActor = IsBasedOn(hit.Actor);
+				if (moverActorCollisionFidelityCandidate)
+				{
+					properties.HitActorIsBrush = hit.Actor->Brush() != nullptr;
+					properties.IsPenetratingSeparation = hit.Fraction <= 0.0f
+						&& IsSeparatingFrom(hit.Actor, delta);
+				}
 			}
 			return properties;
 		});
@@ -2966,7 +3097,7 @@ CollisionHit UActor::TryMove(const vec3& delta, bool dryRun, bool isOwnBaseBlock
 		return hit;
 	}
 
-	if (dot(delta, delta) < 0.00000001f)
+	if ((!MoverActorCollisionFidelityCandidateEnabled() || !Brush()) && dot(delta, delta) < 0.00000001f)
 	{
 		if (!dryRun && movingPawn)
 			movingPawn->CancelPendingFallingHazardSweep(false);
