@@ -3,7 +3,8 @@
 An UnrealScript mutator for UT99 (v469e) that emits tab-separated telemetry
 from a retail match: per-tick pawn state, damage, death and frag events, plus
 several one-shot native-behaviour probes (water-jump checks, world traces,
-navigation-point reachability, and the raw reachspec graph). The intent is to
+navigation-point reachability, the raw reachspec graph, and a CanSee/
+LineOfSightTo vision sweep). The intent is to
 record what the retail engine actually does so a reimplementation (e.g. a
 from-scratch bot/engine port) can be compared against it record for record.
 
@@ -37,6 +38,7 @@ call sites.
 | `T` | World trace corpus (`DumpTraceCorpus`, only if `bProbeTraceCorpus`, once at match start) | `idx node dir kind sx sy sz ex ey ez hit hitclass hx hy hz nx1000 ny1000 nz1000` |
 | `R` | Navpoint-pair reachability (`DumpReachCorpus`, only if `bProbeReachCorpus`, once at match start) | `idx from to dist dz actorreachable pointreachable` |
 | `G` | Raw navigation graph dump (`DumpNodeGraph`, only if `bProbeNodeGraph`, once at match start) | `idx name class x y z extracost endpoint playeronly paths upstream pruned visnoreach` |
+| `V` | Navpoint-pair vision sweep (`DumpVisionCorpus`, only if `bProbeVisionCorpus`, once at match start) | `idx obs tgt dist dz yaw cos1000 periph1000 sightradius visibility cansee los` |
 
 Column notes:
 
@@ -73,18 +75,35 @@ Column notes:
   `PrunedPaths` reachspec-index arrays on the `NavigationPoint`, comma
   joined. `G.visnoreach` is the same for `VisNoReachPaths`, but with each
   populated slot resolved to the target navpoint's name (or `-`).
+- `V.obs`/`V.tgt` are navigation-point names, not pawn names, asked from a
+  hidden, non-colliding `Botpack.TMale1` observer against a second,
+  visible, non-colliding `Botpack.TMale1` target. Only every
+  `ProbeVisionStride`'th navpoint is used as an observer, and only target
+  pairs within `ProbeVisionDist` are tested/emitted. For each pair, the
+  observer's `PeripheralVision` is swept over `0.7`, `0.0`, `-0.2` in turn,
+  and for each of those, `V.yaw` sweeps `ProbeVisionYawSteps` evenly spaced
+  samples over a full turn (Unreal rotation units, `Pitch`/`Roll` held at
+  `0`). `V.cos1000` is `1000 * (Normal(target - observer) dot
+  vector(observer.Rotation))`, truncated; `V.periph1000` is `1000 *
+  Observer.PeripheralVision`, truncated; `V.sightradius` and `V.visibility`
+  are the observer's `SightRadius` and the target's `Visibility`,
+  truncated; `V.cansee`/`V.los` are `1`/`0` for
+  `Observer.CanSee(Target)`/`Observer.LineOfSightTo(Target)`.
 
 ### `#` lines
 
 The first `#` line is the stream header:
 `# bottelemetry v1 map=<Outer name> title=<Level.Title> game=<GameInfo class> hz=<SampleHz>`.
 This is followed by one `# cols_X ...` line per record type listed above
-(`S`, `H`, `D`, `W`, `T`, `R`, `G` — there is no `cols_K` line, see the `K`
-row above). During/after the one-shot probes, additional `#` status lines
-appear: `# corpus_done <count>`, `# reach_probe <class> r=.. h=.. step=..
-player=.. walk=.. swim=.. fly=..`, `# reach_skip <navpoint> setlocation`,
-`# reach_corpus_done <count>` or `# reach_corpus_failed <reason>`, and
-`# nodegraph_done <count>`. At match end (`HandleEndGame`), `DumpScores`
+(`S`, `H`, `D`, `W`, `T`, `R`, `G`, `V` — there is no `cols_K` line, see the
+`K` row above). During/after the one-shot probes, additional `#` status
+lines appear: `# corpus_done <count>`, `# reach_probe <class> r=.. h=..
+step=.. player=.. walk=.. swim=.. fly=..`, `# reach_skip <navpoint>
+setlocation`, `# reach_corpus_done <count>` or `# reach_corpus_failed
+<reason>`, `# nodegraph_done <count>`, `# vision_probe <class> r=.. h=..
+sightradius=.. periphdefault=..`, `# vision_skip <navpoint> setlocation`,
+`# vision_corpus_done <count>` or `# vision_corpus_failed <reason>`. At
+match end (`HandleEndGame`), `DumpScores`
 writes `# scores name frags deaths bot`, then one `# score <name> <frags>
 <deaths> <bot>` line per pawn with a `PlayerReplicationInfo`, then
 `# end <ms>`.
@@ -133,6 +152,7 @@ the run is reproducible, then starts the game. Parameters (all optional):
 | `-ProbeWaterJump` | `$true` | Written to `BotTelemetry.ini` as `bProbeWaterJump` |
 | `-ProbeTraceCorpus` | `$true` | Written to `BotTelemetry.ini` as `bProbeTraceCorpus` |
 | `-ProbeReachCorpus` | `$false` | Written to `BotTelemetry.ini` as `bProbeReachCorpus` |
+| `-ProbeVisionCorpus` | `$false` | Written to `BotTelemetry.ini` as `bProbeVisionCorpus` |
 
 The script also archives any pre-existing `Logs\bottelemetry.log` /
 `.tmp` by timestamp-renaming it before the run, and fails fast if
@@ -161,7 +181,11 @@ All `var config` fields on `BotTelemetryMutator`, under
 | `bProbeTraceCorpus` | `True` | If `True`, run `DumpTraceCorpus()` once in `PostBeginPlay` (emits `T` rows, one set of 4 traces × 4 directions per `NavigationPoint`). |
 | `bProbeReachCorpus` | `True` | If `True`, run `DumpReachCorpus()` once in `PostBeginPlay` (emits `R` rows for reachable navpoint pairs within `ProbeReachDist`). |
 | `bProbeNodeGraph` | `True` | If `True`, run `DumpNodeGraph()` once in `PostBeginPlay` (emits `G` rows, one per `NavigationPoint`). |
+| `bProbeVisionCorpus` | `False` | If `True`, run `DumpVisionCorpus()` once in `PostBeginPlay` (emits `V` rows for navpoint pairs within `ProbeVisionDist`, observers strided by `ProbeVisionStride`). |
 | `ProbeReachDist` | `1000.0` | Max straight-line distance between navpoint pair `A`/`B` for `DumpReachCorpus` to test/emit that pair. |
+| `ProbeVisionDist` | `800.0` | Max straight-line distance between observer/target navpoint pair for `DumpVisionCorpus` to test/emit that pair. |
+| `ProbeVisionYawSteps` | `64` | Number of evenly spaced observer yaw samples per pair per `PeripheralVision` value in `DumpVisionCorpus` (covers a full turn). |
+| `ProbeVisionStride` | `8` | Only every `ProbeVisionStride`'th `NavigationPoint` (walked via `nextNavigationPoint`) is used as an observer in `DumpVisionCorpus`; values `<= 0` are treated as `1`. |
 | `ProbeRadius` | `17.0` | Collision-extent X/Y (and the reach-probe pawn's implicit size comes from `Botpack.TMale1` itself, not this var) used for the `box`/`boxact` traces in `DumpTraceCorpus`. |
 | `ProbeHeight` | `39.0` | Collision-extent Z used for the `box`/`boxact` traces in `DumpTraceCorpus`, and (via `P.CollisionHeight`) reused as the Z half-height reported in `W` rows for the live pawn (not driven by this var — that one comes from the pawn's actual collision). |
 | `ProbeDist` | `60.0` | Trace length from each `NavigationPoint`, per direction, in `DumpTraceCorpus`. |

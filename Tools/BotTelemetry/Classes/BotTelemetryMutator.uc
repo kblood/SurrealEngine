@@ -23,7 +23,11 @@ var config bool  bProbeWaterJump;    // log CheckWaterJump's internals live
 var config bool  bProbeTraceCorpus;  // dump a deterministic trace corpus at start
 var config bool  bProbeReachCorpus;  // dump actorReachable answers for navpoint pairs
 var config bool  bProbeNodeGraph;    // dump the reachspec index arrays per navpoint
+var config bool  bProbeVisionCorpus; // dump CanSee/LineOfSightTo answers over a yaw sweep
 var config float ProbeReachDist;     // max pair separation for the reach corpus
+var config float ProbeVisionDist;    // max observer-target separation
+var config int   ProbeVisionYawSteps;// yaw samples per pair
+var config int   ProbeVisionStride;  // use every Nth navigation point as an observer
 var config float ProbeRadius;        // collision extent used by the corpus
 var config float ProbeHeight;
 var config float ProbeDist;
@@ -56,6 +60,7 @@ function PostBeginPlay()
 	Emit("#"$Chr(9)$"cols_T"$Chr(9)$"idx node dir kind sx sy sz ex ey ez hit hitclass hx hy hz nx1000 ny1000 nz1000");
 	Emit("#"$Chr(9)$"cols_R"$Chr(9)$"idx from to dist dz actorreachable pointreachable");
 	Emit("#"$Chr(9)$"cols_G"$Chr(9)$"idx name class x y z extracost endpoint playeronly paths upstream pruned visnoreach");
+	Emit("#"$Chr(9)$"cols_V"$Chr(9)$"idx obs tgt dist dz yaw cos1000 periph1000 sightradius visibility cansee los");
 
 	Level.Game.RegisterDamageMutator(Self);
 	if ( bProbeTraceCorpus )
@@ -64,6 +69,8 @@ function PostBeginPlay()
 		DumpNodeGraph();
 	if ( bProbeReachCorpus )
 		DumpReachCorpus();
+	if ( bProbeVisionCorpus )
+		DumpVisionCorpus();
 	Sink.Flush();
 }
 
@@ -187,6 +194,124 @@ function DumpReachCorpus()
 
 	S.Destroy();
 	Emit("#"$Chr(9)$"reach_corpus_done"$Chr(9)$idx);
+	Sink.Flush();
+}
+
+// Asks CanSee()/LineOfSightTo() for every ordered pair of navigation points
+// within ProbeVisionDist, from every ProbeVisionStride'th point as observer,
+// swept over three PeripheralVision settings and a full yaw turn. Observer
+// and target are both hidden-collision TMale1s; only the observer is hidden,
+// so the target's own bHidden/visibility state doesn't confound the answer.
+function DumpVisionCorpus()
+{
+	local NavigationPoint A, B;
+	local Pawn Observer, Target;
+	local int idx, stride, count, i, yi;
+	local float d;
+	local float Periph[3];
+	local rotator r;
+	local int cs, los;
+
+	if ( Level.NavigationPointList == None )
+	{
+		Emit("#"$Chr(9)$"vision_corpus_failed"$Chr(9)$"no_navpoints");
+		return;
+	}
+
+	Observer = Spawn(class'Botpack.TMale1',,, Level.NavigationPointList.Location);
+	Target = Spawn(class'Botpack.TMale1',,, Level.NavigationPointList.Location);
+	if ( Observer == None || Target == None )
+	{
+		Emit("#"$Chr(9)$"vision_corpus_failed"$Chr(9)$"probe_spawn");
+		return;
+	}
+	Observer.SetCollision(False, False, False);
+	Target.SetCollision(False, False, False);
+	Observer.bHidden = True;
+
+	Emit("#"$Chr(9)$"vision_probe"$Chr(9)$"TMale1"
+		$Chr(9)$"r="$int(Observer.CollisionRadius)
+		$Chr(9)$"h="$int(Observer.CollisionHeight)
+		$Chr(9)$"sightradius="$int(Observer.SightRadius)
+		$Chr(9)$"periphdefault="$int(1000 * Observer.PeripheralVision));
+
+	Periph[0] = 0.700000;
+	Periph[1] = 0.000000;
+	Periph[2] = -0.200000;
+
+	stride = ProbeVisionStride;
+	if ( stride <= 0 )
+		stride = 1;
+
+	for ( A = Level.NavigationPointList; A != None; A = A.nextNavigationPoint )
+	{
+		if ( (count % stride) != 0 )
+		{
+			count++;
+			continue;
+		}
+		count++;
+
+		if ( !Observer.SetLocation(A.Location) )
+		{
+			Emit("#"$Chr(9)$"vision_skip"$Chr(9)$string(A.Name)$Chr(9)$"setlocation");
+			continue;
+		}
+
+		for ( B = Level.NavigationPointList; B != None; B = B.nextNavigationPoint )
+		{
+			if ( B == A )
+				continue;
+			d = VSize(B.Location - A.Location);
+			if ( d > ProbeVisionDist )
+				continue;
+
+			if ( !Target.SetLocation(B.Location) )
+			{
+				Emit("#"$Chr(9)$"vision_skip"$Chr(9)$string(B.Name)$Chr(9)$"setlocation");
+				continue;
+			}
+
+			for ( i = 0; i < 3; i++ )
+			{
+				Observer.PeripheralVision = Periph[i];
+
+				for ( yi = 0; yi < ProbeVisionYawSteps; yi++ )
+				{
+					r.Pitch = 0;
+					r.Roll = 0;
+					r.Yaw = yi * (65536 / ProbeVisionYawSteps);
+					Observer.SetRotation(r);
+
+					cs = 0;
+					los = 0;
+					if ( Observer.CanSee(Target) )
+						cs = 1;
+					if ( Observer.LineOfSightTo(Target) )
+						los = 1;
+
+					Emit("V"$Chr(9)$idx
+						$Chr(9)$string(A.Name)
+						$Chr(9)$string(B.Name)
+						$Chr(9)$int(d)
+						$Chr(9)$int(B.Location.Z - A.Location.Z)
+						$Chr(9)$r.Yaw
+						$Chr(9)$int(1000 * (Normal(Target.Location - Observer.Location) dot vector(Observer.Rotation)))
+						$Chr(9)$int(1000 * Observer.PeripheralVision)
+						$Chr(9)$int(Observer.SightRadius)
+						$Chr(9)$int(Target.Visibility)
+						$Chr(9)$cs
+						$Chr(9)$los);
+					idx++;
+				}
+			}
+		}
+		Sink.Flush();
+	}
+
+	Observer.Destroy();
+	Target.Destroy();
+	Emit("#"$Chr(9)$"vision_corpus_done"$Chr(9)$idx);
 	Sink.Flush();
 }
 
@@ -514,6 +639,9 @@ defaultproperties
 	bProbeReachCorpus=True
 	bProbeNodeGraph=True
 	ProbeReachDist=1000.000000
+	ProbeVisionDist=800.000000
+	ProbeVisionYawSteps=32
+	ProbeVisionStride=16
 	ProbeRadius=17.000000
 	ProbeHeight=39.000000
 	ProbeDist=60.000000

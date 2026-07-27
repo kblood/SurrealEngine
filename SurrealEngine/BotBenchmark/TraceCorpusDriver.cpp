@@ -68,14 +68,21 @@ namespace
 				const float reachDistance = ArgAsFloat("--trace-corpus-reach-distance", 1000.0f);
 				const bool reachMode = !commandline->GetArg("", "--trace-corpus-reach").empty();
 
+				const float visionDistance = ArgAsFloat("--trace-corpus-vision-distance", 800.0f);
+				const int visionYawSteps = ArgAsInt("--trace-corpus-vision-yaw-steps", 32);
+				const int visionStride = ArgAsInt("--trace-corpus-vision-stride", 16);
+				const bool visionMode = !commandline->GetArg("", "--trace-corpus-vision").empty();
+
 				EngineRef.LaunchInfo.noEntryMap = true;
 				UnrealURL url(EngineRef.GetDefaultURL(
 					EngineRef.packages->GetIniValue("system", "URL", "LocalMap")), map);
 				EngineRef.LoadMap(url);
 
-				File::write_all_text(output, reachMode
-					? BuildReachCorpus(radius, height, reachDistance)
-					: BuildCorpus(radius, height, distance));
+				File::write_all_text(output, visionMode
+					? BuildVisionCorpus(radius, height, visionDistance, visionYawSteps, visionStride)
+					: reachMode
+						? BuildReachCorpus(radius, height, reachDistance)
+						: BuildCorpus(radius, height, distance));
 				Complete = true;
 			}
 			catch (const std::exception& error)
@@ -96,6 +103,14 @@ namespace
 			if (value.empty())
 				return fallback;
 			return std::stof(value);
+		}
+
+		int ArgAsInt(const char* name, int fallback) const
+		{
+			const std::string value = commandline->GetArg("", name);
+			if (value.empty())
+				return fallback;
+			return std::stoi(value);
 		}
 
 		// The mutator traces from an Info actor with no bearing on the result; any
@@ -271,6 +286,130 @@ namespace
 
 			probe->Destroy();
 			out << "#\treach_corpus_done\t" << idx << "\n";
+			return out.str();
+		}
+
+		// The mirror of the retail mutator's DumpVisionCorpus: sweep an observer pawn's
+		// PeripheralVision and facing yaw against every navigation point within visionDistance,
+		// and record CanSee/LineOfSightTo the same way UPawn::CanSee builds its own vision cone.
+		std::string BuildVisionCorpus(float radius, float height, float visionDistance,
+			int yawSteps, int stride) const
+		{
+			UActor* tracingActor = FindTracingActor();
+			if (!tracingActor)
+				throw std::runtime_error("no actor available to spawn from");
+
+			// Walk NavigationPointList rather than the actor list, because the mutator
+			// does and the stride below picks observers by position in that order.
+			std::vector<UNavigationPoint*> nodes;
+			for (UNavigationPoint* point = tracingActor->Level()->NavigationPointList();
+				point != nullptr; point = point->nextNavigationPoint())
+			{
+				nodes.push_back(point);
+			}
+			if (nodes.empty())
+				throw std::runtime_error("map has no navigation points");
+			if (stride <= 0)
+				stride = 1;
+			if (yawSteps <= 0)
+				yawSteps = 1;
+
+			UClass* probeClass = EngineRef.packages->FindClass("Botpack.TMale1");
+			if (!probeClass)
+				throw std::runtime_error("Botpack.TMale1 is not available");
+
+			UPawn* observer = UObject::TryCast<UPawn>(tracingActor->Spawn(probeClass,
+				nullptr, {}, nodes.front()->Location(), {}));
+			if (!observer)
+				throw std::runtime_error("could not spawn the vision observer pawn");
+			UPawn* target = UObject::TryCast<UPawn>(tracingActor->Spawn(probeClass,
+				nullptr, {}, nodes.front()->Location(), {}));
+			if (!target)
+				throw std::runtime_error("could not spawn the vision target pawn");
+
+			observer->SetCollision(false, false, false);
+			observer->SetCollisionSize(radius, height);
+			observer->bHidden() = true;
+
+			target->SetCollision(false, false, false);
+			target->SetCollisionSize(radius, height);
+
+			std::ostringstream out;
+			out << "# surrealengine vision corpus replay\n";
+			out << "#\tcols_V\tidx obs tgt dist dz yaw cos1000 periph1000 sightradius"
+				<< " visibility cansee los\n";
+			out << "#\tvision_probe\t" << probeClass->Name.ToString()
+				<< "\tr=" << static_cast<int>(observer->CollisionRadius())
+				<< "\th=" << static_cast<int>(observer->CollisionHeight())
+				<< "\tsightradius=" << static_cast<int>(observer->SightRadius())
+				<< "\tperiphdefault=" << static_cast<int>(1000.0f * observer->PeripheralVision()) << "\n";
+
+			// PeripheralVision is the cosine of the half-angle of the view cone: 0.7 is a tight
+			// forward cone, 0.0 is a full hemisphere, -0.2 looks slightly behind the pawn.
+			static const float peripheralValues[3] = { 0.7f, 0.0f, -0.2f };
+
+			int idx = 0;
+			for (size_t n = 0; n < nodes.size(); n += static_cast<size_t>(stride))
+			{
+				UNavigationPoint* observerNode = nodes[n];
+				if (!observer->SetLocation(observerNode->Location()))
+				{
+					out << "#\tvision_skip\t" << observerNode->Name.ToString() << "\tsetlocation\n";
+					continue;
+				}
+
+				for (UNavigationPoint* targetNode : nodes)
+				{
+					if (targetNode == observerNode)
+						continue;
+					const vec3 delta = targetNode->Location() - observerNode->Location();
+					const float distance = length(delta);
+					if (distance > visionDistance)
+						continue;
+
+					if (!target->SetLocation(targetNode->Location()))
+					{
+						out << "#\tvision_skip\t" << targetNode->Name.ToString() << "\tsetlocation\n";
+						continue;
+					}
+
+					for (float peripheralVision : peripheralValues)
+					{
+						observer->PeripheralVision() = peripheralVision;
+
+						for (int i = 0; i < yawSteps; i++)
+						{
+							const int yaw = i * (65536 / yawSteps);
+							observer->Rotation() = Rotator(0, yaw, 0);
+
+							const vec3 forward = Coords::Rotation(observer->Rotation()).XAxis;
+							const float cosine = dot(
+								normalize(target->Location() - observer->Location()), forward);
+
+							const bool canSee = observer->CanSee(target);
+							const bool los = observer->LineOfSightTo(target, false);
+
+							out << "V\t" << idx++
+								<< '\t' << observerNode->Name.ToString()
+								<< '\t' << targetNode->Name.ToString()
+								<< '\t' << static_cast<int>(distance)
+								<< '\t' << static_cast<int>(delta.z)
+								<< '\t' << yaw
+								<< '\t' << static_cast<int>(1000.0f * cosine)
+								<< '\t' << static_cast<int>(1000.0f * peripheralVision)
+								<< '\t' << static_cast<int>(observer->SightRadius())
+								<< '\t' << static_cast<int>(target->Visibility())
+								<< '\t' << (canSee ? 1 : 0)
+								<< '\t' << (los ? 1 : 0)
+								<< '\n';
+						}
+					}
+				}
+			}
+
+			observer->Destroy();
+			target->Destroy();
+			out << "#\tvision_corpus_done\t" << idx << "\n";
 			return out.str();
 		}
 

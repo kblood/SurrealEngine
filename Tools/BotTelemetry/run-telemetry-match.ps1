@@ -15,7 +15,8 @@ param(
     [double]$SampleHz = 30,
     [bool]$ProbeWaterJump = $true,
     [bool]$ProbeTraceCorpus = $true,
-    [bool]$ProbeReachCorpus = $false
+    [bool]$ProbeReachCorpus = $false,
+    [bool]$ProbeVisionCorpus = $false
 )
 
 $MinPlayers = $Bots + 1
@@ -47,7 +48,11 @@ $ini = Join-Path $system 'BotTelemetry.ini'
     "bProbeWaterJump=$(if ($ProbeWaterJump) {'True'} else {'False'})"
     "bProbeTraceCorpus=$(if ($ProbeTraceCorpus) {'True'} else {'False'})"
     "bProbeReachCorpus=$(if ($ProbeReachCorpus) {'True'} else {'False'})"
+    "bProbeVisionCorpus=$(if ($ProbeVisionCorpus) {'True'} else {'False'})"
     'ProbeReachDist=1000.000000'
+    'ProbeVisionDist=800.000000'
+    'ProbeVisionYawSteps=32'
+    'ProbeVisionStride=16'
     'ProbeRadius=17.000000'
     'ProbeHeight=39.000000'
     'ProbeDist=60.000000'
