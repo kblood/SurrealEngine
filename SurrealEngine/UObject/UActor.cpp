@@ -4791,7 +4791,7 @@ bool UPawn::CanSee(UActor* other)
 		observation.ObserverTick = engine->BotBenchmarkObserverTick();
 		observation.SourceLifeId = DirectReachCommandLifeId();
 		observation.SourceActorIndex = Index;
-		observation.CorrectedConeSelected = engine->IsBotBenchmarkPawnVisionConeEnabled();
+		observation.CorrectedConeSelected = true;
 		if (Frame::Callstack.size() >= 2)
 		{
 			Frame* caller = Frame::Callstack[Frame::Callstack.size() - 2];
@@ -4857,22 +4857,15 @@ bool UPawn::CanSee(UActor* other)
 	if (length(origin - eye_pos) > SightRadius())
 		return finish(false);
 
-	if (engine && engine->IsBotBenchmarkPawnVisionConeEnabled())
+	// PeripheralVision is the cosine of the half-angle of the view cone, so it has to be tested
+	// against the direction from the pawn to the target. This previously compared the facing axis
+	// against normalize(origin) - the target's absolute world position - which made visibility
+	// depend on where the map sits relative to the world origin, and took abs() of the cosine so
+	// that targets directly behind the pawn passed the same test as targets in front of it.
+	if (!PawnMovement::IsWithinPawnVisionCone(Location(), Coords::Rotation(Rotation()).XAxis,
+		origin, PeripheralVision()))
 	{
-		if (!PawnMovement::IsWithinPawnVisionCone(Location(), Coords::Rotation(Rotation()).XAxis,
-			origin, PeripheralVision()))
-		{
-			return finish(false);
-		}
-	}
-	else
-	{
-		// Preserve the stock vision-cone behavior unless the benchmark explicitly opts in.
-		vec3 orientation = Coords::Rotation(Rotation()).XAxis;
-		float cosine = dot(normalize(orientation), normalize(origin));
-		const float peripheralVision = PeripheralVision();
-		if (peripheralVision > 0.0f && std::abs(cosine) > peripheralVision)
-			return finish(false);
+		return finish(false);
 	}
 
 	return finish(FastTrace(origin, eye_pos) || FastTrace(top, eye_pos) || FastTrace(bottom, eye_pos));
