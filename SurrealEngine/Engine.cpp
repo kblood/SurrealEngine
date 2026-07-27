@@ -1142,6 +1142,25 @@ std::string Engine::ConsoleCommand(UObject* context, const std::string& commandl
 	{
 		return "0";
 	}
+	else if (command == "language" && args.size() == 1 && LaunchInfo.IsRune())
+	{
+		// Rune's HUD and WindowConsole use this command to select localized
+		// resources (notably RMenu.RussianRootWindow for the "rut" language).
+		return packages->GetIniValue("system", "Engine.Engine", "Language", "int");
+	}
+	else if (command == "isaddon" && args.size() == 1 && LaunchInfo.IsRune())
+	{
+		// Rune's menu expects NONE, ADDON, or STANDALONE. Every Rune.exe build
+		// recognized by this engine is the base game; when HallsOfValhalla.u is
+		// also on its package path, it is the in-place ADDON layout. A standalone
+		// HOV executable is not part of the supported executable hash registry.
+		for (const NameString& packageName : packages->GetPackageNames())
+		{
+			if (packageName == "HallsOfValhalla")
+				return "ADDON";
+		}
+		return "NONE";
+	}
 	else if (command == "keyname" && args.size() == 2)
 	{
 		uint8_t index = Convert::to_uint8(args[1]);
