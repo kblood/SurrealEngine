@@ -412,6 +412,9 @@ public:
 	void InitBase();
 
 	void SetBase(UActor* newBase, bool sendBaseChangeEvent);
+	void SetJointAttachment(int joint, UActor* actor);
+	UActor* JointAttachment(int joint);
+	UActor* TakeJointAttachment(int joint);
 	// Re-registers this actor into ActorBase()->BasedActors without firing Attach/BaseChange
 	// events. BasedActors is native runtime-only state (never serialized), unlike ActorBase()
 	// itself, so a freshly loaded actor whose ActorBase() property already points at another
@@ -577,6 +580,9 @@ public:
 	Array<UActor*> ChildActors;
 	// Based actor tracking
 	Array<UActor*> BasedActors;
+	// Runtime-only identity for Rune-style joint attachments. Transform handling still
+	// uses ordinary actor basing until Rune's skeletal joint system is implemented.
+	std::map<int, UActor*> JointAttachments;
 
 	void AddChildActor(UActor* actor);
 	void RemoveChildActor(UActor* actor);

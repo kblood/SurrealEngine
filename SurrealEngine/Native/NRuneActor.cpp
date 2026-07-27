@@ -20,22 +20,33 @@ void NRuneActor::RegisterFunctions()
 	RegisterVMNativeFunc_1("Pawn", "SkeletonLook", &NRuneActor::SkeletonLook, 670);
 	RegisterVMNativeFunc_2("Actor", "SetJointRot", &NRuneActor::SetJointRot, 621);
 	RegisterVMNativeFunc_2("Actor", "DetachActorFromJoint", &NRuneActor::DetachActorFromJoint, 614);
+	RegisterVMNativeFunc_2("Actor", "ActorAttachedTo", &NRuneActor::ActorAttachedTo, 617);
 }
 
 void NRuneActor::AttachActorToJoint(UObject* Self, UObject* A, int j)
 {
 	// No joint offset table exists, so the attached actor is based on Self
-	// directly (follows Self's overall position) rather than a named joint.
+	// directly (follows Self's overall position) rather than a named joint. Keep
+	// the joint identity so Rune can later query or detach the same actor.
+	UActor* selfActor = UObject::Cast<UActor>(Self);
 	UActor* attachee = UObject::TryCast<UActor>(A);
 	if (attachee)
-		attachee->SetBase(UObject::Cast<UActor>(Self), true);
+	{
+		UActor* previous = selfActor->JointAttachment(j);
+		if (previous && previous != attachee)
+			previous->SetBase(nullptr, true);
+
+		attachee->SetBase(selfActor, true);
+		selfActor->SetJointAttachment(j, attachee);
+	}
 }
 
 void NRuneActor::JointNamed(UObject* Self, const NameString& jointname, int& ReturnValue)
 {
-	// -1 means "no such joint" to any caller checking the result, and is safe
-	// to pass straight into AttachActorToJoint above, which ignores it anyway.
-	ReturnValue = -1;
+	// Rune treats zero as "no such joint". NameString compare indices are stable
+	// and case-insensitive, so use a negative namespace to keep named joints
+	// distinct from the non-negative numeric joint IDs used by Rune scripts.
+	ReturnValue = jointname.IsNone() ? 0 : -1 - jointname.GetCompareIndex();
 }
 
 void NRuneActor::TraceTexture(UObject* Self, const vec3& TraceEnd, const vec3& TraceStart, int& Flags, vec3& ScrollDir, UObject*& ReturnValue)
@@ -85,18 +96,15 @@ void NRuneActor::DetachActorFromJoint(UObject* Self, int j, UObject*& ReturnValu
 	UActor* selfActor = UObject::Cast<UActor>(Self);
 	ReturnValue = nullptr;
 
-	// AttachActorToJoint approximates Rune's missing joint system with ordinary
-	// actor basing. Prefer an owned based actor so a pawn standing on Self is
-	// never mistaken for a joint attachment merely because the joint index is
-	// unavailable to this engine.
-	for (auto it = selfActor->BasedActors.rbegin(); it != selfActor->BasedActors.rend(); ++it)
+	UActor* actor = selfActor->TakeJointAttachment(j);
+	if (actor)
 	{
-		UActor* actor = *it;
-		if (actor && actor->Owner() == selfActor)
-		{
-			ReturnValue = actor;
-			actor->SetBase(nullptr, true);
-			return;
-		}
+		ReturnValue = actor;
+		actor->SetBase(nullptr, true);
 	}
+}
+
+void NRuneActor::ActorAttachedTo(UObject* Self, int j, UObject*& ReturnValue)
+{
+	ReturnValue = UObject::Cast<UActor>(Self)->JointAttachment(j);
 }
