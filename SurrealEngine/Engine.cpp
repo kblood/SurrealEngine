@@ -1203,9 +1203,15 @@ std::string Engine::ConsoleCommand(UObject* context, const std::string& commandl
 			if (StrTools::equals_ignore_case(mapname, url.Map))
 			{
 				// A real Rune.exe restarted the whole process to leave Classic Mode,
-				// which implicitly resets bNoDrawWorld to its default (false) and
-				// never recreates the menu. This in-process approximation has to
-				// clear it explicitly or the 3D world stays hidden behind the menu.
+				// which discarded the UWindow menu along with its render/input state.
+				// Rune's WindowConsole already has the exact in-process teardown for
+				// that state. The Root guard keeps command-line --exec relaunches safe
+				// before the first PreRender has created the window hierarchy.
+				if (console->HasProperty("Root") && console->GetUObject("Root"))
+					CallEvent(console, "CloseUWindow");
+
+				// Keep this as a defensive fallback for a custom Rune console or an
+				// early relaunch with no root window yet.
 				console->bNoDrawWorld() = false;
 				ClientTravel(url.ToString(), ETravelType::TRAVEL_Absolute, false);
 				return {};
