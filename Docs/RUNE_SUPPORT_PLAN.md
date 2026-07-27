@@ -436,6 +436,16 @@ Testing the same exact intro relaunch against Rune Gold 1.07 exposed two additio
 
 Final native Release verification is recorded under `SurrealEngine/qa/runs/2026-07-27/795068d1-dirty-rune-menu-close`: Rune Classic 1.10 exact intro relaunch (15.6s), Rune Gold 1.07 exact intro relaunch (34.0s), Rune Gold `Dwarf1wwheel` direct play path (14.1s), UT99 v436 `DM-Deck16][` (22.7s), and Unreal Gold v226b default map (23.2s) all reached gameplay/map initialization and shut down gracefully with zero `Unhandled Exception`, missing-package, `Unknown native function`, `Script error`, or `Accessed None` matches. The branch still predates the repository's CTest suite, so this remains native build plus retail smoke evidence rather than a CTest result.
 
+**2026-07-27, remaining Rune menu contracts and grouped UWindow assets fixed.** The previously-catalogued `LANGUAGE` and `ISADDON` lines are real Rune menu console contracts. `LANGUAGE` now returns `Engine.Engine.Language` from the loaded system ini (defaulting to `int`), which is also how Rune's scripts select `RMenu.RussianRootWindow` for `rut`. `ISADDON` now returns `ADDON` when `HallsOfValhalla.u` is present on the package path and `NONE` otherwise; the recognized `Rune.exe` hashes are base-game executables rather than a separately-registered standalone HOV executable. Both handlers are Rune-gated.
+
+The nine `UWindow.Icons.RCBack0`-`8` failures were not missing retail files: Rune Classic's `UWindow.u` embeds those exports under the `Icons` group. `Object.DynamicLoadObject` previously treated everything after the first dot as the object name, so `UWindow.Icons.RCBack0` searched for the literal object `Icons.RCBack0`. Both VM signatures now preserve the old group-agnostic `Package.Object` behavior while resolving `Package.Group.Object` with the package's grouped lookup. Rune Classic's exact intro relaunch now creates its UWindow root with no RCBack or unknown-command errors.
+
+**2026-07-27, Rune particle struct decoding and decal ABI fixed from the 1.07 public headers.** The `Dwarf1wwheel` run still emitted 3,469 `ParticleArray ... expected 123 bytes` resync warnings. A temporary layout diagnostic (removed before the final build) showed that SurrealEngine knew every field of Rune's `Particle` struct but consumed only 87 bytes; its `Points` field reported one 12-byte vector element. The official Rune 1.07 public header release (`Engine/Inc/UnObj.h`) supplies the missing fact: `FVector Points[4]`. The generic `UStructProperty` load and save paths iterated each nested field only once even when its `ArrayDimension` was greater than one. They now iterate every fixed-array element symmetrically. The three newly-consumed vectors account for the exact 36-byte under-read, and both Rune Classic and Rune Gold `Dwarf1wwheel` logs now contain zero property-size resyncs while still reaching login/inventory acceptance and clean shutdown.
+
+That corrected run made Rune Gold's intro debris sequence reliably expose another ABI difference: Rune's released declaration is `native function bool AttachDecal(float TraceDistance, optional vector DecalDir)`, while stock Unreal returns a decal object. SurrealEngine already had a boolean implementation for Deus Ex; Rune now selects that same return ABI. Repeated A/B runs proved the debris event occurred with both the old and fixed struct decoders, and the Rune boolean dispatch removed every `Accessed mismatched value type`/`Decal.AttachToSurface` script error. Six nonfatal `LimbWeapon.Drop.EndState: Blood.Destroy()` `Accessed None` warnings remain in the timed Rune Gold intro debris sequence; they reproduce independently of the array fix and are recorded rather than hidden.
+
+The committed Release matrix is recorded at `SurrealEngine/qa/runs/2026-07-27/d8745fad-dirty-rune-ui-contracts` for tested commit `cd173087`: Rune Classic and Rune Gold exact intro relaunch, both versions' direct `Dwarf1wwheel` path, UT99 v436 `DM-Deck16][`, and Unreal Gold v226b all shut down normally with zero command/grouped-load/fatal/package/native/type/resync matches. Rune Gold intro alone has the six known `Accessed None` script warnings above. This topic branch still has zero CTest cases (`ctest -N`).
+
 ## Open questions and risks (do not assume answers)
 
 1. ~~Does the user actually own a legitimate copy of Rune~~ — **Resolved
@@ -447,10 +457,12 @@ Final native Release verification is recorded under `SurrealEngine/qa/runs/2026-
    more heavily on live exception cataloguing than on any published reference,
    and cross-version differences between 1.07 and 1.10/1.11 native surfaces
    are unverified.
-3. Whether Rune's actual shipped player/monster meshes are `USkeletalMesh` or
-   ordinary vertex-animated meshes is unverified — this determines whether M3
-   blocks M4 outright or is a lower-priority cosmetic gap. Only inspecting a
-   real Rune `.u`/mesh package resolves this.
+3. ~~Whether Rune's actual shipped player/monster meshes are `USkeletalMesh` or
+   ordinary vertex-animated meshes is unverified.~~ **Resolved 2026-07-24:**
+   Rune uses a separate `SkelMesh` property and `Skeletal` companion-actor
+   indirection with joint/group state. The M3 investigation above confirms that
+   full bone-driven skinning is a distinct renderer/data-model project, not a
+   prerequisite for the current playable compatibility slice.
 4. The `!IsRune()` guard at `PackageManager.cpp:226` and the `Handedness`
    skip at `UActor.cpp:4144` both need their original root cause confirmed
    against real Rune data before this plan's M1/M4 code touches nearby logic;
