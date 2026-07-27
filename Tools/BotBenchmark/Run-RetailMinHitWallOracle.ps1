@@ -31,11 +31,21 @@ param(
 
     [switch]$AllowMissingHitWall,
 
-    [switch]$KeepRuntime
+    [switch]$KeepRuntime,
+
+    [ValidateNotNullOrEmpty()]
+    [string]$RuntimeRoot = (Join-Path ([System.IO.Path]::GetTempPath()) 'sreo')
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# Retail UCC overflows a fixed path buffer inside its driver-cache startup and
+# dies before compiling anything once its own executable path grows long: paths
+# at or below 130 characters are reliable, 131-150 fail intermittently, and 155
+# and above always fault. The disposable runtime therefore cannot live under the
+# evidence directory, which is nested far deeper than that.
+$MaxRuntimeUccPathLength = 120
 
 function Get-FileInventory([string]$Root) {
     $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path
@@ -604,8 +614,25 @@ if (Test-Path -LiteralPath $output) {
     throw "Output directory must be new: $output"
 }
 New-Item -ItemType Directory -Path $output | Out-Null
-$runtime = Join-Path $output '_runtime'
+
+$runtimeParent = [System.IO.Path]::GetFullPath($RuntimeRoot)
+$runtime = Join-Path $runtimeParent ([Guid]::NewGuid().ToString('N').Substring(0, 6))
+$runtimeUcc = Join-Path $runtime 'System\UCC.exe'
+if ($runtimeUcc.Length -gt $MaxRuntimeUccPathLength) {
+    throw "Runtime UCC path is $($runtimeUcc.Length) characters, above the $MaxRuntimeUccPathLength character ceiling: $runtimeUcc. Pass a shorter -RuntimeRoot."
+}
+if (!(Test-Path -LiteralPath $runtimeParent)) {
+    New-Item -ItemType Directory -Path $runtimeParent -Force | Out-Null
+}
 New-Item -ItemType Directory -Path $runtime | Out-Null
+Write-Json (Join-Path $output 'runtime-location.json') ([ordered]@{
+    schema = 'surreal-retail-minhitwall-runtime-location-v1'
+    runtime = $runtime
+    ucc_path = $runtimeUcc
+    ucc_path_length = $runtimeUcc.Length
+    ucc_path_ceiling = $MaxRuntimeUccPathLength
+    retained = $KeepRuntime.IsPresent
+})
 
 $before = Get-FileInventory $retail
 Write-Json (Join-Path $output 'installed-files-before.json') $before
