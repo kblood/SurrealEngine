@@ -1,352 +1,499 @@
-# BOT AI architecture and evidence review, 2026-07-25
+# BOT AI evidence review and continuation-plan revision, 2026-07-25
 
-Read-only review of `feature/bot-ai-quality-clean` at `af9bf0f9`. No code, test,
-or evidence file was changed.
+Read-only review of `feature/bot-ai-quality-clean` at `af9bf0f9`. No code, gate
+file, flag default, or evidence artifact was changed. This replaces the earlier
+same-day review at this path; findings that survived re-verification are kept,
+the rest are corrected or added below.
 
-## 0. Inspection scope and what could not be verified
+## 0. What was verified, and what was not
 
-Inspected: `CLAUDE.md`; `Docs/BOT_AI_PROJECT_GOAL.md`;
-`Docs/BOT_AI_QUALITY_EXECUTION_PLAN.md` iterations 107–112 (lines 2680–2874);
+Verified by reading this worktree: `CLAUDE.md`; `Docs/BOT_AI_PROJECT_GOAL.md`;
+`Docs/BOT_AI_QUALITY_EXECUTION_PLAN.md` iterations 105–112 (lines 2625–2874);
 `Docs/BOT_AI_CONTINUATION_PLAN_OPUS5.md`;
 `Docs/BOT_AI_ROUTE_EXECUTION_FINDINGS.md`; `Docs/BOT_BENCHMARK_DRIVER.md`;
 `Docs/BOT_AI_OWNER_DATA_EXTRACTION.md`; the native path-commit, inventory
 direct-reach, and move-stall implementations in `SurrealEngine/UObject/`; the
-telemetry/protocol/driver flag plumbing in `SurrealEngine/BotBenchmark/`; and
-`Tools/BotBenchmark/` analyzers, comparators, gate files, and tests.
+flag and telemetry plumbing in `SurrealEngine/BotBenchmark/`;
+`Tools/BotBenchmark/` analyzers, comparator, and tests; and the git history
+including the gating commit `cdb9958e`.
 
-**Not verified.** The owner-local QA tree lives at
-`C:\Devstuff\QuestGames\SurrealEngine\qa\` (see
-`Tools/BotBenchmark/QualificationCampaigns/README.md:14`), outside this
-worktree. `qa/reports/bot-ai/native-path-commit-observer-v2-full.json` and
-`qa/runs/2026-07-25/native-path-commit-observer-v2/` were therefore not
-readable in this session. Every statement below about those artifacts is a
-statement about what the documents claim, not an independent check of the
-JSON. The claimed SHA-256 values in iteration 112 (UT
-`E40CC9D6…6696969F`, Unreal `802B9935…C2A0F047D`) remain unconfirmed by this
-review.
+**Not verified.** Admissible evidence lives in the owner-local QA tree at
+`C:\Devstuff\QuestGames\SurrealEngine\qa\`
+(`Tools/BotBenchmark/QualificationCampaigns/README.md:15`), outside this
+worktree and outside this session's filesystem access.
+`qa/reports/bot-ai/native-path-commit-observer-v2-full.json`, the per-run
+`native-path-commit-observer-v2-*-r[12].json` reports, and
+`qa/runs/2026-07-25/native-path-commit-observer-v2/` could not be read. The
+counts and SHA-256 equivalence values recorded in
+`BOT_AI_QUALITY_EXECUTION_PLAN.md:2843-2874` (UT `E40CC9D6…6696969F`, Unreal
+`802B9935…C2A0F047D`) are therefore repeated here as claims, not as confirmed
+measurements. No build, benchmark run, or test suite was executed for this
+review; test invocation was not permitted in this session.
 
-## 1. Merge-readiness: no
+## 1. Merge readiness: no, on two independent grounds
 
-The branch is not merge-ready as a BOT AI behavior improvement, and it is not
-mergeable as a focused topic at all.
+**As a bot behavior change.** Nothing on the branch improves measured bot
+quality. Every live candidate is rejected or retained default-off: the
+targetless `MoveTo` timeout (−0.67 kills, −71.0 damage, death partition
+unchanged — `BOT_AI_CONTINUATION_PLAN_OPUS5.md:78-94`); the direct-actor
+`MoveToward` timeout (a qualified test hook with a single activation on one
+map/seed — `BOT_AI_ROUTE_EXECUTION_FINDINGS.md:205-237`, iteration 106);
+hazard-swim egress, harmful-water egress steering, air-control steering, the
+route-edge veto, and every `ActorReachable` return change. The project goal
+states the same conclusion (`BOT_AI_PROJECT_GOAL.md:69-76`). Iterations 108–112
+add provenance and refutations only; iteration 112 says so in its own closing
+line.
 
-- **No behavior improvement exists to merge.** Every live candidate is
-  rejected or retained default-off: targetless `MoveTo` timeout (rejected on a
-  −71.0 damage and −0.67 kills regression,
-  `BOT_AI_CONTINUATION_PLAN_OPUS5.md:78-94`), direct-actor `MoveToward` timeout
-  (test hook only, `BOT_AI_ROUTE_EXECUTION_FINDINGS.md:206-237`), hazard swim
-  egress, harmful-water egress steering, air-control steering, route-edge veto,
-  and any `ActorReachable` return change. The project goal file states the same
-  conclusion directly (`BOT_AI_PROJECT_GOAL.md:69-76`).
-- **The branch is not a focused topic.** `git diff master...HEAD` is 625 files
-  and 113,947 insertions across 462 commits, and includes the entire
-  WebXR/WebGPU/`web/` workstream. `CLAUDE.md`'s upstream policy item 4 requires
-  one correction per PR with unrelated work removed; this branch violates that
-  by two orders of magnitude regardless of the BOT AI content's quality.
-- **The campaign is deliberately unpassable.**
-  `Tools/BotBenchmark/QualificationCampaigns/UT436-Unreal226b-qualification-campaign-v1.json:58-77`
-  names three fail-closed release requirements
-  (`role_swapped_participant_policy_coverage`, `avoidable_suicide_rate`,
-  `ai_frame_p95_ms`) that the engine does not emit, and
-  `UT436-tuning-quality-gates-v1.json:12-16` requires all three plus the two
-  recovery fractions. Nothing on this branch can pass it today.
+**As a focused topic.** `git diff --shortstat master...HEAD` is 626 files,
+114,325 insertions, across 463 commits, and includes the entire WebXR/WebGPU
+`web/` workstream. `CLAUDE.md`'s upstream policy item 4 requires one correction
+per PR with unrelated work removed. Independently of BOT AI quality, this
+branch cannot be an upstream candidate; a merge would have to be reconstructed
+as a focused topic.
 
-What *is* defensible on this branch is observer plumbing. Two things verified
-in source support that:
+The campaign remains deliberately unpassable by design:
+`UT436-Unreal226b-qualification-campaign-v1.json` names three release
+requirements the engine does not emit (`role_swapped_participant_policy_coverage`,
+`avoidable_suicide_rate`, `ai_frame_p95_ms`), and the tuning gate file requires
+those plus the two recovery fractions. That is intended behavior of the gate,
+not a defect, but it means no run on this branch can currently pass.
 
-- Native path-commit capture is at the claimed boundary: `SetRouteCache` at
-  `SurrealEngine/UObject/UActor.cpp:4610`, the observer gate at 4611, and
-  `SpecialHandling` not reached until 4689. It fails closed by dropping the
-  record and incrementing an overflow counter on a node/edge mismatch, an
-  out-of-range reachspec index, an endpoint disagreement, or a queue above 1024
-  (4624–4662). The sequence counter only advances when the flag is on, so the
-  off path is inert.
-- Iteration 111's stock-baseline blocker is genuinely closed:
-  `PickWallAdjust` now requires `IsBotBenchmarkFailedNavigationAvoidanceEnabled`
-  (`UActor.cpp:4228`), pain-ledge and wall-adjust recovery are gated in
-  `TickMoveTo` (`UActor.cpp:6473-6479`), and the navigation replan requires an
-  explicit selector input (`PawnMoveStallWatchdog.cpp:72`).
+What is defensible as an integration-lane slice is the observer and analyzer
+plumbing — one telemetry slice plus analyzer compatibility — after the defects
+in section 2 are closed. It is not an upstream candidate: it reproduces no
+upstream bug and corrects no upstream behavior.
 
-### Defects found in the current slice
+## 2. Is the observer-only baseline sound?
 
-1. **`Analyze-NativePathCommits.py:231` hard-codes `"qualified": True`.** An
-   observer-on run with zero committed paths produces an empty `counts` object
-   and still reports qualified. The manifest-flag check at line 80 prevents a
-   *stock* run being read as observer evidence, but not a *null* observer run.
-   There is no minimum-coverage assertion anywhere in the analyzer.
-2. **The path-commit analyzer test matrix iteration 111 required was not
-   written.** `Tools/BotBenchmark/tests/test_analyze_native_path_commits.py`
-   has three tests (accept, bad reachspec index, missing terminal-life field).
-   Death context, hazard rising edge, respawn sequence, overflow, cache clear,
-   and the base-rate/null comparison named at
-   `BOT_AI_QUALITY_EXECUTION_PLAN.md:2812-2814` are all uncovered, while the
-   death-context and hazard-entry code paths (`Analyze-NativePathCommits.py:202-218`)
-   are the ones iteration 110's negative conclusion rests on.
-3. **Path-commit records carry no life identity.** The record built at
-   `UActor.cpp:4614-4623` has sequence, origin, costs, nodes, and edges but no
-   `life_id`, while the water-egress, falling-hazard, and vertical-pain
-   observers already serialize one
-   (`SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp:327,368,507,639`).
-   The path-commit stream therefore cannot be same-life bound today, which is
-   exactly the property the next slice needs.
-4. **The inventory direct-reach observer discards its own base rate.** It
-   records only when `reached && resolvedWallSlide` (`UActor.cpp:4116`), only
-   for inventory/ammo targets (4034–4040), and its record
-   (`SurrealEngine/UObject/PawnInventoryReachability.h:45-59`) has no tick, no
-   life, no caller origin, and identifies actors by name only. Iteration 107's
-   "zero harmful witnesses in both anchors" is therefore a statement about a
-   filtered tranche with an unmeasured denominator, not about
-   `ActorReachable`'s safety.
-5. **`WallAdjustCallCountValue` moved inside the experiment gate**
-   (`UActor.cpp:4231`), so a stock run now reports zero wall-adjust calls. That
-   is a silent change to a counter's meaning; it should be documented in the
-   telemetry contract or the counter moved outside the gate.
-6. **`PickWallAdjust` with the flag off takes neither branch** (4228 vs 4311),
-   so `WallAdjustRecovery` is never reset for autonomous bots. Inert today
-   because flags are immutable per run, but it needs a unit assertion.
+Structurally yes. Three real defects and two smaller ones qualify that.
 
-## 2. Is the plan sound: yes in method, wrong in order
+Sound, and verified in source:
 
-The method is sound and should not be relaxed. Specifically: exclusive terminal
-partitions, exact counters reconciled against records, explicit overflow
-accounting, two-repetition byte equivalence, default-off flags carried through
-run identity and rejected by the comparator, and reporting `null` rather than
-zero on incomplete evidence. The record of rejections
-(`BOT_AI_PROJECT_GOAL.md:88-147`) is the strongest asset here — each one closes
-a hypothesis with a negative witness rather than a hunch.
+- **Capture boundary is what iteration 108 asked for.** `CommitRoutePathCache`
+  calls `SetRouteCache` first (`SurrealEngine/UObject/UActor.cpp:4610`), gates
+  on the observer flag at `:4611`, and `SpecialHandling` is not reached until
+  `:4689` via `PathSpecialHandling` (`:4673-4703`). The record is genuinely
+  pre-redirection.
+- **Fail-closed is double-locked.** A node/edge count mismatch, a deleted or
+  classless node, an out-of-range reachspec index, an endpoint disagreement, or
+  a queue above 1024 drops the record and increments an overflow counter
+  (`UActor.cpp:4624-4662`). The analyzer rejects any participant with non-zero
+  overflow on any tick (`Analyze-NativePathCommits.py:188-190`). Because the
+  sequence is consumed *before* validation (`UActor.cpp:4615`), a dropped record
+  also breaks the analyzer's contiguity check (`:105-107`). A silent gap is not
+  representable — this is good design and should be the pattern for the next
+  slice.
+- **Stock runs cannot be misread as observer evidence.** The analyzer requires
+  `native_path_commit_observer_enabled` to be explicitly `true`
+  (`Analyze-NativePathCommits.py:80-81`); the flag is part of config identity
+  and comparator protection (`Compare-BotBenchmarkRuns.py:44-45,250-254,292-295`)
+  and of the analyzer's canonical identity
+  (`Analyze-BotQuality.py:2910-2912`). Every committed edge is rebound to the
+  immutable catalog by index, including `pruned` rejection
+  (`Analyze-NativePathCommits.py:135-152`).
+- **Iteration 111's named blocker is closed.** `PickWallAdjust` now requires
+  `IsBotBenchmarkFailedNavigationAvoidanceEnabled` (`UActor.cpp:4228`);
+  pain-ledge and wall-adjust steering are gated in `TickMoveTo`
+  (`:6473-6479`); the navigation replan requires an explicit selector input
+  (`PawnMoveStallWatchdog.cpp:71`, `PawnMoveStallWatchdog.h:33`).
 
-Three corrections to the plan as written:
+### Defects
 
-- **`BOT_AI_CONTINUATION_PLAN_OPUS5.md` is stale relative to iterations
-  107–112.** It sequences workstream 1 (the `HitWall` corner fixture) first,
-  but that fixture is a prerequisite only for workstream 8, which the same plan
-  puts last and which iteration 104 has blocked on an unidentified dispatch-time
-  physics operand (`BOT_AI_CONTINUATION_PLAN_OPUS5.md:527-537`). Meanwhile the
-  actual evidence trail has moved to direct-reach provenance, and iterations
-  110–112 name a specific next slice the plan does not mention.
-- **The plan does not carry iteration 111's audit findings as workstream
-  entries.** Baseline restoration landed, but the path-commit analyzer test
-  backfill and the base-rate assertion it required did not.
-- **The plan under-weights coverage-of-zero as a failure mode.** Iteration 107's
-  zero-witness result, the Unreal residence set's zero certified candidates
-  (`BOT_AI_PROJECT_GOAL.md:128-136`), and the `qualified: True` default above
-  are the same problem: an observer that sees nothing currently reads as an
-  observer that passed.
+1. **`cdb9958e` changed experiment semantics, not only defaults.** The previous
+   `!ApplyPainLedgeRecovery(delta) && !ApplyWallAdjustRecovery(delta)`
+   short-circuited: a successful pain-ledge escape suppressed the wall-adjust
+   call. The replacement evaluates the two operands independently
+   (`UActor.cpp:6473-6479`), and both write `Acceleration()`
+   (`:4385` and `:8305-8322`). With `harmful_zone_escape_enabled` and
+   `failed_navigation_avoidance_enabled` both on, wall-adjust steering can now
+   overwrite a pain-ledge escape that previously won. Default-off runs are
+   unaffected, but prior evidence taken with both flags enabled is no longer
+   reproducible by this build. Restore the short-circuit, or record the change
+   as an explicit experiment-semantics revision with fresh paired evidence.
 
-### Revised sequence
+2. **Observation was folded into the behavior gate.**
+   `WallAdjustCallCountValue++` now sits inside the experiment gate
+   (`UActor.cpp:4228-4231`), and `ApplyPainLedgeRecovery` /
+   `ApplyWallAdjustRecovery` are short-circuited away when their flags are off
+   (`:6473-6478`), so a stock run measures none of these paths. Meanwhile
+   `AdvanceWallAdjustRecovery` still runs ungated for autonomous bots and keeps
+   writing `WallAdjustRecovery` and `WallAdjustRecoverySuccessCountValue`
+   (`:6637-6647`). The stock baseline therefore advances a state machine whose
+   arming site is disabled, and reports counters that no longer mean what their
+   names say. The branch's own convention — a separate default-off *observer*
+   flag, distinct from the *experiment* flag — should be applied here.
 
-| Step | Work | Rationale |
-| --- | --- | --- |
-| 1 | Direct-reach → command provenance observer (section 3) | The single "next permitted" step named by iterations 110, 111, and 112 and by `BOT_AI_ROUTE_EXECUTION_FINDINGS.md:161-162` |
-| 1b | Backfill path-commit analyzer tests; replace `qualified: True` with an explicit coverage verdict | Closes iteration 111's outstanding requirement; zero behavior risk; runs in parallel with 1 |
-| 2 | Workstream 5, in-engine `ai_frame_p95_ms` | Independent of every behavioral question; one of three fail-closed campaign requirements |
-| 3 | Workstream 4, recovery clearance/replan fractions on natural opportunities | Two more required metrics; the forced fixture already passes both games |
-| 4 | Workstream 1 (`HitWall` fixture) and workstream 3 (`SetEnemy` observer) | Read-only; both feed later work but neither unblocks a campaign metric |
-| 5 | Workstreams 6, 7, 8 unchanged | As written |
+3. **`Analyze-NativePathCommits.py:231` hard-codes `"qualified": True`.** An
+   enabled run with zero committed paths yields an empty `counts` object and
+   still reports qualified. The manifest check at `:80-81` prevents a *stock*
+   run being read as observer evidence but not a *null* observer run. There is
+   no minimum-coverage assertion anywhere in the analyzer. This is the same
+   failure mode as iteration 107's zero-witness tranche and the Unreal residence
+   set's zero certified candidates (`BOT_AI_PROJECT_GOAL.md:128-136`): an
+   observer that sees nothing currently reads as an observer that passed.
 
-Workstream 2 (the targetless-timeout follow-up) stays where the plan puts it,
-but note it is a *closure* task: the honest cheap outcome is to close the
-candidate on cross-game evidence, not to reopen it.
+Smaller, non-fatal:
 
-## 3. Smallest next observer-only slice
+4. **`PickWallAdjust` with the flag off takes neither branch** (`:4228` vs
+   `:4311`), so `WallAdjustRecovery` is never reset for autonomous bots. Inert
+   today because flags are immutable per run; it needs a unit assertion rather
+   than an argument.
 
-**Goal.** Establish, without inference, that a specific successful native
-`ActorReachable` result and a specific later active direct movement command
-belong to the same pawn life and the same target actor.
+5. **Iteration 111's audit scope was narrower than the code.** It named four
+   paths. `UActor.cpp` has roughly two dozen
+   `IsAutonomousPlayerBot(this)` / `IsStockAutonomousPlayerBot(this)` sites
+   between `:4037` and `:8006`. Until each is individually classified as
+   observe-only or flag-gated, "this branch is an observation-only stock
+   baseline" is an assertion, not an audited fact. This is the cheapest
+   remaining merge blocker.
 
-**Scope.** One new default-off flag, two record streams, one exact counter
-group, one analyzer, one set of fixtures. Nothing else.
+6. **Contract drift.** `Docs/BOT_BENCHMARK_DRIVER.md:66-70` documents the
+   driver's configuration flags but never mentions
+   `--botbench-native-path-commit-observer` or
+   `--botbench-inventory-direct-reach-support-observer`; the contract exists
+   only in the execution plan. Separately, `CommitRoutePathCache` derives
+   `cacheCapacity` from `RouteCache()` only when `ue1Version > 219`
+   (`:4621`, mirroring `SetRouteCache` at `:4598`); on an older title every
+   commit would serialize zero nodes with `truncated_by_route_cache` true and
+   `cache_clear` false — a shape the analyzer rejects
+   (`Analyze-NativePathCommits.py:125-126`). Harmless for UT436 and Unreal Gold
+   226b, but it should be an explicit unsupported-version guard before the
+   observer is pointed at any other title.
 
-New flag `--botbench-direct-reach-command-provenance-observer=0|1`, default
-false, plumbed exactly like `native_path_commit_observer_enabled`: engine state,
-config identity, `manifest.json`, `summary.json.config`, the event envelope,
-`Compare-BotBenchmarkRuns.py` config fields
-(`Compare-BotBenchmarkRuns.py:45,250-254,292-295`), and `Analyze-BotQuality.py`
-canonical identity (`Analyze-BotQuality.py:2910-2912,4211-4214`).
+## 3. Is the native-path evidence sound?
+
+As **observer-only provenance**, yes — conditional on the QA artifacts matching
+their recorded description, which this review could not check. As **causal
+evidence about bot failure**, it is sound precisely because it is negative, and
+it must not be cited as a behavior improvement.
+
+The strongest supported reading is iteration 110's: on UT436 Deck16-II the
+repeated `PathNode121 → PathNode123` commit precedes the harmful entry by
+114–116 ticks, but by entry time the live command is direct `BulletBox4`
+movement and the route cache is stale context; on DeathFan only one of 31
+hazard entries follows a non-empty commit within two seconds and none within 12
+ticks (`BOT_AI_ROUTE_EXECUTION_FINDINGS.md:146-162`). That refutes the
+route-edge hypothesis in both families. It authorizes nothing.
+
+Three limits on how far the evidence reaches:
+
+- **Coverage is structurally partial.** Records are emitted only from
+  `CommitRoutePathCache`, reached from `FindPathToward` and
+  `FindBestInventoryPath` (`UActor.cpp:5033-5137`). Direct `MoveToward` against
+  an actor — the command actually live at the observed UT hazard entry — never
+  passes through it. The observer cannot, by construction, see the decision the
+  evidence points at. That is the argument for the next slice, and it should be
+  stated as a coverage limitation rather than left implicit.
+- **Death and hazard context are inferred, not recorded.** The analyzer detects
+  a death from a `deaths_exact` increase and a hazard entry from a rising edge
+  on `in_hazard_zone` (`Analyze-NativePathCommits.py:202-218`). Neither the
+  route rows (`BotBenchmarkDriver.cpp:2204-2249`) nor the tick events carry a
+  life ordinal, so "same life" is currently an inference from a counter edge.
+  Iteration 111 forbids exactly that for the next slice
+  (`BOT_AI_QUALITY_EXECUTION_PLAN.md:2816-2817`).
+- **Test coverage does not match the claim.** Iteration 111 required the
+  path-commit analyzer tests to exercise death context, hazard rising edge,
+  respawn sequence, overflow, cache clear, and a base-rate/null comparison
+  (`BOT_AI_QUALITY_EXECUTION_PLAN.md:2812-2814`).
+  `Tools/BotBenchmark/tests/test_analyze_native_path_commits.py` contains three
+  cases: exact catalog edge acceptance, unknown edge index rejection, and
+  missing terminal-life provenance fields. The death-context and
+  hazard-entry code paths that iteration 110's conclusion rests on are the
+  least-tested part of the pipeline.
+
+The iteration-107 inventory direct-reach observer is weaker still, and its
+"zero harmful witnesses in both anchors" should not be read as a statement about
+`ActorReachable`'s safety. It records only when `reached && resolvedWallSlide`
+(`UActor.cpp:4116`), only for inventory/`Ammo` targets (`:4034-4040`,
+`PawnInventoryReachability.h:65-66`), and its record
+(`PawnInventoryReachability.h:45-59`) carries no tick, no life, no caller
+origin, and identifies actors by name. Negative verdicts never reach the record
+site at all: `ActorReachable` returns early at `:3924-3929` (distance),
+`:4023` (`FastTrace`), and `:4027` (`CheckLocation`). It is a filtered tranche
+with an unmeasured denominator.
+
+## 4. Next highest-value slice
+
+**Same-life `ActorReachable`-to-active-direct-command provenance, observer
+only.** This is the slice iterations 110–112 name, and the source review
+confirms it is the right one: the path-commit observer proved the route cache is
+not the dangerous command, and the only remaining candidate producer of that
+command is the direct reachability verdict. It cannot be reached by widening the
+iteration-107 records, for the three reasons in section 3.
+
+**One new default-off flag**,
+`--botbench-direct-reach-command-provenance-observer=0|1`, plumbed exactly like
+`native_path_commit_observer_enabled`: engine state (`Engine.h:205-212`
+pattern), config identity, `manifest.json`, `summary.json.config`, the event
+envelope, `Compare-BotBenchmarkRuns.py` config fields
+(`:44-45,250-254,292-295`), and `Analyze-BotQuality.py` canonical identity
+(`:2910-2912`).
 
 **Capture A — reach observation.** At the return of `UPawn::ActorReachable` for
 a stock autonomous authority pawn in `PHYS_Walking` whose target is neither a
 `UNavigationPoint` nor a `UPawn`. Emit for **both** true and false results; the
-false results are the base rate and are not optional. This replaces the
-`reached && resolvedWallSlide` filter at `UActor.cpp:4116` — `resolved_wall_slide`
-becomes a recorded field, not an eligibility condition.
+false results are the base rate and are not optional. `resolved_wall_slide`
+becomes a recorded field, not an eligibility condition — this replaces the
+filter at `UActor.cpp:4116`.
 
 **Capture B — command activation.** At the existing per-tick route-execution
-sample, when the pawn's `MoveTarget` is an actor with an open reach observation
-for the **same** participant identity, **same** `life_id`, and **same** level
-actor slot index, and the latent action is `MoveToward` or `MoveTo`. Emit
-exactly one activation record per reach observation, then close it.
+sample, when `MoveTarget` is an actor with an open reach observation for the
+same participant identity, the same `life_id`, and the same level actor slot
+index, and the latent action is `MoveToward` or `MoveTo`. Emit exactly one
+activation per reach observation, then close it.
 
-**Explicitly not in this slice.** No write to the reachability result, target,
-route cache, acceleration, `MoveTimer`, physics, or latent state. No widening of
-eligibility to pawns or navigation points. No policy. `ActorReachable` must
-return the identical value with the flag on and off for identical input.
+**Not in this slice.** No write to the reachability result, target, route cache,
+acceleration, `MoveTimer`, physics, or latent state. No widening of eligibility
+to pawns or navigation points. No policy. `ActorReachable` must return a
+bit-identical value with the flag on and off for identical input.
 
-## 4. Mandatory default-off / fail-closed fields and test cases
+## 5. Required fail-closed fields, counters, and tests
+
+### Shared life identity — the prerequisite
+
+Promote a single per-pawn monotonic `life_id` and emit it on the reach record,
+the activation record, and every per-tick participant row in
+`route-execution.jsonl`. The primitive already exists as
+`MoveStallRecoveryLifeId` (`UActor.cpp:6776-6782`,
+`PawnMoveStallWatchdog.h:131,144`); unify it rather than adding a fourth private
+counter beside `HazardSwimEgressLifeId` and `HarmfulZoneEscapeLifeId`
+(`UActor.h:2555,2568,2632`). If unification cannot fit in this slice, both
+counters must be carried and the analyzer must reconcile them. Same-life binding
+must be a recorded fact, never a `deaths_exact` inference.
 
 ### Reach observation record (`direct_reach_observations`)
 
-`sequence` (contiguous per participant, ≥1) · `life_id` (the shared pawn-life
-counter, ≥1; if the existing per-observer counters cannot be unified in this
-slice, the record must carry both and the analyzer must reconcile them) ·
-`tick` · participant identity (roster/PRI, never actor name) · `caller_origin`
-enum (`script_actor_reachable`, `find_path_toward`, `path_special_handling`,
-`find_random_dest`, `mark_reachable_nav_end_points`, `find_best_inventory_path`,
-`other`) · `target_actor_index` (level slot, catalog-bindable),
-`target_actor_name`, `target_class`, `target_kind` · `physics_mode` · `result` ·
-`pawn_location`, `target_location` · `resolved_wall_slide`,
+`sequence` (per participant, contiguous, consumed before validation so a drop is
+detectable) · `life_id` · `tick` (recorded natively, not derived from the
+emitting row) · participant identity (roster/PRI, never actor name) ·
+`caller_origin` ∈ {`script_actor_reachable`, `path_special_handling`
+(`UActor.cpp:4698`), `find_path_to_end_point` (`:4930`, `:4999`),
+`find_best_inventory_path`, `find_random_dest`, `unknown`} — exhaustive, with
+`unknown` fail-closed rather than a default · `result` ·
+`reject_reason` ∈ {`null_actor`, `distance`, `navpoint_reachspec`, `trace`,
+`check_location`, `walk_simulation`, `unsupported_physics`, `reached`} — no
+`other` bucket · `target_actor_index` (level slot, catalog-bindable),
+`target_actor_name`, `target_class`, `target_kind` · `physics_mode`,
+`pawn_location`, `pawn_zone`, `target_location` · `resolved_wall_slide`,
 `walking_simulation_iterations` · the existing post-resolution support fields
-(`walkable_support`, `support_fraction`, `support_normal_z`,
-`harmful_foot_zone`, `harmful_below`, `outcome`) · `status` of `complete` or
-`unavailable:<reason>` — never a silent skip.
+(`PawnInventoryReachability.h:36-59`) when the simulation ran, `unavailable`
+when it did not · `status` of `complete` or `unavailable:<reason>`, never a
+silent skip.
 
 ### Activation record (`direct_reach_command_activations`)
 
 `sequence` · `life_id` · `tick` · `reach_sequence` · `ticks_since_reach` ·
-`latent_action` · `move_target_actor_index`, `move_target_name`,
-`move_target_class` · `route_head_present`, `route_head_node` (separates a
-direct command from a route-headed one — the distinction iteration 110 turned
-on) · `link_status` ∈ {`same_life_exact`, `unavailable_life_boundary`,
+`latent_mode` and the stall-watchdog command key
+(`PawnMoveStallWatchdog.h:146-153`) · `move_target_actor_index`,
+`move_target_name`, `move_target_class`, liveness · `route_head_present`,
+`route_head_node` — this separates a direct command from a route-headed one,
+the distinction iteration 110 turned on ·
+`link_status` ∈ {`same_life_exact`, `unavailable_life_boundary`,
 `unavailable_target_replaced`, `unavailable_no_reach_record`,
 `unavailable_overflow`} · exclusive terminal disposition ∈ {`target_reached`,
 `command_changed`, `cleared`, `death`, `life_boundary_censor`,
 `run_end_censor`}.
 
-### Exact counters (monotone, complete group, reconciled)
+### Exact counters
 
-`direct_reach_observations_exact` = `..._true_exact` + `..._false_exact`;
-`direct_reach_command_activations_exact` = the sum of the terminal-disposition
-subcounters; the `link_status` subcounters sum to the observations that had a
-candidate; `direct_reach_observation_overflows_exact` and
-`direct_reach_activation_overflows_exact` reported separately.
+Monotone, complete, reconciled: `direct_reach_observations_exact` =
+`..._true_exact` + `..._false_exact`; the `reject_reason` subcounters partition
+`..._false_exact`; `direct_reach_command_activations_exact` = the sum of the
+terminal-disposition subcounters; the `link_status` subcounters sum to the
+observations that had a candidate. Overflow must be **split**:
+`integrity_rejections_exact` and `queue_overflows_exact`, reported separately
+for each stream. The current design increments one
+`RoutePathCommitOverflowCountValue` for both conditions
+(`UActor.cpp:4626,4634,4645,4651,4662`) — safe but uninformative; back-port the
+split to the path-commit observer.
 
 ### Fail-closed analyzer rules
 
 Reject unless the manifest flag is explicitly `true` (mirror
-`Analyze-NativePathCommits.py:80-81`). Reject any non-zero overflow. Reject a
-non-contiguous per-participant sequence. Reject any partition that does not
-reconcile. Reject an activation whose `life_id` differs from its reach record's
-— never link across a life boundary. Reject positive counters with an empty
-record stream, and an empty stream with positive counters. Report `null`/
-`unavailable`, never `0`, when the observer is off or the group is incomplete.
-**Emit an explicit coverage verdict**: a zero-observation enabled run reports
-`qualified: false` with a reason. Do not copy the `qualified: True` literal at
-`Analyze-NativePathCommits.py:231`; fix it in the same slice.
+`Analyze-NativePathCommits.py:80-81`). Reject any non-zero overflow of either
+kind. Reject a non-contiguous per-participant sequence. Reject any partition
+that does not reconcile. Reject an activation whose `life_id` differs from its
+reach record's — never link across a life boundary. Reject positive counters
+with an empty stream, and an empty stream with positive counters. Report
+`null`/`unavailable`, never `0`, when the observer is off or a group is
+incomplete. **Emit an explicit coverage verdict**: a zero-observation enabled
+run reports `qualified: false` with a reason. Do not copy the `qualified: True`
+literal at `Analyze-NativePathCommits.py:231`; fix it in the same slice.
 
-### Mandatory test cases
+### Mandatory tests
 
-Native/unit (`Tests/`):
+Native (`Tests/`):
 
 1. Reach true → same-life `MoveToward` on the exact target slot → exactly one
    `same_life_exact` activation with `target_reached` or `command_changed`.
 2. Reach true → death before any command → `unavailable_life_boundary`, no
    activation, disposition `life_boundary_censor`.
-3. Reach true → next command targets a different actor → no activation, no link.
-4. Reach true → same target *name*, different actor slot index (respawned
-   pickup) → `unavailable_target_replaced`. Name matching must never link.
+3. Reach true → next command targets a different actor → no activation.
+4. Reach true → same target *name*, different actor slot (respawned pickup) →
+   `unavailable_target_replaced`. Name matching must never link.
 5. Reach **false** → recorded, and never linked even if that actor later becomes
    the move target.
 6. Reach true → run ends before any command → `run_end_censor`.
-7. Disjoint ineligibility, one case each: non-authority role, non-stock
-   autonomous bot, non-walking physics, navigation-point target, pawn (combat)
-   target, mover context.
-8. Bounded-queue overflow increments the exact counter and truncates nothing
-   silently.
-9. Observer disabled → zero records, zero counters, no sequence advance, and
-   `ActorReachable` returns a bit-identical result for the same input.
-10. Flag-off `PickWallAdjust` leaves `WallAdjustRecovery` untouched (guards the
-    `UActor.cpp:4228`/`4311` gap).
+7. One case per `reject_reason`, including the three pre-simulation early exits
+   at `UActor.cpp:3924-3929`, `:4023`, `:4027`.
+8. A nested-call case: `SpecialHandling`'s re-check (`UActor.cpp:4698`)
+   attributed to `path_special_handling`, not conflated with the
+   script-originated call.
+9. Disjoint ineligibility, one case each: non-authority role, non-stock
+   autonomous bot, non-walking physics, navigation-point target, pawn target,
+   mover context.
+10. Queue exhaustion and integrity rejection move their two counters
+    independently, and the sequence gap is observable.
+11. Observer disabled → zero records, zero counters, no sequence advance, no
+    write to reachability result, location, route, target, acceleration, latent
+    state, or physics, and a bit-identical `ActorReachable` return.
+12. Flag-off `PickWallAdjust` leaves `WallAdjustRecovery` untouched (guards the
+    `:4228`/`:4311` gap from defect 4).
 
 Analyzer (`Tools/BotBenchmark/tests/`):
 
-11. Rejects an absent or false manifest flag.
-12. Rejects non-contiguous sequence, non-zero overflow, unreconciled partitions,
+13. Rejects an absent or false manifest flag.
+14. Rejects non-contiguous sequence, non-zero overflow, unreconciled partitions,
     `life_id` mismatch, and empty-stream/positive-counter disagreement.
-13. Base-rate/null control: an enabled run with zero eligible calls is
+15. Base-rate/null control: an enabled run with zero eligible calls is
     `qualified: false`.
-14. Respawn: `life_id` increments and the prior life's open reach observations
-    close as `life_boundary_censor` rather than linking forward.
-15. The same six cases retro-fitted onto `Analyze-NativePathCommits.py` (death
-    context, hazard rising edge, respawn sequence, overflow, cache clear,
-    base rate), closing `BOT_AI_QUALITY_EXECUTION_PLAN.md:2812-2814`.
+16. Respawn: `life_id` increments and the prior life's open observations close as
+    `life_boundary_censor` rather than linking forward.
+17. The six cases still owed to `Analyze-NativePathCommits.py` — death context,
+    hazard rising edge, respawn sequence, overflow, cache clear, base rate —
+    written **first**, because the new analyzer reuses that correlation code
+    (`BOT_AI_QUALITY_EXECUTION_PLAN.md:2812-2814`).
 
-## 5. UT436 and Unreal 226b qualification gates for this slice
+## 6. Cross-game acceptance and stop conditions
 
-Anchors, unchanged from iteration 112 so the evidence is comparable: UT436
-`DM-Deck16][`, seed `104729`, skill 7; Unreal Gold 226b `DmDeathFan`, seed
-`271828`, skill 3. 7,200 ticks, four bots, Release preset, observer-on and
-observer-off, two repetitions each — eight runs total.
+Anchors unchanged from iteration 112 so the evidence is comparable: UT436
+`DM-Deck16][`, seed `104729`, skill 7, `Botpack.Bot`; Unreal Gold 226b
+`DmDeathFan`, seed `271828`, skill 3, `UnrealShare.Bots`. 7,200 ticks, four
+bots, Release preset, observer-on and observer-off, two repetitions each —
+eight runs.
 
-**Neutrality (both games, mandatory).**
+**Neutrality, mandatory in both games.**
 
 - The two repetitions of each variant are byte-identical to each other.
+  Same-seed repeats are determinism checks, never independent samples.
 - Observer-on and observer-off `events.jsonl` are byte-identical after excluding
-  only `config_id` and the declared `direct_reach_command_provenance` envelope.
-  Record the SHA-256 in the iteration entry, as iteration 112 did.
+  only `config_id` and the declared observer envelope. Record the SHA-256 in the
+  iteration entry, as iteration 112 did.
 - Executable SHA-256, `game.manifest`, `build_preset`, environment allowlist,
   and dirty-tree state recorded. Artifacts under
   `qa/runs/<date>/direct-reach-command-provenance-v1/`, reports under
   `qa/reports/bot-ai/`. Repository-local `botbench-output/` is inadmissible.
-- Zero overflow in all four enabled runs.
-- Analyzer schema version bumped; `Compare-BotBenchmarkRuns.py` rejects an
-  observer-on run as stock-equivalent.
+- Zero overflow of either kind in all four enabled runs; analyzer schema version
+  bumped; `Compare-BotBenchmarkRuns.py` rejects an observer-on run as
+  stock-equivalent.
+- Kills, deaths, suicides, damage, and hazard counts are **unchanged**. Any
+  movement in them is a neutrality failure, not a result.
 
-**Coverage (per game, independently — a UT-only positive set is not a
-cross-game witness).**
+**Coverage, per game independently — a UT-only positive set is not a cross-game
+witness.**
 
-- At least one `same_life_exact` activation **and** at least one non-linked
-  outcome, with the exclusive disposition partition reconciled against the exact
-  counters. Unreal must clear this on its own evidence: the residence observer
-  already produced zero certified candidates there
-  (`BOT_AI_PROJECT_GOAL.md:128-136`), and the earlier inventory observer found
-  zero harmful witnesses in both anchors. A second consecutive zero-coverage
-  Unreal result closes the direct-reach hypothesis rather than deferring it.
-- Every `target_actor_index` resolves against the v3 map catalog for that anchor
-  (`Tools/BotBenchmark/Validate-MapCatalog.py`; anchor catalog hashes at
-  `BOT_AI_OWNER_DATA_EXTRACTION.md:216-222`) and every participant against
+- At least one `same_life_exact` activation and at least one non-linked outcome,
+  with the exclusive disposition partition reconciled against exact counters.
+- The linked harmful-outcome rate reported **with its denominator**, against the
+  base rate over all reach observations in the same run. A raw count of
+  harmful-outcome links is not a finding.
+- Every `target_actor_index` resolves against the anchor's map catalog
+  (`Tools/BotBenchmark/Validate-MapCatalog.py`) and every participant against
   `Validate-RealizedBotCapabilities.py`.
-- The known UT direct-command cases must appear: `enforcer13` at tick ≈5363 and
-  `PAmmo1` at tick ≈7060 (`BOT_AI_ROUTE_EXECUTION_FINDINGS.md:195-198`), and the
-  `BulletBox4` command that iteration 110 showed follows the historical
-  `PathNode121 → PathNode123` commit (lines 155-162). An observer that misses
-  these has not qualified.
+- The known UT direct-command cases must appear: `enforcer13` near tick 5363 and
+  `PAmmo1` near tick 7060 (`BOT_AI_ROUTE_EXECUTION_FINDINGS.md:192-198`), and
+  the `BulletBox4` command that iteration 110 showed follows the historical
+  `PathNode121 → PathNode123` commit (`:154-162`). An observer that misses these
+  has not qualified.
 - The existing quality analyzer passes on all eight runs.
 
-**Explicitly not a gate.** Kills, deaths, suicides, damage, and hazard counts
-must be *unchanged*. Any movement in them is a neutrality failure, not a result.
+**Stop conditions.** Any one of these closes the slice as observer-only evidence
+and forbids a behavior candidate derived from it:
+
+- Unreal Gold produces zero `same_life_exact` activations, or its
+  harmful-outcome link rate does not exceed its base rate. A one-sided witness
+  cannot support a shared correction; this already sank the
+  route-pin/target-override proposal (`BOT_AI_PROJECT_GOAL.md:127-136`). Given
+  iteration 107's zero harmful witnesses in both anchors and the residence
+  observer's zero certified Unreal candidates, a second consecutive
+  zero-coverage Unreal result should **close** the direct-reach hypothesis, not
+  defer it again.
+- The linked harmful-outcome rate falls within the run-to-run spread of the base
+  rate in either game.
+- The observed direct commands are dominated by combat or latent-command
+  ownership rather than by the reachability verdict — the competing explanation
+  already flagged at `BOT_AI_PROJECT_GOAL.md:99-106`.
+- Fewer than three independent map/seed instances identify one mechanism, the
+  standing bar at `BOT_AI_ROUTE_EXECUTION_FINDINGS.md:82-86`.
+
 Held-out maps (`DM-Fractal`, `DM-Phobos`, `DmElsinore`, `DmRadikus`) stay
-unopened.
+unopened throughout.
 
-## 6. Behavior changes that remain forbidden until that evidence exists
+## 7. Behavior changes that remain explicitly unauthorized
 
-Until the slice above produces a non-zero, reconciled, same-life witness in
-**both** games, and a causal counterfactual on top of it, all of the following
-stay out:
+Until the slice above yields a non-zero, reconciled, same-life witness in **both**
+games and a causal counterfactual on top of it:
 
 - Any change to `ActorReachable`'s return value or to its walking simulation —
   support probe, `stepDownDelta`, wall-slide ordering, or return-to-walk-height
-  order. The early local probe already regressed DeathFan from K7/D29/S22 to
-  K12/D38/S26 (`BOT_AI_PROJECT_GOAL.md:118-124`).
-- Route-edge veto, reachspec pin, route-cache clear policy, and route penalty
-  (iteration 110; `BOT_AI_ROUTE_EXECUTION_FINDINGS.md:145-153`).
+  order. The early local probe regressed DeathFan from K7/D29/S22 to K12/D38/S26
+  (`BOT_AI_PROJECT_GOAL.md:115-124`); iteration 107 rejects a return-value change
+  on its own evidence.
+- Reachspec veto, route pin, route-cache clear policy, and route penalty
+  (iterations 110–111, `BOT_AI_ROUTE_EXECUTION_FINDINGS.md:146-162`).
 - Target override or redirection, direct-candidate acceleration, and
   harmful-water egress steering (iterations 63–65).
-- Promotion of `direct_actor_move_toward_timeout_enabled` or
-  `targetless_move_to_timeout_enabled` out of default-off.
 - Air-control steering on the falling path — 2,080 bounded counterfactuals
-  certified zero alternatives (`BOT_AI_PROJECT_GOAL.md:88-97`).
-- The pre-launch pure forecast as a rollback or replan gate — it marked zero of
-  eleven fatal launches harmful (lines 108-113).
-- Any reachspec capability filter —
-  `Tools/BotBenchmark/Analyze-ReachspecCapabilities.py` reports
-  `selection_safe: false` and no live participant lacks a capability named by a
-  reachspec on either anchor (`BOT_AI_OWNER_DATA_EXTRACTION.md:277-285`).
-- Wall-jump forecasting, inventory-corridor enforcement, and the `bCanJump`
-  wall-jump guard.
+  certified zero alternatives (`BOT_AI_PROJECT_GOAL.md:88-97`) — and the
+  pre-launch pure forecast as a rollback or replan gate, which marked zero of
+  eleven fatal launches harmful (`:108-113`).
+- Promotion of `direct_actor_move_toward_timeout_enabled` or
+  `targetless_move_to_timeout_enabled` out of default-off benchmark experiments.
+- Falling-seam translation, crease sweep, horizontal escape, wall-jump
+  forecasting, inventory-corridor enforcement, and the `bCanJump` wall-jump guard
+  (`BOT_AI_CONTINUATION_PLAN_OPUS5.md:576-598`).
 - Live `utility-arena` or `tactical-state` control, which additionally needs
   workstream 7.
 - The shared walking `HitWall` dispatch correction, still blocked on the
-  unidentified dispatch-time physics operand (iteration 104).
-- Opening held-out maps, and any upstream PR, external post, or maintainer
-  contact — `CLAUDE.md` requires an explicit request, and no candidate meets the
-  reproduction, understanding, and validation gates.
+  unidentified dispatch-time physics operand (iteration 104,
+  `BOT_AI_CONTINUATION_PLAN_OPUS5.md:527-537`).
+- Widening direct-reach eligibility as a *behavior* change. Widening the
+  *observed* population is authorized by this review; widening what the engine
+  acts on is not.
+- Any upstream PR, external post, or maintainer contact. `CLAUDE.md` requires an
+  explicit request, and no candidate meets the reproduction, understanding, and
+  validation gates.
+
+## 8. Revision to the continuation plan
+
+`Docs/BOT_AI_CONTINUATION_PLAN_OPUS5.md` remains correct in its verdict, its
+fail-closed rules, and its cross-game obligations table. It is stale in one
+respect only: it predates iterations 108–112 and has no entry for the provenance
+chain they built. Proposed amendments, for the plan owner to apply:
+
+1. Add **workstream 0, baseline integrity**, ahead of everything else: complete
+   the write-audit of all `IsAutonomousPlayerBot` /
+   `IsStockAutonomousPlayerBot` sites in `UActor.cpp` (defect 5); separate
+   observer counters from experiment flags (defect 2); resolve the
+   pain-ledge/wall-adjust ordering change (defect 1); replace the hard-coded
+   `qualified: True` with an explicit coverage verdict (defect 3); land the six
+   missing path-commit analyzer tests; and document the two observer flags in
+   `Docs/BOT_BENCHMARK_DRIVER.md` (defect 6). None of this is optional before
+   another observer is stacked on this baseline.
+2. Insert the same-life reachability-to-command provenance slice (sections 4–6)
+   as **workstream 4a**, between recovery timing and AI frame timing. It is the
+   only workstream with a live, unrefuted causal hypothesis behind it.
+3. Record in "What the newest evidence actually says" that the route-edge
+   hypothesis is refuted in both games, so it is not revisited, and that the
+   iteration-107 zero-witness result is a filtered tranche with an unmeasured
+   denominator rather than a safety finding.
+4. Restate workstream 2 as a *closure* task. The honest cheap outcome is to
+   close the targetless-timeout candidate on cross-game evidence, not to reopen
+   it.
+5. Leave workstreams 1, 3, 5, 6, 7, and 8 as written. Workstream 1 (the `HitWall`
+   corner fixture) remains the cheapest independent win, but note that it
+   unblocks only workstream 8, which is itself blocked on iteration 104's
+   unidentified dispatch operand — so it should not hold up workstream 0 or 4a.
+
+No promotion, no flag default change, and no gate relaxation follows from this
+review.

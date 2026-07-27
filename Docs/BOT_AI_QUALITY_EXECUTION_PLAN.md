@@ -2583,6 +2583,16 @@ compilation or a server case. Those failed attempts are not oracle evidence;
 the already-completed brackets remain valid and the runtime correction stays
 blocked.
 
+That fault was diagnosed on 2026-07-27 as a fixed path buffer overflow in retail
+`UCC.exe`, not an intermittent compiler failure: the runtime path exceeded the
+length the retail binary tolerates. The runner now builds its disposable runtime
+under a short root and the quarter-step batches completed, narrowing the
+intervals to UT436 `[-394750, -394500]` and Unreal Gold `[-396250, -396000]`.
+Those brackets place each native operand outside the reconstructed `-0.397676`
+witness, so bisection cannot close the operand objection above and is not
+continued. See `BOT_AI_HITWALL_PREDICATE_AND_ORACLE_UNBLOCK_2026-07-27.md`,
+which also records the rejected conjunctive predicate candidate.
+
 The retail runner now bounds its compile phase, requires the compiler's clean
 success record, and writes `compile-attempt-1.json` with process outcome,
 stdout/stderr hashes, and isolated INI hashes before admitting any server
