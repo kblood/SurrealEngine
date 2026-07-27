@@ -15,4 +15,5 @@ public:
 	static void SetDefaultPolygroups(UObject* Self);
 	static void SkeletonLook(UObject* Self, float DeltaTime);
 	static void SetJointRot(UObject* Self, int joint, const Rotator& Rot);
+	static void DetachActorFromJoint(UObject* Self, int j, UObject*& ReturnValue);
 };

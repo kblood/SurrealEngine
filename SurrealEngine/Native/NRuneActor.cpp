@@ -19,6 +19,7 @@ void NRuneActor::RegisterFunctions()
 	RegisterVMNativeFunc_0("Actor", "SetDefaultPolygroups", &NRuneActor::SetDefaultPolygroups, 610);
 	RegisterVMNativeFunc_1("Pawn", "SkeletonLook", &NRuneActor::SkeletonLook, 670);
 	RegisterVMNativeFunc_2("Actor", "SetJointRot", &NRuneActor::SetJointRot, 621);
+	RegisterVMNativeFunc_2("Actor", "DetachActorFromJoint", &NRuneActor::DetachActorFromJoint, 614);
 }
 
 void NRuneActor::AttachActorToJoint(UObject* Self, UObject* A, int j)
@@ -77,4 +78,25 @@ void NRuneActor::SetJointRot(UObject* Self, int joint, const Rotator& Rot)
 	// No-op: per-tick jaw/joint rotation (Pawn.Jaw calls this every tick while
 	// talking). Without a joint offset table there is nothing to rotate,
 	// consistent with GetJointPos/SkeletonLook above.
+}
+
+void NRuneActor::DetachActorFromJoint(UObject* Self, int j, UObject*& ReturnValue)
+{
+	UActor* selfActor = UObject::Cast<UActor>(Self);
+	ReturnValue = nullptr;
+
+	// AttachActorToJoint approximates Rune's missing joint system with ordinary
+	// actor basing. Prefer an owned based actor so a pawn standing on Self is
+	// never mistaken for a joint attachment merely because the joint index is
+	// unavailable to this engine.
+	for (auto it = selfActor->BasedActors.rbegin(); it != selfActor->BasedActors.rend(); ++it)
+	{
+		UActor* actor = *it;
+		if (actor && actor->Owner() == selfActor)
+		{
+			ReturnValue = actor;
+			actor->SetBase(nullptr, true);
+			return;
+		}
+	}
 }
