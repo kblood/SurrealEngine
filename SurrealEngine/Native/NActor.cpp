@@ -725,7 +725,7 @@ void NActor::VisibleCollidingActors(UObject* Self, UObject* BaseClass, UObject*&
 {
 	UActor* SelfActor = UObject::Cast<UActor>(Self);
 	Frame::CreatedIterator = std::make_unique<VisibleCollidingActorsIterator>(
-		BaseClass, &Actor,
+		SelfActor, BaseClass, &Actor,
 		Radius ? *Radius : SelfActor->CollisionRadius(),
 		Loc ? *Loc : SelfActor->Location(),
 		bIgnoreHidden ? *bIgnoreHidden : false);
@@ -735,7 +735,7 @@ void NActor::VisibleCollidingActors_219(UObject* Self, UObject* BaseClass, UObje
 {
 	UActor* SelfActor = UObject::Cast<UActor>(Self);
 	Frame::CreatedIterator = std::make_unique<VisibleCollidingActorsIterator>(
-		BaseClass, &Actor,
+		SelfActor, BaseClass, &Actor,
 		Radius ? *Radius : SelfActor->CollisionRadius(),
 		Loc ? *Loc : SelfActor->Location(),
 		false);

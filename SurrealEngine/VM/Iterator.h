@@ -216,9 +216,10 @@ public:
 class VisibleCollidingActorsIterator : public Iterator
 {
 public:
-	VisibleCollidingActorsIterator(UObject* BaseClass, UObject** ReturnValue, float Radius, const vec3& Location, bool IgnoreHidden);
+	VisibleCollidingActorsIterator(UActor* Caller, UObject* BaseClass, UObject** ReturnValue, float Radius, const vec3& Location, bool IgnoreHidden);
 	bool Next() override;
 
+	UActor* Caller = nullptr;
 	UObject* BaseClass = nullptr;
 	UObject** ReturnValue = nullptr;
 	float Radius = 0.0f;
