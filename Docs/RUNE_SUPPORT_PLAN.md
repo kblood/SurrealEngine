@@ -430,6 +430,12 @@ No `Tests/` CTest suite exists on this topic branch (per the M0/M4 notes above);
 
 **2026-07-26, session paused here at the user's request (moving to another project).** Uncommitted on top of commit `50f1d1e2`: the `console->bNoDrawWorld() = false` clear in `Engine.cpp`'s `relaunch` handler, and the new `Actor.SetJointRot` no-op stub in `NRuneActor.h`/`.cpp` (registered index `621`). Both are real, defensible fixes on their own merits (confirmed via non-interactive `--autoplay`/`--exec` testing) and neither has been committed yet. **Status if resuming:** Rune is fully playable today via direct-to-level launch (`--autoplay --url=<mapname> <game folder>`) against either copy; the in-game main menu's "leave Classic Mode" flow is not — the menu overlay itself needs to be actively closed/destroyed (likely a `RuneMenu`/`UWindowRootWindow` state change), not just unblocked at the render-gate level, and that's the next concrete thing to chase.
 
+**2026-07-27, Classic-Mode menu teardown fixed and the Gold intro path extended.** Rune's shipped `UWindow.u` contains the authoritative in-process teardown that the earlier native approximation was missing: `WindowConsole.CloseUWindow()` hides `Root`, clears `bUWindowActive`/`bQuickKeyEnable`, releases the Windows mouse, unpauses the player, leaves the `UWindow` state, resumes precaching, and clears `bNoDrawWorld`. The Rune-only `RELAUNCH` handler now calls that script function when the console's `Root` property exists, then retains the direct `bNoDrawWorld=false` assignment as a defensive fallback for a custom console or the pre-first-render `--exec` path where no root exists yet. A temporary delayed diagnostic (removed before the final build) opened the real Rune UWindow after root creation and measured `root=set visible=true active=true mouse=true` before `RELAUNCH`, then `root=set visible=false active=false mouse=false` immediately after it; the queued map travel completed normally. This resolves the overlay's actual script/input/render state instead of suppressing console render callbacks globally.
+
+Testing the same exact intro relaunch against Rune Gold 1.07 exposed two additional blockers not reached by the prior direct-to-level smoke. First, the package scanner compared configured extensions case-sensitively, so `Paths=..\\Textures\\*.utx` skipped the retail file `RUNESTONES.UTX`; `ScanFolder` now compares extensions case-insensitively, matching UE1's package-name semantics and allowing the Gold intro to load. Second, the now-running intro reached `Actor.DetachActorFromJoint`. A targeted, temporary `NativeFuncExtractor::CreateClassJson(packages->FindClass("Engine.Actor"))` hook (also reverted before the final build) read the 1.07 package's own metadata: index `614`, extractor arguments `(int j, UObject*& ReturnValue)` (script return type `Actor`). The new Rune native reverses the existing coarse `AttachActorToJoint` basing fallback by unbasing and returning an owned based actor; it deliberately refuses to detach an unrelated pawn merely standing on `Self` when no real joint table exists.
+
+Final native Release verification is recorded under `SurrealEngine/qa/runs/2026-07-27/795068d1-dirty-rune-menu-close`: Rune Classic 1.10 exact intro relaunch (15.6s), Rune Gold 1.07 exact intro relaunch (34.0s), Rune Gold `Dwarf1wwheel` direct play path (14.1s), UT99 v436 `DM-Deck16][` (22.7s), and Unreal Gold v226b default map (23.2s) all reached gameplay/map initialization and shut down gracefully with zero `Unhandled Exception`, missing-package, `Unknown native function`, `Script error`, or `Accessed None` matches. The branch still predates the repository's CTest suite, so this remains native build plus retail smoke evidence rather than a CTest result.
+
 ## Open questions and risks (do not assume answers)
 
 1. ~~Does the user actually own a legitimate copy of Rune~~ — **Resolved
@@ -461,14 +467,10 @@ No `Tests/` CTest suite exists on this topic branch (per the M0/M4 notes above);
    an equivalent of Deus Ex's `PostPostBeginPlayEvent` or `SaveInfoPackages`
    behavior, name it explicitly rather than reusing an existing Deus-Ex-named
    flag for different semantics.
-7. **Open, unresolved as of 2026-07-26:** the in-game "leave Classic Mode"
-   menu flow does not visually work — `RuneMenu` keeps painting over the
-   screen even after the underlying map travel succeeds and `bNoDrawWorld`
-   is cleared, because `RenderCanvas.cpp`'s `PreRender()`/`PostRender()` call
-   the console's script events unconditionally (outside the `bNoDrawWorld`
-   gate). The menu itself (its `UWindowRootWindow`) is never told to close.
-   Direct-to-level launch (`--url=<map>`) is confirmed to fully sidestep this
-   and is the current recommended playable path; actually fixing the in-game
-   menu-close flow needs someone to identify what native/script call would
-   destroy or hide `RuneMenu`'s root window on `RELAUNCH`, which hasn't been
-   investigated yet.
+7. ~~The in-game "leave Classic Mode" menu flow does not visually work.~~
+   **Resolved 2026-07-27:** the `RELAUNCH` handler now invokes Rune's own
+   `WindowConsole.CloseUWindow()` when its root exists. Live-state diagnostics
+   confirmed that the root becomes hidden, UWindow becomes inactive, Windows
+   mouse capture is released, and travel proceeds. The direct-to-level launch
+   remains useful for automation, but is no longer the required workaround for
+   the menu overlay itself.
