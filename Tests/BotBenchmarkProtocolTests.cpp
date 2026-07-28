@@ -223,6 +223,7 @@ int main()
 		"    \"target_selection_observer_enabled\": false,\n"
 		"    \"pick_target_observer_enabled\": false,\n"
 		"    \"warn_target_observer_enabled\": false,\n"
+		"    \"can_fire_at_enemy_observer_enabled\": false,\n"
 		"    \"inventory_direct_reach_support_observer_enabled\": false,\n"
 		"    \"inventory_marker_direct_reach_safety_enabled\": false,\n"
 		"    \"native_path_commit_observer_enabled\": false,\n"
@@ -247,7 +248,7 @@ int main()
 		return Fail("summary build identity was not serialized");
 	serializedSummary.erase(identityBegin, identityEnd - identityBegin);
 	if (serializedSummary != expectedSummary)
-		return Fail("v3 summary serialization, roster ordering, or escaping was not exact");
+		return Fail("v4 summary serialization, roster ordering, or escaping was not exact");
 
 	bool rejectedDuplicateActualIndex = false;
 	try
