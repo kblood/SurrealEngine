@@ -118,7 +118,8 @@ Engine::Engine(GameLaunchInfo launchinfo)
 		deusExPackage = packages->GetPackage("DeusEx");
 		dxgc = UObject::Cast<UGC>(transientpkg->NewObject("gc", extpkg->GetClass("GC"), ObjectFlags::Transient));
 		dxgc->Canvas() = canvas;
-		dxSaveInfo = UObject::Cast<UDXSaveInfo>(transientpkg->NewObject("DeusExSaveInfo", deusExPackage->GetClass("DeusExSaveInfo"), ObjectFlags::Transient));
+		dxSaveInfoPackage.set(packages->CreateDeusExSaveInfoPackage());
+		dxSaveInfo = UObject::Cast<UDXSaveInfo>(dxSaveInfoPackage.get()->NewObject("MyDeusExSaveInfo", deusExPackage->GetClass("DeusExSaveInfo"), ObjectFlags::Transient));
 		dxConMissionList = UObject::Cast<UConversationMissionList>(packages->GetPackage("DeusExConText")->GetUObject("ConversationMissionList", "ConMissionList"));
 	}
 
@@ -1920,7 +1921,7 @@ void Engine::SaveGameToSlot(int32_t slotNum, const std::string& saveDescription)
 		dxSaveInfo->MissionLocation() = DeusExLevelInfo ? DeusExLevelInfo->MissionLocation() : "";
 		dxSaveInfo->MapName() = Level->package->GetPackageName().ToString();
 		dxSaveInfo->UpdateTimeStamp();
-		deusExPackage->Save(dxSaveInfo, saveInfoFullPath);
+		dxSaveInfoPackage.get()->Save(dxSaveInfo, saveInfoFullPath);
 	}
 	else
 	{

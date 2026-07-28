@@ -64,6 +64,7 @@ public:
 
 	Package* LoadSaveFile(const std::string& path);
 	Package* LoadSaveSlot(const uint32_t slotNum);
+	Package* CreateDeusExSaveInfoPackage();
 
 	std::shared_ptr<PackageStream> GetStream(Package* package);
 

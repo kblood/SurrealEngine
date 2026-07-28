@@ -190,6 +190,7 @@ public:
 	UCanvas* canvas = nullptr;
 	UGC* dxgc = nullptr;
 	UDXSaveInfo* dxSaveInfo = nullptr;
+	GCRoot<Package> dxSaveInfoPackage;
 	UConversationMissionList* dxConMissionList = nullptr;
 	UConsole* console = nullptr;
 	URootWindow* dxRootWindow = nullptr;

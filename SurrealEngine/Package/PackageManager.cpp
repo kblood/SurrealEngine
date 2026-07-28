@@ -189,6 +189,16 @@ Package* PackageManager::LoadSaveSlot(const uint32_t slotNum)
 	return LoadSaveFile("Save" + std::to_string(slotNum) + "." + GetSaveExtension());
 }
 
+Package* PackageManager::CreateDeusExSaveInfoPackage()
+{
+	Package* source = GetPackage("DeusEx");
+	Package* saveInfoPackage = GC::Alloc<Package>(this, "SaveInfo", "");
+	saveInfoPackage->Version = source->Version;
+	saveInfoPackage->LicenseeMode = source->LicenseeMode;
+	saveInfoPackage->Flags = source->Flags;
+	return saveInfoPackage;
+}
+
 void PackageManager::ScanForMaps()
 {
 	for (auto& mapFolderPath : mapFolders)
