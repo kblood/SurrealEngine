@@ -4944,10 +4944,32 @@ bool UPawn::LineOfSightTo(UActor* other, bool ignoreDistance)
 	eye_pos.z += BaseEyeHeight();
 
 	auto& origin = other->Location();
-	auto top = origin + vec3{ 0.f, 0.f, other->CollisionHeight() / 2 };
-	auto bottom = origin - vec3{ 0.f, 0.f, other->CollisionHeight() / 2 };
+	auto top = origin + vec3{ 0.f, 0.f, other->CollisionHeight() };
+	auto bottom = origin - vec3{ 0.f, 0.f, other->CollisionHeight() };
 
-	return FastTrace(origin, eye_pos) || FastTrace(top, eye_pos) || FastTrace(bottom, eye_pos);
+	if (FastTrace(origin, eye_pos) || FastTrace(top, eye_pos) || FastTrace(bottom, eye_pos))
+		return true;
+
+	// Retail tries lateral body points for nearby targets after its upper-body
+	// trace is blocked. Use all four corners here: the compatibility policy is
+	// deliberately one-sided, preferring an extra clear result over missing a
+	// target retail can see.
+	if (length(origin - Location()) > 500.0f)
+		return false;
+
+	const float sideOffset = CollisionRadius();
+	const vec3 sideOffsets[4] = {
+		{ sideOffset, sideOffset, 0.0f },
+		{ -sideOffset, sideOffset, 0.0f },
+		{ -sideOffset, -sideOffset, 0.0f },
+		{ sideOffset, -sideOffset, 0.0f }
+	};
+	for (const vec3& side : sideOffsets)
+	{
+		if (FastTrace(origin + side, eye_pos))
+			return true;
+	}
+	return false;
 }
 
 bool UPawn::CanSee(UActor* other)
@@ -4995,8 +5017,6 @@ bool UPawn::CanSee(UActor* other)
 	// float PeripheralVision: Cosine of limits of peripheral vision
 
 	auto& origin = other->Location();
-	auto top = origin + vec3{ 0.f, 0.f, other->CollisionHeight() / 2 };
-	auto bottom = origin - vec3{ 0.f, 0.f, other->CollisionHeight() / 2 };
 
 	vec3 eye_pos = Location();
 	eye_pos.z += BaseEyeHeight();
@@ -5037,7 +5057,7 @@ bool UPawn::CanSee(UActor* other)
 		return finish(false);
 	}
 
-	return finish(FastTrace(origin, eye_pos) || FastTrace(top, eye_pos) || FastTrace(bottom, eye_pos));
+	return finish(LineOfSightTo(other, false));
 }
 
 std::vector<PawnMovement::PawnCanSeeObservation> UPawn::DrainPawnCanSeeObservations()

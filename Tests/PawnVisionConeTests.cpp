@@ -36,8 +36,8 @@ namespace
 	void TestBehindTargetIsNotVisible()
 	{
 		Check(!PawnMovement::IsWithinPawnVisionCone(vec3(0.0f), vec3(1.0f, 0.0f, 0.0f),
-			vec3(-100.0f, 0.0f, 0.0f), 0.5f),
-			"a target behind the pawn is outside an enabled vision cone");
+			vec3(-1000.0f, 0.0f, 0.0f), 0.5f),
+			"a sufficiently distant target behind the pawn is outside an enabled vision cone");
 	}
 
 	void TestTranslationDoesNotChangeConeResult()
@@ -60,14 +60,23 @@ namespace
 			"a co-located target does not fail a vision check because its direction is undefined");
 	}
 
-	void TestDisabledPeripheralVisionDoesNotRejectDirection()
+	void TestNearbyTargetsReceiveRetailCompatibilitySlack()
 	{
 		Check(PawnMovement::IsWithinPawnVisionCone(vec3(0.0f), vec3(1.0f, 0.0f, 0.0f),
-			vec3(-100.0f, 0.0f, 0.0f), 0.0f),
-			"zero peripheral vision disables the cone rejection");
+			vec3(-100.0f, 0.0f, 0.0f), 0.7f),
+			"retail compatibility slack widens the cone for a nearby target");
+		Check(!PawnMovement::IsWithinPawnVisionCone(vec3(0.0f), vec3(1.0f, 0.0f, 0.0f),
+			vec3(-200.0f, 0.0f, 0.0f), 0.7f),
+			"retail compatibility slack does not make the cone universally permissive");
 		Check(PawnMovement::IsWithinPawnVisionCone(vec3(0.0f), vec3(1.0f, 0.0f, 0.0f),
-			vec3(-100.0f, 0.0f, 0.0f), -0.5f),
-			"negative peripheral vision disables the cone rejection");
+			vec3(-100.0f, 0.0f, 0.0f), 0.0f),
+			"zero peripheral vision includes a nearby target behind the pawn");
+		Check(!PawnMovement::IsWithinPawnVisionCone(vec3(0.0f), vec3(1.0f, 0.0f, 0.0f),
+			vec3(-500.0f, 0.0f, 0.0f), -0.5f),
+			"negative peripheral vision still rejects a sufficiently distant target behind the pawn");
+		Check(PawnMovement::IsWithinPawnVisionCone(vec3(0.0f), vec3(1.0f, 0.0f, 0.0f),
+			vec3(-10.0f, 100.0f, 0.0f), -0.5f),
+			"negative peripheral vision widens the cone without disabling it");
 	}
 
 	void TestZeroLengthForwardFailsClosedWhenVisionIsEnabled()
@@ -99,7 +108,7 @@ int main()
 	TestBehindTargetIsNotVisible();
 	TestTranslationDoesNotChangeConeResult();
 	TestZeroLengthTargetIsVisible();
-	TestDisabledPeripheralVisionDoesNotRejectDirection();
+	TestNearbyTargetsReceiveRetailCompatibilitySlack();
 	TestZeroLengthForwardFailsClosedWhenVisionIsEnabled();
 	TestNonFiniteInputsFailClosed();
 	if (Failures == 0)
