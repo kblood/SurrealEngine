@@ -200,6 +200,25 @@ enum class EAIEventType : uint8_t
 	EAITYPE_Olifactory
 };
 
+// Deus Ex callback registrations and active sources are transient runtime
+// state populated by UnrealScript during actor initialization.
+struct AIEventCallback
+{
+	NameString Callback;
+	NameString ScoreCallback;
+	bool CheckVisibility = false;
+	bool CheckDirection = false;
+	bool CheckCylinder = false;
+	bool CheckLOS = false;
+};
+
+struct AIActiveEvent
+{
+	uint8_t Type = 0;
+	float Value = 0.0f;
+	float Radius = 0.0f;
+};
+
 // Deus Ex
 enum class EAllianceType : uint8_t
 {
@@ -586,6 +605,9 @@ public:
 	Array<UActor*> ChildActors;
 	// Based actor tracking
 	Array<UActor*> BasedActors;
+
+	std::map<NameString, AIEventCallback> AIEventCallbacks;
+	std::map<NameString, AIActiveEvent> AIActiveEvents;
 
 	void AddChildActor(UActor* actor);
 	void RemoveChildActor(UActor* actor);

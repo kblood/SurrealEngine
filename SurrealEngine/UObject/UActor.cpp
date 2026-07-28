@@ -5,6 +5,7 @@
 #include "UMesh.h"
 #include "UTexture.h"
 #include "UConSys.h"
+#include "UFlag.h"
 #include "USubsystem.h"
 #include "ActorMovement.h"
 #include "VM/ScriptCall.h"
@@ -3246,13 +3247,13 @@ bool UPawn::CanSee(UActor* other)
 
 	// Calculate the cosine of the vectors
 	// which is basically A dot B / (|A| * |B|), or just the dot products of the normalized versions of A and B
-	float cosine = dot(normalize(orientation), normalize(origin));
+	float cosine = dot(normalize(orientation), normalize(origin - eye_pos));
 	// PeripheralVision field is set dynamically during a game session
 	// (for an example, see the function UnrealShare.Bots.PreSetMovement())
 	// This can be a negative value too, which is probably set to not take it into account
 	float peripheralVision = PeripheralVision();
 
-	if (peripheralVision > 0.0f && std::abs(cosine) > peripheralVision)
+	if (peripheralVision > 0.0f && cosine < peripheralVision)
 		return false;
 
 	return FastTrace(origin, eye_pos) || FastTrace(top, eye_pos) || FastTrace(bottom, eye_pos);
@@ -3640,20 +3641,58 @@ bool UPawn::MarkReachableNavEndPoints()
 
 float UPawn::AICanHear(UActor* other, std::optional<float> volume, std::optional<float> radius)
 {
-	LogUnimplemented("Pawn.AICanHear() [Deus Ex]");
-	return 0.0f;
+	if (!other)
+		return 0.0f;
+	const float loudness = std::max(volume.value_or(1.0f), 0.0f);
+	const float hearingRadius = radius.value_or(4000.0f * loudness);
+	const vec3 delta = other->Location() - Location();
+	if (dot(delta, delta) > hearingRadius * hearingRadius)
+		return 0.0f;
+	if (XLevel()->Collision.TraceAnyHit(other->Location(), Location(), other, false, true, false))
+		return 0.0f;
+	return loudness;
 }
 
 float UPawn::AICanSee(UActor* other, std::optional<float> visibility, std::optional<bool> bCheckVisibility, std::optional<bool> bCheckDir, std::optional<bool> bCheckCylinder, std::optional<bool> bCheckLOS)
 {
-	LogUnimplemented("Pawn.AICanSee() [Deus Ex]");
-	return 0.0f;
+	if (!other)
+		return 0.0f;
+	const float targetVisibility = std::max(visibility.value_or(1.0f), 0.0f);
+	if (bCheckVisibility.value_or(true) && targetVisibility <= 0.0f)
+		return 0.0f;
+
+	vec3 eyePosition = Location();
+	eyePosition.z += BaseEyeHeight();
+	const vec3 targetDelta = other->Location() - eyePosition;
+	const float distanceSquared = dot(targetDelta, targetDelta);
+	if (bCheckCylinder.value_or(true) && distanceSquared > SightRadius() * SightRadius())
+		return 0.0f;
+	if (bCheckDir.value_or(true) && distanceSquared > 0.0f)
+	{
+		const vec3 viewDirection = Coords::Rotation(Rotation()).XAxis;
+		const float peripheralVision = PeripheralVision();
+		if (peripheralVision > 0.0f && dot(normalize(viewDirection), normalize(targetDelta)) < peripheralVision)
+			return 0.0f;
+	}
+	if (bCheckLOS.value_or(true))
+	{
+		const vec3 targetCenter = other->Location();
+		const vec3 targetTop = targetCenter + vec3(0.0f, 0.0f, other->CollisionHeight() * 0.5f);
+		const vec3 targetBottom = targetCenter - vec3(0.0f, 0.0f, other->CollisionHeight() * 0.5f);
+		if (!FastTrace(targetCenter, eyePosition) && !FastTrace(targetTop, eyePosition) && !FastTrace(targetBottom, eyePosition))
+			return 0.0f;
+	}
+	return targetVisibility;
 }
 
 float UPawn::AICanSmell(UActor* other, std::optional<float> smell)
 {
-	LogUnimplemented("Pawn.AICanSmell() [Deus Ex]");
-	return 0.0f;
+	if (!other)
+		return 0.0f;
+	const float smellStrength = std::max(smell.value_or(1.0f), 0.0f);
+	const float smellRadius = 400.0f * smellStrength;
+	const vec3 delta = other->Location() - Location();
+	return dot(delta, delta) <= smellRadius * smellRadius ? smellStrength : 0.0f;
 }
 
 UObject* UPawn::FindPathToward(UObject* anActor, bool singlePath)
@@ -4584,7 +4623,42 @@ UObject* UDeusExPlayer::CreateLogObject()
 
 void UDeusExPlayer::DeleteSaveGameFiles(std::optional<std::string> saveDirectory)
 {
-	LogUnimplemented("DeusExPlayer.DeleteSaveGameFiles");
+	const fs::path saveRoot = engine->packages->GetSaveFolderPath();
+	std::error_code error;
+	if (!fs::is_directory(saveRoot, error))
+		return;
+
+	auto isSaveDirectory = [](const fs::path& path)
+	{
+		const std::string name = path.filename().string();
+		if (name == "QuickSave")
+			return true;
+		return name.size() == 8 && name.rfind("Save", 0) == 0 &&
+			std::all_of(name.begin() + 4, name.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
+	};
+
+	std::vector<fs::path> directories;
+	if (saveDirectory)
+	{
+		const fs::path requested(*saveDirectory);
+		if (requested.has_parent_path() || !isSaveDirectory(requested))
+			return;
+		directories.push_back(saveRoot / requested);
+	}
+	else
+	{
+		for (const auto& entry : fs::directory_iterator(saveRoot, error))
+			if (entry.is_directory(error) && isSaveDirectory(entry.path()))
+				directories.push_back(entry.path());
+	}
+
+	for (const fs::path& directory : directories)
+	{
+		fs::remove_all(directory, error);
+		if (!error)
+			engine->packages->RemoveSaveInfoPackage(directory.filename().string());
+		error.clear();
+	}
 }
 
 std::string UDeusExPlayer::GetDeusExVersion()
@@ -4595,14 +4669,16 @@ std::string UDeusExPlayer::GetDeusExVersion()
 void UDeusExPlayer::SaveGame(int saveIndex, std::optional<std::string> saveDesc)
 {
 	engine->SaveGameInfo.SaveGameSlot = saveIndex;
-	engine->SaveGameInfo.SaveGameDescription = *saveDesc;
+	engine->SaveGameInfo.SaveGameDescription = saveDesc.value_or("");
 }
 
 NameString UDeusExPlayer::SetBoolFlagFromString(const std::string& flagNameString, bool bValue)
 {
-	// Not called directly from script
-	LogUnimplemented("DeusExPlayer.SetBoolFlagFromString");
-	return {};
+	if (!FlagBase() || flagNameString.empty())
+		return {};
+
+	const NameString flagName(flagNameString);
+	return FlagBase()->SetBool(flagName, bValue, {}, {}) ? flagName : NameString();
 }
 
 void UDeusExPlayer::UnloadTexture(UObject* Texture)
