@@ -133,6 +133,7 @@ public:
 
 	void InitDevice();
 	void InitDevice(std::unique_ptr<AudioDevice> device);
+	void InitNullDevice();
 	void ShutdownDevice();
 	void SetViewport(UViewport* InViewport);
 	UViewport* GetViewport() { return m_Viewport; }

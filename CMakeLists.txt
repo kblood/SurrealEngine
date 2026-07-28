@@ -110,6 +110,22 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Engine.h
 	SurrealEngine/GameSupport.cpp
 	SurrealEngine/GameSupport.h
+	SurrealEngine/Automation/AutomationProtocol.cpp
+	SurrealEngine/Automation/AutomationProtocol.h
+	SurrealEngine/Automation/DeusExSightProbe.cpp
+	SurrealEngine/Automation/DeusExSightProbe.h
+	SurrealEngine/Automation/InteractionActionController.cpp
+	SurrealEngine/Automation/InteractionActionController.h
+	SurrealEngine/Automation/PlayerAutomationDriver.cpp
+	SurrealEngine/Automation/PlayerAutomationDriver.h
+	SurrealEngine/Automation/PlayerAutomationRunConfig.cpp
+	SurrealEngine/Automation/PlayerAutomationRunConfig.h
+	SurrealEngine/Automation/ReachSpecRoutePlanner.cpp
+	SurrealEngine/Automation/ReachSpecRoutePlanner.h
+	SurrealEngine/Automation/ShadowReplayAdapter.cpp
+	SurrealEngine/Automation/ShadowReplayAdapter.h
+	SurrealEngine/Automation/PlayerMovementController.cpp
+	SurrealEngine/Automation/PlayerMovementController.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.h
 	SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.cpp
@@ -195,6 +211,7 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/GameWindow.h
 	SurrealEngine/Input/InputComposition.cpp
 	SurrealEngine/Input/InputComposition.h
+	SurrealEngine/Input/InputCommandTarget.h
 	SurrealEngine/Input/DesktopInputDefaults.cpp
 	SurrealEngine/Input/DesktopInputDefaults.h
 	SurrealEngine/Input/XRInputAdapter.cpp
@@ -1306,6 +1323,99 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 		COMMAND ${CMAKE_COMMAND} -DHEADER=${CMAKE_CURRENT_BINARY_DIR}/generated/SurrealBuildIdentityGenerated.h
 			-P ${CMAKE_CURRENT_SOURCE_DIR}/Tests/VerifyBuildIdentityMetadata.cmake)
 
+	add_executable(AutomationProtocolTests
+		Tests/AutomationProtocolTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+	)
+	target_include_directories(AutomationProtocolTests PRIVATE SurrealEngine)
+	set_target_properties(AutomationProtocolTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME AutomationProtocol COMMAND AutomationProtocolTests)
+
+	add_executable(ShadowReplayAdapterTests
+		Tests/ShadowReplayAdapterTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/ShadowReplayAdapter.cpp
+	)
+	target_include_directories(ShadowReplayAdapterTests PRIVATE SurrealEngine)
+	set_target_properties(ShadowReplayAdapterTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ShadowReplayAdapter COMMAND ShadowReplayAdapterTests)
+
+	add_executable(ShadowReplayFixtureTests
+		Tests/ShadowReplayFixtureTests.cpp
+		Tests/Fixtures/ShadowReplayFixture.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/ShadowReplayAdapter.cpp
+		SurrealEngine/Automation/InteractionActionController.cpp
+		SurrealEngine/Automation/PlayerMovementController.cpp
+		SurrealEngine/Input/InputComposition.cpp
+	)
+	target_include_directories(ShadowReplayFixtureTests PRIVATE SurrealEngine Tests)
+	set_target_properties(ShadowReplayFixtureTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ShadowReplayFixture COMMAND ShadowReplayFixtureTests)
+
+	add_executable(ShadowReplayResultLoaderTests
+		Tests/ShadowReplayResultLoaderTests.cpp
+		Tests/Fixtures/ShadowReplayResultLoader.cpp
+		Tests/Fixtures/ShadowReplayFixture.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/ShadowReplayAdapter.cpp
+		SurrealEngine/Automation/InteractionActionController.cpp
+		SurrealEngine/Automation/PlayerMovementController.cpp
+		SurrealEngine/Input/InputComposition.cpp
+	)
+	target_include_directories(ShadowReplayResultLoaderTests PRIVATE
+		SurrealEngine
+		Tests
+		Thirdparty/openmpt/include/nlohmann-json/include
+	)
+	set_target_properties(ShadowReplayResultLoaderTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ShadowReplayResultLoader COMMAND ShadowReplayResultLoaderTests)
+
+	add_executable(InteractionActionControllerTests
+		Tests/InteractionActionControllerTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/InteractionActionController.cpp
+	)
+	target_include_directories(InteractionActionControllerTests PRIVATE SurrealEngine)
+	set_target_properties(InteractionActionControllerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME InteractionActionController COMMAND InteractionActionControllerTests)
+
+	add_executable(PlayerAutomationRunConfigTests
+		Tests/PlayerAutomationRunConfigTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/PlayerAutomationRunConfig.cpp
+	)
+	target_include_directories(PlayerAutomationRunConfigTests PRIVATE SurrealEngine)
+	set_target_properties(PlayerAutomationRunConfigTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PlayerAutomationRunConfig COMMAND PlayerAutomationRunConfigTests)
+
+	add_executable(DeusExSightProbeTests
+		Tests/DeusExSightProbeTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/DeusExSightProbe.cpp
+	)
+	target_include_directories(DeusExSightProbeTests PRIVATE SurrealEngine)
+	set_target_properties(DeusExSightProbeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME DeusExSightProbe COMMAND DeusExSightProbeTests)
+
+	add_executable(PlayerMovementControllerTests
+		Tests/PlayerMovementControllerTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/PlayerMovementController.cpp
+		SurrealEngine/Input/InputComposition.cpp
+	)
+	target_include_directories(PlayerMovementControllerTests PRIVATE SurrealEngine)
+	set_target_properties(PlayerMovementControllerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PlayerMovementController COMMAND PlayerMovementControllerTests)
+
+	add_executable(ReachSpecRoutePlannerTests
+		Tests/ReachSpecRoutePlannerTests.cpp
+		SurrealEngine/Automation/ReachSpecRoutePlanner.cpp
+	)
+	target_include_directories(ReachSpecRoutePlannerTests PRIVATE SurrealEngine)
+	set_target_properties(ReachSpecRoutePlannerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ReachSpecRoutePlanner COMMAND ReachSpecRoutePlannerTests)
+
 	add_executable(BotBenchmarkTelemetryTests
 		Tests/BotBenchmarkTelemetryTests.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.cpp
@@ -1915,6 +2025,19 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(RenderDeviceSelectionTests PRIVATE SurrealEngine)
 	set_target_properties(RenderDeviceSelectionTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME RenderDeviceSelectionTests COMMAND RenderDeviceSelectionTests)
+
+	find_package(Python3 COMPONENTS Interpreter QUIET)
+	if(Python3_Interpreter_FOUND)
+		add_test(NAME VisualQASidecar
+			COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tests/VisualQASidecarTests.py)
+		set_tests_properties(VisualQASidecar PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+		add_test(NAME ShadowEvaluation
+			COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ShadowEvaluationTests.py)
+		set_tests_properties(ShadowEvaluation PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+		add_test(NAME CapturePackager
+			COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tests/CapturePackagerTests.py)
+		set_tests_properties(CapturePackager PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+	endif()
 endif()
 
 if(NOT EMSCRIPTEN)

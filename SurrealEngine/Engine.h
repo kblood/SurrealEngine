@@ -115,6 +115,13 @@ public:
 	const XRHandedness& GetXRHandedness() const { return xrHandedness; }
 	void RenderGameFrame(float levelElapsed);
 	void RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily);
+	void CaptureAutomationFrame(const std::string& outputDirectory,
+		const std::string& sessionId, const std::string& sourceRevision,
+		bool sourceDirty, const std::string& commandId,
+		const std::string& configIdentity, uint64_t tick,
+		uint64_t observationRevision, const std::string& capturePhase,
+		uint64_t expectedTelemetrySequence,
+		const std::function<std::string()>& observationProvider);
 	void FinishGameFrame(float levelElapsed);
 	void Shutdown();
 	int GetRunExitCode() const { return m_RunExitCode; }
@@ -339,8 +346,13 @@ public:
 	std::string ConsoleCommand(UObject* context, const std::string& command, BitfieldBool& found);
 
 	void UpdateInput(float timeElapsed);
+	// Headless automation publishes ordinary composed controls without creating
+	// a presentation window or pumping desktop events.
+	void ApplyInputCompositionToViewport(float timeElapsed);
 	void InputCommand(const std::string& command, InputControlId control, float delta) override;
 	void ReleaseInputControl(InputControlId control) override;
+	uint64_t SyntheticInputRequestCount() const { return syntheticInputRequestCount; }
+	uint64_t SyntheticInteractionPressCount() const { return syntheticInteractionPressCount; }
 
 	void LockCursor();
 	void UnlockCursor();
@@ -523,7 +535,10 @@ private:
 	bool botBenchmarkPickRegDestinationZeroDivideGuardEnabled = false;
 	bool botBenchmarkWalkingHitWallMinHitWallCandidateEnabled = false;
 	uint64_t botBenchmarkObserverTick = 0;
+	uint64_t syntheticInputRequestCount = 0;
+	uint64_t syntheticInteractionPressCount = 0;
 	ViewFamily CreateDesktopViewFamily() const;
+	void UpdateCameraFromViewport();
 	void InstallXRWeaponCallHook();
 	void UninstallXRWeaponCallHook();
 	float AdvanceGameFrame(float realTimeElapsed);
@@ -540,6 +555,7 @@ private:
 	void ReleaseOpenXRControllerEvents();
 	void ApplyOpenXRControllerEvents(const std::vector<XRNativeKeyEvent>& events);
 	void DispatchPendingXRSlaveFire();
+	void RecordSyntheticInputRequest(bool interactionPress = false);
 	void UpdateOpenXRWeaponDiagnostics(float elapsedSeconds,
 		const XRSpaceSamples& spaces, const XRWorldTransform& worldTransform,
 		const XRWeaponPoseResult& pose);

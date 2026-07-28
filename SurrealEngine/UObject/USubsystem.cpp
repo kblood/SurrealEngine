@@ -4,6 +4,7 @@
 #include "ULevel.h"
 #include "Engine.h"
 #include "Package/PackageManager.h"
+#include "Audio/NullAudioDevice.h"
 
 static float square(float x) { return x * x; }
 
@@ -216,6 +217,11 @@ void USurrealAudioDevice::InitDevice(std::unique_ptr<AudioDevice> device)
 {
 	m_Device = std::move(device);
 	LogMessage("Audio device initialized");
+}
+
+void USurrealAudioDevice::InitNullDevice()
+{
+	InitDevice(std::make_unique<NullAudioDevice>());
 }
 
 void USurrealAudioDevice::ShutdownDevice()
