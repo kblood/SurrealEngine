@@ -209,7 +209,12 @@ void USurrealAudioDevice::InitDevice()
 	// TODO: Add option for music buffer count
 	// TODO: Add option for music buffer size
 	// m_Device = AudioDevice::Create(48000, 256, 16, 256);
-	m_Device = AudioDevice::Create(OutputRate.frequency, 256, 16, 256);
+	InitDevice(AudioDevice::Create(OutputRate.frequency, 256, 16, 256));
+}
+
+void USurrealAudioDevice::InitDevice(std::unique_ptr<AudioDevice> device)
+{
+	m_Device = std::move(device);
 	LogMessage("Audio device initialized");
 }
 

@@ -132,6 +132,7 @@ public:
 	void SetPropertyFromString(const NameString& propertyName, const std::string& value) override;
 
 	void InitDevice();
+	void InitDevice(std::unique_ptr<AudioDevice> device);
 	void ShutdownDevice();
 	void SetViewport(UViewport* InViewport);
 	UViewport* GetViewport() { return m_Viewport; }

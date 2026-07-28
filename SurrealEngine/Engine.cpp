@@ -7,6 +7,7 @@
 #include "Utils/CommandLine.h"
 #include "Runtime/HeadlessDriver.h"
 #include "BotBenchmark/BotBenchmarkDriver.h"
+#include "GameSupport/DeusEx/DockConversationDriver.h"
 #include "Input/DesktopInputDefaults.h"
 #include "Platform/OpenXR/OpenXRProvider.h"
 #include "Platform/Browser/BrowserRelativeMouse.h"
@@ -301,6 +302,7 @@ void Engine::Setup()
 	if (!headlessDriverName.empty())
 	{
 		RegisterBotBenchmarkDriver(GetHeadlessDriverRegistry());
+		RegisterDeusExDockConversationDriver(GetHeadlessDriverRegistry());
 		RunHeadlessDriver(headlessDriverName);
 		return;
 	}

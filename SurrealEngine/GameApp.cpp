@@ -17,6 +17,7 @@
 #include "Platform/BrowserGameDataMount.h"
 #endif
 #include <stdexcept>
+#include <filesystem>
 #include <surrealwidgets/core/theme.h>
 #include <surrealwidgets/window/window.h>
 #include <iostream>
@@ -46,6 +47,13 @@ int GameApp::main(Array<std::string> args)
 	{
 		CommandLine cmd(args);
 		commandline = &cmd;
+		const std::string dockOutput = commandline->GetArg("", "--dx-dock-output");
+		if (!dockOutput.empty())
+		{
+			std::filesystem::create_directories(dockOutput);
+			File::write_all_text((std::filesystem::path(dockOutput) / "launch-start.log").string(),
+				"Deus Ex dock conversation headless launch started\n");
+		}
 
 #ifdef SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS
 		if (!BrowserGameDataMount::MountConfigured())
@@ -57,7 +65,7 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu|webgl2|null] [--openxr|--no-openxr] [--vr-lefthand] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=webgpu|webgl2|null] [--openxr|--no-openxr] [--vr-lefthand] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [--dx-dock-output=<dir>] [Path to game folder]\n";
 			return 0;
 		}
 		if (commandline->HasArg("", "--probexr"))
@@ -131,7 +139,26 @@ int GameApp::main(Array<std::string> args)
 	catch (const std::exception& e)
 	{
 #ifndef __EMSCRIPTEN__
-		ErrorWindow::ExecModal(e.what(), Logger::Get()->GetLog());
+		const std::string headlessDriver = commandline ? commandline->GetArg("", "--headless-driver") : std::string();
+		if (!headlessDriver.empty())
+		{
+			std::string errorText = std::string("Fatal error: ") + e.what() + "\n";
+			for (const auto& line : Logger::Get()->GetLog())
+				errorText += "[" + line.Source + "] " + line.Text + "\n";
+			std::string outputDirectory = commandline->GetArg("", "--dx-dock-output");
+			if (outputDirectory.empty())
+				outputDirectory = commandline->GetArg("", "--botbench-output");
+			if (!outputDirectory.empty())
+			{
+				std::filesystem::create_directories(outputDirectory);
+				File::write_all_text((std::filesystem::path(outputDirectory) / "startup-error.log").string(), errorText);
+			}
+			result = 1;
+		}
+		else
+		{
+			ErrorWindow::ExecModal(e.what(), Logger::Get()->GetLog());
+		}
 #else
 		// ErrorWindow::ExecModal's DisplayWindow::RunLoop() is the same
 		// blocking modal event pump the Launcher can't use here - just log.

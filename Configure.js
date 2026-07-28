@@ -428,6 +428,8 @@ var commonSources = [
 	"SurrealEngine/UObject/UDXSaveInfo.h",
 	"SurrealEngine/GameSupport/DeusEx/AIPerception.cpp",
 	"SurrealEngine/GameSupport/DeusEx/AIPerception.h",
+	"SurrealEngine/GameSupport/DeusEx/DockConversationDriver.cpp",
+	"SurrealEngine/GameSupport/DeusEx/DockConversationDriver.h",
 	"SurrealEngine/UObject/UDXTextParser.cpp",
 	"SurrealEngine/UObject/UDXTextParser.h",
 	"SurrealEngine/UObject/U227Emitter.cpp",
