@@ -1094,6 +1094,11 @@ void UWindow::ResizeChild()
 	float width = 0.0f, height = 0.0f;
 
 	QueryPreferredSize(width, height);
+	if (engine->LaunchInfo.IsDeusEx() && IsA("HUDInformationDisplay") && parentOwner() && width > parentOwner()->Width())
+	{
+		width = parentOwner()->Width();
+		height = QueryPreferredHeight(width);
+	}
 	bConfigured() = false; // Seems ResizeChild is supposed to call ConfigurationChanged always, even if nothing resized
 	ConfigureChild(X(), Y(), width, height);
 }
@@ -1193,9 +1198,9 @@ void UWindow::WindowReady()
 void UWindow::ParentRequestedPreferredSize(bool bWidthSpecified, float& preferredWidth, bool bHeightSpecified, float& preferredHeight)
 {
 	CallEvent(this, "ParentRequestedPreferredSize", {
-		ExpressionValue::BoolValue(true),
+		ExpressionValue::BoolValue(bWidthSpecified),
 		ExpressionValue::Variable(&preferredWidth, engine->floatprop),
-		ExpressionValue::BoolValue(true),
+		ExpressionValue::BoolValue(bHeightSpecified),
 		ExpressionValue::Variable(&preferredHeight, engine->floatprop)
 		});
 }
@@ -1782,8 +1787,12 @@ void UTileWindow::ParentRequestedPreferredSize(bool bWidthSpecified, float& pref
 		preferredHeight = 0.0f;
 		for (auto cur = firstChild(); cur; cur = cur->nextSibling())
 		{
-			float w = 0.0f, h = 0.0f;
-			cur->QueryPreferredSize(w, h);
+			float w = 0.0f;
+			float h = bWidthSpecified ? cur->QueryPreferredHeight(preferredWidth) : 0.0f;
+			if (bWidthSpecified)
+				w = cur->QueryPreferredWidth(h);
+			else
+				cur->QueryPreferredSize(w, h);
 			preferredWidth = std::max(preferredWidth, w);
 			preferredHeight += h;
 		}
