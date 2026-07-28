@@ -501,6 +501,9 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/UObject/UClient.cpp
 	SurrealEngine/UObject/UActor.cpp
 	SurrealEngine/UObject/ActorMovement.h
+	SurrealEngine/UObject/PawnReachSpecCapabilityFilter.h
+	SurrealEngine/UObject/PawnVisionCone.cpp
+	SurrealEngine/UObject/PawnVisionCone.h
 	SurrealEngine/UObject/ULevel.h
 	SurrealEngine/UObject/UClass.cpp
 	SurrealEngine/UObject/UTexture.cpp
@@ -1212,6 +1215,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(ActorMovementTests PRIVATE SurrealEngine)
 	set_target_properties(ActorMovementTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME ActorMovement COMMAND ActorMovementTests)
+
+	add_executable(PawnVisionConeTests
+		Tests/PawnVisionConeTests.cpp
+		SurrealEngine/UObject/PawnVisionCone.cpp
+	)
+	target_include_directories(PawnVisionConeTests PRIVATE SurrealEngine)
+	set_target_properties(PawnVisionConeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnVisionCone COMMAND PawnVisionConeTests)
 endif()
 
 if(BUILD_TESTING)
