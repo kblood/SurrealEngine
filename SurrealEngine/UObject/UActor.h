@@ -18,6 +18,7 @@ class UAnimation;
 class UPlayer;
 class UMusic;
 class UGameReplicationInfo;
+class LevelReachSpec;
 class UPlayerReplicationInfo;
 class UMutator;
 class UMenu;
@@ -1966,6 +1967,8 @@ public:
 	UActor* PathSpecialHandling(const Array<UNavigationPoint*>& points);
 	UNavigationPoint* SetRouteCache(const Array<UNavigationPoint*>& points);
 	std::pair<Array<UNavigationPoint*>, int32_t> FindPathToEndPoint(UNavigationPoint* start, int maxNodes);
+	uint32_t ReachSpecCapabilityMask();
+	bool ReachSpecTraversable(const LevelReachSpec& spec);
 
 	void ClearPaths();
 	UObject* FindRandomDest();
