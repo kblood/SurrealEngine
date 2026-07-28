@@ -990,7 +990,7 @@ void NActor::SetInstantSoundVolume(UObject* Self, uint8_t newSoundVolume)
 
 void NActor::SetInstantSpeechVolume(UObject* Self, uint8_t newSpeechVolume)
 {
-	LogUnimplemented("Actor.SetInstantSpeechVolume");
+	engine->audiodev->SetSpeechVolume(newSpeechVolume);
 }
 
 void NActor::StopSound_Deus(UObject* Self, int Id)

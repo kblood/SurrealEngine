@@ -122,6 +122,7 @@ public:
 	int Channels = 16;
 	uint8_t MusicVolume = 160;
 	uint8_t SoundVolume = 200;
+	uint8_t SpeechVolume = 255;
 	float AmbientFactor = 0.7f;
 
 	void LoadProperties(const NameString& from = "") override;
@@ -141,6 +142,7 @@ public:
 	void StopSound(UActor* Actor, int Id);
 	void ActorDestroyed(UActor* Actor);
 	void StopSounds();
+	void SetSpeechVolume(uint8_t volume) { SpeechVolume = volume; }
 
 	void BreakpointTriggered();
 	void AddStats(Array<std::string>& lines);
