@@ -155,6 +155,7 @@ public:
 
 	void Key(std::string key);
 	void InputEvent(EInputKey key, EInputType type, float delta = 0.0f, InputSourceId source = InputSourceId::KeyboardMouse);
+	void ResetKeyboardInput();
 	void ReleaseInputSource(InputSourceId source) override;
 	bool IsStartupIntroActive() const { return startupIntroActive; }
 	void CompleteStartupIntro() { startupIntroActive = false; }

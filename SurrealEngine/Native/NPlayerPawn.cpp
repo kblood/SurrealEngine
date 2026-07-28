@@ -99,7 +99,7 @@ void NPlayerPawn::PasteFromClipboard(UObject* Self, std::string& ReturnValue)
 
 void NPlayerPawn::ResetKeyboard(UObject* Self)
 {
-	LogUnimplemented("PlayerPawn.ResetKeyboard");
+	engine->ResetKeyboardInput();
 }
 
 void NPlayerPawn::UpdateURL(UObject* Self, const std::string& NewOption, const std::string& NewValue, bool bSaveDefault)

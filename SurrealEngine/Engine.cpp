@@ -2901,6 +2901,13 @@ void Engine::ReleaseInputSource(InputSourceId source)
 		viewport->Actor()->SetFloat(action, 0.0f);
 }
 
+void Engine::ResetKeyboardInput()
+{
+	ReleaseInputSource(InputSourceId::KeyboardMouse);
+	MouseMoveX = 0;
+	MouseMoveY = 0;
+}
+
 void Engine::ReleaseInputControl(InputControlId control)
 {
 	ReleasedInputActions released = inputComposition.ReleaseControl(control);
