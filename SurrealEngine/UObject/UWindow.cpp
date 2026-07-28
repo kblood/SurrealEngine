@@ -3074,6 +3074,12 @@ bool URootWindow::OnWindowKeyChar(std::string chars)
 
 bool URootWindow::OnWindowKeyDown(EInputKey key)
 {
+	if (engine->LaunchInfo.IsDeusEx() && key == IK_Escape && IsModalOpen())
+	{
+		CloseTopModal();
+		return true;
+	}
+
 	UWindow* focus = FocusWindow();
 	if (!focus)
 		return IsModalOpen();
@@ -3125,6 +3131,25 @@ bool URootWindow::IsModalOpen()
 			return true;
 	}
 	return false;
+}
+
+void URootWindow::CloseTopModal()
+{
+	for (UWindow* child = lastChild(); child; child = child->prevSibling())
+	{
+		if (!UObject::TryCast<UModalWindow>(child))
+			continue;
+
+		child->Destroy();
+		if (HasProperty("winCount"))
+		{
+			int& winCount = *static_cast<int*>(GetProperty("winCount"));
+			if (winCount > 0)
+				winCount--;
+		}
+		CallEvent(this, "UnPauseGame");
+		return;
+	}
 }
 
 /////////////////////////////////////////////////////////////////////////////

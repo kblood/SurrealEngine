@@ -870,6 +870,7 @@ public:
 
 	bool IsCursorVisible();
 	bool IsModalOpen();
+	void CloseTopModal();
 
 	UTexture*& DefaultMoveCursor() { return Value<UTexture*>(PropOffsets_RootWindow.DefaultMoveCursor); }
 	UWindow*& FocusWindow() { return Value<UWindow*>(PropOffsets_RootWindow.FocusWindow); }
