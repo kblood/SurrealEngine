@@ -91,6 +91,7 @@ class BspNode;
 class CollisionHitList;
 struct MeshAnimSeq;
 struct XAIParams; // Deus Ex
+struct DXAISightLineOfSightResult;
 class UDynamicZoneInfo; // Unreal 227
 class U227AnimationNotify;
 class U227Projector;
@@ -899,6 +900,7 @@ public:
 	UClass*& SmellClass() { return Value<UClass*>(PropOffsets_Actor.SmellClass); }
 	// SmellNode*& LastSmellNode() { return Value<SmellNode*>(PropOffsets_Actor.LastSmellNode); } // SmellNode is not a native class
 
+	BitfieldBool bDetectable() { return BoolValue(PropOffsets_Actor.bDetectable); }
 	BitfieldBool bOwned() { return BoolValue(PropOffsets_Actor.bOwned); }
 
 	FixedArrayView<NameString, 4> BlendAnimSequence() {return FixedArray<NameString, 4>(PropOffsets_Actor.BlendAnimSequence);}
@@ -2503,7 +2505,7 @@ public:
 
 	// Deus Ex AI functions
 	float AICanHear(UActor* other, std::optional<float> volume, std::optional<float> radius);
-	float AICanSee(UActor* other, std::optional<float> visibility, std::optional<bool> bCheckVisibility, std::optional<bool> bCheckDir, std::optional<bool> bCheckCylinder, std::optional<bool> bCheckLOS);
+	float AICanSee(UActor* other, std::optional<float> visibility, std::optional<bool> bCheckVisibility, std::optional<bool> bCheckDir, std::optional<bool> bCheckCylinder, std::optional<bool> bCheckLOS, DXAISightLineOfSightResult* lineOfSightResult = nullptr);
 	float AICanSmell(UActor* other, std::optional<float> smell);
 
 	float& AccelRate() { return Value<float>(PropOffsets_Pawn.AccelRate); }

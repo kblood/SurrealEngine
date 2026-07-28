@@ -448,6 +448,7 @@ struct PropertyOffsets_Actor
 	PropertyDataOffset LastVisibility;
 	PropertyDataOffset SmellClass;
 	PropertyDataOffset LastSmellNode;
+	PropertyDataOffset bDetectable;
 	PropertyDataOffset bOwned;
 	PropertyDataOffset bVisionImportant;
 

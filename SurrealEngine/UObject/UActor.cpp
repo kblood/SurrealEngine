@@ -33,6 +33,7 @@
 #include "BotAI/FallingHazardRecoveryGate.h"
 #include "BotAI/HazardSwimEgressGate.h"
 #include "BotAI/HazardSwimEgressLiveSteer.h"
+#include "GameSupport/DeusEx/AIPerception.h"
 #include "VM/ScriptCall.h"
 #include "VM/Frame.h"
 #include "Package/Package.h"
@@ -5893,48 +5894,88 @@ bool UPawn::MarkReachableNavEndPoints()
 
 float UPawn::AICanHear(UActor* other, std::optional<float> volume, std::optional<float> radius)
 {
-	if (!other)
+	if (!other || !other->bDetectable())
 		return 0.0f;
-	const float loudness = std::max(volume.value_or(1.0f), 0.0f);
-	const float hearingRadius = radius.value_or(4000.0f * loudness);
+
 	const vec3 delta = other->Location() - Location();
-	if (dot(delta, delta) > hearingRadius * hearingRadius)
-		return 0.0f;
-	if (XLevel()->Collision.TraceAnyHit(other->Location(), Location(), other, false, true, false))
-		return 0.0f;
-	return loudness;
+	return ComputeDXAIHearing(volume.value_or(1.0f), radius.value_or(-1.0f),
+		HearingThreshold(), delta.x, delta.y, delta.z);
 }
 
-float UPawn::AICanSee(UActor* other, std::optional<float> visibility, std::optional<bool> bCheckVisibility, std::optional<bool> bCheckDir, std::optional<bool> bCheckCylinder, std::optional<bool> bCheckLOS)
+float UPawn::AICanSee(UActor* other, std::optional<float> visibility, std::optional<bool> bCheckVisibility, std::optional<bool> bCheckDir, std::optional<bool> bCheckCylinder, std::optional<bool> bCheckLOS, DXAISightLineOfSightResult* lineOfSightResult)
 {
-	if (!other)
+	if (lineOfSightResult)
+		*lineOfSightResult = {};
+	const float suppliedVisibility = visibility.value_or(1.0f);
+	if (!other || !other->bDetectable() || suppliedVisibility <= 0.0f)
 		return 0.0f;
-	const float targetVisibility = std::max(visibility.value_or(1.0f), 0.0f);
-	if (bCheckVisibility.value_or(true) && targetVisibility <= 0.0f)
+
+	// Light sampling remains a separate runtime slice. Calls requesting that
+	// unresolved input continue to fail closed.
+	if (bCheckVisibility.value_or(true))
 		return 0.0f;
 
 	vec3 eyePosition = Location();
-	eyePosition.z += BaseEyeHeight();
-	const vec3 targetDelta = other->Location() - eyePosition;
-	const float distanceSquared = dot(targetDelta, targetDelta);
-	if (bCheckCylinder.value_or(true) && distanceSquared > SightRadius() * SightRadius())
-		return 0.0f;
-	if (bCheckDir.value_or(true) && distanceSquared > 0.0f)
+	eyePosition.z += EyeHeight();
+	const vec3 delta = other->Location() - eyePosition;
+	const float distanceSquared = dot(delta, delta);
+	if (bCheckDir.value_or(true))
 	{
-		const vec3 viewDirection = Coords::Rotation(Rotation()).XAxis;
-		const float peripheralVision = PeripheralVision();
-		if (peripheralVision > 0.0f && dot(normalize(viewDirection), normalize(targetDelta)) < peripheralVision)
+		Rotator viewRotation = Rotation();
+		if (UPlayerPawn* player = UObject::TryCast<UPlayerPawn>(this))
+			viewRotation = player->ViewRotation();
+		viewRotation += AIAddViewRotation();
+		const Coords view = Coords::Rotation(viewRotation);
+		if (!PassesDXAISightDirection(
+			dot(delta, view.XAxis), dot(delta, view.YAxis), dot(delta, view.ZAxis),
+			other->CollisionRadius(), other->CollisionHeight(), distanceSquared,
+			AIHorizontalFov(), AspectRatio()))
 			return 0.0f;
 	}
+
+	const float result = ComputeDXAISight(suppliedVisibility, 1.0f,
+		other->CollisionRadius(), other->CollisionHeight(), distanceSquared,
+		MinAngularSize(), VisibilityThreshold());
+	if (result <= 0.0f)
+		return 0.0f;
+
 	if (bCheckLOS.value_or(true))
 	{
-		const vec3 targetCenter = other->Location();
-		const vec3 targetTop = targetCenter + vec3(0.0f, 0.0f, other->CollisionHeight() * 0.5f);
-		const vec3 targetBottom = targetCenter - vec3(0.0f, 0.0f, other->CollisionHeight() * 0.5f);
-		if (!FastTrace(targetCenter, eyePosition) && !FastTrace(targetTop, eyePosition) && !FastTrace(targetBottom, eyePosition))
+		UPawn* otherPawn = UObject::TryCast<UPawn>(other);
+		const DXAISightTracePlan tracePlan = BuildDXAISightTracePlan(
+			otherPawn != nullptr, otherPawn ? otherPawn->EyeHeight() : 0.0f,
+			other->CollisionHeight());
+		if (!tracePlan.Valid)
+			return 0.0f;
+		const vec3 primary = other->Location() +
+			vec3(0.0f, 0.0f, tracePlan.PrimaryZOffset);
+		const vec3 top = other->Location() +
+			vec3(0.0f, 0.0f, tracePlan.TopZOffset);
+		const vec3 bottom = other->Location() +
+			vec3(0.0f, 0.0f, tracePlan.BottomZOffset);
+		const bool checkCylinder = bCheckCylinder.value_or(false);
+		DXAISightLineOfSightResult traceResult = TraceDXAISightLineOfSight(
+			checkCylinder, [&](DXAISightTraceEndpoint endpoint)
+		{
+			switch (endpoint)
+			{
+			case DXAISightTraceEndpoint::Primary:
+				return FastTrace(primary, eyePosition);
+			case DXAISightTraceEndpoint::Top:
+				return FastTrace(top, eyePosition);
+			case DXAISightTraceEndpoint::Bottom:
+				return FastTrace(bottom, eyePosition);
+			default:
+				return false;
+			}
+		});
+		if (lineOfSightResult)
+			*lineOfSightResult = traceResult;
+		if (!traceResult.Visible)
 			return 0.0f;
 	}
-	return targetVisibility;
+
+	return result;
 }
 
 float UPawn::AICanSmell(UActor* other, std::optional<float> smell)

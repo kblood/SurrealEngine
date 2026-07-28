@@ -496,6 +496,7 @@ static void InitPropertyOffsets_Actor(PackageManager* packages)
 		PropOffsets_Actor.LastVisibility = cls->GetPropertyDataOffset("LastVisibility");
 		PropOffsets_Actor.SmellClass = cls->GetPropertyDataOffset("SmellClass");
 		PropOffsets_Actor.LastSmellNode = cls->GetPropertyDataOffset("LastSmellNode");
+		PropOffsets_Actor.bDetectable = cls->GetPropertyDataOffset("bDetectable");
 		PropOffsets_Actor.bOwned = cls->GetPropertyDataOffset("bOwned");
 		PropOffsets_Actor.bVisionImportant = cls->GetPropertyDataOffset("bVisionImportant");
 	}

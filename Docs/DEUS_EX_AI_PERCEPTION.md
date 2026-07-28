@@ -10,11 +10,15 @@ This topic is based only on `pr/game-support-registry` at `2ccdb1d8`. The pure
 formula implementation is `437614cc`; the subsequent relocation commit places
 it behind the explicit `GameSupport/DeusEx` module boundary.
 
-The module contains only three pure scalar functions:
+The current unified module contains four pure scalar/direction functions plus
+a bounded, callback-injected LOS ordering kernel and endpoint planner:
 
 - `ComputeDXAIHearing`
 - `ComputeDXAISight`
+- `PassesDXAISightDirection`
 - `ComputeDXAIMotionVisibility`
+- `BuildDXAISightTracePlan`
+- `TraceDXAISightLineOfSight`
 
 There are no `UActor` or `NPawn` changes, native wrappers, property offsets,
 traces, world access, save/text behavior, VR behavior, bot changes, or game
@@ -54,6 +58,17 @@ inputs, and non-finite inputs.
 - Values strictly below `minAngularSize` are rejected; equality is visible.
 - Visibility is `visibility * angularSize * 64 * lightVisibility`, followed by
   threshold subtraction and `[0, 1]` clamping.
+
+### Sight direction
+
+- Non-positive horizontal FOV disables the direction gate.
+- Otherwise horizontal and vertical target angles are compared with half the
+  horizontal FOV; the vertical half-FOV is divided by the positive aspect
+  ratio, which defaults to one when non-positive.
+- The target's apparent angular radius expands both boundaries, so a cylinder
+  overlapping the edge remains visible.
+- Boundary equality is visible, targets behind the observer are rejected, and
+  non-finite inputs fail closed.
 
 ### Motion visibility
 
@@ -102,10 +117,66 @@ Both passed.
 
 ## Limitations
 
-- This is formula extraction, not complete Deus Ex perception behavior.
+- Hearing now has a narrow live pawn/native integration in the unified product
+  tree. It applies the detectable-actor gate, optional argument defaults,
+  listener threshold, and the tested pure formula.
+- Sight now has narrow live scalar, direction, and LOS integration. The native
+  wrapper delegates to `UPawn::AICanSee`, which applies the detectable-actor
+  gate, eye-relative distance, optional tested direction/FOV gate, apparent
+  size, minimum angular size, visibility threshold, caller-supplied visibility,
+  and the bounded world trace sequence described below. Callers must explicitly
+  disable light sampling because that input remains unresolved; default calls
+  therefore still fail closed to zero.
+- Smell and motion/light visibility remain formula extraction rather than
+  complete live Deus Ex perception behavior.
 - Callers must still resolve actors, zones, lighting, collision dimensions,
-  velocity, occlusion, field of view, and trace results.
-- No claim is made here about exact retail ordering around line-of-sight or
-  native event dispatch; those require separate integration evidence.
+  velocity, and field of view. The live wrapper now resolves bounded BSP/mover
+  occlusion through the engine collision system.
+- The LOS ordering matches preserved Surreal Deus Ex patch evidence. It is not
+  independently claimed as exact retail executable behavior.
 - Negative collision dimensions are squared by the observed formula. Normal
   engine callers are expected to supply non-negative extents.
+
+## Unified live sight checkpoint
+
+The 2026-07-24 unified slice deliberately excludes the historical patch's
+full-brightness light substitute. Pure direction tests cover FOV boundaries,
+aspect ratio, apparent cylinder overlap, behind-target rejection, disabled
+direction gating, and non-finite inputs. The LOS kernel tests the exact bounded
+short-circuit order with an injected trace callback:
+
+- scalar rejection performs no trace;
+- primary success performs one trace;
+- primary failure without cylinder checking performs one trace;
+- a clear cylinder top succeeds after two traces without testing the bottom;
+- the bottom is tested only after primary and top both fail, for three traces
+  total.
+
+The observer start is `Location + EyeHeight`. A pawn's primary endpoint is its
+eye position; a non-pawn uses its center. Cylinder fallback uses target center
+plus and minus the full collision height. Non-finite endpoint geometry fails
+closed. Runtime traces use `FastTrace` against BSP and blocking movers with
+actor-cylinder tracing disabled. They do not mutate gameplay properties, but
+they do advance collision check counters and mark visited actors, so the probe
+contract explicitly records `collision_bookkeeping_mutation=true` rather than
+calling the operation read-only.
+
+Two final `00_TrainingFinal` owner-data runs,
+`deus-ex-trainingfinal-soldier0-sight-los-v2-final-a` and `-b`, bind
+`actor:DeusEx.Soldier:Soldier0#0` by exact stable identity and class, apply no
+probe navigation or synthetic input, and do not advance the level. The v2
+artifact records `bDetectable=true`, collision extents 20/43, scalar result
+`0.083278768`, direction result `0.0`, one blocked primary non-cylinder trace,
+and three blocked primary/top/bottom cylinder traces. Both LOS evaluations are
+therefore zero. The two artifacts are byte-identical with SHA-256
+`fff326a0e41305cf4e005d0580060ad10355aed86f0c9ae2d4bf22ad1793484c`.
+
+The RelWithDebInfo executable used for that LOS evidence has SHA-256
+`b9467609f8874e9a825fde0c45868d6735e53076b103cb8123514d2ae9e40317`.
+With the exact earlier fixed-step contract (`0.02` seconds), its repeated
+Light155 walk and Switch1 interaction still succeeds at ticks 53 and 249
+respectively. Event and summary bytes remain identical to the pre-LOS baseline;
+the initial/final observations are repeat-identical schema-v2 artifacts because
+they now include optional inventory-resource evidence. Real light sampling and
+visibility-cache behavior remain future slices; no faithful point-light sampler
+was found in current or preserved source.
