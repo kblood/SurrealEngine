@@ -7,7 +7,7 @@ Date: 2026-07-24 (Europe/Copenhagen)
 The active integration worktree is:
 
 ```text
-C:\Devstuff\QuestGames\surreal-webxr-release-gates
+C:\Devstuff\QuestGames\SurrealEngine\repos\worktrees\active\unified
 branch: integration/unified-engine
 release source: e8a57fb8c2da898c83488c02110dab115cb89fd1
 release source tree: 5568b305241799fd045ffe94f7ba7e01daf57fa7
