@@ -434,6 +434,7 @@ public:
 	void SetWatchActor(std::optional<UObject*> newWatchActor, std::optional<bool> bEyeLevel);
 	void ShowViewportActor(std::optional<bool> bShow);
 	void ShowWeapons(std::optional<bool> bShow);
+	void DrawWindow(UGC* gc) override;
 
 	Color& DefaultColor() { return Value<Color>(PropOffsets_ViewportWindow.DefaultColor); }
 	UTexture*& DefaultTexture() { return Value<UTexture*>(PropOffsets_ViewportWindow.DefaultTexture); }
@@ -751,6 +752,9 @@ public:
 	float& showAreaY() { return Value<float>(PropOffsets_EditWindow.showAreaY); }
 	USound*& typeSound() { return Value<USound*>(PropOffsets_EditWindow.typeSound); }
 	int& unchangedUndo() { return Value<int>(PropOffsets_EditWindow.unchangedUndo); }
+
+	bool TextChanged = false;
+	std::string Clipboard;
 };
 
 class UTabGroupWindow : public UWindow
@@ -1020,7 +1024,7 @@ public:
 	int& currentPos() { return Value<int>(PropOffsets_ScaleWindow.currentPos); }
 	USound*& dragSound() { return Value<USound*>(PropOffsets_ScaleWindow.dragSound); }
 	float& endOffset() { return Value<float>(PropOffsets_ScaleWindow.endOffset); }
-	//DynamicArray& enumStrings() { return Value<DynamicArray>(PropOffsets_ScaleWindow.enumStrings); }
+	TypedScriptArray<std::string> enumStrings() { return DynamicArray<std::string>(PropOffsets_ScaleWindow.enumStrings); }
 	float& fromValue() { return Value<float>(PropOffsets_ScaleWindow.fromValue); }
 	float& initialDelay() { return Value<float>(PropOffsets_ScaleWindow.initialDelay); }
 	int& initialPos() { return Value<int>(PropOffsets_ScaleWindow.initialPos); }
@@ -1316,7 +1320,7 @@ public:
 	BitfieldBool bShowCursor() { return BoolValue(PropOffsets_ComputerWindow.bShowCursor); }
 	BitfieldBool bWaitingForKey() { return BoolValue(PropOffsets_ComputerWindow.bWaitingForKey); }
 	BitfieldBool bWordWrap() { return BoolValue(PropOffsets_ComputerWindow.bWordWrap); }
-	UTexture*& backgroundTextures() { return Value<UTexture*>(PropOffsets_ComputerWindow.backgroundTextures); }
+	FixedArrayView<UTexture*, 6> backgroundTextures() { return FixedArray<UTexture*, 6>(PropOffsets_ComputerWindow.backgroundTextures); }
 	Color& colGraphicTile() { return Value<Color>(PropOffsets_ComputerWindow.colGraphicTile); }
 	float& computerSoundVolume() { return Value<float>(PropOffsets_ComputerWindow.computerSoundVolume); }
 	float& cursorBlinkSpeed() { return Value<float>(PropOffsets_ComputerWindow.cursorBlinkSpeed); }
