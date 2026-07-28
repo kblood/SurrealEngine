@@ -1212,6 +1212,13 @@ public:
 	};
 	std::vector<Item> items;
 	int nextRowId = 1;
+	struct SortSpec
+	{
+		int Column = 0;
+		bool Reverse = false;
+		bool CaseSensitive = false;
+	};
+	std::vector<SortSpec> sortColumns;
 
 	Color highlightTextColor = { 255,255,255,255 };
 
