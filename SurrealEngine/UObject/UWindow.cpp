@@ -2994,7 +2994,25 @@ bool URootWindow::OnWindowMouseUp(const Point& pos, EInputKey key)
 	float relativeX = 0.0f, relativeY = 0.0f;
 	UWindow* focus = GetCursorFocus(relativeX, relativeY);
 
-	if (focus->RawMouseButtonPressed(relativeX, relativeY, key, EInputType::IST_Release))
+	const bool rawMouseHandled = focus->RawMouseButtonPressed(relativeX, relativeY, key, EInputType::IST_Release);
+	const std::string focusClassName = UObject::GetUClassFullName(focus).ToString();
+	UButtonWindow* compatibilityButton = nullptr;
+	if (focusClassName == "DeusEx.PersonaInventoryItemButton" || focusClassName == "DeusEx.PersonaActionButtonWindow")
+		compatibilityButton = UObject::TryCast<UButtonWindow>(focus);
+	else
+	{
+		for (UWindow* cur = focus; cur; cur = cur->parentOwner())
+		{
+			if (UObject::GetUClassFullName(cur) == "DeusEx.ConChoiceWindow")
+			{
+				compatibilityButton = UObject::TryCast<UButtonWindow>(cur);
+				break;
+			}
+		}
+	}
+	if (key == IK_LeftMouse && compatibilityButton)
+		compatibilityButton->ActivateButton(key);
+	if (rawMouseHandled)
 		return true;
 
 	if (!focus->bIsSensitive())
