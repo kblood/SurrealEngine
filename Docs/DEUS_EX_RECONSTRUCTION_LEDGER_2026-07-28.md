@@ -73,6 +73,7 @@ The upstream audio and tokenizer tests pass at this checkpoint, and the native
 | `282c53e3` | `280e4684` | accepted actor AI event callbacks, perception/reachability natives, path-node iterator, corrected `CanSee`, safe save deletion, optional save descriptions, and string-to-flag handling |
 | `282c53e3` | `2e6dc435` | accepted child visibility, viewport fallback/state, edit controls, scale controls, root mouse/snapshot state, and computer-terminal controls |
 | upstream GC batch plus reconstruction review | `35b5aad7` | accepted GC regression coverage and fixes to object/struct property marking |
+| preserved Paul dock audit and unified headless runtime | `79f6e149` | accepted a bounded, deterministic demo/retail validation driver using null audio, explicit UI layout, and the real root-window release path |
 
 ## `demo/deus-ex` first-parent inventory
 
@@ -142,6 +143,31 @@ evidence-only because unified deliberately removed the ad-hoc production
 automation commands. Their scenario intent is retained in the preserved QA
 manifests and should be re-expressed through unified's external/headless test
 interfaces rather than reintroducing game-specific command handlers.
+
+The Paul dock conversation is now the first such migration. The
+`deus-ex-dock-conversation` headless driver loads Liberty Island, starts the
+shipped conversation with `PaulDenton0`, waits for `ConChoiceWindow`, and
+releases through `URootWindow` while an `Extension.TileWindow` owns cursor
+focus and the underlying button has no pressed state. The headless fixture
+supplies that raw-input tile because it normally comes from the rendered UI
+path; the earlier interactive evidence records the same focus and the actual
+before/after failure boundary.
+
+## Final validation
+
+Commit `79f6e149` passed:
+
+- native `RelWithDebInfo` `ALL_BUILD`;
+- all 42 registered CTest tests;
+- Deus Ex demo `1.002f` Liberty Island/Paul dock choice, advancing from
+  `WaitForInput` to `WaitForSpeech`;
+- Deus Ex GOTY retail `1112fm` with the same result.
+
+Evidence is preserved under
+`SurrealEngine/qa/runs/2026-07-28/79f6e149`. The retail run used the installed
+game data in place and did not copy or modify it. Historical interactive
+before/after evidence for the exact rendered `Extension.TileWindow` path
+remains under `qa/runs/2026-07-28/2e328f70`.
 
 ## Validation gates
 
