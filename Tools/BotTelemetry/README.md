@@ -153,6 +153,8 @@ the run is reproducible, then starts the game. Parameters (all optional):
 | `-ProbeTraceCorpus` | `$true` | Written to `BotTelemetry.ini` as `bProbeTraceCorpus` |
 | `-ProbeReachCorpus` | `$false` | Written to `BotTelemetry.ini` as `bProbeReachCorpus` |
 | `-ProbeVisionCorpus` | `$false` | Written to `BotTelemetry.ini` as `bProbeVisionCorpus` |
+| `-ProbeVisionRotMode` | `0` | Written to `BotTelemetry.ini` as `ProbeVisionRotMode` |
+| `-ExitAfterProbes` | `$false` | Written to `BotTelemetry.ini` as `bExitAfterProbes` |
 
 The script also archives any pre-existing `Logs\bottelemetry.log` /
 `.tmp` by timestamp-renaming it before the run, and fails fast if
@@ -184,8 +186,10 @@ All `var config` fields on `BotTelemetryMutator`, under
 | `bProbeVisionCorpus` | `False` | If `True`, run `DumpVisionCorpus()` once in `PostBeginPlay` (emits `V` rows for navpoint pairs within `ProbeVisionDist`, observers strided by `ProbeVisionStride`). |
 | `ProbeReachDist` | `1000.0` | Max straight-line distance between navpoint pair `A`/`B` for `DumpReachCorpus` to test/emit that pair. |
 | `ProbeVisionDist` | `800.0` | Max straight-line distance between observer/target navpoint pair for `DumpVisionCorpus` to test/emit that pair. |
-| `ProbeVisionYawSteps` | `64` | Number of evenly spaced observer yaw samples per pair per `PeripheralVision` value in `DumpVisionCorpus` (covers a full turn). |
-| `ProbeVisionStride` | `8` | Only every `ProbeVisionStride`'th `NavigationPoint` (walked via `nextNavigationPoint`) is used as an observer in `DumpVisionCorpus`; values `<= 0` are treated as `1`. |
+| `ProbeVisionYawSteps` | `32` | Number of evenly spaced observer yaw samples per pair per `PeripheralVision` value in `DumpVisionCorpus` (covers a full turn). |
+| `ProbeVisionStride` | `16` | Only every `ProbeVisionStride`'th `NavigationPoint` (walked via `nextNavigationPoint`) is used as an observer in `DumpVisionCorpus`; values `<= 0` are treated as `1`. |
+| `ProbeVisionRotMode` | `0` | Which rotation `DumpVisionCorpus` turns during the yaw sweep: `0` body `Rotation`, `1` `ViewRotation`, `2` both. `cos1000` is measured against whichever one is being swept, so a mode that turns a rotation the engine's cone does not read shows up as an answer independent of the sweep. |
+| `bExitAfterProbes` | `False` | If `True`, close the log and quit the game as soon as the probe dumps finish, instead of waiting for the match to end. The probes do not need a match to run. |
 | `ProbeRadius` | `17.0` | Collision-extent X/Y (and the reach-probe pawn's implicit size comes from `Botpack.TMale1` itself, not this var) used for the `box`/`boxact` traces in `DumpTraceCorpus`. |
 | `ProbeHeight` | `39.0` | Collision-extent Z used for the `box`/`boxact` traces in `DumpTraceCorpus`, and (via `P.CollisionHeight`) reused as the Z half-height reported in `W` rows for the live pawn (not driven by this var — that one comes from the pawn's actual collision). |
 | `ProbeDist` | `60.0` | Trace length from each `NavigationPoint`, per direction, in `DumpTraceCorpus`. |
