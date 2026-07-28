@@ -2024,7 +2024,6 @@ void UActor::PlayAnim(const NameString& sequence, float rate, float tweenTime)
 
 void UActor::PlayBlendAnim(const NameString& sequenceName, float rate, float tweenTime, int blendSlot)
 {
-	LogUnimplemented("Actor.PlayBlendAnim");
 	if (blendSlot < 0 || blendSlot > 3)
 	{
 		LogMessage("Invalid channel for PlayBlendAnim!");
@@ -2131,31 +2130,35 @@ void UActor::TweenBlendAnim(const NameString& sequenceName, float time, int blen
 	}
 
 	MeshAnimSeq* sequence = Mesh()->GetSequence(sequenceName);
-	if (!sequence || sequence->Name != sequenceName)
+	if (!sequence || sequence->Name != sequenceName || sequence->NumFrames <= 0)
 	{
 		LogMessage("TweenBlendAnim: Sequence '" + sequenceName.ToString() + "' not found in mesh for slot " + std::to_string(blendSlot));
 		return;
 	}
 	int numFrames = sequence->NumFrames;
-	LogMessage("TweenBlendAnim: seq='" + sequenceName.ToString() + "' slot=" + std::to_string(blendSlot) + " time=" + std::to_string(time) + " numFrames=" + std::to_string(numFrames) + " StartFrame=" + std::to_string(sequence->StartFrame));
+
+	SetTweenFromBlendAnimFrame(blendSlot);
 
 	BlendAnimSequence()[blendSlot] = sequenceName;
-	BlendAnimLast()[blendSlot] = 0.0;
-	BlendAnimMinRate()[blendSlot] = 0.0;
-	BlendAnimRate()[blendSlot] = 0.0;
-	OldBlendAnimRate()[blendSlot] = 0.0;
+	BlendAnimLast()[blendSlot] = 0.0f;
+	BlendAnimMinRate()[blendSlot] = 0.0f;
+	BlendAnimRate()[blendSlot] = 0.0f;
+	OldBlendAnimRate()[blendSlot] = 0.0f;
 	if (time <= 0.0)
 	{
-		BlendTweenRate()[blendSlot] = 0.0;
-		BlendAnimFrame()[blendSlot] = 0.0;
+		BlendTweenRate()[blendSlot] = 0.0f;
+		BlendAnimFrame()[blendSlot] = 0.0f;
 	}
 	else 
 	{
 		BlendTweenRate()[blendSlot] = 1.0f / (numFrames * time);
-		BlendAnimFrame()[blendSlot] = 1.0f / numFrames;
+		BlendAnimFrame()[blendSlot] = -1.0f / numFrames;
 	}
-	// Don't worry about simblendanim for now
-	return;
+
+	SimBlendAnim()[blendSlot].x = BlendTweenRate()[blendSlot] * 1000.0f;
+	SimBlendAnim()[blendSlot].y = 0.0f;
+	SimBlendAnim()[blendSlot].z = BlendAnimFrame()[blendSlot] * 10000.0f;
+	SimBlendAnim()[blendSlot].w = 0.0f;
 }
 
 void UActor::LoopAnim(const NameString& sequence, float rate, float tweenTime, float minRate)
