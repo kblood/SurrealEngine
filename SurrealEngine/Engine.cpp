@@ -371,20 +371,34 @@ void Engine::Setup()
 	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
 	LogMessage("[asyncify-stage] Main map begin");
 	#endif
-	if (LaunchInfo.url.empty())
-		LoadMap(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")));
+	const UnrealURL defaultUrl = GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap"));
+	const UnrealURL launchUrl = LaunchInfo.url.empty() ? defaultUrl : UnrealURL(defaultUrl, LaunchInfo.url);
+	const bool launchFromSave = launchUrl.HasOption("load") || (LaunchInfo.IsDeusEx() && launchUrl.HasOption("loadgame"));
+	if (launchFromSave)
+	{
+		if (LoadFromSaveFile(launchUrl))
+			PossessSavedPlayer();
+		else
+		{
+			LoadMap(defaultUrl);
+			LoginPlayer();
+		}
+	}
 	else
-		LoadMap(UnrealURL(GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap")), LaunchInfo.url));
+	{
+		LoadMap(launchUrl);
+	}
 	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
 	LogMessage("[asyncify-stage] Main map complete");
 	#endif
-	startupIntroActive = LaunchInfo.url.empty() &&
+	startupIntroActive = !launchFromSave && LaunchInfo.url.empty() &&
 		(LaunchInfo.IsUnrealTournament() || LaunchInfo.IsUnreal1());
 
 	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
 	LogMessage("[asyncify-stage] LoginPlayer begin");
 	#endif
-	LoginPlayer();
+	if (!launchFromSave)
+		LoginPlayer();
 	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
 	LogMessage("[asyncify-stage] LoginPlayer complete");
 	#endif
@@ -1242,11 +1256,11 @@ void Engine::FinishGameFrame(float levelElapsed)
 		LoginPlayer();
 	}
 
-	if (ClientTravelInfo.URL.HasOption("load"))
+	if (ClientTravelInfo.URL.HasOption("load") || (LaunchInfo.IsDeusEx() && ClientTravelInfo.URL.HasOption("loadgame")))
 	{
 		UnrealURL url(ClientTravelInfo.URL);
-		LoadFromSaveFile(url);
-		PossessSavedPlayer();
+		if (LoadFromSaveFile(url))
+			PossessSavedPlayer();
 	}
 
 	if (!ClientTravelInfo.URL.Map.empty())
@@ -1789,7 +1803,7 @@ void Engine::LoadMap(const UnrealURL& url, const std::map<std::string, std::stri
 		CallEvent(LevelInfo->Game(), "DetailChange", {});
 }
 
-void Engine::LoadFromSaveFile(const UnrealURL& url)
+bool Engine::LoadFromSaveFile(const UnrealURL& url)
 {
 	startupIntroActive = false;
 	openXRViews.ResetRecenter();
@@ -1799,18 +1813,27 @@ void Engine::LoadFromSaveFile(const UnrealURL& url)
 		CallEvent(console, EventName::NotifyLevelChange);
 
 	if (url.HasOption("entry")) // Not sure what the purpose of this kind of travel is - do nothing for now.
-		return;
+		return false;
 
 	Package* savefilePackage = nullptr;
 
-	if (url.HasOption("load"))
+	if (url.HasOption("load") || (LaunchInfo.IsDeusEx() && url.HasOption("loadgame")))
 	{
-		uint32_t slotNum = Convert::to_uint32(url.GetOption("load"));
+		const std::string slotValue = url.HasOption("loadgame") ? url.GetOption("loadgame") : url.GetOption("load");
+		int32_t slotNum;
+		try
+		{
+			slotNum = Convert::to_int32(slotValue);
+		}
+		catch (...)
+		{
+			return false;
+		}
 		savefilePackage = packages->LoadSaveSlot(slotNum);
 	}
 
 	if (!savefilePackage)
-		return;
+		return false;
 	XRUILoadingSurfaceScope loadingSurface(render ? &render->XRUISurfaces() : nullptr);
 
 	audiodev->StopSounds();
@@ -1845,6 +1868,8 @@ void Engine::LoadFromSaveFile(const UnrealURL& url)
 	GameInfo = UObject::Cast<UGameInfo>(LevelInfo->Game());
 	if (!GameInfo)
 		Exception::Throw("Save file has no GameInfo actor for " + LevelPackage->GetPackageName().ToString() + "!");
+
+	return true;
 }
 
 void Engine::PossessSavedPlayer()
@@ -1900,13 +1925,19 @@ void Engine::SaveGameToSlot(int32_t slotNum, const std::string& saveDescription)
 	if (packages->IsDeusEx())
 	{
 		// Saving a game on Deus Ex does the following:
-		// - Create a folder using the slotNum (e.g. 1 -> "Save0001")
+		// - Create a folder using the slotNum (e.g. 1 -> "Save0001", -1 -> "QuickSave")
 		// - Save the level package using the name [MapName].dxs
 		// - Save the associated DeusExSaveInfo class as SaveInfo.dxs within that same folder,
 		// in which saveDescription parameter will be used in DeusExSaveInfo.Description
-		auto slotNumStr = std::to_string(slotNum);
-		slotNumStr.insert(0, 4 - slotNumStr.length(), '0'); // Pad it with 0s
-		auto saveFolder = "Save" + slotNumStr;
+		std::string saveFolder;
+		if (slotNum == -1)
+			saveFolder = "QuickSave";
+		else
+		{
+			auto slotNumStr = std::to_string(slotNum);
+			slotNumStr.insert(0, 4 - slotNumStr.length(), '0'); // Pad it with 0s
+			saveFolder = "Save" + slotNumStr;
+		}
 
 		auto saveSlotFolder = saveFolderPath / saveFolder;
 		if (!fs::exists(saveSlotFolder) || !fs::is_directory(saveSlotFolder))
