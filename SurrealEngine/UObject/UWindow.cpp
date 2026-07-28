@@ -2497,6 +2497,19 @@ void UEditWindow::Undo()
 	LogUnimplemented("EditWindow.Undo");
 }
 
+void UEditWindow::InitWindow()
+{
+	ULargeTextWindow::InitWindow();
+}
+
+void UEditWindow::DrawWindow(UGC* gc)
+{
+	UWindow::DrawWindow(gc);
+	gc->SetFont(normalFont());
+	gc->SetAlignments(HAlign(), VAlign());
+	gc->DrawText(0.0f, 0.0f, Width(), Height(), Text());
+}
+
 /////////////////////////////////////////////////////////////////////////////
 
 UObject* URadioBoxWindow::GetEnabledToggle()
@@ -2566,13 +2579,23 @@ void URadioBoxWindow::ConfigurationChanged()
 
 void UClipWindow::ParentRequestedPreferredSize(bool bWidthSpecified, float& preferredWidth, bool bHeightSpecified, float& preferredHeight)
 {
-	// To do: how does this work?
+	float width = 0.0f;
+	float height = 0.0f;
+	for (UWindow* child = firstChild(); child; child = child->nextSibling())
+	{
+		float childWidth = 0.0f;
+		float childHeight = 0.0f;
+		child->QueryPreferredSize(childWidth, childHeight);
+		width = std::max(width, childWidth);
+		height = std::max(height, childHeight);
+	}
+	preferredWidth = width;
+	preferredHeight = height;
 	UTabGroupWindow::ParentRequestedPreferredSize(bWidthSpecified, preferredWidth, bHeightSpecified, preferredHeight);
 }
 
 void UClipWindow::ConfigurationChanged()
 {
-	// To do: how does this work?
 	for (auto cur = firstChild(); cur; cur = cur->nextSibling())
 	{
 		cur->ConfigureChild(0.0f, 0.0f, Width(), Height());
@@ -2594,9 +2617,7 @@ void UClipWindow::ForceChildSize(std::optional<bool> bNewForceChildWidth, std::o
 
 UObject* UClipWindow::GetChild()
 {
-	// Not called by script
-	LogUnimplemented("ClipWindow.GetChild");
-	return nullptr;
+	return firstChild();
 }
 
 void UClipWindow::GetChildPosition(int& pNewX, int& pNewY)
