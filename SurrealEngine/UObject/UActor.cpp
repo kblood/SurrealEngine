@@ -23,6 +23,80 @@ static constexpr float stepDownDeltaFactor = 1.3f;
 static constexpr int walkingSimulationMaxIterations = 32;
 static constexpr float walkingSimulationFallDepth = 1024.0f;
 
+namespace
+{
+	constexpr int painZoneFallPredictionSteps = 24;
+	constexpr int painZoneFallMaxSamplesPerStep = 8;
+	constexpr float painZoneFallPredictionDelta = 1.0f / 16.0f;
+
+	bool IsHarmfulPainZone(UPawn* pawn, UZoneInfo* zone)
+	{
+		return zone && zone->bPainZone() && zone->DamageType() != pawn->ReducedDamageType();
+	}
+
+	bool IsAutonomousPlayerBot(UPawn* pawn)
+	{
+		UPlayerPawn* player = UObject::TryCast<UPlayerPawn>(pawn);
+		return pawn && ActorMovement::IsAIControlledPlayer(
+			pawn->bIsPlayer(), player != nullptr, player && player->Player() != nullptr);
+	}
+
+	bool PredictedFallEntersHarmfulPainZone(
+		UPawn* pawn, const vec3& initialVelocity, const vec3& acceleration)
+	{
+		UZoneInfo* startZone = pawn->FootRegion().Zone;
+		UZoneInfo* physicsZone = pawn->Region().Zone;
+		if (!startZone || !physicsZone)
+			return false;
+
+		ActorMovement::FallPredictionState prediction = {
+			.Location = pawn->Location(), .Velocity = initialVelocity
+		};
+		const ActorMovement::FallPredictionStep step = {
+			.Acceleration = acceleration,
+			.Gravity = physicsZone->ZoneGravity(),
+			.ZoneVelocity = physicsZone->ZoneVelocity(),
+			.GroundSpeed = pawn->GroundSpeed(),
+			.TerminalVelocity = physicsZone->ZoneTerminalVelocity(),
+			.Elapsed = painZoneFallPredictionDelta
+		};
+		const TraceFlags traceFlags = { .movers = true, .world = true };
+		const vec3 traceExtent(
+			pawn->CollisionRadius(), pawn->CollisionRadius(), pawn->CollisionHeight());
+
+		for (int index = 0; index < painZoneFallPredictionSteps; index++)
+		{
+			const ActorMovement::FallPredictionState next =
+				ActorMovement::PredictFallStep(prediction, step);
+			if (!next.Valid)
+				return false;
+
+			const CollisionHit hit = pawn->XLevel()->Collision.TraceFirstHit(
+				prediction.Location, next.Location, pawn, traceExtent, traceFlags);
+			const vec3 segment = (next.Location - prediction.Location) * hit.Fraction;
+			const int sampleCount = ActorMovement::BoundedFallSegmentSampleCount(
+				length(segment), std::max(pawn->MaxStepHeight(), 1.0f),
+				painZoneFallMaxSamplesPerStep);
+			for (int sampleIndex = 1; sampleIndex <= sampleCount; sampleIndex++)
+			{
+				const vec3 sample = prediction.Location
+					+ segment * (static_cast<float>(sampleIndex) / sampleCount);
+				UZoneInfo* sampleZone = pawn->XLevel()->Model->FindRegion(
+					sample - vec3(0.0f, 0.0f, pawn->CollisionHeight()),
+					pawn->Level()).Zone;
+				if (IsHarmfulPainZone(pawn, sampleZone))
+					return true;
+				if (sampleZone != startZone)
+					return false;
+			}
+			if (hit.Fraction < 1.0f)
+				return false;
+			prediction = next;
+		}
+		return false;
+	}
+}
+
 UActor* UActor::Spawn(UClass* SpawnClass, std::optional<UActor*> SpawnOwner, std::optional<NameString> SpawnTag, std::optional<vec3> SpawnLocation, std::optional<Rotator> SpawnRotation)
 {
 	if (!SpawnClass || SpawnClass->ClsFlags & ClassFlags::Abstract)
@@ -555,6 +629,7 @@ void UActor::TickWalking(float elapsed)
 	{
 		for (int iteration = 0; timeLeft > 0.0f && iteration < 5; iteration++)
 		{
+			const vec3 iterationStartLocation = Location();
 			vec3 moveDelta = vel * timeLeft;
 
 			// step up first so we can get past stairs going up
@@ -624,7 +699,41 @@ void UActor::TickWalking(float elapsed)
 			CollisionHit floorHit = TryMove(stepDownDelta, true);
 			if (floorHit.Fraction == 1.0f || floorHit.Normal.z < 0.7071f)
 			{
-				// No we couldn't. We are falling
+				// Retail gives a jump-capable pawn one script callback before
+				// committing an unsupported walking step.
+				if (pawn->bCanJump())
+					CallEvent(pawn, EventName::MayFall);
+
+				if (pawn->bDeleteMe() || pawn->Physics() != PHYS_Walking)
+					return;
+
+				bool restoreGrounded = !pawn->bCanJump();
+				if (!restoreGrounded)
+				{
+					vec3 fallAcceleration = Acceleration();
+					const float maxAirAcceleration = engine->LaunchInfo.ue1Version > 219
+						? pawn->AirControl() * pawn->AccelRate() : 0.0f;
+					const float fallAccelerationLength = length(fallAcceleration);
+					if (fallAccelerationLength > maxAirAcceleration)
+						fallAcceleration = normalize(fallAcceleration) * maxAirAcceleration;
+					const bool predictedHarmfulPainZone = PredictedFallEntersHarmfulPainZone(
+						pawn, pawn->Velocity(), fallAcceleration);
+					restoreGrounded = ActorMovement::ShouldVetoPainZoneLedge(
+						IsAutonomousPlayerBot(pawn),
+						pawn->Region().Zone && pawn->Region().Zone->ZoneGravity().z < 0.0f,
+						IsHarmfulPainZone(pawn, pawn->FootRegion().Zone),
+						predictedHarmfulPainZone);
+				}
+
+				if (restoreGrounded)
+				{
+					TryMove(iterationStartLocation - Location());
+					Velocity() = vec3(0.0f);
+					Acceleration() = vec3(0.0f);
+					pawn->MoveTimer() = -1.0f;
+					return;
+				}
+
 				SetPhysics(PHYS_Falling);
 				SetBase(nullptr, true);
 				return;

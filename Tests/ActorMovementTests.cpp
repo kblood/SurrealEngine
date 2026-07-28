@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <string>
+#include <cmath>
 
 static int failures = 0;
 
@@ -39,6 +40,26 @@ int main()
 		"reach spec with an unsupported capability");
 	Check(!PawnMovement::ReachSpecSupportedByCapabilities(128u, walkerMask),
 		"reach spec with an unknown capability flag");
+
+	const ActorMovement::FallPredictionState fallState = {
+		.Location = vec3(0.0f), .Velocity = vec3(100.0f, 0.0f, 0.0f)
+	};
+	const ActorMovement::FallPredictionStep fallStep = {
+		.Gravity = vec3(0.0f, 0.0f, -950.0f),
+		.GroundSpeed = 400.0f, .TerminalVelocity = 2000.0f, .Elapsed = 0.1f
+	};
+	const auto predictedFall = ActorMovement::PredictFallStep(fallState, fallStep);
+	Check(predictedFall.Valid && std::abs(predictedFall.Velocity.z + 95.0f) < 0.0001f
+		&& std::abs(predictedFall.Location.x - 10.0f) < 0.0001f
+		&& std::abs(predictedFall.Location.z + 9.5f) < 0.0001f,
+		"pain-zone forecast matches the walking-to-falling integrator");
+	Check(ActorMovement::BoundedFallSegmentSampleCount(156.25f, 25.0f, 8) == 7,
+		"terminal-speed fall segments are sampled within step height");
+	Check(ActorMovement::ShouldVetoPainZoneLedge(true, true, false, true),
+		"AI bot is stopped before a newly predicted harmful pain zone");
+	Check(!ActorMovement::ShouldVetoPainZoneLedge(false, true, false, true)
+		&& !ActorMovement::ShouldVetoPainZoneLedge(true, true, true, true),
+		"human pawns and bots already escaping pain retain normal ledge movement");
 
 	if (failures == 0)
 		std::cout << "All actor movement tests passed.\n";
