@@ -16,7 +16,9 @@ param(
     [bool]$ProbeWaterJump = $true,
     [bool]$ProbeTraceCorpus = $true,
     [bool]$ProbeReachCorpus = $false,
-    [bool]$ProbeVisionCorpus = $false
+    [bool]$ProbeVisionCorpus = $false,
+    [int]$ProbeVisionRotMode = 0,
+    [bool]$ExitAfterProbes = $false
 )
 
 $MinPlayers = $Bots + 1
@@ -53,6 +55,8 @@ $ini = Join-Path $system 'BotTelemetry.ini'
     'ProbeVisionDist=800.000000'
     'ProbeVisionYawSteps=32'
     'ProbeVisionStride=16'
+    "ProbeVisionRotMode=$ProbeVisionRotMode"
+    "bExitAfterProbes=$(if ($ExitAfterProbes) {'True'} else {'False'})"
     'ProbeRadius=17.000000'
     'ProbeHeight=39.000000'
     'ProbeDist=60.000000'

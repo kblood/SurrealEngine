@@ -71,6 +71,7 @@ namespace
 				const float visionDistance = ArgAsFloat("--trace-corpus-vision-distance", 800.0f);
 				const int visionYawSteps = ArgAsInt("--trace-corpus-vision-yaw-steps", 32);
 				const int visionStride = ArgAsInt("--trace-corpus-vision-stride", 16);
+				const int visionRotationMode = ArgAsInt("--trace-corpus-vision-rotation-mode", 0);
 				const bool visionMode = !commandline->GetArg("", "--trace-corpus-vision").empty();
 
 				EngineRef.LaunchInfo.noEntryMap = true;
@@ -79,7 +80,7 @@ namespace
 				EngineRef.LoadMap(url);
 
 				File::write_all_text(output, visionMode
-					? BuildVisionCorpus(radius, height, visionDistance, visionYawSteps, visionStride)
+					? BuildVisionCorpus(radius, height, visionDistance, visionYawSteps, visionStride, visionRotationMode)
 					: reachMode
 						? BuildReachCorpus(radius, height, reachDistance)
 						: BuildCorpus(radius, height, distance));
@@ -293,7 +294,7 @@ namespace
 		// PeripheralVision and facing yaw against every navigation point within visionDistance,
 		// and record CanSee/LineOfSightTo the same way UPawn::CanSee builds its own vision cone.
 		std::string BuildVisionCorpus(float radius, float height, float visionDistance,
-			int yawSteps, int stride) const
+			int yawSteps, int stride, int rotationMode) const
 		{
 			UActor* tracingActor = FindTracingActor();
 			if (!tracingActor)
@@ -380,9 +381,16 @@ namespace
 						for (int i = 0; i < yawSteps; i++)
 						{
 							const int yaw = i * (65536 / yawSteps);
-							observer->Rotation() = Rotator(0, yaw, 0);
+							// Which rotation the sweep turns decides which one the cosine is
+								// measured against, so a mode that turns the wrong one for this engine
+								// shows up as an answer that ignores the sweep entirely.
+								if (rotationMode != 1)
+									observer->Rotation() = Rotator(0, yaw, 0);
+								if (rotationMode != 0)
+									observer->ViewRotation() = Rotator(0, yaw, 0);
 
-							const vec3 forward = Coords::Rotation(observer->Rotation()).XAxis;
+								const vec3 forward = Coords::Rotation(rotationMode == 1
+									? observer->ViewRotation() : observer->Rotation()).XAxis;
 							const float cosine = dot(
 								normalize(target->Location() - observer->Location()), forward);
 

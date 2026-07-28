@@ -28,6 +28,8 @@ var config float ProbeReachDist;     // max pair separation for the reach corpus
 var config float ProbeVisionDist;    // max observer-target separation
 var config int   ProbeVisionYawSteps;// yaw samples per pair
 var config int   ProbeVisionStride;  // use every Nth navigation point as an observer
+var config int   ProbeVisionRotMode; // 0 body rotation, 1 view rotation, 2 both
+var config bool  bExitAfterProbes;   // finalise the log and quit once the dumps are done
 var config float ProbeRadius;        // collision extent used by the corpus
 var config float ProbeHeight;
 var config float ProbeDist;
@@ -72,6 +74,15 @@ function PostBeginPlay()
 	if ( bProbeVisionCorpus )
 		DumpVisionCorpus();
 	Sink.Flush();
+
+	// The probe dumps do not need a match to run. Finalising here means the log is
+	// complete the moment they are, instead of waiting out a time limit.
+	if ( bExitAfterProbes )
+	{
+		Emit("#"$Chr(9)$"probes_only_end"$Chr(9)$Stamp());
+		Sink.StopLog();
+		ConsoleCommand("EXIT");
+	}
 }
 
 // A deterministic set of world traces anchored to the map's NavigationPoints, run
@@ -211,6 +222,7 @@ function DumpVisionCorpus()
 	local float Periph[3];
 	local rotator r;
 	local int cs, los;
+	local vector fwd;
 
 	if ( Level.NavigationPointList == None )
 	{
@@ -281,7 +293,17 @@ function DumpVisionCorpus()
 					r.Pitch = 0;
 					r.Roll = 0;
 					r.Yaw = yi * (65536 / ProbeVisionYawSteps);
-					Observer.SetRotation(r);
+					// Which rotation the sweep turns decides which one the cosine is
+					// measured against, so a mode that turns the wrong one shows up
+					// as an answer that ignores the sweep entirely.
+					if ( ProbeVisionRotMode != 1 )
+						Observer.SetRotation(r);
+					if ( ProbeVisionRotMode != 0 )
+						Observer.ViewRotation = r;
+					if ( ProbeVisionRotMode == 1 )
+						fwd = vector(Observer.ViewRotation);
+					else
+						fwd = vector(Observer.Rotation);
 
 					cs = 0;
 					los = 0;
@@ -296,7 +318,7 @@ function DumpVisionCorpus()
 						$Chr(9)$int(d)
 						$Chr(9)$int(B.Location.Z - A.Location.Z)
 						$Chr(9)$r.Yaw
-						$Chr(9)$int(1000 * (Normal(Target.Location - Observer.Location) dot vector(Observer.Rotation)))
+						$Chr(9)$int(1000 * (Normal(Target.Location - Observer.Location) dot fwd))
 						$Chr(9)$int(1000 * Observer.PeripheralVision)
 						$Chr(9)$int(Observer.SightRadius)
 						$Chr(9)$int(Target.Visibility)
@@ -642,6 +664,7 @@ defaultproperties
 	ProbeVisionDist=800.000000
 	ProbeVisionYawSteps=32
 	ProbeVisionStride=16
+	ProbeVisionRotMode=0
 	ProbeRadius=17.000000
 	ProbeHeight=39.000000
 	ProbeDist=60.000000
