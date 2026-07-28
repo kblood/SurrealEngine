@@ -63,6 +63,20 @@ void UProperty::ThrowIfTypeMismatch(const PropertyHeader& header, UnrealProperty
 		Exception::Throw("Property value does not match property type!");
 }
 
+GCAllocation* UProperty::MarkProperty(GCAllocation* marklist, void* data)
+{
+	if (ValueType == ExpressionValueType::ValueObject ||
+		ValueType == ExpressionValueType::ValueStruct ||
+		ValueType == ExpressionValueType::ValueArray)
+	{
+		for (int i = 0; i < ArrayDimension; i++)
+		{
+			marklist = MarkPropertyElement(marklist, GetElement(data, i));
+		}
+	}
+	return marklist;
+}
+
 void UProperty::ConstructArray(void* data)
 {
 	for (int i = 0; i < ArrayDimension; i++)
@@ -612,6 +626,11 @@ void UObjectProperty::SetValueFromString(void* data, const std::string& valueStr
 	}
 }
 
+GCAllocation* UObjectProperty::MarkPropertyElement(GCAllocation* marklist, void* data)
+{
+	return GC::MarkObject(marklist, *static_cast<UObject**>(data));
+}
+
 /////////////////////////////////////////////////////////////////////////////
 
 UNameProperty::UNameProperty(NameString name, UClass* base, ObjectFlags flags) : UPropertyT(std::move(name), base, flags)
@@ -870,6 +889,16 @@ std::string UFixedArrayProperty::PrintValue(const void* data)
 	return "fixed array";
 }
 
+GCAllocation* UFixedArrayProperty::MarkPropertyElement(GCAllocation* marklist, void* data)
+{
+	size_t pitch = Inner->ElementPitch();
+	for (int i = 0; i < Count; i++)
+	{
+		marklist = Inner->MarkPropertyElement(marklist, static_cast<uint8_t*>(data) + i * pitch);
+	}
+	return marklist;
+}
+
 /////////////////////////////////////////////////////////////////////////////
 
 UArrayProperty::UArrayProperty(NameString name, UClass* base, ObjectFlags flags) : UProperty(std::move(name), base, flags)
@@ -990,6 +1019,17 @@ std::string UArrayProperty::PrintValue(const void* data)
 	return "array";
 }
 
+GCAllocation* UArrayProperty::MarkPropertyElement(GCAllocation* marklist, void* data)
+{
+	ScriptArray* array = static_cast<ScriptArray*>(data);
+	size_t count = array->GetSize();
+	for (size_t i = 0; i < count; i++)
+	{
+		marklist = Inner->MarkPropertyElement(marklist, array->GetItem(i));
+	}
+	return marklist;
+}
+
 /////////////////////////////////////////////////////////////////////////////
 
 void UMapProperty::Load(ObjectStream* stream)
@@ -1073,6 +1113,16 @@ bool UMapProperty::CompareLessElement(const void* a, const void* b)
 std::string UMapProperty::PrintValue(const void* data)
 {
 	return "map";
+}
+
+GCAllocation* UMapProperty::MarkPropertyElement(GCAllocation* marklist, void* data)
+{
+	Map* map = static_cast<Map*>(data);
+	for (auto& it : *map)
+	{
+		marklist = it.second.Property->MarkPropertyElement(marklist, it.second.Data);
+	}
+	return marklist;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1301,6 +1351,18 @@ bool UStructProperty::CompareLessElement(const void* v1, const void* v2)
 		}
 	}
 	return false;
+}
+
+GCAllocation* UStructProperty::MarkPropertyElement(GCAllocation* marklist, void* data)
+{
+	if (Struct)
+	{
+		for (UProperty* prop : Struct->Properties)
+		{
+			marklist = prop->MarkProperty(marklist, static_cast<uint8_t*>(data) + prop->DataOffset.DataOffset);
+		}
+	}
+	return marklist;
 }
 
 void UStructProperty::GetExportText(std::string& buf, const std::string& whitespace, UObject* obj, UObject* defobj, int i)

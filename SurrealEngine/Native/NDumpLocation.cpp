@@ -52,8 +52,7 @@ void NDumpLocation::DeleteDumpFileLocation(UObject* Self, int dumpLocationID)
 
 void NDumpLocation::GetCurrentUser(UObject* Self, std::string& ReturnValue)
 {
-	LogUnimplemented("DumpLocation.GetCurrentUser");
-	ReturnValue = "";
+	ReturnValue = Self->GetString("currentUser");
 }
 
 void NDumpLocation::GetDumpFileCount(UObject* Self, int& ReturnValue)
@@ -117,7 +116,6 @@ void NDumpLocation::GetNextDumpFileLocationID(UObject* Self, int& ReturnValue)
 
 void NDumpLocation::HasLocationBeenSaved(UObject* Self, BitfieldBool& ReturnValue)
 {
-	LogUnimplemented("DumpLocation.HasLocationBeenSaved");
 	ReturnValue = false;
 }
 
@@ -145,5 +143,5 @@ void NDumpLocation::SelectDumpFileLocation(UObject* Self, int dumpLocationID, Bi
 
 void NDumpLocation::SetPlayer(UObject* Self, UObject* NewPlayer)
 {
-	LogUnimplemented("DumpLocation.SetPlayer");
+	Self->SetObject("Player", NewPlayer);
 }

@@ -5,6 +5,7 @@
 #include "UMesh.h"
 #include "UTexture.h"
 #include "UConSys.h"
+#include "UFlag.h"
 #include "USubsystem.h"
 #include "ActorMovement.h"
 #include "ActorMoveCollisionProbe.h"
@@ -3548,7 +3549,6 @@ void UActor::PlayAnim(const NameString& sequence, float rate, float tweenTime)
 
 void UActor::PlayBlendAnim(const NameString& sequenceName, float rate, float tweenTime, int blendSlot)
 {
-	LogUnimplemented("Actor.PlayBlendAnim");
 	if (blendSlot < 0 || blendSlot > 3)
 	{
 		LogMessage("Invalid channel for PlayBlendAnim!");
@@ -3570,16 +3570,13 @@ void UActor::PlayBlendAnim(const NameString& sequenceName, float rate, float twe
 	int numFrames = sequence->NumFrames;
 	float sequenceRate = sequence->Rate;
 
-	if (BlendAnimSequence()[blendSlot].IsNone())
-	{
-		tweenTime = 0.0f;
-	}
+	SetTweenFromBlendAnimFrame(blendSlot);
 
 	BlendAnimSequence()[blendSlot] = sequenceName;
 
 	BlendAnimFrame()[blendSlot] = -1.0f / numFrames;
 
-	BlendAnimMinRate()[blendSlot] = (rate * sequenceRate) / numFrames;
+	BlendAnimRate()[blendSlot] = (rate * sequenceRate) / numFrames;
 
 	BlendAnimLast()[blendSlot] = 1.0f - (1.0f / numFrames);
 
@@ -3594,6 +3591,7 @@ void UActor::PlayBlendAnim(const NameString& sequenceName, float rate, float twe
 	{
 		if (tweenTime == -1.0f)
 		{
+			BlendAnimFrame()[blendSlot] = 0.0f;
 			if (BlendAnimMinRate()[blendSlot] <= 0.0f)
 			{
 				if (BlendAnimMinRate()[blendSlot] == 0.0f)
@@ -3641,9 +3639,52 @@ void UActor::PlayBlendAnim(const NameString& sequenceName, float rate, float twe
 	}
 
 	OldBlendAnimRate()[blendSlot] = BlendAnimRate()[blendSlot];
-	BlendAnimMinRate()[blendSlot] = BlendAnimRate()[blendSlot];
 }
 
+void UActor::TweenBlendAnim(const NameString& sequenceName, float time, int blendSlot)
+{
+	if (blendSlot < 0 || blendSlot > 3)
+	{
+		LogMessage("Invalid channel for TweenBlendAnim!");
+		return;
+	}
+	if (!Mesh())
+	{
+		LogMessage("No mesh for TweenBlendAnim");
+		return;
+	}
+
+	MeshAnimSeq* sequence = Mesh()->GetSequence(sequenceName);
+	if (!sequence || sequence->Name != sequenceName || sequence->NumFrames <= 0)
+	{
+		LogMessage("TweenBlendAnim: Sequence '" + sequenceName.ToString() + "' not found in mesh for slot " + std::to_string(blendSlot));
+		return;
+	}
+	int numFrames = sequence->NumFrames;
+
+	SetTweenFromBlendAnimFrame(blendSlot);
+
+	BlendAnimSequence()[blendSlot] = sequenceName;
+	BlendAnimLast()[blendSlot] = 0.0f;
+	BlendAnimMinRate()[blendSlot] = 0.0f;
+	BlendAnimRate()[blendSlot] = 0.0f;
+	OldBlendAnimRate()[blendSlot] = 0.0f;
+	if (time <= 0.0)
+	{
+		BlendTweenRate()[blendSlot] = 0.0f;
+		BlendAnimFrame()[blendSlot] = 0.0f;
+	}
+	else
+	{
+		BlendTweenRate()[blendSlot] = 1.0f / (numFrames * time);
+		BlendAnimFrame()[blendSlot] = -1.0f / numFrames;
+	}
+
+	SimBlendAnim()[blendSlot].x = BlendTweenRate()[blendSlot] * 1000.0f;
+	SimBlendAnim()[blendSlot].y = 0.0f;
+	SimBlendAnim()[blendSlot].z = BlendAnimFrame()[blendSlot] * 10000.0f;
+	SimBlendAnim()[blendSlot].w = 0.0f;
+}
 
 void UActor::LoopAnim(const NameString& sequence, float rate, float tweenTime, float minRate)
 {
@@ -3944,6 +3985,42 @@ void UActor::SetTweenFromAnimFrame()
 			TweenFromAnimFrame.V1 = 0;
 			TweenFromAnimFrame.T = -1.0f;
 		}
+	}
+}
+
+void UActor::SetTweenFromBlendAnimFrame(int slot)
+{
+	if (slot < 0 || slot > 3)
+		return;
+
+	if (!Mesh())
+		return;
+
+	if (BlendAnimSequence()[slot].IsNone())
+	{
+		TweenFromBlendAnimFrame[slot].V0 = 0;
+		TweenFromBlendAnimFrame[slot].V1 = 0;
+		TweenFromBlendAnimFrame[slot].T = -1.0f;
+		return;
+	}
+
+	MeshAnimSeq* seq = Mesh()->GetSequence(BlendAnimSequence()[slot]);
+	if (seq)
+	{
+		float frame = std::max(BlendAnimFrame()[slot], 0.0f) * seq->NumFrames;
+		int frame0 = (int)frame;
+		int frame1 = frame0 + 1;
+		frame0 = frame0 % seq->NumFrames;
+		frame1 = frame1 % seq->NumFrames;
+		TweenFromBlendAnimFrame[slot].V0 = (seq->StartFrame + frame0) * Mesh()->FrameVerts;
+		TweenFromBlendAnimFrame[slot].V1 = (seq->StartFrame + frame1) * Mesh()->FrameVerts;
+		TweenFromBlendAnimFrame[slot].T = frame - (float)frame0;
+	}
+	else
+	{
+		TweenFromBlendAnimFrame[slot].V0 = 0;
+		TweenFromBlendAnimFrame[slot].V1 = 0;
+		TweenFromBlendAnimFrame[slot].T = -1.0f;
 	}
 }
 
@@ -5816,20 +5893,58 @@ bool UPawn::MarkReachableNavEndPoints()
 
 float UPawn::AICanHear(UActor* other, std::optional<float> volume, std::optional<float> radius)
 {
-	LogUnimplemented("Pawn.AICanHear() [Deus Ex]");
-	return 0.0f;
+	if (!other)
+		return 0.0f;
+	const float loudness = std::max(volume.value_or(1.0f), 0.0f);
+	const float hearingRadius = radius.value_or(4000.0f * loudness);
+	const vec3 delta = other->Location() - Location();
+	if (dot(delta, delta) > hearingRadius * hearingRadius)
+		return 0.0f;
+	if (XLevel()->Collision.TraceAnyHit(other->Location(), Location(), other, false, true, false))
+		return 0.0f;
+	return loudness;
 }
 
 float UPawn::AICanSee(UActor* other, std::optional<float> visibility, std::optional<bool> bCheckVisibility, std::optional<bool> bCheckDir, std::optional<bool> bCheckCylinder, std::optional<bool> bCheckLOS)
 {
-	LogUnimplemented("Pawn.AICanSee() [Deus Ex]");
-	return 0.0f;
+	if (!other)
+		return 0.0f;
+	const float targetVisibility = std::max(visibility.value_or(1.0f), 0.0f);
+	if (bCheckVisibility.value_or(true) && targetVisibility <= 0.0f)
+		return 0.0f;
+
+	vec3 eyePosition = Location();
+	eyePosition.z += BaseEyeHeight();
+	const vec3 targetDelta = other->Location() - eyePosition;
+	const float distanceSquared = dot(targetDelta, targetDelta);
+	if (bCheckCylinder.value_or(true) && distanceSquared > SightRadius() * SightRadius())
+		return 0.0f;
+	if (bCheckDir.value_or(true) && distanceSquared > 0.0f)
+	{
+		const vec3 viewDirection = Coords::Rotation(Rotation()).XAxis;
+		const float peripheralVision = PeripheralVision();
+		if (peripheralVision > 0.0f && dot(normalize(viewDirection), normalize(targetDelta)) < peripheralVision)
+			return 0.0f;
+	}
+	if (bCheckLOS.value_or(true))
+	{
+		const vec3 targetCenter = other->Location();
+		const vec3 targetTop = targetCenter + vec3(0.0f, 0.0f, other->CollisionHeight() * 0.5f);
+		const vec3 targetBottom = targetCenter - vec3(0.0f, 0.0f, other->CollisionHeight() * 0.5f);
+		if (!FastTrace(targetCenter, eyePosition) && !FastTrace(targetTop, eyePosition) && !FastTrace(targetBottom, eyePosition))
+			return 0.0f;
+	}
+	return targetVisibility;
 }
 
 float UPawn::AICanSmell(UActor* other, std::optional<float> smell)
 {
-	LogUnimplemented("Pawn.AICanSmell() [Deus Ex]");
-	return 0.0f;
+	if (!other)
+		return 0.0f;
+	const float smellStrength = std::max(smell.value_or(1.0f), 0.0f);
+	const float smellRadius = 400.0f * smellStrength;
+	const vec3 delta = other->Location() - Location();
+	return dot(delta, delta) <= smellRadius * smellRadius ? smellStrength : 0.0f;
 }
 
 UObject* UPawn::FindPathToward(UObject* anActor, bool singlePath)
@@ -10395,7 +10510,42 @@ UObject* UDeusExPlayer::CreateLogObject()
 
 void UDeusExPlayer::DeleteSaveGameFiles(std::optional<std::string> saveDirectory)
 {
-	LogUnimplemented("DeusExPlayer.DeleteSaveGameFiles");
+	const fs::path saveRoot = engine->packages->GetSaveFolderPath();
+	std::error_code error;
+	if (!fs::is_directory(saveRoot, error))
+		return;
+
+	auto isSaveDirectory = [](const fs::path& path)
+	{
+		const std::string name = path.filename().string();
+		if (name == "QuickSave")
+			return true;
+		return name.size() == 8 && name.rfind("Save", 0) == 0 &&
+			std::all_of(name.begin() + 4, name.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
+	};
+
+	std::vector<fs::path> directories;
+	if (saveDirectory)
+	{
+		const fs::path requested(*saveDirectory);
+		if (requested.has_parent_path() || !isSaveDirectory(requested))
+			return;
+		directories.push_back(saveRoot / requested);
+	}
+	else
+	{
+		for (const auto& entry : fs::directory_iterator(saveRoot, error))
+			if (entry.is_directory(error) && isSaveDirectory(entry.path()))
+				directories.push_back(entry.path());
+	}
+
+	for (const fs::path& directory : directories)
+	{
+		fs::remove_all(directory, error);
+		if (!error)
+			engine->packages->RemoveSaveInfoPackage(directory.filename().string());
+		error.clear();
+	}
 }
 
 std::string UDeusExPlayer::GetDeusExVersion()
@@ -10406,14 +10556,16 @@ std::string UDeusExPlayer::GetDeusExVersion()
 void UDeusExPlayer::SaveGame(int saveIndex, std::optional<std::string> saveDesc)
 {
 	engine->SaveGameInfo.SaveGameSlot = saveIndex;
-	engine->SaveGameInfo.SaveGameDescription = *saveDesc;
+	engine->SaveGameInfo.SaveGameDescription = saveDesc.value_or("");
 }
 
 NameString UDeusExPlayer::SetBoolFlagFromString(const std::string& flagNameString, bool bValue)
 {
-	// Not called directly from script
-	LogUnimplemented("DeusExPlayer.SetBoolFlagFromString");
-	return {};
+	if (!FlagBase() || flagNameString.empty())
+		return {};
+
+	const NameString flagName(flagNameString);
+	return FlagBase()->SetBool(flagName, bValue, {}, {}) ? flagName : NameString();
 }
 
 void UDeusExPlayer::UnloadTexture(UObject* Texture)

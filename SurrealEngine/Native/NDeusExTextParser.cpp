@@ -14,7 +14,7 @@ void NDeusExTextParser::RegisterFunctions()
 	RegisterVMNativeFunc_1("DeusExTextParser", "GetText", &NDeusExTextParser::GetText, 2214);
 	RegisterVMNativeFunc_1("DeusExTextParser", "GotoLabel", &NDeusExTextParser::GotoLabel, 2215);
 	RegisterVMNativeFunc_1("DeusExTextParser", "IsEOF", &NDeusExTextParser::IsEOF, 2213);
-	RegisterVMNativeFunc_3("DeusExTextParser", "OpenText", &NDeusExTextParser::OpenText, 2210);
+	RegisterVMNativeFunc_2("DeusExTextParser", "OpenText", &NDeusExTextParser::OpenText, 2210);
 	RegisterVMNativeFunc_1("DeusExTextParser", "ProcessText", &NDeusExTextParser::ProcessText, 2212);
 	RegisterVMNativeFunc_1("DeusExTextParser", "SetPlayerName", &NDeusExTextParser::SetPlayerName, 2221);
 }
@@ -73,10 +73,10 @@ void NDeusExTextParser::IsEOF(UObject* Self, BitfieldBool& ReturnValue)
 	ReturnValue = DXTPSelf->IsEOF();
 }
 
-void NDeusExTextParser::OpenText(UObject* Self, const NameString& textName, std::optional<std::string> TextPackage, BitfieldBool& ReturnValue)
+void NDeusExTextParser::OpenText(UObject* Self, const NameString& textName, BitfieldBool& ReturnValue)
 {
 	auto DXTPSelf = UObject::Cast<UDXTextParser>(Self);
-	ReturnValue = DXTPSelf->OpenText(textName, TextPackage ? *TextPackage : "");
+	ReturnValue = DXTPSelf->OpenText(textName);
 }
 
 void NDeusExTextParser::ProcessText(UObject* Self, BitfieldBool& ReturnValue)

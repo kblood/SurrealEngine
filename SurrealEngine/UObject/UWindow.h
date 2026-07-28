@@ -434,6 +434,7 @@ public:
 	void SetWatchActor(std::optional<UObject*> newWatchActor, std::optional<bool> bEyeLevel);
 	void ShowViewportActor(std::optional<bool> bShow);
 	void ShowWeapons(std::optional<bool> bShow);
+	void DrawWindow(UGC* gc) override;
 
 	Color& DefaultColor() { return Value<Color>(PropOffsets_ViewportWindow.DefaultColor); }
 	UTexture*& DefaultTexture() { return Value<UTexture*>(PropOffsets_ViewportWindow.DefaultTexture); }
@@ -699,6 +700,9 @@ public:
 	void SetTextChangedFlag(std::optional<bool> bSet);
 	void Undo();
 
+	void InitWindow() override;
+	void DrawWindow(UGC* gc) override;
+
 	BitfieldBool bCursorShowing() { return BoolValue(PropOffsets_EditWindow.bCursorShowing); }
 	BitfieldBool bDragging() { return BoolValue(PropOffsets_EditWindow.bDragging); }
 	BitfieldBool bEditable() { return BoolValue(PropOffsets_EditWindow.bEditable); }
@@ -748,6 +752,9 @@ public:
 	float& showAreaY() { return Value<float>(PropOffsets_EditWindow.showAreaY); }
 	USound*& typeSound() { return Value<USound*>(PropOffsets_EditWindow.typeSound); }
 	int& unchangedUndo() { return Value<int>(PropOffsets_EditWindow.unchangedUndo); }
+
+	bool TextChanged = false;
+	std::string Clipboard;
 };
 
 class UTabGroupWindow : public UWindow
@@ -870,6 +877,7 @@ public:
 
 	bool IsCursorVisible();
 	bool IsModalOpen();
+	void CloseTopModal();
 
 	UTexture*& DefaultMoveCursor() { return Value<UTexture*>(PropOffsets_RootWindow.DefaultMoveCursor); }
 	UWindow*& FocusWindow() { return Value<UWindow*>(PropOffsets_RootWindow.FocusWindow); }
@@ -1016,7 +1024,7 @@ public:
 	int& currentPos() { return Value<int>(PropOffsets_ScaleWindow.currentPos); }
 	USound*& dragSound() { return Value<USound*>(PropOffsets_ScaleWindow.dragSound); }
 	float& endOffset() { return Value<float>(PropOffsets_ScaleWindow.endOffset); }
-	//DynamicArray& enumStrings() { return Value<DynamicArray>(PropOffsets_ScaleWindow.enumStrings); }
+	TypedScriptArray<std::string> enumStrings() { return DynamicArray<std::string>(PropOffsets_ScaleWindow.enumStrings); }
 	float& fromValue() { return Value<float>(PropOffsets_ScaleWindow.fromValue); }
 	float& initialDelay() { return Value<float>(PropOffsets_ScaleWindow.initialDelay); }
 	int& initialPos() { return Value<int>(PropOffsets_ScaleWindow.initialPos); }
@@ -1182,7 +1190,12 @@ public:
 	void Sort();
 	void ToggleRowSelection(int rowId);
 
+	void DispatchListSelectionChanged();
+
+	void InitWindow() override;
 	void DrawWindow(UGC* gc) override;
+	bool MouseButtonPressed(float pointX, float pointY, EInputKey button, int numClicks) override;
+	bool MouseButtonReleased(float pointX, float pointY, EInputKey button, int numClicks) override;
 
 	struct Column
 	{
@@ -1207,8 +1220,15 @@ public:
 	};
 	std::vector<Item> items;
 	int nextRowId = 1;
+	struct SortSpec
+	{
+		int Column = 0;
+		bool Reverse = false;
+		bool CaseSensitive = false;
+	};
+	std::vector<SortSpec> sortColumns;
 
-	Color highlightTextColor;
+	Color highlightTextColor = { 255,255,255,255 };
 
 	USound*& ActivateSound() { return Value<USound*>(PropOffsets_ListWindow.ActivateSound); }
 	std::string& Delimiter() { return Value<std::string>(PropOffsets_ListWindow.Delimiter); }
@@ -1300,7 +1320,7 @@ public:
 	BitfieldBool bShowCursor() { return BoolValue(PropOffsets_ComputerWindow.bShowCursor); }
 	BitfieldBool bWaitingForKey() { return BoolValue(PropOffsets_ComputerWindow.bWaitingForKey); }
 	BitfieldBool bWordWrap() { return BoolValue(PropOffsets_ComputerWindow.bWordWrap); }
-	UTexture*& backgroundTextures() { return Value<UTexture*>(PropOffsets_ComputerWindow.backgroundTextures); }
+	FixedArrayView<UTexture*, 6> backgroundTextures() { return FixedArray<UTexture*, 6>(PropOffsets_ComputerWindow.backgroundTextures); }
 	Color& colGraphicTile() { return Value<Color>(PropOffsets_ComputerWindow.colGraphicTile); }
 	float& computerSoundVolume() { return Value<float>(PropOffsets_ComputerWindow.computerSoundVolume); }
 	float& cursorBlinkSpeed() { return Value<float>(PropOffsets_ComputerWindow.cursorBlinkSpeed); }
@@ -1345,6 +1365,10 @@ public:
 	void SetBorderMargins(std::optional<float> NewLeft, std::optional<float> NewRight, std::optional<float> newTop, std::optional<float> newBottom);
 	void SetBorders(std::optional<UObject*> bordTL, std::optional<UObject*> bordTR, std::optional<UObject*> bordBL, std::optional<UObject*> bordBR, std::optional<UObject*> bordL, std::optional<UObject*> bordR, std::optional<UObject*> bordT, std::optional<UObject*> bordB, std::optional<UObject*> center);
 	void SetMoveCursors(std::optional<UObject*> Move, std::optional<UObject*> hMove, std::optional<UObject*> vMove, std::optional<UObject*> tlMove, std::optional<UObject*> trMove);
+
+	void ParentRequestedPreferredSize(bool bWidthSpecified, float& preferredWidth, bool bHeightSpecified, float& preferredHeight) override;
+	void ConfigurationChanged() override;
+	void DrawWindow(UGC* gc) override;
 
 	float& BottomMargin() { return Value<float>(PropOffsets_BorderWindow.BottomMargin); }
 	float& DragX() { return Value<float>(PropOffsets_BorderWindow.DragX); }

@@ -184,9 +184,54 @@ Package* PackageManager::LoadSaveFile(const std::string& path)
 	return nullptr;
 }
 
-Package* PackageManager::LoadSaveSlot(const uint32_t slotNum)
+Package* PackageManager::LoadSaveSlot(int32_t slotNum)
 {
+	if (IsDeusEx())
+	{
+		if (slotNum < -1)
+			return nullptr;
+
+		std::string saveFolder;
+		if (slotNum == -1)
+			saveFolder = "QuickSave";
+		else
+		{
+			auto slotNumStr = std::to_string(slotNum);
+			slotNumStr.insert(0, 4 - slotNumStr.length(), '0');
+			saveFolder = "Save" + slotNumStr;
+		}
+
+		Package* saveInfoPackage = GetSaveInfoPackage(saveFolder);
+		if (!saveInfoPackage)
+			saveInfoPackage = LoadSaveFile(saveFolder + "/SaveInfo");
+		if (!saveInfoPackage)
+			return nullptr;
+
+		UObject* saveInfo = saveInfoPackage->GetUObject("DeusExSaveInfo", "MyDeusExSaveInfo");
+		if (!saveInfo)
+			return nullptr;
+
+		const std::string mapName = saveInfo->GetString("MapName");
+		if (mapName.empty())
+			return nullptr;
+
+		return LoadSaveFile(saveFolder + "/" + mapName);
+	}
+
+	if (slotNum < 0)
+		return nullptr;
+
 	return LoadSaveFile("Save" + std::to_string(slotNum) + "." + GetSaveExtension());
+}
+
+Package* PackageManager::CreateDeusExSaveInfoPackage()
+{
+	Package* source = GetPackage("DeusEx");
+	Package* saveInfoPackage = GC::Alloc<Package>(this, "SaveInfo", "");
+	saveInfoPackage->Version = source->Version;
+	saveInfoPackage->LicenseeMode = source->LicenseeMode;
+	saveInfoPackage->Flags = source->Flags;
+	return saveInfoPackage;
 }
 
 void PackageManager::ScanForMaps()
@@ -1047,7 +1092,7 @@ void PackageManager::RegisterNativeClasses()
 		RegisterNativeClass<UDeusExLevelInfo>(deusExPackage, "DeusExLevelInfo", "Info");
 		RegisterNativeClass<UDXTextParser>(deusExTextPackage, "DeusExTextParser", "Object");
 		RegisterNativeClass<UDXSaveInfo>(deusExPackage, "DeusExSaveInfo", "Object");
-		RegisterNativeClass<UGC>(enginePackage, "GC", "ExtensionObject");
+		RegisterNativeClass<UGC>(extensionPackage, "GC", "ExtensionObject");
 		RegisterNativeClass<UWindow>(extensionPackage, "Window", "ExtensionObject");
 		RegisterNativeClass<UViewportWindow>(extensionPackage, "ViewportWindow", "Window");
 		RegisterNativeClass<UToggleWindow>(extensionPackage, "ToggleWindow", "ButtonWindow");
