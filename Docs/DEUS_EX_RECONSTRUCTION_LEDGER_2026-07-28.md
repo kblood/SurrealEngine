@@ -35,6 +35,14 @@ Disposition terms:
 | `e1e446e6` scope talk-slot gain to Deus Ex | `ce57386e` | accepted |
 | `1b0c77ce` implement more of `UListWindow` | `746d9fe5` | accepted |
 | `d623144c` dispatch list-selection events | `e97e88a1` | accepted |
+| `b8f43572` fix the GC root intrusive list | `06fcb94e` | accepted; required by the reconstructed save-info GC root |
+| `2b2694b3` implement reflected-property marking | `0407fb8b`, `35b5aad7` | accepted and corrected to dereference object-property storage and retain returned mark-list heads |
+| `5bd65f1d` fix GC traversal/sweep | `e89700a7` | accepted |
+| `d8eb2151` restore max-exclusive `Object.Rand` | `98778fb9` | accepted as gameplay correctness |
+| `f964b195` travel non-Actor `FlagBase` objects | `03581f71` | accepted; required for Deus Ex flag state across maps |
+| `0747cbc2` remove redundant object check | `e37e1eeb` | accepted with its GC/object dependency batch |
+| `265e820e` register `GC` in `Extension` | `f4e17c7c` | accepted; matches the shipped Deus Ex class package |
+| `20003131` experimental blend animation | `d39d6219`, `8e5600f5` | accepted and adapted: removed diagnostic logging, validated frame counts, and restored a real negative tween interval |
 
 The upstream audio and tokenizer tests pass at this checkpoint, and the native
 `SurrealEngine` target builds in `RelWithDebInfo`.
@@ -59,12 +67,18 @@ The upstream audio and tokenizer tests pass at this checkpoint, and the native
 | `0ee4d99b` | `e4d86070` | accepted Deus Ex-scoped Escape dismissal for the top modal; fixture/audit code excluded |
 | upstream `2d47264c` | `10a81ef4` | accepted clip-window preferred size/child access and edit-window drawing; unrelated debug-render changes excluded |
 | `282c53e3` | `647a1e8f` | accepted configurable/instant speech volume on top of the canonical Deus Ex talk gain |
+| `282c53e3` | `d0a6f7c8` | accepted map/save directory enumeration and QuickSave naming with null checks |
+| `282c53e3` | `245fbcdd` | accepted flag expiration and type-correct expiration lookup |
+| `282c53e3` | `4852b28f` | accepted Deus Ex `loadgame` travel, signed/QuickSave slots, SaveInfo map lookup, startup load fallback, and saved-player possession |
+| `282c53e3` | `280e4684` | accepted actor AI event callbacks, perception/reachability natives, path-node iterator, corrected `CanSee`, safe save deletion, optional save descriptions, and string-to-flag handling |
+| `282c53e3` | `2e6dc435` | accepted child visibility, viewport fallback/state, edit controls, scale controls, root mouse/snapshot state, and computer-terminal controls |
+| upstream GC batch plus reconstruction review | `35b5aad7` | accepted GC regression coverage and fixes to object/struct property marking |
 
 ## `demo/deus-ex` first-parent inventory
 
 | Commit | Subject | Initial disposition |
 | --- | --- | --- |
-| `282c53e3` | Improve Deus Ex support | review; decompose save/load, AI, native/window, text, and package changes |
+| `282c53e3` | Improve Deus Ex support | decomposed into accepted save/load, AI, animation, flag, audio, directory, and window batches; its older text parser is superseded by unified's tokenizer and tests |
 | `235b82fc` | Merge upstream fixes | do not replay |
 | `dd289c5f` | Fix upstream replay plan formatting | evidence-only |
 | `9aad0d9f` | Add Deus Ex inventory audit | evidence-only |
@@ -109,19 +123,25 @@ The upstream audio and tokenizer tests pass at this checkpoint, and the native
 
 ## Upstream commits after unified's merge base
 
-Directly relevant and already accepted are listed above. The following remain
-to disposition explicitly:
+Directly relevant commits are listed above. Every remaining upstream commit is
+explicitly dispositioned here:
 
 | Upstream | Initial relevance |
 | --- | --- |
-| `b8f43572`, `5bd65f1d`, `2b2694b3`, `0747cbc2`, `265e820e` | GC/object/package correctness; dependency review |
-| `20003131` | blend animation; review against Deus Ex lip/animation evidence |
-| `d8eb2151`, `f964b195`, `fb2d799c` | general runtime/travel/debugger; review |
-| `d4661608` | struct-member dynamic-array loading; general correctness, review |
+| `b8f43572`, `5bd65f1d`, `2b2694b3`, `0747cbc2`, `265e820e` | accepted in the GC/object dependency batch above |
+| `20003131` | accepted and hardened in the blend-animation batch above |
+| `d8eb2151`, `f964b195` | accepted above; `fb2d799c` is debugger-only metadata and not part of Deus Ex runtime reconstruction |
+| `d4661608` | not Deus Ex-specific; explicitly targets Unreal Tournament 469e struct-member loading and is deferred to the general upstream-integration track |
 | `4823c4e8`, `31ec0013`, `b397ad5c`, `21c6d6c0` | external music-player support; not currently Deus Ex-specific |
 | `a8ffc9d1`, `737b2ef6` | Unreal 227/native operators; not currently Deus Ex-specific |
 | `ea8fad80`, `ffc6e3af` | source split and build fix; do not replay solely for Deus Ex, but use new file locations when reconstructing on a later upstream base |
 | `2d47264c` | relevant clip/edit window portions accepted in `10a81ef4`; debug rendering excluded |
+
+The legacy audit, waypoint, unattended-launch, and fixture commits remain
+evidence-only because unified deliberately removed the ad-hoc production
+automation commands. Their scenario intent is retained in the preserved QA
+manifests and should be re-expressed through unified's external/headless test
+interfaces rather than reintroducing game-specific command handlers.
 
 ## Validation gates
 
