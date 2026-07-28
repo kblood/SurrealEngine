@@ -937,6 +937,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(AudioGainPolicyTests PRIVATE SurrealEngine)
 	set_target_properties(AudioGainPolicyTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME AudioGainPolicy COMMAND AudioGainPolicyTests)
+	add_executable(GCTests
+		Tests/GCTests.cpp
+		SurrealEngine/GC/GC.cpp
+	)
+	target_include_directories(GCTests PRIVATE SurrealEngine)
+	set_target_properties(GCTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME GC COMMAND GCTests)
 
 	add_executable(VideoFrameSchedulerTests
 		Tests/VideoFrameSchedulerTests.cpp
