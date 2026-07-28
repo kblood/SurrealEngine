@@ -121,7 +121,7 @@ public:
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
 	void LoadMap(const UnrealURL& url, const std::map<std::string, std::string>& travelInfo = {});
-	void LoadFromSaveFile(const UnrealURL& url);
+	bool LoadFromSaveFile(const UnrealURL& url);
 	void SaveGameToSlot(int32_t slotNum, const std::string& saveDescription) const;
 	void UnloadMap();
 	void LoginPlayer();
@@ -155,6 +155,7 @@ public:
 
 	void Key(std::string key);
 	void InputEvent(EInputKey key, EInputType type, float delta = 0.0f, InputSourceId source = InputSourceId::KeyboardMouse);
+	void ResetKeyboardInput();
 	void ReleaseInputSource(InputSourceId source) override;
 	bool IsStartupIntroActive() const { return startupIntroActive; }
 	void CompleteStartupIntro() { startupIntroActive = false; }
@@ -190,6 +191,7 @@ public:
 	UCanvas* canvas = nullptr;
 	UGC* dxgc = nullptr;
 	UDXSaveInfo* dxSaveInfo = nullptr;
+	GCRoot<Package> dxSaveInfoPackage;
 	UConversationMissionList* dxConMissionList = nullptr;
 	UConsole* console = nullptr;
 	URootWindow* dxRootWindow = nullptr;

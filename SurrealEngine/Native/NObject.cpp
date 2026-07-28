@@ -1382,12 +1382,14 @@ void NObject::QuatVRotate_U227(quaternion& A, vec3& B, vec3& ReturnValue)
 
 void NObject::Rand(int Max, int& ReturnValue)
 {
-	ReturnValue = RandInt(std::min(std::max(Max, 0), 32767));
+	// Note: Object.Rand is Max exclusive, while RandInt is Max inclusive!
+	ReturnValue = RandInt(std::min(std::max(Max - 1, 0), 32767));
 }
 
 void NObject::RandIntRange_U227(UObject* Self, int Min, int Max, int& ReturnValue)
 {
-	ReturnValue = RandInt(Min, Max);
+	// Assuming in the 227 version that Max also exclusive. See note for NObject::Rand
+	ReturnValue = RandInt(Min, std::max(Max - 1, Min));
 }
 
 void NObject::RandRange(UObject* Self, float Min, float Max, float& ReturnValue)

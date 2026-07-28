@@ -714,7 +714,7 @@ void UWindow::PlaySound(UObject* newsound, std::optional<float> Volume, std::opt
 			location.x = *posX;
 		if (posY)
 			location.y = *posY;
-		engine->audiodev->PlaySound(player, id, s, location, Volume ? *Volume : 1.0f, player->WorldSoundRadius(), Pitch ? *Pitch : 1.0f);
+		engine->audiodev->PlaySound(player, id, s, location, Volume ? *Volume : 1.0f, player->WorldSoundRadius(), Pitch ? *Pitch : 1.0f, false);
 	}
 }
 
@@ -834,7 +834,13 @@ void UWindow::SetBoldFont(UObject* fn)
 
 void UWindow::SetChildVisibility(bool bNewVisibility)
 {
-	LogUnimplemented("Window.SetChildVisibility");
+	for (UWindow* child = firstChild(); child; child = child->nextSibling())
+	{
+		if (bNewVisibility)
+			child->Show(true);
+		else
+			child->Hide();
+	}
 }
 
 void UWindow::SetClientObject(UObject* newClientObject)
@@ -1094,6 +1100,11 @@ void UWindow::ResizeChild()
 	float width = 0.0f, height = 0.0f;
 
 	QueryPreferredSize(width, height);
+	if (engine->LaunchInfo.IsDeusEx() && IsA("HUDInformationDisplay") && parentOwner() && width > parentOwner()->Width())
+	{
+		width = parentOwner()->Width();
+		height = QueryPreferredHeight(width);
+	}
 	bConfigured() = false; // Seems ResizeChild is supposed to call ConfigurationChanged always, even if nothing resized
 	ConfigureChild(X(), Y(), width, height);
 }
@@ -1193,9 +1204,9 @@ void UWindow::WindowReady()
 void UWindow::ParentRequestedPreferredSize(bool bWidthSpecified, float& preferredWidth, bool bHeightSpecified, float& preferredHeight)
 {
 	CallEvent(this, "ParentRequestedPreferredSize", {
-		ExpressionValue::BoolValue(true),
+		ExpressionValue::BoolValue(bWidthSpecified),
 		ExpressionValue::Variable(&preferredWidth, engine->floatprop),
-		ExpressionValue::BoolValue(true),
+		ExpressionValue::BoolValue(bHeightSpecified),
 		ExpressionValue::Variable(&preferredHeight, engine->floatprop)
 		});
 }
@@ -1554,14 +1565,32 @@ void UWindow::DrawDebugBox(UGC* gc)
 
 /////////////////////////////////////////////////////////////////////////////
 
+void UViewportWindow::DrawWindow(UGC* gc)
+{
+	// Until embedded scene passes are available, render the documented
+	// fallback surface so menus do not contain an empty viewport panel.
+	UTexture* texture = DefaultTexture();
+	if (!texture)
+		texture = engine->DefaultTexture;
+	if (texture)
+	{
+		gc->SetStyle(EDrawStyle::Normal);
+		gc->EnableSmoothing(false);
+		Rectf dest = Rectf::xywh(gc->offsetX, gc->offsetY, Width(), Height());
+		Rectf src = Rectf::xywh(0.0f, 0.0f, static_cast<float>(texture->USize()), static_cast<float>(texture->VSize()));
+		gc->DrawTile(texture, gc->ScaleRect(dest), src, DefaultColor(), gc->EffectivePolyFlags());
+	}
+	UWindow::DrawWindow(gc);
+}
+
 void UViewportWindow::ClearZBuffer(std::optional<bool> bClear)
 {
-	LogUnimplemented("ViewportWindow.ClearZBuffer");
+	bClearZ() = bClear.value_or(true);
 }
 
 void UViewportWindow::EnableViewport(std::optional<bool> bEnable)
 {
-	LogUnimplemented("ViewportWindow.EnableViewport");
+	bEnableViewport() = bEnable.value_or(true);
 }
 
 void UViewportWindow::SetDefaultTexture(std::optional<UObject*> NewTexture, std::optional<Color> NewColor)
@@ -1574,32 +1603,40 @@ void UViewportWindow::SetDefaultTexture(std::optional<UObject*> NewTexture, std:
 
 void UViewportWindow::SetFOVAngle(std::optional<float> newAngle)
 {
-	LogUnimplemented("ViewportWindow.SetFOVAngle");
+	if (newAngle)
+		FOV() = *newAngle;
 }
 
 void UViewportWindow::SetRelativeLocation(std::optional<vec3> relLoc)
 {
-	LogUnimplemented("ViewportWindow.SetRelativeLocation");
+	if (relLoc)
+		relLocation() = *relLoc;
 }
 
 void UViewportWindow::SetRelativeRotation(std::optional<Rotator> relRot)
 {
-	LogUnimplemented("ViewportWindow.SetRelativeRotation");
+	if (relRot)
+		relRotation() = *relRot;
 }
 
 void UViewportWindow::SetRotation(std::optional<Rotator> NewRotation)
 {
-	LogUnimplemented("ViewportWindow.SetRotation");
+	if (NewRotation)
+		Rotation() = *NewRotation;
 }
 
 void UViewportWindow::SetViewportActor(std::optional<UObject*> newOriginActor, std::optional<bool> bEyeLevel, std::optional<bool> bEnable)
 {
-	LogUnimplemented("ViewportWindow.SetViewportActor");
+	originActor() = UObject::Cast<UActor>(newOriginActor.value_or(nullptr));
+	bUseEyeHeight() = bEyeLevel.value_or(false);
+	bEnableViewport() = bEnable.value_or(true);
 }
 
 void UViewportWindow::SetViewportLocation(const vec3& NewLocation, std::optional<bool> bEnable)
 {
-	LogUnimplemented("ViewportWindow.SetViewportLocation");
+	Location() = NewLocation;
+	originActor() = nullptr;
+	bEnableViewport() = bEnable.value_or(true);
 }
 
 void UViewportWindow::SetWatchActor(std::optional<UObject*> newWatchActor, std::optional<bool> bEyeLevel)
@@ -1782,8 +1819,12 @@ void UTileWindow::ParentRequestedPreferredSize(bool bWidthSpecified, float& pref
 		preferredHeight = 0.0f;
 		for (auto cur = firstChild(); cur; cur = cur->nextSibling())
 		{
-			float w = 0.0f, h = 0.0f;
-			cur->QueryPreferredSize(w, h);
+			float w = 0.0f;
+			float h = bWidthSpecified ? cur->QueryPreferredHeight(preferredWidth) : 0.0f;
+			if (bWidthSpecified)
+				w = cur->QueryPreferredWidth(h);
+			else
+				cur->QueryPreferredSize(w, h);
 			preferredWidth = std::max(preferredWidth, w);
 			preferredHeight += h;
 		}
@@ -2321,7 +2362,7 @@ void ULargeTextWindow::SetVerticalSpacing(std::optional<float> newVSpace)
 
 void UEditWindow::ClearTextChangedFlag()
 {
-	LogUnimplemented("EditWindow.ClearTextChangedFlag");
+	TextChanged = false;
 }
 
 void UEditWindow::ClearUndo()
@@ -2332,81 +2373,142 @@ void UEditWindow::ClearUndo()
 
 void UEditWindow::Copy()
 {
-	LogUnimplemented("EditWindow.Copy");
+	const int start = std::min(selectStart(), selectEnd());
+	const int end = std::max(selectStart(), selectEnd());
+	if (end > start)
+		Clipboard = Text().substr(start, end - start);
 }
 
 void UEditWindow::Cut()
 {
-	LogUnimplemented("EditWindow.Cut");
+	if (!bEditable())
+		return;
+	const int start = std::min(selectStart(), selectEnd());
+	const int end = std::max(selectStart(), selectEnd());
+	if (end <= start)
+		return;
+	Clipboard = Text().substr(start, end - start);
+	Text().erase(start, end - start);
+	SetInsertionPoint(start, false);
+	TextChanged = true;
 }
 
 void UEditWindow::DeleteChar(std::optional<bool> bBefore, std::optional<bool> bUndo)
 {
-	LogUnimplemented("EditWindow.DeleteChar");
+	if (!bEditable())
+		return;
+	const int start = std::min(selectStart(), selectEnd());
+	const int end = std::max(selectStart(), selectEnd());
+	if (end > start)
+	{
+		Text().erase(start, end - start);
+		SetInsertionPoint(start, false);
+	}
+	else if (bBefore.value_or(false) && insertPos() > 0)
+	{
+		Text().erase(insertPos() - 1, 1);
+		SetInsertionPoint(insertPos() - 1, false);
+	}
+	else if (!bBefore.value_or(false) && insertPos() < static_cast<int>(Text().size()))
+	{
+		Text().erase(insertPos(), 1);
+	}
+	else
+		return;
+	TextChanged = true;
 }
 
 void UEditWindow::EnableEditing(std::optional<bool> bEdit)
 {
-	LogUnimplemented("EditWindow.EnableEditing");
+	bEditable() = bEdit.value_or(true);
 }
 
 void UEditWindow::EnableSingleLineEditing(std::optional<bool> bSingle)
 {
-	LogUnimplemented("EditWindow.EnableSingleLineEditing");
+	bSingleLine() = bSingle.value_or(true);
 }
 
 void UEditWindow::EnableUppercaseOnly(std::optional<bool> bUppercase)
 {
 	// UNUSED from scripts.
-	LogUnimplemented("EditWindow.EnableUppercaseOnly");
+	bUppercaseOnly() = bUppercase.value_or(true);
 }
 
 int UEditWindow::GetInsertionPoint()
 {
 
-	LogUnimplemented("EditWindow.GetInsertionPoint");
-	return 0;
+	return insertPos();
 }
 
 void UEditWindow::GetSelectedArea(int& startPos, int& Count)
 {
-	LogUnimplemented("EditWindow.GetSelectedArea");
+	startPos = std::min(selectStart(), selectEnd());
+	Count = std::abs(selectEnd() - selectStart());
 }
 
 bool UEditWindow::HasTextChanged()
 {
-	LogUnimplemented("EditWindow.HasTextChanged");
-	return false;
+	return TextChanged;
 }
 
 bool UEditWindow::InsertText(std::optional<std::string> InsertText, std::optional<bool> bUndo, std::optional<bool> bSelect)
 {
-	LogUnimplemented("EditWindow.InsertText");
-	return false;
+	if (!bEditable())
+		return false;
+	std::string inserted = InsertText.value_or("");
+	if (bSingleLine())
+		inserted.erase(std::remove(inserted.begin(), inserted.end(), '\n'), inserted.end());
+	if (bUppercaseOnly())
+		std::transform(inserted.begin(), inserted.end(), inserted.begin(),
+			[](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+	const int start = std::min(selectStart(), selectEnd());
+	const int end = std::max(selectStart(), selectEnd());
+	const size_t retainedSize = Text().size() - (end - start);
+	if (maxSize() > 0 && retainedSize + inserted.size() > static_cast<size_t>(maxSize()))
+		inserted.resize(retainedSize >= static_cast<size_t>(maxSize()) ? 0 : static_cast<size_t>(maxSize()) - retainedSize);
+	Text().replace(start, end - start, inserted);
+	SetInsertionPoint(start + static_cast<int>(inserted.size()), bSelect.value_or(false));
+	TextChanged = true;
+	return true;
 }
 
 bool UEditWindow::IsEditingEnabled()
 {
 	// UNUSED from scripts.
-	LogUnimplemented("EditWindow.IsEditingEnabled");
-	return false;
+	return bEditable();
 }
 
 bool UEditWindow::IsSingleLineEditingEnabled()
 {
 	// UNUSED from scripts.
-	LogUnimplemented("EditWindow.IsSingleLineEditingEnabled");
-	return false;
+	return bSingleLine();
 }
 
 void UEditWindow::MoveInsertionPoint(uint8_t moveInsert, std::optional<bool> bDrag)
 {
-	LogUnimplemented("EditWindow.MoveInsertionPoint");
+	int position = insertPos();
+	switch (moveInsert)
+	{
+	case 2: --position; break;
+	case 3: ++position; break;
+	case 4:
+		while (position > 0 && std::isspace(static_cast<unsigned char>(Text()[position - 1]))) --position;
+		while (position > 0 && !std::isspace(static_cast<unsigned char>(Text()[position - 1]))) --position;
+		break;
+	case 5:
+		while (position < static_cast<int>(Text().size()) && !std::isspace(static_cast<unsigned char>(Text()[position]))) ++position;
+		while (position < static_cast<int>(Text().size()) && std::isspace(static_cast<unsigned char>(Text()[position]))) ++position;
+		break;
+	case 6: case 10: position = 0; break;
+	case 7: case 11: position = static_cast<int>(Text().size()); break;
+	default: return;
+	}
+	SetInsertionPoint(position, bDrag);
 }
 
 void UEditWindow::Paste()
 {
-	LogUnimplemented("EditWindow.Paste");
+	InsertText(Clipboard, {}, {});
 }
 
 void UEditWindow::PlayEditSound(UObject* PlaySound, std::optional<float> Volume, std::optional<float> Pitch)
@@ -2421,7 +2523,10 @@ void UEditWindow::Redo()
 
 void UEditWindow::SetEditCursor(std::optional<UObject*> newCursor, std::optional<UObject*> newCursorShadow, std::optional<Color> NewColor)
 {
-	LogUnimplemented("EditWindow.SetEditCursor");
+	editCursor() = UObject::Cast<UTexture>(newCursor.value_or(nullptr));
+	editCursorShadow() = UObject::Cast<UTexture>(newCursorShadow.value_or(nullptr));
+	if (NewColor)
+		editCursorColor() = *NewColor;
 }
 
 void UEditWindow::SetEditSounds(std::optional<UObject*> typeSound, std::optional<UObject*> deleteSound, std::optional<UObject*> enterSound, std::optional<UObject*> moveSound)
@@ -2432,7 +2537,12 @@ void UEditWindow::SetEditSounds(std::optional<UObject*> typeSound, std::optional
 
 void UEditWindow::SetInsertionPoint(int NewPos, std::optional<bool> bDrag)
 {
-	LogUnimplemented("EditWindow.SetInsertionPoint");
+	const int position = std::clamp(NewPos, 0, static_cast<int>(Text().size()));
+	if (!bDrag.value_or(false))
+		insertHookPos() = position;
+	insertPos() = position;
+	selectStart() = insertHookPos();
+	selectEnd() = position;
 }
 
 void UEditWindow::SetInsertionPointBlinkRate(std::optional<float> blinkStart, std::optional<float> blinkPeriod)
@@ -2443,17 +2553,23 @@ void UEditWindow::SetInsertionPointBlinkRate(std::optional<float> blinkStart, st
 
 void UEditWindow::SetInsertionPointTexture(std::optional<UObject*> NewTexture, std::optional<Color> NewColor)
 {
-	LogUnimplemented("EditWindow.SetInsertionPointTexture");
+	insertTexture() = UObject::Cast<UTexture>(NewTexture.value_or(nullptr));
+	if (NewColor)
+		insertColor() = *NewColor;
 }
 
 void UEditWindow::SetInsertionPointType(uint8_t newType, std::optional<float> prefWidth, std::optional<float> prefHeight)
 {
-	LogUnimplemented("EditWindow.SetInsertionPointType");
+	insertType() = newType;
+	if (prefWidth)
+		insertPrefWidth() = *prefWidth;
+	if (prefHeight)
+		insertPrefHeight() = *prefHeight;
 }
 
 void UEditWindow::SetMaxSize(int newMaxSize)
 {
-	LogUnimplemented("EditWindow.SetMaxSize");
+	maxSize() = std::max(0, newMaxSize);
 }
 
 void UEditWindow::SetMaxUndos(int newMaxUndos)
@@ -2464,28 +2580,47 @@ void UEditWindow::SetMaxUndos(int newMaxUndos)
 
 void UEditWindow::SetSelectedArea(int startPos, int Count)
 {
-	LogUnimplemented("EditWindow.SetSelectedArea");
+	selectStart() = std::clamp(startPos, 0, static_cast<int>(Text().size()));
+	selectEnd() = std::clamp(startPos + Count, 0, static_cast<int>(Text().size()));
+	insertHookPos() = selectStart();
+	insertPos() = selectEnd();
 }
 
 void UEditWindow::SetSelectedAreaTextColor(std::optional<Color> NewColor)
 {
-	LogUnimplemented("EditWindow.SetSelectedAreaTextColor");
+	if (NewColor)
+		inverseColor() = *NewColor;
 }
 
 void UEditWindow::SetSelectedAreaTexture(std::optional<UObject*> NewTexture, std::optional<Color> NewColor)
 {
-	LogUnimplemented("EditWindow.SetSelectedAreaTexture");
+	selectTexture() = UObject::Cast<UTexture>(NewTexture.value_or(nullptr));
+	if (NewColor)
+		selectColor() = *NewColor;
 }
 
 void UEditWindow::SetTextChangedFlag(std::optional<bool> bSet)
 {
 	// UNUSED from scripts.
-	LogUnimplemented("EditWindow.SetTextChangedFlag");
+	TextChanged = bSet.value_or(true);
 }
 
 void UEditWindow::Undo()
 {
 	LogUnimplemented("EditWindow.Undo");
+}
+
+void UEditWindow::InitWindow()
+{
+	ULargeTextWindow::InitWindow();
+}
+
+void UEditWindow::DrawWindow(UGC* gc)
+{
+	UWindow::DrawWindow(gc);
+	gc->SetFont(normalFont());
+	gc->SetAlignments(HAlign(), VAlign());
+	gc->DrawText(0.0f, 0.0f, Width(), Height(), Text());
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2557,13 +2692,23 @@ void URadioBoxWindow::ConfigurationChanged()
 
 void UClipWindow::ParentRequestedPreferredSize(bool bWidthSpecified, float& preferredWidth, bool bHeightSpecified, float& preferredHeight)
 {
-	// To do: how does this work?
+	float width = 0.0f;
+	float height = 0.0f;
+	for (UWindow* child = firstChild(); child; child = child->nextSibling())
+	{
+		float childWidth = 0.0f;
+		float childHeight = 0.0f;
+		child->QueryPreferredSize(childWidth, childHeight);
+		width = std::max(width, childWidth);
+		height = std::max(height, childHeight);
+	}
+	preferredWidth = width;
+	preferredHeight = height;
 	UTabGroupWindow::ParentRequestedPreferredSize(bWidthSpecified, preferredWidth, bHeightSpecified, preferredHeight);
 }
 
 void UClipWindow::ConfigurationChanged()
 {
-	// To do: how does this work?
 	for (auto cur = firstChild(); cur; cur = cur->nextSibling())
 	{
 		cur->ConfigureChild(0.0f, 0.0f, Width(), Height());
@@ -2585,9 +2730,7 @@ void UClipWindow::ForceChildSize(std::optional<bool> bNewForceChildWidth, std::o
 
 UObject* UClipWindow::GetChild()
 {
-	// Not called by script
-	LogUnimplemented("ClipWindow.GetChild");
-	return nullptr;
+	return firstChild();
 }
 
 void UClipWindow::GetChildPosition(int& pNewX, int& pNewY)
@@ -2695,7 +2838,8 @@ bool URootWindow::IsRenderingEnabled()
 
 void URootWindow::LockMouse(std::optional<bool> bLockMove, std::optional<bool> bLockButton)
 {
-	LogUnimplemented("RootWindow.LockMouse");
+	bMouseMoveLocked() = bLockMove.value_or(true);
+	bMouseButtonLocked() = bLockButton.value_or(true);
 }
 
 void URootWindow::SetDefaultEditCursor(std::optional<UObject*> newEditCursor)
@@ -2748,7 +2892,8 @@ void URootWindow::ResetRenderViewport()
 
 void URootWindow::SetSnapshotSize(float newWidth, float NewHeight)
 {
-	LogUnimplemented("RootWindow.SetSnapshotSize");
+	snapshotWidth() = std::max(1, static_cast<int>(std::round(newWidth)));
+	snapshotHeight() = std::max(1, static_cast<int>(std::round(NewHeight)));
 }
 
 void URootWindow::ShowCursor(std::optional<bool> bShow)
@@ -2994,7 +3139,25 @@ bool URootWindow::OnWindowMouseUp(const Point& pos, EInputKey key)
 	float relativeX = 0.0f, relativeY = 0.0f;
 	UWindow* focus = GetCursorFocus(relativeX, relativeY);
 
-	if (focus->RawMouseButtonPressed(relativeX, relativeY, key, EInputType::IST_Release))
+	const bool rawMouseHandled = focus->RawMouseButtonPressed(relativeX, relativeY, key, EInputType::IST_Release);
+	const std::string focusClassName = UObject::GetUClassFullName(focus).ToString();
+	UButtonWindow* compatibilityButton = nullptr;
+	if (focusClassName == "DeusEx.PersonaInventoryItemButton" || focusClassName == "DeusEx.PersonaActionButtonWindow")
+		compatibilityButton = UObject::TryCast<UButtonWindow>(focus);
+	else
+	{
+		for (UWindow* cur = focus; cur; cur = cur->parentOwner())
+		{
+			if (UObject::GetUClassFullName(cur) == "DeusEx.ConChoiceWindow")
+			{
+				compatibilityButton = UObject::TryCast<UButtonWindow>(cur);
+				break;
+			}
+		}
+	}
+	if (key == IK_LeftMouse && compatibilityButton)
+		compatibilityButton->ActivateButton(key);
+	if (rawMouseHandled)
 		return true;
 
 	if (!focus->bIsSensitive())
@@ -3047,6 +3210,12 @@ bool URootWindow::OnWindowKeyChar(std::string chars)
 
 bool URootWindow::OnWindowKeyDown(EInputKey key)
 {
+	if (engine->LaunchInfo.IsDeusEx() && key == IK_Escape && IsModalOpen())
+	{
+		CloseTopModal();
+		return true;
+	}
+
 	UWindow* focus = FocusWindow();
 	if (!focus)
 		return IsModalOpen();
@@ -3098,6 +3267,25 @@ bool URootWindow::IsModalOpen()
 			return true;
 	}
 	return false;
+}
+
+void URootWindow::CloseTopModal()
+{
+	for (UWindow* child = lastChild(); child; child = child->prevSibling())
+	{
+		if (!UObject::TryCast<UModalWindow>(child))
+			continue;
+
+		child->Destroy();
+		if (HasProperty("winCount"))
+		{
+			int& winCount = *static_cast<int*>(GetProperty("winCount"));
+			if (winCount > 0)
+				winCount--;
+		}
+		CallEvent(this, "UnPauseGame");
+		return;
+	}
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -3236,60 +3424,141 @@ void UBorderWindow::SetMoveCursors(std::optional<UObject*> Move, std::optional<U
 		trMoveCursor() = UObject::Cast<UTexture>(*trMove);
 }
 
+void UBorderWindow::ParentRequestedPreferredSize(bool bWidthSpecified, float& preferredWidth, bool bHeightSpecified, float& preferredHeight)
+{
+	preferredWidth = 0.0f;
+	preferredHeight = 0.0f;
+	for (auto cur = firstChild(); cur; cur = cur->nextSibling())
+	{
+		float w = 0.0f, h = 0.0f;
+		cur->QueryPreferredSize(w, h);
+		preferredWidth = std::max(preferredWidth, w);
+		preferredHeight += h;
+	}
+
+	preferredWidth += childLeftMargin();
+	preferredWidth += childRightMargin();
+	preferredHeight += childTopMargin();
+	preferredHeight += childBottomMargin();
+
+	UWindow::ParentRequestedPreferredSize(bWidthSpecified, preferredWidth, bHeightSpecified, preferredHeight);
+}
+
+void UBorderWindow::ConfigurationChanged()
+{
+	float y = 0.0f;
+
+	y += childTopMargin();
+
+	for (auto cur = firstChild(); cur; cur = cur->nextSibling())
+	{
+		float contentWidth = std::max(Width() - childLeftMargin() - childRightMargin(), 0.0f);
+		float h = cur->QueryPreferredHeight(contentWidth);
+		float w = cur->QueryPreferredWidth(h);
+		cur->ConfigureChild(childLeftMargin(), y, std::min(w, contentWidth), h);
+		y += h;
+	}
+
+	UWindow::ConfigurationChanged();
+}
+
+void UBorderWindow::DrawWindow(UGC* gc)
+{
+	UObject* borders[9] =
+	{
+		borderTopLeft(),
+		borderTopRight(),
+		borderBottomLeft(),
+		borderLeft(),
+		borderBottomRight(),
+		borderRight(),
+		borderTop(),
+		borderBottom(),
+		center()
+	};
+
+	gc->DrawBorders(
+		0.0f, 0.0f,
+		Width(), Height(),
+		childLeftMargin(), childRightMargin(),
+		childTopMargin(), childBottomMargin(), borders, {}, {});
+
+	UWindow::DrawWindow(gc);
+	DrawDebugBox(gc);
+}
+
 /////////////////////////////////////////////////////////////////////////////
 
 void UScaleWindow::ClearAllEnumerations()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ScaleWindow.ClearAllEnumerations");
+	enumStrings().Array->Clear();
 }
 
 void UScaleWindow::EnableStretchedScale(std::optional<bool> bNewStretch)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ScaleWindow.EnableStretchedScale");
+	bStretchScale() = bNewStretch.value_or(true);
 }
 
 int UScaleWindow::GetNumTicks()
 {
-	LogUnimplemented("ScaleWindow.GetNumTicks");
-	return 0;
+	return numPositions();
 }
 
 int UScaleWindow::GetThumbSpan()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ScaleWindow.GetThumbSpan");
-	return 0;
+	return spanRange();
 }
 
 int UScaleWindow::GetTickPosition()
 {
-	LogUnimplemented("ScaleWindow.GetTickPosition");
-	return 0;
+	return currentPos();
 }
 
 float UScaleWindow::GetValue()
 {
-	LogUnimplemented("ScaleWindow.GetValue");
-	return 0.0f;
+	if (numPositions() <= 1)
+		return fromValue();
+	return fromValue() + (toValue() - fromValue()) * currentPos() / (numPositions() - 1);
 }
 
 std::string UScaleWindow::GetValueString()
 {
-	LogUnimplemented("ScaleWindow.GetValueString");
-	return "";
+	auto values = enumStrings();
+	if (currentPos() >= 0 && currentPos() < values.size() && !values[currentPos()].empty())
+		return values[currentPos()];
+	if (valueFmt().empty())
+		return std::to_string(GetValue());
+	char buffer[128] = {};
+	std::snprintf(buffer, sizeof(buffer), valueFmt().c_str(), GetValue());
+	return buffer;
 }
 
 void UScaleWindow::GetValues(float& fromValue, float& toValue)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ScaleWindow.GetValues");
+	fromValue = this->fromValue();
+	toValue = this->toValue();
 }
 
 void UScaleWindow::MoveThumb(uint8_t MoveThumb)
 {
-	LogUnimplemented("ScaleWindow.MoveThumb");
+	const int pageStep = std::max(1, spanRange());
+	int newPosition = currentPos();
+	switch (MoveThumb)
+	{
+	case 0: newPosition = 0; break;
+	case 1: newPosition = numPositions() - 1; break;
+	case 2: --newPosition; break;
+	case 3: ++newPosition; break;
+	case 4: newPosition -= std::max(1, thumbStep()); break;
+	case 5: newPosition += std::max(1, thumbStep()); break;
+	case 6: newPosition -= pageStep; break;
+	case 7: newPosition += pageStep; break;
+	default: return;
+	}
+	const int oldPosition = currentPos();
+	SetTickPosition(newPosition);
+	if (currentPos() != oldPosition && parentOwner())
+		parentOwner()->ScalePositionChanged(this, currentPos(), GetValue(), true);
 }
 
 void UScaleWindow::PlayScaleSound(UObject* newsound, std::optional<float> Volume, std::optional<float> Pitch)
@@ -3299,125 +3568,158 @@ void UScaleWindow::PlayScaleSound(UObject* newsound, std::optional<float> Volume
 
 void UScaleWindow::SetBorderPattern(UObject* NewTexture)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ScaleWindow.SetBorderPattern");
+	borderPattern() = UObject::Cast<UTexture>(NewTexture);
 }
 
 void UScaleWindow::SetEnumeration(int tickPos, const std::string& newStr)
 {
-	LogUnimplemented("ScaleWindow.SetEnumeration");
+	if (tickPos < 0)
+		return;
+	auto values = enumStrings();
+	if (values.size() <= tickPos)
+		values.Array->Resize(tickPos + 1);
+	values[tickPos] = newStr;
 }
 
 void UScaleWindow::SetNumTicks(int newNumTicks)
 {
-	LogUnimplemented("ScaleWindow.SetNumTicks");
+	numPositions() = std::max(1, newNumTicks);
+	SetTickPosition(currentPos());
 }
 
 void UScaleWindow::SetScaleBorder(std::optional<float> newBorderSize, std::optional<Color> NewColor)
 {
-	LogUnimplemented("ScaleWindow.SetScaleBorder");
+	if (newBorderSize)
+		scaleBorderSize() = *newBorderSize;
+	if (NewColor)
+		scaleBorderColor() = *NewColor;
 }
 
 void UScaleWindow::SetScaleColor(const Color& NewColor)
 {
-	LogUnimplemented("ScaleWindow.SetScaleColor");
+	scaleColor() = NewColor;
 }
 
 void UScaleWindow::SetScaleMargins(std::optional<float> marginWidth, std::optional<float> marginHeight)
 {
-	LogUnimplemented("ScaleWindow.SetScaleMargins");
+	if (marginWidth)
+		this->marginWidth() = *marginWidth;
+	if (marginHeight)
+		this->marginHeight() = *marginHeight;
 }
 
 void UScaleWindow::SetScaleOrientation(uint8_t newOrientation)
 {
-	LogUnimplemented("ScaleWindow.SetScaleOrientation");
+	orientation() = newOrientation;
 }
 
 void UScaleWindow::SetScaleSounds(std::optional<UObject*> setSound, std::optional<UObject*> clickSound, std::optional<UObject*> dragSound)
 {
-	LogUnimplemented("ScaleWindow.SetScaleSounds");
+	this->setSound() = UObject::Cast<USound>(setSound.value_or(nullptr));
+	this->clickSound() = UObject::Cast<USound>(clickSound.value_or(nullptr));
+	this->dragSound() = UObject::Cast<USound>(dragSound.value_or(nullptr));
 }
 
 void UScaleWindow::SetScaleStyle(uint8_t NewStyle)
 {
-	LogUnimplemented("ScaleWindow.SetScaleStyle");
+	scaleStyle() = NewStyle;
 }
 
 void UScaleWindow::SetScaleTexture(UObject* NewTexture, std::optional<float> newWidth, std::optional<float> NewHeight, std::optional<float> newStart, std::optional<float> newEnd)
 {
-	LogUnimplemented("ScaleWindow.SetScaleTexture");
+	scaleTexture() = UObject::Cast<UTexture>(NewTexture);
+	if (newWidth) scaleWidth() = *newWidth;
+	if (NewHeight) scaleHeight() = *NewHeight;
+	if (newStart) startOffset() = *newStart;
+	if (newEnd) endOffset() = *newEnd;
 }
 
 void UScaleWindow::SetThumbBorder(std::optional<float> newBorderSize, std::optional<Color> NewColor)
 {
-	LogUnimplemented("ScaleWindow.SetThumbBorder");
+	if (newBorderSize) thumbBorderSize() = *newBorderSize;
+	if (NewColor) thumbBorderColor() = *NewColor;
 }
 
 void UScaleWindow::SetThumbCaps(UObject* preCap, UObject* postCap, std::optional<float> preCapWidth, std::optional<float> preCapHeight, std::optional<float> postCapWidth, std::optional<float> postCapHeight)
 {
-	LogUnimplemented("ScaleWindow.SetThumbCaps");
+	preCapTexture() = UObject::Cast<UTexture>(preCap);
+	postCapTexture() = UObject::Cast<UTexture>(postCap);
+	if (preCapWidth) this->preCapWidth() = *preCapWidth;
+	if (preCapHeight) this->preCapHeight() = *preCapHeight;
+	if (postCapWidth) this->postCapWidth() = *postCapWidth;
+	if (postCapHeight) this->postCapHeight() = *postCapHeight;
 }
 
 void UScaleWindow::SetThumbColor(const Color& NewColor)
 {
-	LogUnimplemented("ScaleWindow.SetThumbColor");
+	thumbColor() = NewColor;
 }
 
 void UScaleWindow::SetThumbSpan(std::optional<int> newRange)
 {
-	LogUnimplemented("ScaleWindow.SetThumbSpan");
+	spanRange() = std::max(0, newRange.value_or(0));
 }
 
 void UScaleWindow::SetThumbStep(int NewStep)
 {
-	LogUnimplemented("ScaleWindow.SetThumbStep");
+	thumbStep() = std::max(1, NewStep);
 }
 
 void UScaleWindow::SetThumbStyle(uint8_t NewStyle)
 {
-	LogUnimplemented("ScaleWindow.SetThumbStyle");
+	thumbStyle() = NewStyle;
 }
 
 void UScaleWindow::SetThumbTexture(UObject* NewTexture, std::optional<float> newWidth, std::optional<float> NewHeight)
 {
-	LogUnimplemented("ScaleWindow.SetThumbTexture");
+	thumbTexture() = UObject::Cast<UTexture>(NewTexture);
+	if (newWidth) ThumbWidth() = *newWidth;
+	if (NewHeight) ThumbHeight() = *NewHeight;
 }
 
 void UScaleWindow::SetTickColor(const Color& NewColor)
 {
-	LogUnimplemented("ScaleWindow.SetTickColor");
+	tickColor() = NewColor;
 }
 
 void UScaleWindow::SetTickPosition(int newPosition)
 {
-	LogUnimplemented("ScaleWindow.SetTickPosition");
+	currentPos() = std::clamp(newPosition, 0, std::max(0, numPositions() - 1));
 }
 
 void UScaleWindow::SetTickStyle(uint8_t NewStyle)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ScaleWindow.SetTickStyle");
+	tickStyle() = NewStyle;
 }
 
 void UScaleWindow::SetTickTexture(UObject* tickTexture, std::optional<bool> bDrawEndTicks, std::optional<float> newWidth, std::optional<float> NewHeight)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ScaleWindow.SetTickTexture");
+	this->tickTexture() = UObject::Cast<UTexture>(tickTexture);
+	this->bDrawEndTicks() = bDrawEndTicks.value_or(false);
+	if (newWidth) tickWidth() = *newWidth;
+	if (NewHeight) tickHeight() = *NewHeight;
 }
 
 void UScaleWindow::SetValue(float NewValue)
 {
-	LogUnimplemented("ScaleWindow.SetValue");
+	if (numPositions() <= 1 || toValue() == fromValue())
+	{
+		currentPos() = 0;
+		return;
+	}
+	const float fraction = (NewValue - fromValue()) / (toValue() - fromValue());
+	SetTickPosition(static_cast<int>(std::round(fraction * (numPositions() - 1))));
 }
 
 void UScaleWindow::SetValueFormat(const std::string& newFmt)
 {
-	LogUnimplemented("ScaleWindow.SetValueFormat");
+	valueFmt() = newFmt;
 }
 
 void UScaleWindow::SetValueRange(float newFrom, float newTo)
 {
-	LogUnimplemented("ScaleWindow.SetValueRange");
+	fromValue() = newFrom;
+	toValue() = newTo;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -3477,6 +3779,34 @@ void UScaleManagerWindow::StretchValueField(std::optional<bool> bNewStretch)
 
 /////////////////////////////////////////////////////////////////////////////
 
+static std::vector<std::string> SplitListFields(const std::string& row, const std::string& delimiter)
+{
+	const std::string separator = delimiter.empty() ? ";" : delimiter;
+	std::vector<std::string> fields;
+	size_t start = 0;
+	while (true)
+	{
+		const size_t end = row.find(separator, start);
+		fields.push_back(row.substr(start, end == std::string::npos ? std::string::npos : end - start));
+		if (end == std::string::npos)
+			break;
+		start = end + separator.size();
+	}
+	return fields;
+}
+
+void UListWindow::InitWindow()
+{
+	focusLine() = -1;
+	anchorLine() = -1;
+	lastIndex() = -1;
+	bMultiSelect() = true;
+	focusThickness() = 1.0f;
+	if (UFont* font = normalFont())
+		lineSize() = (float)font->GetGlyph('X').VSize + 2.0f;
+	UWindow::InitWindow();
+}
+
 int UListWindow::AddRow(const std::string& rowStr, std::optional<int> clientData)
 {
 	int id = nextRowId++;
@@ -3484,37 +3814,40 @@ int UListWindow::AddRow(const std::string& rowStr, std::optional<int> clientData
 	item.id = id;
 	if (clientData.has_value())
 		item.clientInt = clientData.value();
-	size_t start = 0;
-	for (size_t pos = 0; pos < rowStr.size(); pos++)
-	{
-		if (rowStr[pos] == ';')
-		{
-			item.cells.push_back(rowStr.substr(start, pos - start));
-			start = pos + 1;
-		}
-	}
-	if (start < rowStr.size())
-		item.cells.push_back(rowStr.substr(start));
+	item.cells = SplitListFields(rowStr, Delimiter());
 	items.push_back(std::move(item));
+	if (bAutoSort())
+		Sort();
 	return id;
 }
 
 void UListWindow::AddSortColumn(int colIndex, std::optional<bool> bReverse, std::optional<bool> bCaseSensitive)
 {
-	LogUnimplemented("ListWindow.AddSortColumn");
+	if (colIndex < 0 || (size_t)colIndex >= columns.size())
+		return;
+	sortColumns.push_back({ colIndex, bReverse.value_or(false), bCaseSensitive.value_or(false) });
+	if (bAutoSort())
+		Sort();
 }
 
 void UListWindow::DeleteAllRows()
 {
 	items.clear();
 	nextRowId = 1;
+	focusLine() = -1;
+	anchorLine() = -1;
+	numSelected() = 0;
 }
 
 void UListWindow::DeleteRow(int rowId)
 {
 	int index = RowIdToIndex(rowId);
 	if (index >= 0)
+	{
 		items.erase(items.begin() + index);
+		focusLine() = items.empty() ? -1 : std::min(focusLine(), (int)items.size() - 1);
+		numSelected() = GetNumSelectedRows();
+	}
 }
 
 void UListWindow::EnableAutoExpandColumns(std::optional<bool> bAutoExpand)
@@ -3527,8 +3860,8 @@ void UListWindow::EnableAutoExpandColumns(std::optional<bool> bAutoExpand)
 void UListWindow::EnableAutoSort(std::optional<bool> bNewAutoSort)
 {
 	bAutoSort() = bNewAutoSort.has_value() ? bNewAutoSort.value() : true;
-	// To do: actually do the sort
-	LogUnimplemented("ListWindow.EnableAutoSort");
+	if (bAutoSort())
+		Sort();
 }
 
 void UListWindow::EnableHotKeys(std::optional<bool> bEnable)
@@ -3589,15 +3922,15 @@ std::string UListWindow::GetField(int rowId, int colIndex)
 	int rowIndex = RowIdToIndex(rowId);
 	if (rowIndex == -1)
 		return {};
-	if (colIndex < 0 || items[rowIndex].cells.size() >= (size_t)colIndex)
+	if (colIndex < 0 || items[rowIndex].cells.size() <= (size_t)colIndex)
 		return {};
 	return items[rowIndex].cells[colIndex];
 }
 
 void UListWindow::GetFieldMargins(float& marginWidth, float& marginHeight)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ListWindow.GetFieldMargins");
+	marginWidth = colMargin();
+	marginHeight = rowMargin();
 }
 
 float UListWindow::GetFieldValue(int rowId, int colIndex)
@@ -3607,8 +3940,7 @@ float UListWindow::GetFieldValue(int rowId, int colIndex)
 
 int UListWindow::GetFocusRow()
 {
-	LogUnimplemented("ListWindow.GetFocusRow");
-	return 0;
+	return IndexToRowId(focusLine());
 }
 
 int UListWindow::GetNumColumns()
@@ -3623,15 +3955,15 @@ int UListWindow::GetNumRows()
 
 int UListWindow::GetNumSelectedRows()
 {
-	LogUnimplemented("ListWindow.GetNumSelectedRows");
-	return 0;
+	return (int)std::count_if(items.begin(), items.end(), [](const Item& item) { return item.selected; });
 }
 
 int UListWindow::GetPageSize()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ListWindow.GetPageSize");
-	return 0;
+	const float configuredLineSize = lineSize();
+	const float fontLineSize = normalFont() ? (float)normalFont()->GetGlyph('X').VSize + 2.0f : 1.0f;
+	const float itemHeight = std::max(1.0f, configuredLineSize > 0.0f ? configuredLineSize : fontLineSize) + rowMargin();
+	return std::max(1, (int)std::floor(Height() / itemHeight));
 }
 
 int UListWindow::GetRowClientInt(int rowId)
@@ -3652,8 +3984,14 @@ UObject* UListWindow::GetRowClientObject(int rowId)
 
 int UListWindow::GetSelectedRow()
 {
-	LogUnimplemented("ListWindow.GetSelectedRow");
-	return 0;
+	for (auto& item : items)
+	{
+		if (item.selected)
+		{
+			return item.id;
+		}
+	}
+	return -1;
 }
 
 void UListWindow::HideColumn(int colIndex, std::optional<bool> bHide)
@@ -3707,23 +4045,28 @@ void UListWindow::ModifyRow(int rowId, const std::string& rowStr)
 		return;
 
 	auto& item = items[rowIndex];
-	item.cells.clear();
-	size_t start = 0;
-	for (size_t pos = 0; pos < rowStr.size(); pos++)
-	{
-		if (rowStr[pos] == ';')
-		{
-			item.cells.push_back(rowStr.substr(start, pos - start));
-			start = pos + 1;
-		}
-	}
-	if (start < rowStr.size())
-		item.cells.push_back(rowStr.substr(start));
+	item.cells = SplitListFields(rowStr, Delimiter());
+	if (bAutoSort())
+		Sort();
 }
 
 void UListWindow::MoveRow(uint8_t Move, std::optional<bool> bSelect, std::optional<bool> bClearRows, std::optional<bool> bDrag)
 {
-	LogUnimplemented("ListWindow.MoveRow");
+	if (items.empty())
+		return;
+
+	int index = std::clamp(focusLine(), 0, (int)items.size() - 1);
+	switch (Move)
+	{
+	case 0: index = 0; break;
+	case 1: index = (int)items.size() - 1; break;
+	case 2: --index; break;
+	case 3: ++index; break;
+	case 6: index -= GetPageSize(); break;
+	case 7: index += GetPageSize(); break;
+	default: return;
+	}
+	SetRow(IndexToRowId(std::clamp(index, 0, (int)items.size() - 1)), bSelect, bClearRows, bDrag);
 }
 
 void UListWindow::PlayListSound(UObject* listSound, std::optional<float> Volume, std::optional<float> Pitch)
@@ -3734,13 +4077,14 @@ void UListWindow::PlayListSound(UObject* listSound, std::optional<float> Volume,
 
 void UListWindow::RemoveSortColumn(int colIndex)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ListWindow.RemoveSortColumn");
+	sortColumns.erase(std::remove_if(sortColumns.begin(), sortColumns.end(), [colIndex](const SortSpec& spec) { return spec.Column == colIndex; }), sortColumns.end());
 }
 
 void UListWindow::ResetSortColumns(std::optional<bool> bSort)
 {
-	LogUnimplemented("ListWindow.ResetSortColumns");
+	sortColumns.clear();
+	if (bSort.value_or(false))
+		Sort();
 }
 
 void UListWindow::ResizeColumns(std::optional<bool> bExpandOnly)
@@ -3770,6 +4114,7 @@ void UListWindow::SelectAllRows(std::optional<bool> bSelect)
 	{
 		item.selected = selected;
 	}
+	numSelected() = GetNumSelectedRows();
 }
 
 void UListWindow::SelectRow(int rowId, std::optional<bool> bSelect)
@@ -3778,6 +4123,7 @@ void UListWindow::SelectRow(int rowId, std::optional<bool> bSelect)
 	int rowIndex = RowIdToIndex(rowId);
 	if (rowIndex != -1)
 		items[rowIndex].selected = selected;
+	numSelected() = GetNumSelectedRows();
 }
 
 void UListWindow::SelectToRow(int rowId, std::optional<bool> bClearRows, std::optional<bool> bInvert, std::optional<bool> bSpanRows)
@@ -3844,12 +4190,14 @@ void UListWindow::SetField(int rowId, int colIndex, const std::string& fieldStr)
 	if (items[rowIndex].cells.size() <= (size_t)colIndex)
 		items[rowIndex].cells.resize(colIndex + 1);
 	items[rowIndex].cells[colIndex] = fieldStr;
+	if (bAutoSort())
+		Sort();
 }
 
 void UListWindow::SetFieldMargins(float newMarginWidth, float newMarginHeight)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ListWindow.SetFieldMargins");
+	colMargin() = newMarginWidth;
+	rowMargin() = newMarginHeight;
 }
 
 void UListWindow::SetFieldValue(int rowId, int colIndex, float NewValue)
@@ -3864,7 +4212,12 @@ void UListWindow::SetFocusColor(const Color& NewColor)
 
 void UListWindow::SetFocusRow(int rowId, std::optional<bool> bMoveTo, std::optional<bool> bAnchor)
 {
-	LogUnimplemented("ListWindow.SetFocusRow");
+	const int index = RowIdToIndex(rowId);
+	if (index < 0)
+		return;
+	focusLine() = index;
+	if (bAnchor.value_or(false))
+		anchorLine() = index;
 }
 
 void UListWindow::SetFocusTexture(UObject* NewTexture)
@@ -3874,8 +4227,7 @@ void UListWindow::SetFocusTexture(UObject* NewTexture)
 
 void UListWindow::SetFocusThickness(float newThickness)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ListWindow.SetFocusThickness");
+	focusThickness() = newThickness;
 }
 
 void UListWindow::SetHighlightColor(const Color& NewColor)
@@ -3913,7 +4265,13 @@ void UListWindow::SetNumColumns(int newCols)
 
 void UListWindow::SetRow(int rowId, std::optional<bool> bSelect, std::optional<bool> bClearRows, std::optional<bool> bDrag)
 {
-	LogUnimplemented("ListWindow.SetRow");
+	if (RowIdToIndex(rowId) < 0)
+		return;
+	SetFocusRow(rowId, true, !bDrag.value_or(false));
+	if (bClearRows.value_or(true))
+		SelectAllRows(false);
+	if (bSelect)
+		SelectRow(rowId, *bSelect);
 }
 
 void UListWindow::SetRowClientInt(int rowId, int clientInt)
@@ -3934,7 +4292,8 @@ void UListWindow::SetRowClientObject(int rowId, UObject* clientObj)
 
 void UListWindow::SetSortColumn(int colIndex, std::optional<bool> bReverse, std::optional<bool> bCaseSensitive)
 {
-	LogUnimplemented("ListWindow.SetSortColumn");
+	sortColumns.clear();
+	AddSortColumn(colIndex, bReverse, bCaseSensitive);
 }
 
 void UListWindow::ShowFocusRow()
@@ -3945,7 +4304,26 @@ void UListWindow::ShowFocusRow()
 
 void UListWindow::Sort()
 {
-	LogUnimplemented("ListWindow.Sort");
+	if (sortColumns.empty())
+		return;
+	const int focusRowId = GetFocusRow();
+	std::stable_sort(items.begin(), items.end(), [this](const Item& left, const Item& right)
+	{
+		for (const SortSpec& spec : sortColumns)
+		{
+			std::string a = spec.Column < (int)left.cells.size() ? left.cells[spec.Column] : "";
+			std::string b = spec.Column < (int)right.cells.size() ? right.cells[spec.Column] : "";
+			if (!spec.CaseSensitive)
+			{
+				std::transform(a.begin(), a.end(), a.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+				std::transform(b.begin(), b.end(), b.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+			}
+			if (a != b)
+				return spec.Reverse ? a > b : a < b;
+		}
+		return false;
+	});
+	focusLine() = RowIdToIndex(focusRowId);
 }
 
 void UListWindow::ToggleRowSelection(int rowId)
@@ -3954,6 +4332,7 @@ void UListWindow::ToggleRowSelection(int rowId)
 	if (rowIndex == -1)
 		return;
 	items[rowIndex].selected = !items[rowIndex].selected;
+	numSelected() = GetNumSelectedRows();
 }
 
 void UListWindow::DrawWindow(UGC* gc)
@@ -3965,10 +4344,34 @@ void UListWindow::DrawWindow(UGC* gc)
 	float w = Width();
 	float h = Height();
 	float lineHeight = (float)font->GetGlyph('X').VSize + 2;
+	lineSize() = lineHeight;
 
 	float y = 0.0f;
+	int lineIndex = 0;
 	for (auto& item : items)
 	{
+		if (lineIndex == focusLine())
+		{
+			gc->SetTextColor(highlightTextColor);
+			gc->SetTileColor(focusColor());
+			if (focusTexture())
+				gc->DrawTexture(0.0f, y, w, lineHeight, 0.0f, 0.0f, focusTexture());
+		}
+
+		if (item.selected)
+		{
+			float t = focusThickness();
+			gc->SetTextColor(highlightTextColor);
+			gc->SetTileColor(highlightColor());
+			if (highlightTexture())
+				gc->DrawTexture(t, y + t, std::max(w - 2.0f * t, 0.0f), std::max(lineHeight - t * 2.0f, 0.0f), 0.0f, 0.0f, highlightTexture());
+		}
+		else
+		{
+			gc->SetTextColor(TextColor());
+			gc->SetTileColor(tileColor());
+		}
+
 		float x = 0.0f;
 		size_t colIndex = 0;
 		for (auto& col : columns)
@@ -3978,12 +4381,59 @@ void UListWindow::DrawWindow(UGC* gc)
 				UFont* colFont = col.font ? col.font : font;
 				gc->SetFont(colFont);
 				gc->SetAlignments((uint8_t)col.align, (uint8_t)EVAlign::Center);
+
+				//if (!item.selected)
+				//	gc->SetTextColor(col.color);
+
 				gc->DrawText(x, y, col.width, lineHeight, item.cells[colIndex]);
 			}
 			x += col.width;
 			colIndex++;
 		}
 		y += lineHeight;
+		lineIndex++;
+	}
+}
+
+bool UListWindow::MouseButtonPressed(float pointX, float pointY, EInputKey button, int numClicks)
+{
+	if (UWindow::MouseButtonPressed(pointX, pointY, button, numClicks))
+		return true;
+
+	float rowHeight = lineSize();
+	if (rowHeight <= 0.0f)
+	{
+		if (UFont* font = normalFont())
+			rowHeight = (float)font->GetGlyph('X').VSize + 2.0f;
+	}
+	if (rowHeight <= 0.0f)
+		return true;
+
+	int index = (int)std::floor(pointY / rowHeight);
+	int rowId = IndexToRowId(index);
+	if (rowId > 0)
+	{
+		SetRow(rowId, true, true, false);
+		SetFocusRow(rowId, false, false);
+		DispatchListSelectionChanged();
+	}
+
+	return true;
+}
+
+bool UListWindow::MouseButtonReleased(float pointX, float pointY, EInputKey button, int numClicks)
+{
+	return UWindow::MouseButtonReleased(pointX, pointY, button, numClicks);
+}
+
+void UListWindow::DispatchListSelectionChanged()
+{
+	int numSelections = GetNumSelectedRows();
+	int focusRowId = GetFocusRow();
+	for (UWindow* cur = this; cur; cur = cur->parentOwner())
+	{
+		if (cur->ListSelectionChanged(this, numSelections, focusRowId))
+			break;
 	}
 }
 
@@ -3991,14 +4441,24 @@ void UListWindow::DrawWindow(UGC* gc)
 
 void UComputerWindow::ClearLine(int rowToClear)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.ClearLine");
+	if (rowToClear < 0)
+		return;
+	size_t start = 0;
+	for (int row = 0; row < rowToClear; row++)
+	{
+		start = text.find('\n', start);
+		if (start == std::string::npos)
+			return;
+		start++;
+	}
+	size_t end = text.find('\n', start);
+	text.erase(start, end == std::string::npos ? std::string::npos : end - start);
 }
 
 void UComputerWindow::FadeOutText(std::optional<float> fadeDuration)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.FadeOutText");
+	fadeOutStart() = timeCurrent();
+	fadeOutTimer() = std::max(0.0f, fadeDuration.value_or(0.0f));
 }
 
 void UComputerWindow::GetChar(const std::string& inputKey, std::optional<bool> bEcho)
@@ -4015,29 +4475,24 @@ void UComputerWindow::GetInput(int MaxLength, const std::string& inputKey, std::
 
 float UComputerWindow::GetThrottle()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.GetThrottle");
-	return 0.0f;
+	return throttle();
 }
 
 bool UComputerWindow::IsBufferFlushed()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.IsBufferFlushed");
-	return false;
+	return queuedBufferStart() == 0;
 }
 
 bool UComputerWindow::IsPaused()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.IsPaused");
-	return false;
+	return bPauseProcessing();
 }
 
 void UComputerWindow::Pause(std::optional<float> pauseLength)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.Pause");
+	bPauseProcessing() = true;
+	if (pauseLength)
+		timeNextEvent() = timeCurrent() + std::max(0.0f, *pauseLength);
 }
 
 void UComputerWindow::PlaySoundLater(UObject* newsound)
@@ -4054,32 +4509,30 @@ void UComputerWindow::PrintGraphic(UObject* Graphic, int Width, int Height, std:
 
 void UComputerWindow::PrintLn()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.PrintLn");
+	text += '\n';
 }
 
 void UComputerWindow::ResetThrottle()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.ResetThrottle");
+	throttle() = 1.0f;
 }
 
 void UComputerWindow::Resume()
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.Resume");
+	bPauseProcessing() = false;
+	timeNextEvent() = timeCurrent();
 }
 
 void UComputerWindow::SetBackgroundTextures(UObject* backTexture1, UObject* backTexture2, UObject* backTexture3, UObject* backTexture4, UObject* backTexture5, UObject* backTexture6)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.SetBackgroundTextures");
+	UObject* textures[6] = { backTexture1, backTexture2, backTexture3, backTexture4, backTexture5, backTexture6 };
+	for (int i = 0; i < 6; i++)
+		backgroundTextures()[i] = UObject::Cast<UTexture>(textures[i]);
 }
 
 void UComputerWindow::SetComputerSoundVolume(float newSoundVolume)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.SetComputerSoundVolume");
+	computerSoundVolume() = std::max(0.0f, newSoundVolume);
 }
 
 void UComputerWindow::SetCursorBlinkSpeed(float newBlinkSpeed)
@@ -4090,8 +4543,11 @@ void UComputerWindow::SetCursorBlinkSpeed(float newBlinkSpeed)
 
 void UComputerWindow::SetCursorTexture(UObject* newCursorTexture, std::optional<int> newCursorWidth, std::optional<int> newCursorHeight)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.SetCursorTexture");
+	cursorTexture() = UObject::Cast<UTexture>(newCursorTexture);
+	if (newCursorWidth)
+		cursorWidth() = *newCursorWidth;
+	if (newCursorHeight)
+		cursorHeight() = *newCursorHeight;
 }
 
 void UComputerWindow::SetFontColor(const Color& newFontColor)
@@ -4102,38 +4558,34 @@ void UComputerWindow::SetFontColor(const Color& newFontColor)
 
 void UComputerWindow::SetTextPosition(int posX, int posY)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.SetTextPosition");
+	TextX() = posX;
+	TextY() = posY;
 }
 
 void UComputerWindow::SetTextSound(UObject* newTextSound)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.SetTextSound");
+	textSound() = UObject::Cast<USound>(newTextSound);
 }
 
 void UComputerWindow::SetTextWindowPosition(int newX, int newY)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.SetTextWindowPosition");
+	if (UWindow* textWindow = TextWindow())
+		textWindow->SetPos(static_cast<float>(newX), static_cast<float>(newY));
 }
 
 void UComputerWindow::SetThrottle(float throttleModifier)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.SetThrottle");
+	throttle() = throttleModifier;
 }
 
 void UComputerWindow::SetTypingSound(UObject* newTypingSound)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.SetTypingSound");
+	typingSound() = UObject::Cast<USound>(newTypingSound);
 }
 
 void UComputerWindow::SetTypingSoundVolume(float newSoundVolume)
 {
-	// UNUSED from scripts.
-	LogUnimplemented("ComputerWindow.SetTypingSoundVolume");
+	computerSoundVolume() = std::max(0.0f, newSoundVolume);
 }
 
 void UComputerWindow::ClearScreen()
@@ -4143,7 +4595,7 @@ void UComputerWindow::ClearScreen()
 
 void UComputerWindow::EnableWordWrap(std::optional<bool> bNewWordWrap)
 {
-	// Script always calls this and calls it with wordwrap enabled
+	bWordWrap() = bNewWordWrap.value_or(true);
 }
 
 void UComputerWindow::Print(const std::string& printText, std::optional<bool> bNewLine)
@@ -4166,6 +4618,9 @@ void UComputerWindow::SetFadeSpeed(float newFadeSpeed)
 void UComputerWindow::SetTextFont(UObject* NewFont, int newFontWidth, int newFontHeight, const Color& newFontColor)
 {
 	textFont() = UObject::Cast<UFont>(NewFont);
+	fontWidth() = newFontWidth;
+	fontHeight() = newFontHeight;
+	FontColor() = newFontColor;
 }
 
 void UComputerWindow::SetTextSize(int newCols, int newRows)

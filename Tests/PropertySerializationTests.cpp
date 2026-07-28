@@ -10,6 +10,22 @@
 
 int main()
 {
+	UObject arrayOwner("ArrayOwner", nullptr, ObjectFlags::NoFlags);
+	UIntProperty arrayElement("Element", nullptr, ObjectFlags::NoFlags);
+	ScriptArray arrayStorage(&arrayElement);
+	arrayOwner.PropertyData.Data = &arrayStorage;
+	arrayOwner.PropertyData.Size = sizeof(arrayStorage);
+	auto arrayView = arrayOwner.DynamicArray<uint32_t>({ 0, 1 });
+	if (arrayView.Array != &arrayStorage)
+	{
+		arrayOwner.PropertyData.Data = nullptr;
+		arrayOwner.PropertyData.Size = 0;
+		std::cerr << "FAILED: native dynamic-array access must wrap the inline ScriptArray storage\n";
+		return 1;
+	}
+	arrayOwner.PropertyData.Data = nullptr;
+	arrayOwner.PropertyData.Size = 0;
+
 	UClass oldObjectClass("OldObject", nullptr, ObjectFlags::NoFlags);
 	UObjectProperty parentProperty("Parent", nullptr, ObjectFlags::NoFlags);
 	oldObjectClass.Properties.push_back(&parentProperty);

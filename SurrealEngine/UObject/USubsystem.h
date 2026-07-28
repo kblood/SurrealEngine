@@ -122,6 +122,7 @@ public:
 	int Channels = 16;
 	uint8_t MusicVolume = 160;
 	uint8_t SoundVolume = 200;
+	uint8_t SpeechVolume = 255;
 	float AmbientFactor = 0.7f;
 
 	void LoadProperties(const NameString& from = "") override;
@@ -131,16 +132,18 @@ public:
 	void SetPropertyFromString(const NameString& propertyName, const std::string& value) override;
 
 	void InitDevice();
+	void InitDevice(std::unique_ptr<AudioDevice> device);
 	void ShutdownDevice();
 	void SetViewport(UViewport* InViewport);
 	UViewport* GetViewport() { return m_Viewport; }
 
 	void Update(const mat4& listener);
 
-	bool PlaySound(UActor* Actor, int Id, USound* Sound, vec3 Location, float Volume, float Radius, float Pitch);
+	bool PlaySound(UActor* Actor, int Id, USound* Sound, vec3 Location, float Volume, float Radius, float Pitch, bool isTalk);
 	void StopSound(UActor* Actor, int Id);
 	void ActorDestroyed(UActor* Actor);
 	void StopSounds();
+	void SetSpeechVolume(uint8_t volume) { SpeechVolume = volume; }
 
 	void BreakpointTriggered();
 	void AddStats(Array<std::string>& lines);

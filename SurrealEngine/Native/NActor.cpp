@@ -221,11 +221,11 @@ void NActor::DemoPlaySound(UObject* Self, UObject* Sound, std::optional<uint8_t>
 
 		if (engine->LaunchInfo.IsKlingonHonorGuard())
 		{
-			engine->audiodev->PlaySound(SelfActor, Slot ? *Slot : SLOT_Misc, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->SoundRadius(), Pitch ? *Pitch : 1.0f);
+			engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->SoundRadius(), Pitch ? *Pitch : 1.0f, slot == SLOT_Talk);
 		}
 		else
 		{
-			engine->audiodev->PlaySound(SelfActor, Slot ? *Slot : SLOT_Misc, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->TransientSoundRadius(), Pitch ? *Pitch : 1.0f);
+			engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->TransientSoundRadius(), Pitch ? *Pitch : 1.0f, slot == SLOT_Talk);
 		}
 	}
 }
@@ -528,11 +528,11 @@ void NActor::PlayOwnedSound(UObject* Self, UObject* Sound, std::optional<uint8_t
 		if (bNoOverride && *bNoOverride) id |= 1;
 		if (engine->LaunchInfo.IsKlingonHonorGuard())
 		{
-			engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->SoundRadius(), Pitch ? *Pitch : 1.0f);
+			engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->SoundRadius(), Pitch ? *Pitch : 1.0f, slot == SLOT_Talk);
 		}
 		else
 		{
-			engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->TransientSoundRadius(), Pitch ? *Pitch : 1.0f);
+			engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->TransientSoundRadius(), Pitch ? *Pitch : 1.0f, slot == SLOT_Talk);
 		}
 	}
 }
@@ -548,11 +548,11 @@ void NActor::PlaySound(UObject* Self, UObject* Sound, std::optional<uint8_t> Slo
 		if (bNoOverride && *bNoOverride) id |= 1;
 		if (engine->LaunchInfo.IsKlingonHonorGuard())
 		{
-			engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->SoundRadius(), Pitch ? *Pitch : 1.0f);
+			engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->SoundRadius(), Pitch ? *Pitch : 1.0f, slot == SLOT_Talk);
 		}
 		else
 		{
-			engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->TransientSoundRadius(), Pitch ? *Pitch : 1.0f);
+			engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->TransientSoundRadius(), Pitch ? *Pitch : 1.0f, slot == SLOT_Talk);
 		}
 	}
 }
@@ -566,7 +566,7 @@ void NActor::PlaySound_Deus(UObject* Self, UObject* Sound, std::optional<uint8_t
 		int slot = Slot ? *Slot : SLOT_Misc;
 		int id = ((((int)(ptrdiff_t)SelfActor) & 0xffffff) << 4) + (slot << 1);
 		if (bNoOverride && *bNoOverride) id |= 1;
-		engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->TransientSoundRadius(), Pitch ? *Pitch : 1.0f);
+		engine->audiodev->PlaySound(SelfActor, id, s, SelfActor->Location(), Volume ? *Volume : SelfActor->TransientSoundVolume(), Radius ? (*Radius) : SelfActor->TransientSoundRadius(), Pitch ? *Pitch : 1.0f, slot == SLOT_Talk);
 		ReturnValue = id;
 	}
 	else
@@ -791,19 +791,115 @@ void NActor::GetPlayerPawn(UObject* Self, UObject*& ReturnValue)
 	ReturnValue = nullptr;  
 }
 
+namespace
+{
+	UProperty* FindAIParamsProperty(UFunction* function)
+	{
+		if (!function)
+			return nullptr;
+		for (UProperty* property : function->Properties)
+		{
+			if (property->ValueType == ExpressionValueType::ValueStruct)
+				return property;
+		}
+		return nullptr;
+	}
+
+	bool IsInAIEventRadius(UActor* source, UActor* listener, float radius)
+	{
+		const vec3 delta = listener->Location() - source->Location();
+		return radius <= 0.0f || dot(delta, delta) <= radius * radius;
+	}
+
+	bool PassesAIEventChecks(UActor* source, UActor* listener, const AIEventCallback& callback)
+	{
+		if (!callback.CheckVisibility && !callback.CheckDirection && !callback.CheckCylinder && !callback.CheckLOS)
+			return true;
+		auto pawn = UObject::TryCast<UPawn>(listener);
+		return pawn && pawn->AICanSee(source, 1.0f, callback.CheckVisibility,
+			callback.CheckDirection, callback.CheckCylinder, callback.CheckLOS) > 0.0f;
+	}
+
+	bool ApplyAIEventScore(UActor* source, UActor* listener, const AIEventCallback& callback, float& score)
+	{
+		if (callback.ScoreCallback.IsNone())
+			return true;
+		ExpressionValue result = CallEvent(listener, callback.ScoreCallback,
+			{ ExpressionValue::ObjectValue(listener), ExpressionValue::ObjectValue(source), ExpressionValue::FloatValue(score) });
+		if (result.GetType() != ExpressionValueType::Nothing)
+			score = result.ToFloat();
+		return score > 0.0f;
+	}
+
+	void DispatchAIEvent(UActor* source, const NameString& eventName, EAIEventState state, uint8_t eventType, float value, float radius)
+	{
+		if (!source || !engine || !engine->Level)
+			return;
+
+		for (UActor* listener : engine->Level->Actors)
+		{
+			if (!listener || listener->bDeleteMe() || !IsInAIEventRadius(source, listener, radius))
+				continue;
+			auto registration = listener->AIEventCallbacks.find(eventName);
+			if (registration == listener->AIEventCallbacks.end() || registration->second.Callback.IsNone() ||
+				!PassesAIEventChecks(source, listener, registration->second))
+				continue;
+
+			float score = value;
+			if (!ApplyAIEventScore(source, listener, registration->second, score))
+				continue;
+
+			UFunction* callback = FindEventFunction(listener, registration->second.Callback);
+			UProperty* paramsProperty = FindAIParamsProperty(callback);
+			if (!paramsProperty)
+				continue;
+
+			ExpressionValue paramsValue = ExpressionValue::PropertyValue(paramsProperty);
+			auto& params = paramsValue.ToType<XAIParams&>();
+			params.BestActor = source;
+			params.Score = score;
+			params.Visibility = eventType == static_cast<uint8_t>(EAIEventType::EAITYPE_Visual) ? value : 0.0f;
+			params.Volume = eventType == static_cast<uint8_t>(EAIEventType::EAITYPE_Audio) ? value : 0.0f;
+			params.Smell = eventType == static_cast<uint8_t>(EAIEventType::EAITYPE_Olifactory) ? value : 0.0f;
+
+			CallEvent(listener, registration->second.Callback,
+				{ ExpressionValue::NameValue(eventName), ExpressionValue::ByteValue(static_cast<uint8_t>(state)), std::move(paramsValue) });
+		}
+	}
+}
+
 void NActor::AIClearEvent(UObject* Self, const NameString& eventName)
 {
-	LogUnimplemented("Actor.AIClearEvent");
+	auto actor = UObject::TryCast<UActor>(Self);
+	if (!actor)
+		return;
+	auto active = actor->AIActiveEvents.find(eventName);
+	if (active != actor->AIActiveEvents.end())
+	{
+		DispatchAIEvent(actor, eventName, EAIEventState::EAISTATE_End,
+			active->second.Type, active->second.Value, active->second.Radius);
+		actor->AIActiveEvents.erase(active);
+	}
 }
 
 void NActor::AIClearEventCallback(UObject* Self, const NameString& eventName)
 {
-	LogUnimplemented("Actor.AIClearEventCallback");
+	if (auto actor = UObject::TryCast<UActor>(Self))
+		actor->AIEventCallbacks.erase(eventName);
 }
 
 void NActor::AIEndEvent(UObject* Self, const NameString& eventName, uint8_t eventType)
 {
-	LogUnimplemented("Actor.AIEndEvent");
+	auto actor = UObject::TryCast<UActor>(Self);
+	if (!actor)
+		return;
+	auto active = actor->AIActiveEvents.find(eventName);
+	if (active != actor->AIActiveEvents.end())
+	{
+		DispatchAIEvent(actor, eventName, EAIEventState::EAISTATE_End,
+			eventType, active->second.Value, active->second.Radius);
+		actor->AIActiveEvents.erase(active);
+	}
 }
 
 void NActor::AIGetLightLevel(UObject* Self, const vec3& Location, float& ReturnValue)
@@ -814,17 +910,36 @@ void NActor::AIGetLightLevel(UObject* Self, const vec3& Location, float& ReturnV
 
 void NActor::AISendEvent(UObject* Self, const NameString& eventName, uint8_t eventType, std::optional<float> Value, std::optional<float> Radius)
 {
-	LogUnimplemented("Actor.AISendEvent");
+	if (auto actor = UObject::TryCast<UActor>(Self))
+		DispatchAIEvent(actor, eventName, EAIEventState::EAISTATE_Pulse,
+			eventType, Value.value_or(1.0f), Radius.value_or(0.0f));
 }
 
 void NActor::AISetEventCallback(UObject* Self, const NameString& eventName, const NameString& callback, std::optional<NameString> scoreCallback, std::optional<bool> bCheckVisibility, std::optional<bool> bCheckDir, std::optional<bool> bCheckCylinder, std::optional<bool> bCheckLOS)
 {
-	LogUnimplemented("Actor.AISetEventCallback");
+	if (auto actor = UObject::TryCast<UActor>(Self))
+	{
+		actor->AIEventCallbacks[eventName] =
+		{
+			callback,
+			scoreCallback.value_or(NameString()),
+			bCheckVisibility.value_or(false),
+			bCheckDir.value_or(false),
+			bCheckCylinder.value_or(false),
+			bCheckLOS.value_or(false)
+		};
+	}
 }
 
 void NActor::AIStartEvent(UObject* Self, const NameString& eventName, uint8_t eventType, std::optional<float> Value, std::optional<float> Radius)
 {
-	LogUnimplemented("Actor.AIStartEvent");
+	auto actor = UObject::TryCast<UActor>(Self);
+	if (!actor)
+		return;
+	const AIActiveEvent active = { eventType, Value.value_or(1.0f), Radius.value_or(0.0f) };
+	actor->AIActiveEvents[eventName] = active;
+	DispatchAIEvent(actor, eventName, EAIEventState::EAISTATE_Begin,
+		active.Type, active.Value, active.Radius);
 }
 
 void NActor::AIVisibility(UObject* Self, std::optional<bool> bIncludeVelocity, float& ReturnValue)
@@ -990,7 +1105,7 @@ void NActor::SetInstantSoundVolume(UObject* Self, uint8_t newSoundVolume)
 
 void NActor::SetInstantSpeechVolume(UObject* Self, uint8_t newSpeechVolume)
 {
-	LogUnimplemented("Actor.SetInstantSpeechVolume");
+	engine->audiodev->SetSpeechVolume(newSpeechVolume);
 }
 
 void NActor::StopSound_Deus(UObject* Self, int Id)
@@ -1001,7 +1116,7 @@ void NActor::StopSound_Deus(UObject* Self, int Id)
 
 void NActor::TweenBlendAnim(UObject* Self, const NameString& Sequence, float Time, std::optional<int> BlendSlot)
 {
-	LogUnimplemented("Actor.TweenBlendAnim");
+	UObject::Cast<UActor>(Self)->TweenBlendAnim(Sequence, Time, BlendSlot ? *BlendSlot : 0);
 }
 
 void NActor::PlayAnim_HP(UObject* Self, const NameString& Sequence, std::optional<float> Rate, std::optional<float> TweenTime, std::optional<uint8_t> Type, std::optional<NameString> RootBone)

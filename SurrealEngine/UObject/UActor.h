@@ -200,6 +200,25 @@ enum class EAIEventType : uint8_t
 	EAITYPE_Olifactory
 };
 
+// Deus Ex callback registrations and active sources are transient runtime
+// state populated by UnrealScript during actor initialization.
+struct AIEventCallback
+{
+	NameString Callback;
+	NameString ScoreCallback;
+	bool CheckVisibility = false;
+	bool CheckDirection = false;
+	bool CheckCylinder = false;
+	bool CheckLOS = false;
+};
+
+struct AIActiveEvent
+{
+	uint8_t Type = 0;
+	float Value = 0.0f;
+	float Radius = 0.0f;
+};
+
 // Deus Ex
 enum class EAllianceType : uint8_t
 {
@@ -483,7 +502,8 @@ public:
 	void FinishAnim_HP(std::optional<NameString> RootBone);
 	NameString GetAnimGroup(const NameString& sequence);
 	void PlayAnim(const NameString& sequence, float rate, float tweenTime);
-	void PlayBlendAnim(const NameString& sequence, float rate, float tweenTime, int blendSlot);
+	void PlayBlendAnim(const NameString& sequenceName, float rate, float tweenTime, int blendSlot);
+	void TweenBlendAnim(const NameString& sequenceName, float time, int blendSlot);
 	void LoopAnim(const NameString& sequence, float rate, float tweenTime, float minRate);
 	void TweenAnim(const NameString& sequence, float tweenTime);
 
@@ -565,6 +585,14 @@ public:
 		float T = -1.0f;
 	} TweenFromAnimFrame;
 
+	// Tweening blend animation state (per slot)
+	struct
+	{
+		int V0 = 0;
+		int V1 = 0;
+		float T = -1.0f;
+	} TweenFromBlendAnimFrame[4];
+
 	int LastDrawFrame = -1;
 
 	float SleepTimeLeft = 0.0f;
@@ -578,10 +606,14 @@ public:
 	// Based actor tracking
 	Array<UActor*> BasedActors;
 
+	std::map<NameString, AIEventCallback> AIEventCallbacks;
+	std::map<NameString, AIActiveEvent> AIActiveEvents;
+
 	void AddChildActor(UActor* actor);
 	void RemoveChildActor(UActor* actor);
 
 	void SetTweenFromAnimFrame();
+	void SetTweenFromBlendAnimFrame(int slot);
 
 	UTexture* GetMultiskin(int index);
 

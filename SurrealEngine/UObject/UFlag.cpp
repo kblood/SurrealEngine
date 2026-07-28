@@ -40,7 +40,12 @@ void UFlagBase::DeleteAllFlags()
 
 void UFlagBase::DeleteExpiredFlags(int criteria)
 {
-	LogUnimplemented("FlagBase.DeleteExpiredFlags");
+	auto table = hashTable();
+	for (int i = 0; i < table.size(); i++)
+	{
+		if (table[i] && table[i]->expiration() > 0 && table[i]->expiration() <= criteria)
+			table[i] = nullptr;
+	}
 }
 
 bool UFlagBase::CheckFlag(const NameString& FlagName, uint8_t flagType)
@@ -114,7 +119,7 @@ uint8_t UFlagBase::GetByte(const NameString& FlagName)
 
 int UFlagBase::GetExpiration(const NameString& FlagName, uint8_t flagType)
 {
-	if (UFlag* flag = GetFlag(FlagName, (uint8_t)EFlagType::Bool))
+	if (UFlag* flag = GetFlag(FlagName, flagType))
 		return flag->expiration();
 	return 0;
 }
