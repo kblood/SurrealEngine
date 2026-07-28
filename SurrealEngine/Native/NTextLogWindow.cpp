@@ -6,16 +6,16 @@
 
 void NTextLogWindow::RegisterFunctions()
 {
-	RegisterVMNativeFunc_2("TextLogWindow", "AddLog", &NTextLogWindow::AddLog, 1570);
+	RegisterVMNativeFunc_1("TextLogWindow", "AddLog", &NTextLogWindow::AddLog, 1570);
 	RegisterVMNativeFunc_0("TextLogWindow", "ClearLog", &NTextLogWindow::ClearLog, 1571);
 	RegisterVMNativeFunc_1("TextLogWindow", "PauseLog", &NTextLogWindow::PauseLog, 1573);
 	RegisterVMNativeFunc_1("TextLogWindow", "SetTextTimeout", &NTextLogWindow::SetTextTimeout, 1572);
 }
 
-void NTextLogWindow::AddLog(UObject* Self, const std::string& NewText, const Color& linecol)
+void NTextLogWindow::AddLog(UObject* Self, const std::string& NewText)
 {
 	UTextLogWindow* textlog = UObject::Cast<UTextLogWindow>(Self);
-	textlog->AddLog(NewText, linecol);
+	textlog->AddLog(NewText, textlog->TextColor());
 }
 
 void NTextLogWindow::ClearLog(UObject* Self)
