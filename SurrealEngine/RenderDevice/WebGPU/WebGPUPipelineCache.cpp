@@ -3,7 +3,7 @@
 #include "WebGPUPipelineCache.h"
 #include "WebGPUContext.h"
 #include "WebGPUShaders.h"
-#include "UObject/ULevel.h"
+#include "Packages/Engine/Resources/Level/ULevel.h"
 #include <cstddef>
 
 static WGPUStringView ToStringView(const std::string& s) { return WGPUStringView{ s.data(), s.size() }; }

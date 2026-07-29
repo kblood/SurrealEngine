@@ -1,0 +1,248 @@
+#include "BotAI/HazardSwimEgressLiveSteer.h"
+
+#include <cmath>
+#include <iostream>
+#include <limits>
+#include <string>
+
+using namespace BotAI;
+
+namespace
+{
+	int Failures = 0;
+
+	void Check(bool condition, const std::string& message)
+	{
+		if (!condition)
+		{
+			std::cerr << "FAILED: " << message << '\n';
+			Failures++;
+		}
+	}
+
+	HazardSwimEgressLiveSteerInput ReadyInput()
+	{
+		HazardSwimEgressLiveSteerInput input;
+		input.PolicyEnabled = true;
+		input.EligibleActor = true;
+		input.Alive = true;
+		input.Physics = HazardSwimEgressPhysics::Swimming;
+		input.HarmfulWaterEpisodeActive = true;
+		input.LiveActionAuthorized = true;
+		input.FiniteAnchorKnown = true;
+		input.AnchorFromFallingPreMove = true;
+		input.ExactHarmfulWater = true;
+		input.AnchorDistanceKnown = true;
+		input.AnchorDistance = 64.0;
+		input.Probe = HazardSwimEgressProbe::Clear;
+		return input;
+	}
+
+	void CheckDecision(const HazardSwimEgressLiveSteerDecision& decision,
+		HazardSwimEgressLiveSteerTransition transition,
+		HazardSwimEgressLiveSteerTerminal terminal,
+		HazardSwimEgressLiveSteerReason reason, const std::string& message)
+	{
+		Check(decision.Transition == transition && decision.Terminal == terminal
+			&& decision.Reason == reason, message);
+	}
+
+	void TestReadyCandidate()
+	{
+		CheckDecision(EvaluateHazardSwimEgressLiveSteer(ReadyInput()),
+			HazardSwimEgressLiveSteerTransition::SteerCandidate,
+			HazardSwimEgressLiveSteerTerminal::None,
+			HazardSwimEgressLiveSteerReason::Ready,
+			"all checked facts produce only a steer candidate");
+	}
+
+	void TestExplicitTerminals()
+	{
+		auto input = ReadyInput();
+		input.Physics = HazardSwimEgressPhysics::Falling;
+		CheckDecision(EvaluateHazardSwimEgressLiveSteer(input),
+			HazardSwimEgressLiveSteerTransition::Terminal,
+			HazardSwimEgressLiveSteerTerminal::Falling,
+			HazardSwimEgressLiveSteerReason::Falling,
+			"falling terminates an active episode");
+		input = ReadyInput();
+		input.ExactHarmfulWater = false;
+		CheckDecision(EvaluateHazardSwimEgressLiveSteer(input),
+			HazardSwimEgressLiveSteerTransition::Terminal,
+			HazardSwimEgressLiveSteerTerminal::HazardCleared,
+			HazardSwimEgressLiveSteerReason::HazardCleared,
+			"cleared primary hazard terminates steering");
+		input = ReadyInput();
+		input.Probe = HazardSwimEgressProbe::Blocked;
+		CheckDecision(EvaluateHazardSwimEgressLiveSteer(input),
+			HazardSwimEgressLiveSteerTransition::Terminal,
+			HazardSwimEgressLiveSteerTerminal::ProbeBlocked,
+			HazardSwimEgressLiveSteerReason::ProbeBlocked,
+			"blocked current probe terminates steering");
+		input = ReadyInput();
+		input.ProbePreviouslyRejected = true;
+		CheckDecision(EvaluateHazardSwimEgressLiveSteer(input),
+			HazardSwimEgressLiveSteerTransition::Terminal,
+			HazardSwimEgressLiveSteerTerminal::ProbeBlocked,
+			HazardSwimEgressLiveSteerReason::ProbePreviouslyRejected,
+			"previously blocked probe remains terminal");
+	}
+
+	void TestFailsClosed()
+	{
+		auto checkNoAction = [](HazardSwimEgressLiveSteerInput input,
+			HazardSwimEgressLiveSteerReason reason, const std::string& message)
+		{
+			CheckDecision(EvaluateHazardSwimEgressLiveSteer(input),
+				HazardSwimEgressLiveSteerTransition::NoAction,
+				HazardSwimEgressLiveSteerTerminal::None, reason, message);
+		};
+		auto input = ReadyInput();
+		input.PolicyEnabled = false;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::PolicyDisabled,
+			"disabled policy cannot steer");
+		input = ReadyInput();
+		input.EligibleActor = false;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::IneligibleActor,
+			"non-stock actor cannot steer");
+		input = ReadyInput();
+		input.Alive = false;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::NotAlive,
+			"dead actor cannot steer");
+		input = ReadyInput();
+		input.HarmfulWaterEpisodeActive = false;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::NoActiveEpisode,
+			"no episode cannot steer");
+		input = ReadyInput();
+		input.Physics = HazardSwimEgressPhysics::Other;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::NotSwimming,
+			"non-swimming actor cannot steer");
+		input = ReadyInput();
+		input.LiveActionAuthorized = false;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::NotAuthorized,
+			"unauthorized episode cannot steer");
+		input = ReadyInput();
+		input.MovementCommandActive = true;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::MovementCommandActive,
+			"an active bot movement command keeps ownership of acceleration");
+		input = ReadyInput();
+		input.FiniteAnchorKnown = false;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::MissingAnchor,
+			"unknown anchor cannot steer");
+		input = ReadyInput();
+		input.AnchorFromFallingPreMove = false;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::AnchorNotFromFallingPreMove,
+			"safe-swimming anchor cannot steer");
+		input = ReadyInput();
+		input.AnchorDistanceKnown = false;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::AnchorDistanceUnknown,
+			"unknown distance cannot steer");
+		input = ReadyInput();
+		input.AnchorDistance = std::numeric_limits<double>::quiet_NaN();
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::AnchorDistanceUnknown,
+			"non-finite distance cannot steer");
+		input = ReadyInput();
+		input.AnchorDistance = 7.99;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::AnchorTooNear,
+			"near anchor cannot steer");
+		input = ReadyInput();
+		input.AnchorDistance = 512.01;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::AnchorTooFar,
+			"distant anchor cannot steer");
+		input = ReadyInput();
+		input.Probe = HazardSwimEgressProbe::NotRun;
+		checkNoAction(input, HazardSwimEgressLiveSteerReason::ProbeNotRun,
+			"unrun probe cannot steer");
+	}
+
+	void TestStockPlannerReplan()
+	{
+		HazardSwimEgressLiveReplanInput input;
+		input.PolicyEnabled = true;
+		input.EligibleActor = true;
+		input.Alive = true;
+		input.Swimming = true;
+		input.HarmfulWaterEpisodeActive = true;
+		input.LiveActionAuthorized = true;
+		input.MovementCommandActive = true;
+		input.SafeNavigationCandidateKnown = true;
+		Check(EvaluateHazardSwimEgressLiveReplan(input)
+			== HazardSwimEgressLiveReplanDecision::Replan,
+			"an authorized water entry with a safe candidate yields one stock replan");
+		input.ReplanAlreadyIssued = true;
+		Check(EvaluateHazardSwimEgressLiveReplan(input)
+			== HazardSwimEgressLiveReplanDecision::NoAction,
+			"a water episode cannot force the stock planner twice");
+		input.ReplanAlreadyIssued = false;
+		input.SafeNavigationCandidateKnown = false;
+		Check(EvaluateHazardSwimEgressLiveReplan(input)
+			== HazardSwimEgressLiveReplanDecision::NoAction,
+			"an unprobed escape candidate cannot force a stock replan");
+		input.SafeNavigationCandidateKnown = true;
+		input.MovementCommandActive = false;
+		Check(EvaluateHazardSwimEgressLiveReplan(input)
+			== HazardSwimEgressLiveReplanDecision::NoAction,
+			"without a stock movement command there is nothing to hand back");
+	}
+
+	void TestPlannerHandoffWitnessClassification()
+	{
+		HazardSwimEgressPlannerHandoffInput input;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::None,
+			"no pending handoff emits no outcome");
+		input.Pending = true;
+		input.NextMovementCommandIssued = true;
+		input.SameMoveTarget = true;
+		input.SameDestination = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::SameCommandReissued,
+			"an identical stock command is a same-command reissue");
+		input.SameDestination = false;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::DifferentCommandIssued,
+			"a changed destination is a different stock command");
+		input.NextMovementCommandIssued = false;
+		input.HazardCleared = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::HazardClearedBeforeCommand,
+			"clearance before a new command remains distinct from reissue");
+		input.HazardCleared = false;
+		input.Fell = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::FellBeforeCommand,
+			"falling is a separate terminal outcome");
+		input.Fell = false;
+		input.Died = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::DiedBeforeCommand,
+			"death before a command is terminal evidence");
+		input.Died = false;
+		input.LifeBoundary = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::LifeBoundaryCensored,
+			"a life boundary is explicitly censored");
+		input.LifeBoundary = false;
+		input.RunEnd = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::RunEndCensored,
+			"run end is explicitly censored");
+		input.RunEnd = false;
+		input.EpisodeAbandoned = true;
+		Check(ClassifyHazardSwimEgressPlannerHandoff(input)
+			== HazardSwimEgressPlannerHandoffOutcome::EpisodeAbandoned,
+			"an abandoned episode is explicitly censored");
+	}
+}
+
+int main()
+{
+	TestReadyCandidate();
+	TestExplicitTerminals();
+	TestFailsClosed();
+	TestStockPlannerReplan();
+	TestPlannerHandoffWitnessClassification();
+	if (Failures == 0)
+		std::cout << "Hazard swim egress live steer tests passed\n";
+	return Failures == 0 ? 0 : 1;
+}

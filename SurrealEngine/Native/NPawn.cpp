@@ -4,9 +4,11 @@
 #include "VM/NativeFunc.h"
 #include "VM/Frame.h"
 #include "VM/Iterator.h"
-#include "UObject/UActor.h"
-#include "UObject/ULevel.h"
-#include "UObject/USound.h"
+#include "Packages/Engine/Actors/Pawn/UPawn.h"
+#include "Packages/Engine/Actors/Info/ULevelInfo.h"
+#include "Packages/Engine/Actors/NavigationPoint/UNavigationPoint.h"
+#include "Packages/Engine/Resources/Level/ULevel.h"
+#include "Packages/Engine/Resources/USound.h"
 #include "Engine.h"
 
 namespace
@@ -290,7 +292,8 @@ void NPawn::AIPickRandomDestination(UObject* Self, float minDist, float maxDist,
 	Array<UNavigationPoint*> candidates;  
 	for (UNavigationPoint* nav = selfPawn->Level()->NavigationPointList(); nav; nav = nav->nextNavigationPoint())  
 	{  
-		if (!selfPawn->ActorReachable(nav)) continue;  
+		if (!selfPawn->ActorReachable(nav, false,
+			PawnMovement::DirectReachCommandCallerOrigin::FindRandomDest)) continue;
 		vec3 toPoint = nav->Location() - selfPawn->Location();  
 		float dist = length(toPoint);  
 		if (dist < minDist || dist > maxDist * multiplier) continue;  
@@ -386,7 +389,8 @@ void NPawn::WaitForLanding(UObject* Self)
 void NPawn::actorReachable(UObject* Self, UObject* anActor, BitfieldBool& ReturnValue)
 {
 	UPawn* SelfPawn = UObject::Cast<UPawn>(Self);
-	ReturnValue = SelfPawn->ActorReachable(UObject::Cast<UActor>(anActor), true);
+	ReturnValue = SelfPawn->ActorReachable(UObject::Cast<UActor>(anActor), true,
+		PawnMovement::DirectReachCommandCallerOrigin::ScriptActorReachable);
 }
 
 void NPawn::pointReachable(UObject* Self, const vec3& aPoint, BitfieldBool& ReturnValue)

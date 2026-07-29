@@ -6,6 +6,12 @@
 #include "RenderDevice/RenderDevice.h"
 #include "Engine.h"
 #include "VM/Frame.h"
+#include "Packages/Engine/Actors/Pawn/UPawn.h"
+#include "Packages/Engine/Actors/Inventory/UWeapon.h"
+#include "Packages/Engine/Actors/Info/ULevelInfo.h"
+#include "Packages/Engine/Actors/NavigationPoint/UNavigationPoint.h"
+#include "Packages/Engine/Resources/Mesh/USkeletalMesh.h"
+#include "Packages/Engine/Resources/Level/UModel.h"
 
 bool VisibleMesh::DrawMesh(VisibleFrame* frame, UActor* actor, bool wireframe, bool translucentPass)
 {
@@ -813,6 +819,13 @@ bool VisibleMesh::DrawLodMeshDX(VisibleFrame* frame, UActor* actor, UActor* ligh
 			continue;
 
 		float frame = animSource->BlendAnimFrame()[i] * seq->NumFrames;
+
+		static bool loggedBlend[4] = {};
+		if (!loggedBlend[i])
+		{
+			LogMessage("DrawLodMeshDX blend[" + std::to_string(i) + "]: seq='" + seq->Name.ToString() + "' frame=" + std::to_string(frame) + " StartFrame=" + std::to_string(seq->StartFrame) + " NumFrames=" + std::to_string(seq->NumFrames) + " FrameVerts=" + std::to_string(mesh->FrameVerts) + " weight=1.0");
+			loggedBlend[i] = true;
+		}
 
 		BlendInfo& b = blends[blendCount++];
 

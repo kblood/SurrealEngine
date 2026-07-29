@@ -3,8 +3,12 @@
 #include "RenderDevice/RenderDevice.h"
 #include "Engine.h"
 #include "GameWindow.h"
-#include "UObject/UClient.h"
-#include "UObject/UWindow.h"
+#include "Packages/Engine/UCanvas.h"
+#include "Packages/Engine/UConsole.h"
+#include "Packages/Engine/UViewport.h"
+#include "Packages/Engine/Actors/Pawn/UPlayerPawn.h"
+#include "Packages/Extension/Windows/TabGroup/URootWindow.h"
+#include "Packages/Extension/Windows/UWindow.h"
 #include "VM/ScriptCall.h"
 
 bool RenderSubsystem::BeginXRUICanvasCapture(const XRUICanvasReplayItem& item)

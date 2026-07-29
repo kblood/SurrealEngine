@@ -1,0 +1,361 @@
+// Unattended UT436 runner for a single pinned DM-Deck16][ walking contact.
+// It uses the normal DeathMatchPlus BotConfig/AddBot path and runs only inside
+// a disposable retail runtime, never from the installed game directory.
+class RetailHitWallOracleUTGame extends DeathMatchPlus
+    config(RetailHitWallOracleUT);
+
+var config int OracleMinHitWallMilli;
+var config int OracleMinHitWallMicro;
+var config int OracleUseMinHitWallMicro;
+var config int OracleCase;
+var config int OracleDurationSeconds;
+var config int OraclePinnedCalibration;
+var config int OraclePinnedStartXMilli;
+var config int OraclePinnedStartYMilli;
+var config int OraclePinnedStartZMilli;
+var config int OraclePinnedDirection;
+var bool bOracleStarted;
+var bool bOracleCompleted;
+var bool bOracleUseMinHitWallMicro;
+var bool bOraclePinnedCalibration;
+var PlayerStart OraclePinnedPlayerStart;
+var string OracleRunId;
+var int OracleSequence;
+
+function int NextOracleSequence()
+{
+    OracleSequence++;
+    return OracleSequence;
+}
+
+function MarkOracleComplete()
+{
+    bOracleCompleted = True;
+}
+
+event InitGame(string Options, out string Error)
+{
+    Super.InitGame(Options, Error);
+    OracleMinHitWallMilli = GetIntOption(Options, "OracleMinHitWallMilli", OracleMinHitWallMilli);
+    OracleMinHitWallMicro = GetIntOption(Options, "OracleMinHitWallMicro", OracleMinHitWallMicro);
+    OracleUseMinHitWallMicro = GetIntOption(Options, "OracleUseMinHitWallMicro", OracleUseMinHitWallMicro);
+    OracleCase = GetIntOption(Options, "OracleCase", OracleCase);
+    OracleDurationSeconds = GetIntOption(Options, "OracleDurationSeconds", OracleDurationSeconds);
+    OraclePinnedCalibration = GetIntOption(Options, "OraclePinnedCalibration", OraclePinnedCalibration);
+    OraclePinnedStartXMilli = GetIntOption(Options, "OraclePinnedStartXMilli", OraclePinnedStartXMilli);
+    OraclePinnedStartYMilli = GetIntOption(Options, "OraclePinnedStartYMilli", OraclePinnedStartYMilli);
+    OraclePinnedStartZMilli = GetIntOption(Options, "OraclePinnedStartZMilli", OraclePinnedStartZMilli);
+    OraclePinnedDirection = GetIntOption(Options, "OraclePinnedDirection", OraclePinnedDirection);
+    bOracleUseMinHitWallMicro = OracleUseMinHitWallMicro != 0;
+    bOraclePinnedCalibration = OraclePinnedCalibration != 0;
+    OracleRunId = ParseOption(Options, "OracleRunId");
+    if (OracleRunId == "")
+        OracleRunId = "missing-run-id";
+}
+
+function LogOracle(string EventName, string Detail)
+{
+    if (LocalLog != None)
+        LocalLog.LogEventString(LocalLog.GetTimeStamp() $ Chr(9)
+            $ "minhitwall_oracle" $ Chr(9) $ EventName $ Chr(9)
+            $ "run=" $ OracleRunId $ ";seq=" $ NextOracleSequence() $ ";" $ Detail);
+}
+
+function vector CandidateDirection(int Candidate)
+{
+    if (Candidate == 0) return vect(1,0,0);
+    if (Candidate == 1) return vect(0,1,0);
+    if (Candidate == 2) return vect(-1,0,0);
+    if (Candidate == 3) return vect(0,-1,0);
+    if (Candidate == 4) return Normal(vect(1,1,0));
+    if (Candidate == 5) return Normal(vect(-1,1,0));
+    if (Candidate == 6) return Normal(vect(-1,-1,0));
+    return Normal(vect(1,-1,0));
+}
+
+function float OracleThresholdValue()
+{
+    if (bOracleUseMinHitWallMicro)
+        return float(OracleMinHitWallMicro) / 1000000.0;
+    return float(OracleMinHitWallMilli) / 1000.0;
+}
+
+function string OracleThresholdDetail()
+{
+    if (bOracleUseMinHitWallMicro)
+        return ";threshold_unit=micro;threshold_micro=" $ OracleMinHitWallMicro;
+    return ";threshold_unit=milli;threshold_milli=" $ OracleMinHitWallMilli;
+}
+
+function vector OraclePinnedStartLocation()
+{
+    local vector Result;
+
+    Result.X = float(OraclePinnedStartXMilli) / 1000.0;
+    Result.Y = float(OraclePinnedStartYMilli) / 1000.0;
+    Result.Z = float(OraclePinnedStartZMilli) / 1000.0;
+    return Result;
+}
+
+function bool FindPinnedPlayerStart()
+{
+    local PlayerStart CandidateStart;
+    local PlayerStart NearestStart;
+    local vector RequestedStart;
+    local int MatchCount;
+    local float Distance;
+    local float NearestDistance;
+
+    RequestedStart = OraclePinnedStartLocation();
+    OraclePinnedPlayerStart = None;
+    foreach AllActors(class'PlayerStart', CandidateStart)
+    {
+        Distance = VSize(CandidateStart.Location - RequestedStart);
+        if (NearestStart == None || Distance < NearestDistance)
+        {
+            NearestStart = CandidateStart;
+            NearestDistance = Distance;
+        }
+        if (Distance <= 1.0)
+        {
+            MatchCount++;
+            OraclePinnedPlayerStart = CandidateStart;
+        }
+    }
+    if (MatchCount != 1)
+    {
+        LogOracle("pinned_start_rejected", "requested_start=" $ RequestedStart
+            $ ";match_count=" $ MatchCount $ ";nearest_start=" $ NearestStart
+            $ ";nearest_location=" $ NearestStart.Location
+            $ ";nearest_distance=" $ NearestDistance
+            $ ";direction=" $ OraclePinnedDirection);
+        return False;
+    }
+    LogOracle("pinned_start_selected", "requested_start=" $ RequestedStart
+        $ ";playerstart=" $ OraclePinnedPlayerStart
+        $ ";playerstart_location=" $ OraclePinnedPlayerStart.Location
+        $ ";direction=" $ OraclePinnedDirection);
+    return True;
+}
+
+function bool ConfigureProbeAtStart(RetailHitWallOracleUTBot Probe, vector Start)
+{
+    local vector Goal;
+    local vector Direction;
+    local vector Perpendicular;
+    local vector BlockerLocation;
+    local vector FloorLocation;
+    local vector FloorNormal;
+    local vector HitLocation;
+    local vector HitNormal;
+    local vector ProbeExtent;
+    local vector SamplePosition;
+    local Actor FloorActor;
+    local Actor PreflightActor;
+    local Actor Target;
+    local RetailHitWallOracleUTBlocker Blocker;
+    local RetailHitWallOracleUTMover MoverTarget;
+    local int Candidate;
+    local int CandidateBegin;
+    local int CandidateEnd;
+    local int Sample;
+    local float LateralOffset;
+    local float FloorReferenceZ;
+
+    LateralOffset = 0.0;
+    if (OracleCase == 1)
+        LateralOffset = 89.0;
+    CandidateBegin = 0;
+    CandidateEnd = 8;
+    if (bOraclePinnedCalibration)
+    {
+        if (OraclePinnedDirection < 0 || OraclePinnedDirection >= 8)
+        {
+            LogOracle("pinned_direction_rejected", "direction=" $ OraclePinnedDirection);
+            return False;
+        }
+        CandidateBegin = OraclePinnedDirection;
+        CandidateEnd = CandidateBegin + 1;
+    }
+
+    for (Candidate = CandidateBegin; Candidate < CandidateEnd; Candidate++)
+    {
+        Direction = CandidateDirection(Candidate);
+        Goal = Start + Direction * 512.0;
+        if (!FastTrace(Goal, Start))
+            continue;
+        for (Sample = 0; Sample <= 4; Sample++)
+        {
+            SamplePosition = Start + Direction * (128.0 * Sample);
+            FloorActor = Trace(FloorLocation, FloorNormal,
+                SamplePosition - vect(0,0,256),
+                SamplePosition + vect(0,0,96), false);
+            if (FloorActor == None || FloorNormal.Z < 0.95)
+                break;
+            if (Sample == 0)
+                FloorReferenceZ = FloorLocation.Z;
+            else if (Abs(FloorLocation.Z - FloorReferenceZ) > 16.0)
+                break;
+        }
+        if (Sample <= 4)
+            continue;
+        Perpendicular.X = -Direction.Y;
+        Perpendicular.Y = Direction.X;
+        Perpendicular.Z = 0.0;
+        BlockerLocation = Start + Direction * 256.0 + Perpendicular * LateralOffset;
+        if (OracleCase == 2)
+        {
+            MoverTarget = Spawn(class'RetailHitWallOracleUTMover',,, BlockerLocation);
+            Target = MoverTarget;
+        }
+        else
+        {
+            Blocker = Spawn(class'RetailHitWallOracleUTBlocker',,, BlockerLocation);
+            Target = Blocker;
+        }
+        if (Target == None)
+            continue;
+        Target.SetCollision(True, True, True);
+        if (!Target.SetLocation(BlockerLocation))
+        {
+            Target.SetCollision(False, False, False);
+            Target.Destroy();
+            continue;
+        }
+        ProbeExtent.X = Probe.CollisionRadius;
+        ProbeExtent.Y = Probe.CollisionRadius;
+        ProbeExtent.Z = Probe.CollisionHeight;
+        PreflightActor = Probe.Trace(HitLocation, HitNormal, Goal, Start, True, ProbeExtent);
+        if (PreflightActor != Target)
+        {
+            Target.SetCollision(False, False, False);
+            Target.Destroy();
+            continue;
+        }
+        if (OracleCase == 2)
+            MoverTarget.ConfigureOracle(OracleRunId);
+        else
+            Blocker.ConfigureOracle(Probe, OracleRunId);
+        if (OracleCase == 2)
+            LogOracle("preflight_mover", "case=" $ OracleCase
+                $ ";candidate=" $ Candidate $ ";start=" $ Start $ ";goal=" $ Goal
+                $ ";mover=" $ Target $ ";mover_location=" $ Target.Location
+                $ ";normal=" $ HitNormal $ ";location=" $ HitLocation);
+        else
+            LogOracle("preflight_blocker", "case=" $ OracleCase
+                $ ";candidate=" $ Candidate $ ";start=" $ Start $ ";goal=" $ Goal
+                $ ";blocker=" $ Target $ ";blocker_location=" $ Target.Location
+                $ ";normal=" $ HitNormal $ ";location=" $ HitLocation
+                $ ";direction=" $ Direction $ ";lateral_offset=" $ LateralOffset
+                $ OracleThresholdDetail());
+        if (bOraclePinnedCalibration)
+            LogOracle("pinned_contact_selected", "case=" $ OracleCase
+                $ ";playerstart=" $ OraclePinnedPlayerStart
+                $ ";playerstart_location=" $ OraclePinnedPlayerStart.Location
+                $ ";candidate=" $ Candidate $ ";direction=" $ Direction
+                $ ";lateral_offset=" $ LateralOffset);
+        Probe.ConfigureOracle(OracleThresholdValue(), Start, Goal, OracleCase, Target,
+            OracleRunId, OracleMinHitWallMicro, bOracleUseMinHitWallMicro);
+        return True;
+    }
+    return False;
+}
+
+function bool ConfigureProbe(RetailHitWallOracleUTBot Probe)
+{
+    local vector InitialStart;
+    local PlayerStart CandidateStart;
+
+    if (bOraclePinnedCalibration)
+    {
+        if (OracleCase != 1)
+        {
+            LogOracle("setup_rejected", "case=" $ OracleCase $ ";reason=pinned_requires_glancing_case");
+            return False;
+        }
+        if (!FindPinnedPlayerStart())
+            return False;
+        return ConfigureProbeAtStart(Probe, OraclePinnedPlayerStart.Location);
+    }
+    InitialStart = Probe.Location;
+    if (ConfigureProbeAtStart(Probe, InitialStart))
+        return True;
+    foreach AllActors(class'PlayerStart', CandidateStart)
+    {
+        if (VSize(CandidateStart.Location - InitialStart) > 1.0
+            && ConfigureProbeAtStart(Probe, CandidateStart.Location))
+            return True;
+    }
+    LogOracle("setup_rejected", "case=" $ OracleCase $ ";start=" $ InitialStart);
+    return False;
+}
+
+function PostBeginPlay()
+{
+    local Pawn P;
+    local RetailHitWallOracleUTBot Probe;
+
+    Super.PostBeginPlay();
+    MinPlayers = 0;
+    RemainingBots = 0;
+    bRequireReady = False;
+    bNetReady = False;
+    bTournament = False;
+    bChangeLevels = False;
+    bRatedGame = False;
+    BotConfig.Difficulty = 3;
+    BotConfig.bAdjustSkill = False;
+    BotConfig.bRandomOrder = False;
+
+    if (!AddBot())
+    {
+        LogOracle("spawn_failed", "");
+        return;
+    }
+    for (P = Level.PawnList; P != None; P = P.NextPawn)
+    {
+        Probe = RetailHitWallOracleUTBot(P);
+        if (Probe != None)
+        {
+            bOracleStarted = ConfigureProbe(Probe);
+            break;
+        }
+    }
+    if (!bOracleStarted)
+        LogOracle("probe_missing", "");
+    StartMatch();
+    SetTimer(1.0, True);
+}
+
+function Timer()
+{
+    Super.Timer();
+    if (!bGameEnded && Level.TimeSeconds >= OracleDurationSeconds)
+    {
+        if (!bOracleCompleted)
+        {
+            LogOracle("oracle_complete", "outcome=game_deadline;case=" $ OracleCase);
+            bOracleCompleted = True;
+        }
+        EndGame("minhitwall_oracle_timeout");
+    }
+}
+
+defaultproperties
+{
+    BotConfigType=class'RetailHitWallOracleUTBotConfig'
+    OracleMinHitWallMilli=-500
+    OracleMinHitWallMicro=0
+    OracleUseMinHitWallMicro=0
+    OracleCase=0
+    OracleDurationSeconds=6
+    OraclePinnedCalibration=0
+    OraclePinnedStartXMilli=0
+    OraclePinnedStartYMilli=0
+    OraclePinnedStartZMilli=0
+    OraclePinnedDirection=-1
+    FragLimit=0
+    TimeLimit=0
+    bLocalLog=True
+    bWorldLog=False
+}

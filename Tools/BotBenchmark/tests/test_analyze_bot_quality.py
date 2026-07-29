@@ -1,0 +1,4109 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+
+TOOL_PATH = Path(__file__).resolve().parents[1] / "Analyze-BotQuality.py"
+SPEC = importlib.util.spec_from_file_location("analyze_bot_quality", TOOL_PATH)
+assert SPEC and SPEC.loader
+QUALITY = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(QUALITY)
+
+
+def write_run(
+    root: Path,
+    name: str,
+    positions: list[float],
+    health: list[int] | None = None,
+    *,
+    seed: int = 104729,
+    metadata: dict | None = None,
+) -> Path:
+    run = root / name
+    run.mkdir()
+    health = health or [100] * len(positions)
+    max_ticks = len(positions) - 1
+    fixed_delta = 1.0
+    url = "DM-Test?Game=Botpack.DeathMatchPlus"
+    config_id = QUALITY._config_id(url, seed, max_ticks, fixed_delta, 7)
+    manifest = {
+        "schema": QUALITY.MANIFEST_SCHEMA,
+        "driver": "bot-benchmark",
+        "config_id": config_id,
+        "url": url,
+        "output_directory": str(run),
+        "seed": str(seed),
+        "max_ticks": str(max_ticks),
+        "fixed_delta": fixed_delta,
+        "difficulty": 7,
+        "telemetry_event_cap": str(max_ticks + 2),
+    }
+    (run / "manifest.json").write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    def bot(index: int) -> dict:
+        return {
+            "identity": "pri:1",
+            "actor": "Bot1",
+            "player_name": "Loque",
+            "class": "Botpack.Bot",
+            "position": {"x": positions[index], "y": 0.0, "z": 0.0},
+            "velocity": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "health": health[index],
+            "state": "Roaming",
+        }
+
+    events = []
+    for tick in range(max_ticks + 1):
+        events.append({
+            "schema": QUALITY.TELEMETRY_SCHEMA,
+            "seq": str(tick),
+            "config_id": config_id,
+            "tick": str(tick),
+            "simulated_seconds": float(tick),
+            "type": "run_start" if tick == 0 else "tick",
+            "map": "DM-Test",
+            "status": "running",
+            "failure_reason": "",
+            "bots": [bot(tick)],
+        })
+    events.append({
+        **events[-1],
+        "seq": str(max_ticks + 1),
+        "type": "run_result",
+        "status": "complete",
+    })
+    (run / "events.jsonl").write_text(
+        "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events), encoding="utf-8")
+    summary = {
+        "schema": QUALITY.SUMMARY_SCHEMA,
+        "status": "complete",
+        "exit_code": 0,
+        "ticks": str(max_ticks),
+        "simulated_seconds": float(max_ticks),
+        "game": "Unreal Tournament",
+        "version": "436",
+        "map": "DM-Test",
+        "bot_class": "Botpack.Bot",
+        "bot_name": "Loque",
+        "failure_reason": "",
+        "config": {
+            "url": url,
+            "output_directory": str(run),
+            "seed": str(seed),
+            "max_ticks": str(max_ticks),
+            "fixed_delta": fixed_delta,
+            "difficulty": 7,
+        },
+    }
+    (run / "summary.json").write_text(json.dumps(summary) + "\n", encoding="utf-8")
+    if metadata:
+        document = {"schema": QUALITY.METADATA_SCHEMA, **metadata}
+        (run / "quality-metadata.json").write_text(json.dumps(document) + "\n", encoding="utf-8")
+    return run
+
+
+def write_v2_run(root: Path, name: str, *, bot_count: int = 2) -> Path:
+    run = write_run(root, name, [0.0, 1.0, 2.0])
+    manifest_path = run / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    names = ["Alpha", "Bravo"][:bot_count]
+    skills = [7, 6][:bot_count]
+    requested_roster = [{
+        "roster_index": index,
+        "requested_name": names[index],
+        "external_skill": skills[index],
+        "identity_fragment": (
+            f"participant-v1:index={index};external_skill={skills[index]};"
+            f"requested_name_hex={names[index].encode('utf-8').hex()}"),
+    } for index in range(bot_count)]
+    manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V2
+    manifest["bot_count"] = bot_count
+    manifest["requested_roster"] = requested_roster
+    manifest["config_id"] = QUALITY._config_id(
+        manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]), manifest["fixed_delta"],
+        manifest["difficulty"], bot_count, requested_roster)
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    events_path = run / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+    for event in events:
+        source = event["bots"][0]
+        event["config_id"] = manifest["config_id"]
+        event["bots"] = [{
+            **source,
+            "identity": f"pri:{index + 1}",
+            "actor": f"Bot{index + 1}",
+            "player_name": names[index],
+            "position": {**source["position"], "y": float(index)},
+        } for index in range(bot_count)]
+    events_path.write_text(
+        "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events), encoding="utf-8")
+
+    summary_path = run / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["schema"] = QUALITY.SUMMARY_SCHEMA_V2
+    summary.pop("bot_class")
+    summary.pop("bot_name")
+    summary["requested_roster"] = requested_roster
+    summary["actual_roster"] = [{
+        "roster_index": index,
+        "identity": f"pri:{index + 1}",
+        "actor": f"Bot{index + 1}",
+        "player_name": names[index],
+        "class": "Botpack.Bot",
+    } for index in range(bot_count)]
+    summary["config"]["bot_count"] = bot_count
+    summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+    return run
+
+
+def build_identity_fixture() -> dict:
+    return {
+        "schema": "surreal-engine-build-identity-v1",
+        "id": "sha256:" + "A" * 64,
+        "source": {
+            "commit": "a" * 40,
+            "tree": "b" * 40,
+            "dirty": False,
+        },
+        "executable": {
+            "name": "SurrealEngine.exe",
+            "size_bytes": 1,
+            "sha256": "B" * 64,
+        },
+    }
+
+
+def set_reachspec_capability_observer(run: Path, enabled: bool) -> None:
+    manifest_path = run / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["native_path_commit_observer_enabled"] = enabled
+    manifest["reachspec_capability_observer_enabled"] = enabled
+    manifest["config_id"] = QUALITY._config_id(
+        manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]), manifest["fixed_delta"],
+        manifest["difficulty"], manifest["bot_count"], manifest["requested_roster"],
+        native_path_commit_observer_enabled=enabled,
+        reachspec_capability_observer_enabled=enabled)
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    summary_path = run / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["config"]["native_path_commit_observer_enabled"] = enabled
+    summary["config"]["reachspec_capability_observer_enabled"] = enabled
+    summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+
+
+def upgrade_telemetry_v2(run: Path, *, counters: list[dict]) -> None:
+    path = run / "events.jsonl"
+    events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    tick_events = [event for event in events if event["type"] != "run_result"]
+    if len(counters) != len(tick_events):
+        raise AssertionError("one v2 counter sample is required for run_start and every tick")
+    for index, event in enumerate(events):
+        event["schema"] = QUALITY.TELEMETRY_SCHEMA_V2
+        sample = counters[min(index, len(counters) - 1)]
+        for bot in event["bots"]:
+            bot.update({
+                "score": sample["score"],
+                "pri_deaths": sample["pri_deaths"],
+                "movement_intent": sample["movement_intent"],
+                "in_hazard_zone": sample["in_hazard_zone"],
+                "kills_exact": str(sample["kills_exact"]),
+                "deaths_exact": str(sample["deaths_exact"]),
+                "suicides_exact": str(sample["suicides_exact"]),
+                "environmental_deaths_exact": str(sample["environmental_deaths_exact"]),
+                "hazard_exposed_deaths_proxy": str(sample["hazard_exposed_deaths_proxy"]),
+                "hit_wall_events_exact": str(sample["hit_wall_events_exact"]),
+            })
+            for name in QUALITY.OPTIONAL_EXACT_COUNTERS:
+                if name in sample:
+                    bot[name] = str(sample[name])
+            for name in QUALITY.OPTIONAL_CUMULATIVE_NUMBERS:
+                if name in sample:
+                    bot[name] = sample[name]
+            for name in QUALITY.OPTIONAL_STATIC_METRICS:
+                if name in sample:
+                    bot[name] = str(sample[name])
+            for name in QUALITY.OPTIONAL_DIAGNOSTIC_FIELDS:
+                if name in sample:
+                    bot[name] = sample[name]
+    path.write_text(
+        "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+        encoding="utf-8")
+
+
+def declare_death_attribution(run: Path) -> None:
+    path = run / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["death_attribution_recent_window_seconds"] = 2.0
+    manifest["suicides_exact_semantics"] = "legacy_scoreboard_self_or_nonplayer_killer"
+    path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+
+def falling_parity_record(
+        outcome: str, invocation: int, ordinal: int, *, life: int = 1) -> dict:
+    is_realized_step = outcome in {
+        "matched_clear", "matched_landing", "mismatch", "unknown", "callback_barrier",
+    }
+    # A matched landing is the direct, walkable static-world sweep outcome.  The
+    # terminal landed record follows separately and intentionally has no evidence.
+    is_matched_landing = outcome == "matched_landing"
+    return {
+        "source_pawn_actor": "Bot1",
+        "life_generation": str(life),
+        "invocation_token": str(invocation),
+        "walking_iteration": 0,
+        "step_ordinal": str(ordinal),
+        "outcome": outcome,
+        "elapsed": 1.0 / 60.0 if is_realized_step else 0.0,
+        "collision": "static_world" if outcome in {
+            "matched_landing", "callback_barrier"} else (
+            "clear" if is_realized_step else "unknown"),
+        "hit_fraction": 0.5 if outcome in {
+            "matched_landing", "callback_barrier"} else 1.0,
+        "hit_normal": {
+            "x": 0.0,
+            "y": 1.0 if outcome == "callback_barrier" else 0.0,
+            "z": 1.0 if is_matched_landing else 0.0,
+        },
+        "velocity_error": 0.01 if outcome == "mismatch" else 0.0,
+        "requested_delta_error": 0.0,
+        "endpoint_error": 0.0,
+        "callback_barrier_mask": "1" if outcome == "callback_barrier" else "0",
+    }
+
+
+def vertical_zone(known: bool, actor: int = 0, number: int = 0) -> dict:
+    return {"known": known, "zone_actor_id": actor, "zone_number": number}
+
+
+def vertical_start(*, sequence: int = 1, life: int = 1, fall: int = 1,
+                   generation: int = 1, harmful: bool = False) -> dict:
+    expected_foot = vertical_zone(True, 2, 0) if harmful else vertical_zone(False)
+    expected_physics = vertical_zone(True, 3, 0) if harmful else vertical_zone(False)
+    return {
+        "source_pawn_actor": "Bot1",
+        "sequence": str(sequence),
+        "life_id": str(life),
+        "fall_episode_id": str(fall),
+        "generation_id": str(generation),
+        "kind": "start",
+        "source": "existing_falling_commit",
+        "forecast": "harmful_pain_observed" if harmful
+        else "no_harmful_pain_observed",
+        "starting_physics_zone": vertical_zone(True, 1, 0),
+        "expected_harmful_foot_zone": expected_foot,
+        "expected_harmful_physics_zone": expected_physics,
+        "expected_harmful_water_entry": harmful,
+        "swept_segment_budget": 256,
+        "elapsed_horizon": 4.0,
+        "precharged_elapsed": 0.0,
+    }
+
+
+def vertical_terminal(*, sequence: int = 2, life: int = 1, fall: int = 1,
+                      generation: int = 1, harmful: bool = False,
+                      center_only: bool = False) -> dict:
+    start = vertical_start(
+        sequence=sequence, life=life, fall=fall, generation=generation,
+        harmful=harmful)
+    common = {
+        name: start[name] for name in (
+            "source_pawn_actor", "sequence", "life_id", "fall_episode_id",
+            "generation_id", "source", "forecast", "starting_physics_zone",
+            "expected_harmful_foot_zone", "expected_harmful_physics_zone",
+            "expected_harmful_water_entry", "swept_segment_budget",
+            "elapsed_horizon",
+        )
+    }
+    return {
+        **common,
+        "kind": "terminal",
+        "terminal": "harmful_pain_entered" if harmful else "landed",
+        "correlation": "confirmed_harmful_forecast" if harmful
+        else "confirmed_no_harmful_observation",
+        "last_observed_physics_zone": vertical_zone(True, 3, 0) if harmful
+        else vertical_zone(True, 1, 0),
+        "observed_harmful_foot_zone": vertical_zone(True, 2, 0)
+        if harmful and not center_only
+        else vertical_zone(False),
+        "observed_harmful_center_zone": vertical_zone(True, 2, 0)
+        if harmful and center_only
+        else vertical_zone(False),
+        "swept_segment_count": 1,
+        "observed_elapsed": 0.02,
+        "has_positive_elapsed": True,
+        "physics_zone_evidence_known": True,
+        "harmful_foot_evidence_known": True,
+        "harmful_center_evidence_known": True,
+        "water_evidence_known": True,
+        "entered_harmful_foot_zone": harmful and not center_only,
+        "entered_harmful_center_zone": harmful and center_only,
+        "expected_harmful_path_matched": harmful,
+        "causal_ambiguity": False,
+        "actual_trajectory_unknown": False,
+        "landing_collision": "unknown" if harmful else "static_world",
+    }
+
+
+class BotQualityAnalysisTests(unittest.TestCase):
+    def test_shadow_policy_set_is_canonical_and_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "shadow-policy")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            policies = ["utility-arena"]
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            manifest["shadow_policy_set"] = policies
+            manifest["pawn_vision_cone_enabled"] = False
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], pawn_vision_cone_enabled=False,
+                shadow_policy_set=policies)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            events_path = run / "events.jsonl"
+            raw_events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in raw_events:
+                event["config_id"] = manifest["config_id"]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in raw_events),
+                encoding="utf-8")
+
+            parsed = QUALITY._validate_manifest(manifest_path)
+            self.assertEqual(parsed["shadow_policy_set"], policies)
+            self.assertFalse(parsed["pawn_vision_cone_enabled"])
+
+            summary_path = run / "summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["schema"] = QUALITY.SUMMARY_SCHEMA_V4
+            summary["build_identity"] = manifest["build_identity"]
+            summary["config"]["shadow_policy_set"] = policies
+            summary["config"]["pawn_vision_cone_enabled"] = False
+            summary["ai_frame_timing"] = {
+                "schema": "surreal-bot-ai-frame-timing-v1",
+                "scope": "benchmark_observation_policy_driver_sampling",
+                "clock": "host_steady_clock_performance_only",
+                "behavioral_determinism": "not_behavioral_evidence",
+                "sample_count": 0,
+                "histogram_bucket_overflows_exact": 0,
+                "bucket_max_microseconds": 1,
+                "max_microseconds": 0,
+                "p50_microseconds": None,
+                "p95_microseconds": None,
+                "p99_microseconds": None,
+            }
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            events = QUALITY._load_events(run / "events.jsonl", parsed)
+            QUALITY._validate_summary(summary_path, parsed, events)
+
+            summary["config"]["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "shadow_policy_set differs"):
+                QUALITY._validate_summary(summary_path, parsed, events)
+
+            summary["config"]["shadow_policy_set"] = policies
+            summary["config"]["pawn_vision_cone_enabled"] = True
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "pawn_vision_cone_enabled differs"):
+                QUALITY._validate_summary(summary_path, parsed, events)
+
+            manifest["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
+    def test_shadow_policy_set_rejects_noncanonical_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "shadow-policy-invalid")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            for policies, error in (
+                    ([], "non-empty array"),
+                    (["utility-arena", "tactical-state"], "must be sorted"),
+                    (["utility-arena", "utility-arena"], "must not contain duplicates"),
+                    (["utility arena"], "contains whitespace")):
+                manifest["shadow_policy_set"] = policies
+                manifest["config_id"] = QUALITY._config_id(
+                    manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                    manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                    manifest["requested_roster"], shadow_policy_set=policies)
+                manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+                with self.assertRaisesRegex(QUALITY.QualityError, error):
+                    QUALITY._validate_manifest(manifest_path)
+
+    def test_pawn_vision_cone_is_default_off_and_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "pawn-vision-cone")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            policies = ["tactical-state", "utility-arena"]
+            manifest["shadow_policy_set"] = policies
+            manifest["pawn_vision_cone_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], pawn_vision_cone_enabled=True,
+                shadow_policy_set=policies)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            self.assertTrue(QUALITY._validate_manifest(manifest_path)["pawn_vision_cone_enabled"])
+
+            manifest["pawn_vision_cone_enabled"] = False
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
+            manifest["pawn_vision_cone_enabled"] = "1"
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "manifest.pawn_vision_cone_enabled"):
+                QUALITY._validate_manifest(manifest_path)
+
+    def test_hazard_residence_command_transition_ledger_is_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "hazard-command-ledger")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            policies = ["tactical-state", "utility-arena"]
+            manifest["shadow_policy_set"] = policies
+            manifest["native_path_commit_observer_enabled"] = True
+            manifest["movement_command_provenance_observer_enabled"] = True
+            manifest["hazard_residence_command_transition_ledger_observer_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], shadow_policy_set=policies,
+                native_path_commit_observer_enabled=True,
+                movement_command_provenance_observer_enabled=True,
+                hazard_residence_command_transition_ledger_observer_enabled=True)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            parsed = QUALITY._validate_manifest(manifest_path)
+            self.assertTrue(parsed["hazard_residence_command_transition_ledger_observer_enabled"])
+
+            manifest["hazard_residence_command_transition_ledger_observer_enabled"] = False
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
+    def test_hazard_preentry_causal_slice_is_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "hazard-preentry-causal-slice")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            policies = ["tactical-state", "utility-arena"]
+            manifest["shadow_policy_set"] = policies
+            manifest["native_path_commit_observer_enabled"] = True
+            manifest["movement_command_provenance_observer_enabled"] = True
+            manifest["hazard_residence_command_transition_ledger_observer_enabled"] = True
+            manifest["hazard_residence_preentry_causal_slice_observer_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], shadow_policy_set=policies,
+                native_path_commit_observer_enabled=True,
+                movement_command_provenance_observer_enabled=True,
+                hazard_residence_command_transition_ledger_observer_enabled=True,
+                hazard_residence_preentry_causal_slice_observer_enabled=True)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            parsed = QUALITY._validate_manifest(manifest_path)
+            self.assertTrue(parsed["hazard_residence_preentry_causal_slice_observer_enabled"])
+
+            manifest["hazard_residence_preentry_causal_slice_observer_enabled"] = False
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
+            manifest["hazard_residence_preentry_causal_slice_observer_enabled"] = "1"
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError,
+                    "manifest.hazard_residence_preentry_causal_slice_observer_enabled"):
+                QUALITY._validate_manifest(manifest_path)
+
+    def test_vector_nonfinite_observer_is_default_off_and_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "vector-nonfinite-observer")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            policies = ["tactical-state", "utility-arena"]
+            manifest["shadow_policy_set"] = policies
+            manifest["vector_nonfinite_observer_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], vector_nonfinite_observer_enabled=True,
+                shadow_policy_set=policies)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            self.assertTrue(QUALITY._validate_manifest(manifest_path)[
+                "vector_nonfinite_observer_enabled"])
+
+            manifest["vector_nonfinite_observer_enabled"] = False
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
+            manifest["vector_nonfinite_observer_enabled"] = "1"
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError,
+                                        "manifest.vector_nonfinite_observer_enabled"):
+                QUALITY._validate_manifest(manifest_path)
+
+    def test_movement_command_provenance_is_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "movement-command-provenance")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            manifest["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            manifest["native_path_commit_observer_enabled"] = True
+            manifest["movement_command_provenance_observer_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], native_path_commit_observer_enabled=True,
+                movement_command_provenance_observer_enabled=True,
+                shadow_policy_set=manifest["shadow_policy_set"])
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+            parsed = QUALITY._validate_manifest(manifest_path)
+            self.assertTrue(parsed["movement_command_provenance_observer_enabled"])
+            self.assertTrue(parsed["native_path_commit_observer_enabled"])
+
+            manifest["movement_command_provenance_observer_enabled"] = False
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
+            manifest["movement_command_provenance_observer_enabled"] = "1"
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "manifest.movement_command_provenance_observer_enabled"):
+                QUALITY._validate_manifest(manifest_path)
+
+    def test_pick_reg_destination_zero_divide_guard_is_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "pick-reg-destination-zero-divide")
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            policies = ["tactical-state", "utility-arena"]
+            manifest["shadow_policy_set"] = policies
+            manifest["pick_reg_destination_zero_divide_guard_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"],
+                pick_reg_destination_zero_divide_guard_enabled=True,
+                shadow_policy_set=policies)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            self.assertTrue(QUALITY._validate_manifest(manifest_path)[
+                "pick_reg_destination_zero_divide_guard_enabled"])
+
+            manifest["pick_reg_destination_zero_divide_guard_enabled"] = False
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
+    def test_pawn_vision_observer_is_bound_and_requires_complete_witnesses(self) -> None:
+        zero = {
+            "score": 0.0, "pri_deaths": 0.0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            **{name: 0 for name in QUALITY.PAWN_CAN_SEE_COUNTERS},
+            "pawn_can_see_records": [],
+        }
+        record = {
+            "sequence": 1, "observer_tick": 1, "caller_invocation_token": 9,
+            "source_life_id": 1, "target_life_id": 2,
+            "source_actor_index": 3, "target_actor_index": 4,
+            "peripheral_vision": 0.7, "sight_radius_accepted": True,
+            "legacy_cone_accepted": False, "corrected_cone_accepted": True,
+            "corrected_cone_selected": True, "returned_visible": True,
+            "integrity_valid": True, "caller_class": "Botpack.Bot",
+            "caller_function": "Follow", "target_actor": "Bot2",
+            "target_class": "Botpack.Bot",
+        }
+        one = {
+            **zero,
+            "pawn_can_see_observations_exact": 1,
+            "pawn_can_see_returned_visible_exact": 1,
+            "pawn_can_see_legacy_corrected_divergences_exact": 1,
+            "pawn_can_see_records": [record],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "pawn-vision-observer", bot_count=1)
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            manifest["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            manifest["pawn_vision_cone_enabled"] = True
+            manifest["pawn_vision_observer_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], pawn_vision_cone_enabled=True,
+                pawn_vision_observer_enabled=True,
+                shadow_policy_set=manifest["shadow_policy_set"])
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            upgrade_telemetry_v2(run, counters=[zero, one, one])
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for index, event in enumerate(events):
+                event["config_id"] = manifest["config_id"]
+                event["pawn_vision_observer"] = {"requested": True, "status": "active"}
+                for bot in event["bots"]:
+                    bot["pawn_can_see_records"] = ([record] if index == 1 else [])
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            parsed = QUALITY._validate_manifest(manifest_path)
+            loaded_events = QUALITY._load_events(events_path, parsed)
+            summary_path = run / "summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["schema"] = QUALITY.SUMMARY_SCHEMA_V4
+            summary["build_identity"] = manifest["build_identity"]
+            summary["config"]["shadow_policy_set"] = manifest["shadow_policy_set"]
+            summary["config"]["pawn_vision_cone_enabled"] = True
+            summary["config"]["pawn_vision_observer_enabled"] = True
+            summary["ai_frame_timing"] = {
+                "schema": "surreal-bot-ai-frame-timing-v1",
+                "scope": "benchmark_observation_policy_driver_sampling",
+                "clock": "host_steady_clock_performance_only",
+                "behavioral_determinism": "not_behavioral_evidence",
+                "sample_count": 0, "histogram_bucket_overflows_exact": 0,
+                "bucket_max_microseconds": 1, "max_microseconds": 0,
+                "p50_microseconds": None, "p95_microseconds": None,
+                "p99_microseconds": None,
+            }
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            QUALITY._validate_summary(summary_path, parsed, loaded_events)
+            summary["config"]["pawn_vision_observer_enabled"] = False
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "pawn_vision_observer_enabled differs"):
+                QUALITY._validate_summary(summary_path, parsed, loaded_events)
+
+            events[1]["bots"][0]["pawn_can_see_records"][0]["corrected_cone_selected"] = False
+
+            events[1]["bots"][0]["pawn_can_see_records"][0]["legacy_cone_accepted"] = True
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "cone mode differs"):
+                QUALITY._load_events(events_path, parsed)
+
+    def test_reachspec_capability_observer_is_bound_into_manifest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "reachspec-capability")
+            set_reachspec_capability_observer(run, True)
+            parsed = QUALITY._validate_manifest(run / "manifest.json")
+            self.assertTrue(parsed["native_path_commit_observer_enabled"])
+            self.assertTrue(parsed["reachspec_capability_observer_enabled"])
+
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], native_path_commit_observer_enabled=True,
+                reachspec_capability_observer_enabled=False)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "config_id does not match"):
+                QUALITY._validate_manifest(manifest_path)
+
+    def test_observed_initial_layout_is_canonical_and_metadata_bound(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "layout", bot_count=2)
+            upgrade_telemetry_v2(run, counters=[common, common, common])
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                for bot in event["bots"]:
+                    bot["physics_mode"] = "Walking"
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+
+            initial = QUALITY.analyze_run(run)["initial_layout"]
+            self.assertIsNotNone(initial)
+            assert initial is not None
+            self.assertTrue(initial["fingerprint"].startswith("sha256:"))
+            self.assertEqual([entry["roster_index"] for entry in initial["participants"]], [0, 1])
+
+            metadata_path = run / "quality-metadata.json"
+            metadata_path.write_text(json.dumps({
+                "schema": QUALITY.METADATA_SCHEMA,
+                "variant": "candidate",
+                "start_layout_id": "layout-a",
+                "expected_initial_layout_fingerprint": initial["fingerprint"],
+            }) + "\n", encoding="utf-8")
+            self.assertEqual(QUALITY.analyze_run(run)["initial_layout"]["fingerprint"], initial["fingerprint"])
+
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata["expected_initial_layout_fingerprint"] = "sha256:" + "0" * 64
+            metadata_path.write_text(json.dumps(metadata) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "observed initial-layout fingerprint"):
+                QUALITY.analyze_run(run)
+
+    def test_harmful_zone_escape_mode_is_identity_bound_and_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "harmful-zone-control", bot_count=1)
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["harmful_zone_escape_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], True)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+
+            summary_path = run / "summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["config"]["harmful_zone_escape_enabled"] = True
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+
+            report = QUALITY.analyze([run])
+            self.assertIs(report["runs"][0]["config"]["harmful_zone_escape_enabled"], True)
+
+    def test_pain_ledge_recovery_contacts_are_bounded_by_hitwall_events(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.PAIN_LEDGE_EXACT_COUNTERS}
+        final = {
+            **zero,
+            "pain_ledge_vetoes_exact": 1,
+            "pain_ledge_recovery_attempts_exact": 1,
+            "pain_ledge_recovery_escapes_exact": 1,
+            "pain_ledge_recovery_active_hitwall_events_exact": 2,
+            "hit_wall_events_exact": 2,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "pain-ledge-recovery-contact", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[common | zero, common | zero, common | final])
+            QUALITY.analyze_run(valid)
+
+            invalid = write_v2_run(root, "pain-ledge-recovery-contact-invalid", bot_count=1)
+            invalid_final = {**final, "hit_wall_events_exact": 1}
+            upgrade_telemetry_v2(
+                invalid, counters=[common | zero, common | zero, common | invalid_final])
+            with self.assertRaisesRegex(QUALITY.QualityError, "recovery contacts exceed HitWall"):
+                QUALITY.analyze_run(invalid)
+
+    def test_hazard_swim_egress_counters_are_complete_and_consistent(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_EXACT_COUNTERS}
+        handoff_zero = {
+            name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_PLANNER_HANDOFF_OUTCOME_COUNTERS}
+        residence_zero = {name: 0 for name in QUALITY.HAZARD_RESIDENCE_COUNTERS}
+        external_impulse_zero = {
+            name: 0 for name in QUALITY.EXTERNAL_IMPULSE_FALL_WITNESS_COUNTERS}
+        final = {
+            **zero,
+            "hazard_swim_egress_episodes_exact": 3,
+            "hazard_swim_egress_eligible_exact": 2,
+            "hazard_swim_egress_authorized_exact": 2,
+            "hazard_swim_egress_no_anchor_rejected_exact": 1,
+            "hazard_swim_egress_exited_exact": 2,
+            "hazard_swim_egress_forced_replans_exact": 2,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "hazard-swim-egress", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, **zero}, {**common, **final}, {**common, **final},
+            ])
+            report = QUALITY.analyze([valid])
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(metrics["hazard_swim_egress_episodes_exact"], 3)
+            self.assertEqual(metrics["hazard_swim_egress_forced_replans_exact"], 2)
+            self.assertIs(
+                report["metric_availability"]["optional_counter_metrics_present"]
+                ["hazard_swim_egress_died_before_exit_exact"], True)
+
+            residence = write_v2_run(root, "hazard-residence", bot_count=1)
+            residence_final = {
+                **residence_zero,
+                "hazard_residence_episodes_exact": 3,
+                "hazard_residence_cleared_exact": 1,
+                "hazard_residence_deaths_exact": 1,
+                "hazard_residence_run_end_censored_exact": 1,
+                "hazard_residence_reentries_exact": 2,
+                "hazard_residence_command_changes_exact": 4,
+                "hazard_residence_candidates_observed_exact": 2,
+                "hazard_residence_candidate_other_commands_exact": 1,
+            }
+            upgrade_telemetry_v2(residence, counters=[
+                {**common, **residence_zero},
+                {**common, **residence_final}, {**common, **residence_final},
+            ])
+            residence_report = QUALITY.analyze([residence])
+            self.assertEqual(residence_report["runs"][0]["metrics"]
+                ["hazard_residence_deaths_exact"], 1)
+
+            residence_partial = write_v2_run(root, "hazard-residence-partial", bot_count=1)
+            residence_partial_final = {**residence_final}
+            residence_partial_final.pop("hazard_residence_unknown_exact")
+            upgrade_telemetry_v2(residence_partial, counters=[
+                {**common, **residence_zero},
+                {**common, **residence_partial_final}, {**common, **residence_partial_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "hazard residence.*complete group"):
+                QUALITY.analyze_run(residence_partial)
+
+            residence_unpartitioned = write_v2_run(root, "hazard-residence-unpartitioned", bot_count=1)
+            residence_unpartitioned_final = {**residence_final,
+                "hazard_residence_run_end_censored_exact": 0}
+            upgrade_telemetry_v2(residence_unpartitioned, counters=[
+                {**common, **residence_zero},
+                {**common, **residence_unpartitioned_final},
+                {**common, **residence_unpartitioned_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "outcomes must partition"):
+                QUALITY.analyze_run(residence_unpartitioned)
+
+            external_impulse = write_v2_run(root, "external-impulse-fall", bot_count=1)
+            external_impulse_final = {
+                **external_impulse_zero,
+                "external_impulse_fall_harmful_witnesses_exact": 3,
+                "external_impulse_fall_no_air_control_exact": 1,
+                "external_impulse_fall_alternatives_tested_exact": 16,
+                "external_impulse_fall_certified_exact": 1,
+                "external_impulse_fall_uncertified_exact": 1,
+            }
+            upgrade_telemetry_v2(external_impulse, counters=[
+                {**common, **external_impulse_zero},
+                {**common, **external_impulse_final},
+                {**common, **external_impulse_final},
+            ])
+            external_report = QUALITY.analyze([external_impulse])
+            self.assertEqual(external_report["runs"][0]["metrics"]
+                ["external_impulse_fall_certified_exact"], 1)
+
+            external_invalid = write_v2_run(root, "external-impulse-fall-invalid", bot_count=1)
+            external_invalid_final = {**external_impulse_final,
+                "external_impulse_fall_uncertified_exact": 0}
+            upgrade_telemetry_v2(external_invalid, counters=[
+                {**common, **external_impulse_zero},
+                {**common, **external_invalid_final},
+                {**common, **external_invalid_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "must partition witnesses"):
+                QUALITY.analyze_run(external_invalid)
+
+            partial = write_v2_run(root, "hazard-swim-egress-partial", bot_count=1)
+            partial_final = {**final}
+            partial_final.pop("hazard_swim_egress_forced_replans_exact")
+            upgrade_telemetry_v2(partial, counters=[
+                {**common, **zero}, {**common, **partial_final}, {**common, **partial_final},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "hazard swim egress counters must be provided"):
+                QUALITY.analyze_run(partial)
+
+            planner_handoff = write_v2_run(root, "hazard-swim-egress-planner-handoff", bot_count=1)
+            planner_handoff_final = {
+                **final, **handoff_zero,
+                "hazard_swim_egress_forced_replan_same_command_reissued_exact": 1,
+                "hazard_swim_egress_forced_replan_hazard_cleared_before_command_exact": 1,
+            }
+            upgrade_telemetry_v2(planner_handoff, counters=[
+                {**common, **zero, **handoff_zero},
+                {**common, **planner_handoff_final}, {**common, **planner_handoff_final},
+            ])
+            planner_report = QUALITY.analyze([planner_handoff])
+            self.assertEqual(planner_report["runs"][0]["metrics"]
+                ["hazard_swim_egress_forced_replan_same_command_reissued_exact"], 1)
+
+            planner_partial = write_v2_run(root, "hazard-swim-egress-planner-handoff-partial", bot_count=1)
+            planner_partial_final = {**planner_handoff_final}
+            planner_partial_final.pop("hazard_swim_egress_forced_replan_episode_abandoned_exact")
+            upgrade_telemetry_v2(planner_partial, counters=[
+                {**common, **zero, **handoff_zero},
+                {**common, **planner_partial_final}, {**common, **planner_partial_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "planner handoff.*complete group"):
+                QUALITY.analyze_run(planner_partial)
+
+            planner_unpartitioned = write_v2_run(root, "hazard-swim-egress-planner-handoff-unpartitioned", bot_count=1)
+            planner_unpartitioned_final = {**final, **handoff_zero,
+                "hazard_swim_egress_forced_replan_same_command_reissued_exact": 1}
+            upgrade_telemetry_v2(planner_unpartitioned, counters=[
+                {**common, **zero, **handoff_zero},
+                {**common, **planner_unpartitioned_final}, {**common, **planner_unpartitioned_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "outcomes must partition"):
+                QUALITY.analyze_run(planner_unpartitioned)
+
+            invalid_eligible = write_v2_run(root, "hazard-swim-egress-eligible", bot_count=1)
+            invalid_eligible_final = {
+                **final, "hazard_swim_egress_no_anchor_rejected_exact": 2,
+            }
+            upgrade_telemetry_v2(invalid_eligible, counters=[
+                {**common, **zero}, {**common, **invalid_eligible_final},
+                {**common, **invalid_eligible_final},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "eligibility/no-anchor counts exceed episodes"):
+                QUALITY.analyze_run(invalid_eligible)
+
+            invalid_terminal = write_v2_run(root, "hazard-swim-egress-terminal", bot_count=1)
+            invalid_terminal_final = {
+                **final, "hazard_swim_egress_died_before_exit_exact": 2,
+            }
+            upgrade_telemetry_v2(invalid_terminal, counters=[
+                {**common, **zero}, {**common, **invalid_terminal_final},
+                {**common, **invalid_terminal_final},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "terminal outcomes exceed episodes"):
+                QUALITY.analyze_run(invalid_terminal)
+
+    def test_hazard_water_egress_diagnostics_are_structural_and_bounded(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            **{name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_EXACT_COUNTERS},
+            QUALITY.HAZARD_WATER_EGRESS_DIAGNOSTIC_OVERFLOW_COUNTER: 0,
+            "hazard_water_egress_diagnostics": [],
+        }
+        diagnostic = {
+            "source_pawn_actor": "Bot1", "sequence": "1", "life_id": "1",
+            "episode_id": "1", "transition_source": "falling_direct_sweep",
+            "anchor_known": True, "anchor": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "entry_location": {"x": 1.0, "y": 2.0, "z": 3.0},
+            "damage_per_second": 40.0, "entry_move_target_name": "",
+            "entry_move_target_location_known": False,
+            "entry_move_target_location": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "entry_destination": {"x": 4.0, "y": 5.0, "z": 6.0},
+            "external_impulse_navigation_commit_known": True,
+            "external_impulse_move_target_name": "PathNode142",
+            "external_impulse_move_target_navigation": True,
+            "external_impulse_route_head_known": True,
+            "external_impulse_route_head_name": "PathNode143",
+            "external_impulse_commit_location": {"x": 5.0, "y": 6.0, "z": 7.0},
+            "external_impulse_commit_velocity": {"x": 8.0, "y": 9.0, "z": 10.0},
+            "external_impulse_launch_forecast_known": True,
+            "external_impulse_launch_forecast_harmful": True,
+            "static_walk_certificate_result": "certified_static_walk_continuation",
+            "static_walk_first_hop_known": True, "static_walk_first_hop_name": "PathNode143",
+            "static_walk_first_hop_location_known": True,
+            "static_walk_first_hop_location": {"x": 1.0, "y": 2.0, "z": 3.0},
+            "static_walk_first_hop_distance_known": True,
+            "static_walk_current_first_hop_probe_known": True,
+            "static_walk_current_first_hop_probe_clear": True,
+            "static_walk_first_hop_entry_distance": 100.0,
+            "static_walk_minimum_first_hop_distance": 80.0,
+            "static_walk_terminal_first_hop_distance": 90.0,
+            "static_walk_first_hop_progress_samples": "2",
+            "static_walk_first_hop_regression_samples": "1",
+            "static_walk_continuation_known": True,
+            "static_walk_continuation_name": "PathNode144",
+            "static_walk_cost": 321.0, "static_walk_hops": "1",
+            "static_walk_visited_nodes": "2",
+            "candidate_known": True, "candidate_name": "PathNode144",
+            "candidate_location": {"x": 7.0, "y": 8.0, "z": 9.0},
+            "candidate_entry_distance": 620.0, "candidate_distance_known": True,
+            "minimum_candidate_distance": 488.0,
+            "terminal_candidate_distance": 488.0,
+            "candidate_progress_samples": "52", "candidate_regression_samples": "43",
+            "target_distance_known": False, "entry_target_distance": 0.0,
+            "minimum_target_distance": 0.0, "terminal_target_distance": 0.0,
+            "target_progress_samples": "0", "target_regression_samples": "0",
+            "terminal": "death_before_exit",
+            "terminal_location": {"x": 10.0, "y": 11.0, "z": 12.0},
+            "terminal_move_target_name": "LiftExit6",
+            "terminal_destination": {"x": 13.0, "y": 14.0, "z": 15.0},
+        }
+        final = {
+            **common, "hazard_swim_egress_episodes_exact": 1,
+            "hazard_swim_egress_eligible_exact": 1,
+            "hazard_swim_egress_authorized_exact": 1,
+            "hazard_water_egress_diagnostics": [diagnostic],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "hazard-water-egress", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                common, final, {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            QUALITY.analyze_run(valid)
+
+            current = write_v2_run(root, "hazard-water-egress-falling-launch", bot_count=1)
+            current_diagnostic = {
+                key: value for key, value in diagnostic.items()
+                if not key.startswith("external_impulse_")
+            }
+            current_diagnostic.update({
+                "falling_launch_snapshot_known": True,
+                "falling_launch_life_id": "1",
+                "falling_launch_movement_command_active": True,
+                "falling_launch_movement_command_token": "7",
+                "falling_launch_movement_command_kind": "move_toward",
+                "falling_launch_movement_command_target_name": "PathNode142",
+                "falling_launch_movement_command_destination": {"x": 4.0, "y": 5.0, "z": 6.0},
+                "falling_launch_move_target_name": "PathNode142",
+                "falling_launch_move_target_navigation": True,
+                "falling_launch_route_head_known": True,
+                "falling_launch_route_head_name": "PathNode143",
+                "falling_launch_location": {"x": 5.0, "y": 6.0, "z": 7.0},
+                "falling_launch_velocity": {"x": 8.0, "y": 9.0, "z": 10.0},
+                "falling_launch_forecast_known": True,
+                "falling_launch_forecast_harmful": True,
+            })
+            upgrade_telemetry_v2(current, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [current_diagnostic]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            QUALITY.analyze_run(current)
+
+            wrong_life = write_v2_run(root, "hazard-water-egress-falling-launch-life", bot_count=1)
+            wrong_life_diagnostic = {**current_diagnostic, "falling_launch_life_id": "2"}
+            upgrade_telemetry_v2(wrong_life, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [wrong_life_diagnostic]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "must belong to the water episode life"):
+                QUALITY.analyze_run(wrong_life)
+
+            invalid_command = write_v2_run(
+                root, "hazard-water-egress-falling-launch-command", bot_count=1)
+            invalid_command_diagnostic = {
+                **current_diagnostic, "falling_launch_movement_command_kind": "none"}
+            upgrade_telemetry_v2(invalid_command, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_command_diagnostic]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "active falling-launch command has an invalid kind"):
+                QUALITY.analyze_run(invalid_command)
+
+            legacy = write_v2_run(root, "hazard-water-egress-legacy", bot_count=1)
+            legacy_diagnostic = {
+                key: value for key, value in diagnostic.items()
+                if not key.startswith("external_impulse_")
+            }
+            upgrade_telemetry_v2(legacy, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [legacy_diagnostic]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            QUALITY.analyze_run(legacy)
+
+            malformed_provenance = write_v2_run(
+                root, "hazard-water-egress-provenance", bot_count=1)
+            invalid_provenance = {**diagnostic, "external_impulse_route_head_known": False}
+            upgrade_telemetry_v2(malformed_provenance, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_provenance]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "route-head availability"):
+                QUALITY.analyze_run(malformed_provenance)
+
+            malformed_forecast = write_v2_run(
+                root, "hazard-water-egress-launch-forecast", bot_count=1)
+            invalid_forecast = {**diagnostic,
+                "external_impulse_launch_forecast_known": False}
+            upgrade_telemetry_v2(malformed_forecast, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_forecast]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "launch forecast must be known"):
+                QUALITY.analyze_run(malformed_forecast)
+
+            malformed = write_v2_run(root, "hazard-water-egress-malformed", bot_count=1)
+            invalid = {**diagnostic, "candidate_distance_known": False}
+            upgrade_telemetry_v2(malformed, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "candidate distance availability"):
+                QUALITY.analyze_run(malformed)
+
+            malformed_static_distance = write_v2_run(
+                root, "hazard-water-egress-static-walk-distance", bot_count=1)
+            invalid_static_distance = {**diagnostic,
+                "static_walk_minimum_first_hop_distance": 101.0}
+            upgrade_telemetry_v2(malformed_static_distance, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_static_distance]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "static-walk first-hop minimum distance"):
+                QUALITY.analyze_run(malformed_static_distance)
+
+            malformed_current_probe = write_v2_run(
+                root, "hazard-water-egress-current-first-hop-probe")
+            invalid_current_probe = {**diagnostic,
+                "static_walk_current_first_hop_probe_known": False,
+                "static_walk_current_first_hop_probe_clear": True}
+            upgrade_telemetry_v2(malformed_current_probe, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_current_probe]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "probe cannot be clear when unknown"):
+                QUALITY.analyze_run(malformed_current_probe)
+
+            malformed_current_probe_first_hop = write_v2_run(
+                root, "hazard-water-egress-current-first-hop-witness")
+            invalid_current_probe_first_hop = {**diagnostic,
+                "static_walk_certificate_result": "no_static_walk_continuation",
+                "static_walk_first_hop_known": False,
+                "static_walk_first_hop_name": "",
+                "static_walk_first_hop_location_known": False,
+                "static_walk_first_hop_distance_known": False,
+                "static_walk_first_hop_entry_distance": 0.0,
+                "static_walk_minimum_first_hop_distance": 0.0,
+                "static_walk_terminal_first_hop_distance": 0.0,
+                "static_walk_first_hop_progress_samples": "0",
+                "static_walk_first_hop_regression_samples": "0",
+                "static_walk_continuation_known": False,
+                "static_walk_continuation_name": "", "static_walk_cost": 0.0,
+                "static_walk_hops": "0", "static_walk_visited_nodes": "1",
+                "static_walk_current_first_hop_probe_known": True,
+                "static_walk_current_first_hop_probe_clear": False}
+            upgrade_telemetry_v2(malformed_current_probe_first_hop, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_current_probe_first_hop]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "probe requires a static-walk first hop"):
+                QUALITY.analyze_run(malformed_current_probe_first_hop)
+
+            malformed_current_probe_group = write_v2_run(
+                root, "hazard-water-egress-current-first-hop-probe-group")
+            partial_current_probe = {key: value for key, value in diagnostic.items()
+                                     if key != "static_walk_current_first_hop_probe_clear"}
+            upgrade_telemetry_v2(malformed_current_probe_group, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [partial_current_probe]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "missing fields: static_walk_current_first_hop_probe_clear"):
+                QUALITY.analyze_run(malformed_current_probe_group)
+
+            malformed_anchor = write_v2_run(root, "hazard-water-egress-static-walk-anchor",
+                                            bot_count=1)
+            invalid_anchor = {**diagnostic,
+                "static_walk_certificate_result": "not_attempted_missing_anchor",
+                "static_walk_first_hop_known": False, "static_walk_first_hop_name": "",
+                "static_walk_first_hop_location_known": False,
+                "static_walk_first_hop_location": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "static_walk_first_hop_distance_known": False,
+                "static_walk_current_first_hop_probe_known": False,
+                "static_walk_current_first_hop_probe_clear": False,
+                "static_walk_first_hop_entry_distance": 0.0,
+                "static_walk_minimum_first_hop_distance": 0.0,
+                "static_walk_terminal_first_hop_distance": 0.0,
+                "static_walk_first_hop_progress_samples": "0",
+                "static_walk_first_hop_regression_samples": "0",
+                "static_walk_continuation_known": False,
+                "static_walk_continuation_name": "", "static_walk_cost": 0.0,
+                "static_walk_hops": "0", "static_walk_visited_nodes": "0"}
+            upgrade_telemetry_v2(malformed_anchor, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [invalid_anchor]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "missing-anchor static walk"):
+                QUALITY.analyze_run(malformed_anchor)
+
+            excessive = write_v2_run(root, "hazard-water-egress-excessive", bot_count=1)
+            duplicate = {**diagnostic, "sequence": "2"}
+            upgrade_telemetry_v2(excessive, counters=[
+                common, {**final, "hazard_water_egress_diagnostics": [diagnostic, duplicate]},
+                {**final, "hazard_water_egress_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "duplicate hazard-water egress"):
+                QUALITY.analyze_run(excessive)
+
+    def test_move_stall_recovery_episodes_are_exact_and_fail_closed(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            **{name: 0 for name in QUALITY.MOVE_STALL_RECOVERY_EXACT_COUNTERS},
+            "move_stall_recovery_episodes": [],
+        }
+        record = {
+            "source_pawn_actor": "Bot1", "sequence": "1", "life_id": "1",
+            "episode_id": "1", "seconds_since_detection": 1.5,
+            "outcome": "cleared_within_2_seconds",
+        }
+        final = {
+            **common, "move_stall_recovery_episodes_exact": 1,
+            "move_stall_recovery_cleared_within_2_seconds_exact": 1,
+            "move_stall_recovery_episodes": [record],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "move-stall-recovery", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                common, final, {**final, "move_stall_recovery_episodes": []},
+            ])
+            analyzed = QUALITY.analyze_run(valid)
+            self.assertEqual(
+                analyzed["metrics"]["recoverable_movement_episode_clear_within_2s_fraction"],
+                1.0)
+            self.assertEqual(
+                analyzed["metrics"][
+                    "recoverable_movement_episode_clear_or_replanned_within_5s_fraction"],
+                1.0)
+
+            malformed = write_v2_run(root, "move-stall-recovery-incomplete", bot_count=1)
+            incomplete = dict(common)
+            incomplete.pop("move_stall_recovery_unknown_exact")
+            upgrade_telemetry_v2(malformed, counters=[incomplete, incomplete, incomplete])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "move-stall recovery counters must be provided"):
+                QUALITY.analyze_run(malformed)
+
+            unreconciled = write_v2_run(root, "move-stall-recovery-unreconciled", bot_count=1)
+            no_terminal = {
+                **common, "move_stall_recovery_episodes_exact": 1,
+                "move_stall_recovery_episodes": [],
+            }
+            upgrade_telemetry_v2(unreconciled, counters=[common, no_terminal, no_terminal])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "do not partition all episodes"):
+                QUALITY.analyze_run(unreconciled)
+
+            overflowed = write_v2_run(root, "move-stall-recovery-overflow", bot_count=1)
+            overflow_final = {
+                **final, "move_stall_recovery_episodes_exact": 2,
+                "move_stall_recovery_cleared_within_2_seconds_exact": 2,
+                "move_stall_recovery_episode_record_overflows_exact": 1,
+            }
+            upgrade_telemetry_v2(overflowed, counters=[
+                common, overflow_final,
+                {**overflow_final, "move_stall_recovery_episodes": []},
+            ])
+            overflow_metrics = QUALITY.analyze_run(overflowed)["metrics"]
+            self.assertIsNone(
+                overflow_metrics["recoverable_movement_episode_clear_within_2s_fraction"])
+            self.assertIsNone(overflow_metrics[
+                "recoverable_movement_episode_clear_or_replanned_within_5s_fraction"])
+
+    def test_hazard_death_partition_records_are_same_death_and_exact(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "suicides_exact": 0,
+            "environmental_deaths_exact": 0, "hazard_exposed_deaths_proxy": 0,
+            "hit_wall_events_exact": 0,
+            "direct_self_kills": 0, "direct_enemy_kills": 0,
+            "unassisted_environmental_deaths": 0,
+            "recent_enemy_contributed_environmental_deaths_proxy": 0,
+            "ambiguous_deaths": 0,
+            "recent_enemy_momentum_contributed_environmental_deaths_proxy": 0,
+            "hazard_death_partition_records": [],
+        }
+        record = {
+            "source_pawn_actor": "Bot1", "sequence": "1",
+            "death_time_seconds": 12.5, "killer_relation": "none",
+            "attribution": "unassisted_environmental_death",
+            "environmental_source": "pain_timer",
+            "had_recent_enemy_contribution": False,
+            "had_recent_enemy_momentum_contribution": False,
+            "hazard_prefix": "none", "move_target_known": False,
+            "move_target_name": "", "movement_intent": True, "physics_mode": "Swimming",
+            "water_egress_terminal_known": False, "water_egress_sequence": "0",
+            "water_egress_life_id": "0", "water_egress_episode_id": "0",
+            "falling_hazard_terminal_known": False, "falling_hazard_sequence": "0",
+            "falling_hazard_life_id": "0", "falling_hazard_fall_episode_id": "0",
+            "falling_hazard_generation_id": "0", "falling_hazard_correlation": "",
+            "falling_parity_terminal_known": False, "falling_parity_life_generation": "0",
+            "falling_parity_invocation_token": "0", "falling_parity_walking_iteration": 0,
+        }
+        final = {
+            **common, "deaths_exact": 1, "unassisted_environmental_deaths": 1,
+            "hazard_death_partition_records": [record],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "hazard-death-partition", bot_count=1)
+            declare_death_attribution(valid)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, "deaths_exact": 0}, final,
+                {**final, "hazard_death_partition_records": []},
+            ])
+            QUALITY.analyze_run(valid)
+
+            bad_witness = write_v2_run(root, "hazard-death-partition-bad-witness", bot_count=1)
+            declare_death_attribution(bad_witness)
+            invalid_record = {**record, "hazard_prefix": "water_egress_death",
+                              "water_egress_terminal_known": True,
+                              "water_egress_sequence": "1", "water_egress_life_id": "1",
+                              "water_egress_episode_id": "1"}
+            upgrade_telemetry_v2(bad_witness, counters=[
+                {**common, "deaths_exact": 0},
+                {**final, "hazard_death_partition_records": [invalid_record]},
+                {**final, "hazard_death_partition_records": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "same-event death_before_exit"):
+                QUALITY.analyze_run(bad_witness)
+
+            partial = write_v2_run(root, "hazard-death-partition-partial", bot_count=1)
+            declare_death_attribution(partial)
+            partial_record = {**record, "water_egress_sequence": "1"}
+            upgrade_telemetry_v2(partial, counters=[
+                {**common, "deaths_exact": 0},
+                {**final, "hazard_death_partition_records": [partial_record]},
+                {**final, "hazard_death_partition_records": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "unknown water terminal"):
+                QUALITY.analyze_run(partial)
+
+            missing = write_v2_run(root, "hazard-death-partition-missing", bot_count=1)
+            declare_death_attribution(missing)
+            upgrade_telemetry_v2(missing, counters=[
+                {**common, "deaths_exact": 0},
+                {**final, "hazard_death_partition_records": []},
+                {**final, "hazard_death_partition_records": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "do not reconcile with unassisted"):
+                QUALITY.analyze_run(missing)
+
+    def test_falling_pre_move_anchor_counters_are_complete_and_bounded(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.FALLING_PRE_MOVE_ANCHOR_COUNTERS}
+        final = {
+            **zero,
+            "falling_pre_move_anchor_captures_exact": 3,
+            "falling_pre_move_anchor_uses_exact": 2,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "falling-pre-move-anchor", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, **zero}, {**common, **final}, {**common, **final},
+            ])
+            metrics = QUALITY.analyze([valid])["runs"][0]["metrics"]
+            self.assertEqual(metrics["falling_pre_move_anchor_captures_exact"], 3)
+            self.assertEqual(metrics["falling_pre_move_anchor_uses_exact"], 2)
+
+            partial = write_v2_run(root, "falling-pre-move-anchor-partial", bot_count=1)
+            partial_final = {**final}
+            partial_final.pop("falling_pre_move_anchor_uses_exact")
+            upgrade_telemetry_v2(partial, counters=[
+                {**common, **zero}, {**common, **partial_final}, {**common, **partial_final},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "falling pre-move anchor counters must be provided"):
+                QUALITY.analyze_run(partial)
+
+            excessive_use = write_v2_run(root, "falling-pre-move-anchor-excess", bot_count=1)
+            excessive_final = {
+                **final, "falling_pre_move_anchor_uses_exact": 4,
+            }
+            upgrade_telemetry_v2(excessive_use, counters=[
+                {**common, **zero}, {**common, **excessive_final},
+                {**common, **excessive_final},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "uses exceed captures"):
+                QUALITY.analyze_run(excessive_use)
+
+            regressed = write_v2_run(root, "falling-pre-move-anchor-regressed", bot_count=1)
+            upgrade_telemetry_v2(regressed, counters=[
+                {**common, **zero}, {**common, **final},
+                {**common, "falling_pre_move_anchor_captures_exact": 2,
+                 "falling_pre_move_anchor_uses_exact": 2},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "captures_exact regressed"):
+                QUALITY.analyze_run(regressed)
+
+            absent = write_v2_run(root, "falling-pre-move-anchor-absent", bot_count=1)
+            upgrade_telemetry_v2(absent, counters=[common, common, common])
+            QUALITY.analyze_run(absent)
+
+    def test_live_hazard_swim_egress_counters_are_complete_and_bounded(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            **{name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_EXACT_COUNTERS},
+        }
+        final = {
+            **common,
+            "hazard_swim_egress_episodes_exact": 2,
+            "hazard_swim_egress_eligible_exact": 2,
+            "hazard_swim_egress_authorized_exact": 2,
+            "hazard_swim_egress_live_applies_exact": 1,
+            "hazard_swim_egress_live_active_ticks_exact": 7,
+            "hazard_swim_egress_live_probe_rejected_exact": 1,
+            "hazard_swim_egress_live_successful_exits_exact": 1,
+        }
+        zero = {name: 0 for name in QUALITY.HAZARD_SWIM_EGRESS_LIVE_COUNTERS}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "hazard-swim-live", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, **zero}, {**common, **zero}, final,
+            ])
+            metrics = QUALITY.analyze([valid])["runs"][0]["metrics"]
+            self.assertEqual(metrics["hazard_swim_egress_live_active_ticks_exact"], 7)
+
+            partial = write_v2_run(root, "hazard-swim-live-partial", bot_count=1)
+            partial_final = {**final}
+            partial_final.pop("hazard_swim_egress_live_active_ticks_exact")
+            upgrade_telemetry_v2(partial, counters=[
+                {**common, **zero}, {**common, **zero}, partial_final,
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "live counters must be provided"):
+                QUALITY.analyze_run(partial)
+
+            excessive = write_v2_run(root, "hazard-swim-live-excess", bot_count=1)
+            excessive_final = {**final, "hazard_swim_egress_live_probe_rejected_exact": 3}
+            upgrade_telemetry_v2(excessive, counters=[
+                {**common, **zero}, {**common, **zero}, excessive_final,
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "exceed authorization"):
+                QUALITY.analyze_run(excessive)
+
+    def test_falling_parity_and_vertical_column_counters_are_exclusive_and_reported(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {
+            name: 0 for name in
+            QUALITY.FALLING_PARITY_COUNTERS
+            + QUALITY.VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS
+        }
+        records = [
+            falling_parity_record("episode_started", 10, 0),
+            falling_parity_record("matched_clear", 10, 0),
+            falling_parity_record("mismatch", 10, 1),
+            falling_parity_record("pain_entered", 10, 2),
+            falling_parity_record("died", 10, 2),
+            falling_parity_record("episode_started", 20, 0),
+            falling_parity_record("matched_clear", 20, 0),
+            falling_parity_record("matched_clear", 20, 1),
+            falling_parity_record("callback_barrier", 20, 2),
+            falling_parity_record("landed", 20, 3),
+            falling_parity_record("episode_started", 30, 0),
+            falling_parity_record("continuity_lost", 30, 0),
+            falling_parity_record("episode_started", 40, 0),
+            falling_parity_record("matched_landing", 40, 0),
+            falling_parity_record("landed", 40, 1),
+        ]
+        final = {
+            **zero,
+            "falling_parity_realized_episodes_exact": 4,
+            "falling_parity_realized_steps_exact": 6,
+            "falling_parity_realized_matched_steps_exact": 3,
+            "falling_parity_realized_matched_landing_steps_exact": 1,
+            "falling_parity_realized_mismatches_exact": 1,
+            "falling_parity_realized_callback_barriers_exact": 1,
+            "falling_parity_realized_pain_entries_exact": 1,
+            "falling_parity_realized_deaths_exact": 1,
+            "falling_parity_realized_landings_exact": 2,
+            "falling_parity_realized_continuity_losses_exact": 1,
+            "vertical_pain_column_episodes_started_exact": 4,
+            "vertical_pain_column_episodes_completed_exact": 4,
+            "vertical_pain_column_true_positive_outcomes_exact": 1,
+            "vertical_pain_column_false_positive_outcomes_exact": 1,
+            "vertical_pain_column_true_negative_outcomes_exact": 1,
+            "vertical_pain_column_unknown_outcomes_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "parity-column", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **zero, "falling_parity_realized_records": []},
+                {**common, **final, "falling_parity_realized_records": records},
+                {**common, **final, "falling_parity_realized_records": []},
+            ])
+            report = QUALITY.analyze([run])
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(metrics["falling_parity_realized_episodes_exact"], 4)
+            self.assertEqual(
+                metrics["falling_parity_realized_episode_completion_fraction"], 1.0)
+            self.assertEqual(
+                metrics["falling_parity_realized_comparable_step_fraction"], 5.0 / 6.0)
+            self.assertEqual(metrics["falling_parity_realized_matched_step_fraction"], 0.8)
+            self.assertEqual(metrics["falling_parity_realized_mismatch_fraction"], 0.2)
+            self.assertEqual(metrics["falling_parity_realized_unknown_step_fraction"], 0.0)
+            self.assertEqual(metrics["vertical_pain_column_precision"], 0.5)
+            self.assertEqual(metrics["vertical_pain_column_recall"], 1.0)
+            self.assertEqual(metrics["vertical_pain_column_false_positive_rate"], 0.5)
+            self.assertEqual(metrics["vertical_pain_column_labeled_episode_fraction"], 0.75)
+            availability = report["metric_availability"]
+            self.assertIs(availability["falling_parity_shadow_metrics_present"], True)
+            self.assertIs(availability["vertical_pain_column_shadow_metrics_present"], True)
+
+            partial = write_v2_run(Path(temporary), "partial-parity", bot_count=1)
+            partial_final = {**final}
+            partial_final.pop("falling_parity_realized_record_overflows_exact")
+            upgrade_telemetry_v2(partial, counters=[
+                {**common, **zero, "falling_parity_realized_records": []},
+                {**common, **partial_final, "falling_parity_realized_records": records},
+                {**common, **partial_final, "falling_parity_realized_records": []},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "falling parity shadow counters must be provided"):
+                QUALITY.analyze_run(partial)
+
+            invalid = write_v2_run(Path(temporary), "invalid-column", bot_count=1)
+            invalid_final = {**final, "vertical_pain_column_false_positive_outcomes_exact": 2}
+            upgrade_telemetry_v2(invalid, counters=[
+                {**common, **zero, "falling_parity_realized_records": []},
+                {**common, **invalid_final, "falling_parity_realized_records": records},
+                {**common, **invalid_final, "falling_parity_realized_records": []},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "vertical pain column outcomes do not partition"):
+                QUALITY.analyze_run(invalid)
+
+    def test_current_vertical_column_diagnostics_reconcile_and_report_coverage(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        final = {
+            **zero,
+            "vertical_pain_column_episodes_started_exact": 1,
+            "vertical_pain_column_episodes_completed_exact": 1,
+            "vertical_pain_column_true_negative_outcomes_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "current-column", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [
+                    vertical_start(), vertical_terminal(),
+                ]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            metrics = QUALITY.analyze([run])["runs"][0]["metrics"]
+            self.assertEqual(metrics["vertical_pain_column_episode_completion_fraction"], 1.0)
+            self.assertEqual(metrics["vertical_pain_column_unknown_outcome_fraction"], 0.0)
+            self.assertEqual(metrics["vertical_pain_column_ambiguous_outcome_fraction"], 0.0)
+            self.assertEqual(metrics["vertical_pain_column_diagnostic_coverage_fraction"], 1.0)
+            self.assertEqual(
+                metrics["vertical_pain_column_generation_capacity_exhaustion_rate"], 0.0)
+
+            overflow = write_v2_run(Path(temporary), "current-column-overflow", bot_count=1)
+            overflow_final = {
+                **zero,
+                "vertical_pain_column_episodes_started_exact": 1,
+                "vertical_pain_column_diagnostic_overflows_exact": 1,
+            }
+            upgrade_telemetry_v2(overflow, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **overflow_final, "vertical_pain_column_diagnostics": []},
+                {**common, **overflow_final, "vertical_pain_column_diagnostics": []},
+            ])
+            overflow_metrics = QUALITY.analyze([overflow])["runs"][0]["metrics"]
+            self.assertEqual(
+                overflow_metrics["vertical_pain_column_diagnostic_coverage_fraction"], 0.0)
+
+    def test_current_vertical_column_schema_is_strict_and_zone_zero_is_valid(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        final = {**zero, "vertical_pain_column_episodes_started_exact": 1}
+        with tempfile.TemporaryDirectory() as temporary:
+            valid = write_v2_run(Path(temporary), "zone-zero-valid", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final,
+                 "vertical_pain_column_diagnostics": [vertical_start()]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            QUALITY.analyze_run(valid)
+
+            malformed = write_v2_run(Path(temporary), "zone-identity-invalid", bot_count=1)
+            bad = vertical_start()
+            bad["starting_physics_zone"] = vertical_zone(True, 0, 7)
+            upgrade_telemetry_v2(malformed, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [bad]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "zone_actor_id must be positive"):
+                QUALITY.analyze_run(malformed)
+
+            extra = write_v2_run(Path(temporary), "column-extra-field", bot_count=1)
+            bad = {**vertical_start(), "unexpected": True}
+            upgrade_telemetry_v2(extra, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [bad]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "unexpected fields"):
+                QUALITY.analyze_run(extra)
+
+            invalid_provenance = write_v2_run(
+                Path(temporary), "column-invalid-command-provenance", bot_count=1)
+            bad = {**vertical_start(),
+                   "aligned_command_provenance": "intact_command_but_no_action_lead"}
+            upgrade_telemetry_v2(invalid_provenance, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [bad]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "does not match the forecast source"):
+                QUALITY.analyze_run(invalid_provenance)
+
+    def test_current_vertical_column_lifecycle_and_correlation_are_strict(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        final = {
+            **zero,
+            "vertical_pain_column_episodes_started_exact": 1,
+            "vertical_pain_column_episodes_completed_exact": 1,
+            "vertical_pain_column_true_negative_outcomes_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            missing_start = write_v2_run(Path(temporary), "column-missing-start", bot_count=1)
+            upgrade_telemetry_v2(missing_start, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final,
+                 "vertical_pain_column_diagnostics": [vertical_terminal()]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "no matching start"):
+                QUALITY.analyze_run(missing_start)
+
+            wrong_correlation = write_v2_run(
+                Path(temporary), "column-wrong-correlation", bot_count=1)
+            terminal = vertical_terminal()
+            terminal["correlation"] = "forecast_only"
+            upgrade_telemetry_v2(wrong_correlation, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [
+                    vertical_start(), terminal,
+                ]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "expected"):
+                QUALITY.analyze_run(wrong_correlation)
+
+    def test_current_vertical_column_accepts_center_only_harmful_entry(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        final = {
+            **zero,
+            "vertical_pain_column_episodes_started_exact": 1,
+            "vertical_pain_column_episodes_completed_exact": 1,
+            "vertical_pain_column_true_positive_outcomes_exact": 1,
+        }
+        terminal = vertical_terminal(harmful=True, center_only=True)
+        parsed = QUALITY._vertical_pain_column_diagnostic(terminal, "center-only")
+        self.assertIs(parsed["entered_harmful_foot_zone"], False)
+        self.assertIs(parsed["entered_harmful_center_zone"], True)
+        self.assertEqual(
+            parsed["observed_harmful_center_zone"], vertical_zone(True, 2, 0))
+        self.assertEqual(parsed["correlation"], "confirmed_harmful_forecast")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "column-center-only", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [
+                    vertical_start(harmful=True), terminal,
+                ]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            metrics = QUALITY.analyze([run])["runs"][0]["metrics"]
+            self.assertEqual(metrics["vertical_pain_column_precision"], 1.0)
+            self.assertEqual(metrics["vertical_pain_column_recall"], 1.0)
+
+    def test_current_vertical_column_center_fields_are_strict(self) -> None:
+        missing = vertical_terminal(harmful=True, center_only=True)
+        missing.pop("observed_harmful_center_zone")
+        with self.assertRaisesRegex(QUALITY.QualityError, "missing fields"):
+            QUALITY._vertical_pain_column_diagnostic(missing, "missing-center")
+
+        no_entry = vertical_terminal(harmful=True, center_only=True)
+        no_entry["observed_harmful_center_zone"] = vertical_zone(False)
+        no_entry["entered_harmful_center_zone"] = False
+        no_entry["expected_harmful_path_matched"] = False
+        no_entry["correlation"] = "ambiguous"
+        with self.assertRaisesRegex(QUALITY.QualityError, "requires harmful entry"):
+            QUALITY._vertical_pain_column_diagnostic(no_entry, "no-entry")
+
+        unknown_identity = vertical_terminal(harmful=True, center_only=True)
+        unknown_identity["observed_harmful_center_zone"] = vertical_zone(False)
+        with self.assertRaisesRegex(QUALITY.QualityError, "exact known zone identity"):
+            QUALITY._vertical_pain_column_diagnostic(
+                unknown_identity, "unknown-center-identity")
+
+        mismatched_identity = vertical_terminal(harmful=True, center_only=True)
+        mismatched_identity["observed_harmful_center_zone"] = vertical_zone(True, 4, 0)
+        with self.assertRaisesRegex(QUALITY.QualityError, "matching zone identities"):
+            QUALITY._vertical_pain_column_diagnostic(
+                mismatched_identity, "mismatched-center-identity")
+
+        unknown_center_evidence = vertical_terminal(harmful=True, center_only=True)
+        unknown_center_evidence["harmful_center_evidence_known"] = False
+        with self.assertRaisesRegex(
+                QUALITY.QualityError,
+                "entered_harmful_center_zone requires harmful_center_evidence_known"):
+            QUALITY._vertical_pain_column_diagnostic(
+                unknown_center_evidence, "unknown-center-evidence")
+
+        unknown_foot_evidence = vertical_terminal(harmful=True)
+        unknown_foot_evidence["harmful_foot_evidence_known"] = False
+        with self.assertRaisesRegex(
+                QUALITY.QualityError,
+                "entered_harmful_foot_zone requires harmful_foot_evidence_known"):
+            QUALITY._vertical_pain_column_diagnostic(
+                unknown_foot_evidence, "unknown-foot-evidence")
+
+        unclaimed_unknown_foot = vertical_terminal(
+            harmful=True, center_only=True)
+        unclaimed_unknown_foot["harmful_foot_evidence_known"] = False
+        unclaimed_unknown_foot["correlation"] = "unknown"
+        parsed = QUALITY._vertical_pain_column_diagnostic(
+            unclaimed_unknown_foot, "unclaimed-unknown-foot")
+        self.assertIs(parsed["entered_harmful_center_zone"], True)
+        self.assertIs(parsed["entered_harmful_foot_zone"], False)
+        self.assertIs(parsed["harmful_foot_evidence_known"], False)
+        self.assertEqual(parsed["correlation"], "unknown")
+
+    def test_current_vertical_column_accepts_final_continuation_and_ambiguous_enums(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        start = vertical_start(harmful=True)
+        start["source"] = "aligned_continuation_commit"
+        start["precharged_elapsed"] = 0.02
+        terminal = vertical_terminal(harmful=True)
+        terminal["source"] = "aligned_continuation_commit"
+        terminal["causal_ambiguity"] = True
+        terminal["expected_harmful_path_matched"] = False
+        terminal["correlation"] = "ambiguous"
+        final = {
+            **zero,
+            "vertical_pain_column_episodes_started_exact": 1,
+            "vertical_pain_column_episodes_completed_exact": 1,
+            "vertical_pain_column_ambiguous_outcomes_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "column-ambiguous", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final,
+                 "vertical_pain_column_diagnostics": [start, terminal]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            metrics = QUALITY.analyze([run])["runs"][0]["metrics"]
+            self.assertEqual(
+                metrics["vertical_pain_column_ambiguous_outcome_fraction"], 1.0)
+
+            for source in (
+                    "third_move_continuation_commit", "horizon_continuation_commit"):
+                with self.subTest(source=source):
+                    record = vertical_start()
+                    record["source"] = source
+                    record["precharged_elapsed"] = (
+                        0.02 if source == "third_move_continuation_commit" else 0.0)
+                    QUALITY._vertical_pain_column_diagnostic(record, source)
+
+    def test_current_vertical_column_capacity_record_is_reconciled_after_terminal(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        terminal = vertical_terminal()
+        terminal["actual_trajectory_unknown"] = True
+        terminal["correlation"] = "unknown"
+        capacity = {
+            "source_pawn_actor": "Bot1",
+            "sequence": "3",
+            "life_id": "1",
+            "fall_episode_id": "1",
+            "generation_id": "0",
+            "kind": "generation_capacity_exceeded",
+            "attempted_source": "horizon_continuation_commit",
+        }
+        final = {
+            **zero,
+            "vertical_pain_column_episodes_started_exact": 1,
+            "vertical_pain_column_episodes_completed_exact": 1,
+            "vertical_pain_column_unknown_outcomes_exact": 1,
+            "vertical_pain_column_generation_capacity_exhaustions_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "column-capacity", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **zero, "vertical_pain_column_diagnostics": []},
+                {**common, **final, "vertical_pain_column_diagnostics": [
+                    vertical_start(), terminal, capacity,
+                ]},
+                {**common, **final, "vertical_pain_column_diagnostics": []},
+            ])
+            metrics = QUALITY.analyze([run])["runs"][0]["metrics"]
+            self.assertEqual(
+                metrics["vertical_pain_column_generation_capacity_exhaustion_rate"], 1.0)
+
+    def test_current_vertical_column_requires_records_but_legacy_does_not(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        legacy = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_LEGACY_COUNTERS}
+        current = {name: 0 for name in QUALITY.VERTICAL_PAIN_COLUMN_COUNTERS}
+        with tempfile.TemporaryDirectory() as temporary:
+            old = write_v2_run(Path(temporary), "legacy-column-no-records", bot_count=1)
+            upgrade_telemetry_v2(old, counters=[
+                {**common, **legacy}, {**common, **legacy}, {**common, **legacy},
+            ])
+            QUALITY.analyze_run(old)
+
+            missing = write_v2_run(Path(temporary), "current-column-no-records", bot_count=1)
+            upgrade_telemetry_v2(missing, counters=[
+                {**common, **current}, {**common, **current}, {**common, **current},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "current vertical pain column counters require"):
+                QUALITY.analyze_run(missing)
+
+    def test_falling_parity_legacy_counter_group_defaults_matched_landings_to_zero(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        legacy_zero = {name: 0 for name in QUALITY.FALLING_PARITY_LEGACY_COUNTERS}
+        records = [
+            falling_parity_record("episode_started", 5, 0),
+            falling_parity_record("matched_clear", 5, 0),
+            falling_parity_record("continuity_lost", 5, 1),
+        ]
+        legacy_final = {
+            **legacy_zero,
+            "falling_parity_realized_episodes_exact": 1,
+            "falling_parity_realized_steps_exact": 1,
+            "falling_parity_realized_matched_steps_exact": 1,
+            "falling_parity_realized_continuity_losses_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "legacy-parity", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**common, **legacy_zero, "falling_parity_realized_records": []},
+                {**common, **legacy_final, "falling_parity_realized_records": records},
+                {**common, **legacy_final, "falling_parity_realized_records": []},
+            ])
+            report = QUALITY.analyze([run])
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(
+                metrics["falling_parity_realized_matched_landing_steps_exact"], 0)
+            self.assertEqual(metrics["falling_parity_realized_comparable_step_fraction"], 1.0)
+            self.assertEqual(metrics["falling_parity_realized_matched_step_fraction"], 1.0)
+
+    def test_falling_parity_realized_records_are_strict_ordered_and_reconciled(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.FALLING_PARITY_COUNTERS}
+        records = [
+            falling_parity_record("episode_started", 5, 0),
+            falling_parity_record("matched_clear", 5, 0),
+            falling_parity_record("continuity_lost", 5, 1),
+        ]
+        final = {
+            **zero,
+            "falling_parity_realized_episodes_exact": 1,
+            "falling_parity_realized_steps_exact": 1,
+            "falling_parity_realized_matched_steps_exact": 1,
+            "falling_parity_realized_continuity_losses_exact": 1,
+        }
+
+        def samples_with(records_at_tick: list[dict], counters: dict | None = None) -> list[dict]:
+            counters = counters or final
+            return [
+                {**common, **zero, "falling_parity_realized_records": []},
+                {**common, **counters,
+                 "falling_parity_realized_records": records_at_tick},
+                {**common, **counters, "falling_parity_realized_records": []},
+            ]
+
+        def analyze_samples(root: Path, name: str, samples: list[dict]) -> dict:
+            run = write_v2_run(root, name, bot_count=1)
+            upgrade_telemetry_v2(run, counters=samples)
+            return QUALITY.analyze([run])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            report = analyze_samples(root, "valid-realized-records", samples_with(records))
+            self.assertEqual(
+                report["runs"][0]["metrics"]
+                ["falling_parity_realized_episode_completion_fraction"], 1.0)
+
+            matched_landing_records = [
+                falling_parity_record("episode_started", 6, 0),
+                falling_parity_record("matched_landing", 6, 0),
+                falling_parity_record("landed", 6, 1),
+            ]
+            matched_landing_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_matched_landing_steps_exact": 1,
+                "falling_parity_realized_landings_exact": 1,
+            }
+            matched_landing_report = analyze_samples(
+                root, "valid-matched-landing",
+                samples_with(matched_landing_records, matched_landing_final))
+            self.assertEqual(
+                matched_landing_report["runs"][0]["metrics"]
+                ["falling_parity_realized_matched_step_fraction"], 1.0)
+
+            mismatched_landing_records = json.loads(json.dumps(matched_landing_records))
+            mismatched_landing_records[1]["outcome"] = "mismatch"
+            mismatched_landing_records[1]["velocity_error"] = 0.01
+            mismatched_landing_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_mismatches_exact": 1,
+                "falling_parity_realized_landings_exact": 1,
+            }
+            analyze_samples(
+                root, "valid-mismatched-landing",
+                samples_with(mismatched_landing_records, mismatched_landing_final))
+
+            overflow_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_matched_steps_exact": 1,
+                "falling_parity_realized_record_overflows_exact": 1,
+            }
+            analyze_samples(root, "valid-overflow-reconciliation", samples_with(
+                [falling_parity_record("episode_started", 7, 0)], overflow_final))
+
+            maximum_step_records = [
+                falling_parity_record("episode_started", 9, 0),
+                *(falling_parity_record("matched_clear", 9, ordinal)
+                  for ordinal in range(96)),
+                falling_parity_record("continuity_lost", 9, 96),
+            ]
+            maximum_step_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 96,
+                "falling_parity_realized_matched_steps_exact": 96,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            analyze_samples(
+                root, "valid-maximum-realized-steps",
+                samples_with(maximum_step_records, maximum_step_final))
+
+            malformed_cases = []
+
+            nonwalkable_matched_landing = json.loads(json.dumps(matched_landing_records))
+            nonwalkable_matched_landing[1]["hit_normal"]["z"] = 0.7
+            malformed_cases.append((
+                "nonwalkable-matched-landing", nonwalkable_matched_landing,
+                matched_landing_final,
+                "matched_landing requires walkable static-world landing evidence"))
+
+            excessive_matched_landing_error = json.loads(
+                json.dumps(matched_landing_records))
+            excessive_matched_landing_error[1]["endpoint_error"] = 0.001001
+            malformed_cases.append((
+                "excessive-matched-landing-error", excessive_matched_landing_error,
+                matched_landing_final,
+                "matched_landing errors must be at most 0.001"))
+
+            unexpected = json.loads(json.dumps(records))
+            unexpected[0]["extra"] = 1
+            malformed_cases.append(("unexpected", unexpected, final, "unexpected fields"))
+
+            unknown_outcome = json.loads(json.dumps(records))
+            unknown_outcome[1]["outcome"] = "approximately_matched"
+            malformed_cases.append((
+                "unknown-outcome", unknown_outcome, final, "outcome is not recognized"))
+
+            walking_collision = json.loads(json.dumps(records))
+            walking_collision[1]["collision"] = "static_bsp"
+            malformed_cases.append((
+                "walking-collision-enum", walking_collision, final,
+                "collision is not recognized"))
+
+            nonclear_match = json.loads(json.dumps(records))
+            nonclear_match[1]["collision"] = "static_world"
+            malformed_cases.append((
+                "nonclear-match", nonclear_match, final,
+                "requires clear collision evidence at full fraction"))
+
+            partial_fraction_match = json.loads(json.dumps(records))
+            partial_fraction_match[1]["hit_fraction"] = 0.5
+            malformed_cases.append((
+                "partial-fraction-match", partial_fraction_match, final,
+                "requires clear collision evidence at full fraction"))
+
+            excessive_match_error = json.loads(json.dumps(records))
+            excessive_match_error[1]["endpoint_error"] = 0.001001
+            malformed_cases.append((
+                "excessive-match-error", excessive_match_error, final,
+                "matched_clear errors must be at most 0.001"))
+
+            insufficient_mismatch_error = json.loads(json.dumps(records))
+            insufficient_mismatch_error[1]["outcome"] = "mismatch"
+            insufficient_mismatch_error[1]["velocity_error"] = 0.001
+            mismatch_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_mismatches_exact": 1,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "insufficient-mismatch-error", insufficient_mismatch_error,
+                mismatch_final, "mismatch requires at least one error greater than 0.001"))
+
+            oversized_callback_mask = [
+                falling_parity_record("episode_started", 11, 0),
+                falling_parity_record("callback_barrier", 11, 0),
+                falling_parity_record("continuity_lost", 11, 1),
+            ]
+            oversized_callback_mask[1]["callback_barrier_mask"] = "512"
+            callback_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_callback_barriers_exact": 1,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "oversized-callback-mask", oversized_callback_mask, callback_final,
+                "callback_barrier_mask must be at most 511"))
+
+            noncallback_mask = json.loads(json.dumps(records))
+            noncallback_mask[1]["callback_barrier_mask"] = "1"
+            malformed_cases.append((
+                "noncallback-mask", noncallback_mask, final,
+                "callback_barrier_mask requires a callback_barrier outcome"))
+
+            nonfinite = json.loads(json.dumps(records))
+            nonfinite[1]["endpoint_error"] = "nan"
+            malformed_cases.append((
+                "nonfinite", nonfinite, final, "must be a finite number"))
+
+            wrong_actor = json.loads(json.dumps(records))
+            wrong_actor[1]["source_pawn_actor"] = "OtherBot"
+            malformed_cases.append((
+                "wrong-actor", wrong_actor, final, "record actor does not match"))
+
+            bad_ordinal = json.loads(json.dumps(records))
+            bad_ordinal[1]["step_ordinal"] = "1"
+            malformed_cases.append((
+                "bad-ordinal", bad_ordinal, final,
+                "realized step ordinals are not consecutive"))
+
+            excessive_steps = [
+                falling_parity_record("episode_started", 12, 0),
+                *(falling_parity_record("matched_clear", 12, ordinal)
+                  for ordinal in range(97)),
+                falling_parity_record("continuity_lost", 12, 97),
+            ]
+            excessive_steps_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_steps_exact": 97,
+                "falling_parity_realized_matched_steps_exact": 97,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "excessive-steps", excessive_steps, excessive_steps_final,
+                "realized step ordinal must be below 96"))
+
+            excessive_terminal_ordinal = [
+                falling_parity_record("episode_started", 13, 0),
+                falling_parity_record("continuity_lost", 13, 97),
+            ]
+            excessive_terminal_final = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "excessive-terminal-ordinal", excessive_terminal_ordinal,
+                excessive_terminal_final, "terminal ordinal must be at most 96"))
+
+            after_terminal = [
+                falling_parity_record("episode_started", 7, 0),
+                falling_parity_record("continuity_lost", 7, 0),
+                falling_parity_record("pain_entered", 7, 0),
+            ]
+            after_terminal_counters = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 1,
+                "falling_parity_realized_pain_entries_exact": 1,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "after-terminal", after_terminal, after_terminal_counters,
+                "record follows a terminal outcome"))
+
+            regressed_correlation = [
+                falling_parity_record("episode_started", 20, 0),
+                falling_parity_record("continuity_lost", 20, 0),
+                falling_parity_record("episode_started", 10, 0, life=2),
+                falling_parity_record("continuity_lost", 10, 0, life=2),
+            ]
+            regressed_counters = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 2,
+                "falling_parity_realized_continuity_losses_exact": 2,
+            }
+            malformed_cases.append((
+                "regressed-correlation", regressed_correlation, regressed_counters,
+                "record correlation regressed"))
+
+            unterminated_correlation = [
+                falling_parity_record("episode_started", 30, 0),
+                falling_parity_record("matched_clear", 30, 0),
+                falling_parity_record("episode_started", 40, 0),
+                falling_parity_record("continuity_lost", 40, 0),
+            ]
+            unterminated_counters = {
+                **zero,
+                "falling_parity_realized_episodes_exact": 2,
+                "falling_parity_realized_steps_exact": 1,
+                "falling_parity_realized_matched_steps_exact": 1,
+                "falling_parity_realized_continuity_losses_exact": 1,
+            }
+            malformed_cases.append((
+                "unterminated-correlation", unterminated_correlation,
+                unterminated_counters, "correlation changed before a terminal outcome"))
+
+            mismatched_counters = json.loads(json.dumps(final))
+            mismatched_records = json.loads(json.dumps(records))
+            mismatched_records[1]["outcome"] = "mismatch"
+            mismatched_records[1]["velocity_error"] = 0.01
+            malformed_cases.append((
+                "counter-mismatch", mismatched_records, mismatched_counters,
+                "records do not reconcile with falling_parity_realized_matched_steps_exact delta"))
+
+            bad_overflow = {**overflow_final,
+                            "falling_parity_realized_record_overflows_exact": 2}
+            malformed_cases.append((
+                "bad-overflow", [falling_parity_record("episode_started", 8, 0)],
+                bad_overflow, "records and overflows do not reconcile"))
+
+            for name, malformed_records, counters, message in malformed_cases:
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(QUALITY.QualityError, message):
+                        analyze_samples(
+                            root, f"invalid-realized-{name}",
+                            samples_with(malformed_records, counters))
+
+            counters_without_records = write_v2_run(
+                root, "parity-counters-without-records", bot_count=1)
+            upgrade_telemetry_v2(counters_without_records, counters=[
+                {**common, **zero}, {**common, **final}, {**common, **final},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "counter group requires falling_parity_realized_records"):
+                QUALITY.analyze([counters_without_records])
+
+            records_without_counters = write_v2_run(
+                root, "parity-records-without-counters", bot_count=1)
+            upgrade_telemetry_v2(records_without_counters, counters=[
+                {**common, "falling_parity_realized_records": []},
+                {**common, "falling_parity_realized_records": []},
+                {**common, "falling_parity_realized_records": []},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "records require the complete counter group"):
+                QUALITY.analyze([records_without_counters])
+
+    def test_falling_seam_shadow_counters_are_complete_monotonic_and_reported(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        samples = [
+            {**common, "falling_seam_detections_exact": 0,
+             "horizontal_corner_candidate_probes_exact": 0,
+             "horizontal_corner_authorized_escapes_exact": 0,
+             "horizontal_corner_target_progress_rejects_exact": 0,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 0},
+            {**common, "falling_seam_detections_exact": 2,
+             "horizontal_corner_candidate_probes_exact": 4,
+             "horizontal_corner_authorized_escapes_exact": 1,
+             "horizontal_corner_target_progress_rejects_exact": 2,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 1},
+            {**common, "falling_seam_detections_exact": 3,
+             "horizontal_corner_candidate_probes_exact": 6,
+             "horizontal_corner_authorized_escapes_exact": 2,
+             "horizontal_corner_target_progress_rejects_exact": 2,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 2},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = write_v2_run(root, "valid")
+            upgrade_telemetry_v2(run, counters=samples)
+            report = QUALITY.analyze([run])
+
+            self.assertTrue(
+                report["metric_availability"]["falling_seam_shadow_metrics_present"])
+            per_bot = report["runs"][0]["bots"][0]
+            self.assertEqual(
+                {name: per_bot[name] for name in QUALITY.FALLING_SEAM_SHADOW_COUNTERS},
+                {
+                    "falling_seam_detections_exact": 3,
+                    "horizontal_corner_candidate_probes_exact": 6,
+                    "horizontal_corner_authorized_escapes_exact": 2,
+                    "horizontal_corner_target_progress_rejects_exact": 2,
+                    "horizontal_corner_unknown_or_unsafe_support_exact": 2,
+                })
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(metrics["falling_seam_detections_exact"], 6)
+            self.assertEqual(metrics["horizontal_corner_candidate_probes_exact"], 12)
+            self.assertEqual(metrics["horizontal_corner_authorized_escapes_exact"], 4)
+            aggregate = report["variant_aggregates"][0]["metrics"]
+            self.assertEqual(aggregate["falling_seam_detections_exact"]["mean"], 6.0)
+            self.assertEqual(
+                aggregate["horizontal_corner_authorized_escapes_exact"]["mean"], 4.0)
+
+            incomplete = write_v2_run(root, "incomplete")
+            incomplete_samples = [{**sample} for sample in samples]
+            for sample in incomplete_samples:
+                sample.pop("horizontal_corner_unknown_or_unsafe_support_exact")
+            upgrade_telemetry_v2(incomplete, counters=incomplete_samples)
+            with self.assertRaisesRegex(QUALITY.QualityError, "falling seam shadow.*complete group"):
+                QUALITY.analyze([incomplete])
+
+            regressed = write_v2_run(root, "regressed")
+            regressed_samples = [{**sample} for sample in samples]
+            regressed_samples[2]["horizontal_corner_authorized_escapes_exact"] = 0
+            regressed_samples[2]["horizontal_corner_target_progress_rejects_exact"] = 4
+            upgrade_telemetry_v2(regressed, counters=regressed_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "horizontal_corner_authorized_escapes_exact regressed"):
+                QUALITY.analyze([regressed])
+
+            bad_subset = write_v2_run(root, "bad-subset")
+            bad_subset_samples = [{**sample} for sample in samples]
+            bad_subset_samples[1]["horizontal_corner_target_progress_rejects_exact"] = 1
+            upgrade_telemetry_v2(bad_subset, counters=bad_subset_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "classifications do not partition candidate probes"):
+                QUALITY.analyze([bad_subset])
+
+            candidates_without_detection = write_v2_run(root, "candidates-without-detection")
+            candidates_without_detection_samples = [{**sample} for sample in samples]
+            candidates_without_detection_samples[1]["falling_seam_detections_exact"] = 0
+            upgrade_telemetry_v2(
+                candidates_without_detection, counters=candidates_without_detection_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "candidates exceed three per falling seam detection"):
+                QUALITY.analyze([candidates_without_detection])
+
+            too_many_authorized = write_v2_run(root, "too-many-authorized")
+            too_many_authorized_samples = [{**sample} for sample in samples]
+            too_many_authorized_samples[1]["horizontal_corner_authorized_escapes_exact"] = 3
+            too_many_authorized_samples[1]["horizontal_corner_target_progress_rejects_exact"] = 0
+            upgrade_telemetry_v2(
+                too_many_authorized, counters=too_many_authorized_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "authorized escapes exceed falling seam detections"):
+                QUALITY.analyze([too_many_authorized])
+
+    def test_older_telemetry_remains_valid_without_falling_seam_shadow_group(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "older-v2")
+            upgrade_telemetry_v2(run, counters=[common, common, common])
+            report = QUALITY.analyze([run])
+            self.assertFalse(
+                report["metric_availability"]["falling_seam_shadow_metrics_present"])
+            self.assertTrue(all(
+                report["runs"][0]["metrics"][name] is None
+                for name in QUALITY.FALLING_SEAM_SHADOW_COUNTERS))
+
+    def test_walking_step_preflight_shadow_is_complete_partitioned_and_debounced(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+
+        def sample(observations: int, authorizations: int, episodes: int) -> dict:
+            reasons = {name: 0 for name in QUALITY.WALKING_STEP_PREFLIGHT_REASON_COUNTERS}
+            reasons["walking_step_preflight_reason_supported_step_endpoint_exact"] = \
+                observations - authorizations
+            reasons["walking_step_preflight_reason_harmful_pain_fall_exact"] = authorizations
+            return {
+                **common,
+                "walking_step_preflight_observations_exact": observations,
+                "walking_step_preflight_unsupported_endpoints_exact": authorizations + 1
+                    if observations else 0,
+                "walking_step_preflight_no_decisions_exact": observations - authorizations,
+                "walking_step_preflight_provisional_authorizations_exact": authorizations,
+                "walking_step_preflight_post_mayfall_confirmed_authorizations_exact": authorizations,
+                "walking_step_preflight_authorizable_episodes_exact": episodes,
+                "walking_step_preflight_diagnostic_overflows_exact": 0,
+                **reasons,
+            }
+
+        samples = [sample(0, 0, 0), sample(10, 2, 1), sample(20, 5, 2)]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = write_v2_run(root, "walking-preflight")
+            upgrade_telemetry_v2(run, counters=samples)
+            report = QUALITY.analyze([run])
+            self.assertTrue(report["metric_availability"]
+                            ["walking_step_preflight_shadow_metrics_present"])
+            self.assertEqual(report["runs"][0]["bots"][0]
+                             ["walking_step_preflight_authorizable_episodes_exact"], 2)
+
+            incomplete = write_v2_run(root, "walking-preflight-incomplete")
+            incomplete_samples = [{**item} for item in samples]
+            for item in incomplete_samples:
+                item.pop("walking_step_preflight_reason_unknown_gravity_exact")
+            upgrade_telemetry_v2(incomplete, counters=incomplete_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "walking step preflight shadow.*complete group"):
+                QUALITY.analyze([incomplete])
+
+            bad_partition = write_v2_run(root, "walking-preflight-bad-partition")
+            bad_samples = [{**item} for item in samples]
+            bad_samples[2]["walking_step_preflight_reason_supported_step_endpoint_exact"] -= 1
+            upgrade_telemetry_v2(bad_partition, counters=bad_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "reasons do not partition observations"):
+                QUALITY.analyze([bad_partition])
+
+            excess_episode = write_v2_run(root, "walking-preflight-excess-episode")
+            excess_samples = [{**item} for item in samples]
+            excess_samples[2]["walking_step_preflight_authorizable_episodes_exact"] = 6
+            upgrade_telemetry_v2(excess_episode, counters=excess_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "authorizable episodes exceed authorizations"):
+                QUALITY.analyze([excess_episode])
+
+    def test_walking_step_preflight_diagnostics_are_strict_correlated_and_bounded(self) -> None:
+        vector = {"x": 0.0, "y": 0.0, "z": 0.0}
+
+        def probe(collision: str = "unknown", fraction: float = 1.0) -> dict:
+            return {
+                "collision": collision, "fraction": fraction,
+                "delta": {**vector}, "normal": {**vector},
+            }
+
+        provisional = {
+            "source_pawn_actor": "Bot1", "sequence": "0", "life_generation": "1",
+            "invocation_token": "5", "movement_command_token": "12", "walking_iteration": 0,
+            "phase": "precommit_provisional", "transition_outcome": "",
+            "reason": "walking_step_preflight_reason_harmful_pain_fall_exact",
+            "origin": {"x": 10.0, "y": 20.0, "z": 30.0},
+            "predicted_unsupported_endpoint": {"x": 15.0, "y": 20.0, "z": 30.0},
+            "actual_unsupported_endpoint": {**vector}, "semantic_target": "BulletBox4",
+            "semantic_destination": {"x": 100.0, "y": 200.0, "z": 30.0},
+            "start_support": probe("static_bsp", 0.0), "step_up": probe("clear"),
+            "forward": probe("clear"), "actual_step_down": probe("clear"),
+            "support_probe": probe("clear"),
+            "fall_forecast": {
+                "attempted": True, "origin": {"x": 15.0, "y": 20.0, "z": 30.0},
+                "velocity": {"x": 100.0, "y": 0.0, "z": 0.0},
+                "acceleration": {**vector}, "gravity_known": True,
+                "gravity": {"x": 0.0, "y": 0.0, "z": -950.0}, "complete": True,
+                "total_drop": 128.0, "continuation_count": 0,
+                "landing_collision": "static_bsp",
+                "landing_normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+                "landing_zone": "pain", "pain_damage_per_sec_known": True,
+                "pain_damage_per_sec": 20.0, "hit_fractions": [0.5],
+            },
+        }
+        confirmation = json.loads(json.dumps(provisional))
+        confirmation.update({
+            "sequence": "1", "phase": "post_mayfall_confirmation",
+            "transition_outcome": "begin_falling",
+            "actual_unsupported_endpoint": {"x": 15.0, "y": 20.0, "z": 30.0},
+        })
+        rejected_confirmation = json.loads(json.dumps(confirmation))
+        rejected_confirmation.update({
+            "transition_outcome": "post_callback_forecast_rejected",
+            "reason": "walking_step_preflight_reason_safe_fall_landing_exact",
+        })
+        rejected_confirmation["fall_forecast"]["landing_zone"] = "safe"
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+
+        def sample(observations: int, diagnostics: list[dict]) -> dict:
+            reasons = {name: 0 for name in QUALITY.WALKING_STEP_PREFLIGHT_REASON_COUNTERS}
+            authorizations = 1 if observations else 0
+            reasons["walking_step_preflight_reason_harmful_pain_fall_exact"] = authorizations
+            return {
+                **common, "walking_step_preflight_observations_exact": observations,
+                "walking_step_preflight_unsupported_endpoints_exact": authorizations,
+                "walking_step_preflight_no_decisions_exact": 0,
+                "walking_step_preflight_provisional_authorizations_exact": authorizations,
+                "walking_step_preflight_post_mayfall_confirmed_authorizations_exact":
+                    authorizations,
+                "walking_step_preflight_authorizable_episodes_exact": authorizations,
+                "walking_step_preflight_diagnostic_overflows_exact": 0,
+                "walking_step_preflight_diagnostics": diagnostics, **reasons,
+            }
+
+        valid_samples = [sample(0, []), sample(1, [provisional, confirmation]), sample(1, [])]
+
+        def analyze_mutation(root: Path, name: str, mutate) -> None:
+            samples = json.loads(json.dumps(valid_samples))
+            mutate(samples)
+            run = write_v2_run(root, name)
+            upgrade_telemetry_v2(run, counters=samples)
+            QUALITY.analyze([run])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            analyze_mutation(root, "valid-diagnostics", lambda samples: None)
+
+            for reason, known, dps in (
+                    ("walking_step_preflight_reason_unknown_pain_damage_per_sec_exact",
+                     False, None),
+                    ("walking_step_preflight_reason_non_finite_pain_damage_per_sec_exact",
+                     True, None),
+                    ("walking_step_preflight_reason_non_harmful_pain_damage_per_sec_exact",
+                     True, 0.0)):
+                with self.subTest(reason=reason):
+                    def use_valid_dps_rejection(samples: list[dict], reason=reason,
+                                                known=known, dps=dps) -> None:
+                        diagnostic = samples[1]["walking_step_preflight_diagnostics"][0]
+                        diagnostic["reason"] = reason
+                        diagnostic["fall_forecast"].update(
+                            pain_damage_per_sec_known=known, pain_damage_per_sec=dps)
+                        for sample_item in samples[1:]:
+                            sample_item["walking_step_preflight_no_decisions_exact"] = 1
+                            sample_item[
+                                "walking_step_preflight_provisional_authorizations_exact"] = 0
+                            sample_item[
+                                "walking_step_preflight_post_mayfall_confirmed_authorizations_exact"] = 0
+                            sample_item["walking_step_preflight_authorizable_episodes_exact"] = 0
+                            for counter in QUALITY.WALKING_STEP_PREFLIGHT_REASON_COUNTERS:
+                                sample_item[counter] = 0
+                            sample_item[reason] = 1
+                        samples[1]["walking_step_preflight_diagnostics"] = [diagnostic]
+
+                    analyze_mutation(root, f"valid-{reason}", use_valid_dps_rejection)
+
+            def use_rejected_confirmation(samples: list[dict]) -> None:
+                samples[1]["walking_step_preflight_diagnostics"][1] = \
+                    json.loads(json.dumps(rejected_confirmation))
+                for sample_item in samples[1:]:
+                    sample_item[
+                        "walking_step_preflight_post_mayfall_confirmed_authorizations_exact"] = 0
+                    sample_item["walking_step_preflight_authorizable_episodes_exact"] = 0
+
+            analyze_mutation(root, "valid-rejected-confirmation", use_rejected_confirmation)
+
+            malformed_cases = (
+                ("not-array", lambda samples: samples[1].update(
+                    walking_step_preflight_diagnostics={}), "must be an array"),
+                ("unexpected-field", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(extra=1),
+                    "unexpected fields"),
+                ("nonfinite-normal", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0]["support_probe"]["normal"]
+                    .update(z="nan"), "must be a finite number"),
+                ("bad-fraction", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0]["fall_forecast"]
+                    ["hit_fractions"].__setitem__(0, 1.5), "must be at most 1.0"),
+                ("bad-phase", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(phase="precommit"),
+                    "phase is not recognized"),
+                ("bad-transition", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1]
+                    .update(transition_outcome="fell"), "transition_outcome is not recognized"),
+                ("bad-reason", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(reason="harmful"),
+                    "reason is not recognized"),
+                ("non-authorizing-provisional", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(
+                        reason="walking_step_preflight_reason_safe_fall_landing_exact"),
+                    "does not follow an authorization"),
+                ("accepted-with-rejected-reason", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1].update(
+                        reason="walking_step_preflight_reason_safe_fall_landing_exact"),
+                    "must preserve the provisional authorization reason"),
+                ("rejected-with-authorizing-reason", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1].update(
+                        transition_outcome="post_callback_forecast_rejected"),
+                    "must identify the rejected post-callback forecast"),
+                ("bad-collision", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0]["forward"]
+                    .update(collision="world"), "collision is not recognized"),
+                ("negative-sequence", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(sequence="-1"),
+                    "must be at least 0"),
+                ("negative-life", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(life_generation="-1"),
+                    "must be at least 0"),
+                ("negative-invocation", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(invocation_token="-1"),
+                    "must be at least 0"),
+                ("negative-command-token", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(movement_command_token="-1"),
+                    "must be at least 0"),
+                ("negative-iteration", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(walking_iteration=-1),
+                    "must be at least 0"),
+                ("sequence-regression", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1].update(sequence="0"),
+                    "sequence is not strictly increasing"),
+                ("uncorrelated", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1]["semantic_destination"]
+                    .update(x=101.0), "do not correlate"),
+                ("changed-command-token", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1].update(movement_command_token="13"),
+                    "do not correlate"),
+                ("orphan-post", lambda samples: samples[1].update(
+                    walking_step_preflight_diagnostics=[confirmation]),
+                    "no correlatable provisional"),
+                ("unattempted-results", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][1]["fall_forecast"]
+                    .update(attempted=False), "complete forecast must have been attempted"),
+                ("unknown-dps-with-value", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0]["fall_forecast"]
+                    .update(pain_damage_per_sec_known=False),
+                    "must be null when its value is unknown"),
+                ("nonfinite-dps-with-number", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(
+                        reason="walking_step_preflight_reason_non_finite_pain_damage_per_sec_exact"),
+                    "requires a known non-finite DPS value"),
+                ("nonharmful-dps-positive", lambda samples: samples[1]
+                    ["walking_step_preflight_diagnostics"][0].update(
+                        reason="walking_step_preflight_reason_non_harmful_pain_damage_per_sec_exact"),
+                    "requires known non-positive DPS"),
+            )
+            for name, mutate, message in malformed_cases:
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(QUALITY.QualityError, message):
+                        analyze_mutation(root, name, mutate)
+
+            with self.assertRaisesRegex(QUALITY.QualityError, "exceed observation evidence"):
+                def add_excess(samples: list[dict]) -> None:
+                    extra = json.loads(json.dumps(provisional))
+                    extra.update({
+                        "sequence": "2", "invocation_token": "6",
+                        "reason": "walking_step_preflight_reason_supported_step_endpoint_exact",
+                    })
+                    samples[1]["walking_step_preflight_diagnostics"].append(extra)
+                analyze_mutation(root, "excess-evidence", add_excess)
+
+            incomplete = write_v2_run(root, "diagnostics-without-counters")
+            upgrade_telemetry_v2(incomplete, counters=[
+                {**common, "walking_step_preflight_diagnostics": []} for _ in range(3)])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "diagnostics require the complete counter group"):
+                QUALITY.analyze([incomplete])
+
+    def test_detailed_falling_seam_episode_and_candidate_outcomes_fail_closed(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        samples = [
+            {**common,
+             "falling_seam_detections_exact": 0,
+             "horizontal_corner_candidate_probes_exact": 0,
+             "horizontal_corner_authorized_escapes_exact": 0,
+             "horizontal_corner_target_progress_rejects_exact": 0,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 0,
+             **{name: 0 for name in QUALITY.FALLING_SEAM_DETAILED_COUNTERS}},
+            {**common,
+             "falling_seam_detections_exact": 2,
+             "horizontal_corner_candidate_probes_exact": 2,
+             "horizontal_corner_authorized_escapes_exact": 0,
+             "horizontal_corner_target_progress_rejects_exact": 1,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 1,
+             "falling_seam_episodes_exact": 1,
+             "falling_seam_invalid_geometry_rejects_exact": 1,
+             "falling_seam_authorizable_episodes_exact": 0,
+             "horizontal_corner_authorized_candidates_exact": 0,
+             "horizontal_corner_blocked_sweep_candidates_exact": 1,
+             "horizontal_corner_no_static_walkable_support_candidates_exact": 0,
+             "horizontal_corner_pain_support_candidates_exact": 0,
+             "horizontal_corner_no_active_movement_intent_or_target_candidates_exact": 1,
+             "horizontal_corner_true_target_regression_candidates_exact": 0,
+             "horizontal_corner_unknown_evidence_candidates_exact": 0},
+            {**common,
+             "falling_seam_detections_exact": 4,
+             "horizontal_corner_candidate_probes_exact": 5,
+             "horizontal_corner_authorized_escapes_exact": 1,
+             "horizontal_corner_target_progress_rejects_exact": 2,
+             "horizontal_corner_unknown_or_unsafe_support_exact": 2,
+             "falling_seam_episodes_exact": 2,
+             "falling_seam_invalid_geometry_rejects_exact": 1,
+             "falling_seam_authorizable_episodes_exact": 1,
+             "horizontal_corner_authorized_candidates_exact": 1,
+             "horizontal_corner_blocked_sweep_candidates_exact": 1,
+             "horizontal_corner_no_static_walkable_support_candidates_exact": 1,
+             "horizontal_corner_pain_support_candidates_exact": 0,
+             "horizontal_corner_no_active_movement_intent_or_target_candidates_exact": 1,
+             "horizontal_corner_true_target_regression_candidates_exact": 1,
+             "horizontal_corner_unknown_evidence_candidates_exact": 0},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = write_v2_run(root, "detailed")
+            upgrade_telemetry_v2(run, counters=samples)
+            report = QUALITY.analyze([run])
+            self.assertTrue(
+                report["metric_availability"]["falling_seam_detailed_metrics_present"])
+            self.assertEqual(
+                report["runs"][0]["bots"][0]["falling_seam_episodes_exact"], 2)
+
+            incomplete = write_v2_run(root, "detailed-incomplete")
+            incomplete_samples = [{**sample} for sample in samples]
+            for sample in incomplete_samples:
+                sample.pop("horizontal_corner_unknown_evidence_candidates_exact")
+            upgrade_telemetry_v2(incomplete, counters=incomplete_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "detailed v2.*complete group"):
+                QUALITY.analyze([incomplete])
+
+            bad_partition = write_v2_run(root, "detailed-bad-partition")
+            bad_samples = [{**sample} for sample in samples]
+            bad_samples[2]["horizontal_corner_true_target_regression_candidates_exact"] = 0
+            upgrade_telemetry_v2(bad_partition, counters=bad_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "detailed horizontal corner outcomes do not partition"):
+                QUALITY.analyze([bad_partition])
+
+            missing_episode = write_v2_run(root, "detailed-missing-episode")
+            missing_episode_samples = [{**sample} for sample in samples]
+            missing_episode_samples[1]["falling_seam_episodes_exact"] = 0
+            upgrade_telemetry_v2(missing_episode, counters=missing_episode_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "detections require at least one episode"):
+                QUALITY.analyze([missing_episode])
+
+            missing_authorizable_episode = write_v2_run(
+                root, "detailed-missing-authorizable-episode")
+            missing_authorizable_samples = [{**sample} for sample in samples]
+            missing_authorizable_samples[2]["falling_seam_authorizable_episodes_exact"] = 0
+            upgrade_telemetry_v2(
+                missing_authorizable_episode, counters=missing_authorizable_samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "require an authorizable episode"):
+                QUALITY.analyze([missing_authorizable_episode])
+
+    def test_direct_harmful_water_prediction_counters_are_bounded(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.DIRECT_HARMFUL_WATER_ENTRY_COUNTERS}
+        certificate_zero = {
+            name: 0
+            for name in QUALITY.DIRECT_HARMFUL_WATER_ENTRY_CERTIFICATE_RESULT_COUNTERS
+        }
+        final = {
+            **zero, **certificate_zero,
+            "direct_harmful_water_entry_candidates_exact": 1,
+            "direct_harmful_water_entry_confirmed_exact": 1,
+            "direct_harmful_water_entry_lead_samples_exact": 1,
+            "direct_harmful_water_entry_lead_milliseconds_exact": 20,
+            "direct_harmful_water_entry_certificate_certified_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "direct-harmful-water-prediction", bot_count=1)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, **zero, **certificate_zero},
+                {**common, **final}, {**common, **final},
+            ])
+            QUALITY.analyze_run(valid)
+
+            invalid = write_v2_run(root, "direct-harmful-water-outcomes", bot_count=1)
+            bad = {**final, "direct_harmful_water_entry_confirmed_no_harm_exact": 1}
+            upgrade_telemetry_v2(invalid, counters=[
+                {**common, **zero, **certificate_zero},
+                {**common, **bad}, {**common, **bad},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "outcomes exceed candidates"):
+                QUALITY.analyze_run(invalid)
+
+            invalid_certificate = write_v2_run(
+                root, "direct-harmful-water-certificate", bot_count=1)
+            bad_certificate = {
+                **final,
+                "direct_harmful_water_entry_certificate_certified_exact": 0,
+                "direct_harmful_water_entry_certificate_source_not_eligible_exact": 1,
+            }
+            upgrade_telemetry_v2(invalid_certificate, counters=[
+                {**common, **certificate_zero, **zero},
+                {**common, **bad_certificate}, {**common, **bad_certificate},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "certifications do not equal candidates"):
+                QUALITY.analyze_run(invalid_certificate)
+
+    def test_causal_death_attribution_is_partitioned_monotonic_and_reported(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "suicides_exact": 0,
+            "environmental_deaths_exact": 0, "hazard_exposed_deaths_proxy": 0,
+            "hit_wall_events_exact": 0,
+        }
+        samples = [
+            {**common, "deaths_exact": 0, "direct_self_kills": 0,
+             "direct_enemy_kills": 0, "unassisted_environmental_deaths": 0,
+             "recent_enemy_contributed_environmental_deaths_proxy": 0,
+             "ambiguous_deaths": 0,
+             "recent_enemy_momentum_contributed_environmental_deaths_proxy": 0},
+            {**common, "deaths_exact": 1, "direct_self_kills": 0,
+             "direct_enemy_kills": 1, "unassisted_environmental_deaths": 0,
+             "recent_enemy_contributed_environmental_deaths_proxy": 0,
+             "ambiguous_deaths": 0,
+             "recent_enemy_momentum_contributed_environmental_deaths_proxy": 0},
+            {**common, "deaths_exact": 2, "direct_self_kills": 0,
+             "direct_enemy_kills": 1, "unassisted_environmental_deaths": 0,
+             "recent_enemy_contributed_environmental_deaths_proxy": 1,
+             "ambiguous_deaths": 0,
+             "recent_enemy_momentum_contributed_environmental_deaths_proxy": 1},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = write_v2_run(root, "valid")
+            declare_death_attribution(run)
+            upgrade_telemetry_v2(run, counters=samples)
+            report = QUALITY.analyze([run])
+            self.assertTrue(report["metric_availability"]["death_attribution_metrics_present"])
+            self.assertEqual(
+                report["runs"][0]["config"]["death_attribution_recent_window_seconds"], 2.0)
+            self.assertEqual(
+                report["runs"][0]["config"]["suicides_exact_semantics"],
+                "legacy_scoreboard_self_or_nonplayer_killer")
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual({name: metrics[name] for name in QUALITY.DEATH_ATTRIBUTION_COUNTERS}, {
+                "direct_self_kills": 0,
+                "direct_enemy_kills": 2,
+                "unassisted_environmental_deaths": 0,
+                "recent_enemy_contributed_environmental_deaths_proxy": 2,
+                "ambiguous_deaths": 0,
+                "recent_enemy_momentum_contributed_environmental_deaths_proxy": 2,
+            })
+
+            incomplete = write_v2_run(root, "incomplete")
+            declare_death_attribution(incomplete)
+            incomplete_samples = [{**sample} for sample in samples]
+            for sample in incomplete_samples:
+                sample.pop("ambiguous_deaths")
+            upgrade_telemetry_v2(incomplete, counters=incomplete_samples)
+            with self.assertRaisesRegex(QUALITY.QualityError, "complete group"):
+                QUALITY.analyze([incomplete])
+
+            mismatched = write_v2_run(root, "mismatched")
+            declare_death_attribution(mismatched)
+            mismatch_samples = [{**sample} for sample in samples]
+            mismatch_samples[-1]["ambiguous_deaths"] = 1
+            upgrade_telemetry_v2(mismatched, counters=mismatch_samples)
+            with self.assertRaisesRegex(QUALITY.QualityError, "do not equal deaths_exact"):
+                QUALITY.analyze([mismatched])
+
+            bad_momentum = write_v2_run(root, "bad-momentum")
+            declare_death_attribution(bad_momentum)
+            bad_momentum_samples = [{**sample} for sample in samples]
+            bad_momentum_samples[1][
+                "recent_enemy_momentum_contributed_environmental_deaths_proxy"] = 1
+            upgrade_telemetry_v2(bad_momentum, counters=bad_momentum_samples)
+            with self.assertRaisesRegex(QUALITY.QualityError, "momentum-contributed deaths exceed"):
+                QUALITY.analyze([bad_momentum])
+
+            regressed = write_v2_run(root, "regressed")
+            declare_death_attribution(regressed)
+            regressed_samples = [{**sample} for sample in samples]
+            regressed_samples[-1]["direct_enemy_kills"] = 0
+            regressed_samples[-1]["recent_enemy_contributed_environmental_deaths_proxy"] = 2
+            regressed_samples[-1][
+                "recent_enemy_momentum_contributed_environmental_deaths_proxy"] = 1
+            upgrade_telemetry_v2(regressed, counters=regressed_samples)
+            with self.assertRaisesRegex(QUALITY.QualityError, "direct_enemy_kills regressed"):
+                QUALITY.analyze([regressed])
+
+            undeclared = write_v2_run(root, "undeclared")
+            upgrade_telemetry_v2(undeclared, counters=samples)
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "requires manifest.death_attribution_recent_window_seconds"):
+                QUALITY.analyze([undeclared])
+
+    def test_damage_attribution_counters_reconcile_and_fail_closed(self) -> None:
+        common = {
+            "score": 0, "pri_deaths": 0, "movement_intent": True,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        zero = {name: 0 for name in QUALITY.DAMAGE_COUNTERS}
+        final = {
+            "damage_taken_exact": 10,
+            "damage_taken_from_other_participants_exact": 10,
+            "damage_taken_from_self_exact": 0,
+            "damage_taken_from_nonparticipants_exact": 0,
+            "damage_dealt_to_other_participants_exact": 10,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            valid = write_v2_run(root, "damage-valid", bot_count=2)
+            upgrade_telemetry_v2(valid, counters=[
+                {**common, **zero}, {**common, **final}, {**common, **final},
+            ])
+            report = QUALITY.analyze([valid])
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(metrics["damage_taken_exact"], 20)
+            self.assertEqual(metrics["damage_dealt_to_other_participants_exact"], 20)
+            self.assertEqual(metrics["damage_efficiency_to_other_participants"], 1.0)
+
+            partial = write_v2_run(root, "damage-partial", bot_count=1)
+            partial_final = {**final}
+            partial_final.pop("damage_dealt_to_other_participants_exact")
+            upgrade_telemetry_v2(partial, counters=[
+                {**common, **zero}, {**common, **partial_final},
+                {**common, **partial_final},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "damage attribution counters must be provided"):
+                QUALITY.analyze_run(partial)
+
+            invalid_source = write_v2_run(root, "damage-source", bot_count=1)
+            invalid_final = {**final, "damage_taken_from_nonparticipants_exact": 1}
+            upgrade_telemetry_v2(invalid_source, counters=[
+                {**common, **zero}, {**common, **invalid_final},
+                {**common, **invalid_final},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "damage source counters do not equal damage taken"):
+                QUALITY.analyze_run(invalid_source)
+
+            invalid_reconciliation = write_v2_run(root, "damage-reconciliation", bot_count=2)
+            upgrade_telemetry_v2(invalid_reconciliation, counters=[
+                {**common, **zero}, {**common, **final}, {**common, **final},
+            ])
+            reconciliation_events_path = invalid_reconciliation / "events.jsonl"
+            reconciliation_events = [
+                json.loads(line) for line in reconciliation_events_path.read_text(
+                    encoding="utf-8").splitlines()]
+            reconciliation_events[-1]["bots"][1][
+                "damage_dealt_to_other_participants_exact"] = "11"
+            reconciliation_events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n"
+                        for event in reconciliation_events), encoding="utf-8")
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "inter-participant damage dealt/taken does not reconcile"):
+                QUALITY.analyze_run(invalid_reconciliation)
+
+    def test_optional_diagnostics_and_recovery_counters_are_validated_and_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_run(Path(temporary), "run", [0.0, 0.0, 2.0, 3.0])
+            common = {
+                "score": 0, "pri_deaths": 0, "movement_intent": True,
+                "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+                "suicides_exact": 0, "environmental_deaths_exact": 0,
+                "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+                "physics_mode": "Walking", "latent_action": "MoveToward",
+                "acceleration": {"x": 100.0, "y": -25.0, "z": 0.0},
+                "destination": {"x": 512.0, "y": 256.0, "z": -32.0},
+                "move_timer": 0.75, "move_target_identity": "actor:PathNode3",
+                "move_target_name": "PathNode3",
+            }
+            optional_samples = [
+                {"pain_ledge_vetoes_exact": 0, "pain_ledge_repeat_vetoes_exact": 0,
+                 "pain_ledge_recovery_attempts_exact": 0, "pain_ledge_recovery_escapes_exact": 0,
+                 "pain_ledge_recovery_active_hitwall_events_exact": 0,
+                 "wall_adjust_calls_exact": 0, "wall_adjust_repeats_exact": 0,
+                 "wall_adjust_recovery_attempts_exact": 0,
+                 "wall_adjust_recovery_successes_exact": 0,
+                 "wall_adjust_forced_replans_exact": 0,
+                 "move_stall_detections_exact": 0, "move_stall_episode_resets_exact": 0,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_navigation_forced_replans_exact": 0,
+                 "move_stall_targetless_move_to_timeouts_exact": 0,
+                 "move_stall_eligible_seconds": 0.0,
+                 "failed_navigation_avoidance_activations_exact": 0,
+                 "failed_navigation_safeguard_suppressions_exact": 0,
+                 "failed_navigation_route_penalty_applications_exact": 0},
+                {"pain_ledge_vetoes_exact": 2, "pain_ledge_repeat_vetoes_exact": 1,
+                 "pain_ledge_recovery_attempts_exact": 1, "pain_ledge_recovery_escapes_exact": 0,
+                 "pain_ledge_recovery_active_hitwall_events_exact": 0,
+                 "wall_adjust_calls_exact": 3, "wall_adjust_repeats_exact": 2,
+                 "wall_adjust_recovery_attempts_exact": 1,
+                 "wall_adjust_recovery_successes_exact": 0,
+                 "wall_adjust_forced_replans_exact": 0,
+                 "move_stall_detections_exact": 0, "move_stall_episode_resets_exact": 0,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_navigation_forced_replans_exact": 0,
+                 "move_stall_targetless_move_to_timeouts_exact": 0,
+                 "move_stall_eligible_seconds": 1.0,
+                 "failed_navigation_avoidance_activations_exact": 0,
+                 "failed_navigation_safeguard_suppressions_exact": 1,
+                 "failed_navigation_route_penalty_applications_exact": 0},
+                {"pain_ledge_vetoes_exact": 3, "pain_ledge_repeat_vetoes_exact": 1,
+                 "pain_ledge_recovery_attempts_exact": 2, "pain_ledge_recovery_escapes_exact": 1,
+                 "pain_ledge_recovery_active_hitwall_events_exact": 0,
+                 "wall_adjust_calls_exact": 7, "wall_adjust_repeats_exact": 5,
+                 "wall_adjust_recovery_attempts_exact": 2,
+                 "wall_adjust_recovery_successes_exact": 1,
+                 "wall_adjust_forced_replans_exact": 1,
+                 "move_stall_detections_exact": 1, "move_stall_episode_resets_exact": 1,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_navigation_forced_replans_exact": 0,
+                 "move_stall_targetless_move_to_timeouts_exact": 0,
+                 "move_stall_eligible_seconds": 2.5,
+                 "failed_navigation_avoidance_activations_exact": 1,
+                 "failed_navigation_safeguard_suppressions_exact": 1,
+                 "failed_navigation_route_penalty_applications_exact": 3},
+                {"pain_ledge_vetoes_exact": 4, "pain_ledge_repeat_vetoes_exact": 1,
+                 "pain_ledge_recovery_attempts_exact": 3, "pain_ledge_recovery_escapes_exact": 2,
+                 "pain_ledge_recovery_active_hitwall_events_exact": 0,
+                 "wall_adjust_calls_exact": 9, "wall_adjust_repeats_exact": 6,
+                 "wall_adjust_recovery_attempts_exact": 3,
+                 "wall_adjust_recovery_successes_exact": 2,
+                 "wall_adjust_forced_replans_exact": 1,
+                 "move_stall_detections_exact": 2, "move_stall_episode_resets_exact": 1,
+                 "move_stall_forced_replans_exact": 1,
+                 "move_stall_navigation_forced_replans_exact": 1,
+                 "move_stall_targetless_move_to_timeouts_exact": 0,
+                 "move_stall_eligible_seconds": 4.25,
+                 "failed_navigation_avoidance_activations_exact": 1,
+                 "failed_navigation_safeguard_suppressions_exact": 2,
+                 "failed_navigation_route_penalty_applications_exact": 5},
+            ]
+            upgrade_telemetry_v2(
+                run, counters=[{**common, **sample} for sample in optional_samples])
+            analyzed = QUALITY.analyze([run])
+            metrics = analyzed["runs"][0]["metrics"]
+            self.assertEqual(metrics["pain_ledge_vetoes_exact"], 4)
+            self.assertEqual(metrics["pain_ledge_recovery_escapes_exact"], 2)
+            self.assertEqual(metrics["pain_ledge_recovery_active_hitwall_events_exact"], 0)
+            self.assertEqual(metrics["wall_adjust_calls_exact"], 9)
+            self.assertEqual(metrics["wall_adjust_recovery_attempts_exact"], 3)
+            self.assertEqual(metrics["wall_adjust_recovery_successes_exact"], 2)
+            self.assertEqual(metrics["wall_adjust_forced_replans_exact"], 1)
+            self.assertEqual(metrics["move_stall_detections_exact"], 2)
+            self.assertEqual(metrics["move_stall_episode_resets_exact"], 1)
+            self.assertEqual(metrics["move_stall_forced_replans_exact"], 1)
+            self.assertEqual(metrics["move_stall_navigation_forced_replans_exact"], 1)
+            self.assertEqual(metrics["move_stall_targetless_move_to_timeouts_exact"], 0)
+            self.assertEqual(metrics["move_stall_eligible_seconds"], 4.25)
+            self.assertEqual(metrics["failed_navigation_avoidance_activations_exact"], 1)
+            self.assertEqual(metrics["failed_navigation_safeguard_suppressions_exact"], 2)
+            self.assertEqual(metrics["failed_navigation_route_penalty_applications_exact"], 5)
+            validation = analyzed["runs"][0]["validation"]
+            self.assertIn("physics_mode", validation["optional_telemetry_fields"])
+            self.assertIn("wall_adjust_recovery_successes_exact",
+                          validation["optional_telemetry_fields"])
+            self.assertIn("move_stall_eligible_seconds",
+                          validation["optional_telemetry_fields"])
+            self.assertIn("move_stall_navigation_forced_replans_exact",
+                          validation["optional_telemetry_fields"])
+            self.assertIn("failed_navigation_avoidance_activations_exact",
+                          validation["optional_telemetry_fields"])
+            self.assertIs(
+                analyzed["metric_availability"]["optional_counter_metrics_present"]
+                ["wall_adjust_recovery_successes_exact"], True)
+            self.assertIs(
+                analyzed["metric_availability"]["optional_counter_metrics_present"]
+                ["move_stall_eligible_seconds"], True)
+            self.assertIs(
+                analyzed["metric_availability"]["optional_counter_metrics_present"]
+                ["failed_navigation_route_penalty_applications_exact"], True)
+            aggregate = analyzed["variant_aggregates"][0]["metrics"]
+            self.assertEqual(aggregate["wall_adjust_recovery_successes_exact"]["mean"], 2.0)
+            self.assertEqual(aggregate["move_stall_detections_exact"]["mean"], 2.0)
+            self.assertEqual(
+                aggregate["move_stall_navigation_forced_replans_exact"]["mean"], 1.0)
+            self.assertEqual(aggregate["move_stall_eligible_seconds"]["mean"], 4.25)
+            self.assertEqual(
+                aggregate["failed_navigation_route_penalty_applications_exact"]["mean"], 5.0)
+
+    def test_move_stall_decision_records_must_partition_native_detections(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_run(Path(temporary), "run", [0.0, 1.0])
+            common = {
+                "score": 0, "pri_deaths": 0, "movement_intent": True,
+                "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+                "suicides_exact": 0, "environmental_deaths_exact": 0,
+                "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+                "move_stall_episode_resets_exact": 0,
+                "move_stall_navigation_forced_replans_exact": 0,
+                "move_stall_targetless_move_to_timeouts_exact": 0,
+                "move_stall_direct_actor_move_toward_timeouts_exact": 0,
+                "move_stall_eligible_seconds": 0.0,
+                "move_stall_recovery_decision_record_overflows_exact": 0,
+            }
+            counters = [
+                {**common, "move_stall_detections_exact": 0,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_recovery_decisions": []},
+                {**common, "move_stall_detections_exact": 1,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_recovery_decisions": [{
+                     "source_pawn_actor": "Bot", "sequence": 1, "life_id": 1,
+                     "episode_id": 1, "latent_mode": "move_toward", "decision": "none",
+                     "move_target_known": True, "move_target_live": True,
+                     "move_target_name": "Ammo0", "move_target_class": "Ammo",
+                     "move_timer": 0.5,
+                 }]},
+            ]
+            upgrade_telemetry_v2(run, counters=counters)
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                for bot in event["bots"]:
+                    if event["type"] == "run_result":
+                        bot["move_stall_recovery_decisions"] = []
+                    for record in bot.get("move_stall_recovery_decisions", []):
+                        record["source_pawn_actor"] = bot["actor"]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            QUALITY.analyze([run])
+
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                for bot in event["bots"]:
+                    for record in bot.get("move_stall_recovery_decisions", []):
+                        record["decision"] = "direct_actor_move_toward_timeout"
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "direct-actor decision records"):
+                QUALITY.analyze([run])
+
+    def test_optional_counter_regression_and_malformed_diagnostics_are_rejected(self) -> None:
+        base = {
+            "score": 0, "pri_deaths": 0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            "pain_ledge_vetoes_exact": 0, "pain_ledge_repeat_vetoes_exact": 0,
+            "pain_ledge_recovery_attempts_exact": 0, "pain_ledge_recovery_escapes_exact": 0,
+            "pain_ledge_recovery_active_hitwall_events_exact": 0,
+            "wall_adjust_calls_exact": 2, "wall_adjust_repeats_exact": 1,
+            "wall_adjust_recovery_attempts_exact": 1,
+            "wall_adjust_recovery_successes_exact": 0,
+            "wall_adjust_forced_replans_exact": 0,
+            "physics_mode": "Walking", "latent_action": "MoveTo",
+            "acceleration": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "destination": {"x": 1.0, "y": 2.0, "z": 3.0}, "move_timer": 1.0,
+            "move_target_identity": "", "move_target_name": "",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            regressing = write_run(root, "regressing", [0.0, 1.0])
+            upgrade_telemetry_v2(
+                regressing, counters=[base, {**base, "wall_adjust_calls_exact": 1}])
+            with self.assertRaisesRegex(QUALITY.QualityError, "wall_adjust_calls_exact regressed"):
+                QUALITY.analyze_run(regressing)
+
+            malformed = write_run(root, "malformed", [0.0, 1.0])
+            upgrade_telemetry_v2(malformed, counters=[base, base])
+            path = malformed / "events.jsonl"
+            events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            events[1]["bots"][0]["move_timer"] = "nan"
+            path.write_text(
+                "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "move_timer must be a finite number"):
+                QUALITY.analyze_run(malformed)
+
+            stall_base = {
+                **base, "move_stall_detections_exact": 1,
+                "move_stall_episode_resets_exact": 1,
+                "move_stall_eligible_seconds": 2.0,
+            }
+            stall_regressing = write_run(root, "stall-regressing", [0.0, 1.0])
+            upgrade_telemetry_v2(stall_regressing, counters=[
+                stall_base, {**stall_base, "move_stall_detections_exact": 0}])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "move_stall_detections_exact regressed"):
+                QUALITY.analyze_run(stall_regressing)
+
+            stall_seconds_regressing = write_run(
+                root, "stall-seconds-regressing", [0.0, 1.0])
+            upgrade_telemetry_v2(stall_seconds_regressing, counters=[
+                stall_base, {**stall_base, "move_stall_eligible_seconds": 1.5}])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "move_stall_eligible_seconds regressed"):
+                QUALITY.analyze_run(stall_seconds_regressing)
+
+            stall_nonfinite = write_run(root, "stall-nonfinite", [0.0, 1.0])
+            upgrade_telemetry_v2(stall_nonfinite, counters=[stall_base, stall_base])
+            path = stall_nonfinite / "events.jsonl"
+            events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            events[1]["bots"][0]["move_stall_eligible_seconds"] = "nan"
+            path.write_text(
+                "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError,
+                    "move_stall_eligible_seconds must be a finite number"):
+                QUALITY.analyze_run(stall_nonfinite)
+
+            stall_incomplete = write_run(root, "stall-incomplete", [0.0, 1.0])
+            upgrade_telemetry_v2(stall_incomplete, counters=[
+                {**base, "move_stall_detections_exact": 0},
+                {**base, "move_stall_detections_exact": 0},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "move stall counters"):
+                QUALITY.analyze_run(stall_incomplete)
+
+            failed_navigation_base = {
+                **base, "failed_navigation_avoidance_activations_exact": 1,
+                "failed_navigation_safeguard_suppressions_exact": 1,
+                "failed_navigation_route_penalty_applications_exact": 2,
+            }
+            failed_navigation_regressing = write_run(
+                root, "failed-navigation-regressing", [0.0, 1.0])
+            upgrade_telemetry_v2(failed_navigation_regressing, counters=[
+                failed_navigation_base,
+                {**failed_navigation_base,
+                 "failed_navigation_route_penalty_applications_exact": 1},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError,
+                    "failed_navigation_route_penalty_applications_exact regressed"):
+                QUALITY.analyze_run(failed_navigation_regressing)
+
+            failed_navigation_incomplete = write_run(
+                root, "failed-navigation-incomplete", [0.0, 1.0])
+            upgrade_telemetry_v2(failed_navigation_incomplete, counters=[
+                {**base, "failed_navigation_avoidance_activations_exact": 0},
+                {**base, "failed_navigation_avoidance_activations_exact": 0},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "failed navigation counters"):
+                QUALITY.analyze_run(failed_navigation_incomplete)
+
+            current_stall = write_run(root, "current-stall", [0.0, 1.0])
+            upgrade_telemetry_v2(current_stall, counters=[
+                {**base, "move_stall_detections_exact": 0,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_eligible_seconds": 0.0},
+                {**base, "move_stall_detections_exact": 1,
+                 "move_stall_forced_replans_exact": 1,
+                 "move_stall_eligible_seconds": 2.0},
+            ])
+            current_metrics = QUALITY.analyze_run(current_stall)["metrics"]
+            self.assertEqual(current_metrics["move_stall_detections_exact"], 1)
+            self.assertEqual(current_metrics["move_stall_forced_replans_exact"], 1)
+            self.assertIsNone(current_metrics["move_stall_episode_resets_exact"])
+
+            excessive_replans = write_run(root, "excessive-replans", [0.0, 1.0])
+            upgrade_telemetry_v2(excessive_replans, counters=[
+                {**base, "move_stall_detections_exact": 0,
+                 "move_stall_forced_replans_exact": 0,
+                 "move_stall_eligible_seconds": 0.0},
+                {**base, "move_stall_detections_exact": 0,
+                 "move_stall_forced_replans_exact": 1,
+                 "move_stall_eligible_seconds": 2.0},
+            ])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "move stall forced replans exceed detections"):
+                QUALITY.analyze_run(excessive_replans)
+
+            misattributed_replans = write_run(
+                root, "misattributed-replans", [0.0, 1.0])
+            attributed_stall = {
+                **base, "move_stall_detections_exact": 1,
+                "move_stall_episode_resets_exact": 0,
+                "move_stall_forced_replans_exact": 1,
+                "move_stall_navigation_forced_replans_exact": 0,
+                "move_stall_targetless_move_to_timeouts_exact": 0,
+                "move_stall_eligible_seconds": 2.0,
+            }
+            upgrade_telemetry_v2(
+                misattributed_replans, counters=[attributed_stall, attributed_stall])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError,
+                    "attributed move stall recoveries do not equal forced replans"):
+                QUALITY.analyze_run(misattributed_replans)
+
+    def test_v2_exact_outcomes_and_intent_proxies_are_computed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_run(Path(temporary), "run", [0.0, 0.0, 0.0, 1.0])
+            counters = [
+                {"score": 0, "pri_deaths": 0, "movement_intent": True,
+                 "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+                 "suicides_exact": 0, "environmental_deaths_exact": 0,
+                 "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0},
+                {"score": 1, "pri_deaths": 0, "movement_intent": True,
+                 "in_hazard_zone": True, "kills_exact": 1, "deaths_exact": 0,
+                 "suicides_exact": 0, "environmental_deaths_exact": 0,
+                 "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 2},
+                {"score": 0, "pri_deaths": 2, "movement_intent": True,
+                 "in_hazard_zone": True, "kills_exact": 1, "deaths_exact": 2,
+                 "suicides_exact": 1, "environmental_deaths_exact": 1,
+                 "hazard_exposed_deaths_proxy": 1, "hit_wall_events_exact": 4},
+                {"score": 0, "pri_deaths": 3, "movement_intent": False,
+                 "in_hazard_zone": False, "kills_exact": 2, "deaths_exact": 3,
+                 "suicides_exact": 2, "environmental_deaths_exact": 1,
+                 "hazard_exposed_deaths_proxy": 1, "hit_wall_events_exact": 5},
+            ]
+            upgrade_telemetry_v2(run, counters=counters)
+            metrics = QUALITY.analyze_run(run)["metrics"]
+            self.assertEqual(metrics["kills_exact"], 2)
+            self.assertEqual(metrics["deaths_exact"], 3)
+            self.assertEqual(metrics["suicides_exact"], 2)
+            self.assertEqual(metrics["environmental_deaths_exact"], 1)
+            self.assertEqual(metrics["suicide_to_kill_ratio"], 1.0)
+            self.assertEqual(metrics["hit_wall_events_exact"], 5)
+            self.assertEqual(metrics["movement_intent_no_progress_seconds_proxy"], 2.0)
+            self.assertEqual(metrics["movement_intent_stuck_events_proxy"], 1)
+            self.assertEqual(metrics["hazard_exposure_seconds"], 2.0)
+            self.assertEqual(metrics["hazard_entries"], 1)
+            self.assertEqual(metrics["hazard_exposed_deaths_proxy"], 1)
+            self.assertEqual(metrics["hazard_exposed_death_fraction_proxy"], 1.0 / 3.0)
+            self.assertIsNone(metrics["confirmed_pickups_exact"])
+            self.assertIsNone(metrics["pickup_source_consumed_unconfirmed_exact"])
+            self.assertIsNone(metrics["navigation_coverage_visited_nodes_exact"])
+
+    def test_walking_hitwall_dispatch_telemetry_is_optional_and_structural(self) -> None:
+        base = {
+            "score": 0, "pri_deaths": 0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        counters = QUALITY.WALKING_HITWALL_DISPATCH_COUNTERS
+        zero = {name: 0 for name in counters}
+        valid = {
+            "source_pawn_actor": "Bot1", "sequence": "0", "contact_phase": "primary_forward",
+            "hit_normal": {"x": 0.0, "y": 1.0, "z": 0.0},
+            "velocity": {"x": 1.0, "y": 0.0, "z": 0.0},
+            "min_hit_wall": -0.5, "normal_velocity_dot": 0.0,
+            "valid": True, "legacy_vertical_wall_band": True,
+            "min_hit_wall_dispatch": False, "blocker": "static_world",
+            "callback_dispatched": False, "physics_changed_by_callback": False,
+            "pawn_deleted_by_callback": False,
+        }
+        invalid_geometry = {
+            "source_pawn_actor": "Bot1", "sequence": "1", "contact_phase": "aligned_slide", "hit_normal": None,
+            "velocity": None, "min_hit_wall": None, "normal_velocity_dot": None,
+            "valid": False, "legacy_vertical_wall_band": False,
+            "min_hit_wall_dispatch": False, "blocker": "unknown",
+            "callback_dispatched": False, "physics_changed_by_callback": False,
+            "pawn_deleted_by_callback": False,
+        }
+
+        def create(root: Path, name: str) -> Path:
+            run = write_v2_run(root, name, bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**base, **zero, "walking_hitwall_dispatch_diagnostics": []},
+                {**base, **zero,
+                 "walking_hitwall_dispatch_observations_exact": 1,
+                 "walking_hitwall_dispatch_legacy_z_band_exact": 1,
+                 "walking_hitwall_dispatch_disagreements_exact": 1,
+                 "walking_hitwall_dispatch_diagnostics": [valid]},
+                {**base, **zero,
+                 "walking_hitwall_dispatch_observations_exact": 1,
+                 "walking_hitwall_dispatch_legacy_z_band_exact": 1,
+                 "walking_hitwall_dispatch_disagreements_exact": 1,
+                 "walking_hitwall_dispatch_diagnostics": [invalid_geometry]},
+            ])
+            path = run / "events.jsonl"
+            events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            events[-1]["bots"][0]["walking_hitwall_dispatch_diagnostics"] = []
+            path.write_text(
+                "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+            return run
+
+        def mutate(run: Path, edit) -> None:
+            path = run / "events.jsonl"
+            events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            edit(events)
+            path.write_text(
+                "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = create(root, "valid")
+            report = QUALITY.analyze([run])
+            self.assertEqual(
+                report["runs"][0]["metrics"]["walking_hitwall_dispatch_observations_exact"], 1)
+            self.assertIn(
+                "walking_hitwall_dispatch_diagnostics",
+                report["runs"][0]["validation"]["optional_telemetry_fields"])
+            self.assertTrue(report["metric_availability"]["optional_counter_metrics_present"]
+                            ["walking_hitwall_dispatch_callbacks_exact"])
+
+            incomplete = create(root, "incomplete")
+            mutate(incomplete, lambda events: [
+                event["bots"][0].pop("walking_hitwall_dispatch_callbacks_exact")
+                for event in events])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "walking HitWall dispatch counters"):
+                QUALITY.analyze_run(incomplete)
+
+            missing_array = create(root, "missing-array")
+            mutate(missing_array, lambda events: [
+                event["bots"][0].pop("walking_hitwall_dispatch_diagnostics")
+                for event in events])
+            with self.assertRaisesRegex(
+                    QUALITY.QualityError, "walking HitWall dispatch counters require diagnostics"):
+                QUALITY.analyze_run(missing_array)
+
+            bad_blocker = create(root, "bad-blocker")
+            mutate(bad_blocker, lambda events: events[1]["bots"][0]
+                   ["walking_hitwall_dispatch_diagnostics"][0].update(blocker="wall"))
+            with self.assertRaisesRegex(QUALITY.QualityError, "blocker is not recognized"):
+                QUALITY.analyze_run(bad_blocker)
+
+            bad_phase = create(root, "bad-phase")
+            mutate(bad_phase, lambda events: events[1]["bots"][0]
+                   ["walking_hitwall_dispatch_diagnostics"][0].update(contact_phase="wall"))
+            with self.assertRaisesRegex(QUALITY.QualityError, "contact_phase is not recognized"):
+                QUALITY.analyze_run(bad_phase)
+
+            bad_boolean = create(root, "bad-boolean")
+            mutate(bad_boolean, lambda events: events[1]["bots"][0]
+                   ["walking_hitwall_dispatch_diagnostics"][0].update(valid="true"))
+            with self.assertRaisesRegex(QUALITY.QualityError, "valid must be a boolean"):
+                QUALITY.analyze_run(bad_boolean)
+
+            repeated = create(root, "repeated")
+            mutate(repeated, lambda events: events[2]["bots"][0]
+                   ["walking_hitwall_dispatch_diagnostics"][0].update(sequence="0"))
+            with self.assertRaisesRegex(QUALITY.QualityError, "sequence is not strictly increasing"):
+                QUALITY.analyze_run(repeated)
+
+    def test_optional_pickup_and_navigation_coverage_metrics_are_validated(self) -> None:
+        base = {
+            "score": 0, "pri_deaths": 0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+        }
+        pickup_zero = {
+            "confirmed_pickups_exact": 0,
+            "confirmed_weapon_pickups_exact": 0,
+            "confirmed_ammo_pickups_exact": 0,
+            "confirmed_health_pickups_exact": 0,
+            "confirmed_armor_pickups_exact": 0,
+            "confirmed_other_pickups_exact": 0,
+            "pickup_source_consumed_unconfirmed_exact": 0,
+            "navigation_coverage_visited_nodes_exact": 1,
+            "navigation_coverage_catalog_nodes_exact": 10,
+            "navigation_coverage_union_visited_nodes_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = write_v2_run(root, "valid", bot_count=1)
+            upgrade_telemetry_v2(run, counters=[
+                {**base, **pickup_zero},
+                {**base, **pickup_zero,
+                 "confirmed_pickups_exact": 1,
+                 "confirmed_weapon_pickups_exact": 1,
+                 "pickup_source_consumed_unconfirmed_exact": 1,
+                 "navigation_coverage_visited_nodes_exact": 3,
+                 "navigation_coverage_union_visited_nodes_exact": 3},
+                {**base, **pickup_zero,
+                 "confirmed_pickups_exact": 3,
+                 "confirmed_weapon_pickups_exact": 1,
+                 "confirmed_ammo_pickups_exact": 1,
+                 "confirmed_health_pickups_exact": 1,
+                 "pickup_source_consumed_unconfirmed_exact": 2,
+                 "navigation_coverage_visited_nodes_exact": 5,
+                 "navigation_coverage_union_visited_nodes_exact": 5},
+            ])
+            report = QUALITY.analyze([run])
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(metrics["confirmed_pickups_exact"], 3)
+            self.assertEqual(metrics["confirmed_weapon_pickups_exact"], 1)
+            self.assertEqual(metrics["confirmed_ammo_pickups_exact"], 1)
+            self.assertEqual(metrics["confirmed_health_pickups_exact"], 1)
+            self.assertEqual(metrics["pickup_source_consumed_unconfirmed_exact"], 2)
+            self.assertEqual(metrics["navigation_coverage_visited_nodes_exact"], 5)
+            self.assertEqual(metrics["navigation_coverage_catalog_nodes_exact"], 10)
+            self.assertEqual(metrics["navigation_coverage_union_visited_nodes_exact"], 5)
+            self.assertEqual(metrics["navigation_coverage_fraction"], 0.5)
+            self.assertEqual(metrics["navigation_coverage_union_fraction"], 0.5)
+            self.assertIsNone(QUALITY.METRIC_DIRECTIONS["confirmed_pickups_exact"])
+            self.assertIsNone(QUALITY.METRIC_DIRECTIONS["navigation_coverage_fraction"])
+            self.assertIn("confirmed_pickups_exact",
+                          report["runs"][0]["validation"]["optional_telemetry_fields"])
+            self.assertIn("navigation_coverage_catalog_nodes_exact",
+                          report["runs"][0]["validation"]["optional_telemetry_fields"])
+            self.assertTrue(report["metric_availability"]["optional_counter_metrics_present"]
+                            ["confirmed_pickups_exact"])
+            self.assertTrue(report["metric_availability"]["optional_counter_metrics_present"]
+                            ["navigation_coverage_catalog_nodes_exact"])
+
+            incomplete = write_v2_run(root, "incomplete", bot_count=1)
+            upgrade_telemetry_v2(incomplete, counters=[
+                {**base, "confirmed_pickups_exact": 0},
+                {**base, "confirmed_pickups_exact": 0},
+                {**base, "confirmed_pickups_exact": 0},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "confirmed pickup counters"):
+                QUALITY.analyze_run(incomplete)
+
+            partition = write_v2_run(root, "partition", bot_count=1)
+            upgrade_telemetry_v2(partition, counters=[
+                {**base, **pickup_zero, "confirmed_pickups_exact": 1},
+                {**base, **pickup_zero, "confirmed_pickups_exact": 1},
+                {**base, **pickup_zero, "confirmed_pickups_exact": 1},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "do not partition"):
+                QUALITY.analyze_run(partition)
+
+            changing_catalog = write_v2_run(root, "changing-catalog", bot_count=1)
+            upgrade_telemetry_v2(changing_catalog, counters=[
+                {**base, **pickup_zero},
+                {**base, **pickup_zero, "navigation_coverage_catalog_nodes_exact": 11},
+                {**base, **pickup_zero, "navigation_coverage_catalog_nodes_exact": 11},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "navigation coverage catalog changed"):
+                QUALITY.analyze_run(changing_catalog)
+
+            union_mismatch = write_v2_run(root, "union-mismatch", bot_count=2)
+            upgrade_telemetry_v2(union_mismatch, counters=[
+                {**base, **pickup_zero},
+                {**base, **pickup_zero},
+                {**base, **pickup_zero},
+            ])
+            path = union_mismatch / "events.jsonl"
+            events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            events[1]["bots"][1]["navigation_coverage_union_visited_nodes_exact"] = "2"
+            path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "union differs between bots"):
+                QUALITY.analyze_run(union_mismatch)
+
+            excess = write_v2_run(root, "excess", bot_count=1)
+            upgrade_telemetry_v2(excess, counters=[
+                {**base, **pickup_zero,
+                 "navigation_coverage_visited_nodes_exact": 11},
+                {**base, **pickup_zero,
+                 "navigation_coverage_visited_nodes_exact": 11},
+                {**base, **pickup_zero,
+                 "navigation_coverage_visited_nodes_exact": 11},
+            ])
+            with self.assertRaisesRegex(QUALITY.QualityError, "visited nodes exceed catalog"):
+                QUALITY.analyze_run(excess)
+
+    def test_supported_metrics_are_computed_from_samples(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_run(Path(temporary), "run", [0.0, 3.0, 3.0, 3.0], [100, 90, 90, 90])
+            report = QUALITY.analyze([run])
+            metrics = report["runs"][0]["metrics"]
+            self.assertEqual(metrics["distance_traveled"], 3.0)
+            self.assertEqual(metrics["active_movement_seconds"], 1.0)
+            self.assertEqual(metrics["active_movement_fraction"], 1.0 / 3.0)
+            self.assertEqual(metrics["no_progress_seconds_proxy"], 2.0)
+            self.assertEqual(metrics["longest_no_progress_seconds_proxy"], 2.0)
+            self.assertEqual(metrics["stuck_events_proxy"], 1)
+            self.assertEqual(metrics["health_loss_observed"], 10.0)
+            self.assertEqual(metrics["minimum_health_observed"], 90)
+            self.assertIs(metrics["survived_to_final_sample"], True)
+            self.assertIs(metrics["completion"], True)
+            self.assertIsNone(report["metric_availability"]["composite_quality_score"])
+            self.assertIn("accuracy", report["metric_availability"]["unavailable_until_telemetry_is_extended"])
+
+    def test_malformed_sequence_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_run(Path(temporary), "run", [0.0, 1.0, 2.0])
+            path = run / "events.jsonl"
+            events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            events[1]["seq"] = "9"
+            path.write_text("".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "sequence"):
+                QUALITY.analyze([run])
+
+    def test_v2_regressing_exact_counter_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_run(Path(temporary), "run", [0.0, 1.0])
+            base = {"score": 0, "pri_deaths": 0, "movement_intent": False,
+                    "in_hazard_zone": False, "kills_exact": 1, "deaths_exact": 0,
+                    "suicides_exact": 0, "environmental_deaths_exact": 0,
+                    "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0}
+            upgrade_telemetry_v2(run, counters=[base, {**base, "kills_exact": 0}])
+            with self.assertRaisesRegex(QUALITY.QualityError, "kills_exact regressed"):
+                QUALITY.analyze_run(run)
+
+    def test_explicit_comparable_pair_is_aggregated(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline = write_run(root, "baseline", [0.0, 0.0, 0.0, 0.0], metadata={
+                "variant": "stock", "pair_id": "case-1", "comparison_role": "baseline",
+            })
+            candidate = write_run(root, "candidate", [0.0, 2.0, 4.0, 6.0], metadata={
+                "variant": "new-ai", "pair_id": "case-1", "comparison_role": "candidate",
+            })
+            comparison = QUALITY.analyze([baseline, candidate])["paired_comparisons"][0]
+            self.assertEqual(comparison["pair_count"], 1)
+            distance = comparison["metrics"]["distance_traveled"]
+            self.assertIsNone(distance["preferred_direction"])
+            self.assertEqual(distance["candidate_minus_baseline"]["mean"], 6.0)
+            stuck = comparison["metrics"]["stuck_events_proxy"]
+            self.assertEqual(stuck["candidate_wins"], 1)
+            self.assertEqual(stuck["candidate_losses"], 0)
+
+    def test_incomplete_or_incomparable_pairs_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline = write_run(root, "baseline", [0.0, 0.0, 0.0], metadata={
+                "variant": "stock", "pair_id": "case-1", "comparison_role": "baseline",
+            })
+            with self.assertRaisesRegex(QUALITY.QualityError, "exactly one baseline"):
+                QUALITY.analyze([baseline])
+            candidate = write_run(root, "candidate", [0.0, 1.0, 2.0], seed=271828, metadata={
+                "variant": "new-ai", "pair_id": "case-1", "comparison_role": "candidate",
+            })
+            with self.assertRaisesRegex(QUALITY.QualityError, "incomparable"):
+                QUALITY.analyze([baseline, candidate])
+
+    def test_v2_rosters_are_reconciled(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "v2")
+            analyzed = QUALITY.analyze_run(run)
+            self.assertEqual(analyzed["config"]["initial_bot_count"], 2)
+            self.assertEqual(
+                [entry["requested_name"] for entry in analyzed["config"]["requested_roster"]],
+                ["Alpha", "Bravo"])
+            self.assertEqual(len(analyzed["result"]["actual_roster"]), 2)
+
+    def test_v2_adversarial_rosters_are_rejected(self) -> None:
+        mutations = {
+            "indexes": ("manifest.json", lambda document: document["requested_roster"][1].update(
+                roster_index=0), "indexes"),
+            "requested mismatch": ("summary.json", lambda document: document["requested_roster"][1].update(
+                external_skill=5,
+                identity_fragment="participant-v1:index=1;external_skill=5;requested_name_hex=427261766f"),
+                "requested_roster differs"),
+            "actual count": ("summary.json", lambda document: document["actual_roster"].pop(),
+                             "count must equal bot_count"),
+            "duplicate actor": ("summary.json", lambda document: document["actual_roster"][1].update(
+                actor="Bot1"), "actor values must be unique"),
+            "duplicate identity": ("summary.json", lambda document: document["actual_roster"][1].update(
+                identity="pri:1"), "identity values must be unique"),
+            "duplicate player name": ("summary.json", lambda document: document["actual_roster"][1].update(
+                player_name="alpha"), "player names must be unique"),
+            "noncanonical fragment": ("manifest.json", lambda document: document["requested_roster"][1].update(
+                identity_fragment="not-canonical"), "identity_fragment is not canonical"),
+            "unknown event identity": ("events.jsonl", None, "absent from actual_roster"),
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for index, (label, (filename, mutate, message)) in enumerate(mutations.items()):
+                with self.subTest(label=label):
+                    run = write_v2_run(root, f"v2-{index}")
+                    path = run / filename
+                    if filename == "events.jsonl":
+                        events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+                        events[0]["bots"][0]["identity"] = "pri:0"
+                        path.write_text("".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+                    else:
+                        document = json.loads(path.read_text(encoding="utf-8"))
+                        assert mutate is not None
+                        mutate(document)
+                        path.write_text(json.dumps(document) + "\n", encoding="utf-8")
+                    with self.assertRaisesRegex(QUALITY.QualityError, message):
+                        QUALITY.analyze_run(run)
+
+
+    def test_positive_dps_veto_action_record_rejects_inconsistent_outcomes(self) -> None:
+        action = {
+            "source_pawn_actor": "Bot1", "sequence": "0", "life_generation": "0",
+            "invocation_token": "7", "walking_iteration": 2, "outcome": "applied",
+            "legacy_pain_ledge_superseded": False,
+            "rollback_delta": {"x": 1.0, "y": 0.0, "z": 0.0},
+            "rollback_test_attempted": True, "rollback_test_fraction": 1.0,
+            "rollback_actual_attempted": True, "rollback_actual_fraction": 1.0,
+            "forced_replan": True,
+        }
+        parsed = QUALITY._walking_step_preflight_positive_dps_veto_action(action, "action")
+        self.assertEqual(parsed["outcome"], "applied")
+        invalid = {**action, "rollback_actual_fraction": 1.1}
+        with self.assertRaisesRegex(QUALITY.QualityError, "at most 1"):
+            QUALITY._walking_step_preflight_positive_dps_veto_action(invalid, "action")
+
+    def test_post_mayfall_harmful_parity_death_reconciliation_is_fail_closed(self) -> None:
+        key = ("Bot1", 2, 7, 1)
+
+        def event(attribution="unassisted_environmental_death", parity_outcome="died",
+                  include_start=True, token=9, overflow=0, duplicate_claim=False):
+            diagnostics = [{
+                "source_pawn_actor": key[0], "life_generation": key[1],
+                "invocation_token": key[2], "walking_iteration": key[3],
+                "movement_command_token": token,
+                "phase": "post_mayfall_confirmation", "transition_outcome": "begin_falling",
+                "reason": "walking_step_preflight_reason_harmful_pain_fall_exact",
+            }]
+            parity = []
+            if include_start:
+                parity.append({"source_pawn_actor": key[0], "life_generation": key[1],
+                               "invocation_token": key[2], "walking_iteration": key[3],
+                               "outcome": "episode_started"})
+            parity.append({"source_pawn_actor": key[0], "life_generation": key[1],
+                           "invocation_token": key[2], "walking_iteration": key[3],
+                           "outcome": parity_outcome})
+            partitions = []
+            if parity_outcome == "died":
+                partition = {
+                    "source_pawn_actor": key[0], "falling_parity_terminal_known": True,
+                    "falling_parity_life_generation": key[1],
+                    "falling_parity_invocation_token": key[2],
+                    "falling_parity_walking_iteration": key[3], "attribution": attribution,
+                }
+                partitions.append(partition)
+                if duplicate_claim:
+                    partitions.append({**partition})
+            return [{"bots": [{
+                "identity": "pri:1", "actor": key[0],
+                "walking_step_preflight_diagnostics": diagnostics,
+                "falling_parity_realized_records": parity,
+                "hazard_death_partition_records": partitions,
+                "walking_step_preflight_diagnostic_overflows_exact": overflow,
+                "falling_parity_realized_record_overflows_exact": 0,
+            }]}]
+
+        positive = QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(), Path("positive"))["pri:1"]
+        self.assertEqual(positive, {
+            "post_mayfall_harmful_begin_falling_command_witnesses_exact": 1,
+            "post_mayfall_harmful_begin_falling_command_witness_parity_deaths_exact": 1,
+            "post_mayfall_harmful_begin_falling_command_witness_unassisted_environmental_deaths_exact": 1,
+        })
+        enemy = QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(attribution="direct_enemy_kill"), Path("enemy"))["pri:1"]
+        self.assertEqual(
+            enemy["post_mayfall_harmful_begin_falling_command_witness_unassisted_environmental_deaths_exact"], 0)
+        landed = QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(parity_outcome="landed"), Path("landed"))["pri:1"]
+        self.assertEqual(
+            landed["post_mayfall_harmful_begin_falling_command_witness_parity_deaths_exact"], 0)
+        self.assertEqual(QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(token=0), Path("old-token"))["pri:1"], {
+                "post_mayfall_harmful_begin_falling_command_witnesses_exact": 0,
+                "post_mayfall_harmful_begin_falling_command_witness_parity_deaths_exact": 0,
+                "post_mayfall_harmful_begin_falling_command_witness_unassisted_environmental_deaths_exact": 0,
+            })
+        self.assertIsNone(QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(overflow=1), Path("overflow"))["pri:1"])
+        self.assertIsNone(QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            event(include_start=False), Path("missing-start"))["pri:1"])
+        mixed = event()
+        incomplete_bot = event(include_start=False)[0]["bots"][0]
+        incomplete_bot["identity"] = "pri:2"
+        incomplete_bot["actor"] = "Bot2"
+        for record_group in (
+                "walking_step_preflight_diagnostics",
+                "falling_parity_realized_records",
+                "hazard_death_partition_records"):
+            for record in incomplete_bot[record_group]:
+                record["source_pawn_actor"] = "Bot2"
+        mixed[0]["bots"].append(incomplete_bot)
+        mixed_result = QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+            mixed, Path("mixed-completeness"))
+        self.assertEqual(mixed_result["pri:1"], positive)
+        self.assertIsNone(mixed_result["pri:2"])
+        with self.assertRaisesRegex(QUALITY.QualityError, "exactly one partition claim"):
+            QUALITY._reconcile_post_mayfall_harmful_parity_deaths(
+                event(duplicate_claim=True), Path("duplicate-claim"))
+
+
+    def test_ai_frame_timing_is_scoped_and_fails_closed_on_overflow_percentile(self) -> None:
+        timing = {
+            "schema": "surreal-bot-ai-frame-timing-v1",
+            "scope": "benchmark_observation_policy_driver_sampling",
+            "clock": "host_steady_clock_performance_only",
+            "behavioral_determinism": "not_behavioral_evidence",
+            "sample_count": "10",
+            "histogram_bucket_overflows_exact": "1",
+            "bucket_max_microseconds": "10000",
+            "p50_microseconds": 500,
+            "p95_microseconds": None,
+            "p99_microseconds": None,
+            "max_microseconds": "12000",
+        }
+        parsed = QUALITY._validate_ai_frame_timing(timing, "timing")
+        self.assertEqual(parsed["sample_count"], 10)
+        self.assertIsNone(parsed["p95_microseconds"])
+
+        timing["scope"] = "whole_engine_frame"
+        with self.assertRaisesRegex(QUALITY.QualityError, "benchmark-only"):
+            QUALITY._validate_ai_frame_timing(timing, "timing")
+
+    def test_pick_target_observer_requires_living_result_for_visible_candidate(self) -> None:
+        zero = {
+            "score": 0.0, "pri_deaths": 0.0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            **{name: 0 for name in QUALITY.PICK_TARGET_COUNTERS},
+            "pick_target_records": [],
+        }
+        witness = {
+            "sequence": "1", "candidate_pawns": 4, "self_rejects": 1,
+            "dead_rejects": 0, "living_candidates": 3,
+            "living_skipped_by_current_predicate": 0,
+            "team_rejects": 0, "living_geometry_eligible": 1,
+            "living_line_of_sight_eligible": 1, "returned_target": True,
+            "returned_living_target": True,
+            "no_result_with_living_line_of_sight_candidate": False,
+            "integrity_valid": True, "caller_class": "Botpack.Bot",
+            "caller_function": "AdjustAim", "selected_actor": "Bot2", "selected_class": "Botpack.Bot",
+        }
+        final = {
+            **zero,
+            "pick_target_observations_exact": 1,
+            "pick_target_candidates_exact": 4,
+            "pick_target_self_rejects_exact": 1,
+            "pick_target_living_candidates_exact": 3,
+            "pick_target_living_geometry_eligible_exact": 1,
+            "pick_target_living_line_of_sight_eligible_exact": 1,
+            "pick_target_returned_targets_exact": 1,
+            "pick_target_returned_living_targets_exact": 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "pick-target", bot_count=1)
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["pick_target_observer_enabled"] = True
+            manifest["pick_target_predicate_mode"] = "fixed"
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], pick_target_observer_enabled=True,
+                pick_target_predicate_mode="fixed")
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            summary_path = run / "summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["config"]["pick_target_predicate_mode"] = "fixed"
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+
+            missing_mode = dict(manifest)
+            missing_mode.pop("pick_target_predicate_mode")
+            manifest_path.write_text(json.dumps(missing_mode) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "predicate_mode"):
+                QUALITY.analyze([run])
+            unknown_mode = {**manifest, "pick_target_predicate_mode": "unknown"}
+            manifest_path.write_text(json.dumps(unknown_mode) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "predicate mode is not recognized"):
+                QUALITY.analyze([run])
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            upgrade_telemetry_v2(run, counters=[zero, final, final])
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+                event["pick_target_observer"] = {"requested": True, "status": "active"}
+                for bot in event["bots"]:
+                    bot["pick_target_records"] = []
+            events[1]["bots"][0]["pick_target_records"] = [witness]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            QUALITY.analyze([run])
+
+            invalid = json.loads(json.dumps(witness))
+            invalid.update({
+                "returned_target": False, "returned_living_target": False,
+                "no_result_with_living_line_of_sight_candidate": True,
+                "selected_actor": "", "selected_class": "",
+            })
+            invalid_final = {
+                **final,
+                "pick_target_returned_targets_exact": 0,
+                "pick_target_returned_living_targets_exact": 0,
+                "pick_target_no_result_with_living_line_of_sight_candidate_exact": 1,
+            }
+            upgrade_telemetry_v2(run, counters=[zero, invalid_final, invalid_final])
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+                event["pick_target_observer"] = {"requested": True, "status": "active"}
+                for bot in event["bots"]:
+                    bot["pick_target_records"] = []
+            events[1]["bots"][0]["pick_target_records"] = [invalid]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "missed a living LOS candidate"):
+                QUALITY.analyze([run])
+
+            stock_witness = {
+                **witness,
+                "living_skipped_by_current_predicate": 3,
+                "returned_target": False,
+                "returned_living_target": False,
+                "no_result_with_living_line_of_sight_candidate": True,
+                "selected_actor": "",
+                "selected_class": "",
+            }
+            stock_final = {
+                **final,
+                "pick_target_living_skipped_by_current_predicate_exact": 3,
+                "pick_target_returned_targets_exact": 0,
+                "pick_target_returned_living_targets_exact": 0,
+                "pick_target_no_result_with_living_line_of_sight_candidate_exact": 1,
+            }
+            manifest["pick_target_predicate_mode"] = "stock"
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], pick_target_observer_enabled=True,
+                pick_target_predicate_mode="stock")
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["config"]["pick_target_predicate_mode"] = "stock"
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            upgrade_telemetry_v2(run, counters=[zero, stock_final, stock_final])
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+                event["pick_target_observer"] = {"requested": True, "status": "active"}
+                for bot in event["bots"]:
+                    bot["pick_target_records"] = []
+            events[1]["bots"][0]["pick_target_records"] = [stock_witness]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            QUALITY.analyze([run])
+
+            invalid_stock = {**stock_witness, "living_skipped_by_current_predicate": 2}
+            invalid_stock_final = {
+                **stock_final,
+                "pick_target_living_skipped_by_current_predicate_exact": 2,
+            }
+            upgrade_telemetry_v2(run, counters=[zero, invalid_stock_final, invalid_stock_final])
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+                event["pick_target_observer"] = {"requested": True, "status": "active"}
+                for bot in event["bots"]:
+                    bot["pick_target_records"] = []
+            events[1]["bots"][0]["pick_target_records"] = [invalid_stock]
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "stock PickTarget predicate must skip"):
+                QUALITY.analyze([run])
+
+    def test_finite_move_command_guard_rejects_any_contained_invalid_command(self) -> None:
+        zero = {
+            "score": 0.0, "pri_deaths": 0.0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            "finite_move_command_guard_rejections_exact": 0,
+            "finite_move_command_guard_diagnostic_overflows_exact": 0,
+            "finite_move_command_guard_diagnostics": [],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "finite-move-guard", bot_count=1)
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            manifest["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            manifest["finite_move_command_guard_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], shadow_policy_set=manifest["shadow_policy_set"],
+                finite_move_command_guard_enabled=True)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            upgrade_telemetry_v2(run, counters=[zero, zero, zero])
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+            events[1]["bots"][0].update({
+                "finite_move_command_guard_rejections_exact": "1",
+                "finite_move_command_guard_diagnostic_overflows_exact": "0",
+                "finite_move_command_guard_diagnostics": [{
+                    "sequence": "1", "observer_tick": "1", "life_id": "1", "actor_index": 1,
+                    "requested_x_class": "nan", "requested_y_class": "finite",
+                    "requested_z_class": "finite", "source": "tick_post_script_destination",
+                    "terminal": "recovered_from_finite_location", "prior_destination_finite": False,
+                    "prior_focus_finite": True,
+                }],
+            })
+            for event in events[2:]:
+                event["bots"][0].update({
+                    "finite_move_command_guard_rejections_exact": "1",
+                    "finite_move_command_guard_diagnostic_overflows_exact": "0",
+                    "finite_move_command_guard_diagnostics": [],
+                })
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "rejected an invalid command"):
+                QUALITY.analyze([run])
+
+    def test_pick_reg_destination_zero_divide_guard_requires_reconciled_activation_evidence(self) -> None:
+        zero = {
+            "score": 0.0, "pri_deaths": 0.0, "movement_intent": False,
+            "in_hazard_zone": False, "kills_exact": 0, "deaths_exact": 0,
+            "suicides_exact": 0, "environmental_deaths_exact": 0,
+            "hazard_exposed_deaths_proxy": 0, "hit_wall_events_exact": 0,
+            "pick_reg_destination_zero_divide_guard_activations_exact": 0,
+            "pick_reg_destination_zero_divide_guard_activation_overflows_exact": 0,
+            "pick_reg_destination_zero_divide_guard_activations": [],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            run = write_v2_run(Path(temporary), "pick-reg-zero-divide-guard", bot_count=1)
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = QUALITY.MANIFEST_SCHEMA_V3
+            manifest["build_identity"] = build_identity_fixture()
+            manifest["shadow_policy_set"] = ["tactical-state", "utility-arena"]
+            manifest["pick_reg_destination_zero_divide_guard_enabled"] = True
+            manifest["config_id"] = QUALITY._config_id(
+                manifest["url"], int(manifest["seed"]), int(manifest["max_ticks"]),
+                manifest["fixed_delta"], manifest["difficulty"], manifest["bot_count"],
+                manifest["requested_roster"], shadow_policy_set=manifest["shadow_policy_set"],
+                pick_reg_destination_zero_divide_guard_enabled=True)
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            summary_path = run / "summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["schema"] = QUALITY.SUMMARY_SCHEMA_V4
+            summary["config"]["shadow_policy_set"] = manifest["shadow_policy_set"]
+            summary["config"]["pick_reg_destination_zero_divide_guard_enabled"] = True
+            summary_path.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+            upgrade_telemetry_v2(run, counters=[zero, zero, zero])
+            events_path = run / "events.jsonl"
+            events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+            for event in events:
+                event["config_id"] = manifest["config_id"]
+
+            missing = [json.loads(json.dumps(event)) for event in events]
+            for event in missing:
+                event["bots"][0].pop("pick_reg_destination_zero_divide_guard_activations")
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in missing),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "requires records"):
+                QUALITY.analyze([run])
+
+            activation = {
+                "sequence": "1", "observer_tick": "1", "caller_invocation_token": "9",
+                "source_life_id": "1", "source_actor_index": 1,
+            }
+            events[1]["bots"][0].update({
+                "pick_reg_destination_zero_divide_guard_activations_exact": "1",
+                "pick_reg_destination_zero_divide_guard_activation_overflows_exact": "0",
+                "pick_reg_destination_zero_divide_guard_activations": [activation],
+            })
+            for event in events[2:]:
+                event["bots"][0].update({
+                    "pick_reg_destination_zero_divide_guard_activations_exact": "1",
+                    "pick_reg_destination_zero_divide_guard_activation_overflows_exact": "0",
+                    "pick_reg_destination_zero_divide_guard_activations": [],
+                })
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "summary.ai_frame_timing"):
+                QUALITY.analyze([run])
+
+            unreconciled = [json.loads(json.dumps(event)) for event in events]
+            for event in unreconciled[1:]:
+                event["bots"][0]["pick_reg_destination_zero_divide_guard_activations_exact"] = "2"
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in unreconciled),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "activations do not reconcile"):
+                QUALITY.analyze([run])
+
+            invalid = [json.loads(json.dumps(event)) for event in events]
+            invalid[1]["bots"][0]["pick_reg_destination_zero_divide_guard_activations"][0][
+                "observer_tick"] = "99"
+            events_path.write_text(
+                "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in invalid),
+                encoding="utf-8")
+            with self.assertRaisesRegex(QUALITY.QualityError, "exceeds event tick"):
+                QUALITY.analyze([run])
+
+
+if __name__ == "__main__":
+    unittest.main()

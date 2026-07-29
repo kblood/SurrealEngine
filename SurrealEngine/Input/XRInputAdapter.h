@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Input/InputComposition.h"
+#include "Input/InputCommandTarget.h"
 #include "XR/XRCommon.h"
 
 #include <string>
@@ -60,14 +60,7 @@ struct XRInputBindings
 	static XRInputBindings NativeOpenXR(XRHand dominantHand = XRHand::Right);
 };
 
-class XRInputTarget
-{
-public:
-	virtual ~XRInputTarget() = default;
-	virtual void InputCommand(const std::string& command, InputControlId control, float delta) = 0;
-	virtual void ReleaseInputControl(InputControlId control) = 0;
-	virtual void ReleaseInputSource(InputSourceId source) = 0;
-};
+using XRInputTarget = InputCommandTarget;
 
 // Stable logical control numbers within each independent XR source. The
 // source id distinguishes identical left/right control numbers.

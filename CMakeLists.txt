@@ -4,6 +4,36 @@ project(SurrealEngine)
 
 include(CTest)
 
+# Capture the source identity at configure time so the benchmark can attest the
+# binary it actually runs. A non-Git source build remains buildable, but the
+# benchmark driver will fail closed rather than emit an unqualified run.
+set(SURREAL_BUILD_IDENTITY_AVAILABLE 0)
+set(SURREAL_BUILD_IDENTITY_COMMIT "")
+set(SURREAL_BUILD_IDENTITY_TREE "")
+set(SURREAL_BUILD_IDENTITY_DIRTY 0)
+find_program(SURREAL_BUILD_IDENTITY_GIT_EXECUTABLE git)
+if(SURREAL_BUILD_IDENTITY_GIT_EXECUTABLE)
+	execute_process(COMMAND ${SURREAL_BUILD_IDENTITY_GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD
+		OUTPUT_VARIABLE SURREAL_BUILD_IDENTITY_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE SURREAL_BUILD_IDENTITY_COMMIT_RESULT)
+	execute_process(COMMAND ${SURREAL_BUILD_IDENTITY_GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD^{tree}
+		OUTPUT_VARIABLE SURREAL_BUILD_IDENTITY_TREE OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE SURREAL_BUILD_IDENTITY_TREE_RESULT)
+	execute_process(COMMAND ${SURREAL_BUILD_IDENTITY_GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} status --porcelain=v1 --untracked-files=all
+		OUTPUT_VARIABLE SURREAL_BUILD_IDENTITY_STATUS RESULT_VARIABLE SURREAL_BUILD_IDENTITY_STATUS_RESULT)
+	string(LENGTH "${SURREAL_BUILD_IDENTITY_COMMIT}" SURREAL_BUILD_IDENTITY_COMMIT_LENGTH)
+	string(LENGTH "${SURREAL_BUILD_IDENTITY_TREE}" SURREAL_BUILD_IDENTITY_TREE_LENGTH)
+	if(SURREAL_BUILD_IDENTITY_COMMIT_RESULT EQUAL 0 AND SURREAL_BUILD_IDENTITY_TREE_RESULT EQUAL 0 AND SURREAL_BUILD_IDENTITY_STATUS_RESULT EQUAL 0
+		AND SURREAL_BUILD_IDENTITY_COMMIT_LENGTH EQUAL 40 AND SURREAL_BUILD_IDENTITY_TREE_LENGTH EQUAL 40
+		AND SURREAL_BUILD_IDENTITY_COMMIT MATCHES "^[0-9a-f]+$" AND SURREAL_BUILD_IDENTITY_TREE MATCHES "^[0-9a-f]+$")
+		set(SURREAL_BUILD_IDENTITY_AVAILABLE 1)
+		if(NOT SURREAL_BUILD_IDENTITY_STATUS STREQUAL "")
+			set(SURREAL_BUILD_IDENTITY_DIRTY 1)
+		endif()
+	endif()
+endif()
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
+configure_file(cmake/SurrealBuildIdentityGenerated.h.in
+	${CMAKE_CURRENT_BINARY_DIR}/generated/SurrealBuildIdentityGenerated.h @ONLY)
+
 option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS "Use the experimental on-demand WasmFS OPFS game-data mount" OFF)
 option(SURREAL_WEB_EXPERIMENTAL_WASMFS_OPFS_ASYNCIFY "Use the experimental Window-owned Asyncify/WasmFS OPFS game-data mount" OFF)
 set(SURREAL_WEB_RELEASE_PROFILE "diagnostic" CACHE STRING "Browser build profile: diagnostic or production")
@@ -80,14 +110,99 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Engine.h
 	SurrealEngine/GameSupport.cpp
 	SurrealEngine/GameSupport.h
+	SurrealEngine/Automation/AutomationProtocol.cpp
+	SurrealEngine/Automation/AutomationProtocol.h
+	SurrealEngine/Automation/DeusExSightProbe.cpp
+	SurrealEngine/Automation/DeusExSightProbe.h
+	SurrealEngine/Automation/InteractionActionController.cpp
+	SurrealEngine/Automation/InteractionActionController.h
+	SurrealEngine/Automation/PlayerAutomationDriver.cpp
+	SurrealEngine/Automation/PlayerAutomationDriver.h
+	SurrealEngine/Automation/PlayerAutomationRunConfig.cpp
+	SurrealEngine/Automation/PlayerAutomationRunConfig.h
+	SurrealEngine/Automation/ReachSpecRoutePlanner.cpp
+	SurrealEngine/Automation/ReachSpecRoutePlanner.h
+	SurrealEngine/Automation/ShadowReplayAdapter.cpp
+	SurrealEngine/Automation/ShadowReplayAdapter.h
+	SurrealEngine/Automation/PlayerMovementController.cpp
+	SurrealEngine/Automation/PlayerMovementController.h
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkDriver.h
+	SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.h
+	SurrealEngine/BotBenchmark/MapCatalogDriver.cpp
+	SurrealEngine/BotBenchmark/MapCatalogDriver.h
+	SurrealEngine/BotBenchmark/TraceCorpusDriver.cpp
+	SurrealEngine/BotBenchmark/TraceCorpusDriver.h
+	SurrealEngine/BotBenchmark/BotWalkingHitWallCornerFixture.cpp
+	SurrealEngine/BotBenchmark/BotWalkingHitWallCornerFixture.h
+	SurrealEngine/BotBenchmark/BotInventoryRouteHandoffFixture.cpp
+	SurrealEngine/BotBenchmark/BotInventoryRouteHandoffFixture.h
+	SurrealEngine/BotBenchmark/BotMoveStallRecoveryFixture.cpp
+	SurrealEngine/BotBenchmark/BotMoveStallRecoveryFixture.h
+	SurrealEngine/BotBenchmark/BotPickTargetFixture.cpp
+	SurrealEngine/BotBenchmark/BotPickTargetFixture.h
+	SurrealEngine/BotBenchmark/BotPickTargetPredicateContract.h
+	SurrealEngine/BotBenchmark/BotBenchmarkQualityObservation.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkQualityObservation.h
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttribution.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttribution.h
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionCoordinator.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionCoordinator.h
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionHookContract.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionHookContract.h
+	SurrealEngine/BotBenchmark/BotTargetSelectionHookContract.cpp
+	SurrealEngine/BotBenchmark/BotTargetSelectionHookContract.h
+	SurrealEngine/BotBenchmark/BotWarnTargetHookContract.cpp
+	SurrealEngine/BotBenchmark/BotWarnTargetHookContract.h
+	SurrealEngine/BotBenchmark/BotCanFireAtEnemyHookContract.cpp
+	SurrealEngine/BotBenchmark/BotCanFireAtEnemyHookContract.h
+	SurrealEngine/BotBenchmark/BotWarningDodgeContinuityContract.cpp
+	SurrealEngine/BotBenchmark/BotWarningDodgeContinuityContract.h
+	SurrealEngine/BotBenchmark/BotTargetSelectionProbeTracker.cpp
+	SurrealEngine/BotBenchmark/BotTargetSelectionProbeTracker.h
+	SurrealEngine/BotBenchmark/BotControlledMatch.cpp
+	SurrealEngine/BotBenchmark/BotControlledMatch.h
+	SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.h
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkProtocol.h
+	SurrealEngine/BotBenchmark/BotBenchmarkAiFrameTiming.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkAiFrameTiming.h
+	SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkRoster.h
+	SurrealEngine/BotBenchmark/BotBenchmarkShadowTelemetry.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkShadowTelemetry.h
+	SurrealEngine/BotBenchmark/BotSpectatorMatch.cpp
+	SurrealEngine/BotBenchmark/BotSpectatorMatch.h
+	SurrealEngine/BotBenchmark/BotSpectatorMatchConfig.cpp
 	SurrealEngine/GameSupport/DeusEx/TextTokenizer.cpp
 	SurrealEngine/GameSupport/DeusEx/TextTokenizer.h
 	SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
 	SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.h
+	SurrealEngine/BotAI/BotPolicy.h
+	SurrealEngine/BotAI/BotPolicyObservationBuilder.cpp
+	SurrealEngine/BotAI/BotPolicyObservationBuilder.h
+	SurrealEngine/BotAI/BotPolicyRegistry.cpp
+	SurrealEngine/BotAI/BotPolicyRegistry.h
+	SurrealEngine/BotAI/BotPolicyShadow.cpp
+	SurrealEngine/BotAI/BotPolicyShadow.h
+	SurrealEngine/BotAI/BotPolicyShadowTelemetry.cpp
+	SurrealEngine/BotAI/BotPolicyShadowTelemetry.h
+	SurrealEngine/BotAI/BotMovementSafety.cpp
+	SurrealEngine/BotAI/BotMovementSafety.h
+	SurrealEngine/BotAI/HarmfulZoneEscapeGate.cpp
+	SurrealEngine/BotAI/HarmfulZoneEscapeGate.h
+	SurrealEngine/BotAI/FallingHazardRecoveryGate.cpp
+	SurrealEngine/BotAI/FallingHazardRecoveryGate.h
+	SurrealEngine/BotAI/HazardSwimEgressGate.cpp
+	SurrealEngine/BotAI/HazardSwimEgressGate.h
+	SurrealEngine/BotAI/HazardSwimEgressLiveSteer.cpp
+	SurrealEngine/BotAI/HazardSwimEgressLiveSteer.h
+	SurrealEngine/BotAI/UtilityBotPolicy.cpp
+	SurrealEngine/BotAI/UtilityBotPolicy.h
+	SurrealEngine/BotAI/TacticalBotPolicy.cpp
+	SurrealEngine/BotAI/TacticalBotPolicy.h
 	SurrealEngine/GameFolder.cpp
 	SurrealEngine/GameFolder.h
 	SurrealEngine/LauncherSettings.cpp
@@ -96,6 +211,7 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/GameWindow.h
 	SurrealEngine/Input/InputComposition.cpp
 	SurrealEngine/Input/InputComposition.h
+	SurrealEngine/Input/InputCommandTarget.h
 	SurrealEngine/Input/DesktopInputDefaults.cpp
 	SurrealEngine/Input/DesktopInputDefaults.h
 	SurrealEngine/Input/XRInputAdapter.cpp
@@ -495,70 +611,370 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Math/scale.h
 	SurrealEngine/GC/GC.cpp
 	SurrealEngine/GC/GC.h
-	SurrealEngine/UObject/ULevel.cpp
-	SurrealEngine/UObject/PropertyOffsets.cpp
-	SurrealEngine/UObject/UMusic.cpp
-	SurrealEngine/UObject/UClient.cpp
-	SurrealEngine/UObject/UActor.cpp
-	SurrealEngine/UObject/ActorMovement.h
-	SurrealEngine/UObject/PawnReachSpecCapabilityFilter.h
-	SurrealEngine/UObject/PawnVisionCone.cpp
-	SurrealEngine/UObject/PawnVisionCone.h
-	SurrealEngine/UObject/ULevel.h
-	SurrealEngine/UObject/UClass.cpp
-	SurrealEngine/UObject/UTexture.cpp
-	SurrealEngine/UObject/UFont.cpp
-	SurrealEngine/UObject/UObject.h
-	SurrealEngine/UObject/UProperty.h
-	SurrealEngine/UObject/UMusic.h
-	SurrealEngine/UObject/UTexture.h
-	SurrealEngine/UObject/USound.h
-	SurrealEngine/UObject/UDeusExLevelInfo.h
-	SurrealEngine/UObject/UDXExtString.cpp
-	SurrealEngine/UObject/UDXExtString.h
-	SurrealEngine/UObject/UDXGameDirectory.cpp
-	SurrealEngine/UObject/UDXGameDirectory.h
-	SurrealEngine/UObject/UDXSaveInfo.cpp
-	SurrealEngine/UObject/UDXSaveInfo.h
-	SurrealEngine/GameSupport/DeusEx/AIPerception.cpp
-	SurrealEngine/GameSupport/DeusEx/AIPerception.h
-	SurrealEngine/GameSupport/DeusEx/DockConversationDriver.cpp
-	SurrealEngine/GameSupport/DeusEx/DockConversationDriver.h
-	SurrealEngine/UObject/UDXTextParser.cpp
-	SurrealEngine/UObject/UDXTextParser.h
-	SurrealEngine/UObject/U227Emitter.cpp
-	SurrealEngine/UObject/U227Emitter.h
-	SurrealEngine/UObject/U227SkeletalMeshInstance.h
-	SurrealEngine/UObject/U227Projector.h
-	SurrealEngine/UObject/UClient.h
-	SurrealEngine/UObject/UMesh.cpp
-	SurrealEngine/UObject/UMesh.h
-	SurrealEngine/UObject/UProperty.cpp
-	SurrealEngine/UObject/UActor.h
-	SurrealEngine/UObject/USound.cpp
-	SurrealEngine/UObject/UFont.h
-	SurrealEngine/UObject/UTextBuffer.cpp
-	SurrealEngine/UObject/UClass.h
-	SurrealEngine/UObject/UObject.cpp
-	SurrealEngine/UObject/UObjectVersion.cpp
-	SurrealEngine/UObject/UObjectVersion.h
-	SurrealEngine/UObject/UTextBuffer.h
-	SurrealEngine/UObject/UInternetLink.cpp
-	SurrealEngine/UObject/UInternetLink.h
-	SurrealEngine/UObject/PropertyOffsets.h
-	SurrealEngine/UObject/USubsystem.cpp
-	SurrealEngine/UObject/USubsystem.h
-	SurrealEngine/UObject/ObjectTravelInfo.cpp
-	SurrealEngine/UObject/ObjectTravelInfo.h
-	SurrealEngine/UObject/UnrealURL.cpp
-	SurrealEngine/UObject/UnrealURL.h
-	SurrealEngine/UObject/UWindow.cpp
-	SurrealEngine/UObject/UWindow.h
-	SurrealEngine/UObject/UFlag.cpp
-	SurrealEngine/UObject/UFlag.h
-	SurrealEngine/UObject/UConSys.cpp
-	SurrealEngine/UObject/UConSys.h
-	SurrealEngine/UObject/URMusicPlayer.h
+
+	SurrealEngine/PropertyOffsets.cpp
+	SurrealEngine/PropertyOffsets.h
+	SurrealEngine/ObjectTravelInfo.cpp
+	SurrealEngine/ObjectTravelInfo.h
+	SurrealEngine/UnrealURL.cpp
+	SurrealEngine/UnrealURL.h
+	SurrealEngine/Packages/ConSys/UConAudioList.cpp
+	SurrealEngine/Packages/ConSys/UConAudioList.h
+	SurrealEngine/Packages/ConSys/UConCamera.h
+	SurrealEngine/Packages/ConSys/UConChoice.h
+	SurrealEngine/Packages/ConSys/UConFlagRef.h
+	SurrealEngine/Packages/ConSys/UConItem.h
+	SurrealEngine/Packages/ConSys/UConLight.h
+	SurrealEngine/Packages/ConSys/UConListItem.h
+	SurrealEngine/Packages/ConSys/UConObject.h
+	SurrealEngine/Packages/ConSys/UConSpeech.h
+	SurrealEngine/Packages/ConSys/UConversation.cpp
+	SurrealEngine/Packages/ConSys/UConversation.h
+	SurrealEngine/Packages/ConSys/UConversationList.h
+	SurrealEngine/Packages/ConSys/UConversationMissionList.h
+	SurrealEngine/Packages/ConSys/Events/UConEvent.cpp
+	SurrealEngine/Packages/ConSys/Events/UConEvent.h
+	SurrealEngine/Packages/ConSys/Events/UConEventAddCredits.h
+	SurrealEngine/Packages/ConSys/Events/UConEventAddGoal.h
+	SurrealEngine/Packages/ConSys/Events/UConEventAddNote.h
+	SurrealEngine/Packages/ConSys/Events/UConEventAddSkillPoints.h
+	SurrealEngine/Packages/ConSys/Events/UConEventAnimation.h
+	SurrealEngine/Packages/ConSys/Events/UConEventCheckFlag.h
+	SurrealEngine/Packages/ConSys/Events/UConEventCheckObject.h
+	SurrealEngine/Packages/ConSys/Events/UConEventCheckPersona.h
+	SurrealEngine/Packages/ConSys/Events/UConEventChoice.h
+	SurrealEngine/Packages/ConSys/Events/UConEventComment.h
+	SurrealEngine/Packages/ConSys/Events/UConEventEnd.h
+	SurrealEngine/Packages/ConSys/Events/UConEventJump.h
+	SurrealEngine/Packages/ConSys/Events/UConEventMoveCamera.h
+	SurrealEngine/Packages/ConSys/Events/UConEventRandomLabel.cpp
+	SurrealEngine/Packages/ConSys/Events/UConEventRandomLabel.h
+	SurrealEngine/Packages/ConSys/Events/UConEventSetFlag.h
+	SurrealEngine/Packages/ConSys/Events/UConEventSpeech.h
+	SurrealEngine/Packages/ConSys/Events/UConEventTrade.h
+	SurrealEngine/Packages/ConSys/Events/UConEventTransferObject.h
+	SurrealEngine/Packages/ConSys/Events/UConEventTrigger.h
+	SurrealEngine/Packages/ConSys/History/UConHistory.h
+	SurrealEngine/Packages/ConSys/History/UConHistoryEvent.h
+	SurrealEngine/Packages/Core/UClass.cpp
+	SurrealEngine/Packages/Core/UClass.h
+	SurrealEngine/Packages/Core/UCommandlet.h
+	SurrealEngine/Packages/Core/UConst.cpp
+	SurrealEngine/Packages/Core/UConst.h
+	SurrealEngine/Packages/Core/UEnum.cpp
+	SurrealEngine/Packages/Core/UEnum.h
+	SurrealEngine/Packages/Core/UField.cpp
+	SurrealEngine/Packages/Core/UField.h
+	SurrealEngine/Packages/Core/UFunction.cpp
+	SurrealEngine/Packages/Core/UFunction.h
+	SurrealEngine/Packages/Core/ULanguage.h
+	SurrealEngine/Packages/Core/UObject.cpp
+	SurrealEngine/Packages/Core/UObject.h
+	SurrealEngine/Packages/Core/UPackage.h
+	SurrealEngine/Packages/Core/USimpleCommandlet.h
+	SurrealEngine/Packages/Core/UState.cpp
+	SurrealEngine/Packages/Core/UState.h
+	SurrealEngine/Packages/Core/UStruct.cpp
+	SurrealEngine/Packages/Core/UStruct.h
+	SurrealEngine/Packages/Core/USubsystem.h
+	SurrealEngine/Packages/Core/UTextBuffer.cpp
+	SurrealEngine/Packages/Core/UTextBuffer.h
+	SurrealEngine/Packages/Core/Properties/UAnyProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UAnyProperty.h
+	SurrealEngine/Packages/Core/Properties/UArrayProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UArrayProperty.h
+	SurrealEngine/Packages/Core/Properties/UBoolProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UBoolProperty.h
+	SurrealEngine/Packages/Core/Properties/UByteProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UByteProperty.h
+	SurrealEngine/Packages/Core/Properties/UClassProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UClassProperty.h
+	SurrealEngine/Packages/Core/Properties/UFixedArrayProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UFixedArrayProperty.h
+	SurrealEngine/Packages/Core/Properties/UFloatProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UFloatProperty.h
+	SurrealEngine/Packages/Core/Properties/UIntProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UIntProperty.h
+	SurrealEngine/Packages/Core/Properties/UMapProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UMapProperty.h
+	SurrealEngine/Packages/Core/Properties/UNameProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UNameProperty.h
+	SurrealEngine/Packages/Core/Properties/UObjectProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UObjectProperty.h
+	SurrealEngine/Packages/Core/Properties/UPointerProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UPointerProperty.h
+	SurrealEngine/Packages/Core/Properties/UProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UProperty.h
+	SurrealEngine/Packages/Core/Properties/UStringProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UStringProperty.h
+	SurrealEngine/Packages/Core/Properties/UStrProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UStrProperty.h
+	SurrealEngine/Packages/Core/Properties/UStructProperty.cpp
+	SurrealEngine/Packages/Core/Properties/UStructProperty.h
+	SurrealEngine/Packages/DeusEx/UDeusExDecoration.cpp
+	SurrealEngine/Packages/DeusEx/UDeusExDecoration.h
+	SurrealEngine/Packages/DeusEx/UDeusExLevelInfo.h
+	SurrealEngine/Packages/DeusEx/UDeusExPlayer.cpp
+	SurrealEngine/Packages/DeusEx/UDeusExPlayer.h
+	SurrealEngine/Packages/DeusEx/UDeusExSaveInfo.cpp
+	SurrealEngine/Packages/DeusEx/UDeusExSaveInfo.h
+	SurrealEngine/Packages/DeusEx/UGameDirectory.cpp
+	SurrealEngine/Packages/DeusEx/UGameDirectory.h
+	SurrealEngine/Packages/DeusEx/UScriptedPawn.cpp
+	SurrealEngine/Packages/DeusEx/UScriptedPawn.h
+	SurrealEngine/Packages/DeusExText/UDeusExTextParser.cpp
+	SurrealEngine/Packages/DeusExText/UDeusExTextParser.h
+	SurrealEngine/Packages/Emitter/UDistantLightActor.h
+	SurrealEngine/Packages/Emitter/UEmitterGarbageCollector.h
+	SurrealEngine/Packages/Emitter/UEmitterRC.h
+	SurrealEngine/Packages/Emitter/UKillParticleForce.h
+	SurrealEngine/Packages/Emitter/UParticleConcentrateForce.h
+	SurrealEngine/Packages/Emitter/UVelocityForce.h
+	SurrealEngine/Packages/Emitter/UXBeamEmitter.h
+	SurrealEngine/Packages/Emitter/UXEmitter.cpp
+	SurrealEngine/Packages/Emitter/UXEmitter.h
+	SurrealEngine/Packages/Emitter/UXMeshEmitter.h
+	SurrealEngine/Packages/Emitter/UXParticleEmitter.cpp
+	SurrealEngine/Packages/Emitter/UXParticleEmitter.h
+	SurrealEngine/Packages/Emitter/UXParticleForces.h
+	SurrealEngine/Packages/Emitter/UXRainRestrictionVolume.h
+	SurrealEngine/Packages/Emitter/UXSpriteEmitter.h
+	SurrealEngine/Packages/Emitter/UXTrailEmitter.h
+	SurrealEngine/Packages/Emitter/UXTrailParticle.h
+	SurrealEngine/Packages/Emitter/UXWeatherEmitter.h
+	SurrealEngine/Packages/Engine/UCanvas.h
+	SurrealEngine/Packages/Engine/UClient.h
+	SurrealEngine/Packages/Engine/UConsole.h
+	SurrealEngine/Packages/Engine/UPlayer.h
+	SurrealEngine/Packages/Engine/URenderIterator.h
+	SurrealEngine/Packages/Engine/USurrealClient.cpp
+	SurrealEngine/Packages/Engine/USurrealClient.h
+	SurrealEngine/Packages/Engine/UViewport.h
+	SurrealEngine/Packages/Engine/Actors/UActor.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor.h
+	SurrealEngine/Packages/Engine/Actors/UActor_Animation.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Base.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Conversation.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Owner.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Phys.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysFalling.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysFlying.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysInterpolating.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysMovingBrush.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysProjectile.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysRolling.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysRotating.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysSpider.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysSwimming.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysTrailer.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysWalking.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Render.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Touch.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Zone.cpp
+	SurrealEngine/Packages/Engine/Actors/UAnimationNotify.h
+	SurrealEngine/Packages/Engine/Actors/UDecal.cpp
+	SurrealEngine/Packages/Engine/Actors/UDecal.h
+	SurrealEngine/Packages/Engine/Actors/UHUD.h
+	SurrealEngine/Packages/Engine/Actors/ULight.h
+	SurrealEngine/Packages/Engine/Actors/UMenu.h
+	SurrealEngine/Packages/Engine/Actors/UProjectile.h
+	SurrealEngine/Packages/Engine/Actors/UProjector.h
+	SurrealEngine/Packages/Engine/Actors/USkeletalMeshInstance.h
+	SurrealEngine/Packages/Engine/Actors/USpawnNotify.h
+	SurrealEngine/Packages/Engine/Actors/Brush/UBrush.h
+	SurrealEngine/Packages/Engine/Actors/Brush/UMover.h
+	SurrealEngine/Packages/Engine/Actors/Decoration/UCarcass.h
+	SurrealEngine/Packages/Engine/Actors/Decoration/UDecoration.h
+	SurrealEngine/Packages/Engine/Actors/Info/UDynamicZoneInfo.h
+	SurrealEngine/Packages/Engine/Actors/Info/UGameInfo.h
+	SurrealEngine/Packages/Engine/Actors/Info/UGameReplicationInfo.h
+	SurrealEngine/Packages/Engine/Actors/Info/UInfo.h
+	SurrealEngine/Packages/Engine/Actors/Info/UInternetInfo.h
+	SurrealEngine/Packages/Engine/Actors/Info/ULevelInfo.cpp
+	SurrealEngine/Packages/Engine/Actors/Info/ULevelInfo.h
+	SurrealEngine/Packages/Engine/Actors/Info/UMutator.h
+	SurrealEngine/Packages/Engine/Actors/Info/UPlayerReplicationInfo.h
+	SurrealEngine/Packages/Engine/Actors/Info/UReplicationInfo.h
+	SurrealEngine/Packages/Engine/Actors/Info/USavedMove.h
+	SurrealEngine/Packages/Engine/Actors/Info/USkyZoneInfo.h
+	SurrealEngine/Packages/Engine/Actors/Info/UStatLog.h
+	SurrealEngine/Packages/Engine/Actors/Info/UStatLogFile.h
+	SurrealEngine/Packages/Engine/Actors/Info/UWarpZoneInfo.cpp
+	SurrealEngine/Packages/Engine/Actors/Info/UWarpZoneInfo.h
+	SurrealEngine/Packages/Engine/Actors/Info/UZoneInfo.h
+	SurrealEngine/Packages/Engine/Actors/Inventory/UInventory.h
+	SurrealEngine/Packages/Engine/Actors/Inventory/UWeapon.h
+	SurrealEngine/Packages/Engine/Actors/InventoryAttachment/UInventoryAttachment.h
+	SurrealEngine/Packages/Engine/Actors/InventoryAttachment/UWeaponAttachment.h
+	SurrealEngine/Packages/Engine/Actors/InventoryAttachment/UWeaponMuzzleFlash.h
+	SurrealEngine/Packages/Engine/Actors/Keypoint/UInterpolationPoint.h
+	SurrealEngine/Packages/Engine/Actors/Keypoint/UKeypoint.h
+	SurrealEngine/Packages/Engine/Actors/Keypoint/Ulocationid.h
+	SurrealEngine/Packages/Engine/Actors/NavigationPoint/UButtonMarker.h
+	SurrealEngine/Packages/Engine/Actors/NavigationPoint/UInventorySpot.h
+	SurrealEngine/Packages/Engine/Actors/NavigationPoint/ULiftCenter.h
+	SurrealEngine/Packages/Engine/Actors/NavigationPoint/ULiftExit.h
+	SurrealEngine/Packages/Engine/Actors/NavigationPoint/UNavigationPoint.h
+	SurrealEngine/Packages/Engine/Actors/NavigationPoint/UPathNode.h
+	SurrealEngine/Packages/Engine/Actors/NavigationPoint/UPlayerStart.h
+	SurrealEngine/Packages/Engine/Actors/NavigationPoint/UTeleporter.h
+	SurrealEngine/Packages/Engine/Actors/NavigationPoint/UTriggerMarker.h
+	SurrealEngine/Packages/Engine/Actors/NavigationPoint/UWarpZoneMarker.h
+	SurrealEngine/Packages/Engine/Actors/Pawn/UCamera.h
+	SurrealEngine/Packages/Engine/Actors/Pawn/UPawn.cpp
+	SurrealEngine/Packages/Engine/Actors/Pawn/UPawn.h
+	SurrealEngine/Packages/Engine/Actors/Pawn/UPlayerPawn.cpp
+	SurrealEngine/Packages/Engine/Actors/Pawn/UPlayerPawn.h
+	SurrealEngine/Packages/Engine/Actors/Pawn/UScout.h
+	SurrealEngine/Packages/Engine/Actors/Triggers/UTrigger.h
+	SurrealEngine/Packages/Engine/Actors/Triggers/UTriggers.h
+	SurrealEngine/Packages/Engine/Network/UActorChannel.h
+	SurrealEngine/Packages/Engine/Network/UChannel.h
+	SurrealEngine/Packages/Engine/Network/UControlChannel.h
+	SurrealEngine/Packages/Engine/Network/UDemoPlayPendingLevel.h
+	SurrealEngine/Packages/Engine/Network/UDemoRecConnection.h
+	SurrealEngine/Packages/Engine/Network/UFileChannel.h
+	SurrealEngine/Packages/Engine/Network/UNetConnection.h
+	SurrealEngine/Packages/Engine/Network/UNetPendingLevel.h
+	SurrealEngine/Packages/Engine/Network/UPendingLevel.h
+	SurrealEngine/Packages/Engine/Resources/UFont.cpp
+	SurrealEngine/Packages/Engine/Resources/UFont.h
+	SurrealEngine/Packages/Engine/Resources/UMusic.cpp
+	SurrealEngine/Packages/Engine/Resources/UMusic.h
+	SurrealEngine/Packages/Engine/Resources/UPalette.cpp
+	SurrealEngine/Packages/Engine/Resources/UPalette.h
+	SurrealEngine/Packages/Engine/Resources/UPrimitive.cpp
+	SurrealEngine/Packages/Engine/Resources/UPrimitive.h
+	SurrealEngine/Packages/Engine/Resources/USound.cpp
+	SurrealEngine/Packages/Engine/Resources/USound.h
+	SurrealEngine/Packages/Engine/Resources/Level/UBspNodes.cpp
+	SurrealEngine/Packages/Engine/Resources/Level/UBspNodes.h
+	SurrealEngine/Packages/Engine/Resources/Level/UBspSurfs.cpp
+	SurrealEngine/Packages/Engine/Resources/Level/UBspSurfs.h
+	SurrealEngine/Packages/Engine/Resources/Level/ULevel.cpp
+	SurrealEngine/Packages/Engine/Resources/Level/ULevel.h
+	SurrealEngine/Packages/Engine/Resources/Level/ULevelBase.cpp
+	SurrealEngine/Packages/Engine/Resources/Level/ULevelBase.h
+	SurrealEngine/Packages/Engine/Resources/Level/ULevelSummary.h
+	SurrealEngine/Packages/Engine/Resources/Level/UModel.cpp
+	SurrealEngine/Packages/Engine/Resources/Level/UModel.h
+	SurrealEngine/Packages/Engine/Resources/Level/UPolys.cpp
+	SurrealEngine/Packages/Engine/Resources/Level/UPolys.h
+	SurrealEngine/Packages/Engine/Resources/Level/UVectors.cpp
+	SurrealEngine/Packages/Engine/Resources/Level/UVectors.h
+	SurrealEngine/Packages/Engine/Resources/Level/UVerts.cpp
+	SurrealEngine/Packages/Engine/Resources/Level/UVerts.h
+	SurrealEngine/Packages/Engine/Resources/Mesh/UAnimation.cpp
+	SurrealEngine/Packages/Engine/Resources/Mesh/UAnimation.h
+	SurrealEngine/Packages/Engine/Resources/Mesh/ULodMesh.cpp
+	SurrealEngine/Packages/Engine/Resources/Mesh/ULodMesh.h
+	SurrealEngine/Packages/Engine/Resources/Mesh/UMesh.cpp
+	SurrealEngine/Packages/Engine/Resources/Mesh/UMesh.h
+	SurrealEngine/Packages/Engine/Resources/Mesh/USkeletalMesh.cpp
+	SurrealEngine/Packages/Engine/Resources/Mesh/USkeletalMesh.h
+	SurrealEngine/Packages/Engine/Resources/Mesh/UStaticMesh.cpp
+	SurrealEngine/Packages/Engine/Resources/Mesh/UStaticMesh.h
+	SurrealEngine/Packages/Engine/Resources/Textures/UBitmap.h
+	SurrealEngine/Packages/Engine/Resources/Textures/UFireTexture.cpp
+	SurrealEngine/Packages/Engine/Resources/Textures/UFireTexture.h
+	SurrealEngine/Packages/Engine/Resources/Textures/UFractalTexture.cpp
+	SurrealEngine/Packages/Engine/Resources/Textures/UFractalTexture.h
+	SurrealEngine/Packages/Engine/Resources/Textures/UIceTexture.cpp
+	SurrealEngine/Packages/Engine/Resources/Textures/UIceTexture.h
+	SurrealEngine/Packages/Engine/Resources/Textures/UScriptedTexture.cpp
+	SurrealEngine/Packages/Engine/Resources/Textures/UScriptedTexture.h
+	SurrealEngine/Packages/Engine/Resources/Textures/UTexture.cpp
+	SurrealEngine/Packages/Engine/Resources/Textures/UTexture.h
+	SurrealEngine/Packages/Engine/Resources/Textures/UWaterTexture.cpp
+	SurrealEngine/Packages/Engine/Resources/Textures/UWaterTexture.h
+	SurrealEngine/Packages/Engine/Resources/Textures/UWaveTexture.cpp
+	SurrealEngine/Packages/Engine/Resources/Textures/UWaveTexture.h
+	SurrealEngine/Packages/Engine/Resources/Textures/UWetTexture.cpp
+	SurrealEngine/Packages/Engine/Resources/Textures/UWetTexture.h
+	SurrealEngine/Packages/Engine/Subsystems/UAudioSubsystem.h
+	SurrealEngine/Packages/Engine/Subsystems/UEditorEngine.h
+	SurrealEngine/Packages/Engine/Subsystems/UEngine.h
+	SurrealEngine/Packages/Engine/Subsystems/UGameEngine.h
+	SurrealEngine/Packages/Engine/Subsystems/UNetDriver.h
+	SurrealEngine/Packages/Engine/Subsystems/URenderBase.h
+	SurrealEngine/Packages/Engine/Subsystems/URenderDevice.h
+	SurrealEngine/Packages/Engine/Subsystems/USurrealAudioDevice.cpp
+	SurrealEngine/Packages/Engine/Subsystems/USurrealAudioDevice.h
+	SurrealEngine/Packages/Engine/Subsystems/USurrealNetworkDevice.cpp
+	SurrealEngine/Packages/Engine/Subsystems/USurrealNetworkDevice.h
+	SurrealEngine/Packages/Engine/Subsystems/USurrealRenderDevice.cpp
+	SurrealEngine/Packages/Engine/Subsystems/USurrealRenderDevice.h
+	SurrealEngine/Packages/Extension/UExtensionObject.h
+	SurrealEngine/Packages/Extension/UExtString.cpp
+	SurrealEngine/Packages/Extension/UExtString.h
+	SurrealEngine/Packages/Extension/UPlayerPawnExt.cpp
+	SurrealEngine/Packages/Extension/UPlayerPawnExt.h
+	SurrealEngine/Packages/Extension/Flags/UFlag.h
+	SurrealEngine/Packages/Extension/Flags/UFlagBase.cpp
+	SurrealEngine/Packages/Extension/Flags/UFlagBase.h
+	SurrealEngine/Packages/Extension/Flags/UFlagBool.h
+	SurrealEngine/Packages/Extension/Flags/UFlagByte.h
+	SurrealEngine/Packages/Extension/Flags/UFlagFloat.h
+	SurrealEngine/Packages/Extension/Flags/UFlagInt.h
+	SurrealEngine/Packages/Extension/Flags/UFlagName.h
+	SurrealEngine/Packages/Extension/Flags/UFlagRotator.h
+	SurrealEngine/Packages/Extension/Flags/UFlagVector.h
+	SurrealEngine/Packages/Extension/Windows/UBorderWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/UBorderWindow.h
+	SurrealEngine/Packages/Extension/Windows/UComputerWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/UComputerWindow.h
+	SurrealEngine/Packages/Extension/Windows/UGC.cpp
+	SurrealEngine/Packages/Extension/Windows/UGC.h
+	SurrealEngine/Packages/Extension/Windows/UListWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/UListWindow.h
+	SurrealEngine/Packages/Extension/Windows/UScaleManagerWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/UScaleManagerWindow.h
+	SurrealEngine/Packages/Extension/Windows/UScaleWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/UScaleWindow.h
+	SurrealEngine/Packages/Extension/Windows/UScrollAreaWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/UScrollAreaWindow.h
+	SurrealEngine/Packages/Extension/Windows/UTileWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/UTileWindow.h
+	SurrealEngine/Packages/Extension/Windows/UViewportWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/UViewportWindow.h
+	SurrealEngine/Packages/Extension/Windows/UWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/UWindow.h
+	SurrealEngine/Packages/Extension/Windows/TabGroup/UClipWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/TabGroup/UClipWindow.h
+	SurrealEngine/Packages/Extension/Windows/TabGroup/UModalWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/TabGroup/UModalWindow.h
+	SurrealEngine/Packages/Extension/Windows/TabGroup/URadioBoxWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/TabGroup/URadioBoxWindow.h
+	SurrealEngine/Packages/Extension/Windows/TabGroup/URootWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/TabGroup/URootWindow.h
+	SurrealEngine/Packages/Extension/Windows/TabGroup/UTabGroupWindow.h
+	SurrealEngine/Packages/Extension/Windows/Text/UButtonWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/Text/UButtonWindow.h
+	SurrealEngine/Packages/Extension/Windows/Text/UCheckboxWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/Text/UCheckboxWindow.h
+	SurrealEngine/Packages/Extension/Windows/Text/UEditWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/Text/UEditWindow.h
+	SurrealEngine/Packages/Extension/Windows/Text/ULargeTextWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/Text/ULargeTextWindow.h
+	SurrealEngine/Packages/Extension/Windows/Text/UTextLogWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/Text/UTextLogWindow.h
+	SurrealEngine/Packages/Extension/Windows/Text/UTextWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/Text/UTextWindow.h
+	SurrealEngine/Packages/Extension/Windows/Text/UToggleWindow.cpp
+	SurrealEngine/Packages/Extension/Windows/Text/UToggleWindow.h
+	SurrealEngine/Packages/IpDrv/UInternetLink.cpp
+	SurrealEngine/Packages/IpDrv/UInternetLink.h
+	SurrealEngine/Packages/IpDrv/UTcpLink.cpp
+	SurrealEngine/Packages/IpDrv/UTcpLink.h
+	SurrealEngine/Packages/IpDrv/UUdpLink.cpp
+	SurrealEngine/Packages/IpDrv/UUdpLink.h
+	SurrealEngine/Packages/RMusicPlayer/URMusic_Component.h
+	SurrealEngine/Packages/RMusicPlayer/URMusic_Player.cpp
+	SurrealEngine/Packages/RMusicPlayer/URMusic_Player.h
+	SurrealEngine/Packages/UPak/UPathNodeIterator.cpp
+	SurrealEngine/Packages/UPak/UPathNodeIterator.h
+	SurrealEngine/Packages/UPak/UPawnPathNodeIterator.cpp
+	SurrealEngine/Packages/UPak/UPawnPathNodeIterator.h
 	SurrealEngine/Collision/TopLevel/CollisionSystem.cpp
 	SurrealEngine/Collision/TopLevel/CollisionSystem.h
 	SurrealEngine/Collision/TopLevel/CollisionHit.h
@@ -651,6 +1067,131 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Compiler/Typesystem/TypeSystem.h
 	SurrealEngine/Compiler/Typesystem/TypeVisitor.h
 	SurrealEngine/Compiler/Typesystem/ValueType.h
+)
+
+# Upstream now splits the stock actor implementation across package-specific
+# translation units. Unified still carries heavily instrumented bot movement
+# in one implementation unit; compile that unit while the instrumentation is
+# migrated into the new layout.
+list(REMOVE_ITEM SURREALCOMMON_SOURCES
+	SurrealEngine/Packages/Engine/Actors/UActor.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Animation.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Base.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Conversation.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Owner.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Phys.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysFalling.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysFlying.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysInterpolating.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysMovingBrush.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysProjectile.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysRolling.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysRotating.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysSpider.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysSwimming.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysTrailer.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_PhysWalking.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Render.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Touch.cpp
+	SurrealEngine/Packages/Engine/Actors/UActor_Zone.cpp
+	SurrealEngine/Packages/Engine/Actors/UDecal.cpp
+	SurrealEngine/Packages/Engine/Actors/Info/ULevelInfo.cpp
+	SurrealEngine/Packages/Engine/Actors/Info/UWarpZoneInfo.cpp
+	SurrealEngine/Packages/Engine/Actors/Pawn/UPawn.cpp
+	SurrealEngine/Packages/Engine/Actors/Pawn/UPlayerPawn.cpp
+	SurrealEngine/Packages/DeusEx/UDeusExDecoration.cpp
+	SurrealEngine/Packages/DeusEx/UDeusExPlayer.cpp
+	SurrealEngine/Packages/DeusEx/UScriptedPawn.cpp
+	SurrealEngine/Packages/Extension/UPlayerPawnExt.cpp
+	SurrealEngine/Packages/UPak/UPathNodeIterator.cpp
+	SurrealEngine/Packages/UPak/UPawnPathNodeIterator.cpp
+)
+list(APPEND SURREALCOMMON_SOURCES
+	SurrealEngine/Packages/Engine/Actors/UActor_Unified.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkAvoidableSuicide.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkAvoidableSuicide.h
+	SurrealEngine/BotBenchmark/BotBenchmarkHazardDeathPartition.cpp
+	SurrealEngine/BotBenchmark/BotBenchmarkHazardDeathPartition.h
+	SurrealEngine/GameSupport/DeusEx/AIPerception.cpp
+	SurrealEngine/GameSupport/DeusEx/AIPerception.h
+	SurrealEngine/GameSupport/DeusEx/DockConversationDriver.cpp
+	SurrealEngine/GameSupport/DeusEx/DockConversationDriver.h
+	SurrealEngine/UObject/ActorMoveCollisionProbe.cpp
+	SurrealEngine/UObject/ActorMoveCollisionProbe.h
+	SurrealEngine/UObject/ActorMovement.h
+	SurrealEngine/UObject/PawnDirectHarmfulWaterEntryCertificate.cpp
+	SurrealEngine/UObject/PawnDirectHarmfulWaterEntryCertificate.h
+	SurrealEngine/UObject/PawnDirectReachCommandProvenance.h
+	SurrealEngine/UObject/PawnExternalImpulseFallWitness.cpp
+	SurrealEngine/UObject/PawnExternalImpulseFallWitness.h
+	SurrealEngine/UObject/PawnFailedNavigationMemory.cpp
+	SurrealEngine/UObject/PawnFailedNavigationMemory.h
+	SurrealEngine/UObject/PawnFallingAirRecoverySelector.cpp
+	SurrealEngine/UObject/PawnFallingAirRecoverySelector.h
+	SurrealEngine/UObject/PawnFallingHazardDiagnostics.h
+	SurrealEngine/UObject/PawnFallingHazardForecast.cpp
+	SurrealEngine/UObject/PawnFallingHazardForecast.h
+	SurrealEngine/UObject/PawnFallingHazardRuntimeObserver.cpp
+	SurrealEngine/UObject/PawnFallingHazardRuntimeObserver.h
+	SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.cpp
+	SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.h
+	SurrealEngine/UObject/PawnFallingHitWallCallbackWitness.cpp
+	SurrealEngine/UObject/PawnFallingHitWallCallbackWitness.h
+	SurrealEngine/UObject/PawnFallingParityForecast.cpp
+	SurrealEngine/UObject/PawnFallingParityForecast.h
+	SurrealEngine/UObject/PawnFallingParityRealizedTrace.cpp
+	SurrealEngine/UObject/PawnFallingParityRealizedTrace.h
+	SurrealEngine/UObject/PawnFallingTwoPlaneContact.cpp
+	SurrealEngine/UObject/PawnFallingTwoPlaneContact.h
+	SurrealEngine/UObject/PawnFallingTwoPlaneSafety.cpp
+	SurrealEngine/UObject/PawnFallingTwoPlaneSafety.h
+	SurrealEngine/UObject/PawnFiniteMoveCommandGuard.cpp
+	SurrealEngine/UObject/PawnFiniteMoveCommandGuard.h
+	SurrealEngine/UObject/PawnHazardResidenceObserver.cpp
+	SurrealEngine/UObject/PawnHazardResidenceObserver.h
+	SurrealEngine/UObject/PawnHazardWaterEgressObserver.cpp
+	SurrealEngine/UObject/PawnHazardWaterEgressObserver.h
+	SurrealEngine/UObject/PawnHazardWaterEgressRouteCertificate.cpp
+	SurrealEngine/UObject/PawnHazardWaterEgressRouteCertificate.h
+	SurrealEngine/UObject/PawnInventoryReachability.cpp
+	SurrealEngine/UObject/PawnInventoryReachability.h
+	SurrealEngine/UObject/PawnLatentMoveTerminal.cpp
+	SurrealEngine/UObject/PawnLatentMoveTerminal.h
+	SurrealEngine/UObject/PawnLedgeTransition.cpp
+	SurrealEngine/UObject/PawnLedgeTransition.h
+	SurrealEngine/UObject/PawnMovementArrival.cpp
+	SurrealEngine/UObject/PawnMovementArrival.h
+	SurrealEngine/UObject/PawnMoveStallWatchdog.cpp
+	SurrealEngine/UObject/PawnMoveStallWatchdog.h
+	SurrealEngine/UObject/PawnMoveToward.cpp
+	SurrealEngine/UObject/PawnMoveToward.h
+	SurrealEngine/UObject/PawnPainLedgeRecovery.cpp
+	SurrealEngine/UObject/PawnPainLedgeRecovery.h
+	SurrealEngine/UObject/PawnPainZoneFallPrediction.cpp
+	SurrealEngine/UObject/PawnPainZoneFallPrediction.h
+	SurrealEngine/UObject/PawnPathCost.cpp
+	SurrealEngine/UObject/PawnPathCost.h
+	SurrealEngine/UObject/PawnPickRegDestinationZeroDivideGuard.cpp
+	SurrealEngine/UObject/PawnPickRegDestinationZeroDivideGuard.h
+	SurrealEngine/UObject/PawnReachSpecEligibility.cpp
+	SurrealEngine/UObject/PawnReachSpecEligibility.h
+	SurrealEngine/UObject/PawnVectorNonFiniteClassification.cpp
+	SurrealEngine/UObject/PawnVectorNonFiniteObserver.cpp
+	SurrealEngine/UObject/PawnVectorNonFiniteObserver.h
+	SurrealEngine/UObject/PawnVerticalPainColumnShadow.cpp
+	SurrealEngine/UObject/PawnVerticalPainColumnShadow.h
+	SurrealEngine/UObject/PawnVisionCone.cpp
+	SurrealEngine/UObject/PawnVisionCone.h
+	SurrealEngine/UObject/PawnWalkingHitWallDispatch.cpp
+	SurrealEngine/UObject/PawnWalkingHitWallDispatch.h
+	SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
+	SurrealEngine/UObject/PawnWalkingStepPreflight.h
+	SurrealEngine/UObject/PawnWallAdjustment.cpp
+	SurrealEngine/UObject/PawnWallAdjustment.h
+	SurrealEngine/UObject/PawnWallAdjustRecovery.cpp
+	SurrealEngine/UObject/PawnWallAdjustRecovery.h
+	SurrealEngine/UObject/UObjectVersion.cpp
+	SurrealEngine/UObject/UObjectVersion.h
 )
 
 set(SURREALCOMMON_WIN32_SOURCES
@@ -826,7 +1367,40 @@ source_group("SurrealEngine\\UI" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}
 source_group("SurrealEngine\\UI\\ErrorWindow" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/UI/ErrorWindow/.+")
 source_group("SurrealEngine\\UI\\Editor" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/UI/Editor/.+")
 source_group("SurrealEngine\\UI\\Launcher" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/UI/Launcher/.+")
-source_group("SurrealEngine\\UObject" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/UObject/.+")
+source_group("SurrealEngine\\Packages" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/.+")
+source_group("SurrealEngine\\Packages\\ConSys" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/ConSys/.+")
+source_group("SurrealEngine\\Packages\\ConSys\\Events" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/ConSys/Events/.+")
+source_group("SurrealEngine\\Packages\\ConSys\\History" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/ConSys/History/.+")
+source_group("SurrealEngine\\Packages\\Core" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Core/.+")
+source_group("SurrealEngine\\Packages\\Core\\Properties" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Core/Properties/.+")
+source_group("SurrealEngine\\Packages\\DeusEx" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/DeusEx/.+")
+source_group("SurrealEngine\\Packages\\DeusExText" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/DeusExText/.+")
+source_group("SurrealEngine\\Packages\\Emitter" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Emitter/.+")
+source_group("SurrealEngine\\Packages\\Engine" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Actors" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Actors/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Actors\\Brush" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Actors/Brush/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Actors\\Decoration" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Actors/Decoration/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Actors\\Info" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Actors/Info/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Actors\\Inventory" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Actors/Inventory/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Actors\\InventoryAttachment" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Actors/InventoryAttachment/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Actors\\Keypoint" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Actors/Keypoint/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Actors\\NavigationPoint" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Actors/NavigationPoint/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Actors\\Pawn" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Actors/Pawn/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Actors\\Triggers" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Actors/Triggers/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Network" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Network/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Resources" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Resources/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Resources\\Level" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Resources/Level/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Resources\\Mesh" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Resources/Mesh/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Resources\\Textures" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Resources/Textures/.+")
+source_group("SurrealEngine\\Packages\\Engine\\Subsystems" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Engine/Subsystems/.+")
+source_group("SurrealEngine\\Packages\\Extension" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Extension/.+")
+source_group("SurrealEngine\\Packages\\Extension\\Flags" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Extension/Flags/.+")
+source_group("SurrealEngine\\Packages\\Extension\\Windows" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Extension/Windows/.+")
+source_group("SurrealEngine\\Packages\\Extension\\Windows\\TabGroup" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Extension/Windows/TabGroup/.+")
+source_group("SurrealEngine\\Packages\\Extension\\Windows\\Text" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/Extension/Windows/Text/.+")
+source_group("SurrealEngine\\Packages\\IpDrv" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/IpDrv/.+")
+source_group("SurrealEngine\\Packages\\RMusicPlayer" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/RMusicPlayer/.+")
+source_group("SurrealEngine\\Packages\\UPak" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Packages/UPak/.+")
 source_group("SurrealEngine\\Collision" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Collision/.+")
 source_group("SurrealEngine\\Collision\\TopLevel" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Collision/TopLevel/.+")
 source_group("SurrealEngine\\Collision\\BottomLevel" REGULAR_EXPRESSION "${CMAKE_CURRENT_SOURCE_DIR}/SurrealEngine/Collision/BottomLevel/.+")
@@ -928,6 +1502,7 @@ endif()
 
 add_library(SurrealCommon STATIC ${SURREALCOMMON_SOURCES} ${THIRDPARTY_SOURCES})
 set_target_properties(SurrealCommon PROPERTIES CXX_STANDARD 20)
+target_include_directories(SurrealCommon PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 if(EMSCRIPTEN)
 	target_include_directories(SurrealCommon PRIVATE SurrealVideo)
 endif()
@@ -1113,19 +1688,658 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	add_executable(BotBenchmarkProtocolTests
 		Tests/BotBenchmarkProtocolTests.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkAiFrameTiming.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 	)
-	target_include_directories(BotBenchmarkProtocolTests PRIVATE SurrealEngine)
+	target_include_directories(BotBenchmarkProtocolTests PRIVATE SurrealEngine ${CMAKE_CURRENT_BINARY_DIR}/generated)
 	set_target_properties(BotBenchmarkProtocolTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkProtocol COMMAND BotBenchmarkProtocolTests)
 
+	add_executable(BotBenchmarkBuildIdentityTests
+		Tests/BotBenchmarkBuildIdentityTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.cpp
+	)
+	target_include_directories(BotBenchmarkBuildIdentityTests PRIVATE SurrealEngine ${CMAKE_CURRENT_BINARY_DIR}/generated)
+	set_target_properties(BotBenchmarkBuildIdentityTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkBuildIdentity COMMAND BotBenchmarkBuildIdentityTests)
+	add_test(NAME BotBenchmarkBuildIdentityMetadata
+		COMMAND ${CMAKE_COMMAND} -DHEADER=${CMAKE_CURRENT_BINARY_DIR}/generated/SurrealBuildIdentityGenerated.h
+			-P ${CMAKE_CURRENT_SOURCE_DIR}/Tests/VerifyBuildIdentityMetadata.cmake)
+
+	add_executable(AutomationProtocolTests
+		Tests/AutomationProtocolTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+	)
+	target_include_directories(AutomationProtocolTests PRIVATE SurrealEngine)
+	set_target_properties(AutomationProtocolTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME AutomationProtocol COMMAND AutomationProtocolTests)
+
+	add_executable(ShadowReplayAdapterTests
+		Tests/ShadowReplayAdapterTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/ShadowReplayAdapter.cpp
+	)
+	target_include_directories(ShadowReplayAdapterTests PRIVATE SurrealEngine)
+	set_target_properties(ShadowReplayAdapterTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ShadowReplayAdapter COMMAND ShadowReplayAdapterTests)
+
+	add_executable(ShadowReplayFixtureTests
+		Tests/ShadowReplayFixtureTests.cpp
+		Tests/Fixtures/ShadowReplayFixture.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/ShadowReplayAdapter.cpp
+		SurrealEngine/Automation/InteractionActionController.cpp
+		SurrealEngine/Automation/PlayerMovementController.cpp
+		SurrealEngine/Input/InputComposition.cpp
+	)
+	target_include_directories(ShadowReplayFixtureTests PRIVATE SurrealEngine Tests)
+	set_target_properties(ShadowReplayFixtureTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ShadowReplayFixture COMMAND ShadowReplayFixtureTests)
+
+	add_executable(ShadowReplayResultLoaderTests
+		Tests/ShadowReplayResultLoaderTests.cpp
+		Tests/Fixtures/ShadowReplayResultLoader.cpp
+		Tests/Fixtures/ShadowReplayFixture.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/ShadowReplayAdapter.cpp
+		SurrealEngine/Automation/InteractionActionController.cpp
+		SurrealEngine/Automation/PlayerMovementController.cpp
+		SurrealEngine/Input/InputComposition.cpp
+	)
+	target_include_directories(ShadowReplayResultLoaderTests PRIVATE
+		SurrealEngine
+		Tests
+		Thirdparty/openmpt/include/nlohmann-json/include
+	)
+	set_target_properties(ShadowReplayResultLoaderTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ShadowReplayResultLoader COMMAND ShadowReplayResultLoaderTests)
+
+	add_executable(InteractionActionControllerTests
+		Tests/InteractionActionControllerTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/InteractionActionController.cpp
+	)
+	target_include_directories(InteractionActionControllerTests PRIVATE SurrealEngine)
+	set_target_properties(InteractionActionControllerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME InteractionActionController COMMAND InteractionActionControllerTests)
+
+	add_executable(PlayerAutomationRunConfigTests
+		Tests/PlayerAutomationRunConfigTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/PlayerAutomationRunConfig.cpp
+	)
+	target_include_directories(PlayerAutomationRunConfigTests PRIVATE SurrealEngine)
+	set_target_properties(PlayerAutomationRunConfigTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PlayerAutomationRunConfig COMMAND PlayerAutomationRunConfigTests)
+
+	add_executable(DeusExSightProbeTests
+		Tests/DeusExSightProbeTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/DeusExSightProbe.cpp
+	)
+	target_include_directories(DeusExSightProbeTests PRIVATE SurrealEngine)
+	set_target_properties(DeusExSightProbeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME DeusExSightProbe COMMAND DeusExSightProbeTests)
+
+	add_executable(PlayerMovementControllerTests
+		Tests/PlayerMovementControllerTests.cpp
+		SurrealEngine/Automation/AutomationProtocol.cpp
+		SurrealEngine/Automation/PlayerMovementController.cpp
+		SurrealEngine/Input/InputComposition.cpp
+	)
+	target_include_directories(PlayerMovementControllerTests PRIVATE SurrealEngine)
+	set_target_properties(PlayerMovementControllerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PlayerMovementController COMMAND PlayerMovementControllerTests)
+
+	add_executable(ReachSpecRoutePlannerTests
+		Tests/ReachSpecRoutePlannerTests.cpp
+		SurrealEngine/Automation/ReachSpecRoutePlanner.cpp
+	)
+	target_include_directories(ReachSpecRoutePlannerTests PRIVATE SurrealEngine)
+	set_target_properties(ReachSpecRoutePlannerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ReachSpecRoutePlanner COMMAND ReachSpecRoutePlannerTests)
+
 	add_executable(BotBenchmarkTelemetryTests
 		Tests/BotBenchmarkTelemetryTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkBuildIdentity.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkProtocol.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
 		SurrealEngine/BotBenchmark/BotBenchmarkTelemetry.cpp
+		SurrealEngine/UObject/PawnInventoryReachability.cpp
+		SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
+		SurrealEngine/UObject/PawnWalkingHitWallDispatch.cpp
+		SurrealEngine/UObject/PawnFallingParityRealizedTrace.cpp
+		SurrealEngine/UObject/PawnHazardWaterEgressObserver.cpp
 	)
-	target_include_directories(BotBenchmarkTelemetryTests PRIVATE SurrealEngine)
+	target_include_directories(BotBenchmarkTelemetryTests PRIVATE SurrealEngine ${CMAKE_CURRENT_BINARY_DIR}/generated)
 	set_target_properties(BotBenchmarkTelemetryTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME BotBenchmarkTelemetry COMMAND BotBenchmarkTelemetryTests)
+
+	add_executable(BotBenchmarkAiFrameTimingTests
+		Tests/BotBenchmarkAiFrameTimingTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkAiFrameTiming.cpp
+	)
+	target_include_directories(BotBenchmarkAiFrameTimingTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkAiFrameTimingTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkAiFrameTiming COMMAND BotBenchmarkAiFrameTimingTests)
+
+	add_executable(BotBenchmarkDeathAttributionTests
+		Tests/BotBenchmarkDeathAttributionTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkDeathAttribution.cpp
+	)
+	target_include_directories(BotBenchmarkDeathAttributionTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkDeathAttributionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkDeathAttribution COMMAND BotBenchmarkDeathAttributionTests)
+
+	add_executable(BotBenchmarkHazardDeathPartitionTests
+		Tests/BotBenchmarkHazardDeathPartitionTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkHazardDeathPartition.cpp
+	)
+	target_include_directories(BotBenchmarkHazardDeathPartitionTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkHazardDeathPartitionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkHazardDeathPartition COMMAND BotBenchmarkHazardDeathPartitionTests)
+
+	add_executable(BotBenchmarkAvoidableSuicideTests
+		Tests/BotBenchmarkAvoidableSuicideTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkAvoidableSuicide.cpp
+	)
+	target_include_directories(BotBenchmarkAvoidableSuicideTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkAvoidableSuicideTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkAvoidableSuicide COMMAND BotBenchmarkAvoidableSuicideTests)
+
+	add_executable(BotBenchmarkDeathAttributionCoordinatorTests
+		Tests/BotBenchmarkDeathAttributionCoordinatorTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkDeathAttribution.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionCoordinator.cpp
+	)
+	target_include_directories(BotBenchmarkDeathAttributionCoordinatorTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkDeathAttributionCoordinatorTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkDeathAttributionCoordinator COMMAND BotBenchmarkDeathAttributionCoordinatorTests)
+
+	add_executable(BotBenchmarkDeathAttributionHookContractTests
+		Tests/BotBenchmarkDeathAttributionHookContractTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkDeathAttributionHookContract.cpp
+	)
+	target_include_directories(BotBenchmarkDeathAttributionHookContractTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkDeathAttributionHookContractTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkDeathAttributionHookContract COMMAND BotBenchmarkDeathAttributionHookContractTests)
+
+	add_executable(BotTargetSelectionHookContractTests
+		Tests/BotTargetSelectionHookContractTests.cpp
+		SurrealEngine/BotBenchmark/BotTargetSelectionHookContract.cpp
+	)
+	target_include_directories(BotTargetSelectionHookContractTests PRIVATE SurrealEngine)
+	set_target_properties(BotTargetSelectionHookContractTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotTargetSelectionHookContract COMMAND BotTargetSelectionHookContractTests)
+
+	add_executable(BotWarnTargetHookContractTests
+		Tests/BotWarnTargetHookContractTests.cpp
+		SurrealEngine/BotBenchmark/BotWarnTargetHookContract.cpp
+	)
+	target_include_directories(BotWarnTargetHookContractTests PRIVATE SurrealEngine)
+	set_target_properties(BotWarnTargetHookContractTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotWarnTargetHookContract COMMAND BotWarnTargetHookContractTests)
+
+	add_executable(BotCanFireAtEnemyHookContractTests
+		Tests/BotCanFireAtEnemyHookContractTests.cpp
+		SurrealEngine/BotBenchmark/BotCanFireAtEnemyHookContract.cpp)
+	target_include_directories(BotCanFireAtEnemyHookContractTests PRIVATE SurrealEngine)
+	set_target_properties(BotCanFireAtEnemyHookContractTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotCanFireAtEnemyHookContract COMMAND BotCanFireAtEnemyHookContractTests)
+
+	add_executable(BotWarningDodgeContinuityContractTests
+		Tests/BotWarningDodgeContinuityContractTests.cpp
+		SurrealEngine/BotBenchmark/BotWarningDodgeContinuityContract.cpp
+	)
+	target_include_directories(BotWarningDodgeContinuityContractTests PRIVATE SurrealEngine)
+	set_target_properties(BotWarningDodgeContinuityContractTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotWarningDodgeContinuityContract COMMAND BotWarningDodgeContinuityContractTests)
+
+	add_executable(BotPickTargetPredicateContractTests
+		Tests/BotPickTargetPredicateContractTests.cpp
+	)
+	target_include_directories(BotPickTargetPredicateContractTests PRIVATE SurrealEngine)
+	set_target_properties(BotPickTargetPredicateContractTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotPickTargetPredicateContract COMMAND BotPickTargetPredicateContractTests)
+
+	add_executable(BotTargetSelectionProbeTrackerTests
+		Tests/BotTargetSelectionProbeTrackerTests.cpp
+		SurrealEngine/BotBenchmark/BotTargetSelectionProbeTracker.cpp
+	)
+	target_include_directories(BotTargetSelectionProbeTrackerTests PRIVATE SurrealEngine)
+	set_target_properties(BotTargetSelectionProbeTrackerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotTargetSelectionProbeTracker COMMAND BotTargetSelectionProbeTrackerTests)
+
+	add_executable(BotBenchmarkGameProfileTests
+		Tests/BotBenchmarkGameProfileTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkGameProfile.cpp
+	)
+	target_include_directories(BotBenchmarkGameProfileTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkGameProfileTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkGameProfile COMMAND BotBenchmarkGameProfileTests)
+
+	add_executable(BotBenchmarkRosterTests
+		Tests/BotBenchmarkRosterTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
+	)
+	target_include_directories(BotBenchmarkRosterTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkRosterTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkRoster COMMAND BotBenchmarkRosterTests)
+
+	add_executable(BotSpectatorMatchConfigTests
+		Tests/BotSpectatorMatchConfigTests.cpp
+		SurrealEngine/BotBenchmark/BotSpectatorMatchConfig.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkRoster.cpp
+	)
+	target_include_directories(BotSpectatorMatchConfigTests PRIVATE SurrealEngine)
+	set_target_properties(BotSpectatorMatchConfigTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotSpectatorMatchConfig COMMAND BotSpectatorMatchConfigTests)
+
+	add_executable(BotBenchmarkShadowTelemetryTests
+		Tests/BotBenchmarkShadowTelemetryTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkShadowTelemetry.cpp
+		SurrealEngine/BotAI/BotPolicyShadowTelemetry.cpp
+	)
+	target_include_directories(BotBenchmarkShadowTelemetryTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkShadowTelemetryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkShadowTelemetry COMMAND BotBenchmarkShadowTelemetryTests)
+
+	add_executable(UtilityBotPolicyTests
+		Tests/UtilityBotPolicyTests.cpp
+		SurrealEngine/BotAI/UtilityBotPolicy.cpp
+	)
+	target_include_directories(UtilityBotPolicyTests PRIVATE SurrealEngine)
+	set_target_properties(UtilityBotPolicyTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME UtilityBotPolicy COMMAND UtilityBotPolicyTests)
+
+	add_executable(TacticalBotPolicyTests
+		Tests/TacticalBotPolicyTests.cpp
+		SurrealEngine/BotAI/TacticalBotPolicy.cpp
+	)
+	target_include_directories(TacticalBotPolicyTests PRIVATE SurrealEngine)
+	set_target_properties(TacticalBotPolicyTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME TacticalBotPolicy COMMAND TacticalBotPolicyTests)
+
+	add_executable(BotPolicyRegistryTests
+		Tests/BotPolicyRegistryTests.cpp
+		SurrealEngine/BotAI/BotPolicyRegistry.cpp
+		SurrealEngine/BotAI/UtilityBotPolicy.cpp
+		SurrealEngine/BotAI/TacticalBotPolicy.cpp
+	)
+	target_include_directories(BotPolicyRegistryTests PRIVATE SurrealEngine)
+	set_target_properties(BotPolicyRegistryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotPolicyRegistry COMMAND BotPolicyRegistryTests)
+
+	add_executable(BotPolicyShadowTests
+		Tests/BotPolicyShadowTests.cpp
+		SurrealEngine/BotAI/BotPolicyRegistry.cpp
+		SurrealEngine/BotAI/BotPolicyShadow.cpp
+		SurrealEngine/BotAI/UtilityBotPolicy.cpp
+		SurrealEngine/BotAI/TacticalBotPolicy.cpp
+	)
+	target_include_directories(BotPolicyShadowTests PRIVATE SurrealEngine)
+	set_target_properties(BotPolicyShadowTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotPolicyShadow COMMAND BotPolicyShadowTests)
+
+	add_executable(BotPolicyShadowTelemetryTests
+		Tests/BotPolicyShadowTelemetryTests.cpp
+		SurrealEngine/BotAI/BotPolicyShadowTelemetry.cpp
+	)
+	target_include_directories(BotPolicyShadowTelemetryTests PRIVATE SurrealEngine)
+	set_target_properties(BotPolicyShadowTelemetryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotPolicyShadowTelemetry COMMAND BotPolicyShadowTelemetryTests)
+
+	add_executable(BotPolicyObservationBuilderTests
+		Tests/BotPolicyObservationBuilderTests.cpp
+		SurrealEngine/BotAI/BotPolicyObservationBuilder.cpp
+	)
+	target_include_directories(BotPolicyObservationBuilderTests PRIVATE SurrealEngine)
+	set_target_properties(BotPolicyObservationBuilderTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotPolicyObservationBuilder COMMAND BotPolicyObservationBuilderTests)
+
+	add_executable(BotMovementSafetyTests
+		Tests/BotMovementSafetyTests.cpp
+		SurrealEngine/BotAI/BotMovementSafety.cpp
+	)
+	target_include_directories(BotMovementSafetyTests PRIVATE SurrealEngine)
+	set_target_properties(BotMovementSafetyTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotMovementSafety COMMAND BotMovementSafetyTests)
+
+	add_executable(HarmfulZoneEscapeGateTests
+		Tests/HarmfulZoneEscapeGateTests.cpp
+		SurrealEngine/BotAI/HarmfulZoneEscapeGate.cpp
+	)
+	target_include_directories(HarmfulZoneEscapeGateTests PRIVATE SurrealEngine)
+	set_target_properties(HarmfulZoneEscapeGateTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME HarmfulZoneEscapeGate COMMAND HarmfulZoneEscapeGateTests)
+
+	add_executable(HazardSwimEgressGateTests
+		Tests/HazardSwimEgressGateTests.cpp
+		SurrealEngine/BotAI/HazardSwimEgressGate.cpp
+	)
+	target_include_directories(HazardSwimEgressGateTests PRIVATE SurrealEngine)
+	set_target_properties(HazardSwimEgressGateTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME HazardSwimEgressGate COMMAND HazardSwimEgressGateTests)
+
+	add_executable(HazardSwimEgressLiveSteerTests
+		Tests/HazardSwimEgressLiveSteerTests.cpp
+		SurrealEngine/BotAI/HazardSwimEgressLiveSteer.cpp
+	)
+	target_include_directories(HazardSwimEgressLiveSteerTests PRIVATE SurrealEngine)
+	set_target_properties(HazardSwimEgressLiveSteerTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME HazardSwimEgressLiveSteer COMMAND HazardSwimEgressLiveSteerTests)
+
+	add_executable(FallingHazardRecoveryGateTests
+		Tests/FallingHazardRecoveryGateTests.cpp
+		SurrealEngine/BotAI/FallingHazardRecoveryGate.cpp
+	)
+	target_include_directories(FallingHazardRecoveryGateTests PRIVATE SurrealEngine)
+	set_target_properties(FallingHazardRecoveryGateTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME FallingHazardRecoveryGate COMMAND FallingHazardRecoveryGateTests)
+
+	add_executable(BotBenchmarkQualityObservationTests
+		Tests/BotBenchmarkQualityObservationTests.cpp
+		SurrealEngine/BotBenchmark/BotBenchmarkQualityObservation.cpp
+	)
+	target_include_directories(BotBenchmarkQualityObservationTests PRIVATE SurrealEngine)
+	set_target_properties(BotBenchmarkQualityObservationTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME BotBenchmarkQualityObservation COMMAND BotBenchmarkQualityObservationTests)
+
+	add_executable(CollisionActorOrderTests Tests/CollisionActorOrderTests.cpp)
+	target_include_directories(CollisionActorOrderTests PRIVATE SurrealEngine)
+	set_target_properties(CollisionActorOrderTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME CollisionActorOrder COMMAND CollisionActorOrderTests)
+
+	add_executable(ActorMoveCollisionProbeTests
+		Tests/ActorMoveCollisionProbeTests.cpp
+		SurrealEngine/UObject/ActorMoveCollisionProbe.cpp
+	)
+	target_include_directories(ActorMoveCollisionProbeTests PRIVATE SurrealEngine)
+	set_target_properties(ActorMoveCollisionProbeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME ActorMoveCollisionProbe COMMAND ActorMoveCollisionProbeTests)
+
+	add_executable(PawnMovementArrivalTests
+		Tests/PawnMovementArrivalTests.cpp
+		SurrealEngine/UObject/PawnMovementArrival.cpp
+	)
+	target_include_directories(PawnMovementArrivalTests PRIVATE SurrealEngine)
+	set_target_properties(PawnMovementArrivalTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnMovementArrival COMMAND PawnMovementArrivalTests)
+
+	add_executable(PawnFailedNavigationMemoryTests
+		Tests/PawnFailedNavigationMemoryTests.cpp
+		SurrealEngine/UObject/PawnFailedNavigationMemory.cpp
+	)
+	target_include_directories(PawnFailedNavigationMemoryTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFailedNavigationMemoryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFailedNavigationMemory COMMAND PawnFailedNavigationMemoryTests)
+
+	add_executable(PawnInventoryReachabilityTests
+		Tests/PawnInventoryReachabilityTests.cpp
+		SurrealEngine/UObject/PawnInventoryReachability.cpp
+	)
+	target_include_directories(PawnInventoryReachabilityTests PRIVATE SurrealEngine)
+	set_target_properties(PawnInventoryReachabilityTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnInventoryReachability COMMAND PawnInventoryReachabilityTests)
+
+	add_executable(PawnReachSpecEligibilityTests
+		Tests/PawnReachSpecEligibilityTests.cpp
+		SurrealEngine/UObject/PawnReachSpecEligibility.cpp
+	)
+	target_include_directories(PawnReachSpecEligibilityTests PRIVATE SurrealEngine)
+	set_target_properties(PawnReachSpecEligibilityTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnReachSpecEligibility COMMAND PawnReachSpecEligibilityTests)
+
+	add_executable(PawnLedgeTransitionTests
+		Tests/PawnLedgeTransitionTests.cpp
+		SurrealEngine/UObject/PawnLedgeTransition.cpp
+	)
+	target_include_directories(PawnLedgeTransitionTests PRIVATE SurrealEngine)
+	set_target_properties(PawnLedgeTransitionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnLedgeTransition COMMAND PawnLedgeTransitionTests)
+
+	add_executable(PawnPainZoneFallPredictionTests
+		Tests/PawnPainZoneFallPredictionTests.cpp
+		SurrealEngine/UObject/PawnPainZoneFallPrediction.cpp
+	)
+	target_include_directories(PawnPainZoneFallPredictionTests PRIVATE SurrealEngine)
+	set_target_properties(PawnPainZoneFallPredictionTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnPainZoneFallPrediction COMMAND PawnPainZoneFallPredictionTests)
+
+	add_executable(PawnFallingParityForecastTests
+		Tests/PawnFallingParityForecastTests.cpp
+		SurrealEngine/UObject/PawnFallingParityForecast.cpp
+	)
+	target_include_directories(PawnFallingParityForecastTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingParityForecastTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingParityForecast COMMAND PawnFallingParityForecastTests)
+
+	add_executable(PawnFallingParityRealizedTraceTests
+		Tests/PawnFallingParityRealizedTraceTests.cpp
+		SurrealEngine/UObject/PawnFallingParityRealizedTrace.cpp
+	)
+	target_include_directories(PawnFallingParityRealizedTraceTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingParityRealizedTraceTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingParityRealizedTrace COMMAND PawnFallingParityRealizedTraceTests)
+
+	add_executable(PawnFallingHazardForecastTests
+		Tests/PawnFallingHazardForecastTests.cpp
+		SurrealEngine/UObject/PawnFallingHazardForecast.cpp
+		SurrealEngine/UObject/PawnFallingParityForecast.cpp
+	)
+	target_include_directories(PawnFallingHazardForecastTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingHazardForecastTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingHazardForecast COMMAND PawnFallingHazardForecastTests)
+
+	add_executable(PawnFallingAirRecoverySelectorTests
+		Tests/PawnFallingAirRecoverySelectorTests.cpp
+		SurrealEngine/UObject/PawnFallingAirRecoverySelector.cpp
+	)
+	target_include_directories(PawnFallingAirRecoverySelectorTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingAirRecoverySelectorTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingAirRecoverySelector COMMAND PawnFallingAirRecoverySelectorTests)
+
+	add_executable(PawnFallingHitWallCallbackWitnessTests
+		Tests/PawnFallingHitWallCallbackWitnessTests.cpp
+		SurrealEngine/UObject/PawnFallingHitWallCallbackWitness.cpp
+	)
+	target_include_directories(PawnFallingHitWallCallbackWitnessTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingHitWallCallbackWitnessTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingHitWallCallbackWitness COMMAND PawnFallingHitWallCallbackWitnessTests)
+
+	add_executable(PawnFallingHazardRuntimeObserverTests
+		Tests/PawnFallingHazardRuntimeObserverTests.cpp
+		SurrealEngine/UObject/PawnFallingHazardRuntimeObserver.cpp
+		SurrealEngine/UObject/PawnDirectHarmfulWaterEntryCertificate.cpp
+		SurrealEngine/UObject/PawnFallingHazardForecast.cpp
+		SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.cpp
+		SurrealEngine/UObject/PawnFallingParityForecast.cpp
+	)
+	target_include_directories(PawnFallingHazardRuntimeObserverTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingHazardRuntimeObserverTests PROPERTIES CXX_STANDARD 20)
+	if (MSVC)
+		target_link_options(PawnFallingHazardRuntimeObserverTests PRIVATE "/STACK:8388608")
+	endif()
+	add_test(NAME PawnFallingHazardRuntimeObserver COMMAND PawnFallingHazardRuntimeObserverTests)
+
+	add_executable(PawnDirectHarmfulWaterEntryCertificateTests
+		Tests/PawnDirectHarmfulWaterEntryCertificateTests.cpp
+		SurrealEngine/UObject/PawnDirectHarmfulWaterEntryCertificate.cpp
+	)
+	target_include_directories(PawnDirectHarmfulWaterEntryCertificateTests PRIVATE SurrealEngine)
+	set_target_properties(PawnDirectHarmfulWaterEntryCertificateTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnDirectHarmfulWaterEntryCertificate
+		COMMAND PawnDirectHarmfulWaterEntryCertificateTests)
+
+	add_executable(PawnHazardWaterEgressObserverTests
+		Tests/PawnHazardWaterEgressObserverTests.cpp
+		SurrealEngine/UObject/PawnHazardWaterEgressObserver.cpp
+	)
+	target_include_directories(PawnHazardWaterEgressObserverTests PRIVATE SurrealEngine)
+	set_target_properties(PawnHazardWaterEgressObserverTests PROPERTIES CXX_STANDARD 20)
+
+	add_executable(PawnHazardResidenceObserverTests
+		Tests/PawnHazardResidenceObserverTests.cpp
+		SurrealEngine/UObject/PawnHazardResidenceObserver.cpp
+	)
+	target_include_directories(PawnHazardResidenceObserverTests PRIVATE SurrealEngine)
+	set_target_properties(PawnHazardResidenceObserverTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnHazardWaterEgressObserver COMMAND PawnHazardWaterEgressObserverTests)
+
+	add_executable(PawnExternalImpulseFallWitnessTests
+		Tests/PawnExternalImpulseFallWitnessTests.cpp
+		SurrealEngine/UObject/PawnExternalImpulseFallWitness.cpp
+	)
+	target_include_directories(PawnExternalImpulseFallWitnessTests PRIVATE SurrealEngine)
+	set_target_properties(PawnExternalImpulseFallWitnessTests PROPERTIES CXX_STANDARD 20)
+
+	add_executable(PawnHazardWaterEgressRouteCertificateTests
+		Tests/PawnHazardWaterEgressRouteCertificateTests.cpp
+		SurrealEngine/UObject/PawnHazardWaterEgressRouteCertificate.cpp
+	)
+	target_include_directories(PawnHazardWaterEgressRouteCertificateTests PRIVATE SurrealEngine)
+	set_target_properties(PawnHazardWaterEgressRouteCertificateTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnHazardWaterEgressRouteCertificate COMMAND PawnHazardWaterEgressRouteCertificateTests)
+
+	add_executable(PawnFallingHazardTrajectoryModelTests
+		Tests/PawnFallingHazardTrajectoryModelTests.cpp
+		SurrealEngine/UObject/PawnFallingHazardTrajectoryModel.cpp
+	)
+	target_include_directories(PawnFallingHazardTrajectoryModelTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingHazardTrajectoryModelTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingHazardTrajectoryModel COMMAND PawnFallingHazardTrajectoryModelTests)
+
+	add_executable(PawnVerticalPainColumnShadowTests
+		Tests/PawnVerticalPainColumnShadowTests.cpp
+		SurrealEngine/UObject/PawnVerticalPainColumnShadow.cpp
+	)
+	target_include_directories(PawnVerticalPainColumnShadowTests PRIVATE SurrealEngine)
+	set_target_properties(PawnVerticalPainColumnShadowTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnVerticalPainColumnShadow COMMAND PawnVerticalPainColumnShadowTests)
+
+	add_executable(PawnFallingTwoPlaneContactTests
+		Tests/PawnFallingTwoPlaneContactTests.cpp
+		SurrealEngine/UObject/PawnFallingTwoPlaneContact.cpp
+	)
+	target_include_directories(PawnFallingTwoPlaneContactTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingTwoPlaneContactTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingTwoPlaneContact COMMAND PawnFallingTwoPlaneContactTests)
+
+	add_executable(PawnFallingTwoPlaneSafetyTests
+		Tests/PawnFallingTwoPlaneSafetyTests.cpp
+		SurrealEngine/UObject/PawnFallingTwoPlaneSafety.cpp
+		SurrealEngine/UObject/PawnFallingTwoPlaneContact.cpp
+		SurrealEngine/UObject/PawnPainZoneFallPrediction.cpp
+	)
+	target_include_directories(PawnFallingTwoPlaneSafetyTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFallingTwoPlaneSafetyTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFallingTwoPlaneSafety COMMAND PawnFallingTwoPlaneSafetyTests)
+
+	add_executable(PawnWalkingStepPreflightTests
+		Tests/PawnWalkingStepPreflightTests.cpp
+		SurrealEngine/UObject/PawnWalkingStepPreflight.cpp
+	)
+	target_include_directories(PawnWalkingStepPreflightTests PRIVATE SurrealEngine)
+	set_target_properties(PawnWalkingStepPreflightTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnWalkingStepPreflight COMMAND PawnWalkingStepPreflightTests)
+
+	add_executable(PawnPainLedgeRecoveryTests
+		Tests/PawnPainLedgeRecoveryTests.cpp
+		SurrealEngine/UObject/PawnPainLedgeRecovery.cpp
+	)
+	target_include_directories(PawnPainLedgeRecoveryTests PRIVATE SurrealEngine)
+	set_target_properties(PawnPainLedgeRecoveryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnPainLedgeRecovery COMMAND PawnPainLedgeRecoveryTests)
+
+	add_executable(PawnMoveStallWatchdogTests
+		Tests/PawnMoveStallWatchdogTests.cpp
+		SurrealEngine/UObject/PawnMoveStallWatchdog.cpp
+	)
+	target_include_directories(PawnMoveStallWatchdogTests PRIVATE SurrealEngine)
+	set_target_properties(PawnMoveStallWatchdogTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnMoveStallWatchdog COMMAND PawnMoveStallWatchdogTests)
+
+	add_executable(PawnLatentMoveTerminalTests
+		Tests/PawnLatentMoveTerminalTests.cpp
+		SurrealEngine/UObject/PawnLatentMoveTerminal.cpp
+	)
+	target_include_directories(PawnLatentMoveTerminalTests PRIVATE SurrealEngine)
+	set_target_properties(PawnLatentMoveTerminalTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnLatentMoveTerminal COMMAND PawnLatentMoveTerminalTests)
+
+	add_executable(PawnMoveTowardTests
+		Tests/PawnMoveTowardTests.cpp
+		SurrealEngine/UObject/PawnMoveToward.cpp
+	)
+	target_include_directories(PawnMoveTowardTests PRIVATE SurrealEngine)
+	set_target_properties(PawnMoveTowardTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnMoveToward COMMAND PawnMoveTowardTests)
+
+	add_executable(PawnPathCostTests
+		Tests/PawnPathCostTests.cpp
+		SurrealEngine/UObject/PawnPathCost.cpp
+	)
+	target_include_directories(PawnPathCostTests PRIVATE SurrealEngine)
+	set_target_properties(PawnPathCostTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnPathCost COMMAND PawnPathCostTests)
+
+	add_executable(PawnWallAdjustmentTests
+		Tests/PawnWallAdjustmentTests.cpp
+		SurrealEngine/UObject/PawnWallAdjustment.cpp
+		SurrealEngine/UObject/PawnPainZoneFallPrediction.cpp
+	)
+	target_include_directories(PawnWallAdjustmentTests PRIVATE SurrealEngine)
+	set_target_properties(PawnWallAdjustmentTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnWallAdjustment COMMAND PawnWallAdjustmentTests)
+
+	add_executable(PawnWalkingHitWallDispatchTests
+		Tests/PawnWalkingHitWallDispatchTests.cpp
+		SurrealEngine/UObject/PawnWalkingHitWallDispatch.cpp
+	)
+	target_include_directories(PawnWalkingHitWallDispatchTests PRIVATE SurrealEngine)
+	set_target_properties(PawnWalkingHitWallDispatchTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnWalkingHitWallDispatch COMMAND PawnWalkingHitWallDispatchTests)
+
+	add_executable(PawnVisionConeTests
+		Tests/PawnVisionConeTests.cpp
+		SurrealEngine/UObject/PawnVisionCone.cpp
+	)
+	target_include_directories(PawnVisionConeTests PRIVATE SurrealEngine)
+	set_target_properties(PawnVisionConeTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnVisionCone COMMAND PawnVisionConeTests)
+
+	add_executable(PawnFiniteMoveCommandGuardTests
+		Tests/PawnFiniteMoveCommandGuardTests.cpp
+		SurrealEngine/UObject/PawnFiniteMoveCommandGuard.cpp
+	)
+	target_include_directories(PawnFiniteMoveCommandGuardTests PRIVATE SurrealEngine)
+	set_target_properties(PawnFiniteMoveCommandGuardTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnFiniteMoveCommandGuard COMMAND PawnFiniteMoveCommandGuardTests)
+
+	add_executable(PawnVectorNonFiniteObserverTests
+		Tests/PawnVectorNonFiniteObserverTests.cpp
+		SurrealEngine/UObject/PawnVectorNonFiniteClassification.cpp
+	)
+	target_include_directories(PawnVectorNonFiniteObserverTests PRIVATE SurrealEngine)
+	set_target_properties(PawnVectorNonFiniteObserverTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnVectorNonFiniteObserver COMMAND PawnVectorNonFiniteObserverTests)
+
+	add_executable(PawnPickRegDestinationZeroDivideGuardTests
+		Tests/PawnPickRegDestinationZeroDivideGuardTests.cpp
+		SurrealEngine/UObject/PawnPickRegDestinationZeroDivideGuard.cpp
+	)
+	target_include_directories(PawnPickRegDestinationZeroDivideGuardTests PRIVATE SurrealEngine)
+	set_target_properties(PawnPickRegDestinationZeroDivideGuardTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnPickRegDestinationZeroDivideGuard COMMAND PawnPickRegDestinationZeroDivideGuardTests)
+
+	add_executable(PawnWallAdjustRecoveryTests
+		Tests/PawnWallAdjustRecoveryTests.cpp
+		SurrealEngine/UObject/PawnWallAdjustRecovery.cpp
+	)
+	target_include_directories(PawnWallAdjustRecoveryTests PRIVATE SurrealEngine)
+	set_target_properties(PawnWallAdjustRecoveryTests PROPERTIES CXX_STANDARD 20)
+	add_test(NAME PawnWallAdjustRecovery COMMAND PawnWallAdjustRecoveryTests)
 
 	add_executable(XRInputAdapterTests
 		Tests/XRInputAdapterTests.cpp
@@ -1195,6 +2409,19 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(RenderDeviceSelectionTests PRIVATE SurrealEngine)
 	set_target_properties(RenderDeviceSelectionTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME RenderDeviceSelectionTests COMMAND RenderDeviceSelectionTests)
+
+	find_package(Python3 COMPONENTS Interpreter QUIET)
+	if(Python3_Interpreter_FOUND)
+		add_test(NAME VisualQASidecar
+			COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tests/VisualQASidecarTests.py)
+		set_tests_properties(VisualQASidecar PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+		add_test(NAME ShadowEvaluation
+			COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tests/ShadowEvaluationTests.py)
+		set_tests_properties(ShadowEvaluation PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+		add_test(NAME CapturePackager
+			COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tests/CapturePackagerTests.py)
+		set_tests_properties(CapturePackager PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+	endif()
 endif()
 
 if(NOT EMSCRIPTEN)
@@ -1215,14 +2442,6 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 	target_include_directories(ActorMovementTests PRIVATE SurrealEngine)
 	set_target_properties(ActorMovementTests PROPERTIES CXX_STANDARD 20)
 	add_test(NAME ActorMovement COMMAND ActorMovementTests)
-
-	add_executable(PawnVisionConeTests
-		Tests/PawnVisionConeTests.cpp
-		SurrealEngine/UObject/PawnVisionCone.cpp
-	)
-	target_include_directories(PawnVisionConeTests PRIVATE SurrealEngine)
-	set_target_properties(PawnVisionConeTests PROPERTIES CXX_STANDARD 20)
-	add_test(NAME PawnVisionCone COMMAND PawnVisionConeTests)
 endif()
 
 if(BUILD_TESTING)

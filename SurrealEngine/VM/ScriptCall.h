@@ -3,6 +3,7 @@
 #include "ExpressionValue.h"
 
 class UObject;
+class UFunction;
 
 enum class EventName
 {
@@ -27,7 +28,7 @@ enum class EventName
 	// Other events:
 	PlayerCalcView, Resolved, ResolveFailed, PreBeginPlay,
 	BeginPlay, PostBeginPlay, SetInitialState, SpawnNotification,
-	PostTouch, FellOutOfWorld, UpdateTactics, PlayerInput,
+	PostTouch, FellOutOfWorld, AlterDestination, UpdateTactics, PlayerInput,
 	Reset, PreRender, RenderOverlays, PostRender,
 	NotifyLevelChange, InitGame, PreLogin, Login,
 	Possess, TravelPreAccept, AcceptInventory, TravelPostAccept,

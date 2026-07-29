@@ -1,7 +1,9 @@
 #include "BotBenchmarkProtocol.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <locale>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -71,17 +73,203 @@ namespace
 	{
 		return "\"" + EscapeJson(value) + "\"";
 	}
+
+	bool ParseExactBoolean(const std::optional<std::string>& value, const char* name)
+	{
+		if (!value.has_value())
+			return false;
+		if (*value == "0")
+			return false;
+		if (*value == "1")
+			return true;
+		throw std::invalid_argument(std::string("invalid ") + name + ": expected 0 or 1");
+	}
+
+	std::string Fixed(double value, int precision)
+	{
+		if (!std::isfinite(value))
+			throw std::invalid_argument("bot benchmark summary contains a non-finite number");
+		if (value == 0.0)
+			value = 0.0;
+		std::ostringstream out;
+		out.imbue(std::locale::classic());
+		out << std::fixed << std::setprecision(precision) << value;
+		return out.str();
+	}
+
+	std::vector<std::string> ParseShadowPolicySet(const std::optional<std::string>& value)
+	{
+		const std::string text = value.value_or("tactical-state,utility-arena");
+		std::vector<std::string> ids;
+		for (size_t begin = 0; begin <= text.size();)
+		{
+			const size_t end = text.find(',', begin);
+			const std::string id = text.substr(begin, end == std::string::npos ? end : end - begin);
+			if (id.empty() || id.find_first_of(" \t\r\n") != std::string::npos)
+				throw std::invalid_argument("invalid bot benchmark shadow policy set");
+			ids.push_back(id);
+			if (end == std::string::npos)
+				break;
+			begin = end + 1;
+		}
+		std::sort(ids.begin(), ids.end());
+		if (std::adjacent_find(ids.begin(), ids.end()) != ids.end())
+			throw std::invalid_argument("bot benchmark shadow policy set contains a duplicate ID");
+		return ids;
+	}
+
+	void WriteAiFrameTimingSummary(std::ostringstream& out,
+		const BotBenchmarkAiFrameTimingSummary& timing, const std::string& indent)
+	{
+		out << "{\n"
+			<< indent << "  \"sample_count\": \"" << timing.SampleCount << "\",\n"
+			<< indent << "  \"histogram_bucket_overflows_exact\": \""
+			<< timing.HistogramBucketOverflowsExact << "\",\n"
+			<< indent << "  \"p50_microseconds\": ";
+		if (timing.P50Microseconds)
+			out << *timing.P50Microseconds;
+		else
+			out << "null";
+		out << ",\n" << indent << "  \"p95_microseconds\": ";
+		if (timing.P95Microseconds)
+			out << *timing.P95Microseconds;
+		else
+			out << "null";
+		out << ",\n" << indent << "  \"p99_microseconds\": ";
+		if (timing.P99Microseconds)
+			out << *timing.P99Microseconds;
+		else
+			out << "null";
+		out << ",\n" << indent << "  \"max_microseconds\": \""
+			<< timing.MaxMicroseconds << "\"\n" << indent << '}';
+	}
+
+	void WriteRequestedRoster(std::ostringstream& out, const BotBenchmarkRoster& roster, const std::string& indent)
+	{
+		out << indent << "\"requested_roster\": [";
+		const auto& participants = roster.GetParticipants();
+		if (!participants.empty())
+			out << '\n';
+		for (size_t index = 0; index < participants.size(); index++)
+		{
+			const auto& participant = participants[index];
+			out << indent << "  {\"roster_index\": " << participant.RosterIndex
+				<< ", \"requested_name\": " << JsonString(participant.RequestedName)
+				<< ", \"external_skill\": " << participant.ExternalSkill
+				<< ", \"identity_fragment\": " << JsonString(participant.CanonicalIdentityFragment) << "}";
+			out << (index + 1 == participants.size() ? "\n" : ",\n");
+		}
+		out << indent << ']';
+	}
+
+	void WriteActualRoster(std::ostringstream& out, std::vector<BotBenchmarkActualParticipant> participants)
+	{
+		std::sort(participants.begin(), participants.end(), [](const auto& left, const auto& right)
+		{
+			return left.RosterIndex < right.RosterIndex;
+		});
+		out << "  \"actual_roster\": [";
+		if (participants.empty())
+		{
+			out << ']';
+			return;
+		}
+		out << '\n';
+		for (size_t index = 0; index < participants.size(); index++)
+		{
+			const auto& participant = participants[index];
+			if (index != 0 && participants[index - 1].RosterIndex == participant.RosterIndex)
+				throw std::invalid_argument("bot benchmark actual roster contains a duplicate index");
+			out << "    {\"roster_index\": " << participant.RosterIndex
+				<< ", \"identity\": " << JsonString(participant.Identity)
+				<< ", \"actor\": " << JsonString(participant.Actor)
+				<< ", \"player_name\": " << JsonString(participant.PlayerName)
+				<< ", \"class\": " << JsonString(participant.ClassName) << "}";
+			out << (index + 1 == participants.size() ? "\n" : ",\n");
+		}
+		out << "  ]";
+	}
 }
 
 BotBenchmarkRunConfig::BotBenchmarkRunConfig(std::string url, std::string outputDirectory,
-	uint64_t seed, uint64_t maxTicks, float fixedDelta, int difficulty)
+	uint64_t seed, uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster,
+	bool harmfulZoneEscapeEnabled, bool walkingPreflightPositiveDpsVetoEnabled,
+	bool hazardSwimEgressEnabled, bool hazardSwimEgressLiveEnabled,
+	bool failedNavigationAvoidanceEnabled, bool fallingHazardRecoveryEnabled,
+	bool fallingHazardRecoveryLiveEnabled, bool targetlessMoveToTimeoutEnabled,
+	bool directActorMoveTowardTimeoutEnabled, bool targetSelectionObserverEnabled,
+	bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
+	bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled,
+	bool pickTargetObserverEnabled, bool warnTargetObserverEnabled,
+	bool canFireAtEnemyObserverEnabled,
+	bool reachSpecCapabilityObserverEnabled, bool pawnVisionConeEnabled,
+	bool pawnVisionObserverEnabled, bool vectorNonFiniteObserverEnabled,
+	bool finiteMoveCommandGuardEnabled, bool pickRegDestinationZeroDivideGuardEnabled,
+	bool walkingHitWallMinHitWallCandidateEnabled,
+	bool movementCommandProvenanceObserverEnabled,
+	bool hazardResidenceCommandTransitionLedgerObserverEnabled,
+	bool hazardResidencePreentryCausalSliceObserverEnabled,
+	std::vector<std::string> shadowPolicySet)
 	: URL(std::move(url)), OutputDirectory(std::move(outputDirectory)), Seed(seed),
-	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty)
+	MaxTicks(maxTicks), FixedDelta(fixedDelta), Difficulty(difficulty), Roster(std::move(roster)),
+	HarmfulZoneEscapeEnabled(harmfulZoneEscapeEnabled),
+	WalkingPreflightPositiveDpsVetoEnabled(walkingPreflightPositiveDpsVetoEnabled),
+	HazardSwimEgressEnabled(hazardSwimEgressEnabled),
+	HazardSwimEgressLiveEnabled(hazardSwimEgressLiveEnabled),
+	FailedNavigationAvoidanceEnabled(failedNavigationAvoidanceEnabled),
+	FallingHazardRecoveryEnabled(fallingHazardRecoveryEnabled),
+	FallingHazardRecoveryLiveEnabled(fallingHazardRecoveryLiveEnabled),
+	TargetlessMoveToTimeoutEnabled(targetlessMoveToTimeoutEnabled),
+	DirectActorMoveTowardTimeoutEnabled(directActorMoveTowardTimeoutEnabled),
+	TargetSelectionObserverEnabled(targetSelectionObserverEnabled),
+	InventoryDirectReachSupportObserverEnabled(inventoryDirectReachSupportObserverEnabled),
+	NativePathCommitObserverEnabled(nativePathCommitObserverEnabled),
+	ReachSpecCapabilityObserverEnabled(reachSpecCapabilityObserverEnabled),
+	InventoryMarkerDirectReachSafetyEnabled(inventoryMarkerDirectReachSafetyEnabled),
+	DirectReachCommandObserverEnabled(directReachCommandObserverEnabled),
+	MovementCommandProvenanceObserverEnabled(movementCommandProvenanceObserverEnabled),
+	HazardResidenceCommandTransitionLedgerObserverEnabled(hazardResidenceCommandTransitionLedgerObserverEnabled),
+	HazardResidencePreentryCausalSliceObserverEnabled(hazardResidencePreentryCausalSliceObserverEnabled),
+	PickTargetObserverEnabled(pickTargetObserverEnabled),
+	WarnTargetObserverEnabled(warnTargetObserverEnabled),
+	CanFireAtEnemyObserverEnabled(canFireAtEnemyObserverEnabled),
+	PawnVisionConeEnabled(pawnVisionConeEnabled), PawnVisionObserverEnabled(pawnVisionObserverEnabled),
+	VectorNonFiniteObserverEnabled(vectorNonFiniteObserverEnabled),
+	FiniteMoveCommandGuardEnabled(finiteMoveCommandGuardEnabled),
+	PickRegDestinationZeroDivideGuardEnabled(pickRegDestinationZeroDivideGuardEnabled),
+	WalkingHitWallMinHitWallCandidateEnabled(walkingHitWallMinHitWallCandidateEnabled),
+	ShadowPolicySet(std::move(shadowPolicySet))
 {
 }
 
 BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string outputDirectory,
-	std::string seed, std::string maxTicks, std::string fixedDelta, std::string difficulty)
+	std::string seed, std::string maxTicks, std::string fixedDelta, std::string difficulty,
+	std::optional<std::string> botCount, std::optional<std::string> perBotSkills,
+	std::optional<std::string> requestedNames, std::optional<std::string> harmfulZoneEscape,
+	std::optional<std::string> walkingPreflightPositiveDpsVeto,
+	std::optional<std::string> hazardSwimEgress, std::optional<std::string> hazardSwimEgressLive,
+	std::optional<std::string> failedNavigationAvoidance,
+	std::optional<std::string> fallingHazardRecovery,
+	std::optional<std::string> fallingHazardRecoveryLive,
+	std::optional<std::string> targetlessMoveToTimeout,
+	std::optional<std::string> directActorMoveTowardTimeout,
+	std::optional<std::string> targetSelectionObserver,
+	std::optional<std::string> inventoryDirectReachSupportObserver,
+	std::optional<std::string> inventoryMarkerDirectReachSafety,
+	std::optional<std::string> nativePathCommitObserver,
+	std::optional<std::string> directReachCommandObserver,
+	std::optional<std::string> pickTargetObserver,
+	std::optional<std::string> warnTargetObserver,
+	std::optional<std::string> canFireAtEnemyObserver,
+	std::optional<std::string> reachSpecCapabilityObserver, std::optional<std::string> shadowPolicySet,
+	std::optional<std::string> pawnVisionCone, std::optional<std::string> pawnVisionObserver,
+	std::optional<std::string> vectorNonFiniteObserver,
+	std::optional<std::string> finiteMoveCommandGuard,
+	std::optional<std::string> pickRegDestinationZeroDivideGuard,
+	std::optional<std::string> walkingHitWallMinHitWallCandidate,
+	std::optional<std::string> movementCommandProvenanceObserver,
+	std::optional<std::string> hazardResidenceCommandTransitionLedgerObserver,
+	std::optional<std::string> hazardResidencePreentryCausalSliceObserver)
 {
 	if (url.empty())
 		url = "DM-Morbias][?Game=Botpack.DeathMatchPlus";
@@ -98,43 +286,256 @@ BotBenchmarkRunConfig BotBenchmarkRunConfig::Parse(std::string url, std::string 
 		throw std::invalid_argument("bot benchmark fixed delta must be finite and between 0 and 1");
 	if (parsedDifficulty < 0 || parsedDifficulty > 7)
 		throw std::invalid_argument("bot benchmark difficulty must be between 0 and 7");
+	BotBenchmarkRoster roster = BotBenchmarkRoster::Parse(
+		std::move(botCount), std::move(perBotSkills), std::move(requestedNames), parsedDifficulty);
+	const bool parsedHarmfulZoneEscape = ParseExactBoolean(
+		harmfulZoneEscape, "bot benchmark harmful-zone escape");
+	const bool parsedWalkingPreflightPositiveDpsVeto = ParseExactBoolean(
+		walkingPreflightPositiveDpsVeto, "bot benchmark walking-preflight positive-DPS veto");
+	const bool parsedHazardSwimEgress = ParseExactBoolean(
+		hazardSwimEgress, "bot benchmark hazard-swim egress");
+	const bool parsedHazardSwimEgressLive = ParseExactBoolean(
+		hazardSwimEgressLive, "bot benchmark hazard-swim egress live");
+	const bool parsedFailedNavigationAvoidance = ParseExactBoolean(
+		failedNavigationAvoidance, "bot benchmark failed-navigation avoidance");
+	const bool parsedFallingHazardRecovery = ParseExactBoolean(
+		fallingHazardRecovery, "bot benchmark falling-hazard recovery");
+	const bool parsedFallingHazardRecoveryLive = ParseExactBoolean(
+		fallingHazardRecoveryLive, "bot benchmark falling-hazard recovery live");
+	const bool parsedTargetlessMoveToTimeout = ParseExactBoolean(
+		targetlessMoveToTimeout, "bot benchmark targetless MoveTo timeout");
+	const bool parsedDirectActorMoveTowardTimeout = ParseExactBoolean(
+		directActorMoveTowardTimeout, "bot benchmark direct-actor MoveToward timeout");
+	const bool parsedTargetSelectionObserver = ParseExactBoolean(
+		targetSelectionObserver, "bot benchmark target-selection observer");
+	const bool parsedPickTargetObserver = ParseExactBoolean(
+		pickTargetObserver, "bot benchmark PickTarget observer");
+	const bool parsedWarnTargetObserver = ParseExactBoolean(
+		warnTargetObserver, "bot benchmark WarnTarget observer");
+	const bool parsedCanFireAtEnemyObserver = ParseExactBoolean(
+		canFireAtEnemyObserver, "bot benchmark CanFireAtEnemy observer");
+	if (parsedWarnTargetObserver && !parsedPickTargetObserver)
+	{
+		throw std::invalid_argument(
+			"bot benchmark WarnTarget observer requires the PickTarget observer");
+	}
+	const bool parsedInventoryDirectReachSupportObserver = ParseExactBoolean(
+		inventoryDirectReachSupportObserver,
+		"bot benchmark inventory direct-reach support observer");
+	const bool parsedInventoryMarkerDirectReachSafety = ParseExactBoolean(
+		inventoryMarkerDirectReachSafety, "bot benchmark inventory-marker direct-reach safety");
+	const bool parsedNativePathCommitObserver = ParseExactBoolean(
+		nativePathCommitObserver, "bot benchmark native path-commit observer");
+	const bool parsedReachSpecCapabilityObserver = ParseExactBoolean(
+		reachSpecCapabilityObserver, "bot benchmark ReachSpec capability observer");
+	if (parsedReachSpecCapabilityObserver && !parsedNativePathCommitObserver)
+	{
+		throw std::invalid_argument(
+			"bot benchmark ReachSpec capability observer requires the native path-commit observer");
+	}
+	const bool parsedDirectReachCommandObserver = ParseExactBoolean(
+		directReachCommandObserver, "bot benchmark direct-reach command observer");
+	const bool parsedMovementCommandProvenanceObserver = ParseExactBoolean(
+		movementCommandProvenanceObserver, "bot benchmark movement-command provenance observer");
+	if (parsedMovementCommandProvenanceObserver && !parsedNativePathCommitObserver)
+	{
+		throw std::invalid_argument(
+			"bot benchmark movement-command provenance observer requires the native path-commit observer");
+	}
+	const bool parsedHazardResidenceCommandTransitionLedgerObserver = ParseExactBoolean(
+		hazardResidenceCommandTransitionLedgerObserver,
+		"bot benchmark hazard-residence command-transition ledger observer");
+	if (parsedHazardResidenceCommandTransitionLedgerObserver
+		&& !parsedMovementCommandProvenanceObserver)
+	{
+		throw std::invalid_argument(
+			"bot benchmark hazard-residence command-transition ledger observer requires the movement-command provenance observer");
+	}
+	const bool parsedHazardResidencePreentryCausalSliceObserver = ParseExactBoolean(
+		hazardResidencePreentryCausalSliceObserver,
+		"bot benchmark hazard-residence pre-entry causal-slice observer");
+	if (parsedHazardResidencePreentryCausalSliceObserver
+		&& (!parsedHazardResidenceCommandTransitionLedgerObserver
+			|| !parsedNativePathCommitObserver))
+	{
+		throw std::invalid_argument(
+			"bot benchmark hazard-residence pre-entry causal-slice observer requires the native path-commit and hazard-residence command-transition ledger observers");
+	}
+	const std::vector<std::string> parsedShadowPolicySet = ParseShadowPolicySet(shadowPolicySet);
+	const bool parsedPawnVisionCone = ParseExactBoolean(
+		pawnVisionCone, "bot benchmark pawn vision cone");
+	const bool parsedPawnVisionObserver = ParseExactBoolean(
+		pawnVisionObserver, "bot benchmark pawn vision observer");
+	const bool parsedVectorNonFiniteObserver = ParseExactBoolean(
+		vectorNonFiniteObserver, "bot benchmark vector non-finite observer");
+	const bool parsedFiniteMoveCommandGuard = ParseExactBoolean(
+		finiteMoveCommandGuard, "bot benchmark finite MoveTo command guard");
+	const bool parsedPickRegDestinationZeroDivideGuard = ParseExactBoolean(
+		pickRegDestinationZeroDivideGuard, "bot benchmark PickRegDestination zero divide guard");
+	const bool parsedWalkingHitWallMinHitWallCandidate = ParseExactBoolean(
+		walkingHitWallMinHitWallCandidate, "bot benchmark walking HitWall MinHitWall candidate");
 
 	return BotBenchmarkRunConfig(std::move(url), std::move(outputDirectory), parsedSeed,
-		parsedTicks, parsedDelta, parsedDifficulty);
+		parsedTicks, parsedDelta, parsedDifficulty, std::move(roster), parsedHarmfulZoneEscape,
+		parsedWalkingPreflightPositiveDpsVeto, parsedHazardSwimEgress,
+		parsedHazardSwimEgressLive, parsedFailedNavigationAvoidance,
+		parsedFallingHazardRecovery, parsedFallingHazardRecoveryLive,
+		parsedTargetlessMoveToTimeout, parsedDirectActorMoveTowardTimeout,
+		parsedTargetSelectionObserver, parsedInventoryDirectReachSupportObserver,
+		parsedNativePathCommitObserver, parsedInventoryMarkerDirectReachSafety,
+		parsedDirectReachCommandObserver, parsedPickTargetObserver, parsedWarnTargetObserver,
+		parsedCanFireAtEnemyObserver,
+		parsedReachSpecCapabilityObserver, parsedPawnVisionCone, parsedPawnVisionObserver,
+		parsedVectorNonFiniteObserver,
+		parsedFiniteMoveCommandGuard,
+		parsedPickRegDestinationZeroDivideGuard,
+		parsedWalkingHitWallMinHitWallCandidate, parsedMovementCommandProvenanceObserver,
+		parsedHazardResidenceCommandTransitionLedgerObserver,
+		parsedHazardResidencePreentryCausalSliceObserver,
+		parsedShadowPolicySet);
 }
 
 BotBenchmarkRunSummary::BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
-	double simulatedSeconds, std::string game, std::string version, std::string map,
-	std::string botClass, std::string botName, std::string failureReason)
+	double simulatedSeconds, std::string game, std::string version, std::string map, std::string failureReason,
+	std::vector<BotBenchmarkActualParticipant> actualRoster, BotBenchmarkAiFrameTimingSummary aiFrameTiming,
+	BotBenchmarkAiFrameTimingComponents aiFrameTimingComponents, BotBenchmarkBuildIdentity buildIdentity)
 	: Status(std::move(status)), ExitCode(exitCode), Ticks(ticks), SimulatedSeconds(simulatedSeconds),
 	Game(std::move(game)), Version(std::move(version)), Map(std::move(map)),
-	BotClass(std::move(botClass)), BotName(std::move(botName)), FailureReason(std::move(failureReason))
+	FailureReason(std::move(failureReason)), ActualRoster(std::move(actualRoster)),
+	AiFrameTiming(std::move(aiFrameTiming)), AiFrameTimingComponents(std::move(aiFrameTimingComponents)),
+	BuildIdentity(std::move(buildIdentity))
 {
 }
 
 std::string BotBenchmarkRunSummary::ToJson(const BotBenchmarkRunConfig& config) const
 {
+	for (const auto& participant : ActualRoster)
+	{
+		if (participant.RosterIndex >= config.GetRoster().GetCount())
+			throw std::invalid_argument("bot benchmark actual roster index exceeds requested roster");
+	}
 	std::ostringstream out;
-	out << std::setprecision(9);
+	out.imbue(std::locale::classic());
 	out << "{\n"
-		<< "  \"schema\": \"surreal-bot-benchmark-summary-v1\",\n"
+		<< "  \"schema\": \"surreal-bot-benchmark-summary-v4\",\n"
 		<< "  \"status\": " << JsonString(Status) << ",\n"
 		<< "  \"exit_code\": " << ExitCode << ",\n"
 		<< "  \"ticks\": \"" << Ticks << "\",\n"
-		<< "  \"simulated_seconds\": " << SimulatedSeconds << ",\n"
+		<< "  \"simulated_seconds\": " << Fixed(SimulatedSeconds, 9) << ",\n"
 		<< "  \"game\": " << JsonString(Game) << ",\n"
 		<< "  \"version\": " << JsonString(Version) << ",\n"
 		<< "  \"map\": " << JsonString(Map) << ",\n"
-		<< "  \"bot_class\": " << JsonString(BotClass) << ",\n"
-		<< "  \"bot_name\": " << JsonString(BotName) << ",\n"
-		<< "  \"failure_reason\": " << JsonString(FailureReason) << ",\n"
+		<< "  \"failure_reason\": " << JsonString(FailureReason) << ",\n";
+	out << "  \"build_identity\": " << BuildIdentity.ToJson() << ",\n";
+	WriteRequestedRoster(out, config.GetRoster(), "  ");
+	out << ",\n";
+	WriteActualRoster(out, ActualRoster);
+	out << ",\n"
+		<< "  \"ai_frame_timing\": {\n"
+		<< "    \"schema\": \"surreal-bot-ai-frame-timing-v1\",\n"
+		<< "    \"scope\": \"benchmark_observation_policy_driver_sampling\",\n"
+		<< "    \"clock\": \"host_steady_clock_performance_only\",\n"
+		<< "    \"behavioral_determinism\": \"not_behavioral_evidence\",\n"
+		<< "    \"sample_count\": \"" << AiFrameTiming.SampleCount << "\",\n"
+		<< "    \"histogram_bucket_overflows_exact\": \""
+		<< AiFrameTiming.HistogramBucketOverflowsExact << "\",\n"
+		<< "    \"bucket_max_microseconds\": \""
+		<< BotBenchmarkAiFrameTiming::MaximumTrackedMicroseconds << "\",\n"
+		<< "    \"p50_microseconds\": ";
+	if (AiFrameTiming.P50Microseconds)
+		out << *AiFrameTiming.P50Microseconds;
+	else
+		out << "null";
+	out << ",\n    \"p95_microseconds\": ";
+	if (AiFrameTiming.P95Microseconds)
+		out << *AiFrameTiming.P95Microseconds;
+	else
+		out << "null";
+	out << ",\n    \"p99_microseconds\": ";
+	if (AiFrameTiming.P99Microseconds)
+		out << *AiFrameTiming.P99Microseconds;
+	else
+		out << "null";
+	out << ",\n    \"max_microseconds\": \"" << AiFrameTiming.MaxMicroseconds << "\",\n"
+		<< "    \"components\": {\n"
+		<< "      \"navigation_coverage\": ";
+	WriteAiFrameTimingSummary(out, AiFrameTimingComponents.NavigationCoverage, "      ");
+	out << ",\n      \"shadow_observation_and_policy\": ";
+	WriteAiFrameTimingSummary(out, AiFrameTimingComponents.ShadowObservationAndPolicy, "      ");
+	out << ",\n      \"state_sampling\": ";
+	WriteAiFrameTimingSummary(out, AiFrameTimingComponents.StateSampling, "      ");
+	out << "\n    }\n  },\n";
+	out
 		<< "  \"config\": {\n"
 		<< "    \"url\": " << JsonString(config.GetURL()) << ",\n"
 		<< "    \"output_directory\": " << JsonString(config.GetOutputDirectory()) << ",\n"
 		<< "    \"seed\": \"" << config.GetSeed() << "\",\n"
 		<< "    \"max_ticks\": \"" << config.GetMaxTicks() << "\",\n"
-		<< "    \"fixed_delta\": " << config.GetFixedDelta() << ",\n"
-		<< "    \"difficulty\": " << config.GetDifficulty() << "\n"
+		<< "    \"fixed_delta\": " << Fixed(config.GetFixedDelta(), 9) << ",\n"
+		<< "    \"difficulty\": " << config.GetDifficulty() << ",\n"
+		<< "    \"bot_count\": " << config.GetRoster().GetCount() << ",\n"
+		<< "    \"shadow_policy_set\": [";
+	for (size_t index = 0; index < config.GetShadowPolicySet().size(); index++)
+		out << (index == 0 ? "" : ", ") << JsonString(config.GetShadowPolicySet()[index]);
+	out << "],\n"
+		<< "    \"harmful_zone_escape_enabled\": "
+		<< (config.IsHarmfulZoneEscapeEnabled() ? "true" : "false") << ",\n"
+		<< "    \"walking_preflight_positive_dps_veto_enabled\": "
+		<< (config.IsWalkingPreflightPositiveDpsVetoEnabled() ? "true" : "false") << ",\n"
+		<< "    \"hazard_swim_egress_enabled\": "
+		<< (config.IsHazardSwimEgressEnabled() ? "true" : "false") << ",\n"
+		<< "    \"hazard_swim_egress_live_enabled\": "
+		<< (config.IsHazardSwimEgressLiveEnabled() ? "true" : "false") << ",\n"
+		<< "    \"failed_navigation_avoidance_enabled\": "
+		<< (config.IsFailedNavigationAvoidanceEnabled() ? "true" : "false") << ",\n"
+		<< "    \"falling_hazard_recovery_enabled\": "
+		<< (config.IsFallingHazardRecoveryEnabled() ? "true" : "false") << ",\n"
+		<< "    \"falling_hazard_recovery_live_enabled\": "
+		<< (config.IsFallingHazardRecoveryLiveEnabled() ? "true" : "false") << ",\n"
+		<< "    \"targetless_move_to_timeout_enabled\": "
+		<< (config.IsTargetlessMoveToTimeoutEnabled() ? "true" : "false") << ",\n"
+		<< "    \"direct_actor_move_toward_timeout_enabled\": "
+		<< (config.IsDirectActorMoveTowardTimeoutEnabled() ? "true" : "false") << ",\n"
+		<< "    \"target_selection_observer_enabled\": "
+		<< (config.IsTargetSelectionObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"pick_target_observer_enabled\": "
+		<< (config.IsPickTargetObserverEnabled() ? "true" : "false") << ",\n"
+		;
+	if (config.IsPickTargetObserverEnabled())
+		out << "    \"pick_target_predicate_mode\": "
+			<< JsonString(config.GetPickTargetPredicateMode()) << ",\n";
+	out << "    \"warn_target_observer_enabled\": "
+		<< (config.IsWarnTargetObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"can_fire_at_enemy_observer_enabled\": "
+		<< (config.IsCanFireAtEnemyObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"inventory_direct_reach_support_observer_enabled\": "
+		<< (config.IsInventoryDirectReachSupportObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"inventory_marker_direct_reach_safety_enabled\": "
+		<< (config.IsInventoryMarkerDirectReachSafetyEnabled() ? "true" : "false") << ",\n"
+		<< "    \"native_path_commit_observer_enabled\": "
+		<< (config.IsNativePathCommitObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"reachspec_capability_observer_enabled\": "
+		<< (config.IsReachSpecCapabilityObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"direct_reach_command_observer_enabled\": "
+		<< (config.IsDirectReachCommandObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"movement_command_provenance_observer_enabled\": "
+		<< (config.IsMovementCommandProvenanceObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"hazard_residence_command_transition_ledger_observer_enabled\": "
+		<< (config.IsHazardResidenceCommandTransitionLedgerObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"hazard_residence_preentry_causal_slice_observer_enabled\": "
+		<< (config.IsHazardResidencePreentryCausalSliceObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"pawn_vision_cone_enabled\": "
+		<< (config.IsPawnVisionConeEnabled() ? "true" : "false") << ",\n"
+		<< "    \"pawn_vision_observer_enabled\": "
+		<< (config.IsPawnVisionObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"vector_nonfinite_observer_enabled\": "
+		<< (config.IsVectorNonFiniteObserverEnabled() ? "true" : "false") << ",\n"
+		<< "    \"finite_move_command_guard_enabled\": "
+		<< (config.IsFiniteMoveCommandGuardEnabled() ? "true" : "false") << ",\n"
+		<< "    \"pick_reg_destination_zero_divide_guard_enabled\": "
+		<< (config.IsPickRegDestinationZeroDivideGuardEnabled() ? "true" : "false") << ",\n"
+		<< "    \"walking_hitwall_minhitwall_candidate_enabled\": "
+		<< (config.IsWalkingHitWallMinHitWallCandidateEnabled() ? "true" : "false") << "\n"
 		<< "  }\n"
 		<< "}\n";
 	return out.str();

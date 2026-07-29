@@ -4,6 +4,7 @@
 #include "Render/ViewFamily.h"
 #include "CachedTexture.h"
 #include "Utils/Logger.h"
+#include "Packages/Engine/Resources/Level/UModel.h"
 #include <surrealgpu/vulkanbuilders.h>
 #include <surrealgpu/vulkancompatibledevice.h>
 #include <surrealgpu/vulkanswapchain.h>

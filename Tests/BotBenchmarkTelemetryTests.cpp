@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -15,31 +16,348 @@ namespace
 	}
 }
 
-int main()
+int main(int argc, char** argv)
 {
+	if (argc < 1)
+		return Fail("test executable path was unavailable");
+	std::string buildIdentityError;
+	const auto buildIdentity = BotBenchmarkBuildIdentity::TryCreate(
+		"0123456789abcdef0123456789abcdef01234567",
+		"89abcdef0123456789abcdef0123456789abcdef", false, argv[0], buildIdentityError);
+	if (!buildIdentity)
+		return Fail("test build identity was unavailable");
 	const BotBenchmarkRunConfig config = BotBenchmarkRunConfig::Parse(
-		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7");
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"));
 	const std::string configId = BotBenchmarkTelemetryProtocol::ConfigIdentity(config);
-	if (configId != "fnv1a64:03da62fa895e0e9f")
+	if (configId != "fnv1a64:f00ef48989e94302")
 		return Fail("bot benchmark configuration identity changed");
+	if (config.IsHarmfulZoneEscapeEnabled()
+		|| config.IsWalkingPreflightPositiveDpsVetoEnabled()
+		|| config.IsHazardSwimEgressEnabled()
+		|| config.IsHazardSwimEgressLiveEnabled()
+		|| config.IsFailedNavigationAvoidanceEnabled()
+		|| config.IsFallingHazardRecoveryEnabled()
+		|| config.IsFallingHazardRecoveryLiveEnabled()
+		|| config.IsTargetlessMoveToTimeoutEnabled()
+		|| config.IsTargetSelectionObserverEnabled()
+		|| config.IsPickTargetObserverEnabled()
+		|| config.IsWarnTargetObserverEnabled()
+		|| config.IsCanFireAtEnemyObserverEnabled()
+		|| config.IsInventoryDirectReachSupportObserverEnabled()
+		|| config.IsInventoryMarkerDirectReachSafetyEnabled()
+		|| config.IsNativePathCommitObserverEnabled()
+		|| config.IsReachSpecCapabilityObserverEnabled()
+		|| config.IsDirectReachCommandObserverEnabled()
+		|| config.IsMovementCommandProvenanceObserverEnabled()
+		|| config.IsHazardResidenceCommandTransitionLedgerObserverEnabled()
+		|| config.IsHazardResidencePreentryCausalSliceObserverEnabled()
+		|| config.IsPawnVisionConeEnabled()
+		|| config.IsPawnVisionObserverEnabled()
+		|| config.IsVectorNonFiniteObserverEnabled()
+		|| config.IsFiniteMoveCommandGuardEnabled()
+		|| config.IsPickRegDestinationZeroDivideGuardEnabled()
+		|| config.IsWalkingHitWallMinHitWallCandidateEnabled())
+		return Fail("bot benchmark experimental controls must default to disabled");
+	const BotBenchmarkRunConfig pawnVisionObserverEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"),
+		{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+		std::string("1"));
+	if (!pawnVisionObserverEnabled.IsPawnVisionObserverEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(pawnVisionObserverEnabled) == configId
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(pawnVisionObserverEnabled, *buildIdentity).find(
+			"\"pawn_vision_observer_enabled\": true") == std::string::npos)
+	{
+		return Fail("Pawn.CanSee observer selection was not distinct and enabled");
+	}
+	const BotBenchmarkRunConfig finiteMoveCommandGuardEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"),
+		{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+		std::string("1"), std::string("1"), std::string("1"), std::string("1"), std::string("1"));
+	if (!finiteMoveCommandGuardEnabled.IsFiniteMoveCommandGuardEnabled()
+		|| !finiteMoveCommandGuardEnabled.IsPickRegDestinationZeroDivideGuardEnabled()
+		|| !finiteMoveCommandGuardEnabled.IsWalkingHitWallMinHitWallCandidateEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(finiteMoveCommandGuardEnabled) == configId
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(finiteMoveCommandGuardEnabled, *buildIdentity).find(
+			"\"finite_move_command_guard_enabled\": true") == std::string::npos
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(finiteMoveCommandGuardEnabled, *buildIdentity).find(
+			"\"pick_reg_destination_zero_divide_guard_enabled\": true") == std::string::npos
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(finiteMoveCommandGuardEnabled, *buildIdentity).find(
+			"\"walking_hitwall_minhitwall_candidate_enabled\": true") == std::string::npos)
+	{
+		return Fail("finite MoveTo command guard selection was not distinct and enabled");
+	}
+	const BotBenchmarkRunConfig controlEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), std::string("1"));
+	if (!controlEnabled.IsHarmfulZoneEscapeEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(controlEnabled) == configId)
+		return Fail("harmful-zone escape selection was not distinct and enabled");
+	const BotBenchmarkRunConfig avoidanceEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), {}, {}, {}, {},
+		std::string("1"));
+	if (!avoidanceEnabled.IsFailedNavigationAvoidanceEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(avoidanceEnabled) == configId)
+		return Fail("failed-navigation avoidance selection was not distinct and enabled");
+	const BotBenchmarkRunConfig fallingRecoveryEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), {}, {}, {}, {}, {},
+		std::string("1"), std::string("1"));
+	if (!fallingRecoveryEnabled.IsFallingHazardRecoveryEnabled()
+		|| !fallingRecoveryEnabled.IsFallingHazardRecoveryLiveEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(fallingRecoveryEnabled) == configId)
+		return Fail("falling-hazard recovery selection was not distinct and enabled");
+	const BotBenchmarkRunConfig targetlessMoveToTimeoutEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), {}, {}, {}, {}, {},
+		{}, {}, std::string("1"));
+	if (!targetlessMoveToTimeoutEnabled.IsTargetlessMoveToTimeoutEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(targetlessMoveToTimeoutEnabled) == configId)
+		return Fail("targetless MoveTo timeout selection was not distinct and enabled");
+	const BotBenchmarkRunConfig targetSelectionObserverEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), {}, {}, {}, {}, {},
+		{}, {}, {}, {}, std::string("1"));
+	if (!targetSelectionObserverEnabled.IsTargetSelectionObserverEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(targetSelectionObserverEnabled) == configId)
+	{
+		return Fail("target-selection observer selection was not distinct and enabled");
+	}
+	const BotBenchmarkRunConfig nativePathCommitObserverEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), {}, {}, {}, {}, {},
+		{}, {}, {}, {}, {}, {}, {}, std::string("1"));
+	if (!nativePathCommitObserverEnabled.IsNativePathCommitObserverEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(nativePathCommitObserverEnabled) == configId)
+	{
+		return Fail("native path-commit observer selection was not distinct and enabled");
+	}
+	const BotBenchmarkRunConfig reachSpecCapabilityObserverEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), {}, {}, {}, {}, {},
+		{}, {}, {}, {}, {}, {}, {}, std::string("1"), {}, {}, {}, {}, std::string("1"));
+	if (!reachSpecCapabilityObserverEnabled.IsNativePathCommitObserverEnabled()
+		|| !reachSpecCapabilityObserverEnabled.IsReachSpecCapabilityObserverEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(reachSpecCapabilityObserverEnabled) == configId)
+	{
+		return Fail("ReachSpec capability observer selection was not distinct and enabled");
+	}
+	const BotBenchmarkRunConfig directReachCommandObserverEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), {}, {}, {}, {}, {},
+		{}, {}, {}, {}, {}, {}, {}, {}, std::string("1"));
+	if (!directReachCommandObserverEnabled.IsDirectReachCommandObserverEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(directReachCommandObserverEnabled) == configId)
+	{
+		return Fail("direct-reach command observer selection was not distinct and enabled");
+	}
+	const BotBenchmarkRunConfig movementCommandProvenanceObserverEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), // bot count
+		std::string("7,4"), // per-bot skills
+		std::string("Loque,Tamerlane"), // requested names
+		{}, // harmful-zone escape
+		{}, // walking-preflight positive-DPS veto
+		{}, // hazard-swim egress
+		{}, // hazard-swim egress live
+		{}, // failed-navigation avoidance
+		{}, // falling-hazard recovery
+		{}, // falling-hazard recovery live
+		{}, // targetless MoveTo timeout
+		{}, // direct-actor MoveToward timeout
+		{}, // target-selection observer
+		{}, // inventory direct-reach support observer
+		{}, // inventory-marker direct-reach safety
+		std::string("1"), // native path-commit observer
+		{}, // direct-reach command observer
+		{}, // PickTarget observer
+		{}, // WarnTarget observer
+		{}, // CanFireAtEnemy observer
+		{}, // ReachSpec capability observer
+		{}, // shadow policy set
+		{}, // pawn vision cone
+		{}, // pawn vision observer
+		{}, // vector non-finite observer
+		{}, // finite MoveTo command guard
+		{}, // PickRegDestination zero-divide guard
+		{}, // walking HitWall candidate
+		std::string("1"), // movement-command provenance observer
+		std::string("1"), // hazard-residence command-transition ledger observer
+		std::string("1")); // hazard-residence pre-entry causal-slice observer
+	if (!movementCommandProvenanceObserverEnabled.IsNativePathCommitObserverEnabled()
+		|| !movementCommandProvenanceObserverEnabled.IsMovementCommandProvenanceObserverEnabled()
+		|| !movementCommandProvenanceObserverEnabled.IsHazardResidenceCommandTransitionLedgerObserverEnabled()
+		|| !movementCommandProvenanceObserverEnabled.IsHazardResidencePreentryCausalSliceObserverEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(movementCommandProvenanceObserverEnabled) == configId
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(movementCommandProvenanceObserverEnabled, *buildIdentity).find(
+			"\"movement_command_provenance_observer_enabled\": true") == std::string::npos)
+	{
+		return Fail("movement-command provenance observer was not attested distinctly in the manifest");
+	}
+	const BotBenchmarkRunConfig pickTargetObserverEnabled = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"), {}, {}, {}, {}, {},
+		{}, {}, {}, {}, {}, {}, {}, {}, {}, std::string("1"));
+	if (!pickTargetObserverEnabled.IsPickTargetObserverEnabled()
+		|| BotBenchmarkTelemetryProtocol::ConfigIdentity(pickTargetObserverEnabled) == configId)
+	{
+		return Fail("PickTarget observer predicate provenance was not bound into configuration identity");
+	}
+	const BotBenchmarkRunSummary summary("complete", 0, 72, 1.44, "Unreal Tournament",
+		"436", "DM-Test", "", {}, {}, {}, *buildIdentity);
+	if (summary.ToJson(controlEnabled).find("\"harmful_zone_escape_enabled\": true")
+		== std::string::npos)
+		return Fail("bot benchmark summary did not retain the enabled control mode");
+	if (summary.ToJson(fallingRecoveryEnabled).find("\"falling_hazard_recovery_live_enabled\": true")
+		== std::string::npos)
+		return Fail("bot benchmark summary did not retain falling-hazard recovery mode");
+	if (summary.ToJson(targetlessMoveToTimeoutEnabled).find(
+		"\"targetless_move_to_timeout_enabled\": true") == std::string::npos)
+		return Fail("bot benchmark summary did not retain targetless MoveTo timeout mode");
+	if (summary.ToJson(targetSelectionObserverEnabled).find(
+		"\"target_selection_observer_enabled\": true") == std::string::npos)
+		return Fail("bot benchmark summary did not retain target-selection observer mode");
+	if (summary.ToJson(nativePathCommitObserverEnabled).find(
+		"\"native_path_commit_observer_enabled\": true") == std::string::npos)
+		return Fail("bot benchmark summary did not retain native path-commit observer mode");
+	if (summary.ToJson(reachSpecCapabilityObserverEnabled).find(
+		"\"reachspec_capability_observer_enabled\": true") == std::string::npos
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(reachSpecCapabilityObserverEnabled, *buildIdentity).find(
+			"\"reachspec_capability_observer_enabled\": true") == std::string::npos)
+	{
+		return Fail("ReachSpec capability observer mode was not serialized in manifest and summary");
+	}
+	if (summary.ToJson(directReachCommandObserverEnabled).find(
+		"\"direct_reach_command_observer_enabled\": true") == std::string::npos)
+		return Fail("bot benchmark summary did not retain direct-reach command observer mode");
+	if (summary.ToJson(movementCommandProvenanceObserverEnabled).find(
+		"\"movement_command_provenance_observer_enabled\": true") == std::string::npos)
+		return Fail("bot benchmark summary did not retain movement-command provenance observer mode");
+	if (summary.ToJson(movementCommandProvenanceObserverEnabled).find(
+		"\"hazard_residence_command_transition_ledger_observer_enabled\": true") == std::string::npos)
+		return Fail("bot benchmark summary did not retain hazard-residence command-transition ledger observer mode");
+	if (summary.ToJson(movementCommandProvenanceObserverEnabled).find(
+		"\"hazard_residence_preentry_causal_slice_observer_enabled\": true") == std::string::npos)
+		return Fail("bot benchmark summary did not retain hazard-residence pre-entry causal-slice observer mode");
+	if (summary.ToJson(config).find("\"pawn_vision_cone_enabled\": false") == std::string::npos
+		|| summary.ToJson(config).find("\"pawn_vision_observer_enabled\": false") == std::string::npos
+		|| summary.ToJson(config).find("\"vector_nonfinite_observer_enabled\": false") == std::string::npos
+		|| summary.ToJson(config).find("\"finite_move_command_guard_enabled\": false") == std::string::npos
+		|| summary.ToJson(config).find(
+			"\"pick_reg_destination_zero_divide_guard_enabled\": false") == std::string::npos
+		|| summary.ToJson(config).find(
+			"\"walking_hitwall_minhitwall_candidate_enabled\": false") == std::string::npos
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(config, *buildIdentity).find(
+			"\"pawn_vision_cone_enabled\": false") == std::string::npos
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(config, *buildIdentity).find(
+			"\"pawn_vision_observer_enabled\": false") == std::string::npos)
+	{
+		return Fail("bot benchmark manifest and summary did not retain default pawn vision mode");
+	}
+	if (summary.ToJson(pickTargetObserverEnabled).find(
+		"\"pick_target_predicate_mode\": \"stock\"") == std::string::npos
+		|| BotBenchmarkTelemetryProtocol::ManifestJson(pickTargetObserverEnabled, *buildIdentity).find(
+			"\"pick_target_predicate_mode\": \"stock\"") == std::string::npos)
+	{
+		return Fail("PickTarget observer predicate provenance was not serialized");
+	}
+	bool rejectedInvalidControl = false;
+	try
+	{
+		BotBenchmarkRunConfig::Parse("", "", "", "", "", "", {}, {}, {}, std::string("true"));
+	}
+	catch (const std::invalid_argument&)
+	{
+		rejectedInvalidControl = true;
+	}
+	if (!rejectedInvalidControl)
+		return Fail("harmful-zone escape accepted a non-exact flag value");
 	if (BotBenchmarkTelemetryProtocol::EventCap(config.GetMaxTicks()) != 74)
 		return Fail("bot benchmark telemetry cap was not tied to max ticks");
 
 	const std::string expectedManifest =
 		"{\n"
-		"  \"schema\": \"surreal-bot-benchmark-manifest-v1\",\n"
+		"  \"schema\": \"surreal-bot-benchmark-manifest-v2\",\n"
 		"  \"driver\": \"bot-benchmark\",\n"
-		"  \"config_id\": \"fnv1a64:03da62fa895e0e9f\",\n"
+		"  \"config_id\": \"fnv1a64:f00ef48989e94302\",\n"
 		"  \"url\": \"DM-Test?Game=Botpack.DeathMatchPlus\",\n"
 		"  \"output_directory\": \"evidence\",\n"
 		"  \"seed\": \"18446744073709551615\",\n"
 		"  \"max_ticks\": \"72\",\n"
 		"  \"fixed_delta\": 0.020000000,\n"
 		"  \"difficulty\": 7,\n"
-		"  \"telemetry_event_cap\": \"74\"\n"
+		"  \"bot_count\": 2,\n"
+		"  \"shadow_policy_set\": [\"tactical-state\", \"utility-arena\"],\n"
+		"  \"requested_roster\": [\n"
+		"    {\"roster_index\": 0, \"requested_name\": \"Loque\", \"external_skill\": 7, \"identity_fragment\": \"participant-v1:index=0;external_skill=7;requested_name_hex=4c6f717565\"},\n"
+		"    {\"roster_index\": 1, \"requested_name\": \"Tamerlane\", \"external_skill\": 4, \"identity_fragment\": \"participant-v1:index=1;external_skill=4;requested_name_hex=54616d65726c616e65\"}\n"
+		"  ],\n"
+		"  \"telemetry_event_cap\": \"74\",\n"
+		"  \"harmful_zone_escape_enabled\": false,\n"
+		"  \"walking_preflight_positive_dps_veto_enabled\": false,\n"
+		"  \"hazard_swim_egress_enabled\": false,\n"
+		"  \"hazard_swim_egress_live_enabled\": false,\n"
+		"  \"failed_navigation_avoidance_enabled\": false,\n"
+		"  \"falling_hazard_recovery_enabled\": false,\n"
+		"  \"falling_hazard_recovery_live_enabled\": false,\n"
+		"  \"targetless_move_to_timeout_enabled\": false,\n"
+		"  \"direct_actor_move_toward_timeout_enabled\": false,\n"
+		"  \"target_selection_observer_enabled\": false,\n"
+		"  \"pick_target_observer_enabled\": false,\n"
+		"  \"warn_target_observer_enabled\": false,\n"
+		"  \"can_fire_at_enemy_observer_enabled\": false,\n"
+		"  \"inventory_direct_reach_support_observer_enabled\": false,\n"
+		"  \"inventory_marker_direct_reach_safety_enabled\": false,\n"
+		"  \"native_path_commit_observer_enabled\": false,\n"
+		"  \"reachspec_capability_observer_enabled\": false,\n"
+		"  \"direct_reach_command_observer_enabled\": false,\n"
+		"  \"movement_command_provenance_observer_enabled\": false,\n"
+		"  \"hazard_residence_command_transition_ledger_observer_enabled\": false,\n"
+		"  \"hazard_residence_preentry_causal_slice_observer_enabled\": false,\n"
+		"  \"pawn_vision_cone_enabled\": false,\n"
+		"  \"pawn_vision_observer_enabled\": false,\n"
+		"  \"vector_nonfinite_observer_enabled\": false,\n"
+		"  \"finite_move_command_guard_enabled\": false,\n"
+		"  \"pick_reg_destination_zero_divide_guard_enabled\": false,\n"
+		"  \"walking_hitwall_minhitwall_candidate_enabled\": false,\n"
+		"  \"death_attribution_recent_window_seconds\": 2.000000000,\n"
+		"  \"suicides_exact_semantics\": \"legacy_scoreboard_self_or_nonplayer_killer\"\n"
 		"}\n";
-	if (BotBenchmarkTelemetryProtocol::ManifestJson(config) != expectedManifest)
-		return Fail("bot benchmark manifest serialization was not exact");
+	std::string manifest = BotBenchmarkTelemetryProtocol::ManifestJson(config, *buildIdentity);
+	const std::string buildIdentityLine = "  \"build_identity\": " + buildIdentity->ToJson() + ",\n";
+	const size_t buildIdentityOffset = manifest.find(buildIdentityLine);
+	if (buildIdentityOffset == std::string::npos)
+		return Fail("bot benchmark manifest omitted build identity");
+	manifest.erase(buildIdentityOffset, buildIdentityLine.size());
+	const std::string v3Schema = "surreal-bot-benchmark-manifest-v3";
+	const size_t schemaOffset = manifest.find(v3Schema);
+	if (schemaOffset == std::string::npos)
+		return Fail("bot benchmark manifest schema was not v3");
+	manifest.replace(schemaOffset, v3Schema.size(), "surreal-bot-benchmark-manifest-v2");
+	if (manifest != expectedManifest)
+		return Fail("bot benchmark v2 manifest serialization was not exact");
+	if (summary.ToJson(config).find("\"harmful_zone_escape_enabled\": false")
+		== std::string::npos)
+		return Fail("bot benchmark summary did not retain the default-off control mode");
+
+	const BotBenchmarkRunConfig changedRoster = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "other-output", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("4,7"), std::string("Loque,Tamerlane"));
+	if (BotBenchmarkTelemetryProtocol::ConfigIdentity(changedRoster) == configId)
+		return Fail("config identity did not bind ordered per-bot skills");
+	const BotBenchmarkRunConfig sameRosterOtherOutput = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "other-output", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Loque,Tamerlane"));
+	if (BotBenchmarkTelemetryProtocol::ConfigIdentity(sameRosterOtherOutput) != configId)
+		return Fail("config identity incorrectly included output directory");
+	const BotBenchmarkRunConfig changedName = BotBenchmarkRunConfig::Parse(
+		"DM-Test?Game=Botpack.DeathMatchPlus", "evidence", "18446744073709551615", "72", "0.02", "7",
+		std::string("2"), std::string("7,4"), std::string("Xan,Tamerlane"));
+	if (BotBenchmarkTelemetryProtocol::ConfigIdentity(changedName) == configId)
+		return Fail("config identity did not bind ordered requested names");
 
 	BotBenchmarkBotState second;
 	second.Identity = "pri:2";
@@ -51,7 +369,64 @@ int main()
 	second.PositionY = -2.5;
 	second.PositionZ = -0.0;
 	second.VelocityZ = 3.0;
+	second.PhysicsMode = "Walking";
+	second.LatentAction = "MoveToward";
+	second.AccelerationX = 100.0;
+	second.AccelerationY = -50.0;
+	second.DestinationX = 512.0;
+	second.DestinationY = 256.0;
+	second.DestinationZ = -32.0;
+	second.MoveTimer = 0.75;
+	second.MoveTargetIdentity = "actor:PathNode3";
+	second.MoveTargetName = "Path\"Node";
 	second.Health = 87;
+	second.Score = 2.5;
+	second.PriDeaths = 3.0;
+	second.MovementIntent = true;
+	second.InHazardZone = true;
+	second.KillsExact = 4;
+	second.DeathsExact = 3;
+	second.SuicidesExact = 2;
+	second.EnvironmentalDeathsExact = 1;
+	second.HazardExposedDeathsProxy = 1;
+	second.DirectEnemyKills = 1;
+	second.UnassistedEnvironmentalDeaths = 1;
+	second.RecentEnemyContributedEnvironmentalDeathsProxy = 1;
+	second.RecentEnemyMomentumContributedEnvironmentalDeathsProxy = 1;
+	second.HitWallEventsExact = 9;
+	second.PainLedgeVetoesExact = 8;
+	second.PainLedgeRepeatVetoesExact = 6;
+	second.PainLedgeRecoveryAttemptsExact = 7;
+	second.PainLedgeRecoveryEscapesExact = 5;
+	second.WallAdjustCallsExact = 12;
+	second.WallAdjustRepeatsExact = 8;
+	second.WallAdjustRecoveryAttemptsExact = 7;
+	second.WallAdjustRecoverySuccessesExact = 6;
+	second.WallAdjustForcedReplansExact = 2;
+	second.MoveStallDetectionsExact = 3;
+	second.MoveStallEpisodeResetsExact = 1;
+	second.MoveStallForcedReplansExact = 2;
+	second.MoveStallNavigationForcedReplansExact = 1;
+	second.MoveStallTargetlessMoveToTimeoutsExact = 1;
+	second.MoveStallEligibleSeconds = 4.25;
+	second.FailedNavigationAvoidanceActivationsExact = 2;
+	second.FailedNavigationSafeguardSuppressionsExact = 3;
+	second.FailedNavigationRoutePenaltyApplicationsExact = 4;
+	second.FallingSeamDetectionsExact = 11;
+	second.HorizontalCornerCandidateProbesExact = 10;
+	second.HorizontalCornerAuthorizedEscapesExact = 3;
+	second.HorizontalCornerTargetProgressRejectsExact = 4;
+	second.HorizontalCornerUnknownOrUnsafeSupportExact = 3;
+	second.FallingSeamEpisodesExact = 4;
+	second.FallingSeamInvalidGeometryRejectsExact = 7;
+	second.FallingSeamAuthorizableEpisodesExact = 2;
+	second.HorizontalCornerAuthorizedCandidatesExact = 3;
+	second.HorizontalCornerBlockedSweepCandidatesExact = 2;
+	second.HorizontalCornerNoStaticWalkableSupportCandidatesExact = 1;
+	second.HorizontalCornerPainSupportCandidatesExact = 1;
+	second.HorizontalCornerNoActiveMovementIntentOrTargetCandidatesExact = 1;
+	second.HorizontalCornerTrueTargetRegressionCandidatesExact = 1;
+	second.HorizontalCornerUnknownEvidenceCandidatesExact = 1;
 
 	BotBenchmarkBotState first;
 	first.Identity = "pri:1";
@@ -69,12 +444,882 @@ int main()
 	event.Map = "DM-\"Test";
 	event.Status = "running";
 	event.Bots = { second, first };
-	const std::string expectedEvent =
-		"{\"schema\":\"surreal-bot-benchmark-telemetry-v1\",\"seq\":\"5\",\"config_id\":\"fnv1a64:03da62fa895e0e9f\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
-		"{\"identity\":\"pri:1\",\"actor\":\"Bot1\",\"player_name\":\"Line\\nBreak\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"health\":100,\"state\":\"Attacking\"},"
-		"{\"identity\":\"pri:2\",\"actor\":\"Bot2\",\"player_name\":\"B\\\"ot\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":1.250000,\"y\":-2.500000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":3.000000},\"health\":87,\"state\":\"Roaming\"}]}\n";
-	if (BotBenchmarkTelemetryProtocol::EventJson(configId, event) != expectedEvent)
-		return Fail("bot benchmark event ordering, formatting, or escaping changed");
+	PawnMovement::HazardResidencePreentryCausalSliceRecord preentrySlice;
+	preentrySlice.Sequence = 1;
+	preentrySlice.EpisodeId = 2;
+	preentrySlice.LifeId = 3;
+	preentrySlice.Terminal = PawnMovement::HazardResidenceTerminal::Death;
+	preentrySlice.ZoneActorIndex = 14;
+	preentrySlice.ZoneName = "SlimeZone0";
+	preentrySlice.ZoneClass = "Engine.ZoneInfo";
+	preentrySlice.EntryX = 1.0f;
+	preentrySlice.EntryY = 2.0f;
+	preentrySlice.EntryZ = 3.0f;
+	preentrySlice.PreEntryPhysics = "Falling";
+	preentrySlice.EntryPhysics = "Falling";
+	preentrySlice.Transition = "harmful_zone_entry";
+	preentrySlice.PrecedingPathCommitKnown = true;
+	preentrySlice.PrecedingPathCommitSequence = 4;
+	preentrySlice.PrecedingPathCommitFirstReachSpecIndex = 13;
+	preentrySlice.RouteHeadKnown = true;
+	preentrySlice.RouteHeadActorIndex = 8;
+	preentrySlice.RouteHeadName = "PathNode12";
+	preentrySlice.RouteHeadClass = "Engine.PathNode";
+	preentrySlice.CommandTargetKnown = true;
+	preentrySlice.CommandTargetActorIndex = 8;
+	preentrySlice.CommandTargetName = "PathNode12";
+	preentrySlice.CommandTargetClass = "Engine.PathNode";
+	preentrySlice.EntryVelocityX = 1.0f;
+	preentrySlice.EntryDirectionKnown = true;
+	preentrySlice.EntryDirectionX = 1.0f;
+	preentrySlice.TrajectoryInputFinite = true;
+	preentrySlice.TrajectoryComplete = true;
+	preentrySlice.TrajectoryResultFinite = true;
+	preentrySlice.TrajectoryClassification = "0";
+	preentrySlice.TrajectoryReason = "6";
+	preentrySlice.TrajectoryEntryZoneKnown = true;
+	preentrySlice.TrajectoryEntryZoneActorIndex = 14;
+	preentrySlice.TrajectoryEntryZoneNumber = 0;
+	event.Bots.front().HazardResidencePreentryCausalSliceEpisodesExact = 1;
+	event.Bots.front().HazardResidencePreentryCausalSliceRecords = { preentrySlice };
+	event.HazardResidencePreentryCausalSliceObserverRequested = true;
+	const std::string preentryEvent = BotBenchmarkTelemetryProtocol::EventJson(
+		BotBenchmarkTelemetryProtocol::ConfigIdentity(movementCommandProvenanceObserverEnabled), event);
+	if (preentryEvent.find("\"preceding_path_commit_sequence\":\"4\"") == std::string::npos
+		|| preentryEvent.find("\"route_head_name\":\"PathNode12\"") == std::string::npos
+		|| preentryEvent.find("\"trajectory_entry_zone_actor_index\":14") == std::string::npos
+		|| preentryEvent.find("\"trajectory_result_finite\":true") == std::string::npos)
+	{
+		return Fail("hazard-residence pre-entry route trajectory serialization was incomplete");
+	}
+	event.Bots.front().HazardResidencePreentryCausalSliceEpisodesExact = 0;
+	event.Bots.front().HazardResidencePreentryCausalSliceRecords.clear();
+	event.HazardResidencePreentryCausalSliceObserverRequested = false;
+	std::ostringstream walkingPreflightSuffix;
+	walkingPreflightSuffix
+		<< ",\"walking_step_preflight_observations_exact\":\"0\""
+		<< ",\"walking_step_preflight_unsupported_endpoints_exact\":\"0\""
+		<< ",\"walking_step_preflight_no_decisions_exact\":\"0\""
+		<< ",\"walking_step_preflight_provisional_authorizations_exact\":\"0\""
+		<< ",\"walking_step_preflight_post_mayfall_confirmed_authorizations_exact\":\"0\""
+		<< ",\"walking_step_preflight_authorizable_episodes_exact\":\"0\""
+		<< ",\"walking_step_preflight_positive_dps_veto_eligible_exact\":\"0\""
+		<< ",\"walking_step_preflight_positive_dps_veto_applied_exact\":\"0\""
+		<< ",\"walking_step_preflight_positive_dps_veto_debounced_exact\":\"0\""
+		<< ",\"walking_step_preflight_positive_dps_veto_forced_replans_exact\":\"0\""
+		<< ",\"walking_step_preflight_positive_dps_veto_rollback_rejected_exact\":\"0\"";
+	for (size_t index = 0; index < PawnMovement::WalkingStepPreflightReasonCount; index++)
+	{
+		walkingPreflightSuffix << ",\""
+			<< PawnMovement::WalkingStepPreflightReasonMetricName(
+				static_cast<PawnMovement::WalkingStepPreflightReason>(index))
+			<< "\":\"0\"";
+	}
+	walkingPreflightSuffix
+		<< ",\"walking_step_preflight_diagnostic_overflows_exact\":\"0\""
+		<< ",\"walking_step_preflight_diagnostics\":[]"
+		<< ",\"walking_step_preflight_positive_dps_veto_action_overflows_exact\":\"0\""
+		<< ",\"walking_step_preflight_positive_dps_veto_actions\":[]"
+		<< ",\"falling_parity_realized_episodes_exact\":\"0\""
+		<< ",\"falling_parity_realized_steps_exact\":\"0\""
+		<< ",\"falling_parity_realized_matched_steps_exact\":\"0\""
+		<< ",\"falling_parity_realized_matched_landing_steps_exact\":\"0\""
+		<< ",\"falling_parity_realized_mismatches_exact\":\"0\""
+		<< ",\"falling_parity_realized_unknowns_exact\":\"0\""
+		<< ",\"falling_parity_realized_callback_barriers_exact\":\"0\""
+		<< ",\"falling_parity_realized_pain_entries_exact\":\"0\""
+		<< ",\"falling_parity_realized_deaths_exact\":\"0\""
+		<< ",\"falling_parity_realized_landings_exact\":\"0\""
+		<< ",\"falling_parity_realized_continuity_losses_exact\":\"0\""
+		<< ",\"falling_parity_realized_record_overflows_exact\":\"0\""
+		<< ",\"falling_parity_realized_records\":[]"
+		<< ",\"vertical_pain_column_episodes_started_exact\":\"0\""
+		<< ",\"vertical_pain_column_episodes_completed_exact\":\"0\""
+		<< ",\"vertical_pain_column_true_positive_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_false_positive_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_false_negative_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_true_negative_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_ambiguous_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_unknown_outcomes_exact\":\"0\""
+		<< ",\"vertical_pain_column_diagnostic_overflows_exact\":\"0\""
+		<< ",\"vertical_pain_column_generation_capacity_exhaustions_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_candidates_started_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_promotions_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_resets_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_confirmed_harmful_entries_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_observed_lead_samples_exact\":\"0\""
+		<< ",\"persistent_harmful_fall_observed_lead_milliseconds_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_candidates_started_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_promotions_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_resets_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_confirmed_harmful_entries_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_observed_lead_samples_exact\":\"0\""
+		<< ",\"single_harmful_fall_prefix_observed_lead_milliseconds_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_candidates_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_confirmed_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_confirmed_no_harm_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_unresolved_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_lead_samples_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_lead_milliseconds_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_certificate_source_not_eligible_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_certificate_certified_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_certificate_forecast_incomplete_or_inconsistent_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_certificate_not_full_step_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_certificate_not_harmful_water_endpoint_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_certificate_damage_not_avoidance_relevant_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_certificate_invalid_expected_harmful_zones_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_certificate_unsafe_or_unknown_start_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_certificate_intermediate_hazard_observed_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_certificate_no_direct_clear_path_exact\":\"0\""
+		<< ",\"direct_harmful_water_entry_certificate_invalid_prediction_accounting_exact\":\"0\""
+		<< ",\"damage_taken_exact\":\"0\""
+		<< ",\"damage_taken_from_other_participants_exact\":\"0\""
+		<< ",\"damage_taken_from_self_exact\":\"0\""
+		<< ",\"damage_taken_from_nonparticipants_exact\":\"0\""
+		<< ",\"damage_dealt_to_other_participants_exact\":\"0\""
+		<< ",\"confirmed_pickups_exact\":\"0\""
+		<< ",\"confirmed_weapon_pickups_exact\":\"0\""
+		<< ",\"confirmed_ammo_pickups_exact\":\"0\""
+		<< ",\"confirmed_health_pickups_exact\":\"0\""
+		<< ",\"confirmed_armor_pickups_exact\":\"0\""
+		<< ",\"confirmed_other_pickups_exact\":\"0\""
+		<< ",\"pickup_source_consumed_unconfirmed_exact\":\"0\""
+		<< ",\"navigation_coverage_visited_nodes_exact\":\"0\""
+		<< ",\"navigation_coverage_catalog_nodes_exact\":\"0\""
+		<< ",\"navigation_coverage_union_visited_nodes_exact\":\"0\""
+		<< ",\"vertical_pain_column_diagnostics\":[]";
+	const std::string expectedWalkingPreflightSuffix = walkingPreflightSuffix.str();
+	std::string expectedEvent =
+		"{\"schema\":\"surreal-bot-benchmark-telemetry-v2\",\"seq\":\"5\",\"config_id\":\"fnv1a64:f00ef48989e94302\",\"tick\":\"4\",\"simulated_seconds\":0.080000000,\"type\":\"tick\",\"map\":\"DM-\\\"Test\",\"status\":\"running\",\"failure_reason\":\"\",\"bots\":["
+		"{\"identity\":\"pri:1\",\"actor\":\"Bot1\",\"player_name\":\"Line\\nBreak\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"physics_mode\":\"\",\"latent_action\":\"\",\"acceleration\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"destination\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000},\"move_timer\":0.000000,\"move_target_identity\":\"\",\"move_target_name\":\"\",\"health\":100,\"score\":0.000000,\"pri_deaths\":0.000000,\"movement_intent\":false,\"in_hazard_zone\":false,\"kills_exact\":\"0\",\"deaths_exact\":\"0\",\"suicides_exact\":\"0\",\"environmental_deaths_exact\":\"0\",\"hazard_exposed_deaths_proxy\":\"0\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"0\",\"unassisted_environmental_deaths\":\"0\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"0\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"0\",\"hit_wall_events_exact\":\"0\",\"pain_ledge_vetoes_exact\":\"0\",\"pain_ledge_repeat_vetoes_exact\":\"0\",\"pain_ledge_recovery_attempts_exact\":\"0\",\"pain_ledge_recovery_escapes_exact\":\"0\",\"wall_adjust_calls_exact\":\"0\",\"wall_adjust_repeats_exact\":\"0\",\"wall_adjust_recovery_attempts_exact\":\"0\",\"wall_adjust_recovery_successes_exact\":\"0\",\"wall_adjust_forced_replans_exact\":\"0\",\"move_stall_detections_exact\":\"0\",\"move_stall_episode_resets_exact\":\"0\",\"move_stall_forced_replans_exact\":\"0\",\"move_stall_navigation_forced_replans_exact\":\"0\",\"move_stall_targetless_move_to_timeouts_exact\":\"0\",\"move_stall_eligible_seconds\":0.000000000,\"failed_navigation_avoidance_activations_exact\":\"0\",\"failed_navigation_safeguard_suppressions_exact\":\"0\",\"failed_navigation_route_penalty_applications_exact\":\"0\",\"falling_seam_detections_exact\":\"0\",\"horizontal_corner_candidate_probes_exact\":\"0\",\"horizontal_corner_authorized_escapes_exact\":\"0\",\"horizontal_corner_target_progress_rejects_exact\":\"0\",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"0\",\"falling_seam_episodes_exact\":\"0\",\"falling_seam_invalid_geometry_rejects_exact\":\"0\",\"falling_seam_authorizable_episodes_exact\":\"0\",\"horizontal_corner_authorized_candidates_exact\":\"0\",\"horizontal_corner_blocked_sweep_candidates_exact\":\"0\",\"horizontal_corner_no_static_walkable_support_candidates_exact\":\"0\",\"horizontal_corner_pain_support_candidates_exact\":\"0\",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"0\",\"horizontal_corner_true_target_regression_candidates_exact\":\"0\",\"horizontal_corner_unknown_evidence_candidates_exact\":\"0\""
+		+ expectedWalkingPreflightSuffix + ",\"state\":\"Attacking\"},"
+		"{\"identity\":\"pri:2\",\"actor\":\"Bot2\",\"player_name\":\"B\\\"ot\",\"class\":\"Botpack.Bot\",\"position\":{\"x\":1.250000,\"y\":-2.500000,\"z\":0.000000},\"velocity\":{\"x\":0.000000,\"y\":0.000000,\"z\":3.000000},\"physics_mode\":\"Walking\",\"latent_action\":\"MoveToward\",\"acceleration\":{\"x\":100.000000,\"y\":-50.000000,\"z\":0.000000},\"destination\":{\"x\":512.000000,\"y\":256.000000,\"z\":-32.000000},\"move_timer\":0.750000,\"move_target_identity\":\"actor:PathNode3\",\"move_target_name\":\"Path\\\"Node\",\"health\":87,\"score\":2.500000,\"pri_deaths\":3.000000,\"movement_intent\":true,\"in_hazard_zone\":true,\"kills_exact\":\"4\",\"deaths_exact\":\"3\",\"suicides_exact\":\"2\",\"environmental_deaths_exact\":\"1\",\"hazard_exposed_deaths_proxy\":\"1\",\"direct_self_kills\":\"0\",\"direct_enemy_kills\":\"1\",\"unassisted_environmental_deaths\":\"1\",\"recent_enemy_contributed_environmental_deaths_proxy\":\"1\",\"ambiguous_deaths\":\"0\",\"recent_enemy_momentum_contributed_environmental_deaths_proxy\":\"1\",\"hit_wall_events_exact\":\"9\",\"pain_ledge_vetoes_exact\":\"8\",\"pain_ledge_repeat_vetoes_exact\":\"6\",\"pain_ledge_recovery_attempts_exact\":\"7\",\"pain_ledge_recovery_escapes_exact\":\"5\",\"wall_adjust_calls_exact\":\"12\",\"wall_adjust_repeats_exact\":\"8\",\"wall_adjust_recovery_attempts_exact\":\"7\",\"wall_adjust_recovery_successes_exact\":\"6\",\"wall_adjust_forced_replans_exact\":\"2\",\"move_stall_detections_exact\":\"3\",\"move_stall_episode_resets_exact\":\"1\",\"move_stall_forced_replans_exact\":\"2\",\"move_stall_navigation_forced_replans_exact\":\"1\",\"move_stall_targetless_move_to_timeouts_exact\":\"1\",\"move_stall_eligible_seconds\":4.250000000,\"failed_navigation_avoidance_activations_exact\":\"2\",\"failed_navigation_safeguard_suppressions_exact\":\"3\",\"failed_navigation_route_penalty_applications_exact\":\"4\",\"falling_seam_detections_exact\":\"11\",\"horizontal_corner_candidate_probes_exact\":\"10\",\"horizontal_corner_authorized_escapes_exact\":\"3\",\"horizontal_corner_target_progress_rejects_exact\":\"4\",\"horizontal_corner_unknown_or_unsafe_support_exact\":\"3\",\"falling_seam_episodes_exact\":\"4\",\"falling_seam_invalid_geometry_rejects_exact\":\"7\",\"falling_seam_authorizable_episodes_exact\":\"2\",\"horizontal_corner_authorized_candidates_exact\":\"3\",\"horizontal_corner_blocked_sweep_candidates_exact\":\"2\",\"horizontal_corner_no_static_walkable_support_candidates_exact\":\"1\",\"horizontal_corner_pain_support_candidates_exact\":\"1\",\"horizontal_corner_no_active_movement_intent_or_target_candidates_exact\":\"1\",\"horizontal_corner_true_target_regression_candidates_exact\":\"1\",\"horizontal_corner_unknown_evidence_candidates_exact\":\"1\""
+		+ expectedWalkingPreflightSuffix + ",\"state\":\"Roaming\"}]}\n";
+	const std::string controlCounterSuffix =
+		",\"harmful_zone_escape_episodes_exact\":\"0\""
+		",\"harmful_zone_escape_center_entries_exact\":\"0\""
+		",\"harmful_zone_escape_foot_entries_exact\":\"0\""
+		",\"harmful_zone_escape_recovery_attempts_exact\":\"0\""
+		",\"pain_ledge_recovery_active_hitwall_events_exact\":\"0\""
+		",\"harmful_zone_escape_successful_escapes_exact\":\"0\""
+		",\"harmful_zone_escape_forced_replans_exact\":\"0\""
+		",\"harmful_zone_escape_no_safe_candidates_exact\":\"0\""
+		",\"hazard_swim_egress_episodes_exact\":\"0\""
+		",\"hazard_swim_egress_eligible_exact\":\"0\""
+		",\"hazard_swim_egress_authorized_exact\":\"0\""
+		",\"hazard_swim_egress_debounced_exact\":\"0\""
+		",\"hazard_swim_egress_no_anchor_rejected_exact\":\"0\""
+		",\"hazard_swim_egress_exited_exact\":\"0\""
+		",\"hazard_swim_egress_died_before_exit_exact\":\"0\""
+		",\"hazard_swim_egress_forced_replans_exact\":\"0\""
+		",\"hazard_swim_egress_forced_replan_same_command_reissued_exact\":\"0\""
+		",\"hazard_swim_egress_forced_replan_different_command_issued_exact\":\"0\""
+		",\"hazard_swim_egress_forced_replan_hazard_cleared_before_command_exact\":\"0\""
+		",\"hazard_swim_egress_forced_replan_fell_before_command_exact\":\"0\""
+		",\"hazard_swim_egress_forced_replan_died_before_command_exact\":\"0\""
+		",\"hazard_swim_egress_forced_replan_life_boundary_censored_exact\":\"0\""
+		",\"hazard_swim_egress_forced_replan_run_end_censored_exact\":\"0\""
+		",\"hazard_swim_egress_forced_replan_episode_abandoned_exact\":\"0\""
+		",\"hazard_swim_egress_falling_pre_move_anchor_captures_exact\":\"0\""
+		",\"hazard_swim_egress_falling_pre_move_anchor_uses_exact\":\"0\""
+		",\"hazard_swim_egress_live_applies_exact\":\"0\""
+		",\"hazard_swim_egress_live_active_ticks_exact\":\"0\""
+		",\"hazard_swim_egress_live_probe_rejected_exact\":\"0\""
+		",\"hazard_swim_egress_live_successful_exits_exact\":\"0\""
+		",\"hazard_swim_egress_live_shadow_candidates_exact\":\"0\""
+		",\"hazard_swim_egress_live_shadow_falling_terminals_exact\":\"0\""
+		",\"hazard_swim_egress_live_shadow_hazard_cleared_terminals_exact\":\"0\""
+		",\"hazard_swim_egress_live_shadow_probe_blocked_terminals_exact\":\"0\""
+		",\"hazard_swim_egress_direct_nav_probes_exact\":\"0\""
+		",\"hazard_swim_egress_direct_nav_safe_candidates_exact\":\"0\""
+		",\"hazard_residence_episodes_exact\":\"0\""
+		",\"hazard_residence_cleared_exact\":\"0\""
+		",\"hazard_residence_deaths_exact\":\"0\""
+		",\"hazard_residence_life_boundary_censored_exact\":\"0\""
+		",\"hazard_residence_run_end_censored_exact\":\"0\""
+		",\"hazard_residence_unknown_exact\":\"0\""
+		",\"hazard_residence_reentries_exact\":\"0\""
+		",\"hazard_residence_command_changes_exact\":\"0\""
+		",\"hazard_residence_candidates_observed_exact\":\"0\""
+		",\"hazard_residence_candidate_other_commands_exact\":\"0\""
+		",\"hazard_swim_egress_direct_nav_best_candidate_name\":\"\""
+		",\"hazard_swim_egress_anchor_known\":false"
+		",\"hazard_swim_egress_anchor_source\":\"\""
+		",\"hazard_water_egress_diagnostic_overflows_exact\":\"0\""
+		",\"hazard_water_egress_diagnostics\":[]"
+		",\"hazard_death_partition_records\":[]"
+		",\"falling_hazard_recovery_promotions_exact\":\"0\""
+		",\"falling_hazard_recovery_advance_calls_exact\":\"0\""
+		",\"falling_hazard_recovery_context_rejected_exact\":\"0\""
+		",\"falling_hazard_recovery_no_active_fall_episode_exact\":\"0\""
+		",\"falling_hazard_recovery_no_prefix_exact\":\"0\""
+		",\"falling_hazard_recovery_eligible_exact\":\"0\""
+		",\"falling_hazard_recovery_anchor_rejected_exact\":\"0\""
+		",\"falling_hazard_recovery_probe_rejected_exact\":\"0\""
+		",\"falling_hazard_recovery_live_applies_exact\":\"0\""
+		",\"falling_hazard_recovery_live_active_ticks_exact\":\"0\""
+		",\"falling_hazard_recovery_safe_landings_exact\":\"0\""
+		",\"falling_hazard_recovery_harmful_entries_exact\":\"0\""
+		",\"falling_hazard_recovery_deaths_exact\":\"0\""
+		",\"falling_hazard_recovery_timeouts_exact\":\"0\""
+		",\"external_impulse_fall_harmful_witnesses_exact\":\"0\""
+		",\"external_impulse_fall_no_air_control_exact\":\"0\""
+		",\"external_impulse_fall_alternatives_tested_exact\":\"0\""
+		",\"external_impulse_fall_certified_exact\":\"0\""
+		",\"external_impulse_fall_uncertified_exact\":\"0\"";
+	const std::string walkingHitWallDispatchSuffix =
+		",\"walking_hitwall_dispatch_observations_exact\":\"0\""
+		",\"walking_hitwall_dispatch_legacy_z_band_exact\":\"0\""
+		",\"walking_hitwall_dispatch_minhitwall_exact\":\"0\""
+		",\"walking_hitwall_dispatch_minhitwall_candidate_activations_exact\":\"0\""
+		",\"walking_hitwall_dispatch_disagreements_exact\":\"0\""
+		",\"walking_hitwall_dispatch_callbacks_exact\":\"0\""
+		",\"walking_hitwall_dispatch_diagnostic_overflows_exact\":\"0\""
+		",\"walking_hitwall_dispatch_diagnostics\":[]";
+	const std::string moveStallRecoverySuffix =
+		",\"move_stall_recovery_episodes_exact\":\"0\""
+		",\"move_stall_recovery_cleared_within_2_seconds_exact\":\"0\""
+		",\"move_stall_recovery_cleared_after_2_seconds_within_5_seconds_exact\":\"0\""
+		",\"move_stall_recovery_replanned_within_5_seconds_exact\":\"0\""
+		",\"move_stall_recovery_missed_5_second_deadline_exact\":\"0\""
+		",\"move_stall_recovery_excluded_intentional_stops_exact\":\"0\""
+		",\"move_stall_recovery_censored_life_boundaries_exact\":\"0\""
+		",\"move_stall_recovery_censored_run_end_exact\":\"0\""
+		",\"move_stall_recovery_unknown_exact\":\"0\""
+		",\"move_stall_recovery_episode_record_overflows_exact\":\"0\""
+		",\"move_stall_recovery_episodes\":[]";
+	for (const std::string hitWallMarker : {
+		std::string("\"hit_wall_events_exact\":\"0\""),
+		std::string("\"hit_wall_events_exact\":\"9\"") })
+	{
+		const size_t hitWallIndex = expectedEvent.find(hitWallMarker);
+		if (hitWallIndex == std::string::npos)
+			return Fail("walking HitWall dispatch fixture marker was missing");
+		expectedEvent.insert(hitWallIndex + hitWallMarker.size(),
+			walkingHitWallDispatchSuffix);
+	}
+	for (const std::string controlCounterMarker : {
+		std::string("\"failed_navigation_route_penalty_applications_exact\":\"0\""),
+		std::string("\"failed_navigation_route_penalty_applications_exact\":\"4\"") })
+	{
+		const size_t controlCounterIndex = expectedEvent.find(controlCounterMarker);
+		if (controlCounterIndex == std::string::npos)
+			return Fail("telemetry control counter fixture marker was missing");
+		expectedEvent.insert(controlCounterIndex + controlCounterMarker.size(), controlCounterSuffix);
+	}
+	for (const std::string moveStallRecoveryMarker : {
+		std::string("\"move_stall_eligible_seconds\":0.000000000"),
+		std::string("\"move_stall_eligible_seconds\":4.250000000") })
+	{
+		const size_t moveStallRecoveryIndex = expectedEvent.find(moveStallRecoveryMarker);
+		if (moveStallRecoveryIndex == std::string::npos)
+			return Fail("move-stall recovery fixture marker was missing");
+		expectedEvent.insert(moveStallRecoveryIndex + moveStallRecoveryMarker.size(),
+			moveStallRecoverySuffix);
+	}
+	const std::string directActorTimeoutCounter =
+		",\"move_stall_direct_actor_move_toward_timeouts_exact\":\"0\"";
+	size_t directActorTimeoutInsertions = 0;
+	for (size_t position = 0; (position = expectedEvent.find(
+		",\"move_stall_eligible_seconds\"", position)) != std::string::npos;
+		position += directActorTimeoutCounter.size() + 1)
+	{
+		expectedEvent.insert(position, directActorTimeoutCounter);
+		directActorTimeoutInsertions++;
+	}
+	if (directActorTimeoutInsertions != 2)
+		return Fail("v2 golden telemetry did not contain both move-stall counter groups");
+	const std::string moveStallDecisionCounters =
+		",\"move_stall_recovery_decision_record_overflows_exact\":\"0\""
+		",\"move_stall_recovery_decisions\":[]";
+	size_t moveStallDecisionInsertions = 0;
+	for (size_t position = 0; (position = expectedEvent.find(
+		",\"failed_navigation_avoidance_activations_exact\"", position)) != std::string::npos;
+		position += moveStallDecisionCounters.size() + 1)
+	{
+		expectedEvent.insert(position, moveStallDecisionCounters);
+		moveStallDecisionInsertions++;
+	}
+	if (moveStallDecisionInsertions != 2)
+		return Fail("v2 golden telemetry did not contain both move-stall decision groups");
+	const std::string actualEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (actualEvent != expectedEvent)
+	{
+		size_t mismatch = 0;
+		while (mismatch < actualEvent.size() && mismatch < expectedEvent.size() &&
+			actualEvent[mismatch] == expectedEvent[mismatch])
+		{
+			mismatch++;
+		}
+		std::cerr << "v2 telemetry first mismatch at " << mismatch
+			<< " expected=" << expectedEvent.substr(mismatch, 160)
+			<< " actual=" << actualEvent.substr(mismatch, 160) << '\n';
+		return Fail("v2 telemetry event ordering, formatting, or escaping changed");
+	}
+	event.FiniteMoveCommandGuardRequested = true;
+	event.Bots.front().FiniteMoveCommandGuardRejectionsExact = 1;
+	event.Bots.front().FiniteMoveCommandGuardDiagnostics = {
+		{ 1, 4, 3, 7, "nan", "finite", "positive_infinity", "tick_pre_latent_destination",
+			"recovered_from_finite_location", false, true }
+	};
+	const std::string finiteMoveGuardEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (finiteMoveGuardEvent.find(
+		"\"finite_move_command_guard_rejections_exact\":\"1\",\"finite_move_command_guard_diagnostic_overflows_exact\":\"0\",\"finite_move_command_guard_diagnostics\":[{\"sequence\":\"1\",\"observer_tick\":\"4\",\"life_id\":\"3\",\"actor_index\":7,\"requested_x_class\":\"nan\",\"requested_y_class\":\"finite\",\"requested_z_class\":\"positive_infinity\",\"source\":\"tick_pre_latent_destination\",\"terminal\":\"recovered_from_finite_location\",\"prior_destination_finite\":false,\"prior_focus_finite\":true}]")
+		== std::string::npos)
+	{
+		return Fail("finite MoveTo command guard telemetry was not JSON-safe and exact");
+	}
+	event.FiniteMoveCommandGuardRequested = false;
+	event.Bots.front().FiniteMoveCommandGuardRejectionsExact = 0;
+	event.Bots.front().FiniteMoveCommandGuardDiagnostics.clear();
+	event.WarnTargetObserverRequested = true;
+	event.WarnTargetObserverStatus = "active";
+	for (auto& bot : event.Bots)
+	{
+		bot.WarnTargetObservationsExact = 1;
+		bot.TryToDuckObservationsExact = 1;
+		bot.WarnTargetExactNestedTryToDuckLinksExact = 1;
+		bot.WarnTargetRecords = {
+			{ 1, 0, 18, 71, 3, 8, 9, "warn_target", "warn-target-v1:Bot", bot.Identity, "Attacking",
+				"pri:2", false, true },
+			{ 2, 1, 18, 71, 3, 8, -1, "try_to_duck", "try-to-duck-v1:Bot", bot.Identity, "Attacking",
+				{}, true, true },
+		};
+		bot.TryToDuckOutcomeRecords = {
+			{ 2, 1, 18, 71, 3, 8, 1.0, 2.0, 3.0, false, 4.0, 5.0, 6.0,
+				"Falling", "Attacking", "None", true },
+		};
+		bot.WarningDodgeLaunchesExact = 1;
+		bot.WarningDodgeLaunchRecords = {
+			{ 91, 2, 1, 18, 71, 3, 8, 10.0, 11.0, 12.0, 4.0, 5.0, 6.0,
+				0.0, 0.0, 0.0, "PathNode7", "PathNode8", "Ducking", "None", true },
+		};
+		bot.WarningDodgeTerminalOutcomesExact = 1;
+		bot.WarningDodgeTerminalRecords = {
+			{ 91, 2, 3, 8, 24, 5, "harmful_water_exit", {}, true },
+		};
+	}
+	const std::string warnTargetEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (warnTargetEvent.find("\"warn_target_observer\":{\"requested\":true,\"status\":\"active\",\"reason\":\"\"}")
+			== std::string::npos
+		|| warnTargetEvent.find("\"nested_warn_target_sequence\":\"1\",\"observer_tick\":\"18\",\"caller_invocation_token\":\"71\"")
+			== std::string::npos
+		|| warnTargetEvent.find("\"requested_duck_dir\":{\"x\":1.000000000,\"y\":2.000000000,\"z\":3.000000000}")
+			== std::string::npos
+		|| warnTargetEvent.find("\"warning_dodge_launches_exact\":\"1\"") == std::string::npos
+		|| warnTargetEvent.find("\"launch_token\":\"91\"") == std::string::npos
+		|| warnTargetEvent.find("\"launch_location\":{\"x\":10.000000000,\"y\":11.000000000,\"z\":12.000000000}")
+			== std::string::npos
+		|| warnTargetEvent.find("\"warning_dodge_terminal_outcomes_exact\":\"1\"")
+			== std::string::npos)
+	{
+		return Fail("WarnTarget observer telemetry serialization was incomplete");
+	}
+	event.WarnTargetObserverRequested = false;
+	for (auto& bot : event.Bots)
+	{
+		bot.WarnTargetRecords.clear();
+		bot.TryToDuckOutcomeRecords.clear();
+		bot.WarningDodgeLaunchRecords.clear();
+		bot.WarningDodgeTerminalRecords.clear();
+	}
+	event.PickTargetObserverRequested = true;
+	for (auto& bot : event.Bots)
+	{
+		bot.PickTargetRecords = {
+			{ 1, 17, 70, 3, 4, 8, 9, 2, 0, 0, 2, 0, 0, 2, 2, true, true,
+				false, true, "Botpack.Bot", "PickTarget", "Bot2", "Botpack.Bot" },
+		};
+	}
+	const std::string pickTargetEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (pickTargetEvent.find("\"observer_tick\":\"17\",\"caller_invocation_token\":\"70\"")
+			== std::string::npos
+		|| pickTargetEvent.find("\"source_life_id\":\"3\",\"selected_life_id\":\"4\"")
+			== std::string::npos)
+	{
+		return Fail("PickTarget provenance telemetry serialization was incomplete");
+	}
+	event.PickTargetObserverRequested = false;
+	for (auto& bot : event.Bots)
+		bot.PickTargetRecords.clear();
+	event.PawnVisionObserverRequested = true;
+	for (auto& bot : event.Bots)
+	{
+		bot.PawnCanSeeObservationsExact = 1;
+		bot.PawnCanSeeReturnedVisibleExact = 1;
+		bot.PawnCanSeeLegacyCorrectedDivergencesExact = 1;
+		bot.PawnCanSeeRecords = {
+			{ 2, 19, 72, 3, 4, 8, 9, 0.7f, true, false, true, true, true,
+				true, "Botpack.Bot", "Follow", "Bot2", "Botpack.Bot" },
+		};
+	}
+	const std::string pawnVisionEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (pawnVisionEvent.find("\"pawn_vision_observer\":{\"requested\":true,\"status\":\"active\"}")
+			== std::string::npos
+		|| pawnVisionEvent.find("\"pawn_can_see_observations_exact\":\"1\"")
+			== std::string::npos
+		|| pawnVisionEvent.find("\"observer_tick\":\"19\",\"caller_invocation_token\":\"72\"")
+			== std::string::npos
+		|| pawnVisionEvent.find("\"legacy_cone_accepted\":false,\"corrected_cone_accepted\":true,\"corrected_cone_selected\":true,\"returned_visible\":true")
+			== std::string::npos)
+	{
+		return Fail("Pawn.CanSee observer telemetry serialization was incomplete");
+	}
+	event.PawnVisionObserverRequested = false;
+	for (auto& bot : event.Bots)
+		bot.PawnCanSeeRecords.clear();
+	event.VectorNonFiniteObserverRequested = true;
+	for (auto& bot : event.Bots)
+	{
+		bot.VectorNonFiniteObservationsExact = 1;
+		bot.VectorNonFiniteRecords = {
+			{ 1, 23, 75, 3, 8, "normal", "finite", "finite", "finite", "nan",
+				false, false, true, "UnrealShare.Bots", "RecoverEnemy" },
+		};
+	}
+	const std::string vectorNonFiniteEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (vectorNonFiniteEvent.find("\"vector_nonfinite_observer\":{\"requested\":true,\"status\":\"active\"}")
+			== std::string::npos
+		|| vectorNonFiniteEvent.find("\"vector_nonfinite_observations_exact\":\"1\"")
+			== std::string::npos
+		|| vectorNonFiniteEvent.find("\"operation\":\"normal\",\"left_vector_class\":\"finite\"")
+			== std::string::npos
+		|| vectorNonFiniteEvent.find("\"caller_invocation_token\":\"75\"")
+			== std::string::npos)
+	{
+		return Fail("vector non-finite observer telemetry serialization was incomplete");
+	}
+	event.VectorNonFiniteObserverRequested = false;
+	for (auto& bot : event.Bots)
+		bot.VectorNonFiniteRecords.clear();
+
+	PawnMoveStallRecoveryEpisodeRecord recoveryEpisode;
+	recoveryEpisode.SourcePawnActor = "Bot\"Recovery";
+	recoveryEpisode.Sequence = 8;
+	recoveryEpisode.LifeId = 3;
+	recoveryEpisode.EpisodeId = 5;
+	recoveryEpisode.SecondsSinceDetection = 2.5f;
+	recoveryEpisode.Outcome =
+		PawnMovement::MoveStallRecoveryEpisodeOutcome::ReplannedWithin5Seconds;
+	event.Bots.front().MoveStallRecoveryEpisodes = { recoveryEpisode };
+	event.Bots.front().MoveStallRecoveryEpisodesExact = 1;
+	event.Bots.front().MoveStallRecoveryReplannedWithin5SecondsExact = 1;
+	const std::string recoveryEpisodeEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (recoveryEpisodeEvent.find(
+		"\"move_stall_recovery_episodes_exact\":\"1\",\"move_stall_recovery_cleared_within_2_seconds_exact\":\"0\"")
+			== std::string::npos
+		|| recoveryEpisodeEvent.find(
+			"\"source_pawn_actor\":\"Bot\\\"Recovery\",\"sequence\":\"8\",\"life_id\":\"3\",\"episode_id\":\"5\",\"seconds_since_detection\":2.500000000,\"outcome\":\"replanned_within_5_seconds\"")
+			== std::string::npos)
+	{
+		return Fail("move-stall recovery telemetry was not serialized completely");
+	}
+	event.Bots.front().MoveStallRecoveryEpisodes.clear();
+	event.Bots.front().MoveStallRecoveryEpisodesExact = 0;
+	event.Bots.front().MoveStallRecoveryReplannedWithin5SecondsExact = 0;
+
+	PawnMovement::WalkingHitWallDispatchDiagnosticRecord hitWallDiagnostic;
+	hitWallDiagnostic.SourcePawnActor = "Bot\"Wall";
+	hitWallDiagnostic.Sequence = 4;
+	hitWallDiagnostic.ContactPhase = PawnMovement::WalkingHitWallContactPhase::AlignedSlide;
+	hitWallDiagnostic.HitNormal = vec3(1.0f, 0.0f, 0.0f);
+	hitWallDiagnostic.Velocity = vec3(-300.0f, 0.0f, 0.0f);
+	hitWallDiagnostic.MinHitWall = -0.5f;
+	hitWallDiagnostic.Decision = PawnMovement::EvaluateWalkingHitWallDispatch(
+		hitWallDiagnostic.HitNormal, hitWallDiagnostic.Velocity,
+		hitWallDiagnostic.MinHitWall);
+	hitWallDiagnostic.Blocker = PawnMovement::WalkingHitWallBlockerKind::StaticWorld;
+	hitWallDiagnostic.CallbackDispatched = true;
+	hitWallDiagnostic.PhysicsChangedByCallback = true;
+	event.Bots.front().WalkingHitWallDispatchDiagnostics = { hitWallDiagnostic };
+	const std::string hitWallEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (hitWallEvent.find("\"source_pawn_actor\":\"Bot\\\"Wall\",\"sequence\":\"4\",\"contact_phase\":\"aligned_slide\",\"hit_normal\":{\"x\":1.000000,\"y\":0.000000,\"z\":0.000000}")
+		== std::string::npos
+		|| hitWallEvent.find("\"normal_velocity_dot\":-1.000000,\"valid\":true,\"legacy_vertical_wall_band\":true,\"min_hit_wall_dispatch\":true,\"callback_selected_by_minhitwall_candidate\":false,\"blocker\":\"static_world\",\"callback_dispatched\":true,\"physics_changed_by_callback\":true")
+			== std::string::npos)
+	{
+		return Fail("walking HitWall dispatch diagnostics were not serialized completely");
+	}
+	event.Bots.front().WalkingHitWallDispatchDiagnostics.clear();
+
+	PawnMovement::WalkingStepPreflightDiagnosticRecord diagnostic;
+	diagnostic.SourcePawnActor = "Bot\"17";
+	diagnostic.Sequence = 7;
+	diagnostic.LifeGeneration = 2;
+	diagnostic.InvocationToken = 9;
+	diagnostic.MovementCommandToken = 13;
+	diagnostic.WalkingIteration = 1;
+	diagnostic.Phase = "post_mayfall_confirmation";
+	diagnostic.TransitionOutcome = "begin_falling";
+	diagnostic.Reason = PawnMovement::WalkingStepPreflightReason::HarmfulPainFall;
+	diagnostic.PrecommitOrigin = vec3(1.0f, 2.0f, 3.0f);
+	diagnostic.PredictedUnsupportedEndpoint = vec3(4.0f, 5.0f, 6.0f);
+	diagnostic.ActualUnsupportedEndpoint = vec3(4.0f, 5.0f, 6.0f);
+	diagnostic.SemanticTarget = "Bullet\"Box4";
+	diagnostic.FallForecastAttempted = true;
+	diagnostic.FallForecastOrigin = vec3(7.0f, 8.0f, 9.0f);
+	diagnostic.FallForecastVelocity = vec3(10.0f, 11.0f, 12.0f);
+	diagnostic.FallForecastAcceleration = vec3(13.0f, 14.0f, 15.0f);
+	diagnostic.FallForecastGravityKnown = true;
+	diagnostic.FallForecastGravity = vec3(0.0f, 0.0f, -950.0f);
+	diagnostic.FallForecast.Complete = true;
+	diagnostic.FallForecast.TotalDrop = 128.0f;
+	diagnostic.FallForecast.Landing.Collision =
+		PawnMovement::WalkingStepCollisionKind::StaticBsp;
+	diagnostic.FallForecast.Landing.Zone = PawnMovement::WalkingStepZoneKind::Pain;
+	diagnostic.FallForecast.PainDamagePerSecKnown = true;
+	diagnostic.FallForecast.PainDamagePerSec = 20.0f;
+	diagnostic.FallHitFractions[0] = 0.5f;
+	diagnostic.FallHitCount = 1;
+	PawnMovement::WalkingStepPreflightDiagnosticRecord provisionalDiagnostic = diagnostic;
+	provisionalDiagnostic.Sequence = 6;
+	provisionalDiagnostic.Phase = "precommit_provisional";
+	event.Bots.front().WalkingStepPreflightDiagnostics.push_back(provisionalDiagnostic);
+	event.Bots.front().WalkingStepPreflightDiagnostics.push_back(diagnostic);
+	const std::string diagnosticEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	const std::string correlationKey =
+		"\"source_pawn_actor\":\"Bot\\\"17\",\"sequence\":";
+	const std::string transactionKey =
+		"\"life_generation\":\"2\",\"invocation_token\":\"9\",\"movement_command_token\":\"13\",\"walking_iteration\":1";
+	const size_t firstCorrelation = diagnosticEvent.find(correlationKey);
+	const size_t secondCorrelation = firstCorrelation == std::string::npos
+		? std::string::npos : diagnosticEvent.find(correlationKey,
+			firstCorrelation + correlationKey.size());
+	const size_t firstTransaction = diagnosticEvent.find(transactionKey);
+	const size_t secondTransaction = firstTransaction == std::string::npos
+		? std::string::npos : diagnosticEvent.find(transactionKey,
+			firstTransaction + transactionKey.size());
+	if (firstCorrelation == std::string::npos || secondCorrelation == std::string::npos
+		|| firstTransaction == std::string::npos || secondTransaction == std::string::npos
+		|| diagnosticEvent.find("\"phase\":\"post_mayfall_confirmation\"") == std::string::npos
+		|| diagnosticEvent.find("\"semantic_target\":\"Bullet\\\"Box4\"") == std::string::npos
+		|| diagnosticEvent.find("\"fall_forecast\":{\"attempted\":true,\"origin\":{\"x\":7.000000,\"y\":8.000000,\"z\":9.000000},\"velocity\":{\"x\":10.000000,\"y\":11.000000,\"z\":12.000000},\"acceleration\":{\"x\":13.000000,\"y\":14.000000,\"z\":15.000000},\"gravity_known\":true,\"gravity\":{\"x\":0.000000,\"y\":0.000000,\"z\":-950.000000}") == std::string::npos
+		|| diagnosticEvent.find("\"landing_zone\":\"pain\",\"pain_damage_per_sec_known\":true,\"pain_damage_per_sec\":20.000000") == std::string::npos
+		|| diagnosticEvent.find("\"hit_fractions\":[0.500000000]") == std::string::npos)
+		return Fail("walking-step preflight diagnostic serialization was incomplete or unstable");
+	event.Bots.front().WalkingStepPreflightDiagnostics.clear();
+	diagnostic.Phase = "precommit_provisional";
+	diagnostic.TransitionOutcome.clear();
+	diagnostic.Reason = PawnMovement::WalkingStepPreflightReason::NonFinitePainDamagePerSec;
+	diagnostic.FallForecast.PainDamagePerSec = std::numeric_limits<float>::quiet_NaN();
+	event.Bots.front().WalkingStepPreflightDiagnostics.push_back(diagnostic);
+	const std::string nonFiniteDpsEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (nonFiniteDpsEvent.find(
+		"\"pain_damage_per_sec_known\":true,\"pain_damage_per_sec\":null")
+		== std::string::npos)
+	{
+		return Fail("non-finite preflight landing DPS was not serialized as JSON-safe null");
+	}
+	event.Bots.front().WalkingStepPreflightDiagnostics.clear();
+
+	PawnMovement::FallingParityRealizedRecord parityRecord;
+	parityRecord.Correlation.SourcePawnActor = "Necroth";
+	parityRecord.Correlation.LifeGeneration = 2;
+	parityRecord.Correlation.InvocationToken = 9;
+	parityRecord.Correlation.WalkingIteration = 1;
+	parityRecord.StepOrdinal = 10;
+	parityRecord.Outcome = PawnMovement::FallingParityRealizedOutcome::CallbackBarrier;
+	parityRecord.Elapsed = 1.0f / 60.0f;
+	parityRecord.Collision = PawnMovement::FallingParityCollisionKind::StaticWorld;
+	parityRecord.HitFraction = 0.25f;
+	parityRecord.HitNormal = vec3(0.0f, 1.0f, 0.0f);
+	parityRecord.CallbackBarrierMask = 1u << 8;
+	event.Bots.front().FallingParityRealizedRecords.push_back(parityRecord);
+	const std::string parityEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (parityEvent.find("\"source_pawn_actor\":\"Necroth\",\"life_generation\":\"2\",\"invocation_token\":\"9\",\"walking_iteration\":1") == std::string::npos
+		|| parityEvent.find("\"step_ordinal\":\"10\",\"outcome\":\"callback_barrier\"") == std::string::npos
+		|| parityEvent.find("\"collision\":\"static_world\",\"hit_fraction\":0.250000000") == std::string::npos
+		|| parityEvent.find("\"callback_barrier_mask\":\"256\"") == std::string::npos)
+		return Fail("falling parity realized record serialization was incomplete or unstable");
+	parityRecord.Outcome = PawnMovement::FallingParityRealizedOutcome::MatchedLanding;
+	parityRecord.HitNormal = vec3(0.0f, 0.0f, 1.0f);
+	event.Bots.front().FallingParityRealizedRecords.front() = parityRecord;
+	const std::string matchedLandingEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (matchedLandingEvent.find("\"outcome\":\"matched_landing\"")
+		== std::string::npos)
+		return Fail("matched landing step vocabulary was not serialized distinctly");
+	event.Bots.front().FallingParityRealizedRecords.clear();
+
+	PawnMovement::HazardWaterEgressDiagnosticRecord waterEgress;
+	waterEgress.SourcePawnActor = "Alys";
+	waterEgress.Sequence = 5;
+	waterEgress.Entry.LifeId = 3;
+	waterEgress.Entry.EpisodeId = 2;
+	waterEgress.Entry.TransitionSource =
+		PawnMovement::HazardWaterEgressTransitionSource::FallingDirectSweep;
+	waterEgress.Entry.AnchorKnown = true;
+	waterEgress.Entry.Anchor = vec3(1.0f, 2.0f, 3.0f);
+	waterEgress.Entry.EntryLocation = vec3(4.0f, 5.0f, 6.0f);
+	waterEgress.Entry.DamagePerSecond = 20.0f;
+	waterEgress.Entry.MoveTargetName = "PathNode144";
+	waterEgress.Entry.MoveTargetLocationKnown = true;
+	waterEgress.Entry.MoveTargetLocation = vec3(7.0f, 8.0f, 9.0f);
+	waterEgress.Entry.Destination = vec3(10.0f, 11.0f, 12.0f);
+	waterEgress.Entry.ExternalImpulseNavigationCommitKnown = true;
+	waterEgress.Entry.ExternalImpulseNavigationCommitLifeId = 3;
+	waterEgress.Entry.ExternalImpulseMovementCommandActive = true;
+	waterEgress.Entry.ExternalImpulseMovementCommandToken = 11;
+	waterEgress.Entry.ExternalImpulseMovementCommandKind = "move_toward";
+	waterEgress.Entry.ExternalImpulseMovementCommandTargetName = "PathNode144";
+	waterEgress.Entry.ExternalImpulseMovementCommandDestination = vec3(7.0f, 8.0f, 9.0f);
+	waterEgress.Entry.ExternalImpulseMoveTargetName = "PathNode144";
+	waterEgress.Entry.ExternalImpulseMoveTargetNavigation = true;
+	waterEgress.Entry.ExternalImpulseRouteHeadKnown = true;
+	waterEgress.Entry.ExternalImpulseRouteHeadName = "PathNode143";
+	waterEgress.Entry.ExternalImpulseCommitLocation = vec3(16.0f, 17.0f, 18.0f);
+	waterEgress.Entry.ExternalImpulseCommitVelocity = vec3(19.0f, 20.0f, 21.0f);
+	waterEgress.Entry.ExternalImpulseLaunchForecastKnown = true;
+	waterEgress.Entry.ExternalImpulseLaunchForecastHarmful = true;
+	waterEgress.StaticWalkCertificate.CurrentFirstHopProbeKnown = true;
+	waterEgress.StaticWalkCertificate.CurrentFirstHopProbeClear = true;
+	waterEgress.CandidateKnown = true;
+	waterEgress.Candidate = { "PathNode12", vec3(13.0f, 14.0f, 15.0f), 42.0f };
+	waterEgress.CandidateDistanceKnown = true;
+	waterEgress.MinimumCandidateDistance = 12.0f;
+	waterEgress.TerminalCandidateDistance = 13.0f;
+	waterEgress.CandidateProgressSamples = 4;
+	waterEgress.CandidateRegressionSamples = 3;
+	waterEgress.TargetDistanceKnown = true;
+	waterEgress.EntryTargetDistance = 10.0f;
+	waterEgress.MinimumTargetDistance = 4.0f;
+	waterEgress.TerminalTargetDistance = 5.0f;
+	waterEgress.TargetProgressSamples = 6;
+	waterEgress.TargetRegressionSamples = 2;
+	waterEgress.Terminal = PawnMovement::HazardWaterEgressTerminal::DeathBeforeExit;
+	waterEgress.TerminalLocation = vec3(16.0f, 17.0f, 18.0f);
+	waterEgress.TerminalMoveTargetName = "LiftExit6";
+	waterEgress.TerminalDestination = vec3(19.0f, 20.0f, 21.0f);
+	event.Bots.front().HazardWaterEgressDiagnosticOverflowsExact = 1;
+	event.Bots.front().HazardWaterEgressDiagnostics.push_back(waterEgress);
+	const std::string waterEgressEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (waterEgressEvent.find("\"source_pawn_actor\":\"Alys\",\"sequence\":\"5\",\"life_id\":\"3\",\"episode_id\":\"2\",\"transition_source\":\"falling_direct_sweep\"") == std::string::npos)
+		return Fail("hazard-water egress identity serialization was incomplete");
+	if (waterEgressEvent.find("\"candidate_known\":true,\"candidate_name\":\"PathNode12\"") == std::string::npos)
+		return Fail("hazard-water egress candidate serialization was incomplete");
+	if (waterEgressEvent.find("\"falling_launch_snapshot_known\":true,\"falling_launch_life_id\":\"3\",\"falling_launch_movement_command_active\":true,\"falling_launch_movement_command_token\":\"11\",\"falling_launch_movement_command_kind\":\"move_toward\",\"falling_launch_movement_command_target_name\":\"PathNode144\",\"falling_launch_movement_command_destination\":{\"x\":7.000000,\"y\":8.000000,\"z\":9.000000},\"falling_launch_move_target_name\":\"PathNode144\",\"falling_launch_move_target_navigation\":true,\"falling_launch_route_head_known\":true,\"falling_launch_route_head_name\":\"PathNode143\"") == std::string::npos)
+		return Fail("hazard-water egress falling-launch provenance serialization was incomplete");
+	if (waterEgressEvent.find("\"falling_launch_forecast_known\":true,\"falling_launch_forecast_harmful\":true") == std::string::npos)
+		return Fail("hazard-water egress launch-forecast serialization was incomplete");
+	if (waterEgressEvent.find("\"static_walk_current_first_hop_probe_known\":true,\"static_walk_current_first_hop_probe_clear\":true") == std::string::npos)
+		return Fail("hazard-water egress current first-hop probe serialization was incomplete");
+	if (waterEgressEvent.find("\"candidate_distance_known\":true,\"minimum_candidate_distance\":12.000000,\"terminal_candidate_distance\":13.000000,\"candidate_progress_samples\":\"4\",\"candidate_regression_samples\":\"3\"") == std::string::npos)
+		return Fail("hazard-water egress candidate-progress serialization was incomplete");
+	if (waterEgressEvent.find("\"target_progress_samples\":\"6\",\"target_regression_samples\":\"2\",\"terminal\":\"death_before_exit\"") == std::string::npos)
+	{
+		return Fail("hazard-water egress diagnostic serialization was incomplete or unstable");
+	}
+	event.Bots.front().HazardWaterEgressDiagnostics.clear();
+	event.Bots.front().HazardWaterEgressDiagnosticOverflowsExact = 0;
+
+	BotBenchmarkHazardDeathPartitionRecord deathPartition;
+	deathPartition.SourcePawnActor = "Bot1";
+	deathPartition.Sequence = 3;
+	deathPartition.DeathTimeSeconds = 12.5;
+	deathPartition.KillerRelation = "none";
+	deathPartition.Attribution = "unassisted_environmental_death";
+	deathPartition.EnvironmentalSource = "pain_timer";
+	deathPartition.HazardPrefix = "water_egress_death";
+	deathPartition.HazardResidenceTerminalExact = true;
+	deathPartition.HazardResidenceTerminal = "death";
+	deathPartition.HazardResidenceEntryHealth = 73;
+	deathPartition.HazardResidenceHarmfulSeconds = 1.25f;
+	deathPartition.HazardResidenceCommandChanges = 2;
+	deathPartition.HazardResidenceDirectSafeCandidateObserved = true;
+	deathPartition.HazardResidenceDirectSafeCandidateName = "PathNode144";
+	deathPartition.HazardResidenceCommandOwnershipLifeId = 3;
+	deathPartition.HazardResidenceCommandOwnershipExact = true;
+	deathPartition.HazardResidenceCommandOwnershipTargetName = "PathNode144";
+	deathPartition.MovementIntent = true;
+	deathPartition.PhysicsMode = "Swimming";
+	deathPartition.WaterEgressTerminalKnown = true;
+	deathPartition.WaterEgressSequence = 5;
+	deathPartition.WaterEgressLifeId = 3;
+	deathPartition.WaterEgressEpisodeId = 2;
+	event.Bots.front().HazardDeathPartitionRecords.push_back(deathPartition);
+	const std::string deathPartitionEvent = BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (deathPartitionEvent.find(
+		"\"hazard_death_partition_records\":[{\"source_pawn_actor\":\"Bot1\",\"sequence\":\"3\",\"death_time_seconds\":12.500000,\"killer_relation\":\"none\",\"attribution\":\"unassisted_environmental_death\",\"environmental_source\":\"pain_timer\"")
+			== std::string::npos
+		|| deathPartitionEvent.find(
+			"\"water_egress_terminal_known\":true,\"water_egress_sequence\":\"5\",\"water_egress_life_id\":\"3\",\"water_egress_episode_id\":\"2\"")
+			== std::string::npos
+		|| deathPartitionEvent.find(
+			"\"falling_hazard_terminal_known\":false,\"falling_hazard_sequence\":\"0\",\"falling_hazard_life_id\":\"0\"")
+			== std::string::npos
+		|| deathPartitionEvent.find(
+			"\"hazard_residence_terminal_exact\":true,\"hazard_residence_terminal\":\"death\",\"hazard_residence_entry_health\":73,\"hazard_residence_harmful_seconds\":1.250000,\"hazard_residence_command_changes\":\"2\",\"hazard_residence_direct_safe_candidate_observed\":true,\"hazard_residence_direct_safe_candidate_superseded\":false,\"hazard_residence_direct_safe_candidate_name\":\"PathNode144\",\"hazard_residence_command_ownership_life_id\":\"3\",\"hazard_residence_command_ownership_exact\":true,\"hazard_residence_command_ownership_target_name\":\"PathNode144\"")
+			== std::string::npos)
+	{
+		return Fail("hazard death partition serialization was incomplete or unstable");
+	}
+	event.Bots.front().HazardDeathPartitionRecords.clear();
+
+	using namespace PawnMovement;
+	if (std::string(FallingHazardForecastSourceName(
+		FallingHazardForecastSource::AlignedContinuationCommit))
+			!= "aligned_continuation_commit"
+		|| std::string(FallingHazardForecastSourceName(
+			FallingHazardForecastSource::ThirdMoveContinuationCommit))
+			!= "third_move_continuation_commit"
+		|| std::string(FallingHazardForecastSourceName(
+			FallingHazardForecastSource::HorizonContinuationCommit))
+			!= "horizon_continuation_commit"
+		|| std::string(FallingHazardForecastSourceName(
+			FallingHazardForecastSource::ScriptTickTransitionCommit))
+			!= "script_tick_transition_commit"
+		|| std::string(FallingHazardTerminalName(
+			FallingHazardTerminal::HarmfulPainEntered)) != "harmful_pain_entered"
+		|| std::string(FallingHazardCorrelationName(
+			FallingHazardCorrelation::Ambiguous)) != "ambiguous")
+		return Fail("falling hazard diagnostic enum vocabulary was incomplete");
+
+	auto knownZone = [](uint32_t actorId, uint32_t zoneNumber)
+	{
+		return FallingHazardZoneId {
+			.Known = true,
+			.ZoneActorId = actorId,
+			.ZoneNumber = zoneNumber
+		};
+	};
+	FallingHazardDiagnosticRecord start;
+	start.Kind = FallingHazardDiagnosticKind::Start;
+	start.SourcePawnActor = "Bot\"Hazard";
+	start.Sequence = std::numeric_limits<uint64_t>::max();
+	start.PrechargedElapsed = 1.0f / 60.0f;
+	start.Generation.Life.Value = std::numeric_limits<uint64_t>::max() - 1;
+	start.Generation.FallEpisode.Value = std::numeric_limits<uint64_t>::max() - 2;
+	start.Generation.Generation.Value = std::numeric_limits<uint32_t>::max();
+	start.Generation.Source = FallingHazardForecastSource::AlignedContinuationCommit;
+	start.Generation.Forecast = FallingHazardForecast::HarmfulPainObserved;
+	start.Generation.StartingPhysicsZone = knownZone(17, 0);
+	start.Generation.ExpectedHarmfulFootZone = knownZone(23, 0);
+	start.Generation.ExpectedHarmfulPhysicsZone = knownZone(29, 3);
+	start.Generation.ExpectedHarmfulWaterEntry = true;
+	start.Generation.SweptSegmentBudget = 256;
+	start.Generation.ElapsedHorizon = 4.0f;
+	start.AlignedCommandProvenance =
+		FallingHazardAlignedCommandProvenance::NoCommandWitness;
+
+	FallingHazardDiagnosticRecord terminal = start;
+	terminal.Kind = FallingHazardDiagnosticKind::Terminal;
+	terminal.Sequence--;
+	terminal.Generation.Source =
+		FallingHazardForecastSource::ThirdMoveContinuationCommit;
+	terminal.AlignedCommandProvenance =
+		FallingHazardAlignedCommandProvenance::NotAlignedContinuation;
+	terminal.Generation.Terminal = FallingHazardTerminal::HarmfulPainEntered;
+	terminal.Generation.LastObservedPhysicsZone = knownZone(31, 0);
+	terminal.Generation.ObservedHarmfulFootZone = knownZone(37, 5);
+	terminal.Generation.ObservedHarmfulCenterZone = knownZone(41, 7);
+	terminal.Generation.SweptSegmentCount = 3;
+	terminal.Generation.ObservedElapsed = 0.02f;
+	terminal.Generation.HasPositiveElapsed = true;
+	terminal.Generation.PhysicsZoneEvidenceKnown = true;
+	terminal.Generation.HarmfulFootEvidenceKnown = true;
+	terminal.Generation.HarmfulCenterEvidenceKnown = true;
+	terminal.Generation.WaterEvidenceKnown = true;
+	terminal.Generation.EnteredHarmfulFootZone = true;
+	terminal.Generation.EnteredHarmfulCenterZone = true;
+	terminal.Generation.CausalAmbiguity = true;
+	terminal.Generation.LandingCollision = FallingHazardCollisionKind::StaticWorld;
+	terminal.Correlation = FallingHazardCorrelation::Ambiguous;
+
+	FallingHazardDiagnosticRecord capacity;
+	capacity.Kind = FallingHazardDiagnosticKind::GenerationCapacityExceeded;
+	capacity.SourcePawnActor = "BotCapacity";
+	capacity.Sequence = 9;
+	capacity.Generation.Life.Value = 7;
+	capacity.Generation.FallEpisode.Value = 8;
+	capacity.Generation.Source =
+		FallingHazardForecastSource::HorizonContinuationCommit;
+
+	event.Bots.front().VerticalPainColumnEpisodesStartedExact = 10;
+	event.Bots.front().VerticalPainColumnEpisodesCompletedExact = 6;
+	event.Bots.front().VerticalPainColumnTruePositiveOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnFalsePositiveOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnFalseNegativeOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnTrueNegativeOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnAmbiguousOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnUnknownOutcomesExact = 1;
+	event.Bots.front().VerticalPainColumnDiagnosticOverflowsExact = 2;
+	event.Bots.front().VerticalPainColumnGenerationCapacityExhaustionsExact = 3;
+	event.Bots.front().VerticalPainColumnDiagnostics = { start, terminal, capacity };
+	const std::string hazardEvent =
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	if (hazardEvent.find("\"source_pawn_actor\":\"Bot\\\"Hazard\"")
+			== std::string::npos
+		|| hazardEvent.find(
+		"\"sequence\":\"18446744073709551615\",\"life_id\":\"18446744073709551614\",\"fall_episode_id\":\"18446744073709551613\",\"generation_id\":\"4294967295\",\"kind\":\"start\"")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"starting_physics_zone\":{\"known\":true,\"zone_actor_id\":17,\"zone_number\":0}")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"source\":\"aligned_continuation_commit\",\"forecast\":\"harmful_pain_observed\"")
+			== std::string::npos
+		|| hazardEvent.find("\"precharged_elapsed\":0.016666668")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"aligned_command_provenance\":\"no_command_witness\"")
+			== std::string::npos)
+		return Fail("falling hazard start diagnostic serialization was incomplete");
+	if (hazardEvent.find(
+		"\"kind\":\"terminal\",\"source\":\"third_move_continuation_commit\"")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"terminal\":\"harmful_pain_entered\",\"correlation\":\"ambiguous\"")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"last_observed_physics_zone\":{\"known\":true,\"zone_actor_id\":31,\"zone_number\":0}")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"observed_harmful_foot_zone\":{\"known\":true,\"zone_actor_id\":37,\"zone_number\":5},\"observed_harmful_center_zone\":{\"known\":true,\"zone_actor_id\":41,\"zone_number\":7}")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"swept_segment_count\":3,\"observed_elapsed\":0.020000000")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"harmful_foot_evidence_known\":true,\"harmful_center_evidence_known\":true,\"water_evidence_known\":true")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"entered_harmful_foot_zone\":true,\"entered_harmful_center_zone\":true,\"expected_harmful_path_matched\":false")
+			== std::string::npos
+		|| hazardEvent.find("\"causal_ambiguity\":true,\"actual_trajectory_unknown\":false")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"aligned_command_provenance\":\"not_aligned_continuation\"")
+			== std::string::npos)
+		return Fail("falling hazard terminal diagnostic serialization was incomplete");
+	if (hazardEvent.find(
+		"\"source_pawn_actor\":\"BotCapacity\",\"sequence\":\"9\",\"life_id\":\"7\",\"fall_episode_id\":\"8\",\"generation_id\":\"0\",\"kind\":\"generation_capacity_exceeded\",\"attempted_source\":\"horizon_continuation_commit\"")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"vertical_pain_column_true_positive_outcomes_exact\":\"1\"")
+			== std::string::npos
+		|| hazardEvent.find(
+			"\"vertical_pain_column_generation_capacity_exhaustions_exact\":\"3\"")
+			== std::string::npos)
+		return Fail("falling hazard capacity/counter serialization was incomplete");
+	bool rejectedHazardNonFinite = false;
+	try
+	{
+		start.PrechargedElapsed = std::numeric_limits<float>::infinity();
+		event.Bots.front().VerticalPainColumnDiagnostics = { start };
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	}
+	catch (const std::invalid_argument& error)
+	{
+		rejectedHazardNonFinite = std::string(error.what()).find(event.Bots.front().Identity)
+			!= std::string::npos;
+	}
+	if (!rejectedHazardNonFinite)
+		return Fail("falling hazard diagnostics omitted bot provenance for non-finite elapsed evidence");
+	event.Bots.front().VerticalPainColumnDiagnostics.clear();
 
 	bool rejectedNonFinite = false;
 	try
@@ -82,12 +1327,41 @@ int main()
 		event.Bots.front().VelocityX = std::numeric_limits<double>::infinity();
 		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
 	}
+	catch (const std::invalid_argument& error)
+	{
+		rejectedNonFinite = std::string(error.what()).find("velocity.x") != std::string::npos
+			&& std::string(error.what()).find(event.Bots.front().Identity) != std::string::npos;
+	}
+	if (!rejectedNonFinite)
+		return Fail("bot benchmark telemetry did not identify a non-finite bot field");
+
+	rejectedNonFinite = false;
+	try
+	{
+		event.Bots.front().VelocityX = 0.0;
+		event.Bots.front().MoveTimer = std::numeric_limits<double>::quiet_NaN();
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	}
 	catch (const std::invalid_argument&)
 	{
 		rejectedNonFinite = true;
 	}
 	if (!rejectedNonFinite)
-		return Fail("bot benchmark telemetry accepted a non-finite number");
+		return Fail("bot benchmark telemetry accepted a non-finite diagnostic number");
+
+	rejectedNonFinite = false;
+	try
+	{
+		event.Bots.front().MoveTimer = 0.0;
+		event.Bots.front().MoveStallEligibleSeconds = std::numeric_limits<double>::infinity();
+		BotBenchmarkTelemetryProtocol::EventJson(configId, event);
+	}
+	catch (const std::invalid_argument&)
+	{
+		rejectedNonFinite = true;
+	}
+	if (!rejectedNonFinite)
+		return Fail("bot benchmark telemetry accepted non-finite move-stall eligible seconds");
 
 	return 0;
 }

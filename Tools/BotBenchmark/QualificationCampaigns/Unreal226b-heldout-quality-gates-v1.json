@@ -1,0 +1,39 @@
+{
+  "schema": "surreal-bot-quality-gates-v1",
+  "required_metrics": [
+    "completion",
+    "direct_self_kills",
+    "unassisted_environmental_deaths",
+    "ambiguous_deaths",
+    "suicide_to_kill_ratio",
+    "movement_intent_stuck_events_proxy",
+    "match_score_delta",
+    "avoidable_suicide_rate",
+    "recoverable_movement_episode_clear_within_2s_fraction",
+    "recoverable_movement_episode_clear_or_replanned_within_5s_fraction",
+    "role_swapped_participant_policy_coverage",
+    "ai_frame_p95_ms"
+  ],
+  "required_runs": [
+    {"id": "unreal226b-elsinore-candidate-runs", "variant": "enhanced-bot", "map": "DmElsinore", "min": 6},
+    {"id": "unreal226b-radikus-candidate-runs", "variant": "enhanced-bot", "map": "DmRadikus", "min": 6}
+  ],
+  "aggregate_gates": [],
+  "per_run_gates": [
+    {"id": "unreal226b-heldout-candidate-completes", "variant": "enhanced-bot", "metric": "completion", "equals": true},
+    {"id": "unreal226b-heldout-no-direct-self-kills", "variant": "enhanced-bot", "metric": "direct_self_kills", "max": 0},
+    {"id": "unreal226b-heldout-no-unassisted-environmental-deaths", "variant": "enhanced-bot", "metric": "unassisted_environmental_deaths", "max": 0},
+    {"id": "unreal226b-heldout-no-ambiguous-deaths", "variant": "enhanced-bot", "metric": "ambiguous_deaths", "max": 0},
+    {"id": "unreal226b-heldout-avoidable-suicide-rate", "variant": "enhanced-bot", "metric": "avoidable_suicide_rate", "max": 0.999999},
+    {"id": "unreal226b-heldout-recovery-two-seconds", "variant": "enhanced-bot", "metric": "recoverable_movement_episode_clear_within_2s_fraction", "min": 0.95},
+    {"id": "unreal226b-heldout-recovery-five-seconds", "variant": "enhanced-bot", "metric": "recoverable_movement_episode_clear_or_replanned_within_5s_fraction", "equals": 1.0},
+    {"id": "unreal226b-heldout-role-swapped-policy-coverage", "variant": "enhanced-bot", "metric": "role_swapped_participant_policy_coverage", "equals": true},
+    {"id": "unreal226b-heldout-ai-frame-p95", "variant": "enhanced-bot", "metric": "ai_frame_p95_ms", "max": 2.0}
+  ],
+  "paired_gates": [
+    {"id": "unreal226b-elsinore-suicide-rate-non-regression", "baseline_variant": "repaired-stock", "candidate_variant": "enhanced-bot", "map": "DmElsinore", "metric": "suicide_to_kill_ratio", "comparison": "ratio", "direction": "lower", "min_pairs": 6, "maximum_regression": 0.1},
+    {"id": "unreal226b-elsinore-stuck-non-regression", "baseline_variant": "repaired-stock", "candidate_variant": "enhanced-bot", "map": "DmElsinore", "metric": "movement_intent_stuck_events_proxy", "comparison": "ratio", "direction": "lower", "min_pairs": 6, "maximum_regression": 0.1},
+    {"id": "unreal226b-radikus-suicide-rate-non-regression", "baseline_variant": "repaired-stock", "candidate_variant": "enhanced-bot", "map": "DmRadikus", "metric": "suicide_to_kill_ratio", "comparison": "ratio", "direction": "lower", "min_pairs": 6, "maximum_regression": 0.1},
+    {"id": "unreal226b-radikus-stuck-non-regression", "baseline_variant": "repaired-stock", "candidate_variant": "enhanced-bot", "map": "DmRadikus", "metric": "movement_intent_stuck_events_proxy", "comparison": "ratio", "direction": "lower", "min_pairs": 6, "maximum_regression": 0.1}
+  ]
+}

@@ -5,7 +5,7 @@
 #include "Math/coords.h"
 #include "Render/Presentation.h"
 
-#include "UObject/UTexture.h"
+#include "Packages/Engine/Resources/Textures/UTexture.h"
 
 #include <surrealwidgets/core/canvas.h>
 #include <surrealwidgets/core/rect.h>

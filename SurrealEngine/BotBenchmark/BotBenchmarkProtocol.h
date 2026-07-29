@@ -1,7 +1,26 @@
 #pragma once
 
+#include "BotBenchmarkAiFrameTiming.h"
+#include "BotBenchmarkBuildIdentity.h"
+
+#include "BotPickTargetPredicateContract.h"
+
+#include "BotBenchmarkRoster.h"
+
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <vector>
+
+struct BotBenchmarkActualParticipant
+{
+	size_t RosterIndex = 0;
+	std::string Identity;
+	std::string Actor;
+	std::string PlayerName;
+	std::string ClassName;
+};
 
 class BotBenchmarkRunConfig
 {
@@ -12,7 +31,38 @@ public:
 		std::string seed,
 		std::string maxTicks,
 		std::string fixedDelta,
-		std::string difficulty);
+		std::string difficulty,
+		std::optional<std::string> botCount = {},
+		std::optional<std::string> perBotSkills = {},
+		std::optional<std::string> requestedNames = {},
+		std::optional<std::string> harmfulZoneEscape = {},
+		std::optional<std::string> walkingPreflightPositiveDpsVeto = {},
+		std::optional<std::string> hazardSwimEgress = {},
+		std::optional<std::string> hazardSwimEgressLive = {},
+		std::optional<std::string> failedNavigationAvoidance = {},
+		std::optional<std::string> fallingHazardRecovery = {},
+		std::optional<std::string> fallingHazardRecoveryLive = {},
+		std::optional<std::string> targetlessMoveToTimeout = {},
+		std::optional<std::string> directActorMoveTowardTimeout = {},
+		std::optional<std::string> targetSelectionObserver = {},
+		std::optional<std::string> inventoryDirectReachSupportObserver = {},
+		std::optional<std::string> inventoryMarkerDirectReachSafety = {},
+		std::optional<std::string> nativePathCommitObserver = {},
+		std::optional<std::string> directReachCommandObserver = {},
+		std::optional<std::string> pickTargetObserver = {},
+		std::optional<std::string> warnTargetObserver = {},
+		std::optional<std::string> canFireAtEnemyObserver = {},
+		std::optional<std::string> reachSpecCapabilityObserver = {},
+		std::optional<std::string> shadowPolicySet = {},
+		std::optional<std::string> pawnVisionCone = {},
+		std::optional<std::string> pawnVisionObserver = {},
+		std::optional<std::string> vectorNonFiniteObserver = {},
+		std::optional<std::string> finiteMoveCommandGuard = {},
+		std::optional<std::string> pickRegDestinationZeroDivideGuard = {},
+		std::optional<std::string> walkingHitWallMinHitWallCandidate = {},
+		std::optional<std::string> movementCommandProvenanceObserver = {},
+		std::optional<std::string> hazardResidenceCommandTransitionLedgerObserver = {},
+		std::optional<std::string> hazardResidencePreentryCausalSliceObserver = {});
 
 	const std::string& GetURL() const { return URL; }
 	const std::string& GetOutputDirectory() const { return OutputDirectory; }
@@ -20,10 +70,90 @@ public:
 	uint64_t GetMaxTicks() const { return MaxTicks; }
 	float GetFixedDelta() const { return FixedDelta; }
 	int GetDifficulty() const { return Difficulty; }
+	const BotBenchmarkRoster& GetRoster() const { return Roster; }
+	bool IsHarmfulZoneEscapeEnabled() const { return HarmfulZoneEscapeEnabled; }
+	bool IsWalkingPreflightPositiveDpsVetoEnabled() const
+	{
+		return WalkingPreflightPositiveDpsVetoEnabled;
+	}
+	bool IsHazardSwimEgressEnabled() const { return HazardSwimEgressEnabled; }
+	bool IsHazardSwimEgressLiveEnabled() const { return HazardSwimEgressLiveEnabled; }
+	bool IsFailedNavigationAvoidanceEnabled() const { return FailedNavigationAvoidanceEnabled; }
+	bool IsFallingHazardRecoveryEnabled() const { return FallingHazardRecoveryEnabled; }
+	bool IsFallingHazardRecoveryLiveEnabled() const { return FallingHazardRecoveryLiveEnabled; }
+	bool IsTargetlessMoveToTimeoutEnabled() const { return TargetlessMoveToTimeoutEnabled; }
+	bool IsDirectActorMoveTowardTimeoutEnabled() const
+	{
+		return DirectActorMoveTowardTimeoutEnabled;
+	}
+	bool IsTargetSelectionObserverEnabled() const { return TargetSelectionObserverEnabled; }
+	bool IsPickTargetObserverEnabled() const { return PickTargetObserverEnabled; }
+	const char* GetPickTargetPredicateMode() const
+	{
+		return BotPickTargetPredicateContract::ModeName(BotPickTargetPredicateContract::CurrentMode);
+	}
+	bool IsWarnTargetObserverEnabled() const { return WarnTargetObserverEnabled; }
+	bool IsCanFireAtEnemyObserverEnabled() const { return CanFireAtEnemyObserverEnabled; }
+	bool IsInventoryDirectReachSupportObserverEnabled() const
+	{
+		return InventoryDirectReachSupportObserverEnabled;
+	}
+	bool IsInventoryMarkerDirectReachSafetyEnabled() const
+	{
+		return InventoryMarkerDirectReachSafetyEnabled;
+	}
+	bool IsNativePathCommitObserverEnabled() const { return NativePathCommitObserverEnabled; }
+	bool IsReachSpecCapabilityObserverEnabled() const
+	{
+		return ReachSpecCapabilityObserverEnabled;
+	}
+	bool IsDirectReachCommandObserverEnabled() const { return DirectReachCommandObserverEnabled; }
+	bool IsMovementCommandProvenanceObserverEnabled() const
+	{
+		return MovementCommandProvenanceObserverEnabled;
+	}
+	bool IsHazardResidenceCommandTransitionLedgerObserverEnabled() const
+	{
+		return HazardResidenceCommandTransitionLedgerObserverEnabled;
+	}
+	bool IsHazardResidencePreentryCausalSliceObserverEnabled() const
+	{
+		return HazardResidencePreentryCausalSliceObserverEnabled;
+	}
+	bool IsPawnVisionConeEnabled() const { return PawnVisionConeEnabled; }
+	bool IsPawnVisionObserverEnabled() const { return PawnVisionObserverEnabled; }
+	bool IsVectorNonFiniteObserverEnabled() const { return VectorNonFiniteObserverEnabled; }
+	bool IsFiniteMoveCommandGuardEnabled() const { return FiniteMoveCommandGuardEnabled; }
+	bool IsPickRegDestinationZeroDivideGuardEnabled() const
+	{
+		return PickRegDestinationZeroDivideGuardEnabled;
+	}
+	bool IsWalkingHitWallMinHitWallCandidateEnabled() const
+	{
+		return WalkingHitWallMinHitWallCandidateEnabled;
+	}
+	const std::vector<std::string>& GetShadowPolicySet() const { return ShadowPolicySet; }
 
 private:
 	BotBenchmarkRunConfig(std::string url, std::string outputDirectory, uint64_t seed,
-		uint64_t maxTicks, float fixedDelta, int difficulty);
+		uint64_t maxTicks, float fixedDelta, int difficulty, BotBenchmarkRoster roster,
+		bool harmfulZoneEscapeEnabled, bool walkingPreflightPositiveDpsVetoEnabled,
+		bool hazardSwimEgressEnabled, bool hazardSwimEgressLiveEnabled,
+		bool failedNavigationAvoidanceEnabled, bool fallingHazardRecoveryEnabled,
+		bool fallingHazardRecoveryLiveEnabled, bool targetlessMoveToTimeoutEnabled,
+		bool directActorMoveTowardTimeoutEnabled, bool targetSelectionObserverEnabled,
+		bool inventoryDirectReachSupportObserverEnabled, bool nativePathCommitObserverEnabled,
+		bool inventoryMarkerDirectReachSafetyEnabled, bool directReachCommandObserverEnabled,
+		bool pickTargetObserverEnabled, bool warnTargetObserverEnabled,
+		bool canFireAtEnemyObserverEnabled,
+		bool reachSpecCapabilityObserverEnabled, bool pawnVisionConeEnabled,
+		bool pawnVisionObserverEnabled, bool vectorNonFiniteObserverEnabled,
+		bool finiteMoveCommandGuardEnabled, bool pickRegDestinationZeroDivideGuardEnabled,
+		bool walkingHitWallMinHitWallCandidateEnabled,
+		bool movementCommandProvenanceObserverEnabled,
+		bool hazardResidenceCommandTransitionLedgerObserverEnabled,
+		bool hazardResidencePreentryCausalSliceObserverEnabled,
+		std::vector<std::string> shadowPolicySet);
 
 	std::string URL;
 	std::string OutputDirectory;
@@ -31,6 +161,45 @@ private:
 	uint64_t MaxTicks = 0;
 	float FixedDelta = 0.0f;
 	int Difficulty = 0;
+	BotBenchmarkRoster Roster;
+	bool HarmfulZoneEscapeEnabled = false;
+	bool WalkingPreflightPositiveDpsVetoEnabled = false;
+	bool HazardSwimEgressEnabled = false;
+	bool HazardSwimEgressLiveEnabled = false;
+	bool FailedNavigationAvoidanceEnabled = false;
+	bool FallingHazardRecoveryEnabled = false;
+	bool FallingHazardRecoveryLiveEnabled = false;
+	bool TargetlessMoveToTimeoutEnabled = false;
+	bool DirectActorMoveTowardTimeoutEnabled = false;
+	bool TargetSelectionObserverEnabled = false;
+	bool PickTargetObserverEnabled = false;
+	bool WarnTargetObserverEnabled = false;
+	bool CanFireAtEnemyObserverEnabled = false;
+	bool InventoryDirectReachSupportObserverEnabled = false;
+	bool InventoryMarkerDirectReachSafetyEnabled = false;
+	bool NativePathCommitObserverEnabled = false;
+	bool ReachSpecCapabilityObserverEnabled = false;
+	bool DirectReachCommandObserverEnabled = false;
+	bool MovementCommandProvenanceObserverEnabled = false;
+	bool HazardResidenceCommandTransitionLedgerObserverEnabled = false;
+	bool HazardResidencePreentryCausalSliceObserverEnabled = false;
+	bool PawnVisionConeEnabled = false;
+	bool PawnVisionObserverEnabled = false;
+	bool VectorNonFiniteObserverEnabled = false;
+	bool FiniteMoveCommandGuardEnabled = false;
+	bool PickRegDestinationZeroDivideGuardEnabled = false;
+	bool WalkingHitWallMinHitWallCandidateEnabled = false;
+	std::vector<std::string> ShadowPolicySet;
+};
+
+// Each component is measured inside the benchmark-only AI timing scope. The
+// aggregate remains the release-gate value; components make an over-budget
+// observation run actionable without timing game simulation or file I/O.
+struct BotBenchmarkAiFrameTimingComponents
+{
+	BotBenchmarkAiFrameTimingSummary NavigationCoverage;
+	BotBenchmarkAiFrameTimingSummary ShadowObservationAndPolicy;
+	BotBenchmarkAiFrameTimingSummary StateSampling;
 };
 
 class BotBenchmarkRunSummary
@@ -38,8 +207,11 @@ class BotBenchmarkRunSummary
 public:
 	BotBenchmarkRunSummary(std::string status, int exitCode, uint64_t ticks,
 		double simulatedSeconds, std::string game, std::string version,
-		std::string map, std::string botClass, std::string botName,
-		std::string failureReason);
+		std::string map, std::string failureReason,
+		std::vector<BotBenchmarkActualParticipant> actualRoster,
+		BotBenchmarkAiFrameTimingSummary aiFrameTiming = {},
+		BotBenchmarkAiFrameTimingComponents aiFrameTimingComponents = {},
+		BotBenchmarkBuildIdentity buildIdentity = {});
 
 	std::string ToJson(const BotBenchmarkRunConfig& config) const;
 
@@ -51,7 +223,9 @@ private:
 	std::string Game;
 	std::string Version;
 	std::string Map;
-	std::string BotClass;
-	std::string BotName;
 	std::string FailureReason;
+	std::vector<BotBenchmarkActualParticipant> ActualRoster;
+	BotBenchmarkAiFrameTimingSummary AiFrameTiming;
+	BotBenchmarkAiFrameTimingComponents AiFrameTimingComponents;
+	BotBenchmarkBuildIdentity BuildIdentity;
 };

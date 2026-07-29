@@ -9,11 +9,8 @@
 #include "Platform/OpenXR/OpenXRView.h"
 #include "Platform/OpenXR/OpenXRUIRuntime.h"
 #include "GameWindow.h"
-#include "UObject/UActor.h"
-#include "UObject/UnrealURL.h"
-#include "UObject/UWindow.h"
-#include "UObject/UDXSaveInfo.h"
-#include "UObject/UDeusExLevelInfo.h"
+#include "Packages/Engine/Actors/UActor.h"
+#include "UnrealURL.h"
 #include "GameFolder.h"
 #include "Input/InputComposition.h"
 #include "Input/XRInputAdapter.h"
@@ -45,6 +42,7 @@ class UViewport;
 class UCanvas;
 class UConsole;
 class UPlayerPawn;
+class UWeapon;
 class UGameInfo;
 class UGameReplicationInfo;
 class UPlayerReplicationInfo;
@@ -64,12 +62,17 @@ class UnrealURL;
 class VideoPlayer;
 class BrowserCinematicPlayback;
 class OpenXRProvider;
+class BotSpectatorMatch;
 class UnrealMipmap;
 class UFloatProperty;
 class UObjectProperty;
 class UStructProperty;
 class UConversationMissionList;
 class UConversationList;
+class UDXSaveInfo;
+class UDeusExLevelInfo;
+class URootWindow;
+class UGC;
 struct FTextureInfo;
 struct FSceneNode;
 struct FSurfaceFacet;
@@ -114,9 +117,222 @@ public:
 	const XRHandedness& GetXRHandedness() const { return xrHandedness; }
 	void RenderGameFrame(float levelElapsed);
 	void RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily);
+	void CaptureAutomationFrame(const std::string& outputDirectory,
+		const std::string& sessionId, const std::string& sourceRevision,
+		bool sourceDirty, const std::string& commandId,
+		const std::string& configIdentity, uint64_t tick,
+		uint64_t observationRevision, const std::string& capturePhase,
+		uint64_t expectedTelemetrySequence,
+		const std::function<std::string()>& observationProvider);
 	void FinishGameFrame(float levelElapsed);
 	void Shutdown();
 	int GetRunExitCode() const { return m_RunExitCode; }
+	bool IsBotBenchmarkWalkingPreflightEnabled() const
+	{
+		return botBenchmarkWalkingPreflightEnabled;
+	}
+	bool IsBotBenchmarkFallingHitWallCallbackWitnessEnabled() const
+	{
+		return botBenchmarkFallingHitWallCallbackWitnessEnabled;
+	}
+	void SetBotBenchmarkFallingHitWallCallbackWitnessEnabled(bool enabled)
+	{
+		botBenchmarkFallingHitWallCallbackWitnessEnabled = enabled;
+	}
+	bool IsBotBenchmarkHarmfulZoneEscapeEnabled() const
+	{
+		return botBenchmarkHarmfulZoneEscapeEnabled;
+	}
+	void SetBotBenchmarkHarmfulZoneEscapeEnabled(bool enabled)
+	{
+		botBenchmarkHarmfulZoneEscapeEnabled = enabled;
+	}
+	bool IsBotBenchmarkWalkingPreflightPositiveDpsVetoEnabled() const
+	{
+		return botBenchmarkWalkingPreflightPositiveDpsVetoEnabled;
+	}
+	void SetBotBenchmarkWalkingPreflightPositiveDpsVetoEnabled(bool enabled)
+	{
+		botBenchmarkWalkingPreflightPositiveDpsVetoEnabled = enabled;
+	}
+	bool IsBotBenchmarkHazardSwimEgressEnabled() const
+	{
+		return botBenchmarkHazardSwimEgressEnabled;
+	}
+	void SetBotBenchmarkHazardSwimEgressEnabled(bool enabled)
+	{
+		botBenchmarkHazardSwimEgressEnabled = enabled;
+	}
+	bool IsBotBenchmarkHazardSwimEgressLiveEnabled() const
+	{
+		return botBenchmarkHazardSwimEgressLiveEnabled;
+	}
+	void SetBotBenchmarkHazardSwimEgressLiveEnabled(bool enabled)
+	{
+		botBenchmarkHazardSwimEgressLiveEnabled = enabled;
+	}
+	bool IsBotBenchmarkFallingHazardRecoveryEnabled() const
+	{
+		return botBenchmarkFallingHazardRecoveryEnabled;
+	}
+	void SetBotBenchmarkFallingHazardRecoveryEnabled(bool enabled)
+	{
+		botBenchmarkFallingHazardRecoveryEnabled = enabled;
+	}
+	bool IsBotBenchmarkFallingHazardRecoveryLiveEnabled() const
+	{
+		return botBenchmarkFallingHazardRecoveryLiveEnabled;
+	}
+	void SetBotBenchmarkFallingHazardRecoveryLiveEnabled(bool enabled)
+	{
+		botBenchmarkFallingHazardRecoveryLiveEnabled = enabled;
+	}
+	bool IsBotBenchmarkFailedNavigationAvoidanceEnabled() const
+	{
+		return botBenchmarkFailedNavigationAvoidanceEnabled;
+	}
+	void SetBotBenchmarkFailedNavigationAvoidanceEnabled(bool enabled)
+	{
+		botBenchmarkFailedNavigationAvoidanceEnabled = enabled;
+	}
+	bool IsBotBenchmarkTargetlessMoveToTimeoutEnabled() const
+	{
+		return botBenchmarkTargetlessMoveToTimeoutEnabled;
+	}
+	void SetBotBenchmarkTargetlessMoveToTimeoutEnabled(bool enabled)
+	{
+		botBenchmarkTargetlessMoveToTimeoutEnabled = enabled;
+	}
+	bool IsBotBenchmarkDirectActorMoveTowardTimeoutEnabled() const
+	{
+		return botBenchmarkDirectActorMoveTowardTimeoutEnabled;
+	}
+	void SetBotBenchmarkDirectActorMoveTowardTimeoutEnabled(bool enabled)
+	{
+		botBenchmarkDirectActorMoveTowardTimeoutEnabled = enabled;
+	}
+	bool IsBotBenchmarkPickTargetObserverEnabled() const
+	{
+		return botBenchmarkPickTargetObserverEnabled;
+	}
+	void SetBotBenchmarkPickTargetObserverEnabled(bool enabled)
+	{
+		botBenchmarkPickTargetObserverEnabled = enabled;
+	}
+	bool IsBotBenchmarkInventoryDirectReachSupportObserverEnabled() const
+	{
+		return botBenchmarkInventoryDirectReachSupportObserverEnabled;
+	}
+	void SetBotBenchmarkInventoryDirectReachSupportObserverEnabled(bool enabled)
+	{
+		botBenchmarkInventoryDirectReachSupportObserverEnabled = enabled;
+	}
+	bool IsBotBenchmarkInventoryMarkerDirectReachSafetyEnabled() const
+	{
+		return botBenchmarkInventoryMarkerDirectReachSafetyEnabled;
+	}
+	void SetBotBenchmarkInventoryMarkerDirectReachSafetyEnabled(bool enabled)
+	{
+		botBenchmarkInventoryMarkerDirectReachSafetyEnabled = enabled;
+	}
+	bool IsBotBenchmarkNativePathCommitObserverEnabled() const
+	{
+		return botBenchmarkNativePathCommitObserverEnabled;
+	}
+	void SetBotBenchmarkNativePathCommitObserverEnabled(bool enabled)
+	{
+		botBenchmarkNativePathCommitObserverEnabled = enabled;
+	}
+	bool IsBotBenchmarkReachSpecCapabilityObserverEnabled() const
+	{
+		return botBenchmarkReachSpecCapabilityObserverEnabled;
+	}
+	void SetBotBenchmarkReachSpecCapabilityObserverEnabled(bool enabled)
+	{
+		botBenchmarkReachSpecCapabilityObserverEnabled = enabled;
+	}
+	bool IsBotBenchmarkDirectReachCommandObserverEnabled() const
+	{
+		return botBenchmarkDirectReachCommandObserverEnabled;
+	}
+	void SetBotBenchmarkDirectReachCommandObserverEnabled(bool enabled)
+	{
+		botBenchmarkDirectReachCommandObserverEnabled = enabled;
+	}
+	bool IsBotBenchmarkMovementCommandProvenanceObserverEnabled() const
+	{
+		return botBenchmarkMovementCommandProvenanceObserverEnabled;
+	}
+	void SetBotBenchmarkMovementCommandProvenanceObserverEnabled(bool enabled)
+	{
+		botBenchmarkMovementCommandProvenanceObserverEnabled = enabled;
+	}
+	bool IsBotBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled() const
+	{
+		return botBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled;
+	}
+	void SetBotBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled(bool enabled)
+	{
+		botBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled = enabled;
+	}
+	bool IsBotBenchmarkHazardResidencePreentryCausalSliceObserverEnabled() const
+	{
+		return botBenchmarkHazardResidencePreentryCausalSliceObserverEnabled;
+	}
+	void SetBotBenchmarkHazardResidencePreentryCausalSliceObserverEnabled(bool enabled)
+	{
+		botBenchmarkHazardResidencePreentryCausalSliceObserverEnabled = enabled;
+	}
+	bool IsBotBenchmarkPawnVisionConeEnabled() const
+	{
+		return botBenchmarkPawnVisionConeEnabled;
+	}
+	void SetBotBenchmarkPawnVisionConeEnabled(bool enabled)
+	{
+		botBenchmarkPawnVisionConeEnabled = enabled;
+	}
+	bool IsBotBenchmarkPawnVisionObserverEnabled() const
+	{
+		return botBenchmarkPawnVisionObserverEnabled;
+	}
+	void SetBotBenchmarkPawnVisionObserverEnabled(bool enabled)
+	{
+		botBenchmarkPawnVisionObserverEnabled = enabled;
+	}
+	bool IsBotBenchmarkVectorNonFiniteObserverEnabled() const
+	{
+		return botBenchmarkVectorNonFiniteObserverEnabled;
+	}
+	void SetBotBenchmarkVectorNonFiniteObserverEnabled(bool enabled)
+	{
+		botBenchmarkVectorNonFiniteObserverEnabled = enabled;
+	}
+	bool IsBotBenchmarkFiniteMoveCommandGuardEnabled() const
+	{
+		return botBenchmarkFiniteMoveCommandGuardEnabled;
+	}
+	void SetBotBenchmarkFiniteMoveCommandGuardEnabled(bool enabled)
+	{
+		botBenchmarkFiniteMoveCommandGuardEnabled = enabled;
+	}
+	bool IsBotBenchmarkPickRegDestinationZeroDivideGuardEnabled() const
+	{
+		return botBenchmarkPickRegDestinationZeroDivideGuardEnabled;
+	}
+	void SetBotBenchmarkPickRegDestinationZeroDivideGuardEnabled(bool enabled)
+	{
+		botBenchmarkPickRegDestinationZeroDivideGuardEnabled = enabled;
+	}
+	bool IsBotBenchmarkWalkingHitWallMinHitWallCandidateEnabled() const
+	{
+		return botBenchmarkWalkingHitWallMinHitWallCandidateEnabled;
+	}
+	void SetBotBenchmarkWalkingHitWallMinHitWallCandidateEnabled(bool enabled)
+	{
+		botBenchmarkWalkingHitWallMinHitWallCandidateEnabled = enabled;
+	}
+	uint64_t BotBenchmarkObserverTick() const { return botBenchmarkObserverTick; }
+	void SetBotBenchmarkObserverTick(uint64_t tick) { botBenchmarkObserverTick = tick; }
 	void ClientTravel(const std::string& URL, ETravelType travelType, bool transferItems);
 	UnrealURL GetDefaultURL(const std::string& map);
 	void LoadEntryMap();
@@ -132,8 +348,13 @@ public:
 	std::string ConsoleCommand(UObject* context, const std::string& command, BitfieldBool& found);
 
 	void UpdateInput(float timeElapsed);
+	// Headless automation publishes ordinary composed controls without creating
+	// a presentation window or pumping desktop events.
+	void ApplyInputCompositionToViewport(float timeElapsed);
 	void InputCommand(const std::string& command, InputControlId control, float delta) override;
 	void ReleaseInputControl(InputControlId control) override;
+	uint64_t SyntheticInputRequestCount() const { return syntheticInputRequestCount; }
+	uint64_t SyntheticInteractionPressCount() const { return syntheticInteractionPressCount; }
 
 	void LockCursor();
 	void UnlockCursor();
@@ -280,6 +501,7 @@ public:
 	bool getDXWindowDebugMode() const { return m_DrawDebugDXWindowHierarchy; }
 
 private:
+	std::unique_ptr<BotSpectatorMatch> botSpectatorMatch;
 	XRWeaponPoseResult xrWeaponPose;
 	XRWeaponPoseResult xrOffHandWeaponPose;
 	UClass* xrEnforcerClass = nullptr;
@@ -288,7 +510,37 @@ private:
 	bool xrManualSlaveFirePending = false;
 	bool xrAlternateFireKeyDown = false;
 	uint64_t xrWeaponCallHook = 0;
+	bool botBenchmarkWalkingPreflightEnabled = false;
+	bool botBenchmarkFallingHitWallCallbackWitnessEnabled = false;
+	bool botBenchmarkHarmfulZoneEscapeEnabled = false;
+	bool botBenchmarkWalkingPreflightPositiveDpsVetoEnabled = false;
+	bool botBenchmarkHazardSwimEgressEnabled = false;
+	bool botBenchmarkHazardSwimEgressLiveEnabled = false;
+	bool botBenchmarkFallingHazardRecoveryEnabled = false;
+	bool botBenchmarkFallingHazardRecoveryLiveEnabled = false;
+	bool botBenchmarkFailedNavigationAvoidanceEnabled = false;
+	bool botBenchmarkTargetlessMoveToTimeoutEnabled = false;
+	bool botBenchmarkDirectActorMoveTowardTimeoutEnabled = false;
+	bool botBenchmarkPickTargetObserverEnabled = false;
+	bool botBenchmarkInventoryDirectReachSupportObserverEnabled = false;
+	bool botBenchmarkInventoryMarkerDirectReachSafetyEnabled = false;
+	bool botBenchmarkNativePathCommitObserverEnabled = false;
+	bool botBenchmarkReachSpecCapabilityObserverEnabled = false;
+	bool botBenchmarkDirectReachCommandObserverEnabled = false;
+	bool botBenchmarkMovementCommandProvenanceObserverEnabled = false;
+	bool botBenchmarkHazardResidenceCommandTransitionLedgerObserverEnabled = false;
+	bool botBenchmarkHazardResidencePreentryCausalSliceObserverEnabled = false;
+	bool botBenchmarkPawnVisionConeEnabled = false;
+	bool botBenchmarkPawnVisionObserverEnabled = false;
+	bool botBenchmarkVectorNonFiniteObserverEnabled = false;
+	bool botBenchmarkFiniteMoveCommandGuardEnabled = false;
+	bool botBenchmarkPickRegDestinationZeroDivideGuardEnabled = false;
+	bool botBenchmarkWalkingHitWallMinHitWallCandidateEnabled = false;
+	uint64_t botBenchmarkObserverTick = 0;
+	uint64_t syntheticInputRequestCount = 0;
+	uint64_t syntheticInteractionPressCount = 0;
 	ViewFamily CreateDesktopViewFamily() const;
+	void UpdateCameraFromViewport();
 	void InstallXRWeaponCallHook();
 	void UninstallXRWeaponCallHook();
 	float AdvanceGameFrame(float realTimeElapsed);
@@ -305,6 +557,7 @@ private:
 	void ReleaseOpenXRControllerEvents();
 	void ApplyOpenXRControllerEvents(const std::vector<XRNativeKeyEvent>& events);
 	void DispatchPendingXRSlaveFire();
+	void RecordSyntheticInputRequest(bool interactionPress = false);
 	void UpdateOpenXRWeaponDiagnostics(float elapsedSeconds,
 		const XRSpaceSamples& spaces, const XRWorldTransform& worldTransform,
 		const XRWeaponPoseResult& pose);

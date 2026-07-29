@@ -4,18 +4,26 @@
 #include "VM/NativeFunc.h"
 #include "VM/ScriptCall.h"
 #include "VM/Frame.h"
-#include "UObject/USound.h"
-#include "UObject/UActor.h"
-#include "UObject/ULevel.h"
+#include "Packages/Core/UClass.h"
+#include "Packages/Core/UFunction.h"
+#include "Packages/Engine/UViewport.h"
+#include "Packages/Engine/Resources/USound.h"
+#include "Packages/Engine/Resources/Level/ULevel.h"
+#include "Packages/Engine/Resources/Mesh/UMesh.h"
+#include "Packages/Engine/Actors/UActor.h"
+#include "Packages/Engine/Actors/UDecal.h"
+#include "Packages/Engine/Actors/Pawn/UPlayerPawn.h"
+#include "Packages/DeusEx/UScriptedPawn.h"
+#include "Packages/Engine/Actors/Info/UZoneInfo.h"
+#include "Packages/Engine/Actors/Info/ULevelInfo.h"
 #include "Package/PackageManager.h"
 #include "Engine.h"
 #include "Audio/AudioDevice.h"
-#include "UObject/USubsystem.h"
+#include "Packages/Engine/Subsystems/USurrealAudioDevice.h"
 #include "Utils/StrTools.h"
 
 void NActor::RegisterFunctions()
 {
-	RegisterVMNativeFunc_3("Actor", "Add_ColorColor", &NActor::Add_ColorColor, 551);
 	if (engine->LaunchInfo.IsUnreal1_227k())
 		RegisterVMNativeFunc_5("Actor", "AllActors", &NActor::AllActors_U227k, 304);
 	else if (engine->LaunchInfo.IsUnreal1_227())
@@ -56,8 +64,6 @@ void NActor::RegisterFunctions()
 	RegisterVMNativeFunc_2("Actor", "Move", &NActor::Move, 266);
 	RegisterVMNativeFunc_3("Actor", "MoveCacheEntry", &NActor::MoveCacheEntry, 0);
 	RegisterVMNativeFunc_2("Actor", "MoveSmooth", &NActor::MoveSmooth, 3969);
-	RegisterVMNativeFunc_3("Actor", "Multiply_ColorFloat", &NActor::Multiply_ColorFloat, 552);
-	RegisterVMNativeFunc_3("Actor", "Multiply_FloatColor", &NActor::Multiply_FloatColor, 550);
 	RegisterVMNativeFunc_6("Actor", "PlayOwnedSound", &NActor::PlayOwnedSound, 0);
 	if (!engine->LaunchInfo.IsDeusEx())
 		RegisterVMNativeFunc_6("Actor", "PlaySound", &NActor::PlaySound, 264);
@@ -79,8 +85,6 @@ void NActor::RegisterFunctions()
 	RegisterVMNativeFunc_1("Actor", "Sleep", &NActor::Sleep, 256);
 	RegisterLatentAction(257, LatentRunState::Sleep);
 	RegisterVMNativeFunc_6("Actor", "Spawn", &NActor::Spawn, 278);
-	if (!engine->LaunchInfo.IsUnreal1() || engine->LaunchInfo.IsUnreal1_227k())
-		RegisterVMNativeFunc_3("Actor", "Subtract_ColorColor", &NActor::Subtract_ColorColor, 549); // Pre-j versions of U227 reserves this slot for PlayerPawn.IsPressing()
 	RegisterVMNativeFunc_2("Actor", "TouchingActors", &NActor::TouchingActors, 307);
 	if (engine->LaunchInfo.IsUnreal1_227())
 		RegisterVMNativeFunc_9("Actor", "Trace", &NActor::Trace_U227, 277);
@@ -104,6 +108,23 @@ void NActor::RegisterFunctions()
 	RegisterVMNativeFunc_2("Actor", "AIVisibility", &NActor::AIVisibility, 701);
 	RegisterVMNativeFunc_10("Actor", "TraceTexture", &NActor::TraceTexture, 1000);
 	RegisterVMNativeFunc_7("Actor", "TraceVisibleActors", &NActor::TraceVisibleActors, 1003);
+
+	// Color operators
+	// They do not exist in Unreal 1 until the 227j patch and they use different native indexes on j and later
+	if (engine->LaunchInfo.IsUnreal1_227k())
+	{
+		RegisterVMNativeFunc_3("Actor", "Add_ColorColor", &NActor::Add_ColorColor, 552);
+		RegisterVMNativeFunc_3("Actor", "Subtract_ColorColor", &NActor::Subtract_ColorColor, 550);
+		RegisterVMNativeFunc_3("Actor", "Multiply_ColorFloat", &NActor::Multiply_ColorFloat, 553);
+		RegisterVMNativeFunc_3("Actor", "Multiply_FloatColor", &NActor::Multiply_FloatColor, 551);
+	}
+	else if (!engine->LaunchInfo.IsUnreal1())
+	{
+		RegisterVMNativeFunc_3("Actor", "Add_ColorColor", &NActor::Add_ColorColor, 551);
+		RegisterVMNativeFunc_3("Actor", "Subtract_ColorColor", &NActor::Subtract_ColorColor, 549); // U227 reserves this slot for PlayerPawn.IsPressing()
+		RegisterVMNativeFunc_3("Actor", "Multiply_ColorFloat", &NActor::Multiply_ColorFloat, 552);
+		RegisterVMNativeFunc_3("Actor", "Multiply_FloatColor", &NActor::Multiply_FloatColor, 550);
+	}
 
 	if (engine->LaunchInfo.IsUnreal1_227())
 	{
@@ -725,7 +746,7 @@ void NActor::VisibleCollidingActors(UObject* Self, UObject* BaseClass, UObject*&
 {
 	UActor* SelfActor = UObject::Cast<UActor>(Self);
 	Frame::CreatedIterator = std::make_unique<VisibleCollidingActorsIterator>(
-		BaseClass, &Actor,
+		SelfActor, BaseClass, &Actor,
 		Radius ? *Radius : SelfActor->CollisionRadius(),
 		Loc ? *Loc : SelfActor->Location(),
 		bIgnoreHidden ? *bIgnoreHidden : false);
@@ -735,13 +756,11 @@ void NActor::VisibleCollidingActors_219(UObject* Self, UObject* BaseClass, UObje
 {
 	UActor* SelfActor = UObject::Cast<UActor>(Self);
 	Frame::CreatedIterator = std::make_unique<VisibleCollidingActorsIterator>(
-		BaseClass, &Actor,
+		SelfActor, BaseClass, &Actor,
 		Radius ? *Radius : SelfActor->CollisionRadius(),
 		Loc ? *Loc : SelfActor->Location(),
 		false);
 }
-
-
 
 void NActor::GetMeshTexture(UObject* Self, std::optional<int> texnum, UObject*& ReturnValue)  
 {  

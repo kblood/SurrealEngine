@@ -1,5 +1,6 @@
 
 #include "Precomp.h"
+#include "BotBenchmark/BotSpectatorMatch.h"
 #include "Engine.h"
 #include "Utils/File.h"
 #include "Utils/StrTools.h"
@@ -8,6 +9,7 @@
 #include "Runtime/HeadlessDriver.h"
 #include "BotBenchmark/BotBenchmarkDriver.h"
 #include "GameSupport/DeusEx/DockConversationDriver.h"
+#include "Automation/PlayerAutomationDriver.h"
 #include "Input/DesktopInputDefaults.h"
 #include "Platform/OpenXR/OpenXRProvider.h"
 #include "Platform/Browser/BrowserRelativeMouse.h"
@@ -15,23 +17,57 @@
 #include "Render/RenderSubsystem.h"
 #include "Package/PackageManager.h"
 #include "Package/ObjectStream.h"
-#include "UObject/ULevel.h"
-#include "UObject/UFont.h"
-#include "UObject/UMesh.h"
-#include "UObject/UActor.h"
-#include "UObject/ObjectTravelInfo.h"
-#include "UObject/UTexture.h"
-#include "UObject/UMusic.h"
-#include "UObject/USound.h"
-#include "UObject/UClass.h"
-#include "UObject/UClient.h"
-#include "UObject/USubsystem.h"
-#include "UObject/UFlag.h"
-#include "UObject/UConSys.h"
+#include "Packages/Core/UClass.h"
+#include "Packages/Core/UFunction.h"
+#include "Packages/Core/USubsystem.h"
+#include "Packages/Core/Properties/UObjectProperty.h"
+#include "Packages/Core/Properties/UStringProperty.h"
+#include "Packages/Core/Properties/UFloatProperty.h"
+#include "Packages/Core/Properties/UIntProperty.h"
+#include "Packages/Engine/UClient.h"
+#include "Packages/Engine/UConsole.h"
+#include "Packages/Engine/UViewport.h"
+#include "Packages/Engine/UCanvas.h"
+#include "Packages/Engine/Actors/UActor.h"
+#include "Packages/Engine/Actors/Inventory/UWeapon.h"
+#include "Packages/Engine/Actors/Pawn/UPlayerPawn.h"
+#include "Packages/Engine/Actors/Info/ULevelInfo.h"
+#include "Packages/Engine/Actors/Info/UGameInfo.h"
+#include "Packages/Engine/Actors/Info/UZoneInfo.h"
+#include "Packages/Engine/Actors/Info/UPlayerReplicationInfo.h"
+#include "Packages/Engine/Resources/Level/ULevel.h"
+#include "Packages/Engine/Resources/Level/UModel.h"
+#include "Packages/Engine/Resources/UFont.h"
+#include "Packages/Engine/Resources/Mesh/USkeletalMesh.h"
+#include "Packages/Engine/Resources/Textures/UTexture.h"
+#include "Packages/Engine/Resources/UMusic.h"
+#include "Packages/Engine/Resources/USound.h"
+#include "Packages/Engine/USurrealClient.h"
+#include "Packages/Engine/Subsystems/UGameEngine.h"
+#include "Packages/Engine/Subsystems/USurrealRenderDevice.h"
+#include "Packages/Engine/Subsystems/USurrealAudioDevice.h"
+#include "Packages/Engine/Subsystems/USurrealNetworkDevice.h"
+#include "Packages/Extension/UPlayerPawnExt.h"
+#include "Packages/Extension/Flags/UFlag.h"
+#include "Packages/Extension/Flags/UFlagBase.h"
+#include "Packages/Extension/Windows/UGC.h"
+#include "Packages/Extension/Windows/TabGroup/URootWindow.h"
+#include "Packages/ConSys/UConItem.h"
+#include "Packages/ConSys/UConversation.h"
+#include "Packages/ConSys/UConversationList.h"
+#include "Packages/ConSys/UConversationMissionList.h"
+#include "Packages/ConSys/Events/UConEvent.h"
+#include "Packages/ConSys/Events/UConEventTransferObject.h"
+#include "Packages/ConSys/Events/UConEventCheckObject.h"
+#include "Packages/DeusEx/UDeusExLevelInfo.h"
+#include "Packages/DeusEx/UDeusExSaveInfo.h"
+#include "ObjectTravelInfo.h"
 #include "Math/quaternion.h"
 #include "Math/FrustumPlanes.h"
 #include "GameWindow.h"
 #include "RenderDevice/RenderDevice.h"
+#include "RenderDevice/RenderDeviceSelection.h"
+#include "miniz/miniz.h"
 #include "VM/Frame.h"
 #include "VM/ScriptCall.h"
 #include "XR/XRWeaponRuntime.h"
@@ -40,8 +76,14 @@
 #include "Video/VideoPlayer.h"
 #include "Video/VideoFrameScheduler.h"
 #include <atomic>
+#include "Utils/Convert.h"
 #include <chrono>
+#include <filesystem>
+#include <iomanip>
+#include <limits>
 #include <set>
+#include <sstream>
+#include <vector>
 
 Engine* engine = nullptr;
 
@@ -50,6 +92,50 @@ namespace
 	XRInputBindings NativeOpenXRInputBindings(XRHand dominantHand = XRHand::Right)
 	{
 		return XRInputBindings::NativeOpenXR(dominantHand);
+	}
+
+	std::string EscapeCaptureJson(const std::string& value)
+	{
+		std::ostringstream out;
+		for (unsigned char character : value)
+		{
+			switch (character)
+			{
+			case '"': out << "\\\""; break;
+			case '\\': out << "\\\\"; break;
+			case '\b': out << "\\b"; break;
+			case '\f': out << "\\f"; break;
+			case '\n': out << "\\n"; break;
+			case '\r': out << "\\r"; break;
+			case '\t': out << "\\t"; break;
+			default:
+				if (character < 0x20)
+					out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+						<< static_cast<int>(character) << std::dec;
+				else
+					out << static_cast<char>(character);
+			}
+		}
+		return out.str();
+	}
+
+	std::string CaptureJsonString(const std::string& value)
+	{
+		return "\"" + EscapeCaptureJson(value) + "\"";
+	}
+
+	std::string Fnv1a64(const void* data, size_t size)
+	{
+		uint64_t hash = 14695981039346656037ULL;
+		const uint8_t* bytes = static_cast<const uint8_t*>(data);
+		for (size_t index = 0; index < size; index++)
+		{
+			hash ^= bytes[index];
+			hash *= 1099511628211ULL;
+		}
+		std::ostringstream out;
+		out << "fnv1a64:" << std::hex << std::setfill('0') << std::setw(16) << hash;
+		return out.str();
 	}
 }
 
@@ -284,7 +370,14 @@ void Engine::Setup()
 	LoadKeybindings();
 	LogMessage("Loaded key bindings");
 	LogGamePackageSHA1Sums();
-	const bool openXRRequested = ResolveOpenXRLaunchRequest(
+	const std::string headlessDriverName = commandline ?
+		commandline->GetArg("", "--headless-driver") : std::string();
+	const bool automationCaptureRequested = commandline &&
+		!commandline->GetArg("", "--automation-capture-tick").empty();
+	if (automationCaptureRequested && headlessDriverName != "player-automation")
+		throw std::runtime_error(
+			"presented automation capture requires --headless-driver=player-automation");
+	const bool openXRRequested = !automationCaptureRequested && ResolveOpenXRLaunchRequest(
 		LauncherSettings::Get().XR.Enabled,
 		commandline && commandline->HasArg("", "--openxr"),
 		commandline && commandline->HasArg("", "--no-openxr"));
@@ -298,14 +391,46 @@ void Engine::Setup()
 		}
 	}
 
-	const std::string headlessDriverName = commandline ? commandline->GetArg("", "--headless-driver") : std::string();
+	botBenchmarkWalkingPreflightEnabled = headlessDriverName == "bot-benchmark";
 	if (!headlessDriverName.empty())
 	{
+		// Headless simulation still executes ordinary game audio calls (for
+		// example footstep sounds). Give those calls a no-op backend before the
+		// synchronous driver begins, without opening a presentation audio device.
+		audiodev->InitNullDevice();
+		if (automationCaptureRequested)
+		{
+			const RenderDeviceSelection& selection = GetRenderDeviceSelection(
+				LauncherSettings::Get().RenderDevice.Type);
+			if (selection.Type != RenderDeviceType::Vulkan &&
+				selection.Type != RenderDeviceType::D3D11)
+			{
+				throw std::runtime_error(
+					"presented automation capture requires Vulkan or Direct3D 11");
+			}
+			OpenWindow();
+			render = std::make_unique<RenderSubsystem>(window->GetRenderDevice());
+			frameObjProp = GC::Alloc<UObjectProperty>(
+				NameString(), nullptr, ObjectFlags::NoFlags);
+			frameVecProp = GC::Alloc<UStructProperty>(
+				NameString(), nullptr, ObjectFlags::NoFlags);
+			frameRotProp = GC::Alloc<UStructProperty>(
+				NameString(), nullptr, ObjectFlags::NoFlags);
+			LogMessage("Presented automation capture initialized with " +
+				std::string(selection.CommandLineName));
+		}
 		RegisterBotBenchmarkDriver(GetHeadlessDriverRegistry());
 		RegisterDeusExDockConversationDriver(GetHeadlessDriverRegistry());
+		RegisterPlayerAutomationDriver(GetHeadlessDriverRegistry());
 		RunHeadlessDriver(headlessDriverName);
+		if (automationCaptureRequested)
+		{
+			render.reset();
+			CloseWindow();
+		}
 		return;
 	}
+	botSpectatorMatch = CreateBotSpectatorMatchFromCommandLine();
 
 	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
 	LogMessage("[asyncify-stage] OpenWindow begin");
@@ -359,52 +484,60 @@ void Engine::Setup()
 		PlayAVI({ "playavi", "INTRO.AVI", "N" });
 	}
 
-	if (!LaunchInfo.noEntryMap)
+	if (botSpectatorMatch)
 	{
-	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-		LogMessage("[asyncify-stage] Entry map begin");
-	#endif
-		LoadEntryMap();
-	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-		LogMessage("[asyncify-stage] Entry map complete");
-	#endif
-	}
-
-	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-	LogMessage("[asyncify-stage] Main map begin");
-	#endif
-	const UnrealURL defaultUrl = GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap"));
-	const UnrealURL launchUrl = LaunchInfo.url.empty() ? defaultUrl : UnrealURL(defaultUrl, LaunchInfo.url);
-	const bool launchFromSave = launchUrl.HasOption("load") || (LaunchInfo.IsDeusEx() && launchUrl.HasOption("loadgame"));
-	if (launchFromSave)
-	{
-		if (LoadFromSaveFile(launchUrl))
-			PossessSavedPlayer();
-		else
-		{
-			LoadMap(defaultUrl);
-			LoginPlayer();
-		}
+		botSpectatorMatch->Setup(*this);
+		startupIntroActive = false;
 	}
 	else
 	{
-		LoadMap(launchUrl);
+		if (!LaunchInfo.noEntryMap)
+		{
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+			LogMessage("[asyncify-stage] Entry map begin");
+	#endif
+			LoadEntryMap();
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+			LogMessage("[asyncify-stage] Entry map complete");
+	#endif
+		}
+
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] Main map begin");
+	#endif
+		const UnrealURL defaultUrl = GetDefaultURL(packages->GetIniValue("system", "URL", "LocalMap"));
+		const UnrealURL launchUrl = LaunchInfo.url.empty() ? defaultUrl : UnrealURL(defaultUrl, LaunchInfo.url);
+		const bool launchFromSave = launchUrl.HasOption("load") ||
+			(LaunchInfo.IsDeusEx() && launchUrl.HasOption("loadgame"));
+		if (launchFromSave)
+		{
+			if (LoadFromSaveFile(launchUrl))
+				PossessSavedPlayer();
+			else
+			{
+				LoadMap(defaultUrl);
+				LoginPlayer();
+			}
+		}
+		else
+		{
+			LoadMap(launchUrl);
+		}
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] Main map complete");
+	#endif
+		startupIntroActive = !launchFromSave && LaunchInfo.url.empty() &&
+			(LaunchInfo.IsUnrealTournament() || LaunchInfo.IsUnreal1());
+
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] LoginPlayer begin");
+	#endif
+		if (!launchFromSave)
+			LoginPlayer();
+	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
+		LogMessage("[asyncify-stage] LoginPlayer complete");
+	#endif
 	}
-	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-	LogMessage("[asyncify-stage] Main map complete");
-	#endif
-	startupIntroActive = !launchFromSave && LaunchInfo.url.empty() &&
-		(LaunchInfo.IsUnrealTournament() || LaunchInfo.IsUnreal1());
-
-	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-	LogMessage("[asyncify-stage] LoginPlayer begin");
-	#endif
-	if (!launchFromSave)
-		LoginPlayer();
-	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
-	LogMessage("[asyncify-stage] LoginPlayer complete");
-	#endif
-
 	frameObjProp = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	frameVecProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	frameRotProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
@@ -942,29 +1075,40 @@ float Engine::AdvanceGameFrame(float realTimeElapsed)
 	if (EntryLevel)
 		EntryLevel->Tick(entryLevelElapsed, m_GamePaused);
 	Level->Tick(levelElapsed, m_GamePaused);
+	if (botSpectatorMatch)
+		botSpectatorMatch->Tick(*this, levelElapsed);
 
 	if (dxRootWindow)
 		dxRootWindow->Tick(levelElapsed); // Should this maybe be realTimeElapsed?
 
-	// To do: improve CallEvent so parameter passing isn't this painful
-	UFunction* funcPlayerCalcView = viewport->Actor() ? FindEventFunction(viewport->Actor(), "PlayerCalcView") : nullptr;
-	if (funcPlayerCalcView)
-	{
-		frameVecProp->Struct = UObject::Cast<UStructProperty>(funcPlayerCalcView->Properties[1])->Struct;
-		frameRotProp->Struct = UObject::Cast<UStructProperty>(funcPlayerCalcView->Properties[2])->Struct;
-		CameraActor = viewport->Actor();
-		CameraLocation = viewport->Actor()->Location();
-		CameraRotation = viewport->Actor()->Rotation();
-		CameraFovAngle = viewport->Actor()->FovAngle();
-		CallEvent(viewport->Actor(), EventName::PlayerCalcView, {
-			ExpressionValue::Variable(&CameraActor, frameObjProp),
-			ExpressionValue::Variable(&CameraLocation, frameVecProp),
-			ExpressionValue::Variable(&CameraRotation, frameRotProp)
-			});
-	}
+	UpdateCameraFromViewport();
 
 	UpdateAudio();
 	return levelElapsed;
+}
+
+void Engine::UpdateCameraFromViewport()
+{
+	// To do: improve CallEvent so parameter passing isn't this painful.
+	UFunction* funcPlayerCalcView = viewport && viewport->Actor() ?
+		FindEventFunction(viewport->Actor(), "PlayerCalcView") : nullptr;
+	if (!funcPlayerCalcView)
+		return;
+	if (!frameObjProp || !frameVecProp || !frameRotProp)
+		throw std::runtime_error("camera scratch properties are unavailable");
+	frameVecProp->Struct = UObject::Cast<UStructProperty>(
+		funcPlayerCalcView->Properties[1])->Struct;
+	frameRotProp->Struct = UObject::Cast<UStructProperty>(
+		funcPlayerCalcView->Properties[2])->Struct;
+	CameraActor = viewport->Actor();
+	CameraLocation = viewport->Actor()->Location();
+	CameraRotation = viewport->Actor()->Rotation();
+	CameraFovAngle = viewport->Actor()->FovAngle();
+	CallEvent(viewport->Actor(), EventName::PlayerCalcView, {
+		ExpressionValue::Variable(&CameraActor, frameObjProp),
+		ExpressionValue::Variable(&CameraLocation, frameVecProp),
+		ExpressionValue::Variable(&CameraRotation, frameRotProp)
+		});
 }
 
 float Engine::AdvanceGameFrameWithXRWeaponAim(const XRWeaponPoseResult& pose)
@@ -1185,6 +1329,171 @@ void Engine::RenderGameFrame(float levelElapsed, const ViewFamily& viewFamily)
 	}
 #endif
 	render->DrawGame(levelElapsed, viewFamily);
+}
+
+void Engine::CaptureAutomationFrame(const std::string& outputDirectory,
+	const std::string& sessionId, const std::string& sourceRevision,
+	bool sourceDirty, const std::string& commandId,
+	const std::string& configIdentity, uint64_t tick,
+	uint64_t observationRevision, const std::string& capturePhase,
+	uint64_t expectedTelemetrySequence,
+	const std::function<std::string()>& observationProvider)
+{
+	if (!window || !render || !render->Device || !viewport || !viewport->Actor())
+		throw std::runtime_error(
+			"presented automation capture has no initialized desktop renderer");
+	const RenderDeviceSelection& selection = GetRenderDeviceSelection(
+		LauncherSettings::Get().RenderDevice.Type);
+	if (selection.Type != RenderDeviceType::Vulkan &&
+		selection.Type != RenderDeviceType::D3D11)
+		throw std::runtime_error(
+			"presented automation capture renderer does not support synchronous readback");
+	const bool postSimulation = capturePhase == "post_simulation";
+	const bool preAction = capturePhase == "pre_action";
+	const bool preStockInteraction = capturePhase == "pre_stock_interaction";
+	const bool prePickup = capturePhase == "pre_pickup";
+	if (!postSimulation && !preAction && !preStockInteraction && !prePickup)
+		throw std::runtime_error("presented automation capture phase is unsupported");
+	if (!observationProvider)
+		throw std::runtime_error(
+			"presented automation capture observation provider is missing");
+	const uint64_t inputRequestsBeforeRender = syntheticInputRequestCount;
+	const uint64_t interactionPressesBeforeRender = syntheticInteractionPressCount;
+	if (preAction && inputRequestsBeforeRender != 0)
+		throw std::runtime_error(
+			"pre-action capture found an earlier synthetic input request");
+	if (preStockInteraction && interactionPressesBeforeRender != 0)
+		throw std::runtime_error(
+			"pre-stock-interaction capture found an earlier synthetic interaction press");
+
+	const int width = window->GetPixelWidth();
+	const int height = window->GetPixelHeight();
+	if (width <= 0 || height <= 0 || width > 32768 || height > 32768 ||
+		static_cast<uint64_t>(width) * static_cast<uint64_t>(height) >
+			static_cast<uint64_t>(32768) * 32768)
+		throw std::runtime_error("presented automation capture dimensions are invalid");
+
+	const std::filesystem::path root(outputDirectory);
+	const std::filesystem::path captureRoot = root / "visual-capture";
+	const std::string suffix = std::to_string(tick);
+	const std::string imageName = "frame-tick-" + suffix + ".png";
+	const std::string observationName = "observation-tick-" + suffix + ".json";
+	const std::filesystem::path imagePath = captureRoot / imageName;
+	const std::filesystem::path observationPath = captureRoot / observationName;
+	const std::filesystem::path receiptPath = captureRoot / "capture-receipt.json";
+	std::filesystem::create_directories(captureRoot);
+	if (std::filesystem::exists(imagePath) ||
+		std::filesystem::exists(observationPath) ||
+		std::filesystem::exists(receiptPath))
+		throw std::runtime_error(
+			"presented automation capture refuses to overwrite existing evidence");
+
+	UpdateCameraFromViewport();
+	viewport->SetViewportRect(0, 0, width, height);
+	render->SetDirectHudPresentation(false);
+	RenderGameFrame(0.0f, CreateDesktopViewFamily());
+
+	const size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
+	std::vector<FColor> bgra(pixelCount);
+	render->Device->ReadPixels(bgra.data());
+	const std::string observationJson = observationProvider();
+	const uint64_t inputRequestsAfterRender = syntheticInputRequestCount;
+	const uint64_t interactionPressesAfterRender = syntheticInteractionPressCount;
+	if (inputRequestsAfterRender != inputRequestsBeforeRender ||
+		interactionPressesAfterRender != interactionPressesBeforeRender)
+		throw std::runtime_error(
+			"presented automation capture rendering emitted synthetic input");
+	std::vector<uint8_t> rgba(pixelCount * 4);
+	for (size_t index = 0; index < pixelCount; index++)
+	{
+		// The established readback contract stores native BGRA bytes in FColor.
+		rgba[index * 4 + 0] = bgra[index].B;
+		rgba[index * 4 + 1] = bgra[index].G;
+		rgba[index * 4 + 2] = bgra[index].R;
+		rgba[index * 4 + 3] = bgra[index].A;
+	}
+
+	size_t pngSize = 0;
+	void* encoded = tdefl_write_image_to_png_file_in_memory_ex(
+		rgba.data(), width, height, 4, &pngSize, MZ_BEST_COMPRESSION, 0);
+	if (!encoded || pngSize == 0 || pngSize > 25 * 1024 * 1024)
+	{
+		if (encoded)
+			mz_free(encoded);
+		throw std::runtime_error(
+			"presented automation PNG is empty or exceeds the 25 MiB bound");
+	}
+	std::vector<uint8_t> png(static_cast<uint8_t*>(encoded),
+		static_cast<uint8_t*>(encoded) + pngSize);
+	mz_free(encoded);
+	if (observationJson.empty() || observationJson.size() > 8 * 1024 * 1024)
+		throw std::runtime_error(
+			"presented automation observation is empty or exceeds the 8 MiB bound");
+
+	File::write_all_bytes(imagePath.string(), png.data(), png.size());
+	File::write_all_text(observationPath.string(), observationJson);
+
+	const std::string captureId = commandId + "-tick-" + suffix;
+	const char* receiptSchema = postSimulation ?
+		"surreal-visual-qa-presented-capture-receipt-v1" : prePickup ?
+		"surreal-visual-qa-presented-capture-receipt-v3" :
+		"surreal-visual-qa-presented-capture-receipt-v2";
+	const char* publishedPhase = postSimulation ?
+		"post-simulation-no-further-world-tick" : preAction ?
+		"pre-action-no-world-tick" : preStockInteraction ?
+		"pre-stock-interaction-before-input" : "pre-pickup-before-input";
+	std::ostringstream receipt;
+	receipt << "{\n"
+		<< "  \"schema\": " << CaptureJsonString(receiptSchema) << ",\n"
+		<< "  \"session\": {\"session_id\":" << CaptureJsonString(sessionId)
+		<< ",\"source_revision\":" << CaptureJsonString(sourceRevision)
+		<< ",\"source_dirty\":" << (sourceDirty ? "true" : "false") << "},\n"
+		<< "  \"capture\": {\"id\":" << CaptureJsonString(captureId)
+		<< ",\"path\":" << CaptureJsonString(imageName)
+		<< ",\"byte_size\":\"" << png.size() << "\""
+		<< ",\"fnv1a64\":" << CaptureJsonString(Fnv1a64(png.data(), png.size()))
+		<< ",\"tick\":\"" << tick << "\""
+		<< ",\"camera\":\"viewport-player-desktop\""
+		<< ",\"width\":" << width << ",\"height\":" << height
+		<< ",\"renderer\":" << CaptureJsonString(std::string(selection.CommandLineName))
+		<< ",\"capture_method\":\"render-device-read-pixels\""
+		<< ",\"capture_phase\":" << CaptureJsonString(publishedPhase) << "},\n"
+		<< "  \"observation\": {\"path\":" << CaptureJsonString(observationName)
+		<< ",\"byte_size\":\"" << observationJson.size() << "\""
+		<< ",\"fnv1a64\":" << CaptureJsonString(
+			Fnv1a64(observationJson.data(), observationJson.size()))
+		<< ",\"revision\":\"" << observationRevision << "\""
+		<< ",\"tick\":\"" << tick << "\"},\n";
+	if (!postSimulation)
+	{
+		receipt << "  \"barrier\": {\"schema\":"
+			<< (prePickup ? "\"surreal-player-automation-input-barrier-v2\"" :
+				"\"surreal-player-automation-input-barrier-v1\"")
+			<< ",\"phase\":" << CaptureJsonString(capturePhase)
+			<< ",\"telemetry_event_sequence\":\""
+			<< expectedTelemetrySequence << "\""
+			<< ",\"telemetry_event\":\"visual_capture_published\""
+			<< ",\"synthetic_input_requests_before_render\":\""
+			<< inputRequestsBeforeRender << "\""
+			<< ",\"synthetic_input_requests_after_render\":\""
+			<< inputRequestsAfterRender << "\""
+			<< ",\"synthetic_interaction_presses_before_render\":\""
+			<< interactionPressesBeforeRender << "\""
+			<< ",\"synthetic_interaction_presses_after_render\":\""
+			<< interactionPressesAfterRender << "\"},\n";
+	}
+	receipt
+		<< "  \"automation\": {\"manifest_path\":\"../manifest.json\""
+		<< ",\"events_path\":\"../events.jsonl\""
+		<< ",\"summary_path\":\"../summary.json\""
+		<< ",\"command_id\":" << CaptureJsonString(commandId)
+		<< ",\"config_identity\":" << CaptureJsonString(configIdentity) << "},\n"
+		<< "  \"controls_live_player\": false,\n"
+		<< "  \"dispatch_authorized\": false\n"
+		<< "}\n";
+	// The receipt is the publish marker and is deliberately written last.
+	File::write_all_text(receiptPath.string(), receipt.str());
+	LogMessage("Presented automation capture receipt: " + receiptPath.string());
 }
 
 ViewFamily Engine::CreateDesktopViewFamily() const
@@ -2608,6 +2917,13 @@ void Engine::UpdateInput(float timeElapsed)
 	if (tickDebugger)
 		tickDebugger();
 
+	ApplyInputCompositionToViewport(timeElapsed);
+}
+
+void Engine::ApplyInputCompositionToViewport(float timeElapsed)
+{
+	if (timeElapsed <= 0.0f)
+		return;
 	if (!viewport->Actor())
 		return;
 
@@ -2887,6 +3203,9 @@ void Engine::Key(std::string key)
 
 void Engine::InputEvent(EInputKey key, EInputType type, float delta, InputSourceId source)
 {
+	if (source == InputSourceId::Synthetic)
+		RecordSyntheticInputRequest(
+			key == IK_RightMouse && type == EInputType::IST_Press);
 	if (Frame::RunState != FrameRunState::Running || playingAvi)
 		return;
 
@@ -2927,6 +3246,8 @@ void Engine::InputEvent(EInputKey key, EInputType type, float delta, InputSource
 
 void Engine::ReleaseInputSource(InputSourceId source)
 {
+	if (source == InputSourceId::Synthetic)
+		RecordSyntheticInputRequest();
 	ReleasedInputActions released = inputComposition.ReleaseSource(source);
 	if (!viewport || !viewport->Actor())
 		return;
@@ -2945,6 +3266,8 @@ void Engine::ResetKeyboardInput()
 
 void Engine::ReleaseInputControl(InputControlId control)
 {
+	if (control.Source == InputSourceId::Synthetic)
+		RecordSyntheticInputRequest();
 	ReleasedInputActions released = inputComposition.ReleaseControl(control);
 	if (!viewport || !viewport->Actor())
 		return;
@@ -3024,6 +3347,8 @@ bool Engine::ExecCommand(const Array<std::string>& args)
 
 void Engine::InputCommand(const std::string& commands, InputControlId control, float delta)
 {
+	if (control.Source == InputSourceId::Synthetic)
+		RecordSyntheticInputRequest();
 	for (const std::string& commandline : GetSubcommands(commands))
 	{
 		Array<std::string> args = GetArgs(commandline);
@@ -3061,6 +3386,17 @@ void Engine::InputCommand(const std::string& commands, InputControlId control, f
 			}
 		}
 	}
+}
+
+void Engine::RecordSyntheticInputRequest(bool interactionPress)
+{
+	if (syntheticInputRequestCount == std::numeric_limits<uint64_t>::max() ||
+		(interactionPress && syntheticInteractionPressCount ==
+			std::numeric_limits<uint64_t>::max()))
+		throw std::runtime_error("synthetic input audit counter overflow");
+	syntheticInputRequestCount++;
+	if (interactionPress)
+		syntheticInteractionPressCount++;
 }
 
 void Engine::SetPause(bool value)

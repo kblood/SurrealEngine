@@ -1,0 +1,19 @@
+{
+  "schema": "surreal-visual-qa-assertion-profile-v1",
+  "profile_id": "gameplay-smoke-v1",
+  "prompt": "Assess this captured gameplay frame conservatively. Mark an assertion uncertain when the frame does not contain enough visual evidence.",
+  "assertions": [
+    {
+      "id": "scene-rendered",
+      "description": "A coherent game scene is rendered rather than a blank, corrupt, or uninitialized frame."
+    },
+    {
+      "id": "blocking-error-absent",
+      "description": "No fatal error, crash dialog, missing-content message, or blocking loading overlay is visible."
+    },
+    {
+      "id": "hud-legible-when-present",
+      "description": "Any visible HUD or interaction text is legible and not obviously clipped or corrupted; use uncertain if no HUD text is present."
+    }
+  ]
+}

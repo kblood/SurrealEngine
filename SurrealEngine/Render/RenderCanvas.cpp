@@ -3,7 +3,16 @@
 #include "RenderSubsystem.h"
 #include "VisibleMesh.h"
 #include "RenderDevice/RenderDevice.h"
-#include "UObject/USubsystem.h"
+#include "Packages/Core/UClass.h"
+#include "Packages/Engine/Actors/UHUD.h"
+#include "Packages/Engine/Actors/Pawn/UPlayerPawn.h"
+#include "Packages/Engine/Actors/Inventory/UWeapon.h"
+#include "Packages/Engine/UViewport.h"
+#include "Packages/Engine/UCanvas.h"
+#include "Packages/Engine/UConsole.h"
+#include "Packages/Engine/Resources/UFont.h"
+#include "Packages/Engine/Resources/UPalette.h"
+#include "Packages/Engine/Resources/Level/UModel.h"
 #include "GameWindow.h"
 #include "VM/ScriptCall.h"
 #include "Engine.h"
@@ -633,9 +642,9 @@ void RenderSubsystem::DrawTile(FTextureInfo& texinfo, const Rectf& dest, const R
 	}
 }
 
-void RenderSubsystem::Draw2DLine(vec4 Color, uint32_t LineFlags, vec3 P1, vec3 P2)
+void RenderSubsystem::Draw2DLine(vec4 Color, uint32_t LineFlags, vec3 P1, vec3 P2, bool useUIScale)
 {
-	auto uiscale = static_cast<float>(Canvas.uiscale);
+	auto uiscale = useUIScale ? static_cast<float>(Canvas.uiscale) : 1.0f;
 	Device->Draw2DLine(&Canvas.Frame, Color, LineFlags, vec3(P1.xy() * uiscale, P1.z), vec3(P2.xy() * uiscale, P2.z));
 }
 
@@ -812,7 +821,6 @@ void RenderSubsystem::DrawCollisionDebug()
 		}
 	}
 }
-
 bool RenderSubsystem::RenderXRWeaponOverlay()
 {
 	UPlayerPawn* viewActor = engine->viewport->Actor();

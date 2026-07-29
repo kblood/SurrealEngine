@@ -1,9 +1,7 @@
 #include "UObject/ActorMovement.h"
-#include "UObject/PawnReachSpecCapabilityFilter.h"
 
 #include <iostream>
 #include <string>
-#include <cmath>
 
 static int failures = 0;
 
@@ -14,6 +12,25 @@ static void Check(bool condition, const std::string& message)
 		std::cerr << "FAILED: " << message << '\n';
 		failures++;
 	}
+}
+
+static int SimulateWalkingCollisionCallbacks(int progressingIterations)
+{
+	float x = 0.0f;
+	float timeLeft = 1.0f;
+	int callbacks = 0;
+	for (int iteration = 0; timeLeft > 0.0f && iteration < 5; iteration++)
+	{
+		const float oldX = x;
+		const float oldTimeLeft = timeLeft;
+		callbacks += 2; // forward plane and aligned slide plane
+		if (iteration < progressingIterations)
+			x += 1.0f;
+		if (!MadeWalkingIterationProgress(
+			oldX, 0.0f, 0.0f, oldTimeLeft, x, 0.0f, 0.0f, timeLeft))
+			break;
+	}
+	return callbacks;
 }
 
 int main()
@@ -28,38 +45,16 @@ int main()
 	Check(HasSpatialMovement(0.0f, 1.0f, 0.0f), "Y-only spatial movement");
 	Check(HasSpatialMovement(0.0f, 0.0f, -1.0f), "Z-only spatial movement");
 
-	constexpr uint32_t walk = 1u;
-	constexpr uint32_t fly = 2u;
-	constexpr uint32_t jump = 8u;
-	const uint32_t walkerMask = walk | jump;
-	Check(PawnMovement::ReachSpecSupportedByCapabilities(0u, walkerMask),
-		"reach spec without requirements");
-	Check(PawnMovement::ReachSpecSupportedByCapabilities(walk | jump, walkerMask),
-		"reach spec supported by all pawn capabilities");
-	Check(!PawnMovement::ReachSpecSupportedByCapabilities(walk | fly, walkerMask),
-		"reach spec with an unsupported capability");
-	Check(!PawnMovement::ReachSpecSupportedByCapabilities(128u, walkerMask),
-		"reach spec with an unknown capability flag");
-
-	const ActorMovement::FallPredictionState fallState = {
-		.Location = vec3(0.0f), .Velocity = vec3(100.0f, 0.0f, 0.0f)
-	};
-	const ActorMovement::FallPredictionStep fallStep = {
-		.Gravity = vec3(0.0f, 0.0f, -950.0f),
-		.GroundSpeed = 400.0f, .TerminalVelocity = 2000.0f, .Elapsed = 0.1f
-	};
-	const auto predictedFall = ActorMovement::PredictFallStep(fallState, fallStep);
-	Check(predictedFall.Valid && std::abs(predictedFall.Velocity.z + 95.0f) < 0.0001f
-		&& std::abs(predictedFall.Location.x - 10.0f) < 0.0001f
-		&& std::abs(predictedFall.Location.z + 9.5f) < 0.0001f,
-		"pain-zone forecast matches the walking-to-falling integrator");
-	Check(ActorMovement::BoundedFallSegmentSampleCount(156.25f, 25.0f, 8) == 7,
-		"terminal-speed fall segments are sampled within step height");
-	Check(ActorMovement::ShouldVetoPainZoneLedge(true, true, false, true),
-		"AI bot is stopped before a newly predicted harmful pain zone");
-	Check(!ActorMovement::ShouldVetoPainZoneLedge(false, true, false, true)
-		&& !ActorMovement::ShouldVetoPainZoneLedge(true, true, true, true),
-		"human pawns and bots already escaping pain retain normal ledge movement");
+	Check(!MadeWalkingIterationProgress(1.0f, 2.0f, 3.0f, 0.5f,
+		1.0f, 2.0f, 3.0f, 0.5f), "unchanged walking iteration terminates");
+	Check(MadeWalkingIterationProgress(1.0f, 2.0f, 3.0f, 0.5f,
+		1.000001f, 2.0f, 3.0f, 0.5f), "small multi-plane movement remains progress");
+	Check(MadeWalkingIterationProgress(1.0f, 2.0f, 3.0f, 0.5f,
+		1.0f, 2.0f, 3.0f, 0.25f), "consumed collision time remains progress");
+	Check(SimulateWalkingCollisionCallbacks(0) == 2,
+		"zero-progress forward and slide attempt emits at most two callbacks");
+	Check(SimulateWalkingCollisionCallbacks(2) == 6,
+		"two progressing planes continue before the first zero-progress attempt terminates");
 
 	if (failures == 0)
 		std::cout << "All actor movement tests passed.\n";

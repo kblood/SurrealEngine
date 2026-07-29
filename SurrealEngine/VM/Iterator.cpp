@@ -5,10 +5,11 @@
 #include "Utils/StrTools.h"
 #include "Engine.h"
 #include "Package/PackageManager.h"
-#include "UObject/ULevel.h"
-#include "UObject/UActor.h"
+#include "Packages/Engine/Resources/Level/ULevel.h"
+#include "Packages/Engine/Resources/Level/UModel.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 AllObjectsIterator::AllObjectsIterator(UObject* BaseClass, UObject** ReturnValue, UObject* InOuter)
 	: BaseClass(BaseClass), ReturnValue(ReturnValue), InOuter(InOuter), m_Objects(GC::GetObjects()), m_Iterator(m_Objects.begin())
@@ -366,9 +367,20 @@ bool VisibleActorsIterator::Next()
 
 /////////////////////////////////////////////////////////////////////////////
 
-VisibleCollidingActorsIterator::VisibleCollidingActorsIterator(UObject* BaseClass, UObject** ReturnValue, float Radius, const vec3& Location, bool IgnoreHidden) : BaseClass(BaseClass), ReturnValue(ReturnValue), Radius(Radius), Location(Location), IgnoreHidden(IgnoreHidden)
+VisibleCollidingActorsIterator::VisibleCollidingActorsIterator(UActor* Caller, UObject* BaseClass, UObject** ReturnValue, float Radius, const vec3& Location, bool IgnoreHidden) : Caller(Caller), BaseClass(BaseClass), ReturnValue(ReturnValue), Radius(Radius), Location(Location), IgnoreHidden(IgnoreHidden)
 {
 	HitActors = engine->Level->Collision.CollidingActors(Location, Radius);
+}
+
+// Diagnostic-only occlusion candidate (H2/H4 in
+// Docs/BOT_AI_CLAUDE_OPUS5_UT99_CONTINUATION_PLAN_2026-07-26.md, S1/S2): retail
+// gates VisibleCollidingActors on a line-of-sight trace, which this iterator
+// never performed. Opt-in via env var only; no retail oracle has confirmed
+// this yet, so it must stay off by default.
+static bool VisibleCollidingActorsOcclusionCandidateEnabled()
+{
+	static const bool enabled = std::getenv("SURREAL_VISIBLE_COLLIDING_ACTORS_OCCLUSION_CANDIDATE") != nullptr;
+	return enabled;
 }
 
 bool VisibleCollidingActorsIterator::Next()
@@ -379,6 +391,8 @@ bool VisibleCollidingActorsIterator::Next()
 		UActor* actor = HitActors[index++];
 		if (actor && (IgnoreHidden || !actor->bHidden()) && actor->IsA(BaseClass->Name))
 		{
+			if (VisibleCollidingActorsOcclusionCandidateEnabled() && Caller && !Caller->FastTrace(actor->Location(), Location))
+				continue;
 			*ReturnValue = actor;
 			return true;
 		}
