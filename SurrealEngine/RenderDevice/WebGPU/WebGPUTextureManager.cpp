@@ -4,6 +4,7 @@
 #include "WebGPURenderDevice.h"
 #include "WebGPUCachedTexture.h"
 #include "WebGPUUploadManager.h"
+#include "Packages/Engine/Resources/Level/UModel.h"
 #include <webgpu/webgpu.h>
 
 WebGPUTextureManager::WebGPUTextureManager(WebGPURenderDevice* renderer) : renderer(renderer)

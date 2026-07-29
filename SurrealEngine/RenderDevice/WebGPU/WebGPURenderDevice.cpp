@@ -1,6 +1,7 @@
 
 #include "Precomp.h"
 #include "WebGPURenderDevice.h"
+#include "Packages/Engine/Resources/Level/UModel.h"
 #include <surrealwidgets/core/widget.h>
 #include <cstring>
 #include <cmath>
