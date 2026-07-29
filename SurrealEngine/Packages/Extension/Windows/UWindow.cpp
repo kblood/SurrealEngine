@@ -112,7 +112,7 @@ void UWindow::UpdateLayout()
 	}
 
 	bool wasReconfigured = bNeedsReconfigure();
-	if (bNeedsReconfigure())
+	if (wasReconfigured)
 	{
 		//LogMessage(GetUClassFullName(this).ToString() + ": UpdateLayout");
 
@@ -431,7 +431,7 @@ UWindow* UWindow::FindWindow(float pointX, float pointY, float& relativeX, float
 
 UObject* UWindow::GetBottomChild(std::optional<bool> bVisibleOnly)
 {
-	bool visibleOnly = (bVisibleOnly && *bVisibleOnly);
+	bool visibleOnly = (!bVisibleOnly || *bVisibleOnly);
 	for (UWindow* child = firstChild(); child; child = child->nextSibling())
 	{
 		if (!visibleOnly || child->bIsVisible())
@@ -477,7 +477,7 @@ UObject* UWindow::GetGC()
 
 UObject* UWindow::GetHigherSibling(std::optional<bool> bVisibleOnly)
 {
-	bool visibleOnly = (bVisibleOnly && *bVisibleOnly);
+	bool visibleOnly = (!bVisibleOnly || *bVisibleOnly);
 	for (UWindow* cur = nextSibling(); cur; cur = cur->nextSibling())
 	{
 		if (!visibleOnly || cur->bIsVisible())
@@ -488,7 +488,7 @@ UObject* UWindow::GetHigherSibling(std::optional<bool> bVisibleOnly)
 
 UObject* UWindow::GetLowerSibling(std::optional<bool> bVisibleOnly)
 {
-	bool visibleOnly = (bVisibleOnly && *bVisibleOnly);
+	bool visibleOnly = (!bVisibleOnly || *bVisibleOnly);
 	for (UWindow* cur = prevSibling(); cur; cur = cur->prevSibling())
 	{
 		if (!visibleOnly || cur->bIsVisible())
@@ -547,7 +547,7 @@ float UWindow::GetTickOffset()
 
 UObject* UWindow::GetTopChild(std::optional<bool> bVisibleOnly)
 {
-	bool visibleOnly = (bVisibleOnly && *bVisibleOnly);
+	bool visibleOnly = (!bVisibleOnly || *bVisibleOnly);
 	for (UWindow* child = lastChild(); child; child = child->prevSibling())
 	{
 		if (!visibleOnly || child->bIsVisible())
@@ -1106,11 +1106,11 @@ float UWindow::QueryPreferredHeight(float queryWidth)
 void UWindow::AskParentForReconfigure()
 {
 	//LogMessage(GetUClassFullName(this).ToString() + ": AskParentForReconfigure");
-	UWindow* parent = parentOwner();
-	if (parent)
+	for (UWindow* cur = parentOwner(); cur != nullptr; cur = cur->parentOwner())
 	{
-		bool result = parent->ChildRequestedReconfiguration(this);
-		// To do: what is the result used for?
+		bool handled = cur->ChildRequestedReconfiguration(this);
+		if (handled)
+			break;
 	}
 }
 
@@ -1477,9 +1477,9 @@ void UWindow::DrawWindow(UGC* gc)
 				gc->DrawTile(tex, gc->ScaleRect(dest), src, tileColor(), gc->EffectivePolyFlags());
 			}
 		}
-		else
+		else if (Background())
 		{
-			gc->DrawIcon(0.0f, 0.0f, Background());
+			gc->DrawPattern(0.0f, 0.0f, Width(), Height(), 0.0f, 0.0f, Background());
 		}
 		// DrawDebugBox(gc);
 	}

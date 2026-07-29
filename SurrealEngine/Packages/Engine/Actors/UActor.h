@@ -442,6 +442,25 @@ public:
 
 	void PhysLanded(UActor* hitActor, const vec3& hitNormal);
 
+	// True (and fires FellOutOfWorld) if the actor's location has no valid region at all, i.e. it fell outside the level's BSP geometry.
+	bool HasLeftWorld();
+	// Shared accel/friction/max-speed update used by TickWalking, TickSwimming and TickFlying.
+	void ApplyMovementAcceleration(float elapsed, float accelRate, float friction, float maxSpeed);
+	// True if the movement loop calling this should stop: the actor was destroyed, or Physics()
+	// no longer matches expectedPhysics. Both can happen from inside TryMove
+	bool ShouldAbortMovementTick(uint8_t expectedPhysics);
+	// Common TickWalking/TickSwimming/TickFlying preamble: casts to UPawn (null return means "not a
+	// pawn, caller should bail"), checks HasLeftWorld, and resets OldLocation/bJustTeleported for the tick.
+	UPawn* PreparePawnMovementTick();
+	// Fires the HitWall event with the actor/level that was hit - used by every movement tick function.
+	void FireHitWall(const CollisionHit& hit);
+	// Dry-runs stepDownDelta to see if the ground is still reachable; steps down onto it and sets Base
+	// if so (returns true), or switches to PHYS_Falling and clears Base if not (returns false).
+	bool TryStepToGround(vec3 stepDownDelta);
+	// Recovers Velocity from actual displacement over the tick, unless bJustTeleported was set (which
+	// makes the displacement meaningless as a velocity source).
+	void RecomputeVelocityFromDisplacement(float elapsed);
+
 	virtual void TickRotating(float elapsed);
 
 	void SetPhysics(uint8_t newPhysics);

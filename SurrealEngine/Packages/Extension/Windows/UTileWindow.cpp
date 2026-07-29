@@ -141,6 +141,9 @@ void UTileWindow::ParentRequestedPreferredSize(bool bWidthSpecified, float& pref
 	EHDirection hdir = (EHDirection)hDirection();
 	EVDirection vdir = (EVDirection)vDirection();
 	bool wrap = bWrap();
+	float gap = minorSpacing();
+	float wrapGap = majorSpacing();
+	bool first = true;
 
 	// To do: implement more of this
 
@@ -151,6 +154,11 @@ void UTileWindow::ParentRequestedPreferredSize(bool bWidthSpecified, float& pref
 			preferredHeight = 0.0f;
 		for (auto cur = firstChild(); cur; cur = cur->nextSibling())
 		{
+			if (!cur->bIsVisible())
+				continue;
+			if (!first)
+				preferredWidth += gap;
+			first = false;
 			float w = 0.0f, h = 0.0f;
 			if (bHeightSpecified)
 				w = cur->QueryPreferredWidth(preferredHeight);
@@ -167,6 +175,11 @@ void UTileWindow::ParentRequestedPreferredSize(bool bWidthSpecified, float& pref
 		preferredHeight = 0.0f;
 		for (auto cur = firstChild(); cur; cur = cur->nextSibling())
 		{
+			if (!cur->bIsVisible())
+				continue;
+			if (!first)
+				preferredHeight += gap;
+			first = false;
 			float w = 0.0f, h = 0.0f;
 			if (bWidthSpecified)
 				h = cur->QueryPreferredHeight(preferredWidth);
@@ -176,6 +189,8 @@ void UTileWindow::ParentRequestedPreferredSize(bool bWidthSpecified, float& pref
 			preferredHeight += h;
 		}
 	}
+	preferredWidth += hMargin() * 2.0f;
+	preferredHeight += vMargin() * 2.0f;
 }
 
 void UTileWindow::ConfigurationChanged()
@@ -184,6 +199,9 @@ void UTileWindow::ConfigurationChanged()
 	EHDirection hdir = (EHDirection)hDirection();
 	EVDirection vdir = (EVDirection)vDirection();
 	bool wrap = bWrap();
+	float gap = minorSpacing();
+	float wrapGap = majorSpacing();
+	bool first = true;
 
 	// To do: implement more of this
 
@@ -191,24 +209,38 @@ void UTileWindow::ConfigurationChanged()
 	{
 		if (hdir == EHDirection::LeftToRight)
 		{
-			float x = 0.0f;
+			float x = hMargin();
 			for (auto cur = firstChild(); cur; cur = cur->nextSibling())
 			{
-				float w = cur->QueryPreferredWidth(Height());
-				float h = cur->QueryPreferredHeight(w);
-				cur->ConfigureChild(x, 0.0f, w, std::min(h, Height()));
+				if (!cur->bIsVisible())
+					continue;
+
+				if (!first)
+					x += gap;
+				first = false;
+
+				float h = Height() - vMargin() * 2.0f;// Is this controlled by hChildAlign()?
+				float w = cur->QueryPreferredWidth(h);
+				cur->ConfigureChild(x, vMargin(), w, h);
 				x += w;
 			}
 		}
 		else // if (hdir == EHDirection::RightToLeft)
 		{
-			float x = Width();
+			float x = Width() - hMargin();
 			for (auto cur = firstChild(); cur; cur = cur->nextSibling())
 			{
-				float w = cur->QueryPreferredWidth(Height());
-				float h = cur->QueryPreferredHeight(w);
+				if (!cur->bIsVisible())
+					continue;
+
+				if (!first)
+					x += gap;
+				first = false;
+
+				float h = Height() - vMargin() * 2.0f;// Is this controlled by hChildAlign()?
+				float w = cur->QueryPreferredWidth(h);
 				x -= w;
-				cur->ConfigureChild(x, 0.0f, w, std::min(h, Height()));
+				cur->ConfigureChild(x, vMargin(), w, h);
 			}
 		}
 	}
@@ -216,24 +248,38 @@ void UTileWindow::ConfigurationChanged()
 	{
 		if (vdir == EVDirection::TopToBottom)
 		{
-			float y = 0.0f;
+			float y = vMargin();
 			for (auto cur = firstChild(); cur; cur = cur->nextSibling())
 			{
-				float h = cur->QueryPreferredHeight(Width());
-				float w = cur->QueryPreferredWidth(h);
-				cur->ConfigureChild(0.0f, y, std::min(w, Width()), h);
+				if (!cur->bIsVisible())
+					continue;
+
+				if (!first)
+					y += gap;
+				first = false;
+
+				float w = Width() - hMargin() * 2.0f;// Is this controlled by vChildAlign()?
+				float h = cur->QueryPreferredHeight(w);
+				cur->ConfigureChild(hMargin(), y, w, h);
 				y += h;
 			}
 		}
 		else // if (vdir == EVDirection::BottomToTop)
 		{
-			float y = Height();
+			float y = Height() - vMargin();
 			for (auto cur = firstChild(); cur; cur = cur->nextSibling())
 			{
-				float h = cur->QueryPreferredHeight(Width());
-				float w = cur->QueryPreferredWidth(h);
+				if (!cur->bIsVisible())
+					continue;
+
+				if (!first)
+					y += gap;
+				first = false;
+
+				float w = Width() - hMargin() * 2.0f;// Is this controlled by vChildAlign()?
+				float h = cur->QueryPreferredHeight(w);
 				y -= h;
-				cur->ConfigureChild(0.0f, y, std::min(w, Width()), h);
+				cur->ConfigureChild(hMargin(), y, w, h);
 			}
 		}
 	}
@@ -250,7 +296,7 @@ void UTileWindow::DrawWindow(UGC* gc)
 bool UTileWindow::ChildRequestedReconfiguration(UWindow* childWin)
 {
 	AskParentForReconfigure();
-	return false;
+	return UWindow::ChildRequestedReconfiguration(childWin);
 }
 
 void UTileWindow::ChildAdded(UWindow* child)
