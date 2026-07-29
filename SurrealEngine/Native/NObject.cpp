@@ -22,6 +22,36 @@
 #pragma warning(disable: 4244) // warning C4244: '/=': conversion from 'float' to 'int', possible loss of data
 #endif
 
+namespace
+{
+	UObject* LoadDynamicObject(Engine* engine, const std::string& objectPath, UObject* objectClass)
+	{
+		auto firstDot = objectPath.find('.');
+		auto lastDot = objectPath.rfind('.');
+		if (firstDot == 0 || firstDot == std::string::npos || lastDot + 1 >= objectPath.size())
+			return nullptr;
+
+		std::string packageName = objectPath.substr(0, firstDot);
+		std::string objectName = objectPath.substr(lastDot + 1);
+
+		try
+		{
+			Package* package = engine->packages->GetPackage(packageName);
+			if (firstDot == lastDot)
+				return package->GetUObject(objectClass->Name, objectName);
+
+			std::string groupName = objectPath.substr(firstDot + 1, lastDot - firstDot - 1);
+			if (!groupName.empty())
+				return package->GetUObject(objectClass->Name, objectName, groupName);
+		}
+		catch (...)
+		{
+		}
+
+		return nullptr;
+	}
+}
+
 // TODO: assign native indices based on game, not hardcoded
 void NObject::RegisterFunctions()
 {
@@ -701,25 +731,7 @@ void NObject::Dot_QuatQuat_U227(quaternion& A, quaternion& B, float& ReturnValue
 
 void NObject::DynamicLoadObject(const std::string& ObjectName, UObject* ObjectClass, std::optional<bool> MayFail, UObject*& ReturnValue)
 {
-	ReturnValue = nullptr;
-
-	if (!ObjectName.empty())
-	{
-		auto dotpos = ObjectName.find('.');
-		if (dotpos != 0 && dotpos != std::string::npos)
-		{
-			std::string packageName = ObjectName.substr(0, dotpos);
-			std::string objectName = ObjectName.substr(dotpos + 1);
-
-			try
-			{
-				ReturnValue = engine->packages->GetPackage(packageName)->GetUObject(ObjectClass->Name, objectName);
-			}
-			catch (...)
-			{
-			}
-		}
-	}
+	ReturnValue = LoadDynamicObject(engine, ObjectName, ObjectClass);
 
 	if (!ReturnValue && (!MayFail || *MayFail == false))
 	{
@@ -729,25 +741,7 @@ void NObject::DynamicLoadObject(const std::string& ObjectName, UObject* ObjectCl
 
 void NObject::DynamicLoadObject_219(const std::string& ObjectName, UObject* ObjectClass, UObject*& ReturnValue)
 {
-	ReturnValue = nullptr;
-
-	if (!ObjectName.empty())
-	{
-		auto dotpos = ObjectName.find('.');
-		if (dotpos != 0 && dotpos != std::string::npos)
-		{
-			std::string packageName = ObjectName.substr(0, dotpos);
-			std::string objectName = ObjectName.substr(dotpos + 1);
-
-			try
-			{
-				ReturnValue = engine->packages->GetPackage(packageName)->GetUObject(ObjectClass->Name, objectName);
-			}
-			catch (...)
-			{
-			}
-		}
-	}
+	ReturnValue = LoadDynamicObject(engine, ObjectName, ObjectClass);
 
 	if (!ReturnValue)
 	{

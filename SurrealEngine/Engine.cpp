@@ -226,7 +226,18 @@ Engine::~Engine()
 	if (audiodev)
 		audiodev->ShutdownDevice();
 
-	Logger::Get()->SaveLogAsPlaintext((Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt").string());
+	{
+		fs::path logPath = Directory::localAppData() / "SurrealEngine/SE-Log-LastRun.txt";
+		if (commandline)
+		{
+			std::string requestedPath = commandline->GetArg("", "--logfile");
+			if (!requestedPath.empty())
+				logPath = fs::absolute(fs::path(requestedPath));
+		}
+		if (logPath.has_parent_path())
+			fs::create_directories(logPath.parent_path());
+		Logger::Get()->SaveLogAsPlaintext(logPath.string());
+	}
 
 	engine = nullptr;
 }
@@ -537,6 +548,13 @@ void Engine::Setup()
 	#ifdef SURREAL_WEB_WASMFS_OPFS_ASYNCIFY
 		LogMessage("[asyncify-stage] LoginPlayer complete");
 	#endif
+	}
+	if (commandline && commandline->HasArg("", "--exec"))
+	{
+		// Run one console command after boot so scripted verification can
+		// exercise the same path as a menu action without driving the UI.
+		ExpressionValue found = ExpressionValue::BoolValue(false);
+		ConsoleCommand(nullptr, commandline->GetArg("", "--exec"), found.ToType<BitfieldBool&>());
 	}
 	frameObjProp = GC::Alloc<UObjectProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
 	frameVecProp = GC::Alloc<UStructProperty>(NameString(), nullptr, ObjectFlags::NoFlags);
@@ -2545,6 +2563,25 @@ std::string Engine::ConsoleCommand(UObject* context, const std::string& commandl
 	{
 		return "0";
 	}
+	else if (command == "language" && args.size() == 1 && LaunchInfo.IsRune())
+	{
+		// Rune's HUD and WindowConsole use this command to select localized
+		// resources (notably RMenu.RussianRootWindow for the "rut" language).
+		return packages->GetIniValue("system", "Engine.Engine", "Language", "int");
+	}
+	else if (command == "isaddon" && args.size() == 1 && LaunchInfo.IsRune())
+	{
+		// Rune's menu expects NONE, ADDON, or STANDALONE. Every Rune.exe build
+		// recognized by this engine is the base game; when HallsOfValhalla.u is
+		// also on its package path, it is the in-place ADDON layout. A standalone
+		// HOV executable is not part of the supported executable hash registry.
+		for (const NameString& packageName : packages->GetPackageNames())
+		{
+			if (packageName == "HallsOfValhalla")
+				return "ADDON";
+		}
+		return "NONE";
+	}
 	else if (command == "keyname" && args.size() == 2)
 	{
 		uint8_t index = Convert::to_uint8(args[1]);
@@ -2570,6 +2607,55 @@ std::string Engine::ConsoleCommand(UObject* context, const std::string& commandl
 				ClientTravel(url.ToString(), ETravelType::TRAVEL_Absolute, false);
 				return {};
 			}	
+		}
+
+		LogMessage("Couldn't find map " + maparg);
+	}
+	else if (command == "relaunch" && args.size() == 2 && LaunchInfo.IsRune())
+	{
+		// Rune's own menu scripts (RMenu.u) issue "RELAUNCH rune://<map>?<options>"
+		// to leave "Classic Mode" instead of a plain open/start URL. Strip the
+		// "rune://" scheme prefix and travel exactly like open/start does.
+		std::string maparg = args[1];
+		const std::string scheme = "rune://";
+		if (maparg.size() >= scheme.size() && StrTools::equals_ignore_case(maparg.substr(0, scheme.size()), scheme))
+			maparg = maparg.substr(scheme.size());
+
+		// Unlike open/start's bare map name convention, Rune's RELAUNCH url
+		// includes the literal map file extension (e.g. "intro.run?video=.") -
+		// strip it so it matches the stemmed names in packages->GetMaps().
+		{
+			size_t queryPos = maparg.find('?');
+			std::string mapPart = maparg.substr(0, queryPos);
+			std::string rest = (queryPos != std::string::npos) ? maparg.substr(queryPos) : std::string();
+			size_t extPos = mapPart.find_last_of('.');
+			if (extPos != std::string::npos)
+				mapPart = mapPart.substr(0, extPos);
+			maparg = mapPart + rest;
+		}
+
+		UnrealURL url(maparg);
+
+		for (auto& map : packages->GetMaps())
+		{
+			std::string mapname = fs::path(map).stem().string();
+
+			if (StrTools::equals_ignore_case(mapname, url.Map))
+			{
+				// A real Rune.exe restarted the whole process to leave Classic Mode,
+				// which discarded the UWindow menu along with its render/input state.
+				// Rune's WindowConsole already has the exact in-process teardown for
+				// that state. The Root guard keeps command-line --exec relaunches safe
+				// before the first PreRender has created the window hierarchy.
+				if (console->HasProperty("Root") && console->GetUObject("Root"))
+					CallEvent(console, "CloseUWindow");
+
+				// Keep this as a defensive fallback for a custom Rune console or an
+				// early relaunch with no root window yet.
+				console->bNoDrawWorld() = false;
+				ClientTravel(url.ToString(), ETravelType::TRAVEL_Absolute, false);
+				return {};
+			}
 		}
 
 		LogMessage("Couldn't find map " + maparg);

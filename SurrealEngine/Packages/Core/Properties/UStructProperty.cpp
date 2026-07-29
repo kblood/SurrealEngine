@@ -67,7 +67,8 @@ void UStructProperty::LoadStructMemberValue(void* data, ObjectStream* stream)
 	for (UProperty* fieldprop : Struct->Properties)
 	{
 		void* fielddata = (uint8_t*)data + fieldprop->DataOffset.DataOffset;
-		fieldprop->LoadStructMemberValue(fielddata, stream);
+		for (int arrayIndex = 0; arrayIndex < fieldprop->ArrayDimension; arrayIndex++)
+			fieldprop->LoadStructMemberValue(fieldprop->GetElement(fielddata, arrayIndex), stream);
 	}
 }
 
@@ -88,7 +89,8 @@ void UStructProperty::SaveValue(void* data, PackageStreamWriter* stream)
 	for (UProperty* fieldprop : Struct->Properties)
 	{
 		void* fielddata = (uint8_t*)data + fieldprop->DataOffset.DataOffset;
-		fieldprop->SaveStructMemberValue(fielddata, stream);
+		for (int arrayIndex = 0; arrayIndex < fieldprop->ArrayDimension; arrayIndex++)
+			fieldprop->SaveStructMemberValue(fieldprop->GetElement(fielddata, arrayIndex), stream);
 	}
 }
 

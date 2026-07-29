@@ -1146,6 +1146,14 @@ void UActor::RemoveBasedActor(UActor* actor)
 	if (!actor)
 		return;
 
+	for (auto jointIt = JointAttachments.begin(); jointIt != JointAttachments.end();)
+	{
+		if (jointIt->second == actor)
+			jointIt = JointAttachments.erase(jointIt);
+		else
+			++jointIt;
+	}
+
 	auto it = BasedActors.begin();
 
 	while (it != BasedActors.end())
@@ -1157,6 +1165,43 @@ void UActor::RemoveBasedActor(UActor* actor)
 		}
 		it++;
 	}
+}
+
+void UActor::SetJointAttachment(int joint, UActor* actor)
+{
+	for (auto it = JointAttachments.begin(); it != JointAttachments.end();)
+	{
+		if (it->second == actor || it->first == joint)
+			it = JointAttachments.erase(it);
+		else
+			++it;
+	}
+
+	if (actor)
+		JointAttachments[joint] = actor;
+}
+
+UActor* UActor::JointAttachment(int joint)
+{
+	auto it = JointAttachments.find(joint);
+	if (it == JointAttachments.end())
+		return nullptr;
+
+	UActor* actor = it->second;
+	if (!actor || actor->bDeleteMe() || actor->ActorBase() != this)
+	{
+		JointAttachments.erase(it);
+		return nullptr;
+	}
+
+	return actor;
+}
+
+UActor* UActor::TakeJointAttachment(int joint)
+{
+	UActor* actor = JointAttachment(joint);
+	JointAttachments.erase(joint);
+	return actor;
 }
 
 void UActor::SetBase(UActor* newBase, bool sendBaseChangeEvent)
@@ -4819,8 +4864,6 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint,
 	}
 	else
 	{
-		// Hopefully not a physics mode the bots use when calling ActorReachable
-		LogUnimplemented("ActorReachable called for unsupported physics mode");
 		recordDirectReachCommand(false,
 			PawnMovement::DirectReachCommandRejectReason::UnsupportedPhysics);
 		return false;

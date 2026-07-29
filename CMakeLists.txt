@@ -513,6 +513,8 @@ set(SURREALCOMMON_SOURCES
 	SurrealEngine/Native/NRadioBoxWindow.h
 	SurrealEngine/Native/NRootWindow.cpp
 	SurrealEngine/Native/NRootWindow.h
+	SurrealEngine/Native/NRuneActor.cpp
+	SurrealEngine/Native/NRuneActor.h
 	SurrealEngine/Native/NScaleManagerWindow.cpp
 	SurrealEngine/Native/NScaleManagerWindow.h
 	SurrealEngine/Native/NScaleWindow.cpp

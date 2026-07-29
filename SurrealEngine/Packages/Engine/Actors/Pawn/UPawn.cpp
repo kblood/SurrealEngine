@@ -281,8 +281,6 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint)
 	}
 	else
 	{
-		// Hopefully not a physics mode the bots use when calling ActorReachable
-		LogUnimplemented("ActorReachable called for unsupported physics mode");
 		return false;
 	}
 }

@@ -1,4 +1,5 @@
 #include "Precomp.h"
+#include "Package/ObjectStream.h"
 #include "Package/PackageStream.h"
 #include "Packages/Core/UClass.h"
 #include "Packages/Core/UStruct.h"
@@ -118,6 +119,17 @@ int main()
 			property.SetBool(&structValue, true);
 			structProperty.SaveValue(&structValue, &stream);
 
+			UIntProperty fixedInt("FixedInt", nullptr, ObjectFlags::NoFlags);
+			fixedInt.ArrayDimension = 4;
+			UStruct fixedIntStruct("FixedIntStruct", nullptr, ObjectFlags::NoFlags);
+			fixedIntStruct.StructSize = sizeof(int32_t) * 4;
+			fixedIntStruct.StructAlignment = alignof(int32_t);
+			fixedIntStruct.Properties.push_back(&fixedInt);
+			UStructProperty fixedIntStructProperty("FixedIntStructValue", nullptr, ObjectFlags::NoFlags);
+			fixedIntStructProperty.Struct = &fixedIntStruct;
+			int32_t fixedIntValues[4] = { 11, 22, 33, 44 };
+			fixedIntStructProperty.SaveValue(fixedIntValues, &stream);
+
 			UArrayProperty arrayProperty("BoolArray", nullptr, ObjectFlags::NoFlags);
 			arrayProperty.Inner = &property;
 			ScriptArray arrayValues(&property);
@@ -129,10 +141,35 @@ int main()
 
 		const Array<uint8_t> bytes = File::read_all_bytes(path.string());
 		File::try_delete(path.string());
-		const Array<uint8_t> expected = { 0, 1, 0, 1, 1, 2, 0, 1 };
+		const Array<uint8_t> expected = {
+			0, 1, 0, 1, 1,
+			11, 0, 0, 0, 22, 0, 0, 0, 33, 0, 0, 0, 44, 0, 0, 0,
+			2, 0, 1
+		};
 		if (bytes != expected)
 		{
 			std::cerr << "FAILED: aggregate booleans must serialize as zero/one bytes\n";
+			return 1;
+		}
+
+		UIntProperty fixedInt("FixedInt", nullptr, ObjectFlags::NoFlags);
+		fixedInt.ArrayDimension = 4;
+		UStruct fixedIntStruct("FixedIntStruct", nullptr, ObjectFlags::NoFlags);
+		fixedIntStruct.StructSize = sizeof(int32_t) * 4;
+		fixedIntStruct.StructAlignment = alignof(int32_t);
+		fixedIntStruct.Properties.push_back(&fixedInt);
+		UStructProperty fixedIntStructProperty("FixedIntStructValue", nullptr, ObjectFlags::NoFlags);
+		fixedIntStructProperty.Struct = &fixedIntStruct;
+		auto input = std::make_unique<uint64_t[]>(2);
+		memcpy(input.get(), bytes.data() + 5, sizeof(int32_t) * 4);
+		ObjectStream inputStream(nullptr, std::move(input), 0, sizeof(int32_t) * 4, NameString(), nullptr);
+		int32_t loadedFixedInts[4] = {};
+		fixedIntStructProperty.LoadStructMemberValue(loadedFixedInts, &inputStream);
+		inputStream.ThrowIfNotEnd();
+		if (loadedFixedInts[0] != 11 || loadedFixedInts[1] != 22 ||
+			loadedFixedInts[2] != 33 || loadedFixedInts[3] != 44)
+		{
+			std::cerr << "FAILED: fixed-array struct members must round-trip every element\n";
 			return 1;
 		}
 	}

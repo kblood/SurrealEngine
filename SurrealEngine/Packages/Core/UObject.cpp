@@ -710,8 +710,28 @@ void PropertyDataBlock::Load(ObjectStream* stream)
 		if (header.arrayIndex < 0 || header.arrayIndex >= prop->ArrayDimension)
 			Exception::Throw("Array property is out of bounds!");
 
+		// The size prefix in the header is authoritative and self-describing,
+		// independent of whether this engine's struct/class definitions agree
+		// with the data (e.g. a struct property whose loaded field list is
+		// missing fields the file actually serialized). If a type-specific
+		// LoadValue doesn't consume exactly the declared size, every property
+		// read after this one desyncs. Detect that and resync rather than
+		// silently corrupting the rest of the object stream.
+		uint32_t valueStart = stream->Tell();
+
 		prop->Flags |= ObjectFlags::TagExp;
 		prop->LoadValue(static_cast<uint8_t*>(data) + header.arrayIndex * prop->ElementPitch(), stream, header);
+
+		if (header.type != UPT_Bool)
+		{
+			uint32_t expectedEnd = valueStart + header.size;
+			if (stream->Tell() != expectedEnd)
+			{
+				LogMessage("Property " + name.ToString() + " did not consume its declared size (expected " +
+					std::to_string(header.size) + " bytes) - resyncing stream position");
+				stream->Seek(expectedEnd);
+			}
+		}
 	}
 }
 

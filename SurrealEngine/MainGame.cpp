@@ -66,7 +66,30 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 	}
 	catch (const std::exception& e)
 	{
-		MessageBox(0, to_utf16(e.what()).c_str(), to_utf16("Unhandled Exception").c_str(), MB_OK | MB_ICONEXCLAMATION);
+		bool autoplay = false;
+		{
+			int argcCheck = 0;
+			LPWSTR* argvCheck = CommandLineToArgvW(GetCommandLineW(), &argcCheck);
+			if (argvCheck)
+			{
+				for (int i = 1; i < argcCheck; i++)
+				{
+					if (from_utf16(argvCheck[i]) == "--autoplay")
+						autoplay = true;
+				}
+				LocalFree(argvCheck);
+			}
+		}
+
+		if (autoplay)
+		{
+			// Non-interactive runs must never block on a modal dialog.
+			std::cerr << "Unhandled Exception: " << e.what() << std::endl;
+		}
+		else
+		{
+			MessageBox(0, to_utf16(e.what()).c_str(), to_utf16("Unhandled Exception").c_str(), MB_OK | MB_ICONEXCLAMATION);
+		}
 		return 1;
 	}
 }

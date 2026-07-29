@@ -43,6 +43,13 @@ int GameApp::main(Array<std::string> args)
 	WidgetTheme::SetTheme(std::make_unique<DarkWidgetTheme>());
 	int result = 0;
 
+	bool autoplayMode = false;
+	for (const std::string& arg : args)
+	{
+		if (arg == "--autoplay")
+			autoplayMode = true;
+	}
+
 	try
 	{
 		CommandLine cmd(args);
@@ -65,7 +72,7 @@ int GameApp::main(Array<std::string> args)
 
 		if (commandline->HasArg("-h", "--help"))
 		{
-			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--render=vulkan|d3d11|webgpu|webgl2|null] [--openxr|--no-openxr] [--vr-lefthand] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [--bot-spectator] [--bot-spectator-url=<url>] [--bot-spectator-bots=N] [--bot-spectator-difficulty=0..7] [--bot-spectator-skills=list] [--bot-spectator-seconds=S] [--dx-dock-output=<dir>] [--automation-action=walk_to_point|walk_to_actor|wait|acquire_item|interact|sight_probe] [--automation-url=<url>] [--automation-output=<dir>] [--automation-target-x=N] [--automation-target-y=N] [--automation-target-z=N] [--automation-target-identity=<id>] [--automation-target-class=<class>] [--automation-followup-target-identity=<id>] [--automation-arrival-radius=N] [--automation-wait-ticks=N] [--automation-abort-at-tick=N] [--automation-seed=N] [--automation-ticks=N] [--automation-fixed-delta=S] [--automation-capture-tick=N --automation-capture-session=<id> --automation-capture-source-revision=<git> --automation-capture-source-dirty=true|false --automation-capture-phase=post_simulation|pre_action|pre_stock_interaction|pre_pickup] [--minimized-window] [--mute-audio] [Path to game folder]\n";
+			std::cout << "SurrealEngine [--url=<mapname>] [--engineversion=X] [--autoplay] [--exec=<consolecommand>] [--render=vulkan|d3d11|webgpu|webgl2|null] [--openxr|--no-openxr] [--vr-lefthand] [--probexr] [--headless-driver=<name>] [--botbench-url=<url>] [--botbench-output=<dir>] [--botbench-seed=N] [--botbench-ticks=N] [--botbench-fixed-delta=S] [--botbench-difficulty=0..7] [--bot-spectator] [--bot-spectator-url=<url>] [--bot-spectator-bots=N] [--bot-spectator-difficulty=0..7] [--bot-spectator-skills=list] [--bot-spectator-seconds=S] [--dx-dock-output=<dir>] [--automation-action=walk_to_point|walk_to_actor|wait|acquire_item|interact|sight_probe] [--automation-url=<url>] [--automation-output=<dir>] [--automation-target-x=N] [--automation-target-y=N] [--automation-target-z=N] [--automation-target-identity=<id>] [--automation-target-class=<class>] [--automation-followup-target-identity=<id>] [--automation-arrival-radius=N] [--automation-wait-ticks=N] [--automation-abort-at-tick=N] [--automation-seed=N] [--automation-ticks=N] [--automation-fixed-delta=S] [--automation-capture-tick=N --automation-capture-session=<id> --automation-capture-source-revision=<git> --automation-capture-source-dirty=true|false --automation-capture-phase=post_simulation|pre_action|pre_stock_interaction|pre_pickup] [--minimized-window] [--mute-audio] [Path to game folder]\n";
 			return 0;
 		}
 		if (commandline->HasArg("", "--probexr"))
@@ -155,6 +162,12 @@ int GameApp::main(Array<std::string> args)
 			}
 			result = 1;
 		}
+		else if (autoplayMode)
+		{
+			// Non-interactive runs must never block on a modal error dialog.
+			std::cerr << "Unhandled Exception: " << e.what() << std::endl;
+			result = 1;
+		}
 		else
 		{
 			ErrorWindow::ExecModal(e.what(), Logger::Get()->GetLog());
@@ -168,6 +181,7 @@ int GameApp::main(Array<std::string> args)
 		std::cout << "Fatal error: " << e.what() << "\n";
 		for (const auto& line : Logger::Get()->GetLog())
 			std::cout << "[" << line.Source << "] " << line.Text << "\n";
+		result = 1;
 #endif
 	}
 

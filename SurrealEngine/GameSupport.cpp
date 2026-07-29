@@ -30,6 +30,7 @@
 #include "Native/NPlayerPawnExt.h"
 #include "Native/NRadioBoxWindow.h"
 #include "Native/NRootWindow.h"
+#include "Native/NRuneActor.h"
 #include "Native/NScaleManagerWindow.h"
 #include "Native/NScaleWindow.h"
 #include "Native/NScriptedPawn.h"
@@ -59,6 +60,11 @@ namespace
 			NXEmitter::RegisterFunctions();
 			N227Projector::RegisterFunctions();
 		}
+	}
+
+	void RegisterRuneNativeFunctions(const GameLaunchInfo&)
+	{
+		NRuneActor::RegisterFunctions();
 	}
 
 	void RegisterDeusExNativeFunctions(const GameLaunchInfo&)
@@ -128,7 +134,8 @@ const GameSupport& GameSupportRegistry::Find(std::string_view executableName)
 	{
 		{ GameId::Unreal, "Unreal", 0, RegisterUnrealNativeFunctions },
 		{ GameId::UnrealTournament, "UnrealTournament", 0, nullptr },
-		{ GameId::DeusEx, "DeusEx", deusExCapabilities, RegisterDeusExNativeFunctions }
+		{ GameId::DeusEx, "DeusEx", deusExCapabilities, RegisterDeusExNativeFunctions },
+		{ GameId::Rune, "Rune", 0, RegisterRuneNativeFunctions }
 	};
 
 	for (const GameSupport& game : games)

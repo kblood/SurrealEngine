@@ -197,6 +197,31 @@ public:
 	Array<TraceInfo>::iterator iterator;
 };
 
+class SweepActorsIterator : public Iterator
+{
+public:
+	SweepActorsIterator(UActor* SelfActor, UObject* BaseClass, UObject** Actor,
+		const vec3& Start1, const vec3& Stop1, const vec3& Start2, const vec3& Stop2,
+		float ExtentRadius, vec3* HitLoc, vec3* HitNorm, int* LowJointMask, int* HighJointMask);
+	bool Next() override;
+
+private:
+	struct SweepInfo
+	{
+		UActor* Actor = nullptr;
+		vec3 HitLoc = vec3(0.0f);
+		vec3 HitNorm = vec3(0.0f);
+	};
+
+	UObject** OutActor = nullptr;
+	vec3* OutHitLoc = nullptr;
+	vec3* OutHitNorm = nullptr;
+	int* OutLowJointMask = nullptr;
+	int* OutHighJointMask = nullptr;
+	Array<SweepInfo> Hits;
+	Array<SweepInfo>::iterator Current;
+};
+
 class VisibleActorsIterator : public Iterator
 {
 public:
