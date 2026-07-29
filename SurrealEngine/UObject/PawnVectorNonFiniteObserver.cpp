@@ -1,7 +1,8 @@
 #include "PawnVectorNonFiniteObserver.h"
 
 #include "Engine.h"
-#include "UObject/UActor.h"
+#include "Packages/Engine/Actors/UActor.h"
+#include "Packages/Engine/Actors/Pawn/UPawn.h"
 #include "VM/Frame.h"
 
 namespace PawnMovement

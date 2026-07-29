@@ -3,8 +3,13 @@
 #include "BotBenchmarkGameProfile.h"
 #include "Engine.h"
 #include "Package/PackageManager.h"
-#include "UObject/UClient.h"
-#include "UObject/ULevel.h"
+#include "Packages/Core/UClass.h"
+#include "Packages/Engine/Actors/Info/UGameInfo.h"
+#include "Packages/Engine/Actors/Info/ULevelInfo.h"
+#include "Packages/Engine/Actors/Info/UPlayerReplicationInfo.h"
+#include "Packages/Engine/Actors/Pawn/UPlayerPawn.h"
+#include "Packages/Engine/UViewport.h"
+#include "Packages/Engine/Resources/Level/ULevel.h"
 #include "VM/ScriptCall.h"
 
 #include <algorithm>

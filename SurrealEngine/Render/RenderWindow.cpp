@@ -5,7 +5,12 @@
 #include "GameWindow.h"
 #include "VM/ScriptCall.h"
 #include "Engine.h"
-#include "UObject/UWindow.h"
+#include "Packages/Engine/UViewport.h"
+#include "Packages/Engine/UCanvas.h"
+#include "Packages/Engine/Resources/UFont.h"
+#include "Packages/Engine/Resources/Level/UModel.h"
+#include "Packages/Extension/Windows/UGC.h"
+#include "Packages/Extension/Windows/TabGroup/URootWindow.h"
 
 void RenderSubsystem::PreRenderWindows(UCanvas* canvas)
 {
@@ -131,8 +136,8 @@ void RenderSubsystem::DrawWindowInfo(UFont* font, UWindow* window, int depth, fl
 	text += " w = " + std::to_string((int)w);
 	text += " h = " + std::to_string((int)h);
 
-	vec4 color = vec4(window->bConfigured() ? 1.0f : 0.5f);
-	if (window->bConfigured() && (window->Width() <= 0.5f || window->Height() <= 0.5f))
+	vec4 color = vec4(!window->bNeedsReconfigure() ? 1.0f : 0.5f);
+	if (!window->bNeedsReconfigure() && (window->Width() <= 0.5f || window->Height() <= 0.5f))
 		color = vec4(1.0f, 0.2f, 0.2f, 1.0f);
 	if (window == engine->dxRootWindow->FocusWindow())
 		color = vec4(0.5f, 1.0f, 0.5f, 1.0f);

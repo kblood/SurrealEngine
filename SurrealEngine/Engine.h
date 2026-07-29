@@ -9,11 +9,8 @@
 #include "Platform/OpenXR/OpenXRView.h"
 #include "Platform/OpenXR/OpenXRUIRuntime.h"
 #include "GameWindow.h"
-#include "UObject/UActor.h"
-#include "UObject/UnrealURL.h"
-#include "UObject/UWindow.h"
-#include "UObject/UDXSaveInfo.h"
-#include "UObject/UDeusExLevelInfo.h"
+#include "Packages/Engine/Actors/UActor.h"
+#include "UnrealURL.h"
 #include "GameFolder.h"
 #include "Input/InputComposition.h"
 #include "Input/XRInputAdapter.h"
@@ -45,6 +42,7 @@ class UViewport;
 class UCanvas;
 class UConsole;
 class UPlayerPawn;
+class UWeapon;
 class UGameInfo;
 class UGameReplicationInfo;
 class UPlayerReplicationInfo;
@@ -71,6 +69,10 @@ class UObjectProperty;
 class UStructProperty;
 class UConversationMissionList;
 class UConversationList;
+class UDXSaveInfo;
+class UDeusExLevelInfo;
+class URootWindow;
+class UGC;
 struct FTextureInfo;
 struct FSceneNode;
 struct FSurfaceFacet;

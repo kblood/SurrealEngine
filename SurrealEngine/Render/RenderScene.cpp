@@ -5,6 +5,7 @@
 #include "GameWindow.h"
 #include "VM/ScriptCall.h"
 #include "Engine.h"
+#include "Packages/Engine/UViewport.h"
 #include "VisibleFrame.h"
 
 bool RenderSubsystem::PrepareSceneViews()

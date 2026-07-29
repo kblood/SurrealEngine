@@ -12,7 +12,8 @@
 #ifdef __EMSCRIPTEN__
 #include "WebGPU/WebGPURenderDevice.h"
 #endif
-#include "UObject/ULevel.h"
+#include "Packages/Engine/Resources/Level/ULevel.h"
+#include "Packages/Engine/Resources/Level/UModel.h"
 #include <surrealwidgets/core/colorf.h>
 #include <surrealwidgets/core/widget.h>
 

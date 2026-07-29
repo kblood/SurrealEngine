@@ -2,8 +2,10 @@
 #include "BotSpectatorMatch.h"
 #include "BotControlledMatch.h"
 #include "Engine.h"
-#include "UObject/UClient.h"
-#include "UObject/ULevel.h"
+#include "Packages/Engine/Actors/Info/ULevelInfo.h"
+#include "Packages/Engine/Actors/Pawn/UPlayerPawn.h"
+#include "Packages/Engine/UViewport.h"
+#include "Packages/Engine/Resources/Level/ULevel.h"
 #include "Utils/CommandLine.h"
 #include "Utils/Logger.h"
 

@@ -1,7 +1,7 @@
 #include "Precomp.h"
 #include "UObjectVersion.h"
-#include "UClass.h"
-#include "UProperty.h"
+#include "Packages/Core/UClass.h"
+#include "Packages/Core/Properties/UProperty.h"
 
 static bool HasProperty(const UClass* cls, const char* name)
 {

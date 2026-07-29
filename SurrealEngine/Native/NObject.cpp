@@ -5,14 +5,17 @@
 #include "VM/Frame.h"
 #include "UObject/PawnVectorNonFiniteObserver.h"
 #include "UObject/PawnPickRegDestinationZeroDivideGuard.h"
-#include "UObject/UClass.h"
-#include "UObject/UActor.h"
+#include "Packages/Core/UClass.h"
+#include "Packages/Engine/Actors/UActor.h"
+#include "Packages/Engine/Actors/Pawn/UPawn.h"
 #include "Package/PackageManager.h"
 #include "Engine.h"
 #include "Math/quaternion.h"
 #include "Utils/StrTools.h"
 #include "Utils/Random.h"
-#include "../Package/ObjectFlags.h"
+#include "Package/ObjectFlags.h"
+#include "Packages/Core/UClass.h"
+#include "Packages/Core/UEnum.h"
 #include <cmath>
 
 #ifdef _MSC_VER
@@ -309,6 +312,11 @@ void NObject::RegisterFunctions()
 	{
 		RegisterVMNativeFunc_1("Object", "GetLanguage", &NObject::GetLanguage, 0);
 	}
+
+	if (engine->LaunchInfo.IsUnrealTournament_469())
+	{
+		RegisterVMNativeFunc_3("Object", "ConcatEqual_StrStr", &NObject::ConcatEqual_StrStr, 322);
+	}
 }
 
 void NObject::Abs(float A, float& ReturnValue)
@@ -546,6 +554,11 @@ void NObject::Complement_PreQuat_U227(const quaternion A, quaternion& ReturnValu
 void NObject::Concat_StrStr(const std::string& A, const std::string& B, std::string& ReturnValue)
 {
 	ReturnValue = A + B;
+}
+
+void NObject::ConcatEqual_StrStr(std::string& A, std::string& B, std::string& ReturnValue)
+{
+	ReturnValue = A += B;
 }
 
 void NObject::CoordsToQuat_U227(Coords& C, quaternion& ReturnValue)

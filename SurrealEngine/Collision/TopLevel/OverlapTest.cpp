@@ -3,7 +3,8 @@
 #include "OverlapTest.h"
 #include "CollisionActorOrder.h"
 #include "Collision/BottomLevel/OverlapAABBModel.h"
-#include "UObject/UActor.h"
+#include "Packages/Engine/Actors/UActor.h"
+#include "Packages/Engine/Actors/Brush/UMover.h"
 #include "UObject/MoverActorCollisionFidelityCandidate.h"
 
 CollisionHitList OverlapTester::TestOverlap(const vec3& location, float height, float radius, bool testActors, bool testWorld, bool visibilityOnly)

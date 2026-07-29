@@ -2,7 +2,7 @@
 #include "Precomp.h"
 #include "NStatLogFile.h"
 #include "VM/NativeFunc.h"
-#include "UObject/UObject.h"
+#include "Packages/Core/UObject.h"
 #include "Engine.h"
 
 #include <filesystem>

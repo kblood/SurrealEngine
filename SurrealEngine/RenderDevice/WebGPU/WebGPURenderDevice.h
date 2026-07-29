@@ -1,7 +1,7 @@
 #pragma once
 
 #include "RenderDevice/RenderDevice.h"
-#include "UObject/ULevel.h"
+#include "Packages/Engine/Resources/Level/ULevel.h"
 #include "WebGPUContext.h"
 #include "WebGPUPipelineCache.h"
 #include "WebGPUSamplerCache.h"

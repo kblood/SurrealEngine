@@ -4,6 +4,7 @@
 #include "Engine.h"
 
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <string>

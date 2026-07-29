@@ -9,11 +9,6 @@
 #include "BspClipper.h"
 #include "ViewFamily.h"
 #include "RenderDevice/RenderDevice.h"
-#include "UObject/UActor.h"
-#include "UObject/UTexture.h"
-#include "UObject/UFont.h"
-#include "UObject/ULevel.h"
-#include "UObject/UClient.h"
 
 class VisibleFrame
 {
