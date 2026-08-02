@@ -379,7 +379,15 @@ void VisibleFrame::DrawOpaqueActors()
 {
 	Device->SetSceneNode(&Frame);
 	for (VisibleActor& actor : Actors)
+	{
+		// The first frame after a map load is drawn while the level clock is still at
+		// zero, before any actor has ticked. Stamping there leaves LastRendered()
+		// returning TimeSeconds for the whole first second, so an actor that hides
+		// itself on its first tick still reads as just-seen.
+		if (actor.Actor->Level()->TimeSeconds() > 0.0f)
+			actor.Actor->LastDrawTime = actor.Actor->Level()->TimeSeconds();
 		actor.DrawOpaque(this);
+	}
 }
 
 void VisibleFrame::DrawTranslucent()

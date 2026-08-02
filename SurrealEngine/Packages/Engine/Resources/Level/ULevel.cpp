@@ -70,6 +70,13 @@ void ULevel::TickActor(float elapsed, UActor* actor)
 	if (actor->bDeleteMe() || actor->bTicked() == ticked)
 		return;
 
+	// UE1 sorts static actors ahead of iFirstDynamicActor and starts the tick loop
+	// after them, so a bStatic actor never ticks. Ticking them here ran animation,
+	// a physics substep loop and the Deus Ex per-actor DistanceFromPlayer for 1833
+	// of this map's 2742 actors every frame.
+	if (actor->bStatic())
+		return;
+
 	// Mark actor as ticked
 	actor->bTicked() = ticked;
 
