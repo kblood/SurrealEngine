@@ -45,10 +45,14 @@ void UObjectProperty::SaveValue(void* data, PackageStreamWriter* stream)
 std::string UObjectProperty::PrintValue(const void* data)
 {
 	UObject* obj = *(UObject**)data;
-	if (obj)
-		return obj->Class->Name.ToString() + '\'' + obj->Name.ToString()/*obj->package->GetExportName(obj->exportIndex)*/ + '\'';
-	else
+	if (!obj)
 		return "None";
+
+	// Retail qualifies the reference with the owning package: Class'Package.Object'.
+	std::string path = obj->Name.ToString();
+	if (obj->package)
+		path = obj->package->GetPackageName().ToString() + "." + path;
+	return obj->Class->Name.ToString() + '\'' + path + '\'';
 }
 
 bool UObjectProperty::IsDefaultValue(void* val)

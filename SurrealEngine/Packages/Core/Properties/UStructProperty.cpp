@@ -2,6 +2,41 @@
 #include "Precomp.h"
 #include "UStructProperty.h"
 #include "Packages/Core/UStruct.h"
+#include "Utils/Logger.h"
+#include "Math/vec.h"
+#include "Math/rotator.h"
+#include "Math/scale.h"
+#include "Math/coords.h"
+
+// Native code reaches script property data through C++ types overlaid on it, so a
+// mismatch between the two silently reads or writes past the property rather than
+// failing. Check the overlays this translation unit can see against what the loaded
+// package actually says. Types declared in higher layers (PointRegion, ClipRect)
+// carry a static_assert where they are defined instead.
+static void CheckStructOverlay(UStruct* s)
+{
+	if (!s)
+		return;
+
+	struct Overlay { const char* name; size_t size; size_t alignment; };
+	static const Overlay overlays[] = {
+		{ "Vector",  sizeof(vec3),    alignof(vec3)    },
+		{ "Rotator", sizeof(Rotator), alignof(Rotator) },
+		{ "Coords",  sizeof(Coords),  alignof(Coords)  },
+		{ "Scale",   sizeof(Scale),   alignof(Scale)   },
+	};
+
+	for (const Overlay& o : overlays)
+	{
+		if (s->Name != o.name)
+			continue;
+		if (s->StructSize != o.size || s->StructAlignment != o.alignment)
+			Exception::Throw("Struct " + s->Name.ToString() + " is "
+				+ std::to_string(s->StructSize) + " bytes aligned to "
+				+ std::to_string(s->StructAlignment) + ", but the native type overlaid on it is "
+				+ std::to_string(o.size) + " aligned to " + std::to_string(o.alignment));
+	}
+}
 
 UStructProperty::UStructProperty(NameString name, UClass* base, ObjectFlags flags) : UProperty(std::move(name), base, flags)
 {
@@ -34,6 +69,7 @@ void UStructProperty::Load(ObjectStream* stream)
 	UProperty::Load(stream);
 	UStruct* value = stream->ReadObject<UStruct>();
 	value->LoadNow();
+	CheckStructOverlay(value);
 	SetStruct(value, stream->GetVersion());
 }
 
@@ -295,7 +331,7 @@ std::string UStructProperty::PrintValue(const void* data)
 			if (fieldprop)
 			{
 				if (!print.empty())
-					print += ", ";
+					print += ",";
 				print += fieldprop->Name.ToString();
 				print += "=";
 				print += fieldprop->PrintValue(d + fieldprop->DataOffset.DataOffset);

@@ -50,7 +50,7 @@ void UStrProperty::SetValueFromString(void* data, const std::string& valueString
 
 std::string UStrProperty::PrintValue(const void* data)
 {
-	return '"' + *(std::string*)data + '"';
+	return *(std::string*)data;
 }
 
 bool UStrProperty::IsDefaultValue(void* val)

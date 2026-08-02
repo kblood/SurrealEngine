@@ -36,7 +36,7 @@ void UStringProperty::SetValueFromString(void* data, const std::string& valueStr
 
 std::string UStringProperty::PrintValue(const void* data)
 {
-	return '"' + *(std::string*)data + '"';
+	return *(std::string*)data;
 }
 
 bool UStringProperty::IsDefaultValue(void* val)
