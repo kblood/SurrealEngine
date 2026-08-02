@@ -14,6 +14,7 @@
 #include "Packages/Engine/Actors/UDecal.h"
 #include "Packages/Engine/Actors/Pawn/UPlayerPawn.h"
 #include "Packages/DeusEx/UScriptedPawn.h"
+#include "GameSupport/DeusEx/AIPerception.h"
 #include "Packages/Engine/Actors/Info/UZoneInfo.h"
 #include "Packages/Engine/Actors/Info/ULevelInfo.h"
 #include "Package/PackageManager.h"
@@ -467,14 +468,8 @@ void NActor::IsOverlapping(UObject* Self, UObject* checkActor, BitfieldBool& Ret
 
 void NActor::LastRendered(UObject *Self, float &ReturnValue)
 {
-	if (UDecal* decal = UObject::TryCast<UDecal>(Self))  
-	{  
-		ReturnValue = decal->LastRenderedTime();  
-	}  
-	else  
-	{  
-		ReturnValue = 0.0f; // UActor no tiene LastRenderedTime  
-	}  
+	UActor* actor = UObject::Cast<UActor>(Self);
+	ReturnValue = actor->Level()->TimeSeconds() - actor->LastDrawTime;
 }
 
 void NActor::LinkSkelAnim(UObject* Self, UObject* Anim)
@@ -824,10 +819,29 @@ namespace
 		return nullptr;
 	}
 
-	bool IsInAIEventRadius(UActor* source, UActor* listener, float radius)
+	bool CarriesToListener(UActor* source, UActor* listener, uint8_t eventType, float value, float radius)
 	{
+		// A non-positive radius reaches nobody. Nothing in Deus Ex ever assigns
+		// TransientSoundRadius, so every AISendEvent that leaves the radius out arrives
+		// here as zero; treating that as unlimited handed half the level a loud noise to
+		// investigate every time a crate broke.
+		if (radius <= 0.0f)
+			return false;
 		const vec3 delta = listener->Location() - source->Location();
-		return radius <= 0.0f || dot(delta, delta) <= radius * radius;
+		const float dist2 = dot(delta, delta);
+		if (dist2 > radius * radius)
+			return false;
+
+		// An audio event fades linearly across its radius and stops carrying once it
+		// drops under the listener's own hearing threshold, so a volume of 1.0 reaches
+		// about 0.845 of the radius rather than all of it. Reaching the full radius let
+		// one footstep scatter birds retail leaves alone.
+		if (eventType != static_cast<uint8_t>(EAIEventType::EAITYPE_Audio))
+			return true;
+		auto pawn = UObject::TryCast<UPawn>(listener);
+		if (!pawn)
+			return true;
+		return value * (1.0f - std::sqrt(dist2) / radius) >= pawn->HearingThreshold();
 	}
 
 	bool PassesAIEventChecks(UActor* source, UActor* listener, const AIEventCallback& callback)
@@ -857,7 +871,7 @@ namespace
 
 		for (UActor* listener : engine->Level->Actors)
 		{
-			if (!listener || listener->bDeleteMe() || !IsInAIEventRadius(source, listener, radius))
+			if (!listener || listener->bDeleteMe() || !CarriesToListener(source, listener, eventType, value, radius))
 				continue;
 			auto registration = listener->AIEventCallbacks.find(eventName);
 			if (registration == listener->AIEventCallbacks.end() || registration->second.Callback.IsNone() ||
@@ -923,15 +937,14 @@ void NActor::AIEndEvent(UObject* Self, const NameString& eventName, uint8_t even
 
 void NActor::AIGetLightLevel(UObject* Self, const vec3& Location, float& ReturnValue)
 {
-	LogUnimplemented("Actor.AIGetLightLevel");
-	ReturnValue = 1.0f;
+	ReturnValue = ComputeDXAILightLevel(engine->Level->Light.SampleLightLevel(Location, UObject::TryCast<UActor>(Self)));
 }
 
 void NActor::AISendEvent(UObject* Self, const NameString& eventName, uint8_t eventType, std::optional<float> Value, std::optional<float> Radius)
 {
 	if (auto actor = UObject::TryCast<UActor>(Self))
 		DispatchAIEvent(actor, eventName, EAIEventState::EAISTATE_Pulse,
-			eventType, Value.value_or(1.0f), Radius.value_or(0.0f));
+			eventType, Value.value_or(1.0f), Radius ? *Radius : actor->TransientSoundRadius());
 }
 
 void NActor::AISetEventCallback(UObject* Self, const NameString& eventName, const NameString& callback, std::optional<NameString> scoreCallback, std::optional<bool> bCheckVisibility, std::optional<bool> bCheckDir, std::optional<bool> bCheckCylinder, std::optional<bool> bCheckLOS)
@@ -955,7 +968,7 @@ void NActor::AIStartEvent(UObject* Self, const NameString& eventName, uint8_t ev
 	auto actor = UObject::TryCast<UActor>(Self);
 	if (!actor)
 		return;
-	const AIActiveEvent active = { eventType, Value.value_or(1.0f), Radius.value_or(0.0f) };
+	const AIActiveEvent active = { eventType, Value.value_or(1.0f), Radius ? *Radius : actor->TransientSoundRadius() };
 	actor->AIActiveEvents[eventName] = active;
 	DispatchAIEvent(actor, eventName, EAIEventState::EAISTATE_Begin,
 		active.Type, active.Value, active.Radius);
@@ -963,8 +976,19 @@ void NActor::AIStartEvent(UObject* Self, const NameString& eventName, uint8_t ev
 
 void NActor::AIVisibility(UObject* Self, std::optional<bool> bIncludeVelocity, float& ReturnValue)
 {
-	LogUnimplemented("Actor.AIVisibility");
-	ReturnValue = 0.0f;
+	auto actor = UObject::TryCast<UActor>(Self);
+	if (!actor || !actor->bDetectable())
+	{
+		ReturnValue = 0.0f;
+		return;
+	}
+
+	// Reports intrinsic detectability only. AICanSee already approximates the
+	// environmental light term from the target's zone brightness, so folding a
+	// second light factor in here would square it. Returning the previous
+	// hardcoded 0 made every script perception test that feeds this value into
+	// AICanSee fail closed, so no ScriptedPawn ever acquired the player.
+	ReturnValue = 1.0f;
 }
 
 void NActor::TraceTexture(UObject* Self, UObject* BaseClass, UObject*& Actor, NameString& texName, NameString& texGroup, int& flags, vec3& HitLoc, vec3& HitNorm, const vec3& End, std::optional<vec3> Start, std::optional<vec3> Extent)
