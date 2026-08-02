@@ -63,6 +63,37 @@ static void TestNegativeRuntimeInputsFailConservatively()
 	Check(PawnMovement::HasArrived(negativeSpeed), "negative squared speed is clamped to zero");
 }
 
+static void TestDirectReachAcceptanceMatchesWhereAWalkComesToRest()
+{
+	const PawnMovement::DirectReachGoal chair = {
+		.GoalCollides = true,
+		.PawnRadius = 20.0f,
+		.PawnHeight = 47.0f,
+		.GoalRadius = 23.0f,
+		.GoalHeight = 24.0f,
+		.MaxStepHeight = 24.0f,
+		.SweepMargin = 1.0f };
+	const float radius = PawnMovement::DirectReachAcceptanceRadius(chair);
+	Check(radius >= 44.0f, "a pawn resting against a blocking goal has reached it");
+	Check(radius < 45.0f, "the acceptance radius stays at the touch distance");
+	Check(std::abs(PawnMovement::DirectReachVerticalReach(chair) - 95.0f) < 0.0001f,
+		"vertical reach spans both cylinders and a step");
+
+	PawnMovement::DirectReachGoal marker = chair;
+	marker.GoalCollides = false;
+	Check(PawnMovement::DirectReachAcceptanceRadius(marker) < 2.0f,
+		"a goal that does not collide is still walked onto");
+	Check(std::abs(PawnMovement::DirectReachVerticalReach(marker) - 47.0f) < 0.0001f,
+		"vertical reach to a non-colliding goal is the pawn's own height");
+
+	PawnMovement::DirectReachGoal tiny = chair;
+	tiny.PawnRadius = 0.0f;
+	tiny.GoalRadius = 0.0f;
+	tiny.SweepMargin = 0.0f;
+	Check(PawnMovement::DirectReachAcceptanceRadius(tiny) >= 1.0f,
+		"acceptance never falls below one unit");
+}
+
 int main()
 {
 	TestDoesNotCompleteSixtySevenUnitsEarly();
@@ -70,6 +101,7 @@ int main()
 	TestAcceptanceRadiusSupportsActorTargets();
 	TestVerticalReachabilityVetoesHorizontalArrival();
 	TestNegativeRuntimeInputsFailConservatively();
+	TestDirectReachAcceptanceMatchesWhereAWalkComesToRest();
 	if (Failures == 0)
 		std::cout << "Pawn movement arrival tests passed\n";
 	return Failures == 0 ? 0 : 1;

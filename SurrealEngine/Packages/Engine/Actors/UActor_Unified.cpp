@@ -1233,6 +1233,15 @@ void UActor::SetBase(UActor* newBase, bool sendBaseChangeEvent)
 	}
 }
 
+// A hit against world geometry carries no actor, but UnrealScript expects the
+// level actor there: it is what a pawn standing on the map reports as its Base.
+UActor* UActor::FloorBase(const CollisionHit& floorHit)
+{
+	if (floorHit.Fraction == 1.0f)
+		return nullptr;
+	return floorHit.Actor ? floorHit.Actor : Level();
+}
+
 void UActor::RelinkBasedActor()
 {
 	if (ActorBase() && ActorBase() != Level())
@@ -1254,6 +1263,11 @@ void UActor::Tick(float elapsed)
 
 	if (Role() >= ROLE_SimulatedProxy && IsEventEnabled(EventName::Tick))
 	{
+		// Retail runs this ahead of the rest of ScriptedPawn.Tick, so the script
+		// sees the updated timers in the same frame it decides how to act.
+		if (UScriptedPawn* scriptedPawn = TryCast<UScriptedPawn>(this))
+			scriptedPawn->TickScriptedPawnTimers(elapsed);
+
 		CallEvent(this, EventName::Tick, { ExpressionValue::FloatValue(elapsed) });
 	}
 
@@ -1751,7 +1765,7 @@ void UActor::TickWalking(float elapsed)
 			// We could reach the ground. Step down there.
 			floorHit = TryMove(stepDownDelta);
 			if (floorHit.Fraction != 1.0f)
-				SetBase(floorHit.Actor, true);
+				SetBase(FloorBase(floorHit), true);
 		}
 	}
 	else
@@ -1769,6 +1783,10 @@ void UActor::TickWalking(float elapsed)
 					PawnMovement::FallingHazardForecastSource::UnsupportedWalkCommit);
 			}
 			SetBase(nullptr, true);
+		}
+		else
+		{
+			SetBase(FloorBase(floorHit), true);
 		}
 	}
 
@@ -2540,7 +2558,7 @@ void UActor::TickRolling(float elapsed)
 		// We could reach the ground. Step down there.
 		floorHit = TryMove(stepDownDelta);
 		if (floorHit.Fraction != 1.0f)
-			SetBase(floorHit.Actor, true);
+			SetBase(FloorBase(floorHit), true);
 	}
 
 	if (!bJustTeleported())
@@ -2820,15 +2838,16 @@ void UActor::PhysLanded(UActor* hitActor, const vec3& hitNormal)
 
 	if (Physics() == PHYS_Falling) // Landed event might have changed the physics mode
 	{
+		UActor* newBase = hitActor ? hitActor : Level();
 		if (UObject::TryCast<UPawn>(this))
 		{
 			SetPhysics(PHYS_Walking);
-			SetBase(hitActor, true);
+			SetBase(newBase, true);
 		}
 		else
 		{
 			SetPhysics(PHYS_None);
-			SetBase(hitActor, true);
+			SetBase(newBase, true);
 			Velocity() = vec3(0.0f);
 		}
 	}
@@ -4243,26 +4262,23 @@ void UActor::UpdateBspInfo()
 		BspInfo.BoundingBox = bbox;
 
 		vec3 location = bbox.center();
-		vec3 extents = bbox.extents();
 
 		ULevel* level = XLevel();
 		BspNode* node = level ? &level->Model->Nodes[0] : nullptr;
 		while (node)
 		{
-			int side = NodeAABBOverlap(location, extents, node);
-			if (side == 0 || (side < 0 && node->Front < 0) || (side > 0 && node->Back < 0))
+			// Descend on the center rather than the bounds. Stopping where the bounds
+			// straddle a plane parks anything pawn sized within a few nodes of the root,
+			// and the renderer reaches such a node long before it has rasterized the
+			// geometry that occludes what hangs off it.
+			int side = NodeAABBOverlap(location, vec3(0.0f), node);
+			int child = side <= 0 ? node->Front : node->Back;
+			if (child < 0)
 			{
 				AddToBspNode(node);
 				break;
 			}
-			else if (side < 0)
-			{
-				node = &level->Model->Nodes[node->Front];
-			}
-			else
-			{
-				node = &level->Model->Nodes[node->Back];
-			}
+			node = &level->Model->Nodes[child];
 		}
 	}
 }
@@ -4652,8 +4668,22 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint,
 		return false;
 	}
 
-	// Try simulate movement to see if we can get to the actor
-	if (mode == PHYS_Walking)
+	// Arriving is the same thing here as it is in TickMoveTo: close enough to touch.
+	const PawnMovement::DirectReachGoal goal = {
+		.GoalCollides = anActor->bCollideActors(),
+		.PawnRadius = CollisionRadius(),
+		.PawnHeight = CollisionHeight(),
+		.GoalRadius = anActor->CollisionRadius(),
+		.GoalHeight = anActor->CollisionHeight(),
+		.MaxStepHeight = MaxStepHeight(),
+		.SweepMargin = CollisionSweepMargin };
+	const float goalAcceptanceRadius = PawnMovement::DirectReachAcceptanceRadius(goal);
+	const float goalVerticalReach = PawnMovement::DirectReachVerticalReach(goal);
+
+	// Try simulate movement to see if we can get to the actor. A pawn that has not
+	// landed yet still walks once it does, and it is asked where it can go while it
+	// is in the air - at level start every pawn is briefly falling.
+	if (mode == PHYS_Walking || mode == PHYS_Falling)
 	{
 		UInventory* inventoryTarget = UObject::TryCast<UInventory>(anActor);
 		const bool observeInventoryDirectReach =
@@ -4684,7 +4714,7 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint,
 			vec3 toGoal = anActor->Location() - Location();
 			toGoal.z = 0.0f;
 			float goalDist2 = dot(toGoal, toGoal);
-			if (goalDist2 <= 1.0f)
+			if (goalDist2 <= goalAcceptanceRadius * goalAcceptanceRadius)
 			{
 				reached = true;
 				break;
@@ -4746,7 +4776,14 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint,
 
 			float moveDist2 = dot(actuallyMoved, actuallyMoved);
 			if (moveDist2 <= 1.0f)
+			{
+				// Out of progress. Coming to rest against the goal is how a walk to a
+				// goal that blocks movement ends, so that counts as having got there.
+				vec3 rest = anActor->Location() - Location();
+				rest.z = 0.0f;
+				reached = dot(rest, rest) <= goalAcceptanceRadius * goalAcceptanceRadius;
 				break;
+			}
 		}
 
 		if (reached)
@@ -4763,7 +4800,7 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint,
 			}
 
 			// Did we get there vertically too?
-			reached = std::abs(anActor->Location().z - Location().z) <= CollisionHeight();
+			reached = std::abs(anActor->Location().z - Location().z) <= goalVerticalReach;
 		}
 
 		if (observeInventoryDirectReach && reached && resolvedWallSlide)
@@ -4828,7 +4865,7 @@ bool UPawn::ActorReachable(UActor* anActor, bool checkNavpoint,
 		{
 			vec3 moveDelta = anActor->Location() - Location();
 			float goalDist2 = dot(moveDelta, moveDelta);
-			if (goalDist2 <= 1.0f)
+			if (goalDist2 <= goalAcceptanceRadius * goalAcceptanceRadius)
 			{
 				reached = true;
 				break;
@@ -5994,10 +6031,11 @@ float UPawn::AICanSee(UActor* other, std::optional<float> visibility, std::optio
 	if (!other || !other->bDetectable() || suppliedVisibility <= 0.0f)
 		return 0.0f;
 
-	// Light sampling remains a separate runtime slice. Calls requesting that
-	// unresolved input continue to fail closed.
-	if (bCheckVisibility.value_or(true))
-		return 0.0f;
+	// Sampled where the target stands, the same value AIGetLightLevel reports.
+	// It multiplies the sight term directly, so the previous flat 1.0 overstated
+	// visibility by roughly 11x against retail's ~0.09 here and let pawns acquire
+	// targets far outside the range retail can see them at.
+	const float lightVisibility = ComputeDXAILightLevel(engine->Level->Light.SampleLightLevel(other->Location(), this));
 
 	vec3 eyePosition = Location();
 	eyePosition.z += EyeHeight();
@@ -6017,7 +6055,7 @@ float UPawn::AICanSee(UActor* other, std::optional<float> visibility, std::optio
 			return 0.0f;
 	}
 
-	const float result = ComputeDXAISight(suppliedVisibility, 1.0f,
+	const float result = ComputeDXAISight(suppliedVisibility, lightVisibility,
 		other->CollisionRadius(), other->CollisionHeight(), distanceSquared,
 		MinAngularSize(), VisibilityThreshold());
 	if (result <= 0.0f)
@@ -6354,6 +6392,11 @@ void UPawn::Tick(float elapsed)
 		{
 			if (engine->LaunchInfo.ue1Version > 219 && FaceTarget())
 			{
+				// Face the target the command was handed. Steering by Focus alone left
+				// the pawn aimed wherever the previous movement command pointed it, and
+				// AdjustAim clamps a shot to 45 degrees of the pawn's facing, so a
+				// strafing NPC fired into the scenery for the whole fight.
+				Focus() = FaceTarget()->Location();
 				TickRotateTo(Focus());
 				vec3 oldDest = Destination();
 				if (TickMoveTo(Destination(), elapsed))
@@ -6437,6 +6480,51 @@ void UPawn::Tick(float elapsed)
 		}
 		if (engine->LaunchInfo.ue1Version >= 436 && bAdvancedTactics())
 			CallEvent(this, EventName::UpdateTactics, { ExpressionValue::FloatValue(elapsed) });
+
+		// Sight perception. Without this dispatch SeePlayer is never raised at
+		// all, so AI that acquires targets by sight stays idle even when CanSee()
+		// reports the player in plain view. Paced off SightCounter rather than run
+		// every frame, and with a fixed interval rather than the stock jitter so
+		// repeated benchmark runs stay reproducible.
+		if (!bIsPlayer() && Health() > 0)
+		{
+			SightCounter() -= elapsed;
+			if (SightCounter() <= 0.0f)
+			{
+				SightCounter() = 0.2f;
+				for (UPawn* other = Level()->PawnList(); other != nullptr; other = other->nextPawn())
+				{
+					if (other == this || !other->bIsPlayer() || other->Health() <= 0)
+						continue;
+					if (CanSee(other))
+						CallEvent(this, EventName::SeePlayer, { ExpressionValue::ObjectValue(other) });
+				}
+
+				// UE1 pairs the sight check with an enemy-visibility check: while the
+				// enemy is in view it records where it was seen and from where, and
+				// raises EnemyNotVisible otherwise. Pawn.uc documents LastSeenPos and
+				// LastSeeingPos as "auto updated if EnemyNotVisible() enabled", so the
+				// update is gated on the event the same way. Deus Ex's Seeking state
+				// reads LastSeenPos in BeginState (ScriptedPawn.uc:20883) to pick where
+				// to search, so without this a pawn that loses its enemy searches a
+				// stale position.
+				if (!IsEventDisabled(EventName::EnemyNotVisible))
+				{
+					if (UPawn* enemy = Enemy())
+					{
+						if (LineOfSightTo(enemy, false))
+						{
+							LastSeenPos() = enemy->Location();
+							LastSeeingPos() = Location();
+						}
+						else
+						{
+							CallEvent(this, EventName::EnemyNotVisible);
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Script-state execution is part of UActor::Tick and can assign Destination
@@ -10099,6 +10187,17 @@ void UPawn::StrafeFacing(const vec3& newDestination, UActor* newTarget)
 		return;
 	}
 
+	MoveTarget() = nullptr;
+	bReducedSpeed() = false;
+	// Without this the pawn keeps whatever DesiredSpeed it last had, so a
+	// ScriptedPawn that strafes straight out of a patrol stays at WalkingSpeed
+	// for the whole fight. Retail Deus Ex reaches MaxDesiredSpeed here rather
+	// than the reduced factor StrafeTo applies to non-players.
+	if (engine->LaunchInfo.IsDeusEx())
+		DesiredSpeed() = MaxDesiredSpeed();
+	else
+		DesiredSpeed() = bIsPlayer() ? MaxDesiredSpeed() : 0.8f * MaxDesiredSpeed();
+
 	Destination() = newDestination;
 	if (engine->LaunchInfo.ue1Version > 219)
 		FaceTarget() = newTarget;
@@ -10783,18 +10882,77 @@ bool UScriptedPawn::HaveSeenCarcass(const NameString& CarcassName)
 
 bool UScriptedPawn::IsValidEnemy(UPawn* TestEnemy, std::optional<bool> bCheckAlliance)
 {
-	if(!UObject::TryCast<UScriptedPawn>(TestEnemy) || TestEnemy == this || !bBlockSight() || bDeleteMe() || UObject::TryCast<UScriptedPawn>(TestEnemy)->KillCount() < 1)
+	// bCheckAlliance defaults to true: script calls the one-argument form to ask
+	// "is this someone I should fight", and passes false only to ask whether a
+	// pawn is still structurally usable as an enemy after an alliance change.
+	// The previous form rejected anything that was not itself a ScriptedPawn,
+	// which excluded the player and left every NPC unable to ever acquire one.
+	if (!TestEnemy || TestEnemy == this || TestEnemy->bDeleteMe() || TestEnemy->Health() <= 0)
 		return false;
-	if (bCheckAlliance)
+
+	if (bCheckAlliance.value_or(true))
+		return GetPawnAllianceType(TestEnemy) == (uint8_t)EAllianceType::ALLIANCE_Hostile;
+
+	return true;
+}
+
+void UScriptedPawn::TickScriptedPawnTimers(float elapsed)
+{
+	auto countDown = [elapsed](float& timer)
 	{
-		uint8_t retval = GetPawnAllianceType(TestEnemy);
-		if (retval != (uint8_t)EAllianceType::ALLIANCE_Hostile)
-		{
-			return false;
-		}
-		return true;
+		if (timer > 0.0f)
+			timer = std::max(timer - elapsed, 0.0f);
+	};
+
+	float& alarmTimer = Value<float>(PropOffsets_ScriptedPawn.AlarmTimer);
+	alarmTimer = std::max(alarmTimer - elapsed, 0.0f);
+
+	float& weaponTimer = Value<float>(PropOffsets_ScriptedPawn.WeaponTimer);
+	float& reloadTimer = Value<float>(PropOffsets_ScriptedPawn.ReloadTimer);
+	if (Weapon())
+	{
+		weaponTimer += elapsed;
+		reloadTimer = reloadTimer > 0.0f ? reloadTimer - elapsed : 0.0f;
 	}
-	return false;
+	else
+	{
+		weaponTimer = 0.0f;
+		reloadTimer = 0.0f;
+	}
+
+	countDown(Value<float>(PropOffsets_ScriptedPawn.AvoidWallTimer));
+	countDown(Value<float>(PropOffsets_ScriptedPawn.AvoidBumpTimer));
+	countDown(Value<float>(PropOffsets_ScriptedPawn.CloakEMPTimer));
+	countDown(Value<float>(PropOffsets_ScriptedPawn.TakeHitTimer));
+	countDown(Value<float>(PropOffsets_ScriptedPawn.CarcassCheckTimer));
+	countDown(Value<float>(PropOffsets_ScriptedPawn.BeamCheckTimer));
+	countDown(Value<float>(PropOffsets_ScriptedPawn.FutzTimer));
+	countDown(Value<float>(PropOffsets_ScriptedPawn.PlayerAgitationTimer));
+
+	// Expiring this one also forgets who the pawn was suspicious of.
+	float& potentialEnemyTimer = Value<float>(PropOffsets_ScriptedPawn.PotentialEnemyTimer);
+	if (potentialEnemyTimer > 0.0f)
+	{
+		potentialEnemyTimer -= elapsed;
+		if (potentialEnemyTimer <= 0.0f)
+		{
+			potentialEnemyTimer = 0.0f;
+			Value<NameString>(PropOffsets_ScriptedPawn.PotentialEnemyAlliance) = NameString("None");
+		}
+	}
+
+	// Counts up, and -1 means "not distressed" rather than "expired".
+	float& distressTimer = Value<float>(PropOffsets_ScriptedPawn.DistressTimer);
+	if (distressTimer >= 0.0f)
+	{
+		distressTimer += elapsed;
+		if (distressTimer > Value<float>(PropOffsets_ScriptedPawn.FearSustainTime))
+			distressTimer = -1.0f;
+	}
+
+	// Still script functions, so call them rather than reimplement the decay.
+	CallEvent(this, "UpdateAgitation", { ExpressionValue::FloatValue(elapsed) });
+	CallEvent(this, "UpdateFear", { ExpressionValue::FloatValue(elapsed) });
 }
 
 ////////////////////////////////////////////////////////

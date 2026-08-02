@@ -48,6 +48,11 @@ struct PointRegion
 	uint8_t ZoneNumber;
 };
 
+// Overlaid on script property data and whole-struct assigned (Actor.Region,
+// Pawn.FootRegion, Pawn.HeadRegion), so its size has to match what the package
+// says Engine.PointRegion is.
+static_assert(sizeof(PointRegion) == 16 && alignof(PointRegion) == 8, "PointRegion layout must match the script struct");
+
 enum EPhysics
 {
 	PHYS_None,
@@ -410,6 +415,7 @@ public:
 	void InitBase();
 
 	void SetBase(UActor* newBase, bool sendBaseChangeEvent);
+	UActor* FloorBase(const CollisionHit& floorHit);
 	void SetJointAttachment(int joint, UActor* actor);
 	UActor* JointAttachment(int joint);
 	UActor* TakeJointAttachment(int joint);
@@ -581,6 +587,13 @@ public:
 		UActor* Prev = nullptr;
 		UActor* Next = nullptr;
 	} BspInfo;
+
+	// Level.TimeSeconds when the renderer last drew this actor. An actor that never
+	// has been keeps the value retail starts from, ten seconds before the level did,
+	// so LastRendered() reports it as long unseen from the first frame rather than
+	// as freshly drawn. Deus Ex switches off distant NPCs' enemy scanning at five
+	// seconds unseen, so starting from zero leaves the whole level scanning.
+	float LastDrawTime = -10.0f;
 
 	// Tweening animation state
 	struct

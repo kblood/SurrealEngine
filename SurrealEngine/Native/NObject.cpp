@@ -918,7 +918,13 @@ void NObject::GetPropertyText(UObject* Self, const std::string& PropName, std::s
 
 void NObject::GetStateName(UObject* Self, NameString& ReturnValue)
 {
+	// UClass is itself a UState, so an object in no labelled state still has one:
+	// its class. Script sees that name, not None. Kept to the native boundary --
+	// engine-side callers of UObject::GetStateName rely on the empty name to mean
+	// stateless, and GotoState(GetStateName()) would target the class instead.
 	ReturnValue = Self->GetStateName();
+	if (ReturnValue.IsNone() && Self->Class)
+		ReturnValue = Self->Class->Name;
 }
 
 void NObject::GetUnAxes(const Rotator& A, vec3& X, vec3& Y, vec3& Z)

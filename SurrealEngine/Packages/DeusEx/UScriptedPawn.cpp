@@ -85,16 +85,16 @@ bool UScriptedPawn::HaveSeenCarcass(const NameString& CarcassName)
 
 bool UScriptedPawn::IsValidEnemy(UPawn* TestEnemy, std::optional<bool> bCheckAlliance)
 {
-	if (!UObject::TryCast<UScriptedPawn>(TestEnemy) || TestEnemy == this || !bBlockSight() || bDeleteMe() || UObject::TryCast<UScriptedPawn>(TestEnemy)->KillCount() < 1)
+	// bCheckAlliance defaults to true: script calls the one-argument form to ask
+	// "is this someone I should fight", and passes false only to ask whether a
+	// pawn is still structurally usable as an enemy after an alliance change.
+	// The previous form rejected anything that was not itself a ScriptedPawn,
+	// which excluded the player and left every NPC unable to ever acquire one.
+	if (!TestEnemy || TestEnemy == this || TestEnemy->bDeleteMe() || TestEnemy->Health() <= 0)
 		return false;
-	if (bCheckAlliance)
-	{
-		uint8_t retval = GetPawnAllianceType(TestEnemy);
-		if (retval != (uint8_t)EAllianceType::ALLIANCE_Hostile)
-		{
-			return false;
-		}
-		return true;
-	}
-	return false;
+
+	if (bCheckAlliance.value_or(true))
+		return GetPawnAllianceType(TestEnemy) == (uint8_t)EAllianceType::ALLIANCE_Hostile;
+
+	return true;
 }

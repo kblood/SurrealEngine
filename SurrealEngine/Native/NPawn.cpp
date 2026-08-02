@@ -13,6 +13,9 @@
 
 namespace
 {
+	// Bounds how far AIPickRandomDestination walks a walking pawn's candidate ray.
+	constexpr int randomDestinationMaxSteps = 64;
+
 	class ReachablePathnodesIterator final : public Iterator
 	{
 	public:
@@ -464,17 +467,66 @@ void NPawn::AIPickRandomDestination_Deus(UObject* Self, float minDist, float max
 		return center + static_cast<int>((randomUnit() * 2.0f - 1.0f) * halfRange);
 	};
 
+	// Deus Ex asks for somewhere the pawn could get to, not for a point that happens
+	// to pass a fit test where it landed. Testing the far end and discarding it on
+	// failure both loses most candidates and keeps the ones thrown clear across the
+	// map; walking the ray out and keeping wherever the pawn comes to rest does not.
+	const bool onFoot = pawn->Physics() == PHYS_Walking;
+	const vec3 origin = pawn->Location();
+	UZoneInfo* zone = pawn->Region().Zone;
+	const float gravityDirection = (zone && zone->ZoneGravity().z > 0.0f) ? 1.0f : -1.0f;
+	const float stepHeight = std::max(pawn->MaxStepHeight(), 1.0f);
+	const vec3 stepUpDelta(0.0f, 0.0f, -gravityDirection * stepHeight);
+	const vec3 stepDownDelta(0.0f, 0.0f, gravityDirection * stepHeight * 2.0f);
+	const float stepLength = std::max(pawn->CollisionRadius() * 2.0f, 1.0f);
+
 	for (int attempt = 0; attempt < tries; attempt++)
 	{
-		const float distance = minDist + (maxDist - minDist) * randomUnit();
-		const Rotator rotation(randomAngle(centralPitch, pitchDistribution), randomAngle(centralYaw, yawDistribution), 0);
-		const vec3 candidate = pawn->Location() + Coords::Rotation(rotation).XAxis * distance;
-		if (pawn->PointReachable(candidate))
+		const float distance = maxDist;
+		// A walking pawn cannot leave the floor, so it only picks a heading and the
+		// ground decides the height.
+		const int pitch = onFoot ? 0 : randomAngle(centralPitch, pitchDistribution);
+		const Rotator rotation(pitch, randomAngle(centralYaw, yawDistribution), 0);
+		const vec3 direction = Coords::Rotation(rotation).XAxis;
+
+		vec3 candidate = origin;
+		if (onFoot)
 		{
-			dest = candidate;
-			ReturnValue = true;
-			return;
+			float travelled = 0.0f;
+			for (int step = 0; step < randomDestinationMaxSteps && travelled < distance; step++)
+			{
+				const float length = std::min(stepLength, distance - travelled);
+
+				const CollisionHit up = pawn->ProbeMoveCollision(candidate, stepUpDelta);
+				vec3 probe = candidate + stepUpDelta * up.Fraction;
+
+				const CollisionHit forward = pawn->ProbeMoveCollision(probe, direction * length);
+				probe += direction * (length * forward.Fraction);
+
+				const CollisionHit down = pawn->ProbeMoveCollision(probe, stepDownDelta);
+				if (down.Fraction == 1.0f)
+					break; // walked off an edge - the last settled point stands
+				probe += stepDownDelta * down.Fraction;
+
+				candidate = probe;
+				travelled += length * forward.Fraction;
+				if (forward.Fraction < 1.0f)
+					break;
+			}
 		}
+		else
+		{
+			const CollisionHit hit = pawn->ProbeMoveCollision(origin, direction * distance);
+			candidate = origin + direction * (distance * hit.Fraction);
+		}
+
+		const vec3 delta = candidate - origin;
+		if (dot(delta, delta) < minDist * minDist)
+			continue;
+
+		dest = candidate;
+		ReturnValue = true;
+		return;
 	}
 	dest = {};
 	ReturnValue = false;
