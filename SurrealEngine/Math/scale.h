@@ -2,7 +2,8 @@
 
 #include "Math/vec.h"
 
-enum UnrealSheerAxis
+// Scale is overlaid on script property data, where SheerAxis is a byte.
+enum UnrealSheerAxis : uint8_t
 {
 	SHEER_None = 0,
 	SHEER_XY = 1,

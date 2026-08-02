@@ -119,11 +119,19 @@ void UStruct::Load(ObjectStream* stream)
 		child = child->Next;
 	}
 
+	// Round up to the struct's own alignment, the way C++ lays out a struct. Native
+	// code reaches property data through C++ types overlaid on it, so a struct that
+	// stopped at its last member left those types larger than the data they alias:
+	// PointRegion ends on a byte at offset 12 but sizeof is 16, and Actor.Region is
+	// whole-struct assigned every zone update, writing three bytes past the property.
+	// Padding here also keeps a derived class's first property clear of the base's.
+	size_t structSize = (offset + structAlignment - 1) / structAlignment * structAlignment;
+
 	if (Name == "Object")
 	{
 		// We already initialized Object with properties in the UClass constructor.
 		// Verify that the Core.u description of Object matches what we used:
-		if (Properties.size() != properties.size() || StructAlignment != structAlignment || StructSize != offset)
+		if (Properties.size() != properties.size() || StructAlignment != structAlignment || StructSize != structSize)
 		{
 			throw std::runtime_error("UObject unexpected size!");
 		}
@@ -131,7 +139,7 @@ void UStruct::Load(ObjectStream* stream)
 
 	Properties = std::move(properties);
 	StructAlignment = structAlignment;
-	StructSize = offset;
+	StructSize = structSize;
 
 	child = Children;
 	while (child)
@@ -220,7 +228,10 @@ static const char* tokennames[256] =
 
 ExprToken UStruct::ReadToken(ObjectStream* stream, int depth)
 {
-	if (depth == 64)
+	// Only a stack guard against malformed bytecode. A concatenation chain nests two
+	// levels per term, so a limit of 64 rejected scripts that ucc compiles and retail
+	// runs; keep it well above anything a script can express.
+	if (depth == MaxBytecodeNesting)
 		Exception::Throw("Bytecode parsing error");
 	depth++;
 

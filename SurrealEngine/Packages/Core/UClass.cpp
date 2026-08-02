@@ -60,7 +60,7 @@ UClass::UClass(NameString name, UClass* base, ObjectFlags flags) : UState(std::m
 			structAlignment = std::max(structAlignment, alignment);
 		}
 		StructAlignment = structAlignment;
-		StructSize = offset;
+		StructSize = (offset + structAlignment - 1) / structAlignment * structAlignment;
 	}
 }
 

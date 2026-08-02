@@ -8,6 +8,9 @@ class UProperty;
 enum class ExprToken : uint8_t;
 class Bytecode;
 
+// Shared by both bytecode readers.
+static const int MaxBytecodeNesting = 256;
+
 class UStruct : public UField
 {
 public:
